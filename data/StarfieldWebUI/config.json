@@ -1,0 +1,10 @@
+{
+  "enabled": true,
+  "toggleKey": "F10",
+  "startVisible": false,
+  "renderer": "mock",
+  "compositor": "null",
+  "view": "test",
+  "allowNetwork": false,
+  "devMode": true
+}

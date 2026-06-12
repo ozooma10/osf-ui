@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- No external assets: everything this view uses is local to its folder. -->
+  <title>Starfield Web UI Test</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="panel">
+    <h1>Starfield Web UI</h1>
+    <p id="status" class="status">Waiting for native runtime…</p>
+
+    <div class="actions">
+      <button id="ping">Ping native</button>
+      <button id="close" class="danger">Close</button>
+    </div>
+
+    <h2>Log</h2>
+    <pre id="log" class="log" aria-live="polite"></pre>
+  </main>
+  <script src="main.js"></script>
+</body>
+</html>
