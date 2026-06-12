@@ -113,8 +113,6 @@ namespace SWUI
 
 		_visible.store(_config.startVisible);
 		REX::INFO("Runtime: initialized (visible={})", _visible.load());
-		REX::WARN("Runtime: Tick() has no caller yet — no verified game update hook exists. "
-				  "Frames will not flow until one is wired (docs/reverse-engineering-notes.md).");
 
 		_initialized = true;
 		return true;

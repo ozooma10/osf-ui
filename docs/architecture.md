@@ -48,10 +48,12 @@ swapped behind stable interfaces without touching the rest of the runtime.
                           runtime/MessageBridge    JSON, whitelisted commands
 ```
 
-### Data flow per frame (once a tick source exists)
+### Data flow per frame
 
-1. Something calls `Runtime::Tick(dt)` — **there is no caller today**; see the
-   note on `Runtime::Tick` and the RE notes.
+1. An SFSE permanent task (registered in `core/Plugin.cpp`) calls
+   `Runtime::Tick(dt)` every frame on the game's Main thread, with a
+   self-timed, 100 ms-clamped dt. See RE notes §1 for the evidence and
+   constraints (process-lifetime delegate, runs under SFSE's queue lock).
 2. `IWebRenderer::Update(dt)` advances the web content.
 3. If the overlay is visible, `IWebRenderer::Render()` returns a
    `FrameBufferView` — a *non-owning* view of CPU pixels valid only until the

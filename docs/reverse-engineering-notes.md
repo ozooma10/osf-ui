@@ -19,15 +19,30 @@ any patch).
 
 ## Needed integration points
 
-### 1. Per-frame tick (blocks: anything moving)
+### 1. Per-frame tick — ✅ SOLVED (SFSE TaskInterface, 2026-06-12)
 
-`Runtime::Tick(dt)` has no caller. Candidates to investigate, in order of
-preference (safest first):
-- SFSE `TaskInterface` / task queue semantics — does it offer repeated or
-  per-frame scheduling, and on which thread?
-- CommonLibSF event sources (menu open/close, UI events) that fire regularly.
-- An engine main-loop or frame-update function located via RE (last resort,
-  needs a proven AddressLib ID and a trampoline hook).
+`Runtime::Tick(dt)` is driven by `SFSE::TaskInterface::AddPermanentTask`
+(registered in `core/Plugin.cpp`). Evidence, from SFSE source (not guessed):
+
+- `sfse/PluginAPI.h` documents `AddTaskPermanent` as "executed every frame on
+  the Main thread without deleting".
+- `sfse/Hooks_Command.cpp` shows the pump: SFSE hooks a per-frame function
+  (`Command_Process`) and runs all permanent tasks, then one-shot tasks,
+  under a recursive mutex. The hook offset belongs to SFSE and is maintained
+  by SFSE across game patches.
+
+Constraints derived from that implementation:
+- No `RemovePermanentTask` exists → our delegate has process lifetime and a
+  no-op `Destroy()`.
+- `Run()` executes under SFSE's task-queue lock → must stay cheap, never
+  block, never wait on other threads.
+- No dt is provided → we self-time with `steady_clock`, clamped to 100 ms
+  (the game pauses on focus loss; the task stalls with it).
+
+Still unverified in-game (heartbeat logging is in place to answer these):
+- Does the pump run at the main menu? While the pause menu is open? In
+  loading screens?
+- Actual cadence vs render framerate.
 
 ### 2. D3D12 access (blocks: Phase 2/3)
 

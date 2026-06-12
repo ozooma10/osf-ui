@@ -22,10 +22,10 @@ namespace SWUI
 
 		// Advances the renderer and submits a frame when visible.
 		//
-		// NOT CALLED YET: neither SFSE nor CommonLibSF exposes a safe
-		// per-frame callback that this project has verified. Once a correct
-		// Starfield update/present-adjacent hook is identified (see
-		// docs/reverse-engineering-notes.md), call Tick(dt) from it.
+		// Called every frame on the game's Main thread via an SFSE permanent
+		// task (core/Plugin.cpp). Runs under SFSE's task-queue lock: keep it
+		// cheap, never block. Exact cadence at main menu / pause is still
+		// unverified in-game (docs/reverse-engineering-notes.md).
 		void Tick(double a_deltaSeconds);
 
 		void SetVisible(bool a_visible);

@@ -12,8 +12,9 @@ shippable on its own; no phase fakes the next one.
 - Mock backend produces an animated CPU RGBA test pattern; Null compositor
   logs submissions.
 - JSON message bridge with a whitelisted command set.
-- **Known gap:** nothing calls `Runtime::Tick()` — no verified game update
-  hook exists yet.
+- Per-frame `Runtime::Tick()` driven by `SFSE::TaskInterface` permanent tasks
+  (main thread, SFSE-maintained hook — see reverse-engineering-notes.md §1).
+  In-game cadence verification (main menu / pause / loading) still pending.
 
 ## Phase 1 — local HTML renderer offscreen
 

@@ -86,6 +86,8 @@ repository (also mind Ultralight's own licensing terms for distribution).
 
 - Plugin loads under SFSE and logs its full lifecycle (preload, load, SFSE
   broadcast messages).
+- `Runtime::Tick()` runs every frame on the game's main thread via an SFSE
+  `TaskInterface` permanent task (heartbeat logged in dev mode).
 - Config and view manifests load defensively from the plugin data path.
 - Renderer/compositor backends are selected from config with safe fallbacks;
   the mock renderer produces a real CPU RGBA test pattern, the null
@@ -101,9 +103,10 @@ repository (also mind Ultralight's own licensing terms for distribution).
   unless explicitly provided and licensed.
 - **Not an MCM** — schema-driven settings UI is Phase 5 of
   [docs/renderer-plan.md](docs/renderer-plan.md).
-- **Not a working in-game browser overlay** — nothing draws over the game and
-  nothing calls `Runtime::Tick()` yet; the required render/input/tick hooks
-  are deliberately unimplemented until they are properly reverse engineered
+- **Not a working in-game browser overlay** — `Runtime::Tick()` runs every
+  frame via SFSE's TaskInterface, but nothing draws over the game; the
+  required render/input integration points are deliberately unimplemented
+  until they are properly reverse engineered
   ([docs/reverse-engineering-notes.md](docs/reverse-engineering-notes.md)).
 - **Not compatible with Xbox/Game Pass** — SFSE itself is Steam-only.
 
