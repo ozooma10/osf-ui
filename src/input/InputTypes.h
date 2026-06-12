@@ -9,21 +9,20 @@ namespace SWUI
 		kMiddle,
 	};
 
-	// Key codes use SFSE's InputMap space (SFSE/InputMap.h):
-	//   0..255   keyboard (DirectInput scan codes, DIK_*)
-	//   256..263 mouse buttons
-	//   264..265 mouse wheel
-	//   266..281 gamepad
-	// This matches what Starfield ButtonEvents carry in IDEvent::idCode for
-	// keyboard devices, so no translation layer is needed at the hook.
+	// Keyboard key codes are **Windows virtual-key codes (VK_*)** — proven
+	// in-game 2026-06-12: pressing F10 delivered ButtonEvent::idCode 121
+	// (VK_F10) and left Alt delivered 164 (VK_LMENU). The earlier assumption
+	// (DirectInput scan codes / SFSE InputMap space) was wrong for Starfield;
+	// SFSE's InputMap is a macro-recording key space, not what UI ButtonEvents
+	// carry. Mouse ButtonEvents carry their own small idCode space (observed:
+	// 0 = left button); they are routed as MouseButton, never as KeyCode.
 	using KeyCode = std::uint32_t;
 
 	inline constexpr KeyCode kInvalidKeyCode = 0;
 
-	// Resolves a config key name ("F10", "A", "Delete", ...) to an InputMap
-	// keyboard code. F1-F12 resolve via DIK constants; everything else is
-	// matched against SFSE::InputMap::GetKeyboardKeyName (note: those names
-	// come from the active keyboard layout, so they are layout-dependent).
+	// Resolves a config key name ("F10", "A", "Delete", ...) to a Windows
+	// virtual-key code. F1-F24 and a small named-key table are
+	// layout-independent; single letters/digits map to their VK values.
 	// Returns kInvalidKeyCode and logs if the name cannot be resolved.
 	[[nodiscard]] KeyCode ResolveKeyName(std::string_view a_name);
 }

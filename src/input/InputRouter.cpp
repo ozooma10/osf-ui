@@ -2,9 +2,6 @@
 
 #include <cctype>
 
-#include "REX/W32/DINPUT.h"
-#include "SFSE/InputMap.h"
-
 #include "core/Log.h"
 
 namespace SWUI
@@ -21,29 +18,40 @@ namespace SWUI
 			});
 		};
 
-		// F1-F12: layout-independent fast path (DIK codes are not contiguous
-		// past F10).
+		// Keyboard ButtonEvents carry Windows VK codes (see InputTypes.h for
+		// the in-game proof), so names resolve to VK values.
+
+		// F1-F24: VK_F1 (0x70) .. VK_F24 (0x87) are contiguous.
 		if (a_name.size() >= 2 && (a_name[0] == 'F' || a_name[0] == 'f')) {
 			int n = 0;
-			if (std::from_chars(a_name.data() + 1, a_name.data() + a_name.size(), n).ec == std::errc{}) {
-				if (n >= 1 && n <= 10) {
-					return REX::W32::DIK_F1 + static_cast<KeyCode>(n - 1);
-				}
-				if (n == 11) {
-					return REX::W32::DIK_F11;
-				}
-				if (n == 12) {
-					return REX::W32::DIK_F12;
-				}
+			if (std::from_chars(a_name.data() + 1, a_name.data() + a_name.size(), n).ec == std::errc{} &&
+				n >= 1 && n <= 24) {
+				return 0x70 + static_cast<KeyCode>(n - 1);
 			}
 		}
 
-		// Everything else: match against the library's own key naming. Names
-		// come from GetKeyNameText and therefore depend on keyboard layout.
-		for (KeyCode code = 1; code < SFSE::InputMap::kMacro_NumKeyboardKeys; ++code) {
-			if (const auto name = SFSE::InputMap::GetKeyboardKeyName(code);
-				!name.empty() && equalsIgnoreCase(name, a_name)) {
-				return code;
+		// Single letter/digit: VK code == uppercase ASCII value.
+		if (a_name.size() == 1 && std::isalnum(static_cast<unsigned char>(a_name[0]))) {
+			return static_cast<KeyCode>(std::toupper(static_cast<unsigned char>(a_name[0])));
+		}
+
+		struct NamedKey
+		{
+			std::string_view name;
+			KeyCode          vk;
+		};
+		static constexpr NamedKey kNamedKeys[] = {
+			{ "Space", 0x20 }, { "Enter", 0x0D }, { "Return", 0x0D }, { "Tab", 0x09 },
+			{ "Escape", 0x1B }, { "Backspace", 0x08 }, { "Insert", 0x2D }, { "Delete", 0x2E },
+			{ "Home", 0x24 }, { "End", 0x23 }, { "PageUp", 0x21 }, { "PageDown", 0x22 },
+			{ "Up", 0x26 }, { "Down", 0x28 }, { "Left", 0x25 }, { "Right", 0x27 },
+			{ "CapsLock", 0x14 }, { "NumLock", 0x90 }, { "ScrollLock", 0x91 }, { "Pause", 0x13 },
+			{ "LShift", 0xA0 }, { "RShift", 0xA1 }, { "LCtrl", 0xA2 }, { "RCtrl", 0xA3 },
+			{ "LAlt", 0xA4 }, { "RAlt", 0xA5 },
+		};
+		for (const auto& key : kNamedKeys) {
+			if (equalsIgnoreCase(key.name, a_name)) {
+				return key.vk;
 			}
 		}
 

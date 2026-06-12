@@ -1,9 +1,33 @@
 # StarfieldWebUI — Resume / Handoff
 
-**Last updated:** 2026-06-12
-**Status:** Phase 0 skeleton complete + TODO #1 (tick) and #2 (input) implemented.
-Everything builds; **nothing has been verified in-game yet** (no game access at
-time of writing).
+**Last updated:** 2026-06-12 ~18:00 (mid machine switch)
+**Status:** Phase 0 + TODO #1 (tick) **verified in-game**. TODO #2 (input)
+verified through three test runs today: the save-load crash is fixed (§4a),
+menu events and input observation are proven working. **ONE verification run
+remains** (see §0): the F10 toggle never fired because the key space was
+wrong (VK, not DIK — fixed in code, built, deployed, but not yet re-tested).
+Game is **1.16.244.0** (patched 2026-06-11; SFSE 0.2.21, versionlib-1-16-244
+present in the AIO address library mod).
+
+---
+
+## 0. IMMEDIATE next step (one run, ~3 min)
+
+Everything is already built and deployed to `MO2\mods\StarfieldWebUI`.
+Launch via MO2+SFSE, load a save, press **F10**, check
+`Documents\My Games\Starfield\SFSE\Logs\StarfieldWebUI.log` for:
+
+1. `Runtime: toggleKey 'F10' resolved to VK code 0x79`  (new line — proves
+   the rebuilt DLL is the one loaded; the old one said `InputMap code 0x44`)
+2. no `UI layout guard FAILED`
+3. `MenuEventSink: registered` / `UiInputHook: installed`
+4. on F10: `Runtime: overlay visibility -> true` +
+   `NullCompositor: first frame submitted`
+5. bonus: click the mouse once — expect `OnMouseButton(0, true)` AND
+   `OnMouseButton(0, false)` (the release was previously eaten; fixed).
+
+If all five hold, TODO #2 is fully verified end-to-end → mark it ✅ in §3/§7
+and move to TODO #3 (Ultralight backend, no game needed) or #4 (D3D12 RE).
 
 This file is the single place to re-orient after switching machines. Read it,
 then read [architecture.md](architecture.md) and
@@ -35,9 +59,10 @@ Repo root: `C:\Modding\Starfield\StarfieldWebUI`
 ```bat
 git clone --recurse-submodules <your-remote> StarfieldWebUI
 ```
-> ⚠ As of this writing the repo's `origin` still points at the **template**
-> repo and changes are **uncommitted**. Before transferring, either commit and
-> push to your own remote, or copy the working tree directly. See §6.
+> `origin` = `https://github.com/ozooma10/osf-ui.git` (correct). ⚠ As of this
+> writing all of today's fixes are **uncommitted** (10 modified files +
+> untracked `tools/`) — commit + push before switching, or copy the working
+> tree. See §6 for the exact list.
 
 ### Build
 ```bat
@@ -61,7 +86,7 @@ stay Ultralight-free.**
 
 ---
 
-## 3. Current state — what works (compiles; unverified in-game)
+## 3. Current state — what works
 
 | Area | State |
 |---|---|
@@ -73,8 +98,8 @@ stay Ultralight-free.**
 | Compositor abstraction: Null, D3D12 stub (fails Initialize by design) | ✅ |
 | JSON message bridge (whitelist: close/log/ping/setVisible) | ✅ |
 | Sample `test` view (HTML/CSS/JS, runs standalone in a browser too) | ✅ |
-| **TODO #1** — per-frame `Runtime::Tick()` via SFSE `TaskInterface` | ✅ implemented, ⏳ unverified in-game |
-| **TODO #2** — input observation (UiInputHook) + menu events (MenuEventSink) | ✅ implemented, ⏳ unverified in-game |
+| **TODO #1** — per-frame `Runtime::Tick()` via SFSE `TaskInterface` | ✅ implemented, ✅ **verified in-game 2026-06-12** |
+| **TODO #2** — input observation (UiInputHook) + menu events (MenuEventSink) | ✅ verified in-game (menu events + key/mouse observation); ⏳ F10 toggle re-test pending (§0) |
 | Docs (architecture / renderer-plan / security-model / RE-notes) | ✅ |
 
 ---
@@ -92,13 +117,50 @@ stay Ultralight-free.**
   focus loss). `Run()` must stay cheap (runs under SFSE's lock).
 - Heartbeat logging: INFO on first tick, DEBUG every 600 ticks.
 
+### 4a. The 2026-06-12 save-load crash (root-caused and fixed)
+
+First in-game run crashed on save load (Trainwreck: AV at
+`Starfield.exe+02B7320`, engine sink-iteration code, `UI*` in registers, no
+plugin frames). Cause: `lib/commonlibsf` was pinned to 2026-06-05, **before
+upstream PR #26** ("fix: correct UI.h layout via BSTSingletonSDM fix",
+merged 2026-06-10 — authored by this repo's owner). The real `UI` object
+starts with a virtual `BSTSingletonSDM<UI>` (0x10 bytes incl. vptr), so the
+old layout had every base short by 0x10:
+
+- `RegisterSink<MenuOpenCloseEvent>` passed `ui+0x10` (actually
+  `BSInputEventReceiver`) to the game's `RegisterSink` → it never returned
+  (the missing "MenuEventSink: registered" log line is the tell — the logger
+  flushes every INFO) and corrupted UI state → AV ~2 min later on save load.
+- `UiInputHook` had the twin bug: `VTABLE[0]` is the SDM vtable, not
+  `BSInputEventReceiver`'s.
+
+Fixes (all in working tree as of this writing):
+- submodule updated to upstream `4c48ed4` (includes PR #26–28),
+- **`UiInputHook::VerifyUiLayout()`**: live-vptr-vs-AddressLib guard that
+  must pass before MenuEventSink or UiInputHook touch the UI object; on
+  mismatch everything UI-related is skipped with a loud ERROR (and all 11
+  vtable entries are dumped for re-derivation). This is the pattern for all
+  future layout-dependent integrations.
+- hook retargeted to `VTABLE[10]` slot 1. The first re-test run had the guard
+  (correctly) refuse `VTABLE[1]`: the IDs_VTABLE array order does NOT follow
+  base order. `tools/parse_versionlib.py` + the live vptr proved entry 10
+  (ID 475439) is the receiver's vtable — full story in
+  [reverse-engineering-notes.md](reverse-engineering-notes.md).
+- `main.cpp` passes `logLevel = Debug` to `SFSE::Init` so DEBUG lines
+  (tick heartbeat, menu events) are on disk when the game dies.
+
 ### Input (TODO #2 — done)
-- **Key space:** Starfield keyboard `ButtonEvent::idCode` = DirectInput scan
-  codes = `SFSE::InputMap` space (0–255 kbd, 256+ mouse, 266+ gamepad).
-  **NOT Windows VK codes** — an earlier VK-based resolver was a bug, fixed.
+- **Key space (CORRECTED 2026-06-12, in-game proof):** Starfield keyboard
+  `ButtonEvent::idCode` carries **Windows VK codes** — F10 arrived as 121
+  (`VK_F10`), left Alt as 164 (`VK_LMENU`). The previous claim here ("DIK
+  scan codes / InputMap space, NOT VK") had it exactly backwards; key names
+  now resolve to VK in `ResolveKeyName`. Mouse `idCode` observed: 0 = LMB.
+  Mouse releases always have `heldDownSecs > 0` — never filter them with the
+  initial-press check (that bug ate every mouse-up in the first test).
 - [UiInputHook.cpp](../src/input/UiInputHook.cpp): the project's ONLY hook.
-  A vfunc swap on `RE::UI::VTABLE[0]` slot 1 (`PerformInputProcessing`) using
-  CommonLibSF's maintained AddressLib ID. **Observe-only**: reads button
+  A vfunc swap on `RE::UI::VTABLE[10]` slot 1 (`PerformInputProcessing`;
+  the IDs_VTABLE array is NOT in base order — entry 10 / ID 475439 is the
+  proven receiver vtable), gated by the `VerifyUiLayout()` live-vptr guard. **Observe-only**: reads button
   events, feeds `InputRouter`, always forwards the unmodified queue. Gated by
   config `inputSource` (`"none"` = off in code; shipped config uses `"ui"`).
   Install is **one-way** (no safe un-swap once other overlays chain on) —
@@ -106,8 +168,9 @@ stay Ultralight-free.**
 - [MenuEventSink.cpp](../src/input/MenuEventSink.cpp): hook-free
   `BSTEventSink<MenuOpenCloseEvent>` registered on the UI singleton via the
   documented `RegisterSink` API at `kPostPostDataLoad`.
-- Toggle path is live end to end: `F10` → router → `Runtime::ToggleVisible()`
-  → mock frames flow to the null compositor.
+- Toggle path is wired end to end: `F10` (VK 0x79) → router →
+  `Runtime::ToggleVisible()` → mock frames to the null compositor. Every
+  link except the final toggle→frame step is verified; that's §0.
 
 ### Hard rules being honored
 - No invented addresses/offsets/vtables/menu names. The single vtable ID comes
@@ -128,35 +191,56 @@ stay Ultralight-free.**
    - `preload entered` / `load entered`
    - `Config: loaded ... (inputSource=ui ...)`
    - `per-frame tick registered via SFSE TaskInterface`
-   - `FrameTick: first per-frame task received` (proves #1)
+   - `FrameTick: first per-frame task received` (proves #1 — ✅ seen 2026-06-12)
+   - **no `UI layout guard FAILED` ERROR** (if present: CommonLibSF layout vs
+     game version mismatch — STOP, do not play, fix the lib first)
    - `MenuEventSink: registered` and `UiInputHook: installed` (proves #2 wired)
-4. Press **F10** → expect `Runtime: overlay visibility -> true` and
+4. Load a save (this is what crashed pre-fix), then press **F10** → expect
+   `Runtime: overlay visibility -> true` and
    `NullCompositor: first frame submitted`.
-5. **Answer the open RE questions** and record them in
-   [reverse-engineering-notes.md](reverse-engineering-notes.md):
-   - Does the tick pump at main menu / while paused / during loading screens?
-   - What thread does input arrive on? Is `heldDownSecs == 0` a reliable
-     "initial press" marker? Do menu names log as expected?
+5. Answered 2026-06-12 (recorded in
+   [reverse-engineering-notes.md](reverse-engineering-notes.md)): tick pumps
+   at the main menu; input arrives on **multiple thread IDs** (no single
+   input thread); `heldDownSecs == 0` reliably marks initial key presses
+   (but mouse releases always have it > 0); menu names log exactly as
+   expected (`MainMenu`, `FaderMenu`, `LoadingMenu`, `HUDMenu`,
+   `HUDMessagesMenu`, `CursorMenu`). Still open: tick during pause menu and
+   loading screens (check DEBUG heartbeat continuity next session).
 
 ---
 
 ## 6. ⚠ Before/after the transfer — git hygiene
 
-- The working tree has **uncommitted changes** and `origin` points at the
-  upstream template. To preserve work across machines, do ONE of:
-  - `git remote set-url origin <your-repo>` then commit + push, **or**
-  - copy the whole `StarfieldWebUI\` folder (including `lib/` submodules) to
-    the new machine.
+- `origin` = `https://github.com/ozooma10/osf-ui.git` (already correct).
+- **Uncommitted as of 2026-06-12 ~18:00** — all of today's crash fix +
+  verification work:
+  - `lib/commonlibsf` — submodule bumped `12d665b` → `4c48ed4` (upstream
+    libxse HEAD with PR #26–28; publicly fetchable, safe to push the pin)
+  - `src/input/UiInputHook.{h,cpp}` — VTABLE[10] + `VerifyUiLayout()` guard
+  - `src/core/Plugin.cpp` — guard gates all UI integration
+  - `src/input/InputRouter.cpp`, `src/input/InputTypes.h` — VK key space
+  - `src/runtime/Runtime.cpp` — log wording (VK code)
+  - `src/main.cpp` — Debug log level for crash forensics
+  - `docs/HANDOFF.md`, `docs/reverse-engineering-notes.md` — findings
+  - `tools/parse_versionlib.py` — **untracked, add it** (versionlib → offset
+    resolver; proved the VTABLE[10] claim)
+- To transfer: commit + push (suggested message: "Fix UI layout crash:
+  update commonlibsf, add layout guard, correct key space to VK"), or copy
+  the whole folder including `lib/`.
 - Do not run `git checkout --`/reset/stash on anything you didn't dirty —
   several workspace repos are intentionally dirty.
 - `build/` and any `vsxmakeXXXX/` dirs are regenerable; no need to copy them.
+- The deployed DLL in `MO2\mods\StarfieldWebUI` is current with the working
+  tree (built 2026-06-12 ~17:55). The mod must be **enabled in MO2** (it is
+  on this machine).
 
 ---
 
 ## 7. TODO list, ordered by reverse-engineering risk
 
-1. ✅ Per-frame tick (SFSE TaskInterface) — **done**, verify in-game.
-2. ✅ Input event source (observe-only) — **done**, verify in-game.
+1. ✅ Per-frame tick (SFSE TaskInterface) — **done + verified in-game**.
+2. ✅ Input event source (observe-only) — **done + verified** except the F10
+   toggle run (§0).
 3. ⏳ Implement the real Ultralight backend offscreen (Phase 1 — SDK work,
    no game RE). Stub + build wiring already in place behind `with_ultralight`.
 4. ⏳ Prove a route to Starfield's `ID3D12Device` + direct queue (do this in

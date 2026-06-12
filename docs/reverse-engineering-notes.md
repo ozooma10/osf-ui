@@ -4,8 +4,35 @@ Tracking every integration point this project needs but does not yet have.
 **Policy: none of this may be guessed.** No hardcoded addresses, no inherited
 offsets, no "it worked in Skyrim so probably here too". Game addresses/IDs are
 only used after being proven against the running target build (game
-1.16.242.0 / SFSE Address Library v21 at the time of writing — re-verify on
-any patch).
+**1.16.244.0** since the 2026-06-11 patch / SFSE 0.2.21 / AddressLib with
+versionlib-1-16-244 — re-verify on any patch).
+
+> **Incident (2026-06-12, proven):** building against a CommonLibSF pinned
+> before upstream PR #26 ("fix: correct UI.h layout via BSTSingletonSDM fix")
+> shipped a `UI` layout missing the leading virtual `BSTSingletonSDM<UI>`
+> base — every base offset short by 0x10. `RegisterSink<MenuOpenCloseEvent>`
+> then handed the game a `BSInputEventReceiver` subobject as an event source;
+> the game's `RegisterSink` spun/corrupted UI state and the process died on
+> save load inside engine sink iteration (Trainwreck: AV at
+> `Starfield.exe+02B7320`, no plugin frames — classic latent corruption).
+> Countermeasure, now mandatory: `UiInputHook::VerifyUiLayout()` proves the
+> live UI object's `BSInputEventReceiver` vptr equals the AddressLib vtable we
+> patch before ANY code touches the UI object; on mismatch all UI integration
+> is skipped and logged. Keep this guard pattern for every future
+> layout-dependent integration.
+>
+> **Follow-up finding (same day, proven):** the guard then caught a second,
+> independent bug — `RE::VTABLE::UI`'s array order does **not** follow base
+> declaration order. The `BSInputEventReceiver` vtable is **`VTABLE[10]`**
+> (ID 475439), not `VTABLE[0]`/`[1]`. Proof: `tools/parse_versionlib.py`
+> resolved all 11 entries from `versionlib-1-16-244-0.bin`; the live in-game
+> vptr (`Starfield.exe+0x4d7e408`) matched only entry 10, and that vtable is
+> the single 2-slot one in the cluster (next vtable's COL begins 0x18 later,
+> vs 0x10 for all the 1-slot ones) — exactly the dtor+PerformInputProcessing
+> shape. Same relative layout exists in the 1.16.242 database, so the old
+> `VTABLE[0]` assumption was wrong from day one, independent of the patch.
+> ⚠ Upstream issue worth filing: consumers reasonably assume VTABLE order
+> mirrors base order; for `UI` it doesn't.
 
 ## Unknowns that must not be guessed
 
@@ -39,9 +66,10 @@ Constraints derived from that implementation:
 - No dt is provided → we self-time with `steady_clock`, clamped to 100 ms
   (the game pauses on focus loss; the task stalls with it).
 
-Still unverified in-game (heartbeat logging is in place to answer these):
-- Does the pump run at the main menu? While the pause menu is open? In
-  loading screens?
+Verified in-game 2026-06-12: the pump runs at the main menu (`FrameTick:
+first per-frame task received` ~7 s after launch, before `kPostDataLoad`).
+Still open (heartbeat logging is in place to answer these):
+- Does it run while the pause menu is open? In loading screens?
 - Actual cadence vs render framerate.
 
 ### 2. D3D12 access (blocks: Phase 2/3)
@@ -58,14 +86,21 @@ Still unverified in-game (heartbeat logging is in place to answer these):
 ### 3. Input event source — ◐ OBSERVATION SOLVED, consumption open (2026-06-12)
 
 **Observation** is implemented in `input/UiInputHook.cpp`: `RE::UI` derives
-from `BSInputEventReceiver`, whose vfunc `PerformInputProcessing(const
-InputEvent*)` receives the per-frame input queue. We vfunc-swap slot 1 of
-`RE::UI::VTABLE[0]` (CommonLibSF-maintained AddressLib ID — nothing guessed),
-observe `ButtonEvent`s, and always forward the unmodified queue. Keyboard
-`idCode`s are DirectInput scan codes matching `SFSE::InputMap`'s documented
-key space (0–255 keyboard / 256+ mouse / 266+ gamepad), so the router uses
-InputMap codes end to end. Gated by config `inputSource` ("none" disables;
-the hook is observe-only either way). **Not yet verified in-game.**
+from `BSInputEventReceiver` (its second base — `BSTSingletonSDM<UI>` is first
+and virtual, see the incident note above), whose vfunc
+`PerformInputProcessing(const InputEvent*)` receives the per-frame input
+queue. We vfunc-swap slot 1 of `RE::UI::VTABLE[10]` (AddressLib ID 475439 —
+proven to be the receiver's vtable, see the incident note; the live vptr is
+verified to match before the swap), observe `ButtonEvent`s, and always
+forward the unmodified queue. **Verified in-game 2026-06-12.**
+
+Key space, proven by observation (not the DIK/InputMap space previously
+assumed here): keyboard `idCode` = **Windows VK codes** (F10 → 121 =
+`VK_F10`, LAlt → 164 = `VK_LMENU`); mouse `idCode` 0 = left button; mouse
+releases carry `heldDownSecs > 0` (only presses start at 0). Keyboard events
+arrived on several different thread IDs across the session — do not assume a
+single input thread. Gated by config `inputSource` ("none" disables; the
+hook is observe-only either way).
 
 Menu lifecycle observation also implemented, hook-free:
 `input/MenuEventSink.cpp` registers a `BSTEventSink<MenuOpenCloseEvent>` on

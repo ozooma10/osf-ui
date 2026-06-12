@@ -6,7 +6,11 @@
 //
 // Why this is acceptable under the "no invented addresses" rule:
 //  - the vtable location comes from CommonLibSF's maintained AddressLib IDs
-//    (RE::UI::VTABLE[0]), not from anything guessed here;
+//    (RE::UI::VTABLE[10] — ID 475439, the BSInputEventReceiver vtable; the
+//    IDs_VTABLE array is NOT in base-declaration order, proven via
+//    tools/parse_versionlib.py + the live vptr on 1.16.244);
+//  - VerifyUiLayout() proves at runtime that the live UI object's vptr
+//    matches that exact vtable before any install touches the object;
 //  - the thunk is OBSERVE-ONLY: it reads the event list and always calls the
 //    original with the unmodified queue. It never consumes, filters, or
 //    injects events, so game behavior is unchanged.
@@ -23,9 +27,15 @@ namespace SWUI
 	class UiInputHook
 	{
 	public:
+		// Proves the compiled UI layout matches the running binary (live vptr
+		// vs AddressLib vtable). Must pass before ANYTHING touches the UI
+		// object — including MenuEventSink's RegisterSink, which silently
+		// corrupts UI state if the base offsets are stale. Logs on failure.
+		static bool VerifyUiLayout();
+
 		// Swaps the vfunc. Call once the UI singleton exists
 		// (kPostPostDataLoad). Safe to call only once. Returns false and logs
-		// if the UI singleton is missing.
+		// if the UI singleton is missing or the layout guard fails.
 		static bool Install();
 
 		// Makes the thunk pass-through without unhooking.

@@ -85,7 +85,7 @@ namespace SWUI
 		// core/Plugin.cpp at kPostPostDataLoad).
 		const auto toggleKey = ResolveKeyName(_config.toggleKey);
 		if (toggleKey != kInvalidKeyCode) {
-			REX::INFO("Runtime: toggleKey '{}' resolved to InputMap code {:#x}", _config.toggleKey, toggleKey);
+			REX::INFO("Runtime: toggleKey '{}' resolved to VK code {:#x}", _config.toggleKey, toggleKey);
 		}
 		_input.Configure(toggleKey, [this] { ToggleVisible(); });
 

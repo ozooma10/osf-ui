@@ -75,6 +75,11 @@ namespace SWUI::Plugin
 					// Earliest point this project treats game singletons (the
 					// UI event source) as safely constructed.
 					if (Runtime::Get().GetConfig().enabled) {
+						if (!UiInputHook::VerifyUiLayout()) {
+							REX::ERROR("Plugin: UI layout guard failed; skipping ALL UI integration "
+									   "(MenuEventSink + UiInputHook stay uninstalled, overlay toggle inert)");
+							break;
+						}
 						MenuEventSink::Install();
 						if (Runtime::Get().GetConfig().inputSource == "ui") {
 							if (UiInputHook::Install()) {
