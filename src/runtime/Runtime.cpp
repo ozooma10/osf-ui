@@ -10,34 +10,6 @@
 
 namespace SWUI
 {
-	namespace
-	{
-		// Minimal symbolic-name -> Windows virtual-key mapping for the config
-		// toggleKey. Values are VK_* constants spelled numerically so this
-		// header-light file does not pull in <Windows.h>.
-		KeyCode KeyCodeFromName(std::string_view a_name)
-		{
-			if (a_name.size() >= 2 && (a_name[0] == 'F' || a_name[0] == 'f')) {
-				int n = 0;
-				if (std::from_chars(a_name.data() + 1, a_name.data() + a_name.size(), n).ec == std::errc{} &&
-					n >= 1 && n <= 24) {
-					return 0x70 + static_cast<KeyCode>(n - 1);  // VK_F1..VK_F24
-				}
-			}
-			if (a_name.size() == 1) {
-				const auto c = static_cast<unsigned char>(a_name[0]);
-				if ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z')) {
-					return c;  // VK_0..VK_9, VK_A..VK_Z match ASCII
-				}
-				if (c >= 'a' && c <= 'z') {
-					return c - 'a' + 'A';
-				}
-			}
-			REX::WARN("Runtime: unrecognized toggleKey '{}'; toggle key disabled", a_name);
-			return 0;
-		}
-	}
-
 	Runtime& Runtime::Get()
 	{
 		static Runtime instance;
@@ -108,8 +80,14 @@ namespace SWUI
 			REX::WARN("Runtime: configured view '{}' was not found; overlay has no content", _config.view);
 		}
 
-		// Input (placeholder: nothing feeds events into the router yet)
-		_input.Configure(KeyCodeFromName(_config.toggleKey), [this] { ToggleVisible(); });
+		// Input. Events reach the router only when the UiInputHook is
+		// installed and enabled (config inputSource="ui", wired in
+		// core/Plugin.cpp at kPostPostDataLoad).
+		const auto toggleKey = ResolveKeyName(_config.toggleKey);
+		if (toggleKey != kInvalidKeyCode) {
+			REX::INFO("Runtime: toggleKey '{}' resolved to InputMap code {:#x}", _config.toggleKey, toggleKey);
+		}
+		_input.Configure(toggleKey, [this] { ToggleVisible(); });
 
 		_visible.store(_config.startVisible);
 		REX::INFO("Runtime: initialized (visible={})", _visible.load());

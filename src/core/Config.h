@@ -11,6 +11,7 @@ namespace SWUI
 		bool        startVisible{ false };
 		std::string renderer{ "mock" };    // "null" | "mock" | "ultralight"
 		std::string compositor{ "null" };  // "null" | "d3d12" (d3d12 is a stub)
+		std::string inputSource{ "none" }; // "none" | "ui" (observe-only vfunc hook on RE::UI input processing)
 		std::string view{ "test" };
 		bool        allowNetwork{ false };  // reserved; nothing implements network access
 		bool        devMode{ true };

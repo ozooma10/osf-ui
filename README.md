@@ -59,10 +59,11 @@ Logs go to the standard SFSE log folder
 | field | default | meaning |
 |---|---|---|
 | `enabled` | `true` | master switch |
-| `toggleKey` | `"F10"` | symbolic key name; **no key hook exists yet** |
+| `toggleKey` | `"F10"` | key name resolved via SFSE InputMap (F1–F12 layout-independent, other names layout-dependent) |
 | `startVisible` | `false` | initial overlay visibility state |
 | `renderer` | `"mock"` | `null` \| `mock` \| `ultralight` (stub) |
 | `compositor` | `"null"` | `null` \| `d3d12` (stub that refuses to init) |
+| `inputSource` | `"none"` | `none` \| `ui` — observe-only vfunc hook on the game UI's input processing; enables the toggle key. Shipped config uses `ui`; set to `none` to rule the hook out when debugging |
 | `view` | `"test"` | view id from `views/*/manifest.json` |
 | `allowNetwork` | `false` | recognized but force-disabled |
 | `devMode` | `true` | verbose per-call logging |
@@ -88,6 +89,10 @@ repository (also mind Ultralight's own licensing terms for distribution).
   broadcast messages).
 - `Runtime::Tick()` runs every frame on the game's main thread via an SFSE
   `TaskInterface` permanent task (heartbeat logged in dev mode).
+- Menu open/close events are observed via the documented CommonLibSF
+  `RegisterSink` API; with `inputSource: "ui"`, keyboard/mouse buttons are
+  observed through an isolated, pass-through vfunc hook and the configured
+  toggle key flips overlay visibility (pending in-game verification).
 - Config and view manifests load defensively from the plugin data path.
 - Renderer/compositor backends are selected from config with safe fallbacks;
   the mock renderer produces a real CPU RGBA test pattern, the null

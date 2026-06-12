@@ -40,6 +40,10 @@ namespace SWUI
 		[[nodiscard]] MessageBridge* Bridge() { return _bridge.get(); }
 		[[nodiscard]] const Config&  GetConfig() const { return _config; }
 
+		// Fan-in point for input observers (UiInputHook). The router itself
+		// only logs and drives the toggle path today.
+		[[nodiscard]] InputRouter& Input() { return _input; }
+
 	private:
 		Runtime() = default;
 

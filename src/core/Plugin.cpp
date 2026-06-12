@@ -1,6 +1,8 @@
 #include "core/Plugin.h"
 
 #include "core/Version.h"
+#include "input/MenuEventSink.h"
+#include "input/UiInputHook.h"
 #include "runtime/Runtime.h"
 
 namespace SWUI::Plugin
@@ -70,6 +72,18 @@ namespace SWUI::Plugin
 					break;
 				case SFSE::MessagingInterface::kPostPostDataLoad:
 					REX::INFO("Plugin: SFSE message kPostPostDataLoad");
+					// Earliest point this project treats game singletons (the
+					// UI event source) as safely constructed.
+					if (Runtime::Get().GetConfig().enabled) {
+						MenuEventSink::Install();
+						if (Runtime::Get().GetConfig().inputSource == "ui") {
+							if (UiInputHook::Install()) {
+								UiInputHook::SetEnabled(true);
+							}
+						} else {
+							REX::INFO("Plugin: inputSource=none; no input observation (toggle key inert)");
+						}
+					}
 					break;
 				default:
 					REX::DEBUG("Plugin: SFSE message type {}", a_msg->type);

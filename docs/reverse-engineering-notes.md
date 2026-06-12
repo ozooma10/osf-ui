@@ -55,15 +55,32 @@ Still unverified in-game (heartbeat logging is in place to answer these):
   behaviors, and coexistence with Steam overlay/ReShade/RTSS (hook-chain
   friendliness) — all documented in `composite/D3D12Compositor.h`.
 
-### 3. Input event source (blocks: Phase 4)
+### 3. Input event source — ◐ OBSERVATION SOLVED, consumption open (2026-06-12)
 
-- Where PC keyboard/mouse events can be observed (BSInputDeviceManager
-  equivalent? PlayerControls? SFSE input interface?). CommonLibSF ships
-  `SFSE::InputMap` — check what it maps and whether an event sink exists.
+**Observation** is implemented in `input/UiInputHook.cpp`: `RE::UI` derives
+from `BSInputEventReceiver`, whose vfunc `PerformInputProcessing(const
+InputEvent*)` receives the per-frame input queue. We vfunc-swap slot 1 of
+`RE::UI::VTABLE[0]` (CommonLibSF-maintained AddressLib ID — nothing guessed),
+observe `ButtonEvent`s, and always forward the unmodified queue. Keyboard
+`idCode`s are DirectInput scan codes matching `SFSE::InputMap`'s documented
+key space (0–255 keyboard / 256+ mouse / 266+ gamepad), so the router uses
+InputMap codes end to end. Gated by config `inputSource` ("none" disables;
+the hook is observe-only either way). **Not yet verified in-game.**
+
+Menu lifecycle observation also implemented, hook-free:
+`input/MenuEventSink.cpp` registers a `BSTEventSink<MenuOpenCloseEvent>` on
+the UI singleton via the documented `RegisterSink` API (kPostPostDataLoad).
+
+Still open:
+- In-game verification of both (thread the events arrive on, event ordering,
+  whether `heldDownSecs == 0` reliably marks the initial press).
 - How to *consume* input (prevent the game acting on it) while the overlay
-  has focus — likely menu-mode related, unknown.
-- Raw Win32 fallbacks (WndProc subclass / Raw Input) are explicitly out of
-  scope for now: they fight the game loop and break controller parity.
+  has focus — likely menu-mode related; probably requires registering a real
+  `IMenu` or manipulating `BSInputEventUser::inputEventHandlingEnabled`-style
+  paths. Unknown; do not guess.
+- Text input (`CharacterEvent`) and cursor routing for Phase 4.
+- Raw Win32 fallbacks (WndProc subclass / Raw Input) remain out of scope:
+  they fight the game loop and break controller parity.
 
 ### 4. Menu/pause/UI lifecycle questions
 

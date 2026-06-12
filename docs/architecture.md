@@ -37,12 +37,12 @@ swapped behind stable interfaces without touching the rest of the runtime.
         │               │          │              │                  │
    core/Config    runtime/      render/       composite/         input/
    core/Paths     ViewManager   IWebRenderer  ICompositor        InputRouter
-                  ViewManifest     │              │                  │
-                                ┌──┴────────┐  ┌──┴─────────┐   (no event
-                                │ Null      │  │ Null       │    source yet)
-                                │ Mock      │  │ D3D12 stub │
-                                │ Ultralight│  └────────────┘
-                                │  (option) │
+                  ViewManifest     │              │                  ▲
+                                ┌──┴────────┐  ┌──┴─────────┐  UiInputHook
+                                │ Null      │  │ Null       │  (observe-only
+                                │ Mock      │  │ D3D12 stub │   vfunc, gated)
+                                │ Ultralight│  └────────────┘  MenuEventSink
+                                │  (option) │                  (RegisterSink)
                                 └───────────┘
                                    │    ▲
                           runtime/MessageBridge    JSON, whitelisted commands

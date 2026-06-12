@@ -4,6 +4,7 @@
   "startVisible": false,
   "renderer": "mock",
   "compositor": "null",
+  "inputSource": "ui",
   "view": "test",
   "allowNetwork": false,
   "devMode": true
