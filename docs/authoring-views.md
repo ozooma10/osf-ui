@@ -144,8 +144,10 @@ Assign `window.starfield.onMessage` and switch on `message.type`:
 | `runtime.pong` | `{}` | reply to your `ping` |
 | `settings.data` | `{ mods: [ { id, title, schema, values } ] } ` | reply to `settings.get` / after a `settings.reset` |
 | `settings.ack` | `{ mod, key, ok }` | result of a `settings.set` (`ok:false` ⇒ rejected/clamped) |
+| `ui.error` | `{ reason, type?, command? }` | the runtime rejected something you sent — a malformed message, an unknown `type`, or an unknown `command`. Log it while developing; the same WARN is in `StarfieldWebUI.log` |
 
-Unknown `type`s should be ignored (never `eval`'d).
+Unknown `type`s should be ignored (never `eval`'d) — including future `type`s
+this runtime version doesn't know about.
 
 ### Minimal example
 

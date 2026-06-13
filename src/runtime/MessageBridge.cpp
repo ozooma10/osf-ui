@@ -19,6 +19,11 @@ namespace SWUI
 		const auto msg = Json::Parse(a_json, "web->native message");
 		if (!msg || !msg->is_object()) {
 			REX::WARN("MessageBridge: rejected malformed message");
+			// Surface rejections to the page (ui.error) so authors see them
+			// instead of a silent drop. Existing views ignore unknown types, so
+			// this is backward compatible. Echoed strings are length-bounded
+			// because the inbound payload is untrusted.
+			SendToWeb("ui.error", { { "reason", "malformed message" } });
 			return;
 		}
 
@@ -31,6 +36,7 @@ namespace SWUI
 			HandleUiCommand(payload);
 		} else {
 			REX::WARN("MessageBridge: rejected unknown message type '{}'", type);
+			SendToWeb("ui.error", { { "reason", "unknown message type" }, { "type", type.substr(0, 128) } });
 		}
 	}
 
@@ -42,6 +48,7 @@ namespace SWUI
 			it->second(a_payload, *this);
 		} else {
 			REX::WARN("MessageBridge: rejected unknown ui.command '{}'", command);
+			SendToWeb("ui.error", { { "reason", "unknown command" }, { "command", command.substr(0, 128) } });
 		}
 	}
 

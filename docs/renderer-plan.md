@@ -185,3 +185,37 @@ Phase 3 polish:
   bridge; versioned bridge API for third-party views; settings grouped/tabbed
   by mod; richer types (color, key-bind, list); change notifications to other
   native plugins.
+
+### Multi-view feasibility (spike, 2026-06-13)
+
+Desk-checked against the vendored Ultralight 1.4.0 headers (no game needed) to
+de-risk multi-view before committing to it. Verdict: **supported and intended;
+a bounded engineering effort, not blocked by the SDK.**
+
+- One `Renderer` hosts N `View`s by design (`Renderer::CreateView` is a
+  factory; `Render()` renders "all active views" — `include/Ultralight/Renderer.h`
+  lines 100, 171, 207). The one hard limit — "only create one Renderer during
+  the lifetime of your program" (Renderer.h:140) — is already honored, so
+  multi-view = N views on the single renderer we already create.
+- **Idle views are cheap:** "Views are only repainted if they actually need
+  painting" (Renderer.h:209); `RenderOnly(view_array, len)` targets a subset. A
+  static HUD costs ~0 raster after first paint. Cost scales with *active
+  repaints*, not view count: N WebKit pages (memory) + N CPU bitmaps.
+- Each View owns its surface/texture (Renderer.h:114), so the compositor draws
+  N textures back-to-front (z-order from the manifest); the SRV heap grows from
+  1 to N descriptors. Per-View sessions are supported (Renderer.h:149).
+- **The trickiest internal change is NOT rendering — it's bridge message
+  attribution.** The JSC `postMessage` callback is a plain C function pointer
+  with no user-data slot and finds the renderer via a single `sActive`
+  (`src/render/UltralightWebRenderer.cpp` ~line 261). With N views it must
+  identify the *source* view — key by `JSContextRef`, or inject a per-view
+  bridge object carrying the view id. Input focus (one view receives
+  keys/mouse) is the other routing change.
+- Correction to an earlier note: the remote inspector is **Pro-edition only**
+  (Renderer.h:239), so "wire the inspector in devMode" needs a Pro license.
+
+Recommended M2.1 shape: `ViewManager` tracks active views; the renderer holds a
+view list keyed by id (per-view input/message queues + frame buffers); the
+compositor draws a z-ordered list of textures; a focus model picks the input
+target. Per-view bridge permission scoping becomes meaningful once >1
+third-party view can be active and should land together with this.

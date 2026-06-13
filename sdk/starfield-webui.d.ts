@@ -62,11 +62,18 @@ export interface SettingsAckPayload {
   ok: boolean; // false => rejected or clamped server-side
 }
 
+export interface UiErrorPayload {
+  reason: string;    // "malformed message" | "unknown message type" | "unknown command"
+  type?: string;     // present for "unknown message type"
+  command?: string;  // present for "unknown command"
+}
+
 export type NativeToWebMessage =
   | BridgeEnvelope<"runtime.ready", RuntimeReadyPayload>
   | BridgeEnvelope<"runtime.pong", Record<string, never>>
   | BridgeEnvelope<"settings.data", SettingsDataPayload>
-  | BridgeEnvelope<"settings.ack", SettingsAckPayload>;
+  | BridgeEnvelope<"settings.ack", SettingsAckPayload>
+  | BridgeEnvelope<"ui.error", UiErrorPayload>;
 
 // ---------------------------------------------------------------------------
 // Settings schema shapes (mirror docs/schema/settings-schema.schema.json)
