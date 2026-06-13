@@ -1,12 +1,12 @@
 {
   "enabled": true,
   "toggleKey": "F10",
-  "startVisible": true,
+  "startVisible": false,
   "renderer": "ultralight",
   "compositor": "d3d12",
   "inputSource": "ui",
   "captureInput": true,
   "view": "settings",
   "allowNetwork": false,
-  "devMode": true
+  "devMode": false
 }

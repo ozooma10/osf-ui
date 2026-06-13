@@ -31,9 +31,9 @@ target("OSF UI")
         -- plugin metadata name kept: it drives the SFSE log filename and matches
         -- the runtime data folder SFSE/Plugins/StarfieldWebUI/ (src/core/Paths.h)
         name = "StarfieldWebUI",
-        author = "TODO",
+        author = "ozooma10",
         description = "HTML/CSS/JS UI runtime prototype for Starfield via SFSE/CommonLibSF",
-        email = "user@site.com"
+        email = "ozooma10@users.noreply.github.com"
     })
 
     -- add packages

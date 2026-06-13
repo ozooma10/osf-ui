@@ -15,7 +15,7 @@ namespace SWUI
 		bool        captureInput{ true };  // when visible, route input to the web view and block the game from acting on it (needs inputSource="ui")
 		std::string view{ "test" };
 		bool        allowNetwork{ false };  // reserved; nothing implements network access
-		bool        devMode{ true };
+		bool        devMode{ false };  // release-safe default; the shipped config / a dev override turns on verbose logging
 
 		// Loads from a_path; returns defaults (and logs why) on any failure.
 		static Config Load(const std::filesystem::path& a_path);

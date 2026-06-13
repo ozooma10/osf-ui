@@ -1,0 +1,266 @@
+# Authoring Views & Settings
+
+How to build a UI for StarfieldWebUI without touching the C++ runtime. This is
+a reference for the two data-driven extension points that work today:
+
+1. **Views** — an HTML/CSS/JS page rendered as an in-game overlay.
+2. **Settings schemas** — typed knobs that appear in the built-in `settings`
+   view (MCM-style), persisted and validated natively.
+
+> **Status / scope.** Today the runtime renders **one view at a time**
+> (`config.json` → `view`), and new *native* bridge commands or game-data
+> bindings still require core changes. What you can ship as pure content with
+> no recompile: a `views/<id>/` folder and a `settings/<id>.json` schema. The
+> bridge protocol below is **not yet versioned** — treat it as `0.x` and
+> expect it to change. See the roadmap in
+> [renderer-plan.md](renderer-plan.md).
+
+Everything here assumes you have read [security-model.md](security-model.md):
+**your view is treated as untrusted code.** There is no network, no filesystem
+beyond your own folder, and no way to call arbitrary native functions.
+
+---
+
+## 1. View package layout
+
+A view is a folder under the plugin data dir:
+
+```
+SFSE/Plugins/StarfieldWebUI/views/<your-id>/
+  manifest.json     required — declares the view
+  index.html        your entry page (name configurable via manifest "entry")
+  style.css         (optional) your styles
+  main.js           (optional) your logic
+  assets/...        (optional) images/fonts — local only
+```
+
+The folder is discovered automatically at load. To make it the active view,
+set `view` in `config.json` to your manifest `id`.
+
+All asset references must be **relative and stay inside your folder**. Absolute
+paths, paths with a root, and any `..` component are rejected before disk I/O
+(`SandboxFileSystem`, enforced in the renderer). The page is loaded as
+`file:///<entry>`.
+
+---
+
+## 2. `manifest.json` reference
+
+```jsonc
+{
+  "id": "myhud",            // REQUIRED, unique; matches the folder + config "view"
+  "title": "My HUD",        // optional, defaults to id
+  "entry": "index.html",    // optional, default "index.html"; must stay inside the folder
+  "width": 1280,            // optional, default 1280; clamped to 1..16384
+  "height": 720,            // optional, default 720;  clamped to 1..16384
+  "transparent": true,      // optional, default true; lets the game show through
+  "permissions": {          // optional; everything defaults to DENY
+    "nativeBridge": true,   // false ⇒ no window.starfield bridge is created at all
+    "filesystem": false,    // reserved; no effect yet
+    "network": false         // reserved; forced off with a warning if set true
+  }
+}
+```
+
+Notes:
+- **`width`/`height` are a starting size only.** When the `d3d12` compositor is
+  active, the runtime resizes the view to match the screen aspect (height-capped
+  at 1440). **Author responsive CSS** — do not hardcode pixel layouts to
+  1280×720.
+- **`permissions.nativeBridge` must be `true`** if your page talks to the
+  runtime. With it `false`, `window.starfield` is never injected and your page
+  runs purely client-side.
+- A manifest that fails validation (missing `id`, escaping `entry`) is skipped
+  with an error in `StarfieldWebUI.log`.
+
+---
+
+## 3. The bridge — `window.starfield`
+
+When `nativeBridge` is granted, the runtime injects one object before your page
+scripts run:
+
+```js
+// web → native: send one JSON message
+window.starfield.postMessage(jsonString);
+
+// native → web: you assign this; the runtime calls it with a JSON string
+window.starfield.onMessage = (jsonString) => { ... };
+```
+
+`postMessage` is read-only and cannot be reassigned. You provide `onMessage`.
+Messages sent before your `onMessage` exists are queued and flushed once the
+DOM is ready, so it is safe to assign it at the top of your script.
+
+### Message envelope
+
+Every message in both directions is JSON text with this shape:
+
+```jsonc
+{ "type": "<string>", "payload": { ... } }
+```
+
+Malformed messages are rejected and logged, never fatal. Both directions are
+capped at 64 queued messages (excess is dropped with a warning) — **do not
+flood the bridge**; it shares the game thread.
+
+### Web → native
+
+There is exactly **one** accepted inbound type: `ui.command`. The `payload`
+carries a `command` field plus that command's arguments:
+
+```js
+function send(command, fields = {}) {
+  window.starfield.postMessage(JSON.stringify({
+    type: "ui.command",
+    payload: { command, ...fields },
+  }));
+}
+```
+
+Whitelisted commands (anything else is rejected + logged):
+
+| command | payload fields | effect |
+|---|---|---|
+| `close` | — | hide the overlay |
+| `setVisible` | `visible: bool` | show/hide the overlay |
+| `log` | `text: string` | write to `StarfieldWebUI.log` (truncated to 512 chars) |
+| `ping` | — | runtime replies with `runtime.pong` |
+| `settings.get` | — | runtime replies with `settings.data` |
+| `settings.set` | `mod, key, value` | set one schema-declared setting (validated) |
+| `settings.reset` | `mod`, `key?` | reset one key, or the whole mod if `key` omitted |
+
+> There is intentionally **no** "call any native function" escape hatch. To get
+> a new command you must add a native handler in the runtime (core change).
+
+### Native → web
+
+Assign `window.starfield.onMessage` and switch on `message.type`:
+
+| type | payload | when |
+|---|---|---|
+| `runtime.ready` | `{ game, plugin, version }` | once, after your page loads — your cue to request data |
+| `runtime.pong` | `{}` | reply to your `ping` |
+| `settings.data` | `{ mods: [ { id, title, schema, values } ] } ` | reply to `settings.get` / after a `settings.reset` |
+| `settings.ack` | `{ mod, key, ok }` | result of a `settings.set` (`ok:false` ⇒ rejected/clamped) |
+
+Unknown `type`s should be ignored (never `eval`'d).
+
+### Minimal example
+
+```js
+"use strict";
+const bridge = () =>
+  typeof window.starfield === "object" &&
+  typeof window.starfield.postMessage === "function";
+
+function send(command, fields = {}) {
+  if (bridge()) window.starfield.postMessage(
+    JSON.stringify({ type: "ui.command", payload: { command, ...fields } }));
+}
+
+window.starfield = window.starfield || {};
+window.starfield.onMessage = (json) => {
+  const msg = JSON.parse(json);
+  if (msg.type === "runtime.ready") {
+    document.title = `Connected to ${msg.payload.plugin} v${msg.payload.version}`;
+  }
+};
+
+document.getElementById("close").onclick = () => send("close");
+```
+
+See [`data/StarfieldWebUI/views/test/main.js`](../data/StarfieldWebUI/views/test/main.js)
+for a complete, commented example.
+
+---
+
+## 4. Settings schemas (the MCM-style path)
+
+Drop a JSON schema at:
+
+```
+SFSE/Plugins/StarfieldWebUI/settings/<your-mod-id>.json
+```
+
+Every schema in that folder is loaded as a separate "mod" and rendered as its
+own card in the built-in `settings` view — **with zero per-mod native or web
+code**. Values persist per-mod to a user-writable path
+(`Documents\My Games\Starfield\StarfieldWebUI\settings\<id>.json`), survive
+relaunch, and the runtime can react to changes natively.
+
+### Schema format
+
+```jsonc
+{
+  "id": "mymod",                 // optional, defaults to the filename
+  "title": "My Mod",             // shown as the card header
+  "groups": [
+    {
+      "label": "Gameplay",       // optional section heading
+      "settings": [
+        { "key": "enabled",  "label": "Enabled",      "type": "bool",  "default": true },
+        { "key": "count",    "label": "Item count",   "type": "int",   "min": 0, "max": 99, "step": 1, "default": 10 },
+        { "key": "opacity",  "label": "HUD opacity",  "type": "float", "min": 0.1, "max": 1.0, "step": 0.05, "default": 0.8 },
+        { "key": "mode",     "label": "Mode",         "type": "enum",  "options": ["off", "compact", "full"], "default": "compact" },
+        { "key": "label",    "label": "Custom label", "type": "string", "default": "Hello" }
+      ]
+    }
+  ]
+}
+```
+
+### Type rules (enforced natively in `SettingsStore`)
+
+| type | control | validation on write |
+|---|---|---|
+| `bool` | checkbox | must be a boolean |
+| `int` | slider | number, clamped to `[min,max]`, rounded |
+| `float` | slider | number, clamped to `[min,max]` |
+| `enum` | dropdown | must be one of `options` |
+| `string` | text field | truncated to 256 chars |
+
+Unknown keys, wrong types, and out-of-range values are rejected/clamped
+server-side and reported via `settings.ack {ok:false}`. **Untrusted JS cannot
+write arbitrary keys, out-of-range values, or to any path but its own settings
+file.**
+
+### Reacting natively (currently a core change)
+
+Native code can subscribe to changes (see `Runtime::OnSettingChanged`). Today
+this is wired in-tree (e.g. `osfui.cursorSpeed` live-scales the cursor). A
+public "subscribe to my setting" API for separate plugins is on the roadmap;
+until then, native reactions to a *new* mod's settings need a core edit.
+
+---
+
+## 5. Testing locally
+
+Both shipped views detect a missing bridge and fall back to a **standalone
+mode** so you can open `index.html` directly in a normal browser and iterate on
+layout/logic without launching the game:
+
+```js
+if (!bridge()) {
+  // running in a plain browser — stub or no-op the native calls
+}
+```
+
+In-game, watch `Documents\My Games\Starfield\SFSE\Logs\StarfieldWebUI.log`:
+- `MessageBridge: [web] ...` — your `log` commands.
+- `MessageBridge: rejected unknown ui.command '...'` — you sent a non-whitelisted command.
+- `UltralightWebRenderer: [console] ...` — your `console.log/warn/error` is forwarded here.
+- Set `devMode: true` in `config.json` for verbose per-call logging and a
+  first-frame PNG dump under `StarfieldWebUI/ultralight/`.
+
+---
+
+## 6. Checklist for shipping a view
+
+- [ ] `views/<id>/manifest.json` with a unique `id` and `permissions.nativeBridge` set as needed.
+- [ ] Responsive CSS (no hardcoded 1280×720 assumptions; the view is resized to the screen).
+- [ ] All assets local and relative (no `..`, no absolute paths, no network).
+- [ ] `onMessage` assigned before you send anything; handle `runtime.ready`.
+- [ ] Only whitelisted `ui.command`s; handle `*.ack`/error replies.
+- [ ] (If configurable) a `settings/<id>.json` schema with sane `default`/`min`/`max`.
+- [ ] Verified standalone in a browser, then in-game via the log.
