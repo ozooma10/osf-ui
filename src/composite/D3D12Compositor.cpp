@@ -143,6 +143,13 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		std::uint32_t   uploadRowPitch{ 0 };
 
 		// ---- per-swapchain backbuffer targets ----
+		// NOTE: we deliberately do NOT cache the swapchain's backbuffer
+		// resources. Holding a backbuffer reference blocks the game's
+		// IDXGISwapChain::ResizeBuffers (resolution change / alt-tab /
+		// fullscreen transition), which crashed the game (2026-06-12). Each
+		// present does GetBuffer + CreateRTV fresh and releases the buffer,
+		// so we never hold a ref across frames. (The swapchain ref itself is
+		// fine — only outstanding BACKBUFFER refs block ResizeBuffers.)
 		struct Target
 		{
 			IDXGISwapChain3* swap{ nullptr };  // owned (QI'd), key is the raw self ptr
@@ -151,8 +158,8 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			std::uint32_t    height{ 0 };
 			DXGI_FORMAT      format{ DXGI_FORMAT_UNKNOWN };
 			std::uint32_t    bufferCount{ 0 };
-			std::uint32_t    rtvBase{ 0 };  // index into rtvHeap
-			ID3D12Resource*  buffers[kMaxBackBuffers]{};
+			std::uint32_t    rtvBase{ 0 };  // base index into rtvHeap
+			bool             seen{ false };  // dims known yet?
 			bool             logged{ false };
 		};
 		Target targets[kMaxSwapchains]{};
@@ -208,10 +215,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 		void ReleaseTarget(Target& a_t)
 		{
-			for (auto*& b : a_t.buffers) {
-				SafeRelease(b);
-			}
-			SafeRelease(a_t.swap);
+			SafeRelease(a_t.swap);  // no cached backbuffers to release
 			a_t = Target{};
 		}
 
@@ -450,7 +454,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			}
 
 			const auto backIndex = target->swap->GetCurrentBackBufferIndex();
-			if (backIndex >= target->bufferCount || !target->buffers[backIndex]) {
+			if (backIndex >= target->bufferCount) {
 				return;
 			}
 
@@ -628,38 +632,27 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			return RefreshTarget(*freeSlot) ? freeSlot : nullptr;
 		}
 
-		// (Re)create the cached backbuffer RTVs if the swapchain was resized or
-		// is being seen for the first time.
+		// Refresh the cached swapchain dimensions/format. Cheap (GetDesc1
+		// only) and holds no backbuffer refs, so it never blocks ResizeBuffers
+		// — the actual backbuffer is fetched per-present in RecordAndExecute.
 		[[nodiscard]] bool RefreshTarget(Target& a_t)
 		{
 			DXGI_SWAP_CHAIN_DESC1 desc{};
 			if (FAILED(a_t.swap->GetDesc1(&desc))) {
 				return false;
 			}
-			if (a_t.buffers[0] && a_t.width == desc.Width && a_t.height == desc.Height &&
-				a_t.format == desc.Format && a_t.bufferCount == desc.BufferCount) {
-				return true;
-			}
-
-			WaitForGpuIdle();
-			for (auto*& b : a_t.buffers) {
-				SafeRelease(b);
-			}
+			const bool changed = !a_t.seen || a_t.width != desc.Width || a_t.height != desc.Height ||
+				a_t.format != desc.Format || a_t.bufferCount != desc.BufferCount;
+			a_t.seen = true;
 			a_t.width = desc.Width;
 			a_t.height = desc.Height;
 			a_t.format = desc.Format;
 			a_t.bufferCount = (std::min)(desc.BufferCount, kMaxBackBuffers);
 
-			auto rtvStart = rtvHeap->GetCPUDescriptorHandleForHeapStart();
-			for (std::uint32_t i = 0; i < a_t.bufferCount; ++i) {
-				if (FAILED(a_t.swap->GetBuffer(i, __uuidof(ID3D12Resource), reinterpret_cast<void**>(&a_t.buffers[i])))) {
-					REX::ERROR("D3D12Compositor: GetBuffer({}) failed", i);
-					return false;
-				}
-				D3D12_CPU_DESCRIPTOR_HANDLE handle{ rtvStart.ptr + static_cast<SIZE_T>(a_t.rtvBase + i) * rtvStride };
-				engine.device->CreateRenderTargetView(a_t.buffers[i], nullptr, handle);
+			if (changed && a_t.logged) {
+				REX::DEBUG("D3D12Compositor: swapchain 0x{:X} now {}x{}, {} buffers, RT format {}",
+					a_t.key, a_t.width, a_t.height, a_t.bufferCount, static_cast<int>(a_t.format));
 			}
-
 			if (!a_t.logged) {
 				a_t.logged = true;
 				REX::INFO("D3D12Compositor: drawing on swapchain 0x{:X} ({}x{}, {} buffers, RT format {})",
@@ -670,6 +663,19 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 		void RecordAndExecute(CmdSlot& a_slot, Target& a_target, const std::uint32_t a_backIndex)
 		{
+			// Fetch the backbuffer fresh each present and release it before we
+			// return — never hold a ref across frames (that blocks the game's
+			// ResizeBuffers). The swapchain keeps its own ref, and the command
+			// queue keeps the resource alive for the GPU work we submit.
+			ID3D12Resource* backbuffer = nullptr;
+			if (FAILED(a_target.swap->GetBuffer(a_backIndex, __uuidof(ID3D12Resource), reinterpret_cast<void**>(&backbuffer))) || !backbuffer) {
+				return;
+			}
+			const D3D12_CPU_DESCRIPTOR_HANDLE rtv{
+				rtvHeap->GetCPUDescriptorHandleForHeapStart().ptr + static_cast<SIZE_T>(a_target.rtvBase + a_backIndex) * rtvStride
+			};
+			engine.device->CreateRenderTargetView(backbuffer, nullptr, rtv);
+
 			a_slot.allocator->Reset();
 			a_slot.list->Reset(a_slot.allocator, pso);
 			auto* list = a_slot.list;
@@ -715,7 +721,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			};
 
 			barrier(texture, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-			barrier(a_target.buffers[a_backIndex], D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+			barrier(backbuffer, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
 			ID3D12DescriptorHeap* heaps[]{ srvHeap };
 			list->SetDescriptorHeaps(1, heaps);
@@ -727,15 +733,12 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			list->RSSetViewports(1, &vp);
 			list->RSSetScissorRects(1, &scissor);
 
-			D3D12_CPU_DESCRIPTOR_HANDLE rtv{
-				rtvHeap->GetCPUDescriptorHandleForHeapStart().ptr + static_cast<SIZE_T>(a_target.rtvBase + a_backIndex) * rtvStride
-			};
 			list->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
 			list->SetPipelineState(pso);
 			list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 			list->DrawInstanced(3, 1, 0, 0);
 
-			barrier(a_target.buffers[a_backIndex], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+			barrier(backbuffer, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
 			barrier(texture, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
 
 			list->Close();
@@ -743,6 +746,10 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			engine.directQueue->ExecuteCommandLists(1, lists);
 			a_slot.fenceValue = nextFenceValue++;
 			engine.directQueue->Signal(fence, a_slot.fenceValue);
+
+			// Drop our backbuffer ref now — the queue holds the resource alive
+			// until the GPU finishes; the swapchain owns it regardless.
+			backbuffer->Release();
 
 			++drawnFrames;
 			if (!firstDrawLogged) {

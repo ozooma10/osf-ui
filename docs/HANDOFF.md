@@ -9,9 +9,10 @@ hook → **visible on screen**. AND fully interactive: with the overlay open the
 game is **input-frozen** (movement + camera), **typing lands in the page**,
 and the **mouse drives a software cursor that clicks the buttons** (Ping
 round-trips to a pong) — all via a WndProc subclass (the engine UI sink can't
-block gameplay; RE notes §3). F10 toggles + releases. ⚠ Next: harden the
-compositor against swapchain resize (a resolution change crashed it — §0),
-then Phase 3/4c polish. See §0/§7.
+block gameplay; RE notes §3). F10 toggles + releases. The swapchain-resize
+crash is **fixed** (compositor no longer caches backbuffer refs — confirm
+once more with a live resolution change). Next: Phase 3 polish + 4c. See
+§0/§7.
 Game is **1.16.244.0** (patched 2026-06-11; SFSE 0.2.21, versionlib-1-16-244
 present in the AIO address library mod).
 
@@ -23,13 +24,13 @@ Phases 1–3 + 4a + 4b are all done/user-verified: the overlay renders over the
 game AND is fully interactive (keyboard + mouse + clickable buttons + input
 freeze). Highest-value next items:
 
-- **⚠ Compositor swapchain-resize hardening (do first).** The compositor
-  caches the swapchain's backbuffer references across frames, which blocks
-  the game's `ResizeBuffers` → a crash was observed after a resolution
-  change (2026-06-12 23:18, AV in the swapchain/present path). Fix: don't
-  hold backbuffer refs — `GetBuffer` per-present and release, or hook
-  `ResizeBuffers`. Until fixed, changing resolution / alt-tab (borderless) /
-  exclusive-fullscreen transitions can crash.
+- **✅ Compositor swapchain-resize crash — FIXED 2026-06-13.** The compositor
+  was caching the swapchain's backbuffer references across frames, blocking
+  the game's `ResizeBuffers` → AV after a resolution change (2026-06-12
+  23:18). Now it does `GetBuffer` + `CreateRTV` per-present and releases the
+  backbuffer immediately (`RecordAndExecute`), so it never holds a ref across
+  frames. No rendering regression (verified 05:18). Worth one more live
+  resolution-change to confirm the crash is gone.
 - **Phase 3 polish** (renderer-plan.md): aspect/native-size placement (it
   stretches to fill — obvious on the 3440×1409 ultrawide test), HDR/10-bit
   backbuffer PSO, pick the scanned-out swapchain under frame-gen,
