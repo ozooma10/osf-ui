@@ -15,4 +15,11 @@ namespace SWUI::Platform
 	// NOT resolve from the plugin's folder, only from the game EXE dir/PATH.
 	// Returns false and sets a_lastError (GetLastError) on failure.
 	bool LoadLibraryAbsolute(const std::filesystem::path& a_path, std::uint32_t& a_lastError);
+
+	// True when [a_address, a_address + a_size) is committed, non-guard,
+	// readable memory (VirtualQuery walk). For probing engine pointers.
+	[[nodiscard]] bool IsReadableRange(std::uintptr_t a_address, std::size_t a_size);
+
+	// Reads one pointer-sized value if the location is readable.
+	[[nodiscard]] bool SafeReadPointer(std::uintptr_t a_address, std::uintptr_t& a_value);
 }

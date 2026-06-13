@@ -194,7 +194,8 @@ namespace SWUI
 	std::unique_ptr<ICompositor> Runtime::CreateCompositor() const
 	{
 		if (_config.compositor == "d3d12") {
-			// Stub: Initialize() fails by design and we fall back to null.
+			// Phase 2: uploads frames to a GPU texture on the game's device
+			// (located lazily; see composite/EngineD3D12.h). No drawing yet.
 			return std::make_unique<D3D12Compositor>();
 		}
 		if (_config.compositor != "null") {

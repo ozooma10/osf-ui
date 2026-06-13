@@ -4,31 +4,40 @@
 
 namespace SWUI
 {
-	// STUB. Future D3D12 overlay compositor. Performs NO hooking, owns NO
-	// device objects, and submits nothing to the GPU.
+	// Phase 2 compositor: uploads the renderer's CPU frames into a GPU
+	// texture using the game's own ID3D12Device + DIRECT queue (located via
+	// composite/EngineD3D12.h — runtime-proven route, no hooks, no device
+	// creation of our own). It does NOT draw anything yet: the texture stays
+	// in COPY_DEST and present-time composition is Phase 3
+	// (docs/renderer-plan.md).
 	//
-	// This class cannot be implemented until the following are known (tracked
-	// in docs/reverse-engineering-notes.md — none of it may be guessed):
-	//   - how to obtain Starfield's ID3D12Device (CreateDevice hook? export
-	//     scan? Renderer singleton?)
-	//   - how to obtain the game's direct command queue for our copy/draw work
-	//   - swapchain access and present timing (where in the frame we may
-	//     record an overlay draw; IDXGISwapChain::Present hook vs. an engine-
-	//     level present callback)
-	//   - descriptor heap strategy (own heaps vs. reserving slots in the
-	//     game's shader-visible heap)
-	//   - resource state transitions expected by the engine around our draw
-	//   - HDR pipelines, dynamic resolution scaling, windowed vs. fullscreen
-	//     swapchain differences
-	//   - coexistence with Steam overlay, ReShade, RTSS and other present-
-	//     chain residents (hook ordering, double-hook detection)
+	// Design notes:
+	//  - The engine objects are located LAZILY on the first Submit (the
+	//    renderer root global is empty during SFSE plugin load; by the time
+	//    frames flow the game is fully alive). Initialize() only resets
+	//    state. Lookup failures retry on a budget, then give up loudly.
+	//  - Submit copies the frame into one slot of a small upload ring and
+	//    records+executes a CopyTextureRegion on the game's direct queue.
+	//    Queues are free-threaded, so submitting from the SFSE tick thread
+	//    is legal; slot reuse is fence-guarded and a busy ring SKIPS frames
+	//    instead of ever blocking the game thread.
+	//  - In devMode the first successful upload is verified end-to-end:
+	//    texture -> readback buffer -> byte compare against the submitted
+	//    pixels. That is the in-log substitute for a PIX capture.
 	class D3D12Compositor final : public ICompositor
 	{
 	public:
+		D3D12Compositor();
+		~D3D12Compositor() override;
+
 		bool Initialize() override;
 		void Shutdown() override;
 		void Submit(const FrameBufferView& a_frame) override;
 
 		[[nodiscard]] std::string_view Name() const override { return "d3d12"; }
+
+	private:
+		struct Impl;
+		std::unique_ptr<Impl> _impl;
 	};
 }

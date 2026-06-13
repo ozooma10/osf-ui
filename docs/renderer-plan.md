@@ -37,14 +37,24 @@ shippable on its own; no phase fakes the next one.
   the test view's automatic `log` + `ping` handshake (no click needed —
   input routing is Phase 4).
 
-## Phase 2 — CPU bitmap upload to D3D12 texture
+## Phase 2 — CPU bitmap upload to D3D12 texture ✅ (verified in-game 2026-06-12)
 
-- Requires the first RE results: a proven way to get the game's
-  `ID3D12Device` and a queue (see reverse-engineering-notes.md).
-- Upload ring (N staging buffers) sized to the view; copy `FrameBufferView`
-  rows honoring `strideBytes`; handle RGBA vs BGRA.
-- No drawing yet — exit criteria is a PIX/RenderDoc capture showing the
-  texture populated without corrupting a frame.
+- ✅ Device/queue route proven first (TODO #4, in `OSF RE/` — see
+  reverse-engineering-notes.md §2); `composite/EngineD3D12.cpp` re-verifies
+  it at runtime with QI + DIRECT-type + COM-identity checks before use.
+- ✅ `D3D12Compositor`: 3-slot upload ring (persistent-mapped staging
+  buffers, 256-aligned row pitch, per-slot fence values); rows copied
+  honoring `strideBytes`; BGRA8/RGBA8 both map to matching DXGI formats;
+  busy ring skips frames (never blocks the game thread); identical frames
+  deduped by `frameIndex`. Engine objects located lazily on first Submit
+  (the renderer root global is empty at SFSE-load time).
+- ✅ Exit criterion met with an automated, stronger substitute for the PIX
+  capture: a one-shot devMode GPU round-trip (texture -> readback buffer ->
+  byte-compare vs the submitted pixels) logged
+  `ROUND-TRIP VERIFIED — GPU texture matches the submitted frame`
+  (2026-06-12 21:37 run). The game kept rendering normally with uploads
+  interleaving on its direct queue. A manual PIX/RenderDoc capture remains
+  worthwhile before Phase 3 draw work.
 
 ## Phase 3 — in-game overlay composition
 

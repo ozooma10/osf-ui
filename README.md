@@ -116,6 +116,11 @@ docs/HANDOFF.md §4.
   to the view folder + ICU resources, and a two-way `window.starfield`
   JSON bridge — verified in-game (devMode dumps the first rendered frame to
   `StarfieldWebUI/ultralight/first-frame.png`).
+- With `compositor: "d3d12"`: the rendered frames upload into a GPU texture
+  created on the game's own `ID3D12Device`, submitted on its direct command
+  queue (route reverse-engineered and QI-verified at runtime; hook-free).
+  Verified in-game with a byte-exact GPU round-trip check. Still no drawing
+  over the game — that is Phase 3.
 - The JSON message bridge parses/dispatches the whitelisted commands
   (`close`, `log`, `ping`, `setVisible`) and rejects everything else.
 - The sample `test` view is a self-contained HTML panel that also runs

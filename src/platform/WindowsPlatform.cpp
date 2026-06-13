@@ -49,4 +49,39 @@ namespace SWUI::Platform
 		}
 		return true;
 	}
+
+	bool IsReadableRange(const std::uintptr_t a_address, const std::size_t a_size)
+	{
+		if (a_address == 0 || a_size == 0) {
+			return false;
+		}
+
+		std::uintptr_t cursor = a_address;
+		const auto end = a_address + a_size;
+		while (cursor < end) {
+			MEMORY_BASIC_INFORMATION mbi{};
+			if (::VirtualQuery(reinterpret_cast<LPCVOID>(cursor), &mbi, sizeof(mbi)) == 0) {
+				return false;
+			}
+			if (mbi.State != MEM_COMMIT || (mbi.Protect & PAGE_GUARD) != 0 ||
+				(mbi.Protect & 0xFF) == PAGE_NOACCESS) {
+				return false;
+			}
+			const auto regionEnd = reinterpret_cast<std::uintptr_t>(mbi.BaseAddress) + mbi.RegionSize;
+			if (regionEnd <= cursor) {
+				return false;
+			}
+			cursor = regionEnd < end ? regionEnd : end;
+		}
+		return true;
+	}
+
+	bool SafeReadPointer(const std::uintptr_t a_address, std::uintptr_t& a_value)
+	{
+		if (!IsReadableRange(a_address, sizeof(std::uintptr_t))) {
+			return false;
+		}
+		a_value = *reinterpret_cast<const std::uintptr_t*>(a_address);
+		return true;
+	}
 }

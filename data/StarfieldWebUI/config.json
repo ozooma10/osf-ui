@@ -1,9 +1,9 @@
 {
   "enabled": true,
   "toggleKey": "F10",
-  "startVisible": false,
+  "startVisible": true,
   "renderer": "ultralight",
-  "compositor": "null",
+  "compositor": "d3d12",
   "inputSource": "ui",
   "view": "test",
   "allowNetwork": false,

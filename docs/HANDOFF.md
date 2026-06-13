@@ -1,14 +1,15 @@
 # StarfieldWebUI — Resume / Handoff
 
-**Last updated:** 2026-06-12 ~21:30
-**Status:** Phase 0 + TODOs #1–#4 **all verified in-game 2026-06-12**.
-Renderer-plan **Phase 1 is complete**: real WebKit (Ultralight 1.4.0) renders
-the test page offscreen inside Starfield with the JS bridge round-tripping
-both directions (20:58 run, PNG proof). **TODO #4 is proven** (21:25 run, in
-`OSF RE/`): hook-free route to the live `ID3D12Device` + DIRECT
-`ID3D12CommandQueue` via REL::ID(944397) — see RE notes §2. Next: **Phase 2**
-(real D3D12Compositor: CPU frame → GPU texture upload ring). The overlay
-still composites to the NullCompositor until then. See §0/§7.
+**Last updated:** 2026-06-12 ~21:45
+**Status:** Phase 0 + TODOs #1–#4 + renderer-plan **Phases 1 AND 2 all
+verified in-game 2026-06-12**. Real WebKit (Ultralight 1.4.0) renders the
+test page offscreen (Phase 1, PNG proof, JS bridge round-trip both ways),
+the D3D12 device + DIRECT queue route is proven hook-free via
+REL::ID(944397) (TODO #4, in `OSF RE/`), and the web frames now upload into
+a GPU texture on the game's own device with a byte-exact GPU round-trip
+proof (`D3D12Compositor: ROUND-TRIP VERIFIED`, 21:37 run). Still nothing
+draws over the game — that is Phase 3. Next: TODO #5 (present timing). See
+§0/§7.
 Game is **1.16.244.0** (patched 2026-06-11; SFSE 0.2.21, versionlib-1-16-244
 present in the AIO address library mod).
 
@@ -16,16 +17,18 @@ present in the AIO address library mod).
 
 ## 0. IMMEDIATE next step
 
-TODO #1/#2/#3/#4 are all ✅ verified in-game (2026-06-12; details in §3/§4,
-renderer-plan.md, and reverse-engineering-notes.md §2). The device + direct
-queue route is proven (REL::ID(944397) chain — RE notes §2), so the next work
-item is **Phase 2: implement D3D12Compositor for real** — upload the
-Ultralight CPU frames into a D3D12 texture via an upload ring (no drawing
-yet; exit criterion is a PIX/RenderDoc capture showing the texture populated
-without corrupting a frame). After that: TODO #5 (present-timing decision,
-groundwork already in `OSF RE`'s RenderPresentProbe — needs re-anchoring).
-Until then the frames go to the NullCompositor; visual checks use the devMode
-PNG dump (`MO2\overwrite\SFSE\Plugins\StarfieldWebUI\ultralight\first-frame.png`).
+TODOs #1–#4 AND **renderer-plan Phase 2** are ✅ verified in-game
+(2026-06-12; details in §3/§4, renderer-plan.md, RE notes §2). The web
+frames now land in a real GPU texture on the game's device
+(`D3D12Compositor`, round-trip-verified). Next work item: **TODO #5 —
+present timing** (engine end-of-frame fn vs `IDXGISwapChain3::Present`
+hook), then Phase 3 composition (descriptor heaps, resource states,
+HDR/DRS, overlay coexistence). Groundwork: `OSF RE`'s RenderPresentProbe
+already captures the live swapchain but uses a raw pre-1.16 offset —
+re-anchor it first; the engine swapchain wrapper layout is in the
+`rendering.graphics_core` module (+0x40 = IDXGISwapChain3/4*,
++0x48 = frame-latency waitable). Visual checks until Phase 3: devMode PNG
+dump (`MO2\overwrite\SFSE\Plugins\StarfieldWebUI\ultralight\first-frame.png`).
 
 Quick re-verify of the Ultralight backend (one launch to the main menu, no
 interaction): expect in `StarfieldWebUI.log` —
@@ -114,7 +117,7 @@ xmake build
 | View manifest discovery + validation | ✅ |
 | Renderer abstraction: Null, Mock (CPU RGBA test pattern), **Ultralight (real, offscreen)** | ✅ |
 | **TODO #3** — Ultralight backend (worker thread, CPU surface, sandbox FS, JS bridge) | ✅ implemented, ✅ **verified in-game 2026-06-12 20:58** (PNG dump + bridge round-trip) |
-| Compositor abstraction: Null, D3D12 stub (fails Initialize by design) | ✅ |
+| Compositor abstraction: Null, **D3D12 (real upload path — Phase 2)** | ✅ implemented, ✅ **verified in-game 2026-06-12 21:37** (GPU round-trip byte-match) |
 | JSON message bridge (whitelist: close/log/ping/setVisible) | ✅ |
 | Sample `test` view (HTML/CSS/JS, runs standalone in a browser too) | ✅ |
 | **TODO #1** — per-frame `Runtime::Tick()` via SFSE `TaskInterface` | ✅ implemented, ✅ **verified in-game 2026-06-12** |
@@ -225,11 +228,35 @@ Fixes (all in working tree as of this writing):
 - `IWebRenderer` grew `SetWebMessageHandler()` (web→native delivery happens
   on the game thread inside `Update()`) and `RendererConfig.dataDir`.
 
+### D3D12 compositor (Phase 2 — done; key facts)
+- `composite/EngineD3D12.cpp` is the ONLY consumer of the proven device
+  route (REL::ID(944397) + offsets from `rendering.graphics_core`). It
+  re-proves the route on every locate: guarded reads, QI on device AND
+  queue, queue type must be DIRECT, queue->GetDevice must be COM-identical
+  to the device. Any failure → null result → compositor retries on a
+  budget (10 attempts, 600 submits apart) then disables itself loudly.
+- Located LAZILY on first Submit: `g_RendererRoot` is empty at SFSE-load
+  time. Same lesson as the Ultralight worker (§ above): do nothing heavy
+  in the plugin-load phase.
+- Upload ring: 3 slots, persistent-mapped upload buffers, 256-aligned row
+  pitch, per-slot fences; busy ring SKIPS frames (never blocks the tick
+  thread); frames deduped by `frameIndex` (the renderer returns its cached
+  frame when nothing repainted — without dedup that was ~600 redundant
+  3.6 MB uploads/sec).
+- `ExecuteCommandLists`/`Signal` on the game's direct queue from the SFSE
+  tick thread is legal (queues are free-threaded); the texture lives in
+  COPY_DEST permanently until Phase 3 needs an SRV.
+- devMode proof: one-shot GPU round-trip (texture → readback → memcmp) —
+  log line `ROUND-TRIP VERIFIED`. Re-run = delete nothing, just relaunch;
+  it fires on the first painted frame (config ships `startVisible=true`).
+
 ### Hard rules being honored
 - No invented addresses/offsets/vtables/menu names. The single vtable ID comes
   from CommonLibSF, not from us.
-- D3D12 compositor `Initialize()` **fails on purpose** so nothing mistakes it
-  for a working present path.
+- D3D12 compositor is now a real **upload** path (Phase 2) but still draws
+  NOTHING over the game — nothing may mistake it for a working present path
+  until Phase 3 lands. Shipped config: `compositor=d3d12`,
+  `startVisible=true` (uploads run from launch; toggle with F10).
 - JS is untrusted: defensive JSON parse, command whitelist, no arbitrary
   native calls, network/filesystem forced off.
 
