@@ -65,3 +65,11 @@ html, body {
   font-variant-numeric: tabular-nums;
   color: #eaf2ff;
 }
+
+.status {
+  margin-top: 8px;
+  font-size: 11px;
+  letter-spacing: 0.3px;
+  color: #8fb0d8;
+  opacity: 0.85;
+}

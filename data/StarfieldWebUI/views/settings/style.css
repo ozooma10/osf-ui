@@ -141,6 +141,16 @@ button {
 button.danger { background: #4a2230; border-color: #a54a5f; }
 button.danger:hover { background: #632e41; }
 
+.credits {
+  margin-top: 16px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(120, 170, 255, 0.18);
+  font-size: 11px;
+  color: #6f7e96;
+  text-align: center;
+  letter-spacing: 0.02em;
+}
+
 .cursor {
   position: fixed;
   left: 0;

@@ -8,7 +8,7 @@
   "zorder": 100,
   "interactive": false,
   "permissions": {
-    "nativeBridge": false,
+    "nativeBridge": true,
     "filesystem": false,
     "network": false
   }
