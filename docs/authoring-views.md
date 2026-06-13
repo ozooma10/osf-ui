@@ -55,6 +55,8 @@ paths, paths with a root, and any `..` component are rejected before disk I/O
   "width": 1280,            // optional, default 1280; clamped to 1..16384
   "height": 720,            // optional, default 720;  clamped to 1..16384
   "transparent": true,      // optional, default true; lets the game show through
+  "zorder": 0,              // optional, default 0; compositing layer when several views are hosted — higher draws on top
+  "interactive": true,      // optional, default true; false = never receives input/focus (e.g. a passive HUD)
   "permissions": {          // optional; everything defaults to DENY
     "nativeBridge": true,   // false ⇒ no window.starfield bridge is created at all
     "filesystem": false,    // reserved; no effect yet
@@ -73,6 +75,30 @@ Notes:
   runs purely client-side.
 - A manifest that fails validation (missing `id`, escaping `entry`) is skipped
   with an error in `StarfieldWebUI.log`.
+
+### Multiple views & layering
+
+Several views can be hosted and composited at once. `config.json` lists them:
+
+```jsonc
+{
+  "view": "settings",                 // the ACTIVE view: receives input + the bridge
+  "views": ["settings", "hud"]        // the set of views to load (membership only)
+}
+```
+
+- **Layering** is by each view's manifest `zorder` (not the array order): lower
+  draws beneath, higher on top; ties keep load order. A HUD with `zorder: 100`
+  always sits above a `zorder: 0` menu.
+- **Focus / input** goes to `config.view`, which must be an `interactive` view.
+  A view with `interactive: false` (a HUD) is never focused and never receives
+  input, even when it is the top layer.
+- **Today only the active view has a live bridge.** Passive overlays should not
+  rely on `window.starfield`. Independent, simultaneously-interactive views need
+  per-view bridge attribution (a planned step) — until then, design extra views
+  as presentational layers.
+- Each view is sized to the whole screen, so position your content with CSS and
+  keep the rest transparent; the layers blend by alpha.
 
 ---
 

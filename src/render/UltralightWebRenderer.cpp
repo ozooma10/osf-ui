@@ -5,6 +5,7 @@
 	#include "core/Log.h"
 	#include "platform/WindowsPlatform.h"
 
+	#include <algorithm>
 	#include <cctype>
 	#include <condition_variable>
 	#include <deque>
@@ -248,7 +249,9 @@ namespace SWUI
 		// threading model.
 		struct ViewState
 		{
-			std::string id;
+			std::string  id;
+			std::int32_t zorder{ 0 };          // layering; lower composites beneath. Set at load, then immutable.
+			bool         interactive{ true };  // may receive input/focus. Set at load, then immutable.
 
 			// shared with the game thread (guarded by Impl::mutex)
 			std::optional<ViewManifest>                            pendingLoad;
@@ -365,7 +368,7 @@ namespace SWUI
 					w.mice.swap(vs->toMouse);
 					work.push_back(std::move(w));
 				}
-				// Views in z-order (bottom-to-top) for harvest + compositing.
+				// Snapshot the views; sorted into z-order just below.
 				std::vector<ViewState*> ordered;
 				ordered.reserve(drawOrder.size());
 				for (const auto& id : drawOrder) {
@@ -374,6 +377,12 @@ namespace SWUI
 					}
 				}
 				lock.unlock();
+
+				// Lowest zorder first = composited at the bottom. Stable, so views
+				// sharing a zorder keep their load order. (zorder is set once at
+				// load, so reading it unlocked here is safe.)
+				std::stable_sort(ordered.begin(), ordered.end(),
+					[](const ViewState* a, const ViewState* b) { return a->zorder < b->zorder; });
 
 				for (auto& w : work) {
 					if (w.load) {
@@ -966,11 +975,15 @@ namespace SWUI
 				slot = std::make_unique<Impl::ViewState>();
 			}
 			slot->id = a_manifest.id;
+			slot->zorder = a_manifest.zorder;
+			slot->interactive = a_manifest.interactive;
 			slot->pendingLoad = a_manifest;
 			if (isNew) {
 				_impl->drawOrder.push_back(a_manifest.id);
 			}
-			if (_impl->activeViewId.empty()) {
+			// First INTERACTIVE view becomes active by default; a passive view
+			// (e.g. a HUD) never auto-focuses. SetActiveView can override.
+			if (_impl->activeViewId.empty() && a_manifest.interactive) {
 				_impl->activeViewId = a_manifest.id;
 			}
 		}
@@ -980,12 +993,18 @@ namespace SWUI
 	void UltralightWebRenderer::SetActiveView(std::string_view a_id)
 	{
 		std::scoped_lock lk(_impl->mutex);
-		if (_impl->views.find(std::string(a_id)) != _impl->views.end()) {
-			_impl->activeViewId = std::string(a_id);
-		} else {
+		const auto it = _impl->views.find(std::string(a_id));
+		if (it == _impl->views.end()) {
 			REX::WARN("UltralightWebRenderer: SetActiveView('{}') ignored — view not loaded (active stays '{}')",
 				a_id, _impl->activeViewId);
+			return;
 		}
+		if (!it->second->interactive) {
+			REX::WARN("UltralightWebRenderer: SetActiveView('{}') ignored — view is not interactive (active stays '{}')",
+				a_id, _impl->activeViewId);
+			return;
+		}
+		_impl->activeViewId = std::string(a_id);
 	}
 
 	void UltralightWebRenderer::Resize(std::uint32_t a_width, std::uint32_t a_height)

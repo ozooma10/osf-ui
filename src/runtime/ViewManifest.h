@@ -22,6 +22,8 @@ namespace SWUI
 		std::uint32_t         width{ 1280 };
 		std::uint32_t         height{ 720 };
 		bool                  transparent{ true };
+		std::int32_t          zorder{ 0 };         // compositing layer; lower draws beneath, higher on top
+		bool                  interactive{ true };  // may receive input and become the active (focused) view
 		ViewPermissions       permissions;
 		std::filesystem::path rootDir;  // directory containing the manifest
 

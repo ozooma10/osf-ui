@@ -22,6 +22,8 @@ namespace SWUI
 		manifest.height = static_cast<std::uint32_t>(std::clamp<std::int64_t>(
 			Json::GetInt(*json, "height", manifest.height), 1, 16384));
 		manifest.transparent = Json::GetBool(*json, "transparent", manifest.transparent);
+		manifest.zorder = static_cast<std::int32_t>(Json::GetInt(*json, "zorder", manifest.zorder));
+		manifest.interactive = Json::GetBool(*json, "interactive", manifest.interactive);
 
 		if (const auto it = json->find("permissions"); it != json->end() && it->is_object()) {
 			manifest.permissions.nativeBridge = Json::GetBool(*it, "nativeBridge", false);

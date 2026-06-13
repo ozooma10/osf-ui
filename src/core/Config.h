@@ -14,9 +14,10 @@ namespace SWUI
 		std::string inputSource{ "none" }; // "none" | "ui" (observe-only vfunc hook on RE::UI input processing)
 		bool        captureInput{ true };  // when visible, route input to the web view and block the game from acting on it (needs inputSource="ui")
 		std::string view{ "test" };
-		// Optional multi-view layer stack. When non-empty, every id is loaded and
-		// composited bottom-to-top (array order), and `view` is the active (input)
-		// view. When empty, only `view` is loaded. Missing ids are skipped.
+		// Optional multi-view set. When non-empty, every id is loaded and
+		// composited together (layer order = each view's manifest `zorder`), and
+		// `view` is the active (input) view — it must be an interactive view.
+		// When empty, only `view` is loaded. Missing ids are skipped.
 		std::vector<std::string> views;
 		bool        allowNetwork{ false };  // reserved; nothing implements network access
 		bool        devMode{ false };  // release-safe default; the shipped config / a dev override turns on verbose logging

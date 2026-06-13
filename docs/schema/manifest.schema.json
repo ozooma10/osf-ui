@@ -44,6 +44,16 @@
       "default": true,
       "description": "Render with an alpha channel so the game shows through unpainted areas."
     },
+    "zorder": {
+      "type": "integer",
+      "default": 0,
+      "description": "Compositing layer when several views are hosted. Lower draws beneath, higher on top. Ties keep load order."
+    },
+    "interactive": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether this view may receive input and become the active (focused) view. Set false for passive overlays like a HUD."
+    },
     "permissions": {
       "type": "object",
       "additionalProperties": false,
