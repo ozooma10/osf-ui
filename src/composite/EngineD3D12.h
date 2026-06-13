@@ -5,18 +5,16 @@ struct ID3D12CommandQueue;
 
 namespace SWUI
 {
-	// The game's live D3D12 objects, located via the route runtime-proven in
-	// OSF RE (Investigations/Requests/2026-06-12-d3d12-device-route.md,
-	// context module rendering.graphics_core, game 1.16.244):
+	// The game's live D3D12 objects. The version-anchored route to them now
+	// lives in CommonLibSF as RE::CreationRendererPrivate::Renderer (REL::ID
+	// 944397 -> g_RendererRoot); see that header for the proven offset chain.
 	//
-	//   root   = *(void**)REL::ID(944397)                       // g_RendererRoot
-	//   device = [[root+0x30] + 0x418]                          // arDeviceProperties.pDxDevice
-	//   queue  = [[[root+0x28] + 0x08] + 0x60]                  // the swap chain's DIRECT queue
-	//
-	// Locate() does NOT trust those offsets blindly: every hop is a guarded
-	// read and the results only count if QueryInterface succeeds, the queue
-	// reports D3D12_COMMAND_LIST_TYPE_DIRECT, and queue->GetDevice is
-	// COM-identical to the device. On any failure both pointers stay null.
+	// Locate() does NOT trust the engine accessor blindly: the device and queue
+	// it returns only count if QueryInterface succeeds, the queue reports
+	// D3D12_COMMAND_LIST_TYPE_DIRECT, and queue->GetDevice() is COM-identical to
+	// the device. That consumer-side guard is what makes a stale layout (after a
+	// game patch) fail closed instead of feeding the compositor a bad pointer.
+	// On any failure both pointers stay null.
 	//
 	// The returned interfaces are AddRef'd (by QI); the caller owns one
 	// reference to each and must Release them.
