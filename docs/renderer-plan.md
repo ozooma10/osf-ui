@@ -88,11 +88,34 @@ Phase 3 polish still open (none block "pixels on screen"):
 
 ## Phase 4 — input focus and text entry
 
-- Identify the real Starfield input event source (PC keyboard/mouse first).
-- Focus model: overlay-visible captures input vs pass-through; ESC behavior;
-  pause interaction.
-- Route through `InputRouter` into the web view (Ultralight key/mouse
-  events); IME/text input last.
+### 4a — focus + consumption + keyboard ✅ (verified in-game 2026-06-12)
+
+- ✅ Focus model: `captureInput` config + overlay-visible = captured.
+  Runtime::IsInputCaptured() is the single source of truth; F10 toggles, Esc
+  closes.
+- ✅ **Input consumption — the hard part (TODO #7).** The engine UI input
+  sink (UI::PerformInputProcessing) CANNOT block gameplay: movement and
+  camera/mouse-look read the same input via sibling sinks, so neither an
+  empty UI queue nor marking events consumed (status/disabled) stops the
+  player (both proven to fail in-game). The working mechanism is a **WndProc
+  subclass on the game window** (`input/OverlayInputHook`, via
+  `SetWindowLongPtr` — not a global Win32 hook): while captured it consumes
+  `WM_INPUT` (raw mouse-look + keyboard), `WM_KEY*`, `WM_CHAR`, and all mouse
+  messages, so the game freezes. Verified in-game: with the overlay open the
+  character and camera are fully frozen, F10 releases.
+- ✅ Keyboard routed into the view: the WndProc feeds VK codes →
+  `InputRouter` → `UltralightWebRenderer::InjectKeyEvent` → `View::FireKeyEvent`
+  (RawKeyDown/KeyUp + a Char event for printable keys via
+  GetKeyFromVirtualKeyCode). Typing appears in the page's focused field.
+  The old engine-event input path (UiInputHook) is now observe-only.
+
+### 4b — mouse + cursor (next)
+
+- WM_INPUT raw mouse deltas → a virtual cursor (view space; the OS cursor is
+  hidden during gameplay, so accumulate deltas instead of fighting it) →
+  route MouseMoved/Down/Up into the view; draw a visible pointer.
+- Makes the page's buttons (Ping/Close) clickable in-game.
+- Later: scroll, IME/Unicode text (WM_CHAR path), gamepad, ESC/pause nuance.
 
 ## Phase 5 — MCM-style schema-driven UI
 

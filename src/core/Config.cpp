@@ -26,6 +26,7 @@ namespace SWUI
 		config.renderer = Json::GetString(*json, "renderer", config.renderer);
 		config.compositor = Json::GetString(*json, "compositor", config.compositor);
 		config.inputSource = Json::GetString(*json, "inputSource", config.inputSource);
+		config.captureInput = Json::GetBool(*json, "captureInput", config.captureInput);
 		config.view = Json::GetString(*json, "view", config.view);
 		config.allowNetwork = Json::GetBool(*json, "allowNetwork", config.allowNetwork);
 		config.devMode = Json::GetBool(*json, "devMode", config.devMode);
@@ -37,8 +38,8 @@ namespace SWUI
 			config.allowNetwork = false;
 		}
 
-		REX::INFO("Config: loaded {} (renderer={}, compositor={}, inputSource={}, view={}, devMode={})",
-			a_path.string(), config.renderer, config.compositor, config.inputSource, config.view, config.devMode);
+		REX::INFO("Config: loaded {} (renderer={}, compositor={}, inputSource={}, captureInput={}, view={}, devMode={})",
+			a_path.string(), config.renderer, config.compositor, config.inputSource, config.captureInput, config.view, config.devMode);
 		return config;
 	}
 }

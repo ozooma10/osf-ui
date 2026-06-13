@@ -59,26 +59,56 @@ namespace SWUI
 		return kInvalidKeyCode;
 	}
 
+	namespace
+	{
+		constexpr KeyCode kVkEscape = 0x1B;
+	}
+
 	void InputRouter::Configure(KeyCode a_toggleKey, std::function<void()> a_toggleVisibility)
 	{
 		_toggleKey = a_toggleKey;
 		_toggleVisibility = std::move(a_toggleVisibility);
 	}
 
+	void InputRouter::SetWebRouting(std::function<bool()> a_isCaptured,
+		std::function<void(KeyCode, bool)> a_routeKey)
+	{
+		_isCaptured = std::move(a_isCaptured);
+		_routeKey = std::move(a_routeKey);
+	}
+
 	void InputRouter::OnKeyDown(KeyCode a_key)
 	{
-		// Toggle path: fed by UiInputHook when inputSource="ui".
-		if (_toggleKey != kInvalidKeyCode && a_key == _toggleKey && _toggleVisibility) {
-			_toggleVisibility();
+		// Toggle path: fed by UiInputHook when inputSource="ui". Handled before
+		// capture so the toggle key always works, even while the overlay owns
+		// input. ESC also closes the overlay when captured.
+		const bool captured = Captured();
+		if (_toggleVisibility) {
+			if (_toggleKey != kInvalidKeyCode && a_key == _toggleKey) {
+				_toggleVisibility();
+				return;
+			}
+			if (captured && a_key == kVkEscape) {
+				_toggleVisibility();
+				return;
+			}
+		}
+
+		if (captured && _routeKey) {
+			_routeKey(a_key, true);
 			return;
 		}
 		if (Log::DevMode()) {
-			REX::DEBUG("InputRouter: OnKeyDown({}) (not routed — no web focus model yet)", a_key);
+			REX::DEBUG("InputRouter: OnKeyDown({}) (overlay not capturing — passed to game)", a_key);
 		}
 	}
 
 	void InputRouter::OnKeyUp(KeyCode a_key)
 	{
+		if (Captured() && _routeKey) {
+			_routeKey(a_key, false);
+			return;
+		}
 		if (Log::DevMode()) {
 			REX::DEBUG("InputRouter: OnKeyUp({})", a_key);
 		}

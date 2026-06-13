@@ -12,6 +12,7 @@ namespace SWUI
 		std::string renderer{ "mock" };    // "null" | "mock" | "ultralight"
 		std::string compositor{ "null" };  // "null" | "d3d12" (d3d12 is a stub)
 		std::string inputSource{ "none" }; // "none" | "ui" (observe-only vfunc hook on RE::UI input processing)
+		bool        captureInput{ true };  // when visible, route input to the web view and block the game from acting on it (needs inputSource="ui")
 		std::string view{ "test" };
 		bool        allowNetwork{ false };  // reserved; nothing implements network access
 		bool        devMode{ true };

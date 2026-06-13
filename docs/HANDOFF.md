@@ -1,15 +1,16 @@
 # StarfieldWebUI — Resume / Handoff
 
-**Last updated:** 2026-06-12 ~22:15
-**Status:** 🎉 **END-TO-END WORKING IN-GAME.** Phase 0 + TODOs #1–#5 +
-renderer-plan **Phases 1, 2 AND 3** all done/verified 2026-06-12. The full
-pipeline shows pixels over Starfield: WebKit (Ultralight 1.4.0) renders the
-view offscreen → cached frame → uploaded to a GPU texture on the game's own
-device → drawn as an alpha-blended quad in an `IDXGISwapChain::Present`
-slot-8 hook → **visible on screen, user-confirmed**, stable across thousands
-of presents, correct colors/alpha. F10 toggles it. Next: Phase 3 polish
-(aspect/HDR/coexistence — renderer-plan.md) or Phase 4 (route input into the
-view so the buttons are clickable in-game). See §0/§7.
+**Last updated:** 2026-06-12 ~23:15
+**Status:** 🎉 **END-TO-END WORKING + INTERACTIVE.** Phase 0 + TODOs #1–#5 +
+renderer-plan **Phases 1, 2, 3 AND 4a** all done/verified 2026-06-12. Pixels
+over Starfield: WebKit (Ultralight 1.4.0) renders offscreen → GPU texture on
+the game's device → alpha-blended quad in an `IDXGISwapChain::Present` slot-8
+hook → **visible on screen, user-confirmed**. AND it's now interactive: with
+the overlay open the game is **input-frozen** (movement + camera) and
+**typing lands in the page** — done via a WndProc subclass (the engine UI
+sink can't block gameplay; RE notes §3). F10 toggles + releases input. Next:
+Phase 4b (mouse → virtual cursor → clickable buttons + visible pointer). See
+§0/§7.
 Game is **1.16.244.0** (patched 2026-06-11; SFSE 0.2.21, versionlib-1-16-244
 present in the AIO address library mod).
 
@@ -17,16 +18,16 @@ present in the AIO address library mod).
 
 ## 0. IMMEDIATE next step
 
-The hard climb is done — Phase 3 composition is **live and user-verified**
-in-game (2026-06-12). The whole stack renders pixels over Starfield; F10
-toggles. Pick the next track:
+Phase 3 composition is live + user-verified, and Phase 4a made it
+interactive (keyboard + input freeze via the WndProc subclass). Pick the next
+track:
 
-- **Phase 4 — make it interactive.** Route the already-observed input
-  (UiInputHook, RE notes §3) INTO the Ultralight view: mouse move/click →
-  `View::FireMouseEvent`, keys/chars → `FireKeyEvent`, plus a focus model
-  (overlay-visible captures input vs pass-through) so the test panel's
-  Ping/Close buttons work in-game. The bridge + JS round-trip already work
-  (Phase 1); this closes the loop.
+- **Phase 4b — mouse + cursor.** In `input/OverlayInputHook` parse `WM_INPUT`
+  raw mouse deltas → accumulate a virtual cursor in view space → route
+  MouseMoved/Down/Up into the view (add `InjectMouse*` to the renderer,
+  mirroring `InjectKeyEvent`) → draw/show a pointer. Makes Ping/Close
+  clickable in-game. The OS cursor is hidden in gameplay, so use raw deltas,
+  don't fight it.
 - **Phase 3 polish** (renderer-plan.md): aspect/native-size placement (it
   stretches to fill now), HDR/10-bit backbuffer PSO, pick the scanned-out
   swapchain under frame-gen, Steam/ReShade/RTSS coexistence, resize/alt-tab.

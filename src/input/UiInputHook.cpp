@@ -5,6 +5,7 @@
 #include "RE/U/UI.h"
 #include "SFSE/InputMap.h"
 
+#include "core/Log.h"
 #include "runtime/Runtime.h"
 
 namespace SWUI
@@ -26,40 +27,27 @@ namespace SWUI
 
 		void ObserveButtonEvent(const RE::ButtonEvent* a_event)
 		{
-			// Keyboard idCodes are Windows VK codes (in-game proof in
-			// InputTypes.h); the router speaks the same space.
-			auto& input = Runtime::Get().Input();
-
+			// Observe-only diagnostics. Input ROUTING and CONSUMPTION moved to
+			// the WndProc hook (input/OverlayInputHook): the engine UI sink
+			// can neither block gameplay nor see input once the WndProc
+			// consumes it, so driving the router from here would only
+			// double-handle the toggle. This stays as a layout/observation
+			// canary (the VerifyUiLayout guard runs at Install).
+			if (!Log::DevMode()) {
+				return;
+			}
 			switch (a_event->deviceType) {
 				case RE::InputEvent::DeviceType::kKeyboard:
-				{
-					const auto code = static_cast<KeyCode>(a_event->idCode);
-					if (a_event->value != 0.0f) {
-						// Initial press only; held repeats have heldDownSecs > 0.
-						if (a_event->heldDownSecs == 0.0f) {
-							input.OnKeyDown(code);
-						}
-					} else {
-						input.OnKeyUp(code);
+					if (a_event->value != 0.0f && a_event->heldDownSecs == 0.0f) {
+						REX::DEBUG("UiInputHook: observed key press idCode={} (VK)", a_event->idCode);
 					}
 					break;
-				}
 				case RE::InputEvent::DeviceType::kMouse:
-				{
-					if (a_event->idCode <= 2) {
-						const bool pressed = a_event->value != 0.0f;
-						// Initial press only — but releases always have
-						// heldDownSecs > 0, so they must not be filtered
-						// (verified in-game: the old filter ate every
-						// mouse-up).
-						if (!pressed || a_event->heldDownSecs == 0.0f) {
-							input.OnMouseButton(static_cast<MouseButton>(a_event->idCode), pressed);
-						}
+					if (a_event->idCode <= 2 && a_event->value != 0.0f && a_event->heldDownSecs == 0.0f) {
+						REX::DEBUG("UiInputHook: observed mouse button {}", a_event->idCode);
 					}
 					break;
-				}
 				default:
-					// Gamepad routing needs a focus model first (Phase 4).
 					break;
 			}
 		}
@@ -73,8 +61,10 @@ namespace SWUI
 					}
 				}
 			}
-			// ALWAYS forward the unmodified queue. This hook observes; it
-			// must never change what the game sees.
+			// ALWAYS forward unmodified — this hook is observe-only again.
+			// Consumption happens upstream at the WndProc (OverlayInputHook);
+			// when the overlay captures, the game builds no input queue at all,
+			// so this thunk simply sees nothing.
 			g_original(a_this, a_queueHead);
 		}
 	}

@@ -132,16 +132,38 @@ Phase 3 caveats from the same run:
   behaviors, and coexistence with Steam overlay/ReShade/RTSS (hook-chain
   friendliness) — all documented in `composite/D3D12Compositor.h`.
 
-### 3. Input event source — ◐ OBSERVATION SOLVED, consumption open (2026-06-12)
+### 3. Input — ✅ OBSERVATION + CONSUMPTION + KEYBOARD SOLVED (2026-06-12)
 
-**Observation** is implemented in `input/UiInputHook.cpp`: `RE::UI` derives
-from `BSInputEventReceiver` (its second base — `BSTSingletonSDM<UI>` is first
-and virtual, see the incident note above), whose vfunc
-`PerformInputProcessing(const InputEvent*)` receives the per-frame input
-queue. We vfunc-swap slot 1 of `RE::UI::VTABLE[10]` (AddressLib ID 475439 —
-proven to be the receiver's vtable, see the incident note; the live vptr is
-verified to match before the swap), observe `ButtonEvent`s, and always
-forward the unmodified queue. **Verified in-game 2026-06-12.**
+**Consumption (the hard part) is solved at the WndProc, NOT the engine input
+sink.** Proven in-game 2026-06-12: the UI input sink
+(`UI::PerformInputProcessing`) is only ONE of several sinks on the shared
+input queue; gameplay movement and camera/mouse-look read the same input
+through sibling paths (OSF RE `platform.input_windowing`: the translated-input
+fanout hits `BSInputDeviceManager`, `MenuControls`, `MenuCursor`, `UI`, …).
+So **neither** passing the UI sink an empty queue **nor** marking every event
+consumed (`InputEvent::status = kStop` + `IDEvent::disabled`) stops the
+player — both were tried and both failed. The working mechanism is
+`input/OverlayInputHook.cpp`: a **WndProc subclass** on the game's own window
+(`SetWindowLongPtr(GWLP_WNDPROC)` — a window subclass, NOT a global
+`SetWindowsHookEx`). While `Runtime::IsInputCaptured()`, it consumes
+`WM_INPUT` (raw mouse-look + keyboard), `WM_KEY*`, `WM_CHAR`, and all mouse
+messages, freezing the game; the toggle key is always consumed so it never
+leaks. Keyboard is routed from the WndProc (VK → `InputRouter` →
+`UltralightWebRenderer::InjectKeyEvent` → `View::FireKeyEvent`). **Verified
+in-game 2026-06-12: movement + camera fully frozen with the overlay open,
+typing lands in the page, F10 releases.** (Earlier worry that a WndProc
+subclass "fights the game loop / breaks controller parity" did not bear out
+for keyboard+mouse; gamepad parity is a later concern.)
+
+**Observation** is still implemented in `input/UiInputHook.cpp` (now
+observe-only/diagnostic): `RE::UI` derives from `BSInputEventReceiver` (its
+second base — `BSTSingletonSDM<UI>` is first and virtual, see the incident
+note above), whose vfunc `PerformInputProcessing(const InputEvent*)` receives
+the per-frame input queue. We vfunc-swap slot 1 of `RE::UI::VTABLE[10]`
+(AddressLib ID 475439 — proven to be the receiver's vtable; the live vptr is
+verified to match before the swap), and forward the unmodified queue. The
+`VerifyUiLayout()` guard at install is a useful layout canary. **Verified
+in-game 2026-06-12.**
 
 Key space, proven by observation (not the DIK/InputMap space previously
 assumed here): keyboard `idCode` = **Windows VK codes** (F10 → 121 =
@@ -155,16 +177,17 @@ Menu lifecycle observation also implemented, hook-free:
 `input/MenuEventSink.cpp` registers a `BSTEventSink<MenuOpenCloseEvent>` on
 the UI singleton via the documented `RegisterSink` API (kPostPostDataLoad).
 
-Still open:
-- In-game verification of both (thread the events arrive on, event ordering,
-  whether `heldDownSecs == 0` reliably marks the initial press).
-- How to *consume* input (prevent the game acting on it) while the overlay
-  has focus — likely menu-mode related; probably requires registering a real
-  `IMenu` or manipulating `BSInputEventUser::inputEventHandlingEnabled`-style
-  paths. Unknown; do not guess.
-- Text input (`CharacterEvent`) and cursor routing for Phase 4.
-- Raw Win32 fallbacks (WndProc subclass / Raw Input) remain out of scope:
-  they fight the game loop and break controller parity.
+Still open (Phase 4b and later):
+- **Mouse + cursor.** The OS cursor is hidden/clipped during gameplay, so
+  read `WM_INPUT` raw mouse deltas in the WndProc, accumulate a virtual
+  cursor in view space, route MouseMoved/Down/Up into the view, and draw a
+  visible pointer. This makes the page buttons clickable. (We chose the
+  WndProc + raw-delta route because `MouseMoveEvent`'s layout isn't in
+  CommonLibSF and must not be guessed.)
+- Unicode/IME text via the `WM_CHAR` path (current keyboard routing
+  translates VK→char US-layout-only).
+- Gamepad routing + controller parity once a focus model for pads exists.
+- ESC/pause nuance, save/load force-hide.
 
 ### 4. Menu/pause/UI lifecycle questions
 

@@ -71,6 +71,23 @@ document.getElementById("close").addEventListener("click", () => {
   sendToNative("ui.command", { command: "close" });
 });
 
+// Keyboard routing proof (Phase 4): show the last key the native side routed
+// in, and keep the text field focused so typed characters land somewhere
+// visible. The input's own value updating is the proof that kChar events
+// reach the focused DOM element.
+const textEl = document.getElementById("text");
+const keysEl = document.getElementById("keys");
+
+document.addEventListener("keydown", (e) => {
+  keysEl.textContent = `last key: ${e.key} (code ${e.keyCode})`;
+});
+
+if (textEl) {
+  // Re-assert focus so typing always has a target even if focus drifts.
+  textEl.focus();
+  textEl.addEventListener("blur", () => setTimeout(() => textEl.focus(), 0));
+}
+
 if (bridgeAvailable()) {
   statusEl.textContent = "Bridge detected, waiting for runtime.ready…";
   // Automatic handshake: prove the web -> native -> web round trip without

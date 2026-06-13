@@ -66,6 +66,12 @@ namespace SWUI
 		using WebMessageHandler = std::function<void(std::string_view)>;
 		virtual void SetWebMessageHandler(WebMessageHandler) {}
 
+		// Delivers one keyboard transition into the web view. a_vkCode is a
+		// Windows virtual-key code (the space Starfield ButtonEvents carry).
+		// Thread-safe to call from the input thread; backends with a JS engine
+		// dispatch it onto their own thread. No-op for backends without one.
+		virtual void InjectKeyEvent(std::uint32_t /*a_vkCode*/, bool /*a_down*/) {}
+
 		[[nodiscard]] virtual std::string_view Name() const = 0;
 	};
 }

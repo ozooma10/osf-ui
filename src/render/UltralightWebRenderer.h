@@ -46,6 +46,7 @@ namespace SWUI
 		std::optional<FrameBufferView> Render() override;
 		void SendMessageToWeb(std::string_view a_json) override;
 		void SetWebMessageHandler(WebMessageHandler a_handler) override;
+		void InjectKeyEvent(std::uint32_t a_vkCode, bool a_down) override;
 
 		[[nodiscard]] std::string_view Name() const override { return "ultralight"; }
 

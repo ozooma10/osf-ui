@@ -32,6 +32,19 @@ namespace SWUI
 		void ToggleVisible();
 		[[nodiscard]] bool IsVisible() const;
 
+		// True when the overlay currently owns input: visible AND config
+		// captureInput is on. Read by the WndProc hook (OverlayInputHook) to
+		// decide whether to consume game input, and by the InputRouter to
+		// decide whether to route keys into the web view. Thread-safe.
+		[[nodiscard]] bool IsInputCaptured() const;
+
+		// Called by the WndProc hook for each keyboard transition (Windows VK
+		// code). Drives the toggle key and, while captured, routes the key
+		// into the web view. Returns true if the caller should CONSUME the key
+		// (i.e. not pass it to the game) — true while captured or for the
+		// toggle key. Runs on the window-message thread.
+		bool OnHostKey(std::uint32_t a_vkCode, bool a_down);
+
 		// Renders and submits one frame if the overlay is visible. Split out
 		// from Tick so a future present-side hook can drive submission at a
 		// different cadence than logic updates.
@@ -56,6 +69,7 @@ namespace SWUI
 		std::unique_ptr<ICompositor>  _compositor;
 		std::unique_ptr<MessageBridge> _bridge;
 		InputRouter                   _input;
+		KeyCode                       _toggleKey{ kInvalidKeyCode };
 		std::atomic_bool              _visible{ false };
 		bool                          _initialized{ false };
 	};

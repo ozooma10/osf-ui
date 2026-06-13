@@ -206,6 +206,13 @@ namespace SWUI
 		std::deque<std::string>                                 toWeb;     // game -> page
 		std::deque<std::string>                                 toNative;  // page -> game
 
+		struct KeyInput
+		{
+			std::uint32_t vk{ 0 };
+			bool          down{ false };
+		};
+		std::deque<KeyInput> toInput;  // game -> view (keyboard)
+
 		// ---- frame exchange ----
 		struct Frame
 		{
@@ -231,6 +238,12 @@ namespace SWUI
 		bool                     domReady{ false };
 		std::deque<std::string>  stashedToWeb;  // arrived before the page was ready
 		bool                     dumpedFirstFrame{ false };
+
+		// worker-thread keyboard modifier state (tracked from the VK stream)
+		bool modShift{ false };
+		bool modCtrl{ false };
+		bool modAlt{ false };
+		bool loggedFirstKey{ false };
 
 		// The JSC postMessage callback is a plain function pointer with no
 		// user-data slot, so it finds us through this. One renderer per
@@ -259,6 +272,8 @@ namespace SWUI
 				auto resize = std::exchange(pendingResize, std::nullopt);
 				std::deque<std::string> outbound;
 				outbound.swap(toWeb);
+				std::deque<KeyInput> keys;
+				keys.swap(toInput);
 				lock.unlock();
 
 				if (load) {
@@ -269,6 +284,9 @@ namespace SWUI
 				}
 				for (auto& msg : outbound) {
 					stashedToWeb.push_back(std::move(msg));
+				}
+				for (const auto& key : keys) {
+					ProcessKeyInput(key);
 				}
 				PumpUltralight();
 
@@ -485,6 +503,84 @@ namespace SWUI
 			}
 		}
 
+		// ================= keyboard input (worker thread) =================
+
+		[[nodiscard]] unsigned CurrentModifiers() const
+		{
+			unsigned m = 0;
+			if (modShift) {
+				m |= ul::KeyEvent::kMod_ShiftKey;
+			}
+			if (modCtrl) {
+				m |= ul::KeyEvent::kMod_CtrlKey;
+			}
+			if (modAlt) {
+				m |= ul::KeyEvent::kMod_AltKey;
+			}
+			return m;
+		}
+
+		void ProcessKeyInput(const KeyInput& a_key)
+		{
+			if (!view) {
+				return;
+			}
+
+			// Track modifier state from the VK stream (Windows VK_* codes).
+			switch (a_key.vk) {
+			case 0x10:           // VK_SHIFT
+			case 0xA0: case 0xA1:  // VK_LSHIFT / VK_RSHIFT
+				modShift = a_key.down;
+				break;
+			case 0x11:           // VK_CONTROL
+			case 0xA2: case 0xA3:  // VK_LCONTROL / VK_RCONTROL
+				modCtrl = a_key.down;
+				break;
+			case 0x12:           // VK_MENU (Alt)
+			case 0xA4: case 0xA5:  // VK_LMENU / VK_RMENU
+				modAlt = a_key.down;
+				break;
+			default:
+				break;
+			}
+
+			if (!loggedFirstKey) {
+				loggedFirstKey = true;
+				REX::INFO("UltralightWebRenderer: first key routed into the view (vk={:#x}, down={})", a_key.vk, a_key.down);
+			}
+
+			ul::KeyEvent key;
+			key.virtual_key_code = static_cast<int>(a_key.vk);
+			key.native_key_code = static_cast<int>(a_key.vk);
+			key.modifiers = CurrentModifiers();
+			ul::GetKeyIdentifierFromVirtualKeyCode(key.virtual_key_code, key.key_identifier);
+
+			if (a_key.down) {
+				key.type = ul::KeyEvent::kType_RawKeyDown;
+				view->FireKeyEvent(key);
+
+				// Emit a Char event for text-producing keys (skip while Ctrl/Alt
+				// are held so shortcuts like Ctrl+C don't type a character).
+				if (!modCtrl && !modAlt) {
+					ul::String keyText;
+					ul::GetKeyFromVirtualKeyCode(key.virtual_key_code, modShift, keyText);
+					const auto utf8 = ToUTF8(keyText);
+					// Single printable character -> real text input.
+					if (utf8.size() == 1 && static_cast<unsigned char>(utf8[0]) >= 0x20) {
+						ul::KeyEvent ch;
+						ch.type = ul::KeyEvent::kType_Char;
+						ch.modifiers = key.modifiers;
+						ch.text = keyText;
+						ch.unmodified_text = keyText;
+						view->FireKeyEvent(ch);
+					}
+				}
+			} else {
+				key.type = ul::KeyEvent::kType_KeyUp;
+				view->FireKeyEvent(key);
+			}
+		}
+
 		// ================= Ultralight listeners (worker thread) =================
 
 		void OnWindowObjectReady(ul::View*, std::uint64_t, bool a_isMainFrame, const ul::String&) override
@@ -499,6 +595,9 @@ namespace SWUI
 			if (a_isMainFrame) {
 				domReady = true;
 				REX::INFO("UltralightWebRenderer: DOM ready ({})", ToUTF8(a_url));
+				// Give the view input focus so routed key events reach the
+				// focused DOM element (the page autofocuses its input).
+				view->Focus();
 				FlushStashedMessages();
 			}
 		}
@@ -682,6 +781,20 @@ namespace SWUI
 	void UltralightWebRenderer::SetWebMessageHandler(WebMessageHandler a_handler)
 	{
 		_impl->onWebMessage = std::move(a_handler);
+	}
+
+	void UltralightWebRenderer::InjectKeyEvent(std::uint32_t a_vkCode, bool a_down)
+	{
+		{
+			std::scoped_lock lk(_impl->mutex);
+			// Bound the queue so a stuck worker can't accumulate unbounded
+			// keystrokes; dropping the oldest keeps the newest responsive.
+			if (_impl->toInput.size() >= kMaxQueuedMessages) {
+				_impl->toInput.pop_front();
+			}
+			_impl->toInput.push_back(Impl::KeyInput{ .vk = a_vkCode, .down = a_down });
+		}
+		_impl->wake.notify_all();
 	}
 }
 

@@ -5,6 +5,7 @@
   "renderer": "ultralight",
   "compositor": "d3d12",
   "inputSource": "ui",
+  "captureInput": true,
   "view": "test",
   "allowNetwork": false,
   "devMode": true

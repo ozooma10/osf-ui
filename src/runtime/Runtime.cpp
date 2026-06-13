@@ -93,11 +93,21 @@ namespace SWUI
 		// Input. Events reach the router only when the UiInputHook is
 		// installed and enabled (config inputSource="ui", wired in
 		// core/Plugin.cpp at kPostPostDataLoad).
-		const auto toggleKey = ResolveKeyName(_config.toggleKey);
-		if (toggleKey != kInvalidKeyCode) {
-			REX::INFO("Runtime: toggleKey '{}' resolved to VK code {:#x}", _config.toggleKey, toggleKey);
+		_toggleKey = ResolveKeyName(_config.toggleKey);
+		if (_toggleKey != kInvalidKeyCode) {
+			REX::INFO("Runtime: toggleKey '{}' resolved to VK code {:#x}", _config.toggleKey, _toggleKey);
 		}
-		_input.Configure(toggleKey, [this] { ToggleVisible(); });
+		_input.Configure(_toggleKey, [this] { ToggleVisible(); });
+
+		// Keyboard routing into the web view, gated by capture state (Phase 4).
+		_input.SetWebRouting(
+			[this] { return IsInputCaptured(); },
+			[this](KeyCode a_key, bool a_down) {
+				if (_renderer) {
+					_renderer->InjectKeyEvent(a_key, a_down);
+				}
+			});
+		REX::INFO("Runtime: input capture {} (config captureInput)", _config.captureInput ? "enabled" : "disabled");
 
 		_visible.store(_config.startVisible);
 		if (_compositor) {
@@ -158,6 +168,25 @@ namespace SWUI
 	bool Runtime::IsVisible() const
 	{
 		return _visible.load();
+	}
+
+	bool Runtime::IsInputCaptured() const
+	{
+		return _initialized && _config.captureInput && _visible.load();
+	}
+
+	bool Runtime::OnHostKey(std::uint32_t a_vkCode, bool a_down)
+	{
+		// Decide consumption before routing: capturing OR the toggle key must
+		// not reach the game. (The toggle press itself is captured so opening
+		// the overlay never also acts in-game.)
+		const bool consume = IsInputCaptured() || a_vkCode == _toggleKey;
+		if (a_down) {
+			_input.OnKeyDown(a_vkCode);
+		} else {
+			_input.OnKeyUp(a_vkCode);
+		}
+		return consume;
 	}
 
 	void Runtime::SubmitFrameIfVisible()
