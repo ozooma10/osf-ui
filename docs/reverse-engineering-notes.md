@@ -34,6 +34,72 @@ versionlib-1-16-244 — re-verify on any patch).
 > ⚠ Upstream issue worth filing: consumers reasonably assume VTABLE order
 > mirrors base order; for `UI` it doesn't.
 
+## Version-specific surface (patch checklist)
+
+Operationalizes the opening policy ("re-verify on any patch"). The compiled
+DLL has **one hard pin, and it is data, not code**: the Address Library binary
+(`versionlib-1-16-244-0.bin`, user-installed, not vendored) plus the struct
+layouts baked into the pinned CommonLibSF commit. Everything game-specific
+resolves through those two. Sorted by durability:
+
+**A. ABI/OS-stable — a game patch cannot move these (no re-verify needed):**
+- `IDXGISwapChain::Present` **slot 8** and the throwaway-swapchain vtable
+  capture (Kiero technique) — DXGI/D3D12 ABI, fixed by Microsoft
+  (`composite/D3D12Compositor.cpp`).
+- WndProc subclass (`SetWindowLongPtr`) + `EnumWindows` window-find, raw input
+  (`WM_INPUT`), VK codes — pure Win32/OS (`input/OverlayInputHook.cpp`,
+  `input/InputRouter.cpp`).
+- COM QI / DIRECT / same-device guard on the engine pointers — version-
+  independent, and the fail-closed check itself (`composite/EngineD3D12.cpp`).
+- Ultralight + our own compositor internals (root sig, PSO, shaders).
+
+**B. Resolved through the Address Library (REL::ID → versionlib offset) —
+durable across versions *iff* a matching `versionlib-<build>.bin` is installed
+AND the pinned CommonLibSF's IDs/layouts cover that build:**
+- Device + DIRECT queue: `RE::CreationRendererPrivate::Renderer` (wraps
+  `REL::ID(944397)` g_RendererRoot + the renderer offset walk) —
+  `composite/EngineD3D12.cpp`. The offset chain lives in CommonLibSF now.
+- UI singleton + receiver vtable: `RE::UI::VTABLE[10]` = ID 475439 —
+  `input/UiInputHook.cpp`.
+- Per-frame tick: `SFSE::TaskInterface::AddPermanentTask` — SFSE owns the
+  underlying game hook and maintains it across patches (`core/Plugin.cpp`).
+- `RegisterSink<MenuOpenCloseEvent>` — `input/MenuEventSink.cpp`.
+- ⚠ The address library fixes **addresses only**. Struct **member offsets**
+  (the renderer chain, the UI base layout, every `sizeof`/`offsetof`
+  static_assert in CommonLibSF) are hand-RE'd per version and are the real
+  fragility — this is exactly what the 2026-06-11/12 incident above proved.
+
+**C. Constants derived by observation against 1.16.244 in *this repo's own*
+code (not CommonLibSF's):**
+- `kReceiverVtblIndex = 10` (`input/UiInputHook.cpp`) — index into
+  `RE::UI::VTABLE`; the array order is NOT base-declaration order. The one bare
+  game-derived integer we carry. Guarded by `VerifyUiLayout()`, which dumps all
+  entries on mismatch so it can be re-derived (`tools/parse_versionlib.py`).
+- vtable **slot 1** = `PerformInputProcessing` — from `BSInputEventReceiver`'s
+  2-slot shape (dtor@0); a class-shape assumption, not a per-build constant.
+
+**Run on every game / SFSE / CommonLibSF bump:**
+- [ ] Install/confirm `versionlib-<new build>.bin` (Address Library) for the
+      running build.
+- [ ] Bump SFSE if required; confirm runtime + `XSE_SF_*` env.
+- [ ] Pull CommonLibSF to a commit covering the build; rebuild. (Pinned
+      submodule currently trails: `RUNTIME_LATEST` = 1.16.236,
+      `SFSE_PACK_LATEST` = 0.2.19, vs target 1.16.244 / SFSE 0.2.21.)
+- [ ] Launch; confirm `VerifyUiLayout()` passes. On mismatch it logs every
+      `UI::VTABLE[i]` — re-derive `kReceiverVtblIndex` from the entry flagged
+      `<-- matches live vptr`.
+- [ ] Confirm `EngineD3D12` logs a QI-verified device + DIRECT queue (a layout
+      drift fails this guard instead of crashing).
+- [ ] Confirm the Present hook still catches presents (both swapchains) and the
+      overlay draws.
+- [ ] Confirm input capture freezes gameplay and the toggle releases.
+
+**Stale-but-harmless declaration:** the generated `SFSEPlugin_Version` sets
+`CompatibleVersions({ RUNTIME_LATEST })` = **1.16.236** in the pinned submodule,
+not the 1.16.244 target. It loads anyway because `UsesAddressLibrary(true)`
+makes SFSE ignore the list. If the address-library flag is ever turned off
+(xmake `commonlibsf.plugin` options), this mismatch will block loading.
+
 ## Unknowns that must not be guessed
 
 - Starfield renderer internals: device/queue ownership, frame graph, where UI
