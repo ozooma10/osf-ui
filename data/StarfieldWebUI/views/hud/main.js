@@ -1,11 +1,9 @@
-// Demo HUD: a SECOND interactive view, composited over the active one. It shows
-// per-view bridge routing end to end:
-//   - native -> THIS view: receives its OWN runtime.ready (status line) and its
-//     OWN runtime.pong (so a ping from here comes back HERE, not to settings);
-//   - THIS view -> native: posts a log on load (attributed to "hud") and a ping
-//     when its button is clicked.
-// Focus it in-game with the focus key (Tab) and click "Ping native". Runs fine
-// in a plain browser too (degraded: no bridge).
+// Demo HUD: a SECOND interactive view, composited over the active one. It shows:
+//   - per-view bridge routing (its OWN runtime.ready + runtime.pong),
+//   - a Ping button (focus with Tab, then click — pong comes back HERE),
+//   - BINDING TO REAL GAME DATA: it polls game.get and displays the in-game
+//     date/time, which native reads from RE::Calendar on the game thread.
+// Degraded in a plain browser (no bridge): shows a real-world clock instead.
 "use strict";
 
 const clockEl = document.getElementById("clock");
@@ -13,23 +11,20 @@ const statusEl = document.getElementById("status");
 const pongEl = document.getElementById("pong");
 const cursorEl = document.getElementById("cursor");
 
-function tick() {
-  const d = new Date();
-  const pad = (n) => String(n).padStart(2, "0");
-  clockEl.textContent = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-}
-tick();
-setInterval(tick, 1000);
-
 function bridgeAvailable() {
   return typeof window.starfield === "object" &&
          typeof window.starfield.postMessage === "function";
 }
-
 function send(command, fields = {}) {
   if (bridgeAvailable()) {
     window.starfield.postMessage(JSON.stringify({ type: "ui.command", payload: { command, ...fields } }));
   }
+}
+function pad2(n) { return String(n).padStart(2, "0"); }
+function fmtHour(h) {
+  const hh = Math.floor(h);
+  const mm = Math.floor((h - hh) * 60);
+  return `${pad2(hh)}:${pad2(mm)}`;
 }
 
 // native -> THIS view
@@ -44,6 +39,13 @@ window.starfield.onMessage = (json) => {
     case "runtime.pong":
       pongEl.textContent = `pong ✓ @ ${new Date().toLocaleTimeString()}`;
       break;
+    case "game.data": {
+      const p = msg.payload;
+      clockEl.textContent = p.available
+        ? `in-game · Y${p.year} M${pad2(p.month)} D${pad2(p.day)} · ${fmtHour(p.hour)}`
+        : "in-game · (no save loaded)";
+      break;
+    }
     default:
       break;
   }
@@ -61,6 +63,18 @@ document.getElementById("ping").addEventListener("click", () => {
   pongEl.textContent = "ping…";
   send("ping");
 });
+
+// Poll the in-game clock once a second; degrade to a real-world clock offline.
+function poll() {
+  if (bridgeAvailable()) {
+    send("game.get");
+  } else {
+    const d = new Date();
+    clockEl.textContent = `local · ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+  }
+}
+poll();
+setInterval(poll, 1000);
 
 // One-shot log on load, attributed to "hud" natively.
 if (bridgeAvailable()) {

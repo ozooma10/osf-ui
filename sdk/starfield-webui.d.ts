@@ -30,6 +30,7 @@ export type UiCommand =
   | { command: "setVisible"; visible: boolean }
   | { command: "log"; text: string }
   | { command: "ping" }
+  | { command: "game.get" }
   | { command: "settings.get" }
   | { command: "settings.set"; mod: string; key: string; value: SettingValue }
   | { command: "settings.reset"; mod: string; key?: string };
@@ -68,9 +69,20 @@ export interface UiErrorPayload {
   command?: string;  // present for "unknown command"
 }
 
+/** In-game date/time from RE::Calendar. `available` is false before a save loads. */
+export interface GameDataPayload {
+  available: boolean;
+  day?: number;
+  month?: number;
+  year?: number;
+  hour?: number;        // 0..24 (fractional)
+  daysPassed?: number;
+}
+
 export type NativeToWebMessage =
   | BridgeEnvelope<"runtime.ready", RuntimeReadyPayload>
   | BridgeEnvelope<"runtime.pong", Record<string, never>>
+  | BridgeEnvelope<"game.data", GameDataPayload>
   | BridgeEnvelope<"settings.data", SettingsDataPayload>
   | BridgeEnvelope<"settings.ack", SettingsAckPayload>
   | BridgeEnvelope<"ui.error", UiErrorPayload>;

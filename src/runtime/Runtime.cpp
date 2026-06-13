@@ -2,6 +2,8 @@
 
 #include <cmath>
 
+#include "RE/C/Calendar.h"
+
 #include "composite/D3D12Compositor.h"
 #include "composite/NullCompositor.h"
 #include "core/Log.h"
@@ -371,6 +373,27 @@ namespace SWUI
 		});
 		a_bridge.RegisterCommand("ping", [](const nlohmann::json&, MessageBridge& a_b) {
 			a_b.SendToWeb("runtime.pong", nlohmann::json::object());
+		});
+
+		// First read-only game-data provider: the in-game calendar (date/time).
+		// Bridge handlers dispatch from Tick()/Update() on the game's Main thread,
+		// so reading game singletons here is safe. Calendar is null before a save
+		// is loaded (main menu) — reported as available:false. A view polls this
+		// (e.g. once a second) and renders the result. Likely graduates to its own
+		// IUiModule as game-data grows (architecture.md "Feature modules").
+		a_bridge.RegisterCommand("game.get", [](const nlohmann::json&, MessageBridge& a_b) {
+			nlohmann::json data = nlohmann::json::object();
+			if (const auto* cal = RE::Calendar::GetSingleton()) {
+				data["available"] = true;
+				data["day"] = cal->GetDay();
+				data["month"] = cal->GetMonth();
+				data["year"] = cal->GetYear();
+				data["hour"] = cal->GetHour();
+				data["daysPassed"] = cal->GetDaysPassedExact();
+			} else {
+				data["available"] = false;
+			}
+			a_b.SendToWeb("game.data", data);
 		});
 	}
 

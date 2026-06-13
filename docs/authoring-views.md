@@ -159,6 +159,7 @@ Whitelisted commands (anything else is rejected + logged):
 | `setVisible` | `visible: bool` | show/hide the overlay |
 | `log` | `text: string` | write to `StarfieldWebUI.log` (truncated to 512 chars) |
 | `ping` | — | runtime replies with `runtime.pong` |
+| `game.get` | — | runtime replies with `game.data` (in-game date/time from the calendar) |
 | `settings.get` | — | runtime replies with `settings.data` |
 | `settings.set` | `mod, key, value` | set one schema-declared setting (validated) |
 | `settings.reset` | `mod`, `key?` | reset one key, or the whole mod if `key` omitted |
@@ -174,6 +175,7 @@ Assign `window.starfield.onMessage` and switch on `message.type`:
 |---|---|---|
 | `runtime.ready` | `{ game, plugin, version, bridgeVersion }` | once, after your page loads — your cue to request data and to check `bridgeVersion` |
 | `runtime.pong` | `{}` | reply to your `ping` |
+| `game.data` | `{ available, day, month, year, hour, daysPassed }` | reply to `game.get`; `available:false` before a save is loaded |
 | `settings.data` | `{ mods: [ { id, title, schema, values } ] } ` | reply to `settings.get` / after a `settings.reset` |
 | `settings.ack` | `{ mod, key, ok }` | result of a `settings.set` (`ok:false` ⇒ rejected/clamped) |
 | `ui.error` | `{ reason, type?, command? }` | the runtime rejected something you sent — a malformed message, an unknown `type`, or an unknown `command`. Log it while developing; the same WARN is in `StarfieldWebUI.log` |
