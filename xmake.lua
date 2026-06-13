@@ -100,6 +100,15 @@ target("OSF UI")
                 { prefixdir = "SFSE/Plugins/StarfieldWebUI/ultralight/bin" })
             target:add("installfiles", path.join(sdk, "resources", "(icudt67l.dat)"),
                 { prefixdir = "SFSE/Plugins/StarfieldWebUI/ultralight/resources" })
+            -- Ship Ultralight's license texts next to its binaries so the
+            -- required attribution travels with the distributed mod. The Free
+            -- License Agreement requires the NOTICES legend in the Licensed
+            -- Product's credits (sec. 4.4, Marking) and that End Users receive
+            -- the EULA (sec. 4.3). The SDK's license/ folder holds NOTICES.md,
+            -- EULA.txt, and LICENSE.txt; ship all of it so no required notice
+            -- is omitted. Only bundled when Ultralight itself is (this block).
+            target:add("installfiles", path.join(sdk, "license", "(**)"),
+                { prefixdir = "SFSE/Plugins/StarfieldWebUI/ultralight/license" })
         end)
     else
         -- UltralightWebRenderer.cpp is also fully #if-guarded, but exclude it
