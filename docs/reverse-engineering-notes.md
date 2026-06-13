@@ -81,13 +81,32 @@ Answered 2026-06-12 (20:20 run, heartbeat continuity):
 Still open:
 - Does it run while the pause menu is open? (Console menu: yes — observed.)
 
-### 2. D3D12 access (blocks: Phase 2/3)
+### 2. D3D12 access — ◐ DEVICE+QUEUE SOLVED (2026-06-12), present timing open
 
-- `ID3D12Device` + direct `ID3D12CommandQueue` retrieval: engine renderer
-  singleton (find + prove), or vtable-hook of factory-created objects at init.
+**Device + direct queue: runtime-PROVEN on 1.16.244** (hook-free, in
+`OSF RE/` — see its `Investigations/Requests/2026-06-12-d3d12-device-route.md`
+and context module `rendering.graphics_core`):
+
+```
+root   = *(void**)REL::ID(944397).address()        // g_RendererRoot
+device = *(ID3D12Device**)      (*(uintptr_t*)(root + 0x30) + 0x418)
+queue  = *(ID3D12CommandQueue**)(*(uintptr_t*)(*(uintptr_t*)(root + 0x28) + 0x08) + 0x60)
+```
+
+Proof: both QI cleanly; queue `GetDesc().Type == DIRECT`; queue->GetDevice is
+COM-identical to the device; the adapter at root+0x30→+0x410 reports the real
+GPU with a LUID matching the device's. Available from `kPostPostDataLoad`.
+Phase 2 consumers must re-verify with the same QI checks at startup (cheap)
+instead of trusting the offsets blindly.
+
+Still open for Phase 3:
 - Present timing: `IDXGISwapChain3::Present` hook vs an engine-level
   "end of frame" function. Must decide hook tech then (minimal, isolated;
-  Detours/MinHook only if CommonLibSF trampolines don't suffice).
+  Detours/MinHook only if CommonLibSF trampolines don't suffice). Note
+  `OSF RE/src/Probe/RenderPresentProbe.cpp` already captures the live
+  swapchain via the create-call hook, but uses a raw pre-1.16 offset —
+  re-anchor before reuse. The engine swapchain wrapper (+0x40 =
+  IDXGISwapChain3/4*) is mapped in `rendering.graphics_core`.
 - Descriptor heap strategy, resource state expectations, HDR/DRS/windowed
   behaviors, and coexistence with Steam overlay/ReShade/RTSS (hook-chain
   friendliness) — all documented in `composite/D3D12Compositor.h`.

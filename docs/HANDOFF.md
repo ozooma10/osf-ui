@@ -1,14 +1,14 @@
 # StarfieldWebUI — Resume / Handoff
 
-**Last updated:** 2026-06-12 ~21:05
-**Status:** Phase 0 + TODO #1 (tick) + TODO #2 (input) + **TODO #3
-(Ultralight backend) all verified in-game**. The 20:58 run rendered the real
-test page (WebKit 615.1.18 / Ultralight 1.4.0) offscreen inside Starfield:
-post-DOM frame PNG-dumped, JS bridge round-trip proven both directions
-(`runtime.ready` → page status "Connected", page `log`+`ping` → MessageBridge
-→ pong). Renderer-plan **Phase 1 is complete**. Next: TODO #4 (D3D12 device
-route, in `OSF RE/`) — the overlay still composites to the NullCompositor
-only. See §7.
+**Last updated:** 2026-06-12 ~21:30
+**Status:** Phase 0 + TODOs #1–#4 **all verified in-game 2026-06-12**.
+Renderer-plan **Phase 1 is complete**: real WebKit (Ultralight 1.4.0) renders
+the test page offscreen inside Starfield with the JS bridge round-tripping
+both directions (20:58 run, PNG proof). **TODO #4 is proven** (21:25 run, in
+`OSF RE/`): hook-free route to the live `ID3D12Device` + DIRECT
+`ID3D12CommandQueue` via REL::ID(944397) — see RE notes §2. Next: **Phase 2**
+(real D3D12Compositor: CPU frame → GPU texture upload ring). The overlay
+still composites to the NullCompositor until then. See §0/§7.
 Game is **1.16.244.0** (patched 2026-06-11; SFSE 0.2.21, versionlib-1-16-244
 present in the AIO address library mod).
 
@@ -16,12 +16,16 @@ present in the AIO address library mod).
 
 ## 0. IMMEDIATE next step
 
-TODO #1/#2/#3 are all ✅ verified in-game (2026-06-12 runs; details in §3/§4
-and renderer-plan.md). The next work item is **TODO #4: prove a route to
-Starfield's `ID3D12Device` + direct queue** — do this in `OSF RE/` per its
-proof rules, NOT here. Until Phase 2/3 land, the rendered web frames go to
-the NullCompositor (logged + dropped); visual checks use the devMode PNG
-dump (`MO2\overwrite\SFSE\Plugins\StarfieldWebUI\ultralight\first-frame.png`).
+TODO #1/#2/#3/#4 are all ✅ verified in-game (2026-06-12; details in §3/§4,
+renderer-plan.md, and reverse-engineering-notes.md §2). The device + direct
+queue route is proven (REL::ID(944397) chain — RE notes §2), so the next work
+item is **Phase 2: implement D3D12Compositor for real** — upload the
+Ultralight CPU frames into a D3D12 texture via an upload ring (no drawing
+yet; exit criterion is a PIX/RenderDoc capture showing the texture populated
+without corrupting a frame). After that: TODO #5 (present-timing decision,
+groundwork already in `OSF RE`'s RenderPresentProbe — needs re-anchoring).
+Until then the frames go to the NullCompositor; visual checks use the devMode
+PNG dump (`MO2\overwrite\SFSE\Plugins\StarfieldWebUI\ultralight\first-frame.png`).
 
 Quick re-verify of the Ultralight backend (one launch to the main menu, no
 interaction): expect in `StarfieldWebUI.log` —
@@ -288,8 +292,10 @@ Fixes (all in working tree as of this writing):
 3. ✅ Real Ultralight backend offscreen (Phase 1) — **done + verified
    in-game 2026-06-12** (rendered test page PNG-dumped, bridge round-trip
    proven; see §4 "Ultralight backend" and renderer-plan.md).
-4. ⏳ Prove a route to Starfield's `ID3D12Device` + direct queue (do this in
-   `OSF RE/` per its proof rules).
+4. ✅ Route to Starfield's `ID3D12Device` + direct queue — **runtime-PROVEN
+   on 1.16.244, 2026-06-12** (hook-free, in `OSF RE/`: D3D12DeviceProbe,
+   anchored on REL::ID(944397); chain + proof in
+   [reverse-engineering-notes.md](reverse-engineering-notes.md) §2).
 5. ⏳ Present timing decision: engine end-of-frame fn vs `IDXGISwapChain3::Present`
    hook.
 6. ⏳ Overlay composition: descriptor heaps, resource states, HDR/DRS,
