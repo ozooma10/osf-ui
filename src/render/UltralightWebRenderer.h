@@ -45,7 +45,7 @@ namespace SWUI
 		void Resize(std::uint32_t a_width, std::uint32_t a_height) override;
 		void Update(double a_deltaSeconds) override;
 		std::optional<FrameBufferView> Render() override;
-		void SendMessageToWeb(std::string_view a_json) override;
+		void SendMessageToWeb(std::string_view a_viewId, std::string_view a_json) override;
 		void SetWebMessageHandler(WebMessageHandler a_handler) override;
 		void InjectKeyEvent(std::uint32_t a_vkCode, bool a_down) override;
 		void InjectMouseMove(int a_x, int a_y) override;

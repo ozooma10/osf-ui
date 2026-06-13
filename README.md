@@ -1,8 +1,10 @@
 # StarfieldWebUI
 
 **Starfield Web UI Runtime** — a prototype SFSE/CommonLibSF plugin that will
-eventually host HTML/CSS/JS-based UI views inside Starfield (conceptually
-inspired by Prisma UI for Skyrim; contains no Prisma code).
+eventually host HTML/CSS/JS-based UI views inside Starfield (inspired by
+[Prisma UI](https://www.prismaui.dev/) by StarkMP — see
+[Credits & acknowledgments](#credits--acknowledgments); contains no Prisma
+code).
 
 Current state: **Phase 5b — interactive overlay + schema-driven settings.**
 Real HTML/CSS/JS pages render offscreen via Ultralight, upload to a GPU
@@ -174,6 +176,33 @@ docs/HANDOFF.md §4.
 - [docs/security-model.md](docs/security-model.md) — JS-is-untrusted rules
 - [docs/reverse-engineering-notes.md](docs/reverse-engineering-notes.md) —
   what is unknown and must not be guessed
+
+## Credits & acknowledgments
+
+StarfieldWebUI exists because of **[Prisma UI](https://www.prismaui.dev/)** by
+**StarkMP** (with contributors incl. **langfod**) — the Skyrim Special Edition
+framework that pioneered rendering modern HTML/CSS/JS interfaces over a Bethesda
+game with Ultralight. The entire idea for this project came from Prisma UI, and
+StarkMP graciously gave permission to reference Prisma UI's branding and public
+API. Thank you.
+
+This is an **independent, from-scratch implementation for Starfield** — a
+different game on a different engine (Direct3D 12 vs Prisma's Direct3D 11), with
+its own architecture, renderer, input handling, and native↔web bridge. It is
+**not affiliated with or endorsed by the Prisma UI project, and contains no
+Prisma UI code.**
+
+- **[Prisma UI](https://www.nexusmods.com/skyrimspecialedition/mods/148718)** —
+  StarkMP & contributors — original concept and inspiration.
+- **[Ultralight](https://ultralig.ht/)** — Ultralight, Inc. — the lightweight,
+  WebKit-based renderer behind every view (used under the Ultralight Free
+  License; notices ship in `StarfieldWebUI/ultralight/license/`).
+- **[commonlibsf-template](https://github.com/libxse/commonlibsf-template)** /
+  **CommonLibSF** & **[SFSE](https://sfse.silverlock.org/)** — the plugin
+  foundation this is built on.
+
+See [CREDITS.md](CREDITS.md) for the full text, including a paste-ready blurb
+for mod pages.
 
 ## License
 

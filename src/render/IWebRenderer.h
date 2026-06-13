@@ -68,15 +68,17 @@ namespace SWUI
 		// present. See FrameBufferView for the lifetime contract.
 		virtual std::optional<FrameBufferView> Render() = 0;
 
-		// Delivers a JSON message (native -> web). Backends without a JS
-		// engine may log and drop it.
-		virtual void SendMessageToWeb(std::string_view a_json) = 0;
+		// Delivers a JSON message to ONE view (native -> web). a_viewId is the
+		// manifest id of the target view. Backends without a JS engine may log
+		// and drop it; single-view backends may ignore the id.
+		virtual void SendMessageToWeb(std::string_view a_viewId, std::string_view a_json) = 0;
 
-		// Receives JSON messages (web -> native). Backends with a JS engine
+		// Receives JSON messages (web -> native), tagged with the SOURCE view id
+		// so responses route back to the right view. Backends with a JS engine
 		// invoke the handler from Update() on the calling (game) thread, never
 		// from a renderer-internal thread. Backends without a JS engine ignore
 		// this. Set before LoadView.
-		using WebMessageHandler = std::function<void(std::string_view)>;
+		using WebMessageHandler = std::function<void(std::string_view a_viewId, std::string_view a_json)>;
 		virtual void SetWebMessageHandler(WebMessageHandler) {}
 
 		// Delivers one keyboard transition into the web view. a_vkCode is a

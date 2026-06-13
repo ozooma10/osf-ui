@@ -42,10 +42,10 @@ namespace SWUI
 		return std::nullopt;
 	}
 
-	void NullWebRenderer::SendMessageToWeb(std::string_view a_json)
+	void NullWebRenderer::SendMessageToWeb(std::string_view a_viewId, std::string_view a_json)
 	{
 		if (_devMode) {
-			REX::DEBUG("NullWebRenderer: dropping native->web message: {}", a_json);
+			REX::DEBUG("NullWebRenderer: dropping native->web message to '{}': {}", a_viewId, a_json);
 		}
 	}
 }

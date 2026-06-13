@@ -86,14 +86,29 @@ namespace SWUI
 			module->OnStart();
 		}
 
-		// Active view. Bridge and web->native handler are wired BEFORE
-		// LoadView so no early page message can race past them; renderers
-		// queue native->web messages until the page is actually ready.
+		// Views + bridge. The bridge and web->native handler are wired BEFORE
+		// LoadView so no early page message can race past them; the renderer
+		// queues native->web messages per view until each page is ready.
 		if (view) {
-			if (view->permissions.nativeBridge) {
-				_bridge = std::make_unique<MessageBridge>([this](std::string_view a_json) {
+			// The layer set to load, and which of those request the bridge.
+			std::vector<std::string> toLoad = _config.views;
+			if (toLoad.empty()) {
+				toLoad.push_back(_config.view);
+			}
+			std::vector<std::string> bridgeViews;
+			for (const auto& id : toLoad) {
+				if (const auto* m = _views.Find(id); m && m->permissions.nativeBridge) {
+					bridgeViews.push_back(id);
+				}
+			}
+
+			// One feature-agnostic bridge serves every bridge-enabled view: the
+			// renderer tags each inbound message with its source view, and replies
+			// route back to that view (MessageBridge tracks the current source).
+			if (!bridgeViews.empty()) {
+				_bridge = std::make_unique<MessageBridge>([this](std::string_view a_viewId, std::string_view a_json) {
 					if (_renderer) {
-						_renderer->SendMessageToWeb(a_json);
+						_renderer->SendMessageToWeb(a_viewId, a_json);
 					}
 				});
 				// Platform (window) commands live in core; everything else is a
@@ -102,21 +117,16 @@ namespace SWUI
 				for (const auto& module : _modules) {
 					module->RegisterCommands(*_bridge);
 				}
-				_renderer->SetWebMessageHandler([this](std::string_view a_json) {
+				_renderer->SetWebMessageHandler([this](std::string_view a_viewId, std::string_view a_json) {
 					if (_bridge) {
-						_bridge->HandleWebMessage(a_json);
+						_bridge->HandleWebMessage(a_viewId, a_json);
 					}
 				});
 			} else {
-				REX::INFO("Runtime: view '{}' does not request nativeBridge; bridge disabled", view->id);
+				REX::INFO("Runtime: no loaded view requests nativeBridge; bridge disabled");
 			}
-			// Load the configured view stack bottom-to-top. `config.views` (if
-			// set) is the layer list; otherwise just the single active view. The
-			// active view — input + bridge — is always `config.view`.
-			std::vector<std::string> toLoad = _config.views;
-			if (toLoad.empty()) {
-				toLoad.push_back(_config.view);
-			}
+
+			// Load the layer set (layering = manifest zorder; focus = config.view).
 			std::size_t loaded = 0;
 			for (const auto& id : toLoad) {
 				if (const auto* m = _views.Find(id)) {
@@ -128,8 +138,13 @@ namespace SWUI
 			}
 			_renderer->SetActiveView(_config.view);
 			REX::INFO("Runtime: loaded {} view(s); active = '{}'", loaded, _config.view);
+
+			// Greet each bridge-enabled view. The renderer queues this per view
+			// until that view's DOM is ready, so order here doesn't matter.
 			if (_bridge) {
-				_bridge->SendRuntimeReady();
+				for (const auto& id : bridgeViews) {
+					_bridge->SendRuntimeReady(id);
+				}
 			}
 		} else {
 			REX::WARN("Runtime: configured view '{}' was not found; overlay has no content", _config.view);

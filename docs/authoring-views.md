@@ -93,10 +93,13 @@ Several views can be hosted and composited at once. `config.json` lists them:
 - **Focus / input** goes to `config.view`, which must be an `interactive` view.
   A view with `interactive: false` (a HUD) is never focused and never receives
   input, even when it is the top layer.
-- **Today only the active view has a live bridge.** Passive overlays should not
-  rely on `window.starfield`. Independent, simultaneously-interactive views need
-  per-view bridge attribution (a planned step) — until then, design extra views
-  as presentational layers.
+- **Each bridge-enabled view (`nativeBridge: true`) has its own bridge.**
+  Messages are attributed to their source view and replies route back to it, so
+  several views can talk to native independently — even a non-interactive HUD
+  can receive native pushes and post messages. What is still single-view is
+  *input*: only `config.view` receives keyboard/mouse. So a second view can be a
+  live **data layer** today; a second *interactive* (clickable) view also needs
+  runtime focus switching (planned).
 - Each view is sized to the whole screen, so position your content with CSS and
   keep the rest transparent; the layers blend by alpha.
 

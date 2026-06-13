@@ -250,8 +250,9 @@ namespace SWUI
 		struct ViewState
 		{
 			std::string  id;
-			std::int32_t zorder{ 0 };          // layering; lower composites beneath. Set at load, then immutable.
-			bool         interactive{ true };  // may receive input/focus. Set at load, then immutable.
+			std::int32_t zorder{ 0 };            // layering; lower composites beneath. Set at load, then immutable.
+			bool         interactive{ true };    // may receive input/focus. Set at load, then immutable.
+			bool         bridgeAllowed{ false };  // manifest permissions.nativeBridge; gates window.starfield. Immutable after load.
 
 			// shared with the game thread (guarded by Impl::mutex)
 			std::optional<ViewManifest>                            pendingLoad;
@@ -615,17 +616,41 @@ namespace SWUI
 
 		// ================= JS bridge (worker thread) =================
 
+		// Reads the hidden __viewId string baked onto the starfield object at
+		// injection time, identifying which view a postMessage came from.
+		[[nodiscard]] static std::string ReadViewId(JSContextRef a_ctx, JSObjectRef a_obj)
+		{
+			if (!a_obj) {
+				return {};
+			}
+			JSStringRef name = JSStringCreateWithUTF8CString("__viewId");
+			JSValueRef  val = JSObjectGetProperty(a_ctx, a_obj, name, nullptr);
+			JSStringRelease(name);
+			return JSValueIsString(a_ctx, val) ? JSValueToUTF8(a_ctx, val) : std::string{};
+		}
+
 		static JSValueRef PostMessageCallback(
-			JSContextRef a_ctx, JSObjectRef, JSObjectRef, size_t a_argc,
+			JSContextRef a_ctx, JSObjectRef, JSObjectRef a_this, size_t a_argc,
 			const JSValueRef a_args[], JSValueRef*)
 		{
 			auto* self = sActive.load();
 			if (self && a_argc >= 1) {
-				auto json = JSValueToUTF8(a_ctx, a_args[0]);
-				std::scoped_lock lk(self->mutex);
-				// Single-view today: route to the active view. Multi-view will
-				// attribute by JSContextRef (the source view's context).
-				if (auto* vs = self->ActiveView()) {
+				// Attribute the message to its SOURCE view (the __viewId on the
+				// starfield object). Falls back to the active view only if the
+				// call was somehow detached from that object.
+				const std::string sourceId = ReadViewId(a_ctx, a_this);
+				auto              json = JSValueToUTF8(a_ctx, a_args[0]);
+				std::scoped_lock  lk(self->mutex);
+				ViewState*        vs = nullptr;
+				if (!sourceId.empty()) {
+					if (const auto it = self->views.find(sourceId); it != self->views.end()) {
+						vs = it->second.get();
+					}
+				}
+				if (!vs) {
+					vs = self->ActiveView();
+				}
+				if (vs) {
 					if (vs->toNative.size() < kMaxQueuedMessages) {
 						vs->toNative.push_back(std::move(json));
 					} else {
@@ -652,6 +677,16 @@ namespace SWUI
 			JSObjectSetProperty(ctx, starfield, postName, postFn,
 				kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete, nullptr);
 			JSStringRelease(postName);
+
+			// Bake the source view id so PostMessageCallback can attribute this
+			// view's messages. Read-only + non-enumerable so the page can't spoof
+			// or even see it.
+			JSStringRef vidName = JSStringCreateWithUTF8CString("__viewId");
+			JSStringRef vidStr = JSStringCreateWithUTF8CString(a_vs.id.c_str());
+			JSObjectSetProperty(ctx, starfield, vidName, JSValueMakeString(ctx, vidStr),
+				kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontEnum | kJSPropertyAttributeDontDelete, nullptr);
+			JSStringRelease(vidStr);
+			JSStringRelease(vidName);
 
 			JSStringRef starfieldName = JSStringCreateWithUTF8CString("starfield");
 			JSObjectSetProperty(ctx, global, starfieldName, starfield, kJSPropertyAttributeNone, nullptr);
@@ -835,7 +870,9 @@ namespace SWUI
 				std::scoped_lock lk(mutex);
 				vs = FindByView(a_view);
 			}
-			if (vs) {
+			// Only views that requested it (manifest permissions.nativeBridge)
+			// get window.starfield at all.
+			if (vs && vs->bridgeAllowed) {
 				InjectBridge(*vs);
 			}
 		}
@@ -977,6 +1014,7 @@ namespace SWUI
 			slot->id = a_manifest.id;
 			slot->zorder = a_manifest.zorder;
 			slot->interactive = a_manifest.interactive;
+			slot->bridgeAllowed = a_manifest.permissions.nativeBridge;
 			slot->pendingLoad = a_manifest;
 			if (isNew) {
 				_impl->drawOrder.push_back(a_manifest.id);
@@ -1028,22 +1066,21 @@ namespace SWUI
 			_impl->worker = std::thread(&Impl::WorkerMain, _impl.get());
 		}
 
-		// The worker self-paces; our job here is only to hand page->game
-		// messages to the runtime on the game thread. Drain every view's queue
-		// (one view today); the message handler is currently view-agnostic.
-		std::deque<std::string> inbound;
+		// The worker self-paces; our job here is only to hand page->game messages
+		// to the runtime on the game thread, each tagged with its source view.
+		std::vector<std::pair<std::string, std::string>> inbound;  // (viewId, json)
 		{
 			std::scoped_lock lk(_impl->mutex);
 			for (auto& [id, vs] : _impl->views) {
 				while (!vs->toNative.empty()) {
-					inbound.push_back(std::move(vs->toNative.front()));
+					inbound.emplace_back(id, std::move(vs->toNative.front()));
 					vs->toNative.pop_front();
 				}
 			}
 		}
 		if (_impl->onWebMessage) {
-			for (const auto& json : inbound) {
-				_impl->onWebMessage(json);
+			for (const auto& [viewId, json] : inbound) {
+				_impl->onWebMessage(viewId, json);
 			}
 		}
 	}
@@ -1108,14 +1145,15 @@ namespace SWUI
 		};
 	}
 
-	void UltralightWebRenderer::SendMessageToWeb(std::string_view a_json)
+	void UltralightWebRenderer::SendMessageToWeb(std::string_view a_viewId, std::string_view a_json)
 	{
 		{
 			std::scoped_lock lk(_impl->mutex);
-			auto* vs = _impl->ActiveView();
-			if (!vs) {
-				return;
+			const auto it = _impl->views.find(std::string(a_viewId));
+			if (it == _impl->views.end()) {
+				return;  // unknown/unloaded view
 			}
+			auto* vs = it->second.get();
 			if (vs->toWeb.size() >= kMaxQueuedMessages) {
 				static std::once_flag once;
 				Log::WarnOnce(once, "UltralightWebRenderer: native->web queue full; dropping messages");

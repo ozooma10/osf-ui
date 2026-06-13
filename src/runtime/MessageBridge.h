@@ -15,8 +15,8 @@ namespace SWUI
 	class MessageBridge
 	{
 	public:
-		// Transport for native -> web text (wired to the renderer).
-		using SendFn = std::function<void(std::string_view)>;
+		// Transport for native -> web text: deliver `a_json` to view `a_viewId`.
+		using SendFn = std::function<void(std::string_view a_viewId, std::string_view a_json)>;
 
 		// Handler for one `ui.command` command. Receives the command payload
 		// and the bridge (to send responses). Registered by core/modules.
@@ -28,20 +28,25 @@ namespace SWUI
 		// "settings.get". Unknown commands are rejected and logged.
 		void RegisterCommand(std::string a_command, CommandHandler a_handler);
 
-		// Entry point for web -> native messages (raw JSON text). Malformed or
-		// non-whitelisted input is rejected and logged, never fatal.
-		void HandleWebMessage(std::string_view a_json);
+		// Entry point for web -> native messages (raw JSON text) from a specific
+		// SOURCE view. Replies sent via the no-target SendToWeb route back to it.
+		// Malformed or non-whitelisted input is rejected and logged, never fatal.
+		void HandleWebMessage(std::string_view a_viewId, std::string_view a_json);
 
-		// Native -> web: send { type, payload }.
+		// Native -> web: send { type, payload }. The no-target overload sends to
+		// the view whose message is currently being handled — this is what
+		// command handlers use to reply. The targeted overload names the view.
 		void SendToWeb(std::string_view a_type, const nlohmann::json& a_payload);
+		void SendToWeb(std::string_view a_viewId, std::string_view a_type, const nlohmann::json& a_payload);
 
-		// Native -> web handshake announcing the runtime to the page.
-		void SendRuntimeReady();
+		// Native -> web handshake announcing the runtime to one view.
+		void SendRuntimeReady(std::string_view a_viewId);
 
 	private:
 		void HandleUiCommand(const nlohmann::json& a_payload);
 
 		SendFn                                          _send;
 		std::unordered_map<std::string, CommandHandler> _commands;
+		std::string                                     _currentSource;  // source view of the in-flight message (reply target)
 	};
 }

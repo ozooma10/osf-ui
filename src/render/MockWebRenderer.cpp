@@ -63,12 +63,12 @@ namespace SWUI
 		};
 	}
 
-	void MockWebRenderer::SendMessageToWeb(std::string_view a_json)
+	void MockWebRenderer::SendMessageToWeb(std::string_view a_viewId, std::string_view a_json)
 	{
 		// No JS engine to deliver to; visible in dev mode so bridge plumbing
 		// can be traced end to end.
 		if (_devMode) {
-			REX::DEBUG("MockWebRenderer: native->web message (dropped, no JS engine): {}", a_json);
+			REX::DEBUG("MockWebRenderer: native->web message to '{}' (dropped, no JS engine): {}", a_viewId, a_json);
 		}
 	}
 

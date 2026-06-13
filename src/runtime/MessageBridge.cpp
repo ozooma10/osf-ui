@@ -14,11 +14,14 @@ namespace SWUI
 		_commands[std::move(a_command)] = std::move(a_handler);
 	}
 
-	void MessageBridge::HandleWebMessage(std::string_view a_json)
+	void MessageBridge::HandleWebMessage(std::string_view a_viewId, std::string_view a_json)
 	{
+		// Remember the source so handler replies (and ui.error) route back to it.
+		_currentSource = std::string(a_viewId);
+
 		const auto msg = Json::Parse(a_json, "web->native message");
 		if (!msg || !msg->is_object()) {
-			REX::WARN("MessageBridge: rejected malformed message");
+			REX::WARN("MessageBridge: rejected malformed message from view '{}'", a_viewId);
 			// Surface rejections to the page (ui.error) so authors see them
 			// instead of a silent drop. Existing views ignore unknown types, so
 			// this is backward compatible. Echoed strings are length-bounded
@@ -35,7 +38,7 @@ namespace SWUI
 			                         : Json::Value::object();
 			HandleUiCommand(payload);
 		} else {
-			REX::WARN("MessageBridge: rejected unknown message type '{}'", type);
+			REX::WARN("MessageBridge: rejected unknown message type '{}' from view '{}'", type, a_viewId);
 			SendToWeb("ui.error", { { "reason", "unknown message type" }, { "type", type.substr(0, 128) } });
 		}
 	}
@@ -54,22 +57,28 @@ namespace SWUI
 
 	void MessageBridge::SendToWeb(std::string_view a_type, const nlohmann::json& a_payload)
 	{
-		if (!_send) {
+		// Reply to the view whose message is currently being handled.
+		SendToWeb(_currentSource, a_type, a_payload);
+	}
+
+	void MessageBridge::SendToWeb(std::string_view a_viewId, std::string_view a_type, const nlohmann::json& a_payload)
+	{
+		if (!_send || a_viewId.empty()) {
 			return;
 		}
 		const Json::Value msg = {
 			{ "type", a_type },
 			{ "payload", a_payload },
 		};
-		_send(msg.dump());
+		_send(a_viewId, msg.dump());
 	}
 
-	void MessageBridge::SendRuntimeReady()
+	void MessageBridge::SendRuntimeReady(std::string_view a_viewId)
 	{
 		// `bridgeVersion` lets a view detect the protocol it's talking to and
 		// degrade/refuse on a mismatch (see docs/authoring-views.md). `version`
 		// stays the plugin version; the two are intentionally separate.
-		SendToWeb("runtime.ready", {
+		SendToWeb(a_viewId, "runtime.ready", {
 			{ "game", "Starfield" },
 			{ "plugin", kPluginName },
 			{ "version", kPluginVersion },
