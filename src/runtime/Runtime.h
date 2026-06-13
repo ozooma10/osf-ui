@@ -5,7 +5,8 @@
 #include "input/InputRouter.h"
 #include "render/IWebRenderer.h"
 #include "runtime/MessageBridge.h"
-#include "runtime/SettingsStore.h"
+#include "runtime/SettingsModule.h"
+#include "runtime/UiModule.h"
 #include "runtime/ViewManager.h"
 
 namespace SWUI
@@ -78,17 +79,24 @@ namespace SWUI
 		std::unique_ptr<IWebRenderer> CreateRenderer() const;
 		std::unique_ptr<ICompositor>  CreateCompositor() const;
 
-		// Native reactions to settings changes (Phase 5b). Called by the
-		// SettingsStore change listener for every committed value.
+		// Composition root for feature modules (settings, future HUD, …) and
+		// the platform's own bridge commands. Core wires modules here but stays
+		// ignorant of what each one does past the IUiModule contract.
+		void BuildModules();
+		void RegisterPlatformCommands(MessageBridge& a_bridge);
+
+		// Native reactions to settings changes (Phase 5b). Injected into the
+		// settings module as its change listener; reacts only to the knobs core
+		// owns (e.g. cursor speed).
 		void OnSettingChanged(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value);
 
 		Config                        _config;
 		ViewManager                   _views;
 		std::unique_ptr<IWebRenderer> _renderer;
 		std::unique_ptr<ICompositor>  _compositor;
-		std::unique_ptr<MessageBridge> _bridge;
-		SettingsStore                 _settings;
-		InputRouter                   _input;
+		std::unique_ptr<MessageBridge>          _bridge;
+		std::vector<std::unique_ptr<IUiModule>> _modules;
+		InputRouter                             _input;
 		KeyCode                       _toggleKey{ kInvalidKeyCode };
 
 		// Virtual cursor in view-pixel space (the OS cursor is hidden during

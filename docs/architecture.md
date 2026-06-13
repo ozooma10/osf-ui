@@ -64,16 +64,39 @@ swapped behind stable interfaces without touching the rest of the runtime.
 ### Message bridge
 
 All native↔web traffic is JSON text with shape
-`{ "type": string, "payload": object }` through `MessageBridge`:
+`{ "type": string, "payload": object }` through `MessageBridge`. The bridge is
+**feature-agnostic**: it transports messages and dispatches `ui.command` by a
+registry of handlers — it has no built-in knowledge of any feature.
 
-- web → native: only `ui.command` with a whitelisted `command`
-  (`close`, `log`, `ping`, `setVisible`). Unknown types/commands are rejected
-  and logged.
-- native → web: `runtime.ready`, `runtime.pong`, delivered via
-  `IWebRenderer::SendMessageToWeb` (a no-op drop on null/mock backends).
+- web → native: only `ui.command`, whose `command` is looked up in a handler
+  registry (`MessageBridge::RegisterCommand`). Unknown commands are rejected
+  and logged. There is no generic "call native" escape hatch.
+- native → web: `MessageBridge::SendToWeb(type, payload)`; `runtime.ready` /
+  `runtime.pong` are the platform messages. Delivered via
+  `IWebRenderer::SendMessageToWeb`.
 
-The bridge holds two narrow callbacks (`setVisible`, `sendToWeb`) instead of a
-`Runtime` reference, so its capability surface is exactly what it needs.
+The bridge is constructed with just a `SendFn` transport (wired to the
+renderer). Commands are registered by:
+- **core** — platform/window commands only (`close`, `setVisible`, `log`,
+  `ping`), via `Runtime::RegisterPlatformCommands`;
+- **each feature module** — its own namespace (e.g. settings registers
+  `settings.get`/`set`/`reset`).
+
+### Feature modules ("apps" on the platform)
+
+Features are `IUiModule`s (`runtime/UiModule.h`). The core runtime hosts them
+without knowing what they do: `OnStart()` applies persisted state at load and
+`RegisterCommands(bridge)` lets a module wire its own bridge commands.
+`Runtime::BuildModules()` is the composition root — the one place that names
+concrete modules and injects their dependencies (e.g. the settings module gets
+a change-listener so core can react to the knobs it owns, like cursor speed).
+
+Today there is one module, `SettingsModule` (schema-driven settings, Phase 5),
+but the seam is deliberate: a HUD, quest tracker, etc. would each be another
+module, and a future public plugin API would expose `RegisterCommand` +
+view-registration so modules could ship in separate DLLs (the SKSE/SkyUI
+split). The settings *engine* stays native because validation/persistence must
+not be trusted to untrusted JS (see security-model.md).
 
 ### Views
 

@@ -40,6 +40,13 @@ freeze). Highest-value next items:
   `osfui.cursorSpeed` live-scales the cursor). Bridge commands:
   `settings.get`/`settings.set`/`settings.reset`. Verified in-game: two mods,
   live cursor-speed reaction, reset, per-mod persistence, survives relaunch.
+- **✅ Module refactor (2026-06-13).** `MessageBridge` is now a
+  feature-agnostic command dispatcher (`RegisterCommand`); settings is an
+  `IUiModule` (`SettingsModule`) that registers its own `settings.*` commands.
+  Core (`Runtime`) only registers platform commands + hosts modules generically
+  via `BuildModules()` — the seam for a future separate settings plugin
+  (architecture.md "Feature modules"). Verified: `1 UI module(s) loaded`,
+  settings behaviour unchanged in-game.
 - **Phase 3 polish** (renderer-plan.md): ✅ aspect-correct view sizing done
   (no more stretch — 2026-06-13). Remaining: HDR/10-bit + multi-format PSO,
   frame-gen swapchain pick, Steam/ReShade/RTSS coexistence, sRGB,
@@ -382,7 +389,9 @@ reading (SFSE + CommonLibSF), which is why they're done first.
 src/
   main.cpp                     SFSE entry macros -> Plugin::OnPreLoad/OnLoad
   core/      Plugin, Paths, Log, Config, Version
-  runtime/   Runtime, ViewManager, ViewManifest, MessageBridge, SettingsStore, Json
+  runtime/   Runtime (composition root), ViewManager, ViewManifest, Json,
+             MessageBridge (feature-agnostic command dispatcher),
+             UiModule (IUiModule contract), SettingsModule + SettingsStore
   render/    IWebRenderer + Null / Mock / Ultralight (real, offscreen)
   composite/ ICompositor + Null / D3D12 (real, present-time overlay) / EngineD3D12
   input/     InputRouter, InputTypes, MenuEventSink, UiInputHook (observe),

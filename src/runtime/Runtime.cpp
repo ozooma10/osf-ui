@@ -8,6 +8,7 @@
 #include "core/Paths.h"
 #include "platform/WindowsPlatform.h"
 #include "render/MockWebRenderer.h"
+#include "runtime/Json.h"
 #include "render/NullWebRenderer.h"
 #include "render/UltralightWebRenderer.h"
 
@@ -73,43 +74,34 @@ namespace SWUI
 		_compositor->SetOutputResizeCallback([this](std::uint32_t a_w, std::uint32_t a_h) { OnOutputResized(a_w, a_h); });
 		REX::INFO("Runtime: compositor = {}", _compositor->Name());
 
-		// Schema-driven settings (Phase 5): every mod's schema ships read-only
-		// under <data>/settings/*.json; values persist per-mod to a writable
-		// dir (Documents — NOT the MO2/Program-Files-mapped data dir).
 		_captureInput.store(_config.captureInput);
-		const auto schemaDir = Paths::DataDir() / "settings";
-		const auto docs = Platform::GetDocumentsPath();
-		const auto valuesDir = docs.empty()
-			? Paths::DataDir() / "settings" / "values"  // fallback (MO2 redirects the write)
-			: docs / "My Games" / "Starfield" / "StarfieldWebUI" / "settings";
-		_settings.LoadAll(schemaDir, valuesDir);
-		// Native reactions to settings (the Phase 5b payoff): values DO things.
-		_settings.SetChangeListener([this](std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value) {
-			OnSettingChanged(a_mod, a_key, a_value);
-		});
-		// Apply persisted values now (e.g. capture mode) before the first frame.
-		_settings.NotifyAll();
+
+		// Feature modules ("apps" on the platform). Core hosts them via the
+		// IUiModule contract and knows nothing of what they do — settings is
+		// just the first. This is the composition root; everything past here
+		// treats modules generically. OnStart() applies persisted state (e.g.
+		// fires the cursor-speed reaction) before the first frame.
+		BuildModules();
+		for (const auto& module : _modules) {
+			module->OnStart();
+		}
 
 		// Active view. Bridge and web->native handler are wired BEFORE
 		// LoadView so no early page message can race past them; renderers
 		// queue native->web messages until the page is actually ready.
 		if (view) {
 			if (view->permissions.nativeBridge) {
-				_bridge = std::make_unique<MessageBridge>(MessageBridge::Host{
-					.setVisible = [this](bool a_visible) { SetVisible(a_visible); },
-					.sendToWeb = [this](std::string_view a_json) {
-						if (_renderer) {
-							_renderer->SendMessageToWeb(a_json);
-						}
-					},
-					.getSettingsData = [this] { return _settings.DataJson(); },
-					.setSetting = [this](std::string_view a_mod, std::string_view a_key, std::string_view a_valueJson) {
-						return _settings.Set(a_mod, a_key, a_valueJson);
-					},
-					.resetSetting = [this](std::string_view a_mod, std::string_view a_key) {
-						return _settings.Reset(a_mod, a_key);
-					},
+				_bridge = std::make_unique<MessageBridge>([this](std::string_view a_json) {
+					if (_renderer) {
+						_renderer->SendMessageToWeb(a_json);
+					}
 				});
+				// Platform (window) commands live in core; everything else is a
+				// module's to register.
+				RegisterPlatformCommands(*_bridge);
+				for (const auto& module : _modules) {
+					module->RegisterCommands(*_bridge);
+				}
 				_renderer->SetWebMessageHandler([this](std::string_view a_json) {
 					if (_bridge) {
 						_bridge->HandleWebMessage(a_json);
@@ -171,7 +163,10 @@ namespace SWUI
 			_renderer->Shutdown();
 			_renderer.reset();
 		}
+		// Bridge before modules: its command handlers capture module pointers,
+		// so it must not outlive them.
 		_bridge.reset();
+		_modules.clear();
 		_initialized = false;
 		REX::INFO("Runtime: shutdown complete");
 	}
@@ -258,6 +253,44 @@ namespace SWUI
 			return;
 		}
 		_renderer->InjectMouseButton(static_cast<int>(_cursorX), static_cast<int>(_cursorY), a_button, a_down);
+	}
+
+	void Runtime::BuildModules()
+	{
+		// Settings: schemas ship read-only under <data>/settings/*.json; values
+		// persist per-mod to a writable dir (Documents — NOT the MO2/
+		// Program-Files-mapped data dir). The change listener is how core reacts
+		// to settings it owns; the module itself is feature-agnostic.
+		const auto schemaDir = Paths::DataDir() / "settings";
+		const auto docs = Platform::GetDocumentsPath();
+		const auto valuesDir = docs.empty()
+			? Paths::DataDir() / "settings" / "values"  // fallback (MO2 redirects the write)
+			: docs / "My Games" / "Starfield" / "StarfieldWebUI" / "settings";
+		_modules.push_back(std::make_unique<SettingsModule>(schemaDir, valuesDir,
+			[this](std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value) {
+				OnSettingChanged(a_mod, a_key, a_value);
+			}));
+
+		REX::INFO("Runtime: {} UI module(s) loaded", _modules.size());
+	}
+
+	void Runtime::RegisterPlatformCommands(MessageBridge& a_bridge)
+	{
+		// The platform owns only window/diagnostic commands. Features register
+		// their own; there is no generic "call native" escape hatch.
+		a_bridge.RegisterCommand("close", [this](const nlohmann::json&, MessageBridge&) {
+			SetVisible(false);
+		});
+		a_bridge.RegisterCommand("setVisible", [this](const nlohmann::json& a_p, MessageBridge&) {
+			SetVisible(Json::GetBool(a_p, "visible", false));
+		});
+		a_bridge.RegisterCommand("log", [](const nlohmann::json& a_p, MessageBridge&) {
+			// Untrusted content: bound the length so JS cannot flood the log.
+			REX::INFO("MessageBridge: [web] {}", Json::GetString(a_p, "text", "").substr(0, 512));
+		});
+		a_bridge.RegisterCommand("ping", [](const nlohmann::json&, MessageBridge& a_b) {
+			a_b.SendToWeb("runtime.pong", nlohmann::json::object());
+		});
 	}
 
 	void Runtime::OnSettingChanged(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value)

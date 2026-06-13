@@ -1,48 +1,47 @@
 #pragma once
 
-#include <nlohmann/json_fwd.hpp>
+#include <nlohmann/json.hpp>
 
 // Narrow native <-> web bridge. All traffic is JSON text messages with the
-// shape { "type": string, "payload": object }. Web -> native commands are
-// dispatched against an explicit whitelist; everything else is rejected and
-// logged. There is intentionally NO mechanism to call arbitrary native
-// functions from JS. See docs/security-model.md.
+// shape { "type": string, "payload": object }. Web -> native traffic is a
+// single type, `ui.command`, dispatched by its `command` field against a
+// registry of handlers. The bridge itself is FEATURE-AGNOSTIC: core registers
+// platform commands (close/setVisible/...), and each IUiModule registers its
+// own (e.g. settings.*). There is intentionally NO mechanism to call arbitrary
+// native functions from JS. See docs/security-model.md.
 
 namespace SWUI
 {
 	class MessageBridge
 	{
 	public:
-		// Host hooks the bridge needs. Kept as narrow function objects so the
-		// bridge never holds a reference to the whole Runtime.
-		struct Host
-		{
-			std::function<void(bool)>             setVisible;  // drives ui.command "setVisible" / "close"
-			std::function<void(std::string_view)> sendToWeb;   // outbound JSON (-> renderer SendMessageToWeb)
+		// Transport for native -> web text (wired to the renderer).
+		using SendFn = std::function<void(std::string_view)>;
 
-			// Schema-driven settings (Phase 5). getSettingsData returns the
-			// { mods: [...] } JSON for the view; setSetting validates + persists
-			// one value (mod id + key + raw JSON value text); resetSetting
-			// restores defaults (empty key = whole mod). All optional — unset
-			// means the view gets an empty registry.
-			std::function<std::string()>                                            getSettingsData;
-			std::function<bool(std::string_view, std::string_view, std::string_view)> setSetting;
-			std::function<bool(std::string_view, std::string_view)>                 resetSetting;
-		};
+		// Handler for one `ui.command` command. Receives the command payload
+		// and the bridge (to send responses). Registered by core/modules.
+		using CommandHandler = std::function<void(const nlohmann::json& a_payload, MessageBridge& a_bridge)>;
 
-		explicit MessageBridge(Host a_host);
+		explicit MessageBridge(SendFn a_send);
 
-		// Entry point for web -> native messages (raw JSON text from the JS
-		// side). Malformed or non-whitelisted input is rejected and logged,
-		// never fatal.
+		// Register (or replace) the handler for an exact command string, e.g.
+		// "settings.get". Unknown commands are rejected and logged.
+		void RegisterCommand(std::string a_command, CommandHandler a_handler);
+
+		// Entry point for web -> native messages (raw JSON text). Malformed or
+		// non-whitelisted input is rejected and logged, never fatal.
 		void HandleWebMessage(std::string_view a_json);
 
-		// Native -> web notifications.
+		// Native -> web: send { type, payload }.
+		void SendToWeb(std::string_view a_type, const nlohmann::json& a_payload);
+
+		// Native -> web handshake announcing the runtime to the page.
 		void SendRuntimeReady();
 
 	private:
 		void HandleUiCommand(const nlohmann::json& a_payload);
 
-		Host _host;
+		SendFn                                          _send;
+		std::unordered_map<std::string, CommandHandler> _commands;
 	};
 }
