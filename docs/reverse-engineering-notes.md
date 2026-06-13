@@ -99,14 +99,35 @@ GPU with a LUID matching the device's. Available from `kPostPostDataLoad`.
 Phase 2 consumers must re-verify with the same QI checks at startup (cheap)
 instead of trusting the offsets blindly.
 
-Still open for Phase 3:
-- Present timing: `IDXGISwapChain3::Present` hook vs an engine-level
-  "end of frame" function. Must decide hook tech then (minimal, isolated;
-  Detours/MinHook only if CommonLibSF trampolines don't suffice). Note
-  `OSF RE/src/Probe/RenderPresentProbe.cpp` already captures the live
-  swapchain via the create-call hook, but uses a raw pre-1.16 offset —
-  re-anchor before reuse. The engine swapchain wrapper (+0x40 =
-  IDXGISwapChain3/4*) is mapped in `rendering.graphics_core`.
+**Present timing: DECIDED 2026-06-12 — hook `IDXGISwapChain::Present`
+(vtable slot 8).** Runtime-proven in `OSF RE` (RenderPresentProbe,
+re-anchored to ID 141996; see its
+`Investigations/Requests/2026-06-12-present-timing.md` and the present note in
+`rendering.graphics_core`):
+
+- A single vfunc hook on slot 8 caught presents from BOTH live swapchains
+  (they share one vtable) — one hook covers everything.
+- Slot 8 = Present is DXGI-stable ABI, so the *hook point* needs no
+  per-patch AddrLib anchoring (unlike an engine fn). The engine's own
+  present (`EngineSwapChainPresent` @ RVA 0x2A0EECB) does
+  `call [pDxSwapChain_vtable + 0x40]` = slot 8, with syncInterval/flags from
+  `GameSwapChainWrapper+0x50/+0x54` — corroboration, not the hook site.
+- Present fires on a single thread, `GetDesc()` works in the thunk,
+  BufferCount=2, syncInterval=1.
+
+Phase 3 caveats from the same run:
+- **Two swapchains present every frame** (same HWND): one straight from the
+  engine, one from an injected high module (a frame-gen/upscaler/Reflex
+  interposer — DLSS-G/Streamline/AGS class). Draw into the one actually
+  scanned out, or hook both. Don't assume a single swapchain.
+- Remaining Phase 3 work (unchanged): record our own command list off the
+  located device/queue, transition the overlay texture to
+  PIXEL_SHADER_RESOURCE, draw a fullscreen alpha-blended quad onto the
+  current backbuffer RTV (`GetBuffer(GetCurrentBackBufferIndex())`),
+  transition back, then call original Present. Own descriptor heaps + root
+  signature + PSO; handle HDR/DRS/windowed; test coexistence with Steam
+  overlay/ReShade/RTSS (hook-chain ordering). Hook tech: CommonLibSF vtable
+  hook or MinHook, minimal + isolated.
 - Descriptor heap strategy, resource state expectations, HDR/DRS/windowed
   behaviors, and coexistence with Steam overlay/ReShade/RTSS (hook-chain
   friendliness) — all documented in `composite/D3D12Compositor.h`.

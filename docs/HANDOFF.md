@@ -1,15 +1,16 @@
 # StarfieldWebUI — Resume / Handoff
 
-**Last updated:** 2026-06-12 ~21:45
-**Status:** Phase 0 + TODOs #1–#4 + renderer-plan **Phases 1 AND 2 all
-verified in-game 2026-06-12**. Real WebKit (Ultralight 1.4.0) renders the
+**Last updated:** 2026-06-12 ~22:00
+**Status:** Phase 0 + TODOs #1–#5 + renderer-plan **Phases 1 AND 2** all
+done/verified in-game 2026-06-12. Real WebKit (Ultralight 1.4.0) renders the
 test page offscreen (Phase 1, PNG proof, JS bridge round-trip both ways),
-the D3D12 device + DIRECT queue route is proven hook-free via
-REL::ID(944397) (TODO #4, in `OSF RE/`), and the web frames now upload into
-a GPU texture on the game's own device with a byte-exact GPU round-trip
-proof (`D3D12Compositor: ROUND-TRIP VERIFIED`, 21:37 run). Still nothing
-draws over the game — that is Phase 3. Next: TODO #5 (present timing). See
-§0/§7.
+the D3D12 device + DIRECT queue route is proven hook-free via REL::ID(944397)
+(TODO #4), the web frames upload into a GPU texture on the game's own device
+with a byte-exact round-trip proof (Phase 2, 21:37 run), and the
+present-timing decision is made and proven: **hook `IDXGISwapChain::Present`
+slot 8** (TODO #5, 21:45 run, in `OSF RE/`). The ONLY thing left to see
+pixels in-game is **renderer-plan Phase 3**: the actual overlay draw at
+present time. See §0/§7.
 Game is **1.16.244.0** (patched 2026-06-11; SFSE 0.2.21, versionlib-1-16-244
 present in the AIO address library mod).
 
@@ -17,18 +18,19 @@ present in the AIO address library mod).
 
 ## 0. IMMEDIATE next step
 
-TODOs #1–#4 AND **renderer-plan Phase 2** are ✅ verified in-game
+TODOs #1–#5 AND **renderer-plan Phase 2** are ✅ done/verified in-game
 (2026-06-12; details in §3/§4, renderer-plan.md, RE notes §2). The web
-frames now land in a real GPU texture on the game's device
-(`D3D12Compositor`, round-trip-verified). Next work item: **TODO #5 —
-present timing** (engine end-of-frame fn vs `IDXGISwapChain3::Present`
-hook), then Phase 3 composition (descriptor heaps, resource states,
-HDR/DRS, overlay coexistence). Groundwork: `OSF RE`'s RenderPresentProbe
-already captures the live swapchain but uses a raw pre-1.16 offset —
-re-anchor it first; the engine swapchain wrapper layout is in the
-`rendering.graphics_core` module (+0x40 = IDXGISwapChain3/4*,
-+0x48 = frame-latency waitable). Visual checks until Phase 3: devMode PNG
-dump (`MO2\overwrite\SFSE\Plugins\StarfieldWebUI\ultralight\first-frame.png`).
+frames land in a real GPU texture on the game's device (`D3D12Compositor`,
+round-trip-verified), and the present-timing decision is made: **hook
+`IDXGISwapChain::Present` slot 8** (TODO #5, proven in `OSF RE` — RE notes
+§2). Next work item: **renderer-plan Phase 3 — actually draw the overlay**.
+Record a command list off the located device/queue, draw the overlay
+texture as an alpha-blended fullscreen quad onto the current backbuffer RTV
+in a slot-8 Present hook, then call original. Watch the two-swapchain /
+frame-gen caveat (RE notes §2). This is the genuinely hard one (descriptor
+heaps, resource states, HDR/DRS, overlay coexistence). Visual checks until
+then: devMode PNG dump
+(`MO2\overwrite\SFSE\Plugins\StarfieldWebUI\ultralight\first-frame.png`).
 
 Quick re-verify of the Ultralight backend (one launch to the main menu, no
 interaction): expect in `StarfieldWebUI.log` —
@@ -323,8 +325,9 @@ Fixes (all in working tree as of this writing):
    on 1.16.244, 2026-06-12** (hook-free, in `OSF RE/`: D3D12DeviceProbe,
    anchored on REL::ID(944397); chain + proof in
    [reverse-engineering-notes.md](reverse-engineering-notes.md) §2).
-5. ⏳ Present timing decision: engine end-of-frame fn vs `IDXGISwapChain3::Present`
-   hook.
+5. ✅ Present timing — **DECIDED 2026-06-12**: hook `IDXGISwapChain::Present`
+   slot 8 (runtime-proven in `OSF RE`, RenderPresentProbe re-anchored to
+   ID 141996; rationale + two-swapchain caveat in RE notes §2).
 6. ⏳ Overlay composition: descriptor heaps, resource states, HDR/DRS,
    Steam/ReShade/RTSS coexistence.
 7. ⏳ Input **consumption** (block the game from acting on captured input while
