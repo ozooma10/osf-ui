@@ -193,25 +193,34 @@ namespace SWUI
 		public ul::LoadListener,
 		public ul::ViewListener
 	{
-		// ---- game-thread state ----
+		// ---- renderer-global state ----
+		// One Renderer/Session/worker/FileSystem serves every View (Ultralight
+		// allows only one Renderer per process). Everything that differs per
+		// view lives in ViewState below; this struct owns only what is shared.
 		RendererConfig    config;
 		WebMessageHandler onWebMessage;
 
-		// ---- shared state (guarded by mutex) ----
-		std::mutex                                              mutex;
-		std::condition_variable                                 wake;
-		bool                                                    stopRequested{ false };
-		std::optional<ViewManifest>                             pendingLoad;
-		std::optional<std::pair<std::uint32_t, std::uint32_t>>  pendingResize;
-		std::deque<std::string>                                 toWeb;     // game -> page
-		std::deque<std::string>                                 toNative;  // page -> game
+		std::mutex              mutex;  // guards `views`, `activeViewId`, and every ViewState's queues/pending ops
+		std::condition_variable wake;
+		bool                    stopRequested{ false };
 
+		std::thread              worker;
+		ul::RefPtr<ul::Renderer> renderer;
+		ul::RefPtr<ul::Session>  session;
+		// NOTE: SandboxFileSystem is a Platform-global with a single view root,
+		// so it sandboxes exactly one view at a time. Hosting several views with
+		// different roots needs a per-request view mapping — a multi-view TODO
+		// (docs/renderer-plan.md "Multi-view feasibility").
+		SandboxFileSystem*       fileSystem{ nullptr };  // owned by Platform for process lifetime
+
+		std::mutex frameMutex;  // guards every ViewState's pendingFrame/pendingFresh
+
+		// ---- per-view payload types ----
 		struct KeyInput
 		{
 			std::uint32_t vk{ 0 };
 			bool          down{ false };
 		};
-		std::deque<KeyInput> toInput;  // game -> view (keyboard)
 
 		struct MouseInput
 		{
@@ -221,9 +230,7 @@ namespace SWUI
 			int  y{ 0 };
 			int  button{ 0 };  // MouseButton order: 0=left, 1=right, 2=middle
 		};
-		std::deque<MouseInput> toMouse;  // game -> view (mouse)
 
-		// ---- frame exchange ----
 		struct Frame
 		{
 			std::vector<std::uint8_t> pixels;
@@ -232,33 +239,74 @@ namespace SWUI
 			std::uint32_t             strideBytes{ 0 };
 			std::uint64_t             index{ 0 };
 		};
-		std::mutex frameMutex;
-		Frame      pendingFrame;
-		bool       pendingFresh{ false };
-		Frame      frontFrame;  // game thread only; backs the FrameBufferView we hand out
 
-		// ---- worker-thread-only state ----
-		std::thread             worker;
-		ul::RefPtr<ul::Renderer> renderer;
-		ul::RefPtr<ul::Session>  session;
-		ul::RefPtr<ul::View>     view;
-		SandboxFileSystem*       fileSystem{ nullptr };  // owned by Platform for process lifetime
-		Frame                    backFrame;
-		std::uint64_t            paintCount{ 0 };
-		bool                     domReady{ false };
-		std::deque<std::string>  stashedToWeb;  // arrived before the page was ready
-		bool                     dumpedFirstFrame{ false };
+		// ---- per-view state (one per loaded view, keyed by manifest id) ----
+		// Today exactly one view is hosted (the configured view = activeViewId)
+		// and the IWebRenderer interface stays single-view, targeting the active
+		// view. The keyed map + per-view grouping is the structural seam for
+		// hosting several at once (renderer-plan.md M2.1) without reshaping the
+		// threading model.
+		struct ViewState
+		{
+			std::string id;
 
-		// worker-thread keyboard modifier state (tracked from the VK stream)
-		bool modShift{ false };
-		bool modCtrl{ false };
-		bool modAlt{ false };
-		bool loggedFirstKey{ false };
+			// shared with the game thread (guarded by Impl::mutex)
+			std::optional<ViewManifest>                            pendingLoad;
+			std::optional<std::pair<std::uint32_t, std::uint32_t>> pendingResize;
+			std::deque<std::string>                                toWeb;     // game -> page
+			std::deque<std::string>                                toNative;  // page -> game
+			std::deque<KeyInput>                                   toInput;   // game -> view (keyboard)
+			std::deque<MouseInput>                                 toMouse;   // game -> view (mouse)
+
+			// frame exchange: pendingFrame/pendingFresh guarded by Impl::frameMutex;
+			// frontFrame is game-thread-only and backs the FrameBufferView we hand out.
+			Frame pendingFrame;
+			bool  pendingFresh{ false };
+			Frame frontFrame;
+
+			// worker-thread-only
+			ul::RefPtr<ul::View>    view;
+			Frame                   backFrame;
+			std::uint64_t           paintCount{ 0 };
+			bool                    domReady{ false };
+			std::deque<std::string> stashedToWeb;  // arrived before the page was ready
+			bool                    dumpedFirstFrame{ false };
+			// keyboard modifier state (tracked from the VK stream)
+			bool modShift{ false };
+			bool modCtrl{ false };
+			bool modAlt{ false };
+			bool loggedFirstKey{ false };
+		};
+		std::unordered_map<std::string, std::unique_ptr<ViewState>> views;         // guarded by mutex
+		std::string                                                 activeViewId;  // guarded by mutex
 
 		// The JSC postMessage callback is a plain function pointer with no
-		// user-data slot, so it finds us through this. One renderer per
-		// process (Ultralight allows only one anyway).
+		// user-data slot, so it finds us through this. One renderer per process.
+		// (Attributing a message to its SOURCE view, when several are hosted,
+		// will key on the JSContextRef; today it routes to the active view.)
 		static inline std::atomic<Impl*> sActive{ nullptr };
+
+		// ---- view lookup ----
+		// Active (and currently only) hosted view; null before the first load.
+		// Caller holds `mutex` while touching the returned view's shared fields;
+		// the pointer itself stays valid for the renderer's lifetime (ViewStates
+		// are never erased until the worker tears them down at shutdown, and the
+		// unique_ptr keeps the object stable across map rehash).
+		[[nodiscard]] ViewState* ActiveView()
+		{
+			const auto it = views.find(activeViewId);
+			return it != views.end() ? it->second.get() : nullptr;
+		}
+		// Map an Ultralight View back to its ViewState (used by SDK listeners).
+		[[nodiscard]] ViewState* FindByView(const ul::View* a_view)
+		{
+			for (auto& [id, vs] : views) {
+				if (vs->view.get() == a_view) {
+					return vs.get();
+				}
+			}
+			return nullptr;
+		}
 
 		// ================= worker thread =================
 
@@ -269,6 +317,18 @@ namespace SWUI
 				return;
 			}
 
+			// One entry per view, snapshotted under the lock and processed
+			// unlocked so the game thread is never blocked behind WebCore.
+			struct ViewWork
+			{
+				ViewState*                                             vs{ nullptr };
+				std::optional<ViewManifest>                            load;
+				std::optional<std::pair<std::uint32_t, std::uint32_t>> resize;
+				std::deque<std::string>                                outbound;
+				std::deque<KeyInput>                                   keys;
+				std::deque<MouseInput>                                 mice;
+			};
+
 			std::unique_lock lock(mutex);
 			while (!stopRequested) {
 				wake.wait_for(lock, kWorkerFrameInterval);
@@ -276,41 +336,58 @@ namespace SWUI
 					break;
 				}
 
-				// Move pending work local, then run Ultralight unlocked so the
-				// game thread is never blocked behind WebCore.
-				auto load = std::exchange(pendingLoad, std::nullopt);
-				auto resize = std::exchange(pendingResize, std::nullopt);
-				std::deque<std::string> outbound;
-				outbound.swap(toWeb);
-				std::deque<KeyInput> keys;
-				keys.swap(toInput);
-				std::deque<MouseInput> mice;
-				mice.swap(toMouse);
+				// Snapshot EVERY view's pending work (and the view pointer)
+				// under the lock — one entry per view even with no pending work,
+				// so each view still gets pumped/harvested below.
+				std::vector<ViewWork> work;
+				work.reserve(views.size());
+				for (auto& [id, vs] : views) {
+					ViewWork w;
+					w.vs = vs.get();
+					w.load = std::exchange(vs->pendingLoad, std::nullopt);
+					w.resize = std::exchange(vs->pendingResize, std::nullopt);
+					w.outbound.swap(vs->toWeb);
+					w.keys.swap(vs->toInput);
+					w.mice.swap(vs->toMouse);
+					work.push_back(std::move(w));
+				}
 				lock.unlock();
 
-				if (load) {
-					CreateAndLoadView(*load);
+				for (auto& w : work) {
+					if (w.load) {
+						CreateAndLoadView(*w.vs, *w.load);
+					}
+					if (w.resize && w.vs->view) {
+						w.vs->view->Resize(w.resize->first, w.resize->second);
+					}
+					for (auto& msg : w.outbound) {
+						w.vs->stashedToWeb.push_back(std::move(msg));
+					}
+					for (const auto& key : w.keys) {
+						ProcessKeyInput(*w.vs, key);
+					}
+					for (const auto& m : w.mice) {
+						ProcessMouseInput(*w.vs, m);
+					}
 				}
-				if (resize && view) {
-					view->Resize(resize->first, resize->second);
+
+				std::vector<ViewState*> live;
+				live.reserve(work.size());
+				for (auto& w : work) {
+					live.push_back(w.vs);
 				}
-				for (auto& msg : outbound) {
-					stashedToWeb.push_back(std::move(msg));
-				}
-				for (const auto& key : keys) {
-					ProcessKeyInput(key);
-				}
-				for (const auto& m : mice) {
-					ProcessMouseInput(m);
-				}
-				PumpUltralight();
+				PumpUltralight(live);
 
 				lock.lock();
 			}
 			lock.unlock();
 
 			// Release on this thread — WebCore objects must die where they lived.
-			view = nullptr;
+			// Clearing the map destroys each ViewState's View ref-pointer here.
+			{
+				std::scoped_lock release(mutex);
+				views.clear();
+			}
 			session = nullptr;
 			renderer = nullptr;
 			REX::INFO("UltralightWebRenderer: worker stopped");
@@ -350,7 +427,7 @@ namespace SWUI
 			return true;
 		}
 
-		void CreateAndLoadView(const ViewManifest& a_manifest)
+		void CreateAndLoadView(ViewState& a_vs, const ViewManifest& a_manifest)
 		{
 			fileSystem->SetViewRoot(a_manifest.rootDir);
 
@@ -358,38 +435,41 @@ namespace SWUI
 			viewConfig.is_accelerated = false;  // CPU BitmapSurface (Phase 1)
 			viewConfig.is_transparent = a_manifest.transparent;
 			viewConfig.initial_device_scale = 1.0;
-			view = renderer->CreateView(a_manifest.width, a_manifest.height, viewConfig, session);
-			if (!view) {
+			a_vs.view = renderer->CreateView(a_manifest.width, a_manifest.height, viewConfig, session);
+			if (!a_vs.view) {
 				REX::ERROR("UltralightWebRenderer: CreateView({}x{}) failed", a_manifest.width, a_manifest.height);
 				return;
 			}
-			view->set_load_listener(this);
-			view->set_view_listener(this);
-			domReady = false;
+			a_vs.view->set_load_listener(this);
+			a_vs.view->set_view_listener(this);
+			a_vs.domReady = false;
 
 			const auto url = "file:///" + a_manifest.entry;
 			REX::INFO("UltralightWebRenderer: loading view '{}' -> {} (root {})",
 				a_manifest.id, url, a_manifest.rootDir.string());
-			view->LoadURL(url.c_str());
+			a_vs.view->LoadURL(url.c_str());
 		}
 
-		void PumpUltralight()
+		void PumpUltralight(const std::vector<ViewState*>& a_views)
 		{
 			renderer->Update();
-			if (!view) {
-				return;
-			}
-			if (domReady) {
-				FlushStashedMessages();
+			for (auto* vs : a_views) {
+				if (vs->view && vs->domReady) {
+					FlushStashedMessages(*vs);
+				}
 			}
 			renderer->RefreshDisplay(0);
-			renderer->Render();
-			HarvestFrame();
+			renderer->Render();  // repaints only the views that need it
+			for (auto* vs : a_views) {
+				if (vs->view) {
+					HarvestFrame(*vs);
+				}
+			}
 		}
 
-		void HarvestFrame()
+		void HarvestFrame(ViewState& a_vs)
 		{
-			auto* surface = static_cast<ul::BitmapSurface*>(view->surface());
+			auto* surface = static_cast<ul::BitmapSurface*>(a_vs.view->surface());
 			if (!surface || surface->dirty_bounds().IsEmpty()) {
 				return;
 			}
@@ -397,28 +477,28 @@ namespace SWUI
 			const auto stride = surface->row_bytes();
 			const auto byteCount = surface->size();
 			if (auto* pixels = surface->LockPixels()) {
-				backFrame.pixels.assign(
+				a_vs.backFrame.pixels.assign(
 					static_cast<const std::uint8_t*>(pixels),
 					static_cast<const std::uint8_t*>(pixels) + byteCount);
-				backFrame.width = surface->width();
-				backFrame.height = surface->height();
-				backFrame.strideBytes = stride;
-				backFrame.index = ++paintCount;
+				a_vs.backFrame.width = surface->width();
+				a_vs.backFrame.height = surface->height();
+				a_vs.backFrame.strideBytes = stride;
+				a_vs.backFrame.index = ++a_vs.paintCount;
 				surface->UnlockPixels();
 			} else {
 				return;
 			}
 			surface->ClearDirtyBounds();
 
-			if (paintCount == 1) {
-				REX::INFO("UltralightWebRenderer: first paint ({}x{}, stride {})",
-					backFrame.width, backFrame.height, backFrame.strideBytes);
+			if (a_vs.paintCount == 1) {
+				REX::INFO("UltralightWebRenderer: first paint for view '{}' ({}x{}, stride {})",
+					a_vs.id, a_vs.backFrame.width, a_vs.backFrame.height, a_vs.backFrame.strideBytes);
 			}
-			if (config.devMode && !dumpedFirstFrame && domReady) {
+			if (config.devMode && !a_vs.dumpedFirstFrame && a_vs.domReady) {
 				// Phase 1 exit criterion: prove real pixels by dumping the
 				// first frame painted after DOM ready (earlier paints are a
-				// blank pre-style flash).
-				dumpedFirstFrame = true;
+				// blank pre-style flash). One file: fine while one view is hosted.
+				a_vs.dumpedFirstFrame = true;
 				const auto dumpPath = (config.dataDir / "ultralight" / "first-frame.png").string();
 				if (surface->bitmap()->WritePNG(dumpPath.c_str())) {
 					REX::INFO("UltralightWebRenderer: post-DOM frame dumped to {}", dumpPath);
@@ -429,8 +509,8 @@ namespace SWUI
 
 			{
 				std::scoped_lock lk(frameMutex);
-				std::swap(backFrame, pendingFrame);
-				pendingFresh = true;
+				std::swap(a_vs.backFrame, a_vs.pendingFrame);
+				a_vs.pendingFresh = true;
 			}
 		}
 
@@ -444,19 +524,23 @@ namespace SWUI
 			if (self && a_argc >= 1) {
 				auto json = JSValueToUTF8(a_ctx, a_args[0]);
 				std::scoped_lock lk(self->mutex);
-				if (self->toNative.size() < kMaxQueuedMessages) {
-					self->toNative.push_back(std::move(json));
-				} else {
-					static std::once_flag once;
-					Log::WarnOnce(once, "UltralightWebRenderer: web->native queue full; dropping messages");
+				// Single-view today: route to the active view. Multi-view will
+				// attribute by JSContextRef (the source view's context).
+				if (auto* vs = self->ActiveView()) {
+					if (vs->toNative.size() < kMaxQueuedMessages) {
+						vs->toNative.push_back(std::move(json));
+					} else {
+						static std::once_flag once;
+						Log::WarnOnce(once, "UltralightWebRenderer: web->native queue full; dropping messages");
+					}
 				}
 			}
 			return JSValueMakeUndefined(a_ctx);
 		}
 
-		void InjectBridge()
+		void InjectBridge(ViewState& a_vs)
 		{
-			auto scopedCtx = view->LockJSContext();
+			auto scopedCtx = a_vs.view->LockJSContext();
 			JSContextRef ctx = scopedCtx->ctx();
 			JSObjectRef  global = JSContextGetGlobalObject(ctx);
 
@@ -475,18 +559,18 @@ namespace SWUI
 			JSStringRelease(starfieldName);
 		}
 
-		void FlushStashedMessages()
+		void FlushStashedMessages(ViewState& a_vs)
 		{
-			while (!stashedToWeb.empty()) {
-				const auto json = std::move(stashedToWeb.front());
-				stashedToWeb.pop_front();
-				DeliverToWeb(json);
+			while (!a_vs.stashedToWeb.empty()) {
+				const auto json = std::move(a_vs.stashedToWeb.front());
+				a_vs.stashedToWeb.pop_front();
+				DeliverToWeb(a_vs, json);
 			}
 		}
 
-		void DeliverToWeb(const std::string& a_json)
+		void DeliverToWeb(ViewState& a_vs, const std::string& a_json)
 		{
-			auto scopedCtx = view->LockJSContext();
+			auto scopedCtx = a_vs.view->LockJSContext();
 			JSContextRef ctx = scopedCtx->ctx();
 			JSObjectRef  global = JSContextGetGlobalObject(ctx);
 
@@ -520,24 +604,24 @@ namespace SWUI
 
 		// ================= keyboard input (worker thread) =================
 
-		[[nodiscard]] unsigned CurrentModifiers() const
+		[[nodiscard]] static unsigned CurrentModifiers(const ViewState& a_vs)
 		{
 			unsigned m = 0;
-			if (modShift) {
+			if (a_vs.modShift) {
 				m |= ul::KeyEvent::kMod_ShiftKey;
 			}
-			if (modCtrl) {
+			if (a_vs.modCtrl) {
 				m |= ul::KeyEvent::kMod_CtrlKey;
 			}
-			if (modAlt) {
+			if (a_vs.modAlt) {
 				m |= ul::KeyEvent::kMod_AltKey;
 			}
 			return m;
 		}
 
-		void ProcessKeyInput(const KeyInput& a_key)
+		void ProcessKeyInput(ViewState& a_vs, const KeyInput& a_key)
 		{
-			if (!view) {
+			if (!a_vs.view) {
 				return;
 			}
 
@@ -545,40 +629,41 @@ namespace SWUI
 			switch (a_key.vk) {
 			case 0x10:           // VK_SHIFT
 			case 0xA0: case 0xA1:  // VK_LSHIFT / VK_RSHIFT
-				modShift = a_key.down;
+				a_vs.modShift = a_key.down;
 				break;
 			case 0x11:           // VK_CONTROL
 			case 0xA2: case 0xA3:  // VK_LCONTROL / VK_RCONTROL
-				modCtrl = a_key.down;
+				a_vs.modCtrl = a_key.down;
 				break;
 			case 0x12:           // VK_MENU (Alt)
 			case 0xA4: case 0xA5:  // VK_LMENU / VK_RMENU
-				modAlt = a_key.down;
+				a_vs.modAlt = a_key.down;
 				break;
 			default:
 				break;
 			}
 
-			if (!loggedFirstKey) {
-				loggedFirstKey = true;
-				REX::INFO("UltralightWebRenderer: first key routed into the view (vk={:#x}, down={})", a_key.vk, a_key.down);
+			if (!a_vs.loggedFirstKey) {
+				a_vs.loggedFirstKey = true;
+				REX::INFO("UltralightWebRenderer: first key routed into view '{}' (vk={:#x}, down={})",
+					a_vs.id, a_key.vk, a_key.down);
 			}
 
 			ul::KeyEvent key;
 			key.virtual_key_code = static_cast<int>(a_key.vk);
 			key.native_key_code = static_cast<int>(a_key.vk);
-			key.modifiers = CurrentModifiers();
+			key.modifiers = CurrentModifiers(a_vs);
 			ul::GetKeyIdentifierFromVirtualKeyCode(key.virtual_key_code, key.key_identifier);
 
 			if (a_key.down) {
 				key.type = ul::KeyEvent::kType_RawKeyDown;
-				view->FireKeyEvent(key);
+				a_vs.view->FireKeyEvent(key);
 
 				// Emit a Char event for text-producing keys (skip while Ctrl/Alt
 				// are held so shortcuts like Ctrl+C don't type a character).
-				if (!modCtrl && !modAlt) {
+				if (!a_vs.modCtrl && !a_vs.modAlt) {
 					ul::String keyText;
-					ul::GetKeyFromVirtualKeyCode(key.virtual_key_code, modShift, keyText);
+					ul::GetKeyFromVirtualKeyCode(key.virtual_key_code, a_vs.modShift, keyText);
 					const auto utf8 = ToUTF8(keyText);
 					// Single printable character -> real text input.
 					if (utf8.size() == 1 && static_cast<unsigned char>(utf8[0]) >= 0x20) {
@@ -587,20 +672,20 @@ namespace SWUI
 						ch.modifiers = key.modifiers;
 						ch.text = keyText;
 						ch.unmodified_text = keyText;
-						view->FireKeyEvent(ch);
+						a_vs.view->FireKeyEvent(ch);
 					}
 				}
 			} else {
 				key.type = ul::KeyEvent::kType_KeyUp;
-				view->FireKeyEvent(key);
+				a_vs.view->FireKeyEvent(key);
 			}
 		}
 
 		// ================= mouse input (worker thread) =================
 
-		void ProcessMouseInput(const MouseInput& a_m)
+		void ProcessMouseInput(ViewState& a_vs, const MouseInput& a_m)
 		{
-			if (!view) {
+			if (!a_vs.view) {
 				return;
 			}
 			ul::MouseEvent ev;
@@ -620,7 +705,7 @@ namespace SWUI
 				ev.button = ToUlButton(a_m.button);
 				break;
 			}
-			view->FireMouseEvent(ev);
+			a_vs.view->FireMouseEvent(ev);
 		}
 
 		[[nodiscard]] static ul::MouseEvent::Button ToUlButton(int a_button)
@@ -637,23 +722,44 @@ namespace SWUI
 
 		// ================= Ultralight listeners (worker thread) =================
 
-		void OnWindowObjectReady(ul::View*, std::uint64_t, bool a_isMainFrame, const ul::String&) override
+		// SDK listeners fire on the worker thread during renderer->Update()/
+		// Render() (PumpUltralight runs unlocked), so taking `mutex` to resolve
+		// the source view is safe and non-recursive. The resolved pointer stays
+		// valid afterwards (ViewStates aren't erased before shutdown).
+		void OnWindowObjectReady(ul::View* a_view, std::uint64_t, bool a_isMainFrame, const ul::String&) override
 		{
-			if (a_isMainFrame) {
-				InjectBridge();
+			if (!a_isMainFrame) {
+				return;
+			}
+			ViewState* vs = nullptr;
+			{
+				std::scoped_lock lk(mutex);
+				vs = FindByView(a_view);
+			}
+			if (vs) {
+				InjectBridge(*vs);
 			}
 		}
 
-		void OnDOMReady(ul::View*, std::uint64_t, bool a_isMainFrame, const ul::String& a_url) override
+		void OnDOMReady(ul::View* a_view, std::uint64_t, bool a_isMainFrame, const ul::String& a_url) override
 		{
-			if (a_isMainFrame) {
-				domReady = true;
-				REX::INFO("UltralightWebRenderer: DOM ready ({})", ToUTF8(a_url));
-				// Give the view input focus so routed key events reach the
-				// focused DOM element (the page autofocuses its input).
-				view->Focus();
-				FlushStashedMessages();
+			if (!a_isMainFrame) {
+				return;
 			}
+			ViewState* vs = nullptr;
+			{
+				std::scoped_lock lk(mutex);
+				vs = FindByView(a_view);
+			}
+			if (!vs) {
+				return;
+			}
+			vs->domReady = true;
+			REX::INFO("UltralightWebRenderer: DOM ready for view '{}' ({})", vs->id, ToUTF8(a_url));
+			// Give the view input focus so routed key events reach the focused
+			// DOM element (the page autofocuses its input).
+			vs->view->Focus();
+			FlushStashedMessages(*vs);
 		}
 
 		void OnFailLoading(ul::View*, std::uint64_t, bool a_isMainFrame, const ul::String& a_url,
@@ -759,7 +865,16 @@ namespace SWUI
 	{
 		{
 			std::scoped_lock lk(_impl->mutex);
-			_impl->pendingLoad = a_manifest;
+			// Create-or-replace the view entry for this id and make it active.
+			// The game thread owns the map slot; the worker creates the actual
+			// ul::View when it picks up pendingLoad.
+			auto& slot = _impl->views[a_manifest.id];
+			if (!slot) {
+				slot = std::make_unique<Impl::ViewState>();
+			}
+			slot->id = a_manifest.id;
+			slot->pendingLoad = a_manifest;
+			_impl->activeViewId = a_manifest.id;
 		}
 		_impl->wake.notify_all();
 	}
@@ -768,7 +883,9 @@ namespace SWUI
 	{
 		{
 			std::scoped_lock lk(_impl->mutex);
-			_impl->pendingResize = { a_width, a_height };
+			if (auto* vs = _impl->ActiveView()) {
+				vs->pendingResize = { a_width, a_height };
+			}
 		}
 		_impl->wake.notify_all();
 	}
@@ -782,11 +899,17 @@ namespace SWUI
 		}
 
 		// The worker self-paces; our job here is only to hand page->game
-		// messages to the runtime on the game thread.
+		// messages to the runtime on the game thread. Drain every view's queue
+		// (one view today); the message handler is currently view-agnostic.
 		std::deque<std::string> inbound;
 		{
 			std::scoped_lock lk(_impl->mutex);
-			inbound.swap(_impl->toNative);
+			for (auto& [id, vs] : _impl->views) {
+				while (!vs->toNative.empty()) {
+					inbound.push_back(std::move(vs->toNative.front()));
+					vs->toNative.pop_front();
+				}
+			}
 		}
 		if (_impl->onWebMessage) {
 			for (const auto& json : inbound) {
@@ -797,14 +920,25 @@ namespace SWUI
 
 	std::optional<FrameBufferView> UltralightWebRenderer::Render()
 	{
+		// Resolve the active view under `mutex`, then touch its frame under
+		// `frameMutex` (never both held at once). The ViewState pointer stays
+		// valid for the renderer's lifetime; frontFrame is game-thread-only.
+		Impl::ViewState* vs = nullptr;
+		{
+			std::scoped_lock lk(_impl->mutex);
+			vs = _impl->ActiveView();
+		}
+		if (!vs) {
+			return std::nullopt;
+		}
 		{
 			std::scoped_lock lk(_impl->frameMutex);
-			if (_impl->pendingFresh) {
-				std::swap(_impl->pendingFrame, _impl->frontFrame);
-				_impl->pendingFresh = false;
+			if (vs->pendingFresh) {
+				std::swap(vs->pendingFrame, vs->frontFrame);
+				vs->pendingFresh = false;
 			}
 		}
-		const auto& front = _impl->frontFrame;
+		const auto& front = vs->frontFrame;
 		if (front.pixels.empty()) {
 			return std::nullopt;
 		}
@@ -822,12 +956,16 @@ namespace SWUI
 	{
 		{
 			std::scoped_lock lk(_impl->mutex);
-			if (_impl->toWeb.size() >= kMaxQueuedMessages) {
+			auto* vs = _impl->ActiveView();
+			if (!vs) {
+				return;
+			}
+			if (vs->toWeb.size() >= kMaxQueuedMessages) {
 				static std::once_flag once;
 				Log::WarnOnce(once, "UltralightWebRenderer: native->web queue full; dropping messages");
 				return;
 			}
-			_impl->toWeb.emplace_back(a_json);
+			vs->toWeb.emplace_back(a_json);
 		}
 		_impl->wake.notify_all();
 	}
@@ -841,12 +979,14 @@ namespace SWUI
 	{
 		{
 			std::scoped_lock lk(_impl->mutex);
-			// Bound the queue so a stuck worker can't accumulate unbounded
-			// keystrokes; dropping the oldest keeps the newest responsive.
-			if (_impl->toInput.size() >= kMaxQueuedMessages) {
-				_impl->toInput.pop_front();
+			if (auto* vs = _impl->ActiveView()) {
+				// Bound the queue so a stuck worker can't accumulate unbounded
+				// keystrokes; dropping the oldest keeps the newest responsive.
+				if (vs->toInput.size() >= kMaxQueuedMessages) {
+					vs->toInput.pop_front();
+				}
+				vs->toInput.push_back(Impl::KeyInput{ .vk = a_vkCode, .down = a_down });
 			}
-			_impl->toInput.push_back(Impl::KeyInput{ .vk = a_vkCode, .down = a_down });
 		}
 		_impl->wake.notify_all();
 	}
@@ -855,16 +995,18 @@ namespace SWUI
 	{
 		{
 			std::scoped_lock lk(_impl->mutex);
-			// Coalesce: only the latest position matters, so collapse runs of
-			// pending moves into one to keep the queue (and worker) light.
-			if (!_impl->toMouse.empty() && _impl->toMouse.back().kind == Impl::MouseInput::Kind::kMove) {
-				_impl->toMouse.back().x = a_x;
-				_impl->toMouse.back().y = a_y;
-			} else {
-				if (_impl->toMouse.size() >= kMaxQueuedMessages) {
-					_impl->toMouse.pop_front();
+			if (auto* vs = _impl->ActiveView()) {
+				// Coalesce: only the latest position matters, so collapse runs of
+				// pending moves into one to keep the queue (and worker) light.
+				if (!vs->toMouse.empty() && vs->toMouse.back().kind == Impl::MouseInput::Kind::kMove) {
+					vs->toMouse.back().x = a_x;
+					vs->toMouse.back().y = a_y;
+				} else {
+					if (vs->toMouse.size() >= kMaxQueuedMessages) {
+						vs->toMouse.pop_front();
+					}
+					vs->toMouse.push_back(Impl::MouseInput{ .kind = Impl::MouseInput::Kind::kMove, .x = a_x, .y = a_y });
 				}
-				_impl->toMouse.push_back(Impl::MouseInput{ .kind = Impl::MouseInput::Kind::kMove, .x = a_x, .y = a_y });
 			}
 		}
 		_impl->wake.notify_all();
@@ -874,14 +1016,16 @@ namespace SWUI
 	{
 		{
 			std::scoped_lock lk(_impl->mutex);
-			if (_impl->toMouse.size() >= kMaxQueuedMessages) {
-				_impl->toMouse.pop_front();
+			if (auto* vs = _impl->ActiveView()) {
+				if (vs->toMouse.size() >= kMaxQueuedMessages) {
+					vs->toMouse.pop_front();
+				}
+				vs->toMouse.push_back(Impl::MouseInput{
+					.kind = a_down ? Impl::MouseInput::Kind::kDown : Impl::MouseInput::Kind::kUp,
+					.x = a_x,
+					.y = a_y,
+					.button = a_button });
 			}
-			_impl->toMouse.push_back(Impl::MouseInput{
-				.kind = a_down ? Impl::MouseInput::Kind::kDown : Impl::MouseInput::Kind::kUp,
-				.x = a_x,
-				.y = a_y,
-				.button = a_button });
 		}
 		_impl->wake.notify_all();
 	}
