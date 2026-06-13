@@ -26,7 +26,7 @@ namespace SWUI
 					continue;
 				}
 				for (const auto& setting : *settings) {
-					if (setting.is_object() && std::forward<Fn>(a_fn)(setting)) {
+					if (setting.is_object() && a_fn(setting)) {
 						return;
 					}
 				}
@@ -34,63 +34,107 @@ namespace SWUI
 		}
 	}
 
-	bool SettingsStore::Load(const std::filesystem::path& a_schemaPath, const std::filesystem::path& a_valuesPath)
+	void SettingsStore::LoadAll(const std::filesystem::path& a_schemaDir, const std::filesystem::path& a_valuesDir)
 	{
-		_loaded = false;
-		_valuesPath = a_valuesPath;
-		_values = nlohmann::json::object();
+		_mods.clear();
 
-		auto schema = Json::ParseFile(a_schemaPath);
-		if (!schema || !schema->is_object()) {
-			REX::WARN("SettingsStore: no valid schema at {} — settings UI will be empty", a_schemaPath.string());
-			return false;
-		}
-		_schema = std::move(*schema);
-
-		// Persisted values (may be absent on first run).
-		nlohmann::json saved = nlohmann::json::object();
-		if (auto parsed = Json::ParseFile(a_valuesPath); parsed && parsed->is_object()) {
-			saved = std::move(*parsed);
+		std::error_code ec;
+		if (!std::filesystem::is_directory(a_schemaDir, ec)) {
+			REX::WARN("SettingsStore: no schema directory at {} — settings UI will be empty", a_schemaDir.string());
+			return;
 		}
 
-		// Current value for each setting = saved (validated) else default.
-		std::size_t count = 0;
-		ForEachSetting(_schema, [&](const nlohmann::json& a_setting) {
-			const auto key = Json::GetString(a_setting, "key", "");
-			if (key.empty()) {
-				return false;
+		for (const auto& entry : std::filesystem::directory_iterator(a_schemaDir, ec)) {
+			if (!entry.is_regular_file() || entry.path().extension() != ".json") {
+				continue;
 			}
-			++count;
-			if (const auto it = saved.find(key); it != saved.end()) {
-				if (auto valid = Validate(a_setting, *it)) {
-					_values[key] = std::move(*valid);
+			auto schema = Json::ParseFile(entry.path());
+			if (!schema || !schema->is_object()) {
+				REX::WARN("SettingsStore: skipping invalid schema {}", entry.path().string());
+				continue;
+			}
+
+			Mod mod;
+			mod.id = Json::GetString(*schema, "id", entry.path().stem().string());
+			mod.schema = std::move(*schema);
+			mod.valuesPath = a_valuesDir / (mod.id + ".json");
+			mod.values = nlohmann::json::object();
+
+			// Persisted values over schema defaults.
+			nlohmann::json saved = nlohmann::json::object();
+			if (auto parsed = Json::ParseFile(mod.valuesPath); parsed && parsed->is_object()) {
+				saved = std::move(*parsed);
+			}
+			std::size_t count = 0;
+			ForEachSetting(mod.schema, [&](const nlohmann::json& a_setting) {
+				const auto key = Json::GetString(a_setting, "key", "");
+				if (key.empty()) {
 					return false;
 				}
-			}
-			const auto def = a_setting.find("default");
-			_values[key] = (def != a_setting.end()) ? *def : nlohmann::json(nullptr);
-			return false;
-		});
+				++count;
+				if (const auto it = saved.find(key); it != saved.end()) {
+					if (auto valid = Validate(a_setting, *it)) {
+						mod.values[key] = std::move(*valid);
+						return false;
+					}
+				}
+				mod.values[key] = DefaultFor(a_setting);
+				return false;
+			});
 
-		_loaded = true;
-		REX::INFO("SettingsStore: loaded schema '{}' ({} settings) from {} (values: {})",
-			Json::GetString(_schema, "title", "Settings"), count, a_schemaPath.string(), a_valuesPath.string());
-		return true;
+			REX::INFO("SettingsStore: loaded mod '{}' ('{}', {} settings)",
+				mod.id, Json::GetString(mod.schema, "title", mod.id), count);
+			_mods.push_back(std::move(mod));
+		}
+
+		REX::INFO("SettingsStore: {} mod schema(s) registered from {}", _mods.size(), a_schemaDir.string());
+	}
+
+	void SettingsStore::NotifyAll() const
+	{
+		if (!_listener) {
+			return;
+		}
+		for (const auto& mod : _mods) {
+			for (const auto& [key, value] : mod.values.items()) {
+				_listener(mod.id, key, value);
+			}
+		}
 	}
 
 	std::string SettingsStore::DataJson() const
 	{
-		nlohmann::json data{
-			{ "schema", _loaded ? _schema : nlohmann::json::object() },
-			{ "values", _values },
-		};
-		return data.dump();
+		nlohmann::json mods = nlohmann::json::array();
+		for (const auto& mod : _mods) {
+			mods.push_back({
+				{ "id", mod.id },
+				{ "title", Json::GetString(mod.schema, "title", mod.id) },
+				{ "schema", mod.schema },
+				{ "values", mod.values },
+			});
+		}
+		return nlohmann::json{ { "mods", std::move(mods) } }.dump();
 	}
 
-	const nlohmann::json* SettingsStore::FindSetting(std::string_view a_key) const
+	SettingsStore::Mod* SettingsStore::FindMod(std::string_view a_modId)
+	{
+		for (auto& mod : _mods) {
+			if (mod.id == a_modId) {
+				return &mod;
+			}
+		}
+		return nullptr;
+	}
+
+	const SettingsStore::Mod* SettingsStore::FindMod(std::string_view a_modId) const
+	{
+		return const_cast<SettingsStore*>(this)->FindMod(a_modId);
+	}
+
+	const nlohmann::json* SettingsStore::FindSetting(const Mod& a_mod, std::string_view a_key)
 	{
 		const nlohmann::json* found = nullptr;
-		ForEachSetting(_schema, [&](const nlohmann::json& a_setting) {
+		ForEachSetting(a_mod.schema, [&](const nlohmann::json& a_setting) {
 			if (Json::GetString(a_setting, "key", "") == a_key) {
 				found = &a_setting;
 				return true;
@@ -100,7 +144,13 @@ namespace SWUI
 		return found;
 	}
 
-	std::optional<nlohmann::json> SettingsStore::Validate(const nlohmann::json& a_setting, const nlohmann::json& a_value) const
+	nlohmann::json SettingsStore::DefaultFor(const nlohmann::json& a_setting)
+	{
+		const auto def = a_setting.find("default");
+		return def != a_setting.end() ? *def : nlohmann::json(nullptr);
+	}
+
+	std::optional<nlohmann::json> SettingsStore::Validate(const nlohmann::json& a_setting, const nlohmann::json& a_value)
 	{
 		const auto type = Json::GetString(a_setting, "type", "");
 
@@ -145,14 +195,16 @@ namespace SWUI
 		return std::nullopt;
 	}
 
-	bool SettingsStore::Set(std::string_view a_key, std::string_view a_valueJson)
+	bool SettingsStore::Set(std::string_view a_modId, std::string_view a_key, std::string_view a_valueJson)
 	{
-		if (!_loaded) {
+		auto* mod = FindMod(a_modId);
+		if (!mod) {
+			REX::WARN("SettingsStore: rejected set for unknown mod '{}'", a_modId.substr(0, 64));
 			return false;
 		}
-		const auto* setting = FindSetting(a_key);
+		const auto* setting = FindSetting(*mod, a_key);
 		if (!setting) {
-			REX::WARN("SettingsStore: rejected unknown setting key '{}'", a_key.substr(0, 64));
+			REX::WARN("SettingsStore: rejected unknown setting '{}.{}'", a_modId.substr(0, 64), a_key.substr(0, 64));
 			return false;
 		}
 		const auto parsed = Json::Parse(a_valueJson, "settings value");
@@ -161,38 +213,80 @@ namespace SWUI
 		}
 		auto valid = Validate(*setting, *parsed);
 		if (!valid) {
-			REX::WARN("SettingsStore: rejected invalid value for '{}' (type {})",
-				a_key.substr(0, 64), Json::GetString(*setting, "type", "?"));
+			REX::WARN("SettingsStore: rejected invalid value for '{}.{}' (type {})",
+				a_modId.substr(0, 64), a_key.substr(0, 64), Json::GetString(*setting, "type", "?"));
 			return false;
 		}
 
-		_values[std::string(a_key)] = std::move(*valid);
-		const bool ok = Persist();
+		const std::string key{ a_key };
+		mod->values[key] = std::move(*valid);
+		const bool ok = Persist(*mod);
+		Notify(mod->id, key, mod->values[key]);
 		if (ok && Log::DevMode()) {
-			REX::DEBUG("SettingsStore: set '{}' = {}", a_key, _values[std::string(a_key)].dump().substr(0, 128));
+			REX::DEBUG("SettingsStore: set '{}.{}' = {}", mod->id, key, mod->values[key].dump().substr(0, 128));
 		}
 		return ok;
 	}
 
-	bool SettingsStore::Persist() const
+	bool SettingsStore::Reset(std::string_view a_modId, std::string_view a_key)
+	{
+		auto* mod = FindMod(a_modId);
+		if (!mod) {
+			return false;
+		}
+		if (a_key.empty()) {
+			// Whole mod back to defaults.
+			ForEachSetting(mod->schema, [&](const nlohmann::json& a_setting) {
+				const auto key = Json::GetString(a_setting, "key", "");
+				if (!key.empty()) {
+					mod->values[key] = DefaultFor(a_setting);
+				}
+				return false;
+			});
+		} else {
+			const auto* setting = FindSetting(*mod, a_key);
+			if (!setting) {
+				return false;
+			}
+			mod->values[std::string(a_key)] = DefaultFor(*setting);
+		}
+
+		const bool ok = Persist(*mod);
+		// Notify for every (possibly) changed value so consumers re-sync.
+		for (const auto& [key, value] : mod->values.items()) {
+			if (a_key.empty() || key == a_key) {
+				Notify(mod->id, key, value);
+			}
+		}
+		REX::INFO("SettingsStore: reset '{}{}' to default(s)", mod->id, a_key.empty() ? "" : ("." + std::string(a_key)));
+		return ok;
+	}
+
+	void SettingsStore::Notify(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value) const
+	{
+		if (_listener) {
+			_listener(a_modId, a_key, a_value);
+		}
+	}
+
+	bool SettingsStore::Persist(const Mod& a_mod)
 	{
 		std::error_code ec;
-		std::filesystem::create_directories(_valuesPath.parent_path(), ec);
+		std::filesystem::create_directories(a_mod.valuesPath.parent_path(), ec);
 
-		// Write to a temp file then rename, so a crash mid-write can't corrupt
-		// the existing values.
-		const auto tmp = std::filesystem::path(_valuesPath).concat(".tmp");
+		// Temp file + rename so a crash mid-write can't corrupt existing values.
+		const auto tmp = std::filesystem::path(a_mod.valuesPath).concat(".tmp");
 		{
 			std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
 			if (!out) {
 				REX::ERROR("SettingsStore: cannot write {}", tmp.string());
 				return false;
 			}
-			out << _values.dump(2);
+			out << a_mod.values.dump(2);
 		}
-		std::filesystem::rename(tmp, _valuesPath, ec);
+		std::filesystem::rename(tmp, a_mod.valuesPath, ec);
 		if (ec) {
-			REX::ERROR("SettingsStore: cannot replace {} ({})", _valuesPath.string(), ec.message());
+			REX::ERROR("SettingsStore: cannot replace {} ({})", a_mod.valuesPath.string(), ec.message());
 			std::filesystem::remove(tmp, ec);
 			return false;
 		}

@@ -1,7 +1,9 @@
 // Schema-driven settings view (Phase 5). Talks to the native runtime only
-// through the narrow JSON bridge: requests { schema, values }, renders typed
-// controls, and sends one ui.command "settings.set" per change. The native
-// SettingsStore validates/clamps/persists — this script is just the renderer.
+// through the narrow JSON bridge: requests the registry of mod schemas,
+// renders typed controls for each mod, and sends one ui.command per change
+// (settings.set) or reset (settings.reset). The native SettingsStore
+// validates/clamps/persists and notifies native consumers — this script is
+// just the renderer.
 
 "use strict";
 
@@ -16,14 +18,17 @@ function bridgeAvailable() {
 }
 
 function sendCommand(fields) {
-  const message = JSON.stringify({ type: "ui.command", payload: fields });
   if (bridgeAvailable()) {
-    window.starfield.postMessage(message);
+    window.starfield.postMessage(JSON.stringify({ type: "ui.command", payload: fields }));
   }
 }
 
-function setValue(key, value) {
-  sendCommand({ command: "settings.set", key, value });
+function setValue(modId, key, value) {
+  sendCommand({ command: "settings.set", mod: modId, key, value });
+}
+
+function resetMod(modId) {
+  sendCommand({ command: "settings.reset", mod: modId });
 }
 
 // ---- control builders, one per schema type ----
@@ -43,7 +48,7 @@ function makeRow(setting, controlNode, valueNode) {
   return row;
 }
 
-function buildControl(setting, current) {
+function buildControl(modId, setting, current) {
   const id = `ctl-${setting.key}`;
   switch (setting.type) {
     case "bool": {
@@ -51,7 +56,7 @@ function buildControl(setting, current) {
       cb.type = "checkbox";
       cb.id = id;
       cb.checked = current === true;
-      cb.addEventListener("change", () => setValue(setting.key, cb.checked));
+      cb.addEventListener("change", () => setValue(modId, setting.key, cb.checked));
       return makeRow(setting, cb, null);
     }
     case "int":
@@ -70,7 +75,7 @@ function buildControl(setting, current) {
       valueEl.textContent = fmt(current);
       slider.addEventListener("input", () => { valueEl.textContent = fmt(slider.value); });
       slider.addEventListener("change", () => {
-        setValue(setting.key, isInt ? parseInt(slider.value, 10) : parseFloat(slider.value));
+        setValue(modId, setting.key, isInt ? parseInt(slider.value, 10) : parseFloat(slider.value));
       });
       return makeRow(setting, slider, valueEl);
     }
@@ -84,7 +89,7 @@ function buildControl(setting, current) {
         if (opt === current) o.selected = true;
         select.appendChild(o);
       }
-      select.addEventListener("change", () => setValue(setting.key, select.value));
+      select.addEventListener("change", () => setValue(modId, setting.key, select.value));
       return makeRow(setting, select, null);
     }
     case "string": {
@@ -92,7 +97,7 @@ function buildControl(setting, current) {
       text.type = "text";
       text.id = id;
       text.value = current ?? "";
-      text.addEventListener("change", () => setValue(setting.key, text.value));
+      text.addEventListener("change", () => setValue(modId, setting.key, text.value));
       return makeRow(setting, text, null);
     }
     default:
@@ -100,31 +105,57 @@ function buildControl(setting, current) {
   }
 }
 
-function render(schema, values) {
-  formEl.textContent = "";
-  if (schema && schema.title) titleEl.textContent = schema.title;
+function buildMod(mod) {
+  const schema = mod.schema || {};
+  const values = mod.values || {};
+  const card = document.createElement("section");
+  card.className = "mod";
 
-  const groups = (schema && schema.groups) || [];
-  if (groups.length === 0) {
-    statusEl.textContent = "No settings schema found (settings/schema.json).";
-    return;
-  }
+  const header = document.createElement("div");
+  header.className = "mod-header";
+  const h = document.createElement("h2");
+  h.textContent = mod.title || schema.title || mod.id;
+  header.appendChild(h);
+  const reset = document.createElement("button");
+  reset.type = "button";
+  reset.className = "reset";
+  reset.textContent = "Reset";
+  reset.addEventListener("click", () => resetMod(mod.id));
+  header.appendChild(reset);
+  card.appendChild(header);
 
   let count = 0;
-  for (const group of groups) {
-    const section = document.createElement("section");
+  for (const group of schema.groups || []) {
+    const section = document.createElement("div");
     section.className = "group";
-    const heading = document.createElement("div");
-    heading.className = "group-label";
-    heading.textContent = group.label || "";
-    section.appendChild(heading);
+    if (group.label) {
+      const heading = document.createElement("div");
+      heading.className = "group-label";
+      heading.textContent = group.label;
+      section.appendChild(heading);
+    }
     for (const setting of group.settings || []) {
-      const row = buildControl(setting, values[setting.key]);
+      const row = buildControl(mod.id, setting, values[setting.key]);
       if (row) { section.appendChild(row); count += 1; }
     }
-    formEl.appendChild(section);
+    card.appendChild(section);
   }
-  statusEl.textContent = `${count} setting(s) — changes save automatically.`;
+  return { card, count };
+}
+
+function render(mods) {
+  formEl.textContent = "";
+  if (!mods || mods.length === 0) {
+    statusEl.textContent = "No settings schemas found (settings/*.json).";
+    return;
+  }
+  let total = 0;
+  for (const mod of mods) {
+    const { card, count } = buildMod(mod);
+    formEl.appendChild(card);
+    total += count;
+  }
+  statusEl.textContent = `${mods.length} mod(s), ${total} setting(s) — changes save automatically.`;
 }
 
 // ---- native -> web ----
@@ -137,11 +168,11 @@ function onNativeMessage(jsonText) {
       sendCommand({ command: "settings.get" });
       break;
     case "settings.data":
-      render(message.payload.schema, message.payload.values || {});
+      render(message.payload.mods || []);
       break;
     case "settings.ack":
       if (!message.payload.ok) {
-        statusEl.textContent = `Rejected change to "${message.payload.key}".`;
+        statusEl.textContent = `Rejected change to "${message.payload.mod}.${message.payload.key}".`;
       }
       break;
     default:
@@ -166,7 +197,6 @@ document.addEventListener("mousemove", (e) => {
 
 if (bridgeAvailable()) {
   statusEl.textContent = "Connecting…";
-  // Ask immediately; also re-asked on runtime.ready in case we beat it.
   sendCommand({ command: "settings.get" });
 } else {
   statusEl.textContent = "Standalone (no native bridge).";

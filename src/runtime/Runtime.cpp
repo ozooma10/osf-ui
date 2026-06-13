@@ -73,15 +73,22 @@ namespace SWUI
 		_compositor->SetOutputResizeCallback([this](std::uint32_t a_w, std::uint32_t a_h) { OnOutputResized(a_w, a_h); });
 		REX::INFO("Runtime: compositor = {}", _compositor->Name());
 
-		// Schema-driven settings (Phase 5): schema ships read-only with the
-		// plugin; values persist to a user-writable file (Documents — NOT the
-		// MO2/Program-Files-mapped data dir).
-		const auto schemaPath = Paths::DataDir() / "settings" / "schema.json";
-		auto valuesPath = Platform::GetDocumentsPath();
-		valuesPath = valuesPath.empty()
-			? Paths::DataDir() / "settings" / "values.json"  // fallback (MO2 redirects the write)
-			: valuesPath / "My Games" / "Starfield" / "StarfieldWebUI" / "settings.json";
-		_settings.Load(schemaPath, valuesPath);
+		// Schema-driven settings (Phase 5): every mod's schema ships read-only
+		// under <data>/settings/*.json; values persist per-mod to a writable
+		// dir (Documents — NOT the MO2/Program-Files-mapped data dir).
+		_captureInput.store(_config.captureInput);
+		const auto schemaDir = Paths::DataDir() / "settings";
+		const auto docs = Platform::GetDocumentsPath();
+		const auto valuesDir = docs.empty()
+			? Paths::DataDir() / "settings" / "values"  // fallback (MO2 redirects the write)
+			: docs / "My Games" / "Starfield" / "StarfieldWebUI" / "settings";
+		_settings.LoadAll(schemaDir, valuesDir);
+		// Native reactions to settings (the Phase 5b payoff): values DO things.
+		_settings.SetChangeListener([this](std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value) {
+			OnSettingChanged(a_mod, a_key, a_value);
+		});
+		// Apply persisted values now (e.g. capture mode) before the first frame.
+		_settings.NotifyAll();
 
 		// Active view. Bridge and web->native handler are wired BEFORE
 		// LoadView so no early page message can race past them; renderers
@@ -96,8 +103,11 @@ namespace SWUI
 						}
 					},
 					.getSettingsData = [this] { return _settings.DataJson(); },
-					.setSetting = [this](std::string_view a_key, std::string_view a_valueJson) {
-						return _settings.Set(a_key, a_valueJson);
+					.setSetting = [this](std::string_view a_mod, std::string_view a_key, std::string_view a_valueJson) {
+						return _settings.Set(a_mod, a_key, a_valueJson);
+					},
+					.resetSetting = [this](std::string_view a_mod, std::string_view a_key) {
+						return _settings.Reset(a_mod, a_key);
 					},
 				});
 				_renderer->SetWebMessageHandler([this](std::string_view a_json) {
@@ -207,7 +217,7 @@ namespace SWUI
 
 	bool Runtime::IsInputCaptured() const
 	{
-		return _initialized && _config.captureInput && _visible.load();
+		return _initialized && _captureInput.load() && _visible.load();
 	}
 
 	bool Runtime::OnHostKey(std::uint32_t a_vkCode, bool a_down)
@@ -231,8 +241,10 @@ namespace SWUI
 		}
 		// Scale raw deltas so the cursor crosses the view in a screen-size-
 		// independent amount of physical mouse travel (the view tracks the
-		// screen now, so a fixed 1:1 mapping would feel slow on big views).
-		const auto scale = _cursorScale.load(std::memory_order_relaxed);
+		// screen now, so a fixed 1:1 mapping would feel slow on big views),
+		// times the user's live cursor-speed setting (osfui.cursorSpeed).
+		const auto scale = _cursorScale.load(std::memory_order_relaxed) *
+			_cursorSpeed.load(std::memory_order_relaxed);
 		const auto maxX = static_cast<float>(_viewWidth.load(std::memory_order_relaxed) - 1);
 		const auto maxY = static_cast<float>(_viewHeight.load(std::memory_order_relaxed) - 1);
 		_cursorX = std::clamp(_cursorX + static_cast<float>(a_dx) * scale, 0.0f, maxX);
@@ -246,6 +258,18 @@ namespace SWUI
 			return;
 		}
 		_renderer->InjectMouseButton(static_cast<int>(_cursorX), static_cast<int>(_cursorY), a_button, a_down);
+	}
+
+	void Runtime::OnSettingChanged(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value)
+	{
+		// The Phase 5b payoff: settings drive native behaviour live. Cursor
+		// speed multiplies mouse sensitivity in OnHostMouseDelta — observable
+		// immediately and never self-defeating (the cursor keeps working).
+		if (a_modId == "osfui" && a_key == "cursorSpeed" && a_value.is_number()) {
+			const auto speed = a_value.get<float>();
+			_cursorSpeed.store(speed);
+			REX::INFO("Runtime: setting osfui.cursorSpeed -> {:.2f}", speed);
+		}
 	}
 
 	void Runtime::OnOutputResized(std::uint32_t a_width, std::uint32_t a_height)

@@ -161,8 +161,27 @@ Phase 3 polish:
   persists (opacity clamped to the schema min server-side); values survive a
   relaunch (load → merge → render).
 
-### 5b — later
+### 5b — registry + reactions ✅ (verified in-game 2026-06-13)
 
-- Multi-view management, per-view permissions enforced in the bridge,
-  versioned bridge API for third-party views; one schema per mod (registry);
-  change-notifications back to native consumers; reset-to-default.
+- ✅ **Multi-mod registry:** `SettingsStore` loads every `settings/*.json` as
+  a separate mod (id from the schema or filename), each persisting to its own
+  `<docs>/StarfieldWebUI/settings/<id>.json`. `DataJson` returns
+  `{ mods: [...] }`; the settings view renders a card per mod. Verified with
+  two mods (`osfui` + `demo`).
+- ✅ **Reset-to-default:** `settings.reset` command (per-key or whole mod);
+  each mod card has a Reset button. Re-sends the registry so the view
+  re-renders. Verified: demo values snapped back to defaults.
+- ✅ **Change notifications → native reactions (the payoff):**
+  `SettingsStore` fires a listener on every committed value (Set/Reset and
+  once per value via `NotifyAll` at startup). `Runtime::OnSettingChanged`
+  reacts — `osfui.cursorSpeed` live-scales mouse sensitivity. Verified
+  in-game: dragging the slider changes the cursor's pace immediately. (Chose
+  cursor speed over an input-capture toggle, which would have been a UX trap:
+  a non-capturing overlay can't be clicked to re-enable itself.)
+
+### 5c — later
+
+- Multi-view management + view switching; per-view permissions enforced in the
+  bridge; versioned bridge API for third-party views; settings grouped/tabbed
+  by mod; richer types (color, key-bind, list); change notifications to other
+  native plugins.

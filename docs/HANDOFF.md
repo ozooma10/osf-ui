@@ -31,12 +31,15 @@ freeze). Highest-value next items:
   backbuffer immediately (`RecordAndExecute`), so it never holds a ref across
   frames. No rendering regression (verified 05:18). Worth one more live
   resolution-change to confirm the crash is gone.
-- **✅ Phase 5a — schema-driven settings (2026-06-13).** A mod ships
-  `settings/schema.json`; the built-in `settings` view renders typed controls;
-  `SettingsStore` validates/clamps/persists to
-  `Documents\My Games\Starfield\StarfieldWebUI\settings.json`. Verified
-  in-game: changes persist (clamped server-side) and survive a relaunch. Two
-  new whitelisted bridge commands (`settings.get`/`settings.set`).
+- **✅ Phase 5a+5b — schema-driven settings (2026-06-13).** Each mod ships
+  `settings/<id>.json`; the built-in `settings` view renders a card per mod
+  with typed controls + a Reset button; `SettingsStore` (a multi-mod
+  registry) validates/clamps/persists per-mod to
+  `Documents\My Games\Starfield\StarfieldWebUI\settings\<id>.json` and fires a
+  change listener so native code reacts (`Runtime::OnSettingChanged`:
+  `osfui.cursorSpeed` live-scales the cursor). Bridge commands:
+  `settings.get`/`settings.set`/`settings.reset`. Verified in-game: two mods,
+  live cursor-speed reaction, reset, per-mod persistence, survives relaunch.
 - **Phase 3 polish** (renderer-plan.md): ✅ aspect-correct view sizing done
   (no more stretch — 2026-06-13). Remaining: HDR/10-bit + multi-format PSO,
   frame-gen swapchain pick, Steam/ReShade/RTSS coexistence, sRGB,

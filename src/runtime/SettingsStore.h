@@ -4,13 +4,14 @@
 
 namespace SWUI
 {
-	// Schema-driven settings (renderer-plan.md Phase 5). A mod ships a
-	// read-only JSON schema describing its settings (groups of typed entries);
-	// the runtime renders it via the built-in `settings` view and persists the
-	// user's values to a writable file.
+	// Schema-driven settings registry (renderer-plan.md Phase 5). Each mod
+	// ships a read-only JSON schema (one `settings/<id>.json` file); the
+	// runtime renders all of them via the built-in `settings` view, persists
+	// each mod's user values to its own writable file, and notifies native
+	// consumers of changes so settings actually DO something.
 	//
 	// Schema shape (defensive — bad fields fall back, never crash):
-	//   { "title": str,
+	//   { "id": str, "title": str,
 	//     "groups": [ { "label": str,
 	//                   "settings": [ { "key": str, "label": str,
 	//                                   "type": "bool"|"int"|"float"|"enum"|"string",
@@ -18,37 +19,58 @@ namespace SWUI
 	//                                   "min"/"max"/"step": num   (int/float),
 	//                                   "options": [str, ...]      (enum) } ] } ] }
 	//
-	// Security: the only writes are to the values file, keyed by settings that
-	// EXIST in the schema, with values validated/clamped to the schema's
-	// type/range. Untrusted JS can't write arbitrary keys or out-of-range
-	// values (see docs/security-model.md).
+	// Security: writes only ever touch a setting that EXISTS in some loaded
+	// schema, with the value validated/clamped to that setting's declared
+	// type/range, persisted to that mod's own values file. Untrusted JS can't
+	// write arbitrary keys, out-of-range values, or other paths
+	// (docs/security-model.md).
 	class SettingsStore
 	{
 	public:
-		// Loads the schema (read-only) and merges any persisted values over the
-		// schema defaults. A missing values file is fine (defaults are used).
-		// Returns false (and logs) only if the schema itself is missing/invalid.
-		bool Load(const std::filesystem::path& a_schemaPath, const std::filesystem::path& a_valuesPath);
+		// Fired (on the calling thread) for every committed value — on Set,
+		// Reset, and once per current value via NotifyAll. Lets native code
+		// react to settings.
+		using ChangeListener = std::function<void(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value)>;
 
-		[[nodiscard]] bool IsLoaded() const { return _loaded; }
+		// Loads every `<schemaDir>/*.json` as a mod schema; each mod's values
+		// persist to `<valuesDir>/<id>.json`. Safe to call once.
+		void LoadAll(const std::filesystem::path& a_schemaDir, const std::filesystem::path& a_valuesDir);
 
-		// JSON the settings view consumes: { "schema": <schema>, "values": { key: value } }.
+		void SetChangeListener(ChangeListener a_listener) { _listener = std::move(a_listener); }
+
+		// Pushes every current value through the listener (e.g. to apply
+		// persisted settings at startup).
+		void NotifyAll() const;
+
+		// JSON the settings view consumes: { "mods": [ { id, title, schema, values }, ... ] }.
 		[[nodiscard]] std::string DataJson() const;
 
-		// Validates a_value against the schema entry for a_key, clamps it, stores
-		// it, and persists. Returns false if the key is unknown or the value is
-		// the wrong type. a_valueJson is the raw JSON text of the value.
-		bool Set(std::string_view a_key, std::string_view a_valueJson);
+		// Validate + clamp + store + persist + notify. a_valueJson is the raw
+		// JSON text of the value. Returns false on unknown mod/key or bad type.
+		bool Set(std::string_view a_modId, std::string_view a_key, std::string_view a_valueJson);
+
+		// Restore defaults: one key, or the whole mod when a_key is empty.
+		// Persists + notifies. Returns false on unknown mod/key.
+		bool Reset(std::string_view a_modId, std::string_view a_key);
 
 	private:
-		[[nodiscard]] const nlohmann::json* FindSetting(std::string_view a_key) const;
-		// Returns the validated/clamped value, or std::nullopt if invalid.
-		[[nodiscard]] std::optional<nlohmann::json> Validate(const nlohmann::json& a_setting, const nlohmann::json& a_value) const;
-		bool Persist() const;
+		struct Mod
+		{
+			std::string           id;
+			nlohmann::json        schema;  // read-only
+			nlohmann::json        values;  // { key: current value }
+			std::filesystem::path valuesPath;
+		};
 
-		nlohmann::json        _schema;  // the mod's schema (read-only)
-		nlohmann::json        _values;  // { key: current value }
-		std::filesystem::path _valuesPath;
-		bool                  _loaded{ false };
+		[[nodiscard]] Mod*       FindMod(std::string_view a_modId);
+		[[nodiscard]] const Mod* FindMod(std::string_view a_modId) const;
+		[[nodiscard]] static const nlohmann::json* FindSetting(const Mod& a_mod, std::string_view a_key);
+		[[nodiscard]] static std::optional<nlohmann::json> Validate(const nlohmann::json& a_setting, const nlohmann::json& a_value);
+		[[nodiscard]] static nlohmann::json DefaultFor(const nlohmann::json& a_setting);
+		static bool Persist(const Mod& a_mod);
+		void        Notify(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value) const;
+
+		std::vector<Mod> _mods;
+		ChangeListener   _listener;
 	};
 }

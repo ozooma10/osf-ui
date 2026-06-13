@@ -1,0 +1,21 @@
+{
+  "id": "demo",
+  "title": "Demo Mod Settings",
+  "groups": [
+    {
+      "label": "General",
+      "settings": [
+        { "key": "overlay.enabled", "label": "Enable feature", "type": "bool", "default": true },
+        { "key": "overlay.opacity", "label": "Effect strength", "type": "float", "min": 0.2, "max": 1.0, "step": 0.05, "default": 0.9 },
+        { "key": "overlay.scale", "label": "Amount (%)", "type": "int", "min": 50, "max": 200, "step": 5, "default": 100 }
+      ]
+    },
+    {
+      "label": "Appearance",
+      "settings": [
+        { "key": "theme", "label": "Theme", "type": "enum", "options": ["Dark", "Light", "Auto"], "default": "Dark" },
+        { "key": "greeting", "label": "Greeting text", "type": "string", "default": "Hello, spacefarer" }
+      ]
+    }
+  ]
+}

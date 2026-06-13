@@ -69,18 +69,32 @@ namespace SWUI
 				_host.sendToWeb(msg.dump());
 			}
 		} else if (command == "settings.set") {
-			// Persist one setting. key + value are validated against the schema
-			// by the store; we only forward the raw value JSON.
+			// Persist one setting. mod+key+value are validated against the
+			// schema by the store; we only forward the raw value JSON.
+			const auto mod = Json::GetString(a_payload, "mod", "");
 			const auto key = Json::GetString(a_payload, "key", "");
 			const auto valueIt = a_payload.find("value");
 			const bool ok = _host.setSetting && valueIt != a_payload.end() &&
-				_host.setSetting(key, valueIt->dump());
+				_host.setSetting(mod, key, valueIt->dump());
 			if (_host.sendToWeb) {
 				const Json::Value ack = {
 					{ "type", "settings.ack" },
-					{ "payload", { { "key", key }, { "ok", ok } } },
+					{ "payload", { { "mod", mod }, { "key", key }, { "ok", ok } } },
 				};
 				_host.sendToWeb(ack.dump());
+			}
+		} else if (command == "settings.reset") {
+			// Restore defaults for one key, or the whole mod when key is empty.
+			// Re-send the full registry so the view re-renders to the new state.
+			const auto mod = Json::GetString(a_payload, "mod", "");
+			const auto key = Json::GetString(a_payload, "key", "");
+			const bool ok = _host.resetSetting && _host.resetSetting(mod, key);
+			if (ok && _host.getSettingsData && _host.sendToWeb) {
+				const Json::Value msg = {
+					{ "type", "settings.data" },
+					{ "payload", Json::Value::parse(_host.getSettingsData(), nullptr, false) },
+				};
+				_host.sendToWeb(msg.dump());
 			}
 		} else {
 			REX::WARN("MessageBridge: rejected unknown ui.command '{}'", command);

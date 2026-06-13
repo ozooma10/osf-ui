@@ -78,6 +78,10 @@ namespace SWUI
 		std::unique_ptr<IWebRenderer> CreateRenderer() const;
 		std::unique_ptr<ICompositor>  CreateCompositor() const;
 
+		// Native reactions to settings changes (Phase 5b). Called by the
+		// SettingsStore change listener for every committed value.
+		void OnSettingChanged(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value);
+
 		Config                        _config;
 		ViewManager                   _views;
 		std::unique_ptr<IWebRenderer> _renderer;
@@ -96,7 +100,12 @@ namespace SWUI
 		float                         _cursorY{ 0.0f };
 		std::atomic<std::uint32_t>    _viewWidth{ 1280 };
 		std::atomic<std::uint32_t>    _viewHeight{ 720 };
-		std::atomic<float>            _cursorScale{ 1.0f };
+		std::atomic<float>            _cursorScale{ 1.0f };   // resolution-based, set on resize
+		std::atomic<float>            _cursorSpeed{ 1.0f };   // user multiplier (osfui.cursorSpeed)
+
+		// Input-capture flag (initialised from config). When false the overlay
+		// is a HUD: it draws but the game still gets input.
+		std::atomic_bool              _captureInput{ true };
 
 		std::atomic_bool              _visible{ false };
 		bool                          _initialized{ false };

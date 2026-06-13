@@ -32,8 +32,39 @@ h1 {
   min-height: 1em;
 }
 
+.mod {
+  margin: 16px 0 0;
+  padding: 12px 14px 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(120, 170, 255, 0.18);
+  border-radius: 8px;
+}
+
+.mod-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mod-header h2 {
+  margin: 0;
+  font-size: 16px;
+  color: #9fc3ff;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.reset {
+  padding: 4px 12px;
+  font-size: 12px;
+  background: #28344a;
+  border-color: #3f6ea5;
+}
+.reset:hover { background: #34465f; }
+
 .group {
-  margin: 18px 0 0;
+  margin: 12px 0 0;
 }
 
 .group-label {
