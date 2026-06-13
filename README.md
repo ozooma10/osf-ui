@@ -4,11 +4,12 @@
 eventually host HTML/CSS/JS-based UI views inside Starfield (conceptually
 inspired by Prisma UI for Skyrim; contains no Prisma code).
 
-Current state: **Phase 1 complete** — real HTML/CSS/JS pages render offscreen
-inside the game via Ultralight (CPU surface, dedicated worker thread,
-sandboxed filesystem, two-way JSON bridge). Nothing draws **over** the game
-yet — frames go to a null compositor until the D3D12 work (Phases 2–3) is
-reverse-engineered: see [What this is not yet](#what-this-is-not-yet).
+Current state: **Phase 3 — pixels in-game.** Real HTML/CSS/JS pages render
+offscreen via Ultralight, upload to a GPU texture on the game's own D3D12
+device, and are drawn as an alpha-blended overlay over the live game image
+through an `IDXGISwapChain::Present` hook (user-verified on Starfield
+1.16.244). The overlay is not yet interactive — routing input into the view
+is Phase 4: see [What this is not yet](#what-this-is-not-yet).
 
 Based on [commonlibsf-template](https://github.com/libxse/commonlibsf-template)
 (GPL-3.0).
@@ -117,10 +118,11 @@ docs/HANDOFF.md §4.
   JSON bridge — verified in-game (devMode dumps the first rendered frame to
   `StarfieldWebUI/ultralight/first-frame.png`).
 - With `compositor: "d3d12"`: the rendered frames upload into a GPU texture
-  created on the game's own `ID3D12Device`, submitted on its direct command
-  queue (route reverse-engineered and QI-verified at runtime; hook-free).
-  Verified in-game with a byte-exact GPU round-trip check. Still no drawing
-  over the game — that is Phase 3.
+  on the game's own `ID3D12Device` (route reverse-engineered and QI-verified
+  at runtime; hook-free) and are **drawn over the game image** at present
+  time via an `IDXGISwapChain::Present` slot-8 hook — alpha-blended,
+  user-verified on screen. `startVisible`/F10 toggle it. Not yet
+  interactive (input routing into the view is Phase 4).
 - The JSON message bridge parses/dispatches the whitelisted commands
   (`close`, `log`, `ping`, `setVisible`) and rejects everything else.
 - The sample `test` view is a self-contained HTML panel that also runs
@@ -132,10 +134,10 @@ docs/HANDOFF.md §4.
   unless explicitly provided and licensed.
 - **Not an MCM** — schema-driven settings UI is Phase 5 of
   [docs/renderer-plan.md](docs/renderer-plan.md).
-- **Not a working in-game browser overlay** — `Runtime::Tick()` runs every
-  frame via SFSE's TaskInterface, but nothing draws over the game; the
-  required render/input integration points are deliberately unimplemented
-  until they are properly reverse engineered
+- **Not yet an interactive overlay** — the web view now renders and draws
+  over the game (Phase 3), but input is only observed, not routed into the
+  view, so the page's buttons aren't clickable in-game yet (Phase 4). Render
+  integration points were reverse engineered before use, never guessed
   ([docs/reverse-engineering-notes.md](docs/reverse-engineering-notes.md)).
 - **Not compatible with Xbox/Game Pass** — SFSE itself is Steam-only.
 

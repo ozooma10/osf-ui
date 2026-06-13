@@ -100,6 +100,9 @@ namespace SWUI
 		_input.Configure(toggleKey, [this] { ToggleVisible(); });
 
 		_visible.store(_config.startVisible);
+		if (_compositor) {
+			_compositor->SetVisible(_config.startVisible);
+		}
 		REX::INFO("Runtime: initialized (visible={})", _visible.load());
 
 		_initialized = true;
@@ -141,6 +144,9 @@ namespace SWUI
 		const bool was = _visible.exchange(a_visible);
 		if (was != a_visible) {
 			REX::INFO("Runtime: overlay visibility -> {}", a_visible);
+			if (_compositor) {
+				_compositor->SetVisible(a_visible);
+			}
 		}
 	}
 

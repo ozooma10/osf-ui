@@ -56,14 +56,35 @@ shippable on its own; no phase fakes the next one.
   interleaving on its direct queue. A manual PIX/RenderDoc capture remains
   worthwhile before Phase 3 draw work.
 
-## Phase 3 — in-game overlay composition
+## Phase 3 — in-game overlay composition ✅ (first light verified in-game 2026-06-12)
 
-- The hard one: present-time draw of an alpha-blended quad over the game
-  image. Needs swapchain/present timing, descriptor heap strategy, resource
-  state discipline, HDR/scaling handling, and overlay-coexistence testing
-  (Steam, ReShade, RTSS).
-- Hook mechanism choice (engine present callback vs IDXGISwapChain hook) is
-  decided here, not before; isolated and removable.
+- ✅ Present-time draw of an alpha-blended fullscreen quad over the game
+  image, **visually confirmed on screen** (user-verified), stable across
+  thousands of presents with no GPU fault.
+- ✅ Hook mechanism: `IDXGISwapChain::Present` vtable slot 8 (TODO #5
+  decision), captured via a throwaway swapchain — pure DXGI, zero engine
+  offsets. The vtable is shared process-wide so one swap covers every
+  swapchain.
+- ✅ All overlay GPU work runs on the render thread inside the Present hook
+  (upload cached CPU frame → texture, then draw); `Submit` on the tick
+  thread only caches pixels. No cross-thread resource-state coordination.
+- ✅ Own root signature, premultiplied-alpha PSO (built for the live RT
+  format), SRV/RTV heaps, fence-guarded command-allocator ring, per-slot
+  upload buffers. Backbuffer PRESENT→RENDER_TARGET→PRESENT, texture
+  COPY_DEST↔PIXEL_SHADER_RESOURCE each frame.
+- Verified config: 1920×1080 R8G8B8A8_UNORM backbuffer, two swapchains
+  (drew on both), 1280×720 overlay scaled to fill.
+
+Phase 3 polish still open (none block "pixels on screen"):
+- Aspect/scaling: the overlay currently stretches to fill; add native-size
+  or aspect-correct placement for real views.
+- HDR backbuffers (R16G16B16A16_FLOAT) and the 10-bit path untested — this
+  run was SDR 8-bit. Multi-format PSO when a swapchain differs.
+- Two-swapchain / frame-gen: we draw on both; pick the scanned-out one when
+  DLSS-G/Streamline is active (this dev GPU is Ampere, no frame-gen).
+- Coexistence with Steam overlay / ReShade / RTSS (hook-chain ordering);
+  resize / alt-tab / exclusive-fullscreen transitions.
+- sRGB/color-management correctness pass.
 
 ## Phase 4 — input focus and text entry
 

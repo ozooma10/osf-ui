@@ -1,16 +1,15 @@
 # StarfieldWebUI — Resume / Handoff
 
-**Last updated:** 2026-06-12 ~22:00
-**Status:** Phase 0 + TODOs #1–#5 + renderer-plan **Phases 1 AND 2** all
-done/verified in-game 2026-06-12. Real WebKit (Ultralight 1.4.0) renders the
-test page offscreen (Phase 1, PNG proof, JS bridge round-trip both ways),
-the D3D12 device + DIRECT queue route is proven hook-free via REL::ID(944397)
-(TODO #4), the web frames upload into a GPU texture on the game's own device
-with a byte-exact round-trip proof (Phase 2, 21:37 run), and the
-present-timing decision is made and proven: **hook `IDXGISwapChain::Present`
-slot 8** (TODO #5, 21:45 run, in `OSF RE/`). The ONLY thing left to see
-pixels in-game is **renderer-plan Phase 3**: the actual overlay draw at
-present time. See §0/§7.
+**Last updated:** 2026-06-12 ~22:15
+**Status:** 🎉 **END-TO-END WORKING IN-GAME.** Phase 0 + TODOs #1–#5 +
+renderer-plan **Phases 1, 2 AND 3** all done/verified 2026-06-12. The full
+pipeline shows pixels over Starfield: WebKit (Ultralight 1.4.0) renders the
+view offscreen → cached frame → uploaded to a GPU texture on the game's own
+device → drawn as an alpha-blended quad in an `IDXGISwapChain::Present`
+slot-8 hook → **visible on screen, user-confirmed**, stable across thousands
+of presents, correct colors/alpha. F10 toggles it. Next: Phase 3 polish
+(aspect/HDR/coexistence — renderer-plan.md) or Phase 4 (route input into the
+view so the buttons are clickable in-game). See §0/§7.
 Game is **1.16.244.0** (patched 2026-06-11; SFSE 0.2.21, versionlib-1-16-244
 present in the AIO address library mod).
 
@@ -18,19 +17,23 @@ present in the AIO address library mod).
 
 ## 0. IMMEDIATE next step
 
-TODOs #1–#5 AND **renderer-plan Phase 2** are ✅ done/verified in-game
-(2026-06-12; details in §3/§4, renderer-plan.md, RE notes §2). The web
-frames land in a real GPU texture on the game's device (`D3D12Compositor`,
-round-trip-verified), and the present-timing decision is made: **hook
-`IDXGISwapChain::Present` slot 8** (TODO #5, proven in `OSF RE` — RE notes
-§2). Next work item: **renderer-plan Phase 3 — actually draw the overlay**.
-Record a command list off the located device/queue, draw the overlay
-texture as an alpha-blended fullscreen quad onto the current backbuffer RTV
-in a slot-8 Present hook, then call original. Watch the two-swapchain /
-frame-gen caveat (RE notes §2). This is the genuinely hard one (descriptor
-heaps, resource states, HDR/DRS, overlay coexistence). Visual checks until
-then: devMode PNG dump
-(`MO2\overwrite\SFSE\Plugins\StarfieldWebUI\ultralight\first-frame.png`).
+The hard climb is done — Phase 3 composition is **live and user-verified**
+in-game (2026-06-12). The whole stack renders pixels over Starfield; F10
+toggles. Pick the next track:
+
+- **Phase 4 — make it interactive.** Route the already-observed input
+  (UiInputHook, RE notes §3) INTO the Ultralight view: mouse move/click →
+  `View::FireMouseEvent`, keys/chars → `FireKeyEvent`, plus a focus model
+  (overlay-visible captures input vs pass-through) so the test panel's
+  Ping/Close buttons work in-game. The bridge + JS round-trip already work
+  (Phase 1); this closes the loop.
+- **Phase 3 polish** (renderer-plan.md): aspect/native-size placement (it
+  stretches to fill now), HDR/10-bit backbuffer PSO, pick the scanned-out
+  swapchain under frame-gen, Steam/ReShade/RTSS coexistence, resize/alt-tab.
+
+Compositor entry points if you reopen it: `composite/D3D12Compositor.cpp`
+(`OnPresent` = the per-frame draw; `RecordAndExecute` = the command list;
+`InstallPresentHook` = the dummy-swapchain vtable capture).
 
 Quick re-verify of the Ultralight backend (one launch to the main menu, no
 interaction): expect in `StarfieldWebUI.log` —
@@ -119,7 +122,7 @@ xmake build
 | View manifest discovery + validation | ✅ |
 | Renderer abstraction: Null, Mock (CPU RGBA test pattern), **Ultralight (real, offscreen)** | ✅ |
 | **TODO #3** — Ultralight backend (worker thread, CPU surface, sandbox FS, JS bridge) | ✅ implemented, ✅ **verified in-game 2026-06-12 20:58** (PNG dump + bridge round-trip) |
-| Compositor abstraction: Null, **D3D12 (real upload path — Phase 2)** | ✅ implemented, ✅ **verified in-game 2026-06-12 21:37** (GPU round-trip byte-match) |
+| Compositor abstraction: Null, **D3D12 (present-time overlay — Phase 3)** | ✅ implemented, ✅ **drawn over the game & user-verified 2026-06-12 22:09** |
 | JSON message bridge (whitelist: close/log/ping/setVisible) | ✅ |
 | Sample `test` view (HTML/CSS/JS, runs standalone in a browser too) | ✅ |
 | **TODO #1** — per-frame `Runtime::Tick()` via SFSE `TaskInterface` | ✅ implemented, ✅ **verified in-game 2026-06-12** |
@@ -230,35 +233,48 @@ Fixes (all in working tree as of this writing):
 - `IWebRenderer` grew `SetWebMessageHandler()` (web→native delivery happens
   on the game thread inside `Update()`) and `RendererConfig.dataDir`.
 
-### D3D12 compositor (Phase 2 — done; key facts)
+### D3D12 compositor (Phases 2 + 3 — done; key facts)
 - `composite/EngineD3D12.cpp` is the ONLY consumer of the proven device
   route (REL::ID(944397) + offsets from `rendering.graphics_core`). It
   re-proves the route on every locate: guarded reads, QI on device AND
   queue, queue type must be DIRECT, queue->GetDevice must be COM-identical
-  to the device. Any failure → null result → compositor retries on a
-  budget (10 attempts, 600 submits apart) then disables itself loudly.
-- Located LAZILY on first Submit: `g_RendererRoot` is empty at SFSE-load
-  time. Same lesson as the Ultralight worker (§ above): do nothing heavy
-  in the plugin-load phase.
-- Upload ring: 3 slots, persistent-mapped upload buffers, 256-aligned row
-  pitch, per-slot fences; busy ring SKIPS frames (never blocks the tick
-  thread); frames deduped by `frameIndex` (the renderer returns its cached
-  frame when nothing repainted — without dedup that was ~600 redundant
-  3.6 MB uploads/sec).
-- `ExecuteCommandLists`/`Signal` on the game's direct queue from the SFSE
-  tick thread is legal (queues are free-threaded); the texture lives in
-  COPY_DEST permanently until Phase 3 needs an SRV.
-- devMode proof: one-shot GPU round-trip (texture → readback → memcmp) —
-  log line `ROUND-TRIP VERIFIED`. Re-run = delete nothing, just relaunch;
-  it fires on the first painted frame (config ships `startVisible=true`).
+  to the device. Any failure → null result → overlay disabled loudly.
+- **Threading is the whole design.** `Submit` (SFSE tick thread) only
+  memcpys the CPU frame into a lock-guarded staging buffer (deduped by
+  `frameIndex` — the renderer returns its cached frame between repaints).
+  ALL GPU work happens on the **render thread** inside the Present hook
+  (`OnPresent`): upload→texture, then draw. No cross-thread resource state.
+- **Present hook = the Kiero trick:** create a 1×1 throwaway swapchain on
+  the located queue, read its vtable slot 8 (Present), VirtualProtect-swap
+  it for our thunk, release the dummy. The vtable is shared by every
+  swapchain in the process, so the game's real presents hit our thunk. Zero
+  engine offsets — only `g_originalPresent`/`g_overlay` process-statics so
+  the thunk survives Impl teardown (we never unhook — one-way, like the
+  input hook).
+- Per present: optional upload (if a new frame arrived); texture
+  COPY_DEST→PIXEL_SHADER_RESOURCE; backbuffer PRESENT→RENDER_TARGET; set
+  heaps/rootsig/PSO/viewport/RTV; `DrawInstanced(3)` (fullscreen triangle
+  from SV_VertexID, no vertex buffer); backbuffer RT→PRESENT; texture
+  PSR→COPY_DEST; execute on the located queue; signal the slot fence. Busy
+  ring (3 slots) SKIPS the draw rather than blocking the render thread.
+- Shaders compiled at runtime via `D3DCompile` (game already loads
+  D3DCompiler_47.dll). Blend is premultiplied-over (ONE / INV_SRC_ALPHA) —
+  Ultralight's BGRA surface is premultiplied. SRV format = BGRA8 so the PS
+  samples correct RGBA without a manual swizzle even onto an RGBA8 RT.
+- PSO is built for the live backbuffer RT format (first one seen). A second
+  swapchain with a different format is skipped + warned (single-format for
+  now — HDR is Phase 3 polish). Backbuffer RTVs cached per swapchain, keyed
+  by pointer, rebuilt on resize.
+- Visibility: `ICompositor::SetVisible` (Runtime pushes initial
+  `startVisible` + every toggle). Present hook draws only when visible —
+  without it the hook would keep redrawing the last frame after hide.
 
 ### Hard rules being honored
 - No invented addresses/offsets/vtables/menu names. The single vtable ID comes
   from CommonLibSF, not from us.
-- D3D12 compositor is now a real **upload** path (Phase 2) but still draws
-  NOTHING over the game — nothing may mistake it for a working present path
-  until Phase 3 lands. Shipped config: `compositor=d3d12`,
-  `startVisible=true` (uploads run from launch; toggle with F10).
+- D3D12 compositor now **draws the overlay over the game** at present time
+  (Phase 3, user-verified). Shipped config: `compositor=d3d12`,
+  `startVisible=true` (overlay shows from launch; F10 toggles).
 - JS is untrusted: defensive JSON parse, command whitelist, no arbitrary
   native calls, network/filesystem forced off.
 
@@ -328,10 +344,15 @@ Fixes (all in working tree as of this writing):
 5. ✅ Present timing — **DECIDED 2026-06-12**: hook `IDXGISwapChain::Present`
    slot 8 (runtime-proven in `OSF RE`, RenderPresentProbe re-anchored to
    ID 141996; rationale + two-swapchain caveat in RE notes §2).
-6. ⏳ Overlay composition: descriptor heaps, resource states, HDR/DRS,
-   Steam/ReShade/RTSS coexistence.
-7. ⏳ Input **consumption** (block the game from acting on captured input while
-   overlay has focus) + text input (`CharacterEvent`) + cursor routing.
+6. ✅ Overlay composition — **first light done & user-verified 2026-06-12**
+   (present-time alpha-blended draw; descriptor heaps, resource states,
+   command ring all working). Polish remaining: HDR/DRS, aspect/scaling,
+   frame-gen swapchain selection, Steam/ReShade/RTSS coexistence
+   (renderer-plan.md Phase 3).
+7. ⏳ Input **routing + consumption** (Phase 4): feed observed input into
+   `View::FireMouseEvent`/`FireKeyEvent`, focus model, block the game from
+   acting on captured input while the overlay has focus, text input
+   (`CharacterEvent`), cursor routing.
 
 Risk note: items 4–6 are the genuinely hard RE. Items 1–2 needed only source
 reading (SFSE + CommonLibSF), which is why they're done first.

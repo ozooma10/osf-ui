@@ -4,26 +4,27 @@
 
 namespace SWUI
 {
-	// Phase 2 compositor: uploads the renderer's CPU frames into a GPU
-	// texture using the game's own ID3D12Device + DIRECT queue (located via
-	// composite/EngineD3D12.h — runtime-proven route, no hooks, no device
-	// creation of our own). It does NOT draw anything yet: the texture stays
-	// in COPY_DEST and present-time composition is Phase 3
-	// (docs/renderer-plan.md).
+	// Phase 3 compositor: draws the renderer's frames over the game image at
+	// present time, on the game's own ID3D12Device + DIRECT queue (located via
+	// composite/EngineD3D12.h — runtime-proven route; we create no device).
 	//
-	// Design notes:
-	//  - The engine objects are located LAZILY on the first Submit (the
-	//    renderer root global is empty during SFSE plugin load; by the time
-	//    frames flow the game is fully alive). Initialize() only resets
-	//    state. Lookup failures retry on a budget, then give up loudly.
-	//  - Submit copies the frame into one slot of a small upload ring and
-	//    records+executes a CopyTextureRegion on the game's direct queue.
-	//    Queues are free-threaded, so submitting from the SFSE tick thread
-	//    is legal; slot reuse is fence-guarded and a busy ring SKIPS frames
-	//    instead of ever blocking the game thread.
-	//  - In devMode the first successful upload is verified end-to-end:
-	//    texture -> readback buffer -> byte compare against the submitted
-	//    pixels. That is the in-log substitute for a PIX capture.
+	// Threading model — the crux of this class:
+	//  - Submit() (SFSE tick thread) ONLY copies the CPU frame into a
+	//    lock-protected staging buffer. No GPU work there.
+	//  - A hook on IDXGISwapChain::Present (vtable slot 8 — captured from a
+	//    throwaway swapchain so no engine offsets are touched; the vtable is
+	//    shared by every swapchain in the process) runs on the render thread.
+	//    THAT is where all GPU work happens: upload the cached frame to a
+	//    texture, then draw it as an alpha-blended fullscreen quad onto the
+	//    current backbuffer, then call the original Present.
+	//  - Because every GPU operation for the overlay lives on the render
+	//    thread inside the present hook, there is no cross-thread resource
+	//    state to coordinate.
+	//
+	// Still owns nothing of the game's: own root signature, PSO, descriptor
+	// heaps, fence, command allocators. Setup (locate + hook install) is lazy
+	// on the first Submit (the renderer root global is empty during SFSE
+	// plugin load).
 	class D3D12Compositor final : public ICompositor
 	{
 	public:
@@ -33,6 +34,7 @@ namespace SWUI
 		bool Initialize() override;
 		void Shutdown() override;
 		void Submit(const FrameBufferView& a_frame) override;
+		void SetVisible(bool a_visible) override;
 
 		[[nodiscard]] std::string_view Name() const override { return "d3d12"; }
 
