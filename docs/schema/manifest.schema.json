@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ozooma10/osf-ui/blob/main/docs/schema/manifest.schema.json",
+  "title": "StarfieldWebUI View Manifest",
+  "description": "Schema for views/<id>/manifest.json. Bridge protocol 0.1 (unstable). Mirrors src/runtime/ViewManifest.cpp.",
+  "type": "object",
+  "required": ["id"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional editor hint; ignored by the runtime."
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique view id. Matches the folder name and config.json's \"view\". Required."
+    },
+    "title": {
+      "type": "string",
+      "description": "Human-readable name. Defaults to id."
+    },
+    "entry": {
+      "type": "string",
+      "default": "index.html",
+      "description": "Relative path to the entry HTML, inside the view folder. Absolute paths and any '..' component are rejected."
+    },
+    "width": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 16384,
+      "default": 1280,
+      "description": "Initial view width. The d3d12 compositor resizes the view to the screen aspect at runtime; author responsive CSS."
+    },
+    "height": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 16384,
+      "default": 720,
+      "description": "Initial view height (resized at runtime; capped at 1440)."
+    },
+    "transparent": {
+      "type": "boolean",
+      "default": true,
+      "description": "Render with an alpha channel so the game shows through unpainted areas."
+    },
+    "permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Capability grants. Everything defaults to deny.",
+      "properties": {
+        "nativeBridge": {
+          "type": "boolean",
+          "default": false,
+          "description": "Inject window.starfield. If false, no bridge is created and the page runs purely client-side."
+        },
+        "filesystem": {
+          "type": "boolean",
+          "default": false,
+          "description": "Reserved; no implementation enforces this yet."
+        },
+        "network": {
+          "type": "boolean",
+          "default": false,
+          "description": "Reserved; forced off with a warning if set true."
+        }
+      }
+    }
+  }
+}

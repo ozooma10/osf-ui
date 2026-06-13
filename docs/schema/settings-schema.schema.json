@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ozooma10/osf-ui/blob/main/docs/schema/settings-schema.schema.json",
+  "title": "StarfieldWebUI Settings Schema",
+  "description": "Schema for settings/<id>.json files. Bridge protocol 0.1 (unstable). Mirrors src/runtime/SettingsStore.cpp validation.",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional editor hint; ignored by the runtime."
+    },
+    "id": {
+      "type": "string",
+      "description": "Mod id. Defaults to the filename stem. Also the per-mod values filename under Documents\\My Games\\Starfield\\StarfieldWebUI\\settings\\<id>.json."
+    },
+    "title": {
+      "type": "string",
+      "description": "Card header shown in the settings view. Defaults to id."
+    },
+    "groups": {
+      "type": "array",
+      "description": "Ordered sections of settings.",
+      "items": {
+        "type": "object",
+        "required": ["settings"],
+        "properties": {
+          "label": {
+            "type": "string",
+            "description": "Optional section heading."
+          },
+          "settings": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/setting" }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "setting": {
+      "type": "object",
+      "required": ["key", "type"],
+      "properties": {
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable identifier, unique within the mod. Used as the persisted key and in settings.set/settings.reset."
+        },
+        "label": {
+          "type": "string",
+          "description": "Control label. Defaults to key."
+        },
+        "type": {
+          "enum": ["bool", "int", "float", "enum", "string"],
+          "description": "Control + validation kind. int/float clamp to [min,max]; enum must be one of options; string truncates to 256 chars."
+        },
+        "default": {
+          "description": "Initial value, used until the user changes it and on reset. Should match the type."
+        },
+        "min": { "type": "number", "description": "int/float lower bound (inclusive)." },
+        "max": { "type": "number", "description": "int/float upper bound (inclusive)." },
+        "step": { "type": "number", "description": "Slider granularity (UI hint)." },
+        "options": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Allowed values for an enum."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "enum" } } },
+          "then": { "required": ["options"] }
+        }
+      ]
+    }
+  }
+}

@@ -11,9 +11,10 @@ a reference for the two data-driven extension points that work today:
 > (`config.json` → `view`), and new *native* bridge commands or game-data
 > bindings still require core changes. What you can ship as pure content with
 > no recompile: a `views/<id>/` folder and a `settings/<id>.json` schema. The
-> bridge protocol below is **not yet versioned** — treat it as `0.x` and
-> expect it to change. See the roadmap in
-> [renderer-plan.md](renderer-plan.md).
+> bridge protocol is at version **0.1 — unstable**; minor bumps may break
+> views until it reaches 1.0. Detect it via the `bridgeVersion` field of the
+> `runtime.ready` handshake (below) and degrade/refuse on a mismatch. See the
+> roadmap in [renderer-plan.md](renderer-plan.md).
 
 Everything here assumes you have read [security-model.md](security-model.md):
 **your view is treated as untrusted code.** There is no network, no filesystem
@@ -139,7 +140,7 @@ Assign `window.starfield.onMessage` and switch on `message.type`:
 
 | type | payload | when |
 |---|---|---|
-| `runtime.ready` | `{ game, plugin, version }` | once, after your page loads — your cue to request data |
+| `runtime.ready` | `{ game, plugin, version, bridgeVersion }` | once, after your page loads — your cue to request data and to check `bridgeVersion` |
 | `runtime.pong` | `{}` | reply to your `ping` |
 | `settings.data` | `{ mods: [ { id, title, schema, values } ] } ` | reply to `settings.get` / after a `settings.reset` |
 | `settings.ack` | `{ mod, key, ok }` | result of a `settings.set` (`ok:false` ⇒ rejected/clamped) |
@@ -264,3 +265,40 @@ In-game, watch `Documents\My Games\Starfield\SFSE\Logs\StarfieldWebUI.log`:
 - [ ] Only whitelisted `ui.command`s; handle `*.ack`/error replies.
 - [ ] (If configurable) a `settings/<id>.json` schema with sane `default`/`min`/`max`.
 - [ ] Verified standalone in a browser, then in-game via the log.
+
+---
+
+## 7. Schemas & type definitions
+
+Tooling to author against the contract instead of from memory:
+
+- **JSON Schemas** ([`docs/schema/`](schema/)) validate your files in any
+  editor that understands JSON Schema (e.g. VS Code):
+  - [`manifest.schema.json`](schema/manifest.schema.json) — `views/<id>/manifest.json`
+  - [`settings-schema.schema.json`](schema/settings-schema.schema.json) — `settings/<id>.json`
+
+  Point your editor at them (VS Code `json.schemas`, or a top-level `"$schema"`
+  key in your file) for autocomplete and validation.
+
+- **TypeScript definitions** ([`sdk/starfield-webui.d.ts`](../sdk/starfield-webui.d.ts))
+  type `window.starfield`, the `ui.command` whitelist, the native→web messages,
+  and the settings-schema shapes. Reference it from your view's TS project and
+  the bridge is typed globally — no package to install.
+
+### Versioning
+
+The protocol version is **0.1** and is emitted in `runtime.ready` as
+`bridgeVersion`. It is distinct from the plugin `version`. Until it reaches
+`1.0`, treat minor bumps as potentially breaking and gate your view on it:
+
+```js
+window.starfield.onMessage = (json) => {
+  const msg = JSON.parse(json);
+  if (msg.type === "runtime.ready" && !msg.payload.bridgeVersion?.startsWith("0.")) {
+    // a newer, possibly incompatible runtime — warn or refuse rather than guess
+  }
+};
+```
+
+The constant lives in `src/core/Version.h` (`kBridgeProtocolVersion`); the
+schemas and `.d.ts` are kept in lockstep with it.

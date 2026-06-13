@@ -59,10 +59,14 @@ namespace SWUI
 
 	void MessageBridge::SendRuntimeReady()
 	{
+		// `bridgeVersion` lets a view detect the protocol it's talking to and
+		// degrade/refuse on a mismatch (see docs/authoring-views.md). `version`
+		// stays the plugin version; the two are intentionally separate.
 		SendToWeb("runtime.ready", {
 			{ "game", "Starfield" },
 			{ "plugin", kPluginName },
 			{ "version", kPluginVersion },
+			{ "bridgeVersion", kBridgeProtocolVersion },
 		});
 	}
 }
