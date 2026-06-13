@@ -21,10 +21,17 @@ namespace SWUI
 {
 	namespace
 	{
-		constexpr std::uint32_t kCmdSlots = 3;          // command allocator/list ring depth
+		// Ring depth must cover every present that can be in flight before the
+		// oldest slot's GPU work completes. The game drives MORE THAN ONE
+		// swapchain through this one ring (two seen in-game), so each swapchain
+		// only gets kCmdSlots/N frames of depth — keep this comfortably above
+		// (max swapchains in play) x (game's frame-queue depth) so a slot is
+		// almost never still busy when we cycle back to it.
+		constexpr std::uint32_t kCmdSlots = 6;          // command allocator/list ring depth
 		constexpr std::uint32_t kMaxSwapchains = 4;     // distinct swapchains we'll draw on
 		constexpr std::uint32_t kMaxBackBuffers = 4;    // per swapchain
 		constexpr std::uint32_t kRowPitchAlignment = 256;  // D3D12_TEXTURE_DATA_PITCH_ALIGNMENT
+		constexpr DWORD         kSlotWaitTimeoutMs = 100;  // cap the wait for a busy ring slot
 
 		template <class T>
 		void SafeRelease(T*& a_ptr)
@@ -171,7 +178,8 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 		// ---- stats ----
 		std::uint64_t drawnFrames{ 0 };
-		std::uint64_t skippedBusy{ 0 };
+		std::uint64_t waitedBusy{ 0 };   // presents that had to wait for a busy slot
+		std::uint64_t skippedBusy{ 0 };  // presents dropped because the wait timed out (GPU hung)
 		bool          firstDrawLogged{ false };
 		bool          formatMismatchLogged{ false };
 		bool          targetsFullLogged{ false };
@@ -462,8 +470,21 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 			auto& slot = cmdSlots[cmdIndex % kCmdSlots];
 			if (slot.fenceValue != 0 && fence->GetCompletedValue() < slot.fenceValue) {
-				++skippedBusy;  // ring still in flight; skip this present's draw
-				return;
+				// The slot's prior GPU work must finish before we reuse its
+				// allocator/upload buffer. Skipping the draw here (the old
+				// behavior) left THIS present without the overlay -> visible
+				// flicker (~7% of presents, since multiple swapchains share this
+				// ring). Wait instead: the overlay is one triangle, so the fence
+				// is almost always already signaled and this returns at once.
+				// Only a genuinely stuck GPU (timeout) falls through to a skip,
+				// which stays safe — reusing in-flight resources would corrupt.
+				++waitedBusy;
+				fence->SetEventOnCompletion(slot.fenceValue, fenceEvent);
+				::WaitForSingleObject(fenceEvent, kSlotWaitTimeoutMs);
+				if (fence->GetCompletedValue() < slot.fenceValue) {
+					++skippedBusy;  // GPU still not done after the timeout; drop (rare)
+					return;
+				}
 			}
 
 			const auto backIndex = target->swap->GetCurrentBackBufferIndex();
@@ -771,7 +792,8 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 						  "({}x{} overlay -> {}x{} target) — Phase 3 composition live",
 					texWidth, texHeight, a_target.width, a_target.height);
 			} else if ((drawnFrames % 1200) == 0) {
-				REX::DEBUG("D3D12Compositor: {} overlay draws ({} skipped busy)", drawnFrames, skippedBusy);
+				REX::DEBUG("D3D12Compositor: {} overlay draws ({} waited on busy slot, {} dropped on timeout)",
+					drawnFrames, waitedBusy, skippedBusy);
 			}
 		}
 
@@ -813,8 +835,8 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 	void D3D12Compositor::Shutdown()
 	{
 		if (_impl) {
-			REX::INFO("D3D12Compositor: shutdown after {} overlay draw(s) ({} skipped busy)",
-				_impl->drawnFrames, _impl->skippedBusy);
+			REX::INFO("D3D12Compositor: shutdown after {} overlay draw(s) ({} waited on busy slot, {} dropped on timeout)",
+				_impl->drawnFrames, _impl->waitedBusy, _impl->skippedBusy);
 			_impl.reset();
 		}
 	}
