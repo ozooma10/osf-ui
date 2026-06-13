@@ -152,14 +152,15 @@ docs/HANDOFF.md §4.
 
 - **Not a complete Prisma port** — and it will never contain Prisma code
   unless explicitly provided and licensed.
-- **Not yet a multi-mod platform** — exactly one view is active at a time
-  (`config.view`), feature modules are compiled into the runtime, and there
-  is no public/stable API or packaging format for third-party UIs yet. You
-  *can* ship a `settings/<id>.json` schema and a `views/<id>/` folder today;
-  anything more (new bridge commands, game-data-bound HUDs, separate-DLL
-  modules) still needs core changes. Render/menu integration points were
-  reverse engineered before use, never guessed
-  ([docs/reverse-engineering-notes.md](docs/reverse-engineering-notes.md)).
+- **Not yet a finished framework** — multiple views composite together, each
+  with its own bridge, with `Tab` focus switching, and views can read basic
+  game data (e.g. the in-game clock). But the `window.starfield` API is still
+  **0.x and unstable**, feature modules are compiled into the runtime (no
+  separate-DLL plugins yet), and there's no packaging/distribution tooling for
+  third-party UIs. You *can* ship a `settings/<id>.json` schema and a
+  `views/<id>/` folder today; deeper integration still needs core changes.
+  Render/menu integration points were reverse engineered before use, never
+  guessed ([docs/reverse-engineering-notes.md](docs/reverse-engineering-notes.md)).
 - **Rough edges** — keyboard routing is US-layout only (no IME/Unicode yet),
   there is no gamepad/controller navigation or localization pipeline, and
   HDR/10-bit backbuffers plus coexistence with ReShade / Steam overlay /
@@ -169,6 +170,8 @@ docs/HANDOFF.md §4.
 
 ## Documentation
 
+- [docs/troubleshooting.md](docs/troubleshooting.md) — **players start here**:
+  requirements, install, troubleshooting, uninstall, and known limitations
 - [docs/authoring-views.md](docs/authoring-views.md) — **start here to build
   a view**: package layout, manifest fields, the bridge protocol, and the
   settings schema format

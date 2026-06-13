@@ -1,6 +1,7 @@
 #include "input/MenuEventSink.h"
 
 #include "core/Log.h"
+#include "runtime/Runtime.h"
 
 namespace SWUI
 {
@@ -25,6 +26,17 @@ namespace SWUI
 	{
 		if (a_event.opening) {
 			s_openMenus.fetch_add(1, std::memory_order_relaxed);
+
+			// Force-hide the overlay on transition / system menus: it must not
+			// linger over a loading screen or sit at the main menu (where the
+			// game device + state we read may not be valid), and hiding releases
+			// input capture so the game is never left input-frozen across a
+			// transition. The user re-opens with the toggle key afterwards.
+			const std::string_view name = a_event.menuName;
+			if ((name == "LoadingMenu" || name == "MainMenu") && Runtime::Get().IsVisible()) {
+				REX::INFO("MenuEventSink: '{}' opened -> force-hiding overlay", name);
+				Runtime::Get().SetVisible(false);
+			}
 		} else {
 			// Menus open before we registered can close after; don't go
 			// negative.
