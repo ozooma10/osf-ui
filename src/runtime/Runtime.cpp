@@ -139,6 +139,20 @@ namespace SWUI
 			_renderer->SetActiveView(_config.view);
 			REX::INFO("Runtime: loaded {} view(s); active = '{}'", loaded, _config.view);
 
+			// Focusable (interactive) views, in load order, and the index of the
+			// one that starts active. The focusKey cycles through these.
+			for (const auto& id : toLoad) {
+				if (const auto* m = _views.Find(id); m && m->interactive) {
+					_interactiveViews.push_back(id);
+				}
+			}
+			for (std::size_t i = 0; i < _interactiveViews.size(); ++i) {
+				if (_interactiveViews[i] == _config.view) {
+					_activeViewIndex = i;
+					break;
+				}
+			}
+
 			// Greet each bridge-enabled view. The renderer queues this per view
 			// until that view's DOM is ready, so order here doesn't matter.
 			if (_bridge) {
@@ -158,6 +172,12 @@ namespace SWUI
 			REX::INFO("Runtime: toggleKey '{}' resolved to VK code {:#x}", _config.toggleKey, _toggleKey);
 		}
 		_input.Configure(_toggleKey, [this] { ToggleVisible(); });
+
+		_focusKey = ResolveKeyName(_config.focusKey);
+		if (_focusKey != kInvalidKeyCode) {
+			REX::INFO("Runtime: focusKey '{}' resolved to VK code {:#x} ({} interactive view(s))",
+				_config.focusKey, _focusKey, _interactiveViews.size());
+		}
 
 		// Keyboard routing into the web view, gated by capture state (Phase 4).
 		_input.SetWebRouting(
@@ -249,6 +269,19 @@ namespace SWUI
 
 	bool Runtime::OnHostKey(std::uint32_t a_vkCode, bool a_down)
 	{
+		// Focus switch (focusKey): cycle the active interactive view. Only while
+		// captured AND with more than one interactive view — otherwise the key
+		// passes through normally (e.g. Tab still navigates fields when there is a
+		// single interactive view). Consume both transitions so the key reaches
+		// neither a view nor the game.
+		if (a_vkCode == _focusKey && _focusKey != kInvalidKeyCode &&
+			IsInputCaptured() && _interactiveViews.size() > 1) {
+			if (a_down) {
+				CycleActiveView();
+			}
+			return true;
+		}
+
 		// Decide consumption before routing: capturing OR the toggle key must
 		// not reach the game. (The toggle press itself is captured so opening
 		// the overlay never also acts in-game.)
@@ -285,6 +318,22 @@ namespace SWUI
 			return;
 		}
 		_renderer->InjectMouseButton(static_cast<int>(_cursorX), static_cast<int>(_cursorY), a_button, a_down);
+	}
+
+	void Runtime::CycleActiveView()
+	{
+		if (_interactiveViews.size() < 2 || !_renderer) {
+			return;
+		}
+		// Move the OLD active view's software cursor off-screen (InjectMouseMove
+		// targets the current active view), switch focus, then place the cursor in
+		// the NEW active view at the same spot — so only one cursor is ever shown.
+		_renderer->InjectMouseMove(-1000, -1000);
+		_activeViewIndex = (_activeViewIndex + 1) % _interactiveViews.size();
+		const auto& id = _interactiveViews[_activeViewIndex];
+		_renderer->SetActiveView(id);
+		_renderer->InjectMouseMove(static_cast<int>(_cursorX), static_cast<int>(_cursorY));
+		REX::INFO("Runtime: focus -> view '{}'", id);
 	}
 
 	void Runtime::BuildModules()

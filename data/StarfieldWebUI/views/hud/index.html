@@ -11,10 +11,14 @@
        below shows through. Demonstrates multi-view compositing. -->
   <div id="hud">
     <div class="badge">OSF&nbsp;UI</div>
-    <div class="line"><span class="dot"></span> HUD layer — composited over the menu</div>
+    <div class="line"><span class="dot"></span> HUD layer — Tab to focus, then click</div>
     <div class="clock" id="clock">--:--:--</div>
     <div class="status" id="status">bridge: connecting…</div>
+    <button id="ping" type="button">Ping native</button>
+    <div class="pong" id="pong"></div>
   </div>
+  <!-- Software pointer, drawn when this view has focus (OS cursor hidden in-game). -->
+  <div id="cursor"></div>
   <script src="main.js"></script>
 </body>
 </html>

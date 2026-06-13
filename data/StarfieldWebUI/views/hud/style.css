@@ -73,3 +73,40 @@ html, body {
   color: #8fb0d8;
   opacity: 0.85;
 }
+
+button#ping {
+  margin-top: 10px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #eaf2ff;
+  background: rgba(80, 130, 220, 0.25);
+  border: 1px solid rgba(120, 180, 255, 0.6);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+button#ping:hover {
+  background: rgba(110, 160, 250, 0.45);
+}
+
+.pong {
+  margin-top: 6px;
+  min-height: 14px;
+  font-size: 11px;
+  color: #9affc4;
+}
+
+#cursor {
+  position: fixed;
+  left: -100px;
+  top: -100px;
+  width: 14px;
+  height: 14px;
+  margin: -2px 0 0 -2px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: rgba(120, 180, 255, 0.5);
+  pointer-events: none;
+  z-index: 9999;
+}

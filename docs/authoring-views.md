@@ -90,16 +90,19 @@ Several views can be hosted and composited at once. `config.json` lists them:
 - **Layering** is by each view's manifest `zorder` (not the array order): lower
   draws beneath, higher on top; ties keep load order. A HUD with `zorder: 100`
   always sits above a `zorder: 0` menu.
-- **Focus / input** goes to `config.view`, which must be an `interactive` view.
-  A view with `interactive: false` (a HUD) is never focused and never receives
-  input, even when it is the top layer.
+- **Focus / input** starts on `config.view`, which must be an `interactive`
+  view. A view with `interactive: false` (a passive HUD) is never focused and
+  never receives input, even when it is the top layer.
+- **Switching focus:** when more than one `interactive` view is hosted, the
+  `focusKey` (default `Tab`) cycles which one receives input. Only the focused
+  view gets keyboard/mouse; the others keep rendering. So you can have several
+  interactive panels and Tab between them.
 - **Each bridge-enabled view (`nativeBridge: true`) has its own bridge.**
   Messages are attributed to their source view and replies route back to it, so
-  several views can talk to native independently — even a non-interactive HUD
-  can receive native pushes and post messages. What is still single-view is
-  *input*: only `config.view` receives keyboard/mouse. So a second view can be a
-  live **data layer** today; a second *interactive* (clickable) view also needs
-  runtime focus switching (planned).
+  several views can talk to native independently — even a passive HUD can
+  receive native pushes and post messages. Input goes to one view at a time (the
+  focused one) and the `focusKey` switches between interactive views, so a second
+  *interactive* (clickable) view works too: focus it, then click.
 - Each view is sized to the whole screen, so position your content with CSS and
   keep the rest transparent; the layers blend by alpha.
 

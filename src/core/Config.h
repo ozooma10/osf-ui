@@ -8,6 +8,7 @@ namespace SWUI
 	{
 		bool        enabled{ true };
 		std::string toggleKey{ "F10" };  // symbolic only — no key hook exists yet (see docs/reverse-engineering-notes.md)
+		std::string focusKey{ "Tab" };   // cycles the active (input) view when >1 interactive view is hosted
 		bool        startVisible{ false };
 		std::string renderer{ "mock" };    // "null" | "mock" | "ultralight"
 		std::string compositor{ "null" };  // "null" | "d3d12" (d3d12 is a stub)

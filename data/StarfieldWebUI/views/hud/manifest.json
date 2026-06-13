@@ -6,7 +6,7 @@
   "height": 720,
   "transparent": true,
   "zorder": 100,
-  "interactive": false,
+  "interactive": true,
   "permissions": {
     "nativeBridge": true,
     "filesystem": false,

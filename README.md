@@ -75,6 +75,7 @@ Logs go to the standard SFSE log folder
 |---|---|---|
 | `enabled` | `true` | master switch |
 | `toggleKey` | `"F10"` | key name resolved via SFSE InputMap (F1–F12 layout-independent, other names layout-dependent) |
+| `focusKey` | `"Tab"` | cycles the active (input) view when more than one *interactive* view is hosted; passes through normally otherwise |
 | `startVisible` | `false` | initial overlay visibility state |
 | `renderer` | `"mock"` | `null` \| `mock` \| `ultralight` (real offscreen backend; shipped config uses it — falls back to `null` with a warning in Ultralight-free builds) |
 | `compositor` | `"null"` | `null` \| `d3d12` (stub that refuses to init) |

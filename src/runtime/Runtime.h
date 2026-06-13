@@ -85,6 +85,10 @@ namespace SWUI
 		void BuildModules();
 		void RegisterPlatformCommands(MessageBridge& a_bridge);
 
+		// Cycle the active (input) view among the interactive ones — the focusKey
+		// handler. No-op with fewer than two interactive views.
+		void CycleActiveView();
+
 		// Native reactions to settings changes (Phase 5b). Injected into the
 		// settings module as its change listener; reacts only to the knobs core
 		// owns (e.g. cursor speed).
@@ -98,6 +102,11 @@ namespace SWUI
 		std::vector<std::unique_ptr<IUiModule>> _modules;
 		InputRouter                             _input;
 		KeyCode                       _toggleKey{ kInvalidKeyCode };
+		KeyCode                       _focusKey{ kInvalidKeyCode };
+		// Focusable (interactive) view ids in load order, and the index of the
+		// one that currently has input. Touched only on the window-message thread.
+		std::vector<std::string>      _interactiveViews;
+		std::size_t                   _activeViewIndex{ 0 };
 
 		// Virtual cursor in view-pixel space (the OS cursor is hidden during
 		// gameplay, so we accumulate raw deltas instead). Position is touched

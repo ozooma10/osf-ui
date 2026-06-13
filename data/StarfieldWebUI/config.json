@@ -1,6 +1,7 @@
 {
   "enabled": true,
   "toggleKey": "F10",
+  "focusKey": "Tab",
   "startVisible": false,
   "renderer": "ultralight",
   "compositor": "d3d12",

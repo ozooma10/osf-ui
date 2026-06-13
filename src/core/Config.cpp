@@ -22,6 +22,7 @@ namespace SWUI
 
 		config.enabled = Json::GetBool(*json, "enabled", config.enabled);
 		config.toggleKey = Json::GetString(*json, "toggleKey", config.toggleKey);
+		config.focusKey = Json::GetString(*json, "focusKey", config.focusKey);
 		config.startVisible = Json::GetBool(*json, "startVisible", config.startVisible);
 		config.renderer = Json::GetString(*json, "renderer", config.renderer);
 		config.compositor = Json::GetString(*json, "compositor", config.compositor);
