@@ -110,7 +110,24 @@ namespace SWUI
 			} else {
 				REX::INFO("Runtime: view '{}' does not request nativeBridge; bridge disabled", view->id);
 			}
-			_renderer->LoadView(*view);
+			// Load the configured view stack bottom-to-top. `config.views` (if
+			// set) is the layer list; otherwise just the single active view. The
+			// active view — input + bridge — is always `config.view`.
+			std::vector<std::string> toLoad = _config.views;
+			if (toLoad.empty()) {
+				toLoad.push_back(_config.view);
+			}
+			std::size_t loaded = 0;
+			for (const auto& id : toLoad) {
+				if (const auto* m = _views.Find(id)) {
+					_renderer->LoadView(*m);
+					++loaded;
+				} else {
+					REX::WARN("Runtime: configured view '{}' not found; skipping", id);
+				}
+			}
+			_renderer->SetActiveView(_config.view);
+			REX::INFO("Runtime: loaded {} view(s); active = '{}'", loaded, _config.view);
 			if (_bridge) {
 				_bridge->SendRuntimeReady();
 			}

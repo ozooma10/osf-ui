@@ -47,7 +47,20 @@ namespace SWUI
 
 		virtual bool Initialize(const RendererConfig& a_config) = 0;
 		virtual void Shutdown() = 0;
+
+		// Loads (or replaces) a view by its manifest id. Backends that support
+		// it keep previously-loaded views so several can be hosted and composited
+		// at once; the first loaded view becomes active by default. Call
+		// SetActiveView to choose which one receives input.
 		virtual void LoadView(const ViewManifest& a_manifest) = 0;
+
+		// Selects which loaded view receives input (and, today, the bridge).
+		// Multi-view backends honor it; single-view backends ignore it. No-op if
+		// the id is not loaded. Default no-op for backends without views.
+		virtual void SetActiveView(std::string_view /*a_id*/) {}
+
+		// Resizes the view surface(s). Multi-view backends resize every hosted
+		// view to the same output size so their frames composite 1:1.
 		virtual void Resize(std::uint32_t a_width, std::uint32_t a_height) = 0;
 		virtual void Update(double a_deltaSeconds) = 0;
 

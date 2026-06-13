@@ -266,7 +266,8 @@ namespace SWUI
 
 			// worker-thread-only
 			ul::RefPtr<ul::View>    view;
-			Frame                   backFrame;
+			Frame                   backFrame;   // latest harvested pixels (overwritten on repaint)
+			bool                    backDirty{ false };  // backFrame changed since last expose/composite
 			std::uint64_t           paintCount{ 0 };
 			bool                    domReady{ false };
 			std::deque<std::string> stashedToWeb;  // arrived before the page was ready
@@ -279,6 +280,19 @@ namespace SWUI
 		};
 		std::unordered_map<std::string, std::unique_ptr<ViewState>> views;         // guarded by mutex
 		std::string                                                 activeViewId;  // guarded by mutex
+		std::vector<std::string>                                    drawOrder;     // view ids bottom->top; guarded by mutex
+
+		// Composited output, used ONLY when more than one view is hosted. The
+		// worker blends every view's latest frame (drawOrder, bottom-to-top) into
+		// compositedBack, then hands it to the game thread exactly like a single
+		// view's frame. compositedPending/Fresh are guarded by frameMutex;
+		// compositedFront is game-thread-only. With one view this stays unused and
+		// the single-view fast path (per-view frame exchange) is untouched.
+		Frame         compositedBack;
+		Frame         compositedPending;
+		bool          compositedFresh{ false };
+		Frame         compositedFront;
+		std::uint64_t compositeIndex{ 0 };
 
 		// The JSC postMessage callback is a plain function pointer with no
 		// user-data slot, so it finds us through this. One renderer per process.
@@ -351,6 +365,14 @@ namespace SWUI
 					w.mice.swap(vs->toMouse);
 					work.push_back(std::move(w));
 				}
+				// Views in z-order (bottom-to-top) for harvest + compositing.
+				std::vector<ViewState*> ordered;
+				ordered.reserve(drawOrder.size());
+				for (const auto& id : drawOrder) {
+					if (const auto it = views.find(id); it != views.end()) {
+						ordered.push_back(it->second.get());
+					}
+				}
 				lock.unlock();
 
 				for (auto& w : work) {
@@ -371,12 +393,7 @@ namespace SWUI
 					}
 				}
 
-				std::vector<ViewState*> live;
-				live.reserve(work.size());
-				for (auto& w : work) {
-					live.push_back(w.vs);
-				}
-				PumpUltralight(live);
+				PumpUltralight(ordered);
 
 				lock.lock();
 			}
@@ -450,19 +467,45 @@ namespace SWUI
 			a_vs.view->LoadURL(url.c_str());
 		}
 
-		void PumpUltralight(const std::vector<ViewState*>& a_views)
+		void PumpUltralight(const std::vector<ViewState*>& a_ordered)
 		{
 			renderer->Update();
-			for (auto* vs : a_views) {
+			for (auto* vs : a_ordered) {
 				if (vs->view && vs->domReady) {
 					FlushStashedMessages(*vs);
 				}
 			}
 			renderer->RefreshDisplay(0);
 			renderer->Render();  // repaints only the views that need it
-			for (auto* vs : a_views) {
+
+			bool anyDirty = false;
+			for (auto* vs : a_ordered) {
 				if (vs->view) {
 					HarvestFrame(*vs);
+				}
+				anyDirty = anyDirty || vs->backDirty;
+			}
+
+			// Expose to the game thread. One view: hand its frame straight across
+			// (the untouched single-view fast path: per-view triple buffer). More
+			// than one: blend them into the composited frame first.
+			if (a_ordered.size() <= 1) {
+				if (!a_ordered.empty() && a_ordered.front()->backDirty) {
+					auto* vs = a_ordered.front();
+					std::scoped_lock lk(frameMutex);
+					std::swap(vs->backFrame, vs->pendingFrame);
+					vs->pendingFresh = true;
+					vs->backDirty = false;
+				}
+			} else if (anyDirty) {
+				CompositeViews(a_ordered);
+				{
+					std::scoped_lock lk(frameMutex);
+					std::swap(compositedBack, compositedPending);
+					compositedFresh = true;
+				}
+				for (auto* vs : a_ordered) {
+					vs->backDirty = false;
 				}
 			}
 		}
@@ -489,6 +532,7 @@ namespace SWUI
 				return;
 			}
 			surface->ClearDirtyBounds();
+			a_vs.backDirty = true;
 
 			if (a_vs.paintCount == 1) {
 				REX::INFO("UltralightWebRenderer: first paint for view '{}' ({}x{}, stride {})",
@@ -507,11 +551,57 @@ namespace SWUI
 				}
 			}
 
-			{
-				std::scoped_lock lk(frameMutex);
-				std::swap(a_vs.backFrame, a_vs.pendingFrame);
-				a_vs.pendingFresh = true;
+			// Exposing this frame to the game thread (single view) or blending it
+			// with the others (multi-view) happens in PumpUltralight, once every
+			// view has been harvested this pass.
+		}
+
+		// Premultiplied-alpha "over" compositing of the hosted views into one
+		// tightly-packed BGRA frame (drawOrder = bottom-to-top). Only called when
+		// more than one view is hosted; a single view uses the fast path and
+		// never lands here. Views are all resized to the output size, so this is
+		// a same-size blend; any momentarily mismatched view (mid-resize) is
+		// skipped this pass rather than mis-sampled.
+		void CompositeViews(const std::vector<ViewState*>& a_ordered)
+		{
+			std::uint32_t w = 0;
+			std::uint32_t h = 0;
+			for (const auto* vs : a_ordered) {
+				if (!vs->backFrame.pixels.empty()) {
+					w = vs->backFrame.width;
+					h = vs->backFrame.height;
+					break;
+				}
 			}
+			if (w == 0 || h == 0) {
+				return;
+			}
+
+			const std::uint32_t dstStride = w * 4u;
+			compositedBack.pixels.assign(static_cast<std::size_t>(dstStride) * h, 0);  // clear to transparent
+			compositedBack.width = w;
+			compositedBack.height = h;
+			compositedBack.strideBytes = dstStride;
+
+			for (const auto* vs : a_ordered) {
+				const Frame& src = vs->backFrame;
+				if (src.pixels.empty() || src.width != w || src.height != h) {
+					continue;
+				}
+				for (std::uint32_t y = 0; y < h; ++y) {
+					std::uint8_t*       d = compositedBack.pixels.data() + static_cast<std::size_t>(y) * dstStride;
+					const std::uint8_t* s = src.pixels.data() + static_cast<std::size_t>(y) * src.strideBytes;
+					for (std::uint32_t x = 0; x < w; ++x) {
+						const std::uint32_t i = x * 4u;
+						const unsigned      inv = 255u - s[i + 3];  // 1 - src.alpha (premultiplied "over")
+						d[i + 0] = static_cast<std::uint8_t>(s[i + 0] + (d[i + 0] * inv + 127u) / 255u);
+						d[i + 1] = static_cast<std::uint8_t>(s[i + 1] + (d[i + 1] * inv + 127u) / 255u);
+						d[i + 2] = static_cast<std::uint8_t>(s[i + 2] + (d[i + 2] * inv + 127u) / 255u);
+						d[i + 3] = static_cast<std::uint8_t>(s[i + 3] + (d[i + 3] * inv + 127u) / 255u);
+					}
+				}
+			}
+			compositedBack.index = ++compositeIndex;
 		}
 
 		// ================= JS bridge (worker thread) =================
@@ -865,25 +955,46 @@ namespace SWUI
 	{
 		{
 			std::scoped_lock lk(_impl->mutex);
-			// Create-or-replace the view entry for this id and make it active.
-			// The game thread owns the map slot; the worker creates the actual
-			// ul::View when it picks up pendingLoad.
-			auto& slot = _impl->views[a_manifest.id];
+			// Create-or-update the view entry for this id (additive: other views
+			// stay loaded). The game thread owns the map slot; the worker creates
+			// the actual ul::View when it picks up pendingLoad. New ids append to
+			// drawOrder (= z-order, bottom-to-top). The first view loaded becomes
+			// active by default; call SetActiveView to choose another.
+			auto&      slot = _impl->views[a_manifest.id];
+			const bool isNew = !slot;
 			if (!slot) {
 				slot = std::make_unique<Impl::ViewState>();
 			}
 			slot->id = a_manifest.id;
 			slot->pendingLoad = a_manifest;
-			_impl->activeViewId = a_manifest.id;
+			if (isNew) {
+				_impl->drawOrder.push_back(a_manifest.id);
+			}
+			if (_impl->activeViewId.empty()) {
+				_impl->activeViewId = a_manifest.id;
+			}
 		}
 		_impl->wake.notify_all();
+	}
+
+	void UltralightWebRenderer::SetActiveView(std::string_view a_id)
+	{
+		std::scoped_lock lk(_impl->mutex);
+		if (_impl->views.find(std::string(a_id)) != _impl->views.end()) {
+			_impl->activeViewId = std::string(a_id);
+		} else {
+			REX::WARN("UltralightWebRenderer: SetActiveView('{}') ignored — view not loaded (active stays '{}')",
+				a_id, _impl->activeViewId);
+		}
 	}
 
 	void UltralightWebRenderer::Resize(std::uint32_t a_width, std::uint32_t a_height)
 	{
 		{
 			std::scoped_lock lk(_impl->mutex);
-			if (auto* vs = _impl->ActiveView()) {
+			// Resize every hosted view to the output size so their frames
+			// composite 1:1 (single view: this is just the one view).
+			for (auto& [id, vs] : _impl->views) {
 				vs->pendingResize = { a_width, a_height };
 			}
 		}
@@ -920,25 +1031,51 @@ namespace SWUI
 
 	std::optional<FrameBufferView> UltralightWebRenderer::Render()
 	{
-		// Resolve the active view under `mutex`, then touch its frame under
-		// `frameMutex` (never both held at once). The ViewState pointer stays
-		// valid for the renderer's lifetime; frontFrame is game-thread-only.
-		Impl::ViewState* vs = nullptr;
+		// Decide single vs composited output (and, for single, resolve the active
+		// view) under `mutex`. Then touch frames under `frameMutex` only — never
+		// both held at once. The ViewState pointer stays valid for the renderer's
+		// lifetime; front/compositedFront are game-thread-only.
+		bool             multi = false;
+		Impl::ViewState* active = nullptr;
 		{
 			std::scoped_lock lk(_impl->mutex);
-			vs = _impl->ActiveView();
+			multi = _impl->drawOrder.size() > 1;
+			active = _impl->ActiveView();
 		}
-		if (!vs) {
+
+		// Multi-view: return the worker's composited frame.
+		if (multi) {
+			std::scoped_lock lk(_impl->frameMutex);
+			if (_impl->compositedFresh) {
+				std::swap(_impl->compositedPending, _impl->compositedFront);
+				_impl->compositedFresh = false;
+			}
+			const auto& front = _impl->compositedFront;
+			if (front.pixels.empty()) {
+				return std::nullopt;
+			}
+			return FrameBufferView{
+				.pixels = front.pixels,
+				.width = front.width,
+				.height = front.height,
+				.strideBytes = front.strideBytes,
+				.format = PixelFormat::kBGRA8,
+				.frameIndex = front.index,
+			};
+		}
+
+		// Single-view fast path (unchanged): the active view's own frame.
+		if (!active) {
 			return std::nullopt;
 		}
 		{
 			std::scoped_lock lk(_impl->frameMutex);
-			if (vs->pendingFresh) {
-				std::swap(vs->pendingFrame, vs->frontFrame);
-				vs->pendingFresh = false;
+			if (active->pendingFresh) {
+				std::swap(active->pendingFrame, active->frontFrame);
+				active->pendingFresh = false;
 			}
 		}
-		const auto& front = vs->frontFrame;
+		const auto& front = active->frontFrame;
 		if (front.pixels.empty()) {
 			return std::nullopt;
 		}

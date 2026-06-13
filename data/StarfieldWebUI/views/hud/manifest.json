@@ -1,0 +1,13 @@
+{
+  "id": "hud",
+  "title": "OSF UI Demo HUD",
+  "entry": "index.html",
+  "width": 1280,
+  "height": 720,
+  "transparent": true,
+  "permissions": {
+    "nativeBridge": false,
+    "filesystem": false,
+    "network": false
+  }
+}

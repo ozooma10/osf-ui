@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OSF UI HUD</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Transparent everywhere except this corner panel, so the active view
+       below shows through. Demonstrates multi-view compositing. -->
+  <div id="hud">
+    <div class="badge">OSF&nbsp;UI</div>
+    <div class="line"><span class="dot"></span> HUD layer — composited over the menu</div>
+    <div class="clock" id="clock">--:--:--</div>
+  </div>
+  <script src="main.js"></script>
+</body>
+</html>

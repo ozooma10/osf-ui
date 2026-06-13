@@ -28,6 +28,13 @@ namespace SWUI
 		config.inputSource = Json::GetString(*json, "inputSource", config.inputSource);
 		config.captureInput = Json::GetBool(*json, "captureInput", config.captureInput);
 		config.view = Json::GetString(*json, "view", config.view);
+		if (const auto it = json->find("views"); it != json->end() && it->is_array()) {
+			for (const auto& v : *it) {
+				if (v.is_string()) {
+					config.views.push_back(v.get<std::string>());
+				}
+			}
+		}
 		config.allowNetwork = Json::GetBool(*json, "allowNetwork", config.allowNetwork);
 		config.devMode = Json::GetBool(*json, "devMode", config.devMode);
 
