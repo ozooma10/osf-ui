@@ -2,7 +2,7 @@
 includes("lib/commonlibsf")
 
 -- set project constants
-set_project("StarfieldWebUI")
+set_project("OSF UI")
 set_version("0.1.0")
 set_license("GPL-3.0")
 set_languages("c++23")
@@ -25,8 +25,11 @@ end)
 add_requires("nlohmann_json")
 
 -- define targets
-target("StarfieldWebUI")
+-- target name == repo folder == MO2 mod folder (deploy goes to XSE_SF_MODS_PATH\<target name>)
+target("OSF UI")
     add_rules("commonlibsf.plugin", {
+        -- plugin metadata name kept: it drives the SFSE log filename and matches
+        -- the runtime data folder SFSE/Plugins/StarfieldWebUI/ (src/core/Paths.h)
         name = "StarfieldWebUI",
         author = "TODO",
         description = "HTML/CSS/JS UI runtime prototype for Starfield via SFSE/CommonLibSF",
@@ -61,8 +64,34 @@ target("StarfieldWebUI")
             end
             target:add("includedirs", path.join(sdk, "include"))
             target:add("linkdirs", path.join(sdk, "lib"))
-            -- AppCore is intentionally not linked: this project renders offscreen only.
-            target:add("links", "Ultralight", "UltralightCore", "WebCore")
+            -- AppCore is linked ONLY for GetPlatformFontLoader (DirectWrite);
+            -- no window/app machinery is used (offscreen rendering only).
+            -- Symbol homes (verified against the 1.4.0 SDK libs): the C++
+            -- core API (Platform/String/Buffer/BitmapSurface) is in
+            -- UltralightCore, JavaScriptCore's C API is in WebCore.
+            target:add("links", "Ultralight", "UltralightCore", "WebCore", "AppCore")
+            -- Delay-load the SDK DLLs: SFSE loads plugins with plain
+            -- LoadLibrary, so static imports would never resolve from the
+            -- plugin's folder. UltralightWebRenderer::Initialize preloads the
+            -- DLLs from <data>/ultralight/bin before first use.
+            target:add("syslinks", "delayimp")
+            -- NB: this target is a shared lib, so xmake feeds the linker from
+            -- "shflags" (plain ldflags are silently ignored here).
+            target:add("shflags",
+                "/DELAYLOAD:Ultralight.dll",
+                "/DELAYLOAD:UltralightCore.dll",
+                "/DELAYLOAD:WebCore.dll",
+                "/DELAYLOAD:AppCore.dll",
+                { force = true })
+            -- Ship the runtime pieces with the plugin data folder:
+            --   SFSE/Plugins/StarfieldWebUI/ultralight/bin/*.dll
+            --   SFSE/Plugins/StarfieldWebUI/ultralight/resources/icudt67l.dat
+            -- cacert.pem is intentionally NOT shipped: network stays off
+            -- (docs/security-model.md), so no TLS roots are needed.
+            target:add("installfiles", path.join(sdk, "bin", "(*.dll)"),
+                { prefixdir = "SFSE/Plugins/StarfieldWebUI/ultralight/bin" })
+            target:add("installfiles", path.join(sdk, "resources", "(icudt67l.dat)"),
+                { prefixdir = "SFSE/Plugins/StarfieldWebUI/ultralight/resources" })
         end)
     else
         -- UltralightWebRenderer.cpp is also fully #if-guarded, but exclude it

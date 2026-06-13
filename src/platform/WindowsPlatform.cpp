@@ -35,4 +35,18 @@ namespace SWUI::Platform
 		}
 		return std::filesystem::path(buffer);
 	}
+
+	bool LoadLibraryAbsolute(const std::filesystem::path& a_path, std::uint32_t& a_lastError)
+	{
+		a_lastError = 0;
+		if (!a_path.is_absolute()) {
+			a_lastError = ERROR_BAD_PATHNAME;
+			return false;
+		}
+		if (::LoadLibraryExW(a_path.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH) == nullptr) {
+			a_lastError = ::GetLastError();
+			return false;
+		}
+		return true;
+	}
 }

@@ -16,18 +16,26 @@ shippable on its own; no phase fakes the next one.
   (main thread, SFSE-maintained hook — see reverse-engineering-notes.md §1).
   In-game cadence verification (main menu / pause / loading) still pending.
 
-## Phase 1 — local HTML renderer offscreen
+## Phase 1 — local HTML renderer offscreen ✅ (verified in-game 2026-06-12)
 
-- Implement `UltralightWebRenderer` for real behind `with_ultralight`:
-  renderer + offscreen `View` with the CPU `BitmapSurface`.
-- Custom `FileSystem` restricted to the active view's folder; fonts; null
-  clipboard; network stays off.
-- Wire the JS bridge: inject `window.starfield.postMessage`, deliver
-  native→web by invoking `window.starfield.onMessage`.
-- Drive `Update/Render` from a controlled test cadence (possibly a dev-only
-  thread that only touches Ultralight state, never game state).
-- Exit criteria: the test view's pixels can be dumped to a PNG/BMP on disk
-  and the ping/close buttons round-trip through `MessageBridge`.
+- ✅ `UltralightWebRenderer` implemented behind `with_ultralight` (Ultralight
+  1.4.0 SDK, CPU `BitmapSurface`, in-memory session).
+- ✅ `SandboxFileSystem` restricted to the active view's folder + the ICU
+  resources dir; AppCore's DirectWrite font loader (only AppCore use); no
+  clipboard handler; network: see the documented gap in security-model.md §2.
+- ✅ JS bridge: `window.starfield.postMessage` injected at
+  `OnWindowObjectReady` via the JSC C API; native→web calls
+  `window.starfield.onMessage(json)`; messages queue until DOM ready.
+- ✅ Cadence: a dedicated worker thread owns ALL Ultralight state and
+  self-paces at ~60 Hz; the game thread only touches queues and a
+  double-buffered frame copy. (Required: WebKit is thread-affine, SFSE ticks
+  arrive on varying threads, and heavyweight init in SFSE's pre-main load
+  phase deadlocks — the worker starts lazily on the first tick.)
+- ✅ Exit criteria met: post-DOM frame PNG-dumped from in-game
+  (`<data>/ultralight/first-frame.png`, shows the rendered test page with
+  "Connected: StarfieldWebUI v0.1.0"), and the bridge round-trips proven by
+  the test view's automatic `log` + `ping` handshake (no click needed —
+  input routing is Phase 4).
 
 ## Phase 2 — CPU bitmap upload to D3D12 texture
 

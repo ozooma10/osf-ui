@@ -14,15 +14,21 @@ ugly overlay", never "arbitrary native code execution".
    (non-throwing JSON parse, typed accessors with defaults, length-bounded
    logging). [enforced in `MessageBridge` / `Json`]
 2. **No network by default.** `config.allowNetwork` and the per-view
-   `permissions.network` flag are recognized but force-disabled with a warning
-   — nothing in the codebase performs network I/O at all. When a real renderer
-   lands, its network access stays compiled off/denied. [enforced by absence +
-   forced-off flags]
+   `permissions.network` flag are recognized but force-disabled with a warning.
+   ⚠ Known gap since Phase 1: WebCore has its own HTTP stack and Ultralight's
+   request-blocking `NetworkListener` is Pro-edition-only, so http(s) is not
+   hard-blocked at the engine level. Mitigations in place: `cacert.pem` is
+   deliberately NOT shipped (no TLS roots → all https fails), views are loaded
+   from `file:///` only, and the only shipped view is local content. A real
+   block (content-security-policy injection or a Pro license) is future work.
+   [partially enforced; documented gap]
 3. **No filesystem access for views** except their own folder's local assets
-   (`index.html`, css, js, images). Manifest `entry` may not be absolute or
-   contain `..`. The Phase-1 Ultralight `FileSystem` must canonicalize and
-   prefix-check every path against the view root. [entry validation enforced;
-   FS sandbox is a Phase-1 TODO]
+   (`index.html`, css, js, images) plus the read-only Ultralight support
+   resources (ICU data). [enforced in `SandboxFileSystem`
+   (UltralightWebRenderer.cpp): only relative paths, no root name/directory,
+   any `..` component rejected, two whitelisted base dirs; manifest `entry`
+   validation unchanged. Lexical checks only — symlink/ADS canonicalization is
+   still listed under future hardening]
 4. **No process execution.** No bridge command may spawn processes; none is
    planned. [enforced by absence]
 5. **No arbitrary native bridge.** There is exactly one inbound message type
@@ -38,9 +44,11 @@ ugly overlay", never "arbitrary native code execution".
 ## Future hardening (when the real renderer lands)
 
 - Canonical-path sandbox for the Ultralight FileSystem (reject symlinks/ADS
-  tricks, prefix check after canonicalization).
-- Null clipboard provider until an explicit opt-in design exists.
+  tricks, prefix check after canonicalization — current checks are lexical).
+- Null clipboard provider until an explicit opt-in design exists (Phase 1
+  sets NO clipboard handler, which Ultralight treats as no clipboard at all).
 - Rate-limit bridge messages per view (JS must not be able to stall the game
-  thread with message floods).
+  thread with message floods). Phase 1 already caps both bridge queues at 64
+  messages (drop + warn-once beyond that); per-time-window limits remain TODO.
 - Message size caps (already: log text truncated at 512 chars; generalize).
 - Versioned bridge API so views can't probe for undocumented commands.

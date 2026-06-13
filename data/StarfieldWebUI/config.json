@@ -2,7 +2,7 @@
   "enabled": true,
   "toggleKey": "F10",
   "startVisible": false,
-  "renderer": "mock",
+  "renderer": "ultralight",
   "compositor": "null",
   "inputSource": "ui",
   "view": "test",

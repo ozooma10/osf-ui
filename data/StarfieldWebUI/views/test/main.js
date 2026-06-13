@@ -73,6 +73,10 @@ document.getElementById("close").addEventListener("click", () => {
 
 if (bridgeAvailable()) {
   statusEl.textContent = "Bridge detected, waiting for runtime.ready…";
+  // Automatic handshake: prove the web -> native -> web round trip without
+  // any input wiring (mouse/keyboard routing into the view is Phase 4).
+  sendToNative("ui.command", { command: "log", text: "test view loaded; bridge online" });
+  sendToNative("ui.command", { command: "ping" });
 } else {
   statusEl.textContent = "Standalone mode (no native bridge — opened in a browser?).";
   logLine("Native bridge not found; buttons will log locally only.");

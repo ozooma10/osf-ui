@@ -9,6 +9,11 @@ namespace SWUI
 		std::uint32_t width{ 1280 };
 		std::uint32_t height{ 720 };
 		bool          devMode{ false };
+
+		// Plugin data root (Paths::DataDir()). Backends that need runtime
+		// assets resolve them under here (e.g. ultralight/bin, ultralight/
+		// resources) so render/ stays decoupled from core/Paths.
+		std::filesystem::path dataDir;
 	};
 
 	enum class PixelFormat
@@ -53,6 +58,13 @@ namespace SWUI
 		// Delivers a JSON message (native -> web). Backends without a JS
 		// engine may log and drop it.
 		virtual void SendMessageToWeb(std::string_view a_json) = 0;
+
+		// Receives JSON messages (web -> native). Backends with a JS engine
+		// invoke the handler from Update() on the calling (game) thread, never
+		// from a renderer-internal thread. Backends without a JS engine ignore
+		// this. Set before LoadView.
+		using WebMessageHandler = std::function<void(std::string_view)>;
+		virtual void SetWebMessageHandler(WebMessageHandler) {}
 
 		[[nodiscard]] virtual std::string_view Name() const = 0;
 	};

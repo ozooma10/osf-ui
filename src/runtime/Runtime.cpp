@@ -43,6 +43,7 @@ namespace SWUI
 			.width = view ? view->width : 1280u,
 			.height = view ? view->height : 720u,
 			.devMode = _config.devMode,
+			.dataDir = Paths::DataDir(),
 		};
 		if (!_renderer->Initialize(rendererConfig)) {
 			REX::ERROR("Runtime: renderer '{}' failed to initialize; falling back to null renderer", _renderer->Name());
@@ -60,9 +61,10 @@ namespace SWUI
 		}
 		REX::INFO("Runtime: compositor = {}", _compositor->Name());
 
-		// Active view
+		// Active view. Bridge and web->native handler are wired BEFORE
+		// LoadView so no early page message can race past them; renderers
+		// queue native->web messages until the page is actually ready.
 		if (view) {
-			_renderer->LoadView(*view);
 			if (view->permissions.nativeBridge) {
 				_bridge = std::make_unique<MessageBridge>(MessageBridge::Host{
 					.setVisible = [this](bool a_visible) { SetVisible(a_visible); },
@@ -72,9 +74,17 @@ namespace SWUI
 						}
 					},
 				});
-				_bridge->SendRuntimeReady();
+				_renderer->SetWebMessageHandler([this](std::string_view a_json) {
+					if (_bridge) {
+						_bridge->HandleWebMessage(a_json);
+					}
+				});
 			} else {
 				REX::INFO("Runtime: view '{}' does not request nativeBridge; bridge disabled", view->id);
+			}
+			_renderer->LoadView(*view);
+			if (_bridge) {
+				_bridge->SendRuntimeReady();
 			}
 		} else {
 			REX::WARN("Runtime: configured view '{}' was not found; overlay has no content", _config.view);
@@ -164,6 +174,12 @@ namespace SWUI
 		}
 		if (_config.renderer == "ultralight") {
 #if defined(SWUI_WITH_ULTRALIGHT)
+			// Must run before the renderer object exists: even constructing
+			// it touches delay-loaded SDK symbols (see PreloadRuntime docs).
+			if (!UltralightWebRenderer::PreloadRuntime(Paths::DataDir())) {
+				REX::ERROR("Runtime: Ultralight runtime preload failed; using null renderer");
+				return std::make_unique<NullWebRenderer>();
+			}
 			return std::make_unique<UltralightWebRenderer>();
 #else
 			REX::WARN("Runtime: renderer 'ultralight' requested but this build was compiled without "

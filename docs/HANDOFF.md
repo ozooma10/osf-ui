@@ -1,33 +1,35 @@
 # StarfieldWebUI — Resume / Handoff
 
-**Last updated:** 2026-06-12 ~18:00 (mid machine switch)
-**Status:** Phase 0 + TODO #1 (tick) **verified in-game**. TODO #2 (input)
-verified through three test runs today: the save-load crash is fixed (§4a),
-menu events and input observation are proven working. **ONE verification run
-remains** (see §0): the F10 toggle never fired because the key space was
-wrong (VK, not DIK — fixed in code, built, deployed, but not yet re-tested).
+**Last updated:** 2026-06-12 ~21:05
+**Status:** Phase 0 + TODO #1 (tick) + TODO #2 (input) + **TODO #3
+(Ultralight backend) all verified in-game**. The 20:58 run rendered the real
+test page (WebKit 615.1.18 / Ultralight 1.4.0) offscreen inside Starfield:
+post-DOM frame PNG-dumped, JS bridge round-trip proven both directions
+(`runtime.ready` → page status "Connected", page `log`+`ping` → MessageBridge
+→ pong). Renderer-plan **Phase 1 is complete**. Next: TODO #4 (D3D12 device
+route, in `OSF RE/`) — the overlay still composites to the NullCompositor
+only. See §7.
 Game is **1.16.244.0** (patched 2026-06-11; SFSE 0.2.21, versionlib-1-16-244
 present in the AIO address library mod).
 
 ---
 
-## 0. IMMEDIATE next step (one run, ~3 min)
+## 0. IMMEDIATE next step
 
-Everything is already built and deployed to `MO2\mods\StarfieldWebUI`.
-Launch via MO2+SFSE, load a save, press **F10**, check
-`Documents\My Games\Starfield\SFSE\Logs\StarfieldWebUI.log` for:
+TODO #1/#2/#3 are all ✅ verified in-game (2026-06-12 runs; details in §3/§4
+and renderer-plan.md). The next work item is **TODO #4: prove a route to
+Starfield's `ID3D12Device` + direct queue** — do this in `OSF RE/` per its
+proof rules, NOT here. Until Phase 2/3 land, the rendered web frames go to
+the NullCompositor (logged + dropped); visual checks use the devMode PNG
+dump (`MO2\overwrite\SFSE\Plugins\StarfieldWebUI\ultralight\first-frame.png`).
 
-1. `Runtime: toggleKey 'F10' resolved to VK code 0x79`  (new line — proves
-   the rebuilt DLL is the one loaded; the old one said `InputMap code 0x44`)
-2. no `UI layout guard FAILED`
-3. `MenuEventSink: registered` / `UiInputHook: installed`
-4. on F10: `Runtime: overlay visibility -> true` +
-   `NullCompositor: first frame submitted`
-5. bonus: click the mouse once — expect `OnMouseButton(0, true)` AND
-   `OnMouseButton(0, false)` (the release was previously eaten; fixed).
-
-If all five hold, TODO #2 is fully verified end-to-end → mark it ✅ in §3/§7
-and move to TODO #3 (Ultralight backend, no game needed) or #4 (D3D12 RE).
+Quick re-verify of the Ultralight backend (one launch to the main menu, no
+interaction): expect in `StarfieldWebUI.log` —
+`SDK DLLs preloaded` → `worker calling Renderer::Create()` →
+`first paint (1280x720…)` → `DOM ready` →
+`MessageBridge: [web] test view loaded; bridge online` →
+`post-DOM frame dumped to …first-frame.png` (PNG shows the test panel with
+"Connected: StarfieldWebUI v0.1.0").
 
 This file is the single place to re-orient after switching machines. Read it,
 then read [architecture.md](architecture.md) and
@@ -42,8 +44,12 @@ HTML/CSS/JS UI views inside Starfield (Prisma-UI-*inspired*, no Prisma code).
 Built from [libxse/commonlibsf-template](https://github.com/libxse/commonlibsf-template),
 C++23 + XMake, GPL-3.0.
 
-Repo root: `C:\Modding\Starfield\StarfieldWebUI`
-(part of the larger multi-repo Starfield modding workspace.)
+Repo root: `C:\Modding\Starfield\OSF UI`
+(renamed from `StarfieldWebUI` per the workspace naming convention settled
+2026-06-12: repo folder == xmake target == MO2 mod folder. The plugin
+*metadata* name stays `StarfieldWebUI` — it drives the SFSE log filename and
+the `SFSE/Plugins/StarfieldWebUI/` data folder. Part of the larger
+multi-repo Starfield modding workspace.)
 
 ---
 
@@ -72,17 +78,25 @@ xmake build
 - Cold build compiles CommonLibSF too (~13 s). Incremental is ~1–2 s.
 - If `XSE_SF_MODS_PATH` is set, output auto-installs to
   `<mods>\StarfieldWebUI\SFSE\Plugins\...` (on the current machine that is
-  `C:\Modding\Starfield\MO2\mods\StarfieldWebUI`). On the new machine set
+  `C:\Modding\Starfield\MO2\mods\OSF UI`). On the new machine set
   `XSE_SF_MODS_PATH` or `XSE_SF_GAME_PATH` to get auto-deploy.
 
-### Optional Ultralight build (currently a stub backend)
+### Ultralight build (the real backend — this is now the dev default)
 ```bat
-set ULTRALIGHT_SDK_DIR=C:\path\to\ultralight-sdk
+set ULTRALIGHT_SDK_DIR=C:\Modding\Starfield\OSF UI\external\ultralight-free-sdk-1.4.0-win-x64
 xmake f --with_ultralight=true
 xmake build
 ```
-Fails with a clear message if the SDK dir is missing. **Default build must
-stay Ultralight-free.**
+- The SDK lives in `external\` (gitignored — **never vendored**; free 1.4.0
+  win-x64 drop). Fails with a clear message if the SDK dir is missing.
+- The install step also ships the runtime payload into the mod folder:
+  `SFSE/Plugins/StarfieldWebUI/ultralight/bin/*.dll` (the four SDK DLLs) and
+  `ultralight/resources/icudt67l.dat` (ICU). `cacert.pem` is deliberately
+  NOT shipped (network stays off — security-model.md §2).
+- Shipped `config.json` now says `renderer=ultralight`. A default
+  (Ultralight-free) build with that config falls back to the null renderer
+  with a clear warning — the **default build must still compile and run
+  Ultralight-free**.
 
 ---
 
@@ -94,12 +108,13 @@ stay Ultralight-free.**
 | Paths (resolved relative to the DLL, MO2-VFS safe) | ✅ |
 | Config load (`config.json`, defensive, defaults on missing) | ✅ |
 | View manifest discovery + validation | ✅ |
-| Renderer abstraction: Null, Mock (CPU RGBA test pattern), Ultralight stub | ✅ |
+| Renderer abstraction: Null, Mock (CPU RGBA test pattern), **Ultralight (real, offscreen)** | ✅ |
+| **TODO #3** — Ultralight backend (worker thread, CPU surface, sandbox FS, JS bridge) | ✅ implemented, ✅ **verified in-game 2026-06-12 20:58** (PNG dump + bridge round-trip) |
 | Compositor abstraction: Null, D3D12 stub (fails Initialize by design) | ✅ |
 | JSON message bridge (whitelist: close/log/ping/setVisible) | ✅ |
 | Sample `test` view (HTML/CSS/JS, runs standalone in a browser too) | ✅ |
 | **TODO #1** — per-frame `Runtime::Tick()` via SFSE `TaskInterface` | ✅ implemented, ✅ **verified in-game 2026-06-12** |
-| **TODO #2** — input observation (UiInputHook) + menu events (MenuEventSink) | ✅ verified in-game (menu events + key/mouse observation); ⏳ F10 toggle re-test pending (§0) |
+| **TODO #2** — input observation (UiInputHook) + menu events (MenuEventSink) | ✅ implemented, ✅ **fully verified in-game 2026-06-12** (menu events, key/mouse observation incl. mouse release, layout guard, VK key space, F10 toggle → frames — §0) |
 | Docs (architecture / renderer-plan / security-model / RE-notes) | ✅ |
 
 ---
@@ -172,6 +187,40 @@ Fixes (all in working tree as of this writing):
   `Runtime::ToggleVisible()` → mock frames to the null compositor. Every
   link except the final toggle→frame step is verified; that's §0.
 
+### Ultralight backend (TODO #3 — done; hard-won facts)
+- **Threading:** ALL Ultralight/WebCore calls live on one dedicated worker
+  thread owned by `UltralightWebRenderer` (WebKit is thread-affine; SFSE
+  ticks arrive on varying OS threads). Game-thread API only touches mutexed
+  queues + a double-buffered BGRA frame copy. The worker self-paces ~60 Hz.
+- **SFSE's plugin-load phase is pre-main and fragile** (process has ~3
+  threads, usvfs hooks mid-bootstrap). Two hangs were root-caused there:
+  1. The SDK DLLs are delay-loaded, and merely CONSTRUCTING the renderer
+     fires delay-load resolution (MSVC imports compiler-generated special
+     members of dllimport classes — the Impl's SDK base-class ctors).
+     `UltralightWebRenderer::PreloadRuntime()` must load the DLLs from
+     `<data>/ultralight/bin` (dependency order: UltralightCore, WebCore,
+     Ultralight, AppCore) BEFORE the object is constructed
+     (`Runtime::CreateRenderer` does this).
+  2. Heavy init (Renderer::Create / WebCore thread pool) deadlocks in that
+     phase → the worker thread starts lazily on the FIRST tick.
+- **xmake gotcha:** this target is a shared lib → linker flags go in
+  `shflags`, NOT `ldflags` (the /DELAYLOAD flags were silently dropped at
+  first, producing static imports and SFSE's "couldn't load plugin
+  (0000007E)" dialog). Verify with `dumpbin /DEPENDENTS`: the four SDK DLLs
+  must be under "delay load dependencies".
+- **Symbol homes (1.4.0):** C++ core API (Platform/String/Buffer/
+  BitmapSurface) = UltralightCore.lib; JavaScriptCore C API = WebCore.lib;
+  Renderer/View = Ultralight.lib; `GetPlatformFontLoader` = AppCore.lib
+  (the ONLY AppCore use — no window/app machinery).
+- **JS bridge:** `postMessage` injected at `OnWindowObjectReady` (JSC C API,
+  read-only property); native→web queues until `OnDOMReady` then calls
+  `window.starfield.onMessage(json)`. Both queues capped at 64. The test
+  view auto-sends `log` + `ping` on load so the round trip needs no input.
+- The first paint fires BEFORE DOM ready (blank white) — the devMode PNG
+  dump waits for the first post-DOM paint.
+- `IWebRenderer` grew `SetWebMessageHandler()` (web→native delivery happens
+  on the game thread inside `Update()`) and `RendererConfig.dataDir`.
+
 ### Hard rules being honored
 - No invented addresses/offsets/vtables/menu names. The single vtable ID comes
   from CommonLibSF, not from us.
@@ -204,45 +253,41 @@ Fixes (all in working tree as of this writing):
    input thread); `heldDownSecs == 0` reliably marks initial key presses
    (but mouse releases always have it > 0); menu names log exactly as
    expected (`MainMenu`, `FaderMenu`, `LoadingMenu`, `HUDMenu`,
-   `HUDMessagesMenu`, `CursorMenu`). Still open: tick during pause menu and
-   loading screens (check DEBUG heartbeat continuity next session).
+   `HUDMessagesMenu`, `CursorMenu`; 20:20 run added `Console`). Loading
+   screens answered 20:20: tick pumps straight through them, and cadence is
+   NOT 1:1 with render frames (~600 ticks/s main menu vs ~2,000+/s
+   loading/gameplay — details in the RE notes). Still open: tick during the
+   pause menu.
 
 ---
 
 ## 6. ⚠ Before/after the transfer — git hygiene
 
 - `origin` = `https://github.com/ozooma10/osf-ui.git` (already correct).
-- **Uncommitted as of 2026-06-12 ~18:00** — all of today's crash fix +
-  verification work:
-  - `lib/commonlibsf` — submodule bumped `12d665b` → `4c48ed4` (upstream
-    libxse HEAD with PR #26–28; publicly fetchable, safe to push the pin)
-  - `src/input/UiInputHook.{h,cpp}` — VTABLE[10] + `VerifyUiLayout()` guard
-  - `src/core/Plugin.cpp` — guard gates all UI integration
-  - `src/input/InputRouter.cpp`, `src/input/InputTypes.h` — VK key space
-  - `src/runtime/Runtime.cpp` — log wording (VK code)
-  - `src/main.cpp` — Debug log level for crash forensics
-  - `docs/HANDOFF.md`, `docs/reverse-engineering-notes.md` — findings
-  - `tools/parse_versionlib.py` — **untracked, add it** (versionlib → offset
-    resolver; proved the VTABLE[10] claim)
-- To transfer: commit + push (suggested message: "Fix UI layout crash:
-  update commonlibsf, add layout guard, correct key space to VK"), or copy
-  the whole folder including `lib/`.
+- ✅ **Resolved 2026-06-12 evening:** all of the crash fix + verification
+  work listed here previously is committed as `682cfa7` ("UI Input hooks"),
+  with the submodule pinned at `4c48ed4`.
+- Still uncommitted (rename follow-up only): `xmake.lua` (target
+  `StarfieldWebUI` → `OSF UI`), `README.md`, `docs/HANDOFF.md` (deploy-path
+  and status updates). Safe to commit as e.g. "Rename target to OSF UI per
+  workspace naming convention".
 - Do not run `git checkout --`/reset/stash on anything you didn't dirty —
   several workspace repos are intentionally dirty.
 - `build/` and any `vsxmakeXXXX/` dirs are regenerable; no need to copy them.
-- The deployed DLL in `MO2\mods\StarfieldWebUI` is current with the working
-  tree (built 2026-06-12 ~17:55). The mod must be **enabled in MO2** (it is
-  on this machine).
+- The deployed DLL in `MO2\mods\OSF UI` (`OSF UI.dll`, built 2026-06-12
+  19:52) is current with the working tree. ⚠ The mod is currently
+  **disabled** in the MO2 `Default` profile — re-enable before the §0 run.
 
 ---
 
 ## 7. TODO list, ordered by reverse-engineering risk
 
 1. ✅ Per-frame tick (SFSE TaskInterface) — **done + verified in-game**.
-2. ✅ Input event source (observe-only) — **done + verified** except the F10
-   toggle run (§0).
-3. ⏳ Implement the real Ultralight backend offscreen (Phase 1 — SDK work,
-   no game RE). Stub + build wiring already in place behind `with_ultralight`.
+2. ✅ Input event source (observe-only) — **done + fully verified in-game**
+   (all five §0 markers, runs of 2026-06-12 19:52 + 20:20).
+3. ✅ Real Ultralight backend offscreen (Phase 1) — **done + verified
+   in-game 2026-06-12** (rendered test page PNG-dumped, bridge round-trip
+   proven; see §4 "Ultralight backend" and renderer-plan.md).
 4. ⏳ Prove a route to Starfield's `ID3D12Device` + direct queue (do this in
    `OSF RE/` per its proof rules).
 5. ⏳ Present timing decision: engine end-of-frame fn vs `IDXGISwapChain3::Present`

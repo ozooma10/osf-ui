@@ -68,9 +68,18 @@ Constraints derived from that implementation:
 
 Verified in-game 2026-06-12: the pump runs at the main menu (`FrameTick:
 first per-frame task received` ~7 s after launch, before `kPostDataLoad`).
-Still open (heartbeat logging is in place to answer these):
-- Does it run while the pause menu is open? In loading screens?
-- Actual cadence vs render framerate.
+Answered 2026-06-12 (20:20 run, heartbeat continuity):
+- **Loading screens: yes** — heartbeat continued without a gap through both
+  `LoadingMenu` open→close cycles (main-menu→save and save→save).
+- **Cadence is NOT 1:1 with render framerate.** Observed: ~600 ticks/s at
+  the main menu, but ~2,000–2,300 ticks/s during loading screens AND in
+  gameplay (HUDMenu up). Either the pump fires more than once per frame or
+  the frame loop runs uncapped in those states — do not use tick count as a
+  frame count, and self-timed `dt` (already in place) remains mandatory.
+- Same-run data: `NullCompositor` logged ~600 frame submissions/s while the
+  overlay was visible (tick-driven, consistent with the above).
+Still open:
+- Does it run while the pause menu is open? (Console menu: yes — observed.)
 
 ### 2. D3D12 access (blocks: Phase 2/3)
 
