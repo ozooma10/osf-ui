@@ -53,6 +53,12 @@ namespace SWUI
 		// a_button uses MouseButton order (0=left, 1=right, 2=middle).
 		void OnHostMouseButton(int a_button, bool a_down);
 
+		// Called by the compositor (render thread) when the output surface
+		// size is known/changes. Resizes the web view to match the screen
+		// (aspect-correct, height-capped) so the page renders undistorted, and
+		// rescales cursor sensitivity to the new view size.
+		void OnOutputResized(std::uint32_t a_width, std::uint32_t a_height);
+
 		// Renders and submits one frame if the overlay is visible. Split out
 		// from Tick so a future present-side hook can drive submission at a
 		// different cadence than logic updates.
@@ -80,12 +86,15 @@ namespace SWUI
 		KeyCode                       _toggleKey{ kInvalidKeyCode };
 
 		// Virtual cursor in view-pixel space (the OS cursor is hidden during
-		// gameplay, so we accumulate raw deltas instead). Only the WndProc
-		// (input) thread reads/writes these.
+		// gameplay, so we accumulate raw deltas instead). Position is touched
+		// only by the WndProc (input) thread; the view dims + cursor scale are
+		// written by the render thread on resize and read by input, so they're
+		// atomic.
 		float                         _cursorX{ 0.0f };
 		float                         _cursorY{ 0.0f };
-		std::uint32_t                 _viewWidth{ 1280 };
-		std::uint32_t                 _viewHeight{ 720 };
+		std::atomic<std::uint32_t>    _viewWidth{ 1280 };
+		std::atomic<std::uint32_t>    _viewHeight{ 720 };
+		std::atomic<float>            _cursorScale{ 1.0f };
 
 		std::atomic_bool              _visible{ false };
 		bool                          _initialized{ false };

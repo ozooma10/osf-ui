@@ -22,6 +22,13 @@ namespace SWUI
 		// the present hook). Default no-op for compositors that draw nothing.
 		virtual void SetVisible(bool /*a_visible*/) {}
 
+		// Set a callback invoked (on the present/render thread) when the output
+		// surface size becomes known or changes. The runtime uses it to resize
+		// the web view to match the screen so the page renders aspect-correct
+		// instead of stretched. Default no-op (a null compositor has no output).
+		using OutputResizeCallback = std::function<void(std::uint32_t a_width, std::uint32_t a_height)>;
+		virtual void SetOutputResizeCallback(OutputResizeCallback /*a_callback*/) {}
+
 		[[nodiscard]] virtual std::string_view Name() const = 0;
 	};
 }

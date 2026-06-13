@@ -98,6 +98,11 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		bool          devMode{ false };
 		std::atomic_bool visible{ false };
 
+		// Output-size signal -> runtime (resize the view to match the screen).
+		OutputResizeCallback onOutputResize;
+		std::uint32_t        notifiedOutputW{ 0 };
+		std::uint32_t        notifiedOutputH{ 0 };
+
 		// ---- setup state ----
 		bool setupAttempted{ false };
 		bool setupOk{ false };
@@ -445,6 +450,14 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			}
 			if (!EnsurePipeline(target->format)) {
 				return;
+			}
+
+			// Tell the runtime the real output size so it can size the view to
+			// match (aspect-correct). Fire on first sight and on any change.
+			if (onOutputResize && (target->width != notifiedOutputW || target->height != notifiedOutputH)) {
+				notifiedOutputW = target->width;
+				notifiedOutputH = target->height;
+				onOutputResize(target->width, target->height);
 			}
 
 			auto& slot = cmdSlots[cmdIndex % kCmdSlots];
@@ -819,6 +832,13 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 	{
 		if (_impl) {
 			_impl->visible.store(a_visible, std::memory_order_relaxed);
+		}
+	}
+
+	void D3D12Compositor::SetOutputResizeCallback(OutputResizeCallback a_callback)
+	{
+		if (_impl) {
+			_impl->onOutputResize = std::move(a_callback);
 		}
 	}
 }

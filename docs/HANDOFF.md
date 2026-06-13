@@ -31,10 +31,11 @@ freeze). Highest-value next items:
   backbuffer immediately (`RecordAndExecute`), so it never holds a ref across
   frames. No rendering regression (verified 05:18). Worth one more live
   resolution-change to confirm the crash is gone.
-- **Phase 3 polish** (renderer-plan.md): aspect/native-size placement (it
-  stretches to fill — obvious on the 3440×1409 ultrawide test), HDR/10-bit
-  backbuffer PSO, pick the scanned-out swapchain under frame-gen,
-  Steam/ReShade/RTSS coexistence.
+- **Phase 3 polish** (renderer-plan.md): ✅ aspect-correct view sizing done
+  (view tracks the output surface; no more stretch — 2026-06-13). Remaining:
+  HDR/10-bit backbuffer PSO + multi-format PSO, pick the scanned-out
+  swapchain under frame-gen, Steam/ReShade/RTSS coexistence, sRGB pass,
+  dirty-region upload.
 - **Phase 4c** (renderer-plan.md): scroll, IME/Unicode text, gamepad,
   cursor sensitivity + aspect-correct mapping.
 - **Phase 5**: MCM-style schema-driven UI.

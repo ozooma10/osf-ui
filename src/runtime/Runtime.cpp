@@ -1,5 +1,7 @@
 #include "runtime/Runtime.h"
 
+#include <cmath>
+
 #include "composite/D3D12Compositor.h"
 #include "composite/NullCompositor.h"
 #include "core/Log.h"
@@ -39,13 +41,15 @@ namespace SWUI
 		// Renderer
 		_renderer = CreateRenderer();
 		const auto* view = _views.Find(_config.view);
-		_viewWidth = view ? view->width : 1280u;
-		_viewHeight = view ? view->height : 720u;
-		_cursorX = _viewWidth * 0.5f;
-		_cursorY = _viewHeight * 0.5f;
+		const auto initialWidth = view ? view->width : 1280u;
+		const auto initialHeight = view ? view->height : 720u;
+		_viewWidth.store(initialWidth);
+		_viewHeight.store(initialHeight);
+		_cursorX = initialWidth * 0.5f;
+		_cursorY = initialHeight * 0.5f;
 		RendererConfig rendererConfig{
-			.width = _viewWidth,
-			.height = _viewHeight,
+			.width = initialWidth,
+			.height = initialHeight,
 			.devMode = _config.devMode,
 			.dataDir = Paths::DataDir(),
 		};
@@ -63,6 +67,9 @@ namespace SWUI
 			_compositor = std::make_unique<NullCompositor>();
 			_compositor->Initialize();
 		}
+		// Size the view to the real output once the compositor knows it, so
+		// the page renders aspect-correct instead of stretched.
+		_compositor->SetOutputResizeCallback([this](std::uint32_t a_w, std::uint32_t a_h) { OnOutputResized(a_w, a_h); });
 		REX::INFO("Runtime: compositor = {}", _compositor->Name());
 
 		// Active view. Bridge and web->native handler are wired BEFORE
@@ -164,8 +171,8 @@ namespace SWUI
 			// Re-center the virtual cursor each time the overlay opens so it
 			// always starts in a known, on-screen spot.
 			if (a_visible) {
-				_cursorX = _viewWidth * 0.5f;
-				_cursorY = _viewHeight * 0.5f;
+				_cursorX = _viewWidth.load() * 0.5f;
+				_cursorY = _viewHeight.load() * 0.5f;
 				if (_renderer) {
 					_renderer->InjectMouseMove(static_cast<int>(_cursorX), static_cast<int>(_cursorY));
 				}
@@ -207,11 +214,14 @@ namespace SWUI
 		if (!IsInputCaptured() || !_renderer) {
 			return;
 		}
-		// 1:1 raw-delta -> view-pixel mapping, clamped to the view. Full mouse
-		// travel sweeps the whole overlay; refine with a sensitivity setting
-		// later if needed.
-		_cursorX = std::clamp(_cursorX + static_cast<float>(a_dx), 0.0f, static_cast<float>(_viewWidth - 1));
-		_cursorY = std::clamp(_cursorY + static_cast<float>(a_dy), 0.0f, static_cast<float>(_viewHeight - 1));
+		// Scale raw deltas so the cursor crosses the view in a screen-size-
+		// independent amount of physical mouse travel (the view tracks the
+		// screen now, so a fixed 1:1 mapping would feel slow on big views).
+		const auto scale = _cursorScale.load(std::memory_order_relaxed);
+		const auto maxX = static_cast<float>(_viewWidth.load(std::memory_order_relaxed) - 1);
+		const auto maxY = static_cast<float>(_viewHeight.load(std::memory_order_relaxed) - 1);
+		_cursorX = std::clamp(_cursorX + static_cast<float>(a_dx) * scale, 0.0f, maxX);
+		_cursorY = std::clamp(_cursorY + static_cast<float>(a_dy) * scale, 0.0f, maxY);
 		_renderer->InjectMouseMove(static_cast<int>(_cursorX), static_cast<int>(_cursorY));
 	}
 
@@ -221,6 +231,34 @@ namespace SWUI
 			return;
 		}
 		_renderer->InjectMouseButton(static_cast<int>(_cursorX), static_cast<int>(_cursorY), a_button, a_down);
+	}
+
+	void Runtime::OnOutputResized(std::uint32_t a_width, std::uint32_t a_height)
+	{
+		if (a_width == 0 || a_height == 0 || !_renderer) {
+			return;
+		}
+		// Match the view's aspect to the screen, capped to a sane UI height so
+		// CPU rasterization stays bounded on 4K+ (the page is responsive, so
+		// any size lays out correctly). Equal aspect => the compositor's
+		// fill-the-backbuffer draw is a uniform scale, i.e. no distortion.
+		constexpr std::uint32_t kMaxViewHeight = 1440;
+		const auto viewHeight = (std::min)(a_height, kMaxViewHeight);
+		const auto viewWidth = static_cast<std::uint32_t>(
+			std::lround(static_cast<double>(a_width) * viewHeight / a_height));
+
+		if (viewWidth == _viewWidth.load() && viewHeight == _viewHeight.load()) {
+			return;
+		}
+
+		_viewWidth.store(viewWidth);
+		_viewHeight.store(viewHeight);
+		// Keep cursor speed consistent across resolutions: ~1920 counts to
+		// sweep the view width, regardless of view size.
+		_cursorScale.store((std::max)(1.0f, static_cast<float>(viewWidth) / 1920.0f));
+		_renderer->Resize(viewWidth, viewHeight);
+		REX::INFO("Runtime: output {}x{} -> view resized to {}x{} (aspect-correct)",
+			a_width, a_height, viewWidth, viewHeight);
 	}
 
 	void Runtime::SubmitFrameIfVisible()

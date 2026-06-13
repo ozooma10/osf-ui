@@ -75,16 +75,26 @@ shippable on its own; no phase fakes the next one.
 - Verified config: 1920×1080 R8G8B8A8_UNORM backbuffer, two swapchains
   (drew on both), 1280×720 overlay scaled to fill.
 
-Phase 3 polish still open (none block "pixels on screen"):
-- Aspect/scaling: the overlay currently stretches to fill; add native-size
-  or aspect-correct placement for real views.
-- HDR backbuffers (R16G16B16A16_FLOAT) and the 10-bit path untested — this
-  run was SDR 8-bit. Multi-format PSO when a swapchain differs.
-- Two-swapchain / frame-gen: we draw on both; pick the scanned-out one when
-  DLSS-G/Streamline is active (this dev GPU is Ampere, no frame-gen).
-- Coexistence with Steam overlay / ReShade / RTSS (hook-chain ordering);
-  resize / alt-tab / exclusive-fullscreen transitions.
-- sRGB/color-management correctness pass.
+Phase 3 polish:
+- ✅ **Aspect/scaling (2026-06-13).** The view is sized to the real output
+  surface instead of a fixed 1280×720: the compositor reports the backbuffer
+  size (`ICompositor::SetOutputResizeCallback`), Runtime resizes the
+  Ultralight view to match the screen aspect (height-capped at 1440 so CPU
+  raster stays bounded; the page is responsive), and the draw fills the
+  backbuffer with equal aspect → no distortion. Cursor sensitivity rescales
+  with view width so it feels the same at any resolution. Verified in-game:
+  crisp + undistorted at 1920×1080; the earlier ultrawide stretch is gone.
+- ✅ **Resize crash (2026-06-13).** No longer caches backbuffer refs (was
+  blocking `ResizeBuffers`); `GetBuffer` per-present.
+- ⏳ HDR backbuffers (R16G16B16A16_FLOAT) and the 10-bit path untested — runs
+  so far were SDR 8-bit (format 28). Multi-format PSO when a swapchain
+  differs (currently one PSO; a second format is skipped).
+- ⏳ Two-swapchain / frame-gen: we draw on both; pick the scanned-out one
+  when DLSS-G/Streamline is active (this dev GPU is Ampere, no frame-gen).
+- ⏳ Coexistence with Steam overlay / ReShade / RTSS (hook-chain ordering);
+  alt-tab / exclusive-fullscreen transitions.
+- ⏳ sRGB/color-management correctness pass; per-present upload of only the
+  dirty region (big views re-upload the whole frame on each repaint).
 
 ## Phase 4 — input focus and text entry
 

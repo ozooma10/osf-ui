@@ -35,6 +35,7 @@ namespace SWUI
 		void Shutdown() override;
 		void Submit(const FrameBufferView& a_frame) override;
 		void SetVisible(bool a_visible) override;
+		void SetOutputResizeCallback(OutputResizeCallback a_callback) override;
 
 		[[nodiscard]] std::string_view Name() const override { return "d3d12"; }
 
