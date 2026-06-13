@@ -1,0 +1,15 @@
+{
+  "id": "almanac",
+  "title": "Galactic Almanac",
+  "entry": "index.html",
+  "width": 1280,
+  "height": 720,
+  "transparent": true,
+  "zorder": 0,
+  "interactive": true,
+  "permissions": {
+    "nativeBridge": true,
+    "filesystem": false,
+    "network": false
+  }
+}

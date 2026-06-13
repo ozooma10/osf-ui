@@ -1,0 +1,243 @@
+/* Galactic Almanac — reference view styling.
+ *
+ * Responsive on purpose: the runtime resizes the view to the screen aspect
+ * (height-capped ~1440), so this is a full-viewport flex app, not a fixed
+ * 1280x720 panel. The palette tracks the built-in settings view so shipped
+ * views feel like one product. Background stays transparent at the edges; the
+ * app surface itself is a near-opaque dark glass so dense data stays legible
+ * over gameplay. */
+
+:root {
+  --bg-glass: rgba(10, 16, 26, 0.92);
+  --bg-raised: rgba(255, 255, 255, 0.03);
+  --line: rgba(120, 170, 255, 0.18);
+  --line-strong: rgba(120, 170, 255, 0.35);
+  --accent: #9fc3ff;
+  --accent-dim: #5b8fd6;
+  --text: #e8eef5;
+  --text-soft: #cdd8e8;
+  --text-faint: #7d8aa0;
+}
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  color: var(--text);
+  cursor: none;
+  overflow: hidden;
+}
+
+.app {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  max-width: 1500px;
+  margin: 0 auto;
+  padding: 18px 22px;
+}
+
+/* ---- top bar ---- */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.brand { display: flex; align-items: baseline; gap: 12px; }
+.brand h1 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+}
+.status { font-size: 12px; color: var(--text-faint); }
+
+.controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+.search {
+  width: 260px;
+  font-size: 14px;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid #3f6ea5;
+  border-radius: 4px;
+  padding: 7px 10px;
+  outline: none;
+}
+.search:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(120, 170, 255, 0.25); }
+
+.filter {
+  font-size: 13px;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid #3f6ea5;
+  border-radius: 4px;
+  padding: 6px 8px;
+  outline: none;
+}
+.check { font-size: 13px; color: var(--text-soft); display: inline-flex; align-items: center; gap: 5px; }
+.check input { width: 16px; height: 16px; accent-color: var(--accent-dim); }
+
+button {
+  padding: 7px 14px;
+  font-size: 14px;
+  color: var(--text);
+  background: #1d3250;
+  border: 1px solid #3f6ea5;
+  border-radius: 4px;
+}
+button:hover { background: #28415f; }
+button.danger { background: #4a2230; border-color: #a54a5f; }
+button.danger:hover { background: #632e41; }
+
+/* ---- body: master list + detail ---- */
+.body {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: minmax(320px, 0.9fr) 1.4fr;
+  gap: 16px;
+  min-height: 0;            /* let children scroll instead of growing the grid */
+  padding-top: 14px;
+}
+
+.list-pane, .detail-pane {
+  min-height: 0;
+  background: var(--bg-glass);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+}
+
+.list-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--text-faint);
+  border-bottom: 1px solid var(--line);
+}
+.chip-clear {
+  cursor: none;
+  color: var(--accent);
+  background: rgba(120, 170, 255, 0.12);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  padding: 2px 10px;
+}
+
+.list { list-style: none; margin: 0; padding: 6px; overflow-y: auto; }
+.list-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 10px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+}
+.list-item:hover { background: var(--bg-raised); border-color: var(--line); }
+.list-item.selected { background: rgba(120, 170, 255, 0.12); border-color: var(--line-strong); }
+.list-item .name { font-size: 15px; color: var(--text); }
+.list-item .sub { font-size: 12px; color: var(--text-faint); }
+.list-item .stat { font-size: 12px; color: var(--accent); text-align: right; font-family: Consolas, monospace; }
+.list-item .badges { grid-column: 1 / -1; display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
+
+.badge {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+.badge.good { color: #8fe0b0; border-color: rgba(120, 224, 176, 0.4); }
+
+/* ---- detail ---- */
+.detail-pane { overflow-y: auto; padding: 0; }
+.detail-pane .empty { color: var(--text-faint); padding: 28px; font-size: 14px; }
+
+.detail-head {
+  padding: 18px 22px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.detail-head h2 { margin: 0; font-size: 24px; color: var(--accent); letter-spacing: 0.03em; }
+.detail-head .where { font-size: 13px; color: var(--text-faint); margin-top: 3px; }
+
+.detail-body { padding: 16px 22px 22px; }
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px 18px;
+}
+.stat-cell .k { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-faint); }
+.stat-cell .v { font-size: 16px; color: var(--text-soft); font-family: Consolas, monospace; }
+
+.section-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-faint);
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 4px;
+  margin: 20px 0 10px;
+}
+
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 12px;
+}
+.chip.resource { color: var(--accent); border-color: var(--line-strong); }
+.chip.resource:hover { background: rgba(120, 170, 255, 0.14); }   /* clickable: cross-links to other bodies */
+.chip.trait { color: #e7c98f; border-color: rgba(231, 201, 143, 0.35); }
+.chip.poi { color: var(--text-soft); }
+
+/* compact mode (driven by the almanac settings schema, applied client-side) */
+.app.compact .list-item { padding: 6px 12px; }
+.app.compact .list-item .badges { display: none; }
+.app.compact .stat-cell .v { font-size: 14px; }
+
+/* ---- credits + cursor (shared OSF idiom) ---- */
+.credits {
+  padding-top: 10px;
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+  color: #6f7e96;
+  text-align: center;
+  letter-spacing: 0.02em;
+}
+
+.cursor {
+  position: fixed;
+  left: 0; top: 0;
+  width: 0; height: 0;
+  margin: -2px 0 0 -2px;
+  border-style: solid;
+  border-width: 14px 9px 0 0;
+  border-color: #f5f8ff transparent transparent transparent;
+  transform: rotate(-35deg);
+  transform-origin: 0 0;
+  filter: drop-shadow(1px 1px 1px rgba(0, 0, 0, 0.8));
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* Narrow / portrait safety: stack the panes. */
+@media (max-aspect-ratio: 1/1), (max-width: 900px) {
+  .body { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+}

@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Galactic Almanac</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <div class="brand">
+        <h1>Galactic Almanac</h1>
+        <span id="status" class="status">Loading…</span>
+      </div>
+
+      <div class="controls">
+        <input id="search" class="search" type="search" placeholder="Search bodies, systems, resources…" autocomplete="off">
+
+        <select id="filterType" class="filter" title="Body type">
+          <option value="">All types</option>
+          <option value="Rock">Rock</option>
+          <option value="Ice">Ice</option>
+          <option value="Gas Giant">Gas Giant</option>
+          <option value="Asteroid">Asteroid</option>
+          <option value="Moon">Moon</option>
+        </select>
+
+        <label class="check"><input id="filterLandable" type="checkbox"> Landable</label>
+        <label class="check"><input id="filterHabitable" type="checkbox"> Habitable</label>
+
+        <select id="sort" class="filter" title="Sort by">
+          <option value="name">Name</option>
+          <option value="system">System</option>
+          <option value="gravity">Gravity</option>
+          <option value="tempC">Temperature</option>
+          <option value="resources">Resource count</option>
+        </select>
+
+        <button id="close" type="button" class="danger">Close</button>
+      </div>
+    </header>
+
+    <section class="body">
+      <!-- Master list -->
+      <div class="list-pane">
+        <div class="list-meta"><span id="count"></span><span id="activeResource" class="chip-clear" hidden></span></div>
+        <ul id="list" class="list"></ul>
+      </div>
+
+      <!-- Detail -->
+      <div id="detail" class="detail-pane">
+        <p class="empty">Select a body to view its survey data.</p>
+      </div>
+    </section>
+
+    <footer class="credits">
+      Galactic Almanac — reference view for OSF UI &middot; data generated from game records &middot; Rendering by Ultralight
+    </footer>
+  </main>
+
+  <!-- Software pointer driven by the routed virtual cursor (OS cursor hidden in-game). -->
+  <div id="cursor" class="cursor" aria-hidden="true"></div>
+
+  <script src="data.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>

@@ -22,13 +22,17 @@ ugly overlay", never "arbitrary native code execution".
    from `file:///` only, and the only shipped view is local content. A real
    block (content-security-policy injection or a Pro license) is future work.
    [partially enforced; documented gap]
-3. **No filesystem access for views** except their own folder's local assets
-   (`index.html`, css, js, images) plus the read-only Ultralight support
-   resources (ICU data). [enforced in `SandboxFileSystem`
-   (UltralightWebRenderer.cpp): only relative paths, no root name/directory,
-   any `..` component rejected, two whitelisted base dirs; manifest `entry`
-   validation unchanged. Lexical checks only — symlink/ADS canonicalization is
-   still listed under future hardening]
+3. **No filesystem access for views** except local view assets (`index.html`,
+   css, js, images) plus the read-only Ultralight support resources (ICU data).
+   [enforced in `SandboxFileSystem` (UltralightWebRenderer.cpp): only relative
+   paths, no root name/directory, any `..` component rejected, two whitelisted
+   base dirs (the shared `views/` dir and the ICU resources dir); manifest
+   `entry` validation unchanged. **Multi-view note:** views load via
+   folder-qualified URLs (`file:///<folder>/...`) against ONE shared `views/`
+   base, so a view can read a *sibling* view's local assets — acceptable for
+   local mod content, but it is not strict per-view isolation (which would need
+   a per-request view context Ultralight's FileSystem API does not expose).
+   Lexical checks only — symlink/ADS canonicalization is still future hardening]
 4. **No process execution.** No bridge command may spawn processes; none is
    planned. [enforced by absence]
 5. **No arbitrary native bridge.** There is exactly one inbound message type

@@ -67,7 +67,7 @@ namespace SWUI
 		{
 		public:
 			void SetResourceBase(std::filesystem::path a_dir) { _resourceBase = std::move(a_dir); }
-			void SetViewRoot(std::filesystem::path a_dir) { _viewRoot = std::move(a_dir); }
+			void SetViewsBase(std::filesystem::path a_dir) { _viewsBase = std::move(a_dir); }
 
 			bool FileExists(const ul::String& a_path) override
 			{
@@ -154,10 +154,16 @@ namespace SWUI
 						return std::nullopt;
 					}
 				}
-				// "resources/..." (Config::resource_path_prefix) is served from
-				// the support dir; everything else from the active view.
+				// "resources/..." is served from the support dir (ICU). Everything
+				// else is "<viewFolder>/<asset>" served from the shared views base:
+				// the folder-qualified URL lets several views load concurrently
+				// without a single mutable "current root" (which raced, so one view
+				// loaded another view's files). Trade-off: a view can read a sibling
+				// view's local assets (docs/security-model.md) — acceptable for
+				// local mod content; the outer boundaries (no abs paths, no '..',
+				// no network) are unchanged.
 				const bool isResource = rel.begin() != rel.end() && *rel.begin() == "resources";
-				const auto& base = isResource ? _resourceBase : _viewRoot;
+				const auto& base = isResource ? _resourceBase : _viewsBase;
 				if (base.empty()) {
 					return std::nullopt;
 				}
@@ -165,7 +171,7 @@ namespace SWUI
 			}
 
 			std::filesystem::path _resourceBase;  // contains resources/ (ICU data)
-			std::filesystem::path _viewRoot;      // active view directory
+			std::filesystem::path _viewsBase;     // parent of all view folders (data/views)
 		};
 
 		// Routes Ultralight's own diagnostics into the SFSE log.
@@ -436,6 +442,7 @@ namespace SWUI
 			platform.set_logger(new RexLogger());
 			fileSystem = new SandboxFileSystem();
 			fileSystem->SetResourceBase(supportDir);
+			fileSystem->SetViewsBase(config.dataDir / "views");
 			platform.set_file_system(fileSystem);
 			// AppCore is linked ONLY for this DirectWrite-backed font loader;
 			// no window/app machinery is used.
@@ -456,8 +463,6 @@ namespace SWUI
 
 		void CreateAndLoadView(ViewState& a_vs, const ViewManifest& a_manifest)
 		{
-			fileSystem->SetViewRoot(a_manifest.rootDir);
-
 			ul::ViewConfig viewConfig;
 			viewConfig.is_accelerated = false;  // CPU BitmapSurface (Phase 1)
 			viewConfig.is_transparent = a_manifest.transparent;
@@ -471,8 +476,11 @@ namespace SWUI
 			a_vs.view->set_view_listener(this);
 			a_vs.domReady = false;
 
-			const auto url = "file:///" + a_manifest.entry;
-			REX::INFO("UltralightWebRenderer: loading view '{}' -> {} (root {})",
+			// Folder-qualified URL so the shared SandboxFileSystem can serve
+			// several views at once — no per-view "current root" to race.
+			const auto folder = a_manifest.rootDir.filename().string();
+			const auto url = "file:///" + folder + "/" + a_manifest.entry;
+			REX::INFO("UltralightWebRenderer: loading view '{}' -> {} (folder {})",
 				a_manifest.id, url, a_manifest.rootDir.string());
 			a_vs.view->LoadURL(url.c_str());
 		}
