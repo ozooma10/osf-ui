@@ -213,6 +213,16 @@ namespace SWUI
 		};
 		std::deque<KeyInput> toInput;  // game -> view (keyboard)
 
+		struct MouseInput
+		{
+			enum class Kind { kMove, kDown, kUp };
+			Kind kind{ Kind::kMove };
+			int  x{ 0 };
+			int  y{ 0 };
+			int  button{ 0 };  // MouseButton order: 0=left, 1=right, 2=middle
+		};
+		std::deque<MouseInput> toMouse;  // game -> view (mouse)
+
 		// ---- frame exchange ----
 		struct Frame
 		{
@@ -274,6 +284,8 @@ namespace SWUI
 				outbound.swap(toWeb);
 				std::deque<KeyInput> keys;
 				keys.swap(toInput);
+				std::deque<MouseInput> mice;
+				mice.swap(toMouse);
 				lock.unlock();
 
 				if (load) {
@@ -287,6 +299,9 @@ namespace SWUI
 				}
 				for (const auto& key : keys) {
 					ProcessKeyInput(key);
+				}
+				for (const auto& m : mice) {
+					ProcessMouseInput(m);
 				}
 				PumpUltralight();
 
@@ -581,6 +596,45 @@ namespace SWUI
 			}
 		}
 
+		// ================= mouse input (worker thread) =================
+
+		void ProcessMouseInput(const MouseInput& a_m)
+		{
+			if (!view) {
+				return;
+			}
+			ul::MouseEvent ev;
+			ev.x = a_m.x;
+			ev.y = a_m.y;
+			switch (a_m.kind) {
+			case MouseInput::Kind::kMove:
+				ev.type = ul::MouseEvent::kType_MouseMoved;
+				ev.button = ul::MouseEvent::kButton_None;
+				break;
+			case MouseInput::Kind::kDown:
+				ev.type = ul::MouseEvent::kType_MouseDown;
+				ev.button = ToUlButton(a_m.button);
+				break;
+			case MouseInput::Kind::kUp:
+				ev.type = ul::MouseEvent::kType_MouseUp;
+				ev.button = ToUlButton(a_m.button);
+				break;
+			}
+			view->FireMouseEvent(ev);
+		}
+
+		[[nodiscard]] static ul::MouseEvent::Button ToUlButton(int a_button)
+		{
+			switch (a_button) {  // MouseButton order: 0=left, 1=right, 2=middle
+			case 1:
+				return ul::MouseEvent::kButton_Right;
+			case 2:
+				return ul::MouseEvent::kButton_Middle;
+			default:
+				return ul::MouseEvent::kButton_Left;
+			}
+		}
+
 		// ================= Ultralight listeners (worker thread) =================
 
 		void OnWindowObjectReady(ul::View*, std::uint64_t, bool a_isMainFrame, const ul::String&) override
@@ -793,6 +847,41 @@ namespace SWUI
 				_impl->toInput.pop_front();
 			}
 			_impl->toInput.push_back(Impl::KeyInput{ .vk = a_vkCode, .down = a_down });
+		}
+		_impl->wake.notify_all();
+	}
+
+	void UltralightWebRenderer::InjectMouseMove(int a_x, int a_y)
+	{
+		{
+			std::scoped_lock lk(_impl->mutex);
+			// Coalesce: only the latest position matters, so collapse runs of
+			// pending moves into one to keep the queue (and worker) light.
+			if (!_impl->toMouse.empty() && _impl->toMouse.back().kind == Impl::MouseInput::Kind::kMove) {
+				_impl->toMouse.back().x = a_x;
+				_impl->toMouse.back().y = a_y;
+			} else {
+				if (_impl->toMouse.size() >= kMaxQueuedMessages) {
+					_impl->toMouse.pop_front();
+				}
+				_impl->toMouse.push_back(Impl::MouseInput{ .kind = Impl::MouseInput::Kind::kMove, .x = a_x, .y = a_y });
+			}
+		}
+		_impl->wake.notify_all();
+	}
+
+	void UltralightWebRenderer::InjectMouseButton(int a_x, int a_y, int a_button, bool a_down)
+	{
+		{
+			std::scoped_lock lk(_impl->mutex);
+			if (_impl->toMouse.size() >= kMaxQueuedMessages) {
+				_impl->toMouse.pop_front();
+			}
+			_impl->toMouse.push_back(Impl::MouseInput{
+				.kind = a_down ? Impl::MouseInput::Kind::kDown : Impl::MouseInput::Kind::kUp,
+				.x = a_x,
+				.y = a_y,
+				.button = a_button });
 		}
 		_impl->wake.notify_all();
 	}

@@ -109,13 +109,25 @@ Phase 3 polish still open (none block "pixels on screen"):
   GetKeyFromVirtualKeyCode). Typing appears in the page's focused field.
   The old engine-event input path (UiInputHook) is now observe-only.
 
-### 4b — mouse + cursor (next)
+### 4b — mouse + cursor ✅ (verified in-game 2026-06-12)
 
-- WM_INPUT raw mouse deltas → a virtual cursor (view space; the OS cursor is
-  hidden during gameplay, so accumulate deltas instead of fighting it) →
-  route MouseMoved/Down/Up into the view; draw a visible pointer.
-- Makes the page's buttons (Ping/Close) clickable in-game.
-- Later: scroll, IME/Unicode text (WM_CHAR path), gamepad, ESC/pause nuance.
+- ✅ `WM_INPUT` raw mouse deltas parsed in the WndProc → a virtual cursor in
+  view space (Runtime owns it; the OS cursor is hidden in gameplay so we
+  accumulate deltas, clamp to the view) → routed as MouseMoved/Down/Up into
+  the view (`UltralightWebRenderer::InjectMouse*` → `View::FireMouseEvent`).
+  Raw button flags (RI_MOUSE_*) drive clicks; legacy mouse messages are
+  consumed as duplicates.
+- ✅ Visible software pointer drawn by the page from routed mousemoves
+  (CSS arrow; native cursor hidden).
+- ✅ **Full interaction loop verified in-game**: the cursor moves, Ping/Close
+  highlight on hover, clicking Ping round-trips web→native→web (`runtime.pong`
+  in the log + "Pong received" status), clicking Close hides the overlay.
+
+### 4c — remaining input polish (later)
+
+- Scroll wheel (RI_MOUSE_WHEEL → ScrollEvent); IME/Unicode text (WM_CHAR
+  path; current VK→char is US-layout only); gamepad + controller parity;
+  cursor sensitivity setting; aspect-correct cursor mapping for non-16:9.
 
 ## Phase 5 — MCM-style schema-driven UI
 

@@ -72,6 +72,14 @@ namespace SWUI
 		// dispatch it onto their own thread. No-op for backends without one.
 		virtual void InjectKeyEvent(std::uint32_t /*a_vkCode*/, bool /*a_down*/) {}
 
+		// Mouse input in VIEW pixel coordinates (0..width, 0..height). Move
+		// reports an absolute position (the caller maintains a virtual cursor,
+		// since the OS cursor is hidden in gameplay); button uses the
+		// MouseButton order (0=left, 1=right, 2=middle). Thread-safe; no-op
+		// for backends without a JS engine.
+		virtual void InjectMouseMove(int /*a_x*/, int /*a_y*/) {}
+		virtual void InjectMouseButton(int /*a_x*/, int /*a_y*/, int /*a_button*/, bool /*a_down*/) {}
+
 		[[nodiscard]] virtual std::string_view Name() const = 0;
 	};
 }

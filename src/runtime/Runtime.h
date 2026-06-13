@@ -45,6 +45,14 @@ namespace SWUI
 		// toggle key. Runs on the window-message thread.
 		bool OnHostKey(std::uint32_t a_vkCode, bool a_down);
 
+		// Called by the WndProc hook with RAW mouse deltas (the OS cursor is
+		// hidden in gameplay). Advances a virtual cursor in view space and,
+		// while captured, routes the move into the web view.
+		void OnHostMouseDelta(int a_dx, int a_dy);
+		// Mouse button transition; routed at the current virtual cursor.
+		// a_button uses MouseButton order (0=left, 1=right, 2=middle).
+		void OnHostMouseButton(int a_button, bool a_down);
+
 		// Renders and submits one frame if the overlay is visible. Split out
 		// from Tick so a future present-side hook can drive submission at a
 		// different cadence than logic updates.
@@ -70,6 +78,15 @@ namespace SWUI
 		std::unique_ptr<MessageBridge> _bridge;
 		InputRouter                   _input;
 		KeyCode                       _toggleKey{ kInvalidKeyCode };
+
+		// Virtual cursor in view-pixel space (the OS cursor is hidden during
+		// gameplay, so we accumulate raw deltas instead). Only the WndProc
+		// (input) thread reads/writes these.
+		float                         _cursorX{ 0.0f };
+		float                         _cursorY{ 0.0f };
+		std::uint32_t                 _viewWidth{ 1280 };
+		std::uint32_t                 _viewHeight{ 720 };
+
 		std::atomic_bool              _visible{ false };
 		bool                          _initialized{ false };
 	};

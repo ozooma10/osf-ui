@@ -45,10 +45,9 @@ namespace SWUI::OverlayInputHook
 			return data.best;
 		}
 
-		[[nodiscard]] bool IsMouseOrRawMessage(const UINT a_msg)
+		[[nodiscard]] bool IsLegacyMouseMessage(const UINT a_msg)
 		{
 			switch (a_msg) {
-			case WM_INPUT:
 			case WM_MOUSEMOVE:
 			case WM_LBUTTONDOWN: case WM_LBUTTONUP: case WM_LBUTTONDBLCLK:
 			case WM_RBUTTONDOWN: case WM_RBUTTONUP: case WM_RBUTTONDBLCLK:
@@ -58,6 +57,51 @@ namespace SWUI::OverlayInputHook
 				return true;
 			default:
 				return false;
+			}
+		}
+
+		// Parse a WM_INPUT mouse packet and route raw deltas + buttons into the
+		// overlay's virtual cursor. The OS cursor is hidden/clipped during
+		// gameplay, so WM_MOUSEMOVE is useless; raw deltas are the truth.
+		void RouteRawMouse(LPARAM a_lparam)
+		{
+			UINT size = 0;
+			if (::GetRawInputData(reinterpret_cast<HRAWINPUT>(a_lparam), RID_INPUT, nullptr, &size, sizeof(RAWINPUTHEADER)) != 0 ||
+				size == 0 || size > sizeof(RAWINPUT)) {
+				return;
+			}
+			RAWINPUT raw{};
+			if (::GetRawInputData(reinterpret_cast<HRAWINPUT>(a_lparam), RID_INPUT, &raw, &size, sizeof(RAWINPUTHEADER)) != size ||
+				raw.header.dwType != RIM_TYPEMOUSE) {
+				return;
+			}
+
+			auto& runtime = Runtime::Get();
+			const auto& mouse = raw.data.mouse;
+
+			// Relative motion (absolute mode is for tablets/RDP — ignore it).
+			if ((mouse.usFlags & MOUSE_MOVE_ABSOLUTE) == 0 && (mouse.lLastX != 0 || mouse.lLastY != 0)) {
+				runtime.OnHostMouseDelta(mouse.lLastX, mouse.lLastY);
+			}
+
+			const auto buttons = mouse.usButtonFlags;
+			if (buttons & RI_MOUSE_LEFT_BUTTON_DOWN) {
+				runtime.OnHostMouseButton(0, true);
+			}
+			if (buttons & RI_MOUSE_LEFT_BUTTON_UP) {
+				runtime.OnHostMouseButton(0, false);
+			}
+			if (buttons & RI_MOUSE_RIGHT_BUTTON_DOWN) {
+				runtime.OnHostMouseButton(1, true);
+			}
+			if (buttons & RI_MOUSE_RIGHT_BUTTON_UP) {
+				runtime.OnHostMouseButton(1, false);
+			}
+			if (buttons & RI_MOUSE_MIDDLE_BUTTON_DOWN) {
+				runtime.OnHostMouseButton(2, true);
+			}
+			if (buttons & RI_MOUSE_MIDDLE_BUTTON_UP) {
+				runtime.OnHostMouseButton(2, false);
 			}
 		}
 
@@ -97,14 +141,21 @@ namespace SWUI::OverlayInputHook
 					return 0;
 				}
 				break;
+			case WM_INPUT:
+				if (runtime.IsInputCaptured()) {
+					// Route raw mouse into the overlay's virtual cursor, then
+					// consume so the game's camera/movement gets nothing.
+					// WM_INPUT must still go to DefWindowProc to release the
+					// raw input buffer (the game's proc is what we skip).
+					RouteRawMouse(a_lparam);
+					return ::DefWindowProcW(a_hwnd, a_msg, a_wparam, a_lparam);
+				}
+				break;
 			default:
-				if (IsMouseOrRawMessage(a_msg) && runtime.IsInputCaptured()) {
-					// Block the game's mouse/raw input so the camera freezes.
-					// WM_INPUT must still be handed to DefWindowProc to release
-					// the raw input buffer (the game's proc is what we skip).
-					return (a_msg == WM_INPUT)
-					           ? ::DefWindowProcW(a_hwnd, a_msg, a_wparam, a_lparam)
-					           : 0;
+				if (IsLegacyMouseMessage(a_msg) && runtime.IsInputCaptured()) {
+					// Buttons/move already come from WM_INPUT; just block the
+					// legacy duplicates from the game.
+					return 0;
 				}
 				break;
 			}

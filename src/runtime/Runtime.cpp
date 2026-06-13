@@ -39,9 +39,13 @@ namespace SWUI
 		// Renderer
 		_renderer = CreateRenderer();
 		const auto* view = _views.Find(_config.view);
+		_viewWidth = view ? view->width : 1280u;
+		_viewHeight = view ? view->height : 720u;
+		_cursorX = _viewWidth * 0.5f;
+		_cursorY = _viewHeight * 0.5f;
 		RendererConfig rendererConfig{
-			.width = view ? view->width : 1280u,
-			.height = view ? view->height : 720u,
+			.width = _viewWidth,
+			.height = _viewHeight,
 			.devMode = _config.devMode,
 			.dataDir = Paths::DataDir(),
 		};
@@ -157,6 +161,15 @@ namespace SWUI
 			if (_compositor) {
 				_compositor->SetVisible(a_visible);
 			}
+			// Re-center the virtual cursor each time the overlay opens so it
+			// always starts in a known, on-screen spot.
+			if (a_visible) {
+				_cursorX = _viewWidth * 0.5f;
+				_cursorY = _viewHeight * 0.5f;
+				if (_renderer) {
+					_renderer->InjectMouseMove(static_cast<int>(_cursorX), static_cast<int>(_cursorY));
+				}
+			}
 		}
 	}
 
@@ -187,6 +200,27 @@ namespace SWUI
 			_input.OnKeyUp(a_vkCode);
 		}
 		return consume;
+	}
+
+	void Runtime::OnHostMouseDelta(int a_dx, int a_dy)
+	{
+		if (!IsInputCaptured() || !_renderer) {
+			return;
+		}
+		// 1:1 raw-delta -> view-pixel mapping, clamped to the view. Full mouse
+		// travel sweeps the whole overlay; refine with a sensitivity setting
+		// later if needed.
+		_cursorX = std::clamp(_cursorX + static_cast<float>(a_dx), 0.0f, static_cast<float>(_viewWidth - 1));
+		_cursorY = std::clamp(_cursorY + static_cast<float>(a_dy), 0.0f, static_cast<float>(_viewHeight - 1));
+		_renderer->InjectMouseMove(static_cast<int>(_cursorX), static_cast<int>(_cursorY));
+	}
+
+	void Runtime::OnHostMouseButton(int a_button, bool a_down)
+	{
+		if (!IsInputCaptured() || !_renderer) {
+			return;
+		}
+		_renderer->InjectMouseButton(static_cast<int>(_cursorX), static_cast<int>(_cursorY), a_button, a_down);
 	}
 
 	void Runtime::SubmitFrameIfVisible()

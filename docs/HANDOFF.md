@@ -1,16 +1,17 @@
 # StarfieldWebUI — Resume / Handoff
 
-**Last updated:** 2026-06-12 ~23:15
-**Status:** 🎉 **END-TO-END WORKING + INTERACTIVE.** Phase 0 + TODOs #1–#5 +
-renderer-plan **Phases 1, 2, 3 AND 4a** all done/verified 2026-06-12. Pixels
+**Last updated:** 2026-06-13 ~05:15
+**Status:** 🎉 **END-TO-END WORKING + FULLY INTERACTIVE.** Phase 0 + TODOs
+#1–#5 + renderer-plan **Phases 1, 2, 3, 4a AND 4b** all done/verified. Pixels
 over Starfield: WebKit (Ultralight 1.4.0) renders offscreen → GPU texture on
 the game's device → alpha-blended quad in an `IDXGISwapChain::Present` slot-8
-hook → **visible on screen, user-confirmed**. AND it's now interactive: with
-the overlay open the game is **input-frozen** (movement + camera) and
-**typing lands in the page** — done via a WndProc subclass (the engine UI
-sink can't block gameplay; RE notes §3). F10 toggles + releases input. Next:
-Phase 4b (mouse → virtual cursor → clickable buttons + visible pointer). See
-§0/§7.
+hook → **visible on screen**. AND fully interactive: with the overlay open the
+game is **input-frozen** (movement + camera), **typing lands in the page**,
+and the **mouse drives a software cursor that clicks the buttons** (Ping
+round-trips to a pong) — all via a WndProc subclass (the engine UI sink can't
+block gameplay; RE notes §3). F10 toggles + releases. ⚠ Next: harden the
+compositor against swapchain resize (a resolution change crashed it — §0),
+then Phase 3/4c polish. See §0/§7.
 Game is **1.16.244.0** (patched 2026-06-11; SFSE 0.2.21, versionlib-1-16-244
 present in the AIO address library mod).
 
@@ -18,19 +19,24 @@ present in the AIO address library mod).
 
 ## 0. IMMEDIATE next step
 
-Phase 3 composition is live + user-verified, and Phase 4a made it
-interactive (keyboard + input freeze via the WndProc subclass). Pick the next
-track:
+Phases 1–3 + 4a + 4b are all done/user-verified: the overlay renders over the
+game AND is fully interactive (keyboard + mouse + clickable buttons + input
+freeze). Highest-value next items:
 
-- **Phase 4b — mouse + cursor.** In `input/OverlayInputHook` parse `WM_INPUT`
-  raw mouse deltas → accumulate a virtual cursor in view space → route
-  MouseMoved/Down/Up into the view (add `InjectMouse*` to the renderer,
-  mirroring `InjectKeyEvent`) → draw/show a pointer. Makes Ping/Close
-  clickable in-game. The OS cursor is hidden in gameplay, so use raw deltas,
-  don't fight it.
+- **⚠ Compositor swapchain-resize hardening (do first).** The compositor
+  caches the swapchain's backbuffer references across frames, which blocks
+  the game's `ResizeBuffers` → a crash was observed after a resolution
+  change (2026-06-12 23:18, AV in the swapchain/present path). Fix: don't
+  hold backbuffer refs — `GetBuffer` per-present and release, or hook
+  `ResizeBuffers`. Until fixed, changing resolution / alt-tab (borderless) /
+  exclusive-fullscreen transitions can crash.
 - **Phase 3 polish** (renderer-plan.md): aspect/native-size placement (it
-  stretches to fill now), HDR/10-bit backbuffer PSO, pick the scanned-out
-  swapchain under frame-gen, Steam/ReShade/RTSS coexistence, resize/alt-tab.
+  stretches to fill — obvious on the 3440×1409 ultrawide test), HDR/10-bit
+  backbuffer PSO, pick the scanned-out swapchain under frame-gen,
+  Steam/ReShade/RTSS coexistence.
+- **Phase 4c** (renderer-plan.md): scroll, IME/Unicode text, gamepad,
+  cursor sensitivity + aspect-correct mapping.
+- **Phase 5**: MCM-style schema-driven UI.
 
 Compositor entry points if you reopen it: `composite/D3D12Compositor.cpp`
 (`OnPresent` = the per-frame draw; `RecordAndExecute` = the command list;
