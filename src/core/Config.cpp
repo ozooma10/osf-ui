@@ -28,6 +28,8 @@ namespace SWUI
 		config.compositor = Json::GetString(*json, "compositor", config.compositor);
 		config.inputSource = Json::GetString(*json, "inputSource", config.inputSource);
 		config.captureInput = Json::GetBool(*json, "captureInput", config.captureInput);
+		config.focusMenu = Json::GetBool(*json, "focusMenu", config.focusMenu);
+		config.disableControls = Json::GetBool(*json, "disableControls", config.disableControls);
 		config.view = Json::GetString(*json, "view", config.view);
 		if (const auto it = json->find("views"); it != json->end() && it->is_array()) {
 			for (const auto& v : *it) {
@@ -46,8 +48,8 @@ namespace SWUI
 			config.allowNetwork = false;
 		}
 
-		REX::INFO("Config: loaded {} (renderer={}, compositor={}, inputSource={}, captureInput={}, view={}, devMode={})",
-			a_path.string(), config.renderer, config.compositor, config.inputSource, config.captureInput, config.view, config.devMode);
+		REX::INFO("Config: loaded {} (renderer={}, compositor={}, inputSource={}, captureInput={}, focusMenu={}, disableControls={}, view={}, devMode={})",
+			a_path.string(), config.renderer, config.compositor, config.inputSource, config.captureInput, config.focusMenu, config.disableControls, config.view, config.devMode);
 		return config;
 	}
 }

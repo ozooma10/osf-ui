@@ -7,6 +7,8 @@
 #include "composite/D3D12Compositor.h"
 #include "composite/NullCompositor.h"
 #include "core/Log.h"
+#include "input/ControlLayer.h"
+#include "input/FocusMenu.h"
 #include "core/Paths.h"
 #include "platform/WindowsPlatform.h"
 #include "render/MockWebRenderer.h"
@@ -227,7 +229,19 @@ namespace SWUI
 
 	void Runtime::Tick(double a_deltaSeconds)
 	{
-		if (!_initialized || !_renderer) {
+		if (!_initialized) {
+			return;
+		}
+		// Open/close the engine focus menu on the MAIN thread (visibility is
+		// flipped from the WndProc/input thread, but UIMessageQueue must only be
+		// touched here). No-op unless config.focusMenu is set. EXPERIMENTAL.
+		if (_config.focusMenu) {
+			ReconcileFocusMenu();
+		}
+		if (_config.disableControls) {
+			ReconcileControlLayer();
+		}
+		if (!_renderer) {
 			return;
 		}
 		_renderer->Update(a_deltaSeconds);
@@ -336,6 +350,39 @@ namespace SWUI
 		_renderer->SetActiveView(id);
 		_renderer->InjectMouseMove(static_cast<int>(_cursorX), static_cast<int>(_cursorY));
 		REX::INFO("Runtime: focus -> view '{}'", id);
+	}
+
+	void Runtime::ReconcileFocusMenu()
+	{
+		// Runs on the game main thread (Tick). Drive the engine menu's open state
+		// toward the overlay's visibility; only act on a change so we don't spam
+		// the UI message queue every frame.
+		const bool wantOpen = _visible.load();
+		if (wantOpen == _focusMenuOpen) {
+			return;
+		}
+		_focusMenuOpen = wantOpen;
+		if (wantOpen) {
+			FocusMenu::Open();
+		} else {
+			FocusMenu::Close();
+		}
+	}
+
+	void Runtime::ReconcileControlLayer()
+	{
+		// Main-thread (Tick). Drive the input-enable layer toward overlay
+		// visibility. Engage() may no-op until gameplay (manager not ready at the
+		// main menu); IsEngaged() stays false then, so we simply retry next tick.
+		const bool wantEngaged = _visible.load();
+		if (wantEngaged == ControlLayer::IsEngaged()) {
+			return;
+		}
+		if (wantEngaged) {
+			ControlLayer::Engage();
+		} else {
+			ControlLayer::Release();
+		}
 	}
 
 	void Runtime::BuildModules()

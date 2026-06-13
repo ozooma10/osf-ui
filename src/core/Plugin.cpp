@@ -1,6 +1,7 @@
 #include "core/Plugin.h"
 
 #include "core/Version.h"
+#include "input/FocusMenu.h"
 #include "input/MenuEventSink.h"
 #include "input/OverlayInputHook.h"
 #include "input/UiInputHook.h"
@@ -82,6 +83,16 @@ namespace SWUI::Plugin
 							break;
 						}
 						MenuEventSink::Install();
+						// EXPERIMENTAL focus menu (off by default). Registering a
+						// custom IMenu is unproven on 1.16.244 — gated behind
+						// config so the default build never touches it. The menu
+						// is only opened (UIMessageQueue kShow) when the overlay
+						// becomes visible, from Runtime's main-thread tick.
+						if (Runtime::Get().GetConfig().focusMenu) {
+							REX::WARN("Plugin: focusMenu=true (EXPERIMENTAL) — registering OSFUI_FocusMenu; "
+									  "custom-IMenu registration is unproven on 1.16.244 and may be unstable");
+							FocusMenu::Register();
+						}
 						if (Runtime::Get().GetConfig().inputSource == "ui") {
 							if (UiInputHook::Install()) {
 								UiInputHook::SetEnabled(true);

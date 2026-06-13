@@ -89,6 +89,17 @@ namespace SWUI
 		// handler. No-op with fewer than two interactive views.
 		void CycleActiveView();
 
+		// EXPERIMENTAL (config.focusMenu). Open/close the engine focus menu to
+		// match overlay visibility. Called every tick from the game's MAIN thread
+		// so the UIMessageQueue is never poked from the WndProc/input thread.
+		// No-op unless config.focusMenu is set. See input/FocusMenu.h.
+		void ReconcileFocusMenu();
+
+		// EXPERIMENTAL (config.disableControls). Engage/release the engine
+		// input-enable layer (device-agnostic control disable, incl. gamepad) to
+		// match overlay visibility. Also main-thread-only. See input/ControlLayer.h.
+		void ReconcileControlLayer();
+
 		// Native reactions to settings changes (Phase 5b). Injected into the
 		// settings module as its change listener; reacts only to the knobs core
 		// owns (e.g. cursor speed).
@@ -126,5 +137,9 @@ namespace SWUI
 
 		std::atomic_bool              _visible{ false };
 		bool                          _initialized{ false };
+
+		// Last focus-menu open state we drove (main-thread only, reconciled in
+		// Tick against _visible). EXPERIMENTAL — see config.focusMenu.
+		bool                          _focusMenuOpen{ false };
 	};
 }

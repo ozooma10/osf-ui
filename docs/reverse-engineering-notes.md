@@ -257,6 +257,24 @@ Still open (Phase 4b and later):
 
 ### 4. Menu/pause/UI lifecycle questions
 
+> **Filed as OSF RE requests (2026-06-13) — RESOLVED.** The "feels janky when
+> menus are open" fix is to register a real `IMenu` so the engine enters menu
+> mode (it stops feeding gameplay input, shows a cursor, optionally pauses)
+> instead of the WndProc message-swallow, which the world keeps running behind
+> and which gamepad/XInput leaks past. Three probes ran:
+> `OSF RE/Investigations/Requests/2026-06-13-custom-imenu-registration.md`
+> (custom-menu register + open PROVEN; headless IMenu crash root-caused → ship a
+> hardened engine-built creator), `.../2026-06-13-imenu-flag-bits.md`
+> (`RE::IMenu::Flag` bits proven: bit3 ShowCursor, bit8 kModal, bit27
+> kPausesGame), and `.../2026-06-13-input-enable-layer-control-disable.md`
+> (device-agnostic control disable via `BSInputEnableManager`/`BSInputEnableLayer`
+> PROVEN live with a controller — keyboard + mouse-look + gamepad all freeze; flag
+> table mapped, `Looking`=camera). Both land in OSF UI behind config
+> `focusMenu` / `disableControls` (src/input/FocusMenu.{h,cpp},
+> src/input/ControlLayer.{h,cpp}); the shipped config.json now enables both. The
+> one remaining live unknown is whether the hardened focus menu survives past the
+> few-second mark the headless one crashed at.
+
 - Is there a "menu open" state that pauses simulation, and can a plugin open
   a custom one (SFSE `MenuInterface` — what does it actually expose)?
 - How does the game arbitrate cursor visibility, and what happens to mouse
