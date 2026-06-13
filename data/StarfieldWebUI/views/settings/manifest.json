@@ -1,0 +1,13 @@
+{
+  "id": "settings",
+  "title": "Starfield Web UI Settings",
+  "entry": "index.html",
+  "width": 1280,
+  "height": 720,
+  "transparent": true,
+  "permissions": {
+    "nativeBridge": true,
+    "filesystem": false,
+    "network": false
+  }
+}

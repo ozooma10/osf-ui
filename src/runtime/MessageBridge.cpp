@@ -59,6 +59,29 @@ namespace SWUI
 			if (_host.setVisible) {
 				_host.setVisible(visible);
 			}
+		} else if (command == "settings.get") {
+			// Send the schema + current values to the view.
+			if (_host.getSettingsData && _host.sendToWeb) {
+				const Json::Value msg = {
+					{ "type", "settings.data" },
+					{ "payload", Json::Value::parse(_host.getSettingsData(), nullptr, false) },
+				};
+				_host.sendToWeb(msg.dump());
+			}
+		} else if (command == "settings.set") {
+			// Persist one setting. key + value are validated against the schema
+			// by the store; we only forward the raw value JSON.
+			const auto key = Json::GetString(a_payload, "key", "");
+			const auto valueIt = a_payload.find("value");
+			const bool ok = _host.setSetting && valueIt != a_payload.end() &&
+				_host.setSetting(key, valueIt->dump());
+			if (_host.sendToWeb) {
+				const Json::Value ack = {
+					{ "type", "settings.ack" },
+					{ "payload", { { "key", key }, { "ok", ok } } },
+				};
+				_host.sendToWeb(ack.dump());
+			}
 		} else {
 			REX::WARN("MessageBridge: rejected unknown ui.command '{}'", command);
 		}

@@ -19,6 +19,13 @@ namespace SWUI
 		{
 			std::function<void(bool)>             setVisible;  // drives ui.command "setVisible" / "close"
 			std::function<void(std::string_view)> sendToWeb;   // outbound JSON (-> renderer SendMessageToWeb)
+
+			// Schema-driven settings (Phase 5). getSettingsData returns the
+			// { schema, values } JSON for the view; setSetting validates +
+			// persists one value (key + raw JSON value text), returning ok.
+			// Both optional — unset means the view gets an empty schema.
+			std::function<std::string()>                                getSettingsData;
+			std::function<bool(std::string_view, std::string_view)>     setSetting;
 		};
 
 		explicit MessageBridge(Host a_host);

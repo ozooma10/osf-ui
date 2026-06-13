@@ -6,7 +6,7 @@
   "compositor": "d3d12",
   "inputSource": "ui",
   "captureInput": true,
-  "view": "test",
+  "view": "settings",
   "allowNetwork": false,
   "devMode": true
 }

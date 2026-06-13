@@ -8,8 +8,24 @@
 #define NOMINMAX
 #include <Windows.h>
 
+#include <ShlObj.h>
+
 namespace SWUI::Platform
 {
+	std::filesystem::path GetDocumentsPath()
+	{
+		PWSTR raw = nullptr;
+		const auto hr = ::SHGetKnownFolderPath(FOLDERID_Documents, KF_FLAG_DEFAULT, nullptr, &raw);
+		std::filesystem::path result;
+		if (SUCCEEDED(hr) && raw) {
+			result = raw;
+		}
+		if (raw) {
+			::CoTaskMemFree(raw);
+		}
+		return result;
+	}
+
 	std::filesystem::path GetThisModulePath()
 	{
 		HMODULE module = nullptr;

@@ -141,7 +141,28 @@ Phase 3 polish:
 
 ## Phase 5 — MCM-style schema-driven UI
 
-- A settings schema (JSON) that mods can ship; the runtime renders it with a
-  built-in view and persists values.
+### 5a — schema-driven settings ✅ (verified in-game 2026-06-13)
+
+- ✅ A mod ships `settings/schema.json` (groups of typed settings:
+  bool/int/float/enum/string with default/min/max/step/options). `SettingsStore`
+  loads it read-only and merges persisted values over the defaults.
+- ✅ Built-in `settings` view renders the schema into real controls
+  (checkbox/slider/dropdown/text) with zero per-mod native code; each change
+  sends `ui.command settings.set` through the bridge.
+- ✅ `SettingsStore::Set` validates + clamps every value against the schema
+  (unknown keys rejected, numbers clamped to min/max, enum must be an option,
+  strings length-bounded) and persists atomically (temp file + rename) to a
+  USER-WRITABLE path (`Documents\My Games\Starfield\StarfieldWebUI\settings.json`,
+  via `SHGetKnownFolderPath` — NOT the read-only/MO2-mapped data dir).
+- ✅ Bridge gains exactly two whitelisted commands: `settings.get`
+  (native → `settings.data`) and `settings.set` (→ `settings.ack`). Still no
+  arbitrary native calls.
+- ✅ Verified in-game: form renders from the schema; changing controls
+  persists (opacity clamped to the schema min server-side); values survive a
+  relaunch (load → merge → render).
+
+### 5b — later
+
 - Multi-view management, per-view permissions enforced in the bridge,
-  versioned bridge API for third-party views.
+  versioned bridge API for third-party views; one schema per mod (registry);
+  change-notifications back to native consumers; reset-to-default.

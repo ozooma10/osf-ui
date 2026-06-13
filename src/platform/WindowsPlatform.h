@@ -16,6 +16,12 @@ namespace SWUI::Platform
 	// Returns false and sets a_lastError (GetLastError) on failure.
 	bool LoadLibraryAbsolute(const std::filesystem::path& a_path, std::uint32_t& a_lastError);
 
+	// The user's Documents folder (FOLDERID_Documents — follows OneDrive
+	// redirection). Empty on failure. Used as the base for persisted, writable
+	// data (e.g. settings values), which must NOT live under the read-only,
+	// MO2/Program-Files-mapped plugin data folder.
+	[[nodiscard]] std::filesystem::path GetDocumentsPath();
+
 	// True when [a_address, a_address + a_size) is committed, non-guard,
 	// readable memory (VirtualQuery walk). For probing engine pointers.
 	[[nodiscard]] bool IsReadableRange(std::uintptr_t a_address, std::size_t a_size);

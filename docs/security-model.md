@@ -33,9 +33,16 @@ ugly overlay", never "arbitrary native code execution".
    planned. [enforced by absence]
 5. **No arbitrary native bridge.** There is exactly one inbound message type
    (`ui.command`) with an explicit whitelist: `close`, `log`, `ping`,
-   `setVisible`. Unknown types and commands are rejected and logged. There is
-   intentionally no "call function by name", no eval, no reflection.
+   `setVisible`, and the Phase 5 settings pair `settings.get` /
+   `settings.set`. Unknown types and commands are rejected and logged. There
+   is intentionally no "call function by name", no eval, no reflection.
    [enforced in `MessageBridge::HandleUiCommand`]
+   - `settings.set` is the only command that WRITES: it can only set a key
+     that EXISTS in the mod's schema, to a value the `SettingsStore` validates
+     and clamps to that key's declared type/range (enum ∈ options, numbers ∈
+     [min,max], strings length-bounded). Untrusted JS cannot write arbitrary
+     keys, out-of-range values, or to any path but the one settings file.
+     [enforced in `SettingsStore::Validate`/`Set`]
 6. **Per-view permissions** (`nativeBridge`, `filesystem`, `network`) default
    to deny in the manifest parser. Today `nativeBridge=false` prevents bridge
    creation; finer-grained, per-command grants come later with multi-view

@@ -5,6 +5,7 @@
 #include "input/InputRouter.h"
 #include "render/IWebRenderer.h"
 #include "runtime/MessageBridge.h"
+#include "runtime/SettingsStore.h"
 #include "runtime/ViewManager.h"
 
 namespace SWUI
@@ -82,6 +83,7 @@ namespace SWUI
 		std::unique_ptr<IWebRenderer> _renderer;
 		std::unique_ptr<ICompositor>  _compositor;
 		std::unique_ptr<MessageBridge> _bridge;
+		SettingsStore                 _settings;
 		InputRouter                   _input;
 		KeyCode                       _toggleKey{ kInvalidKeyCode };
 

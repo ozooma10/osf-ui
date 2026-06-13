@@ -6,6 +6,7 @@
 #include "composite/NullCompositor.h"
 #include "core/Log.h"
 #include "core/Paths.h"
+#include "platform/WindowsPlatform.h"
 #include "render/MockWebRenderer.h"
 #include "render/NullWebRenderer.h"
 #include "render/UltralightWebRenderer.h"
@@ -72,6 +73,16 @@ namespace SWUI
 		_compositor->SetOutputResizeCallback([this](std::uint32_t a_w, std::uint32_t a_h) { OnOutputResized(a_w, a_h); });
 		REX::INFO("Runtime: compositor = {}", _compositor->Name());
 
+		// Schema-driven settings (Phase 5): schema ships read-only with the
+		// plugin; values persist to a user-writable file (Documents — NOT the
+		// MO2/Program-Files-mapped data dir).
+		const auto schemaPath = Paths::DataDir() / "settings" / "schema.json";
+		auto valuesPath = Platform::GetDocumentsPath();
+		valuesPath = valuesPath.empty()
+			? Paths::DataDir() / "settings" / "values.json"  // fallback (MO2 redirects the write)
+			: valuesPath / "My Games" / "Starfield" / "StarfieldWebUI" / "settings.json";
+		_settings.Load(schemaPath, valuesPath);
+
 		// Active view. Bridge and web->native handler are wired BEFORE
 		// LoadView so no early page message can race past them; renderers
 		// queue native->web messages until the page is actually ready.
@@ -83,6 +94,10 @@ namespace SWUI
 						if (_renderer) {
 							_renderer->SendMessageToWeb(a_json);
 						}
+					},
+					.getSettingsData = [this] { return _settings.DataJson(); },
+					.setSetting = [this](std::string_view a_key, std::string_view a_valueJson) {
+						return _settings.Set(a_key, a_valueJson);
 					},
 				});
 				_renderer->SetWebMessageHandler([this](std::string_view a_json) {

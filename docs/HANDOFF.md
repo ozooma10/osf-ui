@@ -31,11 +31,16 @@ freeze). Highest-value next items:
   backbuffer immediately (`RecordAndExecute`), so it never holds a ref across
   frames. No rendering regression (verified 05:18). Worth one more live
   resolution-change to confirm the crash is gone.
+- **✅ Phase 5a — schema-driven settings (2026-06-13).** A mod ships
+  `settings/schema.json`; the built-in `settings` view renders typed controls;
+  `SettingsStore` validates/clamps/persists to
+  `Documents\My Games\Starfield\StarfieldWebUI\settings.json`. Verified
+  in-game: changes persist (clamped server-side) and survive a relaunch. Two
+  new whitelisted bridge commands (`settings.get`/`settings.set`).
 - **Phase 3 polish** (renderer-plan.md): ✅ aspect-correct view sizing done
-  (view tracks the output surface; no more stretch — 2026-06-13). Remaining:
-  HDR/10-bit backbuffer PSO + multi-format PSO, pick the scanned-out
-  swapchain under frame-gen, Steam/ReShade/RTSS coexistence, sRGB pass,
-  dirty-region upload.
+  (no more stretch — 2026-06-13). Remaining: HDR/10-bit + multi-format PSO,
+  frame-gen swapchain pick, Steam/ReShade/RTSS coexistence, sRGB,
+  dirty-region upload (all hard to verify without specific hardware/tools).
 - **Phase 4c** (renderer-plan.md): scroll, IME/Unicode text, gamepad,
   cursor sensitivity + aspect-correct mapping.
 - **Phase 5**: MCM-style schema-driven UI.
@@ -374,12 +379,19 @@ reading (SFSE + CommonLibSF), which is why they're done first.
 src/
   main.cpp                     SFSE entry macros -> Plugin::OnPreLoad/OnLoad
   core/      Plugin, Paths, Log, Config, Version
-  runtime/   Runtime, ViewManager, ViewManifest, MessageBridge, Json
-  render/    IWebRenderer + Null / Mock / Ultralight(stub)
-  composite/ ICompositor + Null / D3D12(stub)
-  input/     InputRouter, InputTypes, MenuEventSink, UiInputHook
-  platform/  WindowsPlatform (isolated Win32)
-data/StarfieldWebUI/   config.json + views/test/{manifest,index.html,style.css,main.js}
+  runtime/   Runtime, ViewManager, ViewManifest, MessageBridge, SettingsStore, Json
+  render/    IWebRenderer + Null / Mock / Ultralight (real, offscreen)
+  composite/ ICompositor + Null / D3D12 (real, present-time overlay) / EngineD3D12
+  input/     InputRouter, InputTypes, MenuEventSink, UiInputHook (observe),
+             OverlayInputHook (WndProc subclass — the real input front-end)
+  platform/  WindowsPlatform (isolated Win32: module path, DLL preload,
+             readable-range probe, Documents path)
+data/StarfieldWebUI/
+  config.json
+  settings/schema.json                 Phase 5 demo schema
+  views/test/{manifest,index,style,main}
+  views/settings/{manifest,index,style,main}   Phase 5 settings UI
+  ultralight/{bin,resources}           (with_ultralight builds only)
 docs/        architecture, renderer-plan, security-model,
              reverse-engineering-notes, HANDOFF (this file)
 ```
