@@ -11,7 +11,7 @@ namespace PrismaSF
 		std::string focusKey{ "Tab" };   // cycles the active (input) view when >1 interactive view is hosted
 		bool        startVisible{ false };
 		std::string renderer{ "mock" };    // "null" | "mock" | "ultralight"
-		std::string compositor{ "null" };  // "null" | "d3d12" (d3d12 is a stub)
+		std::string compositor{ "null" };  // "null" | "d3d12" (d3d12 draws the overlay at present time)
 		std::string inputSource{ "none" }; // "none" | "ui" (observe-only vfunc hook on RE::UI input processing)
 		bool        captureInput{ true };  // when visible, route input to the web view and block the game from acting on it (needs inputSource="ui")
 		// EXPERIMENTAL (default off in code; shipped config.json turns it on).

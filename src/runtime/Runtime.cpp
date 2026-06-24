@@ -532,8 +532,9 @@ namespace PrismaSF
 	std::unique_ptr<ICompositor> Runtime::CreateCompositor() const
 	{
 		if (_config.compositor == "d3d12") {
-			// Phase 2: uploads frames to a GPU texture on the game's device
-			// (located lazily; see composite/EngineD3D12.h). No drawing yet.
+			// Uploads frames to a GPU texture on the game's device (located
+			// lazily; see composite/EngineD3D12.h) and draws the overlay at
+			// present time via a Present slot-8 vtable hook.
 			return std::make_unique<D3D12Compositor>();
 		}
 		if (_config.compositor != "null") {
