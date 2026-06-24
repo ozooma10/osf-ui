@@ -103,6 +103,16 @@ namespace PrismaSF::OverlayInputHook
 			if (buttons & RI_MOUSE_MIDDLE_BUTTON_UP) {
 				runtime.OnHostMouseButton(2, false);
 			}
+
+			// Vertical wheel. usButtonData is a USHORT carrying a SIGNED
+			// WHEEL_DELTA (120) multiple, so reinterpret it as short before
+			// widening (positive = rotated forward/up).
+			if (buttons & RI_MOUSE_WHEEL) {
+				const auto wheelDelta = static_cast<short>(mouse.usButtonData);
+				if (wheelDelta != 0) {
+					runtime.OnHostMouseWheel(static_cast<int>(wheelDelta));
+				}
+			}
 		}
 
 		LRESULT CALLBACK WndProc(HWND a_hwnd, UINT a_msg, WPARAM a_wparam, LPARAM a_lparam)

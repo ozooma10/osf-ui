@@ -101,6 +101,11 @@ namespace PrismaSF
 		// for backends without a JS engine.
 		virtual void InjectMouseMove(int /*a_x*/, int /*a_y*/) {}
 		virtual void InjectMouseButton(int /*a_x*/, int /*a_y*/, int /*a_button*/, bool /*a_down*/) {}
+		// Mouse wheel at a VIEW-space position. a_wheelDelta is a signed multiple
+		// of WHEEL_DELTA (120); positive scrolls up. The backend converts notches
+		// to pixels via the per-view scroll step (SetScrollPixelSize). No-op for
+		// backends without a JS engine.
+		virtual void InjectMouseWheel(int /*a_x*/, int /*a_y*/, int /*a_wheelDelta*/) {}
 
 		// --- Programmatic consumer-API support (PrismaUI SF native API) -------
 		// These back the public PRISMA_UI_API surface (src/api/). Backends with a

@@ -29,6 +29,7 @@ namespace PrismaSF
 		constexpr std::size_t kMaxQueuedMessages = 64;
 		constexpr std::size_t kMaxLoggedTextLen = 512;
 		constexpr auto        kWorkerFrameInterval = std::chrono::milliseconds(16);  // ~60 Hz
+		constexpr int         kWheelDelta = 120;  // one notch (Win32 WHEEL_DELTA), kept local — Windows.h is not included here
 
 		[[nodiscard]] std::string ToUTF8(const ul::String& a_str)
 		{
@@ -231,11 +232,12 @@ namespace PrismaSF
 
 		struct MouseInput
 		{
-			enum class Kind { kMove, kDown, kUp };
+			enum class Kind { kMove, kDown, kUp, kScroll };
 			Kind kind{ Kind::kMove };
 			int  x{ 0 };
 			int  y{ 0 };
-			int  button{ 0 };  // MouseButton order: 0=left, 1=right, 2=middle
+			int  button{ 0 };      // MouseButton order: 0=left, 1=right, 2=middle
+			int  wheelDelta{ 0 };  // signed WHEEL_DELTA multiple, for kScroll
 		};
 
 		struct Frame
@@ -1021,6 +1023,21 @@ namespace PrismaSF
 			if (!a_vs.view) {
 				return;
 			}
+			if (a_m.kind == MouseInput::Kind::kScroll) {
+				// Notches -> pixels via the per-view scroll step (consumer API
+				// SetScrollingPixelSize). Multiply before divide so sub-notch
+				// high-resolution wheels still move. Positive delta = scroll up.
+				// Ultralight scrolls whatever the last MouseMoved hovered; the
+				// shared toMouse deque is processed in order, so the hover target
+				// is already current here — no extra MouseMoved needed.
+				const int pixels = (a_m.wheelDelta * a_vs.scrollPx.load()) / kWheelDelta;
+				ul::ScrollEvent ev;
+				ev.type = ul::ScrollEvent::kType_ScrollByPixel;
+				ev.delta_x = 0;
+				ev.delta_y = pixels;
+				a_vs.view->FireScrollEvent(ev);
+				return;
+			}
 			ul::MouseEvent ev;
 			ev.x = a_m.x;
 			ev.y = a_m.y;
@@ -1037,6 +1054,8 @@ namespace PrismaSF
 				ev.type = ul::MouseEvent::kType_MouseUp;
 				ev.button = ToUlButton(a_m.button);
 				break;
+			case MouseInput::Kind::kScroll:
+				return;  // handled above; case present only to keep the switch exhaustive
 			}
 			a_vs.view->FireMouseEvent(ev);
 		}
@@ -1587,6 +1606,26 @@ namespace PrismaSF
 					.x = a_x,
 					.y = a_y,
 					.button = a_button });
+			}
+		}
+		_impl->wake.notify_all();
+	}
+
+	void UltralightWebRenderer::InjectMouseWheel(int a_x, int a_y, int a_wheelDelta)
+	{
+		{
+			std::scoped_lock lk(_impl->mutex);
+			if (auto* vs = _impl->ActiveView()) {
+				// Not coalesced (unlike kMove): every notch counts. Bound the
+				// queue so a stalled worker can't accumulate scrolls unbounded.
+				if (vs->toMouse.size() >= kMaxQueuedMessages) {
+					vs->toMouse.pop_front();
+				}
+				vs->toMouse.push_back(Impl::MouseInput{
+					.kind = Impl::MouseInput::Kind::kScroll,
+					.x = a_x,
+					.y = a_y,
+					.wheelDelta = a_wheelDelta });
 			}
 		}
 		_impl->wake.notify_all();

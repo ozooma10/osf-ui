@@ -55,6 +55,9 @@ namespace PrismaSF
 		// Mouse button transition; routed at the current virtual cursor.
 		// a_button uses MouseButton order (0=left, 1=right, 2=middle).
 		void OnHostMouseButton(int a_button, bool a_down);
+		// Mouse wheel; routed at the current virtual cursor. a_wheelDelta is a
+		// signed multiple of WHEEL_DELTA (120): positive = wheel forward/up.
+		void OnHostMouseWheel(int a_wheelDelta);
 
 		// Called by the compositor (render thread) when the output surface
 		// size is known/changes. Resizes the web view to match the screen

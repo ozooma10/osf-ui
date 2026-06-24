@@ -344,6 +344,16 @@ namespace PrismaSF
 		_renderer->InjectMouseButton(static_cast<int>(_cursorX), static_cast<int>(_cursorY), a_button, a_down);
 	}
 
+	void Runtime::OnHostMouseWheel(int a_wheelDelta)
+	{
+		if (!IsInputCaptured() || !_renderer) {
+			return;
+		}
+		// Route at the current virtual cursor; the renderer converts notches to
+		// pixels via the per-view scroll step (consumer API SetScrollingPixelSize).
+		_renderer->InjectMouseWheel(static_cast<int>(_cursorX), static_cast<int>(_cursorY), a_wheelDelta);
+	}
+
 	void Runtime::CycleActiveView()
 	{
 		if (_interactiveViews.size() < 2 || !_renderer) {
