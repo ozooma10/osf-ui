@@ -3,7 +3,7 @@
 #include "runtime/SettingsStore.h"
 #include "runtime/UiModule.h"
 
-namespace SWUI
+namespace PrismaSF
 {
 	// The schema-driven settings feature as a self-contained module
 	// (renderer-plan.md Phase 5). Owns the SettingsStore, registers the

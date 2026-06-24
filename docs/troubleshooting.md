@@ -1,6 +1,6 @@
-# OSF UI — Install & Troubleshooting (for players)
+# PrismaUI SF — Install & Troubleshooting (for players)
 
-OSF UI (StarfieldWebUI) is an **early but working** SFSE plugin that draws an
+PrismaUI SF (PrismaUI SF) is an **early but working** SFSE plugin that draws an
 HTML/CSS/JS overlay over Starfield. Today it ships a schema-driven **settings
 (MCM-style)** panel and is a foundation other UI mods can build on. It is
 **not** a finished product — expect rough edges and read *Known limitations*
@@ -14,7 +14,7 @@ below before installing.
   game version you run (a common AIO Address Library mod provides this).
 - **Windows** with a D3D12-capable GPU (any modern card).
 
-OSF UI is pinned to the game build it was compiled against (currently
+PrismaUI SF is pinned to the game build it was compiled against (currently
 **1.16.244** via the Address Library). A game patch may require an updated
 release — see the layout-guard note under *Troubleshooting*.
 
@@ -25,8 +25,8 @@ any SFSE plugin and enable it. The payload is:
 
 ```
 SFSE/Plugins/
-  OSF UI.dll
-  StarfieldWebUI/            (config + views + the Ultralight runtime)
+  PrismaUI SF.dll
+  PrismaUI/            (config + views + the Ultralight runtime)
 ```
 
 **Manual:** extract that `SFSE/Plugins/...` tree into your Starfield `Data` folder.
@@ -41,7 +41,7 @@ entry). The base game launcher will not load the plugin.
 2. While it's open, the game is input-frozen and the mouse drives a cursor in the
    panel; settings changes save automatically.
 3. The log is written to:
-   `Documents\My Games\Starfield\SFSE\Logs\StarfieldWebUI.log`
+   `Documents\My Games\Starfield\SFSE\Logs\PrismaUI SF.log`
    (Documents may be OneDrive-redirected.)
 
 Optional: the shipped config also loads a small demo **HUD** layer (top-right,
@@ -50,7 +50,7 @@ between interactive panels.
 
 ## Troubleshooting
 
-Open `StarfieldWebUI.log` first — it states what happened.
+Open `PrismaUI SF.log` first — it states what happened.
 
 | Symptom | Likely cause / fix |
 |---|---|
@@ -61,14 +61,14 @@ Open `StarfieldWebUI.log` first — it states what happened.
 | Overlay lingers oddly during a load | It should auto-hide on loading screens / main menu; if not, F10 to hide and report the log. |
 
 **Safe-disable without uninstalling:** set `"enabled": false` in
-`SFSE/Plugins/StarfieldWebUI/config.json` (or disable the mod in your manager).
+`SFSE/Plugins/PrismaUI/config.json` (or disable the mod in your manager).
 
 ## Uninstall
 
-- Disable/remove the mod in MO2/Vortex, **or** delete `OSF UI.dll` and the
-  `StarfieldWebUI/` folder from `Data/SFSE/Plugins/`.
-- Saved settings live in `Documents\My Games\Starfield\StarfieldWebUI\` — delete
-  that folder to remove them too. OSF UI writes nothing into your save files.
+- Disable/remove the mod in MO2/Vortex, **or** delete `PrismaUI SF.dll` and the
+  `PrismaUI/` folder from `Data/SFSE/Plugins/`.
+- Saved settings live in `Documents\My Games\Starfield\PrismaUI SF\` — delete
+  that folder to remove them too. PrismaUI SF writes nothing into your save files.
 
 ## Known limitations (v0.x)
 
@@ -81,11 +81,11 @@ Open `StarfieldWebUI.log` first — it states what happened.
 - **Input:** keyboard routing is US-layout only; no gamepad/controller navigation
   yet; with two interactive panels, `Tab` switches panels (so in-panel `Tab`
   field navigation is overridden in that mode).
-- **For UI authors:** the `window.starfield` bridge API is version **0.x and
+- **For UI authors:** the `window.prisma` bridge API is version **0.x and
   unstable** — see [authoring-views.md](authoring-views.md). It may change between
   releases until it reaches 1.0.
 
 ## Reporting issues
 
-Include your `StarfieldWebUI.log`, game build, SFSE version, and whether you run
+Include your `PrismaUI SF.log`, game build, SFSE version, and whether you run
 HDR / frame-gen / ReShade / overlays. Issues: https://github.com/ozooma10/osf-ui

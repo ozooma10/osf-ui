@@ -1,6 +1,6 @@
 #include "render/UltralightWebRenderer.h"
 
-#if defined(SWUI_WITH_ULTRALIGHT)
+#if defined(PRISMA_SF_WITH_ULTRALIGHT)
 
 	#include "core/Log.h"
 	#include "platform/WindowsPlatform.h"
@@ -20,7 +20,7 @@
 	#include <Ultralight/Ultralight.h>
 	#pragma warning(pop)
 
-namespace SWUI
+namespace PrismaSF
 {
 	namespace
 	{
@@ -247,7 +247,26 @@ namespace SWUI
 			std::uint64_t             index{ 0 };
 		};
 
-		// ---- per-view state (one per loaded view, keyed by manifest id) ----
+		// ---- consumer-API op/notify payloads ----
+			struct EvalRequest
+			{
+				std::uint64_t evalId{ 0 };  // 0 = fire-and-forget (Invoke with no result callback)
+				std::string   script;
+			};
+			struct ConsoleNotify
+			{
+				std::string viewId;
+				int         level{ 0 };  // 0=log 1=warning 2=error 3=debug 4=info
+				std::string message;
+			};
+			struct ListenerCall
+			{
+				std::string viewId;
+				std::string name;
+				std::string arg;
+			};
+
+			// ---- per-view state (one per loaded view, keyed by manifest id) ----
 		// Today exactly one view is hosted (the configured view = activeViewId)
 		// and the IWebRenderer interface stays single-view, targeting the active
 		// view. The keyed map + per-view grouping is the structural seam for
@@ -256,9 +275,12 @@ namespace SWUI
 		struct ViewState
 		{
 			std::string  id;
-			std::int32_t zorder{ 0 };            // layering; lower composites beneath. Set at load, then immutable.
+			std::atomic<std::int32_t> zorder{ 0 };  // layering; lower composites beneath. Mutable via the consumer API.
+			std::atomic<bool> hidden{ false };   // consumer API Show/Hide: skipped in compositing when true.
+			std::atomic<int>  scrollPx{ 28 };    // consumer API scroll step (stored; wheel routing not wired yet).
+			std::atomic<bool> wantsConsole{ false };  // a console handler is registered for this view.
 			bool         interactive{ true };    // may receive input/focus. Set at load, then immutable.
-			bool         bridgeAllowed{ false };  // manifest permissions.nativeBridge; gates window.starfield. Immutable after load.
+			bool         bridgeAllowed{ false };  // manifest permissions.nativeBridge; gates window.prisma. Immutable after load.
 
 			// shared with the game thread (guarded by Impl::mutex)
 			std::optional<ViewManifest>                            pendingLoad;
@@ -267,6 +289,9 @@ namespace SWUI
 			std::deque<std::string>                                toNative;  // page -> game
 			std::deque<KeyInput>                                   toInput;   // game -> view (keyboard)
 			std::deque<MouseInput>                                 toMouse;   // game -> view (mouse)
+			std::deque<EvalRequest>                               toEval;    // game -> view: JS eval (consumer API Invoke)
+			std::deque<std::pair<std::string, std::string>>      toInterop; // game -> view: window.<fn>(arg) (InteropCall)
+			std::deque<std::string>                              toBindListener;  // game -> view: bind window.<name> (RegisterJSListener)
 
 			// frame exchange: pendingFrame/pendingFresh guarded by Impl::frameMutex;
 			// frontFrame is game-thread-only and backs the FrameBufferView we hand out.
@@ -310,6 +335,29 @@ namespace SWUI
 		// will key on the JSContextRef; today it routes to the active view.)
 		static inline std::atomic<Impl*> sActive{ nullptr };
 
+		// ---- consumer-API plumbing (src/api/) ----
+		// game-thread-set handlers + maps (touched only on the game thread):
+		DomReadyHandler                                        onDomReady;
+		std::unordered_map<std::uint64_t, ScriptResultHandler> evalHandlers;  // evalId -> Invoke result cb
+		std::uint64_t                                         nextEvalId{ 1 };
+		std::unordered_map<std::string, JsListenerHandler>    listenerHandlers;  // "viewId\nname" -> cb
+		std::unordered_map<std::string, ConsoleHandler>       consoleHandlers;   // viewId -> cb
+		// worker -> game notifications, drained in Update() (guarded by `mutex`):
+		std::deque<std::string>                               domReadyNotify;  // viewIds whose DOM became ready
+		std::deque<ConsoleNotify>                             consoleNotify;
+		std::deque<ListenerCall>                              listenerCalls;
+		std::deque<std::pair<std::uint64_t, std::string>>     evalResults;     // (evalId, result)
+		// game -> worker: views to destroy on the worker thread (guarded by `mutex`):
+		std::vector<std::string>                              toDestroy;
+
+		static std::string ListenerKey(std::string_view a_viewId, std::string_view a_name)
+		{
+			std::string k(a_viewId);
+			k.push_back('\n');
+			k.append(a_name);
+			return k;
+		}
+
 		// ---- view lookup ----
 		// Active (and currently only) hosted view; null before the first load.
 		// Caller holds `mutex` while touching the returned view's shared fields;
@@ -351,6 +399,9 @@ namespace SWUI
 				std::deque<std::string>                                outbound;
 				std::deque<KeyInput>                                   keys;
 				std::deque<MouseInput>                                 mice;
+				std::deque<EvalRequest>                               eval;
+				std::deque<std::pair<std::string, std::string>>      interop;
+				std::deque<std::string>                              bind;
 			};
 
 			std::unique_lock lock(mutex);
@@ -360,6 +411,17 @@ namespace SWUI
 					break;
 				}
 
+				if (!toDestroy.empty()) {
+					for (const auto& id : toDestroy) {
+						if (id == activeViewId) {
+							activeViewId.clear();
+						}
+						drawOrder.erase(std::remove(drawOrder.begin(), drawOrder.end(), id), drawOrder.end());
+						views.erase(id);
+					}
+					toDestroy.clear();
+				}
+				
 				// Snapshot EVERY view's pending work (and the view pointer)
 				// under the lock — one entry per view even with no pending work,
 				// so each view still gets pumped/harvested below.
@@ -373,6 +435,9 @@ namespace SWUI
 					w.outbound.swap(vs->toWeb);
 					w.keys.swap(vs->toInput);
 					w.mice.swap(vs->toMouse);
+					w.eval.swap(vs->toEval);
+					w.interop.swap(vs->toInterop);
+					w.bind.swap(vs->toBindListener);
 					work.push_back(std::move(w));
 				}
 				// Snapshot the views; sorted into z-order just below.
@@ -409,6 +474,18 @@ namespace SWUI
 					}
 				}
 
+				for (auto& w : work) {
+					for (const auto& name : w.bind) {
+						BindListener(*w.vs, name);
+					}
+					for (const auto& req : w.eval) {
+						DoEval(*w.vs, req);
+					}
+					for (const auto& ic : w.interop) {
+						DoInterop(*w.vs, ic.first, ic.second);
+					}
+				}
+				
 				PumpUltralight(ordered);
 
 				lock.lock();
@@ -456,7 +533,7 @@ namespace SWUI
 				return false;
 			}
 			// In-memory session: no cookies/local storage ever touch disk.
-			session = renderer->CreateSession(false, "starfieldwebui");
+			session = renderer->CreateSession(false, "prismaui");
 			REX::INFO("UltralightWebRenderer: Ultralight renderer created (CPU rendering, in-memory session)");
 			return true;
 		}
@@ -508,7 +585,7 @@ namespace SWUI
 			// (the untouched single-view fast path: per-view triple buffer). More
 			// than one: blend them into the composited frame first.
 			if (a_ordered.size() <= 1) {
-				if (!a_ordered.empty() && a_ordered.front()->backDirty) {
+				if (!a_ordered.empty() && a_ordered.front()->backDirty && !a_ordered.front()->hidden.load()) {
 					auto* vs = a_ordered.front();
 					std::scoped_lock lk(frameMutex);
 					std::swap(vs->backFrame, vs->pendingFrame);
@@ -602,6 +679,9 @@ namespace SWUI
 			compositedBack.strideBytes = dstStride;
 
 			for (const auto* vs : a_ordered) {
+				if (vs->hidden.load()) {
+						continue;
+				}
 				const Frame& src = vs->backFrame;
 				if (src.pixels.empty() || src.width != w || src.height != h) {
 					continue;
@@ -624,7 +704,7 @@ namespace SWUI
 
 		// ================= JS bridge (worker thread) =================
 
-		// Reads the hidden __viewId string baked onto the starfield object at
+		// Reads the hidden __viewId string baked onto the prisma object at
 		// injection time, identifying which view a postMessage came from.
 		[[nodiscard]] static std::string ReadViewId(JSContextRef a_ctx, JSObjectRef a_obj)
 		{
@@ -644,7 +724,7 @@ namespace SWUI
 			auto* self = sActive.load();
 			if (self && a_argc >= 1) {
 				// Attribute the message to its SOURCE view (the __viewId on the
-				// starfield object). Falls back to the active view only if the
+				// prisma object). Falls back to the active view only if the
 				// call was somehow detached from that object.
 				const std::string sourceId = ReadViewId(a_ctx, a_this);
 				auto              json = JSValueToUTF8(a_ctx, a_args[0]);
@@ -670,19 +750,39 @@ namespace SWUI
 			return JSValueMakeUndefined(a_ctx);
 		}
 
+		// window.prisma.__invokeListener(name, arg): queue a (viewId,name,arg)
+		// ListenerCall, drained on the game thread in Update(). Mirrors
+		// PostMessageCallback's __viewId source attribution.
+		static JSValueRef InvokeListenerCallback(
+			JSContextRef a_ctx, JSObjectRef, JSObjectRef a_this, size_t a_argc,
+			const JSValueRef a_args[], JSValueRef*)
+		{
+			auto* self = sActive.load();
+			if (self && a_argc >= 2) {
+				const std::string sourceId = ReadViewId(a_ctx, a_this);
+				auto              name = JSValueToUTF8(a_ctx, a_args[0]);
+				auto              arg = JSValueToUTF8(a_ctx, a_args[1]);
+				std::scoped_lock  lk(self->mutex);
+				if (self->listenerCalls.size() < kMaxQueuedMessages) {
+					self->listenerCalls.push_back(ListenerCall{ sourceId, std::move(name), std::move(arg) });
+				}
+			}
+			return JSValueMakeUndefined(a_ctx);
+		}
+
 		void InjectBridge(ViewState& a_vs)
 		{
 			auto scopedCtx = a_vs.view->LockJSContext();
 			JSContextRef ctx = scopedCtx->ctx();
 			JSObjectRef  global = JSContextGetGlobalObject(ctx);
 
-			// window.starfield = { postMessage: <native fn> }
+			// window.prisma = { postMessage: <native fn> }
 			// The object stays extensible so the page can attach onMessage;
 			// postMessage itself is read-only.
-			JSObjectRef starfield = JSObjectMake(ctx, nullptr, nullptr);
+			JSObjectRef prisma = JSObjectMake(ctx, nullptr, nullptr);
 			JSStringRef postName = JSStringCreateWithUTF8CString("postMessage");
 			JSObjectRef postFn = JSObjectMakeFunctionWithCallback(ctx, postName, &PostMessageCallback);
-			JSObjectSetProperty(ctx, starfield, postName, postFn,
+			JSObjectSetProperty(ctx, prisma, postName, postFn,
 				kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete, nullptr);
 			JSStringRelease(postName);
 
@@ -691,14 +791,23 @@ namespace SWUI
 			// or even see it.
 			JSStringRef vidName = JSStringCreateWithUTF8CString("__viewId");
 			JSStringRef vidStr = JSStringCreateWithUTF8CString(a_vs.id.c_str());
-			JSObjectSetProperty(ctx, starfield, vidName, JSValueMakeString(ctx, vidStr),
+			JSObjectSetProperty(ctx, prisma, vidName, JSValueMakeString(ctx, vidStr),
 				kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontEnum | kJSPropertyAttributeDontDelete, nullptr);
 			JSStringRelease(vidStr);
 			JSStringRelease(vidName);
 
-			JSStringRef starfieldName = JSStringCreateWithUTF8CString("starfield");
-			JSObjectSetProperty(ctx, global, starfieldName, starfield, kJSPropertyAttributeNone, nullptr);
-			JSStringRelease(starfieldName);
+			// window.prisma.__invokeListener(name, arg): the JS->native path for
+			// the consumer API's RegisterJSListener. The bound window.<name>
+			// wrappers call it; native attributes it via the baked __viewId.
+			JSStringRef invName = JSStringCreateWithUTF8CString("__invokeListener");
+			JSObjectRef invFn = JSObjectMakeFunctionWithCallback(ctx, invName, &InvokeListenerCallback);
+			JSObjectSetProperty(ctx, prisma, invName, invFn,
+				kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontEnum | kJSPropertyAttributeDontDelete, nullptr);
+			JSStringRelease(invName);
+
+			JSStringRef prismaName = JSStringCreateWithUTF8CString("prisma");
+			JSObjectSetProperty(ctx, global, prismaName, prisma, kJSPropertyAttributeNone, nullptr);
+			JSStringRelease(prismaName);
 		}
 
 		void FlushStashedMessages(ViewState& a_vs)
@@ -716,20 +825,20 @@ namespace SWUI
 			JSContextRef ctx = scopedCtx->ctx();
 			JSObjectRef  global = JSContextGetGlobalObject(ctx);
 
-			JSStringRef starfieldName = JSStringCreateWithUTF8CString("starfield");
-			JSValueRef  starfieldVal = JSObjectGetProperty(ctx, global, starfieldName, nullptr);
-			JSStringRelease(starfieldName);
-			if (!JSValueIsObject(ctx, starfieldVal)) {
-				REX::WARN("UltralightWebRenderer: window.starfield missing; dropped native->web message");
+			JSStringRef prismaName = JSStringCreateWithUTF8CString("prisma");
+			JSValueRef  prismaVal = JSObjectGetProperty(ctx, global, prismaName, nullptr);
+			JSStringRelease(prismaName);
+			if (!JSValueIsObject(ctx, prismaVal)) {
+				REX::WARN("UltralightWebRenderer: window.prisma missing; dropped native->web message");
 				return;
 			}
-			JSObjectRef starfield = JSValueToObject(ctx, starfieldVal, nullptr);
+			JSObjectRef prisma = JSValueToObject(ctx, prismaVal, nullptr);
 
 			JSStringRef onName = JSStringCreateWithUTF8CString("onMessage");
-			JSValueRef  onVal = JSObjectGetProperty(ctx, starfield, onName, nullptr);
+			JSValueRef  onVal = JSObjectGetProperty(ctx, prisma, onName, nullptr);
 			JSStringRelease(onName);
 			if (!JSValueIsObject(ctx, onVal) || !JSObjectIsFunction(ctx, JSValueToObject(ctx, onVal, nullptr))) {
-				REX::WARN("UltralightWebRenderer: window.starfield.onMessage is not a function; dropped native->web message");
+				REX::WARN("UltralightWebRenderer: window.prisma.onMessage is not a function; dropped native->web message");
 				return;
 			}
 
@@ -737,10 +846,92 @@ namespace SWUI
 			JSValueRef  arg = JSValueMakeString(ctx, jsonStr);
 			JSStringRelease(jsonStr);
 			JSValueRef exception = nullptr;
-			JSObjectCallAsFunction(ctx, JSValueToObject(ctx, onVal, nullptr), starfield, 1, &arg, &exception);
+			JSObjectCallAsFunction(ctx, JSValueToObject(ctx, onVal, nullptr), prisma, 1, &arg, &exception);
 			if (exception) {
 				REX::WARN("UltralightWebRenderer: onMessage threw: {}",
 					JSValueToUTF8(ctx, exception).substr(0, kMaxLoggedTextLen));
+			}
+		}
+
+		// ---- consumer-API JS ops (worker thread) ----
+
+		// Bind window.<name>(arg) as a thin wrapper calling __invokeListener.
+		void BindListener(ViewState& a_vs, const std::string& a_name)
+		{
+			if (!a_vs.view) {
+				return;
+			}
+			std::string esc;
+			for (char c : a_name) {
+				if (c == '\\' || c == '"') {
+					esc.push_back('\\');
+				}
+				esc.push_back(c);
+			}
+			const std::string js =
+				"window[\"" + esc + "\"]=function(a){if(window.prisma&&window.prisma.__invokeListener)"
+				"window.prisma.__invokeListener(\"" + esc + "\",a===undefined?\"\":String(a));};";
+			auto         scopedCtx = a_vs.view->LockJSContext();
+			JSContextRef ctx = scopedCtx->ctx();
+			JSStringRef  s = JSStringCreateWithUTF8CString(js.c_str());
+			JSValueRef   exc = nullptr;
+			JSEvaluateScript(ctx, s, nullptr, nullptr, 0, &exc);
+			JSStringRelease(s);
+			if (exc) {
+				REX::WARN("UltralightWebRenderer: RegisterJSListener bind of '{}' threw", a_name);
+			}
+		}
+
+		// Run arbitrary JS; push the result back to the game thread if wanted.
+		void DoEval(ViewState& a_vs, const EvalRequest& a_req)
+		{
+			std::string out;
+			if (a_vs.view) {
+				auto         scopedCtx = a_vs.view->LockJSContext();
+				JSContextRef ctx = scopedCtx->ctx();
+				JSStringRef  s = JSStringCreateWithUTF8CString(a_req.script.c_str());
+				JSValueRef   exc = nullptr;
+				JSValueRef   res = JSEvaluateScript(ctx, s, nullptr, nullptr, 0, &exc);
+				JSStringRelease(s);
+				if (exc) {
+					REX::WARN("UltralightWebRenderer: Invoke threw: {}",
+						JSValueToUTF8(ctx, exc).substr(0, kMaxLoggedTextLen));
+				} else if (res && !JSValueIsUndefined(ctx, res) && !JSValueIsNull(ctx, res)) {
+					out = JSValueToUTF8(ctx, res);
+				}
+			}
+			if (a_req.evalId != 0) {
+				std::scoped_lock lk(mutex);
+				evalResults.emplace_back(a_req.evalId, std::move(out));
+			}
+		}
+
+		// Call window.<fn>(arg) directly (no eval/parse).
+		void DoInterop(ViewState& a_vs, const std::string& a_fn, const std::string& a_arg)
+		{
+			if (!a_vs.view) {
+				return;
+			}
+			auto         scopedCtx = a_vs.view->LockJSContext();
+			JSContextRef ctx = scopedCtx->ctx();
+			JSObjectRef  global = JSContextGetGlobalObject(ctx);
+			JSStringRef  fnName = JSStringCreateWithUTF8CString(a_fn.c_str());
+			JSValueRef   fnVal = JSObjectGetProperty(ctx, global, fnName, nullptr);
+			JSStringRelease(fnName);
+			if (!JSValueIsObject(ctx, fnVal)) {
+				return;
+			}
+			JSObjectRef fnObj = JSValueToObject(ctx, fnVal, nullptr);
+			if (!fnObj || !JSObjectIsFunction(ctx, fnObj)) {
+				return;
+			}
+			JSStringRef argStr = JSStringCreateWithUTF8CString(a_arg.c_str());
+			JSValueRef  arg = JSValueMakeString(ctx, argStr);
+			JSStringRelease(argStr);
+			JSValueRef exc = nullptr;
+			JSObjectCallAsFunction(ctx, fnObj, global, 1, &arg, &exc);
+			if (exc) {
+				REX::WARN("UltralightWebRenderer: InteropCall '{}' threw", a_fn);
 			}
 		}
 
@@ -879,7 +1070,7 @@ namespace SWUI
 				vs = FindByView(a_view);
 			}
 			// Only views that requested it (manifest permissions.nativeBridge)
-			// get window.starfield at all.
+			// get window.prisma at all.
 			if (vs && vs->bridgeAllowed) {
 				InjectBridge(*vs);
 			}
@@ -900,6 +1091,12 @@ namespace SWUI
 			}
 			vs->domReady = true;
 			REX::INFO("UltralightWebRenderer: DOM ready for view '{}' ({})", vs->id, ToUTF8(a_url));
+			{
+				std::scoped_lock lk(mutex);
+				if (domReadyNotify.size() < kMaxQueuedMessages) {
+					domReadyNotify.push_back(vs->id);
+				}
+			}
 			// Give the view input focus so routed key events reach the focused
 			// DOM element (the page autofocuses its input).
 			vs->view->Focus();
@@ -913,9 +1110,24 @@ namespace SWUI
 				a_isMainFrame, ToUTF8(a_url), ToUTF8(a_description), ToUTF8(a_errorDomain), a_errorCode);
 		}
 
-		void OnAddConsoleMessage(ul::View*, const ul::ConsoleMessage& a_message) override
+		void OnAddConsoleMessage(ul::View* a_view, const ul::ConsoleMessage& a_message) override
 		{
 			const auto text = ToUTF8(a_message.message()).substr(0, kMaxLoggedTextLen);
+			
+			{
+				std::scoped_lock lk(mutex);
+				if (ViewState* vs = FindByView(a_view); vs && vs->wantsConsole.load()) {
+					int lvl = 0;
+					if (a_message.level() == ul::kMessageLevel_Warning) {
+						lvl = 1;
+					} else if (a_message.level() == ul::kMessageLevel_Error) {
+						lvl = 2;
+					}
+					if (consoleNotify.size() < kMaxQueuedMessages) {
+						consoleNotify.push_back(ConsoleNotify{ vs->id, lvl, ToUTF8(a_message.message()) });
+					}
+				}
+			}
 			switch (a_message.level()) {
 			case ul::kMessageLevel_Error:
 				REX::ERROR("UltralightWebRenderer: [console] {} ({}:{})", text,
@@ -1086,6 +1298,44 @@ namespace SWUI
 				}
 			}
 		}
+		std::deque<std::string>                            apiDomReady;
+		std::deque<Impl::ListenerCall>                     apiListeners;
+		std::deque<Impl::ConsoleNotify>                    apiConsoles;
+		std::deque<std::pair<std::uint64_t, std::string>> apiResults;
+		{
+			std::scoped_lock lk(_impl->mutex);
+			apiDomReady.swap(_impl->domReadyNotify);
+			apiListeners.swap(_impl->listenerCalls);
+			apiConsoles.swap(_impl->consoleNotify);
+			apiResults.swap(_impl->evalResults);
+		}
+		if (_impl->onDomReady) {
+			for (const auto& id : apiDomReady) {
+				_impl->onDomReady(id);
+			}
+		}
+		for (const auto& lc : apiListeners) {
+			const auto hit = _impl->listenerHandlers.find(Impl::ListenerKey(lc.viewId, lc.name));
+			if (hit != _impl->listenerHandlers.end() && hit->second) {
+				hit->second(lc.arg);
+			}
+		}
+		for (const auto& cn : apiConsoles) {
+			const auto cit = _impl->consoleHandlers.find(cn.viewId);
+			if (cit != _impl->consoleHandlers.end() && cit->second) {
+				cit->second(cn.level, cn.message);
+			}
+		}
+		for (auto& pr : apiResults) {
+			const auto eit = _impl->evalHandlers.find(pr.first);
+			if (eit != _impl->evalHandlers.end()) {
+				if (eit->second) {
+					eit->second(pr.second);
+				}
+				_impl->evalHandlers.erase(eit);
+			}
+		}
+		
 		if (_impl->onWebMessage) {
 			for (const auto& [viewId, json] : inbound) {
 				_impl->onWebMessage(viewId, json);
@@ -1177,6 +1427,116 @@ namespace SWUI
 		_impl->onWebMessage = std::move(a_handler);
 	}
 
+	void UltralightWebRenderer::SetDomReadyHandler(DomReadyHandler a_handler)
+	{
+		_impl->onDomReady = std::move(a_handler);
+	}
+
+	void UltralightWebRenderer::EvaluateScript(std::string_view a_viewId, std::string_view a_js, ScriptResultHandler a_onResult)
+	{
+		std::scoped_lock lk(_impl->mutex);
+		const auto it = _impl->views.find(std::string(a_viewId));
+		if (it == _impl->views.end()) {
+			return;
+		}
+		std::uint64_t evalId = 0;
+		if (a_onResult) {
+			evalId = _impl->nextEvalId++;
+			_impl->evalHandlers.emplace(evalId, std::move(a_onResult));
+		}
+		it->second->toEval.push_back(Impl::EvalRequest{ evalId, std::string(a_js) });
+		_impl->wake.notify_all();
+	}
+
+	void UltralightWebRenderer::CallJsFunction(std::string_view a_viewId, std::string_view a_fnName, std::string_view a_arg)
+	{
+		{
+			std::scoped_lock lk(_impl->mutex);
+			const auto it = _impl->views.find(std::string(a_viewId));
+			if (it == _impl->views.end()) {
+				return;
+			}
+			it->second->toInterop.emplace_back(std::string(a_fnName), std::string(a_arg));
+		}
+		_impl->wake.notify_all();
+	}
+
+	void UltralightWebRenderer::RegisterJsFunction(std::string_view a_viewId, std::string_view a_name, JsListenerHandler a_callback)
+	{
+		std::scoped_lock lk(_impl->mutex);
+		const auto it = _impl->views.find(std::string(a_viewId));
+		if (it == _impl->views.end()) {
+			return;
+		}
+		_impl->listenerHandlers[Impl::ListenerKey(a_viewId, a_name)] = std::move(a_callback);
+		it->second->toBindListener.emplace_back(a_name);
+		_impl->wake.notify_all();
+	}
+
+	void UltralightWebRenderer::SetConsoleHandler(std::string_view a_viewId, ConsoleHandler a_handler)
+	{
+		std::scoped_lock lk(_impl->mutex);
+		const auto it = _impl->views.find(std::string(a_viewId));
+		if (it == _impl->views.end()) {
+			return;
+		}
+		const bool has = static_cast<bool>(a_handler);
+		if (has) {
+			_impl->consoleHandlers[std::string(a_viewId)] = std::move(a_handler);
+		} else {
+			_impl->consoleHandlers.erase(std::string(a_viewId));
+		}
+		it->second->wantsConsole.store(has);
+	}
+
+	void UltralightWebRenderer::SetViewHidden(std::string_view a_viewId, bool a_hidden)
+	{
+		std::scoped_lock lk(_impl->mutex);
+		if (const auto it = _impl->views.find(std::string(a_viewId)); it != _impl->views.end()) {
+			it->second->hidden.store(a_hidden);
+		}
+		_impl->wake.notify_all();
+	}
+
+	void UltralightWebRenderer::SetViewOrder(std::string_view a_viewId, int a_order)
+	{
+		std::scoped_lock lk(_impl->mutex);
+		if (const auto it = _impl->views.find(std::string(a_viewId)); it != _impl->views.end()) {
+			it->second->zorder.store(a_order);
+		}
+		_impl->wake.notify_all();
+	}
+
+	void UltralightWebRenderer::SetScrollPixelSize(std::string_view a_viewId, int a_pixels)
+	{
+		std::scoped_lock lk(_impl->mutex);
+		if (const auto it = _impl->views.find(std::string(a_viewId)); it != _impl->views.end()) {
+			it->second->scrollPx.store(a_pixels);
+		}
+	}
+
+	void UltralightWebRenderer::DestroyView(std::string_view a_viewId)
+	{
+		{
+			std::scoped_lock lk(_impl->mutex);
+			const std::string id(a_viewId);
+			if (_impl->views.find(id) == _impl->views.end()) {
+				return;
+			}
+			_impl->toDestroy.push_back(id);
+			_impl->consoleHandlers.erase(id);
+			const std::string prefix = id + "\n";
+			for (auto hit = _impl->listenerHandlers.begin(); hit != _impl->listenerHandlers.end();) {
+				if (hit->first.rfind(prefix, 0) == 0) {
+					hit = _impl->listenerHandlers.erase(hit);
+				} else {
+					++hit;
+				}
+			}
+		}
+		_impl->wake.notify_all();
+	}
+
 	void UltralightWebRenderer::InjectKeyEvent(std::uint32_t a_vkCode, bool a_down)
 	{
 		{
@@ -1233,4 +1593,4 @@ namespace SWUI
 	}
 }
 
-#endif  // SWUI_WITH_ULTRALIGHT
+#endif  // PRISMA_SF_WITH_ULTRALIGHT

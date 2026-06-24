@@ -7,7 +7,7 @@
 #include "input/UiInputHook.h"
 #include "runtime/Runtime.h"
 
-namespace SWUI::Plugin
+namespace PrismaSF::Plugin
 {
 	namespace
 	{
@@ -89,7 +89,7 @@ namespace SWUI::Plugin
 						// is only opened (UIMessageQueue kShow) when the overlay
 						// becomes visible, from Runtime's main-thread tick.
 						if (Runtime::Get().GetConfig().focusMenu) {
-							REX::WARN("Plugin: focusMenu=true (EXPERIMENTAL) — registering OSFUI_FocusMenu; "
+							REX::WARN("Plugin: focusMenu=true (EXPERIMENTAL) — registering PrismaUISF_FocusMenu; "
 									  "custom-IMenu registration is unproven on 1.16.244 and may be unstable");
 							FocusMenu::Register();
 						}

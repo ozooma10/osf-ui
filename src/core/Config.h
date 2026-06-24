@@ -1,8 +1,8 @@
 #pragma once
 
-namespace SWUI
+namespace PrismaSF
 {
-	// Mirrors data/StarfieldWebUI/config.json. Unknown/missing/invalid fields
+	// Mirrors data/PrismaUI/config.json. Unknown/missing/invalid fields
 	// fall back to these defaults; a missing file is logged, not fatal.
 	struct Config
 	{
@@ -15,7 +15,7 @@ namespace SWUI
 		std::string inputSource{ "none" }; // "none" | "ui" (observe-only vfunc hook on RE::UI input processing)
 		bool        captureInput{ true };  // when visible, route input to the web view and block the game from acting on it (needs inputSource="ui")
 		// EXPERIMENTAL (default off in code; shipped config.json turns it on).
-		// Register a real engine menu (OSFUI_FocusMenu) and open/close it with
+		// Register a real engine menu (PrismaUISF_FocusMenu) and open/close it with
 		// the overlay so the ENGINE enters menu mode (cursor + modal input
 		// ownership) instead of relying only on the WndProc message-swallow.
 		// Custom-IMenu registration + open IS proven on 1.16.244 (OSF RE

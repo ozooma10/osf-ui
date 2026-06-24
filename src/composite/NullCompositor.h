@@ -2,7 +2,7 @@
 
 #include "composite/ICompositor.h"
 
-namespace SWUI
+namespace PrismaSF
 {
 	// Logs frame submissions and draws nothing. The default compositor until a
 	// real presentation path exists.

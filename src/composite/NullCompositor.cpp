@@ -1,6 +1,6 @@
 #include "composite/NullCompositor.h"
 
-namespace SWUI
+namespace PrismaSF
 {
 	bool NullCompositor::Initialize()
 	{

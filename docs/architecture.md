@@ -2,7 +2,7 @@
 
 ## Goal
 
-StarfieldWebUI is a prototype runtime for hosting HTML/CSS/JS-based UI inside
+PrismaUI SF is a prototype runtime for hosting HTML/CSS/JS-based UI inside
 Starfield, delivered as an SFSE/CommonLibSF plugin. The concept is inspired by
 Prisma UI (Skyrim); no Prisma source code is used.
 
@@ -111,7 +111,7 @@ outside the view folder.
 + `ULTRALIGHT_SDK_DIR`) implements `IWebRenderer` over an offscreen Ultralight
 renderer using the CPU `BitmapSurface`. It slots in where the mock renderer
 sits today: same `LoadView`, same `Render() → FrameBufferView`, same JSON
-bridge via a single injected `window.starfield.postMessage` function. The rest
+bridge via a single injected `window.prisma.postMessage` function. The rest
 of the runtime does not know which backend is active. The SDK is proprietary
 and never vendored; the default build has zero Ultralight footprint.
 

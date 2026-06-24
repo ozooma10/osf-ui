@@ -17,7 +17,7 @@
 #include <mutex>
 #include <vector>
 
-namespace SWUI
+namespace PrismaSF
 {
 	namespace
 	{
@@ -378,7 +378,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			wc.cbSize = sizeof(wc);
 			wc.lpfnWndProc = ::DefWindowProcW;
 			wc.hInstance = ::GetModuleHandleW(nullptr);
-			wc.lpszClassName = L"SWUIOverlayDummyWnd";
+			wc.lpszClassName = L"PrismaSFOverlayDummyWnd";
 			::RegisterClassExW(&wc);
 			HWND dummyWnd = ::CreateWindowExW(0, wc.lpszClassName, L"", WS_OVERLAPPEDWINDOW,
 				0, 0, 1, 1, nullptr, nullptr, wc.hInstance, nullptr);

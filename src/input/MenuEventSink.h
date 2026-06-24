@@ -3,7 +3,7 @@
 #include "RE/E/Events.h"
 #include "RE/U/UI.h"
 
-namespace SWUI
+namespace PrismaSF
 {
 	// Observes the game's menu open/close stream via the documented
 	// CommonLibSF API (RE::UI is a BSTEventSource<MenuOpenCloseEvent>;

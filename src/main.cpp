@@ -9,12 +9,12 @@ SFSE_PLUGIN_PRELOAD(const SFSE::PreLoadInterface* a_sfse)
 	// at the configured level so every line hits disk immediately.
 	SFSE::Init(a_sfse, { .logLevel = REX::ELogLevel::Debug });
 
-	return SWUI::Plugin::OnPreLoad();
+	return PrismaSF::Plugin::OnPreLoad();
 }
 
 SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 {
 	SFSE::Init(a_sfse);
 
-	return SWUI::Plugin::OnLoad();
+	return PrismaSF::Plugin::OnLoad();
 }

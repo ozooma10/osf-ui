@@ -1,6 +1,6 @@
 #include "core/Log.h"
 
-namespace SWUI::Log
+namespace PrismaSF::Log
 {
 	namespace
 	{

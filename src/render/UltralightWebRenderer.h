@@ -1,15 +1,15 @@
 #pragma once
 
 // Optional Ultralight backend. Only compiled when the xmake option
-// `with_ultralight` is enabled (defines SWUI_WITH_ULTRALIGHT=1 and requires
+// `with_ultralight` is enabled (defines PRISMA_SF_WITH_ULTRALIGHT=1 and requires
 // the ULTRALIGHT_SDK_DIR environment variable). The SDK is proprietary and is
 // never vendored into this repository.
 
-#if defined(SWUI_WITH_ULTRALIGHT)
+#if defined(PRISMA_SF_WITH_ULTRALIGHT)
 
 	#include "render/IWebRenderer.h"
 
-namespace SWUI
+namespace PrismaSF
 {
 	// Offscreen Ultralight-based HTML renderer (docs/renderer-plan.md Phase 1).
 	//
@@ -51,6 +51,17 @@ namespace SWUI
 		void InjectMouseMove(int a_x, int a_y) override;
 		void InjectMouseButton(int a_x, int a_y, int a_button, bool a_down) override;
 
+		// Consumer-API support (see src/api/ and IWebRenderer.h).
+		void SetDomReadyHandler(DomReadyHandler a_handler) override;
+		void EvaluateScript(std::string_view a_viewId, std::string_view a_js, ScriptResultHandler a_onResult) override;
+		void CallJsFunction(std::string_view a_viewId, std::string_view a_fnName, std::string_view a_arg) override;
+		void RegisterJsFunction(std::string_view a_viewId, std::string_view a_name, JsListenerHandler a_callback) override;
+		void SetConsoleHandler(std::string_view a_viewId, ConsoleHandler a_handler) override;
+		void SetViewHidden(std::string_view a_viewId, bool a_hidden) override;
+		void SetViewOrder(std::string_view a_viewId, int a_order) override;
+		void SetScrollPixelSize(std::string_view a_viewId, int a_pixels) override;
+		void DestroyView(std::string_view a_viewId) override;
+
 		[[nodiscard]] std::string_view Name() const override { return "ultralight"; }
 
 	private:
@@ -59,4 +70,4 @@ namespace SWUI
 	};
 }
 
-#endif  // SWUI_WITH_ULTRALIGHT
+#endif  // PRISMA_SF_WITH_ULTRALIGHT

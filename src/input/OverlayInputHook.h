@@ -1,6 +1,6 @@
 #pragma once
 
-namespace SWUI
+namespace PrismaSF
 {
 	// Subclasses the game's main window procedure (SetWindowLongPtr on the
 	// game HWND — NOT a global SetWindowsHookEx) to intercept input at the OS

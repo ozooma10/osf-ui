@@ -7,7 +7,7 @@
 // on missing keys or wrong types. JSON here is mod-provided content: treat it
 // as untrusted input, never as a reason to crash the game.
 
-namespace SWUI::Json
+namespace PrismaSF::Json
 {
 	using Value = nlohmann::json;
 

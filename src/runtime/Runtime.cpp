@@ -16,7 +16,7 @@
 #include "render/NullWebRenderer.h"
 #include "render/UltralightWebRenderer.h"
 
-namespace SWUI
+namespace PrismaSF
 {
 	Runtime& Runtime::Get()
 	{
@@ -65,6 +65,14 @@ namespace SWUI
 			_renderer->Initialize(rendererConfig);
 		}
 		REX::INFO("Runtime: renderer = {}", _renderer->Name());
+
+		// Route per-view DOM-ready to the consumer API's CreateView callback
+		// (no-op for config/declarative views). Delivered on the game thread.
+		_renderer->SetDomReadyHandler([this](std::string_view a_viewId) {
+			if (auto cb = _apiViews.DomReadyFor(a_viewId)) {
+				cb();
+			}
+		});
 
 		// Compositor
 		_compositor = CreateCompositor();
@@ -318,7 +326,7 @@ namespace SWUI
 		// Scale raw deltas so the cursor crosses the view in a screen-size-
 		// independent amount of physical mouse travel (the view tracks the
 		// screen now, so a fixed 1:1 mapping would feel slow on big views),
-		// times the user's live cursor-speed setting (osfui.cursorSpeed).
+		// times the user's live cursor-speed setting (prismasf.cursorSpeed).
 		const auto scale = _cursorScale.load(std::memory_order_relaxed) *
 			_cursorSpeed.load(std::memory_order_relaxed);
 		const auto maxX = static_cast<float>(_viewWidth.load(std::memory_order_relaxed) - 1);
@@ -357,7 +365,7 @@ namespace SWUI
 		// Runs on the game main thread (Tick). Drive the engine menu's open state
 		// toward the overlay's visibility; only act on a change so we don't spam
 		// the UI message queue every frame.
-		const bool wantOpen = _visible.load();
+		const bool wantOpen = _visible.load() && !_apiSuppressFocusMenu.load();
 		if (wantOpen == _focusMenuOpen) {
 			return;
 		}
@@ -395,7 +403,7 @@ namespace SWUI
 		const auto docs = Platform::GetDocumentsPath();
 		const auto valuesDir = docs.empty()
 			? Paths::DataDir() / "settings" / "values"  // fallback (MO2 redirects the write)
-			: docs / "My Games" / "Starfield" / "StarfieldWebUI" / "settings";
+			: docs / "My Games" / "Starfield" / "PrismaUI" / "settings";
 		_modules.push_back(std::make_unique<SettingsModule>(schemaDir, valuesDir,
 			[this](std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value) {
 				OnSettingChanged(a_mod, a_key, a_value);
@@ -449,10 +457,10 @@ namespace SWUI
 		// The Phase 5b payoff: settings drive native behaviour live. Cursor
 		// speed multiplies mouse sensitivity in OnHostMouseDelta — observable
 		// immediately and never self-defeating (the cursor keeps working).
-		if (a_modId == "osfui" && a_key == "cursorSpeed" && a_value.is_number()) {
+		if (a_modId == "prismasf" && a_key == "cursorSpeed" && a_value.is_number()) {
 			const auto speed = a_value.get<float>();
 			_cursorSpeed.store(speed);
-			REX::INFO("Runtime: setting osfui.cursorSpeed -> {:.2f}", speed);
+			REX::INFO("Runtime: setting prismasf.cursorSpeed -> {:.2f}", speed);
 		}
 	}
 
@@ -503,7 +511,7 @@ namespace SWUI
 			return std::make_unique<MockWebRenderer>();
 		}
 		if (_config.renderer == "ultralight") {
-#if defined(SWUI_WITH_ULTRALIGHT)
+#if defined(PRISMA_SF_WITH_ULTRALIGHT)
 			// Must run before the renderer object exists: even constructing
 			// it touches delay-loaded SDK symbols (see PreloadRuntime docs).
 			if (!UltralightWebRenderer::PreloadRuntime(Paths::DataDir())) {
@@ -532,5 +540,201 @@ namespace SWUI
 			REX::WARN("Runtime: unknown compositor '{}'; using null compositor", _config.compositor);
 		}
 		return std::make_unique<NullCompositor>();
+	}
+
+	// ===================== Public consumer API (src/api) =====================
+	// These back the exported RequestPluginAPI vtable (PRISMA_UI_API). The handle
+	// table (_apiViews) is the source of truth for logical per-view state; the
+	// renderer is told to honor it. See Runtime.h for the threading contract.
+
+	std::uint64_t Runtime::ApiCreateView(std::string a_htmlPath, ViewRegistry::DomReadyCb a_onDomReady)
+	{
+		if (!_initialized || !_renderer || a_htmlPath.empty()) {
+			REX::WARN("Runtime: ApiCreateView('{}') ignored (runtime/renderer not ready)", a_htmlPath);
+			return 0;
+		}
+
+		const auto handle = _apiViews.Create(a_htmlPath, std::move(a_onDomReady));
+		const auto id = _apiViews.InternalId(handle);
+
+		// htmlPath is "<folder>/<entry>" relative to the views dir (PrismaUI
+		// convention, e.g. "MyMod/index.html"). The renderer builds the file URL
+		// from the manifest's rootDir folder + entry and keys the view by id.
+		std::string folder = a_htmlPath;
+		std::string entry = "index.html";
+		if (const auto slash = a_htmlPath.find('/'); slash != std::string::npos) {
+			folder = a_htmlPath.substr(0, slash);
+			entry = a_htmlPath.substr(slash + 1);
+		} else {
+			REX::WARN("Runtime: ApiCreateView htmlPath '{}' has no '<folder>/' prefix; "
+					  "expected e.g. \"MyMod/index.html\"", a_htmlPath);
+		}
+
+		ViewManifest m;
+		m.id = id;
+		m.title = a_htmlPath;
+		m.entry = entry;
+		m.transparent = true;
+		m.zorder = _apiViews.GetOrder(handle);
+		m.interactive = true;
+		m.permissions.nativeBridge = true;  // trusted native consumer: full bridge + Invoke
+		m.rootDir = Paths::ViewsDir() / folder;
+
+		_renderer->LoadView(m);
+		REX::INFO("Runtime: ApiCreateView '{}' -> handle {} (view '{}')", a_htmlPath, handle, id);
+		return handle;
+	}
+
+	void Runtime::ApiDestroy(std::uint64_t a_handle)
+	{
+		const auto id = _apiViews.Remove(a_handle);
+		if (!id.empty() && _renderer) {
+			_renderer->DestroyView(id);
+			REX::INFO("Runtime: ApiDestroy view '{}'", id);
+		}
+	}
+
+	bool Runtime::ApiIsValid(std::uint64_t a_handle) const
+	{
+		return _apiViews.Exists(a_handle);
+	}
+
+	void Runtime::ApiInvoke(std::uint64_t a_handle, std::string a_script, IWebRenderer::ScriptResultHandler a_onResult)
+	{
+		const auto id = _apiViews.InternalId(a_handle);
+		if (id.empty() || !_renderer) {
+			return;
+		}
+		_renderer->EvaluateScript(id, a_script, std::move(a_onResult));
+	}
+
+	void Runtime::ApiInteropCall(std::uint64_t a_handle, std::string a_fn, std::string a_arg)
+	{
+		const auto id = _apiViews.InternalId(a_handle);
+		if (id.empty() || !_renderer) {
+			return;
+		}
+		_renderer->CallJsFunction(id, a_fn, a_arg);
+	}
+
+	void Runtime::ApiRegisterJSListener(std::uint64_t a_handle, std::string a_name, IWebRenderer::JsListenerHandler a_cb)
+	{
+		const auto id = _apiViews.InternalId(a_handle);
+		if (id.empty() || !_renderer) {
+			return;
+		}
+		_renderer->RegisterJsFunction(id, a_name, std::move(a_cb));
+	}
+
+	void Runtime::ApiRegisterConsoleCallback(std::uint64_t a_handle, ViewRegistry::ConsoleCb a_cb)
+	{
+		const auto id = _apiViews.InternalId(a_handle);
+		if (id.empty() || !_renderer) {
+			return;
+		}
+		const bool has = static_cast<bool>(a_cb);
+		_apiViews.SetConsole(a_handle, std::move(a_cb));
+		if (has) {
+			_renderer->SetConsoleHandler(id, [this, id](int a_level, std::string a_msg) {
+				if (auto cb = _apiViews.ConsoleFor(id)) {
+					cb(a_level, std::move(a_msg));
+				}
+			});
+		} else {
+			_renderer->SetConsoleHandler(id, nullptr);
+		}
+	}
+
+	bool Runtime::ApiHasFocus(std::uint64_t a_handle) const
+	{
+		return IsInputCaptured() && _apiViews.IsFocused(a_handle);
+	}
+
+	bool Runtime::ApiFocus(std::uint64_t a_handle, bool a_pauseGame, bool a_disableFocusMenu)
+	{
+		const auto id = _apiViews.InternalId(a_handle);
+		if (id.empty() || !_renderer) {
+			return false;
+		}
+		_apiViews.SetFocused(a_handle, true, /*exclusive*/ true);
+		_apiViews.SetHidden(a_handle, false);
+		_apiSuppressFocusMenu.store(a_disableFocusMenu);
+		_captureInput.store(true);  // a focused view owns input
+		_renderer->SetViewHidden(id, false);
+		_renderer->SetActiveView(id);
+		SetVisible(true);  // overlay must be up to render/capture
+		if (a_pauseGame) {
+			ControlLayer::Engage();  // EXPERIMENTAL device-agnostic freeze (incl. gamepad)
+		}
+		REX::INFO("Runtime: ApiFocus view '{}' (pauseGame={}, disableFocusMenu={})",
+			id, a_pauseGame, a_disableFocusMenu);
+		return true;
+	}
+
+	void Runtime::ApiUnfocus(std::uint64_t a_handle)
+	{
+		_apiViews.SetFocused(a_handle, false, /*exclusive*/ false);
+		_apiSuppressFocusMenu.store(false);
+		ControlLayer::Release();  // no-op if not engaged
+	}
+
+	bool Runtime::ApiHasAnyActiveFocus() const
+	{
+		return IsInputCaptured() && _apiViews.AnyFocused();
+	}
+
+	void Runtime::ApiShow(std::uint64_t a_handle)
+	{
+		if (!_apiViews.Exists(a_handle)) {
+			return;
+		}
+		_apiViews.SetHidden(a_handle, false);
+		if (_renderer) {
+			_renderer->SetViewHidden(_apiViews.InternalId(a_handle), false);
+		}
+		SetVisible(true);  // ensure the overlay is up so the shown view renders
+	}
+
+	void Runtime::ApiHide(std::uint64_t a_handle)
+	{
+		if (!_apiViews.Exists(a_handle)) {
+			return;
+		}
+		_apiViews.SetHidden(a_handle, true);
+		if (_renderer) {
+			_renderer->SetViewHidden(_apiViews.InternalId(a_handle), true);
+		}
+		// Leave the overlay visible — other views may still be shown.
+	}
+
+	bool Runtime::ApiIsHidden(std::uint64_t a_handle) const
+	{
+		return _apiViews.IsHidden(a_handle);
+	}
+
+	void Runtime::ApiSetOrder(std::uint64_t a_handle, int a_order)
+	{
+		_apiViews.SetOrder(a_handle, a_order);
+		if (_renderer) {
+			_renderer->SetViewOrder(_apiViews.InternalId(a_handle), a_order);
+		}
+	}
+
+	int Runtime::ApiGetOrder(std::uint64_t a_handle) const
+	{
+		return _apiViews.GetOrder(a_handle);
+	}
+
+	void Runtime::ApiSetScrollingPixelSize(std::uint64_t a_handle, int a_px)
+	{
+		_apiViews.SetScrollPixelSize(a_handle, a_px);
+		if (_renderer) {
+			_renderer->SetScrollPixelSize(_apiViews.InternalId(a_handle), a_px);
+		}
+	}
+
+	int Runtime::ApiGetScrollingPixelSize(std::uint64_t a_handle) const
+	{
+		return _apiViews.GetScrollPixelSize(a_handle);
 	}
 }

@@ -2,8 +2,8 @@
 // narrow JSON message bridge described in docs/security-model.md.
 //
 // The native side will eventually expose:
-//   window.starfield.postMessage(jsonString)   // web -> native
-//   window.starfield.onMessage(jsonString)     // native -> web (assigned here)
+//   window.prisma.postMessage(jsonString)   // web -> native
+//   window.prisma.onMessage(jsonString)     // native -> web (assigned here)
 // Until a real renderer backend exists, this script detects the missing
 // bridge and runs in a degraded "standalone" mode so the page is testable in
 // an ordinary browser.
@@ -20,14 +20,14 @@ function logLine(text) {
 }
 
 function bridgeAvailable() {
-  return typeof window.starfield === "object" &&
-         typeof window.starfield.postMessage === "function";
+  return typeof window.prisma === "object" &&
+         typeof window.prisma.postMessage === "function";
 }
 
 function sendToNative(type, payload) {
   const message = JSON.stringify({ type, payload: payload ?? {} });
   if (bridgeAvailable()) {
-    window.starfield.postMessage(message);
+    window.prisma.postMessage(message);
     logLine(`-> native: ${message}`);
   } else {
     logLine(`(standalone, dropped) -> ${message}`);
@@ -60,8 +60,8 @@ function onNativeMessage(jsonText) {
 }
 
 // Publish the inbound handler where the native bridge will look for it.
-window.starfield = window.starfield || {};
-window.starfield.onMessage = onNativeMessage;
+window.prisma = window.prisma || {};
+window.prisma.onMessage = onNativeMessage;
 
 document.getElementById("ping").addEventListener("click", () => {
   sendToNative("ui.command", { command: "ping" });

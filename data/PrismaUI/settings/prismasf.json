@@ -1,6 +1,6 @@
 {
-  "id": "osfui",
-  "title": "OSF UI Runtime",
+  "id": "prismasf",
+  "title": "PrismaUI SF Runtime",
   "groups": [
     {
       "label": "Cursor",

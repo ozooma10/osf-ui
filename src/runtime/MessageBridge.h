@@ -10,7 +10,7 @@
 // own (e.g. settings.*). There is intentionally NO mechanism to call arbitrary
 // native functions from JS. See docs/security-model.md.
 
-namespace SWUI
+namespace PrismaSF
 {
 	class MessageBridge
 	{

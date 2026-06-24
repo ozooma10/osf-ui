@@ -13,7 +13,7 @@
 
 #include <d3d12.h>
 
-namespace SWUI
+namespace PrismaSF
 {
 	namespace
 	{

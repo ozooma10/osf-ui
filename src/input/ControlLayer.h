@@ -1,6 +1,6 @@
 #pragma once
 
-namespace SWUI
+namespace PrismaSF
 {
 	// EXPERIMENTAL — OFF BY DEFAULT (config `disableControls`). The gamepad-leak
 	// half of the de-jank work, complementary to FocusMenu.

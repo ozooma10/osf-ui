@@ -9,7 +9,7 @@ namespace SFSE
 	class LoadInterface;
 }
 
-namespace SWUI::Plugin
+namespace PrismaSF::Plugin
 {
 	// Called from SFSE_PLUGIN_PRELOAD after SFSE::Init. Logging is already
 	// live (SFSE::Init sets it up). Must not touch game state.

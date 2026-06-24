@@ -4,7 +4,7 @@
 
 #include "core/Log.h"
 
-namespace SWUI
+namespace PrismaSF
 {
 	KeyCode ResolveKeyName(std::string_view a_name)
 	{

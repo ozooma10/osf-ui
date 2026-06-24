@@ -3,7 +3,7 @@
 #include "runtime/Json.h"
 #include "runtime/MessageBridge.h"
 
-namespace SWUI
+namespace PrismaSF
 {
 	SettingsModule::SettingsModule(std::filesystem::path a_schemaDir,
 		std::filesystem::path a_valuesDir,

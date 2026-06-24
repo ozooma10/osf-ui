@@ -2,7 +2,7 @@
 
 #include "runtime/ViewManifest.h"
 
-namespace SWUI
+namespace PrismaSF
 {
 	struct RendererConfig
 	{
@@ -81,6 +81,13 @@ namespace SWUI
 		using WebMessageHandler = std::function<void(std::string_view a_viewId, std::string_view a_json)>;
 		virtual void SetWebMessageHandler(WebMessageHandler) {}
 
+		// Invoked once per view when its DOM becomes ready, on the game thread
+		// (drained from Update()), tagged with the view id. Backs the consumer
+		// API's CreateView DOM-ready callback. Set once before LoadView; no-op
+		// for backends without a JS engine.
+		using DomReadyHandler = std::function<void(std::string_view a_viewId)>;
+		virtual void SetDomReadyHandler(DomReadyHandler) {}
+
 		// Delivers one keyboard transition into the web view. a_vkCode is a
 		// Windows virtual-key code (the space Starfield ButtonEvents carry).
 		// Thread-safe to call from the input thread; backends with a JS engine
@@ -94,6 +101,44 @@ namespace SWUI
 		// for backends without a JS engine.
 		virtual void InjectMouseMove(int /*a_x*/, int /*a_y*/) {}
 		virtual void InjectMouseButton(int /*a_x*/, int /*a_y*/, int /*a_button*/, bool /*a_down*/) {}
+
+		// --- Programmatic consumer-API support (PrismaUI SF native API) -------
+		// These back the public PRISMA_UI_API surface (src/api/). Backends with a
+		// JS engine marshal the work onto their own worker thread and deliver any
+		// callback back on the game thread (drained from Update()), exactly like
+		// SetWebMessageHandler. Default no-ops so non-JS backends (null/mock)
+		// build and link unchanged. a_viewId is the manifest/internal view id.
+
+		// Run arbitrary JS in a view; if a_onResult is set it receives the
+		// expression result as a string, on the game thread. (PRISMA: Invoke)
+		using ScriptResultHandler = std::function<void(std::string a_result)>;
+		virtual void EvaluateScript(std::string_view /*a_viewId*/, std::string_view /*a_js*/,
+			ScriptResultHandler /*a_onResult*/ = nullptr) {}
+
+		// Call window.<a_fnName>(a_arg) directly, no eval. (PRISMA: InteropCall)
+		virtual void CallJsFunction(std::string_view /*a_viewId*/, std::string_view /*a_fnName*/,
+			std::string_view /*a_arg*/) {}
+
+		// Bind window.<a_name>(str) in the view; a_callback fires on the game
+		// thread with the single string argument. (PRISMA: RegisterJSListener)
+		using JsListenerHandler = std::function<void(std::string a_argument)>;
+		virtual void RegisterJsFunction(std::string_view /*a_viewId*/, std::string_view /*a_name*/,
+			JsListenerHandler /*a_callback*/) {}
+
+		// Receive console.* from a view on the game thread; a_level is
+		// 0=log,1=warning,2=error,3=debug,4=info. nullptr unsubscribes.
+		// (PRISMA: RegisterConsoleCallback)
+		using ConsoleHandler = std::function<void(int a_level, std::string a_message)>;
+		virtual void SetConsoleHandler(std::string_view /*a_viewId*/, ConsoleHandler /*a_handler*/) {}
+
+		// Per-view state the consumer API mutates at runtime. Multi-view backends
+		// honor them in the compositing/scroll path; others ignore.
+		virtual void SetViewHidden(std::string_view /*a_viewId*/, bool /*a_hidden*/) {}
+		virtual void SetViewOrder(std::string_view /*a_viewId*/, int /*a_order*/) {}
+		virtual void SetScrollPixelSize(std::string_view /*a_viewId*/, int /*a_pixels*/) {}
+
+		// Tear down a single view and free its resources. (PRISMA: Destroy)
+		virtual void DestroyView(std::string_view /*a_viewId*/) {}
 
 		[[nodiscard]] virtual std::string_view Name() const = 0;
 	};

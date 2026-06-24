@@ -1,6 +1,6 @@
 #pragma once
 
-namespace SWUI::Paths
+namespace PrismaSF::Paths
 {
 	// Resolves all paths relative to the loaded plugin DLL. Must be called once
 	// from SFSE_PLUGIN_LOAD before anything reads config or views.
@@ -10,7 +10,7 @@ namespace SWUI::Paths
 	// Directory containing the plugin DLL, e.g. <game>/Data/SFSE/Plugins
 	[[nodiscard]] const std::filesystem::path& PluginDir();
 
-	// Plugin data root, e.g. <game>/Data/SFSE/Plugins/StarfieldWebUI
+	// Plugin data root, e.g. <game>/Data/SFSE/Plugins/PrismaUI
 	[[nodiscard]] const std::filesystem::path& DataDir();
 
 	// <data>/config.json

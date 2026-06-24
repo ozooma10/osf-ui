@@ -1,6 +1,6 @@
 #pragma once
 
-namespace SWUI
+namespace PrismaSF
 {
 	enum class MouseButton
 	{

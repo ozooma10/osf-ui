@@ -5,7 +5,7 @@
 #include "core/Log.h"
 #include "runtime/Json.h"
 
-namespace SWUI
+namespace PrismaSF
 {
 	namespace
 	{

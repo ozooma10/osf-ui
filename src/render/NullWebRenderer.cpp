@@ -2,7 +2,7 @@
 
 #include "core/Log.h"
 
-namespace SWUI
+namespace PrismaSF
 {
 	bool NullWebRenderer::Initialize(const RendererConfig& a_config)
 	{

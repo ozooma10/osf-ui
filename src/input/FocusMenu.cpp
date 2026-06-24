@@ -14,7 +14,7 @@
 #include <cstdlib>
 #include <new>
 
-namespace SWUI
+namespace PrismaSF
 {
 	namespace
 	{

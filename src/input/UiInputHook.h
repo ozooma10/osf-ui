@@ -22,7 +22,7 @@
 // overlays may have chained onto it, so there is no Uninstall(); a disabled
 // flag makes the thunk pure pass-through instead.
 
-namespace SWUI
+namespace PrismaSF
 {
 	class UiInputHook
 	{

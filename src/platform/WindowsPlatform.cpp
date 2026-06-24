@@ -10,7 +10,7 @@
 
 #include <ShlObj.h>
 
-namespace SWUI::Platform
+namespace PrismaSF::Platform
 {
 	std::filesystem::path GetDocumentsPath()
 	{

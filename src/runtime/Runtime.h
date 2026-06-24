@@ -1,5 +1,6 @@
 #pragma once
 
+#include "api/ViewRegistry.h"
 #include "composite/ICompositor.h"
 #include "core/Config.h"
 #include "input/InputRouter.h"
@@ -9,7 +10,7 @@
 #include "runtime/UiModule.h"
 #include "runtime/ViewManager.h"
 
-namespace SWUI
+namespace PrismaSF
 {
 	// Owns the whole plugin runtime: config, views, renderer, compositor,
 	// bridge, input, and the overlay visibility state. Constructed and
@@ -73,6 +74,33 @@ namespace SWUI
 		// only logs and drives the toggle path today.
 		[[nodiscard]] InputRouter& Input() { return _input; }
 
+		// --- Public consumer API (src/api/PrismaUI_API.h -> PRISMA_UI_API) ----
+		// Backs the exported RequestPluginAPI vtable. Each maps a PrismaView
+		// handle to a programmatically-created view. Safe to call from any thread:
+		// the handle table is locked, the renderer queues its work, and callbacks
+		// are delivered back on the game thread. Queries return immediately;
+		// mutations take effect on the renderer's next worker pass. Prefer calling
+		// from the game main thread (e.g. an SFSE message handler or a per-frame
+		// task), as PrismaUI consumers do.
+		std::uint64_t      ApiCreateView(std::string a_htmlPath, ViewRegistry::DomReadyCb a_onDomReady);
+		void               ApiDestroy(std::uint64_t a_handle);
+		[[nodiscard]] bool ApiIsValid(std::uint64_t a_handle) const;
+		void ApiInvoke(std::uint64_t a_handle, std::string a_script, IWebRenderer::ScriptResultHandler a_onResult);
+		void ApiInteropCall(std::uint64_t a_handle, std::string a_fn, std::string a_arg);
+		void ApiRegisterJSListener(std::uint64_t a_handle, std::string a_name, IWebRenderer::JsListenerHandler a_cb);
+		void ApiRegisterConsoleCallback(std::uint64_t a_handle, ViewRegistry::ConsoleCb a_cb);
+		[[nodiscard]] bool ApiHasFocus(std::uint64_t a_handle) const;
+		bool               ApiFocus(std::uint64_t a_handle, bool a_pauseGame, bool a_disableFocusMenu);
+		void               ApiUnfocus(std::uint64_t a_handle);
+		[[nodiscard]] bool ApiHasAnyActiveFocus() const;
+		void               ApiShow(std::uint64_t a_handle);
+		void               ApiHide(std::uint64_t a_handle);
+		[[nodiscard]] bool ApiIsHidden(std::uint64_t a_handle) const;
+		void               ApiSetOrder(std::uint64_t a_handle, int a_order);
+		[[nodiscard]] int  ApiGetOrder(std::uint64_t a_handle) const;
+		void               ApiSetScrollingPixelSize(std::uint64_t a_handle, int a_px);
+		[[nodiscard]] int  ApiGetScrollingPixelSize(std::uint64_t a_handle) const;
+
 	private:
 		Runtime() = default;
 
@@ -129,7 +157,7 @@ namespace SWUI
 		std::atomic<std::uint32_t>    _viewWidth{ 1280 };
 		std::atomic<std::uint32_t>    _viewHeight{ 720 };
 		std::atomic<float>            _cursorScale{ 1.0f };   // resolution-based, set on resize
-		std::atomic<float>            _cursorSpeed{ 1.0f };   // user multiplier (osfui.cursorSpeed)
+		std::atomic<float>            _cursorSpeed{ 1.0f };   // user multiplier (prismasf.cursorSpeed)
 
 		// Input-capture flag (initialised from config). When false the overlay
 		// is a HUD: it draws but the game still gets input.
@@ -141,5 +169,12 @@ namespace SWUI
 		// Last focus-menu open state we drove (main-thread only, reconciled in
 		// Tick against _visible). EXPERIMENTAL — see config.focusMenu.
 		bool                          _focusMenuOpen{ false };
+
+		// Programmatically-created (consumer-API) views: handle <-> internal-id
+		// table + per-view logical state. Thread-safe; see src/api/ViewRegistry.h.
+		ViewRegistry                  _apiViews;
+		// Set by ApiFocus(disableFocusMenu): suppresses the engine focus menu in
+		// ReconcileFocusMenu even when config.focusMenu is on. Cleared on Unfocus.
+		std::atomic_bool              _apiSuppressFocusMenu{ false };
 	};
 }

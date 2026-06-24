@@ -13,13 +13,13 @@ const formEl = document.getElementById("form");
 const cursorEl = document.getElementById("cursor");
 
 function bridgeAvailable() {
-  return typeof window.starfield === "object" &&
-         typeof window.starfield.postMessage === "function";
+  return typeof window.prisma === "object" &&
+         typeof window.prisma.postMessage === "function";
 }
 
 function sendCommand(fields) {
   if (bridgeAvailable()) {
-    window.starfield.postMessage(JSON.stringify({ type: "ui.command", payload: fields }));
+    window.prisma.postMessage(JSON.stringify({ type: "ui.command", payload: fields }));
   }
 }
 
@@ -180,8 +180,8 @@ function onNativeMessage(jsonText) {
   }
 }
 
-window.starfield = window.starfield || {};
-window.starfield.onMessage = onNativeMessage;
+window.prisma = window.prisma || {};
+window.prisma.onMessage = onNativeMessage;
 
 document.getElementById("close").addEventListener("click", () => {
   sendCommand({ command: "close" });

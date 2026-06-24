@@ -2,7 +2,7 @@
 
 #include "runtime/ViewManifest.h"
 
-namespace SWUI
+namespace PrismaSF
 {
 	// Discovers and owns view manifests found under <data>/views/*/manifest.json.
 	class ViewManager

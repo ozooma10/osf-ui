@@ -2,7 +2,7 @@
 
 #include "composite/ICompositor.h"
 
-namespace SWUI
+namespace PrismaSF
 {
 	// Phase 3 compositor: draws the renderer's frames over the game image at
 	// present time, on the game's own ID3D12Device + DIRECT queue (located via

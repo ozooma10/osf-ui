@@ -3,7 +3,7 @@
 struct ID3D12Device;
 struct ID3D12CommandQueue;
 
-namespace SWUI
+namespace PrismaSF
 {
 	// The game's live D3D12 objects. The version-anchored route to them now
 	// lives in CommonLibSF as RE::CreationRendererPrivate::Renderer (REL::ID

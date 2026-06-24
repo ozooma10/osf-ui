@@ -1,6 +1,6 @@
 #include "runtime/Json.h"
 
-namespace SWUI::Json
+namespace PrismaSF::Json
 {
 	std::optional<Value> Parse(std::string_view a_text, std::string_view a_sourceName)
 	{

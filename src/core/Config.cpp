@@ -2,7 +2,7 @@
 
 #include "runtime/Json.h"
 
-namespace SWUI
+namespace PrismaSF
 {
 	Config Config::Load(const std::filesystem::path& a_path)
 	{

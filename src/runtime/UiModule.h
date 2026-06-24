@@ -1,10 +1,10 @@
 #pragma once
 
-namespace SWUI
+namespace PrismaSF
 {
 	class MessageBridge;
 
-	// A self-contained feature ("app") built on the OSF UI platform. The core
+	// A self-contained feature ("app") built on the PrismaUI SF platform. The core
 	// runtime hosts modules without knowing what any of them does: it calls
 	// OnStart() once at load, and RegisterCommands() so the module can wire its
 	// own web<->native bridge commands. Settings is the first such module; a

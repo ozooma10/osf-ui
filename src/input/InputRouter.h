@@ -2,7 +2,7 @@
 
 #include "input/InputTypes.h"
 
-namespace SWUI
+namespace PrismaSF
 {
 	// Input fan-in point. NOTHING CALLS THIS YET: no Starfield/SFSE input
 	// event source has been identified, and this project does not install raw

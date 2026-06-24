@@ -23,9 +23,9 @@ shippable on its own; no phase fakes the next one.
 - ✅ `SandboxFileSystem` restricted to the active view's folder + the ICU
   resources dir; AppCore's DirectWrite font loader (only AppCore use); no
   clipboard handler; network: see the documented gap in security-model.md §2.
-- ✅ JS bridge: `window.starfield.postMessage` injected at
+- ✅ JS bridge: `window.prisma.postMessage` injected at
   `OnWindowObjectReady` via the JSC C API; native→web calls
-  `window.starfield.onMessage(json)`; messages queue until DOM ready.
+  `window.prisma.onMessage(json)`; messages queue until DOM ready.
 - ✅ Cadence: a dedicated worker thread owns ALL Ultralight state and
   self-paces at ~60 Hz; the game thread only touches queues and a
   double-buffered frame copy. (Required: WebKit is thread-affine, SFSE ticks
@@ -33,7 +33,7 @@ shippable on its own; no phase fakes the next one.
   phase deadlocks — the worker starts lazily on the first tick.)
 - ✅ Exit criteria met: post-DOM frame PNG-dumped from in-game
   (`<data>/ultralight/first-frame.png`, shows the rendered test page with
-  "Connected: StarfieldWebUI v0.1.0"), and the bridge round-trips proven by
+  "Connected: PrismaUI SF v0.1.0"), and the bridge round-trips proven by
   the test view's automatic `log` + `ping` handshake (no click needed —
   input routing is Phase 4).
 
@@ -152,7 +152,7 @@ Phase 3 polish:
 - ✅ `SettingsStore::Set` validates + clamps every value against the schema
   (unknown keys rejected, numbers clamped to min/max, enum must be an option,
   strings length-bounded) and persists atomically (temp file + rename) to a
-  USER-WRITABLE path (`Documents\My Games\Starfield\StarfieldWebUI\settings.json`,
+  USER-WRITABLE path (`Documents\My Games\Starfield\PrismaUI\settings.json`,
   via `SHGetKnownFolderPath` — NOT the read-only/MO2-mapped data dir).
 - ✅ Bridge gains exactly two whitelisted commands: `settings.get`
   (native → `settings.data`) and `settings.set` (→ `settings.ack`). Still no
@@ -165,16 +165,16 @@ Phase 3 polish:
 
 - ✅ **Multi-mod registry:** `SettingsStore` loads every `settings/*.json` as
   a separate mod (id from the schema or filename), each persisting to its own
-  `<docs>/StarfieldWebUI/settings/<id>.json`. `DataJson` returns
+  `<docs>/PrismaUI/settings/<id>.json`. `DataJson` returns
   `{ mods: [...] }`; the settings view renders a card per mod. Verified with
-  two mods (`osfui` + `demo`).
+  two mods (`prismasf` + `demo`).
 - ✅ **Reset-to-default:** `settings.reset` command (per-key or whole mod);
   each mod card has a Reset button. Re-sends the registry so the view
   re-renders. Verified: demo values snapped back to defaults.
 - ✅ **Change notifications → native reactions (the payoff):**
   `SettingsStore` fires a listener on every committed value (Set/Reset and
   once per value via `NotifyAll` at startup). `Runtime::OnSettingChanged`
-  reacts — `osfui.cursorSpeed` live-scales mouse sensitivity. Verified
+  reacts — `prismasf.cursorSpeed` live-scales mouse sensitivity. Verified
   in-game: dragging the slider changes the cursor's pace immediately. (Chose
   cursor speed over an input-capture toggle, which would have been a UX trap:
   a non-capturing overlay can't be clicked to re-enable itself.)

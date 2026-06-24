@@ -1,4 +1,5 @@
 # dot folders
+.audit/
 .cache/
 .idea/
 .vs/

@@ -1,6 +1,6 @@
 # Authoring Views & Settings
 
-How to build a UI for StarfieldWebUI without touching the C++ runtime. This is
+How to build a UI for PrismaUI SF without touching the C++ runtime. This is
 a reference for the two data-driven extension points that work today:
 
 1. **Views** — an HTML/CSS/JS page rendered as an in-game overlay.
@@ -27,7 +27,7 @@ beyond your own folder, and no way to call arbitrary native functions.
 A view is a folder under the plugin data dir:
 
 ```
-SFSE/Plugins/StarfieldWebUI/views/<your-id>/
+SFSE/Plugins/PrismaUI/views/<your-id>/
   manifest.json     required — declares the view
   index.html        your entry page (name configurable via manifest "entry")
   style.css         (optional) your styles
@@ -58,7 +58,7 @@ paths, paths with a root, and any `..` component are rejected before disk I/O
   "zorder": 0,              // optional, default 0; compositing layer when several views are hosted — higher draws on top
   "interactive": true,      // optional, default true; false = never receives input/focus (e.g. a passive HUD)
   "permissions": {          // optional; everything defaults to DENY
-    "nativeBridge": true,   // false ⇒ no window.starfield bridge is created at all
+    "nativeBridge": true,   // false ⇒ no window.prisma bridge is created at all
     "filesystem": false,    // reserved; no effect yet
     "network": false         // reserved; forced off with a warning if set true
   }
@@ -71,10 +71,10 @@ Notes:
   at 1440). **Author responsive CSS** — do not hardcode pixel layouts to
   1280×720.
 - **`permissions.nativeBridge` must be `true`** if your page talks to the
-  runtime. With it `false`, `window.starfield` is never injected and your page
+  runtime. With it `false`, `window.prisma` is never injected and your page
   runs purely client-side.
 - A manifest that fails validation (missing `id`, escaping `entry`) is skipped
-  with an error in `StarfieldWebUI.log`.
+  with an error in `PrismaUI SF.log`.
 
 ### Multiple views & layering
 
@@ -108,17 +108,17 @@ Several views can be hosted and composited at once. `config.json` lists them:
 
 ---
 
-## 3. The bridge — `window.starfield`
+## 3. The bridge — `window.prisma`
 
 When `nativeBridge` is granted, the runtime injects one object before your page
 scripts run:
 
 ```js
 // web → native: send one JSON message
-window.starfield.postMessage(jsonString);
+window.prisma.postMessage(jsonString);
 
 // native → web: you assign this; the runtime calls it with a JSON string
-window.starfield.onMessage = (jsonString) => { ... };
+window.prisma.onMessage = (jsonString) => { ... };
 ```
 
 `postMessage` is read-only and cannot be reassigned. You provide `onMessage`.
@@ -144,7 +144,7 @@ carries a `command` field plus that command's arguments:
 
 ```js
 function send(command, fields = {}) {
-  window.starfield.postMessage(JSON.stringify({
+  window.prisma.postMessage(JSON.stringify({
     type: "ui.command",
     payload: { command, ...fields },
   }));
@@ -157,7 +157,7 @@ Whitelisted commands (anything else is rejected + logged):
 |---|---|---|
 | `close` | — | hide the overlay |
 | `setVisible` | `visible: bool` | show/hide the overlay |
-| `log` | `text: string` | write to `StarfieldWebUI.log` (truncated to 512 chars) |
+| `log` | `text: string` | write to `PrismaUI SF.log` (truncated to 512 chars) |
 | `ping` | — | runtime replies with `runtime.pong` |
 | `game.get` | — | runtime replies with `game.data` (in-game date/time from the calendar) |
 | `settings.get` | — | runtime replies with `settings.data` |
@@ -169,7 +169,7 @@ Whitelisted commands (anything else is rejected + logged):
 
 ### Native → web
 
-Assign `window.starfield.onMessage` and switch on `message.type`:
+Assign `window.prisma.onMessage` and switch on `message.type`:
 
 | type | payload | when |
 |---|---|---|
@@ -178,7 +178,7 @@ Assign `window.starfield.onMessage` and switch on `message.type`:
 | `game.data` | `{ available, day, month, year, hour, daysPassed }` | reply to `game.get`; `available:false` before a save is loaded |
 | `settings.data` | `{ mods: [ { id, title, schema, values } ] } ` | reply to `settings.get` / after a `settings.reset` |
 | `settings.ack` | `{ mod, key, ok }` | result of a `settings.set` (`ok:false` ⇒ rejected/clamped) |
-| `ui.error` | `{ reason, type?, command? }` | the runtime rejected something you sent — a malformed message, an unknown `type`, or an unknown `command`. Log it while developing; the same WARN is in `StarfieldWebUI.log` |
+| `ui.error` | `{ reason, type?, command? }` | the runtime rejected something you sent — a malformed message, an unknown `type`, or an unknown `command`. Log it while developing; the same WARN is in `PrismaUI SF.log` |
 
 Unknown `type`s should be ignored (never `eval`'d) — including future `type`s
 this runtime version doesn't know about.
@@ -188,16 +188,16 @@ this runtime version doesn't know about.
 ```js
 "use strict";
 const bridge = () =>
-  typeof window.starfield === "object" &&
-  typeof window.starfield.postMessage === "function";
+  typeof window.prisma === "object" &&
+  typeof window.prisma.postMessage === "function";
 
 function send(command, fields = {}) {
-  if (bridge()) window.starfield.postMessage(
+  if (bridge()) window.prisma.postMessage(
     JSON.stringify({ type: "ui.command", payload: { command, ...fields } }));
 }
 
-window.starfield = window.starfield || {};
-window.starfield.onMessage = (json) => {
+window.prisma = window.prisma || {};
+window.prisma.onMessage = (json) => {
   const msg = JSON.parse(json);
   if (msg.type === "runtime.ready") {
     document.title = `Connected to ${msg.payload.plugin} v${msg.payload.version}`;
@@ -207,7 +207,7 @@ window.starfield.onMessage = (json) => {
 document.getElementById("close").onclick = () => send("close");
 ```
 
-See [`data/StarfieldWebUI/views/test/main.js`](../data/StarfieldWebUI/views/test/main.js)
+See [`data/PrismaUI/views/test/main.js`](../data/PrismaUI/views/test/main.js)
 for a complete, commented example.
 
 ---
@@ -217,13 +217,13 @@ for a complete, commented example.
 Drop a JSON schema at:
 
 ```
-SFSE/Plugins/StarfieldWebUI/settings/<your-mod-id>.json
+SFSE/Plugins/PrismaUI/settings/<your-mod-id>.json
 ```
 
 Every schema in that folder is loaded as a separate "mod" and rendered as its
 own card in the built-in `settings` view — **with zero per-mod native or web
 code**. Values persist per-mod to a user-writable path
-(`Documents\My Games\Starfield\StarfieldWebUI\settings\<id>.json`), survive
+(`Documents\My Games\Starfield\PrismaUI\settings\<id>.json`), survive
 relaunch, and the runtime can react to changes natively.
 
 ### Schema format
@@ -265,7 +265,7 @@ file.**
 ### Reacting natively (currently a core change)
 
 Native code can subscribe to changes (see `Runtime::OnSettingChanged`). Today
-this is wired in-tree (e.g. `osfui.cursorSpeed` live-scales the cursor). A
+this is wired in-tree (e.g. `prismasf.cursorSpeed` live-scales the cursor). A
 public "subscribe to my setting" API for separate plugins is on the roadmap;
 until then, native reactions to a *new* mod's settings need a core edit.
 
@@ -283,12 +283,12 @@ if (!bridge()) {
 }
 ```
 
-In-game, watch `Documents\My Games\Starfield\SFSE\Logs\StarfieldWebUI.log`:
+In-game, watch `Documents\My Games\Starfield\SFSE\Logs\PrismaUI SF.log`:
 - `MessageBridge: [web] ...` — your `log` commands.
 - `MessageBridge: rejected unknown ui.command '...'` — you sent a non-whitelisted command.
 - `UltralightWebRenderer: [console] ...` — your `console.log/warn/error` is forwarded here.
 - Set `devMode: true` in `config.json` for verbose per-call logging and a
-  first-frame PNG dump under `StarfieldWebUI/ultralight/`.
+  first-frame PNG dump under `PrismaUI/ultralight/`.
 
 ---
 
@@ -316,8 +316,8 @@ Tooling to author against the contract instead of from memory:
   Point your editor at them (VS Code `json.schemas`, or a top-level `"$schema"`
   key in your file) for autocomplete and validation.
 
-- **TypeScript definitions** ([`sdk/starfield-webui.d.ts`](../sdk/starfield-webui.d.ts))
-  type `window.starfield`, the `ui.command` whitelist, the native→web messages,
+- **TypeScript definitions** ([`sdk/prismaui-sf.d.ts`](../sdk/prismaui-sf.d.ts))
+  type `window.prisma`, the `ui.command` whitelist, the native→web messages,
   and the settings-schema shapes. Reference it from your view's TS project and
   the bridge is typed globally — no package to install.
 
@@ -328,7 +328,7 @@ The protocol version is **0.1** and is emitted in `runtime.ready` as
 `1.0`, treat minor bumps as potentially breaking and gate your view on it:
 
 ```js
-window.starfield.onMessage = (json) => {
+window.prisma.onMessage = (json) => {
   const msg = JSON.parse(json);
   if (msg.type === "runtime.ready" && !msg.payload.bridgeVersion?.startsWith("0.")) {
     // a newer, possibly incompatible runtime — warn or refuse rather than guess

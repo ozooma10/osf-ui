@@ -1,6 +1,6 @@
 #pragma once
 
-namespace SWUI
+namespace PrismaSF
 {
 	// Per-view permission grants. Everything defaults to "denied"; manifests
 	// opt in explicitly. Permissions are recorded now and enforced at the
