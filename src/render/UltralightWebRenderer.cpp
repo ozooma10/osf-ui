@@ -384,12 +384,25 @@ namespace PrismaSF
 		// ---- consumer-API plumbing (src/api/) ----
 		// game-thread-set handlers + maps (touched only on the game thread):
 		DomReadyHandler                                        onDomReady;
+		LoadHandler                                           onLoad;  // terminal load finish/fail -> runtime hook
 		std::unordered_map<std::uint64_t, ScriptResultHandler> evalHandlers;  // evalId -> Invoke result cb
 		std::uint64_t                                         nextEvalId{ 1 };
 		std::unordered_map<std::string, JsListenerHandler>    listenerHandlers;  // "viewId\nname" -> cb
 		std::unordered_map<std::string, ConsoleHandler>       consoleHandlers;   // viewId -> cb
 		// worker -> game notifications, drained in Update() (guarded by `mutex`):
 		std::deque<std::string>                               domReadyNotify;  // viewIds whose DOM became ready
+		// terminal load states (finish/fail) routed to the runtime hook; owns its
+		// strings since it crosses the worker->game thread boundary.
+		struct LoadNotify
+		{
+			std::string viewId;
+			bool        failed{ false };
+			std::string url;
+			std::string description;
+			std::string errorDomain;
+			int         errorCode{ 0 };
+		};
+		std::deque<LoadNotify>                                loadNotify;
 		std::deque<ConsoleNotify>                             consoleNotify;
 		std::deque<ListenerCall>                              listenerCalls;
 		std::deque<std::pair<std::uint64_t, std::string>>     evalResults;     // (evalId, result)
@@ -1185,11 +1198,52 @@ namespace PrismaSF
 			FlushStashedMessages(*vs);
 		}
 
-		void OnFailLoading(ul::View*, std::uint64_t, bool a_isMainFrame, const ul::String& a_url,
+		void OnFinishLoading(ul::View* a_view, std::uint64_t, bool a_isMainFrame, const ul::String& a_url) override
+		{
+			if (!a_isMainFrame) {
+				return;
+			}
+			std::string id;
+			{
+				std::scoped_lock lk(mutex);
+				if (const ViewState* vs = FindByView(a_view)) {
+					id = vs->id;
+				}
+			}
+			if (id.empty()) {
+				return;
+			}
+			LoadNotify n{ .viewId = std::move(id), .failed = false, .url = ToUTF8(a_url) };
+			std::scoped_lock lk(mutex);
+			if (loadNotify.size() < kMaxQueuedMessages) {
+				loadNotify.push_back(std::move(n));
+			}
+		}
+
+		void OnFailLoading(ul::View* a_view, std::uint64_t, bool a_isMainFrame, const ul::String& a_url,
 			const ul::String& a_description, const ul::String& a_errorDomain, int a_errorCode) override
 		{
 			REX::ERROR("UltralightWebRenderer: load failed (mainFrame={}, url={}): {} [{} {}]",
 				a_isMainFrame, ToUTF8(a_url), ToUTF8(a_description), ToUTF8(a_errorDomain), a_errorCode);
+			if (!a_isMainFrame) {
+				return;
+			}
+			std::string id;
+			{
+				std::scoped_lock lk(mutex);
+				if (const ViewState* vs = FindByView(a_view)) {
+					id = vs->id;
+				}
+			}
+			if (id.empty()) {
+				return;
+			}
+			LoadNotify n{ .viewId = std::move(id), .failed = true, .url = ToUTF8(a_url),
+				.description = ToUTF8(a_description), .errorDomain = ToUTF8(a_errorDomain), .errorCode = a_errorCode };
+			std::scoped_lock lk(mutex);
+			if (loadNotify.size() < kMaxQueuedMessages) {
+				loadNotify.push_back(std::move(n));
+			}
 		}
 
 		void OnAddConsoleMessage(ul::View* a_view, const ul::ConsoleMessage& a_message) override
@@ -1384,16 +1438,25 @@ namespace PrismaSF
 		std::deque<Impl::ListenerCall>                     apiListeners;
 		std::deque<Impl::ConsoleNotify>                    apiConsoles;
 		std::deque<std::pair<std::uint64_t, std::string>> apiResults;
+		std::deque<Impl::LoadNotify>                       apiLoads;
 		{
 			std::scoped_lock lk(_impl->mutex);
 			apiDomReady.swap(_impl->domReadyNotify);
 			apiListeners.swap(_impl->listenerCalls);
 			apiConsoles.swap(_impl->consoleNotify);
 			apiResults.swap(_impl->evalResults);
+			apiLoads.swap(_impl->loadNotify);
 		}
 		if (_impl->onDomReady) {
 			for (const auto& id : apiDomReady) {
 				_impl->onDomReady(id);
+			}
+		}
+		// String views below point into apiLoads, which outlives the calls.
+		if (_impl->onLoad) {
+			for (const auto& n : apiLoads) {
+				_impl->onLoad(LoadEvent{ .viewId = n.viewId, .failed = n.failed, .url = n.url,
+					.description = n.description, .errorDomain = n.errorDomain, .errorCode = n.errorCode });
 			}
 		}
 		for (const auto& lc : apiListeners) {
@@ -1512,6 +1575,11 @@ namespace PrismaSF
 	void UltralightWebRenderer::SetDomReadyHandler(DomReadyHandler a_handler)
 	{
 		_impl->onDomReady = std::move(a_handler);
+	}
+
+	void UltralightWebRenderer::SetLoadHandler(LoadHandler a_handler)
+	{
+		_impl->onLoad = std::move(a_handler);
 	}
 
 	void UltralightWebRenderer::EvaluateScript(std::string_view a_viewId, std::string_view a_js, ScriptResultHandler a_onResult)

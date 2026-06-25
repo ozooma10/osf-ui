@@ -41,6 +41,14 @@ namespace PrismaSF
 		// consumer API uses for programmatic views.
 		bool SetViewHidden(std::string_view a_id, bool a_hidden);
 
+		// Per-view load lifecycle (internal hook; NOT exposed to the consumer
+		// API). A view is Loading until its main frame finishes (Finished) or
+		// errors out (Failed). A failed load never reaches DOM-ready, so this is
+		// the authoritative "did the view come up" signal and the groundwork for
+		// URL crash-recovery. Read on the game thread.
+		enum class ViewLoadState { Loading, Finished, Failed };
+		[[nodiscard]] ViewLoadState GetViewLoadState(std::string_view a_id) const;
+
 		// True when the overlay currently owns input: visible AND config
 		// captureInput is on. Read by the WndProc hook (OverlayInputHook) to
 		// decide whether to consume game input, and by the InputRouter to
@@ -142,6 +150,11 @@ namespace PrismaSF
 		// owns (e.g. cursor speed).
 		void OnSettingChanged(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value);
 
+		// Renderer load-lifecycle hook: a view's main frame finished or failed.
+		// Called on the game thread from the renderer's notification pump.
+		void OnViewLoad(std::string_view a_viewId, bool a_failed, std::string_view a_url,
+			std::string_view a_description, int a_errorCode);
+
 		Config                        _config;
 		ViewManager                   _views;
 		std::unique_ptr<IWebRenderer> _renderer;
@@ -182,6 +195,10 @@ namespace PrismaSF
 		// Programmatically-created (consumer-API) views: handle <-> internal-id
 		// table + per-view logical state. Thread-safe; see src/api/ViewRegistry.h.
 		ViewRegistry                  _apiViews;
+
+		// Per-view load state (view id -> ViewLoadState), written from the
+		// renderer's load hook and read by GetViewLoadState. Game-thread only.
+		std::unordered_map<std::string, ViewLoadState> _viewLoadState;
 		// Set by ApiFocus(disableFocusMenu): suppresses the engine focus menu in
 		// ReconcileFocusMenu even when config.focusMenu is on. Cleared on Unfocus.
 		std::atomic_bool              _apiSuppressFocusMenu{ false };

@@ -88,6 +88,25 @@ namespace PrismaSF
 		using DomReadyHandler = std::function<void(std::string_view a_viewId)>;
 		virtual void SetDomReadyHandler(DomReadyHandler) {}
 
+		// A main-frame load reaching a terminal state, on the game thread
+		// (drained from Update()), tagged with the view id. `failed` is false for
+		// a successful finish (which is followed by the DOM-ready handler) and
+		// true for a load failure, in which case description/errorDomain/errorCode
+		// carry the backend's diagnostics. A failed load NEVER fires DOM-ready, so
+		// this is the only signal that a view did not come up. Set once before
+		// LoadView; no-op for backends without a JS engine.
+		struct LoadEvent
+		{
+			std::string_view viewId;
+			bool             failed{ false };
+			std::string_view url;
+			std::string_view description;   // failed only
+			std::string_view errorDomain;   // failed only
+			int              errorCode{ 0 };  // failed only
+		};
+		using LoadHandler = std::function<void(const LoadEvent& a_event)>;
+		virtual void SetLoadHandler(LoadHandler) {}
+
 		// Delivers one keyboard transition into the web view. a_vkCode is a
 		// Windows virtual-key code (the space Starfield ButtonEvents carry).
 		// Thread-safe to call from the input thread; backends with a JS engine

@@ -74,6 +74,13 @@ namespace PrismaSF
 			}
 		});
 
+		// Route per-view load finish/fail to the internal core hook (not exposed
+		// to the consumer API). A failed load never fires DOM-ready, so this is
+		// the only signal a view didn't come up — groundwork for crash-recovery.
+		_renderer->SetLoadHandler([this](const IWebRenderer::LoadEvent& a_e) {
+			OnViewLoad(a_e.viewId, a_e.failed, a_e.url, a_e.description, a_e.errorCode);
+		});
+
 		// Compositor
 		_compositor = CreateCompositor();
 		if (!_compositor->Initialize()) {
@@ -302,6 +309,26 @@ namespace PrismaSF
 		}
 		REX::INFO("Runtime: view '{}' hidden -> {}", a_id, a_hidden);
 		return true;
+	}
+
+	void Runtime::OnViewLoad(std::string_view a_viewId, bool a_failed, std::string_view a_url,
+		std::string_view a_description, int a_errorCode)
+	{
+		_viewLoadState[std::string(a_viewId)] = a_failed ? ViewLoadState::Failed : ViewLoadState::Finished;
+		if (a_failed) {
+			REX::ERROR("Runtime: view '{}' FAILED to load ({}): {} [{}]",
+				a_viewId, a_url, a_description, a_errorCode);
+			// TODO (P2 URL crash-recovery): a failed/faulted load could be reloaded
+			// here once recovery lands; the per-view state above is the trigger.
+		} else {
+			REX::INFO("Runtime: view '{}' finished loading ({})", a_viewId, a_url);
+		}
+	}
+
+	Runtime::ViewLoadState Runtime::GetViewLoadState(std::string_view a_id) const
+	{
+		const auto it = _viewLoadState.find(std::string(a_id));
+		return it == _viewLoadState.end() ? ViewLoadState::Loading : it->second;
 	}
 
 	bool Runtime::IsInputCaptured() const

@@ -54,6 +54,7 @@ namespace PrismaSF
 
 		// Consumer-API support (see src/api/ and IWebRenderer.h).
 		void SetDomReadyHandler(DomReadyHandler a_handler) override;
+		void SetLoadHandler(LoadHandler a_handler) override;
 		void EvaluateScript(std::string_view a_viewId, std::string_view a_js, ScriptResultHandler a_onResult) override;
 		void CallJsFunction(std::string_view a_viewId, std::string_view a_fnName, std::string_view a_arg) override;
 		void RegisterJsFunction(std::string_view a_viewId, std::string_view a_name, JsListenerHandler a_callback) override;
