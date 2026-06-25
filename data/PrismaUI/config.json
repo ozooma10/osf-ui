@@ -9,8 +9,8 @@
   "captureInput": true,
   "focusMenu": true,
   "disableControls": true,
-  "view": "settings",
-  "views": ["settings", "hud"],
+  "view": "test",
+  "views": ["test"],
   "allowNetwork": false,
   "devMode": false
 }
