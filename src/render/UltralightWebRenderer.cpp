@@ -547,8 +547,9 @@ namespace PrismaSF
 				lock.unlock();
 
 				// Lowest zorder first = composited at the bottom. Stable, so views
-				// sharing a zorder keep their load order. (zorder is set once at
-				// load, so reading it unlocked here is safe.)
+				// sharing a zorder keep their load order. (zorder is atomic and may
+				// change at runtime via SetViewOrder, so reading it unlocked here is
+				// safe; that setter flags compositeDirty so a reorder repaints.)
 				std::stable_sort(ordered.begin(), ordered.end(),
 					[](const ViewState* a, const ViewState* b) { return a->zorder < b->zorder; });
 
@@ -1704,6 +1705,9 @@ namespace PrismaSF
 		std::scoped_lock lk(_impl->mutex);
 		if (const auto it = _impl->views.find(std::string(a_viewId)); it != _impl->views.end()) {
 			it->second->zorder.store(a_order);
+			// Recompose even if no view repaints, else the reorder of two static
+			// views doesn't show on screen (same gap fixed for SetViewHidden).
+			_impl->compositeDirty.store(true);
 		}
 		_impl->wake.notify_all();
 	}
