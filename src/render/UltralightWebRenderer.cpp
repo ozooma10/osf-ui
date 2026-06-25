@@ -37,6 +37,34 @@ namespace PrismaSF
 			return std::string(s8.data(), s8.length());
 		}
 
+		// Encode one Unicode scalar value as UTF-8. Used to build the text of a
+		// Char event from the OS WM_CHAR/WM_UNICHAR codepoint (surrogate halves
+		// are already combined upstream). Returns empty for an invalid scalar
+		// (lone surrogate or out of range) so the caller can drop it.
+		[[nodiscard]] std::string CodepointToUTF8(std::uint32_t a_cp)
+		{
+			std::string out;
+			if (a_cp > 0x10FFFF || (a_cp >= 0xD800 && a_cp <= 0xDFFF)) {
+				return out;
+			}
+			if (a_cp <= 0x7F) {
+				out.push_back(static_cast<char>(a_cp));
+			} else if (a_cp <= 0x7FF) {
+				out.push_back(static_cast<char>(0xC0 | (a_cp >> 6)));
+				out.push_back(static_cast<char>(0x80 | (a_cp & 0x3F)));
+			} else if (a_cp <= 0xFFFF) {
+				out.push_back(static_cast<char>(0xE0 | (a_cp >> 12)));
+				out.push_back(static_cast<char>(0x80 | ((a_cp >> 6) & 0x3F)));
+				out.push_back(static_cast<char>(0x80 | (a_cp & 0x3F)));
+			} else {
+				out.push_back(static_cast<char>(0xF0 | (a_cp >> 18)));
+				out.push_back(static_cast<char>(0x80 | ((a_cp >> 12) & 0x3F)));
+				out.push_back(static_cast<char>(0x80 | ((a_cp >> 6) & 0x3F)));
+				out.push_back(static_cast<char>(0x80 | (a_cp & 0x3F)));
+			}
+			return out;
+		}
+
 		[[nodiscard]] std::string JSStringToUTF8(JSStringRef a_str)
 		{
 			if (!a_str) {
@@ -197,9 +225,11 @@ namespace PrismaSF
 		};
 
 		// System clipboard for in-page copy/cut/paste. Ultralight's editor calls
-		// these from the worker thread when a focused field receives Ctrl+C/X/V
-		// (the key path already tags those events with kMod_CtrlKey and skips the
-		// Char event, see ProcessKeyInput). Char16 == wchar_t on Windows, so the
+		// these from the worker thread when a focused field receives Ctrl+C/X/V:
+		// the RawKeyDown carries kMod_CtrlKey + unmodified_text so WebCore fires
+		// the editing command, while Windows emits a control char (<0x20) for
+		// Ctrl+letter that the WM_CHAR path filters out — so no stray text is
+		// typed (see ProcessKeyInput). Char16 == wchar_t on Windows, so the
 		// bridge to the UTF-16 Win32 clipboard is a straight reinterpret.
 		class WinClipboard final : public ul::Clipboard
 		{
@@ -270,8 +300,15 @@ namespace PrismaSF
 		// ---- per-view payload types ----
 		struct KeyInput
 		{
-			std::uint32_t vk{ 0 };
-			bool          down{ false };
+			// Two streams share this one FIFO so a key's RawKeyDown always
+			// precedes its Char (what WebCore needs): kVirtualKey from the VK
+			// stream (WM_KEYDOWN/UP) and kChar from the OS char stream (WM_CHAR/
+			// WM_UNICHAR), already layout-/dead-key-/AltGr-resolved by Windows.
+			enum class Kind { kVirtualKey, kChar };
+			Kind          kind{ Kind::kVirtualKey };
+			std::uint32_t vk{ 0 };         // kVirtualKey: Windows VK_* code
+			bool          down{ false };   // kVirtualKey: press vs release
+			std::uint32_t codepoint{ 0 };  // kChar: Unicode scalar value
 		};
 
 		struct MouseInput
@@ -1025,6 +1062,29 @@ namespace PrismaSF
 				return;
 			}
 
+			// Char events carry a finished Unicode scalar value from the OS
+			// WM_CHAR/WM_UNICHAR stream — already resolved for the active layout,
+			// dead keys, and AltGr. This is the sole source of text entry; the VK
+			// path below no longer synthesizes one. The matching RawKeyDown was
+			// queued ahead of this on the same FIFO, so ordering is correct.
+			if (a_key.kind == KeyInput::Kind::kChar) {
+				const auto utf8 = CodepointToUTF8(a_key.codepoint);
+				if (utf8.empty()) {
+					return;
+				}
+				const ul::String text(utf8.c_str());
+				ul::KeyEvent ch;
+				ch.type = ul::KeyEvent::kType_Char;
+				// Carry only Shift: Windows already baked casing and AltGr into
+				// the codepoint, and tagging it Ctrl/Alt (AltGr holds both) would
+				// make WebCore treat the keypress as a command instead of text.
+				ch.modifiers = a_vs.modShift ? ul::KeyEvent::kMod_ShiftKey : 0u;
+				ch.text = text;
+				ch.unmodified_text = text;
+				a_vs.view->FireKeyEvent(ch);
+				return;
+			}
+
 			// Track modifier state from the VK stream (Windows VK_* codes).
 			switch (a_key.vk) {
 			case 0x10:           // VK_SHIFT
@@ -1059,10 +1119,10 @@ namespace PrismaSF
 			ul::GetKeyIdentifierFromVirtualKeyCode(key.virtual_key_code, key.key_identifier);
 
 			// The unmodified key text (the key value with Ctrl/Alt ignored) is how
-			// WebCore resolves accelerator shortcuts — Ctrl+A/C/V/X/Z. It must be
-			// on the RawKeyDown itself, so compute it for every printable key even
-			// though the separate Char event below is suppressed while Ctrl/Alt are
-			// held. Without it those shortcuts (and thus clipboard) never fire.
+			// WebCore resolves accelerator shortcuts — Ctrl+A/C/V/X/Z — and it must
+			// ride on the RawKeyDown itself. Without it every Ctrl-shortcut (and
+			// thus clipboard) is dead. Text *entry* is handled separately by the
+			// Char events fed from the OS WM_CHAR stream, so none is emitted here.
 			ul::String keyText;
 			ul::GetKeyFromVirtualKeyCode(key.virtual_key_code, a_vs.modShift, keyText);
 			const auto keyUtf8 = ToUTF8(keyText);
@@ -1075,17 +1135,6 @@ namespace PrismaSF
 					key.unmodified_text = keyText;
 				}
 				a_vs.view->FireKeyEvent(key);
-
-				// Emit a Char event for actual text entry — skipped while Ctrl/Alt
-				// are held so shortcuts like Ctrl+C don't also type a character.
-				if (printable && !a_vs.modCtrl && !a_vs.modAlt) {
-					ul::KeyEvent ch;
-					ch.type = ul::KeyEvent::kType_Char;
-					ch.modifiers = key.modifiers;
-					ch.text = keyText;
-					ch.unmodified_text = keyText;
-					a_vs.view->FireKeyEvent(ch);
-				}
 			} else {
 				key.type = ul::KeyEvent::kType_KeyUp;
 				a_vs.view->FireKeyEvent(key);
@@ -1699,7 +1748,26 @@ namespace PrismaSF
 				if (vs->toInput.size() >= kMaxQueuedMessages) {
 					vs->toInput.pop_front();
 				}
-				vs->toInput.push_back(Impl::KeyInput{ .vk = a_vkCode, .down = a_down });
+				vs->toInput.push_back(Impl::KeyInput{
+					.kind = Impl::KeyInput::Kind::kVirtualKey, .vk = a_vkCode, .down = a_down });
+			}
+		}
+		_impl->wake.notify_all();
+	}
+
+	void UltralightWebRenderer::InjectCharEvent(std::uint32_t a_codepoint)
+	{
+		{
+			std::scoped_lock lk(_impl->mutex);
+			if (auto* vs = _impl->ActiveView()) {
+				// Shares the keyboard FIFO with the VK stream so this Char stays
+				// ordered after the RawKeyDown that produced it (WebCore depends
+				// on keydown-before-keypress for text insertion).
+				if (vs->toInput.size() >= kMaxQueuedMessages) {
+					vs->toInput.pop_front();
+				}
+				vs->toInput.push_back(Impl::KeyInput{
+					.kind = Impl::KeyInput::Kind::kChar, .codepoint = a_codepoint });
 			}
 		}
 		_impl->wake.notify_all();

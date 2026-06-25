@@ -16,6 +16,11 @@ namespace PrismaSF::OverlayInputHook
 		WNDPROC g_originalProc{ nullptr };
 		HWND    g_hwnd{ nullptr };
 
+		// A pending UTF-16 high surrogate from WM_CHAR, awaiting its low half to
+		// form an astral-plane codepoint. Touched only on the window-message
+		// thread (where WndProc runs), so a plain value is safe.
+		std::uint16_t g_pendingHighSurrogate{ 0 };
+
 		struct FindWindowData
 		{
 			DWORD pid{ 0 };
@@ -143,10 +148,57 @@ namespace PrismaSF::OverlayInputHook
 				break;
 			}
 			case WM_CHAR:
+			{
+				// Text entry. wparam is one UTF-16 code unit (layout-, dead-key-,
+				// and AltGr-resolved by Windows). Route real text into the overlay
+				// and always block it from the game while captured; navigation /
+				// editing keys (Enter, Tab, Backspace, Ctrl+letter -> control
+				// chars) are handled via the VK/RawKeyDown path, so we drop them.
+				if (!runtime.IsInputCaptured()) {
+					break;
+				}
+				const auto unit = static_cast<std::uint16_t>(a_wparam);
+				std::uint32_t codepoint = 0;
+				if (unit >= 0xD800 && unit <= 0xDBFF) {
+					g_pendingHighSurrogate = unit;  // wait for the low half
+					return 0;
+				}
+				if (unit >= 0xDC00 && unit <= 0xDFFF) {
+					if (g_pendingHighSurrogate == 0) {
+						return 0;  // lone low surrogate; drop
+					}
+					codepoint = 0x10000u +
+						((static_cast<std::uint32_t>(g_pendingHighSurrogate) - 0xD800u) << 10) +
+						(static_cast<std::uint32_t>(unit) - 0xDC00u);
+					g_pendingHighSurrogate = 0;
+				} else {
+					g_pendingHighSurrogate = 0;  // any BMP unit cancels a dangling high
+					codepoint = unit;
+				}
+				if (codepoint >= 0x20 && codepoint != 0x7F) {
+					runtime.OnHostChar(codepoint);
+				}
+				return 0;
+			}
 			case WM_UNICHAR:
+				// UTF-32 char protocol. Answer the capability probe so senders may
+				// use it, then route real text — only while captured, so the
+				// game's own WM_UNICHAR handling is untouched when the overlay is
+				// closed.
+				if (!runtime.IsInputCaptured()) {
+					break;
+				}
+				if (a_wparam == UNICODE_NOCHAR) {
+					return TRUE;  // yes, we accept WM_UNICHAR
+				}
+				if (a_wparam >= 0x20 && a_wparam != 0x7F) {
+					runtime.OnHostChar(static_cast<std::uint32_t>(a_wparam));
+				}
+				return 0;
 			case WM_DEADCHAR:
-				// Keyboard routing uses the VK stream (WM_KEYDOWN); just block
-				// these from the game while captured.
+				// A dead key (accent) — no finished character yet; the composed
+				// result arrives as a later WM_CHAR. Just block it from the game
+				// while captured.
 				if (runtime.IsInputCaptured()) {
 					return 0;
 				}

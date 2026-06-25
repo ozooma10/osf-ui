@@ -48,6 +48,7 @@ namespace PrismaSF
 		void SendMessageToWeb(std::string_view a_viewId, std::string_view a_json) override;
 		void SetWebMessageHandler(WebMessageHandler a_handler) override;
 		void InjectKeyEvent(std::uint32_t a_vkCode, bool a_down) override;
+		void InjectCharEvent(std::uint32_t a_codepoint) override;
 		void InjectMouseMove(int a_x, int a_y) override;
 		void InjectMouseButton(int a_x, int a_y, int a_button, bool a_down) override;
 		void InjectMouseWheel(int a_x, int a_y, int a_wheelDelta) override;

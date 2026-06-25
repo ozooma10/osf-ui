@@ -62,6 +62,13 @@ namespace PrismaSF
 		// toggle key. Runs on the window-message thread.
 		bool OnHostKey(std::uint32_t a_vkCode, bool a_down);
 
+		// Called by the WndProc hook for each OS text character (WM_CHAR/
+		// WM_UNICHAR), as a finished Unicode scalar value — layout-, dead-key-,
+		// and AltGr-resolved, surrogate halves already combined. Routes into the
+		// active web view while captured; ignored otherwise. The caller blocks
+		// the character from the game itself. Runs on the window-message thread.
+		void OnHostChar(std::uint32_t a_codepoint);
+
 		// Called by the WndProc hook with RAW mouse deltas (the OS cursor is
 		// hidden in gameplay). Advances a virtual cursor in view space and,
 		// while captured, routes the move into the web view.

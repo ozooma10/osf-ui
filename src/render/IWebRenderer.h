@@ -113,6 +113,13 @@ namespace PrismaSF
 		// dispatch it onto their own thread. No-op for backends without one.
 		virtual void InjectKeyEvent(std::uint32_t /*a_vkCode*/, bool /*a_down*/) {}
 
+		// Delivers one text character into the web view, as a finished Unicode
+		// scalar value from the OS char stream (WM_CHAR/WM_UNICHAR) — already
+		// resolved for the active layout, dead keys, and AltGr. Queued after the
+		// matching key's RawKeyDown. Thread-safe; no-op for backends without a JS
+		// engine.
+		virtual void InjectCharEvent(std::uint32_t /*a_codepoint*/) {}
+
 		// Mouse input in VIEW pixel coordinates (0..width, 0..height). Move
 		// reports an absolute position (the caller maintains a virtual cursor,
 		// since the OS cursor is hidden in gameplay); button uses the

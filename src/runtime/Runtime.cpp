@@ -363,6 +363,16 @@ namespace PrismaSF
 		return consume;
 	}
 
+	void Runtime::OnHostChar(std::uint32_t a_codepoint)
+	{
+		if (!IsInputCaptured() || !_renderer) {
+			return;
+		}
+		// Pure text entry — no toggle/focus logic, so route straight to the
+		// active view (the VK stream handles toggle/focus via OnHostKey).
+		_renderer->InjectCharEvent(a_codepoint);
+	}
+
 	void Runtime::OnHostMouseDelta(int a_dx, int a_dy)
 	{
 		if (!IsInputCaptured() || !_renderer) {
