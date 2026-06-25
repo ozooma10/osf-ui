@@ -10,7 +10,7 @@
   "focusMenu": true,
   "disableControls": true,
   "view": "test",
-  "views": ["test"],
+  "views": ["test", "settings"],
   "allowNetwork": false,
   "devMode": false
 }

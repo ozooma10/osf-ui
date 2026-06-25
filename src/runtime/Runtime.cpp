@@ -286,6 +286,24 @@ namespace PrismaSF
 		return _visible.load();
 	}
 
+	bool Runtime::SetViewHidden(std::string_view a_id, bool a_hidden)
+	{
+		// Only views that were actually loaded can be addressed. The renderer
+		// would silently no-op an unknown id, so reject here for a clear log.
+		const auto& loaded = _config.views;
+		const bool known = std::ranges::find(loaded, a_id) != loaded.end() ||
+			(loaded.empty() && a_id == _config.view);
+		if (!known) {
+			REX::WARN("Runtime: setViewHidden ignored — '{}' is not a loaded view", a_id);
+			return false;
+		}
+		if (_renderer) {
+			_renderer->SetViewHidden(a_id, a_hidden);
+		}
+		REX::INFO("Runtime: view '{}' hidden -> {}", a_id, a_hidden);
+		return true;
+	}
+
 	bool Runtime::IsInputCaptured() const
 	{
 		return _initialized && _captureInput.load() && _visible.load();
@@ -431,6 +449,15 @@ namespace PrismaSF
 		});
 		a_bridge.RegisterCommand("setVisible", [this](const nlohmann::json& a_p, MessageBridge&) {
 			SetVisible(Json::GetBool(a_p, "visible", false));
+		});
+		a_bridge.RegisterCommand("setViewHidden", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
+			// Show/hide one loaded view by id, independent of the overlay toggle.
+			// Omitting "view" targets the calling view (self-hide).
+			std::string id = Json::GetString(a_p, "view", "");
+			if (id.empty()) {
+				id = std::string(a_b.CurrentSource());
+			}
+			SetViewHidden(id, Json::GetBool(a_p, "hidden", false));
 		});
 		a_bridge.RegisterCommand("log", [](const nlohmann::json& a_p, MessageBridge&) {
 			// Untrusted content: bound the length so JS cannot flood the log.

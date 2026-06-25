@@ -82,6 +82,17 @@ document.addEventListener("keydown", (e) => {
   keysEl.textContent = `last key: ${e.key} (code ${e.keyCode})`;
 });
 
+// Per-view show/hide proof (F8): toggle the sibling 'settings' view's hidden
+// state through the native bridge, exercising runtime control of a config view.
+let settingsHidden = false;
+document.addEventListener("keydown", (e) => {
+  if (e.key === "F8") {
+    settingsHidden = !settingsHidden;
+    sendToNative("ui.command", { command: "setViewHidden", view: "settings", hidden: settingsHidden });
+    logLine(`F8: settings hidden -> ${settingsHidden}`);
+  }
+});
+
 if (textEl) {
   // Re-assert focus so typing always has a target even if focus drifts.
   textEl.focus();

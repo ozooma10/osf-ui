@@ -42,6 +42,11 @@ namespace PrismaSF
 		// Native -> web handshake announcing the runtime to one view.
 		void SendRuntimeReady(std::string_view a_viewId);
 
+		// The source view of the message currently being handled (empty when
+		// none is in flight). Lets a command default to its caller — e.g. a view
+		// hiding itself without having to know its own id.
+		[[nodiscard]] std::string_view CurrentSource() const { return _currentSource; }
+
 	private:
 		void HandleUiCommand(const nlohmann::json& a_payload);
 

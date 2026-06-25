@@ -251,6 +251,10 @@ namespace PrismaSF
 		std::mutex              mutex;  // guards `views`, `activeViewId`, and every ViewState's queues/pending ops
 		std::condition_variable wake;
 		bool                    stopRequested{ false };
+		// Set when a hide/show changes what the composite should contain without
+		// repainting any view; forces one recomposite so a hidden static view
+		// doesn't linger (no view goes dirty on its own in that case).
+		std::atomic_bool        compositeDirty{ false };
 
 		std::thread              worker;
 		ul::RefPtr<ul::Renderer> renderer;
@@ -627,6 +631,9 @@ namespace PrismaSF
 				}
 				anyDirty = anyDirty || vs->backDirty;
 			}
+			// A hide/show toggles what the composite contains without dirtying any
+			// view, so honor a pending recomposite even when nothing repainted.
+			const bool forceComposite = compositeDirty.exchange(false);
 
 			// Expose to the game thread. One view: hand its frame straight across
 			// (the untouched single-view fast path: per-view triple buffer). More
@@ -639,7 +646,7 @@ namespace PrismaSF
 					vs->pendingFresh = true;
 					vs->backDirty = false;
 				}
-			} else if (anyDirty) {
+			} else if (anyDirty || forceComposite) {
 				CompositeViews(a_ordered);
 				{
 					std::scoped_lock lk(frameMutex);
@@ -1569,6 +1576,8 @@ namespace PrismaSF
 		std::scoped_lock lk(_impl->mutex);
 		if (const auto it = _impl->views.find(std::string(a_viewId)); it != _impl->views.end()) {
 			it->second->hidden.store(a_hidden);
+			// Recompose even if no view repaints, else the hidden one lingers.
+			_impl->compositeDirty.store(true);
 		}
 		_impl->wake.notify_all();
 	}

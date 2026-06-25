@@ -35,6 +35,12 @@ namespace PrismaSF
 		void ToggleVisible();
 		[[nodiscard]] bool IsVisible() const;
 
+		// Show/hide one loaded (config.views) declarative view by id, independent
+		// of the global overlay toggle. Returns false for an unknown/unloaded id.
+		// Drives the renderer's per-view hidden flag — the same mechanism the
+		// consumer API uses for programmatic views.
+		bool SetViewHidden(std::string_view a_id, bool a_hidden);
+
 		// True when the overlay currently owns input: visible AND config
 		// captureInput is on. Read by the WndProc hook (OverlayInputHook) to
 		// decide whether to consume game input, and by the InputRouter to
