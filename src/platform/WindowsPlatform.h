@@ -28,4 +28,15 @@ namespace PrismaSF::Platform
 
 	// Reads one pointer-sized value if the location is readable.
 	[[nodiscard]] bool SafeReadPointer(std::uintptr_t a_address, std::uintptr_t& a_value);
+
+	// --- System clipboard (CF_UNICODETEXT) ---------------------------------
+	// Plain-text clipboard access backing the web view's copy/cut/paste. Text
+	// is UTF-16 to match the Win32 Unicode clipboard format. Safe to call from
+	// the Ultralight worker thread: the clipboard is opened against the calling
+	// thread and briefly retried if another process holds it. GetClipboardText
+	// returns empty when there is no Unicode text or the clipboard can't be
+	// opened; the mutators return false on failure.
+	[[nodiscard]] std::wstring GetClipboardText();
+	bool                       SetClipboardText(const std::wstring& a_text);
+	bool                       ClearClipboard();
 }

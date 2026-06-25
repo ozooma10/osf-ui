@@ -195,6 +195,46 @@ namespace PrismaSF
 				}
 			}
 		};
+
+		// System clipboard for in-page copy/cut/paste. Ultralight's editor calls
+		// these from the worker thread when a focused field receives Ctrl+C/X/V
+		// (the key path already tags those events with kMod_CtrlKey and skips the
+		// Char event, see ProcessKeyInput). Char16 == wchar_t on Windows, so the
+		// bridge to the UTF-16 Win32 clipboard is a straight reinterpret.
+		class WinClipboard final : public ul::Clipboard
+		{
+		public:
+			void Clear() override
+			{
+				Platform::ClearClipboard();
+			}
+
+			ul::String ReadPlainText() override
+			{
+				const std::wstring text = Platform::GetClipboardText();
+				if (!_loggedRead.exchange(true)) {
+					REX::INFO("WinClipboard: first paste read ({} chars)", text.size());
+				}
+				if (text.empty()) {
+					return ul::String();
+				}
+				const ul::String16 utf16(reinterpret_cast<const unsigned short*>(text.data()), text.size());
+				return ul::String(utf16);
+			}
+
+			void WritePlainText(const ul::String& a_text) override
+			{
+				if (!_loggedWrite.exchange(true)) {
+					REX::INFO("WinClipboard: first copy/cut write ({} bytes)", a_text.utf8().length());
+				}
+				const ul::String16 utf16 = a_text.utf16();
+				Platform::SetClipboardText(std::wstring(utf16.udata(), utf16.udata() + utf16.length()));
+			}
+
+		private:
+			std::atomic_bool _loggedRead{ false };
+			std::atomic_bool _loggedWrite{ false };
+		};
 	}
 
 	struct UltralightWebRenderer::Impl final :
@@ -527,6 +567,11 @@ namespace PrismaSF
 			// no window/app machinery is used.
 			REX::INFO("UltralightWebRenderer: worker acquiring platform font loader");
 			platform.set_font_loader(ul::GetPlatformFontLoader());
+
+			// Clipboard for in-page copy/cut/paste. Leaked deliberately like the
+			// logger above: Platform keeps a raw pointer for the process lifetime
+			// (one renderer per process).
+			platform.set_clipboard(new WinClipboard());
 
 			REX::INFO("UltralightWebRenderer: worker calling Renderer::Create()");
 			renderer = ul::Renderer::Create();
@@ -988,27 +1033,38 @@ namespace PrismaSF
 			key.virtual_key_code = static_cast<int>(a_key.vk);
 			key.native_key_code = static_cast<int>(a_key.vk);
 			key.modifiers = CurrentModifiers(a_vs);
+			key.is_keypad = false;
+			key.is_auto_repeat = false;
+			key.is_system_key = false;
 			ul::GetKeyIdentifierFromVirtualKeyCode(key.virtual_key_code, key.key_identifier);
+
+			// The unmodified key text (the key value with Ctrl/Alt ignored) is how
+			// WebCore resolves accelerator shortcuts — Ctrl+A/C/V/X/Z. It must be
+			// on the RawKeyDown itself, so compute it for every printable key even
+			// though the separate Char event below is suppressed while Ctrl/Alt are
+			// held. Without it those shortcuts (and thus clipboard) never fire.
+			ul::String keyText;
+			ul::GetKeyFromVirtualKeyCode(key.virtual_key_code, a_vs.modShift, keyText);
+			const auto keyUtf8 = ToUTF8(keyText);
+			const bool printable = keyUtf8.size() == 1 && static_cast<unsigned char>(keyUtf8[0]) >= 0x20;
 
 			if (a_key.down) {
 				key.type = ul::KeyEvent::kType_RawKeyDown;
+				if (printable) {
+					key.text = keyText;
+					key.unmodified_text = keyText;
+				}
 				a_vs.view->FireKeyEvent(key);
 
-				// Emit a Char event for text-producing keys (skip while Ctrl/Alt
-				// are held so shortcuts like Ctrl+C don't type a character).
-				if (!a_vs.modCtrl && !a_vs.modAlt) {
-					ul::String keyText;
-					ul::GetKeyFromVirtualKeyCode(key.virtual_key_code, a_vs.modShift, keyText);
-					const auto utf8 = ToUTF8(keyText);
-					// Single printable character -> real text input.
-					if (utf8.size() == 1 && static_cast<unsigned char>(utf8[0]) >= 0x20) {
-						ul::KeyEvent ch;
-						ch.type = ul::KeyEvent::kType_Char;
-						ch.modifiers = key.modifiers;
-						ch.text = keyText;
-						ch.unmodified_text = keyText;
-						a_vs.view->FireKeyEvent(ch);
-					}
+				// Emit a Char event for actual text entry — skipped while Ctrl/Alt
+				// are held so shortcuts like Ctrl+C don't also type a character.
+				if (printable && !a_vs.modCtrl && !a_vs.modAlt) {
+					ul::KeyEvent ch;
+					ch.type = ul::KeyEvent::kType_Char;
+					ch.modifiers = key.modifiers;
+					ch.text = keyText;
+					ch.unmodified_text = keyText;
+					a_vs.view->FireKeyEvent(ch);
 				}
 			} else {
 				key.type = ul::KeyEvent::kType_KeyUp;
