@@ -2,7 +2,7 @@
 
 #include "render/IWebRenderer.h"
 
-namespace PrismaSF
+namespace OSFUI
 {
 	// Consumes CPU frames from a renderer and (eventually) presents them over
 	// the game image. Submit() must finish using the FrameBufferView before

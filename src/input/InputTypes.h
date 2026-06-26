@@ -1,6 +1,6 @@
 #pragma once
 
-namespace PrismaSF
+namespace OSFUI
 {
 	enum class MouseButton
 	{

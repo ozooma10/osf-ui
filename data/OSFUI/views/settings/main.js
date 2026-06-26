@@ -13,13 +13,13 @@ const formEl = document.getElementById("form");
 const cursorEl = document.getElementById("cursor");
 
 function bridgeAvailable() {
-  return typeof window.prisma === "object" &&
-         typeof window.prisma.postMessage === "function";
+  return typeof window.osfui === "object" &&
+         typeof window.osfui.postMessage === "function";
 }
 
 function sendCommand(fields) {
   if (bridgeAvailable()) {
-    window.prisma.postMessage(JSON.stringify({ type: "ui.command", payload: fields }));
+    window.osfui.postMessage(JSON.stringify({ type: "ui.command", payload: fields }));
   }
 }
 
@@ -180,8 +180,8 @@ function onNativeMessage(jsonText) {
   }
 }
 
-window.prisma = window.prisma || {};
-window.prisma.onMessage = onNativeMessage;
+window.osfui = window.osfui || {};
+window.osfui.onMessage = onNativeMessage;
 
 document.getElementById("close").addEventListener("click", () => {
   sendCommand({ command: "close" });

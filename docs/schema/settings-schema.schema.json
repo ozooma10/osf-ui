@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/ozooma10/osf-ui/blob/main/docs/schema/settings-schema.schema.json",
-  "title": "PrismaUI SF Settings Schema",
+  "title": "OSF UI Settings Schema",
   "description": "Schema for settings/<id>.json files. Bridge protocol 0.1 (unstable). Mirrors src/runtime/SettingsStore.cpp validation.",
   "type": "object",
   "properties": {
@@ -11,7 +11,7 @@
     },
     "id": {
       "type": "string",
-      "description": "Mod id. Defaults to the filename stem. Also the per-mod values filename under Documents\\My Games\\Starfield\\PrismaUI SF\\settings\\<id>.json."
+      "description": "Mod id. Defaults to the filename stem. Also the per-mod values filename under Documents\\My Games\\Starfield\\OSF UI\\settings\\<id>.json."
     },
     "title": {
       "type": "string",

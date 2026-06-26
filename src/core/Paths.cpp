@@ -3,7 +3,7 @@
 #include "core/Version.h"
 #include "platform/WindowsPlatform.h"
 
-namespace PrismaSF::Paths
+namespace OSFUI::Paths
 {
 	namespace
 	{

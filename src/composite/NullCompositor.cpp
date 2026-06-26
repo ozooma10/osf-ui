@@ -1,6 +1,6 @@
 #include "composite/NullCompositor.h"
 
-namespace PrismaSF
+namespace OSFUI
 {
 	bool NullCompositor::Initialize()
 	{

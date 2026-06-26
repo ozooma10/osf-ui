@@ -1,15 +1,15 @@
 #pragma once
 
 // Optional Ultralight backend. Only compiled when the xmake option
-// `with_ultralight` is enabled (defines PRISMA_SF_WITH_ULTRALIGHT=1 and requires
+// `with_ultralight` is enabled (defines OSFUI_WITH_ULTRALIGHT=1 and requires
 // the ULTRALIGHT_SDK_DIR environment variable). The SDK is proprietary and is
 // never vendored into this repository.
 
-#if defined(PRISMA_SF_WITH_ULTRALIGHT)
+#if defined(OSFUI_WITH_ULTRALIGHT)
 
 	#include "render/IWebRenderer.h"
 
-namespace PrismaSF
+namespace OSFUI
 {
 	// Offscreen Ultralight-based HTML renderer (docs/renderer-plan.md Phase 1).
 	//
@@ -53,7 +53,7 @@ namespace PrismaSF
 		void InjectMouseButton(int a_x, int a_y, int a_button, bool a_down) override;
 		void InjectMouseWheel(int a_x, int a_y, int a_wheelDelta) override;
 
-		// Consumer-API support (see src/api/ and IWebRenderer.h).
+		// Per-view JS interaction + lifecycle hooks (see IWebRenderer.h).
 		void SetDomReadyHandler(DomReadyHandler a_handler) override;
 		void SetLoadHandler(LoadHandler a_handler) override;
 		void EvaluateScript(std::string_view a_viewId, std::string_view a_js, ScriptResultHandler a_onResult) override;
@@ -73,4 +73,4 @@ namespace PrismaSF
 	};
 }
 
-#endif  // PRISMA_SF_WITH_ULTRALIGHT
+#endif  // OSFUI_WITH_ULTRALIGHT

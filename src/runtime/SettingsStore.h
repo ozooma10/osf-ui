@@ -2,7 +2,7 @@
 
 #include <nlohmann/json.hpp>
 
-namespace PrismaSF
+namespace OSFUI
 {
 	// Schema-driven settings registry (renderer-plan.md Phase 5). Each mod
 	// ships a read-only JSON schema (one `settings/<id>.json` file); the

@@ -2,7 +2,7 @@
 
 #include "runtime/Json.h"
 
-namespace PrismaSF
+namespace OSFUI
 {
 	Config Config::Load(const std::filesystem::path& a_path)
 	{

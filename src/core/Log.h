@@ -4,7 +4,7 @@
 // Use REX::INFO/WARN/ERROR/DEBUG directly for normal logging; the helpers here
 // exist for stub code that must warn exactly once instead of spamming per frame.
 
-namespace PrismaSF::Log
+namespace OSFUI::Log
 {
 	// Logs a warning the first time a given call site passes `a_flag`; no-op after.
 	// Usage:

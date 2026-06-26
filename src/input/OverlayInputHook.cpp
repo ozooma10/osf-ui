@@ -9,7 +9,7 @@
 #define NOMINMAX
 #include <Windows.h>
 
-namespace PrismaSF::OverlayInputHook
+namespace OSFUI::OverlayInputHook
 {
 	namespace
 	{

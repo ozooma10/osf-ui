@@ -2,7 +2,7 @@
 
 #include "render/IWebRenderer.h"
 
-namespace PrismaSF
+namespace OSFUI
 {
 	// Does nothing, successfully. Used when renderer="null" or as the fallback
 	// when a requested backend cannot be created. Logs calls in dev mode.

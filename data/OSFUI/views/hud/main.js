@@ -12,12 +12,12 @@ const pongEl = document.getElementById("pong");
 const cursorEl = document.getElementById("cursor");
 
 function bridgeAvailable() {
-  return typeof window.prisma === "object" &&
-         typeof window.prisma.postMessage === "function";
+  return typeof window.osfui === "object" &&
+         typeof window.osfui.postMessage === "function";
 }
 function send(command, fields = {}) {
   if (bridgeAvailable()) {
-    window.prisma.postMessage(JSON.stringify({ type: "ui.command", payload: { command, ...fields } }));
+    window.osfui.postMessage(JSON.stringify({ type: "ui.command", payload: { command, ...fields } }));
   }
 }
 function pad2(n) { return String(n).padStart(2, "0"); }
@@ -28,8 +28,8 @@ function fmtHour(h) {
 }
 
 // native -> THIS view
-window.prisma = window.prisma || {};
-window.prisma.onMessage = (json) => {
+window.osfui = window.osfui || {};
+window.osfui.onMessage = (json) => {
   let msg;
   try { msg = JSON.parse(json); } catch { return; }
   switch (msg.type) {

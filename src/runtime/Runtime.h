@@ -1,6 +1,5 @@
 #pragma once
 
-#include "api/ViewRegistry.h"
 #include "composite/ICompositor.h"
 #include "core/Config.h"
 #include "input/InputRouter.h"
@@ -10,7 +9,7 @@
 #include "runtime/UiModule.h"
 #include "runtime/ViewManager.h"
 
-namespace PrismaSF
+namespace OSFUI
 {
 	// Owns the whole plugin runtime: config, views, renderer, compositor,
 	// bridge, input, and the overlay visibility state. Constructed and
@@ -37,13 +36,12 @@ namespace PrismaSF
 
 		// Show/hide one loaded (config.views) declarative view by id, independent
 		// of the global overlay toggle. Returns false for an unknown/unloaded id.
-		// Drives the renderer's per-view hidden flag — the same mechanism the
-		// consumer API uses for programmatic views.
+		// Drives the renderer's per-view hidden flag.
 		bool SetViewHidden(std::string_view a_id, bool a_hidden);
 
-		// Per-view load lifecycle (internal hook; NOT exposed to the consumer
-		// API). A view is Loading until its main frame finishes (Finished) or
-		// errors out (Failed). A failed load never reaches DOM-ready, so this is
+		// Per-view load lifecycle (internal hook). A view is Loading until its
+		// main frame finishes (Finished) or errors out (Failed). A failed load
+		// never reaches DOM-ready, so this is
 		// the authoritative "did the view come up" signal and the groundwork for
 		// URL crash-recovery. Read on the game thread.
 		enum class ViewLoadState { Loading, Finished, Failed };
@@ -97,33 +95,6 @@ namespace PrismaSF
 		// Fan-in point for input observers (UiInputHook). The router itself
 		// only logs and drives the toggle path today.
 		[[nodiscard]] InputRouter& Input() { return _input; }
-
-		// --- Public consumer API (src/api/PrismaUI_API.h -> PRISMA_UI_API) ----
-		// Backs the exported RequestPluginAPI vtable. Each maps a PrismaView
-		// handle to a programmatically-created view. Safe to call from any thread:
-		// the handle table is locked, the renderer queues its work, and callbacks
-		// are delivered back on the game thread. Queries return immediately;
-		// mutations take effect on the renderer's next worker pass. Prefer calling
-		// from the game main thread (e.g. an SFSE message handler or a per-frame
-		// task), as PrismaUI consumers do.
-		std::uint64_t      ApiCreateView(std::string a_htmlPath, ViewRegistry::DomReadyCb a_onDomReady);
-		void               ApiDestroy(std::uint64_t a_handle);
-		[[nodiscard]] bool ApiIsValid(std::uint64_t a_handle) const;
-		void ApiInvoke(std::uint64_t a_handle, std::string a_script, IWebRenderer::ScriptResultHandler a_onResult);
-		void ApiInteropCall(std::uint64_t a_handle, std::string a_fn, std::string a_arg);
-		void ApiRegisterJSListener(std::uint64_t a_handle, std::string a_name, IWebRenderer::JsListenerHandler a_cb);
-		void ApiRegisterConsoleCallback(std::uint64_t a_handle, ViewRegistry::ConsoleCb a_cb);
-		[[nodiscard]] bool ApiHasFocus(std::uint64_t a_handle) const;
-		bool               ApiFocus(std::uint64_t a_handle, bool a_pauseGame, bool a_disableFocusMenu);
-		void               ApiUnfocus(std::uint64_t a_handle);
-		[[nodiscard]] bool ApiHasAnyActiveFocus() const;
-		void               ApiShow(std::uint64_t a_handle);
-		void               ApiHide(std::uint64_t a_handle);
-		[[nodiscard]] bool ApiIsHidden(std::uint64_t a_handle) const;
-		void               ApiSetOrder(std::uint64_t a_handle, int a_order);
-		[[nodiscard]] int  ApiGetOrder(std::uint64_t a_handle) const;
-		void               ApiSetScrollingPixelSize(std::uint64_t a_handle, int a_px);
-		[[nodiscard]] int  ApiGetScrollingPixelSize(std::uint64_t a_handle) const;
 
 	private:
 		Runtime() = default;
@@ -186,7 +157,7 @@ namespace PrismaSF
 		std::atomic<std::uint32_t>    _viewWidth{ 1280 };
 		std::atomic<std::uint32_t>    _viewHeight{ 720 };
 		std::atomic<float>            _cursorScale{ 1.0f };   // resolution-based, set on resize
-		std::atomic<float>            _cursorSpeed{ 1.0f };   // user multiplier (prismasf.cursorSpeed)
+		std::atomic<float>            _cursorSpeed{ 1.0f };   // user multiplier (osfui.cursorSpeed)
 
 		// Input-capture flag (initialised from config). When false the overlay
 		// is a HUD: it draws but the game still gets input.
@@ -199,15 +170,8 @@ namespace PrismaSF
 		// Tick against _visible). EXPERIMENTAL — see config.focusMenu.
 		bool                          _focusMenuOpen{ false };
 
-		// Programmatically-created (consumer-API) views: handle <-> internal-id
-		// table + per-view logical state. Thread-safe; see src/api/ViewRegistry.h.
-		ViewRegistry                  _apiViews;
-
 		// Per-view load state (view id -> ViewLoadState), written from the
 		// renderer's load hook and read by GetViewLoadState. Game-thread only.
 		std::unordered_map<std::string, ViewLoadState> _viewLoadState;
-		// Set by ApiFocus(disableFocusMenu): suppresses the engine focus menu in
-		// ReconcileFocusMenu even when config.focusMenu is on. Cleared on Unfocus.
-		std::atomic_bool              _apiSuppressFocusMenu{ false };
 	};
 }

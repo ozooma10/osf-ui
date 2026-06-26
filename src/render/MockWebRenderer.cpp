@@ -1,6 +1,6 @@
 #include "render/MockWebRenderer.h"
 
-namespace PrismaSF
+namespace OSFUI
 {
 	bool MockWebRenderer::Initialize(const RendererConfig& a_config)
 	{

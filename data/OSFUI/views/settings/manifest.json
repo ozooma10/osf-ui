@@ -1,6 +1,6 @@
 {
-  "id": "test",
-  "title": "Starfield Web UI Test",
+  "id": "settings",
+  "title": "OSF UI Settings",
   "entry": "index.html",
   "width": 1280,
   "height": 720,

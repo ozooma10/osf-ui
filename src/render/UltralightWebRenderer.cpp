@@ -1,6 +1,6 @@
 #include "render/UltralightWebRenderer.h"
 
-#if defined(PRISMA_SF_WITH_ULTRALIGHT)
+#if defined(OSFUI_WITH_ULTRALIGHT)
 
 	#include "core/Log.h"
 	#include "platform/WindowsPlatform.h"
@@ -20,7 +20,7 @@
 	#include <Ultralight/Ultralight.h>
 	#pragma warning(pop)
 
-namespace PrismaSF
+namespace OSFUI
 {
 	namespace
 	{
@@ -330,7 +330,7 @@ namespace PrismaSF
 			std::uint64_t             index{ 0 };
 		};
 
-		// ---- consumer-API op/notify payloads ----
+		// ---- per-view JS op / notify payloads ----
 			struct EvalRequest
 			{
 				std::uint64_t evalId{ 0 };  // 0 = fire-and-forget (Invoke with no result callback)
@@ -358,12 +358,12 @@ namespace PrismaSF
 		struct ViewState
 		{
 			std::string  id;
-			std::atomic<std::int32_t> zorder{ 0 };  // layering; lower composites beneath. Mutable via the consumer API.
-			std::atomic<bool> hidden{ false };   // consumer API Show/Hide: skipped in compositing when true.
-			std::atomic<int>  scrollPx{ 28 };    // consumer API scroll step (stored; wheel routing not wired yet).
+			std::atomic<std::int32_t> zorder{ 0 };  // layering; lower composites beneath. Mutable at runtime via SetViewOrder.
+			std::atomic<bool> hidden{ false };   // SetViewHidden: skipped in compositing when true.
+			std::atomic<int>  scrollPx{ 28 };    // per-view scroll step (SetScrollPixelSize; stored, wheel routing not wired yet).
 			std::atomic<bool> wantsConsole{ false };  // a console handler is registered for this view.
 			bool         interactive{ true };    // may receive input/focus. Set at load, then immutable.
-			bool         bridgeAllowed{ false };  // manifest permissions.nativeBridge; gates window.prisma. Immutable after load.
+			bool         bridgeAllowed{ false };  // manifest permissions.nativeBridge; gates window.osfui. Immutable after load.
 
 			// shared with the game thread (guarded by Impl::mutex)
 			std::optional<ViewManifest>                            pendingLoad;
@@ -372,9 +372,9 @@ namespace PrismaSF
 			std::deque<std::string>                                toNative;  // page -> game
 			std::deque<KeyInput>                                   toInput;   // game -> view (keyboard)
 			std::deque<MouseInput>                                 toMouse;   // game -> view (mouse)
-			std::deque<EvalRequest>                               toEval;    // game -> view: JS eval (consumer API Invoke)
-			std::deque<std::pair<std::string, std::string>>      toInterop; // game -> view: window.<fn>(arg) (InteropCall)
-			std::deque<std::string>                              toBindListener;  // game -> view: bind window.<name> (RegisterJSListener)
+			std::deque<EvalRequest>                               toEval;    // game -> view: JS eval (EvaluateScript)
+			std::deque<std::pair<std::string, std::string>>      toInterop; // game -> view: window.<fn>(arg) (CallJsFunction)
+			std::deque<std::string>                              toBindListener;  // game -> view: bind window.<name> (RegisterJsFunction)
 
 			// frame exchange: pendingFrame/pendingFresh guarded by Impl::frameMutex;
 			// frontFrame is game-thread-only and backs the FrameBufferView we hand out.
@@ -418,7 +418,7 @@ namespace PrismaSF
 		// will key on the JSContextRef; today it routes to the active view.)
 		static inline std::atomic<Impl*> sActive{ nullptr };
 
-		// ---- consumer-API plumbing (src/api/) ----
+		// ---- per-view JS interaction plumbing ----
 		// game-thread-set handlers + maps (touched only on the game thread):
 		DomReadyHandler                                        onDomReady;
 		LoadHandler                                           onLoad;  // terminal load finish/fail -> runtime hook
@@ -635,7 +635,7 @@ namespace PrismaSF
 				return false;
 			}
 			// In-memory session: no cookies/local storage ever touch disk.
-			session = renderer->CreateSession(false, "prismaui");
+			session = renderer->CreateSession(false, "osfui");
 			REX::INFO("UltralightWebRenderer: Ultralight renderer created (CPU rendering, in-memory session)");
 			return true;
 		}
@@ -809,7 +809,7 @@ namespace PrismaSF
 
 		// ================= JS bridge (worker thread) =================
 
-		// Reads the hidden __viewId string baked onto the prisma object at
+		// Reads the hidden __viewId string baked onto the osfui object at
 		// injection time, identifying which view a postMessage came from.
 		[[nodiscard]] static std::string ReadViewId(JSContextRef a_ctx, JSObjectRef a_obj)
 		{
@@ -829,7 +829,7 @@ namespace PrismaSF
 			auto* self = sActive.load();
 			if (self && a_argc >= 1) {
 				// Attribute the message to its SOURCE view (the __viewId on the
-				// prisma object). Falls back to the active view only if the
+				// osfui object). Falls back to the active view only if the
 				// call was somehow detached from that object.
 				const std::string sourceId = ReadViewId(a_ctx, a_this);
 				auto              json = JSValueToUTF8(a_ctx, a_args[0]);
@@ -855,7 +855,7 @@ namespace PrismaSF
 			return JSValueMakeUndefined(a_ctx);
 		}
 
-		// window.prisma.__invokeListener(name, arg): queue a (viewId,name,arg)
+		// window.osfui.__invokeListener(name, arg): queue a (viewId,name,arg)
 		// ListenerCall, drained on the game thread in Update(). Mirrors
 		// PostMessageCallback's __viewId source attribution.
 		static JSValueRef InvokeListenerCallback(
@@ -881,13 +881,13 @@ namespace PrismaSF
 			JSContextRef ctx = scopedCtx->ctx();
 			JSObjectRef  global = JSContextGetGlobalObject(ctx);
 
-			// window.prisma = { postMessage: <native fn> }
+			// window.osfui = { postMessage: <native fn> }
 			// The object stays extensible so the page can attach onMessage;
 			// postMessage itself is read-only.
-			JSObjectRef prisma = JSObjectMake(ctx, nullptr, nullptr);
+			JSObjectRef osfui = JSObjectMake(ctx, nullptr, nullptr);
 			JSStringRef postName = JSStringCreateWithUTF8CString("postMessage");
 			JSObjectRef postFn = JSObjectMakeFunctionWithCallback(ctx, postName, &PostMessageCallback);
-			JSObjectSetProperty(ctx, prisma, postName, postFn,
+			JSObjectSetProperty(ctx, osfui, postName, postFn,
 				kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete, nullptr);
 			JSStringRelease(postName);
 
@@ -896,23 +896,23 @@ namespace PrismaSF
 			// or even see it.
 			JSStringRef vidName = JSStringCreateWithUTF8CString("__viewId");
 			JSStringRef vidStr = JSStringCreateWithUTF8CString(a_vs.id.c_str());
-			JSObjectSetProperty(ctx, prisma, vidName, JSValueMakeString(ctx, vidStr),
+			JSObjectSetProperty(ctx, osfui, vidName, JSValueMakeString(ctx, vidStr),
 				kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontEnum | kJSPropertyAttributeDontDelete, nullptr);
 			JSStringRelease(vidStr);
 			JSStringRelease(vidName);
 
-			// window.prisma.__invokeListener(name, arg): the JS->native path for
-			// the consumer API's RegisterJSListener. The bound window.<name>
-			// wrappers call it; native attributes it via the baked __viewId.
+			// window.osfui.__invokeListener(name, arg): the JS->native path for
+			// RegisterJsFunction. The bound window.<name> wrappers call it; native
+			// attributes it via the baked __viewId.
 			JSStringRef invName = JSStringCreateWithUTF8CString("__invokeListener");
 			JSObjectRef invFn = JSObjectMakeFunctionWithCallback(ctx, invName, &InvokeListenerCallback);
-			JSObjectSetProperty(ctx, prisma, invName, invFn,
+			JSObjectSetProperty(ctx, osfui, invName, invFn,
 				kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontEnum | kJSPropertyAttributeDontDelete, nullptr);
 			JSStringRelease(invName);
 
-			JSStringRef prismaName = JSStringCreateWithUTF8CString("prisma");
-			JSObjectSetProperty(ctx, global, prismaName, prisma, kJSPropertyAttributeNone, nullptr);
-			JSStringRelease(prismaName);
+			JSStringRef osfuiName = JSStringCreateWithUTF8CString("osfui");
+			JSObjectSetProperty(ctx, global, osfuiName, osfui, kJSPropertyAttributeNone, nullptr);
+			JSStringRelease(osfuiName);
 		}
 
 		void FlushStashedMessages(ViewState& a_vs)
@@ -930,20 +930,20 @@ namespace PrismaSF
 			JSContextRef ctx = scopedCtx->ctx();
 			JSObjectRef  global = JSContextGetGlobalObject(ctx);
 
-			JSStringRef prismaName = JSStringCreateWithUTF8CString("prisma");
-			JSValueRef  prismaVal = JSObjectGetProperty(ctx, global, prismaName, nullptr);
-			JSStringRelease(prismaName);
-			if (!JSValueIsObject(ctx, prismaVal)) {
-				REX::WARN("UltralightWebRenderer: window.prisma missing; dropped native->web message");
+			JSStringRef osfuiName = JSStringCreateWithUTF8CString("osfui");
+			JSValueRef  osfuiVal = JSObjectGetProperty(ctx, global, osfuiName, nullptr);
+			JSStringRelease(osfuiName);
+			if (!JSValueIsObject(ctx, osfuiVal)) {
+				REX::WARN("UltralightWebRenderer: window.osfui missing; dropped native->web message");
 				return;
 			}
-			JSObjectRef prisma = JSValueToObject(ctx, prismaVal, nullptr);
+			JSObjectRef osfui = JSValueToObject(ctx, osfuiVal, nullptr);
 
 			JSStringRef onName = JSStringCreateWithUTF8CString("onMessage");
-			JSValueRef  onVal = JSObjectGetProperty(ctx, prisma, onName, nullptr);
+			JSValueRef  onVal = JSObjectGetProperty(ctx, osfui, onName, nullptr);
 			JSStringRelease(onName);
 			if (!JSValueIsObject(ctx, onVal) || !JSObjectIsFunction(ctx, JSValueToObject(ctx, onVal, nullptr))) {
-				REX::WARN("UltralightWebRenderer: window.prisma.onMessage is not a function; dropped native->web message");
+				REX::WARN("UltralightWebRenderer: window.osfui.onMessage is not a function; dropped native->web message");
 				return;
 			}
 
@@ -951,14 +951,14 @@ namespace PrismaSF
 			JSValueRef  arg = JSValueMakeString(ctx, jsonStr);
 			JSStringRelease(jsonStr);
 			JSValueRef exception = nullptr;
-			JSObjectCallAsFunction(ctx, JSValueToObject(ctx, onVal, nullptr), prisma, 1, &arg, &exception);
+			JSObjectCallAsFunction(ctx, JSValueToObject(ctx, onVal, nullptr), osfui, 1, &arg, &exception);
 			if (exception) {
 				REX::WARN("UltralightWebRenderer: onMessage threw: {}",
 					JSValueToUTF8(ctx, exception).substr(0, kMaxLoggedTextLen));
 			}
 		}
 
-		// ---- consumer-API JS ops (worker thread) ----
+		// ---- per-view JS ops (worker thread) ----
 
 		// Bind window.<name>(arg) as a thin wrapper calling __invokeListener.
 		void BindListener(ViewState& a_vs, const std::string& a_name)
@@ -974,8 +974,8 @@ namespace PrismaSF
 				esc.push_back(c);
 			}
 			const std::string js =
-				"window[\"" + esc + "\"]=function(a){if(window.prisma&&window.prisma.__invokeListener)"
-				"window.prisma.__invokeListener(\"" + esc + "\",a===undefined?\"\":String(a));};";
+				"window[\"" + esc + "\"]=function(a){if(window.osfui&&window.osfui.__invokeListener)"
+				"window.osfui.__invokeListener(\"" + esc + "\",a===undefined?\"\":String(a));};";
 			auto         scopedCtx = a_vs.view->LockJSContext();
 			JSContextRef ctx = scopedCtx->ctx();
 			JSStringRef  s = JSStringCreateWithUTF8CString(js.c_str());
@@ -1150,8 +1150,8 @@ namespace PrismaSF
 				return;
 			}
 			if (a_m.kind == MouseInput::Kind::kScroll) {
-				// Notches -> pixels via the per-view scroll step (consumer API
-				// SetScrollingPixelSize). Multiply before divide so sub-notch
+				// Notches -> pixels via the per-view scroll step
+				// (SetScrollPixelSize). Multiply before divide so sub-notch
 				// high-resolution wheels still move. Positive delta = scroll up.
 				// Ultralight scrolls whatever the last MouseMoved hovered; the
 				// shared toMouse deque is processed in order, so the hover target
@@ -1215,7 +1215,7 @@ namespace PrismaSF
 				vs = FindByView(a_view);
 			}
 			// Only views that requested it (manifest permissions.nativeBridge)
-			// get window.prisma at all.
+			// get window.osfui at all.
 			if (vs && vs->bridgeAllowed) {
 				InjectBridge(*vs);
 			}
@@ -1837,4 +1837,4 @@ namespace PrismaSF
 	}
 }
 
-#endif  // PRISMA_SF_WITH_ULTRALIGHT
+#endif  // OSFUI_WITH_ULTRALIGHT

@@ -3,11 +3,11 @@
 #include "RE/I/IMenu.h"
 #include "RE/S/ScaleformPtr.h"
 
-namespace PrismaSF
+namespace OSFUI
 {
 	// EXPERIMENTAL — OFF BY DEFAULT (config `focusMenu`). The "de-jank" path.
 	//
-	// A real Starfield IMenu that PrismaUI SF registers and pushes onto the engine
+	// A real Starfield IMenu that OSF UI registers and pushes onto the engine
 	// menu stack so the ENGINE enters menu mode (cursor + modal input ownership
 	// + optional pause) instead of the WndProc message-swallow the overlay uses
 	// today. With the engine aware a menu is open, the world is gated/paused by
@@ -48,7 +48,7 @@ namespace PrismaSF
 	class FocusMenu final : public RE::IMenu
 	{
 	public:
-		static constexpr std::string_view MENU_NAME = "PrismaUISF_FocusMenu";
+		static constexpr std::string_view MENU_NAME = "OSFUI_FocusMenu";
 
 		// Proven RE::IMenu::Flag bits (1.16.244).
 		static constexpr std::uint32_t kFlagShowCursor = 1u << 3;   // cursor shown

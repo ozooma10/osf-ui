@@ -4,7 +4,7 @@
 
 #include "core/Log.h"
 
-namespace PrismaSF
+namespace OSFUI
 {
 	KeyCode ResolveKeyName(std::string_view a_name)
 	{

@@ -1,4 +1,4 @@
-# PrismaUI SF — Resume / Handoff
+# OSF UI — Resume / Handoff
 
 **Last updated:** 2026-06-13 ~05:15
 **Status:** 🎉 **END-TO-END WORKING + FULLY INTERACTIVE.** Phase 0 + TODOs
@@ -35,9 +35,9 @@ freeze). Highest-value next items:
   `settings/<id>.json`; the built-in `settings` view renders a card per mod
   with typed controls + a Reset button; `SettingsStore` (a multi-mod
   registry) validates/clamps/persists per-mod to
-  `Documents\My Games\Starfield\PrismaUI\settings\<id>.json` and fires a
+  `Documents\My Games\Starfield\OSFUI\settings\<id>.json` and fires a
   change listener so native code reacts (`Runtime::OnSettingChanged`:
-  `prismasf.cursorSpeed` live-scales the cursor). Bridge commands:
+  `osfui.cursorSpeed` live-scales the cursor). Bridge commands:
   `settings.get`/`settings.set`/`settings.reset`. Verified in-game: two mods,
   live cursor-speed reaction, reset, per-mod persistence, survives relaunch.
 - **✅ Module refactor (2026-06-13).** `MessageBridge` is now a
@@ -60,12 +60,12 @@ Compositor entry points if you reopen it: `composite/D3D12Compositor.cpp`
 `InstallPresentHook` = the dummy-swapchain vtable capture).
 
 Quick re-verify of the Ultralight backend (one launch to the main menu, no
-interaction): expect in `PrismaUI SF.log` —
+interaction): expect in `OSF UI.log` —
 `SDK DLLs preloaded` → `worker calling Renderer::Create()` →
 `first paint (1280x720…)` → `DOM ready` →
 `MessageBridge: [web] test view loaded; bridge online` →
 `post-DOM frame dumped to …first-frame.png` (PNG shows the test panel with
-"Connected: PrismaUI SF v0.1.0").
+"Connected: OSF UI v0.1.0").
 
 This file is the single place to re-orient after switching machines. Read it,
 then read [architecture.md](architecture.md) and
@@ -75,17 +75,17 @@ then read [architecture.md](architecture.md) and
 
 ## 1. What this project is
 
-An SFSE/CommonLibSF plugin (`PrismaUI SF`) that will eventually host
+An SFSE/CommonLibSF plugin (`OSF UI`) that will eventually host
 HTML/CSS/JS UI views inside Starfield (Prisma-UI-*inspired*, no Prisma code).
 Built from [libxse/commonlibsf-template](https://github.com/libxse/commonlibsf-template),
 C++23 + XMake, GPL-3.0.
 
-Repo root: `C:\Modding\Starfield\PrismaUI SF`
-(renamed from `PrismaUI SF` per the workspace naming convention settled
-2026-06-12: repo folder == xmake target == MO2 mod folder. The plugin
-*metadata* name stays `PrismaUI SF` — it drives the SFSE log filename and
-the `SFSE/Plugins/PrismaUI/` data folder. Part of the larger
-multi-repo Starfield modding workspace.)
+Repo root: `C:\Modding\Starfield\OSF UI`
+(workspace naming convention settled 2026-06-12: repo folder == xmake target ==
+MO2 mod folder, all `OSF UI`. The plugin *metadata*/display name is `OSF UI` —
+it drives the SFSE log filename — while the binary is `OSFUI.dll` and the data
+folder is `SFSE/Plugins/OSFUI/`. Part of the larger multi-repo Starfield modding
+workspace.)
 
 ---
 
@@ -99,7 +99,7 @@ multi-repo Starfield modding workspace.)
 
 ### Clone (recursive — submodules are CommonLibSF + commonlib-shared)
 ```bat
-git clone --recurse-submodules <your-remote> PrismaUI SF
+git clone --recurse-submodules <your-remote> OSF UI
 ```
 > `origin` = `https://github.com/ozooma10/osf-ui.git` (correct). ⚠ As of this
 > writing all of today's fixes are **uncommitted** (10 modified files +
@@ -108,25 +108,25 @@ git clone --recurse-submodules <your-remote> PrismaUI SF
 
 ### Build
 ```bat
-cd PrismaUI SF
+cd OSF UI
 xmake build
 ```
 - Cold build compiles CommonLibSF too (~13 s). Incremental is ~1–2 s.
 - If `XSE_SF_MODS_PATH` is set, output auto-installs to
-  `<mods>\PrismaUI SF\SFSE\Plugins\...` (on the current machine that is
-  `C:\Modding\Starfield\MO2\mods\PrismaUI SF`). On the new machine set
+  `<mods>\OSF UI\SFSE\Plugins\...` (on the current machine that is
+  `C:\Modding\Starfield\MO2\mods\OSF UI`). On the new machine set
   `XSE_SF_MODS_PATH` or `XSE_SF_GAME_PATH` to get auto-deploy.
 
 ### Ultralight build (the real backend — this is now the dev default)
 ```bat
-set ULTRALIGHT_SDK_DIR=C:\Modding\Starfield\PrismaUI SF\external\ultralight-free-sdk-1.4.0-win-x64
+set ULTRALIGHT_SDK_DIR=C:\Modding\Starfield\OSF UI\external\ultralight-free-sdk-1.4.0-win-x64
 xmake f --with_ultralight=true
 xmake build
 ```
 - The SDK lives in `external\` (gitignored — **never vendored**; free 1.4.0
   win-x64 drop). Fails with a clear message if the SDK dir is missing.
 - The install step also ships the runtime payload into the mod folder:
-  `SFSE/Plugins/PrismaUI/ultralight/bin/*.dll` (the four SDK DLLs) and
+  `SFSE/Plugins/OSFUI/ultralight/bin/*.dll` (the four SDK DLLs) and
   `ultralight/resources/icudt67l.dat` (ICU). `cacert.pem` is deliberately
   NOT shipped (network stays off — security-model.md §2).
 - Shipped `config.json` now says `renderer=ultralight`. A default
@@ -250,7 +250,7 @@ Fixes (all in working tree as of this writing):
   (the ONLY AppCore use — no window/app machinery).
 - **JS bridge:** `postMessage` injected at `OnWindowObjectReady` (JSC C API,
   read-only property); native→web queues until `OnDOMReady` then calls
-  `window.prisma.onMessage(json)`. Both queues capped at 64. The test
+  `window.osfui.onMessage(json)`. Both queues capped at 64. The test
   view auto-sends `log` + `ping` on load so the round trip needs no input.
 - The first paint fires BEFORE DOM ready (blank white) — the devMode PNG
   dump waits for the first post-DOM paint.
@@ -306,8 +306,8 @@ Fixes (all in working tree as of this writing):
 
 ## 5. First in-game smoke test (do this when you have game access)
 
-1. Enable `PrismaUI SF` in MO2, launch via SFSE.
-2. Open the SFSE log: `Documents\My Games\Starfield\SFSE\Logs\PrismaUI SF.log`
+1. Enable `OSF UI` in MO2, launch via SFSE.
+2. Open the SFSE log: `Documents\My Games\Starfield\SFSE\Logs\OSF UI.log`
    (resolve Documents via OneDrive redirection — don't hardcode).
 3. Confirm, in order:
    - `preload entered` / `load entered`
@@ -340,14 +340,14 @@ Fixes (all in working tree as of this writing):
 - ✅ **Resolved 2026-06-12 evening:** all of the crash fix + verification
   work listed here previously is committed as `682cfa7` ("UI Input hooks"),
   with the submodule pinned at `4c48ed4`.
-- Still uncommitted (rename follow-up only): `xmake.lua` (target
-  `PrismaUI SF` → `PrismaUI SF`), `README.md`, `docs/HANDOFF.md` (deploy-path
-  and status updates). Safe to commit as e.g. "Rename target to PrismaUI SF per
-  workspace naming convention".
+- Rename follow-up (2026-06-25): reverted the short-lived "PrismaUI SF" rebrand
+  back off Prisma branding to `OSF UI` and removed the Prisma-compatible public
+  C++ API. Touched `xmake.lua` (target `OSF UI`, DLL `OSFUI.dll`), all of `src/`,
+  `data/` (folder `OSFUI`), `sdk/`, `README.md`, `CREDITS.md`, and `docs/`.
 - Do not run `git checkout --`/reset/stash on anything you didn't dirty —
   several workspace repos are intentionally dirty.
 - `build/` and any `vsxmakeXXXX/` dirs are regenerable; no need to copy them.
-- The deployed DLL in `MO2\mods\PrismaUI SF` (`PrismaUI SF.dll`, built 2026-06-12
+- The deployed DLL in `MO2\mods\OSF UI` (`OSFUI.dll`, built 2026-06-12
   19:52) is current with the working tree. ⚠ The mod is currently
   **disabled** in the MO2 `Default` profile — re-enable before the §0 run.
 
@@ -398,7 +398,7 @@ src/
              OverlayInputHook (WndProc subclass — the real input front-end)
   platform/  WindowsPlatform (isolated Win32: module path, DLL preload,
              readable-range probe, Documents path)
-data/PrismaUI/
+data/OSFUI/
   config.json
   settings/schema.json                 Phase 5 demo schema
   views/test/{manifest,index,style,main}

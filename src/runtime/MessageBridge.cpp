@@ -3,7 +3,7 @@
 #include "core/Version.h"
 #include "runtime/Json.h"
 
-namespace PrismaSF
+namespace OSFUI
 {
 	MessageBridge::MessageBridge(SendFn a_send) :
 		_send(std::move(a_send))

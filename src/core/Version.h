@@ -1,8 +1,8 @@
 #pragma once
 
-namespace PrismaSF
+namespace OSFUI
 {
-	inline constexpr const char* kPluginName = "PrismaUI SF";
+	inline constexpr const char* kPluginName = "OSF UI";
 	inline constexpr const char* kPluginVersion = "0.1.0";
 
 	// Version of the native<->web bridge protocol (message envelope, command
@@ -14,6 +14,6 @@ namespace PrismaSF
 	inline constexpr const char* kBridgeProtocolVersion = "0.1";
 
 	// Name of the plugin data folder, resolved relative to the plugin DLL:
-	//   Data/SFSE/Plugins/PrismaUI/
-	inline constexpr const char* kDataFolderName = "PrismaUI";
+	//   Data/SFSE/Plugins/OSFUI/
+	inline constexpr const char* kDataFolderName = "OSFUI";
 }

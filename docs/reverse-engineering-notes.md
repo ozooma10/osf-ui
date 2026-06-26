@@ -269,7 +269,7 @@ Still open (Phase 4b and later):
 > kPausesGame), and `.../2026-06-13-input-enable-layer-control-disable.md`
 > (device-agnostic control disable via `BSInputEnableManager`/`BSInputEnableLayer`
 > PROVEN live with a controller — keyboard + mouse-look + gamepad all freeze; flag
-> table mapped, `Looking`=camera). Both land in PrismaUI SF behind config
+> table mapped, `Looking`=camera). Both land in OSF UI behind config
 > `focusMenu` / `disableControls` (src/input/FocusMenu.{h,cpp},
 > src/input/ControlLayer.{h,cpp}); the shipped config.json now enables both. The
 > one remaining live unknown is whether the hardened focus menu survives past the
@@ -284,6 +284,6 @@ Still open (Phase 4b and later):
 ## Workspace note
 
 RE work for this workspace happens in `OSF RE/` per its rules (proof
-requirements for offsets/IDs). Findings that PrismaUI SF consumes should be
+requirements for offsets/IDs). Findings that OSF UI consumes should be
 recorded there and referenced here — this file tracks *questions*, not
 unproven answers.

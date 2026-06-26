@@ -2,7 +2,7 @@
 includes("lib/commonlibsf")
 
 -- set project constants
-set_project("PrismaUI SF")
+set_project("OSF UI")
 set_version("0.1.0")
 set_license("GPL-3.0")
 set_languages("c++23")
@@ -26,11 +26,14 @@ add_requires("nlohmann_json")
 
 -- define targets
 -- target name == repo folder == MO2 mod folder (deploy goes to XSE_SF_MODS_PATH\<target name>)
-target("PrismaUI SF")
+target("OSF UI")
+    -- DLL basename (target name has a space for the MO2 folder; the binary
+    -- itself is the space-free "OSFUI.dll"). Data folder is SFSE/Plugins/OSFUI/
+    -- (src/core/Version.h kDataFolderName).
+    set_basename("OSFUI")
     add_rules("commonlibsf.plugin", {
-        -- plugin metadata name kept: it drives the SFSE log filename and matches
-        -- the runtime data folder SFSE/Plugins/PrismaUI/ (src/core/Paths.h)
-        name = "PrismaUI SF",
+        -- plugin display name (SFSEPlugin_Version + SFSE log filename).
+        name = "OSF UI",
         author = "ozooma10",
         description = "HTML/CSS/JS UI runtime prototype for Starfield via SFSE/CommonLibSF",
         email = "ozooma10@users.noreply.github.com"
@@ -54,24 +57,20 @@ target("PrismaUI SF")
     set_pcxxheader("src/pch.h")
 
     -- ship the plugin data folder (config + views) next to the DLL:
-    -- <install>/SFSE/Plugins/PrismaUI/...
-    add_installfiles("data/(PrismaUI/**)", { prefixdir = "SFSE/Plugins" })
-
-    -- ship the public consumer API header so modders can copy it from the
-    -- installed mod: <install>/SFSE/Plugins/PrismaUI/api/PrismaUI_API.h
-    add_installfiles("src/api/(PrismaUI_API.h)", { prefixdir = "SFSE/Plugins/PrismaUI/api" })
+    -- <install>/SFSE/Plugins/OSFUI/...
+    add_installfiles("data/(OSFUI/**)", { prefixdir = "SFSE/Plugins" })
 
     if has_config("with_ultralight") then
-        add_defines("PRISMA_SF_WITH_ULTRALIGHT=1")
+        add_defines("OSFUI_WITH_ULTRALIGHT=1")
         on_load(function(target)
             local sdk = os.getenv("ULTRALIGHT_SDK_DIR")
             if not sdk or sdk == "" then
-                raise("PrismaUI: with_ultralight=true requires the ULTRALIGHT_SDK_DIR environment " ..
+                raise("OSFUI: with_ultralight=true requires the ULTRALIGHT_SDK_DIR environment " ..
                       "variable to point at a local Ultralight SDK (https://ultralig.ht). " ..
                       "The SDK is proprietary and is not vendored in this repository.")
             end
             if not os.isdir(path.join(sdk, "include")) then
-                raise("PrismaUI: ULTRALIGHT_SDK_DIR is set but '" .. path.join(sdk, "include") ..
+                raise("OSFUI: ULTRALIGHT_SDK_DIR is set but '" .. path.join(sdk, "include") ..
                       "' does not exist. Point ULTRALIGHT_SDK_DIR at the SDK root.")
             end
             target:add("includedirs", path.join(sdk, "include"))
@@ -96,14 +95,14 @@ target("PrismaUI SF")
                 "/DELAYLOAD:AppCore.dll",
                 { force = true })
             -- Ship the runtime pieces with the plugin data folder:
-            --   SFSE/Plugins/PrismaUI/ultralight/bin/*.dll
-            --   SFSE/Plugins/PrismaUI/ultralight/resources/icudt67l.dat
+            --   SFSE/Plugins/OSFUI/ultralight/bin/*.dll
+            --   SFSE/Plugins/OSFUI/ultralight/resources/icudt67l.dat
             -- cacert.pem is intentionally NOT shipped: network stays off
             -- (docs/security-model.md), so no TLS roots are needed.
             target:add("installfiles", path.join(sdk, "bin", "(*.dll)"),
-                { prefixdir = "SFSE/Plugins/PrismaUI/ultralight/bin" })
+                { prefixdir = "SFSE/Plugins/OSFUI/ultralight/bin" })
             target:add("installfiles", path.join(sdk, "resources", "(icudt67l.dat)"),
-                { prefixdir = "SFSE/Plugins/PrismaUI/ultralight/resources" })
+                { prefixdir = "SFSE/Plugins/OSFUI/ultralight/resources" })
             -- Ship Ultralight's license texts next to its binaries so the
             -- required attribution travels with the distributed mod. The Free
             -- License Agreement requires the NOTICES legend in the Licensed
@@ -112,7 +111,7 @@ target("PrismaUI SF")
             -- EULA.txt, and LICENSE.txt; ship all of it so no required notice
             -- is omitted. Only bundled when Ultralight itself is (this block).
             target:add("installfiles", path.join(sdk, "license", "(**)"),
-                { prefixdir = "SFSE/Plugins/PrismaUI/ultralight/license" })
+                { prefixdir = "SFSE/Plugins/OSFUI/ultralight/license" })
         end)
     else
         -- UltralightWebRenderer.cpp is also fully #if-guarded, but exclude it

@@ -1,12 +1,11 @@
-# PrismaUI SF
+# OSF UI
 
-**PrismaUI SF** is the Starfield edition of
-[Prisma UI](https://www.prismaui.dev/) by StarkMP — an SFSE/CommonLibSF plugin
-that hosts HTML/CSS/JS UI views over the game and exposes a **drop-in-compatible
-C++ API**, so a mod written against Prisma UI (Skyrim) ports to Starfield by
-changing little more than the header include and the DLL name. It is an
-independent, from-scratch implementation for Starfield's Direct3D 12 engine and
-contains **no Prisma UI code** (see
+**OSF UI** is an SFSE/CommonLibSF plugin that hosts HTML/CSS/JS UI views over
+Starfield. It is **heavily inspired by [Prisma UI](https://www.prismaui.dev/)
+by StarkMP** — the Skyrim framework that pioneered rendering modern web UIs over
+a Bethesda game with Ultralight — but it is an independent, from-scratch
+implementation for Starfield's Direct3D 12 engine, with its own name, API, and
+architecture, and contains **no Prisma UI code** (see
 [Credits & acknowledgments](#credits--acknowledgments)).
 
 Current state: **Phase 5b — interactive overlay + schema-driven settings.**
@@ -40,10 +39,10 @@ Output lands in `build/windows/x64/<mode>/`. To deploy automatically, set one
 of (before configuring):
 
 - `XSE_SF_MODS_PATH` — a mod manager `mods` folder → installs to
-  `<mods>/PrismaUI SF/SFSE/Plugins/...` (mod folder == xmake target == repo folder)
+  `<mods>/OSF UI/SFSE/Plugins/...` (mod folder == xmake target == repo folder)
 - `XSE_SF_GAME_PATH` — the game folder → installs to `Data/SFSE/Plugins/...`
 
-The install includes the DLL, PDB, and the `PrismaUI/` data folder
+The install includes the DLL, PDB, and the `OSFUI/` data folder
 (config + views).
 
 ## Install / paths
@@ -52,8 +51,8 @@ Final layout (game or mod folder):
 
 ```
 Data/SFSE/Plugins/
-  PrismaUI SF.dll
-  PrismaUI/              <- plugin data, resolved relative to the DLL
+  OSFUI.dll
+  OSFUI/                 <- plugin data, resolved relative to the DLL
                                   (name is the kDataFolderName constant, not the DLL name)
     config.json
     views/
@@ -68,11 +67,11 @@ Data/SFSE/Plugins/
 ```
 
 Logs go to the standard SFSE log folder
-(`Documents/My Games/Starfield/SFSE/Logs/PrismaUI SF.log`).
+(`Documents/My Games/Starfield/SFSE/Logs/OSF UI.log`).
 
 ## Config
 
-`PrismaUI/config.json` (missing file ⇒ built-in defaults, logged):
+`OSFUI/config.json` (missing file ⇒ built-in defaults, logged):
 
 | field | default | meaning |
 |---|---|---|
@@ -84,11 +83,11 @@ Logs go to the standard SFSE log folder
 | `compositor` | `"null"` | `null` \| `d3d12` (stub that refuses to init) |
 | `inputSource` | `"none"` | `none` \| `ui` — observe-only vfunc hook on the game UI's input processing; enables the toggle key. Shipped config uses `ui`; set to `none` to rule the hook out when debugging |
 | `captureInput` | `true` | when the overlay is visible, freeze the game and route keyboard/mouse into the web view (needs `inputSource: "ui"`). When `false` the overlay is a passive HUD: it draws, but the game still receives input |
-| `focusMenu` | `false` | **Experimental — leave off.** Register a real engine menu (`PrismaUISF_FocusMenu`) and open/close it with the overlay so the engine enters menu mode (cursor + modal input) rather than relying only on the WndProc message-swallow. Custom-`IMenu` registration is **unproven on 1.16.244** (see [docs/reverse-engineering-notes.md](docs/reverse-engineering-notes.md) §4); enabling may be unstable until that probe confirms the contract |
+| `focusMenu` | `false` | **Experimental — leave off.** Register a real engine menu (`OSFUI_FocusMenu`) and open/close it with the overlay so the engine enters menu mode (cursor + modal input) rather than relying only on the WndProc message-swallow. Custom-`IMenu` registration is **unproven on 1.16.244** (see [docs/reverse-engineering-notes.md](docs/reverse-engineering-notes.md) §4); enabling may be unstable until that probe confirms the contract |
 | `disableControls` | `false` | **Experimental.** While the overlay is visible, disable player controls through the engine input-enable layer (`BSInputEnableManager`) — this also stops gamepad/XInput, which the WndProc hook never saw. Mechanism is proven on 1.16.244; the exact freeze-everything flag set is still being live-confirmed, so the disabled set is provisional |
 | `view` | `"test"` | view id from `views/*/manifest.json` (shipped config uses `settings`) |
 | `allowNetwork` | `false` | recognized but force-disabled |
-| `devMode` | `false` | verbose per-call logging + first-frame PNG dump. **Defaults shown above are the built-in fallbacks (`src/core/Config.h`); the shipped `data/PrismaUI/config.json` is the runtime config.** For development, set `devMode: true` and `startVisible: true` for verbose logs and a launch-visible overlay |
+| `devMode` | `false` | verbose per-call logging + first-frame PNG dump. **Defaults shown above are the built-in fallbacks (`src/core/Config.h`); the shipped `data/OSFUI/config.json` is the runtime config.** For development, set `devMode: true` and `startVisible: true` for verbose logs and a launch-visible overlay |
 
 ## Ultralight backend
 
@@ -103,7 +102,7 @@ xmake build
 
 The build fails with a clear message if `ULTRALIGHT_SDK_DIR` is missing, and
 the install step ships the SDK's runtime DLLs + ICU data into the
-`PrismaUI/ultralight/` folder shown above. The SDK is proprietary —
+`OSFUI/ultralight/` folder shown above. The SDK is proprietary —
 never commit its headers, libs, or binaries to this repository (keep local
 drops under the gitignored `external/`; also mind Ultralight's own licensing
 terms for distribution).
@@ -128,9 +127,9 @@ docs/HANDOFF.md §4.
   compositor logs submitted frames.
 - With `with_ultralight`: real HTML/CSS/JS rendering offscreen (Ultralight
   1.4 / WebKit on a dedicated worker thread), a sandboxed filesystem limited
-  to the view folder + ICU resources, and a two-way `window.prisma`
+  to the view folder + ICU resources, and a two-way `window.osfui`
   JSON bridge — verified in-game (devMode dumps the first rendered frame to
-  `PrismaUI/ultralight/first-frame.png`).
+  `OSFUI/ultralight/first-frame.png`).
 - With `compositor: "d3d12"`: the rendered frames upload into a GPU texture
   on the game's own `ID3D12Device` (route reverse-engineered and QI-verified
   at runtime; hook-free) and are **drawn over the game image** at present
@@ -155,19 +154,15 @@ docs/HANDOFF.md §4.
 
 ## What this is not yet
 
-- **Not a complete Prisma port** — and it will never contain Prisma code
-  unless explicitly provided and licensed.
 - **A young framework** — multiple views composite together with `Tab` focus
-  switching, views can read basic game data (e.g. the in-game clock), and
-  **other SFSE plugins can now drive views through a public, PrismaUI-compatible
-  C++ API** (`RequestPluginAPI` → `CreateView` / `Invoke` / `RegisterJSListener`
-  / `Focus` / … — see [docs/consumer-api.md](docs/consumer-api.md) and
-  [sdk/PrismaUI_API.h](sdk/PrismaUI_API.h)). Still maturing: the `window.prisma`
-  declarative bridge is **0.x and unstable**, the DevTools inspector is stubbed,
-  and there's no packaging/distribution tooling for third-party UIs yet. You can
-  also ship a `settings/<id>.json` schema and a `views/<id>/` folder for the
-  declarative path. Render/menu integration points were reverse engineered
-  before use, never guessed ([docs/reverse-engineering-notes.md](docs/reverse-engineering-notes.md)).
+  switching, and views can read basic game data (e.g. the in-game clock).
+  Still maturing: the `window.osfui` declarative bridge is **0.x and
+  unstable**, the DevTools inspector is stubbed, there is no public native API
+  for other SFSE plugins to drive views, and there's no packaging/distribution
+  tooling for third-party UIs yet. You ship a `settings/<id>.json` schema and a
+  `views/<id>/` folder for the declarative path. Render/menu integration points
+  were reverse engineered before use, never guessed
+  ([docs/reverse-engineering-notes.md](docs/reverse-engineering-notes.md)).
 - **Rough edges** — keyboard routing is US-layout only (no IME/Unicode yet),
   there is no gamepad/controller navigation or localization pipeline, and
   HDR/10-bit backbuffers plus coexistence with ReShade / Steam overlay /
@@ -190,24 +185,24 @@ docs/HANDOFF.md §4.
 
 ## Credits & acknowledgments
 
-PrismaUI SF exists because of **[Prisma UI](https://www.prismaui.dev/)** by
+OSF UI exists because of **[Prisma UI](https://www.prismaui.dev/)** by
 **StarkMP** (with contributors incl. **langfod**) — the Skyrim Special Edition
 framework that pioneered rendering modern HTML/CSS/JS interfaces over a Bethesda
 game with Ultralight. The entire idea for this project came from Prisma UI, and
-StarkMP graciously gave permission to reference Prisma UI's branding and public
-API. Thank you.
+StarkMP graciously gave permission to build a Starfield-flavored framework in
+its spirit. Thank you.
 
-This is an **independent, from-scratch implementation for Starfield** — a
+OSF UI is an **independent, from-scratch implementation for Starfield** — a
 different game on a different engine (Direct3D 12 vs Prisma's Direct3D 11), with
-its own architecture, renderer, input handling, and native↔web bridge. It is
-**not affiliated with or endorsed by the Prisma UI project, and contains no
-Prisma UI code.**
+its own name, architecture, renderer, input handling, and native↔web bridge. It
+does **not** use Prisma UI's name, branding, or API, is **not affiliated with or
+endorsed by the Prisma UI project, and contains no Prisma UI code.**
 
 - **[Prisma UI](https://www.nexusmods.com/skyrimspecialedition/mods/148718)** —
   StarkMP & contributors — original concept and inspiration.
 - **[Ultralight](https://ultralig.ht/)** — Ultralight, Inc. — the lightweight,
   WebKit-based renderer behind every view (used under the Ultralight Free
-  License; notices ship in `PrismaUI/ultralight/license/`).
+  License; notices ship in `OSFUI/ultralight/license/`).
 - **[commonlibsf-template](https://github.com/libxse/commonlibsf-template)** /
   **CommonLibSF** & **[SFSE](https://sfse.silverlock.org/)** — the plugin
   foundation this is built on.

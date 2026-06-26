@@ -6,7 +6,7 @@
 
 #include "core/Log.h"
 
-namespace PrismaSF
+namespace OSFUI
 {
 	namespace
 	{
@@ -55,7 +55,7 @@ namespace PrismaSF
 									"control-disable deferred until gameplay");
 				return false;
 			}
-			if (!manager->AllocateNewLayer(&g_layer, "PrismaUI SF Overlay") || !g_layer) {
+			if (!manager->AllocateNewLayer(&g_layer, "OSF UI Overlay") || !g_layer) {
 				REX::ERROR("ControlLayer: AllocateNewLayer failed; control-disable unavailable");
 				g_layer = nullptr;
 				return false;

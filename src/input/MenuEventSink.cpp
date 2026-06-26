@@ -3,7 +3,7 @@
 #include "core/Log.h"
 #include "runtime/Runtime.h"
 
-namespace PrismaSF
+namespace OSFUI
 {
 	MenuEventSink       MenuEventSink::s_instance;
 	std::atomic_int32_t MenuEventSink::s_openMenus{ 0 };

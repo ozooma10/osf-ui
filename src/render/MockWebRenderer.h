@@ -2,7 +2,7 @@
 
 #include "render/IWebRenderer.h"
 
-namespace PrismaSF
+namespace OSFUI
 {
 	// Produces a generated RGBA test pattern on the CPU. Exists purely to prove
 	// the renderer -> compositor pipeline compiles and moves plausible data; it

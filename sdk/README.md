@@ -1,4 +1,4 @@
-# PrismaUI SF SDK
+# OSF UI SDK
 
 Type definitions and tooling for building views against the native bridge. This
 is the seed of the frontend SDK — there is **no npm package or build step** yet;
@@ -6,14 +6,9 @@ everything here is hand-written and copied into a view project as needed.
 
 ## Contents
 
-- [`prismaui-sf.d.ts`](prismaui-sf.d.ts) — TypeScript definitions for
-  `window.prisma`, the message envelope, the `ui.command` whitelist, and the
+- [`osfui.d.ts`](osfui.d.ts) — TypeScript definitions for
+  `window.osfui`, the message envelope, the `ui.command` whitelist, and the
   native→web message + settings-schema shapes (for **view authors**).
-- [`PrismaUI_API.h`](PrismaUI_API.h) — the public C++ consumer API for **other
-  SFSE plugins** to drive views (PrismaUI-compatible: `RequestPluginAPI` →
-  `CreateView`/`Invoke`/`RegisterJSListener`/…). See
-  [docs/consumer-api.md](../docs/consumer-api.md) and the
-  [example consumer](../examples/consumer/).
 
 ## Bridge protocol version
 
@@ -21,10 +16,10 @@ everything here is hand-written and copied into a view project as needed.
 at runtime from the `runtime.ready` handshake and refuse/degrade on a mismatch:
 
 ```ts
-window.prisma.onMessage = (json) => {
+window.osfui.onMessage = (json) => {
   const msg = JSON.parse(json);
   if (msg.type === "runtime.ready" && !msg.payload.bridgeVersion?.startsWith("0.")) {
-    console.warn("Unsupported PrismaUI SF bridge", msg.payload.bridgeVersion);
+    console.warn("Unsupported OSF UI bridge", msg.payload.bridgeVersion);
   }
 };
 ```

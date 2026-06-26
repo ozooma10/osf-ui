@@ -8,7 +8,7 @@
 #include "core/Log.h"
 #include "runtime/Runtime.h"
 
-namespace PrismaSF
+namespace OSFUI
 {
 	namespace
 	{

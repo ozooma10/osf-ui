@@ -1,6 +1,6 @@
 #include "runtime/ViewManager.h"
 
-namespace PrismaSF
+namespace OSFUI
 {
 	void ViewManager::LoadAll(const std::filesystem::path& a_viewsDir)
 	{

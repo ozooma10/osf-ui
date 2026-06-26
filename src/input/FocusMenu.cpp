@@ -14,7 +14,7 @@
 #include <cstdlib>
 #include <new>
 
-namespace PrismaSF
+namespace OSFUI
 {
 	namespace
 	{

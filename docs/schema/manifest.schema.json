@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/ozooma10/osf-ui/blob/main/docs/schema/manifest.schema.json",
-  "title": "PrismaUI SF View Manifest",
+  "title": "OSF UI View Manifest",
   "description": "Schema for views/<id>/manifest.json. Bridge protocol 0.1 (unstable). Mirrors src/runtime/ViewManifest.cpp.",
   "type": "object",
   "required": ["id"],
@@ -62,7 +62,7 @@
         "nativeBridge": {
           "type": "boolean",
           "default": false,
-          "description": "Inject window.prisma. If false, no bridge is created and the page runs purely client-side."
+          "description": "Inject window.osfui. If false, no bridge is created and the page runs purely client-side."
         },
         "filesystem": {
           "type": "boolean",

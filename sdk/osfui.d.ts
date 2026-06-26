@@ -1,5 +1,5 @@
 /**
- * TypeScript definitions for the PrismaUI SF native <-> web bridge.
+ * TypeScript definitions for the OSF UI native <-> web bridge.
  *
  * Bridge protocol version: 0.1 (UNSTABLE — minor bumps may break views until
  * 1.0). Negotiate against the `bridgeVersion` field of the `runtime.ready`
@@ -10,7 +10,7 @@
  *   - src/runtime/MessageBridge.cpp    (envelope + dispatch)
  *
  * Usage: this is an ambient declaration file — drop it into your view project
- * (or reference it via tsconfig "types"/"include") and `window.prisma` is
+ * (or reference it via tsconfig "types"/"include") and `window.osfui` is
  * typed globally. There is no runtime package to install.
  */
 
@@ -38,7 +38,7 @@ export type UiCommand =
 export type WebToNativeMessage = BridgeEnvelope<"ui.command", UiCommand>;
 
 // ---------------------------------------------------------------------------
-// native -> web messages (assign window.prisma.onMessage and switch on type)
+// native -> web messages (assign window.osfui.onMessage and switch on type)
 // ---------------------------------------------------------------------------
 
 export interface RuntimeReadyPayload {
@@ -121,7 +121,7 @@ export interface SettingsSchema {
 // The injected bridge object (present only when manifest grants nativeBridge).
 // ---------------------------------------------------------------------------
 
-export interface PrismaBridge {
+export interface OSFUIBridge {
   /** web -> native. Pass a JSON string; the typed helper below is recommended. */
   postMessage(json: string): void;
   /** native -> web. Assign this; the runtime calls it with a JSON string. */
@@ -131,7 +131,7 @@ export interface PrismaBridge {
 declare global {
   interface Window {
     /** Undefined unless the active view's manifest sets permissions.nativeBridge. */
-    prisma?: PrismaBridge;
+    osfui?: OSFUIBridge;
   }
 }
 

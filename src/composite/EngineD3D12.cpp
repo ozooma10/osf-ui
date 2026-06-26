@@ -13,7 +13,7 @@
 
 #include <d3d12.h>
 
-namespace PrismaSF
+namespace OSFUI
 {
 	namespace
 	{

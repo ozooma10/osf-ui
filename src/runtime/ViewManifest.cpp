@@ -2,7 +2,7 @@
 
 #include "runtime/Json.h"
 
-namespace PrismaSF
+namespace OSFUI
 {
 	std::optional<ViewManifest> ViewManifest::Load(const std::filesystem::path& a_path)
 	{

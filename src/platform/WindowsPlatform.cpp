@@ -12,7 +12,7 @@
 
 #include <cstring>
 
-namespace PrismaSF::Platform
+namespace OSFUI::Platform
 {
 	namespace
 	{

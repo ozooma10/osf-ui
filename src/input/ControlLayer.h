@@ -1,6 +1,6 @@
 #pragma once
 
-namespace PrismaSF
+namespace OSFUI
 {
 	// EXPERIMENTAL — OFF BY DEFAULT (config `disableControls`). The gamepad-leak
 	// half of the de-jank work, complementary to FocusMenu.
@@ -11,7 +11,7 @@ namespace PrismaSF
 	// gates input at a point upstream of ALL devices — so a gamepad stick no
 	// longer drives the game while the overlay is open (the WndProc only ever saw
 	// keyboard/mouse window messages, never XInput). This is the Starfield analog
-	// of PrismaUI's ControlMap::ToggleControls(...).
+	// of Prisma UI's ControlMap::ToggleControls(...).
 	//
 	// Mechanism is proven on 1.16.244 — statically and with a live controller run
 	// (OSF RE module ui.input_enable_layer / Investigations/Requests/
