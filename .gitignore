@@ -9,6 +9,7 @@
 # folders
 build/
 vs*/
+dist/
 
 # local SDK drops (the Ultralight SDK is proprietary and must never be vendored)
 external/
