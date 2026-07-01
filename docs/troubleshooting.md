@@ -73,9 +73,15 @@ Open `OSF UI.log` first — it states what happened.
 ## Known limitations (v0.x)
 
 - **Steam only** (SFSE limitation).
-- **Untested display/overlay setups** — HDR / 10-bit output, frame generation
-  (DLSS-G / FSR-FG), and overlay tools (ReShade, Steam overlay, RTSS) have **not**
-  been validated. On those the overlay may not appear or may draw on the wrong
+- **HDR / 10-bit output is not supported yet** — the overlay detects an
+  HDR/10-bit backbuffer, logs a warning naming the format, and deliberately
+  does **not** draw on it (drawing would produce wrong colors). Symptom: the
+  overlay never appears and `OSF UI.log` has a `cannot render correctly into
+  it yet` line. Workaround: run Starfield in SDR. Full HDR output is on the
+  roadmap.
+- **Untested display/overlay setups** — frame generation (DLSS-G / FSR-FG)
+  and overlay tools (ReShade, Steam overlay, RTSS) have **not** been
+  validated. On those the overlay may not appear or may draw on the wrong
   output. Reports welcome.
 - **Tied to a game build** via the Address Library; a patch can require an update.
 - **Input:** keyboard routing is US-layout only; no gamepad/controller navigation

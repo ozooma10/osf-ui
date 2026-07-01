@@ -165,10 +165,11 @@ docs/HANDOFF.md §4.
   were reverse engineered before use, never guessed
   ([docs/reverse-engineering-notes.md](docs/reverse-engineering-notes.md)).
 - **Rough edges** — keyboard routing is US-layout only (no IME/Unicode yet),
-  there is no gamepad/controller navigation or localization pipeline, and
-  HDR/10-bit backbuffers plus coexistence with ReShade / Steam overlay /
-  frame-gen are untested (see [docs/renderer-plan.md](docs/renderer-plan.md)
-  Phases 3 & 4c).
+  there is no gamepad/controller navigation or localization pipeline,
+  HDR/10-bit backbuffers are detected and skipped with a log warning rather
+  than rendered (full HDR output is on the roadmap), and coexistence with
+  ReShade / Steam overlay / frame-gen is untested (see
+  [docs/renderer-plan.md](docs/renderer-plan.md) Phases 3 & 4c).
 - **Not compatible with Xbox/Game Pass** — SFSE itself is Steam-only.
 
 ## Documentation

@@ -11,7 +11,7 @@
 
 #include <d3d12.h>
 #include <d3dcompiler.h>
-#include <dxgi1_4.h>
+#include <dxgi1_6.h>
 
 #include <cstring>
 #include <mutex>
@@ -30,6 +30,7 @@ namespace OSFUI
 		constexpr std::uint32_t kCmdSlots = 6;          // command allocator/list ring depth
 		constexpr std::uint32_t kMaxSwapchains = 4;     // distinct swapchains we'll draw on
 		constexpr std::uint32_t kMaxBackBuffers = 4;    // per swapchain
+		constexpr std::uint32_t kMaxPsoFormats = 4;     // distinct backbuffer formats we'll build PSOs for
 		constexpr std::uint32_t kRowPitchAlignment = 256;  // D3D12_TEXTURE_DATA_PITCH_ALIGNMENT
 		constexpr DWORD         kSlotWaitTimeoutMs = 100;  // cap the wait for a busy ring slot
 
@@ -50,6 +51,57 @@ namespace OSFUI
 		[[nodiscard]] DXGI_FORMAT ToDxgiFormat(const PixelFormat a_format)
 		{
 			return a_format == PixelFormat::kBGRA8 ? DXGI_FORMAT_B8G8R8A8_UNORM : DXGI_FORMAT_R8G8B8A8_UNORM;
+		}
+
+		// Backbuffer formats the overlay is KNOWN to render correctly into:
+		// 8-bit UNORM, sRGB-encoded SDR — the in-game-verified path. Everything
+		// else is refused per swapchain with a loud warning instead of drawing
+		// wrong: HDR10 (R10G10B10A2 + PQ) and scRGB (FP16) need a different
+		// encode in the pixel shader, and an _SRGB view would double-encode our
+		// already-sRGB pixels. Full-HDR scope lives in docs/ROADMAP.md (P1).
+		[[nodiscard]] constexpr bool IsSupportedRtFormat(const DXGI_FORMAT a_format)
+		{
+			return a_format == DXGI_FORMAT_R8G8B8A8_UNORM || a_format == DXGI_FORMAT_B8G8R8A8_UNORM;
+		}
+
+		[[nodiscard]] const char* FormatName(const DXGI_FORMAT a_format)
+		{
+			switch (a_format) {
+				case DXGI_FORMAT_R8G8B8A8_UNORM:      return "R8G8B8A8_UNORM";
+				case DXGI_FORMAT_B8G8R8A8_UNORM:      return "B8G8R8A8_UNORM";
+				case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB: return "R8G8B8A8_UNORM_SRGB";
+				case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB: return "B8G8R8A8_UNORM_SRGB";
+				case DXGI_FORMAT_R10G10B10A2_UNORM:   return "R10G10B10A2_UNORM (10-bit / HDR10)";
+				case DXGI_FORMAT_R16G16B16A16_FLOAT:  return "R16G16B16A16_FLOAT (scRGB HDR)";
+				default:                              return "unrecognized";
+			}
+		}
+
+		// Best-effort diagnostic for the unsupported-format warning: is the
+		// output this swapchain sits on in HDR (advanced color) mode? DXGI has
+		// no getter for a swapchain's own color space, so the output's state is
+		// the closest signal a log reader can act on.
+		[[nodiscard]] const char* OutputColorModeInfo(IDXGISwapChain3* a_swap)
+		{
+			IDXGIOutput* output = nullptr;
+			if (FAILED(a_swap->GetContainingOutput(&output)) || !output) {
+				return "output color mode unknown";
+			}
+			IDXGIOutput6* output6 = nullptr;
+			const auto hr = output->QueryInterface(__uuidof(IDXGIOutput6), reinterpret_cast<void**>(&output6));
+			output->Release();
+			if (FAILED(hr) || !output6) {
+				return "output color mode unknown (pre-DXGI-1.6)";
+			}
+			DXGI_OUTPUT_DESC1 desc{};
+			const bool ok = SUCCEEDED(output6->GetDesc1(&desc));
+			output6->Release();
+			if (!ok) {
+				return "output color mode unknown";
+			}
+			return desc.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020
+				? "output IS in HDR mode"
+				: "output is in SDR mode";
 		}
 
 		// Fullscreen triangle from SV_VertexID (no vertex buffer). UV (0,0) is
@@ -128,8 +180,17 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		HANDLE                fenceEvent{ nullptr };
 		std::uint64_t         nextFenceValue{ 1 };
 		ID3D12RootSignature*  rootSig{ nullptr };
-		ID3D12PipelineState*  pso{ nullptr };
-		DXGI_FORMAT           psoFormat{ DXGI_FORMAT_UNKNOWN };
+		// One PSO per *supported* backbuffer format actually seen — the game and
+		// an injected frame-gen/overlay swapchain can legitimately differ, so
+		// first-seen-wins would starve one of them. `failed` marks a format whose
+		// PSO creation failed so we don't retry (and spam the log) every present.
+		struct PsoEntry
+		{
+			DXGI_FORMAT          format{ DXGI_FORMAT_UNKNOWN };
+			ID3D12PipelineState* pso{ nullptr };
+			bool                 failed{ false };
+		};
+		PsoEntry              psoCache[kMaxPsoFormats]{};
 		ID3D12DescriptorHeap* srvHeap{ nullptr };  // shader-visible, 1 SRV (the texture)
 		ID3D12DescriptorHeap* rtvHeap{ nullptr };  // backbuffer RTVs
 		std::uint32_t         rtvStride{ 0 };
@@ -173,6 +234,10 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			std::uint32_t    rtvBase{ 0 };  // base index into rtvHeap
 			bool             seen{ false };  // dims known yet?
 			bool             logged{ false };
+			// The overlay renders correctly into this swapchain's format
+			// (IsSupportedRtFormat). Re-evaluated on every format change (e.g.
+			// the user toggles HDR mid-session), warned once per change.
+			bool             supported{ false };
 		};
 		Target targets[kMaxSwapchains]{};
 
@@ -181,7 +246,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		std::uint64_t waitedBusy{ 0 };   // presents that had to wait for a busy slot
 		std::uint64_t skippedBusy{ 0 };  // presents dropped because the wait timed out (GPU hung)
 		bool          firstDrawLogged{ false };
-		bool          formatMismatchLogged{ false };
 		bool          targetsFullLogged{ false };
 
 		~Impl()
@@ -200,7 +264,9 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				SafeRelease(s.allocator);
 			}
 			SafeRelease(texture);
-			SafeRelease(pso);
+			for (auto& e : psoCache) {
+				SafeRelease(e.pso);
+			}
 			SafeRelease(rootSig);
 			SafeRelease(srvHeap);
 			SafeRelease(rtvHeap);
@@ -456,7 +522,11 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			if (!target) {
 				return;
 			}
-			if (!EnsurePipeline(target->format)) {
+			if (!target->supported) {
+				return;  // HDR/unknown backbuffer format; warned in RefreshTarget
+			}
+			auto* pipeline = EnsurePipeline(target->format);
+			if (!pipeline) {
 				return;
 			}
 
@@ -492,7 +562,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				return;
 			}
 
-			RecordAndExecute(slot, *target, backIndex);
+			RecordAndExecute(slot, *target, backIndex, pipeline);
 			++cmdIndex;
 		}
 
@@ -583,22 +653,29 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			return true;
 		}
 
-		[[nodiscard]] bool EnsurePipeline(const DXGI_FORMAT a_rtFormat)
+		// Get-or-create the PSO for one supported backbuffer format. Returns
+		// nullptr (warn-once via `failed`) when creation fails or more distinct
+		// formats appear than the cache holds. Callers gate on Target::supported
+		// first, so only formats the overlay renders correctly into land here.
+		[[nodiscard]] ID3D12PipelineState* EnsurePipeline(const DXGI_FORMAT a_rtFormat)
 		{
-			if (pso && psoFormat == a_rtFormat) {
-				return true;
-			}
-			if (pso && psoFormat != a_rtFormat) {
-				// A second swapchain with a different backbuffer format. Phase 3
-				// first light handles one format; revisit for HDR/mixed setups.
-				if (!formatMismatchLogged) {
-					formatMismatchLogged = true;
-					REX::WARN("D3D12Compositor: a swapchain uses RT format {} but the overlay PSO is {} — "
-							  "not drawing on it (single-format for now)",
-						static_cast<int>(a_rtFormat), static_cast<int>(psoFormat));
+			PsoEntry* entry = nullptr;
+			for (auto& e : psoCache) {
+				if (e.format == a_rtFormat) {
+					entry = &e;
+					break;
 				}
-				return false;
+				if (e.format == DXGI_FORMAT_UNKNOWN && !entry) {
+					entry = &e;  // first free slot; keep scanning for an exact match
+				}
 			}
+			if (!entry) {
+				return nullptr;  // more than kMaxPsoFormats distinct formats (absurd)
+			}
+			if (entry->format == a_rtFormat) {
+				return entry->failed ? nullptr : entry->pso;
+			}
+			entry->format = a_rtFormat;
 
 			D3D12_GRAPHICS_PIPELINE_STATE_DESC desc{};
 			desc.pRootSignature = rootSig;
@@ -624,15 +701,16 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			rt.BlendOpAlpha = D3D12_BLEND_OP_ADD;
 			rt.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
 
-			SafeRelease(pso);
-			if (FAILED(engine.device->CreateGraphicsPipelineState(&desc, __uuidof(ID3D12PipelineState), reinterpret_cast<void**>(&pso)))) {
-				REX::ERROR("D3D12Compositor: CreateGraphicsPipelineState failed (RT format {})", static_cast<int>(a_rtFormat));
-				psoFormat = DXGI_FORMAT_UNKNOWN;
-				return false;
+			if (FAILED(engine.device->CreateGraphicsPipelineState(&desc, __uuidof(ID3D12PipelineState), reinterpret_cast<void**>(&entry->pso)))) {
+				REX::ERROR("D3D12Compositor: CreateGraphicsPipelineState failed (RT format {} [{}])",
+					FormatName(a_rtFormat), static_cast<int>(a_rtFormat));
+				entry->pso = nullptr;
+				entry->failed = true;
+				return nullptr;
 			}
-			psoFormat = a_rtFormat;
-			REX::INFO("D3D12Compositor: overlay pipeline ready (RT format {})", static_cast<int>(a_rtFormat));
-			return true;
+			REX::INFO("D3D12Compositor: overlay pipeline ready (RT format {} [{}])",
+				FormatName(a_rtFormat), static_cast<int>(a_rtFormat));
+			return entry->pso;
 		}
 
 		// Find or (re)build the backbuffer target for this swapchain pointer.
@@ -675,27 +753,46 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			if (FAILED(a_t.swap->GetDesc1(&desc))) {
 				return false;
 			}
-			const bool changed = !a_t.seen || a_t.width != desc.Width || a_t.height != desc.Height ||
-				a_t.format != desc.Format || a_t.bufferCount != desc.BufferCount;
+			const bool formatChanged = !a_t.seen || a_t.format != desc.Format;
+			const bool changed = formatChanged || a_t.width != desc.Width || a_t.height != desc.Height ||
+				a_t.bufferCount != desc.BufferCount;
 			a_t.seen = true;
 			a_t.width = desc.Width;
 			a_t.height = desc.Height;
 			a_t.format = desc.Format;
 			a_t.bufferCount = (std::min)(desc.BufferCount, kMaxBackBuffers);
 
+			if (formatChanged) {
+				// Detect-and-degrade (ROADMAP P1 "HDR / frame-gen"): drawing our
+				// sRGB-encoded pixels into an HDR (PQ/scRGB) or _SRGB backbuffer
+				// renders wrong colors, so an unsupported format means we skip
+				// this swapchain entirely and say so once per change. Re-checked
+				// whenever the format changes (e.g. HDR toggled mid-session).
+				a_t.supported = IsSupportedRtFormat(a_t.format);
+				if (!a_t.supported) {
+					REX::WARN("D3D12Compositor: swapchain 0x{:X} uses backbuffer format {} [{}] ({}) — the overlay "
+							  "cannot render correctly into it yet and will NOT draw on this swapchain. If the "
+							  "overlay is invisible, switch Starfield to SDR / disable HDR and frame generation. "
+							  "Full HDR output is tracked in the project roadmap.",
+						a_t.key, FormatName(a_t.format), static_cast<int>(a_t.format), OutputColorModeInfo(a_t.swap));
+				}
+			}
+
 			if (changed && a_t.logged) {
-				REX::DEBUG("D3D12Compositor: swapchain 0x{:X} now {}x{}, {} buffers, RT format {}",
-					a_t.key, a_t.width, a_t.height, a_t.bufferCount, static_cast<int>(a_t.format));
+				REX::DEBUG("D3D12Compositor: swapchain 0x{:X} now {}x{}, {} buffers, RT format {} [{}]",
+					a_t.key, a_t.width, a_t.height, a_t.bufferCount, FormatName(a_t.format), static_cast<int>(a_t.format));
 			}
 			if (!a_t.logged) {
 				a_t.logged = true;
-				REX::INFO("D3D12Compositor: drawing on swapchain 0x{:X} ({}x{}, {} buffers, RT format {})",
-					a_t.key, a_t.width, a_t.height, a_t.bufferCount, static_cast<int>(a_t.format));
+				REX::INFO("D3D12Compositor: {} swapchain 0x{:X} ({}x{}, {} buffers, RT format {} [{}])",
+					a_t.supported ? "drawing on" : "SKIPPING (unsupported format)",
+					a_t.key, a_t.width, a_t.height, a_t.bufferCount, FormatName(a_t.format), static_cast<int>(a_t.format));
 			}
 			return true;
 		}
 
-		void RecordAndExecute(CmdSlot& a_slot, Target& a_target, const std::uint32_t a_backIndex)
+		void RecordAndExecute(CmdSlot& a_slot, Target& a_target, const std::uint32_t a_backIndex,
+			ID3D12PipelineState* a_pso)
 		{
 			// Fetch the backbuffer fresh each present and release it before we
 			// return — never hold a ref across frames (that blocks the game's
@@ -711,7 +808,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			engine.device->CreateRenderTargetView(backbuffer, nullptr, rtv);
 
 			a_slot.allocator->Reset();
-			a_slot.list->Reset(a_slot.allocator, pso);
+			a_slot.list->Reset(a_slot.allocator, a_pso);
 			auto* list = a_slot.list;
 
 			// Upload a new frame into the texture (only when one arrived).
@@ -768,7 +865,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			list->RSSetScissorRects(1, &scissor);
 
 			list->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
-			list->SetPipelineState(pso);
+			list->SetPipelineState(a_pso);
 			list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 			list->DrawInstanced(3, 1, 0, 0);
 
