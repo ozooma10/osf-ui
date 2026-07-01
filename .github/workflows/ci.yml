@@ -1,0 +1,110 @@
+# CI builds the ZERO-Ultralight target only. The Ultralight SDK is proprietary
+# and gitignored (README "Ultralight backend"), so the --with_ultralight
+# configuration cannot build here by design; release archives that bundle the
+# Ultralight runtime are produced locally via tools/package.ps1, which also
+# verifies the required license notices ship in the zip.
+name: CI
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build zero-Ultralight (${{ matrix.mode }})
+    runs-on: windows-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [debug, releasedbg]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # lib/commonlibsf, which nests lib/commonlib-shared
+          submodules: recursive
+
+      - uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: latest
+
+      - name: Cache xmake packages
+        uses: actions/cache@v4
+        with:
+          path: ~/AppData/Local/.xmake
+          key: xmake-pkg-${{ runner.os }}-${{ hashFiles('xmake.lua') }}
+          restore-keys: xmake-pkg-${{ runner.os }}-
+
+      - name: Validate shipped JSON
+        shell: pwsh
+        run: |
+          $failed = $false
+          Get-ChildItem -Recurse -Filter *.json -Path data, docs/schema | ForEach-Object {
+            try {
+              Get-Content $_.FullName -Raw | ConvertFrom-Json | Out-Null
+            } catch {
+              Write-Host "::error file=$($_.FullName)::invalid JSON: $($_.Exception.Message)"
+              $failed = $true
+            }
+          }
+          if ($failed) { exit 1 }
+          Write-Host "all shipped JSON parses"
+
+      - name: Configure
+        run: xmake f -y -m ${{ matrix.mode }}
+
+      - name: Build
+        run: xmake build -y
+
+      - name: Stage install layout
+        run: xmake install -y -o out/staging "OSF UI"
+
+      - name: Verify staged layout (and zero-Ultralight footprint)
+        shell: pwsh
+        run: |
+          $root = "out/staging"
+          $must = @(
+            "$root/SFSE/Plugins/OSFUI.dll",
+            "$root/SFSE/Plugins/OSFUI.pdb",
+            "$root/SFSE/Plugins/OSFUI/config.json"
+          )
+          $failed = $false
+          foreach ($f in $must) {
+            if (-not (Test-Path $f)) {
+              Write-Host "::error::missing from install layout: $f"
+              $failed = $true
+            }
+          }
+          # The runtime needs at least one view to host.
+          $manifests = Get-ChildItem -Path "$root/SFSE/Plugins/OSFUI/views" -Recurse -Filter manifest.json -ErrorAction SilentlyContinue
+          if (-not $manifests) {
+            Write-Host "::error::no views/*/manifest.json in the install layout"
+            $failed = $true
+          }
+          # The default build must have ZERO Ultralight footprint (README rule):
+          # no bundled runtime dir and no SDK import in the DLL.
+          if (Test-Path "$root/SFSE/Plugins/OSFUI/ultralight") {
+            Write-Host "::error::ultralight/ runtime folder present in a zero-Ultralight build"
+            $failed = $true
+          }
+          $dllBytes = [System.IO.File]::ReadAllBytes("$root/SFSE/Plugins/OSFUI.dll")
+          $ascii = [System.Text.Encoding]::ASCII.GetString($dllBytes)
+          if ($ascii.Contains("Ultralight.dll")) {
+            Write-Host "::error::OSFUI.dll references Ultralight.dll in a zero-Ultralight build"
+            $failed = $true
+          }
+          if ($failed) { exit 1 }
+          Write-Host "install layout OK ($(($manifests | Measure-Object).Count) view manifest(s))"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OSFUI-zero-ultralight-${{ matrix.mode }}
+          path: out/staging/
+          if-no-files-found: error

@@ -1,5 +1,7 @@
 # OSF UI
 
+[![CI](https://github.com/ozooma10/osf-ui/actions/workflows/ci.yml/badge.svg)](https://github.com/ozooma10/osf-ui/actions/workflows/ci.yml)
+
 **OSF UI** is an SFSE/CommonLibSF plugin that hosts HTML/CSS/JS UI views over
 Starfield. It is **heavily inspired by [Prisma UI](https://www.prismaui.dev/)
 by StarkMP** — the Skyrim framework that pioneered rendering modern web UIs over
@@ -106,6 +108,11 @@ the install step ships the SDK's runtime DLLs + ICU data into the
 never commit its headers, libs, or binaries to this repository (keep local
 drops under the gitignored `external/`; also mind Ultralight's own licensing
 terms for distribution).
+
+CI (GitHub Actions) builds and layout-checks the **zero-Ultralight** target
+only — the proprietary SDK never enters CI. Release archives that bundle the
+Ultralight runtime (and its required license notices) are produced locally
+with `tools/package.ps1` (see [docs/PACKAGING.md](docs/PACKAGING.md)).
 
 Implementation notes (threading model, delay-load bootstrapping, JS bridge,
 sandbox) live in [docs/renderer-plan.md](docs/renderer-plan.md) Phase 1 and
