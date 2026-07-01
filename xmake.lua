@@ -54,6 +54,8 @@ target("OSF UI")
     add_files("src/**.cpp")
     add_headerfiles("src/**.h")
     add_includedirs("src")
+    -- sdk/ holds the public single-header native API (OSFUI_API.h); src/api
+    -- includes it directly so the impl and the consumer copy share one ABI def.
     add_headerfiles("sdk/OSFUI_API.h")
     add_includedirs("sdk")
     set_pcxxheader("src/pch.h")

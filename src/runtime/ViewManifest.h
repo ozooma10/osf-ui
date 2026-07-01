@@ -13,6 +13,13 @@ namespace OSFUI
 		bool network{ false };
 	};
 
+	//Type of menu. menu = modal overlay (capture input "active" view). hud = passive overlay (draws over gameplay, never captures input).
+	enum class SurfaceKind : std::uint8_t
+	{
+		Menu,
+		Hud,
+	};
+
 	// Mirrors views/<id>/manifest.json.
 	struct ViewManifest
 	{
@@ -26,6 +33,19 @@ namespace OSFUI
 		bool                  interactive{ true };  // may receive input and become the active (focused) view
 		ViewPermissions       permissions;
 		std::filesystem::path rootDir;  // directory containing the manifest
+
+		SurfaceKind kind{ SurfaceKind::Menu };  // "menu" | "hud"
+
+		// Menu-only: while this is the top open menu, freeze the game and route input into the page. Forced false for HUDs.
+		bool capturesInput{ true };
+		// Menu-only: pause simulation. Forced false for HUDs.
+		bool pausesGame{ false };
+
+		// Menu: open at load. HUD: show at load.
+		bool openOnStart{ false };
+
+		// Within-band z ORDER HINT for the MenuController (HUD band vs menu band). Distinct from `zorder`, which is the raw runtime compositing sort key;
+		std::int32_t order{ 0 };
 
 		[[nodiscard]] std::filesystem::path EntryPath() const { return rootDir / entry; }
 

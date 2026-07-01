@@ -138,37 +138,26 @@ namespace OSFUI
 				REX::INFO("Runtime: no loaded view requests nativeBridge; bridge disabled");
 			}
 
-			API::BridgeApi::Get().OnBridgeReady(_bridge.get());
-
-			// Load the layer set (layering = manifest zorder; focus = config.view).
+			// Load the layer set and register each as a surface. Ordering, focus, and visibility are then owned by the MenuController + ApplyMenuPolicy, not the raw manifest order or a single active view.
 			std::size_t loaded = 0;
 			for (const auto& id : toLoad) {
 				if (const auto* m = _views.Find(id)) {
 					_renderer->LoadView(*m);
+					_menus.Register({ id, m->kind, m->capturesInput, m->pausesGame, m->order });
+					if (m->openOnStart) {
+						_menus.Open(id);
+					}
 					++loaded;
 				} else {
 					REX::WARN("Runtime: configured view '{}' not found; skipping", id);
 				}
 			}
-			_renderer->SetActiveView(_config.view);
-			REX::INFO("Runtime: loaded {} view(s); active = '{}'", loaded, _config.view);
-
-			// Focusable (interactive) views, in load order, and the index of the
-			// one that starts active. The focusKey cycles through these.
-			for (const auto& id : toLoad) {
-				if (const auto* m = _views.Find(id); m && m->interactive) {
-					_interactiveViews.push_back(id);
-				}
-			}
-			for (std::size_t i = 0; i < _interactiveViews.size(); ++i) {
-				if (_interactiveViews[i] == _config.view) {
-					_activeViewIndex = i;
-					break;
-				}
+			REX::INFO("Runtime: loaded {} view(s); default menu = '{}'", loaded, _config.view);
+			if (!_menus.IsRegistered(_config.view)) {
+				REX::WARN("Runtime: default view '{}' is not among the loaded surfaces; the toggle key will have nothing to open (check config.view is listed in config.views)", _config.view);
 			}
 
-			// Greet each bridge-enabled view. The renderer queues this per view
-			// until that view's DOM is ready, so order here doesn't matter.
+			// Greet each bridge-enabled view. The renderer queues this per view until that view's DOM is ready, so order here doesn't matter.
 			if (_bridge) {
 				for (const auto& id : bridgeViews) {
 					_bridge->SendRuntimeReady(id);
@@ -178,6 +167,12 @@ namespace OSFUI
 			REX::WARN("Runtime: configured view '{}' was not found; overlay has no content", _config.view);
 		}
 
+		// Hand the (possibly null) bridge to the native plugin API so a sibling
+		// SFSE plugin's registered commands + queued sends apply on the next tick.
+		// Null when no nativeBridge view loaded — the API then stays not-ready.
+		// See docs/native-plugin-api.md.
+		API::BridgeApi::Get().OnBridgeReady(_bridge.get());
+
 		// Input. Events reach the router only when the UiInputHook is
 		// installed and enabled (config inputSource="ui", wired in
 		// core/Plugin.cpp at kPostPostDataLoad).
@@ -185,13 +180,12 @@ namespace OSFUI
 		if (_toggleKey != kInvalidKeyCode) {
 			REX::INFO("Runtime: toggleKey '{}' resolved to VK code {:#x}", _config.toggleKey, _toggleKey);
 		}
-		_input.Configure(_toggleKey, [this] { ToggleVisible(); });
 
-		_focusKey = ResolveKeyName(_config.focusKey);
-		if (_focusKey != kInvalidKeyCode) {
-			REX::INFO("Runtime: focusKey '{}' resolved to VK code {:#x} ({} interactive view(s))",
-				_config.focusKey, _focusKey, _interactiveViews.size());
-		}
+		// F10 toggles the default menu; Esc (while captured) closes the top menu.
+		_input.Configure(
+			_toggleKey,
+			[this] { EnqueueMenuRequest(MenuReq::ToggleDefault); },
+			[this] { EnqueueMenuRequest(MenuReq::CloseTop); });
 
 		// Keyboard routing into the web view, gated by capture state (Phase 4).
 		_input.SetWebRouting(
@@ -203,13 +197,11 @@ namespace OSFUI
 			});
 		REX::INFO("Runtime: input capture {} (config captureInput)", _config.captureInput ? "enabled" : "disabled");
 
-		_visible.store(_config.startVisible);
-		if (_compositor) {
-			_compositor->SetVisible(_config.startVisible);
-		}
+		_initialized = true;
+		// Derive + push the initial policy (hidden/order/active/capture/visibility) from whatever is open. Also covers the closed case (nothing visible).
+		ApplyMenuPolicy();
 		REX::INFO("Runtime: initialized (visible={})", _visible.load());
 
-		_initialized = true;
 		return true;
 	}
 
@@ -244,10 +236,13 @@ namespace OSFUI
 		if (!_initialized) {
 			return;
 		}
-		// Apply deferred native-API registrations and off-thread sends onto the main thread. 
-		// Kept first so a sibling plugin's commands are live before this frame's page traffic.
+		// Apply queued menu requests (F10/Esc/transition) on the MAIN thread first, so the reconcilers below and the frame submitted this tick reflect the new state.
+		DrainMenuRequests();
+		// Apply the native plugin API's queued ops (command (re)registration +
+		// off-thread SendToWeb) on the main thread, before Update() flushes the
+		// per-view outbound queues to the pages.
 		API::BridgeApi::Get().PumpMainThread();
-		// Open/close the engine focus menu on the MAIN thread (visibility is flipped from the WndProc/input thread, but UIMessageQueue must only be touched here). No-op unless config.focusMenu is set.
+		// Reconcile engine menu-mode + control-disable toward the derived CAPTURE state (not visibility): a live HUD must not disable controls.
 		if (_config.focusMenu) {
 			ReconcileFocusMenu();
 		}
@@ -261,29 +256,81 @@ namespace OSFUI
 		SubmitFrameIfVisible();
 	}
 
-	void Runtime::SetVisible(bool a_visible)
+	void Runtime::EnqueueMenuRequest(MenuReq a_req)
 	{
-		const bool was = _visible.exchange(a_visible);
-		if (was != a_visible) {
-			REX::INFO("Runtime: overlay visibility -> {}", a_visible);
-			if (_compositor) {
-				_compositor->SetVisible(a_visible);
-			}
-			// Re-center the virtual cursor each time the overlay opens so it
-			// always starts in a known, on-screen spot.
-			if (a_visible) {
-				_cursorX = _viewWidth.load() * 0.5f;
-				_cursorY = _viewHeight.load() * 0.5f;
-				if (_renderer) {
-					_renderer->InjectMouseMove(static_cast<int>(_cursorX), static_cast<int>(_cursorY));
-				}
-			}
-		}
+		// Callable from any thread (WndProc F10/Esc, MenuEventSink transition).
+		// Leaf lock: it only guards the queue; the request is acted on in Tick.
+		std::lock_guard lock(_reqMutex);
+		_reqs.push_back(a_req);
 	}
 
-	void Runtime::ToggleVisible()
+	void Runtime::DrainMenuRequests()
 	{
-		SetVisible(!_visible.load());
+		// Snapshot under the lock, then act unlocked, the actions call into the renderer/compositor and must never run while holding _reqMutex.
+		std::vector<MenuReq> reqs;
+		{
+			std::lock_guard lock(_reqMutex);
+			if (_reqs.empty()) {
+				return;
+			}
+			reqs.swap(_reqs);
+		}
+		for (const auto req : reqs) {
+			switch (req) {
+			case MenuReq::ToggleDefault:
+				_menus.ToggleDefault(_config.view);
+				break;
+			case MenuReq::CloseTop:
+				_menus.CloseTop();
+				break;
+			case MenuReq::CloseAll:
+				_menus.CloseAll();
+				break;
+			}
+		}
+		ApplyMenuPolicy();
+	}
+
+	void Runtime::ApplyMenuPolicy()
+	{
+		if (!_renderer) {
+			return;
+		}
+		// Per-surface hidden + composite z (derived band order; the raw manifest zorder never governs menu/HUD paint order).
+		for (const auto& layer : _menus.DesiredLayers()) {
+			_renderer->SetViewHidden(layer.id, layer.hidden);
+			_renderer->SetViewOrder(layer.id, layer.z);
+		}
+		// Focus follows the top menu; HUD-only => no active view to set.
+		const auto active = _menus.ActiveMenu();
+		if (active) {
+			_renderer->SetActiveView(*active);
+		}
+		// Capture is the top menu's policy (false for HUD-only => the game keeps input).
+		// This is the runtime writer of _captureInput that IsInputCaptured() reads; OnHost* handlers are unchanged.
+		_captureInput.store(_menus.DesiredCapture());
+
+		// Visibility side-effects are owned here rather than routed through a change-guarded helper (which would drop the compositor push on the no-change startup path).
+		const bool visible = _menus.DesiredVisible();
+		const bool wasVisible = _visible.exchange(visible);
+		if (_compositor) {
+			_compositor->SetVisible(visible);
+		}
+
+		// Recenter the virtual cursor on the closed->open edge; otherwise keep its position.
+		// Either way, (re)place it in the active menu so a freshly focused  view shows the cursor at the right spot rather than at its stale origin.
+		if (visible) {
+			if (!wasVisible) {
+				_cursorX = _viewWidth.load() * 0.5f;
+				_cursorY = _viewHeight.load() * 0.5f;
+			}
+			if (active) {
+				_renderer->InjectMouseMove(static_cast<int>(_cursorX), static_cast<int>(_cursorY));
+			}
+		}
+		if (visible != wasVisible) {
+			REX::INFO("Runtime: overlay visibility -> {} (capture={})", visible, _captureInput.load());
+		}
 	}
 
 	bool Runtime::IsVisible() const
@@ -336,19 +383,6 @@ namespace OSFUI
 
 	bool Runtime::OnHostKey(std::uint32_t a_vkCode, bool a_down)
 	{
-		// Focus switch (focusKey): cycle the active interactive view. Only while
-		// captured AND with more than one interactive view — otherwise the key
-		// passes through normally (e.g. Tab still navigates fields when there is a
-		// single interactive view). Consume both transitions so the key reaches
-		// neither a view nor the game.
-		if (a_vkCode == _focusKey && _focusKey != kInvalidKeyCode &&
-			IsInputCaptured() && _interactiveViews.size() > 1) {
-			if (a_down) {
-				CycleActiveView();
-			}
-			return true;
-		}
-
 		// Decide consumption before routing: capturing OR the toggle key must
 		// not reach the game. (The toggle press itself is captured so opening
 		// the overlay never also acts in-game.)
@@ -407,28 +441,11 @@ namespace OSFUI
 		_renderer->InjectMouseWheel(static_cast<int>(_cursorX), static_cast<int>(_cursorY), a_wheelDelta);
 	}
 
-	void Runtime::CycleActiveView()
-	{
-		if (_interactiveViews.size() < 2 || !_renderer) {
-			return;
-		}
-		// Move the OLD active view's software cursor off-screen (InjectMouseMove
-		// targets the current active view), switch focus, then place the cursor in
-		// the NEW active view at the same spot — so only one cursor is ever shown.
-		_renderer->InjectMouseMove(-1000, -1000);
-		_activeViewIndex = (_activeViewIndex + 1) % _interactiveViews.size();
-		const auto& id = _interactiveViews[_activeViewIndex];
-		_renderer->SetActiveView(id);
-		_renderer->InjectMouseMove(static_cast<int>(_cursorX), static_cast<int>(_cursorY));
-		REX::INFO("Runtime: focus -> view '{}'", id);
-	}
-
 	void Runtime::ReconcileFocusMenu()
 	{
-		// Runs on the game main thread (Tick). Drive the engine menu's open state
-		// toward the overlay's visibility; only act on a change so we don't spam
-		// the UI message queue every frame.
-		const bool wantOpen = _visible.load();
+		// Runs on the game main thread (Tick). Drive the engine menu's open state toward the top menu's CAPTURE policy (cursor + modal input ownership)
+		// Only act on a change so we don't spam the UI message queue every frame.
+		const bool wantOpen = _menus.DesiredCapture();
 		if (wantOpen == _focusMenuOpen) {
 			return;
 		}
@@ -442,10 +459,10 @@ namespace OSFUI
 
 	void Runtime::ReconcileControlLayer()
 	{
-		// Main-thread (Tick). Drive the input-enable layer toward overlay
-		// visibility. Engage() may no-op until gameplay (manager not ready at the
-		// main menu); IsEngaged() stays false then, so we simply retry next tick.
-		const bool wantEngaged = _visible.load();
+		// Main-thread (Tick). Drive the input-enable layer toward the top menu's CAPTURE policy; this is the ONLY gate that stops gamepad/XInput,
+		// so it must track capture (not pause), or a gamepad drives the game underneath a capturing menu.
+		// A live HUD (no capture) leaves controls enabled. Engage() may no-op until gameplay (manager not ready at the main menu); IsEngaged() stays false then, so we simply retry next tick.
+		const bool wantEngaged = _menus.DesiredCapture();
 		if (wantEngaged == ControlLayer::IsEngaged()) {
 			return;
 		}
@@ -479,12 +496,44 @@ namespace OSFUI
 	{
 		// The platform owns only window/diagnostic commands. Features register
 		// their own; there is no generic "call native" escape hatch.
-		a_bridge.RegisterCommand("close", [this](const nlohmann::json&, MessageBridge&) {
-			SetVisible(false);
+		a_bridge.RegisterCommand("close", [this](const nlohmann::json&, MessageBridge& a_b) {
+			// Dismiss the calling surface. Closing the last open menu empties the stack, so the overlay hides; same effect as the old global close, but a coexisting live HUD (if any) stays up by design.
+			if (_menus.Close(a_b.CurrentSource())) {
+				ApplyMenuPolicy();
+			}
 		});
-		a_bridge.RegisterCommand("setVisible", [this](const nlohmann::json& a_p, MessageBridge&) {
-			SetVisible(Json::GetBool(a_p, "visible", false));
+		a_bridge.RegisterCommand("setVisible", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
+			const std::string src(a_b.CurrentSource());
+			const bool changed = Json::GetBool(a_p, "visible", false) ? _menus.Open(src) : _menus.Close(src);
+			if (changed) {
+				ApplyMenuPolicy();
+			}
 		});
+		// Open/close a surface by id (defaults to the calling view). menu.* and hud.* are aliases — a surface's kind is fixed by its manifest, not the command used.
+		const auto surfaceOpen = [this](const nlohmann::json& a_p, MessageBridge& a_b) {
+			std::string id = Json::GetString(a_p, "view", "");
+			if (id.empty()) {
+				id = std::string(a_b.CurrentSource());
+			}
+			if (_menus.Open(id)) {
+				ApplyMenuPolicy();
+			} else {
+				REX::WARN("Runtime: menu.open/hud.show ignored — '{}' is not a registered surface (or already open)", id);
+			}
+		};
+		const auto surfaceClose = [this](const nlohmann::json& a_p, MessageBridge& a_b) {
+			std::string id = Json::GetString(a_p, "view", "");
+			if (id.empty()) {
+				id = std::string(a_b.CurrentSource());
+			}
+			if (_menus.Close(id)) {
+				ApplyMenuPolicy();
+			}
+		};
+		a_bridge.RegisterCommand("menu.open", surfaceOpen);
+		a_bridge.RegisterCommand("menu.close", surfaceClose);
+		a_bridge.RegisterCommand("hud.show", surfaceOpen);
+		a_bridge.RegisterCommand("hud.hide", surfaceClose);
 		a_bridge.RegisterCommand("setViewHidden", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
 			// Show/hide one loaded view by id, independent of the overlay toggle.
 			// Omitting "view" targets the calling view (self-hide).

@@ -100,12 +100,8 @@ namespace OSFUI::Plugin
 						} else {
 							REX::INFO("Plugin: inputSource=none; no input observation (toggle key inert)");
 						}
-						// The WndProc subclass is the real input front-end:
-						// toggle key, keyboard routing into the view, and
-						// gameplay input consumption (the engine UI sink cannot
-						// block movement/camera). The game window exists by now
-						// (we are at the main menu).
-						if (Runtime::Get().GetConfig().captureInput) {
+
+						if (Runtime::Get().GetConfig().inputSource == "ui") {
 							OverlayInputHook::Install();
 						}
 					}

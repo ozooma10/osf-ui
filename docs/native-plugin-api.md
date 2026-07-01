@@ -1,6 +1,9 @@
 # Native plugin bridge API — design / RFC
 
-**Status:** Proposed · **Date:** 2026-06-30 · **Brand:** OSF UI (no Prisma-compat constraint)
+**Status:** Implemented (OSF UI side) — `src/api/{BridgeApi.{h,cpp},Exports.cpp}`
++ `sdk/OSFUI_API.h`; `OSFUI_RequestBridge` verified exported; builds clean
+(2026-07-01). Consumer (OSF Animation) side pending. · **Originally:** Proposed
+2026-06-30 · **Brand:** OSF UI (no Prisma-compat constraint)
 
 This document specifies a public, ABI-stable C++ API that lets a **separate
 SFSE plugin** register bridge commands, push data to a web view, and receive
