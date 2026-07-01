@@ -4,6 +4,7 @@
 
 #include "RE/C/Calendar.h"
 
+#include "api/BridgeApi.h"
 #include "composite/D3D12Compositor.h"
 #include "composite/NullCompositor.h"
 #include "core/Log.h"
@@ -166,6 +167,12 @@ namespace OSFUI
 			REX::WARN("Runtime: configured view '{}' was not found; overlay has no content", _config.view);
 		}
 
+		// Hand the (possibly null) bridge to the native plugin API so a sibling
+		// SFSE plugin's registered commands + queued sends apply on the next tick.
+		// Null when no nativeBridge view loaded — the API then stays not-ready.
+		// See docs/native-plugin-api.md.
+		API::BridgeApi::Get().OnBridgeReady(_bridge.get());
+
 		// Input. Events reach the router only when the UiInputHook is
 		// installed and enabled (config inputSource="ui", wired in
 		// core/Plugin.cpp at kPostPostDataLoad).
@@ -229,6 +236,10 @@ namespace OSFUI
 		}
 		// Apply queued menu requests (F10/Esc/transition) on the MAIN thread first, so the reconcilers below and the frame submitted this tick reflect the new state.
 		DrainMenuRequests();
+		// Apply the native plugin API's queued ops (command (re)registration +
+		// off-thread SendToWeb) on the main thread, before Update() flushes the
+		// per-view outbound queues to the pages.
+		API::BridgeApi::Get().PumpMainThread();
 		// Reconcile engine menu-mode + control-disable toward the derived CAPTURE state (not visibility): a live HUD must not disable controls.
 		if (_config.focusMenu) {
 			ReconcileFocusMenu();

@@ -28,6 +28,10 @@ namespace OSFUI
 		// "settings.get". Unknown commands are rejected and logged.
 		void RegisterCommand(std::string a_command, CommandHandler a_handler);
 
+		// Remove a previously-registered command (no-op if absent). Used by the
+		// native plugin API (src/api) for hot cleanup / re-sync.
+		void UnregisterCommand(std::string_view a_command);
+
 		// Entry point for web -> native messages (raw JSON text) from a specific
 		// SOURCE view. Replies sent via the no-target SendToWeb route back to it.
 		// Malformed or non-whitelisted input is rejected and logged, never fatal.
