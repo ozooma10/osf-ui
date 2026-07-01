@@ -4,7 +4,7 @@
 #include "input/FocusMenu.h"
 #include "input/MenuEventSink.h"
 #include "input/OverlayInputHook.h"
-#include "input/UiInputHook.h"
+#include "input/UiLayoutGuard.h"
 #include "runtime/Runtime.h"
 
 namespace OSFUI::Plugin
@@ -77,32 +77,31 @@ namespace OSFUI::Plugin
 					// Earliest point this project treats game singletons (the
 					// UI event source) as safely constructed.
 					if (Runtime::Get().GetConfig().enabled) {
-						if (!UiInputHook::VerifyUiLayout()) {
+						if (!UiLayoutGuard::VerifyUiLayout()) {
 							REX::ERROR("Plugin: UI layout guard failed; skipping ALL UI integration "
-									   "(MenuEventSink + UiInputHook stay uninstalled, overlay toggle inert)");
+									   "(MenuEventSink + FocusMenu stay uninstalled, overlay toggle inert)");
 							break;
 						}
 						MenuEventSink::Install();
-						// EXPERIMENTAL focus menu (off by default). Registering a
-						// custom IMenu is unproven on 1.16.244 — gated behind
-						// config so the default build never touches it. The menu
+						// EXPERIMENTAL focus menu (off by default in code; the
+						// shipped config turns it on). Registration + open of the
+						// hardened engine-built IMenu are RE-proven on 1.16.244;
+						// what is still pending in-game verification is that it
+						// survives long sessions (see input/FocusMenu.h). The menu
 						// is only opened (UIMessageQueue kShow) when the overlay
 						// becomes visible, from Runtime's main-thread tick.
 						if (Runtime::Get().GetConfig().focusMenu) {
 							REX::WARN("Plugin: focusMenu=true (EXPERIMENTAL) — registering OSFUI_FocusMenu; "
-									  "custom-IMenu registration is unproven on 1.16.244 and may be unstable");
+									  "long-session survival is pending in-game verification");
 							FocusMenu::Register();
 						}
-						if (Runtime::Get().GetConfig().inputSource == "ui") {
-							if (UiInputHook::Install()) {
-								UiInputHook::SetEnabled(true);
-							}
-						} else {
-							REX::INFO("Plugin: inputSource=none; no input observation (toggle key inert)");
-						}
-
+						// The WndProc subclass is the ONLY input path: it drives the
+						// toggle key and, while capturing, consumes keyboard/mouse
+						// and routes them into the overlay.
 						if (Runtime::Get().GetConfig().inputSource == "ui") {
 							OverlayInputHook::Install();
+						} else {
+							REX::INFO("Plugin: inputSource=none; input hook not installed (toggle key inert)");
 						}
 					}
 					break;

@@ -119,23 +119,4 @@ namespace OSFUI
 			REX::DEBUG("InputRouter: OnKeyUp({})", a_key);
 		}
 	}
-
-	void InputRouter::OnMouseMove(float, float)
-	{
-		// Intentionally silent: would fire every frame once wired.
-	}
-
-	void InputRouter::OnMouseButton(MouseButton a_button, bool a_pressed)
-	{
-		if (Log::DevMode()) {
-			REX::DEBUG("InputRouter: OnMouseButton({}, {})", static_cast<int>(a_button), a_pressed);
-		}
-	}
-
-	void InputRouter::OnTextInput(std::string_view a_utf8)
-	{
-		if (Log::DevMode()) {
-			REX::DEBUG("InputRouter: OnTextInput('{}')", a_utf8);
-		}
-	}
 }

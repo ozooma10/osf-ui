@@ -15,7 +15,7 @@ versionlib-1-16-244 — re-verify on any patch).
 > the game's `RegisterSink` spun/corrupted UI state and the process died on
 > save load inside engine sink iteration (Trainwreck: AV at
 > `Starfield.exe+02B7320`, no plugin frames — classic latent corruption).
-> Countermeasure, now mandatory: `UiInputHook::VerifyUiLayout()` proves the
+> Countermeasure, now mandatory: `UiLayoutGuard::VerifyUiLayout()` proves the
 > live UI object's `BSInputEventReceiver` vptr equals the AddressLib vtable we
 > patch before ANY code touches the UI object; on mismatch all UI integration
 > is skipped and logged. Keep this guard pattern for every future
@@ -60,7 +60,7 @@ AND the pinned CommonLibSF's IDs/layouts cover that build:**
   `REL::ID(944397)` g_RendererRoot + the renderer offset walk) —
   `composite/EngineD3D12.cpp`. The offset chain lives in CommonLibSF now.
 - UI singleton + receiver vtable: `RE::UI::VTABLE[10]` = ID 475439 —
-  `input/UiInputHook.cpp`.
+  `input/UiLayoutGuard.cpp`.
 - Per-frame tick: `SFSE::TaskInterface::AddPermanentTask` — SFSE owns the
   underlying game hook and maintains it across patches (`core/Plugin.cpp`).
 - `RegisterSink<MenuOpenCloseEvent>` — `input/MenuEventSink.cpp`.
@@ -71,12 +71,10 @@ AND the pinned CommonLibSF's IDs/layouts cover that build:**
 
 **C. Constants derived by observation against 1.16.244 in *this repo's own*
 code (not CommonLibSF's):**
-- `kReceiverVtblIndex = 10` (`input/UiInputHook.cpp`) — index into
+- `kReceiverVtblIndex = 10` (`input/UiLayoutGuard.cpp`) — index into
   `RE::UI::VTABLE`; the array order is NOT base-declaration order. The one bare
   game-derived integer we carry. Guarded by `VerifyUiLayout()`, which dumps all
   entries on mismatch so it can be re-derived (`tools/parse_versionlib.py`).
-- vtable **slot 1** = `PerformInputProcessing` — from `BSInputEventReceiver`'s
-  2-slot shape (dtor@0); a class-shape assumption, not a per-build constant.
 
 **Run on every game / SFSE / CommonLibSF bump:**
 - [ ] Install/confirm `versionlib-<new build>.bin` (Address Library) for the
@@ -221,23 +219,26 @@ typing lands in the page, F10 releases.** (Earlier worry that a WndProc
 subclass "fights the game loop / breaks controller parity" did not bear out
 for keyboard+mouse; gamepad parity is a later concern.)
 
-**Observation** is still implemented in `input/UiInputHook.cpp` (now
-observe-only/diagnostic): `RE::UI` derives from `BSInputEventReceiver` (its
-second base — `BSTSingletonSDM<UI>` is first and virtual, see the incident
-note above), whose vfunc `PerformInputProcessing(const InputEvent*)` receives
-the per-frame input queue. We vfunc-swap slot 1 of `RE::UI::VTABLE[10]`
-(AddressLib ID 475439 — proven to be the receiver's vtable; the live vptr is
-verified to match before the swap), and forward the unmodified queue. The
-`VerifyUiLayout()` guard at install is a useful layout canary. **Verified
-in-game 2026-06-12.**
+**Observation** was implemented as an observe-only vfunc swap on
+`UI::PerformInputProcessing` (slot 1 of `RE::UI::VTABLE[10]`, AddressLib ID
+475439 — proven to be the receiver's vtable): `RE::UI` derives from
+`BSInputEventReceiver` (its second base — `BSTSingletonSDM<UI>` is first and
+virtual, see the incident note above), whose vfunc receives the per-frame
+input queue. Verified in-game 2026-06-12; this is where the VK key space and
+mouse idCodes below were proven. **Removed 2026-07-01**: it was
+diagnostic-only (routing/consumption live at the WndProc), so the hook came
+out — one less engine vtable write. What survives is the layout guard,
+`UiLayoutGuard::VerifyUiLayout()` (`input/UiLayoutGuard.cpp`), which still
+gates every UI integration at kPostPostDataLoad.
 
 Key space, proven by observation (not the DIK/InputMap space previously
 assumed here): keyboard `idCode` = **Windows VK codes** (F10 → 121 =
 `VK_F10`, LAlt → 164 = `VK_LMENU`); mouse `idCode` 0 = left button; mouse
 releases carry `heldDownSecs > 0` (only presses start at 0). Keyboard events
 arrived on several different thread IDs across the session — do not assume a
-single input thread. Gated by config `inputSource` ("none" disables; the
-hook is observe-only either way).
+single input thread. (These findings were proven through the since-removed
+observe hook; they remain the reference for the key space the WndProc path
+consumes.)
 
 Menu lifecycle observation also implemented, hook-free:
 `input/MenuEventSink.cpp` registers a `BSTEventSink<MenuOpenCloseEvent>` on

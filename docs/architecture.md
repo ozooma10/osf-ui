@@ -6,24 +6,25 @@ OSF UI is a prototype runtime for hosting HTML/CSS/JS-based UI inside
 Starfield, delivered as an SFSE/CommonLibSF plugin. The concept is inspired by
 Prisma UI (Skyrim); no Prisma source code is used.
 
-## Why the first milestone uses mock/null backends
+## Backends: the real path + honest stand-ins
 
-Everything that would make this *visibly* work in-game — rendering HTML,
-drawing over the game's image, capturing input — depends on reverse-engineered
-integration points (render hook, input source, update cadence) that have **not**
-been established yet, and this project refuses to guess addresses or fake
-hooks. So milestone 0 builds the entire pipeline shape with honest stand-ins:
+The shipped path is the **UltralightWebRenderer** + **D3D12Compositor**, both
+runtime-verified in-game on 1.16.244. Every integration point they use was
+reverse-engineered and proven before use (see
+[reverse-engineering-notes.md](reverse-engineering-notes.md)) — this project
+refuses to guess addresses or fake hooks. The stand-in backends from the first
+milestone remain selectable from config for development and fault isolation:
 
 - the **MockWebRenderer** produces a real CPU RGBA buffer (an animated test
-  pattern) so the renderer → compositor data path is exercised end-to-end;
-- the **NullCompositor** receives those frames and logs them instead of
-  drawing;
-- the **D3D12Compositor** stub *fails initialization on purpose* so nothing
-  can mistake it for a working presentation path.
+  pattern) so the renderer → compositor data path is exercised end-to-end
+  without the proprietary Ultralight SDK;
+- the **NullCompositor** receives frames and logs them instead of drawing;
+- the **NullWebRenderer** is the safe fallback when a configured backend
+  can't initialize (missing SDK/runtime files) — failures degrade loudly,
+  never crash.
 
-When the real integration points are proven (see
-[reverse-engineering-notes.md](reverse-engineering-notes.md)), backends are
-swapped behind stable interfaces without touching the rest of the runtime.
+Backends sit behind stable interfaces (`IWebRenderer` / `ICompositor`), so
+swapping them never touches the rest of the runtime.
 
 ## Layers
 
@@ -37,12 +38,12 @@ swapped behind stable interfaces without touching the rest of the runtime.
         │               │          │              │                  │
    core/Config    runtime/      render/       composite/         input/
    core/Paths     ViewManager   IWebRenderer  ICompositor        InputRouter
-                  ViewManifest     │              │                  ▲
-                                ┌──┴────────┐  ┌──┴─────────┐  UiInputHook
-                                │ Null      │  │ Null       │  (observe-only
-                                │ Mock      │  │ D3D12 stub │   vfunc, gated)
-                                │ Ultralight│  └────────────┘  MenuEventSink
-                                │  (option) │                  (RegisterSink)
+                  ViewManifest     │              │              OverlayInputHook
+                                ┌──┴────────┐  ┌──┴─────────┐    (WndProc subclass)
+                                │ Null      │  │ Null       │   UiLayoutGuard
+                                │ Mock      │  │ D3D12      │   MenuEventSink
+                                │ Ultralight│  └────────────┘   FocusMenu
+                                │  (option) │                   ControlLayer
                                 └───────────┘
                                    │    ▲
                           runtime/MessageBridge    JSON, whitelisted commands
@@ -115,15 +116,16 @@ bridge via a single injected `window.osfui.postMessage` function. The rest
 of the runtime does not know which backend is active. The SDK is proprietary
 and never vendored; the default build has zero Ultralight footprint.
 
-## How a D3D12 compositor fits
+## How the D3D12 compositor works
 
-The eventual `D3D12Compositor` implements `ICompositor`: on `Submit` it
-uploads the CPU frame into a texture (staged ring buffer) and records an
-alpha-blended fullscreen-quad draw into the game's frame at present time. All
-of its open questions (device/queue access, present timing, descriptor heaps,
-state transitions, HDR/scaling, overlay coexistence) are listed in
-`composite/D3D12Compositor.h` and in the RE notes; until they are answered the
-stub refuses to initialize.
+`D3D12Compositor` implements `ICompositor` on the game's **own** D3D12 device
+(located via a QI-verified route, hook-free — RE notes §2): on `Submit` it
+uploads the CPU frame into a GPU texture, and an `IDXGISwapChain::Present`
+slot-8 vtable hook draws an alpha-blended fullscreen quad over the backbuffer
+before the original Present runs. Verified in-game on 1.16.244. Remaining open
+areas — HDR/10-bit backbuffers, frame-gen swapchain selection, and coexistence
+with other overlay hooks — are tracked in `composite/D3D12Compositor.h` and
+`docs/ROADMAP.md` (P1).
 
 ## Lifetime
 

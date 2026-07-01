@@ -76,12 +76,12 @@ Logs go to the standard SFSE log folder
 | field | default | meaning |
 |---|---|---|
 | `enabled` | `true` | master switch |
-| `toggleKey` | `"F10"` | key name resolved via SFSE InputMap (F1–F12 layout-independent, other names layout-dependent) |
+| `toggleKey` | `"F10"` | key name resolved to a Windows virtual-key code by a built-in table (F1–F24, letters/digits, and named keys like `Tab`/`Escape`; unresolvable names disable the toggle with a log warning) |
 | `focusKey` | `"Tab"` | cycles the active (input) view when more than one *interactive* view is hosted; passes through normally otherwise |
 | `startVisible` | `false` | initial overlay visibility state |
 | `renderer` | `"mock"` | `null` \| `mock` \| `ultralight` (real offscreen backend; shipped config uses it — falls back to `null` with a warning in Ultralight-free builds) |
-| `compositor` | `"null"` | `null` \| `d3d12` (stub that refuses to init) |
-| `inputSource` | `"none"` | `none` \| `ui` — observe-only vfunc hook on the game UI's input processing; enables the toggle key. Shipped config uses `ui`; set to `none` to rule the hook out when debugging |
+| `compositor` | `"null"` | `null` \| `d3d12` — the real overlay path (uploads to the game's D3D12 device, draws at present time; verified in-game). Shipped config uses `d3d12` |
+| `inputSource` | `"none"` | `none` \| `ui` — installs the window-subclass input path (toggle key + input capture). Shipped config uses `ui`; set to `none` to rule the input hook out when debugging |
 | `captureInput` | `true` | when the overlay is visible, freeze the game and route keyboard/mouse into the web view (needs `inputSource: "ui"`). When `false` the overlay is a passive HUD: it draws, but the game still receives input |
 | `focusMenu` | `false` | **Experimental — leave off.** Register a real engine menu (`OSFUI_FocusMenu`) and open/close it with the overlay so the engine enters menu mode (cursor + modal input) rather than relying only on the WndProc message-swallow. Custom-`IMenu` registration is **unproven on 1.16.244** (see [docs/reverse-engineering-notes.md](docs/reverse-engineering-notes.md) §4); enabling may be unstable until that probe confirms the contract |
 | `disableControls` | `false` | **Experimental.** While the overlay is visible, disable player controls through the engine input-enable layer (`BSInputEnableManager`) — this also stops gamepad/XInput, which the WndProc hook never saw. Mechanism is proven on 1.16.244; the exact freeze-everything flag set is still being live-confirmed, so the disabled set is provisional |
@@ -118,9 +118,10 @@ docs/HANDOFF.md §4.
 - `Runtime::Tick()` runs every frame on the game's main thread via an SFSE
   `TaskInterface` permanent task (heartbeat logged in dev mode).
 - Menu open/close events are observed via the documented CommonLibSF
-  `RegisterSink` API; with `inputSource: "ui"`, keyboard/mouse buttons are
-  observed through an isolated, pass-through vfunc hook and the configured
-  toggle key flips overlay visibility (verified in-game 2026-06-12).
+  `RegisterSink` API; with `inputSource: "ui"`, a WndProc subclass on the game
+  window drives the configured toggle key and input capture (verified in-game
+  2026-06-12). A runtime layout guard (`UiLayoutGuard`) refuses all UI
+  integration if the compiled engine layout doesn't match the running binary.
 - Config and view manifests load defensively from the plugin data path.
 - Renderer/compositor backends are selected from config with safe fallbacks;
   the mock renderer produces a real CPU RGBA test pattern, the null

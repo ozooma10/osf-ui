@@ -173,9 +173,9 @@ namespace OSFUI
 		// See docs/native-plugin-api.md.
 		API::BridgeApi::Get().OnBridgeReady(_bridge.get());
 
-		// Input. Events reach the router only when the UiInputHook is
-		// installed and enabled (config inputSource="ui", wired in
-		// core/Plugin.cpp at kPostPostDataLoad).
+		// Input. Key events reach the router from the WndProc subclass
+		// (OverlayInputHook → OnHostKey), installed when config
+		// inputSource="ui" (core/Plugin.cpp, kPostPostDataLoad).
 		_toggleKey = ResolveKeyName(_config.toggleKey);
 		if (_toggleKey != kInvalidKeyCode) {
 			REX::INFO("Runtime: toggleKey '{}' resolved to VK code {:#x}", _config.toggleKey, _toggleKey);

@@ -75,8 +75,8 @@ Status key: ✅ done · 🔧 in progress · ❌ not started · 🟡 partial · �
 |---|---|---|---|
 | **NanoID-style handles** | ◆ | Moot until/unless a native API returns — view identity is the manifest id today. Revisit if programmatic views come back. | S |
 | **Per-view focus contract for config views** | 🟡 | Config views focus via the `Tab`-cycle (`Runtime::CycleActiveView`). If a native API returns, give it an explicit Focus/HasFocus contract instead of overloading the cycle. | M |
-| **Delete dead input scaffolding** | 🧹 | `src/input/InputRouter.*` ("NOTHING CALLS THIS YET") and the observe-only `UiInputHook` are unused; the live path is the WndProc subclass. Remove to cut confusion. | S |
-| **Fix stale docs/comments** | 🧹 | README's "SFSE InputMap" claim (code uses raw VK); the "d3d12 is a stub" comments in `Config.h` / `Runtime.cpp` (the compositor is **not** a stub — verified in-game). | S |
+| **Delete dead input scaffolding** | ✅ | Done 2026-07-01, with a scope correction: `InputRouter` was **not** dead (it's the live toggle/Esc/key-routing decision point fed by the WndProc — only its "NOTHING CALLS THIS YET" comment was stale; comment fixed, unused mouse/text methods + `MouseButton` enum removed). `UiInputHook`'s observe-only vfunc hook WAS dead and is deleted; the mandatory layout guard survives as `input/UiLayoutGuard.{h,cpp}` and still gates all UI integration. | S |
+| **Fix stale docs/comments** | ✅ | Done 2026-07-01: README "SFSE InputMap" claim (code resolves names to VK via its own table), README/architecture.md "d3d12 is a stub" claims (verified production path), `Config.h` toggleKey/"no key hook" + inputSource comments, `Runtime.{h,cpp}` router-fed-by-UiInputHook comments, `Log.h` stub example. | S |
 | **Remote http(s) URL views** | ⛔ | Deliberate **non-goal** under the JS sandbox (`docs/security-model.md`); `file:///` only. Defer indefinitely unless the threat model changes. | — |
 
 ---
