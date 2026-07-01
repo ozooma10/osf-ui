@@ -15,6 +15,7 @@
 
 #include <cstring>
 #include <mutex>
+#include <string>
 #include <vector>
 
 namespace OSFUI
@@ -75,6 +76,32 @@ namespace OSFUI
 				case DXGI_FORMAT_R16G16B16A16_FLOAT:  return "R16G16B16A16_FLOAT (scRGB HDR)";
 				default:                              return "unrecognized";
 			}
+		}
+
+		// Coexistence diagnostic: which module does a code address live in?
+		// Used to log who owns the Present slot before we hook it — if ReShade/
+		// RTSS/Steam overlay hooked first, their module shows up here instead of
+		// dxgi.dll, which is exactly what a coexistence bug report needs.
+		[[nodiscard]] std::string ModuleNameOfAddress(const void* a_address)
+		{
+			HMODULE mod = nullptr;
+			if (!::GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+					reinterpret_cast<LPCWSTR>(a_address), &mod) ||
+				!mod) {
+				return "<unknown module>";
+			}
+			wchar_t widePath[MAX_PATH]{};
+			const auto len = ::GetModuleFileNameW(mod, widePath, MAX_PATH);
+			if (len == 0) {
+				return "<unknown module>";
+			}
+			char utf8[MAX_PATH * 3]{};
+			const auto written = ::WideCharToMultiByte(CP_UTF8, 0, widePath, static_cast<int>(len),
+				utf8, sizeof(utf8) - 1, nullptr, nullptr);
+			if (written <= 0) {
+				return "<unknown module>";
+			}
+			return std::string(utf8, static_cast<std::size_t>(written));
 		}
 
 		// Best-effort diagnostic for the unsupported-format warning: is the
@@ -248,6 +275,17 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		bool          firstDrawLogged{ false };
 		bool          targetsFullLogged{ false };
 
+		// ---- hook-liveness watchdog (coexistence diagnostic) ----
+		// Another overlay that (re)hooks Present non-chainingly after us would
+		// silently stop our thunk from ever running — the overlay just vanishes.
+		// OnPresent stamps this every call (present thread); Submit's watchdog
+		// (tick thread) warns when the game keeps ticking but no present has
+		// reached us for a while. No false positive on focus loss: the game
+		// pauses the tick loop too, so the watchdog isn't polled then.
+		std::atomic<std::uint64_t> lastPresentMs{ 0 };
+		std::uint64_t              setupCompletedMs{ 0 };  // tick thread only
+		bool                       bypassWarned{ false };  // tick thread only
+
 		~Impl()
 		{
 			g_overlay.store(nullptr);
@@ -321,6 +359,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 			g_overlay.store(this);
 			setupOk = true;
+			setupCompletedMs = ::GetTickCount64();
 			REX::INFO("D3D12Compositor: present-time overlay armed (Present slot-8 hook installed)");
 		}
 
@@ -473,10 +512,31 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				auto& slot8 = vtbl[8];  // IDXGISwapChain::Present
 				g_originalPresent.store(reinterpret_cast<PresentFn>(slot8));
 
+				// Coexistence diagnostic: who owns Present before we hook it?
+				// Clean stack -> dxgi.dll. ReShade/RTSS/Steam-overlay/frame-gen
+				// hooked first -> their module. Either way we CHAIN (we call
+				// whatever was there as "original"), so hooking after others is
+				// the safe order; the log makes the stack order reportable.
+				const auto owner = ModuleNameOfAddress(reinterpret_cast<const void*>(g_originalPresent.load()));
+				if (owner.find("dxgi.dll") == std::string::npos && owner.find("<unknown") == std::string::npos) {
+					REX::WARN("D3D12Compositor: Present slot 8 already points into '{}' — another overlay/hook tool "
+							  "is ahead of us; chaining after it. If the overlay misbehaves, include this line in reports.",
+						owner);
+				} else {
+					REX::INFO("D3D12Compositor: Present slot 8 owner before hook: '{}'", owner);
+				}
+
 				DWORD oldProtect = 0;
 				if (::VirtualProtect(&slot8, sizeof(void*), PAGE_EXECUTE_READWRITE, &oldProtect)) {
 					slot8 = reinterpret_cast<void*>(&PresentThunk);
 					::VirtualProtect(&slot8, sizeof(void*), oldProtect, &oldProtect);
+					// Paranoia read-back: if another tool raced the same slot
+					// between our write and here, say so rather than wonder later.
+					if (slot8 != reinterpret_cast<void*>(&PresentThunk)) {
+						REX::WARN("D3D12Compositor: Present slot changed immediately after our write "
+								  "(now in '{}') — another overlay re-hooked; relying on it chaining to us",
+							ModuleNameOfAddress(slot8));
+					}
 					ok = true;
 					REX::INFO("D3D12Compositor: hooked IDXGISwapChain::Present slot 8 (original 0x{:X})",
 						reinterpret_cast<std::uintptr_t>(g_originalPresent.load()));
@@ -507,6 +567,11 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 		void OnPresent(IDXGISwapChain* a_swap, UINT a_flags)
 		{
+			// Watchdog stamp FIRST (before any early-out): it answers "does the
+			// present stream still reach our thunk at all", independent of
+			// visibility or frame availability.
+			lastPresentMs.store(::GetTickCount64(), std::memory_order_relaxed);
+
 			if (!setupOk || !a_swap || (a_flags & DXGI_PRESENT_TEST) || !visible.load(std::memory_order_relaxed)) {
 				return;
 			}
@@ -896,6 +961,37 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 		// ================= submit (tick thread) =================
 
+		// Coexistence watchdog: the game is ticking (we're being called), so it
+		// is presenting — if no present has reached our thunk for a while, some
+		// other tool re-hooked Present over us WITHOUT chaining, and the overlay
+		// silently stopped drawing. Warn once with the actionable context; log
+		// recovery if presents come back (e.g. the tool was closed).
+		void CheckPresentLiveness()
+		{
+			if (!setupOk) {
+				return;
+			}
+			constexpr std::uint64_t kStallMs = 10'000;
+			const auto now = ::GetTickCount64();
+			const auto last = (std::max)(lastPresentMs.load(std::memory_order_relaxed), setupCompletedMs);
+			if (now - last <= kStallMs) {
+				if (bypassWarned) {
+					bypassWarned = false;
+					REX::INFO("D3D12Compositor: presents are reaching the hook again");
+				}
+				return;
+			}
+			if (!bypassWarned) {
+				bypassWarned = true;
+				REX::WARN("D3D12Compositor: no present has reached our hook for >{}s while the game is ticking — "
+						  "another overlay (ReShade/RTSS/Steam overlay/frame-gen tool) appears to have re-hooked "
+						  "IDXGISwapChain::Present without chaining. The OSF UI overlay cannot draw until it is "
+						  "restored. Try changing the load/injection order of overlay tools, and include this "
+						  "line plus your overlay stack in reports.",
+					kStallMs / 1000);
+			}
+		}
+
 		void CacheFrame(const FrameBufferView& a_frame)
 		{
 			if (a_frame.frameIndex == lastSubmittedIndex) {
@@ -945,6 +1041,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		}
 		_impl->CacheFrame(a_frame);
 		_impl->EnsureSetup();
+		_impl->CheckPresentLiveness();
 	}
 
 	void D3D12Compositor::SetVisible(bool a_visible)

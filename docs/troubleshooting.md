@@ -59,6 +59,7 @@ Open `OSF UI.log` first — it states what happened.
 | Overlay never appears, log shows renderer/compositor warnings | The Ultralight runtime DLLs or the located game device weren't available; the overlay disables itself loudly. Re-install the archive intact. |
 | Overlay appears but is blank | The renderer fell back to `null` (missing `ultralight/` runtime files) — re-install. |
 | Overlay lingers oddly during a load | It should auto-hide on loading screens / main menu; if not, F10 to hide and report the log. |
+| Overlay never appears (or vanishes) while running ReShade / RTSS / Steam overlay / frame-gen tools | Hook-chain ordering. Check the log for `Present slot 8 owner before hook` (which tool hooked first) and `no present has reached our hook` (a tool re-hooked over OSF UI without chaining). Try changing the injection/load order of the overlay tools and report the log lines + your overlay stack. |
 
 **Safe-disable without uninstalling:** set `"enabled": false` in
 `SFSE/Plugins/OSFUI/config.json` (or disable the mod in your manager).
@@ -82,7 +83,9 @@ Open `OSF UI.log` first — it states what happened.
 - **Untested display/overlay setups** — frame generation (DLSS-G / FSR-FG)
   and overlay tools (ReShade, Steam overlay, RTSS) have **not** been
   validated. On those the overlay may not appear or may draw on the wrong
-  output. Reports welcome.
+  output. OSF UI chains politely after tools that hooked first and logs
+  diagnostics for the broken cases (see the troubleshooting table above).
+  Reports welcome.
 - **Tied to a game build** via the Address Library; a patch can require an update.
 - **Input:** text entry follows your OS keyboard layout (dead keys/AltGr
   work), but IME composition (e.g. CJK input) is not supported yet; no

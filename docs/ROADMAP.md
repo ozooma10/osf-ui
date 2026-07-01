@@ -92,7 +92,13 @@ Status key: ✅ done · 🔧 in progress · ❌ not started · 🟡 partial · �
 - **IME / Unicode** is greenfield (WM_CHAR currently blocked); any estimate is
   soft until the OS char path lands (P1).
 - **Overlay coexistence** (ReShade / RTSS / Steam overlay / HDR) hook-chain
-  ordering is untested.
+  ordering is untested. Defensive diagnostics landed 2026-07-01 (unverified
+  pending in-game test): the Present-hook install logs which module owned
+  slot 8 first (chaining after it), read-back-verifies the vtable write, and
+  a tick-thread watchdog warns once when presents stop reaching our thunk
+  (a non-chaining re-hook) — so broken stacks self-identify in the log
+  instead of silently losing the overlay. Actual multi-overlay validation
+  still needs the real tools installed.
 
 ## Non-code follow-ups (owner: you)
 - ✅ **Branding/licensing:** resolved 2026-06-25 — the project no longer uses the
