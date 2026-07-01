@@ -71,11 +71,20 @@ namespace OSFUI::OverlayInputHook
 			}
 		}
 
-		// FALLBACK path (config.hardwareCursor=false): parse a WM_INPUT mouse
-		// packet and route raw deltas + buttons into the overlay's virtual
-		// cursor. Without the hardware cursor the OS pointer stays hidden/
-		// clipped, so WM_MOUSEMOVE is useless and raw deltas are the truth.
-		void RouteRawMouse(LPARAM a_lparam)
+		// Route a WM_INPUT mouse packet into the overlay. This is the ONLY mouse
+		// source: the game registers raw input in a way that suppresses the
+		// legacy WM_MOUSE* stream (verified in-game 2026-07-01 — clicks routed
+		// from legacy messages never arrived), so everything must come from the
+		// raw packet.
+		//
+		// Position source depends on the cursor mode:
+		//  - hardware cursor (a_hardwareCursor): the OS pointer is visible and
+		//    authoritative — read its live position (GetCursorPos) and sync the
+		//    runtime's view-space cursor to it, so buttons/hover land exactly
+		//    where the user sees the pointer. Deltas are ignored.
+		//  - fallback (config.hardwareCursor=false): the OS pointer stays
+		//    hidden/clipped, so accumulate raw deltas into the virtual cursor.
+		void RouteRawMouse(HWND a_hwnd, LPARAM a_lparam, bool a_hardwareCursor)
 		{
 			UINT size = 0;
 			if (::GetRawInputData(reinterpret_cast<HRAWINPUT>(a_lparam), RID_INPUT, nullptr, &size, sizeof(RAWINPUTHEADER)) != 0 ||
@@ -91,8 +100,21 @@ namespace OSFUI::OverlayInputHook
 			auto& runtime = Runtime::Get();
 			const auto& mouse = raw.data.mouse;
 
-			// Relative motion (absolute mode is for tablets/RDP — ignore it).
-			if ((mouse.usFlags & MOUSE_MOVE_ABSOLUTE) == 0 && (mouse.lLastX != 0 || mouse.lLastY != 0)) {
+			if (a_hardwareCursor) {
+				// The engine may re-hide/re-clip the pointer at any time; heal it
+				// on the packet the user would notice it on.
+				HardwareCursor::Reassert(a_hwnd);
+				// Sync from the live OS pointer on EVERY packet (not just moves)
+				// so even a click without a preceding move lands where the
+				// pointer is.
+				POINT pt{};
+				RECT  client{};
+				if (::GetCursorPos(&pt) && ::ScreenToClient(a_hwnd, &pt) &&
+					::GetClientRect(a_hwnd, &client) && client.right > 0 && client.bottom > 0) {
+					runtime.OnHostMouseAbsolute(pt.x, pt.y, client.right, client.bottom);
+				}
+			} else if ((mouse.usFlags & MOUSE_MOVE_ABSOLUTE) == 0 && (mouse.lLastX != 0 || mouse.lLastY != 0)) {
+				// Relative motion (absolute mode is for tablets/RDP — ignore it).
 				runtime.OnHostMouseDelta(mouse.lLastX, mouse.lLastY);
 			}
 
@@ -124,60 +146,6 @@ namespace OSFUI::OverlayInputHook
 				if (wheelDelta != 0) {
 					runtime.OnHostMouseWheel(static_cast<int>(wheelDelta));
 				}
-			}
-		}
-
-		// Route one legacy mouse message while the HARDWARE cursor drives the
-		// overlay. The OS pointer position is authoritative: sync the runtime's
-		// view-space cursor from the message coordinates first, then route the
-		// button/wheel transition at that exact spot.
-		void RouteHardwareMouse(HWND a_hwnd, UINT a_msg, WPARAM a_wparam, LPARAM a_lparam)
-		{
-			auto& runtime = Runtime::Get();
-
-			// The engine may re-hide/re-clip the pointer at any time; heal it on
-			// the message the user would notice it on.
-			HardwareCursor::Reassert(a_hwnd);
-
-			RECT client{};
-			if (!::GetClientRect(a_hwnd, &client) || client.right <= 0 || client.bottom <= 0) {
-				return;
-			}
-			POINT pt{ static_cast<short>(LOWORD(a_lparam)), static_cast<short>(HIWORD(a_lparam)) };
-			if (a_msg == WM_MOUSEWHEEL || a_msg == WM_MOUSEHWHEEL) {
-				::ScreenToClient(a_hwnd, &pt);  // wheel messages carry SCREEN coords
-			}
-			runtime.OnHostMouseAbsolute(pt.x, pt.y, client.right, client.bottom);
-
-			switch (a_msg) {
-			case WM_LBUTTONDOWN: case WM_LBUTTONDBLCLK:
-				runtime.OnHostMouseButton(0, true);
-				break;
-			case WM_LBUTTONUP:
-				runtime.OnHostMouseButton(0, false);
-				break;
-			case WM_RBUTTONDOWN: case WM_RBUTTONDBLCLK:
-				runtime.OnHostMouseButton(1, true);
-				break;
-			case WM_RBUTTONUP:
-				runtime.OnHostMouseButton(1, false);
-				break;
-			case WM_MBUTTONDOWN: case WM_MBUTTONDBLCLK:
-				runtime.OnHostMouseButton(2, true);
-				break;
-			case WM_MBUTTONUP:
-				runtime.OnHostMouseButton(2, false);
-				break;
-			case WM_MOUSEWHEEL:
-				if (const auto delta = static_cast<short>(HIWORD(a_wparam)); delta != 0) {
-					runtime.OnHostMouseWheel(delta);
-				}
-				break;
-			default:
-				// WM_MOUSEMOVE was fully handled by the position sync above;
-				// X-buttons / horizontal wheel are blocked but unrouted, matching
-				// the raw-input path.
-				break;
 			}
 		}
 
@@ -278,37 +246,31 @@ namespace OSFUI::OverlayInputHook
 				}
 				break;
 			case WM_SETCURSOR:
+				// Rarely (if ever) delivered — the game's raw-input registration
+				// suppresses the legacy mouse stream — but if it does arrive,
+				// apply the page's requested shape and keep the game's proc from
+				// resetting/hiding the pointer. (Reassert covers the shape on
+				// the WM_INPUT path.)
 				if (g_hwCursorActive) {
-					// Apply the page's requested shape and keep the game's proc
-					// from resetting/hiding the pointer.
 					HardwareCursor::ApplyShape();
 					return TRUE;
 				}
 				break;
 			case WM_INPUT:
 				if (runtime.IsInputCaptured()) {
-					// Hardware-cursor mode routes the mouse from the legacy
-					// messages instead (the OS pointer position is the truth);
-					// raw deltas would double-drive it. The fallback mode
-					// (config.hardwareCursor=false) keeps the raw route.
-					// Either way consume so the game's camera/movement gets
+					// The ONLY mouse source (see RouteRawMouse). Route into the
+					// overlay, then consume so the game's camera/movement gets
 					// nothing — WM_INPUT must still go to DefWindowProc to
 					// release the raw input buffer (the game's proc is what
 					// we skip).
-					if (!g_hwCursorActive) {
-						RouteRawMouse(a_lparam);
-					}
+					RouteRawMouse(a_hwnd, a_lparam, g_hwCursorActive);
 					return ::DefWindowProcW(a_hwnd, a_msg, a_wparam, a_lparam);
 				}
 				break;
 			default:
 				if (IsLegacyMouseMessage(a_msg) && runtime.IsInputCaptured()) {
-					// Hardware-cursor mode: these ARE the mouse input now.
-					// Fallback mode: WM_INPUT already routed them. Blocked from
-					// the game in both.
-					if (g_hwCursorActive) {
-						RouteHardwareMouse(a_hwnd, a_msg, a_wparam, a_lparam);
-					}
+					// Everything already routes from WM_INPUT; block any legacy
+					// duplicates from the game.
 					return 0;
 				}
 				break;

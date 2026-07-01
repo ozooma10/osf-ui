@@ -37,18 +37,25 @@ Status key: ✅ done · 🔧 in progress · ❌ not started · 🟡 partial · �
   using per-view `ViewState::scrollPx` (default 28).
 
 - 🟡 **Hardware (OS) cursor** — implemented 2026-07-01, needs in-game
-  verification. While captured, the real Windows pointer is shown
+  re-verification. While captured, the real Windows pointer is shown
   (`input/HardwareCursor`: bounded `ShowCursor` raises + `WM_SETCURSOR`
-  override + client-rect clip, self-healing on every mouse message), legacy
-  mouse messages' absolute coordinates drive the view
-  (`Runtime::OnHostMouseAbsolute`, client→view uniform scale), and the page's
-  CSS `cursor` maps to the matching system cursor (Ultralight
+  override + client-rect clip, self-healing on every mouse packet), and the
+  page's CSS `cursor` maps to the matching system cursor (Ultralight
   `OnChangeCursor` → `CursorShape` → `IDC_*`). Replaces the page-drawn `<div>`
   pointer, which trailed the hand by the full Ultralight paint + upload +
-  Present pipeline. `config.hardwareCursor=false` restores the raw-delta
-  virtual cursor (no visible pointer; debug only). To verify live: pointer
-  appears/disappears with F10, no double cursor with `focusMenu` on (engine
-  arrow — see verification doc §B), no recenter fights from the engine.
+  Present pipeline. **Routing lesson from the first live test (2026-07-01):
+  the game's raw-input registration suppresses the legacy `WM_MOUSE*` stream
+  (RIDEV_NOLEGACY behavior), so the first cut — routing from `WM_MOUSEMOVE`/
+  `WM_LBUTTON*` — got no mouse input at all (clicks dead, page never saw
+  moves). Mouse is now routed exclusively from raw `WM_INPUT`, with the
+  position read live from `GetCursorPos` while the hardware cursor is active
+  (`Runtime::OnHostMouseAbsolute`, client→view uniform scale; the renderer
+  divides by `device_scale` per the SDK Sample 7 convention).**
+  `config.hardwareCursor=false` restores the raw-delta virtual cursor (no
+  visible pointer; debug only). To verify live: pointer appears/disappears
+  with F10, hover/click/scroll land where the pointer is, no double cursor
+  with `focusMenu` on (engine arrow — see verification doc §B), no recenter
+  fights from the engine.
 
 ## P0 — in flight
 

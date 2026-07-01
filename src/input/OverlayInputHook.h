@@ -13,10 +13,12 @@ namespace OSFUI
 	//   - keyboard messages are routed into the web view and consumed,
 	//   - the toggle key still toggles,
 	//   - all mouse/raw-input messages are consumed so the game freezes,
-	//   - the mouse drives the view. Default (config.hardwareCursor): the REAL
-	//     OS pointer is shown (input/HardwareCursor — zero-lag, hardware-
-	//     composited) and the legacy mouse messages' absolute coordinates are
-	//     routed. Fallback (hardwareCursor=false): raw WM_INPUT deltas drive
+	//   - the mouse drives the view, always routed from raw WM_INPUT (the
+	//     game's raw-input registration suppresses the legacy WM_MOUSE*
+	//     stream, so it is the only source). Default (config.hardwareCursor):
+	//     the REAL OS pointer is shown (input/HardwareCursor — zero-lag,
+	//     hardware-composited) and its live position (GetCursorPos) is the
+	//     routed position. Fallback (hardwareCursor=false): raw deltas drive
 	//     the runtime's invisible virtual cursor instead.
 	// When not capturing, every message passes through unchanged except the
 	// toggle key (consumed so it never reaches the game).
