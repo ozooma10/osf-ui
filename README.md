@@ -164,8 +164,10 @@ docs/HANDOFF.md §4.
   `views/<id>/` folder for the declarative path. Render/menu integration points
   were reverse engineered before use, never guessed
   ([docs/reverse-engineering-notes.md](docs/reverse-engineering-notes.md)).
-- **Rough edges** — keyboard routing is US-layout only (no IME/Unicode yet),
-  there is no gamepad/controller navigation or localization pipeline,
+- **Rough edges** — text entry follows the OS keyboard layout (dead keys and
+  AltGr included, verified in-game) but IME composition (e.g. CJK input) is
+  not supported yet, there is no gamepad/controller navigation or
+  localization pipeline,
   HDR/10-bit backbuffers are detected and skipped with a log warning rather
   than rendered (full HDR output is on the roadmap), and coexistence with
   ReShade / Steam overlay / frame-gen is untested (see

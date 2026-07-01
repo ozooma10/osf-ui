@@ -84,9 +84,11 @@ Open `OSF UI.log` first — it states what happened.
   validated. On those the overlay may not appear or may draw on the wrong
   output. Reports welcome.
 - **Tied to a game build** via the Address Library; a patch can require an update.
-- **Input:** keyboard routing is US-layout only; no gamepad/controller navigation
-  yet; with two interactive panels, `Tab` switches panels (so in-panel `Tab`
-  field navigation is overridden in that mode).
+- **Input:** text entry follows your OS keyboard layout (dead keys/AltGr
+  work), but IME composition (e.g. CJK input) is not supported yet; no
+  gamepad/controller navigation yet; with two interactive panels, `Tab`
+  switches panels (so in-panel `Tab` field navigation is overridden in that
+  mode).
 - **For UI authors:** the `window.osfui` bridge API is version **0.x and
   unstable** — see [authoring-views.md](authoring-views.md). It may change between
   releases until it reaches 1.0.
