@@ -26,6 +26,9 @@ namespace OSFUI
 		std::string           id;
 		std::string           title;
 		std::string           entry{ "index.html" };
+		// Logical (authoring) size: the page always lays out at this size. The
+		// renderer resizes views to output resolution with a matching device
+		// scale (outputHeight/height), so CSS px scale up to output pixels.
 		std::uint32_t         width{ 1280 };
 		std::uint32_t         height{ 720 };
 		bool                  transparent{ true };

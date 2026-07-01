@@ -10,6 +10,7 @@
 #include "core/Log.h"
 #include "input/ControlLayer.h"
 #include "input/FocusMenu.h"
+#include "input/HardwareCursor.h"
 #include "core/Paths.h"
 #include "platform/WindowsPlatform.h"
 #include "render/MockWebRenderer.h"
@@ -73,6 +74,17 @@ namespace OSFUI
 		_renderer->SetLoadHandler([this](const IWebRenderer::LoadEvent& a_e) {
 			OnViewLoad(a_e.viewId, a_e.failed, a_e.url, a_e.description, a_e.errorCode);
 		});
+
+		// The active page's CSS `cursor` drives the real OS pointer (hover
+		// hand, text I-beam, …). NOTE: unlike the other handlers this fires on
+		// the renderer's WORKER thread (IWebRenderer.h contract) — SetShape is
+		// one atomic store, applied by the WndProc hook on the next mouse
+		// message.
+		if (_config.hardwareCursor) {
+			_renderer->SetCursorChangeHandler([](CursorShape a_shape) {
+				HardwareCursor::SetShape(a_shape);
+			});
+		}
 
 		// Compositor
 		_compositor = CreateCompositor();
@@ -460,6 +472,22 @@ namespace OSFUI
 		// Pure text entry — no toggle/focus logic, so route straight to the
 		// active view (the VK stream handles toggle/focus via OnHostKey).
 		_renderer->InjectCharEvent(a_codepoint);
+	}
+
+	void Runtime::OnHostMouseAbsolute(int a_clientX, int a_clientY, int a_clientW, int a_clientH)
+	{
+		if (!IsInputCaptured() || !_renderer || a_clientW <= 0 || a_clientH <= 0) {
+			return;
+		}
+		// The OS pointer moves in window-client space; the view is the same
+		// aspect but height-capped (OnOutputResized), so scale through the
+		// client size. Uniform scale => the pointer and the page's hit-testing
+		// stay aligned at every resolution.
+		const auto viewW = static_cast<float>(_viewWidth.load(std::memory_order_relaxed));
+		const auto viewH = static_cast<float>(_viewHeight.load(std::memory_order_relaxed));
+		_cursorX = std::clamp(static_cast<float>(a_clientX) * viewW / static_cast<float>(a_clientW), 0.0f, viewW - 1.0f);
+		_cursorY = std::clamp(static_cast<float>(a_clientY) * viewH / static_cast<float>(a_clientH), 0.0f, viewH - 1.0f);
+		_renderer->InjectMouseMove(static_cast<int>(_cursorX), static_cast<int>(_cursorY));
 	}
 
 	void Runtime::OnHostMouseDelta(int a_dx, int a_dy)

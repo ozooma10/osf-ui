@@ -74,9 +74,20 @@ namespace OSFUI
 		// the character from the game itself. Runs on the window-message thread.
 		void OnHostChar(std::uint32_t a_codepoint);
 
-		// Called by the WndProc hook with RAW mouse deltas (the OS cursor is
-		// hidden in gameplay). Advances a virtual cursor in view space and,
-		// while captured, routes the move into the web view.
+		// Called by the WndProc hook with the OS pointer's position while the
+		// HARDWARE cursor drives the overlay (config.hardwareCursor, default):
+		// window-client coordinates plus the current client size. Maps through
+		// the client size to view space (the view is aspect-matched but
+		// height-capped — a uniform scale), syncs the virtual cursor so buttons/
+		// wheel route at the same spot, and routes the move into the web view.
+		// cursorSpeed deliberately does not apply: the OS pointer already moves
+		// at the user's system sensitivity.
+		void OnHostMouseAbsolute(int a_clientX, int a_clientY, int a_clientW, int a_clientH);
+
+		// FALLBACK path (config.hardwareCursor=false): called by the WndProc
+		// hook with RAW mouse deltas (the OS cursor stays hidden). Advances a
+		// virtual cursor in view space and, while captured, routes the move
+		// into the web view.
 		void OnHostMouseDelta(int a_dx, int a_dy);
 		// Mouse button transition; routed at the current virtual cursor.
 		// a_button uses MouseButton order (0=left, 1=right, 2=middle).

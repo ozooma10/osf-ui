@@ -7,6 +7,7 @@
 
 	#include <algorithm>
 	#include <cctype>
+	#include <cmath>
 	#include <condition_variable>
 	#include <deque>
 	#include <thread>
@@ -35,6 +36,44 @@ namespace OSFUI
 		{
 			const auto& s8 = a_str.utf8();
 			return std::string(s8.data(), s8.length());
+		}
+
+		// Collapse WebCore's ~40 CSS cursors onto the host's small CursorShape
+		// set (stock Win32 cursors). Anything without a stock equivalent maps
+		// to the nearest look-alike, else the arrow.
+		[[nodiscard]] CursorShape MapCursor(ul::Cursor a_cursor)
+		{
+			switch (a_cursor) {
+			case ul::kCursor_Cross:                    return CursorShape::kCross;
+			case ul::kCursor_Hand:
+			case ul::kCursor_Grab:
+			case ul::kCursor_Grabbing:                 return CursorShape::kHand;
+			case ul::kCursor_IBeam:
+			case ul::kCursor_VerticalText:             return CursorShape::kIBeam;
+			case ul::kCursor_Wait:
+			case ul::kCursor_Progress:                 return CursorShape::kWait;
+			case ul::kCursor_Help:                     return CursorShape::kHelp;
+			case ul::kCursor_EastResize:
+			case ul::kCursor_WestResize:
+			case ul::kCursor_EastWestResize:
+			case ul::kCursor_ColumnResize:             return CursorShape::kSizeWE;
+			case ul::kCursor_NorthResize:
+			case ul::kCursor_SouthResize:
+			case ul::kCursor_NorthSouthResize:
+			case ul::kCursor_RowResize:                return CursorShape::kSizeNS;
+			case ul::kCursor_NorthEastResize:
+			case ul::kCursor_SouthWestResize:
+			case ul::kCursor_NorthEastSouthWestResize: return CursorShape::kSizeNESW;
+			case ul::kCursor_NorthWestResize:
+			case ul::kCursor_SouthEastResize:
+			case ul::kCursor_NorthWestSouthEastResize: return CursorShape::kSizeNWSE;
+			case ul::kCursor_Move:
+			case ul::kCursor_MiddlePanning:            return CursorShape::kSizeAll;
+			case ul::kCursor_NoDrop:
+			case ul::kCursor_NotAllowed:               return CursorShape::kNotAllowed;
+			case ul::kCursor_None:                     return CursorShape::kNone;
+			default:                                   return CursorShape::kArrow;  // incl. kCursor_Pointer
+			}
 		}
 
 		// Encode one Unicode scalar value as UTF-8. Used to build the text of a
@@ -277,6 +316,10 @@ namespace OSFUI
 		// view lives in ViewState below; this struct owns only what is shared.
 		RendererConfig    config;
 		WebMessageHandler onWebMessage;
+		// Set once before LoadView (worker not yet running), then only invoked
+		// from the worker thread (OnChangeCursor) — per the IWebRenderer.h
+		// contract this one is NOT marshalled onto the game thread.
+		CursorChangeHandler onCursorChange;
 
 		std::mutex              mutex;  // guards `views`, `activeViewId`, and every ViewState's queues/pending ops
 		std::condition_variable wake;
@@ -384,6 +427,7 @@ namespace OSFUI
 
 			// worker-thread-only
 			ul::RefPtr<ul::View>    view;
+			std::uint32_t           logicalHeight{ 720 };  // manifest height = the page's authoring height; resizes keep device scale = pixels/logical
 			Frame                   backFrame;   // latest harvested pixels (overwritten on repaint)
 			bool                    backDirty{ false };  // backFrame changed since last expose/composite
 			std::uint64_t           paintCount{ 0 };
@@ -558,7 +602,14 @@ namespace OSFUI
 						CreateAndLoadView(*w.vs, *w.load);
 					}
 					if (w.resize && w.vs->view) {
+						// Pages are authored against their manifest (logical) size.
+						// The resize to output resolution rides with a matching
+						// device scale, so the page keeps laying out at logical
+						// size and CSS px scale up to output pixels — otherwise
+						// 720p-authored type renders microscopic at 1440p.
 						w.vs->view->Resize(w.resize->first, w.resize->second);
+						w.vs->view->set_device_scale(
+							static_cast<double>(w.resize->second) / w.vs->logicalHeight);
 					}
 					for (auto& msg : w.outbound) {
 						w.vs->stashedToWeb.push_back(std::move(msg));
@@ -642,9 +693,12 @@ namespace OSFUI
 
 		void CreateAndLoadView(ViewState& a_vs, const ViewManifest& a_manifest)
 		{
+			a_vs.logicalHeight = a_manifest.height > 0 ? a_manifest.height : 720u;
 			ul::ViewConfig viewConfig;
 			viewConfig.is_accelerated = false;  // CPU BitmapSurface (Phase 1)
 			viewConfig.is_transparent = a_manifest.transparent;
+			// Created at manifest = logical size, so the scale starts at 1.0;
+			// the output-size resize (worker loop above) sets the real scale.
 			viewConfig.initial_device_scale = 1.0;
 			a_vs.view = renderer->CreateView(a_manifest.width, a_manifest.height, viewConfig, session);
 			if (!a_vs.view) {
@@ -1164,9 +1218,13 @@ namespace OSFUI
 				a_vs.view->FireScrollEvent(ev);
 				return;
 			}
+			// Cursor coords arrive in view pixels, but Ultralight consumes mouse
+			// events in logical (CSS) units — its AppCore divides window pixels
+			// by the device scale the same way.
+			const auto scale = a_vs.view->device_scale();
 			ul::MouseEvent ev;
-			ev.x = a_m.x;
-			ev.y = a_m.y;
+			ev.x = static_cast<int>(std::lround(a_m.x / scale));
+			ev.y = static_cast<int>(std::lround(a_m.y / scale));
 			switch (a_m.kind) {
 			case MouseInput::Kind::kMove:
 				ev.type = ul::MouseEvent::kType_MouseMoved;
@@ -1325,6 +1383,24 @@ namespace OSFUI
 			default:
 				REX::DEBUG("UltralightWebRenderer: [console] {}", text);
 				break;
+			}
+		}
+
+		void OnChangeCursor(ul::View* a_view, ul::Cursor a_cursor) override
+		{
+			// Only the ACTIVE (input) view's cursor drives the OS pointer — a
+			// background view restyling itself must not flicker the arrow.
+			{
+				std::scoped_lock lk(mutex);
+				const ViewState* vs = FindByView(a_view);
+				if (!vs || vs->id != activeViewId) {
+					return;
+				}
+			}
+			if (onCursorChange) {
+				// Delivered on THIS (worker) thread by contract — a shape change
+				// must not wait a game tick behind the notify queues.
+				onCursorChange(MapCursor(a_cursor));
 			}
 		}
 	};
@@ -1630,6 +1706,13 @@ namespace OSFUI
 	void UltralightWebRenderer::SetLoadHandler(LoadHandler a_handler)
 	{
 		_impl->onLoad = std::move(a_handler);
+	}
+
+	void UltralightWebRenderer::SetCursorChangeHandler(CursorChangeHandler a_handler)
+	{
+		// Like the other Set*Handler calls: game thread, before LoadView, so
+		// the worker (which starts on the first tick) never races the write.
+		_impl->onCursorChange = std::move(a_handler);
 	}
 
 	void UltralightWebRenderer::EvaluateScript(std::string_view a_viewId, std::string_view a_js, ScriptResultHandler a_onResult)

@@ -15,9 +15,10 @@ Real HTML/CSS/JS pages render offscreen via Ultralight, upload to a GPU
 texture on the game's own D3D12 device, and are drawn as an alpha-blended
 overlay over the live game image through an `IDXGISwapChain::Present` slot-8
 hook. The overlay is **fully interactive**: while it is open the game is
-input-frozen (movement + camera), keyboard routes into the page, and a
-virtual cursor driven by raw mouse input clicks the page's controls. A
-multi-mod, schema-driven settings UI (MCM-style) ships on top. All
+input-frozen (movement + camera), keyboard routes into the page, and the
+real Windows **hardware cursor** (zero-lag, framerate-independent) clicks
+the page's controls, with CSS `cursor` styles mapped to the matching system
+cursor. A multi-mod, schema-driven settings UI (MCM-style) ships on top. All
 user-verified on Starfield 1.16.244. See
 [docs/renderer-plan.md](docs/renderer-plan.md) for the full phase log and
 [What this is not yet](#what-this-is-not-yet) for the remaining gaps.
@@ -85,6 +86,7 @@ Logs go to the standard SFSE log folder
 | `compositor` | `"null"` | `null` \| `d3d12` — the real overlay path (uploads to the game's D3D12 device, draws at present time; verified in-game). Shipped config uses `d3d12` |
 | `inputSource` | `"none"` | `none` \| `ui` — installs the window-subclass input path (toggle key + input capture). Shipped config uses `ui`; set to `none` to rule the input hook out when debugging |
 | `captureInput` | `true` | when the overlay is visible, freeze the game and route keyboard/mouse into the web view (needs `inputSource: "ui"`). When `false` the overlay is a passive HUD: it draws, but the game still receives input |
+| `hardwareCursor` | `true` | show the real Windows (hardware) pointer while the overlay captures input — zero-lag, framerate-independent, and the page's CSS `cursor` maps to the matching system cursor. `false` falls back to the legacy raw-delta virtual cursor, which has **no visible pointer** (debugging escape hatch only) |
 | `focusMenu` | `false` | **Experimental — leave off.** Register a real engine menu (`OSFUI_FocusMenu`) and open/close it with the overlay so the engine enters menu mode (cursor + modal input) rather than relying only on the WndProc message-swallow. Custom-`IMenu` registration is **unproven on 1.16.244** (see [docs/reverse-engineering-notes.md](docs/reverse-engineering-notes.md) §4); enabling may be unstable until that probe confirms the contract |
 | `disableControls` | `false` | **Experimental.** While the overlay is visible, disable player controls through the engine input-enable layer (`BSInputEnableManager`) — this also stops gamepad/XInput, which the WndProc hook never saw. Mechanism is proven on 1.16.244; the exact freeze-everything flag set is still being live-confirmed, so the disabled set is provisional |
 | `view` | `"test"` | view id from `views/*/manifest.json` (shipped config uses `settings`) |
@@ -145,9 +147,10 @@ docs/HANDOFF.md §4.
   user-verified on screen. `startVisible`/F10 toggle it.
 - **Interactive input** (`inputSource: "ui"` + `captureInput: true`): a
   WndProc subclass on the game window freezes gameplay while the overlay is
-  open, routes keyboard (VK codes) into the focused page, and turns raw mouse
-  deltas into a virtual cursor that clicks the page's controls. F10 toggles,
-  Esc closes.
+  open, routes keyboard (VK codes) into the focused page, and shows the real
+  Windows **hardware cursor** to click the page's controls — zero-lag and
+  framerate-independent, with CSS `cursor` styles (hover hand, text I-beam)
+  mapped onto the OS pointer. F10 toggles, Esc closes.
 - **Schema-driven settings (MCM-style):** each mod drops a
   `settings/<id>.json` schema (typed bool/int/float/enum/string knobs); the
   built-in `settings` view renders a card per mod with live controls + Reset,

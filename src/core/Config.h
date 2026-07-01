@@ -14,6 +14,14 @@ namespace OSFUI
 		std::string compositor{ "null" };  // "null" | "d3d12" (d3d12 draws the overlay at present time)
 		std::string inputSource{ "none" }; // "none" | "ui" (WndProc subclass: toggle key + input capture; see input/OverlayInputHook)
 		bool        captureInput{ true };  // when visible, route input to the web view and block the game from acting on it (needs inputSource="ui")
+		// Show the REAL Windows (hardware) pointer while the overlay captures
+		// input, driven by absolute OS coordinates: zero-lag (composited on the
+		// display's cursor plane, independent of game framerate), and the page's
+		// CSS `cursor` maps to the matching system cursor. When false, fall back
+		// to the legacy raw-delta virtual cursor — which no longer has a visible
+		// pointer (views stopped drawing one), so this is a debugging escape
+		// hatch only. Needs inputSource="ui".
+		bool        hardwareCursor{ true };
 		// EXPERIMENTAL (default off in code; shipped config.json turns it on).
 		// Register a real engine menu (OSFUI_FocusMenu) and open/close it with
 		// the overlay so the ENGINE enters menu mode (cursor + modal input

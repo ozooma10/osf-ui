@@ -12,12 +12,14 @@ namespace OSFUI
 	// While the overlay owns input (Runtime::IsInputCaptured):
 	//   - keyboard messages are routed into the web view and consumed,
 	//   - the toggle key still toggles,
-	//   - all mouse/raw-input messages are consumed so the game freezes.
+	//   - all mouse/raw-input messages are consumed so the game freezes,
+	//   - the mouse drives the view. Default (config.hardwareCursor): the REAL
+	//     OS pointer is shown (input/HardwareCursor — zero-lag, hardware-
+	//     composited) and the legacy mouse messages' absolute coordinates are
+	//     routed. Fallback (hardwareCursor=false): raw WM_INPUT deltas drive
+	//     the runtime's invisible virtual cursor instead.
 	// When not capturing, every message passes through unchanged except the
 	// toggle key (consumed so it never reaches the game).
-	//
-	// Mouse routing + a visible cursor are a follow-up (Phase 4b); for now the
-	// mouse is only BLOCKED while captured, not yet delivered to the view.
 	namespace OverlayInputHook
 	{
 		// Finds the game's main top-level window for the current process and

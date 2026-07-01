@@ -40,11 +40,11 @@ swapping them never touches the rest of the runtime.
    core/Paths     ViewManager   IWebRenderer  ICompositor        InputRouter
                   ViewManifest     │              │              OverlayInputHook
                                 ┌──┴────────┐  ┌──┴─────────┐    (WndProc subclass)
-                                │ Null      │  │ Null       │   UiLayoutGuard
-                                │ Mock      │  │ D3D12      │   MenuEventSink
-                                │ Ultralight│  └────────────┘   FocusMenu
-                                │  (option) │                   ControlLayer
-                                └───────────┘
+                                │ Null      │  │ Null       │   HardwareCursor
+                                │ Mock      │  │ D3D12      │   UiLayoutGuard
+                                │ Ultralight│  └────────────┘   MenuEventSink
+                                │  (option) │                   FocusMenu
+                                └───────────┘                   ControlLayer
                                    │    ▲
                           runtime/MessageBridge    JSON, whitelisted commands
 ```

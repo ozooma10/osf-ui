@@ -22,6 +22,28 @@ namespace OSFUI
 		kBGRA8,
 	};
 
+	// Cursor shape a page wants (CSS `cursor`), for the host to mirror on the
+	// REAL OS pointer while the overlay captures input (input/HardwareCursor).
+	// Deliberately small: web cursors without a stock Win32 equivalent collapse
+	// to the nearest listed one (kArrow when nothing fits). kNone means the
+	// page asked to hide the pointer (`cursor: none`).
+	enum class CursorShape
+	{
+		kArrow,
+		kCross,
+		kHand,
+		kIBeam,
+		kWait,
+		kHelp,
+		kNotAllowed,
+		kSizeWE,
+		kSizeNS,
+		kSizeNESW,
+		kSizeNWSE,
+		kSizeAll,
+		kNone,
+	};
+
 	// Non-owning view of one CPU-side frame produced by a renderer.
 	//
 	// Ownership/lifetime contract: the pixel data is owned by the renderer that
@@ -106,6 +128,16 @@ namespace OSFUI
 		};
 		using LoadHandler = std::function<void(const LoadEvent& a_event)>;
 		virtual void SetLoadHandler(LoadHandler) {}
+
+		// Fires when the ACTIVE (input) view's requested cursor changes, so the
+		// host can switch the real OS pointer (hover feedback, text I-beam).
+		// UNLIKE the other handlers, backends may invoke this from a renderer-
+		// internal thread — the handler must be cheap and thread-safe (the
+		// in-tree consumer is a single atomic store; the shape is applied by the
+		// window hook on the next mouse message). Set once before LoadView;
+		// no-op for backends without a JS engine.
+		using CursorChangeHandler = std::function<void(CursorShape a_shape)>;
+		virtual void SetCursorChangeHandler(CursorChangeHandler) {}
 
 		// Delivers one keyboard transition into the web view. a_vkCode is a
 		// Windows virtual-key code (the space Starfield ButtonEvents carry).

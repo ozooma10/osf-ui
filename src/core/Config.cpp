@@ -28,6 +28,7 @@ namespace OSFUI
 		config.compositor = Json::GetString(*json, "compositor", config.compositor);
 		config.inputSource = Json::GetString(*json, "inputSource", config.inputSource);
 		config.captureInput = Json::GetBool(*json, "captureInput", config.captureInput);
+		config.hardwareCursor = Json::GetBool(*json, "hardwareCursor", config.hardwareCursor);
 		config.focusMenu = Json::GetBool(*json, "focusMenu", config.focusMenu);
 		config.disableControls = Json::GetBool(*json, "disableControls", config.disableControls);
 		config.view = Json::GetString(*json, "view", config.view);
@@ -48,8 +49,8 @@ namespace OSFUI
 			config.allowNetwork = false;
 		}
 
-		REX::INFO("Config: loaded {} (renderer={}, compositor={}, inputSource={}, captureInput={}, focusMenu={}, disableControls={}, view={}, devMode={})",
-			a_path.string(), config.renderer, config.compositor, config.inputSource, config.captureInput, config.focusMenu, config.disableControls, config.view, config.devMode);
+		REX::INFO("Config: loaded {} (renderer={}, compositor={}, inputSource={}, captureInput={}, hardwareCursor={}, focusMenu={}, disableControls={}, view={}, devMode={})",
+			a_path.string(), config.renderer, config.compositor, config.inputSource, config.captureInput, config.hardwareCursor, config.focusMenu, config.disableControls, config.view, config.devMode);
 		return config;
 	}
 }

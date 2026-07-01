@@ -38,8 +38,9 @@ entry). The base game launcher will not load the plugin.
 
 1. In game, press **F10** — the overlay (settings panel) should appear; F10 again
    hides it. `Esc` closes it.
-2. While it's open, the game is input-frozen and the mouse drives a cursor in the
-   panel; settings changes save automatically.
+2. While it's open, the game is input-frozen and the real Windows pointer
+   appears (hardware cursor — no lag, changes shape over buttons/text) to
+   drive the panel; settings changes save automatically.
 3. The log is written to:
    `Documents\My Games\Starfield\SFSE\Logs\OSF UI.log`
    (Documents may be OneDrive-redirected.)
@@ -60,6 +61,7 @@ Open `OSF UI.log` first — it states what happened.
 | Overlay appears but is blank | The renderer fell back to `null` (missing `ultralight/` runtime files) — re-install. |
 | Overlay lingers oddly during a load | It should auto-hide on loading screens / main menu; if not, F10 to hide and report the log. |
 | Overlay never appears (or vanishes) while running ReShade / RTSS / Steam overlay / frame-gen tools | Hook-chain ordering. Check the log for `Present slot 8 owner before hook` (which tool hooked first) and `no present has reached our hook` (a tool re-hooked over OSF UI without chaining). Try changing the injection/load order of the overlay tools and report the log lines + your overlay stack. |
+| No pointer while the overlay is open, or the pointer flickers/jumps to center | Something (the engine or another overlay) is fighting the hardware cursor. The log shows `HardwareCursor: activated/deactivated` pairs on F10. Report it; as a stopgap `"hardwareCursor": false` in `config.json` restores the old input path — but it has no visible pointer, so it is a diagnostic, not a fix. |
 
 **Safe-disable without uninstalling:** set `"enabled": false` in
 `SFSE/Plugins/OSFUI/config.json` (or disable the mod in your manager).

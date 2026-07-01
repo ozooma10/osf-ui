@@ -52,8 +52,8 @@ paths, paths with a root, and any `..` component are rejected before disk I/O
   "id": "myhud",            // REQUIRED, unique; matches the folder + config "view"
   "title": "My HUD",        // optional, defaults to id
   "entry": "index.html",    // optional, default "index.html"; must stay inside the folder
-  "width": 1280,            // optional, default 1280; clamped to 1..16384
-  "height": 720,            // optional, default 720;  clamped to 1..16384
+  "width": 1280,            // optional, default 1280; clamped to 1..16384 — logical (authoring) size
+  "height": 720,            // optional, default 720;  clamped to 1..16384 — logical (authoring) size
   "transparent": true,      // optional, default true; lets the game show through
   "zorder": 0,              // optional, default 0; compositing layer when several views are hosted — higher draws on top
   "interactive": true,      // optional, default true; false = never receives input/focus (e.g. a passive HUD)
@@ -66,10 +66,15 @@ paths, paths with a root, and any `..` component are rejected before disk I/O
 ```
 
 Notes:
-- **`width`/`height` are a starting size only.** When the `d3d12` compositor is
-  active, the runtime resizes the view to match the screen aspect (height-capped
-  at 1440). **Author responsive CSS** — do not hardcode pixel layouts to
-  1280×720.
+- **`width`/`height` are the page's LOGICAL size — author against it.** When the
+  `d3d12` compositor is active, the runtime resizes the view to match the screen
+  aspect (height-capped at 1440) **with a matching device scale**
+  (`outputHeight / height`), so the page always lays out at its logical height
+  and CSS px scale up to output pixels. In practice: at 1440p a 720-tall
+  manifest gets a 2.0 device scale and a CSS viewport 720 tall — type sized for
+  720p stays that size on screen instead of shrinking. Width still varies with
+  the screen's aspect ratio (e.g. ~1720 CSS px wide on a 21:9 display), so
+  author width-responsive CSS; the logical HEIGHT is the only fixed contract.
 - **`permissions.nativeBridge` must be `true`** if your page talks to the
   runtime. With it `false`, `window.osfui` is never injected and your page
   runs purely client-side.
@@ -105,6 +110,18 @@ Several views can be hosted and composited at once. `config.json` lists them:
   *interactive* (clickable) view works too: focus it, then click.
 - Each view is sized to the whole screen, so position your content with CSS and
   keep the rest transparent; the layers blend by alpha.
+
+### Mouse & cursor
+
+**Do not draw your own pointer.** While the overlay captures input the runtime
+shows the real Windows (hardware) cursor — zero-lag, composited by the display
+hardware, independent of game framerate. Your page's CSS `cursor` property maps
+to the matching system cursor (`pointer` → hand, `text` → I-beam, resize
+variants, `none` hides it, anything exotic falls back to the arrow), so hover
+feedback works exactly like a browser. A page-drawn `<div>` pointer would
+trail the real one by the full render pipeline (the shipped views used to do
+this — it felt laggy and was removed) and `cursor: none` on `body` would hide
+the pointer for the whole view.
 
 ---
 
