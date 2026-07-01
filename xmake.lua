@@ -54,6 +54,8 @@ target("OSF UI")
     add_files("src/**.cpp")
     add_headerfiles("src/**.h")
     add_includedirs("src")
+    add_headerfiles("sdk/OSFUI_API.h")
+    add_includedirs("sdk")
     set_pcxxheader("src/pch.h")
 
     -- ship the plugin data folder (config + views) next to the DLL:

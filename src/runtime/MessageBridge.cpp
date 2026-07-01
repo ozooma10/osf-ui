@@ -14,6 +14,11 @@ namespace OSFUI
 		_commands[std::move(a_command)] = std::move(a_handler);
 	}
 
+	void MessageBridge::UnregisterCommand(std::string_view a_command)
+	{
+		_commands.erase(std::string(a_command));
+	}
+
 	void MessageBridge::HandleWebMessage(std::string_view a_viewId, std::string_view a_json)
 	{
 		// Remember the source so handler replies (and ui.error) route back to it.

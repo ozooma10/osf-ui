@@ -4,6 +4,7 @@
 
 #include "RE/C/Calendar.h"
 
+#include "api/BridgeApi.h"
 #include "composite/D3D12Compositor.h"
 #include "composite/NullCompositor.h"
 #include "core/Log.h"
@@ -137,6 +138,8 @@ namespace OSFUI
 				REX::INFO("Runtime: no loaded view requests nativeBridge; bridge disabled");
 			}
 
+			API::BridgeApi::Get().OnBridgeReady(_bridge.get());
+
 			// Load the layer set (layering = manifest zorder; focus = config.view).
 			std::size_t loaded = 0;
 			for (const auto& id : toLoad) {
@@ -226,6 +229,8 @@ namespace OSFUI
 			_renderer->Shutdown();
 			_renderer.reset();
 		}
+		// Detach the native plugin API from the bridge before we destroy it, so its non-owning pointer never dangles and it reports not-ready.
+		API::BridgeApi::Get().OnBridgeReady(nullptr);
 		// Bridge before modules: its command handlers capture module pointers,
 		// so it must not outlive them.
 		_bridge.reset();
@@ -239,9 +244,10 @@ namespace OSFUI
 		if (!_initialized) {
 			return;
 		}
-		// Open/close the engine focus menu on the MAIN thread (visibility is
-		// flipped from the WndProc/input thread, but UIMessageQueue must only be
-		// touched here). No-op unless config.focusMenu is set. EXPERIMENTAL.
+		// Apply deferred native-API registrations and off-thread sends onto the main thread. 
+		// Kept first so a sibling plugin's commands are live before this frame's page traffic.
+		API::BridgeApi::Get().PumpMainThread();
+		// Open/close the engine focus menu on the MAIN thread (visibility is flipped from the WndProc/input thread, but UIMessageQueue must only be touched here). No-op unless config.focusMenu is set.
 		if (_config.focusMenu) {
 			ReconcileFocusMenu();
 		}
