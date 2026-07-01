@@ -138,6 +138,10 @@ namespace OSFUI
 		void OnViewLoad(std::string_view a_viewId, bool a_failed, std::string_view a_url,
 			std::string_view a_description, int a_errorCode);
 
+		// URL crash-recovery (P2): fire due reload attempts scheduled by
+		// OnViewLoad. Called from Tick on the game thread.
+		void DriveRecovery();
+
 		Config                        _config;
 		ViewManager                   _views;
 		std::unique_ptr<IWebRenderer> _renderer;
@@ -179,5 +183,21 @@ namespace OSFUI
 		// Per-view load state (view id -> ViewLoadState), written from the
 		// renderer's load hook and read by GetViewLoadState. Game-thread only.
 		std::unordered_map<std::string, ViewLoadState> _viewLoadState;
+
+		// URL crash-recovery (P2). A failed main-frame load schedules bounded
+		// reloads with backoff; exhaustion destroys the view and unregisters its
+		// surface so nothing can reopen a dead view. attempts counts reloads
+		// already fired; a successful load clears the entry. Game-thread only.
+		struct RecoveryState
+		{
+			std::uint32_t attempts{ 0 };
+			double        retryAt{ 0.0 };  // in _uptime seconds
+			bool          pending{ false };
+		};
+		std::unordered_map<std::string, RecoveryState> _recovery;
+		// Monotonic-ish plugin uptime accumulated from Tick's clamped dt; only
+		// used to schedule recovery backoff (stalls with the game, which is
+		// exactly the cadence reloads should follow).
+		double _uptime{ 0.0 };
 	};
 }

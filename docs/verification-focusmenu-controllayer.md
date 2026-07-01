@@ -104,7 +104,22 @@ overlay (which stays visible and capturing).
       binds — should be inert (`FastTravel`/`GravJump` flags are in the
       disable set).
 
-## E. Report back
+## E. (Optional, same session) URL crash-recovery smoke
+
+Landed 2026-07-01, also unverified. Cheap to check while you're in:
+
+- [ ] Before launch, temporarily rename a loaded view's entry file (e.g.
+      `views/hud/index.html` → `index.html.bak`). In-game the log should show
+      `FAILED to load` → `reload attempt 1/3 scheduled in 2s` → attempts
+      counting up.
+- [ ] Restore the file *before* the 3rd retry fires → log shows
+      `crash-recovery reloading view` then `view '…' recovered`, and the view
+      appears.
+- [ ] (Or let all 3 fail → `giving up — destroying the view`, and the
+      overlay/menu for that view can no longer be opened; F10 on a destroyed
+      default view logs a WARN instead of showing an empty capture overlay.)
+
+## F. Report back
 
 Send the full `OSF UI.log` from the session plus, per section, pass/fail and
 anything odd (double cursor, B-button behavior, any input that leaked).

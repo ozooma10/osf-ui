@@ -9,6 +9,13 @@ namespace OSFUI
 		_registry[a_surface.id] = a_surface;
 	}
 
+	bool MenuController::Unregister(std::string_view a_id)
+	{
+		const bool changed = Close(a_id);
+		_registry.erase(std::string(a_id));
+		return changed;
+	}
+
 	const MenuController::Surface* MenuController::Find(std::string_view a_id) const
 	{
 		const auto it = _registry.find(std::string(a_id));

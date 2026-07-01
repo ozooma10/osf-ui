@@ -236,6 +236,7 @@ namespace OSFUI
 		if (!_initialized) {
 			return;
 		}
+		_uptime += a_deltaSeconds;
 		// Apply queued menu requests (F10/Esc/transition) on the MAIN thread first, so the reconcilers below and the frame submitted this tick reflect the new state.
 		DrainMenuRequests();
 		// Apply the native plugin API's queued ops (command (re)registration +
@@ -252,6 +253,8 @@ namespace OSFUI
 		if (!_renderer) {
 			return;
 		}
+		// Fire any due crash-recovery reloads before Update pumps the renderer.
+		DriveRecovery();
 		_renderer->Update(a_deltaSeconds);
 		SubmitFrameIfVisible();
 	}
@@ -359,14 +362,68 @@ namespace OSFUI
 	void Runtime::OnViewLoad(std::string_view a_viewId, bool a_failed, std::string_view a_url,
 		std::string_view a_description, int a_errorCode)
 	{
-		_viewLoadState[std::string(a_viewId)] = a_failed ? ViewLoadState::Failed : ViewLoadState::Finished;
-		if (a_failed) {
-			REX::ERROR("Runtime: view '{}' FAILED to load ({}): {} [{}]",
-				a_viewId, a_url, a_description, a_errorCode);
-			// TODO (P2 URL crash-recovery): a failed/faulted load could be reloaded
-			// here once recovery lands; the per-view state above is the trigger.
-		} else {
-			REX::INFO("Runtime: view '{}' finished loading ({})", a_viewId, a_url);
+		const std::string id(a_viewId);
+		_viewLoadState[id] = a_failed ? ViewLoadState::Failed : ViewLoadState::Finished;
+		if (!a_failed) {
+			// A healthy load clears the view's strikes, so a much later failure
+			// gets the full retry budget again.
+			if (_recovery.erase(id) > 0) {
+				REX::INFO("Runtime: view '{}' recovered ({})", a_viewId, a_url);
+			} else {
+				REX::INFO("Runtime: view '{}' finished loading ({})", a_viewId, a_url);
+			}
+			return;
+		}
+
+		REX::ERROR("Runtime: view '{}' FAILED to load ({}): {} [{}]",
+			a_viewId, a_url, a_description, a_errorCode);
+
+		// URL crash-recovery: schedule a bounded reload with backoff. attempts
+		// counts reloads already fired; the budget exhausted means the content
+		// is genuinely broken — tear the view down and unregister its surface so
+		// F10/menu.open cannot re-open an invisible, input-capturing shell.
+		constexpr std::uint32_t kMaxAttempts = 3;
+		constexpr double        kBackoffSec[kMaxAttempts] = { 2.0, 5.0, 15.0 };
+		auto& rec = _recovery[id];
+		if (rec.attempts >= kMaxAttempts) {
+			REX::ERROR("Runtime: view '{}' still failing after {} reload attempts; giving up — "
+					   "destroying the view and removing its surface (fix the view's files and relaunch)",
+				a_viewId, rec.attempts);
+			_recovery.erase(id);
+			if (_renderer) {
+				_renderer->DestroyView(id);
+			}
+			if (_menus.Unregister(id)) {
+				ApplyMenuPolicy();  // it was open: release capture/visibility now
+			}
+			return;
+		}
+		rec.pending = true;
+		rec.retryAt = _uptime + kBackoffSec[rec.attempts];
+		REX::WARN("Runtime: view '{}' reload attempt {}/{} scheduled in {:.0f}s",
+			a_viewId, rec.attempts + 1, kMaxAttempts, kBackoffSec[rec.attempts]);
+	}
+
+	void Runtime::DriveRecovery()
+	{
+		if (_recovery.empty() || !_renderer) {
+			return;
+		}
+		for (auto& [id, rec] : _recovery) {
+			if (!rec.pending || _uptime < rec.retryAt) {
+				continue;
+			}
+			rec.pending = false;
+			const auto* manifest = _views.Find(id);
+			if (!manifest) {
+				continue;  // shouldn't happen: only loaded (known) views get load events
+			}
+			++rec.attempts;
+			REX::INFO("Runtime: crash-recovery reloading view '{}' (attempt {})", id, rec.attempts);
+			_renderer->LoadView(*manifest);
+			// A recreated view starts at manifest dimensions; restore the
+			// output-matched size so it composites 1:1 again.
+			_renderer->Resize(_viewWidth.load(), _viewHeight.load());
 		}
 	}
 

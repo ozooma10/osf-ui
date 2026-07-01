@@ -22,6 +22,12 @@ namespace OSFUI
 		// Register (or replace) a surface by id. Idempotent.
 		void Register(const Surface& a_surface);
 
+		// Remove a surface entirely (closing it first if open). Returns true if
+		// the open-state changed (caller should re-apply policy). Used when a
+		// view is torn down at runtime (crash-recovery exhaustion) so nothing
+		// can reopen a surface whose renderer view no longer exists.
+		bool Unregister(std::string_view a_id);
+
 		// State transitions. Each returns true if the open-state actually changed.
 		// Open: a menu is pushed (single-menu policy: it replaces the current menu); a HUD is added to the shown set.
 		// Unknown ids return false.
