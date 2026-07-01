@@ -9,7 +9,6 @@
 const clockEl = document.getElementById("clock");
 const statusEl = document.getElementById("status");
 const pongEl = document.getElementById("pong");
-const cursorEl = document.getElementById("cursor");
 
 function bridgeAvailable() {
   return typeof window.osfui === "object" &&
@@ -50,14 +49,6 @@ window.osfui.onMessage = (json) => {
       break;
   }
 };
-
-// Software pointer follows routed mouse moves (only delivered while focused).
-document.addEventListener("mousemove", (e) => {
-  if (cursorEl) {
-    cursorEl.style.left = `${e.clientX}px`;
-    cursorEl.style.top = `${e.clientY}px`;
-  }
-});
 
 document.getElementById("ping").addEventListener("click", () => {
   pongEl.textContent = "ping…";

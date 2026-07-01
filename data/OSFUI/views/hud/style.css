@@ -96,17 +96,3 @@ button#ping:hover {
   font-size: 11px;
   color: #9affc4;
 }
-
-#cursor {
-  position: fixed;
-  left: -100px;
-  top: -100px;
-  width: 14px;
-  height: 14px;
-  margin: -2px 0 0 -2px;
-  border: 2px solid #fff;
-  border-radius: 50%;
-  background: rgba(120, 180, 255, 0.5);
-  pointer-events: none;
-  z-index: 9999;
-}

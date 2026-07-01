@@ -10,7 +10,6 @@
 const statusEl = document.getElementById("status");
 const titleEl = document.getElementById("title");
 const formEl = document.getElementById("form");
-const cursorEl = document.getElementById("cursor");
 
 function bridgeAvailable() {
   return typeof window.osfui === "object" &&
@@ -185,14 +184,6 @@ window.osfui.onMessage = onNativeMessage;
 
 document.getElementById("close").addEventListener("click", () => {
   sendCommand({ command: "close" });
-});
-
-// Software pointer follows routed mouse moves (OS cursor hidden in-game).
-document.addEventListener("mousemove", (e) => {
-  if (cursorEl) {
-    cursorEl.style.left = `${e.clientX}px`;
-    cursorEl.style.top = `${e.clientY}px`;
-  }
 });
 
 if (bridgeAvailable()) {

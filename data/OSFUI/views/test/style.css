@@ -7,27 +7,9 @@ body {
   background: transparent;
   font-family: "Segoe UI", system-ui, sans-serif;
   color: #e8eef5;
-  /* The native cursor is hidden in-game; we draw our own (#cursor). */
-  cursor: none;
-}
-
-/* Software pointer driven by routed mouse moves. A CSS triangle so it reads
-   as an arrow without an image asset. */
-.cursor {
-  position: fixed;
-  left: 0;
-  top: 0;
-  width: 0;
-  height: 0;
-  margin: -2px 0 0 -2px;
-  border-style: solid;
-  border-width: 14px 9px 0 0;
-  border-color: #f5f8ff transparent transparent transparent;
-  transform: rotate(-35deg);
-  transform-origin: 0 0;
-  filter: drop-shadow(1px 1px 1px rgba(0, 0, 0, 0.8));
-  pointer-events: none;
-  z-index: 9999;
+  /* No cursor styling tricks needed: the runtime shows the real OS pointer
+     while the overlay is open, and CSS `cursor` values (pointer, text, …)
+     map to the matching system cursor. */
 }
 
 .panel {

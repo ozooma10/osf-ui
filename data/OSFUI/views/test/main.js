@@ -88,16 +88,6 @@ if (textEl) {
   textEl.addEventListener("blur", () => setTimeout(() => textEl.focus(), 0));
 }
 
-// Software pointer (Phase 4b): position our cursor div from routed mouse
-// moves, since the OS cursor is hidden in-game.
-const cursorEl = document.getElementById("cursor");
-document.addEventListener("mousemove", (e) => {
-  if (cursorEl) {
-    cursorEl.style.left = `${e.clientX}px`;
-    cursorEl.style.top = `${e.clientY}px`;
-  }
-});
-
 if (bridgeAvailable()) {
   statusEl.textContent = "Bridge detected, waiting for runtime.ready…";
   // Automatic handshake: prove the web -> native -> web round trip without
