@@ -64,10 +64,12 @@ namespace OSFUI
 		constexpr KeyCode kVkEscape = 0x1B;
 	}
 
-	void InputRouter::Configure(KeyCode a_toggleKey, std::function<void()> a_toggleVisibility)
+	void InputRouter::Configure(KeyCode a_toggleKey, std::function<void()> a_onToggle,
+		std::function<void()> a_onBack)
 	{
 		_toggleKey = a_toggleKey;
-		_toggleVisibility = std::move(a_toggleVisibility);
+		_onToggle = std::move(a_onToggle);
+		_onBack = std::move(a_onBack);
 	}
 
 	void InputRouter::SetWebRouting(std::function<bool()> a_isCaptured,
@@ -79,19 +81,23 @@ namespace OSFUI
 
 	void InputRouter::OnKeyDown(KeyCode a_key)
 	{
-		// Toggle path: fed by UiInputHook when inputSource="ui". Handled before
-		// capture so the toggle key always works, even while the overlay owns
-		// input. ESC also closes the overlay when captured.
+		// Toggle path: fed by the WndProc hook. Handled before capture so the toggle
+		// key always works, even while the overlay owns input. The toggle key and a
+		// captured ESC are distinct intents (F10 toggles the default menu; ESC
+		// closes the top one). Both are consumed here regardless so the key never
+		// also routes into the view.
 		const bool captured = Captured();
-		if (_toggleVisibility) {
-			if (_toggleKey != kInvalidKeyCode && a_key == _toggleKey) {
-				_toggleVisibility();
-				return;
+		if (_toggleKey != kInvalidKeyCode && a_key == _toggleKey) {
+			if (_onToggle) {
+				_onToggle();
 			}
-			if (captured && a_key == kVkEscape) {
-				_toggleVisibility();
-				return;
+			return;
+		}
+		if (captured && a_key == kVkEscape) {
+			if (_onBack) {
+				_onBack();
 			}
+			return;
 		}
 
 		if (captured && _routeKey) {

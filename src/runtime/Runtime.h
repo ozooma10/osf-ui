@@ -4,6 +4,7 @@
 #include "core/Config.h"
 #include "input/InputRouter.h"
 #include "render/IWebRenderer.h"
+#include "runtime/MenuController.h"
 #include "runtime/MessageBridge.h"
 #include "runtime/SettingsModule.h"
 #include "runtime/UiModule.h"
@@ -30,9 +31,15 @@ namespace OSFUI
 		// unverified in-game (docs/reverse-engineering-notes.md).
 		void Tick(double a_deltaSeconds);
 
-		void SetVisible(bool a_visible);
-		void ToggleVisible();
 		[[nodiscard]] bool IsVisible() const;
+
+		enum class MenuReq
+		{
+			ToggleDefault,  // F10: open the default menu, or close the top one
+			CloseTop,       // Esc: close the top menu
+			CloseAll,       // transition/panic: clear every surface
+		};
+		void EnqueueMenuRequest(MenuReq a_req);
 
 		// Show/hide one loaded (config.views) declarative view by id, independent
 		// of the global overlay toggle. Returns false for an unknown/unloaded id.
@@ -108,9 +115,11 @@ namespace OSFUI
 		void BuildModules();
 		void RegisterPlatformCommands(MessageBridge& a_bridge);
 
-		// Cycle the active (input) view among the interactive ones — the focusKey
-		// handler. No-op with fewer than two interactive views.
-		void CycleActiveView();
+		// Derive the desired UI state from the MenuController and apply it to the renderer/compositor/flags (hidden, order, active view, capture, visibility). 
+		void ApplyMenuPolicy();
+
+		// Drain queued menu requests (F10/Esc/transition) on the main thread and apply the resulting policy. Called at the top of Tick.
+		void DrainMenuRequests();
 
 		// EXPERIMENTAL (config.focusMenu). Open/close the engine focus menu to
 		// match overlay visibility. Called every tick from the game's MAIN thread
@@ -141,11 +150,12 @@ namespace OSFUI
 		std::vector<std::unique_ptr<IUiModule>> _modules;
 		InputRouter                             _input;
 		KeyCode                       _toggleKey{ kInvalidKeyCode };
-		KeyCode                       _focusKey{ kInvalidKeyCode };
-		// Focusable (interactive) view ids in load order, and the index of the
-		// one that currently has input. Touched only on the window-message thread.
-		std::vector<std::string>      _interactiveViews;
-		std::size_t                   _activeViewIndex{ 0 };
+
+		// Registered surfaces (menus/HUDs) + open state. Mutated only on the main thread (Tick / bridge handlers).
+		MenuController                _menus;
+		// Menu requests raised off the main thread, drained in Tick. _reqMutex is a strict LEAF lock: snapshot under it, release, then act.
+		std::mutex                    _reqMutex;
+		std::vector<MenuReq>          _reqs;
 
 		// Virtual cursor in view-pixel space (the OS cursor is hidden during
 		// gameplay, so we accumulate raw deltas instead). Position is touched
