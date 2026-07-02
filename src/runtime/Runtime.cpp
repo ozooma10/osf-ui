@@ -83,11 +83,13 @@ namespace OSFUI
 		// the renderer's WORKER thread (IWebRenderer.h contract) — SetShape is
 		// one atomic store, applied by the WndProc hook on the next mouse
 		// message.
-		if (_config.hardwareCursor) {
-			_renderer->SetCursorChangeHandler([](CursorShape a_shape) {
-				HardwareCursor::SetShape(a_shape);
-			});
-		}
+		// Registered unconditionally: the handler only stores the latest shape
+		// (the WndProc applies it only while the hardware cursor is ACTIVE), so
+		// it's harmless when disabled and keeps hardwareCursor live-toggleable
+		// (osfui.hardwareCursor) without a re-register.
+		_renderer->SetCursorChangeHandler([](CursorShape a_shape) {
+			HardwareCursor::SetShape(a_shape);
+		});
 
 		// Compositor
 		_compositor = CreateCompositor();
@@ -102,6 +104,10 @@ namespace OSFUI
 		REX::INFO("Runtime: compositor = {}", _compositor->Name());
 
 		_captureInput.store(_config.captureInput);
+		// Seed the live hardware-cursor mirror from config; osfui.hardwareCursor
+		// then drives it at runtime (the settings module's OnStart/NotifyAll
+		// re-applies the persisted value below, before the first frame).
+		_hardwareCursor.store(_config.hardwareCursor);
 
 		// Feature modules ("apps" on the platform). Core hosts them via the
 		// IUiModule contract and knows nothing of what they do — settings is
@@ -276,9 +282,10 @@ namespace OSFUI
 		if (_config.focusMenu) {
 			ReconcileFocusMenu();
 		}
-		if (_config.disableControls) {
-			ReconcileControlLayer();
-		}
+		// Always reconcile: the enabled check lives INSIDE, so toggling
+		// osfui.disableControls off at runtime RELEASES an engaged lock (a gate
+		// here would just stop reconciling and strand the player's controls).
+		ReconcileControlLayer();
 		// Sim pause (manifest pausesGame) — unconditional: it is a direct
 		// Main::isGameMenuPaused write, independent of the engine focus menu.
 		ReconcileSimPause();
@@ -804,7 +811,9 @@ namespace OSFUI
 		// Main-thread (Tick). Drive the input-enable layer toward the top menu's CAPTURE policy; this is the ONLY gate that stops gamepad/XInput,
 		// so it must track capture (not pause), or a gamepad drives the game underneath a capturing menu.
 		// A live HUD (no capture) leaves controls enabled. Engage() may no-op until gameplay (manager not ready at the main menu); IsEngaged() stays false then, so we simply retry next tick.
-		const bool wantEngaged = _menus.DesiredCapture();
+		// Gated on config.disableControls so turning the setting off releases any
+		// engaged lock (this fn is now called every tick, not behind an if).
+		const bool wantEngaged = _config.disableControls && _menus.DesiredCapture();
 		if (wantEngaged == ControlLayer::IsEngaged()) {
 			return;
 		}
@@ -935,13 +944,36 @@ namespace OSFUI
 
 	void Runtime::OnSettingChanged(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value)
 	{
-		// The Phase 5b payoff: settings drive native behaviour live. Cursor
-		// speed multiplies mouse sensitivity in OnHostMouseDelta — observable
-		// immediately and never self-defeating (the cursor keeps working).
-		if (a_modId == "osfui" && a_key == "cursorSpeed" && a_value.is_number()) {
+		// The Phase 5b payoff: settings drive native behaviour live. Only the
+		// framework's own knobs (mod "osfui") are handled here; other mods'
+		// settings are theirs to react to. Fires on the MAIN thread (settings
+		// commands dispatch from Tick), and once per value at startup via the
+		// settings module's NotifyAll — so a persisted choice applies on boot.
+		if (a_modId != "osfui") {
+			return;
+		}
+		// Cursor speed multiplies mouse sensitivity in OnHostMouseDelta —
+		// observable immediately and never self-defeating (the cursor keeps working).
+		if (a_key == "cursorSpeed" && a_value.is_number()) {
 			const auto speed = a_value.get<float>();
 			_cursorSpeed.store(speed);
 			REX::INFO("Runtime: setting osfui.cursorSpeed -> {:.2f}", speed);
+		}
+		// Hardware cursor: mirror to the atomic the WndProc reads (window thread).
+		// The next mouse message activates/deactivates the OS pointer to match.
+		else if (a_key == "hardwareCursor" && a_value.is_boolean()) {
+			const auto on = a_value.get<bool>();
+			_config.hardwareCursor = on;
+			_hardwareCursor.store(on);
+			REX::INFO("Runtime: setting osfui.hardwareCursor -> {}", on);
+		}
+		// Disable-controls: read live on this same (main) thread by
+		// ReconcileControlLayer, which now always runs and releases when this is
+		// off — so no extra reconcile call is needed here.
+		else if (a_key == "disableControls" && a_value.is_boolean()) {
+			const auto on = a_value.get<bool>();
+			_config.disableControls = on;
+			REX::INFO("Runtime: setting osfui.disableControls -> {}", on);
 		}
 	}
 

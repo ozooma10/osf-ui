@@ -1,11 +1,40 @@
 {
   "id": "osfui",
-  "title": "OSF UI Runtime",
+  "title": "OSF UI",
+  "description": "Runtime and overlay behavior for the OSF UI framework itself.",
   "groups": [
+    {
+      "label": "Overlay",
+      "settings": [
+        {
+          "key": "hardwareCursor",
+          "label": "Hardware cursor",
+          "type": "bool",
+          "default": true,
+          "hint": "Show the real Windows pointer (zero-lag) while the overlay is open. Off falls back to a software cursor."
+        },
+        {
+          "key": "disableControls",
+          "label": "Disable player controls while open",
+          "type": "bool",
+          "default": true,
+          "hint": "Freezes movement, camera, and gamepad/XInput while a menu is open. Off leaves the game controllable behind the overlay."
+        }
+      ]
+    },
     {
       "label": "Cursor",
       "settings": [
-        { "key": "cursorSpeed", "label": "Cursor speed (fallback software cursor only)", "type": "float", "min": 0.5, "max": 3.0, "step": 0.1, "default": 1.0 }
+        {
+          "key": "cursorSpeed",
+          "label": "Cursor speed",
+          "type": "float",
+          "min": 0.5,
+          "max": 3.0,
+          "step": 0.1,
+          "default": 1.0,
+          "hint": "Software-cursor fallback only; the hardware pointer uses your system sensitivity."
+        }
       ]
     }
   ]

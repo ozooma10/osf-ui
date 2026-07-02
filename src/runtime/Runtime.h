@@ -62,6 +62,11 @@ namespace OSFUI
 		// decide whether to route keys into the web view. Thread-safe.
 		[[nodiscard]] bool IsInputCaptured() const;
 
+		// Live mirror of the hardwareCursor setting (osfui.hardwareCursor). Read
+		// by the WndProc hook on the WINDOW thread to activate the OS pointer, so
+		// it's atomic — the settings change fires on the main thread. Thread-safe.
+		[[nodiscard]] bool IsHardwareCursorEnabled() const { return _hardwareCursor.load(); }
+
 		// Called by the WndProc hook for each keyboard transition (Windows VK
 		// code). Drives the toggle key and, while captured, routes the key
 		// into the web view. Returns true if the caller should CONSUME the key
@@ -213,6 +218,12 @@ namespace OSFUI
 		// Input-capture flag (initialised from config). When false the overlay
 		// is a HUD: it draws but the game still gets input.
 		std::atomic_bool              _captureInput{ true };
+
+		// Live mirror of config.hardwareCursor. Written by OnSettingChanged
+		// (main thread), read by the WndProc hook (window thread) — hence atomic.
+		// config.disableControls needs no mirror: it's read/written on the same
+		// (main) thread (ReconcileControlLayer / OnSettingChanged, both in Tick).
+		std::atomic_bool              _hardwareCursor{ true };
 
 		std::atomic_bool              _visible{ false };
 		bool                          _initialized{ false };
