@@ -288,6 +288,11 @@ namespace OSFUI
 		// releases the pointer (no engine arrow — the focus menu carries no
 		// ShowCursor bit). Edge-triggered inside Apply.
 		FreeCursor::Apply(_menus.DesiredCapture());
+		// Route engine-delivered gamepad input into the active view (Level 2,
+		// increment 3). No-op unless config.engineInput.
+		if (_config.engineInput) {
+			DrainEngineInput(a_deltaSeconds);
+		}
 		if (!_renderer) {
 			return;
 		}
@@ -613,6 +618,11 @@ namespace OSFUI
 			FocusMenu::Close();
 			// One observer summary per overlay session (no-op unless engineInput).
 			EngineInput::LogSessionSummary();
+			// Raw-passthrough is a per-session grant: without this, a page that
+			// took the gamepad (osfui.gamepadRaw) would leave DEFAULT NAV DEAD
+			// for whichever menu opens next. Pages re-assert on each
+			// ui.visibility show.
+			EngineInput::SetRawMode(false);
 		}
 	}
 
@@ -623,6 +633,117 @@ namespace OSFUI
 		// config.focusMenu. Driven by the top menu's manifest pausesGame (default
 		// true for menus). Edge-triggered inside Apply.
 		SimPause::Apply(_menus.DesiredPause());
+	}
+
+	void Runtime::DrainEngineInput(double a_deltaSeconds)
+	{
+		if (!_renderer) {
+			return;
+		}
+		const bool captured = IsInputCaptured();
+		const auto active = _menus.ActiveMenu();
+		const bool raw = EngineInput::IsRawMode();
+
+		// Discrete down+up tap: robust against a missed release (no stuck key).
+		const auto tap = [this](std::uint32_t a_vk) {
+			_renderer->InjectKeyEvent(a_vk, true);
+			_renderer->InjectKeyEvent(a_vk, false);
+		};
+
+		// ---- button edges (queued by the worker-thread thunks) ----
+		EngineInput::GamepadButtonEdge e;
+		while (EngineInput::PollGamepadButton(e)) {
+			if (!captured) {
+				continue;  // drain-and-discard while not capturing
+			}
+			// Raw event for every edge — a page may own gamepad handling.
+			if (_bridge && active) {
+				_bridge->SendToWeb(*active, "ui.gamepad",
+					nlohmann::json{ { "kind", "button" }, { "id", e.idCode }, { "down", e.down } });
+			}
+			if (raw || !e.down) {
+				continue;  // raw mode = page owns it; else act on the press edge only
+			}
+			switch (e.idCode) {
+			case XInputButton::kDPadUp:    tap(0x26); break;  // VK_UP
+			case XInputButton::kDPadDown:  tap(0x28); break;  // VK_DOWN
+			case XInputButton::kDPadLeft:  tap(0x25); break;  // VK_LEFT
+			case XInputButton::kDPadRight: tap(0x27); break;  // VK_RIGHT
+			case XInputButton::kA:         tap(0x0D); break;  // VK_RETURN — activate
+			case XInputButton::kB:         EnqueueMenuRequest(MenuReq::CloseTop); break;  // back — close overlay
+			default: break;  // shoulders/thumbs/Start/Back -> raw event only
+			}
+		}
+
+		if (!captured) {
+			// Reset routing timers so the next overlay open starts fresh.
+			for (auto& t : _padNavNextRepeat) {
+				t = 0.0;
+			}
+			_padScrollAccum = 0.0f;
+			return;
+		}
+
+		// ---- sticks (latest deflection) ----
+		const auto            s = EngineInput::GetSticks();
+		constexpr float       kDeadzone = 0.25f;
+
+		// Raw stick events, throttled to meaningful change (so a page can drive
+		// e.g. camera orbit off the raw values).
+		if (_bridge && active) {
+			const float cur[4] = { s.lx, s.ly, s.rx, s.ry };
+			bool        changed = false;
+			for (int i = 0; i < 4; ++i) {
+				changed = changed || std::fabs(cur[i] - _padLastSentSticks[i]) > 0.04f;
+			}
+			if (changed) {
+				_bridge->SendToWeb(*active, "ui.gamepad",
+					nlohmann::json{ { "kind", "stick" }, { "lx", s.lx }, { "ly", s.ly },
+						{ "rx", s.rx }, { "ry", s.ry } });
+				for (int i = 0; i < 4; ++i) {
+					_padLastSentSticks[i] = cur[i];
+				}
+			}
+		}
+
+		if (raw) {
+			return;  // no default stick mapping in raw mode
+		}
+
+		// Left stick -> arrow-key nav, initial-delay + repeat, per direction
+		// (0=up,1=down,2=left,3=right; timer 0.0 == inactive/fresh sentinel).
+		constexpr double    kNavInitialDelay = 0.35;
+		constexpr double    kNavRepeat = 0.11;
+		const bool          dirActive[4] = { s.ly > kDeadzone, s.ly < -kDeadzone,
+            s.lx < -kDeadzone, s.lx > kDeadzone };
+		const std::uint32_t dirVk[4] = { 0x26, 0x28, 0x25, 0x27 };
+		for (int i = 0; i < 4; ++i) {
+			if (!dirActive[i]) {
+				_padNavNextRepeat[i] = 0.0;
+				continue;
+			}
+			if (_padNavNextRepeat[i] == 0.0) {
+				tap(dirVk[i]);
+				_padNavNextRepeat[i] = _uptime + kNavInitialDelay;
+			} else if (_uptime >= _padNavNextRepeat[i]) {
+				tap(dirVk[i]);
+				_padNavNextRepeat[i] = _uptime + kNavRepeat;
+			}
+		}
+
+		// Right stick Y -> scroll. Accumulate fractional notches for smooth,
+		// framerate-independent scrolling; +y (stick up) = positive wheel delta
+		// = scroll up (sign is easy to flip if it feels inverted in-game).
+		if (std::fabs(s.ry) > kDeadzone) {
+			constexpr float kScrollNotchesPerSec = 8.0f;
+			_padScrollAccum += s.ry * kScrollNotchesPerSec * static_cast<float>(a_deltaSeconds);
+			if (const int notches = static_cast<int>(_padScrollAccum); notches != 0) {
+				_renderer->InjectMouseWheel(static_cast<int>(_cursorX), static_cast<int>(_cursorY), notches * 120);
+				_padScrollAccum -= static_cast<float>(notches);
+			}
+		} else {
+			_padScrollAccum = 0.0f;
+		}
 	}
 
 	void Runtime::ReconcileControlLayer()
@@ -717,6 +838,14 @@ namespace OSFUI
 		});
 		a_bridge.RegisterCommand("ping", [](const nlohmann::json&, MessageBridge& a_b) {
 			a_b.SendToWeb("runtime.pong", nlohmann::json::object());
+		});
+		a_bridge.RegisterCommand("osfui.gamepadRaw", [](const nlohmann::json& a_p, MessageBridge&) {
+			// A page that wants to own the gamepad (e.g. stick-driven camera
+			// orbit) sets this to suppress the default nav/scroll mapping; it
+			// then handles the raw `ui.gamepad` events itself. PER-SESSION: the
+			// runtime resets it on overlay close — re-assert on each
+			// ui.visibility show.
+			EngineInput::SetRawMode(Json::GetBool(a_p, "raw", false));
 		});
 
 		// First read-only game-data provider: the in-game calendar (date/time).

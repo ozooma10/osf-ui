@@ -6,6 +6,7 @@
 #include "core/Log.h"
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <format>
 #include <mutex>
@@ -50,6 +51,40 @@ namespace OSFUI
 		std::size_t           g_ringNext{ 0 };
 		std::size_t           g_ringCount{ 0 };
 
+		// ---- increment-3 routing state (gamepad only) ----
+		// Button edges are QUEUED (worker thread -> main-thread drain) in a
+		// FIXED ring — no allocation on the engine's worker threads, keeping the
+		// header's contract honest. Overflow drops the oldest edge (harmless for
+		// the default mapping, which only acts on presses). Stick deflection is
+		// LATEST-WINS (atomic overwrite — we only ever want the current value).
+		// g_padRaw short-circuits the default mapping.
+		std::atomic_bool               g_padRaw{ false };
+		constexpr std::size_t          kPadQueueCap = 64;
+		std::mutex                     g_padMutex;  // leaf lock, guards the ring below
+		EngineInput::GamepadButtonEdge g_padQueue[kPadQueueCap]{};
+		std::size_t                    g_padHead{ 0 };
+		std::size_t                    g_padCount{ 0 };
+		std::atomic<float>             g_lx{ 0.0f }, g_ly{ 0.0f }, g_rx{ 0.0f }, g_ry{ 0.0f };
+
+		// Staleness guard for the sticks: it is UNPROVEN whether the engine sends
+		// a final zero-deflection ThumbstickEvent on release, or simply stops
+		// dispatching. If it stops, latest-wins would hold the last deflection
+		// forever and the default mapping would auto-repeat until the overlay
+		// closes. So GetSticks() reports zero once the last write is older than
+		// this. Costs nothing if the engine does send the zero.
+		constexpr std::int64_t    kStickStaleMs = 150;
+		std::atomic<std::int64_t> g_stickWriteMs{ 0 };
+
+		std::int64_t NowMs()
+		{
+			return std::chrono::duration_cast<std::chrono::milliseconds>(
+				std::chrono::steady_clock::now().time_since_epoch())
+			    .count();
+		}
+
+		constexpr std::int32_t kStickLeftId = 0x0B;
+		constexpr std::int32_t kStickRightId = 0x0C;
+
 		// ---- receiver thunks (this = the BSInputEventUser subobject) ----
 
 		// Accept every event type the dispatcher offers so the typed slots below
@@ -64,14 +99,27 @@ namespace OSFUI
 		void Thunk_OnThumbstick(void*, const void* a_event)
 		{
 			g_sticks.fetch_add(1, std::memory_order_relaxed);
-			if (a_event && Log::DevMode()) {
-				// ThumbstickEvent (proven layout): IDEvent base, x/y @ +0x38/+0x3C,
-				// idCode 0x0B left / 0x0C right.
-				const auto* b = reinterpret_cast<const std::uint8_t*>(a_event);
-				REX::DEBUG("EngineInput: stick id={:#x} x={:.3f} y={:.3f}",
-					*reinterpret_cast<const std::int32_t*>(b + 0x30),
-					*reinterpret_cast<const float*>(b + 0x38),
-					*reinterpret_cast<const float*>(b + 0x3C));
+			if (!a_event) {
+				return;
+			}
+			// ThumbstickEvent (proven layout): IDEvent base, x/y @ +0x38/+0x3C,
+			// idCode 0x0B left / 0x0C right. One event carries both axes of one
+			// stick; store latest-wins so the main-thread drain sees current
+			// deflection.
+			const auto* b = reinterpret_cast<const std::uint8_t*>(a_event);
+			const auto  id = *reinterpret_cast<const std::int32_t*>(b + 0x30);
+			const float x = *reinterpret_cast<const float*>(b + 0x38);
+			const float y = *reinterpret_cast<const float*>(b + 0x3C);
+			if (id == kStickLeftId) {
+				g_lx.store(x, std::memory_order_relaxed);
+				g_ly.store(y, std::memory_order_relaxed);
+			} else if (id == kStickRightId) {
+				g_rx.store(x, std::memory_order_relaxed);
+				g_ry.store(y, std::memory_order_relaxed);
+			}
+			g_stickWriteMs.store(NowMs(), std::memory_order_relaxed);
+			if (Log::DevMode()) {
+				REX::DEBUG("EngineInput: stick id={:#x} x={:.3f} y={:.3f}", id, x, y);
 			}
 		}
 
@@ -117,6 +165,7 @@ namespace OSFUI
 			}
 			// Proven edge semantics: down = value!=0 && held==0; release = value==0.
 			const bool down = a_event->value != 0.0f && a_event->heldDownSecs == 0.0f;
+			const bool release = a_event->value == 0.0f;
 			{
 				std::lock_guard lock(g_ringMutex);
 				g_ring[g_ringNext] = { a_event->idCode,
@@ -125,6 +174,18 @@ namespace OSFUI
 				if (g_ringCount < kRingSize) {
 					++g_ringCount;
 				}
+			}
+			// Queue gamepad EDGES only (press/release; skip held repeats) for the
+			// main-thread router. Keyboard/mouse are NOT queued — they stay on
+			// the WndProc path.
+			if (a_event->deviceType == RE::InputEvent::DeviceType::kGamepad && (down || release)) {
+				std::lock_guard lock(g_padMutex);
+				if (g_padCount == kPadQueueCap) {  // full: drop the oldest edge
+					g_padHead = (g_padHead + 1) % kPadQueueCap;
+					--g_padCount;
+				}
+				g_padQueue[(g_padHead + g_padCount) % kPadQueueCap] = { static_cast<std::uint32_t>(a_event->idCode), down };
+				++g_padCount;
 			}
 			if (Log::DevMode()) {
 				REX::DEBUG("EngineInput: button dev={} id={:#x} value={:.2f} held={:.2f}",
@@ -211,6 +272,19 @@ namespace OSFUI
 			g_ringNext = 0;
 		}
 
+		// Clear routing state so a released stick / unpopped edge can't leak into
+		// the next overlay session.
+		{
+			std::lock_guard lock(g_padMutex);
+			g_padHead = 0;
+			g_padCount = 0;
+		}
+		g_lx.store(0.0f, std::memory_order_relaxed);
+		g_ly.store(0.0f, std::memory_order_relaxed);
+		g_rx.store(0.0f, std::memory_order_relaxed);
+		g_ry.store(0.0f, std::memory_order_relaxed);
+		g_stickWriteMs.store(0, std::memory_order_relaxed);
+
 		if (should == 0 && buttons == 0 && sticks == 0 && chars == 0 && mm == 0 && cm == 0) {
 			REX::INFO("EngineInput: session summary — no engine dispatch observed (menu likely never admitted or no input while open)");
 			return;
@@ -219,5 +293,44 @@ namespace OSFUI
 			"EngineInput: session summary — gates={} buttons={} (kb={} mouse={} pad={}) sticks={} chars={} mouseMoves={} cursorMoves={}; recent buttons:{}",
 			should, buttons, kb, mouse, pad, sticks, chars, mm, cm,
 			recent.empty() ? " none" : recent.c_str());
+	}
+
+	bool EngineInput::PollGamepadButton(GamepadButtonEdge& a_out)
+	{
+		std::lock_guard lock(g_padMutex);
+		if (g_padCount == 0) {
+			return false;
+		}
+		a_out = g_padQueue[g_padHead];
+		g_padHead = (g_padHead + 1) % kPadQueueCap;
+		--g_padCount;
+		return true;
+	}
+
+	EngineInput::GamepadSticks EngineInput::GetSticks()
+	{
+		// Staleness guard (see kStickStaleMs): no fresh thumbstick dispatch means
+		// "treat as centered", so a possibly-missing release event can never
+		// leave the default mapping auto-repeating.
+		if (NowMs() - g_stickWriteMs.load(std::memory_order_relaxed) > kStickStaleMs) {
+			return {};
+		}
+		return {
+			g_lx.load(std::memory_order_relaxed), g_ly.load(std::memory_order_relaxed),
+			g_rx.load(std::memory_order_relaxed), g_ry.load(std::memory_order_relaxed)
+		};
+	}
+
+	void EngineInput::SetRawMode(bool a_raw)
+	{
+		if (g_padRaw.exchange(a_raw, std::memory_order_relaxed) != a_raw) {
+			REX::INFO("EngineInput: gamepad raw-passthrough mode {} (default nav/scroll mapping {})",
+				a_raw ? "ON" : "off", a_raw ? "suppressed" : "active");
+		}
+	}
+
+	bool EngineInput::IsRawMode()
+	{
+		return g_padRaw.load(std::memory_order_relaxed);
 	}
 }

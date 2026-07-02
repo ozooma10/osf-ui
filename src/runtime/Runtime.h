@@ -142,6 +142,14 @@ namespace OSFUI
 		// engine menu), every tick, main thread. See input/SimPause.h.
 		void ReconcileSimPause();
 
+		// EXPERIMENTAL (config.engineInput). Increment 3: drain the engine's
+		// per-menu GAMEPAD input (marshalled by EngineInput from worker threads)
+		// on the main thread and route it into the active web view — default
+		// mapping (D-pad/left-stick -> arrows, A -> Enter, B -> close overlay,
+		// right-stick -> scroll) plus raw `ui.gamepad` bridge events. No-op
+		// unless engineInput is set. Keyboard/mouse stay on the WndProc path.
+		void DrainEngineInput(double a_deltaSeconds);
+
 		// EXPERIMENTAL (config.disableControls). Engage/release the engine
 		// input-enable layer (device-agnostic control disable, incl. gamepad) to
 		// match overlay visibility. Also main-thread-only. See input/ControlLayer.h.
@@ -204,6 +212,15 @@ namespace OSFUI
 		// Last focus-menu open state we drove (main-thread only, reconciled in
 		// Tick against the menu policy). EXPERIMENTAL — see config.focusMenu.
 		bool                          _focusMenuOpen{ false };
+
+		// Gamepad routing state (main-thread only; DrainEngineInput). Left-stick
+		// nav uses per-direction repeat timers (0=up,1=down,2=left,3=right;
+		// value 0 = inactive/fresh sentinel, else next-fire time in _uptime
+		// seconds). Right-stick scroll accumulates fractional notches. Sticks
+		// send raw bridge events only when they change past an epsilon.
+		double                        _padNavNextRepeat[4]{};
+		float                         _padScrollAccum{ 0.0f };
+		float                         _padLastSentSticks[4]{};  // lx,ly,rx,ry last sent as raw bridge event
 
 		// Per-view load state (view id -> ViewLoadState), written from the
 		// renderer's load hook and read by GetViewLoadState. Game-thread only.
