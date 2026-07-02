@@ -1,0 +1,113 @@
+<svg width="1600" height="520" viewBox="0 0 1600 520" role="img" xmlns="http://www.w3.org/2000/svg" font-family="Bahnschrift, 'DIN Next', 'Oswald', 'Segoe UI Semibold', sans-serif">
+<title>OSF UI header banner</title>
+<desc>A wide, soft and hopeful header: a textless OSF UI emblem at left — a gentle dawn rising over a dark world, with a soft sun on a luminous horizon under a quiet star — and the centered wordmark OSF in brushed steel and UI in teal over the tagline Web Interface Framework, on a near-black starfield.</desc>
+<defs>
+  <linearGradient id="hosf" x1="0" y1="190" x2="0" y2="290" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#d4dae1"/><stop offset="1" stop-color="#828a93"/>
+  </linearGradient>
+  <linearGradient id="hui" x1="1090" y1="200" x2="1290" y2="290" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#7bdbe2"/><stop offset="0.55" stop-color="#42b0c6"/><stop offset="1" stop-color="#2f86a8"/>
+  </linearGradient>
+  <radialGradient id="hhalo" cx="17%" cy="52%" r="40%">
+    <stop offset="0" stop-color="#2b8ea6" stop-opacity="0.18"/><stop offset="1" stop-color="#2b8ea6" stop-opacity="0"/>
+  </radialGradient>
+  <radialGradient id="emGlow" cx="50%" cy="50%" r="50%">
+    <stop offset="0" stop-color="#3aa9c0" stop-opacity="0.16"/><stop offset="1" stop-color="#3aa9c0" stop-opacity="0"/>
+  </radialGradient>
+  <!-- dawn sky: warm low near the horizon, cool up top -->
+  <linearGradient id="dawnSky" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#0b1a24" stop-opacity="0"/>
+    <stop offset="0.62" stop-color="#123642" stop-opacity="0.35"/>
+    <stop offset="0.80" stop-color="#2c5e5c" stop-opacity="0.45"/>
+    <stop offset="0.90" stop-color="#6a6a52" stop-opacity="0.40"/>
+    <stop offset="1" stop-color="#8a7550" stop-opacity="0.30"/>
+  </linearGradient>
+  <radialGradient id="sunGlow" cx="50%" cy="50%" r="50%">
+    <stop offset="0" stop-color="#f0ead8" stop-opacity="0.34"/>
+    <stop offset="0.35" stop-color="#8fd0cf" stop-opacity="0.18"/>
+    <stop offset="1" stop-color="#6fc2cc" stop-opacity="0"/>
+  </radialGradient>
+  <radialGradient id="sunDisc" cx="50%" cy="46%" r="52%">
+    <stop offset="0" stop-color="#f6f0e2" stop-opacity="0.72"/>
+    <stop offset="0.6" stop-color="#dfe7dc" stop-opacity="0.5"/>
+    <stop offset="1" stop-color="#a9d6d6" stop-opacity="0.32"/>
+  </radialGradient>
+  <radialGradient id="hvig" cx="50%" cy="45%" r="75%">
+    <stop offset="0.6" stop-color="#0b0e12" stop-opacity="0"/><stop offset="1" stop-color="#04060a" stop-opacity="0.6"/>
+  </radialGradient>
+  <filter id="soft" x="-120%" y="-120%" width="340%" height="340%"><feGaussianBlur stdDeviation="4"/></filter>
+  <clipPath id="hscene"><circle cx="340" cy="340" r="238"/></clipPath>
+</defs>
+
+<rect width="1600" height="520" fill="#0b0e12"/>
+<rect width="1600" height="520" fill="url(#hhalo)"/>
+<circle cx="800" cy="1320" r="860" fill="#10151f"/>
+<circle cx="800" cy="1320" r="860" fill="none" stroke="#2b8ea6" stroke-width="2" opacity="0.30"/>
+<g fill="#e2ece8">
+  <circle cx="700" cy="70" r="1.2" opacity="0.5"/><circle cx="900" cy="48" r="0.9" opacity="0.4"/>
+  <circle cx="1080" cy="92" r="1.1" opacity="0.45"/><circle cx="1280" cy="60" r="1" opacity="0.42"/>
+  <circle cx="1440" cy="110" r="1.2" opacity="0.5"/><circle cx="1180" cy="150" r="0.8" opacity="0.35"/>
+  <circle cx="1520" cy="210" r="0.9" opacity="0.4"/><circle cx="760" cy="120" r="0.8" opacity="0.34"/>
+  <circle cx="990" cy="420" r="0.9" opacity="0.38"/><circle cx="1350" cy="400" r="0.8" opacity="0.34"/>
+  <circle cx="1230" cy="450" r="1" opacity="0.4"/><circle cx="1470" cy="330" r="0.9" opacity="0.36"/>
+</g>
+
+<g fill="none" stroke="#4d9aa8" stroke-opacity="0.26" stroke-width="1.4">
+  <path d="M44 78 V44 H78"/><path d="M1556 78 V44 H1522"/>
+  <path d="M44 442 V476 H78"/><path d="M1556 442 V476 H1522"/>
+</g>
+
+<g transform="translate(58.94,28.94) scale(0.709)">
+  <circle cx="340" cy="340" r="300" fill="url(#emGlow)"/>
+  <circle cx="340" cy="340" r="296" fill="#2f9fb4" opacity="0.55"/>
+  <circle cx="340" cy="340" r="289" fill="none" stroke="#17565f" stroke-width="3" opacity="0.75"/>
+  <circle cx="340" cy="340" r="283" fill="#0c1118"/>
+  <circle cx="340" cy="340" r="238" fill="#0a0d12"/>
+  <circle cx="340" cy="340" r="272" fill="none" stroke="#b9c0c9" stroke-opacity="0.16" stroke-width="1.5" stroke-dasharray="2 7"/>
+
+  <!-- dawn over a world -->
+  <g clip-path="url(#hscene)">
+    <!-- dawn sky wash + high hope-star -->
+    <rect x="102" y="102" width="476" height="476" fill="url(#dawnSky)"/>
+    <g fill="#cfe6e2">
+      <circle cx="300" cy="214" r="1.1" opacity="0.34"/>
+    <circle cx="392" cy="232" r="1.0" opacity="0.3"/>
+    <circle cx="256" cy="286" r="0.9" opacity="0.26"/>
+    <circle cx="430" cy="300" r="1.0" opacity="0.28"/>
+    <circle cx="340" cy="168" r="1.6" opacity="0.5"/>
+    <circle cx="214" cy="232" r="0.8" opacity="0.22"/>
+    </g>
+    <!-- diffuse light shafts (very soft) -->
+    <g stroke="#8fd2da" stroke-linecap="round" stroke-opacity="0.10" stroke-width="9" filter="url(#soft)">
+      <line x1="340.0" y1="394.0" x2="219.2" y2="283.3"/>
+    <line x1="340.0" y1="394.0" x2="271.7" y2="246.5"/>
+    <line x1="340.0" y1="394.0" x2="340.0" y2="232.0"/>
+    <line x1="340.0" y1="394.0" x2="408.3" y2="246.5"/>
+    <line x1="340.0" y1="394.0" x2="460.8" y2="283.3"/>
+    </g>
+    <!-- sun halo + gentle rising sun -->
+    <circle cx="340" cy="400" r="150" fill="url(#sunGlow)"/>
+    <circle cx="340" cy="400" r="46" fill="url(#sunDisc)"/>
+    <!-- soft dawn arcs cradling the sun -->
+    <g fill="none" stroke="#7cc6cf" stroke-linecap="round">
+      <path d="M268.0 400.0 A72.0 72.0 0 0 1 412.0 400.0" stroke-opacity="0.16" stroke-width="1.4"/>
+      <path d="M242.0 400.0 A98.0 98.0 0 0 1 438.0 400.0" stroke-opacity="0.10" stroke-width="1.2"/>
+    </g>
+    <!-- planet body occludes the sun's lower half (so it reads as rising) -->
+    <circle cx="340" cy="1015" r="615" fill="#0c141d"/>
+    <!-- luminous horizon rim -->
+    <circle cx="340" cy="1015" r="615" fill="none" stroke="#a7e3ea" stroke-opacity="0.5" stroke-width="1.6"/>
+    <circle cx="340" cy="1015" r="615" fill="none" stroke="#6fc2cc" stroke-opacity="0.35" stroke-width="6" filter="url(#soft)"/>
+  </g>
+
+</g>
+
+<text x="1050" y="272" text-anchor="middle" font-size="104" font-weight="700" letter-spacing="3"><tspan fill="url(#hosf)">OSF </tspan><tspan fill="url(#hui)">UI</tspan></text>
+<g stroke="#2b8ea6" stroke-opacity="0.45" stroke-width="2" stroke-linecap="round">
+  <line x1="750" y1="300" x2="1350" y2="300"/>
+  <line x1="750" y1="294" x2="750" y2="306"/><line x1="1350" y1="294" x2="1350" y2="306"/>
+</g>
+<text x="1050" y="338" font-size="26" letter-spacing="6" font-weight="500" fill="#aeb6bf" text-anchor="middle">WEB INTERFACE FRAMEWORK</text>
+
+<rect width="1600" height="520" fill="url(#hvig)"/>
+</svg>

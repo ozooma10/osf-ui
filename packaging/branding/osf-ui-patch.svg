@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="32 32 616 616" width="1024" height="1024" role="img" font-family="Bahnschrift, 'DIN Next', 'Oswald', 'Segoe UI Semibold', sans-serif">
+<title>OSF UI mission patch</title>
+<desc>A circular embroidered mission patch in the OSF family style. Teal merrowed border with EST MMXXVI curved across the top and USER INTERFACE FRAMEWORK across the bottom, flanked by cyan stars. In the center, the bold wordmark OSF in brushed steel over UI in teal with a teal accent bar. Below it, a floating web-UI overlay panel with a title bar, content lines and a toggle, layered over a second view, with a click-ripple and a bright pointer cursor — over a faint timeline-free HUD baseline and a dark Starfield planet limb, on near-black with a faint starfield.</desc>
+<defs>
+  <clipPath id="scene"><circle cx="340" cy="340" r="238"/></clipPath>
+  <path id="topArc" d="M116.61 221.22 A253 253 0 0 1 563.39 221.22" fill="none"/>
+  <path id="botArc" d="M111.03 483.08 A270 270 0 0 0 568.97 483.08" fill="none"/>
+  <clipPath id="panelClip"><rect x="270" y="352" width="168" height="104" rx="10"/></clipPath>
+</defs>
+
+<circle cx="340" cy="340" r="296" fill="#2f9fb4"/>
+<circle cx="340" cy="340" r="289" fill="none" stroke="#17565f" stroke-width="3"/>
+<circle cx="340" cy="340" r="283" fill="#0c1118"/>
+<circle cx="340" cy="340" r="238" fill="#0a0d12"/>
+
+<g clip-path="url(#scene)">
+  <g fill="#dcefe9">
+    <circle cx="168" cy="196" r="1.2" opacity="0.45"/><circle cx="200" cy="158" r="0.9" opacity="0.38"/>
+    <circle cx="512" cy="168" r="1.1" opacity="0.45"/><circle cx="486" cy="206" r="0.9" opacity="0.4"/>
+    <circle cx="150" cy="262" r="1" opacity="0.4"/><circle cx="540" cy="262" r="1.1" opacity="0.44"/>
+    <circle cx="498" cy="402" r="0.9" opacity="0.36"/><circle cx="178" cy="372" r="0.9" opacity="0.36"/>
+    <circle cx="158" cy="216" r="0.8" opacity="0.32"/><circle cx="524" cy="232" r="0.8" opacity="0.34"/>
+  </g>
+  <circle cx="340" cy="845" r="360" fill="#141d29"/>
+  <circle cx="340" cy="845" r="360" fill="none" stroke="#2b8ea6" stroke-width="2.5" opacity="0.6"/>
+  <circle cx="340" cy="845" r="347" fill="none" stroke="#7fd8e0" stroke-width="1" opacity="0.28"/>
+</g>
+
+<circle cx="340" cy="340" r="272" fill="none" stroke="#b9c0c9" stroke-opacity="0.32" stroke-width="1.5" stroke-dasharray="2 7"/>
+<circle cx="340" cy="340" r="239" fill="none" stroke="#b9c0c9" stroke-opacity="0.2" stroke-width="1"/>
+<g stroke="#b9c0c9" stroke-opacity="0.38" stroke-width="1.6" stroke-linecap="round">
+  <line x1="340" y1="98" x2="340" y2="104" transform="rotate(45 340 340)"/>
+  <line x1="340" y1="98" x2="340" y2="104" transform="rotate(135 340 340)"/>
+  <line x1="340" y1="98" x2="340" y2="104" transform="rotate(225 340 340)"/>
+  <line x1="340" y1="98" x2="340" y2="104" transform="rotate(315 340 340)"/>
+</g>
+
+<text font-size="15" letter-spacing="7" font-weight="600" text-anchor="middle" fill="#9aa3ad">
+  <textPath href="#topArc" startOffset="50%">EST · MMXXVI</textPath>
+</text>
+<text font-size="15.5" letter-spacing="4" font-weight="500" text-anchor="middle" fill="#aeb6bf">
+  <textPath href="#botArc" startOffset="50%">USER INTERFACE FRAMEWORK</textPath>
+</text>
+
+<text x="340" y="252" text-anchor="middle" font-size="74" letter-spacing="16" font-weight="700" fill="#cdd3da">OSF</text>
+<g stroke="#2b8ea6" stroke-width="2.4" stroke-linecap="round">
+  <line x1="300" y1="270" x2="380" y2="270"/>
+  <line x1="300" y1="266" x2="300" y2="274"/><line x1="380" y1="266" x2="380" y2="274"/>
+</g>
+<text x="340" y="300" text-anchor="middle" font-size="30" letter-spacing="20" font-weight="700" fill="#3aa9c0">UI</text>
+
+<!-- floating web-UI overlay motif -->
+<!-- second layered view behind (multi-view compositing) -->
+<rect x="248" y="338" width="150" height="94" rx="9" fill="#0e1720" stroke="#2b8ea6" stroke-opacity="0.34" stroke-width="1.4"/>
+<line x1="248" y1="360" x2="398" y2="360" stroke="#2b8ea6" stroke-opacity="0.22" stroke-width="1"/>
+
+<!-- front view panel -->
+<rect x="270" y="352" width="168" height="104" rx="10" fill="#0d151e" stroke="#3aa9c0" stroke-width="1.7"/>
+<g clip-path="url(#panelClip)">
+  <rect x="270" y="352" width="168" height="22" fill="#12222c"/>
+</g>
+<line x1="270" y1="374" x2="438" y2="374" stroke="#3aa9c0" stroke-width="1.2" stroke-opacity="0.7"/>
+<g fill="#3aa9c0">
+  <circle cx="284" cy="363" r="2.7"/><circle cx="295" cy="363" r="2.7" fill="#6fd0da"/><circle cx="306" cy="363" r="2.7" fill="#dff6f8"/>
+</g>
+<!-- content lines -->
+<rect x="284" y="388" width="104" height="7" rx="3.5" fill="#7f8a95"/>
+<rect x="284" y="404" width="132" height="7" rx="3.5" fill="#2f8fa6"/>
+<rect x="284" y="420" width="80"  height="7" rx="3.5" fill="#55636e"/>
+<!-- settings toggle -->
+<rect x="388" y="416" width="34" height="15" rx="7.5" fill="#123039" stroke="#3aa9c0" stroke-width="1.3"/>
+<circle cx="414" cy="423.5" r="5.4" fill="#6fd0da"/>
+
+<!-- click ripple at the cursor tip -->
+<g fill="none" stroke="#3aa9c0">
+  <circle cx="414" cy="423.5" r="16" stroke-opacity="0.42" stroke-width="1.5"/>
+  <circle cx="414" cy="423.5" r="26" stroke-opacity="0.24" stroke-width="1.2"/>
+  <circle cx="414" cy="423.5" r="36" stroke-opacity="0.12" stroke-width="1"/>
+</g>
+
+<!-- hardware pointer cursor -->
+<g transform="translate(408,417) scale(1.15)">
+  <path d="M0 0 L0 24 L6.6 17.6 L11.2 27.4 L15.4 25.4 L10.8 15.8 L20 15.6 Z" fill="#eef4f6" stroke="#1c5a68" stroke-width="1.4" stroke-linejoin="round"/>
+</g>
+
+<!-- flanking stars -->
+<g fill="#6fd0da">
+  <path d="M78 328 L81.1 336.9 L90 340 L81.1 343.1 L78 352 L74.9 343.1 L66 340 L74.9 336.9 Z"/>
+  <path d="M602 328 L605.1 336.9 L614 340 L605.1 343.1 L602 352 L598.9 343.1 L590 340 L594.9 336.9 Z"/>
+</g>
+</svg>
