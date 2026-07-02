@@ -161,8 +161,11 @@ docs/HANDOFF.md §4.
 - The JSON message bridge parses/dispatches the whitelisted commands —
   surface control (`close`, `setVisible`, `menu.open` / `menu.close`,
   `hud.show` / `hud.hide`, `setViewHidden`), diagnostics (`log`, `ping`),
-  read-only game data (`game.get`), and the settings trio (`settings.get` /
-  `settings.set` / `settings.reset`) — and rejects everything else. Trusted
+  read-only game data (`game.get`), the surface catalog (`views.get` — replies
+  with every loaded view's metadata + open/focus/load state and pushes updates
+  on change, the read behind a hub/launcher view), and the settings trio
+  (`settings.get` / `settings.set` / `settings.reset`) — and rejects everything
+  else. Trusted
   *native* SFSE plugins can register additional commands through the exported
   bridge API ([docs/native-plugin-api.md](docs/native-plugin-api.md));
   untrusted JS cannot. Authoring a view? See

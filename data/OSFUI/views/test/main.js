@@ -43,6 +43,16 @@ function onNativeMessage(jsonText) {
     logLine(`<- native: unparseable message`);
     return;
   }
+  // Stick telemetry is continuous — surface it in the keys line instead of
+  // flooding the log; everything else is logged verbatim.
+  const isStickEvent = message.type === "ui.gamepad" &&
+                       message.payload && message.payload.kind === "stick";
+  if (isStickEvent) {
+    const p = message.payload;
+    keysEl.textContent =
+      `sticks: L(${p.lx.toFixed(2)}, ${p.ly.toFixed(2)}) R(${p.rx.toFixed(2)}, ${p.ry.toFixed(2)})`;
+    return;
+  }
   logLine(`<- native: ${jsonText}`);
 
   switch (message.type) {
@@ -102,10 +112,37 @@ document.addEventListener("keydown", (e) => {
 });
 
 if (textEl) {
-  // Re-assert focus so typing always has a target even if focus drifts.
+  // Give typing a default target, but only reclaim focus when it was LOST
+  // (fell back to <body>) — reclaiming unconditionally would fight the
+  // gamepad-nav roving focus below.
   textEl.focus();
-  textEl.addEventListener("blur", () => setTimeout(() => textEl.focus(), 0));
+  textEl.addEventListener("blur", () => setTimeout(() => {
+    if (document.activeElement === document.body) {
+      textEl.focus();
+    }
+  }, 0));
 }
+
+// Gamepad-nav demo (Level 2): the native runtime maps D-pad / left stick to
+// arrow keydowns and the A button to Enter, so plain keyboard-nav is all a
+// page needs. Roving focus makes it visible: up/down moves across the
+// interactive elements, Enter/A activates the focused button. Pages that want
+// to OWN the pad instead send `osfui.gamepadRaw {raw:true}` on each show and
+// read the raw `ui.gamepad` events.
+const navOrder = [
+  document.getElementById("ping"),
+  document.getElementById("close"),
+  textEl,
+].filter(Boolean);
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "ArrowUp" && e.key !== "ArrowDown") {
+    return;
+  }
+  const idx = navOrder.indexOf(document.activeElement);  // -1 = start of list
+  const step = e.key === "ArrowDown" ? 1 : -1;
+  navOrder[(idx + step + navOrder.length) % navOrder.length].focus();
+  e.preventDefault();
+});
 
 if (bridgeAvailable()) {
   statusEl.textContent = "Bridge detected, waiting for runtime.ready…";

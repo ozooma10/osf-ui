@@ -83,6 +83,14 @@ button:hover {
   background: #29466e;
 }
 
+/* Visible focus ring so the gamepad-nav roving focus (arrows/D-pad) is
+   unmissable. */
+button:focus {
+  outline: 2px solid #9fc3ff;
+  outline-offset: 2px;
+  background: #29466e;
+}
+
 button.danger {
   background: #4a2230;
   border-color: #a54a5f;

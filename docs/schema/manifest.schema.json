@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/ozooma10/osf-ui/blob/main/docs/schema/manifest.schema.json",
   "title": "OSF UI View Manifest",
-  "description": "Schema for views/<id>/manifest.json. Bridge protocol 0.1 (unstable). Mirrors src/runtime/ViewManifest.cpp.",
+  "description": "Schema for views/<id>/manifest.json. Bridge protocol 0.2 (unstable). Mirrors src/runtime/ViewManifest.cpp.",
   "type": "object",
   "required": ["id"],
   "additionalProperties": false,
@@ -19,6 +19,10 @@
     "title": {
       "type": "string",
       "description": "Human-readable name. Defaults to id."
+    },
+    "description": {
+      "type": "string",
+      "description": "One-line blurb shown in catalogs (views.data / the hub view). Defaults to empty."
     },
     "entry": {
       "type": "string",
@@ -53,6 +57,37 @@
       "type": "boolean",
       "default": true,
       "description": "Whether this view may receive input and become the active (focused) view. Set false for passive overlays like a HUD."
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["menu", "hud"],
+      "default": "menu",
+      "description": "Surface kind. menu = modal overlay (may capture input, single-menu stack); hud = passive overlay over gameplay (never captures input, pauses, or focuses). Unknown values fall back to menu."
+    },
+    "capturesInput": {
+      "type": "boolean",
+      "default": true,
+      "description": "Menu-only: while this is the top open menu, freeze the game and route input into the page. Forced false for HUDs."
+    },
+    "pausesGame": {
+      "type": "boolean",
+      "default": true,
+      "description": "Menu-only: pause the simulation while this is the top open menu. Forced false for HUDs."
+    },
+    "openOnStart": {
+      "type": "boolean",
+      "default": false,
+      "description": "Menu: open at load. HUD: show at load."
+    },
+    "order": {
+      "type": "integer",
+      "default": 0,
+      "description": "Within-band z order hint for the menu/HUD framework (HUD band 0..999). Distinct from zorder, the raw compositing sort key."
+    },
+    "hub": {
+      "type": "boolean",
+      "default": true,
+      "description": "List this view in catalogs (views.data / the hub view). false = hidden utility view; it still loads and works, it just isn't advertised."
     },
     "permissions": {
       "type": "object",

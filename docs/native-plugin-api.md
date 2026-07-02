@@ -91,7 +91,7 @@ All real and in-tree today:
 | Bridge owner / gate | `Runtime::Bridge()` `Runtime.h:92`; built in `Initialize` only when a `nativeBridge` view is present | `_bridge` is null otherwise |
 | Main-thread cadence | `Runtime::Tick(dt)` via the `FrameTickTask` permanent task `core/Plugin.cpp:23-56,45` | every frame, under SFSE's queue lock — keep cheap |
 | SFSE lifecycle | `OnLoad` registers the listener; `Runtime::Initialize` runs at `SFSE_PLUGIN_LOAD` `core/Plugin.cpp:128-159` | API object must exist by `kPostLoad` |
-| Protocol version | `kBridgeProtocolVersion = "0.1"` `core/Version.h:14` | the web-message contract version, distinct from plugin version |
+| Protocol version | `kBridgeProtocolVersion = "0.2"` `core/Version.h:14` | the web-message contract version, distinct from plugin version |
 
 The API is a thin, ABI-safe adapter in front of `MessageBridge::RegisterCommand`
 and `SendToWeb`, plus a deferred-registration layer so a sibling can register at
@@ -166,7 +166,7 @@ namespace OSFUI::API
         // --- command registration. Thread-safe; applied on the next main tick. ---
         // Register/replace the handler for an EXACT command string (e.g. "osf.launch").
         // Persists across bridge re-creation. Reserved prefixes are refused
-        // (see §7): ui. / runtime. / game. / settings. Use your own namespace.
+        // (see §7): ui. / runtime. / game. / settings. / views. Use your own namespace.
         virtual void RegisterCommand(const char* a_command, CommandFn a_handler, void* a_user) = 0;
         virtual void UnregisterCommand(const char* a_command) = 0;
 
@@ -245,8 +245,8 @@ still cannot call arbitrary native code.
 Guards the implementation enforces:
 
 - **Reserved prefixes.** `RegisterCommand` refuses (logs + ignores) any command
-  beginning `ui.`, `runtime.`, `game.`, or `settings.` — the platform/first-party
-  namespaces. Consumers use their own (`osf.*`).
+  beginning `ui.`, `runtime.`, `game.`, `settings.`, or `views.` — the
+  platform/first-party namespaces. Consumers use their own (`osf.*`).
 - **Collision logging.** Re-registering an existing command logs a warning with
   both owners; last-write-wins is preserved (matches `MessageBridge` today).
 - **Best-effort delivery, bounded.** `SendToWeb` rides the existing per-view
@@ -461,7 +461,7 @@ reflects the **live registered** scene set.
 - **`SendToWeb` failure granularity.** Without a `bool` from the renderer's
   `SendMessageToWeb`, "unknown view" is best-effort/logged, not reported. Add the
   return value if precise feedback matters.
-- **Bridge protocol churn.** `bridgeVersion` is `0.1` and unstable; a MINOR bump
+- **Bridge protocol churn.** `bridgeVersion` is `0.2` and unstable; a MINOR bump
   can break views. Consumers must gate on `GetBridgeProtocolVersion()` /
   `runtime.ready.bridgeVersion` and degrade.
 - **Cross-references to update on landing:** `docs/ROADMAP.md` (move "public

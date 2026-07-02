@@ -11,7 +11,7 @@ a reference for the two data-driven extension points that work today:
 > (`config.json` → `view`), and new *native* bridge commands or game-data
 > bindings still require core changes. What you can ship as pure content with
 > no recompile: a `views/<id>/` folder and a `settings/<id>.json` schema. The
-> bridge protocol is at version **0.1 — unstable**; minor bumps may break
+> bridge protocol is at version **0.2 — unstable**; minor bumps may break
 > views until it reaches 1.0. Detect it via the `bridgeVersion` field of the
 > `runtime.ready` handshake (below) and degrade/refuse on a mismatch. See the
 > roadmap in [renderer-plan.md](renderer-plan.md).
@@ -51,6 +51,8 @@ paths, paths with a root, and any `..` component are rejected before disk I/O
 {
   "id": "myhud",            // REQUIRED, unique; matches the folder + config "view"
   "title": "My HUD",        // optional, defaults to id
+  "description": "",        // optional; one-line blurb shown in catalogs (views.data / the hub view)
+  "hub": true,              // optional, default true; false = hidden utility view — loads and works, but isn't advertised in catalogs
   "entry": "index.html",    // optional, default "index.html"; must stay inside the folder
   "width": 1280,            // optional, default 1280; clamped to 1..16384 — logical (authoring) size
   "height": 720,            // optional, default 720;  clamped to 1..16384 — logical (authoring) size
@@ -174,13 +176,14 @@ Whitelisted commands (anything else is rejected + logged):
 |---|---|---|
 | `close` | — | close the calling surface (closing the last open menu hides the overlay; a coexisting live HUD stays up) |
 | `setVisible` | `visible: bool` | open/close the calling surface |
-| `menu.open` | `view?: string` | open a registered surface by id (omitted ⇒ the calling view) |
+| `menu.open` | `view?: string` | open a registered surface by id (omitted ⇒ the calling view). Opening a menu also **focuses** it (single-menu policy: it replaces the current menu, so the newly opened menu is the input target) |
 | `menu.close` | `view?: string` | close a registered surface by id (omitted ⇒ the calling view) |
 | `hud.show` / `hud.hide` | `view?: string` | aliases of `menu.open` / `menu.close` — a surface's kind (menu vs. HUD) is fixed by its manifest, not by which command you use |
 | `setViewHidden` | `view?: string`, `hidden: bool` | show/hide one *loaded* view, independent of the global overlay toggle (omitted `view` ⇒ self) |
 | `log` | `text: string` | write to `OSF UI.log` (truncated to 512 chars) |
 | `ping` | — | runtime replies with `runtime.pong` |
 | `game.get` | — | runtime replies with `game.data` (in-game date/time from the calendar) |
+| `views.get` | — | runtime replies with `views.data` (catalog of loaded surfaces) **and subscribes the caller**: any later open/close/focus/load-state change pushes a fresh `views.data` unsolicited — no polling needed |
 | `settings.get` | — | runtime replies with `settings.data` |
 | `settings.set` | `mod, key, value` | set one schema-declared setting (validated) |
 | `settings.reset` | `mod`, `key?` | reset one key, or the whole mod if `key` omitted |
@@ -189,7 +192,7 @@ Whitelisted commands (anything else is rejected + logged):
 > commands come from native code only: either a handler in the OSF UI runtime,
 > or a **separate SFSE plugin** registering its own commands through the native
 > bridge API ([native-plugin-api.md](native-plugin-api.md) — reserved prefixes
-> `ui.`/`runtime.`/`game.`/`settings.` are refused).
+> `ui.`/`runtime.`/`game.`/`settings.`/`views.` are refused).
 
 ### Native → web
 
@@ -200,6 +203,7 @@ Assign `window.osfui.onMessage` and switch on `message.type`:
 | `runtime.ready` | `{ game, plugin, version, bridgeVersion }` | once, after your page loads — your cue to request data and to check `bridgeVersion` |
 | `runtime.pong` | `{}` | reply to your `ping` |
 | `game.data` | `{ available, day, month, year, hour, daysPassed }` | reply to `game.get`; `available:false` before a save is loaded |
+| `views.data` | `{ views: [ { id, title, description, kind, interactive, hub, open, focused, loadState } ] }` | reply to `views.get`, and re-pushed to every subscribed view when any entry changes. `kind` = `"menu"`\|`"hud"`; `loadState` = `"loading"`\|`"loaded"`\|`"failed"`; a view torn down by crash-recovery drops out of the list. Respect `hub:false` (don't list those) |
 | `settings.data` | `{ mods: [ { id, title, schema, values } ] } ` | reply to `settings.get` / after a `settings.reset` |
 | `settings.ack` | `{ mod, key, ok }` | result of a `settings.set` (`ok:false` ⇒ rejected/clamped) |
 | `ui.error` | `{ reason, type?, command? }` | the runtime rejected something you sent — a malformed message, an unknown `type`, or an unknown `command`. Log it while developing; the same WARN is in `OSF UI.log` |
@@ -347,7 +351,7 @@ Tooling to author against the contract instead of from memory:
 
 ### Versioning
 
-The protocol version is **0.1** and is emitted in `runtime.ready` as
+The protocol version is **0.2** and is emitted in `runtime.ready` as
 `bridgeVersion`. It is distinct from the plugin `version`. Until it reaches
 `1.0`, treat minor bumps as potentially breaking and gate your view on it:
 

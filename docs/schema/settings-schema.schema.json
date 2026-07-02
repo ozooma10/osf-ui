@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/ozooma10/osf-ui/blob/main/docs/schema/settings-schema.schema.json",
   "title": "OSF UI Settings Schema",
-  "description": "Schema for settings/<id>.json files. Bridge protocol 0.1 (unstable). Mirrors src/runtime/SettingsStore.cpp validation.",
+  "description": "Schema for settings/<id>.json files. Bridge protocol 0.2 (unstable). Mirrors src/runtime/SettingsStore.cpp validation.",
   "type": "object",
   "properties": {
     "$schema": {
