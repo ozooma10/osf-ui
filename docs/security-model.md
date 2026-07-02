@@ -36,11 +36,22 @@ ugly overlay", never "arbitrary native code execution".
 4. **No process execution.** No bridge command may spawn processes; none is
    planned. [enforced by absence]
 5. **No arbitrary native bridge.** There is exactly one inbound message type
-   (`ui.command`) with an explicit whitelist: `close`, `log`, `ping`,
-   `setVisible`, and the Phase 5 settings pair `settings.get` /
-   `settings.set`. Unknown types and commands are rejected and logged. There
-   is intentionally no "call function by name", no eval, no reflection.
+   (`ui.command`) with an explicit whitelist: surface control (`close`,
+   `setVisible`, `menu.open` / `menu.close`, `hud.show` / `hud.hide`,
+   `setViewHidden`), diagnostics (`log`, `ping`), read-only game data
+   (`game.get`), and the settings trio (`settings.get` / `settings.set` /
+   `settings.reset`). Unknown types and commands are rejected and logged
+   (warn-once per command name; the `ui.error` reply is sent every time).
+   There is intentionally no "call function by name", no eval, no reflection.
    [enforced in `MessageBridge::HandleUiCommand`]
+   - **Native plugin API caveat:** a separate *trusted native* SFSE plugin can
+     register additional `ui.command` handlers via the exported
+     `OSFUI_RequestBridge` API (`docs/native-plugin-api.md`); reserved
+     prefixes (`ui.` / `runtime.` / `game.` / `settings.`) are refused
+     [enforced in `BridgeApi::RegisterCommand`]. This widens the surface only
+     by what a mod author's own DLL deliberately exposes — untrusted JS still
+     cannot register anything, and each added command is that plugin's
+     responsibility to validate.
    - `settings.set` is the only command that WRITES: it can only set a key
      that EXISTS in the mod's schema, to a value the `SettingsStore` validates
      and clamps to that key's declared type/range (enum ∈ options, numbers ∈

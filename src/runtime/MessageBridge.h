@@ -1,5 +1,7 @@
 #pragma once
 
+#include <unordered_set>  // not in pch.h
+
 #include <nlohmann/json.hpp>
 
 // Narrow native <-> web bridge. All traffic is JSON text messages with the
@@ -57,5 +59,6 @@ namespace OSFUI
 		SendFn                                          _send;
 		std::unordered_map<std::string, CommandHandler> _commands;
 		std::string                                     _currentSource;  // source view of the in-flight message (reply target)
+		std::unordered_set<std::string>                 _warnedUnknownCommands;  // warn-once-per-command log dedupe
 	};
 }

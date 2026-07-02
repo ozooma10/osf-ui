@@ -172,8 +172,12 @@ Whitelisted commands (anything else is rejected + logged):
 
 | command | payload fields | effect |
 |---|---|---|
-| `close` | — | hide the overlay |
-| `setVisible` | `visible: bool` | show/hide the overlay |
+| `close` | — | close the calling surface (closing the last open menu hides the overlay; a coexisting live HUD stays up) |
+| `setVisible` | `visible: bool` | open/close the calling surface |
+| `menu.open` | `view?: string` | open a registered surface by id (omitted ⇒ the calling view) |
+| `menu.close` | `view?: string` | close a registered surface by id (omitted ⇒ the calling view) |
+| `hud.show` / `hud.hide` | `view?: string` | aliases of `menu.open` / `menu.close` — a surface's kind (menu vs. HUD) is fixed by its manifest, not by which command you use |
+| `setViewHidden` | `view?: string`, `hidden: bool` | show/hide one *loaded* view, independent of the global overlay toggle (omitted `view` ⇒ self) |
 | `log` | `text: string` | write to `OSF UI.log` (truncated to 512 chars) |
 | `ping` | — | runtime replies with `runtime.pong` |
 | `game.get` | — | runtime replies with `game.data` (in-game date/time from the calendar) |
@@ -181,8 +185,11 @@ Whitelisted commands (anything else is rejected + logged):
 | `settings.set` | `mod, key, value` | set one schema-declared setting (validated) |
 | `settings.reset` | `mod`, `key?` | reset one key, or the whole mod if `key` omitted |
 
-> There is intentionally **no** "call any native function" escape hatch. To get
-> a new command you must add a native handler in the runtime (core change).
+> There is intentionally **no** "call any native function" escape hatch. New
+> commands come from native code only: either a handler in the OSF UI runtime,
+> or a **separate SFSE plugin** registering its own commands through the native
+> bridge API ([native-plugin-api.md](native-plugin-api.md) — reserved prefixes
+> `ui.`/`runtime.`/`game.`/`settings.` are refused).
 
 ### Native → web
 

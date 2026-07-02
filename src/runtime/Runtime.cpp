@@ -157,6 +157,11 @@ namespace OSFUI
 				if (const auto* m = _views.Find(id)) {
 					_renderer->LoadView(*m);
 					_menus.Register({ id, m->kind, m->capturesInput, m->pausesGame, m->order });
+					// The policy fields decide runtime behavior (capture, sim pause)
+					// and an explicit manifest value silently overrides the defaults
+					// — log them so a "why doesn't it pause" is a log-read away.
+					REX::INFO("Runtime: surface '{}' registered ({}, capturesInput={}, pausesGame={})",
+						id, m->kind == SurfaceKind::Hud ? "hud" : "menu", m->capturesInput, m->pausesGame);
 					if (m->openOnStart) {
 						_menus.Open(id);
 					}

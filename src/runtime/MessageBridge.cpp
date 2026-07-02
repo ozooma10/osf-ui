@@ -55,7 +55,12 @@ namespace OSFUI
 		if (const auto it = _commands.find(command); it != _commands.end()) {
 			it->second(a_payload, *this);
 		} else {
-			REX::WARN("MessageBridge: rejected unknown ui.command '{}'", command);
+			// Pages often retry unregistered commands (polling); warn once per
+			// command name so the log records the fact without flooding. The
+			// ui.error reply still goes back every time — the page needs it.
+			if (_warnedUnknownCommands.insert(command).second) {
+				REX::WARN("MessageBridge: rejected unknown ui.command '{}' (further rejections of this command are not logged)", command);
+			}
 			SendToWeb("ui.error", { { "reason", "unknown command" }, { "command", command.substr(0, 128) } });
 		}
 	}

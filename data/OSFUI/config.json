@@ -11,8 +11,8 @@
   "hardwareCursor": true,
   "focusMenu": true,
   "disableControls": true,
-  "view": "osf",
-  "views": ["osf"],
+  "view": "settings",
+  "views": ["settings", "hud"],
   "allowNetwork": false,
   "devMode": false
 }

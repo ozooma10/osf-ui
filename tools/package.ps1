@@ -201,12 +201,19 @@ try {
         Die "No views found under SFSE\Plugins\OSFUI\views -- nothing to render."
     }
 
-    # --- content sanity warnings (do not block) ---------------------------
+    # --- content sanity checks ---------------------------------------------
     $cfgPath = Join-Path $Staging 'SFSE\Plugins\OSFUI\config.json'
     try {
         $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json
-        if ($cfg.view -eq 'osf' -or ($cfg.views -contains 'osf')) {
-            Warn "config.json points at the 'osf' view, which needs the separate OSF Animation mod. A standalone OSF UI release should default to 'settings' (or a welcome view)."
+        # HARD FAIL: every view the shipped config references must be in the
+        # archive, or a fresh standalone install renders nothing on F10.
+        # External views (e.g. OSF Animation's 'osf' scene browser) ship with
+        # their own mod and may not be the framework's default.
+        $configuredViews = @(@($cfg.view) + @($cfg.views) | Where-Object { $_ } | Select-Object -Unique)
+        $stagedViews = @(Get-ChildItem (Join-Path $Staging 'SFSE\Plugins\OSFUI\views') -Directory | ForEach-Object Name)
+        $missingViews = @($configuredViews | Where-Object { $stagedViews -notcontains $_ })
+        if ($missingViews.Count -gt 0) {
+            Die ("config.json references view(s) not shipped in this archive: " + ($missingViews -join ', ') + "`n    Shipped views: " + ($stagedViews -join ', ') + "`n    A standalone release must render out of the box -- default to 'settings'.")
         }
         if ($cfg.focusMenu)       { Warn "config.json has focusMenu=true (experimental custom IMenu). Confirm it is proven stable on 1.16.244 before shipping on-by-default." }
         if ($cfg.disableControls) { Warn "config.json has disableControls=true (experimental input-enable layer). Confirm it is proven on 1.16.244 before shipping on-by-default." }

@@ -1,0 +1,73 @@
+name: Bug report
+description: The overlay doesn't appear, crashes, or misbehaves in-game.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing, check `docs/troubleshooting.md` — most "F10 does nothing"
+        cases are covered there. The log almost always states what happened.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you do, what did you expect, what happened instead?
+      placeholder: Pressed F10 in gameplay; overlay flashed once and never came back.
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: OSF UI.log
+      description: >
+        Attach (or paste) `Documents\My Games\Starfield\SFSE\Logs\OSF UI.log`
+        from the session where it happened. Documents may be OneDrive-redirected.
+        Without the log most reports are undiagnosable.
+      placeholder: Drag the .log file here.
+    validations:
+      required: true
+
+  - type: input
+    id: versions
+    attributes:
+      label: Game build / SFSE / OSF UI versions
+      description: Game build is in the SFSE log header; OSF UI version is in the first lines of OSF UI.log.
+      placeholder: "Starfield 1.16.244 (Steam) · SFSE 0.3.x · OSF UI 0.1.0-alpha"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: display
+    attributes:
+      label: Display output
+      description: HDR and 10-bit backbuffers are detected and skipped by design — the log will say so.
+      options:
+        - SDR (default)
+        - HDR enabled
+        - Not sure
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: overlays
+    attributes:
+      label: Other overlays / frame-gen in use
+      description: >
+        These share the same Present hook and are the top suspect for a missing
+        overlay. Check everything running, even if you think it's unrelated.
+      options:
+        - label: ReShade
+        - label: RTSS / MSI Afterburner
+        - label: Steam overlay
+        - label: DLSS Frame Generation / FSR Frame Gen
+        - label: Other injector/overlay (name it in the description)
+        - label: None of the above
+
+  - type: textarea
+    id: config
+    attributes:
+      label: config.json (if modified)
+      description: Only needed if you changed `SFSE/Plugins/OSFUI/config.json` from the shipped defaults.
+      render: json

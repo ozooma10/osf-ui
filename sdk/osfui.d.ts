@@ -26,8 +26,18 @@ export interface BridgeEnvelope<TType extends string = string, TPayload = unknow
 // ---------------------------------------------------------------------------
 
 export type UiCommand =
+  /** Close the calling surface (last menu closing hides the overlay; a live HUD stays up). */
   | { command: "close" }
+  /** Open/close the calling surface. */
   | { command: "setVisible"; visible: boolean }
+  /** Open/close a registered surface by id; `view` omitted targets the calling view. */
+  | { command: "menu.open"; view?: string }
+  | { command: "menu.close"; view?: string }
+  /** Aliases of menu.open/menu.close — a surface's kind is fixed by its manifest. */
+  | { command: "hud.show"; view?: string }
+  | { command: "hud.hide"; view?: string }
+  /** Show/hide one loaded view, independent of the overlay toggle; `view` omitted = self. */
+  | { command: "setViewHidden"; view?: string; hidden: boolean }
   | { command: "log"; text: string }
   | { command: "ping" }
   | { command: "game.get" }

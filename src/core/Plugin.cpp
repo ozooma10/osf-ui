@@ -37,9 +37,10 @@ namespace OSFUI::Plugin
 
 				++_ticks;
 				if (_ticks == 1) {
+					// One-shot boot marker: proves the SFSE task pump reached us.
+					// (No periodic heartbeat — it was bring-up scaffolding and
+					// flooded the log at menu-uncapped frame rates.)
 					REX::INFO("FrameTick: first per-frame task received from SFSE TaskInterface");
-				} else if (_ticks % 600 == 0) {
-					REX::DEBUG("FrameTick: {} ticks", _ticks);
 				}
 
 				Runtime::Get().Tick(dt);

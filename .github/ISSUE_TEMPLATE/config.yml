@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Install & troubleshooting guide
+    url: https://github.com/ozooma10/osf-ui/blob/main/docs/troubleshooting.md
+    about: Requirements, install steps, the symptom table, and known limitations — read this first.
+  - name: View authoring guide
+    url: https://github.com/ozooma10/osf-ui/blob/main/docs/authoring-views.md
+    about: Building a view? Manifest, bridge protocol, and settings schema live here.

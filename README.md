@@ -81,15 +81,17 @@ Logs go to the standard SFSE log folder
 | `enabled` | `true` | master switch |
 | `toggleKey` | `"F10"` | key name resolved to a Windows virtual-key code by a built-in table (F1–F24, letters/digits, and named keys like `Tab`/`Escape`; unresolvable names disable the toggle with a log warning) |
 | `focusKey` | `"Tab"` | cycles the active (input) view when more than one *interactive* view is hosted; passes through normally otherwise |
+| `consoleKey` | `"Grave"` | the game's console key. While the overlay captures input this key is passed straight through to the game (and dismisses the overlay so the console isn't left hidden behind it). `Grave` = VK_OEM_3 (grave/tilde) on US layouts — retarget for other layouts/rebinds; empty string disables the pass-through |
 | `startVisible` | `false` | initial overlay visibility state |
 | `renderer` | `"mock"` | `null` \| `mock` \| `ultralight` (real offscreen backend; shipped config uses it — falls back to `null` with a warning in Ultralight-free builds) |
 | `compositor` | `"null"` | `null` \| `d3d12` — the real overlay path (uploads to the game's D3D12 device, draws at present time; verified in-game). Shipped config uses `d3d12` |
 | `inputSource` | `"none"` | `none` \| `ui` — installs the window-subclass input path (toggle key + input capture). Shipped config uses `ui`; set to `none` to rule the input hook out when debugging |
 | `captureInput` | `true` | when the overlay is visible, freeze the game and route keyboard/mouse into the web view (needs `inputSource: "ui"`). When `false` the overlay is a passive HUD: it draws, but the game still receives input |
 | `hardwareCursor` | `true` | show the real Windows (hardware) pointer while the overlay captures input — zero-lag, framerate-independent, and the page's CSS `cursor` maps to the matching system cursor. `false` falls back to the legacy raw-delta virtual cursor, which has **no visible pointer** (debugging escape hatch only) |
-| `focusMenu` | `false` | **Experimental — leave off.** Register a real engine menu (`OSFUI_FocusMenu`) and open/close it with the overlay so the engine enters menu mode (cursor + modal input) rather than relying only on the WndProc message-swallow. Custom-`IMenu` registration is **unproven on 1.16.244** (see [docs/reverse-engineering-notes.md](docs/reverse-engineering-notes.md) §4); enabling may be unstable until that probe confirms the contract |
-| `disableControls` | `false` | **Experimental.** While the overlay is visible, disable player controls through the engine input-enable layer (`BSInputEnableManager`) — this also stops gamepad/XInput, which the WndProc hook never saw. Mechanism is proven on 1.16.244; the exact freeze-everything flag set is still being live-confirmed, so the disabled set is provisional |
-| `view` | `"test"` | view id from `views/*/manifest.json` (shipped config uses `settings`) |
+| `focusMenu` | `false` (shipped config: `true`) | **Experimental.** Register a real engine menu (`OSFUI_FocusMenu`) and open/close it with the overlay so the engine enters menu mode (cursor + modal input) rather than relying only on the WndProc message-swallow. Custom-`IMenu` registration + open are **proven on 1.16.244**; the hardened headless menu's *long-run* survival is the remaining risk (see `src/core/Config.h` and [docs/reverse-engineering-notes.md](docs/reverse-engineering-notes.md) §4). Set `false` if you see instability with the overlay open |
+| `disableControls` | `false` (shipped config: `true`) | While the overlay is visible, disable player controls through the engine input-enable layer (`BSInputEnableManager`) — this also stops gamepad/XInput, which the WndProc hook never sees. **Proven live on 1.16.244 with a controller** (keyboard, mouse-look, and gamepad sticks all freeze and restore cleanly) |
+| `view` | `"test"` | the active (input) view — a view id from `views/*/manifest.json` (shipped config uses `settings`) |
+| `views` | `[]` | optional multi-view set: every id is loaded and composited (layer order = each view's manifest `zorder`), and `view` must be one of them (the interactive one). Empty ⇒ only `view` loads. Missing ids are skipped with a log line. Shipped config uses `["settings", "hud"]` |
 | `allowNetwork` | `false` | recognized but force-disabled |
 | `devMode` | `false` | verbose per-call logging + first-frame PNG dump. **Defaults shown above are the built-in fallbacks (`src/core/Config.h`); the shipped `data/OSFUI/config.json` is the runtime config.** For development, set `devMode: true` and `startVisible: true` for verbose logs and a launch-visible overlay |
 
@@ -156,10 +158,15 @@ docs/HANDOFF.md §4.
   built-in `settings` view renders a card per mod with live controls + Reset,
   and the native `SettingsStore` validates/clamps/persists per-mod to a
   user-writable path and fires change reactions (e.g. live cursor speed).
-- The JSON message bridge parses/dispatches the whitelisted commands
-  (`close`, `setVisible`, `log`, `ping`, and the settings trio `settings.get`
-  / `settings.set` / `settings.reset`) and rejects everything else. Authoring
-  a view? See [docs/authoring-views.md](docs/authoring-views.md).
+- The JSON message bridge parses/dispatches the whitelisted commands —
+  surface control (`close`, `setVisible`, `menu.open` / `menu.close`,
+  `hud.show` / `hud.hide`, `setViewHidden`), diagnostics (`log`, `ping`),
+  read-only game data (`game.get`), and the settings trio (`settings.get` /
+  `settings.set` / `settings.reset`) — and rejects everything else. Trusted
+  *native* SFSE plugins can register additional commands through the exported
+  bridge API ([docs/native-plugin-api.md](docs/native-plugin-api.md));
+  untrusted JS cannot. Authoring a view? See
+  [docs/authoring-views.md](docs/authoring-views.md).
 - The sample `test` and `settings` views are self-contained HTML panels that
   also run standalone in a normal browser (degraded mode) for development.
 
@@ -168,9 +175,12 @@ docs/HANDOFF.md §4.
 - **A young framework** — multiple views composite together with `Tab` focus
   switching, and views can read basic game data (e.g. the in-game clock).
   Still maturing: the `window.osfui` declarative bridge is **0.x and
-  unstable**, the DevTools inspector is stubbed, there is no public native API
-  for other SFSE plugins to drive views, and there's no packaging/distribution
-  tooling for third-party UIs yet. You ship a `settings/<id>.json` schema and a
+  unstable**, the DevTools inspector is stubbed, the native plugin API
+  (`sdk/OSFUI_API.h` / `OSFUI_RequestBridge` — lets a separate SFSE plugin
+  register bridge commands and drive views,
+  [docs/native-plugin-api.md](docs/native-plugin-api.md)) is brand-new with no
+  shipping consumer yet, and there's no packaging/distribution tooling for
+  third-party UIs yet. You ship a `settings/<id>.json` schema and a
   `views/<id>/` folder for the declarative path. Render/menu integration points
   were reverse engineered before use, never guessed
   ([docs/reverse-engineering-notes.md](docs/reverse-engineering-notes.md)).

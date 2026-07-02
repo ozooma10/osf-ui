@@ -20,7 +20,14 @@ namespace OSFUI
 	{
 		auto* main = RE::Main::GetSingleton();
 		if (!main) {
-			return;  // too early (boot / main menu); retry next tick
+			// Too early (boot / main menu); retry next tick. Warn once if a pause
+			// is actually being requested so a resolution failure can't be silent.
+			static bool warned = false;
+			if (a_desired && !warned) {
+				warned = true;
+				REX::WARN("SimPause: pause requested but Main singleton is null; retrying every tick");
+			}
+			return;
 		}
 		if (a_desired) {
 			// Re-assert while engaged: native GameMenuBase menus post writes to
