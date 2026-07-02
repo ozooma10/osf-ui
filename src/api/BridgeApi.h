@@ -32,8 +32,18 @@ namespace OSFUI::API
 		void          UnregisterCommand(const char* a_command) override;
 		bool          SendToWeb(const char* a_viewId, const char* a_type, const char* a_payloadJson) override;
 		void          SetReadyCallback(ReadyFn a_callback, void* a_user) override;
+		bool          RequestMenu(const char* a_viewId, bool a_open) override;
 
 		// --- Runtime wiring (MAIN thread only) ---
+		// A menu open/close a sibling plugin requested via RequestMenu.
+		struct MenuRequest
+		{
+			std::string view;
+			bool        open{ true };
+		};
+		// Drain the queued menu requests (MAIN thread). Runtime applies each through its own menu policy (_menus.Open/Close + ApplyMenuPolicy) in DrainMenuRequests.
+		std::vector<MenuRequest> TakeMenuRequests();
+
 		// Hand the live MessageBridge (or nullptr when no nativeBridge view exists)
 		// to the API. A different pointer than last time triggers a full re-apply.
 		void OnBridgeReady(MessageBridge* a_bridge);
@@ -63,6 +73,7 @@ namespace OSFUI::API
 		std::unordered_map<std::string, Registration> _commands;          // desired command set
 		std::vector<std::string>                      _pendingUnregister;  // to remove from a live bridge
 		std::vector<PendingSend>                       _pendingSends;
+		std::vector<MenuRequest>                      _pendingMenuReqs;    // RequestMenu ops, drained by Runtime
 		MessageBridge*                                _bridge{ nullptr };         // non-owning; set on main thread
 		MessageBridge*                                _appliedBridge{ nullptr };  // bridge we last applied to
 		bool                                          _dirty{ false };            // command set changed since apply

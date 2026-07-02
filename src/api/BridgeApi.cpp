@@ -106,6 +106,26 @@ namespace OSFUI::API
 		}
 	}
 
+	bool BridgeApi::RequestMenu(const char* a_viewId, bool a_open)
+	{
+		if (!a_viewId || !a_viewId[0]) {
+			return false;
+		}
+		// Queue it like a send; Runtime drains it on the main tick and runs it through the normal menu policy. Requesting an open before any bridge is live is fine
+		// the request waits and Runtime applies it once a surface can be shown.
+		std::lock_guard lock(_mutex);
+		_pendingMenuReqs.push_back({ std::string(a_viewId), a_open });
+		return true;
+	}
+
+	std::vector<BridgeApi::MenuRequest> BridgeApi::TakeMenuRequests()
+	{
+		std::lock_guard lock(_mutex);
+		std::vector<MenuRequest> out;
+		out.swap(_pendingMenuReqs);
+		return out;
+	}
+
 	void BridgeApi::OnBridgeReady(MessageBridge* a_bridge)
 	{
 		std::lock_guard lock(_mutex);

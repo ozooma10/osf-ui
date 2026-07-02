@@ -26,8 +26,9 @@
 namespace OSFUI::API
 {
 	// Packed (MAJOR << 16) | MINOR. MAJOR breaks ABI; MINOR bumps on an appended vmethod.
-	inline constexpr std::uint32_t kBridgeAPIVersion = (1u << 16) | 0u;
+	inline constexpr std::uint32_t kBridgeAPIVersion = (1u << 16) | 1u;
 	inline constexpr std::uint32_t kBridgeAPIMajor   = kBridgeAPIVersion >> 16;
+	inline constexpr std::uint32_t kBridgeAPIMinor   = kBridgeAPIVersion & 0xFFFFu;
 
 	inline constexpr const wchar_t* kModuleName        = L"OSFUI.dll";
 	inline constexpr const char*    kRequestExportName = "OSFUI_RequestBridge";
@@ -71,6 +72,12 @@ namespace OSFUI::API
 
 		// --- readiness notification. Callback runs on the main thread. ---
 		virtual void SetReadyCallback(ReadyFn a_callback, void* a_user) = 0;
+
+		// --- menu control Thread-safe; applied on the next main tick. ---
+		// Open or close a registered SURFACE (menu/HUD view) by id
+		// the request is marshaled onto the main thread and run through the normal menu policy.
+		// Lets a sibling plugin surface its own view (e.g. an in-game item that opens the scene browser). No-op if the id is not a registered surface.
+		virtual bool RequestMenu(const char* a_viewId, bool a_open) = 0;
 
 	protected:
 		~IOSFUIBridge() = default;  // OSF UI owns the singleton; the consumer never deletes it.

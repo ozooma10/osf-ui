@@ -289,10 +289,13 @@ namespace OSFUI
 		std::vector<MenuReq> reqs;
 		{
 			std::lock_guard lock(_reqMutex);
-			if (_reqs.empty()) {
-				return;
-			}
 			reqs.swap(_reqs);
+		}
+		// Menu opens/closes a sibling plugin requested by id via the bridge API (e.g. an
+		// in-game item opening the scene browser). Same policy path as the F10 toggle below.
+		auto pluginReqs = API::BridgeApi::Get().TakeMenuRequests();
+		if (reqs.empty() && pluginReqs.empty()) {
+			return;
 		}
 		for (const auto req : reqs) {
 			switch (req) {
@@ -305,6 +308,15 @@ namespace OSFUI
 			case MenuReq::CloseAll:
 				_menus.CloseAll();
 				break;
+			}
+		}
+		for (const auto& r : pluginReqs) {
+			if (r.open) {
+				if (!_menus.Open(r.view)) {
+					REX::WARN("Runtime: plugin RequestMenu('{}', open) ignored — not a registered surface (or already open)", r.view);
+				}
+			} else {
+				_menus.Close(r.view);
 			}
 		}
 		ApplyMenuPolicy();
