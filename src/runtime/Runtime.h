@@ -1,5 +1,7 @@
 #pragma once
 
+#include <unordered_set>  // not in pch.h
+
 #include "composite/ICompositor.h"
 #include "core/Config.h"
 #include "input/InputRouter.h"
@@ -169,6 +171,17 @@ namespace OSFUI
 		// OnViewLoad. Called from Tick on the game thread.
 		void DriveRecovery();
 
+		// The `views.data` catalog (bridge 0.2): one entry per REGISTERED surface
+		// with its manifest metadata + live open/focus/load state. Read-only
+		// snapshot; a view torn down by crash-recovery drops out (unregistered).
+		[[nodiscard]] nlohmann::json BuildViewsData() const;
+
+		// Re-send `views.data` to every view that has requested it (`views.get`
+		// subscribes the caller), but only when the catalog actually changed —
+		// callers invoke this unconditionally after any potential state change
+		// (ApplyMenuPolicy, OnViewLoad). Main thread only.
+		void BroadcastViewsData();
+
 		Config                        _config;
 		ViewManager                   _views;
 		std::unique_ptr<IWebRenderer> _renderer;
@@ -237,6 +250,12 @@ namespace OSFUI
 			bool          pending{ false };
 		};
 		std::unordered_map<std::string, RecoveryState> _recovery;
+
+		// views.data change-push state (main-thread only): which views asked for
+		// the catalog (and so get updates), and the last payload sent (dedupe so
+		// every ApplyMenuPolicy doesn't re-send an unchanged catalog).
+		std::unordered_set<std::string> _viewsSubscribers;
+		std::string                     _lastViewsData;
 		// Monotonic-ish plugin uptime accumulated from Tick's clamped dt; only
 		// used to schedule recovery backoff (stalls with the game, which is
 		// exactly the cadence reloads should follow).

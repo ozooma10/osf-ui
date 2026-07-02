@@ -404,6 +404,10 @@ namespace OSFUI
 		if (visible != wasVisible) {
 			REX::INFO("Runtime: overlay visibility -> {} (capture={})", visible, _captureInput.load());
 		}
+
+		// Push the surface catalog to hub-style subscribers (deduped: no-op when
+		// nothing in the catalog actually changed).
+		BroadcastViewsData();
 	}
 
 	bool Runtime::IsVisible() const
@@ -442,6 +446,7 @@ namespace OSFUI
 			} else {
 				REX::INFO("Runtime: view '{}' finished loading ({})", a_viewId, a_url);
 			}
+			BroadcastViewsData();  // loadState loading -> loaded
 			return;
 		}
 
@@ -466,12 +471,15 @@ namespace OSFUI
 			if (_menus.Unregister(id)) {
 				ApplyMenuPolicy();  // it was open: release capture/visibility now
 			}
+			_viewsSubscribers.erase(id);  // a destroyed view can't receive pushes
+			BroadcastViewsData();         // it also drops out of the catalog
 			return;
 		}
 		rec.pending = true;
 		rec.retryAt = _uptime + kBackoffSec[rec.attempts];
 		REX::WARN("Runtime: view '{}' reload attempt {}/{} scheduled in {:.0f}s",
 			a_viewId, rec.attempts + 1, kMaxAttempts, kBackoffSec[rec.attempts]);
+		BroadcastViewsData();  // loadState -> failed
 	}
 
 	void Runtime::DriveRecovery()
@@ -494,6 +502,51 @@ namespace OSFUI
 			// A recreated view starts at manifest dimensions; restore the
 			// output-matched size so it composites 1:1 again.
 			_renderer->Resize(_viewWidth.load(), _viewHeight.load());
+		}
+	}
+
+	nlohmann::json Runtime::BuildViewsData() const
+	{
+		nlohmann::json views = nlohmann::json::array();
+		const auto     active = _menus.ActiveMenu();
+		for (const auto& m : _views.All()) {
+			// Discovered-but-not-loaded manifests (not in config.views) and views
+			// torn down by crash-recovery are not registered — not part of the
+			// catalog: menu.open on them would fail anyway.
+			if (!_menus.IsRegistered(m.id)) {
+				continue;
+			}
+			const auto state = GetViewLoadState(m.id);
+			views.push_back(nlohmann::json{
+				{ "id", m.id },
+				{ "title", m.title },
+				{ "description", m.description },
+				{ "kind", m.kind == SurfaceKind::Hud ? "hud" : "menu" },
+				{ "interactive", m.interactive },
+				{ "hub", m.hub },
+				{ "open", _menus.IsOpen(m.id) },
+				{ "focused", active.has_value() && *active == m.id },
+				{ "loadState", state == ViewLoadState::Failed ? "failed" :
+				               state == ViewLoadState::Finished ? "loaded" :
+				                                                  "loading" },
+			});
+		}
+		return nlohmann::json{ { "views", std::move(views) } };
+	}
+
+	void Runtime::BroadcastViewsData()
+	{
+		if (!_bridge || _viewsSubscribers.empty()) {
+			return;
+		}
+		auto payload = BuildViewsData();
+		auto dumped = payload.dump();
+		if (dumped == _lastViewsData) {
+			return;
+		}
+		_lastViewsData = std::move(dumped);
+		for (const auto& id : _viewsSubscribers) {
+			_bridge->SendToWeb(id, "views.data", payload);
 		}
 	}
 
@@ -831,6 +884,16 @@ namespace OSFUI
 				id = std::string(a_b.CurrentSource());
 			}
 			SetViewHidden(id, Json::GetBool(a_p, "hidden", false));
+		});
+		// Catalog of loaded surfaces (the hub view's read, bridge 0.2). Replies
+		// with `views.data` and SUBSCRIBES the caller: any later open/close/
+		// focus/load-state change re-sends the catalog (see BroadcastViewsData),
+		// so a hub reflects state without polling.
+		a_bridge.RegisterCommand("views.get", [this](const nlohmann::json&, MessageBridge& a_b) {
+			const auto payload = BuildViewsData();
+			_viewsSubscribers.insert(std::string(a_b.CurrentSource()));
+			_lastViewsData = payload.dump();
+			a_b.SendToWeb("views.data", payload);
 		});
 		a_bridge.RegisterCommand("log", [](const nlohmann::json& a_p, MessageBridge&) {
 			// Untrusted content: bound the length so JS cannot flood the log.

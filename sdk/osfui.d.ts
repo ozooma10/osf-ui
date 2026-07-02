@@ -1,7 +1,7 @@
 /**
  * TypeScript definitions for the OSF UI native <-> web bridge.
  *
- * Bridge protocol version: 0.1 (UNSTABLE — minor bumps may break views until
+ * Bridge protocol version: 0.2 (UNSTABLE — minor bumps may break views until
  * 1.0). Negotiate against the `bridgeVersion` field of the `runtime.ready`
  * message. Keep in lockstep with:
  *   - docs/authoring-views.md          (prose reference)
@@ -41,6 +41,8 @@ export type UiCommand =
   | { command: "log"; text: string }
   | { command: "ping" }
   | { command: "game.get" }
+  /** Catalog of loaded surfaces; replies `views.data` and subscribes the caller to change pushes. */
+  | { command: "views.get" }
   | { command: "settings.get" }
   | { command: "settings.set"; mod: string; key: string; value: SettingValue }
   | { command: "settings.reset"; mod: string; key?: string };
@@ -89,10 +91,31 @@ export interface GameDataPayload {
   daysPassed?: number;
 }
 
+/**
+ * One entry per loaded (registered) surface. Reply to `views.get`; also pushed
+ * unsolicited to every view that has sent `views.get` whenever any entry's
+ * open/focused/loadState changes (a view torn down by crash-recovery drops out
+ * of the list entirely).
+ */
+export interface ViewsDataPayload {
+  views: Array<{
+    id: string;
+    title: string;
+    description: string;    // manifest `description`, "" when absent
+    kind: "menu" | "hud";
+    interactive: boolean;
+    hub: boolean;           // manifest `hub` — false = hidden utility view, omit from catalogs
+    open: boolean;          // menu: on the stack; hud: shown
+    focused: boolean;       // the top open menu (receives input)
+    loadState: "loading" | "loaded" | "failed";
+  }>;
+}
+
 export type NativeToWebMessage =
   | BridgeEnvelope<"runtime.ready", RuntimeReadyPayload>
   | BridgeEnvelope<"runtime.pong", Record<string, never>>
   | BridgeEnvelope<"game.data", GameDataPayload>
+  | BridgeEnvelope<"views.data", ViewsDataPayload>
   | BridgeEnvelope<"settings.data", SettingsDataPayload>
   | BridgeEnvelope<"settings.ack", SettingsAckPayload>
   | BridgeEnvelope<"ui.error", UiErrorPayload>;

@@ -11,7 +11,8 @@ namespace OSFUI::API
 		bool IsReservedCommand(const std::string& a_cmd)
 		{
 			return a_cmd.starts_with("ui.") || a_cmd.starts_with("runtime.") ||
-			       a_cmd.starts_with("game.") || a_cmd.starts_with("settings.");
+			       a_cmd.starts_with("game.") || a_cmd.starts_with("settings.") ||
+			       a_cmd.starts_with("views.");
 		}
 	}
 
@@ -50,7 +51,7 @@ namespace OSFUI::API
 		}
 		const std::string cmd(a_command);
 		if (IsReservedCommand(cmd)) {
-			REX::WARN("BridgeApi: refused RegisterCommand('{}') — reserved prefix (ui./runtime./game./settings.)", cmd);
+			REX::WARN("BridgeApi: refused RegisterCommand('{}') — reserved prefix (ui./runtime./game./settings./views.)", cmd);
 			return;
 		}
 		std::lock_guard lock(_mutex);

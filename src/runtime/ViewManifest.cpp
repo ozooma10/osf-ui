@@ -16,6 +16,7 @@ namespace OSFUI
 		manifest.rootDir = a_path.parent_path();
 		manifest.id = Json::GetString(*json, "id", "");
 		manifest.title = Json::GetString(*json, "title", manifest.id);
+		manifest.description = Json::GetString(*json, "description", "");
 		manifest.entry = Json::GetString(*json, "entry", manifest.entry);
 		manifest.width = static_cast<std::uint32_t>(std::clamp<std::int64_t>(
 			Json::GetInt(*json, "width", manifest.width), 1, 16384));
@@ -32,6 +33,7 @@ namespace OSFUI
 		manifest.pausesGame = Json::GetBool(*json, "pausesGame", manifest.pausesGame);
 		manifest.openOnStart = Json::GetBool(*json, "openOnStart", manifest.openOnStart);
 		manifest.order = static_cast<std::int32_t>(Json::GetInt(*json, "order", manifest.order));
+		manifest.hub = Json::GetBool(*json, "hub", manifest.hub);
 
 		if (const auto it = json->find("permissions"); it != json->end() && it->is_object()) {
 			manifest.permissions.nativeBridge = Json::GetBool(*it, "nativeBridge", false);
