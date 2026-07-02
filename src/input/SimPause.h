@@ -3,33 +3,32 @@
 namespace OSFUI
 {
 	// Step-3 sim pause, the proven mechanism (OSF RE module ui.menu_pause,
-	// 2026-07-02). "Menu pause" is TWO independent engine channels:
-	//   A) the freeze-frame/letterbox latch — armed by IMenu flag bit 27, but
-	//      only consulted for the top kModal menu on the open path; COSMETIC,
-	//      live-proven NOT to stop the sim (the game calendar kept advancing
-	//      under an engaged latch);
-	//   B) the SIMULATION pause — Main::isGameMenuPaused (Main+0x448), one of
-	//      three ORed pause bytes read by Main's per-frame aggregator;
-	//      live-proven sufficient alone (world calendar froze while set).
-	// Native menus reach B by CLASS, not flag: a MenuOpenCloseEvent sink
-	// dynamic_casts the opened menu to GameMenuBase and posts its pause bool
-	// through a job queue — a plain IMenu (our movie-less focus menu) can never
-	// take that lane, no matter its flags. The sanctioned plugin recipe for
-	// "pause without letterbox" is driving the byte directly, which is what
-	// this does.
+	// closed 2026-07-02). How the engine actually pauses:
+	//   - Main::isGameMenuPaused (Main+0x448) is READ-ONLY OUTPUT — Main::Update
+	//     recomputes it EVERY frame as
+	//       (UI::pauseRequestCount > 0) || IsOpen("MainMenu") || g_145FB4B78
+	//     right before the sim aggregator reads it, so no foreign byte write can
+	//     ever survive (the first SimPause implementation lost exactly that
+	//     write-war, log-proven).
+	//   - Native menus with IMenu flag bit 1 (the REAL kPausesGame; bit 27 is
+	//     the letterbox latch and was misassigned for weeks) get counted in/out
+	//     of UI::pauseRequestCount (+0x4B4) by the open/close dispatch via
+	//     UI_ModifyMenuPauseCounter.
+	// The sanctioned plugin recipe (live-proven: repeated freeze/resume cycles
+	// in normal gameplay, gameHour bit-identical while frozen, clean resume, no
+	// letterbox): call UI::ModifyMenuPauseCounter(name, true/false) and let the
+	// engine derive the byte. This class does that with strictly balanced
+	// edge-triggered calls — a leaked increment would pause the game forever.
 	//
-	// Semantics: Apply() is reconciled every Tick on the game MAIN thread.
-	// While engaged it RE-ASSERTS the byte (native GameMenuBase close jobs also
-	// write it and would otherwise unpause the world underneath our menu); on
-	// release it writes false once. NOT yet soak-proven by the RE probe pass
-	// (pending): repeated freeze/resume cycles and quickload-while-paused —
-	// treat the first in-game session as that verification.
+	// Still unproven (RE left-open): quickload regression — the pause-released
+	// path entered a load cleanly but that probe session died to an unrelated
+	// silent load-crash; one quickload in a stable session settles it.
 	class SimPause
 	{
 	public:
-		// Drive the sim-pause byte toward a_desired. Main thread only. Safe to
-		// call every tick; no-ops (and stays disengaged) until the Main
-		// singleton exists.
+		// Drive the engine pause-request counter toward a_desired. Main thread
+		// only; call every tick (edges are detected internally). No-ops until
+		// the UI singleton exists.
 		static void Apply(bool a_desired);
 
 		[[nodiscard]] static bool IsEngaged();

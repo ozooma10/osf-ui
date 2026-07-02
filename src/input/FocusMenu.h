@@ -50,10 +50,10 @@ namespace OSFUI
 	// one from the static Creator — NOT a C++ FocusMenu instance. The members
 	// below are the type contract; the runtime menu uses the copied engine vtable.
 	//
-	// Flag bits are proven (OSF RE module ui.menu_flags /
-	//   .../2026-06-13-imenu-flag-bits.md): bit3 ShowCursor, bit8 kModal,
-	// bit27 kPausesGame. The base CommonLibSF enum only names ShowCursor; the
-	// rest are still FlagN there, so the proven values are named locally below.
+	// Flag bits are proven (OSF RE modules ui.menu_flags + ui.menu_pause):
+	// bit3 ShowCursor, bit8 kModal, bit27 freeze-frame latch (NOT the pause —
+	// the real kPausesGame is bit 1, corrected 2026-07-02). The proven values
+	// are named locally below; the CLSF mirror enum now matches.
 	class FocusMenu final : public RE::IMenu
 	{
 	public:
@@ -68,15 +68,16 @@ namespace OSFUI
 		// (ui.menu_flags). Not needed for input either (the gate is bit 4, not this
 		// — ui.menu_input). Kept as a named constant for reference only.
 		static constexpr std::uint32_t kFlagModal      = 1u << 8;
-		// DOES NOT PAUSE THE SIM — corrected 2026-07-02 (OSF RE ui.menu_pause;
-		// the 06-13 "pauses game" claim was a correlation). Bit 27 only arms the
-		// cosmetic freeze-frame/letterbox latch, and only when the menu is the
-		// top kModal menu (we are not). The real sim pause is Main+0x448
-		// (input/SimPause). Letterbox, if ever wanted, is menu->Unk0E(&menuName,
-		// bool) with this bit set (CLSF ID::IMenu::Unk0E{130622}, live-proven —
-		// but latch-on-non-modal is an unnatural state; soak before shipping).
+		// Bit 27 = the cosmetic freeze-frame/letterbox latch ONLY (renamed from
+		// "kPausesGame" 2026-07-02 after OSF RE ui.menu_pause disproved the
+		// 06-13 pause claim — the real pause flag is bit 1, and OSF UI pauses
+		// via UI::ModifyMenuPauseCounter in input/SimPause instead of menu
+		// flags). Only consulted when the menu is the top kModal menu (we are
+		// not). Letterbox, if ever wanted: menu->Unk0E(&menuName, bool) with
+		// this bit (CLSF ID::IMenu::Unk0E{130622}, live-proven — but
+		// latch-on-non-modal is an unnatural state; soak before shipping).
 		// Named constant kept for reference only.
-		static constexpr std::uint32_t kFlagPausesGame = 1u << 27;
+		static constexpr std::uint32_t kFlagFreezeFrameLatch = 1u << 27;
 
 		// ---- platform-facing API (call from the game main thread) ----
 

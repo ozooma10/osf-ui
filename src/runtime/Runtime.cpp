@@ -586,9 +586,9 @@ namespace OSFUI
 	{
 		// Runs on the game main thread (Tick). Drive the engine menu's open state
 		// toward the top menu's CAPTURE policy. Pause is deliberately NOT wired
-		// through menu flags: kPausesGame is letterbox-only and only consulted
-		// for kModal menus (OSF RE ui.menu_pause) — the sim pause is
-		// ReconcileSimPause. Only act on a change — no per-frame queue spam.
+		// through this menu's flags (the real pause flag, bit 1, would tie pause
+		// to capture instead of the per-view pausesGame policy) — the sim pause
+		// is ReconcileSimPause. Only act on a change — no per-frame queue spam.
 		const bool wantOpen = _menus.DesiredCapture();
 		if (wantOpen == _focusMenuOpen) {
 			return;
@@ -604,10 +604,9 @@ namespace OSFUI
 	void Runtime::ReconcileSimPause()
 	{
 		// Main thread (Tick), unconditional — the sim pause needs no engine menu
-		// (it is a direct Main::isGameMenuPaused write; see input/SimPause), so
-		// it is not gated on config.focusMenu. Driven by the top menu's manifest
-		// pausesGame (default true for menus). Called every tick on purpose:
-		// SimPause re-asserts the byte against native-menu writes while engaged.
+		// (UI::ModifyMenuPauseCounter; see input/SimPause), so it is not gated on
+		// config.focusMenu. Driven by the top menu's manifest pausesGame (default
+		// true for menus). Edge-triggered inside Apply.
 		SimPause::Apply(_menus.DesiredPause());
 	}
 
