@@ -403,7 +403,7 @@ namespace OSFUI
 			std::string  id;
 			std::atomic<std::int32_t> zorder{ 0 };  // layering; lower composites beneath. Mutable at runtime via SetViewOrder.
 			std::atomic<bool> hidden{ false };   // SetViewHidden: skipped in compositing when true.
-			std::atomic<int>  scrollPx{ 28 };    // per-view scroll step (SetScrollPixelSize; stored, wheel routing not wired yet).
+			std::atomic<int>  scrollPx{ 28 };    // per-view scroll step: pixels per wheel notch (SetScrollPixelSize).
 			std::atomic<bool> wantsConsole{ false };  // a console handler is registered for this view.
 			bool         interactive{ true };    // may receive input/focus. Set at load, then immutable.
 			bool         bridgeAllowed{ false };  // manifest permissions.nativeBridge; gates window.osfui. Immutable after load.
@@ -1204,12 +1204,30 @@ namespace OSFUI
 				return;
 			}
 			if (a_m.kind == MouseInput::Kind::kScroll) {
+				// WebKit routes a wheel to the scrollable element under the
+				// pointer, and Ultralight's ScrollEvent carries no position — it
+				// scrolls whatever the view's LAST mouse position hovered. Pin
+				// that hover to this notch's point first: the pages scroll nested
+				// overflow:auto containers (the osf view's html/body is
+				// overflow:hidden, so the main frame never scrolls), and relying
+				// on a previously-queued MouseMoved is fragile — the fallback
+				// cursor fires none on a pure wheel packet, and move-coalescing
+				// can drop it. This mirrors the OS hit-testing a wheel at the
+				// cursor. Coords -> logical (CSS) px like every other mouse event.
+				const auto hoverScale = a_vs.view->device_scale();
+				ul::MouseEvent hover;
+				hover.type = ul::MouseEvent::kType_MouseMoved;
+				hover.button = ul::MouseEvent::kButton_None;
+				hover.x = static_cast<int>(std::lround(a_m.x / hoverScale));
+				hover.y = static_cast<int>(std::lround(a_m.y / hoverScale));
+				a_vs.view->FireMouseEvent(hover);
+
 				// Notches -> pixels via the per-view scroll step
 				// (SetScrollPixelSize). Multiply before divide so sub-notch
 				// high-resolution wheels still move. Positive delta = scroll up.
-				// Ultralight scrolls whatever the last MouseMoved hovered; the
-				// shared toMouse deque is processed in order, so the hover target
-				// is already current here — no extra MouseMoved needed.
+				// One event per notch, fired straight through — no animation. On
+				// the CPU surface every scroll step is a repaint + surface copy, so
+				// a per-frame glide multiplies that cost; keep it to one repaint.
 				const int pixels = (a_m.wheelDelta * a_vs.scrollPx.load()) / kWheelDelta;
 				ul::ScrollEvent ev;
 				ev.type = ul::ScrollEvent::kType_ScrollByPixel;

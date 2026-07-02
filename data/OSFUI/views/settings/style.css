@@ -1,7 +1,8 @@
 /* ============================================================
    OSF UI — Settings view (layout only)
-   The look comes from ../shared/osfui.css; this file is just the
-   panel layout + the settings-specific card/row structure.
+   Two-pane master/detail: a left rail of configurable subjects
+   (the framework first, then each mod), a right pane of controls.
+   The look comes from ../shared/osfui.css.
    ============================================================ */
 
 html, body { height: 100%; overflow: hidden; }
@@ -9,99 +10,126 @@ html, body { height: 100%; overflow: hidden; }
 /* Dim the live game into a menu backdrop (background stays transparent). */
 .scrim {
   position: fixed; inset: 0; z-index: 0; pointer-events: none;
-  background:
-    radial-gradient(120% 100% at 50% 40%, rgba(5, 8, 13, 0.42) 0%, rgba(5, 8, 13, 0.82) 100%);
+  background: radial-gradient(120% 100% at 50% 40%, rgba(5, 8, 13, 0.42) 0%, rgba(5, 8, 13, 0.82) 100%);
   box-shadow: inset 0 0 200px 50px rgba(2, 4, 7, 0.72);
 }
 
 .settings {
   position: relative; z-index: 1;
-  display: flex; flex-direction: column;
+  display: grid;
+  grid-template-columns: 264px 1fr;
   height: 100%;
-  max-width: 880px;
+  max-width: 1120px;
   margin: 0 auto;
-  padding: 0 32px;
 }
 
-/* ---- header ------------------------------------------------ */
-.settings-header {
-  flex: none;
-  display: flex; align-items: center; justify-content: space-between;
-  height: 74px;
+/* ---- LEFT RAIL --------------------------------------------- */
+.rail {
+  display: flex; flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--line);
+  background: rgba(7, 10, 14, 0.55);
 }
-.brand { display: flex; align-items: center; gap: 14px; }
+.rail-head { flex: none; padding: 20px 18px 14px; border-bottom: 1px solid var(--line); }
+.brand { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .brand-emblem { display: block; flex: none; }
-.brand-line { display: flex; align-items: baseline; gap: 8px; line-height: 1; }
+.brand-line { display: flex; align-items: baseline; gap: 6px; line-height: 1; }
 .wordmark-osf, .wordmark-ui {
-  font-family: var(--font-display); font-weight: 700; font-size: 24px;
+  font-family: var(--font-display); font-weight: 700; font-size: 22px;
   letter-spacing: 0.05em; text-transform: uppercase;
 }
 .wordmark-osf { color: var(--steel-200); }
 .wordmark-ui  { color: var(--accent); }
-.brand-sep { width: 1px; height: 18px; background: var(--line-strong); margin: 0 4px; }
 .brand-sub { margin-top: 5px; letter-spacing: 0.22em; }
+.filter { width: 100%; }
 
-.header-right { display: flex; align-items: center; gap: 12px; }
-.filter { width: 180px; }
-
-.accent-bar { flex: none; display: flex; height: 2px; }
-.accent-bar span:nth-child(1) { width: 40px;  background: var(--steel-600); }
-.accent-bar span:nth-child(2) { width: 96px;  background: var(--accent); }
-.accent-bar span:nth-child(3) { width: 32px;  background: var(--accent-strong); }
-.accent-bar span:nth-child(4) { flex: 1;       background: var(--steel-700); }
-
-.status { flex: none; padding: 14px 2px 4px; letter-spacing: 0.14em; }
-
-/* ---- form / cards ----------------------------------------- */
-.form {
-  flex: 1; min-height: 0; overflow-y: auto;
-  display: flex; flex-direction: column; gap: 16px;
-  padding: 8px 2px 24px;
+.rail-list { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 10px; }
+.rail-section {
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.18em;
+  text-transform: uppercase; color: var(--text-faint);
+  padding: 12px 8px 6px;
 }
+.rail-section:first-child { padding-top: 2px; }
 
-.mod { padding: 0; overflow: hidden; }
-.mod-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 14px 18px;
+.rail-item {
+  display: flex; align-items: center; gap: 11px; width: 100%;
+  padding: 9px 10px; margin: 2px 0;
+  font: inherit; text-align: left; color: var(--text-body);
+  background: transparent; border: 1px solid transparent; border-radius: var(--radius);
+  cursor: pointer;
+  transition: background var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast);
+}
+.rail-item:hover { background: rgba(154, 163, 173, 0.06); }
+.rail-item.selected { background: var(--accent-quiet); border-color: var(--line-hud); color: var(--text-bright); }
+.rail-item:focus-visible { outline: none; border-color: var(--accent); }
+.rail-item-mark {
+  flex: none; width: 30px; height: 30px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-display); font-weight: 700; font-size: 12px; letter-spacing: 0.04em;
+  color: var(--steel-300); background: rgba(154, 163, 173, 0.08);
+  border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
+}
+.rail-item.selected .rail-item-mark { color: var(--accent); border-color: var(--line-hud); background: var(--accent-quiet); }
+.rail-item-text { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.rail-item-title {
+  font-family: var(--font-display); font-size: var(--text-md); font-weight: 600; letter-spacing: 0.02em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.rail-item-sub {
+  font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.08em;
+  color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.rail-empty {
+  padding: 10px 12px; margin: 2px 6px;
+  font-size: var(--text-xs); color: var(--text-faint); line-height: 1.5;
+  border: 1px dashed var(--line-strong); border-radius: var(--radius);
+}
+.rail-empty code { color: var(--text-muted); font-size: 11px; }
+
+.rail-foot { flex: none; padding: 12px 16px; border-top: 1px solid var(--line); }
+.rail-foot .osf-btn { width: 100%; }
+
+/* ---- RIGHT PANE -------------------------------------------- */
+.detail {
+  min-height: 0; overflow-y: auto;
+  padding: 26px 34px 34px;
+  display: flex; flex-direction: column;
+}
+.status { flex: none; letter-spacing: 0.14em; }
+
+.detail-head {
+  flex: none; display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 16px; padding-bottom: 16px; margin-bottom: 8px;
   border-bottom: 1px solid var(--line);
-  background: rgba(11, 14, 18, 0.4);
 }
-.mod-header h2 {
-  font-size: var(--text-xl); font-weight: 600;
-  letter-spacing: 0.06em; text-transform: uppercase;
-}
-.mod-body { padding: 6px 18px 16px; }
+.detail-head h2 { font-size: var(--text-3xl); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; margin-top: 4px; }
+.detail-head .kicker { letter-spacing: 0.2em; }
+.detail-desc { font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-faint); margin-top: 8px; max-width: 62ch; }
 
-.group { padding: 12px 0; }
+.group { padding: 16px 0; }
 .group + .group { border-top: 1px solid var(--line); }
 .group-label {
   font-family: var(--font-mono); font-size: var(--text-2xs);
-  letter-spacing: var(--tracking-label); text-transform: uppercase;
-  color: var(--text-faint);
-  margin-bottom: 10px;
+  letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--text-faint);
+  margin-bottom: 8px;
 }
 
 .row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  gap: 16px;
-  min-height: 40px;
-  padding: 6px 0;
+  display: grid; grid-template-columns: 1fr auto; align-items: center;
+  gap: 20px; min-height: 44px; padding: 8px 0;
 }
 .row + .row { border-top: 1px solid rgba(47, 53, 61, 0.5); }
-.row > label {
-  font-size: var(--text-sm); color: var(--text-body);
-}
+.row-text { min-width: 0; }
+.row-label { font-size: var(--text-md); color: var(--text-body); }
+.row-hint { font-size: var(--text-xs); color: var(--text-faint); margin-top: 2px; }
 .control { display: flex; align-items: center; gap: 12px; justify-content: flex-end; }
-.control .osf-range { width: 180px; }
-.control .osf-select { min-width: 140px; }
-.control .osf-input { width: 200px; }
+.control .osf-range { width: 200px; }
+.control .osf-select { min-width: 150px; }
+.control .osf-input { width: 220px; }
 
 .row.hidden { display: none; }
-.mod.hidden { display: none; }
 
-.credits {
-  flex: none; padding: 12px 0; text-align: center;
-  letter-spacing: 0.1em; opacity: 0.7;
+.detail-empty {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; color: var(--text-faint); text-align: center;
 }
