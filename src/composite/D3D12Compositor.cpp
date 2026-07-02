@@ -200,6 +200,10 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		std::uint32_t             frameHeight{ 0 };
 		DXGI_FORMAT               frameFormat{ DXGI_FORMAT_UNKNOWN };
 		bool                      frameDirty{ false };
+		// Region of cpuPixels changed since the last consumed upload; presents
+		// can lag submits, so CacheFrame unions rects until RecordAndExecute
+		// drains them (guarded by frameMutex like frameDirty).
+		DirtyRect                 dirtyRegion{};
 		std::uint64_t             lastSubmittedIndex{ 0 };
 
 		// ---- shared GPU objects (created once) ----
@@ -241,6 +245,11 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		std::uint32_t   texHeight{ 0 };
 		DXGI_FORMAT     texFormat{ DXGI_FORMAT_UNKNOWN };
 		std::uint32_t   uploadRowPitch{ 0 };
+		// A freshly (re)created texture has undefined contents — the next
+		// upload must cover the whole frame regardless of the dirty region.
+		// Present-thread-only (set in EnsureTextureForFrame, consumed in
+		// RecordAndExecute).
+		bool            needsFullUpload{ true };
 
 		// ---- per-swapchain backbuffer targets ----
 		// NOTE: we deliberately do NOT cache the swapchain's backbuffer
@@ -713,6 +722,8 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			srv.Texture2D.MipLevels = 1;
 			engine.device->CreateShaderResourceView(texture, &srv, srvHeap->GetCPUDescriptorHandleForHeapStart());
 
+			needsFullUpload = true;  // new texture = undefined contents
+
 			REX::INFO("D3D12Compositor: overlay texture ready ({}x{} {})", w, h,
 				fmt == DXGI_FORMAT_B8G8R8A8_UNORM ? "BGRA8" : "RGBA8");
 			return true;
@@ -876,17 +887,31 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			a_slot.list->Reset(a_slot.allocator, a_pso);
 			auto* list = a_slot.list;
 
-			// Upload a new frame into the texture (only when one arrived).
-			bool uploaded = false;
+			// Upload a new frame into the texture (only when one arrived). Only
+			// the dirty region is copied into the mapped upload buffer AND box-
+			// copied to the texture: each ring slot's buffer holds stale bytes
+			// outside whatever rect was last written into it, which is safe
+			// precisely because pSrcBox never reads them. A recreated texture
+			// forces a full-frame pass (needsFullUpload).
+			bool      uploaded = false;
+			DirtyRect rect{};
 			{
 				std::scoped_lock lk(frameMutex);
 				if (frameDirty && frameWidth == texWidth && frameHeight == texHeight) {
+					rect = dirtyRegion;
+					if (needsFullUpload || rect.Empty() ||
+						rect.x + rect.width > texWidth || rect.y + rect.height > texHeight) {
+						rect = DirtyRect::Full(texWidth, texHeight);
+					}
 					const auto rowBytes = texWidth * 4u;
-					for (std::uint32_t y = 0; y < texHeight; ++y) {
-						std::memcpy(a_slot.mapped + static_cast<std::size_t>(y) * uploadRowPitch,
-							cpuPixels.data() + static_cast<std::size_t>(y) * rowBytes, rowBytes);
+					const auto rowStart = static_cast<std::size_t>(rect.x) * 4u;
+					const auto rowLen = static_cast<std::size_t>(rect.width) * 4u;
+					for (std::uint32_t y = rect.y; y < rect.y + rect.height; ++y) {
+						std::memcpy(a_slot.mapped + static_cast<std::size_t>(y) * uploadRowPitch + rowStart,
+							cpuPixels.data() + static_cast<std::size_t>(y) * rowBytes + rowStart, rowLen);
 					}
 					frameDirty = false;
+					needsFullUpload = false;
 					uploaded = true;
 				}
 			}
@@ -903,7 +928,16 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				dst.pResource = texture;
 				dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
 				dst.SubresourceIndex = 0;
-				list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+				// Box coordinates are in the source subresource's texture space,
+				// which matches the texture 1:1 (rows at y*uploadRowPitch).
+				D3D12_BOX box{};
+				box.left = rect.x;
+				box.top = rect.y;
+				box.front = 0;
+				box.right = rect.x + rect.width;
+				box.bottom = rect.y + rect.height;
+				box.back = 1;
+				list->CopyTextureRegion(&dst, rect.x, rect.y, 0, &src, &box);
 			}
 
 			const auto barrier = [&](ID3D12Resource* r, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) {
@@ -1001,14 +1035,31 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 			const auto rowBytes = a_frame.width * 4u;
 			std::scoped_lock lk(frameMutex);
-			cpuPixels.resize(static_cast<std::size_t>(rowBytes) * a_frame.height);
-			for (std::uint32_t y = 0; y < a_frame.height; ++y) {
-				std::memcpy(cpuPixels.data() + static_cast<std::size_t>(y) * rowBytes,
-					a_frame.pixels.data() + static_cast<std::size_t>(y) * a_frame.strideBytes, rowBytes);
+			// cpuPixels persists across frames, so only the delivered dirty
+			// rect needs copying — except when the staging buffer was just
+			// (re)sized (its other pixels are garbage) or the rect is absent/
+			// out of bounds, which fall back to a full copy.
+			const bool realloc = frameWidth != a_frame.width || frameHeight != a_frame.height ||
+				cpuPixels.size() != static_cast<std::size_t>(rowBytes) * a_frame.height;
+			if (realloc) {
+				cpuPixels.resize(static_cast<std::size_t>(rowBytes) * a_frame.height);
+			}
+			DirtyRect rect = a_frame.dirty;
+			if (realloc || rect.Empty() ||
+				rect.x + rect.width > a_frame.width || rect.y + rect.height > a_frame.height) {
+				rect = DirtyRect::Full(a_frame.width, a_frame.height);
+			}
+			const auto rowStart = static_cast<std::size_t>(rect.x) * 4u;
+			const auto rowLen = static_cast<std::size_t>(rect.width) * 4u;
+			for (std::uint32_t y = rect.y; y < rect.y + rect.height; ++y) {
+				std::memcpy(cpuPixels.data() + static_cast<std::size_t>(y) * rowBytes + rowStart,
+					a_frame.pixels.data() + static_cast<std::size_t>(y) * a_frame.strideBytes + rowStart, rowLen);
 			}
 			frameWidth = a_frame.width;
 			frameHeight = a_frame.height;
 			frameFormat = ToDxgiFormat(a_frame.format);
+			// Presents can lag submits: accumulate until an upload consumes it.
+			dirtyRegion = frameDirty ? DirtyRect::Union(dirtyRegion, rect) : rect;
 			frameDirty = true;
 		}
 	};

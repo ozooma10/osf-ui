@@ -8,6 +8,7 @@
 	#include <algorithm>
 	#include <cctype>
 	#include <cmath>
+	#include <cstring>
 	#include <condition_variable>
 	#include <deque>
 	#include <thread>
@@ -371,6 +372,12 @@ namespace OSFUI
 			std::uint32_t             height{ 0 };
 			std::uint32_t             strideBytes{ 0 };
 			std::uint64_t             index{ 0 };
+			// Region changed since this frame's previous update at the same
+			// dims (see FrameBufferView::dirty). Frames are PERSISTENT here:
+			// each buffer always holds a complete image and is patched in
+			// place, so a rect-sized copy is enough to bring a stale copy of
+			// the same lineage up to date.
+			DirtyRect                 dirty{};
 		};
 
 		// ---- per-view JS op / notify payloads ----
@@ -428,9 +435,10 @@ namespace OSFUI
 			// worker-thread-only
 			ul::RefPtr<ul::View>    view;
 			std::uint32_t           logicalHeight{ 720 };  // manifest height = the page's authoring height; resizes keep device scale = pixels/logical
-			Frame                   backFrame;   // latest harvested pixels (overwritten on repaint)
+			Frame                   backFrame;   // persistent canonical surface, patched per dirty rect
 			bool                    backDirty{ false };  // backFrame changed since last expose/composite
 			std::uint64_t           paintCount{ 0 };
+			std::uint64_t           statDirtyPx{ 0 };  // devMode: dirty px since last stat log
 			bool                    domReady{ false };
 			std::deque<std::string> stashedToWeb;  // arrived before the page was ready
 			bool                    dumpedFirstFrame{ false };
@@ -454,7 +462,20 @@ namespace OSFUI
 		Frame         compositedPending;
 		bool          compositedFresh{ false };
 		Frame         compositedFront;
-		std::uint64_t compositeIndex{ 0 };
+
+		// One monotonic serial for EVERY frame this renderer produces (per-view
+		// and composited alike, worker-thread-only). Render() switches between
+		// the two streams, and the consumer dedups by frameIndex — separate
+		// counters could alias across that switch.
+		std::uint64_t frameSerial{ 0 };
+
+		// Render()-side delivery bookkeeping (game-thread-only). Switching
+		// between the composited stream and a single view's stream changes the
+		// baseline the dirty rect is a delta against, so the first NEW frame
+		// delivered after a switch must claim the whole frame.
+		bool          lastRenderMulti{ false };
+		bool          forceFullDirty{ false };
+		std::uint64_t lastReturnedIndex{ 0 };
 
 		// The JSC postMessage callback is a plain function pointer with no
 		// user-data slot, so it finds us through this. One renderer per process.
@@ -741,27 +762,57 @@ namespace OSFUI
 			const bool forceComposite = compositeDirty.exchange(false);
 
 			// Expose to the game thread. One view: hand its frame straight across
-			// (the untouched single-view fast path: per-view triple buffer). More
-			// than one: blend them into the composited frame first.
+			// (the single-view fast path: per-view triple buffer). More than one:
+			// blend them into the composited frame first. Buffers are persistent,
+			// so each hand-off copies only the dirty rect; when the consumer has
+			// not drained the previous update yet, the rects are unioned.
 			if (a_ordered.size() <= 1) {
 				if (!a_ordered.empty() && a_ordered.front()->backDirty && !a_ordered.front()->hidden.load()) {
 					auto* vs = a_ordered.front();
 					std::scoped_lock lk(frameMutex);
-					std::swap(vs->backFrame, vs->pendingFrame);
+					PublishRect(vs->backFrame, vs->pendingFrame, vs->pendingFresh);
 					vs->pendingFresh = true;
 					vs->backDirty = false;
 				}
 			} else if (anyDirty || forceComposite) {
-				CompositeViews(a_ordered);
-				{
+				if (CompositeViews(a_ordered, forceComposite)) {
 					std::scoped_lock lk(frameMutex);
-					std::swap(compositedBack, compositedPending);
+					PublishRect(compositedBack, compositedPending, compositedFresh);
 					compositedFresh = true;
 				}
 				for (auto* vs : a_ordered) {
 					vs->backDirty = false;
 				}
 			}
+		}
+
+		// Copy a_src's dirty region onto a_dst — both persistent, complete
+		// frames of the same lineage, so patching the rect brings a_dst fully
+		// up to date. A dimension change rebuilds a_dst with a full copy.
+		// a_accumulate: a_dst still holds an update its consumer has not seen,
+		// so UNION the rects instead of replacing (the pixels of the older
+		// rect are already in place — layering the new rect on top keeps the
+		// union region entirely fresh).
+		static void PublishRect(const Frame& a_src, Frame& a_dst, bool a_accumulate)
+		{
+			if (a_dst.width != a_src.width || a_dst.height != a_src.height ||
+				a_dst.strideBytes != a_src.strideBytes) {
+				a_dst.pixels = a_src.pixels;
+				a_dst.width = a_src.width;
+				a_dst.height = a_src.height;
+				a_dst.strideBytes = a_src.strideBytes;
+				a_dst.dirty = DirtyRect::Full(a_src.width, a_src.height);
+			} else {
+				const DirtyRect r = a_src.dirty.Empty() ? DirtyRect::Full(a_src.width, a_src.height) : a_src.dirty;
+				const auto      rowStart = static_cast<std::size_t>(r.x) * 4u;
+				const auto      rowLen = static_cast<std::size_t>(r.width) * 4u;
+				for (std::uint32_t y = r.y; y < r.y + r.height; ++y) {
+					std::memcpy(a_dst.pixels.data() + static_cast<std::size_t>(y) * a_src.strideBytes + rowStart,
+						a_src.pixels.data() + static_cast<std::size_t>(y) * a_src.strideBytes + rowStart, rowLen);
+				}
+				a_dst.dirty = a_accumulate ? DirtyRect::Union(a_dst.dirty, r) : r;
+			}
+			a_dst.index = a_src.index;
 		}
 
 		void HarvestFrame(ViewState& a_vs)
@@ -771,22 +822,66 @@ namespace OSFUI
 				return;
 			}
 
-			const auto stride = surface->row_bytes();
-			const auto byteCount = surface->size();
+			const std::uint32_t w = surface->width();
+			const std::uint32_t h = surface->height();
+			const std::uint32_t tightStride = w * 4u;
+			const auto          srcStride = surface->row_bytes();
+
+			// Clamp WebCore's dirty bounds to the surface — they can
+			// momentarily extend past the edge (e.g. mid-resize).
+			const auto bounds = surface->dirty_bounds();
+			const auto bx0 = static_cast<std::uint32_t>(std::clamp(bounds.left, 0, static_cast<int>(w)));
+			const auto by0 = static_cast<std::uint32_t>(std::clamp(bounds.top, 0, static_cast<int>(h)));
+			const auto bx1 = static_cast<std::uint32_t>(std::clamp(bounds.right, 0, static_cast<int>(w)));
+			const auto by1 = static_cast<std::uint32_t>(std::clamp(bounds.bottom, 0, static_cast<int>(h)));
+			DirtyRect rect{ bx0, by0, bx1 > bx0 ? bx1 - bx0 : 0, by1 > by0 ? by1 - by0 : 0 };
+			if (rect.Empty()) {
+				surface->ClearDirtyBounds();
+				return;
+			}
+
+			// backFrame is the persistent canonical surface: (re)allocated only
+			// on a size change — which forces a full-rect copy and voids any
+			// unexposed old-size rect — then patched in place. Rows are stored
+			// tightly packed; the surface stride is dropped here.
+			if (a_vs.backFrame.width != w || a_vs.backFrame.height != h) {
+				a_vs.backFrame.pixels.assign(static_cast<std::size_t>(tightStride) * h, 0);
+				a_vs.backFrame.width = w;
+				a_vs.backFrame.height = h;
+				a_vs.backFrame.strideBytes = tightStride;
+				a_vs.backDirty = false;
+				rect = DirtyRect::Full(w, h);
+			}
+
 			if (auto* pixels = surface->LockPixels()) {
-				a_vs.backFrame.pixels.assign(
-					static_cast<const std::uint8_t*>(pixels),
-					static_cast<const std::uint8_t*>(pixels) + byteCount);
-				a_vs.backFrame.width = surface->width();
-				a_vs.backFrame.height = surface->height();
-				a_vs.backFrame.strideBytes = stride;
-				a_vs.backFrame.index = ++a_vs.paintCount;
+				const auto* src = static_cast<const std::uint8_t*>(pixels);
+				const auto  rowStart = static_cast<std::size_t>(rect.x) * 4u;
+				const auto  rowLen = static_cast<std::size_t>(rect.width) * 4u;
+				for (std::uint32_t y = rect.y; y < rect.y + rect.height; ++y) {
+					std::memcpy(a_vs.backFrame.pixels.data() + static_cast<std::size_t>(y) * tightStride + rowStart,
+						src + static_cast<std::size_t>(y) * srcStride + rowStart, rowLen);
+				}
+				a_vs.backFrame.index = ++frameSerial;
+				++a_vs.paintCount;
 				surface->UnlockPixels();
 			} else {
 				return;
 			}
 			surface->ClearDirtyBounds();
+			// A harvest can land before the previous one was exposed (hidden
+			// view, skipped composite pass) — accumulate, don't replace.
+			a_vs.backFrame.dirty = a_vs.backDirty ? DirtyRect::Union(a_vs.backFrame.dirty, rect) : rect;
 			a_vs.backDirty = true;
+
+			if (config.devMode) {
+				a_vs.statDirtyPx += static_cast<std::uint64_t>(rect.width) * rect.height;
+				if ((a_vs.paintCount % 600) == 0) {
+					REX::DEBUG("UltralightWebRenderer: view '{}' avg dirty area {:.1f}% over last 600 paints",
+						a_vs.id, 100.0 * static_cast<double>(a_vs.statDirtyPx) /
+									 (600.0 * static_cast<double>(w) * static_cast<double>(h)));
+					a_vs.statDirtyPx = 0;
+				}
+			}
 
 			if (a_vs.paintCount == 1) {
 				REX::INFO("UltralightWebRenderer: first paint for view '{}' ({}x{}, stride {})",
@@ -815,8 +910,17 @@ namespace OSFUI
 		// more than one view is hosted; a single view uses the fast path and
 		// never lands here. Views are all resized to the output size, so this is
 		// a same-size blend; any momentarily mismatched view (mid-resize) is
-		// skipped this pass rather than mis-sampled.
-		void CompositeViews(const std::vector<ViewState*>& a_ordered)
+		// skipped this pass rather than mis-sampled. (Safe with dirty rects: a
+		// skipped view's next same-size harvest is always full-rect, because
+		// resizing reallocates its backFrame.)
+		//
+		// compositedBack is persistent: only the union of the VISIBLE views'
+		// dirty rects is re-blended (a hidden view repainting cannot change the
+		// output; hide/show/reorder arrives as a_forceFull). The cleared region
+		// must be re-blended by EVERY visible view, not just the dirty one —
+		// the clear wiped all layers there. Returns false when nothing visible
+		// changed, so the caller can skip publishing a no-op frame.
+		[[nodiscard]] bool CompositeViews(const std::vector<ViewState*>& a_ordered, bool a_forceFull)
 		{
 			std::uint32_t w = 0;
 			std::uint32_t h = 0;
@@ -828,27 +932,54 @@ namespace OSFUI
 				}
 			}
 			if (w == 0 || h == 0) {
-				return;
+				return false;
 			}
 
 			const std::uint32_t dstStride = w * 4u;
-			compositedBack.pixels.assign(static_cast<std::size_t>(dstStride) * h, 0);  // clear to transparent
-			compositedBack.width = w;
-			compositedBack.height = h;
-			compositedBack.strideBytes = dstStride;
+			if (compositedBack.width != w || compositedBack.height != h) {
+				compositedBack.pixels.assign(static_cast<std::size_t>(dstStride) * h, 0);
+				compositedBack.width = w;
+				compositedBack.height = h;
+				compositedBack.strideBytes = dstStride;
+				a_forceFull = true;
+			}
+
+			DirtyRect region{};
+			if (a_forceFull) {
+				region = DirtyRect::Full(w, h);
+			} else {
+				for (const auto* vs : a_ordered) {
+					if (!vs->hidden.load() && vs->backDirty &&
+						vs->backFrame.width == w && vs->backFrame.height == h) {
+						region = DirtyRect::Union(region,
+							vs->backFrame.dirty.Empty() ? DirtyRect::Full(w, h) : vs->backFrame.dirty);
+					}
+				}
+			}
+			if (region.Empty()) {
+				return false;  // only hidden views changed; output is unchanged
+			}
+
+			// Clear the region to transparent, then blend every visible view
+			// over it, bottom-to-top.
+			const auto rowStart = static_cast<std::size_t>(region.x) * 4u;
+			const auto rowLen = static_cast<std::size_t>(region.width) * 4u;
+			for (std::uint32_t y = region.y; y < region.y + region.height; ++y) {
+				std::memset(compositedBack.pixels.data() + static_cast<std::size_t>(y) * dstStride + rowStart, 0, rowLen);
+			}
 
 			for (const auto* vs : a_ordered) {
 				if (vs->hidden.load()) {
-						continue;
+					continue;
 				}
 				const Frame& src = vs->backFrame;
 				if (src.pixels.empty() || src.width != w || src.height != h) {
 					continue;
 				}
-				for (std::uint32_t y = 0; y < h; ++y) {
+				for (std::uint32_t y = region.y; y < region.y + region.height; ++y) {
 					std::uint8_t*       d = compositedBack.pixels.data() + static_cast<std::size_t>(y) * dstStride;
 					const std::uint8_t* s = src.pixels.data() + static_cast<std::size_t>(y) * src.strideBytes;
-					for (std::uint32_t x = 0; x < w; ++x) {
+					for (std::uint32_t x = region.x; x < region.x + region.width; ++x) {
 						const std::uint32_t i = x * 4u;
 						const unsigned      inv = 255u - s[i + 3];  // 1 - src.alpha (premultiplied "over")
 						d[i + 0] = static_cast<std::uint8_t>(s[i + 0] + (d[i + 0] * inv + 127u) / 255u);
@@ -858,7 +989,9 @@ namespace OSFUI
 					}
 				}
 			}
-			compositedBack.index = ++compositeIndex;
+			compositedBack.dirty = region;
+			compositedBack.index = ++frameSerial;
+			return true;
 		}
 
 		// ================= JS bridge (worker thread) =================
@@ -1646,17 +1779,34 @@ namespace OSFUI
 			active = _impl->ActiveView();
 		}
 
+		// A switch between the composited stream and a single view's stream
+		// changes the baseline the dirty rect is a delta against; the flag
+		// stays armed until a NEW frame is actually delivered (the consumer
+		// dedups by frameIndex, so forcing full on a stale re-delivery would
+		// be consumed by nobody).
+		if (multi != _impl->lastRenderMulti) {
+			_impl->lastRenderMulti = multi;
+			_impl->forceFullDirty = true;
+		}
+
 		// Multi-view: return the worker's composited frame.
 		if (multi) {
 			std::scoped_lock lk(_impl->frameMutex);
 			if (_impl->compositedFresh) {
-				std::swap(_impl->compositedPending, _impl->compositedFront);
+				Impl::PublishRect(_impl->compositedPending, _impl->compositedFront, false);
 				_impl->compositedFresh = false;
 			}
-			const auto& front = _impl->compositedFront;
+			auto& front = _impl->compositedFront;
 			if (front.pixels.empty()) {
 				return std::nullopt;
 			}
+			if (_impl->forceFullDirty) {
+				front.dirty = DirtyRect::Full(front.width, front.height);
+				if (front.index != _impl->lastReturnedIndex) {
+					_impl->forceFullDirty = false;  // the full rect rides out on a new frame
+				}
+			}
+			_impl->lastReturnedIndex = front.index;
 			return FrameBufferView{
 				.pixels = front.pixels,
 				.width = front.width,
@@ -1664,24 +1814,32 @@ namespace OSFUI
 				.strideBytes = front.strideBytes,
 				.format = PixelFormat::kBGRA8,
 				.frameIndex = front.index,
+				.dirty = front.dirty,
 			};
 		}
 
-		// Single-view fast path (unchanged): the active view's own frame.
+		// Single-view fast path: the active view's own frame.
 		if (!active) {
 			return std::nullopt;
 		}
 		{
 			std::scoped_lock lk(_impl->frameMutex);
 			if (active->pendingFresh) {
-				std::swap(active->pendingFrame, active->frontFrame);
+				Impl::PublishRect(active->pendingFrame, active->frontFrame, false);
 				active->pendingFresh = false;
 			}
 		}
-		const auto& front = active->frontFrame;
+		auto& front = active->frontFrame;
 		if (front.pixels.empty()) {
 			return std::nullopt;
 		}
+		if (_impl->forceFullDirty) {
+			front.dirty = DirtyRect::Full(front.width, front.height);
+			if (front.index != _impl->lastReturnedIndex) {
+				_impl->forceFullDirty = false;
+			}
+		}
+		_impl->lastReturnedIndex = front.index;
 		return FrameBufferView{
 			.pixels = front.pixels,
 			.width = front.width,
@@ -1689,6 +1847,7 @@ namespace OSFUI
 			.strideBytes = front.strideBytes,
 			.format = PixelFormat::kBGRA8,
 			.frameIndex = front.index,
+			.dirty = front.dirty,
 		};
 	}
 
