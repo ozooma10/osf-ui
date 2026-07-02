@@ -132,12 +132,15 @@ namespace OSFUI
 		void DrainMenuRequests();
 
 		// EXPERIMENTAL (config.focusMenu). Open/close the engine focus menu to
-		// match the top menu's capture policy, and drive its kPausesGame flag
-		// from the top menu's pausesGame manifest field. Called every tick from
-		// the game's MAIN thread so the UIMessageQueue is never poked from the
-		// WndProc/input thread. No-op unless config.focusMenu is set. See
-		// input/FocusMenu.h.
+		// match the top menu's capture policy. Called every tick from the game's
+		// MAIN thread so the UIMessageQueue is never poked from the WndProc/input
+		// thread. No-op unless config.focusMenu is set. See input/FocusMenu.h.
 		void ReconcileFocusMenu();
+
+		// Drive the sim pause (Main::isGameMenuPaused) toward the top menu's
+		// pausesGame manifest policy. Unconditional (no config gate — needs no
+		// engine menu), every tick, main thread. See input/SimPause.h.
+		void ReconcileSimPause();
 
 		// EXPERIMENTAL (config.disableControls). Engage/release the engine
 		// input-enable layer (device-agnostic control disable, incl. gamepad) to
@@ -193,11 +196,9 @@ namespace OSFUI
 		std::atomic_bool              _visible{ false };
 		bool                          _initialized{ false };
 
-		// Last focus-menu open state + pause flag we drove (main-thread only,
-		// reconciled in Tick against the menu policy). EXPERIMENTAL — see
-		// config.focusMenu.
+		// Last focus-menu open state we drove (main-thread only, reconciled in
+		// Tick against the menu policy). EXPERIMENTAL — see config.focusMenu.
 		bool                          _focusMenuOpen{ false };
-		bool                          _focusMenuPause{ false };
 
 		// Per-view load state (view id -> ViewLoadState), written from the
 		// renderer's load hook and read by GetViewLoadState. Game-thread only.

@@ -68,7 +68,15 @@ namespace OSFUI
 		// (ui.menu_flags). Not needed for input either (the gate is bit 4, not this
 		// — ui.menu_input). Kept as a named constant for reference only.
 		static constexpr std::uint32_t kFlagModal      = 1u << 8;
-		static constexpr std::uint32_t kFlagPausesGame = 1u << 27;  // pause sim + 16:9 freeze-frame
+		// DOES NOT PAUSE THE SIM — corrected 2026-07-02 (OSF RE ui.menu_pause;
+		// the 06-13 "pauses game" claim was a correlation). Bit 27 only arms the
+		// cosmetic freeze-frame/letterbox latch, and only when the menu is the
+		// top kModal menu (we are not). The real sim pause is Main+0x448
+		// (input/SimPause). Letterbox, if ever wanted, is menu->Unk0E(&menuName,
+		// bool) with this bit set (CLSF ID::IMenu::Unk0E{130622}, live-proven —
+		// but latch-on-non-modal is an unnatural state; soak before shipping).
+		// Named constant kept for reference only.
+		static constexpr std::uint32_t kFlagPausesGame = 1u << 27;
 
 		// ---- platform-facing API (call from the game main thread) ----
 
@@ -82,15 +90,6 @@ namespace OSFUI
 		// poke from the WndProc/input thread. No-op until Register() succeeds.
 		static void Open();
 		static void Close();
-
-		// Whether the engine menu pauses the game (kFlagPausesGame, bit 27 —
-		// proven: flips Main::isGameMenuPaused and arms the freeze-frame
-		// background). Writes the desired flag set both into the template the
-		// next creator run uses AND onto the live engine object; but the engine
-		// only RECOMPUTES the pause latch on menu open/close events, so callers
-		// must set this BEFORE Open() (Runtime closes+reopens on a change while
-		// open). Main thread only.
-		static void SetPausesGame(bool a_pause);
 
 		// True once Register() has run successfully this session.
 		[[nodiscard]] static bool IsRegistered();

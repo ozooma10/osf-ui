@@ -11,6 +11,7 @@
 #include "input/ControlLayer.h"
 #include "input/FocusMenu.h"
 #include "input/HardwareCursor.h"
+#include "input/SimPause.h"
 #include "core/Paths.h"
 #include "platform/WindowsPlatform.h"
 #include "render/MockWebRenderer.h"
@@ -266,6 +267,9 @@ namespace OSFUI
 		if (_config.disableControls) {
 			ReconcileControlLayer();
 		}
+		// Sim pause (manifest pausesGame) — unconditional: it is a direct
+		// Main::isGameMenuPaused write, independent of the engine focus menu.
+		ReconcileSimPause();
 		if (!_renderer) {
 			return;
 		}
@@ -570,27 +574,30 @@ namespace OSFUI
 	void Runtime::ReconcileFocusMenu()
 	{
 		// Runs on the game main thread (Tick). Drive the engine menu's open state
-		// toward the top menu's CAPTURE policy, and its kPausesGame flag toward
-		// the top menu's PAUSE policy (manifest pausesGame — Step 3, finally live
-		// now that Route A admits the menu). The engine recomputes the pause
-		// latch on menu open/close events, not on flag writes to an open menu, so
-		// a pause-policy change while open closes the menu this tick and lets the
-		// next tick reopen it with the new flag (also avoids stacking kHide+kShow
-		// in one queue pump). Only act on a change — no per-frame queue spam.
+		// toward the top menu's CAPTURE policy. Pause is deliberately NOT wired
+		// through menu flags: kPausesGame is letterbox-only and only consulted
+		// for kModal menus (OSF RE ui.menu_pause) — the sim pause is
+		// ReconcileSimPause. Only act on a change — no per-frame queue spam.
 		const bool wantOpen = _menus.DesiredCapture();
-		const bool wantPause = _menus.DesiredPause();
-
-		if (_focusMenuOpen && (!wantOpen || wantPause != _focusMenuPause)) {
-			FocusMenu::Close();
-			_focusMenuOpen = false;
+		if (wantOpen == _focusMenuOpen) {
 			return;
 		}
-		if (!_focusMenuOpen && wantOpen) {
-			FocusMenu::SetPausesGame(wantPause);  // BEFORE Open: the open-path recompute reads it
-			_focusMenuPause = wantPause;
+		_focusMenuOpen = wantOpen;
+		if (wantOpen) {
 			FocusMenu::Open();
-			_focusMenuOpen = true;
+		} else {
+			FocusMenu::Close();
 		}
+	}
+
+	void Runtime::ReconcileSimPause()
+	{
+		// Main thread (Tick), unconditional — the sim pause needs no engine menu
+		// (it is a direct Main::isGameMenuPaused write; see input/SimPause), so
+		// it is not gated on config.focusMenu. Driven by the top menu's manifest
+		// pausesGame (default true for menus). Called every tick on purpose:
+		// SimPause re-asserts the byte against native-menu writes while engaged.
+		SimPause::Apply(_menus.DesiredPause());
 	}
 
 	void Runtime::ReconcileControlLayer()
