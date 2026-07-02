@@ -50,6 +50,12 @@ namespace OSFUI
 		// OSF RE 2026-06-13-input-enable-layer-control-disable). See
 		// input/ControlLayer.h.
 		bool        disableControls{ false };
+		// EXPERIMENTAL — Level-2 engine-routed input, increment 2 (observer
+		// only). Patches the focus menu's +0x10 BSInputEventUser vtable so the
+		// engine's per-menu input dispatch (incl. GAMEPAD, which the WndProc
+		// never sees) is counted and summarized per overlay session. Does NOT
+		// route anything into the web view yet. See input/EngineInput.h.
+		bool        engineInput{ false };
 		std::string view{ "test" };
 		// Optional multi-view set. When non-empty, every id is loaded and
 		// composited together (layer order = each view's manifest `zorder`), and

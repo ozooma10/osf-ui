@@ -60,7 +60,10 @@ namespace OSFUI
 		static constexpr std::string_view MENU_NAME = "OSFUI_FocusMenu";
 
 		// Proven RE::IMenu::Flag bits (1.16.244).
-		static constexpr std::uint32_t kFlagShowCursor = 1u << 3;   // cursor shown
+		// NOT SET since 2026-07-02: on an ADMITTED menu this summons the engine's
+		// Scaleform cursor arrow, which freezes at screen center (the WndProc
+		// swallow starves it of mouse input). The hardware cursor is the pointer.
+		static constexpr std::uint32_t kFlagShowCursor = 1u << 3;
 		// top-of-stack modal selector. INTENTIONALLY NOT SET: once the menu is
 		// admitted, kModal makes the engine treat us as a full application menu and
 		// STOP rendering the 3D world behind the overlay (opaque black). Every

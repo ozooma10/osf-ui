@@ -9,6 +9,7 @@
 #include "composite/NullCompositor.h"
 #include "core/Log.h"
 #include "input/ControlLayer.h"
+#include "input/EngineInput.h"
 #include "input/FocusMenu.h"
 #include "input/HardwareCursor.h"
 #include "input/SimPause.h"
@@ -201,6 +202,11 @@ namespace OSFUI
 		_consoleKey = ResolveKeyName(_config.consoleKey);
 		if (_consoleKey != kInvalidKeyCode) {
 			REX::INFO("Runtime: consoleKey '{}' resolved to VK code {:#x} (passed through to the game so the console opens while the overlay is up)", _config.consoleKey, _consoleKey);
+		}
+
+		EngineInput::SetEnabled(_config.engineInput);
+		if (_config.engineInput) {
+			REX::INFO("Runtime: engineInput observer enabled (EXPERIMENTAL) — engine per-menu input dispatch will be counted per overlay session; expect gamepad-only while the WndProc swallow is active");
 		}
 
 		// F10 toggles the default menu; Esc (while captured) closes the top menu.
@@ -598,6 +604,8 @@ namespace OSFUI
 			FocusMenu::Open();
 		} else {
 			FocusMenu::Close();
+			// One observer summary per overlay session (no-op unless engineInput).
+			EngineInput::LogSessionSummary();
 		}
 	}
 

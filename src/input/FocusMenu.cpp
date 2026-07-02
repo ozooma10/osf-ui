@@ -1,5 +1,7 @@
 #include "input/FocusMenu.h"
 
+#include "input/EngineInput.h"
+
 #include "RE/B/BSFixedString.h"
 #include "RE/IDs_VTABLE.h"
 #include "RE/I/IMenu.h"
@@ -172,11 +174,15 @@ namespace OSFUI
 		// the menu is ADMITTED (Route A), kModal makes the engine treat us as a
 		// full application menu and suppress the world render -> opaque black
 		// behind the overlay. kModal is NOT needed for input either: ui.menu_input
-		// proved input gating is flags bit 4, not kModal. And NO kPausesGame: it
-		// is letterbox-only and only consulted for kModal menus (ui.menu_pause) —
-		// the sim pause is input/SimPause writing Main::isGameMenuPaused.
+		// proved input gating is flags bit 4, not kModal. NO pause bits (the sim
+		// pause is input/SimPause via the UI pause counter). And since 2026-07-02
+		// NO ShowCursor either: once the menu is ADMITTED (Route A) bit 3 makes
+		// the engine summon its Scaleform CursorMenu arrow, which then sits
+		// FROZEN AT SCREEN CENTER because the WndProc swallow starves the engine
+		// cursor of mouse input — the overlay's pointer is the hardware cursor
+		// (input/HardwareCursor), so the engine arrow is pure artifact.
 		// SetFlags only writes members (flags @0xC0 + flagsUpdated), safe anytime.
-		SetFlags(kFlagShowCursor);
+		SetFlags(0);
 	}
 
 	RE::Scaleform::Ptr<RE::IMenu>* FocusMenu::Creator(RE::Scaleform::Ptr<RE::IMenu>* a_out)
@@ -211,11 +217,13 @@ namespace OSFUI
 		// name-keyed dispatch reads a live BSFixedString, not garbage.
 		new (bytes + kOffName) RE::BSFixedString(MENU_NAME.data());
 
-		// Cursor only — NO kModal, NO kPausesGame (see the ctor comment for both;
-		// the sim pause lives in input/SimPause, not in menu flags). The ctor
-		// never runs here (this is a raw engine-built object, not a C++
-		// FocusMenu).
-		constexpr auto flags = kFlagShowCursor;
+		// NO flags at all — no kModal (world-render suppression), no pause bits
+		// (input/SimPause owns the pause), and no ShowCursor (the engine arrow
+		// appears frozen at screen center; the hardware cursor is the pointer) —
+		// see the ctor comment. The menu's job is purely stack presence + the
+		// +0x10 input-receiver tap. The ctor never runs here (this is a raw
+		// engine-built object, not a C++ FocusMenu).
+		constexpr std::uint32_t flags = 0;
 		*reinterpret_cast<std::uint32_t*>(bytes + kOffFlags) = flags;
 		*(bytes + kOffFlagsUpd) = 1;
 
@@ -223,6 +231,13 @@ namespace OSFUI
 		// the Scaleform allocator (allocator-mismatch guard). Intentional leak: the
 		// focus menu lives for the whole session, like every native menu.
 		*reinterpret_cast<std::uint32_t*>(bytes + kOffRefCount) = 0x10000000;
+
+		// Level-2 observer (config engineInput): replace the +0x10
+		// BSInputEventUser vtable with the patched copy so the engine's per-menu
+		// input dispatch is visible to us. No-op unless enabled. Additive: the
+		// engine base-init already installed the real receiver vtable + the
+		// enabled byte (+0x38=1); we only redirect the six observed slots.
+		EngineInput::InstallReceiver(obj);
 
 		// Store the raw object into the out-Ptr WITHOUT going through Ptr(Y*)
 		// (which would AddRef via our vtable). Scaleform::Ptr is { T* }.

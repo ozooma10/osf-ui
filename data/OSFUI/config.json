@@ -11,6 +11,7 @@
   "hardwareCursor": true,
   "focusMenu": true,
   "disableControls": true,
+  "engineInput": true,
   "view": "osf",
   "views": ["osf", "settings", "hud"],
   "allowNetwork": false,

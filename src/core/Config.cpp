@@ -32,6 +32,7 @@ namespace OSFUI
 		config.hardwareCursor = Json::GetBool(*json, "hardwareCursor", config.hardwareCursor);
 		config.focusMenu = Json::GetBool(*json, "focusMenu", config.focusMenu);
 		config.disableControls = Json::GetBool(*json, "disableControls", config.disableControls);
+		config.engineInput = Json::GetBool(*json, "engineInput", config.engineInput);
 		config.view = Json::GetString(*json, "view", config.view);
 		if (const auto it = json->find("views"); it != json->end() && it->is_array()) {
 			for (const auto& v : *it) {
