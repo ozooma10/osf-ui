@@ -368,14 +368,20 @@ namespace OSFUI
 				_renderer->InjectMouseMove(static_cast<int>(_cursorX), static_cast<int>(_cursorY));
 				// Tell the newly-focused view it is being shown so it can play its
 				// entry treatment (e.g. a dim-backdrop fade — "you're in a menu").
-				// Only on the closed->open edge. The compositor hides same-frame on
-				// close, so a fade-OUT can't render and is intentionally not
-				// signalled (a real fade-out needs a close handshake — see
-				// docs/menu-hud-framework-plan.md). _bridge may be null very early.
+				// Only on the closed->open edge. _bridge may be null very early.
 				if (!wasVisible && _bridge) {
 					_bridge->SendToWeb(*active, "ui.visibility", nlohmann::json{ { "visible", true } });
+					_lastShownView = *active;
 				}
 			}
+		} else if (wasVisible && _bridge && !_lastShownView.empty()) {
+			// Open->closed edge: the compositor already hid the overlay this frame, so no fade-OUT
+			// can render (a rendered fade-out would need a real close handshake — see
+			// docs/menu-hud-framework-plan.md). The hide is still SIGNALLED: the view's JS keeps
+			// running while hidden, and consumers need the edge (e.g. the OSF scene browser
+			// forwards it so the orbit camera can switch between drag-steer and free-look).
+			_bridge->SendToWeb(_lastShownView, "ui.visibility", nlohmann::json{ { "visible", false } });
+			_lastShownView.clear();
 		}
 		if (visible != wasVisible) {
 			REX::INFO("Runtime: overlay visibility -> {} (capture={})", visible, _captureInput.load());

@@ -196,6 +196,11 @@ namespace OSFUI
 		std::atomic_bool              _visible{ false };
 		bool                          _initialized{ false };
 
+		// The view that last received ui.visibility{visible:true}, so the open->closed edge can
+		// signal the SAME view {visible:false} (by then ActiveMenu() is already empty). Main-thread
+		// only (ApplyMenuPolicy).
+		std::string                   _lastShownView;
+
 		// Last focus-menu open state we drove (main-thread only, reconciled in
 		// Tick against the menu policy). EXPERIMENTAL — see config.focusMenu.
 		bool                          _focusMenuOpen{ false };
