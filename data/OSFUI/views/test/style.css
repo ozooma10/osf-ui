@@ -12,6 +12,27 @@ body {
      map to the matching system cursor. */
 }
 
+/* Dim backdrop behind the panel so it's obvious the game is in a menu (the
+   world keeps running live, so without this the overlay reads as "floating").
+   Fades in when the runtime signals the view is shown (native "ui.visibility"
+   message; see main.js). The compositor hides the overlay instantly on close,
+   so there is intentionally no visible fade-OUT — that would need a native
+   close handshake. Sits behind all page content. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: rgba(4, 8, 14, 0.55);
+  opacity: 0;
+  transition: opacity 180ms ease-out;
+  pointer-events: none;
+}
+
+body.osfui-shown::before {
+  opacity: 1;
+}
+
 .panel {
   box-sizing: border-box;
   max-width: 480px;

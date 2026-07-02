@@ -9,6 +9,13 @@ namespace OSFUI
 		bool        enabled{ true };
 		std::string toggleKey{ "F10" };  // key name -> Windows VK code (ResolveKeyName); consumed by the WndProc hook, verified in-game
 		std::string focusKey{ "Tab" };   // cycles the active (input) view when >1 interactive view is hosted
+		// The game's console key. While the overlay captures input, the WndProc
+		// hook would otherwise swallow it and the console would never open; the
+		// runtime instead passes this key straight through to the game (and
+		// dismisses the overlay so the console isn't left behind it). VK_OEM_3
+		// (grave/tilde) on US layouts; retarget for other layouts / rebinds. See
+		// Runtime::OnHostKey. Set empty to disable the pass-through.
+		std::string consoleKey{ "Grave" };
 		bool        startVisible{ false };
 		std::string renderer{ "mock" };    // "null" | "mock" | "ultralight"
 		std::string compositor{ "null" };  // "null" | "d3d12" (d3d12 draws the overlay at present time)

@@ -53,10 +53,29 @@ function onNativeMessage(jsonText) {
     case "runtime.pong":
       statusEl.textContent = "Pong received from native runtime.";
       break;
+    case "ui.visibility":
+      // The runtime sends this on the closed->open edge so the view can play
+      // its entry treatment (the dim-backdrop fade; see style.css).
+      if (message.payload && message.payload.visible) {
+        playMenuFade();
+      } else {
+        document.body.classList.remove("osfui-shown");
+      }
+      break;
     default:
       // Unknown native messages are logged, never executed.
       break;
   }
+}
+
+// Replay the dim-backdrop fade each time the overlay is shown. Opening the
+// overlay only un-hides a persistent page (no reload), so a CSS load animation
+// would fire once at startup and never again; forcing a class reset + reflow
+// restarts the transition on every open.
+function playMenuFade() {
+  document.body.classList.remove("osfui-shown");
+  void document.body.offsetWidth;  // force reflow so the transition restarts
+  document.body.classList.add("osfui-shown");
 }
 
 // Publish the inbound handler where the native bridge will look for it.

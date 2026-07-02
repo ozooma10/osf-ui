@@ -64,7 +64,10 @@ namespace OSFUI
 		// code). Drives the toggle key and, while captured, routes the key
 		// into the web view. Returns true if the caller should CONSUME the key
 		// (i.e. not pass it to the game) — true while captured or for the
-		// toggle key. Runs on the window-message thread.
+		// toggle key. The configured console key is the exception: it is never
+		// consumed and never routed, so the game's console still opens while the
+		// overlay is up (the overlay is dismissed so it doesn't hide the console).
+		// Runs on the window-message thread.
 		bool OnHostKey(std::uint32_t a_vkCode, bool a_down);
 
 		// Called by the WndProc hook for each OS text character (WM_CHAR/
@@ -161,6 +164,7 @@ namespace OSFUI
 		std::vector<std::unique_ptr<IUiModule>> _modules;
 		InputRouter                             _input;
 		KeyCode                       _toggleKey{ kInvalidKeyCode };
+		KeyCode                       _consoleKey{ kInvalidKeyCode };  // passed through to the game; see OnHostKey
 
 		// Registered surfaces (menus/HUDs) + open state. Mutated only on the main thread (Tick / bridge handlers).
 		MenuController                _menus;

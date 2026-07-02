@@ -48,6 +48,8 @@ namespace OSFUI
 			{ "CapsLock", 0x14 }, { "NumLock", 0x90 }, { "ScrollLock", 0x91 }, { "Pause", 0x13 },
 			{ "LShift", 0xA0 }, { "RShift", 0xA1 }, { "LCtrl", 0xA2 }, { "RCtrl", 0xA3 },
 			{ "LAlt", 0xA4 }, { "RAlt", 0xA5 },
+			// Console/grave key (VK_OEM_3 on US layouts). Aliases for the same VK.
+			{ "Grave", 0xC0 }, { "Tilde", 0xC0 }, { "Backtick", 0xC0 }, { "Console", 0xC0 },
 		};
 		for (const auto& key : kNamedKeys) {
 			if (equalsIgnoreCase(key.name, a_name)) {

@@ -192,6 +192,10 @@ namespace OSFUI
 		if (_toggleKey != kInvalidKeyCode) {
 			REX::INFO("Runtime: toggleKey '{}' resolved to VK code {:#x}", _config.toggleKey, _toggleKey);
 		}
+		_consoleKey = ResolveKeyName(_config.consoleKey);
+		if (_consoleKey != kInvalidKeyCode) {
+			REX::INFO("Runtime: consoleKey '{}' resolved to VK code {:#x} (passed through to the game so the console opens while the overlay is up)", _config.consoleKey, _consoleKey);
+		}
 
 		// F10 toggles the default menu; Esc (while captured) closes the top menu.
 		_input.Configure(
@@ -341,6 +345,15 @@ namespace OSFUI
 			}
 			if (active) {
 				_renderer->InjectMouseMove(static_cast<int>(_cursorX), static_cast<int>(_cursorY));
+				// Tell the newly-focused view it is being shown so it can play its
+				// entry treatment (e.g. a dim-backdrop fade — "you're in a menu").
+				// Only on the closed->open edge. The compositor hides same-frame on
+				// close, so a fade-OUT can't render and is intentionally not
+				// signalled (a real fade-out needs a close handshake — see
+				// docs/menu-hud-framework-plan.md). _bridge may be null very early.
+				if (!wasVisible && _bridge) {
+					_bridge->SendToWeb(*active, "ui.visibility", nlohmann::json{ { "visible", true } });
+				}
 			}
 		}
 		if (visible != wasVisible) {
@@ -452,6 +465,22 @@ namespace OSFUI
 
 	bool Runtime::OnHostKey(std::uint32_t a_vkCode, bool a_down)
 	{
+		// Console key: the game toggles its console from this key via MenuControls,
+		// which OSF RE (module ui.menu_input) proved runs BEFORE any per-menu UI
+		// input dispatch — so nothing on the menu stack can starve it, and the ONLY
+		// thing stopping the console while the overlay is up is our own WndProc
+		// swallow. Never consume it and never route it into the web view: hand it to
+		// the game untouched (both edges — the toggle fires on release). On the down
+		// edge, if the overlay is capturing, dismiss it so the console (which we
+		// composite over at Present) isn't left hidden behind the overlay. When the
+		// overlay is already closed this is a plain pass-through, matching gameplay.
+		if (_consoleKey != kInvalidKeyCode && a_vkCode == _consoleKey) {
+			if (a_down && IsInputCaptured()) {
+				EnqueueMenuRequest(MenuReq::CloseAll);
+			}
+			return false;
+		}
+
 		// Decide consumption before routing: capturing OR the toggle key must
 		// not reach the game. (The toggle press itself is captured so opening
 		// the overlay never also acts in-game.)
