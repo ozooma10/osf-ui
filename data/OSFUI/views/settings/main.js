@@ -1,45 +1,70 @@
-// Schema-driven settings view. Talks to the native runtime only through the
-// narrow JSON bridge: requests the registry of mod schemas, renders typed
-// controls for each mod on the shared OSF UI design system, and sends one
-// ui.command per change (settings.set) or reset (settings.reset). The native
-// SettingsStore validates/clamps/persists and notifies native consumers — this
-// script is just the renderer.
+// Schema-driven settings view — two-pane master/detail.
+//
+// Left rail lists the configurable subjects: OSF UI itself (the framework,
+// pinned first) under FRAMEWORK, then every mod that ships a settings/<id>.json
+// schema under MODS. The right pane renders the selected subject's typed
+// controls on the shared OSF UI design system. Talks to the runtime only
+// through the narrow JSON bridge (settings.get / settings.set / settings.reset);
+// the native SettingsStore validates, clamps, persists, and reacts. This script
+// is just the renderer.
 
 "use strict";
 
+// The framework's own settings mod id — pinned first, under FRAMEWORK.
+const FRAMEWORK_ID = "osfui";
+
 const statusEl = document.getElementById("status");
-const formEl = document.getElementById("form");
+const detailEl = document.getElementById("detail");
+const railEl = document.getElementById("rail-list");
 const filterEl = document.getElementById("filter");
+
+let allMods = [];
+let selectedId = null;
 
 function bridgeAvailable() {
   return typeof window.osfui === "object" &&
          typeof window.osfui.postMessage === "function";
 }
-
 function sendCommand(fields) {
   if (bridgeAvailable()) {
     window.osfui.postMessage(JSON.stringify({ type: "ui.command", payload: fields }));
   }
 }
+function setValue(modId, key, value) { sendCommand({ command: "settings.set", mod: modId, key, value }); }
+function resetMod(modId) { sendCommand({ command: "settings.reset", mod: modId }); }
 
-function setValue(modId, key, value) {
-  sendCommand({ command: "settings.set", mod: modId, key, value });
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
-function resetMod(modId) {
-  sendCommand({ command: "settings.reset", mod: modId });
+function initials(t) {
+  const w = String(t).trim().split(/\s+/);
+  if (w.length >= 2) return (w[0][0] + w[1][0]).toUpperCase();
+  return w[0].replace(/[^A-Za-z0-9]/g, "").slice(0, 2).toUpperCase();
 }
+function titleOf(mod) { return mod.title || (mod.schema && mod.schema.title) || mod.id; }
 
-// ---- control builders, one per schema type ----
+// ---- control builders, one per schema type --------------------------------
 
 function makeRow(setting, controlNode, valueNode) {
   const row = document.createElement("div");
   row.className = "row";
   row.dataset.label = (setting.label || setting.key).toLowerCase();
 
+  const text = document.createElement("div");
+  text.className = "row-text";
   const label = document.createElement("label");
+  label.className = "row-label";
   label.textContent = setting.label || setting.key;
   label.htmlFor = `ctl-${setting.key}`;
-  row.appendChild(label);
+  text.appendChild(label);
+  if (setting.hint) {
+    const hint = document.createElement("div");
+    hint.className = "row-hint";
+    hint.textContent = setting.hint;
+    text.appendChild(hint);
+  }
+  row.appendChild(text);
 
   const control = document.createElement("div");
   control.className = "control";
@@ -53,18 +78,13 @@ function buildControl(modId, setting, current) {
   const id = `ctl-${setting.key}`;
   switch (setting.type) {
     case "bool": {
-      // A real toggle switch (styled button) instead of a raw checkbox.
       const sw = document.createElement("button");
-      sw.type = "button";
-      sw.className = "osf-switch";
-      sw.id = id;
-      sw.setAttribute("role", "switch");
-      const set = (on) => { sw.setAttribute("aria-pressed", on ? "true" : "false"); };
+      sw.type = "button"; sw.className = "osf-switch"; sw.id = id; sw.setAttribute("role", "switch");
+      const set = (on) => sw.setAttribute("aria-pressed", on ? "true" : "false");
       set(current === true);
       sw.addEventListener("click", () => {
         const next = sw.getAttribute("aria-pressed") !== "true";
-        set(next);
-        setValue(modId, setting.key, next);
+        set(next); setValue(modId, setting.key, next);
       });
       return makeRow(setting, sw, null);
     }
@@ -72,31 +92,24 @@ function buildControl(modId, setting, current) {
     case "float": {
       const isInt = setting.type === "int";
       const slider = document.createElement("input");
-      slider.type = "range";
-      slider.className = "osf-range";
-      slider.id = id;
-      slider.min = setting.min ?? 0;
-      slider.max = setting.max ?? 100;
-      slider.step = setting.step ?? (isInt ? 1 : 0.01);
-      slider.value = current;
+      slider.type = "range"; slider.className = "osf-range"; slider.id = id;
+      slider.min = setting.min ?? 0; slider.max = setting.max ?? 100;
+      slider.step = setting.step ?? (isInt ? 1 : 0.01); slider.value = current;
       const valueEl = document.createElement("span");
       valueEl.className = "osf-value";
       const fmt = (v) => (isInt ? String(Math.round(v)) : Number(v).toFixed(2));
       valueEl.textContent = fmt(current);
       slider.addEventListener("input", () => { valueEl.textContent = fmt(slider.value); });
-      slider.addEventListener("change", () => {
-        setValue(modId, setting.key, isInt ? parseInt(slider.value, 10) : parseFloat(slider.value));
-      });
+      slider.addEventListener("change", () =>
+        setValue(modId, setting.key, isInt ? parseInt(slider.value, 10) : parseFloat(slider.value)));
       return makeRow(setting, slider, valueEl);
     }
     case "enum": {
       const select = document.createElement("select");
-      select.className = "osf-select";
-      select.id = id;
+      select.className = "osf-select"; select.id = id;
       for (const opt of setting.options || []) {
         const o = document.createElement("option");
-        o.value = opt;
-        o.textContent = opt;
+        o.value = opt; o.textContent = opt;
         if (opt === current) o.selected = true;
         select.appendChild(o);
       }
@@ -105,10 +118,7 @@ function buildControl(modId, setting, current) {
     }
     case "string": {
       const text = document.createElement("input");
-      text.type = "text";
-      text.className = "osf-input";
-      text.id = id;
-      text.value = current ?? "";
+      text.type = "text"; text.className = "osf-input"; text.id = id; text.value = current ?? "";
       text.addEventListener("change", () => setValue(modId, setting.key, text.value));
       return makeRow(setting, text, null);
     }
@@ -117,30 +127,99 @@ function buildControl(modId, setting, current) {
   }
 }
 
-function buildMod(mod) {
+// ---- rendering ------------------------------------------------------------
+
+function frameworkMods() { return allMods.filter((m) => m.id === FRAMEWORK_ID); }
+function contentMods() { return allMods.filter((m) => m.id !== FRAMEWORK_ID); }
+
+function railMatches(mod, q) {
+  if (!q) return true;
+  if (titleOf(mod).toLowerCase().includes(q)) return true;
+  for (const g of (mod.schema && mod.schema.groups) || []) {
+    for (const s of g.settings || []) {
+      if ((s.label || s.key).toLowerCase().includes(q)) return true;
+    }
+  }
+  return false;
+}
+
+function railItem(mod) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "rail-item" + (mod.id === selectedId ? " selected" : "");
+  btn.dataset.mod = mod.id;
+  const isFramework = mod.id === FRAMEWORK_ID;
+  btn.innerHTML =
+    `<span class="rail-item-mark">${isFramework ? "◆" : escapeHtml(initials(titleOf(mod)))}</span>
+     <span class="rail-item-text">
+       <span class="rail-item-title">${escapeHtml(titleOf(mod))}</span>
+       <span class="rail-item-sub">${isFramework ? "Framework" : escapeHtml(mod.id)}</span>
+     </span>`;
+  btn.addEventListener("click", () => selectMod(mod.id));
+  return btn;
+}
+
+function renderRail() {
+  const q = (filterEl.value || "").trim().toLowerCase();
+  railEl.textContent = "";
+
+  const fw = frameworkMods().filter((m) => railMatches(m, q));
+  if (fw.length) {
+    const head = document.createElement("div");
+    head.className = "rail-section"; head.textContent = "Framework";
+    railEl.appendChild(head);
+    fw.forEach((m) => railEl.appendChild(railItem(m)));
+  }
+
+  const head = document.createElement("div");
+  head.className = "rail-section"; head.textContent = "Mods";
+  railEl.appendChild(head);
+  const mods = contentMods().filter((m) => railMatches(m, q));
+  if (mods.length) {
+    mods.forEach((m) => railEl.appendChild(railItem(m)));
+  } else {
+    const empty = document.createElement("div");
+    empty.className = "rail-empty";
+    empty.innerHTML = q
+      ? "No mods match the filter."
+      : "No mods installed yet.<br>Drop a <code>settings/&lt;id&gt;.json</code> schema and it appears here.";
+    railEl.appendChild(empty);
+  }
+}
+
+function renderDetail() {
+  const mod = allMods.find((m) => m.id === selectedId);
+  detailEl.textContent = "";
+  if (!mod) {
+    const empty = document.createElement("div");
+    empty.className = "detail-empty";
+    empty.innerHTML = `<div class="osf-eyebrow">Nothing selected</div>`;
+    detailEl.appendChild(empty);
+    return;
+  }
+  const isFramework = mod.id === FRAMEWORK_ID;
   const schema = mod.schema || {};
   const values = mod.values || {};
-  const card = document.createElement("section");
-  card.className = "mod osf-card";
-  card.dataset.title = (mod.title || schema.title || mod.id).toLowerCase();
 
-  const header = document.createElement("div");
-  header.className = "mod-header";
-  const h = document.createElement("h2");
-  h.textContent = mod.title || schema.title || mod.id;
-  header.appendChild(h);
+  const head = document.createElement("div");
+  head.className = "detail-head";
+  head.innerHTML =
+    `<div>
+       <div class="osf-eyebrow kicker">${isFramework ? "Framework" : "Mod · " + escapeHtml(mod.id)}</div>
+       <h2>${escapeHtml(titleOf(mod))}</h2>
+       ${schema.description ? `<div class="detail-desc">${escapeHtml(schema.description)}</div>` : ""}
+     </div>`;
   const reset = document.createElement("button");
   reset.type = "button";
   reset.className = "osf-btn osf-btn--danger osf-btn--sm";
   reset.textContent = "Reset";
   reset.addEventListener("click", () => resetMod(mod.id));
-  header.appendChild(reset);
-  card.appendChild(header);
+  head.appendChild(reset);
+  detailEl.appendChild(head);
 
   const body = document.createElement("div");
-  body.className = "mod-body";
-
-  let count = 0;
+  body.className = "detail-body";
+  const q = (filterEl.value || "").trim().toLowerCase();
   for (const group of schema.groups || []) {
     const section = document.createElement("div");
     section.className = "group";
@@ -152,48 +231,42 @@ function buildMod(mod) {
     }
     for (const setting of group.settings || []) {
       const row = buildControl(mod.id, setting, values[setting.key]);
-      if (row) { section.appendChild(row); count += 1; }
+      if (!row) continue;
+      // If a filter is active, show only matching rows (so the pane echoes the rail search).
+      if (q && !row.dataset.label.includes(q) && !titleOf(mod).toLowerCase().includes(q)) {
+        row.classList.add("hidden");
+      }
+      section.appendChild(row);
     }
     body.appendChild(section);
   }
-  card.appendChild(body);
-  return { card, count };
+  detailEl.appendChild(body);
 }
 
-function render(mods) {
-  formEl.textContent = "";
-  if (!mods || mods.length === 0) {
-    statusEl.textContent = "No settings schemas found (settings/*.json).";
+function selectMod(id) {
+  selectedId = id;
+  renderRail();
+  renderDetail();
+}
+
+function render() {
+  if (!allMods.length) {
+    railEl.textContent = "";
+    detailEl.innerHTML = `<p class="status osf-eyebrow">No settings schemas found (settings/*.json).</p>`;
     return;
   }
-  let total = 0;
-  for (const mod of mods) {
-    const { card, count } = buildMod(mod);
-    formEl.appendChild(card);
-    total += count;
+  // Keep the current selection if it still exists; else default to the
+  // framework, else the first mod.
+  if (!allMods.some((m) => m.id === selectedId)) {
+    selectedId = frameworkMods().length ? FRAMEWORK_ID : allMods[0].id;
   }
-  statusEl.textContent = `${mods.length} MOD(S) · ${total} SETTING(S) — CHANGES SAVE AUTOMATICALLY`;
-  applyFilter();
+  renderRail();
+  renderDetail();
 }
 
-// ---- filter ----
-// Hides rows whose label doesn't match, and cards left with no visible rows.
+filterEl.addEventListener("input", () => { renderRail(); renderDetail(); });
 
-function applyFilter() {
-  const q = (filterEl.value || "").trim().toLowerCase();
-  for (const card of formEl.querySelectorAll(".mod")) {
-    let anyVisible = false;
-    for (const row of card.querySelectorAll(".row")) {
-      const match = !q || row.dataset.label.includes(q) || card.dataset.title.includes(q);
-      row.classList.toggle("hidden", !match);
-      if (match) anyVisible = true;
-    }
-    card.classList.toggle("hidden", !anyVisible);
-  }
-}
-filterEl.addEventListener("input", applyFilter);
-
-// ---- native -> web ----
+// ---- native -> web --------------------------------------------------------
 
 function onNativeMessage(jsonText) {
   let message;
@@ -203,11 +276,12 @@ function onNativeMessage(jsonText) {
       sendCommand({ command: "settings.get" });
       break;
     case "settings.data":
-      render(message.payload.mods || []);
+      allMods = message.payload.mods || [];
+      render();
       break;
     case "settings.ack":
       if (!message.payload.ok) {
-        statusEl.textContent = `REJECTED CHANGE TO "${message.payload.mod}.${message.payload.key}"`;
+        statusEl && (statusEl.textContent = `REJECTED "${message.payload.mod}.${message.payload.key}"`);
       }
       break;
     default:
@@ -218,26 +292,28 @@ function onNativeMessage(jsonText) {
 window.osfui = window.osfui || {};
 window.osfui.onMessage = onNativeMessage;
 
-document.getElementById("close").addEventListener("click", () => {
-  sendCommand({ command: "close" });
-});
+document.getElementById("close").addEventListener("click", () => sendCommand({ command: "close" }));
 
 if (bridgeAvailable()) {
-  statusEl.textContent = "CONNECTING…";
   sendCommand({ command: "settings.get" });
 } else {
-  // Standalone (plain browser) — render sample schemas so the layout can be
-  // iterated without launching the game.
-  statusEl.textContent = "STANDALONE (NO NATIVE BRIDGE)";
-  render([
+  // Standalone (plain browser) — sample schemas so the layout can be iterated.
+  allMods = [
     {
-      id: "osfui", title: "OSF UI Runtime",
-      schema: { groups: [
-        { label: "Cursor", settings: [
-          { key: "cursorSpeed", label: "Cursor speed (fallback software cursor only)", type: "float", min: 0.5, max: 3.0, step: 0.1 },
-        ] },
-      ] },
-      values: { cursorSpeed: 1.0 },
+      id: "osfui", title: "OSF UI",
+      schema: {
+        description: "Runtime and overlay behavior for the OSF UI framework itself.",
+        groups: [
+          { label: "Overlay", settings: [
+            { key: "hardwareCursor", label: "Hardware cursor", type: "bool", hint: "Use the real Windows pointer (zero-lag) while the overlay is open." },
+            { key: "disableControls", label: "Disable player controls while open", type: "bool", hint: "Also freezes gamepad/XInput, which the window hook can't see." },
+          ] },
+          { label: "Cursor", settings: [
+            { key: "cursorSpeed", label: "Cursor speed", type: "float", min: 0.5, max: 3.0, step: 0.1, hint: "Software-cursor fallback only." },
+          ] },
+        ],
+      },
+      values: { hardwareCursor: true, disableControls: true, cursorSpeed: 1.0 },
     },
     {
       id: "demo", title: "Demo Mod Settings",
@@ -254,5 +330,6 @@ if (bridgeAvailable()) {
       ] },
       values: { "overlay.enabled": true, "overlay.opacity": 0.9, "overlay.scale": 100, theme: "Dark", greeting: "Hello, spacefarer" },
     },
-  ]);
+  ];
+  render();
 }

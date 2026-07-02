@@ -15,5 +15,5 @@
   "view": "hub",
   "views": ["hub", "settings", "osf"],
   "allowNetwork": false,
-  "devMode": false
+  "devMode": true
 }
