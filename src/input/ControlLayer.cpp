@@ -39,7 +39,14 @@ namespace OSFUI
 			RE::OTHER_EVENT_FLAG::Sprinting |
 			RE::OTHER_EVENT_FLAG::FastTravel |
 			RE::OTHER_EVENT_FLAG::GravJump |
-			RE::OTHER_EVENT_FLAG::Takeoff;
+			RE::OTHER_EVENT_FLAG::Takeoff |
+			// Gamepad-reachable verbs found leaking once Level-2 testing put a
+			// controller in hand with the overlay open (2026-07-02: LB opened the
+			// hand scanner under the menu — ControlLayer never covered it):
+			RE::OTHER_EVENT_FLAG::HandScanner |  // LB
+			RE::OTHER_EVENT_FLAG::Journal |      // Start
+			RE::OTHER_EVENT_FLAG::Inventory |
+			RE::OTHER_EVENT_FLAG::FarTravel;
 
 		// Allocate the session layer on first use. Returns false (warn-once) when
 		// the manager isn't ready yet (main menu) — the caller retries next tick.
