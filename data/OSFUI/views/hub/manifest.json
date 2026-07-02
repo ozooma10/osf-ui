@@ -1,12 +1,13 @@
 {
-  "id": "hud",
-  "title": "OSF UI Demo HUD",
+  "id": "hub",
+  "title": "OSF UI",
+  "description": "Launcher for every installed OSF UI view.",
   "entry": "index.html",
   "width": 1280,
   "height": 720,
   "transparent": true,
-  "zorder": 100,
   "interactive": true,
+  "hub": false,
   "permissions": {
     "nativeBridge": true,
     "filesystem": false,

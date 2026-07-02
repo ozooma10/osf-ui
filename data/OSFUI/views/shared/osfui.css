@@ -1,0 +1,317 @@
+/* ============================================================
+   OSF UI — shared design system  (osfui.css)
+   ------------------------------------------------------------
+   The "NASA-punk" maintenance-HUD look every OSF UI view shares:
+   teal-accented brushed steel on near-black void. Link it from any
+   view to inherit the tokens + a small component kit, then add only
+   view-specific layout on top:
+
+       <link rel="stylesheet" href="../shared/osfui.css">
+
+   This lives in views/shared/ (a sibling of the view folders, NOT a
+   view — it has no manifest). WebKit normalizes the "../shared/..."
+   reference to file:///shared/osfui.css before the sandbox sees it,
+   so no ".." reaches disk I/O and it stays inside the views root.
+
+   Fonts resolve to Windows system faces so NO webfont binaries ship
+   and the view stays network-free. Bahnschrift is the brand's actual
+   intended DIN display face; Segoe UI / Cascadia are always present.
+   ============================================================ */
+
+:root {
+  /* ---- Void / near-black ---------------------------------- */
+  --void-900: #04060a;
+  --void-800: #0b0e12;
+  --void-700: #11151b;
+  --void-600: #171c24;
+  --void-500: #1f2630;
+  --void-400: #2a323d;
+
+  /* ---- Brushed steel -------------------------------------- */
+  --steel-100: #eef1f4;
+  --steel-200: #c8ced5;
+  --steel-300: #9aa3ad;
+  --steel-400: #828a93;
+  --steel-500: #5c646e;
+  --steel-600: #444b54;
+  --steel-700: #2f353d;
+
+  --bone: #f0ece2;
+
+  /* ---- Semantic status ------------------------------------ */
+  --signal-go:   #6fae6a;
+  --signal-warn: #e0a23c;
+  --signal-stop: #c8503a;
+
+  /* ---- Product accent (OSF UI = HUD teal) ----------------- */
+  --accent:        #5aa9b8;
+  --accent-strong: #2b5d68;
+  --accent-hover:  #7cc2cf;
+  --accent-quiet:  rgba(90, 169, 184, 0.14);
+
+  /* ---- Surfaces / text ------------------------------------ */
+  --bg-canvas:     var(--void-800);
+  --surface-card:  var(--void-600);
+  --surface-panel: var(--void-500);
+  --surface-input: var(--void-500);
+  --surface-overlay: rgba(4, 6, 10, 0.72);
+
+  --text-bright: var(--bone);
+  --text-body:   var(--steel-200);
+  --text-muted:  var(--steel-300);
+  --text-faint:  var(--steel-400);
+
+  --line:        var(--steel-700);
+  --line-strong: var(--steel-600);
+  --line-hud:    rgba(90, 169, 184, 0.45);
+
+  /* ---- Type ----------------------------------------------- */
+  --font-display: 'Bahnschrift', 'DIN Next', 'Segoe UI Semibold', 'Saira Semi Condensed', sans-serif;
+  --font-sans:    'Segoe UI', system-ui, sans-serif;
+  --font-mono:    'Cascadia Mono', 'Consolas', ui-monospace, monospace;
+
+  --text-4xl: 32px;
+  --text-3xl: 26px;
+  --text-2xl: 21px;
+  --text-xl:  18px;
+  --text-lg:  16px;
+  --text-md:  14px;
+  --text-sm:  13px;
+  --text-xs:  12px;
+  --text-2xs: 11px;
+
+  --tracking-wide:  0.04em;
+  --tracking-label: 0.14em;
+  --tracking-mega:  0.22em;
+
+  /* ---- Spacing (8px technical grid) ----------------------- */
+  --space-1: 2px;  --space-2: 4px;  --space-3: 8px;  --space-4: 12px;
+  --space-5: 16px; --space-6: 20px; --space-7: 24px; --space-8: 32px;
+  --space-9: 40px; --space-10: 48px;
+
+  --control-h-sm: 28px;
+  --control-h:    36px;
+
+  /* ---- Effects -------------------------------------------- */
+  --radius-sm: 2px;
+  --radius:    4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-pill: 999px;
+
+  --inset-lit: inset 0 1px 0 rgba(200, 206, 213, 0.06);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --shadow:    0 4px 14px rgba(0, 0, 0, 0.5);
+
+  --ease-out:    cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-fast: 120ms;
+  --dur:      180ms;
+}
+
+/* ------------------------------------------------------------
+   Product accent themes. The steel chassis is shared; each
+   "OSF X" mod re-skins the single --accent slot. Add the class to
+   <body> or any subtree. OSF UI (teal) is the :root default.
+   ------------------------------------------------------------ */
+.osf-ui        { --accent: #5aa9b8; --accent-strong: #2b5d68; --accent-hover: #7cc2cf; --accent-quiet: rgba(90,169,184,0.14); }
+.osf-animation { --accent: #e6904a; --accent-strong: #c2622f; --accent-hover: #f4ad6e; --accent-quiet: rgba(230,144,74,0.14); }
+.osf-seduce    { --accent: #c8607f; --accent-strong: #8f3c57; --accent-hover: #dd87a0; --accent-quiet: rgba(200,96,127,0.14); }
+.osf-defeat    { --accent: #c8503a; --accent-strong: #8f3322; --accent-hover: #dd7561; --accent-quiet: rgba(200,80,58,0.14); }
+.osf-body      { --accent: #7a9a5e; --accent-strong: #4f6b38; --accent-hover: #9bba7d; --accent-quiet: rgba(122,154,94,0.14); }
+
+/* ------------------------------------------------------------
+   Base / reset
+   ------------------------------------------------------------ */
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: transparent;   /* the live game composites behind overlays */
+  color: var(--text-body);
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  color: var(--text-bright);
+  font-weight: 600;
+  line-height: 1.05;
+  margin: 0;
+}
+
+a { color: var(--accent); text-decoration: none; transition: color var(--dur) var(--ease-out); }
+a:hover { color: var(--accent-hover); }
+
+code, pre, kbd, samp { font-family: var(--font-mono); }
+
+::selection { background: var(--accent-quiet); color: var(--text-bright); }
+
+/* HUD scrollbars */
+* { scrollbar-width: thin; scrollbar-color: var(--steel-600) transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: var(--steel-700);
+  border-radius: var(--radius-pill);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover { background: var(--steel-600); background-clip: content-box; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}
+
+/* ------------------------------------------------------------
+   Utilities
+   ------------------------------------------------------------ */
+.osf-eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* Uppercase title + count + rule + trailing note (section header). */
+.osf-section-head { display: flex; align-items: center; gap: 14px; }
+.osf-section-head .title {
+  font-family: var(--font-display); font-size: 15px; font-weight: 600;
+  letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-bright);
+}
+.osf-section-head .count {
+  font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: 0.1em;
+  color: var(--text-faint); padding: 1px 7px;
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+}
+.osf-section-head .rule { flex: 1; height: 1px; background: var(--line); }
+.osf-section-head .note {
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--text-faint);
+}
+
+.osf-tag {
+  font-family: var(--font-mono); font-size: 9.5px; font-weight: 500;
+  letter-spacing: 0.16em; text-transform: uppercase; color: var(--steel-300);
+  padding: 2px 7px; background: rgba(154, 163, 173, 0.1);
+  border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
+}
+
+/* ------------------------------------------------------------
+   Card / panel
+   ------------------------------------------------------------ */
+.osf-card {
+  background: rgba(16, 21, 28, 0.82);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--inset-lit);
+}
+
+/* ------------------------------------------------------------
+   Buttons
+   ------------------------------------------------------------ */
+.osf-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  height: var(--control-h); padding: 0 16px;
+  font-family: var(--font-display); font-size: var(--text-sm); font-weight: 600;
+  letter-spacing: var(--tracking-label); text-transform: uppercase;
+  color: var(--text-body); background: var(--void-600);
+  border: 1px solid var(--line-strong); border-radius: var(--radius);
+  box-shadow: var(--inset-lit); cursor: pointer;
+  transition: color var(--dur-fast), background var(--dur-fast), border-color var(--dur-fast);
+}
+.osf-btn:hover { color: var(--text-bright); border-color: var(--steel-500); background: var(--void-500); }
+.osf-btn:focus-visible {
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--void-900), 0 0 0 3px var(--accent), var(--inset-lit);
+}
+.osf-btn--accent { color: var(--void-900); background: var(--accent); border-color: var(--accent); }
+.osf-btn--accent:hover { color: var(--void-900); background: var(--accent-hover); border-color: var(--accent-hover); }
+.osf-btn--ghost { background: transparent; }
+.osf-btn--ghost:hover { background: rgba(154, 163, 173, 0.08); }
+.osf-btn--danger { color: var(--signal-stop); border-color: rgba(200, 80, 58, 0.5); }
+.osf-btn--danger:hover { color: var(--bone); background: rgba(200, 80, 58, 0.16); border-color: var(--signal-stop); }
+.osf-btn--sm { height: var(--control-h-sm); padding: 0 12px; font-size: var(--text-2xs); }
+
+/* ------------------------------------------------------------
+   Toggle switch  (<button class="osf-switch" aria-pressed="true|false">)
+   Also drives .on containers via .osf-switch.on for non-button use.
+   ------------------------------------------------------------ */
+.osf-switch {
+  position: relative; display: inline-block; width: 42px; height: 22px; flex: none;
+  padding: 0; border-radius: var(--radius-pill);
+  background: var(--void-400); border: 1px solid var(--line-strong);
+  box-shadow: var(--inset-lit); cursor: pointer;
+  transition: background var(--dur) var(--ease-out), border-color var(--dur);
+}
+.osf-switch::after {
+  content: ""; position: absolute; top: 2px; left: 2px;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--steel-300);
+  transition: left var(--dur) var(--ease-out), background var(--dur);
+}
+.osf-switch[aria-pressed="true"], .osf-switch.on {
+  background: var(--accent); border-color: var(--accent);
+}
+.osf-switch[aria-pressed="true"]::after, .osf-switch.on::after {
+  left: 22px; background: var(--void-900);
+}
+.osf-switch:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--void-900), 0 0 0 3px var(--accent);
+}
+
+/* ------------------------------------------------------------
+   Text input / select
+   ------------------------------------------------------------ */
+.osf-input, .osf-select {
+  height: var(--control-h); padding: 0 12px;
+  font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-bright);
+  background: var(--surface-input); border: 1px solid var(--line-strong);
+  border-radius: var(--radius); box-shadow: var(--inset-lit);
+  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
+}
+.osf-input:focus, .osf-select:focus {
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-quiet), var(--inset-lit);
+}
+.osf-select {
+  appearance: none; -webkit-appearance: none; padding-right: 30px; cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--steel-300) 50%),
+                    linear-gradient(135deg, var(--steel-300) 50%, transparent 50%);
+  background-position: calc(100% - 15px) center, calc(100% - 10px) center;
+  background-size: 5px 5px, 5px 5px; background-repeat: no-repeat;
+}
+.osf-select option { background: var(--void-700); color: var(--text-bright); }
+
+/* ------------------------------------------------------------
+   Range slider
+   ------------------------------------------------------------ */
+.osf-range {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 4px; margin: 0; padding: 0;
+  background: var(--void-400); border-radius: var(--radius-pill); cursor: pointer;
+}
+.osf-range::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--accent); border: 2px solid var(--void-900);
+  box-shadow: 0 0 0 1px var(--accent); cursor: pointer;
+  transition: background var(--dur-fast);
+}
+.osf-range::-webkit-slider-thumb:hover { background: var(--accent-hover); }
+.osf-range:focus-visible { outline: none; }
+.osf-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--accent-quiet); }
+
+/* Monospace value badge that pairs with a slider. */
+.osf-value {
+  font-family: var(--font-mono); font-size: var(--text-xs); color: var(--accent-hover);
+  min-width: 44px; text-align: right;
+}

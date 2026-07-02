@@ -3,25 +3,53 @@
 <head>
   <meta charset="utf-8">
   <title>OSF UI Settings</title>
+  <link rel="stylesheet" href="../shared/osfui.css">
   <link rel="stylesheet" href="style.css">
 </head>
-<body>
-  <main class="panel">
-    <h1 id="title">Settings</h1>
-    <p id="status" class="status">Loading…</p>
+<body class="osf-ui">
+  <!-- Dims the live game behind the panel into a menu backdrop. -->
+  <div class="scrim" aria-hidden="true"></div>
 
-    <form id="form" class="form" autocomplete="off"></form>
+  <div class="settings">
+    <!-- LEFT RAIL: subjects to configure (framework first, then mods) -->
+    <aside class="rail">
+      <div class="rail-head">
+        <div class="brand">
+          <svg class="brand-emblem" width="34" height="34" viewBox="0 0 200 200" aria-hidden="true">
+            <circle cx="100" cy="100" r="92" fill="#11151b" stroke="#5c646e" stroke-width="3"></circle>
+            <circle cx="100" cy="100" r="82" fill="none" stroke="#2f353d" stroke-width="1.2"></circle>
+            <g fill="none" stroke="#5aa9b8" stroke-linecap="round" stroke-width="8">
+              <line x1="62" y1="74" x2="138" y2="74"></line>
+              <line x1="62" y1="100" x2="138" y2="100"></line>
+              <line x1="62" y1="126" x2="138" y2="126"></line>
+            </g>
+            <circle cx="84" cy="74" r="9" fill="#0b0e12" stroke="#5aa9b8" stroke-width="6"></circle>
+            <circle cx="120" cy="100" r="9" fill="#0b0e12" stroke="#5aa9b8" stroke-width="6"></circle>
+            <circle cx="92" cy="126" r="9" fill="#0b0e12" stroke="#5aa9b8" stroke-width="6"></circle>
+          </svg>
+          <div class="brand-text">
+            <div class="brand-line">
+              <span class="wordmark-osf">OSF</span><span class="wordmark-ui">UI</span>
+            </div>
+            <div class="osf-eyebrow brand-sub">SETTINGS</div>
+          </div>
+        </div>
+        <input id="filter" class="osf-input filter" type="text" placeholder="Filter…" autocomplete="off" spellcheck="false">
+      </div>
 
-    <div class="actions">
-      <button id="close" type="button" class="danger">Close</button>
-    </div>
+      <nav id="rail-list" class="rail-list" aria-label="Settings sections"></nav>
 
-    <!-- Plain text on purpose: no links, so an in-overlay click can't
-         navigate the view away. Clickable credits live in README/CREDITS.md. -->
-    <footer class="credits">
-      Inspired by Prisma UI (StarkMP) &middot; Rendering by Ultralight
-    </footer>
-  </main>
+      <div class="rail-foot">
+        <button id="close" type="button" class="osf-btn osf-btn--ghost osf-btn--sm">Close</button>
+      </div>
+    </aside>
+
+    <!-- RIGHT PANE: the selected subject's controls -->
+    <section id="detail" class="detail" aria-live="polite">
+      <p id="status" class="status osf-eyebrow">Loading…</p>
+    </section>
+  </div>
+
   <script src="main.js"></script>
 </body>
 </html>

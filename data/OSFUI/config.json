@@ -12,8 +12,8 @@
   "focusMenu": true,
   "disableControls": true,
   "engineInput": true,
-  "view": "osf",
-  "views": ["osf", "settings", "hud"],
+  "view": "hub",
+  "views": ["hub", "settings", "osf"],
   "allowNetwork": false,
   "devMode": false
 }
