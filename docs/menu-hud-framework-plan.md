@@ -54,6 +54,17 @@ supplying intent is safe; mods supplying mechanism is not.
   Step 3**. The `pausesGame` manifest field is parsed and stored now for a stable
   schema, but is **inert in Steps 1–2**.
 
+> **UPDATE 2026-07-01 — Step 3 is LIVE.** Route A (movie-less stack admission,
+> OSF RE `ui.menu_movie_load`) made the focus menu's flags real, so
+> `ReconcileFocusMenu` now drives `kFlagPausesGame` from `DesiredPause()`
+> (`FocusMenu::SetPausesGame`, applied before open; close+reopen on change).
+> **`pausesGame` now DEFAULTS TRUE for menus** (product decision: menus pause
+> like native ones; opt out with `"pausesGame": false`). Also stale below:
+> the creator sets `ShowCursor` only now — `kModal` was dropped (it suppresses
+> the world render once admitted). The un-latch path (pause released on close)
+> and freeze-frame visuals are pending in-game verification — see auto-memory
+> `osf-ui-jank-menu-mode` for the open risks.
+
 **[verified]** `ControlLayer` and `FocusMenu` are both driven by
 `DesiredCapture`, **not** `DesiredPause`. Driving control-disable off pause would
 let a gamepad drive the game underneath a capturing-but-non-pausing menu

@@ -56,19 +56,56 @@ namespace OSFUI
 		constexpr std::size_t kOffFlags    = 0x0C0;  // u32 RE::IMenu::Flag
 		constexpr std::size_t kOffFlagsUpd = 0x0D2;  // bool flagsUpdated
 
+		// Pause policy for the NEXT open + the live object (SetPausesGame). The
+		// creator does NOT run on every open (the registration map caches
+		// instances — the 2026-07-01 probe saw 3 instances across 5 opens), so
+		// the desired flags must be patched onto the live object too, not just
+		// the creation template. A stale g_liveMenu after the engine re-creates
+		// is harmless: our objects are refcount-pinned (never freed), so the old
+		// pointer stays valid and the write is simply ineffective.
+		std::atomic_bool   g_wantPause{ false };
+		std::atomic<void*> g_liveMenu{ nullptr };
+
+		// The full flag set for the current pause policy. NO kModal ever — see
+		// the ctor comment (it suppresses the world render once admitted).
+		std::uint32_t DesiredFlags()
+		{
+			return FocusMenu::kFlagShowCursor |
+			       (g_wantPause.load(std::memory_order_relaxed) ? FocusMenu::kFlagPausesGame : 0u);
+		}
+
 		std::atomic_bool   g_vtblBuilt{ false };
-		void*              g_vtable[kVtblSlots]{};
+		// MSVC stores the RTTICompleteObjectLocator* at vtable[-1] (the 8 bytes
+		// BEFORE slot 0). The engine dynamic_cast's live menus (__RTDynamicCast),
+		// which reads that COL; if it is garbage the cast AVs and is rethrown as
+		// "Access violation - no RTTI data!" (exception E06D7363). So reserve one
+		// LEADING slot for a copy of the engine's COL and hand the object a vtable
+		// pointer of &g_vtableStore[1]. This only matters once the menu is ADMITTED
+		// to the active array (Route A) — before that the engine never cast us, so
+		// the missing COL was latent.
+		void*              g_vtableStore[kVtblSlots + 1]{};
+		void** const       g_vtable = &g_vtableStore[1];
 
 		// ---- vtable thunks (MS x64 ABI matches the vtable thiscall) ----
 		const char*   Thunk_GetName(void*) { return FocusMenu::MENU_NAME.data(); }
 		const char*   Thunk_GetRootPath(void*) { return ""; }  // Ultralight-backed: no .swf root
 		std::uint64_t Thunk_GetUnk05(void*) { return 0; }
 		bool          Thunk_LoadMovie(void*, bool, bool) { return true; }  // success, no Scaleform movie
-		std::int64_t  Thunk_ProcessMessage(void*, void*) { return 0; }     // kHandled, no-op
+		std::int64_t  Thunk_ProcessMessage(void*, void*) { return 0; }     // no-op; must NOT return 1 for the show msg (the pump then REFUSES admission)
+		// 0x0A (+0x50): the show pump's stack-admission predicate. The engine base
+		// (REL::ID 130619) is literally `return uiMovie != nullptr`, and the pump
+		// (130449) calls it before inserting the menu into the active array
+		// (UI+0x430) — so a movie-less menu was silently never admitted (zero input
+		// dispatch, IsMenuOpen false). Forcing true is THE fix (OSF RE
+		// ui.menu_movie_load, "Route A": no .swf asset needed). After insertion the
+		// engine sets bit6/kAdvancesMovie via vf 0x10, so IsMenuOpen then reflects
+		// real array membership. Proven live + stable on 1.16.244.
+		bool          Thunk_CanShow(void*) { return true; }
 
 		// Build the patched vtable once: a copy of the real engine IMenu primary
-		// vtable so every engine vfunc lands on engine code, with only the five
-		// slots we own redirected to our thunks. (The C++ FocusMenu vtable routes
+		// vtable so every engine vfunc lands on engine code, with only the six
+		// slots we own redirected to our thunks (03/04/05/06/08 + the 0x0A
+		// admission predicate). (The C++ FocusMenu vtable routes
 		// engine calls through CommonLibSF's {0}-ID relocation thunks => image+0
 		// jump => crash; copying the engine vtable is what makes this stable.)
 		void BuildVtable()
@@ -78,6 +115,10 @@ namespace OSFUI
 			}
 			static REL::Relocation<std::uintptr_t> engineVtbl{ RE::VTABLE::IMenu[0] };
 			const auto* src = reinterpret_cast<void* const*>(engineVtbl.address());
+			// Carry the engine's RTTICompleteObjectLocator* (at src[-1]) so a
+			// dynamic_cast through our copied primary vtable resolves to the engine
+			// IMenu type instead of AV'ing on missing RTTI. See g_vtableStore.
+			g_vtableStore[0] = src[-1];
 			for (std::size_t i = 0; i < kVtblSlots; ++i) {
 				g_vtable[i] = src[i];
 			}
@@ -86,17 +127,25 @@ namespace OSFUI
 			g_vtable[5] = reinterpret_cast<void*>(&Thunk_GetUnk05);       // 05 GetUnk05
 			g_vtable[6] = reinterpret_cast<void*>(&Thunk_LoadMovie);      // 06 LoadMovie
 			g_vtable[8] = reinterpret_cast<void*>(&Thunk_ProcessMessage); // 08 ProcessMessage
+			g_vtable[10] = reinterpret_cast<void*>(&Thunk_CanShow);      // 0A stack-admission predicate (movie-less; see Thunk_CanShow)
 			g_vtblBuilt.store(true, std::memory_order_release);
 		}
 	}
 
 	FocusMenu::FocusMenu()
 	{
-		// De-jank minimum: cursor + modal input ownership. A "pause" variant would
-		// also OR in kFlagPausesGame (freezes sim + 16:9 freeze-frame) — gate that
-		// on a per-view setting. SetFlags only writes members (flags @0xC0 +
-		// flagsUpdated), so it is safe regardless of the open-path questions.
-		SetFlags(kFlagShowCursor | kFlagModal);
+		// De-jank minimum: cursor only. We deliberately do NOT set kModal.
+		// Evidence (OSF RE ui.menu_flags flag table): EVERY world-visible menu
+		// (HUDMenu, CursorMenu, FaderMenu, FavoritesMenu, PowersMenu) has kModal
+		// CLEAR, and EVERY full-screen menu that blacks out / stops rendering the
+		// 3D world (PauseMenu, ContainerMenu, MainMenu, ...) has kModal SET. Once
+		// the menu is ADMITTED (Route A), kModal makes the engine treat us as a
+		// full application menu and suppress the world render -> opaque black
+		// behind the overlay. kModal is NOT needed for input either: ui.menu_input
+		// proved input gating is flags bit 4, not kModal. Pause is per-view via
+		// SetPausesGame (kFlagPausesGame, driven off the manifest's pausesGame).
+		// SetFlags only writes members (flags @0xC0 + flagsUpdated), safe anytime.
+		SetFlags(kFlagShowCursor);
 	}
 
 	RE::Scaleform::Ptr<RE::IMenu>* FocusMenu::Creator(RE::Scaleform::Ptr<RE::IMenu>* a_out)
@@ -131,10 +180,12 @@ namespace OSFUI
 		// name-keyed dispatch reads a live BSFixedString, not garbage.
 		new (bytes + kOffName) RE::BSFixedString(MENU_NAME.data());
 
-		// Cursor + modal so the engine takes input ownership when we are top of
-		// the modal stack. (Mirror the ctor; the ctor itself never runs here —
-		// this is a raw engine-built object, not a C++ FocusMenu.)
-		*reinterpret_cast<std::uint32_t*>(bytes + kOffFlags) = kFlagShowCursor | kFlagModal;
+		// Cursor (+ pause when the top view asks for it) — NO kModal (it makes the
+		// engine suppress the 3D world once we are admitted => opaque black behind
+		// the overlay; see the ctor for the flag-table evidence). The ctor never
+		// runs here (this is a raw engine-built object, not a C++ FocusMenu).
+		const auto flags = DesiredFlags();
+		*reinterpret_cast<std::uint32_t*>(bytes + kOffFlags) = flags;
 		*(bytes + kOffFlagsUpd) = 1;
 
 		// Pin the refcount high so the engine never frees our calloc buffer through
@@ -145,10 +196,10 @@ namespace OSFUI
 		// Store the raw object into the out-Ptr WITHOUT going through Ptr(Y*)
 		// (which would AddRef via our vtable). Scaleform::Ptr is { T* }.
 		*reinterpret_cast<void**>(a_out) = obj;
+		g_liveMenu.store(obj, std::memory_order_release);
 
 		REX::INFO("FocusMenu: creator built engine-initialised menu obj=0x{:016X} flags=0x{:08X} (uiMovie=null, name@+0xB0 set)",
-			reinterpret_cast<std::uintptr_t>(obj),
-			static_cast<std::uint32_t>(kFlagShowCursor | kFlagModal));
+			reinterpret_cast<std::uintptr_t>(obj), flags);
 		return a_out;
 	}
 
@@ -211,6 +262,21 @@ namespace OSFUI
 		if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
 			queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kHide);
 			REX::INFO("FocusMenu: close requested ('{}' kHide)", MENU_NAME);
+		}
+	}
+
+	void FocusMenu::SetPausesGame(bool a_pause)
+	{
+		const bool changed = g_wantPause.exchange(a_pause, std::memory_order_relaxed) != a_pause;
+		// Patch the live object too: the creator only runs when the engine builds
+		// a fresh instance, and the registration map caches instances across
+		// opens — template-only would leave a cached menu on the old policy.
+		if (auto* obj = static_cast<std::uint8_t*>(g_liveMenu.load(std::memory_order_acquire))) {
+			*reinterpret_cast<std::uint32_t*>(obj + kOffFlags) = DesiredFlags();
+			*(obj + kOffFlagsUpd) = 1;
+		}
+		if (changed) {
+			REX::INFO("FocusMenu: pausesGame -> {} (takes effect on next open)", a_pause);
 		}
 	}
 }

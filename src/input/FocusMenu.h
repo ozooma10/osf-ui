@@ -29,12 +29,21 @@ namespace OSFUI
 	// FIX (implemented in the .cpp Creator, g_creatorReady=true): build a fully
 	// engine-initialised menu with the proven recipe — calloc -> engine IMenu
 	// base-init (REL::ID 130615, not named in CommonLibSF) -> COPY the engine
-	// primary vtable (RE::VTABLE::IMenu[0] = REL::ID 475515) with only slots
-	// 3/4/5/6/8 patched -> construct a valid menuName in place at +0xB0 ->
+	// primary vtable (RE::VTABLE::IMenu[0] = REL::ID 475515) with slots
+	// 3/4/5/6/8 + 0x0A patched -> construct a valid menuName in place at +0xB0 ->
 	// pin the refcount. The +0xB0 name is the specific guard against the crash;
 	// uiMovie stays null (Ultralight-backed; the per-frame movie sites null-guard
 	// +0x88, so no .swf is required). Open/close CALLS are proven
 	// (UIMessageQueue::AddMessage 130659).
+	//
+	// STACK ADMISSION (OSF RE ui.menu_movie_load, 2026-07-01, "Route A"): the show
+	// pump only inserts a menu into the active array (UI+0x430) if primary vf 0x0A
+	// (+0x50) returns true, and the engine base for it is `return uiMovie != null`
+	// — so a movie-less menu is registered but NEVER admitted, hence no input
+	// dispatch and IsMenuOpen==false. The 0x0A thunk (Thunk_CanShow -> true) is
+	// what admits us with no asset; after insertion the engine sets bit6 via vf
+	// 0x10, so IsMenuOpen then reflects real membership. GetRootPath()="" is
+	// CORRECT (it is an AS display path consumed by LoadMovie, not the movie file).
 	//
 	// NOTE: this class still satisfies RE::IMenu's pure virtuals so the type
 	// compiles, but the LIVE object the engine receives is the raw engine-built
@@ -52,7 +61,13 @@ namespace OSFUI
 
 		// Proven RE::IMenu::Flag bits (1.16.244).
 		static constexpr std::uint32_t kFlagShowCursor = 1u << 3;   // cursor shown
-		static constexpr std::uint32_t kFlagModal      = 1u << 8;   // top-of-stack modal selector
+		// top-of-stack modal selector. INTENTIONALLY NOT SET: once the menu is
+		// admitted, kModal makes the engine treat us as a full application menu and
+		// STOP rendering the 3D world behind the overlay (opaque black). Every
+		// world-visible engine menu has it clear; every full-screen one has it set
+		// (ui.menu_flags). Not needed for input either (the gate is bit 4, not this
+		// — ui.menu_input). Kept as a named constant for reference only.
+		static constexpr std::uint32_t kFlagModal      = 1u << 8;
 		static constexpr std::uint32_t kFlagPausesGame = 1u << 27;  // pause sim + 16:9 freeze-frame
 
 		// ---- platform-facing API (call from the game main thread) ----
@@ -67,6 +82,15 @@ namespace OSFUI
 		// poke from the WndProc/input thread. No-op until Register() succeeds.
 		static void Open();
 		static void Close();
+
+		// Whether the engine menu pauses the game (kFlagPausesGame, bit 27 —
+		// proven: flips Main::isGameMenuPaused and arms the freeze-frame
+		// background). Writes the desired flag set both into the template the
+		// next creator run uses AND onto the live engine object; but the engine
+		// only RECOMPUTES the pause latch on menu open/close events, so callers
+		// must set this BEFORE Open() (Runtime closes+reopens on a change while
+		// open). Main thread only.
+		static void SetPausesGame(bool a_pause);
 
 		// True once Register() has run successfully this session.
 		[[nodiscard]] static bool IsRegistered();

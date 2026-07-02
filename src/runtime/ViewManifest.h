@@ -41,8 +41,11 @@ namespace OSFUI
 
 		// Menu-only: while this is the top open menu, freeze the game and route input into the page. Forced false for HUDs.
 		bool capturesInput{ true };
-		// Menu-only: pause simulation. Forced false for HUDs.
-		bool pausesGame{ false };
+		// Menu-only: pause simulation while this is the top open menu (engine
+		// kPausesGame via the focus menu). DEFAULT TRUE (2026-07-01, by design:
+		// menus pause like native ones) — a menu that wants the world to keep
+		// running sets "pausesGame": false. Forced false for HUDs.
+		bool pausesGame{ true };
 
 		// Menu: open at load. HUD: show at load.
 		bool openOnStart{ false };

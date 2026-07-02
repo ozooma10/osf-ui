@@ -557,17 +557,27 @@ namespace OSFUI
 
 	void Runtime::ReconcileFocusMenu()
 	{
-		// Runs on the game main thread (Tick). Drive the engine menu's open state toward the top menu's CAPTURE policy (cursor + modal input ownership)
-		// Only act on a change so we don't spam the UI message queue every frame.
+		// Runs on the game main thread (Tick). Drive the engine menu's open state
+		// toward the top menu's CAPTURE policy, and its kPausesGame flag toward
+		// the top menu's PAUSE policy (manifest pausesGame — Step 3, finally live
+		// now that Route A admits the menu). The engine recomputes the pause
+		// latch on menu open/close events, not on flag writes to an open menu, so
+		// a pause-policy change while open closes the menu this tick and lets the
+		// next tick reopen it with the new flag (also avoids stacking kHide+kShow
+		// in one queue pump). Only act on a change — no per-frame queue spam.
 		const bool wantOpen = _menus.DesiredCapture();
-		if (wantOpen == _focusMenuOpen) {
+		const bool wantPause = _menus.DesiredPause();
+
+		if (_focusMenuOpen && (!wantOpen || wantPause != _focusMenuPause)) {
+			FocusMenu::Close();
+			_focusMenuOpen = false;
 			return;
 		}
-		_focusMenuOpen = wantOpen;
-		if (wantOpen) {
+		if (!_focusMenuOpen && wantOpen) {
+			FocusMenu::SetPausesGame(wantPause);  // BEFORE Open: the open-path recompute reads it
+			_focusMenuPause = wantPause;
 			FocusMenu::Open();
-		} else {
-			FocusMenu::Close();
+			_focusMenuOpen = true;
 		}
 	}
 
