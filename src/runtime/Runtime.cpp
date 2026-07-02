@@ -11,6 +11,7 @@
 #include "input/ControlLayer.h"
 #include "input/EngineInput.h"
 #include "input/FocusMenu.h"
+#include "input/FreeCursor.h"
 #include "input/HardwareCursor.h"
 #include "input/SimPause.h"
 #include "core/Paths.h"
@@ -281,6 +282,12 @@ namespace OSFUI
 		// Sim pause (manifest pausesGame) — unconditional: it is a direct
 		// Main::isGameMenuPaused write, independent of the engine focus menu.
 		ReconcileSimPause();
+		// OS-cursor release — unconditional, tracks CAPTURE (the same policy
+		// that activates the hardware cursor): while a menu captures input, hold
+		// a reference on MenuCursor::freeCursorRefCount so the per-frame clip
+		// releases the pointer (no engine arrow — the focus menu carries no
+		// ShowCursor bit). Edge-triggered inside Apply.
+		FreeCursor::Apply(_menus.DesiredCapture());
 		if (!_renderer) {
 			return;
 		}

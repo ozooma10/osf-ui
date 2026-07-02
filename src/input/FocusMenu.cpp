@@ -175,12 +175,13 @@ namespace OSFUI
 		// full application menu and suppress the world render -> opaque black
 		// behind the overlay. kModal is NOT needed for input either: ui.menu_input
 		// proved input gating is flags bit 4, not kModal. NO pause bits (the sim
-		// pause is input/SimPause via the UI pause counter). And since 2026-07-02
-		// NO ShowCursor either: once the menu is ADMITTED (Route A) bit 3 makes
-		// the engine summon its Scaleform CursorMenu arrow, which then sits
-		// FROZEN AT SCREEN CENTER because the WndProc swallow starves the engine
-		// cursor of mouse input — the overlay's pointer is the hardware cursor
-		// (input/HardwareCursor), so the engine arrow is pure artifact.
+		// pause is input/SimPause via the UI pause counter). And NO ShowCursor:
+		// bit 3 was only ever a middleman — it makes the cursor-visibility driver
+		// open CursorMenu, whose kShow/kHide are what reference-count the OS-cursor
+		// release AND draw the frozen center arrow (OSF RE ui.menu_cursor). OSF UI
+		// takes the free-cursor reference directly (input/FreeCursor), so with
+		// bit 3 clear we get the release with no arrow — and the driver actively
+		// kHides any stray CursorMenu while our overlay is the decider menu.
 		// SetFlags only writes members (flags @0xC0 + flagsUpdated), safe anytime.
 		SetFlags(0);
 	}
@@ -217,12 +218,16 @@ namespace OSFUI
 		// name-keyed dispatch reads a live BSFixedString, not garbage.
 		new (bytes + kOffName) RE::BSFixedString(MENU_NAME.data());
 
-		// NO flags at all — no kModal (world-render suppression), no pause bits
-		// (input/SimPause owns the pause), and no ShowCursor (the engine arrow
-		// appears frozen at screen center; the hardware cursor is the pointer) —
-		// see the ctor comment. The menu's job is purely stack presence + the
-		// +0x10 input-receiver tap. The ctor never runs here (this is a raw
-		// engine-built object, not a C++ FocusMenu).
+		// NO flags at all. Bit 3 (ShowCursor) is no longer needed: it was only a
+		// middleman to CursorMenu, whose kShow/kHide reference-count the OS-cursor
+		// release AND draw the frozen center arrow — input/FreeCursor now takes
+		// the MenuCursor free-cursor reference directly (OSF RE ui.menu_cursor),
+		// so bit 3 clear = release with no arrow, and the visibility driver
+		// actively kHides any stray CursorMenu while we are the decider menu.
+		// No kModal (world-render suppression), no pause bits (input/SimPause).
+		// THIS is the write that matters — the C++ ctor never runs for this raw
+		// engine-built object, so flag changes must be made HERE (a ctor-only
+		// "revert" shipped wrong flags once; don't repeat).
 		constexpr std::uint32_t flags = 0;
 		*reinterpret_cast<std::uint32_t*>(bytes + kOffFlags) = flags;
 		*(bytes + kOffFlagsUpd) = 1;
