@@ -156,10 +156,7 @@ namespace OSFUI::OverlayInputHook
 			// Reconcile the hardware pointer with the capture state on every
 			// message: capture flips on the game main thread, so this is where
 			// the open/close edge becomes visible to the window thread.
-			// IsHardwareCursorEnabled() is an atomic mirror of the setting — the
-			// osfui.hardwareCursor toggle flips it on the main thread; reading the
-			// raw config bool here would be a cross-thread race.
-			const bool wantHwCursor = runtime.IsInputCaptured() && runtime.IsHardwareCursorEnabled();
+			const bool wantHwCursor = runtime.IsInputCaptured() && runtime.GetConfig().hardwareCursor;
 			if (wantHwCursor != g_hwCursorActive) {
 				g_hwCursorActive = wantHwCursor;
 				if (wantHwCursor) {

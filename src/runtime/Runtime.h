@@ -62,11 +62,6 @@ namespace OSFUI
 		// decide whether to route keys into the web view. Thread-safe.
 		[[nodiscard]] bool IsInputCaptured() const;
 
-		// Live mirror of the hardwareCursor setting (osfui.hardwareCursor). Read
-		// by the WndProc hook on the WINDOW thread to activate the OS pointer, so
-		// it's atomic — the settings change fires on the main thread. Thread-safe.
-		[[nodiscard]] bool IsHardwareCursorEnabled() const { return _hardwareCursor.load(); }
-
 		// Called by the WndProc hook for each keyboard transition (Windows VK
 		// code). Drives the toggle key and, while captured, routes the key
 		// into the web view. Returns true if the caller should CONSUME the key
@@ -167,6 +162,19 @@ namespace OSFUI
 		// owns (e.g. cursor speed).
 		void OnSettingChanged(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value);
 
+		// (Re)apply _toggleKey to the input router with the standard
+		// toggle/close callbacks. Called at init and after a live rebind.
+		void ApplyToggleKey();
+
+		// Key-rebind capture. The settings view arms capture via the
+		// `settings.captureKey` command; the NEXT key press is grabbed in
+		// OnHostKey (window thread, consumed so it can't also toggle/close) into
+		// _capturedVk, and DrainKeyCapture (main thread, from Tick) maps it to a
+		// name and sends `settings.captured` back to the view — which then does a
+		// normal settings.set so persistence/validation/re-resolution reuse the
+		// existing path.
+		void DrainKeyCapture();
+
 		// Renderer load-lifecycle hook: a view's main frame finished or failed.
 		// Called on the game thread from the renderer's notification pump.
 		void OnViewLoad(std::string_view a_viewId, bool a_failed, std::string_view a_url,
@@ -219,11 +227,17 @@ namespace OSFUI
 		// is a HUD: it draws but the game still gets input.
 		std::atomic_bool              _captureInput{ true };
 
-		// Live mirror of config.hardwareCursor. Written by OnSettingChanged
-		// (main thread), read by the WndProc hook (window thread) — hence atomic.
-		// config.disableControls needs no mirror: it's read/written on the same
-		// (main) thread (ReconcileControlLayer / OnSettingChanged, both in Tick).
-		std::atomic_bool              _hardwareCursor{ true };
+		// Key-rebind capture state. _captureArmed is set on the main thread (the
+		// settings.captureKey command) and read on the window thread (OnHostKey);
+		// _capturedVk is written on the window thread and drained on the main
+		// thread (DrainKeyCapture) — both atomic. _captureView/_captureKey (which
+		// view + setting to answer) and _captureUpVk (swallow the captured key's
+		// release) are touched on a single thread each, so plain.
+		std::atomic_bool              _captureArmed{ false };
+		std::atomic<KeyCode>          _capturedVk{ kInvalidKeyCode };
+		std::string                   _captureView;   // main-thread: view that armed capture
+		std::string                   _captureKey;    // main-thread: which osfui setting (e.g. "toggleKey")
+		KeyCode                       _captureUpVk{ kInvalidKeyCode };  // window-thread only
 
 		std::atomic_bool              _visible{ false };
 		bool                          _initialized{ false };

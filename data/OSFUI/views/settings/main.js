@@ -122,9 +122,72 @@ function buildControl(modId, setting, current) {
       text.addEventListener("change", () => setValue(modId, setting.key, text.value));
       return makeRow(setting, text, null);
     }
+    case "key": {
+      // A rebindable key. Clicking arms native capture (settings.captureKey);
+      // the next key press comes back as settings.captured. Native does the
+      // capture so pressing the CURRENT toggle key rebinds instead of closing
+      // the overlay.
+      const btn = document.createElement("button");
+      btn.type = "button"; btn.className = "osf-btn osf-btn--sm osf-key"; btn.id = id;
+      btn.textContent = current || "—";
+      btn.addEventListener("click", () => beginCapture(modId, setting.key, btn));
+      return makeRow(setting, btn, null);
+    }
     default:
       return null;
   }
+}
+
+// ---- key rebind capture (one at a time) ----
+
+let capturing = null;  // { mod, key, btn, prev }
+
+function beginCapture(mod, key, btn) {
+  if (capturing) return;
+  capturing = { mod, key, btn, prev: btn.textContent };
+  btn.classList.add("listening");
+  btn.textContent = "Press a key…";
+  if (bridgeAvailable()) {
+    sendCommand({ command: "settings.captureKey", mod, key });  // native captures the next key
+  } else {
+    // Standalone (browser): capture a real DOM keydown so the flow is testable.
+    const onKey = (e) => {
+      window.removeEventListener("keydown", onKey, true);
+      e.preventDefault();
+      const name = domKeyName(e);
+      finishCapture({ mod, key, name, cancelled: e.key === "Escape" || !name });
+    };
+    window.addEventListener("keydown", onKey, true);
+  }
+}
+
+// Standalone-only: map a browser KeyboardEvent to an OSF UI key name (the
+// in-game path does this natively via KeyName(vk)). Rough but enough to preview.
+function domKeyName(e) {
+  if (/^F([1-9]|1[0-9]|2[0-4])$/.test(e.key)) return e.key;            // F1..F24
+  if (/^[a-z]$/i.test(e.key)) return e.key.toUpperCase();               // letters
+  if (/^[0-9]$/.test(e.key)) return e.key;                              // digits
+  const named = { " ": "Space", Enter: "Enter", Tab: "Tab", Backspace: "Backspace",
+    Insert: "Insert", Delete: "Delete", Home: "Home", End: "End",
+    PageUp: "PageUp", PageDown: "PageDown", ArrowUp: "Up", ArrowDown: "Down",
+    ArrowLeft: "Left", ArrowRight: "Right", "`": "Grave" };
+  return named[e.key] || "";
+}
+
+function finishCapture(payload) {
+  if (!capturing) return;
+  const { mod, key, btn, prev } = capturing;
+  capturing = null;
+  btn.classList.remove("listening");
+  if (!payload || payload.cancelled || !payload.name) {
+    btn.textContent = prev;  // Esc / unbindable key → keep the old binding
+    return;
+  }
+  btn.textContent = payload.name;
+  setValue(mod, key, payload.name);  // normal settings.set → persist + re-resolve
+  // Keep the local model in sync so a re-render shows the new binding.
+  const m = allMods.find((x) => x.id === mod);
+  if (m) { m.values = m.values || {}; m.values[key] = payload.name; }
 }
 
 // ---- rendering ------------------------------------------------------------
@@ -279,6 +342,9 @@ function onNativeMessage(jsonText) {
       allMods = message.payload.mods || [];
       render();
       break;
+    case "settings.captured":
+      finishCapture(message.payload);
+      break;
     case "settings.ack":
       if (!message.payload.ok) {
         statusEl && (statusEl.textContent = `REJECTED "${message.payload.mod}.${message.payload.key}"`);
@@ -304,8 +370,10 @@ if (bridgeAvailable()) {
       schema: {
         description: "Runtime and overlay behavior for the OSF UI framework itself.",
         groups: [
+          { label: "Input", settings: [
+            { key: "toggleKey", label: "Open / close key", type: "key", hint: "Press to rebind the key that opens and closes the overlay." },
+          ] },
           { label: "Overlay", settings: [
-            { key: "hardwareCursor", label: "Hardware cursor", type: "bool", hint: "Use the real Windows pointer (zero-lag) while the overlay is open." },
             { key: "disableControls", label: "Disable player controls while open", type: "bool", hint: "Also freezes gamepad/XInput, which the window hook can't see." },
           ] },
           { label: "Cursor", settings: [
@@ -313,7 +381,7 @@ if (bridgeAvailable()) {
           ] },
         ],
       },
-      values: { hardwareCursor: true, disableControls: true, cursorSpeed: 1.0 },
+      values: { toggleKey: "F10", disableControls: true, cursorSpeed: 1.0 },
     },
     {
       id: "demo", title: "Demo Mod Settings",

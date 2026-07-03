@@ -191,6 +191,22 @@ namespace OSFUI
 				}
 				return nlohmann::json(std::move(s));
 			}
+		} else if (type == "key") {
+			// A rebindable key: a short key NAME string (e.g. "F10"). The store
+			// stays feature-agnostic — it only bounds the length; whether the name
+			// actually resolves to a VK is enforced by the consumer
+			// (Runtime::OnSettingChanged via ResolveKeyName). Empty is rejected so
+			// a blank never clobbers a working binding.
+			if (a_value.is_string()) {
+				auto s = a_value.get<std::string>();
+				if (!s.empty()) {
+					constexpr std::size_t kMaxKeyNameLen = 16;
+					if (s.size() > kMaxKeyNameLen) {
+						s.resize(kMaxKeyNameLen);
+					}
+					return nlohmann::json(std::move(s));
+				}
+			}
 		}
 		return std::nullopt;
 	}

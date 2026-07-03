@@ -45,7 +45,9 @@ export type UiCommand =
   | { command: "views.get" }
   | { command: "settings.get" }
   | { command: "settings.set"; mod: string; key: string; value: SettingValue }
-  | { command: "settings.reset"; mod: string; key?: string };
+  | { command: "settings.reset"; mod: string; key?: string }
+  /** Arm native key-rebind capture; the next key press returns as settings.captured. Framework-managed (currently osfui.toggleKey). */
+  | { command: "settings.captureKey"; mod: string; key: string };
 
 export type WebToNativeMessage = BridgeEnvelope<"ui.command", UiCommand>;
 
@@ -73,6 +75,14 @@ export interface SettingsAckPayload {
   mod: string;
   key: string;
   ok: boolean; // false => rejected or clamped server-side
+}
+
+/** Result of a settings.captureKey: the captured key name, or cancelled (Esc / unbindable). */
+export interface SettingsCapturedPayload {
+  mod: string;
+  key: string;
+  name: string;       // OSF UI key name (e.g. "F9"); "" when cancelled
+  cancelled: boolean; // true on Escape or an unbindable key — keep the old binding
 }
 
 export interface UiErrorPayload {
@@ -118,6 +128,7 @@ export type NativeToWebMessage =
   | BridgeEnvelope<"views.data", ViewsDataPayload>
   | BridgeEnvelope<"settings.data", SettingsDataPayload>
   | BridgeEnvelope<"settings.ack", SettingsAckPayload>
+  | BridgeEnvelope<"settings.captured", SettingsCapturedPayload>
   | BridgeEnvelope<"ui.error", UiErrorPayload>;
 
 // ---------------------------------------------------------------------------
@@ -126,11 +137,12 @@ export type NativeToWebMessage =
 
 export type SettingValue = boolean | number | string;
 
-export type SettingType = "bool" | "int" | "float" | "enum" | "string";
+export type SettingType = "bool" | "int" | "float" | "enum" | "string" | "key";
 
 export interface Setting {
   key: string;
   label?: string;
+  hint?: string;      // optional helper text shown under the control label
   type: SettingType;
   default?: SettingValue;
   min?: number;
@@ -147,6 +159,7 @@ export interface SettingsGroup {
 export interface SettingsSchema {
   id?: string;
   title?: string;
+  description?: string;  // one-line blurb shown under the title in the detail pane
   groups?: SettingsGroup[];
 }
 

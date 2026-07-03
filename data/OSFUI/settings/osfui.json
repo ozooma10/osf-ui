@@ -4,15 +4,20 @@
   "description": "Runtime and overlay behavior for the OSF UI framework itself.",
   "groups": [
     {
-      "label": "Overlay",
+      "label": "Input",
       "settings": [
         {
-          "key": "hardwareCursor",
-          "label": "Hardware cursor",
-          "type": "bool",
-          "default": true,
-          "hint": "Show the real Windows pointer (zero-lag) while the overlay is open. Off falls back to a software cursor."
-        },
+          "key": "toggleKey",
+          "label": "Open / close key",
+          "type": "key",
+          "default": "F10",
+          "hint": "Press to rebind the key that opens and closes the overlay."
+        }
+      ]
+    },
+    {
+      "label": "Overlay",
+      "settings": [
         {
           "key": "disableControls",
           "label": "Disable player controls while open",

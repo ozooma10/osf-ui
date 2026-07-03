@@ -187,6 +187,7 @@ Whitelisted commands (anything else is rejected + logged):
 | `settings.get` | — | runtime replies with `settings.data` |
 | `settings.set` | `mod, key, value` | set one schema-declared setting (validated) |
 | `settings.reset` | `mod`, `key?` | reset one key, or the whole mod if `key` omitted |
+| `settings.captureKey` | `mod, key` | arm native key-rebind capture for a `key`-typed setting; the next key press replies with `settings.captured`. Framework-managed (currently only `osfui.toggleKey`) — captured natively so pressing the current toggle key rebinds instead of closing the overlay |
 
 > There is intentionally **no** "call any native function" escape hatch. New
 > commands come from native code only: either a handler in the OSF UI runtime,
@@ -206,6 +207,7 @@ Assign `window.osfui.onMessage` and switch on `message.type`:
 | `views.data` | `{ views: [ { id, title, description, kind, interactive, hub, open, focused, loadState } ] }` | reply to `views.get`, and re-pushed to every subscribed view when any entry changes. `kind` = `"menu"`\|`"hud"`; `loadState` = `"loading"`\|`"loaded"`\|`"failed"`; a view torn down by crash-recovery drops out of the list. Respect `hub:false` (don't list those) |
 | `settings.data` | `{ mods: [ { id, title, schema, values } ] } ` | reply to `settings.get` / after a `settings.reset` |
 | `settings.ack` | `{ mod, key, ok }` | result of a `settings.set` (`ok:false` ⇒ rejected/clamped) |
+| `settings.captured` | `{ mod, key, name, cancelled }` | reply to `settings.captureKey`: the captured key `name` (an OSF UI key name), or `cancelled:true` (Escape / unbindable — keep the old binding). The view then sends a normal `settings.set` with `name` |
 | `ui.error` | `{ reason, type?, command? }` | the runtime rejected something you sent — a malformed message, an unknown `type`, or an unknown `command`. Log it while developing; the same WARN is in `OSF UI.log` |
 
 Unknown `type`s should be ignored (never `eval`'d) — including future `type`s
@@ -284,6 +286,10 @@ relaunch, and the runtime can react to changes natively.
 | `float` | slider | number, clamped to `[min,max]` |
 | `enum` | dropdown | must be one of `options` |
 | `string` | text field | truncated to 256 chars |
+| `key` | press-to-bind button | non-empty key-name string (≤16 chars). **Framework-managed:** capture is armed via `settings.captureKey` and grabbed in the native input layer (so pressing the current toggle key rebinds instead of closing the overlay). Currently only `osfui.toggleKey` is rebindable |
+
+The `bool` control renders as a toggle switch, `int`/`float` as sliders with a
+value badge — see `../shared/osfui.css` for the shared control styles.
 
 Unknown keys, wrong types, and out-of-range values are rejected/clamped
 server-side and reported via `settings.ack {ok:false}`. **Untrusted JS cannot

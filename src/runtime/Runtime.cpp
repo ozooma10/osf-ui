@@ -83,13 +83,14 @@ namespace OSFUI
 		// the renderer's WORKER thread (IWebRenderer.h contract) — SetShape is
 		// one atomic store, applied by the WndProc hook on the next mouse
 		// message.
-		// Registered unconditionally: the handler only stores the latest shape
-		// (the WndProc applies it only while the hardware cursor is ACTIVE), so
-		// it's harmless when disabled and keeps hardwareCursor live-toggleable
-		// (osfui.hardwareCursor) without a re-register.
-		_renderer->SetCursorChangeHandler([](CursorShape a_shape) {
-			HardwareCursor::SetShape(a_shape);
-		});
+		// hardwareCursor is a boot-time config knob (config.json), not a runtime
+		// setting — its only alternative is an invisible software cursor (debug
+		// escape hatch), so it's deliberately not surfaced in the settings UI.
+		if (_config.hardwareCursor) {
+			_renderer->SetCursorChangeHandler([](CursorShape a_shape) {
+				HardwareCursor::SetShape(a_shape);
+			});
+		}
 
 		// Compositor
 		_compositor = CreateCompositor();
@@ -104,10 +105,6 @@ namespace OSFUI
 		REX::INFO("Runtime: compositor = {}", _compositor->Name());
 
 		_captureInput.store(_config.captureInput);
-		// Seed the live hardware-cursor mirror from config; osfui.hardwareCursor
-		// then drives it at runtime (the settings module's OnStart/NotifyAll
-		// re-applies the persisted value below, before the first frame).
-		_hardwareCursor.store(_config.hardwareCursor);
 
 		// Feature modules ("apps" on the platform). Core hosts them via the
 		// IUiModule contract and knows nothing of what they do — settings is
@@ -217,10 +214,8 @@ namespace OSFUI
 		}
 
 		// F10 toggles the default menu; Esc (while captured) closes the top menu.
-		_input.Configure(
-			_toggleKey,
-			[this] { EnqueueMenuRequest(MenuReq::ToggleDefault); },
-			[this] { EnqueueMenuRequest(MenuReq::CloseTop); });
+		// Extracted so a live key-rebind (osfui.toggleKey) can re-apply it.
+		ApplyToggleKey();
 
 		// Keyboard routing into the web view, gated by capture state (Phase 4).
 		_input.SetWebRouting(
@@ -274,6 +269,8 @@ namespace OSFUI
 		_uptime += a_deltaSeconds;
 		// Apply queued menu requests (F10/Esc/transition) on the MAIN thread first, so the reconcilers below and the frame submitted this tick reflect the new state.
 		DrainMenuRequests();
+		// Deliver a captured rebind key back to the settings view (main thread).
+		DrainKeyCapture();
 		// Apply the native plugin API's queued ops (command (re)registration +
 		// off-thread SendToWeb) on the main thread, before Update() flushes the
 		// per-view outbound queues to the pages.
@@ -568,8 +565,34 @@ namespace OSFUI
 		return _initialized && _captureInput.load() && _visible.load();
 	}
 
+	void Runtime::ApplyToggleKey()
+	{
+		_input.Configure(
+			_toggleKey,
+			[this] { EnqueueMenuRequest(MenuReq::ToggleDefault); },
+			[this] { EnqueueMenuRequest(MenuReq::CloseTop); });
+	}
+
 	bool Runtime::OnHostKey(std::uint32_t a_vkCode, bool a_down)
 	{
+		// Key-rebind capture (armed by the settings.captureKey command). Grab the
+		// next key press for the rebind and CONSUME it, so pressing the current
+		// toggle key (or Esc) rebinds instead of closing the overlay. The actual
+		// apply happens on the main thread (DrainKeyCapture) — here we only stash
+		// the VK. The matching key-up is swallowed too so it can't leak/route.
+		if (_captureArmed.load()) {
+			if (a_down) {
+				_capturedVk.store(a_vkCode);
+				_captureArmed.store(false);
+				_captureUpVk = a_vkCode;
+			}
+			return true;
+		}
+		if (_captureUpVk != kInvalidKeyCode && a_vkCode == _captureUpVk && !a_down) {
+			_captureUpVk = kInvalidKeyCode;
+			return true;
+		}
+
 		// Console key: the game toggles its console from this key via MenuControls,
 		// which OSF RE (module ui.menu_input) proved runs BEFORE any per-menu UI
 		// input dispatch — so nothing on the menu stack can starve it, and the ONLY
@@ -843,6 +866,32 @@ namespace OSFUI
 		REX::INFO("Runtime: {} UI module(s) loaded", _modules.size());
 	}
 
+	void Runtime::DrainKeyCapture()
+	{
+		const KeyCode vk = _capturedVk.exchange(kInvalidKeyCode);
+		if (vk == kInvalidKeyCode) {
+			return;  // nothing captured this tick
+		}
+		if (!_bridge || _captureView.empty()) {
+			return;  // nobody to answer
+		}
+		// Escape cancels the rebind; an unnameable VK can't be a binding.
+		constexpr KeyCode kVkEscape = 0x1B;
+		const std::string name = (vk == kVkEscape) ? std::string{} : KeyName(vk);
+		const bool cancelled = name.empty();
+		// Tell the view which setting + the captured name; it echoes back a normal
+		// settings.set (so the store persists + OnSettingChanged re-resolves).
+		_bridge->SendToWeb(_captureView, "settings.captured", nlohmann::json{
+			{ "mod", "osfui" },
+			{ "key", _captureKey },
+			{ "name", name },
+			{ "cancelled", cancelled },
+		});
+		REX::INFO("Runtime: key capture -> {} ({})", cancelled ? "(cancelled)" : name, _captureKey);
+		_captureView.clear();
+		_captureKey.clear();
+	}
+
 	void Runtime::RegisterPlatformCommands(MessageBridge& a_bridge)
 	{
 		// The platform owns only window/diagnostic commands. Features register
@@ -904,6 +953,22 @@ namespace OSFUI
 			_lastViewsData = payload.dump();
 			a_b.SendToWeb("views.data", payload);
 		});
+		// Arm key-rebind capture: the NEXT key press is grabbed by OnHostKey and
+		// reported back via `settings.captured`. Only the framework's own
+		// rebindable keys are accepted (currently osfui.toggleKey). Runs on the
+		// main thread; OnHostKey (window thread) reads the armed flag.
+		a_bridge.RegisterCommand("settings.captureKey", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
+			const std::string mod = Json::GetString(a_p, "mod", "");
+			const std::string key = Json::GetString(a_p, "key", "");
+			if (mod != "osfui" || key != "toggleKey") {
+				REX::WARN("Runtime: settings.captureKey rejected — only osfui.toggleKey is rebindable (got '{}.{}')", mod, key);
+				return;
+			}
+			_captureView = std::string(a_b.CurrentSource());
+			_captureKey = key;
+			_captureArmed.store(true);
+			REX::INFO("Runtime: armed key capture for {}.{} (from view '{}')", mod, key, _captureView);
+		});
 		a_bridge.RegisterCommand("log", [](const nlohmann::json& a_p, MessageBridge&) {
 			// Untrusted content: bound the length so JS cannot flood the log.
 			REX::INFO("MessageBridge: [web] {}", Json::GetString(a_p, "text", "").substr(0, 512));
@@ -959,14 +1024,6 @@ namespace OSFUI
 			_cursorSpeed.store(speed);
 			REX::INFO("Runtime: setting osfui.cursorSpeed -> {:.2f}", speed);
 		}
-		// Hardware cursor: mirror to the atomic the WndProc reads (window thread).
-		// The next mouse message activates/deactivates the OS pointer to match.
-		else if (a_key == "hardwareCursor" && a_value.is_boolean()) {
-			const auto on = a_value.get<bool>();
-			_config.hardwareCursor = on;
-			_hardwareCursor.store(on);
-			REX::INFO("Runtime: setting osfui.hardwareCursor -> {}", on);
-		}
 		// Disable-controls: read live on this same (main) thread by
 		// ReconcileControlLayer, which now always runs and releases when this is
 		// off — so no extra reconcile call is needed here.
@@ -974,6 +1031,22 @@ namespace OSFUI
 			const auto on = a_value.get<bool>();
 			_config.disableControls = on;
 			REX::INFO("Runtime: setting osfui.disableControls -> {}", on);
+		}
+		// Toggle key rebind: re-resolve the name and re-apply it to the input
+		// router. Reject an unresolvable name (keep the working key) rather than
+		// disabling the toggle. Fires on the main thread (settings dispatch), so
+		// re-Configuring the router is as safe as the initial Configure.
+		else if (a_key == "toggleKey" && a_value.is_string()) {
+			const auto name = a_value.get<std::string>();
+			const auto vk = ResolveKeyName(name);
+			if (vk == kInvalidKeyCode) {
+				REX::WARN("Runtime: setting osfui.toggleKey '{}' is not a resolvable key; keeping '{}'", name, _config.toggleKey);
+				return;
+			}
+			_config.toggleKey = name;
+			_toggleKey = vk;
+			ApplyToggleKey();
+			REX::INFO("Runtime: setting osfui.toggleKey -> {} (VK {:#x})", name, vk);
 		}
 	}
 

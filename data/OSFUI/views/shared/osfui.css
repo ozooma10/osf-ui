@@ -315,3 +315,14 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
   font-family: var(--font-mono); font-size: var(--text-xs); color: var(--accent-hover);
   min-width: 44px; text-align: right;
 }
+
+/* Key-rebind control: shows the bound key; `.listening` while capturing. */
+.osf-key {
+  min-width: 104px; font-family: var(--font-mono);
+  letter-spacing: 0.08em; text-transform: none;
+}
+.osf-key.listening {
+  color: var(--accent-hover); border-color: var(--accent); background: var(--accent-quiet);
+  animation: osf-key-pulse 1s var(--ease-in-out) infinite;
+}
+@keyframes osf-key-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }

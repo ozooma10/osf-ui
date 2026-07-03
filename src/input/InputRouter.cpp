@@ -61,6 +61,50 @@ namespace OSFUI
 		return kInvalidKeyCode;
 	}
 
+	std::string KeyName(KeyCode a_vk)
+	{
+		// F1-F24 (contiguous from VK_F1 = 0x70).
+		if (a_vk >= 0x70 && a_vk <= 0x87) {
+			return "F" + std::to_string(a_vk - 0x70 + 1);
+		}
+		// Digits 0-9 (VK 0x30-0x39) and letters A-Z (VK 0x41-0x5A) are their ASCII.
+		if ((a_vk >= 0x30 && a_vk <= 0x39) || (a_vk >= 0x41 && a_vk <= 0x5A)) {
+			return std::string(1, static_cast<char>(a_vk));
+		}
+		// Named keys — the canonical (first) name per VK, matching the forward
+		// table's primary spelling (aliases like Return/Tilde resolve back to
+		// Enter/Grave). Keep in lockstep with ResolveKeyName's kNamedKeys.
+		switch (a_vk) {
+		case 0x20: return "Space";
+		case 0x0D: return "Enter";
+		case 0x09: return "Tab";
+		case 0x1B: return "Escape";
+		case 0x08: return "Backspace";
+		case 0x2D: return "Insert";
+		case 0x2E: return "Delete";
+		case 0x24: return "Home";
+		case 0x23: return "End";
+		case 0x21: return "PageUp";
+		case 0x22: return "PageDown";
+		case 0x26: return "Up";
+		case 0x28: return "Down";
+		case 0x25: return "Left";
+		case 0x27: return "Right";
+		case 0x14: return "CapsLock";
+		case 0x90: return "NumLock";
+		case 0x91: return "ScrollLock";
+		case 0x13: return "Pause";
+		case 0xA0: return "LShift";
+		case 0xA1: return "RShift";
+		case 0xA2: return "LCtrl";
+		case 0xA3: return "RCtrl";
+		case 0xA4: return "LAlt";
+		case 0xA5: return "RAlt";
+		case 0xC0: return "Grave";
+		default: return {};
+		}
+	}
+
 	namespace
 	{
 		constexpr KeyCode kVkEscape = 0x1B;

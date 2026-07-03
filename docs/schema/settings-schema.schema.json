@@ -17,6 +17,10 @@
       "type": "string",
       "description": "Card header shown in the settings view. Defaults to id."
     },
+    "description": {
+      "type": "string",
+      "description": "Optional one-line blurb shown under the title in the settings detail pane."
+    },
     "groups": {
       "type": "array",
       "description": "Ordered sections of settings.",
@@ -50,9 +54,13 @@
           "type": "string",
           "description": "Control label. Defaults to key."
         },
+        "hint": {
+          "type": "string",
+          "description": "Optional helper text shown under the control label in the settings view."
+        },
         "type": {
-          "enum": ["bool", "int", "float", "enum", "string"],
-          "description": "Control + validation kind. int/float clamp to [min,max]; enum must be one of options; string truncates to 256 chars."
+          "enum": ["bool", "int", "float", "enum", "string", "key"],
+          "description": "Control + validation kind. int/float clamp to [min,max]; enum must be one of options; string truncates to 256 chars; key = a rebindable key name captured by a press (framework-managed; currently osfui.toggleKey)."
         },
         "default": {
           "description": "Initial value, used until the user changes it and on reset. Should match the type."
