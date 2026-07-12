@@ -4,22 +4,47 @@
 // pinned first) under FRAMEWORK, then every mod that ships a settings/<id>.json
 // schema under MODS. The right pane renders the selected subject's typed
 // controls on the shared OSF UI design system. Talks to the runtime only
-// through the narrow JSON bridge (settings.get / settings.set / settings.reset);
-// the native SettingsStore validates, clamps, persists, and reacts. This script
-// is just the renderer.
+// through the narrow JSON bridge (settings.get / settings.set / settings.reset /
+// settings.captureKey); the native SettingsStore validates, clamps, persists,
+// and reacts. This script is just the renderer.
+//
+// Everything the schema adds beyond bool/int/float/enum/string/key is
+// PRESENTATION: widget hints, number formatting, visibleWhen/enabledWhen
+// conditions, note/image blocks, action buttons, requires badges, presets. The
+// native store never trusts any of it — a hidden or disabled control is still
+// validated on write, and an action command is refused unless it is namespaced
+// with the owning mod's id. Untrusted schema text only ever reaches the DOM via
+// textContent / createElement, never innerHTML.
 
 "use strict";
 
 // The framework's own settings mod id — pinned first, under FRAMEWORK.
 const FRAMEWORK_ID = "osfui";
+const ACTION_TIMEOUT_MS = 5000;
+const HEX_RE = /^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+const COLOR_PRESETS = ["#5aa9b8", "#6fae6a", "#e0a23c", "#c8503a", "#c8607f", "#f0ece2", "#828a93", "#11151b"];
 
 const statusEl = document.getElementById("status");
 const detailEl = document.getElementById("detail");
 const railEl = document.getElementById("rail-list");
 const filterEl = document.getElementById("filter");
+const toastEl = document.getElementById("toast");
+const sessionChipEl = document.getElementById("session-chip");
 
 let allMods = [];
 let selectedId = null;
+// value at the start of the session, per "<mod> <key>" — drives the
+// session-changes chip + revert. Seeded once per key, then kept across data
+// refreshes (so a reset/preset re-broadcast doesn't lose session history).
+let baseline = {};
+// Rebuilt every full render; consulted by refreshLive() to re-evaluate
+// conditions and modified indicators without tearing the pane down.
+let liveRows = [];
+let liveGroups = [];
+// Pending action buttons awaiting a "<mod>.ack": actionKey -> restore fn.
+const pendingActions = new Map();
+
+// ---- bridge ---------------------------------------------------------------
 
 function bridgeAvailable() {
   return typeof window.osfui === "object" &&
@@ -32,113 +57,813 @@ function sendCommand(fields) {
 }
 function setValue(modId, key, value) { sendCommand({ command: "settings.set", mod: modId, key, value }); }
 function resetMod(modId) { sendCommand({ command: "settings.reset", mod: modId }); }
+function resetSetting(modId, key) { sendCommand({ command: "settings.reset", mod: modId, key }); }
 
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+// Apply a value locally (optimistic) so conditions/dots update before the
+// native ack, and record it against the session baseline.
+function applyLocal(modId, key, value) {
+  const mod = allMods.find((m) => m.id === modId);
+  if (!mod) return;
+  mod.values = mod.values || {};
+  const bkey = modId + " " + key;
+  if (!(bkey in baseline)) baseline[bkey] = mod.values[key];
+  mod.values[key] = value;
 }
+
+// A user commit: push to native, update the local model, refresh live state.
+function commit(modId, key, value) {
+  applyLocal(modId, key, value);
+  setValue(modId, key, value);
+  const mod = allMods.find((m) => m.id === modId);
+  if (mod) refreshLive(mod);
+}
+
+// ---- utils ----------------------------------------------------------------
+
 function initials(t) {
   const w = String(t).trim().split(/\s+/);
   if (w.length >= 2) return (w[0][0] + w[1][0]).toUpperCase();
   return w[0].replace(/[^A-Za-z0-9]/g, "").slice(0, 2).toUpperCase();
 }
 function titleOf(mod) { return mod.title || (mod.schema && mod.schema.title) || mod.id; }
+function el(tag, className, text) {
+  const n = document.createElement(tag);
+  if (className) n.className = className;
+  if (text != null) n.textContent = text;
+  return n;
+}
+function devWarn(msg) { if (typeof console !== "undefined" && console.warn) console.warn("[osfui settings] " + msg); }
 
-// ---- control builders, one per schema type --------------------------------
+function toast(message, kind) {
+  if (!toastEl) return;
+  const t = el("div", "toast" + (kind ? " toast--" + kind : ""), message);
+  toastEl.appendChild(t);
+  // Fade after a beat; localized to the toast node so the pane doesn't repaint.
+  setTimeout(() => { t.classList.add("leaving"); }, 2600);
+  setTimeout(() => { t.remove(); }, 3000);
+}
 
-function makeRow(setting, controlNode, valueNode) {
-  const row = document.createElement("div");
-  row.className = "row";
-  row.dataset.label = (setting.label || setting.key).toLowerCase();
+// Micro-markdown -> DocumentFragment. Supports **bold**, *italic*, `code`, and
+// \n line breaks. No HTML, no links — every literal goes through textContent.
+function renderInline(text) {
+  const frag = document.createDocumentFragment();
+  const lines = String(text).split("\n");
+  lines.forEach((line, i) => {
+    if (i > 0) frag.appendChild(document.createElement("br"));
+    const re = /(\*\*([^*]+)\*\*)|(\*([^*]+)\*)|(`([^`]+)`)/g;
+    let last = 0, m;
+    while ((m = re.exec(line)) !== null) {
+      if (m.index > last) frag.appendChild(document.createTextNode(line.slice(last, m.index)));
+      if (m[2] != null) frag.appendChild(el("strong", null, m[2]));
+      else if (m[4] != null) frag.appendChild(el("em", null, m[4]));
+      else if (m[6] != null) frag.appendChild(el("code", null, m[6]));
+      last = re.lastIndex;
+    }
+    if (last < line.length) frag.appendChild(document.createTextNode(line.slice(last)));
+  });
+  return frag;
+}
 
-  const text = document.createElement("div");
-  text.className = "row-text";
-  const label = document.createElement("label");
-  label.className = "row-label";
-  label.textContent = setting.label || setting.key;
-  label.htmlFor = `ctl-${setting.key}`;
-  text.appendChild(label);
-  if (setting.hint) {
-    const hint = document.createElement("div");
-    hint.className = "row-hint";
-    hint.textContent = setting.hint;
-    text.appendChild(hint);
+// int/float display: store the raw value, show a friendly string.
+function formatNumber(setting, v) {
+  const f = setting.format || {};
+  const scale = typeof f.scale === "number" ? f.scale : 1;
+  const n = Number(v) * scale;
+  let s;
+  // Clamp decimals to [0,20]: toFixed throws RangeError beyond the engine limit
+  // (only 20 on older WebKit/JSCore), which would blank the whole detail pane.
+  if (typeof f.decimals === "number") s = n.toFixed(Math.min(20, Math.max(0, f.decimals | 0)));
+  else if (setting.type === "int") s = String(Math.round(n));
+  else s = Number(n).toFixed(2);
+  return (f.prefix || "") + s + (f.suffix || "");
+}
+
+function optionLabel(setting, opt) {
+  const opts = setting.options || [];
+  const labels = setting.optionLabels || [];
+  const idx = opts.indexOf(opt);
+  return (idx >= 0 && labels[idx] != null) ? labels[idx] : opt;
+}
+
+// ---- conditions + modified state ------------------------------------------
+
+function evalCondition(cond, values) {
+  if (!cond || typeof cond !== "object") return true;
+  if (Array.isArray(cond.all)) return cond.all.every((c) => evalCondition(c, values));
+  if (Array.isArray(cond.any)) return cond.any.some((c) => evalCondition(c, values));
+  if (cond.not) return !evalCondition(cond.not, values);
+  if (typeof cond.key === "string") {
+    if (!(cond.key in values)) { devWarn(`condition references unknown key "${cond.key}"`); return false; }
+    const v = values[cond.key];
+    if ("eq" in cond) return v === cond.eq;
+    if ("ne" in cond) return v !== cond.ne;
+    if ("in" in cond) return Array.isArray(cond.in) && cond.in.includes(v);
+    if ("gt" in cond) return Number(v) > cond.gt;
+    if ("gte" in cond) return Number(v) >= cond.gte;
+    if ("lt" in cond) return Number(v) < cond.lt;
+    if ("lte" in cond) return Number(v) <= cond.lte;
+    if ("truthy" in cond) return cond.truthy ? !!v : !v;
+    return true;
   }
+  return true;
+}
+
+function isSetting(item) {
+  return item && (item.type === "bool" || item.type === "int" || item.type === "float" ||
+    item.type === "enum" || item.type === "string" || item.type === "key");
+}
+function isModified(setting, value) {
+  if (value === undefined || !("default" in setting)) return false;
+  return value !== setting.default;
+}
+function modifiedCount(mod) {
+  let n = 0;
+  for (const g of (mod.schema && mod.schema.groups) || []) {
+    for (const s of g.settings || []) {
+      if (isSetting(s) && isModified(s, (mod.values || {})[s.key])) n++;
+    }
+  }
+  return n;
+}
+// Baseline keys join "<modId> <settingKey>". Split on the FIRST space only —
+// mod ids never contain spaces, but a setting key theoretically could.
+function splitBKey(k) { const i = k.indexOf(" "); return [k.slice(0, i), k.slice(i + 1)]; }
+function sessionChangeCount() {
+  let n = 0;
+  for (const k in baseline) {
+    const [modId, key] = splitBKey(k);
+    const mod = allMods.find((m) => m.id === modId);
+    if (mod && (mod.values || {})[key] !== baseline[k]) n++;
+  }
+  return n;
+}
+
+// ---- control builders ------------------------------------------------------
+
+function buildBool(modId, setting, id, current) {
+  const sw = document.createElement("button");
+  sw.type = "button"; sw.className = "osf-switch"; sw.id = id; sw.setAttribute("role", "switch");
+  const set = (on) => sw.setAttribute("aria-pressed", on ? "true" : "false");
+  set(current === true);
+  sw.addEventListener("click", () => {
+    const next = sw.getAttribute("aria-pressed") !== "true";
+    set(next); commit(modId, setting.key, next);
+  });
+  return { control: sw, value: null };
+}
+
+function buildRange(modId, setting, id, current) {
+  const isInt = setting.type === "int";
+  const stepper = setting.widget === "stepper";
+  const min = setting.min ?? 0, max = setting.max ?? 100;
+  const step = setting.step ?? (isInt ? 1 : 0.01);
+  let val = current ?? min;
+
+  const valueEl = el("span", "osf-value", formatNumber(setting, val));
+
+  if (stepper) {
+    const wrap = el("div", "osf-stepper");
+    const dec = el("button", "osf-stepper-btn", "−"); dec.type = "button";
+    const inc = el("button", "osf-stepper-btn", "+"); inc.type = "button";
+    const read = el("span", "osf-stepper-val", formatNumber(setting, val));
+    const clamp = (v) => Math.min(max, Math.max(min, v));
+    // Snap to the step grid relative to min (so an off-grid start still snaps),
+    // and round away IEEE drift so repeated float steps stay comparable to the
+    // schema default (e.g. 1.2, not 1.2000000000000002).
+    const snap = (v) => {
+      let s = min + Math.round((v - min) / step) * step;
+      return isInt ? Math.round(s) : Math.round(s * 1e6) / 1e6;
+    };
+    const apply = (v) => {
+      val = clamp(snap(v));
+      read.textContent = formatNumber(setting, val);
+      commit(modId, setting.key, val);
+    };
+    dec.addEventListener("click", () => apply(val - step));
+    inc.addEventListener("click", () => apply(val + step));
+    wrap.append(dec, read, inc);
+    wrap.id = id;
+    return { control: wrap, value: null };
+  }
+
+  const slider = document.createElement("input");
+  slider.type = "range"; slider.className = "osf-range"; slider.id = id;
+  slider.min = min; slider.max = max; slider.step = step; slider.value = val;
+  slider.addEventListener("input", () => { valueEl.textContent = formatNumber(setting, slider.value); });
+  slider.addEventListener("change", () =>
+    commit(modId, setting.key, isInt ? parseInt(slider.value, 10) : parseFloat(slider.value)));
+  return { control: slider, value: valueEl };
+}
+
+function buildEnum(modId, setting, id, current) {
+  const opts = setting.options || [];
+  if (setting.widget === "segmented" && opts.length && opts.length <= 5) {
+    const seg = el("div", "osf-segmented"); seg.id = id; seg.setAttribute("role", "group");
+    const buttons = [];
+    const select = (opt) => {
+      buttons.forEach((b) => b.setAttribute("aria-pressed", b.dataset.opt === opt ? "true" : "false"));
+    };
+    for (const opt of opts) {
+      const b = el("button", "osf-segment", optionLabel(setting, opt));
+      b.type = "button"; b.dataset.opt = opt;
+      b.addEventListener("click", () => { select(opt); commit(modId, setting.key, opt); });
+      buttons.push(b); seg.appendChild(b);
+    }
+    select(current);
+    return { control: seg, value: null };
+  }
+  const select = document.createElement("select");
+  select.className = "osf-select"; select.id = id;
+  for (const opt of opts) {
+    const o = document.createElement("option");
+    o.value = opt; o.textContent = optionLabel(setting, opt);
+    if (opt === current) o.selected = true;
+    select.appendChild(o);
+  }
+  select.addEventListener("change", () => commit(modId, setting.key, select.value));
+  return { control: select, value: null };
+}
+
+function buildString(modId, setting, id, current) {
+  if (setting.widget === "color") return buildColor(modId, setting, id, current);
+  // Native SettingsStore currently hard-caps strings at 256; the native slice
+  // raises this (and honors per-setting maxLength) up to 4096 — bump both in
+  // lockstep then. Until then, clamp here so the UI can't accept text the store
+  // would silently truncate.
+  const maxLength = Math.min(256, setting.maxLength || 256);
+  if (setting.widget === "textarea") {
+    const ta = document.createElement("textarea");
+    ta.className = "osf-input osf-textarea"; ta.id = id; ta.rows = 3;
+    ta.maxLength = maxLength; ta.value = current ?? "";
+    ta.addEventListener("change", () => commit(modId, setting.key, ta.value));
+    return { control: ta, value: null };
+  }
+  const text = document.createElement("input");
+  text.type = "text"; text.className = "osf-input"; text.id = id;
+  text.maxLength = maxLength; text.value = current ?? "";
+  text.addEventListener("change", () => commit(modId, setting.key, text.value));
+  return { control: text, value: null };
+}
+
+function buildColor(modId, setting, id, current) {
+  const wrap = el("div", "osf-color"); wrap.id = id;
+  const swatch = el("span", "osf-color-swatch");
+  const hex = document.createElement("input");
+  hex.type = "text"; hex.className = "osf-input osf-color-hex"; hex.value = current || "";
+  hex.spellcheck = false; hex.maxLength = 9;
+  const paint = (v) => { swatch.style.background = HEX_RE.test(v) ? v : "transparent"; };
+  paint(current || "");
+  const applyHex = () => {
+    const v = hex.value.trim();
+    if (HEX_RE.test(v)) { paint(v); commit(modId, setting.key, v); }
+    else { hex.value = current || ""; paint(hex.value); toast("Enter a hex colour like #5aa9b8", "warn"); }
+  };
+  hex.addEventListener("change", applyHex);
+  const presets = el("div", "osf-color-presets");
+  for (const p of COLOR_PRESETS) {
+    const b = el("button", "osf-color-preset"); b.type = "button";
+    b.style.background = p; b.title = p;
+    b.addEventListener("click", () => { hex.value = p; current = p; paint(p); commit(modId, setting.key, p); });
+    presets.appendChild(b);
+  }
+  wrap.append(swatch, hex, presets);
+  return { control: wrap, value: null };
+}
+
+function buildKey(modId, setting, id, current) {
+  // A rebindable key. Clicking arms native capture (settings.captureKey); the
+  // next key press comes back as settings.captured. Native does the capture so
+  // pressing the CURRENT toggle key rebinds instead of closing the overlay.
+  const btn = document.createElement("button");
+  btn.type = "button"; btn.className = "osf-btn osf-btn--sm osf-key"; btn.id = id;
+  btn.textContent = current || "—";
+  btn.addEventListener("click", () => beginCapture(modId, setting.key, btn));
+  return { control: btn, value: null };
+}
+
+function buildSettingControl(modId, setting, id, current) {
+  switch (setting.type) {
+    case "bool": return buildBool(modId, setting, id, current);
+    case "int":
+    case "float": return buildRange(modId, setting, id, current);
+    case "enum": return buildEnum(modId, setting, id, current);
+    case "string": return buildString(modId, setting, id, current);
+    case "key": return buildKey(modId, setting, id, current);
+    default: return null;
+  }
+}
+
+// ---- rows ------------------------------------------------------------------
+
+const REQUIRES_LABEL = { restart: "Restart", reload: "Reload UI", newGame: "New game" };
+
+function makeSettingRow(mod, setting, current) {
+  const id = `ctl-${setting.key}`;
+  const built = buildSettingControl(mod.id, setting, id, current);
+  if (!built) {
+    // Unknown/newer type: render read-only so a stale runtime degrades cleanly.
+    return unknownRow(setting);
+  }
+
+  const row = el("div", "row");
+  row.dataset.label = (setting.label || setting.key).toLowerCase();
+  row.dataset.key = setting.key;
+
+  const text = el("div", "row-text");
+  const labelWrap = el("div", "row-label-line");
+  const label = document.createElement("label");
+  label.className = "row-label"; label.textContent = setting.label || setting.key; label.htmlFor = id;
+  const dot = el("span", "osf-dot"); dot.title = "Changed from default";
+  if (isModified(setting, current)) dot.classList.add("on");
+  labelWrap.append(label, dot);
+  if (setting.requires && REQUIRES_LABEL[setting.requires]) {
+    labelWrap.appendChild(el("span", "osf-badge osf-badge--warn", REQUIRES_LABEL[setting.requires]));
+  }
+  text.appendChild(labelWrap);
+  if (setting.hint) text.appendChild(el("div", "row-hint", setting.hint));
   row.appendChild(text);
 
-  const control = document.createElement("div");
-  control.className = "control";
-  if (valueNode) control.appendChild(valueNode);
-  control.appendChild(controlNode);
+  const control = el("div", "control");
+  if (built.value) control.appendChild(built.value);
+  control.appendChild(built.control);
+  // Per-setting reset — appears on hover/when modified.
+  const reset = el("button", "row-reset", "↺");
+  reset.type = "button"; reset.title = "Reset to default";
+  reset.addEventListener("click", () => resetSetting(mod.id, setting.key));
+  control.appendChild(reset);
   row.appendChild(control);
+
+  liveRows.push({ row, control: built.control, setting, dot,
+    visibleWhen: setting.visibleWhen, enabledWhen: setting.enabledWhen, requires: setting.requires });
   return row;
 }
 
-function buildControl(modId, setting, current) {
-  const id = `ctl-${setting.key}`;
-  switch (setting.type) {
-    case "bool": {
-      const sw = document.createElement("button");
-      sw.type = "button"; sw.className = "osf-switch"; sw.id = id; sw.setAttribute("role", "switch");
-      const set = (on) => sw.setAttribute("aria-pressed", on ? "true" : "false");
-      set(current === true);
-      sw.addEventListener("click", () => {
-        const next = sw.getAttribute("aria-pressed") !== "true";
-        set(next); setValue(modId, setting.key, next);
-      });
-      return makeRow(setting, sw, null);
+function unknownRow(setting) {
+  const row = el("div", "row row--unknown");
+  row.dataset.label = (setting.label || setting.key || "").toLowerCase();
+  const text = el("div", "row-text");
+  text.appendChild(el("div", "row-label", setting.label || setting.key || "(setting)"));
+  text.appendChild(el("div", "row-hint", `Type "${setting.type}" needs a newer OSF UI.`));
+  row.appendChild(text);
+  return row;
+}
+
+function buildNote(item) {
+  // Whitelist the style — item.style is untrusted schema text that lands in the
+  // class list; anything outside the enum could inject arbitrary CSS classes.
+  const style = ["info", "warn", "danger"].includes(item.style) ? item.style : "info";
+  const note = el("div", "osf-note osf-note--" + style);
+  note.appendChild(renderInline(item.text || ""));
+  liveRows.push({ row: note, control: null, setting: null, dot: null, visibleWhen: item.visibleWhen });
+  return note;
+}
+
+function buildImage(mod, item) {
+  const fig = el("figure", "osf-figure");
+  const src = safeAssetSrc(mod.id, item.src);
+  if (src) {
+    const img = document.createElement("img");
+    img.className = "osf-image"; img.src = src; img.alt = item.caption || "";
+    if (item.height) img.style.maxHeight = (item.height | 0) + "px";
+    fig.appendChild(img);
+  } else {
+    fig.appendChild(el("div", "osf-note osf-note--warn", "Image path rejected (must be inside the mod's view folder)."));
+  }
+  if (item.caption) fig.appendChild(el("figcaption", "osf-figcaption", item.caption));
+  liveRows.push({ row: fig, control: null, setting: null, dot: null, visibleWhen: item.visibleWhen });
+  return fig;
+}
+
+// Confine an image to the mod's own views/<id>/ folder: reject "..", absolute
+// paths, URL schemes, and percent-encoding (which WebKit would decode back into
+// "../" or a scheme after this check) before the src reaches the sandbox.
+function safeAssetSrc(modId, src) {
+  const s = String(src || "");
+  if (!s) return null;
+  let decoded = s;
+  try { decoded = decodeURIComponent(s); } catch { return null; }
+  const bad = (v) => v.includes("..") || /^[a-z]+:/i.test(v) || v.startsWith("/") || v.startsWith("\\");
+  if (s.includes("%") || bad(s) || bad(decoded)) return null;
+  return `../${modId}/${s}`;
+}
+
+function buildAction(mod, item) {
+  const row = el("div", "row row--action");
+  row.dataset.label = (item.label || item.key).toLowerCase();
+  const textWrap = el("div", "row-text");
+  textWrap.appendChild(el("div", "row-label", item.label || item.key));
+  if (item.hint) textWrap.appendChild(el("div", "row-hint", item.hint));
+  row.appendChild(textWrap);
+
+  const control = el("div", "control");
+  const style = item.style === "accent" ? " osf-btn--accent" : item.style === "danger" ? " osf-btn--danger" : "";
+  const btn = el("button", "osf-btn osf-btn--sm" + style, item.label || "Run");
+  btn.type = "button";
+
+  const fire = () => {
+    if (typeof item.command !== "string" || !item.command.startsWith(mod.id + ".")) {
+      toast(`Action refused: "${item.command}" is not namespaced to ${mod.id}`, "danger");
+      return;
     }
-    case "int":
-    case "float": {
-      const isInt = setting.type === "int";
-      const slider = document.createElement("input");
-      slider.type = "range"; slider.className = "osf-range"; slider.id = id;
-      slider.min = setting.min ?? 0; slider.max = setting.max ?? 100;
-      slider.step = setting.step ?? (isInt ? 1 : 0.01); slider.value = current;
-      const valueEl = document.createElement("span");
-      valueEl.className = "osf-value";
-      const fmt = (v) => (isInt ? String(Math.round(v)) : Number(v).toFixed(2));
-      valueEl.textContent = fmt(current);
-      slider.addEventListener("input", () => { valueEl.textContent = fmt(slider.value); });
-      slider.addEventListener("change", () =>
-        setValue(modId, setting.key, isInt ? parseInt(slider.value, 10) : parseFloat(slider.value)));
-      return makeRow(setting, slider, valueEl);
+    btn.disabled = true; btn.classList.add("pending"); const prev = btn.textContent; btn.textContent = "…";
+    // Key the pending map by mod+action key — action keys are only unique
+    // within a mod, so two mods can share one.
+    const pkey = mod.id + " " + item.key;
+    const restore = (msg, kind) => {
+      if (!pendingActions.has(pkey)) return;
+      pendingActions.delete(pkey);
+      btn.disabled = false; btn.classList.remove("pending"); btn.textContent = prev;
+      if (msg) toast(msg, kind);
+    };
+    pendingActions.set(pkey, restore);
+    setTimeout(() => restore("No response from " + mod.id, "warn"), ACTION_TIMEOUT_MS);
+    sendCommand(Object.assign({ command: item.command }, { mod: mod.id, key: item.key }));
+  };
+
+  if (item.confirm) {
+    btn.addEventListener("click", () => askConfirm(control, btn, item.confirm, fire));
+  } else {
+    btn.addEventListener("click", fire);
+  }
+  control.appendChild(btn);
+  row.appendChild(control);
+  liveRows.push({ row, control: btn, setting: null, dot: null,
+    visibleWhen: item.visibleWhen, enabledWhen: item.enabledWhen });
+  return row;
+}
+
+// Inline confirm: swap the button for a confirm/cancel pair (no native dialog).
+function askConfirm(control, btn, message, onConfirm) {
+  btn.style.display = "none";
+  const box = el("div", "confirm");
+  box.appendChild(el("span", "confirm-msg", message));
+  const yes = el("button", "osf-btn osf-btn--sm osf-btn--danger", "Confirm"); yes.type = "button";
+  const no = el("button", "osf-btn osf-btn--sm osf-btn--ghost", "Cancel"); no.type = "button";
+  const close = () => { box.remove(); btn.style.display = ""; };
+  yes.addEventListener("click", () => { close(); onConfirm(); });
+  no.addEventListener("click", close);
+  box.append(yes, no);
+  control.appendChild(box);
+}
+
+function buildItem(mod, item, values) {
+  if (item && item.type === "note") return buildNote(item);
+  if (item && item.type === "image") return buildImage(mod, item);
+  if (item && item.type === "action") return buildAction(mod, item);
+  return makeSettingRow(mod, item, values[item.key]);
+}
+
+// ---- rail ------------------------------------------------------------------
+
+function frameworkMods() { return allMods.filter((m) => m.id === FRAMEWORK_ID); }
+function contentMods() { return allMods.filter((m) => m.id !== FRAMEWORK_ID); }
+
+function railMatches(mod, q) {
+  if (!q) return true;
+  if (titleOf(mod).toLowerCase().includes(q)) return true;
+  for (const g of (mod.schema && mod.schema.groups) || []) {
+    for (const s of g.settings || []) {
+      if (((s.label || s.key || "")).toLowerCase().includes(q)) return true;
     }
-    case "enum": {
-      const select = document.createElement("select");
-      select.className = "osf-select"; select.id = id;
-      for (const opt of setting.options || []) {
-        const o = document.createElement("option");
-        o.value = opt; o.textContent = opt;
-        if (opt === current) o.selected = true;
-        select.appendChild(o);
-      }
-      select.addEventListener("change", () => setValue(modId, setting.key, select.value));
-      return makeRow(setting, select, null);
+  }
+  return false;
+}
+
+function railItem(mod) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "rail-item" + (mod.id === selectedId ? " selected" : "");
+  btn.dataset.mod = mod.id;
+  const isFramework = mod.id === FRAMEWORK_ID;
+
+  const mark = el("span", "rail-item-mark", isFramework ? "◆" : initials(titleOf(mod)));
+  const textWrap = el("span", "rail-item-text");
+  textWrap.appendChild(el("span", "rail-item-title", titleOf(mod)));
+  textWrap.appendChild(el("span", "rail-item-sub", isFramework ? "Framework" : mod.id));
+  btn.append(mark, textWrap);
+
+  const count = modifiedCount(mod);
+  if (count) {
+    const badge = el("span", "rail-item-count", String(count));
+    badge.title = `${count} changed from default`;
+    btn.appendChild(badge);
+  }
+  btn.addEventListener("click", () => selectMod(mod.id));
+  return btn;
+}
+
+function renderRail() {
+  const q = (filterEl.value || "").trim().toLowerCase();
+  railEl.textContent = "";
+
+  const fw = frameworkMods().filter((m) => railMatches(m, q));
+  if (fw.length) {
+    railEl.appendChild(el("div", "rail-section", "Framework"));
+    fw.forEach((m) => railEl.appendChild(railItem(m)));
+  }
+
+  railEl.appendChild(el("div", "rail-section", "Mods"));
+  const mods = contentMods().filter((m) => railMatches(m, q));
+  if (mods.length) {
+    mods.forEach((m) => railEl.appendChild(railItem(m)));
+  } else {
+    const empty = el("div", "rail-empty");
+    if (q) {
+      empty.textContent = "No mods match the filter.";
+    } else {
+      empty.appendChild(document.createTextNode("No mods installed yet. Drop a "));
+      empty.appendChild(el("code", null, "settings/<id>.json"));
+      empty.appendChild(document.createTextNode(" schema and it appears here."));
     }
-    case "string": {
-      const text = document.createElement("input");
-      text.type = "text"; text.className = "osf-input"; text.id = id; text.value = current ?? "";
-      text.addEventListener("change", () => setValue(modId, setting.key, text.value));
-      return makeRow(setting, text, null);
-    }
-    case "key": {
-      // A rebindable key. Clicking arms native capture (settings.captureKey);
-      // the next key press comes back as settings.captured. Native does the
-      // capture so pressing the CURRENT toggle key rebinds instead of closing
-      // the overlay.
-      const btn = document.createElement("button");
-      btn.type = "button"; btn.className = "osf-btn osf-btn--sm osf-key"; btn.id = id;
-      btn.textContent = current || "—";
-      btn.addEventListener("click", () => beginCapture(modId, setting.key, btn));
-      return makeRow(setting, btn, null);
-    }
-    default:
-      return null;
+    railEl.appendChild(empty);
   }
 }
 
-// ---- key rebind capture (one at a time) ----
+// ---- detail ----------------------------------------------------------------
+
+function applyAccent(node, accent) {
+  if (typeof accent === "string" && HEX_RE.test(accent)) node.style.setProperty("--accent", accent);
+}
+
+function renderDetailHead(mod, schema, isFramework) {
+  const head = el("div", "detail-head");
+  const left = el("div");
+  left.appendChild(el("div", "osf-eyebrow kicker", isFramework ? "Framework" : "Mod · " + mod.id));
+  left.appendChild(el("h2", null, titleOf(mod)));
+  if (schema.description) left.appendChild(el("div", "detail-desc", schema.description));
+  head.appendChild(left);
+
+  const reset = el("button", "osf-btn osf-btn--danger osf-btn--sm", "Reset all");
+  reset.type = "button";
+  reset.addEventListener("click", () => resetMod(mod.id));
+  head.appendChild(reset);
+  return head;
+}
+
+function renderPresets(mod, schema) {
+  if (!Array.isArray(schema.presets) || !schema.presets.length) return null;
+  const bar = el("div", "presets");
+  bar.appendChild(el("span", "osf-eyebrow", "Presets"));
+  const row = el("div", "presets-row");
+  for (const p of schema.presets) {
+    if (!p || typeof p.values !== "object") continue;
+    const b = el("button", "osf-btn osf-btn--sm osf-btn--ghost", p.label || "Preset");
+    b.type = "button";
+    if (p.description) b.title = p.description;
+    b.addEventListener("click", () => applyPreset(mod, p));
+    row.appendChild(b);
+  }
+  bar.appendChild(row);
+  return bar;
+}
+
+function applyPreset(mod, preset) {
+  let n = 0;
+  for (const key in preset.values) {
+    applyLocal(mod.id, key, preset.values[key]);
+    setValue(mod.id, key, preset.values[key]);
+    n++;
+  }
+  // Rebuild the pane so every control (switch/slider/segmented/…) re-seeds from
+  // the values just committed — refreshLive only updates conditions/dots, not
+  // control state, and native doesn't re-broadcast settings.data on a set.
+  // Preset buttons only ever act on the currently-displayed mod.
+  renderDetail();
+  toast(`Applied "${preset.label}" (${n} setting${n === 1 ? "" : "s"})`, "info");
+}
+
+function renderRestartBanner(mod) {
+  // Any changed-from-default setting flagged requires:"restart" pins a banner.
+  const values = mod.values || {};
+  let n = 0;
+  for (const lr of liveRows) {
+    if (lr.requires === "restart" && lr.setting && isModified(lr.setting, values[lr.setting.key])) n++;
+  }
+  if (!n) return null;
+  const banner = el("div", "banner banner--warn");
+  banner.appendChild(el("span", "banner-text",
+    `${n} change${n === 1 ? "" : "s"} take effect after a game restart.`));
+  return banner;
+}
+
+function renderDetail() {
+  liveRows = []; liveGroups = [];
+  // The old buttons are about to be discarded; drop any pending action state so
+  // a late ack can't restore a detached node.
+  pendingActions.clear();
+  detailEl.textContent = "";
+
+  const q = (filterEl.value || "").trim().toLowerCase();
+  if (q) { renderSearch(q); return; }
+
+  const mod = allMods.find((m) => m.id === selectedId);
+  if (!mod) {
+    const empty = el("div", "detail-empty");
+    empty.appendChild(el("div", "osf-eyebrow", "Nothing selected"));
+    detailEl.appendChild(empty);
+    return;
+  }
+  const isFramework = mod.id === FRAMEWORK_ID;
+  const schema = mod.schema || {};
+  const values = mod.values || {};
+  applyAccent(detailEl, schema.accent);
+
+  detailEl.appendChild(renderDetailHead(mod, schema, isFramework));
+
+  const body = el("div", "detail-body");
+  const presets = renderPresets(mod, schema);
+  if (presets) body.appendChild(presets);
+
+  const bannerSlot = el("div", "banner-slot");
+  body.appendChild(bannerSlot);
+
+  const groups = schema.groups || [];
+  const autoIndex = groups.filter((g) => g.label).length > 4;
+  if (autoIndex) body.appendChild(renderSectionIndex(groups));
+
+  for (const group of groups) {
+    const section = el("div", "group");
+    if (group.collapsed) section.classList.add("collapsed");
+    if (group.label) {
+      const heading = el("button", "group-label", group.label);
+      heading.type = "button";
+      heading.addEventListener("click", () => section.classList.toggle("collapsed"));
+      section.appendChild(heading);
+      section.id = "grp-" + group.label.toLowerCase().replace(/\s+/g, "-");
+    }
+    const rowsWrap = el("div", "group-rows");
+    for (const item of group.settings || []) {
+      const row = buildItem(mod, item, values);
+      if (row) rowsWrap.appendChild(row);
+    }
+    section.appendChild(rowsWrap);
+    liveGroups.push({ el: section, visibleWhen: group.visibleWhen });
+    body.appendChild(section);
+  }
+  detailEl.appendChild(body);
+
+  const banner = renderRestartBanner(mod);
+  if (banner) bannerSlot.appendChild(banner);
+
+  refreshLive(mod);
+}
+
+function renderSectionIndex(groups) {
+  const nav = el("div", "section-index");
+  for (const g of groups) {
+    if (!g.label) continue;
+    const a = el("button", "section-index-item", g.label);
+    a.type = "button";
+    a.addEventListener("click", () => {
+      const target = document.getElementById("grp-" + g.label.toLowerCase().replace(/\s+/g, "-"));
+      if (target) { target.classList.remove("collapsed"); target.scrollIntoView({ block: "start" }); }
+    });
+    nav.appendChild(a);
+  }
+  return nav;
+}
+
+// Global search: a flat, cross-mod result list. Clicking jumps to that mod.
+function renderSearch(q) {
+  const head = el("div", "detail-head");
+  const left = el("div");
+  left.appendChild(el("div", "osf-eyebrow kicker", "Search"));
+  left.appendChild(el("h2", null, `Results for "${q}"`));
+  head.appendChild(left);
+  detailEl.appendChild(head);
+
+  const body = el("div", "detail-body");
+  const list = el("div", "search-results");
+  let hits = 0;
+  for (const mod of allMods) {
+    for (const g of (mod.schema && mod.schema.groups) || []) {
+      for (const s of g.settings || []) {
+        if (!isSetting(s)) continue;
+        const label = (s.label || s.key || "");
+        if (!label.toLowerCase().includes(q) && !titleOf(mod).toLowerCase().includes(q)) continue;
+        hits++;
+        const item = el("button", "search-result"); item.type = "button";
+        const crumb = el("div", "search-crumb");
+        crumb.appendChild(el("span", "search-mod", titleOf(mod)));
+        if (g.label) { crumb.appendChild(el("span", "search-sep", "›")); crumb.appendChild(el("span", null, g.label)); }
+        item.appendChild(crumb);
+        item.appendChild(el("div", "search-label", label));
+        item.addEventListener("click", () => {
+          filterEl.value = "";
+          selectMod(mod.id);
+          const t = document.querySelector(`.row[data-key="${cssEscape(s.key)}"]`);
+          if (t) { t.classList.add("flash"); t.scrollIntoView({ block: "center" }); setTimeout(() => t.classList.remove("flash"), 1200); }
+        });
+        list.appendChild(item);
+      }
+    }
+  }
+  if (!hits) list.appendChild(el("div", "detail-empty", "No settings match."));
+  body.appendChild(list);
+  detailEl.appendChild(body);
+}
+
+function cssEscape(s) {
+  if (window.CSS && CSS.escape) return CSS.escape(s);
+  return String(s).replace(/["\\\]]/g, "\\$&");
+}
+
+// Re-evaluate conditions, modified dots, and the session chip without a
+// teardown — toggles classes on the rows built by the last render.
+function refreshLive(mod) {
+  const values = mod.values || {};
+  for (const lr of liveRows) {
+    if (lr.visibleWhen) lr.row.classList.toggle("hidden-cond", !evalCondition(lr.visibleWhen, values));
+    if (lr.enabledWhen && lr.control) {
+      const on = evalCondition(lr.enabledWhen, values);
+      lr.row.classList.toggle("disabled", !on);
+      // Scope to the control itself (not the whole row) so the per-setting reset
+      // button stays usable, and skip a mid-flight action button.
+      const nodes = lr.control.matches && lr.control.matches("input,select,button,textarea")
+        ? [lr.control] : lr.control.querySelectorAll("input,select,button,textarea");
+      nodes.forEach((n) => { if (!n.classList.contains("pending")) n.disabled = !on; });
+    }
+    if (lr.dot && lr.setting) lr.dot.classList.toggle("on", isModified(lr.setting, values[lr.setting.key]));
+    if (lr.setting) lr.row.classList.toggle("is-modified", isModified(lr.setting, values[lr.setting.key]));
+  }
+  for (const g of liveGroups) {
+    if (g.visibleWhen) g.el.classList.toggle("hidden-cond", !evalCondition(g.visibleWhen, values));
+  }
+  const banner = renderRestartBanner(mod);
+  const slot = detailEl.querySelector(".banner-slot");
+  if (slot) { slot.textContent = ""; if (banner) slot.appendChild(banner); }
+  updateChip();
+  updateRailCounts();
+}
+
+function updateRailCounts() {
+  for (const btn of railEl.querySelectorAll(".rail-item")) {
+    const mod = allMods.find((m) => m.id === btn.dataset.mod);
+    if (!mod) continue;
+    let badge = btn.querySelector(".rail-item-count");
+    const count = modifiedCount(mod);
+    if (count && !badge) { badge = el("span", "rail-item-count"); btn.appendChild(badge); }
+    if (badge) { if (count) { badge.textContent = String(count); badge.style.display = ""; } else { badge.style.display = "none"; } }
+  }
+}
+
+// ---- session changes chip + revert ----------------------------------------
+
+function updateChip() {
+  if (!sessionChipEl) return;
+  const n = sessionChangeCount();
+  sessionChipEl.style.display = n ? "" : "none";
+  sessionChipEl.textContent = `Session changes (${n})`;
+}
+
+function openSessionPanel() {
+  const changes = [];
+  for (const k in baseline) {
+    const [modId, key] = splitBKey(k);
+    const mod = allMods.find((m) => m.id === modId);
+    if (!mod) continue;
+    const cur = (mod.values || {})[key];
+    if (cur !== baseline[k]) changes.push({ modId, key, old: baseline[k], now: cur, mod });
+  }
+  if (!changes.length) return;
+
+  const overlay = el("div", "session-overlay");
+  const panel = el("div", "session-panel osf-card");
+  const head = el("div", "session-head");
+  head.appendChild(el("div", "osf-eyebrow", `Session changes (${changes.length})`));
+  const revertAll = el("button", "osf-btn osf-btn--sm osf-btn--danger", "Revert all"); revertAll.type = "button";
+  head.appendChild(revertAll);
+  panel.appendChild(head);
+
+  const list = el("div", "session-list");
+  for (const c of changes) {
+    const rowEl = el("div", "session-row");
+    const info = el("div", "session-info");
+    info.appendChild(el("div", "session-key", `${titleOf(c.mod)} · ${c.key}`));
+    info.appendChild(el("div", "session-delta", `${JSON.stringify(c.old)} → ${JSON.stringify(c.now)}`));
+    rowEl.appendChild(info);
+    const undo = el("button", "osf-btn osf-btn--sm osf-btn--ghost", "Revert"); undo.type = "button";
+    undo.addEventListener("click", () => { revertOne(c); close(); });
+    rowEl.appendChild(undo);
+    list.appendChild(rowEl);
+  }
+  panel.appendChild(list);
+
+  const close = () => overlay.remove();
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+  revertAll.addEventListener("click", () => { changes.forEach(revertOne); close(); });
+  overlay.appendChild(panel);
+  document.body.appendChild(overlay);
+}
+
+function revertOne(c) {
+  applyLocal(c.modId, c.key, c.old);
+  setValue(c.modId, c.key, c.old);
+  if (c.modId === selectedId) { const mod = allMods.find((m) => m.id === c.modId); if (mod) renderDetail(); }
+  else { updateChip(); updateRailCounts(); }
+}
+
+// ---- key rebind capture (one at a time) -----------------------------------
 
 let capturing = null;  // { mod, key, btn, prev }
 
@@ -149,8 +874,17 @@ function beginCapture(mod, key, btn) {
   btn.textContent = "Press a key…";
   if (bridgeAvailable()) {
     sendCommand({ command: "settings.captureKey", mod, key });  // native captures the next key
+    // Native sends no reply if it declines the capture (today it only arms for
+    // osfui.toggleKey — generalized capture is a native-slice item). Without a
+    // timeout the button would stay on "Press a key…" AND `capturing` would
+    // never clear, jamming every later rebind. Self-heal after the timeout.
+    capturing.timer = setTimeout(() => {
+      if (capturing && capturing.btn === btn) {
+        finishCapture({ mod, key, cancelled: true });
+        toast("Rebinding this key isn't available yet.", "warn");
+      }
+    }, ACTION_TIMEOUT_MS);
   } else {
-    // Standalone (browser): capture a real DOM keydown so the flow is testable.
     const onKey = (e) => {
       window.removeEventListener("keydown", onKey, true);
       e.preventDefault();
@@ -164,9 +898,9 @@ function beginCapture(mod, key, btn) {
 // Standalone-only: map a browser KeyboardEvent to an OSF UI key name (the
 // in-game path does this natively via KeyName(vk)). Rough but enough to preview.
 function domKeyName(e) {
-  if (/^F([1-9]|1[0-9]|2[0-4])$/.test(e.key)) return e.key;            // F1..F24
-  if (/^[a-z]$/i.test(e.key)) return e.key.toUpperCase();               // letters
-  if (/^[0-9]$/.test(e.key)) return e.key;                              // digits
+  if (/^F([1-9]|1[0-9]|2[0-4])$/.test(e.key)) return e.key;
+  if (/^[a-z]$/i.test(e.key)) return e.key.toUpperCase();
+  if (/^[0-9]$/.test(e.key)) return e.key;
   const named = { " ": "Space", Enter: "Enter", Tab: "Tab", Backspace: "Backspace",
     Insert: "Insert", Delete: "Delete", Home: "Home", End: "End",
     PageUp: "PageUp", PageDown: "PageDown", ArrowUp: "Up", ArrowDown: "Down",
@@ -176,135 +910,19 @@ function domKeyName(e) {
 
 function finishCapture(payload) {
   if (!capturing) return;
-  const { mod, key, btn, prev } = capturing;
+  const { mod, key, btn, prev, timer } = capturing;
+  if (timer) clearTimeout(timer);
   capturing = null;
   btn.classList.remove("listening");
   if (!payload || payload.cancelled || !payload.name) {
-    btn.textContent = prev;  // Esc / unbindable key → keep the old binding
+    btn.textContent = prev;
     return;
   }
   btn.textContent = payload.name;
-  setValue(mod, key, payload.name);  // normal settings.set → persist + re-resolve
-  // Keep the local model in sync so a re-render shows the new binding.
-  const m = allMods.find((x) => x.id === mod);
-  if (m) { m.values = m.values || {}; m.values[key] = payload.name; }
+  commit(mod, key, payload.name);  // persist + re-resolve, and update session state
 }
 
-// ---- rendering ------------------------------------------------------------
-
-function frameworkMods() { return allMods.filter((m) => m.id === FRAMEWORK_ID); }
-function contentMods() { return allMods.filter((m) => m.id !== FRAMEWORK_ID); }
-
-function railMatches(mod, q) {
-  if (!q) return true;
-  if (titleOf(mod).toLowerCase().includes(q)) return true;
-  for (const g of (mod.schema && mod.schema.groups) || []) {
-    for (const s of g.settings || []) {
-      if ((s.label || s.key).toLowerCase().includes(q)) return true;
-    }
-  }
-  return false;
-}
-
-function railItem(mod) {
-  const btn = document.createElement("button");
-  btn.type = "button";
-  btn.className = "rail-item" + (mod.id === selectedId ? " selected" : "");
-  btn.dataset.mod = mod.id;
-  const isFramework = mod.id === FRAMEWORK_ID;
-  btn.innerHTML =
-    `<span class="rail-item-mark">${isFramework ? "◆" : escapeHtml(initials(titleOf(mod)))}</span>
-     <span class="rail-item-text">
-       <span class="rail-item-title">${escapeHtml(titleOf(mod))}</span>
-       <span class="rail-item-sub">${isFramework ? "Framework" : escapeHtml(mod.id)}</span>
-     </span>`;
-  btn.addEventListener("click", () => selectMod(mod.id));
-  return btn;
-}
-
-function renderRail() {
-  const q = (filterEl.value || "").trim().toLowerCase();
-  railEl.textContent = "";
-
-  const fw = frameworkMods().filter((m) => railMatches(m, q));
-  if (fw.length) {
-    const head = document.createElement("div");
-    head.className = "rail-section"; head.textContent = "Framework";
-    railEl.appendChild(head);
-    fw.forEach((m) => railEl.appendChild(railItem(m)));
-  }
-
-  const head = document.createElement("div");
-  head.className = "rail-section"; head.textContent = "Mods";
-  railEl.appendChild(head);
-  const mods = contentMods().filter((m) => railMatches(m, q));
-  if (mods.length) {
-    mods.forEach((m) => railEl.appendChild(railItem(m)));
-  } else {
-    const empty = document.createElement("div");
-    empty.className = "rail-empty";
-    empty.innerHTML = q
-      ? "No mods match the filter."
-      : "No mods installed yet.<br>Drop a <code>settings/&lt;id&gt;.json</code> schema and it appears here.";
-    railEl.appendChild(empty);
-  }
-}
-
-function renderDetail() {
-  const mod = allMods.find((m) => m.id === selectedId);
-  detailEl.textContent = "";
-  if (!mod) {
-    const empty = document.createElement("div");
-    empty.className = "detail-empty";
-    empty.innerHTML = `<div class="osf-eyebrow">Nothing selected</div>`;
-    detailEl.appendChild(empty);
-    return;
-  }
-  const isFramework = mod.id === FRAMEWORK_ID;
-  const schema = mod.schema || {};
-  const values = mod.values || {};
-
-  const head = document.createElement("div");
-  head.className = "detail-head";
-  head.innerHTML =
-    `<div>
-       <div class="osf-eyebrow kicker">${isFramework ? "Framework" : "Mod · " + escapeHtml(mod.id)}</div>
-       <h2>${escapeHtml(titleOf(mod))}</h2>
-       ${schema.description ? `<div class="detail-desc">${escapeHtml(schema.description)}</div>` : ""}
-     </div>`;
-  const reset = document.createElement("button");
-  reset.type = "button";
-  reset.className = "osf-btn osf-btn--danger osf-btn--sm";
-  reset.textContent = "Reset";
-  reset.addEventListener("click", () => resetMod(mod.id));
-  head.appendChild(reset);
-  detailEl.appendChild(head);
-
-  const body = document.createElement("div");
-  body.className = "detail-body";
-  const q = (filterEl.value || "").trim().toLowerCase();
-  for (const group of schema.groups || []) {
-    const section = document.createElement("div");
-    section.className = "group";
-    if (group.label) {
-      const heading = document.createElement("div");
-      heading.className = "group-label";
-      heading.textContent = group.label;
-      section.appendChild(heading);
-    }
-    for (const setting of group.settings || []) {
-      const row = buildControl(mod.id, setting, values[setting.key]);
-      if (!row) continue;
-      // If a filter is active, show only matching rows (so the pane echoes the rail search).
-      if (q && !row.dataset.label.includes(q) && !titleOf(mod).toLowerCase().includes(q)) {
-        row.classList.add("hidden");
-      }
-      section.appendChild(row);
-    }
-    body.appendChild(section);
-  }
-  detailEl.appendChild(body);
-}
+// ---- selection + render ----------------------------------------------------
 
 function selectMod(id) {
   selectedId = id;
@@ -312,24 +930,36 @@ function selectMod(id) {
   renderDetail();
 }
 
+function captureBaseline() {
+  for (const mod of allMods) {
+    for (const key in (mod.values || {})) {
+      const bkey = mod.id + " " + key;
+      if (!(bkey in baseline)) baseline[bkey] = mod.values[key];
+    }
+  }
+}
+
 function render() {
   if (!allMods.length) {
     railEl.textContent = "";
-    detailEl.innerHTML = `<p class="status osf-eyebrow">No settings schemas found (settings/*.json).</p>`;
+    detailEl.textContent = "";
+    detailEl.appendChild(el("p", "status osf-eyebrow", "No settings schemas found (settings/*.json)."));
+    updateChip();
     return;
   }
-  // Keep the current selection if it still exists; else default to the
-  // framework, else the first mod.
+  captureBaseline();
   if (!allMods.some((m) => m.id === selectedId)) {
     selectedId = frameworkMods().length ? FRAMEWORK_ID : allMods[0].id;
   }
   renderRail();
   renderDetail();
+  updateChip();
 }
 
 filterEl.addEventListener("input", () => { renderRail(); renderDetail(); });
+if (sessionChipEl) sessionChipEl.addEventListener("click", openSessionPanel);
 
-// ---- native -> web --------------------------------------------------------
+// ---- native -> web ---------------------------------------------------------
 
 function onNativeMessage(jsonText) {
   let message;
@@ -339,18 +969,29 @@ function onNativeMessage(jsonText) {
       sendCommand({ command: "settings.get" });
       break;
     case "settings.data":
-      allMods = message.payload.mods || [];
+      allMods = (message.payload && message.payload.mods) || [];
       render();
       break;
     case "settings.captured":
       finishCapture(message.payload);
       break;
     case "settings.ack":
-      if (!message.payload.ok) {
-        statusEl && (statusEl.textContent = `REJECTED "${message.payload.mod}.${message.payload.key}"`);
+      if (message.payload && !message.payload.ok) {
+        toast(`Rejected "${message.payload.mod}.${message.payload.key}"`, "danger");
+        // Native refused the value; pull authoritative state back.
+        sendCommand({ command: "settings.get" });
       }
       break;
     default:
+      // Mod action acknowledgements: "<modId>.ack" with { key, ok, message }.
+      // Resolve by mod+key (the mod id is the message-type prefix) so two mods
+      // sharing an action key can't cross-resolve each other's buttons.
+      if (typeof message.type === "string" && message.type.endsWith(".ack")) {
+        const p = message.payload || {};
+        const modId = message.type.slice(0, -".ack".length);
+        const restore = p.key != null && pendingActions.get(modId + " " + p.key);
+        if (restore) restore(p.message || (p.ok === false ? "Action failed" : null), p.ok === false ? "danger" : "info");
+      }
       break;
   }
 }
@@ -363,41 +1004,65 @@ document.getElementById("close").addEventListener("click", () => sendCommand({ c
 if (bridgeAvailable()) {
   sendCommand({ command: "settings.get" });
 } else {
-  // Standalone (plain browser) — sample schemas so the layout can be iterated.
-  allMods = [
+  // Standalone (plain browser) — sample schemas exercising the widgets so the
+  // layout can be iterated without launching the game.
+  allMods = sampleMods();
+  render();
+}
+
+function sampleMods() {
+  return [
     {
       id: "osfui", title: "OSF UI",
       schema: {
         description: "Runtime and overlay behavior for the OSF UI framework itself.",
         groups: [
           { label: "Input", settings: [
-            { key: "toggleKey", label: "Open / close key", type: "key", hint: "Press to rebind the key that opens and closes the overlay." },
+            { key: "toggleKey", label: "Open / close key", type: "key", default: "F10", hint: "Rebind the overlay key." },
           ] },
           { label: "Overlay", settings: [
-            { key: "disableControls", label: "Disable player controls while open", type: "bool", hint: "Also freezes gamepad/XInput, which the window hook can't see." },
+            { key: "disableControls", label: "Disable player controls while open", type: "bool", default: true },
+            { key: "allowPanels", label: "Allow mod settings panels", type: "bool", default: true, hint: "Custom mod panels run in this view's context.", requires: "reload" },
           ] },
           { label: "Cursor", settings: [
-            { key: "cursorSpeed", label: "Cursor speed", type: "float", min: 0.5, max: 3.0, step: 0.1, hint: "Software-cursor fallback only." },
+            { key: "cursorSpeed", label: "Cursor speed", type: "float", min: 0.5, max: 3.0, step: 0.1, default: 1.0,
+              format: { suffix: "x", decimals: 1 } },
           ] },
         ],
       },
-      values: { toggleKey: "F10", disableControls: true, cursorSpeed: 1.0 },
+      values: { toggleKey: "F10", disableControls: true, allowPanels: true, cursorSpeed: 1.0 },
     },
     {
-      id: "demo", title: "Demo Mod Settings",
-      schema: { groups: [
-        { label: "General", settings: [
-          { key: "overlay.enabled", label: "Enable feature", type: "bool" },
-          { key: "overlay.opacity", label: "Effect strength", type: "float", min: 0.2, max: 1.0, step: 0.05 },
-          { key: "overlay.scale", label: "Amount (%)", type: "int", min: 50, max: 200, step: 5 },
-        ] },
-        { label: "Appearance", settings: [
-          { key: "theme", label: "Theme", type: "enum", options: ["Dark", "Light", "Auto"] },
-          { key: "greeting", label: "Greeting text", type: "string" },
-        ] },
-      ] },
-      values: { "overlay.enabled": true, "overlay.opacity": 0.9, "overlay.scale": 100, theme: "Dark", greeting: "Hello, spacefarer" },
+      id: "demo", title: "Demo Mod",
+      schema: {
+        description: "Every v1 widget in one card.",
+        accent: "#e6904a",
+        presets: [
+          { label: "Performance", description: "Lightweight", values: { "overlay.enabled": true, mode: "compact", "overlay.opacity": 0.6 } },
+          { label: "Cinematic", values: { "overlay.enabled": true, mode: "full", "overlay.opacity": 1.0 } },
+        ],
+        groups: [
+          { label: "General", settings: [
+            { key: "overlay.enabled", label: "Enable HUD", type: "bool", default: false },
+            { key: "mode", label: "Layout", type: "enum", options: ["off", "compact", "full"], optionLabels: ["Off", "Compact", "Full"], widget: "segmented", default: "compact",
+              visibleWhen: { key: "overlay.enabled", eq: true } },
+            { key: "overlay.opacity", label: "Opacity", type: "float", min: 0, max: 1, step: 0.05, default: 0.9,
+              format: { scale: 100, suffix: "%", decimals: 0 }, enabledWhen: { key: "overlay.enabled", eq: true } },
+            { key: "overlay.scale", label: "Scale", type: "int", min: 50, max: 200, step: 5, default: 100, widget: "stepper",
+              format: { suffix: "%" }, enabledWhen: { key: "overlay.enabled", eq: true } },
+          ] },
+          { label: "Appearance", settings: [
+            { key: "tint", label: "Tint colour", type: "string", widget: "color", default: "#5aa9b8" },
+            { key: "greeting", label: "Greeting", type: "string", default: "Hello, spacefarer", maxLength: 60 },
+            { key: "notes", label: "Notes", type: "string", widget: "textarea", default: "" },
+          ] },
+          { label: "Maintenance", settings: [
+            { type: "note", style: "warn", text: "Recalibration **clears learned data**. Use the `Run calibration` button below." },
+            { type: "action", key: "recalibrate", label: "Run calibration", command: "demo.recalibrate", style: "accent", confirm: "Clear learned data and recalibrate?" },
+          ] },
+        ],
+      },
+      values: { "overlay.enabled": false, mode: "compact", "overlay.opacity": 0.9, "overlay.scale": 100, tint: "#5aa9b8", greeting: "Hello, spacefarer", notes: "" },
     },
   ];
-  render();
 }

@@ -1,0 +1,61 @@
+{
+  "$schema": "https://github.com/ozooma10/osf-ui/blob/main/docs/schema/settings-schema.schema.json",
+  "id": "mymod",
+  "title": "My Mod",
+  "description": "A copy-me starter that exercises every v1 settings widget.",
+  "version": 1,
+  "accent": "#7a9a5e",
+
+  "presets": [
+    { "label": "Performance", "description": "Lightweight defaults", "values": { "hud.enabled": true, "hud.mode": "compact", "hud.opacity": 0.6 } },
+    { "label": "Cinematic", "values": { "hud.enabled": true, "hud.mode": "full", "hud.opacity": 1.0 } }
+  ],
+
+  "groups": [
+    {
+      "label": "General",
+      "settings": [
+        { "key": "hud.enabled", "label": "Enable HUD", "type": "bool", "default": false,
+          "hint": "Master switch. The rows below only apply when this is on." },
+
+        { "key": "hud.mode", "label": "Layout", "type": "enum",
+          "options": ["off", "compact", "full"], "optionLabels": ["Off", "Compact", "Full"],
+          "widget": "segmented", "default": "compact",
+          "visibleWhen": { "key": "hud.enabled", "eq": true } },
+
+        { "key": "hud.opacity", "label": "Opacity", "type": "float", "min": 0, "max": 1, "step": 0.05, "default": 0.9,
+          "format": { "scale": 100, "suffix": "%", "decimals": 0 },
+          "enabledWhen": { "key": "hud.enabled", "eq": true } },
+
+        { "key": "hud.scale", "label": "Scale", "type": "int", "min": 50, "max": 200, "step": 5, "default": 100,
+          "widget": "stepper", "format": { "suffix": "%" },
+          "enabledWhen": { "key": "hud.enabled", "eq": true } }
+      ]
+    },
+    {
+      "label": "Appearance",
+      "settings": [
+        { "key": "hud.tint", "label": "Tint colour", "type": "string", "widget": "color", "default": "#7a9a5e" },
+        { "key": "hud.title", "label": "Panel title", "type": "string", "default": "MY MOD", "maxLength": 40 },
+        { "key": "hud.notes", "label": "Notes", "type": "string", "widget": "textarea", "default": "",
+          "hint": "A longer free-text field." },
+        { "key": "hud.toggleKey", "label": "Toggle key", "type": "key", "default": "F8",
+          "hint": "Press to rebind. Delivered to your plugin via the hotkey service." }
+      ]
+    },
+    {
+      "label": "Advanced",
+      "settings": [
+        { "type": "note", "style": "warn",
+          "text": "Backend selection needs a **game restart**. Leave on `auto` unless you know you need otherwise." },
+
+        { "key": "backend", "label": "Render backend", "type": "enum", "options": ["auto", "gpu", "cpu"],
+          "default": "auto", "requires": "restart" },
+
+        { "type": "action", "key": "recalibrate", "label": "Run calibration", "command": "mymod.recalibrate",
+          "style": "accent", "confirm": "Clear learned data and recalibrate now?",
+          "hint": "Fires the mymod.recalibrate command; handled by your SFSE plugin." }
+      ]
+    }
+  ]
+}

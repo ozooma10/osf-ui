@@ -1,7 +1,7 @@
 /**
  * TypeScript definitions for the OSF UI native <-> web bridge.
  *
- * Bridge protocol version: 0.2 (UNSTABLE — minor bumps may break views until
+ * Bridge protocol version: 0.3 (UNSTABLE — minor bumps may break views until
  * 1.0). Negotiate against the `bridgeVersion` field of the `runtime.ready`
  * message. Keep in lockstep with:
  *   - docs/authoring-views.md          (prose reference)
@@ -46,10 +46,22 @@ export type UiCommand =
   | { command: "settings.get" }
   | { command: "settings.set"; mod: string; key: string; value: SettingValue }
   | { command: "settings.reset"; mod: string; key?: string }
-  /** Arm native key-rebind capture; the next key press returns as settings.captured. Framework-managed (currently osfui.toggleKey). */
+  /** Arm native key-rebind capture; the next key press returns as settings.captured. Any type:"key" setting may be captured. */
   | { command: "settings.captureKey"; mod: string; key: string };
 
-export type WebToNativeMessage = BridgeEnvelope<"ui.command", UiCommand>;
+/**
+ * A mod-defined action command fired by a schema `action` item. The command
+ * string MUST be namespaced with the mod id ("<id>.something"); the settings
+ * view refuses to send anything else. Handled by the mod's own SFSE plugin
+ * (IOSFUIBridge.RegisterCommand). Not part of the fixed UiCommand union — it is
+ * an open extension point owned by the mod.
+ */
+export interface UiCommandAction {
+  command: string; // "<modId>.<action>"
+  [field: string]: unknown;
+}
+
+export type WebToNativeMessage = BridgeEnvelope<"ui.command", UiCommand | UiCommandAction>;
 
 // ---------------------------------------------------------------------------
 // native -> web messages (assign window.osfui.onMessage and switch on type)
@@ -139,6 +151,43 @@ export type SettingValue = boolean | number | string;
 
 export type SettingType = "bool" | "int" | "float" | "enum" | "string" | "key";
 
+/** Display hint; older runtimes ignore it and use the type default. */
+export type WidgetHint =
+  | "slider" | "stepper"       // int/float
+  | "dropdown" | "segmented"   // enum
+  | "text" | "textarea" | "color"; // string
+
+/** int/float display formatting — store the raw value, show a friendly string. */
+export interface NumberFormat {
+  prefix?: string;
+  suffix?: string;
+  scale?: number;    // multiply stored value by this for display (default 1)
+  decimals?: number; // fixed decimal places (0-20; clamped by the renderer)
+}
+
+export type RequiresKind = "restart" | "reload" | "newGame";
+
+/**
+ * Display-only predicate over sibling setting values in the same mod. A leaf
+ * references one `key` with exactly one operator; combinators nest. A reference
+ * to an unknown key evaluates false. Never affects native validation.
+ */
+export type Condition =
+  | { all: Condition[] }
+  | { any: Condition[] }
+  | { not: Condition }
+  | {
+      key: string;
+      eq?: SettingValue;
+      ne?: SettingValue;
+      in?: SettingValue[];
+      gt?: number;
+      gte?: number;
+      lt?: number;
+      lte?: number;
+      truthy?: boolean;
+    };
+
 export interface Setting {
   key: string;
   label?: string;
@@ -148,18 +197,70 @@ export interface Setting {
   min?: number;
   max?: number;
   step?: number;
+  maxLength?: number; // string length hint
   options?: string[]; // required when type === "enum"
+  optionLabels?: string[]; // display labels parallel to options; stored value stays the option
+  widget?: WidgetHint;
+  format?: NumberFormat;
+  requires?: RequiresKind;
+  visibleWhen?: Condition;
+  enabledWhen?: Condition;
 }
+
+/** Static rich-text callout. Micro-markdown only: **bold**, *italic*, `code`, \n. */
+export interface NoteItem {
+  type: "note";
+  text: string;
+  style?: "info" | "warn" | "danger";
+  visibleWhen?: Condition;
+}
+
+/** Static image, resolved relative to the mod's own views/<id>/ folder. */
+export interface ImageItem {
+  type: "image";
+  src: string;
+  caption?: string;
+  height?: number;
+  visibleWhen?: Condition;
+}
+
+/** A button that fires a mod-namespaced bridge command (see UiCommandAction). */
+export interface ActionItem {
+  type: "action";
+  key: string;
+  label: string;
+  hint?: string;
+  command: string;      // must start with "<modId>."
+  style?: "default" | "accent" | "danger";
+  confirm?: string;     // inline confirmation prompt before firing
+  enabledWhen?: Condition;
+  visibleWhen?: Condition;
+}
+
+/** A row in a group: a value-bearing setting, or a static/action item. */
+export type SettingsItem = Setting | NoteItem | ImageItem | ActionItem;
 
 export interface SettingsGroup {
   label?: string;
-  settings: Setting[];
+  collapsed?: boolean;
+  visibleWhen?: Condition;
+  settings: SettingsItem[];
+}
+
+/** Author-shipped value set, applied as a batch of validated settings.set. */
+export interface SettingsPreset {
+  label: string;
+  description?: string;
+  values: Record<string, SettingValue>;
 }
 
 export interface SettingsSchema {
   id?: string;
   title?: string;
   description?: string;  // one-line blurb shown under the title in the detail pane
+  version?: number;      // reserved for value migration
+  accent?: string;       // per-mod accent "#rrggbb"/"#rrggbbaa"
+  presets?: SettingsPreset[];
   groups?: SettingsGroup[];
 }
 

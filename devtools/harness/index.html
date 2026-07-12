@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>OSF UI Settings — Dev Harness</title>
+  <!-- The REAL shipped view assets: this harness previews actual code. -->
+  <link rel="stylesheet" href="../../data/OSFUI/views/shared/osfui.css">
+  <link rel="stylesheet" href="../../data/OSFUI/views/settings/style.css">
+  <style>
+    /* Give the transparent overlay a backdrop so it's visible in a normal tab. */
+    html, body { height: 100%; }
+    body { background:
+      radial-gradient(120% 100% at 50% 30%, #10161f 0%, #05070b 100%) fixed; }
+    .harness-bar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 30; height: 30px;
+      display: flex; align-items: center; gap: 12px; padding: 0 14px;
+      font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em;
+      color: var(--text-faint); background: rgba(4,6,10,0.9); border-bottom: 1px solid var(--line);
+    }
+    .harness-bar b { color: var(--accent); letter-spacing: 0.16em; }
+    .harness-bar .hint { margin-left: auto; }
+    .harness-bar button {
+      font: inherit; color: var(--text-muted); background: transparent;
+      border: 1px solid var(--line-strong); border-radius: 2px; padding: 2px 8px; cursor: pointer;
+    }
+    .settings { padding-top: 30px; }
+  </style>
+</head>
+<body class="osf-ui">
+  <div class="harness-bar">
+    <b>OSF UI · MOCK BRIDGE</b>
+    <button id="mock-reset" type="button">Reset stored values</button>
+    <span class="hint">Drop a settings/&lt;id&gt;.json here, or add ?schema=&lt;url&gt; — traffic logs to the console</span>
+  </div>
+
+  <div class="scrim" aria-hidden="true"></div>
+
+  <div class="settings">
+    <aside class="rail">
+      <div class="rail-head">
+        <div class="brand">
+          <div class="brand-text">
+            <div class="brand-line">
+              <span class="wordmark-osf">OSF</span><span class="wordmark-ui">UI</span>
+            </div>
+            <div class="osf-eyebrow brand-sub">SETTINGS</div>
+          </div>
+        </div>
+        <input id="filter" class="osf-input filter" type="text" placeholder="Filter…" autocomplete="off" spellcheck="false">
+      </div>
+
+      <nav id="rail-list" class="rail-list" aria-label="Settings sections"></nav>
+
+      <div class="rail-foot">
+        <button id="session-chip" type="button" class="osf-btn osf-btn--ghost osf-btn--sm session-chip" style="display:none">Session changes (0)</button>
+        <button id="close" type="button" class="osf-btn osf-btn--ghost osf-btn--sm">Close</button>
+      </div>
+    </aside>
+
+    <section id="detail" class="detail" aria-live="polite">
+      <p id="status" class="status osf-eyebrow">Loading…</p>
+    </section>
+  </div>
+
+  <div id="toast" class="toast-stack" aria-live="polite"></div>
+
+  <!-- Bridge first (defines window.osfui), then the real view logic. -->
+  <script src="mockbridge.js"></script>
+  <script src="../../data/OSFUI/views/settings/main.js"></script>
+  <script>
+    document.getElementById("mock-reset").addEventListener("click", () => window.osfui._mock.reset());
+  </script>
+</body>
+</html>

@@ -326,3 +326,98 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
   animation: osf-key-pulse 1s var(--ease-in-out) infinite;
 }
 @keyframes osf-key-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+
+/* ------------------------------------------------------------
+   Segmented control (2-5 mutually-exclusive options)
+   <div class="osf-segmented"><button aria-pressed>…</button>…</div>
+   ------------------------------------------------------------ */
+.osf-segmented {
+  display: inline-flex; align-items: stretch;
+  background: var(--surface-input); border: 1px solid var(--line-strong);
+  border-radius: var(--radius); box-shadow: var(--inset-lit); overflow: hidden;
+}
+.osf-segment {
+  font-family: var(--font-display); font-size: var(--text-2xs); font-weight: 600;
+  letter-spacing: var(--tracking-label); text-transform: uppercase;
+  height: var(--control-h-sm); padding: 0 12px; min-width: 52px;
+  color: var(--text-muted); background: transparent; border: 0;
+  border-left: 1px solid var(--line-strong); cursor: pointer;
+  transition: color var(--dur-fast), background var(--dur-fast);
+}
+.osf-segment:first-child { border-left: 0; }
+.osf-segment:hover { color: var(--text-bright); background: rgba(154, 163, 173, 0.06); }
+.osf-segment[aria-pressed="true"] { color: var(--void-900); background: var(--accent); }
+.osf-segment:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
+
+/* ------------------------------------------------------------
+   Stepper  (<div class="osf-stepper"><button>−</button><span>…</span><button>+</button>)
+   ------------------------------------------------------------ */
+.osf-stepper {
+  display: inline-flex; align-items: stretch;
+  border: 1px solid var(--line-strong); border-radius: var(--radius);
+  background: var(--surface-input); box-shadow: var(--inset-lit); overflow: hidden;
+}
+.osf-stepper-btn {
+  width: 30px; height: var(--control-h-sm);
+  font-family: var(--font-mono); font-size: 16px; line-height: 1;
+  color: var(--text-muted); background: transparent; border: 0; cursor: pointer;
+  transition: color var(--dur-fast), background var(--dur-fast);
+}
+.osf-stepper-btn:hover { color: var(--accent-hover); background: rgba(154, 163, 173, 0.06); }
+.osf-stepper-btn:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
+.osf-stepper-val {
+  min-width: 60px; display: flex; align-items: center; justify-content: center;
+  padding: 0 8px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--accent-hover);
+  border-left: 1px solid var(--line-strong); border-right: 1px solid var(--line-strong);
+}
+
+/* ------------------------------------------------------------
+   Colour control  (swatch + #hex input + preset row)
+   ------------------------------------------------------------ */
+.osf-color { display: flex; align-items: center; gap: 8px; }
+.osf-color-swatch {
+  width: 24px; height: 24px; flex: none; border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong); box-shadow: var(--inset-lit);
+}
+.osf-color-hex { width: 104px; font-family: var(--font-mono); text-transform: lowercase; }
+.osf-color-presets { display: inline-flex; gap: 4px; }
+.osf-color-preset {
+  width: 18px; height: 18px; padding: 0; border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong); cursor: pointer;
+}
+.osf-color-preset:hover { border-color: var(--accent); }
+
+.osf-textarea { width: 260px; height: auto; min-height: 66px; padding: 8px 12px; resize: vertical; line-height: 1.45; }
+
+/* ------------------------------------------------------------
+   Badge (small status pill) + modified dot
+   ------------------------------------------------------------ */
+.osf-badge {
+  font-family: var(--font-mono); font-size: 9px; font-weight: 500;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  padding: 1px 6px; border-radius: var(--radius-sm);
+  color: var(--text-faint); border: 1px solid var(--line-strong);
+}
+.osf-badge--warn { color: var(--signal-warn); border-color: rgba(224, 162, 60, 0.5); }
+.osf-badge--stop { color: var(--signal-stop); border-color: rgba(200, 80, 58, 0.5); }
+
+.osf-dot {
+  width: 6px; height: 6px; flex: none; border-radius: 50%;
+  background: transparent; transition: background var(--dur-fast);
+}
+.osf-dot.on { background: var(--accent); box-shadow: 0 0 6px var(--accent-quiet); }
+
+/* ------------------------------------------------------------
+   Note / callout block (micro-markdown content)
+   ------------------------------------------------------------ */
+.osf-note {
+  font-family: var(--font-sans); font-size: var(--text-sm); line-height: 1.5;
+  color: var(--text-body); padding: 10px 14px; border-radius: var(--radius);
+  border: 1px solid var(--line); border-left-width: 3px;
+  background: rgba(16, 21, 28, 0.5);
+}
+.osf-note code { font-size: 12px; color: var(--text-bright); }
+.osf-note strong { color: var(--text-bright); }
+.osf-note--info   { border-left-color: var(--accent); }
+.osf-note--warn   { border-left-color: var(--signal-warn); }
+.osf-note--danger { border-left-color: var(--signal-stop); }

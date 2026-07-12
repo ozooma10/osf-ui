@@ -40,6 +40,7 @@
       <nav id="rail-list" class="rail-list" aria-label="Settings sections"></nav>
 
       <div class="rail-foot">
+        <button id="session-chip" type="button" class="osf-btn osf-btn--ghost osf-btn--sm session-chip" style="display:none">Session changes (0)</button>
         <button id="close" type="button" class="osf-btn osf-btn--ghost osf-btn--sm">Close</button>
       </div>
     </aside>
@@ -49,6 +50,9 @@
       <p id="status" class="status osf-eyebrow">Loading…</p>
     </section>
   </div>
+
+  <!-- Transient action/preset feedback (top-right). -->
+  <div id="toast" class="toast-stack" aria-live="polite"></div>
 
   <script src="main.js"></script>
 </body>
