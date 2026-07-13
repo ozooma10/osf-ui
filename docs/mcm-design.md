@@ -735,16 +735,22 @@ rule goes in the panel-author docs with `contain: paint` guidance).
 >   bumped to **0.3** (`Version.h` + `osfui.d.ts` + `authoring-views.md` in
 >   lockstep).
 >
-> Verified by host-side suites (`tests/native/`, 85 checks) that compile the
-> real store/module/bridge sources on the desktop toolchain against a REX
-> stub — no Windows build required for this logic. In-game verification on
-> the Windows build is still pending.
+> Verified by host-side suites (`tests/native/`, 242 checks across four
+> suites) that compile the real store/module/bridge/api sources on the
+> desktop toolchain against a REX stub — no Windows build required for this
+> logic. In-game verification on the Windows build is still pending.
 >
-> **Not yet built (needs the Windows/CommonLibSF build):** the rest of the
-> native slice — C ABI 1.2, HotkeyService, `color`/`flags` as
-> native-validated types, sparse/debounced persistence, and the Papyrus
-> surface. `type:"color"` ships as `widget:"color"` on a `string` until the
-> native validator lands.
+> **Also built since (2026-07-13):** the C ABI 1.2 settings surface — the
+> any-thread value mirror + typed getters, `SubscribeSettings` with
+> replay-on-subscribe, `RegisterSettingsSchema`/`Unregister` (§8.2;
+> `src/api/SettingsMirror.*`, `src/api/SettingsSubscriptions.*`,
+> `BridgeApi`, `sdk/OSFUI_API.h` bumped to 1.2) — and sparse + debounced
+> write-behind persistence (§8.1).
+>
+> **Not yet built (needs the Windows/CommonLibSF build):** HotkeyService,
+> `color`/`flags` as native-validated types, and the Papyrus surface.
+> `type:"color"` ships as `widget:"color"` on a `string` until the native
+> validator lands.
 
 Ordering of the M1/M2 UI-vs-plumbing split is suggested, not contractual.
 

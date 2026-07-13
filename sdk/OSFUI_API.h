@@ -29,7 +29,9 @@
 namespace OSFUI::API
 {
 	// Packed (MAJOR << 16) | MINOR. MAJOR breaks ABI; MINOR bumps on an appended vmethod.
-	inline constexpr std::uint32_t kBridgeAPIVersion = (1u << 16) | 1u;
+	// History: 1.0 commands/sends/ready; 1.1 +RequestMenu; 1.2 +settings
+	// (SubscribeSettings, typed getters, RegisterSettingsSchema).
+	inline constexpr std::uint32_t kBridgeAPIVersion = (1u << 16) | 2u;
 	inline constexpr std::uint32_t kBridgeAPIMajor   = kBridgeAPIVersion >> 16;
 	inline constexpr std::uint32_t kBridgeAPIMinor   = kBridgeAPIVersion & 0xFFFFu;
 
@@ -142,6 +144,11 @@ namespace OSFUI::API
 	// FETCH ONCE and cache. Call after SFSE kPostLoad. Do NOT call per-frame.
 	// Returns nullptr if OSF UI is absent or its MAJOR differs from yours - a
 	// normal, expected outcome; degrade (no UI) rather than failing.
+	//
+	// FEATURE DETECTION: an OLDER 1.x OSFUI.dll still hands you a bridge whose
+	// vtable ends before the newest methods. Before calling anything a later
+	// MINOR added (see the History note above), check the runtime's version:
+	//   if ((bridge->GetInterfaceVersion() & 0xFFFF) >= 2) { /* settings ok */ }
 	inline IOSFUIBridge* RequestBridge(std::uint32_t a_abiVersion = kBridgeAPIVersion) noexcept
 	{
 		const REX::W32::HMODULE mod = REX::W32::GetModuleHandleW(kModuleName);

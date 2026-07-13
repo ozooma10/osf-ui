@@ -2,8 +2,11 @@
 
 **Status:** Implemented (OSF UI side) — `src/api/{BridgeApi.{h,cpp},Exports.cpp}`
 + `sdk/OSFUI_API.h`; `OSFUI_RequestBridge` verified exported; builds clean
-(2026-07-01). Consumer (OSF Animation) side pending. · **Originally:** Proposed
-2026-06-30 · **Brand:** OSF UI (no Prisma-compat constraint)
+(2026-07-01). ABI **1.1** added `RequestMenu`; ABI **1.2** added the settings
+surface (`SubscribeSettings`, typed getters, `RegisterSettingsSchema` —
+2026-07-13, mcm-design.md §8.2). Consumer (OSF Animation) side pending. ·
+**Originally:** Proposed 2026-06-30 · **Brand:** OSF UI (no Prisma-compat
+constraint)
 
 This document specifies a public, ABI-stable C++ API that lets a **separate
 SFSE plugin** register bridge commands, push data to a web view, and receive
@@ -113,12 +116,19 @@ OSFUI::API::IOSFUIBridge* OSFUI_RequestBridge(std::uint32_t a_abiVersion) noexce
 - **When:** the consumer requests it after SFSE `kPostLoad` (OSF UI's
   `Runtime::Initialize` has already run at `SFSE_PLUGIN_LOAD`, so the singleton
   exists). Fetch once and cache — never per-frame.
-- **Version:** packed `(MAJOR << 16) | MINOR`, starting at `(1 << 16) | 0`.
+- **Version:** packed `(MAJOR << 16) | MINOR`, currently `(1 << 16) | 2`.
   - **MAJOR** breaks ABI (reordered/removed vmethod, changed signature). The
     export returns `nullptr` if the caller's MAJOR ≠ OSF UI's MAJOR.
   - **MINOR** bumps when a vmethod is **appended** to the end of the vtable.
     Older callers (lower MINOR) keep working; they simply never call the new
-    tail methods.
+    tail methods. History: **1.0** commands/sends/ready · **1.1** `RequestMenu`
+    · **1.2** settings (`SubscribeSettings`/`UnsubscribeSettings`, typed
+    getters, `RegisterSettingsSchema`/`UnregisterSettingsSchema`).
+  - **Feature detection:** an older 1.x `OSFUI.dll` accepts any 1.x caller, so
+    a consumer built against a newer header can receive a bridge whose vtable
+    ends early. Gate calls to a later MINOR's methods on the runtime's version:
+    `(bridge->GetInterfaceVersion() & 0xFFFF) >= 2` before touching the
+    settings surface.
 - **Web protocol version** is separate: `GetBridgeProtocolVersion()` returns the
   `"0.1"` string from `core/Version.h` so a consumer can gate its **JS message
   contract** independently of the C++ ABI.
@@ -153,6 +163,12 @@ namespace OSFUI::API
     // initial state from here.
     using ReadyFn = void (*)(void* a_user) noexcept;
 
+    // 1.2 — fired on the GAME (main) thread for every committed value of a mod
+    // subscribed via SubscribeSettings. a_valueJson is serialized JSON text
+    // ("true", "1.5", "\"compact\"").
+    using SettingChangedFn = void (*)(const char* a_modId, const char* a_key,
+                                      const char* a_valueJson, void* a_user) noexcept;
+
     struct IOSFUIBridge
     {
         // --- versioning / status. ANY thread, synchronous. ---
@@ -180,6 +196,30 @@ namespace OSFUI::API
         // --- readiness notification. Callback runs on the main thread. ---
         virtual void SetReadyCallback(ReadyFn a_callback, void* a_user) = 0;
 
+        // --- 1.1: menu control. Thread-safe; applied on the next main tick. ---
+        // Open/close a registered SURFACE by id through the normal menu policy.
+        virtual bool RequestMenu(const char* a_viewId, bool a_open) = 0;
+
+        // --- 1.2: settings consumption (mcm-design.md §8.2). ---
+        // Per-mod change subscription; callbacks on the GAME MAIN thread, with
+        // a replay of current values on subscribe (see §5a).
+        virtual std::uint32_t SubscribeSettings(const char* a_modId, SettingChangedFn a_fn, void* a_user) = 0;
+        virtual void          UnsubscribeSettings(std::uint32_t a_token) = 0;
+        // Typed getters: synchronous, ANY thread (they read a mutex-guarded
+        // mirror, never the store). false / 0 on unknown mod/key or mismatch.
+        virtual bool GetSettingBool (const char* a_modId, const char* a_key, bool* a_out) = 0;
+        virtual bool GetSettingInt  (const char* a_modId, const char* a_key, std::int64_t* a_out) = 0;
+        virtual bool GetSettingFloat(const char* a_modId, const char* a_key, double* a_out) = 0;
+        // Covers string/enum/key. Returns required length incl. NUL; copies min(bufLen).
+        virtual std::uint32_t GetSettingString(const char* a_modId, const char* a_key,
+                                               char* a_buf, std::uint32_t a_bufLen) = 0;
+
+        // --- 1.2: settings registration. Thread-safe; merge on the next main tick. ---
+        // The SAME JSON document as a settings/<id>.json drop-in. Parse/shape
+        // errors report synchronously (false); see §5a for precedence.
+        virtual bool RegisterSettingsSchema(const char* a_schemaJson) = 0;
+        virtual void UnregisterSettingsSchema(const char* a_modId) = 0;
+
     protected:
         ~IOSFUIBridge() = default;  // OSF UI owns the singleton; the consumer never deletes it.
     };
@@ -191,13 +231,48 @@ namespace OSFUI::API
 - **Status reads** (`GetInterfaceVersion`/`GetPluginVersion`/
   `GetBridgeProtocolVersion`/`IsBridgeReady`) return synchronously from any
   thread (atomic/const).
+- **Typed setting getters** (`GetSettingBool/Int/Float/String`) are synchronous
+  and callable from **any** thread: they read a mutex-guarded value mirror that
+  a store listener maintains on the main thread (`src/api/SettingsMirror.*`),
+  never `SettingsStore` itself.
 - **Mutating calls** (`RegisterCommand`/`UnregisterCommand`/`SetReadyCallback`/
-  `SendToWeb`) are safe from any thread; their effect is marshaled onto the next
-  `Runtime::Tick` on the main thread. This mirrors how everything else in the
-  plugin already gets main-thread cadence (`core/Plugin.cpp:45`), and means a
-  consumer can push data from a worker thread without its own marshaling.
-- **`CommandFn` / `ReadyFn` always run on the game main thread.** Keep them
-  cheap (same discipline as `Tick`); offload heavy work yourself.
+  `SendToWeb`/`RequestMenu`/`SubscribeSettings`/`RegisterSettingsSchema`/…) are
+  safe from any thread; their effect is marshaled onto the next `Runtime::Tick`
+  on the main thread. This mirrors how everything else in the plugin already
+  gets main-thread cadence (`core/Plugin.cpp:45`), and means a consumer can
+  push data from a worker thread without its own marshaling.
+- **`CommandFn` / `ReadyFn` / `SettingChangedFn` always run on the game main
+  thread.** Keep them cheap (same discipline as `Tick`); offload heavy work
+  yourself.
+
+### 5a. Settings surface semantics (ABI 1.2, mcm-design.md §8.2)
+
+- **Subscription is per-mod, not per-key** — one subscription, switch on
+  `a_key`. On subscribe, the mod's **current values replay** once each (on the
+  next main tick), so no separate initial read is needed. Subscribing to a
+  not-yet-registered mod id is legal; the replay arrives when it registers
+  (load-order insurance). A value committed in the subscribe→first-tick window
+  can be delivered twice with identical content — callbacks should be
+  idempotent per `(mod, key, value)`.
+- **Getters judge type by the stored value's JSON shape:** `GetSettingBool`
+  wants a bool, `GetSettingInt` an integral number, `GetSettingFloat` any
+  number, `GetSettingString` a string (covers `string`, `enum` — the option
+  string — and `key` — the key NAME, e.g. `"F10"`). `GetSettingString` returns
+  the required length **including** the NUL (0 on unknown/mismatch), copies
+  `min(bufLen)`, always NUL-terminates; a null/empty buffer is the "how big?"
+  probe.
+- **`RegisterSettingsSchema` takes the exact drop-in document**
+  (`settings/<id>.json` shape, `docs/schema/`). Malformed JSON, a non-object
+  document, or a missing/invalid/reserved `id` fail **synchronously** (false);
+  deeper field problems fall back defensively exactly like a drop-in file.
+  Persisted user values overlay from the same per-mod values file as the
+  drop-in tier, so a mod can migrate tiers without losing settings. Same id as
+  a drop-in file: the runtime registration **wins** (logged); re-registering
+  the same id replaces the earlier registration (dev iteration). Subscribers
+  of the id receive the value replay when the merge commits on the main tick.
+- **`UnregisterSettingsSchema` only drops runtime-registered schemas** — it is
+  ignored (with a log warning) for ids owned by drop-in files. The user's
+  values file is always kept.
 
 ---
 
@@ -472,80 +547,14 @@ reflects the **live registered** scene set.
 
 ---
 
-## Appendix A — `sdk/OSFUI_API.h` (full copyable header)
+## Appendix A — the copyable header
 
-```cpp
-// ============================================================================
-// OSFUI_API.h - OSF UI native bridge API.
-// Copyable SINGLE header. Drop it into your SFSE plugin; link NOTHING.
-//
-// THREADING:
-//   Status reads (GetInterfaceVersion/GetPluginVersion/GetBridgeProtocolVersion/
-//   IsBridgeReady) are callable from ANY thread.
-//   Mutating calls (RegisterCommand/UnregisterCommand/SetReadyCallback/SendToWeb)
-//   are thread-safe; their effect lands on the game main thread.
-//   CommandFn and ReadyFn ALWAYS run on the game main thread - keep them cheap.
-//
-// ABI: the surface carries only primitives, UTF-8 const char*, function
-//   pointers and void* user data - no STL, no nlohmann::json, no RE::* types.
-//   It is therefore independent of the CommonLibSF pin.
-// ============================================================================
-#pragma once
-
-#include "REX/W32/KERNEL32.h"  // GetModuleHandleW / GetProcAddress / HMODULE (no <Windows.h>)
-#include <cstdint>
-
-namespace OSFUI::API
-{
-    // Packed (MAJOR << 16) | MINOR. MAJOR breaks ABI; MINOR bumps on an appended vmethod.
-    inline constexpr std::uint32_t kBridgeAPIVersion = (1u << 16) | 0u;
-    inline constexpr std::uint32_t kBridgeAPIMajor   = kBridgeAPIVersion >> 16;
-
-    inline constexpr const wchar_t* kModuleName        = L"OSFUI.dll";
-    inline constexpr const char*    kRequestExportName = "OSFUI_RequestBridge";
-
-    using CommandFn = void (*)(const char* a_command,
-                               const char* a_payloadJson,
-                               const char* a_sourceViewId,
-                               void*       a_user) noexcept;
-
-    using ReadyFn = void (*)(void* a_user) noexcept;
-
-    struct IOSFUIBridge
-    {
-        virtual std::uint32_t GetInterfaceVersion() = 0;
-        virtual void          GetPluginVersion(std::uint32_t& a_major,
-                                               std::uint32_t& a_minor,
-                                               std::uint32_t& a_patch) = 0;
-        virtual const char*   GetBridgeProtocolVersion() = 0;
-        virtual bool          IsBridgeReady() = 0;
-
-        virtual void RegisterCommand(const char* a_command, CommandFn a_handler, void* a_user) = 0;
-        virtual void UnregisterCommand(const char* a_command) = 0;
-
-        virtual bool SendToWeb(const char* a_viewId, const char* a_type, const char* a_payloadJson) = 0;
-
-        virtual void SetReadyCallback(ReadyFn a_callback, void* a_user) = 0;
-
-    protected:
-        ~IOSFUIBridge() = default;
-    };
-
-    using RequestBridge_t = IOSFUIBridge* (*)(std::uint32_t a_abiVersion) noexcept;
-
-    // FETCH ONCE and cache. Call after SFSE kPostLoad. Do NOT call per-frame.
-    inline IOSFUIBridge* RequestBridge(std::uint32_t a_abiVersion = kBridgeAPIVersion) noexcept
-    {
-        const REX::W32::HMODULE mod = REX::W32::GetModuleHandleW(kModuleName);
-        if (!mod) {
-            return nullptr;  // OSF UI not installed/loaded.
-        }
-        const auto fn = reinterpret_cast<RequestBridge_t>(
-            REX::W32::GetProcAddress(mod, kRequestExportName));
-        return fn ? fn(a_abiVersion) : nullptr;  // older OSF UI / MAJOR mismatch -> nullptr.
-    }
-}
-```
+The authoritative, always-current copyable header is **`sdk/OSFUI_API.h`** in
+this repo — copy that file into your SFSE plugin (link nothing). An inline copy
+used to live here and drifted from the shipped header (it predated 1.1's
+`RequestMenu`); the narrative listing in §5 stays, but the header itself is the
+single source of truth for signatures, per-method contracts, and
+`kBridgeAPIVersion`.
 
 ## Appendix B — message contract for the OSF Animation flagship (informative)
 
