@@ -214,6 +214,13 @@ function isSetting(item) {
   return item && (item.type === "bool" || item.type === "int" || item.type === "float" ||
     item.type === "enum" || item.type === "string" || item.type === "key");
 }
+// The schema setting object for a mod's key, or null.
+function findSettingInMod(mod, key) {
+  for (const g of (mod.schema && mod.schema.groups) || []) {
+    for (const s of g.settings || []) { if (s && s.key === key) return s; }
+  }
+  return null;
+}
 function isModified(setting, value) {
   if (value === undefined || !("default" in setting)) return false;
   return value !== setting.default;
@@ -433,6 +440,15 @@ function makeSettingRow(mod, setting, current) {
   labelWrap.append(label, dot);
   if (setting.requires && REQUIRES_LABEL[setting.requires]) {
     labelWrap.appendChild(el("span", "osf-badge osf-badge--warn", REQUIRES_LABEL[setting.requires]));
+  }
+  // Key-binding conflict (mcm-design §9): native embeds `conflicts:[{mod,key,
+  // title}]` on a key setting whose resolved key is also bound elsewhere.
+  // Informational — the bind stands; we just badge both sides.
+  if (setting.type === "key" && Array.isArray(setting.conflicts) && setting.conflicts.length) {
+    const others = [...new Set(setting.conflicts.map((c) => c.title || c.mod))];
+    const badge = el("span", "osf-badge osf-badge--stop", "Key conflict");
+    badge.title = "Also bound by: " + others.join(", ");
+    labelWrap.appendChild(badge);
   }
   text.appendChild(labelWrap);
   if (setting.hint) text.appendChild(el("div", "row-hint", setting.hint));
@@ -1102,6 +1118,18 @@ function onNativeMessage(jsonText) {
       mod.values = mod.values || {};
       const b = baselineFor(p.mod);
       if (!(p.key in b)) b[p.key] = mod.values[p.key];
+      // A key rebind can create or clear a cross-mod conflict, but `conflicts`
+      // is only recomputed in settings.data — a plain settings.changed can't
+      // carry the new state (and it may affect ANOTHER mod's badge). Pull a
+      // fresh registry so every badge re-derives. Rare event; the full refresh
+      // is fine. Handled before the echo check so our OWN rebind (already
+      // applied optimistically) still triggers it.
+      const changedSetting = findSettingInMod(mod, p.key);
+      if (changedSetting && changedSetting.type === "key") {
+        mod.values[p.key] = p.value;
+        sendCommand({ command: "settings.get" });
+        break;
+      }
       if (mod.values[p.key] === p.value) {
         // The common case: the echo of our own optimistic commit. Cheap sync.
         updateChip(); updateRailCounts();
