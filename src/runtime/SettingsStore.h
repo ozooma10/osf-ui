@@ -47,6 +47,12 @@ namespace OSFUI
 		// react to settings.
 		using ChangeListener = std::function<void(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value)>;
 
+		// Fired after the registry SHAPE changes post-load (a RegisterSchema
+		// commit or RemoveMod — whenever Generation() moves outside LoadAll).
+		// The web layer re-broadcasts `settings.data` off this so an open
+		// settings menu re-renders on late registration (mcm-design.md §8.5).
+		using RegistryListener = std::function<void()>;
+
 		// Loads every `<schemaDir>/*.json` as a mod schema (sorted by filename
 		// so duplicate-id resolution is deterministic); each mod's values
 		// persist to `<valuesDir>/<id>.json`. Safe to call once, before any
@@ -58,6 +64,7 @@ namespace OSFUI
 		// web push, the ABI mirror — which multiplex their own dynamic
 		// subscribers on top).
 		void AddChangeListener(ChangeListener a_listener) { _listeners.push_back(std::move(a_listener)); }
+		void AddRegistryListener(RegistryListener a_listener) { _registryListeners.push_back(std::move(a_listener)); }
 
 		// Incrementally registers (or, per Source precedence, replaces) one
 		// mod schema after LoadAll — the runtime-registration path
@@ -129,9 +136,11 @@ namespace OSFUI
 		[[nodiscard]] static nlohmann::json DefaultFor(const nlohmann::json& a_setting);
 		static bool Persist(const Mod& a_mod);
 		void        Notify(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value) const;
+		void        NotifyRegistryChanged() const;
 
-		std::vector<Mod>            _mods;
-		std::vector<ChangeListener> _listeners;
+		std::vector<Mod>              _mods;
+		std::vector<ChangeListener>   _listeners;
+		std::vector<RegistryListener> _registryListeners;
 		std::filesystem::path       _valuesDir;
 		std::uint64_t               _generation{ 0 };
 		bool                        _loaded{ false };

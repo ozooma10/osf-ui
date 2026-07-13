@@ -14,6 +14,21 @@ namespace OSFUI
 		// Subscriber #0: the runtime's core reaction (framework knobs). Later
 		// listeners (web push, ABI mirror) multicast behind it.
 		_store.AddChangeListener(std::move(a_onChange));
+		// Subscriber #1: the web push — every committed value goes to every
+		// view that has read the registry (mcm-design.md §8.5).
+		_store.AddChangeListener([this](std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value) {
+			PushToSubscribers("settings.changed", {
+				{ "mod", std::string(a_mod) },
+				{ "key", std::string(a_key) },
+				{ "value", a_value },
+			});
+		});
+		// Registry shape changed (runtime registration/removal while views are
+		// live): re-send the full document — the settings view fully re-renders
+		// on settings.data, so late registration Just Works.
+		_store.AddRegistryListener([this] {
+			PushToSubscribers("settings.data", nlohmann::json::parse(_store.DataJson(), nullptr, false));
+		});
 		_store.LoadAll(_schemaDir, _valuesDir);
 	}
 
@@ -24,9 +39,33 @@ namespace OSFUI
 		_store.NotifyAll();
 	}
 
+	void SettingsModule::OnBridgeDown()
+	{
+		_bridge = nullptr;
+		_subscribers.clear();
+	}
+
+	void SettingsModule::PushToSubscribers(std::string_view a_type, const nlohmann::json& a_payload) const
+	{
+		if (!_bridge || _subscribers.empty()) {
+			return;
+		}
+		for (const auto& id : _subscribers) {
+			_bridge->SendToWeb(id, a_type, a_payload);
+		}
+	}
+
 	void SettingsModule::RegisterCommands(MessageBridge& a_bridge)
 	{
+		// A new bridge means the view layer was (re)built: pages reload and
+		// re-subscribe via settings.get, so drop the stale subscriber set.
+		_bridge = &a_bridge;
+		_subscribers.clear();
+
 		a_bridge.RegisterCommand("settings.get", [this](const nlohmann::json&, MessageBridge& a_b) {
+			// Subscribe-on-read (the views.get pattern): the caller now also
+			// receives settings.changed pushes and settings.data re-broadcasts.
+			_subscribers.insert(std::string(a_b.CurrentSource()));
 			a_b.SendToWeb("settings.data", nlohmann::json::parse(_store.DataJson(), nullptr, false));
 		});
 
@@ -43,6 +82,8 @@ namespace OSFUI
 			const auto key = Json::GetString(a_payload, "key", "");
 			if (_store.Reset(mod, key)) {
 				// Re-send the registry so the view re-renders to the new state.
+				// (Other subscribers sync through the settings.changed pushes
+				// the reset just fired.)
 				a_b.SendToWeb("settings.data", nlohmann::json::parse(_store.DataJson(), nullptr, false));
 			}
 		});

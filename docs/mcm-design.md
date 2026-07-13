@@ -720,21 +720,29 @@ rule goes in the panel-author docs with `contain: paint` guidance).
 > (`devtools/harness/`) with a validation-mirroring MockBridge. Verified by a
 > jsdom suite driving the real shipped files (widgets, conditions, actions,
 > presets, search, revert, injection-safety, and the mock clamp/persist path).
-> **Build status (2026-07-12).** The **`SettingsStore` generalization (§8.3) is
-> implemented**: multicast change listeners, incremental `RegisterSchema` with
-> Source precedence (drop-in vs native, per §14.1), `RemoveMod`,
-> `GetValue`/`GetSettingType`, `NotifyMod` replay, a registry-generation
-> counter, and deterministic (filename-sorted, first-wins) drop-in loading.
-> Verified by a host-side unit suite (`tests/native/`, 58 checks) that compiles
-> the real store sources on the desktop toolchain against a REX stub — no
-> Windows build required for store logic. In-game verification on the Windows
-> build is still pending.
+> **Build status (2026-07-12).** Two more M1 slices are **implemented**:
+>
+> - **`SettingsStore` generalization (§8.3)**: multicast change listeners,
+>   incremental `RegisterSchema` with Source precedence (drop-in vs native,
+>   per §14.1), `RemoveMod`, `GetValue`/`GetSettingType`, `NotifyMod` replay,
+>   a registry-generation counter + registry-change listeners, and
+>   deterministic (filename-sorted, first-wins) drop-in loading.
+> - **Web change delivery (§8.5)**: `settings.get` now subscribes the calling
+>   view; every committed value pushes as `settings.changed {mod,key,value}`
+>   and registry shape changes re-broadcast `settings.data`. Bridge protocol
+>   bumped to **0.3** (`Version.h` + `osfui.d.ts` + `authoring-views.md` in
+>   lockstep).
+>
+> Verified by host-side suites (`tests/native/`, 85 checks) that compile the
+> real store/module/bridge sources on the desktop toolchain against a REX
+> stub — no Windows build required for this logic. In-game verification on
+> the Windows build is still pending.
 >
 > **Not yet built (needs the Windows/CommonLibSF build):** the rest of the
-> native slice — C ABI 1.2, `settings.changed` web push, HotkeyService,
-> `color`/`flags` as native-validated types, sparse/debounced persistence, and
-> the Papyrus surface. `type:"color"` ships as `widget:"color"` on a `string`
-> until the native validator lands.
+> native slice — C ABI 1.2, HotkeyService, `color`/`flags` as
+> native-validated types, sparse/debounced persistence, and the Papyrus
+> surface. `type:"color"` ships as `widget:"color"` on a `string` until the
+> native validator lands.
 
 Ordering of the M1/M2 UI-vs-plumbing split is suggested, not contractual.
 

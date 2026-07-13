@@ -43,6 +43,7 @@ export type UiCommand =
   | { command: "game.get" }
   /** Catalog of loaded surfaces; replies `views.data` and subscribes the caller to change pushes. */
   | { command: "views.get" }
+  /** Read the settings registry; replies `settings.data` and SUBSCRIBES the caller: committed values arrive as `settings.changed`, registry shape changes re-send `settings.data`. */
   | { command: "settings.get" }
   | { command: "settings.set"; mod: string; key: string; value: SettingValue }
   | { command: "settings.reset"; mod: string; key?: string }
@@ -74,6 +75,12 @@ export interface RuntimeReadyPayload {
   bridgeVersion: string; // protocol version (kBridgeProtocolVersion) — negotiate on this
 }
 
+/**
+ * Reply to `settings.get` (and to a successful `settings.reset`). Also pushed
+ * unsolicited to every subscriber (any view that has sent `settings.get`)
+ * whenever the registry SHAPE changes — a mod registering or unregistering a
+ * schema at runtime over the native API. Re-render from it wholesale.
+ */
 export interface SettingsDataPayload {
   mods: Array<{
     id: string;
@@ -87,6 +94,20 @@ export interface SettingsAckPayload {
   mod: string;
   key: string;
   ok: boolean; // false => rejected or clamped server-side
+}
+
+/**
+ * One committed value, pushed to every subscriber (any view that has sent
+ * `settings.get`) on each store commit — a settings.set from any view, a
+ * reset, a preset application, or a native-side write. This is how a mod's
+ * own HUD reacts live to its settings with zero polling and zero native code
+ * (subscribe with a single `settings.get` at startup). The value is
+ * post-validation (clamped) — authoritative, not the caller's raw input.
+ */
+export interface SettingsChangedPayload {
+  mod: string;
+  key: string;
+  value: SettingValue;
 }
 
 /** Result of a settings.captureKey: the captured key name, or cancelled (Esc / unbindable). */
@@ -140,6 +161,7 @@ export type NativeToWebMessage =
   | BridgeEnvelope<"views.data", ViewsDataPayload>
   | BridgeEnvelope<"settings.data", SettingsDataPayload>
   | BridgeEnvelope<"settings.ack", SettingsAckPayload>
+  | BridgeEnvelope<"settings.changed", SettingsChangedPayload>
   | BridgeEnvelope<"settings.captured", SettingsCapturedPayload>
   | BridgeEnvelope<"ui.error", UiErrorPayload>;
 

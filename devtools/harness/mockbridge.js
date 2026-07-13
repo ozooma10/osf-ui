@@ -92,11 +92,19 @@
   }
   function sendData() { send("settings.data", { mods }); }
 
+  // Mirrors SettingsModule subscribe-on-read (protocol 0.3): settings.get
+  // subscribes the page; committed values then push as settings.changed.
+  let subscribed = false;
+  function pushChanged(mod, key, value) {
+    if (subscribed) setTimeout(() => send("settings.changed", { mod, key, value }), 0);
+  }
+
   // ---- web -> native ----
   function handle(p) {
     const cmd = p && p.command;
     switch (cmd) {
       case "settings.get":
+        subscribed = true;
         setTimeout(sendData, 0);
         break;
       case "settings.set": {
@@ -107,7 +115,12 @@
           eachSetting(mod.schema, (s) => { if (s.key === p.key) setting = s; });
           if (setting) {
             const v = validate(setting, p.value);
-            if (v !== undefined) { mod.values[p.key] = v; persist(mod); ok = true; }
+            if (v !== undefined) {
+              mod.values[p.key] = v;
+              persist(mod);
+              ok = true;
+              pushChanged(p.mod, p.key, v); // post-validation value, like native
+            }
           }
         }
         setTimeout(() => send("settings.ack", { mod: p.mod, key: p.key, ok }), 0);
@@ -117,7 +130,10 @@
         const mod = mods.find((m) => m.id === p.mod);
         if (mod) {
           eachSetting(mod.schema, (s) => {
-            if (!p.key || s.key === p.key) mod.values[s.key] = defaultFor(s);
+            if (!p.key || s.key === p.key) {
+              mod.values[s.key] = defaultFor(s);
+              pushChanged(p.mod, s.key, mod.values[s.key]);
+            }
           });
           persist(mod);
           setTimeout(sendData, 0); // mirrors SettingsModule: re-send registry

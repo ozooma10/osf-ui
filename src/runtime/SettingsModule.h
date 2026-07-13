@@ -1,5 +1,7 @@
 #pragma once
 
+#include <unordered_set>  // not in pch.h
+
 #include "runtime/SettingsStore.h"
 #include "runtime/UiModule.h"
 
@@ -15,6 +17,13 @@ namespace OSFUI
 	// job: it just stores/validates/persists/notifies. Consumers inject a
 	// ChangeListener and react to the keys they own (e.g. the runtime reacting
 	// to its own cursor-speed knob).
+	//
+	// Web change delivery (mcm-design.md §8.5): `settings.get` SUBSCRIBES the
+	// calling view — every later committed value is pushed to it as
+	// `settings.changed { mod, key, value }`, and a registry shape change
+	// (runtime schema registration/removal) re-sends the full `settings.data`.
+	// Subscribe-on-read, the `views.get` pattern; a mod's own HUD reacts live
+	// to its settings with zero polling and zero native code.
 	class SettingsModule final : public IUiModule
 	{
 	public:
@@ -24,11 +33,23 @@ namespace OSFUI
 
 		void OnStart() override;  // apply persisted values (fires reactions)
 		void RegisterCommands(MessageBridge& a_bridge) override;
+		void OnBridgeDown() override;
 		[[nodiscard]] std::string_view Name() const override { return "settings"; }
 
+		// The store is the single source of truth every other surface projects
+		// over — the native plugin API (runtime schema registration, typed
+		// getters) reaches it through here.
+		[[nodiscard]] SettingsStore& Store() { return _store; }
+
 	private:
-		SettingsStore         _store;
-		std::filesystem::path _schemaDir;
-		std::filesystem::path _valuesDir;
+		// Sends one { type, payload } to every subscribed view (no-op with no
+		// bridge or no subscribers — e.g. during the OnStart NotifyAll replay).
+		void PushToSubscribers(std::string_view a_type, const nlohmann::json& a_payload) const;
+
+		SettingsStore                   _store;
+		std::filesystem::path           _schemaDir;
+		std::filesystem::path           _valuesDir;
+		MessageBridge*                  _bridge{ nullptr };  // set by RegisterCommands, cleared by OnBridgeDown
+		std::unordered_set<std::string> _subscribers;        // view ids that sent settings.get
 	};
 }

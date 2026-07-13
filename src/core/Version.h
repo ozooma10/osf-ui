@@ -16,7 +16,7 @@ namespace OSFUI
 	// `runtime.ready` handshake. Bump on any breaking protocol change; keep in
 	// lockstep with docs/authoring-views.md, docs/schema/*, and sdk/*.d.ts.
 	// Still 0.x = unstable; minor bumps may break views until it reaches 1.0.
-	inline constexpr const char* kBridgeProtocolVersion = "0.2";
+	inline constexpr const char* kBridgeProtocolVersion = "0.3";
 
 	// Name of the plugin data folder, resolved relative to the plugin DLL:
 	//   Data/SFSE/Plugins/OSFUI/

@@ -11,7 +11,7 @@ a reference for the two data-driven extension points that work today:
 > (`config.json` → `view`), and new *native* bridge commands or game-data
 > bindings still require core changes. What you can ship as pure content with
 > no recompile: a `views/<id>/` folder and a `settings/<id>.json` schema. The
-> bridge protocol is at version **0.2 — unstable**; minor bumps may break
+> bridge protocol is at version **0.3 — unstable**; minor bumps may break
 > views until it reaches 1.0. Detect it via the `bridgeVersion` field of the
 > `runtime.ready` handshake (below) and degrade/refuse on a mismatch. See the
 > roadmap in [renderer-plan.md](renderer-plan.md).
@@ -296,12 +296,40 @@ server-side and reported via `settings.ack {ok:false}`. **Untrusted JS cannot
 write arbitrary keys, out-of-range values, or to any path but its own settings
 file.**
 
+### Reacting to changes from your view (zero native code)
+
+`settings.get` doesn't just read — it **subscribes** the calling view (the
+`views.get` pattern). After one `settings.get` at startup:
+
+- every committed value — from the settings menu, a preset, a reset, or a
+  native write — is pushed to you as
+  `settings.changed { mod, key, value }` (the value is post-validation, i.e.
+  authoritative), and
+- a registry *shape* change (a mod registering/unregistering a schema at
+  runtime) re-sends the full `settings.data`.
+
+So a mod's HUD view reacts live to its own settings with zero polling:
+
+```js
+osfui.onMessage = (json) => {
+  const msg = JSON.parse(json);
+  if (msg.type === "settings.changed" && msg.payload.mod === "mymod") {
+    applySetting(msg.payload.key, msg.payload.value);  // e.g. re-style, re-layout
+  }
+};
+send("settings.get");  // initial read + subscription in one call
+```
+
+You receive changes for **all** mods — filter on `payload.mod`.
+
 ### Reacting natively (currently a core change)
 
 Native code can subscribe to changes (see `Runtime::OnSettingChanged`). Today
 this is wired in-tree (e.g. `osfui.cursorSpeed` live-scales the cursor). A
-public "subscribe to my setting" API for separate plugins is on the roadmap;
-until then, native reactions to a *new* mod's settings need a core edit.
+public "subscribe to my setting" API for separate SFSE plugins (C ABI 1.2 —
+`SubscribeSettings` + typed getters, see `docs/mcm-design.md` §8.2) is the
+next native milestone; until it lands, native reactions to a *new* mod's
+settings need a core edit.
 
 ---
 
@@ -357,7 +385,7 @@ Tooling to author against the contract instead of from memory:
 
 ### Versioning
 
-The protocol version is **0.2** and is emitted in `runtime.ready` as
+The protocol version is **0.3** and is emitted in `runtime.ready` as
 `bridgeVersion`. It is distinct from the plugin `version`. Until it reaches
 `1.0`, treat minor bumps as potentially breaking and gate your view on it:
 

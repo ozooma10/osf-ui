@@ -20,12 +20,30 @@ if [[ ! -f "$DEPS/nlohmann/json.hpp" ]]; then
 fi
 
 CXX="${CXX:-clang++}"
-"$CXX" -std=c++2b -Wall -Wextra -g \
-    -I ../../src -I "$DEPS" -I stubs \
-    -include stubs/pch.h \
+compile() { # <output> <sources...>
+    local out=$1
+    shift
+    "$CXX" -std=c++2b -Wall -Wextra -g \
+        -I ../../src -I "$DEPS" -I stubs \
+        -include stubs/pch.h \
+        "$@" -o "$BUILD/$out"
+}
+
+compile settings_store_tests \
     settings_store_tests.cpp \
     ../../src/runtime/SettingsStore.cpp \
-    ../../src/runtime/Json.cpp \
-    -o "$BUILD/settings_store_tests"
+    ../../src/runtime/Json.cpp
 
-"$BUILD/settings_store_tests"
+compile settings_module_tests \
+    settings_module_tests.cpp \
+    ../../src/runtime/SettingsModule.cpp \
+    ../../src/runtime/MessageBridge.cpp \
+    ../../src/runtime/SettingsStore.cpp \
+    ../../src/runtime/Json.cpp
+
+failures=0
+for t in settings_store_tests settings_module_tests; do
+    echo "== $t =="
+    "$BUILD/$t" || failures=$((failures + $?))
+done
+exit "$failures"

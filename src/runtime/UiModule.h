@@ -21,8 +21,14 @@ namespace OSFUI
 		virtual void OnStart() {}
 
 		// Register the module's web<->native `ui.command` handlers on the
-		// bridge. Called only when a bridge-enabled view is active.
+		// bridge. Called only when a bridge-enabled view is active. A module
+		// may keep the bridge pointer for unsolicited pushes until
+		// OnBridgeDown (or a later RegisterCommands replaces it).
 		virtual void RegisterCommands(MessageBridge& a_bridge) = 0;
+
+		// The bridge passed to RegisterCommands is about to be destroyed —
+		// drop any retained pointer/subscriber state.
+		virtual void OnBridgeDown() {}
 
 		[[nodiscard]] virtual std::string_view Name() const = 0;
 	};

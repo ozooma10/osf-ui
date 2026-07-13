@@ -253,6 +253,10 @@ namespace OSFUI
 		}
 		// Detach the native plugin API from the bridge before we destroy it, so its non-owning pointer never dangles and it reports not-ready.
 		API::BridgeApi::Get().OnBridgeReady(nullptr);
+		// Same for modules that retain the bridge for unsolicited pushes.
+		for (const auto& module : _modules) {
+			module->OnBridgeDown();
+		}
 		// Bridge before modules: its command handlers capture module pointers,
 		// so it must not outlive them.
 		_bridge.reset();

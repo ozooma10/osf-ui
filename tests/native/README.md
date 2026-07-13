@@ -27,6 +27,7 @@ Only sources with no game/SFSE/Ultralight includes can live here. Currently:
 | Test | Covers |
 |---|---|
 | `settings_store_tests.cpp` | `SettingsStore` (mcm-design.md §8.3): load/overlay/clamp, deterministic duplicate-id resolution, multicast listeners, incremental `RegisterSchema` + Source precedence, per-mod replay, `RemoveMod`, `GetValue`/`GetSettingType`, generation counter, persistence |
+| `settings_module_tests.cpp` | `SettingsModule` + `MessageBridge` (§8.5): subscribe-on-read via real `ui.command` envelopes, `settings.changed` push to all subscribers, caller-only acks, `settings.data` re-broadcast on registry shape change, `OnBridgeDown` teardown |
 
 This suite verifies store logic, not the plugin: ABI wiring, threading (the
 main-thread pump), and in-game behavior still need the Windows build.

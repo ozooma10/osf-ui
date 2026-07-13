@@ -154,8 +154,10 @@ namespace OSFUI
 
 		if (a_notify) {
 			// Replay so consumers that subscribed before this mod registered
-			// sync without a separate read (mcm-design.md §10).
+			// sync without a separate read (mcm-design.md §10) — then announce
+			// the shape change so the web layer re-broadcasts the registry.
 			NotifyMod(existing ? existing->id : _mods.back().id);
+			NotifyRegistryChanged();
 		}
 		return true;
 	}
@@ -170,6 +172,7 @@ namespace OSFUI
 		REX::INFO("SettingsStore: removed mod '{}' (values file kept)", it->id);
 		_mods.erase(it);
 		++_generation;
+		NotifyRegistryChanged();
 		return true;
 	}
 
@@ -394,6 +397,15 @@ namespace OSFUI
 		for (const auto& listener : _listeners) {
 			if (listener) {
 				listener(a_modId, a_key, a_value);
+			}
+		}
+	}
+
+	void SettingsStore::NotifyRegistryChanged() const
+	{
+		for (const auto& listener : _registryListeners) {
+			if (listener) {
+				listener();
 			}
 		}
 	}
