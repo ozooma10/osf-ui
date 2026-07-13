@@ -276,6 +276,10 @@ namespace OSFUI
 		DrainMenuRequests();
 		// Deliver a captured rebind key back to the settings view (main thread).
 		DrainKeyCapture();
+		// Apply queued runtime schema (un)registrations to the store first,
+		// so their value replay is already queued when the pump below drains
+		// SubscribeSettings callbacks — registration lands in one tick.
+		DrainSchemaOps();
 		// Apply the native plugin API's queued ops (command (re)registration +
 		// off-thread SendToWeb) on the main thread, before Update() flushes the
 		// per-view outbound queues to the pages.
@@ -356,6 +360,29 @@ namespace OSFUI
 			}
 		}
 		ApplyMenuPolicy();
+	}
+
+	void Runtime::DrainSchemaOps()
+	{
+		if (!_settings) {
+			return;  // no store yet — ops keep waiting in BridgeApi's queue
+		}
+		auto ops = API::BridgeApi::Get().TakeSchemaOps();
+		if (ops.empty()) {
+			return;
+		}
+		auto& store = _settings->Store();
+		for (auto& op : ops) {
+			if (!op.schema.is_null()) {
+				// Shape was validated synchronously at the ABI boundary;
+				// what's left here is precedence (native wins, logged inside).
+				store.RegisterSchema(std::move(op.schema), SettingsStore::Source::kNative);
+			} else if (store.GetSource(op.modId) == SettingsStore::Source::kNative) {
+				store.RemoveMod(op.modId);
+			} else {
+				REX::WARN("Runtime: UnregisterSettingsSchema('{}') ignored — not a runtime-registered schema", op.modId);
+			}
+		}
 	}
 
 	void Runtime::ApplyMenuPolicy()

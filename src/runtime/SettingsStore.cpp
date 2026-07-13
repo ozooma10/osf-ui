@@ -127,25 +127,16 @@ namespace OSFUI
 			REX::WARN("SettingsStore: RegisterSchema before LoadAll — rejected");
 			return false;
 		}
-		if (!a_schema.is_object()) {
-			REX::WARN("SettingsStore: RegisterSchema rejected — schema is not a JSON object");
-			return false;
-		}
 		return AddSchema(std::move(a_schema), a_source, /*a_idHint=*/"", /*a_notify=*/true);
 	}
 
-	bool SettingsStore::AddSchema(nlohmann::json a_schema, Source a_source, std::string a_idHint, bool a_notify)
+	bool SettingsStore::ValidateSchemaShape(const nlohmann::json& a_schema)
 	{
-		auto id = Json::GetString(a_schema, "id", a_idHint);
-		// Drop-ins: the id MUST equal the filename stem (documented contract,
-		// docs/schema + mcm-design.md §8.1) — warn and override, so a file
-		// can't hijack another mod's id and MO2's per-file VFS priority stays
-		// the arbiter of who owns settings/<id>.json.
-		if (a_source == Source::kDropIn && !a_idHint.empty() && id != a_idHint) {
-			REX::WARN("SettingsStore: schema id '{}' must equal the filename stem — using '{}'",
-				id.substr(0, kMaxModIdLen), a_idHint);
-			id = a_idHint;
+		if (!a_schema.is_object()) {
+			REX::WARN("SettingsStore: rejected schema — not a JSON object");
+			return false;
 		}
+		const auto id = Json::GetString(a_schema, "id", "");
 		if (id.empty()) {
 			REX::WARN("SettingsStore: rejected schema with no id");
 			return false;
@@ -160,7 +151,29 @@ namespace OSFUI
 			REX::WARN("SettingsStore: rejected schema id '{}' — reserved framework namespace", id);
 			return false;
 		}
+		return true;
+	}
+
+	bool SettingsStore::AddSchema(nlohmann::json a_schema, Source a_source, std::string a_idHint, bool a_notify)
+	{
+		if (!a_schema.is_object()) {
+			REX::WARN("SettingsStore: rejected schema — not a JSON object");
+			return false;
+		}
+		auto id = Json::GetString(a_schema, "id", a_idHint);
+		// Drop-ins: the id MUST equal the filename stem (documented contract,
+		// docs/schema + mcm-design.md §8.1) — warn and override, so a file
+		// can't hijack another mod's id and MO2's per-file VFS priority stays
+		// the arbiter of who owns settings/<id>.json.
+		if (a_source == Source::kDropIn && !a_idHint.empty() && id != a_idHint) {
+			REX::WARN("SettingsStore: schema id '{}' must equal the filename stem — using '{}'",
+				id.substr(0, kMaxModIdLen), a_idHint);
+			id = a_idHint;
+		}
 		a_schema["id"] = id;  // the document the web layer sees carries the effective id
+		if (!ValidateSchemaShape(a_schema)) {
+			return false;
+		}
 
 		// Source precedence on id collision (mcm-design.md §14.1): a runtime
 		// (DLL) registration replaces a drop-in file — a mod upgrading tiers
@@ -282,6 +295,12 @@ namespace OSFUI
 		}
 		const auto* setting = FindSetting(*mod, a_key);
 		return setting ? Json::GetString(*setting, "type", "") : std::string{};
+	}
+
+	std::optional<SettingsStore::Source> SettingsStore::GetSource(std::string_view a_modId) const
+	{
+		const auto* mod = FindMod(a_modId);
+		return mod ? std::optional(mod->source) : std::nullopt;
 	}
 
 	nlohmann::json SettingsStore::Data() const

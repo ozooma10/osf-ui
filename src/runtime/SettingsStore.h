@@ -83,6 +83,17 @@ namespace OSFUI
 		// MO2, mcm-design.md §10). Bumps the generation. False if unknown.
 		bool RemoveMod(std::string_view a_modId);
 
+		// Pure, ANY thread: the shape/id gate AddSchema applies — rejects (with
+		// a warning) a non-object document and a missing/invalid/reserved "id".
+		// Deeper field problems are NOT errors; they fall back defensively at
+		// registration. The C ABI (BridgeApi::RegisterSettingsSchema) reports
+		// these synchronously with this before queueing the main-thread merge.
+		[[nodiscard]] static bool ValidateSchemaShape(const nlohmann::json& a_schema);
+
+		// The Source a mod registered from, or nullopt on unknown id. Lets the
+		// ABI unregister path refuse to drop schemas it does not own.
+		[[nodiscard]] std::optional<Source> GetSource(std::string_view a_modId) const;
+
 		// Pushes every current value (of every mod / of one mod) through the
 		// listeners (e.g. to apply persisted settings at startup).
 		void NotifyAll() const;

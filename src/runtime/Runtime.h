@@ -133,6 +133,13 @@ namespace OSFUI
 		// Drain queued menu requests (F10/Esc/transition) on the main thread and apply the resulting policy. Called at the top of Tick.
 		void DrainMenuRequests();
 
+		// Apply the native API's queued RegisterSettingsSchema /
+		// UnregisterSettingsSchema ops to the store (Source::kNative) on the
+		// main thread. Called from Tick BEFORE BridgeApi::PumpMainThread so a
+		// registration's value replay reaches SubscribeSettings consumers the
+		// same tick.
+		void DrainSchemaOps();
+
 		// EXPERIMENTAL (config.focusMenu). Open/close the engine focus menu to
 		// match the top menu's capture policy. Called every tick from the game's
 		// MAIN thread so the UIMessageQueue is never poked from the WndProc/input

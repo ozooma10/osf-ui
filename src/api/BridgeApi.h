@@ -42,6 +42,8 @@ namespace OSFUI::API
 		bool          GetSettingInt(const char* a_modId, const char* a_key, std::int64_t* a_out) override;
 		bool          GetSettingFloat(const char* a_modId, const char* a_key, double* a_out) override;
 		std::uint32_t GetSettingString(const char* a_modId, const char* a_key, char* a_buf, std::uint32_t a_bufLen) override;
+		bool          RegisterSettingsSchema(const char* a_schemaJson) override;
+		void          UnregisterSettingsSchema(const char* a_modId) override;
 
 		// --- Runtime wiring (MAIN thread only) ---
 		// A menu open/close a sibling plugin requested via RequestMenu.
@@ -52,6 +54,19 @@ namespace OSFUI::API
 		};
 		// Drain the queued menu requests (MAIN thread). Runtime applies each through its own menu policy (_menus.Open/Close + ApplyMenuPolicy) in DrainMenuRequests.
 		std::vector<MenuRequest> TakeMenuRequests();
+
+		// A queued RegisterSettingsSchema (schema is an object) or
+		// UnregisterSettingsSchema (schema is null, modId set) — already
+		// shape-validated synchronously; FIFO so register-then-unregister of
+		// the same id lands in call order.
+		struct SchemaOp
+		{
+			nlohmann::json schema;
+			std::string    modId;
+		};
+		// Drain the queued schema ops (MAIN thread). Runtime applies each to
+		// the SettingsStore (Source::kNative) in DrainSchemaOps.
+		std::vector<SchemaOp> TakeSchemaOps();
 
 		// The any-thread settings value mirror the ABI typed getters read
 		// (mcm-design.md §8.2). Runtime::BuildModules feeds it from the store's
@@ -96,6 +111,7 @@ namespace OSFUI::API
 		std::vector<std::string>                      _pendingUnregister;  // to remove from a live bridge
 		std::vector<PendingSend>                       _pendingSends;
 		std::vector<MenuRequest>                      _pendingMenuReqs;    // RequestMenu ops, drained by Runtime
+		std::vector<SchemaOp>                         _pendingSchemaOps;   // schema (un)registrations, drained by Runtime
 		MessageBridge*                                _bridge{ nullptr };         // non-owning; set on main thread
 		MessageBridge*                                _appliedBridge{ nullptr };  // bridge we last applied to
 		bool                                          _dirty{ false };            // command set changed since apply

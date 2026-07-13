@@ -272,6 +272,25 @@ int main()
 	data = nlohmann::json::parse(store.DataJson());
 	CHECK(data["mods"].size() == 3);
 
+	// --- ValidateSchemaShape: the ABI's synchronous any-thread shape gate --------
+	// Must reject exactly what registration would reject on shape/id grounds
+	// (BridgeApi::RegisterSettingsSchema reports these synchronously, then
+	// queues the main-thread merge).
+	CHECK(SettingsStore::ValidateSchemaShape(nlohmann::json{ { "id", "ok-mod_1.x" } }));
+	CHECK(!SettingsStore::ValidateSchemaShape(nlohmann::json::array()));               // not an object
+	CHECK(!SettingsStore::ValidateSchemaShape(nlohmann::json{ { "title", "No Id" } }));
+	for (const auto* bad : { "..\\..\\Starfield", "../evil", "a/b", "has space",
+	                         ".hidden", "..", "menu", "settings", "ui" }) {
+		CHECK(!SettingsStore::ValidateSchemaShape(nlohmann::json{ { "id", bad } }));
+	}
+
+	// --- GetSource: who owns an id (the ABI unregister gate) ---------------------
+	CHECK(store.GetSource("alpha") == SettingsStore::Source::kNative);  // tier-upgraded above
+	CHECK(store.GetSource("gamma") == SettingsStore::Source::kNative);
+	CHECK(store.GetSource("zeta") == SettingsStore::Source::kDropIn);
+	CHECK(!store.GetSource("beta").has_value());  // removed above
+	CHECK(!store.GetSource("ghost").has_value());
+
 	// ---------------------------------------------------------------------------
 	std::fprintf(stderr, "%d/%d checks passed\n", g_checks - g_failures, g_checks);
 	fs::remove_all(root);

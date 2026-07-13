@@ -114,6 +114,25 @@ namespace OSFUI::API
 		virtual std::uint32_t GetSettingString(const char* a_modId, const char* a_key,
 		                                       char* a_buf, std::uint32_t a_bufLen) = 0;
 
+		// --- settings registration. Thread-safe; the merge lands on the next
+		// main tick. ---
+		// a_schemaJson is the SAME JSON document that would live in a
+		// settings/<id>.json drop-in (docs/schema in the OSF UI repo). Returns
+		// false synchronously on a parse/shape error: malformed JSON, a
+		// non-object document, or a missing/invalid/reserved "id" (deeper field
+		// problems fall back defensively, exactly like a drop-in file). true =
+		// accepted and queued. Persisted user values overlay from the same
+		// per-mod values file as the drop-in tier, so a mod can migrate tiers
+		// without losing settings. Same id as a drop-in file: this registration
+		// wins (warning in the log); same id as an earlier runtime registration:
+		// replaced (dev iteration). SubscribeSettings consumers of the id
+		// receive the value replay when the merge commits.
+		virtual bool RegisterSettingsSchema(const char* a_schemaJson) = 0;
+		// Drops a schema registered through RegisterSettingsSchema (the user's
+		// values file on disk is kept). Ignored, with a warning, for ids owned
+		// by drop-in files.
+		virtual void UnregisterSettingsSchema(const char* a_modId) = 0;
+
 	protected:
 		~IOSFUIBridge() = default;  // OSF UI owns the singleton; the consumer never deletes it.
 	};
