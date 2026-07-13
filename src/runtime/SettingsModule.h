@@ -43,6 +43,13 @@ namespace OSFUI
 		// getters) reaches it through here.
 		[[nodiscard]] SettingsStore& Store() { return _store; }
 
+		// Web hotkey delivery (mcm-design.md §9): push `ui.hotkey {mod, key}`
+		// to every settings.get subscriber — the same set that gets
+		// settings.changed; a receiving view filters on payload.mod. A mod's
+		// own HUD subscribes with one settings.get and can "toggle myself"
+		// with zero native code. Called by Runtime::DrainHotkeys, MAIN thread.
+		void PushHotkey(std::string_view a_modId, std::string_view a_key) const;
+
 	private:
 		// Sends one { type, payload } to every subscribed view (no-op with no
 		// bridge or no subscribers — e.g. during the OnStart NotifyAll replay).

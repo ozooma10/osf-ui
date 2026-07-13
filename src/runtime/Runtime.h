@@ -7,6 +7,7 @@
 #include "core/Config.h"
 #include "input/InputRouter.h"
 #include "render/IWebRenderer.h"
+#include "runtime/HotkeyService.h"
 #include "runtime/MenuController.h"
 #include "runtime/MessageBridge.h"
 #include "runtime/SettingsModule.h"
@@ -200,6 +201,12 @@ namespace OSFUI
 		// existing path.
 		void DrainKeyCapture();
 
+		// Deliver hotkey fires queued by OnHostKey (window thread) to both
+		// consumption channels on the main thread (mcm-design.md §9): the C
+		// ABI's SubscribeHotkey queue (invoked by BridgeApi::PumpMainThread
+		// later the same tick) and the settings module's `ui.hotkey` web push.
+		void DrainHotkeys();
+
 		// Renderer load-lifecycle hook: a view's main frame finished or failed.
 		// Called on the game thread from the renderer's notification pump.
 		void OnViewLoad(std::string_view a_viewId, bool a_failed, std::string_view a_url,
@@ -228,6 +235,10 @@ namespace OSFUI
 		std::vector<std::unique_ptr<IUiModule>> _modules;
 		SettingsModule*                         _settings{ nullptr };  // owned by _modules; core reads schema facts through it
 		InputRouter                             _input;
+		// Live key-typed bindings -> owner dispatch (mcm-design.md §9). Fed by
+		// OnHostKey (window thread), rebuilt from the store's listeners and
+		// drained in Tick (main thread); wired in BuildModules.
+		HotkeyService                           _hotkeys;
 		KeyCode                       _toggleKey{ kInvalidKeyCode };
 		KeyCode                       _consoleKey{ kInvalidKeyCode };  // passed through to the game; see OnHostKey
 

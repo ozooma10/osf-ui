@@ -294,6 +294,10 @@ namespace OSFUI
 		const auto menuWork = TakeMenuRequests();
 		// Deliver a captured rebind key back to the settings view (main thread).
 		DrainKeyCapture();
+		// Deliver queued hotkey fires (window thread -> main, mcm-design.md
+		// §9) BEFORE the bridge pump below, so the C ABI callbacks they queue
+		// are invoked this same tick.
+		DrainHotkeys();
 		// Apply queued runtime schema (un)registrations to the store first,
 		// so their value replay is already queued when the pump below drains
 		// SubscribeSettings callbacks — registration lands in one tick.
@@ -716,6 +720,16 @@ namespace OSFUI
 			return false;
 		}
 
+		// Hotkey dispatch (mcm-design.md §9): a key-DOWN edge may fire mods'
+		// key-typed bindings. The service self-suppresses while the overlay
+		// captures input or a rebind is armed (the armed path above returned
+		// already — belt and braces); fires queue here on the window thread
+		// and deliver from Tick (DrainHotkeys). Never consumes: the game (and
+		// the toggle/router path below) still sees the key.
+		if (a_down) {
+			_hotkeys.OnKeyDown(a_vkCode);
+		}
+
 		// Decide consumption before routing: capturing OR the toggle key must
 		// not reach the game. (The toggle press itself is captured so opening
 		// the overlay never also acts in-game.)
@@ -989,6 +1003,28 @@ namespace OSFUI
 			}
 		});
 
+		// HotkeyService (mcm-design.md §9): every key-typed setting is a live,
+		// dispatchable binding. The registry rebuilds on any key-typed commit
+		// (a rebind through ANY writer — web, ABI, reset) and on registry
+		// shape change; the store's informational conflict grouping shares the
+		// same key-name resolution so the store itself stays input-agnostic.
+		// Suppression reads the SAME capture state OnHostKey consults, so a
+		// press while the user types in a settings field or mid-rebind can
+		// never fire a hotkey.
+		store.SetKeyNameResolver(ResolveKeyName);
+		_hotkeys.SetSuppression([this] { return IsInputCaptured() || _captureArmed.load(); });
+		store.AddChangeListener([this](std::string_view a_mod, std::string_view a_key, const nlohmann::json&) {
+			if (_settings && _settings->Store().GetSettingType(a_mod, a_key) == "key") {
+				_hotkeys.Rebuild(_settings->Store());
+			}
+		});
+		store.AddRegistryListener([this] {
+			if (_settings) {
+				_hotkeys.Rebuild(_settings->Store());
+			}
+		});
+		_hotkeys.Rebuild(store);  // LoadAll already ran in the module's constructor
+
 		_modules.push_back(std::move(settings));
 
 		REX::INFO("Runtime: {} UI module(s) loaded", _modules.size());
@@ -1019,6 +1055,23 @@ namespace OSFUI
 		_captureView.clear();
 		_captureMod.clear();
 		_captureKey.clear();
+	}
+
+	void Runtime::DrainHotkeys()
+	{
+		_hotkeys.Drain([this](const std::string& a_mod, const std::string& a_key) {
+			// Both delivery channels (mcm-design.md §9): C ABI subscribers
+			// (queued here, invoked unlocked by BridgeApi::PumpMainThread
+			// later this tick) and the web `ui.hotkey` push to settings
+			// subscribers.
+			API::BridgeApi::Get().Hotkeys().OnFired(a_mod, a_key);
+			if (_settings) {
+				_settings->PushHotkey(a_mod, a_key);
+			}
+			if (Log::DevMode()) {
+				REX::DEBUG("Runtime: hotkey fired for {}.{}", a_mod, a_key);
+			}
+		});
 	}
 
 	void Runtime::RegisterPlatformCommands(MessageBridge& a_bridge)

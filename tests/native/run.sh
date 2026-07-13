@@ -54,12 +54,19 @@ compile settings_subscriptions_tests \
     ../../src/runtime/SettingsStore.cpp \
     ../../src/runtime/Json.cpp
 
+compile hotkey_service_tests \
+    hotkey_service_tests.cpp \
+    ../../src/runtime/HotkeyService.cpp \
+    ../../src/runtime/SettingsStore.cpp \
+    ../../src/runtime/Json.cpp \
+    ../../src/input/InputRouter.cpp
+
 compile hotkey_subscriptions_tests \
     hotkey_subscriptions_tests.cpp \
     ../../src/api/HotkeySubscriptions.cpp
 
 failures=0
-for t in settings_store_tests settings_module_tests settings_mirror_tests settings_subscriptions_tests hotkey_subscriptions_tests; do
+for t in settings_store_tests settings_module_tests settings_mirror_tests settings_subscriptions_tests hotkey_service_tests hotkey_subscriptions_tests; do
     echo "== $t =="
     "$BUILD/$t" || failures=$((failures + $?))
 done

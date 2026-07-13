@@ -69,6 +69,14 @@ namespace OSFUI
 		_subscribers.erase(std::string(a_viewId));
 	}
 
+	void SettingsModule::PushHotkey(std::string_view a_modId, std::string_view a_key) const
+	{
+		PushToSubscribers("ui.hotkey", {
+			{ "mod", std::string(a_modId) },
+			{ "key", std::string(a_key) },
+		});
+	}
+
 	void SettingsModule::PushToSubscribers(std::string_view a_type, const nlohmann::json& a_payload) const
 	{
 		if (!_bridge || _subscribers.empty()) {

@@ -203,6 +203,15 @@ int main()
 		CHECK(data.size() == 1 && data[0].payload["mods"].size() == 1);
 	}
 
+	// --- PushHotkey: ui.hotkey to every subscriber (views filter on mod) ---------
+	g_sent.clear();
+	module.PushHotkey("alpha", "toggleHud");
+	for (const auto* view : { "settingsview", "hudview" }) {
+		const auto hotkeys = SentTo(view, "ui.hotkey");
+		CHECK(hotkeys.size() == 1 && hotkeys[0].payload["mod"] == "alpha" && hotkeys[0].payload["key"] == "toggleHud");
+	}
+	CHECK(SentTo("otherview", "ui.hotkey").empty());  // never subscribed
+
 	// --- OnViewDestroyed: a torn-down view stops receiving pushes -----------------
 	g_sent.clear();
 	module.OnViewDestroyed("hudview");
