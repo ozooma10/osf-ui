@@ -20,6 +20,9 @@
 
 // The framework's own settings mod id — pinned first, under FRAMEWORK.
 const FRAMEWORK_ID = "osfui";
+// Bridge command namespaces owned by the framework — an action button may
+// never fire into these (mirrors the reserved-id list in SettingsStore.cpp).
+const RESERVED_NS = ["ui", "menu", "hud", "settings", "views", "game", "runtime"];
 const ACTION_TIMEOUT_MS = 5000;
 const HEX_RE = /^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
 const COLOR_PRESETS = ["#5aa9b8", "#6fae6a", "#e0a23c", "#c8503a", "#c8607f", "#f0ece2", "#828a93", "#11151b"];
@@ -33,9 +36,11 @@ const sessionChipEl = document.getElementById("session-chip");
 
 let allMods = [];
 let selectedId = null;
-// value at the start of the session, per "<mod> <key>" — drives the
+// value at the start of the session, baseline[modId][key] — drives the
 // session-changes chip + revert. Seeded once per key, then kept across data
 // refreshes (so a reset/preset re-broadcast doesn't lose session history).
+// Nested (not a joined string key) so a key containing a space can't corrupt
+// the split.
 let baseline = {};
 // Rebuilt every full render; consulted by refreshLive() to re-evaluate
 // conditions and modified indicators without tearing the pane down.
@@ -59,14 +64,16 @@ function setValue(modId, key, value) { sendCommand({ command: "settings.set", mo
 function resetMod(modId) { sendCommand({ command: "settings.reset", mod: modId }); }
 function resetSetting(modId, key) { sendCommand({ command: "settings.reset", mod: modId, key }); }
 
+function baselineFor(modId) { return baseline[modId] || (baseline[modId] = {}); }
+
 // Apply a value locally (optimistic) so conditions/dots update before the
 // native ack, and record it against the session baseline.
 function applyLocal(modId, key, value) {
   const mod = allMods.find((m) => m.id === modId);
   if (!mod) return;
   mod.values = mod.values || {};
-  const bkey = modId + " " + key;
-  if (!(bkey in baseline)) baseline[bkey] = mod.values[key];
+  const b = baselineFor(modId);
+  if (!(key in b)) b[key] = mod.values[key];
   mod.values[key] = value;
 }
 
@@ -185,15 +192,15 @@ function modifiedCount(mod) {
   }
   return n;
 }
-// Baseline keys join "<modId> <settingKey>". Split on the FIRST space only —
-// mod ids never contain spaces, but a setting key theoretically could.
-function splitBKey(k) { const i = k.indexOf(" "); return [k.slice(0, i), k.slice(i + 1)]; }
 function sessionChangeCount() {
   let n = 0;
-  for (const k in baseline) {
-    const [modId, key] = splitBKey(k);
+  for (const modId in baseline) {
     const mod = allMods.find((m) => m.id === modId);
-    if (mod && (mod.values || {})[key] !== baseline[k]) n++;
+    if (!mod) continue;
+    const values = mod.values || {};
+    for (const key in baseline[modId]) {
+      if (values[key] !== baseline[modId][key]) n++;
+    }
   }
   return n;
 }
@@ -216,7 +223,10 @@ function buildRange(modId, setting, id, current) {
   const isInt = setting.type === "int";
   const stepper = setting.widget === "stepper";
   const min = setting.min ?? 0, max = setting.max ?? 100;
-  const step = setting.step ?? (isInt ? 1 : 0.01);
+  // A schema step of 0/negative/NaN would divide-by-zero in the stepper's snap
+  // (NaN committed over the bridge) — fall back to the type default.
+  let step = setting.step ?? (isInt ? 1 : 0.01);
+  if (!(step > 0)) { devWarn(`"${setting.key}" has invalid step ${setting.step}`); step = isInt ? 1 : 0.01; }
   let val = current ?? min;
 
   const valueEl = el("span", "osf-value", formatNumber(setting, val));
@@ -315,7 +325,9 @@ function buildColor(modId, setting, id, current) {
   paint(current || "");
   const applyHex = () => {
     const v = hex.value.trim();
-    if (HEX_RE.test(v)) { paint(v); commit(modId, setting.key, v); }
+    // Track the last committed colour so an invalid-input revert restores it,
+    // not the session-start value.
+    if (HEX_RE.test(v)) { current = v; paint(v); commit(modId, setting.key, v); }
     else { hex.value = current || ""; paint(hex.value); toast("Enter a hex colour like #5aa9b8", "warn"); }
   };
   hex.addEventListener("change", applyHex);
@@ -358,7 +370,15 @@ function buildSettingControl(modId, setting, id, current) {
 const REQUIRES_LABEL = { restart: "Restart", reload: "Reload UI", newGame: "New game" };
 
 function makeSettingRow(mod, setting, current) {
-  const id = `ctl-${setting.key}`;
+  if (typeof setting.key !== "string" || !setting.key) {
+    // The store keeps schemas verbatim; a keyless setting can't be committed
+    // (or even labelled) — skip it rather than blank the whole pane.
+    devWarn(`skipping a "${setting.type}" setting with no key in "${mod.id}"`);
+    return null;
+  }
+  // Prefix the mod id so the same key in two mods can't yield duplicate DOM
+  // ids (which would break label[for] association).
+  const id = `ctl-${mod.id}-${setting.key}`;
   const built = buildSettingControl(mod.id, setting, id, current);
   if (!built) {
     // Unknown/newer type: render read-only so a stale runtime degrades cleanly.
@@ -366,7 +386,7 @@ function makeSettingRow(mod, setting, current) {
   }
 
   const row = el("div", "row");
-  row.dataset.label = (setting.label || setting.key).toLowerCase();
+  row.dataset.label = (setting.label || setting.key || "").toLowerCase();
   row.dataset.key = setting.key;
 
   const text = el("div", "row-text");
@@ -443,15 +463,19 @@ function safeAssetSrc(modId, src) {
   let decoded = s;
   try { decoded = decodeURIComponent(s); } catch { return null; }
   const bad = (v) => v.includes("..") || /^[a-z]+:/i.test(v) || v.startsWith("/") || v.startsWith("\\");
+  // The mod id is interpolated into the path too — hold it to the same rules
+  // (the store sanitizes ids, but this renderer also runs against mock data).
+  const id = String(modId || "");
+  if (!id || id.includes("%") || bad(id)) return null;
   if (s.includes("%") || bad(s) || bad(decoded)) return null;
-  return `../${modId}/${s}`;
+  return `../${id}/${s}`;
 }
 
 function buildAction(mod, item) {
   const row = el("div", "row row--action");
-  row.dataset.label = (item.label || item.key).toLowerCase();
+  row.dataset.label = (item.label || item.key || "").toLowerCase();
   const textWrap = el("div", "row-text");
-  textWrap.appendChild(el("div", "row-label", item.label || item.key));
+  textWrap.appendChild(el("div", "row-label", item.label || item.key || "(action)"));
   if (item.hint) textWrap.appendChild(el("div", "row-hint", item.hint));
   row.appendChild(textWrap);
 
@@ -465,12 +489,21 @@ function buildAction(mod, item) {
       toast(`Action refused: "${item.command}" is not namespaced to ${mod.id}`, "danger");
       return;
     }
+    // Framework namespaces are never a mod's to fire, even if a schema claims
+    // one as its id (the store rejects those ids too — defense stays layered).
+    const ns = item.command.slice(0, item.command.indexOf("."));
+    if (RESERVED_NS.includes(ns)) {
+      toast(`Action refused: "${ns}." is a reserved framework namespace`, "danger");
+      return;
+    }
     btn.disabled = true; btn.classList.add("pending"); const prev = btn.textContent; btn.textContent = "…";
     // Key the pending map by mod+action key — action keys are only unique
     // within a mod, so two mods can share one.
     const pkey = mod.id + " " + item.key;
+    // Identity check, not just presence: a stale timer from a previous fire
+    // must not cancel a re-clicked action's fresh pending entry.
     const restore = (msg, kind) => {
-      if (!pendingActions.has(pkey)) return;
+      if (pendingActions.get(pkey) !== restore) return;
       pendingActions.delete(pkey);
       btn.disabled = false; btn.classList.remove("pending"); btn.textContent = prev;
       if (msg) toast(msg, kind);
@@ -582,7 +615,10 @@ function renderRail() {
 // ---- detail ----------------------------------------------------------------
 
 function applyAccent(node, accent) {
+  // Clear when the schema has none/an invalid one — the node persists across
+  // selections, so a previous mod's accent would otherwise leak onto this one.
   if (typeof accent === "string" && HEX_RE.test(accent)) node.style.setProperty("--accent", accent);
+  else node.style.removeProperty("--accent");
 }
 
 function renderDetailHead(mod, schema, isFramework) {
@@ -738,7 +774,7 @@ function renderSearch(q) {
   for (const mod of allMods) {
     for (const g of (mod.schema && mod.schema.groups) || []) {
       for (const s of g.settings || []) {
-        if (!isSetting(s)) continue;
+        if (!isSetting(s) || typeof s.key !== "string" || !s.key) continue;
         const label = (s.label || s.key || "");
         if (!label.toLowerCase().includes(q) && !titleOf(mod).toLowerCase().includes(q)) continue;
         hits++;
@@ -752,7 +788,12 @@ function renderSearch(q) {
           filterEl.value = "";
           selectMod(mod.id);
           const t = document.querySelector(`.row[data-key="${cssEscape(s.key)}"]`);
-          if (t) { t.classList.add("flash"); t.scrollIntoView({ block: "center" }); setTimeout(() => t.classList.remove("flash"), 1200); }
+          if (t) {
+            const grp = t.closest(".group");
+            if (grp) grp.classList.remove("collapsed");  // the target may sit in a collapsed group
+            t.classList.add("flash"); t.scrollIntoView({ block: "center" });
+            setTimeout(() => t.classList.remove("flash"), 1200);
+          }
         });
         list.appendChild(item);
       }
@@ -803,7 +844,13 @@ function updateRailCounts() {
     let badge = btn.querySelector(".rail-item-count");
     const count = modifiedCount(mod);
     if (count && !badge) { badge = el("span", "rail-item-count"); btn.appendChild(badge); }
-    if (badge) { if (count) { badge.textContent = String(count); badge.style.display = ""; } else { badge.style.display = "none"; } }
+    if (badge) {
+      if (count) {
+        badge.textContent = String(count);
+        badge.title = `${count} changed from default`;  // keep parity with railItem
+        badge.style.display = "";
+      } else { badge.style.display = "none"; }
+    }
   }
 }
 
@@ -818,12 +865,15 @@ function updateChip() {
 
 function openSessionPanel() {
   const changes = [];
-  for (const k in baseline) {
-    const [modId, key] = splitBKey(k);
+  for (const modId in baseline) {
     const mod = allMods.find((m) => m.id === modId);
     if (!mod) continue;
-    const cur = (mod.values || {})[key];
-    if (cur !== baseline[k]) changes.push({ modId, key, old: baseline[k], now: cur, mod });
+    const values = mod.values || {};
+    for (const key in baseline[modId]) {
+      const old = baseline[modId][key];
+      const cur = values[key];
+      if (cur !== old) changes.push({ modId, key, old, now: cur, mod });
+    }
   }
   if (!changes.length) return;
 
@@ -874,14 +924,14 @@ function beginCapture(mod, key, btn) {
   btn.textContent = "Press a key…";
   if (bridgeAvailable()) {
     sendCommand({ command: "settings.captureKey", mod, key });  // native captures the next key
-    // Native sends no reply if it declines the capture (today it only arms for
-    // osfui.toggleKey — generalized capture is a native-slice item). Without a
-    // timeout the button would stay on "Press a key…" AND `capturing` would
-    // never clear, jamming every later rebind. Self-heal after the timeout.
+    // Native arms capture for any key-typed setting and replies `cancelled` if
+    // it declines. The timeout is a safety net (older runtime, dropped reply):
+    // without it the button would stay on "Press a key…" AND `capturing` would
+    // never clear, jamming every later rebind.
     capturing.timer = setTimeout(() => {
       if (capturing && capturing.btn === btn) {
         finishCapture({ mod, key, cancelled: true });
-        toast("Rebinding this key isn't available yet.", "warn");
+        toast("Rebinding didn't get a response from the runtime.", "warn");
       }
     }, ACTION_TIMEOUT_MS);
   } else {
@@ -932,9 +982,9 @@ function selectMod(id) {
 
 function captureBaseline() {
   for (const mod of allMods) {
+    const b = baselineFor(mod.id);
     for (const key in (mod.values || {})) {
-      const bkey = mod.id + " " + key;
-      if (!(bkey in baseline)) baseline[bkey] = mod.values[key];
+      if (!(key in b)) b[key] = mod.values[key];
     }
   }
 }
@@ -956,7 +1006,13 @@ function render() {
   updateChip();
 }
 
-filterEl.addEventListener("input", () => { renderRail(); renderDetail(); });
+// Debounced: every keystroke would otherwise rebuild the rail AND run the
+// cross-mod search scan + full pane teardown.
+let filterTimer = 0;
+filterEl.addEventListener("input", () => {
+  clearTimeout(filterTimer);
+  filterTimer = setTimeout(() => { renderRail(); renderDetail(); }, 120);
+});
 if (sessionChipEl) sessionChipEl.addEventListener("click", openSessionPanel);
 
 // ---- native -> web ---------------------------------------------------------
@@ -972,6 +1028,29 @@ function onNativeMessage(jsonText) {
       allMods = (message.payload && message.payload.mods) || [];
       render();
       break;
+    case "settings.changed": {
+      // Native push for every committed value — our own commits echo back
+      // (possibly clamped), and other writers (a sibling DLL, a mod's panel, a
+      // preset in another view) stay in sync while the menu is open.
+      const p = message.payload || {};
+      if (typeof p.mod !== "string" || typeof p.key !== "string") break;
+      const mod = allMods.find((m) => m.id === p.mod);
+      if (!mod) break;
+      mod.values = mod.values || {};
+      const b = baselineFor(p.mod);
+      if (!(p.key in b)) b[p.key] = mod.values[p.key];
+      if (mod.values[p.key] === p.value) {
+        // The common case: the echo of our own optimistic commit. Cheap sync.
+        updateChip(); updateRailCounts();
+        break;
+      }
+      mod.values[p.key] = p.value;
+      // The store disagrees with the local model (native clamp or an external
+      // writer): rebuild the pane so the visible control shows the real value.
+      if (p.mod === selectedId) renderDetail();
+      updateChip(); updateRailCounts();
+      break;
+    }
     case "settings.captured":
       finishCapture(message.payload);
       break;

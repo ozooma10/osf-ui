@@ -35,8 +35,10 @@
       case "enum": return (setting.options || []).includes(value) ? value : undefined;
       case "string": {
         if (typeof value !== "string") return undefined;
-        // Native hard-caps at 256 today; the native slice raises this + honors
-        // per-setting maxLength up to 4096. Keep this in lockstep with the store.
+        // A colour-widget string must be a parseable #rrggbb[aa], like native.
+        if (setting.widget === "color" && !/^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(value)) return undefined;
+        // Native hard-caps at 256 today; the native slice raises this up to
+        // 4096. Keep this in lockstep with the store.
         const cap = Math.min(256, setting.maxLength || 256);
         return value.length > cap ? value.slice(0, cap) : value;
       }
@@ -77,8 +79,16 @@
     return { id, title: schema.title || id, schema, values };
   }
 
+  // Mirror of SettingsStore id sanitization: ids become filenames and asset
+  // path segments, so the store rejects unsafe/reserved ones.
+  function validModId(id) {
+    return typeof id === "string" && /^[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}$/.test(id) && !id.includes("..") &&
+           !["ui", "menu", "hud", "settings", "views", "game", "runtime"].includes(id);
+  }
+
   function upsert(schema) {
     const mod = buildMod(schema);
+    if (!validModId(mod.id)) { log("info", `rejected schema id "${mod.id}" (unsafe or reserved — the store refuses it too)`); return; }
     const i = mods.findIndex((m) => m.id === mod.id);
     if (i >= 0) mods[i] = mod; else mods.push(mod);
   }
@@ -141,10 +151,8 @@
         break;
       }
       case "settings.captureKey": {
-        // NOTE: this captures ANY (mod,key) — it models the *generalized* key
-        // capture the native slice will ship. The current in-game runtime only
-        // arms capture for osfui.toggleKey and silently ignores other keys, so a
-        // mod key that rebinds fine here will (until then) time out in-game.
+        // Captures ANY (mod,key), matching the in-game runtime: native arms
+        // capture for every setting a schema declares `type:"key"`.
         const onKey = (e) => {
           window.removeEventListener("keydown", onKey, true);
           e.preventDefault();
