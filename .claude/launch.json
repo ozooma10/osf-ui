@@ -6,6 +6,12 @@
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "http.server", "8777", "--directory", "data/OSFUI/views"],
       "port": 8777
+    },
+    {
+      "name": "settings-harness",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8778"],
+      "port": 8778
     }
   ]
 }
