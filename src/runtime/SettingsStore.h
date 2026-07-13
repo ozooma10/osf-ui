@@ -53,6 +53,13 @@ namespace OSFUI
 		// settings menu re-renders on late registration (mcm-design.md §8.5).
 		using RegistryListener = std::function<void()>;
 
+		// Flushes any pending write-behind values (never lose a committed
+		// change on clean teardown).
+		~SettingsStore();
+		SettingsStore() = default;
+		SettingsStore(const SettingsStore&) = delete;
+		SettingsStore& operator=(const SettingsStore&) = delete;
+
 		// Loads every `<schemaDir>/*.json` as a mod schema (sorted by filename
 		// so duplicate-id resolution is deterministic); each mod's values
 		// persist to `<valuesDir>/<id>.json`. Safe to call once, before any
@@ -120,13 +127,30 @@ namespace OSFUI
 		[[nodiscard]] nlohmann::json Data() const;
 		[[nodiscard]] std::string    DataJson() const;
 
-		// Validate + clamp + store + persist + notify. a_valueJson is the raw
-		// JSON text of the value. Returns false on unknown mod/key or bad type.
+		// Validate + clamp + store + notify. a_valueJson is the raw JSON text
+		// of the value. Returns false on unknown mod/key or bad type (false =
+		// nothing committed). Persistence is write-behind: the commit and the
+		// notification are immediate, the disk write lands via PumpPersistence.
 		bool Set(std::string_view a_modId, std::string_view a_key, std::string_view a_valueJson);
 
 		// Restore defaults: one key, or the whole mod when a_key is empty.
-		// Persists + notifies. Returns false on unknown mod/key.
+		// Notifies; persistence is write-behind like Set. Under sparse
+		// persistence a reset key simply leaves the values file. Returns false
+		// on unknown mod/key.
 		bool Reset(std::string_view a_modId, std::string_view a_key);
+
+		// Debounced write-behind (mcm-design.md §8.1): a committed Set/Reset
+		// opens (or joins) a per-mod ~500ms window; the pump writes the mod
+		// once the window elapses, so a slider drag costs one disk write per
+		// window instead of one atomic tmp+rename per step. a_nowSeconds is a
+		// caller-owned monotonic clock (Runtime::Tick passes its uptime) —
+		// call every main tick.
+		static constexpr double kPersistDelaySeconds = 0.5;
+		void PumpPersistence(double a_nowSeconds);
+
+		// Write every dirty mod NOW — menu close (the user just finished
+		// editing) and teardown (~SettingsStore).
+		void FlushPersistence();
 
 	private:
 		struct Mod
@@ -136,6 +160,8 @@ namespace OSFUI
 			nlohmann::json        values;  // { key: current value }
 			std::filesystem::path valuesPath;
 			Source                source{ Source::kDropIn };
+			bool                  dirty{ false };  // has unflushed write-behind changes
+			double                dueAt{ 0.0 };    // when the open window flushes (store clock)
 		};
 
 		// Shared add/replace path for LoadAll and RegisterSchema: id
@@ -149,6 +175,10 @@ namespace OSFUI
 		[[nodiscard]] static const nlohmann::json* FindSetting(const Mod& a_mod, std::string_view a_key);
 		[[nodiscard]] static std::optional<nlohmann::json> Validate(const nlohmann::json& a_setting, const nlohmann::json& a_value);
 		[[nodiscard]] static nlohmann::json DefaultFor(const nlohmann::json& a_setting);
+		// The values that go to disk: only ≠ schema default (sparse, §8.1).
+		[[nodiscard]] static nlohmann::json SparseValues(const Mod& a_mod);
+		// Open (or join) the mod's write-behind window; PumpPersistence lands it.
+		void        MarkDirty(Mod& a_mod);
 		static bool Persist(const Mod& a_mod);
 		void        Notify(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value) const;
 		void        NotifyRegistryChanged() const;
@@ -159,5 +189,6 @@ namespace OSFUI
 		std::filesystem::path       _valuesDir;
 		std::uint64_t               _generation{ 0 };
 		bool                        _loaded{ false };
+		double                      _now{ 0.0 };  // last PumpPersistence clock; MarkDirty stamps windows with it
 	};
 }

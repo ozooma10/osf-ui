@@ -284,6 +284,12 @@ namespace OSFUI
 		// off-thread SendToWeb) on the main thread, before Update() flushes the
 		// per-view outbound queues to the pages.
 		API::BridgeApi::Get().PumpMainThread();
+		// Land coalesced settings value writes once their write-behind window
+		// elapses (mcm-design.md §8.1) — a slider drag costs one disk write
+		// per ~500ms, not one per step.
+		if (_settings) {
+			_settings->Store().PumpPersistence(_uptime);
+		}
 		// Reconcile engine menu-mode + control-disable toward the derived CAPTURE state (not visibility): a live HUD must not disable controls.
 		if (_config.focusMenu) {
 			ReconcileFocusMenu();
@@ -409,6 +415,14 @@ namespace OSFUI
 		const bool wasVisible = _visible.exchange(visible);
 		if (_compositor) {
 			_compositor->SetVisible(visible);
+		}
+
+		// Open->closed edge: the user just finished editing — flush the
+		// settings write-behind now instead of letting the window run out
+		// (mcm-design.md §8.1: "flushed on menu close and shutdown"; shutdown
+		// is ~SettingsStore).
+		if (!visible && wasVisible && _settings) {
+			_settings->Store().FlushPersistence();
 		}
 
 		// Recenter the virtual cursor on the closed->open edge; otherwise keep its position.

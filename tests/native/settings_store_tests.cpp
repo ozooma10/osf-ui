@@ -153,7 +153,8 @@ int main()
 	CHECK(heard1.size() == 1 && heard1.back().mod == "alpha" && heard1.back().key == "scale" && heard1.back().value == 1.5);
 	CHECK(heard2.size() == 1 && heard2.back().value == 1.5);
 
-	// Persisted through the normal path.
+	// Persisted through the normal path (write-behind: flush forces the disk write).
+	store.FlushPersistence();
 	{
 		auto saved = nlohmann::json::parse(std::ifstream(valuesDir / "alpha.json"), nullptr, false);
 		CHECK(saved.is_object() && saved["scale"] == 1.5);
@@ -221,6 +222,7 @@ int main()
 
 	// Runtime-registered mods persist through the same per-mod file.
 	CHECK(store.Set("gamma", "level", "9"));
+	store.FlushPersistence();
 	{
 		auto saved = nlohmann::json::parse(std::ifstream(valuesDir / "gamma.json"), nullptr, false);
 		CHECK(saved.is_object() && saved["level"] == 9);
@@ -290,6 +292,70 @@ int main()
 	CHECK(store.GetSource("zeta") == SettingsStore::Source::kDropIn);
 	CHECK(!store.GetSource("beta").has_value());  // removed above
 	CHECK(!store.GetSource("ghost").has_value());
+
+	// --- write-behind debounce (mcm-design.md §8.1): coalesced, due after window --
+	store.PumpPersistence(100.0);  // settle pending windows; store clock -> 100
+	CHECK(store.Set("gamma", "level", "3"));
+	CHECK(store.GetValue("gamma", "level")->get<std::int64_t>() == 3);  // committed in memory...
+	{
+		auto saved = nlohmann::json::parse(std::ifstream(valuesDir / "gamma.json"), nullptr, false);
+		CHECK(saved["level"] == 9);  // ...but not on disk yet
+	}
+	store.PumpPersistence(100.0 + SettingsStore::kPersistDelaySeconds - 0.01);  // window still open
+	{
+		auto saved = nlohmann::json::parse(std::ifstream(valuesDir / "gamma.json"), nullptr, false);
+		CHECK(saved["level"] == 9);
+	}
+	CHECK(store.Set("gamma", "level", "4"));  // joins the SAME window — no push-back
+	store.PumpPersistence(100.0 + SettingsStore::kPersistDelaySeconds);  // due
+	{
+		auto saved = nlohmann::json::parse(std::ifstream(valuesDir / "gamma.json"), nullptr, false);
+		CHECK(saved["level"] == 4);  // one write covered both steps
+	}
+
+	// --- sparse persistence: only ≠ default on disk; reset = key removal ----------
+	CHECK(store.Set("gamma", "fancy", "true"));  // ≠ default (false)
+	store.FlushPersistence();
+	{
+		auto saved = nlohmann::json::parse(std::ifstream(valuesDir / "gamma.json"), nullptr, false);
+		CHECK((saved == nlohmann::json{ { "level", 4 }, { "fancy", true } }));  // defaults never written
+	}
+	CHECK(store.Reset("gamma", "level"));
+	store.FlushPersistence();
+	{
+		auto saved = nlohmann::json::parse(std::ifstream(valuesDir / "gamma.json"), nullptr, false);
+		CHECK((saved == nlohmann::json{ { "fancy", true } }));  // reset = key removal
+	}
+
+	// --- prune-to-default on load + teardown flush ---------------------------------
+	{
+		const auto schemaDir2 = root / "settings2";
+		const auto valuesDir2 = root / "values2";
+		fs::create_directories(schemaDir2);
+		fs::create_directories(valuesDir2);
+		WriteFile(schemaDir2 / "delta.json", R"json({
+			"id": "delta", "title": "Delta",
+			"groups": [ { "label": "G", "settings": [
+				{ "key": "n", "type": "int",  "default": 3 },
+				{ "key": "b", "type": "bool", "default": false }
+			] } ] })json");
+		// Legacy FULL file: "n" frozen at the (still-current) default, plus junk.
+		WriteFile(valuesDir2 / "delta.json", R"json({ "n": 3, "b": true, "junk": 1 })json");
+
+		{
+			SettingsStore s2;
+			s2.LoadAll(schemaDir2, valuesDir2);
+			s2.PumpPersistence(SettingsStore::kPersistDelaySeconds);  // load opened a rewrite window
+			{
+				auto saved = nlohmann::json::parse(std::ifstream(valuesDir2 / "delta.json"), nullptr, false);
+				CHECK((saved == nlohmann::json{ { "b", true } }));  // frozen default + junk pruned: "n" tracks upstream again
+			}
+			CHECK(s2.Set("delta", "n", "7"));
+			// No pump, no flush: teardown must land it.
+		}
+		auto saved = nlohmann::json::parse(std::ifstream(valuesDir2 / "delta.json"), nullptr, false);
+		CHECK((saved == nlohmann::json{ { "b", true }, { "n", 7 } }));  // ~SettingsStore flushed
+	}
 
 	// ---------------------------------------------------------------------------
 	std::fprintf(stderr, "%d/%d checks passed\n", g_checks - g_failures, g_checks);

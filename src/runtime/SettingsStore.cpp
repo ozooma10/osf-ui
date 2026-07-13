@@ -82,6 +82,11 @@ namespace OSFUI
 		}
 	}
 
+	SettingsStore::~SettingsStore()
+	{
+		FlushPersistence();
+	}
+
 	void SettingsStore::LoadAll(const std::filesystem::path& a_schemaDir, const std::filesystem::path& a_valuesDir)
 	{
 		_mods.clear();
@@ -190,6 +195,12 @@ namespace OSFUI
 			}
 			REX::WARN("SettingsStore: runtime registration replaces {} schema for id '{}'",
 				existing->source == Source::kDropIn ? "drop-in" : "earlier runtime", id);
+			if (existing->dirty) {
+				// The overlay below reads the values FILE; land any unflushed
+				// write-behind changes first or the replacement reverts them.
+				existing->dirty = false;
+				Persist(*existing);
+			}
 		}
 
 		Mod mod;
@@ -223,6 +234,15 @@ namespace OSFUI
 			return false;
 		});
 
+		// Prune-to-default on load (mcm-design.md §8.1): when the file differs
+		// from its sparse form — a legacy full file, a saved value that now
+		// equals an updated default, junk/retyped keys, clamping — schedule a
+		// rewrite so those knobs track upstream defaults again instead of
+		// staying frozen forever.
+		if (saved != SparseValues(mod)) {
+			MarkDirty(mod);
+		}
+
 		REX::INFO("SettingsStore: loaded mod '{}' ('{}', {} settings)",
 			mod.id, Json::GetString(mod.schema, "title", mod.id), count);
 
@@ -249,6 +269,10 @@ namespace OSFUI
 			[&](const Mod& a_mod) { return a_mod.id == a_modId; });
 		if (it == _mods.end()) {
 			return false;
+		}
+		if (it->dirty) {
+			it->dirty = false;
+			Persist(*it);  // the kept values file must carry the last changes
 		}
 		REX::INFO("SettingsStore: removed mod '{}' (values file kept)", it->id);
 		_mods.erase(it);
@@ -456,12 +480,12 @@ namespace OSFUI
 
 		const std::string key{ a_key };
 		mod->values[key] = std::move(*valid);
-		const bool ok = Persist(*mod);
+		MarkDirty(*mod);  // notification immediate; disk write coalesced (PumpPersistence)
 		Notify(mod->id, key, mod->values[key]);
-		if (ok && Log::DevMode()) {
+		if (Log::DevMode()) {
 			REX::DEBUG("SettingsStore: set '{}.{}' = {}", mod->id, key, mod->values[key].dump().substr(0, 128));
 		}
-		return ok;
+		return true;
 	}
 
 	bool SettingsStore::Reset(std::string_view a_modId, std::string_view a_key)
@@ -487,7 +511,7 @@ namespace OSFUI
 			mod->values[std::string(a_key)] = DefaultFor(*setting);
 		}
 
-		const bool ok = Persist(*mod);
+		MarkDirty(*mod);  // sparse persistence drops the reset key(s) from the file
 		// Notify for every (possibly) changed value so consumers re-sync.
 		for (const auto& [key, value] : mod->values.items()) {
 			if (a_key.empty() || key == a_key) {
@@ -495,7 +519,7 @@ namespace OSFUI
 			}
 		}
 		REX::INFO("SettingsStore: reset '{}{}' to default(s)", mod->id, a_key.empty() ? "" : ("." + std::string(a_key)));
-		return ok;
+		return true;
 	}
 
 	void SettingsStore::Notify(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value) const
@@ -516,6 +540,58 @@ namespace OSFUI
 		}
 	}
 
+	nlohmann::json SettingsStore::SparseValues(const Mod& a_mod)
+	{
+		// Sparse persistence (mcm-design.md §8.1): only a value ≠ the schema
+		// default is the user's; whatever equals the default keeps tracking
+		// upstream default changes, and reset-to-default = key removal. Legacy
+		// full files shed their frozen defaults the first time they pass
+		// through here.
+		nlohmann::json sparse = nlohmann::json::object();
+		ForEachSetting(a_mod.schema, [&](const nlohmann::json& a_setting) {
+			const auto key = Json::GetString(a_setting, "key", "");
+			if (!key.empty()) {
+				if (const auto it = a_mod.values.find(key); it != a_mod.values.end() && *it != DefaultFor(a_setting)) {
+					sparse[key] = *it;
+				}
+			}
+			return false;
+		});
+		return sparse;
+	}
+
+	void SettingsStore::MarkDirty(Mod& a_mod)
+	{
+		if (!a_mod.dirty) {
+			a_mod.dirty = true;
+			// The window opens at the FIRST unflushed change and is not pushed
+			// back by later ones, so a continuous slider drag still lands on
+			// disk every kPersistDelaySeconds, not only when it ends.
+			a_mod.dueAt = _now + kPersistDelaySeconds;
+		}
+	}
+
+	void SettingsStore::PumpPersistence(double a_nowSeconds)
+	{
+		_now = a_nowSeconds;
+		for (auto& mod : _mods) {
+			if (mod.dirty && _now >= mod.dueAt) {
+				mod.dirty = false;  // a write failure is logged in Persist; the next change retries
+				Persist(mod);
+			}
+		}
+	}
+
+	void SettingsStore::FlushPersistence()
+	{
+		for (auto& mod : _mods) {
+			if (mod.dirty) {
+				mod.dirty = false;
+				Persist(mod);
+			}
+		}
+	}
+
 	bool SettingsStore::Persist(const Mod& a_mod)
 	{
 		std::error_code ec;
@@ -529,7 +605,7 @@ namespace OSFUI
 				REX::ERROR("SettingsStore: cannot write {}", tmp.string());
 				return false;
 			}
-			out << a_mod.values.dump(2);
+			out << SparseValues(a_mod).dump(2);
 		}
 		std::filesystem::rename(tmp, a_mod.valuesPath, ec);
 		if (ec) {
