@@ -2,6 +2,7 @@
 
 #include "OSFUI_API.h"  // IOSFUIBridge, CommandFn, ReadyFn, version constants (sdk/, on the include path)
 
+#include "api/HotkeySubscriptions.h"
 #include "api/SettingsMirror.h"
 #include "api/SettingsSubscriptions.h"
 
@@ -44,6 +45,8 @@ namespace OSFUI::API
 		std::uint32_t GetSettingString(const char* a_modId, const char* a_key, char* a_buf, std::uint32_t a_bufLen) override;
 		bool          RegisterSettingsSchema(const char* a_schemaJson) override;
 		void          UnregisterSettingsSchema(const char* a_modId) override;
+		std::uint32_t SubscribeHotkey(const char* a_modId, const char* a_key, HotkeyFn a_fn, void* a_user) override;
+		void          UnsubscribeHotkey(std::uint32_t a_token) override;
 
 		// --- Runtime wiring (MAIN thread only) ---
 		// A menu open/close a sibling plugin requested via RequestMenu.
@@ -82,6 +85,11 @@ namespace OSFUI::API
 		// thread); PumpMainThread drains replays + queued changes each tick.
 		[[nodiscard]] SettingsSubscriptions& Subscriptions() { return _subscriptions; }
 
+		// SubscribeHotkey bookkeeping (mcm-design.md §9). Runtime::DrainHotkeys
+		// feeds OnFired (MAIN thread); PumpMainThread drains the queue each
+		// tick.
+		[[nodiscard]] HotkeySubscriptions& Hotkeys() { return _hotkeys; }
+
 		// Hand the live MessageBridge (or nullptr when no nativeBridge view exists)
 		// to the API. A different pointer than last time triggers a full re-apply.
 		void OnBridgeReady(MessageBridge* a_bridge);
@@ -110,6 +118,7 @@ namespace OSFUI::API
 		std::mutex                                    _mutex;
 		SettingsMirror                                _mirror;            // own locking; never touched under _mutex
 		SettingsSubscriptions                         _subscriptions;     // own locking; never touched under _mutex
+		HotkeySubscriptions                           _hotkeys;           // own locking; never touched under _mutex
 		std::unordered_map<std::string, Registration> _commands;          // desired command set
 		std::vector<std::string>                      _pendingUnregister;  // to remove from a live bridge
 		std::vector<PendingSend>                       _pendingSends;

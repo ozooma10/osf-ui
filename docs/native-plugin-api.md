@@ -4,7 +4,10 @@
 + `sdk/OSFUI_API.h`; `OSFUI_RequestBridge` verified exported; builds clean
 (2026-07-01). ABI **1.1** added `RequestMenu`; ABI **1.2** added the settings
 surface (`SubscribeSettings`, typed getters, `RegisterSettingsSchema` —
-2026-07-13, mcm-design.md §8.2). Consumer (OSF Animation) side pending. ·
+2026-07-13, mcm-design.md §8.2); ABI **1.3** strengthened `SendToWeb` into a
+delivery guarantee (no vtable change); ABI **1.4** added hotkey dispatch
+(`SubscribeHotkey` — 2026-07-13, mcm-design.md §9). Consumer (OSF Animation)
+side pending. ·
 **Originally:** Proposed 2026-06-30 · **Brand:** OSF UI (no Prisma-compat
 constraint)
 
@@ -94,7 +97,7 @@ All real and in-tree today:
 | Bridge owner / gate | `Runtime::Bridge()` `Runtime.h:92`; built in `Initialize` only when a `nativeBridge` view is present | `_bridge` is null otherwise |
 | Main-thread cadence | `Runtime::Tick(dt)` via the `FrameTickTask` permanent task `core/Plugin.cpp:23-56,45` | every frame, under SFSE's queue lock — keep cheap |
 | SFSE lifecycle | `OnLoad` registers the listener; `Runtime::Initialize` runs at `SFSE_PLUGIN_LOAD` `core/Plugin.cpp:128-159` | API object must exist by `kPostLoad` |
-| Protocol version | `kBridgeProtocolVersion = "0.2"` `core/Version.h:14` | the web-message contract version, distinct from plugin version |
+| Protocol version | `kBridgeProtocolVersion = "0.4"` `core/Version.h` | the web-message contract version, distinct from plugin version |
 
 The API is a thin, ABI-safe adapter in front of `MessageBridge::RegisterCommand`
 and `SendToWeb`, plus a deferred-registration layer so a sibling can register at
@@ -116,22 +119,25 @@ OSFUI::API::IOSFUIBridge* OSFUI_RequestBridge(std::uint32_t a_abiVersion) noexce
 - **When:** the consumer requests it after SFSE `kPostLoad` (OSF UI's
   `Runtime::Initialize` has already run at `SFSE_PLUGIN_LOAD`, so the singleton
   exists). Fetch once and cache — never per-frame.
-- **Version:** packed `(MAJOR << 16) | MINOR`, currently `(1 << 16) | 2`.
+- **Version:** packed `(MAJOR << 16) | MINOR`, currently `(1 << 16) | 4`.
   - **MAJOR** breaks ABI (reordered/removed vmethod, changed signature). The
     export returns `nullptr` if the caller's MAJOR ≠ OSF UI's MAJOR.
-  - **MINOR** bumps when a vmethod is **appended** to the end of the vtable.
+  - **MINOR** bumps when a vmethod is **appended** to the end of the vtable —
+    or (1.3) when a behavioral guarantee is strengthened with no vtable change.
     Older callers (lower MINOR) keep working; they simply never call the new
     tail methods. History: **1.0** commands/sends/ready · **1.1** `RequestMenu`
     · **1.2** settings (`SubscribeSettings`/`UnsubscribeSettings`, typed
-    getters, `RegisterSettingsSchema`/`UnregisterSettingsSchema`).
+    getters, `RegisterSettingsSchema`/`UnregisterSettingsSchema`) · **1.3**
+    `SendToWeb` delivery guarantee (§6a) · **1.4** hotkeys
+    (`SubscribeHotkey`/`UnsubscribeHotkey`).
   - **Feature detection:** an older 1.x `OSFUI.dll` accepts any 1.x caller, so
     a consumer built against a newer header can receive a bridge whose vtable
     ends early. Gate calls to a later MINOR's methods on the runtime's version:
     `(bridge->GetInterfaceVersion() & 0xFFFF) >= 2` before touching the
-    settings surface.
+    settings surface, `>= 4` before the hotkey surface.
 - **Web protocol version** is separate: `GetBridgeProtocolVersion()` returns the
-  `"0.1"` string from `core/Version.h` so a consumer can gate its **JS message
-  contract** independently of the C++ ABI.
+  version string from `core/Version.h` (currently `"0.4"`) so a consumer can
+  gate its **JS message contract** independently of the C++ ABI.
 
 `RequestBridge` returning `nullptr` (OSF UI absent, or MAJOR mismatch) is a
 normal, expected outcome — the consumer degrades (e.g. no UI) rather than
@@ -168,6 +174,11 @@ namespace OSFUI::API
     // ("true", "1.5", "\"compact\"").
     using SettingChangedFn = void (*)(const char* a_modId, const char* a_key,
                                       const char* a_valueJson, void* a_user) noexcept;
+
+    // 1.4 — fired on the GAME (main) thread when the physical key currently
+    // bound to the subscribed key-typed setting is pressed (mcm-design.md §9).
+    using HotkeyFn = void (*)(const char* a_modId, const char* a_key,
+                              void* a_user) noexcept;
 
     struct IOSFUIBridge
     {
@@ -220,6 +231,12 @@ namespace OSFUI::API
         virtual bool RegisterSettingsSchema(const char* a_schemaJson) = 0;
         virtual void UnregisterSettingsSchema(const char* a_modId) = 0;
 
+        // --- 1.4: hotkey dispatch (mcm-design.md §9). Thread-safe; callbacks
+        // on the GAME MAIN thread. Per-(mod, key); see §5b.
+        virtual std::uint32_t SubscribeHotkey(const char* a_modId, const char* a_key,
+                                              HotkeyFn a_fn, void* a_user) = 0;
+        virtual void          UnsubscribeHotkey(std::uint32_t a_token) = 0;
+
     protected:
         ~IOSFUIBridge() = default;  // OSF UI owns the singleton; the consumer never deletes it.
     };
@@ -241,9 +258,9 @@ namespace OSFUI::API
   on the main thread. This mirrors how everything else in the plugin already
   gets main-thread cadence (`core/Plugin.cpp:45`), and means a consumer can
   push data from a worker thread without its own marshaling.
-- **`CommandFn` / `ReadyFn` / `SettingChangedFn` always run on the game main
-  thread.** Keep them cheap (same discipline as `Tick`); offload heavy work
-  yourself.
+- **`CommandFn` / `ReadyFn` / `SettingChangedFn` / `HotkeyFn` always run on the
+  game main thread.** Keep them cheap (same discipline as `Tick`); offload
+  heavy work yourself.
 
 ### 5a. Settings surface semantics (ABI 1.2, mcm-design.md §8.2)
 
@@ -273,6 +290,37 @@ namespace OSFUI::API
 - **`UnregisterSettingsSchema` only drops runtime-registered schemas** — it is
   ignored (with a log warning) for ids owned by drop-in files. The user's
   values file is always kept.
+
+### 5b. Hotkey surface semantics (ABI 1.4, mcm-design.md §9)
+
+Every `type:"key"` setting of every registered mod is a **live, dispatchable
+binding**: OSF UI's central `HotkeyService` resolves each one's current value
+to a physical key and routes presses to the setting's owner. There is no
+schema flag — **subscription is the delivery opt-in**.
+
+- **Subscription is per-(mod, key)** — subscribe once per hotkey you own.
+  `SubscribeHotkey("myMod", "toggleHud", fn, user)` returns a token (0 on
+  null/empty args); `UnsubscribeHotkey(token)` stops delivery immediately,
+  including when called from inside a callback. Subscribing to a setting that
+  doesn't exist (yet) or isn't key-typed is legal — it just never fires until
+  such a binding dispatches.
+- **The binding is whatever the user set.** OSF UI rebuilds its registry on
+  every key-typed commit (a rebind through the settings UI, an ABI write, a
+  reset) and on registry shape changes — consumers never see or track VK
+  codes, only their own `(mod, key)`.
+- **Context-gated, so you never double-fire:** a press while the overlay
+  captures input (the user is typing into a view) or while a rebind capture is
+  armed does **not** fire; key repeats don't fire; the down edge fires once.
+  This is the reason to use this service instead of your own raw input hook —
+  your hook can't see OSF UI's capture state.
+- **Never consumed, never exclusive:** the game still receives the key, and
+  duplicate bindings across mods **all fire**. Collisions are surfaced to the
+  user in the settings UI (informational `conflicts` data in `settings.data`),
+  never rejected.
+- **Web-side delivery exists too:** the owning mod's views get a
+  `ui.hotkey {mod, key}` push if they subscribed via `settings.get` — a HUD
+  can "toggle myself" with zero native code (`docs/authoring-views.md`). Use
+  `SubscribeHotkey` when the *reaction* is native; you don't need both.
 
 ---
 
@@ -579,7 +627,7 @@ reflects the **live registered** scene set.
 - **`SendToWeb` failure granularity.** Without a `bool` from the renderer's
   `SendMessageToWeb`, "unknown view" is best-effort/logged, not reported. Add the
   return value if precise feedback matters.
-- **Bridge protocol churn.** `bridgeVersion` is `0.2` and unstable; a MINOR bump
+- **Bridge protocol churn.** `bridgeVersion` is `0.4` and unstable; a MINOR bump
   can break views. Consumers must gate on `GetBridgeProtocolVersion()` /
   `runtime.ready.bridgeVersion` and degrade.
 - **Cross-references to update on landing:** `docs/ROADMAP.md` (move "public

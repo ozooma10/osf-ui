@@ -172,6 +172,16 @@ namespace OSFUI::API
 		return _mirror.GetString(a_modId, a_key, a_buf, a_bufLen);
 	}
 
+	std::uint32_t BridgeApi::SubscribeHotkey(const char* a_modId, const char* a_key, HotkeyFn a_fn, void* a_user)
+	{
+		return _hotkeys.Subscribe(a_modId, a_key, a_fn, a_user);
+	}
+
+	void BridgeApi::UnsubscribeHotkey(std::uint32_t a_token)
+	{
+		_hotkeys.Unsubscribe(a_token);
+	}
+
 	bool BridgeApi::RegisterSettingsSchema(const char* a_schemaJson)
 	{
 		if (!a_schemaJson) {
@@ -296,5 +306,8 @@ namespace OSFUI::API
 		// _subscriptions locks itself and invokes consumer callbacks unlocked;
 		// _mutex is not held here.
 		_subscriptions.Pump(_mirror);
+		// Hotkey fires queued by Runtime::DrainHotkeys earlier this tick —
+		// same locking discipline as the settings pump above.
+		_hotkeys.Pump();
 	}
 }

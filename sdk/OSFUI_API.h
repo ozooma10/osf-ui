@@ -13,8 +13,8 @@
 //   are thread-safe; their effect lands on the game main thread.
 //   Typed setting getters (GetSettingBool/Int/Float/String) are synchronous
 //   and callable from ANY thread.
-//   CommandFn, ReadyFn and SettingChangedFn ALWAYS run on the game main
-//   thread - keep them cheap.
+//   CommandFn, ReadyFn, SettingChangedFn and HotkeyFn ALWAYS run on the game
+//   main thread - keep them cheap.
 //
 // ABI: the surface carries only primitives, UTF-8 const char*, function
 //   pointers and void* user data - no STL, no nlohmann::json, no RE::* types.
@@ -34,8 +34,9 @@ namespace OSFUI::API
 	// History: 1.0 commands/sends/ready; 1.1 +RequestMenu; 1.2 +settings
 	// (SubscribeSettings, typed getters, RegisterSettingsSchema); 1.3 SendToWeb
 	// delivery guarantee (queue-until-deliverable + message-before-first-paint;
-	// see SendToWeb below — no new vmethods).
-	inline constexpr std::uint32_t kBridgeAPIVersion = (1u << 16) | 3u;
+	// see SendToWeb below — no new vmethods); 1.4 +hotkeys (SubscribeHotkey/
+	// UnsubscribeHotkey — every key-typed setting is a dispatchable binding).
+	inline constexpr std::uint32_t kBridgeAPIVersion = (1u << 16) | 4u;
 	inline constexpr std::uint32_t kBridgeAPIMajor   = kBridgeAPIVersion >> 16;
 	inline constexpr std::uint32_t kBridgeAPIMinor   = kBridgeAPIVersion & 0xFFFFu;
 
@@ -63,6 +64,12 @@ namespace OSFUI::API
 	                                  const char* a_key,
 	                                  const char* a_valueJson,
 	                                  void*       a_user) noexcept;
+
+	// Fired on the GAME (main) thread when the physical key currently bound to
+	// the key-typed setting subscribed via SubscribeHotkey is pressed (1.4).
+	using HotkeyFn = void (*)(const char* a_modId,
+	                          const char* a_key,
+	                          void*       a_user) noexcept;
 
 	struct IOSFUIBridge
 	{
@@ -152,6 +159,28 @@ namespace OSFUI::API
 		// by drop-in files.
 		virtual void UnregisterSettingsSchema(const char* a_modId) = 0;
 
+		// ===== hotkey dispatch (MINOR 1.4 block, mcm-design.md §9) =====
+
+		// --- hotkey subscription. Thread-safe; callbacks on the GAME MAIN
+		// thread. ---
+		// Fires when the physical key CURRENTLY bound to the key-typed setting
+		// (a_modId, a_key) is pressed. The binding is whatever the user set —
+		// OSF UI re-resolves on every rebind, so consumers never track VK
+		// codes. Gated on OSF UI's input context: a press typed into an
+		// overlay text field or during a rebind capture does NOT fire; key
+		// repeats don't fire. Duplicate bindings across mods all fire —
+		// conflicts are surfaced in the settings UI, never blocking. No replay
+		// (a hotkey is an event, not state) and no schema flag: EVERY
+		// key-typed setting dispatches; this subscription is the native
+		// delivery opt-in (a web view opts in by subscribing via settings.get
+		// — it then receives `ui.hotkey {mod, key}` pushes). Subscribing to an
+		// unknown or non-key setting is legal but silent until such a setting
+		// exists. Returns a token for UnsubscribeHotkey; 0 on null/empty
+		// a_modId/a_key or null a_fn.
+		virtual std::uint32_t SubscribeHotkey(const char* a_modId, const char* a_key,
+		                                      HotkeyFn a_fn, void* a_user) = 0;
+		virtual void          UnsubscribeHotkey(std::uint32_t a_token) = 0;
+
 	protected:
 		~IOSFUIBridge() = default;  // OSF UI owns the singleton; the consumer never deletes it.
 	};
@@ -166,6 +195,7 @@ namespace OSFUI::API
 	// vtable ends before the newest methods. Before calling anything a later
 	// MINOR added (see the History note above), check the runtime's version:
 	//   if ((bridge->GetInterfaceVersion() & 0xFFFF) >= 2) { /* settings ok */ }
+	//   if ((bridge->GetInterfaceVersion() & 0xFFFF) >= 4) { /* hotkeys ok */ }
 	// MINOR also gates behavioral guarantees: >= 3 means SendToWeb's
 	// queue-until-deliverable + message-before-first-paint guarantee holds (so
 	// e.g. a consumer can retire an "opening veil" that hid its UI until the
