@@ -15,8 +15,13 @@ namespace OSFUI
 		// listeners (web push, ABI mirror) multicast behind it.
 		_store.AddChangeListener(std::move(a_onChange));
 		// Subscriber #1: the web push — every committed value goes to every
-		// view that has read the registry (mcm-design.md §8.5).
+		// view that has read the registry (mcm-design.md §8.5). The no-listener
+		// guard runs BEFORE the payload is built: startup NotifyAll and every
+		// set with no view open would otherwise allocate json for nobody.
 		_store.AddChangeListener([this](std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value) {
+			if (_suppressChangedPush || !_bridge || _subscribers.empty()) {
+				return;
+			}
 			PushToSubscribers("settings.changed", {
 				{ "mod", std::string(a_mod) },
 				{ "key", std::string(a_key) },
@@ -27,7 +32,10 @@ namespace OSFUI
 		// live): re-send the full document — the settings view fully re-renders
 		// on settings.data, so late registration Just Works.
 		_store.AddRegistryListener([this] {
-			PushToSubscribers("settings.data", nlohmann::json::parse(_store.DataJson(), nullptr, false));
+			if (!_bridge || _subscribers.empty()) {
+				return;
+			}
+			PushToSubscribers("settings.data", _store.Data());
 		});
 		_store.LoadAll(_schemaDir, _valuesDir);
 	}
@@ -43,6 +51,13 @@ namespace OSFUI
 	{
 		_bridge = nullptr;
 		_subscribers.clear();
+	}
+
+	void SettingsModule::OnViewDestroyed(std::string_view a_viewId)
+	{
+		// Mirror of the runtime's _viewsSubscribers pruning: a view torn down by
+		// crash-recovery must not keep receiving pushes for the process lifetime.
+		_subscribers.erase(std::string(a_viewId));
 	}
 
 	void SettingsModule::PushToSubscribers(std::string_view a_type, const nlohmann::json& a_payload) const
@@ -66,7 +81,7 @@ namespace OSFUI
 			// Subscribe-on-read (the views.get pattern): the caller now also
 			// receives settings.changed pushes and settings.data re-broadcasts.
 			_subscribers.insert(std::string(a_b.CurrentSource()));
-			a_b.SendToWeb("settings.data", nlohmann::json::parse(_store.DataJson(), nullptr, false));
+			a_b.SendToWeb("settings.data", _store.Data());
 		});
 
 		a_bridge.RegisterCommand("settings.set", [this](const nlohmann::json& a_payload, MessageBridge& a_b) {
@@ -80,11 +95,20 @@ namespace OSFUI
 		a_bridge.RegisterCommand("settings.reset", [this](const nlohmann::json& a_payload, MessageBridge& a_b) {
 			const auto mod = Json::GetString(a_payload, "mod", "");
 			const auto key = Json::GetString(a_payload, "key", "");
-			if (_store.Reset(mod, key)) {
-				// Re-send the registry so the view re-renders to the new state.
-				// (Other subscribers sync through the settings.changed pushes
-				// the reset just fired.)
-				a_b.SendToWeb("settings.data", nlohmann::json::parse(_store.DataJson(), nullptr, false));
+			// Suppress the per-key settings.changed fan-out for the web: the one
+			// authoritative settings.data below syncs every subscriber (a whole-mod
+			// reset would otherwise send N redundant messages first). The core
+			// change listener (native reactions) still fires per key.
+			_suppressChangedPush = true;
+			const bool ok = _store.Reset(mod, key);
+			_suppressChangedPush = false;
+			if (ok) {
+				const auto data = _store.Data();
+				PushToSubscribers("settings.data", data);
+				if (!_subscribers.contains(std::string(a_b.CurrentSource()))) {
+					// A caller that never subscribed still needs to re-render.
+					a_b.SendToWeb("settings.data", data);
+				}
 			}
 		});
 	}

@@ -30,6 +30,11 @@ namespace OSFUI
 		// drop any retained pointer/subscriber state.
 		virtual void OnBridgeDown() {}
 
+		// One view was destroyed (crash-recovery teardown) while the bridge
+		// stays up — drop the id from any per-view subscriber state, or pushes
+		// to it leak for the process lifetime.
+		virtual void OnViewDestroyed(std::string_view /*a_viewId*/) {}
+
 		[[nodiscard]] virtual std::string_view Name() const = 0;
 	};
 }

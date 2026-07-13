@@ -201,6 +201,7 @@ namespace OSFUI
 		std::unique_ptr<ICompositor>  _compositor;
 		std::unique_ptr<MessageBridge>          _bridge;
 		std::vector<std::unique_ptr<IUiModule>> _modules;
+		SettingsModule*                         _settings{ nullptr };  // owned by _modules; core reads schema facts through it
 		InputRouter                             _input;
 		KeyCode                       _toggleKey{ kInvalidKeyCode };
 		KeyCode                       _consoleKey{ kInvalidKeyCode };  // passed through to the game; see OnHostKey
@@ -230,13 +231,14 @@ namespace OSFUI
 		// Key-rebind capture state. _captureArmed is set on the main thread (the
 		// settings.captureKey command) and read on the window thread (OnHostKey);
 		// _capturedVk is written on the window thread and drained on the main
-		// thread (DrainKeyCapture) — both atomic. _captureView/_captureKey (which
-		// view + setting to answer) and _captureUpVk (swallow the captured key's
-		// release) are touched on a single thread each, so plain.
+		// thread (DrainKeyCapture) — both atomic. _captureView/_captureMod/
+		// _captureKey (which view + setting to answer) and _captureUpVk (swallow
+		// the captured key's release) are touched on a single thread each, so plain.
 		std::atomic_bool              _captureArmed{ false };
 		std::atomic<KeyCode>          _capturedVk{ kInvalidKeyCode };
 		std::string                   _captureView;   // main-thread: view that armed capture
-		std::string                   _captureKey;    // main-thread: which osfui setting (e.g. "toggleKey")
+		std::string                   _captureMod;    // main-thread: mod owning the setting being rebound
+		std::string                   _captureKey;    // main-thread: which setting (e.g. "toggleKey")
 		KeyCode                       _captureUpVk{ kInvalidKeyCode };  // window-thread only
 
 		std::atomic_bool              _visible{ false };

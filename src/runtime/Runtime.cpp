@@ -260,6 +260,7 @@ namespace OSFUI
 		// Bridge before modules: its command handlers capture module pointers,
 		// so it must not outlive them.
 		_bridge.reset();
+		_settings = nullptr;  // owned by _modules, about to go away
 		_modules.clear();
 		_initialized = false;
 		REX::INFO("Runtime: shutdown complete");
@@ -480,7 +481,10 @@ namespace OSFUI
 				ApplyMenuPolicy();  // it was open: release capture/visibility now
 			}
 			_viewsSubscribers.erase(id);  // a destroyed view can't receive pushes
-			BroadcastViewsData();         // it also drops out of the catalog
+			for (const auto& mod : _modules) {
+				mod->OnViewDestroyed(id);  // module-held subscriber sets too (e.g. settings)
+			}
+			BroadcastViewsData();  // it also drops out of the catalog
 			return;
 		}
 		rec.pending = true;
@@ -862,10 +866,12 @@ namespace OSFUI
 		const auto valuesDir = docs.empty()
 			? Paths::DataDir() / "settings" / "values"  // fallback (MO2 redirects the write)
 			: docs / "My Games" / "Starfield" / "OSFUI" / "settings";
-		_modules.push_back(std::make_unique<SettingsModule>(schemaDir, valuesDir,
+		auto settings = std::make_unique<SettingsModule>(schemaDir, valuesDir,
 			[this](std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value) {
 				OnSettingChanged(a_mod, a_key, a_value);
-			}));
+			});
+		_settings = settings.get();  // core needs schema facts (e.g. key-capture gating)
+		_modules.push_back(std::move(settings));
 
 		REX::INFO("Runtime: {} UI module(s) loaded", _modules.size());
 	}
@@ -886,13 +892,14 @@ namespace OSFUI
 		// Tell the view which setting + the captured name; it echoes back a normal
 		// settings.set (so the store persists + OnSettingChanged re-resolves).
 		_bridge->SendToWeb(_captureView, "settings.captured", nlohmann::json{
-			{ "mod", "osfui" },
+			{ "mod", _captureMod },
 			{ "key", _captureKey },
 			{ "name", name },
 			{ "cancelled", cancelled },
 		});
-		REX::INFO("Runtime: key capture -> {} ({})", cancelled ? "(cancelled)" : name, _captureKey);
+		REX::INFO("Runtime: key capture -> {} ({}.{})", cancelled ? "(cancelled)" : name, _captureMod, _captureKey);
 		_captureView.clear();
+		_captureMod.clear();
 		_captureKey.clear();
 	}
 
@@ -958,17 +965,24 @@ namespace OSFUI
 			a_b.SendToWeb("views.data", payload);
 		});
 		// Arm key-rebind capture: the NEXT key press is grabbed by OnHostKey and
-		// reported back via `settings.captured`. Only the framework's own
-		// rebindable keys are accepted (currently osfui.toggleKey). Runs on the
-		// main thread; OnHostKey (window thread) reads the armed flag.
+		// reported back via `settings.captured`. Any setting a loaded schema
+		// declares `type:"key"` is rebindable — the schema fact gates the
+		// capture, not an allowlist. Runs on the main thread; OnHostKey (window
+		// thread) reads the armed flag.
 		a_bridge.RegisterCommand("settings.captureKey", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
 			const std::string mod = Json::GetString(a_p, "mod", "");
 			const std::string key = Json::GetString(a_p, "key", "");
-			if (mod != "osfui" || key != "toggleKey") {
-				REX::WARN("Runtime: settings.captureKey rejected — only osfui.toggleKey is rebindable (got '{}.{}')", mod, key);
+			if (!_settings || _settings->Store().GetSettingType(mod, key) != "key") {
+				REX::WARN("Runtime: settings.captureKey rejected — '{}.{}' is not a key-typed setting",
+					mod.substr(0, 64), key.substr(0, 64));
+				// Reply cancelled so the view's rebind button restores instead of
+				// dead-waiting into its timeout toast.
+				a_b.SendToWeb("settings.captured", nlohmann::json{
+					{ "mod", mod }, { "key", key }, { "name", "" }, { "cancelled", true } });
 				return;
 			}
 			_captureView = std::string(a_b.CurrentSource());
+			_captureMod = mod;
 			_captureKey = key;
 			_captureArmed.store(true);
 			REX::INFO("Runtime: armed key capture for {}.{} (from view '{}')", mod, key, _captureView);

@@ -146,11 +146,19 @@ int main()
 	CHECK(SentTo("otherview", "settings.changed").empty());  // not subscribed
 	CHECK(SentTo("hudview", "settings.changed").size() == 1);
 
-	// --- settings.reset: data to caller, changed pushes to subscribers ----------
+	// --- settings.reset: ONE settings.data to every subscriber, no per-key spam --
 	g_sent.clear();
 	Command(bridge, "settingsview", { { "command", "settings.reset" }, { "mod", "alpha" }, { "key", "" } });
 	CHECK(SentTo("settingsview", "settings.data").size() == 1);
-	CHECK(SentTo("hudview", "settings.changed").size() == 2);  // both alpha keys re-notified
+	CHECK(SentTo("hudview", "settings.data").size() == 1);
+	CHECK(SentTo("settingsview", "settings.changed").empty());  // superseded by the data re-send
+	CHECK(SentTo("hudview", "settings.changed").empty());
+
+	// A caller that never subscribed still gets the authoritative re-send.
+	g_sent.clear();
+	Command(bridge, "otherview", { { "command", "settings.reset" }, { "mod", "alpha" }, { "key", "" } });
+	CHECK(SentTo("otherview", "settings.data").size() == 1);
+	CHECK(SentTo("hudview", "settings.data").size() == 1);
 
 	// --- runtime registration: replay + settings.data re-broadcast (§8.5) -------
 	g_sent.clear();
@@ -179,6 +187,13 @@ int main()
 		const auto data = SentTo("hudview", "settings.data");
 		CHECK(data.size() == 1 && data[0].payload["mods"].size() == 1);
 	}
+
+	// --- OnViewDestroyed: a torn-down view stops receiving pushes -----------------
+	g_sent.clear();
+	module.OnViewDestroyed("hudview");
+	CHECK(module.Store().Set("alpha", "scale", "0.75"));
+	CHECK(SentTo("hudview", "settings.changed").empty());
+	CHECK(SentTo("settingsview", "settings.changed").size() == 1);  // others unaffected
 
 	// --- OnBridgeDown: pushes stop, nothing dangles -------------------------------
 	g_sent.clear();

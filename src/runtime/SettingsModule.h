@@ -34,6 +34,7 @@ namespace OSFUI
 		void OnStart() override;  // apply persisted values (fires reactions)
 		void RegisterCommands(MessageBridge& a_bridge) override;
 		void OnBridgeDown() override;
+		void OnViewDestroyed(std::string_view a_viewId) override;  // drop it from _subscribers
 		[[nodiscard]] std::string_view Name() const override { return "settings"; }
 
 		// The store is the single source of truth every other surface projects
@@ -51,5 +52,6 @@ namespace OSFUI
 		std::filesystem::path           _valuesDir;
 		MessageBridge*                  _bridge{ nullptr };  // set by RegisterCommands, cleared by OnBridgeDown
 		std::unordered_set<std::string> _subscribers;        // view ids that sent settings.get
+		bool                            _suppressChangedPush{ false };  // reset in flight: settings.data supersedes per-key pushes
 	};
 }
