@@ -37,11 +37,12 @@ const saveStateEl = document.getElementById("save-state");
 
 let allMods = [];
 let selectedId = null;
-// value at the start of the session, baseline[modId][key] — drives the
-// session-changes chip + revert. Seeded once per key, then kept across data
-// refreshes (so a reset/preset re-broadcast doesn't lose session history).
-// Nested (not a joined string key) so a key containing a space can't corrupt
-// the split.
+// value when this settings VISIT began, baseline[modId][key] — drives the
+// undo chip + revert panel. Seeded once per key on first change, kept across
+// data refreshes (so a reset/preset re-broadcast doesn't lose undo history),
+// and cleared on each fresh overlay open (ui.visibility) so the list scopes
+// to "since you opened settings", not the whole game session. Nested (not a
+// joined string key) so a key containing a space can't corrupt the split.
 let baseline = {};
 // Rebuilt every full render; consulted by refreshLive() to re-evaluate
 // conditions and modified indicators without tearing the pane down.
@@ -909,13 +910,16 @@ function updateRailCounts() {
   }
 }
 
-// ---- session changes chip + revert ----------------------------------------
+// ---- undo chip + revert panel ----------------------------------------------
+// Everything is saved automatically (write-behind — see the save-state line),
+// so this must never read as "unsaved changes": it is an UNDO facility over
+// what you touched since opening settings this time.
 
 function updateChip() {
   if (!sessionChipEl) return;
   const n = sessionChangeCount();
   sessionChipEl.style.display = n ? "" : "none";
-  sessionChipEl.textContent = `Session changes (${n})`;
+  sessionChipEl.textContent = `Undo changes (${n})`;
 }
 
 function openSessionPanel() {
@@ -935,10 +939,12 @@ function openSessionPanel() {
   const overlay = el("div", "session-overlay");
   const panel = el("div", "session-panel osf-card");
   const head = el("div", "session-head");
-  head.appendChild(el("div", "osf-eyebrow", `Session changes (${changes.length})`));
+  head.appendChild(el("div", "osf-eyebrow", `Changed this visit (${changes.length})`));
   const revertAll = el("button", "osf-btn osf-btn--sm osf-btn--danger", "Revert all"); revertAll.type = "button";
   head.appendChild(revertAll);
   panel.appendChild(head);
+  panel.appendChild(el("p", "session-note",
+    "Everything is already saved. Revert anything you've changed since opening settings."));
 
   const list = el("div", "session-list");
   for (const c of changes) {
@@ -1121,6 +1127,17 @@ function onNativeMessage(jsonText) {
       // The mod's values file WRITE landed (write-behind flush) — distinct
       // from settings.changed, which is the immediate in-memory commit.
       if (message.payload) saveStatePersisted(message.payload.mod);
+      break;
+    case "ui.visibility":
+      // A fresh overlay visit (the runtime pushes this on the closed->open
+      // edge): the undo scope is "since you opened settings", so drop the old
+      // baseline — the chip disappears until something changes this visit.
+      // Without this the view, which keeps running while hidden, accumulates
+      // every change of the whole game session.
+      if (message.payload && message.payload.visible) {
+        baseline = {};
+        updateChip();
+      }
       break;
     default:
       // Mod action acknowledgements: "<modId>.ack" with { key, ok, message }.

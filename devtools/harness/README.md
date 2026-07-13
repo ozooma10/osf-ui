@@ -36,7 +36,7 @@ return every mod to its schema defaults.
 Everything the renderer does client-side: widgets, `visibleWhen`/`enabledWhen`
 conditions, number formatting, colour input, notes, action buttons (the mock
 simulates a `<mod>.ack` reply after 400 ms), presets, modified-dots, per-setting
-and per-mod reset, global search, the session-changes revert panel, and the
+and per-mod reset, global search, the undo panel (visit-scoped revert), and the
 save-state indicator (the mock mirrors native write-behind: one
 `settings.persisted` push ~500 ms after a change window opens).
 
