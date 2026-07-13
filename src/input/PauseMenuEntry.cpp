@@ -109,37 +109,6 @@ namespace OSFUI
 		// pinned refcount).
 		ClickHandler* g_handler{ nullptr };
 
-		// Scan pass over the live entryList: count entries and look for ours.
-		// Optionally copy every visited entry into a new array being built for
-		// PopulateMainList.
-		class EntryScan final : public RE::Scaleform::GFx::Value::ArrayVisitor
-		{
-		public:
-			explicit EntryScan(RE::Scaleform::GFx::Value* a_copyInto = nullptr) :
-				_copyInto(a_copyInto)
-			{}
-
-			void Visit(std::uint32_t, const RE::Scaleform::GFx::Value& a_val) override
-			{
-				++count;
-				RE::Scaleform::GFx::Value action;
-				double                    id = -1.0;
-				if (a_val.IsObject() && a_val.GetMember("uActionType", &action) &&
-					NumericValue(action, id) && id == static_cast<double>(kActionId)) {
-					foundOurs = true;
-				}
-				if (_copyInto) {
-					_copyInto->PushBack(a_val);
-				}
-			}
-
-			std::uint32_t count{ 0 };
-			bool          foundOurs{ false };
-
-		private:
-			RE::Scaleform::GFx::Value* _copyInto{ nullptr };
-		};
-
 		// One WARN per pause-menu open when the expected AS3 shape is missing
 		// (a UI-overhaul SWF replacing pausemenu.swf could rename clips); after
 		// that stay silent so a per-tick reconcile can't flood the log.
@@ -214,19 +183,27 @@ namespace OSFUI
 			return;
 		}
 		RE::Scaleform::GFx::Value mainList;
-		RE::Scaleform::GFx::Value entryList;
-		if (!mainPanel.GetMember("MainList_mc", &mainList) || !mainList.IsObject() ||
-			!mainList.GetMember("entryList", &entryList) || !entryList.IsArray()) {
-			WarnOnce("MainList_mc/entryList missing under MainPanel_mc");
+		if (!mainPanel.GetMember("MainList_mc", &mainList) || !mainList.IsObject()) {
+			WarnOnce("MainList_mc missing under MainPanel_mc");
 			return;
 		}
+
+		// Read the list through BSScrollingContainer's PUBLIC surface —
+		// entryCount + GetDataForEntry(i). The `entryList` getter itself is
+		// PROTECTED in AS3 and invisible to GFx GetMember (proven live
+		// 2026-07-13: GetMember("entryList") failed on the real movie).
+		RE::Scaleform::GFx::Value countVal;
+		double                    countNum = 0.0;
+		if (!mainList.GetMember("entryCount", &countVal) || !NumericValue(countVal, countNum)) {
+			WarnOnce("MainList_mc.entryCount unreadable");
+			return;
+		}
+		const auto count = static_cast<std::int32_t>(countNum);
 
 		// Wait for the engine's PauseMenuListData push before injecting: an
 		// empty list means OnPauseListDataUpdate hasn't run yet, and anything
 		// we add now would be stomped (and briefly selected) a frame later.
-		EntryScan scan;
-		entryList.VisitElements(&scan);
-		if (scan.count == 0) {
+		if (count <= 0) {
 			return;
 		}
 
@@ -239,8 +216,13 @@ namespace OSFUI
 			}
 			RE::Scaleform::GFx::Value fn;
 			movieRoot.CreateFunction(&fn, g_handler);
+			// Managed VM string for the event type too (same raw-kString
+			// hazard as the entry label — a mis-read type would make the
+			// listener silently never match).
+			RE::Scaleform::GFx::Value eventType;
+			movieRoot.CreateString(&eventType, "MainPanel_EntryPress");
 			const RE::Scaleform::GFx::Value args[4] = {
-				RE::Scaleform::GFx::Value("MainPanel_EntryPress"),
+				eventType,
 				fn,
 				RE::Scaleform::GFx::Value(false),                 // useCapture
 				RE::Scaleform::GFx::Value(std::int32_t{ 1000 }),  // priority: run before the menu's own listener
@@ -252,24 +234,48 @@ namespace OSFUI
 			g_listenerInstalled = true;
 		}
 
-		if (scan.foundOurs) {
+		// Scan for our entry while copying the current entries into a fresh
+		// array for a potential re-populate (both via GetDataForEntry — one
+		// pass over ~10 entries per tick).
+		RE::Scaleform::GFx::Value newList;
+		movieRoot.CreateArray(&newList);
+		bool foundOurs = false;
+		for (std::int32_t i = 0; i < count; ++i) {
+			RE::Scaleform::GFx::Value index(i);
+			RE::Scaleform::GFx::Value entryVal;
+			if (!mainList.Invoke("GetDataForEntry", &entryVal, &index, 1) || !entryVal.IsObject()) {
+				WarnOnce("MainList_mc.GetDataForEntry failed");
+				return;
+			}
+			RE::Scaleform::GFx::Value action;
+			double                    id = -1.0;
+			if (entryVal.GetMember("uActionType", &action) && NumericValue(action, id) &&
+				id == static_cast<double>(kActionId)) {
+				foundOurs = true;
+			}
+			newList.PushBack(entryVal);
+		}
+		if (foundOurs) {
 			return;  // steady state: entry present, nothing to do this tick
 		}
 
-		// (Re)inject: rebuild the data array (current entries + ours) and hand
-		// it to the menu's own PopulateMainList — the same path the engine's
-		// data push takes, so rawEntries/entryList/selection all stay coherent.
-		RE::Scaleform::GFx::Value newList;
-		movieRoot.CreateArray(&newList);
-		EntryScan copy(&newList);
-		entryList.VisitElements(&copy);
-
+		// (Re)inject: append ours and hand the rebuilt array to the menu's own
+		// PopulateMainList — the same path the engine's data push takes, so
+		// rawEntries/entryList/selection all stay coherent.
 		RE::Scaleform::GFx::Value entry;
 		movieRoot.CreateObject(&entry);
-		entry.SetMember("text", RE::Scaleform::GFx::Value(g_label.c_str()));
+		// Strings must be MANAGED VM strings (CreateString): a raw kString
+		// Value survives SetMember but the AS3 side reads it back as
+		// undefined — first live run rendered a blank row (numerics are
+		// unaffected; uActionType worked from day one).
+		RE::Scaleform::GFx::Value label;
+		movieRoot.CreateString(&label, g_label.c_str());
+		RE::Scaleform::GFx::Value emptyStr;
+		movieRoot.CreateString(&emptyStr, "");
+		entry.SetMember("text", label);
 		entry.SetMember("uActionType", RE::Scaleform::GFx::Value(kActionId));
 		entry.SetMember("bDisabled", RE::Scaleform::GFx::Value(false));
-		entry.SetMember("sConfirmText", RE::Scaleform::GFx::Value(""));
+		entry.SetMember("sConfirmText", emptyStr);
 		newList.PushBack(entry);
 
 		const RE::Scaleform::GFx::Value args[1] = { newList };
@@ -280,7 +286,7 @@ namespace OSFUI
 		if (!g_entryLogged) {
 			g_entryLogged = true;
 			REX::INFO("PauseMenuEntry: '{}' injected into PauseMenu main list ({} vanilla entries)",
-				g_label, copy.count);
+				g_label, count);
 		}
 	}
 }

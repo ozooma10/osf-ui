@@ -19,7 +19,9 @@ namespace OSFUI
 	//     entry (uActionType 100 — vanilla PMA_* ids are EnumHelper-sequential
 	//     0..11) and re-invoke PopulateMainList through the movie's GFx Value
 	//     API. PopulateMainList preserves the selection by action id, so a
-	//     mid-session re-add doesn't jump the cursor.
+	//     mid-session re-add doesn't jump the cursor. The list is read through
+	//     the PUBLIC entryCount/GetDataForEntry surface — the entryList getter
+	//     is protected in AS3 and invisible to GFx GetMember (proven live).
 	//   * Presses bubble from MainPanel as CustomEvent "MainPanel_EntryPress"
 	//     {entryAction}; the PauseMenu root forwards them to the engine as
 	//     PauseMenu_StartAction. We addEventListener on the root at priority
