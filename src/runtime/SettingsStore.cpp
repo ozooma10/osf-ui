@@ -10,6 +10,54 @@ namespace OSFUI
 	namespace
 	{
 		constexpr std::size_t kMaxStringLen = 256;
+		constexpr std::size_t kMaxModIdLen = 64;
+
+		// A mod id becomes a filename (<valuesDir>/<id>.json) and a web asset
+		// path segment (views/<id>/...): restrict it to a safe charset and
+		// reject traversal so a schema-supplied id can never escape either
+		// confinement (docs/security-model.md).
+		bool IsValidModId(std::string_view a_id)
+		{
+			if (a_id.empty() || a_id.size() > kMaxModIdLen) {
+				return false;
+			}
+			if (a_id.front() == '.' || a_id.find("..") != std::string_view::npos) {
+				return false;
+			}
+			for (const char c : a_id) {
+				const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+				                (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-';
+				if (!ok) {
+					return false;
+				}
+			}
+			return true;
+		}
+
+		// Framework bridge namespaces. The renderer only fires an action whose
+		// command is prefixed "<modId>.", so a mod id equal to one of these
+		// would make "namespaced" commands collide with framework commands
+		// (menu.close, settings.reset, ...). The framework's own id ("osfui")
+		// is not listed: its schema loads through the same drop-in path.
+		bool IsReservedModId(std::string_view a_id)
+		{
+			for (const std::string_view r : { "ui", "menu", "hud", "settings", "views", "game", "runtime" }) {
+				if (a_id == r) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		bool IsHexColor(std::string_view a_s)
+		{
+			if ((a_s.size() != 7 && a_s.size() != 9) || a_s.front() != '#') {
+				return false;
+			}
+			return std::all_of(a_s.begin() + 1, a_s.end(), [](unsigned char c) {
+				return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+			});
+		}
 
 		// Iterate every setting object across all groups. `a_fn(setting)` may
 		// return true to stop early.
@@ -89,10 +137,30 @@ namespace OSFUI
 	bool SettingsStore::AddSchema(nlohmann::json a_schema, Source a_source, std::string a_idHint, bool a_notify)
 	{
 		auto id = Json::GetString(a_schema, "id", a_idHint);
+		// Drop-ins: the id MUST equal the filename stem (documented contract,
+		// docs/schema + mcm-design.md §8.1) — warn and override, so a file
+		// can't hijack another mod's id and MO2's per-file VFS priority stays
+		// the arbiter of who owns settings/<id>.json.
+		if (a_source == Source::kDropIn && !a_idHint.empty() && id != a_idHint) {
+			REX::WARN("SettingsStore: schema id '{}' must equal the filename stem — using '{}'",
+				id.substr(0, kMaxModIdLen), a_idHint);
+			id = a_idHint;
+		}
 		if (id.empty()) {
 			REX::WARN("SettingsStore: rejected schema with no id");
 			return false;
 		}
+		if (!IsValidModId(id)) {
+			REX::WARN("SettingsStore: rejected schema id '{}' — ids are 1-{} chars of [A-Za-z0-9._-] "
+					  "with no leading '.' and no '..' (the id names the values file and asset folder)",
+				id.substr(0, kMaxModIdLen), kMaxModIdLen);
+			return false;
+		}
+		if (IsReservedModId(id)) {
+			REX::WARN("SettingsStore: rejected schema id '{}' — reserved framework namespace", id);
+			return false;
+		}
+		a_schema["id"] = id;  // the document the web layer sees carries the effective id
 
 		// Source precedence on id collision (mcm-design.md §14.1): a runtime
 		// (DLL) registration replaces a drop-in file — a mod upgrading tiers
@@ -216,7 +284,7 @@ namespace OSFUI
 		return setting ? Json::GetString(*setting, "type", "") : std::string{};
 	}
 
-	std::string SettingsStore::DataJson() const
+	nlohmann::json SettingsStore::Data() const
 	{
 		nlohmann::json mods = nlohmann::json::array();
 		for (const auto& mod : _mods) {
@@ -227,7 +295,12 @@ namespace OSFUI
 				{ "values", mod.values },
 			});
 		}
-		return nlohmann::json{ { "mods", std::move(mods) } }.dump();
+		return nlohmann::json{ { "mods", std::move(mods) } };
+	}
+
+	std::string SettingsStore::DataJson() const
+	{
+		return Data().dump();
 	}
 
 	SettingsStore::Mod* SettingsStore::FindMod(std::string_view a_modId)
@@ -300,8 +373,22 @@ namespace OSFUI
 		} else if (type == "string") {
 			if (a_value.is_string()) {
 				auto s = a_value.get<std::string>();
-				if (s.size() > kMaxStringLen) {
-					s.resize(kMaxStringLen);
+				// A colour-widget string must be a parseable #rrggbb[aa] — any
+				// writer (preset, ABI, Papyrus), not just the UI, is held to it.
+				if (Json::GetString(a_setting, "widget", "") == "color" && !IsHexColor(s)) {
+					return std::nullopt;
+				}
+				// Per-setting maxLength, capped by the store-wide hard limit
+				// (raising kMaxStringLen is the native slice; bump the renderer
+				// + mock clamps in lockstep).
+				std::size_t cap = kMaxStringLen;
+				if (const auto ml = a_setting.find("maxLength"); ml != a_setting.end() && ml->is_number_integer()) {
+					if (const auto v = ml->get<std::int64_t>(); v > 0) {
+						cap = (std::min)(cap, static_cast<std::size_t>(v));
+					}
+				}
+				if (s.size() > cap) {
+					s.resize(cap);
 				}
 				return nlohmann::json(std::move(s));
 			}

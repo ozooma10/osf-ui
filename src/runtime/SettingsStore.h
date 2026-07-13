@@ -102,8 +102,12 @@ namespace OSFUI
 		// when it moves (mcm-design.md §8.5).
 		[[nodiscard]] std::uint64_t Generation() const { return _generation; }
 
-		// JSON the settings view consumes: { "mods": [ { id, title, schema, values }, ... ] }.
-		[[nodiscard]] std::string DataJson() const;
+		// The document the settings view consumes:
+		// { "mods": [ { id, title, schema, values }, ... ] }. Data() returns
+		// the json object (for native senders — no dump/re-parse round trip);
+		// DataJson() is its serialized form (tests, logging).
+		[[nodiscard]] nlohmann::json Data() const;
+		[[nodiscard]] std::string    DataJson() const;
 
 		// Validate + clamp + store + persist + notify. a_valueJson is the raw
 		// JSON text of the value. Returns false on unknown mod/key or bad type.

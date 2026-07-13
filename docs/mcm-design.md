@@ -445,12 +445,14 @@ tier — the whole ladder is visible in one place.
 
 All inside `SettingsStore::LoadAll`:
 
-- **`id` == filename stem, enforced** (case-insensitive; warn-and-override on
-  mismatch). Today a schema can claim any id (`SettingsStore.cpp:58`).
-  Enforcement makes MO2's per-file VFS priority *the* collision-resolution
-  mechanism: two mods shipping `settings/coolmod.json` resolve like any other
-  file conflict, and OSF UI never sees both. Residual duplicate ids: first
-  wins, loud `REX::WARN`, conflict banner in the settings view.
+- **`id` == filename stem, enforced** (warn-and-override on mismatch —
+  implemented in `SettingsStore::AddSchema`, which also rejects ids outside
+  `[A-Za-z0-9._-]`, with `..`/leading `.`, or equal to a reserved framework
+  namespace). Enforcement makes MO2's per-file VFS priority *the*
+  collision-resolution mechanism: two mods shipping `settings/coolmod.json`
+  resolve like any other file conflict, and OSF UI never sees both. Residual
+  duplicate ids: first wins, loud `REX::WARN`, conflict banner in the
+  settings view.
 - **Deterministic load order:** collect, sort by filename, then load
   (`directory_iterator` order is unspecified). UI sort stays title-based.
 - **Sparse persistence:** persist only values ≠ schema default. Today

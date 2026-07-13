@@ -78,7 +78,8 @@ int main()
 			{ "key": "enabled", "type": "bool",   "default": true },
 			{ "key": "scale",   "type": "float",  "default": 1.0, "min": 0.5, "max": 2.0 },
 			{ "key": "mode",    "type": "enum",   "default": "compact", "options": ["compact", "full"] },
-			{ "key": "name",    "type": "string", "default": "hi" },
+			{ "key": "name",    "type": "string", "default": "hi", "maxLength": 4 },
+			{ "key": "tint",    "type": "string", "widget": "color", "default": "#5aa9b8" },
 			{ "key": "bind",    "type": "key",    "default": "F10" }
 		] } ] })json");
 	WriteFile(schemaDir / "beta.json", R"json({
@@ -86,11 +87,18 @@ int main()
 		"groups": [ { "label": "G", "settings": [
 			{ "key": "count", "type": "int", "default": 3, "min": 0, "max": 10 }
 		] } ] })json");
-	// Duplicate id in a later-sorted file: first-loaded must win.
+	// A drop-in claiming another mod's id: the id MUST equal the filename stem,
+	// so it registers as "zeta" (warned) and cannot hijack "beta".
 	WriteFile(schemaDir / "zeta.json", R"json({
 		"id": "beta", "title": "Impostor Beta",
 		"groups": [ { "label": "G", "settings": [
 			{ "key": "evil", "type": "bool", "default": true }
+		] } ] })json");
+	// A drop-in whose stem is unsafe as a filename/path segment: rejected.
+	WriteFile(schemaDir / "bad id.json", R"json({
+		"id": "bad id", "title": "Space Id",
+		"groups": [ { "label": "G", "settings": [
+			{ "key": "x", "type": "bool", "default": true }
 		] } ] })json");
 	// Persisted values: clamped on load, unknown keys ignored.
 	WriteFile(valuesDir / "alpha.json", R"json({ "scale": 9.0, "mode": "full", "junk": 5 })json");
@@ -109,15 +117,23 @@ int main()
 	const auto genAfterLoad = store.Generation();
 
 	auto data = nlohmann::json::parse(store.DataJson());
-	CHECK(data["mods"].size() == 2);  // alpha + beta once; zeta's duplicate dropped
-	CHECK(LoggedContaining("WARN", "duplicate schema id 'beta'"));
+	CHECK(data["mods"].size() == 3);  // alpha + beta + zeta (renamed); "bad id" rejected
+	CHECK(LoggedContaining("WARN", "must equal the filename stem"));
+	CHECK(LoggedContaining("WARN", "rejected schema id 'bad id'"));
 
 	CHECK(store.GetValue("alpha", "enabled") && *store.GetValue("alpha", "enabled") == true);
 	CHECK(store.GetValue("alpha", "scale") && store.GetValue("alpha", "scale")->get<double>() == 2.0);  // 9.0 clamped
 	CHECK(store.GetValue("alpha", "mode") && *store.GetValue("alpha", "mode") == "full");               // persisted
 	CHECK(store.GetValue("alpha", "junk") == nullptr);                                                  // never adopted
-	CHECK(store.GetValue("beta", "evil") == nullptr);                                                   // impostor schema dropped
+	CHECK(store.GetValue("beta", "evil") == nullptr);   // the impostor could not take beta's id...
+	CHECK(store.GetValue("zeta", "evil") != nullptr);   // ...it registered under its own stem
+	CHECK(store.GetValue("bad id", "x") == nullptr);
 	CHECK(store.GetValue("nope", "x") == nullptr);
+
+	// The document the web sees carries the EFFECTIVE id, not the impostor claim.
+	for (const auto& mod : data["mods"]) {
+		CHECK(mod["id"] == mod["schema"]["id"]);
+	}
 
 	CHECK(store.GetSettingType("alpha", "bind") == "key");
 	CHECK(store.GetSettingType("alpha", "scale") == "float");
@@ -149,7 +165,14 @@ int main()
 	CHECK(!store.Set("alpha", "mode", "\"neon\""));     // not an option
 	CHECK(!store.Set("alpha", "ghost", "1"));           // unknown key
 	CHECK(!store.Set("ghost", "scale", "1"));           // unknown mod
+	CHECK(!store.Set("alpha", "tint", "\"blue\""));     // colour widget: not a hex colour
 	CHECK(heard1.empty());
+
+	// Per-setting maxLength truncates; a colour widget accepts real hex.
+	CHECK(store.Set("alpha", "name", "\"abcdefgh\""));
+	CHECK(*store.GetValue("alpha", "name") == "abcd");
+	CHECK(store.Set("alpha", "tint", "\"#112233\""));
+	CHECK(*store.GetValue("alpha", "tint") == "#112233");
 
 	// --- Reset: one key, then whole mod ---------------------------------------
 	CHECK(store.Reset("alpha", "scale"));
@@ -160,9 +183,9 @@ int main()
 	// --- NotifyMod replays current values --------------------------------------
 	heard1.clear();
 	store.NotifyMod("alpha");
-	CHECK(heard1.size() == 5);  // one per alpha setting
+	CHECK(heard1.size() == 6);  // one per alpha setting
 	store.NotifyMod("ghost");   // unknown: no fire, no crash
-	CHECK(heard1.size() == 5);
+	CHECK(heard1.size() == 6);
 
 	// --- incremental RegisterSchema: new mod, persisted overlay, replay -------
 	heard1.clear();
@@ -178,11 +201,23 @@ int main()
 	CHECK(*store.GetValue("gamma", "fancy") == false);
 	CHECK(heard1.size() == 2);  // per-mod replay fired for both values
 	data = nlohmann::json::parse(store.DataJson());
-	CHECK(data["mods"].size() == 3);
+	CHECK(data["mods"].size() == 4);
 
 	// Rejected shapes.
 	CHECK(!store.RegisterSchema(nlohmann::json::array(), SettingsStore::Source::kNative));
 	CHECK(!store.RegisterSchema(nlohmann::json{ { "title", "No Id" } }, SettingsStore::Source::kNative));
+
+	// Rejected ids: traversal / unsafe charset / reserved framework namespaces.
+	// An id names the values file and the asset folder, so it must never escape.
+	for (const auto* bad : { "..\\..\\Starfield", "../evil", "a/b", "a\\b", "has space",
+	                         ".hidden", "..", "menu", "settings", "ui", "hud", "views", "game", "runtime" }) {
+		CHECK(!store.RegisterSchema(nlohmann::json{ { "id", bad }, { "title", "Evil" } }, SettingsStore::Source::kNative));
+	}
+
+	// Duplicate drop-in ids resolve first-wins (MO2's VFS is the arbiter of the
+	// FILE; a second registration for the same id never displaces the first).
+	CHECK(!store.RegisterSchema(nlohmann::json{ { "id", "zeta" }, { "title", "Zeta Again" } }, SettingsStore::Source::kDropIn));
+	CHECK(LoggedContaining("WARN", "duplicate schema id 'zeta'"));
 
 	// Runtime-registered mods persist through the same per-mod file.
 	CHECK(store.Set("gamma", "level", "9"));
@@ -204,7 +239,7 @@ int main()
 	CHECK(LoggedContaining("WARN", "runtime registration replaces drop-in"));
 	CHECK(store.Generation() > genBeforeReplace);
 	data = nlohmann::json::parse(store.DataJson());
-	CHECK(data["mods"].size() == 3);  // replaced, not duplicated
+	CHECK(data["mods"].size() == 4);  // replaced, not duplicated
 	CHECK(store.GetValue("alpha", "scale")->get<double>() == 0.75);  // persisted user value survived
 	CHECK(*store.GetValue("alpha", "shiny") == true);                // new key gets default
 	CHECK(store.GetValue("alpha", "enabled") == nullptr);            // removed key gone
@@ -224,7 +259,7 @@ int main()
 	alphaV3["title"] = "Alpha Mod v3";
 	CHECK(store.RegisterSchema(alphaV3, SettingsStore::Source::kNative));
 	data = nlohmann::json::parse(store.DataJson());
-	CHECK(data["mods"].size() == 3);
+	CHECK(data["mods"].size() == 4);
 
 	// --- RemoveMod: registry drops, values file kept ----------------------------
 	CHECK(store.Set("beta", "count", "8"));
@@ -235,7 +270,7 @@ int main()
 	CHECK(store.GetValue("beta", "count") == nullptr);
 	CHECK(fs::exists(valuesDir / "beta.json"));  // uninstalled ≠ deleted (mcm-design.md §10)
 	data = nlohmann::json::parse(store.DataJson());
-	CHECK(data["mods"].size() == 2);
+	CHECK(data["mods"].size() == 3);
 
 	// ---------------------------------------------------------------------------
 	std::fprintf(stderr, "%d/%d checks passed\n", g_checks - g_failures, g_checks);
