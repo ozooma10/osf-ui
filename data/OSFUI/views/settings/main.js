@@ -614,11 +614,33 @@ function renderRail() {
 
 // ---- detail ----------------------------------------------------------------
 
+// The four linked accent tokens the design system uses together. A schema
+// gives us one hex; most accent surfaces (eyebrows, readouts, hovers, quiet
+// backgrounds) read the DERIVED three, so set all four or the accent only
+// half-applies. Cleared as a set so nothing leaks onto the next mod.
+const ACCENT_TOKENS = ["--accent", "--accent-hover", "--accent-quiet", "--accent-strong"];
+function hexToRgb(hex) {
+  return [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
+}
+// Blend each channel toward a target (255 = lighten, 0 = darken) by t in [0,1].
+function mixToward(rgb, target, t) {
+  return rgb.map((c) => Math.round(c + (target - c) * t));
+}
+function rgbToHex(rgb) {
+  return "#" + rgb.map((c) => Math.max(0, Math.min(255, c)).toString(16).padStart(2, "0")).join("");
+}
 function applyAccent(node, accent) {
-  // Clear when the schema has none/an invalid one — the node persists across
-  // selections, so a previous mod's accent would otherwise leak onto this one.
-  if (typeof accent === "string" && HEX_RE.test(accent)) node.style.setProperty("--accent", accent);
-  else node.style.removeProperty("--accent");
+  if (typeof accent === "string" && HEX_RE.test(accent)) {
+    const rgb = hexToRgb(accent);
+    node.style.setProperty("--accent", accent);
+    node.style.setProperty("--accent-hover", rgbToHex(mixToward(rgb, 255, 0.34)));
+    node.style.setProperty("--accent-strong", rgbToHex(mixToward(rgb, 0, 0.42)));
+    node.style.setProperty("--accent-quiet", `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.14)`);
+  } else {
+    // No/invalid accent: drop the whole set so it falls back to the .osf-ui
+    // default and never leaks from the previously-selected mod.
+    ACCENT_TOKENS.forEach((t) => node.style.removeProperty(t));
+  }
 }
 
 function renderDetailHead(mod, schema, isFramework) {
