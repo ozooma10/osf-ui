@@ -128,7 +128,22 @@ int main()
 		CHECK(toSettings.size() == 1);
 		CHECK(toHud.size() == 1);
 		CHECK(toHud[0].payload["mod"] == "alpha" && toHud[0].payload["key"] == "scale" && toHud[0].payload["value"] == 1.5);
+
+		// Write-behind: the commit pushed settings.changed immediately, but the
+		// disk write (and its settings.persisted confirmation) waits for the flush.
+		CHECK(SentTo("settingsview", "settings.persisted").empty());
 	}
+
+	// --- write-behind flush lands: settings.persisted to ALL subscribers ---------
+	g_sent.clear();
+	module.Store().FlushPersistence();  // the set above left alpha dirty
+	for (const auto* view : { "settingsview", "hudview" }) {
+		const auto persisted = SentTo(view, "settings.persisted");
+		CHECK(persisted.size() == 1 && persisted[0].payload["mod"] == "alpha");
+	}
+	g_sent.clear();
+	module.Store().FlushPersistence();  // nothing dirty — no push
+	CHECK(g_sent.empty());
 
 	// --- rejected set: ack ok:false, NO settings.changed ------------------------
 	g_sent.clear();

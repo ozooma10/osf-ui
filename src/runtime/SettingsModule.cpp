@@ -37,6 +37,15 @@ namespace OSFUI
 			}
 			PushToSubscribers("settings.data", _store.Data());
 		});
+		// A mod's values file WRITE landed (the write-behind flush — distinct
+		// from the immediate settings.changed commit): tell subscribed views so
+		// the settings UI can show "Saved" feedback.
+		_store.AddPersistListener([this](std::string_view a_mod) {
+			if (!_bridge || _subscribers.empty()) {
+				return;
+			}
+			PushToSubscribers("settings.persisted", { { "mod", std::string(a_mod) } });
+		});
 		_store.LoadAll(_schemaDir, _valuesDir);
 	}
 

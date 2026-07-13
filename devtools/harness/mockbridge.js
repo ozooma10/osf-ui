@@ -109,6 +109,20 @@
     if (subscribed) setTimeout(() => send("settings.changed", { mod, key, value }), 0);
   }
 
+  // Mirrors the native write-behind (SettingsStore::PumpPersistence, ~500ms
+  // per-mod window opened at the first unflushed change): one
+  // settings.persisted push per window confirms the "disk write". The mock's
+  // localStorage persist() above is immediate — only the notification is
+  // delayed, which is all the view can observe anyway.
+  const persistTimers = new Map(); // modId -> timeout id
+  function pushPersisted(modId) {
+    if (persistTimers.has(modId)) return; // window already open — coalesce
+    persistTimers.set(modId, setTimeout(() => {
+      persistTimers.delete(modId);
+      if (subscribed) send("settings.persisted", { mod: modId });
+    }, 500));
+  }
+
   // ---- web -> native ----
   function handle(p) {
     const cmd = p && p.command;
@@ -130,6 +144,7 @@
               persist(mod);
               ok = true;
               pushChanged(p.mod, p.key, v); // post-validation value, like native
+              pushPersisted(p.mod);
             }
           }
         }
@@ -146,6 +161,7 @@
             }
           });
           persist(mod);
+          pushPersisted(p.mod);
           setTimeout(sendData, 0); // mirrors SettingsModule: re-send registry
         }
         break;

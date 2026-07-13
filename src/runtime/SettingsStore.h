@@ -53,6 +53,12 @@ namespace OSFUI
 		// settings menu re-renders on late registration (mcm-design.md §8.5).
 		using RegistryListener = std::function<void()>;
 
+		// Fired after a mod's values file WRITE lands (the write-behind flush,
+		// not the commit — Set/Reset notify through ChangeListener immediately).
+		// The web layer pushes `settings.persisted` off this so the settings
+		// view can show save feedback.
+		using PersistListener = std::function<void(std::string_view a_modId)>;
+
 		// Flushes any pending write-behind values (never lose a committed
 		// change on clean teardown).
 		~SettingsStore();
@@ -72,6 +78,7 @@ namespace OSFUI
 		// subscribers on top).
 		void AddChangeListener(ChangeListener a_listener) { _listeners.push_back(std::move(a_listener)); }
 		void AddRegistryListener(RegistryListener a_listener) { _registryListeners.push_back(std::move(a_listener)); }
+		void AddPersistListener(PersistListener a_listener) { _persistListeners.push_back(std::move(a_listener)); }
 
 		// Incrementally registers (or, per Source precedence, replaces) one
 		// mod schema after LoadAll — the runtime-registration path
@@ -179,6 +186,9 @@ namespace OSFUI
 		[[nodiscard]] static nlohmann::json SparseValues(const Mod& a_mod);
 		// Open (or join) the mod's write-behind window; PumpPersistence lands it.
 		void        MarkDirty(Mod& a_mod);
+		// The one flush path: clear dirty, write, log + fire persist listeners
+		// on success. Every site that lands a values file goes through here.
+		void        PersistNow(Mod& a_mod) const;
 		static bool Persist(const Mod& a_mod);
 		void        Notify(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value) const;
 		void        NotifyRegistryChanged() const;
@@ -186,6 +196,7 @@ namespace OSFUI
 		std::vector<Mod>              _mods;
 		std::vector<ChangeListener>   _listeners;
 		std::vector<RegistryListener> _registryListeners;
+		std::vector<PersistListener>  _persistListeners;
 		std::filesystem::path       _valuesDir;
 		std::uint64_t               _generation{ 0 };
 		bool                        _loaded{ false };

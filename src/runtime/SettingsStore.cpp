@@ -198,8 +198,7 @@ namespace OSFUI
 			if (existing->dirty) {
 				// The overlay below reads the values FILE; land any unflushed
 				// write-behind changes first or the replacement reverts them.
-				existing->dirty = false;
-				Persist(*existing);
+				PersistNow(*existing);
 			}
 		}
 
@@ -271,8 +270,7 @@ namespace OSFUI
 			return false;
 		}
 		if (it->dirty) {
-			it->dirty = false;
-			Persist(*it);  // the kept values file must carry the last changes
+			PersistNow(*it);  // the kept values file must carry the last changes
 		}
 		REX::INFO("SettingsStore: removed mod '{}' (values file kept)", it->id);
 		_mods.erase(it);
@@ -571,13 +569,26 @@ namespace OSFUI
 		}
 	}
 
+	void SettingsStore::PersistNow(Mod& a_mod) const
+	{
+		a_mod.dirty = false;  // a write failure is logged in Persist; the next change retries
+		if (!Persist(a_mod)) {
+			return;
+		}
+		REX::INFO("SettingsStore: saved '{}' values", a_mod.id);
+		for (const auto& listener : _persistListeners) {
+			if (listener) {
+				listener(a_mod.id);
+			}
+		}
+	}
+
 	void SettingsStore::PumpPersistence(double a_nowSeconds)
 	{
 		_now = a_nowSeconds;
 		for (auto& mod : _mods) {
 			if (mod.dirty && _now >= mod.dueAt) {
-				mod.dirty = false;  // a write failure is logged in Persist; the next change retries
-				Persist(mod);
+				PersistNow(mod);
 			}
 		}
 	}
@@ -586,8 +597,7 @@ namespace OSFUI
 	{
 		for (auto& mod : _mods) {
 			if (mod.dirty) {
-				mod.dirty = false;
-				Persist(mod);
+				PersistNow(mod);
 			}
 		}
 	}

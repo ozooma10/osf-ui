@@ -110,6 +110,18 @@ export interface SettingsChangedPayload {
   value: SettingValue;
 }
 
+/**
+ * The mod's values FILE write landed. Persistence is write-behind: a commit
+ * notifies immediately via `settings.changed`, while the disk write coalesces
+ * (~500ms per mod, guaranteed on menu close and shutdown) and confirms here.
+ * Pushed to `settings.get` subscribers; the settings view drives its "Saved"
+ * indicator off this. Purely informational — values are already authoritative
+ * from `settings.changed`.
+ */
+export interface SettingsPersistedPayload {
+  mod: string;
+}
+
 /** Result of a settings.captureKey: the captured key name, or cancelled (Esc / unbindable). */
 export interface SettingsCapturedPayload {
   mod: string;
@@ -162,6 +174,7 @@ export type NativeToWebMessage =
   | BridgeEnvelope<"settings.data", SettingsDataPayload>
   | BridgeEnvelope<"settings.ack", SettingsAckPayload>
   | BridgeEnvelope<"settings.changed", SettingsChangedPayload>
+  | BridgeEnvelope<"settings.persisted", SettingsPersistedPayload>
   | BridgeEnvelope<"settings.captured", SettingsCapturedPayload>
   | BridgeEnvelope<"ui.error", UiErrorPayload>;
 

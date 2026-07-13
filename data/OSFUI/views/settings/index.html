@@ -40,6 +40,9 @@
       <nav id="rail-list" class="rail-list" aria-label="Settings sections"></nav>
 
       <div class="rail-foot">
+        <!-- Write-behind save feedback: "Saving…" until the runtime confirms
+             the disk write (settings.persisted), then "Saved" fading out. -->
+        <span id="save-state" class="save-state osf-eyebrow" aria-live="polite"></span>
         <button id="session-chip" type="button" class="osf-btn osf-btn--ghost osf-btn--sm session-chip" style="display:none">Session changes (0)</button>
         <button id="close" type="button" class="osf-btn osf-btn--ghost osf-btn--sm">Close</button>
       </div>

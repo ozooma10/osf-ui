@@ -223,6 +223,17 @@ html, body { height: 100%; overflow: hidden; }
 .rail-foot { display: flex; flex-direction: column; gap: 8px; }
 .session-chip { color: var(--accent-hover); }
 
+/* Write-behind save feedback (rail footer). Hidden until a write is in
+   flight; "Saving…" is muted, the "Saved" confirmation takes the accent and
+   fades back out. Height is reserved so the buttons never shift. */
+.save-state {
+  min-height: 14px; text-align: center;
+  color: var(--text-faint);
+  opacity: 0; transition: opacity 260ms ease;
+}
+.save-state.visible { opacity: 1; }
+.save-state.done { color: var(--accent); }
+
 /* Toast stack (top-right) */
 .toast-stack {
   position: fixed; top: 18px; right: 18px; z-index: 20;

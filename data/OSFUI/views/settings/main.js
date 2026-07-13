@@ -33,6 +33,7 @@ const railEl = document.getElementById("rail-list");
 const filterEl = document.getElementById("filter");
 const toastEl = document.getElementById("toast");
 const sessionChipEl = document.getElementById("session-chip");
+const saveStateEl = document.getElementById("save-state");
 
 let allMods = [];
 let selectedId = null;
@@ -60,9 +61,41 @@ function sendCommand(fields) {
     window.osfui.postMessage(JSON.stringify({ type: "ui.command", payload: fields }));
   }
 }
-function setValue(modId, key, value) { sendCommand({ command: "settings.set", mod: modId, key, value }); }
-function resetMod(modId) { sendCommand({ command: "settings.reset", mod: modId }); }
-function resetSetting(modId, key) { sendCommand({ command: "settings.reset", mod: modId, key }); }
+function setValue(modId, key, value) { saveStatePending(modId); sendCommand({ command: "settings.set", mod: modId, key, value }); }
+function resetMod(modId) { saveStatePending(modId); sendCommand({ command: "settings.reset", mod: modId }); }
+function resetSetting(modId, key) { saveStatePending(modId); sendCommand({ command: "settings.reset", mod: modId, key }); }
+
+// ---- save feedback ---------------------------------------------------------
+// Native persistence is write-behind (a commit notifies immediately; the disk
+// write lands ~0.5s later, coalesced per mod, guaranteed on menu close). Show
+// "Saving…" from the moment we send a write until `settings.persisted`
+// confirms every touched mod's file landed, then a fading "Saved". Persisted
+// pushes for writes this view didn't make (a sibling DLL, another view) are
+// deliberately ignored.
+const pendingSaveMods = new Set();
+let saveFadeTimer = 0;
+function saveStatePending(modId) {
+  if (!saveStateEl) return;
+  pendingSaveMods.add(modId);
+  clearTimeout(saveFadeTimer);
+  saveStateEl.textContent = "Saving…";
+  saveStateEl.classList.add("visible");
+  saveStateEl.classList.remove("done");
+}
+function saveStatePersisted(modId) {
+  if (!saveStateEl || !pendingSaveMods.delete(modId) || pendingSaveMods.size > 0) return;
+  saveStateEl.textContent = "Saved";
+  saveStateEl.classList.add("visible", "done");
+  clearTimeout(saveFadeTimer);
+  saveFadeTimer = setTimeout(() => { saveStateEl.classList.remove("visible", "done"); }, 1800);
+}
+function saveStateAbandon(modId) {
+  // A rejected write never persists; don't leave "Saving…" stuck. If OTHER
+  // changes to the same mod are still pending, its persisted push simply
+  // won't find the entry — losing the confirmation, never showing a false one.
+  if (!saveStateEl || !pendingSaveMods.delete(modId) || pendingSaveMods.size > 0) return;
+  saveStateEl.classList.remove("visible", "done");
+}
 
 function baselineFor(modId) { return baseline[modId] || (baseline[modId] = {}); }
 
@@ -1079,9 +1112,15 @@ function onNativeMessage(jsonText) {
     case "settings.ack":
       if (message.payload && !message.payload.ok) {
         toast(`Rejected "${message.payload.mod}.${message.payload.key}"`, "danger");
+        saveStateAbandon(message.payload.mod);
         // Native refused the value; pull authoritative state back.
         sendCommand({ command: "settings.get" });
       }
+      break;
+    case "settings.persisted":
+      // The mod's values file WRITE landed (write-behind flush) — distinct
+      // from settings.changed, which is the immediate in-memory commit.
+      if (message.payload) saveStatePersisted(message.payload.mod);
       break;
     default:
       // Mod action acknowledgements: "<modId>.ack" with { key, ok, message }.

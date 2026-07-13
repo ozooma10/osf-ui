@@ -20,10 +20,11 @@ namespace OSFUI
 	//
 	// Web change delivery (mcm-design.md §8.5): `settings.get` SUBSCRIBES the
 	// calling view — every later committed value is pushed to it as
-	// `settings.changed { mod, key, value }`, and a registry shape change
-	// (runtime schema registration/removal) re-sends the full `settings.data`.
-	// Subscribe-on-read, the `views.get` pattern; a mod's own HUD reacts live
-	// to its settings with zero polling and zero native code.
+	// `settings.changed { mod, key, value }`, a registry shape change
+	// (runtime schema registration/removal) re-sends the full `settings.data`,
+	// and a landed write-behind disk write pushes `settings.persisted { mod }`
+	// (save feedback). Subscribe-on-read, the `views.get` pattern; a mod's own
+	// HUD reacts live to its settings with zero polling and zero native code.
 	class SettingsModule final : public IUiModule
 	{
 	public:
