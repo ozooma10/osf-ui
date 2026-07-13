@@ -2,6 +2,8 @@
 
 #include "OSFUI_API.h"  // IOSFUIBridge, CommandFn, ReadyFn, version constants (sdk/, on the include path)
 
+#include "api/SettingsMirror.h"
+
 namespace OSFUI
 {
 	class MessageBridge;
@@ -44,6 +46,12 @@ namespace OSFUI::API
 		// Drain the queued menu requests (MAIN thread). Runtime applies each through its own menu policy (_menus.Open/Close + ApplyMenuPolicy) in DrainMenuRequests.
 		std::vector<MenuRequest> TakeMenuRequests();
 
+		// The any-thread settings value mirror the ABI typed getters read
+		// (mcm-design.md §8.2). Runtime::BuildModules feeds it from the store's
+		// change/registry listeners on the MAIN thread; the getter methods (and
+		// later Papyrus natives) read it from any thread.
+		[[nodiscard]] SettingsMirror& Mirror() { return _mirror; }
+
 		// Hand the live MessageBridge (or nullptr when no nativeBridge view exists)
 		// to the API. A different pointer than last time triggers a full re-apply.
 		void OnBridgeReady(MessageBridge* a_bridge);
@@ -70,6 +78,7 @@ namespace OSFUI::API
 		};
 
 		std::mutex                                    _mutex;
+		SettingsMirror                                _mirror;            // own locking; never touched under _mutex
 		std::unordered_map<std::string, Registration> _commands;          // desired command set
 		std::vector<std::string>                      _pendingUnregister;  // to remove from a live bridge
 		std::vector<PendingSend>                       _pendingSends;

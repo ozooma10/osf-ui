@@ -41,8 +41,14 @@ compile settings_module_tests \
     ../../src/runtime/SettingsStore.cpp \
     ../../src/runtime/Json.cpp
 
+compile settings_mirror_tests \
+    settings_mirror_tests.cpp \
+    ../../src/api/SettingsMirror.cpp \
+    ../../src/runtime/SettingsStore.cpp \
+    ../../src/runtime/Json.cpp
+
 failures=0
-for t in settings_store_tests settings_module_tests; do
+for t in settings_store_tests settings_module_tests settings_mirror_tests; do
     echo "== $t =="
     "$BUILD/$t" || failures=$((failures + $?))
 done

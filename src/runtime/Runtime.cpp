@@ -871,6 +871,21 @@ namespace OSFUI
 				OnSettingChanged(a_mod, a_key, a_value);
 			});
 		_settings = settings.get();  // core needs schema facts (e.g. key-capture gating)
+
+		// ABI mirror (mcm-design.md §8.2): every committed value — including
+		// the OnStart NotifyAll replay below — lands in the any-thread mirror
+		// the C ABI typed getters read. Registry shape changes rebuild it from
+		// the store document so a removed mod's values stop resolving.
+		auto& store = _settings->Store();
+		store.AddChangeListener([](std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value) {
+			API::BridgeApi::Get().Mirror().Update(a_mod, a_key, a_value);
+		});
+		store.AddRegistryListener([this] {
+			if (_settings) {  // teardown guard (_settings nulls before modules die)
+				API::BridgeApi::Get().Mirror().Rebuild(_settings->Store().Data());
+			}
+		});
+
 		_modules.push_back(std::move(settings));
 
 		REX::INFO("Runtime: {} UI module(s) loaded", _modules.size());
