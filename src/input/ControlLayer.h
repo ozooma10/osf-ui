@@ -2,8 +2,9 @@
 
 namespace OSFUI
 {
-	// EXPERIMENTAL — OFF BY DEFAULT (config `disableControls`). The gamepad-leak
-	// half of the de-jank work, complementary to FocusMenu.
+	// ON BY DEFAULT; config `disableControls` is a diagnostic escape hatch
+	// (config.json only, like hardwareCursor). The gamepad-leak half of the
+	// de-jank work, complementary to FocusMenu.
 	//
 	// Disables player controls through the engine's own input-enable system
 	// (RE::BSInputEnableManager / BSInputEnableLayer) while the overlay owns

@@ -14,33 +14,6 @@
           "hint": "Press to rebind the key that opens and closes the overlay."
         }
       ]
-    },
-    {
-      "label": "Overlay",
-      "settings": [
-        {
-          "key": "disableControls",
-          "label": "Disable player controls while open",
-          "type": "bool",
-          "default": true,
-          "hint": "Freezes movement, camera, and gamepad/XInput while a menu is open. Off leaves the game controllable behind the overlay."
-        }
-      ]
-    },
-    {
-      "label": "Cursor",
-      "settings": [
-        {
-          "key": "cursorSpeed",
-          "label": "Cursor speed",
-          "type": "float",
-          "min": 0.5,
-          "max": 3.0,
-          "step": 0.1,
-          "default": 1.0,
-          "hint": "Software-cursor fallback only; the hardware pointer uses your system sensitivity."
-        }
-      ]
     }
   ]
 }

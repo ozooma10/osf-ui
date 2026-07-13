@@ -325,7 +325,8 @@ You receive changes for **all** mods — filter on `payload.mod`.
 ### Reacting natively (currently a core change)
 
 Native code can subscribe to changes (see `Runtime::OnSettingChanged`). Today
-this is wired in-tree (e.g. `osfui.cursorSpeed` live-scales the cursor). A
+this is wired in-tree (e.g. `osfui.toggleKey` live-rebinds the overlay's
+open/close key on the input router). A
 public "subscribe to my setting" API for separate SFSE plugins (C ABI 1.2 —
 `SubscribeSettings` + typed getters, see `docs/mcm-design.md` §8.2) is the
 next native milestone; until it lands, native reactions to a *new* mod's

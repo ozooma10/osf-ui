@@ -85,8 +85,6 @@ namespace OSFUI
 		// the client size to view space (the view is aspect-matched but
 		// height-capped — a uniform scale), syncs the virtual cursor so buttons/
 		// wheel route at the same spot, and routes the move into the web view.
-		// cursorSpeed deliberately does not apply: the OS pointer already moves
-		// at the user's system sensitivity.
 		void OnHostMouseAbsolute(int a_clientX, int a_clientY, int a_clientW, int a_clientH);
 
 		// FALLBACK path (config.hardwareCursor=false): called by the WndProc
@@ -159,9 +157,10 @@ namespace OSFUI
 		// unless engineInput is set. Keyboard/mouse stay on the WndProc path.
 		void DrainEngineInput(double a_deltaSeconds);
 
-		// EXPERIMENTAL (config.disableControls). Engage/release the engine
-		// input-enable layer (device-agnostic control disable, incl. gamepad) to
-		// match overlay visibility. Also main-thread-only. See input/ControlLayer.h.
+		// Engage/release the engine input-enable layer (device-agnostic control
+		// disable, incl. gamepad) to match the top menu's capture policy. On by
+		// default; config.disableControls is a diagnostic escape hatch (config.json
+		// only, like hardwareCursor). Main-thread-only. See input/ControlLayer.h.
 		void ReconcileControlLayer();
 
 		// Native reactions to settings changes (Phase 5b). Injected into the
@@ -229,7 +228,6 @@ namespace OSFUI
 		std::atomic<std::uint32_t>    _viewWidth{ 1280 };
 		std::atomic<std::uint32_t>    _viewHeight{ 720 };
 		std::atomic<float>            _cursorScale{ 1.0f };   // resolution-based, set on resize
-		std::atomic<float>            _cursorSpeed{ 1.0f };   // user multiplier (osfui.cursorSpeed)
 
 		// Input-capture flag (initialised from config). When false the overlay
 		// is a HUD: it draws but the game still gets input.

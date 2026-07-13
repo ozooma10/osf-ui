@@ -49,7 +49,7 @@ namespace OSFUI
 		// (keyboard + mouse-look + gamepad sticks all froze and restored cleanly;
 		// OSF RE 2026-06-13-input-enable-layer-control-disable). See
 		// input/ControlLayer.h.
-		bool        disableControls{ false };
+		bool        disableControls{ true };
 		// EXPERIMENTAL — Level-2 engine-routed input, increment 2 (observer
 		// only). Patches the focus menu's +0x10 BSInputEventUser vtable so the
 		// engine's per-menu input dispatch (incl. GAMEPAD, which the WndProc

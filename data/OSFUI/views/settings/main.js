@@ -631,7 +631,7 @@ function renderRail() {
   const fw = frameworkMods().filter((m) => railMatches(m, q));
   fw.forEach((m) => railEl.appendChild(railItem(m)));
 
-  railEl.appendChild(el("div", "rail-section", "Mods"));
+  railEl.appendChild(el("div", "rail-section", "Mod Settings"));
   const mods = contentMods().filter((m) => railMatches(m, q));
   if (mods.length) {
     mods.forEach((m) => railEl.appendChild(railItem(m)));
@@ -1180,16 +1180,11 @@ function sampleMods() {
             { key: "toggleKey", label: "Open / close key", type: "key", default: "F10", hint: "Rebind the overlay key." },
           ] },
           { label: "Overlay", settings: [
-            { key: "disableControls", label: "Disable player controls while open", type: "bool", default: true },
             { key: "allowPanels", label: "Allow mod settings panels", type: "bool", default: true, hint: "Custom mod panels run in this view's context.", requires: "reload" },
-          ] },
-          { label: "Cursor", settings: [
-            { key: "cursorSpeed", label: "Cursor speed", type: "float", min: 0.5, max: 3.0, step: 0.1, default: 1.0,
-              format: { suffix: "x", decimals: 1 } },
           ] },
         ],
       },
-      values: { toggleKey: "F10", disableControls: true, allowPanels: true, cursorSpeed: 1.0 },
+      values: { toggleKey: "F10", allowPanels: true },
     },
     {
       id: "demo", title: "Demo Mod",

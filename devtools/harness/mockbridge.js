@@ -208,10 +208,8 @@
       groups: [
         { label: "Input", settings: [{ key: "toggleKey", label: "Open / close key", type: "key", default: "F10" }] },
         { label: "Overlay", settings: [
-          { key: "disableControls", label: "Disable player controls while open", type: "bool", default: true },
           { key: "allowPanels", label: "Allow mod settings panels", type: "bool", default: true, requires: "reload" },
         ] },
-        { label: "Cursor", settings: [{ key: "cursorSpeed", label: "Cursor speed", type: "float", min: 0.5, max: 3, step: 0.1, default: 1, format: { suffix: "x", decimals: 1 } }] },
       ] },
   ];
 

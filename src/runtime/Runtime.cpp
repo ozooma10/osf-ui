@@ -294,9 +294,9 @@ namespace OSFUI
 		if (_config.focusMenu) {
 			ReconcileFocusMenu();
 		}
-		// Always reconcile: the enabled check lives INSIDE, so toggling
-		// osfui.disableControls off at runtime RELEASES an engaged lock (a gate
-		// here would just stop reconciling and strand the player's controls).
+		// Always reconcile: the config.disableControls check lives INSIDE, so a
+		// config with it off still RELEASES any engaged lock (a gate here would
+		// just stop reconciling and strand the player's controls).
 		ReconcileControlLayer();
 		// Sim pause (manifest pausesGame) — unconditional: it is a direct
 		// Main::isGameMenuPaused write, independent of the engine focus menu.
@@ -703,10 +703,8 @@ namespace OSFUI
 		}
 		// Scale raw deltas so the cursor crosses the view in a screen-size-
 		// independent amount of physical mouse travel (the view tracks the
-		// screen now, so a fixed 1:1 mapping would feel slow on big views),
-		// times the user's live cursor-speed setting (osfui.cursorSpeed).
-		const auto scale = _cursorScale.load(std::memory_order_relaxed) *
-			_cursorSpeed.load(std::memory_order_relaxed);
+		// screen now, so a fixed 1:1 mapping would feel slow on big views).
+		const auto scale = _cursorScale.load(std::memory_order_relaxed);
 		const auto maxX = static_cast<float>(_viewWidth.load(std::memory_order_relaxed) - 1);
 		const auto maxY = static_cast<float>(_viewHeight.load(std::memory_order_relaxed) - 1);
 		_cursorX = std::clamp(_cursorX + static_cast<float>(a_dx) * scale, 0.0f, maxX);
@@ -1097,26 +1095,11 @@ namespace OSFUI
 		if (a_modId != "osfui") {
 			return;
 		}
-		// Cursor speed multiplies mouse sensitivity in OnHostMouseDelta —
-		// observable immediately and never self-defeating (the cursor keeps working).
-		if (a_key == "cursorSpeed" && a_value.is_number()) {
-			const auto speed = a_value.get<float>();
-			_cursorSpeed.store(speed);
-			REX::INFO("Runtime: setting osfui.cursorSpeed -> {:.2f}", speed);
-		}
-		// Disable-controls: read live on this same (main) thread by
-		// ReconcileControlLayer, which now always runs and releases when this is
-		// off — so no extra reconcile call is needed here.
-		else if (a_key == "disableControls" && a_value.is_boolean()) {
-			const auto on = a_value.get<bool>();
-			_config.disableControls = on;
-			REX::INFO("Runtime: setting osfui.disableControls -> {}", on);
-		}
 		// Toggle key rebind: re-resolve the name and re-apply it to the input
 		// router. Reject an unresolvable name (keep the working key) rather than
 		// disabling the toggle. Fires on the main thread (settings dispatch), so
 		// re-Configuring the router is as safe as the initial Configure.
-		else if (a_key == "toggleKey" && a_value.is_string()) {
+		if (a_key == "toggleKey" && a_value.is_string()) {
 			const auto name = a_value.get<std::string>();
 			const auto vk = ResolveKeyName(name);
 			if (vk == kInvalidKeyCode) {
