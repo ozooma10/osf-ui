@@ -301,8 +301,14 @@ the same classes, so the runtime injection covers both). Facts used:
 - The main list is data-driven FROM NATIVE: the engine pushes
   `PauseMenuListData {aPauseMenuList, bAllowQuitToDesktop}` →
   `PauseMenu.OnPauseListDataUpdate` → `MainPanel.PopulateMainList(Array)`.
-  Entries are plain objects `{text, uActionType, bDisabled, sConfirmText}`;
-  the label field is `text` (`BSContainerEntry.TryGetEntryText`).
+  Entries are plain objects `{sActionText, uActionType, bDisabled,
+  bShowSpinner, bHasNotification, sConfirmText}`. ⚠ The label field is
+  `sActionText`, NOT the `text` the BSContainerEntry base reads:
+  `MainPanelListEntry` OVERRIDES `SetEntryText`, and that class lives in
+  `mainpanel.swf` — a runtime-loaded sub-SWF sharing the app domain — so
+  decompiling pausemenu.swf alone misses it (cost one blank-label live run).
+  When an entry class resolves via `getDefinitionByName`, check WHICH swf
+  actually defines it before trusting base-class field names.
 - Action ids are EnumHelper-sequential ints: PMA_NONE=0 … PMA_SETTINGS_PANEL=5
   … PMA_RETURN_TO_GAME=8, PMA_QUIT_GAME=9, PMA_CREATIONS_LIBRARY_PANEL=11.
   The injected entry uses 100.

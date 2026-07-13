@@ -264,17 +264,23 @@ namespace OSFUI
 		// rawEntries/entryList/selection all stay coherent.
 		RE::Scaleform::GFx::Value entry;
 		movieRoot.CreateObject(&entry);
-		// Strings must be MANAGED VM strings (CreateString): a raw kString
-		// Value survives SetMember but the AS3 side reads it back as
-		// undefined — first live run rendered a blank row (numerics are
-		// unaffected; uActionType worked from day one).
+		// The label field is `sActionText`, NOT the BSContainerEntry base's
+		// `text`: MainPanelListEntry OVERRIDES SetEntryText and reads
+		// {sActionText, bDisabled, bShowSpinner, bHasNotification}. The class
+		// lives in mainpanel.swf (a runtime-loaded sub-SWF sharing the app
+		// domain), which is why the pausemenu.swf decompile alone missed it —
+		// second live run rendered a blank row until this was decompiled too.
+		// Strings are built as managed VM strings (CreateString), the
+		// canonical GFx4/AS3 form for values crossing into AS3 objects.
 		RE::Scaleform::GFx::Value label;
 		movieRoot.CreateString(&label, g_label.c_str());
 		RE::Scaleform::GFx::Value emptyStr;
 		movieRoot.CreateString(&emptyStr, "");
-		entry.SetMember("text", label);
+		entry.SetMember("sActionText", label);
 		entry.SetMember("uActionType", RE::Scaleform::GFx::Value(kActionId));
 		entry.SetMember("bDisabled", RE::Scaleform::GFx::Value(false));
+		entry.SetMember("bShowSpinner", RE::Scaleform::GFx::Value(false));
+		entry.SetMember("bHasNotification", RE::Scaleform::GFx::Value(false));
 		entry.SetMember("sConfirmText", emptyStr);
 		newList.PushBack(entry);
 
