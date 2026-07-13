@@ -93,6 +93,29 @@ html, body { height: 100%; overflow: hidden; }
   letter-spacing: 0.1em; color: var(--text-faint); margin-left: 6px;
 }
 
+.header-side { display: flex; align-items: center; gap: 20px; }
+.sys-settings {
+  display: inline-flex; align-items: center; gap: 8px;
+  font: inherit;
+  font-family: var(--font-mono); font-size: 10.5px;
+  letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--steel-300);
+  padding: 7px 13px;
+  background: rgba(154, 163, 173, 0.06);
+  border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: border-color var(--dur-fast), color var(--dur-fast), background var(--dur-fast);
+}
+.sys-settings svg { display: block; opacity: 0.8; }
+.sys-settings:hover {
+  color: var(--text-bright); border-color: var(--accent);
+  background: rgba(90, 169, 184, 0.08);
+}
+.sys-settings:focus-visible {
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--void-900), 0 0 0 3px var(--accent);
+}
+
 .accent-bar { flex: none; display: flex; height: 2px; margin: 0 44px; }
 .accent-bar span:nth-child(1) { width: 46px;  background: var(--steel-600); }
 .accent-bar span:nth-child(2) { width: 110px; background: var(--accent); }

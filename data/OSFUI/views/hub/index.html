@@ -44,10 +44,21 @@
           <div class="eyebrow brand-sub">NATIVE UI OVERLAY FRAMEWORK</div>
         </div>
       </div>
-      <div class="status">
-        <span class="status-dot" id="status-dot"></span>
-        <span class="status-label" id="status-label">CONNECTING</span>
-        <span class="status-counts" id="status-counts">· — VIEWS · — LIVE</span>
+      <div class="header-side">
+        <div class="status">
+          <span class="status-dot" id="status-dot"></span>
+          <span class="status-label" id="status-label">CONNECTING</span>
+          <span class="status-counts" id="status-counts">· — VIEWS · — LIVE</span>
+        </div>
+        <!-- System chrome, not a catalog card: the settings view registers
+             with hub:false and is reached from here (and the pause menu). -->
+        <button id="open-settings" class="sys-settings" type="button" data-nav="1">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33 1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82 1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+          <span>Settings</span>
+        </button>
       </div>
     </header>
 

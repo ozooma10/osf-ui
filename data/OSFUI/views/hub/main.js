@@ -41,6 +41,7 @@ const el = {
   version:      document.getElementById("footer-version"),
   launch:       document.getElementById("launch-overlay"),
   launchTitle:  document.getElementById("launch-title"),
+  settingsBtn:  document.getElementById("open-settings"),
 };
 
 // ---- monogram / accent derivation ------------------------------------------
@@ -201,13 +202,25 @@ function openMenu(v) {
   openMenu._t = setTimeout(() => { el.launch.hidden = true; }, 1600);
 }
 
+// Settings is system chrome (hub:false — not a catalog card); the pinned
+// header control is its launcher-side entry point.
+el.settingsBtn.addEventListener("click", () => {
+  const v = currentViews.find((x) => x.id === "settings");
+  openMenu(v || { id: "settings", title: "Settings" });
+});
+
 // ---- keyboard / gamepad roving navigation ----------------------------------
 // The engine maps D-pad/left-stick to arrow keys, so arrow-driven roving focus
 // makes the hub controller-navigable. Enter/Space activate the focused tile
 // (native button behavior). Esc/F10 are handled by the runtime (close overlay).
 
 function navItems() {
-  return Array.from(document.querySelectorAll('[data-nav="1"]'));
+  // Catalog items first, header chrome (Settings) last, regardless of DOM
+  // order — first arrow press should land on an app tile, not the chrome.
+  return [
+    ...document.querySelectorAll('#hub-body [data-nav="1"]'),
+    ...document.querySelectorAll('.hub-header [data-nav="1"]'),
+  ];
 }
 document.addEventListener("keydown", (e) => {
   if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) return;
@@ -285,7 +298,7 @@ if (bridgeAvailable()) {
   markConnected(true);
   el.statusLabel.textContent = "STANDALONE";
   render([
-    { id: "settings", title: "Settings", description: "Configure installed mods, hotkeys and runtime options.", kind: "menu", interactive: true, hub: true, open: false, focused: false, loadState: "loaded" },
+    { id: "settings", title: "Settings", description: "Configure installed mods, hotkeys and runtime options.", kind: "menu", interactive: true, hub: false, open: false, focused: false, loadState: "loaded" },
     { id: "almanac", title: "Ship Almanac", description: "Browse ship modules, mass and performance readouts.", kind: "menu", interactive: true, hub: true, open: false, focused: true, loadState: "loaded" },
     { id: "cargo", title: "Cargo Manifest", description: "Sortable inventory with a live mass budget.", kind: "menu", interactive: true, hub: true, open: false, focused: false, loadState: "loaded" },
     { id: "atlas", title: "Star Atlas", description: "Annotated survey routes and anomalies by system.", kind: "menu", interactive: true, hub: true, open: false, focused: false, loadState: "failed" },

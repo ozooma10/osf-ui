@@ -1,7 +1,8 @@
 {
   "id": "settings",
-  "title": "OSF UI Settings",
+  "title": "Settings",
   "entry": "index.html",
+  "hub": false,
   "width": 1280,
   "height": 720,
   "transparent": true,
