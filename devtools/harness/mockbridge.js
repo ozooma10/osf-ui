@@ -100,7 +100,33 @@
       window.osfui.onMessage(JSON.stringify({ type, payload }));
     }
   }
-  function sendData() { send("settings.data", { mods }); }
+  // Mirror SettingsStore::Data()'s key-conflict grouping (mcm-design §9): a
+  // key setting whose bound value is also bound elsewhere gets
+  // conflicts:[{mod,key,title}]. Native groups by RESOLVED vk; the mock groups
+  // by the value string (close enough for harness visuals). Recomputed fresh
+  // each send so a rebind that clears a conflict drops the badge.
+  function annotateConflicts() {
+    const byVal = {};
+    for (const m of mods) {
+      eachSetting(m.schema, (s) => { if (s.type === "key") delete s.conflicts; });
+      eachSetting(m.schema, (s) => {
+        if (s.type !== "key") return;
+        const v = m.values[s.key];
+        if (!v) return;
+        (byVal[v] = byVal[v] || []).push({ mod: m.id, key: s.key, title: m.title });
+      });
+    }
+    for (const m of mods) {
+      eachSetting(m.schema, (s) => {
+        if (s.type !== "key") return;
+        const v = m.values[s.key];
+        if (!v) return;
+        const others = (byVal[v] || []).filter((x) => x.mod !== m.id || x.key !== s.key);
+        if (others.length) s.conflicts = others;
+      });
+    }
+  }
+  function sendData() { annotateConflicts(); send("settings.data", { mods }); }
 
   // Mirrors SettingsModule subscribe-on-read (protocol 0.3): settings.get
   // subscribes the page; committed values then push as settings.changed.
