@@ -144,6 +144,8 @@ Answered 2026-06-12 (20:20 run, heartbeat continuity):
   overlay was visible (tick-driven, consistent with the above).
 Still open:
 - Does it run while the pause menu is open? (Console menu: yes — observed.)
+  Now load-bearing: the injected PauseMenu entry (§5) reconciles from this
+  tick, so if the pump stalls under PauseMenu the entry never appears.
 
 ### 2. D3D12 access — ◐ DEVICE+QUEUE SOLVED (2026-06-12), present timing open
 
@@ -281,6 +283,53 @@ Still open (Phase 4b and later):
 - How does the game arbitrate cursor visibility, and what happens to mouse
   capture when an overlay wants the cursor?
 - Save/load and main-menu transitions: when must the overlay force-hide?
+
+### 5. PauseMenu "mod settings" entry — ◐ CODE-COMPLETE (2026-07-13), in-game verify pending
+
+`input/PauseMenuEntry.{h,cpp}` (config `pauseMenuEntry`) injects a
+"MOD SETTINGS" entry into the engine PauseMenu's main list at runtime and
+opens the configured overlay view (`pauseMenuEntryView`, default "settings")
+on press. No SWF is shipped or edited.
+
+**Source of truth — decoded, not guessed:** the AS3 structure comes from the
+shipped `pausemenu.swf` (game 1.16.244), extracted from
+`Starfield - Interface.ba2` with BSArch and decompiled with JPEXS 2026-07-13.
+The decompiled sources + both SWF variants are kept at
+`c:\Modding\Starfield\tmp\pausemenu-re\` (large-font `pausemenu_lrg.swf` uses
+the same classes, so the runtime injection covers both). Facts used:
+
+- The main list is data-driven FROM NATIVE: the engine pushes
+  `PauseMenuListData {aPauseMenuList, bAllowQuitToDesktop}` →
+  `PauseMenu.OnPauseListDataUpdate` → `MainPanel.PopulateMainList(Array)`.
+  Entries are plain objects `{text, uActionType, bDisabled, sConfirmText}`;
+  the label field is `text` (`BSContainerEntry.TryGetEntryText`).
+- Action ids are EnumHelper-sequential ints: PMA_NONE=0 … PMA_SETTINGS_PANEL=5
+  … PMA_RETURN_TO_GAME=8, PMA_QUIT_GAME=9, PMA_CREATIONS_LIBRARY_PANEL=11.
+  The injected entry uses 100.
+- Presses bubble from `MainPanel` as CustomEvent `"MainPanel_EntryPress"
+  {entryAction}`; the PauseMenu root's own priority-0 listener forwards them
+  to the engine as `PauseMenu_StartAction {actionType}`.
+
+**Mechanism (documented CommonLibSF surface, no hooks):** on
+`MenuOpenCloseEvent("PauseMenu")` (existing MenuEventSink), Runtime::Tick
+reconciles: `UI::GetMenu("PauseMenu")` → `uiMovie->asMovieRoot` →
+`GetVariable(GetRootPath())` → GFx Value ops. A `CreateFunction`-wrapped
+native `FunctionHandler` is added via `root.addEventListener(..., priority
+1000)` so it runs BEFORE the menu's own listener and calls
+`stopImmediatePropagation()` for action 100 — the engine never receives the
+unknown actionType. The entry is appended by re-invoking the menu's own
+`PopulateMainList` with an augmented copy of the live `entryList` (selection
+is preserved by action id in AS3), re-checked every tick because the engine
+may re-push list data. Press → `UIMessageQueue kHide` for PauseMenu (the
+proven FocusMenu close pattern) + `Runtime::EnqueueOpenView`. The handler is
+a heap singleton we never Release — same allocator-mismatch guard rationale
+as FocusMenu's pinned refcount.
+
+**Pending in-game verification:** (a) the SFSE tick keeps running under
+PauseMenu (see §1 — hard dependency); (b) `addEventListener`/`CreateFunction`
+round-trip on a live engine movie; (c) the kHide→overlay-open handoff feel;
+(d) a UI-overhaul `pausemenu.swf` replacement that renames clips degrades to
+one WARN per open and no injection (coded, unverified).
 
 ## Workspace note
 

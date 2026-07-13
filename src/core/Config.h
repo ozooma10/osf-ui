@@ -56,6 +56,16 @@ namespace OSFUI
 		// never sees) is counted and summarized per overlay session. Does NOT
 		// route anything into the web view yet. See input/EngineInput.h.
 		bool        engineInput{ false };
+		// EXPERIMENTAL (default off in code; shipped config.json turns it on).
+		// Inject a pauseMenuEntryLabel entry into the game's PauseMenu main
+		// list at runtime (live Scaleform GFx manipulation — no SWF edit, no
+		// conflict with UI-overhaul SWFs) and open pauseMenuEntryView when it
+		// is pressed. The AS3 structure is decoded from the decompiled
+		// 1.16.244 pausemenu.swf; what is NOT yet live-validated is the
+		// injection + click round-trip in-game. See input/PauseMenuEntry.h.
+		bool        pauseMenuEntry{ false };
+		std::string pauseMenuEntryLabel{ "MOD SETTINGS" };
+		std::string pauseMenuEntryView{ "settings" };  // must be a registered surface id (config.views)
 		std::string view{ "test" };
 		// Optional multi-view set. When non-empty, every id is loaded and
 		// composited together (layer order = each view's manifest `zorder`), and

@@ -44,6 +44,11 @@ namespace OSFUI
 		};
 		void EnqueueMenuRequest(MenuReq a_req);
 
+		// Open one registered surface by id on the next tick (any thread; same
+		// policy path as the plugin API's RequestMenu). Used by internal
+		// native triggers — e.g. the injected PauseMenu "mod settings" entry.
+		void EnqueueOpenView(std::string a_viewId);
+
 		// Show/hide one loaded (config.views) declarative view by id, independent
 		// of the global overlay toggle. Returns false for an unknown/unloaded id.
 		// Drives the renderer's per-view hidden flag.
@@ -139,6 +144,7 @@ namespace OSFUI
 		struct PendingMenuWork
 		{
 			std::vector<MenuReq>                     local;
+			std::vector<std::string>                 openViews;  // EnqueueOpenView (internal native triggers)
 			std::vector<API::BridgeApi::MenuRequest> plugin;
 		};
 		[[nodiscard]] PendingMenuWork TakeMenuRequests();
@@ -230,6 +236,7 @@ namespace OSFUI
 		// Menu requests raised off the main thread, drained in Tick. _reqMutex is a strict LEAF lock: snapshot under it, release, then act.
 		std::mutex                    _reqMutex;
 		std::vector<MenuReq>          _reqs;
+		std::vector<std::string>      _openViewReqs;  // EnqueueOpenView, same lock/drain discipline
 
 		// Virtual cursor in view-pixel space (the OS cursor is hidden during
 		// gameplay, so we accumulate raw deltas instead). Position is touched

@@ -12,6 +12,7 @@
   "focusMenu": true,
   "disableControls": true,
   "engineInput": true,
+  "pauseMenuEntry": true,
   "view": "hub",
   "views": ["hub", "settings", "osf"],
   "allowNetwork": false,

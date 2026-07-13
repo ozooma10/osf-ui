@@ -1,6 +1,7 @@
 #include "input/MenuEventSink.h"
 
 #include "core/Log.h"
+#include "input/PauseMenuEntry.h"
 #include "runtime/Runtime.h"
 
 namespace OSFUI
@@ -24,6 +25,12 @@ namespace OSFUI
 		const RE::MenuOpenCloseEvent& a_event,
 		RE::BSTEventSource<RE::MenuOpenCloseEvent>*)
 	{
+		// Edge for the injected PauseMenu "mod settings" entry — cheap atomics
+		// either way; the config.pauseMenuEntry gate lives in Runtime::Tick.
+		if (std::string_view{ a_event.menuName } == "PauseMenu") {
+			PauseMenuEntry::NotifyPauseMenu(a_event.opening);
+		}
+
 		if (a_event.opening) {
 			s_openMenus.fetch_add(1, std::memory_order_relaxed);
 

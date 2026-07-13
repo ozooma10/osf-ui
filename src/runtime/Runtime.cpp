@@ -13,6 +13,7 @@
 #include "input/FocusMenu.h"
 #include "input/FreeCursor.h"
 #include "input/HardwareCursor.h"
+#include "input/PauseMenuEntry.h"
 #include "input/SimPause.h"
 #include "core/Paths.h"
 #include "platform/WindowsPlatform.h"
@@ -46,6 +47,10 @@ namespace OSFUI
 			REX::INFO("Runtime: disabled via config; nothing further will be initialized");
 			return true;
 		}
+
+		// The injected PauseMenu entry's label + target view (Reconcile itself
+		// is gated on config.pauseMenuEntry in Tick).
+		PauseMenuEntry::Configure(_config.pauseMenuEntryLabel, _config.pauseMenuEntryView);
 
 		_views.LoadAll(Paths::ViewsDir());
 
@@ -272,6 +277,14 @@ namespace OSFUI
 			return;
 		}
 		_uptime += a_deltaSeconds;
+		// EXPERIMENTAL (config.pauseMenuEntry): keep the injected "mod
+		// settings" entry present in the engine PauseMenu and act on its
+		// clicks. BEFORE the snapshot below so a click's EnqueueOpenView lands
+		// this same tick (kHide for the pause menu is queued inside; the
+		// overlay open then applies through the normal policy path).
+		if (_config.pauseMenuEntry) {
+			PauseMenuEntry::Reconcile();
+		}
 		// SNAPSHOT queued menu requests (F10/Esc/transition + plugin RequestMenu)
 		// now, but APPLY them after the bridge pump below — the ABI 1.3 ordering
 		// guarantee: a consumer that called SendToWeb(v, ...) and then
@@ -337,6 +350,14 @@ namespace OSFUI
 		_reqs.push_back(a_req);
 	}
 
+	void Runtime::EnqueueOpenView(std::string a_viewId)
+	{
+		// Callable from any thread (PauseMenuEntry click, future native
+		// triggers). Same leaf-lock discipline as EnqueueMenuRequest.
+		std::lock_guard lock(_reqMutex);
+		_openViewReqs.push_back(std::move(a_viewId));
+	}
+
 	Runtime::PendingMenuWork Runtime::TakeMenuRequests()
 	{
 		// Snapshot under the lock, then act unlocked (in ApplyMenuRequests) —
@@ -346,6 +367,7 @@ namespace OSFUI
 		{
 			std::lock_guard lock(_reqMutex);
 			work.local.swap(_reqs);
+			work.openViews.swap(_openViewReqs);
 		}
 		// Menu opens/closes a sibling plugin requested by id via the bridge API (e.g. an
 		// in-game item opening the scene browser). Same policy path as the F10 toggle.
@@ -357,7 +379,7 @@ namespace OSFUI
 	{
 		const auto& reqs = a_work.local;
 		const auto& pluginReqs = a_work.plugin;
-		if (reqs.empty() && pluginReqs.empty()) {
+		if (reqs.empty() && pluginReqs.empty() && a_work.openViews.empty()) {
 			return;
 		}
 		for (const auto req : reqs) {
@@ -371,6 +393,11 @@ namespace OSFUI
 			case MenuReq::CloseAll:
 				_menus.CloseAll();
 				break;
+			}
+		}
+		for (const auto& id : a_work.openViews) {
+			if (!_menus.Open(id)) {
+				REX::WARN("Runtime: EnqueueOpenView('{}') ignored — not a registered surface (or already open)", id);
 			}
 		}
 		for (const auto& r : pluginReqs) {
