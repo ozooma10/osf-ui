@@ -57,7 +57,9 @@ namespace OSFUI
 			}
 		}
 
-		REX::WARN("InputRouter: could not resolve key name '{}'; toggle key disabled", a_name);
+		// Callers vary (toggle key, hotkey bindings, conflict grouping): an
+		// unresolvable name simply does not bind.
+		REX::WARN("InputRouter: could not resolve key name '{}'", a_name);
 		return kInvalidKeyCode;
 	}
 

@@ -60,20 +60,21 @@ namespace OSFUI
 		}
 
 		// Iterate every setting object across all groups. `a_fn(setting)` may
-		// return true to stop early.
-		template <class Fn>
-		void ForEachSetting(const nlohmann::json& a_schema, Fn&& a_fn)
+		// return true to stop early. Templated on the json's constness so
+		// Data() can annotate its schema COPY through the same walk.
+		template <class Json, class Fn>
+		void ForEachSetting(Json& a_schema, Fn&& a_fn)
 		{
 			const auto groups = a_schema.find("groups");
 			if (groups == a_schema.end() || !groups->is_array()) {
 				return;
 			}
-			for (const auto& group : *groups) {
+			for (auto& group : *groups) {
 				const auto settings = group.find("settings");
 				if (settings == group.end() || !settings->is_array()) {
 					continue;
 				}
-				for (const auto& setting : *settings) {
+				for (auto& setting : *settings) {
 					if (setting.is_object() && a_fn(setting)) {
 						return;
 					}
@@ -325,14 +326,84 @@ namespace OSFUI
 		return mod ? std::optional(mod->source) : std::nullopt;
 	}
 
+	std::vector<SettingsStore::KeySetting> SettingsStore::KeySettings() const
+	{
+		std::vector<KeySetting> out;
+		for (const auto& mod : _mods) {
+			ForEachSetting(mod.schema, [&](const nlohmann::json& a_setting) {
+				if (Json::GetString(a_setting, "type", "") == "key") {
+					const auto key = Json::GetString(a_setting, "key", "");
+					if (!key.empty()) {
+						if (const auto it = mod.values.find(key); it != mod.values.end() && it->is_string()) {
+							out.push_back({ mod.id, key, it->get<std::string>() });
+						}
+					}
+				}
+				return false;
+			});
+		}
+		return out;
+	}
+
 	nlohmann::json SettingsStore::Data() const
 	{
+		// Informational key-conflict grouping (mcm-design.md §9): resolve
+		// every key-typed setting's current value ONCE, so the annotation walk
+		// below is a lookup, not a re-resolve (an unresolvable name would
+		// otherwise warn once per setting per pass). Never blocking — the
+		// renderer badges both sides of a collision; the bind stands.
+		struct Bound
+		{
+			std::string   modId;
+			std::string   key;
+			std::string   title;
+			std::uint32_t vk;
+		};
+		std::vector<Bound> bound;
+		if (_keyResolver) {
+			for (const auto& setting : KeySettings()) {
+				if (const auto vk = _keyResolver(setting.name); vk != 0) {
+					const auto* mod = FindMod(setting.modId);
+					bound.push_back({ setting.modId, setting.key,
+						mod ? Json::GetString(mod->schema, "title", mod->id) : setting.modId, vk });
+				}
+			}
+		}
+
 		nlohmann::json mods = nlohmann::json::array();
 		for (const auto& mod : _mods) {
+			nlohmann::json schema = mod.schema;
+			if (!bound.empty()) {
+				ForEachSetting(schema, [&](nlohmann::json& a_setting) {
+					if (Json::GetString(a_setting, "type", "") != "key") {
+						return false;
+					}
+					const auto key = Json::GetString(a_setting, "key", "");
+					const auto self = std::find_if(bound.begin(), bound.end(),
+						[&](const Bound& a_b) { return a_b.modId == mod.id && a_b.key == key; });
+					if (self == bound.end()) {
+						return false;  // unresolvable/empty value: never conflicts
+					}
+					nlohmann::json conflicts = nlohmann::json::array();
+					for (const auto& other : bound) {
+						if (other.vk == self->vk && (other.modId != mod.id || other.key != key)) {
+							conflicts.push_back({
+								{ "mod", other.modId },
+								{ "key", other.key },
+								{ "title", other.title },
+							});
+						}
+					}
+					if (!conflicts.empty()) {
+						a_setting["conflicts"] = std::move(conflicts);
+					}
+					return false;
+				});
+			}
 			mods.push_back({
 				{ "id", mod.id },
 				{ "title", Json::GetString(mod.schema, "title", mod.id) },
-				{ "schema", mod.schema },
+				{ "schema", std::move(schema) },
 				{ "values", mod.values },
 			});
 		}

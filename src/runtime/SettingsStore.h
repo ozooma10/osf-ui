@@ -53,6 +53,24 @@ namespace OSFUI
 		// settings menu re-renders on late registration (mcm-design.md §8.5).
 		using RegistryListener = std::function<void()>;
 
+		// Resolves a key NAME ("F10", "Grave", ...) to a physical key id (a
+		// Windows VK code in practice; 0 = unresolvable). Injected by the
+		// composition root (Runtime wires input's ResolveKeyName) so the store
+		// can group key-typed settings by PHYSICAL key — the informational
+		// conflict view in Data() (mcm-design.md §9) — without depending on
+		// the input layer itself. Unset: Data() emits no conflict data.
+		using KeyNameResolver = std::function<std::uint32_t(std::string_view a_name)>;
+
+		// One key-typed setting's identity + current value (the key NAME
+		// string — which may or may not resolve). The HotkeyService registry
+		// and the conflict grouping both enumerate these.
+		struct KeySetting
+		{
+			std::string modId;
+			std::string key;
+			std::string name;  // current value
+		};
+
 		// Fired after a mod's values file WRITE lands (the write-behind flush,
 		// not the commit — Set/Reset notify through ChangeListener immediately).
 		// The web layer pushes `settings.persisted` off this so the settings
@@ -122,6 +140,12 @@ namespace OSFUI
 		// capture accepts any "key"-typed setting) without parsing schemas.
 		[[nodiscard]] std::string GetSettingType(std::string_view a_modId, std::string_view a_key) const;
 
+		// Every `type:"key"` setting across all mods, with its current value.
+		// Empty-key and non-string-valued entries are skipped (defensive).
+		[[nodiscard]] std::vector<KeySetting> KeySettings() const;
+
+		void SetKeyNameResolver(KeyNameResolver a_resolver) { _keyResolver = std::move(a_resolver); }
+
 		// Monotonic counter bumped on every registry shape change (LoadAll,
 		// RegisterSchema, RemoveMod). Consumers re-broadcast `settings.data`
 		// when it moves (mcm-design.md §8.5).
@@ -131,6 +155,11 @@ namespace OSFUI
 		// { "mods": [ { id, title, schema, values }, ... ] }. Data() returns
 		// the json object (for native senders — no dump/re-parse round trip);
 		// DataJson() is its serialized form (tests, logging).
+		// With a KeyNameResolver set, every key-typed setting whose current
+		// value collides with another key-typed setting (same resolved
+		// physical key, any mod) carries `conflicts: [{mod, key, title}]` in
+		// its emitted schema object — INFORMATIONAL only (mcm-design.md §9):
+		// the renderer badges both sides; a colliding bind is never rejected.
 		[[nodiscard]] nlohmann::json Data() const;
 		[[nodiscard]] std::string    DataJson() const;
 
@@ -194,6 +223,7 @@ namespace OSFUI
 		void        NotifyRegistryChanged() const;
 
 		std::vector<Mod>              _mods;
+		KeyNameResolver               _keyResolver;
 		std::vector<ChangeListener>   _listeners;
 		std::vector<RegistryListener> _registryListeners;
 		std::vector<PersistListener>  _persistListeners;
