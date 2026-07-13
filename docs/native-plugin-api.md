@@ -293,8 +293,44 @@ independent of `MessageBridge` lifetime:
    callback once.
 4. If the bridge is later re-created, the API re-applies the whole registry —
    the consumer never re-registers.
-5. `SendToWeb` before the bridge is up returns `false` (dropped); the consumer
-   should push initial state from the `ReadyFn` callback, not blindly at startup.
+5. `SendToWeb` before the bridge is up is **queued** (ABI 1.3; on ≤ 1.2 it
+   returned `false`/dropped): the pump flushes it FIFO once a bridge appears,
+   and the renderer stashes it per view until that view's page can receive
+   (loaded + `osfui.onMessage` installed). Queues are bounded per view
+   (drop-oldest, warned in the log). Pushing initial state from the `ReadyFn`
+   callback is still good practice; it is just no longer load-bearing.
+
+### 6a. Delivery guarantee: open a view in a target state (ABI 1.3)
+
+A message to a loaded, bridge-enabled view is never dropped for timing
+reasons, and queued messages are delivered **before the view's first visible
+paint** after a `RequestMenu(viewId, true)`. The canonical consumer sequence
+
+```cpp
+g_ui->SendToWeb("osf", "osf.mode", R"({"mode":"wheel"})");
+g_ui->RequestMenu("osf", true);
+```
+
+guarantees the page's JS observes `osf.mode` before the view is on screen — no
+flash of the page's default face. Three host mechanisms compose into this:
+
+- `Runtime::Tick` snapshots `RequestMenu` ops **before** the bridge pump
+  flushes queued sends and applies them **after** it, so a send issued before
+  an open is always in the view's queue first.
+- The renderer's worker snapshots each view's hidden flag in the same critical
+  section that takes its message queue, and delivers queued messages before it
+  renders/composites — a view never appears in output produced by a pass that
+  had an undelivered message for it (`IsPresentable`,
+  `UltralightWebRenderer.cpp`).
+- On the closed→open edge the compositor reveal is deferred until the renderer
+  hands over a frame produced after the open (`Runtime::SubmitFrameIfVisible`),
+  so the present hook can't re-draw stale pre-open overlay content. Costs at
+  most a couple of frames of open latency.
+
+Detect the guarantee with `(GetInterfaceVersion() & 0xFFFF) >= 3` — e.g. OSF
+Animation gates removing its "veil" (hide-until-first-mode-push workaround) on
+it. Messages to a **visible, ready** view are unaffected: same queue, same
+next-worker-pass delivery as before.
 
 **A view is still required.** Requesting the API does not conjure a bridge. The
 consumer must ship a view with `permissions.nativeBridge: true` (that view is
@@ -324,9 +360,11 @@ Guards the implementation enforces:
   platform/first-party namespaces. Consumers use their own (`osf.*`).
 - **Collision logging.** Re-registering an existing command logs a warning with
   both owners; last-write-wins is preserved (matches `MessageBridge` today).
-- **Best-effort delivery, bounded.** `SendToWeb` rides the existing per-view
-  bounded `toWeb` queue; overflow is dropped warn-once. Handlers and senders
-  must stay cheap (main-thread, under the task lock).
+- **Guaranteed-order delivery, bounded.** `SendToWeb` rides the per-view
+  bounded `toWeb` queue (plus a bounded pre-ready queue in `BridgeApi` and a
+  bounded per-view stash in the renderer); overflow drops the OLDEST with a
+  log warning, so a spammed queue still converges on the newest state.
+  Handlers and senders must stay cheap (main-thread, under the task lock).
 - **No path/network capability** is added. The sandbox
   (`UltralightWebRenderer.cpp` `SandboxFileSystem`) is unchanged; views still
   cannot read outside `OSFUI/views`. (This is *why* the API exists: a view
@@ -517,7 +555,12 @@ reflects the **live registered** scene set.
   consumer action.
 - **Reserved prefix:** `RegisterCommand("settings.x", …)` is refused + logged.
 - **Collision:** two registrations of the same command → warn, last wins.
-- **No-bridge `SendToWeb`:** returns false before any `nativeBridge` view loads.
+- **No-bridge `SendToWeb`:** queued (returns true) before any `nativeBridge`
+  view loads; flushed FIFO once the bridge appears. If no bridge ever appears,
+  the queue stays bounded (per-view cap, drop-oldest, warned).
+- **Open-in-state (ABI 1.3):** `SendToWeb(v, mode)` then `RequestMenu(v, true)`
+  from a cold start — the page must observe the message before its first
+  visible frame (no default-face flash).
 - **Off-thread:** `RegisterCommand`/`SendToWeb` from a worker thread land on the
   main thread (assert the handler/sender thread id).
 - **Absent OSF UI / MAJOR mismatch:** `RequestBridge` returns `nullptr`; consumer

@@ -272,8 +272,13 @@ namespace OSFUI
 			return;
 		}
 		_uptime += a_deltaSeconds;
-		// Apply queued menu requests (F10/Esc/transition) on the MAIN thread first, so the reconcilers below and the frame submitted this tick reflect the new state.
-		DrainMenuRequests();
+		// SNAPSHOT queued menu requests (F10/Esc/transition + plugin RequestMenu)
+		// now, but APPLY them after the bridge pump below — the ABI 1.3 ordering
+		// guarantee: a consumer that called SendToWeb(v, ...) and then
+		// RequestMenu(v, true) has its send in _pendingSends before the request
+		// entered this snapshot, so the pump flushes the message into v's queue
+		// before the open unhides v (message before first visible paint).
+		const auto menuWork = TakeMenuRequests();
 		// Deliver a captured rebind key back to the settings view (main thread).
 		DrainKeyCapture();
 		// Apply queued runtime schema (un)registrations to the store first,
@@ -284,6 +289,9 @@ namespace OSFUI
 		// off-thread SendToWeb) on the main thread, before Update() flushes the
 		// per-view outbound queues to the pages.
 		API::BridgeApi::Get().PumpMainThread();
+		// NOW apply the snapshot, so the reconcilers below and the frame
+		// submitted this tick reflect the new menu state.
+		ApplyMenuRequests(menuWork);
 		// Land coalesced settings value writes once their write-behind window
 		// elapses (mcm-design.md §8.1) — a slider drag costs one disk write
 		// per ~500ms, not one per step.
@@ -329,17 +337,26 @@ namespace OSFUI
 		_reqs.push_back(a_req);
 	}
 
-	void Runtime::DrainMenuRequests()
+	Runtime::PendingMenuWork Runtime::TakeMenuRequests()
 	{
-		// Snapshot under the lock, then act unlocked, the actions call into the renderer/compositor and must never run while holding _reqMutex.
-		std::vector<MenuReq> reqs;
+		// Snapshot under the lock, then act unlocked (in ApplyMenuRequests) —
+		// the actions call into the renderer/compositor and must never run
+		// while holding _reqMutex.
+		PendingMenuWork work;
 		{
 			std::lock_guard lock(_reqMutex);
-			reqs.swap(_reqs);
+			work.local.swap(_reqs);
 		}
 		// Menu opens/closes a sibling plugin requested by id via the bridge API (e.g. an
-		// in-game item opening the scene browser). Same policy path as the F10 toggle below.
-		auto pluginReqs = API::BridgeApi::Get().TakeMenuRequests();
+		// in-game item opening the scene browser). Same policy path as the F10 toggle.
+		work.plugin = API::BridgeApi::Get().TakeMenuRequests();
+		return work;
+	}
+
+	void Runtime::ApplyMenuRequests(const PendingMenuWork& a_work)
+	{
+		const auto& reqs = a_work.local;
+		const auto& pluginReqs = a_work.plugin;
 		if (reqs.empty() && pluginReqs.empty()) {
 			return;
 		}
@@ -414,7 +431,21 @@ namespace OSFUI
 		const bool visible = _menus.DesiredVisible();
 		const bool wasVisible = _visible.exchange(visible);
 		if (_compositor) {
-			_compositor->SetVisible(visible);
+			if (visible && !wasVisible) {
+				// Closed->open edge: DEFER the reveal. The compositor redraws
+				// its last cached texture every present while visible, so
+				// showing it now would flash stale pre-open content for the
+				// frames it takes the renderer to deliver queued messages and
+				// hand over a post-open frame (see _revealPending).
+				_revealPending = true;
+			} else {
+				if (!visible) {
+					_revealPending = false;  // closed while a reveal was still pending
+				}
+				if (!_revealPending) {
+					_compositor->SetVisible(visible);
+				}
+			}
 		}
 
 		// Open->closed edge: the user just finished editing — flush the
@@ -1147,6 +1178,20 @@ namespace OSFUI
 			return;
 		}
 		if (const auto frame = _renderer->Render()) {
+			if (_revealPending) {
+				if (frame->frameIndex == _lastSubmittedFrame) {
+					// Still the frame from before the open — the renderer
+					// republishes under a new serial once the (re)shown view is
+					// presentable (messages delivered), so hold the reveal.
+					return;
+				}
+				_lastSubmittedFrame = frame->frameIndex;
+				_compositor->Submit(*frame);  // cache the fresh texture first...
+				_revealPending = false;
+				_compositor->SetVisible(true);  // ...then let the present hook draw it
+				return;
+			}
+			_lastSubmittedFrame = frame->frameIndex;
 			_compositor->Submit(*frame);
 		}
 	}

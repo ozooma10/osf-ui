@@ -2,6 +2,7 @@
 
 #include <unordered_set>  // not in pch.h
 
+#include "api/BridgeApi.h"
 #include "composite/ICompositor.h"
 #include "core/Config.h"
 #include "input/InputRouter.h"
@@ -128,8 +129,20 @@ namespace OSFUI
 		// Derive the desired UI state from the MenuController and apply it to the renderer/compositor/flags (hidden, order, active view, capture, visibility).
 		void ApplyMenuPolicy();
 
-		// Drain queued menu requests (F10/Esc/transition) on the main thread and apply the resulting policy. Called at the top of Tick.
-		void DrainMenuRequests();
+		// Queued menu requests, snapshotted at the top of Tick (F10/Esc/
+		// transition plus the native API's RequestMenu ops) and APPLIED after
+		// BridgeApi::PumpMainThread. The snapshot-first/apply-after split is the
+		// host half of the ABI 1.3 delivery guarantee: any SendToWeb a consumer
+		// issued BEFORE a RequestMenu in this snapshot is flushed to the view's
+		// queue by the pump before the open unhides the view — so the page
+		// observes the message before its first visible paint.
+		struct PendingMenuWork
+		{
+			std::vector<MenuReq>                     local;
+			std::vector<API::BridgeApi::MenuRequest> plugin;
+		};
+		[[nodiscard]] PendingMenuWork TakeMenuRequests();
+		void                          ApplyMenuRequests(const PendingMenuWork& a_work);
 
 		// Apply the native API's queued RegisterSettingsSchema /
 		// UnregisterSettingsSchema ops to the store (Source::kNative) on the
@@ -248,6 +261,17 @@ namespace OSFUI
 
 		std::atomic_bool              _visible{ false };
 		bool                          _initialized{ false };
+
+		// Deferred compositor reveal (main thread only). The present-hook
+		// compositor keeps drawing its last cached texture while visible, so on
+		// the closed->open edge ApplyMenuPolicy arms this instead of calling
+		// SetVisible(true): SubmitFrameIfVisible holds the reveal until the
+		// renderer hands over a frame with a NEW serial — one produced after the
+		// open, i.e. after every queued message was delivered (ABI 1.3
+		// message-before-first-paint). Costs at most a couple of frames of open
+		// latency; prevents any flash of stale pre-open overlay content.
+		bool          _revealPending{ false };
+		std::uint64_t _lastSubmittedFrame{ 0 };
 
 		// The view that last received ui.visibility{visible:true}, so the open->closed edge can
 		// signal the SAME view {visible:false} (by then ActiveMenu() is already empty). Main-thread

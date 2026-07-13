@@ -15,6 +15,12 @@ namespace OSFUI::API
 			       a_cmd.starts_with("game.") || a_cmd.starts_with("settings.") ||
 			       a_cmd.starts_with("views.");
 		}
+
+		// Cap on queued SendToWeb messages per target view while no bridge is
+		// live to flush them (ABI 1.3 queue-until-deliverable). Matches the
+		// renderer's per-view queue bound; overflow drops the OLDEST so the
+		// view still converges on the newest pushed state when it comes up.
+		constexpr std::size_t kMaxPendingSendsPerView = 64;
 	}
 
 	BridgeApi& BridgeApi::Get()
@@ -82,9 +88,6 @@ namespace OSFUI::API
 		if (!a_viewId || !a_type || !a_payloadJson) {
 			return false;
 		}
-		if (!_ready.load()) {
-			return false;  // no live bridge yet — consumer should send from the ready callback
-		}
 		// Validate now so a malformed payload is reported synchronously; delivery is
 		// marshaled to the main thread in PumpMainThread.
 		const auto parsed = nlohmann::json::parse(a_payloadJson, nullptr, /*allow_exceptions*/ false);
@@ -92,6 +95,25 @@ namespace OSFUI::API
 			return false;
 		}
 		std::lock_guard lock(_mutex);
+		// ABI 1.3: QUEUE even before a bridge is live (older MINORs returned
+		// false here). The pump flushes FIFO once one appears, and the renderer
+		// then stashes per view until the page can receive — so a send issued at
+		// plugin load, or right before a RequestMenu open, is never dropped.
+		// Bounded per view so pushes to a view that never comes up can't grow
+		// memory unboundedly.
+		if (!_ready.load()) {
+			std::size_t sameView = 0;
+			for (const auto& s : _pendingSends) {
+				sameView += (s.view == a_viewId) ? 1u : 0u;
+			}
+			if (sameView >= kMaxPendingSendsPerView) {
+				const auto oldest = std::ranges::find_if(_pendingSends,
+					[&](const PendingSend& s) { return s.view == a_viewId; });
+				REX::WARN("BridgeApi: pre-ready SendToWeb queue for view '{}' is full ({}); dropping oldest queued '{}'",
+					a_viewId, kMaxPendingSendsPerView, oldest->type);
+				_pendingSends.erase(oldest);
+			}
+		}
 		_pendingSends.push_back({ std::string(a_viewId), std::string(a_type), std::string(a_payloadJson) });
 		return true;
 	}

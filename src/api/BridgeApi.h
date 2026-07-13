@@ -52,7 +52,10 @@ namespace OSFUI::API
 			std::string view;
 			bool        open{ true };
 		};
-		// Drain the queued menu requests (MAIN thread). Runtime applies each through its own menu policy (_menus.Open/Close + ApplyMenuPolicy) in DrainMenuRequests.
+		// Drain the queued menu requests (MAIN thread). Runtime snapshots these at
+		// the top of Tick (TakeMenuRequests) and applies each through its own menu
+		// policy (_menus.Open/Close + ApplyMenuPolicy) AFTER PumpMainThread — see
+		// Runtime::Tick for the SendToWeb-before-RequestMenu ordering guarantee.
 		std::vector<MenuRequest> TakeMenuRequests();
 
 		// A queued RegisterSettingsSchema (schema is an object) or

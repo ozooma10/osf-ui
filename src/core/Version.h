@@ -3,11 +3,11 @@
 namespace OSFUI
 {
 	inline constexpr const char* kPluginName = "OSF UI";
-	inline constexpr const char* kPluginVersion = "0.1.0";
+	inline constexpr const char* kPluginVersion = "0.2.0";
 	// Numeric form of kPluginVersion, for the native plugin API
 	// (IOSFUIBridge::GetPluginVersion). Keep in lockstep with kPluginVersion.
 	inline constexpr std::uint32_t kPluginVersionMajor = 0;
-	inline constexpr std::uint32_t kPluginVersionMinor = 1;
+	inline constexpr std::uint32_t kPluginVersionMinor = 2;
 	inline constexpr std::uint32_t kPluginVersionPatch = 0;
 
 	// Version of the native<->web bridge protocol (message envelope, command

@@ -28,10 +28,14 @@
 
 namespace OSFUI::API
 {
-	// Packed (MAJOR << 16) | MINOR. MAJOR breaks ABI; MINOR bumps on an appended vmethod.
+	// Packed (MAJOR << 16) | MINOR. MAJOR breaks ABI; MINOR bumps on an appended
+	// vmethod — or, as of 1.3, on a strengthened behavioral guarantee a consumer
+	// may need to detect (no vtable change).
 	// History: 1.0 commands/sends/ready; 1.1 +RequestMenu; 1.2 +settings
-	// (SubscribeSettings, typed getters, RegisterSettingsSchema).
-	inline constexpr std::uint32_t kBridgeAPIVersion = (1u << 16) | 2u;
+	// (SubscribeSettings, typed getters, RegisterSettingsSchema); 1.3 SendToWeb
+	// delivery guarantee (queue-until-deliverable + message-before-first-paint;
+	// see SendToWeb below — no new vmethods).
+	inline constexpr std::uint32_t kBridgeAPIVersion = (1u << 16) | 3u;
 	inline constexpr std::uint32_t kBridgeAPIMajor   = kBridgeAPIVersion >> 16;
 	inline constexpr std::uint32_t kBridgeAPIMinor   = kBridgeAPIVersion & 0xFFFFu;
 
@@ -79,8 +83,21 @@ namespace OSFUI::API
 
 		// --- native -> web. Thread-safe; queued to the target view. ---
 		// Delivers { "type": a_type, "payload": <a_payloadJson> } to a_viewId.
-		// a_payloadJson must be valid JSON text. Returns false if the bridge is
-		// down or the payload won't parse (message dropped).
+		// a_payloadJson must be valid JSON text.
+		//
+		// DELIVERY GUARANTEE (MINOR >= 3): a message to a loaded, bridge-enabled
+		// view is QUEUED — never dropped — while the view cannot yet receive it
+		// (bridge not live yet, page still loading, osfui.onMessage not yet
+		// installed, or the view hidden), and queued messages flush FIFO before
+		// the view's first visible paint after a RequestMenu(viewId, true). So
+		//     SendToWeb(v, ...); RequestMenu(v, true);
+		// guarantees the page observes the message BEFORE it is on screen — open
+		// a view directly in a target state with no default-face flash frames.
+		// Queues are bounded (drop-OLDEST, warned in the OSF UI log), so a view
+		// that never opens cannot grow memory unboundedly. Returns false only on
+		// null arguments or a payload that won't parse. Detect the guarantee via
+		// (GetInterfaceVersion() & 0xFFFF) >= 3; on MINOR <= 2 a send before the
+		// bridge was ready returned false (dropped) instead.
 		virtual bool SendToWeb(const char* a_viewId, const char* a_type, const char* a_payloadJson) = 0;
 
 		// --- readiness notification. Callback runs on the main thread. ---
@@ -149,6 +166,10 @@ namespace OSFUI::API
 	// vtable ends before the newest methods. Before calling anything a later
 	// MINOR added (see the History note above), check the runtime's version:
 	//   if ((bridge->GetInterfaceVersion() & 0xFFFF) >= 2) { /* settings ok */ }
+	// MINOR also gates behavioral guarantees: >= 3 means SendToWeb's
+	// queue-until-deliverable + message-before-first-paint guarantee holds (so
+	// e.g. a consumer can retire an "opening veil" that hid its UI until the
+	// first state push landed).
 	inline IOSFUIBridge* RequestBridge(std::uint32_t a_abiVersion = kBridgeAPIVersion) noexcept
 	{
 		const REX::W32::HMODULE mod = REX::W32::GetModuleHandleW(kModuleName);

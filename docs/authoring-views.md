@@ -141,8 +141,14 @@ window.osfui.onMessage = (jsonString) => { ... };
 ```
 
 `postMessage` is read-only and cannot be reassigned. You provide `onMessage`.
-Messages sent before your `onMessage` exists are queued and flushed once the
-DOM is ready, so it is safe to assign it at the top of your script.
+Messages sent before your `onMessage` exists are queued (bounded, FIFO) and
+flushed once the DOM is ready **and** `onMessage` is installed, so it is safe
+to assign it at the top of your script. Do assign it during initial script
+execution: a view that has queued messages it cannot yet receive is kept off
+screen until they are delivered (the plugin-API "open a view in a specific
+state" guarantee, ABI 1.3 — see `docs/native-plugin-api.md` §6a), and a page
+that never installs `onMessage` while being sent messages stays hidden with a
+warning in the SFSE log.
 
 ### Message envelope
 

@@ -12,6 +12,7 @@
 	#include <condition_variable>
 	#include <deque>
 	#include <thread>
+	#include <unordered_set>
 	#include <utility>
 
 	// SDK headers are not C4100-clean under /Wall-ish warning levels.
@@ -438,6 +439,13 @@ namespace OSFUI
 			Frame pendingFrame;
 			bool  pendingFresh{ false };
 			Frame frontFrame;
+			// The pending/front lineage missed one or more backFrame updates
+			// (harvests while the view was unpublishable, multi-view passes that
+			// bypass the per-view exchange, or an unhide-time discard of an
+			// unconsumed publish) — the next single-view publish must be
+			// FULL-rect or the hand-off would tear. Worker sets/clears it;
+			// SetViewHidden (game thread) sets it on the unhide discard.
+			std::atomic<bool> pendingStale{ false };
 
 			// worker-thread-only
 			ul::RefPtr<ul::View>    view;
@@ -460,6 +468,7 @@ namespace OSFUI
 		std::unordered_map<std::string, std::unique_ptr<ViewState>> views;         // guarded by mutex
 		std::string                                                 activeViewId;  // guarded by mutex
 		std::vector<std::string>                                    drawOrder;     // view ids bottom->top; guarded by mutex
+		std::unordered_set<std::string>                             warnedSendDrops;  // warn-once ids for undeliverable SendMessageToWeb; guarded by mutex
 
 		// Composited output, used ONLY when more than one view is hosted. The
 		// worker blends every view's latest frame (drawOrder, bottom-to-top) into
@@ -752,6 +761,9 @@ namespace OSFUI
 			a_vs.view->set_load_listener(this);
 			a_vs.view->set_view_listener(this);
 			a_vs.domReady = false;
+			// A (re)loading view is not presentable; recomposite so it drops out
+			// of the output instead of lingering as a stale frozen frame.
+			compositeDirty.store(true);
 
 			// Folder-qualified URL so the shared SandboxFileSystem can serve
 			// several views at once — no per-view "current root" to race.
@@ -760,6 +772,18 @@ namespace OSFUI
 			REX::INFO("UltralightWebRenderer: loading view '{}' -> {} (folder {})",
 				a_manifest.id, url, a_manifest.rootDir.string());
 			a_vs.view->LoadURL(url.c_str());
+		}
+
+		// A view may appear in published output only when it is not hidden, its
+		// page is ready, AND every message queued for it has been delivered —
+		// the queue-until-first-paint guarantee (ABI 1.3): a consumer that
+		// pushes state and then opens the view must never see the page's
+		// pre-message face on screen. The stash empties in the flush step of
+		// the same pass (before Render/composite below), so this only stays
+		// false while the page genuinely cannot receive.
+		[[nodiscard]] static bool IsPresentable(const ViewState& a_vs)
+		{
+			return !a_vs.workerHidden && a_vs.domReady && a_vs.stashedToWeb.empty();
 		}
 
 		void PumpUltralight(const std::vector<ViewState*>& a_ordered)
@@ -790,12 +814,30 @@ namespace OSFUI
 			// so each hand-off copies only the dirty rect; when the consumer has
 			// not drained the previous update yet, the rects are unioned.
 			if (a_ordered.size() <= 1) {
-				if (!a_ordered.empty() && a_ordered.front()->backDirty && !a_ordered.front()->hidden.load()) {
-					auto* vs = a_ordered.front();
+				auto* vs = a_ordered.empty() ? nullptr : a_ordered.front();
+				// forceComposite republishes here too (not just multi-view): an
+				// unhidden-but-unchanged page must still hand over a frame under
+				// a NEW serial, or the game thread's deferred reveal
+				// (Runtime::SubmitFrameIfVisible) would wait forever on a page
+				// that has nothing to repaint.
+				if (vs && IsPresentable(*vs) && (vs->backDirty || forceComposite) &&
+					!vs->backFrame.pixels.empty()) {
+					if (vs->pendingStale.exchange(false)) {
+						// The exchange lineage missed updates — repair with a
+						// full-rect hand-off (see pendingStale's declaration).
+						vs->backFrame.dirty = DirtyRect::Full(vs->backFrame.width, vs->backFrame.height);
+					}
+					if (!vs->backDirty) {
+						vs->backFrame.index = ++frameSerial;  // unchanged pixels, fresh serial
+					}
 					std::scoped_lock lk(frameMutex);
 					PublishRect(vs->backFrame, vs->pendingFrame, vs->pendingFresh);
 					vs->pendingFresh = true;
 					vs->backDirty = false;
+				} else if (vs && vs->backDirty) {
+					// Harvested but not handed over: the per-view exchange just
+					// missed this update.
+					vs->pendingStale.store(true);
 				}
 			} else if (anyDirty || forceComposite) {
 				if (CompositeViews(a_ordered, forceComposite)) {
@@ -804,6 +846,11 @@ namespace OSFUI
 					compositedFresh = true;
 				}
 				for (auto* vs : a_ordered) {
+					if (vs->backDirty) {
+						// Multi-view passes bypass the per-view exchange, so its
+						// lineage misses every update made in this mode.
+						vs->pendingStale.store(true);
+					}
 					vs->backDirty = false;
 				}
 			}
@@ -937,9 +984,9 @@ namespace OSFUI
 		// skipped view's next same-size harvest is always full-rect, because
 		// resizing reallocates its backFrame.)
 		//
-		// compositedBack is persistent: only the union of the VISIBLE views'
-		// dirty rects is re-blended (a hidden view repainting cannot change the
-		// output; hide/show/reorder arrives as a_forceFull). The cleared region
+		// compositedBack is persistent: only the union of the PRESENTABLE views'
+		// dirty rects is re-blended (an excluded view repainting cannot change
+		// the output; hide/show/reorder/ready flips arrive as a_forceFull). The cleared region
 		// must be re-blended by EVERY visible view, not just the dirty one —
 		// the clear wiped all layers there. Returns false when nothing visible
 		// changed, so the caller can skip publishing a no-op frame.
@@ -972,7 +1019,7 @@ namespace OSFUI
 				region = DirtyRect::Full(w, h);
 			} else {
 				for (const auto* vs : a_ordered) {
-					if (!vs->hidden.load() && vs->backDirty &&
+					if (IsPresentable(*vs) && vs->backDirty &&
 						vs->backFrame.width == w && vs->backFrame.height == h) {
 						region = DirtyRect::Union(region,
 							vs->backFrame.dirty.Empty() ? DirtyRect::Full(w, h) : vs->backFrame.dirty);
@@ -992,7 +1039,7 @@ namespace OSFUI
 			}
 
 			for (const auto* vs : a_ordered) {
-				if (vs->hidden.load()) {
+				if (!IsPresentable(*vs)) {
 					continue;
 				}
 				const Frame& src = vs->backFrame;
@@ -1125,13 +1172,59 @@ namespace OSFUI
 			JSStringRelease(osfuiName);
 		}
 
+		// True once the page can actually take delivery: window.osfui exists
+		// (injected at window-object-ready for bridge-enabled views) and the
+		// page has installed osfui.onMessage.
+		[[nodiscard]] bool PageCanReceive(ViewState& a_vs)
+		{
+			if (!a_vs.view) {
+				return false;
+			}
+			auto         scopedCtx = a_vs.view->LockJSContext();
+			JSContextRef ctx = scopedCtx->ctx();
+			JSObjectRef  global = JSContextGetGlobalObject(ctx);
+			JSStringRef  osfuiName = JSStringCreateWithUTF8CString("osfui");
+			JSValueRef   osfuiVal = JSObjectGetProperty(ctx, global, osfuiName, nullptr);
+			JSStringRelease(osfuiName);
+			if (!JSValueIsObject(ctx, osfuiVal)) {
+				return false;
+			}
+			JSObjectRef osfui = JSValueToObject(ctx, osfuiVal, nullptr);
+			JSStringRef onName = JSStringCreateWithUTF8CString("onMessage");
+			JSValueRef  onVal = JSObjectGetProperty(ctx, osfui, onName, nullptr);
+			JSStringRelease(onName);
+			return JSValueIsObject(ctx, onVal) &&
+			       JSObjectIsFunction(ctx, JSValueToObject(ctx, onVal, nullptr));
+		}
+
 		void FlushStashedMessages(ViewState& a_vs)
 		{
+			if (a_vs.stashedToWeb.empty()) {
+				return;
+			}
+			// HOLD (don't drop) until the page can receive — and because
+			// IsPresentable keeps a view with a non-empty stash off screen, no
+			// visible paint can precede a queued message. A page that never
+			// installs onMessage stays hidden with this warning in the log; the
+			// stash itself is bounded (drop-oldest) so it cannot grow unbounded.
+			if (!PageCanReceive(a_vs)) {
+				if (!a_vs.warnedNotReceiving) {
+					a_vs.warnedNotReceiving = true;
+					REX::WARN("UltralightWebRenderer: view '{}' has not installed osfui.onMessage; holding {} queued message(s) (the view stays off screen until it can receive)",
+						a_vs.id, a_vs.stashedToWeb.size());
+				}
+				return;
+			}
+			a_vs.warnedNotReceiving = false;
+			a_vs.warnedStashOverflow = false;
 			while (!a_vs.stashedToWeb.empty()) {
 				const auto json = std::move(a_vs.stashedToWeb.front());
 				a_vs.stashedToWeb.pop_front();
 				DeliverToWeb(a_vs, json);
 			}
+			// The drain may have just made the view presentable — force a
+			// recomposite so it appears without waiting for its next repaint.
+			compositeDirty.store(true);
 		}
 
 		void DeliverToWeb(ViewState& a_vs, const std::string& a_json)
@@ -1467,6 +1560,9 @@ namespace OSFUI
 				return;
 			}
 			vs->domReady = true;
+			// Ready flips presentability without any repaint necessarily
+			// following — force a recomposite so the view can appear.
+			compositeDirty.store(true);
 			REX::INFO("UltralightWebRenderer: DOM ready for view '{}' ({})", vs->id, ToUTF8(a_url));
 			{
 				std::scoped_lock lk(mutex);
@@ -1880,13 +1976,30 @@ namespace OSFUI
 			std::scoped_lock lk(_impl->mutex);
 			const auto it = _impl->views.find(std::string(a_viewId));
 			if (it == _impl->views.end()) {
-				return;  // unknown/unloaded view
+				// Not a loaded view: nothing can ever flush this, so it is
+				// dropped — loudly (once per id), since a silent drop here is
+				// exactly the failure mode the 1.3 queue guarantee closes for
+				// loaded views.
+				if (_impl->warnedSendDrops.insert(std::string(a_viewId)).second) {
+					REX::WARN("UltralightWebRenderer: message to '{}' dropped — not a loaded view (further drops for this id are not logged)", a_viewId);
+				}
+				return;
 			}
 			auto* vs = it->second.get();
-			if (vs->toWeb.size() >= kMaxQueuedMessages) {
-				static std::once_flag once;
-				Log::WarnOnce(once, "UltralightWebRenderer: native->web queue full; dropping messages");
+			if (!vs->bridgeAllowed) {
+				// The page never gets window.osfui, so it can never receive;
+				// queueing would just hold the view off screen forever.
+				if (_impl->warnedSendDrops.insert(std::string(a_viewId)).second) {
+					REX::WARN("UltralightWebRenderer: message to '{}' dropped — its manifest does not request permissions.nativeBridge (further drops for this id are not logged)", a_viewId);
+				}
 				return;
+			}
+			if (vs->toWeb.size() >= kMaxQueuedMessages) {
+				// Bounded queue-until-deliverable: drop the OLDEST so the page
+				// still converges on the newest pushed state.
+				static std::once_flag once;
+				Log::WarnOnce(once, "UltralightWebRenderer: native->web queue full; dropping oldest messages");
+				vs->toWeb.pop_front();
 			}
 			vs->toWeb.emplace_back(a_json);
 		}
@@ -1976,8 +2089,25 @@ namespace OSFUI
 	{
 		std::scoped_lock lk(_impl->mutex);
 		if (const auto it = _impl->views.find(std::string(a_viewId)); it != _impl->views.end()) {
-			it->second->hidden.store(a_hidden);
-			// Recompose even if no view repaints, else the hidden one lingers.
+			const bool was = it->second->hidden.exchange(a_hidden);
+			if (was && !a_hidden) {
+				// Unhide edge: DISCARD any unconsumed pending frame. A worker
+				// pass in flight when the view was hidden can have published one
+				// last pre-hide frame that the game thread (which stops pulling
+				// while the overlay is down) never consumed — without this, the
+				// deferred reveal (Runtime::SubmitFrameIfVisible) would mistake
+				// that stale frame's serial for post-open content. Nested
+				// mutex -> frameMutex is safe: no path locks them in the other
+				// order (Render() and the worker take frameMutex alone).
+				std::scoped_lock fl(_impl->frameMutex);
+				it->second->pendingFresh = false;
+				// The discarded publish's pixels were already patched into
+				// pendingFrame but the game-side front never saw them — the
+				// next publish must be full-rect (see pendingStale).
+				it->second->pendingStale.store(true);
+			}
+			// Recompose even if no view repaints, else the hidden one lingers
+			// (and an unhidden one republishes under a fresh serial).
 			_impl->compositeDirty.store(true);
 		}
 		_impl->wake.notify_all();
