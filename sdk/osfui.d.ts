@@ -1,7 +1,7 @@
 /**
  * TypeScript definitions for the OSF UI native <-> web bridge.
  *
- * Bridge protocol version: 0.3 (UNSTABLE — minor bumps may break views until
+ * Bridge protocol version: 0.4 (UNSTABLE — minor bumps may break views until
  * 1.0). Negotiate against the `bridgeVersion` field of the `runtime.ready`
  * message. Keep in lockstep with:
  *   - docs/authoring-views.md          (prose reference)
@@ -122,6 +122,20 @@ export interface SettingsPersistedPayload {
   mod: string;
 }
 
+/**
+ * A hotkey fired (protocol 0.4, mcm-design.md §9): the physical key currently
+ * bound to the identified `type:"key"` setting was pressed during gameplay.
+ * Pushed to every subscriber (any view that has sent `settings.get`) — filter
+ * on `mod` (and `key`) and ignore the rest. This is how a mod's own HUD
+ * implements "toggle myself on my hotkey" with zero native code. Suppressed
+ * while the overlay captures input (typing in a settings field) or a rebind
+ * capture is armed; rebinds re-route automatically.
+ */
+export interface UiHotkeyPayload {
+  mod: string;
+  key: string;
+}
+
 /** Result of a settings.captureKey: the captured key name, or cancelled (Esc / unbindable). */
 export interface SettingsCapturedPayload {
   mod: string;
@@ -176,6 +190,7 @@ export type NativeToWebMessage =
   | BridgeEnvelope<"settings.changed", SettingsChangedPayload>
   | BridgeEnvelope<"settings.persisted", SettingsPersistedPayload>
   | BridgeEnvelope<"settings.captured", SettingsCapturedPayload>
+  | BridgeEnvelope<"ui.hotkey", UiHotkeyPayload>
   | BridgeEnvelope<"ui.error", UiErrorPayload>;
 
 // ---------------------------------------------------------------------------
@@ -240,6 +255,14 @@ export interface Setting {
   requires?: RequiresKind;
   visibleWhen?: Condition;
   enabledWhen?: Condition;
+  /**
+   * RUNTIME-INJECTED, never authored (protocol 0.4): on a `type:"key"`
+   * setting in a `settings.data` document, the OTHER key-typed settings
+   * (any mod) currently bound to the same physical key. Informational only —
+   * the runtime never rejects a colliding bind; render a warning badge.
+   * Absent when the binding is unique.
+   */
+  conflicts?: Array<{ mod: string; key: string; title: string }>;
 }
 
 /** Static rich-text callout. Micro-markdown only: **bold**, *italic*, `code`, \n. */

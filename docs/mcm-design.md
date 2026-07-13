@@ -747,7 +747,16 @@ rule goes in the panel-author docs with `contain: paint` guidance).
 > `BridgeApi`, `sdk/OSFUI_API.h` bumped to 1.2) — and sparse + debounced
 > write-behind persistence (§8.1).
 >
-> **Not yet built (needs the Windows/CommonLibSF build):** HotkeyService,
+> **Also built (2026-07-13):** the HotkeyService core (§9) — every key-typed
+> setting dispatches through `src/runtime/HotkeyService.*` (registry rebuilt
+> on rebind/registration, suppressed while capturing/rebinding), delivered
+> over C ABI **1.4** (`SubscribeHotkey`, `src/api/HotkeySubscriptions.*`) and
+> as the `ui.hotkey` web push (protocol **0.4**), with informational
+> `conflicts` data embedded per key-setting in `settings.data`. Host-tested
+> (six suites, 313 checks); in-game verification pending. The renderer-side
+> conflict badges and the keybindings UI are not built yet.
+>
+> **Not yet built (needs the Windows/CommonLibSF build):**
 > `color`/`flags` as native-validated types, and the Papyrus surface.
 > `type:"color"` ships as `widget:"color"` on a `string` until the native
 > validator lands.

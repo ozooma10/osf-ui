@@ -11,7 +11,7 @@ a reference for the two data-driven extension points that work today:
 > (`config.json` → `view`), and new *native* bridge commands or game-data
 > bindings still require core changes. What you can ship as pure content with
 > no recompile: a `views/<id>/` folder and a `settings/<id>.json` schema. The
-> bridge protocol is at version **0.3 — unstable**; minor bumps may break
+> bridge protocol is at version **0.4 — unstable**; minor bumps may break
 > views until it reaches 1.0. Detect it via the `bridgeVersion` field of the
 > `runtime.ready` handshake (below) and degrade/refuse on a mismatch. See the
 > roadmap in [renderer-plan.md](renderer-plan.md).
@@ -193,7 +193,7 @@ Whitelisted commands (anything else is rejected + logged):
 | `settings.get` | — | runtime replies with `settings.data` |
 | `settings.set` | `mod, key, value` | set one schema-declared setting (validated) |
 | `settings.reset` | `mod`, `key?` | reset one key, or the whole mod if `key` omitted |
-| `settings.captureKey` | `mod, key` | arm native key-rebind capture for a `key`-typed setting; the next key press replies with `settings.captured`. Framework-managed (currently only `osfui.toggleKey`) — captured natively so pressing the current toggle key rebinds instead of closing the overlay |
+| `settings.captureKey` | `mod, key` | arm native key-rebind capture for ANY `key`-typed setting of any mod; the next key press replies with `settings.captured`. Captured natively so pressing the current toggle key rebinds instead of closing the overlay |
 
 > There is intentionally **no** "call any native function" escape hatch. New
 > commands come from native code only: either a handler in the OSF UI runtime,
@@ -211,9 +211,10 @@ Assign `window.osfui.onMessage` and switch on `message.type`:
 | `runtime.pong` | `{}` | reply to your `ping` |
 | `game.data` | `{ available, day, month, year, hour, daysPassed }` | reply to `game.get`; `available:false` before a save is loaded |
 | `views.data` | `{ views: [ { id, title, description, kind, interactive, hub, open, focused, loadState } ] }` | reply to `views.get`, and re-pushed to every subscribed view when any entry changes. `kind` = `"menu"`\|`"hud"`; `loadState` = `"loading"`\|`"loaded"`\|`"failed"`; a view torn down by crash-recovery drops out of the list. Respect `hub:false` (don't list those) |
-| `settings.data` | `{ mods: [ { id, title, schema, values } ] } ` | reply to `settings.get` / after a `settings.reset` |
+| `settings.data` | `{ mods: [ { id, title, schema, values } ] } ` | reply to `settings.get` / after a `settings.reset`. A `key`-typed setting whose binding collides with another mod's carries runtime-injected `conflicts: [{mod, key, title}]` in its schema object — informational; render a badge, never block |
 | `settings.ack` | `{ mod, key, ok }` | result of a `settings.set` (`ok:false` ⇒ rejected/clamped) |
 | `settings.captured` | `{ mod, key, name, cancelled }` | reply to `settings.captureKey`: the captured key `name` (an OSF UI key name), or `cancelled:true` (Escape / unbindable — keep the old binding). The view then sends a normal `settings.set` with `name` |
+| `ui.hotkey` | `{ mod, key }` | the physical key currently bound to that `key`-typed setting was pressed in-game (protocol 0.4). Pushed to every `settings.get` subscriber — filter on `mod`. Suppressed while the overlay captures input or a rebind is armed; rebinds re-route automatically |
 | `ui.error` | `{ reason, type?, command? }` | the runtime rejected something you sent — a malformed message, an unknown `type`, or an unknown `command`. Log it while developing; the same WARN is in `OSF UI.log` |
 
 Unknown `type`s should be ignored (never `eval`'d) — including future `type`s
@@ -328,15 +329,34 @@ send("settings.get");  // initial read + subscription in one call
 
 You receive changes for **all** mods — filter on `payload.mod`.
 
-### Reacting natively (currently a core change)
+### Hotkeys with zero native code (protocol 0.4)
 
-Native code can subscribe to changes (see `Runtime::OnSettingChanged`). Today
-this is wired in-tree (e.g. `osfui.toggleKey` live-rebinds the overlay's
-open/close key on the input router). A
-public "subscribe to my setting" API for separate SFSE plugins (C ABI 1.2 —
-`SubscribeSettings` + typed getters, see `docs/mcm-design.md` §8.2) is the
-next native milestone; until it lands, native reactions to a *new* mod's
-settings need a core edit.
+Every `type:"key"` setting is a **live hotkey** (mcm-design.md §9): when the
+user presses the bound key in-game, the runtime pushes
+`ui.hotkey { mod, key }` to every `settings.get` subscriber. So the same
+single subscription above also makes your HUD toggleable:
+
+```js
+if (msg.type === "ui.hotkey" && msg.payload.mod === "mymod" && msg.payload.key === "toggleHud") {
+  send("setViewHidden", { hidden: visible = !visible });  // or hud.show/hud.hide
+}
+```
+
+Presses typed into an overlay text field or during a rebind capture never
+fire, key repeats never fire, and the user can rebind freely — the runtime
+re-resolves the binding on every change. Duplicate bindings across mods all
+fire; the settings view badges them (the `conflicts` data above), but they
+are never blocked.
+
+### Reacting natively (C ABI)
+
+Separate SFSE plugins subscribe over the native bridge — no core edit needed:
+`SubscribeSettings` + typed getters for values (C ABI 1.2), `SubscribeHotkey`
+for key presses (C ABI 1.4). See
+[native-plugin-api.md](native-plugin-api.md) §5a/§5b and `docs/mcm-design.md`
+§8.2/§9. In-tree framework knobs still react through
+`Runtime::OnSettingChanged` (e.g. `osfui.toggleKey` live-rebinds the overlay's
+open/close key).
 
 ---
 
@@ -392,7 +412,7 @@ Tooling to author against the contract instead of from memory:
 
 ### Versioning
 
-The protocol version is **0.3** and is emitted in `runtime.ready` as
+The protocol version is **0.4** and is emitted in `runtime.ready` as
 `bridgeVersion`. It is distinct from the plugin `version`. Until it reaches
 `1.0`, treat minor bumps as potentially breaking and gate your view on it:
 
