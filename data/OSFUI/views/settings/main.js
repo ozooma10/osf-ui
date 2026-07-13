@@ -1,8 +1,9 @@
 // Schema-driven settings view — two-pane master/detail.
 //
-// Left rail lists the configurable subjects: OSF UI itself (the framework,
-// pinned first) under FRAMEWORK, then every mod that ships a settings/<id>.json
-// schema under MODS. The right pane renders the selected subject's typed
+// Left rail lists the configurable subjects: OSF UI itself (the framework)
+// pinned first — it self-labels as "Framework" on its card, so it needs no
+// section header of its own — then every mod that ships a settings/<id>.json
+// schema under a MODS header. The right pane renders the selected subject's typed
 // controls on the shared OSF UI design system. Talks to the runtime only
 // through the narrow JSON bridge (settings.get / settings.set / settings.reset /
 // settings.captureKey); the native SettingsStore validates, clamps, persists,
@@ -18,7 +19,7 @@
 
 "use strict";
 
-// The framework's own settings mod id — pinned first, under FRAMEWORK.
+// The framework's own settings mod id — pinned first in the rail.
 const FRAMEWORK_ID = "osfui";
 // Bridge command namespaces owned by the framework — an action button may
 // never fire into these (mirrors the reserved-id list in SettingsStore.cpp).
@@ -623,11 +624,12 @@ function renderRail() {
   const q = (filterEl.value || "").trim().toLowerCase();
   railEl.textContent = "";
 
+  // The framework card is pinned at the top with no section header of its own
+  // — it self-labels as "Framework" and is the only entry that would ever sit
+  // under such a header. The "Mods" header below is what separates it from
+  // installed mods.
   const fw = frameworkMods().filter((m) => railMatches(m, q));
-  if (fw.length) {
-    railEl.appendChild(el("div", "rail-section", "Framework"));
-    fw.forEach((m) => railEl.appendChild(railItem(m)));
-  }
+  fw.forEach((m) => railEl.appendChild(railItem(m)));
 
   railEl.appendChild(el("div", "rail-section", "Mods"));
   const mods = contentMods().filter((m) => railMatches(m, q));

@@ -410,6 +410,13 @@ namespace OSFUI
 			std::string  id;
 			std::atomic<std::int32_t> zorder{ 0 };  // layering; lower composites beneath. Mutable at runtime via SetViewOrder.
 			std::atomic<bool> hidden{ false };   // SetViewHidden: skipped in compositing when true.
+			// Worker-pass snapshot of `hidden`, taken under `mutex` in the same
+			// critical section that swaps out toWeb. Compositing reads THIS, not
+			// the live atomic: an unhide stored after a message was queued (the
+			// game thread's order) can then never take effect in a pass that has
+			// not also seen — and delivered — that message. This is what makes
+			// "message before first visible paint" hold across the two threads.
+			bool workerHidden{ false };
 			std::atomic<int>  scrollPx{ 28 };    // per-view scroll step: pixels per wheel notch (SetScrollPixelSize).
 			std::atomic<bool> wantsConsole{ false };  // a console handler is registered for this view.
 			bool         interactive{ true };    // may receive input/focus. Set at load, then immutable.
@@ -440,7 +447,9 @@ namespace OSFUI
 			std::uint64_t           paintCount{ 0 };
 			std::uint64_t           statDirtyPx{ 0 };  // devMode: dirty px since last stat log
 			bool                    domReady{ false };
-			std::deque<std::string> stashedToWeb;  // arrived before the page was ready
+			std::deque<std::string> stashedToWeb;  // arrived before the page could receive; bounded (drop-oldest)
+			bool                    warnedNotReceiving{ false };  // warn-once: page has no osfui.onMessage yet
+			bool                    warnedStashOverflow{ false };  // warn-once: stash cap hit (both reset on a successful flush)
 			bool                    dumpedFirstFrame{ false };
 			// keyboard modifier state (tracked from the VK stream)
 			bool modShift{ false };
@@ -593,6 +602,9 @@ namespace OSFUI
 					w.vs = vs.get();
 					w.load = std::exchange(vs->pendingLoad, std::nullopt);
 					w.resize = std::exchange(vs->pendingResize, std::nullopt);
+					// Snapshot hidden in the SAME critical section that takes the
+					// message queue (see workerHidden's declaration for why).
+					vs->workerHidden = vs->hidden.load();
 					w.outbound.swap(vs->toWeb);
 					w.keys.swap(vs->toInput);
 					w.mice.swap(vs->toMouse);
@@ -633,6 +645,17 @@ namespace OSFUI
 							static_cast<double>(w.resize->second) / w.vs->logicalHeight);
 					}
 					for (auto& msg : w.outbound) {
+						// Bounded queue-until-deliverable: drop the OLDEST so the
+						// page still converges on the newest pushed state when it
+						// finally becomes able to receive.
+						if (w.vs->stashedToWeb.size() >= kMaxQueuedMessages) {
+							if (!w.vs->warnedStashOverflow) {
+								w.vs->warnedStashOverflow = true;
+								REX::WARN("UltralightWebRenderer: view '{}' hit the queued-message cap ({}) before its page could receive; dropping oldest (logged once until the queue flushes)",
+									w.vs->id, kMaxQueuedMessages);
+							}
+							w.vs->stashedToWeb.pop_front();
+						}
 						w.vs->stashedToWeb.push_back(std::move(msg));
 					}
 					for (const auto& key : w.keys) {
