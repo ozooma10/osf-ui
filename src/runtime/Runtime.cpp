@@ -872,13 +872,19 @@ namespace OSFUI
 			});
 		_settings = settings.get();  // core needs schema facts (e.g. key-capture gating)
 
-		// ABI mirror (mcm-design.md §8.2): every committed value — including
-		// the OnStart NotifyAll replay below — lands in the any-thread mirror
-		// the C ABI typed getters read. Registry shape changes rebuild it from
-		// the store document so a removed mod's values stop resolving.
+		// ABI feed (mcm-design.md §8.2): every committed value — including the
+		// OnStart NotifyAll replay below and the per-mod replay after an
+		// incremental RegisterSchema — lands in the any-thread mirror the C ABI
+		// typed getters read, then queues for SubscribeSettings consumers
+		// (drained on the main thread by BridgeApi::PumpMainThread). Mirror
+		// FIRST: a subscribe replay snapshots the mirror, so it must never lag
+		// the queued event. Registry shape changes rebuild the mirror from the
+		// store document so a removed mod's values stop resolving.
 		auto& store = _settings->Store();
 		store.AddChangeListener([](std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value) {
-			API::BridgeApi::Get().Mirror().Update(a_mod, a_key, a_value);
+			auto& api = API::BridgeApi::Get();
+			api.Mirror().Update(a_mod, a_key, a_value);
+			api.Subscriptions().OnChanged(a_mod, a_key, a_value);
 		});
 		store.AddRegistryListener([this] {
 			if (_settings) {  // teardown guard (_settings nulls before modules die)

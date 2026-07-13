@@ -97,6 +97,21 @@ namespace OSFUI::API
 		           : static_cast<std::uint32_t>(required);
 	}
 
+	std::vector<std::pair<std::string, std::string>> SettingsMirror::SnapshotMod(std::string_view a_modId) const
+	{
+		std::vector<std::pair<std::string, std::string>> out;
+		std::lock_guard lock(_mutex);
+		const auto mod = _mods.find(std::string(a_modId));
+		if (mod == _mods.end()) {
+			return out;
+		}
+		out.reserve(mod->second.size());
+		for (const auto& [key, value] : mod->second) {
+			out.emplace_back(key, value.dump());
+		}
+		return out;
+	}
+
 	const nlohmann::json* SettingsMirror::Find(const char* a_modId, const char* a_key) const
 	{
 		if (!a_modId || !a_key) {

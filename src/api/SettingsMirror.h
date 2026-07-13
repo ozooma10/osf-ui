@@ -36,6 +36,11 @@ namespace OSFUI::API
 		// copies min(a_bufLen) bytes, always NUL-terminated when a_bufLen > 0.
 		[[nodiscard]] std::uint32_t GetString(const char* a_modId, const char* a_key, char* a_buf, std::uint32_t a_bufLen) const;
 
+		// One mod's current values as (key, serialized JSON text) pairs — the
+		// SubscribeSettings replay source (SettingsSubscriptions::Pump). Empty
+		// for an unknown mod.
+		[[nodiscard]] std::vector<std::pair<std::string, std::string>> SnapshotMod(std::string_view a_modId) const;
+
 	private:
 		using Values = std::unordered_map<std::string, nlohmann::json>;
 

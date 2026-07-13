@@ -119,6 +119,36 @@ namespace OSFUI::API
 		return true;
 	}
 
+	std::uint32_t BridgeApi::SubscribeSettings(const char* a_modId, SettingChangedFn a_fn, void* a_user)
+	{
+		return _subscriptions.Subscribe(a_modId, a_fn, a_user);
+	}
+
+	void BridgeApi::UnsubscribeSettings(std::uint32_t a_token)
+	{
+		_subscriptions.Unsubscribe(a_token);
+	}
+
+	bool BridgeApi::GetSettingBool(const char* a_modId, const char* a_key, bool* a_out)
+	{
+		return _mirror.GetBool(a_modId, a_key, a_out);
+	}
+
+	bool BridgeApi::GetSettingInt(const char* a_modId, const char* a_key, std::int64_t* a_out)
+	{
+		return _mirror.GetInt(a_modId, a_key, a_out);
+	}
+
+	bool BridgeApi::GetSettingFloat(const char* a_modId, const char* a_key, double* a_out)
+	{
+		return _mirror.GetFloat(a_modId, a_key, a_out);
+	}
+
+	std::uint32_t BridgeApi::GetSettingString(const char* a_modId, const char* a_key, char* a_buf, std::uint32_t a_bufLen)
+	{
+		return _mirror.GetString(a_modId, a_key, a_buf, a_bufLen);
+	}
+
 	std::vector<BridgeApi::MenuRequest> BridgeApi::TakeMenuRequests()
 	{
 		std::lock_guard lock(_mutex);
@@ -199,5 +229,11 @@ namespace OSFUI::API
 		if (fireReady && readyCb) {
 			readyCb(readyUser);
 		}
+
+		// Settings subscriptions last, so a SubscribeSettings issued from the
+		// ready callback above gets its replay THIS tick, not the next.
+		// _subscriptions locks itself and invokes consumer callbacks unlocked;
+		// _mutex is not held here.
+		_subscriptions.Pump(_mirror);
 	}
 }

@@ -11,7 +11,10 @@
 //   IsBridgeReady) are callable from ANY thread.
 //   Mutating calls (RegisterCommand/UnregisterCommand/SetReadyCallback/SendToWeb)
 //   are thread-safe; their effect lands on the game main thread.
-//   CommandFn and ReadyFn ALWAYS run on the game main thread - keep them cheap.
+//   Typed setting getters (GetSettingBool/Int/Float/String) are synchronous
+//   and callable from ANY thread.
+//   CommandFn, ReadyFn and SettingChangedFn ALWAYS run on the game main
+//   thread - keep them cheap.
 //
 // ABI: the surface carries only primitives, UTF-8 const char*, function
 //   pointers and void* user data - no STL, no nlohmann::json, no RE::* types.
@@ -47,6 +50,14 @@ namespace OSFUI::API
 	// nativeBridge view is live) and again after any re-creation.
 	using ReadyFn = void (*)(void* a_user) noexcept;
 
+	// Fired on the GAME (main) thread for every committed value of a mod
+	// subscribed via SubscribeSettings. a_valueJson is the value as serialized
+	// JSON text - e.g. "true", "1.5", "\"compact\"".
+	using SettingChangedFn = void (*)(const char* a_modId,
+	                                  const char* a_key,
+	                                  const char* a_valueJson,
+	                                  void*       a_user) noexcept;
+
 	struct IOSFUIBridge
 	{
 		// --- versioning / status. ANY thread, synchronous. ---
@@ -78,6 +89,30 @@ namespace OSFUI::API
 		// the request is marshaled onto the main thread and run through the normal menu policy.
 		// Lets a sibling plugin surface its own view (e.g. an in-game item that opens the scene browser). No-op if the id is not a registered surface.
 		virtual bool RequestMenu(const char* a_viewId, bool a_open) = 0;
+
+		// ===== settings consumption (MINOR 1.2 block, mcm-design.md §8.2) =====
+
+		// --- change subscription. Thread-safe; callbacks on the GAME MAIN thread. ---
+		// Fires for every committed value of a_modId, and is REPLAYED once per
+		// current value on subscribe (and again if the mod registers later -
+		// subscribing to a not-yet-registered id is legal; the replay arrives
+		// when it registers). Per-mod, not per-key: one subscription, switch on
+		// a_key. Returns a token for UnsubscribeSettings; 0 on null a_modId/a_fn.
+		virtual std::uint32_t SubscribeSettings(const char* a_modId, SettingChangedFn a_fn, void* a_user) = 0;
+		virtual void          UnsubscribeSettings(std::uint32_t a_token) = 0;
+
+		// --- typed getters. Synchronous, callable from ANY thread - they read a
+		// mutex-guarded value mirror maintained on the main thread, never the
+		// store. false / 0 on unknown mod/key or type mismatch. ---
+		virtual bool GetSettingBool(const char* a_modId, const char* a_key, bool* a_out) = 0;
+		virtual bool GetSettingInt(const char* a_modId, const char* a_key, std::int64_t* a_out) = 0;
+		virtual bool GetSettingFloat(const char* a_modId, const char* a_key, double* a_out) = 0;
+		// Covers string, enum (the option string), and key (the key NAME, e.g.
+		// "F10"). Returns the required length INCLUDING the NUL (0 on unknown/
+		// mismatch); copies min(a_bufLen) bytes, always NUL-terminated when
+		// a_bufLen > 0. A null/empty buffer is the "how big?" probe.
+		virtual std::uint32_t GetSettingString(const char* a_modId, const char* a_key,
+		                                       char* a_buf, std::uint32_t a_bufLen) = 0;
 
 	protected:
 		~IOSFUIBridge() = default;  // OSF UI owns the singleton; the consumer never deletes it.
