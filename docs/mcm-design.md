@@ -720,10 +720,21 @@ rule goes in the panel-author docs with `contain: paint` guidance).
 > (`devtools/harness/`) with a validation-mirroring MockBridge. Verified by a
 > jsdom suite driving the real shipped files (widgets, conditions, actions,
 > presets, search, revert, injection-safety, and the mock clamp/persist path).
-> **Not yet built (needs the Windows/CommonLibSF build):** everything native —
-> the `SettingsStore` generalization, C ABI 1.2, HotkeyService, `color`/`flags`
-> as native-validated types, and the Papyrus surface. `type:"color"` ships as
-> `widget:"color"` on a `string` until the native validator lands.
+> **Build status (2026-07-12).** The **`SettingsStore` generalization (§8.3) is
+> implemented**: multicast change listeners, incremental `RegisterSchema` with
+> Source precedence (drop-in vs native, per §14.1), `RemoveMod`,
+> `GetValue`/`GetSettingType`, `NotifyMod` replay, a registry-generation
+> counter, and deterministic (filename-sorted, first-wins) drop-in loading.
+> Verified by a host-side unit suite (`tests/native/`, 58 checks) that compiles
+> the real store sources on the desktop toolchain against a REX stub — no
+> Windows build required for store logic. In-game verification on the Windows
+> build is still pending.
+>
+> **Not yet built (needs the Windows/CommonLibSF build):** the rest of the
+> native slice — C ABI 1.2, `settings.changed` web push, HotkeyService,
+> `color`/`flags` as native-validated types, sparse/debounced persistence, and
+> the Papyrus surface. `type:"color"` ships as `widget:"color"` on a `string`
+> until the native validator lands.
 
 Ordering of the M1/M2 UI-vs-plumbing split is suggested, not contractual.
 

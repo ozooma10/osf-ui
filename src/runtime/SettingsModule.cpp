@@ -11,7 +11,9 @@ namespace OSFUI
 		_schemaDir(std::move(a_schemaDir)),
 		_valuesDir(std::move(a_valuesDir))
 	{
-		_store.SetChangeListener(std::move(a_onChange));
+		// Subscriber #0: the runtime's core reaction (framework knobs). Later
+		// listeners (web push, ABI mirror) multicast behind it.
+		_store.AddChangeListener(std::move(a_onChange));
 		_store.LoadAll(_schemaDir, _valuesDir);
 	}
 

@@ -37,6 +37,9 @@ namespace OSFUI
 	void SettingsStore::LoadAll(const std::filesystem::path& a_schemaDir, const std::filesystem::path& a_valuesDir)
 	{
 		_mods.clear();
+		_valuesDir = a_valuesDir;
+		_loaded = true;
+		++_generation;
 
 		std::error_code ec;
 		if (!std::filesystem::is_directory(a_schemaDir, ec)) {
@@ -44,62 +47,170 @@ namespace OSFUI
 			return;
 		}
 
+		// Collect + sort by filename: directory_iterator order is unspecified,
+		// and duplicate-id resolution (first wins) must be deterministic.
+		std::vector<std::filesystem::path> files;
 		for (const auto& entry : std::filesystem::directory_iterator(a_schemaDir, ec)) {
-			if (!entry.is_regular_file() || entry.path().extension() != ".json") {
-				continue;
+			if (entry.is_regular_file() && entry.path().extension() == ".json") {
+				files.push_back(entry.path());
 			}
-			auto schema = Json::ParseFile(entry.path());
+		}
+		std::sort(files.begin(), files.end());
+
+		for (const auto& path : files) {
+			auto schema = Json::ParseFile(path);
 			if (!schema || !schema->is_object()) {
-				REX::WARN("SettingsStore: skipping invalid schema {}", entry.path().string());
+				REX::WARN("SettingsStore: skipping invalid schema {}", path.string());
 				continue;
 			}
-
-			Mod mod;
-			mod.id = Json::GetString(*schema, "id", entry.path().stem().string());
-			mod.schema = std::move(*schema);
-			mod.valuesPath = a_valuesDir / (mod.id + ".json");
-			mod.values = nlohmann::json::object();
-
-			// Persisted values over schema defaults.
-			nlohmann::json saved = nlohmann::json::object();
-			if (auto parsed = Json::ParseFile(mod.valuesPath); parsed && parsed->is_object()) {
-				saved = std::move(*parsed);
-			}
-			std::size_t count = 0;
-			ForEachSetting(mod.schema, [&](const nlohmann::json& a_setting) {
-				const auto key = Json::GetString(a_setting, "key", "");
-				if (key.empty()) {
-					return false;
-				}
-				++count;
-				if (const auto it = saved.find(key); it != saved.end()) {
-					if (auto valid = Validate(a_setting, *it)) {
-						mod.values[key] = std::move(*valid);
-						return false;
-					}
-				}
-				mod.values[key] = DefaultFor(a_setting);
-				return false;
-			});
-
-			REX::INFO("SettingsStore: loaded mod '{}' ('{}', {} settings)",
-				mod.id, Json::GetString(mod.schema, "title", mod.id), count);
-			_mods.push_back(std::move(mod));
+			// Startup load: notifications defer to the OnStart NotifyAll.
+			AddSchema(std::move(*schema), Source::kDropIn, path.stem().string(), /*a_notify=*/false);
 		}
 
 		REX::INFO("SettingsStore: {} mod schema(s) registered from {}", _mods.size(), a_schemaDir.string());
 	}
 
+	bool SettingsStore::RegisterSchema(nlohmann::json a_schema, Source a_source)
+	{
+		if (!_loaded) {
+			// By construction registrations arrive via the main-thread pump,
+			// which only runs after Runtime::Initialize → LoadAll. Reject
+			// loudly rather than register with no values directory.
+			REX::WARN("SettingsStore: RegisterSchema before LoadAll — rejected");
+			return false;
+		}
+		if (!a_schema.is_object()) {
+			REX::WARN("SettingsStore: RegisterSchema rejected — schema is not a JSON object");
+			return false;
+		}
+		return AddSchema(std::move(a_schema), a_source, /*a_idHint=*/"", /*a_notify=*/true);
+	}
+
+	bool SettingsStore::AddSchema(nlohmann::json a_schema, Source a_source, std::string a_idHint, bool a_notify)
+	{
+		auto id = Json::GetString(a_schema, "id", a_idHint);
+		if (id.empty()) {
+			REX::WARN("SettingsStore: rejected schema with no id");
+			return false;
+		}
+
+		// Source precedence on id collision (mcm-design.md §14.1): a runtime
+		// (DLL) registration replaces a drop-in file — a mod upgrading tiers
+		// must not require users to hand-delete the stale JSON — and replaces
+		// its own earlier registration (dev iteration). A drop-in never
+		// replaces anything: duplicate drop-in ids resolve first-wins (MO2's
+		// per-file VFS priority is the intended arbiter, §8.1).
+		Mod* existing = FindMod(id);
+		if (existing) {
+			if (a_source == Source::kDropIn) {
+				REX::WARN("SettingsStore: duplicate schema id '{}' — keeping the {} one, ignoring the drop-in file",
+					id, existing->source == Source::kNative ? "runtime-registered" : "first-loaded");
+				return false;
+			}
+			REX::WARN("SettingsStore: runtime registration replaces {} schema for id '{}'",
+				existing->source == Source::kDropIn ? "drop-in" : "earlier runtime", id);
+		}
+
+		Mod mod;
+		mod.id = std::move(id);
+		mod.schema = std::move(a_schema);
+		mod.valuesPath = _valuesDir / (mod.id + ".json");
+		mod.source = a_source;
+		mod.values = nlohmann::json::object();
+
+		// Persisted values over schema defaults. Replacement rebuilds from the
+		// same file — every committed Set persists, so nothing is lost, and
+		// added/removed/retyped keys resolve exactly like a fresh load.
+		nlohmann::json saved = nlohmann::json::object();
+		if (auto parsed = Json::ParseFile(mod.valuesPath); parsed && parsed->is_object()) {
+			saved = std::move(*parsed);
+		}
+		std::size_t count = 0;
+		ForEachSetting(mod.schema, [&](const nlohmann::json& a_setting) {
+			const auto key = Json::GetString(a_setting, "key", "");
+			if (key.empty()) {
+				return false;
+			}
+			++count;
+			if (const auto it = saved.find(key); it != saved.end()) {
+				if (auto valid = Validate(a_setting, *it)) {
+					mod.values[key] = std::move(*valid);
+					return false;
+				}
+			}
+			mod.values[key] = DefaultFor(a_setting);
+			return false;
+		});
+
+		REX::INFO("SettingsStore: loaded mod '{}' ('{}', {} settings)",
+			mod.id, Json::GetString(mod.schema, "title", mod.id), count);
+
+		if (existing) {
+			*existing = std::move(mod);
+		} else {
+			_mods.push_back(std::move(mod));
+		}
+		++_generation;
+
+		if (a_notify) {
+			// Replay so consumers that subscribed before this mod registered
+			// sync without a separate read (mcm-design.md §10).
+			NotifyMod(existing ? existing->id : _mods.back().id);
+		}
+		return true;
+	}
+
+	bool SettingsStore::RemoveMod(std::string_view a_modId)
+	{
+		const auto it = std::find_if(_mods.begin(), _mods.end(),
+			[&](const Mod& a_mod) { return a_mod.id == a_modId; });
+		if (it == _mods.end()) {
+			return false;
+		}
+		REX::INFO("SettingsStore: removed mod '{}' (values file kept)", it->id);
+		_mods.erase(it);
+		++_generation;
+		return true;
+	}
+
 	void SettingsStore::NotifyAll() const
 	{
-		if (!_listener) {
-			return;
-		}
 		for (const auto& mod : _mods) {
 			for (const auto& [key, value] : mod.values.items()) {
-				_listener(mod.id, key, value);
+				Notify(mod.id, key, value);
 			}
 		}
+	}
+
+	void SettingsStore::NotifyMod(std::string_view a_modId) const
+	{
+		const auto* mod = FindMod(a_modId);
+		if (!mod) {
+			return;
+		}
+		for (const auto& [key, value] : mod->values.items()) {
+			Notify(mod->id, key, value);
+		}
+	}
+
+	const nlohmann::json* SettingsStore::GetValue(std::string_view a_modId, std::string_view a_key) const
+	{
+		const auto* mod = FindMod(a_modId);
+		if (!mod) {
+			return nullptr;
+		}
+		const auto it = mod->values.find(a_key);
+		return it != mod->values.end() ? &*it : nullptr;
+	}
+
+	std::string SettingsStore::GetSettingType(std::string_view a_modId, std::string_view a_key) const
+	{
+		const auto* mod = FindMod(a_modId);
+		if (!mod) {
+			return {};
+		}
+		const auto* setting = FindSetting(*mod, a_key);
+		return setting ? Json::GetString(*setting, "type", "") : std::string{};
 	}
 
 	std::string SettingsStore::DataJson() const
@@ -280,8 +391,10 @@ namespace OSFUI
 
 	void SettingsStore::Notify(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value) const
 	{
-		if (_listener) {
-			_listener(a_modId, a_key, a_value);
+		for (const auto& listener : _listeners) {
+			if (listener) {
+				listener(a_modId, a_key, a_value);
+			}
 		}
 	}
 
