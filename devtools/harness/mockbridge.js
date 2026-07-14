@@ -199,7 +199,25 @@
           window.removeEventListener("keydown", onKey, true);
           e.preventDefault();
           const name = domKeyName(e);
-          send("settings.captured", { mod: p.mod, key: p.key, name, cancelled: e.key === "Escape" || !name });
+          const cancelled = e.key === "Escape" || !name;
+          const payload = { mod: p.mod, key: p.key, name, cancelled };
+          // Live-warn during capture (mcm-design §9): the OTHER key settings
+          // already on the captured key, delivered BEFORE the view commits —
+          // mirrors SettingsStore::ConflictsFor. Value-string compare, like
+          // annotateConflicts(); omitted when unique, like native.
+          if (!cancelled) {
+            const others = [];
+            for (const m of mods) {
+              eachSetting(m.schema, (s) => {
+                if (s.type === "key" && m.values[s.key] === name &&
+                    (m.id !== p.mod || s.key !== p.key)) {
+                  others.push({ mod: m.id, key: s.key, title: m.title });
+                }
+              });
+            }
+            if (others.length) payload.conflicts = others;
+          }
+          send("settings.captured", payload);
         };
         window.addEventListener("keydown", onKey, true);
         break;

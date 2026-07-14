@@ -1018,10 +1018,31 @@ function beginCapture(mod, key, btn) {
       window.removeEventListener("keydown", onKey, true);
       e.preventDefault();
       const name = domKeyName(e);
-      finishCapture({ mod, key, name, cancelled: e.key === "Escape" || !name });
+      const cancelled = e.key === "Escape" || !name;
+      finishCapture({ mod, key, name, cancelled,
+        conflicts: cancelled ? [] : localKeyConflicts(name, mod, key) });
     };
     window.addEventListener("keydown", onKey, true);
   }
+}
+
+// Standalone-only preview of SettingsStore::ConflictsFor (the in-game path
+// gets `conflicts` in settings.captured from native): the OTHER key settings
+// whose current value is the captured name. Native groups by resolved VK; here
+// a string compare is enough, like the harness mock.
+function localKeyConflicts(name, mod, key) {
+  const others = [];
+  for (const m of allMods) {
+    for (const g of (m.schema && m.schema.groups) || []) {
+      for (const s of g.settings || []) {
+        if (s && s.type === "key" && (m.values || {})[s.key] === name &&
+            (m.id !== mod || s.key !== key)) {
+          others.push({ mod: m.id, key: s.key, title: titleOf(m) });
+        }
+      }
+    }
+  }
+  return others;
 }
 
 // Standalone-only: map a browser KeyboardEvent to an OSF UI key name (the
@@ -1048,6 +1069,14 @@ function finishCapture(payload) {
     return;
   }
   btn.textContent = payload.name;
+  // Live-warn (mcm-design §9): the runtime checked the captured key against
+  // every other key-typed binding BEFORE this commit lands, so the warning
+  // shows now instead of after the settings.data round-trip (which is what
+  // repaints the row badges). Informational — the bind stands.
+  if (Array.isArray(payload.conflicts) && payload.conflicts.length) {
+    const others = [...new Set(payload.conflicts.map((c) => c.title || c.mod))];
+    toast(`${payload.name} is also bound by: ${others.join(", ")}`, "warn");
+  }
   commit(mod, key, payload.name);  // persist + re-resolve, and update session state
 }
 
