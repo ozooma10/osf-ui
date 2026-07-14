@@ -453,6 +453,68 @@ int main()
 		}
 	}
 
+	// --- §12.1 ReloadDropInFile: dev schema hot-reload -----------------------------
+	{
+		const auto sd = root / "settings-hot";
+		const auto vd = root / "values-hot";
+		WriteFile(sd / "hot.json", R"json({
+			"id": "hot", "title": "Hot v1",
+			"groups": [ { "settings": [
+				{ "key": "speed", "type": "int", "default": 5, "min": 0, "max": 10 }
+			] } ] })json");
+
+		SettingsStore s;
+		s.LoadAll(sd, vd);
+		CHECK(s.Set("hot", "speed", "8"));  // a live, unflushed (dirty) user value
+
+		std::size_t registryFires = 0;
+		s.AddRegistryListener([&] { ++registryFires; });
+
+		// Reload with a retitled schema + an added setting + a key RENAME via
+		// §11 aliases. The dirty value must survive: the reload flushes the
+		// write-behind window first, then overlays from the file it just wrote
+		// — and the alias carries it across the rename.
+		WriteFile(sd / "hot.json", R"json({
+			"id": "hot", "title": "Hot v2",
+			"groups": [ { "settings": [
+				{ "key": "velocity", "type": "int", "default": 5, "min": 0, "max": 10, "aliases": ["speed"] },
+				{ "key": "brandNew", "type": "bool", "default": true }
+			] } ] })json");
+		CHECK(s.ReloadDropInFile(sd / "hot.json"));
+		CHECK(registryFires == 1);
+		CHECK(s.GetValue("hot", "velocity") && *s.GetValue("hot", "velocity") == 8);  // dirty value survived + renamed
+		CHECK(s.GetValue("hot", "brandNew") && *s.GetValue("hot", "brandNew") == true);
+		CHECK(s.GetValue("hot", "speed") == nullptr);  // the old key is gone
+		{
+			const auto data = s.Data();
+			CHECK(data["mods"][0]["title"] == "Hot v2");
+		}
+
+		// Invalid JSON: refused, registered schema untouched.
+		WriteFile(sd / "hot.json", "{ not json");
+		CHECK(!s.ReloadDropInFile(sd / "hot.json"));
+		CHECK(s.GetValue("hot", "velocity") != nullptr);
+
+		// An unseen id registers as a fresh drop-in.
+		WriteFile(sd / "newcomer.json", R"json({
+			"id": "newcomer", "groups": [ { "settings": [
+				{ "key": "x", "type": "int", "default": 0 }
+			] } ] })json");
+		CHECK(s.ReloadDropInFile(sd / "newcomer.json"));
+		CHECK(s.GetValue("newcomer", "x") != nullptr);
+
+		// A runtime (native) registration outranks the file: refused.
+		CHECK(s.RegisterSchema(nlohmann::json::parse(R"json({
+			"id": "owned", "title": "Native",
+			"groups": [ { "settings": [ { "key": "k", "type": "int", "default": 1 } ] } ] })json"),
+			SettingsStore::Source::kNative));
+		WriteFile(sd / "owned.json", R"json({
+			"id": "owned", "title": "File",
+			"groups": [ { "settings": [ { "key": "k", "type": "int", "default": 2 } ] } ] })json");
+		CHECK(!s.ReloadDropInFile(sd / "owned.json"));
+		CHECK(s.GetValue("owned", "k") && *s.GetValue("owned", "k") == 1);
+	}
+
 	// ---------------------------------------------------------------------------
 	std::fprintf(stderr, "%d/%d checks passed\n", g_checks - g_failures, g_checks);
 	fs::remove_all(root);

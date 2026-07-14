@@ -47,6 +47,7 @@ namespace OSFUI
 		}
 		config.allowNetwork = Json::GetBool(*json, "allowNetwork", config.allowNetwork);
 		config.devMode = Json::GetBool(*json, "devMode", config.devMode);
+		config.devReloadKey = Json::GetString(*json, "devReloadKey", config.devReloadKey);
 
 		if (config.allowNetwork) {
 			// Nothing in this codebase performs network access; refuse the flag

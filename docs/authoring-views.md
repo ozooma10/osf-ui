@@ -379,6 +379,15 @@ In-game, watch `Documents\My Games\Starfield\SFSE\Logs\OSF UI.log`:
 - Set `devMode: true` in `config.json` for verbose per-call logging and a
   first-frame PNG dump under `OSFUI/ultralight/`.
 
+With `devMode: true` the in-game loop is alt-tab fast too:
+- **Settings schemas hot-reload**: edits to `settings/*.json` are picked up
+  within ~1 s — values are preserved (a renamed key carries over via its
+  `aliases`), an open settings view repaints itself, and deleting the file
+  drops the mod. A runtime-registered (DLL) schema is never touched by files.
+- **View reload key** (`devReloadKey`, default `F11`): reloads the top open
+  menu's URL in place, so HTML/JS/CSS edits show up without relaunching. The
+  key is consumed by the framework while devMode is on.
+
 ---
 
 ## 6. Checklist for shipping a view

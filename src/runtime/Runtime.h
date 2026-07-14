@@ -216,6 +216,11 @@ namespace OSFUI
 		// OnViewLoad. Called from Tick on the game thread.
 		void DriveRecovery();
 
+		// Dev view-reload (mcm-design.md §12.1): reload the top open menu's
+		// URL in place when _devReloadRequested was raised. Same LoadView +
+		// Resize pair as crash-recovery. Called from Tick on the game thread.
+		void DriveDevReload();
+
 		// The `views.data` catalog (bridge 0.2): one entry per REGISTERED surface
 		// with its manifest metadata + live open/focus/load state. Read-only
 		// snapshot; a view torn down by crash-recovery drops out (unregistered).
@@ -241,6 +246,12 @@ namespace OSFUI
 		HotkeyService                           _hotkeys;
 		KeyCode                       _toggleKey{ kInvalidKeyCode };
 		KeyCode                       _consoleKey{ kInvalidKeyCode };  // passed through to the game; see OnHostKey
+		// Dev view-reload (mcm-design.md §12.1): resolved from config
+		// devReloadKey ONLY when devMode, so kInvalid doubles as the gate.
+		// The window thread raises the flag (OnHostKey), Tick drains it
+		// (DriveDevReload — renderer calls are main-thread).
+		KeyCode                       _devReloadKey{ kInvalidKeyCode };
+		std::atomic_bool              _devReloadRequested{ false };
 
 		// Registered surfaces (menus/HUDs) + open state. Mutated only on the main thread (Tick / bridge handlers).
 		MenuController                _menus;

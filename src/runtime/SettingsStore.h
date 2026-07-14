@@ -144,6 +144,17 @@ namespace OSFUI
 		// Empty-key and non-string-valued entries are skipped (defensive).
 		[[nodiscard]] std::vector<KeySetting> KeySettings() const;
 
+		// Dev-mode schema hot-reload (mcm-design.md §12.1): re-parse ONE
+		// drop-in settings/<id>.json and replace the same-id registered schema
+		// in place. Values survive: a dirty write-behind window flushes first,
+		// then the overlay re-reads the values file exactly like startup — so
+		// §11 aliases apply to a live rename too. A runtime (native)
+		// registration still outranks the file (refused, same precedence as
+		// startup); an unseen id registers as a fresh drop-in. Notifies like
+		// RegisterSchema (value replay + registry re-broadcast). Returns false
+		// on unparseable/invalid schema or refusal.
+		bool ReloadDropInFile(const std::filesystem::path& a_path);
+
 		void SetKeyNameResolver(KeyNameResolver a_resolver) { _keyResolver = std::move(a_resolver); }
 
 		// The GAME's own key bindings (mcm-design.md §9 "vanilla hotkeys"),
@@ -224,11 +235,14 @@ namespace OSFUI
 			double                dueAt{ 0.0 };    // when the open window flushes (store clock)
 		};
 
-		// Shared add/replace path for LoadAll and RegisterSchema: id
-		// resolution (a_idHint = filename stem for drop-ins), Source
-		// precedence, persisted-value overlay, generation bump. Notifies the
-		// mod's values when a_notify (startup load defers to NotifyAll).
-		bool AddSchema(nlohmann::json a_schema, Source a_source, std::string a_idHint, bool a_notify);
+		// Shared add/replace path for LoadAll, RegisterSchema, and
+		// ReloadDropInFile: id resolution (a_idHint = filename stem for
+		// drop-ins), Source precedence, persisted-value overlay, generation
+		// bump. Notifies the mod's values when a_notify (startup load defers
+		// to NotifyAll). a_dropInReplace relaxes ONE precedence rule for the
+		// dev hot-reload: a drop-in may replace the SAME-SOURCE registration
+		// (its own earlier file), never a runtime one.
+		bool AddSchema(nlohmann::json a_schema, Source a_source, std::string a_idHint, bool a_notify, bool a_dropInReplace = false);
 
 		[[nodiscard]] Mod*       FindMod(std::string_view a_modId);
 		[[nodiscard]] const Mod* FindMod(std::string_view a_modId) const;

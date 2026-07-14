@@ -80,6 +80,12 @@ namespace OSFUI
 		std::vector<std::string> views;
 		bool        allowNetwork{ false };  // reserved; nothing implements network access
 		bool        devMode{ false };  // release-safe default; the shipped config / a dev override turns on verbose logging
+		// Dev view-reload key (mcm-design.md §12.1): with devMode on, pressing
+		// this reloads the top open menu's URL in place — the fast alt-tab
+		// iteration loop for view assets (schema edits hot-reload on their
+		// own). Consumed like the toggle key; empty disables. Ignored without
+		// devMode, so shipping it in config.json is harmless for users.
+		std::string devReloadKey{ "F11" };
 
 		// Loads from a_path; returns defaults (and logs why) on any failure.
 		static Config Load(const std::filesystem::path& a_path);

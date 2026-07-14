@@ -213,6 +213,15 @@ namespace OSFUI
 		if (_consoleKey != kInvalidKeyCode) {
 			REX::INFO("Runtime: consoleKey '{}' resolved to VK code {:#x} (passed through to the game so the console opens while the overlay is up)", _config.consoleKey, _consoleKey);
 		}
+		// Dev view-reload key (mcm-design.md §12.1): resolved only in devMode
+		// — kInvalid is the whole gate in OnHostKey, so a user config with the
+		// shipped devReloadKey but devMode off never loses the key to us.
+		if (_config.devMode && !_config.devReloadKey.empty()) {
+			_devReloadKey = ResolveKeyName(_config.devReloadKey);
+			if (_devReloadKey != kInvalidKeyCode) {
+				REX::INFO("Runtime: devReloadKey '{}' resolved to VK code {:#x} (reloads the top open menu)", _config.devReloadKey, _devReloadKey);
+			}
+		}
 
 		EngineInput::SetEnabled(_config.engineInput);
 		if (_config.engineInput) {
@@ -315,6 +324,12 @@ namespace OSFUI
 		// per ~500ms, not one per step.
 		if (_settings) {
 			_settings->Store().PumpPersistence(_uptime);
+			// Schema hot-reload (mcm-design.md §12.1, devMode): edited
+			// settings/*.json files reload live, values preserved; the
+			// registry re-broadcast repaints any open settings view.
+			if (_config.devMode) {
+				_settings->PumpSchemaHotReload(_uptime);
+			}
 		}
 		// Reconcile engine menu-mode + control-disable toward the derived CAPTURE state (not visibility): a live HUD must not disable controls.
 		if (_config.focusMenu) {
@@ -343,6 +358,8 @@ namespace OSFUI
 		}
 		// Fire any due crash-recovery reloads before Update pumps the renderer.
 		DriveRecovery();
+		// Dev view-reload keypress (devMode): reload the top open menu now.
+		DriveDevReload();
 		_renderer->Update(a_deltaSeconds);
 		SubmitFrameIfVisible();
 	}
@@ -621,6 +638,33 @@ namespace OSFUI
 		}
 	}
 
+	void Runtime::DriveDevReload()
+	{
+		if (!_devReloadRequested.exchange(false) || !_renderer) {
+			return;
+		}
+		// The top open menu is what the author is looking at. HUD-only setups
+		// have no reload target here — dev iteration on HUDs goes through the
+		// browser harness (mcm-design.md §12.2).
+		const auto active = _menus.ActiveMenu();
+		if (!active) {
+			REX::INFO("Runtime: dev reload — no open menu to reload");
+			return;
+		}
+		const auto* manifest = _views.Find(*active);
+		if (!manifest) {
+			return;
+		}
+		REX::INFO("Runtime: dev-reloading view '{}' (devReloadKey)", *active);
+		// Same pair as crash-recovery: fresh URL load, then restore the
+		// output-matched size so it composites 1:1 again. A load-state event
+		// follows from the renderer (OnViewLoad), same as any load.
+		_viewLoadState[*active] = ViewLoadState::Loading;
+		BroadcastViewsData();
+		_renderer->LoadView(*manifest);
+		_renderer->Resize(_viewWidth.load(), _viewHeight.load());
+	}
+
 	nlohmann::json Runtime::BuildViewsData() const
 	{
 		nlohmann::json views = nlohmann::json::array();
@@ -702,6 +746,19 @@ namespace OSFUI
 		}
 		if (_captureUpVk != kInvalidKeyCode && a_vkCode == _captureUpVk && !a_down) {
 			_captureUpVk = kInvalidKeyCode;
+			return true;
+		}
+
+		// Dev view-reload key (mcm-design.md §12.1; _devReloadKey only resolves
+		// in devMode). Window thread: just raise the flag — the reload runs
+		// from Tick (DriveDevReload; renderer calls are main-thread). Consumed
+		// on both edges like the toggle key, and BEFORE hotkey dispatch so a
+		// mod binding the same key doesn't also fire. Capture (above) still
+		// wins: mid-rebind this key is a binding like any other.
+		if (_devReloadKey != kInvalidKeyCode && a_vkCode == _devReloadKey) {
+			if (a_down) {
+				_devReloadRequested.store(true);
+			}
 			return true;
 		}
 

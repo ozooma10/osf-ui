@@ -47,6 +47,57 @@ namespace OSFUI
 			PushToSubscribers("settings.persisted", { { "mod", std::string(a_mod) } });
 		});
 		_store.LoadAll(_schemaDir, _valuesDir);
+		// Seed the hot-reload snapshot from what LoadAll just consumed, so the
+		// first PumpSchemaHotReload pass reloads nothing.
+		_schemaMtimes = ScanSchemaDir();
+	}
+
+	SettingsModule::SchemaMtimes SettingsModule::ScanSchemaDir() const
+	{
+		SchemaMtimes seen;
+		std::error_code ec;
+		for (const auto& entry : std::filesystem::directory_iterator(_schemaDir, ec)) {
+			if (entry.is_regular_file(ec) && entry.path().extension() == ".json") {
+				if (const auto t = entry.last_write_time(ec); !ec) {
+					seen.emplace(entry.path().stem().string(), t);
+				}
+			}
+		}
+		return seen;
+	}
+
+	void SettingsModule::PumpSchemaHotReload(double a_nowSeconds)
+	{
+		if (a_nowSeconds < _nextSchemaScan) {
+			return;
+		}
+		_nextSchemaScan = a_nowSeconds + kHotReloadScanSeconds;
+
+		auto seen = ScanSchemaDir();
+		// Changed or new files reload/register through the store; every
+		// consequence (value preservation via the flush-then-overlay path,
+		// §11 alias adoption, settings.data re-broadcast to subscribers,
+		// HotkeyService rebuild via the registry listener) rides the same
+		// wiring as a runtime registration. The mtime is recorded even when
+		// the reload fails (mid-save torn file, invalid schema): the editor's
+		// final write bumps it again, and a broken file logs once per save
+		// instead of once per scan.
+		for (const auto& [stem, mtime] : seen) {
+			const auto it = _schemaMtimes.find(stem);
+			if (it == _schemaMtimes.end() || it->second != mtime) {
+				_store.ReloadDropInFile(_schemaDir / (stem + ".json"));
+			}
+		}
+		// A deleted file removes its mod — but only a drop-in one: a runtime
+		// registration owns its schema regardless of any same-id file coming
+		// or going (same precedence as load). Values files are kept (§10).
+		for (const auto& [stem, mtime] : _schemaMtimes) {
+			if (!seen.contains(stem) && _store.GetSource(stem) == SettingsStore::Source::kDropIn) {
+				REX::INFO("SettingsModule: settings file '{}' removed — dropping its mod", stem);
+				_store.RemoveMod(stem);
+			}
+		}
+		_schemaMtimes = std::move(seen);
 	}
 
 	void SettingsModule::OnStart()

@@ -166,7 +166,18 @@ namespace OSFUI
 		return true;
 	}
 
-	bool SettingsStore::AddSchema(nlohmann::json a_schema, Source a_source, std::string a_idHint, bool a_notify)
+	bool SettingsStore::ReloadDropInFile(const std::filesystem::path& a_path)
+	{
+		auto schema = Json::ParseFile(a_path);
+		if (!schema || !schema->is_object()) {
+			REX::WARN("SettingsStore: hot-reload skipped — {} is not valid JSON", a_path.string());
+			return false;
+		}
+		return AddSchema(std::move(*schema), Source::kDropIn, a_path.stem().string(),
+			/*a_notify=*/true, /*a_dropInReplace=*/true);
+	}
+
+	bool SettingsStore::AddSchema(nlohmann::json a_schema, Source a_source, std::string a_idHint, bool a_notify, bool a_dropInReplace)
 	{
 		if (!a_schema.is_object()) {
 			REX::WARN("SettingsStore: rejected schema — not a JSON object");
@@ -195,13 +206,18 @@ namespace OSFUI
 		// per-file VFS priority is the intended arbiter, §8.1).
 		Mod* existing = FindMod(id);
 		if (existing) {
-			if (a_source == Source::kDropIn) {
+			if (a_source == Source::kDropIn &&
+				!(a_dropInReplace && existing->source == Source::kDropIn)) {
 				REX::WARN("SettingsStore: duplicate schema id '{}' — keeping the {} one, ignoring the drop-in file",
 					id, existing->source == Source::kNative ? "runtime-registered" : "first-loaded");
 				return false;
 			}
-			REX::WARN("SettingsStore: runtime registration replaces {} schema for id '{}'",
-				existing->source == Source::kDropIn ? "drop-in" : "earlier runtime", id);
+			if (a_source == Source::kDropIn) {
+				REX::INFO("SettingsStore: hot-reloading drop-in schema '{}'", id);
+			} else {
+				REX::WARN("SettingsStore: runtime registration replaces {} schema for id '{}'",
+					existing->source == Source::kDropIn ? "drop-in" : "earlier runtime", id);
+			}
 			if (existing->dirty) {
 				// The overlay below reads the values FILE; land any unflushed
 				// write-behind changes first or the replacement reverts them.

@@ -50,10 +50,29 @@ namespace OSFUI
 		// with zero native code. Called by Runtime::DrainHotkeys, MAIN thread.
 		void PushHotkey(std::string_view a_modId, std::string_view a_key) const;
 
+		// Schema hot-reload (mcm-design.md §12.1, dev mode): mtime-poll
+		// settings/*.json on a ~1 s cadence — a changed or new file reloads/
+		// registers through the store (values preserved, §11 aliases honored,
+		// registry re-broadcast pushes fresh settings.data to subscribers); a
+		// deleted file removes its mod, but only a DROP-IN one (a runtime
+		// registration never tracks files). The caller gates on devMode and
+		// passes its monotonic clock (Runtime::Tick uptime, like
+		// PumpPersistence). The mtime snapshot is seeded at construction, so
+		// the first pump reloads nothing.
+		static constexpr double kHotReloadScanSeconds = 1.0;
+		void PumpSchemaHotReload(double a_nowSeconds);
+
 	private:
 		// Sends one { type, payload } to every subscribed view (no-op with no
 		// bridge or no subscribers — e.g. during the OnStart NotifyAll replay).
 		void PushToSubscribers(std::string_view a_type, const nlohmann::json& a_payload) const;
+
+		// stem -> last SEEN write time (recorded per attempt, success or not:
+		// a half-written editor save fails to parse but its final write bumps
+		// the mtime again, so it retries; a genuinely broken file logs once
+		// per save instead of once per scan).
+		using SchemaMtimes = std::unordered_map<std::string, std::filesystem::file_time_type>;
+		[[nodiscard]] SchemaMtimes ScanSchemaDir() const;
 
 		SettingsStore                   _store;
 		std::filesystem::path           _schemaDir;
@@ -61,5 +80,7 @@ namespace OSFUI
 		MessageBridge*                  _bridge{ nullptr };  // set by RegisterCommands, cleared by OnBridgeDown
 		std::unordered_set<std::string> _subscribers;        // view ids that sent settings.get
 		bool                            _suppressChangedPush{ false };  // reset in flight: settings.data supersedes per-key pushes
+		SchemaMtimes                    _schemaMtimes;       // hot-reload snapshot (seeded in the ctor)
+		double                          _nextSchemaScan{ 0.0 };
 	};
 }

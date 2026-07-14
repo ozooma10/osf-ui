@@ -691,12 +691,23 @@ event delivery into Papyrus is the fiddly part). Sketch for later:
 The target journey: *copy a folder, edit one JSON with autocomplete yelling
 at you, alt-tab, press a key, see it.*
 
-1. **Schema hot-reload — the highest-leverage DX feature.** Nothing exists
-   today (only crash-recovery reloads). In `devMode`: mtime-poll
-   `settings/*.json` on a ~1 s cadence in the runtime tick (skip
-   `ReadDirectoryChangesW` complexity), reload preserving current values
-   where keys survive, push fresh `settings.data`. Same pass adds a dev-mode
-   **view-reload keybind** reusing the crash-recovery reload machinery.
+1. **Schema hot-reload — the highest-leverage DX feature.** ✅ Built
+   2026-07-14. In `devMode`: `SettingsModule::PumpSchemaHotReload`
+   mtime-polls `settings/*.json` on a ~1 s cadence from `Runtime::Tick`
+   (mtime snapshot seeded at construction; recorded per attempt so a torn
+   editor save retries on the final write without per-scan log spam).
+   A changed/new file goes through `SettingsStore::ReloadDropInFile` —
+   AddSchema's replace path with one relaxed precedence rule (drop-in may
+   replace drop-in; a runtime registration still outranks the file both
+   ways, including deletion). Values survive via the same flush-dirty +
+   overlay-from-file path as runtime re-registration, so §11 aliases carry
+   values across a live key rename too; the registry listener re-broadcasts
+   `settings.data` and the open view repaints. A deleted file drops its
+   (drop-in) mod; values files are kept (§10). Same pass added the dev-mode
+   **view-reload keybind**: config `devReloadKey` (default F11, resolved
+   only in devMode), consumed in `OnHostKey` like the toggle key, drained
+   in Tick (`DriveDevReload`) — the crash-recovery `LoadView` + `Resize`
+   pair on the top open menu.
 2. **Browser dev harness.** The settings view's standalone fallback already
    proves the pattern; formalize it: `devtools/harness/` loads the *real*
    settings view assets plus a `MockBridge` that accepts a schema via

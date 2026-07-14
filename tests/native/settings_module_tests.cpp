@@ -231,6 +231,84 @@ int main()
 	CHECK(module.Store().Set("alpha", "scale", "1.25"));
 	CHECK(g_sent.empty());
 
+	// --- schema hot-reload (mcm-design §12.1) --------------------------------------
+	{
+		Command(bridge, "settingsview", { { "command", "settings.get" } });  // re-subscribe
+
+		// Baseline scan: seeds nothing new (the ctor snapshot already covers
+		// alpha.json) and starts the 1 s cadence clock.
+		module.PumpSchemaHotReload(10.0);
+
+		// Edit alpha.json: retitle + add a setting. Bump mtime explicitly so
+		// the test never depends on filesystem timestamp resolution.
+		const auto alphaPath = schemaDir / "alpha.json";
+		const auto oldTime = fs::last_write_time(alphaPath);
+		WriteFile(alphaPath, R"json({
+			"id": "alpha", "title": "Alpha Mod v2",
+			"groups": [ { "label": "General", "settings": [
+				{ "key": "enabled", "type": "bool",  "default": true },
+				{ "key": "scale",   "type": "float", "default": 1.0, "min": 0.5, "max": 2.0 },
+				{ "key": "fresh",   "type": "int",   "default": 7 }
+			] } ] })json");
+		fs::last_write_time(alphaPath, oldTime + std::chrono::seconds(2));
+
+		// Within the cadence window: nothing happens yet.
+		g_sent.clear();
+		module.PumpSchemaHotReload(10.5);
+		CHECK(g_sent.empty());
+
+		// Past the window: reloaded — new schema pushed, values preserved.
+		module.PumpSchemaHotReload(11.0);
+		{
+			const auto data = SentTo("settingsview", "settings.data");
+			CHECK(data.size() == 1);
+			const auto& mods = data[0].payload["mods"];
+			CHECK(mods.size() == 1 && mods[0]["title"] == "Alpha Mod v2");
+			CHECK(mods[0]["values"]["scale"] == 1.25);  // the 1.25 set above survived the reload
+			CHECK(mods[0]["values"]["fresh"] == 7);     // the added setting is live at its default
+		}
+
+		// A NEW drop-in file registers on the next scan.
+		WriteFile(schemaDir / "delta.json", R"json({
+			"id": "delta", "groups": [ { "settings": [
+				{ "key": "on", "type": "bool", "default": false }
+			] } ] })json");
+		g_sent.clear();
+		module.PumpSchemaHotReload(12.0);
+		{
+			const auto data = SentTo("settingsview", "settings.data");
+			CHECK(!data.empty() && data.back().payload["mods"].size() == 2);
+		}
+
+		// Deleting the file drops the mod (drop-ins only) and re-broadcasts.
+		fs::remove(schemaDir / "delta.json");
+		g_sent.clear();
+		module.PumpSchemaHotReload(13.0);
+		{
+			const auto data = SentTo("settingsview", "settings.data");
+			CHECK(data.size() == 1 && data[0].payload["mods"].size() == 1);
+		}
+
+		// A runtime (native) registration outranks the file both ways: a
+		// same-id file appearing neither replaces it nor, when deleted again,
+		// removes it.
+		CHECK(module.Store().RegisterSchema(nlohmann::json::parse(R"json({
+			"id": "epsilon", "title": "Native Epsilon",
+			"groups": [ { "settings": [ { "key": "n", "type": "int", "default": 1 } ] } ] })json"),
+			SettingsStore::Source::kNative));
+		WriteFile(schemaDir / "epsilon.json", R"json({
+			"id": "epsilon", "title": "File Impostor",
+			"groups": [ { "settings": [ { "key": "n", "type": "int", "default": 99 } ] } ] })json");
+		module.PumpSchemaHotReload(14.0);
+		{
+			const auto* n = module.Store().GetValue("epsilon", "n");
+			CHECK(n && *n == 1);  // native schema untouched by the file (default stays 1, not 99)
+		}
+		fs::remove(schemaDir / "epsilon.json");
+		module.PumpSchemaHotReload(15.0);
+		CHECK(module.Store().GetValue("epsilon", "n") != nullptr);  // file deletion can't remove a native mod
+	}
+
 	// ---------------------------------------------------------------------------
 	std::fprintf(stderr, "%d/%d checks passed\n", g_checks - g_failures, g_checks);
 	fs::remove_all(root);

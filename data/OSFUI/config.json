@@ -17,5 +17,6 @@
   "view": "hub",
   "views": ["hub", "settings", "osf"],
   "allowNetwork": false,
-  "devMode": true
+  "devMode": true,
+  "devReloadKey": "F11"
 }
