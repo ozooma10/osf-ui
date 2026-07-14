@@ -17,3 +17,6 @@ external/
 # files
 *.zip
 compile_commands.json
+
+# MSVC compiler droppings from host-test builds run outside .build
+tests/native/vc140.pdb
