@@ -88,6 +88,16 @@ export interface SettingsDataPayload {
     schema: SettingsSchema;
     values: Record<string, SettingValue>;
   }>;
+  /**
+   * The game's own key bindings (protocol 0.4, mcm-design §9 "vanilla
+   * hotkeys") — the FULL curated table, not just colliding entries (those
+   * also appear per-setting as `conflicts` with mod `"@game"`). `event` is
+   * the engine controlmap event id, `title` reads like "Starfield
+   * (Quicksave)", `name` is the bound OSF UI key name. Read-only — there is
+   * no settings.set for the game's bindings. Absent when the runtime has no
+   * vanilla data (feature off, or a pre-0.4 runtime).
+   */
+  vanillaKeys?: Array<{ event: string; title: string; name: string }>;
 }
 
 export interface SettingsAckPayload {

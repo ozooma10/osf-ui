@@ -631,6 +631,15 @@ event delivery into Papyrus is the fiddly part). Sketch for later:
   `vanillaKeyConflicts` (default true). **v2 (needs an RE pass):** read the
   live ControlMap singleton for in-session remap fidelity, per-context
   accuracy, and gamepad — swaps in behind `VanillaKeys::Bindings()`.
+- **Keybinds view (built 2026-07-14).** A dedicated `views/keybinds/` surface
+  (hub tile): visual keyboard map — mod-bound keys accent, game-bound steel,
+  collisions warn — with a holders panel and a searchable all-bindings list.
+  Inline rebind reuses the generic capture machinery (incl. the live-warn);
+  `ui.hotkey` pushes flash the pressed key. Data: the same `settings.data`
+  document, plus its new top-level `vanillaKeys: [{event, title, name}]`
+  (the FULL game table — `conflicts` alone only carries colliding entries).
+  The view groups by key NAME with native's alias folding mirrored
+  (Tilde/Backtick/Console→Grave, Return→Enter) instead of re-resolving VKs.
 
 ---
 

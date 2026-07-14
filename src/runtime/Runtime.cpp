@@ -1092,7 +1092,9 @@ namespace OSFUI
 				std::vector<SettingsStore::VanillaKey> keys;
 				for (const auto& b : vanilla.Bindings()) {
 					if (b.vk != 0) {
-						keys.push_back({ b.event, "Starfield (" + b.label + ")", b.vk });
+						// name AFTER the overlays: a rebound event displays
+						// its live key, not the curated default's spelling.
+						keys.push_back({ b.event, "Starfield (" + b.label + ")", b.vk, KeyName(b.vk) });
 					}
 				}
 				store.SetVanillaKeys(std::move(keys));

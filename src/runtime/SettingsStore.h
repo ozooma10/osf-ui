@@ -167,8 +167,12 @@ namespace OSFUI
 		struct VanillaKey
 		{
 			std::string   event;  // conflict entry `key` ("QuickSave")
-			std::string   title;  // conflict entry `title` ("Starfield · Quicksave")
+			std::string   title;  // conflict entry `title` ("Starfield (Quicksave)")
 			std::uint32_t vk;
+			// Display key name ("F5", canonical KeyName spelling) — emitted in
+			// Data()'s top-level `vanillaKeys` so views can render the game's
+			// full keyboard map (keybinds view), not just colliding entries.
+			std::string   name;
 		};
 		void SetVanillaKeys(std::vector<VanillaKey> a_keys) { _vanillaKeys = std::move(a_keys); }
 

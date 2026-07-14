@@ -1,0 +1,168 @@
+/* Keybinds view — visual keyboard map + holders + list, on the shared
+   OSF UI design system (osfui.css provides the tokens + component kit). */
+
+html, body { height: 100%; margin: 0; overflow: hidden; }
+body { background: transparent; }
+
+.scrim {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background: radial-gradient(120% 100% at 50% 40%, rgba(5, 8, 13, 0.42) 0%, rgba(5, 8, 13, 0.82) 100%);
+  box-shadow: inset 0 0 200px 50px rgba(2, 4, 7, 0.72);
+}
+
+.keybinds {
+  position: relative; z-index: 1;
+  display: flex; flex-direction: column; gap: 12px;
+  width: min(1150px, calc(100% - 64px));
+  height: calc(100% - 56px);
+  margin: 28px auto;
+}
+
+/* ---- brand (same recipe as the settings view rail) --------------------------- */
+
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand-line { display: flex; align-items: baseline; gap: 6px; line-height: 1; }
+.wordmark-osf, .wordmark-ui {
+  font-family: var(--font-display); font-size: 22px; letter-spacing: 0.06em;
+}
+.wordmark-osf { color: var(--steel-200); }
+.wordmark-ui { color: var(--accent); }
+.brand-sub { margin-top: 4px; letter-spacing: 0.22em; }
+
+/* ---- header ---------------------------------------------------------------- */
+
+.kb-head {
+  display: flex; align-items: center; gap: 18px;
+  padding: 12px 18px;
+  background: var(--surface-card); border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.kb-search { flex: 1; max-width: 360px; }
+.kb-legend { display: flex; gap: 14px; margin-left: auto; }
+.legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.legend-swatch {
+  width: 10px; height: 10px; border-radius: 2px; display: inline-block;
+  border: 1px solid var(--line-strong);
+}
+.legend-mod { background: var(--accent-quiet); border-color: var(--line-hud); }
+.legend-game { background: rgba(154, 163, 173, 0.18); }
+.legend-conflict { background: rgba(224, 162, 60, 0.25); border-color: rgba(224, 162, 60, 0.6); }
+
+/* ---- keyboard --------------------------------------------------------------- */
+
+.kb-board {
+  display: flex; gap: 16px;
+  padding: 16px 18px;
+  background: var(--surface-card); border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.kb-block { display: flex; flex-direction: column; gap: 5px; }
+.kb-block:first-child { flex: 1; }
+.kb-row { display: flex; gap: 5px; height: 40px; }
+.kb-gap { flex-basis: 0; }
+
+.kb-key {
+  position: relative; flex-basis: 0; min-width: 0;
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between;
+  padding: 4px 6px;
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.02em;
+  color: var(--text-muted);
+  background: var(--void-700); border: 1px solid var(--line);
+  border-radius: 3px; cursor: pointer;
+  transition: border-color 120ms, background 120ms, color 120ms, opacity 120ms;
+}
+.kb-key:hover { border-color: var(--steel-500); color: var(--text-bright); }
+.kb-key-label { pointer-events: none; white-space: nowrap; overflow: hidden; }
+.kb-key-holders { display: flex; gap: 3px; pointer-events: none; }
+.kb-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+.kb-dot--mod { background: var(--accent); }
+.kb-dot--game { background: var(--steel-400); }
+
+.kb-key.is-dead { opacity: 0.32; cursor: default; }
+.kb-key.is-mod {
+  background: var(--accent-quiet); border-color: var(--line-hud); color: var(--text-body);
+}
+.kb-key.is-game {
+  background: rgba(154, 163, 173, 0.1); border-color: var(--steel-600); color: var(--text-body);
+}
+.kb-key.is-conflict {
+  background: rgba(224, 162, 60, 0.12); border-color: rgba(224, 162, 60, 0.55); color: var(--text-body);
+}
+.kb-key.is-selected {
+  border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 0 14px rgba(90, 169, 184, 0.35);
+  color: var(--text-bright);
+}
+.kb-key.is-dim { opacity: 0.22; }
+.kb-key.is-flash { animation: kb-flash 450ms var(--ease-out); }
+@keyframes kb-flash {
+  0% { background: var(--accent); color: var(--void-900); }
+  100% { background: var(--accent-quiet); }
+}
+
+/* ---- lower panels ------------------------------------------------------------ */
+
+.kb-lower { display: flex; gap: 12px; flex: 1; min-height: 0; }
+.kb-panel {
+  display: flex; flex-direction: column; min-height: 0;
+  padding: 12px 16px;
+  background: var(--surface-card); border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.kb-detail-panel { flex: 2; }
+.kb-list-panel { flex: 3; }
+.kb-panel-title {
+  display: flex; align-items: center; gap: 10px;
+  padding-bottom: 8px; margin-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.kb-detail, .kb-list { overflow-y: auto; min-height: 0; }
+
+.kb-holder {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 6px; border-bottom: 1px solid var(--line);
+}
+.kb-holder:last-child { border-bottom: none; }
+.kb-holder--list { cursor: pointer; }
+.kb-holder--list:hover { background: rgba(154, 163, 173, 0.05); }
+.kb-holder--conflict { border-left: 2px solid var(--signal-warn); padding-left: 10px; }
+.kb-holder-text { flex: 1; min-width: 0; }
+.kb-holder-title {
+  display: flex; align-items: center; gap: 8px;
+  font-size: var(--text-md); color: var(--text-bright);
+}
+.kb-holder-sub {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-faint);
+  margin-top: 2px;
+}
+
+.kb-chip {
+  font-family: var(--font-mono); font-size: 12px; color: var(--accent);
+  background: var(--void-700); border: 1px solid var(--line-hud);
+  border-radius: 3px; padding: 3px 9px; white-space: nowrap;
+}
+.kb-chip--lg { font-size: var(--text-md); padding: 4px 12px; }
+
+/* Badge variants this view adds on top of the shared kit. */
+.osf-badge--accent { color: var(--accent); border-color: var(--line-hud); }
+.osf-badge--ghost { color: var(--text-faint); border-color: var(--line-strong); }
+
+.kb-hint { color: var(--text-faint); font-size: var(--text-sm); padding: 8px 4px; }
+.kb-status { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); color: var(--text-faint); }
+
+/* ---- toasts (same pattern as the settings view) ------------------------------- */
+
+.toast-stack {
+  position: fixed; top: 18px; right: 18px; z-index: 20;
+  display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+}
+.toast {
+  font-size: var(--text-sm); color: var(--text-bright);
+  background: var(--surface-overlay); border: 1px solid var(--line-strong);
+  border-left: 3px solid var(--accent); border-radius: var(--radius);
+  padding: 9px 14px; box-shadow: var(--shadow); max-width: 320px;
+  animation: toast-in var(--dur) var(--ease-out); transition: opacity var(--dur);
+}
+.toast--warn { border-left-color: var(--signal-warn); }
+.toast--danger { border-left-color: var(--signal-stop); }
+.toast.leaving { opacity: 0; }
+@keyframes toast-in { from { transform: translateX(16px); opacity: 0; } }

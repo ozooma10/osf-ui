@@ -1,0 +1,16 @@
+{
+  "id": "keybinds",
+  "title": "Keybinds",
+  "description": "Every key binding at a glance — mods, the game, and collisions. Rebind in place.",
+  "entry": "index.html",
+  "hub": true,
+  "width": 1280,
+  "height": 720,
+  "transparent": true,
+  "interactive": true,
+  "permissions": {
+    "nativeBridge": true,
+    "filesystem": false,
+    "network": false
+  }
+}

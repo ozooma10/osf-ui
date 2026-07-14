@@ -340,13 +340,19 @@ int main()
 		s5.SetKeyNameResolver(ResolveKeyName);
 		s5.LoadAll(root3 / "settings", root3 / "values");
 		s5.SetVanillaKeys({
-			{ "QuickSave", "Starfield (Quicksave)", ResolveKeyName("F5") },
-			{ "Console", "Starfield (Console)", ResolveKeyName("Grave") },
+			{ "QuickSave", "Starfield (Quicksave)", ResolveKeyName("F5"), "F5" },
+			{ "Console", "Starfield (Console)", ResolveKeyName("Grave"), "Grave" },
 		});
 
-		// Data(): the colliding setting badges against the game; the vanilla
-		// entry is never a *self*, so nothing else in the document changes.
+		// Data(): the FULL vanilla table is emitted top-level (keybinds view)
+		// — not just the colliding entries.
 		const auto data = s5.Data();
+		CHECK(data.contains("vanillaKeys") && data["vanillaKeys"].size() == 2);
+		CHECK(data["vanillaKeys"][0] == (nlohmann::json{
+			{ "event", "QuickSave" }, { "title", "Starfield (Quicksave)" }, { "name", "F5" } }));
+
+		// The colliding setting badges against the game; the vanilla entry is
+		// never a *self*, so nothing else in the document changes.
 		const auto* save = FindEmittedSetting(data, "zeta", "save");
 		CHECK(save && save->contains("conflicts") && save->at("conflicts").size() == 1);
 		CHECK(save && save->at("conflicts")[0].value("mod", "") == "@game");

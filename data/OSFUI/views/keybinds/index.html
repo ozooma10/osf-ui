@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Keybinds</title>
+  <link rel="stylesheet" href="../shared/osfui.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="osf-ui">
+  <!-- Dims the live game behind the panel into a menu backdrop. -->
+  <div class="scrim" aria-hidden="true"></div>
+
+  <div class="keybinds">
+    <header class="kb-head">
+      <div class="brand">
+        <div class="brand-text">
+          <div class="brand-line">
+            <span class="wordmark-osf">OSF</span><span class="wordmark-ui">UI</span>
+          </div>
+          <div class="osf-eyebrow brand-sub">KEYBINDS</div>
+        </div>
+      </div>
+      <input id="search" class="osf-input kb-search" type="text"
+        placeholder="Search keys, mods, actions…" autocomplete="off" spellcheck="false">
+      <div class="kb-legend osf-eyebrow" aria-hidden="true">
+        <span class="legend-item"><i class="legend-swatch legend-mod"></i>Mod</span>
+        <span class="legend-item"><i class="legend-swatch legend-game"></i>Game</span>
+        <span class="legend-item"><i class="legend-swatch legend-conflict"></i>Conflict</span>
+      </div>
+      <button id="close" type="button" class="osf-btn osf-btn--ghost osf-btn--sm">Close</button>
+    </header>
+
+    <section id="keyboard" class="kb-board" aria-label="Keyboard map"></section>
+
+    <div class="kb-lower">
+      <section class="kb-panel kb-detail-panel" aria-live="polite">
+        <div class="osf-eyebrow kb-panel-title" id="detail-title">Select a key</div>
+        <div id="detail" class="kb-detail"></div>
+      </section>
+      <section class="kb-panel kb-list-panel">
+        <div class="osf-eyebrow kb-panel-title" id="list-title">All bindings</div>
+        <div id="bindlist" class="kb-list"></div>
+      </section>
+    </div>
+
+    <p id="status" class="kb-status osf-eyebrow">Loading…</p>
+  </div>
+
+  <div id="toast" class="toast-stack" aria-live="polite"></div>
+
+  <script src="main.js"></script>
+</body>
+</html>

@@ -140,7 +140,13 @@
       });
     }
   }
-  function sendData() { annotateConflicts(); send("settings.data", { mods }); }
+  function sendData() {
+    annotateConflicts();
+    // Mirror SettingsStore::Data()'s top-level vanillaKeys table (the game's
+    // own bindings, full map — the keybinds view renders it).
+    send("settings.data", { mods,
+      vanillaKeys: VANILLA.map((v) => ({ event: v.event, title: v.title, name: v.name })) });
+  }
 
   // Mirrors SettingsModule subscribe-on-read (protocol 0.3): settings.get
   // subscribes the page; committed values then push as settings.changed.

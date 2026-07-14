@@ -492,7 +492,28 @@ namespace OSFUI
 				{ "values", mod.values },
 			});
 		}
-		return nlohmann::json{ { "mods", std::move(mods) } };
+		nlohmann::json data{ { "mods", std::move(mods) } };
+		// The game's own bindings as a top-level table (mcm-design.md §9
+		// "vanilla hotkeys" + the keybinds view): the FULL curated map, not
+		// just colliding entries — a bindings overview needs both. Additive
+		// protocol 0.4 field; omitted when the feature is off/empty, and old
+		// views ignore unknown top-level fields.
+		if (!_vanillaKeys.empty()) {
+			nlohmann::json vanilla = nlohmann::json::array();
+			for (const auto& v : _vanillaKeys) {
+				if (v.vk != 0 && !v.name.empty()) {
+					vanilla.push_back({
+						{ "event", v.event },
+						{ "title", v.title },
+						{ "name", v.name },
+					});
+				}
+			}
+			if (!vanilla.empty()) {
+				data["vanillaKeys"] = std::move(vanilla);
+			}
+		}
+		return data;
 	}
 
 	std::string SettingsStore::DataJson() const

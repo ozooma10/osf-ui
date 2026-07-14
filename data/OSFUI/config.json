@@ -15,7 +15,7 @@
   "pauseMenuEntry": true,
   "vanillaKeyConflicts": true,
   "view": "hub",
-  "views": ["hub", "settings", "osf"],
+  "views": ["hub", "settings", "keybinds", "osf"],
   "allowNetwork": false,
   "devMode": true,
   "devReloadKey": "F11"
