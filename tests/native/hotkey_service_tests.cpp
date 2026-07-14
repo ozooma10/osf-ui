@@ -274,6 +274,35 @@ int main()
 		// Unique binding: no conflicts field at all.
 		CHECK(!FindEmittedSetting(data, "delta", "unique")->contains("conflicts"));
 
+		// --- ConflictsFor(): the live-warn half (capture-time lookup) --------
+		// Same store state; the runtime calls this with the just-captured VK
+		// BEFORE the view commits, so the setting being rebound still holds
+		// its OLD value — hence the explicit self-exclusion.
+		const auto names = [](const nlohmann::json& a_conflicts) {
+			std::vector<std::string> out;
+			for (const auto& c : a_conflicts) {
+				out.push_back(std::format("{}.{}", c.value("mod", ""), c.value("key", "")));
+			}
+			std::sort(out.begin(), out.end());
+			return out;
+		};
+		// Rebinding delta.unique onto F6 would collide with both holders.
+		CHECK(names(s2.ConflictsFor(vkF6, "delta", "unique")) == (std::vector<std::string>{ "delta.boundA", "delta.boundB" }));
+		// Re-capturing F6 for a setting already on F6: self is excluded even
+		// though its stored value still resolves to the same VK.
+		CHECK(names(s2.ConflictsFor(vkF6, "delta", "boundA")) == std::vector<std::string>{ "delta.boundB" });
+		// Alias-aware (Tilde vs Grave = one VK), and titles come through.
+		{
+			const auto conflicts = s2.ConflictsFor(ResolveKeyName("Tilde"), "delta", "grave");
+			CHECK(names(conflicts) == std::vector<std::string>{ "epsilon.console" });
+			CHECK(!conflicts.empty() && conflicts[0].value("title", "") == "Epsilon Mod");
+		}
+		// A key nobody holds, and a key held only by self: empty either way.
+		CHECK(s2.ConflictsFor(ResolveKeyName("F12"), "delta", "unique").empty());
+		CHECK(s2.ConflictsFor(ResolveKeyName("F9"), "delta", "unique").empty());
+		// vk 0 (unresolvable capture) never conflicts.
+		CHECK(s2.ConflictsFor(0, "delta", "unique").empty());
+
 		// A rebind away clears both sides on the next Data() — i.e. the
 		// annotation lives on the emitted COPY; the stored schema is never
 		// mutated.
@@ -287,11 +316,13 @@ int main()
 		CHECK(s2.Set("delta", "grave", "\"F11\""));
 		CHECK(s2.DataJson().find("\"conflicts\"") == std::string::npos);
 
-		// Without a resolver, Data() emits no conflict data (host defensive
-		// default; the composition root always wires one).
+		// Without a resolver, Data() emits no conflict data and ConflictsFor
+		// finds none (host defensive default; the composition root always
+		// wires one).
 		SettingsStore s3;
 		s3.LoadAll(schemaDir2, root2 / "values3");
 		CHECK(s3.DataJson().find("\"conflicts\"") == std::string::npos);
+		CHECK(s3.ConflictsFor(vkF6, "delta", "unique").empty());
 	}
 
 	fs::remove_all(root);

@@ -163,6 +163,15 @@ namespace OSFUI
 		[[nodiscard]] nlohmann::json Data() const;
 		[[nodiscard]] std::string    DataJson() const;
 
+		// The OTHER key-typed settings currently bound to physical key a_vk —
+		// `[{mod, key, title}]`, excluding a_excludeMod.a_excludeKey (the
+		// setting being rebound, whose stored value is still the OLD binding).
+		// Live-warn during capture (mcm-design.md §9): the runtime answers a
+		// mid-rebind key press with the collisions the bind WOULD create,
+		// before the view commits it. Empty on a unique key, a_vk == 0, or no
+		// resolver — and informational only, like the Data() annotation.
+		[[nodiscard]] nlohmann::json ConflictsFor(std::uint32_t a_vk, std::string_view a_excludeMod, std::string_view a_excludeKey) const;
+
 		// Validate + clamp + store + notify. a_valueJson is the raw JSON text
 		// of the value. Returns false on unknown mod/key or bad type (false =
 		// nothing committed). Persistence is write-behind: the commit and the
@@ -211,6 +220,16 @@ namespace OSFUI
 		[[nodiscard]] static const nlohmann::json* FindSetting(const Mod& a_mod, std::string_view a_key);
 		[[nodiscard]] static std::optional<nlohmann::json> Validate(const nlohmann::json& a_setting, const nlohmann::json& a_value);
 		[[nodiscard]] static nlohmann::json DefaultFor(const nlohmann::json& a_setting);
+		// One key-typed setting whose current value resolved to a physical
+		// key. Shared by the Data() conflict annotation and ConflictsFor().
+		struct BoundKey
+		{
+			std::string   modId;
+			std::string   key;
+			std::string   title;
+			std::uint32_t vk;
+		};
+		[[nodiscard]] std::vector<BoundKey> ResolveBoundKeys() const;
 		// The values that go to disk: only ≠ schema default (sparse, §8.1).
 		[[nodiscard]] static nlohmann::json SparseValues(const Mod& a_mod);
 		// Open (or join) the mod's write-behind window; PumpPersistence lands it.

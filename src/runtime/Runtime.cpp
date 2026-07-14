@@ -1045,12 +1045,23 @@ namespace OSFUI
 		const bool cancelled = name.empty();
 		// Tell the view which setting + the captured name; it echoes back a normal
 		// settings.set (so the store persists + OnSettingChanged re-resolves).
-		_bridge->SendToWeb(_captureView, "settings.captured", nlohmann::json{
+		nlohmann::json payload{
 			{ "mod", _captureMod },
 			{ "key", _captureKey },
 			{ "name", name },
 			{ "cancelled", cancelled },
-		});
+		};
+		// Live-warn during capture (mcm-design.md §9): which OTHER key-typed
+		// settings already sit on the captured key, so the rebind UI warns
+		// BEFORE the view commits. The store still holds the OLD binding for
+		// this setting (the commit is the view's echo), so exclude self.
+		// Informational, never blocking — same contract as Data()'s badges.
+		if (!cancelled && _settings) {
+			if (auto conflicts = _settings->Store().ConflictsFor(vk, _captureMod, _captureKey); !conflicts.empty()) {
+				payload["conflicts"] = std::move(conflicts);
+			}
+		}
+		_bridge->SendToWeb(_captureView, "settings.captured", payload);
 		REX::INFO("Runtime: key capture -> {} ({}.{})", cancelled ? "(cancelled)" : name, _captureMod, _captureKey);
 		_captureView.clear();
 		_captureMod.clear();

@@ -345,21 +345,9 @@ namespace OSFUI
 		return out;
 	}
 
-	nlohmann::json SettingsStore::Data() const
+	std::vector<SettingsStore::BoundKey> SettingsStore::ResolveBoundKeys() const
 	{
-		// Informational key-conflict grouping (mcm-design.md §9): resolve
-		// every key-typed setting's current value ONCE, so the annotation walk
-		// below is a lookup, not a re-resolve (an unresolvable name would
-		// otherwise warn once per setting per pass). Never blocking — the
-		// renderer badges both sides of a collision; the bind stands.
-		struct Bound
-		{
-			std::string   modId;
-			std::string   key;
-			std::string   title;
-			std::uint32_t vk;
-		};
-		std::vector<Bound> bound;
+		std::vector<BoundKey> bound;
 		if (_keyResolver) {
 			for (const auto& setting : KeySettings()) {
 				if (const auto vk = _keyResolver(setting.name); vk != 0) {
@@ -369,6 +357,35 @@ namespace OSFUI
 				}
 			}
 		}
+		return bound;
+	}
+
+	nlohmann::json SettingsStore::ConflictsFor(std::uint32_t a_vk, std::string_view a_excludeMod, std::string_view a_excludeKey) const
+	{
+		nlohmann::json conflicts = nlohmann::json::array();
+		if (a_vk == 0) {
+			return conflicts;  // unresolvable: never conflicts (mirrors Data())
+		}
+		for (const auto& other : ResolveBoundKeys()) {
+			if (other.vk == a_vk && (other.modId != a_excludeMod || other.key != a_excludeKey)) {
+				conflicts.push_back({
+					{ "mod", other.modId },
+					{ "key", other.key },
+					{ "title", other.title },
+				});
+			}
+		}
+		return conflicts;
+	}
+
+	nlohmann::json SettingsStore::Data() const
+	{
+		// Informational key-conflict grouping (mcm-design.md §9): resolve
+		// every key-typed setting's current value ONCE, so the annotation walk
+		// below is a lookup, not a re-resolve (an unresolvable name would
+		// otherwise warn once per setting per pass). Never blocking — the
+		// renderer badges both sides of a collision; the bind stands.
+		const std::vector<BoundKey> bound = ResolveBoundKeys();
 
 		nlohmann::json mods = nlohmann::json::array();
 		for (const auto& mod : _mods) {
@@ -380,7 +397,7 @@ namespace OSFUI
 					}
 					const auto key = Json::GetString(a_setting, "key", "");
 					const auto self = std::find_if(bound.begin(), bound.end(),
-						[&](const Bound& a_b) { return a_b.modId == mod.id && a_b.key == key; });
+						[&](const BoundKey& a_b) { return a_b.modId == mod.id && a_b.key == key; });
 					if (self == bound.end()) {
 						return false;  // unresolvable/empty value: never conflicts
 					}

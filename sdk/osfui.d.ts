@@ -142,6 +142,14 @@ export interface SettingsCapturedPayload {
   key: string;
   name: string;       // OSF UI key name (e.g. "F9"); "" when cancelled
   cancelled: boolean; // true on Escape or an unbindable key — keep the old binding
+  /**
+   * Live-warn during capture (protocol 0.4, mcm-design.md §9): the OTHER
+   * key-typed settings (any mod) already bound to the captured key — the
+   * collisions this bind WOULD create, delivered before the view commits it.
+   * Informational only — the bind is never rejected; warn, don't block.
+   * Absent when the captured key is unique (and always on cancelled:true).
+   */
+  conflicts?: Array<{ mod: string; key: string; title: string }>;
 }
 
 export interface UiErrorPayload {
