@@ -24,7 +24,7 @@
     "version": {
       "type": "integer",
       "minimum": 0,
-      "description": "Optional schema version (default 0). Reserved for value migration; the renderer ignores it, the native store records it as $schemaVersion in the values file."
+      "description": "Optional schema version (default 0). The renderer ignores it; the native store stamps it into the values file as the reserved $schemaVersion meta key and logs a version move on load (mcm-design.md §11). A v0 (unversioned) mod is never stamped, so bumping to 1+ is opt-in. Pair with per-setting `aliases` for renamed keys; type changes fall through validation to the new default."
     },
     "accent": {
       "type": "string",
@@ -93,6 +93,11 @@
           "type": "string",
           "minLength": 1,
           "description": "Stable identifier, unique within the mod. Used as the persisted key and in settings.set/settings.reset."
+        },
+        "aliases": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Former keys this setting was persisted under (mcm-design.md §11). On load, if the current `key` is absent from the values file, the first listed alias whose stored value still validates is adopted, then rewritten under `key` (the old alias key drops). Declarative one-way rename; no version arithmetic. The current key always wins over an alias."
         },
         "label": {
           "type": "string",

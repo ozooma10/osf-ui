@@ -657,20 +657,30 @@ event delivery into Papyrus is the fiddly part). Sketch for later:
 
 ## 11. Versioning & migration
 
+> **Built 2026-07-14.** All three below shipped and host-tested
+> (`settings_store_tests` §11 blocks). Programmatic hooks remain deferred.
+
 - **`"version": <uint>`** on the schema (default 0). Values files gain a
   reserved `$schemaVersion` meta key — safe because the loader only reads
-  keys the schema declares (`SettingsStore.cpp:69-83`), so `$`-prefixed keys
-  are invisible to old builds. Log on upgrade/downgrade.
+  keys the schema declares (`ForEachSetting` walks `groups[].settings[]`), so
+  `$`-prefixed keys never enter `mod.values` and are invisible to old builds.
+  Log on upgrade/downgrade. **A v0 mod is never stamped** — bumping to 1+ is
+  opt-in, so no existing values file churns just from this landing. The stamp
+  round-trips through `SparseValues` so a current-version file loads clean
+  (no perpetual re-dirty).
 - **Renamed keys: per-setting `"aliases": ["oldKey", ...]`** rather than a
   version-indexed migration table. On load, if the saved file lacks the
-  current key but has an alias, adopt (and re-validate) the alias value.
-  Local, declarative, zero version arithmetic; covers the overwhelmingly
-  common case. Type changes fall through validation to the new default —
+  current key (or its value no longer validates), adopt the first alias whose
+  stored value re-validates; the next write lands under the current key and
+  the old alias key drops (SparseValues only emits declared keys). The
+  current key always wins over an alias. Local, declarative, zero version
+  arithmetic. Type changes fall through validation to the new default —
   already today's behavior.
-- **Default-value changes:** solved by sparse persistence (§8.1). One-time
-  cleanup on first load under the new scheme: prune persisted values equal to
-  the current default (recommended; the only loss is "user explicitly chose
-  the old default", which is unknowable anyway — open question §14).
+- **Default-value changes:** solved by sparse persistence (§8.1); the
+  prune-to-default-on-load path (`saved != SparseValues` → rewrite) already
+  sheds values that now equal an updated default. The only loss is "user
+  explicitly chose the old default", which is unknowable anyway (open
+  question §14).
 - **Programmatic migration hooks** (native callback with old version + old
   values): deferred indefinitely — ABI surface waiting for a use case.
 

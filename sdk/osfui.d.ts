@@ -248,6 +248,7 @@ export type Condition =
 
 export interface Setting {
   key: string;
+  aliases?: string[]; // former persisted keys; on load the current key's value is adopted from the first still-valid alias, then rewritten under `key` (§11). Native-only; the renderer ignores it.
   label?: string;
   hint?: string;      // optional helper text shown under the control label
   type: SettingType;
@@ -330,7 +331,7 @@ export interface SettingsSchema {
   id?: string;
   title?: string;
   description?: string;  // one-line blurb shown under the title in the detail pane
-  version?: number;      // reserved for value migration
+  version?: number;      // schema version (default 0); native stamps it as $schemaVersion + logs a version move (§11). Renderer ignores it.
   accent?: string;       // per-mod accent "#rrggbb"/"#rrggbbaa"
   presets?: SettingsPreset[];
   groups?: SettingsGroup[];

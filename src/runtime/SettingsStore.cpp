@@ -12,6 +12,12 @@ namespace OSFUI
 		constexpr std::size_t kMaxStringLen = 256;
 		constexpr std::size_t kMaxModIdLen = 64;
 
+		// Reserved meta key in a values file: the schema `version` the file was
+		// last written under (mcm-design.md §11). `$`-prefixed so it can never
+		// collide with a setting key (the schema walk only sees declared keys)
+		// and is invisible to builds that predate versioning.
+		constexpr const char* kSchemaVersionKey = "$schemaVersion";
+
 		// A mod id becomes a filename (<valuesDir>/<id>.json) and a web asset
 		// path segment (views/<id>/...): restrict it to a safe charset and
 		// reject traversal so a schema-supplied id can never escape either
@@ -217,6 +223,20 @@ namespace OSFUI
 		if (auto parsed = Json::ParseFile(mod.valuesPath); parsed && parsed->is_object()) {
 			saved = std::move(*parsed);
 		}
+
+		// Version bookkeeping (mcm-design.md §11): the schema's declared
+		// `version` (default 0) is stamped into the values file as the
+		// reserved `$schemaVersion` meta key. `$`-prefixed keys are invisible
+		// to the schema walk below (no setting may be named `$…`), so an older
+		// build simply ignores it. Log a version move for support triage; the
+		// alias adoption below is what actually carries values across a rename.
+		const auto schemaVersion = static_cast<std::int64_t>(Json::GetInt(mod.schema, "version", 0));
+		if (const auto it = saved.find(kSchemaVersionKey); it != saved.end() && it->is_number_integer()) {
+			if (const auto fileVersion = it->get<std::int64_t>(); fileVersion != schemaVersion) {
+				REX::INFO("SettingsStore: '{}' values migrating v{} -> v{}", mod.id, fileVersion, schemaVersion);
+			}
+		}
+
 		std::size_t count = 0;
 		ForEachSetting(mod.schema, [&](const nlohmann::json& a_setting) {
 			const auto key = Json::GetString(a_setting, "key", "");
@@ -230,15 +250,38 @@ namespace OSFUI
 					return false;
 				}
 			}
+			// Renamed key (mcm-design.md §11): the current key is absent (or
+			// its value no longer validates), so adopt the first declared
+			// `alias` present in the file that DOES validate. The old key is
+			// not schema-declared, so SparseValues drops it and the next write
+			// lands under the new name — a one-way, declarative rename with no
+			// version arithmetic.
+			if (const auto aliases = a_setting.find("aliases"); aliases != a_setting.end() && aliases->is_array()) {
+				for (const auto& alias : *aliases) {
+					if (!alias.is_string()) {
+						continue;
+					}
+					const auto it = saved.find(alias.get<std::string>());
+					if (it == saved.end()) {
+						continue;
+					}
+					if (auto valid = Validate(a_setting, *it)) {
+						REX::INFO("SettingsStore: '{}.{}' adopted from alias '{}'", mod.id, key, alias.get<std::string>());
+						mod.values[key] = std::move(*valid);
+						return false;
+					}
+				}
+			}
 			mod.values[key] = DefaultFor(a_setting);
 			return false;
 		});
 
-		// Prune-to-default on load (mcm-design.md §8.1): when the file differs
-		// from its sparse form — a legacy full file, a saved value that now
-		// equals an updated default, junk/retyped keys, clamping — schedule a
-		// rewrite so those knobs track upstream defaults again instead of
-		// staying frozen forever.
+		// Prune-to-default on load (mcm-design.md §8.1 + §11): when the file
+		// differs from its sparse form — a legacy full file, a saved value
+		// that now equals an updated default, an adopted alias, junk/retyped
+		// keys, clamping, or a stale `$schemaVersion` — schedule a rewrite so
+		// those knobs track upstream defaults again instead of staying frozen
+		// forever, and so the version stamp advances.
 		if (saved != SparseValues(mod)) {
 			MarkDirty(mod);
 		}
@@ -652,6 +695,16 @@ namespace OSFUI
 			}
 			return false;
 		});
+		// Stamp the schema version (mcm-design.md §11) ONLY when a mod actually
+		// uses versioning: a v0 (unversioned) mod's file stays byte-for-byte
+		// as before, so no existing values file is dirtied just by this
+		// feature landing. The schema's `version` is the sole source of truth
+		// — the stamp records "last written under vN"; a schema reverting to
+		// v0 drops the stamp (a genuine downgrade), which the load-time
+		// compare treats as any other version move.
+		if (const auto v = Json::GetInt(a_mod.schema, "version", 0); v != 0) {
+			sparse[kSchemaVersionKey] = v;
+		}
 		return sparse;
 	}
 

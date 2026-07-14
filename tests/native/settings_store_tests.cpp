@@ -357,6 +357,102 @@ int main()
 		CHECK((saved == nlohmann::json{ { "b", true }, { "n", 7 } }));  // ~SettingsStore flushed
 	}
 
+	// --- §11 renamed keys: per-setting `aliases` ----------------------------------
+	{
+		const auto sd = root / "settings-alias";
+		const auto vd = root / "values-alias";
+		WriteFile(sd / "ren.json", R"json({
+			"id": "ren", "title": "Rename",
+			"groups": [ { "settings": [
+				{ "key": "opacity", "type": "int", "default": 50, "min": 0, "max": 100, "aliases": ["alpha", "hudAlpha"] },
+				{ "key": "size",    "type": "int", "default": 10, "aliases": ["scale"] },
+				{ "key": "plain",   "type": "int", "default": 1 }
+			] } ] })json");
+		// Old file uses the FIRST alias for opacity, a LATER alias for size,
+		// and an alias whose value won't validate should never be adopted.
+		WriteFile(vd / "ren.json", R"json({ "alpha": 80, "scale": 25 })json");
+
+		SettingsStore s;
+		s.LoadAll(sd, vd);
+		CHECK(s.GetValue("ren", "opacity") && *s.GetValue("ren", "opacity") == 80);  // adopted from "alpha"
+		CHECK(s.GetValue("ren", "size") && *s.GetValue("ren", "size") == 25);        // adopted from "scale"
+		CHECK(s.GetValue("ren", "plain") && *s.GetValue("ren", "plain") == 1);       // untouched default
+		CHECK(LoggedContaining("INFO", "adopted from alias 'alpha'"));
+
+		// The rename rewrites under the NEW key; the old alias keys drop.
+		s.PumpPersistence(SettingsStore::kPersistDelaySeconds);
+		{
+			auto saved = nlohmann::json::parse(std::ifstream(vd / "ren.json"), nullptr, false);
+			CHECK((saved == nlohmann::json{ { "opacity", 80 }, { "size", 25 } }));  // no "alpha"/"scale" left
+		}
+
+		// The current key present wins over any alias; an alias that fails
+		// validation (wrong type) falls through to default, not adopted.
+		WriteFile(vd / "ren.json", R"json({ "opacity": 30, "alpha": 99, "scale": "nope" })json");
+		SettingsStore s2;
+		s2.LoadAll(sd, vd);
+		CHECK(s2.GetValue("ren", "opacity") && *s2.GetValue("ren", "opacity") == 30);  // current key wins
+		CHECK(s2.GetValue("ren", "size") && *s2.GetValue("ren", "size") == 10);        // "nope" invalid -> default
+	}
+
+	// --- §11 `$schemaVersion` meta key --------------------------------------------
+	{
+		const auto sd = root / "settings-ver";
+		const auto vd = root / "values-ver";
+
+		// A v0 (unversioned) mod NEVER gets a stamp — existing files untouched.
+		WriteFile(sd / "unver.json", R"json({
+			"id": "unver", "groups": [ { "settings": [
+				{ "key": "n", "type": "int", "default": 1 }
+			] } ] })json");
+		// A versioned mod stamps $schemaVersion.
+		WriteFile(sd / "ver.json", R"json({
+			"id": "ver", "version": 3, "groups": [ { "settings": [
+				{ "key": "n", "type": "int", "default": 1 }
+			] } ] })json");
+		WriteFile(vd / "ver.json", R"json({ "$schemaVersion": 2, "n": 5 })json");  // file from an older v2
+
+		SettingsStore s;
+		s.LoadAll(sd, vd);
+		CHECK(LoggedContaining("INFO", "migrating v2 -> v3"));
+		s.PumpPersistence(SettingsStore::kPersistDelaySeconds);
+		{
+			auto ver = nlohmann::json::parse(std::ifstream(vd / "ver.json"), nullptr, false);
+			CHECK((ver == nlohmann::json{ { "$schemaVersion", 3 }, { "n", 5 } }));  // stamp advanced, value kept
+		}
+
+		// v0 mod: fresh install, all-default -> no file churn beyond none, and
+		// crucially NO $schemaVersion key.
+		SettingsStore su;
+		su.LoadAll(sd, vd);
+		su.FlushPersistence();
+		{
+			std::error_code ec;
+			// unver never diverged from sparse-empty, so no file need exist;
+			// if one does (defensive), it must not carry a version stamp.
+			if (fs::exists(vd / "unver.json", ec)) {
+				auto un = nlohmann::json::parse(std::ifstream(vd / "unver.json"), nullptr, false);
+				CHECK(!un.contains("$schemaVersion"));
+			}
+		}
+
+		// No perpetual re-dirty: a versioned file already at the current
+		// version + sparse form must load CLEAN (no rewrite scheduled). Prove
+		// it by loading, immediately flushing, and checking the byte content
+		// is unchanged even though we never pumped a rewrite window.
+		WriteFile(vd / "ver.json", R"json({"$schemaVersion":3,"n":5})json");
+		SettingsStore sc;
+		sc.LoadAll(sd, vd);
+		// A clean load leaves the mod not-dirty; FlushPersistence is then a
+		// no-op and the (compact, hand-written) file keeps its exact bytes.
+		sc.FlushPersistence();
+		{
+			std::ifstream f(vd / "ver.json");
+			std::string   contents((std::istreambuf_iterator<char>(f)), {});
+			CHECK(contents == R"json({"$schemaVersion":3,"n":5})json");  // untouched: clean load
+		}
+	}
+
 	// ---------------------------------------------------------------------------
 	std::fprintf(stderr, "%d/%d checks passed\n", g_checks - g_failures, g_checks);
 	fs::remove_all(root);
