@@ -22,6 +22,12 @@ namespace OSFUI::Platform
 	// MO2/Program-Files-mapped plugin data folder.
 	[[nodiscard]] std::filesystem::path GetDocumentsPath();
 
+	// DirectInput (DIK) scan code -> Windows VK code on the current keyboard
+	// layout (MapVirtualKey VSC_TO_VK_EX; DIK codes are set-1 make codes with
+	// 0x80 marking extended keys). 0 when untranslatable. Feeds VanillaKeys'
+	// controlmap overlays (mcm-design.md §9 "vanilla hotkeys").
+	[[nodiscard]] std::uint32_t DirectInputScanToVk(std::uint32_t a_scanCode);
+
 	// True when [a_address, a_address + a_size) is committed, non-guard,
 	// readable memory (VirtualQuery walk). For probing engine pointers.
 	[[nodiscard]] bool IsReadableRange(std::uintptr_t a_address, std::size_t a_size);

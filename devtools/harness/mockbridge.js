@@ -100,6 +100,17 @@
       window.osfui.onMessage(JSON.stringify({ type, payload }));
     }
   }
+  // The game's own bindings (mcm-design §9 "vanilla hotkeys"): native loads
+  // vanillakeys.json + the engine's controlmap overrides and injects "@game"
+  // pseudo-entries; the mock ships a small sample so the harness exercises
+  // the "Starfield (…)" side of badges and capture live-warns.
+  const VANILLA = [
+    { name: "F5", event: "QuickSave", title: "Starfield (Quicksave)" },
+    { name: "F9", event: "QuickLoad", title: "Starfield (Quickload)" },
+    { name: "E", event: "Activate", title: "Starfield (Interact)" },
+    { name: "Grave", event: "Console", title: "Starfield (Console)" },
+  ];
+
   // Mirror SettingsStore::Data()'s key-conflict grouping (mcm-design §9): a
   // key setting whose bound value is also bound elsewhere gets
   // conflicts:[{mod,key,title}]. Native groups by RESOLVED vk; the mock groups
@@ -107,6 +118,9 @@
   // each send so a rebind that clears a conflict drops the badge.
   function annotateConflicts() {
     const byVal = {};
+    for (const v of VANILLA) {
+      (byVal[v.name] = byVal[v.name] || []).push({ mod: "@game", key: v.event, title: v.title });
+    }
     for (const m of mods) {
       eachSetting(m.schema, (s) => { if (s.type === "key") delete s.conflicts; });
       eachSetting(m.schema, (s) => {
@@ -206,7 +220,8 @@
           // mirrors SettingsStore::ConflictsFor. Value-string compare, like
           // annotateConflicts(); omitted when unique, like native.
           if (!cancelled) {
-            const others = [];
+            const others = VANILLA.filter((v) => v.name === name)
+              .map((v) => ({ mod: "@game", key: v.event, title: v.title }));
             for (const m of mods) {
               eachSetting(m.schema, (s) => {
                 if (s.type === "key" && m.values[s.key] === name &&

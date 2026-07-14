@@ -45,6 +45,14 @@ namespace OSFUI::Platform
 		return result;
 	}
 
+	std::uint32_t DirectInputScanToVk(std::uint32_t a_scanCode)
+	{
+		// DIK codes are keyboard set-1 make codes; 0x80 marks extended keys
+		// (the 0xE0 prefix byte), which VSC_TO_VK_EX takes in the high byte.
+		const UINT composite = (a_scanCode & 0x80u) ? (0xE000u | (a_scanCode & 0x7Fu)) : a_scanCode;
+		return ::MapVirtualKeyW(composite, MAPVK_VSC_TO_VK_EX);
+	}
+
 	std::filesystem::path GetThisModulePath()
 	{
 		HMODULE module = nullptr;

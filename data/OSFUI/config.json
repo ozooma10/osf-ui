@@ -13,6 +13,7 @@
   "disableControls": true,
   "engineInput": true,
   "pauseMenuEntry": true,
+  "vanillaKeyConflicts": true,
   "view": "hub",
   "views": ["hub", "settings", "osf"],
   "allowNetwork": false,

@@ -65,8 +65,13 @@ compile hotkey_subscriptions_tests \
     hotkey_subscriptions_tests.cpp \
     ../../src/api/HotkeySubscriptions.cpp
 
+compile vanilla_keys_tests \
+    vanilla_keys_tests.cpp \
+    ../../src/runtime/VanillaKeys.cpp \
+    ../../src/runtime/Json.cpp
+
 failures=0
-for t in settings_store_tests settings_module_tests settings_mirror_tests settings_subscriptions_tests hotkey_service_tests hotkey_subscriptions_tests; do
+for t in settings_store_tests settings_module_tests settings_mirror_tests settings_subscriptions_tests hotkey_service_tests hotkey_subscriptions_tests vanilla_keys_tests; do
     echo "== $t =="
     "$BUILD/$t" || failures=$((failures + $?))
 done

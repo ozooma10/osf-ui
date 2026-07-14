@@ -325,6 +325,49 @@ int main()
 		CHECK(s3.ConflictsFor(vkF6, "delta", "unique").empty());
 	}
 
+	// --- vanilla hotkeys (§9 v1): "@game" pseudo-entries in the grouping ----------
+	{
+		const auto root3 = root / "vanilla";
+		WriteFile(root3 / "settings" / "zeta.json", R"json({
+			"id": "zeta", "title": "Zeta Mod",
+			"groups": [ { "settings": [
+				{ "key": "save",  "type": "key", "default": "F5" },
+				{ "key": "other", "type": "key", "default": "F7" }
+			] } ] })json");
+
+		SettingsStore s5;
+		HotkeyService svc5;
+		s5.SetKeyNameResolver(ResolveKeyName);
+		s5.LoadAll(root3 / "settings", root3 / "values");
+		s5.SetVanillaKeys({
+			{ "QuickSave", "Starfield (Quicksave)", ResolveKeyName("F5") },
+			{ "Console", "Starfield (Console)", ResolveKeyName("Grave") },
+		});
+
+		// Data(): the colliding setting badges against the game; the vanilla
+		// entry is never a *self*, so nothing else in the document changes.
+		const auto data = s5.Data();
+		const auto* save = FindEmittedSetting(data, "zeta", "save");
+		CHECK(save && save->contains("conflicts") && save->at("conflicts").size() == 1);
+		CHECK(save && save->at("conflicts")[0].value("mod", "") == "@game");
+		CHECK(save && save->at("conflicts")[0].value("key", "") == "QuickSave");
+		CHECK(save && save->at("conflicts")[0].value("title", "") == "Starfield (Quicksave)");
+		CHECK(!FindEmittedSetting(data, "zeta", "other")->contains("conflicts"));
+
+		// Capture-time live-warn sees the game side too.
+		const nlohmann::json wrapped{ { "conflicts", s5.ConflictsFor(ResolveKeyName("Grave"), "zeta", "other") } };
+		CHECK(ConflictsOf(&wrapped) == std::vector<std::string>{ "@game.Console" });
+
+		// The hotkey registry is untouched: vanilla keys are conflict data,
+		// not dispatchable bindings.
+		svc5.Rebuild(s5);
+		svc5.OnKeyDown(ResolveKeyName("Grave"));  // vanilla-only key
+		CHECK(DrainAll(svc5).empty());
+		svc5.OnKeyDown(ResolveKeyName("F5"));     // shared key: only the MOD fires
+		const auto fired = DrainAll(svc5);
+		CHECK(fired.size() == 1 && fired[0] == "zeta.save");
+	}
+
 	fs::remove_all(root);
 	std::fprintf(stderr, "hotkey_service_tests: %d checks, %d failure(s)\n", g_checks, g_failures);
 	return g_failures;

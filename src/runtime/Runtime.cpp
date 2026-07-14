@@ -19,6 +19,7 @@
 #include "platform/WindowsPlatform.h"
 #include "render/MockWebRenderer.h"
 #include "runtime/Json.h"
+#include "runtime/VanillaKeys.h"
 #include "render/NullWebRenderer.h"
 #include "render/UltralightWebRenderer.h"
 
@@ -1012,6 +1013,35 @@ namespace OSFUI
 		// press while the user types in a settings field or mid-rebind can
 		// never fire a hotkey.
 		store.SetKeyNameResolver(ResolveKeyName);
+
+		// Vanilla hotkeys (mcm-design.md §9, v1 — no engine RE): the game's
+		// own bindings join the informational conflict grouping as "@game"
+		// pseudo-entries. Defaults come from the curated shipped table (the
+		// engine bakes its defaults into the executable — no controlmap ships
+		// in the archives), then the SAME controlmap text files the engine
+		// honors overlay it: a mod-provided Data override, then the user's
+		// in-game remaps. Load-time snapshot; live ControlMap reads await RE.
+		if (_config.vanillaKeyConflicts) {
+			VanillaKeys vanilla;
+			if (vanilla.LoadDefaults(Paths::DataDir() / "vanillakeys.json", ResolveKeyName)) {
+				const auto scanToVk = [](std::uint32_t a_sc) { return Platform::DirectInputScanToVk(a_sc); };
+				// DataDir = <Data>/SFSE/Plugins/OSFUI; under MO2 the module
+				// path is virtualized, so this resolves through the VFS too.
+				const auto gameData = Paths::DataDir().parent_path().parent_path().parent_path();
+				vanilla.OverlayControlMap(gameData / "Interface" / "Controls" / "PC" / "ControlMap.txt", scanToVk);
+				if (!docs.empty()) {
+					vanilla.OverlayControlMap(docs / "My Games" / "Starfield" / "ControlMap_Custom.txt", scanToVk);
+				}
+				std::vector<SettingsStore::VanillaKey> keys;
+				for (const auto& b : vanilla.Bindings()) {
+					if (b.vk != 0) {
+						keys.push_back({ b.event, "Starfield (" + b.label + ")", b.vk });
+					}
+				}
+				store.SetVanillaKeys(std::move(keys));
+			}
+		}
+
 		_hotkeys.SetSuppression([this] { return IsInputCaptured() || _captureArmed.load(); });
 		store.AddChangeListener([this](std::string_view a_mod, std::string_view a_key, const nlohmann::json&) {
 			if (_settings && _settings->Store().GetSettingType(a_mod, a_key) == "key") {

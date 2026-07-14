@@ -36,6 +36,7 @@ namespace OSFUI
 		config.pauseMenuEntry = Json::GetBool(*json, "pauseMenuEntry", config.pauseMenuEntry);
 		config.pauseMenuEntryLabel = Json::GetString(*json, "pauseMenuEntryLabel", config.pauseMenuEntryLabel);
 		config.pauseMenuEntryView = Json::GetString(*json, "pauseMenuEntryView", config.pauseMenuEntryView);
+		config.vanillaKeyConflicts = Json::GetBool(*json, "vanillaKeyConflicts", config.vanillaKeyConflicts);
 		config.view = Json::GetString(*json, "view", config.view);
 		if (const auto it = json->find("views"); it != json->end() && it->is_array()) {
 			for (const auto& v : *it) {

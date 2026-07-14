@@ -356,6 +356,15 @@ namespace OSFUI
 						mod ? Json::GetString(mod->schema, "title", mod->id) : setting.modId, vk });
 				}
 			}
+			// The game's own bindings (mcm-design.md §9 "vanilla hotkeys"):
+			// pseudo-entries under the reserved id "@game". Gated on the same
+			// resolver as mod settings — without one there is no conflict
+			// grouping at all, so vanilla data would never be consulted.
+			for (const auto& vanilla : _vanillaKeys) {
+				if (vanilla.vk != 0) {
+					bound.push_back({ "@game", vanilla.event, vanilla.title, vanilla.vk });
+				}
+			}
 		}
 		return bound;
 	}

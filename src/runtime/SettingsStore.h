@@ -146,6 +146,21 @@ namespace OSFUI
 
 		void SetKeyNameResolver(KeyNameResolver a_resolver) { _keyResolver = std::move(a_resolver); }
 
+		// The GAME's own key bindings (mcm-design.md §9 "vanilla hotkeys"),
+		// already resolved to VKs by the composition root (VanillaKeys). They
+		// join the conflict grouping as pseudo-entries under the reserved mod
+		// id "@game" — they can never be a setting's *self*, so they only ever
+		// appear as the OTHER side of a collision (Data() badges and
+		// ConflictsFor()). The HotkeyService registry is untouched: it reads
+		// KeySettings(), and vanilla keys keep doing their vanilla thing.
+		struct VanillaKey
+		{
+			std::string   event;  // conflict entry `key` ("QuickSave")
+			std::string   title;  // conflict entry `title` ("Starfield · Quicksave")
+			std::uint32_t vk;
+		};
+		void SetVanillaKeys(std::vector<VanillaKey> a_keys) { _vanillaKeys = std::move(a_keys); }
+
 		// Monotonic counter bumped on every registry shape change (LoadAll,
 		// RegisterSchema, RemoveMod). Consumers re-broadcast `settings.data`
 		// when it moves (mcm-design.md §8.5).
@@ -243,6 +258,7 @@ namespace OSFUI
 
 		std::vector<Mod>              _mods;
 		KeyNameResolver               _keyResolver;
+		std::vector<VanillaKey>       _vanillaKeys;
 		std::vector<ChangeListener>   _listeners;
 		std::vector<RegistryListener> _registryListeners;
 		std::vector<PersistListener>  _persistListeners;

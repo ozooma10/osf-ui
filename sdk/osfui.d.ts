@@ -269,6 +269,12 @@ export interface Setting {
    * (any mod) currently bound to the same physical key. Informational only —
    * the runtime never rejects a colliding bind; render a warning badge.
    * Absent when the binding is unique.
+   *
+   * `mod` may be the RESERVED id `"@game"`: the game's own bindings
+   * participate too (curated defaults + the engine's controlmap override
+   * files). `key` is then the engine controlmap event id and `title` reads
+   * like "Starfield (Quicksave)" — display `title`, don't resolve `"@game"`
+   * against the mod registry.
    */
   conflicts?: Array<{ mod: string; key: string; title: string }>;
 }

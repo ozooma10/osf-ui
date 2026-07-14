@@ -614,6 +614,23 @@ event delivery into Papyrus is the fiddly part). Sketch for later:
   - Papyrus hotkey events: deferred with the Papyrus event system.
   - Every `key`-typed setting participates; subscription is the opt-in — no
     extra schema flag.
+- **Vanilla hotkeys (v1, no engine RE — built 2026-07-14).** The game's own
+  bindings join the conflict grouping as pseudo-entries under the reserved
+  mod id `@game` (title "Starfield (Quicksave)"); badges + capture live-warn
+  work unchanged, and the HotkeyService registry is untouched. Source of
+  truth: Starfield ships NO controlmap data file (verified: no
+  `controlmap` entry in any GNRL ba2 — the defaults live in the executable;
+  CommonLibSF has only RTTI/REL ids for the live `ControlMap` singleton,
+  867482/867486/867487, no layout). So v1 is a curated, shipped
+  `vanillakeys.json` (editable; gameplay-context keyboard defaults only),
+  overlaid at load by the same controlmap text files the engine honors —
+  `Data/Interface/Controls/PC/ControlMap.txt` (mod-provided override) then
+  `Documents/My Games/Starfield/ControlMap_Custom.txt` (in-game remaps);
+  DIK scan codes translate via `MapVirtualKey(VSC_TO_VK_EX)`
+  (`Platform::DirectInputScanToVk`). Config kill-switch:
+  `vanillaKeyConflicts` (default true). **v2 (needs an RE pass):** read the
+  live ControlMap singleton for in-session remap fidelity, per-context
+  accuracy, and gamepad — swaps in behind `VanillaKeys::Bindings()`.
 
 ---
 

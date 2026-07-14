@@ -66,6 +66,12 @@ namespace OSFUI
 		bool        pauseMenuEntry{ false };
 		std::string pauseMenuEntryLabel{ "MOD SETTINGS" };
 		std::string pauseMenuEntryView{ "settings" };  // must be a registered surface id (config.views)
+		// Include the game's own key bindings in the informational key-conflict
+		// data (mcm-design §9 "vanilla hotkeys", v1): curated defaults from
+		// vanillakeys.json, overlaid by the controlmap text files the engine
+		// honors. Purely informational (warn, never block); false skips
+		// loading the table entirely.
+		bool        vanillaKeyConflicts{ true };
 		std::string view{ "test" };
 		// Optional multi-view set. When non-empty, every id is loaded and
 		// composited together (layer order = each view's manifest `zorder`), and
