@@ -328,11 +328,25 @@ int main()
 	// --- vanilla hotkeys (§9 v1): "@game" pseudo-entries in the grouping ----------
 	{
 		const auto root3 = root / "vanilla";
+		WriteFile(root3 / "settings" / "eta.json", R"json({
+			"id": "eta", "title": "Eta Mod",
+			"groups": [ { "settings": [
+				{ "key": "globalSpace", "type": "key", "default": "Space" }
+			] } ] })json");
 		WriteFile(root3 / "settings" / "zeta.json", R"json({
 			"id": "zeta", "title": "Zeta Mod",
+			"inputContexts": [
+				{ "id": "scene", "label": "During scenes", "blocksGameplay": true },
+				{ "id": "scene", "label": "Ignored duplicate", "blocksGameplay": false },
+				{ "id": "gameplay", "blocksGameplay": true },
+				{ "id": "bad id", "blocksGameplay": true }
+			],
 			"groups": [ { "settings": [
-				{ "key": "save",  "type": "key", "default": "F5" },
-				{ "key": "other", "type": "key", "default": "F7" }
+				{ "key": "save",    "type": "key", "default": "F5" },
+				{ "key": "other",   "type": "key", "default": "F7" },
+				{ "key": "scene",   "type": "key", "default": "Space", "inputContext": "scene" },
+				{ "key": "unknown", "type": "key", "default": "F9", "inputContext": "missing" },
+				{ "key": "invalid", "type": "key", "default": "Grave", "inputContext": "bad id" }
 			] } ] })json");
 
 		SettingsStore s5;
@@ -341,37 +355,61 @@ int main()
 		s5.LoadAll(root3 / "settings", root3 / "values");
 		s5.SetVanillaKeys({
 			{ "QuickSave", "Starfield (Quicksave)", ResolveKeyName("F5"), "F5" },
+			{ "QuickLoad", "Starfield (Quickload)", ResolveKeyName("F9"), "F9" },
 			{ "Console", "Starfield (Console)", ResolveKeyName("Grave"), "Grave" },
+			{ "Jump", "Starfield (Jump)", ResolveKeyName("Space"), "Space" },
 		});
 
-		// Data(): the FULL vanilla table is emitted top-level (keybinds view)
-		// — not just the colliding entries.
 		const auto data = s5.Data();
-		CHECK(data.contains("vanillaKeys") && data["vanillaKeys"].size() == 2);
+		CHECK(data.contains("vanillaKeys") && data["vanillaKeys"].size() == 4);
 		CHECK(data["vanillaKeys"][0] == (nlohmann::json{
 			{ "event", "QuickSave" }, { "title", "Starfield (Quicksave)" }, { "name", "F5" } }));
 
-		// The colliding setting badges against the game; the vanilla entry is
-		// never a *self*, so nothing else in the document changes.
-		const auto* save = FindEmittedSetting(data, "zeta", "save");
-		CHECK(save && save->contains("conflicts") && save->at("conflicts").size() == 1);
-		CHECK(save && save->at("conflicts")[0].value("mod", "") == "@game");
-		CHECK(save && save->at("conflicts")[0].value("key", "") == "QuickSave");
-		CHECK(save && save->at("conflicts")[0].value("title", "") == "Starfield (Quicksave)");
+		// Ordinary and fallback gameplay contexts still warn against @game.
+		CHECK(ConflictsOf(FindEmittedSetting(data, "zeta", "save")) ==
+			std::vector<std::string>{ "@game.QuickSave" });
+		CHECK(ConflictsOf(FindEmittedSetting(data, "zeta", "unknown")) ==
+			std::vector<std::string>{ "@game.QuickLoad" });
+		CHECK(ConflictsOf(FindEmittedSetting(data, "zeta", "invalid")) ==
+			std::vector<std::string>{ "@game.Console" });
 		CHECK(!FindEmittedSetting(data, "zeta", "other")->contains("conflicts"));
 
-		// Capture-time live-warn sees the game side too.
-		const nlohmann::json wrapped{ { "conflicts", s5.ConflictsFor(ResolveKeyName("Grave"), "zeta", "other") } };
-		CHECK(ConflictsOf(&wrapped) == std::vector<std::string>{ "@game.Console" });
+		// The first valid duplicate context wins: scene omits @game.Jump but
+		// still reports the other mod on Space.
+		CHECK(ConflictsOf(FindEmittedSetting(data, "zeta", "scene")) ==
+			std::vector<std::string>{ "eta.globalSpace" });
+		CHECK(ConflictsOf(FindEmittedSetting(data, "eta", "globalSpace")) ==
+			(std::vector<std::string>{ "@game.Jump", "zeta.scene" }));
 
-		// The hotkey registry is untouched: vanilla keys are conflict data,
-		// not dispatchable bindings.
+		// Capture-time filtering uses the target setting's authored context.
+		const nlohmann::json sceneCapture{
+			{ "conflicts", s5.ConflictsFor(ResolveKeyName("Space"), "zeta", "scene") } };
+		CHECK(ConflictsOf(&sceneCapture) == std::vector<std::string>{ "eta.globalSpace" });
+		const nlohmann::json fallbackCapture{
+			{ "conflicts", s5.ConflictsFor(ResolveKeyName("F9"), "zeta", "unknown") } };
+		CHECK(ConflictsOf(&fallbackCapture) == std::vector<std::string>{ "@game.QuickLoad" });
+
+		// Metadata does not change dispatch: both mod bindings still fan out.
 		svc5.Rebuild(s5);
-		svc5.OnKeyDown(ResolveKeyName("Grave"));  // vanilla-only key
-		CHECK(DrainAll(svc5).empty());
-		svc5.OnKeyDown(ResolveKeyName("F5"));     // shared key: only the MOD fires
+		svc5.OnKeyDown(ResolveKeyName("Space"));
 		const auto fired = DrainAll(svc5);
-		CHECK(fired.size() == 1 && fired[0] == "zeta.save");
+		CHECK(fired.size() == 2);
+		CHECK(std::find(fired.begin(), fired.end(), "eta.globalSpace") != fired.end());
+		CHECK(std::find(fired.begin(), fired.end(), "zeta.scene") != fired.end());
+
+		// A malformed top-level context table also falls back to gameplay.
+		const auto root4 = root / "bad-context-table";
+		WriteFile(root4 / "settings" / "theta.json", R"json({
+			"id": "theta", "inputContexts": { "id": "scene", "blocksGameplay": true },
+			"groups": [ { "settings": [
+				{ "key": "scene", "type": "key", "default": "Space", "inputContext": "scene" }
+			] } ] })json");
+		SettingsStore s6;
+		s6.SetKeyNameResolver(ResolveKeyName);
+		s6.LoadAll(root4 / "settings", root4 / "values");
+		s6.SetVanillaKeys({ { "Jump", "Starfield (Jump)", ResolveKeyName("Space"), "Space" } });
+		CHECK(ConflictsOf(FindEmittedSetting(s6.Data(), "theta", "scene")) ==
+			std::vector<std::string>{ "@game.Jump" });
 	}
 
 	fs::remove_all(root);

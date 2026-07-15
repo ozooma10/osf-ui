@@ -188,8 +188,9 @@ namespace OSFUI
 		// With a KeyNameResolver set, every key-typed setting whose current
 		// value collides with another key-typed setting (same resolved
 		// physical key, any mod) carries `conflicts: [{mod, key, title}]` in
-		// its emitted schema object — INFORMATIONAL only (mcm-design.md §9):
-		// the renderer badges both sides; a colliding bind is never rejected.
+		// its emitted schema object -- INFORMATIONAL only (mcm-design.md §9).
+		// A named input context with blocksGameplay omits @game entries as
+		// expected reuse; mod-to-mod collisions are never omitted.
 		[[nodiscard]] nlohmann::json Data() const;
 		[[nodiscard]] std::string    DataJson() const;
 
@@ -199,7 +200,9 @@ namespace OSFUI
 		// Live-warn during capture (mcm-design.md §9): the runtime answers a
 		// mid-rebind key press with the collisions the bind WOULD create,
 		// before the view commits it. Empty on a unique key, a_vk == 0, or no
-		// resolver — and informational only, like the Data() annotation.
+		// resolver -- and informational only, like the Data() annotation.
+		// The rebound setting's input context applies the same expected
+		// @game filtering as Data().
 		[[nodiscard]] nlohmann::json ConflictsFor(std::uint32_t a_vk, std::string_view a_excludeMod, std::string_view a_excludeKey) const;
 
 		// Validate + clamp + store + notify. a_valueJson is the raw JSON text
@@ -253,6 +256,17 @@ namespace OSFUI
 		[[nodiscard]] static const nlohmann::json* FindSetting(const Mod& a_mod, std::string_view a_key);
 		[[nodiscard]] static std::optional<nlohmann::json> Validate(const nlohmann::json& a_setting, const nlohmann::json& a_value);
 		[[nodiscard]] static nlohmann::json DefaultFor(const nlohmann::json& a_setting);
+		// Authored key context (metadata-only v1). The "gameplay" context is
+		// implicit; named contexts are local to one mod and may declare that
+		// Starfield's curated gameplay bindings are unavailable.
+		struct InputContext
+		{
+			std::string id{ "gameplay" };
+			std::string label{ "Gameplay" };
+			bool        blocksGameplay{ false };
+		};
+		[[nodiscard]] static InputContext ResolveInputContext(const Mod& a_mod, const nlohmann::json& a_setting);
+		static void WarnInputContexts(const nlohmann::json& a_schema, std::string_view a_modId);
 		// One key-typed setting whose current value resolved to a physical
 		// key. Shared by the Data() conflict annotation and ConflictsFor().
 		struct BoundKey
@@ -261,6 +275,7 @@ namespace OSFUI
 			std::string   key;
 			std::string   title;
 			std::uint32_t vk;
+			bool          blocksGameplay{ false };
 		};
 		[[nodiscard]] std::vector<BoundKey> ResolveBoundKeys() const;
 		// The values that go to disk: only ≠ schema default (sparse, §8.1).

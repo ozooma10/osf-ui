@@ -63,6 +63,28 @@
     }
   }
 
+  const INPUT_CONTEXT_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+  function blocksGameplay(schema, setting) {
+    const ref = setting && typeof setting.inputContext === "string" ? setting.inputContext : "";
+    if (!ref || ref === "gameplay" || !INPUT_CONTEXT_ID_RE.test(ref)) return false;
+    const seen = new Set();
+    const contexts = schema && Array.isArray(schema.inputContexts) ? schema.inputContexts : [];
+    for (const context of contexts) {
+      if (!context || typeof context !== "object") continue;
+      const id = typeof context.id === "string" ? context.id : "";
+      if (id === "gameplay" || !INPUT_CONTEXT_ID_RE.test(id) || seen.has(id)) continue;
+      seen.add(id);
+      if (id === ref) return context.blocksGameplay === true;
+    }
+    return false;
+  }
+
+  function findSetting(mod, key) {
+    let found = null;
+    eachSetting(mod && mod.schema, (s) => { if (s.key === key) found = s; });
+    return found;
+  }
+
   // ---- persistence ----
   function loadSaved(id) {
     try { return JSON.parse(localStorage.getItem(LS_PREFIX + id) || "{}"); } catch { return {}; }
@@ -111,6 +133,7 @@
     { name: "F5", event: "QuickSave", title: "Starfield (Quicksave)" },
     { name: "F9", event: "QuickLoad", title: "Starfield (Quickload)" },
     { name: "E", event: "Activate", title: "Starfield (Interact)" },
+    { name: "Space", event: "Jump", title: "Starfield (Jump)" },
     { name: "Grave", event: "Console", title: "Starfield (Console)" },
   ];
 
@@ -138,7 +161,9 @@
         if (s.type !== "key") return;
         const v = m.values[s.key];
         if (!v) return;
-        const others = (byVal[v] || []).filter((x) => x.mod !== m.id || x.key !== s.key);
+        const expectedGameReuse = blocksGameplay(m.schema, s);
+        const others = (byVal[v] || []).filter((x) =>
+          (x.mod !== m.id || x.key !== s.key) && !(expectedGameReuse && x.mod === "@game"));
         if (others.length) s.conflicts = others;
       });
     }
@@ -229,7 +254,10 @@
           // mirrors SettingsStore::ConflictsFor. Value-string compare, like
           // annotateConflicts(); omitted when unique, like native.
           if (!cancelled) {
-            const others = VANILLA.filter((v) => v.name === name)
+            const targetMod = mods.find((m) => m.id === p.mod);
+            const targetSetting = findSetting(targetMod, p.key);
+            const expectedGameReuse = blocksGameplay(targetMod && targetMod.schema, targetSetting);
+            const others = VANILLA.filter((v) => v.name === name && !expectedGameReuse)
               .map((v) => ({ mod: "@game", key: v.event, title: v.title }));
             for (const m of mods) {
               eachSetting(m.schema, (s) => {
@@ -277,6 +305,13 @@
         { label: "Input", settings: [{ key: "toggleKey", label: "Open / close key", type: "key", default: "F10" }] },
         { label: "Overlay", settings: [
           { key: "allowPanels", label: "Allow mod settings panels", type: "bool", default: true, requires: "reload" },
+        ] },
+      ] },
+    { id: "scene-demo", title: "Scene Demo",
+      inputContexts: [{ id: "scene", label: "During scenes", blocksGameplay: true }],
+      groups: [
+        { label: "Scene", settings: [
+          { key: "progressScene", label: "Progress scene", type: "key", default: "Space", inputContext: "scene" },
         ] },
       ] },
   ];

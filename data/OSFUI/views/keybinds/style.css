@@ -46,6 +46,7 @@ body { background: transparent; }
 }
 .legend-mod { background: var(--accent-quiet); border-color: var(--line-hud); }
 .legend-game { background: rgba(154, 163, 173, 0.18); }
+.legend-shared { background: rgba(90, 169, 184, 0.12); border-color: rgba(90, 169, 184, 0.55); }
 .legend-conflict { background: rgba(224, 162, 60, 0.25); border-color: rgba(224, 162, 60, 0.6); }
 
 /* ---- keyboard --------------------------------------------------------------- */
@@ -84,6 +85,9 @@ body { background: transparent; }
 }
 .kb-key.is-game {
   background: rgba(154, 163, 173, 0.1); border-color: var(--steel-600); color: var(--text-body);
+}
+.kb-key.is-shared {
+  background: rgba(90, 169, 184, 0.08); border-color: rgba(90, 169, 184, 0.45); color: var(--text-body);
 }
 .kb-key.is-conflict {
   background: rgba(224, 162, 60, 0.12); border-color: rgba(224, 162, 60, 0.55); color: var(--text-body);
@@ -125,6 +129,7 @@ body { background: transparent; }
 .kb-holder--list { cursor: pointer; }
 .kb-holder--list:hover { background: rgba(154, 163, 173, 0.05); }
 .kb-holder--conflict { border-left: 2px solid var(--signal-warn); padding-left: 10px; }
+.kb-holder--shared { border-left: 2px solid var(--accent); padding-left: 10px; }
 .kb-holder-text { flex: 1; min-width: 0; }
 .kb-holder-title {
   display: flex; align-items: center; gap: 8px;
@@ -144,6 +149,7 @@ body { background: transparent; }
 
 /* Badge variants this view adds on top of the shared kit. */
 .osf-badge--accent { color: var(--accent); border-color: var(--line-hud); }
+.kb-context, .kb-shared-badge { color: var(--accent); border-color: var(--line-hud); }
 .osf-badge--ghost { color: var(--text-faint); border-color: var(--line-strong); }
 
 .kb-hint { color: var(--text-faint); font-size: var(--text-sm); padding: 8px 4px; }

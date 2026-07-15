@@ -594,6 +594,11 @@ event delivery into Papyrus is the fiddly part). Sketch for later:
   view renders a warning badge on both sides ("Also bound by: Cool Mod") and
   live-warns during capture. Rejecting binds would punish the second mod's
   user for the first mod's default — don't.
+- **Context metadata v1.** A schema may define top-level `inputContexts`
+  and reference one from a key setting. A context with
+  `blocksGameplay:true` classifies same-key `@game` entries as intentional
+  reuse, so they are omitted from persisted/capture conflict data.
+  Mod-to-mod conflicts and HotkeyService fan-out remain unchanged.
 - **Central `HotkeyService` (decided; new `src/runtime/` component).**
   Rationale: (a) OSF UI already owns the input hook *and the policy context*
   — a mod's own raw hook can't know a press happened while the user was
@@ -640,6 +645,10 @@ event delivery into Papyrus is the fiddly part). Sketch for later:
   (the FULL game table — `conflicts` alone only carries colliding entries).
   The view groups by key NAME with native's alias folding mirrored
   (Tilde/Backtick/Console→Grave, Return→Enter) instead of re-resolving VKs.
+
+Context-aware expected game reuse renders as a neutral Shared state in the
+Keybinds view, while genuine overlap retains conflict styling. Conflict wins
+when a physical key contains both classifications.
 
 ---
 

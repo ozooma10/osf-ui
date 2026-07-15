@@ -1,6 +1,7 @@
 #include "runtime/SettingsStore.h"
 
 #include <cmath>
+#include <unordered_set>
 
 #include "core/Log.h"
 #include "runtime/Json.h"
@@ -11,6 +12,7 @@ namespace OSFUI
 	{
 		constexpr std::size_t kMaxStringLen = 256;
 		constexpr std::size_t kMaxModIdLen = 64;
+		constexpr std::size_t kMaxInputContextIdLen = 64;
 
 		// Reserved meta key in a values file: the schema `version` the file was
 		// last written under (mcm-design.md §11). `$`-prefixed so it can never
@@ -38,6 +40,23 @@ namespace OSFUI
 				}
 			}
 			return true;
+		}
+
+		bool IsValidInputContextId(std::string_view a_id)
+		{
+			if (a_id.empty() || a_id.size() > kMaxInputContextIdLen) {
+				return false;
+			}
+			const auto isAlnum = [](const char c) {
+				return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+				       (c >= '0' && c <= '9');
+			};
+			if (!isAlnum(a_id.front())) {
+				return false;
+			}
+			return std::all_of(a_id.begin() + 1, a_id.end(), [&](const char c) {
+				return isAlnum(c) || c == '.' || c == '_' || c == '-';
+			});
 		}
 
 		// Framework bridge namespaces. The renderer only fires an action whose
@@ -225,6 +244,8 @@ namespace OSFUI
 			}
 		}
 
+		WarnInputContexts(a_schema, id);
+
 		Mod mod;
 		mod.id = std::move(id);
 		mod.schema = std::move(a_schema);
@@ -404,6 +425,65 @@ namespace OSFUI
 		return out;
 	}
 
+	SettingsStore::InputContext SettingsStore::ResolveInputContext(const Mod& a_mod, const nlohmann::json& a_setting)
+	{
+		InputContext fallback;
+		const auto ref = Json::GetString(a_setting, "inputContext", "");
+		if (ref.empty() || ref == "gameplay" || !IsValidInputContextId(ref)) {
+			return fallback;
+		}
+
+		const auto contexts = a_mod.schema.find("inputContexts");
+		if (contexts == a_mod.schema.end() || !contexts->is_array()) {
+			return fallback;
+		}
+		std::unordered_set<std::string> seen;
+		for (const auto& context : *contexts) {
+			if (!context.is_object()) {
+				continue;
+			}
+			const auto id = Json::GetString(context, "id", "");
+			if (id == "gameplay" || !IsValidInputContextId(id) || !seen.insert(id).second) {
+				continue;
+			}
+			if (id == ref) {
+				auto label = Json::GetString(context, "label", id);
+				if (label.empty()) {
+					label = id;
+				}
+				return { id, std::move(label), Json::GetBool(context, "blocksGameplay", false) };
+			}
+		}
+		return fallback;
+	}
+
+	void SettingsStore::WarnInputContexts(const nlohmann::json& a_schema, std::string_view a_modId)
+	{
+		const auto contexts = a_schema.find("inputContexts");
+		if (contexts == a_schema.end()) {
+			return;
+		}
+		if (!contexts->is_array()) {
+			REX::WARN("SettingsStore: '{}.inputContexts' must be an array -- key contexts fall back to gameplay", a_modId);
+			return;
+		}
+		std::unordered_set<std::string> seen;
+		for (const auto& context : *contexts) {
+			const auto id = context.is_object() ? Json::GetString(context, "id", "") : std::string{};
+			if (id == "gameplay") {
+				REX::WARN("SettingsStore: '{}.inputContexts' cannot redefine reserved context 'gameplay' -- ignoring it", a_modId);
+				continue;
+			}
+			if (!IsValidInputContextId(id)) {
+				REX::WARN("SettingsStore: '{}' has an invalid input context id -- ignoring it", a_modId);
+				continue;
+			}
+			if (!seen.insert(id).second) {
+				REX::WARN("SettingsStore: '{}' defines input context '{}' more than once -- keeping the first", a_modId, id);
+			}
+		}
+	}
+
 	std::vector<SettingsStore::BoundKey> SettingsStore::ResolveBoundKeys() const
 	{
 		std::vector<BoundKey> bound;
@@ -411,8 +491,14 @@ namespace OSFUI
 			for (const auto& setting : KeySettings()) {
 				if (const auto vk = _keyResolver(setting.name); vk != 0) {
 					const auto* mod = FindMod(setting.modId);
+					bool blocksGameplay = false;
+					if (mod) {
+						if (const auto* authored = FindSetting(*mod, setting.key)) {
+							blocksGameplay = ResolveInputContext(*mod, *authored).blocksGameplay;
+						}
+					}
 					bound.push_back({ setting.modId, setting.key,
-						mod ? Json::GetString(mod->schema, "title", mod->id) : setting.modId, vk });
+						mod ? Json::GetString(mod->schema, "title", mod->id) : setting.modId, vk, blocksGameplay });
 				}
 			}
 			// The game's own bindings (mcm-design.md §9 "vanilla hotkeys"):
@@ -421,7 +507,7 @@ namespace OSFUI
 			// grouping at all, so vanilla data would never be consulted.
 			for (const auto& vanilla : _vanillaKeys) {
 				if (vanilla.vk != 0) {
-					bound.push_back({ "@game", vanilla.event, vanilla.title, vanilla.vk });
+					bound.push_back({ "@game", vanilla.event, vanilla.title, vanilla.vk, false });
 				}
 			}
 		}
@@ -434,8 +520,15 @@ namespace OSFUI
 		if (a_vk == 0) {
 			return conflicts;  // unresolvable: never conflicts (mirrors Data())
 		}
+		bool blocksGameplay = false;
+		if (const auto* mod = FindMod(a_excludeMod)) {
+			if (const auto* setting = FindSetting(*mod, a_excludeKey)) {
+				blocksGameplay = ResolveInputContext(*mod, *setting).blocksGameplay;
+			}
+		}
 		for (const auto& other : ResolveBoundKeys()) {
-			if (other.vk == a_vk && (other.modId != a_excludeMod || other.key != a_excludeKey)) {
+			if (other.vk == a_vk && (other.modId != a_excludeMod || other.key != a_excludeKey) &&
+				!(blocksGameplay && other.modId == "@game")) {
 				conflicts.push_back({
 					{ "mod", other.modId },
 					{ "key", other.key },
@@ -471,7 +564,8 @@ namespace OSFUI
 					}
 					nlohmann::json conflicts = nlohmann::json::array();
 					for (const auto& other : bound) {
-						if (other.vk == self->vk && (other.modId != mod.id || other.key != key)) {
+						if (other.vk == self->vk && (other.modId != mod.id || other.key != key) &&
+							!(self->blocksGameplay && other.modId == "@game")) {
 							conflicts.push_back({
 								{ "mod", other.modId },
 								{ "key", other.key },

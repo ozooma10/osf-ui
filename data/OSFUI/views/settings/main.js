@@ -128,6 +128,29 @@ function initials(t) {
   return w[0].replace(/[^A-Za-z0-9]/g, "").slice(0, 2).toUpperCase();
 }
 function titleOf(mod) { return mod.title || (mod.schema && mod.schema.title) || mod.id; }
+const INPUT_CONTEXT_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+function inputContextFor(mod, setting) {
+  const fallback = { id: "gameplay", label: "Gameplay", blocksGameplay: false };
+  const ref = setting && typeof setting.inputContext === "string" ? setting.inputContext : "";
+  if (!ref || ref === "gameplay" || !INPUT_CONTEXT_ID_RE.test(ref)) return fallback;
+  const contexts = mod && mod.schema && Array.isArray(mod.schema.inputContexts)
+    ? mod.schema.inputContexts : [];
+  const seen = new Set();
+  for (const context of contexts) {
+    if (!context || typeof context !== "object") continue;
+    const id = typeof context.id === "string" ? context.id : "";
+    if (id === "gameplay" || !INPUT_CONTEXT_ID_RE.test(id) || seen.has(id)) continue;
+    seen.add(id);
+    if (id === ref) {
+      return {
+        id,
+        label: typeof context.label === "string" && context.label ? context.label : id,
+        blocksGameplay: context.blocksGameplay === true,
+      };
+    }
+  }
+  return fallback;
+}
 function el(tag, className, text) {
   const n = document.createElement(tag);
   if (className) n.className = className;
@@ -454,6 +477,16 @@ function makeSettingRow(mod, setting, current) {
   labelWrap.append(label, dot);
   if (setting.requires && REQUIRES_LABEL[setting.requires]) {
     labelWrap.appendChild(el("span", "osf-badge osf-badge--warn", REQUIRES_LABEL[setting.requires]));
+  }
+  if (setting.type === "key") {
+    const context = inputContextFor(mod, setting);
+    if (context.id !== "gameplay") {
+      const badge = el("span", "osf-badge", context.label);
+      badge.title = context.blocksGameplay
+        ? "Active in this context; Starfield gameplay bindings are unavailable."
+        : "Active in this input context.";
+      labelWrap.appendChild(badge);
+    }
   }
   // Key-binding conflict (mcm-design §9): native embeds `conflicts:[{mod,key,
   // title}]` on a key setting whose resolved key is also bound elsewhere.

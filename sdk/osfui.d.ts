@@ -256,6 +256,12 @@ export type Condition =
       truthy?: boolean;
     };
 
+export interface InputContext {
+  id: string;               // local to this mod; "gameplay" is reserved for the implicit default
+  label?: string;           // user-facing/localizable; defaults to id
+  blocksGameplay?: boolean; // metadata assertion: omit @game conflicts only; dispatch is unchanged
+}
+
 export interface Setting {
   key: string;
   aliases?: string[]; // former persisted keys; on load the current key's value is adopted from the first still-valid alias, then rewritten under `key` (§11). Native-only; the renderer ignores it.
@@ -268,6 +274,7 @@ export interface Setting {
   step?: number;
   maxLength?: number; // string length hint
   allowUnbound?: boolean; // key type only: "" is a legal, deliberate unbound state (no dispatch, no conflicts; the UI renders an unbind ×)
+  inputContext?: string; // key type only: local InputContext id; absent/invalid/unknown => implicit gameplay
   options?: string[]; // required when type === "enum"
   optionLabels?: string[]; // display labels parallel to options; stored value stays the option
   widget?: WidgetHint;
@@ -280,7 +287,8 @@ export interface Setting {
    * setting in a `settings.data` document, the OTHER key-typed settings
    * (any mod) currently bound to the same physical key. Informational only —
    * the runtime never rejects a colliding bind; render a warning badge.
-   * Absent when the binding is unique.
+   * A context with blocksGameplay omits @game entries because that reuse
+   * is expected. Absent when the remaining binding set is unique.
    *
    * `mod` may be the RESERVED id `"@game"`: the game's own bindings
    * participate too (curated defaults + the engine's controlmap override
@@ -345,6 +353,7 @@ export interface SettingsSchema {
   version?: number;      // schema version (default 0); native stamps it as $schemaVersion + logs a version move (§11). Renderer ignores it.
   accent?: string;       // per-mod accent "#rrggbb"/"#rrggbbaa"
   presets?: SettingsPreset[];
+  inputContexts?: InputContext[];
   groups?: SettingsGroup[];
 }
 

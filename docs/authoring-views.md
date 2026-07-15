@@ -213,7 +213,7 @@ Assign `window.osfui.onMessage` and switch on `message.type`:
 | `views.data` | `{ views: [ { id, title, description, kind, interactive, hub, open, focused, loadState } ] }` | reply to `views.get`, and re-pushed to every subscribed view when any entry changes. `kind` = `"menu"`\|`"hud"`; `loadState` = `"loading"`\|`"loaded"`\|`"failed"`; a view torn down by crash-recovery drops out of the list. Respect `hub:false` (don't list those) |
 | `settings.data` | `{ mods: [ { id, title, schema, values } ], vanillaKeys? }` | reply to `settings.get` / after a `settings.reset`. A `key`-typed setting whose binding collides with another mod's carries runtime-injected `conflicts: [{mod, key, title}]` in its schema object — informational; render a badge, never block. `mod` may be the reserved id `@game` (the game's own bindings; display `title`, e.g. "Starfield (Quicksave)"). Top-level `vanillaKeys: [{event, title, name}]` is the game's FULL binding table (read-only; the keybinds view renders it); absent when the runtime has none |
 | `settings.ack` | `{ mod, key, ok }` | result of a `settings.set` (`ok:false` ⇒ rejected/clamped) |
-| `settings.captured` | `{ mod, key, name, cancelled, conflicts? }` | reply to `settings.captureKey`: the captured key `name` (an OSF UI key name), or `cancelled:true` (Escape / unbindable — keep the old binding). When the captured key is already bound elsewhere, `conflicts: [{mod, key, title}]` lists the collisions this bind would create — warn live, never block. The view then sends a normal `settings.set` with `name` |
+| `settings.captured` | `{ mod, key, name, cancelled, conflicts? }` | reply to `settings.captureKey`: the captured key `name` (an OSF UI key name), or `cancelled:true` (Escape / unbindable — keep the old binding). When the captured key is already bound elsewhere, `conflicts: [{mod, key, title}]` lists actionable collisions this bind would create; expected `@game` reuse from a `blocksGameplay` context is omitted. Warn live, never block. The view then sends a normal `settings.set` with `name` |
 | `ui.hotkey` | `{ mod, key }` | the physical key currently bound to that `key`-typed setting was pressed in-game (protocol 0.4). Pushed to every `settings.get` subscriber — filter on `mod`. Suppressed while the overlay captures input or a rebind is armed; rebinds re-route automatically |
 | `ui.error` | `{ reason, type?, command? }` | the runtime rejected something you sent — a malformed message, an unknown `type`, or an unknown `command`. Log it while developing; the same WARN is in `OSF UI.log` |
 
@@ -283,6 +283,31 @@ relaunch, and the runtime can react to changes natively.
   ]
 }
 ```
+
+### Input contexts for intentional key reuse
+
+A mod that disables Starfield gameplay controls during a modal state can
+declare a named context once and reference it from each scene-only key:
+
+```json
+{
+  "inputContexts": [
+    { "id": "scene", "label": "During OSF scenes", "blocksGameplay": true }
+  ],
+  "groups": [{ "settings": [
+    { "key": "progressScene", "type": "key", "default": "Space", "inputContext": "scene" }
+  ] }]
+}
+```
+
+`blocksGameplay` is an author assertion: use it only when the mod really
+prevents the curated Starfield gameplay bindings from firing. It removes
+`@game` warnings for that key, but collisions with other mods still warn and
+all duplicate mod bindings still dispatch. Context ids are local to the mod,
+must match `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`, and cannot be `gameplay`.
+Missing, invalid, duplicate, or unknown definitions fall back conservatively
+to the implicit Gameplay context; for duplicate ids, the first valid
+definition wins.
 
 ### Type rules (enforced natively in `SettingsStore`)
 

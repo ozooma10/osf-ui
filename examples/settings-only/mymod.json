@@ -6,6 +6,10 @@
   "version": 1,
   "accent": "#7a9a5e",
 
+  "inputContexts": [
+    { "id": "scene", "label": "During scenes", "blocksGameplay": true }
+  ],
+
   "presets": [
     { "label": "Performance", "description": "Lightweight defaults", "values": { "hud.enabled": true, "hud.mode": "compact", "hud.opacity": 0.6 } },
     { "label": "Cinematic", "values": { "hud.enabled": true, "hud.mode": "full", "hud.opacity": 1.0 } }
@@ -40,7 +44,10 @@
         { "key": "hud.notes", "label": "Notes", "type": "string", "widget": "textarea", "default": "",
           "hint": "A longer free-text field." },
         { "key": "hud.toggleKey", "label": "Toggle key", "type": "key", "default": "F8",
-          "hint": "Press to rebind. Delivered to your plugin via the hotkey service." }
+          "hint": "Press to rebind. Delivered to your plugin via the hotkey service." },
+        { "key": "scene.progressKey", "label": "Progress scene", "type": "key", "default": "Space",
+          "inputContext": "scene",
+          "hint": "Intentional reuse: the mod disables Starfield gameplay controls during scenes." }
       ]
     },
     {

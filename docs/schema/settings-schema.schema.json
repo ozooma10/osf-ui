@@ -48,6 +48,11 @@
         }
       }
     },
+    "inputContexts": {
+      "type": "array",
+      "description": "Named key-binding contexts local to this mod. Referenced by key settings through inputContext. The implicit id gameplay is reserved and cannot be redefined.",
+      "items": { "$ref": "#/$defs/inputContext" }
+    },
     "groups": {
       "type": "array",
       "description": "Ordered sections of settings.",
@@ -76,6 +81,29 @@
     }
   },
   "$defs": {
+    "inputContext": {
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+          "not": { "const": "gameplay" },
+          "description": "Context id local to this mod. gameplay is reserved for the implicit default context."
+        },
+        "label": {
+          "type": "string",
+          "description": "User-facing context label, such as During OSF scenes. Defaults to id. Localizable ($KEY)."
+        },
+        "blocksGameplay": {
+          "type": "boolean",
+          "default": false,
+          "description": "Author assertion that Starfield gameplay bindings cannot fire while this context is active. Suppresses only @game conflict warnings; mod-to-mod collisions still warn and dispatch behavior is unchanged."
+        }
+      }
+    },
     "item": {
       "description": "A row in a group: a value-bearing setting, or a static/action item (note/image/action).",
       "oneOf": [
@@ -119,6 +147,10 @@
         "step": { "type": "number", "description": "Slider/stepper granularity (UI hint)." },
         "maxLength": { "type": "integer", "minimum": 1, "description": "string max length (UI hint; native ceiling is 256 today, up to 4096 in the native slice)." },
         "allowUnbound": { "type": "boolean", "default": false, "description": "key type only: permit \"\" as the deliberate unbound state (default \"\" is then legal). Unbound keys never dispatch hotkeys and never appear in conflicts; the settings UI renders an unbind × next to the capture button." },
+        "inputContext": {
+          "type": "string",
+          "description": "key type only: local inputContexts id. Missing, invalid, or unknown ids fall back to implicit gameplay."
+        },
         "options": {
           "type": "array",
           "items": { "type": "string" },

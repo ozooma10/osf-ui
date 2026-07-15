@@ -78,6 +78,30 @@ function vanillaLabel(title) {
   return m ? m[1] : String(title || "");
 }
 
+const INPUT_CONTEXT_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+function inputContextFor(mod, setting) {
+  const fallback = { id: "gameplay", label: "Gameplay", blocksGameplay: false };
+  const ref = setting && typeof setting.inputContext === "string" ? setting.inputContext : "";
+  if (!ref || ref === "gameplay" || !INPUT_CONTEXT_ID_RE.test(ref)) return fallback;
+  const contexts = mod && mod.schema && Array.isArray(mod.schema.inputContexts)
+    ? mod.schema.inputContexts : [];
+  const seen = new Set();
+  for (const context of contexts) {
+    if (!context || typeof context !== "object") continue;
+    const id = typeof context.id === "string" ? context.id : "";
+    if (id === "gameplay" || !INPUT_CONTEXT_ID_RE.test(id) || seen.has(id)) continue;
+    seen.add(id);
+    if (id === ref) {
+      return {
+        id,
+        label: typeof context.label === "string" && context.label ? context.label : id,
+        blocksGameplay: context.blocksGameplay === true,
+      };
+    }
+  }
+  return fallback;
+}
+
 // ---- model --------------------------------------------------------------------
 
 function buildModel() {
@@ -88,6 +112,7 @@ function buildModel() {
         if (!s || s.type !== "key" || typeof s.key !== "string") continue;
         const value = (mod.values || {})[s.key];
         if (typeof value !== "string" || !value) continue;
+        const context = inputContextFor(mod, s);
         bindings.push({
           kind: "mod",
           mod: mod.id,
@@ -95,6 +120,9 @@ function buildModel() {
           label: s.label || s.key,
           owner: mod.title || mod.id,
           name: canonicalName(value),
+          contextId: context.id,
+          contextLabel: context.label,
+          blocksGameplay: context.blocksGameplay,
         });
       }
     }
@@ -106,12 +134,45 @@ function buildModel() {
       label: vanillaLabel(v.title),
       owner: "Starfield",
       name: canonicalName(v.name),
+      contextId: "gameplay",
+      contextLabel: "Gameplay",
+      blocksGameplay: false,
     });
   }
 }
 
 function holdersOf(name) {
   return bindings.filter((b) => b.name === name);
+}
+
+function pairIsShared(a, b) {
+  const mod = a.kind === "mod" && b.kind === "game" ? a
+    : b.kind === "mod" && a.kind === "game" ? b : null;
+  return !!(mod && mod.blocksGameplay);
+}
+
+function keyState(name) {
+  const holders = holdersOf(name);
+  let conflict = false;
+  let shared = false;
+  for (let i = 0; i < holders.length; ++i) {
+    for (let j = i + 1; j < holders.length; ++j) {
+      if (pairIsShared(holders[i], holders[j])) shared = true;
+      else conflict = true;
+    }
+  }
+  return { conflict, shared };
+}
+
+function holderState(binding) {
+  let conflict = false;
+  let shared = false;
+  for (const other of holdersOf(binding.name)) {
+    if (other === binding) continue;
+    if (pairIsShared(binding, other)) shared = true;
+    else conflict = true;
+  }
+  return { conflict, shared };
 }
 
 // ---- keyboard layout ------------------------------------------------------------
@@ -187,9 +248,11 @@ function paintKeyboard() {
     const holders = holdersOf(name);
     const hasMod = holders.some((b) => b.kind === "mod");
     const hasGame = holders.some((b) => b.kind === "game");
-    cell.classList.toggle("is-mod", hasMod && !(holders.length > 1));
+    const state = keyState(name);
+    cell.classList.toggle("is-mod", hasMod && holders.length === 1);
     cell.classList.toggle("is-game", hasGame && !hasMod && holders.length === 1);
-    cell.classList.toggle("is-conflict", holders.length > 1);
+    cell.classList.toggle("is-shared", state.shared && !state.conflict);
+    cell.classList.toggle("is-conflict", state.conflict);
     cell.classList.toggle("is-selected", name === selectedKey);
     cell.classList.toggle("is-dim", !!q && !holders.some(matchesQuery(q)) && !name.toLowerCase().includes(q));
     const dots = cell.querySelector(".kb-key-holders");
@@ -228,8 +291,12 @@ function holderRow(b) {
   line.appendChild(el("span", null, b.label));
   line.appendChild(el("span", "osf-badge " + (b.kind === "game" ? "osf-badge--ghost" : "osf-badge--accent"),
     b.kind === "game" ? "GAME" : b.owner));
+  if (b.kind === "mod" && b.contextId !== "gameplay") {
+    line.appendChild(el("span", "osf-badge kb-context", b.contextLabel));
+  }
   text.appendChild(line);
-  text.appendChild(el("div", "kb-holder-sub", b.kind === "game" ? `controlmap · ${b.key}` : `${b.mod}.${b.key}`));
+  const identity = b.kind === "game" ? `controlmap · ${b.key}` : `${b.mod}.${b.key}`;
+  text.appendChild(el("div", "kb-holder-sub", `${identity} · ${b.contextLabel}`));
   row.appendChild(text);
   const keyChip = el("span", "kb-chip", b.name);
   row.appendChild(keyChip);
@@ -254,8 +321,12 @@ function renderDetail() {
   detailTitleEl.appendChild(el("span", "kb-chip kb-chip--lg", selectedKey));
   detailTitleEl.appendChild(document.createTextNode(
     holders.length ? ` ${holders.length} binding${holders.length > 1 ? "s" : ""}` : " unbound"));
-  if (holders.length > 1) {
+  const state = keyState(selectedKey);
+  if (state.conflict) {
     detailTitleEl.appendChild(el("span", "osf-badge osf-badge--stop", "Key conflict"));
+  }
+  if (state.shared) {
+    detailTitleEl.appendChild(el("span", "osf-badge kb-shared-badge", "Shared across contexts"));
   }
   if (!holders.length) {
     detailEl.appendChild(el("p", "kb-hint", "Nothing is bound here."));
@@ -284,7 +355,9 @@ function renderList() {
   for (const b of rows) {
     const row = holderRow(b);
     row.classList.add("kb-holder--list");
-    if (holdersOf(b.name).length > 1) row.classList.add("kb-holder--conflict");
+    const state = holderState(b);
+    if (state.conflict) row.classList.add("kb-holder--conflict");
+    else if (state.shared) row.classList.add("kb-holder--shared");
     row.addEventListener("click", (e) => {
       if (e.target.closest("button")) return;  // Rebind clicks stay rebinds
       selectKey(b.name);
@@ -433,13 +506,20 @@ if (bridgeAvailable()) {
   mods = [
     { id: "osfui", title: "OSF UI", values: { toggleKey: "F10" },
       schema: { groups: [{ settings: [{ key: "toggleKey", label: "Open / close key", type: "key", default: "F10" }] }] } },
-    { id: "mymod", title: "My Mod", values: { "hud.toggleKey": "F5" },
-      schema: { groups: [{ settings: [{ key: "hud.toggleKey", label: "Toggle HUD", type: "key", default: "F8" }] }] } },
+    { id: "mymod", title: "My Mod", values: { "hud.toggleKey": "F5", progressScene: "Space" },
+      schema: {
+        inputContexts: [{ id: "scene", label: "During scenes", blocksGameplay: true }],
+        groups: [{ settings: [
+          { key: "hud.toggleKey", label: "Toggle HUD", type: "key", default: "F8" },
+          { key: "progressScene", label: "Progress scene", type: "key", default: "Space", inputContext: "scene" },
+        ] }],
+      } },
   ];
   vanilla = [
     { event: "QuickSave", title: "Starfield (Quicksave)", name: "F5" },
     { event: "QuickLoad", title: "Starfield (Quickload)", name: "F9" },
     { event: "Activate", title: "Starfield (Interact)", name: "E" },
+    { event: "Jump", title: "Starfield (Jump)", name: "Space" },
     { event: "Console", title: "Starfield (Console)", name: "Grave" },
   ];
   renderAll();
