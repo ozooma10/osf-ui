@@ -88,7 +88,9 @@ Logs go to the standard SFSE log folder
 | `inputSource` | `"none"` | `none` \| `ui` — installs the window-subclass input path (toggle key + input capture). Shipped config uses `ui`; set to `none` to rule the input hook out when debugging |
 | `captureInput` | `true` | when the overlay is visible, freeze the game and route keyboard/mouse into the web view (needs `inputSource: "ui"`). When `false` the overlay is a passive HUD: it draws, but the game still receives input |
 | `hardwareCursor` | `true` | show the real Windows (hardware) pointer while the overlay captures input — zero-lag, framerate-independent, and the page's CSS `cursor` maps to the matching system cursor. `false` falls back to the legacy raw-delta virtual cursor, which has **no visible pointer** (debugging escape hatch only) |
-| `focusMenu` | `false` (shipped config: `true`) | **Experimental.** Register a real engine menu (`OSFUI_FocusMenu`) and open/close it with the overlay so the engine enters menu mode (cursor + modal input) rather than relying only on the WndProc message-swallow. Custom-`IMenu` registration + open are **proven on 1.16.244**; the hardened headless menu's *long-run* survival is the remaining risk (see `src/core/Config.h` and [docs/reverse-engineering-notes.md](docs/reverse-engineering-notes.md) §4). Set `false` if you see instability with the overlay open |
+| `focusMenu` | `true` | Register a real engine menu (`OSFUI_FocusMenu`) and open/close it with the overlay so the engine enters menu mode (cursor ownership + menu-stack presence + engine-routed input) rather than relying only on the WndProc message-swallow. On by default; **verified in-game on 1.16.244** — registration, Route-A stack admission, long-session survival, and clean post-close teardown (see `src/core/Config.h` and [docs/reverse-engineering-notes.md](docs/reverse-engineering-notes.md) §4). Set `false` if another overlay fights the engine menu stack |
+| `engineInput` | `true` | Bring the engine's per-menu input dispatch — including **gamepad**, which the WndProc never sees — into the runtime and route it into the focused view (D-pad/left-stick → move focus, A → activate, B → close, right-stick → scroll), plus raw `ui.gamepad` events a page can opt into via `osfui.gamepadRaw`. On by default; delivery + routing verified in-game on 1.16.244 with a controller. Keyboard/mouse stay on the WndProc path |
+| `pauseMenuEntry` | `true` | Inject a **"MOD SETTINGS"** entry into the game's pause menu (live Scaleform manipulation — no SWF edit, no conflict with UI-overhaul mods) that opens the overlay when pressed. On by default; inject + click verified in-game on 1.16.244. Label/target are `pauseMenuEntryLabel` / `pauseMenuEntryView` |
 | `disableControls` | `true` | While a menu captures input, disable player controls through the engine input-enable layer (`BSInputEnableManager`) — this also stops gamepad/XInput, which the WndProc hook never sees. **Proven live on 1.16.244 with a controller** (keyboard, mouse-look, and gamepad sticks all freeze and restore cleanly). On by default; `false` is a diagnostic escape hatch (config.json only, not a user-facing setting) for the rare case where another overlay fights the input layer |
 | `view` | `"test"` | the active (input) view — a view id from `views/*/manifest.json` (shipped config uses `settings`) |
 | `views` | `[]` | optional multi-view set: every id is loaded and composited (layer order = each view's manifest `zorder`), and `view` must be one of them (the interactive one). Empty ⇒ only `view` loads. Missing ids are skipped with a log line. Shipped config uses `["settings", "hud"]` |
@@ -189,11 +191,11 @@ docs/HANDOFF.md §4.
   ([docs/reverse-engineering-notes.md](docs/reverse-engineering-notes.md)).
 - **Rough edges** — text entry follows the OS keyboard layout (dead keys and
   AltGr included, verified in-game) but IME composition (e.g. CJK input) is
-  not supported yet, there is no gamepad/controller navigation or
-  localization pipeline,
-  HDR/10-bit backbuffers are detected and skipped with a log warning rather
-  than rendered (full HDR output is on the roadmap), and coexistence with
-  ReShade / Steam overlay / frame-gen is untested (see
+  not supported yet; gamepad/controller navigation is **basic** (D-pad/stick
+  move focus, A activates, B closes) and still being refined; there is no
+  localization pipeline yet; HDR/10-bit backbuffers are detected and skipped
+  with a log warning rather than rendered (full HDR output is on the roadmap);
+  and coexistence with ReShade / Steam overlay / frame-gen is untested (see
   [docs/renderer-plan.md](docs/renderer-plan.md) Phases 3 & 4c).
 - **Not compatible with Xbox/Game Pass** — SFSE itself is Steam-only.
 

@@ -158,8 +158,8 @@ namespace OSFUI
 		// same tick.
 		void DrainSchemaOps();
 
-		// EXPERIMENTAL (config.focusMenu). Open/close the engine focus menu to
-		// match the top menu's capture policy. Called every tick from the game's
+		// config.focusMenu: open/close the engine focus menu to match the top
+		// menu's capture policy. Called every tick from the game's
 		// MAIN thread so the UIMessageQueue is never poked from the WndProc/input
 		// thread. No-op unless config.focusMenu is set. See input/FocusMenu.h.
 		void ReconcileFocusMenu();
@@ -169,7 +169,7 @@ namespace OSFUI
 		// engine menu), every tick, main thread. See input/SimPause.h.
 		void ReconcileSimPause();
 
-		// EXPERIMENTAL (config.engineInput). Increment 3: drain the engine's
+		// config.engineInput: drain the engine's
 		// per-menu GAMEPAD input (marshalled by EngineInput from worker threads)
 		// on the main thread and route it into the active web view — default
 		// mapping (D-pad/left-stick -> arrows, A -> Enter, B -> close overlay,
@@ -308,7 +308,7 @@ namespace OSFUI
 		std::string                   _lastShownView;
 
 		// Last focus-menu open state we drove (main-thread only, reconciled in
-		// Tick against the menu policy). EXPERIMENTAL — see config.focusMenu.
+		// Tick against the menu policy). See config.focusMenu.
 		bool                          _focusMenuOpen{ false };
 
 		// Gamepad routing state (main-thread only; DrainEngineInput). Left-stick

@@ -4,8 +4,9 @@
 
 namespace OSFUI
 {
-	// EXPERIMENTAL (config.pauseMenuEntry). Injects a "MOD SETTINGS" entry into
-	// the ENGINE's PauseMenu main list at runtime and opens a configured overlay
+	// Config `pauseMenuEntry` (on by default; the inject + click round-trip is
+	// verified in-game on 1.16.244). Injects a "MOD SETTINGS" entry into the
+	// ENGINE's PauseMenu main list at runtime and opens a configured overlay
 	// view (default "settings") when it is pressed.
 	//
 	// Mechanism — live Scaleform manipulation, NO SWF edit (so no conflict with
@@ -41,9 +42,9 @@ namespace OSFUI
 	//
 	// Source of truth for the AS3 structure: pausemenu.swf 1.16.244 decompiled
 	// with JPEXS 2026-07-13 (kept at tmp/pausemenu-re next to this repo); see
-	// docs/reverse-engineering-notes.md. Pending in-game verification: that the
-	// SFSE per-frame task keeps ticking while PauseMenu is open (console menu:
-	// observed yes), and the close->open handoff feel.
+	// docs/reverse-engineering-notes.md. Verified in-game (1.16.244): the SFSE
+	// per-frame task keeps ticking while PauseMenu is open, the entry injects,
+	// and pressing it closes the pause menu and opens the overlay view.
 	//
 	// All GFx access runs on the game's main thread (Runtime::Tick); no engine
 	// hooks — GetMenu/GetRootPath/GFx Value calls are documented CommonLibSF

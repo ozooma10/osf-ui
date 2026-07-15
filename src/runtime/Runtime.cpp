@@ -225,7 +225,7 @@ namespace OSFUI
 
 		EngineInput::SetEnabled(_config.engineInput);
 		if (_config.engineInput) {
-			REX::INFO("Runtime: engineInput observer enabled (EXPERIMENTAL) — engine per-menu input dispatch will be counted per overlay session; expect gamepad-only while the WndProc swallow is active");
+			REX::INFO("Runtime: engineInput enabled — engine per-menu input (gamepad) routed into the focused view; keyboard/mouse stay on the WndProc path");
 		}
 
 		// F10 toggles the default menu; Esc (while captured) closes the top menu.
@@ -287,9 +287,9 @@ namespace OSFUI
 			return;
 		}
 		_uptime += a_deltaSeconds;
-		// EXPERIMENTAL (config.pauseMenuEntry): keep the injected "mod
-		// settings" entry present in the engine PauseMenu and act on its
-		// clicks. BEFORE the snapshot below so a click's EnqueueOpenView lands
+		// config.pauseMenuEntry: keep the injected "mod settings" entry present
+		// in the engine PauseMenu and act on its clicks. BEFORE the snapshot
+		// below so a click's EnqueueOpenView lands
 		// this same tick (kHide for the pause menu is queued inside; the
 		// overlay open then applies through the normal policy path).
 		if (_config.pauseMenuEntry) {

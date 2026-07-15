@@ -29,41 +29,41 @@ namespace OSFUI
 		// pointer (views stopped drawing one), so this is a debugging escape
 		// hatch only. Needs inputSource="ui".
 		bool        hardwareCursor{ true };
-		// EXPERIMENTAL (default off in code; shipped config.json turns it on).
 		// Register a real engine menu (OSFUI_FocusMenu) and open/close it with
-		// the overlay so the ENGINE enters menu mode (cursor + modal input
-		// ownership) instead of relying only on the WndProc message-swallow.
-		// Custom-IMenu registration + open IS proven on 1.16.244 (OSF RE
-		// 2026-06-13-custom-imenu-registration); the headless-menu crash is
-		// root-caused and the creator is hardened (engine base-init + engine
-		// vtable copy + interned +0xB0 name). What is NOT yet live-validated is
-		// that the hardened menu survives past the few-second mark the headless
-		// one crashed at — this is the remaining risk when enabled. See
+		// the overlay so the ENGINE enters menu mode (cursor ownership + menu-
+		// stack presence + engine-routed input) instead of relying only on the
+		// WndProc message-swallow. On by default. Verified in-game on 1.16.244:
+		// custom-IMenu registration, Route-A stack admission, long-session
+		// survival, and the post-close teardown (kHide delegated to the engine
+		// base so the active-menu array stays consistent) are all stable. See
 		// input/FocusMenu.h.
-		bool        focusMenu{ false };
-		// EXPERIMENTAL (default off in code; shipped config.json turns it on).
+		bool        focusMenu{ true };
 		// While the overlay is visible, disable player controls through the
 		// engine input-enable layer (BSInputEnableManager) instead of only the
 		// WndProc message-swallow — this also stops gamepad/XInput, which the
-		// window hook never saw. PROVEN live on 1.16.244 with a controller
-		// (keyboard + mouse-look + gamepad sticks all froze and restored cleanly;
-		// OSF RE 2026-06-13-input-enable-layer-control-disable). See
-		// input/ControlLayer.h.
+		// window hook never sees. On by default. Proven live on 1.16.244 with a
+		// controller (keyboard + mouse-look + gamepad sticks all froze and
+		// restored cleanly; OSF RE 2026-06-13-input-enable-layer-control-disable).
+		// See input/ControlLayer.h.
 		bool        disableControls{ true };
-		// EXPERIMENTAL — Level-2 engine-routed input, increment 2 (observer
-		// only). Patches the focus menu's +0x10 BSInputEventUser vtable so the
-		// engine's per-menu input dispatch (incl. GAMEPAD, which the WndProc
-		// never sees) is counted and summarized per overlay session. Does NOT
-		// route anything into the web view yet. See input/EngineInput.h.
-		bool        engineInput{ false };
-		// EXPERIMENTAL (default off in code; shipped config.json turns it on).
+		// Level-2 engine-routed input: patch the focus menu's +0x10
+		// BSInputEventUser vtable so the engine's per-menu input dispatch —
+		// including GAMEPAD, which the WndProc never sees — reaches the runtime.
+		// Drained on the main thread (Runtime::DrainEngineInput) into web-view
+		// navigation (D-pad/left-stick -> arrows, A -> Enter, B -> close,
+		// right-stick -> scroll) plus raw `ui.gamepad` bridge events; a page can
+		// own the gamepad wholesale via the `osfui.gamepadRaw` command. On by
+		// default; delivery + routing verified in-game on 1.16.244 with a
+		// controller. Keyboard/mouse stay on the WndProc path (the permanent
+		// hybrid). See input/EngineInput.h.
+		bool        engineInput{ true };
 		// Inject a pauseMenuEntryLabel entry into the game's PauseMenu main
 		// list at runtime (live Scaleform GFx manipulation — no SWF edit, no
 		// conflict with UI-overhaul SWFs) and open pauseMenuEntryView when it
-		// is pressed. The AS3 structure is decoded from the decompiled
-		// 1.16.244 pausemenu.swf; what is NOT yet live-validated is the
-		// injection + click round-trip in-game. See input/PauseMenuEntry.h.
-		bool        pauseMenuEntry{ false };
+		// is pressed. The AS3 structure is decoded from the decompiled 1.16.244
+		// pausemenu.swf. On by default; the inject + click round-trip is
+		// verified in-game on 1.16.244. See input/PauseMenuEntry.h.
+		bool        pauseMenuEntry{ true };
 		std::string pauseMenuEntryLabel{ "MOD SETTINGS" };
 		std::string pauseMenuEntryView{ "settings" };  // must be a registered surface id (config.views)
 		// Include the game's own key bindings in the informational key-conflict

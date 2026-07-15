@@ -775,9 +775,10 @@ rule goes in the panel-author docs with `contain: paint` guidance).
 > the forward-compat degrade rule (unknown type → read-only), the contract in
 > lockstep (`settings-schema.schema.json` + `sdk/osfui.d.ts`, protocol 0.3), an
 > annotated `examples/settings-only/` template, and a browser dev harness
-> (`devtools/harness/`) with a validation-mirroring MockBridge. Verified by a
-> jsdom suite driving the real shipped files (widgets, conditions, actions,
-> presets, search, revert, injection-safety, and the mock clamp/persist path).
+> (`devtools/harness/`) with a validation-mirroring MockBridge. Exercised
+> through that harness against the real shipped files (widgets, conditions,
+> actions, presets, search, revert, injection-safety, and the mock
+> clamp/persist path); the harness is interactive, not an automated suite.
 > **Build status (2026-07-12).** Two more M1 slices are **implemented**:
 >
 > - **`SettingsStore` generalization (§8.3)**: multicast change listeners,

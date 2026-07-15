@@ -5,7 +5,8 @@
 
 namespace OSFUI
 {
-	// EXPERIMENTAL — OFF BY DEFAULT (config `focusMenu`). The "de-jank" path.
+	// The "de-jank" path (config `focusMenu`, on by default; verified in-game
+	// on 1.16.244).
 	//
 	// A real Starfield IMenu that OSF UI registers and pushes onto the engine
 	// menu stack so the ENGINE enters menu mode (cursor + modal input ownership

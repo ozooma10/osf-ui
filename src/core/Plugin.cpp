@@ -84,16 +84,14 @@ namespace OSFUI::Plugin
 							break;
 						}
 						MenuEventSink::Install();
-						// EXPERIMENTAL focus menu (off by default in code; the
-						// shipped config turns it on). Registration + open of the
-						// hardened engine-built IMenu are RE-proven on 1.16.244;
-						// what is still pending in-game verification is that it
-						// survives long sessions (see input/FocusMenu.h). The menu
-						// is only opened (UIMessageQueue kShow) when the overlay
-						// becomes visible, from Runtime's main-thread tick.
+						// Register the hardened engine-built IMenu so the engine
+						// enters menu mode with the overlay (registration + open +
+						// long-session survival verified on 1.16.244; see
+						// input/FocusMenu.h). The menu is only opened (UIMessageQueue
+						// kShow) when the overlay becomes visible, from Runtime's
+						// main-thread tick.
 						if (Runtime::Get().GetConfig().focusMenu) {
-							REX::WARN("Plugin: focusMenu=true (EXPERIMENTAL) — registering OSFUI_FocusMenu; "
-									  "long-session survival is pending in-game verification");
+							REX::INFO("Plugin: focusMenu on — registering OSFUI_FocusMenu");
 							FocusMenu::Register();
 						}
 						// The WndProc subclass is the ONLY input path: it drives the

@@ -24,25 +24,25 @@ namespace OSFUI
 		inline constexpr std::uint32_t kY = 0x8000;
 	}
 
-	// EXPERIMENTAL — Level-2 engine-routed input, increment 2 (config
-	// `engineInput`): an OBSERVER-ONLY tap on the engine's per-menu input
-	// dispatch. Proven contract (OSF RE module ui.menu_input, 1.16.244):
-	// menus in the active array receive input through the BSInputEventUser
-	// subobject at IMenu+0x10 — UI::PerformInputProcessing walks the array
-	// top-down per event and dispatches by type to the receiver vtable slots
-	// (1 ShouldHandleEvent, 4 thumbstick, 5 cursorMove, 6 mouseMove, 7 char,
-	// 8 button; base slot 9 stays = held/release admission). Dispatch arrives
-	// on a frame-worker THREAD POOL, so the thunks only bump atomic counters
-	// and a small ring — no allocation, no game calls.
+	// Level-2 engine-routed input (config `engineInput`, on by default): a tap
+	// on the engine's per-menu input dispatch that brings GAMEPAD input — which
+	// the WndProc never sees — into the runtime. Proven contract (OSF RE module
+	// ui.menu_input, 1.16.244): menus in the active array receive input through
+	// the BSInputEventUser subobject at IMenu+0x10 — UI::PerformInputProcessing
+	// walks the array top-down per event and dispatches by type to the receiver
+	// vtable slots (1 ShouldHandleEvent, 4 thumbstick, 5 cursorMove, 6 mouseMove,
+	// 7 char, 8 button; base slot 9 stays = held/release admission). Dispatch
+	// arrives on a frame-worker THREAD POOL, so the thunks only bump atomic
+	// counters and a small ring — no allocation, no game calls.
 	//
-	// Increment 2 does NOT route anything into the web view and does NOT mark
-	// events handled: the WndProc path stays authoritative (no double input).
-	// While the overlay captures, the WndProc swallow starves the engine of
-	// keyboard/mouse, so the observer is expected to see GAMEPAD events only —
-	// which is precisely the device the WndProc can never see, i.e. the point
-	// of Level 2. Cutover (increment 3: inject from here, bit-4 firewall, drop
-	// the game-facing swallow) happens only after this observer proves stable
-	// delivery in-game.
+	// The tap does NOT mark events handled: the WndProc path stays authoritative
+	// for keyboard/mouse (no double input), and while the overlay captures, the
+	// WndProc swallow starves the engine of keyboard/mouse — so in practice the
+	// tap sees GAMEPAD events only, which is exactly the point of Level 2. The
+	// queued gamepad edges + sticks below are drained on the main thread by
+	// Runtime::DrainEngineInput and routed into the web view (nav/activate/close/
+	// scroll) plus raw `ui.gamepad` events. Delivery + routing verified in-game
+	// on 1.16.244 with a controller (2026-07-02).
 	//
 	// Stability note: the +0x10 vtable copy carries its RTTI COL at [-1] — the
 	// same lesson as the primary-vtable copy (a COL-less copy AVs the first

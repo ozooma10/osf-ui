@@ -1,10 +1,22 @@
 # In-game verification: ControlLayer + FocusMenu (the gamepad-leak fix)
 
-**Status: PENDING — nothing below is verified until this run happens.**
-Created 2026-07-01 for game 1.16.244. Owner of the run: you (I don't run the
-game). Results decide whether `focusMenu`/`disableControls` flip to
-on-by-default in code (`src/core/Config.h`) and lose their EXPERIMENTAL
-labels.
+**Status: RESOLVED — verified in-game on 1.16.244 (2026-07-02, re-exercised
+2026-07-15).** `focusMenu`, `disableControls`, `engineInput`, and
+`pauseMenuEntry` are on by default in code (`src/core/Config.h`) and no longer
+carry EXPERIMENTAL labels. Confirmed live: ControlLayer freezes keyboard +
+mouse-look + gamepad and restores cleanly (the gamepad leak is FIXED); the
+hardened FocusMenu is admitted to the menu stack (Route A), survives long
+sessions, and tears down without the post-close RTTI crash (kHide delegated to
+the engine base); FreeCursor releases the OS pointer with no frozen center
+arrow; SimPause pauses/resumes and stays balanced under mashing; EngineInput
+delivers gamepad to the runtime and routes it into the view; the PauseMenu
+"MOD SETTINGS" entry injects and opens the overlay.
+
+**Residual, still un-signed-off (track as known limitations, not blockers):**
+quickload *while paused* (the one untested crash-hazard path); gamepad-B vs
+engine menu-back desync under heavy use (§C); HDR/SDR-degrade smoke on real HDR
+hardware; and overlay coexistence with ReShade / RTSS / Steam overlay /
+frame-gen. The checklist below is retained as the regression procedure.
 
 ## What is already proven vs. what this run proves
 
@@ -28,12 +40,11 @@ NOT yet proven (this run's job):
 
 ## Preconditions
 
-- [ ] Fresh deploy is live. The 2026-07-01 build logs
-      `Plugin: focusMenu=true (EXPERIMENTAL) — registering OSFUI_FocusMenu;
-      long-session survival is pending in-game verification` — if the log
-      says "custom-IMenu registration is unproven" instead, the game is
-      running the OLD dll (VFS race / wrong mod enabled — check
-      `MO2\mods\OSF UI` is the enabled mod).
+- [ ] Fresh deploy is live. The build logs
+      `Plugin: focusMenu on — registering OSFUI_FocusMenu` — if the log still
+      says `(EXPERIMENTAL) … long-session survival is pending` or "custom-IMenu
+      registration is unproven" instead, the game is running an OLD dll (VFS
+      race / wrong mod enabled — check `MO2\mods\OSF UI` is the enabled mod).
 - [ ] XInput controller connected and working in gameplay before the test.
 - [ ] Config is the shipped one: `focusMenu: true`, `disableControls: true`,
       `captureInput: true`, `inputSource: "ui"`.
