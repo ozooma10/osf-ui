@@ -175,6 +175,31 @@ int main()
 	CHECK(store.Set("alpha", "tint", "\"#112233\""));
 	CHECK(*store.GetValue("alpha", "tint") == "#112233");
 
+	// --- key type: "" is the unbound state, gated on allowUnbound -------------
+	CHECK(!store.Set("alpha", "bind", "\"\""));  // no allowUnbound: blank refused
+	CHECK(store.Set("alpha", "bind", "\"F9\""));
+	CHECK(*store.GetValue("alpha", "bind") == "F9");
+	{
+		auto unboundSchema = nlohmann::json::parse(R"json({
+			"id": "unbindy", "title": "Unbindy",
+			"groups": [ { "label": "G", "settings": [
+				{ "key": "hot", "type": "key", "default": "", "allowUnbound": true }
+			] } ] })json");
+		CHECK(store.RegisterSchema(unboundSchema, SettingsStore::Source::kNative));
+		CHECK(*store.GetValue("unbindy", "hot") == "");     // empty default is legal
+		CHECK(store.Set("unbindy", "hot", "\"F7\""));       // bind
+		CHECK(store.Set("unbindy", "hot", "\"\""));         // deliberate unbind
+		CHECK(*store.GetValue("unbindy", "hot") == "");
+		// The unbound value enumerates as "" (HotkeyService/conflicts skip it
+		// downstream via ResolveKeyName("") == invalid).
+		for (const auto& ks : store.KeySettings()) {
+			if (ks.modId == "unbindy") {
+				CHECK(ks.name.empty());
+			}
+		}
+		store.RemoveMod("unbindy");
+	}
+
 	// --- Reset: one key, then whole mod ---------------------------------------
 	CHECK(store.Reset("alpha", "scale"));
 	CHECK(store.GetValue("alpha", "scale")->get<double>() == 1.0);

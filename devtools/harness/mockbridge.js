@@ -43,7 +43,10 @@
         return value.length > cap ? value.slice(0, cap) : value;
       }
       case "key": {
-        if (typeof value !== "string" || !value) return undefined;
+        if (typeof value !== "string") return undefined;
+        // "" = deliberately unbound — accepted only when the schema opts in,
+        // like the store (allowUnbound).
+        if (!value) return setting.allowUnbound ? value : undefined;
         return value.length > MAX_KEY_NAME ? value.slice(0, MAX_KEY_NAME) : value;
       }
       default: return undefined; // unknown type — refused, like the store

@@ -326,6 +326,9 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
   animation: osf-key-pulse 1s var(--ease-in-out) infinite;
 }
 @keyframes osf-key-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+/* allowUnbound keys render [key][×] as one unit; the × commits "". */
+.osf-key-wrap { display: inline-flex; align-items: center; gap: 4px; }
+.osf-key-clear { min-width: 0; padding-inline: 8px; }
 
 /* ------------------------------------------------------------
    Segmented control (2-5 mutually-exclusive options)

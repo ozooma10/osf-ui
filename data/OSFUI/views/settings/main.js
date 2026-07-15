@@ -392,7 +392,21 @@ function buildKey(modId, setting, id, current) {
   btn.type = "button"; btn.className = "osf-btn osf-btn--sm osf-key"; btn.id = id;
   btn.textContent = current || "—";
   btn.addEventListener("click", () => beginCapture(modId, setting.key, btn));
-  return { control: btn, value: null };
+  if (!setting.allowUnbound || !current) {
+    return { control: btn, value: null };
+  }
+  // Schema opted into the unbound state ("" — skipped by hotkey dispatch and
+  // conflicts). The ✕ commits ""; the key-rebind refresh path re-renders us.
+  const wrap = el("span", "osf-key-wrap");
+  wrap.appendChild(btn);
+  const clear = document.createElement("button");
+  clear.type = "button"; clear.className = "osf-btn osf-btn--sm osf-btn--ghost osf-key-clear";
+  clear.textContent = "×";
+  clear.title = "Unbind";
+  clear.setAttribute("aria-label", `Unbind ${setting.label || setting.key}`);
+  clear.addEventListener("click", () => commit(modId, setting.key, ""));
+  wrap.appendChild(clear);
+  return { control: wrap, value: null };
 }
 
 function buildSettingControl(modId, setting, id, current) {

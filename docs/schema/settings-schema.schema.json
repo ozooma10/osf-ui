@@ -118,6 +118,7 @@
         "max": { "type": "number", "description": "int/float upper bound (inclusive)." },
         "step": { "type": "number", "description": "Slider/stepper granularity (UI hint)." },
         "maxLength": { "type": "integer", "minimum": 1, "description": "string max length (UI hint; native ceiling is 256 today, up to 4096 in the native slice)." },
+        "allowUnbound": { "type": "boolean", "default": false, "description": "key type only: permit \"\" as the deliberate unbound state (default \"\" is then legal). Unbound keys never dispatch hotkeys and never appear in conflicts; the settings UI renders an unbind × next to the capture button." },
         "options": {
           "type": "array",
           "items": { "type": "string" },

@@ -267,6 +267,7 @@ export interface Setting {
   max?: number;
   step?: number;
   maxLength?: number; // string length hint
+  allowUnbound?: boolean; // key type only: "" is a legal, deliberate unbound state (no dispatch, no conflicts; the UI renders an unbind ×)
   options?: string[]; // required when type === "enum"
   optionLabels?: string[]; // display labels parallel to options; stored value stays the option
   widget?: WidgetHint;
