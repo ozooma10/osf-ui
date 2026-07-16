@@ -176,6 +176,43 @@
       vanillaKeys: VANILLA.map((v) => ({ event: v.event, title: v.title, name: v.name })) });
   }
 
+  // ---- view catalog (panels + HUDs on the Mods surface) ----
+  // Mirrors the runtime's views.data push. The real shipped views come first —
+  // menu.open on one that has a harness page navigates there, so panel launch
+  // works inside the harness. The `fixture: true` entries are fictional: they
+  // exercise every state the Mods surface renders (a view owned by a settings
+  // mod — `mod` matches a schema id, view-only mods with no schema, a failed
+  // load, HUD live / hidden). Hidden by default; toggle with the top-bar
+  // "Sample views" button or ?fixtures=1 (persisted in localStorage).
+  const HARNESS_PAGES = { settings: "index.html", keybinds: "keybinds.html", osf: "osf.html" };
+  const views = [
+    { id: "settings", title: "Mods", description: "Installed mods — settings, panels and HUD toggles.", mod: "osfui", kind: "menu", interactive: true, hub: false, open: false, focused: false, loadState: "loaded" },
+    { id: "keybinds", title: "Keybinds", description: "Full keyboard map of mod and game bindings.", mod: "osfui", kind: "menu", interactive: true, hub: true, open: false, focused: false, loadState: "loaded" },
+    // Real view from the sibling repo (VFS-merged in game). mod "osf" groups
+    // it onto the OSF Animation settings page (schema registered natively —
+    // see tryFetchNativeSchema). Open lands on osf.html.
+    { id: "osf", title: "OSF Animation Browser", description: "Scene browser and launcher — crew, furniture, launch.", mod: "osf", kind: "menu", interactive: true, hub: true, open: false, focused: false, loadState: "loaded" },
+    { id: "almanac", title: "Ship Almanac", description: "Browse ship modules, mass and performance readouts.", mod: "demo", kind: "menu", interactive: true, hub: true, open: false, focused: true, loadState: "loaded", fixture: true },
+    { id: "hudwidgets", title: "HUD Widgets", description: "Clock and status overlays over the live game.", mod: "demo", kind: "hud", interactive: false, hub: true, open: true, loadState: "loaded", fixture: true },
+    { id: "cargo", title: "Cargo Manifest", description: "Sortable inventory with a live mass budget.", mod: "", kind: "menu", interactive: true, hub: true, open: false, focused: false, loadState: "loaded", fixture: true },
+    { id: "atlas", title: "Star Atlas", description: "Annotated survey routes and anomalies by system.", mod: "", kind: "menu", interactive: true, hub: true, open: false, focused: false, loadState: "failed", fixture: true },
+    { id: "vitals", title: "Vitals Ring", description: "O2, health and affliction indicators.", mod: "", kind: "hud", interactive: false, hub: true, open: false, loadState: "loaded", fixture: true },
+  ];
+  const FIXTURES_LS = LS_PREFIX + "fixtures";
+  const fixturesParam = new URLSearchParams(location.search).get("fixtures");
+  if (fixturesParam !== null) {
+    try { localStorage.setItem(FIXTURES_LS, fixturesParam === "1" ? "1" : "0"); } catch { /* ignore */ }
+  }
+  let fixturesOn = (() => { try { return localStorage.getItem(FIXTURES_LS) === "1"; } catch { return false; } })();
+  function setFixtures(on) {
+    fixturesOn = on === undefined ? !fixturesOn : !!on;
+    try { localStorage.setItem(FIXTURES_LS, fixturesOn ? "1" : "0"); } catch { /* ignore */ }
+    sendViews();
+    return fixturesOn;
+  }
+  let readySent = false;
+  function sendViews() { send("views.data", { views: views.filter((v) => fixturesOn || !v.fixture) }); }
+
   // Mirrors SettingsModule subscribe-on-read (protocol 0.3): settings.get
   // subscribes the page; committed values then push as settings.changed.
   let subscribed = false;
@@ -274,6 +311,38 @@
         window.addEventListener("keydown", onKey, true);
         break;
       }
+      case "views.get":
+        // Reply with the catalog; first call also gets runtime.ready (once —
+        // the Mods view answers ready with another views.get, so re-sending loops).
+        setTimeout(() => {
+          if (!readySent) { readySent = true; send("runtime.ready", { version: "0.2.0-mock" }); }
+          sendViews();
+        }, 0);
+        break;
+      case "menu.open": {
+        const page = HARNESS_PAGES[p.view];
+        if (page) {
+          // Real shipped view — hand off to its harness page (brief delay,
+          // like the in-game single-menu swap).
+          log("info", `menu.open ${p.view} → ${page}`);
+          setTimeout(() => { location.href = page; }, 450);
+        } else {
+          // Fictional view — just mark it open/focused and push, which clears
+          // the launch overlay (mirrors the runtime's reconcile push).
+          setTimeout(() => {
+            for (const v of views) { if (v.kind === "menu") { v.focused = v.id === p.view; v.open = v.open || v.id === p.view; } }
+            sendViews();
+          }, 400);
+        }
+        break;
+      }
+      case "hud.show":
+      case "hud.hide": {
+        const v = views.find((x) => x.id === p.view);
+        if (v) v.open = cmd === "hud.show";
+        setTimeout(sendViews, 150); // async reconcile, like native
+        break;
+      }
       case "close":
         log("→native", "close (no-op in harness)");
         break;
@@ -281,7 +350,8 @@
         // Mod action command: reply with a simulated "<mod>.ack" so the button
         // resolves. Real mods do this from their own SFSE plugin.
         if (typeof cmd === "string" && cmd.includes(".") && !cmd.startsWith("ui.") &&
-            !cmd.startsWith("settings.") && !cmd.startsWith("menu.") && !cmd.startsWith("hud.")) {
+            !cmd.startsWith("settings.") && !cmd.startsWith("menu.") && !cmd.startsWith("hud.") &&
+            !cmd.startsWith("views.")) {
           const modId = cmd.slice(0, cmd.indexOf("."));
           setTimeout(() => send(modId + ".ack", { key: p.key, ok: true, message: "Done (mock)" }), 400);
         }
@@ -307,13 +377,6 @@
           { key: "allowPanels", label: "Allow mod settings panels", type: "bool", default: true, requires: "reload" },
         ] },
       ] },
-    { id: "scene-demo", title: "Scene Demo",
-      inputContexts: [{ id: "scene", label: "During scenes", blocksGameplay: true }],
-      groups: [
-        { label: "Scene", settings: [
-          { key: "progressScene", label: "Progress scene", type: "key", default: "Space", inputContext: "scene" },
-        ] },
-      ] },
   ];
 
   async function tryFetch(url) {
@@ -324,14 +387,32 @@
     } catch { return null; }
   }
 
+  // Some plugins register their schema NATIVELY (RegisterSettingsSchema) with
+  // the JSON compiled into the DLL as a R"json(...)" literal — there is no
+  // settings/<id>.json on disk to fetch. Read the literal out of the plugin
+  // source instead (sibling repo, reachable under serve.cmd's root), so the
+  // harness shows the exact document the DLL registers. Best-effort: a missing
+  // repo or file:// page just skips it.
+  async function tryFetchNativeSchema(url) {
+    try {
+      const r = await fetch(url, { cache: "no-store" });
+      if (!r.ok) return null;
+      const m = (await r.text()).match(/R"json\(([\s\S]*?)\)json"/);
+      return m ? JSON.parse(m[1]) : null;
+    } catch { return null; }
+  }
+
   async function loadSources() {
     const loaded = [];
     // Shipped schemas (present when served over http from the repo root-ish).
-    for (const rel of ["../../data/OSFUI/settings/osfui.json", "../../data/OSFUI/settings/demo.json",
-                        "../../examples/settings-only/mymod.json"]) {
+    for (const rel of ["../../data/OSFUI/settings/osfui.json"]) {
       const s = await tryFetch(rel);
       if (s && s.groups) loaded.push(s);
     }
+    // OSF Animation's schema ("osf") — registered natively, extracted from its
+    // plugin source so the Mods page shows its settings like in game.
+    const osf = await tryFetchNativeSchema("../../../OSF Animation/src/API/UISettings.cpp");
+    if (osf && osf.groups) loaded.push(osf);
     // ?schema=<url> override / addition.
     const q = new URLSearchParams(location.search).get("schema");
     if (q) { const s = await tryFetch(q); if (s && s.groups) loaded.push(s); }
@@ -372,10 +453,12 @@
       if (m.type === "ui.command") handle(m.payload);
     },
     onMessage: null,
-    // Harness-only helper for automated tests / a "reset storage" button.
+    // Harness-only helper for automated tests / the top-bar buttons.
     _mock: {
       reset() { mods.forEach((m) => localStorage.removeItem(LS_PREFIX + m.id)); loadSources(); },
       mods: () => mods,
+      fixtures: setFixtures,          // toggle (no arg) or set; returns state
+      fixturesOn: () => fixturesOn,
     },
   };
 
