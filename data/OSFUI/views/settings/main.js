@@ -1,13 +1,17 @@
-// Schema-driven settings view — two-pane master/detail.
+// The Mods surface — two-pane master/detail, and the overlay's front door
+// (the toggle key opens this view directly).
 //
-// Left rail lists the configurable subjects: OSF UI itself (the framework)
-// pinned first — it self-labels as "Framework" on its card, so it needs no
-// section header of its own — then every mod that ships a settings/<id>.json
-// schema under a MODS header. The right pane renders the selected subject's typed
-// controls on the shared OSF UI design system. Talks to the runtime only
-// through the narrow JSON bridge (settings.get / settings.set / settings.reset /
-// settings.captureKey); the native SettingsStore validates, clamps, persists,
-// and reacts. This script is just the renderer.
+// Left rail lists every installed mod: OSF UI itself (the framework) pinned
+// first, then one entry per mod — the union of settings schemas
+// (settings.data) and registered catalog views (views.data). A view names its
+// owning mod via the manifest `mod` field; views without one get their own
+// rail entry under the view's title. The right pane renders the selected
+// mod's page: its panels (launched with menu.open — single-menu policy, so
+// opening one replaces this surface) and HUD toggles (hud.show / hud.hide)
+// first, then its typed settings controls on the shared OSF UI design system.
+// Talks to the runtime only through the narrow JSON bridge (settings.* /
+// views.get / menu.open / hud.*); the native SettingsStore validates, clamps,
+// persists, and reacts. This script is just the renderer.
 //
 // Everything the schema adds beyond bool/int/float/enum/string/key is
 // PRESENTATION: widget hints, number formatting, visibleWhen/enabledWhen
@@ -37,6 +41,21 @@ const sessionChipEl = document.getElementById("session-chip");
 const saveStateEl = document.getElementById("save-state");
 
 let allMods = [];
+// Registered catalog views (views.data, hub !== false) — panels and HUDs.
+let allViews = [];
+// Shape key of the last views.data (ids/owners/titles/loadState). A push that
+// only flips open/focus state updates switches in place instead of tearing
+// down the pane (views.data re-broadcasts on every such change).
+let viewsShapeKey = "";
+// Surface controls (panel buttons / HUD switches) of the current detail pane,
+// reconciled in place by refreshSurfaceStates().
+let surfaceControls = [];
+// Dev nicety: #mod=<entry id> preselects a rail entry (harness deep-links /
+// headless screenshots). In-game views load without a fragment, so it's inert.
+// Held as "pending" until the entry exists — settings.data and views.data
+// arrive in either order, and the default-selection fallback must not eat it.
+const hashMod = /^#mod=(.+)$/.exec(location.hash || "");
+let pendingHashSelect = hashMod ? decodeURIComponent(hashMod[1]) : null;
 let selectedId = null;
 // value when this settings VISIT began, baseline[modId][key] — drives the
 // undo chip + revert panel. Seeded once per key on first change, kept across
@@ -644,15 +663,37 @@ function buildItem(mod, item, values) {
   return makeSettingRow(mod, item, values[item.key]);
 }
 
-// ---- rail ------------------------------------------------------------------
+// ---- rail (one entry per installed mod) --------------------------------------
+// An entry is { id, mod, views, title }: `mod` is the settings.data record (or
+// null for a view-only mod), `views` the catalog views attached to it. Views
+// attach to a settings mod when their manifest `mod` matches its id; the rest
+// group by their own `mod` string (or view id) into a view-only entry.
 
-function frameworkMods() { return allMods.filter((m) => m.id === FRAMEWORK_ID); }
-function contentMods() { return allMods.filter((m) => m.id !== FRAMEWORK_ID); }
+function railEntries() {
+  const entries = allMods.map((m) => ({
+    id: m.id, mod: m, views: allViews.filter((v) => v.mod === m.id), title: titleOf(m),
+  }));
+  const orphans = new Map();
+  for (const v of allViews) {
+    if (v.mod && allMods.some((m) => m.id === v.mod)) continue;
+    const key = v.mod || v.id;
+    if (!orphans.has(key)) orphans.set(key, []);
+    orphans.get(key).push(v);
+  }
+  for (const [key, views] of orphans) {
+    // A view-only mod has no schema title; borrow its (first) panel's title.
+    const lead = views.find((v) => v.kind === "menu") || views[0];
+    entries.push({ id: "view:" + key, mod: null, views, title: lead.title || key });
+  }
+  return entries;
+}
+function findEntry(id) { return railEntries().find((e) => e.id === id); }
 
-function railMatches(mod, q) {
+function railMatches(entry, q) {
   if (!q) return true;
-  if (titleOf(mod).toLowerCase().includes(q)) return true;
-  for (const g of (mod.schema && mod.schema.groups) || []) {
+  if (entry.title.toLowerCase().includes(q)) return true;
+  if (entry.views.some((v) => (v.title || "").toLowerCase().includes(q))) return true;
+  for (const g of (entry.mod && entry.mod.schema && entry.mod.schema.groups) || []) {
     for (const s of g.settings || []) {
       if (((s.label || s.key || "")).toLowerCase().includes(q)) return true;
     }
@@ -660,26 +701,39 @@ function railMatches(mod, q) {
   return false;
 }
 
-function railItem(mod) {
+// What the entry offers, for the rail sub-line: "Framework", the mod id, or a
+// panel/overlay summary for view-only entries.
+function railSub(entry) {
+  if (entry.id === FRAMEWORK_ID) return "Framework";
+  if (entry.mod) return entry.mod.id;
+  const menus = entry.views.filter((v) => v.kind === "menu").length;
+  const huds = entry.views.length - menus;
+  const parts = [];
+  if (menus) parts.push(menus === 1 ? "Panel" : `${menus} panels`);
+  if (huds) parts.push(huds === 1 ? "Overlay" : `${huds} overlays`);
+  return parts.join(" · ") || "Mod";
+}
+
+function railItem(entry) {
   const btn = document.createElement("button");
   btn.type = "button";
-  btn.className = "rail-item" + (mod.id === selectedId ? " selected" : "");
-  btn.dataset.mod = mod.id;
-  const isFramework = mod.id === FRAMEWORK_ID;
+  btn.className = "rail-item" + (entry.id === selectedId ? " selected" : "");
+  btn.dataset.mod = entry.id;
+  const isFramework = entry.id === FRAMEWORK_ID;
 
-  const mark = el("span", "rail-item-mark", isFramework ? "◆" : initials(titleOf(mod)));
+  const mark = el("span", "rail-item-mark", isFramework ? "◆" : initials(entry.title));
   const textWrap = el("span", "rail-item-text");
-  textWrap.appendChild(el("span", "rail-item-title", titleOf(mod)));
-  textWrap.appendChild(el("span", "rail-item-sub", isFramework ? "Framework" : mod.id));
+  textWrap.appendChild(el("span", "rail-item-title", entry.title));
+  textWrap.appendChild(el("span", "rail-item-sub", railSub(entry)));
   btn.append(mark, textWrap);
 
-  const count = modifiedCount(mod);
+  const count = entry.mod ? modifiedCount(entry.mod) : 0;
   if (count) {
     const badge = el("span", "rail-item-count", String(count));
     badge.title = `${count} changed from default`;
     btn.appendChild(badge);
   }
-  btn.addEventListener("click", () => selectMod(mod.id));
+  btn.addEventListener("click", () => selectMod(entry.id));
   return btn;
 }
 
@@ -691,21 +745,21 @@ function renderRail() {
   // — it self-labels as "Framework" and is the only entry that would ever sit
   // under such a header. The "Mods" header below is what separates it from
   // installed mods.
-  const fw = frameworkMods().filter((m) => railMatches(m, q));
-  fw.forEach((m) => railEl.appendChild(railItem(m)));
+  const entries = railEntries();
+  entries.filter((e) => e.id === FRAMEWORK_ID && railMatches(e, q))
+    .forEach((e) => railEl.appendChild(railItem(e)));
 
-  railEl.appendChild(el("div", "rail-section", "Mod Settings"));
-  const mods = contentMods().filter((m) => railMatches(m, q));
+  railEl.appendChild(el("div", "rail-section", "Mods"));
+  const mods = entries.filter((e) => e.id !== FRAMEWORK_ID && railMatches(e, q))
+    .sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" }));
   if (mods.length) {
-    mods.forEach((m) => railEl.appendChild(railItem(m)));
+    mods.forEach((e) => railEl.appendChild(railItem(e)));
   } else {
     const empty = el("div", "rail-empty");
     if (q) {
       empty.textContent = "No mods match the filter.";
     } else {
-      empty.appendChild(document.createTextNode("No mods installed yet. Drop a "));
-      empty.appendChild(el("code", null, "settings/<id>.json"));
-      empty.appendChild(document.createTextNode(" schema and it appears here."));
+      empty.textContent = "No mods installed yet. Mods that register settings, panels or HUDs appear here.";
     }
     railEl.appendChild(empty);
   }
@@ -789,6 +843,89 @@ function applyPreset(mod, preset) {
   toast(`Applied "${preset.label}" (${n} setting${n === 1 ? "" : "s"})`, "info");
 }
 
+// ---- surfaces (panels + HUD toggles) ----------------------------------------
+// The catalog views attached to the selected entry, rendered as rows above the
+// settings groups: a menu gets an Open button (menu.open — the opened panel
+// replaces this surface on the single-menu stack), a HUD gets a switch
+// (hud.show / hud.hide, optimistic flip reconciled by the views.data push).
+
+function surfacePanelRow(v) {
+  const row = el("div", "row");
+  row.dataset.label = (v.title || "").toLowerCase();
+  const text = el("div", "row-text");
+  text.appendChild(el("div", "row-label", v.title || v.id));
+  if (v.description) text.appendChild(el("div", "row-hint", v.description));
+  row.appendChild(text);
+
+  const control = el("div", "control");
+  const failed = v.loadState === "failed";
+  const btn = el("button", "osf-btn osf-btn--sm " + (failed ? "osf-btn--danger" : "osf-btn--accent"),
+    failed ? "Failed" : "Open");
+  btn.type = "button";
+  if (failed) { btn.disabled = true; btn.title = "The view failed to load; see OSF UI.log."; }
+  btn.addEventListener("click", () => {
+    sendCommand({ command: "menu.open", view: v.id });
+    // The opened panel replaces this surface; if it never comes up (failed
+    // registration), don't leave the button stuck.
+    btn.disabled = true; btn.textContent = "Opening…";
+    setTimeout(() => { btn.disabled = false; btn.textContent = "Open"; }, 1600);
+  });
+  control.appendChild(btn);
+  row.appendChild(control);
+  surfaceControls.push({ viewId: v.id, kind: "menu", control: btn });
+  return row;
+}
+
+function surfaceHudRow(v) {
+  const row = el("div", "row");
+  row.dataset.label = (v.title || "").toLowerCase();
+  const text = el("div", "row-text");
+  text.appendChild(el("div", "row-label", v.title || v.id));
+  if (v.description) text.appendChild(el("div", "row-hint", v.description));
+  row.appendChild(text);
+
+  const control = el("div", "control");
+  const sw = document.createElement("button");
+  sw.type = "button"; sw.className = "osf-switch"; sw.setAttribute("role", "switch");
+  const set = (on) => sw.setAttribute("aria-pressed", on ? "true" : "false");
+  set(v.open === true);
+  sw.addEventListener("click", () => {
+    const next = sw.getAttribute("aria-pressed") !== "true";
+    set(next);
+    sendCommand({ command: next ? "hud.show" : "hud.hide", view: v.id });
+  });
+  control.appendChild(sw);
+  row.appendChild(control);
+  surfaceControls.push({ viewId: v.id, kind: "hud", control: sw });
+  return row;
+}
+
+function renderSurfaces(views) {
+  if (!views.length) return null;
+  const menus = views.filter((v) => v.kind === "menu");
+  const huds = views.filter((v) => v.kind !== "menu");
+  const section = el("div", "group");
+  const label = menus.length && huds.length ? "Panels & overlays" : menus.length ? "Panels" : "Overlays";
+  const heading = el("button", "group-label", label);
+  heading.type = "button";
+  heading.addEventListener("click", () => section.classList.toggle("collapsed"));
+  section.appendChild(heading);
+  const rowsWrap = el("div", "group-rows");
+  menus.forEach((v) => rowsWrap.appendChild(surfacePanelRow(v)));
+  huds.forEach((v) => rowsWrap.appendChild(surfaceHudRow(v)));
+  section.appendChild(rowsWrap);
+  return section;
+}
+
+// Reconcile switch/button state against a fresh views.data without a teardown.
+function refreshSurfaceStates() {
+  for (const sc of surfaceControls) {
+    const v = allViews.find((x) => x.id === sc.viewId);
+    if (!v) continue;
+    if (sc.kind === "hud") sc.control.setAttribute("aria-pressed", v.open ? "true" : "false");
+  }
+}
+
 function renderRestartBanner(mod) {
   // Any changed-from-default setting flagged requires:"restart" pins a banner.
   const values = mod.values || {};
@@ -804,7 +941,7 @@ function renderRestartBanner(mod) {
 }
 
 function renderDetail() {
-  liveRows = []; liveGroups = [];
+  liveRows = []; liveGroups = []; surfaceControls = [];
   // The old buttons are about to be discarded; drop any pending action state so
   // a late ack can't restore a detached node.
   pendingActions.clear();
@@ -813,13 +950,16 @@ function renderDetail() {
   const q = (filterEl.value || "").trim().toLowerCase();
   if (q) { renderSearch(q); return; }
 
-  const mod = allMods.find((m) => m.id === selectedId);
-  if (!mod) {
+  const entry = findEntry(selectedId);
+  if (!entry) {
     const empty = el("div", "detail-empty");
     empty.appendChild(el("div", "osf-eyebrow", "Nothing selected"));
     detailEl.appendChild(empty);
     return;
   }
+  if (!entry.mod) { renderViewOnlyDetail(entry); return; }
+
+  const mod = entry.mod;
   const isFramework = mod.id === FRAMEWORK_ID;
   const schema = mod.schema || {};
   const values = mod.values || {};
@@ -828,6 +968,8 @@ function renderDetail() {
   detailEl.appendChild(renderDetailHead(mod, schema, isFramework));
 
   const body = el("div", "detail-body");
+  const surfaces = renderSurfaces(entry.views);
+  if (surfaces) body.appendChild(surfaces);
   const presets = renderPresets(mod, schema);
   if (presets) body.appendChild(presets);
 
@@ -863,6 +1005,27 @@ function renderDetail() {
   if (banner) bannerSlot.appendChild(banner);
 
   refreshLive(mod);
+}
+
+// A mod that registered views but no settings schema: same page shape, no
+// settings groups and no Reset all.
+function renderViewOnlyDetail(entry) {
+  applyAccent(detailEl, null);
+  const lead = entry.views.find((v) => v.kind === "menu") || entry.views[0];
+
+  const head = el("div", "detail-head");
+  const left = el("div");
+  left.appendChild(el("div", "osf-eyebrow kicker", "Mod" + (lead.mod ? " · " + lead.mod : "")));
+  left.appendChild(el("h2", null, entry.title));
+  if (lead.description) left.appendChild(el("div", "detail-desc", lead.description));
+  head.appendChild(left);
+  detailEl.appendChild(head);
+
+  const body = el("div", "detail-body");
+  const surfaces = renderSurfaces(entry.views);
+  if (surfaces) body.appendChild(surfaces);
+  body.appendChild(el("p", "detail-quiet", "This mod registers no settings."));
+  detailEl.appendChild(body);
 }
 
 function renderSectionIndex(groups) {
@@ -1145,16 +1308,21 @@ function captureBaseline() {
 }
 
 function render() {
-  if (!allMods.length) {
+  const entries = railEntries();
+  if (!entries.length) {
     railEl.textContent = "";
     detailEl.textContent = "";
-    detailEl.appendChild(el("p", "status osf-eyebrow", "No settings schemas found (settings/*.json)."));
+    detailEl.appendChild(el("p", "status osf-eyebrow", "No mods installed — nothing has registered settings or views yet."));
     updateChip();
     return;
   }
   captureBaseline();
-  if (!allMods.some((m) => m.id === selectedId)) {
-    selectedId = frameworkMods().length ? FRAMEWORK_ID : allMods[0].id;
+  if (pendingHashSelect && entries.some((e) => e.id === pendingHashSelect)) {
+    selectedId = pendingHashSelect;
+    pendingHashSelect = null;  // honored once; later pushes must not override clicks
+  }
+  if (!entries.some((e) => e.id === selectedId)) {
+    selectedId = entries.some((e) => e.id === FRAMEWORK_ID) ? FRAMEWORK_ID : entries[0].id;
   }
   renderRail();
   renderDetail();
@@ -1178,11 +1346,27 @@ function onNativeMessage(jsonText) {
   switch (message.type) {
     case "runtime.ready":
       sendCommand({ command: "settings.get" });
+      sendCommand({ command: "views.get" });  // also subscribes to change pushes
       break;
     case "settings.data":
       allMods = (message.payload && message.payload.mods) || [];
       render();
       break;
+    case "views.data": {
+      allViews = ((message.payload && message.payload.views) || [])
+        .filter((v) => v && v.hub !== false);
+      // Pushes arrive on every open/focus flip (e.g. our own HUD toggle) —
+      // only rebuild the pane when the catalog itself changed, or a settings
+      // control mid-edit would be torn down under the user.
+      const key = allViews.map((v) => [v.id, v.mod, v.title, v.kind, v.loadState].join(" ")).join("\n");
+      if (key !== viewsShapeKey) {
+        viewsShapeKey = key;
+        render();
+      } else {
+        refreshSurfaceStates();
+      }
+      break;
+    }
     case "settings.changed": {
       // Native push for every committed value — our own commits echo back
       // (possibly clamped), and other writers (a sibling DLL, a mod's panel, a
@@ -1263,14 +1447,33 @@ window.osfui = window.osfui || {};
 window.osfui.onMessage = onNativeMessage;
 
 document.getElementById("close").addEventListener("click", () => sendCommand({ command: "close" }));
+document.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && String(e.key).toLowerCase() === "f") {
+    e.preventDefault();
+    filterEl.focus();
+    filterEl.select();
+    return;
+  }
+  if (e.key === "Escape" && !e.defaultPrevented && !capturing && !document.querySelector(".session-overlay")) {
+    sendCommand({ command: "close" });
+  }
+});
 
 if (bridgeAvailable()) {
   sendCommand({ command: "settings.get" });
+  sendCommand({ command: "views.get" });
 } else {
-  // Standalone (plain browser) — sample schemas exercising the widgets so the
-  // layout can be iterated without launching the game.
+  // Standalone (plain browser) — sample schemas + catalog views exercising the
+  // widgets so the layout can be iterated without launching the game.
   allMods = sampleMods();
+  allViews = sampleViews();
   render();
+}
+
+function sampleViews() {
+  return [
+    { id: "keybinds", title: "Keybinds", description: "Every key binding at a glance — mods, the game, and collisions. Rebind in place.", mod: "osfui", kind: "menu", hub: true, open: false, focused: false, loadState: "loaded" },
+  ];
 }
 
 function sampleMods() {
@@ -1289,38 +1492,6 @@ function sampleMods() {
         ],
       },
       values: { toggleKey: "F10", allowPanels: true },
-    },
-    {
-      id: "demo", title: "Demo Mod",
-      schema: {
-        description: "Every v1 widget in one card.",
-        accent: "#e6904a",
-        presets: [
-          { label: "Performance", description: "Lightweight", values: { "overlay.enabled": true, mode: "compact", "overlay.opacity": 0.6 } },
-          { label: "Cinematic", values: { "overlay.enabled": true, mode: "full", "overlay.opacity": 1.0 } },
-        ],
-        groups: [
-          { label: "General", settings: [
-            { key: "overlay.enabled", label: "Enable HUD", type: "bool", default: false },
-            { key: "mode", label: "Layout", type: "enum", options: ["off", "compact", "full"], optionLabels: ["Off", "Compact", "Full"], widget: "segmented", default: "compact",
-              visibleWhen: { key: "overlay.enabled", eq: true } },
-            { key: "overlay.opacity", label: "Opacity", type: "float", min: 0, max: 1, step: 0.05, default: 0.9,
-              format: { scale: 100, suffix: "%", decimals: 0 }, enabledWhen: { key: "overlay.enabled", eq: true } },
-            { key: "overlay.scale", label: "Scale", type: "int", min: 50, max: 200, step: 5, default: 100, widget: "stepper",
-              format: { suffix: "%" }, enabledWhen: { key: "overlay.enabled", eq: true } },
-          ] },
-          { label: "Appearance", settings: [
-            { key: "tint", label: "Tint colour", type: "string", widget: "color", default: "#5aa9b8" },
-            { key: "greeting", label: "Greeting", type: "string", default: "Hello, spacefarer", maxLength: 60 },
-            { key: "notes", label: "Notes", type: "string", widget: "textarea", default: "" },
-          ] },
-          { label: "Maintenance", settings: [
-            { type: "note", style: "warn", text: "Recalibration **clears learned data**. Use the `Run calibration` button below." },
-            { type: "action", key: "recalibrate", label: "Run calibration", command: "demo.recalibrate", style: "accent", confirm: "Clear learned data and recalibrate?" },
-          ] },
-        ],
-      },
-      values: { "overlay.enabled": false, mode: "compact", "overlay.opacity": 0.9, "overlay.scale": 100, tint: "#5aa9b8", greeting: "Hello, spacefarer", notes: "" },
     },
   ];
 }

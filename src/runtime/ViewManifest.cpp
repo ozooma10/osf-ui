@@ -17,6 +17,7 @@ namespace OSFUI
 		manifest.id = Json::GetString(*json, "id", "");
 		manifest.title = Json::GetString(*json, "title", manifest.id);
 		manifest.description = Json::GetString(*json, "description", "");
+		manifest.mod = Json::GetString(*json, "mod", "");
 		manifest.entry = Json::GetString(*json, "entry", manifest.entry);
 		manifest.width = static_cast<std::uint32_t>(std::clamp<std::int64_t>(
 			Json::GetInt(*json, "width", manifest.width), 1, 16384));

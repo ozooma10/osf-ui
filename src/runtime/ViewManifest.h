@@ -25,7 +25,12 @@ namespace OSFUI
 	{
 		std::string           id;
 		std::string           title;
-		std::string           description;  // one-line blurb for catalogs (views.data / the hub view)
+		std::string           description;  // one-line blurb for catalogs (views.data / the Mods surface)
+		// Optional: the settings mod id (RegisterSettingsSchema / settings/<id>.json)
+		// this view belongs to. The Mods surface groups a mod's panels/HUDs onto
+		// its settings page by matching this against settings.data mod ids. Empty
+		// = standalone (listed under its own title).
+		std::string           mod;
 		std::string           entry{ "index.html" };
 		// Logical (authoring) size: the page always lays out at this size. The
 		// renderer resizes views to output resolution with a matching device
@@ -54,8 +59,9 @@ namespace OSFUI
 		// Within-band z ORDER HINT for the MenuController (HUD band vs menu band). Distinct from `zorder`, which is the raw runtime compositing sort key;
 		std::int32_t order{ 0 };
 
-		// List this view in catalogs (views.data / the hub view). false = hidden
-		// utility view; it still loads and works, it just isn't advertised.
+		// List this view in catalogs (views.data → the Mods surface rail).
+		// false = hidden utility view; it still loads and works, it just isn't
+		// advertised. (Field name predates the Mods surface — kept for compat.)
 		bool hub{ true };
 
 		[[nodiscard]] std::filesystem::path EntryPath() const { return rootDir / entry; }

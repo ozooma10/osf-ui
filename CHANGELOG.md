@@ -4,6 +4,24 @@ Notable changes to OSF UI. Versions are `kPluginVersion` (`src/core/Version.h`);
 the native bridge ABI (`sdk/OSFUI_API.h`) and the web bridge protocol version
 independently and are called out per entry.
 
+## Unreleased
+
+- **Release payload cleanup:** removed the bundled `demo.json` schema and all
+  preview-only Demo Mod / My Mod fallback data. The shipped config now has
+  `devMode: false`. Users updating an older loose-file install should remove
+  `Data/SFSE/Plugins/OSFUI/settings/demo.json` or perform a clean reinstall.
+- **The Mods surface replaces the hub launcher.** The toggle key (F10) now
+  opens the `settings` view directly, reworked into a single per-mod menu:
+  the left rail lists every installed mod (the union of settings schemas and
+  registered catalog views); a mod's page shows its panel launch buttons and
+  HUD toggles above its settings controls. The built-in `hub` view is removed,
+  and shipped `config.json` uses `"view": "settings"`,
+  `"views": ["settings", "keybinds"]`.
+- **View manifest: new optional `mod` field** — the owning settings mod id.
+  The Mods surface groups a view onto that mod's page; views without it get
+  their own rail entry. `views.data` now carries `mod` per view (additive;
+  bridge protocol unchanged).
+
 ## 0.2.0 — 2026-07-15 — first public release
 
 The first public build of OSF UI: a working, schema-driven overlay framework

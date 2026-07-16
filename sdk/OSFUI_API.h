@@ -190,8 +190,10 @@ namespace OSFUI::API
 		// main tick. ---
 		// Loads views/<a_viewId>/ (a folder your mod installs next to OSF UI's
 		// built-in views, discovered from its manifest.json at OSF UI boot) and
-		// registers it as an openable SURFACE — so it appears in the hub catalog
-		// and responds to RequestMenu / the web `menu.open` command — WITHOUT the
+		// registers it as an openable SURFACE — so it appears in the views
+		// catalog (the Mods surface lists it; set the manifest `mod` field to
+		// your settings mod id so it lands on your mod's page) and responds to
+		// RequestMenu / the web `menu.open` command — WITHOUT the
 		// user's config.json having to list it in `views`. Ship the folder, call
 		// RegisterView once after fetching the bridge, then RequestMenu when you
 		// want it on screen:

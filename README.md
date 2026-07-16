@@ -59,7 +59,7 @@ Data/SFSE/Plugins/
                                   (name is the kDataFolderName constant, not the DLL name)
     config.json
     views/
-      hub/                     <- built-in views (hub, settings, keybinds, shared)
+      settings/                <- built-in views (settings = the Mods surface, keybinds, shared)
         manifest.json
         index.html  style.css  main.js
     ultralight/                <- only present in with_ultralight builds
@@ -92,8 +92,8 @@ Logs go to the standard SFSE log folder
 | `engineInput` | `true` | Bring the engine's per-menu input dispatch — including **gamepad**, which the WndProc never sees — into the runtime and route it into the focused view (D-pad/left-stick → move focus, A → activate, B → close, right-stick → scroll), plus raw `ui.gamepad` events a page can opt into via `osfui.gamepadRaw`. On by default; delivery + routing verified in-game on 1.16.244 with a controller. Keyboard/mouse stay on the WndProc path |
 | `pauseMenuEntry` | `true` | Inject a **"MOD SETTINGS"** entry into the game's pause menu (live Scaleform manipulation — no SWF edit, no conflict with UI-overhaul mods) that opens the overlay when pressed. On by default; inject + click verified in-game on 1.16.244. Label/target are `pauseMenuEntryLabel` / `pauseMenuEntryView` |
 | `disableControls` | `true` | While a menu captures input, disable player controls through the engine input-enable layer (`BSInputEnableManager`) — this also stops gamepad/XInput, which the WndProc hook never sees. **Proven live on 1.16.244 with a controller** (keyboard, mouse-look, and gamepad sticks all freeze and restore cleanly). On by default; `false` is a diagnostic escape hatch (config.json only, not a user-facing setting) for the rare case where another overlay fights the input layer |
-| `view` | `"hub"` | the active (input) view — a view id from `views/*/manifest.json` (shipped config uses `hub`) |
-| `views` | `[]` | optional multi-view set: every id is loaded and composited (layer order = each view's manifest `zorder`), and `view` must be one of them (the interactive one). Empty ⇒ only `view` loads. Missing ids are skipped with a log line. Shipped config uses `["hub", "settings", "keybinds"]` |
+| `view` | `"settings"` | the active (input) view the toggle key opens — a view id from `views/*/manifest.json` (shipped config uses `settings`, the Mods surface) |
+| `views` | `[]` | optional multi-view set: every id is loaded and composited (layer order = each view's manifest `zorder`), and `view` must be one of them (the interactive one). Empty ⇒ only `view` loads. Missing ids are skipped with a log line. Shipped config uses `["settings", "keybinds"]` |
 | `allowNetwork` | `false` | recognized but force-disabled |
 | `devMode` | `false` | verbose per-call logging + first-frame PNG dump. **Defaults shown above are the built-in fallbacks (`src/core/Config.h`); the shipped `data/OSFUI/config.json` is the runtime config.** For development, set `devMode: true` and `startVisible: true` for verbose logs and a launch-visible overlay |
 
@@ -157,24 +157,28 @@ docs/HANDOFF.md §4.
   mapped onto the OS pointer. F10 toggles, Esc closes.
 - **Schema-driven settings (MCM-style):** each mod drops a
   `settings/<id>.json` schema (typed bool/int/float/enum/string knobs); the
-  built-in `settings` view renders a card per mod with live controls + Reset,
-  and the native `SettingsStore` validates/clamps/persists per-mod to a
-  user-writable path and fires change reactions (e.g. live cursor speed).
+  built-in `settings` view — the **Mods surface** F10 opens — lists every
+  installed mod and renders its page: settings controls + Reset, plus launch
+  buttons and HUD toggles for any views the mod registered (manifest `mod`
+  field groups them). The native `SettingsStore` validates/clamps/persists
+  per-mod to a user-writable path and fires change reactions (e.g. live
+  cursor speed).
 - The JSON message bridge parses/dispatches the whitelisted commands —
   surface control (`close`, `setVisible`, `menu.open` / `menu.close`,
   `hud.show` / `hud.hide`, `setViewHidden`), diagnostics (`log`, `ping`),
   read-only game data (`game.get`), the surface catalog (`views.get` — replies
   with every loaded view's metadata + open/focus/load state and pushes updates
-  on change, the read behind a hub/launcher view), and the settings trio
+  on change, the read behind the Mods surface's panel/HUD rows), and the settings trio
   (`settings.get` / `settings.set` / `settings.reset`) — and rejects everything
   else. Trusted
   *native* SFSE plugins can register additional commands through the exported
   bridge API ([docs/native-plugin-api.md](docs/native-plugin-api.md));
   untrusted JS cannot. Authoring a view? See
   [docs/authoring-views.md](docs/authoring-views.md).
-- The built-in `hub`, `settings`, and `keybinds` views are self-contained HTML
-  panels that also run standalone in a normal browser (degraded mode) for
-  development.
+- The built-in `settings` (the Mods surface — per-mod settings, panel
+  launchers, and HUD toggles in one menu) and `keybinds` views are
+  self-contained HTML panels that also run standalone in a normal browser
+  (degraded mode) for development.
 
 ## What this is not yet
 

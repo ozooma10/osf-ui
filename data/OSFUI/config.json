@@ -14,9 +14,9 @@
   "engineInput": true,
   "pauseMenuEntry": true,
   "vanillaKeyConflicts": true,
-  "view": "hub",
-  "views": ["hub", "settings", "keybinds"],
+  "view": "settings",
+  "views": ["settings", "keybinds"],
   "allowNetwork": false,
-  "devMode": true,
+  "devMode": false,
   "devReloadKey": "F11"
 }

@@ -1,7 +1,9 @@
 {
   "id": "settings",
-  "title": "Settings",
+  "title": "Mods",
+  "description": "Installed mods — settings, panels and HUD toggles.",
   "entry": "index.html",
+  "mod": "osfui",
   "hub": false,
   "width": 1280,
   "height": 720,

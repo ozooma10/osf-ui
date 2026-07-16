@@ -72,7 +72,7 @@ namespace OSFUI
 		// honors. Purely informational (warn, never block); false skips
 		// loading the table entirely.
 		bool        vanillaKeyConflicts{ true };
-		std::string view{ "hub" };
+		std::string view{ "settings" };
 		// Optional multi-view set. When non-empty, every id is loaded and
 		// composited together (layer order = each view's manifest `zorder`), and
 		// `view` is the active (input) view — it must be an interactive view.

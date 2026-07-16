@@ -189,6 +189,7 @@ export interface ViewsDataPayload {
     id: string;
     title: string;
     description: string;    // manifest `description`, "" when absent
+    mod: string;            // manifest `mod` — owning settings mod id ("" = standalone); groups the view onto that mod's page on the Mods surface
     kind: "menu" | "hud";
     interactive: boolean;
     hub: boolean;           // manifest `hub` — false = hidden utility view, omit from catalogs

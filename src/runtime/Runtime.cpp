@@ -518,7 +518,7 @@ namespace OSFUI
 		}
 		if (catalogChanged) {
 			ApplyMenuPolicy();     // openOnStart / z-band changes take effect now
-			BroadcastViewsData();  // the hub catalog picks the new view up live
+			BroadcastViewsData();  // the Mods surface picks the new view up live
 		}
 	}
 
@@ -600,7 +600,7 @@ namespace OSFUI
 			REX::INFO("Runtime: overlay visibility -> {} (capture={})", visible, _captureInput.load());
 		}
 
-		// Push the surface catalog to hub-style subscribers (deduped: no-op when
+		// Push the surface catalog to catalog subscribers (deduped: no-op when
 		// nothing in the catalog actually changed).
 		BroadcastViewsData();
 	}
@@ -746,6 +746,7 @@ namespace OSFUI
 				{ "id", m.id },
 				{ "title", m.title },
 				{ "description", m.description },
+				{ "mod", m.mod },
 				{ "kind", m.kind == SurfaceKind::Hud ? "hud" : "menu" },
 				{ "interactive", m.interactive },
 				{ "hub", m.hub },
@@ -1290,10 +1291,10 @@ namespace OSFUI
 			}
 			SetViewHidden(id, Json::GetBool(a_p, "hidden", false));
 		});
-		// Catalog of loaded surfaces (the hub view's read, bridge 0.2). Replies
-		// with `views.data` and SUBSCRIBES the caller: any later open/close/
-		// focus/load-state change re-sends the catalog (see BroadcastViewsData),
-		// so a hub reflects state without polling.
+		// Catalog of loaded surfaces (the Mods surface's read, bridge 0.2).
+		// Replies with `views.data` and SUBSCRIBES the caller: any later open/
+		// close/focus/load-state change re-sends the catalog (see
+		// BroadcastViewsData), so the catalog reflects state without polling.
 		a_bridge.RegisterCommand("views.get", [this](const nlohmann::json&, MessageBridge& a_b) {
 			const auto payload = BuildViewsData();
 			_viewsSubscribers.insert(std::string(a_b.CurrentSource()));

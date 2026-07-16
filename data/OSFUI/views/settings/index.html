@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Settings</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mods</title>
   <link rel="stylesheet" href="../shared/osfui.css">
   <link rel="stylesheet" href="style.css">
 </head>
@@ -18,33 +19,44 @@
           <svg class="brand-emblem" width="34" height="34" viewBox="0 0 200 200" aria-hidden="true">
             <circle cx="100" cy="100" r="92" fill="#11151b" stroke="#5c646e" stroke-width="3"></circle>
             <circle cx="100" cy="100" r="82" fill="none" stroke="#2f353d" stroke-width="1.2"></circle>
-            <g fill="none" stroke="#5aa9b8" stroke-linecap="round" stroke-width="8">
+            <g fill="none" stroke="#63c7d2" stroke-linecap="round" stroke-width="8">
               <line x1="62" y1="74" x2="138" y2="74"></line>
               <line x1="62" y1="100" x2="138" y2="100"></line>
               <line x1="62" y1="126" x2="138" y2="126"></line>
             </g>
-            <circle cx="84" cy="74" r="9" fill="#0b0e12" stroke="#5aa9b8" stroke-width="6"></circle>
-            <circle cx="120" cy="100" r="9" fill="#0b0e12" stroke="#5aa9b8" stroke-width="6"></circle>
-            <circle cx="92" cy="126" r="9" fill="#0b0e12" stroke="#5aa9b8" stroke-width="6"></circle>
+            <circle cx="84" cy="74" r="9" fill="#0b0e12" stroke="#63c7d2" stroke-width="6"></circle>
+            <circle cx="120" cy="100" r="9" fill="#0b0e12" stroke="#63c7d2" stroke-width="6"></circle>
+            <circle cx="92" cy="126" r="9" fill="#0b0e12" stroke="#63c7d2" stroke-width="6"></circle>
           </svg>
           <div class="brand-text">
             <div class="brand-line">
               <span class="wordmark-osf">OSF</span><span class="wordmark-ui">UI</span>
             </div>
-            <div class="osf-eyebrow brand-sub">SETTINGS</div>
+            <div class="osf-eyebrow brand-sub">CONTROL DECK</div>
           </div>
+          <span class="system-state"><i aria-hidden="true"></i>Online</span>
         </div>
-        <input id="filter" class="osf-input filter" type="text" placeholder="Filter…" autocomplete="off" spellcheck="false">
+        <label class="search-box" for="filter">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="m16 16 4 4"></path></svg>
+          <input id="filter" class="osf-input filter" type="text" placeholder="Search mods & settings" aria-label="Search mods and settings" aria-keyshortcuts="Control+F" autocomplete="off" spellcheck="false">
+          <kbd>Ctrl F</kbd>
+        </label>
+        <div class="rail-meta">
+          <span>Installed systems</span>
+          <span>Configure</span>
+        </div>
       </div>
 
-      <nav id="rail-list" class="rail-list" aria-label="Settings sections"></nav>
+      <nav id="rail-list" class="rail-list" aria-label="Installed mods"></nav>
 
       <div class="rail-foot">
         <!-- Write-behind save feedback: "Saving…" until the runtime confirms
              the disk write (settings.persisted), then "Saved" fading out. -->
         <span id="save-state" class="save-state osf-eyebrow" aria-live="polite"></span>
         <button id="session-chip" type="button" class="osf-btn osf-btn--ghost osf-btn--sm session-chip" style="display:none">Undo changes (0)</button>
-        <button id="close" type="button" class="osf-btn osf-btn--ghost osf-btn--sm">Close</button>
+        <button id="close" type="button" class="osf-btn osf-btn--ghost osf-btn--sm close-btn" aria-keyshortcuts="Escape">
+          <span>Exit control deck</span><kbd>Esc</kbd>
+        </button>
       </div>
     </aside>
 

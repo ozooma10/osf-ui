@@ -340,9 +340,11 @@ file (fragile, fights other mods) or piggybacked on OSF UI's shipped defaults.
 - **What it does:** on the next main tick, looks up the boot-discovered
   `views/<id>/manifest.json` (your mod installs the folder into
   `Data/SFSE/Plugins/OSFUI/views/<id>/` — the same disk-drop as before), loads
-  the view, and registers it as a surface. It then appears in the **hub
-  catalog** (`views.data` re-broadcasts) and responds to `RequestMenu` and the
-  web `menu.open` command. The manifest's `openOnStart` is honored.
+  the view, and registers it as a surface. It then appears in the **views
+  catalog** (`views.data` re-broadcasts — the Mods surface lists it; set the
+  manifest `mod` field to your settings mod id so its launcher lands on your
+  mod's page) and responds to `RequestMenu` and the web `menu.open` command.
+  The manifest's `openOnStart` is honored.
 - **Idempotent:** an id that is already a registered surface — listed in the
   user's `config.views`, or registered by an earlier call — is left untouched
   (the live view is **not** reloaded). Call it unconditionally at startup.
@@ -652,7 +654,7 @@ reflects the **live registered** scene set.
   view loads; flushed FIFO once the bridge appears. If no bridge ever appears,
   the queue stays bounded (per-view cap, drop-oldest, warned).
 - **RegisterView (ABI 1.5):** `RegisterView("osf")` with the folder installed →
-  surface registered, hub catalog updates, `RequestMenu("osf", true)` opens it;
+  surface registered, views catalog updates, `RequestMenu("osf", true)` opens it;
   repeat call → "already registered" INFO, live view untouched; missing folder
   → WARN, nothing registered; `RegisterView` + `SendToWeb` + `RequestMenu`
   back-to-back → registered, message delivered, opened in one tick.

@@ -497,6 +497,17 @@ function onMessage(json) {
 
 searchEl.addEventListener("input", () => { paintKeyboard(); renderList(); });
 document.getElementById("close").addEventListener("click", () => sendCommand({ command: "close" }));
+document.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && String(e.key).toLowerCase() === "f") {
+    e.preventDefault();
+    searchEl.focus();
+    searchEl.select();
+    return;
+  }
+  if (e.key === "Escape" && !e.defaultPrevented && !capturing) {
+    sendCommand({ command: "close" });
+  }
+});
 
 if (bridgeAvailable()) {
   window.osfui.onMessage = onMessage;
@@ -506,14 +517,6 @@ if (bridgeAvailable()) {
   mods = [
     { id: "osfui", title: "OSF UI", values: { toggleKey: "F10" },
       schema: { groups: [{ settings: [{ key: "toggleKey", label: "Open / close key", type: "key", default: "F10" }] }] } },
-    { id: "mymod", title: "My Mod", values: { "hud.toggleKey": "F5", progressScene: "Space" },
-      schema: {
-        inputContexts: [{ id: "scene", label: "During scenes", blocksGameplay: true }],
-        groups: [{ settings: [
-          { key: "hud.toggleKey", label: "Toggle HUD", type: "key", default: "F8" },
-          { key: "progressScene", label: "Progress scene", type: "key", default: "Space", inputContext: "scene" },
-        ] }],
-      } },
   ];
   vanilla = [
     { event: "QuickSave", title: "Starfield (Quicksave)", name: "F5" },

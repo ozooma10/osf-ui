@@ -22,7 +22,11 @@
     },
     "description": {
       "type": "string",
-      "description": "One-line blurb shown in catalogs (views.data / the hub view). Defaults to empty."
+      "description": "One-line blurb shown in catalogs (views.data / the Mods surface). Defaults to empty."
+    },
+    "mod": {
+      "type": "string",
+      "description": "Owning settings mod id (the RegisterSettingsSchema / settings/<id>.json id). The Mods surface groups this view's launcher/toggle onto that mod's page. Empty/absent = standalone: the view gets its own entry under its title."
     },
     "entry": {
       "type": "string",
@@ -87,7 +91,7 @@
     "hub": {
       "type": "boolean",
       "default": true,
-      "description": "List this view in catalogs (views.data / the hub view). false = hidden utility view; it still loads and works, it just isn't advertised."
+      "description": "List this view in catalogs (views.data / the Mods surface). false = hidden utility view; it still loads and works, it just isn't advertised. (Field name predates the Mods surface.)"
     },
     "permissions": {
       "type": "object",

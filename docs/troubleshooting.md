@@ -36,20 +36,21 @@ entry). The base game launcher will not load the plugin.
 
 ## First run / verifying it works
 
-1. In game, press **F10** — the **OSF UI hub** (a launcher) should appear; F10
-   again hides it, `Esc` closes it.
+1. In game, press **F10** — the **Mods** menu should appear; F10 again hides
+   it, `Esc` closes it.
 2. While it's open, the game is input-frozen and the real Windows pointer
    appears (hardware cursor — no lag, changes shape over buttons/text) to drive
    the UI; changes save automatically.
-3. From the hub, open **Settings** (the schema-driven MCM panel for every
-   installed mod) or **Keybinds** (a visual keyboard map for rebinding). Views
-   from other installed mods appear here too.
+3. The left rail lists every installed mod (OSF UI itself first). Selecting a
+   mod shows its settings; mods that register panels or HUDs get launch
+   buttons / toggles at the top of their page. **Keybinds** (a visual keyboard
+   map for rebinding) opens from the OSF UI entry.
 4. The log is written to:
    `Documents\My Games\Starfield\SFSE\Logs\OSF UI.log`
    (Documents may be OneDrive-redirected.)
 
 A **"MOD SETTINGS"** entry is also injected into the game's pause menu and opens
-the overlay. If you have a controller, the hub and its panels are navigable with
+the overlay. If you have a controller, the menu and its panels are navigable with
 the D-pad and face buttons; **Tab** moves focus between open interactive panels.
 
 ## Troubleshooting

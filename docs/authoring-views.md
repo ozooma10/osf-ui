@@ -51,8 +51,9 @@ paths, paths with a root, and any `..` component are rejected before disk I/O
 {
   "id": "myhud",            // REQUIRED, unique; matches the folder + config "view"
   "title": "My HUD",        // optional, defaults to id
-  "description": "",        // optional; one-line blurb shown in catalogs (views.data / the hub view)
-  "hub": true,              // optional, default true; false = hidden utility view — loads and works, but isn't advertised in catalogs
+  "description": "",        // optional; one-line blurb shown in catalogs (views.data / the Mods surface)
+  "mod": "mymod",           // optional; your settings mod id (RegisterSettingsSchema / settings/<id>.json) — groups this view's launcher onto your mod's page in the Mods surface. Absent = the view gets its own entry
+  "hub": true,              // optional, default true; false = hidden utility view — loads and works, but isn't advertised in catalogs (name predates the Mods surface)
   "entry": "index.html",    // optional, default "index.html"; must stay inside the folder
   "width": 1280,            // optional, default 1280; clamped to 1..16384 — logical (authoring) size
   "height": 720,            // optional, default 720;  clamped to 1..16384 — logical (authoring) size
@@ -96,8 +97,9 @@ Several views can be hosted and composited at once. `config.json` lists them:
 
 > **Shipping a view with a native mod?** Don't edit the user's `config.json` —
 > your SFSE plugin can register its shipped `views/<id>/` folder at runtime with
-> one bridge call (`RegisterView`, C ABI 1.5). The view then joins the hub
-> catalog and opens via `RequestMenu` / `menu.open` like any other. See
+> one bridge call (`RegisterView`, C ABI 1.5). The view then joins the views
+> catalog — it appears on the Mods surface (set the manifest `mod` field so it
+> lands on your mod's page) and opens via `RequestMenu` / `menu.open`. See
 > [native-plugin-api.md](native-plugin-api.md) §5c. The `views` array is for the
 > user's own composition (and OSF UI's built-ins).
 
@@ -217,7 +219,7 @@ Assign `window.osfui.onMessage` and switch on `message.type`:
 | `runtime.ready` | `{ game, plugin, version, bridgeVersion }` | once, after your page loads — your cue to request data and to check `bridgeVersion` |
 | `runtime.pong` | `{}` | reply to your `ping` |
 | `game.data` | `{ available, day, month, year, hour, daysPassed }` | reply to `game.get`; `available:false` before a save is loaded |
-| `views.data` | `{ views: [ { id, title, description, kind, interactive, hub, open, focused, loadState } ] }` | reply to `views.get`, and re-pushed to every subscribed view when any entry changes. `kind` = `"menu"`\|`"hud"`; `loadState` = `"loading"`\|`"loaded"`\|`"failed"`; a view torn down by crash-recovery drops out of the list. Respect `hub:false` (don't list those) |
+| `views.data` | `{ views: [ { id, title, description, mod, kind, interactive, hub, open, focused, loadState } ] }` | reply to `views.get`, and re-pushed to every subscribed view when any entry changes. `mod` = owning settings mod id (`""` = standalone); `kind` = `"menu"`\|`"hud"`; `loadState` = `"loading"`\|`"loaded"`\|`"failed"`; a view torn down by crash-recovery drops out of the list. Respect `hub:false` (don't list those) |
 | `settings.data` | `{ mods: [ { id, title, schema, values } ], vanillaKeys? }` | reply to `settings.get` / after a `settings.reset`. A `key`-typed setting whose binding collides with another mod's carries runtime-injected `conflicts: [{mod, key, title}]` in its schema object — informational; render a badge, never block. `mod` may be the reserved id `@game` (the game's own bindings; display `title`, e.g. "Starfield (Quicksave)"). Top-level `vanillaKeys: [{event, title, name}]` is the game's FULL binding table (read-only; the keybinds view renders it); absent when the runtime has none |
 | `settings.ack` | `{ mod, key, ok }` | result of a `settings.set` (`ok:false` ⇒ rejected/clamped) |
 | `settings.captured` | `{ mod, key, name, cancelled, conflicts? }` | reply to `settings.captureKey`: the captured key `name` (an OSF UI key name), or `cancelled:true` (Escape / unbindable — keep the old binding). When the captured key is already bound elsewhere, `conflicts: [{mod, key, title}]` lists actionable collisions this bind would create; expected `@game` reuse from a `blocksGameplay` context is omitted. Warn live, never block. The view then sends a normal `settings.set` with `name` |
