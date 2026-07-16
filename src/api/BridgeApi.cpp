@@ -228,6 +228,27 @@ namespace OSFUI::API
 		return out;
 	}
 
+	bool BridgeApi::RegisterView(const char* a_viewId)
+	{
+		if (!a_viewId || !a_viewId[0]) {
+			return false;
+		}
+		// Queue it like RequestMenu; Runtime drains it on the main tick
+		// (DrainViewRegistrations), where the manifest lookup + surface
+		// registration happen — a not-found id warns there, not here.
+		std::lock_guard lock(_mutex);
+		_pendingViewRegs.emplace_back(a_viewId);
+		return true;
+	}
+
+	std::vector<std::string> BridgeApi::TakeViewRegistrations()
+	{
+		std::lock_guard lock(_mutex);
+		std::vector<std::string> out;
+		out.swap(_pendingViewRegs);
+		return out;
+	}
+
 	void BridgeApi::OnBridgeReady(MessageBridge* a_bridge)
 	{
 		std::lock_guard lock(_mutex);

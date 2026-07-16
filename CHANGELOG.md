@@ -15,7 +15,7 @@ visual **Keybinds** rebinder; other SFSE plugins can host their own views and
 settings through a native bridge API.
 
 Requires Starfield **1.16.244** on Steam + SFSE. Web bridge protocol **0.4**
-(0.x = unstable, may break views before 1.0); native plugin ABI **1.4**.
+(0.x = unstable, may break views before 1.0); native plugin ABI **1.5**.
 
 ### Framework & UI
 
@@ -57,7 +57,13 @@ Requires Starfield **1.16.244** on Steam + SFSE. Web bridge protocol **0.4**
 
 - Exported `OSFUI_RequestBridge` → `IOSFUIBridge` (`sdk/OSFUI_API.h`): register
   bridge commands, push messages to views, `RequestMenu`, typed setting getters,
-  `SubscribeSettings`, `RegisterSettingsSchema`, and (ABI 1.4) `SubscribeHotkey`.
+  `SubscribeSettings`, `RegisterSettingsSchema`, (ABI 1.4) `SubscribeHotkey`,
+  and (ABI 1.5) `RegisterView`.
+- **ABI 1.5 `RegisterView`:** a plugin that ships a `views/<id>/` folder makes
+  it an openable surface (hub catalog + `RequestMenu` + web `menu.open`) with
+  one call — the user's `config.json` no longer has to list third-party views
+  in `views`. Idempotent; `RegisterView` → `SendToWeb` → `RequestMenu`
+  back-to-back land in call order on one tick.
 - **ABI 1.3 delivery guarantee:** `SendToWeb` to a loaded view is queued until
   the view can receive it and delivered **before its first visible paint**, so a
   consumer can open a view directly in a target state

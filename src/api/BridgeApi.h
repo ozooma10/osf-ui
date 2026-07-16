@@ -47,6 +47,7 @@ namespace OSFUI::API
 		void          UnregisterSettingsSchema(const char* a_modId) override;
 		std::uint32_t SubscribeHotkey(const char* a_modId, const char* a_key, HotkeyFn a_fn, void* a_user) override;
 		void          UnsubscribeHotkey(std::uint32_t a_token) override;
+		bool          RegisterView(const char* a_viewId) override;
 
 		// --- Runtime wiring (MAIN thread only) ---
 		// A menu open/close a sibling plugin requested via RequestMenu.
@@ -73,6 +74,12 @@ namespace OSFUI::API
 		// Drain the queued schema ops (MAIN thread). Runtime applies each to
 		// the SettingsStore (Source::kNative) in DrainSchemaOps.
 		std::vector<SchemaOp> TakeSchemaOps();
+
+		// Drain the queued RegisterView ids (MAIN thread). Runtime loads +
+		// surface-registers each in DrainViewRegistrations — BEFORE the menu
+		// request snapshot, so RegisterView -> SendToWeb -> RequestMenu issued
+		// back-to-back land in one tick (ABI 1.5).
+		std::vector<std::string> TakeViewRegistrations();
 
 		// The any-thread settings value mirror the ABI typed getters read
 		// (mcm-design.md §8.2). Runtime::BuildModules feeds it from the store's
@@ -124,6 +131,7 @@ namespace OSFUI::API
 		std::vector<PendingSend>                       _pendingSends;
 		std::vector<MenuRequest>                      _pendingMenuReqs;    // RequestMenu ops, drained by Runtime
 		std::vector<SchemaOp>                         _pendingSchemaOps;   // schema (un)registrations, drained by Runtime
+		std::vector<std::string>                      _pendingViewRegs;    // RegisterView ids, drained by Runtime
 		MessageBridge*                                _bridge{ nullptr };         // non-owning; set on main thread
 		MessageBridge*                                _appliedBridge{ nullptr };  // bridge we last applied to
 		bool                                          _dirty{ false };            // command set changed since apply

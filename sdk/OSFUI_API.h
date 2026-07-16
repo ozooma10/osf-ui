@@ -9,8 +9,9 @@
 // THREADING:
 //   Status reads (GetInterfaceVersion/GetPluginVersion/GetBridgeProtocolVersion/
 //   IsBridgeReady) are callable from ANY thread.
-//   Mutating calls (RegisterCommand/UnregisterCommand/SetReadyCallback/SendToWeb)
-//   are thread-safe; their effect lands on the game main thread.
+//   Mutating calls (RegisterCommand/UnregisterCommand/SetReadyCallback/SendToWeb/
+//   RequestMenu/RegisterView) are thread-safe; their effect lands on the game
+//   main thread.
 //   Typed setting getters (GetSettingBool/Int/Float/String) are synchronous
 //   and callable from ANY thread.
 //   CommandFn, ReadyFn, SettingChangedFn and HotkeyFn ALWAYS run on the game
@@ -35,8 +36,10 @@ namespace OSFUI::API
 	// (SubscribeSettings, typed getters, RegisterSettingsSchema); 1.3 SendToWeb
 	// delivery guarantee (queue-until-deliverable + message-before-first-paint;
 	// see SendToWeb below — no new vmethods); 1.4 +hotkeys (SubscribeHotkey/
-	// UnsubscribeHotkey — every key-typed setting is a dispatchable binding).
-	inline constexpr std::uint32_t kBridgeAPIVersion = (1u << 16) | 4u;
+	// UnsubscribeHotkey — every key-typed setting is a dispatchable binding);
+	// 1.5 +RegisterView (load + surface-register a views/<id>/ folder your mod
+	// ships, without the user's config.json listing it).
+	inline constexpr std::uint32_t kBridgeAPIVersion = (1u << 16) | 5u;
 	inline constexpr std::uint32_t kBridgeAPIMajor   = kBridgeAPIVersion >> 16;
 	inline constexpr std::uint32_t kBridgeAPIMinor   = kBridgeAPIVersion & 0xFFFFu;
 
@@ -181,6 +184,35 @@ namespace OSFUI::API
 		                                      HotkeyFn a_fn, void* a_user) = 0;
 		virtual void          UnsubscribeHotkey(std::uint32_t a_token) = 0;
 
+		// ===== runtime view registration (MINOR 1.5) =====
+
+		// --- register a view your mod ships. Thread-safe; applied on the next
+		// main tick. ---
+		// Loads views/<a_viewId>/ (a folder your mod installs next to OSF UI's
+		// built-in views, discovered from its manifest.json at OSF UI boot) and
+		// registers it as an openable SURFACE — so it appears in the hub catalog
+		// and responds to RequestMenu / the web `menu.open` command — WITHOUT the
+		// user's config.json having to list it in `views`. Ship the folder, call
+		// RegisterView once after fetching the bridge, then RequestMenu when you
+		// want it on screen:
+		//     bridge->RegisterView("myview");
+		//     ...
+		//     bridge->SendToWeb("myview", "mymod.state", "{...}");   // optional
+		//     bridge->RequestMenu("myview", true);
+		// All three calls may be issued back-to-back from any thread — they land
+		// in call order on the same main tick (register, then the queued send,
+		// then the open; the SendToWeb 1.3 delivery guarantee applies).
+		//
+		// Idempotent: an id that is already a registered surface (listed in the
+		// user's config.views, or registered earlier) is left untouched — the
+		// live view is NOT reloaded. Registering an id whose views/<id>/ folder
+		// is missing warns in the OSF UI log and does nothing (install the view
+		// folder with your mod). A view torn down by crash-recovery exhaustion
+		// may be revived by calling RegisterView again (fresh retry budget).
+		// The manifest's `openOnStart` is honored on registration.
+		// Returns false only on a null/empty id; true = queued.
+		virtual bool RegisterView(const char* a_viewId) = 0;
+
 	protected:
 		~IOSFUIBridge() = default;  // OSF UI owns the singleton; the consumer never deletes it.
 	};
@@ -196,6 +228,7 @@ namespace OSFUI::API
 	// MINOR added (see the History note above), check the runtime's version:
 	//   if ((bridge->GetInterfaceVersion() & 0xFFFF) >= 2) { /* settings ok */ }
 	//   if ((bridge->GetInterfaceVersion() & 0xFFFF) >= 4) { /* hotkeys ok */ }
+	//   if ((bridge->GetInterfaceVersion() & 0xFFFF) >= 5) { /* RegisterView ok */ }
 	// MINOR also gates behavioral guarantees: >= 3 means SendToWeb's
 	// queue-until-deliverable + message-before-first-paint guarantee holds (so
 	// e.g. a consumer can retire an "opening veil" that hid its UI until the

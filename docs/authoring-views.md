@@ -94,6 +94,13 @@ Several views can be hosted and composited at once. `config.json` lists them:
 }
 ```
 
+> **Shipping a view with a native mod?** Don't edit the user's `config.json` —
+> your SFSE plugin can register its shipped `views/<id>/` folder at runtime with
+> one bridge call (`RegisterView`, C ABI 1.5). The view then joins the hub
+> catalog and opens via `RequestMenu` / `menu.open` like any other. See
+> [native-plugin-api.md](native-plugin-api.md) §5c. The `views` array is for the
+> user's own composition (and OSF UI's built-ins).
+
 - **Layering** is by each view's manifest `zorder` (not the array order): lower
   draws beneath, higher on top; ties keep load order. A HUD with `zorder: 100`
   always sits above a `zorder: 0` menu.

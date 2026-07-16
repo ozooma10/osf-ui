@@ -119,7 +119,7 @@ OSFUI::API::IOSFUIBridge* OSFUI_RequestBridge(std::uint32_t a_abiVersion) noexce
 - **When:** the consumer requests it after SFSE `kPostLoad` (OSF UI's
   `Runtime::Initialize` has already run at `SFSE_PLUGIN_LOAD`, so the singleton
   exists). Fetch once and cache — never per-frame.
-- **Version:** packed `(MAJOR << 16) | MINOR`, currently `(1 << 16) | 4`.
+- **Version:** packed `(MAJOR << 16) | MINOR`, currently `(1 << 16) | 5`.
   - **MAJOR** breaks ABI (reordered/removed vmethod, changed signature). The
     export returns `nullptr` if the caller's MAJOR ≠ OSF UI's MAJOR.
   - **MINOR** bumps when a vmethod is **appended** to the end of the vtable —
@@ -129,12 +129,14 @@ OSFUI::API::IOSFUIBridge* OSFUI_RequestBridge(std::uint32_t a_abiVersion) noexce
     · **1.2** settings (`SubscribeSettings`/`UnsubscribeSettings`, typed
     getters, `RegisterSettingsSchema`/`UnregisterSettingsSchema`) · **1.3**
     `SendToWeb` delivery guarantee (§6a) · **1.4** hotkeys
-    (`SubscribeHotkey`/`UnsubscribeHotkey`).
+    (`SubscribeHotkey`/`UnsubscribeHotkey`) · **1.5** `RegisterView` (runtime
+    view registration, §5c).
   - **Feature detection:** an older 1.x `OSFUI.dll` accepts any 1.x caller, so
     a consumer built against a newer header can receive a bridge whose vtable
     ends early. Gate calls to a later MINOR's methods on the runtime's version:
     `(bridge->GetInterfaceVersion() & 0xFFFF) >= 2` before touching the
-    settings surface, `>= 4` before the hotkey surface.
+    settings surface, `>= 4` before the hotkey surface, `>= 5` before
+    `RegisterView`.
 - **Web protocol version** is separate: `GetBridgeProtocolVersion()` returns the
   version string from `core/Version.h` (currently `"0.4"`) so a consumer can
   gate its **JS message contract** independently of the C++ ABI.
@@ -237,6 +239,11 @@ namespace OSFUI::API
                                               HotkeyFn a_fn, void* a_user) = 0;
         virtual void          UnsubscribeHotkey(std::uint32_t a_token) = 0;
 
+        // --- 1.5: runtime view registration. Thread-safe; applied on the next
+        // main tick. Load + surface-register views/<id>/ WITHOUT a config.views
+        // entry. Idempotent; see §5c.
+        virtual bool RegisterView(const char* a_viewId) = 0;
+
     protected:
         ~IOSFUIBridge() = default;  // OSF UI owns the singleton; the consumer never deletes it.
     };
@@ -253,7 +260,8 @@ namespace OSFUI::API
   a store listener maintains on the main thread (`src/api/SettingsMirror.*`),
   never `SettingsStore` itself.
 - **Mutating calls** (`RegisterCommand`/`UnregisterCommand`/`SetReadyCallback`/
-  `SendToWeb`/`RequestMenu`/`SubscribeSettings`/`RegisterSettingsSchema`/…) are
+  `SendToWeb`/`RequestMenu`/`SubscribeSettings`/`RegisterSettingsSchema`/
+  `RegisterView`/…) are
   safe from any thread; their effect is marshaled onto the next `Runtime::Tick`
   on the main thread. This mirrors how everything else in the plugin already
   gets main-thread cadence (`core/Plugin.cpp:45`), and means a consumer can
@@ -321,6 +329,35 @@ schema flag — **subscription is the delivery opt-in**.
   `ui.hotkey {mod, key}` push if they subscribed via `settings.get` — a HUD
   can "toggle myself" with zero native code (`docs/authoring-views.md`). Use
   `SubscribeHotkey` when the *reaction* is native; you don't need both.
+
+### 5c. Runtime view registration (ABI 1.5)
+
+Before 1.5 a view only became an openable surface if the **user's**
+`config.json` listed it in `views` — a mod shipping a view either edited that
+file (fragile, fights other mods) or piggybacked on OSF UI's shipped defaults.
+`RegisterView` removes that coupling: **ship the folder, register the id.**
+
+- **What it does:** on the next main tick, looks up the boot-discovered
+  `views/<id>/manifest.json` (your mod installs the folder into
+  `Data/SFSE/Plugins/OSFUI/views/<id>/` — the same disk-drop as before), loads
+  the view, and registers it as a surface. It then appears in the **hub
+  catalog** (`views.data` re-broadcasts) and responds to `RequestMenu` and the
+  web `menu.open` command. The manifest's `openOnStart` is honored.
+- **Idempotent:** an id that is already a registered surface — listed in the
+  user's `config.views`, or registered by an earlier call — is left untouched
+  (the live view is **not** reloaded). Call it unconditionally at startup.
+- **Failure is logged, not returned:** the call returns `false` only on a
+  null/empty id (it is asynchronous by design, like `RequestMenu`). A missing
+  view folder, or a `nativeBridge` view when no bridge came up at boot, warns
+  in `OSF UI.log` and does nothing.
+- **One-tick composition:** `RegisterView(v)` → `SendToWeb(v, state)` →
+  `RequestMenu(v, true)` issued back-to-back (any thread) land in call order
+  on the same tick: registered, state queued (§6a delivery guarantee), opened.
+- **Revive after teardown:** a view destroyed by crash-recovery exhaustion can
+  be deliberately re-registered — it gets a fresh retry budget.
+- **Scope:** the view still lives under OSF UI's views root and runs under the
+  same JS sandbox as every other view (§7). Serving views from your own mod
+  folder is the separate future `RegisterViewRoot` (§9).
 
 ---
 
@@ -497,11 +534,14 @@ matters if some future API passes engine types (don't), or for the consumer's
 
 ---
 
-## 9. Future: programmatic views (`RegisterViewRoot`) — v1.1
+## 9. Future: programmatic views (`RegisterViewRoot`)
 
-v1 requires the consumer to install its view into `OSFUI/views/<id>/` (OSF UI's
-own data dir). That works but couples distribution. A clean follow-up lets each
-mod ship its view under **its own** folder:
+**Half of this landed as ABI 1.5 `RegisterView` (§5c):** a consumer's
+disk-dropped `views/<id>/` folder no longer needs a `config.views` entry — the
+plugin registers it at runtime. What remains future is the *location*
+decoupling: the view still must be installed into `OSFUI/views/<id>/` (OSF UI's
+own data dir). A clean follow-up lets each mod ship its view under **its own**
+folder:
 
 ```cpp
 // v1.1 — appended to the vtable (MINOR bump).
@@ -567,6 +607,11 @@ void HookUpUi()
     g_ui->RegisterCommand("osf.launch",        &OnLaunch,     nullptr);
     g_ui->RegisterCommand("osf.stop",          /* ... */ nullptr, nullptr);
     g_ui->RegisterCommand("osf.pickCrosshair", /* ... */ nullptr, nullptr);
+    // 1.5: make the shipped views/osf/ folder an openable surface — no
+    // config.views entry needed. Idempotent; gate on MINOR for old runtimes.
+    if ((g_ui->GetInterfaceVersion() & 0xFFFF) >= 5) {
+        g_ui->RegisterView("osf");
+    }
 }
 ```
 
@@ -576,7 +621,7 @@ The view side is ordinary OSF UI authoring (`docs/authoring-views.md`): ship
 ```js
 window.osfui.onMessage = (json) => {
   const { type, payload } = JSON.parse(json);
-  if (type === "runtime.ready")    negotiate(payload.bridgeVersion);   // "0.1"
+  if (type === "runtime.ready")    negotiate(payload.bridgeVersion);   // "0.4"
   if (type === "osf.catalog.data") renderGrid(payload);
   if (type === "osf.launchResult") showResult(payload);
 };
@@ -606,6 +651,11 @@ reflects the **live registered** scene set.
 - **No-bridge `SendToWeb`:** queued (returns true) before any `nativeBridge`
   view loads; flushed FIFO once the bridge appears. If no bridge ever appears,
   the queue stays bounded (per-view cap, drop-oldest, warned).
+- **RegisterView (ABI 1.5):** `RegisterView("osf")` with the folder installed →
+  surface registered, hub catalog updates, `RequestMenu("osf", true)` opens it;
+  repeat call → "already registered" INFO, live view untouched; missing folder
+  → WARN, nothing registered; `RegisterView` + `SendToWeb` + `RequestMenu`
+  back-to-back → registered, message delivered, opened in one tick.
 - **Open-in-state (ABI 1.3):** `SendToWeb(v, mode)` then `RequestMenu(v, true)`
   from a cold start — the page must observe the message before its first
   visible frame (no default-face flash).

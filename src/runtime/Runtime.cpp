@@ -295,6 +295,10 @@ namespace OSFUI
 		if (_config.pauseMenuEntry) {
 			PauseMenuEntry::Reconcile();
 		}
+		// Register plugin-supplied views (ABI 1.5) BEFORE the menu-request
+		// snapshot below, so a RegisterView followed by RequestMenu in the same
+		// frame finds its surface registered when the request is applied.
+		DrainViewRegistrations();
 		// SNAPSHOT queued menu requests (F10/Esc/transition + plugin RequestMenu)
 		// now, but APPLY them after the bridge pump below — the ABI 1.3 ordering
 		// guarantee: a consumer that called SendToWeb(v, ...) and then
@@ -454,6 +458,67 @@ namespace OSFUI
 			} else {
 				REX::WARN("Runtime: UnregisterSettingsSchema('{}') ignored — not a runtime-registered schema", op.modId);
 			}
+		}
+	}
+
+	void Runtime::DrainViewRegistrations()
+	{
+		auto ids = API::BridgeApi::Get().TakeViewRegistrations();
+		if (ids.empty()) {
+			return;
+		}
+		if (!_renderer) {
+			// Overlay disabled or never came up: views can't exist. Drop loudly
+			// rather than queueing forever.
+			for (const auto& id : ids) {
+				REX::WARN("Runtime: plugin RegisterView('{}') ignored — overlay not running", id);
+			}
+			return;
+		}
+		bool catalogChanged = false;
+		for (const auto& id : ids) {
+			// Idempotent: never reload a live surface (config-listed or a repeat
+			// call) — a reload would blow away its page state.
+			if (_menus.IsRegistered(id)) {
+				REX::INFO("Runtime: plugin RegisterView('{}') — already a registered surface, left untouched", id);
+				continue;
+			}
+			const auto* m = _views.Find(id);
+			if (!m) {
+				REX::WARN("Runtime: plugin RegisterView('{}') ignored — no views/{}/manifest.json was discovered at boot (is the view folder installed?)", id, id);
+				continue;
+			}
+			// The bridge + web-message handler are wired at Initialize only; they
+			// can't be brought up mid-session. Every shipped built-in view is
+			// bridge-enabled, so this only fires on a hand-stripped config.
+			if (m->permissions.nativeBridge && !_bridge) {
+				REX::WARN("Runtime: plugin RegisterView('{}') refused — the view requests nativeBridge but no bridge-enabled view loaded at boot", id);
+				continue;
+			}
+			_recovery.erase(id);  // explicit re-registration = fresh crash-recovery budget
+			_viewLoadState[id] = ViewLoadState::Loading;
+			_renderer->LoadView(*m);
+			// A fresh view starts at manifest dimensions; restore the
+			// output-matched size so it composites 1:1 (the crash-recovery /
+			// dev-reload pair). Before the first present the size is unknown —
+			// the normal output-resize path will cover it.
+			if (const auto w = _viewWidth.load(), h = _viewHeight.load(); w && h) {
+				_renderer->Resize(w, h);
+			}
+			_menus.Register({ id, m->kind, m->capturesInput, m->pausesGame, m->order });
+			REX::INFO("Runtime: surface '{}' registered via plugin RegisterView ({}, capturesInput={}, pausesGame={})",
+				id, m->kind == SurfaceKind::Hud ? "hud" : "menu", m->capturesInput, m->pausesGame);
+			if (_bridge && m->permissions.nativeBridge) {
+				_bridge->SendRuntimeReady(id);
+			}
+			if (m->openOnStart) {
+				_menus.Open(id);
+			}
+			catalogChanged = true;
+		}
+		if (catalogChanged) {
+			ApplyMenuPolicy();     // openOnStart / z-band changes take effect now
+			BroadcastViewsData();  // the hub catalog picks the new view up live
 		}
 	}
 

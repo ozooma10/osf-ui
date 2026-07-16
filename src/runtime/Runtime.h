@@ -158,6 +158,13 @@ namespace OSFUI
 		// same tick.
 		void DrainSchemaOps();
 
+		// Apply the native plugin API's queued RegisterView ids (ABI 1.5): load
+		// a boot-discovered views/<id>/ manifest that config.views didn't list
+		// and register it as an openable surface. Called from Tick BEFORE the
+		// menu-request snapshot so RegisterView -> SendToWeb -> RequestMenu
+		// issued back-to-back all land in one tick. Main thread.
+		void DrainViewRegistrations();
+
 		// config.focusMenu: open/close the engine focus menu to match the top
 		// menu's capture policy. Called every tick from the game's
 		// MAIN thread so the UIMessageQueue is never poked from the WndProc/input
