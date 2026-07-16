@@ -59,7 +59,7 @@ Data/SFSE/Plugins/
                                   (name is the kDataFolderName constant, not the DLL name)
     config.json
     views/
-      test/
+      hub/                     <- built-in views (hub, settings, keybinds, shared)
         manifest.json
         index.html  style.css  main.js
     ultralight/                <- only present in with_ultralight builds
@@ -92,8 +92,8 @@ Logs go to the standard SFSE log folder
 | `engineInput` | `true` | Bring the engine's per-menu input dispatch — including **gamepad**, which the WndProc never sees — into the runtime and route it into the focused view (D-pad/left-stick → move focus, A → activate, B → close, right-stick → scroll), plus raw `ui.gamepad` events a page can opt into via `osfui.gamepadRaw`. On by default; delivery + routing verified in-game on 1.16.244 with a controller. Keyboard/mouse stay on the WndProc path |
 | `pauseMenuEntry` | `true` | Inject a **"MOD SETTINGS"** entry into the game's pause menu (live Scaleform manipulation — no SWF edit, no conflict with UI-overhaul mods) that opens the overlay when pressed. On by default; inject + click verified in-game on 1.16.244. Label/target are `pauseMenuEntryLabel` / `pauseMenuEntryView` |
 | `disableControls` | `true` | While a menu captures input, disable player controls through the engine input-enable layer (`BSInputEnableManager`) — this also stops gamepad/XInput, which the WndProc hook never sees. **Proven live on 1.16.244 with a controller** (keyboard, mouse-look, and gamepad sticks all freeze and restore cleanly). On by default; `false` is a diagnostic escape hatch (config.json only, not a user-facing setting) for the rare case where another overlay fights the input layer |
-| `view` | `"test"` | the active (input) view — a view id from `views/*/manifest.json` (shipped config uses `settings`) |
-| `views` | `[]` | optional multi-view set: every id is loaded and composited (layer order = each view's manifest `zorder`), and `view` must be one of them (the interactive one). Empty ⇒ only `view` loads. Missing ids are skipped with a log line. Shipped config uses `["settings", "hud"]` |
+| `view` | `"hub"` | the active (input) view — a view id from `views/*/manifest.json` (shipped config uses `hub`) |
+| `views` | `[]` | optional multi-view set: every id is loaded and composited (layer order = each view's manifest `zorder`), and `view` must be one of them (the interactive one). Empty ⇒ only `view` loads. Missing ids are skipped with a log line. Shipped config uses `["hub", "settings", "keybinds"]` |
 | `allowNetwork` | `false` | recognized but force-disabled |
 | `devMode` | `false` | verbose per-call logging + first-frame PNG dump. **Defaults shown above are the built-in fallbacks (`src/core/Config.h`); the shipped `data/OSFUI/config.json` is the runtime config.** For development, set `devMode: true` and `startVisible: true` for verbose logs and a launch-visible overlay |
 
@@ -172,8 +172,9 @@ docs/HANDOFF.md §4.
   bridge API ([docs/native-plugin-api.md](docs/native-plugin-api.md));
   untrusted JS cannot. Authoring a view? See
   [docs/authoring-views.md](docs/authoring-views.md).
-- The sample `test` and `settings` views are self-contained HTML panels that
-  also run standalone in a normal browser (degraded mode) for development.
+- The built-in `hub`, `settings`, and `keybinds` views are self-contained HTML
+  panels that also run standalone in a normal browser (degraded mode) for
+  development.
 
 ## What this is not yet
 

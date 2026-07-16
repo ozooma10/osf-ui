@@ -244,7 +244,7 @@ window.osfui.onMessage = (json) => {
 document.getElementById("close").onclick = () => send("close");
 ```
 
-See [`data/OSFUI/views/test/main.js`](../data/OSFUI/views/test/main.js)
+See [`data/OSFUI/views/settings/main.js`](../data/OSFUI/views/settings/main.js)
 for a complete, commented example.
 
 ---

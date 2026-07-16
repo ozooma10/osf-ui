@@ -62,7 +62,7 @@ OSF-UI-v0.1.0-alpha.zip
    ├─ OSFUI.pdb                       (omit with -NoPdb)
    └─ OSFUI/
       ├─ config.json
-      ├─ views/{hud,settings,test}/   (built-in demo views)
+      ├─ views/{hub,settings,keybinds,shared}/   (built-in views)
       ├─ settings/*.json
       └─ ultralight/{bin,resources,license}/
 ```
