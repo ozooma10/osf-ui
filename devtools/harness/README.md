@@ -34,6 +34,14 @@ Pages (the top bar cross-links them):
 Opening a page from `file://` also works — it just falls back to built-in
 sample data instead of fetching the shipped schemas.
 
+The Mods and Keybinds pages have a **1920×1080** top-bar toggle that renders
+the view in a game-true 1080p stage, scaled to fit the browser window. In this
+mode the harness's bar-clearing margins are dropped and the view uses its
+shipped in-game layout, so what you see is the exact 1080p composition
+(the dashed outline marks the screen edge). Add `?res=1080` to the URL to
+start in this mode. OSF Animation's page has the equivalent **1280×720**
+toggle — that view's actual in-game surface size.
+
 Style refinement loop: edit `data/OSFUI/views/osfui/<view>/style.css` or
 `views/shared/osfui.css`, then refresh the page (Ctrl+Shift+R to be safe) —
 the harness always reads the live repo files, so what you refine here is

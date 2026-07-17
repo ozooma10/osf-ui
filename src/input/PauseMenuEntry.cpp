@@ -27,7 +27,7 @@ namespace OSFUI
 		// priority-1000 listener below, never reaches the engine anyway.
 		constexpr std::uint32_t kActionId = 100;
 
-		std::string g_label = "MOD SETTINGS";
+		std::string g_label = "MOD MENUS";
 		std::string g_viewId = "osfui/settings";
 
 		// Open/close edge state (MenuEventSink thread -> Reconcile main thread).

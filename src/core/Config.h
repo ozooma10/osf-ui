@@ -63,8 +63,9 @@ namespace OSFUI
 		// is pressed. The AS3 structure is decoded from the decompiled 1.16.244
 		// pausemenu.swf. On by default; the inject + click round-trip is
 		// verified in-game on 1.16.244. See input/PauseMenuEntry.h.
+		// MCM-owned (item 7); the label/view strings below stay dev knobs.
 		bool        pauseMenuEntry{ true };
-		std::string pauseMenuEntryLabel{ "MOD SETTINGS" };
+		std::string pauseMenuEntryLabel{ "MOD MENUS" };
 		std::string pauseMenuEntryView{ "osfui/settings" };  // must be a registered surface id (config.views), qualified "<mod>/<view>"
 		// Include the game's own key bindings in the informational key-conflict
 		// data (mcm-design §9 "vanilla hotkeys", v1): curated defaults from
