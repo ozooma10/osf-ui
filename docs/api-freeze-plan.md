@@ -788,8 +788,10 @@ IMPLEMENTED.** Kit namespace (`--osf-*`/`osf-*`, theme enum deleted,
 the kit), gamepadRaw sticky per view, experimental stamps on the gamepad
 pair, focus/layout guarantees versioned, mock ui.visibility. Build green,
 all 8 suites pass, harness renders pixel-faithful after the rename.
-**Remaining: the in-game verify pass for slices 4–6**, then the freeze is
-done and 1.0 packaging can proceed.
+**In-game verify pass for slices 4–6 PASSED 2026-07-17 (user-confirmed).
+THE API FREEZE IS COMPLETE** — every pre-1.0 breaking change is in; what
+ships now is the contract 1.0 freezes. Next: 1.0 packaging
+(`tools/package.ps1`, release notes, tag).
 Dependency-ordered implementation slices:
 
 1. **Item 1** — ID namespacing + nested layout (everything else keys off the
