@@ -57,6 +57,10 @@ namespace OSFUI
 		void SendToWeb(std::string_view a_type, const nlohmann::json& a_payload);
 		void SendToWeb(std::string_view a_viewId, std::string_view a_type, const nlohmann::json& a_payload);
 		void SendToWeb(std::string_view a_viewId, std::string_view a_type, const nlohmann::json& a_payload, std::string_view a_requestId);
+		// Internal prevalidated-text path used by the C ABI queue: its public
+		// SendToWeb entry point already parsed this payload synchronously.
+		void SendJsonToWeb(std::string_view a_viewId, std::string_view a_type, std::string_view a_payloadJson);
+		void SendJsonToWeb(const std::unordered_set<std::string>& a_viewIds, std::string_view a_type, std::string_view a_payloadJson);
 		// Fan out one identical envelope. The JSON text is encoded once, then
 		// handed to every target transport; useful for settings/catalog pushes.
 		void SendToWeb(const std::unordered_set<std::string>& a_viewIds, std::string_view a_type, const nlohmann::json& a_payload);
@@ -87,6 +91,7 @@ namespace OSFUI
 
 	private:
 		[[nodiscard]] static std::string EncodeMessage(std::string_view a_type, const nlohmann::json& a_payload, std::string_view a_requestId);
+		[[nodiscard]] static std::string EncodeJsonMessage(std::string_view a_type, std::string_view a_payloadJson, std::string_view a_requestId);
 		void HandleUiCommand(const nlohmann::json& a_payload);
 		void SendErrorToWeb(std::string_view a_code, std::string_view a_message, const nlohmann::json& a_extra);
 

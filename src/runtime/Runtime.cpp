@@ -774,7 +774,7 @@ namespace OSFUI
 			return;
 		}
 		_lastViewsData = std::move(dumped);
-		_bridge->SendToWeb(_viewsSubscribers, "views.data", payload);
+		_bridge->SendJsonToWeb(_viewsSubscribers, "views.data", _lastViewsData);
 	}
 
 	Runtime::ViewLoadState Runtime::GetViewLoadState(std::string_view a_id) const

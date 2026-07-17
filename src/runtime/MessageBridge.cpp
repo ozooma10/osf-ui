@@ -162,12 +162,20 @@ namespace OSFUI
 		_send(a_viewId, EncodeMessage(a_type, a_payload, a_requestId));
 	}
 
-	void MessageBridge::SendToWeb(const std::unordered_set<std::string>& a_viewIds, std::string_view a_type, const nlohmann::json& a_payload)
+	void MessageBridge::SendJsonToWeb(std::string_view a_viewId, std::string_view a_type, std::string_view a_payloadJson)
+	{
+		if (!_send || a_viewId.empty()) {
+			return;
+		}
+		_send(a_viewId, EncodeJsonMessage(a_type, a_payloadJson, {}));
+	}
+
+	void MessageBridge::SendJsonToWeb(const std::unordered_set<std::string>& a_viewIds, std::string_view a_type, std::string_view a_payloadJson)
 	{
 		if (!_send || a_viewIds.empty()) {
 			return;
 		}
-		const auto message = EncodeMessage(a_type, a_payload, {});
+		const auto message = EncodeJsonMessage(a_type, a_payloadJson, {});
 		for (const auto& id : a_viewIds) {
 			if (!id.empty()) {
 				_send(id, message);
@@ -175,21 +183,30 @@ namespace OSFUI
 		}
 	}
 
+	void MessageBridge::SendToWeb(const std::unordered_set<std::string>& a_viewIds, std::string_view a_type, const nlohmann::json& a_payload)
+	{
+		SendJsonToWeb(a_viewIds, a_type, a_payload.dump());
+	}
+
 	std::string MessageBridge::EncodeMessage(std::string_view a_type, const nlohmann::json& a_payload, std::string_view a_requestId)
 	{
 		// Serialize the payload directly into the envelope instead of first
 		// deep-copying it into a temporary json object. Keep nlohmann's normal
 		// object-key order (payload, requestId, type) for stable wire output.
-		const auto payload = a_payload.dump();
+		return EncodeJsonMessage(a_type, a_payload.dump(), a_requestId);
+	}
+
+	std::string MessageBridge::EncodeJsonMessage(std::string_view a_type, std::string_view a_payloadJson, std::string_view a_requestId)
+	{
 		const auto type = nlohmann::json(std::string(a_type)).dump();
 		const auto requestId = a_requestId.empty()
 		                           ? std::string{}
 		                           : nlohmann::json(std::string(a_requestId)).dump();
 
 		std::string message;
-		message.reserve(payload.size() + type.size() + requestId.size() + 48);
+		message.reserve(a_payloadJson.size() + type.size() + requestId.size() + 48);
 		message += R"({"payload":)";
-		message += payload;
+		message += a_payloadJson;
 		if (!requestId.empty()) {
 			message += R"(,"requestId":)";
 			message += requestId;

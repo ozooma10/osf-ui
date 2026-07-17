@@ -19,8 +19,12 @@ namespace OSFUI::Json
 			REX::WARN("Json: cannot open {}", a_path.string());
 			return std::nullopt;
 		}
-		std::string text(std::istreambuf_iterator<char>(stream), {});
-		return Parse(text, a_path.string());
+		Value parsed = Value::parse(stream, /*cb=*/nullptr, /*allow_exceptions=*/false, /*ignore_comments=*/true);
+		if (parsed.is_discarded()) {
+			REX::ERROR("Json: failed to parse {}", a_path.string());
+			return std::nullopt;
+		}
+		return parsed;
 	}
 
 	std::string GetString(const Value& a_obj, std::string_view a_key, std::string_view a_default)

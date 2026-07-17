@@ -116,7 +116,7 @@ namespace OSFUI::API
 		}
 		// Validate now so a malformed payload is reported synchronously; delivery is
 		// marshaled to the main thread in PumpMainThread.
-		auto parsed = nlohmann::json::parse(a_payloadJson, nullptr, /*allow_exceptions*/ false);
+		const auto parsed = nlohmann::json::parse(a_payloadJson, nullptr, /*allow_exceptions*/ false);
 		if (parsed.is_discarded()) {
 			return false;
 		}
@@ -140,7 +140,7 @@ namespace OSFUI::API
 				_pendingSends.erase(oldest);
 			}
 		}
-		_pendingSends.push_back({ std::string(a_viewId), std::string(a_type), std::move(parsed) });
+		_pendingSends.push_back({ std::string(a_viewId), std::string(a_type), std::string(a_payloadJson) });
 		return true;
 	}
 
@@ -361,7 +361,7 @@ namespace OSFUI::API
 				});
 			}
 			for (const auto& s : sends) {
-				bridge->SendToWeb(s.view, s.type, s.payload);
+				bridge->SendJsonToWeb(s.view, s.type, s.payloadJson);
 			}
 		}
 

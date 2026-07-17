@@ -119,7 +119,7 @@ namespace OSFUI::API
 		{
 			std::string view;
 			std::string type;
-			nlohmann::json payload;
+			std::string payloadJson;
 		};
 
 		std::mutex                                    _mutex;
