@@ -1121,7 +1121,7 @@ function homeSectionHead(title, count, note) {
   head.appendChild(el("span", "home-head-title", title));
   head.appendChild(el("span", "home-head-count", String(count).padStart(2, "0")));
   head.appendChild(el("span", "home-head-rule"));
-  head.appendChild(el("span", "home-head-note", note));
+  if (note) head.appendChild(el("span", "home-head-note", note));
   return head;
 }
 
@@ -1231,10 +1231,7 @@ function renderHomeDetail() {
 
   const head = el("div", "detail-head");
   const left = el("div");
-  left.appendChild(el("div", "osf-eyebrow kicker", "All systems"));
-  left.appendChild(el("h2", null, "Systems"));
-  left.appendChild(el("div", "detail-desc",
-    "Every terminal and overlay your mods have brought online. Select a mod on the left to reach its settings."));
+  left.appendChild(el("h2", null, "All systems"));
   head.appendChild(left);
   detailEl.appendChild(head);
 
@@ -1250,7 +1247,7 @@ function renderHomeDetail() {
   }
 
   if (menus.length) {
-    body.appendChild(homeSectionHead("Terminals", menus.length, "SELECT TO OPEN · DECK CLOSES"));
+    body.appendChild(homeSectionHead("Terminals", menus.length));
     const grid = el("div", "home-grid");
     menus.forEach((v) => grid.appendChild(homeMenuCard(v)));
     body.appendChild(grid);

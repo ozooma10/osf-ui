@@ -213,15 +213,13 @@ body { background: transparent; }
   border-color: rgba(242, 239, 233, 0.16);
   box-shadow: 0 16px 50px rgba(0, 0, 0, 0.34);
 }
-/* Constellation stripe along the header's top edge (same motif as
-   the settings deck). */
+/* Accent stripe along the header's top edge (same motif as the
+   settings deck): a short accent bar running out into a hairline. */
 .kb-head::before {
   content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px;
   background: linear-gradient(90deg,
-    var(--sf-red)  0,     var(--sf-red)  64px,
-    var(--sf-gold) 64px,  var(--sf-gold) 128px,
-    var(--sf-blue) 128px, var(--sf-blue) 192px,
-    rgba(242, 239, 233, 0.16) 192px);
+    var(--accent) 0, var(--accent) 96px,
+    rgba(242, 239, 233, 0.16) 220px);
 }
 .kb-head .search-box { flex: 1; max-width: 470px; margin-left: auto; }
 .kb-search { max-width: none; border-color: rgba(242, 239, 233, 0.18); }
