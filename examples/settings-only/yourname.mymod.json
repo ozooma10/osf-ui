@@ -11,12 +11,13 @@
   ],
 
   "presets": [
-    { "label": "Performance", "description": "Lightweight defaults", "values": { "hud.enabled": true, "hud.mode": "compact", "hud.opacity": 0.6 } },
-    { "label": "Cinematic", "values": { "hud.enabled": true, "hud.mode": "full", "hud.opacity": 1.0 } }
+    { "id": "performance", "label": "Performance", "description": "Lightweight defaults", "values": { "hud.enabled": true, "hud.mode": "compact", "hud.opacity": 0.6 } },
+    { "id": "cinematic", "label": "Cinematic", "values": { "hud.enabled": true, "hud.mode": "full", "hud.opacity": 1.0 } }
   ],
 
   "groups": [
     {
+		"id": "general",
       "label": "General",
       "settings": [
         { "key": "hud.enabled", "label": "Enable HUD", "type": "bool", "default": false,
@@ -43,6 +44,7 @@
       ]
     },
     {
+		"id": "appearance",
       "label": "Appearance",
       "settings": [
         { "key": "hud.tint", "label": "Tint colour", "type": "string", "widget": "color", "default": "#7a9a5e" },
@@ -57,9 +59,10 @@
       ]
     },
     {
+		"id": "advanced",
       "label": "Advanced",
       "settings": [
-        { "type": "note", "style": "warn",
+		{ "type": "note", "id": "backend-warning", "style": "warn",
           "text": "Backend selection needs a **game restart**. Leave on `auto` unless you know you need otherwise." },
 
         { "key": "backend", "label": "Render backend", "type": "enum", "options": ["auto", "gpu", "cpu"],

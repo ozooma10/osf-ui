@@ -49,3 +49,12 @@ The card above stores values; making them *do something* is the mod's job:
 Every string in this file (labels, hints, note text) is rendered with
 `textContent` / `createElement` — never `innerHTML`. Untrusted schema text can't
 inject markup. Keep that guarantee if you fork the renderer.
+
+## Localization
+
+Authors keep writing English directly in the settings JSON. A community
+translator can add `Data/OSFUI/l10n/<id>_<locale>.json` without changing the
+original mod. See `l10n/yourname.mymod_de.json`: stable setting keys produce
+addresses such as `settings.hud.enabled.label`; the authored English is used
+for every missing translation. Give groups, presets, notes, and images an
+optional `id` when translations should survive array reordering.

@@ -92,6 +92,103 @@ namespace OSFUI
 				}
 			}
 		}
+
+		std::string StableId(const nlohmann::json& a_object, std::string_view a_field, std::size_t a_index)
+		{
+			auto id = Json::GetString(a_object, a_field, "");
+			return id.empty() ? std::to_string(a_index) : id;
+		}
+
+		void ResolveField(nlohmann::json& a_object, std::string_view a_field,
+			std::string a_address, std::string_view a_modId, const SettingsStore::TextResolver& a_resolver)
+		{
+			if (!a_resolver) {
+				return;
+			}
+			const auto it = a_object.find(a_field);
+			if (it != a_object.end() && it->is_string()) {
+				*it = a_resolver(a_modId, a_address, it->get_ref<const std::string&>());
+			}
+		}
+
+		void LocalizeSchema(nlohmann::json& a_schema, std::string_view a_modId,
+			const SettingsStore::TextResolver& a_resolver)
+		{
+			if (!a_resolver) {
+				return;
+			}
+			ResolveField(a_schema, "title", "settings.title", a_modId, a_resolver);
+			ResolveField(a_schema, "description", "settings.description", a_modId, a_resolver);
+
+			if (auto contexts = a_schema.find("inputContexts"); contexts != a_schema.end() && contexts->is_array()) {
+				for (std::size_t i = 0; i < contexts->size(); ++i) {
+					auto& context = (*contexts)[i];
+					if (context.is_object()) {
+						const auto id = StableId(context, "id", i);
+						ResolveField(context, "label", "inputContexts." + id + ".label", a_modId, a_resolver);
+					}
+				}
+			}
+
+			if (auto presets = a_schema.find("presets"); presets != a_schema.end() && presets->is_array()) {
+				for (std::size_t i = 0; i < presets->size(); ++i) {
+					auto& preset = (*presets)[i];
+					if (!preset.is_object()) continue;
+					const auto id = StableId(preset, "id", i);
+					const auto root = "presets." + id;
+					ResolveField(preset, "label", root + ".label", a_modId, a_resolver);
+					ResolveField(preset, "description", root + ".description", a_modId, a_resolver);
+				}
+			}
+
+			auto groups = a_schema.find("groups");
+			if (groups == a_schema.end() || !groups->is_array()) {
+				return;
+			}
+			for (std::size_t groupIndex = 0; groupIndex < groups->size(); ++groupIndex) {
+				auto& group = (*groups)[groupIndex];
+				if (!group.is_object()) continue;
+				const auto groupId = StableId(group, "id", groupIndex);
+				ResolveField(group, "label", "groups." + groupId + ".label", a_modId, a_resolver);
+				auto items = group.find("settings");
+				if (items == group.end() || !items->is_array()) continue;
+				for (std::size_t itemIndex = 0; itemIndex < items->size(); ++itemIndex) {
+					auto& item = (*items)[itemIndex];
+					if (!item.is_object()) continue;
+					const auto type = Json::GetString(item, "type", "");
+					const auto key = Json::GetString(item, "key", "");
+					if (type == "action") {
+						const auto root = "actions." + (key.empty() ? std::to_string(itemIndex) : key);
+						for (const auto* field : { "label", "hint", "confirm" }) ResolveField(item, field, root + "." + field, a_modId, a_resolver);
+					} else if (type == "note") {
+						const auto id = StableId(item, "id", itemIndex);
+						ResolveField(item, "text", "notes." + id + ".text", a_modId, a_resolver);
+					} else if (type == "image") {
+						const auto id = StableId(item, "id", itemIndex);
+						ResolveField(item, "caption", "images." + id + ".caption", a_modId, a_resolver);
+					} else if (!key.empty()) {
+						const auto root = "settings." + key;
+						ResolveField(item, "label", root + ".label", a_modId, a_resolver);
+						ResolveField(item, "hint", root + ".hint", a_modId, a_resolver);
+						if (auto format = item.find("format"); format != item.end() && format->is_object()) {
+							ResolveField(*format, "prefix", root + ".format.prefix", a_modId, a_resolver);
+							ResolveField(*format, "suffix", root + ".format.suffix", a_modId, a_resolver);
+						}
+						const auto options = item.find("options");
+						auto labels = item.find("optionLabels");
+						if (options != item.end() && options->is_array() && labels != item.end() && labels->is_array()) {
+							const auto count = (std::min)(options->size(), labels->size());
+							for (std::size_t i = 0; i < count; ++i) {
+								if ((*options)[i].is_string() && (*labels)[i].is_string()) {
+									const auto address = root + ".options." + (*options)[i].get<std::string>();
+									(*labels)[i] = a_resolver(a_modId, address, (*labels)[i].get_ref<const std::string&>());
+								}
+							}
+						}
+					}
+				}
+			}
+		}
 	}
 
 	SettingsStore::~SettingsStore()
@@ -553,7 +650,7 @@ namespace OSFUI
 		return out;
 	}
 
-	SettingsStore::InputContext SettingsStore::ResolveInputContext(const Mod& a_mod, const nlohmann::json& a_setting)
+	SettingsStore::InputContext SettingsStore::ResolveInputContext(const Mod& a_mod, const nlohmann::json& a_setting) const
 	{
 		InputContext fallback;
 		const auto ref = Json::GetString(a_setting, "inputContext", "");
@@ -578,6 +675,9 @@ namespace OSFUI
 				auto label = Json::GetString(context, "label", id);
 				if (label.empty()) {
 					label = id;
+				}
+				if (_textResolver) {
+					label = _textResolver(a_mod.id, "inputContexts." + id + ".label", label);
 				}
 				return { id, std::move(label), Json::GetBool(context, "blocksGameplay", false) };
 			}
@@ -625,8 +725,9 @@ namespace OSFUI
 							blocksGameplay = ResolveInputContext(*mod, *authored).blocksGameplay;
 						}
 					}
-					bound.push_back({ setting.modId, setting.key,
-						mod ? Json::GetString(mod->schema, "title", mod->id) : setting.modId, vk, blocksGameplay });
+					auto title = mod ? Json::GetString(mod->schema, "title", mod->id) : setting.modId;
+					if (mod && _textResolver) title = _textResolver(mod->id, "settings.title", title);
+					bound.push_back({ setting.modId, setting.key, std::move(title), vk, blocksGameplay });
 				}
 			}
 			// The game's own bindings (mcm-design.md §9 "vanilla hotkeys"):
@@ -694,6 +795,7 @@ namespace OSFUI
 		nlohmann::json mods = nlohmann::json::array();
 		for (const auto& mod : _mods) {
 			nlohmann::json schema = mod.schema;
+			LocalizeSchema(schema, mod.id, _textResolver);
 			if (!bound.empty()) {
 				ForEachSetting(schema, [&](nlohmann::json& a_setting) {
 					if (Json::GetString(a_setting, "type", "") != "key") {
@@ -724,7 +826,7 @@ namespace OSFUI
 			}
 			nlohmann::json entry{
 				{ "id", mod.id },
-				{ "title", Json::GetString(mod.schema, "title", mod.id) },
+				{ "title", Json::GetString(schema, "title", mod.id) },
 				{ "schema", std::move(schema) },
 				{ "values", mod.values },
 			};

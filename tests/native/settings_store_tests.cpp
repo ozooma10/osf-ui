@@ -140,6 +140,21 @@ int main()
 	CHECK(store.GetValue("plainmod", "x") == nullptr);
 	CHECK(store.GetValue("nope", "x") == nullptr);
 
+	// Localization is applied only to the emitted schema copy. Authors write
+	// English; stable structural addresses drive community overrides.
+	store.SetTextResolver([](std::string_view mod, std::string_view address, std::string_view english) {
+		if (mod == "t.alpha" && address == "settings.title") return std::string("Alpha übersetzt");
+		if (mod == "t.alpha" && address == "groups.0.label") return std::string("Allgemein");
+		if (mod == "t.alpha" && address == "settings.mode.label") return std::string("Modus");
+		return std::string(english);
+	});
+	data = store.Data();
+	const auto alphaLocalized = std::ranges::find_if(data["mods"], [](const auto& mod) { return mod["id"] == "t.alpha"; });
+	CHECK(alphaLocalized != data["mods"].end());
+	CHECK((*alphaLocalized)["title"] == "Alpha übersetzt");
+	CHECK((*alphaLocalized)["schema"]["groups"][0]["label"] == "Allgemein");
+	store.SetTextResolver({});
+
 	// The document the web sees carries the EFFECTIVE id, not the impostor claim.
 	for (const auto& mod : data["mods"]) {
 		CHECK(mod["id"] == mod["schema"]["id"]);

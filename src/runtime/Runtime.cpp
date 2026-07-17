@@ -19,6 +19,7 @@
 #include "platform/WindowsPlatform.h"
 #include "render/MockWebRenderer.h"
 #include "runtime/Json.h"
+#include "runtime/Ids.h"
 #include "runtime/VanillaKeys.h"
 #include "render/NullWebRenderer.h"
 #include "render/UltralightWebRenderer.h"
@@ -48,10 +49,17 @@ namespace OSFUI
 			REX::INFO("Runtime: disabled via config; nothing further will be initialized");
 			return true;
 		}
+		const auto documents = Platform::GetDocumentsPath();
+		const auto starfieldDir = documents.empty() ? std::filesystem::path{} :
+			documents / "My Games" / "Starfield";
+		_localization.Load(Paths::DataDir() / "l10n",
+			LocalizationService::DetectGameLocale(starfieldDir));
 
 		// The injected PauseMenu entry's label + target view (Reconcile itself
 		// is gated on config.pauseMenuEntry in Tick).
-		PauseMenuEntry::Configure(_config.pauseMenuEntryLabel, _config.pauseMenuEntryView);
+		PauseMenuEntry::Configure(
+			_localization.Resolve("osfui", "chrome.pauseMenuEntry", _config.pauseMenuEntryLabel),
+			_config.pauseMenuEntryView);
 
 		_views.LoadAll(Paths::ViewsDir());
 
@@ -271,6 +279,8 @@ namespace OSFUI
 		// Bridge before modules: its command handlers capture module pointers,
 		// so it must not outlive them.
 		_bridge.reset();
+		_viewsSubscribers.clear();
+		_i18nSubscribers.clear();
 		_settings = nullptr;  // owned by _modules, about to go away
 		_modules.clear();
 		_initialized = false;
@@ -329,6 +339,12 @@ namespace OSFUI
 			// registry re-broadcast repaints any open settings view.
 			if (_config.devMode) {
 				_settings->PumpSchemaHotReload(_uptime);
+				if (_uptime >= _nextLocalizationScan) {
+					_nextLocalizationScan = _uptime + SettingsModule::kHotReloadScanSeconds;
+					if (_localization.ReloadIfChanged()) {
+						RefreshLocalizedData();
+					}
+				}
 			}
 		}
 		// Reconcile engine menu-mode + control-disable toward the derived CAPTURE state (not visibility): a live HUD must not disable controls.
@@ -668,6 +684,7 @@ namespace OSFUI
 				ApplyMenuPolicy();  // it was open: release capture/visibility now
 			}
 			_viewsSubscribers.erase(id);  // a destroyed view can't receive pushes
+			_i18nSubscribers.erase(id);
 			_gamepadRawViews.erase(id);   // its sticky gamepad grant dies with it (item 10)
 			for (const auto& mod : _modules) {
 				mod->OnViewDestroyed(id);  // module-held subscriber sets too (e.g. settings)
@@ -746,8 +763,10 @@ namespace OSFUI
 			const auto state = GetViewLoadState(m.id);
 			views.push_back(nlohmann::json{
 				{ "id", m.id },
-				{ "title", m.title },
-				{ "description", m.description },
+				{ "title", _localization.Resolve(m.mod,
+					"views." + m.id.substr(m.id.find('/') + 1) + ".title", m.title) },
+				{ "description", _localization.Resolve(m.mod,
+					"views." + m.id.substr(m.id.find('/') + 1) + ".description", m.description) },
 				{ "mod", m.mod },
 				{ "kind", m.kind == SurfaceKind::Hud ? "hud" : "menu" },
 				{ "interactive", m.interactive },
@@ -1085,19 +1104,22 @@ namespace OSFUI
 	void Runtime::BuildModules()
 	{
 		// Settings: schemas ship read-only under <data>/settings/*.json; values
-		// persist per-mod to a writable dir (Documents — NOT the MO2/
-		// Program-Files-mapped data dir). The change listener is how core reacts
-		// to settings it owns; the module itself is feature-agnostic.
+		// persist per-mod under <data>/settings/values — deliberately IN the
+		// Data tree, not Documents: under MO2 the write is VFS-captured
+		// (Overwrite), so settings are per-profile, travel with instance
+		// backups, and sit next to the mod (the MCM-Helper precedent; see
+		// mcm-design.md §8.1). The change listener is how core reacts to
+		// settings it owns; the module itself is feature-agnostic.
 		const auto schemaDir = Paths::DataDir() / "settings";
-		const auto docs = Platform::GetDocumentsPath();
-		const auto valuesDir = docs.empty()
-			? Paths::DataDir() / "settings" / "values"  // fallback (MO2 redirects the write)
-			: docs / "My Games" / "Starfield" / "OSFUI" / "settings";
+		const auto valuesDir = schemaDir / "values";
 		auto settings = std::make_unique<SettingsModule>(schemaDir, valuesDir,
 			[this](std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value) {
 				OnSettingChanged(a_mod, a_key, a_value);
 			});
 		_settings = settings.get();  // core needs schema facts (e.g. key-capture gating)
+		_settings->Store().SetTextResolver([this](std::string_view a_mod, std::string_view a_address, std::string_view a_english) {
+			return _localization.Resolve(a_mod, a_address, a_english);
+		});
 
 		// ABI feed (mcm-design.md §8.2): every committed value — including the
 		// OnStart NotifyAll replay below and the per-mod replay after an
@@ -1278,6 +1300,24 @@ namespace OSFUI
 			_lastViewsData = payload.dump();
 			a_b.SendToWeb("views.data", payload);
 		});
+		// A custom view supplies inline English to osfui.t(address, english);
+		// this returns only active-locale overrides for its mod domain. The
+		// caller subscribes so a live language change replaces the catalog.
+		a_bridge.RegisterCommand("i18n.get", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
+			const std::string source(a_b.CurrentSource());
+			const auto slash = source.find('/');
+			const std::string ownMod = slash == std::string::npos ? source : source.substr(0, slash);
+			std::string mod = Json::GetString(a_p, "mod", ownMod);
+			if (!Ids::IsAcceptedModId(mod)) {
+				a_b.SendResult(false, "invalid-mod", "invalid localization mod id");
+				return;
+			}
+			_i18nSubscribers[source] = mod;
+			a_b.SendToWeb("i18n.data", nlohmann::json{
+				{ "mod", mod }, { "locale", _localization.Locale() },
+				{ "strings", _localization.CatalogFor(mod) },
+			});
+		});
 		// Arm key-rebind capture: the NEXT key press is grabbed by OnHostKey and
 		// reported back via `settings.captured`. Any setting a loaded schema
 		// declares `type:"key"` is rebindable — the schema fact gates the
@@ -1405,6 +1445,42 @@ namespace OSFUI
 			_config.vanillaKeyConflicts = a_value.get<bool>();
 			ApplyVanillaKeyConflicts(_config.vanillaKeyConflicts);
 		}
+		else if (a_key == "language" && a_value.is_string()) {
+			const auto requested = a_value.get<std::string>();
+			const auto documents = Platform::GetDocumentsPath();
+			const auto locale = requested == "auto"
+				? LocalizationService::DetectGameLocale(documents.empty() ? std::filesystem::path{} : documents / "My Games" / "Starfield")
+				: LocalizationService::NormalizeLocale(requested);
+			if (_localization.SetLocale(locale)) {
+				RefreshLocalizedData();
+			}
+		}
+	}
+
+	void Runtime::RefreshLocalizedData()
+	{
+		PauseMenuEntry::Configure(
+			_localization.Resolve("osfui", "chrome.pauseMenuEntry", _config.pauseMenuEntryLabel),
+			_config.pauseMenuEntryView);
+		if (_settings) {
+			_settings->Store().InvalidateLocalizedData();
+			// Rebuild authored game labels under the new locale.
+			if (_config.vanillaKeyConflicts) {
+				_vanillaKeysApplied = false;
+				ApplyVanillaKeyConflicts(true);
+			} else {
+				_settings->BroadcastData();
+			}
+		}
+		BroadcastViewsData();
+		if (_bridge) {
+			for (const auto& [view, mod] : _i18nSubscribers) {
+				_bridge->SendToWeb(view, "i18n.data", nlohmann::json{
+					{ "mod", mod }, { "locale", _localization.Locale() },
+					{ "strings", _localization.CatalogFor(mod) },
+				});
+			}
+		}
 	}
 
 	void Runtime::ApplyVanillaKeyConflicts(bool a_enabled)
@@ -1444,7 +1520,9 @@ namespace OSFUI
 					if (b.vk != 0) {
 						// name AFTER the overlays: a rebound event displays
 						// its live key, not the curated default's spelling.
-						keys.push_back({ b.event, "Starfield (" + b.label + ")", b.vk, KeyName(b.vk) });
+						const auto label = _localization.Resolve("osfui", "gameBindings." + b.event + ".label", b.label);
+						const auto owner = _localization.Resolve("osfui", "gameBindings.owner", "Starfield");
+						keys.push_back({ b.event, owner + " (" + label + ")", b.vk, KeyName(b.vk) });
 					}
 				}
 				store.SetVanillaKeys(std::move(keys));

@@ -25,6 +25,10 @@
 //   osfui.applyAccent(el, hex)   -> apply a mod's `accent` hex to a subtree
 //                                   (derives the kit's linked --osf-accent-*
 //                                   set; invalid/missing hex clears it).
+//   osfui.t(address, english, vars) -> active-locale override or authored
+//                                   English, with {name} interpolation.
+//   osfui.localize(root)         -> apply data-i18n* attributes under root.
+//   osfui.i18nReady              -> first i18n.data catalog has arrived.
 //
 // The helper OWNS `osfui.onMessage` — with it loaded, never assign onMessage
 // yourself; use osfui.on(). Replies that resolve a request() ALSO dispatch to
@@ -39,6 +43,41 @@
   const listeners = new Map();  // type -> Set<fn>
   const pending = new Map();    // requestId -> { resolve, reject, timer }
   let seq = 0;
+
+	let strings = Object.create(null);
+	let locale = "en";
+	let resolveI18n;
+	g.i18nReady = new Promise((r) => { resolveI18n = r; });
+	g.locale = () => locale;
+	g.t = (address, english, vars) => {
+		let value = Object.prototype.hasOwnProperty.call(strings, address) ? strings[address] : english;
+		value = value == null ? "" : String(value);
+		return value.replace(/\{([A-Za-z0-9_]+)\}/g, (all, name) =>
+			vars && Object.prototype.hasOwnProperty.call(vars, name) ? String(vars[name]) : all);
+	};
+
+	const sourceText = new WeakMap();
+	const sourceAttrs = new WeakMap();
+	g.localize = (root) => {
+		root = root || document;
+		const nodes = [];
+		if (root.nodeType === 1 && root.matches("[data-i18n], [data-i18n-placeholder], [data-i18n-aria-label], [data-i18n-title]")) nodes.push(root);
+		if (root.querySelectorAll) nodes.push(...root.querySelectorAll("[data-i18n], [data-i18n-placeholder], [data-i18n-aria-label], [data-i18n-title]"));
+		for (const node of nodes) {
+			if (node.dataset.i18n) {
+				if (!sourceText.has(node)) sourceText.set(node, node.textContent);
+				node.textContent = g.t(node.dataset.i18n, sourceText.get(node));
+			}
+			let attrs = sourceAttrs.get(node);
+			if (!attrs) sourceAttrs.set(node, (attrs = Object.create(null)));
+			for (const [dataName, attrName] of [["i18nPlaceholder", "placeholder"], ["i18nAriaLabel", "aria-label"], ["i18nTitle", "title"]]) {
+				const address = node.dataset[dataName];
+				if (!address) continue;
+				if (!(attrName in attrs)) attrs[attrName] = node.getAttribute(attrName) || "";
+				node.setAttribute(attrName, g.t(address, attrs[attrName]));
+			}
+		}
+	};
 
   let resolveReady;
   let readyPayload = null;
@@ -111,7 +150,20 @@
     if (message.type === "runtime.ready") {
       readyPayload = message.payload || {};
       resolveReady(readyPayload);
+		if (g.has("i18n")) {
+			g.request("i18n.get").catch((e) => console.error("OSF UI localization load failed:", e));
+		} else {
+			resolveI18n({ locale, strings });
+		}
     }
+		if (message.type === "i18n.data") {
+			const payload = message.payload || {};
+			locale = typeof payload.locale === "string" ? payload.locale : "en";
+			strings = payload.strings && typeof payload.strings === "object" ? payload.strings : Object.create(null);
+			document.documentElement.lang = locale;
+			g.localize(document);
+			resolveI18n(payload);
+		}
     // Correlated reply: settle the request() promise...
     const rid = typeof message.requestId === "string" ? message.requestId : "";
     const req = rid && pending.get(rid);

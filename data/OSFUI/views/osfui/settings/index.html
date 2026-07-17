@@ -32,24 +32,24 @@
             <div class="brand-line">
               <span class="wordmark-osf">OSF</span><span class="wordmark-ui">UI</span>
             </div>
-            <div class="osf-eyebrow brand-sub">CONTROL DECK</div>
+            <div class="osf-eyebrow brand-sub" data-i18n="chrome.settings.controlDeck">CONTROL DECK</div>
           </div>
           <!-- Version from the runtime.ready handshake (hidden until it
                arrives). The badge turns yellow and the tag below it shows when
                an installed mod targets a newer OSF UI than this one. -->
           <div class="version-stack">
             <span id="plugin-version" class="version-badge" title="OSF UI version"></span>
-            <span id="needs-update-tag" class="needs-update-tag" hidden>Needs update</span>
+            <span id="needs-update-tag" class="needs-update-tag" hidden data-i18n="chrome.settings.needsUpdate">Needs update</span>
           </div>
         </div>
         <label class="osf-search" for="filter">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="m16 16 4 4"></path></svg>
-          <input id="filter" class="osf-input filter" type="text" placeholder="Search mods & settings" aria-label="Search mods and settings" aria-keyshortcuts="Control+F" autocomplete="off" spellcheck="false">
+          <input id="filter" class="osf-input filter" type="text" placeholder="Search mods & settings" aria-label="Search mods and settings" data-i18n-placeholder="chrome.settings.searchPlaceholder" data-i18n-aria-label="chrome.settings.searchLabel" aria-keyshortcuts="Control+F" autocomplete="off" spellcheck="false">
           <kbd>Ctrl F</kbd>
         </label>
         <div class="rail-meta">
-          <span>Installed systems</span>
-          <span>Configure</span>
+          <span data-i18n="chrome.settings.installedSystems">Installed systems</span>
+          <span data-i18n="chrome.settings.configure">Configure</span>
         </div>
       </div>
 
@@ -59,16 +59,16 @@
         <!-- Write-behind save feedback: "Saving…" until the runtime confirms
              the disk write (settings.persisted), then "Saved" fading out. -->
         <span id="save-state" class="save-state osf-eyebrow" aria-live="polite"></span>
-        <button id="session-chip" type="button" class="osf-btn osf-btn--ghost osf-btn--sm session-chip" style="display:none">Undo changes (0)</button>
+        <button id="session-chip" type="button" class="osf-btn osf-btn--ghost osf-btn--sm session-chip" style="display:none" data-i18n="chrome.settings.undoChangesEmpty">Undo changes (0)</button>
         <button id="close" type="button" class="osf-btn osf-btn--ghost osf-btn--sm osf-close" aria-keyshortcuts="Escape">
-          <span>Exit control deck</span><kbd>Esc</kbd>
+          <span data-i18n="chrome.settings.exit">Exit control deck</span><kbd>Esc</kbd>
         </button>
       </div>
     </aside>
 
     <!-- RIGHT PANE: the selected subject's controls -->
     <section id="detail" class="detail" aria-live="polite">
-      <p id="status" class="status osf-eyebrow">Loading…</p>
+      <p id="status" class="status osf-eyebrow" data-i18n="chrome.common.loading">Loading…</p>
     </section>
   </div>
 

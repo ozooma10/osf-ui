@@ -18,6 +18,7 @@ namespace OSFUI::Caps
 		"settings",             // settings.get/set/reset + schema registry
 		"settings.captureKey",  // native key-rebind capture
 		"views",                // views.get catalog + subscription
+		"i18n",                 // i18n.get catalog + live locale/catalog pushes
 		"game.calendar",        // game.get calendar provider
 		"gamepad",              // engine-routed gamepad events (ui.gamepad)
 		"schema:requires",      // this gate itself (hosts older than it ignore the field)

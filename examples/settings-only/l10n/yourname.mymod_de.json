@@ -1,0 +1,7 @@
+{
+  "settings.title": "Mein Mod",
+  "settings.description": "Ein Beispiel für die OSF-UI-Einstellungen.",
+  "groups.general.label": "Allgemein",
+  "settings.hud.enabled.label": "HUD aktivieren",
+  "settings.hud.opacity.label": "Deckkraft"
+}

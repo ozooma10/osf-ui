@@ -8,6 +8,7 @@
 #include "input/InputRouter.h"
 #include "render/IWebRenderer.h"
 #include "runtime/HotkeyService.h"
+#include "runtime/LocalizationService.h"
 #include "runtime/MenuController.h"
 #include "runtime/MessageBridge.h"
 #include "runtime/SettingsModule.h"
@@ -204,6 +205,9 @@ namespace OSFUI
 		// persisted "off" never pays the parse. Re-broadcasts settings.data
 		// (the conflict annotations live in the settings document). Main thread.
 		void ApplyVanillaKeyConflicts(bool a_enabled);
+		// Invalidate and re-broadcast every projection that contains localized
+		// text after a locale/catalog change.
+		void RefreshLocalizedData();
 
 		// Key-rebind capture. The settings view arms capture via the
 		// `settings.captureKey` command; the NEXT key press is grabbed in
@@ -246,6 +250,7 @@ namespace OSFUI
 		void BroadcastViewsData();
 
 		Config                        _config;
+		LocalizationService           _localization;
 		ViewManager                   _views;
 		std::unique_ptr<IWebRenderer> _renderer;
 		std::unique_ptr<ICompositor>  _compositor;
@@ -363,7 +368,10 @@ namespace OSFUI
 		// the catalog (and so get updates), and the last payload sent (dedupe so
 		// every ApplyMenuPolicy doesn't re-send an unchanged catalog).
 		std::unordered_set<std::string> _viewsSubscribers;
+		// view id -> requested localization domain (normally its owning mod).
+		std::unordered_map<std::string, std::string> _i18nSubscribers;
 		std::string                     _lastViewsData;
+		double                          _nextLocalizationScan{ 0.0 };
 		// Monotonic-ish plugin uptime accumulated from Tick's clamped dt; only
 		// used to schedule recovery backoff (stalls with the game, which is
 		// exactly the cadence reloads should follow).

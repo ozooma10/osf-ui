@@ -66,6 +66,13 @@ namespace OSFUI
 		// conflict view in Data() (mcm-design.md §9) — without depending on
 		// the input layer itself. Unset: Data() emits no conflict data.
 		using KeyNameResolver = std::function<std::uint32_t(std::string_view a_name)>;
+		// Authored English -> active-locale text at a stable structural address.
+		// Injected by Runtime so this host-testable store does not own locale or
+		// filesystem policy. Resolution only touches emitted schema COPIES;
+		// validation and persistence always use the authored schema.
+		using TextResolver = std::function<std::string(std::string_view a_modId,
+			std::string_view a_address,
+			std::string_view a_authoredEnglish)>;
 
 		// One key-typed setting's identity + current value (the key NAME
 		// string — which may or may not resolve). The HotkeyService registry
@@ -166,6 +173,14 @@ namespace OSFUI
 			_keyResolver = std::move(a_resolver);
 			InvalidateData();
 		}
+		void SetTextResolver(TextResolver a_resolver)
+		{
+			_textResolver = std::move(a_resolver);
+			InvalidateData();
+		}
+		// Locale/catalog changes do not mutate schemas or values, but they do
+		// invalidate the resolved document cached for web/native readers.
+		void InvalidateLocalizedData() { InvalidateData(); }
 
 		// The GAME's own key bindings (mcm-design.md §9 "vanilla hotkeys"),
 		// already resolved to VKs by the composition root (VanillaKeys). They
@@ -327,7 +342,7 @@ namespace OSFUI
 			std::string label{ "Gameplay" };
 			bool        blocksGameplay{ false };
 		};
-		[[nodiscard]] static InputContext ResolveInputContext(const Mod& a_mod, const nlohmann::json& a_setting);
+		[[nodiscard]] InputContext ResolveInputContext(const Mod& a_mod, const nlohmann::json& a_setting) const;
 		static void WarnInputContexts(const nlohmann::json& a_schema, std::string_view a_modId);
 		// One key-typed setting whose current value resolved to a physical
 		// key. Shared by the Data() conflict annotation and ConflictsFor().
@@ -354,6 +369,7 @@ namespace OSFUI
 
 		std::vector<Mod>              _mods;
 		KeyNameResolver               _keyResolver;
+		TextResolver                  _textResolver;
 		std::vector<VanillaKey>       _vanillaKeys;
 		std::vector<ChangeListener>   _listeners;
 		std::vector<RegistryListener> _registryListeners;

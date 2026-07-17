@@ -39,6 +39,9 @@ let capturing = null; // { mod, key, btn, prev, timer }
 
 function bridgeAvailable() { return osfui.available(); }
 function sendCommand(fields) { if (bridgeAvailable()) osfui.send(fields.command, fields); }
+function tr(address, english, vars) {
+  return typeof osfui.t === "function" ? osfui.t("chrome.keybinds." + address, english, vars) : english;
+}
 
 // ---- utils --------------------------------------------------------------------
 
@@ -70,7 +73,7 @@ function canonicalName(name) {
 
 // "Starfield (Quicksave)" -> "Quicksave" for display inside a GAME-tagged row.
 function vanillaLabel(title) {
-  const m = /^Starfield \((.+)\)$/.exec(String(title || ""));
+  const m = /^[^(]+ \((.+)\)$/.exec(String(title || ""));
   return m ? m[1] : String(title || "");
 }
 
@@ -128,10 +131,10 @@ function buildModel() {
       kind: "game",
       key: v.event,
       label: vanillaLabel(v.title),
-      owner: "Starfield",
+      owner: tr("gameOwner", "Starfield"),
       name: canonicalName(v.name),
       contextId: "gameplay",
-      contextLabel: "Gameplay",
+      contextLabel: tr("gameplay", "Gameplay"),
       blocksGameplay: false,
     });
   }
@@ -225,7 +228,7 @@ function renderKeyboard() {
         } else {
           cell.classList.add("is-dead");
           cell.disabled = true;
-          cell.title = item.d === "Esc" ? "Reserved (cancels rebinds)" : "Not bindable by mods";
+          cell.title = item.d === "Esc" ? tr("reservedKey", "Reserved (cancels rebinds)") : tr("notBindable", "Not bindable by mods");
         }
         rowEl.appendChild(cell);
       }
@@ -286,7 +289,7 @@ function holderRow(b) {
   const line = el("div", "kb-holder-title");
   line.appendChild(el("span", null, b.label));
   line.appendChild(el("span", "osf-badge " + (b.kind === "game" ? "osf-badge--ghost" : "osf-badge--osf-accent"),
-    b.kind === "game" ? "GAME" : b.owner));
+    b.kind === "game" ? tr("gameBadge", "GAME") : b.owner));
   if (b.kind === "mod" && b.contextId !== "gameplay") {
     line.appendChild(el("span", "osf-badge kb-context", b.contextLabel));
   }
@@ -297,7 +300,7 @@ function holderRow(b) {
   const keyChip = el("span", "kb-chip", b.name);
   row.appendChild(keyChip);
   if (b.kind === "mod") {
-    const btn = el("button", "osf-btn osf-btn--sm osf-key", "Rebind");
+    const btn = el("button", "osf-btn osf-btn--sm osf-key", tr("rebind", "Rebind"));
     btn.type = "button";
     btn.addEventListener("click", () => beginCapture(b.mod, b.key, btn));
     row.appendChild(btn);
@@ -308,24 +311,25 @@ function holderRow(b) {
 function renderDetail() {
   detailEl.textContent = "";
   if (!selectedKey) {
-    detailTitleEl.textContent = "Select a key";
-    detailEl.appendChild(el("p", "kb-hint", "Click any key on the board to see what holds it."));
+    detailTitleEl.textContent = tr("selectKey", "Select a key");
+    detailEl.appendChild(el("p", "kb-hint", tr("selectKeyHint", "Click any key on the board to see what holds it.")));
     return;
   }
   const holders = holdersOf(selectedKey);
   detailTitleEl.textContent = "";
   detailTitleEl.appendChild(el("span", "kb-chip kb-chip--lg", selectedKey));
   detailTitleEl.appendChild(document.createTextNode(
-    holders.length ? ` ${holders.length} binding${holders.length > 1 ? "s" : ""}` : " unbound"));
+    holders.length ? " " + tr(holders.length === 1 ? "bindingCountOne" : "bindingCountOther",
+      holders.length === 1 ? "{count} binding" : "{count} bindings", { count: holders.length }) : " " + tr("unbound", "unbound")));
   const state = keyState(selectedKey);
   if (state.conflict) {
-    detailTitleEl.appendChild(el("span", "osf-badge osf-badge--stop", "Key conflict"));
+    detailTitleEl.appendChild(el("span", "osf-badge osf-badge--stop", tr("keyConflict", "Key conflict")));
   }
   if (state.shared) {
-    detailTitleEl.appendChild(el("span", "osf-badge kb-shared-badge", "Shared across contexts"));
+    detailTitleEl.appendChild(el("span", "osf-badge kb-shared-badge", tr("sharedAcrossContexts", "Shared across contexts")));
   }
   if (!holders.length) {
-    detailEl.appendChild(el("p", "kb-hint", "Nothing is bound here."));
+    detailEl.appendChild(el("p", "kb-hint", tr("nothingBound", "Nothing is bound here.")));
     return;
   }
   for (const b of holders) {
@@ -346,7 +350,7 @@ function renderList() {
   const rows = bindings.filter(matchesQuery(q))
     .sort((a, b) => keyOrder(a.name).localeCompare(keyOrder(b.name)) ||
       a.owner.localeCompare(b.owner));
-  listTitleEl.textContent = `All bindings (${rows.length})`;
+  listTitleEl.textContent = tr("allBindingsCount", "All bindings ({count})", { count: rows.length });
   listEl.textContent = "";
   for (const b of rows) {
     const row = holderRow(b);
@@ -361,7 +365,7 @@ function renderList() {
     listEl.appendChild(row);
   }
   if (!rows.length) {
-    listEl.appendChild(el("p", "kb-hint", q ? "No bindings match." : "No key bindings registered."));
+    listEl.appendChild(el("p", "kb-hint", q ? tr("noMatches", "No bindings match.") : tr("noneRegistered", "No key bindings registered.")));
   }
 }
 
@@ -379,7 +383,7 @@ function beginCapture(mod, key, btn) {
   if (capturing) return;
   capturing = { mod, key, btn, prev: btn.textContent };
   btn.classList.add("listening");
-  btn.textContent = "Press a key…";
+  btn.textContent = tr("pressKey", "Press a key…");
   if (bridgeAvailable()) {
     // One awaited request for the whole rebind: the settings.captured reply
     // echoes this request's id even though the user may take seconds to press
@@ -390,8 +394,8 @@ function beginCapture(mod, key, btn) {
       .catch((err) => {
         if (capturing && capturing.btn === btn) {
           finishCapture({ mod, key, cancelled: true });
-          toast(err.code === "capture-busy" ? "Another rebind is already listening."
-            : "Rebinding didn't get a response from the runtime.", "warn");
+          toast(err.code === "capture-busy" ? tr("captureBusy", "Another rebind is already listening.")
+            : tr("captureNoResponse", "Rebinding didn't get a response from the runtime."), "warn");
         }
       });
   } else {
@@ -431,7 +435,7 @@ function finishCapture(payload) {
   // against every other binding — surface it now, before the commit lands.
   if (Array.isArray(payload.conflicts) && payload.conflicts.length) {
     const others = [...new Set(payload.conflicts.map((c) => c.title || c.mod))];
-    toast(`${payload.name} is also bound by: ${others.join(", ")}`, "warn");
+    toast(tr("alsoBoundBy", "{key} is also bound by: {others}", { key: payload.name, others: others.join(", ") }), "warn");
   }
   // Optimistic local apply + the authoritative echo (settings.set). A refusal
   // rejects the request: fall back to the store's truth instead of keeping the
@@ -443,7 +447,7 @@ function finishCapture(payload) {
   }
   if (bridgeAvailable()) {
     osfui.request("settings.set", { mod, key, value: payload.name }).catch((err) => {
-      toast(`Rebind rejected${err.code ? ` (${err.code})` : ""}`, "danger");
+      toast(tr("rebindRejected", "Rebind rejected{code}", { code: err.code ? ` (${err.code})` : "" }), "danger");
       sendCommand({ command: "settings.get" });
     });
   }
@@ -472,6 +476,10 @@ osfui.on("settings.data", (p) => {
   mods = Array.isArray(p.mods) ? p.mods : [];
   vanilla = Array.isArray(p.vanillaKeys) ? p.vanillaKeys : [];
   renderAll();
+});
+
+osfui.on("i18n.data", () => {
+  if (mods.length || vanilla.length) renderAll();
 });
 
 osfui.on("settings.changed", (p) => {

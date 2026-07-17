@@ -60,8 +60,10 @@ open/close key, the pause-menu entry, and game-key collision warnings.
 (Gameplay controls — including gamepad — always freeze while a menu captures
 input; there is no setting for it. To use the game console, close the overlay
 first — its key is swallowed while the overlay is open.)
-Choices persist to `Documents\My Games\Starfield\OSFUI\settings\` (one JSON
-per mod) and survive mod updates.
+Choices persist to `Data\SFSE\Plugins\OSFUI\settings\values\` (one JSON per
+mod) and survive mod updates. Under MO2 that write is captured by the VFS
+(look in **Overwrite** or the mod that claims the path), which makes your
+settings per-profile and part of instance backups.
 
 `SFSE/Plugins/OSFUI/config.json` is a **developer/boot file** (renderer
 backends, diagnostic switches). It is overwritten when the mod updates, so
@@ -104,8 +106,11 @@ Open `OSF UI.log` first — it states what happened.
 
 - Disable/remove the mod in MO2/Vortex, **or** delete `OSFUI.dll` and the
   `OSFUI/` folder from `Data/SFSE/Plugins/`.
-- Saved settings live in `Documents\My Games\Starfield\OSFUI\` — delete
-  that folder to remove them too. OSF UI writes nothing into your save files.
+- Saved settings live in `Data\SFSE\Plugins\OSFUI\settings\values\` (under
+  MO2: Overwrite or wherever you sorted that folder) — removing the mod's
+  files removes them too. If you created
+  `Documents\My Games\Starfield\OSFUI\vanillakeys.user.json`, delete that
+  folder as well. OSF UI writes nothing into your save files.
 
 ## Known limitations
 

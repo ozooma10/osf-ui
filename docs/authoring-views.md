@@ -96,6 +96,33 @@ UI kit at `views/shared/osfui.css` / `osfui.js` — link them as
   the kit's linked accent set (`--osf-accent`, `-hover`, `-strong`,
   `-quiet`); passing a missing/invalid value clears it.
 
+### Localization: English inline, community overrides
+
+Write normal English in your manifest and page. Community translation mods
+ship `SFSE/Plugins/OSFUI/l10n/<modId>_<locale>.json`; you do not need an
+English catalog or manual string keys. Manifest metadata is addressed as
+`views.<viewName>.title` and `views.<viewName>.description` automatically.
+
+For custom page chrome, use a stable address plus inline English:
+
+```js
+heading.textContent = osfui.t("views.myhud.heading", "Ship status");
+count.textContent = osfui.t("views.myhud.itemCount", "{count} items", { count: items.length });
+```
+
+Static markup can be translated without page code:
+
+```html
+<h1 data-i18n="views.myhud.heading">Ship status</h1>
+<input placeholder="Search" data-i18n-placeholder="views.myhud.search">
+```
+
+The shared helper requests the calling mod's catalog after `runtime.ready`,
+sets `document.documentElement.lang`, reapplies `data-i18n*` on every live
+language change, and exposes `osfui.i18nReady` when code must wait for the
+first catalog. Lookup falls back per string from exact locale to base locale,
+an optional English override, then the inline English.
+
 ---
 
 ## 2. `manifest.json` reference
@@ -368,9 +395,10 @@ SFSE/Plugins/OSFUI/settings/<author>.<modname>.json
 
 Every schema in that folder is loaded as a separate "mod" and rendered as its
 own card in the built-in `settings` view — **with zero per-mod native or web
-code**. Values persist per-mod to a user-writable path
-(`Documents\My Games\Starfield\OSFUI\settings\<id>.json`), survive
-relaunch, and the runtime can react to changes natively.
+code**. Values persist per-mod to
+`Data\SFSE\Plugins\OSFUI\settings\values\<id>.json` (VFS-captured and thus
+per-profile under MO2), survive relaunch, and the runtime can react to
+changes natively.
 
 ### Schema format
 

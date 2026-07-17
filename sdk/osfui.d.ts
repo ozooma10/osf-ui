@@ -55,6 +55,8 @@ export type UiCommand =
   | { command: "game.get" }
   /** Catalog of loaded surfaces; replies `views.data` and subscribes the caller to change pushes. */
   | { command: "views.get" }
+	/** Active-locale overrides for a mod (omitted mod = calling view's owner); replies and subscribes with i18n.data. */
+	| { command: "i18n.get"; mod?: string }
   /** Read the settings registry; replies `settings.data` and SUBSCRIBES the caller: committed values arrive as `settings.changed`, registry shape changes re-send `settings.data`. */
   | { command: "settings.get" }
   | { command: "settings.set"; mod: string; key: string; value: SettingValue }
@@ -97,6 +99,12 @@ export interface RuntimeReadyPayload {
    * `osfui.has(name)` after `osfui.ready`.
    */
   capabilities: string[];
+}
+
+export interface I18nDataPayload {
+	mod: string;
+	locale: string;
+	strings: Record<string, string>;
 }
 
 /**
@@ -318,6 +326,7 @@ export type NativeToWebMessage =
   | BridgeEnvelope<"runtime.pong", Record<string, never>>
   | BridgeEnvelope<"game.data", GameDataPayload>
   | BridgeEnvelope<"views.data", ViewsDataPayload>
+	| BridgeEnvelope<"i18n.data", I18nDataPayload>
   | BridgeEnvelope<"settings.data", SettingsDataPayload>
   | BridgeEnvelope<"settings.ack", SettingsAckPayload>
   | BridgeEnvelope<"settings.changed", SettingsChangedPayload>
@@ -427,6 +436,7 @@ export interface Setting {
 /** Static rich-text callout. Micro-markdown only: **bold**, *italic*, `code`, \n. */
 export interface NoteItem {
   type: "note";
+	id?: string;
   text: string;
   style?: "info" | "warn" | "danger";
   visibleWhen?: Condition;
@@ -435,6 +445,7 @@ export interface NoteItem {
 /** Static image, resolved relative to the mod's own views/<modId>/ namespace folder. */
 export interface ImageItem {
   type: "image";
+	id?: string;
   src: string;
   caption?: string;
   height?: number;
@@ -458,6 +469,7 @@ export interface ActionItem {
 export type SettingsItem = Setting | NoteItem | ImageItem | ActionItem;
 
 export interface SettingsGroup {
+	id?: string;
   label?: string;
   collapsed?: boolean;
   visibleWhen?: Condition;
@@ -466,6 +478,7 @@ export interface SettingsGroup {
 
 /** Author-shipped value set, applied as a batch of validated settings.set. */
 export interface SettingsPreset {
+	id?: string;
   label: string;
   description?: string;
   values: Record<string, SettingValue>;
@@ -529,6 +542,14 @@ export interface OSFUIHelper {
   request(command: string, fields?: object, opts?: { timeoutMs?: number }): Promise<NativeToWebMessage & { requestId?: string }>;
   /** Subscribe to a native->web message type; returns the unsubscribe fn. */
   on(type: string, fn: (payload: unknown, message: NativeToWebMessage) => void): () => void;
+	/** Current normalized locale ("en", "de", "pt-BR", ...). */
+	locale(): string;
+	/** Resolves after the first active-locale override catalog arrives. */
+	i18nReady: Promise<I18nDataPayload | { locale: string; strings: Record<string, string> }>;
+	/** Translate a stable structural address, falling back to inline English. */
+	t(address: string, english: string, variables?: Record<string, string | number>): string;
+	/** Apply data-i18n/data-i18n-* attributes below a DOM root. */
+	localize(root?: ParentNode): void;
 }
 
 declare global {

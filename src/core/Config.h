@@ -6,7 +6,8 @@ namespace OSFUI
 	// item 7): backends, input source, diagnostic escape hatches, view set, dev
 	// knobs. It is mod-owned and clobbered on update; it holds NO user-facing
 	// keys — those live in the `osfui` settings schema
-	// (data/OSFUI/settings/osfui.json) and persist under Documents. Unknown/
+	// (data/OSFUI/settings/osfui.json) and persist under
+	// data/OSFUI/settings/values. Unknown/
 	// missing/invalid fields fall back to these defaults; a missing file is
 	// logged, not fatal; unknown keys WARN (host-owned file — a typo, item 8).
 	struct Config

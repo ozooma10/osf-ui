@@ -74,7 +74,7 @@ and web consumers.
   strings in Papyrus. Papyrus gets consumption natives only (§8.4).
 - **No INI mirroring** (MCM Helper's crutch). It existed because SkyUI had no
   native read path; we own the natives, and a second on-disk copy violates
-  single-source-of-truth. (The Documents values JSON is trivially readable by
+  single-source-of-truth. (The values JSON is trivially readable by
   tooling anyway; it is never documented as API.)
 - **No string expression language** for conditions (parser, injection
   surface, versioning pain — see §4.1).
@@ -92,7 +92,7 @@ All real and in-tree (verified 2026-07-03):
 |---|---|---|
 | Schema registry | `SettingsStore::LoadAll` `runtime/SettingsStore.cpp:37-91` | scans `settings/*.json` once at SFSE `kLoad`; no incremental add |
 | Validation boundary | `SettingsStore::Validate` / `Set` `SettingsStore.cpp:194-245` | writes only touch schema-declared keys, clamped to type/range |
-| Persistence | per-mod `Documents\My Games\Starfield\OSFUI\settings\<id>.json`, atomic tmp+rename `SettingsStore.cpp:288-310` | currently writes **all** values once any changes (see §11) |
+| Persistence | per-mod `Data\SFSE\Plugins\OSFUI\settings\values\<id>.json`, atomic tmp+rename `SettingsStore.cpp:288-310` | moved from Documents 2026-07-17 (§14 resolution) — Data-side so MO2's VFS captures writes: per-profile settings, instance backups, MCM-Helper precedent |
 | Change delivery | single `ChangeListener` slot `SettingsStore.h:33,39` | consumed by `Runtime::OnSettingChanged` `Runtime.cpp:1010` — framework knobs only; other mods have **no reaction path** |
 | Bridge commands | `settings.get/set/reset` `runtime/SettingsModule.cpp:25-47` | `settings.get` replies `settings.data`; no change push to views |
 | Renderer | `views/settings/main.js` | pure schema renderer; master/detail; `buildControl()` maps type→widget |
@@ -236,30 +236,28 @@ every later addition is automatically safe to adopt.
 
 ### 4.8 Localization
 
-Localization is designed around the ecosystem's real shape: **translation
-mods are pure data mods** — third parties ship a single language's strings
-for a mod they don't own (Skyrim's `Interface/Translations/<mod>_<lang>.txt`
-made this a thriving convention). That decides the layout: **one file per
-mod per language**, so a translation is one drop-in file resolved by MO2
-priority like any other conflict.
+Localization follows the ecosystem's real shape: **translation mods are pure
+data mods**. Mod authors write ordinary English in schemas and manifests; they
+do not invent or maintain string keys. OSF UI derives stable addresses from
+the existing setting/view identities, and community catalogs override those
+addresses. One file per mod and language means MO2 resolves competing
+translations using its normal file priority.
 
-- **Convention:** any user-visible schema string starting `$` is a lookup
-  key. Localizable fields: `title`, `description`, group `label`, setting
-  `label`/`hint`, `optionLabels` entries, `note` text/caption, `action`
-  label/`confirm`, preset `label`/`description`. Never localized: `id`,
-  `key`, `options` values (machine-stable), commands.
-- **Files:** `data/OSFUI/settings/l10n/<id>_<lang>.json` — flat
-  `{ "$KEY": "text" }`, UTF-8 JSON (not Skyrim's UTF-16 `.txt`; JSON matches
-  the rest of the system and tooling is trivial). The author ships
-  `mymod_en.json`; a translation mod ships just `mymod_de.json` — add *or*
-  override, zero code, and two competing translations conflict at file level
-  where MO2 already arbitrates.
-- **Resolution: native, at `DataJson()` time** — every consumer (settings
-  view, panels, Papyrus display, alternate skins) receives resolved text;
-  untrusted JS never performs lookups. Fallback is **per-key**: active
-  language → `en` → literal key minus `$`. Per-key merge means a partial
-  translation degrades to English, not to raw keys — essential because
-  translation mods lag schema updates by design.
+- **Files:** `data/OSFUI/l10n/<id>_<locale>.json`, flat UTF-8 JSON mapping a
+  structural address to translated text. An author need not ship an English
+  catalog: inline English is the source and final fallback. A translation mod
+  can contain only `mymod_de.json` and may be partial.
+- **Addresses:** `settings.title`, `settings.<key>.label`/`hint`,
+  `settings.<key>.options.<storedValue>`, `groups.<id>.label`,
+  `inputContexts.<id>.label`, `presets.<id>.label`/`description`,
+  `notes.<id>.text`, `images.<id>.caption`, `actions.<key>.*`, and
+  `views.<viewId>.title`/`description`. Groups/presets/notes/images accept an
+  optional stable `id`; their array index is the compatibility fallback.
+  Never localized: mod ids, setting keys, stored `options`, commands, paths.
+- **Resolution:** exact locale → base language → `en` catalog override →
+  authored English. Settings are resolved only in the emitted schema copy;
+  the authored schema remains the validation/persistence source of truth.
+  Per-address fallback lets an incomplete translation degrade field by field.
 - **Language source:** `osfui.language` setting, default `"auto"` (reads the
   game's `sLanguage` INI). Changing it re-resolves, bumps the registry
   generation, and re-broadcasts `settings.data` — live language switch for
@@ -267,21 +265,20 @@ priority like any other conflict.
 - **Host chrome included:** the settings view's own strings ("Search",
   "Reset", "MODS", banner text) localize through the same mechanism under
   the `osfui` id — translators localize the framework exactly like any mod.
-- **Tier 2/3 text:** a mod's resolved string table rides its `settings.data`
-  entry; panels read it via `ctx.i18n(key)`. Full custom views can request
-  `i18n.get {mod}` (sketch — finalize with the panel API).
+- **Custom views:** `i18n.get` returns and subscribes to the active override
+  catalog for the calling view's mod. The shared helper exposes
+  `osfui.t(address, inlineEnglish, variables)`, `osfui.localize(root)`, and
+  `data-i18n*` attributes. `i18n.data` pushes make language changes live.
 - **Translator DX:** the dev harness accepts `?lang=`; devMode hot-reload
-  (§12) watches `l10n/` too; `osfui lint` (v2) reports missing/orphaned keys
-  by diffing a language file against the schema's `$KEY` set.
+  (§12) watches `l10n/` too; `osfui lint` (v2) reports stale/orphaned
+  structural addresses and can extract an English template.
 - **Font coverage is the honest risk:** Ultralight renders with the fonts we
   give it — CJK/Cyrillic coverage does not come free. Before advertising
   localization, verify the font fallback stack for non-Latin scripts and
   decide whether to bundle a subset (e.g. Noto) — open question §14.
 
-Rollout: v1 documents the convention and renders `$KEY` minus `$` as the
-fallback (schemas written today localize later without edits); loading and
-resolution land in **M2** — translation mods are an ecosystem-adoption
-lever, not a nicety, so this deliberately does not wait for M3.
+This design deliberately makes localization retrofittable: an existing
+English-only mod becomes translatable without changing its schema.
 
 ---
 
@@ -325,7 +322,7 @@ Scaleform MCM could never do.
 
 **v2:** user profiles / import-export (§14 note: **clipboard is impossible**
 — Ultralight has no clipboard handler by security design, so sharing = files
-under `Documents\...\OSFUI\profiles\` + `settings.exportProfile /
+under `Data\SFSE\Plugins\OSFUI\profiles\` + `settings.exportProfile /
 importProfile / listProfiles` commands); controller/gamepad navigation
 (widgets get `:focus-visible` states *now* so the retrofit is styling +
 input routing, not rework); safe mode (launch with held key → schemas render,
@@ -666,10 +663,11 @@ when a physical key contains both classifications.
 - **Late registration with the menu open:** generation bump →
   `settings.data` re-broadcast → view re-renders. No special-casing.
 - **Uninstalled mods:** schema absent → the mod vanishes from UI and
-  registry; its values file in Documents is **kept indefinitely**. MO2
-  profile switching makes "uninstalled" indistinguishable from "temporarily
-  disabled", and the files are tiny. Never auto-delete; an optional
-  "orphaned settings" housekeeping panel is a later nicety.
+  registry; its values file under `settings/values/` is **kept
+  indefinitely**. MO2 profile switching makes "uninstalled"
+  indistinguishable from "temporarily disabled", and the files are tiny.
+  Never auto-delete; an optional "orphaned settings" housekeeping panel is
+  a later nicety.
 
 ---
 
@@ -892,6 +890,22 @@ Ordering of the M1/M2 UI-vs-plumbing split is suggested, not contractual.
    a clear "not yet supported" warning. Per-character storage (values
    swapped on SFSE `kPostLoadGame`, scope badge in UI, stable
    character-identity spike) is implemented only when a real mod asks.
+
+**Resolved (maintainer, 2026-07-17):**
+
+1. **Values storage lives in the Data tree, not Documents:**
+   `Data\SFSE\Plugins\OSFUI\settings\values\<id>.json` (was
+   `Documents\My Games\Starfield\OSFUI\settings\`). Rationale — the
+   MCM-Helper precedent: MO2 virtualizes `Data`, so the write is
+   VFS-captured (Overwrite), making settings **per-profile**, part of
+   instance backups, and visible next to the mod; it also avoids
+   OneDrive-redirected Documents folders (sync locks fighting the atomic
+   tmp+rename writer). The `values/` subdir is invisible to the schema
+   scanners (all non-recursive). No migration from the old location — the
+   change predates any public release. `vanillakeys.user.json`
+   deliberately stays in Documents — it is a user-authored game-data
+   correction, not a setting, and global across profiles is the right
+   scope for it.
 
 **Open:**
 

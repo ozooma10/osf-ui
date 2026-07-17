@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/ozooma10/osf-ui/blob/main/docs/schema/settings-schema.schema.json",
   "title": "OSF UI Settings Schema",
-  "description": "Schema for settings/<author>.<modname>.json files. Bridge protocol 1.0. The value validation (types/clamps) mirrors src/runtime/SettingsStore.cpp; presentation fields (widget/format/conditions/note/image/action/presets/accent/icon) are rendered by data/OSFUI/views/osfui/settings/main.js and are display-only — the native store never trusts them. An older OSF UI ignores unknown presentation fields (renders the setting plainly); an unknown setting `type` renders read-only and is refused by the store.",
+  "description": "Schema for settings/<author>.<modname>.json files. Bridge protocol 1.0.",
   "type": "object",
   "properties": {
     "$schema": {
@@ -13,44 +13,45 @@
       "type": "string",
       "pattern": "^([a-z0-9-]+\\.[a-z0-9-]+|osfui)$",
       "maxLength": 64,
-      "description": "Mod id: \"<author>.<modname>\" — lowercase [a-z0-9-] segments, exactly one dot (author = your Nexus/GitHub handle). Dotless ids are reserved for the platform (only the built-in \"osfui\" is dotless). Must equal the filename stem, so the file is settings/<author>.<modname>.json (a mismatch is overridden to the stem, with a warning; a grammar-violating stem is rejected outright). Also the per-mod values filename under Documents\\My Games\\Starfield\\OSFUI\\settings\\<id>.json."
+      "description": "Mod id: \"<author>.<modname>\" - lowercase [a-z0-9-] segments, exactly one dot. Dotless ids are reserved for the platform. Must equal the filename stem, so the file is settings/<author>.<modname>.json."
     },
     "title": {
       "type": "string",
-      "description": "Card header shown in the settings view. Defaults to id. Localizable ($KEY)."
+      "description": "English card header shown in the settings view. Defaults to id. Translation catalogs override it at settings.title; authors do not write localization keys."
     },
     "description": {
       "type": "string",
-      "description": "Optional one-line blurb shown under the title in the settings detail pane. Localizable ($KEY)."
+      "description": "Optional English one-line blurb. Translation catalogs override it at settings.description."
     },
     "version": {
       "type": "integer",
       "minimum": 0,
-      "description": "Optional schema version (default 0). New mods should declare \"version\": 1 so migration stamping is active from their first release. The renderer ignores it; the native store stamps it into the values file as the reserved $schemaVersion meta key and logs a version move on load (mcm-design.md §11). A v0 (unversioned) mod is never stamped, so bumping to 1+ is opt-in. Pair with per-setting `aliases` for renamed keys; type changes fall through validation to the new default."
+      "description": "Optional schema version (default 0). New mods should declare \"version\": 1 so migration stamping is active from their first release."
     },
     "requires": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Host capabilities this schema needs (api-freeze-plan item 2), e.g. [\"type:flags\"]. Named capabilities share one vocabulary with the runtime.ready capabilities list (item 6): command-namespace names for surfaces (settings, settings.captureKey, views, game.calendar, gamepad), type:<t> for setting value types, schema:<feature> for schema mechanisms. A host that can't satisfy every entry registers the mod as a read-only stub card ('needs a newer OSF UI') and leaves the values file untouched; hosts older than this field ignore it entirely. Distinct from the per-SETTING requires (restart/reload/newGame)."
+      "description": "Host capabilities this schema needs,. [\"type:flags\"]. Named capabilities share one vocabulary with the runtime.ready capabilities list (item 6): command-namespace names for surfaces (settings, settings.captureKey, views, game.calendar, gamepad), type:<t> for setting value types, schema:<feature> for schema mechanisms. A host that can't satisfy every entry registers the mod as a read-only stub card ('needs a newer OSF UI') and leaves the values file untouched; hosts older than this field ignore it entirely. Distinct from the per-SETTING requires (restart/reload/newGame)."
     },
     "accent": {
       "type": "string",
       "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
-      "description": "Optional per-mod accent colour (#rrggbb or #rrggbbaa). Tints the mod's detail pane. Host-validated; ignored if malformed."
+      "description": "Optional per-mod accent colour (#rrggbb or #rrggbbaa). Tints the mod's detail pane."
     },
     "icon": {
       "type": "string",
-      "description": "Optional badge image, shown in the Mods surface rail and inside the Home launcher cards of this mod's views, in place of the title-initials monogram. A path inside the mod's own views namespace folder (views/<modId>/...), with the same sandbox rules as image rows' `src`: no '..', no absolute paths, no URL schemes, no percent-encoding. SVG or PNG; drawn at ~30-52px square (`object-fit: contain`). Display-only — a missing/rejected file falls back to initials, and an older OSF UI ignores the field."
+      "description": "Optional badge image, shown in the Mods surface rail and inside the Home launcher cards of this mod's views, in place of the title-initials monogram. A path inside the mod's own views namespace folder (views/<modId>/...), with the same sandbox rules as image rows' `src`: no '..', no absolute paths, no URL schemes, no percent-encoding. SVG or PNG; drawn at ~30-52px square (`object-fit: contain`)."
     },
     "presets": {
       "type": "array",
-      "description": "Author-shipped value sets applied as a batch of validated settings.set calls. Partial value maps are fine — unlisted keys are left untouched.",
+      "description": "Author-shipped value sets applied as a batch of settings. Partial value maps are fine - unlisted keys are left untouched.",
       "items": {
         "type": "object",
         "required": ["label", "values"],
         "properties": {
-          "label": { "type": "string", "description": "Preset button label. Localizable ($KEY)." },
-          "description": { "type": "string", "description": "Optional tooltip. Localizable ($KEY)." },
+          "id": { "type": "string", "minLength": 1, "description": "Optional stable localization identity. Without it, the preset array index is used." },
+          "label": { "type": "string", "description": "English preset button label; localized at presets.<id>.label." },
+          "description": { "type": "string", "description": "Optional English tooltip; localized at presets.<id>.description." },
           "values": {
             "type": "object",
             "description": "key -> value map applied when the preset is chosen. Each value is validated/clamped natively like any settings.set.",
@@ -71,9 +72,16 @@
         "type": "object",
         "required": ["settings"],
         "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+            "description": "Optional stable localization identity. Without it, the group array index is used."
+          },
           "label": {
             "type": "string",
-            "description": "Optional section heading. Localizable ($KEY)."
+            "description": "Optional English section heading; localized at groups.<id>.label."
           },
           "collapsed": {
             "type": "boolean",
@@ -106,7 +114,7 @@
         },
         "label": {
           "type": "string",
-          "description": "User-facing context label, such as During OSF scenes. Defaults to id. Localizable ($KEY)."
+          "description": "English context label, such as During OSF scenes. Defaults to id; localized at inputContexts.<id>.label."
         },
         "blocksGameplay": {
           "type": "boolean",
@@ -140,11 +148,11 @@
         },
         "label": {
           "type": "string",
-          "description": "Control label. Defaults to key. Localizable ($KEY)."
+          "description": "English control label. Defaults to key; localized at settings.<key>.label."
         },
         "hint": {
           "type": "string",
-          "description": "Optional helper text shown under the control label. Localizable ($KEY)."
+          "description": "Optional English helper text; localized at settings.<key>.hint."
         },
         "type": {
           "enum": ["bool", "int", "float", "enum", "string", "key", "flags"],
@@ -170,7 +178,7 @@
         "optionLabels": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Optional display labels parallel to options[]; the stored value stays the option string. Localizable ($KEY)."
+          "description": "Optional English labels parallel to options[]. Localized by stable stored value at settings.<key>.options.<option>; the stored value is never translated."
         },
         "widget": {
           "type": "string",
@@ -181,8 +189,8 @@
           "type": "object",
           "description": "int/float display formatting. Store the raw value; show a friendly string. e.g. store 0.0-1.0 with {scale:100,suffix:\"%\",decimals:0} shows \"85%\".",
           "properties": {
-            "prefix": { "type": "string" },
-            "suffix": { "type": "string" },
+            "prefix": { "type": "string", "description": "English display prefix; localized at settings.<key>.format.prefix." },
+            "suffix": { "type": "string", "description": "English display suffix; localized at settings.<key>.format.suffix." },
             "scale": { "type": "number", "description": "Multiply the stored value by this for display (default 1)." },
             "decimals": { "type": "integer", "minimum": 0, "maximum": 20, "description": "Fixed decimal places in the display string (0-20; clamped by the renderer)." }
           }
@@ -217,7 +225,8 @@
       "required": ["type", "text"],
       "properties": {
         "type": { "const": "note" },
-        "text": { "type": "string", "description": "Static rich text. Micro-markdown only: **bold**, *italic*, `code`, and \\n line breaks. No HTML, no links. Localizable ($KEY)." },
+        "id": { "type": "string", "minLength": 1, "description": "Optional stable localization identity; without it, the item index is used." },
+        "text": { "type": "string", "description": "English static rich text. Micro-markdown only: **bold**, *italic*, `code`, and \\n line breaks. No HTML or links. Localized at notes.<id>.text." },
         "style": { "enum": ["info", "warn", "danger"], "description": "Callout tone (default info)." },
         "visibleWhen": { "$ref": "#/$defs/condition" }
       }
@@ -227,8 +236,9 @@
       "required": ["type", "src"],
       "properties": {
         "type": { "const": "image" },
+        "id": { "type": "string", "minLength": 1, "description": "Optional stable localization identity; without it, the item index is used." },
         "src": { "type": "string", "description": "Image path relative to the mod's own views/<id>/ folder. No '..', absolute paths, or URL schemes." },
-        "caption": { "type": "string", "description": "Optional caption. Localizable ($KEY)." },
+        "caption": { "type": "string", "description": "Optional English caption; localized at images.<id>.caption." },
         "height": { "type": "integer", "minimum": 1, "description": "Optional fixed display height in px." },
         "visibleWhen": { "$ref": "#/$defs/condition" }
       }
@@ -239,14 +249,14 @@
       "properties": {
         "type": { "const": "action" },
         "key": { "type": "string", "minLength": 1, "description": "Row id (not persisted)." },
-        "label": { "type": "string", "description": "Button label. Localizable ($KEY)." },
-        "hint": { "type": "string", "description": "Optional helper text. Localizable ($KEY)." },
+        "label": { "type": "string", "description": "English button label; localized at actions.<key>.label." },
+        "hint": { "type": "string", "description": "Optional English helper text; localized at actions.<key>.hint." },
         "command": {
           "type": "string",
           "description": "Bridge command fired on click. MUST be namespaced with the mod id (\"<id>.something\"); the host refuses any other command. Handled by the mod's own SFSE plugin (RegisterCommand). It may reply with { type: \"<id>.ack\", payload: { key, ok, message? } } to resolve the button; otherwise the button times out after 5s."
         },
         "style": { "enum": ["default", "accent", "danger"], "description": "Button tone (default 'default')." },
-        "confirm": { "type": "string", "description": "If set, the button asks for inline confirmation with this message before firing." },
+        "confirm": { "type": "string", "description": "English inline confirmation message; localized at actions.<key>.confirm." },
         "enabledWhen": { "$ref": "#/$defs/condition" },
         "visibleWhen": { "$ref": "#/$defs/condition" }
       }

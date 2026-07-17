@@ -89,13 +89,16 @@ let liveGroups = [];
 
 function bridgeAvailable() { return osfui.available(); }
 function sendCommand(fields) { if (bridgeAvailable()) osfui.send(fields.command, fields); }
+function tr(address, english, vars) {
+  return typeof osfui.t === "function" ? osfui.t("chrome.settings." + address, english, vars) : english;
+}
 function setValue(modId, key, value) {
   saveStatePending(modId);
   if (!bridgeAvailable()) return;
   // The ack resolves with the authoritative post-clamp value; a refusal
   // rejects with the machine code (unknown-setting / read-only / invalid-value).
   osfui.request("settings.set", { mod: modId, key, value }).catch((err) => {
-    toast(`Rejected "${modId}.${key}"${err.code ? ` (${err.code})` : ""}`, "danger");
+    toast(tr("writeRejected", "Rejected {setting}{code}", { setting: `"${modId}.${key}"`, code: err.code ? ` (${err.code})` : "" }), "danger");
     saveStateAbandon(modId);
     // Native refused the value; pull authoritative state back.
     sendCommand({ command: "settings.get" });
@@ -107,7 +110,7 @@ function requestReset(modId, key) {
   // Resolves with the fresh settings.data (rendered by the on() subscriber —
   // request replies also dispatch there); a refusal is no longer silent.
   osfui.request("settings.reset", key ? { mod: modId, key } : { mod: modId }).catch((err) => {
-    toast(`Reset failed${err.code ? ` (${err.code})` : ""}`, "danger");
+    toast(tr("resetFailed", "Reset failed{code}", { code: err.code ? ` (${err.code})` : "" }), "danger");
     saveStateAbandon(modId);
   });
 }
@@ -127,13 +130,13 @@ function saveStatePending(modId) {
   if (!saveStateEl) return;
   pendingSaveMods.add(modId);
   clearTimeout(saveFadeTimer);
-  saveStateEl.textContent = "Saving…";
+  saveStateEl.textContent = tr("saving", "Saving…");
   saveStateEl.classList.add("visible");
   saveStateEl.classList.remove("done");
 }
 function saveStatePersisted(modId) {
   if (!saveStateEl || !pendingSaveMods.delete(modId) || pendingSaveMods.size > 0) return;
-  saveStateEl.textContent = "Saved";
+  saveStateEl.textContent = tr("saved", "Saved");
   saveStateEl.classList.add("visible", "done");
   clearTimeout(saveFadeTimer);
   saveFadeTimer = setTimeout(() => { saveStateEl.classList.remove("visible", "done"); }, 1800);
@@ -177,7 +180,7 @@ function initials(t) {
 function titleOf(mod) { return mod.title || (mod.schema && mod.schema.title) || mod.id; }
 const INPUT_CONTEXT_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 function inputContextFor(mod, setting) {
-  const fallback = { id: "gameplay", label: "Gameplay", blocksGameplay: false };
+  const fallback = { id: "gameplay", label: tr("gameplay", "Gameplay"), blocksGameplay: false };
   const ref = setting && typeof setting.inputContext === "string" ? setting.inputContext : "";
   if (!ref || ref === "gameplay" || !INPUT_CONTEXT_ID_RE.test(ref)) return fallback;
   const contexts = mod && mod.schema && Array.isArray(mod.schema.inputContexts)
@@ -474,7 +477,7 @@ function buildColor(modId, setting, id, current) {
     // Track the last committed colour so an invalid-input revert restores it,
     // not the session-start value.
     if (HEX_RE.test(v)) { current = v; paint(v); commit(modId, setting.key, v); }
-    else { hex.value = current || ""; paint(hex.value); toast("Enter a hex colour like #5aa9b8", "warn"); }
+    else { hex.value = current || ""; paint(hex.value); toast(tr("invalidColor", "Enter a hex colour like #5aa9b8"), "warn"); }
   };
   hex.addEventListener("change", applyHex);
   const presets = el("div", "osf-color-presets");
@@ -506,8 +509,8 @@ function buildKey(modId, setting, id, current) {
   const clear = document.createElement("button");
   clear.type = "button"; clear.className = "osf-btn osf-btn--sm osf-btn--ghost osf-key-clear";
   clear.textContent = "×";
-  clear.title = "Unbind";
-  clear.setAttribute("aria-label", `Unbind ${setting.label || setting.key}`);
+  clear.title = tr("unbind", "Unbind");
+  clear.setAttribute("aria-label", tr("unbindSetting", "Unbind {setting}", { setting: setting.label || setting.key }));
   clear.addEventListener("click", () => commit(modId, setting.key, ""));
   wrap.appendChild(clear);
   return { control: wrap, value: null };
@@ -528,7 +531,9 @@ function buildSettingControl(modId, setting, id, current) {
 
 // ---- rows ------------------------------------------------------------------
 
-const REQUIRES_LABEL = { restart: "Restart", reload: "Reload UI", newGame: "New game" };
+function requiresLabel(value) {
+  return { restart: tr("restart", "Restart"), reload: tr("reloadUi", "Reload UI"), newGame: tr("newGame", "New game") }[value] || value;
+}
 
 function makeSettingRow(mod, setting, current) {
   if (typeof setting.key !== "string" || !setting.key) {
@@ -554,19 +559,19 @@ function makeSettingRow(mod, setting, current) {
   const labelWrap = el("div", "row-label-line");
   const label = document.createElement("label");
   label.className = "row-label"; label.textContent = setting.label || setting.key; label.htmlFor = id;
-  const dot = el("span", "osf-dot"); dot.title = "Changed from default";
+  const dot = el("span", "osf-dot"); dot.title = tr("changedDefault", "Changed from default");
   if (isModified(setting, current)) dot.classList.add("osf-on");
   labelWrap.append(label, dot);
-  if (setting.requires && REQUIRES_LABEL[setting.requires]) {
-    labelWrap.appendChild(el("span", "osf-badge osf-badge--warn", REQUIRES_LABEL[setting.requires]));
+  if (setting.requires) {
+    labelWrap.appendChild(el("span", "osf-badge osf-badge--warn", requiresLabel(setting.requires)));
   }
   if (setting.type === "key") {
     const context = inputContextFor(mod, setting);
     if (context.id !== "gameplay") {
       const badge = el("span", "osf-badge", context.label);
       badge.title = context.blocksGameplay
-        ? "Active in this context; Starfield gameplay bindings are unavailable."
-        : "Active in this input context.";
+        ? tr("contextBlocksGameplay", "Active in this context; Starfield gameplay bindings are unavailable.")
+        : tr("activeInputContext", "Active in this input context.");
       labelWrap.appendChild(badge);
     }
   }
@@ -575,8 +580,8 @@ function makeSettingRow(mod, setting, current) {
   // Informational — the bind stands; we just badge both sides.
   if (setting.type === "key" && Array.isArray(setting.conflicts) && setting.conflicts.length) {
     const others = [...new Set(setting.conflicts.map((c) => c.title || c.mod))];
-    const badge = el("span", "osf-badge osf-badge--stop", "Key conflict");
-    badge.title = "Also bound by: " + others.join(", ");
+    const badge = el("span", "osf-badge osf-badge--stop", tr("keyConflict", "Key conflict"));
+    badge.title = tr("alsoBoundBy", "Also bound by: {others}", { others: others.join(", ") });
     labelWrap.appendChild(badge);
   }
   text.appendChild(labelWrap);
@@ -588,7 +593,7 @@ function makeSettingRow(mod, setting, current) {
   // control itself stays flush with the row's right edge, on the same line as
   // surface/action rows (which have no reset slot).
   const reset = el("button", "row-reset", "↺");
-  reset.type = "button"; reset.title = "Reset to default";
+  reset.type = "button"; reset.title = tr("resetDefault", "Reset to default");
   reset.addEventListener("click", () => resetSetting(mod.id, setting.key));
   control.appendChild(reset);
   if (built.value) control.appendChild(built.value);
@@ -605,7 +610,7 @@ function unknownRow(setting) {
   row.dataset.label = (setting.label || setting.key || "").toLowerCase();
   const text = el("div", "row-text");
   text.appendChild(el("div", "row-label", setting.label || setting.key || "(setting)"));
-  text.appendChild(el("div", "row-hint", `Type "${setting.type}" needs a newer OSF UI.`));
+  text.appendChild(el("div", "row-hint", tr("typeNeedsUpdate", "Type \"{type}\" needs a newer OSF UI.", { type: setting.type })));
   row.appendChild(text);
   return row;
 }
@@ -629,7 +634,7 @@ function buildImage(mod, item) {
     if (item.height) img.style.maxHeight = (item.height | 0) + "px";
     fig.appendChild(img);
   } else {
-    fig.appendChild(el("div", "osf-note osf-note--warn", "Image path rejected (must be inside the mod's view folder)."));
+    fig.appendChild(el("div", "osf-note osf-note--warn", tr("imageRejected", "Image path rejected (must be inside the mod's view folder).")));
   }
   if (item.caption) fig.appendChild(el("figcaption", "osf-figcaption", item.caption));
   liveRows.push({ row: fig, control: null, setting: null, dot: null, visibleWhen: item.visibleWhen });
@@ -671,19 +676,19 @@ function buildAction(mod, item) {
 
   const control = el("div", "control");
   const style = item.style === "accent" ? " osf-btn--osf-accent" : item.style === "danger" ? " osf-btn--danger" : "";
-  const btn = el("button", "osf-btn osf-btn--sm" + style, item.label || "Run");
+  const btn = el("button", "osf-btn osf-btn--sm" + style, item.label || tr("run", "Run"));
   btn.type = "button";
 
   const fire = () => {
     if (typeof item.command !== "string" || !item.command.startsWith(mod.id + ".")) {
-      toast(`Action refused: "${item.command}" is not namespaced to ${mod.id}`, "danger");
+      toast(tr("actionWrongNamespace", "Action refused: {command} is not namespaced to {mod}", { command: `"${item.command}"`, mod: mod.id }), "danger");
       return;
     }
     // Framework namespaces are never a mod's to fire, even if a schema claims
     // one as its id (the store rejects those ids too — defense stays layered).
     const ns = item.command.slice(0, item.command.indexOf("."));
     if (RESERVED_NS.includes(ns)) {
-      toast(`Action refused: "${ns}." is a reserved framework namespace`, "danger");
+      toast(tr("actionReserved", "Action refused: {namespace} is a reserved framework namespace", { namespace: `"${ns}."` }), "danger");
       return;
     }
     btn.disabled = true; btn.classList.add("pending"); const prev = btn.textContent; btn.textContent = "…";
@@ -696,8 +701,8 @@ function buildAction(mod, item) {
     // message types). Timeout / unknown-command / no-bridge all reject.
     osfui.request(item.command, { mod: mod.id, key: item.key }, { timeoutMs: ACTION_TIMEOUT_MS })
       .then((msg) => restore((msg.payload && msg.payload.message) || null, "info"))
-      .catch((err) => restore(err.code === "timeout" ? "No response from " + mod.id
-        : (err.message || "Action failed"), err.code === "timeout" ? "warn" : "danger"));
+      .catch((err) => restore(err.code === "timeout" ? tr("noResponseFrom", "No response from {mod}", { mod: mod.id })
+        : (err.message || tr("actionFailed", "Action failed")), err.code === "timeout" ? "warn" : "danger"));
   };
 
   if (item.confirm) {
@@ -717,8 +722,8 @@ function askConfirm(control, btn, message, onConfirm) {
   btn.style.display = "none";
   const box = el("div", "confirm");
   box.appendChild(el("span", "confirm-msg", message));
-  const yes = el("button", "osf-btn osf-btn--sm osf-btn--danger", "Confirm"); yes.type = "button";
-  const no = el("button", "osf-btn osf-btn--sm osf-btn--ghost", "Cancel"); no.type = "button";
+  const yes = el("button", "osf-btn osf-btn--sm osf-btn--danger", tr("confirm", "Confirm")); yes.type = "button";
+  const no = el("button", "osf-btn osf-btn--sm osf-btn--ghost", tr("cancel", "Cancel")); no.type = "button";
   const close = () => { box.remove(); btn.style.display = ""; };
   yes.addEventListener("click", () => { close(); onConfirm(); });
   no.addEventListener("click", close);
@@ -774,14 +779,14 @@ function railMatches(entry, q) {
 // What the entry offers, for the rail sub-line: "Framework", the mod id, or a
 // terminal/overlay summary for view-only entries.
 function railSub(entry) {
-  if (entry.id === FRAMEWORK_ID) return "Framework";
+  if (entry.id === FRAMEWORK_ID) return tr("framework", "Framework");
   if (entry.mod) return entry.mod.id;
   const menus = entry.views.filter((v) => v.kind === "menu").length;
   const huds = entry.views.length - menus;
   const parts = [];
-  if (menus) parts.push(menus === 1 ? "Terminal" : `${menus} terminals`);
-  if (huds) parts.push(huds === 1 ? "Overlay" : `${huds} overlays`);
-  return parts.join(" · ") || "Mod";
+  if (menus) parts.push(tr(menus === 1 ? "terminalOne" : "terminalOther", menus === 1 ? "Terminal" : "{count} terminals", { count: menus }));
+  if (huds) parts.push(tr(huds === 1 ? "overlayOne" : "overlayOther", huds === 1 ? "Overlay" : "{count} overlays", { count: huds }));
+  return parts.join(" · ") || tr("mod", "Mod");
 }
 
 // A mod's schema `icon` (a file inside its own view folder — same sandbox as
@@ -833,7 +838,7 @@ function railItem(entry) {
   const count = entry.mod ? modifiedCount(entry.mod) : 0;
   if (count) {
     const badge = el("span", "rail-item-count", String(count));
-    badge.title = `${count} changed from default`;
+    badge.title = tr("changedCount", "{count} changed from default", { count });
     btn.appendChild(badge);
   }
   btn.addEventListener("click", () => selectMod(entry.id));
@@ -847,11 +852,11 @@ function railHomeItem() {
   btn.className = "rail-item rail-item--home" + (selectedId === HOME_ID ? " selected" : "");
   const mark = el("span", "rail-item-mark", "◉");
   const textWrap = el("span", "rail-item-text");
-  textWrap.appendChild(el("span", "rail-item-title", "Systems"));
+  textWrap.appendChild(el("span", "rail-item-title", tr("systems", "Systems")));
   const menus = allViews.filter((v) => v.kind === "menu").length;
   const huds = allViews.length - menus;
   textWrap.appendChild(el("span", "rail-item-sub",
-    allViews.length ? `${menus} terminals · ${huds} overlays` : "Standby"));
+    allViews.length ? tr("surfaceCounts", "{menus} terminals · {huds} overlays", { menus, huds }) : tr("standby", "Standby")));
   btn.append(mark, textWrap);
   btn.addEventListener("click", () => selectMod(HOME_ID));
   return btn;
@@ -873,7 +878,7 @@ function renderRail() {
   entries.filter((e) => e.id === FRAMEWORK_ID && railMatches(e, q))
     .forEach((e) => railEl.appendChild(railItem(e)));
 
-  railEl.appendChild(el("div", "rail-section", "Mods"));
+  railEl.appendChild(el("div", "rail-section", tr("mods", "Mods")));
   const mods = entries.filter((e) => e.id !== FRAMEWORK_ID && railMatches(e, q))
     .sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" }));
   if (mods.length) {
@@ -881,9 +886,9 @@ function renderRail() {
   } else {
     const empty = el("div", "rail-empty");
     if (q) {
-      empty.textContent = "No mods match the filter.";
+      empty.textContent = tr("noModsMatch", "No mods match the filter.");
     } else {
-      empty.textContent = "No mods installed yet. Mods that register settings, terminals or overlays appear here.";
+      empty.textContent = tr("noModsInstalled", "No mods installed yet. Mods that register settings, terminals or overlays appear here.");
     }
     railEl.appendChild(empty);
   }
@@ -900,14 +905,14 @@ const applyAccent = (node, accent) => osfui.applyAccent(node, accent);
 function renderDetailHead(mod, schema, isFramework) {
   const head = el("div", "detail-head");
   const left = el("div");
-  left.appendChild(el("div", "osf-eyebrow kicker", isFramework ? "Framework" : "Mod · " + mod.id));
+  left.appendChild(el("div", "osf-eyebrow kicker", isFramework ? tr("framework", "Framework") : tr("modWithId", "Mod · {id}", { id: mod.id })));
   left.appendChild(el("h2", null, titleOf(mod)));
   if (schema.description) left.appendChild(el("div", "detail-desc", schema.description));
   head.appendChild(left);
 
   // A requires-gated stub has nothing to reset — its settings are inert.
   if (!mod.stub) {
-    const reset = el("button", "osf-btn osf-btn--danger osf-btn--sm", "Reset all");
+    const reset = el("button", "osf-btn osf-btn--danger osf-btn--sm", tr("resetAll", "Reset all"));
     reset.type = "button";
     reset.addEventListener("click", () => resetMod(mod.id));
     head.appendChild(reset);
@@ -918,11 +923,11 @@ function renderDetailHead(mod, schema, isFramework) {
 function renderPresets(mod, schema) {
   if (!Array.isArray(schema.presets) || !schema.presets.length) return null;
   const bar = el("div", "presets");
-  bar.appendChild(el("span", "osf-eyebrow", "Presets"));
+  bar.appendChild(el("span", "osf-eyebrow", tr("presets", "Presets")));
   const row = el("div", "presets-row");
   for (const p of schema.presets) {
     if (!p || typeof p.values !== "object") continue;
-    const b = el("button", "osf-btn osf-btn--sm osf-btn--ghost", p.label || "Preset");
+    const b = el("button", "osf-btn osf-btn--sm osf-btn--ghost", p.label || tr("preset", "Preset"));
     b.type = "button";
     if (p.description) b.title = p.description;
     b.addEventListener("click", () => applyPreset(mod, p));
@@ -944,7 +949,9 @@ function applyPreset(mod, preset) {
   // control state, and native doesn't re-broadcast settings.data on a set.
   // Preset buttons only ever act on the currently-displayed mod.
   renderDetail();
-  toast(`Applied "${preset.label}" (${n} setting${n === 1 ? "" : "s"})`, "info");
+  toast(tr(n === 1 ? "presetAppliedOne" : "presetAppliedOther",
+    n === 1 ? "Applied \"{preset}\" ({count} setting)" : "Applied \"{preset}\" ({count} settings)",
+    { preset: preset.label, count: n }), "info");
 }
 
 // ---- surfaces (panels + HUD toggles) ----------------------------------------
@@ -964,15 +971,15 @@ function surfacePanelRow(v) {
   const control = el("div", "control");
   const failed = v.loadState === "failed";
   const btn = el("button", "osf-btn osf-btn--sm " + (failed ? "osf-btn--danger" : "osf-btn--osf-accent"),
-    failed ? "Failed" : "Open");
+    failed ? tr("failed", "Failed") : tr("open", "Open"));
   btn.type = "button";
-  if (failed) { btn.disabled = true; btn.title = "The view failed to load; see OSF UI.log."; }
+  if (failed) { btn.disabled = true; btn.title = tr("viewFailed", "The view failed to load; see OSF UI.log."); }
   btn.addEventListener("click", () => {
     sendCommand({ command: "menu.open", view: v.id });
     // The opened panel replaces this surface; if it never comes up (failed
     // registration), don't leave the button stuck.
-    btn.disabled = true; btn.textContent = "Opening…";
-    setTimeout(() => { btn.disabled = false; btn.textContent = "Open"; }, 1600);
+    btn.disabled = true; btn.textContent = tr("opening", "Opening…");
+    setTimeout(() => { btn.disabled = false; btn.textContent = tr("open", "Open"); }, 1600);
   });
   control.appendChild(btn);
   row.appendChild(control);
@@ -1009,7 +1016,7 @@ function renderSurfaces(views) {
   const menus = views.filter((v) => v.kind === "menu");
   const huds = views.filter((v) => v.kind !== "menu");
   const section = el("div", "group");
-  const label = menus.length && huds.length ? "Terminals & overlays" : menus.length ? "Terminals" : "Overlays";
+  const label = menus.length && huds.length ? tr("terminalsOverlays", "Terminals & overlays") : menus.length ? tr("terminals", "Terminals") : tr("overlays", "Overlays");
   const heading = el("button", "group-label", label);
   heading.type = "button";
   heading.addEventListener("click", () => section.classList.toggle("collapsed"));
@@ -1039,8 +1046,8 @@ function renderRestartBanner(mod) {
   }
   if (!n) return null;
   const banner = el("div", "banner banner--warn");
-  banner.appendChild(el("span", "banner-text",
-    `${n} change${n === 1 ? "" : "s"} take effect after a game restart.`));
+  banner.appendChild(el("span", "banner-text", tr(n === 1 ? "restartChangeOne" : "restartChangeOther",
+    n === 1 ? "{count} change takes effect after a game restart." : "{count} changes take effect after a game restart.", { count: n })));
   return banner;
 }
 
@@ -1059,7 +1066,7 @@ function renderDetail() {
   const entry = findEntry(selectedId);
   if (!entry) {
     const empty = el("div", "detail-empty");
-    empty.appendChild(el("div", "osf-eyebrow", "Nothing selected"));
+    empty.appendChild(el("div", "osf-eyebrow", tr("nothingSelected", "Nothing selected")));
     detailEl.appendChild(empty);
     return;
   }
@@ -1083,10 +1090,10 @@ function renderDetail() {
     const surfaces = renderSurfaces(entry.views);
     if (surfaces) body.appendChild(surfaces);
     const note = el("div", "osf-note osf-note--warn");
-    note.appendChild(el("div", null,
-      `${titleOf(mod)} needs a newer OSF UI — this version can't show or edit its settings. Your saved values are kept and untouched.`));
+    note.appendChild(el("div", null, tr("modNeedsUpdate",
+      "{mod} needs a newer OSF UI — this version can't show or edit its settings. Your saved values are kept and untouched.", { mod: titleOf(mod) })));
     if (Array.isArray(mod.missingRequires) && mod.missingRequires.length) {
-      note.appendChild(el("div", "row-hint", "Missing: " + mod.missingRequires.join(", ")));
+      note.appendChild(el("div", "row-hint", tr("missing", "Missing: {items}", { items: mod.missingRequires.join(", ") })));
     }
     body.appendChild(note);
     detailEl.appendChild(body);
@@ -1215,7 +1222,7 @@ function homeMenuCard(v) {
   if (caption) body.appendChild(el("span", "home-tile-mod", caption));
   card.appendChild(body);
 
-  card.appendChild(el("span", "home-tile-foot", failed ? "FAILED — SEE OSF UI.LOG" : "OPEN ▸"));
+  card.appendChild(el("span", "home-tile-foot", failed ? tr("failedSeeLog", "FAILED — SEE OSF UI.LOG") : tr("openArrow", "OPEN ▸")));
 
   if (failed) {
     card.disabled = true;
@@ -1286,7 +1293,7 @@ function renderHomeDetail() {
 
   const head = el("div", "detail-head");
   const left = el("div");
-  left.appendChild(el("h2", null, "All systems"));
+  left.appendChild(el("h2", null, tr("allSystems", "All systems")));
   head.appendChild(left);
   detailEl.appendChild(head);
 
@@ -1294,21 +1301,21 @@ function renderHomeDetail() {
 
   if (!allViews.length) {
     const empty = el("div", "home-empty");
-    empty.appendChild(el("div", "osf-eyebrow", "No systems online"));
-    empty.appendChild(el("p", null, "Mods that put terminals or overlays on screen appear here as launch cards. Mods that only carry settings are listed on the left."));
+    empty.appendChild(el("div", "osf-eyebrow", tr("noSystems", "No systems online")));
+    empty.appendChild(el("p", null, tr("noSystemsHint", "Mods that put terminals or overlays on screen appear here as launch cards. Mods that only carry settings are listed on the left.")));
     body.appendChild(empty);
     detailEl.appendChild(body);
     return;
   }
 
   if (menus.length) {
-    body.appendChild(homeSectionHead("Terminals", menus.length));
+    body.appendChild(homeSectionHead(tr("terminals", "Terminals"), menus.length));
     const grid = el("div", "home-grid");
     menus.forEach((v) => grid.appendChild(homeMenuCard(v)));
     body.appendChild(grid);
   }
   if (huds.length) {
-    body.appendChild(homeSectionHead("Overlays", huds.length, "TOGGLE · STAYS ON SCREEN"));
+    body.appendChild(homeSectionHead(tr("overlays", "Overlays"), huds.length, tr("toggleStays", "TOGGLE · STAYS ON SCREEN")));
     const list = el("div", "home-hud-list");
     huds.forEach((v) => list.appendChild(homeHudCard(v)));
     body.appendChild(list);
@@ -1324,7 +1331,7 @@ function renderViewOnlyDetail(entry) {
 
   const head = el("div", "detail-head");
   const left = el("div");
-  left.appendChild(el("div", "osf-eyebrow kicker", "Mod" + (lead.mod ? " · " + lead.mod : "")));
+  left.appendChild(el("div", "osf-eyebrow kicker", tr("mod", "Mod") + (lead.mod ? " · " + lead.mod : "")));
   left.appendChild(el("h2", null, entry.title));
   if (lead.description) left.appendChild(el("div", "detail-desc", lead.description));
   head.appendChild(left);
@@ -1333,7 +1340,7 @@ function renderViewOnlyDetail(entry) {
   const body = el("div", "detail-body");
   const surfaces = renderSurfaces(entry.views);
   if (surfaces) body.appendChild(surfaces);
-  body.appendChild(el("p", "detail-quiet", "This mod registers no settings."));
+  body.appendChild(el("p", "detail-quiet", tr("noModSettings", "This mod registers no settings.")));
   detailEl.appendChild(body);
 }
 
@@ -1356,8 +1363,8 @@ function renderSectionIndex(groups) {
 function renderSearch(q) {
   const head = el("div", "detail-head");
   const left = el("div");
-  left.appendChild(el("div", "osf-eyebrow kicker", "Search"));
-  left.appendChild(el("h2", null, `Results for "${q}"`));
+  left.appendChild(el("div", "osf-eyebrow kicker", tr("search", "Search")));
+  left.appendChild(el("h2", null, tr("resultsFor", "Results for \"{query}\"", { query: q })));
   head.appendChild(left);
   detailEl.appendChild(head);
 
@@ -1392,7 +1399,7 @@ function renderSearch(q) {
       }
     }
   }
-  if (!hits) list.appendChild(el("div", "detail-empty", "No settings match."));
+  if (!hits) list.appendChild(el("div", "detail-empty", tr("noSettingsMatch", "No settings match.")));
   body.appendChild(list);
   detailEl.appendChild(body);
 }
@@ -1440,7 +1447,7 @@ function updateRailCounts() {
     if (badge) {
       if (count) {
         badge.textContent = String(count);
-        badge.title = `${count} changed from default`;  // keep parity with railItem
+        badge.title = tr("changedCount", "{count} changed from default", { count });  // keep parity with railItem
         badge.style.display = "";
       } else { badge.style.display = "none"; }
     }
@@ -1456,7 +1463,7 @@ function updateChip() {
   if (!sessionChipEl) return;
   const n = sessionChangeCount();
   sessionChipEl.style.display = n ? "" : "none";
-  sessionChipEl.textContent = `Undo changes (${n})`;
+  sessionChipEl.textContent = tr("undoChanges", "Undo changes ({count})", { count: n });
 }
 
 function openSessionPanel() {
@@ -1476,12 +1483,12 @@ function openSessionPanel() {
   const overlay = el("div", "session-overlay");
   const panel = el("div", "session-panel osf-card");
   const head = el("div", "session-head");
-  head.appendChild(el("div", "osf-eyebrow", `Changed this visit (${changes.length})`));
-  const revertAll = el("button", "osf-btn osf-btn--sm osf-btn--danger", "Revert all"); revertAll.type = "button";
+  head.appendChild(el("div", "osf-eyebrow", tr("changedVisit", "Changed this visit ({count})", { count: changes.length })));
+  const revertAll = el("button", "osf-btn osf-btn--sm osf-btn--danger", tr("revertAll", "Revert all")); revertAll.type = "button";
   head.appendChild(revertAll);
   panel.appendChild(head);
   panel.appendChild(el("p", "session-note",
-    "Everything is already saved. Revert anything you've changed since opening settings."));
+    tr("sessionCopy", "Everything is already saved. Revert anything you've changed since opening settings.")));
 
   const list = el("div", "session-list");
   for (const c of changes) {
@@ -1490,7 +1497,7 @@ function openSessionPanel() {
     info.appendChild(el("div", "session-key", `${titleOf(c.mod)} · ${c.key}`));
     info.appendChild(el("div", "session-delta", `${JSON.stringify(c.old)} → ${JSON.stringify(c.now)}`));
     rowEl.appendChild(info);
-    const undo = el("button", "osf-btn osf-btn--sm osf-btn--ghost", "Revert"); undo.type = "button";
+    const undo = el("button", "osf-btn osf-btn--sm osf-btn--ghost", tr("revert", "Revert")); undo.type = "button";
     undo.addEventListener("click", () => { revertOne(c); close(); });
     rowEl.appendChild(undo);
     list.appendChild(rowEl);
@@ -1519,7 +1526,7 @@ function beginCapture(mod, key, btn) {
   if (capturing) return;
   capturing = { mod, key, btn, prev: btn.textContent };
   btn.classList.add("listening");
-  btn.textContent = "Press a key…";
+  btn.textContent = tr("pressKey", "Press a key…");
   if (bridgeAvailable()) {
     // Native captures the next key; the reply (settings.captured) echoes this
     // request's id — even though it lands ticks later, after the user pressed
@@ -1532,8 +1539,8 @@ function beginCapture(mod, key, btn) {
       .catch((err) => {
         if (capturing && capturing.btn === btn) {
           finishCapture({ mod, key, cancelled: true });
-          toast(err.code === "capture-busy" ? "Another rebind is already listening."
-            : "Rebinding didn't get a response from the runtime.", "warn");
+          toast(err.code === "capture-busy" ? tr("captureBusy", "Another rebind is already listening.")
+            : tr("captureNoResponse", "Rebinding didn't get a response from the runtime."), "warn");
         }
       });
   } else {
@@ -1598,7 +1605,7 @@ function finishCapture(payload) {
   // repaints the row badges). Informational — the bind stands.
   if (Array.isArray(payload.conflicts) && payload.conflicts.length) {
     const others = [...new Set(payload.conflicts.map((c) => c.title || c.mod))];
-    toast(`${payload.name} is also bound by: ${others.join(", ")}`, "warn");
+    toast(tr("capturedAlsoBound", "{key} is also bound by: {others}", { key: payload.name, others: others.join(", ") }), "warn");
   }
   commit(mod, key, payload.name);  // persist + re-resolve, and update session state
 }
@@ -1625,7 +1632,7 @@ function render() {
   if (!entries.length) {
     railEl.textContent = "";
     detailEl.textContent = "";
-    detailEl.appendChild(el("p", "status osf-eyebrow", "No mods installed — nothing has registered settings or views yet."));
+    detailEl.appendChild(el("p", "status osf-eyebrow", tr("nothingRegistered", "No mods installed — nothing has registered settings or views yet.")));
     updateChip();
     return;
   }
@@ -1686,7 +1693,7 @@ function updateNeedsUpdateBadge() {
   const outdated = wanting.length > 0;
   badge.classList.toggle("is-outdated", outdated);
   tag.hidden = !outdated;
-  const title = outdated ? "A newer OSF UI is expected by: " + wanting.join(", ") : "OSF UI version";
+  const title = outdated ? tr("newerExpectedBy", "A newer OSF UI is expected by: {mods}", { mods: wanting.join(", ") }) : tr("version", "OSF UI version");
   badge.title = title;
   tag.title = title;
 }
@@ -1724,6 +1731,11 @@ osfui.on("views.data", (p) => {
   } else {
     refreshSurfaceStates();
   }
+});
+
+osfui.on("i18n.data", () => {
+  updateNeedsUpdateBadge();
+  if (allMods.length || allViews.length) render();
 });
 
 osfui.on("settings.changed", (p) => {
