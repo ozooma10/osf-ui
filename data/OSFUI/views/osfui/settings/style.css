@@ -149,7 +149,7 @@ html, body { height: 100%; overflow: hidden; }
   background: transparent; border: 1px solid transparent; border-radius: var(--osf-radius-sm);
   cursor: pointer; opacity: 0; transition: opacity var(--osf-dur-fast), color var(--osf-dur-fast);
 }
-.row:hover .row-reset, .row.is-modified .row-reset { opacity: 1; }
+.row:hover .row-reset, .row:focus-within .row-reset, .row.is-modified .row-reset { opacity: 1; }
 .row-reset:hover { color: var(--osf-accent-hover); border-color: var(--osf-line-strong); }
 
 /* Condition-driven visibility / enablement (display-only). */

@@ -1481,6 +1481,7 @@ function openSessionPanel() {
   if (!changes.length) return;
 
   const overlay = el("div", "session-overlay");
+  overlay.dataset.navModal = "1";  // padnav: trap arrow-key focus inside
   const panel = el("div", "session-panel osf-card");
   const head = el("div", "session-head");
   head.appendChild(el("div", "osf-eyebrow", tr("changedVisit", "Changed this visit ({count})", { count: changes.length })));
@@ -1822,8 +1823,42 @@ osfui.on("ui.visibility", (p) => {
       filterEl.value = "";
       selectMod(HOME_ID);
     }
+    // Gamepad/arrow navigation starts the visit over too (padnav.js).
+    if (window.padnav) window.padnav.reset();
   }
 });
+
+// LB / RB step the rail selection (previous / next installed mod) — the one
+// gamepad affordance arrow navigation can't express well. Raw ui.gamepad
+// events ride alongside the default mapping (we do NOT assert
+// osfui.gamepadRaw, so D-pad/A/B keep their native arrows/Enter/close
+// behavior); on hosts without the gamepad capability the events simply never
+// arrive.
+const PAD_LSHOULDER = 0x0100, PAD_RSHOULDER = 0x0200;
+osfui.on("ui.gamepad", (p) => {
+  if (!p || p.kind !== "button" || !p.button || !p.button.down) return;
+  if (p.button.id !== PAD_LSHOULDER && p.button.id !== PAD_RSHOULDER) return;
+  if (document.querySelector(".session-overlay")) return;  // modal owns input
+  cycleRail(p.button.id === PAD_LSHOULDER ? -1 : 1);
+});
+
+// Move the rail selection by `delta`, wrapping, in the exact order renderRail
+// paints: Home, the framework, then title-sorted mods (scoped by the filter).
+function cycleRail(delta) {
+  const q = (filterEl.value || "").trim().toLowerCase();
+  const entries = railEntries();
+  const ids = [];
+  if (!q) ids.push(HOME_ID);
+  entries.filter((en) => en.id === FRAMEWORK_ID && railMatches(en, q))
+    .forEach((en) => ids.push(en.id));
+  entries.filter((en) => en.id !== FRAMEWORK_ID && railMatches(en, q))
+    .sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" }))
+    .forEach((en) => ids.push(en.id));
+  if (!ids.length) return;
+  const i = ids.indexOf(selectedId);
+  const next = ids[i < 0 ? 0 : (i + delta + ids.length) % ids.length];
+  if (next !== selectedId) selectMod(next);
+}
 
 document.getElementById("close").addEventListener("click", () => sendCommand({ command: "close" }));
 document.addEventListener("keydown", (e) => {
@@ -1833,7 +1868,10 @@ document.addEventListener("keydown", (e) => {
     filterEl.select();
     return;
   }
-  if (e.key === "Escape" && !e.defaultPrevented && !capturing && !document.querySelector(".session-overlay")) {
+  if ((e.key === "Escape" || e.keyCode === 27) && !e.defaultPrevented && !capturing) {
+    // Peel the undo panel first; only a bare Escape closes the surface.
+    const overlay = document.querySelector(".session-overlay");
+    if (overlay) { overlay.remove(); return; }
     sendCommand({ command: "close" });
   }
 });

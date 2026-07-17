@@ -355,6 +355,9 @@ function renderList() {
   for (const b of rows) {
     const row = holderRow(b);
     row.classList.add("kb-holder--list");
+    // Gamepad/arrow navigation (padnav.js): the row is click-to-select, so it
+    // must be focusable for Enter/A to reach it.
+    row.tabIndex = 0;
     const state = holderState(b);
     if (state.conflict) row.classList.add("kb-holder--conflict");
     else if (state.shared) row.classList.add("kb-holder--shared");
@@ -527,7 +530,7 @@ document.addEventListener("keydown", (e) => {
     searchEl.select();
     return;
   }
-  if (e.key === "Escape" && !e.defaultPrevented && !capturing) {
+  if ((e.key === "Escape" || e.keyCode === 27) && !e.defaultPrevented && !capturing) {
     goBack();
   }
 });
