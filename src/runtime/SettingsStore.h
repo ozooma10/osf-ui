@@ -210,6 +210,24 @@ namespace OSFUI
 		// when it moves (mcm-design.md §8.5).
 		[[nodiscard]] std::uint64_t Generation() const { return _generation; }
 
+		// One settings artifact that failed to load (mcm-design.md §14.2; the
+		// SkyUI-MCM lesson — a mod silently missing from the menu becomes a
+		// support thread, a named error becomes a fixed file). Surfaced
+		// additively in Data() as top-level `loadErrors` so the Mods surface
+		// can render a banner. `kind` is a stable enum string:
+		//   "schema-name"   filename stem fails the mod-id grammar; file skipped
+		//   "schema-parse"  schema file is unreadable/not an object; file skipped
+		//   "values-parse"  the mod's values file was corrupt — quarantined to
+		//                   <id>.json.bad, defaults served (the mod still loads)
+		struct LoadError
+		{
+			std::string kind;
+			std::string file;     // filename only (schema or values file)
+			std::string mod;      // owning mod id; empty when no schema loaded
+			std::string message;  // human-readable reason (parse position etc.)
+		};
+		[[nodiscard]] const std::vector<LoadError>& LoadErrors() const { return _loadErrors; }
+
 		// The document the settings view consumes:
 		// { "mods": [ { id, title, schema, values }, ... ] }. Data() returns
 		// the json object (for native senders — no dump/re-parse round trip);
@@ -366,6 +384,14 @@ namespace OSFUI
 		void        Notify(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value) const;
 		void        NotifyRegistryChanged() const;
 		void        InvalidateData() { _dataCache.reset(); }
+		// Replace-or-add keyed on (kind, file, mod) — a hot-reload retry of a
+		// still-broken file must update its entry, not stack duplicates.
+		void        RecordLoadError(std::string a_kind, std::string a_file, std::string a_mod, std::string a_message);
+		// True (and data invalidated) when entries were dropped: schema-kind
+		// entries for a file that now loads / values-kind entries for a mod
+		// whose values now overlay clean (or that left the registry).
+		bool        EraseLoadErrorsForFile(std::string_view a_file);
+		bool        EraseLoadErrorsForMod(std::string_view a_modId);
 
 		std::vector<Mod>              _mods;
 		KeyNameResolver               _keyResolver;
@@ -375,6 +401,7 @@ namespace OSFUI
 		std::vector<RegistryListener> _registryListeners;
 		std::vector<PersistListener>  _persistListeners;
 		mutable std::optional<nlohmann::json> _dataCache;
+		std::vector<LoadError>      _loadErrors;
 		std::filesystem::path       _valuesDir;
 		std::uint64_t               _generation{ 0 };
 		bool                        _loaded{ false };

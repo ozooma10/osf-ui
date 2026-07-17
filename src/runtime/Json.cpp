@@ -27,6 +27,30 @@ namespace OSFUI::Json
 		return parsed;
 	}
 
+	std::optional<Value> ParseFile(const std::filesystem::path& a_path, std::string& a_outError)
+	{
+		a_outError.clear();
+		std::ifstream stream(a_path, std::ios::binary);
+		if (!stream) {
+			a_outError = "cannot open file";
+			return std::nullopt;
+		}
+		try {
+			return Value::parse(stream, /*cb=*/nullptr, /*allow_exceptions=*/true, /*ignore_comments=*/true);
+		} catch (const std::exception& e) {
+			// "[json.exception.parse_error.101] parse error at line 2, ..." —
+			// strip the bracketed library id; the position info is the value.
+			std::string_view what = e.what();
+			if (!what.empty() && what.front() == '[') {
+				if (const auto end = what.find("] "); end != std::string_view::npos) {
+					what.remove_prefix(end + 2);
+				}
+			}
+			a_outError = what.empty() ? std::string("unreadable JSON") : std::string(what);
+			return std::nullopt;
+		}
+	}
+
 	std::string GetString(const Value& a_obj, std::string_view a_key, std::string_view a_default)
 	{
 		if (const auto it = a_obj.find(a_key); it != a_obj.end() && it->is_string()) {

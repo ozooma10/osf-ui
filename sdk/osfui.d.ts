@@ -144,6 +144,18 @@ export interface SettingsDataPayload {
    * vanilla data (feature off).
    */
   vanillaKeys?: Array<{ event: string; title: string; name: string }>;
+  /**
+   * Additive (protocol 1.1, capability "settings.loadErrors"): settings
+   * artifacts that FAILED to load, so a surface can tell the user instead of
+   * a mod silently vanishing. `kind` is a stable enum string:
+   * "schema-name" (file name fails the mod-id grammar; file skipped),
+   * "schema-parse" (schema file unreadable / not an object; file skipped),
+   * "values-parse" (a mod's values file was corrupt — quarantined on disk as
+   * `<file>.bad`, defaults served; `mod` is set and the mod still loads).
+   * `file` is a bare filename, `message` a human-readable reason (parse
+   * position etc.). Omitted in the (normal) clean case.
+   */
+  loadErrors?: Array<{ kind: string; file: string; mod?: string; message: string }>;
 }
 
 export interface SettingsAckPayload {

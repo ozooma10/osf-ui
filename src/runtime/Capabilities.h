@@ -30,6 +30,7 @@ namespace OSFUI::Caps
 		"type:string",
 		"type:key",
 		"type:flags",
+		"settings.loadErrors",  // settings.data carries top-level `loadErrors` (protocol 1.1)
 	};
 
 	inline bool Has(std::string_view a_name)

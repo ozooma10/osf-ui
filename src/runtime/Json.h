@@ -17,6 +17,12 @@ namespace OSFUI::Json
 	// Reads and parses a file; returns std::nullopt on missing file or bad JSON.
 	[[nodiscard]] std::optional<Value> ParseFile(const std::filesystem::path& a_path);
 
+	// ParseFile with the failure REASON for user-facing surfacing (settings
+	// load-error banner): a_outError receives "cannot open file" or nlohmann's
+	// parse message including line/column. Does not log — the caller owns
+	// severity and wording. a_outError is empty exactly when parsing succeeded.
+	[[nodiscard]] std::optional<Value> ParseFile(const std::filesystem::path& a_path, std::string& a_outError);
+
 	[[nodiscard]] std::string GetString(const Value& a_obj, std::string_view a_key, std::string_view a_default);
 	[[nodiscard]] bool        GetBool(const Value& a_obj, std::string_view a_key, bool a_default);
 	[[nodiscard]] std::int64_t GetInt(const Value& a_obj, std::string_view a_key, std::int64_t a_default);

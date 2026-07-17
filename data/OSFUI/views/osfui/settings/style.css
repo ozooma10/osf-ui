@@ -84,6 +84,27 @@ html, body { height: 100%; overflow: hidden; }
   font-size: var(--osf-text-xs); color: var(--osf-text-faint); line-height: 1.5;
   border: 1px dashed var(--osf-line-strong); border-radius: var(--osf-radius);
 }
+
+/* Load-failure alert (settings.data loadErrors) — pinned at the rail top */
+.rail-alert {
+  padding: 9px 12px 10px; margin: 2px 6px 8px;
+  border: 1px solid var(--osf-line); border-left: 3px solid var(--osf-signal-warn);
+  border-radius: var(--osf-radius); background: rgba(224, 162, 60, 0.08);
+}
+.rail-alert-title {
+  font-size: var(--osf-text-xs); font-weight: 600; color: var(--osf-signal-warn);
+  letter-spacing: 0.04em;
+}
+.rail-alert-title::before { content: "⚠ "; }
+.rail-alert-row { margin-top: 7px; }
+.rail-alert-file {
+  font-family: var(--osf-font-mono); font-size: 9.5px; letter-spacing: 0.06em;
+  color: var(--osf-text-bright); word-break: break-all;
+}
+.rail-alert-msg {
+  font-size: var(--osf-text-xs); color: var(--osf-text-body); line-height: 1.45;
+  overflow-wrap: anywhere;
+}
 .rail-empty code { color: var(--osf-text-muted); font-size: 11px; }
 
 .rail-foot { flex: none; padding: 12px 16px; border-top: 1px solid var(--osf-line); }

@@ -49,6 +49,11 @@ const sessionChipEl = document.getElementById("session-chip");
 const saveStateEl = document.getElementById("save-state");
 
 let allMods = [];
+// Settings artifacts that FAILED to load (settings.data `loadErrors`,
+// protocol 1.1) — schema files skipped or values files quarantined. Rendered
+// as a rail alert: a mod silently missing from the list is a support thread,
+// a named file + reason is a fix.
+let loadErrors = [];
 // Registered catalog views (views.data, hub !== false) — panels and HUDs.
 let allViews = [];
 // The running OSF UI version (runtime.ready handshake) and every catalog
@@ -862,9 +867,35 @@ function railHomeItem() {
   return btn;
 }
 
+// Load-failure surfacing (mcm-design.md §14.2, the SkyUI-MCM lesson): pinned
+// above everything, filter or not — the user filtering for a mod that failed
+// to load must see WHY, not just "no mods match".
+function railLoadAlert() {
+  const box = el("div", "rail-alert");
+  box.appendChild(el("div", "rail-alert-title", loadErrors.length === 1
+    ? tr("loadErrorOne", "1 settings file failed to load")
+    : tr("loadErrorOther", "{count} settings files failed to load", { count: loadErrors.length })));
+  for (const e of loadErrors) {
+    const row = el("div", "rail-alert-row");
+    row.appendChild(el("div", "rail-alert-file", e.file || e.mod || "?"));
+    let text;
+    if (e.kind === "values-parse") {
+      text = tr("loadErrorValues",
+        "Saved settings for {mod} were unreadable — defaults are in use; the old file is kept next to it as {file}.bad. ({message})",
+        { mod: e.mod || "?", file: e.file || "?", message: e.message || "" });
+    } else {
+      text = e.message || tr("loadErrorGeneric", "The file could not be loaded.");
+    }
+    row.appendChild(el("div", "rail-alert-msg", text));
+    box.appendChild(row);
+  }
+  return box;
+}
+
 function renderRail() {
   const q = (filterEl.value || "").trim().toLowerCase();
   railEl.textContent = "";
+  if (loadErrors.length) railEl.appendChild(railLoadAlert());
 
   // Home is pinned above everything; while a filter is active the rail scopes
   // to matching mods, so the launcher item steps aside like the framework does.
@@ -1632,6 +1663,9 @@ function render() {
   const entries = railEntries();
   if (!entries.length) {
     railEl.textContent = "";
+    // The worst silent-failure case: the user's ONLY mod failed to load and
+    // the list is empty — the alert is the whole story, so it must show.
+    if (loadErrors.length) railEl.appendChild(railLoadAlert());
     detailEl.textContent = "";
     detailEl.appendChild(el("p", "status osf-eyebrow", tr("nothingRegistered", "No mods installed — nothing has registered settings or views yet.")));
     updateChip();
@@ -1713,6 +1747,7 @@ osfui.ready.then((info) => {
 
 osfui.on("settings.data", (p) => {
   allMods = p.mods || [];
+  loadErrors = Array.isArray(p.loadErrors) ? p.loadErrors : [];
   updateNeedsUpdateBadge();  // tooltip names mods by settings title once known
   render();
 });

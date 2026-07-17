@@ -200,6 +200,7 @@ namespace OSFUI
 	{
 		InvalidateData();
 		_mods.clear();
+		_loadErrors.clear();
 		_valuesDir = a_valuesDir;
 		_loaded = true;
 		++_generation;
@@ -229,11 +230,16 @@ namespace OSFUI
 						   "(lowercase [a-z0-9-] segments, exactly one dot in the mod id); "
 						   "dotless ids are reserved for the platform",
 					path.string());
+				RecordLoadError("schema-name", path.filename().string(), "",
+					"file name is not a mod id — settings files are named '<author>.<modname>.json'");
 				continue;
 			}
-			auto schema = Json::ParseFile(path);
+			std::string parseError;
+			auto schema = Json::ParseFile(path, parseError);
 			if (!schema || !schema->is_object()) {
-				REX::WARN("SettingsStore: skipping invalid schema {}", path.string());
+				const auto why = schema ? std::string("not a JSON object") : parseError;
+				REX::ERROR("SettingsStore: skipping {} — {}", path.string(), why);
+				RecordLoadError("schema-parse", path.filename().string(), "", why);
 				continue;
 			}
 			// Startup load: notifications defer to the OnStart NotifyAll.
@@ -283,11 +289,23 @@ namespace OSFUI
 
 	bool SettingsStore::ReloadDropInFile(const std::filesystem::path& a_path)
 	{
-		auto schema = Json::ParseFile(a_path);
+		std::string parseError;
+		auto schema = Json::ParseFile(a_path, parseError);
 		if (!schema || !schema->is_object()) {
-			REX::WARN("SettingsStore: hot-reload skipped — {} is not valid JSON", a_path.string());
+			const auto why = schema ? std::string("not a JSON object") : parseError;
+			REX::WARN("SettingsStore: hot-reload skipped — {}: {}", a_path.string(), why);
+			// Live banner in the author's alt-tab loop: record (replace-or-add)
+			// and re-broadcast so the open Mods surface shows the parse error
+			// now, not on the next menu open. No generation bump — the registry
+			// SHAPE is unchanged.
+			RecordLoadError("schema-parse", a_path.filename().string(), "", why);
+			NotifyRegistryChanged();
 			return false;
 		}
+		// A fixed file drops its banner entry: the successful AddSchema below
+		// re-broadcasts; if it is instead REFUSED (a runtime registration
+		// outranks the file) the stale entry is still gone on the next fetch.
+		EraseLoadErrorsForFile(a_path.filename().string());
 		return AddSchema(std::move(*schema), Source::kDropIn, a_path.stem().string(),
 			/*a_notify=*/true, /*a_dropInReplace=*/true, a_path);
 	}
@@ -417,9 +435,30 @@ namespace OSFUI
 		// Persisted values over schema defaults. Replacement rebuilds from the
 		// same file — every committed Set persists, so nothing is lost, and
 		// added/removed/retyped keys resolve exactly like a fresh load.
+		// A corrupt file is NEVER silently discarded (mcm-design.md §14.2:
+		// under sparse persistence that would be indistinguishable from "user
+		// reset everything"): quarantine it to <id>.json.bad, serve defaults,
+		// and surface the reason in Data()'s loadErrors.
+		EraseLoadErrorsForMod(mod.id);  // a clean overlay clears a stale record
 		nlohmann::json saved = nlohmann::json::object();
-		if (auto parsed = Json::ParseFile(mod.valuesPath); parsed && parsed->is_object()) {
-			saved = std::move(*parsed);
+		std::error_code fsEc;
+		if (std::filesystem::exists(mod.valuesPath, fsEc)) {
+			std::string parseError;
+			auto parsed = Json::ParseFile(mod.valuesPath, parseError);
+			if (parsed && parsed->is_object()) {
+				saved = std::move(*parsed);
+			} else {
+				const auto why = parsed ? std::string("not a JSON object") : parseError;
+				auto quarantine = mod.valuesPath;
+				quarantine += ".bad";
+				std::filesystem::remove(quarantine, fsEc);  // keep the NEWEST bad file
+				std::filesystem::rename(mod.valuesPath, quarantine, fsEc);
+				REX::ERROR("SettingsStore: '{}' values file is corrupt ({}) — {}; defaults served",
+					mod.id, why,
+					fsEc ? "quarantine rename failed, file left in place" :
+					       "kept as " + quarantine.filename().string());
+				RecordLoadError("values-parse", mod.valuesPath.filename().string(), mod.id, why);
+			}
 		}
 
 		// Version bookkeeping (mcm-design.md §11): the schema's declared
@@ -578,11 +617,44 @@ namespace OSFUI
 			PersistNow(*it);  // the kept values file must carry the last changes
 		}
 		REX::INFO("SettingsStore: removed mod '{}' (values file kept)", it->id);
+		EraseLoadErrorsForMod(it->id);  // its banner entry leaves with it
 		_mods.erase(it);
 		InvalidateData();
 		++_generation;
 		NotifyRegistryChanged();
 		return true;
+	}
+
+	void SettingsStore::RecordLoadError(std::string a_kind, std::string a_file, std::string a_mod, std::string a_message)
+	{
+		InvalidateData();
+		for (auto& e : _loadErrors) {
+			if (e.kind == a_kind && e.file == a_file && e.mod == a_mod) {
+				e.message = std::move(a_message);
+				return;
+			}
+		}
+		_loadErrors.push_back({ std::move(a_kind), std::move(a_file), std::move(a_mod), std::move(a_message) });
+	}
+
+	bool SettingsStore::EraseLoadErrorsForFile(std::string_view a_file)
+	{
+		const auto count = std::erase_if(_loadErrors,
+			[&](const LoadError& a_e) { return a_e.mod.empty() && a_e.file == a_file; });
+		if (count > 0) {
+			InvalidateData();
+		}
+		return count > 0;
+	}
+
+	bool SettingsStore::EraseLoadErrorsForMod(std::string_view a_modId)
+	{
+		const auto count = std::erase_if(_loadErrors,
+			[&](const LoadError& a_e) { return !a_e.mod.empty() && a_e.mod == a_modId; });
+		if (count > 0) {
+			InvalidateData();
+		}
+		return count > 0;
 	}
 
 	void SettingsStore::NotifyAll() const
@@ -864,6 +936,25 @@ namespace OSFUI
 			if (!vanilla.empty()) {
 				data["vanillaKeys"] = std::move(vanilla);
 			}
+		}
+		// Additive (protocol 1.1, capability "settings.loadErrors"): artifacts
+		// that failed to load, so the Mods surface can SAY so instead of a mod
+		// silently vanishing (the SkyUI-MCM support lesson; §14.2). Omitted in
+		// the (normal) clean case; views ignore unknown top-level fields.
+		if (!_loadErrors.empty()) {
+			nlohmann::json errors = nlohmann::json::array();
+			for (const auto& e : _loadErrors) {
+				nlohmann::json entry{
+					{ "kind", e.kind },
+					{ "file", e.file },
+					{ "message", e.message },
+				};
+				if (!e.mod.empty()) {
+					entry["mod"] = e.mod;
+				}
+				errors.push_back(std::move(entry));
+			}
+			data["loadErrors"] = std::move(errors);
 		}
 		_dataCache.emplace(std::move(data));
 		return *_dataCache;

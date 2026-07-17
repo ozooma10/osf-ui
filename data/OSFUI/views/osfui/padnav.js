@@ -90,20 +90,32 @@
   const cx = (r) => r.left + r.width / 2;
   const cy = (r) => r.top + r.height / 2;
 
-  // Nearest candidate strictly in `dir` from `from`, center-to-center, with
-  // off-axis drift penalized so vertical travel stays in its column (rail vs
-  // detail) and horizontal travel stays in its row.
+  // Nearest candidate in `dir` from `from`. Direction is gated on the EDGE,
+  // not the center: to count as "right" a candidate's center must clear the
+  // current element's right edge (etc.) — otherwise a same-column neighbour
+  // that happens to sit a few pixels off-center outranks a genuine sideways
+  // jump (the rail's undo chip beating the whole detail pane). Off-axis drift
+  // is penalized so vertical travel stays in its column and horizontal travel
+  // stays in its row.
   function pickDirectional(from, dir, cands) {
     const fx = cx(from), fy = cy(from);
     let best = null, bestScore = Infinity;
     for (const c of cands) {
-      const dx = cx(c.r) - fx, dy = cy(c.r) - fy;
+      const x = cx(c.r), y = cy(c.r);
       let primary, secondary;
-      if (dir === "up") { primary = -dy; secondary = Math.abs(dx); }
-      else if (dir === "down") { primary = dy; secondary = Math.abs(dx); }
-      else if (dir === "left") { primary = -dx; secondary = Math.abs(dy); }
-      else { primary = dx; secondary = Math.abs(dy); }
-      if (primary <= 1) continue;
+      if (dir === "up") {
+        if (y >= from.top) continue;
+        primary = fy - y; secondary = Math.abs(x - fx);
+      } else if (dir === "down") {
+        if (y <= from.bottom) continue;
+        primary = y - fy; secondary = Math.abs(x - fx);
+      } else if (dir === "left") {
+        if (x >= from.left) continue;
+        primary = fx - x; secondary = Math.abs(y - fy);
+      } else {
+        if (x <= from.right) continue;
+        primary = x - fx; secondary = Math.abs(y - fy);
+      }
       const score = primary + secondary * 2.5;
       if (score < bestScore) { bestScore = score; best = c.el; }
     }
