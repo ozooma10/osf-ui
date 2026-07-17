@@ -121,13 +121,11 @@ Tooling / docs / tests:
 - [x] `README.md` + `sdk/README.md` + `sdk/osfui.d.ts` path/id references.
 
 Still open (tracked elsewhere):
-- OSF Animation repo migration (`osf` → `osf.animation`: schema id, view
-  folder, RegisterView, command names) — bundled with the item-3/4 slice per
-  its checklist (one vendored-header update); until then its schema/view are
-  rejected by the new rules in-game.
+- ~~OSF Animation repo migration~~ — landed with the item-3/4 slice (their
+  0d84f92; see item 3's checklist).
 - In-game verify pass (fresh boot: nested views load, F10 opens
   `osfui/settings`, pause-menu entry opens it, keybinds terminal opens,
-  shared CSS resolves).
+  shared CSS resolves; OSF Animation card + browser under the new ids).
 
 Follow-on alignments (tracked as their own items below):
 - Bridge **commands** registered by native plugins should be required to start
@@ -205,7 +203,7 @@ the native store is the whole problem.
 
 ---
 
-## 3. Command namespace + registration policy — 🔨 implemented (2026-07-17, OSF UI side; OSF Animation migration pending)
+## 3. Command namespace + registration policy — 🔨 implemented (2026-07-17, incl. the OSF Animation migration)
 
 **Problem.** `IsReservedCommand` (`src/api/BridgeApi.cpp`) blocks only
 `ui./runtime./game./settings./views.` — `menu.*`, `hud.*`, the bare platform
@@ -235,9 +233,15 @@ shipped header documents the list without `views.` (already drifted).
 - [x] `sdk/OSFUI_API.h` + `docs/native-plugin-api.md` — reserved-prefix prose
       replaced by the command-shape rule everywhere (interface comment, §7
       guards, §11 test rows; §12 "namespacing" open question marked resolved).
-- [ ] OSF Animation repo — the `osf` → `osf.animation` migration (schema id,
-      view folder, RegisterView, command names, vendored header 1.6).
-      ⚠ That repo often has parallel in-flight work — path-limit the commits.
+- [x] OSF Animation repo — the `osf` → `osf.animation` migration landed
+      (their 0d84f92, path-limited): schema id + values-file orphaning noted,
+      `views/osf.animation/browser/` (manifest id `browser`), RegisterView
+      qualified id, ALL commands + message types `osf.animation.*`, vendored
+      header 1.6 consumed via the `Client` wrapper, xmake deploy retargeted
+      (+ removes the stale `views/osf/` from the MO2 target, which the item-1
+      loader would otherwise ERROR on every boot). Schema `icon` became
+      `browser/osf-icon.svg` — mod assets now resolve under the NAMESPACE
+      folder (`views/<modId>/<path>`), not the view folder.
 - [x] `docs/authoring-views.md` — claimed author prefixes documented in §0
       (`osfui` platform-reserved dotless; `osf` = the OSF family's author
       segment); the JS-side "no escape hatch" callout now states the
@@ -251,7 +255,7 @@ shipped header documents the list without `views.` (already drifted).
 
 ---
 
-## 4. Native API version-gate + ABI hardening — 🔨 implemented (2026-07-17, OSF UI side; OSF Animation wrapper migration pending)
+## 4. Native API version-gate + ABI hardening — 🔨 implemented (2026-07-17)
 
 **Problem.** `OSFUI_RequestBridge` checks MAJOR only and returns the full
 singleton (`src/api/Exports.cpp`); a client built against a newer header that
@@ -290,8 +294,9 @@ found in the audit.
       in §4; Appendix B command names updated.
 - [x] `src/api/Exports.cpp` — logs every vend with the caller's requested
       ABI MAJOR.MINOR vs the host's (and WARNs a refused MAJOR mismatch).
-- [ ] OSF Animation — vendor the new header, consume via the wrapper (rides
-      the item-3 migration).
+- [x] OSF Animation — vendored 1.6, both consumers (`UIBridge.cpp`,
+      `UISettings.cpp`) migrated to `Client` (`Has(Feature)` replaces the
+      hand-rolled MINOR arithmetic; rode the item-3 migration, their 0d84f92).
 
 ---
 
@@ -604,10 +609,11 @@ here only for completeness.)*
 ## Status & implementation order
 
 **All 12 items designed as of 2026-07-17** (items 1–5, 7 via user Q&A; 6, 8,
-9–12 engineering designs). **Items 1–4 implemented 2026-07-17** on the OSF UI
-side (build green, all 8 native suites pass, nested layout verified in the
-MO2 deploy; in-game check + the OSF Animation `osf` → `osf.animation`
-migration still open). Dependency-ordered implementation slices:
+9–12 engineering designs). **Items 1–4 implemented 2026-07-17**, including
+the OSF Animation `osf` → `osf.animation` migration in the sibling repo
+(both repos build green; all 8 native suites pass; nested layouts verified
+in both MO2 deploys). Still open across slices 1–3: the in-game verify pass.
+Dependency-ordered implementation slices:
 
 1. **Item 1** — ID namespacing + nested layout (everything else keys off the
    id rules; includes the OSF Animation `osf` → `osf.animation` rename

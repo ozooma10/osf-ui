@@ -70,7 +70,7 @@
     <div id="missing" class="missing">
       <b>OSF Animation view not reachable.</b><br><br>
       This page loads the real view from the sibling repo
-      (<code>../../../OSF Animation/views/osf/</code>), which must be inside the
+      (<code>../../../OSF Animation/views/osf.animation/browser/</code>), which must be inside the
       served root. Start the server with <code>serve.cmd</code> (it serves
       <code>c:\Modding\Starfield</code>) — a server rooted at the OSF UI repo
       can't reach it.
@@ -79,7 +79,7 @@
 
   <script>
     "use strict";
-    const VIEW_DIR = "../../../OSF Animation/views/osf/";
+    const VIEW_DIR = "../../../OSF Animation/views/osf.animation/browser/";
     const frame = document.getElementById("view");
 
     // http.server answers 404 with an HTML page the iframe would happily show —

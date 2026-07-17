@@ -24,8 +24,6 @@
   // (root + "/<modId>/<file>") before falling back to "../..". Sibling repo,
   // reachable under serve.cmd's root.
   window.OSFUI_MOD_ASSET_ROOTS = {
-    // Pre-item-3 shim: OSF Animation still ships views/osf/ until its
-    // osf -> osf.animation migration lands (api-freeze-plan item 3).
     "osf.animation": "../../../OSF Animation/views",
   };
 
@@ -468,8 +466,9 @@
     // plugin source so the Mods page shows its settings like in game.
     const osf = await tryFetchNativeSchema("../../../OSF Animation/src/API/UISettings.cpp");
     if (osf && osf.groups) {
-      // Pre-item-3 shim: remap the legacy dotless id until the sibling repo's
-      // osf -> osf.animation migration lands (the store now rejects "osf").
+      // Stale-checkout shim: remap the pre-migration dotless id (the store
+      // rejects "osf"; the sibling repo registers "osf.animation" since its
+      // api-freeze migration).
       if (osf.id === "osf") osf.id = "osf.animation";
       loaded.push(osf);
     }
