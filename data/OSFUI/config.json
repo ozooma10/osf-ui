@@ -2,7 +2,6 @@
   "$comment": "Developer/boot file (mod-owned; overwritten on update). User-facing knobs live in Mod Settings (F10 -> OSF UI) and persist under Documents\\My Games\\Starfield\\OSFUI.",
   "configVersion": 1,
   "enabled": true,
-  "startVisible": false,
   "renderer": "ultralight",
   "compositor": "d3d12",
   "inputSource": "ui",
@@ -12,7 +11,6 @@
   "engineInput": true,
   "view": "osfui/settings",
   "views": ["osfui/settings", "osfui/keybinds"],
-  "allowNetwork": false,
   "devMode": false,
   "devReloadKey": "F11"
 }

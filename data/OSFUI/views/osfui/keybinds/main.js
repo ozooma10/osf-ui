@@ -499,7 +499,19 @@ osfui.on("ui.hotkey", (p) => flashKey(p.mod, p.key));
 // ---- boot --------------------------------------------------------------------------
 
 searchEl.addEventListener("input", () => { paintKeyboard(); renderList(); });
-document.getElementById("close").addEventListener("click", () => sendCommand({ command: "close" }));
+
+// Back to the Mods hub rather than dismissing the overlay: single-menu policy
+// means opening the hub replaces this menu, so no explicit close is needed.
+// If the hub view isn't registered (unknown-view), fall back to plain close so
+// Esc never strands the user in a menu they can't leave.
+const HUB_VIEW = "osfui/settings";
+function goBack() {
+  if (!bridgeAvailable()) return;
+  osfui.request("menu.open", { view: HUB_VIEW })
+    .catch(() => sendCommand({ command: "close" }));
+}
+
+document.getElementById("back").addEventListener("click", goBack);
 document.addEventListener("keydown", (e) => {
   if ((e.ctrlKey || e.metaKey) && String(e.key).toLowerCase() === "f") {
     e.preventDefault();
@@ -508,7 +520,7 @@ document.addEventListener("keydown", (e) => {
     return;
   }
   if (e.key === "Escape" && !e.defaultPrevented && !capturing) {
-    sendCommand({ command: "close" });
+    goBack();
   }
 });
 
