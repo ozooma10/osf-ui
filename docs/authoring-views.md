@@ -1,58 +1,63 @@
 # Authoring Views & Settings
 
+> **Disclaimer:** This document is AI-generated (written with Claude and
+> reviewed against the source code). If it ever disagrees with the code, the
+> JSON Schemas (§7), or `sdk/osfui.d.ts`, those are authoritative — and a bug
+> report about the mismatch is welcome.
+
 How to build a UI for OSF UI without touching the C++ runtime. This is
 a reference for the two data-driven extension points that work today:
 
 1. **Views** — an HTML/CSS/JS page rendered as an in-game overlay.
-2. **Settings schemas** — typed knobs that appear in the built-in `settings`
+2. **Settings schemas** — typed settings that appear in the built-in `settings`
    view (MCM-style), persisted and validated natively.
 
-> **Status / scope.** What you can ship as pure content with no recompile: a
+> **Status / scope.** Pure content, no recompile: a
 > `views/<modId>/<viewName>/` folder and a `settings/<modId>.json` schema. The
 > bridge protocol is at version **1.0 — stable**; additive changes bump the
-> minor, breaking changes bump the major. Compatibility is advisory: declare
-> the OSF UI version you authored against as `targetVersion` (manifest and/or
-> settings schema, §7) and the Mods surface badges "needs update" when the
-> running host is older — `bridgeVersion` is informational. See
+> minor version, breaking changes bump the major. Compatibility is advisory:
+> declare the OSF UI version you authored against as `targetVersion` (manifest
+> and/or settings schema, §7), and the Mods surface shows a "needs update"
+> badge when the running host is older. `bridgeVersion` is informational. See
 > [ROADMAP.md](ROADMAP.md) for what is still planned.
 
-## 0. Ids: one grammar for everything
+## 0. Identifiers
 
-Every public identifier derives from your **mod id** (api-freeze-plan item 1):
+Every public identifier derives from your mod id:
 
 - **Mod id** — `<author>.<modname>`, e.g. `ozooma10.almanac`. Lowercase
-  `[a-z0-9-]` segments, **exactly one dot**, max 64 chars. `author` is a
-  handle you already own (Nexus/GitHub username) — self-allocated, no
-  registry. Dotless ids are **reserved for the platform** (`osfui` is the
-  only dotless built-in), so no reserved-word list exists to collide with.
+  `[a-z0-9-]` segments, exactly one dot, max 64 chars. The author segment is a
+  handle you already own (your Nexus or GitHub username); it is
+  self-allocated, with no registry. Dotless ids are reserved for the platform
+  (`osfui` is the only dotless built-in), so there is no reserved-word list to
+  collide with.
 - **View name** — `[a-z0-9-]+`, local to your mod (`planets`).
 - **Qualified view id** — `<modId>/<viewName>` (`ozooma10.almanac/planets`).
-  This is the id everywhere views are referenced: `config.json` `view`/`views`,
-  `menu.open`, `views.data`, `RegisterView`. The slash mirrors the folder path
-  (a dotted join would be ambiguous, since mod ids contain a dot).
+  This is the id used everywhere views are referenced: `config.json`
+  `view`/`views`, `menu.open`, `views.data`, `RegisterView`. The slash mirrors
+  the folder path; a dotted join would be ambiguous because mod ids already
+  contain a dot.
 
-Ids failing the grammar are **hard-rejected at load** with an ERROR in
-`OSF UI.log` naming the file and the rule. The same mod id names your settings
-schema (`settings/<modId>.json`), your values file, your view namespace
-folder, and the prefix of your native bridge commands
-(`<modId>.<command>`) — one identity across every surface.
+Ids that fail the grammar are rejected at load, with an ERROR in `OSF UI.log`
+naming the file and the rule. The same mod id names your settings schema
+(`settings/<modId>.json`), your values file, your view namespace folder, and
+the prefix of your native bridge commands (`<modId>.<command>`) — one identity
+across every surface.
 
-**Claimed author prefixes.** The author segment is self-allocated (use a
-handle you already own — your Nexus/GitHub name), with two claims on record:
-`osfui` is the platform's (reserved, dotless) and **`osf`** is the OSF family
-of mods (`osf.animation`, and future `osf.*` siblings). Don't publish under
-an author segment someone else is already shipping under — the collision
-policy is deterministic first-wins, and the loser is you.
+Two author prefixes are already claimed: `osfui` belongs to the platform
+(reserved, dotless) and `osf` to the OSF family of mods (`osf.animation`, plus
+future `osf.*` siblings). Don't publish under an author segment someone else
+already ships under; when two mods collide, whichever loads first wins.
 
-Everything here assumes you have read [security-model.md](security-model.md):
-**your view is treated as untrusted code.** There is no network, no filesystem
+Before authoring, read [security-model.md](security-model.md): your view is
+treated as untrusted code. There is no network access, no filesystem access
 beyond your own folder, and no way to call arbitrary native functions.
 
 ---
 
 ## 1. View package layout
 
-A view is a folder **inside your mod's namespace folder** under the plugin
+A view is a folder inside your mod's namespace folder under the plugin
 data dir:
 
 ```
@@ -64,43 +69,45 @@ SFSE/Plugins/OSFUI/views/<author>.<modname>/<viewname>/
   assets/...        (optional) images/fonts — local only
 ```
 
-The two-level layout is discovered automatically at load (a mod folder may
-hold several views; subfolders without a `manifest.json` are ignored, so you
-can keep shared assets next to your views). The built-ins dogfood it:
-`views/osfui/settings/`, `views/osfui/keybinds/`. To open your view, use its
-qualified id `<modId>/<viewName>` — e.g. as a `config.json` `views` entry, a
-`menu.open` target, or a `RegisterView` argument.
+The two-level layout is discovered automatically at load. A mod folder may
+hold several views, and subfolders without a `manifest.json` are ignored, so
+you can keep shared assets next to your views. The built-in views use the
+same layout: `views/osfui/settings/`, `views/osfui/keybinds/`. To open your
+view, use its qualified id `<modId>/<viewName>` — as a `config.json` `views`
+entry, a `menu.open` target, or a `RegisterView` argument.
 
-All asset references must be **relative and stay inside your folder**.
-Absolute paths, paths with a root, and any `..` component are rejected before
-disk I/O (`SandboxFileSystem`, enforced in the renderer). The page is loaded
-as `file:///<modId>/<viewName>/<entry>`. The sanctioned exceptions: the shared
-UI kit at `views/shared/osfui.css` / `osfui.js` — link them as
-`../../shared/osfui.css` (they collapse to `file:///shared/…`).
+All asset references must be relative: absolute paths, paths with a root,
+and any `..` component are rejected before disk I/O (`SandboxFileSystem`,
+enforced in the renderer), which confines every request to the views root.
+The page is loaded as `file:///<modId>/<viewName>/<entry>`. Keep your
+references inside your own folder — the only cross-folder path that is part
+of the contract is the shared UI kit at `views/shared/osfui.css` /
+`osfui.js`; link those as `../../shared/osfui.css`, which collapses to
+`file:///shared/…`.
 
-### The shared UI kit — contract
+### The shared UI kit
 
-`shared/osfui.css` is the design system every shipped view uses. Its contract
-(api-freeze item 9):
+`shared/osfui.css` is the design system every shipped view uses. Its
+contract:
 
-- **Everything the kit exports is prefixed**: classes `osf-*`, custom
-  properties `--osf-*`. Nothing un-prefixed is contract — your own class and
-  token names can never collide with a kit update.
-- **Linking is the opt-in, and it is all-or-nothing.** The sheet styles
+- Everything the kit exports is prefixed: classes `osf-*`, custom properties
+  `--osf-*`. Nothing un-prefixed is part of the contract, so your own class
+  and token names cannot collide with a kit update.
+- Linking the sheet is opt-in, and it is all-or-nothing. It styles
   element-level bases (body, headings, `a`, `kbd`, `::selection`, scrollbars,
-  form elements) globally — that is what a design-system base sheet is. Link
-  it for the native look, or don't link it and own all your styling; there is
-  no partial mode.
-- **Theming is one hex.** There are no theme classes; a mod's accent is its
-  schema/manifest `accent` value. Apply it to any subtree with
-  `osfui.applyAccent(el, "#e6904a")` (from `shared/osfui.js`) — it derives
-  the kit's linked accent set (`--osf-accent`, `-hover`, `-strong`,
-  `-quiet`); passing a missing/invalid value clears it.
+  form elements) globally, as any design-system base sheet does. Link it for
+  the native look, or don't link it and own all your styling; there is no
+  partial mode.
+- Theming is a single accent color. There are no theme classes; a mod's
+  accent is the `accent` value in its schema or manifest. Apply it to any
+  subtree with `osfui.applyAccent(el, "#e6904a")` (from `shared/osfui.js`),
+  which derives the kit's linked accent set (`--osf-accent`, `-hover`,
+  `-strong`, `-quiet`). A missing or invalid value clears it.
 
-### Localization: English inline, community overrides
+### Localization
 
 Write normal English in your manifest and page. Community translation mods
-ship `SFSE/Plugins/OSFUI/l10n/<modId>_<locale>.json`; you do not need an
+ship `SFSE/Plugins/OSFUI/l10n/<modId>_<locale>.json`; you don't need an
 English catalog or manual string keys. Manifest metadata is addressed as
 `views.<viewName>.title` and `views.<viewName>.description` automatically.
 
@@ -120,8 +127,8 @@ Static markup can be translated without page code:
 
 The shared helper requests the calling mod's catalog after `runtime.ready`,
 sets `document.documentElement.lang`, reapplies `data-i18n*` on every live
-language change, and exposes `osfui.i18nReady` when code must wait for the
-first catalog. Lookup falls back per string from exact locale to base locale,
+language change, and exposes `osfui.i18nReady` for code that must wait for
+the first catalog. Lookup falls back per string: exact locale, base locale,
 an optional English override, then the inline English.
 
 ---
@@ -130,7 +137,7 @@ an optional English override, then the inline English.
 
 ```jsonc
 {
-  "id": "myhud",            // REQUIRED; MUST equal the view folder name. The runtime id is the qualified "<modId>/myhud", derived from the path
+  "id": "myhud",            // required; must equal the view folder name. The runtime id is the qualified "<modId>/myhud", derived from the path
   "title": "My HUD",        // optional, defaults to the qualified id
   "description": "",        // optional; one-line blurb shown in catalogs (views.data / the Mods surface)
   "hub": true,              // optional, default true; false = hidden utility view — loads and works, but isn't advertised in catalogs (name predates the Mods surface)
@@ -148,37 +155,39 @@ an optional English override, then the inline English.
 ```
 
 Notes:
-- **Unknown manifest keys are fine** (a manifest written for a newer OSF UI
-  parses leniently; devMode logs them at INFO). An optional
-  `"manifestVersion"` integer is accepted but not required — the nested
-  folder layout is itself the format discriminator (item 8).
-- **`targetVersion`** declares the OSF UI version your view was authored
-  against (`"<major>[.<minor>[.<patch>]]"`, e.g. `"1.1.0"`). It is advisory:
-  the view always loads and does what it can. When the running OSF UI is
-  older than the target, a warning lands in `OSF UI.log` and the Mods surface
-  shows a **"needs update"** badge next to the OSF UI version number, with
-  your mod named in the tooltip — so the user learns *OSF UI* is what needs
-  updating, instead of blaming your mod for missing features. A malformed
-  value is ignored with a warning. Degrade gracefully at runtime regardless
-  (compare `runtime.ready`'s `version` if you must branch) — `targetVersion`
-  informs the user, not your code.
-- **`width`/`height` are the page's LOGICAL size — author against it.** When the
-  `d3d12` compositor is active, the runtime resizes the view to match the screen
-  aspect (height-capped at 1440) **with a matching device scale**
-  (`outputHeight / height`), so the page always lays out at its logical height
-  and CSS px scale up to output pixels. In practice: at 1440p a 720-tall
-  manifest gets a 2.0 device scale and a CSS viewport 720 tall — type sized for
-  720p stays that size on screen instead of shrinking. Width still varies with
-  the screen's aspect ratio (e.g. ~1720 CSS px wide on a 21:9 display), so
-  author width-responsive CSS. **The layout guarantee — versioned (protocol
-  1.0): your manifest's logical HEIGHT is the fixed contract; width is not.**
-- **`permissions.nativeBridge` must be `true`** if your page talks to the
-  runtime. With it `false`, `window.osfui` is never injected and your page
+- Unknown manifest keys are ignored, so a manifest written for a newer OSF UI
+  parses leniently (devMode logs them at INFO). An optional
+  `"manifestVersion"` integer is accepted but not required; the nested folder
+  layout itself identifies the format.
+- `targetVersion` declares the OSF UI version your view was authored against
+  (`"<major>[.<minor>[.<patch>]]"`, e.g. `"1.1.0"`). It is advisory: the view
+  always loads and does what it can. When the running OSF UI is older than
+  the target, a warning is written to `OSF UI.log` and the Mods surface shows
+  a "needs update" badge next to the OSF UI version number, with your mod
+  named in the tooltip — so the user learns OSF UI is what needs updating,
+  instead of blaming your mod for missing features. A malformed value is
+  ignored with a warning. Degrade gracefully at runtime regardless (compare
+  `runtime.ready`'s `version` if you must branch); `targetVersion` informs
+  the user, not your code.
+- `width`/`height` set the page's logical size; author against it. When the
+  `d3d12` compositor is active, the runtime resizes the view to match the
+  screen aspect (height capped at 1440) with a matching device scale
+  (`outputHeight / height`), so the page always lays out at its logical
+  height and CSS pixels scale up to output pixels. At 1440p, a 720-tall
+  manifest gets a 2.0 device scale and a CSS viewport 720 px tall — type
+  sized for 720p stays that size on screen instead of shrinking. Width still
+  varies with the screen's aspect ratio (about 1720 CSS px wide on a 21:9
+  display), so write width-responsive CSS. The versioned layout guarantee
+  (protocol 1.0) is that your manifest's logical height is fixed; width is
+  not.
+- `permissions.nativeBridge` must be `true` if your page talks to the
+  runtime. When it is `false`, `window.osfui` is never injected and your page
   runs purely client-side.
-- A manifest that fails validation (`id` ≠ folder name, escaping `entry`, a
-  folder name violating the id grammar) is skipped with an error in
-  `OSF UI.log`. The owning mod id is taken from the `views/<modId>/` folder — a
-  view always groups onto its own mod's page automatically.
+- A manifest that fails validation (`id` not matching the folder name, an
+  `entry` escaping the folder, a folder name violating the id grammar) is
+  skipped with an error in `OSF UI.log`. The owning mod id is taken from the
+  `views/<modId>/` folder, so a view always groups onto its own mod's page
+  automatically.
 
 ### Multiple views & layering
 
@@ -192,51 +201,51 @@ by qualified id:
 }
 ```
 
-> **Shipping a view with a native mod?** Don't edit the user's `config.json` —
-> your SFSE plugin can register its shipped `views/<modId>/<viewName>/` folder
-> at runtime with one bridge call (`RegisterView("<modId>/<viewName>")`, C ABI
-> 1.5). The view then joins the views
-> catalog — it appears on the Mods surface as a launch card on the Home page
-> and on its mod's page (grouped automatically by the `views/<modId>/` folder it
-> lives under), and opens via `RequestMenu` / `menu.open`. See
-> [native-plugin-api.md](native-plugin-api.md) §5c. The `views` array is for the
-> user's own composition (and OSF UI's built-ins).
+> Shipping a view with a native mod? Don't edit the user's `config.json`.
+> Your SFSE plugin can register its shipped `views/<modId>/<viewName>/`
+> folder at runtime with one bridge call
+> (`RegisterView("<modId>/<viewName>")`, C ABI 1.5). The view then joins the
+> views catalog: it appears on the Mods surface as a launch card on the Home
+> page and on its mod's page (grouped by the `views/<modId>/` folder it lives
+> under), and opens via `RequestMenu` / `menu.open`. See
+> [native-plugin-api.md](native-plugin-api.md) §5c. The `views` array is for
+> the user's own composition (and OSF UI's built-ins).
 
-- **Layering** is set by the menu/HUD framework, not the array order: every HUD
+- Layering is set by the menu/HUD framework, not the array order: every HUD
   composites beneath every open menu. HUDs order among themselves by their
   manifest `order` (higher on top, clamped 0..999); open menus stack in the
-  order they were opened, with the top menu on top. So an open menu always
-  sits above any HUD, whatever the HUD's `order`.
-- **The focus model — a versioned guarantee (protocol 1.0).** Input goes to
-  exactly one view: the **top open menu** (the single-menu stack — opening a
-  menu replaces and focuses it). A `"kind": "hud"` view is passive: it is never
-  focused and never receives input, even when it is the top layer. There is no
-  user-facing focus-cycle key.
-- **Each bridge-enabled view (`nativeBridge: true`) has its own bridge.**
-  Messages are attributed to their source view and replies route back to it, so
-  several views can talk to native independently — even a passive HUD can
+  order they were opened, top menu on top. An open menu therefore always sits
+  above any HUD, whatever the HUD's `order`.
+- The focus model is a versioned guarantee (protocol 1.0). Input goes to
+  exactly one view: the top open menu (the stack holds a single menu, so
+  opening a menu replaces and focuses it). A `"kind": "hud"` view is passive:
+  it is never focused and never receives input, even when it is the top
+  layer. There is no user-facing focus-cycle key.
+- Each bridge-enabled view (`nativeBridge: true`) has its own bridge.
+  Messages are attributed to their source view and replies route back to it,
+  so several views can talk to native independently; even a passive HUD can
   receive native pushes and post messages.
-- Each view is sized to the whole screen, so position your content with CSS and
-  keep the rest transparent; the layers blend by alpha.
+- Each view is sized to the whole screen, so position your content with CSS
+  and keep the rest transparent. The layers blend by alpha.
 
 ### Mouse & cursor
 
-**Do not draw your own pointer.** While the overlay captures input the runtime
-shows the real Windows (hardware) cursor — zero-lag, composited by the display
-hardware, independent of game framerate. Your page's CSS `cursor` property maps
-to the matching system cursor (`pointer` → hand, `text` → I-beam, resize
-variants, `none` hides it, anything exotic falls back to the arrow), so hover
-feedback works exactly like a browser. A page-drawn `<div>` pointer would
-trail the real one by the full render pipeline (the shipped views used to do
-this — it felt laggy and was removed) and `cursor: none` on `body` would hide
-the pointer for the whole view.
+Don't draw your own pointer. While the overlay captures input, the runtime
+shows the real Windows hardware cursor: zero lag, composited by the display
+hardware, independent of game framerate. Your page's CSS `cursor` property
+maps to the matching system cursor (`pointer` → hand, `text` → I-beam, the
+resize variants; `none` hides it; anything exotic falls back to the arrow),
+so hover feedback works exactly like a browser. A page-drawn `<div>` pointer
+would trail the real one by the full render pipeline — the shipped views used
+to do this, and it was removed for feeling laggy — and `cursor: none` on
+`body` would hide the pointer for the whole view.
 
 ---
 
 ## 3. The bridge — `window.osfui`
 
-When `nativeBridge` is granted, the runtime injects one object before your page
-scripts run. **Use it through the shipped helper** — load it like the shared
+When `nativeBridge` is granted, the runtime injects one object before your
+page scripts run. Use it through the shipped helper, loaded like the shared
 stylesheet, before your own script:
 
 ```html
@@ -245,7 +254,7 @@ stylesheet, before your own script:
 ```
 
 ```js
-// The helper's whole surface (thin by design — it is part of the contract):
+// The helper's full surface (deliberately thin — it is part of the contract):
 osfui.available()                 // bridge present? false = plain browser
 const info = await osfui.ready;   // the runtime.ready payload (info.version = the running OSF UI)
 osfui.send("close");              // fire-and-forget ui.command
@@ -253,13 +262,13 @@ const reply = await osfui.request("settings.get");   // correlated request
 const off = osfui.on("settings.changed", (payload) => { ... });  // subscribe
 ```
 
-`osfui.request()` generates a `requestId`, and resolves with the reply message
-(`{ type, requestId, payload }`) or rejects — an `Error` with a stable `.code`
-— on `ui.error`, on `ui.result { ok:false }`, on timeout (default 10 s; pass
-`{ timeoutMs: 0 }` to disable, e.g. for a key capture that waits on the user),
-and immediately when no bridge is present. With the helper loaded it owns
-`osfui.onMessage` — subscribe with `osfui.on()`, never assign `onMessage`
-yourself.
+`osfui.request()` generates a `requestId` and resolves with the reply message
+(`{ type, requestId, payload }`), or rejects with an `Error` carrying a
+stable `.code`: on `ui.error`, on `ui.result { ok:false }`, on timeout
+(default 10 s; pass `{ timeoutMs: 0 }` to disable, e.g. for a key capture
+that waits on the user), and immediately when no bridge is present. With the
+helper loaded it owns `osfui.onMessage`; subscribe with `osfui.on()` and
+never assign `onMessage` yourself.
 
 Under the helper sit two primitives (all the helper itself uses):
 
@@ -273,12 +282,13 @@ window.osfui.onMessage = (jsonString) => { ... };
 
 `postMessage` is read-only and cannot be reassigned. Messages sent before
 `onMessage` exists are queued (bounded, FIFO) and flushed once the DOM is
-ready **and** `onMessage` is installed — loading `osfui.js` in `<head>` or
-before your script satisfies this. A view that has queued messages it cannot
-yet receive is kept off screen until they are delivered (the plugin-API "open
-a view in a specific state" guarantee, ABI 1.3 — see
-`docs/native-plugin-api.md` §6a), and a page that never installs `onMessage`
-while being sent messages stays hidden with a warning in the SFSE log.
+ready and `onMessage` is installed; loading `osfui.js` in `<head>` or before
+your script satisfies this. A view with queued messages it cannot yet receive
+is kept off screen until they are delivered (the plugin-API "open a view in a
+specific state" guarantee, ABI 1.3 — see
+[native-plugin-api.md](native-plugin-api.md) §6a), and a page that never
+installs `onMessage` while being sent messages stays hidden, with a warning
+in the SFSE log.
 
 ### Message envelope
 
@@ -288,76 +298,77 @@ Every message in both directions is JSON text with this shape:
 { "type": "<string>", "requestId": "<optional string>", "payload": { ... } }
 ```
 
-`requestId` (protocol 1.0) is the correlation contract — `osfui.request()`
-does this for you: any `ui.command` may carry a caller-chosen id (string,
-1–64 chars); **every reply echoes it top-level**, and a command with no reply
+`requestId` (protocol 1.0) is the correlation contract, and `osfui.request()`
+handles it for you: any `ui.command` may carry a caller-chosen id (string,
+1–64 chars). Every reply echoes the id top-level, and a command with no reply
 type of its own (`close`, `menu.open`, …) answers
-`ui.result { ok, command, code?, message? }` — but **only when an id was
-supplied**. Omitting it is fire-and-forget.
+`ui.result { ok, command, code?, message? }` — but only when an id was
+supplied. Omitting the id makes the command fire-and-forget.
 
 Malformed messages are rejected and logged, never fatal. Both directions are
-capped at 64 queued messages (excess is dropped with a warning) — **do not
-flood the bridge**; it shares the game thread.
+capped at 64 queued messages; excess is dropped with a warning. Don't flood
+the bridge — it shares the game thread.
 
 ### Web → native
 
-There is exactly **one** accepted inbound type: `ui.command`. The `payload`
-carries a `command` field plus that command's arguments — `osfui.send(command,
+There is exactly one accepted inbound type: `ui.command`. The `payload`
+carries a `command` field plus that command's arguments; `osfui.send(command,
 fields)` / `osfui.request(command, fields)` build it for you.
 
-Whitelisted commands (anything else is rejected + logged, and answered with
+Whitelisted commands (anything else is rejected, logged, and answered with
 `ui.error { code: "unknown-command" }`):
 
 | command | payload fields | effect |
 |---|---|---|
 | `close` | — | close the calling surface (closing the last open menu hides the overlay; a coexisting live HUD stays up) |
 | `setVisible` | `visible: bool` | open/close the calling surface |
-| `menu.open` | `view?: string` | open a registered surface by id (omitted ⇒ the calling view). Opening a menu also **focuses** it (single-menu policy: it replaces the current menu, so the newly opened menu is the input target) |
+| `menu.open` | `view?: string` | open a registered surface by id (omitted ⇒ the calling view). Opening a menu also focuses it: under the single-menu policy it replaces the current menu and becomes the input target |
 | `menu.close` | `view?: string` | close a registered surface by id (omitted ⇒ the calling view) |
-| `hud.show` / `hud.hide` | `view?: string` | aliases of `menu.open` / `menu.close` — a surface's kind (menu vs. HUD) is fixed by its manifest, not by which command you use |
+| `hud.show` / `hud.hide` | `view?: string` | aliases of `menu.open` / `menu.close`; a surface's kind (menu vs. HUD) is fixed by its manifest, not by which command you use |
 | `setViewHidden` | `view?: string`, `hidden: bool` | show/hide one *loaded* view, independent of the global overlay toggle (omitted `view` ⇒ self) |
 | `log` | `text: string` | write to `OSF UI.log` (truncated to 512 chars) |
 | `ping` | — | runtime replies with `runtime.pong` |
 | `game.get` | — | runtime replies with `game.data` (in-game date/time from the calendar) |
-| `views.get` | — | runtime replies with `views.data` (catalog of loaded surfaces) **and subscribes the caller**: any later open/close/focus/load-state change pushes a fresh `views.data` unsolicited — no polling needed |
+| `views.get` | — | runtime replies with `views.data` (catalog of loaded surfaces) and subscribes the caller: any later open/close/focus/load-state change pushes a fresh `views.data` unsolicited, so no polling is needed |
 | `i18n.get` | `mod?` | runtime replies with `i18n.data` for the requested mod (omitted `mod` = the calling view's owner) and subscribes the caller to live language/catalog changes |
 | `settings.get` | — | runtime replies with `settings.data` |
 | `settings.set` | `mod, key, value` | set one schema-declared setting (validated) |
 | `settings.reset` | `mod`, `key?` | reset one key, or the whole mod if `key` omitted |
-| `settings.captureKey` | `mod, key` | arm native key-rebind capture for ANY `key`-typed setting of any mod; the next key press replies with `settings.captured` — echoing the arming `requestId`, however many ticks later, so `osfui.request("settings.captureKey", …, {timeoutMs: 0})` awaits the whole rebind. One capture at a time: a second arm answers `ui.result { ok:false, code:"capture-busy" }`. Captured natively so pressing the current toggle key rebinds instead of closing the overlay |
-| `osfui.gamepadRaw` | `raw: bool` | *(experimental — exempt from the 1.0 stability guarantee until stabilized)* take over gamepad handling: suppress the default nav mapping and consume raw `ui.gamepad` events yourself. **Sticky per view** — the grant survives overlay hide/show and clears only when your page (re)loads or the view is destroyed; other views never inherit it |
+| `settings.captureKey` | `mod, key` | arm native key-rebind capture for any `key`-typed setting of any mod; the next key press replies with `settings.captured`, echoing the arming `requestId` however many ticks later, so `osfui.request("settings.captureKey", …, {timeoutMs: 0})` awaits the whole rebind. One capture at a time; a second arm answers `ui.result { ok:false, code:"capture-busy" }`. Capture happens in the native input layer, so pressing the current toggle key rebinds instead of closing the overlay |
+| `osfui.gamepadRaw` | `raw: bool` | *(experimental — exempt from the 1.0 stability guarantee until stabilized)* take over gamepad handling: suppress the default nav mapping and consume raw `ui.gamepad` events yourself. The grant is sticky per view — it survives overlay hide/show and clears only when your page (re)loads or the view is destroyed; other views never inherit it |
 
-> There is intentionally **no** "call any native function" escape hatch. New
-> commands come from native code only: either a handler in the OSF UI runtime,
-> or a **separate SFSE plugin** registering its own commands through the native
-> bridge API ([native-plugin-api.md](native-plugin-api.md)). Plugin commands
-> must be shaped `<author>.<modname>.<name>` (two dots minimum — the leading
-> mod id is the §0 grammar), so every platform command above is structurally
-> unregisterable by mods.
+> There is intentionally no "call any native function" escape hatch. New
+> commands come from native code only: either a handler in the OSF UI
+> runtime, or a separate SFSE plugin registering its own commands through the
+> native bridge API ([native-plugin-api.md](native-plugin-api.md)). Plugin
+> commands must be shaped `<author>.<modname>.<name>` (two dots minimum; the
+> leading mod id follows the §0 grammar), so no mod can register any of the
+> platform commands above.
 
 ### Native → web
 
-Subscribe with `osfui.on(type, fn)` (replies that resolve an `osfui.request()`
-are ALSO dispatched to subscribers, so one render path serves both):
+Subscribe with `osfui.on(type, fn)`. Replies that resolve an
+`osfui.request()` are also dispatched to subscribers, so one render path
+serves both:
 
 | type | payload | when |
 |---|---|---|
 | `runtime.ready` | `{ game, plugin, version, bridgeVersion }` | once, after your page loads (`osfui.ready` resolves with it) — your cue to request data. `version` is the running OSF UI (the reference point for `targetVersion`, §7); `bridgeVersion` is informational |
 | `runtime.pong` | `{}` | reply to your `ping` |
 | `game.data` | `{ calendar: { available, day, month, year, hour, daysPassed } }` | reply to `game.get`; each provider nests under its own object (future providers are siblings of `calendar`); `available:false` before a save is loaded |
-| `views.data` | `{ views: [ { id, title, description, mod, kind, interactive, hub, open, focused, loadState } ] }` | reply to `views.get`, and re-pushed to every subscribed view when any entry changes. `id` is the qualified `<modId>/<viewName>`; `mod` = the owning mod id derived from the folder (a mod with no settings schema of that id just lists under its own title); `kind` = `"menu"`\|`"hud"`; `loadState` = `"loading"`\|`"loaded"`\|`"failed"`; a view torn down by crash-recovery drops out of the list. Respect `hub:false` (don't list those) |
+| `views.data` | `{ views: [ { id, title, description, mod, kind, interactive, hub, targetVersion, open, focused, loadState } ] }` | reply to `views.get`, and re-pushed to every subscribed view when any entry changes. `id` is the qualified `<modId>/<viewName>`; `mod` = the owning mod id derived from the folder (a mod with no settings schema of that id just lists under its own title); `kind` = `"menu"`\|`"hud"`; `targetVersion` = the manifest's declared target (empty string when undeclared); `loadState` = `"loading"`\|`"loaded"`\|`"failed"`; a view torn down by crash-recovery drops out of the list. Respect `hub:false` (don't list those) |
 | `i18n.data` | `{ mod, locale, strings }` | reply to `i18n.get`, then re-pushed to subscribed views after a language change or a dev-mode catalog reload; `strings` contains active-locale overrides keyed by stable structural address |
-| `settings.data` | `{ mods: [ { id, title, schema, values } ], vanillaKeys?, loadErrors? }` | reply to `settings.get` / after a `settings.reset`. A `key`-typed setting whose binding collides with another mod's carries runtime-injected `conflicts: [{mod, key, title}]` in its schema object — informational; render a badge, never block. `mod` may be the reserved id `@game` (the game's own bindings; display `title`, e.g. "Starfield (Quicksave)"). Top-level `vanillaKeys: [{event, title, name}]` is the game's FULL binding table (read-only; the keybinds view renders it); absent when the runtime has none. Top-level `loadErrors: [{kind, file, mod?, message}]` names settings files that FAILED to load — `schema-name` / `schema-parse` (file skipped) or `values-parse` (values quarantined as `<file>.bad`, defaults served); absent when everything loaded clean. The Mods surface renders these as a rail alert |
+| `settings.data` | `{ mods: [ { id, title, schema, values, shadowed?, targetVersion? } ], vanillaKeys?, loadErrors? }` | reply to `settings.get` / after a `settings.reset`. Per-mod `shadowed?` lists drop-in schema files that also claimed this id and lost first-wins (render a conflict badge); `targetVersion?` is the schema's advisory authored-against version (§7), omitted when undeclared. A `key`-typed setting whose binding collides with another mod's carries runtime-injected `conflicts: [{mod, key, title}]` in its schema object — informational; render a badge, never block. `mod` may be the reserved id `@game` (the game's own bindings; display `title`, e.g. "Starfield (Quicksave)"). Top-level `vanillaKeys: [{event, title, name}]` is the game's full binding table (read-only; the keybinds view renders it); absent when the runtime has none. Top-level `loadErrors: [{kind, file, mod?, message}]` names settings files that failed to load — `schema-name` / `schema-parse` (file skipped) or `values-parse` (values quarantined as `<file>.bad`, defaults served); absent when everything loaded clean. The Mods surface renders these as a rail alert |
 | `settings.ack` | `{ mod, key, ok, value?, code?, message? }` | result of a `settings.set`. `ok:true` carries `value`, the authoritative post-clamp committed value (compare with what you sent to detect clamping — no re-fetch needed); `ok:false` carries a stable `code`: `unknown-setting`, `read-only` (a setting type this host doesn't know), or `invalid-value` |
 | `settings.captured` | `{ mod, key, name, cancelled, conflicts? }` | reply to `settings.captureKey`: the captured key `name` (an OSF UI key name), or `cancelled:true` (Escape / unbindable — keep the old binding). When the captured key is already bound elsewhere, `conflicts: [{mod, key, title}]` lists actionable collisions this bind would create; expected `@game` reuse from a `blocksGameplay` context is omitted. Warn live, never block. The view then sends a normal `settings.set` with `name` |
 | `ui.hotkey` | `{ mod, key }` | the physical key currently bound to that `key`-typed setting was pressed in-game (protocol 1.0). Pushed to every `settings.get` subscriber — filter on `mod`. Suppressed while the overlay captures input or a rebind is armed; rebinds re-route automatically |
-| `ui.result` | `{ ok, command?, code?, message? }` | the uniform outcome (protocol 1.0), sent ONLY when your `ui.command` carried a `requestId`: verb commands (`close`, `menu.open`, …) answer `ok:true` on success; failures carry a stable `code` (`unknown-view`, `capture-busy`, `unknown-setting`, …). A plugin-registered command acks `ok:true` = delivered to the plugin's handler. `osfui.request()` consumes this for you |
-| `ui.gamepad` | `{ kind:"button", button:{id, down} }` \| `{ kind:"stick", axes:{lx, ly, rx, ry} }` | *(experimental — gamepad navigation is being refined; exempt from the 1.0 stability guarantee until stabilized)* raw gamepad events to the ACTIVE view while the overlay captures input (per-kind nesting, protocol 1.0). The default nav mapping (D-pad→arrows, A→Enter, B→close, sticks→scroll) also applies unless you asserted `osfui.gamepadRaw` |
+| `ui.result` | `{ ok, command?, code?, message? }` | the uniform outcome (protocol 1.0), sent only when your `ui.command` carried a `requestId`: verb commands (`close`, `menu.open`, …) answer `ok:true` on success; failures carry a stable `code` (`unknown-view`, `capture-busy`, `unknown-setting`, …). For a plugin-registered command, `ok:true` means delivered to the plugin's handler. `osfui.request()` consumes this for you |
+| `ui.gamepad` | `{ kind:"button", button:{id, down} }` \| `{ kind:"stick", axes:{lx, ly, rx, ry} }` | *(experimental — gamepad navigation is being refined; exempt from the 1.0 stability guarantee until stabilized)* raw gamepad events to the ACTIVE view while the overlay captures input (per-kind nesting, protocol 1.0). The default nav mapping (D-pad and left stick→arrows, A→Enter, B→close, right stick→scroll) also applies unless you asserted `osfui.gamepadRaw` |
 | `ui.visibility` | `{ visible }` | the receiving view was shown/hidden with the overlay (edge-triggered). The reference views scope per-visit state off this |
 | `ui.error` | `{ code, message, type?, command? }` | the runtime rejected something you sent. `code` is a stable machine string — `malformed-message`, `unknown-message-type`, `unknown-command`; `message` is the human sentence. Echoes your `requestId` when it could be read, so `osfui.request()` rejects with it. The same WARN is in `OSF UI.log` |
 
-Unknown `type`s should be ignored (never `eval`'d) — including future `type`s
-this runtime version doesn't know about.
+Ignore unknown `type`s (never `eval` them), including future `type`s this
+runtime version doesn't know about.
 
 ### Minimal example
 
@@ -389,6 +400,11 @@ for a complete, commented example.
 
 ## 4. Settings schemas (the MCM-style path)
 
+> The full author guide for this — quickstart, every widget, presets,
+> hotkeys, localization, update strategy, testing — is
+> [authoring-settings.md](authoring-settings.md). This section is the
+> protocol-level summary.
+
 Drop a JSON schema at:
 
 ```
@@ -396,11 +412,10 @@ SFSE/Plugins/OSFUI/settings/<author>.<modname>.json
 ```
 
 Every schema in that folder is loaded as a separate "mod" and rendered as its
-own card in the built-in `settings` view — **with zero per-mod native or web
-code**. Values persist per-mod to
-`Data\SFSE\Plugins\OSFUI\settings\values\<id>.json` (VFS-captured and thus
-per-profile under MO2), survive relaunch, and the runtime can react to
-changes natively.
+own card in the built-in `settings` view, with no per-mod native or web code.
+Values persist per mod to
+`SFSE/Plugins/OSFUI/settings/values/<id>.json` (VFS-captured, so per-profile
+under MO2), survive relaunch, and the runtime can react to changes natively.
 
 ### Schema format
 
@@ -456,19 +471,19 @@ definition wins.
 | `int` | slider | number, clamped to `[min,max]`, rounded |
 | `float` | slider | number, clamped to `[min,max]` |
 | `enum` | dropdown | must be one of `options` |
-| `flags` | checkbox group | array of `options` strings — multi-select. Unknown options and duplicates are filtered out (the enum-removal analogue of numeric clamping) and the stored array is canonicalized to declared-option order |
+| `flags` | checkbox group | array of `options` strings (multi-select). Unknown options and duplicates are filtered out, and the stored array is canonicalized to declared-option order |
 | `string` | text field | truncated to 256 chars |
-| `key` | press-to-bind button | key-name string (≤16 chars), non-empty unless the setting sets `"allowUnbound": true` — then `""` is the deliberate unbound state (no hotkey dispatch, no conflict badges, and the UI adds an unbind ×). **Framework-managed:** capture is armed via `settings.captureKey` and grabbed in the native input layer (so pressing the current toggle key rebinds instead of closing the overlay). Every `key`-typed setting of every mod is rebindable and dispatches via the HotkeyService (`ui.hotkey` / `SubscribeHotkey`) |
+| `key` | press-to-bind button | key-name string (≤16 chars), non-empty unless the setting sets `"allowUnbound": true` — then `""` is the deliberate unbound state (no hotkey dispatch, no conflict badges, and the UI adds an unbind ×). Framework-managed: capture is armed via `settings.captureKey` and grabbed in the native input layer, so pressing the current toggle key rebinds instead of closing the overlay. Every `key`-typed setting of every mod is rebindable and dispatches via the HotkeyService (`ui.hotkey` / `SubscribeHotkey`) |
 
-This is the **frozen base type set** (api-freeze-plan item 2). There is no
-`color` type — use `type:"string"` + `widget:"color"`. Post-1.0 evolution is a
-base type plus a `widget` hint and attributes; a genuinely new base type ships
-in a new OSF UI version that your schema names via `targetVersion`.
+This is the frozen base type set. There is no `color` type; use
+`type:"string"` + `widget:"color"`. Post-1.0 evolution is a base type plus a
+`widget` hint and attributes; a genuinely new base type ships in a new OSF UI
+version that your schema names via `targetVersion`.
 
 **Forward compatibility.** A host that predates one of your setting types
 renders that row read-only ("needs a newer OSF UI"), serves the schema
-`default` to consumers, and **preserves the user's saved value untouched** —
-it round-trips through every rewrite and the newer host picks it back up. If
+`default` to consumers, and preserves the user's saved value untouched — it
+round-trips through every rewrite, and a newer host picks it back up. If
 your schema uses anything newer than the OSF UI you tested against, declare
 that version so older hosts tell the user to update:
 
@@ -481,35 +496,36 @@ loads best-effort, but the Mods surface shows the "needs update" badge with
 your mod named in the tooltip, and the detail pane notes that some settings
 may be unavailable until OSF UI is updated.
 
-Values files carry two reserved `$`-prefixed meta keys the host owns:
+Values files carry two reserved `$`-prefixed meta keys owned by the host:
 `$schemaVersion` (your schema's `version`, stamped on write) and
-`$formatVersion` (the sparse encoding's own version, item 8). Never name a
-setting with a leading `$`; unknown `$`-keys from newer hosts round-trip like
-any preserved value.
+`$formatVersion` (the sparse encoding's own version). Never name a setting
+with a leading `$`; unknown `$`-keys from newer hosts round-trip like any
+preserved value.
 
-The `bool` control renders as a toggle switch, `int`/`float` as sliders with a
-value badge — see `views/shared/osfui.css` for the shared control styles.
+The `bool` control renders as a toggle switch, `int`/`float` as sliders with
+a value badge; see `views/shared/osfui.css` for the shared control styles.
 
-Unknown keys, wrong types, and out-of-range values are rejected/clamped
-server-side and reported via `settings.ack {ok:false}`. **Untrusted JS cannot
-write arbitrary keys, out-of-range values, or to any path but its own settings
-file.**
+Unknown keys, wrong types, and out-of-range values are rejected or clamped
+server-side and reported via `settings.ack {ok:false}`. Untrusted JS cannot
+write arbitrary keys, out-of-range values, or to any path but its own
+settings file.
 
-### Reacting to changes from your view (zero native code)
+### Reacting to changes from your view
 
-`settings.get` doesn't just read — it **subscribes** the calling view (the
-`views.get` pattern). After one `settings.get` at startup:
+`settings.get` doesn't just read — it subscribes the calling view, the same
+pattern as `views.get`. After one `settings.get` at startup:
 
-- every committed value — from the settings menu, a preset, a reset, or a
-  native write — is pushed to you as
-  `settings.changed { mod, key, value, conflicts? }` (the value is
-  post-validation, i.e. authoritative; on `key`-typed settings `conflicts` is
-  the recomputed collision list — protocol 1.0 — so badge updates need no
-  registry re-fetch), and
-- a registry *shape* change (a mod registering/unregistering a schema at
+- every committed value (from the settings menu, a preset, a reset, or a
+  native write) is pushed to you as
+  `settings.changed { mod, key, value, conflicts? }`. The value is
+  post-validation, i.e. authoritative; on `key`-typed settings, `conflicts`
+  is the recomputed collision list (protocol 1.0), so badge updates need no
+  registry re-fetch.
+- a registry *shape* change (a mod registering or unregistering a schema at
   runtime) re-sends the full `settings.data`.
 
-So a mod's HUD view reacts live to its own settings with zero polling:
+So a mod's HUD view reacts live to its own settings with zero polling and
+zero native code:
 
 ```js
 osfui.on("settings.changed", (p) => {
@@ -520,14 +536,14 @@ osfui.on("settings.changed", (p) => {
 osfui.send("settings.get");  // initial read + subscription in one call
 ```
 
-You receive changes for **all** mods — filter on `p.mod`.
+You receive changes for all mods; filter on `p.mod`.
 
-### Hotkeys with zero native code (protocol 1.0)
+### Hotkeys (protocol 1.0)
 
-Every `type:"key"` setting is a **live hotkey** (mcm-design.md §9): when the
-user presses the bound key in-game, the runtime pushes
-`ui.hotkey { mod, key }` to every `settings.get` subscriber. So the same
-single subscription above also makes your HUD toggleable:
+Every `type:"key"` setting is a live hotkey (mcm-design.md §9): when the user
+presses the bound key in-game, the runtime pushes `ui.hotkey { mod, key }` to
+every `settings.get` subscriber. The same single subscription above therefore
+also makes your HUD toggleable:
 
 ```js
 osfui.on("ui.hotkey", (p) => {
@@ -537,29 +553,30 @@ osfui.on("ui.hotkey", (p) => {
 });
 ```
 
-Presses typed into an overlay text field or during a rebind capture never
-fire, key repeats never fire, and the user can rebind freely — the runtime
-re-resolves the binding on every change. Duplicate bindings across mods all
-fire; the settings view badges them (the `conflicts` data above), but they
-are never blocked.
+Presses never fire while the overlay is capturing input (typing in an
+overlay text field, for example) or while a rebind capture is armed, key
+repeats never fire, and the user can rebind freely; the runtime re-resolves
+the binding on every change. Duplicate bindings across mods all
+fire — the settings view badges them (the `conflicts` data above) but never
+blocks them.
 
 ### Reacting natively (C ABI)
 
-Separate SFSE plugins subscribe over the native bridge — no core edit needed:
-`SubscribeSettings` + typed getters for values (C ABI 1.2), `SubscribeHotkey`
-for key presses (C ABI 1.4). See
+Separate SFSE plugins subscribe over the native bridge, with no core edit
+needed: `SubscribeSettings` plus typed getters for values (C ABI 1.2), and
+`SubscribeHotkey` for key presses (C ABI 1.4). See
 [native-plugin-api.md](native-plugin-api.md) §5a/§5b and `docs/mcm-design.md`
 §8.2/§9. In-tree framework knobs still react through
-`Runtime::OnSettingChanged` (e.g. `osfui.toggleKey` live-rebinds the overlay's
-open/close key).
+`Runtime::OnSettingChanged` (e.g. `osfui.toggleKey` live-rebinds the
+overlay's open/close key).
 
 ---
 
 ## 5. Testing locally
 
-Both shipped views detect a missing bridge and fall back to a **standalone
-mode** so you can open `index.html` directly in a normal browser and iterate on
-layout/logic without launching the game:
+Both shipped views detect a missing bridge and fall back to a standalone
+mode, so you can open `index.html` directly in a normal browser and iterate
+on layout and logic without launching the game:
 
 ```js
 if (!osfui.available()) {
@@ -578,11 +595,12 @@ In-game, watch `Documents\My Games\Starfield\SFSE\Logs\OSF UI.log`:
 - Set `devMode: true` in `config.json` for verbose per-call logging and a
   first-frame PNG dump under `OSFUI/ultralight/`.
 
-With `devMode: true` the in-game loop is alt-tab fast too:
+With `devMode: true` the in-game loop is fast too:
 - **Settings schemas hot-reload**: edits to `settings/*.json` are picked up
-  within ~1 s — values are preserved (a renamed key carries over via its
-  `aliases`), an open settings view repaints itself, and deleting the file
-  drops the mod. A runtime-registered (DLL) schema is never touched by files.
+  within about a second. Values are preserved (a renamed key carries over via
+  its `aliases`), an open settings view repaints itself, and deleting the
+  file drops the mod. A runtime-registered (DLL) schema is never touched by
+  files.
 - **View reload key** (`devReloadKey`, default `F11`): reloads the top open
   menu's URL in place, so HTML/JS/CSS edits show up without relaunching. The
   key is consumed by the framework while devMode is on.
@@ -615,19 +633,19 @@ Tooling to author against the contract instead of from memory:
 
 - **TypeScript definitions** ([`sdk/osfui.d.ts`](../sdk/osfui.d.ts))
   type `window.osfui`, the `ui.command` whitelist, the native→web messages,
-  and the settings-schema shapes. Reference it from your view's TS project and
-  the bridge is typed globally — no package to install.
+  and the settings-schema shapes. Reference it from your view's TS project
+  and the bridge is typed globally — no package to install.
 
 ### Versioning
 
-**Declare what you authored against; degrade gracefully at runtime.** One
-advisory field, `targetVersion`, in both author-facing files (view manifest
-§2, settings schema §5): the OSF UI version your mod was written and tested
-against. It never gates anything — your view still loads, your schema still
-registers — but when the running OSF UI is older, the Mods surface shows the
-"needs update" badge with your mod named in the tooltip, so the user learns
-OSF UI is what needs updating. The running host's version arrives as
-`runtime.ready`'s `version` if your code must branch on it:
+Declare what you authored against; degrade gracefully at runtime. One
+advisory field, `targetVersion`, appears in both author-facing files (view
+manifest §2, settings schema §4): the OSF UI version your mod was written and
+tested against. It never gates anything — your view still loads, your schema
+still registers — but when the running OSF UI is older, the Mods surface
+shows the "needs update" badge with your mod named in the tooltip, so the
+user learns OSF UI is what needs updating. The running host's version arrives
+as `runtime.ready`'s `version` if your code must branch on it:
 
 ```js
 const info = await osfui.ready;
@@ -636,8 +654,8 @@ console.log(`running OSF UI ${info.version}`);
 
 The protocol version is **1.0**, emitted as `bridgeVersion` — informational
 (logs, bug reports), distinct from the plugin `version`. From 1.0 the
-contract is stable: additive changes bump the minor; anything that would
-break a shipped view bumps the major. The constant lives in
+contract is stable: additive changes bump the minor version; anything that
+would break a shipped view bumps the major. The constant lives in
 `src/core/Version.h` (`kBridgeProtocolVersion`); the schemas, `.d.ts`, and
 the shared helper are kept in lockstep with it (CI greps the docs against
 the constant).

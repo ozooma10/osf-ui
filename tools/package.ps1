@@ -166,8 +166,8 @@ try {
     # --- root docs the distribution must carry ----------------------------
     # LICENSE + EXCEPTIONS are load-bearing: the GPL-3.0 section-7 linking
     # exception in EXCEPTIONS is what lets the mod ship proprietary Ultralight.
-    Step "Adding root docs (LICENSE, EXCEPTIONS, README, CREDITS)"
-    foreach ($doc in 'LICENSE', 'EXCEPTIONS', 'README.md', 'CREDITS.md') {
+    Step "Adding root docs (LICENSE, EXCEPTIONS)"
+    foreach ($doc in 'LICENSE', 'EXCEPTIONS') {
         $src = Join-Path $RepoRoot $doc
         if (Test-Path $src) {
             Copy-Item $src (Join-Path $Staging $doc) -Force

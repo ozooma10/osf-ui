@@ -26,12 +26,12 @@
     "version": {
       "type": "integer",
       "minimum": 0,
-      "description": "Optional schema version (default 0). New mods should declare \"version\": 1 so migration stamping is active from their first release."
+      "description": "Optional schema version (default 0). New mods should declare \"version\": 1."
     },
     "targetVersion": {
       "type": "string",
       "pattern": "^[0-9]+(\\.[0-9]+){0,2}$",
-      "description": "The OSF UI version this schema was authored against (e.g. \"1.1.0\") — the same advisory field as a view manifest's. Never gates loading: an older host still loads the schema best-effort (settings of a type it predates render read-only with the saved value preserved), but shows a 'needs update' badge in the Mods surface. You almost certainly don't need this until you use a feature newer than the host you ship against. Distinct from `version` (this mod's OWN schema version) and from the per-SETTING requires (restart/reload/newGame)."
+      "description": "The OSF UI version this schema was authored against (e.g. \"1.1.0\") - the same advisory field as a view manifest's."
     },
     "accent": {
       "type": "string",
@@ -144,19 +144,19 @@
         "aliases": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Former keys this setting was persisted under (mcm-design.md §11). On load, if the current `key` is absent from the values file, the first listed alias whose stored value still validates is adopted, then rewritten under `key` (the old alias key drops). Declarative one-way rename; no version arithmetic. The current key always wins over an alias."
+          "description": "Former keys this setting was persisted under. On load, if the current `key` is absent from the values file, the first listed alias whose stored value still validates is adopted, then rewritten under `key` (the old alias key drops). Declarative one-way rename; no version arithmetic. The current key always wins over an alias."
         },
         "label": {
           "type": "string",
-          "description": "English control label. Defaults to key; localized at settings.<key>.label."
+          "description": "Control label. Defaults to key; localized at settings.<key>.label."
         },
         "hint": {
           "type": "string",
-          "description": "Optional English helper text; localized at settings.<key>.hint."
+          "description": "Optional helper text; localized at settings.<key>.hint."
         },
         "type": {
           "enum": ["bool", "int", "float", "enum", "string", "key", "flags"],
-          "description": "Control + validation kind — the FROZEN base set (api-freeze-plan item 2). bool = toggle; int/float clamp to [min,max]; enum must be one of options; string truncates to maxLength (<=256 today, raised in the native slice); key = a rebindable key name captured by a press; flags = multi-select over options (value = array of option strings, filtered/deduped natively). Colour is NOT a type: use type:\"string\" + widget:\"color\". A host that predates a type renders it read-only and serves the schema default; the saved value is preserved untouched. A schema using a newer base type should declare the matching schema-level targetVersion so older hosts show the 'needs update' badge."
+          "description": "Control + validation kind. bool = toggle; int/float clamp to [min,max]; enum must be one of options; string truncates to maxLength; key = a rebindable key name captured by a press; flags = multi-select over options (value = array of option strings, filtered/deduped natively). Colour is NOT a type: use type:\"string\" + widget:\"color\". A schema using a newer base type should declare the matching schema-level targetVersion so older hosts show the 'needs update' badge."
         },
         "default": {
           "description": "Initial value, used until the user changes it and on reset. Should match the type. The 'modified' indicator compares the live value against this."
@@ -164,8 +164,8 @@
         "min": { "type": "number", "description": "int/float lower bound (inclusive)." },
         "max": { "type": "number", "description": "int/float upper bound (inclusive)." },
         "step": { "type": "number", "description": "Slider/stepper granularity (UI hint)." },
-        "maxLength": { "type": "integer", "minimum": 1, "description": "string max length (UI hint; native ceiling is 256 today, up to 4096 in the native slice)." },
-        "allowUnbound": { "type": "boolean", "default": false, "description": "key type only: permit \"\" as the deliberate unbound state (default \"\" is then legal). Unbound keys never dispatch hotkeys and never appear in conflicts; the settings UI renders an unbind × next to the capture button." },
+        "maxLength": { "type": "integer", "minimum": 1, "description": "string max length (UI hint; native ceiling is 256 today)." },
+        "allowUnbound": { "type": "boolean", "default": false, "description": "key type only: permit \"\" as the deliberate unbound state (default \"\" is then legal). Unbound keys never dispatch hotkeys and never appear in conflicts; the settings UI renders an unbind x next to the capture button." },
         "inputContext": {
           "type": "string",
           "description": "key type only: local inputContexts id. Missing, invalid, or unknown ids fall back to implicit gameplay."
@@ -178,12 +178,12 @@
         "optionLabels": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Optional English labels parallel to options[]. Localized by stable stored value at settings.<key>.options.<option>; the stored value is never translated."
+          "description": "Optional labels parallel to options[]. Localized by stable stored value at settings.<key>.options.<option>; the stored value is never translated."
         },
         "widget": {
           "type": "string",
           "enum": ["slider", "stepper", "dropdown", "segmented", "text", "textarea", "color"],
-          "description": "Display hint (older runtimes ignore it and use the type default). int/float: slider (default) | stepper. enum: dropdown (default) | segmented. string: text (default) | textarea | color (swatch + #hex, stored as a hex string)."
+          "description": "Display hint. int/float: slider (default) | stepper. enum: dropdown (default) | segmented. string: text (default) | textarea | color (swatch + #hex, stored as a hex string)."
         },
         "format": {
           "type": "object",
@@ -226,7 +226,7 @@
       "properties": {
         "type": { "const": "note" },
         "id": { "type": "string", "minLength": 1, "description": "Optional stable localization identity; without it, the item index is used." },
-        "text": { "type": "string", "description": "English static rich text. Micro-markdown only: **bold**, *italic*, `code`, and \\n line breaks. No HTML or links. Localized at notes.<id>.text." },
+        "text": { "type": "string", "description": "static rich text. Micro-markdown only: **bold**, *italic*, `code`, and \\n line breaks. No HTML or links. Localized at notes.<id>.text." },
         "style": { "enum": ["info", "warn", "danger"], "description": "Callout tone (default info)." },
         "visibleWhen": { "$ref": "#/$defs/condition" }
       }

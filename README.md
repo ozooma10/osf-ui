@@ -28,6 +28,7 @@ The install includes the DLL, PDB, and the `OSFUI/` data folder (config + views)
 ## Documentation
 
 - [docs/troubleshooting.md](docs/troubleshooting.md) - **players start here**: requirements, install, troubleshooting, uninstall, and known limitations
+- [docs/authoring-settings.md](docs/authoring-settings.md) - **start here to add settings to your mod**: one JSON file, no code — quickstart, widgets, hotkeys, presets, localization, testing
 - [docs/authoring-views.md](docs/authoring-views.md) - **start here to build a view**: package layout, manifest fields, the bridge protocol, and the settings schema format
 - [docs/architecture.md](docs/architecture.md) - layers and data flow
 - [docs/security-model.md](docs/security-model.md) - JS-is-untrusted rules

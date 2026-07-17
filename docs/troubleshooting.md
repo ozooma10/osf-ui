@@ -1,27 +1,27 @@
 # OSF UI — Install & Troubleshooting (for players)
 
-OSF UI is an **early but working** SFSE plugin that draws an
-HTML/CSS/JS overlay over Starfield. Today it ships a schema-driven **settings
-(MCM-style)** panel and is a foundation other UI mods can build on. It is
-**not** a finished product — expect rough edges and read *Known limitations*
-below before installing.
+OSF UI is an SFSE plugin that draws an HTML/CSS/JS overlay over Starfield.
+Right now it ships a schema-driven settings (MCM-style) panel and serves as a
+foundation for other UI mods to build on. It's early software with rough
+edges; read *Known limitations* before installing.
 
 ## Requirements
 
-- **Starfield on Steam.** Xbox/Game Pass is **not** supported (SFSE is Steam-only).
-- **SFSE** (Starfield Script Extender) matching your game version — https://sfse.silverlock.org/
-- **Address Library for Starfield** with the `versionlib-<your build>.bin` for the
-  game version you run (a common AIO Address Library mod provides this).
-- **Windows** with a D3D12-capable GPU (any modern card).
+- Starfield on Steam. Xbox/Game Pass is not supported (SFSE is Steam-only).
+- SFSE (Starfield Script Extender) matching your game version —
+  https://sfse.silverlock.org/
+- Address Library for Starfield with the `versionlib-<your build>.bin` for
+  your game version (the common AIO Address Library mod provides this).
+- Windows with a D3D12-capable GPU (any modern card).
 
 OSF UI is pinned to the game build it was compiled against (currently
 **1.16.244** via the Address Library). A game patch may require an updated
-release — see the layout-guard note under *Troubleshooting*.
+release; see the layout-guard entry under *Troubleshooting*.
 
 ## Install
 
-**Mod manager (recommended — MO2 or Vortex):** install the release archive like
-any SFSE plugin and enable it. The payload is:
+With a mod manager (MO2 or Vortex, recommended): install the release archive
+like any other SFSE plugin and enable it. The payload is:
 
 ```
 SFSE/Plugins/
@@ -29,59 +29,60 @@ SFSE/Plugins/
   OSFUI/            (config + views + the Ultralight runtime)
 ```
 
-**Manual:** extract that `SFSE/Plugins/...` tree into your Starfield `Data` folder.
+Manual: extract that `SFSE/Plugins/...` tree into your Starfield `Data`
+folder.
 
-Launch the game **through SFSE** (`sfse_loader.exe` or your mod manager's SFSE
-entry). The base game launcher will not load the plugin.
+Launch the game through SFSE (`sfse_loader.exe` or your mod manager's SFSE
+entry). The base game launcher does not load SFSE plugins.
 
 ## First run / verifying it works
 
-1. In game, press **F10** — the **Mods** menu should appear; F10 again hides
-   it, `Esc` closes it.
-2. While it's open, the game is input-frozen and the real Windows pointer
-   appears (hardware cursor — no lag, changes shape over buttons/text) to drive
-   the UI; changes save automatically.
-3. The left rail lists every installed mod (OSF UI itself first). Selecting a
-   mod shows its settings; mods that register panels or HUDs get launch
-   buttons / toggles at the top of their page. **Keybinds** (a visual keyboard
-   map for rebinding) opens from the OSF UI entry.
-4. The log is written to:
+1. In game, press **F10**. The Mods menu should appear; F10 again hides it,
+   `Esc` closes it.
+2. While the menu is open the game is input-frozen and the normal Windows
+   pointer appears (a hardware cursor, so no lag, and it changes shape over
+   buttons and text). Changes save automatically.
+3. The left rail lists every installed mod, with OSF UI itself first.
+   Selecting a mod shows its settings. Mods that register panels or HUDs get
+   launch buttons and toggles at the top of their page. Keybinds (a visual
+   keyboard map for rebinding) opens from the OSF UI entry.
+4. The log is written to
    `Documents\My Games\Starfield\SFSE\Logs\OSF UI.log`
-   (Documents may be OneDrive-redirected.)
+   (Documents may be OneDrive-redirected).
 
-A **"MOD MENUS"** entry is also injected into the game's pause menu and opens
-the overlay. If you have a controller, the menu and its panels are navigable
-with the D-pad and face buttons.
+A "MOD MENUS" entry is also added to the game's pause menu and opens the same
+overlay. On a controller, the menu and its panels can be navigated with the
+D-pad and face buttons.
 
 ## Where are my settings?
 
-Everything user-facing is in the in-game menu (**F10 → OSF UI**): the
-open/close key, the pause-menu entry, and game-key collision warnings.
-(Gameplay controls — including gamepad — always freeze while a menu captures
-input; there is no setting for it. To use the game console, close the overlay
-first — its key is swallowed while the overlay is open.)
-Choices persist to `Data\SFSE\Plugins\OSFUI\settings\values\` (one JSON per
-mod) and survive mod updates. Under MO2 that write is captured by the VFS
-(look in **Overwrite** or the mod that claims the path), which makes your
+Everything user-facing is in the in-game menu (F10 → OSF UI): the open/close
+key, the pause-menu entry, and game-key collision warnings. Gameplay controls,
+including gamepad, always freeze while a menu captures input; there is no
+setting for this. To use the game console, close the overlay first — the
+console key is swallowed while the overlay is open.
+
+Choices persist to `Data\SFSE\Plugins\OSFUI\settings\values\` (one JSON file
+per mod) and survive mod updates. Under MO2 that write goes through the VFS,
+so look in Overwrite or whichever mod claims the path. This also makes your
 settings per-profile and part of instance backups.
 
-`SFSE/Plugins/OSFUI/config.json` is a **developer/boot file** (renderer
-backends, diagnostic switches). It is overwritten when the mod updates, so
-don't keep personal edits there — unknown keys are ignored with a warning
-in the log.
+`SFSE/Plugins/OSFUI/config.json` is a developer/boot file (renderer backends,
+diagnostic switches). It gets overwritten when the mod updates, so don't keep
+personal edits there. Unknown keys are ignored with a warning in the log.
 
-**A mod is missing from the list / a warning sits atop the Mods rail:** a
-settings file that fails to load is never dropped silently — the rail pins a
-warning naming the file and the reason (bad filename, JSON parse error with
-line/column, corrupt saved values). A corrupt values file is set aside as
-`<mod>.json.bad` next to the original and defaults take over; if you were
-hand-editing it, fix the `.bad` file and rename it back. The same details are
-in `OSF UI.log`.
+**A mod is missing from the list, or a warning sits at the top of the Mods
+rail:** a settings file that fails to load always produces a warning in the
+rail naming the file and the reason (bad filename, JSON parse error with
+line/column, corrupt saved values). A corrupt values file is renamed to
+`<mod>.json.bad` and defaults are used instead; if you were hand-editing it,
+fix the `.bad` file and rename it back. The same details appear in
+`OSF UI.log`.
 
 **Fixing the game-key table:** the Keybinds view's "Starfield (…)" rows come
 from a curated table (`OSFUI/vanillakeys.json`) plus your in-game rebinds. If
 a row is wrong or missing after a game patch, create
-`Documents\My Games\Starfield\OSFUI\vanillakeys.user.json` — it overlays the
+`Documents\My Games\Starfield\OSFUI\vanillakeys.user.json`. It overlays the
 shipped table and survives updates:
 
 ```json
@@ -95,56 +96,56 @@ shipped table and survives updates:
 
 ## Troubleshooting
 
-Open `OSF UI.log` first — it states what happened.
+Check `OSF UI.log` first.
 
 | Symptom | Likely cause / fix |
 |---|---|
-| F10 does nothing, log absent | Game wasn't launched via SFSE, or SFSE doesn't match the game version. |
-| Log says `UI layout guard FAILED` | The game updated and the plugin's data is stale for this build. **Don't play with it enabled** — wait for an updated release (or a matching Address Library / CommonLibSF). This guard is deliberate: it refuses rather than risk corruption. |
-| Overlay never appears, log shows renderer/compositor warnings | The Ultralight runtime DLLs or the located game device weren't available; the overlay disables itself loudly. Re-install the archive intact. |
-| Overlay appears but is blank | The renderer fell back to `null` (missing `ultralight/` runtime files) — re-install. |
-| Overlay lingers oddly during a load | It should auto-hide on loading screens / main menu; if not, F10 to hide and report the log. |
-| Overlay never appears (or vanishes) while running ReShade / RTSS / Steam overlay / frame-gen tools | Hook-chain ordering. Check the log for `Present slot 8 owner before hook` (which tool hooked first) and `no present has reached our hook` (a tool re-hooked over OSF UI without chaining). Try changing the injection/load order of the overlay tools and report the log lines + your overlay stack. |
-| No pointer while the overlay is open, or the pointer flickers/jumps to center | Something (the engine or another overlay) is fighting the hardware cursor. The log shows `HardwareCursor: activated/deactivated` pairs on F10. Report it; as a stopgap `"hardwareCursor": false` in `config.json` restores the old input path — but it has no visible pointer, so it is a diagnostic, not a fix. |
+| F10 does nothing, no log file | The game wasn't launched through SFSE, or SFSE doesn't match the game version. |
+| Log says `UI layout guard FAILED` | The game updated and the plugin's data is stale for this build. Don't play with it enabled; wait for an updated release (or a matching Address Library / CommonLibSF). This is intentional: the plugin disables itself rather than patch the wrong offsets. |
+| Overlay never appears, renderer/compositor warnings in log | The Ultralight runtime DLLs or the game's device weren't available, so the overlay disabled itself. Re-install the archive intact. |
+| Overlay appears but is blank | The renderer fell back to `null` because `ultralight/` runtime files are missing. Re-install. |
+| Overlay lingers oddly during a load | It should auto-hide on loading screens and the main menu. If it doesn't, hide it with F10 and report the log. |
+| Overlay never appears (or vanishes) while running ReShade / RTSS / Steam overlay / frame-gen tools | Hook-chain ordering. Check the log for `Present slot 8 owner before hook` (says which tool hooked first) and `no present has reached our hook` (a tool re-hooked over OSF UI without chaining). Try changing the injection/load order of your overlay tools, and include the log lines and your overlay stack in a report. |
+| No pointer while the overlay is open, or the pointer flickers/jumps to center | The engine or another overlay is fighting the hardware cursor. The log shows `HardwareCursor: activated/deactivated` pairs on F10. Report it. As a stopgap, `"hardwareCursor": false` in `config.json` restores the old input path, but that path has no visible pointer, so treat it as a diagnostic, not a fix. |
 
-**Safe-disable without uninstalling:** set `"enabled": false` in
-`SFSE/Plugins/OSFUI/config.json` (or disable the mod in your manager).
+To disable without uninstalling: set `"enabled": false` in
+`SFSE/Plugins/OSFUI/config.json`, or disable the mod in your manager.
 
 ## Uninstall
 
-- Disable/remove the mod in MO2/Vortex, **or** delete `OSFUI.dll` and the
+- Disable or remove the mod in MO2/Vortex, or delete `OSFUI.dll` and the
   `OSFUI/` folder from `Data/SFSE/Plugins/`.
 - Saved settings live in `Data\SFSE\Plugins\OSFUI\settings\values\` (under
-  MO2: Overwrite or wherever you sorted that folder) — removing the mod's
+  MO2: Overwrite, or wherever you sorted that folder); removing the mod's
   files removes them too. If you created
   `Documents\My Games\Starfield\OSFUI\vanillakeys.user.json`, delete that
   folder as well. OSF UI writes nothing into your save files.
 
 ## Known limitations
 
-- **Steam only** (SFSE limitation).
-- **HDR / 10-bit output is not supported yet** — the overlay detects an
-  HDR/10-bit backbuffer, logs a warning naming the format, and deliberately
-  does **not** draw on it (drawing would produce wrong colors). Symptom: the
-  overlay never appears and `OSF UI.log` has a `cannot render correctly into
-  it yet` line. Workaround: run Starfield in SDR. Full HDR output is on the
-  roadmap.
-- **Untested display/overlay setups** — frame generation (DLSS-G / FSR-FG)
-  and overlay tools (ReShade, Steam overlay, RTSS) have **not** been
-  validated. On those the overlay may not appear or may draw on the wrong
-  output. OSF UI chains politely after tools that hooked first and logs
-  diagnostics for the broken cases (see the troubleshooting table above).
-  Reports welcome.
-- **Tied to a game build** via the Address Library; a patch can require an update.
-- **Input:** text entry follows your OS keyboard layout (dead keys/AltGr
-  work), but IME composition (e.g. CJK input) is not supported yet; gamepad
+- Steam only (SFSE limitation).
+- No HDR / 10-bit output yet. The overlay detects an HDR/10-bit backbuffer,
+  logs a warning naming the format, and doesn't draw on it (the colors would
+  be wrong). Symptom: the overlay never appears and `OSF UI.log` has a
+  `cannot render correctly into it yet` line. Workaround: run Starfield in
+  SDR. HDR output is planned.
+- Untested display/overlay setups: frame generation (DLSS-G / FSR-FG) and
+  overlay tools (ReShade, Steam overlay, RTSS) haven't been validated. With
+  those the overlay may not appear or may draw on the wrong output. OSF UI
+  chains after tools that hooked first and logs diagnostics for the broken
+  cases (see the table above). Reports welcome.
+- Tied to a game build via the Address Library; a patch can require an
+  update.
+- Input: text entry follows your OS keyboard layout (dead keys and AltGr
+  work), but IME composition (e.g. CJK input) isn't supported yet. Gamepad
   navigation is basic (D-pad/sticks/A/B) and being refined.
-- **For UI authors:** the `window.osfui` bridge protocol is **1.0 — stable**;
-  additive changes bump the minor, breaking changes the major. Declare the
-  version you authored against via `targetVersion` — see
+- For UI authors: the `window.osfui` bridge protocol is 1.0 and stable.
+  Additive changes bump the minor version, breaking changes the major.
+  Declare the version you authored against with `targetVersion` — see
   [authoring-views.md](authoring-views.md).
 
 ## Reporting issues
 
 Include your `OSF UI.log`, game build, SFSE version, and whether you run
-HDR / frame-gen / ReShade / overlays. Issues: https://github.com/ozooma10/osf-ui
+HDR, frame generation, ReShade, or other overlays.
+Issues: https://github.com/ozooma10/osf-ui

@@ -297,8 +297,9 @@ export interface UiVisibilityPayload {
  * captures input. Per-kind nesting (protocol 1.0): buttons and axes extend
  * inside their objects (triggers will join as axes.lt/rt; a second controller
  * as a `pad` index). Unless `osfui.gamepadRaw` was asserted, the runtime ALSO
- * applies its default mapping (D-pad -> arrows, A -> Enter, B -> close,
- * sticks -> scroll); raw mode makes these events the page's alone.
+ * applies its default mapping (D-pad and left stick -> arrows, A -> Enter,
+ * B -> close, right stick -> scroll); raw mode makes these events the page's
+ * alone.
  */
 export type UiGamepadPayload =
   | { kind: "button"; button: { id: number; down: boolean } }
