@@ -228,8 +228,10 @@ write input-hook code:
   rebindable).
 - When the bound key is pressed in-game, OSF UI dispatches it to you — see
   [§8](#8-reading-your-settings-consumption) for the web and C++ delivery.
-  Dispatch is suppressed while the overlay is capturing input, so you never
-  double-handle typing.
+  Dispatch happens **only during gameplay**: it is suppressed while any game
+  menu is open (pause menu, inventory, dialogue, main menu, …) and while the
+  overlay is capturing input, so you never double-handle typing or react to
+  presses the player made inside a menu.
 - Conflicts with other mods or Starfield's own bindings show as
   **informational warnings** — never blocked, both mods still fire.
 - `"allowUnbound": true` permits `""` as a deliberate unbound state (adds an

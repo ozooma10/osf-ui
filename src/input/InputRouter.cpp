@@ -131,9 +131,10 @@ namespace OSFUI
 	{
 		// Toggle path: fed by the WndProc hook. Handled before capture so the toggle
 		// key always works, even while the overlay owns input. The toggle key and a
-		// captured ESC are distinct intents (F10 toggles the default menu; ESC
-		// closes the top one). Both are consumed here regardless so the key never
-		// also routes into the view.
+		// captured ESC are distinct intents (F10 toggles the default menu; ESC is
+		// the back action — the runtime closes the top menu, or delegates to a
+		// back-owning view via osfui.handleBack). Both are consumed here regardless
+		// so the key never also routes into the view as a plain keystroke.
 		const bool captured = Captured();
 		if (_toggleKey != kInvalidKeyCode && a_key == _toggleKey) {
 			if (_onToggle) {

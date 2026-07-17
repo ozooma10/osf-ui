@@ -19,6 +19,9 @@ namespace OSFUI
 	// The service is pure registry + queue: Runtime feeds it (OnHostKey on the
 	// window thread, Rebuild/Drain on the main thread) and fans the drained
 	// fires out to the delivery channels. Dispatch never consumes the key.
+	// The "during gameplay" half of the contract is enforced by Runtime at
+	// drain time (DrainHotkeys + MenuMode::AnyGameMenuOpen): presses made
+	// while a game menu is open are dropped, never delivered.
 	class HotkeyService
 	{
 	public:

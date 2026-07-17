@@ -1228,7 +1228,23 @@ namespace OSFUI
 
 	void Runtime::DrainHotkeys()
 	{
-		_hotkeys.Drain([this](const std::string& a_mod, const std::string& a_key) {
+		// Gameplay gate (mcm-design.md §9): hotkeys are gameplay bindings — a
+		// press while a game menu is up (PauseMenu, inventory, dialogue, main
+		// menu, ...) must not fire. Checked here at delivery, on the game
+		// thread, via the engine's own menu-mode discriminator (MenuMode.h);
+		// evaluated lazily so idle ticks never touch RE::UI. Gated presses are
+		// DROPPED, not deferred — replaying them on menu close would be worse.
+		std::optional<bool> inGameMenu;
+		_hotkeys.Drain([this, &inGameMenu](const std::string& a_mod, const std::string& a_key) {
+			if (!inGameMenu) {
+				inGameMenu = MenuMode::AnyGameMenuOpen();
+			}
+			if (*inGameMenu) {
+				if (Log::DevMode()) {
+					REX::DEBUG("Runtime: hotkey {}.{} dropped (game menu open)", a_mod, a_key);
+				}
+				return;
+			}
 			// All delivery channels (mcm-design.md §9): C ABI subscribers
 			// (queued here, invoked unlocked by BridgeApi::PumpMainThread
 			// later this tick) and the web `ui.hotkey` push to settings
@@ -1393,6 +1409,25 @@ namespace OSFUI
 				_gamepadRawViews.insert(src);
 			} else {
 				_gamepadRawViews.erase(src);
+			}
+		});
+		a_bridge.RegisterCommand("osfui.handleBack", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
+			// A page that owns back navigation (e.g. a sub-menu whose Esc should
+			// return to the Mods hub, not dismiss the overlay) sets this; while
+			// it is the ACTIVE menu, Esc / pad-B arrive as a synthetic Escape
+			// keydown/keyup instead of closing the top menu. Same lifecycle as
+			// osfui.gamepadRaw: sticky per view, cleared on page (re)load and
+			// view destroy — the page re-asserts in its boot code. The toggle
+			// key still closes natively, so this can never strand the user.
+			const std::string src(a_b.CurrentSource());
+			if (src.empty()) {
+				a_b.SendResult(false, "unknown-view", "no source view");
+				return;
+			}
+			if (Json::GetBool(a_p, "handle", false)) {
+				_backOwnerViews.insert(src);
+			} else {
+				_backOwnerViews.erase(src);
 			}
 		});
 
