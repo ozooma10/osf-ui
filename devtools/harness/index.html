@@ -83,8 +83,13 @@
             </div>
             <div class="osf-eyebrow brand-sub">CONTROL DECK</div>
           </div>
-          <!-- Filled from the runtime.ready handshake; hidden until it arrives. -->
-          <span id="plugin-version" class="version-badge" title="OSF UI version"></span>
+          <!-- Version from the runtime.ready handshake (hidden until it
+               arrives). The badge turns yellow and the tag below it shows when
+               an installed mod targets a newer OSF UI than this one. -->
+          <div class="version-stack">
+            <span id="plugin-version" class="version-badge" title="OSF UI version"></span>
+            <span id="needs-update-tag" class="needs-update-tag" hidden>Needs update</span>
+          </div>
         </div>
         <label class="osf-search" for="filter">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="m16 16 4 4"></path></svg>

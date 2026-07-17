@@ -44,14 +44,14 @@
       "type": "integer",
       "minimum": 1,
       "maximum": 16384,
-      "default": 1280,
+      "default": 1600,
       "description": "Initial view width. The d3d12 compositor resizes the view to the screen aspect at runtime; author responsive CSS."
     },
     "height": {
       "type": "integer",
       "minimum": 1,
       "maximum": 16384,
-      "default": 720,
+      "default": 900,
       "description": "Initial view height (resized at runtime; capped at 1440)."
     },
     "transparent": {

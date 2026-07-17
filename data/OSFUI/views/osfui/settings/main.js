@@ -1670,28 +1670,25 @@ function versionLess(a, b) {
   return false;
 }
 
-// "Needs update" chip beside the OSF UI version number in the rail head:
-// shown when any installed view's manifest targetVersion is newer than the
-// running OSF UI — it's OSF UI itself that needs updating, and the tooltip
-// names the mods asking for it. Re-derived on every views.data push.
+// "Needs update" state on the version badge in the rail head: when any
+// installed view's manifest targetVersion is newer than the running OSF UI,
+// the badge goes yellow and a tag appears beneath it — it's OSF UI itself
+// that needs updating, and the tooltip names the mods asking. Re-derived on
+// every views.data / settings.data push.
 function updateNeedsUpdateBadge() {
   const badge = document.getElementById("plugin-version");
-  if (!badge) return;
-  let chip = document.getElementById("needs-update");
+  const tag = document.getElementById("needs-update-tag");
+  if (!badge || !tag) return;
   const wanting = hostVersion
     ? [...new Set(viewTargets.filter((v) => versionLess(hostVersion, v.targetVersion))
         .map((v) => homeModCaption(v) || v.mod || v.id))]
     : [];
-  if (!wanting.length) {
-    if (chip) chip.remove();
-    return;
-  }
-  if (!chip) {
-    chip = el("span", "version-badge needs-update", "needs update");
-    chip.id = "needs-update";
-    badge.insertAdjacentElement("afterend", chip);
-  }
-  chip.title = "A newer OSF UI is expected by: " + wanting.join(", ");
+  const outdated = wanting.length > 0;
+  badge.classList.toggle("is-outdated", outdated);
+  tag.hidden = !outdated;
+  const title = outdated ? "A newer OSF UI is expected by: " + wanting.join(", ") : "OSF UI version";
+  badge.title = title;
+  tag.title = title;
 }
 
 // The handshake: version badge + initial reads. `osfui.has()` is the
