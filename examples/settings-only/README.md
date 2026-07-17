@@ -39,7 +39,10 @@ The card above stores values; making them *do something* is the mod's job:
 - **SFSE plugin (C++):** fetch the bridge (`sdk/OSFUI_API.h`) and subscribe to
   your mod's changes / read typed getters. (Native slice — see
   `docs/mcm-design.md` §8.)
-- **Papyrus:** `OSFUI.GetInt("yourname.mymod", "hud.scale")` etc. (Native slice — §8.4.)
+- **Papyrus:** `OSFUI.GetInt("yourname.mymod", "hud.scale")` etc., plus change
+  callbacks and hotkey delivery via `OSFUI.RegisterForSettingChanges` /
+  `OSFUI.RegisterForHotkey` — see `docs/authoring-settings.md` "From Papyrus"
+  and the shipped `Scripts/Source/OSFUI.psc`.
 - **Action buttons** (`yourname.mymod.recalibrate`) are delivered to your plugin's
   registered command handler; reply with `{ type: "yourname.mymod.ack", payload: { key,
   ok, message } }` to resolve the button (otherwise it times out after 5s).

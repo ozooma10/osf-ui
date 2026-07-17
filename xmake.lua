@@ -58,6 +58,9 @@ target("OSF UI")
     -- ship the plugin data folder (config + views) next to the DLL:
     -- <install>/SFSE/Plugins/OSFUI/...
     add_installfiles("data/(OSFUI/**)", { prefixdir = "SFSE/Plugins" })
+    -- the Papyrus surface (authoring-settings.md "From Papyrus"): loose scripts
+    -- at the Data root -- <install>/Scripts/OSFUI.pex (+ Source/OSFUI.psc)
+    add_installfiles("data/(Scripts/**)")
 
     -- Redeploy data/ (views + config) to the mod folder on every build where a data file changed. 
     -- The commonlib rule's after_build only runs "xmake install" when the DLL binary itself changed, so pure HTML/JS/JSON edits would otherwise never reach XSE_SF_MODS_PATH.
@@ -67,11 +70,14 @@ target("OSF UI")
         end
         import("core.project.depend")
         local datadir = path.join(os.projectdir(), "data", "OSFUI")
-        local files = os.files(path.join(datadir, "**"))
+        local scriptsdir = path.join(os.projectdir(), "data", "Scripts")
+        local files = os.files(path.join(os.projectdir(), "data", "**"))
         depend.on_changed(function()
             local dstdir = path.join(target:installdir(), "SFSE", "Plugins")
             os.cp(datadir, dstdir)
-            cprint("${dim}deploying data/OSFUI to %s ..", dstdir)
+            -- Papyrus surface: loose scripts at the Data root (mod folder root)
+            os.cp(scriptsdir, target:installdir())
+            cprint("${dim}deploying data/OSFUI + data/Scripts to %s ..", target:installdir())
         end, { files = files, values = files,
                dependfile = target:dependfile("osfui_data_deploy") })
     end)

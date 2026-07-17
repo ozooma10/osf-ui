@@ -156,6 +156,14 @@ try {
         Remove-Item -Recurse -Force
     Copy-Item (Join-Path $srcData '*') $stagedData -Recurse -Force
 
+    # Same stale-glob trap applies to data/Scripts (the Papyrus surface):
+    # mirror the authoritative folder over whatever install staged.
+    $stagedScripts = Join-Path $Staging 'Scripts'
+    $srcScripts    = Join-Path $RepoRoot 'data\Scripts'
+    if (-not (Test-Path $srcScripts)) { Die "Source scripts folder not found: $srcScripts" }
+    if (Test-Path $stagedScripts) { Remove-Item $stagedScripts -Recurse -Force }
+    Copy-Item $srcScripts $stagedScripts -Recurse -Force
+
     # --- PDB (ships by default: crash loggers symbolicate with it) ---------
     if ($NoPdb) {
         Step "Stripping PDB (-NoPdb)"
@@ -180,7 +188,8 @@ try {
     Step "Verifying staged payload"
     $required = @(
         'SFSE\Plugins\OSFUI.dll',
-        'SFSE\Plugins\OSFUI\config.json'
+        'SFSE\Plugins\OSFUI\config.json',
+        'Scripts\OSFUI.pex'   # Papyrus surface (authoring-settings.md "From Papyrus")
     )
     if ($WithUltralight) {
         $required += @(

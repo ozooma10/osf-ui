@@ -5,6 +5,7 @@
 #include "RE/C/Calendar.h"
 
 #include "api/BridgeApi.h"
+#include "api/PapyrusApi.h"
 #include "composite/D3D12Compositor.h"
 #include "composite/NullCompositor.h"
 #include "core/Log.h"
@@ -322,6 +323,12 @@ namespace OSFUI
 		// so their value replay is already queued when the pump below drains
 		// SubscribeSettings callbacks — registration lands in one tick.
 		DrainSchemaOps();
+		// Papyrus Set*/Reset ops (mcm-design.md §8.4) land through the same
+		// validated store path as every other writer. After DrainSchemaOps so
+		// a set against a just-registered schema resolves this tick.
+		if (_settings) {
+			API::Papyrus::DrainSettingsOps(_settings->Store());
+		}
 		// Apply the native plugin API's queued ops (command (re)registration +
 		// off-thread SendToWeb) on the main thread, before Update() flushes the
 		// per-view outbound queues to the pages.
@@ -1134,6 +1141,10 @@ namespace OSFUI
 			auto& api = API::BridgeApi::Get();
 			api.Mirror().Update(a_mod, a_key, a_value);
 			api.Subscriptions().OnChanged(a_mod, a_key, a_value);
+			// Papyrus change callbacks (mcm-design.md §8.4). AFTER the mirror
+			// update: the dispatched script call reads current values through
+			// the mirror-backed getters, so the mirror must never lag it.
+			API::Papyrus::OnSettingChanged(a_mod, a_key);
 		});
 		store.AddRegistryListener([this] {
 			if (_settings) {  // teardown guard (_settings nulls before modules die)
@@ -1218,7 +1229,7 @@ namespace OSFUI
 	void Runtime::DrainHotkeys()
 	{
 		_hotkeys.Drain([this](const std::string& a_mod, const std::string& a_key) {
-			// Both delivery channels (mcm-design.md §9): C ABI subscribers
+			// All delivery channels (mcm-design.md §9): C ABI subscribers
 			// (queued here, invoked unlocked by BridgeApi::PumpMainThread
 			// later this tick) and the web `ui.hotkey` push to settings
 			// subscribers.
@@ -1226,6 +1237,9 @@ namespace OSFUI
 			if (_settings) {
 				_settings->PushHotkey(a_mod, a_key);
 			}
+			// Third delivery channel (mcm-design.md §8.4): registered Papyrus
+			// callbacks, queued onto the VM's async call stack.
+			API::Papyrus::OnHotkey(a_mod, a_key);
 			if (Log::DevMode()) {
 				REX::DEBUG("Runtime: hotkey fired for {}.{}", a_mod, a_key);
 			}

@@ -1,5 +1,6 @@
 #include "core/Plugin.h"
 
+#include "api/PapyrusApi.h"
 #include "core/Version.h"
 #include "input/FocusMenu.h"
 #include "input/MenuEventSink.h"
@@ -72,6 +73,12 @@ namespace OSFUI::Plugin
 					break;
 				case SFSE::MessagingInterface::kPostDataLoad:
 					REX::INFO("Plugin: SFSE message kPostDataLoad");
+					// GameVM exists from here (proven by the sibling OSF
+					// Animation plugin, same registration point). Bind the
+					// OSFUI Papyrus natives (mcm-design.md §8.4) even when the
+					// overlay is disabled — scripts then read schema defaults
+					// through the mirror instead of hard-failing.
+					API::Papyrus::Install();
 					break;
 				case SFSE::MessagingInterface::kPostPostDataLoad:
 					REX::INFO("Plugin: SFSE message kPostPostDataLoad");
