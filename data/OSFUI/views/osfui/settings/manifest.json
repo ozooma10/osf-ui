@@ -1,7 +1,7 @@
 {
   "id": "settings",
   "title": "Mods",
-  "description": "Installed mods — settings, terminals and HUD toggles.",
+  "description": "Installed mods - settings, terminals and HUD toggles.",
   "entry": "index.html",
   "mod": "osfui",
   "hub": false,
