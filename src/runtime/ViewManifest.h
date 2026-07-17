@@ -1,7 +1,14 @@
 #pragma once
 
+#include <cstdint>
+
 namespace OSFUI
 {
+	// Default logical (authoring) view size, used when a manifest omits
+	// width/height. 1600x900 = the resolution views are authored/targeted at.
+	inline constexpr std::uint32_t kDefaultViewWidth{ 1600 };
+	inline constexpr std::uint32_t kDefaultViewHeight{ 900 };
+
 	// Per-view permission grants. Everything defaults to "denied"; manifests
 	// opt in explicitly. Permissions are recorded now and enforced at the
 	// bridge/renderer boundary (filesystem/network have no implementation to
@@ -37,8 +44,8 @@ namespace OSFUI
 		// Logical (authoring) size: the page always lays out at this size. The
 		// renderer resizes views to output resolution with a matching device
 		// scale (outputHeight/height), so CSS px scale up to output pixels.
-		std::uint32_t         width{ 1600 };
-		std::uint32_t         height{ 900 };
+		std::uint32_t         width{ kDefaultViewWidth };
+		std::uint32_t         height{ kDefaultViewHeight };
 		bool                  transparent{ true };
 		std::int32_t          zorder{ 0 };         // compositing layer; lower draws beneath, higher on top
 		bool                  interactive{ true };  // may receive input and become the active (focused) view

@@ -105,7 +105,6 @@ UI kit at `views/shared/osfui.css` / `osfui.js` — link them as
   "id": "myhud",            // REQUIRED; MUST equal the view folder name. The runtime id is the qualified "<modId>/myhud", derived from the path
   "title": "My HUD",        // optional, defaults to the qualified id
   "description": "",        // optional; one-line blurb shown in catalogs (views.data / the Mods surface)
-  "mod": "yourname.mymod",  // optional consistency check — derived from the mod folder; when declared it MUST match (mismatch = rejected). The Mods surface groups this view onto the settings page of the same mod id
   "hub": true,              // optional, default true; false = hidden utility view — loads and works, but isn't advertised in catalogs (name predates the Mods surface)
   "targetVersion": "1.0.0", // optional; the OSF UI version this view is authored against — advisory, never gates loading (see note below)
   "entry": "index.html",    // optional, default "index.html"; must stay inside the folder
@@ -150,9 +149,10 @@ Notes:
 - **`permissions.nativeBridge` must be `true`** if your page talks to the
   runtime. With it `false`, `window.osfui` is never injected and your page
   runs purely client-side.
-- A manifest that fails validation (`id` ≠ folder name, declared `mod` ≠ mod
-  folder, escaping `entry`, a folder name violating the id grammar) is skipped
-  with an error in `OSF UI.log`.
+- A manifest that fails validation (`id` ≠ folder name, escaping `entry`, a
+  folder name violating the id grammar) is skipped with an error in
+  `OSF UI.log`. The owning mod id is taken from the `views/<modId>/` folder — a
+  view always groups onto its own mod's page automatically.
 
 ### Multiple views & layering
 
@@ -171,8 +171,8 @@ by qualified id:
 > at runtime with one bridge call (`RegisterView("<modId>/<viewName>")`, C ABI
 > 1.5). The view then joins the views
 > catalog — it appears on the Mods surface as a launch card on the Home page
-> and on its mod's page (set the manifest `mod` field so it lands there), and
-> opens via `RequestMenu` / `menu.open`. See
+> and on its mod's page (grouped automatically by the `views/<modId>/` folder it
+> lives under), and opens via `RequestMenu` / `menu.open`. See
 > [native-plugin-api.md](native-plugin-api.md) §5c. The `views` array is for the
 > user's own composition (and OSF UI's built-ins).
 

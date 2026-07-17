@@ -56,7 +56,7 @@ namespace OSFUI
 		}
 		if (Log::DevMode()) {
 			Json::ReportUnknownKeys(*json,
-				{ "manifestVersion", "id", "mod", "title", "description", "hub", "entry",
+				{ "manifestVersion", "id", "title", "description", "hub", "entry",
 					"width", "height", "transparent", "zorder", "interactive", "kind",
 					"capturesInput", "pausesGame", "openOnStart", "order", "permissions",
 					"targetVersion" },
@@ -88,13 +88,6 @@ namespace OSFUI
 			REX::ERROR("ViewManifest: {} declares id '{}' but the view folder is '{}' — "
 					   "'id' must equal the folder name",
 				a_path.string(), declaredId, viewName);
-			return std::nullopt;
-		}
-		// Optional `mod` is derivable from the path; when declared it must match.
-		if (const auto declaredMod = Json::GetString(*json, "mod", ""); !declaredMod.empty() && declaredMod != modId) {
-			REX::ERROR("ViewManifest: {} declares mod '{}' but lives under views/{}/ — "
-					   "'mod' is optional and must equal the mod folder when present",
-				a_path.string(), declaredMod, modId);
 			return std::nullopt;
 		}
 
