@@ -985,9 +985,13 @@ namespace OSFUI
 				continue;  // drain-and-discard while not capturing
 			}
 			// Raw event for every edge — a page may own gamepad handling.
+			// Per-kind nesting (api-freeze-plan item 11): extensions add fields
+			// inside `button` (or a `pad` index for a second controller) without
+			// colliding at the payload root.
 			if (_bridge && active) {
 				_bridge->SendToWeb(*active, "ui.gamepad",
-					nlohmann::json{ { "kind", "button" }, { "id", e.idCode }, { "down", e.down } });
+					nlohmann::json{ { "kind", "button" },
+						{ "button", { { "id", e.idCode }, { "down", e.down } } } });
 			}
 			if (raw || !e.down) {
 				continue;  // raw mode = page owns it; else act on the press edge only
@@ -1025,9 +1029,10 @@ namespace OSFUI
 				changed = changed || std::fabs(cur[i] - _padLastSentSticks[i]) > 0.04f;
 			}
 			if (changed) {
+				// Nested like the button case; triggers extend as axes.lt/rt.
 				_bridge->SendToWeb(*active, "ui.gamepad",
-					nlohmann::json{ { "kind", "stick" }, { "lx", s.lx }, { "ly", s.ly },
-						{ "rx", s.rx }, { "ry", s.ry } });
+					nlohmann::json{ { "kind", "stick" },
+						{ "axes", { { "lx", s.lx }, { "ly", s.ly }, { "rx", s.rx }, { "ry", s.ry } } } });
 				for (int i = 0; i < 4; ++i) {
 					_padLastSentSticks[i] = cur[i];
 				}
@@ -1218,11 +1223,14 @@ namespace OSFUI
 				payload["conflicts"] = std::move(conflicts);
 			}
 		}
-		_bridge->SendToWeb(_captureView, "settings.captured", payload);
+		// Deferred reply (item 5): echo the arming request's id so the view's
+		// osfui.request("settings.captureKey", ...) promise settles with this.
+		_bridge->SendToWeb(_captureView, "settings.captured", payload, _captureRequestId);
 		REX::INFO("Runtime: key capture -> {} ({}.{})", cancelled ? "(cancelled)" : name, _captureMod, _captureKey);
 		_captureView.clear();
 		_captureMod.clear();
 		_captureKey.clear();
+		_captureRequestId.clear();
 	}
 
 	void Runtime::DrainHotkeys()
@@ -1267,9 +1275,11 @@ namespace OSFUI
 			}
 			if (_menus.Open(id)) {
 				ApplyMenuPolicy();
-			} else {
-				REX::WARN("Runtime: menu.open/hud.show ignored — '{}' is not a registered surface (or already open)", id);
+			} else if (!_menus.IsRegistered(id)) {
+				REX::WARN("Runtime: menu.open/hud.show ignored — '{}' is not a registered surface", id);
+				a_b.SendResult(false, "unknown-view", "not a registered surface");
 			}
+			// Already open = desired state reached: the auto ui.result acks it.
 		};
 		const auto surfaceClose = [this](const nlohmann::json& a_p, MessageBridge& a_b) {
 			std::string id = Json::GetString(a_p, "view", "");
@@ -1278,7 +1288,10 @@ namespace OSFUI
 			}
 			if (_menus.Close(id)) {
 				ApplyMenuPolicy();
+			} else if (!_menus.IsRegistered(id)) {
+				a_b.SendResult(false, "unknown-view", "not a registered surface");
 			}
+			// Already closed = desired state reached: the auto ui.result acks it.
 		};
 		a_bridge.RegisterCommand("menu.open", surfaceOpen);
 		a_bridge.RegisterCommand("menu.close", surfaceClose);
@@ -1291,7 +1304,9 @@ namespace OSFUI
 			if (id.empty()) {
 				id = std::string(a_b.CurrentSource());
 			}
-			SetViewHidden(id, Json::GetBool(a_p, "hidden", false));
+			if (!SetViewHidden(id, Json::GetBool(a_p, "hidden", false))) {
+				a_b.SendResult(false, "unknown-view", "not a loaded view");
+			}
 		});
 		// Catalog of loaded surfaces (the Mods surface's read, bridge 0.2).
 		// Replies with `views.data` and SUBSCRIBES the caller: any later open/
@@ -1311,6 +1326,15 @@ namespace OSFUI
 		a_bridge.RegisterCommand("settings.captureKey", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
 			const std::string mod = Json::GetString(a_p, "mod", "");
 			const std::string key = Json::GetString(a_p, "key", "");
+			// One capture at a time (api-freeze-plan item 11): a second arm
+			// while one is live is refused VISIBLY instead of silently
+			// clobbering the first view's pending capture.
+			if (_captureArmed.load()) {
+				REX::WARN("Runtime: settings.captureKey rejected — a capture is already in progress ({}.{})",
+					_captureMod, _captureKey);
+				a_b.SendResult(false, "capture-busy", "a key capture is already in progress");
+				return;
+			}
 			if (!_settings || _settings->Store().GetSettingType(mod, key) != "key") {
 				REX::WARN("Runtime: settings.captureKey rejected — '{}.{}' is not a key-typed setting",
 					mod.substr(0, 64), key.substr(0, 64));
@@ -1323,6 +1347,11 @@ namespace OSFUI
 			_captureView = std::string(a_b.CurrentSource());
 			_captureMod = mod;
 			_captureKey = key;
+			// Correlation across the async gap (item 5): the eventual
+			// settings.captured echoes the arming request's id. DeferResult
+			// suppresses the auto ui.result — arming is not the outcome.
+			_captureRequestId = std::string(a_b.CurrentRequestId());
+			a_b.DeferResult();
 			_captureArmed.store(true);
 			REX::INFO("Runtime: armed key capture for {}.{} (from view '{}')", mod, key, _captureView);
 		});
@@ -1349,18 +1378,21 @@ namespace OSFUI
 		// (e.g. once a second) and renders the result. Likely graduates to its own
 		// IUiModule as game-data grows (architecture.md "Feature modules").
 		a_bridge.RegisterCommand("game.get", [](const nlohmann::json&, MessageBridge& a_b) {
-			nlohmann::json data = nlohmann::json::object();
+			// game.data nests each provider under its own object (api-freeze-plan
+			// item 11): future providers add SIBLINGS of `calendar` instead of
+			// colliding at the payload root.
+			nlohmann::json calendar = nlohmann::json::object();
 			if (const auto* cal = RE::Calendar::GetSingleton()) {
-				data["available"] = true;
-				data["day"] = cal->GetDay();
-				data["month"] = cal->GetMonth();
-				data["year"] = cal->GetYear();
-				data["hour"] = cal->GetHour();
-				data["daysPassed"] = cal->GetDaysPassedExact();
+				calendar["available"] = true;
+				calendar["day"] = cal->GetDay();
+				calendar["month"] = cal->GetMonth();
+				calendar["year"] = cal->GetYear();
+				calendar["hour"] = cal->GetHour();
+				calendar["daysPassed"] = cal->GetDaysPassedExact();
 			} else {
-				data["available"] = false;
+				calendar["available"] = false;
 			}
-			a_b.SendToWeb("game.data", data);
+			a_b.SendToWeb("game.data", nlohmann::json{ { "calendar", std::move(calendar) } });
 		});
 	}
 

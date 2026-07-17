@@ -33,6 +33,26 @@ jobs:
         env:
           CXX: clang++
 
+      - name: Check protocol version lockstep
+        # kBridgeProtocolVersion (src/core/Version.h) is claimed as a literal
+        # in the SDK README's headline, the authoring guide's status blurb +
+        # versioning section, and the .d.ts header — api-freeze-plan item 6:
+        # the "docs say 0.1, code says 0.4" drift class must not recur. Each
+        # headline site must name the CURRENT version. ("protocol 0.4"-style
+        # historical annotations elsewhere are fine and not checked.)
+        run: |
+          set -e
+          V=$(sed -n 's/.*kBridgeProtocolVersion = "\([0-9.]*\)".*/\1/p' src/core/Version.h)
+          test -n "$V" || { echo "::error::could not extract kBridgeProtocolVersion"; exit 1; }
+          echo "kBridgeProtocolVersion = $V"
+          fail=0
+          check() { grep -qE "$2" "$1" || { echo "::error file=$1::headline does not claim bridge protocol $V ($2)"; fail=1; }; }
+          check sdk/README.md            "^\*\*$V — unstable\.\*\*"
+          check docs/authoring-views.md  "protocol is at version \*\*$V — unstable\*\*"
+          check docs/authoring-views.md  "protocol version is \*\*$V\*\*"
+          check sdk/osfui.d.ts           "Bridge protocol version: $V"
+          exit $fail
+
   build:
     name: Build zero-Ultralight (${{ matrix.mode }})
     runs-on: windows-latest

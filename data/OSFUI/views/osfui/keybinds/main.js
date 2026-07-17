@@ -33,16 +33,12 @@ let selectedKey = ""; // canonical key name ("" = nothing selected)
 let capturing = null; // { mod, key, btn, prev, timer }
 
 // ---- bridge -----------------------------------------------------------------
+// Traffic goes through the shared helper (../../shared/osfui.js, loaded by
+// index.html): osfui.send fire-and-forget, osfui.request where the outcome
+// matters (protocol 0.5 requestId/ui.result envelope), osfui.on for pushes.
 
-function bridgeAvailable() {
-  return typeof window.osfui === "object" &&
-         typeof window.osfui.postMessage === "function";
-}
-function sendCommand(fields) {
-  if (bridgeAvailable()) {
-    window.osfui.postMessage(JSON.stringify({ type: "ui.command", payload: fields }));
-  }
-}
+function bridgeAvailable() { return osfui.available(); }
+function sendCommand(fields) { if (bridgeAvailable()) osfui.send(fields.command, fields); }
 
 // ---- utils --------------------------------------------------------------------
 
@@ -385,13 +381,19 @@ function beginCapture(mod, key, btn) {
   btn.classList.add("listening");
   btn.textContent = "Press a key…";
   if (bridgeAvailable()) {
-    sendCommand({ command: "settings.captureKey", mod, key });
-    capturing.timer = setTimeout(() => {
-      if (capturing && capturing.btn === btn) {
-        finishCapture({ mod, key, cancelled: true });
-        toast("Rebinding didn't get a response from the runtime.", "warn");
-      }
-    }, ACTION_TIMEOUT_MS);
+    // One awaited request for the whole rebind: the settings.captured reply
+    // echoes this request's id even though the user may take seconds to press
+    // a key (timeoutMs 0 — the reply itself settles it; Escape/refusal comes
+    // back `cancelled`). A second arm anywhere rejects with "capture-busy".
+    osfui.request("settings.captureKey", { mod, key }, { timeoutMs: 0 })
+      .then((msg) => finishCapture(msg.payload))
+      .catch((err) => {
+        if (capturing && capturing.btn === btn) {
+          finishCapture({ mod, key, cancelled: true });
+          toast(err.code === "capture-busy" ? "Another rebind is already listening."
+            : "Rebinding didn't get a response from the runtime.", "warn");
+        }
+      });
   } else {
     const onKey = (e) => {
       window.removeEventListener("keydown", onKey, true);
@@ -431,13 +433,20 @@ function finishCapture(payload) {
     const others = [...new Set(payload.conflicts.map((c) => c.title || c.mod))];
     toast(`${payload.name} is also bound by: ${others.join(", ")}`, "warn");
   }
-  // Optimistic local apply + the authoritative echo (settings.set).
+  // Optimistic local apply + the authoritative echo (settings.set). A refusal
+  // rejects the request: fall back to the store's truth instead of keeping the
+  // optimistic value.
   const mod2 = mods.find((m) => m.id === mod);
   if (mod2) {
     mod2.values = mod2.values || {};
     mod2.values[key] = payload.name;
   }
-  sendCommand({ command: "settings.set", mod, key, value: payload.name });
+  if (bridgeAvailable()) {
+    osfui.request("settings.set", { mod, key, value: payload.name }).catch((err) => {
+      toast(`Rebind rejected${err.code ? ` (${err.code})` : ""}`, "danger");
+      sendCommand({ command: "settings.get" });
+    });
+  }
   selectedKey = canonicalName(payload.name);
   renderAll();
 }
@@ -454,44 +463,38 @@ function flashKey(mod, key) {
 }
 
 // ---- messages ----------------------------------------------------------------------
+// Subscriptions via the shared helper (it owns osfui.onMessage). Replies that
+// resolve an osfui.request() also land here — one render path either way.
 
-function onMessage(json) {
-  let message;
-  try { message = JSON.parse(json); } catch { return; }
-  if (!message || typeof message.type !== "string") return;
-  const p = message.payload || {};
-  switch (message.type) {
-    case "runtime.ready":
-      sendCommand({ command: "settings.get" });
-      break;
-    case "settings.data":
-      mods = Array.isArray(p.mods) ? p.mods : [];
-      vanilla = Array.isArray(p.vanillaKeys) ? p.vanillaKeys : [];
-      renderAll();
-      break;
-    case "settings.changed": {
-      // Only key-typed settings matter here (the schema says which); update
-      // the local value and repaint. Non-key traffic is ignored.
-      const mod = mods.find((m) => m.id === p.mod);
-      const isKey = mod && ((mod.schema && mod.schema.groups) || []).some((g) =>
-        (g.settings || []).some((s) => s && s.key === p.key && s.type === "key"));
-      if (isKey && typeof p.value === "string") {
-        mod.values = mod.values || {};
-        mod.values[p.key] = p.value;
-        renderAll();
-      }
-      break;
-    }
-    case "settings.captured":
-      finishCapture(p);
-      break;
-    case "ui.hotkey":
-      flashKey(p.mod, p.key);
-      break;
-    default:
-      break;
+osfui.ready.then(() => sendCommand({ command: "settings.get" }));
+
+osfui.on("settings.data", (p) => {
+  mods = Array.isArray(p.mods) ? p.mods : [];
+  vanilla = Array.isArray(p.vanillaKeys) ? p.vanillaKeys : [];
+  renderAll();
+});
+
+osfui.on("settings.changed", (p) => {
+  // Only key-typed settings matter here (the schema says which); update
+  // the local value and repaint (this board derives collisions itself by
+  // key-name grouping, so the pushed `conflicts` list needs no separate
+  // handling). Non-key traffic is ignored.
+  const mod = mods.find((m) => m.id === p.mod);
+  const isKey = mod && ((mod.schema && mod.schema.groups) || []).some((g) =>
+    (g.settings || []).some((s) => s && s.key === p.key && s.type === "key"));
+  if (isKey && typeof p.value === "string") {
+    mod.values = mod.values || {};
+    mod.values[p.key] = p.value;
+    renderAll();
   }
-}
+});
+
+// Belt-and-braces alongside the beginCapture promise: catches a reply that
+// lost its correlation (older host without requestId echo). finishCapture is
+// idempotent — a second delivery no-ops because `capturing` is cleared.
+osfui.on("settings.captured", (p) => finishCapture(p));
+
+osfui.on("ui.hotkey", (p) => flashKey(p.mod, p.key));
 
 // ---- boot --------------------------------------------------------------------------
 
@@ -510,7 +513,6 @@ document.addEventListener("keydown", (e) => {
 });
 
 if (bridgeAvailable()) {
-  window.osfui.onMessage = onMessage;
   sendCommand({ command: "settings.get" });
 } else {
   // Standalone preview (plain browser, no harness): sample data.

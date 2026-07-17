@@ -683,6 +683,69 @@ int main()
 		}
 	}
 
+	// --- item 5: SetWithResult refusal codes -----------------------------------------
+	{
+		const auto sd = root / "settings-codes";
+		const auto vd = root / "values-codes";
+		WriteFile(sd / "t.coded.json", R"json({
+			"id": "t.coded",
+			"groups": [ { "settings": [
+				{ "key": "n",   "type": "int", "min": 0, "max": 10, "default": 5 },
+				{ "key": "vec", "type": "vector3", "default": [0,0,0] }
+			] } ] })json");
+		WriteFile(sd / "t.codedstub.json", R"json({
+			"id": "t.codedstub", "requires": ["osfui.timetravel"],
+			"groups": [ { "settings": [ { "key": "y", "type": "bool", "default": false } ] } ] })json");
+
+		SettingsStore s;
+		s.LoadAll(sd, vd);
+		CHECK(s.SetWithResult("t.coded", "n", "7").ok);
+		CHECK(s.SetWithResult("t.coded", "n", "7").code.empty());
+		CHECK(s.SetWithResult("nope.mod", "n", "7").code == "unknown-setting");
+		CHECK(s.SetWithResult("t.coded", "nope", "7").code == "unknown-setting");
+		CHECK(s.SetWithResult("t.coded", "n", "\"str\"").code == "invalid-value");
+		CHECK(s.SetWithResult("t.coded", "n", "not json").code == "invalid-value");
+		CHECK(s.SetWithResult("t.coded", "vec", "[1,2,3]").code == "read-only");   // unknown type
+		CHECK(s.SetWithResult("t.codedstub", "y", "true").code == "read-only");    // requires-gated stub
+		// Clamp is SUCCESS (the ack carries the post-clamp value, not a code).
+		CHECK(s.SetWithResult("t.coded", "n", "99").ok);
+		CHECK(*s.GetValue("t.coded", "n") == 10);
+	}
+
+	// --- item 11: ConflictsForSetting (the settings.changed annotation) ---------------
+	{
+		const auto sd = root / "settings-cfs";
+		const auto vd = root / "values-cfs";
+		WriteFile(sd / "t.keya.json", R"json({
+			"id": "t.keya", "title": "Key A",
+			"groups": [ { "settings": [ { "key": "hot", "type": "key", "default": "F7" } ] } ] })json");
+		WriteFile(sd / "t.keyb.json", R"json({
+			"id": "t.keyb", "title": "Key B",
+			"groups": [ { "settings": [ { "key": "also", "type": "key", "default": "F7" } ] } ] })json");
+
+		SettingsStore s;
+		// No resolver: no conflict grouping at all (mirrors Data()).
+		s.LoadAll(sd, vd);
+		CHECK(s.ConflictsForSetting("t.keya", "hot").empty());
+		s.SetKeyNameResolver([](std::string_view a_name) -> std::uint32_t {
+			if (a_name == "F7") return 0x76;
+			if (a_name == "F8") return 0x77;
+			return 0;
+		});
+		// Both sit on F7: each names the other.
+		{
+			const auto c = s.ConflictsForSetting("t.keya", "hot");
+			CHECK(c.size() == 1);
+			CHECK(!c.empty() && c[0]["mod"] == "t.keyb" && c[0]["key"] == "also" && c[0]["title"] == "Key B");
+		}
+		// Rebind away: the recomputed list is empty for BOTH sides.
+		CHECK(s.Set("t.keya", "hot", "\"F8\""));
+		CHECK(s.ConflictsForSetting("t.keya", "hot").empty());
+		CHECK(s.ConflictsForSetting("t.keyb", "also").empty());
+		// Non-key / unknown settings answer [] rather than erroring.
+		CHECK(s.ConflictsForSetting("t.keya", "nope").empty());
+	}
+
 	// ---------------------------------------------------------------------------
 	std::fprintf(stderr, "%d/%d checks passed\n", g_checks - g_failures, g_checks);
 	fs::remove_all(root);

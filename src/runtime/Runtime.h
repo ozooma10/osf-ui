@@ -293,6 +293,7 @@ namespace OSFUI
 		std::string                   _captureView;   // main-thread: view that armed capture
 		std::string                   _captureMod;    // main-thread: mod owning the setting being rebound
 		std::string                   _captureKey;    // main-thread: which setting (e.g. "toggleKey")
+		std::string                   _captureRequestId;  // main-thread: arming request's id, echoed on settings.captured
 		KeyCode                       _captureUpVk{ kInvalidKeyCode };  // window-thread only
 
 		std::atomic_bool              _visible{ false };

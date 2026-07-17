@@ -5,12 +5,20 @@
 #include <nlohmann/json.hpp>
 
 // Narrow native <-> web bridge. All traffic is JSON text messages with the
-// shape { "type": string, "payload": object }. Web -> native traffic is a
-// single type, `ui.command`, dispatched by its `command` field against a
-// registry of handlers. The bridge itself is FEATURE-AGNOSTIC: core registers
-// platform commands (close/setVisible/...), and each IUiModule registers its
-// own (e.g. settings.*). There is intentionally NO mechanism to call arbitrary
-// native functions from JS. See docs/security-model.md.
+// shape { "type": string, "requestId"?: string, "payload": object }. Web ->
+// native traffic is a single type, `ui.command`, dispatched by its `command`
+// field against a registry of handlers. The bridge itself is FEATURE-AGNOSTIC:
+// core registers platform commands (close/setVisible/...), and each IUiModule
+// registers its own (e.g. settings.*). There is intentionally NO mechanism to
+// call arbitrary native functions from JS. See docs/security-model.md.
+//
+// Request/result envelope (api-freeze-plan item 5, protocol 0.5): any
+// ui.command may carry a caller-chosen `requestId` (string, <=64 chars).
+// While that command is being handled, every reply sent through the no-target
+// SendToWeb echoes the id top-level; if the handler produced no reply of its
+// own, the bridge answers `ui.result { ok:true, command }` so the caller's
+// promise always settles. Handlers report failures via SendResult (emitted
+// only when a requestId was supplied — fire-and-forget stays silent).
 
 namespace OSFUI
 {
@@ -41,9 +49,26 @@ namespace OSFUI
 
 		// Native -> web: send { type, payload }. The no-target overload sends to
 		// the view whose message is currently being handled — this is what
-		// command handlers use to reply. The targeted overload names the view.
+		// command handlers use to reply; it echoes the in-flight requestId (if
+		// any) top-level and suppresses the automatic ui.result. The targeted
+		// overloads name the view; the 4-arg form attaches an explicit
+		// requestId — the deferred-reply path (e.g. settings.captured answers a
+		// capture armed ticks earlier).
 		void SendToWeb(std::string_view a_type, const nlohmann::json& a_payload);
 		void SendToWeb(std::string_view a_viewId, std::string_view a_type, const nlohmann::json& a_payload);
+		void SendToWeb(std::string_view a_viewId, std::string_view a_type, const nlohmann::json& a_payload, std::string_view a_requestId);
+
+		// Report the in-flight command's outcome as `ui.result { ok, command,
+		// code?, message? }` — but ONLY when the caller supplied a requestId
+		// (fire-and-forget callers keep today's silence; the WARN log is the
+		// handler's job). Codes are stable machine strings ("unknown-view",
+		// "capture-busy", ...); a_message is the human sentence.
+		void SendResult(bool a_ok, std::string_view a_code = {}, std::string_view a_message = {});
+
+		// Mark the in-flight request as answered WITHOUT sending anything now —
+		// the deferred-reply handshake. The handler stashes CurrentRequestId()
+		// and later echoes it via the 4-arg SendToWeb.
+		void DeferResult() { _replied = true; }
 
 		// Native -> web handshake announcing the runtime to one view.
 		void SendRuntimeReady(std::string_view a_viewId);
@@ -53,12 +78,20 @@ namespace OSFUI
 		// hiding itself without having to know its own id.
 		[[nodiscard]] std::string_view CurrentSource() const { return _currentSource; }
 
+		// The requestId of the message currently being handled ("" = none —
+		// fire-and-forget or no message in flight).
+		[[nodiscard]] std::string_view CurrentRequestId() const { return _currentRequestId; }
+
 	private:
 		void HandleUiCommand(const nlohmann::json& a_payload);
+		void SendErrorToWeb(std::string_view a_code, std::string_view a_message, const nlohmann::json& a_extra);
 
 		SendFn                                          _send;
 		std::unordered_map<std::string, CommandHandler> _commands;
-		std::string                                     _currentSource;  // source view of the in-flight message (reply target)
+		std::string                                     _currentSource;     // source view of the in-flight message (reply target)
+		std::string                                     _currentRequestId;  // requestId of the in-flight message ("" = none)
+		std::string                                     _currentCommand;    // command of the in-flight ui.command (ui.result echo)
+		bool                                            _replied{ false };  // a reply carried the requestId (suppresses auto ui.result)
 		std::unordered_set<std::string>                 _warnedUnknownCommands;  // warn-once-per-command log dedupe
 	};
 }

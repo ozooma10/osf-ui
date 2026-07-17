@@ -22,11 +22,19 @@ namespace OSFUI
 			if (_suppressChangedPush || !_bridge || _subscribers.empty()) {
 				return;
 			}
-			PushToSubscribers("settings.changed", {
+			nlohmann::json payload = {
 				{ "mod", std::string(a_mod) },
 				{ "key", std::string(a_key) },
 				{ "value", a_value },
-			});
+			};
+			// Key-typed changes carry the setting's recomputed conflict list
+			// (api-freeze-plan item 11) — always present for keys, [] = none —
+			// so views update badges in place instead of re-fetching the whole
+			// registry after every rebind (the old N+1).
+			if (_store.GetSettingType(a_mod, a_key) == "key") {
+				payload["conflicts"] = _store.ConflictsForSetting(a_mod, a_key);
+			}
+			PushToSubscribers("settings.changed", payload);
 		});
 		// Registry shape changed (runtime registration/removal while views are
 		// live): re-send the full document — the settings view fully re-renders
@@ -156,8 +164,27 @@ namespace OSFUI
 			const auto mod = Json::GetString(a_payload, "mod", "");
 			const auto key = Json::GetString(a_payload, "key", "");
 			const auto valueIt = a_payload.find("value");
-			const bool ok = valueIt != a_payload.end() && _store.Set(mod, key, valueIt->dump());
-			a_b.SendToWeb("settings.ack", { { "mod", mod }, { "key", key }, { "ok", ok } });
+			// Ack shape (api-freeze-plan items 5 + 11): `value` is the
+			// authoritative post-clamp committed value — an unsubscribed caller
+			// learns what was stored without a re-fetch (and a subscribed one
+			// can tell clamped from accepted); failures carry a machine `code`.
+			nlohmann::json ack = { { "mod", mod }, { "key", key } };
+			if (valueIt == a_payload.end()) {
+				ack["ok"] = false;
+				ack["code"] = "invalid-value";
+				ack["message"] = "missing value field";
+			} else {
+				const auto result = _store.SetWithResult(mod, key, valueIt->dump());
+				ack["ok"] = result.ok;
+				if (result.ok) {
+					if (const auto* committed = _store.GetValue(mod, key)) {
+						ack["value"] = *committed;
+					}
+				} else {
+					ack["code"] = result.code;
+				}
+			}
+			a_b.SendToWeb("settings.ack", ack);
 		});
 
 		a_bridge.RegisterCommand("settings.reset", [this](const nlohmann::json& a_payload, MessageBridge& a_b) {
@@ -170,14 +197,23 @@ namespace OSFUI
 			_suppressChangedPush = true;
 			const bool ok = _store.Reset(mod, key);
 			_suppressChangedPush = false;
-			if (ok) {
-				const auto data = _store.Data();
-				PushToSubscribers("settings.data", data);
-				if (!_subscribers.contains(std::string(a_b.CurrentSource()))) {
-					// A caller that never subscribed still needs to re-render.
-					a_b.SendToWeb("settings.data", data);
+			if (!ok) {
+				// Failure is no longer silent (item 5): a request-carrying
+				// caller gets ui.result; fire-and-forget stays quiet as before.
+				a_b.SendResult(false, "unknown-setting", "unknown mod or setting (or a requires-gated stub)");
+				return;
+			}
+			const auto data = _store.Data();
+			// The caller's copy goes through the reply path (echoes the
+			// requestId, so osfui.request("settings.reset") resolves with the
+			// authoritative document); other subscribers get the plain push.
+			const std::string caller(a_b.CurrentSource());
+			for (const auto& id : _subscribers) {
+				if (id != caller) {
+					_bridge->SendToWeb(id, "settings.data", data);
 				}
 			}
+			a_b.SendToWeb("settings.data", data);
 		});
 	}
 }

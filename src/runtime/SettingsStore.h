@@ -217,6 +217,29 @@ namespace OSFUI
 		// notification are immediate, the disk write lands via PumpPersistence.
 		bool Set(std::string_view a_modId, std::string_view a_key, std::string_view a_valueJson);
 
+		// Set with a machine-readable refusal code for the web ack
+		// (api-freeze-plan items 5 + 11). Codes are stable enum strings:
+		//   "unknown-setting"  mod or key not declared by any loaded schema
+		//   "read-only"        requires-gated stub, or a setting whose type
+		//                      this host doesn't know (served default, item 2)
+		//   "invalid-value"    unparseable JSON or validation refused
+		// ok == true ⇔ code empty ⇔ a value was committed (read the
+		// authoritative post-clamp value back via GetValue).
+		struct SetResult
+		{
+			bool        ok{ false };
+			std::string code;
+		};
+		[[nodiscard]] SetResult SetWithResult(std::string_view a_modId, std::string_view a_key, std::string_view a_valueJson);
+
+		// The changed setting's CURRENT conflict list — ConflictsFor() on its
+		// committed value (resolved through the key resolver), same shape and
+		// @game filtering as Data()'s annotation. Empty array on a non-key/
+		// unbound/unresolvable setting or when no resolver is set. Emitted with
+		// `settings.changed` for key-typed settings (item 11) so views update
+		// badges without a full registry re-fetch.
+		[[nodiscard]] nlohmann::json ConflictsForSetting(std::string_view a_modId, std::string_view a_key) const;
+
 		// Restore defaults: one key, or the whole mod when a_key is empty.
 		// Notifies; persistence is write-behind like Set. Under sparse
 		// persistence a reset key simply leaves the values file. Returns false

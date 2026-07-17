@@ -123,9 +123,10 @@ Tooling / docs / tests:
 Still open (tracked elsewhere):
 - ~~OSF Animation repo migration~~ — landed with the item-3/4 slice (their
   0d84f92; see item 3's checklist).
-- In-game verify pass (fresh boot: nested views load, F10 opens
-  `osfui/settings`, pause-menu entry opens it, keybinds terminal opens,
-  shared CSS resolves; OSF Animation card + browser under the new ids).
+- ~~In-game verify pass~~ — passed 2026-07-17 (fresh boot: nested views load,
+  F10 opens `osfui/settings`, pause-menu entry opens it, keybinds terminal
+  opens, shared CSS resolves; OSF Animation card + browser under the new ids,
+  `osf.animation.*` command + hotkey round-trips work).
 
 Follow-on alignments (tracked as their own items below):
 - Bridge **commands** registered by native plugins should be required to start
@@ -300,7 +301,7 @@ found in the audit.
 
 ---
 
-## 5. Bridge request/result envelope — ✅ designed (2026-07-17)
+## 5. Bridge request/result envelope — 🔨 implemented (2026-07-17)
 
 **Problem.** Success/failure signaling is inconsistent per command
 (`settings.set` acks; `settings.reset` replies data and *nothing* on failure;
@@ -321,23 +322,60 @@ views ship = breaking every view.
 
 ### Implementation checklist
 
-- [ ] `src/runtime/MessageBridge.cpp` — requestId plumbing (echo on all
-      replies; `ui.result` emission for verb commands); `ui.error` reshape.
-- [ ] `src/runtime/Runtime.cpp` + `SettingsModule.cpp` — per-command result
-      codes (e.g. `menu.open` unknown id → `ok:false, code:"unknown-view"`;
-      `settings.reset` failure signal).
-- [ ] `src/api/BridgeApi.*` — handler reply path for action results (ABI
-      minor bump rides with item 3's 1.6).
-- [ ] New `data/OSFUI/views/shared/osfui.js` + harness mock loads it;
-      reference views (`settings`, `keybinds`) migrate.
-- [ ] Contract lockstep: `sdk/osfui.d.ts` (requestId fields, `ui.result`,
-      error codes; delete nothing yet — additive through 0.x),
-      `docs/authoring-views.md`, `devtools/harness/mockbridge.js`.
-- [ ] Protocol bump 0.4 → 0.5.
+- [x] `src/runtime/MessageBridge.cpp` — requestId plumbing: the id rides
+      TOP-LEVEL in the envelope both directions (string 1–64 chars; longer/
+      non-string = treated absent, warned); every reply sent through the
+      no-target SendToWeb echoes it; a handler that produced no reply gets an
+      automatic `ui.result { ok:true, command }`; `SendResult(ok, code,
+      message)` for explicit outcomes (SILENT without a requestId — fire-and-
+      forget keeps pre-0.5 behavior); `DeferResult()` + `CurrentRequestId()` +
+      a 4-arg SendToWeb for deferred replies (the capture flow). `ui.error`
+      reshape: `code` ("malformed-message"/"unknown-message-type"/
+      "unknown-command") + `message` + legacy `reason` (dies at 1.0) +
+      requestId echo where readable.
+- [x] `src/runtime/Runtime.cpp` + `SettingsModule.cpp` — result codes:
+      `menu.open`/`menu.close`/`hud.*` unknown id → `unknown-view` (already-
+      open/closed = idempotent success via the auto-ack); `setViewHidden`
+      unknown → `unknown-view`; `settings.reset` failure → `unknown-setting`
+      (no longer silent), success now replies `settings.data` to the CALLER
+      through the reply path (requestId echo — resolves the promise) and
+      pushes to the other subscribers; `settings.captureKey` stashes the
+      arming requestId and `settings.captured` echoes it (one request spans
+      the whole rebind).
+- [x] `src/api/BridgeApi.cpp` — **deviation: host-wraps-it, no ABI bump**
+      (the design allowed either). The trampoline injects the caller's
+      requestId INTO the payload JSON handed to the plugin (additive), and the
+      bridge auto-ack answers `ui.result { ok:true }` = delivered-and-handled.
+      A plugin publishing richer results uses its own message types (echoing
+      the payload's requestId in its own payload for manual correlation); a
+      first-class ABI reply vmethod can join a later MINOR if demanded.
+- [x] `data/OSFUI/views/shared/osfui.js` — NEW, deliberately thin (frozen
+      surface): decorates the injected `window.osfui` with `available()`,
+      `ready` (promise of runtime.ready), `has()`, `send()`, `request()`
+      (default 10 s timeout, `{timeoutMs:0}` disables; rejects with `.code`
+      on ui.error / ui.result ok:false / timeout / no-bridge), `on()` →
+      unsubscribe. The helper OWNS `onMessage`; correlated replies ALSO
+      dispatch to `on()` subscribers (one render path). Reference views
+      migrated: boot off `osfui.ready` + `has()`, set/reset/actions/capture
+      via `request()`; the `"<modId>.ack"` folklore is deleted from the view
+      AND the mock (actions resolve on `ui.result`).
+- [x] Contract lockstep: `sdk/osfui.d.ts` (BridgeEnvelope.requestId,
+      UiResultPayload, UiErrorPayload reshape, OSFUIHelper surface),
+      `docs/authoring-views.md` (§3 rewritten helper-first),
+      `docs/native-plugin-api.md` + `sdk/OSFUI_API.h` (CommandFn payload
+      requestId + delivered semantics), `devtools/harness/mockbridge.js`
+      (full envelope parity: rid threading, auto ui.result, error codes,
+      capture-busy).
+- [x] Protocol bump 0.4 → 0.5 (`Version.h`).
+- [x] Tests: `bridge_api_tests` +35 checks (echo, auto-ack, fire-and-forget
+      silence, over-long id, reply suppression, SendResult, DeferResult,
+      ui.error codes, capabilities); `settings_module_tests` +ack/reset/
+      requestId sections (mirrors runtime teardown order — OnBridgeDown
+      before destructors, as the runtime does).
 
 ---
 
-## 6. Capability-based feature detection — ✅ designed (2026-07-17)
+## 6. Capability-based feature detection — 🔨 implemented (2026-07-17)
 
 *(Engineering design — no user forks; direction was set by items 2 and 5.)*
 
@@ -372,11 +410,25 @@ way to detect features that isn't version arithmetic.
 
 ### Implementation checklist
 
-- [ ] `src/runtime/MessageBridge.cpp` / `Runtime.cpp` — capabilities in
-      `runtime.ready` (rides the item-5 protocol 0.5 bump).
-- [ ] `shared/osfui.js` — `ready` promise + `has()`.
-- [ ] Reference views + `mockbridge.js` + docs/sdk README rewrite.
-- [ ] CI doc-version grep.
+- [x] `src/runtime/Capabilities.h` — the list hoisted to `Caps::kList`
+      (namespace-scope array; `Has()` loops it) so the requires-gate and the
+      handshake single-source; `"request-id"` added (ships with item 5).
+      `MessageBridge::SendRuntimeReady` emits it as `capabilities` (rides the
+      0.5 bump).
+- [x] `shared/osfui.js` — `ready` promise + `has()` (false before ready).
+- [x] Reference views demo it (`osfui.ready.then` boot; settings view gates
+      `views.get` on `has("views")`); `mockbridge.js` mirrors the list
+      (CAPABILITIES const, comment ties it to Capabilities.h) and now pushes
+      `runtime.ready` proactively on install like the native runtime (the
+      item-12 divergent-boot-semantics row, pulled forward — the helper's
+      `ready` depends on it); `sdk/README.md` + `docs/authoring-views.md`
+      negotiation sections rewritten capability-first, the broken
+      `startsWith("0.")` snippet is gone everywhere.
+- [x] CI doc-version grep: `.github/workflows/ci.yml` extracts
+      `kBridgeProtocolVersion` and asserts the headline literals in
+      `sdk/README.md`, `docs/authoring-views.md`, `sdk/osfui.d.ts` name the
+      CURRENT version (historical "protocol 0.4" annotations deliberately
+      not flagged).
 
 ---
 
@@ -541,7 +593,7 @@ documented only in a C++ comment.
 
 ---
 
-## 11. Payload reshapes — ✅ designed (2026-07-17)
+## 11. Payload reshapes — 🔨 implemented (2026-07-17)
 
 *(Engineering design — all breaking-of-0.x, riding the 0.5 bump with items
 5–6 so views break once, not four times.)*
@@ -567,10 +619,32 @@ documented only in a C++ comment.
 
 ### Implementation checklist
 
-- [ ] `src/runtime/Runtime.cpp` (game.data, gamepad, capture),
-      `SettingsModule.cpp` (+`SettingsStore` conflict recompute on change).
-- [ ] Reference views + `mockbridge.js` + `sdk/osfui.d.ts` +
-      `docs/authoring-views.md` lockstep.
+- [x] `src/runtime/Runtime.cpp` — `game.data` nests `calendar` (`available`
+      INSIDE it); `ui.gamepad` nests `button:{id,down}` / `axes:{lx,ly,rx,ry}`;
+      capture-busy: a second `settings.captureKey` while one is armed →
+      `ui.result ok:false, code:"capture-busy"` (the first capture stands);
+      capture correlation rides item 5 (`_captureRequestId`).
+- [x] `SettingsModule.cpp` + `SettingsStore` — `settings.ack` gains `value`
+      (authoritative post-clamp; clamp = SUCCESS + value, not a code) and
+      `code`/`message` on failure via new `SettingsStore::SetWithResult`
+      (codes: `unknown-setting`, `read-only` for stubs + unknown-typed
+      settings, `invalid-value`); key-typed `settings.changed` ALWAYS carries
+      `conflicts` (new `ConflictsForSetting` — `[]` = unique, the
+      badge-clearing signal).
+- [x] Reference views: settings view applies the pushed `conflicts` in place
+      with a symmetric partner mirror (`applyConflictUpdate`) — the
+      full-registry re-fetch on rebind (the N+1) is GONE; keybinds view needs
+      no change (derives collisions from its own model). `mockbridge.js`
+      mirrors every reshape (nested game.data sample, ack value/code,
+      changed conflicts, capture-busy). `sdk/osfui.d.ts` +
+      `docs/authoring-views.md` lockstep — the d.ts also gained
+      `ui.visibility`/`ui.gamepad`/`osfui.gamepadRaw` typings (item 10's
+      documentation rows, pulled forward since the shapes are now settled),
+      and the mock's `views.data` emits `focused` on every entry + native
+      reset parity (two more item-12 rows pulled forward).
+- [x] Tests: `settings_store_tests` +SetWithResult codes +ConflictsForSetting
+      (both-sides recompute, rebind-away clears); `settings_module_tests`
+      +conflicts-on-changed (into/out of collision, non-key never carries).
 
 ---
 
@@ -591,15 +665,16 @@ here only for completeness.)*
 - [ ] `sdk/OSFUI_API.h` — reserved-prefix prose replaced by the item-3
       command-shape rule; stale protocol example strings; REX include guard,
       lifetime/threading contract lines (owned by item 4).
-- [ ] `sdk/osfui.d.ts` — gains `ui.visibility`/`ui.gamepad`/`gamepadRaw`
+- [x] `sdk/osfui.d.ts` — gains `ui.visibility`/`ui.gamepad`/`gamepadRaw`
       (item 10), `requestId`/`ui.result` (item 5), `capabilities` (item 6),
-      reshapes (item 11).
-- [ ] `devtools/harness/mockbridge.js` — push `runtime.ready` proactively on
-      install (native greets on load; the mock currently gates it behind a
+      reshapes (item 11). *(Landed with the slice-4 lockstep.)*
+- [x] `devtools/harness/mockbridge.js` — push `runtime.ready` proactively on
+      install (native greets on load; the mock used to gate it behind a
       `views.get` call — divergent boot semantics); emit `focused` on every
-      `views.data` entry (HUD fixtures omit a field the d.ts marks required);
-      `settings.reset` parity with native (suppress per-key `settings.changed`,
-      reply one `settings.data`).
+      `views.data` entry (HUD fixtures omitted a field the d.ts marks
+      required); `settings.reset` parity with native (suppress per-key
+      `settings.changed`, reply one `settings.data`). *(All three landed with
+      slice 4 — the helper's `ready` promise depends on the first.)*
 - [ ] `docs/authoring-views.md` — the focus model (`Tab` cycle, focused-view
       input) and the layout guarantee (720 logical height, width varies with
       aspect) promoted from prose to explicitly versioned guarantees.
@@ -612,7 +687,16 @@ here only for completeness.)*
 9–12 engineering designs). **Items 1–4 implemented 2026-07-17**, including
 the OSF Animation `osf` → `osf.animation` migration in the sibling repo
 (both repos build green; all 8 native suites pass; nested layouts verified
-in both MO2 deploys). Still open across slices 1–3: the in-game verify pass.
+in both MO2 deploys). **In-game verify pass for slices 1–3 passed 2026-07-17.**
+**Slice 4 (items 5+6+11 — protocol 0.5) implemented 2026-07-17**: requestId/
+`ui.result` envelope, capabilities handshake, payload reshapes, the
+`shared/osfui.js` helper, reference-view + mock migration, CI version grep;
+three item-12 rows pulled forward (mock boot semantics, `focused`, reset
+parity) and item 10's d.ts documentation rows. Build green, all 8 suites pass
+(store 209, module 69, bridge_api 74), harness pages render through the new
+envelope. In-game verify for slice 4 pending. OSF Animation needs NO change
+for 0.5 (its commands get delivered-acks automatically; its view assigns its
+own `onMessage`, which is fine without the helper).
 Dependency-ordered implementation slices:
 
 1. **Item 1** — ID namespacing + nested layout (everything else keys off the

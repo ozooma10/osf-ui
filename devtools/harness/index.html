@@ -27,7 +27,22 @@
       font: inherit; color: var(--text-muted); background: transparent;
       border: 1px solid var(--line-strong); border-radius: 2px; padding: 2px 8px; cursor: pointer;
     }
-    .settings { height: calc(100% - 72px); margin-top: 44px; margin-bottom: 28px; }
+    .harness-bar button.on { color: var(--accent); border-color: var(--accent); }
+    /* Harness-only margins to clear the top bar — dropped in the 1080p stage,
+       where the view keeps its shipped in-game layout. */
+    #stage { height: 100%; }
+    body:not(.res1080) .settings { height: calc(100% - 72px); margin-top: 44px; margin-bottom: 28px; }
+    /* Game-true 1920×1080 stage, scaled by script to fit the window. The scale
+       transform also makes the stage the containing block for the view's
+       fixed-position scrim/toasts, so they stay inside the 1080p frame. */
+    body.res1080 { background: #05070b; }
+    body.res1080 #stage {
+      position: fixed; top: 30px; left: 0;
+      width: 1920px; height: 1080px;
+      transform-origin: 0 0; overflow: hidden;
+      outline: 1px dashed var(--line-strong);
+      background: radial-gradient(120% 100% at 50% 30%, #10161f 0%, #05070b 100%);
+    }
   </style>
 </head>
 <body class="osf-ui">
@@ -38,9 +53,11 @@
     <a href="osf.html">OSF Animation</a>
     <button id="mock-reset" type="button">Reset stored values</button>
     <button id="mock-fixtures" type="button" title="Show fictional sample panels/HUDs that exercise every catalog state (failed load, HUD live/hidden, …)"></button>
+    <button id="res-toggle" type="button" title="Render the view in a game-true 1920×1080 stage, scaled to fit the window">1920×1080</button>
     <span class="hint">Drop a settings/&lt;id&gt;.json here, or add ?schema=&lt;url&gt; — traffic logs to the console</span>
   </div>
 
+  <div id="stage">
   <div class="scrim" aria-hidden="true"></div>
 
   <div class="settings">
@@ -89,9 +106,13 @@
   </div>
 
   <div id="toast" class="toast-stack" aria-live="polite"></div>
+  </div><!-- /#stage -->
 
   <!-- Bridge first (defines window.osfui), then the real view logic. -->
+  <!-- Order matters: mock installs window.osfui.postMessage, the shared helper
+       decorates it (and owns onMessage), then the view uses the helper. -->
   <script src="mockbridge.js"></script>
+  <script src="../../data/OSFUI/views/shared/osfui.js"></script>
   <script src="../../data/OSFUI/views/osfui/settings/main.js"></script>
   <script>
     document.getElementById("mock-reset").addEventListener("click", () => window.osfui._mock.reset());
@@ -99,6 +120,23 @@
     const fixturesLabel = (on) => { fixturesBtn.textContent = `Sample views: ${on ? "on" : "off"}`; };
     fixturesLabel(window.osfui._mock.fixturesOn());
     fixturesBtn.addEventListener("click", () => fixturesLabel(window.osfui._mock.fixtures()));
+
+    const stage = document.getElementById("stage");
+    const resBtn = document.getElementById("res-toggle");
+    const fitStage = () => {
+      if (!document.body.classList.contains("res1080")) { stage.removeAttribute("style"); return; }
+      const bar = 30;
+      const scale = Math.min(window.innerWidth / 1920, (window.innerHeight - bar) / 1080, 1);
+      stage.style.transform = `scale(${scale})`;
+      stage.style.left = `${Math.max(0, (window.innerWidth - 1920 * scale) / 2)}px`;
+      stage.style.top = `${bar + Math.max(0, (window.innerHeight - bar - 1080 * scale) / 2)}px`;
+    };
+    resBtn.addEventListener("click", () => {
+      resBtn.classList.toggle("on", document.body.classList.toggle("res1080"));
+      fitStage();
+    });
+    window.addEventListener("resize", fitStage);
+    if (new URLSearchParams(location.search).get("res") === "1080") resBtn.click();
   </script>
 </body>
 </html>

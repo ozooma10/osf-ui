@@ -17,21 +17,22 @@ everything here is hand-written and copied into a view project as needed.
 
 ## Bridge protocol version
 
-**0.4 — unstable.** Minor bumps may break views until it reaches 1.0. Detect it
-at runtime from the `runtime.ready` handshake and refuse/degrade on a mismatch:
+**0.5 — unstable.** Minor bumps may break views until it reaches 1.0. Don't do
+version arithmetic — feature-detect against the `capabilities` array of the
+`runtime.ready` handshake (append-only names; the shipped
+`views/shared/osfui.js` helper wraps it):
 
 ```ts
-window.osfui.onMessage = (json) => {
-  const msg = JSON.parse(json);
-  if (msg.type === "runtime.ready" && !msg.payload.bridgeVersion?.startsWith("0.")) {
-    console.warn("Unsupported OSF UI bridge", msg.payload.bridgeVersion);
-  }
-};
+const info = await osfui.ready;          // runtime.ready payload
+if (!osfui.has("settings")) {
+  console.warn("This OSF UI has no settings surface", info.version);
+}
 ```
 
 The version constant lives in [`src/core/Version.h`](../src/core/Version.h)
 (`kBridgeProtocolVersion`) and is emitted by
-[`src/runtime/MessageBridge.cpp`](../src/runtime/MessageBridge.cpp).
+[`src/runtime/MessageBridge.cpp`](../src/runtime/MessageBridge.cpp), which
+also owns the capability list ([`src/runtime/Capabilities.h`](../src/runtime/Capabilities.h)).
 
 ## Validating your JSON files
 

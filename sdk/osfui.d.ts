@@ -1,22 +1,33 @@
 /**
  * TypeScript definitions for the OSF UI native <-> web bridge.
  *
- * Bridge protocol version: 0.4 (UNSTABLE — minor bumps may break views until
- * 1.0). Negotiate against the `bridgeVersion` field of the `runtime.ready`
- * message. Keep in lockstep with:
+ * Bridge protocol version: 0.5 (UNSTABLE — minor bumps may break views until
+ * 1.0). Feature-detect against the `capabilities` array of the `runtime.ready`
+ * message (`osfui.has()` with the shared helper) — `bridgeVersion` is
+ * informational, not something to gate on. Keep in lockstep with:
  *   - docs/authoring-views.md          (prose reference)
  *   - docs/schema/*.schema.json        (manifest + settings-schema validation)
  *   - src/core/Version.h               (kBridgeProtocolVersion)
  *   - src/runtime/MessageBridge.cpp    (envelope + dispatch)
+ *   - data/OSFUI/views/shared/osfui.js (the shipped JS helper)
  *
  * Usage: this is an ambient declaration file — drop it into your view project
  * (or reference it via tsconfig "types"/"include") and `window.osfui` is
  * typed globally. There is no runtime package to install.
  */
 
-/** Every message in both directions is JSON text of this shape. */
+/**
+ * Every message in both directions is JSON text of this shape.
+ *
+ * `requestId` is the 0.5 correlation envelope: any ui.command may carry a
+ * caller-chosen id (string, 1-64 chars); every reply echoes it top-level, and
+ * a command with no reply type of its own answers `ui.result` when (and only
+ * when) an id was supplied. Omit it for fire-and-forget. The shared helper's
+ * `osfui.request()` does all of this for you.
+ */
 export interface BridgeEnvelope<TType extends string = string, TPayload = unknown> {
   type: TType;
+  requestId?: string;
   payload: TPayload;
 }
 
@@ -47,8 +58,10 @@ export type UiCommand =
   | { command: "settings.get" }
   | { command: "settings.set"; mod: string; key: string; value: SettingValue }
   | { command: "settings.reset"; mod: string; key?: string }
-  /** Arm native key-rebind capture; the next key press returns as settings.captured. Any type:"key" setting may be captured. */
-  | { command: "settings.captureKey"; mod: string; key: string };
+  /** Arm native key-rebind capture; the next key press returns as settings.captured (echoing the arming requestId, however much later). One capture at a time — a second arm answers ui.result code "capture-busy". Any type:"key" setting may be captured. */
+  | { command: "settings.captureKey"; mod: string; key: string }
+  /** Take over gamepad handling: suppress the default nav/scroll mapping and consume raw ui.gamepad events. PER-SESSION — reset on overlay close; re-assert on each ui.visibility show. */
+  | { command: "osfui.gamepadRaw"; raw: boolean };
 
 /**
  * A mod-defined action command fired by a schema `action` item. The command
@@ -72,7 +85,17 @@ export interface RuntimeReadyPayload {
   game: string;        // "Starfield"
   plugin: string;      // plugin metadata name
   version: string;     // plugin version (kPluginVersion)
-  bridgeVersion: string; // protocol version (kBridgeProtocolVersion) — negotiate on this
+  bridgeVersion: string; // protocol version (kBridgeProtocolVersion) — informational; gate on capabilities
+  /**
+   * APPEND-ONLY named host features (protocol 0.5, api-freeze item 6) — the
+   * feature-detection contract. Same vocabulary as a settings schema's
+   * `requires` array: surface names ("settings", "settings.captureKey",
+   * "views", "game.calendar", "gamepad"), "request-id" (the ui.result
+   * envelope), "schema:requires", and "type:<t>" per setting value type.
+   * A capability, once shipped, is never removed or renamed. Query with
+   * `osfui.has(name)` after `osfui.ready`.
+   */
+  capabilities: string[];
 }
 
 /**
@@ -117,7 +140,20 @@ export interface SettingsDataPayload {
 export interface SettingsAckPayload {
   mod: string;
   key: string;
-  ok: boolean; // false => rejected or clamped server-side
+  ok: boolean;
+  /**
+   * ok:true — the authoritative committed value, post-clamp (protocol 0.5).
+   * Compare against what you sent to detect clamping without a re-fetch.
+   */
+  value?: SettingValue;
+  /**
+   * ok:false — stable machine code (protocol 0.5): "unknown-setting" (mod or
+   * key not in any loaded schema), "read-only" (requires-gated stub, or a
+   * setting type this host doesn't know), "invalid-value" (validation
+   * refused). `message` is the human sentence when the host adds one.
+   */
+  code?: string;
+  message?: string;
 }
 
 /**
@@ -132,6 +168,14 @@ export interface SettingsChangedPayload {
   mod: string;
   key: string;
   value: SettingValue;
+  /**
+   * On `type:"key"` settings only (protocol 0.5): the setting's recomputed
+   * conflict list — same shape and @game filtering as the `settings.data`
+   * annotation, [] when the new binding is unique. Update badges in place
+   * (collisions are symmetric — mirror the delta onto the named partners)
+   * instead of re-fetching the registry.
+   */
+  conflicts?: Array<{ mod: string; key: string; title: string }>;
 }
 
 /**
@@ -176,21 +220,73 @@ export interface SettingsCapturedPayload {
   conflicts?: Array<{ mod: string; key: string; title: string }>;
 }
 
+/**
+ * The runtime rejected an inbound message (protocol 0.5 shape). When the
+ * offending ui.command carried a requestId it is echoed top-level, so the
+ * shared helper rejects the matching request() promise with `code`.
+ */
 export interface UiErrorPayload {
-  reason: string;    // "malformed message" | "unknown message type" | "unknown command"
-  type?: string;     // present for "unknown message type"
-  command?: string;  // present for "unknown command"
+  /** Stable machine code: "malformed-message" | "unknown-message-type" | "unknown-command". */
+  code: string;
+  /** Human sentence. */
+  message: string;
+  /** @deprecated 0.x compatibility duplicate of `message`; removed at 1.0. */
+  reason: string;
+  type?: string;     // present for "unknown-message-type"
+  command?: string;  // present for "unknown-command"
 }
 
-/** In-game date/time from RE::Calendar. `available` is false before a save loads. */
-export interface GameDataPayload {
-  available: boolean;
-  day?: number;
-  month?: number;
-  year?: number;
-  hour?: number;        // 0..24 (fractional)
-  daysPassed?: number;
+/**
+ * The uniform command outcome (protocol 0.5, api-freeze item 5). Sent ONLY
+ * when the ui.command carried a requestId: verb commands with no reply type
+ * of their own (close, menu.open, hud.show, ...) answer ok:true on success;
+ * failures carry a stable `code` ("unknown-view", "capture-busy",
+ * "unknown-setting", ...). A plugin-registered command acks ok:true =
+ * delivered to the plugin's handler (richer replies are the plugin's own
+ * message types). The shared helper resolves/rejects request() with this.
+ */
+export interface UiResultPayload {
+  ok: boolean;
+  command?: string;  // echo of the ui.command
+  code?: string;     // ok:false — stable machine code
+  message?: string;  // human sentence
 }
+
+/**
+ * Reply to `game.get`. Each data provider nests under its own object
+ * (protocol 0.5) — future providers appear as SIBLINGS of `calendar`.
+ */
+export interface GameDataPayload {
+  /** In-game date/time from RE::Calendar. `available` is false before a save loads. */
+  calendar: {
+    available: boolean;
+    day?: number;
+    month?: number;
+    year?: number;
+    hour?: number;        // 0..24 (fractional)
+    daysPassed?: number;
+  };
+}
+
+/**
+ * Overlay visibility flips for the receiving view (pushed on show/hide edges).
+ * The reference views scope their "session undo" to a visit off this.
+ */
+export interface UiVisibilityPayload {
+  visible: boolean;
+}
+
+/**
+ * Raw gamepad events, sent to the ACTIVE (focused) view while the overlay
+ * captures input. Per-kind nesting (protocol 0.5): buttons and axes extend
+ * inside their objects (triggers will join as axes.lt/rt; a second controller
+ * as a `pad` index). Unless `osfui.gamepadRaw` was asserted, the runtime ALSO
+ * applies its default mapping (D-pad -> arrows, A -> Enter, B -> close,
+ * sticks -> scroll); raw mode makes these events the page's alone.
+ */
+export type UiGamepadPayload =
+  | { kind: "button"; button: { id: number; down: boolean } }
+  | { kind: "stick"; axes: { lx: number; ly: number; rx: number; ry: number } };
 
 /**
  * One entry per loaded (registered) surface. Reply to `views.get`; also pushed
@@ -224,6 +320,9 @@ export type NativeToWebMessage =
   | BridgeEnvelope<"settings.persisted", SettingsPersistedPayload>
   | BridgeEnvelope<"settings.captured", SettingsCapturedPayload>
   | BridgeEnvelope<"ui.hotkey", UiHotkeyPayload>
+  | BridgeEnvelope<"ui.visibility", UiVisibilityPayload>
+  | BridgeEnvelope<"ui.gamepad", UiGamepadPayload>
+  | BridgeEnvelope<"ui.result", UiResultPayload>
   | BridgeEnvelope<"ui.error", UiErrorPayload>;
 
 // ---------------------------------------------------------------------------
@@ -393,16 +492,49 @@ export interface SettingsSchema {
 // ---------------------------------------------------------------------------
 
 export interface OSFUIBridge {
-  /** web -> native. Pass a JSON string; the typed helper below is recommended. */
+  /** web -> native. Pass a JSON string; prefer the helper's send()/request(). */
   postMessage(json: string): void;
-  /** native -> web. Assign this; the runtime calls it with a JSON string. */
+  /**
+   * native -> web, called with a JSON string. With the shared helper loaded
+   * the helper OWNS this slot — never assign it yourself; use osfui.on().
+   */
   onMessage?: (json: string) => void;
+}
+
+/**
+ * The surface added by the shipped helper, data/OSFUI/views/shared/osfui.js
+ * (protocol 0.5) — load it before your own script:
+ *   <script src="../../shared/osfui.js"></script>
+ * It decorates the same window.osfui object (creating a stub when no native
+ * bridge is present, so these members exist even in a plain browser).
+ */
+export interface OSFUIHelper {
+  /** True when a native bridge (or the harness mock) is present. */
+  available(): boolean;
+  /** Resolves with the runtime.ready payload. Never resolves standalone. */
+  ready: Promise<RuntimeReadyPayload>;
+  /** Capability test (item 6). Always false before `ready` resolves. */
+  has(capability: string): boolean;
+  /** Fire-and-forget ui.command. Returns false when no bridge is present. */
+  send(command: string, fields?: object): boolean;
+  /**
+   * ui.command with a generated requestId; resolves with the reply MESSAGE
+   * ({ type, requestId, payload }). Rejects (Error with .code) on ui.error,
+   * ui.result ok:false, timeout (default 10000 ms; 0 disables), or no bridge.
+   */
+  request(command: string, fields?: object, opts?: { timeoutMs?: number }): Promise<NativeToWebMessage & { requestId?: string }>;
+  /** Subscribe to a native->web message type; returns the unsubscribe fn. */
+  on(type: string, fn: (payload: unknown, message: NativeToWebMessage) => void): () => void;
 }
 
 declare global {
   interface Window {
-    /** Undefined unless the active view's manifest sets permissions.nativeBridge. */
-    osfui?: OSFUIBridge;
+    /**
+     * Undefined unless the active view's manifest sets
+     * permissions.nativeBridge (helper members present once
+     * shared/osfui.js runs).
+     */
+    osfui?: OSFUIBridge & Partial<OSFUIHelper>;
   }
 }
 

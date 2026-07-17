@@ -120,7 +120,14 @@ namespace OSFUI::API
 	// Handler for one registered ui.command. Runs on the GAME (main) thread.
 	// The const char* arguments are valid only for the duration of the call.
 	//   a_command      : the command string registered (lets one fn serve many)
-	//   a_payloadJson  : the command payload object, serialized - e.g. "{\"id\":\"x\"}"
+	//   a_payloadJson  : the command payload object, serialized - e.g. "{\"id\":\"x\"}".
+	//                    Since web protocol 0.5 it may carry a "requestId"
+	//                    field (the calling view's correlation id, injected by
+	//                    the host). After your handler returns, the host acks
+	//                    the caller with ui.result { ok:true } (= delivered);
+	//                    publish richer results as your own message types via
+	//                    SendToWeb, echoing the requestId in your payload if
+	//                    you want correlation.
 	//   a_sourceViewId : the view that sent it (your reply target)
 	//   a_user         : the opaque pointer you passed to RegisterCommand
 	using CommandFn = void (*)(const char* a_command,
@@ -155,10 +162,10 @@ namespace OSFUI::API
 		virtual void          GetPluginVersion(std::uint32_t& a_major,
 		                                       std::uint32_t& a_minor,
 		                                       std::uint32_t& a_patch) = 0;
-		// The native<->web protocol version, e.g. "0.4". INFORMATIONAL for
+		// The native<->web protocol version, e.g. "0.5". INFORMATIONAL for
 		// native code (log it for support) - gate on the ABI MINOR instead;
-		// the JS side negotiates against this via runtime.ready. Static
-		// string, valid for process lifetime.
+		// the JS side feature-detects via runtime.ready's capabilities list.
+		// Static string, valid for process lifetime.
 		virtual const char*   GetBridgeProtocolVersion() = 0;
 		virtual bool          IsBridgeReady() = 0;             // a nativeBridge view is live
 

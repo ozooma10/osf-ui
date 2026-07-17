@@ -137,6 +137,106 @@ int main()
 	CHECK(g_firedA.size() == 2);
 	CHECK(g_firedB.size() == 1);
 
+	// --- item 5 (protocol 0.5): the request/result envelope -------------------
+	{
+		// A plugin command with a requestId: the payload handed to the plugin
+		// carries it, and the bridge auto-acks ui.result { ok:true }.
+		toWeb.clear();
+		bridge.HandleWebMessage("someview",
+			R"({ "type": "ui.command", "requestId": "r1", "payload": { "command": "acme.mymod.ping" } })");
+		CHECK(g_firedB.size() == 2);
+		CHECK(!g_firedB.empty() && g_firedB.back().payload.find("\"requestId\":\"r1\"") != std::string::npos);
+		CHECK(toWeb.size() == 1);
+		CHECK(!toWeb.empty() && toWeb.back().second.find("\"type\":\"ui.result\"") != std::string::npos);
+		CHECK(!toWeb.empty() && toWeb.back().second.find("\"requestId\":\"r1\"") != std::string::npos);
+		CHECK(!toWeb.empty() && toWeb.back().second.find("\"ok\":true") != std::string::npos);
+		CHECK(!toWeb.empty() && toWeb.back().second.find("\"command\":\"acme.mymod.ping\"") != std::string::npos);
+
+		// Fire-and-forget (no requestId): no ui.result, exactly as before 0.5.
+		toWeb.clear();
+		bridge.HandleWebMessage("someview",
+			R"({ "type": "ui.command", "payload": { "command": "acme.mymod.ping" } })");
+		CHECK(toWeb.empty());
+		CHECK(!g_firedB.empty() && g_firedB.back().payload.find("requestId") == std::string::npos);
+
+		// An over-long requestId (>64 chars) is ignored — treated fire-and-forget.
+		const std::string longId(65, 'x');
+		bridge.HandleWebMessage("someview",
+			std::string(R"({ "type": "ui.command", "requestId": ")") + longId +
+				R"(", "payload": { "command": "acme.mymod.ping" } })");
+		CHECK(toWeb.empty());
+
+		// A handler that replies through the no-target SendToWeb: the reply
+		// itself carries the requestId and suppresses the auto ui.result.
+		bridge.RegisterCommand("test.reply", [](const nlohmann::json&, MessageBridge& a_b) {
+			a_b.SendToWeb("test.data", nlohmann::json{ { "v", 7 } });
+		});
+		toWeb.clear();
+		bridge.HandleWebMessage("someview",
+			R"({ "type": "ui.command", "requestId": "r2", "payload": { "command": "test.reply" } })");
+		CHECK(toWeb.size() == 1);
+		CHECK(!toWeb.empty() && toWeb.back().second.find("\"type\":\"test.data\"") != std::string::npos);
+		CHECK(!toWeb.empty() && toWeb.back().second.find("\"requestId\":\"r2\"") != std::string::npos);
+
+		// SendResult(false, code): the explicit failure outcome...
+		bridge.RegisterCommand("test.fail", [](const nlohmann::json&, MessageBridge& a_b) {
+			a_b.SendResult(false, "unknown-view", "nope");
+		});
+		toWeb.clear();
+		bridge.HandleWebMessage("someview",
+			R"({ "type": "ui.command", "requestId": "r3", "payload": { "command": "test.fail" } })");
+		CHECK(toWeb.size() == 1);
+		CHECK(!toWeb.empty() && toWeb.back().second.find("\"ok\":false") != std::string::npos);
+		CHECK(!toWeb.empty() && toWeb.back().second.find("\"code\":\"unknown-view\"") != std::string::npos);
+		CHECK(!toWeb.empty() && toWeb.back().second.find("\"requestId\":\"r3\"") != std::string::npos);
+		// ...which stays SILENT for a fire-and-forget caller (pre-0.5 behavior).
+		toWeb.clear();
+		bridge.HandleWebMessage("someview",
+			R"({ "type": "ui.command", "payload": { "command": "test.fail" } })");
+		CHECK(toWeb.empty());
+
+		// DeferResult: no auto-ack now; the deferred reply carries the id later
+		// (the settings.captureKey pattern).
+		std::string deferredId;
+		bridge.RegisterCommand("test.defer", [&deferredId](const nlohmann::json&, MessageBridge& a_b) {
+			deferredId = std::string(a_b.CurrentRequestId());
+			a_b.DeferResult();
+		});
+		toWeb.clear();
+		bridge.HandleWebMessage("someview",
+			R"({ "type": "ui.command", "requestId": "r4", "payload": { "command": "test.defer" } })");
+		CHECK(toWeb.empty());
+		CHECK(deferredId == "r4");
+		bridge.SendToWeb("someview", "test.done", nlohmann::json::object(), deferredId);
+		CHECK(toWeb.size() == 1);
+		CHECK(!toWeb.empty() && toWeb.back().second.find("\"requestId\":\"r4\"") != std::string::npos);
+
+		// ui.error reshape: machine code + message + legacy reason + id echo.
+		toWeb.clear();
+		bridge.HandleWebMessage("someview",
+			R"({ "type": "ui.command", "requestId": "r5", "payload": { "command": "nope" } })");
+		CHECK(toWeb.size() == 1);
+		CHECK(!toWeb.empty() && toWeb.back().second.find("\"type\":\"ui.error\"") != std::string::npos);
+		CHECK(!toWeb.empty() && toWeb.back().second.find("\"code\":\"unknown-command\"") != std::string::npos);
+		CHECK(!toWeb.empty() && toWeb.back().second.find("\"reason\":") != std::string::npos);
+		CHECK(!toWeb.empty() && toWeb.back().second.find("\"requestId\":\"r5\"") != std::string::npos);
+		// Malformed input has no readable requestId — the error goes without one.
+		toWeb.clear();
+		bridge.HandleWebMessage("someview", "not json at all");
+		CHECK(toWeb.size() == 1);
+		CHECK(!toWeb.empty() && toWeb.back().second.find("\"code\":\"malformed-message\"") != std::string::npos);
+		CHECK(!toWeb.empty() && toWeb.back().second.find("requestId") == std::string::npos);
+
+		// --- item 6: capabilities ride runtime.ready --------------------------
+		toWeb.clear();
+		bridge.SendRuntimeReady("someview");
+		CHECK(toWeb.size() == 1);
+		CHECK(!toWeb.empty() && toWeb.back().second.find("\"capabilities\":") != std::string::npos);
+		CHECK(!toWeb.empty() && toWeb.back().second.find("\"request-id\"") != std::string::npos);
+		CHECK(!toWeb.empty() && toWeb.back().second.find("\"type:flags\"") != std::string::npos);
+		CHECK(!toWeb.empty() && toWeb.back().second.find("\"bridgeVersion\":\"0.5\"") != std::string::npos);
+	}
+
 	// --- RegisterView takes qualified ids only (item 1) -----------------------
 	CHECK(!api.RegisterView("osf"));              // unqualified: refused synchronously
 	CHECK(!api.RegisterView("osfui.settings"));   // dotted join, not slash

@@ -1,10 +1,34 @@
 #include "runtime/MessageBridge.h"
 
 #include "core/Version.h"
+#include "runtime/Capabilities.h"
 #include "runtime/Json.h"
 
 namespace OSFUI
 {
+	namespace
+	{
+		// requestIds are caller-chosen opaque strings, echoed back verbatim.
+		// Bounded because the inbound payload is untrusted; over-long or
+		// non-string ids are treated as absent (fire-and-forget), not truncated
+		// — a silently-shortened id would never correlate.
+		constexpr std::size_t kMaxRequestIdLength = 64;
+
+		std::string ExtractRequestId(const nlohmann::json& a_msg)
+		{
+			const auto it = a_msg.find("requestId");
+			if (it == a_msg.end() || !it->is_string()) {
+				return {};
+			}
+			const auto& id = it->get_ref<const std::string&>();
+			if (id.empty() || id.size() > kMaxRequestIdLength) {
+				REX::WARN("MessageBridge: ignoring requestId (must be a non-empty string of at most {} chars)", kMaxRequestIdLength);
+				return {};
+			}
+			return id;
+		}
+	}
+
 	MessageBridge::MessageBridge(SendFn a_send) :
 		_send(std::move(a_send))
 	{}
@@ -23,6 +47,9 @@ namespace OSFUI
 	{
 		// Remember the source so handler replies (and ui.error) route back to it.
 		_currentSource = std::string(a_viewId);
+		_currentRequestId.clear();
+		_currentCommand.clear();
+		_replied = false;
 
 		const auto msg = Json::Parse(a_json, "web->native message");
 		if (!msg || !msg->is_object()) {
@@ -30,11 +57,13 @@ namespace OSFUI
 			// Surface rejections to the page (ui.error) so authors see them
 			// instead of a silent drop. Existing views ignore unknown types, so
 			// this is backward compatible. Echoed strings are length-bounded
-			// because the inbound payload is untrusted.
-			SendToWeb("ui.error", { { "reason", "malformed message" } });
+			// because the inbound payload is untrusted. No requestId echo — an
+			// unparseable message has no readable requestId.
+			SendErrorToWeb("malformed-message", "malformed message", {});
 			return;
 		}
 
+		_currentRequestId = ExtractRequestId(*msg);
 		const auto type = Json::GetString(*msg, "type", "");
 		if (type == "ui.command") {
 			const auto payloadIt = msg->find("payload");
@@ -44,16 +73,27 @@ namespace OSFUI
 			HandleUiCommand(payload);
 		} else {
 			REX::WARN("MessageBridge: rejected unknown message type '{}' from view '{}'", type, a_viewId);
-			SendToWeb("ui.error", { { "reason", "unknown message type" }, { "type", type.substr(0, 128) } });
+			SendErrorToWeb("unknown-message-type", "unknown message type", { { "type", type.substr(0, 128) } });
 		}
+		_currentRequestId.clear();
+		_currentCommand.clear();
+		_replied = false;
 	}
 
 	void MessageBridge::HandleUiCommand(const nlohmann::json& a_payload)
 	{
 		const auto command = Json::GetString(a_payload, "command", "");
+		_currentCommand = command.substr(0, 128);
 		// Explicit registry — no generic "call native function" escape hatch.
 		if (const auto it = _commands.find(command); it != _commands.end()) {
 			it->second(a_payload, *this);
+			// Envelope guarantee (item 5): a request-carrying command always
+			// settles. A handler that replied (or deferred) already carried the
+			// id; otherwise acknowledge success — verb commands (close,
+			// menu.open, ...) have no reply type of their own.
+			if (!_currentRequestId.empty() && !_replied) {
+				SendToWeb("ui.result", { { "ok", true }, { "command", _currentCommand } });
+			}
 		} else {
 			// Pages often retry unregistered commands (polling); warn once per
 			// command name so the log records the fact without flooding. The
@@ -61,38 +101,92 @@ namespace OSFUI
 			if (_warnedUnknownCommands.insert(command).second) {
 				REX::WARN("MessageBridge: rejected unknown ui.command '{}' (further rejections of this command are not logged)", command);
 			}
-			SendToWeb("ui.error", { { "reason", "unknown command" }, { "command", command.substr(0, 128) } });
+			SendErrorToWeb("unknown-command", "unknown command", { { "command", command.substr(0, 128) } });
 		}
+	}
+
+	void MessageBridge::SendErrorToWeb(std::string_view a_code, std::string_view a_message, const nlohmann::json& a_extra)
+	{
+		// ui.error shape (item 5): machine `code` (stable enum string) + human
+		// `message` + echo fields. `reason` duplicates message for 0.x
+		// compatibility and is removed at 1.0.
+		nlohmann::json payload = {
+			{ "code", a_code },
+			{ "message", a_message },
+			{ "reason", a_message },
+		};
+		for (const auto& [key, value] : a_extra.items()) {
+			payload[key] = value;
+		}
+		SendToWeb("ui.error", payload);
+	}
+
+	void MessageBridge::SendResult(bool a_ok, std::string_view a_code, std::string_view a_message)
+	{
+		if (_currentRequestId.empty()) {
+			// Fire-and-forget caller: outcomes stay silent, exactly as before
+			// the envelope existed (the handler's WARN log still records it).
+			_replied = true;  // suppress the auto-ack either way
+			return;
+		}
+		nlohmann::json payload = { { "ok", a_ok } };
+		if (!_currentCommand.empty()) {
+			payload["command"] = _currentCommand;
+		}
+		if (!a_code.empty()) {
+			payload["code"] = a_code;
+		}
+		if (!a_message.empty()) {
+			payload["message"] = a_message;
+		}
+		SendToWeb("ui.result", payload);
 	}
 
 	void MessageBridge::SendToWeb(std::string_view a_type, const nlohmann::json& a_payload)
 	{
-		// Reply to the view whose message is currently being handled.
-		SendToWeb(_currentSource, a_type, a_payload);
+		// Reply to the view whose message is currently being handled, echoing
+		// the in-flight requestId (if any) so the caller can correlate.
+		SendToWeb(_currentSource, a_type, a_payload, _currentRequestId);
+		_replied = true;
 	}
 
 	void MessageBridge::SendToWeb(std::string_view a_viewId, std::string_view a_type, const nlohmann::json& a_payload)
 	{
+		SendToWeb(a_viewId, a_type, a_payload, {});
+	}
+
+	void MessageBridge::SendToWeb(std::string_view a_viewId, std::string_view a_type, const nlohmann::json& a_payload, std::string_view a_requestId)
+	{
 		if (!_send || a_viewId.empty()) {
 			return;
 		}
-		const Json::Value msg = {
+		Json::Value msg = {
 			{ "type", a_type },
 			{ "payload", a_payload },
 		};
+		if (!a_requestId.empty()) {
+			msg["requestId"] = a_requestId;
+		}
 		_send(a_viewId, msg.dump());
 	}
 
 	void MessageBridge::SendRuntimeReady(std::string_view a_viewId)
 	{
-		// `bridgeVersion` lets a view detect the protocol it's talking to and
-		// degrade/refuse on a mismatch (see docs/authoring-views.md). `version`
-		// stays the plugin version; the two are intentionally separate.
+		// `capabilities` is the feature-detection contract (api-freeze-plan
+		// item 6): append-only named features, one vocabulary with settings
+		// schemas' `requires`. `bridgeVersion` stays, demoted to informational
+		// — views gate on capabilities, not version arithmetic. `version` is
+		// the plugin version; the two are intentionally separate.
+		nlohmann::json capabilities = nlohmann::json::array();
+		for (const auto cap : Caps::kList) {
+			capabilities.push_back(cap);
+		}
 		SendToWeb(a_viewId, "runtime.ready", {
 			{ "game", "Starfield" },
 			{ "plugin", kPluginName },
 			{ "version", kPluginVersion },
 			{ "bridgeVersion", kBridgeProtocolVersion },
+			{ "capabilities", std::move(capabilities) },
 		});
 	}
 }

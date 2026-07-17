@@ -36,6 +36,7 @@ namespace
 		std::string    view;
 		std::string    type;
 		nlohmann::json payload;
+		std::string    requestId;  // top-level echo (protocol 0.5); "" = none
 	};
 
 	std::vector<Sent> g_sent;
@@ -53,10 +54,15 @@ namespace
 	}
 
 	// Drive the bridge exactly like the renderer does: a raw ui.command
-	// envelope from a source view.
-	void Command(OSFUI::MessageBridge& a_bridge, std::string_view a_view, nlohmann::json a_payload)
+	// envelope from a source view. a_requestId non-empty = a correlated
+	// request (protocol 0.5).
+	void Command(OSFUI::MessageBridge& a_bridge, std::string_view a_view, nlohmann::json a_payload,
+		std::string_view a_requestId = {})
 	{
-		const nlohmann::json envelope = { { "type", "ui.command" }, { "payload", std::move(a_payload) } };
+		nlohmann::json envelope = { { "type", "ui.command" }, { "payload", std::move(a_payload) } };
+		if (!a_requestId.empty()) {
+			envelope["requestId"] = a_requestId;
+		}
 		a_bridge.HandleWebMessage(a_view, envelope.dump());
 	}
 }
@@ -105,7 +111,8 @@ int main()
 
 	MessageBridge bridge([](std::string_view a_view, std::string_view a_json) {
 		auto msg = nlohmann::json::parse(a_json, nullptr, false);
-		g_sent.push_back({ std::string(a_view), msg.value("type", ""), msg.value("payload", nlohmann::json()) });
+		g_sent.push_back({ std::string(a_view), msg.value("type", ""), msg.value("payload", nlohmann::json()),
+			msg.value("requestId", "") });
 	});
 	module.RegisterCommands(bridge);
 
@@ -308,6 +315,110 @@ int main()
 		module.PumpSchemaHotReload(15.0);
 		CHECK(module.Store().GetValue("t.epsilon", "n") != nullptr);  // file deletion can't remove a native mod
 	}
+
+	// --- items 5 + 11 (protocol 0.5): ack shape, requestId echo, reset failure ---
+	{
+		// settings.set ack carries the authoritative post-clamp value...
+		g_sent.clear();
+		Command(bridge, "settingsview", { { "command", "settings.set" }, { "mod", "t.alpha" }, { "key", "scale" }, { "value", 1.75 } }, "q1");
+		{
+			const auto acks = SentTo("settingsview", "settings.ack");
+			CHECK(acks.size() == 1 && acks[0].payload["ok"] == true && acks[0].payload["value"] == 1.75);
+			CHECK(acks.size() == 1 && acks[0].requestId == "q1");  // top-level echo
+			CHECK(acks.size() == 1 && !acks[0].payload.contains("code"));
+		}
+		// ...including a CLAMPED commit (ok:true, the stored value, no code).
+		g_sent.clear();
+		Command(bridge, "settingsview", { { "command", "settings.set" }, { "mod", "t.alpha" }, { "key", "scale" }, { "value", 99.0 } });
+		{
+			const auto acks = SentTo("settingsview", "settings.ack");
+			CHECK(acks.size() == 1 && acks[0].payload["ok"] == true && acks[0].payload["value"] == 2.0);
+			CHECK(acks.size() == 1 && acks[0].requestId.empty());  // fire-and-forget: no echo
+		}
+		// Failures carry the machine code.
+		g_sent.clear();
+		Command(bridge, "settingsview", { { "command", "settings.set" }, { "mod", "t.alpha" }, { "key", "scale" }, { "value", "huge" } });
+		CHECK(SentTo("settingsview", "settings.ack").size() == 1 &&
+		      SentTo("settingsview", "settings.ack")[0].payload["code"] == "invalid-value");
+		g_sent.clear();
+		Command(bridge, "settingsview", { { "command", "settings.set" }, { "mod", "t.alpha" }, { "key", "nope" }, { "value", 1 } });
+		CHECK(SentTo("settingsview", "settings.ack").size() == 1 &&
+		      SentTo("settingsview", "settings.ack")[0].payload["code"] == "unknown-setting");
+		g_sent.clear();
+		Command(bridge, "settingsview", { { "command", "settings.set" }, { "mod", "t.alpha" }, { "key", "scale" } });  // no value field
+		CHECK(SentTo("settingsview", "settings.ack").size() == 1 &&
+		      SentTo("settingsview", "settings.ack")[0].payload["code"] == "invalid-value");
+
+		// settings.reset with a requestId: the settings.data REPLY echoes it
+		// (that is what resolves osfui.request("settings.reset")).
+		g_sent.clear();
+		Command(bridge, "settingsview", { { "command", "settings.reset" }, { "mod", "t.alpha" }, { "key", "" } }, "q2");
+		{
+			const auto data = SentTo("settingsview", "settings.data");
+			CHECK(data.size() == 1 && data[0].requestId == "q2");
+		}
+		// A failed reset is no longer silent for a correlated caller...
+		g_sent.clear();
+		Command(bridge, "settingsview", { { "command", "settings.reset" }, { "mod", "nope.mod" }, { "key", "" } }, "q3");
+		{
+			const auto results = SentTo("settingsview", "ui.result");
+			CHECK(results.size() == 1 && results[0].payload["ok"] == false &&
+			      results[0].payload["code"] == "unknown-setting" && results[0].requestId == "q3");
+			CHECK(SentTo("settingsview", "settings.data").empty());
+		}
+		// ...and stays silent fire-and-forget (pre-0.5 behavior).
+		g_sent.clear();
+		Command(bridge, "settingsview", { { "command", "settings.reset" }, { "mod", "nope.mod" }, { "key", "" } });
+		CHECK(g_sent.empty());
+	}
+
+	// --- item 11: key-typed settings.changed carries recomputed conflicts --------
+	{
+		module.Store().SetKeyNameResolver([](std::string_view a_name) -> std::uint32_t {
+			if (a_name == "F6") return 0x75;
+			if (a_name == "F7") return 0x76;
+			return 0;
+		});
+		CHECK(module.Store().RegisterSchema(nlohmann::json::parse(R"json({
+			"id": "t.keys", "title": "Keys",
+			"groups": [ { "settings": [
+				{ "key": "one", "type": "key", "default": "F6" },
+				{ "key": "two", "type": "key", "default": "F7" }
+			] } ] })json"),
+			SettingsStore::Source::kNative));
+
+		// Rebind INTO a collision: the push names the partner.
+		g_sent.clear();
+		Command(bridge, "settingsview", { { "command", "settings.set" }, { "mod", "t.keys" }, { "key", "one" }, { "value", "F7" } });
+		{
+			const auto changed = SentTo("settingsview", "settings.changed");
+			CHECK(changed.size() == 1 && changed[0].payload.contains("conflicts"));
+			CHECK(changed.size() == 1 && changed[0].payload["conflicts"].size() == 1 &&
+			      changed[0].payload["conflicts"][0]["mod"] == "t.keys" &&
+			      changed[0].payload["conflicts"][0]["key"] == "two");
+		}
+		// Rebind OUT again: conflicts present but EMPTY (the badge-clearing signal).
+		g_sent.clear();
+		Command(bridge, "settingsview", { { "command", "settings.set" }, { "mod", "t.keys" }, { "key", "one" }, { "value", "F6" } });
+		{
+			const auto changed = SentTo("settingsview", "settings.changed");
+			CHECK(changed.size() == 1 && changed[0].payload.contains("conflicts"));
+			CHECK(changed.size() == 1 && changed[0].payload["conflicts"].empty());
+		}
+		// Non-key settings never carry the field.
+		g_sent.clear();
+		Command(bridge, "settingsview", { { "command", "settings.set" }, { "mod", "t.alpha" }, { "key", "enabled" }, { "value", true } });
+		{
+			const auto changed = SentTo("settingsview", "settings.changed");
+			CHECK(changed.size() == 1 && !changed[0].payload.contains("conflicts"));
+		}
+	}
+
+	// Mirror the runtime's teardown order: the bridge (declared after `module`)
+	// destructs FIRST, and ~SettingsStore's final flush fires the persist
+	// listeners — without this, dirty mods left by the sections above would
+	// push into a dangling bridge pointer.
+	module.OnBridgeDown();
 
 	// ---------------------------------------------------------------------------
 	std::fprintf(stderr, "%d/%d checks passed\n", g_checks - g_failures, g_checks);

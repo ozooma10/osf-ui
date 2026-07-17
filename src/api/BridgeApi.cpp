@@ -340,7 +340,22 @@ namespace OSFUI::API
 			for (const auto& [cmd, reg] : toRegister) {
 				// Trampoline: adapt the ABI-safe CommandFn to the internal handler.
 				bridge->RegisterCommand(cmd, [cmd, reg](const nlohmann::json& a_payload, MessageBridge& a_b) {
-					const std::string dump = a_payload.dump();
+					// Item-5 envelope: the caller's requestId rides INSIDE the
+					// payload JSON (additive — plugins that ignore it lose
+					// nothing). After this handler returns, the bridge
+					// auto-answers `ui.result { ok:true }` = delivered-and-
+					// handled; a plugin that wants to publish richer results
+					// sends its own message type via SendToWeb, echoing the
+					// payload's requestId in its own payload if it wants
+					// correlation.
+					std::string dump;
+					if (const auto rid = a_b.CurrentRequestId(); !rid.empty()) {
+						nlohmann::json withId = a_payload;
+						withId["requestId"] = rid;
+						dump = withId.dump();
+					} else {
+						dump = a_payload.dump();
+					}
 					const std::string src(a_b.CurrentSource());
 					reg.fn(cmd.c_str(), dump.c_str(), src.c_str(), reg.user);
 				});

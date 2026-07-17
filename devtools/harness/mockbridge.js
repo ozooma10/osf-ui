@@ -75,10 +75,11 @@
   }
 
   // Host capabilities this mock claims — mirror src/runtime/Capabilities.h
-  // (a mock that lies about capabilities defeats the requires gate).
+  // (a mock that lies about capabilities defeats the requires gate AND the
+  // runtime.ready `capabilities` handshake, item 6).
   const CAPABILITIES = [
     "settings", "settings.captureKey", "views", "game.calendar", "gamepad",
-    "schema:requires",
+    "schema:requires", "request-id",
     "type:bool", "type:int", "type:float", "type:enum", "type:string", "type:key", "type:flags",
   ];
   function eachSetting(schema, fn) {
@@ -154,10 +155,14 @@
   }
 
   // ---- native -> web ----
-  function send(type, payload) {
-    log("→web", type);
+  function send(type, payload, requestId) {
+    log("→web", type + (requestId ? ` [${requestId}]` : ""));
     if (window.osfui && typeof window.osfui.onMessage === "function") {
-      window.osfui.onMessage(JSON.stringify({ type, payload }));
+      const msg = { type, payload };
+      // Item-5 envelope: replies echo the caller's requestId TOP-LEVEL, like
+      // MessageBridge::SendToWeb.
+      if (requestId) msg.requestId = requestId;
+      window.osfui.onMessage(JSON.stringify(msg));
     }
   }
   // The game's own bindings (mcm-design §9 "vanilla hotkeys"): native loads
@@ -203,12 +208,34 @@
       });
     }
   }
-  function sendData() {
+  function sendData(requestId) {
     annotateConflicts();
     // Mirror SettingsStore::Data()'s top-level vanillaKeys table (the game's
     // own bindings, full map — the keybinds view renders it).
     send("settings.data", { mods,
-      vanillaKeys: VANILLA.map((v) => ({ event: v.event, title: v.title, name: v.name })) });
+      vanillaKeys: VANILLA.map((v) => ({ event: v.event, title: v.title, name: v.name })) }, requestId);
+  }
+
+  // The changed setting's fresh conflict list (native: ConflictsForSetting,
+  // emitted with key-typed settings.changed, item 11). String compare like
+  // annotateConflicts.
+  function conflictsForSetting(modId, key) {
+    const m = mods.find((x) => x.id === modId);
+    const s = findSetting(m, key);
+    const v = m && (m.values || {})[key];
+    if (!s || !v) return [];
+    const expectedGameReuse = blocksGameplay(m.schema, s);
+    const others = VANILLA.filter((x) => x.name === v && !expectedGameReuse)
+      .map((x) => ({ mod: "@game", key: x.event, title: x.title }));
+    for (const other of mods) {
+      eachSetting(other.schema, (os) => {
+        if (os.type === "key" && (other.values || {})[os.key] === v &&
+            (other.id !== modId || os.key !== key)) {
+          others.push({ mod: other.id, key: os.key, title: other.title });
+        }
+      });
+    }
+    return others;
   }
 
   // ---- view catalog (panels + HUDs on the Mods surface) ----
@@ -247,14 +274,26 @@
     sendViews();
     return fixturesOn;
   }
-  let readySent = false;
-  function sendViews() { send("views.data", { views: views.filter((v) => fixturesOn || !v.fixture) }); }
+  function sendViews(requestId) {
+    // `focused` is emitted on EVERY entry like the runtime (HUDs are simply
+    // never focused) — the d.ts marks it required.
+    send("views.data", { views: views.filter((v) => fixturesOn || !v.fixture)
+      .map((v) => Object.assign({ focused: false }, v)) }, requestId);
+  }
 
   // Mirrors SettingsModule subscribe-on-read (protocol 0.3): settings.get
   // subscribes the page; committed values then push as settings.changed.
+  // Key-typed pushes carry the recomputed `conflicts` (protocol 0.5).
   let subscribed = false;
-  function pushChanged(mod, key, value) {
-    if (subscribed) setTimeout(() => send("settings.changed", { mod, key, value }), 0);
+  function pushChanged(modId, key, value) {
+    if (!subscribed) return;
+    setTimeout(() => {
+      const payload = { mod: modId, key, value };
+      const m = mods.find((x) => x.id === modId);
+      const s = findSetting(m, key);
+      if (s && s.type === "key") payload.conflicts = conflictsForSetting(modId, key);
+      send("settings.changed", payload);
+    }, 0);
   }
 
   // Mirrors the native write-behind (SettingsStore::PumpPersistence, ~500ms
@@ -272,53 +311,81 @@
   }
 
   // ---- web -> native ----
-  function handle(p) {
+  // `rid` is the ui.command's requestId ("" = fire-and-forget). Every reply
+  // echoes it; verb commands with no reply type of their own answer
+  // `ui.result { ok, command }` when it was supplied — mirroring
+  // MessageBridge's auto-ack (item 5).
+  let captureBusy = false;
+  function handle(p, rid) {
     const cmd = p && p.command;
+    const result = (ok, extra) => {
+      if (rid) setTimeout(() => send("ui.result", Object.assign({ ok, command: cmd }, extra || {}), rid), 0);
+    };
     switch (cmd) {
       case "settings.get":
         subscribed = true;
-        setTimeout(sendData, 0);
+        setTimeout(() => sendData(rid), 0);
         break;
       case "settings.set": {
         const mod = mods.find((m) => m.id === p.mod && !m.stub);  // stubs are inert, like native
-        let ok = false;
-        if (mod) {
+        // Ack shape (items 5 + 11): ok + the authoritative post-clamp `value`,
+        // or a machine `code` mirroring SettingsStore::SetWithResult.
+        const ack = { mod: p.mod, key: p.key, ok: false };
+        const stubbed = mods.find((m) => m.id === p.mod && m.stub);
+        if (!mod) {
+          ack.code = stubbed ? "read-only" : "unknown-setting";
+        } else {
           let setting = null;
           eachSetting(mod.schema, (s) => { if (s.key === p.key) setting = s; });
-          if (setting) {
+          if (!setting) {
+            ack.code = "unknown-setting";
+          } else {
             const v = validate(setting, p.value);
-            if (v !== undefined) {
+            if (v === undefined) {
+              ack.code = "invalid-value";
+            } else {
               mod.values[p.key] = v;
               persist(mod);
-              ok = true;
+              ack.ok = true;
+              ack.value = v;
+              delete ack.code;
               pushChanged(p.mod, p.key, v); // post-validation value, like native
               pushPersisted(p.mod);
             }
           }
         }
-        setTimeout(() => send("settings.ack", { mod: p.mod, key: p.key, ok }), 0);
+        setTimeout(() => send("settings.ack", ack, rid), 0);
         break;
       }
       case "settings.reset": {
         const mod = mods.find((m) => m.id === p.mod && !m.stub);
-        if (mod) {
-          eachSetting(mod.schema, (s) => {
-            if (!p.key || s.key === p.key) {
-              mod.values[s.key] = defaultFor(s);
-              pushChanged(p.mod, s.key, mod.values[s.key]);
-            }
-          });
-          persist(mod);
-          pushPersisted(p.mod);
-          setTimeout(sendData, 0); // mirrors SettingsModule: re-send registry
+        if (!mod) {
+          // No longer silent (item 5): a request-carrying caller learns why.
+          result(false, { code: "unknown-setting", message: "unknown mod or setting (or a requires-gated stub)" });
+          break;
         }
+        // Native parity (item 12): NO per-key settings.changed fan-out — the
+        // one authoritative settings.data below re-syncs everything.
+        eachSetting(mod.schema, (s) => {
+          if (!p.key || s.key === p.key) mod.values[s.key] = defaultFor(s);
+        });
+        persist(mod);
+        pushPersisted(p.mod);
+        setTimeout(() => sendData(rid), 0); // mirrors SettingsModule: re-send registry
         break;
       }
       case "settings.captureKey": {
         // Captures ANY (mod,key), matching the in-game runtime: native arms
-        // capture for every setting a schema declares `type:"key"`.
+        // capture for every setting a schema declares `type:"key"`. One at a
+        // time — a second arm refuses visibly (item 11).
+        if (captureBusy) {
+          result(false, { code: "capture-busy", message: "a key capture is already in progress" });
+          break;
+        }
+        captureBusy = true;
         const onKey = (e) => {
           window.removeEventListener("keydown", onKey, true);
+          captureBusy = false;
           e.preventDefault();
           const name = domKeyName(e);
           const cancelled = e.key === "Escape" || !name;
@@ -343,18 +410,22 @@
             }
             if (others.length) payload.conflicts = others;
           }
-          send("settings.captured", payload);
+          // Deferred reply: echoes the ARMING request's id (item 5), like
+          // Runtime::DrainKeyCapture.
+          send("settings.captured", payload, rid);
         };
         window.addEventListener("keydown", onKey, true);
         break;
       }
       case "views.get":
-        // Reply with the catalog; first call also gets runtime.ready (once —
-        // the Mods view answers ready with another views.get, so re-sending loops).
-        setTimeout(async () => {
-          if (!readySent) { readySent = true; send("runtime.ready", { game: "Starfield", plugin: "OSF UI", version: await pluginVersion, bridgeVersion: "0.4" }); }
-          sendViews();
-        }, 0);
+        setTimeout(() => sendViews(rid), 0);
+        break;
+      case "game.get":
+        // Nested per-provider (item 11): future providers are SIBLINGS of
+        // `calendar`. Fixed sample date — enough to render a HUD clock.
+        setTimeout(() => send("game.data", { calendar: {
+          available: true, day: 12, month: 7, year: 2330, hour: 14.52, daysPassed: 87.3,
+        } }, rid), 0);
         break;
       case "menu.open": {
         const page = HARNESS_PAGES[p.view];
@@ -363,38 +434,49 @@
           // like the in-game single-menu swap).
           log("info", `menu.open ${p.view} → ${page}`);
           setTimeout(() => { location.href = page; }, 450);
-        } else {
-          // Fictional view — just mark it open/focused and push, which clears
-          // the launch overlay (mirrors the runtime's reconcile push).
+        } else if (views.some((v) => v.id === p.view)) {
+          // Fictional view — mark it open/focused and push, which clears the
+          // launch overlay (mirrors the runtime's reconcile push); the verb
+          // itself acks via ui.result like native's auto-ack.
+          result(true);
           setTimeout(() => {
             for (const v of views) { if (v.kind === "menu") { v.focused = v.id === p.view; v.open = v.open || v.id === p.view; } }
             sendViews();
           }, 400);
+        } else {
+          result(false, { code: "unknown-view", message: "not a registered surface" });
         }
         break;
       }
       case "hud.show":
       case "hud.hide": {
         const v = views.find((x) => x.id === p.view);
-        if (v) v.open = cmd === "hud.show";
-        setTimeout(sendViews, 150); // async reconcile, like native
+        if (!v) {
+          result(false, { code: "unknown-view", message: "not a registered surface" });
+          break;
+        }
+        v.open = cmd === "hud.show";
+        result(true);
+        setTimeout(() => sendViews(), 150); // async reconcile, like native
         break;
       }
       case "close":
-        log("→native", "close (no-op in harness)");
+        log("info", "close (no-op in harness)");
+        result(true);
         break;
       default:
-        // Mod action command: reply with a simulated "<mod>.ack" so the button
-        // resolves. Real mods do this from their own SFSE plugin. Mod ids
-        // contain a dot ("author.modname"), so derive the id from the payload's
-        // `mod` (the settings view sends it) rather than splitting the command.
-        if (typeof cmd === "string" && cmd.includes(".") && !cmd.startsWith("ui.") &&
-            !cmd.startsWith("settings.") && !cmd.startsWith("menu.") && !cmd.startsWith("hud.") &&
-            !cmd.startsWith("views.")) {
-          const modId = typeof p.mod === "string" && p.mod && cmd.startsWith(p.mod + ".")
-            ? p.mod
-            : cmd.slice(0, cmd.lastIndexOf("."));
-          setTimeout(() => send(modId + ".ack", { key: p.key, ok: true, message: "Done (mock)" }), 400);
+        // Plugin command shape (item 3): "<author>.<modname>.<name>" — two
+        // dots minimum. The mock plays the BRIDGE's part: ui.result ok:true =
+        // delivered to the plugin's handler (native auto-ack). Anything else
+        // is an unknown command -> ui.error, like MessageBridge.
+        if (typeof cmd === "string" && cmd.indexOf(".") > 0 &&
+            cmd.indexOf(".", cmd.indexOf(".") + 1) > 0) {
+          setTimeout(() => {
+            if (rid) send("ui.result", { ok: true, command: cmd, message: "Done (mock)" }, rid);
+          }, 400);
+        } else {
+          send("ui.error", { code: "unknown-command", message: "unknown command",
+            reason: "unknown command", command: String(cmd).slice(0, 128) }, rid);
         }
         break;
     }
@@ -509,7 +591,10 @@
     postMessage(json) {
       let m; try { m = JSON.parse(json); } catch { return; }
       log("←web", (m.payload && m.payload.command) || m.type);
-      if (m.type === "ui.command") handle(m.payload);
+      // requestId cap mirrors MessageBridge (<=64 chars, string, else absent).
+      const rid = typeof m.requestId === "string" && m.requestId.length > 0 && m.requestId.length <= 64
+        ? m.requestId : "";
+      if (m.type === "ui.command") handle(m.payload, rid);
     },
     onMessage: null,
     // Harness-only helper for automated tests / the top-bar buttons.
@@ -526,4 +611,13 @@
   FALLBACK.forEach(upsert);
   wireDrop();
   loadSources();
+
+  // Native greets every view on load (SendRuntimeReady) — push runtime.ready
+  // proactively like the runtime does, instead of gating it behind views.get
+  // (item 12: divergent boot semantics). Deferred a macrotask so the shared
+  // helper (loaded after this script) has installed its onMessage.
+  setTimeout(async () => {
+    send("runtime.ready", { game: "Starfield", plugin: "OSF UI",
+      version: await pluginVersion, bridgeVersion: "0.5", capabilities: CAPABILITIES });
+  }, 0);
 })();

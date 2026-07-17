@@ -629,6 +629,18 @@ namespace OSFUI
 		return conflicts;
 	}
 
+	nlohmann::json SettingsStore::ConflictsForSetting(std::string_view a_modId, std::string_view a_key) const
+	{
+		if (!_keyResolver) {
+			return nlohmann::json::array();  // no resolver = no conflict grouping (mirrors Data())
+		}
+		const auto* value = GetValue(a_modId, a_key);
+		if (!value || !value->is_string() || value->get_ref<const std::string&>().empty()) {
+			return nlohmann::json::array();  // unbound/non-key value: never conflicts
+		}
+		return ConflictsFor(_keyResolver(value->get_ref<const std::string&>()), a_modId, a_key);
+	}
+
 	nlohmann::json SettingsStore::Data() const
 	{
 		// Informational key-conflict grouping (mcm-design.md §9): resolve
@@ -859,29 +871,42 @@ namespace OSFUI
 
 	bool SettingsStore::Set(std::string_view a_modId, std::string_view a_key, std::string_view a_valueJson)
 	{
+		return SetWithResult(a_modId, a_key, a_valueJson).ok;
+	}
+
+	SettingsStore::SetResult SettingsStore::SetWithResult(std::string_view a_modId, std::string_view a_key, std::string_view a_valueJson)
+	{
 		auto* mod = FindMod(a_modId);
 		if (!mod) {
 			REX::WARN("SettingsStore: rejected set for unknown mod '{}'", a_modId.substr(0, 64));
-			return false;
+			return { false, "unknown-setting" };
 		}
 		if (mod->stub) {
 			REX::WARN("SettingsStore: rejected set for '{}' — registered as a requires-gated stub", mod->id);
-			return false;
+			return { false, "read-only" };
 		}
 		const auto* setting = FindSetting(*mod, a_key);
 		if (!setting) {
 			REX::WARN("SettingsStore: rejected unknown setting '{}.{}'", a_modId.substr(0, 64), a_key.substr(0, 64));
-			return false;
+			return { false, "unknown-setting" };
+		}
+		// A type this host doesn't know serves its default read-only (item 2)
+		// — surfaced as its own code so a view can say "needs a newer OSF UI"
+		// instead of "bad value".
+		if (!Caps::Has("type:" + Json::GetString(*setting, "type", ""))) {
+			REX::WARN("SettingsStore: rejected set for '{}.{}' — unknown type '{}' is served read-only",
+				a_modId.substr(0, 64), a_key.substr(0, 64), Json::GetString(*setting, "type", "?").substr(0, 32));
+			return { false, "read-only" };
 		}
 		const auto parsed = Json::Parse(a_valueJson, "settings value");
 		if (!parsed) {
-			return false;
+			return { false, "invalid-value" };
 		}
 		auto valid = Validate(*setting, *parsed);
 		if (!valid) {
 			REX::WARN("SettingsStore: rejected invalid value for '{}.{}' (type {})",
 				a_modId.substr(0, 64), a_key.substr(0, 64), Json::GetString(*setting, "type", "?"));
-			return false;
+			return { false, "invalid-value" };
 		}
 
 		const std::string key{ a_key };
@@ -891,7 +916,7 @@ namespace OSFUI
 		if (Log::DevMode()) {
 			REX::DEBUG("SettingsStore: set '{}.{}' = {}", mod->id, key, mod->values[key].dump().substr(0, 128));
 		}
-		return true;
+		return { true, {} };
 	}
 
 	bool SettingsStore::Reset(std::string_view a_modId, std::string_view a_key)

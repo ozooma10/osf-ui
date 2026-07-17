@@ -76,23 +76,38 @@ let baseline = {};
 // conditions and modified indicators without tearing the pane down.
 let liveRows = [];
 let liveGroups = [];
-// Pending action buttons awaiting a "<mod>.ack": actionKey -> restore fn.
-const pendingActions = new Map();
-
 // ---- bridge ---------------------------------------------------------------
+// All traffic goes through the shared helper (../../shared/osfui.js, loaded by
+// index.html): osfui.send fire-and-forget, osfui.request for anything whose
+// outcome matters (the requestId/ui.result envelope, protocol 0.5), osfui.on
+// for native pushes, osfui.ready/has for the handshake.
 
-function bridgeAvailable() {
-  return typeof window.osfui === "object" &&
-         typeof window.osfui.postMessage === "function";
+function bridgeAvailable() { return osfui.available(); }
+function sendCommand(fields) { if (bridgeAvailable()) osfui.send(fields.command, fields); }
+function setValue(modId, key, value) {
+  saveStatePending(modId);
+  if (!bridgeAvailable()) return;
+  // The ack resolves with the authoritative post-clamp value; a refusal
+  // rejects with the machine code (unknown-setting / read-only / invalid-value).
+  osfui.request("settings.set", { mod: modId, key, value }).catch((err) => {
+    toast(`Rejected "${modId}.${key}"${err.code ? ` (${err.code})` : ""}`, "danger");
+    saveStateAbandon(modId);
+    // Native refused the value; pull authoritative state back.
+    sendCommand({ command: "settings.get" });
+  });
 }
-function sendCommand(fields) {
-  if (bridgeAvailable()) {
-    window.osfui.postMessage(JSON.stringify({ type: "ui.command", payload: fields }));
-  }
+function requestReset(modId, key) {
+  saveStatePending(modId);
+  if (!bridgeAvailable()) return;
+  // Resolves with the fresh settings.data (rendered by the on() subscriber —
+  // request replies also dispatch there); a refusal is no longer silent.
+  osfui.request("settings.reset", key ? { mod: modId, key } : { mod: modId }).catch((err) => {
+    toast(`Reset failed${err.code ? ` (${err.code})` : ""}`, "danger");
+    saveStateAbandon(modId);
+  });
 }
-function setValue(modId, key, value) { saveStatePending(modId); sendCommand({ command: "settings.set", mod: modId, key, value }); }
-function resetMod(modId) { saveStatePending(modId); sendCommand({ command: "settings.reset", mod: modId }); }
-function resetSetting(modId, key) { saveStatePending(modId); sendCommand({ command: "settings.reset", mod: modId, key }); }
+function resetMod(modId) { requestReset(modId, null); }
+function resetSetting(modId, key) { requestReset(modId, key); }
 
 // ---- save feedback ---------------------------------------------------------
 // Native persistence is write-behind (a commit notifies immediately; the disk
@@ -665,20 +680,17 @@ function buildAction(mod, item) {
       return;
     }
     btn.disabled = true; btn.classList.add("pending"); const prev = btn.textContent; btn.textContent = "…";
-    // Key the pending map by mod+action key — action keys are only unique
-    // within a mod, so two mods can share one.
-    const pkey = mod.id + " " + item.key;
-    // Identity check, not just presence: a stale timer from a previous fire
-    // must not cancel a re-clicked action's fresh pending entry.
     const restore = (msg, kind) => {
-      if (pendingActions.get(pkey) !== restore) return;
-      pendingActions.delete(pkey);
       btn.disabled = false; btn.classList.remove("pending"); btn.textContent = prev;
       if (msg) toast(msg, kind);
     };
-    pendingActions.set(pkey, restore);
-    setTimeout(() => restore("No response from " + mod.id, "warn"), ACTION_TIMEOUT_MS);
-    sendCommand(Object.assign({ command: item.command }, { mod: mod.id, key: item.key }));
+    // The item-5 envelope: the plugin command settles as ui.result (ok:true =
+    // delivered to the plugin's handler; richer replies are the plugin's own
+    // message types). Timeout / unknown-command / no-bridge all reject.
+    osfui.request(item.command, { mod: mod.id, key: item.key }, { timeoutMs: ACTION_TIMEOUT_MS })
+      .then((msg) => restore((msg.payload && msg.payload.message) || null, "info"))
+      .catch((err) => restore(err.code === "timeout" ? "No response from " + mod.id
+        : (err.message || "Action failed"), err.code === "timeout" ? "warn" : "danger"));
   };
 
   if (item.confirm) {
@@ -1050,9 +1062,9 @@ function renderRestartBanner(mod) {
 
 function renderDetail() {
   liveRows = []; liveGroups = []; surfaceControls = [];
-  // The old buttons are about to be discarded; drop any pending action state so
-  // a late ack can't restore a detached node.
-  pendingActions.clear();
+  // The old buttons are about to be discarded. A still-pending action promise
+  // resolves against its (now detached) button — harmless; its toast still
+  // shows.
   detailEl.textContent = "";
 
   const q = (filterEl.value || "").trim().toLowerCase();
@@ -1525,17 +1537,21 @@ function beginCapture(mod, key, btn) {
   btn.classList.add("listening");
   btn.textContent = "Press a key…";
   if (bridgeAvailable()) {
-    sendCommand({ command: "settings.captureKey", mod, key });  // native captures the next key
-    // Native arms capture for any key-typed setting and replies `cancelled` if
-    // it declines. The timeout is a safety net (older runtime, dropped reply):
-    // without it the button would stay on "Press a key…" AND `capturing` would
-    // never clear, jamming every later rebind.
-    capturing.timer = setTimeout(() => {
-      if (capturing && capturing.btn === btn) {
-        finishCapture({ mod, key, cancelled: true });
-        toast("Rebinding didn't get a response from the runtime.", "warn");
-      }
-    }, ACTION_TIMEOUT_MS);
+    // Native captures the next key; the reply (settings.captured) echoes this
+    // request's id — even though it lands ticks later, after the user pressed
+    // a key — so the whole rebind is one awaited request. No request timeout:
+    // the user may think as long as they like; the reply itself settles it
+    // (Escape/refusal comes back `cancelled`). A second arm while one is live
+    // anywhere rejects with code "capture-busy" (protocol 0.5).
+    osfui.request("settings.captureKey", { mod, key }, { timeoutMs: 0 })
+      .then((msg) => finishCapture(msg.payload))
+      .catch((err) => {
+        if (capturing && capturing.btn === btn) {
+          finishCapture({ mod, key, cancelled: true });
+          toast(err.code === "capture-busy" ? "Another rebind is already listening."
+            : "Rebinding didn't get a response from the runtime.", "warn");
+        }
+      });
   } else {
     const onKey = (e) => {
       window.removeEventListener("keydown", onKey, true);
@@ -1654,121 +1670,124 @@ if (sessionChipEl) sessionChipEl.addEventListener("click", openSessionPanel);
 
 // ---- native -> web ---------------------------------------------------------
 
-function onNativeMessage(jsonText) {
-  let message;
-  try { message = JSON.parse(jsonText); } catch { return; }
-  switch (message.type) {
-    case "runtime.ready": {
-      const version = message.payload && message.payload.version;
-      const badge = document.getElementById("plugin-version");
-      if (badge && version) badge.textContent = "v" + version;
-      sendCommand({ command: "settings.get" });
-      sendCommand({ command: "views.get" });  // also subscribes to change pushes
-      break;
+// Subscriptions via the shared helper (it owns osfui.onMessage). Replies that
+// resolve an osfui.request() ALSO land here — one render path regardless of
+// who asked.
+
+// The handshake: version badge + initial reads. `osfui.has()` is the
+// documented feature gate (capabilities, protocol 0.5) — bridgeVersion is
+// informational, not something to do arithmetic on.
+osfui.ready.then((info) => {
+  const badge = document.getElementById("plugin-version");
+  if (badge && info.version) badge.textContent = "v" + info.version;
+  sendCommand({ command: "settings.get" });
+  if (osfui.has("views")) sendCommand({ command: "views.get" });  // also subscribes to change pushes
+});
+
+osfui.on("settings.data", (p) => {
+  allMods = p.mods || [];
+  render();
+});
+osfui.on("views.data", (p) => {
+  allViews = (p.views || []).filter((v) => v && v.hub !== false);
+  // Pushes arrive on every open/focus flip (e.g. our own HUD toggle) —
+  // only rebuild the pane when the catalog itself changed, or a settings
+  // control mid-edit would be torn down under the user.
+  const key = allViews.map((v) => [v.id, v.mod, v.title, v.kind, v.loadState].join(" ")).join("\n");
+  if (key !== viewsShapeKey) {
+    viewsShapeKey = key;
+    render();
+  } else {
+    refreshSurfaceStates();
+  }
+});
+
+osfui.on("settings.changed", (p) => {
+  // Native push for every committed value — our own commits echo back
+  // (possibly clamped), and other writers (a sibling DLL, a mod's panel, a
+  // preset in another view) stay in sync while the menu is open.
+  if (typeof p.mod !== "string" || typeof p.key !== "string") return;
+  const mod = allMods.find((m) => m.id === p.mod);
+  if (!mod) return;
+  mod.values = mod.values || {};
+  const b = baselineFor(p.mod);
+  if (!(p.key in b)) b[p.key] = mod.values[p.key];
+  // Key-typed pushes carry the setting's recomputed `conflicts` (protocol
+  // 0.5) — apply both sides of the collision to the local model instead of
+  // re-fetching the whole registry (the old N+1). Handled before the echo
+  // check so our OWN rebind (already applied optimistically) still updates
+  // the badges.
+  const changedSetting = findSettingInMod(mod, p.key);
+  if (changedSetting && changedSetting.type === "key") {
+    mod.values[p.key] = p.value;
+    applyConflictUpdate(mod, changedSetting, Array.isArray(p.conflicts) ? p.conflicts : []);
+    if (p.mod === selectedId) renderDetail();  // repaint badges in place
+    updateChip(); updateRailCounts();
+    return;
+  }
+  if (sameValue(mod.values[p.key], p.value)) {
+    // The common case: the echo of our own optimistic commit. Cheap sync.
+    updateChip(); updateRailCounts();
+    return;
+  }
+  mod.values[p.key] = p.value;
+  // The store disagrees with the local model (native clamp or an external
+  // writer): rebuild the pane so the visible control shows the real value.
+  if (p.mod === selectedId) renderDetail();
+  updateChip(); updateRailCounts();
+});
+
+// A rebind changes the PARTNERS' badges too (they gained or lost this
+// setting). The push carries only the changed setting's list, but collisions
+// are symmetric: mirror the entries onto every other key-typed setting in the
+// local model. @game partners live only inside `conflicts` lists, so they need
+// no touch-up.
+function applyConflictUpdate(mod, setting, conflicts) {
+  if (conflicts.length) setting.conflicts = conflicts; else delete setting.conflicts;
+  const selfEntry = { mod: mod.id, key: setting.key, title: titleOf(mod) };
+  const partnered = new Set(conflicts.map((c) => c.mod + " " + c.key));
+  for (const m of allMods) {
+    for (const g of (m.schema && m.schema.groups) || []) {
+      for (const s of g.settings || []) {
+        if (!s || s.type !== "key" || (m.id === mod.id && s.key === setting.key)) continue;
+        const list = (Array.isArray(s.conflicts) ? s.conflicts : [])
+          .filter((c) => !(c && c.mod === mod.id && c.key === setting.key));
+        if (partnered.has(m.id + " " + s.key)) list.push(selfEntry);
+        if (list.length) s.conflicts = list; else delete s.conflicts;
+      }
     }
-    case "settings.data":
-      allMods = (message.payload && message.payload.mods) || [];
-      render();
-      break;
-    case "views.data": {
-      allViews = ((message.payload && message.payload.views) || [])
-        .filter((v) => v && v.hub !== false);
-      // Pushes arrive on every open/focus flip (e.g. our own HUD toggle) —
-      // only rebuild the pane when the catalog itself changed, or a settings
-      // control mid-edit would be torn down under the user.
-      const key = allViews.map((v) => [v.id, v.mod, v.title, v.kind, v.loadState].join("\u0000")).join("\n");
-      if (key !== viewsShapeKey) {
-        viewsShapeKey = key;
-        render();
-      } else {
-        refreshSurfaceStates();
-      }
-      break;
-    }
-    case "settings.changed": {
-      // Native push for every committed value — our own commits echo back
-      // (possibly clamped), and other writers (a sibling DLL, a mod's panel, a
-      // preset in another view) stay in sync while the menu is open.
-      const p = message.payload || {};
-      if (typeof p.mod !== "string" || typeof p.key !== "string") break;
-      const mod = allMods.find((m) => m.id === p.mod);
-      if (!mod) break;
-      mod.values = mod.values || {};
-      const b = baselineFor(p.mod);
-      if (!(p.key in b)) b[p.key] = mod.values[p.key];
-      // A key rebind can create or clear a cross-mod conflict, but `conflicts`
-      // is only recomputed in settings.data — a plain settings.changed can't
-      // carry the new state (and it may affect ANOTHER mod's badge). Pull a
-      // fresh registry so every badge re-derives. Rare event; the full refresh
-      // is fine. Handled before the echo check so our OWN rebind (already
-      // applied optimistically) still triggers it.
-      const changedSetting = findSettingInMod(mod, p.key);
-      if (changedSetting && changedSetting.type === "key") {
-        mod.values[p.key] = p.value;
-        sendCommand({ command: "settings.get" });
-        break;
-      }
-      if (sameValue(mod.values[p.key], p.value)) {
-        // The common case: the echo of our own optimistic commit. Cheap sync.
-        updateChip(); updateRailCounts();
-        break;
-      }
-      mod.values[p.key] = p.value;
-      // The store disagrees with the local model (native clamp or an external
-      // writer): rebuild the pane so the visible control shows the real value.
-      if (p.mod === selectedId) renderDetail();
-      updateChip(); updateRailCounts();
-      break;
-    }
-    case "settings.captured":
-      finishCapture(message.payload);
-      break;
-    case "settings.ack":
-      if (message.payload && !message.payload.ok) {
-        toast(`Rejected "${message.payload.mod}.${message.payload.key}"`, "danger");
-        saveStateAbandon(message.payload.mod);
-        // Native refused the value; pull authoritative state back.
-        sendCommand({ command: "settings.get" });
-      }
-      break;
-    case "settings.persisted":
-      // The mod's values file WRITE landed (write-behind flush) — distinct
-      // from settings.changed, which is the immediate in-memory commit.
-      if (message.payload) saveStatePersisted(message.payload.mod);
-      break;
-    case "ui.visibility":
-      // A fresh overlay visit (the runtime pushes this on the closed->open
-      // edge): the undo scope is "since you opened settings", so drop the old
-      // baseline — the chip disappears until something changes this visit.
-      // Without this the view, which keeps running while hidden, accumulates
-      // every change of the whole game session.
-      if (message.payload && message.payload.visible) {
-        baseline = {};
-        updateChip();
-        // Land every visit on the launcher, filter cleared — the toggle key
-        // means "open the deck", not "resume where a past visit left off".
-        if (selectedId !== HOME_ID || filterEl.value) {
-          filterEl.value = "";
-          selectMod(HOME_ID);
-        }
-      }
-      break;
-    default:
-      // Mod action acknowledgements: "<modId>.ack" with { key, ok, message }.
-      // Resolve by mod+key (the mod id is the message-type prefix) so two mods
-      // sharing an action key can't cross-resolve each other's buttons.
-      if (typeof message.type === "string" && message.type.endsWith(".ack")) {
-        const p = message.payload || {};
-        const modId = message.type.slice(0, -".ack".length);
-        const restore = p.key != null && pendingActions.get(modId + " " + p.key);
-        if (restore) restore(p.message || (p.ok === false ? "Action failed" : null), p.ok === false ? "danger" : "info");
-      }
-      break;
   }
 }
 
-window.osfui = window.osfui || {};
-window.osfui.onMessage = onNativeMessage;
+// Belt-and-braces: the rebind promise (beginCapture) is the primary path; this
+// also catches a reply that lost its correlation (e.g. an older host that
+// doesn't echo requestId). finishCapture is idempotent — a second delivery
+// no-ops because `capturing` is already cleared.
+osfui.on("settings.captured", (p) => finishCapture(p));
+
+osfui.on("settings.persisted", (p) => {
+  // The mod's values file WRITE landed (write-behind flush) — distinct
+  // from settings.changed, which is the immediate in-memory commit.
+  saveStatePersisted(p.mod);
+});
+
+osfui.on("ui.visibility", (p) => {
+  // A fresh overlay visit (the runtime pushes this on the closed->open
+  // edge): the undo scope is "since you opened settings", so drop the old
+  // baseline — the chip disappears until something changes this visit.
+  // Without this the view, which keeps running while hidden, accumulates
+  // every change of the whole game session.
+  if (p.visible) {
+    baseline = {};
+    updateChip();
+    // Land every visit on the launcher, filter cleared — the toggle key
+    // means "open the deck", not "resume where a past visit left off".
+    if (selectedId !== HOME_ID || filterEl.value) {
+      filterEl.value = "";
+      selectMod(HOME_ID);
+    }
+  }
+});
 
 document.getElementById("close").addEventListener("click", () => sendCommand({ command: "close" }));
 document.addEventListener("keydown", (e) => {

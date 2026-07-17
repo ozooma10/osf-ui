@@ -9,10 +9,10 @@ a reference for the two data-driven extension points that work today:
 
 > **Status / scope.** What you can ship as pure content with no recompile: a
 > `views/<modId>/<viewName>/` folder and a `settings/<modId>.json` schema. The
-> bridge protocol is at version **0.4 — unstable**; minor bumps may break
-> views until it reaches 1.0. Detect it via the `bridgeVersion` field of the
-> `runtime.ready` handshake (below) and degrade/refuse on a mismatch. See the
-> roadmap in [renderer-plan.md](renderer-plan.md).
+> bridge protocol is at version **0.5 — unstable**; minor bumps may break
+> views until it reaches 1.0. Feature-detect via the `capabilities` array of
+> the `runtime.ready` handshake (`osfui.has()`, §3) — `bridgeVersion` is
+> informational. See the roadmap in [renderer-plan.md](renderer-plan.md).
 
 ## 0. Ids: one grammar for everything
 
@@ -177,33 +177,65 @@ the pointer for the whole view.
 ## 3. The bridge — `window.osfui`
 
 When `nativeBridge` is granted, the runtime injects one object before your page
-scripts run:
+scripts run. **Use it through the shipped helper** — load it like the shared
+stylesheet, before your own script:
+
+```html
+<script src="../../shared/osfui.js"></script>
+<script src="main.js"></script>
+```
+
+```js
+// The helper's whole surface (thin by design — it is part of the contract):
+osfui.available()                 // bridge present? false = plain browser
+const info = await osfui.ready;   // the runtime.ready payload
+osfui.has("type:flags")           // capability test (see Versioning, §7)
+osfui.send("close");              // fire-and-forget ui.command
+const reply = await osfui.request("settings.get");   // correlated request
+const off = osfui.on("settings.changed", (payload) => { ... });  // subscribe
+```
+
+`osfui.request()` generates a `requestId`, and resolves with the reply message
+(`{ type, requestId, payload }`) or rejects — an `Error` with a stable `.code`
+— on `ui.error`, on `ui.result { ok:false }`, on timeout (default 10 s; pass
+`{ timeoutMs: 0 }` to disable, e.g. for a key capture that waits on the user),
+and immediately when no bridge is present. With the helper loaded it owns
+`osfui.onMessage` — subscribe with `osfui.on()`, never assign `onMessage`
+yourself.
+
+Under the helper sit two primitives (all the helper itself uses):
 
 ```js
 // web → native: send one JSON message
 window.osfui.postMessage(jsonString);
 
-// native → web: you assign this; the runtime calls it with a JSON string
+// native → web: the runtime calls it with a JSON string (owned by the helper)
 window.osfui.onMessage = (jsonString) => { ... };
 ```
 
-`postMessage` is read-only and cannot be reassigned. You provide `onMessage`.
-Messages sent before your `onMessage` exists are queued (bounded, FIFO) and
-flushed once the DOM is ready **and** `onMessage` is installed, so it is safe
-to assign it at the top of your script. Do assign it during initial script
-execution: a view that has queued messages it cannot yet receive is kept off
-screen until they are delivered (the plugin-API "open a view in a specific
-state" guarantee, ABI 1.3 — see `docs/native-plugin-api.md` §6a), and a page
-that never installs `onMessage` while being sent messages stays hidden with a
-warning in the SFSE log.
+`postMessage` is read-only and cannot be reassigned. Messages sent before
+`onMessage` exists are queued (bounded, FIFO) and flushed once the DOM is
+ready **and** `onMessage` is installed — loading `osfui.js` in `<head>` or
+before your script satisfies this. A view that has queued messages it cannot
+yet receive is kept off screen until they are delivered (the plugin-API "open
+a view in a specific state" guarantee, ABI 1.3 — see
+`docs/native-plugin-api.md` §6a), and a page that never installs `onMessage`
+while being sent messages stays hidden with a warning in the SFSE log.
 
 ### Message envelope
 
 Every message in both directions is JSON text with this shape:
 
 ```jsonc
-{ "type": "<string>", "payload": { ... } }
+{ "type": "<string>", "requestId": "<optional string>", "payload": { ... } }
 ```
+
+`requestId` (protocol 0.5) is the correlation contract — `osfui.request()`
+does this for you: any `ui.command` may carry a caller-chosen id (string,
+1–64 chars); **every reply echoes it top-level**, and a command with no reply
+type of its own (`close`, `menu.open`, …) answers
+`ui.result { ok, command, code?, message? }` — but **only when an id was
+supplied**. Omitting it is fire-and-forget, exactly as before 0.5.
 
 Malformed messages are rejected and logged, never fatal. Both directions are
 capped at 64 queued messages (excess is dropped with a warning) — **do not
@@ -212,18 +244,11 @@ flood the bridge**; it shares the game thread.
 ### Web → native
 
 There is exactly **one** accepted inbound type: `ui.command`. The `payload`
-carries a `command` field plus that command's arguments:
+carries a `command` field plus that command's arguments — `osfui.send(command,
+fields)` / `osfui.request(command, fields)` build it for you.
 
-```js
-function send(command, fields = {}) {
-  window.osfui.postMessage(JSON.stringify({
-    type: "ui.command",
-    payload: { command, ...fields },
-  }));
-}
-```
-
-Whitelisted commands (anything else is rejected + logged):
+Whitelisted commands (anything else is rejected + logged, and answered with
+`ui.error { code: "unknown-command" }`):
 
 | command | payload fields | effect |
 |---|---|---|
@@ -240,7 +265,8 @@ Whitelisted commands (anything else is rejected + logged):
 | `settings.get` | — | runtime replies with `settings.data` |
 | `settings.set` | `mod, key, value` | set one schema-declared setting (validated) |
 | `settings.reset` | `mod`, `key?` | reset one key, or the whole mod if `key` omitted |
-| `settings.captureKey` | `mod, key` | arm native key-rebind capture for ANY `key`-typed setting of any mod; the next key press replies with `settings.captured`. Captured natively so pressing the current toggle key rebinds instead of closing the overlay |
+| `settings.captureKey` | `mod, key` | arm native key-rebind capture for ANY `key`-typed setting of any mod; the next key press replies with `settings.captured` — echoing the arming `requestId`, however many ticks later, so `osfui.request("settings.captureKey", …, {timeoutMs: 0})` awaits the whole rebind. One capture at a time: a second arm answers `ui.result { ok:false, code:"capture-busy" }`. Captured natively so pressing the current toggle key rebinds instead of closing the overlay |
+| `osfui.gamepadRaw` | `raw: bool` | take over gamepad handling: suppress the default nav mapping and consume raw `ui.gamepad` events yourself. **Per-session** — reset when the overlay closes; re-assert on each `ui.visibility` show |
 
 > There is intentionally **no** "call any native function" escape hatch. New
 > commands come from native code only: either a handler in the OSF UI runtime,
@@ -252,45 +278,48 @@ Whitelisted commands (anything else is rejected + logged):
 
 ### Native → web
 
-Assign `window.osfui.onMessage` and switch on `message.type`:
+Subscribe with `osfui.on(type, fn)` (replies that resolve an `osfui.request()`
+are ALSO dispatched to subscribers, so one render path serves both):
 
 | type | payload | when |
 |---|---|---|
-| `runtime.ready` | `{ game, plugin, version, bridgeVersion }` | once, after your page loads — your cue to request data and to check `bridgeVersion` |
+| `runtime.ready` | `{ game, plugin, version, bridgeVersion, capabilities }` | once, after your page loads (`osfui.ready` resolves with it) — your cue to request data. Gate features on `capabilities` (append-only names, §7); `bridgeVersion` is informational |
 | `runtime.pong` | `{}` | reply to your `ping` |
-| `game.data` | `{ available, day, month, year, hour, daysPassed }` | reply to `game.get`; `available:false` before a save is loaded |
+| `game.data` | `{ calendar: { available, day, month, year, hour, daysPassed } }` | reply to `game.get`; each provider nests under its own object (future providers are siblings of `calendar`); `available:false` before a save is loaded |
 | `views.data` | `{ views: [ { id, title, description, mod, kind, interactive, hub, open, focused, loadState } ] }` | reply to `views.get`, and re-pushed to every subscribed view when any entry changes. `id` is the qualified `<modId>/<viewName>`; `mod` = the owning mod id derived from the folder (a mod with no settings schema of that id just lists under its own title); `kind` = `"menu"`\|`"hud"`; `loadState` = `"loading"`\|`"loaded"`\|`"failed"`; a view torn down by crash-recovery drops out of the list. Respect `hub:false` (don't list those) |
 | `settings.data` | `{ mods: [ { id, title, schema, values } ], vanillaKeys? }` | reply to `settings.get` / after a `settings.reset`. A `key`-typed setting whose binding collides with another mod's carries runtime-injected `conflicts: [{mod, key, title}]` in its schema object — informational; render a badge, never block. `mod` may be the reserved id `@game` (the game's own bindings; display `title`, e.g. "Starfield (Quicksave)"). Top-level `vanillaKeys: [{event, title, name}]` is the game's FULL binding table (read-only; the keybinds view renders it); absent when the runtime has none |
-| `settings.ack` | `{ mod, key, ok }` | result of a `settings.set` (`ok:false` ⇒ rejected/clamped) |
+| `settings.ack` | `{ mod, key, ok, value?, code?, message? }` | result of a `settings.set`. `ok:true` carries `value`, the authoritative post-clamp committed value (compare with what you sent to detect clamping — no re-fetch needed); `ok:false` carries a stable `code`: `unknown-setting`, `read-only` (requires-gated stub or a type this host doesn't know), or `invalid-value` |
 | `settings.captured` | `{ mod, key, name, cancelled, conflicts? }` | reply to `settings.captureKey`: the captured key `name` (an OSF UI key name), or `cancelled:true` (Escape / unbindable — keep the old binding). When the captured key is already bound elsewhere, `conflicts: [{mod, key, title}]` lists actionable collisions this bind would create; expected `@game` reuse from a `blocksGameplay` context is omitted. Warn live, never block. The view then sends a normal `settings.set` with `name` |
 | `ui.hotkey` | `{ mod, key }` | the physical key currently bound to that `key`-typed setting was pressed in-game (protocol 0.4). Pushed to every `settings.get` subscriber — filter on `mod`. Suppressed while the overlay captures input or a rebind is armed; rebinds re-route automatically |
-| `ui.error` | `{ reason, type?, command? }` | the runtime rejected something you sent — a malformed message, an unknown `type`, or an unknown `command`. Log it while developing; the same WARN is in `OSF UI.log` |
+| `ui.result` | `{ ok, command?, code?, message? }` | the uniform outcome (protocol 0.5), sent ONLY when your `ui.command` carried a `requestId`: verb commands (`close`, `menu.open`, …) answer `ok:true` on success; failures carry a stable `code` (`unknown-view`, `capture-busy`, `unknown-setting`, …). A plugin-registered command acks `ok:true` = delivered to the plugin's handler. `osfui.request()` consumes this for you |
+| `ui.gamepad` | `{ kind:"button", button:{id, down} }` \| `{ kind:"stick", axes:{lx, ly, rx, ry} }` | raw gamepad events to the ACTIVE view while the overlay captures input (per-kind nesting, protocol 0.5). The default nav mapping (D-pad→arrows, A→Enter, B→close, sticks→scroll) also applies unless you asserted `osfui.gamepadRaw` |
+| `ui.visibility` | `{ visible }` | the receiving view was shown/hidden with the overlay (edge-triggered). The reference views scope per-visit state off this; also your cue to re-assert `osfui.gamepadRaw` |
+| `ui.error` | `{ code, message, reason, type?, command? }` | the runtime rejected something you sent. `code` is a stable machine string — `malformed-message`, `unknown-message-type`, `unknown-command`; `message` is the human sentence (`reason` duplicates it through 0.x, gone at 1.0). Echoes your `requestId` when it could be read, so `osfui.request()` rejects with it. The same WARN is in `OSF UI.log` |
 
 Unknown `type`s should be ignored (never `eval`'d) — including future `type`s
 this runtime version doesn't know about.
 
 ### Minimal example
 
-```js
+```html
+<script src="../../shared/osfui.js"></script>
+<script>
 "use strict";
-const bridge = () =>
-  typeof window.osfui === "object" &&
-  typeof window.osfui.postMessage === "function";
+osfui.ready.then((info) => {
+  document.title = `Connected to ${info.plugin} v${info.version}`;
+  if (osfui.has("settings")) osfui.send("settings.get");  // read + subscribe
+});
+osfui.on("settings.changed", (p) => {
+  if (p.mod === "yourname.mymod") applySetting(p.key, p.value);
+});
+document.getElementById("close").onclick = () => osfui.send("close");
 
-function send(command, fields = {}) {
-  if (bridge()) window.osfui.postMessage(
-    JSON.stringify({ type: "ui.command", payload: { command, ...fields } }));
+// When the outcome matters, request() instead of send():
+async function openAlmanac() {
+  try { await osfui.request("menu.open", { view: "yourname.mymod/almanac" }); }
+  catch (err) { console.warn("open failed:", err.code); }  // e.g. "unknown-view"
 }
-
-window.osfui = window.osfui || {};
-window.osfui.onMessage = (json) => {
-  const msg = JSON.parse(json);
-  if (msg.type === "runtime.ready") {
-    document.title = `Connected to ${msg.payload.plugin} v${msg.payload.version}`;
-  }
-};
-
-document.getElementById("close").onclick = () => send("close");
+</script>
 ```
 
 See [`data/OSFUI/views/osfui/settings/main.js`](../data/OSFUI/views/osfui/settings/main.js)
@@ -406,24 +435,25 @@ file.**
 
 - every committed value — from the settings menu, a preset, a reset, or a
   native write — is pushed to you as
-  `settings.changed { mod, key, value }` (the value is post-validation, i.e.
-  authoritative), and
+  `settings.changed { mod, key, value, conflicts? }` (the value is
+  post-validation, i.e. authoritative; on `key`-typed settings `conflicts` is
+  the recomputed collision list — protocol 0.5 — so badge updates need no
+  registry re-fetch), and
 - a registry *shape* change (a mod registering/unregistering a schema at
   runtime) re-sends the full `settings.data`.
 
 So a mod's HUD view reacts live to its own settings with zero polling:
 
 ```js
-osfui.onMessage = (json) => {
-  const msg = JSON.parse(json);
-  if (msg.type === "settings.changed" && msg.payload.mod === "yourname.mymod") {
-    applySetting(msg.payload.key, msg.payload.value);  // e.g. re-style, re-layout
+osfui.on("settings.changed", (p) => {
+  if (p.mod === "yourname.mymod") {
+    applySetting(p.key, p.value);  // e.g. re-style, re-layout
   }
-};
-send("settings.get");  // initial read + subscription in one call
+});
+osfui.send("settings.get");  // initial read + subscription in one call
 ```
 
-You receive changes for **all** mods — filter on `payload.mod`.
+You receive changes for **all** mods — filter on `p.mod`.
 
 ### Hotkeys with zero native code (protocol 0.4)
 
@@ -433,9 +463,11 @@ user presses the bound key in-game, the runtime pushes
 single subscription above also makes your HUD toggleable:
 
 ```js
-if (msg.type === "ui.hotkey" && msg.payload.mod === "yourname.mymod" && msg.payload.key === "toggleHud") {
-  send("setViewHidden", { hidden: visible = !visible });  // or hud.show/hud.hide
-}
+osfui.on("ui.hotkey", (p) => {
+  if (p.mod === "yourname.mymod" && p.key === "toggleHud") {
+    osfui.send("setViewHidden", { hidden: visible = !visible });  // or hud.show/hud.hide
+  }
+});
 ```
 
 Presses typed into an overlay text field or during a rebind capture never
@@ -463,10 +495,14 @@ mode** so you can open `index.html` directly in a normal browser and iterate on
 layout/logic without launching the game:
 
 ```js
-if (!bridge()) {
+if (!osfui.available()) {
   // running in a plain browser — stub or no-op the native calls
 }
 ```
+
+(`shared/osfui.js` installs itself even without a bridge, so `osfui.available()`
+/ `osfui.on()` are always safe to call; `osfui.ready` simply never resolves and
+`osfui.request()` rejects with code `"no-bridge"`.)
 
 In-game, watch `Documents\My Games\Starfield\SFSE\Logs\OSF UI.log`:
 - `MessageBridge: [web] ...` — your `log` commands.
@@ -490,9 +526,9 @@ With `devMode: true` the in-game loop is alt-tab fast too:
 
 - [ ] `views/<modId>/<viewName>/manifest.json` — folder names pass the id grammar (§0), manifest `id` equals the view folder name, `permissions.nativeBridge` set as needed.
 - [ ] Responsive CSS (no hardcoded 1280×720 assumptions; the view is resized to the screen).
-- [ ] All assets local and relative (no `..`, no absolute paths, no network).
-- [ ] `onMessage` assigned before you send anything; handle `runtime.ready`.
-- [ ] Only whitelisted `ui.command`s; handle `*.ack`/error replies.
+- [ ] All assets local and relative (no `..`, no absolute paths, no network) — plus the sanctioned `../../shared/osfui.css` / `../../shared/osfui.js`.
+- [ ] Load `shared/osfui.js` before your script; boot off `osfui.ready`, gate features with `osfui.has()`.
+- [ ] Only whitelisted `ui.command`s; use `osfui.request()` (and its rejection `code`) where the outcome matters.
 - [ ] (If configurable) a `settings/<modId>.json` schema with sane `default`/`min`/`max`.
 - [ ] Verified standalone in a browser, then in-game via the log.
 
@@ -515,20 +551,28 @@ Tooling to author against the contract instead of from memory:
   and the settings-schema shapes. Reference it from your view's TS project and
   the bridge is typed globally — no package to install.
 
-### Versioning
+### Versioning & feature detection
 
-The protocol version is **0.4** and is emitted in `runtime.ready` as
-`bridgeVersion`. It is distinct from the plugin `version`. Until it reaches
-`1.0`, treat minor bumps as potentially breaking and gate your view on it:
+**Gate on capabilities, not version arithmetic.** `runtime.ready` carries
+`capabilities: string[]` — append-only named features (a capability, once
+shipped, is never removed or renamed): surface names (`settings`,
+`settings.captureKey`, `views`, `game.calendar`, `gamepad`), `request-id`
+(the `ui.result` envelope), `schema:requires`, and `type:<t>` per setting
+value type. It is the **same vocabulary** as a settings schema's `requires`
+array, so one name answers both "can this host render my schema" and "can my
+view use this feature":
 
 ```js
-window.osfui.onMessage = (json) => {
-  const msg = JSON.parse(json);
-  if (msg.type === "runtime.ready" && !msg.payload.bridgeVersion?.startsWith("0.")) {
-    // a newer, possibly incompatible runtime — warn or refuse rather than guess
-  }
-};
+const info = await osfui.ready;
+if (!osfui.has("settings")) {
+  showError(`This OSF UI (${info.version}) has no settings surface.`);
+} else if (osfui.has("type:flags")) {
+  // safe to offer the multi-select UI
+}
 ```
 
-The constant lives in `src/core/Version.h` (`kBridgeProtocolVersion`); the
-schemas and `.d.ts` are kept in lockstep with it.
+The protocol version is **0.5**, emitted as `bridgeVersion` — informational
+(logs, bug reports), distinct from the plugin `version`, and until `1.0`
+minor bumps may break views. The constant lives in `src/core/Version.h`
+(`kBridgeProtocolVersion`); the schemas, `.d.ts`, and the shared helper are
+kept in lockstep with it (CI greps the docs against the constant).
