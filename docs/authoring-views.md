@@ -98,8 +98,9 @@ Several views can be hosted and composited at once. `config.json` lists them:
 > **Shipping a view with a native mod?** Don't edit the user's `config.json` —
 > your SFSE plugin can register its shipped `views/<id>/` folder at runtime with
 > one bridge call (`RegisterView`, C ABI 1.5). The view then joins the views
-> catalog — it appears on the Mods surface (set the manifest `mod` field so it
-> lands on your mod's page) and opens via `RequestMenu` / `menu.open`. See
+> catalog — it appears on the Mods surface as a launch card on the Home page
+> and on its mod's page (set the manifest `mod` field so it lands there), and
+> opens via `RequestMenu` / `menu.open`. See
 > [native-plugin-api.md](native-plugin-api.md) §5c. The `views` array is for the
 > user's own composition (and OSF UI's built-ins).
 

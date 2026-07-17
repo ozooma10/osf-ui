@@ -1,8 +1,12 @@
 // The Mods surface — two-pane master/detail, and the overlay's front door
 // (the toggle key opens this view directly).
 //
-// Left rail lists every installed mod: OSF UI itself (the framework) pinned
-// first, then one entry per mod — the union of settings schemas
+// The rail is topped by Home, the launcher page every fresh visit lands on:
+// an app-style card grid of every registered panel (menu.open) and overlay
+// toggle across all mods, so shipped surfaces read as launchable apps rather
+// than settings rows. Below it the rail lists every installed mod: OSF UI
+// itself (the framework) pinned first, then one entry per mod — the union of
+// settings schemas
 // (settings.data) and registered catalog views (views.data). A view names its
 // owning mod via the manifest `mod` field; views without one get their own
 // rail entry under the view's title. The right pane renders the selected
@@ -15,7 +19,8 @@
 //
 // Everything the schema adds beyond bool/int/float/enum/string/key is
 // PRESENTATION: widget hints, number formatting, visibleWhen/enabledWhen
-// conditions, note/image blocks, action buttons, requires badges, presets. The
+// conditions, note/image blocks, action buttons, requires badges, presets, the
+// rail `icon` badge. The
 // native store never trusts any of it — a hidden or disabled control is still
 // validated on write, and an action command is refused unless it is namespaced
 // with the owning mod's id. Untrusted schema text only ever reaches the DOM via
@@ -25,6 +30,9 @@
 
 // The framework's own settings mod id — pinned first in the rail.
 const FRAMEWORK_ID = "osfui";
+// The Home launcher page's rail id. "~" keeps it out of the mod-id namespace
+// (native mod ids never start with it), so it can't shadow a real entry.
+const HOME_ID = "~home";
 // Bridge command namespaces owned by the framework — an action button may
 // never fire into these (mirrors the reserved-id list in SettingsStore.cpp).
 const RESERVED_NS = ["ui", "menu", "hud", "settings", "views", "game", "runtime"];
@@ -585,7 +593,14 @@ function safeAssetSrc(modId, src) {
   const id = String(modId || "");
   if (!id || id.includes("%") || bad(id)) return null;
   if (s.includes("%") || bad(s) || bad(decoded)) return null;
-  return `../${id}/${s}`;
+  // In game every view mounts under one views/ root, so a mod's folder is
+  // always a sibling at "..". The dev harness serves this page from
+  // devtools/harness/ where that isn't true — its mock bridge maps mod ids
+  // to their real view folders (OSFUI_MOD_ASSET_ROOTS). Never defined in
+  // game, so the shipped path can't be redirected.
+  const roots = window.OSFUI_MOD_ASSET_ROOTS;
+  const root = roots && typeof roots[id] === "string" ? roots[id] : "..";
+  return `${root}/${id}/${s}`;
 }
 
 function buildAction(mod, item) {
@@ -702,16 +717,49 @@ function railMatches(entry, q) {
 }
 
 // What the entry offers, for the rail sub-line: "Framework", the mod id, or a
-// panel/overlay summary for view-only entries.
+// terminal/overlay summary for view-only entries.
 function railSub(entry) {
   if (entry.id === FRAMEWORK_ID) return "Framework";
   if (entry.mod) return entry.mod.id;
   const menus = entry.views.filter((v) => v.kind === "menu").length;
   const huds = entry.views.length - menus;
   const parts = [];
-  if (menus) parts.push(menus === 1 ? "Panel" : `${menus} panels`);
+  if (menus) parts.push(menus === 1 ? "Terminal" : `${menus} terminals`);
   if (huds) parts.push(huds === 1 ? "Overlay" : `${huds} overlays`);
   return parts.join(" · ") || "Mod";
+}
+
+// A mod's schema `icon` (a file inside its own view folder — same sandbox as
+// image rows) resolved to an URL, or null when it ships none / the path is
+// rejected.
+function modIconSrc(mod) {
+  const icon = mod && mod.schema ? mod.schema.icon : null;
+  return typeof icon === "string" ? safeAssetSrc(mod.id, icon) : null;
+}
+// Same, looked up from a view's owning-mod id (Home cards).
+function ownerIconSrc(modId) {
+  return modId ? modIconSrc(allMods.find((m) => m.id === modId)) : null;
+}
+
+// The rail avatar: the mod's schema `icon` when it ships one, else title
+// initials. A missing/broken file falls back to initials, so a stale path
+// never leaves a hole in the rail.
+function railMark(entry, isFramework) {
+  const mark = el("span", "rail-item-mark");
+  const fallback = isFramework ? "◆" : initials(entry.title);
+  const src = modIconSrc(entry.mod);
+  if (!src) { mark.textContent = fallback; return mark; }
+  mark.classList.add("rail-item-mark--icon");
+  const img = document.createElement("img");
+  img.src = src;
+  img.alt = "";
+  img.addEventListener("error", () => {
+    img.remove();
+    mark.classList.remove("rail-item-mark--icon");
+    mark.textContent = fallback;
+  });
+  mark.appendChild(img);
+  return mark;
 }
 
 function railItem(entry) {
@@ -721,7 +769,7 @@ function railItem(entry) {
   btn.dataset.mod = entry.id;
   const isFramework = entry.id === FRAMEWORK_ID;
 
-  const mark = el("span", "rail-item-mark", isFramework ? "◆" : initials(entry.title));
+  const mark = railMark(entry, isFramework);
   const textWrap = el("span", "rail-item-text");
   textWrap.appendChild(el("span", "rail-item-title", entry.title));
   textWrap.appendChild(el("span", "rail-item-sub", railSub(entry)));
@@ -737,9 +785,30 @@ function railItem(entry) {
   return btn;
 }
 
+// Home's pinned rail item — same chrome as a mod entry, selected the same way.
+function railHomeItem() {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "rail-item rail-item--home" + (selectedId === HOME_ID ? " selected" : "");
+  const mark = el("span", "rail-item-mark", "⌂");
+  const textWrap = el("span", "rail-item-text");
+  textWrap.appendChild(el("span", "rail-item-title", "Home"));
+  const menus = allViews.filter((v) => v.kind === "menu").length;
+  const huds = allViews.length - menus;
+  textWrap.appendChild(el("span", "rail-item-sub",
+    allViews.length ? `${menus} terminals · ${huds} overlays` : "Launcher"));
+  btn.append(mark, textWrap);
+  btn.addEventListener("click", () => selectMod(HOME_ID));
+  return btn;
+}
+
 function renderRail() {
   const q = (filterEl.value || "").trim().toLowerCase();
   railEl.textContent = "";
+
+  // Home is pinned above everything; while a filter is active the rail scopes
+  // to matching mods, so the launcher item steps aside like the framework does.
+  if (!q) railEl.appendChild(railHomeItem());
 
   // The framework card is pinned at the top with no section header of its own
   // — it self-labels as "Framework" and is the only entry that would ever sit
@@ -759,7 +828,7 @@ function renderRail() {
     if (q) {
       empty.textContent = "No mods match the filter.";
     } else {
-      empty.textContent = "No mods installed yet. Mods that register settings, panels or HUDs appear here.";
+      empty.textContent = "No mods installed yet. Mods that register settings, terminals or overlays appear here.";
     }
     railEl.appendChild(empty);
   }
@@ -905,7 +974,7 @@ function renderSurfaces(views) {
   const menus = views.filter((v) => v.kind === "menu");
   const huds = views.filter((v) => v.kind !== "menu");
   const section = el("div", "group");
-  const label = menus.length && huds.length ? "Panels & overlays" : menus.length ? "Panels" : "Overlays";
+  const label = menus.length && huds.length ? "Terminals & overlays" : menus.length ? "Terminals" : "Overlays";
   const heading = el("button", "group-label", label);
   heading.type = "button";
   heading.addEventListener("click", () => section.classList.toggle("collapsed"));
@@ -949,6 +1018,8 @@ function renderDetail() {
 
   const q = (filterEl.value || "").trim().toLowerCase();
   if (q) { renderSearch(q); return; }
+
+  if (selectedId === HOME_ID) { renderHomeDetail(); return; }
 
   const entry = findEntry(selectedId);
   if (!entry) {
@@ -1005,6 +1076,192 @@ function renderDetail() {
   if (banner) bannerSlot.appendChild(banner);
 
   refreshLive(mod);
+}
+
+// ---- Home (launcher) --------------------------------------------------------
+// The landing page: every registered panel and overlay across all mods as an
+// app-style card grid — the launch surface, where settings rows stay per-mod.
+// Cards derive a monogram + accent from the view id so unbranded views still
+// look intentional (same trick the old hub used). All untrusted text (titles,
+// descriptions) goes through el()/textContent; the patch SVG is a static
+// template tinted via currentColor.
+
+const HOME_PALETTE = ["#6f93b0", "#7a9a5e", "#c98a4a", "#b96f86", "#8b83c0", "#b9a45e", "#5f9aa0", "#a8846a"];
+function hashId(id) {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return h;
+}
+function homeAccentFor(id) { return HOME_PALETTE[hashId(String(id)) % HOME_PALETTE.length]; }
+
+// Owning-mod caption for a card: the settings mod's title, or the manifest
+// `mod` string as-is for view-only mods.
+function homeModCaption(v) {
+  if (!v.mod) return "";
+  const owner = allMods.find((m) => m.id === v.mod);
+  return owner ? titleOf(owner) : v.mod;
+}
+
+function homePatch(accent, failed) {
+  const wrap = el("span", "home-patch");
+  wrap.style.color = failed ? "var(--signal-stop)" : accent;
+  // Static markup only — no untrusted text passes through here.
+  wrap.innerHTML = `<svg width="64" height="64" viewBox="0 0 200 200" aria-hidden="true">
+    <circle cx="100" cy="100" r="93" fill="rgba(11,14,18,0.55)" stroke="currentColor" stroke-width="2" opacity="0.9"></circle>
+    <circle cx="100" cy="100" r="83" fill="none" stroke="currentColor" stroke-width="1" opacity="0.32"></circle>
+    <polygon points="22,100 27,94 32,100 27,106" fill="currentColor" opacity="0.8"></polygon>
+    <polygon points="178,100 173,94 168,100 173,106" fill="currentColor" opacity="0.8"></polygon>
+    ${failed ? '<g stroke="currentColor" stroke-width="6" stroke-linecap="round" fill="none"><path d="M100 78 v26"></path><path d="M100 118 v.5"></path></g>' : ""}
+  </svg>`;
+  return wrap;
+}
+
+function homeSectionHead(title, count, note) {
+  const head = el("div", "home-head");
+  head.appendChild(el("span", "home-head-title", title));
+  head.appendChild(el("span", "home-head-count", String(count).padStart(2, "0")));
+  head.appendChild(el("span", "home-head-rule"));
+  head.appendChild(el("span", "home-head-note", note));
+  return head;
+}
+
+function homeMenuCard(v) {
+  const failed = v.loadState === "failed";
+  const accent = homeAccentFor(v.id);
+  const card = document.createElement("button");
+  card.type = "button";
+  card.className = "home-tile" + (failed ? " failed" : "");
+  card.dataset.label = (v.title || "").toLowerCase();
+
+  const patch = homePatch(accent, failed);
+  if (!failed) {
+    // Owning mod's icon inside the ring where the monogram sits; initials
+    // when there is none (or the file is missing — same fallback as the rail).
+    const mono = el("span", "home-monogram", initials(v.title || v.id));
+    mono.style.color = accent;
+    const src = ownerIconSrc(v.mod);
+    if (src) {
+      const img = document.createElement("img");
+      img.className = "home-patch-icon";
+      img.src = src;
+      img.alt = "";
+      img.addEventListener("error", () => { img.remove(); patch.appendChild(mono); });
+      patch.appendChild(img);
+    } else {
+      patch.appendChild(mono);
+    }
+  }
+  card.appendChild(patch);
+
+  const body = el("span", "home-tile-body");
+  body.appendChild(el("span", "home-tile-title", v.title || v.id));
+  if (v.description) body.appendChild(el("span", "home-tile-desc", v.description));
+  const caption = homeModCaption(v);
+  if (caption) body.appendChild(el("span", "home-tile-mod", caption));
+  card.appendChild(body);
+
+  card.appendChild(el("span", "home-tile-foot", failed ? "FAILED — SEE OSF UI.LOG" : "OPEN ▸"));
+
+  if (failed) {
+    card.disabled = true;
+  } else {
+    card.addEventListener("click", () => {
+      // Single-menu policy: the opened panel replaces this surface, so no
+      // local state to reconcile — just guard against a dead double-click.
+      sendCommand({ command: "menu.open", view: v.id });
+      card.disabled = true;
+      setTimeout(() => { card.disabled = false; }, 1600);
+    });
+  }
+  return card;
+}
+
+function homeHudCard(v) {
+  const accent = homeAccentFor(v.id);
+  const card = document.createElement("button");
+  card.type = "button";
+  card.className = "home-hud";
+  card.setAttribute("role", "switch");
+  card.setAttribute("aria-pressed", v.open === true ? "true" : "false");
+
+  const chip = el("span", "home-hud-chip");
+  chip.style.color = accent;
+  const chipSrc = ownerIconSrc(v.mod);
+  const chipFallback = () => {
+    chip.classList.remove("home-hud-chip--icon");
+    chip.textContent = initials(v.title || v.id);
+  };
+  if (chipSrc) {
+    chip.classList.add("home-hud-chip--icon");
+    const img = document.createElement("img");
+    img.src = chipSrc;
+    img.alt = "";
+    img.addEventListener("error", () => { img.remove(); chipFallback(); });
+    chip.appendChild(img);
+  } else {
+    chipFallback();
+  }
+  card.appendChild(chip);
+
+  const main = el("span", "home-hud-main");
+  main.appendChild(el("span", "home-hud-name", v.title || v.id));
+  const caption = homeModCaption(v);
+  main.appendChild(el("span", "home-hud-desc", v.description || caption || ""));
+  card.appendChild(main);
+
+  const sw = el("span", "osf-switch home-hud-switch");
+  card.appendChild(sw);
+
+  card.addEventListener("click", () => {
+    const next = card.getAttribute("aria-pressed") !== "true";
+    card.setAttribute("aria-pressed", next ? "true" : "false");
+    sendCommand({ command: next ? "hud.show" : "hud.hide", view: v.id });
+  });
+  // Registered as kind "hud" so refreshSurfaceStates reconciles aria-pressed
+  // from views.data pushes exactly like the per-mod switch rows; the switch
+  // visual keys off the card's aria-pressed in CSS.
+  surfaceControls.push({ viewId: v.id, kind: "hud", control: card });
+  return card;
+}
+
+function renderHomeDetail() {
+  applyAccent(detailEl, null);
+  const menus = allViews.filter((v) => v.kind === "menu");
+  const huds = allViews.filter((v) => v.kind !== "menu");
+
+  const head = el("div", "detail-head");
+  const left = el("div");
+  left.appendChild(el("div", "osf-eyebrow kicker", "Control deck"));
+  left.appendChild(el("h2", null, "Home"));
+  left.appendChild(el("div", "detail-desc",
+    "Everything your mods put on screen. Open a terminal, flip an overlay — settings live on each mod's page in the rail."));
+  head.appendChild(left);
+  detailEl.appendChild(head);
+
+  const body = el("div", "detail-body detail-body--home");
+
+  if (!allViews.length) {
+    const empty = el("div", "home-empty");
+    empty.appendChild(el("div", "osf-eyebrow", "No terminals or overlays yet"));
+    empty.appendChild(el("p", null, "Mods that register views appear here as launchable cards. Mods that only register settings are in the rail on the left."));
+    body.appendChild(empty);
+    detailEl.appendChild(body);
+    return;
+  }
+
+  if (menus.length) {
+    body.appendChild(homeSectionHead("Terminals", menus.length, "SELECT TO OPEN · DECK CLOSES"));
+    const grid = el("div", "home-grid");
+    menus.forEach((v) => grid.appendChild(homeMenuCard(v)));
+    body.appendChild(grid);
+  }
+  if (huds.length) {
+    body.appendChild(homeSectionHead("Overlays", huds.length, "TOGGLE · STAYS ON SCREEN"));
+    const list = el("div", "home-hud-list");
+    huds.forEach((v) => list.appendChild(homeHudCard(v)));
+    body.appendChild(list);
+  }
+  detailEl.appendChild(body);
 }
 
 // A mod that registered views but no settings schema: same page shape, no
@@ -1317,12 +1574,13 @@ function render() {
     return;
   }
   captureBaseline();
-  if (pendingHashSelect && entries.some((e) => e.id === pendingHashSelect)) {
+  if (pendingHashSelect &&
+      (pendingHashSelect === HOME_ID || entries.some((e) => e.id === pendingHashSelect))) {
     selectedId = pendingHashSelect;
     pendingHashSelect = null;  // honored once; later pushes must not override clicks
   }
-  if (!entries.some((e) => e.id === selectedId)) {
-    selectedId = entries.some((e) => e.id === FRAMEWORK_ID) ? FRAMEWORK_ID : entries[0].id;
+  if (selectedId !== HOME_ID && !entries.some((e) => e.id === selectedId)) {
+    selectedId = HOME_ID;  // the launcher is the deck's landing page
   }
   renderRail();
   renderDetail();
@@ -1358,7 +1616,7 @@ function onNativeMessage(jsonText) {
       // Pushes arrive on every open/focus flip (e.g. our own HUD toggle) —
       // only rebuild the pane when the catalog itself changed, or a settings
       // control mid-edit would be torn down under the user.
-      const key = allViews.map((v) => [v.id, v.mod, v.title, v.kind, v.loadState].join(" ")).join("\n");
+      const key = allViews.map((v) => [v.id, v.mod, v.title, v.kind, v.loadState].join("\u0000")).join("\n");
       if (key !== viewsShapeKey) {
         viewsShapeKey = key;
         render();
@@ -1427,6 +1685,12 @@ function onNativeMessage(jsonText) {
       if (message.payload && message.payload.visible) {
         baseline = {};
         updateChip();
+        // Land every visit on the launcher, filter cleared — the toggle key
+        // means "open the deck", not "resume where a past visit left off".
+        if (selectedId !== HOME_ID || filterEl.value) {
+          filterEl.value = "";
+          selectMod(HOME_ID);
+        }
       }
       break;
     default:
@@ -1473,6 +1737,9 @@ if (bridgeAvailable()) {
 function sampleViews() {
   return [
     { id: "keybinds", title: "Keybinds", description: "Every key binding at a glance — mods, the game, and collisions. Rebind in place.", mod: "osfui", kind: "menu", hub: true, open: false, focused: false, loadState: "loaded" },
+    { id: "almanac", title: "Ship Almanac", description: "Browse ship modules, mass and performance readouts.", mod: "demo", kind: "menu", hub: true, open: false, focused: false, loadState: "loaded" },
+    { id: "atlas", title: "Star Atlas", description: "Annotated survey routes and anomalies by system.", mod: "", kind: "menu", hub: true, open: false, focused: false, loadState: "failed" },
+    { id: "hudwidgets", title: "HUD Widgets", description: "Clock and status overlays over the live game.", mod: "demo", kind: "hud", hub: true, open: true, loadState: "loaded" },
   ];
 }
 

@@ -157,10 +157,11 @@ docs/HANDOFF.md §4.
   mapped onto the OS pointer. F10 toggles, Esc closes.
 - **Schema-driven settings (MCM-style):** each mod drops a
   `settings/<id>.json` schema (typed bool/int/float/enum/string knobs); the
-  built-in `settings` view — the **Mods surface** F10 opens — lists every
-  installed mod and renders its page: settings controls + Reset, plus launch
-  buttons and HUD toggles for any views the mod registered (manifest `mod`
-  field groups them). The native `SettingsStore` validates/clamps/persists
+  built-in `settings` view — the **Mods surface** F10 opens — lands on
+  **Home**, an app-style launcher grid of every registered terminal and overlay
+  toggle (Keybinds included), with the rail listing every installed mod and
+  its page: settings controls + Reset, plus launch buttons and HUD toggles
+  for any views the mod registered (manifest `mod` field groups them). The native `SettingsStore` validates/clamps/persists
   per-mod to a user-writable path and fires change reactions (e.g. live
   cursor speed).
 - The JSON message bridge parses/dispatches the whitelisted commands —
@@ -168,14 +169,14 @@ docs/HANDOFF.md §4.
   `hud.show` / `hud.hide`, `setViewHidden`), diagnostics (`log`, `ping`),
   read-only game data (`game.get`), the surface catalog (`views.get` — replies
   with every loaded view's metadata + open/focus/load state and pushes updates
-  on change, the read behind the Mods surface's panel/HUD rows), and the settings trio
+  on change, the read behind the Mods surface's terminal/HUD rows), and the settings trio
   (`settings.get` / `settings.set` / `settings.reset`) — and rejects everything
   else. Trusted
   *native* SFSE plugins can register additional commands through the exported
   bridge API ([docs/native-plugin-api.md](docs/native-plugin-api.md));
   untrusted JS cannot. Authoring a view? See
   [docs/authoring-views.md](docs/authoring-views.md).
-- The built-in `settings` (the Mods surface — per-mod settings, panel
+- The built-in `settings` (the Mods surface — per-mod settings, terminal
   launchers, and HUD toggles in one menu) and `keybinds` views are
   self-contained HTML panels that also run standalone in a normal browser
   (degraded mode) for development.

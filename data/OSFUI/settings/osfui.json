@@ -2,6 +2,7 @@
   "id": "osfui",
   "title": "OSF UI",
   "description": "Runtime and overlay behavior for the OSF UI framework itself.",
+  "version": 1,
   "groups": [
     {
       "label": "Input",

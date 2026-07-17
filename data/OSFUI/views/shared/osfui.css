@@ -1,10 +1,14 @@
 /* ============================================================
    OSF UI — shared design system  (osfui.css)
    ------------------------------------------------------------
-   The "NASA-punk" maintenance-HUD look every OSF UI view shares:
-   teal-accented brushed steel on near-black void. Link it from any
-   view to inherit the tokens + a small component kit, then add only
-   view-specific layout on top:
+   The look every OSF UI view shares, tuned to sit next to
+   Starfield's own menus: flat translucent blue-black panels,
+   hairline rules, hard rectangular edges, white-forward
+   monochrome type with a quiet ice-blue HUD accent, and the
+   Constellation tricolor (red / gold / blue) as a micro-accent.
+   Hover and selection invert to white, the way the game's own
+   menu entries do. Link it from any view to inherit the tokens
+   + a small component kit, then add only view-specific layout:
 
        <link rel="stylesheet" href="../shared/osfui.css">
 
@@ -14,20 +18,21 @@
    so no ".." reaches disk I/O and it stays inside the views root.
 
    Fonts resolve to Windows system faces so NO webfont binaries ship
-   and the view stays network-free. Bahnschrift is the brand's actual
-   intended DIN display face; Segoe UI / Cascadia are always present.
+   and the view stays network-free. Bahnschrift is a DIN — close kin
+   to the condensed grotesque Starfield sets its menus in; Segoe UI /
+   Cascadia are always present.
    ============================================================ */
 
 :root {
-  /* ---- Void / near-black ---------------------------------- */
-  --void-900: #05080c;
-  --void-800: #091016;
-  --void-700: #0f171f;
-  --void-600: #151f29;
-  --void-500: #1c2934;
-  --void-400: #263642;
+  /* ---- Void / blue-black (Starfield menu glass) ------------ */
+  --void-900: #05070a;
+  --void-800: #0a0d12;
+  --void-700: #10141b;
+  --void-600: #161b23;
+  --void-500: #1d232d;
+  --void-400: #272f3a;
 
-  /* ---- Brushed steel -------------------------------------- */
+  /* ---- Neutral steel --------------------------------------- */
   --steel-100: #eef1f4;
   --steel-200: #c8ced5;
   --steel-300: #9aa3ad;
@@ -36,34 +41,40 @@
   --steel-600: #444b54;
   --steel-700: #2f353d;
 
-  --bone: #f0ece2;
+  --bone: #f2efe9;   /* Starfield's warm off-white */
+
+  /* ---- Constellation tricolor ------------------------------ */
+  --sf-red:  #cf5b3f;
+  --sf-gold: #dfa63d;
+  --sf-blue: #4b7ea3;
 
   /* ---- Semantic status ------------------------------------ */
   --signal-go:   #6fae6a;
-  --signal-warn: #e0a23c;
+  --signal-warn: #dfa63d;
   --signal-stop: #c8503a;
 
-  /* ---- Product accent (OSF UI = HUD teal) ----------------- */
-  --accent:        #63c7d2;
-  --accent-strong: #245e67;
-  --accent-hover:  #8de2e8;
-  --accent-quiet:  rgba(99, 199, 210, 0.12);
+  /* ---- Product accent (OSF UI = HUD ice blue) -------------- */
+  --accent:        #9fc7dc;
+  --accent-strong: #3f606f;
+  --accent-hover:  #c9e4f2;
+  --accent-quiet:  rgba(159, 199, 220, 0.12);
 
   /* ---- Surfaces / text ------------------------------------ */
   --bg-canvas:     var(--void-800);
   --surface-card:  var(--void-600);
   --surface-panel: var(--void-500);
   --surface-input: var(--void-500);
-  --surface-overlay: rgba(4, 6, 10, 0.72);
+  --surface-overlay: rgba(5, 7, 10, 0.78);
 
   --text-bright: var(--bone);
   --text-body:   var(--steel-200);
   --text-muted:  var(--steel-300);
   --text-faint:  var(--steel-400);
 
-  --line:        rgba(154, 163, 173, 0.16);
-  --line-strong: rgba(154, 163, 173, 0.28);
-  --line-hud:    rgba(99, 199, 210, 0.46);
+  --line:        rgba(242, 239, 233, 0.12);
+  --line-strong: rgba(242, 239, 233, 0.22);
+  --line-bright: rgba(242, 239, 233, 0.85);
+  --line-hud:    rgba(159, 199, 220, 0.46);
 
   /* ---- Type ----------------------------------------------- */
   --font-display: 'Bahnschrift', 'DIN Next', 'Segoe UI Semibold', 'Saira Semi Condensed', sans-serif;
@@ -92,16 +103,18 @@
   --control-h-sm: 32px;
   --control-h:    40px;
 
-  /* ---- Effects -------------------------------------------- */
-  --radius-sm: 4px;
-  --radius:    7px;
-  --radius-md: 10px;
-  --radius-lg: 16px;
-  --radius-pill: 999px;
+  /* ---- Effects ---------------------------------------------
+     Starfield look: hard edges everywhere. The radius tokens are
+     kept (all zeroed) so a view can re-round if it must. */
+  --radius-sm: 0;
+  --radius:    0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-pill: 0;
 
-  --inset-lit: inset 0 1px 0 rgba(200, 206, 213, 0.06);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
-  --shadow:    0 18px 60px rgba(0, 0, 0, 0.42);
+  --inset-lit: 0 0 0 transparent;   /* flat chassis: kept for compat, draws nothing */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow:    0 14px 44px rgba(0, 0, 0, 0.5);
 
   --ease-out:    cubic-bezier(0.2, 0.7, 0.2, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
@@ -110,11 +123,11 @@
 }
 
 /* ------------------------------------------------------------
-   Product accent themes. The steel chassis is shared; each
+   Product accent themes. The flat chassis is shared; each
    "OSF X" mod re-skins the single --accent slot. Add the class to
-   <body> or any subtree. OSF UI (teal) is the :root default.
+   <body> or any subtree. OSF UI (HUD ice blue) is the :root default.
    ------------------------------------------------------------ */
-.osf-ui        { --accent: #63c7d2; --accent-strong: #245e67; --accent-hover: #8de2e8; --accent-quiet: rgba(99,199,210,0.12); }
+.osf-ui        { --accent: #9fc7dc; --accent-strong: #3f606f; --accent-hover: #c9e4f2; --accent-quiet: rgba(159,199,220,0.12); }
 .osf-animation { --accent: #e6904a; --accent-strong: #c2622f; --accent-hover: #f4ad6e; --accent-quiet: rgba(230,144,74,0.14); }
 .osf-seduce    { --accent: #c8607f; --accent-strong: #8f3c57; --accent-hover: #dd87a0; --accent-quiet: rgba(200,96,127,0.14); }
 .osf-defeat    { --accent: #c8503a; --accent-strong: #8f3322; --accent-hover: #dd7561; --accent-quiet: rgba(200,80,58,0.14); }
@@ -156,17 +169,16 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
 
 ::selection { background: var(--accent-quiet); color: var(--text-bright); }
 
-/* HUD scrollbars */
+/* HUD scrollbars — square, hairline */
 * { scrollbar-width: thin; scrollbar-color: var(--steel-600) transparent; }
 *::-webkit-scrollbar { width: 10px; height: 10px; }
 *::-webkit-scrollbar-track { background: transparent; }
 *::-webkit-scrollbar-thumb {
   background: var(--steel-700);
-  border-radius: var(--radius-pill);
-  border: 2px solid transparent;
+  border: 3px solid transparent;
   background-clip: content-box;
 }
-*::-webkit-scrollbar-thumb:hover { background: var(--steel-600); background-clip: content-box; }
+*::-webkit-scrollbar-thumb:hover { background: var(--steel-500); background-clip: content-box; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
@@ -183,8 +195,20 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
   color: var(--text-faint);
 }
 
-/* Uppercase title + count + rule + trailing note (section header). */
+/* Constellation stripe: a short tricolor bar, the brand micro-accent.
+   Give it a width/placement at the use site. */
+.osf-tricolor {
+  height: 2px;
+  background: linear-gradient(90deg,
+    var(--sf-red)  0,    var(--sf-red)  33.4%,
+    var(--sf-gold) 33.4%, var(--sf-gold) 66.7%,
+    var(--sf-blue) 66.7%, var(--sf-blue) 100%);
+}
+
+/* Uppercase title + count + rule + trailing note (section header).
+   Leads with a small accent square, the way the game bullets its lists. */
 .osf-section-head { display: flex; align-items: center; gap: 14px; }
+.osf-section-head::before { content: ""; flex: none; width: 7px; height: 7px; background: var(--accent); }
 .osf-section-head .title {
   font-family: var(--font-display); font-size: 15px; font-weight: 600;
   letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-bright);
@@ -192,7 +216,7 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
 .osf-section-head .count {
   font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: 0.1em;
   color: var(--text-faint); padding: 1px 7px;
-  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
 }
 .osf-section-head .rule { flex: 1; height: 1px; background: var(--line); }
 .osf-section-head .note {
@@ -203,60 +227,58 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
 .osf-tag {
   font-family: var(--font-mono); font-size: 9.5px; font-weight: 500;
   letter-spacing: 0.16em; text-transform: uppercase; color: var(--steel-300);
-  padding: 2px 7px; background: rgba(154, 163, 173, 0.1);
-  border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
+  padding: 2px 7px; background: rgba(242, 239, 233, 0.06);
+  border: 1px solid var(--line-strong);
 }
 
 /* ------------------------------------------------------------
-   Card / panel
+   Card / panel — flat glass, hairline frame
    ------------------------------------------------------------ */
 .osf-card {
-  background: rgba(15, 23, 31, 0.9);
+  background: rgba(13, 17, 23, 0.82);
   border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  box-shadow: var(--inset-lit), var(--shadow-sm);
 }
 
 /* ------------------------------------------------------------
-   Buttons
+   Buttons — uppercase; hover inverts to white like the game menus
    ------------------------------------------------------------ */
 .osf-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   height: var(--control-h); padding: 0 16px;
   font-family: var(--font-display); font-size: var(--text-sm); font-weight: 600;
   letter-spacing: 0.08em; text-transform: uppercase;
-  color: var(--text-body); background: rgba(21, 31, 41, 0.92);
-  border: 1px solid var(--line-strong); border-radius: var(--radius);
-  box-shadow: var(--inset-lit); cursor: pointer;
+  color: var(--text-body); background: rgba(16, 20, 27, 0.6);
+  border: 1px solid var(--line-strong); cursor: pointer;
   transition: color var(--dur-fast), background var(--dur-fast), border-color var(--dur-fast);
 }
-.osf-btn:hover { color: var(--text-bright); border-color: var(--steel-500); background: var(--void-500); }
+.osf-btn:hover { color: var(--void-900); background: var(--bone); border-color: var(--bone); }
+.osf-btn:hover kbd { color: rgba(5, 7, 10, 0.72); border-color: rgba(5, 7, 10, 0.4); background: transparent; }
 .osf-btn:focus-visible {
   outline: none; border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--void-900), 0 0 0 3px var(--accent), var(--inset-lit);
+  box-shadow: 0 0 0 2px var(--void-900), 0 0 0 3px var(--accent);
 }
 .osf-btn--accent { color: var(--void-900); background: var(--accent); border-color: var(--accent); }
 .osf-btn--accent:hover { color: var(--void-900); background: var(--accent-hover); border-color: var(--accent-hover); }
-.osf-btn--ghost { background: transparent; }
-.osf-btn--ghost:hover { background: rgba(154, 163, 173, 0.08); }
-.osf-btn--danger { color: var(--signal-stop); border-color: rgba(200, 80, 58, 0.5); }
-.osf-btn--danger:hover { color: var(--bone); background: rgba(200, 80, 58, 0.16); border-color: var(--signal-stop); }
+.osf-btn--ghost { background: transparent; border-color: var(--line); }
+.osf-btn--danger { color: var(--signal-stop); border-color: rgba(200, 80, 58, 0.5); background: transparent; }
+.osf-btn--danger:hover { color: var(--bone); background: rgba(200, 80, 58, 0.24); border-color: var(--signal-stop); }
 .osf-btn--sm { height: var(--control-h-sm); padding: 0 12px; font-size: var(--text-2xs); }
 
 /* ------------------------------------------------------------
    Toggle switch  (<button class="osf-switch" aria-pressed="true|false">)
    Also drives .on containers via .osf-switch.on for non-button use.
+   Rectangular track, square knob.
    ------------------------------------------------------------ */
 .osf-switch {
   position: relative; display: inline-block; width: 42px; height: 22px; flex: none;
-  padding: 0; border-radius: var(--radius-pill);
-  background: var(--void-400); border: 1px solid var(--line-strong);
-  box-shadow: var(--inset-lit); cursor: pointer;
+  padding: 0;
+  background: rgba(5, 7, 10, 0.55); border: 1px solid var(--line-strong);
+  cursor: pointer;
   transition: background var(--dur) var(--ease-out), border-color var(--dur);
 }
 .osf-switch::after {
   content: ""; position: absolute; top: 2px; left: 2px;
-  width: 16px; height: 16px; border-radius: 50%;
+  width: 16px; height: 16px;
   background: var(--steel-300);
   transition: left var(--dur) var(--ease-out), background var(--dur);
 }
@@ -277,13 +299,12 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
 .osf-input, .osf-select {
   height: var(--control-h); padding: 0 12px;
   font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-bright);
-  background: rgba(5, 8, 12, 0.52); border: 1px solid var(--line-strong);
-  border-radius: var(--radius); box-shadow: var(--inset-lit);
+  background: rgba(5, 7, 10, 0.52); border: 1px solid var(--line-strong);
   transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
 }
 .osf-input:focus, .osf-select:focus {
   outline: none; border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-quiet), var(--inset-lit);
+  box-shadow: 0 0 0 2px var(--accent-quiet);
 }
 .osf-select {
   appearance: none; -webkit-appearance: none; padding-right: 30px; cursor: pointer;
@@ -295,23 +316,22 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
 .osf-select option { background: var(--void-700); color: var(--text-bright); }
 
 /* ------------------------------------------------------------
-   Range slider
+   Range slider — hairline track, white rectangular thumb
    ------------------------------------------------------------ */
 .osf-range {
   -webkit-appearance: none; appearance: none;
-  width: 100%; height: 4px; margin: 0; padding: 0;
-  background: var(--void-400); border-radius: var(--radius-pill); cursor: pointer;
+  width: 100%; height: 2px; margin: 0; padding: 0;
+  background: rgba(242, 239, 233, 0.22); cursor: pointer;
 }
 .osf-range::-webkit-slider-thumb {
   -webkit-appearance: none; appearance: none;
-  width: 16px; height: 16px; border-radius: 50%;
-  background: var(--accent); border: 2px solid var(--void-900);
-  box-shadow: 0 0 0 1px var(--accent); cursor: pointer;
+  width: 9px; height: 18px;
+  background: var(--bone); border: 0; cursor: pointer;
   transition: background var(--dur-fast);
 }
 .osf-range::-webkit-slider-thumb:hover { background: var(--accent-hover); }
 .osf-range:focus-visible { outline: none; }
-.osf-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--accent-quiet); }
+.osf-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 2px var(--void-900), 0 0 0 3px var(--accent); }
 
 /* Monospace value badge that pairs with a slider. */
 .osf-value {
@@ -339,8 +359,8 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
    ------------------------------------------------------------ */
 .osf-segmented {
   display: inline-flex; align-items: stretch;
-  background: var(--surface-input); border: 1px solid var(--line-strong);
-  border-radius: var(--radius); box-shadow: var(--inset-lit); overflow: hidden;
+  background: rgba(5, 7, 10, 0.52); border: 1px solid var(--line-strong);
+  overflow: hidden;
 }
 .osf-segment {
   font-family: var(--font-display); font-size: var(--text-2xs); font-weight: 600;
@@ -351,7 +371,7 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
   transition: color var(--dur-fast), background var(--dur-fast);
 }
 .osf-segment:first-child { border-left: 0; }
-.osf-segment:hover { color: var(--text-bright); background: rgba(154, 163, 173, 0.06); }
+.osf-segment:hover { color: var(--void-900); background: var(--bone); }
 .osf-segment[aria-pressed="true"] { color: var(--void-900); background: var(--accent); }
 .osf-segment:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
 
@@ -360,8 +380,8 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
    ------------------------------------------------------------ */
 .osf-stepper {
   display: inline-flex; align-items: stretch;
-  border: 1px solid var(--line-strong); border-radius: var(--radius);
-  background: var(--surface-input); box-shadow: var(--inset-lit); overflow: hidden;
+  border: 1px solid var(--line-strong);
+  background: rgba(5, 7, 10, 0.52); overflow: hidden;
 }
 .osf-stepper-btn {
   width: 30px; height: var(--control-h-sm);
@@ -369,7 +389,7 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
   color: var(--text-muted); background: transparent; border: 0; cursor: pointer;
   transition: color var(--dur-fast), background var(--dur-fast);
 }
-.osf-stepper-btn:hover { color: var(--accent-hover); background: rgba(154, 163, 173, 0.06); }
+.osf-stepper-btn:hover { color: var(--void-900); background: var(--bone); }
 .osf-stepper-btn:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
 .osf-stepper-val {
   min-width: 60px; display: flex; align-items: center; justify-content: center;
@@ -382,26 +402,26 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
    ------------------------------------------------------------ */
 .osf-color { display: flex; align-items: center; gap: 8px; }
 .osf-color-swatch {
-  width: 24px; height: 24px; flex: none; border-radius: var(--radius-sm);
-  border: 1px solid var(--line-strong); box-shadow: var(--inset-lit);
+  width: 24px; height: 24px; flex: none;
+  border: 1px solid var(--line-strong);
 }
 .osf-color-hex { width: 104px; font-family: var(--font-mono); text-transform: lowercase; }
 .osf-color-presets { display: inline-flex; gap: 4px; }
 .osf-color-preset {
-  width: 18px; height: 18px; padding: 0; border-radius: var(--radius-sm);
+  width: 18px; height: 18px; padding: 0;
   border: 1px solid var(--line-strong); cursor: pointer;
 }
-.osf-color-preset:hover { border-color: var(--accent); }
+.osf-color-preset:hover { border-color: var(--bone); }
 
 .osf-textarea { width: 260px; height: auto; min-height: 66px; padding: 8px 12px; resize: vertical; line-height: 1.45; }
 
 /* ------------------------------------------------------------
-   Badge (small status pill) + modified dot
+   Badge (small status chip) + modified marker
    ------------------------------------------------------------ */
 .osf-badge {
   font-family: var(--font-mono); font-size: 9px; font-weight: 500;
   letter-spacing: 0.12em; text-transform: uppercase;
-  padding: 1px 6px; border-radius: var(--radius-sm);
+  padding: 1px 6px;
   color: var(--text-faint); border: 1px solid var(--line-strong);
 }
 
@@ -421,30 +441,30 @@ kbd {
   min-height: 20px; padding: 0 6px;
   font-family: var(--font-mono); font-size: 9px; line-height: 1;
   letter-spacing: 0.06em; color: var(--text-faint);
-  background: rgba(5, 8, 12, 0.5); border: 1px solid var(--line-strong);
-  border-bottom-color: rgba(154, 163, 173, 0.42); border-radius: var(--radius-sm);
-  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.03);
+  background: rgba(5, 7, 10, 0.5); border: 1px solid var(--line-strong);
+  transition: color var(--dur-fast), border-color var(--dur-fast), background var(--dur-fast);
 }
 .search-box > kbd { position: absolute; right: 9px; pointer-events: none; }
 .close-btn { justify-content: space-between; }
 .close-btn kbd { margin-left: 8px; }
-.osf-badge--warn { color: var(--signal-warn); border-color: rgba(224, 162, 60, 0.5); }
+.osf-badge--warn { color: var(--signal-warn); border-color: rgba(223, 166, 61, 0.5); }
 .osf-badge--stop { color: var(--signal-stop); border-color: rgba(200, 80, 58, 0.5); }
 
+/* Square marker, not a dot — matches the game's list bullets. */
 .osf-dot {
-  width: 6px; height: 6px; flex: none; border-radius: 50%;
+  width: 6px; height: 6px; flex: none;
   background: transparent; transition: background var(--dur-fast);
 }
-.osf-dot.on { background: var(--accent); box-shadow: 0 0 6px var(--accent-quiet); }
+.osf-dot.on { background: var(--accent); }
 
 /* ------------------------------------------------------------
    Note / callout block (micro-markdown content)
    ------------------------------------------------------------ */
 .osf-note {
   font-family: var(--font-sans); font-size: var(--text-sm); line-height: 1.5;
-  color: var(--text-body); padding: 10px 14px; border-radius: var(--radius);
-  border: 1px solid var(--line); border-left-width: 3px;
-  background: rgba(16, 21, 28, 0.5);
+  color: var(--text-body); padding: 10px 14px;
+  border: 1px solid var(--line); border-left-width: 2px;
+  background: rgba(13, 17, 23, 0.5);
 }
 .osf-note code { font-size: 12px; color: var(--text-bright); }
 .osf-note strong { color: var(--text-bright); }

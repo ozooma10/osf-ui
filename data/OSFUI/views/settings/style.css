@@ -136,7 +136,7 @@ html, body { height: 100%; overflow: hidden; }
 .row-text { min-width: 0; }
 .row-label-line { display: flex; align-items: center; gap: 8px; }
 .row-label { font-size: var(--text-md); color: var(--text-body); }
-.row-hint { font-size: var(--text-xs); color: var(--text-faint); margin-top: 2px; max-width: 52ch; }
+.row-hint { font-size: var(--text-xs); color: var(--text-faint); margin-top: 2px; max-width: 72ch; }
 .control { display: flex; align-items: center; gap: 12px; justify-content: flex-end; }
 .control .osf-range { width: 200px; }
 .control .osf-select { min-width: 150px; }
@@ -266,7 +266,7 @@ html, body { height: 100%; overflow: hidden; }
 .session-note { font-size: var(--text-xs); color: var(--text-faint); line-height: 1.5; margin: 10px 0 0; }
 .session-list { overflow-y: auto; margin-top: 8px; }
 .session-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; }
-.session-row + .session-row { border-top: 1px solid rgba(47, 53, 61, 0.5); }
+.session-row + .session-row { border-top: 1px solid var(--line); }
 .session-key { font-size: var(--text-sm); color: var(--text-body); }
 .session-delta { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-faint); margin-top: 2px; }
 
@@ -282,16 +282,14 @@ html, body { height: 100%; overflow: hidden; }
    ============================================================ */
 
 .scrim {
-  background:
-    radial-gradient(circle at 76% 18%, rgba(99, 199, 210, 0.08), transparent 32%),
-    linear-gradient(115deg, rgba(5, 8, 12, 0.8), rgba(5, 8, 12, 0.94));
+  background: linear-gradient(115deg, rgba(4, 6, 9, 0.8), rgba(4, 6, 9, 0.94));
   box-shadow: inset 0 0 240px 60px rgba(0, 0, 0, 0.7);
 }
 .scrim::after {
-  content: ""; position: absolute; inset: 0; opacity: 0.16;
+  content: ""; position: absolute; inset: 0; opacity: 0.14;
   background-image:
-    linear-gradient(rgba(154, 163, 173, 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(154, 163, 173, 0.06) 1px, transparent 1px);
+    linear-gradient(rgba(242, 239, 233, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(242, 239, 233, 0.05) 1px, transparent 1px);
   background-size: 48px 48px;
   -webkit-mask-image: linear-gradient(to right, transparent, black 38%, black);
 }
@@ -303,22 +301,29 @@ html, body { height: 100%; overflow: hidden; }
   height: calc(100% - 56px);
   margin: 28px auto;
   overflow: hidden;
-  background: rgba(9, 16, 22, 0.96);
-  border: 1px solid rgba(154, 163, 173, 0.22);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 26px 90px rgba(0, 0, 0, 0.56), inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  background: rgba(10, 13, 18, 0.94);
+  border: 1px solid rgba(242, 239, 233, 0.16);
+  box-shadow: 0 26px 90px rgba(0, 0, 0, 0.56);
+}
+/* Constellation stripe along the deck's top edge: a short tricolor
+   bar running out into a hairline, the suit-stripe motif. */
+.settings::before {
+  content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px; z-index: 8;
+  background: linear-gradient(90deg,
+    var(--sf-red)  0,     var(--sf-red)  64px,
+    var(--sf-gold) 64px,  var(--sf-gold) 128px,
+    var(--sf-blue) 128px, var(--sf-blue) 192px,
+    rgba(242, 239, 233, 0.16) 192px);
 }
 
 .rail {
   border-right-color: var(--line);
-  background:
-    linear-gradient(180deg, rgba(19, 29, 38, 0.96), rgba(10, 17, 24, 0.98));
+  background: rgba(13, 17, 23, 0.6);
 }
 .rail-head { padding: 22px 20px 14px; border-bottom: 0; }
 .brand { gap: 11px; margin-bottom: 20px; }
 .brand-emblem {
   width: 38px; height: 38px;
-  filter: drop-shadow(0 0 12px rgba(99, 199, 210, 0.1));
 }
 .wordmark-osf, .wordmark-ui { font-size: 20px; letter-spacing: 0.08em; }
 .wordmark-ui { color: var(--accent); }
@@ -330,10 +335,10 @@ html, body { height: 100%; overflow: hidden; }
   border: 1px solid var(--line); border-radius: var(--radius-pill);
 }
 .system-state i {
-  width: 5px; height: 5px; border-radius: 50%;
-  background: var(--signal-go); box-shadow: 0 0 8px rgba(111, 174, 106, 0.6);
+  width: 5px; height: 5px;
+  background: var(--signal-go);
 }
-.filter { border-color: rgba(154, 163, 173, 0.2); }
+.filter { border-color: rgba(242, 239, 233, 0.18); }
 .rail-meta {
   display: flex; justify-content: space-between; align-items: center;
   padding: 17px 2px 3px;
@@ -348,28 +353,37 @@ html, body { height: 100%; overflow: hidden; }
 }
 .rail-item {
   position: relative; gap: 12px; min-height: 54px; padding: 9px 10px;
-  margin: 3px 0; border-radius: var(--radius-md);
+  margin: 3px 0;
 }
 .rail-item::before {
   content: ""; position: absolute; left: -1px; top: 13px; bottom: 13px;
-  width: 2px; border-radius: 2px; background: transparent;
+  width: 2px; background: transparent;
 }
-.rail-item:hover { background: rgba(255, 255, 255, 0.035); }
+.rail-item:hover { background: rgba(242, 239, 233, 0.04); border-color: var(--line-strong); }
+/* Selection = the game's white-frame highlight; the accent bar keeps
+   the owning mod's colour identity. */
 .rail-item.selected {
-  background: linear-gradient(90deg, rgba(99, 199, 210, 0.14), rgba(99, 199, 210, 0.045));
-  border-color: rgba(99, 199, 210, 0.18);
+  background: rgba(242, 239, 233, 0.05);
+  border-color: var(--line-bright);
 }
-.rail-item.selected::before { background: var(--accent); box-shadow: 0 0 10px rgba(99, 199, 210, 0.55); }
+.rail-item.selected::before { background: var(--accent); }
 .rail-item-mark {
-  width: 34px; height: 34px; border-radius: 9px;
-  background: rgba(5, 8, 12, 0.42); border-color: var(--line);
+  width: 34px; height: 34px;
+  background: rgba(5, 7, 10, 0.42); border-color: var(--line);
 }
 .rail-item.selected .rail-item-mark {
-  color: var(--void-900); background: var(--accent); border-color: var(--accent);
+  color: var(--void-900); background: var(--bone); border-color: var(--bone);
 }
 .rail-item-title { font-size: 14px; }
 .rail-item-sub { margin-top: 2px; font-size: 9px; text-transform: uppercase; letter-spacing: 0.12em; }
 .rail-item-count { min-width: 20px; height: 20px; }
+
+/* Schema `icon` badge in place of the initials monogram. The image supplies
+   its own shape (mission patches are round), so the box quiets down: no fill,
+   and selection tints the frame instead of flooding the tile with accent. */
+.rail-item-mark--icon { padding: 3px; background: transparent; }
+.rail-item-mark--icon img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.rail-item.selected .rail-item-mark--icon { background: var(--accent-quiet); border-color: var(--accent); }
 
 .rail-foot { padding: 14px 18px 18px; gap: 9px; background: rgba(5, 8, 12, 0.2); }
 .save-state { text-align: left; padding-left: 2px; }
@@ -377,19 +391,17 @@ html, body { height: 100%; overflow: hidden; }
 
 .detail {
   padding: 0 34px 34px;
-  background:
-    radial-gradient(circle at 92% 4%, var(--accent-quiet), transparent 28%),
-    rgba(9, 16, 22, 0.7);
+  background: rgba(10, 13, 18, 0.55);
 }
 .detail-head {
   position: sticky; top: 0; z-index: 5;
   align-items: center; padding: 29px 0 22px; margin-bottom: 18px;
-  background: linear-gradient(180deg, rgba(9, 16, 22, 1) 76%, rgba(9, 16, 22, 0));
-  border-bottom-color: rgba(154, 163, 173, 0.18);
+  background: linear-gradient(180deg, rgba(11, 14, 19, 1) 76%, rgba(11, 14, 19, 0));
+  border-bottom-color: rgba(242, 239, 233, 0.16);
 }
 .detail-head h2 {
-  margin-top: 7px; font-size: 29px; letter-spacing: 0.025em;
-  text-transform: none;
+  margin-top: 7px; font-size: 26px; letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 .detail-head .kicker { color: var(--accent); }
 .detail-desc { margin-top: 9px; font-size: 13px; line-height: 1.6; color: var(--text-muted); }
@@ -398,9 +410,8 @@ html, body { height: 100%; overflow: hidden; }
 .group {
   padding: 0; margin: 14px 0;
   overflow: hidden;
-  background: rgba(15, 23, 31, 0.72);
-  border: 1px solid var(--line); border-radius: var(--radius-md);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.018);
+  background: rgba(13, 17, 23, 0.55);
+  border: 1px solid var(--line);
 }
 .group + .group { border-top: 1px solid var(--line); }
 .group-label {
@@ -411,35 +422,180 @@ html, body { height: 100%; overflow: hidden; }
 .group.collapsed .group-label { border-bottom-color: transparent; }
 .group.collapsed .group-label::before { content: "+"; transform: none; }
 .row { min-height: 62px; padding: 11px 17px; gap: 24px; }
-.group-rows .row + .row { border-top-color: rgba(154, 163, 173, 0.11); }
-.row:hover { background: rgba(255, 255, 255, 0.018); }
+.group-rows .row + .row { border-top-color: rgba(242, 239, 233, 0.08); }
+.row:hover { background: rgba(242, 239, 233, 0.025); }
 .row-label { color: var(--text-bright); font-weight: 500; }
 .row-hint { margin-top: 4px; line-height: 1.5; color: var(--text-faint); }
 .control { min-width: 210px; }
 .control .osf-range { width: 190px; }
 .row-reset {
   width: 28px; height: 28px; margin-left: 2px;
-  font-family: var(--font-mono); border-radius: 7px;
+  font-family: var(--font-mono);
 }
 
 .presets {
   margin: 0 0 14px; padding: 15px 17px;
-  background: rgba(15, 23, 31, 0.5); border: 1px solid var(--line);
-  border-radius: var(--radius-md);
+  background: rgba(13, 17, 23, 0.5); border: 1px solid var(--line);
 }
 .presets .osf-eyebrow { color: var(--text-muted); }
 .presets-row { gap: 7px; }
 .section-index {
-  position: sticky; top: 109px; z-index: 4;
+  position: sticky; top: 106px; z-index: 4;
   padding: 10px 0; margin: -4px 0 6px;
-  background: rgba(9, 16, 22, 0.96);
+  background: rgba(11, 14, 19, 0.96);
 }
-.section-index-item { padding: 5px 10px; border-radius: var(--radius-pill); }
-.banner { padding: 11px 14px; border-radius: var(--radius-md); }
+.section-index-item { padding: 5px 10px; }
+.banner { padding: 11px 14px; }
 .search-results { gap: 9px; }
-.search-result { padding: 13px 15px; border-radius: var(--radius-md); background: rgba(15, 23, 31, 0.62); }
+.search-result { padding: 13px 15px; background: rgba(13, 17, 23, 0.62); }
+.search-result:hover { border-color: var(--line-bright); background: rgba(242, 239, 233, 0.04); }
 .session-overlay { background: rgba(2, 5, 8, 0.82); }
 .session-panel { border-radius: var(--radius-lg); box-shadow: var(--shadow); }
+
+/* ---- Home (launcher) ---------------------------------------
+   The deck's landing page: registered panels as app-style launch
+   tiles, overlays as toggle cards. Tile aesthetics descend from
+   the retired hub launcher, recut on the deck's surfaces. No
+   infinite animations — a perpetually dirty Ultralight surface
+   repaints every frame (see the old hub's scrim note). */
+
+.rail-item--home .rail-item-mark { font-size: 16px; }
+.rail-item--home { margin-bottom: 6px; }
+
+.detail-body--home { width: min(100%, 980px); }
+
+.home-head { display: flex; align-items: center; gap: 12px; margin: 20px 0 14px; }
+.home-head::before { content: ""; flex: none; width: 7px; height: 7px; background: var(--accent); }
+.detail-body--home .home-head:first-child { margin-top: 4px; }
+.home-head-title {
+  font-family: var(--font-display); font-size: 14px; font-weight: 600;
+  letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-bright);
+}
+.home-head-count {
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em;
+  color: var(--text-faint); padding: 1px 7px;
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+}
+.home-head-rule { flex: 1; height: 1px; background: var(--line); }
+.home-head-note {
+  font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--text-faint);
+}
+
+.home-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(206px, 1fr));
+  gap: 14px;
+}
+.home-tile {
+  display: flex; flex-direction: column; align-items: center; gap: 9px;
+  min-height: 186px; padding: 14px 15px 12px;
+  font: inherit; color: var(--text-body); text-align: center;
+  background: rgba(13, 17, 23, 0.6);
+  border: 1px solid var(--line);
+  cursor: pointer; overflow: hidden;
+  transition: border-color var(--dur-fast), background var(--dur-fast);
+}
+.home-tile:hover {
+  border-color: var(--line-bright);
+  background: rgba(242, 239, 233, 0.05);
+}
+.home-tile:focus-visible {
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--void-900), 0 0 0 3px var(--accent);
+}
+.home-tile.failed { background: rgba(30, 17, 15, 0.55); border-color: rgba(200, 80, 58, 0.45); cursor: default; }
+.home-tile.failed:hover { background: rgba(30, 17, 15, 0.55); border-color: rgba(200, 80, 58, 0.45); }
+.home-tile:disabled:not(.failed) { opacity: 0.6; }
+
+.home-patch { position: relative; display: inline-flex; margin-top: 2px; }
+.home-patch svg { display: block; }
+/* Owning mod's schema `icon`, inside the drawn ring. Inset to the inner
+   circle's INSCRIBED SQUARE (r≈26.5px of the 64px patch → side≈37px), so a
+   square icon's corners never cross the ring. */
+.home-patch-icon {
+  position: absolute; inset: 14px;
+  width: calc(100% - 28px); height: calc(100% - 28px);
+  object-fit: contain;
+}
+.home-monogram {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-display); font-weight: 700; font-size: 23px;
+  letter-spacing: 0.05em;
+}
+
+.home-tile-body { display: flex; flex-direction: column; gap: 4px; width: 100%; }
+.home-tile-title {
+  font-family: var(--font-display); font-size: 16px; font-weight: 600;
+  letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-bright);
+}
+.home-tile.failed .home-tile-title { color: var(--steel-400); }
+.home-tile-desc {
+  font-family: var(--font-sans); font-size: 11.5px; line-height: 1.4; color: var(--text-faint);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.home-tile-mod {
+  font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--text-faint); opacity: 0.85;
+}
+.home-tile-foot {
+  margin-top: auto;
+  font-family: var(--font-display); font-size: 10.5px; font-weight: 600;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--accent); opacity: 0.55; transition: opacity var(--dur);
+}
+.home-tile:hover .home-tile-foot { opacity: 1; }
+.home-tile.failed .home-tile-foot { color: var(--signal-stop); opacity: 0.9; }
+
+.home-hud-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px;
+}
+.home-hud {
+  display: flex; align-items: center; gap: 13px;
+  min-height: 64px; padding: 11px 15px;
+  font: inherit; color: var(--text-body); text-align: left;
+  background: rgba(13, 17, 23, 0.6);
+  border: 1px solid var(--line); cursor: pointer;
+  transition: border-color var(--dur-fast), background var(--dur-fast);
+}
+.home-hud:hover { border-color: var(--line-bright); background: rgba(242, 239, 233, 0.04); }
+.home-hud:focus-visible {
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--void-900), 0 0 0 3px var(--accent);
+}
+.home-hud[aria-pressed="true"] { border-color: var(--line-hud); }
+.home-hud-chip {
+  flex: none; width: 40px; height: 40px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-display); font-weight: 700; font-size: 15px; letter-spacing: 0.04em;
+  background: rgba(5, 8, 12, 0.42);
+  border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
+}
+.home-hud-chip--icon { padding: 4px; background: transparent; }
+.home-hud-chip--icon img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.home-hud-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.home-hud-name {
+  font-family: var(--font-display); font-size: 14px; font-weight: 600; letter-spacing: 0.03em;
+  color: var(--text-bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.home-hud-desc {
+  font-family: var(--font-sans); font-size: 11px; color: var(--text-faint);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* The switch is a passive span; on-state follows the card's aria-pressed
+   (which refreshSurfaceStates reconciles from views.data pushes). */
+.home-hud[aria-pressed="true"] .home-hud-switch { background: var(--accent); border-color: var(--accent); }
+.home-hud[aria-pressed="true"] .home-hud-switch::after { left: 22px; background: var(--void-900); }
+
+.home-empty {
+  margin-top: 8px; padding: 36px 24px; text-align: center;
+  border: 1px dashed var(--line-strong); border-radius: var(--radius-md);
+  color: var(--text-faint);
+}
+.home-empty p { max-width: 46ch; margin: 10px auto 0; font-size: var(--text-sm); line-height: 1.6; }
 
 @media (max-width: 920px) {
   .settings { grid-template-columns: 240px minmax(0, 1fr); width: calc(100% - 28px); height: calc(100% - 28px); margin: 14px auto; }

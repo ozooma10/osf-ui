@@ -17,6 +17,16 @@
   const LS_PREFIX = "osfui.mock.";
   const MAX_KEY_NAME = 16;
 
+  // Where a mod's REAL view folder lives, relative to the harness pages. In
+  // game every view mounts under one views/ root, so the settings view
+  // resolves schema `icon`/`image` assets at ../<modId>/<file>; from
+  // devtools/harness/ that lands nowhere. safeAssetSrc consults this map
+  // (root + "/<modId>/<file>") before falling back to "..". Sibling repo,
+  // reachable under serve.cmd's root.
+  window.OSFUI_MOD_ASSET_ROOTS = {
+    osf: "../../../OSF Animation/views",
+  };
+
   let mods = [];   // [{ id, title, schema, values }]
   const log = (dir, msg) => console.log(`%c[mock ${dir}]`, "color:#5aa9b8", msg);
 
@@ -315,7 +325,7 @@
         // Reply with the catalog; first call also gets runtime.ready (once —
         // the Mods view answers ready with another views.get, so re-sending loops).
         setTimeout(() => {
-          if (!readySent) { readySent = true; send("runtime.ready", { version: "0.2.0-mock" }); }
+          if (!readySent) { readySent = true; send("runtime.ready", { game: "Starfield", plugin: "OSF UI", version: "1.0.0-mock", bridgeVersion: "0.4" }); }
           sendViews();
         }, 0);
         break;
