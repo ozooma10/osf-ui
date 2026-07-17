@@ -31,7 +31,7 @@
     "requires": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Host capabilities this schema needs,. [\"type:flags\"]. Named capabilities share one vocabulary with the runtime.ready capabilities list (item 6): command-namespace names for surfaces (settings, settings.captureKey, views, game.calendar, gamepad), type:<t> for setting value types, schema:<feature> for schema mechanisms. A host that can't satisfy every entry registers the mod as a read-only stub card ('needs a newer OSF UI') and leaves the values file untouched; hosts older than this field ignore it entirely. Distinct from the per-SETTING requires (restart/reload/newGame)."
+      "description": "Host capabilities this schema needs, e.g. [\"type:flags\"]. Named capabilities share one vocabulary with the runtime.ready capabilities list (item 6): command-namespace names for surfaces (settings, settings.captureKey, views, i18n, game.calendar, gamepad), type:<t> for setting value types, schema:<feature> for schema mechanisms. A host that can't satisfy every entry registers the mod as a read-only stub card ('needs a newer OSF UI') and leaves the values file untouched; hosts older than this field ignore it entirely. Distinct from the per-SETTING requires (restart/reload/newGame)."
     },
     "accent": {
       "type": "string",

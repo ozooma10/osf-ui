@@ -93,7 +93,7 @@ export interface RuntimeReadyPayload {
    * APPEND-ONLY named host features (protocol 1.0, api-freeze item 6) — the
    * feature-detection contract. Same vocabulary as a settings schema's
    * `requires` array: surface names ("settings", "settings.captureKey",
-   * "views", "game.calendar", "gamepad"), "request-id" (the ui.result
+   * "views", "i18n", "game.calendar", "gamepad"), "request-id" (the ui.result
    * envelope), "schema:requires", and "type:<t>" per setting value type.
    * A capability, once shipped, is never removed or renamed. Query with
    * `osfui.has(name)` after `osfui.ready`.
@@ -326,7 +326,7 @@ export type NativeToWebMessage =
   | BridgeEnvelope<"runtime.pong", Record<string, never>>
   | BridgeEnvelope<"game.data", GameDataPayload>
   | BridgeEnvelope<"views.data", ViewsDataPayload>
-	| BridgeEnvelope<"i18n.data", I18nDataPayload>
+  | BridgeEnvelope<"i18n.data", I18nDataPayload>
   | BridgeEnvelope<"settings.data", SettingsDataPayload>
   | BridgeEnvelope<"settings.ack", SettingsAckPayload>
   | BridgeEnvelope<"settings.changed", SettingsChangedPayload>

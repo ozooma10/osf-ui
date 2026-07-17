@@ -45,16 +45,16 @@ int main()
 	fs::remove_all(root);
 	const auto l10n = root / "l10n";
 
-	WriteFile(l10n / "t.mod_en.json", R"({
+	WriteFile(l10n / "t.mod_en.json", R"json({
 		"settings.title": "English override",
 		"settings.mode.label": "Mode"
-	})");
-	WriteFile(l10n / "t.mod_de.json", R"({
+	})json");
+	WriteFile(l10n / "t.mod_de.json", R"json({
 		"settings.title": "Deutscher Titel"
-	})");
-	WriteFile(l10n / "t.mod_de-DE.json", R"({
+	})json");
+	WriteFile(l10n / "t.mod_de-DE.json", R"json({
 		"settings.mode.label": "Modus (DE)"
-	})");
+	})json");
 
 	LocalizationService service;
 	service.Load(l10n, "de_DE");
@@ -77,7 +77,7 @@ int main()
 	WriteFile(gameDir / "Starfield.ini", "[General]\nsLanguage=German\n");
 	CHECK(LocalizationService::DetectGameLocale(gameDir) == "de");
 
-	WriteFile(l10n / "t.mod_fr.json", R"({"settings.title":"Titre français"})");
+	WriteFile(l10n / "t.mod_fr.json", R"json({"settings.title":"Titre français"})json");
 	fs::last_write_time(l10n / "t.mod_fr.json", fs::file_time_type::clock::now() + std::chrono::seconds(2));
 	CHECK(service.ReloadIfChanged());
 	CHECK(service.Resolve("t.mod", "settings.title", "Authored title") == "Titre français");

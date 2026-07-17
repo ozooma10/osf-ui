@@ -320,6 +320,7 @@ Whitelisted commands (anything else is rejected + logged, and answered with
 | `ping` | — | runtime replies with `runtime.pong` |
 | `game.get` | — | runtime replies with `game.data` (in-game date/time from the calendar) |
 | `views.get` | — | runtime replies with `views.data` (catalog of loaded surfaces) **and subscribes the caller**: any later open/close/focus/load-state change pushes a fresh `views.data` unsolicited — no polling needed |
+| `i18n.get` | `mod?` | runtime replies with `i18n.data` for the requested mod (omitted `mod` = the calling view's owner) and subscribes the caller to live language/catalog changes |
 | `settings.get` | — | runtime replies with `settings.data` |
 | `settings.set` | `mod, key, value` | set one schema-declared setting (validated) |
 | `settings.reset` | `mod`, `key?` | reset one key, or the whole mod if `key` omitted |
@@ -345,6 +346,7 @@ are ALSO dispatched to subscribers, so one render path serves both):
 | `runtime.pong` | `{}` | reply to your `ping` |
 | `game.data` | `{ calendar: { available, day, month, year, hour, daysPassed } }` | reply to `game.get`; each provider nests under its own object (future providers are siblings of `calendar`); `available:false` before a save is loaded |
 | `views.data` | `{ views: [ { id, title, description, mod, kind, interactive, hub, open, focused, loadState } ] }` | reply to `views.get`, and re-pushed to every subscribed view when any entry changes. `id` is the qualified `<modId>/<viewName>`; `mod` = the owning mod id derived from the folder (a mod with no settings schema of that id just lists under its own title); `kind` = `"menu"`\|`"hud"`; `loadState` = `"loading"`\|`"loaded"`\|`"failed"`; a view torn down by crash-recovery drops out of the list. Respect `hub:false` (don't list those) |
+| `i18n.data` | `{ mod, locale, strings }` | reply to `i18n.get`, then re-pushed to subscribed views after a language change or a dev-mode catalog reload; `strings` contains active-locale overrides keyed by stable structural address |
 | `settings.data` | `{ mods: [ { id, title, schema, values } ], vanillaKeys? }` | reply to `settings.get` / after a `settings.reset`. A `key`-typed setting whose binding collides with another mod's carries runtime-injected `conflicts: [{mod, key, title}]` in its schema object — informational; render a badge, never block. `mod` may be the reserved id `@game` (the game's own bindings; display `title`, e.g. "Starfield (Quicksave)"). Top-level `vanillaKeys: [{event, title, name}]` is the game's FULL binding table (read-only; the keybinds view renders it); absent when the runtime has none |
 | `settings.ack` | `{ mod, key, ok, value?, code?, message? }` | result of a `settings.set`. `ok:true` carries `value`, the authoritative post-clamp committed value (compare with what you sent to detect clamping — no re-fetch needed); `ok:false` carries a stable `code`: `unknown-setting`, `read-only` (requires-gated stub or a type this host doesn't know), or `invalid-value` |
 | `settings.captured` | `{ mod, key, name, cancelled, conflicts? }` | reply to `settings.captureKey`: the captured key `name` (an OSF UI key name), or `cancelled:true` (Escape / unbindable — keep the old binding). When the captured key is already bound elsewhere, `conflicts: [{mod, key, title}]` lists actionable collisions this bind would create; expected `@game` reuse from a `blocksGameplay` context is omitted. Warn live, never block. The view then sends a normal `settings.set` with `name` |
@@ -621,7 +623,7 @@ Tooling to author against the contract instead of from memory:
 **Gate on capabilities, not version arithmetic.** `runtime.ready` carries
 `capabilities: string[]` — append-only named features (a capability, once
 shipped, is never removed or renamed): surface names (`settings`,
-`settings.captureKey`, `views`, `game.calendar`, `gamepad`), `request-id`
+`settings.captureKey`, `views`, `i18n`, `game.calendar`, `gamepad`), `request-id`
 (the `ui.result` envelope), `schema:requires`, and `type:<t>` per setting
 value type. It is the **same vocabulary** as a settings schema's `requires`
 array, so one name answers both "can this host render my schema" and "can my
