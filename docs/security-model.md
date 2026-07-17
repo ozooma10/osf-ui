@@ -36,4 +36,4 @@ Multi-view note: views load via folder-qualified URLs (`file:///<folder>/...`) a
 - Per-view clipboard gating (rule 7): verify WebCore denies programmatic paste without a user gesture, and consider a manifest permission so passive HUD views get no clipboard at all.
 - Rate-limit bridge messages per view, so JS cannot stall the game thread with message floods. Both bridge queues are already capped at 64 messages (drop and warn once beyond that); per-time-window limits remain to do.
 - Message size caps. Log text is already truncated at 512 chars; generalize this.
-- Versioned bridge API so views cannot probe for undocumented commands.
+- Versioned bridge API so views cannot probe for undocumented commands. Partially done: `runtime.ready` already carries `bridgeVersion` (and the plugin `version`); the remaining gap is that unknown-command `ui.error` replies still let a view enumerate what exists.

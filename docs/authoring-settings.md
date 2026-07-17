@@ -306,9 +306,57 @@ the DLL registration wins (with a logged warning).
 
 ### From Papyrus
 
-Not available yet. Planned surface: `OSFUI.GetBool/GetInt/GetFloat/GetString`
-global natives (see mcm-design.md §8.4). Until then, an esm-only mod pairs
-its schema with a small SFSE plugin, or consumes settings from a web view.
+An esm+scripts mod needs **no DLL and no registration call**: the drop-in
+schema file above *is* the registration, and the shipped `OSFUI` script
+(`Data/Scripts/OSFUI.pex`, source + full API docs in
+`Data/Scripts/Source/OSFUI.psc`) reads it back:
+
+```papyrus
+; Feature-detect: 0 => OSF UI absent (natives unbound; every call below then
+; yields the default you pass). Packed major*10000 + minor*100 + patch.
+If OSFUI.GetVersion() >= 10000   ; needs 1.0.0+
+    Float scale = OSFUI.GetFloat("yourname.mymod", "hud.scale", 1.0)
+EndIf
+```
+
+- **Getters** — `GetBool` / `GetInt` / `GetFloat` / `GetString(modId, key,
+  default)`: cheap, thread-safe reads of the live value store. Unknown
+  mod/key or a type mismatch yields the passed default. `GetString` covers
+  string-, enum-, and key-typed settings. Ids/keys are case-sensitive and
+  match your schema exactly.
+- **Setters** — `SetBool` / `SetInt` / `SetFloat` / `SetString(modId, key,
+  value)` and `Reset(modId, key = "")`: fire-and-forget; the write is
+  validated/clamped against your schema and persisted through exactly the
+  same path as the settings menu (refusals are logged to `OSF UI.log`). An
+  open settings card updates live.
+- **Change events + hotkeys** — register a callback; hotkeys are just your
+  `"type": "key"` settings (§7), so the user sees and rebinds them in the
+  menu while OSF UI owns the input hook and dispatches presses to you:
+
+```papyrus
+ScriptName MyModQuest Extends Quest
+
+Function RegisterAll()
+    OSFUI.RegisterForSettingChanges(self as ScriptObject, "OnSettingChanged", "yourname.mymod")
+    OSFUI.RegisterForHotkey(self as ScriptObject, "OnHotkey", "yourname.mymod", "toggleHud")
+EndFunction
+
+Function OnSettingChanged(string modId, string key)
+    ; fires after ANY writer commits (menu, native, Papyrus) — re-read via getters
+EndFunction
+
+Function OnHotkey(string modId, string key)
+    ; gameplay-only delivery: never fires while the user types in an overlay
+    ; or rebinds a key, and never consumes the press
+EndFunction
+```
+
+Registrations are **session-scoped** (they do not survive a save load) —
+call your `RegisterAll()` from quest init *and* every game load (e.g.
+`OnPlayerLoadGame` on a player `ReferenceAlias`). `RegisterFor*` returns a
+token for `Unregister(token)`; `...Static` variants dispatch to global
+functions on a named script for library-style mods. `OpenMenu()` opens the
+Mods surface (same as F10) for a "configure" shortcut.
 
 ---
 
