@@ -6,14 +6,6 @@ namespace OSFUI
 {
 	namespace
 	{
-		// User-facing knobs that moved into the `osfui` settings schema
-		// (api-freeze-plan item 7). The lenient parser would silently ignore
-		// them; call out the move instead so a user editing config.json learns
-		// where the knob went. One-release courtesy — drop after 1.x settles.
-		constexpr std::string_view kMovedToSettings[] = {
-			"toggleKey", "pauseMenuEntry", "vanillaKeyConflicts"
-		};
-
 		// Every key the parser reads (the item-8 typo diagnostic — config.json
 		// is host-owned, so an unknown key can only be a typo, never version
 		// skew). Keep in lockstep with the reads below.
@@ -22,15 +14,6 @@ namespace OSFUI
 			"inputSource", "captureInput", "hardwareCursor", "focusMenu",
 			"engineInput", "pauseMenuEntryLabel", "pauseMenuEntryView",
 			"view", "views", "devMode", "devReloadKey",
-			// moved keys are "known" (they get the dedicated INFO, not the typo WARN)
-			"toggleKey", "pauseMenuEntry", "vanillaKeyConflicts",
-			// dropped: the Tab focus-cycle died with the single-menu stack;
-			// the console pass-through was retired (close the overlay, then
-			// open the console); the control freeze is always on now;
-			// startVisible was never consumed (the overlay always boots
-			// hidden); allowNetwork was never implemented (network stays off)
-			"focusKey", "consoleKey", "disableControls", "startVisible",
-			"allowNetwork",
 		};
 	}
 
@@ -58,17 +41,6 @@ namespace OSFUI
 				a_path.string(), v, kConfigVersion);
 		}
 		Json::ReportUnknownKeys(*json, kKnownKeys, "Config: " + a_path.string(), /*a_warn=*/true);
-		for (const auto key : kMovedToSettings) {
-			if (json->contains(key)) {
-				REX::INFO("Config: '{}' is now managed in Mod Settings (F10 -> OSF UI) and persists under Documents; the config.json value is ignored", key);
-			}
-		}
-		if (json->contains("focusKey")) {
-			REX::INFO("Config: 'focusKey' was removed (the Tab focus-cycle retired with the single-menu stack); the value is ignored");
-		}
-		if (json->contains("consoleKey")) {
-			REX::INFO("Config: 'consoleKey' was removed (the console pass-through was retired — close the overlay, then open the console); the value is ignored");
-		}
 
 		config.enabled = Json::GetBool(*json, "enabled", config.enabled);
 		config.renderer = Json::GetString(*json, "renderer", config.renderer);

@@ -65,11 +65,8 @@ per mod) and survive mod updates.
 
 `SFSE/Plugins/OSFUI/config.json` is a **developer/boot file** (renderer
 backends, diagnostic switches). It is overwritten when the mod updates, so
-don't keep personal edits there — older releases' `toggleKey` /
-`pauseMenuEntry` / `vanillaKeyConflicts` config keys are
-now ignored with a log note pointing at Mod Settings, and the retired
-`consoleKey` / `focusKey` / `disableControls` / `startVisible` /
-`allowNetwork` keys are ignored with a removal note.
+don't keep personal edits there — unknown keys are ignored with a warning
+in the log.
 
 **Fixing the game-key table:** the Keybinds view's "Starfield (…)" rows come
 from a curated table (`OSFUI/vanillakeys.json`) plus your in-game rebinds. If
