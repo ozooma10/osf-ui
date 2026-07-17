@@ -918,7 +918,7 @@ Ordering of the M1/M2 UI-vs-plumbing split is suggested, not contractual.
    `<id>.json.bad` (newest kept), defaults are served, and the reason is
    surfaced. Shipped alongside the broader load-error surfacing (the SkyUI
    silent-drop lesson): `settings.data` carries an additive top-level
-   `loadErrors` array (capability `settings.loadErrors`) covering skipped
+   `loadErrors` array covering skipped
    schema files too — bad filename (`schema-name`), unparseable JSON with
    line/column (`schema-parse`), corrupt values (`values-parse`) — and the
    Mods surface pins a warning alert atop the rail naming each file and

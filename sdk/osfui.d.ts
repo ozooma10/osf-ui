@@ -1,10 +1,11 @@
 /**
  * TypeScript definitions for the OSF UI native <-> web bridge.
  *
- * Bridge protocol version: 1.0 (STABLE — additive changes bump the minor and
- * appear as new `capabilities` entries; breaking changes bump the major).
- * Feature-detect against the `capabilities` array of the `runtime.ready`
- * message (`osfui.has()` with the shared helper) — `bridgeVersion` is
+ * Bridge protocol version: 1.0 (STABLE — additive changes bump the minor;
+ * breaking changes bump the major). Compatibility is advisory: declare the
+ * OSF UI version you authored against as `targetVersion` (view manifest /
+ * settings schema) and the Mods surface badges "needs update" when the
+ * running host (`runtime.ready`'s `version`) is older. `bridgeVersion` is
  * informational, not something to gate on. Keep in lockstep with:
  *   - docs/authoring-views.md          (prose reference)
  *   - docs/schema/*.schema.json        (manifest + settings-schema validation)
@@ -63,7 +64,7 @@ export type UiCommand =
   | { command: "settings.reset"; mod: string; key?: string }
   /** Arm native key-rebind capture; the next key press returns as settings.captured (echoing the arming requestId, however much later). One capture at a time — a second arm answers ui.result code "capture-busy". Any type:"key" setting may be captured. */
   | { command: "settings.captureKey"; mod: string; key: string }
-  /** EXPERIMENTAL (gamepad navigation is being refined; detect via the "gamepad" capability; exempt from the 1.0 stability guarantee until stabilized). Take over gamepad handling: suppress the default nav/scroll mapping and consume raw ui.gamepad events. STICKY PER VIEW — survives overlay hide/show; cleared when your page (re)loads or the view is destroyed. */
+  /** EXPERIMENTAL (gamepad navigation is being refined; exempt from the 1.0 stability guarantee until stabilized). Take over gamepad handling: suppress the default nav/scroll mapping and consume raw ui.gamepad events. STICKY PER VIEW — survives overlay hide/show; cleared when your page (re)loads or the view is destroyed. */
   | { command: "osfui.gamepadRaw"; raw: boolean };
 
 /**
@@ -87,18 +88,12 @@ export type WebToNativeMessage = BridgeEnvelope<"ui.command", UiCommand | UiComm
 export interface RuntimeReadyPayload {
   game: string;        // "Starfield"
   plugin: string;      // plugin metadata name
-  version: string;     // plugin version (kPluginVersion)
-  bridgeVersion: string; // protocol version (kBridgeProtocolVersion) — informational; gate on capabilities
   /**
-   * APPEND-ONLY named host features (protocol 1.0, api-freeze item 6) — the
-   * feature-detection contract. Same vocabulary as a settings schema's
-   * `requires` array: surface names ("settings", "settings.captureKey",
-   * "views", "i18n", "game.calendar", "gamepad"), "request-id" (the ui.result
-   * envelope), "schema:requires", and "type:<t>" per setting value type.
-   * A capability, once shipped, is never removed or renamed. Query with
-   * `osfui.has(name)` after `osfui.ready`.
+   * The running OSF UI version (kPluginVersion) — the reference point for
+   * every advisory `targetVersion` declaration.
    */
-  capabilities: string[];
+  version: string;
+  bridgeVersion: string; // protocol version (kBridgeProtocolVersion) — informational
 }
 
 export interface I18nDataPayload {
@@ -126,13 +121,12 @@ export interface SettingsDataPayload {
      */
     shadowed?: string[];
     /**
-     * Additive (item 2): the schema's `requires` names capabilities this
-     * host lacks — the mod is registered INERT. `values` is empty, nothing
-     * is editable (settings.set/reset are refused), and the user's values
-     * file is preserved untouched. Render a "needs a newer OSF UI" card.
+     * The OSF UI version this schema was authored against (same advisory
+     * contract as a view manifest's `targetVersion`). Never gates — the
+     * schema loads best-effort — but feeds the Mods surface "needs update"
+     * badge when newer than the running host. Omitted when undeclared.
      */
-    stub?: true;
-    missingRequires?: string[];
+    targetVersion?: string;
   }>;
   /**
    * The game's own key bindings (protocol 1.0, mcm-design §9 "vanilla
@@ -145,7 +139,7 @@ export interface SettingsDataPayload {
    */
   vanillaKeys?: Array<{ event: string; title: string; name: string }>;
   /**
-   * Additive (capability "settings.loadErrors"): settings
+   * Additive: settings
    * artifacts that FAILED to load, so a surface can tell the user instead of
    * a mod silently vanishing. `kind` is a stable enum string:
    * "schema-name" (file name fails the mod-id grammar; file skipped),
@@ -297,8 +291,7 @@ export interface UiVisibilityPayload {
 
 /**
  * EXPERIMENTAL — gamepad navigation is explicitly "basic and being refined",
- * so this shape is exempt from the 1.0 stability guarantee until stabilized;
- * detect support via the "gamepad" capability.
+ * so this shape is exempt from the 1.0 stability guarantee until stabilized.
  *
  * Raw gamepad events, sent to the ACTIVE (focused) view while the overlay
  * captures input. Per-kind nesting (protocol 1.0): buttons and axes extend
@@ -502,14 +495,13 @@ export interface SettingsSchema {
   description?: string;  // one-line blurb shown under the title in the detail pane
   version?: number;      // schema version (default 0); native stamps it as $schemaVersion + logs a version move (§11). Renderer ignores it.
   /**
-   * Host capabilities this schema needs (api-freeze-plan item 2), e.g.
-   * ["type:flags"]. Same vocabulary as `runtime.ready`'s capabilities list
-   * (item 6). A host that can't satisfy every entry registers the mod as a
-   * read-only stub card and leaves the values file untouched; hosts older
-   * than this field ignore it. Distinct from a SETTING's `requires`
-   * (restart/reload/newGame).
+   * The OSF UI version this schema was authored against (e.g. "1.1.0") —
+   * same advisory field as a view manifest's. Never gates loading; a newer
+   * target than the running host shows the "needs update" badge in the
+   * Mods surface. Distinct from `version` (the mod's OWN schema version)
+   * and from a SETTING's `requires` (restart/reload/newGame).
    */
-  requires?: string[];
+  targetVersion?: string;
   accent?: string;       // per-mod accent "#rrggbb"/"#rrggbbaa"
   presets?: SettingsPreset[];
   inputContexts?: InputContext[];
@@ -542,8 +534,6 @@ export interface OSFUIHelper {
   available(): boolean;
   /** Resolves with the runtime.ready payload. Never resolves standalone. */
   ready: Promise<RuntimeReadyPayload>;
-  /** Capability test (item 6). Always false before `ready` resolves. */
-  has(capability: string): boolean;
   /** Fire-and-forget ui.command. Returns false when no bridge is present. */
   send(command: string, fields?: object): boolean;
   /**

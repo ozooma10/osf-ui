@@ -330,9 +330,9 @@ namespace OSFUI::API
   on disk but never served until they upgrade, so code your consumption
   against defaults-until-upgrade. Getters see the default's JSON shape;
   `type:"flags"` values (arrays) have no typed getter yet — consume them via
-  `SettingChangedFn`'s JSON text. A schema-level `requires` array a host
-  can't satisfy registers the mod as an inert stub: NOTHING is served (no
-  replay, getters return false) and the values file stays untouched.
+  `SettingChangedFn`'s JSON text. A schema-level `targetVersion` newer than
+  the host is advisory only: the mod still registers and serves values, and
+  the Mods surface shows a "needs update" badge.
 
 ### 5b. Hotkey surface semantics (ABI 1.4, mcm-design.md §9)
 
@@ -682,8 +682,7 @@ The view side is ordinary OSF UI authoring (`docs/authoring-views.md`): ship
 ```js
 // <script src="../../shared/osfui.js"></script> before this (protocol 1.0)
 osfui.ready.then((info) => {
-  // gate on capabilities, not version arithmetic
-  if (!osfui.has("settings")) console.warn("old OSF UI", info.version);
+  console.log("running OSF UI", info.version);
   osfui.send("osf.animation.catalog.get");
 });
 osfui.on("osf.animation.catalog.data", (p) => renderGrid(p));
@@ -748,9 +747,9 @@ reflects the **live registered** scene set.
   `SendMessageToWeb`, "unknown view" is best-effort/logged, not reported. Add the
   return value if precise feedback matters.
 - **Bridge protocol evolution.** `bridgeVersion` is `1.0` — stable; additive
-  changes bump the minor, breaking changes the major. Views feature-detect via
-  `runtime.ready.capabilities` (`osfui.has()`); native code can read
-  `GetBridgeProtocolVersion()` for logs.
+  changes bump the minor, breaking changes the major. Compatibility is
+  advisory (`targetVersion` vs the host `version` in `runtime.ready`);
+  native code can read `GetBridgeProtocolVersion()` for logs.
 - **Cross-references to update on landing:** `docs/ROADMAP.md` (move "public
   native API" from removed→delivered, scoped to this design),
   `docs/security-model.md` (trusted-native-extension section),
@@ -783,4 +782,4 @@ the two repos agree.
 | web→native | `osf.animation.launch` | `{sceneId,mode,castTokens[],roleNames?,furnitureToken?,opts}` |
 | native→web | `osf.animation.launchResult` | `{ok,handle,sceneId,error?}` |
 | web→native | `osf.animation.stop` | `{handle}` |
-| native→web | `runtime.ready` | `{game,plugin,version,bridgeVersion,capabilities}` (platform; gate on `capabilities` — `bridgeVersion` is informational) |
+| native→web | `runtime.ready` | `{game,plugin,version,bridgeVersion}` (platform; `version` = the running OSF UI, `bridgeVersion` informational) |

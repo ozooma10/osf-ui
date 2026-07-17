@@ -140,8 +140,9 @@ Open `OSF UI.log` first — it states what happened.
   work), but IME composition (e.g. CJK input) is not supported yet; gamepad
   navigation is basic (D-pad/sticks/A/B) and being refined.
 - **For UI authors:** the `window.osfui` bridge protocol is **1.0 — stable**;
-  additive changes bump the minor, breaking changes the major. Feature-detect
-  via capabilities — see [authoring-views.md](authoring-views.md).
+  additive changes bump the minor, breaking changes the major. Declare the
+  version you authored against via `targetVersion` — see
+  [authoring-views.md](authoring-views.md).
 
 ## Reporting issues
 

@@ -922,7 +922,7 @@ namespace OSFUI
 				data["vanillaKeys"] = std::move(vanilla);
 			}
 		}
-		// Additive field (capability "settings.loadErrors"): artifacts that
+		// Additive field: artifacts that
 		// failed to load, so the Mods surface can SAY so instead of a mod
 		// silently vanishing (the SkyUI-MCM support lesson; §14.2). Omitted in
 		// the (normal) clean case; views ignore unknown top-level fields.

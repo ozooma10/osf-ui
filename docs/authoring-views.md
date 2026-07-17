@@ -10,9 +10,10 @@ a reference for the two data-driven extension points that work today:
 > **Status / scope.** What you can ship as pure content with no recompile: a
 > `views/<modId>/<viewName>/` folder and a `settings/<modId>.json` schema. The
 > bridge protocol is at version **1.0 — stable**; additive changes bump the
-> minor and surface as new capabilities, breaking changes bump the major.
-> Feature-detect via the `capabilities` array of the `runtime.ready`
-> handshake (`osfui.has()`, §3) — `bridgeVersion` is informational. See
+> minor, breaking changes bump the major. Compatibility is advisory: declare
+> the OSF UI version you authored against as `targetVersion` (manifest and/or
+> settings schema, §7) and the Mods surface badges "needs update" when the
+> running host is older — `bridgeVersion` is informational. See
 > [ROADMAP.md](ROADMAP.md) for what is still planned.
 
 ## 0. Ids: one grammar for everything
@@ -158,9 +159,9 @@ Notes:
   shows a **"needs update"** badge next to the OSF UI version number, with
   your mod named in the tooltip — so the user learns *OSF UI* is what needs
   updating, instead of blaming your mod for missing features. A malformed
-  value is ignored with a warning. Feature-gate at runtime with
-  `osfui.has(...)` regardless — `targetVersion` informs the user, not your
-  code.
+  value is ignored with a warning. Degrade gracefully at runtime regardless
+  (compare `runtime.ready`'s `version` if you must branch) — `targetVersion`
+  informs the user, not your code.
 - **`width`/`height` are the page's LOGICAL size — author against it.** When the
   `d3d12` compositor is active, the runtime resizes the view to match the screen
   aspect (height-capped at 1440) **with a matching device scale**
@@ -246,8 +247,7 @@ stylesheet, before your own script:
 ```js
 // The helper's whole surface (thin by design — it is part of the contract):
 osfui.available()                 // bridge present? false = plain browser
-const info = await osfui.ready;   // the runtime.ready payload
-osfui.has("type:flags")           // capability test (see Versioning, §7)
+const info = await osfui.ready;   // the runtime.ready payload (info.version = the running OSF UI)
 osfui.send("close");              // fire-and-forget ui.command
 const reply = await osfui.request("settings.get");   // correlated request
 const off = osfui.on("settings.changed", (payload) => { ... });  // subscribe
@@ -325,7 +325,7 @@ Whitelisted commands (anything else is rejected + logged, and answered with
 | `settings.set` | `mod, key, value` | set one schema-declared setting (validated) |
 | `settings.reset` | `mod`, `key?` | reset one key, or the whole mod if `key` omitted |
 | `settings.captureKey` | `mod, key` | arm native key-rebind capture for ANY `key`-typed setting of any mod; the next key press replies with `settings.captured` — echoing the arming `requestId`, however many ticks later, so `osfui.request("settings.captureKey", …, {timeoutMs: 0})` awaits the whole rebind. One capture at a time: a second arm answers `ui.result { ok:false, code:"capture-busy" }`. Captured natively so pressing the current toggle key rebinds instead of closing the overlay |
-| `osfui.gamepadRaw` | `raw: bool` | *(experimental — gate on the `gamepad` capability; exempt from the 1.0 stability guarantee until stabilized)* take over gamepad handling: suppress the default nav mapping and consume raw `ui.gamepad` events yourself. **Sticky per view** — the grant survives overlay hide/show and clears only when your page (re)loads or the view is destroyed; other views never inherit it |
+| `osfui.gamepadRaw` | `raw: bool` | *(experimental — exempt from the 1.0 stability guarantee until stabilized)* take over gamepad handling: suppress the default nav mapping and consume raw `ui.gamepad` events yourself. **Sticky per view** — the grant survives overlay hide/show and clears only when your page (re)loads or the view is destroyed; other views never inherit it |
 
 > There is intentionally **no** "call any native function" escape hatch. New
 > commands come from native code only: either a handler in the OSF UI runtime,
@@ -342,17 +342,17 @@ are ALSO dispatched to subscribers, so one render path serves both):
 
 | type | payload | when |
 |---|---|---|
-| `runtime.ready` | `{ game, plugin, version, bridgeVersion, capabilities }` | once, after your page loads (`osfui.ready` resolves with it) — your cue to request data. Gate features on `capabilities` (append-only names, §7); `bridgeVersion` is informational |
+| `runtime.ready` | `{ game, plugin, version, bridgeVersion }` | once, after your page loads (`osfui.ready` resolves with it) — your cue to request data. `version` is the running OSF UI (the reference point for `targetVersion`, §7); `bridgeVersion` is informational |
 | `runtime.pong` | `{}` | reply to your `ping` |
 | `game.data` | `{ calendar: { available, day, month, year, hour, daysPassed } }` | reply to `game.get`; each provider nests under its own object (future providers are siblings of `calendar`); `available:false` before a save is loaded |
 | `views.data` | `{ views: [ { id, title, description, mod, kind, interactive, hub, open, focused, loadState } ] }` | reply to `views.get`, and re-pushed to every subscribed view when any entry changes. `id` is the qualified `<modId>/<viewName>`; `mod` = the owning mod id derived from the folder (a mod with no settings schema of that id just lists under its own title); `kind` = `"menu"`\|`"hud"`; `loadState` = `"loading"`\|`"loaded"`\|`"failed"`; a view torn down by crash-recovery drops out of the list. Respect `hub:false` (don't list those) |
 | `i18n.data` | `{ mod, locale, strings }` | reply to `i18n.get`, then re-pushed to subscribed views after a language change or a dev-mode catalog reload; `strings` contains active-locale overrides keyed by stable structural address |
-| `settings.data` | `{ mods: [ { id, title, schema, values } ], vanillaKeys? }` | reply to `settings.get` / after a `settings.reset`. A `key`-typed setting whose binding collides with another mod's carries runtime-injected `conflicts: [{mod, key, title}]` in its schema object — informational; render a badge, never block. `mod` may be the reserved id `@game` (the game's own bindings; display `title`, e.g. "Starfield (Quicksave)"). Top-level `vanillaKeys: [{event, title, name}]` is the game's FULL binding table (read-only; the keybinds view renders it); absent when the runtime has none |
-| `settings.ack` | `{ mod, key, ok, value?, code?, message? }` | result of a `settings.set`. `ok:true` carries `value`, the authoritative post-clamp committed value (compare with what you sent to detect clamping — no re-fetch needed); `ok:false` carries a stable `code`: `unknown-setting`, `read-only` (requires-gated stub or a type this host doesn't know), or `invalid-value` |
+| `settings.data` | `{ mods: [ { id, title, schema, values } ], vanillaKeys?, loadErrors? }` | reply to `settings.get` / after a `settings.reset`. A `key`-typed setting whose binding collides with another mod's carries runtime-injected `conflicts: [{mod, key, title}]` in its schema object — informational; render a badge, never block. `mod` may be the reserved id `@game` (the game's own bindings; display `title`, e.g. "Starfield (Quicksave)"). Top-level `vanillaKeys: [{event, title, name}]` is the game's FULL binding table (read-only; the keybinds view renders it); absent when the runtime has none. Top-level `loadErrors: [{kind, file, mod?, message}]` names settings files that FAILED to load — `schema-name` / `schema-parse` (file skipped) or `values-parse` (values quarantined as `<file>.bad`, defaults served); absent when everything loaded clean. The Mods surface renders these as a rail alert |
+| `settings.ack` | `{ mod, key, ok, value?, code?, message? }` | result of a `settings.set`. `ok:true` carries `value`, the authoritative post-clamp committed value (compare with what you sent to detect clamping — no re-fetch needed); `ok:false` carries a stable `code`: `unknown-setting`, `read-only` (a setting type this host doesn't know), or `invalid-value` |
 | `settings.captured` | `{ mod, key, name, cancelled, conflicts? }` | reply to `settings.captureKey`: the captured key `name` (an OSF UI key name), or `cancelled:true` (Escape / unbindable — keep the old binding). When the captured key is already bound elsewhere, `conflicts: [{mod, key, title}]` lists actionable collisions this bind would create; expected `@game` reuse from a `blocksGameplay` context is omitted. Warn live, never block. The view then sends a normal `settings.set` with `name` |
 | `ui.hotkey` | `{ mod, key }` | the physical key currently bound to that `key`-typed setting was pressed in-game (protocol 1.0). Pushed to every `settings.get` subscriber — filter on `mod`. Suppressed while the overlay captures input or a rebind is armed; rebinds re-route automatically |
 | `ui.result` | `{ ok, command?, code?, message? }` | the uniform outcome (protocol 1.0), sent ONLY when your `ui.command` carried a `requestId`: verb commands (`close`, `menu.open`, …) answer `ok:true` on success; failures carry a stable `code` (`unknown-view`, `capture-busy`, `unknown-setting`, …). A plugin-registered command acks `ok:true` = delivered to the plugin's handler. `osfui.request()` consumes this for you |
-| `ui.gamepad` | `{ kind:"button", button:{id, down} }` \| `{ kind:"stick", axes:{lx, ly, rx, ry} }` | *(experimental — gamepad navigation is being refined; gate on the `gamepad` capability; exempt from the 1.0 stability guarantee until stabilized)* raw gamepad events to the ACTIVE view while the overlay captures input (per-kind nesting, protocol 1.0). The default nav mapping (D-pad→arrows, A→Enter, B→close, sticks→scroll) also applies unless you asserted `osfui.gamepadRaw` |
+| `ui.gamepad` | `{ kind:"button", button:{id, down} }` \| `{ kind:"stick", axes:{lx, ly, rx, ry} }` | *(experimental — gamepad navigation is being refined; exempt from the 1.0 stability guarantee until stabilized)* raw gamepad events to the ACTIVE view while the overlay captures input (per-kind nesting, protocol 1.0). The default nav mapping (D-pad→arrows, A→Enter, B→close, sticks→scroll) also applies unless you asserted `osfui.gamepadRaw` |
 | `ui.visibility` | `{ visible }` | the receiving view was shown/hidden with the overlay (edge-triggered). The reference views scope per-visit state off this |
 | `ui.error` | `{ code, message, type?, command? }` | the runtime rejected something you sent. `code` is a stable machine string — `malformed-message`, `unknown-message-type`, `unknown-command`; `message` is the human sentence. Echoes your `requestId` when it could be read, so `osfui.request()` rejects with it. The same WARN is in `OSF UI.log` |
 
@@ -367,7 +367,7 @@ this runtime version doesn't know about.
 "use strict";
 osfui.ready.then((info) => {
   document.title = `Connected to ${info.plugin} v${info.version}`;
-  if (osfui.has("settings")) osfui.send("settings.get");  // read + subscribe
+  osfui.send("settings.get");  // read + subscribe
 });
 osfui.on("settings.changed", (p) => {
   if (p.mod === "yourname.mymod") applySetting(p.key, p.value);
@@ -462,24 +462,24 @@ definition wins.
 
 This is the **frozen base type set** (api-freeze-plan item 2). There is no
 `color` type — use `type:"string"` + `widget:"color"`. Post-1.0 evolution is a
-base type plus a `widget` hint and attributes, never a new base type outside a
-capability gate.
+base type plus a `widget` hint and attributes; a genuinely new base type ships
+in a new OSF UI version that your schema names via `targetVersion`.
 
 **Forward compatibility.** A host that predates one of your setting types
 renders that row read-only ("needs a newer OSF UI"), serves the schema
 `default` to consumers, and **preserves the user's saved value untouched** —
 it round-trips through every rewrite and the newer host picks it back up. If
-your schema is unusable without a capability, gate the whole mod instead:
+your schema uses anything newer than the OSF UI you tested against, declare
+that version so older hosts tell the user to update:
 
 ```jsonc
-{ "id": "yourname.mymod", "requires": ["type:flags"] }
+{ "id": "yourname.mymod", "targetVersion": "1.1.0" }
 ```
 
-A host that can't satisfy every `requires` entry registers your mod as an
-inert stub card (values file untouched, nothing served) instead of rendering
-it half-broken. The names share one vocabulary with `runtime.ready`'s
-capability list. Hosts older than the `requires` field ignore it — declare it
-from your first release.
+It is the same advisory field as the view manifest's (§2): the schema still
+loads best-effort, but the Mods surface shows the "needs update" badge with
+your mod named in the tooltip, and the detail pane notes that some settings
+may be unavailable until OSF UI is updated.
 
 Values files carry two reserved `$`-prefixed meta keys the host owns:
 `$schemaVersion` (your schema's `version`, stamped on write) and
@@ -594,7 +594,7 @@ With `devMode: true` the in-game loop is alt-tab fast too:
 - [ ] `views/<modId>/<viewName>/manifest.json` — folder names pass the id grammar (§0), manifest `id` equals the view folder name, `permissions.nativeBridge` set as needed.
 - [ ] Responsive CSS (no hardcoded 1280×720 assumptions; the view is resized to the screen).
 - [ ] All assets local and relative (no `..`, no absolute paths, no network) — plus the sanctioned `../../shared/osfui.css` / `../../shared/osfui.js`.
-- [ ] Load `shared/osfui.js` before your script; boot off `osfui.ready`, gate features with `osfui.has()`.
+- [ ] Load `shared/osfui.js` before your script; boot off `osfui.ready`. Declare `targetVersion` if you use anything newer than the OSF UI you tested against.
 - [ ] Only whitelisted `ui.command`s; use `osfui.request()` (and its rejection `code`) where the outcome matters.
 - [ ] (If configurable) a `settings/<modId>.json` schema with sane `default`/`min`/`max`.
 - [ ] Verified standalone in a browser, then in-game via the log.
@@ -618,32 +618,26 @@ Tooling to author against the contract instead of from memory:
   and the settings-schema shapes. Reference it from your view's TS project and
   the bridge is typed globally — no package to install.
 
-### Versioning & feature detection
+### Versioning
 
-**Gate on capabilities, not version arithmetic.** `runtime.ready` carries
-`capabilities: string[]` — append-only named features (a capability, once
-shipped, is never removed or renamed): surface names (`settings`,
-`settings.captureKey`, `views`, `i18n`, `game.calendar`, `gamepad`), `request-id`
-(the `ui.result` envelope), `schema:requires`, `type:<t>` per setting
-value type, and `settings.loadErrors` (`settings.data` carries a top-level
-`loadErrors` array naming settings files that failed to load — see
-`osfui.d.ts` for the shape). It is the **same vocabulary** as a settings schema's `requires`
-array, so one name answers both "can this host render my schema" and "can my
-view use this feature":
+**Declare what you authored against; degrade gracefully at runtime.** One
+advisory field, `targetVersion`, in both author-facing files (view manifest
+§2, settings schema §5): the OSF UI version your mod was written and tested
+against. It never gates anything — your view still loads, your schema still
+registers — but when the running OSF UI is older, the Mods surface shows the
+"needs update" badge with your mod named in the tooltip, so the user learns
+OSF UI is what needs updating. The running host's version arrives as
+`runtime.ready`'s `version` if your code must branch on it:
 
 ```js
 const info = await osfui.ready;
-if (!osfui.has("settings")) {
-  showError(`This OSF UI (${info.version}) has no settings surface.`);
-} else if (osfui.has("type:flags")) {
-  // safe to offer the multi-select UI
-}
+console.log(`running OSF UI ${info.version}`);
 ```
 
 The protocol version is **1.0**, emitted as `bridgeVersion` — informational
 (logs, bug reports), distinct from the plugin `version`. From 1.0 the
-contract is stable: additive changes bump the minor and announce themselves
-as new capabilities; anything that would break a shipped view bumps the
-major. The constant lives in `src/core/Version.h`
-(`kBridgeProtocolVersion`); the schemas, `.d.ts`, and the shared helper are
-kept in lockstep with it (CI greps the docs against the constant).
+contract is stable: additive changes bump the minor; anything that would
+break a shipped view bumps the major. The constant lives in
+`src/core/Version.h` (`kBridgeProtocolVersion`); the schemas, `.d.ts`, and
+the shared helper are kept in lockstep with it (CI greps the docs against
+the constant).

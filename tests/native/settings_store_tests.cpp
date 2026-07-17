@@ -654,49 +654,41 @@ int main()
 		}
 	}
 
-	// --- item 2: requires capability gate -> stub ---------------------------------------
+	// --- item 2: advisory targetVersion -------------------------------------------------
 	{
-		const auto sd = root / "settings-req";
-		const auto vd = root / "values-req";
-		// Met requires: registers normally.
-		WriteFile(sd / "t.okreq.json", R"json({
-			"id": "t.okreq", "requires": ["type:flags", "settings"],
-			"groups": [ { "settings": [ { "key": "x", "type": "bool", "default": true } ] } ] })json");
-		// Unmet requires: registers as an inert stub; values file untouched.
-		WriteFile(sd / "t.gated.json", R"json({
-			"id": "t.gated", "title": "Gated", "requires": ["osfui.timetravel"],
+		const auto sd = root / "settings-target";
+		const auto vd = root / "values-target";
+		// Newer than the host: loads best-effort anyway, values served; the
+		// declared target rides in Data() for the "needs update" badge.
+		WriteFile(sd / "t.future2.json", R"json({
+			"id": "t.future2", "title": "Future", "targetVersion": "99.0.0",
 			"groups": [ { "settings": [ { "key": "y", "type": "bool", "default": false } ] } ] })json");
-		WriteFile(vd / "t.gated.json", R"json({ "y": true, "future": 1 })json");
+		WriteFile(vd / "t.future2.json", R"json({ "y": true })json");
+		// Malformed: ignored with a warning; Data() omits the field.
+		WriteFile(sd / "t.badtarget.json", R"json({
+			"id": "t.badtarget", "targetVersion": "soon",
+			"groups": [ { "settings": [ { "key": "x", "type": "bool", "default": true } ] } ] })json");
 
 		SettingsStore s;
 		s.LoadAll(sd, vd);
-		CHECK(s.GetValue("t.okreq", "x") && *s.GetValue("t.okreq", "x") == true);
-		CHECK(LoggedContaining("WARN", "requires capabilities this OSF UI lacks"));
-		CHECK(s.GetValue("t.gated", "y") == nullptr);  // nothing served
-		CHECK(!s.Set("t.gated", "y", "false"));        // inert
-		CHECK(!s.Reset("t.gated", ""));
-		CHECK(s.GetSettingType("t.gated", "y").empty());
+		CHECK(LoggedContaining("WARN", "targets OSF UI 99.0.0"));
+		CHECK(LoggedContaining("WARN", "targetVersion 'soon'"));
+		// NOT a gate: the newer-targeted schema is fully live.
+		CHECK(s.GetValue("t.future2", "y") && *s.GetValue("t.future2", "y") == true);
+		CHECK(s.Set("t.future2", "y", "false"));
+		CHECK(s.GetSettingType("t.future2", "y") == "bool");
 		{
 			const auto data = s.Data();
 			bool found = false;
 			for (const auto& mod : data["mods"]) {
-				if (mod["id"] == "t.gated") {
+				if (mod["id"] == "t.future2") {
 					found = true;
-					CHECK(mod["stub"] == true);
-					CHECK(mod["missingRequires"] == nlohmann::json::array({ "osfui.timetravel" }));
-					CHECK(mod["values"].empty());
+					CHECK(mod["targetVersion"] == "99.0.0");
 				} else {
-					CHECK(!mod.contains("stub"));
+					CHECK(!mod.contains("targetVersion"));
 				}
 			}
 			CHECK(found);
-		}
-		// The stub's values file stays byte-untouched through a flush.
-		s.FlushPersistence();
-		{
-			std::ifstream f(vd / "t.gated.json");
-			std::string   contents((std::istreambuf_iterator<char>(f)), {});
-			CHECK(contents == R"json({ "y": true, "future": 1 })json");
 		}
 	}
 
@@ -710,9 +702,6 @@ int main()
 				{ "key": "n",   "type": "int", "min": 0, "max": 10, "default": 5 },
 				{ "key": "vec", "type": "vector3", "default": [0,0,0] }
 			] } ] })json");
-		WriteFile(sd / "t.codedstub.json", R"json({
-			"id": "t.codedstub", "requires": ["osfui.timetravel"],
-			"groups": [ { "settings": [ { "key": "y", "type": "bool", "default": false } ] } ] })json");
 
 		SettingsStore s;
 		s.LoadAll(sd, vd);
@@ -723,7 +712,6 @@ int main()
 		CHECK(s.SetWithResult("t.coded", "n", "\"str\"").code == "invalid-value");
 		CHECK(s.SetWithResult("t.coded", "n", "not json").code == "invalid-value");
 		CHECK(s.SetWithResult("t.coded", "vec", "[1,2,3]").code == "read-only");   // unknown type
-		CHECK(s.SetWithResult("t.codedstub", "y", "true").code == "read-only");    // requires-gated stub
 		// Clamp is SUCCESS (the ack carries the post-clamp value, not a code).
 		CHECK(s.SetWithResult("t.coded", "n", "99").ok);
 		CHECK(*s.GetValue("t.coded", "n") == 10);
@@ -801,6 +789,71 @@ int main()
 		CHECK(s.ConflictsForSetting("t.keyb", "also").empty());
 		// Non-key / unknown settings answer [] rather than erroring.
 		CHECK(s.ConflictsForSetting("t.keya", "nope").empty());
+	}
+
+	// --- §14.2 load-error surfacing: skipped schemas + corrupt values ----------
+	{
+		const auto sd = root / "loaderr" / "settings";
+		const auto vd = root / "loaderr" / "values";
+		WriteFile(sd / "t.good.json", R"json({ "id": "t.good",
+			"groups": [ { "settings": [ { "key": "on", "type": "bool", "default": true } ] } ] })json");
+		WriteFile(sd / "t.broken.json", R"json({ "id": "t.broken", )json");  // torn/unparseable
+		WriteFile(sd / "badname.json", "{}");                                // dotless stem
+		WriteFile(vd / "t.good.json", R"json({ "on": fa)json");              // corrupt values
+
+		SettingsStore s;
+		s.LoadAll(sd, vd);
+
+		// Only the good mod registered, on defaults (corrupt values never served).
+		CHECK(s.DataView()["mods"].size() == 1);
+		CHECK(s.GetValue("t.good", "on") && *s.GetValue("t.good", "on") == true);
+		// §14.2 quarantine: the corrupt file is set aside, never silently dropped.
+		CHECK(!fs::exists(vd / "t.good.json"));
+		CHECK(fs::exists(vd / "t.good.json.bad"));
+
+		// One record per failure, emitted additively in the data document.
+		CHECK(s.LoadErrors().size() == 3);
+		const auto& data = s.DataView();
+		const auto errs = data.contains("loadErrors") ? data["loadErrors"] : nlohmann::json::array();
+		CHECK(errs.size() == 3);
+		const auto findKind = [&](const char* a_kind) {
+			for (const auto& e : errs) {
+				if (e["kind"] == a_kind) {
+					return e;
+				}
+			}
+			return nlohmann::json{};
+		};
+		const auto parseErr = findKind("schema-parse");
+		CHECK(!parseErr.is_null() && parseErr["file"] == "t.broken.json");
+		CHECK(!parseErr.is_null() && parseErr["message"].get<std::string>().find("parse error") != std::string::npos);
+		CHECK(!parseErr.is_null() && !parseErr.contains("mod"));  // no mod loaded from it
+		const auto nameErr = findKind("schema-name");
+		CHECK(!nameErr.is_null() && nameErr["file"] == "badname.json");
+		const auto valuesErr = findKind("values-parse");
+		CHECK(!valuesErr.is_null() && valuesErr["file"] == "t.good.json" && valuesErr["mod"] == "t.good");
+
+		// Hot-reload lifecycle: a fixed file registers AND clears its entry...
+		WriteFile(sd / "t.broken.json", R"json({ "id": "t.broken",
+			"groups": [ { "settings": [ { "key": "x", "type": "int", "default": 1 } ] } ] })json");
+		CHECK(s.ReloadDropInFile(sd / "t.broken.json"));
+		CHECK(s.LoadErrors().size() == 2);
+		CHECK(s.DataView()["mods"].size() == 2);
+		// ...a re-broken file records again (replace-or-add: retries must not
+		// stack) and re-broadcasts so an open Mods surface shows it live.
+		int registryPings = 0;
+		s.AddRegistryListener([&] { ++registryPings; });
+		WriteFile(sd / "t.broken.json", R"json({ "id": )json");
+		CHECK(!s.ReloadDropInFile(sd / "t.broken.json"));
+		CHECK(!s.ReloadDropInFile(sd / "t.broken.json"));
+		CHECK(s.LoadErrors().size() == 3);
+		CHECK(registryPings >= 1);
+		CHECK(s.DataView()["mods"].size() == 2);  // the last good parse stays registered
+
+		// A removed mod takes its values record with it; file-keyed schema
+		// records stay (they name files, not registered mods).
+		CHECK(s.RemoveMod("t.good"));
+		CHECK(s.LoadErrors().size() == 2);
 	}
 
 	// ---------------------------------------------------------------------------

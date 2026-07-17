@@ -257,14 +257,13 @@ int main()
 		CHECK(!toWeb.empty() && toWeb.back().second.find("\"code\":\"malformed-message\"") != std::string::npos);
 		CHECK(!toWeb.empty() && toWeb.back().second.find("requestId") == std::string::npos);
 
-		// --- item 6: capabilities ride runtime.ready --------------------------
+		// --- runtime.ready carries the host + protocol versions ---------------
 		toWeb.clear();
 		bridge.SendRuntimeReady("someview");
 		CHECK(toWeb.size() == 1);
-		CHECK(!toWeb.empty() && toWeb.back().second.find("\"capabilities\":") != std::string::npos);
-		CHECK(!toWeb.empty() && toWeb.back().second.find("\"request-id\"") != std::string::npos);
-		CHECK(!toWeb.empty() && toWeb.back().second.find("\"type:flags\"") != std::string::npos);
+		CHECK(!toWeb.empty() && toWeb.back().second.find("\"version\":") != std::string::npos);
 		CHECK(!toWeb.empty() && toWeb.back().second.find("\"bridgeVersion\":\"1.0\"") != std::string::npos);
+		CHECK(!toWeb.empty() && toWeb.back().second.find("\"capabilities\"") == std::string::npos);
 	}
 
 	// --- RegisterView takes qualified ids only (item 1) -----------------------

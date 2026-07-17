@@ -28,10 +28,10 @@
       "minimum": 0,
       "description": "Optional schema version (default 0). New mods should declare \"version\": 1 so migration stamping is active from their first release."
     },
-    "requires": {
-      "type": "array",
-      "items": { "type": "string" },
-      "description": "Host capabilities this schema needs, e.g. [\"type:flags\"]. Named capabilities share one vocabulary with the runtime.ready capabilities list (item 6): command-namespace names for surfaces (settings, settings.captureKey, views, i18n, game.calendar, gamepad), type:<t> for setting value types, schema:<feature> for schema mechanisms. A host that can't satisfy every entry registers the mod as a read-only stub card ('needs a newer OSF UI') and leaves the values file untouched; hosts older than this field ignore it entirely. Distinct from the per-SETTING requires (restart/reload/newGame)."
+    "targetVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+(\\.[0-9]+){0,2}$",
+      "description": "The OSF UI version this schema was authored against (e.g. \"1.1.0\") — the same advisory field as a view manifest's. Never gates loading: an older host still loads the schema best-effort (settings of a type it predates render read-only with the saved value preserved), but shows a 'needs update' badge in the Mods surface. You almost certainly don't need this until you use a feature newer than the host you ship against. Distinct from `version` (this mod's OWN schema version) and from the per-SETTING requires (restart/reload/newGame)."
     },
     "accent": {
       "type": "string",
@@ -156,7 +156,7 @@
         },
         "type": {
           "enum": ["bool", "int", "float", "enum", "string", "key", "flags"],
-          "description": "Control + validation kind — the FROZEN base set (api-freeze-plan item 2). bool = toggle; int/float clamp to [min,max]; enum must be one of options; string truncates to maxLength (<=256 today, raised in the native slice); key = a rebindable key name captured by a press; flags = multi-select over options (value = array of option strings, filtered/deduped natively). Colour is NOT a type: use type:\"string\" + widget:\"color\". A host that predates a type renders it read-only and serves the schema default; the saved value is preserved untouched. A genuinely new base type must ship behind a schema-level requires: [\"type:<t>\"] gate."
+          "description": "Control + validation kind — the FROZEN base set (api-freeze-plan item 2). bool = toggle; int/float clamp to [min,max]; enum must be one of options; string truncates to maxLength (<=256 today, raised in the native slice); key = a rebindable key name captured by a press; flags = multi-select over options (value = array of option strings, filtered/deduped natively). Colour is NOT a type: use type:\"string\" + widget:\"color\". A host that predates a type renders it read-only and serves the schema default; the saved value is preserved untouched. A schema using a newer base type should declare the matching schema-level targetVersion so older hosts show the 'needs update' badge."
         },
         "default": {
           "description": "Initial value, used until the user changes it and on reset. Should match the type. The 'modified' indicator compares the live value against this."

@@ -164,7 +164,7 @@ namespace OSFUI::API
 		                                       std::uint32_t& a_patch) = 0;
 		// The native<->web protocol version, e.g. "1.0". INFORMATIONAL for
 		// native code (log it for support) - gate on the ABI MINOR instead;
-		// the JS side feature-detects via runtime.ready's capabilities list.
+		// the JS side sees the host version in the runtime.ready handshake.
 		// Static string, valid for process lifetime.
 		virtual const char*   GetBridgeProtocolVersion() = 0;
 		virtual bool          IsBridgeReady() = 0;             // a nativeBridge view is live
@@ -227,9 +227,7 @@ namespace OSFUI::API
 		// FORWARD COMPAT (api-freeze-plan item 2): on a host that predates one
 		// of the schema's setting TYPES, the replay/getters deliver the schema
 		// DEFAULT for that setting (the user's saved value is preserved on
-		// disk, served only once they upgrade). A schema whose `requires`
-		// capabilities the host lacks is an inert stub: nothing replays and
-		// getters return false.
+		// disk, served only once they upgrade).
 		virtual std::uint32_t SubscribeSettings(const char* a_modId, SettingChangedFn a_fn, void* a_user) = 0;
 		virtual void          UnsubscribeSettings(std::uint32_t a_token) = 0;
 

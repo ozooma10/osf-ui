@@ -14,7 +14,7 @@ namespace OSFUI
 	//
 	// Schema shape (defensive — bad fields fall back, never crash):
 	//   { "id": str, "title": str,
-	//     "requires": [capability, ...]   (api-freeze-plan item 2: unmet ⇒ stub)
+	//     "targetVersion": "1.1.0"   (advisory authored-against OSF UI version)
 	//     "groups": [ { "label": str,
 	//                   "settings": [ { "key": str, "label": str,
 	//                                   "type": "bool"|"int"|"float"|"enum"|"string"|"key"|"flags",
@@ -22,10 +22,11 @@ namespace OSFUI
 	//                                   "min"/"max"/"step": num   (int/float),
 	//                                   "options": [str, ...]      (enum/flags) } ] } ] }
 	// The base type set is FROZEN pre-1.0 (item 2): post-1.0 extension is a
-	// base type + `widget` + attributes; a genuinely new base type must ship
-	// behind a schema-level `requires: ["type:<t>"]` gate. A setting whose
-	// type this host doesn't know serves its schema default read-only; the
-	// user's saved value is preserved opaquely (never wiped, never served).
+	// base type + `widget` + attributes; a schema using a newer base type
+	// declares the matching `targetVersion` so older hosts badge "needs
+	// update". A setting whose type this host doesn't know serves its schema
+	// default read-only; the user's saved value is preserved opaquely (never
+	// wiped, never served).
 	//
 	// Security: writes only ever touch a setting that EXISTS in some loaded
 	// schema, with the value validated/clamped to that setting's declared

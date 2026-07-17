@@ -74,15 +74,6 @@
     return item && ["bool", "int", "float", "enum", "flags", "string", "key"].includes(item.type);
   }
 
-  // Host capabilities this mock claims — mirror src/runtime/Capabilities.h
-  // (a mock that lies about capabilities defeats the requires gate AND the
-  // runtime.ready `capabilities` handshake, item 6).
-  const CAPABILITIES = [
-    "settings", "settings.captureKey", "views", "game.calendar", "gamepad",
-    "schema:requires", "request-id",
-    "type:bool", "type:int", "type:float", "type:enum", "type:string", "type:key", "type:flags",
-    "settings.loadErrors",
-  ];
   function eachSetting(schema, fn) {
     for (const g of (schema && schema.groups) || []) {
       for (const s of g.settings || []) { if (isSetting(s)) fn(s); }
@@ -121,22 +112,19 @@
 
   function buildMod(schema) {
     const id = schema.id || "mod";
-    // Requires gate (item 2): unmet capabilities register as an inert stub
-    // card — no values loaded/served, saved values untouched.
-    const missing = Array.isArray(schema.requires)
-      ? schema.requires.filter((r) => typeof r !== "string" || !CAPABILITIES.includes(r))
-          .map((r) => (typeof r === "string" && r ? r : "(malformed)"))
-      : [];
-    if (missing.length) {
-      return { id, title: schema.title || id, schema, values: {}, stub: true, missingRequires: missing };
-    }
     const saved = loadSaved(id);
     const values = {};
     eachSetting(schema, (s) => {
       const v = s.key in saved ? validate(s, saved[s.key]) : undefined;
       values[s.key] = v !== undefined ? v : defaultFor(s);
     });
-    return { id, title: schema.title || id, schema, values };
+    const mod = { id, title: schema.title || id, schema, values };
+    // Advisory authored-against version (mirrors SettingsStore): carried in
+    // settings.data so the harness exercises the "needs update" badge.
+    if (typeof schema.targetVersion === "string" && /^[0-9]+(\.[0-9]+){0,2}$/.test(schema.targetVersion)) {
+      mod.targetVersion = schema.targetVersion;
+    }
+    return mod;
   }
 
   // Mirror of SettingsStore id validation (api-freeze-plan item 1): mod ids
@@ -330,13 +318,12 @@
         setTimeout(() => sendData(rid), 0);
         break;
       case "settings.set": {
-        const mod = mods.find((m) => m.id === p.mod && !m.stub);  // stubs are inert, like native
+        const mod = mods.find((m) => m.id === p.mod);
         // Ack shape (items 5 + 11): ok + the authoritative post-clamp `value`,
         // or a machine `code` mirroring SettingsStore::SetWithResult.
         const ack = { mod: p.mod, key: p.key, ok: false };
-        const stubbed = mods.find((m) => m.id === p.mod && m.stub);
         if (!mod) {
-          ack.code = stubbed ? "read-only" : "unknown-setting";
+          ack.code = "unknown-setting";
         } else {
           let setting = null;
           eachSetting(mod.schema, (s) => { if (s.key === p.key) setting = s; });
@@ -361,10 +348,10 @@
         break;
       }
       case "settings.reset": {
-        const mod = mods.find((m) => m.id === p.mod && !m.stub);
+        const mod = mods.find((m) => m.id === p.mod);
         if (!mod) {
           // No longer silent (item 5): a request-carrying caller learns why.
-          result(false, { code: "unknown-setting", message: "unknown mod or setting (or a requires-gated stub)" });
+          result(false, { code: "unknown-setting", message: "unknown mod or setting" });
           break;
         }
         // Native parity (item 12): NO per-key settings.changed fan-out — the
@@ -625,7 +612,7 @@
   // expose window.osfui._mock.visibility(v) for exercising the hide path.
   setTimeout(async () => {
     send("runtime.ready", { game: "Starfield", plugin: "OSF UI",
-      version: await pluginVersion, bridgeVersion: "1.0", capabilities: CAPABILITIES });
+      version: await pluginVersion, bridgeVersion: "1.0" });
     send("ui.visibility", { visible: true });
   }, 0);
 })();

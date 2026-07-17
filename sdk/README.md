@@ -17,23 +17,21 @@ everything here is hand-written and copied into a view project as needed.
 
 ## Bridge protocol version
 
-**1.0 — stable.** Additive changes bump the minor and surface as new
-`capabilities` entries; breaking changes bump the major. Don't do
-version arithmetic — feature-detect against the `capabilities` array of the
-`runtime.ready` handshake (append-only names; the shipped
-`views/shared/osfui.js` helper wraps it):
+**1.0 — stable.** Additive changes bump the minor; breaking changes bump the
+major. Compatibility is advisory, not gated: declare the OSF UI version you
+authored against as `targetVersion` (in your view manifest and/or settings
+schema) and the Mods surface shows a "needs update" badge when the running
+host is older. The host's own version arrives in the `runtime.ready`
+handshake:
 
 ```ts
 const info = await osfui.ready;          // runtime.ready payload
-if (!osfui.has("settings")) {
-  console.warn("This OSF UI has no settings surface", info.version);
-}
+console.log("running OSF UI", info.version, "bridge", info.bridgeVersion);
 ```
 
-The version constant lives in [`src/core/Version.h`](../src/core/Version.h)
-(`kBridgeProtocolVersion`) and is emitted by
-[`src/runtime/MessageBridge.cpp`](../src/runtime/MessageBridge.cpp), which
-also owns the capability list ([`src/runtime/Capabilities.h`](../src/runtime/Capabilities.h)).
+The version constants live in [`src/core/Version.h`](../src/core/Version.h)
+(`kPluginVersion`, `kBridgeProtocolVersion`); the handshake is emitted by
+[`src/runtime/MessageBridge.cpp`](../src/runtime/MessageBridge.cpp).
 
 ## Validating your JSON files
 

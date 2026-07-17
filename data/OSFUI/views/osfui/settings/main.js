@@ -49,8 +49,8 @@ const sessionChipEl = document.getElementById("session-chip");
 const saveStateEl = document.getElementById("save-state");
 
 let allMods = [];
-// Settings artifacts that FAILED to load (settings.data `loadErrors`,
-// capability "settings.loadErrors") — schema files skipped or values files
+// Settings artifacts that FAILED to load (settings.data `loadErrors`) —
+// schema files skipped or values files
 // quarantined. Rendered
 // as a rail alert: a mod silently missing from the list is a support thread,
 // a named file + reason is a fix.
@@ -942,13 +942,10 @@ function renderDetailHead(mod, schema, isFramework) {
   if (schema.description) left.appendChild(el("div", "detail-desc", schema.description));
   head.appendChild(left);
 
-  // A requires-gated stub has nothing to reset — its settings are inert.
-  if (!mod.stub) {
-    const reset = el("button", "osf-btn osf-btn--danger osf-btn--sm", tr("resetAll", "Reset all"));
-    reset.type = "button";
-    reset.addEventListener("click", () => resetMod(mod.id));
-    head.appendChild(reset);
-  }
+  const reset = el("button", "osf-btn osf-btn--danger osf-btn--sm", tr("resetAll", "Reset all"));
+  reset.type = "button";
+  reset.addEventListener("click", () => resetMod(mod.id));
+  head.appendChild(reset);
   return head;
 }
 
@@ -1112,29 +1109,21 @@ function renderDetail() {
 
   detailEl.appendChild(renderDetailHead(mod, schema, isFramework));
 
-  // Requires-gated stub (api-freeze-plan item 2): the schema declares host
-  // capabilities this OSF UI lacks, so native registered it inert — no
-  // values are served and nothing is editable. Saved settings are preserved
-  // on disk untouched. The mod's terminals/overlays still list (they're
-  // registered independently of the settings gate).
-  if (mod.stub) {
-    const body = el("div", "detail-body");
-    const surfaces = renderSurfaces(entry.views);
-    if (surfaces) body.appendChild(surfaces);
-    const note = el("div", "osf-note osf-note--warn");
-    note.appendChild(el("div", null, tr("modNeedsUpdate",
-      "{mod} needs a newer OSF UI — this version can't show or edit its settings. Your saved values are kept and untouched.", { mod: titleOf(mod) })));
-    if (Array.isArray(mod.missingRequires) && mod.missingRequires.length) {
-      note.appendChild(el("div", "row-hint", tr("missing", "Missing: {items}", { items: mod.missingRequires.join(", ") })));
-    }
-    body.appendChild(note);
-    detailEl.appendChild(body);
-    return;
-  }
-
   const body = el("div", "detail-body");
   const surfaces = renderSurfaces(entry.views);
   if (surfaces) body.appendChild(surfaces);
+
+  // Advisory targetVersion (mirrors the view-manifest field): the schema was
+  // authored against a newer OSF UI. Everything below still renders
+  // best-effort — settings of a type this host predates come up read-only
+  // with their own per-row hint — so this is a note, not a gate.
+  if (mod.targetVersion && versionLess(hostVersion, mod.targetVersion)) {
+    const note = el("div", "osf-note osf-note--warn");
+    note.appendChild(el("div", null, tr("modNeedsUpdate",
+      "{mod} was made for OSF UI {version} — some settings may be unavailable until you update OSF UI.",
+      { mod: titleOf(mod), version: mod.targetVersion })));
+    body.appendChild(note);
+  }
   const presets = renderPresets(mod, schema);
   if (presets) body.appendChild(presets);
 
@@ -1714,17 +1703,21 @@ function versionLess(a, b) {
 }
 
 // "Needs update" state on the version badge in the rail head: when any
-// installed view's manifest targetVersion is newer than the running OSF UI,
-// the badge goes yellow and a tag appears beneath it — it's OSF UI itself
-// that needs updating, and the tooltip names the mods asking. Re-derived on
-// every views.data / settings.data push.
+// installed view's manifest targetVersion — or any settings schema's — is
+// newer than the running OSF UI, the badge goes yellow and a tag appears
+// beneath it — it's OSF UI itself that needs updating, and the tooltip
+// names the mods asking. Re-derived on every views.data / settings.data push.
 function updateNeedsUpdateBadge() {
   const badge = document.getElementById("plugin-version");
   const tag = document.getElementById("needs-update-tag");
   if (!badge || !tag) return;
   const wanting = hostVersion
-    ? [...new Set(viewTargets.filter((v) => versionLess(hostVersion, v.targetVersion))
-        .map((v) => homeModCaption(v) || v.mod || v.id))]
+    ? [...new Set([
+        ...viewTargets.filter((v) => versionLess(hostVersion, v.targetVersion))
+          .map((v) => homeModCaption(v) || v.mod || v.id),
+        ...allMods.filter((m) => m.targetVersion && versionLess(hostVersion, m.targetVersion))
+          .map((m) => titleOf(m)),
+      ])]
     : [];
   const outdated = wanting.length > 0;
   badge.classList.toggle("is-outdated", outdated);
@@ -1734,16 +1727,15 @@ function updateNeedsUpdateBadge() {
   tag.title = title;
 }
 
-// The handshake: version badge + initial reads. `osfui.has()` is the
-// documented feature gate (capabilities, protocol 1.0) — bridgeVersion is
-// informational, not something to do arithmetic on.
+// The handshake: version badge + initial reads. `version` is the running
+// OSF UI — the reference point for every advisory targetVersion.
 osfui.ready.then((info) => {
   const badge = document.getElementById("plugin-version");
   if (badge && info.version) badge.textContent = "v" + info.version;
   hostVersion = info.version || "";
   updateNeedsUpdateBadge();
   sendCommand({ command: "settings.get" });
-  if (osfui.has("views")) sendCommand({ command: "views.get" });  // also subscribes to change pushes
+  sendCommand({ command: "views.get" });  // also subscribes to change pushes
 });
 
 osfui.on("settings.data", (p) => {
@@ -1868,7 +1860,7 @@ osfui.on("ui.visibility", (p) => {
 // gamepad affordance arrow navigation can't express well. Raw ui.gamepad
 // events ride alongside the default mapping (we do NOT assert
 // osfui.gamepadRaw, so D-pad/A/B keep their native arrows/Enter/close
-// behavior); on hosts without the gamepad capability the events simply never
+// behavior); on hosts without gamepad routing the events simply never
 // arrive.
 const PAD_LSHOULDER = 0x0100, PAD_RSHOULDER = 0x0200;
 osfui.on("ui.gamepad", (p) => {

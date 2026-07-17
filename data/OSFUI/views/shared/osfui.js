@@ -10,7 +10,7 @@
 //
 //   osfui.available()            -> bridge present (false = standalone preview)
 //   osfui.ready                  -> Promise of the runtime.ready payload
-//   osfui.has("type:flags")      -> capability test (false before ready)
+//                                   (payload.version = the running OSF UI)
 //   osfui.send(command, fields)  -> fire-and-forget ui.command; returns false
 //                                   when no bridge is present
 //   osfui.request(command, fields, { timeoutMs }) -> Promise of the reply
@@ -80,11 +80,8 @@
 	};
 
   let resolveReady;
-  let readyPayload = null;
   g.ready = new Promise((r) => { resolveReady = r; });
   g.available = () => typeof g.postMessage === "function";
-  g.has = (cap) =>
-    !!(readyPayload && Array.isArray(readyPayload.capabilities) && readyPayload.capabilities.indexOf(cap) >= 0);
 
   g.send = (command, fields) => {
     if (!g.available()) return false;
@@ -148,13 +145,16 @@
     try { message = JSON.parse(json); } catch { return; }
     if (!message || typeof message.type !== "string") return;
     if (message.type === "runtime.ready") {
-      readyPayload = message.payload || {};
-      resolveReady(readyPayload);
-		if (g.has("i18n")) {
-			g.request("i18n.get").catch((e) => console.error("OSF UI localization load failed:", e));
-		} else {
+      resolveReady(message.payload || {});
+		// The catalog request is unconditional: every bridge-bearing host
+		// serves i18n.get, and the i18n.data reply resolves i18nReady. A
+		// failure still resolves (with the authored English) so views
+		// awaiting i18nReady never hang; a host without the command (the dev
+		// harness mock) refuses it fast and quietly.
+		g.request("i18n.get").catch((e) => {
+			if (!e || e.code !== "unknown-command") console.error("OSF UI localization load failed:", e);
 			resolveI18n({ locale, strings });
-		}
+		});
     }
 		if (message.type === "i18n.data") {
 			const payload = message.payload || {};

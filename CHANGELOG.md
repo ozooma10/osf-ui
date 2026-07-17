@@ -18,13 +18,13 @@ Initial release.
 
 - View packages under `views/<modId>/<viewName>/` with a `manifest.json`;
   multiple views can load and composite together (HUDs beneath open menus).
-- Manifest `targetVersion` — declare the OSF UI version a view is authored
-  against; when the installed OSF UI is older, the Mods surface shows a
-  "needs update" badge by the version number naming the mod (advisory only —
-  the view still loads).
+- `targetVersion` (view manifests AND settings schemas) — declare the OSF UI
+  version a mod is authored against; when the installed OSF UI is older, the
+  Mods surface shows a "needs update" badge by the version number naming the
+  mod (advisory only — everything still loads best-effort).
 - JS bridge `window.osfui`, **protocol 1.0** (stable): request envelope with
-  `requestId` correlation, uniform `ui.result` outcomes, capability flags,
-  and raw gamepad events (experimental).
+  `requestId` correlation, uniform `ui.result` outcomes, and raw gamepad
+  events (experimental).
 - Declarative **settings schemas** with persistence under
   `Documents\My Games\Starfield\OSFUI\settings\`, versioning + migration,
   input contexts, and unbound-key support.
