@@ -9,25 +9,26 @@ Replace REPLACE-WITH-OSFANIM-NEXUS-URL with OSF Animation's mod page URL.[/i][/s
 
 [center][img]REPLACE-WITH-NEXUS-URL/osf-ui-header.png[/img][/center]
 
-[center][size=5][b]Modern web interfaces, rendered over Starfield.[/b][/size][/center]
+[center][size=5][b]Starfield Web Interface Framework[/b][/size][/center]
 
-[center][i]An SFSE-powered framework for building mod UIs in HTML, CSS and JavaScript — shipping with the tools Starfield always lacked: a unified Mod Settings Menu (MCM) and a Keybinds manager.[/i][/center]
+[center][i]An Open Source SFSE-powered framework for building mod UIs in HTML, CSS and JavaScript - shipping with the tools Starfield always lacked: a unified Mod Settings Menu (MCM) and a mod Keybinds manager.[/i][/center]
 
 [line]
 
 [center][img]REPLACE-WITH-NEXUS-URL/01-overview.png[/img][/center]
 
-OSF UI is an SFSE plugin that lets mods build their interfaces in [b]HTML, CSS and JavaScript[/b] and draws them over the live game — rendered by [b]Ultralight[/b] (WebKit), composited on Starfield's own Direct3D 12 device, and driven by a real zero-lag [b]hardware cursor[/b], keyboard, and gamepad. Out of the box:
+OSF UI is an SFSE plugin that lets mods build their interfaces in [b]HTML, CSS and JavaScript[/b] and draws them over the game - rendered by [b]Ultralight[/b] (WebKit), composited on Starfield's own Direct3D 12 device. Heavily inspired by Skyrim's Prisma UI framework.
+
+Out of the box:
 
 [list]
-[*][b]The Mods surface[/b] — press [b]F10[/b] (or the [b]MOD SETTINGS[/b] entry in the pause menu): the game freezes, the cursor appears, and every supporting mod is right there in one place. No INI edits, no console commands, no alt-tabbing.
-[*][b]Settings (MCM)[/b] — every supporting mod gets its own page of live controls: toggles, sliders, dropdowns, text and key fields, with live search, per-setting reset, and presets. Changes validate, clamp, and save instantly.
-[*][b]Keybinds[/b] — a visual keyboard map of every mod's hotkeys. Click a key, press the new one, done — with conflict badges when two mods (or the game itself) want the same key.
-[*][b]Home[/b] — a launcher grid of everything your mods register: full-screen terminals to open, HUD overlays to toggle, one card each.
-[*][b]Looks native[/b] — a design system matched to Starfield's own menus, down to the Constellation tricolor, with per-mod accent theming.
+[*][b]The Mods surface[/b] - press [b]F10[/b] (or the [b]MOD MENUS[/b] entry in the pause menu): Opens an interface to manage every supporting mod in one place. No INI edits, no console commands, no alt-tabbing.
+[*][b]Settings (MCM)[/b] - every supporting mod gets its own page of live controls: toggles, sliders, dropdowns, text and key fields, with live search, per-setting reset, and presets. Changes validate, clamp, and save instantly.
+[*][b]Keybinds[/b] - a visual keyboard map of every registered mod's hotkeys. Click a key, press the new one, done - with conflict badges when two mods (or the game itself) want the same key.
+
 [/list]
 
-The Mods surface is simply the first thing built on the framework — any mod can ship its own views, settings, and hotkeys through it. See it powering a full mod today: [url=REPLACE-WITH-OSFANIM-NEXUS-URL]OSF Animation[/url]'s scene browser, emote wheel, settings, and hotkeys all run on OSF UI.
+The Mods surface is simply the first thing built on the framework - any mod can ship its own views, settings, and hotkeys through it. See it powering a full mod today: [url=https://www.nexusmods.com/starfield/mods/17457]OSF Animation[/url]'s scene browser, emote wheel, settings, and hotkeys all run on OSF UI.
 
 [i][b]Status: early alpha.[/b] 1.0.0 is the first public build — working and verified in-game on Starfield 1.16.244, but expect rough edges. Bug reports are very welcome, here or on [url=https://github.com/ozooma10/osf-ui]GitHub[/url].[/i]
 
@@ -36,13 +37,13 @@ The Mods surface is simply the first thing built on the framework — any mod ca
 [center][img]REPLACE-WITH-NEXUS-URL/02-features.png[/img][/center]
 
 [list]
-[*][b]Real web pages over the game[/b] — HTML/CSS/JS views rendered by Ultralight, composited on the game's own D3D12 device (no separate window, no injected renderer)
-[*][b]Fully interactive[/b] — while a view is open the game is input-frozen (movement, camera, and gamepad), keyboard routes into the page, and the real Windows [b]hardware cursor[/b] clicks its controls — zero-lag and framerate-independent
-[*][b]Gamepad navigable[/b] — D-pad/stick moves focus, A activates, B closes, right stick scrolls
-[*][b]Schema-driven settings[/b] — a mod drops one small JSON schema and gets a full settings page with persistence, migration, and hotkey delivery — no UI code at all
-[*][b]Live hotkey service[/b] — every key setting is a real, rebindable hotkey delivered to its mod, gated so keys never fire into the console or a text field
-[*][b]Multi-view compositing[/b] — several views layer by z-order; [font=Courier New]Tab[/font] cycles focus between the interactive ones
-[*][b]Safe by construction[/b] — page JS is untrusted: each view's filesystem is sandboxed to its own folder and network access is force-disabled
+[*][b]Rich Web Page UI In-Game[/b] - HTML/CSS/JS views rendered by Ultralight, composited on the game's own D3D12 device.
+[*][b]Fully interactive[/b] - While a view is open mods get full input control. And can optionally register hotkeys to callback into themselves
+[*][b]Gamepad navigable[/b] - D-pad/stick moves focus, A activates, B closes, right stick scrolls. (Mod support dependent)
+[*][b]Schema-driven settings[/b] - a mod drops one small JSON schema and gets a full settings page with persistence, migration, and hotkey delivery - no UI code at all
+[*][b]Live hotkey service[/b] - every key setting is a real, rebindable hotkey delivered to its mod, gated so keys never fire into the console or a text field
+[*][b]Multi-view compositing[/b] - several views can layer over each other, with configurable z-order priority and cycling.
+[*][b]Safe by construction[/b] - page JS is untrusted: each view's filesystem is sandboxed to its own folder and network access is disabled
 [/list]
 
 [line]
@@ -50,16 +51,15 @@ The Mods surface is simply the first thing built on the framework — any mod ca
 [center][img]REPLACE-WITH-NEXUS-URL/03-get-started.png[/img][/center]
 
 [size=4][b]Requirements[/b][/size]
-[list]
-[*][url=https://www.nexusmods.com/starfield/mods/106]SFSE[/url] matching your game version
+[list]a
 [*][url=https://www.nexusmods.com/starfield/mods/3256]Address Library for SFSE Plugins[/url]
 [/list]
 
 [size=4][b]Installation[/b][/size]
-Install with a mod manager (Mod Organizer 2 / Vortex) and enable it — the archive drops straight into [font=Courier New]Data\SFSE\Plugins[/font]. Launch the game through SFSE.
+Install with a mod manager (Mod Organizer 2 / Vortex) and enable it.sssss Launch the game through SFSE.
 
-[size=4][b]Try it (5 seconds)[/b][/size]
-Load a save and press [b]F10[/b]. The Mods surface opens over the game, the cursor appears, and OSF UI's own settings and the Keybinds map are already there. Press [b]F10[/b] again (or [b]Esc[/b]) to close. Then install a mod that supports it — like [url=REPLACE-WITH-OSFANIM-NEXUS-URL]OSF Animation[/url] — and watch its card appear.
+[size=4][b]Try it[/b][/size]
+Load a save and press [b]F10[/b]. The Mods surface opens over the game, and OSF UI's own settings and the Keybinds map are already there. Press [b]F10[/b] again (or [b]Esc[/b]) to close. Then install a mod that supports it - like [url=https://www.nexusmods.com/starfield/mods/17457]OSF Animation[/url] -ss and watch its card appear.
 
 [line]
 
@@ -77,22 +77,20 @@ Building a UI on OSF UI is web development.
 
 [center][img]REPLACE-WITH-NEXUS-URL/05-credits.png[/img][/center]
 
-[size=4][b]Compatibility &amp; content policy[/b][/size]
+[size=4][b]Compatibility[/b][/size]
 [list]
-[*][b]SFW.[/b] The framework is content-neutral and contains no adult assets.
-[*][b]Steam only.[/b] SFSE is Steam-only, so OSF UI does not work on Xbox / Game Pass.
-[*]Coexistence with ReShade / the Steam overlay / frame-generation is untested; HDR / 10-bit backbuffers are detected and skipped (with a log line) rather than rendered.
-[*]Built against the current Starfield + SFSE; a runtime layout guard refuses UI integration rather than crashing if the engine layout doesn't match.
+[*]Coexistence with ReShade / frame-generation is untested; HDR / 10-bit backbuffers are detected and skipped. Please report any issues so I can investigate.
 [/list]
 
 [size=4][b]Source, permissions &amp; license[/b][/size]
-OSF UI is [b]open source[/b] (GPL-3.0 with a modding/linking exception that permits shipping the proprietary Ultralight runtime). Full source, build instructions, and issue tracker: [url=https://github.com/ozooma10/osf-ui]github.com/ozooma10/osf-ui[/url]. Bug reports and pull requests welcome.
+OSF UI is [b]open source[/b] (GPL-3.0 with a modding/linking exception that permits shipping the proprietary Ultralight runtime). Full source, build instructions, and issue tracker: [url=https://github.com/ozooma10/osf-ui]github.com/ozooma10/osf-ui[/url]. 
+Bug reports and pull requests welcome.
 
 [size=4][b]Credits[/b][/size]
-OSF UI exists because of [b]Prisma UI[/b] by [b]StarkMP[/b] — the Skyrim framework that pioneered rendering modern HTML/CSS/JS interfaces over a Bethesda game with Ultralight. The entire idea came from Prisma UI, and StarkMP kindly gave permission to build a Starfield-flavored framework in its spirit. OSF UI is an independent, from-scratch implementation for Starfield with its own name, architecture, and API; it is [b]not affiliated with or endorsed by Prisma UI, and contains no Prisma UI code.[/b]
+OSF UI exists because of [b]Prisma UI[/b] by [b]StarkMP[/b] - the Skyrim framework that pioneered rendering modern HTML/CSS/JS interfaces with Ultralight.[/b]
 [list]
-[*][b]StarkMP[/b] (with contributors incl. [b]langfod[/b]) — [url=https://www.nexusmods.com/skyrimspecialedition/mods/148718]Prisma UI[/url] — original concept and inspiration
-[*][b][url=https://ultralig.ht/]Ultralight[/url][/b] (Ultralight, Inc.) — the WebKit-based renderer behind every view (used under the Ultralight Free License; notices ship in [font=Courier New]OSFUI/ultralight/license/[/font])
-[*][b]CommonLibSF[/b] / [url=https://github.com/libxse/commonlibsf-template]commonlibsf-template[/url] &amp; [url=https://sfse.silverlock.org/]SFSE[/url] — the plugin foundation this is built on
+[*][b]StarkMP[/b] - [url=https://www.nexusmods.com/skyrimspecialedition/mods/148718]Prisma UI[/url] — original concept and inspiration
+[*][b][url=https://ultralig.ht/]Ultralight[/url][/b] (Ultralight, Inc.) - the WebKit-based renderer behind every view (used under the Ultralight Free License; notices ship in [font=Courier New]OSFUI/ultralight/license/[/font])
+[*][b]CommonLibSF[/b] / [url=https://github.com/libxse/commonlibsf-template]commonlibsf-template[/url] &amp; [url=https://sfse.silverlock.org/]SFSE[/url] - Get in on the action
 [/list]
 Full attributions and licenses are in CREDITS.md and THIRD_PARTY notices in the repository.
