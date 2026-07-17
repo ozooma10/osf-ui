@@ -305,15 +305,13 @@ html, body { height: 100%; overflow: hidden; }
   border: 1px solid rgba(242, 239, 233, 0.16);
   box-shadow: 0 26px 90px rgba(0, 0, 0, 0.56);
 }
-/* Constellation stripe along the deck's top edge: a short tricolor
-   bar running out into a hairline, the suit-stripe motif. */
+/* Accent stripe along the deck's top edge: a short accent bar running
+   out into a hairline. Picks up the active view's --accent. */
 .settings::before {
   content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px; z-index: 8;
   background: linear-gradient(90deg,
-    var(--sf-red)  0,     var(--sf-red)  64px,
-    var(--sf-gold) 64px,  var(--sf-gold) 128px,
-    var(--sf-blue) 128px, var(--sf-blue) 192px,
-    rgba(242, 239, 233, 0.16) 192px);
+    var(--accent) 0, var(--accent) 96px,
+    rgba(242, 239, 233, 0.16) 220px);
 }
 
 .rail {
