@@ -7,8 +7,8 @@
 
 namespace OSFUI
 {
-	// The schema-driven settings feature as a self-contained module
-	// (renderer-plan.md Phase 5). Owns the SettingsStore, registers the
+	// The schema-driven settings feature as a self-contained module.
+	// Owns the SettingsStore, registers the
 	// settings.* bridge commands, and applies persisted values at startup.
 	// Core knows nothing about it beyond the IUiModule contract — it could be
 	// lifted into a separate plugin once a public registration API exists.

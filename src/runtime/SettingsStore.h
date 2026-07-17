@@ -4,8 +4,8 @@
 
 namespace OSFUI
 {
-	// Schema-driven settings registry (renderer-plan.md Phase 5; grown into the
-	// MCM platform core, docs/mcm-design.md §8.3). Each mod ships a read-only
+	// Schema-driven settings registry (the MCM platform core,
+	// docs/mcm-design.md §8.3). Each mod ships a read-only
 	// JSON schema — a `settings/<id>.json` drop-in file or the same document
 	// registered at runtime over the native bridge — the runtime renders all of
 	// them via the built-in `settings` view, persists each mod's user values to

@@ -594,8 +594,8 @@ namespace OSFUI
 			}
 		} else if (wasVisible && _bridge && !_lastShownView.empty()) {
 			// Open->closed edge: the compositor already hid the overlay this frame, so no fade-OUT
-			// can render (a rendered fade-out would need a real close handshake — see
-			// docs/menu-hud-framework-plan.md). The hide is still SIGNALLED: the view's JS keeps
+			// can render (a rendered fade-out would need a real close handshake).
+			// The hide is still SIGNALLED: the view's JS keeps
 			// running while hidden, and consumers need the edge (e.g. the OSF scene browser
 			// forwards it so the orbit camera can switch between drag-steer and free-look).
 			_bridge->SendToWeb(_lastShownView, "ui.visibility", nlohmann::json{ { "visible", false } });

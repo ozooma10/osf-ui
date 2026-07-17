@@ -20,7 +20,6 @@ real Windows **hardware cursor** (zero-lag, framerate-independent) clicks
 the page's controls, with CSS `cursor` styles mapped to the matching system
 cursor. A multi-mod, schema-driven settings UI (MCM-style) ships on top. All
 user-verified on Starfield 1.16.244. See
-[docs/renderer-plan.md](docs/renderer-plan.md) for the full phase log and
 [What this is not yet](#what-this-is-not-yet) for the remaining gaps.
 
 Based on [commonlibsf-template](https://github.com/libxse/commonlibsf-template)
@@ -126,9 +125,9 @@ only — the proprietary SDK never enters CI. Release archives that bundle the
 Ultralight runtime (and its required license notices) are produced locally
 with `tools/package.ps1` (see [docs/PACKAGING.md](docs/PACKAGING.md)).
 
-Implementation notes (threading model, delay-load bootstrapping, JS bridge,
-sandbox) live in [docs/renderer-plan.md](docs/renderer-plan.md) Phase 1 and
-docs/HANDOFF.md §4.
+Implementation notes (threading model, JS bridge, sandbox) live in
+[docs/architecture.md](docs/architecture.md) and
+[docs/security-model.md](docs/security-model.md).
 
 ## What works today
 
@@ -207,8 +206,7 @@ docs/HANDOFF.md §4.
   move focus, A activates, B closes) and still being refined; there is no
   localization pipeline yet; HDR/10-bit backbuffers are detected and skipped
   with a log warning rather than rendered (full HDR output is on the roadmap);
-  and coexistence with ReShade / Steam overlay / frame-gen is untested (see
-  [docs/renderer-plan.md](docs/renderer-plan.md) Phases 3 & 4c).
+  and coexistence with ReShade / Steam overlay / frame-gen is untested.
 - **Not compatible with Xbox/Game Pass** — SFSE itself is Steam-only.
 
 ## Documentation
@@ -219,7 +217,6 @@ docs/HANDOFF.md §4.
   a view**: package layout, manifest fields, the bridge protocol, and the
   settings schema format
 - [docs/architecture.md](docs/architecture.md) — layers and data flow
-- [docs/renderer-plan.md](docs/renderer-plan.md) — Phases 0–5
 - [docs/security-model.md](docs/security-model.md) — JS-is-untrusted rules
 - [docs/reverse-engineering-notes.md](docs/reverse-engineering-notes.md) —
   what is unknown and must not be guessed

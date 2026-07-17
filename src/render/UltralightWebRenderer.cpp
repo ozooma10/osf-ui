@@ -336,8 +336,7 @@ namespace OSFUI
 		ul::RefPtr<ul::Session>  session;
 		// NOTE: SandboxFileSystem is a Platform-global with a single view root,
 		// so it sandboxes exactly one view at a time. Hosting several views with
-		// different roots needs a per-request view mapping — a multi-view TODO
-		// (docs/renderer-plan.md "Multi-view feasibility").
+		// different roots needs a per-request view mapping — a multi-view TODO.
 		SandboxFileSystem*       fileSystem{ nullptr };  // owned by Platform for process lifetime
 
 		std::mutex frameMutex;  // guards every ViewState's pendingFrame/pendingFresh
@@ -404,8 +403,7 @@ namespace OSFUI
 		// Today exactly one view is hosted (the configured view = activeViewId)
 		// and the IWebRenderer interface stays single-view, targeting the active
 		// view. The keyed map + per-view grouping is the structural seam for
-		// hosting several at once (renderer-plan.md M2.1) without reshaping the
-		// threading model.
+		// hosting several at once without reshaping the threading model.
 		struct ViewState
 		{
 			std::string  id;

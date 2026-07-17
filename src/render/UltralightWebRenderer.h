@@ -11,7 +11,7 @@
 
 namespace OSFUI
 {
-	// Offscreen Ultralight-based HTML renderer (docs/renderer-plan.md Phase 1).
+	// Offscreen Ultralight-based HTML renderer.
 	//
 	// Threading model: ALL Ultralight/WebCore calls happen on one dedicated
 	// worker thread owned by this class. The game-facing IWebRenderer methods
