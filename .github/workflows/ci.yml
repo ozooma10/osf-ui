@@ -1,14 +1,11 @@
-# CI runs the host-side native unit tests (tests/native) and builds the
-# ZERO-Ultralight target. The Ultralight SDK is proprietary and gitignored
-# (README "Ultralight backend"), so the --with_ultralight configuration cannot
-# build here by design; release archives that bundle the Ultralight runtime are
-# produced locally via tools/package.ps1, which also verifies the required
-# license notices ship in the zip.
+# CI runs the host-side native unit tests (tests/native) and builds the ZERO-Ultralight target. 
+# The Ultralight SDK is proprietary and gitignored, so the --with_ultralight configuration cannot build here by design; 
+# release archives that bundle the Ultralight runtime are produced locally via tools/package.ps1, which also verifies the required license notices ship in the zip.
 name: CI
 
 on:
   push:
-    branches: [main, "claude/**"]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -22,24 +19,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      # No submodules: the suites compile the runtime/api/input sources against
-      # tests/native/stubs (a std umbrella + a REX log stub), not CommonLibSF.
+      # No submodules: the suites compile the runtime/api/input sources against tests/native/stubs (a std umbrella + a REX log stub), not CommonLibSF.
       - uses: actions/checkout@v4
 
       - name: Run native suites
-        # Compiles the real store/module/bridge/api/hotkey sources on clang and
-        # runs them; exit code = number of failing checks (see tests/native/run.sh).
+        # Compiles the real store/module/bridge/api/hotkey sources on clang and runs them; 
+        # exit code = number of failing checks (see tests/native/run.sh).
         run: bash tests/native/run.sh
         env:
           CXX: clang++
 
       - name: Check protocol version lockstep
-        # kBridgeProtocolVersion (src/core/Version.h) is claimed as a literal
-        # in the SDK README's headline, the authoring guide's status blurb +
-        # versioning section, and the .d.ts header — api-freeze-plan item 6:
-        # the "docs say 0.1, code says 0.4" drift class must not recur. Each
-        # headline site must name the CURRENT version. ("protocol 0.4"-style
-        # historical annotations elsewhere are fine and not checked.)
+        # kBridgeProtocolVersion (src/core/Version.h) is claimed as a literal in the SDK README's headline, 
+        # the authoring guide's status blurb + versioning section, and the .d.ts header
+        # the "docs say 0.1, code says 0.4" drift class must not recur. Each headline site must name the CURRENT version. ("protocol 0.4"-style historical annotations elsewhere are fine and not checked.)
         run: |
           set -e
           V=$(sed -n 's/.*kBridgeProtocolVersion = "\([0-9.]*\)".*/\1/p' src/core/Version.h)
