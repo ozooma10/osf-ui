@@ -10,6 +10,15 @@
 // shipped data/OSFUI/settings/*.json (fetched when served over http), and a
 // built-in fallback pair so the page works even from file://. Drop .json files
 // onto the page to add/replace mods live.
+//
+// Localization: the mock mirrors the runtime's i18n.get/i18n.data and the
+// LocalizeSchema/views walk. Pick a locale in the top bar (or ?locale=…,
+// persisted): "en" is authored text (off), "pseudo" pseudo-localizes every
+// localized string ([åççéñŧš] + length padding — hardcoded text and tight
+// layouts stand out), and a real locale applies l10n catalogs — fetched from
+// the repo's l10n dirs and/or dropped onto the page as <modId>_<locale>.json,
+// the same flat address→string files the game loads from
+// SFSE/Plugins/OSFUI/l10n/.
 
 "use strict";
 
@@ -143,6 +152,197 @@
     if (i >= 0) mods[i] = mod; else mods.push(mod);
   }
 
+  // ---- localization mirror (LocalizationService + Runtime i18n) ----
+  // Active locale, persisted like fixtures: ?locale=… wins, then localStorage.
+  // "en" = authored text (localization off); "pseudo" = pseudo-localization.
+  const LOCALE_LS = LS_PREFIX + "locale";
+  const localeParam = new URLSearchParams(location.search).get("locale");
+  if (localeParam !== null) {
+    try { localStorage.setItem(LOCALE_LS, localeParam); } catch { /* ignore */ }
+  }
+  let locale = (() => { try { return localStorage.getItem(LOCALE_LS) || "en"; } catch { return "en"; } })();
+
+  // Pseudo-loc: accent every letter (glyph coverage), pad ~30% (German-ish
+  // expansion), bracket the whole string (a bare-English survivor = a string
+  // that never went through the localization path). Text stays readable.
+  const PSEUDO_ACCENTS = {
+    A: "Å", B: "Ɓ", C: "Ç", D: "Đ", E: "É", F: "Ƒ", G: "Ĝ", H: "Ĥ", I: "Î", J: "Ĵ", K: "Ķ", L: "Ļ", M: "Ṁ",
+    N: "Ñ", O: "Ø", P: "Þ", Q: "Ǫ", R: "Ŕ", S: "Š", T: "Ŧ", U: "Û", V: "Ṽ", W: "Ŵ", X: "Ẋ", Y: "Ý", Z: "Ž",
+    a: "å", b: "ƀ", c: "ç", d: "đ", e: "é", f: "ƒ", g: "ĝ", h: "ĥ", i: "î", j: "ĵ", k: "ķ", l: "ļ", m: "ṁ",
+    n: "ñ", o: "ø", p: "þ", q: "ǫ", r: "ŕ", s: "š", t: "ŧ", u: "û", v: "ṽ", w: "ŵ", x: "ẋ", y: "ý", z: "ž",
+  };
+  function pseudoize(s) {
+    if (typeof s !== "string" || !s) return s;
+    const accented = s.replace(/[A-Za-z]/g, (ch) => PSEUDO_ACCENTS[ch] || ch);
+    const pad = "·".repeat(Math.min(12, Math.max(1, Math.round(s.length * 0.3))));
+    return "[" + accented + pad + "]";
+  }
+
+  // Catalogs: flat address→string maps, keyed mod → locale, exactly the
+  // <modId>_<locale>.json files the game loads from SFSE/Plugins/OSFUI/l10n/.
+  // Fetched from the repo's l10n dirs (best-effort) and/or dropped on the
+  // page; a dropped file wins over a fetched one, so a translator can iterate.
+  const droppedCatalogs = Object.create(null);  // modId -> { locale -> catalog }
+  const catalogCache = new Map();               // "modId|locale" -> object | null
+  async function fetchCatalog(modId, loc) {
+    const key = modId + "|" + loc;
+    if (catalogCache.has(key)) return catalogCache.get(key);
+    let found = null;
+    for (const dir of ["../../data/OSFUI/l10n/", "../../examples/settings-only/l10n/"]) {
+      const j = await tryFetch(dir + modId + "_" + loc + ".json");
+      if (j && typeof j === "object" && !Array.isArray(j) && !j.groups) { found = j; break; }
+    }
+    catalogCache.set(key, found);
+    return found;
+  }
+  // Merged active-locale overrides per mod (native CatalogFor): base language
+  // first, exact locale over it (FallbackLocales, minus the "en" tail — "en"
+  // here means localization OFF so the harness default stays pristine).
+  // Catalog-affecting operations (locale switches, schema (re)loads, i18n.get)
+  // serialize through one queue: a locale switch overlapping the async schema
+  // load would otherwise build its catalog set from a stale mod list and push
+  // an unlocalized settings.data.
+  let i18nQueue = Promise.resolve();
+  function queued(fn) {
+    const p = i18nQueue.then(fn);
+    i18nQueue = p.catch(() => { /* keep the queue alive past a failed op */ });
+    return p;
+  }
+  let activeCatalogs = Object.create(null);     // modId -> { address -> string }
+  async function refreshCatalogs() {
+    const next = Object.create(null);
+    if (locale !== "en" && locale !== "pseudo") {
+      const chain = [...new Set([locale.split("-")[0], locale])];
+      const ids = new Set(mods.map((m) => m.id).concat(views.map((v) => v.mod)));
+      for (const id of ids) {
+        const merged = Object.create(null);
+        let any = false;
+        for (const loc of chain) {
+          for (const src of [await fetchCatalog(id, loc), (droppedCatalogs[id] || {})[loc]]) {
+            if (src) { Object.assign(merged, src); any = true; }
+          }
+        }
+        if (any) next[id] = merged;
+      }
+    }
+    activeCatalogs = next;
+  }
+  // Per-string resolve, like LocalizationService::Resolve: catalog override,
+  // else authored English (pseudo-transformed in pseudo mode).
+  function resolverFor(modId) {
+    const cat = activeCatalogs[modId];
+    return (address, english) => {
+      if (cat && Object.prototype.hasOwnProperty.call(cat, address)) return String(cat[address]);
+      return locale === "pseudo" ? pseudoize(english) : english;
+    };
+  }
+
+  // Mirror of SettingsStore's LocalizeSchema: resolve schema text fields at
+  // the SAME structural addresses, so a real catalog behaves like in game.
+  function resolveField(obj, field, address, resolve) {
+    if (obj && typeof obj[field] === "string") obj[field] = resolve(address, obj[field]);
+  }
+  function localizeSchema(schema, resolve) {
+    resolveField(schema, "title", "settings.title", resolve);
+    resolveField(schema, "description", "settings.description", resolve);
+    ((Array.isArray(schema.inputContexts) && schema.inputContexts) || []).forEach((c, i) => {
+      if (c && typeof c === "object") resolveField(c, "label", `inputContexts.${c.id || i}.label`, resolve);
+    });
+    ((Array.isArray(schema.presets) && schema.presets) || []).forEach((pr, i) => {
+      if (!pr || typeof pr !== "object") return;
+      const root = `presets.${pr.id || i}`;
+      resolveField(pr, "label", root + ".label", resolve);
+      resolveField(pr, "description", root + ".description", resolve);
+    });
+    ((Array.isArray(schema.groups) && schema.groups) || []).forEach((g, gi) => {
+      if (!g || typeof g !== "object") return;
+      resolveField(g, "label", `groups.${g.id || gi}.label`, resolve);
+      ((Array.isArray(g.settings) && g.settings) || []).forEach((item, ii) => {
+        if (!item || typeof item !== "object") return;
+        if (item.type === "action") {
+          const root = `actions.${item.key || ii}`;
+          for (const f of ["label", "hint", "confirm"]) resolveField(item, f, `${root}.${f}`, resolve);
+        } else if (item.type === "note") {
+          resolveField(item, "text", `notes.${item.id || ii}.text`, resolve);
+        } else if (item.type === "image") {
+          resolveField(item, "caption", `images.${item.id || ii}.caption`, resolve);
+        } else if (item.key) {
+          const root = `settings.${item.key}`;
+          resolveField(item, "label", root + ".label", resolve);
+          resolveField(item, "hint", root + ".hint", resolve);
+          if (item.format && typeof item.format === "object") {
+            resolveField(item.format, "prefix", root + ".format.prefix", resolve);
+            resolveField(item.format, "suffix", root + ".format.suffix", resolve);
+          }
+          if (Array.isArray(item.options) && Array.isArray(item.optionLabels)) {
+            const n = Math.min(item.options.length, item.optionLabels.length);
+            for (let i = 0; i < n; i++) {
+              if (typeof item.options[i] === "string" && typeof item.optionLabels[i] === "string") {
+                item.optionLabels[i] = resolve(`${root}.options.${item.options[i]}`, item.optionLabels[i]);
+              }
+            }
+          }
+        }
+      });
+    });
+  }
+  // Native DataView localizes a COPY per send; the authored originals stay
+  // pristine so switching locales never compounds.
+  function localizedMods() {
+    if (locale === "en") return mods;
+    return mods.map((m) => {
+      const schema = JSON.parse(JSON.stringify(m.schema));
+      localizeSchema(schema, resolverFor(m.id));
+      return Object.assign({}, m, { schema, title: schema.title || m.id });
+    });
+  }
+
+  // Views can't be told "pseudo" through the catalog (it's address→string and
+  // they supply inline English), so pseudo mode wraps the shared helper's
+  // osfui.t once — every t()/data-i18n resolution passes through it. The
+  // helper loads AFTER this script but decorates the same window.osfui, so the
+  // wrap happens lazily (first i18n.get / locale change), when t exists.
+  let origT = null;
+  function installPseudoT() {
+    const helper = window.osfui;
+    if (!helper) return;
+    if (locale === "pseudo") {
+      if (!origT && typeof helper.t === "function") {
+        origT = helper.t;
+        helper.t = (address, english, vars) => pseudoize(origT(address, english, vars));
+      }
+    } else if (origT) {
+      helper.t = origT;
+      origT = null;
+    }
+  }
+
+  // i18n.get subscribes the page (Runtime keeps _i18nSubscribers); the mock
+  // hosts one view per page, so one remembered mod domain suffices.
+  let i18nMod = null;
+  function sendI18nData(requestId) {
+    if (i18nMod === null) return;
+    send("i18n.data", { mod: i18nMod, locale, strings: activeCatalogs[i18nMod] || {} }, requestId);
+  }
+  // Mirror of Runtime::RefreshLocalizedData: swap the locale, re-push the
+  // catalog to the subscriber, then re-send both localized registries.
+  function applyLocale(next) {
+    return queued(async () => {
+      locale = (typeof next === "string" && next.trim()) ? next.trim() : "en";
+      try { localStorage.setItem(LOCALE_LS, locale); } catch { /* ignore */ }
+      await refreshCatalogs();
+      installPseudoT();  // before the pushes below — their localize() runs use t
+      sendI18nData();
+      sendData();
+      sendViews();
+      // Keep the top-bar picker in sync when the switch came from elsewhere
+      // (e.g. a dropped catalog auto-activating its locale).
+      window.dispatchEvent(new CustomEvent("osfui-mock-locale", { detail: { locale } }));
+      log("info", `locale -> ${locale}`);
+      return locale;
+    });
+  }
+
   // ---- native -> web ----
   function send(type, payload, requestId) {
     log("→web", type + (requestId ? ` [${requestId}]` : ""));
@@ -201,7 +401,7 @@
     annotateConflicts();
     // Mirror SettingsStore::Data()'s top-level vanillaKeys table (the game's
     // own bindings, full map — the keybinds view renders it).
-    send("settings.data", { mods,
+    send("settings.data", { mods: localizedMods(),
       vanillaKeys: VANILLA.map((v) => ({ event: v.event, title: v.title, name: v.name })) }, requestId);
   }
 
@@ -269,7 +469,18 @@
     // `focused` is emitted on EVERY entry like the runtime (HUDs are simply
     // never focused) — the d.ts marks it required.
     send("views.data", { views: views.filter((v) => fixturesOn || !v.fixture)
-      .map((v) => Object.assign({ focused: false }, v)) }, requestId);
+      .map((v) => {
+        const out = Object.assign({ focused: false }, v);
+        // Manifest title/description localize natively at views.<name>.title/
+        // .description under the owning mod's domain — mirror that here.
+        if (locale !== "en") {
+          const resolve = resolverFor(v.mod);
+          const name = v.id.split("/")[1] || v.id;
+          out.title = resolve(`views.${name}.title`, v.title);
+          out.description = resolve(`views.${name}.description`, v.description);
+        }
+        return out;
+      }) }, requestId);
   }
 
   // Mirrors SettingsModule subscribe-on-read (protocol 1.0): settings.get
@@ -410,6 +621,20 @@
       case "views.get":
         setTimeout(() => sendViews(rid), 0);
         break;
+      case "i18n.get": {
+        // Mirror Runtime's i18n.get: reply i18n.data with the merged
+        // active-locale catalog for the mod domain and subscribe the page so
+        // a locale change re-pushes. Native defaults `mod` to the calling
+        // view's owner — the harness pages are chrome, so "osfui".
+        const mod = typeof p.mod === "string" && p.mod ? p.mod : "osfui";
+        if (!validModId(mod)) {
+          result(false, { code: "invalid-mod", message: "invalid localization mod id" });
+          break;
+        }
+        i18nMod = mod;
+        queued(async () => { await refreshCatalogs(); installPseudoT(); sendI18nData(rid); });
+        break;
+      }
       case "game.get":
         // Nested per-provider (item 11): future providers are SIBLINGS of
         // `calendar`. Fixed sample date — enough to render a HUD clock.
@@ -549,9 +774,12 @@
     if (q) { const s = await tryFetch(q); if (s && s.groups) loaded.push(s); }
 
     const schemas = loaded.length ? loaded : FALLBACK;
-    mods = [];
-    schemas.forEach(upsert);
-    sendData();
+    await queued(async () => {
+      mods = [];
+      schemas.forEach(upsert);
+      await refreshCatalogs();  // a persisted non-en locale localizes first paint
+      sendData();
+    });
     log("info", `loaded ${mods.length} schema(s): ${mods.map((m) => m.id).join(", ")}`);
   }
 
@@ -563,13 +791,34 @@
     window.addEventListener("drop", (e) => {
       const files = [...(e.dataTransfer && e.dataTransfer.files || [])].filter((f) => f.name.endsWith(".json"));
       let pending = files.length;
+      let droppedLoc = "";
       if (!pending) return;
       files.forEach((f) => {
         const reader = new FileReader();
         reader.onload = () => {
-          try { const s = JSON.parse(reader.result); if (s.groups) { upsert(s); log("info", `loaded dropped ${s.id || f.name}`); } }
-          catch (err) { log("info", `bad JSON in ${f.name}: ${err}`); }
-          if (--pending === 0) sendData();
+          try {
+            const s = JSON.parse(reader.result);
+            // l10n catalog by filename, like the native loader's stem parse:
+            // <modId>_<locale>.json, content a flat address→string object.
+            const cat = /^(.+)_([A-Za-z][A-Za-z0-9-]{0,15})\.json$/.exec(f.name);
+            if (s && s.groups) {
+              upsert(s);
+              log("info", `loaded dropped ${s.id || f.name}`);
+            } else if (cat && validModId(cat[1]) && s && typeof s === "object" && !Array.isArray(s)) {
+              (droppedCatalogs[cat[1]] = droppedCatalogs[cat[1]] || Object.create(null))[cat[2]] = s;
+              droppedLoc = cat[2];
+              log("info", `loaded l10n catalog ${cat[1]} [${cat[2]}] — ${Object.keys(s).length} string(s)`);
+            } else {
+              log("info", `${f.name}: neither a settings schema (groups) nor an l10n catalog (<modId>_<locale>.json)`);
+            }
+          } catch (err) { log("info", `bad JSON in ${f.name}: ${err}`); }
+          if (--pending === 0) {
+            // applyLocale re-merges catalogs and re-sends both registries
+            // (covering plain schema drops too). A dropped catalog activates
+            // its locale when none is selected, so the translation shows up
+            // without a second step.
+            applyLocale(droppedLoc && locale === "en" ? droppedLoc : locale);
+          }
         };
         reader.readAsText(f);
       });
@@ -594,6 +843,10 @@
       fixtures: setFixtures,          // toggle (no arg) or set; returns state
       fixturesOn: () => fixturesOn,
       visibility(v) { send("ui.visibility", { visible: !!v }); },  // fake a show/hide edge
+      // Get (no arg) or switch the preview locale: "en" = authored (off),
+      // "pseudo" = pseudo-loc, anything else applies l10n catalogs. Switching
+      // returns a Promise of the applied locale.
+      locale(next) { return next === undefined ? locale : applyLocale(String(next)); },
     },
   };
 

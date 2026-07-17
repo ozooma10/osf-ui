@@ -5,8 +5,9 @@ schemas) in a normal browser, without launching Starfield. Each page loads the
 **real** shipped view assets (`data/OSFUI/views/osfui/<view>/main.js` + CSS) behind a
 `MockBridge` that speaks the bridge protocol — `settings.get/set/reset/captureKey`
 with the same validation and clamping rules as the native `SettingsStore`, plus
-the Mods surface's `views.get` / `menu.open` / `hud.show|hide` — persists to
-`localStorage`, and logs every message to the console.
+the Mods surface's `views.get` / `menu.open` / `hud.show|hide` and the
+localization read `i18n.get` / `i18n.data` (see "Test localization" below) —
+persists to `localStorage`, and logs every message to the console.
 
 ## Run it
 
@@ -77,6 +78,38 @@ live.
 
 Use **Reset stored values** (top bar) to clear the mock's `localStorage` and
 return every mod to its schema defaults.
+
+## Test localization (settings / keybinds pages)
+
+The **Locale** picker in the top bar (or `?locale=…`, persisted in
+`localStorage`) drives a mirror of the runtime's localization path: the mock
+answers `i18n.get` with `i18n.data` like `Runtime` does, localizes settings
+schemas at the same structural addresses as the native `LocalizeSchema`
+(`settings.<key>.label`, `groups.<id>.label`, …), localizes view catalog
+titles/descriptions (`views.<name>.title` / `.description`), and re-pushes all
+three on a locale switch like `RefreshLocalizedData`.
+
+Two modes:
+
+- **`pseudo`** — no catalog needed. Every string that goes through the
+  localization path is transformed: letters accented (glyph coverage), ~30%
+  length padding (German-ish expansion), and `[brackets]` around the whole
+  string. Anything still showing plain English is **hardcoded** — it never
+  went through `osfui.t` / `data-i18n` / schema localization — and anything
+  overflowing its box is a layout that won't survive a long translation.
+- **A real locale** (e.g. `de`) — applies l10n catalogs: the same flat
+  `<modId>_<locale>.json` address→string files the game loads from
+  `SFSE/Plugins/OSFUI/l10n/`. Drop one onto the page (it wins over any
+  fetched file, so re-drop to iterate on a translation live; dropping while
+  the locale is `en` auto-activates the file's locale), or ship it in the
+  repo's `data/OSFUI/l10n/` / `examples/settings-only/l10n/`, which the mock
+  fetches per loaded mod. Fallback merges base language under the exact
+  locale (`pt-BR` ← `pt`), like the native `FallbackLocales`; addresses not
+  in the catalog fall back to authored English, like in game.
+
+`en` is "authored" — localization off, the pristine default. The vanilla key
+titles (`Starfield (Quicksave)` …) stay authored in the harness; in game they
+re-localize with everything else.
 
 ## What it verifies
 

@@ -27,6 +27,10 @@
 // Coupling notes (fine for a private helper):
 //   - `[data-nav-modal]` on an overlay scopes navigation inside it (the
 //     settings undo panel sets it).
+//   - A `.row` ancestor is the element's navigation "band": cross-axis
+//     distance is measured between row rects, not element rects, so a
+//     left-aligned group header and the right-aligned control of the full-width
+//     row under it count as vertically adjacent (not as different columns).
 //   - While a key-rebind capture is armed (an element with class "listening"
 //     exists) all navigation is suspended — the next key press belongs to the
 //     capture, not to us.
@@ -74,7 +78,8 @@
 
   // Every visible, enabled interactive element in the current scope. A
   // display:none ancestor (collapsed group, hidden-cond row, [hidden]) yields
-  // a zero rect, which is the visibility test.
+  // a zero rect, which is the visibility test; own opacity 0 (the hover-only
+  // per-setting reset chip) is invisible too and must not be a target.
   function candidates() {
     const list = [];
     for (const el of navRoot().querySelectorAll(
@@ -82,9 +87,18 @@
       if (el.disabled || el.tabIndex < 0) continue;
       const r = el.getBoundingClientRect();
       if (r.width < 1 || r.height < 1) continue;
-      list.push({ el, r });
+      if (getComputedStyle(el).opacity === "0") continue;
+      list.push({ el, r, band: bandOf(el, r) });
     }
     return list;
+  }
+
+  // The rect cross-axis distances are measured between: the enclosing `.row`
+  // when there is one (a settings row is one navigation line no matter where
+  // in it the control sits), the element itself otherwise.
+  function bandOf(el, r) {
+    const row = el.closest && el.closest(".row");
+    return row ? row.getBoundingClientRect() : r;
   }
 
   const cx = (r) => r.left + r.width / 2;
@@ -94,29 +108,35 @@
   // not the center: to count as "right" a candidate's center must clear the
   // current element's right edge (etc.) — otherwise a same-column neighbour
   // that happens to sit a few pixels off-center outranks a genuine sideways
-  // jump (the rail's undo chip beating the whole detail pane). Off-axis drift
-  // is penalized so vertical travel stays in its column and horizontal travel
-  // stays in its row.
-  function pickDirectional(from, dir, cands) {
+  // jump (the rail's undo chip beating the whole detail pane).
+  //
+  // Off-axis distance is the GAP between the two nav bands (0 when they
+  // overlap), heavily penalized so travel stays in its column/row — but
+  // measured on `band`, not the element: a group header (left) and the next
+  // row's control (right) share the pane's horizontal span, so Down goes into
+  // the group instead of skipping to the next header, while the rail and the
+  // detail pane (disjoint spans) still never bleed into each other. A small
+  // center-distance term breaks ties inside one band (same-row elements) in
+  // favour of the aligned one.
+  function pickDirectional(from, fromBand, dir, cands) {
     const fx = cx(from), fy = cy(from);
+    const gap = (a1, a2, b1, b2) => Math.max(0, Math.max(a1, b1) - Math.min(a2, b2));
     let best = null, bestScore = Infinity;
     for (const c of cands) {
       const x = cx(c.r), y = cy(c.r);
-      let primary, secondary;
-      if (dir === "up") {
-        if (y >= from.top) continue;
-        primary = fy - y; secondary = Math.abs(x - fx);
-      } else if (dir === "down") {
-        if (y <= from.bottom) continue;
-        primary = y - fy; secondary = Math.abs(x - fx);
-      } else if (dir === "left") {
-        if (x >= from.left) continue;
-        primary = fx - x; secondary = Math.abs(y - fy);
+      let primary, offAxis, drift;
+      if (dir === "up" || dir === "down") {
+        if (dir === "up" ? y >= from.top : y <= from.bottom) continue;
+        primary = Math.abs(y - fy);
+        offAxis = gap(fromBand.left, fromBand.right, c.band.left, c.band.right);
+        drift = Math.abs(x - fx);
       } else {
-        if (x <= from.right) continue;
-        primary = x - fx; secondary = Math.abs(y - fy);
+        if (dir === "left" ? x >= from.left : x <= from.right) continue;
+        primary = Math.abs(x - fx);
+        offAxis = gap(fromBand.top, fromBand.bottom, c.band.top, c.band.bottom);
+        drift = Math.abs(y - fy);
       }
-      const score = primary + secondary * 2.5;
+      const score = primary + offAxis * 2.5 + drift * 0.05;
       if (score < bestScore) { bestScore = score; best = c.el; }
     }
     return best;
@@ -245,7 +265,8 @@
     if (!cands.length) return;
     let next;
     if (active) {
-      next = pickDirectional(active.getBoundingClientRect(), name,
+      const fromR = active.getBoundingClientRect();
+      next = pickDirectional(fromR, bandOf(active, fromR), name,
         cands.filter((c) => c.el !== active));
     } else if (lastRect) {
       // A re-render dropped focus: resume near where it last was.

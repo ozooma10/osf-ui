@@ -28,6 +28,12 @@
       border: 1px solid var(--osf-line-strong); border-radius: 2px; padding: 2px 8px; cursor: pointer;
     }
     .harness-bar button.on { color: var(--osf-accent); border-color: var(--osf-accent); }
+    .harness-bar select {
+      font: inherit; color: var(--osf-text-muted); background: transparent;
+      border: 1px solid var(--osf-line-strong); border-radius: 2px; padding: 2px 4px; cursor: pointer;
+    }
+    .harness-bar select.on { color: var(--osf-accent); border-color: var(--osf-accent); }
+    .harness-bar select option { background: #0b0e12; }
     /* Harness-only margins to clear the top bar — dropped in the reference
        stage, where the view keeps its shipped in-game layout. */
     #stage { height: 100%; }
@@ -57,7 +63,20 @@
     <button id="mock-reset" type="button">Reset stored values</button>
     <button id="mock-fixtures" type="button" title="Show fictional sample panels/HUDs that exercise every catalog state (failed load, HUD live/hidden, …)"></button>
     <button id="res-toggle" type="button" title="Render the view in the game-true 1600×900 reference stage, scaled to fill the window like the game scales it to screen">1600×900</button>
-    <span class="hint">Drop a settings/&lt;id&gt;.json here, or add ?schema=&lt;url&gt; — traffic logs to the console</span>
+    <select id="mock-locale" title="Preview localization. 'pseudo' pseudo-localizes every localized string ([åççéñŧš] + padding) so hardcoded text and tight layouts stand out; a real locale applies l10n catalogs — drop a <modId>_<locale>.json on the page, same file the game loads from SFSE/Plugins/OSFUI/l10n/">
+      <option value="en">Locale: en (authored)</option>
+      <option value="pseudo">Locale: pseudo</option>
+      <option value="de">Locale: de</option>
+      <option value="fr">Locale: fr</option>
+      <option value="es">Locale: es</option>
+      <option value="it">Locale: it</option>
+      <option value="ja">Locale: ja</option>
+      <option value="pl">Locale: pl</option>
+      <option value="pt-BR">Locale: pt-BR</option>
+      <option value="ru">Locale: ru</option>
+      <option value="zh-Hans">Locale: zh-Hans</option>
+    </select>
+    <span class="hint">Drop a settings/&lt;id&gt;.json or l10n/&lt;id&gt;_&lt;locale&gt;.json here, or add ?schema=&lt;url&gt; — traffic logs to the console</span>
   </div>
 
   <div id="stage">
@@ -81,35 +100,35 @@
             <div class="brand-line">
               <span class="wordmark-osf">OSF</span><span class="wordmark-ui">UI</span>
             </div>
-            <div class="osf-eyebrow brand-sub">CONTROL DECK</div>
+            <div class="osf-eyebrow brand-sub" data-i18n="chrome.settings.controlDeck">CONTROL DECK</div>
           </div>
           <!-- Version from the runtime.ready handshake (hidden until it
                arrives). The badge turns yellow and the tag below it shows when
                an installed mod targets a newer OSF UI than this one. -->
           <div class="version-stack">
             <span id="plugin-version" class="version-badge" title="OSF UI version"></span>
-            <span id="needs-update-tag" class="needs-update-tag" hidden>Needs update</span>
+            <span id="needs-update-tag" class="needs-update-tag" hidden data-i18n="chrome.settings.needsUpdate">Needs update</span>
           </div>
         </div>
         <label class="osf-search" for="filter">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="m16 16 4 4"></path></svg>
-          <input id="filter" class="osf-input filter" type="text" placeholder="Search mods & settings" aria-label="Search mods and settings" aria-keyshortcuts="Control+F" autocomplete="off" spellcheck="false">
+          <input id="filter" class="osf-input filter" type="text" placeholder="Search mods & settings" aria-label="Search mods and settings" data-i18n-placeholder="chrome.settings.searchPlaceholder" data-i18n-aria-label="chrome.settings.searchLabel" aria-keyshortcuts="Control+F" autocomplete="off" spellcheck="false">
           <kbd>Ctrl F</kbd>
         </label>
-        <div class="rail-meta"><span>Installed systems</span><span>Configure</span></div>
+        <div class="rail-meta"><span data-i18n="chrome.settings.installedSystems">Installed systems</span><span data-i18n="chrome.settings.configure">Configure</span></div>
       </div>
 
       <nav id="rail-list" class="rail-list" aria-label="Installed mods"></nav>
 
       <div class="rail-foot">
         <span id="save-state" class="save-state osf-eyebrow" aria-live="polite"></span>
-        <button id="session-chip" type="button" class="osf-btn osf-btn--ghost osf-btn--sm session-chip" style="display:none">Undo changes (0)</button>
-        <button id="close" type="button" class="osf-btn osf-btn--ghost osf-btn--sm osf-close" aria-keyshortcuts="Escape"><span>Exit control deck</span><kbd>Esc</kbd></button>
+        <button id="session-chip" type="button" class="osf-btn osf-btn--ghost osf-btn--sm session-chip" style="display:none" data-i18n="chrome.settings.undoChangesEmpty">Undo changes (0)</button>
+        <button id="close" type="button" class="osf-btn osf-btn--ghost osf-btn--sm osf-close" aria-keyshortcuts="Escape"><span data-i18n="chrome.settings.exit">Exit control deck</span><kbd>Esc</kbd></button>
       </div>
     </aside>
 
     <section id="detail" class="detail" aria-live="polite">
-      <p id="status" class="status osf-eyebrow">Loading…</p>
+      <p id="status" class="status osf-eyebrow" data-i18n="chrome.common.loading">Loading…</p>
     </section>
   </div>
 
@@ -129,6 +148,17 @@
     const fixturesLabel = (on) => { fixturesBtn.textContent = `Sample views: ${on ? "on" : "off"}`; };
     fixturesLabel(window.osfui._mock.fixturesOn());
     fixturesBtn.addEventListener("click", () => fixturesLabel(window.osfui._mock.fixtures()));
+
+    const localeSel = document.getElementById("mock-locale");
+    const syncLocale = (loc) => {
+      if (![...localeSel.options].some((o) => o.value === loc)) localeSel.add(new Option(`Locale: ${loc}`, loc));
+      localeSel.value = loc;
+      localeSel.classList.toggle("on", loc !== "en");
+    };
+    syncLocale(window.osfui._mock.locale());
+    localeSel.addEventListener("change", () => window.osfui._mock.locale(localeSel.value));
+    // Dropping an l10n catalog can auto-activate its locale — stay in sync.
+    window.addEventListener("osfui-mock-locale", (e) => syncLocale(e.detail.locale));
 
     const stage = document.getElementById("stage");
     const resBtn = document.getElementById("res-toggle");

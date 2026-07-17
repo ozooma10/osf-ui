@@ -28,6 +28,12 @@
       border: 1px solid var(--osf-line-strong); border-radius: 2px; padding: 2px 8px; cursor: pointer;
     }
     .harness-bar button.on { color: var(--osf-accent); border-color: var(--osf-accent); }
+    .harness-bar select {
+      font: inherit; color: var(--osf-text-muted); background: transparent;
+      border: 1px solid var(--osf-line-strong); border-radius: 2px; padding: 2px 4px; cursor: pointer;
+    }
+    .harness-bar select.on { color: var(--osf-accent); border-color: var(--osf-accent); }
+    .harness-bar select option { background: #0b0e12; }
     /* Harness-only margins to clear the top bar — dropped in the reference
        stage, where the view keeps its shipped in-game layout. */
     #stage { height: 100%; }
@@ -56,7 +62,20 @@
     <a href="osf.html">OSF Animation</a>
     <button id="mock-reset" type="button">Reset stored values</button>
     <button id="res-toggle" type="button" title="Render the view in the game-true 1600×900 reference stage, scaled to fill the window like the game scales it to screen">1600×900</button>
-    <span class="hint">Drop a settings/&lt;id&gt;.json here, or add ?schema=&lt;url&gt; — traffic logs to the console</span>
+    <select id="mock-locale" title="Preview localization. 'pseudo' pseudo-localizes every localized string ([åççéñŧš] + padding) so hardcoded text and tight layouts stand out; a real locale applies l10n catalogs — drop a <modId>_<locale>.json on the page, same file the game loads from SFSE/Plugins/OSFUI/l10n/">
+      <option value="en">Locale: en (authored)</option>
+      <option value="pseudo">Locale: pseudo</option>
+      <option value="de">Locale: de</option>
+      <option value="fr">Locale: fr</option>
+      <option value="es">Locale: es</option>
+      <option value="it">Locale: it</option>
+      <option value="ja">Locale: ja</option>
+      <option value="pl">Locale: pl</option>
+      <option value="pt-BR">Locale: pt-BR</option>
+      <option value="ru">Locale: ru</option>
+      <option value="zh-Hans">Locale: zh-Hans</option>
+    </select>
+    <span class="hint">Drop a settings/&lt;id&gt;.json or l10n/&lt;id&gt;_&lt;locale&gt;.json here, or add ?schema=&lt;url&gt; — traffic logs to the console</span>
   </div>
 
   <div id="stage">
@@ -79,28 +98,28 @@
           <div class="brand-line">
             <span class="wordmark-osf">OSF</span><span class="wordmark-ui">UI</span>
           </div>
-          <div class="osf-eyebrow brand-sub">INPUT MAP</div>
+          <div class="osf-eyebrow brand-sub" data-i18n="chrome.keybinds.inputMap">INPUT MAP</div>
         </div>
       </div>
       <label class="osf-search" for="search">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="m16 16 4 4"></path></svg>
-        <input id="search" class="osf-input kb-search" type="text" placeholder="Find a key, action, or mod" aria-label="Find a key, action, or mod" aria-keyshortcuts="Control+F" autocomplete="off" spellcheck="false">
+        <input id="search" class="osf-input kb-search" type="text" placeholder="Find a key, action, or mod" aria-label="Find a key, action, or mod" data-i18n-placeholder="chrome.keybinds.searchPlaceholder" data-i18n-aria-label="chrome.keybinds.searchPlaceholder" aria-keyshortcuts="Control+F" autocomplete="off" spellcheck="false">
         <kbd>Ctrl F</kbd>
       </label>
-      <button id="close" type="button" class="osf-btn osf-btn--ghost osf-btn--sm osf-close" aria-keyshortcuts="Escape"><span>Close</span><kbd>Esc</kbd></button>
+      <button id="back" type="button" class="osf-btn osf-btn--ghost osf-btn--sm osf-close" aria-keyshortcuts="Escape"><span data-i18n="chrome.keybinds.backToMods">Back to Mods</span><kbd>Esc</kbd></button>
     </header>
 
     <section class="kb-board-shell" aria-labelledby="keyboard-title">
       <div class="kb-board-head">
         <div>
-          <div class="osf-eyebrow" id="keyboard-title">Keyboard map</div>
-          <p>Select a key to inspect every action assigned to it.</p>
+          <div class="osf-eyebrow" id="keyboard-title" data-i18n="chrome.keybinds.keyboardMap">Keyboard map</div>
+          <p data-i18n="chrome.keybinds.instructions">Select a key to inspect every action assigned to it.</p>
         </div>
         <div class="kb-legend osf-eyebrow" aria-hidden="true">
-          <span class="legend-item"><i class="legend-swatch legend-mod"></i>Mod</span>
-          <span class="legend-item"><i class="legend-swatch legend-game"></i>Game</span>
-          <span class="legend-item"><i class="legend-swatch legend-shared"></i>Shared</span>
-          <span class="legend-item"><i class="legend-swatch legend-conflict"></i>Conflict</span>
+          <span class="legend-item"><i class="legend-swatch legend-mod"></i><span data-i18n="chrome.keybinds.mod">Mod</span></span>
+          <span class="legend-item"><i class="legend-swatch legend-game"></i><span data-i18n="chrome.keybinds.game">Game</span></span>
+          <span class="legend-item"><i class="legend-swatch legend-shared"></i><span data-i18n="chrome.keybinds.shared">Shared</span></span>
+          <span class="legend-item"><i class="legend-swatch legend-conflict"></i><span data-i18n="chrome.keybinds.conflict">Conflict</span></span>
         </div>
       </div>
       <div id="keyboard" class="kb-board" aria-label="Keyboard map"></div>
@@ -108,16 +127,16 @@
 
     <div class="kb-lower">
       <section class="kb-panel kb-detail-panel" aria-live="polite">
-        <div class="osf-eyebrow kb-panel-title" id="detail-title">Select a key</div>
+        <div class="osf-eyebrow kb-panel-title" id="detail-title" data-i18n="chrome.keybinds.selectKey">Select a key</div>
         <div id="detail" class="kb-detail"></div>
       </section>
       <section class="kb-panel kb-list-panel">
-        <div class="osf-eyebrow kb-panel-title" id="list-title">All bindings</div>
+        <div class="osf-eyebrow kb-panel-title" id="list-title" data-i18n="chrome.keybinds.allBindings">All bindings</div>
         <div id="bindlist" class="kb-list"></div>
       </section>
     </div>
 
-    <p id="status" class="kb-status osf-eyebrow">Loading…</p>
+    <p id="status" class="kb-status osf-eyebrow" data-i18n="chrome.common.loading">Loading…</p>
   </div>
 
   <div id="toast" class="toast-stack" aria-live="polite"></div>
@@ -132,6 +151,17 @@
   <script src="../../data/OSFUI/views/osfui/keybinds/main.js"></script>
   <script>
     document.getElementById("mock-reset").addEventListener("click", () => window.osfui._mock.reset());
+
+    const localeSel = document.getElementById("mock-locale");
+    const syncLocale = (loc) => {
+      if (![...localeSel.options].some((o) => o.value === loc)) localeSel.add(new Option(`Locale: ${loc}`, loc));
+      localeSel.value = loc;
+      localeSel.classList.toggle("on", loc !== "en");
+    };
+    syncLocale(window.osfui._mock.locale());
+    localeSel.addEventListener("change", () => window.osfui._mock.locale(localeSel.value));
+    // Dropping an l10n catalog can auto-activate its locale — stay in sync.
+    window.addEventListener("osfui-mock-locale", (e) => syncLocale(e.detail.locale));
 
     const stage = document.getElementById("stage");
     const resBtn = document.getElementById("res-toggle");
