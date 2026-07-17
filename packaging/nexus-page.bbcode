@@ -31,8 +31,8 @@ The Mods surface is simply the first thing built on the framework - any mod can 
 [*][b]Fully interactive[/b] - While a view is open mods get full input control. And can optionally register hotkeys to callback into themselves[/*]
 [*][b]Gamepad navigable[/b] - D-pad/stick moves focus, A activates, B closes, right stick scrolls. (Mod support dependent)[/*]
 [*][b]Schema-driven settings[/b] - a mod drops one small JSON schema and gets a full settings page with persistence, migration, and hotkey delivery - no UI code at all[/*]
-[*][b]Localization built in[/b] - mod settings pages, custom views, and OSF UI's own interface all translate through simple drop-in JSON catalogs. The language follows the game's (or pick one in OSF UI's settings) and switches live, and partial translations fall back to English string by string.[/*]
 [*][b]Live hotkey service[/b] - every key setting is a real, rebindable hotkey delivered to its mod, gated so keys never fire into the console or a text field[/*]
+[*][b]Localization built in[/b] - mod settings pages, custom views, and OSF UI's own interface all translate through simple drop-in JSON catalogs. The language follows the game's (or pick one in OSF UI's settings) and switches live, and partial translations fall back to English string by string.[/*]
 [*][b]Multi-view compositing[/b] - several views can layer over each other, with configurable z-order priority and cycling.[/*]
 [*][b]Safe by construction[/b] - page JS is untrusted: each view's filesystem is sandboxed to its own folder and network access is disabled[/*]
 [/list]
@@ -43,7 +43,7 @@ The Mods surface is simply the first thing built on the framework - any mod can 
 
 [size=4][b]Requirements[/b][/size]
 [list]
-a[*][url=https://www.nexusmods.com/starfield/mods/3256]Address Library for SFSE Plugins[/url][/*]
+[*][url=https://www.nexusmods.com/starfield/mods/3256]Address Library for SFSE Plugins[/url][/*]
 [/list]
 
 [size=4][b]Installation[/b][/size]
@@ -56,14 +56,13 @@ Load a save and press [b]F10[/b]. The Mods surface opens over the game, and OSF 
 
 [center][img]https://staticdelivery.nexusmods.com/mods/4187/images/17711/17711-1784306243-115352482.png[/img][/center]
 
-Building a UI on OSF UI is web development.
 [list]
-[*][b]Settings + hotkeys, zero code:[/b] ship a [font=Courier New]settings/&lt;id&gt;.json[/font] schema and your mod gets a full MCM page and rebindable hotkeys. No C++, no Papyrus, no HTML even.[/*]
-[*][b]Full interfaces:[/b] ship a [font=Courier New]views/&lt;id&gt;/[/font] folder (manifest + [font=Courier New]index.html[/font] / [font=Courier New]style.css[/font] / [font=Courier New]main.js[/font]) and it appears on the Mods surface as your mod's own terminal.[/*]
+[*][b]Settings + hotkeys:[/b] ship a [font=Courier New]settings/<id>.json[/font] schema and your mod gets a full settings page and rebindable hotkeys.[/*]
+[*][b]Full interfaces:[/b] ship a [font=Courier New]views/<id>/[/font] folder (manifest + [font=Courier New]index.html[/font] / [font=Courier New]style.css[/font] / [font=Courier New]main.js[/font]) and it appears on the Mods surface as your mod's own terminal.[/*]
 [*][b]Native path:[/b] a separate SFSE plugin can register bridge commands and drive views through the exported [font=Courier New]OSFUI_RequestBridge[/font] API.[/*]
-[*][b]Translations, zero code:[/b] write plain English - no string keys, no catalogs to maintain. Translators (you, or the community, as a separate data mod) ship one flat JSON file per language ([font=Courier New]l10n/&lt;id&gt;_&lt;locale&gt;.json[/font]); partial files are fine, every missing string falls back to your English.[/*]
+[*][b]Translations:[/b] write plain English - no string keys, no catalogs to maintain. Translators (you, or the community, as a separate data mod) ship one flat JSON file per language ([font=Courier New]l10n/<id>_<locale>.json[/font]); partial files are fine, every missing string falls back to your English.[/*]
 [/list]
-[i]Note: this is a young framework - the [font=Courier New]window.osfui[/font] web bridge is 0.x and still changing; the native ABI is stable.[/i] Full docs - authoring views, the bridge protocol, and the settings schema - are on [url=https://github.com/ozooma10/osf-ui]GitHub[/url].
+[i]Note: this is a young framework - the [font=Courier New]window.osfui[/font] web bridge is still changing; the native ABI is stable.[/i] Full docs - authoring views, the bridge protocol, and the settings schema - are on [url=https://github.com/ozooma10/osf-ui]GitHub[/url].
 
 [line]
 
@@ -82,7 +81,7 @@ Bug reports and pull requests welcome.
 OSF UI exists because of [b]Prisma UI[/b] by [b]StarkMP[/b] - the Skyrim framework that pioneered rendering modern HTML/CSS/JS interfaces with Ultralight.
 [list]
 [*][b]StarkMP[/b] - [url=https://www.nexusmods.com/skyrimspecialedition/mods/148718]Prisma UI[/url] - original concept and inspiration[/*]
-[*][b][url=https://ultralig.ht/]Ultralight[/url][/b] (Ultralight, Inc.) - the WebKit-based renderer behind every view (used under the Ultralight Free License; notices ship in [font=Courier New]OSFUI/ultralight/license/[/font])[/*]
-[*][b]CommonLibSF[/b] / [url=https://github.com/libxse/commonlibsf-template]commonlibsf-template[/url] &amp; [url=https://sfse.silverlock.org/]SFSE[/url] - foundation for SFSE plugins to build on[/*]
+[*][b][url=https://ultralig.ht/]Ultralight[/url][/b] (Ultralight, Inc.) - the WebKit-based renderer behind every view[/*]
+[*][b]CommonLibSF[/b] / [url=https://sfse.silverlock.org/]SFSE[/url] - foundation to build on[/*]
 [/list]
 Full attributions and licenses are in CREDITS.md and THIRD_PARTY notices in the repository.
