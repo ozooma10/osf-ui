@@ -35,7 +35,7 @@ let capturing = null; // { mod, key, btn, prev, timer }
 // ---- bridge -----------------------------------------------------------------
 // Traffic goes through the shared helper (../../shared/osfui.js, loaded by
 // index.html): osfui.send fire-and-forget, osfui.request where the outcome
-// matters (protocol 0.5 requestId/ui.result envelope), osfui.on for pushes.
+// matters (protocol 1.0 requestId/ui.result envelope), osfui.on for pushes.
 
 function bridgeAvailable() { return osfui.available(); }
 function sendCommand(fields) { if (bridgeAvailable()) osfui.send(fields.command, fields); }

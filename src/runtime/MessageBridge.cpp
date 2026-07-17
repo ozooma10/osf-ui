@@ -108,12 +108,11 @@ namespace OSFUI
 	void MessageBridge::SendErrorToWeb(std::string_view a_code, std::string_view a_message, const nlohmann::json& a_extra)
 	{
 		// ui.error shape (item 5): machine `code` (stable enum string) + human
-		// `message` + echo fields. `reason` duplicates message for 0.x
-		// compatibility and is removed at 1.0.
+		// `message` + echo fields. (A pre-1.0 `reason` duplicate of message
+		// was removed at 1.0, before first release.)
 		nlohmann::json payload = {
 			{ "code", a_code },
 			{ "message", a_message },
-			{ "reason", a_message },
 		};
 		for (const auto& [key, value] : a_extra.items()) {
 			payload[key] = value;

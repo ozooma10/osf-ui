@@ -54,9 +54,9 @@
 //   * Strings returned BY the API (GetBridgeProtocolVersion) are static,
 //     valid for process lifetime.
 //
-// VERSIONS AT A GLANCE: this C ABI (kBridgeAPIVersion, currently 1.x) is
-//   the stable contract, even while the PLUGIN version and the WEB protocol
-//   version (GetBridgeProtocolVersion, 0.x = unstable) are pre-1.0. Gate
+// VERSIONS AT A GLANCE: three independent contracts — this C ABI
+//   (kBridgeAPIVersion, currently 1.x), the PLUGIN version, and the WEB
+//   protocol version (GetBridgeProtocolVersion, 1.0 — stable). Gate
 //   native code on the ABI MINOR (Client does it for you); never parse the
 //   protocol string - it belongs to the JS side's negotiation.
 // ============================================================================
@@ -121,7 +121,7 @@ namespace OSFUI::API
 	// The const char* arguments are valid only for the duration of the call.
 	//   a_command      : the command string registered (lets one fn serve many)
 	//   a_payloadJson  : the command payload object, serialized - e.g. "{\"id\":\"x\"}".
-	//                    Since web protocol 0.5 it may carry a "requestId"
+	//                    It may carry a "requestId"
 	//                    field (the calling view's correlation id, injected by
 	//                    the host). After your handler returns, the host acks
 	//                    the caller with ui.result { ok:true } (= delivered);
@@ -162,7 +162,7 @@ namespace OSFUI::API
 		virtual void          GetPluginVersion(std::uint32_t& a_major,
 		                                       std::uint32_t& a_minor,
 		                                       std::uint32_t& a_patch) = 0;
-		// The native<->web protocol version, e.g. "0.5". INFORMATIONAL for
+		// The native<->web protocol version, e.g. "1.0". INFORMATIONAL for
 		// native code (log it for support) - gate on the ABI MINOR instead;
 		// the JS side feature-detects via runtime.ready's capabilities list.
 		// Static string, valid for process lifetime.

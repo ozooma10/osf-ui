@@ -13,10 +13,13 @@ namespace OSFUI
 	// Version of the native<->web bridge protocol (message envelope, command
 	// whitelist, native->web message types). Distinct from kPluginVersion:
 	// views negotiate against THIS via the `bridgeVersion` field in the
-	// `runtime.ready` handshake. Bump on any breaking protocol change; keep in
-	// lockstep with docs/authoring-views.md, docs/schema/*, and sdk/*.d.ts.
-	// Still 0.x = unstable; minor bumps may break views until it reaches 1.0.
-	inline constexpr const char* kBridgeProtocolVersion = "0.5";
+	// `runtime.ready` handshake. Keep in lockstep with
+	// docs/authoring-views.md, docs/schema/*, and sdk/*.d.ts (CI enforces the
+	// headline sites). 1.0 = STABLE: additive changes bump the minor and are
+	// announced only through the append-only `capabilities` list; anything
+	// that would break a shipped view bumps the major. Views feature-detect
+	// via capabilities and must never parse this string.
+	inline constexpr const char* kBridgeProtocolVersion = "1.0";
 
 	// Name of the plugin data folder, resolved relative to the plugin DLL:
 	//   Data/SFSE/Plugins/OSFUI/

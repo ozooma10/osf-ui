@@ -107,7 +107,7 @@ Open `OSF UI.log` first — it states what happened.
 - Saved settings live in `Documents\My Games\Starfield\OSFUI\` — delete
   that folder to remove them too. OSF UI writes nothing into your save files.
 
-## Known limitations (v0.x)
+## Known limitations
 
 - **Steam only** (SFSE limitation).
 - **HDR / 10-bit output is not supported yet** — the overlay detects an
@@ -126,9 +126,9 @@ Open `OSF UI.log` first — it states what happened.
 - **Input:** text entry follows your OS keyboard layout (dead keys/AltGr
   work), but IME composition (e.g. CJK input) is not supported yet; gamepad
   navigation is basic (D-pad/sticks/A/B) and being refined.
-- **For UI authors:** the `window.osfui` bridge API is version **0.x and
-  unstable** — see [authoring-views.md](authoring-views.md). It may change between
-  releases until it reaches 1.0.
+- **For UI authors:** the `window.osfui` bridge protocol is **1.0 — stable**;
+  additive changes bump the minor, breaking changes the major. Feature-detect
+  via capabilities — see [authoring-views.md](authoring-views.md).
 
 ## Reporting issues
 

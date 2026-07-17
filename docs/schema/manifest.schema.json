@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/ozooma10/osf-ui/blob/main/docs/schema/manifest.schema.json",
   "title": "OSF UI View Manifest",
-  "description": "Schema for views/<modId>/<viewName>/manifest.json. Bridge protocol 0.5 (unstable). Mirrors src/runtime/ViewManifest.cpp. Unknown keys are ALLOWED — the runtime parses leniently, and a manifest written for a newer OSF UI carrying extra fields is the normal compatible case (api-freeze-plan item 8).",
+  "description": "Schema for views/<modId>/<viewName>/manifest.json. Bridge protocol 1.0. Mirrors src/runtime/ViewManifest.cpp. Unknown keys are ALLOWED — the runtime parses leniently, and a manifest written for a newer OSF UI carrying extra fields is the normal compatible case (api-freeze-plan item 8).",
   "type": "object",
   "required": ["id"],
   "additionalProperties": true,
@@ -99,6 +99,11 @@
       "type": "boolean",
       "default": true,
       "description": "List this view in catalogs (views.data / the Mods surface). false = hidden utility view; it still loads and works, it just isn't advertised. (Field name predates the Mods surface.)"
+    },
+    "targetVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+(\\.[0-9]+){0,2}$",
+      "description": "The OSF UI version this view was authored against (e.g. \"1.1.0\"). Advisory — never gates loading. When it is newer than the running OSF UI, the view still loads, a warning lands in OSF UI.log, and the Mods surface shows a \"needs update\" badge next to the OSF UI version number naming this view's mod. Malformed values are ignored with a warning."
     },
     "permissions": {
       "type": "object",

@@ -752,6 +752,7 @@ namespace OSFUI
 				{ "kind", m.kind == SurfaceKind::Hud ? "hud" : "menu" },
 				{ "interactive", m.interactive },
 				{ "hub", m.hub },
+				{ "targetVersion", m.targetVersion },
 				{ "open", _menus.IsOpen(m.id) },
 				{ "focused", active.has_value() && *active == m.id },
 				{ "loadState", state == ViewLoadState::Failed ? "failed" :

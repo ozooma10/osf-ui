@@ -1,8 +1,9 @@
 /**
  * TypeScript definitions for the OSF UI native <-> web bridge.
  *
- * Bridge protocol version: 0.5 (UNSTABLE — minor bumps may break views until
- * 1.0). Feature-detect against the `capabilities` array of the `runtime.ready`
+ * Bridge protocol version: 1.0 (STABLE — additive changes bump the minor and
+ * appear as new `capabilities` entries; breaking changes bump the major).
+ * Feature-detect against the `capabilities` array of the `runtime.ready`
  * message (`osfui.has()` with the shared helper) — `bridgeVersion` is
  * informational, not something to gate on. Keep in lockstep with:
  *   - docs/authoring-views.md          (prose reference)
@@ -19,7 +20,7 @@
 /**
  * Every message in both directions is JSON text of this shape.
  *
- * `requestId` is the 0.5 correlation envelope: any ui.command may carry a
+ * `requestId` is the correlation envelope (protocol 1.0): any ui.command may carry a
  * caller-chosen id (string, 1-64 chars); every reply echoes it top-level, and
  * a command with no reply type of its own answers `ui.result` when (and only
  * when) an id was supplied. Omit it for fire-and-forget. The shared helper's
@@ -60,7 +61,7 @@ export type UiCommand =
   | { command: "settings.reset"; mod: string; key?: string }
   /** Arm native key-rebind capture; the next key press returns as settings.captured (echoing the arming requestId, however much later). One capture at a time — a second arm answers ui.result code "capture-busy". Any type:"key" setting may be captured. */
   | { command: "settings.captureKey"; mod: string; key: string }
-  /** EXPERIMENTAL through 0.x (gamepad navigation is being refined; detect via the "gamepad" capability). Take over gamepad handling: suppress the default nav/scroll mapping and consume raw ui.gamepad events. STICKY PER VIEW — survives overlay hide/show; cleared when your page (re)loads or the view is destroyed. */
+  /** EXPERIMENTAL (gamepad navigation is being refined; detect via the "gamepad" capability; exempt from the 1.0 stability guarantee until stabilized). Take over gamepad handling: suppress the default nav/scroll mapping and consume raw ui.gamepad events. STICKY PER VIEW — survives overlay hide/show; cleared when your page (re)loads or the view is destroyed. */
   | { command: "osfui.gamepadRaw"; raw: boolean };
 
 /**
@@ -87,7 +88,7 @@ export interface RuntimeReadyPayload {
   version: string;     // plugin version (kPluginVersion)
   bridgeVersion: string; // protocol version (kBridgeProtocolVersion) — informational; gate on capabilities
   /**
-   * APPEND-ONLY named host features (protocol 0.5, api-freeze item 6) — the
+   * APPEND-ONLY named host features (protocol 1.0, api-freeze item 6) — the
    * feature-detection contract. Same vocabulary as a settings schema's
    * `requires` array: surface names ("settings", "settings.captureKey",
    * "views", "game.calendar", "gamepad"), "request-id" (the ui.result
@@ -126,13 +127,13 @@ export interface SettingsDataPayload {
     missingRequires?: string[];
   }>;
   /**
-   * The game's own key bindings (protocol 0.4, mcm-design §9 "vanilla
+   * The game's own key bindings (protocol 1.0, mcm-design §9 "vanilla
    * hotkeys") — the FULL curated table, not just colliding entries (those
    * also appear per-setting as `conflicts` with mod `"@game"`). `event` is
    * the engine controlmap event id, `title` reads like "Starfield
    * (Quicksave)", `name` is the bound OSF UI key name. Read-only — there is
    * no settings.set for the game's bindings. Absent when the runtime has no
-   * vanilla data (feature off, or a pre-0.4 runtime).
+   * vanilla data (feature off).
    */
   vanillaKeys?: Array<{ event: string; title: string; name: string }>;
 }
@@ -142,12 +143,12 @@ export interface SettingsAckPayload {
   key: string;
   ok: boolean;
   /**
-   * ok:true — the authoritative committed value, post-clamp (protocol 0.5).
+   * ok:true — the authoritative committed value, post-clamp (protocol 1.0).
    * Compare against what you sent to detect clamping without a re-fetch.
    */
   value?: SettingValue;
   /**
-   * ok:false — stable machine code (protocol 0.5): "unknown-setting" (mod or
+   * ok:false — stable machine code (protocol 1.0): "unknown-setting" (mod or
    * key not in any loaded schema), "read-only" (requires-gated stub, or a
    * setting type this host doesn't know), "invalid-value" (validation
    * refused). `message` is the human sentence when the host adds one.
@@ -169,7 +170,7 @@ export interface SettingsChangedPayload {
   key: string;
   value: SettingValue;
   /**
-   * On `type:"key"` settings only (protocol 0.5): the setting's recomputed
+   * On `type:"key"` settings only (protocol 1.0): the setting's recomputed
    * conflict list — same shape and @game filtering as the `settings.data`
    * annotation, [] when the new binding is unique. Update badges in place
    * (collisions are symmetric — mirror the delta onto the named partners)
@@ -191,7 +192,7 @@ export interface SettingsPersistedPayload {
 }
 
 /**
- * A hotkey fired (protocol 0.4, mcm-design.md §9): the physical key currently
+ * A hotkey fired (protocol 1.0, mcm-design.md §9): the physical key currently
  * bound to the identified `type:"key"` setting was pressed during gameplay.
  * Pushed to every subscriber (any view that has sent `settings.get`) — filter
  * on `mod` (and `key`) and ignore the rest. This is how a mod's own HUD
@@ -211,7 +212,7 @@ export interface SettingsCapturedPayload {
   name: string;       // OSF UI key name (e.g. "F9"); "" when cancelled
   cancelled: boolean; // true on Escape or an unbindable key — keep the old binding
   /**
-   * Live-warn during capture (protocol 0.4, mcm-design.md §9): the OTHER
+   * Live-warn during capture (protocol 1.0, mcm-design.md §9): the OTHER
    * key-typed settings (any mod) already bound to the captured key — the
    * collisions this bind WOULD create, delivered before the view commits it.
    * Informational only — the bind is never rejected; warn, don't block.
@@ -221,7 +222,7 @@ export interface SettingsCapturedPayload {
 }
 
 /**
- * The runtime rejected an inbound message (protocol 0.5 shape). When the
+ * The runtime rejected an inbound message (protocol 1.0 shape). When the
  * offending ui.command carried a requestId it is echoed top-level, so the
  * shared helper rejects the matching request() promise with `code`.
  */
@@ -230,14 +231,12 @@ export interface UiErrorPayload {
   code: string;
   /** Human sentence. */
   message: string;
-  /** @deprecated 0.x compatibility duplicate of `message`; removed at 1.0. */
-  reason: string;
   type?: string;     // present for "unknown-message-type"
   command?: string;  // present for "unknown-command"
 }
 
 /**
- * The uniform command outcome (protocol 0.5, api-freeze item 5). Sent ONLY
+ * The uniform command outcome (protocol 1.0, api-freeze item 5). Sent ONLY
  * when the ui.command carried a requestId: verb commands with no reply type
  * of their own (close, menu.open, hud.show, ...) answer ok:true on success;
  * failures carry a stable `code` ("unknown-view", "capture-busy",
@@ -254,7 +253,7 @@ export interface UiResultPayload {
 
 /**
  * Reply to `game.get`. Each data provider nests under its own object
- * (protocol 0.5) — future providers appear as SIBLINGS of `calendar`.
+ * (protocol 1.0) — future providers appear as SIBLINGS of `calendar`.
  */
 export interface GameDataPayload {
   /** In-game date/time from RE::Calendar. `available` is false before a save loads. */
@@ -277,12 +276,12 @@ export interface UiVisibilityPayload {
 }
 
 /**
- * EXPERIMENTAL through 0.x — gamepad navigation is explicitly "basic and
- * being refined", so this shape carries an instability stamp rather than a
- * freeze; detect support via the "gamepad" capability.
+ * EXPERIMENTAL — gamepad navigation is explicitly "basic and being refined",
+ * so this shape is exempt from the 1.0 stability guarantee until stabilized;
+ * detect support via the "gamepad" capability.
  *
  * Raw gamepad events, sent to the ACTIVE (focused) view while the overlay
- * captures input. Per-kind nesting (protocol 0.5): buttons and axes extend
+ * captures input. Per-kind nesting (protocol 1.0): buttons and axes extend
  * inside their objects (triggers will join as axes.lt/rt; a second controller
  * as a `pad` index). Unless `osfui.gamepadRaw` was asserted, the runtime ALSO
  * applies its default mapping (D-pad -> arrows, A -> Enter, B -> close,
@@ -307,6 +306,7 @@ export interface ViewsDataPayload {
     kind: "menu" | "hud";
     interactive: boolean;
     hub: boolean;           // manifest `hub` — false = hidden utility view, omit from catalogs
+    targetVersion: string;  // manifest `targetVersion` — OSF UI version the view was authored against; "" if undeclared
     open: boolean;          // menu: on the stack; hud: shown
     focused: boolean;       // the top open menu (receives input)
     loadState: "loading" | "loaded" | "failed";
@@ -408,7 +408,7 @@ export interface Setting {
   visibleWhen?: Condition;
   enabledWhen?: Condition;
   /**
-   * RUNTIME-INJECTED, never authored (protocol 0.4): on a `type:"key"`
+   * RUNTIME-INJECTED, never authored (protocol 1.0): on a `type:"key"`
    * setting in a `settings.data` document, the OTHER key-typed settings
    * (any mod) currently bound to the same physical key. Informational only —
    * the runtime never rejects a colliding bind; render a warning badge.
@@ -507,7 +507,7 @@ export interface OSFUIBridge {
 
 /**
  * The surface added by the shipped helper, data/OSFUI/views/shared/osfui.js
- * (protocol 0.5) — load it before your own script:
+ * (protocol 1.0) — load it before your own script:
  *   <script src="../../shared/osfui.js"></script>
  * It decorates the same window.osfui object (creating a stub when no native
  * bridge is present, so these members exist even in a plain browser).

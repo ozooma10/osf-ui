@@ -137,7 +137,7 @@ int main()
 	CHECK(g_firedA.size() == 2);
 	CHECK(g_firedB.size() == 1);
 
-	// --- item 5 (protocol 0.5): the request/result envelope -------------------
+	// --- item 5 (protocol 1.0): the request/result envelope -------------------
 	{
 		// A plugin command with a requestId: the payload handed to the plugin
 		// carries it, and the bridge auto-acks ui.result { ok:true }.
@@ -152,7 +152,7 @@ int main()
 		CHECK(!toWeb.empty() && toWeb.back().second.find("\"ok\":true") != std::string::npos);
 		CHECK(!toWeb.empty() && toWeb.back().second.find("\"command\":\"acme.mymod.ping\"") != std::string::npos);
 
-		// Fire-and-forget (no requestId): no ui.result, exactly as before 0.5.
+		// Fire-and-forget (no requestId): no ui.result.
 		toWeb.clear();
 		bridge.HandleWebMessage("someview",
 			R"({ "type": "ui.command", "payload": { "command": "acme.mymod.ping" } })");
@@ -189,7 +189,7 @@ int main()
 		CHECK(!toWeb.empty() && toWeb.back().second.find("\"ok\":false") != std::string::npos);
 		CHECK(!toWeb.empty() && toWeb.back().second.find("\"code\":\"unknown-view\"") != std::string::npos);
 		CHECK(!toWeb.empty() && toWeb.back().second.find("\"requestId\":\"r3\"") != std::string::npos);
-		// ...which stays SILENT for a fire-and-forget caller (pre-0.5 behavior).
+		// ...which stays SILENT for a fire-and-forget caller.
 		toWeb.clear();
 		bridge.HandleWebMessage("someview",
 			R"({ "type": "ui.command", "payload": { "command": "test.fail" } })");
@@ -211,14 +211,16 @@ int main()
 		CHECK(toWeb.size() == 1);
 		CHECK(!toWeb.empty() && toWeb.back().second.find("\"requestId\":\"r4\"") != std::string::npos);
 
-		// ui.error reshape: machine code + message + legacy reason + id echo.
+		// ui.error shape: machine code + message + id echo. The pre-1.0
+		// `reason` duplicate of message must NOT be emitted anymore.
 		toWeb.clear();
 		bridge.HandleWebMessage("someview",
 			R"({ "type": "ui.command", "requestId": "r5", "payload": { "command": "nope" } })");
 		CHECK(toWeb.size() == 1);
 		CHECK(!toWeb.empty() && toWeb.back().second.find("\"type\":\"ui.error\"") != std::string::npos);
 		CHECK(!toWeb.empty() && toWeb.back().second.find("\"code\":\"unknown-command\"") != std::string::npos);
-		CHECK(!toWeb.empty() && toWeb.back().second.find("\"reason\":") != std::string::npos);
+		CHECK(!toWeb.empty() && toWeb.back().second.find("\"message\":") != std::string::npos);
+		CHECK(!toWeb.empty() && toWeb.back().second.find("\"reason\":") == std::string::npos);
 		CHECK(!toWeb.empty() && toWeb.back().second.find("\"requestId\":\"r5\"") != std::string::npos);
 		// Malformed input has no readable requestId — the error goes without one.
 		toWeb.clear();
@@ -234,7 +236,7 @@ int main()
 		CHECK(!toWeb.empty() && toWeb.back().second.find("\"capabilities\":") != std::string::npos);
 		CHECK(!toWeb.empty() && toWeb.back().second.find("\"request-id\"") != std::string::npos);
 		CHECK(!toWeb.empty() && toWeb.back().second.find("\"type:flags\"") != std::string::npos);
-		CHECK(!toWeb.empty() && toWeb.back().second.find("\"bridgeVersion\":\"0.5\"") != std::string::npos);
+		CHECK(!toWeb.empty() && toWeb.back().second.find("\"bridgeVersion\":\"1.0\"") != std::string::npos);
 	}
 
 	// --- RegisterView takes qualified ids only (item 1) -----------------------

@@ -12,7 +12,7 @@
 // registers its own (e.g. settings.*). There is intentionally NO mechanism to
 // call arbitrary native functions from JS. See docs/security-model.md.
 //
-// Request/result envelope (api-freeze-plan item 5, protocol 0.5): any
+// Request/result envelope (api-freeze-plan item 5, protocol 1.0): any
 // ui.command may carry a caller-chosen `requestId` (string, <=64 chars).
 // While that command is being handled, every reply sent through the no-target
 // SendToWeb echoes the id top-level; if the handler produced no reply of its

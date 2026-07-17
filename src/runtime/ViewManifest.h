@@ -66,6 +66,12 @@ namespace OSFUI
 		// advertised. (Field name predates the Mods surface — kept for compat.)
 		bool hub{ true };
 
+		// The OSF UI version this view was authored against ("1.2.0").
+		// Informational — never gates loading. When it is newer than the
+		// running OSF UI, the Mods surface shows a "needs update" badge next
+		// to the version number. Empty when undeclared or malformed.
+		std::string targetVersion;
+
 		[[nodiscard]] std::filesystem::path EntryPath() const { return rootDir / entry; }
 
 		// Parses a_path; returns std::nullopt and logs on any validation failure.

@@ -1,11 +1,42 @@
 #include "runtime/ViewManifest.h"
 
+#include <array>
+
 #include "core/Log.h"
+#include "core/Version.h"
 #include "runtime/Ids.h"
 #include "runtime/Json.h"
 
 namespace OSFUI
 {
+	namespace
+	{
+		// "<major>[.<minor>[.<patch>]]", digits only — missing parts are 0.
+		bool ParseDottedVersion(std::string_view a_text, std::array<std::uint32_t, 3>& a_out)
+		{
+			a_out = {};
+			std::size_t part = 0;
+			const char* pos = a_text.data();
+			const char* end = a_text.data() + a_text.size();
+			while (part < 3) {
+				const auto [next, ec] = std::from_chars(pos, end, a_out[part]);
+				if (ec != std::errc{} || next == pos) {
+					return false;
+				}
+				pos = next;
+				++part;
+				if (pos == end) {
+					return true;
+				}
+				if (*pos != '.') {
+					return false;
+				}
+				++pos;
+			}
+			return false;  // more than three parts (or trailing dot)
+		}
+	}
+
 	std::optional<ViewManifest> ViewManifest::Load(const std::filesystem::path& a_path)
 	{
 		const auto json = Json::ParseFile(a_path);
@@ -27,7 +58,8 @@ namespace OSFUI
 			Json::ReportUnknownKeys(*json,
 				{ "manifestVersion", "id", "mod", "title", "description", "hub", "entry",
 					"width", "height", "transparent", "zorder", "interactive", "kind",
-					"capturesInput", "pausesGame", "openOnStart", "order", "permissions" },
+					"capturesInput", "pausesGame", "openOnStart", "order", "permissions",
+					"targetVersion" },
 				"ViewManifest: " + a_path.string(), /*a_warn=*/false);
 		}
 
@@ -85,6 +117,27 @@ namespace OSFUI
 		manifest.openOnStart = Json::GetBool(*json, "openOnStart", manifest.openOnStart);
 		manifest.order = static_cast<std::int32_t>(Json::GetInt(*json, "order", manifest.order));
 		manifest.hub = Json::GetBool(*json, "hub", manifest.hub);
+
+		// Advisory host-version target: never gates loading (a view authored
+		// for a newer OSF UI still loads and does what it can — same lenient
+		// stance as unknown keys), but the catalog carries it so the Mods
+		// surface can badge "needs update", and the log records it for triage.
+		if (auto target = Json::GetString(*json, "targetVersion", ""); !target.empty()) {
+			std::array<std::uint32_t, 3> targetParts{};
+			if (ParseDottedVersion(target, targetParts)) {
+				manifest.targetVersion = std::move(target);
+				constexpr std::array<std::uint32_t, 3> hostParts{
+					kPluginVersionMajor, kPluginVersionMinor, kPluginVersionPatch
+				};
+				if (hostParts < targetParts) {
+					REX::WARN("ViewManifest: view '{}' targets OSF UI {} but this is {} — update OSF UI",
+						manifest.id, manifest.targetVersion, kPluginVersion);
+				}
+			} else {
+				REX::WARN("ViewManifest: {} targetVersion '{}' is not '<major>[.<minor>[.<patch>]]' — ignored",
+					a_path.string(), target);
+			}
+		}
 
 		if (const auto it = json->find("permissions"); it != json->end() && it->is_object()) {
 			manifest.permissions.nativeBridge = Json::GetBool(*it, "nativeBridge", false);

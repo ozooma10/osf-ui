@@ -17,7 +17,8 @@ everything here is hand-written and copied into a view project as needed.
 
 ## Bridge protocol version
 
-**0.5 — unstable.** Minor bumps may break views until it reaches 1.0. Don't do
+**1.0 — stable.** Additive changes bump the minor and surface as new
+`capabilities` entries; breaking changes bump the major. Don't do
 version arithmetic — feature-detect against the `capabilities` array of the
 `runtime.ready` handshake (append-only names; the shipped
 `views/shared/osfui.js` helper wraps it):

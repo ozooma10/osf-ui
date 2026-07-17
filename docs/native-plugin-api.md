@@ -97,7 +97,7 @@ All real and in-tree today:
 | Bridge owner / gate | `Runtime::Bridge()` `Runtime.h:92`; built in `Initialize` only when a `nativeBridge` view is present | `_bridge` is null otherwise |
 | Main-thread cadence | `Runtime::Tick(dt)` via the `FrameTickTask` permanent task `core/Plugin.cpp:23-56,45` | every frame, under SFSE's queue lock — keep cheap |
 | SFSE lifecycle | `OnLoad` registers the listener; `Runtime::Initialize` runs at `SFSE_PLUGIN_LOAD` `core/Plugin.cpp:128-159` | API object must exist by `kPostLoad` |
-| Protocol version | `kBridgeProtocolVersion = "0.5"` `core/Version.h` | the web-message contract version, distinct from plugin version |
+| Protocol version | `kBridgeProtocolVersion = "1.0"` `core/Version.h` | the web-message contract version, distinct from plugin version |
 
 The API is a thin, ABI-safe adapter in front of `MessageBridge::RegisterCommand`
 and `SendToWeb`, plus a deferred-registration layer so a sibling can register at
@@ -150,7 +150,7 @@ OSFUI::API::IOSFUIBridge* OSFUI_RequestBridge(std::uint32_t a_abiVersion) noexce
     0 = unknown; x64, MSVC object ABI (MSVC/clang-cl), C++17 minimum
     (static_asserted).
 - **Web protocol version** is separate: `GetBridgeProtocolVersion()` returns the
-  version string from `core/Version.h` (currently `"0.5"`) so a consumer can
+  version string from `core/Version.h` (currently `"1.0"`) so a consumer can
   gate its **JS message contract** independently of the C++ ABI.
 
 `RequestBridge` returning `nullptr` (OSF UI absent, or MAJOR mismatch) is a
@@ -171,7 +171,7 @@ namespace OSFUI::API
     // Handler for one registered ui.command. Runs on the GAME (main) thread.
     //   a_command      : the command string registered (lets one fn serve many)
     //   a_payloadJson  : the command payload object, serialized — e.g. "{\"id\":\"x\"}".
-    //                    Since protocol 0.5 it may carry a "requestId" field
+    //                    Since protocol 1.0 it may carry a "requestId" field
     //                    (the caller's correlation id, injected by the host).
     //                    After your handler returns, the host acks the caller
     //                    with ui.result { ok:true } = delivered; publish richer
@@ -208,7 +208,7 @@ namespace OSFUI::API
         virtual void          GetPluginVersion(std::uint32_t& a_major,
                                                std::uint32_t& a_minor,
                                                std::uint32_t& a_patch) = 0;
-        virtual const char*   GetBridgeProtocolVersion() = 0;  // web protocol, e.g. "0.5" — informational for native code
+        virtual const char*   GetBridgeProtocolVersion() = 0;  // web protocol, e.g. "1.0" — informational for native code
         virtual bool          IsBridgeReady() = 0;             // a nativeBridge view is live
 
         // --- command registration. Thread-safe; applied on the next main tick. ---
@@ -548,7 +548,7 @@ void BridgeApi::ApplyTo(MessageBridge& a_bridge)
     for (const auto& [cmd, reg] : _commands) {
         a_bridge.RegisterCommand(cmd,
             [reg, cmd](const nlohmann::json& a_payload, MessageBridge& a_b) {
-                // Protocol 0.5: the caller's requestId (if any) is injected
+                // Protocol 1.0: the caller's requestId (if any) is injected
                 // INTO the payload text so the plugin can correlate; after
                 // this handler returns, the bridge auto-acks the caller with
                 // ui.result { ok:true } (= delivered).
@@ -680,7 +680,7 @@ The view side is ordinary OSF UI authoring (`docs/authoring-views.md`): ship
 `OSFUI/views/osf.animation/browser/` with `permissions.nativeBridge: true`, then:
 
 ```js
-// <script src="../../shared/osfui.js"></script> before this (protocol 0.5)
+// <script src="../../shared/osfui.js"></script> before this (protocol 1.0)
 osfui.ready.then((info) => {
   // gate on capabilities, not version arithmetic
   if (!osfui.has("settings")) console.warn("old OSF UI", info.version);
@@ -747,9 +747,10 @@ reflects the **live registered** scene set.
 - **`SendToWeb` failure granularity.** Without a `bool` from the renderer's
   `SendMessageToWeb`, "unknown view" is best-effort/logged, not reported. Add the
   return value if precise feedback matters.
-- **Bridge protocol churn.** `bridgeVersion` is `0.5` and unstable; a MINOR bump
-  can break views. Views feature-detect via `runtime.ready.capabilities`
-  (`osfui.has()`); native code can read `GetBridgeProtocolVersion()` for logs.
+- **Bridge protocol evolution.** `bridgeVersion` is `1.0` — stable; additive
+  changes bump the minor, breaking changes the major. Views feature-detect via
+  `runtime.ready.capabilities` (`osfui.has()`); native code can read
+  `GetBridgeProtocolVersion()` for logs.
 - **Cross-references to update on landing:** `docs/ROADMAP.md` (move "public
   native API" from removed→delivered, scoped to this design),
   `docs/security-model.md` (trusted-native-extension section),
@@ -782,4 +783,4 @@ the two repos agree.
 | web→native | `osf.animation.launch` | `{sceneId,mode,castTokens[],roleNames?,furnitureToken?,opts}` |
 | native→web | `osf.animation.launchResult` | `{ok,handle,sceneId,error?}` |
 | web→native | `osf.animation.stop` | `{handle}` |
-| native→web | `runtime.ready` | `{game,plugin,version,bridgeVersion}` (platform; gate on `bridgeVersion`) |
+| native→web | `runtime.ready` | `{game,plugin,version,bridgeVersion,capabilities}` (platform; gate on `capabilities` — `bridgeVersion` is informational) |

@@ -738,7 +738,7 @@ namespace OSFUI
 		// The game's own bindings as a top-level table (mcm-design.md §9
 		// "vanilla hotkeys" + the keybinds view): the FULL curated map, not
 		// just colliding entries — a bindings overview needs both. Additive
-		// protocol 0.4 field; omitted when the feature is off/empty, and old
+		// field (protocol 1.0); omitted when the feature is off/empty, and
 		// views ignore unknown top-level fields.
 		if (!_vanillaKeys.empty()) {
 			nlohmann::json vanilla = nlohmann::json::array();

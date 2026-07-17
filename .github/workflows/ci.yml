@@ -40,8 +40,8 @@ jobs:
           echo "kBridgeProtocolVersion = $V"
           fail=0
           check() { grep -qE "$2" "$1" || { echo "::error file=$1::headline does not claim bridge protocol $V ($2)"; fail=1; }; }
-          check sdk/README.md            "^\*\*$V — unstable\.\*\*"
-          check docs/authoring-views.md  "protocol is at version \*\*$V — unstable\*\*"
+          check sdk/README.md            "^\*\*$V — stable\.\*\*"
+          check docs/authoring-views.md  "protocol is at version \*\*$V — stable\*\*"
           check docs/authoring-views.md  "protocol version is \*\*$V\*\*"
           check sdk/osfui.d.ts           "Bridge protocol version: $V"
           exit $fail

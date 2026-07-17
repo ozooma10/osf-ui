@@ -36,7 +36,7 @@ namespace
 		std::string    view;
 		std::string    type;
 		nlohmann::json payload;
-		std::string    requestId;  // top-level echo (protocol 0.5); "" = none
+		std::string    requestId;  // top-level echo (protocol 1.0); "" = none
 	};
 
 	std::vector<Sent> g_sent;
@@ -55,7 +55,7 @@ namespace
 
 	// Drive the bridge exactly like the renderer does: a raw ui.command
 	// envelope from a source view. a_requestId non-empty = a correlated
-	// request (protocol 0.5).
+	// request (protocol 1.0).
 	void Command(OSFUI::MessageBridge& a_bridge, std::string_view a_view, nlohmann::json a_payload,
 		std::string_view a_requestId = {})
 	{
@@ -316,7 +316,7 @@ int main()
 		CHECK(module.Store().GetValue("t.epsilon", "n") != nullptr);  // file deletion can't remove a native mod
 	}
 
-	// --- items 5 + 11 (protocol 0.5): ack shape, requestId echo, reset failure ---
+	// --- items 5 + 11 (protocol 1.0): ack shape, requestId echo, reset failure ---
 	{
 		// settings.set ack carries the authoritative post-clamp value...
 		g_sent.clear();
@@ -366,7 +366,7 @@ int main()
 			      results[0].payload["code"] == "unknown-setting" && results[0].requestId == "q3");
 			CHECK(SentTo("settingsview", "settings.data").empty());
 		}
-		// ...and stays silent fire-and-forget (pre-0.5 behavior).
+		// ...and stays silent fire-and-forget.
 		g_sent.clear();
 		Command(bridge, "settingsview", { { "command", "settings.reset" }, { "mod", "nope.mod" }, { "key", "" } });
 		CHECK(g_sent.empty());

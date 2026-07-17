@@ -9,10 +9,11 @@ a reference for the two data-driven extension points that work today:
 
 > **Status / scope.** What you can ship as pure content with no recompile: a
 > `views/<modId>/<viewName>/` folder and a `settings/<modId>.json` schema. The
-> bridge protocol is at version **0.5 — unstable**; minor bumps may break
-> views until it reaches 1.0. Feature-detect via the `capabilities` array of
-> the `runtime.ready` handshake (`osfui.has()`, §3) — `bridgeVersion` is
-> informational. See [ROADMAP.md](ROADMAP.md) for what is still planned.
+> bridge protocol is at version **1.0 — stable**; additive changes bump the
+> minor and surface as new capabilities, breaking changes bump the major.
+> Feature-detect via the `capabilities` array of the `runtime.ready`
+> handshake (`osfui.has()`, §3) — `bridgeVersion` is informational. See
+> [ROADMAP.md](ROADMAP.md) for what is still planned.
 
 ## 0. Ids: one grammar for everything
 
@@ -106,6 +107,7 @@ UI kit at `views/shared/osfui.css` / `osfui.js` — link them as
   "description": "",        // optional; one-line blurb shown in catalogs (views.data / the Mods surface)
   "mod": "yourname.mymod",  // optional consistency check — derived from the mod folder; when declared it MUST match (mismatch = rejected). The Mods surface groups this view onto the settings page of the same mod id
   "hub": true,              // optional, default true; false = hidden utility view — loads and works, but isn't advertised in catalogs (name predates the Mods surface)
+  "targetVersion": "1.0.0", // optional; the OSF UI version this view is authored against — advisory, never gates loading (see note below)
   "entry": "index.html",    // optional, default "index.html"; must stay inside the folder
   "width": 1280,            // optional, default 1280; clamped to 1..16384 — logical (authoring) size
   "height": 720,            // optional, default 720;  clamped to 1..16384 — logical (authoring) size
@@ -125,6 +127,16 @@ Notes:
   parses leniently; devMode logs them at INFO). An optional
   `"manifestVersion"` integer is accepted but not required — the nested
   folder layout is itself the format discriminator (item 8).
+- **`targetVersion`** declares the OSF UI version your view was authored
+  against (`"<major>[.<minor>[.<patch>]]"`, e.g. `"1.1.0"`). It is advisory:
+  the view always loads and does what it can. When the running OSF UI is
+  older than the target, a warning lands in `OSF UI.log` and the Mods surface
+  shows a **"needs update"** badge next to the OSF UI version number, with
+  your mod named in the tooltip — so the user learns *OSF UI* is what needs
+  updating, instead of blaming your mod for missing features. A malformed
+  value is ignored with a warning. Feature-gate at runtime with
+  `osfui.has(...)` regardless — `targetVersion` informs the user, not your
+  code.
 - **`width`/`height` are the page's LOGICAL size — author against it.** When the
   `d3d12` compositor is active, the runtime resizes the view to match the screen
   aspect (height-capped at 1440) **with a matching device scale**
@@ -134,7 +146,7 @@ Notes:
   720p stays that size on screen instead of shrinking. Width still varies with
   the screen's aspect ratio (e.g. ~1720 CSS px wide on a 21:9 display), so
   author width-responsive CSS. **The layout guarantee — versioned (protocol
-  0.5): your manifest's logical HEIGHT is the fixed contract; width is not.**
+  1.0): your manifest's logical HEIGHT is the fixed contract; width is not.**
 - **`permissions.nativeBridge` must be `true`** if your page talks to the
   runtime. With it `false`, `window.osfui` is never injected and your page
   runs purely client-side.
@@ -167,7 +179,7 @@ by qualified id:
 - **Layering** is by each view's manifest `zorder` (not the array order): lower
   draws beneath, higher on top; ties keep load order. A HUD with `zorder: 100`
   always sits above a `zorder: 0` menu.
-- **The focus model — a versioned guarantee (protocol 0.5).** Input goes to
+- **The focus model — a versioned guarantee (protocol 1.0).** Input goes to
   exactly one view: the **top open menu** (the single-menu stack — opening a
   menu replaces and focuses it). A view with `interactive: false` (a passive
   HUD) is never focused and never receives input, even when it is the top
@@ -249,12 +261,12 @@ Every message in both directions is JSON text with this shape:
 { "type": "<string>", "requestId": "<optional string>", "payload": { ... } }
 ```
 
-`requestId` (protocol 0.5) is the correlation contract — `osfui.request()`
+`requestId` (protocol 1.0) is the correlation contract — `osfui.request()`
 does this for you: any `ui.command` may carry a caller-chosen id (string,
 1–64 chars); **every reply echoes it top-level**, and a command with no reply
 type of its own (`close`, `menu.open`, …) answers
 `ui.result { ok, command, code?, message? }` — but **only when an id was
-supplied**. Omitting it is fire-and-forget, exactly as before 0.5.
+supplied**. Omitting it is fire-and-forget.
 
 Malformed messages are rejected and logged, never fatal. Both directions are
 capped at 64 queued messages (excess is dropped with a warning) — **do not
@@ -285,7 +297,7 @@ Whitelisted commands (anything else is rejected + logged, and answered with
 | `settings.set` | `mod, key, value` | set one schema-declared setting (validated) |
 | `settings.reset` | `mod`, `key?` | reset one key, or the whole mod if `key` omitted |
 | `settings.captureKey` | `mod, key` | arm native key-rebind capture for ANY `key`-typed setting of any mod; the next key press replies with `settings.captured` — echoing the arming `requestId`, however many ticks later, so `osfui.request("settings.captureKey", …, {timeoutMs: 0})` awaits the whole rebind. One capture at a time: a second arm answers `ui.result { ok:false, code:"capture-busy" }`. Captured natively so pressing the current toggle key rebinds instead of closing the overlay |
-| `osfui.gamepadRaw` | `raw: bool` | *(experimental through 0.x — gate on the `gamepad` capability)* take over gamepad handling: suppress the default nav mapping and consume raw `ui.gamepad` events yourself. **Sticky per view** — the grant survives overlay hide/show and clears only when your page (re)loads or the view is destroyed; other views never inherit it |
+| `osfui.gamepadRaw` | `raw: bool` | *(experimental — gate on the `gamepad` capability; exempt from the 1.0 stability guarantee until stabilized)* take over gamepad handling: suppress the default nav mapping and consume raw `ui.gamepad` events yourself. **Sticky per view** — the grant survives overlay hide/show and clears only when your page (re)loads or the view is destroyed; other views never inherit it |
 
 > There is intentionally **no** "call any native function" escape hatch. New
 > commands come from native code only: either a handler in the OSF UI runtime,
@@ -309,11 +321,11 @@ are ALSO dispatched to subscribers, so one render path serves both):
 | `settings.data` | `{ mods: [ { id, title, schema, values } ], vanillaKeys? }` | reply to `settings.get` / after a `settings.reset`. A `key`-typed setting whose binding collides with another mod's carries runtime-injected `conflicts: [{mod, key, title}]` in its schema object — informational; render a badge, never block. `mod` may be the reserved id `@game` (the game's own bindings; display `title`, e.g. "Starfield (Quicksave)"). Top-level `vanillaKeys: [{event, title, name}]` is the game's FULL binding table (read-only; the keybinds view renders it); absent when the runtime has none |
 | `settings.ack` | `{ mod, key, ok, value?, code?, message? }` | result of a `settings.set`. `ok:true` carries `value`, the authoritative post-clamp committed value (compare with what you sent to detect clamping — no re-fetch needed); `ok:false` carries a stable `code`: `unknown-setting`, `read-only` (requires-gated stub or a type this host doesn't know), or `invalid-value` |
 | `settings.captured` | `{ mod, key, name, cancelled, conflicts? }` | reply to `settings.captureKey`: the captured key `name` (an OSF UI key name), or `cancelled:true` (Escape / unbindable — keep the old binding). When the captured key is already bound elsewhere, `conflicts: [{mod, key, title}]` lists actionable collisions this bind would create; expected `@game` reuse from a `blocksGameplay` context is omitted. Warn live, never block. The view then sends a normal `settings.set` with `name` |
-| `ui.hotkey` | `{ mod, key }` | the physical key currently bound to that `key`-typed setting was pressed in-game (protocol 0.4). Pushed to every `settings.get` subscriber — filter on `mod`. Suppressed while the overlay captures input or a rebind is armed; rebinds re-route automatically |
-| `ui.result` | `{ ok, command?, code?, message? }` | the uniform outcome (protocol 0.5), sent ONLY when your `ui.command` carried a `requestId`: verb commands (`close`, `menu.open`, …) answer `ok:true` on success; failures carry a stable `code` (`unknown-view`, `capture-busy`, `unknown-setting`, …). A plugin-registered command acks `ok:true` = delivered to the plugin's handler. `osfui.request()` consumes this for you |
-| `ui.gamepad` | `{ kind:"button", button:{id, down} }` \| `{ kind:"stick", axes:{lx, ly, rx, ry} }` | *(experimental through 0.x — gamepad navigation is being refined; gate on the `gamepad` capability)* raw gamepad events to the ACTIVE view while the overlay captures input (per-kind nesting, protocol 0.5). The default nav mapping (D-pad→arrows, A→Enter, B→close, sticks→scroll) also applies unless you asserted `osfui.gamepadRaw` |
+| `ui.hotkey` | `{ mod, key }` | the physical key currently bound to that `key`-typed setting was pressed in-game (protocol 1.0). Pushed to every `settings.get` subscriber — filter on `mod`. Suppressed while the overlay captures input or a rebind is armed; rebinds re-route automatically |
+| `ui.result` | `{ ok, command?, code?, message? }` | the uniform outcome (protocol 1.0), sent ONLY when your `ui.command` carried a `requestId`: verb commands (`close`, `menu.open`, …) answer `ok:true` on success; failures carry a stable `code` (`unknown-view`, `capture-busy`, `unknown-setting`, …). A plugin-registered command acks `ok:true` = delivered to the plugin's handler. `osfui.request()` consumes this for you |
+| `ui.gamepad` | `{ kind:"button", button:{id, down} }` \| `{ kind:"stick", axes:{lx, ly, rx, ry} }` | *(experimental — gamepad navigation is being refined; gate on the `gamepad` capability; exempt from the 1.0 stability guarantee until stabilized)* raw gamepad events to the ACTIVE view while the overlay captures input (per-kind nesting, protocol 1.0). The default nav mapping (D-pad→arrows, A→Enter, B→close, sticks→scroll) also applies unless you asserted `osfui.gamepadRaw` |
 | `ui.visibility` | `{ visible }` | the receiving view was shown/hidden with the overlay (edge-triggered). The reference views scope per-visit state off this |
-| `ui.error` | `{ code, message, reason, type?, command? }` | the runtime rejected something you sent. `code` is a stable machine string — `malformed-message`, `unknown-message-type`, `unknown-command`; `message` is the human sentence (`reason` duplicates it through 0.x, gone at 1.0). Echoes your `requestId` when it could be read, so `osfui.request()` rejects with it. The same WARN is in `OSF UI.log` |
+| `ui.error` | `{ code, message, type?, command? }` | the runtime rejected something you sent. `code` is a stable machine string — `malformed-message`, `unknown-message-type`, `unknown-command`; `message` is the human sentence. Echoes your `requestId` when it could be read, so `osfui.request()` rejects with it. The same WARN is in `OSF UI.log` |
 
 Unknown `type`s should be ignored (never `eval`'d) — including future `type`s
 this runtime version doesn't know about.
@@ -462,7 +474,7 @@ file.**
   native write — is pushed to you as
   `settings.changed { mod, key, value, conflicts? }` (the value is
   post-validation, i.e. authoritative; on `key`-typed settings `conflicts` is
-  the recomputed collision list — protocol 0.5 — so badge updates need no
+  the recomputed collision list — protocol 1.0 — so badge updates need no
   registry re-fetch), and
 - a registry *shape* change (a mod registering/unregistering a schema at
   runtime) re-sends the full `settings.data`.
@@ -480,7 +492,7 @@ osfui.send("settings.get");  // initial read + subscription in one call
 
 You receive changes for **all** mods — filter on `p.mod`.
 
-### Hotkeys with zero native code (protocol 0.4)
+### Hotkeys with zero native code (protocol 1.0)
 
 Every `type:"key"` setting is a **live hotkey** (mcm-design.md §9): when the
 user presses the bound key in-game, the runtime pushes
@@ -596,8 +608,10 @@ if (!osfui.has("settings")) {
 }
 ```
 
-The protocol version is **0.5**, emitted as `bridgeVersion` — informational
-(logs, bug reports), distinct from the plugin `version`, and until `1.0`
-minor bumps may break views. The constant lives in `src/core/Version.h`
+The protocol version is **1.0**, emitted as `bridgeVersion` — informational
+(logs, bug reports), distinct from the plugin `version`. From 1.0 the
+contract is stable: additive changes bump the minor and announce themselves
+as new capabilities; anything that would break a shipped view bumps the
+major. The constant lives in `src/core/Version.h`
 (`kBridgeProtocolVersion`); the schemas, `.d.ts`, and the shared helper are
 kept in lockstep with it (CI greps the docs against the constant).
