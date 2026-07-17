@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OSF UI — Nexus BBCode Preview</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #111318;
+      --panel: #191c22;
+      --panel-2: #20242c;
+      --text: #e6e1d9;
+      --muted: #a9a39a;
+      --line: #353b46;
+      --accent: #9fc7dc;
+      --link: #8fc7ff;
+      --danger: #e37b7b;
+      font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--line);
+      background: #151820;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 650;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    button,
+    .file-button {
+      appearance: none;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--panel-2);
+      color: var(--text);
+      cursor: pointer;
+      font: inherit;
+      padding: 7px 11px;
+    }
+
+    button:hover,
+    .file-button:hover {
+      border-color: var(--accent);
+    }
+
+    input[type="file"] {
+      display: none;
+    }
+
+    main {
+      display: grid;
+      grid-template-columns: minmax(320px, 42%) minmax(0, 1fr);
+      min-height: calc(100vh - 60px);
+    }
+
+    .source,
+    .preview-wrap {
+      min-width: 0;
+      padding: 16px;
+    }
+
+    .source {
+      border-right: 1px solid var(--line);
+      background: #12151b;
+    }
+
+    textarea {
+      display: block;
+      width: 100%;
+      height: calc(100vh - 92px);
+      resize: none;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #0d1015;
+      color: var(--text);
+      font: 13px/1.5 Consolas, "Cascadia Mono", "Courier New", monospace;
+      padding: 14px;
+      outline: none;
+      tab-size: 2;
+    }
+
+    textarea:focus {
+      border-color: var(--accent);
+    }
+
+    .preview {
+      max-width: 920px;
+      margin: 0 auto;
+      color: var(--text);
+      font-size: 16px;
+      line-height: 1.55;
+    }
+
+    .preview h2 {
+      margin: 30px 0 10px;
+      color: #cfe7f5;
+      font-size: 24px;
+      line-height: 1.2;
+    }
+
+    .preview .bb-size-1 { font-size: 12px; }
+    .preview .bb-size-2 { font-size: 13px; }
+    .preview .bb-size-3 { font-size: 16px; }
+    .preview .bb-size-4 { font-size: 20px; }
+    .preview .bb-size-5 { font-size: 26px; }
+    .preview .bb-size-6 { font-size: 32px; }
+    .preview .bb-size-7 { font-size: 40px; }
+
+    .preview .bb-center {
+      text-align: center;
+    }
+
+    .preview .bb-center img {
+      margin-inline: auto;
+    }
+
+    .preview img {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      border-radius: 4px;
+    }
+
+    .preview a {
+      color: var(--link);
+      text-decoration: none;
+    }
+
+    .preview a:hover {
+      text-decoration: underline;
+    }
+
+    .preview a.placeholder-link {
+      color: var(--accent);
+      text-decoration: underline dashed;
+      text-underline-offset: 3px;
+      cursor: help;
+    }
+
+    .preview ul {
+      margin: 10px 0 20px 24px;
+      padding: 0;
+    }
+
+    .preview li {
+      margin: 5px 0;
+    }
+
+    .preview code,
+    .preview pre {
+      font-family: Consolas, "Cascadia Mono", "Courier New", monospace;
+    }
+
+    .preview pre {
+      overflow-x: auto;
+      margin: 10px 0 20px;
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #0c0f14;
+      color: #cfe7f5;
+      white-space: pre-wrap;
+    }
+
+    .preview hr {
+      border: 0;
+      border-top: 1px solid var(--line);
+      margin: 24px 0;
+    }
+
+    .preview .missing-image {
+      display: inline-block;
+      max-width: 100%;
+      padding: 12px 14px;
+      border: 1px dashed var(--danger);
+      border-radius: 7px;
+      color: var(--danger);
+      font-family: Consolas, "Cascadia Mono", "Courier New", monospace;
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+
+    .status {
+      min-width: 190px;
+      text-align: right;
+    }
+
+    @media (max-width: 920px) {
+      header,
+      .toolbar {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .status {
+        text-align: left;
+      }
+
+      main {
+        grid-template-columns: 1fr;
+      }
+
+      .source {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      textarea {
+        height: 36vh;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>OSF UI — Nexus BBCode Preview</h1>
+    <div class="toolbar">
+      <button type="button" id="reload">Reload nexus-page.bbcode</button>
+      <label class="file-button" for="file">Open BBCode file</label>
+      <input id="file" type="file" accept=".bbcode,.txt,text/plain">
+      <span id="status" class="status">Loading...</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="source" aria-label="BBCode source">
+      <textarea id="source" spellcheck="false" aria-label="BBCode source"></textarea>
+    </section>
+    <section class="preview-wrap" aria-label="Rendered preview">
+      <article id="preview" class="preview"></article>
+    </section>
+  </main>
+
+  <script>
+    const source = document.querySelector("#source");
+    const preview = document.querySelector("#preview");
+    const status = document.querySelector("#status");
+    const reloadButton = document.querySelector("#reload");
+    const fileInput = document.querySelector("#file");
+
+    function escapeHtml(value) {
+      return value
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function isPlaceholderUrl(value) {
+      return /^REPLACE-WITH-[A-Z0-9-]+$/i.test(value.trim());
+    }
+
+    function sanitizeUrl(value) {
+      const trimmed = value.trim();
+      if (/^REPLACE-WITH-NEXUS-URL\/osf-ui-header\.png$/i.test(trimmed)) {
+        return "branding/osf-ui-header.png";
+      }
+      if (/^REPLACE-WITH-NEXUS-URL\/osf-ui-patch\.png$/i.test(trimmed)) {
+        return "branding/osf-ui-patch.png";
+      }
+      if (/^REPLACE-WITH-NEXUS-URL\/osf-ui-emblem\.png$/i.test(trimmed)) {
+        return "branding/osf-ui-emblem.png";
+      }
+      const sectionHeader = trimmed.match(/^REPLACE-WITH-NEXUS-URL\/(\d{2}-[a-z-]+\.png)$/i);
+      if (sectionHeader) {
+        return `section-headers/${sectionHeader[1]}`;
+      }
+      if (/^(https?:|data:image\/|\.{0,2}\/|[a-z0-9_\-./ ]+\.(png|jpe?g|webp|gif|svg)$)/i.test(trimmed)) {
+        return trimmed;
+      }
+      return "";
+    }
+
+    function renderInline(text) {
+      let html = escapeHtml(text);
+
+      html = html.replace(/\[b\]([\s\S]*?)\[\/b\]/gi, "<strong>$1</strong>");
+      html = html.replace(/\[i\]([\s\S]*?)\[\/i\]/gi, "<em>$1</em>");
+      html = html.replace(/\[u\]([\s\S]*?)\[\/u\]/gi, "<u>$1</u>");
+      html = html.replace(/\[font=([^\]]+)\]([\s\S]*?)\[\/font\]/gi, (_, font, body) => {
+        const safeFont = escapeHtml(font.replace(/[^a-z0-9 ,'"_-]/gi, ""));
+        return `<span style="font-family:${safeFont}">${body}</span>`;
+      });
+      html = html.replace(/\[size=([1-7])\]([\s\S]*?)\[\/size\]/gi, '<span class="bb-size-$1">$2</span>');
+      html = html.replace(/\[url=([^\]]+)\]([\s\S]*?)\[\/url\]/gi, (_, url, body) => {
+        if (isPlaceholderUrl(url)) {
+          return `<a class="placeholder-link" href="#" title="Placeholder URL: ${escapeHtml(url.trim())}" onclick="return false">${body}</a>`;
+        }
+        const safeUrl = sanitizeUrl(url);
+        return safeUrl ? `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer">${body}</a>` : body;
+      });
+      html = html.replace(/\[url\]([\s\S]*?)\[\/url\]/gi, (_, url) => {
+        const safeUrl = sanitizeUrl(url);
+        const label = escapeHtml(url);
+        return safeUrl ? `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer">${label}</a>` : label;
+      });
+      html = html.replace(/\[img\]([\s\S]*?)\[\/img\]/gi, (_, url) => {
+        const safeUrl = sanitizeUrl(url);
+        return safeUrl
+          ? `<img src="${escapeHtml(safeUrl)}" alt="">`
+          : `<span class="missing-image">Missing or unsupported image URL: ${escapeHtml(url.trim())}</span>`;
+      });
+
+      return html;
+    }
+
+    function renderList(body) {
+      const items = body
+        .split(/\[\*\]/i)
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .map((item) => `<li>${renderBlocks(item)}</li>`)
+        .join("");
+      return `<ul>${items}</ul>`;
+    }
+
+    function renderBlocks(bbcode) {
+      const codeBlocks = [];
+      let text = bbcode.replace(/\[code\]([\s\S]*?)\[\/code\]/gi, (_, code) => {
+        const key = `\u0000CODE${codeBlocks.length}\u0000`;
+        codeBlocks.push(`<pre><code>${escapeHtml(code.trim())}</code></pre>`);
+        return key;
+      });
+
+      text = text.replace(/\[line\]/gi, "\n<hr>\n");
+      text = text.replace(/\[center\]([\s\S]*?)\[\/center\]/gi, (_, body) => `<div class="bb-center">${renderBlocks(body.trim())}</div>`);
+      text = text.replace(/\[list\]([\s\S]*?)\[\/list\]/gi, (_, body) => renderList(body));
+
+      const paragraphs = text
+        .split(/\n{2,}/)
+        .map((block) => block.trim())
+        .filter(Boolean)
+        .map((block) => {
+          const restored = block.replace(/\u0000CODE(\d+)\u0000/g, (_, index) => codeBlocks[Number(index)] ?? "");
+          if (/^<(hr|ul|div|pre)\b/i.test(restored)) {
+            return restored;
+          }
+          const inline = renderInline(restored).replace(/\n/g, "<br>");
+          const headingMatch = inline.match(/^<span class="bb-size-5"><strong>([\s\S]*?)<\/strong><\/span>$/i);
+          return headingMatch ? `<h2>${headingMatch[1]}</h2>` : `<p>${inline}</p>`;
+        });
+
+      return paragraphs.join("\n");
+    }
+
+    function render() {
+      preview.innerHTML = renderBlocks(source.value);
+    }
+
+    async function loadDefault() {
+      try {
+        const response = await fetch("nexus-page.bbcode", { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error(`${response.status} ${response.statusText}`);
+        }
+        source.value = await response.text();
+        status.textContent = "Loaded nexus-page.bbcode";
+        render();
+      } catch (error) {
+        status.textContent = "Use Open BBCode file or serve over localhost";
+        render();
+      }
+    }
+
+    source.addEventListener("input", () => {
+      status.textContent = "Live preview";
+      render();
+    });
+
+    reloadButton.addEventListener("click", loadDefault);
+
+    fileInput.addEventListener("change", async () => {
+      const [file] = fileInput.files;
+      if (!file) {
+        return;
+      }
+      source.value = await file.text();
+      status.textContent = `Loaded ${file.name}`;
+      render();
+    });
+
+    loadDefault();
+  </script>
+</body>
+</html>

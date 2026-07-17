@@ -790,13 +790,13 @@ function railHomeItem() {
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = "rail-item rail-item--home" + (selectedId === HOME_ID ? " selected" : "");
-  const mark = el("span", "rail-item-mark", "⌂");
+  const mark = el("span", "rail-item-mark", "◉");
   const textWrap = el("span", "rail-item-text");
-  textWrap.appendChild(el("span", "rail-item-title", "Home"));
+  textWrap.appendChild(el("span", "rail-item-title", "Systems"));
   const menus = allViews.filter((v) => v.kind === "menu").length;
   const huds = allViews.length - menus;
   textWrap.appendChild(el("span", "rail-item-sub",
-    allViews.length ? `${menus} terminals · ${huds} overlays` : "Launcher"));
+    allViews.length ? `${menus} terminals · ${huds} overlays` : "Standby"));
   btn.append(mark, textWrap);
   btn.addEventListener("click", () => selectMod(HOME_ID));
   return btn;
@@ -1231,10 +1231,10 @@ function renderHomeDetail() {
 
   const head = el("div", "detail-head");
   const left = el("div");
-  left.appendChild(el("div", "osf-eyebrow kicker", "Control deck"));
-  left.appendChild(el("h2", null, "Home"));
+  left.appendChild(el("div", "osf-eyebrow kicker", "All systems"));
+  left.appendChild(el("h2", null, "Systems"));
   left.appendChild(el("div", "detail-desc",
-    "Everything your mods put on screen. Open a terminal, flip an overlay — settings live on each mod's page in the rail."));
+    "Every terminal and overlay your mods have brought online. Select a mod on the left to reach its settings."));
   head.appendChild(left);
   detailEl.appendChild(head);
 
@@ -1242,8 +1242,8 @@ function renderHomeDetail() {
 
   if (!allViews.length) {
     const empty = el("div", "home-empty");
-    empty.appendChild(el("div", "osf-eyebrow", "No terminals or overlays yet"));
-    empty.appendChild(el("p", null, "Mods that register views appear here as launchable cards. Mods that only register settings are in the rail on the left."));
+    empty.appendChild(el("div", "osf-eyebrow", "No systems online"));
+    empty.appendChild(el("p", null, "Mods that put terminals or overlays on screen appear here as launch cards. Mods that only carry settings are listed on the left."));
     body.appendChild(empty);
     detailEl.appendChild(body);
     return;

@@ -1,7 +1,7 @@
 {
   "id": "keybinds",
   "title": "Keybinds",
-  "description": "Every key binding at a glance — mods, the game, and collisions. Rebind in place.",
+  "description": "Full keyboard map of mod and Game Bindings",
   "entry": "index.html",
   "mod": "osfui",
   "hub": true,

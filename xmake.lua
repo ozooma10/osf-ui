@@ -64,6 +64,25 @@ target("OSF UI")
     -- <install>/SFSE/Plugins/OSFUI/...
     add_installfiles("data/(OSFUI/**)", { prefixdir = "SFSE/Plugins" })
 
+    -- Redeploy data/ (views + config) to the mod folder on every build where a
+    -- data file changed. The commonlib rule's after_build only runs
+    -- "xmake install" when the DLL binary itself changed, so pure HTML/JS/JSON
+    -- edits would otherwise never reach XSE_SF_MODS_PATH.
+    after_build(function(target)
+        if not (os.getenv("XSE_SF_MODS_PATH") or os.getenv("XSE_SF_GAME_PATH")) then
+            return
+        end
+        import("core.project.depend")
+        local datadir = path.join(os.projectdir(), "data", "OSFUI")
+        local files = os.files(path.join(datadir, "**"))
+        depend.on_changed(function()
+            local dstdir = path.join(target:installdir(), "SFSE", "Plugins")
+            os.cp(datadir, dstdir)
+            cprint("${dim}deploying data/OSFUI to %s ..", dstdir)
+        end, { files = files, values = files,
+               dependfile = target:dependfile("osfui_data_deploy") })
+    end)
+
     if has_config("with_ultralight") then
         add_defines("OSFUI_WITH_ULTRALIGHT=1")
         on_load(function(target)
