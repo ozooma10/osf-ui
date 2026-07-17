@@ -318,11 +318,12 @@ namespace OSFUI
 			// through every rewrite. NEVER served: consumers only ever see
 			// store-validated `values`; a newer host re-adopts these.
 			nlohmann::json        preserved;  // { key: opaque saved value }
-			// Requires-gate stub (item 2): the schema declared `requires`
-			// capabilities this host lacks. Registered as an inert card —
-			// no values loaded/served/persisted; values file untouched.
-			bool                     stub{ false };
-			std::vector<std::string> missingRequires;
+			// The OSF UI version this schema was authored against (same
+			// advisory field as ViewManifest::targetVersion): never gates —
+			// the schema loads best-effort — but the Mods surface badges
+			// "needs update" when it is newer than the running OSF UI.
+			// Empty when undeclared or malformed.
+			std::string              targetVersion;
 			// Values-file encoding stamp (item 8): max(build's version, the
 			// loaded file's) — a newer host's stamp survives our rewrites.
 			std::int64_t             formatVersion{ 1 };

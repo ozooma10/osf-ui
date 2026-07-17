@@ -1,7 +1,6 @@
 #include "runtime/MessageBridge.h"
 
 #include "core/Version.h"
-#include "runtime/Capabilities.h"
 #include "runtime/Json.h"
 
 namespace OSFUI
@@ -219,21 +218,15 @@ namespace OSFUI
 
 	void MessageBridge::SendRuntimeReady(std::string_view a_viewId)
 	{
-		// `capabilities` is the feature-detection contract (api-freeze-plan
-		// item 6): append-only named features, one vocabulary with settings
-		// schemas' `requires`. `bridgeVersion` stays, demoted to informational
-		// — views gate on capabilities, not version arithmetic. `version` is
-		// the plugin version; the two are intentionally separate.
-		nlohmann::json capabilities = nlohmann::json::array();
-		for (const auto cap : Caps::kList) {
-			capabilities.push_back(cap);
-		}
+		// `version` is the running plugin version — the reference point for
+		// every advisory `targetVersion` (view manifests, settings schemas)
+		// and the number a view compares against when it needs a newer-host
+		// check. `bridgeVersion` is the protocol version, informational.
 		SendToWeb(a_viewId, "runtime.ready", {
 			{ "game", "Starfield" },
 			{ "plugin", kPluginName },
 			{ "version", kPluginVersion },
 			{ "bridgeVersion", kBridgeProtocolVersion },
-			{ "capabilities", std::move(capabilities) },
 		});
 	}
 }

@@ -1,10 +1,11 @@
 #include "runtime/SettingsStore.h"
 
+#include <array>
 #include <cmath>
 #include <unordered_set>
 
 #include "core/Log.h"
-#include "runtime/Capabilities.h"
+#include "core/Version.h"
 #include "runtime/Ids.h"
 #include "runtime/Json.h"
 
@@ -334,7 +335,7 @@ namespace OSFUI
 		// case (a newer schema on an older host — item 8), so devMode INFO only.
 		if (Log::DevMode()) {
 			Json::ReportUnknownKeys(a_schema,
-				{ "id", "title", "description", "version", "requires", "accent",
+				{ "id", "title", "description", "version", "targetVersion", "accent",
 					"presets", "inputContexts", "groups" },
 				"SettingsStore: schema '" + id + "'", /*a_warn=*/false);
 		}
@@ -396,40 +397,24 @@ namespace OSFUI
 			mod.shadowed = std::move(existing->shadowed);  // conflicts outlive a replacement/hot-reload
 		}
 
-		// Capability gate (api-freeze-plan item 2): a schema may declare
-		// "requires": ["type:flags", ...]. Anything this host doesn't satisfy
-		// ⇒ register as an inert STUB card — the Mods surface renders "needs
-		// a newer OSF UI", no values are loaded/served, and the values file
-		// stays byte-untouched for the host that CAN satisfy it. A malformed
-		// entry counts as unmet (it names something we can't understand).
-		if (const auto req = mod.schema.find("requires"); req != mod.schema.end() && req->is_array()) {
-			for (const auto& r : *req) {
-				const auto cap = r.is_string() ? r.get<std::string>() : std::string{};
-				if (cap.empty() || !Caps::Has(cap)) {
-					mod.missingRequires.push_back(cap.empty() ? "(malformed)" : cap);
+		// Advisory host-version target, same field and semantics as a view
+		// manifest's: never gates loading (a schema authored for a newer
+		// OSF UI still loads best-effort — unknown types serve read-only
+		// defaults, unknown keys are preserved), but settings.data carries
+		// it so the Mods surface can badge "needs update", and the log
+		// records it for triage.
+		if (auto target = Json::GetString(mod.schema, "targetVersion", ""); !target.empty()) {
+			std::array<std::uint32_t, 3> targetParts{};
+			if (ParseDottedVersion(target, targetParts)) {
+				mod.targetVersion = std::move(target);
+				if (kPluginVersionParts < targetParts) {
+					REX::WARN("SettingsStore: '{}' targets OSF UI {} but this is {} — update OSF UI",
+						mod.id, mod.targetVersion, kPluginVersion);
 				}
-			}
-		}
-		if (!mod.missingRequires.empty()) {
-			mod.stub = true;
-			std::string list;
-			for (const auto& c : mod.missingRequires) {
-				list += (list.empty() ? "" : ", ") + c;
-			}
-			REX::WARN("SettingsStore: '{}' requires capabilities this OSF UI lacks ({}) — "
-					  "registered as a stub; values file left untouched",
-				mod.id, list);
-			if (existing) {
-				*existing = std::move(mod);
 			} else {
-				_mods.push_back(std::move(mod));
+				REX::WARN("SettingsStore: '{}' targetVersion '{}' is not '<major>[.<minor>[.<patch>]]' — ignored",
+					mod.id, target);
 			}
-			InvalidateData();
-			++_generation;
-			if (a_notify) {
-				NotifyRegistryChanged();  // nothing to replay — a stub serves no values
-			}
-			return true;
 		}
 
 		// Persisted values over schema defaults. Replacement rebuilds from the
@@ -690,8 +675,8 @@ namespace OSFUI
 	std::string SettingsStore::GetSettingType(std::string_view a_modId, std::string_view a_key) const
 	{
 		const auto* mod = FindMod(a_modId);
-		if (!mod || mod->stub) {
-			return {};  // a stub's schema is inert — no feature may act on it
+		if (!mod) {
+			return {};
 		}
 		const auto* setting = FindSetting(*mod, a_key);
 		return setting ? Json::GetString(*setting, "type", "") : std::string{};
@@ -908,11 +893,11 @@ namespace OSFUI
 			if (!mod.shadowed.empty()) {
 				entry["shadowed"] = mod.shadowed;
 			}
-			// Additive (item 2): requires-gated stub — the Mods surface renders
-			// a "needs a newer OSF UI" card instead of controls.
-			if (mod.stub) {
-				entry["stub"] = true;
-				entry["missingRequires"] = mod.missingRequires;
+			// Advisory authored-against version (same contract as a view
+			// manifest's targetVersion): feeds the Mods surface "needs
+			// update" badge. Omitted when undeclared.
+			if (!mod.targetVersion.empty()) {
+				entry["targetVersion"] = mod.targetVersion;
 			}
 			mods.push_back(std::move(entry));
 		}
@@ -937,8 +922,8 @@ namespace OSFUI
 				data["vanillaKeys"] = std::move(vanilla);
 			}
 		}
-		// Additive (protocol 1.1, capability "settings.loadErrors"): artifacts
-		// that failed to load, so the Mods surface can SAY so instead of a mod
+		// Additive field (capability "settings.loadErrors"): artifacts that
+		// failed to load, so the Mods surface can SAY so instead of a mod
 		// silently vanishing (the SkyUI-MCM support lesson; §14.2). Omitted in
 		// the (normal) clean case; views ignore unknown top-level fields.
 		if (!_loadErrors.empty()) {
@@ -1130,10 +1115,6 @@ namespace OSFUI
 			REX::WARN("SettingsStore: rejected set for unknown mod '{}'", a_modId.substr(0, 64));
 			return { false, "unknown-setting" };
 		}
-		if (mod->stub) {
-			REX::WARN("SettingsStore: rejected set for '{}' — registered as a requires-gated stub", mod->id);
-			return { false, "read-only" };
-		}
 		const auto* setting = FindSetting(*mod, a_key);
 		if (!setting) {
 			REX::WARN("SettingsStore: rejected unknown setting '{}.{}'", a_modId.substr(0, 64), a_key.substr(0, 64));
@@ -1142,7 +1123,7 @@ namespace OSFUI
 		// A type this host doesn't know serves its default read-only (item 2)
 		// — surfaced as its own code so a view can say "needs a newer OSF UI"
 		// instead of "bad value".
-		if (!Caps::Has("type:" + Json::GetString(*setting, "type", ""))) {
+		if (!IsKnownType(Json::GetString(*setting, "type", ""))) {
 			REX::WARN("SettingsStore: rejected set for '{}.{}' — unknown type '{}' is served read-only",
 				a_modId.substr(0, 64), a_key.substr(0, 64), Json::GetString(*setting, "type", "?").substr(0, 32));
 			return { false, "read-only" };
@@ -1168,8 +1149,8 @@ namespace OSFUI
 	bool SettingsStore::Reset(std::string_view a_modId, std::string_view a_key)
 	{
 		auto* mod = FindMod(a_modId);
-		if (!mod || mod->stub) {
-			return false;  // a stub serves nothing and must not touch the values file
+		if (!mod) {
+			return false;
 		}
 		if (a_key.empty()) {
 			// Whole mod back to defaults.

@@ -9,34 +9,6 @@
 
 namespace OSFUI
 {
-	namespace
-	{
-		// "<major>[.<minor>[.<patch>]]", digits only — missing parts are 0.
-		bool ParseDottedVersion(std::string_view a_text, std::array<std::uint32_t, 3>& a_out)
-		{
-			a_out = {};
-			std::size_t part = 0;
-			const char* pos = a_text.data();
-			const char* end = a_text.data() + a_text.size();
-			while (part < 3) {
-				const auto [next, ec] = std::from_chars(pos, end, a_out[part]);
-				if (ec != std::errc{} || next == pos) {
-					return false;
-				}
-				pos = next;
-				++part;
-				if (pos == end) {
-					return true;
-				}
-				if (*pos != '.') {
-					return false;
-				}
-				++pos;
-			}
-			return false;  // more than three parts (or trailing dot)
-		}
-	}
-
 	std::optional<ViewManifest> ViewManifest::Load(const std::filesystem::path& a_path)
 	{
 		const auto json = Json::ParseFile(a_path);
@@ -121,10 +93,7 @@ namespace OSFUI
 			std::array<std::uint32_t, 3> targetParts{};
 			if (ParseDottedVersion(target, targetParts)) {
 				manifest.targetVersion = std::move(target);
-				constexpr std::array<std::uint32_t, 3> hostParts{
-					kPluginVersionMajor, kPluginVersionMinor, kPluginVersionPatch
-				};
-				if (hostParts < targetParts) {
+				if (kPluginVersionParts < targetParts) {
 					REX::WARN("ViewManifest: view '{}' targets OSF UI {} but this is {} — update OSF UI",
 						manifest.id, manifest.targetVersion, kPluginVersion);
 				}
