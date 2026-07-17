@@ -447,7 +447,7 @@ namespace OSFUI
 
 			// worker-thread-only
 			ul::RefPtr<ul::View>    view;
-			std::uint32_t           logicalHeight{ 720 };  // manifest height = the page's authoring height; resizes keep device scale = pixels/logical
+			std::uint32_t           logicalHeight{ 900 };  // manifest height = the page's authoring height; resizes keep device scale = pixels/logical
 			Frame                   backFrame;   // persistent canonical surface, patched per dirty rect
 			bool                    backDirty{ false };  // backFrame changed since last expose/composite
 			std::uint64_t           paintCount{ 0 };
@@ -744,7 +744,7 @@ namespace OSFUI
 
 		void CreateAndLoadView(ViewState& a_vs, const ViewManifest& a_manifest)
 		{
-			a_vs.logicalHeight = a_manifest.height > 0 ? a_manifest.height : 720u;
+			a_vs.logicalHeight = a_manifest.height > 0 ? a_manifest.height : 900u;
 			ul::ViewConfig viewConfig;
 			viewConfig.is_accelerated = false;  // CPU BitmapSurface (Phase 1)
 			viewConfig.is_transparent = a_manifest.transparent;

@@ -286,8 +286,8 @@ namespace OSFUI
 		// atomic.
 		float                         _cursorX{ 0.0f };
 		float                         _cursorY{ 0.0f };
-		std::atomic<std::uint32_t>    _viewWidth{ 1280 };
-		std::atomic<std::uint32_t>    _viewHeight{ 720 };
+		std::atomic<std::uint32_t>    _viewWidth{ 1600 };
+		std::atomic<std::uint32_t>    _viewHeight{ 900 };
 		std::atomic<float>            _cursorScale{ 1.0f };   // resolution-based, set on resize
 
 		// Input-capture flag (initialised from config). When false the overlay

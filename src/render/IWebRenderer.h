@@ -6,8 +6,8 @@ namespace OSFUI
 {
 	struct RendererConfig
 	{
-		std::uint32_t width{ 1280 };
-		std::uint32_t height{ 720 };
+		std::uint32_t width{ 1600 };
+		std::uint32_t height{ 900 };
 		bool          devMode{ false };
 
 		// Plugin data root (Paths::DataDir()). Backends that need runtime

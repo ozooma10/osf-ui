@@ -58,8 +58,8 @@ namespace OSFUI
 		// Renderer
 		_renderer = CreateRenderer();
 		const auto* view = _views.Find(_config.view);
-		const auto initialWidth = view ? view->width : 1280u;
-		const auto initialHeight = view ? view->height : 720u;
+		const auto initialWidth = view ? view->width : 1600u;
+		const auto initialHeight = view ? view->height : 900u;
 		_viewWidth.store(initialWidth);
 		_viewHeight.store(initialHeight);
 		_cursorX = initialWidth * 0.5f;
