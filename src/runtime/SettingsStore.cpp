@@ -22,6 +22,13 @@ namespace OSFUI
 		// and is invisible to builds that predate versioning.
 		constexpr const char* kSchemaVersionKey = "$schemaVersion";
 
+		// Values-file ENCODING version (api-freeze-plan item 8) — the sparse
+		// format itself, distinct from the mod's schema `version` above.
+		// Stamped on every rewrite; a newer host's higher stamp round-trips
+		// (Mod::formatVersion keeps the max).
+		constexpr const char*  kFormatVersionKey = "$formatVersion";
+		constexpr std::int64_t kValuesFormatVersion = 1;
+
 		bool IsValidInputContextId(std::string_view a_id)
 		{
 			if (a_id.empty() || a_id.size() > kMaxInputContextIdLen) {
@@ -207,6 +214,14 @@ namespace OSFUI
 		if (!ValidateSchemaShape(a_schema)) {
 			return false;
 		}
+		// Author-shipped file: unknown top-level keys are the NORMAL compatible
+		// case (a newer schema on an older host — item 8), so devMode INFO only.
+		if (Log::DevMode()) {
+			Json::ReportUnknownKeys(a_schema,
+				{ "id", "title", "description", "version", "requires", "accent",
+					"presets", "inputContexts", "groups" },
+				"SettingsStore: schema '" + id + "'", /*a_warn=*/false);
+		}
 
 		// Source precedence on id collision (mcm-design.md §14.1): a runtime
 		// (DLL) registration replaces a drop-in file — a mod upgrading tiers
@@ -319,6 +334,16 @@ namespace OSFUI
 				REX::INFO("SettingsStore: '{}' values migrating v{} -> v{}", mod.id, fileVersion, schemaVersion);
 			}
 		}
+		// Values-file FORMAT stamp (api-freeze-plan item 8, distinct from the
+		// schema version above: this one is the ENCODING's). Written on every
+		// rewrite; a file from a newer OSF UI keeps its higher stamp verbatim
+		// (max below) so round-tripping through this host never "downgrades"
+		// it. Migrations would run here (none exist yet — the hook is the point).
+		if (const auto v = Json::GetInt(saved, kFormatVersionKey, kValuesFormatVersion); v > kValuesFormatVersion) {
+			REX::INFO("SettingsStore: '{}' values file declares format v{} (this build writes v{}) — written by a newer OSF UI; unknown content rides in the preserved bag",
+				mod.id, v, kValuesFormatVersion);
+			mod.formatVersion = v;
+		}
 
 		// Keys this schema accounts for: declared keys and (for KNOWN-typed
 		// settings) their aliases. Whatever the file holds OUTSIDE this set
@@ -389,9 +414,11 @@ namespace OSFUI
 		// Preservation (item 2): saved keys no loaded schema fact accounts
 		// for — a setting that left the schema, or one from a newer schema
 		// than this host has seen — round-trip opaquely instead of being
-		// pruned. `$schemaVersion` stays owned by the stamp logic above.
+		// pruned. The two stamps ($schemaVersion, $formatVersion) stay owned
+		// by their logic above; any OTHER $-key (a future format's meta) is
+		// preserved like unknown settings.
 		for (const auto& [key, value] : saved.items()) {
-			if (key == kSchemaVersionKey || accounted.contains(key)) {
+			if (key == kSchemaVersionKey || key == kFormatVersionKey || accounted.contains(key)) {
 				continue;
 			}
 			mod.preserved[key] = value;
@@ -408,9 +435,15 @@ namespace OSFUI
 		// upstream defaults again instead of staying frozen forever, and so
 		// the version stamp advances. Preserved unknowns are PART of the
 		// sparse form, so a file whose only oddity is content this host
-		// doesn't understand loads clean (no rewrite churn).
-		if (saved != SparseValues(mod)) {
-			MarkDirty(mod);
+		// doesn't understand loads clean (no rewrite churn). A MISSING
+		// `$formatVersion` alone is also clean (item 8: the stamp lands on the
+		// next real write) — stamping is never the sole reason to rewrite.
+		if (const auto expected = SparseValues(mod); saved != expected) {
+			auto stampedOnly = saved;
+			stampedOnly[kFormatVersionKey] = mod.formatVersion;
+			if (stampedOnly != expected) {
+				MarkDirty(mod);
+			}
 		}
 
 		REX::INFO("SettingsStore: loaded mod '{}' ('{}', {} settings)",
@@ -1005,6 +1038,11 @@ namespace OSFUI
 		if (const auto v = Json::GetInt(a_mod.schema, "version", 0); v != 0) {
 			sparse[kSchemaVersionKey] = v;
 		}
+		// Format stamp (item 8): every rewrite carries the encoding version —
+		// a_mod.formatVersion is max(known, loaded), so a newer host's stamp
+		// survives this host's rewrites. The load-time compare tolerates a
+		// missing stamp, so this alone never dirties an existing file.
+		sparse[kFormatVersionKey] = a_mod.formatVersion;
 		return sparse;
 	}
 

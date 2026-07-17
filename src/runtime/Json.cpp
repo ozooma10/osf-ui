@@ -46,4 +46,23 @@ namespace OSFUI::Json
 		}
 		return a_default;
 	}
+
+	void ReportUnknownKeys(const Value& a_obj, std::initializer_list<std::string_view> a_known, std::string_view a_sourceName, bool a_warn)
+	{
+		if (!a_obj.is_object()) {
+			return;
+		}
+		for (const auto& [key, value] : a_obj.items()) {
+			if (key.starts_with("$")) {
+				continue;  // $-prefixed keys are reserved meta (stamps, editor $schema/$comment)
+			}
+			if (std::ranges::find(a_known, key) == a_known.end()) {
+				if (a_warn) {
+					REX::WARN("{}: unknown key '{}' is ignored (typo?)", a_sourceName, key.substr(0, 64));
+				} else {
+					REX::INFO("{}: unknown key '{}' ignored (fine if this file targets a newer OSF UI)", a_sourceName, key.substr(0, 64));
+				}
+			}
+		}
+	}
 }

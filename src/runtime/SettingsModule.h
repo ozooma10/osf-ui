@@ -62,6 +62,13 @@ namespace OSFUI
 		static constexpr double kHotReloadScanSeconds = 1.0;
 		void PumpSchemaHotReload(double a_nowSeconds);
 
+		// Re-send the full settings document to every subscriber — for changes
+		// the store's own listeners can't see (e.g. the vanilla-keys table
+		// flipping, api-freeze-plan item 7: the conflict annotations live in
+		// Data() but SetVanillaKeys bumps no generation). No-op with no bridge
+		// or no subscribers. MAIN thread.
+		void BroadcastData() { PushToSubscribers("settings.data", _store.Data()); }
+
 	private:
 		// Sends one { type, payload } to every subscribed view (no-op with no
 		// bridge or no subscribers — e.g. during the OnStart NotifyAll replay).

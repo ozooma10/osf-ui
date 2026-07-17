@@ -432,7 +432,7 @@ way to detect features that isn't version arithmetic.
 
 ---
 
-## 7. File ownership: config, MCM, vanillakeys — ✅ designed (2026-07-17)
+## 7. File ownership: config, MCM, vanillakeys — 🔨 implemented (2026-07-17)
 
 **Problem.** `config.json` and `vanillakeys.json` are user-edited files living
 in the mod-owned folder (clobbered on every update); `toggleKey` and
@@ -450,27 +450,56 @@ the schema silently wins (the config edit does nothing after first boot).
 
 ### Implementation checklist
 
-- [ ] `src/core/Config.{h,cpp}` — drop `toggleKey`/`disableControls`/
-      `focusKey`/`consoleKey`/`pauseMenuEntry`/`vanillaKeyConflicts` from the
-      config struct + parser (lenient parse means stale user files simply
-      ignore them; log an INFO "now managed in Mod Settings" when the key is
-      present, for one release).
-- [ ] `data/OSFUI/settings/osfui.json` — Input group grows `focusKey`,
-      `consoleKey`; new Interface group `pauseMenuEntry` (requires reload),
-      `vanillaKeyConflicts`. Defaults mirror the old shipped config.
-- [ ] `src/runtime/Runtime.cpp` — `OnSettingChanged` cases: `focusKey`/
-      `consoleKey` re-resolve + `_input.Configure` (same path as toggleKey);
-      `vanillaKeyConflicts` re-read live; `pauseMenuEntry` reload-badged.
-- [ ] `src/runtime/VanillaKeys.cpp` — overlay merge (add/replace/suppress) +
-      user-file discovery under the Documents dir.
-- [ ] README config table rewrite (dev-file framing, moved-knob pointers);
-      `docs/troubleshooting.md` "where are my settings" section.
-- [ ] Keybinds view: optionally badge user-overlaid vanilla rows (nice-to-
-      have, not release-gating).
+- [x] `src/core/Config.{h,cpp}` — `toggleKey`/`disableControls`/`consoleKey`/
+      `pauseMenuEntry`/`vanillaKeyConflicts` no longer PARSED; each present
+      key logs INFO "now managed in Mod Settings" (one-release courtesy).
+      **Deviation:** the struct FIELDS stay — they double as pre-replay boot
+      defaults and as the runtime state `OnSettingChanged` mutates (so they
+      must equal the schema defaults; documented in the header).
+      **Deviation: `focusKey` DROPPED entirely, not migrated** — it was dead
+      code (nothing consumed it; the Tab focus-cycle died with the
+      single-menu stack). Its config key gets a dedicated removal INFO.
+      Stale Tab-cycle claims scrubbed from troubleshooting.md.
+- [x] `data/OSFUI/settings/osfui.json` — Input group grows `consoleKey`
+      (type key, default Grave, `allowUnbound` — "" = pass-through off,
+      `inputContext: "overlay"` with `blocksGameplay` so the definitional
+      collision with @game Console doesn't badge); new Interface group:
+      `disableControls`, `pauseMenuEntry`, `vanillaKeyConflicts` (defaults
+      mirror the old shipped config: true/true/true).
+      **Deviation: `pauseMenuEntry` ships WITHOUT `requires:"reload"`** — the
+      Scaleform inject runs per pause-menu open behind a Tick gate, so the
+      toggle is live by construction (applies on the next pause-menu open).
+- [x] `src/runtime/Runtime.cpp` — `OnSettingChanged` cases: `consoleKey`
+      re-resolves into the now-ATOMIC `_consoleKey` (read on the window
+      thread); `disableControls` mutates live (ReconcileControlLayer already
+      runs every tick with the release-on-disable shape); `pauseMenuEntry`
+      mutates live; `vanillaKeyConflicts` → new `ApplyVanillaKeyConflicts`
+      (lazy: table loads on first ENABLE — a persisted off never pays the
+      parse; disable clears the store's table; either way the new
+      `SettingsModule::BroadcastData()` re-syncs open views, since
+      SetVanillaKeys bumps no generation). The old eager Initialize-time
+      vanilla load is gone — the OnStart NotifyAll replay drives it.
+- [x] `src/runtime/VanillaKeys.{h,cpp}` — `OverlayUserFile`: `add` (new rows),
+      `replace` (rebind + optional relabel, case-insensitive event match),
+      `suppress` (row removed — also leaves the keybinds full map);
+      unknown events / unresolvable keys / duplicate adds WARN (typo
+      diagnostics); applied AFTER the controlmap overlays (user's word is
+      final). Discovery: `Documents/My Games/Starfield/OSFUI/
+      vanillakeys.user.json`.
+- [x] README config section rewritten (dev-file framing, `configVersion` row,
+      moved-knob pointer, pauseMenuEntryLabel/View demoted to one dev row);
+      troubleshooting.md gains "Where are my settings?" + the
+      vanillakeys.user.json recipe; stale `OSF UI` values-path and "MOD
+      SETTINGS" label references fixed.
+- [ ] Keybinds view: badge user-overlaid vanilla rows — SKIPPED (nice-to-
+      have, not release-gating; the runtime doesn't currently mark overlay
+      provenance in the vanillaKeys table).
+- [x] Tests: `vanilla_keys_tests` +16 checks (add/replace/suppress round
+      trip, every typo diagnostic, malformed/missing overlay no-ops).
 
 ---
 
-## 8. Format-version stamps + diagnostics — ✅ designed (2026-07-17)
+## 8. Format-version stamps + diagnostics — 🔨 implemented (2026-07-17)
 
 *(Engineering design — no user forks.)*
 
@@ -500,12 +529,35 @@ becomes a default with zero log output; no migration hook exists for renames.
 
 ### Implementation checklist
 
-- [ ] `src/core/Config.cpp`, `src/runtime/VanillaKeys.cpp`,
-      `src/runtime/SettingsStore.cpp` (persist path), `ViewManifest.cpp` —
-      stamps + version-compare hook.
-- [ ] `src/runtime/Json.cpp` — an opt-in "known keys" check helper for the
-      WARN-always files.
-- [ ] Docs: schema files + authoring-views note the stamps.
+- [x] Stamps + version-compare hooks: `config.json` `configVersion: 1`
+      (`Config::kConfigVersion`; newer → INFO + lenient);
+      `vanillakeys.json` + `vanillakeys.user.json` `formatVersion: 1`
+      (`VanillaKeys::kFormatVersion`); values files `$formatVersion: 1`
+      written on rewrite (`SparseValues` stamps `Mod::formatVersion` =
+      max(known, loaded) so a NEWER host's stamp round-trips undowngraded;
+      the load-time compare tolerates a missing stamp, so stamping alone
+      NEVER dirties an existing file — the item-2 byte-identical clean-load
+      guarantee holds, proven by test). Manifests: optional
+      `manifestVersion` accepted (newer → INFO), not required.
+      **Refinement:** `$`-prefixed keys are the reserved meta namespace —
+      the two owned stamps are excluded from the preserved bag; any OTHER
+      `$`-key (a future format's meta) is preserved verbatim like unknown
+      settings.
+- [x] `src/runtime/Json.{h,cpp}` — `ReportUnknownKeys(obj, known, source,
+      warn)`: WARN for host-owned files (config.json, vanillakeys*.json — a
+      typo), INFO for author files (callers gate on devMode: manifests +
+      settings-schema top level). `$`-keys skipped (meta + editor
+      $schema/$comment).
+- [x] Docs: manifest.schema.json gains `manifestVersion` +
+      `additionalProperties: true` (the item-12 row, pulled forward — item 8
+      declares unknown manifest keys the NORMAL case, so the authoring
+      schema must stop false-erroring); settings-schema.schema.json values
+      path `OSF UI` → `OSFUI` fixed (another item-12 row) + protocol ref
+      0.5; authoring-views notes the manifest leniency and the `$`-meta
+      namespace; README documents `configVersion`.
+- [x] Tests: `settings_store_tests` +$formatVersion section (stamped file
+      loads clean; v7 stamp + foreign `$futureMeta` round-trip a rewrite);
+      six exact-content assertions updated for the stamp-on-rewrite.
 
 ---
 
@@ -655,13 +707,14 @@ here only for completeness.)*
 
 - [ ] `sdk/README.md` — protocol version corrected + gate example rewritten
       capability-first (owned by item 6, which also adds the CI grep).
-- [ ] `docs/schema/settings-schema.schema.json` — values path `OSF UI` →
-      `OSFUI` (the documented path doesn't exist on disk).
-- [ ] `docs/schema/manifest.schema.json` — `additionalProperties:false` →
+- [x] `docs/schema/settings-schema.schema.json` — values path `OSF UI` →
+      `OSFUI` (the documented path doesn't exist on disk). *(Landed with
+      slice 5.)*
+- [x] `docs/schema/manifest.schema.json` — `additionalProperties:false` →
       `true`: the runtime parser is lenient and item 8 declares unknown
       manifest keys the *normal* compatible case, so the authoring schema must
       stop flagging them (it already false-errored on the shipped `mod`
-      field).
+      field). *(Landed with slice 5's item 8.)*
 - [ ] `sdk/OSFUI_API.h` — reserved-prefix prose replaced by the item-3
       command-shape rule; stale protocol example strings; REX include guard,
       lifetime/threading contract lines (owned by item 4).
@@ -697,6 +750,11 @@ parity) and item 10's d.ts documentation rows. Build green, all 8 suites pass
 envelope. In-game verify for slice 4 pending. OSF Animation needs NO change
 for 0.5 (its commands get delivered-acks automatically; its view assigns its
 own `onMessage`, which is fine without the helper).
+**Slice 5 (items 7+8) implemented 2026-07-17**: config.json demoted to a
+dev/boot file (user knobs → the osfui schema; dead `focusKey` dropped),
+vanillakeys user overlay, format stamps + unknown-key diagnostics
+(+ two item-12 schema-doc rows pulled forward). Build green, all 8 suites
+pass (store 215, vanilla 32). In-game verify for slices 4+5 pending.
 Dependency-ordered implementation slices:
 
 1. **Item 1** — ID namespacing + nested layout (everything else keys off the

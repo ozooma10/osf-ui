@@ -47,6 +47,26 @@ namespace OSFUI
 		// silent no-op. Returns the number of rows applied.
 		std::size_t OverlayControlMap(const std::filesystem::path& a_path, const ScanResolver& a_scan);
 
+		// Format stamp for vanillakeys.json + vanillakeys.user.json
+		// (api-freeze-plan item 8): a file declaring a NEWER version parses
+		// leniently with an INFO; unknown keys WARN (host-owned/host-format
+		// files — a typo, not version skew).
+		static constexpr std::int64_t kFormatVersion = 1;
+
+		// The user's ADDITIVE overlay (api-freeze-plan item 7):
+		// Documents/My Games/Starfield/OSFUI/vanillakeys.user.json —
+		//   { "formatVersion": 1,
+		//     "add":      [ { "event", "label", "key" } ],   new rows
+		//     "replace":  [ { "event", "key", "label"? } ],  rebind an existing row
+		//     "suppress": [ "EventName", ... ] }             remove rows
+		// Fixes survive OSF UI updates (the file lives under Documents), and
+		// untouched shipped rows keep receiving upstream corrections. Rows with
+		// an unresolvable key, and replace/suppress naming an unknown event,
+		// WARN (a typo — the shipped table is the event-id source of truth).
+		// A missing file is a silent no-op. Returns the number of rows touched.
+		// Apply AFTER the controlmap overlays: the user's word is final.
+		std::size_t OverlayUserFile(const std::filesystem::path& a_path, const NameResolver& a_names);
+
 		// All rows; one unbound by an overlay (0xff) carries vk == 0 —
 		// consumers skip those. SettingsStore::SetVanillaKeys takes {label, vk}.
 		[[nodiscard]] const std::vector<Binding>& Bindings() const { return _bindings; }

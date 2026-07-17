@@ -209,9 +209,12 @@ namespace OSFUI
 		if (_toggleKey != kInvalidKeyCode) {
 			REX::INFO("Runtime: toggleKey '{}' resolved to VK code {:#x}", _config.toggleKey, _toggleKey);
 		}
-		_consoleKey = ResolveKeyName(_config.consoleKey);
-		if (_consoleKey != kInvalidKeyCode) {
-			REX::INFO("Runtime: consoleKey '{}' resolved to VK code {:#x} (passed through to the game so the console opens while the overlay is up)", _config.consoleKey, _consoleKey);
+		// Boot default; the persisted MCM value (osfui.consoleKey) re-resolves
+		// through OnSettingChanged during the OnStart replay (item 7).
+		const auto bootConsoleVk = ResolveKeyName(_config.consoleKey);
+		_consoleKey.store(bootConsoleVk);
+		if (bootConsoleVk != kInvalidKeyCode) {
+			REX::INFO("Runtime: consoleKey '{}' resolved to VK code {:#x} (passed through to the game so the console opens while the overlay is up)", _config.consoleKey, bootConsoleVk);
 		}
 		// Dev view-reload key (mcm-design.md §12.1): resolved only in devMode
 		// — kInvalid is the whole gate in OnHostKey, so a user config with the
@@ -839,7 +842,7 @@ namespace OSFUI
 		// edge, if the overlay is capturing, dismiss it so the console (which we
 		// composite over at Present) isn't left hidden behind the overlay. When the
 		// overlay is already closed this is a plain pass-through, matching gameplay.
-		if (_consoleKey != kInvalidKeyCode && a_vkCode == _consoleKey) {
+		if (const auto consoleVk = _consoleKey.load(); consoleVk != kInvalidKeyCode && a_vkCode == consoleVk) {
 			if (a_down && IsInputCaptured()) {
 				EnqueueMenuRequest(MenuReq::CloseAll);
 			}
@@ -1144,35 +1147,10 @@ namespace OSFUI
 		// never fire a hotkey.
 		store.SetKeyNameResolver(ResolveKeyName);
 
-		// Vanilla hotkeys (mcm-design.md §9, v1 — no engine RE): the game's
-		// own bindings join the informational conflict grouping as "@game"
-		// pseudo-entries. Defaults come from the curated shipped table (the
-		// engine bakes its defaults into the executable — no controlmap ships
-		// in the archives), then the SAME controlmap text files the engine
-		// honors overlay it: a mod-provided Data override, then the user's
-		// in-game remaps. Load-time snapshot; live ControlMap reads await RE.
-		if (_config.vanillaKeyConflicts) {
-			VanillaKeys vanilla;
-			if (vanilla.LoadDefaults(Paths::DataDir() / "vanillakeys.json", ResolveKeyName)) {
-				const auto scanToVk = [](std::uint32_t a_sc) { return Platform::DirectInputScanToVk(a_sc); };
-				// DataDir = <Data>/SFSE/Plugins/OSFUI; under MO2 the module
-				// path is virtualized, so this resolves through the VFS too.
-				const auto gameData = Paths::DataDir().parent_path().parent_path().parent_path();
-				vanilla.OverlayControlMap(gameData / "Interface" / "Controls" / "PC" / "ControlMap.txt", scanToVk);
-				if (!docs.empty()) {
-					vanilla.OverlayControlMap(docs / "My Games" / "Starfield" / "ControlMap_Custom.txt", scanToVk);
-				}
-				std::vector<SettingsStore::VanillaKey> keys;
-				for (const auto& b : vanilla.Bindings()) {
-					if (b.vk != 0) {
-						// name AFTER the overlays: a rebound event displays
-						// its live key, not the curated default's spelling.
-						keys.push_back({ b.event, "Starfield (" + b.label + ")", b.vk, KeyName(b.vk) });
-					}
-				}
-				store.SetVanillaKeys(std::move(keys));
-			}
-		}
+		// Vanilla hotkeys (mcm-design.md §9): NOT loaded here — the
+		// osfui.vanillaKeyConflicts setting is MCM-owned (item 7), so the
+		// OnStart NotifyAll replay drives ApplyVanillaKeyConflicts with the
+		// persisted value (default on → loads then; off → never pays the parse).
 
 		_hotkeys.SetSuppression([this] { return IsInputCaptured() || _captureArmed.load(); });
 		store.AddChangeListener([this](std::string_view a_mod, std::string_view a_key, const nlohmann::json&) {
@@ -1422,6 +1400,94 @@ namespace OSFUI
 			ApplyToggleKey();
 			REX::INFO("Runtime: setting osfui.toggleKey -> {} (VK {:#x})", name, vk);
 		}
+		// Console pass-through key (item 7, MCM-owned). "" = deliberately
+		// unbound (allowUnbound) = pass-through off. The VK is read on the
+		// WINDOW thread (OnHostKey), hence the atomic.
+		else if (a_key == "consoleKey" && a_value.is_string()) {
+			const auto name = a_value.get<std::string>();
+			if (name.empty()) {
+				_config.consoleKey.clear();
+				_consoleKey.store(kInvalidKeyCode);
+				REX::INFO("Runtime: setting osfui.consoleKey unbound — console pass-through disabled");
+				return;
+			}
+			const auto vk = ResolveKeyName(name);
+			if (vk == kInvalidKeyCode) {
+				REX::WARN("Runtime: setting osfui.consoleKey '{}' is not a resolvable key; keeping '{}'", name, _config.consoleKey);
+				return;
+			}
+			_config.consoleKey = name;
+			_consoleKey.store(vk);
+			REX::INFO("Runtime: setting osfui.consoleKey -> {} (VK {:#x})", name, vk);
+		}
+		// Engine control freeze (item 7, MCM-owned). Live both ways:
+		// ReconcileControlLayer runs EVERY tick with
+		// `wantEngaged = disableControls && DesiredCapture()`, so flipping off
+		// releases an engaged lock instead of stranding controls.
+		else if (a_key == "disableControls" && a_value.is_boolean()) {
+			_config.disableControls = a_value.get<bool>();
+			REX::INFO("Runtime: setting osfui.disableControls -> {}", _config.disableControls);
+		}
+		// Pause-menu entry (item 7, MCM-owned). Live by construction: the
+		// Scaleform inject runs per pause-menu open (Tick gates Reconcile on
+		// this flag), so the change applies the next time the menu opens.
+		else if (a_key == "pauseMenuEntry" && a_value.is_boolean()) {
+			_config.pauseMenuEntry = a_value.get<bool>();
+			REX::INFO("Runtime: setting osfui.pauseMenuEntry -> {} (applies the next time the pause menu opens)", _config.pauseMenuEntry);
+		}
+		// Vanilla key-conflict data (item 7, MCM-owned). Lazy build / clear.
+		else if (a_key == "vanillaKeyConflicts" && a_value.is_boolean()) {
+			_config.vanillaKeyConflicts = a_value.get<bool>();
+			ApplyVanillaKeyConflicts(_config.vanillaKeyConflicts);
+		}
+	}
+
+	void Runtime::ApplyVanillaKeyConflicts(bool a_enabled)
+	{
+		if (!_settings || a_enabled == _vanillaKeysApplied) {
+			return;  // no store, or already in the requested state
+		}
+		_vanillaKeysApplied = a_enabled;
+		auto& store = _settings->Store();
+		if (!a_enabled) {
+			store.SetVanillaKeys({});
+			REX::INFO("Runtime: vanilla key-conflict data disabled");
+		} else {
+			// The game's own bindings join the informational conflict grouping
+			// as "@game" pseudo-entries (mcm-design.md §9, v1 — no engine RE).
+			// Defaults come from the curated shipped table (the engine bakes
+			// its defaults into the executable — no controlmap ships in the
+			// archives); the SAME controlmap text files the engine honors
+			// overlay it (a mod-provided Data override, then the user's in-game
+			// remaps); finally the user's additive OSF UI overlay
+			// (vanillakeys.user.json, item 7) — fixes survive updates while
+			// untouched rows keep receiving upstream corrections.
+			VanillaKeys vanilla;
+			if (vanilla.LoadDefaults(Paths::DataDir() / "vanillakeys.json", ResolveKeyName)) {
+				const auto scanToVk = [](std::uint32_t a_sc) { return Platform::DirectInputScanToVk(a_sc); };
+				// DataDir = <Data>/SFSE/Plugins/OSFUI; under MO2 the module
+				// path is virtualized, so this resolves through the VFS too.
+				const auto gameData = Paths::DataDir().parent_path().parent_path().parent_path();
+				vanilla.OverlayControlMap(gameData / "Interface" / "Controls" / "PC" / "ControlMap.txt", scanToVk);
+				const auto docs = Platform::GetDocumentsPath();
+				if (!docs.empty()) {
+					vanilla.OverlayControlMap(docs / "My Games" / "Starfield" / "ControlMap_Custom.txt", scanToVk);
+					vanilla.OverlayUserFile(docs / "My Games" / "Starfield" / "OSFUI" / "vanillakeys.user.json", ResolveKeyName);
+				}
+				std::vector<SettingsStore::VanillaKey> keys;
+				for (const auto& b : vanilla.Bindings()) {
+					if (b.vk != 0) {
+						// name AFTER the overlays: a rebound event displays
+						// its live key, not the curated default's spelling.
+						keys.push_back({ b.event, "Starfield (" + b.label + ")", b.vk, KeyName(b.vk) });
+					}
+				}
+				store.SetVanillaKeys(std::move(keys));
+			}
+		}
+		// The conflict annotations live inside the settings document —
+		// re-sync any open view (no-op with no subscribers, e.g. at boot).
+		_settings->BroadcastData();
 	}
 
 	void Runtime::OnOutputResized(std::uint32_t a_width, std::uint32_t a_height)

@@ -20,4 +20,13 @@ namespace OSFUI::Json
 	[[nodiscard]] std::string GetString(const Value& a_obj, std::string_view a_key, std::string_view a_default);
 	[[nodiscard]] bool        GetBool(const Value& a_obj, std::string_view a_key, bool a_default);
 	[[nodiscard]] std::int64_t GetInt(const Value& a_obj, std::string_view a_key, std::int64_t a_default);
+
+	// Typo/format-skew diagnostics (api-freeze-plan item 8): log every key of
+	// a_obj that is not in a_known. The CALLER picks the level via a_warn —
+	// true = WARN (host-owned files: config.json, vanillakeys*.json — there is
+	// no legitimate version-skew source of unknown keys, so an unknown key is
+	// a typo); false = INFO (author-shipped files — a newer mod on an older
+	// host makes unknown keys the NORMAL compatible case; call gated on
+	// devMode). Never rejects — lenient parsing stays the contract.
+	void ReportUnknownKeys(const Value& a_obj, std::initializer_list<std::string_view> a_known, std::string_view a_sourceName, bool a_warn);
 }

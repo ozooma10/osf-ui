@@ -74,14 +74,21 @@ Logs go to the standard SFSE log folder
 
 ## Config
 
-`OSFUI/config.json` (missing file ⇒ built-in defaults, logged):
+**User-facing settings live in the in-game menu** (F10 → OSF UI): the
+open/close key, the console pass-through key, the gameplay-control freeze, the
+pause-menu entry, and the game-key collision warnings. They persist under
+`Documents\My Games\Starfield\OSFUI\settings\osfui.json` and survive updates.
+
+`OSFUI/config.json` is the **developer/boot file** — backends, input source,
+diagnostic escape hatches, the view set. It ships with the mod and is
+overwritten on update; it holds no user-facing keys. Missing file ⇒ built-in
+defaults (logged); unknown keys warn (they can only be typos); a
+`configVersion` stamp marks the format:
 
 | field | default | meaning |
 |---|---|---|
+| `configVersion` | `1` | format stamp; files written for a newer OSF UI parse leniently with a log note |
 | `enabled` | `true` | master switch |
-| `toggleKey` | `"F10"` | key name resolved to a Windows virtual-key code by a built-in table (F1–F24, letters/digits, and named keys like `Tab`/`Escape`; unresolvable names disable the toggle with a log warning) |
-| `focusKey` | `"Tab"` | cycles the active (input) view when more than one *interactive* view is hosted; passes through normally otherwise |
-| `consoleKey` | `"Grave"` | the game's console key. While the overlay captures input this key is passed straight through to the game (and dismisses the overlay so the console isn't left hidden behind it). `Grave` = VK_OEM_3 (grave/tilde) on US layouts — retarget for other layouts/rebinds; empty string disables the pass-through |
 | `startVisible` | `false` | initial overlay visibility state |
 | `renderer` | `"mock"` | `null` \| `mock` \| `ultralight` (real offscreen backend; shipped config uses it — falls back to `null` with a warning in Ultralight-free builds) |
 | `compositor` | `"null"` | `null` \| `d3d12` — the real overlay path (uploads to the game's D3D12 device, draws at present time; verified in-game). Shipped config uses `d3d12` |
@@ -90,8 +97,7 @@ Logs go to the standard SFSE log folder
 | `hardwareCursor` | `true` | show the real Windows (hardware) pointer while the overlay captures input — zero-lag, framerate-independent, and the page's CSS `cursor` maps to the matching system cursor. `false` falls back to the legacy raw-delta virtual cursor, which has **no visible pointer** (debugging escape hatch only) |
 | `focusMenu` | `true` | Register a real engine menu (`OSFUI_FocusMenu`) and open/close it with the overlay so the engine enters menu mode (cursor ownership + menu-stack presence + engine-routed input) rather than relying only on the WndProc message-swallow. On by default; **verified in-game on 1.16.244** — registration, Route-A stack admission, long-session survival, and clean post-close teardown (see `src/core/Config.h` and [docs/reverse-engineering-notes.md](docs/reverse-engineering-notes.md) §4). Set `false` if another overlay fights the engine menu stack |
 | `engineInput` | `true` | Bring the engine's per-menu input dispatch — including **gamepad**, which the WndProc never sees — into the runtime and route it into the focused view (D-pad/left-stick → move focus, A → activate, B → close, right-stick → scroll), plus raw `ui.gamepad` events a page can opt into via `osfui.gamepadRaw`. On by default; delivery + routing verified in-game on 1.16.244 with a controller. Keyboard/mouse stay on the WndProc path |
-| `pauseMenuEntry` | `true` | Inject a **"MOD SETTINGS"** entry into the game's pause menu (live Scaleform manipulation — no SWF edit, no conflict with UI-overhaul mods) that opens the overlay when pressed. On by default; inject + click verified in-game on 1.16.244. Label/target are `pauseMenuEntryLabel` / `pauseMenuEntryView` |
-| `disableControls` | `true` | While a menu captures input, disable player controls through the engine input-enable layer (`BSInputEnableManager`) — this also stops gamepad/XInput, which the WndProc hook never sees. **Proven live on 1.16.244 with a controller** (keyboard, mouse-look, and gamepad sticks all freeze and restore cleanly). On by default; `false` is a diagnostic escape hatch (config.json only, not a user-facing setting) for the rare case where another overlay fights the input layer |
+| `pauseMenuEntryLabel` / `pauseMenuEntryView` | `"MOD MENUS"` / `"osfui/settings"` | label and target of the pause-menu entry (the entry's on/off switch itself is a user setting in Mod Settings) |
 | `view` | `"osfui/settings"` | the active (input) view the toggle key opens — a qualified `<modId>/<viewName>` id from `views/<modId>/<viewName>/manifest.json` (shipped config uses `osfui/settings`, the Mods surface) |
 | `views` | `[]` | optional multi-view set: every id is loaded and composited (layer order = each view's manifest `zorder`), and `view` must be one of them (the interactive one). Empty ⇒ only `view` loads. Missing ids are skipped with a log line. Shipped config uses `["osfui/settings", "osfui/keybinds"]` |
 | `allowNetwork` | `false` | recognized but force-disabled |

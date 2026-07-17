@@ -152,6 +152,67 @@ int main()
 		CHECK(keys.OverlayControlMap(root / "absent.txt", FakeScan) == 0);
 	}
 
+	// --- OverlayUserFile: the additive user overlay (api-freeze item 7) -----------
+	{
+		VanillaKeys keys;
+		WriteFile(root / "vanillakeys.json", R"json({ "formatVersion": 1, "bindings": [
+			{ "event": "QuickSave", "label": "Quicksave", "key": "F5" },
+			{ "event": "QuickLoad", "label": "Quickload", "key": "F9" },
+			{ "event": "Activate", "label": "Interact", "key": "E" },
+			{ "event": "Console", "label": "Console", "key": "Grave" }
+		] })json");
+		CHECK(keys.LoadDefaults(root / "vanillakeys.json", FakeNames));
+
+		// add (new row), replace (rebind + optional relabel), suppress (drop),
+		// plus every typo diagnostic: unknown replace/suppress events, an
+		// unresolvable key, an add colliding with an existing event.
+		WriteFile(root / "vanillakeys.user.json", R"json({
+			"formatVersion": 1,
+			"add": [
+				{ "event": "PhotoMode", "label": "Photo mode", "key": "F9" },
+				{ "event": "QuickSave", "label": "Duplicate", "key": "E" },
+				{ "event": "BadKey", "label": "Nope", "key": "NotAKey" },
+				{ "label": "" }
+			],
+			"replace": [
+				{ "event": "quicksave", "key": "E", "label": "Quicksave (moved)" },
+				{ "event": "Ghost", "key": "E" },
+				{ "event": "QuickLoad", "key": "NotAKey" }
+			],
+			"suppress": [ "Console", "AlsoGhost" ],
+			"unexpectedKey": 1
+		})json");
+
+		CHECK(keys.OverlayUserFile(root / "vanillakeys.user.json", FakeNames) == 3);  // add + replace + suppress
+		CHECK(keys.Bindings().size() == 4);            // 4 - Console + PhotoMode
+		CHECK(VkOf(keys, "Console") == 0);             // suppressed = gone
+		CHECK(VkOf(keys, "PhotoMode") == 0x78);        // added
+		CHECK(VkOf(keys, "QuickSave") == 0x45);        // replaced (case-insensitive event match)
+		CHECK(VkOf(keys, "QuickLoad") == 0x78);        // unresolvable replace: unchanged
+		{
+			bool relabeled = false;
+			for (const auto& b : keys.Bindings()) {
+				relabeled = relabeled || b.label == "Quicksave (moved)";
+			}
+			CHECK(relabeled);
+		}
+		for (const auto* needle : { "unknown key 'unexpectedKey'", "replaces unknown event 'Ghost'",
+		                            "suppresses unknown event 'AlsoGhost'", "unresolvable key 'NotAKey'",
+		                            "adds event 'QuickSave' which already exists" }) {
+			bool logged = false;
+			for (const auto& entry : REX::test::Entries()) {
+				logged = logged || entry.find(needle) != std::string::npos;
+			}
+			CHECK(logged);
+		}
+
+		// Missing overlay: silent no-op. Malformed: warned no-op.
+		CHECK(keys.OverlayUserFile(root / "absent.user.json", FakeNames) == 0);
+		WriteFile(root / "badly.user.json", "[]");
+		CHECK(keys.OverlayUserFile(root / "badly.user.json", FakeNames) == 0);
+		CHECK(keys.Bindings().size() == 4);
+	}
+
 	fs::remove_all(root);
 	std::fprintf(stderr, "vanilla_keys_tests: %d checks, %d failure(s)\n", g_checks, g_failures);
 	return g_failures;

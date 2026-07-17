@@ -1,5 +1,6 @@
 #include "runtime/ViewManifest.h"
 
+#include "core/Log.h"
 #include "runtime/Ids.h"
 #include "runtime/Json.h"
 
@@ -11,6 +12,23 @@ namespace OSFUI
 		if (!json || !json->is_object()) {
 			REX::ERROR("ViewManifest: {} is not a valid JSON object", a_path.string());
 			return std::nullopt;
+		}
+
+		// Format bookkeeping (api-freeze-plan item 8). `manifestVersion` is
+		// accepted but not required — the nested views/<mod>/<view>/ layout
+		// (item 1) is itself the v2 discriminator. Unknown keys are the NORMAL
+		// compatible case for author-shipped files (a newer mod on an older
+		// host), so they surface as devMode INFO, never a warning.
+		if (const auto v = Json::GetInt(*json, "manifestVersion", 1); v > 1) {
+			REX::INFO("ViewManifest: {} declares manifestVersion {} — authored for a newer OSF UI; unknown fields are ignored",
+				a_path.string(), v);
+		}
+		if (Log::DevMode()) {
+			Json::ReportUnknownKeys(*json,
+				{ "manifestVersion", "id", "mod", "title", "description", "hub", "entry",
+					"width", "height", "transparent", "zorder", "interactive", "kind",
+					"capturesInput", "pausesGame", "openOnStart", "order", "permissions" },
+				"ViewManifest: " + a_path.string(), /*a_warn=*/false);
 		}
 
 		// The path IS the identity (api-freeze-plan item 1): the manifest lives

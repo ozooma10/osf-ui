@@ -3,6 +3,9 @@
   "title": "OSF UI",
   "description": "Runtime and overlay behavior for the OSF UI framework itself.",
   "version": 1,
+  "inputContexts": [
+    { "id": "overlay", "label": "While the overlay is open", "blocksGameplay": true }
+  ],
   "groups": [
     {
       "label": "Input",
@@ -13,6 +16,41 @@
           "type": "key",
           "default": "F10",
           "hint": "Press to rebind the key that opens and closes the overlay."
+        },
+        {
+          "key": "consoleKey",
+          "label": "Game console key",
+          "type": "key",
+          "default": "Grave",
+          "allowUnbound": true,
+          "inputContext": "overlay",
+          "hint": "Passed straight through while the overlay is open, so the game console still opens. Match your console binding; unbind to disable the pass-through."
+        }
+      ]
+    },
+    {
+      "label": "Interface",
+      "settings": [
+        {
+          "key": "disableControls",
+          "label": "Freeze gameplay controls",
+          "type": "bool",
+          "default": true,
+          "hint": "Stop player controls (including gamepad) through the engine while the overlay is open."
+        },
+        {
+          "key": "pauseMenuEntry",
+          "label": "Pause-menu entry",
+          "type": "bool",
+          "default": true,
+          "hint": "Add a MOD MENUS entry to the game's pause menu."
+        },
+        {
+          "key": "vanillaKeyConflicts",
+          "label": "Warn about game-key collisions",
+          "type": "bool",
+          "default": true,
+          "hint": "Badge mod hotkeys that collide with Starfield's own bindings."
         }
       ]
     }

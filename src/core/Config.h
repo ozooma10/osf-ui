@@ -2,19 +2,31 @@
 
 namespace OSFUI
 {
-	// Mirrors data/OSFUI/config.json. Unknown/missing/invalid fields
-	// fall back to these defaults; a missing file is logged, not fatal.
+	// Mirrors data/OSFUI/config.json — the DEVELOPER/boot file (api-freeze-plan
+	// item 7): backends, input source, diagnostic escape hatches, view set, dev
+	// knobs. It is mod-owned and clobbered on update; it holds NO user-facing
+	// keys — those live in the `osfui` settings schema
+	// (data/OSFUI/settings/osfui.json) and persist under Documents. Unknown/
+	// missing/invalid fields fall back to these defaults; a missing file is
+	// logged, not fatal; unknown keys WARN (host-owned file — a typo, item 8).
 	struct Config
 	{
+		// Format stamp (item 8): bumped only on a breaking config re-shape; a
+		// file written by a newer OSF UI logs INFO and parses leniently.
+		static constexpr std::int64_t kConfigVersion = 1;
+
 		bool        enabled{ true };
+		// --- MCM-owned knobs (item 7). NOT parsed from config.json — the
+		// `osfui` schema is the sole owner and Runtime::OnSettingChanged
+		// mutates these fields live (they double as pre-replay boot defaults,
+		// so they MUST equal the schema defaults).
 		std::string toggleKey{ "F10" };  // key name -> Windows VK code (ResolveKeyName); consumed by the WndProc hook, verified in-game
-		std::string focusKey{ "Tab" };   // cycles the active (input) view when >1 interactive view is hosted
 		// The game's console key. While the overlay captures input, the WndProc
 		// hook would otherwise swallow it and the console would never open; the
 		// runtime instead passes this key straight through to the game (and
 		// dismisses the overlay so the console isn't left behind it). VK_OEM_3
-		// (grave/tilde) on US layouts; retarget for other layouts / rebinds. See
-		// Runtime::OnHostKey. Set empty to disable the pass-through.
+		// (grave/tilde) on US layouts; rebind in Mod Settings for other
+		// layouts. Unbound ("") disables the pass-through.
 		std::string consoleKey{ "Grave" };
 		bool        startVisible{ false };
 		std::string renderer{ "mock" };    // "null" | "mock" | "ultralight"
@@ -44,7 +56,8 @@ namespace OSFUI
 		// window hook never sees. On by default. Proven live on 1.16.244 with a
 		// controller (keyboard + mouse-look + gamepad sticks all froze and
 		// restored cleanly; OSF RE 2026-06-13-input-enable-layer-control-disable).
-		// See input/ControlLayer.h.
+		// See input/ControlLayer.h. MCM-owned (item 7) — not parsed from
+		// config.json; live via Runtime::OnSettingChanged.
 		bool        disableControls{ true };
 		// Level-2 engine-routed input: patch the focus menu's +0x10
 		// BSInputEventUser vtable so the engine's per-menu input dispatch —
@@ -70,8 +83,8 @@ namespace OSFUI
 		// Include the game's own key bindings in the informational key-conflict
 		// data (mcm-design §9 "vanilla hotkeys", v1): curated defaults from
 		// vanillakeys.json, overlaid by the controlmap text files the engine
-		// honors. Purely informational (warn, never block); false skips
-		// loading the table entirely.
+		// honors. Purely informational (warn, never block). MCM-owned (item 7);
+		// toggles live (the table loads lazily on first enable).
 		bool        vanillaKeyConflicts{ true };
 		std::string view{ "osfui/settings" };  // qualified "<mod>/<view>" id
 		// Optional multi-view set. When non-empty, every id is loaded and

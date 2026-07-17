@@ -359,13 +359,13 @@ int main()
 	store.FlushPersistence();
 	{
 		auto saved = nlohmann::json::parse(std::ifstream(valuesDir / "t.gamma.json"), nullptr, false);
-		CHECK((saved == nlohmann::json{ { "level", 4 }, { "fancy", true } }));  // defaults never written
+		CHECK((saved == nlohmann::json{ { "level", 4 }, { "fancy", true }, { "$formatVersion", 1 } }));  // defaults never written
 	}
 	CHECK(store.Reset("t.gamma", "level"));
 	store.FlushPersistence();
 	{
 		auto saved = nlohmann::json::parse(std::ifstream(valuesDir / "t.gamma.json"), nullptr, false);
-		CHECK((saved == nlohmann::json{ { "fancy", true } }));  // reset = key removal
+		CHECK((saved == nlohmann::json{ { "fancy", true }, { "$formatVersion", 1 } }));  // reset = key removal
 	}
 
 	// --- prune-to-default on load + teardown flush ---------------------------------
@@ -391,13 +391,13 @@ int main()
 			s2.PumpPersistence(SettingsStore::kPersistDelaySeconds);  // load opened a rewrite window
 			{
 				auto saved = nlohmann::json::parse(std::ifstream(valuesDir2 / "t.delta.json"), nullptr, false);
-				CHECK((saved == nlohmann::json{ { "b", true }, { "junk", 1 } }));  // frozen default pruned; unknown key preserved
+				CHECK((saved == nlohmann::json{ { "b", true }, { "junk", 1 }, { "$formatVersion", 1 } }));  // frozen default pruned; unknown key preserved
 			}
 			CHECK(s2.Set("t.delta", "n", "7"));
 			// No pump, no flush: teardown must land it.
 		}
 		auto saved = nlohmann::json::parse(std::ifstream(valuesDir2 / "t.delta.json"), nullptr, false);
-		CHECK((saved == nlohmann::json{ { "b", true }, { "junk", 1 }, { "n", 7 } }));  // ~SettingsStore flushed, opaque kept
+		CHECK((saved == nlohmann::json{ { "b", true }, { "junk", 1 }, { "n", 7 }, { "$formatVersion", 1 } }));  // ~SettingsStore flushed, opaque kept
 	}
 
 	// --- §11 renamed keys: per-setting `aliases` ----------------------------------
@@ -426,7 +426,7 @@ int main()
 		s.PumpPersistence(SettingsStore::kPersistDelaySeconds);
 		{
 			auto saved = nlohmann::json::parse(std::ifstream(vd / "t.ren.json"), nullptr, false);
-			CHECK((saved == nlohmann::json{ { "opacity", 80 }, { "size", 25 } }));  // no "alpha"/"scale" left
+			CHECK((saved == nlohmann::json{ { "opacity", 80 }, { "size", 25 }, { "$formatVersion", 1 } }));  // no "alpha"/"scale" left
 		}
 
 		// The current key present wins over any alias; an alias that fails
@@ -461,7 +461,7 @@ int main()
 		s.PumpPersistence(SettingsStore::kPersistDelaySeconds);
 		{
 			auto ver = nlohmann::json::parse(std::ifstream(vd / "t.ver.json"), nullptr, false);
-			CHECK((ver == nlohmann::json{ { "$schemaVersion", 3 }, { "n", 5 } }));  // stamp advanced, value kept
+			CHECK((ver == nlohmann::json{ { "$schemaVersion", 3 }, { "n", 5 }, { "$formatVersion", 1 } }));  // stamp advanced, value kept
 		}
 
 		// v0 mod: fresh install, all-default -> no file churn beyond none, and
@@ -616,13 +616,15 @@ int main()
 			CHECK(contents == R"json({ "vec": [1,2,3], "oldvec": [9,9,9], "mystery": {"a":1}, "n": 5 })json");
 		}
 		// A real user change rewrites the file — every opaque rides along verbatim
-		// (this is the round-trip that used to WIPE them).
+		// (this is the round-trip that used to WIPE them), and the rewrite now
+		// carries the values-format stamp (item 8; it was NOT the thing that
+		// dirtied the file — the byte-identical clean load above proved that).
 		CHECK(s.Set("t.future", "n", "9"));
 		s.FlushPersistence();
 		{
 			auto saved = nlohmann::json::parse(std::ifstream(vd / "t.future.json"), nullptr, false);
 			CHECK((saved == nlohmann::json{ { "vec", { 1, 2, 3 } }, { "oldvec", { 9, 9, 9 } },
-			                                { "mystery", { { "a", 1 } } }, { "n", 9 } }));
+			                                { "mystery", { { "a", 1 } } }, { "n", 9 }, { "$formatVersion", 1 } }));
 		}
 		// The web document serves the default too, and never the opaque bag.
 		{
@@ -710,6 +712,40 @@ int main()
 		// Clamp is SUCCESS (the ack carries the post-clamp value, not a code).
 		CHECK(s.SetWithResult("t.coded", "n", "99").ok);
 		CHECK(*s.GetValue("t.coded", "n") == 10);
+	}
+
+	// --- item 8: values-file $formatVersion stamp ---------------------------------
+	{
+		const auto sd = root / "settings-fmt";
+		const auto vd = root / "values-fmt";
+		WriteFile(sd / "t.fmt.json", R"json({
+			"id": "t.fmt",
+			"groups": [ { "settings": [ { "key": "n", "type": "int", "default": 1 } ] } ] })json");
+
+		// An already-stamped sparse file loads CLEAN (no rewrite churn).
+		WriteFile(vd / "t.fmt.json", R"json({"$formatVersion":1,"n":5})json");
+		{
+			SettingsStore s;
+			s.LoadAll(sd, vd);
+			s.FlushPersistence();
+			std::ifstream f(vd / "t.fmt.json");
+			std::string   contents((std::istreambuf_iterator<char>(f)), {});
+			CHECK(contents == R"json({"$formatVersion":1,"n":5})json");
+		}
+		// A NEWER host's stamp round-trips (never downgraded by our rewrite),
+		// and a foreign $-meta key is preserved like any unknown.
+		WriteFile(vd / "t.fmt.json", R"json({ "$formatVersion": 7, "$futureMeta": "x", "n": 5 })json");
+		{
+			SettingsStore s;
+			s.LoadAll(sd, vd);
+			CHECK(LoggedContaining("INFO", "declares format v7"));
+			CHECK(s.Set("t.fmt", "n", "6"));
+			s.FlushPersistence();
+			auto saved = nlohmann::json::parse(std::ifstream(vd / "t.fmt.json"), nullptr, false);
+			CHECK(saved["$formatVersion"] == 7);
+			CHECK(saved["$futureMeta"] == "x");
+			CHECK(saved["n"] == 6);
+		}
 	}
 
 	// --- item 11: ConflictsForSetting (the settings.changed annotation) ---------------

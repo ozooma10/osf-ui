@@ -276,6 +276,9 @@ namespace OSFUI
 			// no values loaded/served/persisted; values file untouched.
 			bool                     stub{ false };
 			std::vector<std::string> missingRequires;
+			// Values-file encoding stamp (item 8): max(build's version, the
+			// loaded file's) — a newer host's stamp survives our rewrites.
+			std::int64_t             formatVersion{ 1 };
 			std::filesystem::path valuesPath;
 			std::filesystem::path schemaPath;  // drop-in source file; empty for runtime registrations
 			// Drop-in files that also claimed this id and were skipped

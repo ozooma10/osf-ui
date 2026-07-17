@@ -103,6 +103,10 @@ UI kit at `views/shared/osfui.css` — link it as
 ```
 
 Notes:
+- **Unknown manifest keys are fine** (a manifest written for a newer OSF UI
+  parses leniently; devMode logs them at INFO). An optional
+  `"manifestVersion"` integer is accepted but not required — the nested
+  folder layout is itself the format discriminator (item 8).
 - **`width`/`height` are the page's LOGICAL size — author against it.** When the
   `d3d12` compositor is active, the runtime resizes the view to match the screen
   aspect (height-capped at 1440) **with a matching device scale**
@@ -419,6 +423,12 @@ inert stub card (values file untouched, nothing served) instead of rendering
 it half-broken. The names share one vocabulary with `runtime.ready`'s
 capability list. Hosts older than the `requires` field ignore it — declare it
 from your first release.
+
+Values files carry two reserved `$`-prefixed meta keys the host owns:
+`$schemaVersion` (your schema's `version`, stamped on write) and
+`$formatVersion` (the sparse encoding's own version, item 8). Never name a
+setting with a leading `$`; unknown `$`-keys from newer hosts round-trip like
+any preserved value.
 
 The `bool` control renders as a toggle switch, `int`/`float` as sliders with a
 value badge — see `views/shared/osfui.css` for the shared control styles.

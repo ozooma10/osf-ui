@@ -49,9 +49,38 @@ entry). The base game launcher will not load the plugin.
    `Documents\My Games\Starfield\SFSE\Logs\OSF UI.log`
    (Documents may be OneDrive-redirected.)
 
-A **"MOD SETTINGS"** entry is also injected into the game's pause menu and opens
-the overlay. If you have a controller, the menu and its panels are navigable with
-the D-pad and face buttons; **Tab** moves focus between open interactive panels.
+A **"MOD MENUS"** entry is also injected into the game's pause menu and opens
+the overlay. If you have a controller, the menu and its panels are navigable
+with the D-pad and face buttons.
+
+## Where are my settings?
+
+Everything user-facing is in the in-game menu (**F10 → OSF UI**): the
+open/close key, the console pass-through key, freezing gameplay controls while
+the overlay is open, the pause-menu entry, and game-key collision warnings.
+Choices persist to `Documents\My Games\Starfield\OSFUI\settings\` (one JSON
+per mod) and survive mod updates.
+
+`SFSE/Plugins/OSFUI/config.json` is a **developer/boot file** (renderer
+backends, diagnostic switches). It is overwritten when the mod updates, so
+don't keep personal edits there — older releases' `toggleKey` /
+`disableControls` / `consoleKey` / `pauseMenuEntry` / `vanillaKeyConflicts`
+config keys are now ignored with a log note pointing at Mod Settings.
+
+**Fixing the game-key table:** the Keybinds view's "Starfield (…)" rows come
+from a curated table (`OSFUI/vanillakeys.json`) plus your in-game rebinds. If
+a row is wrong or missing after a game patch, create
+`Documents\My Games\Starfield\OSFUI\vanillakeys.user.json` — it overlays the
+shipped table and survives updates:
+
+```json
+{
+  "formatVersion": 1,
+  "add":      [ { "event": "NewEvent", "label": "New thing", "key": "K" } ],
+  "replace":  [ { "event": "QuickSave", "key": "F6" } ],
+  "suppress": [ "Powers" ]
+}
+```
 
 ## Troubleshooting
 
@@ -74,7 +103,7 @@ Open `OSF UI.log` first — it states what happened.
 
 - Disable/remove the mod in MO2/Vortex, **or** delete `OSFUI.dll` and the
   `OSFUI/` folder from `Data/SFSE/Plugins/`.
-- Saved settings live in `Documents\My Games\Starfield\OSF UI\` — delete
+- Saved settings live in `Documents\My Games\Starfield\OSFUI\` — delete
   that folder to remove them too. OSF UI writes nothing into your save files.
 
 ## Known limitations (v0.x)
@@ -94,10 +123,8 @@ Open `OSF UI.log` first — it states what happened.
   Reports welcome.
 - **Tied to a game build** via the Address Library; a patch can require an update.
 - **Input:** text entry follows your OS keyboard layout (dead keys/AltGr
-  work), but IME composition (e.g. CJK input) is not supported yet; no
-  gamepad/controller navigation yet; with two interactive panels, `Tab`
-  switches panels (so in-panel `Tab` field navigation is overridden in that
-  mode).
+  work), but IME composition (e.g. CJK input) is not supported yet; gamepad
+  navigation is basic (D-pad/sticks/A/B) and being refined.
 - **For UI authors:** the `window.osfui` bridge API is version **0.x and
   unstable** — see [authoring-views.md](authoring-views.md). It may change between
   releases until it reaches 1.0.

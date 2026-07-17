@@ -199,6 +199,13 @@ namespace OSFUI
 		// toggle/close callbacks. Called at init and after a live rebind.
 		void ApplyToggleKey();
 
+		// Build (or clear) the vanilla-keys conflict table to match the
+		// osfui.vanillaKeyConflicts setting (api-freeze-plan item 7 — MCM-owned,
+		// toggles live). Lazy: the table loads on the first enable, so a
+		// persisted "off" never pays the parse. Re-broadcasts settings.data
+		// (the conflict annotations live in the settings document). Main thread.
+		void ApplyVanillaKeyConflicts(bool a_enabled);
+
 		// Key-rebind capture. The settings view arms capture via the
 		// `settings.captureKey` command; the NEXT key press is grabbed in
 		// OnHostKey (window thread, consumed so it can't also toggle/close) into
@@ -252,7 +259,10 @@ namespace OSFUI
 		// drained in Tick (main thread); wired in BuildModules.
 		HotkeyService                           _hotkeys;
 		KeyCode                       _toggleKey{ kInvalidKeyCode };
-		KeyCode                       _consoleKey{ kInvalidKeyCode };  // passed through to the game; see OnHostKey
+		// Passed through to the game (see OnHostKey). Atomic: read on the
+		// WINDOW thread, rebound live on MAIN (osfui.consoleKey, item 7).
+		std::atomic<KeyCode>          _consoleKey{ kInvalidKeyCode };
+		bool                          _vanillaKeysApplied{ false };  // main-thread; ApplyVanillaKeyConflicts edge detector
 		// Dev view-reload (mcm-design.md §12.1): resolved from config
 		// devReloadKey ONLY when devMode, so kInvalid doubles as the gate.
 		// The window thread raises the flag (OnHostKey), Tick drains it
