@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="../../shared/osfui.css">
   <link rel="stylesheet" href="style.css">
 </head>
-<body class="osf-ui">
+<body>
   <!-- Dims the live game behind the panel into a menu backdrop. -->
   <div class="scrim" aria-hidden="true"></div>
 
@@ -37,7 +37,7 @@
           <!-- Filled from the runtime.ready handshake; hidden until it arrives. -->
           <span id="plugin-version" class="version-badge" title="OSF UI version"></span>
         </div>
-        <label class="search-box" for="filter">
+        <label class="osf-search" for="filter">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="m16 16 4 4"></path></svg>
           <input id="filter" class="osf-input filter" type="text" placeholder="Search mods & settings" aria-label="Search mods and settings" aria-keyshortcuts="Control+F" autocomplete="off" spellcheck="false">
           <kbd>Ctrl F</kbd>
@@ -55,7 +55,7 @@
              the disk write (settings.persisted), then "Saved" fading out. -->
         <span id="save-state" class="save-state osf-eyebrow" aria-live="polite"></span>
         <button id="session-chip" type="button" class="osf-btn osf-btn--ghost osf-btn--sm session-chip" style="display:none">Undo changes (0)</button>
-        <button id="close" type="button" class="osf-btn osf-btn--ghost osf-btn--sm close-btn" aria-keyshortcuts="Escape">
+        <button id="close" type="button" class="osf-btn osf-btn--ghost osf-btn--sm osf-close" aria-keyshortcuts="Escape">
           <span>Exit control deck</span><kbd>Esc</kbd>
         </button>
       </div>

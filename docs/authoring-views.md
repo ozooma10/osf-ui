@@ -12,7 +12,7 @@ a reference for the two data-driven extension points that work today:
 > bridge protocol is at version **0.5 — unstable**; minor bumps may break
 > views until it reaches 1.0. Feature-detect via the `capabilities` array of
 > the `runtime.ready` handshake (`osfui.has()`, §3) — `bridgeVersion` is
-> informational. See the roadmap in [renderer-plan.md](renderer-plan.md).
+> informational. See [ROADMAP.md](ROADMAP.md) for what is still planned.
 
 ## 0. Ids: one grammar for everything
 
@@ -72,10 +72,28 @@ qualified id `<modId>/<viewName>` — e.g. as a `config.json` `views` entry, a
 All asset references must be **relative and stay inside your folder**.
 Absolute paths, paths with a root, and any `..` component are rejected before
 disk I/O (`SandboxFileSystem`, enforced in the renderer). The page is loaded
-as `file:///<modId>/<viewName>/<entry>`. One sanctioned exception: the shared
-UI kit at `views/shared/osfui.css` — link it as
-`../../shared/osfui.css` for the native look (it collapses to
-`file:///shared/osfui.css`).
+as `file:///<modId>/<viewName>/<entry>`. The sanctioned exceptions: the shared
+UI kit at `views/shared/osfui.css` / `osfui.js` — link them as
+`../../shared/osfui.css` (they collapse to `file:///shared/…`).
+
+### The shared UI kit — contract
+
+`shared/osfui.css` is the design system every shipped view uses. Its contract
+(api-freeze item 9):
+
+- **Everything the kit exports is prefixed**: classes `osf-*`, custom
+  properties `--osf-*`. Nothing un-prefixed is contract — your own class and
+  token names can never collide with a kit update.
+- **Linking is the opt-in, and it is all-or-nothing.** The sheet styles
+  element-level bases (body, headings, `a`, `kbd`, `::selection`, scrollbars,
+  form elements) globally — that is what a design-system base sheet is. Link
+  it for the native look, or don't link it and own all your styling; there is
+  no partial mode.
+- **Theming is one hex.** There are no theme classes; a mod's accent is its
+  schema/manifest `accent` value. Apply it to any subtree with
+  `osfui.applyAccent(el, "#e6904a")` (from `shared/osfui.js`) — it derives
+  the kit's linked accent set (`--osf-accent`, `-hover`, `-strong`,
+  `-quiet`); passing a missing/invalid value clears it.
 
 ---
 
@@ -115,7 +133,8 @@ Notes:
   manifest gets a 2.0 device scale and a CSS viewport 720 tall — type sized for
   720p stays that size on screen instead of shrinking. Width still varies with
   the screen's aspect ratio (e.g. ~1720 CSS px wide on a 21:9 display), so
-  author width-responsive CSS; the logical HEIGHT is the only fixed contract.
+  author width-responsive CSS. **The layout guarantee — versioned (protocol
+  0.5): your manifest's logical HEIGHT is the fixed contract; width is not.**
 - **`permissions.nativeBridge` must be `true`** if your page talks to the
   runtime. With it `false`, `window.osfui` is never injected and your page
   runs purely client-side.
@@ -148,19 +167,15 @@ by qualified id:
 - **Layering** is by each view's manifest `zorder` (not the array order): lower
   draws beneath, higher on top; ties keep load order. A HUD with `zorder: 100`
   always sits above a `zorder: 0` menu.
-- **Focus / input** starts on `config.view`, which must be an `interactive`
-  view. A view with `interactive: false` (a passive HUD) is never focused and
-  never receives input, even when it is the top layer.
-- **Switching focus:** when more than one `interactive` view is hosted, the
-  `focusKey` (default `Tab`) cycles which one receives input. Only the focused
-  view gets keyboard/mouse; the others keep rendering. So you can have several
-  interactive panels and Tab between them.
+- **The focus model — a versioned guarantee (protocol 0.5).** Input goes to
+  exactly one view: the **top open menu** (the single-menu stack — opening a
+  menu replaces and focuses it). A view with `interactive: false` (a passive
+  HUD) is never focused and never receives input, even when it is the top
+  layer. There is no user-facing focus-cycle key.
 - **Each bridge-enabled view (`nativeBridge: true`) has its own bridge.**
   Messages are attributed to their source view and replies route back to it, so
   several views can talk to native independently — even a passive HUD can
-  receive native pushes and post messages. Input goes to one view at a time (the
-  focused one) and the `focusKey` switches between interactive views, so a second
-  *interactive* (clickable) view works too: focus it, then click.
+  receive native pushes and post messages.
 - Each view is sized to the whole screen, so position your content with CSS and
   keep the rest transparent; the layers blend by alpha.
 
@@ -270,7 +285,7 @@ Whitelisted commands (anything else is rejected + logged, and answered with
 | `settings.set` | `mod, key, value` | set one schema-declared setting (validated) |
 | `settings.reset` | `mod`, `key?` | reset one key, or the whole mod if `key` omitted |
 | `settings.captureKey` | `mod, key` | arm native key-rebind capture for ANY `key`-typed setting of any mod; the next key press replies with `settings.captured` — echoing the arming `requestId`, however many ticks later, so `osfui.request("settings.captureKey", …, {timeoutMs: 0})` awaits the whole rebind. One capture at a time: a second arm answers `ui.result { ok:false, code:"capture-busy" }`. Captured natively so pressing the current toggle key rebinds instead of closing the overlay |
-| `osfui.gamepadRaw` | `raw: bool` | take over gamepad handling: suppress the default nav mapping and consume raw `ui.gamepad` events yourself. **Per-session** — reset when the overlay closes; re-assert on each `ui.visibility` show |
+| `osfui.gamepadRaw` | `raw: bool` | *(experimental through 0.x — gate on the `gamepad` capability)* take over gamepad handling: suppress the default nav mapping and consume raw `ui.gamepad` events yourself. **Sticky per view** — the grant survives overlay hide/show and clears only when your page (re)loads or the view is destroyed; other views never inherit it |
 
 > There is intentionally **no** "call any native function" escape hatch. New
 > commands come from native code only: either a handler in the OSF UI runtime,
@@ -296,8 +311,8 @@ are ALSO dispatched to subscribers, so one render path serves both):
 | `settings.captured` | `{ mod, key, name, cancelled, conflicts? }` | reply to `settings.captureKey`: the captured key `name` (an OSF UI key name), or `cancelled:true` (Escape / unbindable — keep the old binding). When the captured key is already bound elsewhere, `conflicts: [{mod, key, title}]` lists actionable collisions this bind would create; expected `@game` reuse from a `blocksGameplay` context is omitted. Warn live, never block. The view then sends a normal `settings.set` with `name` |
 | `ui.hotkey` | `{ mod, key }` | the physical key currently bound to that `key`-typed setting was pressed in-game (protocol 0.4). Pushed to every `settings.get` subscriber — filter on `mod`. Suppressed while the overlay captures input or a rebind is armed; rebinds re-route automatically |
 | `ui.result` | `{ ok, command?, code?, message? }` | the uniform outcome (protocol 0.5), sent ONLY when your `ui.command` carried a `requestId`: verb commands (`close`, `menu.open`, …) answer `ok:true` on success; failures carry a stable `code` (`unknown-view`, `capture-busy`, `unknown-setting`, …). A plugin-registered command acks `ok:true` = delivered to the plugin's handler. `osfui.request()` consumes this for you |
-| `ui.gamepad` | `{ kind:"button", button:{id, down} }` \| `{ kind:"stick", axes:{lx, ly, rx, ry} }` | raw gamepad events to the ACTIVE view while the overlay captures input (per-kind nesting, protocol 0.5). The default nav mapping (D-pad→arrows, A→Enter, B→close, sticks→scroll) also applies unless you asserted `osfui.gamepadRaw` |
-| `ui.visibility` | `{ visible }` | the receiving view was shown/hidden with the overlay (edge-triggered). The reference views scope per-visit state off this; also your cue to re-assert `osfui.gamepadRaw` |
+| `ui.gamepad` | `{ kind:"button", button:{id, down} }` \| `{ kind:"stick", axes:{lx, ly, rx, ry} }` | *(experimental through 0.x — gamepad navigation is being refined; gate on the `gamepad` capability)* raw gamepad events to the ACTIVE view while the overlay captures input (per-kind nesting, protocol 0.5). The default nav mapping (D-pad→arrows, A→Enter, B→close, sticks→scroll) also applies unless you asserted `osfui.gamepadRaw` |
+| `ui.visibility` | `{ visible }` | the receiving view was shown/hidden with the overlay (edge-triggered). The reference views scope per-visit state off this |
 | `ui.error` | `{ code, message, reason, type?, command? }` | the runtime rejected something you sent. `code` is a stable machine string — `malformed-message`, `unknown-message-type`, `unknown-command`; `message` is the human sentence (`reason` duplicates it through 0.x, gone at 1.0). Echoes your `requestId` when it could be read, so `osfui.request()` rejects with it. The same WARN is in `OSF UI.log` |
 
 Unknown `type`s should be ignored (never `eval`'d) — including future `type`s

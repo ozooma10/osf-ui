@@ -603,6 +603,7 @@
       mods: () => mods,
       fixtures: setFixtures,          // toggle (no arg) or set; returns state
       fixturesOn: () => fixturesOn,
+      visibility(v) { send("ui.visibility", { visible: !!v }); },  // fake a show/hide edge
     },
   };
 
@@ -615,9 +616,13 @@
   // Native greets every view on load (SendRuntimeReady) — push runtime.ready
   // proactively like the runtime does, instead of gating it behind views.get
   // (item 12: divergent boot semantics). Deferred a macrotask so the shared
-  // helper (loaded after this script) has installed its onMessage.
+  // helper (loaded after this script) has installed its onMessage. The
+  // runtime also pushes ui.visibility on show/hide edges (item 10); the
+  // harness has no real overlay, so announce "shown" once at install and
+  // expose window.osfui._mock.visibility(v) for exercising the hide path.
   setTimeout(async () => {
     send("runtime.ready", { game: "Starfield", plugin: "OSF UI",
       version: await pluginVersion, bridgeVersion: "0.5", capabilities: CAPABILITIES });
+    send("ui.visibility", { visible: true });
   }, 0);
 })();

@@ -550,7 +550,7 @@ function makeSettingRow(mod, setting, current) {
   const label = document.createElement("label");
   label.className = "row-label"; label.textContent = setting.label || setting.key; label.htmlFor = id;
   const dot = el("span", "osf-dot"); dot.title = "Changed from default";
-  if (isModified(setting, current)) dot.classList.add("on");
+  if (isModified(setting, current)) dot.classList.add("osf-on");
   labelWrap.append(label, dot);
   if (setting.requires && REQUIRES_LABEL[setting.requires]) {
     labelWrap.appendChild(el("span", "osf-badge osf-badge--warn", REQUIRES_LABEL[setting.requires]));
@@ -663,7 +663,7 @@ function buildAction(mod, item) {
   row.appendChild(textWrap);
 
   const control = el("div", "control");
-  const style = item.style === "accent" ? " osf-btn--accent" : item.style === "danger" ? " osf-btn--danger" : "";
+  const style = item.style === "accent" ? " osf-btn--osf-accent" : item.style === "danger" ? " osf-btn--danger" : "";
   const btn = el("button", "osf-btn osf-btn--sm" + style, item.label || "Run");
   btn.type = "button";
 
@@ -884,34 +884,11 @@ function renderRail() {
 
 // ---- detail ----------------------------------------------------------------
 
-// The four linked accent tokens the design system uses together. A schema
-// gives us one hex; most accent surfaces (eyebrows, readouts, hovers, quiet
-// backgrounds) read the DERIVED three, so set all four or the accent only
-// half-applies. Cleared as a set so nothing leaks onto the next mod.
-const ACCENT_TOKENS = ["--accent", "--accent-hover", "--accent-quiet", "--accent-strong"];
-function hexToRgb(hex) {
-  return [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
-}
-// Blend each channel toward a target (255 = lighten, 0 = darken) by t in [0,1].
-function mixToward(rgb, target, t) {
-  return rgb.map((c) => Math.round(c + (target - c) * t));
-}
-function rgbToHex(rgb) {
-  return "#" + rgb.map((c) => Math.max(0, Math.min(255, c)).toString(16).padStart(2, "0")).join("");
-}
-function applyAccent(node, accent) {
-  if (typeof accent === "string" && HEX_RE.test(accent)) {
-    const rgb = hexToRgb(accent);
-    node.style.setProperty("--accent", accent);
-    node.style.setProperty("--accent-hover", rgbToHex(mixToward(rgb, 255, 0.34)));
-    node.style.setProperty("--accent-strong", rgbToHex(mixToward(rgb, 0, 0.42)));
-    node.style.setProperty("--accent-quiet", `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.14)`);
-  } else {
-    // No/invalid accent: drop the whole set so it falls back to the .osf-ui
-    // default and never leaks from the previously-selected mod.
-    ACCENT_TOKENS.forEach((t) => node.style.removeProperty(t));
-  }
-}
+// Per-mod accent: one schema hex drives the kit's linked accent set. The
+// derivation lives in the shared helper (osfui.applyAccent, item 9) so views
+// and this host share one implementation; an invalid/missing hex clears the
+// set so nothing leaks onto the next mod.
+const applyAccent = (node, accent) => osfui.applyAccent(node, accent);
 
 function renderDetailHead(mod, schema, isFramework) {
   const head = el("div", "detail-head");
@@ -979,7 +956,7 @@ function surfacePanelRow(v) {
 
   const control = el("div", "control");
   const failed = v.loadState === "failed";
-  const btn = el("button", "osf-btn osf-btn--sm " + (failed ? "osf-btn--danger" : "osf-btn--accent"),
+  const btn = el("button", "osf-btn osf-btn--sm " + (failed ? "osf-btn--danger" : "osf-btn--osf-accent"),
     failed ? "Failed" : "Open");
   btn.type = "button";
   if (failed) { btn.disabled = true; btn.title = "The view failed to load; see OSF UI.log."; }
@@ -1175,7 +1152,7 @@ function homeModCaption(v) {
 
 function homePatch(accent, failed) {
   const wrap = el("span", "home-patch");
-  wrap.style.color = failed ? "var(--signal-stop)" : accent;
+  wrap.style.color = failed ? "var(--osf-signal-stop)" : accent;
   // Static markup only — no untrusted text passes through here.
   wrap.innerHTML = `<svg width="64" height="64" viewBox="0 0 200 200" aria-hidden="true">
     <circle cx="100" cy="100" r="93" fill="rgba(11,14,18,0.55)" stroke="currentColor" stroke-width="2" opacity="0.9"></circle>
@@ -1433,7 +1410,7 @@ function refreshLive(mod) {
         ? [lr.control] : lr.control.querySelectorAll("input,select,button,textarea");
       nodes.forEach((n) => { if (!n.classList.contains("pending")) n.disabled = !on; });
     }
-    if (lr.dot && lr.setting) lr.dot.classList.toggle("on", isModified(lr.setting, values[lr.setting.key]));
+    if (lr.dot && lr.setting) lr.dot.classList.toggle("osf-on", isModified(lr.setting, values[lr.setting.key]));
     if (lr.setting) lr.row.classList.toggle("is-modified", isModified(lr.setting, values[lr.setting.key]));
   }
   for (const g of liveGroups) {

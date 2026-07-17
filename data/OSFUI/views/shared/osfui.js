@@ -22,6 +22,9 @@
 //                                   immediately when no bridge is present.
 //   osfui.on(type, fn)           -> subscribe to a native->web message type;
 //                                   fn(payload, message); returns unsubscribe.
+//   osfui.applyAccent(el, hex)   -> apply a mod's `accent` hex to a subtree
+//                                   (derives the kit's linked --osf-accent-*
+//                                   set; invalid/missing hex clears it).
 //
 // The helper OWNS `osfui.onMessage` — with it loaded, never assign onMessage
 // yourself; use osfui.on(). Replies that resolve a request() ALSO dispatch to
@@ -78,6 +81,27 @@
     if (!set) listeners.set(type, (set = new Set()));
     set.add(fn);
     return () => set.delete(fn);
+  };
+
+  // Per-mod theming (api-freeze item 9): a schema/manifest `accent` is ONE
+  // hex; the kit reads a linked set of four tokens (accent, hover, strong,
+  // quiet), so derive and set them together on the element — or clear the
+  // whole set on a missing/invalid hex, so nothing leaks from a previously
+  // themed subtree. This is the only theming mechanism (the old theme-class
+  // enum is gone from osfui.css).
+  const ACCENT_TOKENS = ["--osf-accent", "--osf-accent-hover", "--osf-accent-quiet", "--osf-accent-strong"];
+  g.applyAccent = (el, hex) => {
+    if (typeof hex === "string" && /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(hex)) {
+      const rgb = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+      const mix = (target, t) => "#" + rgb.map((c) =>
+        Math.round(c + (target - c) * t).toString(16).padStart(2, "0")).join("");
+      el.style.setProperty("--osf-accent", hex.slice(0, 7));
+      el.style.setProperty("--osf-accent-hover", mix(255, 0.34));
+      el.style.setProperty("--osf-accent-strong", mix(0, 0.42));
+      el.style.setProperty("--osf-accent-quiet", `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.14)`);
+    } else {
+      ACCENT_TOKENS.forEach((t) => el.style.removeProperty(t));
+    }
   };
 
   g.onMessage = (json) => {

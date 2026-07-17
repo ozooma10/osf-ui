@@ -272,6 +272,12 @@ namespace OSFUI
 
 		// Registered surfaces (menus/HUDs) + open state. Mutated only on the main thread (Tick / bridge handlers).
 		MenuController                _menus;
+
+		// Views holding the gamepad raw-passthrough grant (osfui.gamepadRaw,
+		// item 10): STICKY per view — survives overlay hide/show, cleared on
+		// page (re)load and view destroy. DrainEngineInput applies the active
+		// view's flag each tick. Main thread only.
+		std::unordered_set<std::string> _gamepadRawViews;
 		// Menu requests raised off the main thread, drained in Tick. _reqMutex is a strict LEAF lock: snapshot under it, release, then act.
 		std::mutex                    _reqMutex;
 		std::vector<MenuReq>          _reqs;

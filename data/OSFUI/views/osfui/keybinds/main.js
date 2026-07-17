@@ -285,7 +285,7 @@ function holderRow(b) {
   const text = el("div", "kb-holder-text");
   const line = el("div", "kb-holder-title");
   line.appendChild(el("span", null, b.label));
-  line.appendChild(el("span", "osf-badge " + (b.kind === "game" ? "osf-badge--ghost" : "osf-badge--accent"),
+  line.appendChild(el("span", "osf-badge " + (b.kind === "game" ? "osf-badge--ghost" : "osf-badge--osf-accent"),
     b.kind === "game" ? "GAME" : b.owner));
   if (b.kind === "mod" && b.contextId !== "gameplay") {
     line.appendChild(el("span", "osf-badge kb-context", b.contextLabel));

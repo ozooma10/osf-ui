@@ -561,7 +561,7 @@ becomes a default with zero log output; no migration hook exists for renames.
 
 ---
 
-## 9. Shared CSS namespace + theming — ✅ designed (2026-07-17)
+## 9. Shared CSS namespace + theming — 🔨 implemented (2026-07-17)
 
 *(Engineering design — the schema-`accent` mechanism already won; this
 formalizes it and cleans the namespace.)*
@@ -600,17 +600,28 @@ accent tokens from one hex, `main.js` ~839-862).
 
 ### Implementation checklist
 
-- [ ] `views/shared/osfui.css` — token + class rename; delete theme enum;
-      `:root` defaults.
-- [ ] Built-in views + `devtools/harness/*` — mechanical rename.
-- [ ] `shared/osfui.js` — `applyAccent` (settings view migrates to it).
-- [ ] OSF Animation `osf` view — rename ride-along.
-- [ ] `docs/authoring-views.md` — kit contract section (prefix rule, accent
-      mechanism, link-is-opt-in).
+- [x] `views/shared/osfui.css` — every exported token renamed `--osf-*`
+      (~60 tokens, 278 refs in the kit alone); `.search-box` → `.osf-search`,
+      `.close-btn` → `.osf-close`, bare `.on` companion → `.osf-on`
+      (aria-pressed stays the primary state selector); theme-class enum
+      DELETED (`.osf-ui/.osf-animation/.osf-seduce/.osf-defeat/.osf-body`) —
+      `:root` is the OSF UI default; kit-contract statement in the header.
+- [x] Built-in views + harness — mechanical rename (settings css 211 refs,
+      keybinds css 104, JS + HTML class/markup sites, `body class="osf-ui"`
+      dropped everywhere).
+- [x] `shared/osfui.js` — `osfui.applyAccent(el, hex)` owns the one-hex →
+      four-token derivation; the settings view's local copy is now a
+      one-line delegate.
+- [ ] OSF Animation view ride-along — **NOT NEEDED (deviation):** the
+      browser view never linked the shared kit; it ships its own `:root`
+      tokens under its own names, which the kit rule doesn't govern.
+      Nothing to rename there.
+- [x] `docs/authoring-views.md` — "The shared UI kit — contract" section
+      (prefix rule, link-is-opt-in/all-or-nothing, accent mechanism).
 
 ---
 
-## 10. Undocumented load-bearing messages — ✅ designed (2026-07-17)
+## 10. Undocumented load-bearing messages — 🔨 implemented (2026-07-17)
 
 *(Engineering design.)*
 
@@ -637,11 +648,21 @@ documented only in a C++ comment.
 
 ### Implementation checklist
 
-- [ ] `src/runtime/Runtime.cpp` — gamepadRaw stickiness (per-view flag,
-      cleared on destroy).
-- [ ] `sdk/osfui.d.ts` + `docs/authoring-views.md` — all three, with
-      experimental stamps on the gamepad pair.
-- [ ] `devtools/harness/mockbridge.js` — `ui.visibility` emission.
+- [x] `src/runtime/Runtime.cpp` — gamepadRaw stickiness: per-view grant set
+      (`_gamepadRawViews`); `DrainEngineInput` applies the ACTIVE view's flag
+      each tick (a menu switch can't inherit another page's grant — stronger
+      than the design asked); cleared on page (re)load (`OnViewLoad` — a
+      fresh page starts un-granted and re-asserts in its own boot code) and
+      on view destroy; the overlay-close reset is GONE. The command now
+      answers `unknown-view` when it has no source view.
+- [x] `sdk/osfui.d.ts` + `docs/authoring-views.md` — `ui.visibility`
+      promoted (landed with slice 4's d.ts work; the stale
+      "re-assert on show" prose removed now), experimental-through-0.x
+      stamps on `ui.gamepad` + `osfui.gamepadRaw` with the `gamepad`
+      capability as the detection signal, sticky lifecycle documented.
+- [x] `devtools/harness/mockbridge.js` — `ui.visibility {visible:true}`
+      pushed at install (after runtime.ready) +
+      `window.osfui._mock.visibility(v)` for exercising hide edges.
 
 ---
 
@@ -700,13 +721,14 @@ documented only in a C++ comment.
 
 ---
 
-## 12. Doc/contract drift sweep — ✅ designed (2026-07-17)
+## 12. Doc/contract drift sweep — 🔨 implemented (2026-07-17)
 
 *(Mechanical checklist; several rows are owned by earlier items and listed
 here only for completeness.)*
 
-- [ ] `sdk/README.md` — protocol version corrected + gate example rewritten
+- [x] `sdk/README.md` — protocol version corrected + gate example rewritten
       capability-first (owned by item 6, which also adds the CI grep).
+      *(Landed with slice 4.)*
 - [x] `docs/schema/settings-schema.schema.json` — values path `OSF UI` →
       `OSFUI` (the documented path doesn't exist on disk). *(Landed with
       slice 5.)*
@@ -715,9 +737,10 @@ here only for completeness.)*
       manifest keys the *normal* compatible case, so the authoring schema must
       stop flagging them (it already false-errored on the shipped `mod`
       field). *(Landed with slice 5's item 8.)*
-- [ ] `sdk/OSFUI_API.h` — reserved-prefix prose replaced by the item-3
+- [x] `sdk/OSFUI_API.h` — reserved-prefix prose replaced by the item-3
       command-shape rule; stale protocol example strings; REX include guard,
-      lifetime/threading contract lines (owned by item 4).
+      lifetime/threading contract lines (owned by item 4; the protocol
+      strings finished with slice 4).
 - [x] `sdk/osfui.d.ts` — gains `ui.visibility`/`ui.gamepad`/`gamepadRaw`
       (item 10), `requestId`/`ui.result` (item 5), `capabilities` (item 6),
       reshapes (item 11). *(Landed with the slice-4 lockstep.)*
@@ -728,9 +751,13 @@ here only for completeness.)*
       required); `settings.reset` parity with native (suppress per-key
       `settings.changed`, reply one `settings.data`). *(All three landed with
       slice 4 — the helper's `ready` promise depends on the first.)*
-- [ ] `docs/authoring-views.md` — the focus model (`Tab` cycle, focused-view
-      input) and the layout guarantee (720 logical height, width varies with
-      aspect) promoted from prose to explicitly versioned guarantees.
+- [x] `docs/authoring-views.md` — the focus model and the layout guarantee
+      promoted to explicitly versioned guarantees (protocol 0.5).
+      **Correction along the way:** the old prose promised a `Tab`
+      focus-cycle that no longer exists (focusKey was dead code, dropped in
+      slice 5) — the guaranteed model is "input goes to the top open menu;
+      HUDs never receive input; no focus-cycle key". Troubleshooting's Tab
+      claims were scrubbed in slice 5.
 
 ---
 
@@ -754,7 +781,15 @@ own `onMessage`, which is fine without the helper).
 dev/boot file (user knobs → the osfui schema; dead `focusKey` dropped),
 vanillakeys user overlay, format stamps + unknown-key diagnostics
 (+ two item-12 schema-doc rows pulled forward). Build green, all 8 suites
-pass (store 215, vanilla 32). In-game verify for slices 4+5 pending.
+pass (store 215, vanilla 32).
+**Slice 6 (items 9+10+12) implemented 2026-07-17 — ALL 12 ITEMS NOW
+IMPLEMENTED.** Kit namespace (`--osf-*`/`osf-*`, theme enum deleted,
+`osfui.applyAccent`; OSF Animation needed nothing — its view never linked
+the kit), gamepadRaw sticky per view, experimental stamps on the gamepad
+pair, focus/layout guarantees versioned, mock ui.visibility. Build green,
+all 8 suites pass, harness renders pixel-faithful after the rename.
+**Remaining: the in-game verify pass for slices 4–6**, then the freeze is
+done and 1.0 packaging can proceed.
 Dependency-ordered implementation slices:
 
 1. **Item 1** — ID namespacing + nested layout (everything else keys off the

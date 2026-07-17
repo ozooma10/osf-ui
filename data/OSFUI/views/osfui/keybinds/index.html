@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="../../shared/osfui.css">
   <link rel="stylesheet" href="style.css">
 </head>
-<body class="osf-ui">
+<body>
   <!-- Dims the live game behind the panel into a menu backdrop. -->
   <div class="scrim" aria-hidden="true"></div>
 
@@ -33,13 +33,13 @@
           <div class="osf-eyebrow brand-sub">INPUT MAP</div>
         </div>
       </div>
-      <label class="search-box" for="search">
+      <label class="osf-search" for="search">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="m16 16 4 4"></path></svg>
         <input id="search" class="osf-input kb-search" type="text"
           placeholder="Find a key, action, or mod" aria-label="Find a key, action, or mod" aria-keyshortcuts="Control+F" autocomplete="off" spellcheck="false">
         <kbd>Ctrl F</kbd>
       </label>
-      <button id="close" type="button" class="osf-btn osf-btn--ghost osf-btn--sm close-btn" aria-keyshortcuts="Escape"><span>Close</span><kbd>Esc</kbd></button>
+      <button id="close" type="button" class="osf-btn osf-btn--ghost osf-btn--sm osf-close" aria-keyshortcuts="Escape"><span>Close</span><kbd>Esc</kbd></button>
     </header>
 
     <section class="kb-board-shell" aria-labelledby="keyboard-title">

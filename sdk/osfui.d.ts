@@ -60,7 +60,7 @@ export type UiCommand =
   | { command: "settings.reset"; mod: string; key?: string }
   /** Arm native key-rebind capture; the next key press returns as settings.captured (echoing the arming requestId, however much later). One capture at a time — a second arm answers ui.result code "capture-busy". Any type:"key" setting may be captured. */
   | { command: "settings.captureKey"; mod: string; key: string }
-  /** Take over gamepad handling: suppress the default nav/scroll mapping and consume raw ui.gamepad events. PER-SESSION — reset on overlay close; re-assert on each ui.visibility show. */
+  /** EXPERIMENTAL through 0.x (gamepad navigation is being refined; detect via the "gamepad" capability). Take over gamepad handling: suppress the default nav/scroll mapping and consume raw ui.gamepad events. STICKY PER VIEW — survives overlay hide/show; cleared when your page (re)loads or the view is destroyed. */
   | { command: "osfui.gamepadRaw"; raw: boolean };
 
 /**
@@ -277,6 +277,10 @@ export interface UiVisibilityPayload {
 }
 
 /**
+ * EXPERIMENTAL through 0.x — gamepad navigation is explicitly "basic and
+ * being refined", so this shape carries an instability stamp rather than a
+ * freeze; detect support via the "gamepad" capability.
+ *
  * Raw gamepad events, sent to the ACTIVE (focused) view while the overlay
  * captures input. Per-kind nesting (protocol 0.5): buttons and axes extend
  * inside their objects (triggers will join as axes.lt/rt; a second controller

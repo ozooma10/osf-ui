@@ -638,6 +638,10 @@ namespace OSFUI
 	{
 		const std::string id(a_viewId);
 		_viewLoadState[id] = a_failed ? ViewLoadState::Failed : ViewLoadState::Finished;
+		// A (re)loaded page starts un-granted: the gamepad raw flag is sticky
+		// for the PAGE's lifetime (item 10), and this is a new page — it
+		// re-asserts in its own boot code if it still wants raw mode.
+		_gamepadRawViews.erase(id);
 		if (!a_failed) {
 			// A healthy load clears the view's strikes, so a much later failure
 			// gets the full retry budget again.
@@ -672,6 +676,7 @@ namespace OSFUI
 				ApplyMenuPolicy();  // it was open: release capture/visibility now
 			}
 			_viewsSubscribers.erase(id);  // a destroyed view can't receive pushes
+			_gamepadRawViews.erase(id);   // its sticky gamepad grant dies with it (item 10)
 			for (const auto& mod : _modules) {
 				mod->OnViewDestroyed(id);  // module-held subscriber sets too (e.g. settings)
 			}
@@ -949,11 +954,11 @@ namespace OSFUI
 			FocusMenu::Close();
 			// One observer summary per overlay session (no-op unless engineInput).
 			EngineInput::LogSessionSummary();
-			// Raw-passthrough is a per-session grant: without this, a page that
-			// took the gamepad (osfui.gamepadRaw) would leave DEFAULT NAV DEAD
-			// for whichever menu opens next. Pages re-assert on each
-			// ui.visibility show.
-			EngineInput::SetRawMode(false);
+			// NOTE: gamepad raw-passthrough is deliberately NOT reset here
+			// (api-freeze-plan item 10): it is a sticky PER-VIEW property
+			// (_gamepadRawViews) that survives overlay hide/show — another
+			// menu opening can't inherit it, because DrainEngineInput reads
+			// the ACTIVE view's flag each tick.
 		}
 	}
 
@@ -973,7 +978,11 @@ namespace OSFUI
 		}
 		const bool captured = IsInputCaptured();
 		const auto active = _menus.ActiveMenu();
-		const bool raw = EngineInput::IsRawMode();
+		// Raw mode is the ACTIVE view's sticky flag (item 10) — per view, so
+		// menu switches can't leak one page's grant to another. The EngineInput
+		// global just mirrors it (keeps the mode-flip log in one place).
+		const bool raw = active && _gamepadRawViews.contains(*active);
+		EngineInput::SetRawMode(raw);
 
 		// Discrete down+up tap: robust against a missed release (no stuck key).
 		const auto tap = [this](std::uint32_t a_vk) {
@@ -1340,13 +1349,24 @@ namespace OSFUI
 		a_bridge.RegisterCommand("ping", [](const nlohmann::json&, MessageBridge& a_b) {
 			a_b.SendToWeb("runtime.pong", nlohmann::json::object());
 		});
-		a_bridge.RegisterCommand("osfui.gamepadRaw", [](const nlohmann::json& a_p, MessageBridge&) {
+		a_bridge.RegisterCommand("osfui.gamepadRaw", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
 			// A page that wants to own the gamepad (e.g. stick-driven camera
 			// orbit) sets this to suppress the default nav/scroll mapping; it
-			// then handles the raw `ui.gamepad` events itself. PER-SESSION: the
-			// runtime resets it on overlay close — re-assert on each
-			// ui.visibility show.
-			EngineInput::SetRawMode(Json::GetBool(a_p, "raw", false));
+			// then handles the raw `ui.gamepad` events itself. STICKY PER VIEW
+			// (item 10): the grant survives overlay hide/show and clears only
+			// when the page reloads or the view is destroyed — no more
+			// re-assert-on-every-show coupling. DrainEngineInput applies the
+			// ACTIVE view's flag each tick.
+			const std::string src(a_b.CurrentSource());
+			if (src.empty()) {
+				a_b.SendResult(false, "unknown-view", "no source view");
+				return;
+			}
+			if (Json::GetBool(a_p, "raw", false)) {
+				_gamepadRawViews.insert(src);
+			} else {
+				_gamepadRawViews.erase(src);
+			}
 		});
 
 		// First read-only game-data provider: the in-game calendar (date/time).

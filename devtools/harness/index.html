@@ -15,19 +15,19 @@
     .harness-bar {
       position: fixed; top: 0; left: 0; right: 0; z-index: 30; height: 30px;
       display: flex; align-items: center; gap: 12px; padding: 0 14px;
-      font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em;
-      color: var(--text-faint); background: rgba(4,6,10,0.9); border-bottom: 1px solid var(--line);
+      font-family: var(--osf-font-mono); font-size: 11px; letter-spacing: 0.1em;
+      color: var(--osf-text-faint); background: rgba(4,6,10,0.9); border-bottom: 1px solid var(--osf-line);
     }
-    .harness-bar b { color: var(--accent); letter-spacing: 0.16em; }
+    .harness-bar b { color: var(--osf-accent); letter-spacing: 0.16em; }
     .harness-bar .hint { margin-left: auto; }
-    .harness-bar a { color: var(--text-muted); text-decoration: none; }
-    .harness-bar a:hover { color: var(--accent); }
-    .harness-bar a.here { color: var(--accent); }
+    .harness-bar a { color: var(--osf-text-muted); text-decoration: none; }
+    .harness-bar a:hover { color: var(--osf-accent); }
+    .harness-bar a.here { color: var(--osf-accent); }
     .harness-bar button {
-      font: inherit; color: var(--text-muted); background: transparent;
-      border: 1px solid var(--line-strong); border-radius: 2px; padding: 2px 8px; cursor: pointer;
+      font: inherit; color: var(--osf-text-muted); background: transparent;
+      border: 1px solid var(--osf-line-strong); border-radius: 2px; padding: 2px 8px; cursor: pointer;
     }
-    .harness-bar button.on { color: var(--accent); border-color: var(--accent); }
+    .harness-bar button.on { color: var(--osf-accent); border-color: var(--osf-accent); }
     /* Harness-only margins to clear the top bar — dropped in the 1080p stage,
        where the view keeps its shipped in-game layout. */
     #stage { height: 100%; }
@@ -40,12 +40,12 @@
       position: fixed; top: 30px; left: 0;
       width: 1920px; height: 1080px;
       transform-origin: 0 0; overflow: hidden;
-      outline: 1px dashed var(--line-strong);
+      outline: 1px dashed var(--osf-line-strong);
       background: radial-gradient(120% 100% at 50% 30%, #10161f 0%, #05070b 100%);
     }
   </style>
 </head>
-<body class="osf-ui">
+<body>
   <div class="harness-bar">
     <b>OSF UI · MOCK BRIDGE</b>
     <a class="here" href="index.html">Mods</a>
@@ -83,7 +83,7 @@
           <!-- Filled from the runtime.ready handshake; hidden until it arrives. -->
           <span id="plugin-version" class="version-badge" title="OSF UI version"></span>
         </div>
-        <label class="search-box" for="filter">
+        <label class="osf-search" for="filter">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="m16 16 4 4"></path></svg>
           <input id="filter" class="osf-input filter" type="text" placeholder="Search mods & settings" aria-label="Search mods and settings" aria-keyshortcuts="Control+F" autocomplete="off" spellcheck="false">
           <kbd>Ctrl F</kbd>
@@ -96,7 +96,7 @@
       <div class="rail-foot">
         <span id="save-state" class="save-state osf-eyebrow" aria-live="polite"></span>
         <button id="session-chip" type="button" class="osf-btn osf-btn--ghost osf-btn--sm session-chip" style="display:none">Undo changes (0)</button>
-        <button id="close" type="button" class="osf-btn osf-btn--ghost osf-btn--sm close-btn" aria-keyshortcuts="Escape"><span>Exit control deck</span><kbd>Esc</kbd></button>
+        <button id="close" type="button" class="osf-btn osf-btn--ghost osf-btn--sm osf-close" aria-keyshortcuts="Escape"><span>Exit control deck</span><kbd>Esc</kbd></button>
       </div>
     </aside>
 
