@@ -326,16 +326,14 @@ html, body { height: 100%; overflow: hidden; }
 .wordmark-osf, .wordmark-ui { font-size: 20px; letter-spacing: 0.08em; }
 .wordmark-ui { color: var(--accent); }
 .brand-sub { margin-top: 5px; font-size: 9px; letter-spacing: 0.19em; }
-.system-state {
-  display: inline-flex; align-items: center; gap: 6px; margin-left: auto;
+/* Plugin version from the runtime.ready handshake; empty (hidden) until then. */
+.version-badge {
+  display: inline-flex; align-items: center; margin-left: auto;
   padding: 4px 7px; font-family: var(--font-mono); font-size: 8px;
   letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-faint);
   border: 1px solid var(--line); border-radius: var(--radius-pill);
 }
-.system-state i {
-  width: 5px; height: 5px;
-  background: var(--signal-go);
-}
+.version-badge:empty { display: none; }
 .filter { border-color: rgba(242, 239, 233, 0.18); }
 .rail-meta {
   display: flex; justify-content: space-between; align-items: center;
@@ -598,7 +596,7 @@ html, body { height: 100%; overflow: hidden; }
 @media (max-width: 920px) {
   .settings { grid-template-columns: 240px minmax(0, 1fr); width: calc(100% - 28px); height: calc(100% - 28px); margin: 14px auto; }
   .rail-head { padding-inline: 14px; }
-  .system-state, .search-box > kbd, .rail-meta span:last-child { display: none; }
+  .version-badge, .search-box > kbd, .rail-meta span:last-child { display: none; }
   .search-box .osf-input { padding-right: 12px; }
   .detail { padding-inline: 24px; }
   .control { min-width: 180px; }

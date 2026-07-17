@@ -1602,10 +1602,14 @@ function onNativeMessage(jsonText) {
   let message;
   try { message = JSON.parse(jsonText); } catch { return; }
   switch (message.type) {
-    case "runtime.ready":
+    case "runtime.ready": {
+      const version = message.payload && message.payload.version;
+      const badge = document.getElementById("plugin-version");
+      if (badge && version) badge.textContent = "v" + version;
       sendCommand({ command: "settings.get" });
       sendCommand({ command: "views.get" });  // also subscribes to change pushes
       break;
+    }
     case "settings.data":
       allMods = (message.payload && message.payload.mods) || [];
       render();

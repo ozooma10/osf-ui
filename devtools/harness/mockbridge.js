@@ -324,8 +324,8 @@
       case "views.get":
         // Reply with the catalog; first call also gets runtime.ready (once —
         // the Mods view answers ready with another views.get, so re-sending loops).
-        setTimeout(() => {
-          if (!readySent) { readySent = true; send("runtime.ready", { game: "Starfield", plugin: "OSF UI", version: "1.0.0-mock", bridgeVersion: "0.4" }); }
+        setTimeout(async () => {
+          if (!readySent) { readySent = true; send("runtime.ready", { game: "Starfield", plugin: "OSF UI", version: await pluginVersion, bridgeVersion: "0.4" }); }
           sendViews();
         }, 0);
         break;
@@ -396,6 +396,18 @@
       return await r.json();
     } catch { return null; }
   }
+
+  // The real plugin version, read out of src/core/Version.h so the harness
+  // version badge shows what the DLL would report (reachable under
+  // serve.cmd's root). Best-effort: a file:// page or missing file keeps
+  // the "-mock" marker so a stale/fake version is never mistaken for real.
+  const pluginVersion = (async () => {
+    try {
+      const r = await fetch("../../src/core/Version.h", { cache: "no-store" });
+      const m = r.ok ? (await r.text()).match(/kPluginVersion\s*=\s*"([^"]+)"/) : null;
+      return m ? m[1] : "1.0.0-mock";
+    } catch { return "1.0.0-mock"; }
+  })();
 
   // Some plugins register their schema NATIVELY (RegisterSettingsSchema) with
   // the JSON compiled into the DLL as a R"json(...)" literal — there is no
