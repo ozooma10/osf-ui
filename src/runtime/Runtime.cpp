@@ -552,9 +552,11 @@ namespace OSFUI
 				// frames it takes the renderer to deliver queued messages and
 				// hand over a post-open frame (see _revealPending).
 				_revealPending = true;
+				_revealFrameReady = false;
 			} else {
 				if (!visible) {
 					_revealPending = false;  // closed while a reveal was still pending
+					_revealFrameReady = false;
 				}
 				if (!_revealPending) {
 					_compositor->SetVisible(visible);
@@ -1425,16 +1427,30 @@ namespace OSFUI
 		}
 		if (const auto frame = _renderer->Render()) {
 			if (_revealPending) {
-				if (frame->frameIndex == _lastSubmittedFrame) {
+				if (frame->frameIndex != _lastSubmittedFrame) {
+					_lastSubmittedFrame = frame->frameIndex;
+					_compositor->Submit(*frame);  // also arms lazy present-hook setup
+					_revealFrameReady = true;
+				}
+				if (!_revealFrameReady) {
 					// Still the frame from before the open — the renderer
 					// republishes under a new serial once the (re)shown view is
 					// presentable (messages delivered), so hold the reveal.
 					return;
 				}
-				_lastSubmittedFrame = frame->frameIndex;
-				_compositor->Submit(*frame);  // cache the fresh texture first...
+				if (!_compositor->IsOutputSizeKnown()) {
+					// D3D12 learns the swapchain size from Present. Keep the first
+					// manifest-sized texture hidden while that callback arrives.
+					return;
+				}
+				if (frame->width != _viewWidth.load() || frame->height != _viewHeight.load()) {
+					// The output callback requested a resize, but WebCore has not
+					// painted the correctly sized replacement yet.
+					return;
+				}
 				_revealPending = false;
-				_compositor->SetVisible(true);  // ...then let the present hook draw it
+				_revealFrameReady = false;
+				_compositor->SetVisible(true);  // the cached frame is fresh and output-sized
 				return;
 			}
 			_lastSubmittedFrame = frame->frameIndex;

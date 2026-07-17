@@ -29,6 +29,11 @@ namespace OSFUI
 		using OutputResizeCallback = std::function<void(std::uint32_t a_width, std::uint32_t a_height)>;
 		virtual void SetOutputResizeCallback(OutputResizeCallback /*a_callback*/) {}
 
+		// Most compositors do not need an asynchronously discovered output size.
+		// A compositor that does can hold a deferred reveal until its present hook
+		// has observed the real target, preventing a manifest-sized first frame.
+		[[nodiscard]] virtual bool IsOutputSizeKnown() const { return true; }
+
 		[[nodiscard]] virtual std::string_view Name() const = 0;
 	};
 }

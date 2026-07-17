@@ -304,9 +304,12 @@ namespace OSFUI
 		// SetVisible(true): SubmitFrameIfVisible holds the reveal until the
 		// renderer hands over a frame with a NEW serial — one produced after the
 		// open, i.e. after every queued message was delivered (ABI 1.3
-		// message-before-first-paint). Costs at most a couple of frames of open
-		// latency; prevents any flash of stale pre-open overlay content.
+		// message-before-first-paint). D3D12 additionally waits until Present has
+		// reported the output size and the renderer has painted at that size.
+		// Costs at most a couple of frames of open latency; prevents flashes of
+		// stale or manifest-resolution content.
 		bool          _revealPending{ false };
+		bool          _revealFrameReady{ false };
 		std::uint64_t _lastSubmittedFrame{ 0 };
 
 		// The view that last received ui.visibility{visible:true}, so the open->closed edge can

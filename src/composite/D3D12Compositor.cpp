@@ -188,6 +188,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		OutputResizeCallback onOutputResize;
 		std::uint32_t        notifiedOutputW{ 0 };
 		std::uint32_t        notifiedOutputH{ 0 };
+		std::atomic_bool     outputSizeKnown{ false };
 
 		// ---- setup state ----
 		bool setupAttempted{ false };
@@ -581,26 +582,16 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			// visibility or frame availability.
 			lastPresentMs.store(::GetTickCount64(), std::memory_order_relaxed);
 
-			if (!setupOk || !a_swap || (a_flags & DXGI_PRESENT_TEST) || !visible.load(std::memory_order_relaxed)) {
+			if (!setupOk || !a_swap || (a_flags & DXGI_PRESENT_TEST)) {
 				return;
 			}
 
-			// Make sure the texture matches the latest frame dims; upload if a
-			// new frame arrived. EnsureTexture/Upload read the CPU staging
-			// buffer under the lock.
-			if (!EnsureTextureForFrame()) {
-				return;  // no frame yet, or texture creation failed
-			}
-
+			// Discover the real output even while hidden. The first submitted
+			// manifest-sized frame installs this hook, but Runtime deliberately
+			// keeps it invisible until this callback has resized the web view.
+			// AcquireTarget only reads GetDesc1 and holds no backbuffer reference.
 			auto* target = AcquireTarget(a_swap);
 			if (!target) {
-				return;
-			}
-			if (!target->supported) {
-				return;  // HDR/unknown backbuffer format; warned in RefreshTarget
-			}
-			auto* pipeline = EnsurePipeline(target->format);
-			if (!pipeline) {
 				return;
 			}
 
@@ -610,6 +601,25 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				notifiedOutputW = target->width;
 				notifiedOutputH = target->height;
 				onOutputResize(target->width, target->height);
+				outputSizeKnown.store(true, std::memory_order_release);
+			}
+
+			if (!visible.load(std::memory_order_relaxed)) {
+				return;
+			}
+
+			// Make sure the texture matches the latest frame dims; upload if a
+			// new frame arrived. EnsureTexture/Upload read the CPU staging
+			// buffer under the lock.
+			if (!EnsureTextureForFrame()) {
+				return;  // no frame yet, or texture creation failed
+			}
+			if (!target->supported) {
+				return;  // HDR/unknown backbuffer format; warned in RefreshTarget
+			}
+			auto* pipeline = EnsurePipeline(target->format);
+			if (!pipeline) {
+				return;
 			}
 
 			auto& slot = cmdSlots[cmdIndex % kCmdSlots];
@@ -1107,5 +1117,10 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		if (_impl) {
 			_impl->onOutputResize = std::move(a_callback);
 		}
+	}
+
+	bool D3D12Compositor::IsOutputSizeKnown() const
+	{
+		return _impl && _impl->outputSizeKnown.load(std::memory_order_acquire);
 	}
 }
