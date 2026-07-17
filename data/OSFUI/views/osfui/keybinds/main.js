@@ -473,7 +473,13 @@ function flashKey(mod, key) {
 // Subscriptions via the shared helper (it owns osfui.onMessage). Replies that
 // resolve an osfui.request() also land here — one render path either way.
 
-osfui.ready.then(() => sendCommand({ command: "settings.get" }));
+osfui.ready.then(() => {
+  // Own the back action (Esc / pad-B): the runtime delegates it as a synthetic
+  // Escape instead of closing the overlay, so the keydown handler below can
+  // return to the Mods hub. Sticky per page load — re-asserted on every boot.
+  sendCommand({ command: "osfui.handleBack", handle: true });
+  sendCommand({ command: "settings.get" });
+});
 
 osfui.on("settings.data", (p) => {
   mods = Array.isArray(p.mods) ? p.mods : [];

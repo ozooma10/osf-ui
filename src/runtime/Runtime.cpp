@@ -14,6 +14,7 @@
 #include "input/FocusMenu.h"
 #include "input/FreeCursor.h"
 #include "input/HardwareCursor.h"
+#include "input/MenuMode.h"
 #include "input/PauseMenuEntry.h"
 #include "input/SimPause.h"
 #include "core/Paths.h"
@@ -233,7 +234,8 @@ namespace OSFUI
 			REX::INFO("Runtime: engineInput enabled — engine per-menu input (gamepad) routed into the focused view; keyboard/mouse stay on the WndProc path");
 		}
 
-		// F10 toggles the default menu; Esc (while captured) closes the top menu.
+		// F10 toggles the default menu; Esc (while captured) is the back action —
+		// close the top menu, or delegate to a back-owning view (osfui.handleBack).
 		// Extracted so a live key-rebind (osfui.toggleKey) can re-apply it.
 		ApplyToggleKey();
 
@@ -431,6 +433,23 @@ namespace OSFUI
 			case MenuReq::ToggleDefault:
 				_menus.ToggleDefault(_config.view);
 				break;
+			case MenuReq::Back: {
+				// Esc / pad-B. A back-owning active view (osfui.handleBack) gets
+				// the action delegated as a synthetic Escape tap and decides
+				// itself — navigate to another menu, peel an inner panel, or
+				// send `close`. Everyone else keeps the default: close the top
+				// menu (single-menu policy: that hides the overlay). F10 never
+				// delegates, so a broken page cannot strand the user.
+				const auto active = _menus.ActiveMenu();
+				if (active && _backOwnerViews.contains(*active) && _renderer) {
+					constexpr std::uint32_t kVkEscape = 0x1B;
+					_renderer->InjectKeyEvent(kVkEscape, true);
+					_renderer->InjectKeyEvent(kVkEscape, false);
+				} else {
+					_menus.CloseTop();
+				}
+				break;
+			}
 			case MenuReq::CloseTop:
 				_menus.CloseTop();
 				break;
@@ -653,10 +672,11 @@ namespace OSFUI
 	{
 		const std::string id(a_viewId);
 		_viewLoadState[id] = a_failed ? ViewLoadState::Failed : ViewLoadState::Finished;
-		// A (re)loaded page starts un-granted: the gamepad raw flag is sticky
-		// for the PAGE's lifetime (item 10), and this is a new page — it
-		// re-asserts in its own boot code if it still wants raw mode.
+		// A (re)loaded page starts un-granted: the gamepad raw / back-owner
+		// flags are sticky for the PAGE's lifetime (item 10), and this is a new
+		// page — it re-asserts in its own boot code if it still wants them.
 		_gamepadRawViews.erase(id);
+		_backOwnerViews.erase(id);
 		if (!a_failed) {
 			// A healthy load clears the view's strikes, so a much later failure
 			// gets the full retry budget again.
@@ -693,6 +713,7 @@ namespace OSFUI
 			_viewsSubscribers.erase(id);  // a destroyed view can't receive pushes
 			_i18nSubscribers.erase(id);
 			_gamepadRawViews.erase(id);   // its sticky gamepad grant dies with it (item 10)
+			_backOwnerViews.erase(id);    // ditto the back-owner grant
 			for (const auto& mod : _modules) {
 				mod->OnViewDestroyed(id);  // module-held subscriber sets too (e.g. settings)
 			}
@@ -819,7 +840,7 @@ namespace OSFUI
 		_input.Configure(
 			_toggleKey,
 			[this] { EnqueueMenuRequest(MenuReq::ToggleDefault); },
-			[this] { EnqueueMenuRequest(MenuReq::CloseTop); });
+			[this] { EnqueueMenuRequest(MenuReq::Back); });
 	}
 
 	bool Runtime::OnHostKey(std::uint32_t a_vkCode, bool a_down)
@@ -1015,7 +1036,7 @@ namespace OSFUI
 			case XInputButton::kDPadLeft:  tap(0x25); break;  // VK_LEFT
 			case XInputButton::kDPadRight: tap(0x27); break;  // VK_RIGHT
 			case XInputButton::kA:         tap(0x0D); break;  // VK_RETURN — activate
-			case XInputButton::kB:         EnqueueMenuRequest(MenuReq::CloseTop); break;  // back — close overlay
+			case XInputButton::kB:         EnqueueMenuRequest(MenuReq::Back); break;  // back — delegate (osfui.handleBack) or close
 			default: break;  // shoulders/thumbs/Start/Back -> raw event only
 			}
 		}

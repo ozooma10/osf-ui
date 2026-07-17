@@ -41,7 +41,8 @@ namespace OSFUI
 		enum class MenuReq
 		{
 			ToggleDefault,  // F10: open the default menu, or close the top one
-			CloseTop,       // Esc: close the top menu
+			Back,           // Esc / pad-B: delegate to a back-owning view, else close the top menu
+			CloseTop,       // close the top menu unconditionally
 			CloseAll,       // transition/panic: clear every surface
 		};
 		void EnqueueMenuRequest(MenuReq a_req);
@@ -279,6 +280,12 @@ namespace OSFUI
 		// page (re)load and view destroy. DrainEngineInput applies the active
 		// view's flag each tick. Main thread only.
 		std::unordered_set<std::string> _gamepadRawViews;
+		// Views owning the back action (osfui.handleBack): while such a view is
+		// the active menu, Esc / pad-B are delegated to the page as a synthetic
+		// Escape instead of closing the top menu (the page navigates, peels an
+		// inner panel, or sends `close` itself). Same stickiness/cleanup rules
+		// as _gamepadRawViews. Main thread only.
+		std::unordered_set<std::string> _backOwnerViews;
 		// Menu requests raised off the main thread, drained in Tick. _reqMutex is a strict LEAF lock: snapshot under it, release, then act.
 		std::mutex                    _reqMutex;
 		std::vector<MenuReq>          _reqs;

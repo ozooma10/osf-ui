@@ -1905,6 +1905,9 @@ document.addEventListener("keydown", (e) => {
 });
 
 if (bridgeAvailable()) {
+  // Own the back action (Esc / pad-B): delegated as a synthetic Escape so the
+  // keydown handler above can peel the undo panel before closing the surface.
+  sendCommand({ command: "osfui.handleBack", handle: true });
   sendCommand({ command: "settings.get" });
   sendCommand({ command: "views.get" });
 } else {

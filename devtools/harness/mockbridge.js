@@ -679,6 +679,13 @@
         log("info", "close (no-op in harness)");
         result(true);
         break;
+      case "osfui.handleBack":
+        // In-game this reroutes Esc/pad-B to the page instead of closing the
+        // overlay; the harness delivers DOM keys to the page natively anyway,
+        // so just ack the grant to keep view boot code warning-free.
+        log("info", `osfui.handleBack ${p.handle ? "granted" : "released"} (no-op in harness)`);
+        result(true);
+        break;
       default:
         // Plugin command shape (item 3): "<author>.<modname>.<name>" — two
         // dots minimum. The mock plays the BRIDGE's part: ui.result ok:true =

@@ -65,7 +65,9 @@ export type UiCommand =
   /** Arm native key-rebind capture; the next key press returns as settings.captured (echoing the arming requestId, however much later). One capture at a time — a second arm answers ui.result code "capture-busy". Any type:"key" setting may be captured. */
   | { command: "settings.captureKey"; mod: string; key: string }
   /** EXPERIMENTAL (gamepad navigation is being refined; exempt from the 1.0 stability guarantee until stabilized). Take over gamepad handling: suppress the default nav/scroll mapping and consume raw ui.gamepad events. STICKY PER VIEW — survives overlay hide/show; cleared when your page (re)loads or the view is destroyed. */
-  | { command: "osfui.gamepadRaw"; raw: boolean };
+  | { command: "osfui.gamepadRaw"; raw: boolean }
+  /** Own the back action. While your menu is ACTIVE, Esc / gamepad B arrive as a synthetic Escape keydown/keyup instead of closing the top menu — your page decides: navigate (`menu.open`), dismiss an inner panel, or send `close`. STICKY PER VIEW — survives overlay hide/show; cleared when your page (re)loads or the view is destroyed. The overlay toggle key always closes natively regardless. */
+  | { command: "osfui.handleBack"; handle: boolean };
 
 /**
  * A mod-defined action command fired by a schema `action` item. The command
