@@ -2,29 +2,10 @@
 
 #include <nlohmann/json.hpp>
 
+#include "runtime/Ids.h"  // EqualsCaseInsensitiveAscii (the Papyrus casing rationale below)
+
 namespace OSFUI::API
 {
-	// ASCII-only case-insensitive equality. Sufficient here: mod ids are
-	// lowercase [a-z0-9-] by grammar and setting keys are ASCII identifiers in
-	// practice. Shared by the mirror's fallback lookup and PapyrusApi's
-	// callback-filter matching.
-	inline bool EqualsCaseInsensitiveAscii(std::string_view a_lhs, std::string_view a_rhs)
-	{
-		if (a_lhs.size() != a_rhs.size()) {
-			return false;
-		}
-		for (std::size_t i = 0; i < a_lhs.size(); ++i) {
-			const char a = a_lhs[i];
-			const char b = a_rhs[i];
-			const char la = (a >= 'A' && a <= 'Z') ? static_cast<char>(a + 32) : a;
-			const char lb = (b >= 'A' && b <= 'Z') ? static_cast<char>(b + 32) : b;
-			if (la != lb) {
-				return false;
-			}
-		}
-		return true;
-	}
-
 	// Any-thread settings VALUE MIRROR (mcm-design.md §8.2): the C ABI's typed
 	// getters — and the Papyrus natives — read here, never SettingsStore
 	// (the store is main-thread-only). Fed on the MAIN thread by a store change

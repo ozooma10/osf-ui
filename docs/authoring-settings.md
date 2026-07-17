@@ -324,9 +324,9 @@ EndIf
 - **Getters** — `GetBool` / `GetInt` / `GetFloat` / `GetString(modId, key,
   default)`: cheap, thread-safe reads of the live value store. Unknown
   mod/key or a type mismatch yields the passed default. `GetString` covers
-  string-, enum-, and key-typed settings. Ids/keys match your schema
-  case-insensitively (Papyrus string interning can't preserve casing, so
-  OSF UI folds it); write them as authored anyway.
+  string-, enum-, and key-typed settings. Ids, keys, and enum option values
+  match your schema case-insensitively (Papyrus string interning can't
+  preserve casing, so OSF UI folds it); write them as authored anyway.
 - **Setters** — `SetBool` / `SetInt` / `SetFloat` / `SetString(modId, key,
   value)` and `Reset(modId, key = "")`: fire-and-forget; the write is
   validated/clamped against your schema and persisted through exactly the

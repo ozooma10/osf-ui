@@ -682,6 +682,25 @@ namespace OSFUI
 		return setting ? Json::GetString(*setting, "type", "") : std::string{};
 	}
 
+	std::optional<std::string> SettingsStore::CanonicalEnumValue(std::string_view a_modId, std::string_view a_key, std::string_view a_value) const
+	{
+		const auto* mod = FindMod(a_modId);
+		const auto* setting = mod ? FindSetting(*mod, a_key) : nullptr;
+		if (!setting || Json::GetString(*setting, "type", "") != "enum") {
+			return std::nullopt;
+		}
+		const auto options = setting->find("options");
+		if (options == setting->end() || !options->is_array()) {
+			return std::nullopt;
+		}
+		for (const auto& opt : *options) {
+			if (opt.is_string() && Ids::EqualsCaseInsensitiveAscii(opt.get_ref<const std::string&>(), a_value)) {
+				return opt.get<std::string>();
+			}
+		}
+		return std::nullopt;
+	}
+
 	std::optional<SettingsStore::Source> SettingsStore::GetSource(std::string_view a_modId) const
 	{
 		const auto* mod = FindMod(a_modId);

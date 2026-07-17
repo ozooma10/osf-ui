@@ -121,7 +121,7 @@ namespace OSFUI::API
 			values = &mod->second;
 		} else {
 			for (const auto& [id, v] : _mods) {
-				if (EqualsCaseInsensitiveAscii(id, a_modId)) {
+				if (Ids::EqualsCaseInsensitiveAscii(id, a_modId)) {
 					a_outMod = id;
 					values = &v;
 					break;
@@ -140,7 +140,7 @@ namespace OSFUI::API
 			return true;
 		}
 		for (const auto& [key, v] : *values) {
-			if (EqualsCaseInsensitiveAscii(key, a_key)) {
+			if (Ids::EqualsCaseInsensitiveAscii(key, a_key)) {
 				a_outKey = key;
 				return true;
 			}
@@ -160,7 +160,7 @@ namespace OSFUI::API
 			// Case-insensitive fallback — see the header's BSFixedString
 			// interning rationale (Papyrus cannot control its casing).
 			for (const auto& [id, v] : _mods) {
-				if (EqualsCaseInsensitiveAscii(id, a_modId)) {
+				if (Ids::EqualsCaseInsensitiveAscii(id, a_modId)) {
 					values = &v;
 					break;
 				}
@@ -173,7 +173,7 @@ namespace OSFUI::API
 			return &value->second;
 		}
 		for (const auto& [key, value] : *values) {
-			if (EqualsCaseInsensitiveAscii(key, a_key)) {
+			if (Ids::EqualsCaseInsensitiveAscii(key, a_key)) {
 				return &value;
 			}
 		}

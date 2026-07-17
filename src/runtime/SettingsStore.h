@@ -154,6 +154,16 @@ namespace OSFUI
 		// capture accepts any "key"-typed setting) without parsing schemas.
 		[[nodiscard]] std::string GetSettingType(std::string_view a_modId, std::string_view a_key) const;
 
+		// The authored spelling of a_value among a_modId.a_key's declared enum
+		// options, matched ASCII-case-insensitively. The Papyrus write path
+		// canonicalizes with this before Set: script strings arrive through
+		// BSFixedString interning with arbitrary casing (proven in-game
+		// 2026-07-17 — "fast" arrived cased differently and enum validation
+		// refused it; full rationale in api/SettingsMirror.h). nullopt when
+		// the setting isn't enum-typed or nothing matches — the caller passes
+		// the original through and lets Set refuse normally.
+		[[nodiscard]] std::optional<std::string> CanonicalEnumValue(std::string_view a_modId, std::string_view a_key, std::string_view a_value) const;
+
 		// Every `type:"key"` setting across all mods, with its current value.
 		// Empty-key and non-string-valued entries are skipped (defensive).
 		[[nodiscard]] std::vector<KeySetting> KeySettings() const;

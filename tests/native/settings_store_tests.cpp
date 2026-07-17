@@ -856,6 +856,25 @@ int main()
 		CHECK(s.LoadErrors().size() == 2);
 	}
 
+	// --- CanonicalEnumValue: the Papyrus write path's casing tolerance -------
+	// (BSFixedString interning mangles script string casing; the drain
+	// canonicalizes enum values to the authored option spelling before Set.)
+	{
+		OSFUI::SettingsStore s;
+		s.LoadAll(root / "ce-schemas", root / "ce-values");  // empty: just arms RegisterSchema
+		CHECK(s.RegisterSchema(nlohmann::json::parse(R"json({ "id": "t.enum",
+			"groups": [ { "settings": [
+				{ "key": "mode", "type": "enum", "options": ["fast", "balanced"], "default": "balanced" },
+				{ "key": "flag", "type": "bool", "default": true } ] } ] })json"),
+			OSFUI::SettingsStore::Source::kNative));
+		CHECK(s.CanonicalEnumValue("t.enum", "mode", "FAST") == "fast");
+		CHECK(s.CanonicalEnumValue("t.enum", "mode", "Fast") == "fast");
+		CHECK(s.CanonicalEnumValue("t.enum", "mode", "fast") == "fast");
+		CHECK(!s.CanonicalEnumValue("t.enum", "mode", "bogus").has_value());
+		CHECK(!s.CanonicalEnumValue("t.enum", "flag", "true").has_value());  // not enum-typed
+		CHECK(!s.CanonicalEnumValue("t.nope", "mode", "fast").has_value());  // unknown mod
+	}
+
 	// ---------------------------------------------------------------------------
 	std::fprintf(stderr, "%d/%d checks passed\n", g_checks - g_failures, g_checks);
 	fs::remove_all(root);

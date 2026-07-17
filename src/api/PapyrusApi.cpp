@@ -138,10 +138,10 @@ namespace OSFUI::API::Papyrus
 					// BSFixedString interning, which hands back whatever casing
 					// was interned FIRST process-wide — the script's literal
 					// spelling never survives reliably (SettingsMirror.h).
-					if (!e.modId.empty() && !EqualsCaseInsensitiveAscii(e.modId, a_modId)) {
+					if (!e.modId.empty() && !Ids::EqualsCaseInsensitiveAscii(e.modId, a_modId)) {
 						continue;
 					}
-					if (a_kind == Kind::kHotkey && !e.key.empty() && !EqualsCaseInsensitiveAscii(e.key, a_key)) {
+					if (a_kind == Kind::kHotkey && !e.key.empty() && !Ids::EqualsCaseInsensitiveAscii(e.key, a_key)) {
 						continue;
 					}
 					targets.emplace_back(e.receiver, e.scriptName, e.fn);
@@ -466,6 +466,15 @@ namespace OSFUI::API::Papyrus
 			if (BridgeApi::Get().Mirror().ResolveNames(op.mod, op.key, mod, key)) {
 				op.mod = std::move(mod);
 				op.key = std::move(key);
+			}
+			// Enum VALUES need the same tolerance as names: "fast" can arrive
+			// as "Fast" (proven in-game 2026-07-17) and enum validation is
+			// exact. Canonicalize to the authored option; a genuine mismatch
+			// passes through unchanged and refuses normally.
+			if (!op.reset && op.value.is_string()) {
+				if (auto canon = a_store.CanonicalEnumValue(op.mod, op.key, op.value.get_ref<const std::string&>())) {
+					op.value = std::move(*canon);
+				}
 			}
 			if (op.reset) {
 				if (!a_store.Reset(op.mod, op.key)) {

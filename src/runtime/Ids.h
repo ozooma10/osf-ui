@@ -22,6 +22,29 @@ namespace OSFUI::Ids
 	inline constexpr std::size_t kMaxModIdLen = 64;
 	inline constexpr std::size_t kMaxViewNameLen = 64;
 
+	// ASCII-only case-insensitive equality. The Papyrus surface matches names
+	// and enum values with this: script strings intern as BSFixedString, which
+	// hands back the FIRST-seen casing process-wide, so a script's literal
+	// spelling never survives reliably (api/SettingsMirror.h has the full
+	// rationale). Sufficient because ids are lowercase [a-z0-9-] by grammar
+	// and keys/options are ASCII identifiers in practice.
+	inline bool EqualsCaseInsensitiveAscii(std::string_view a_lhs, std::string_view a_rhs)
+	{
+		if (a_lhs.size() != a_rhs.size()) {
+			return false;
+		}
+		for (std::size_t i = 0; i < a_lhs.size(); ++i) {
+			const char a = a_lhs[i];
+			const char b = a_rhs[i];
+			const char la = (a >= 'A' && a <= 'Z') ? static_cast<char>(a + 32) : a;
+			const char lb = (b >= 'A' && b <= 'Z') ? static_cast<char>(b + 32) : b;
+			if (la != lb) {
+				return false;
+			}
+		}
+		return true;
+	}
+
 	// One grammar segment: [a-z0-9-]+ (lowercase enforced at load, so
 	// case-sensitive compares are correct on case-insensitive filesystems).
 	inline bool IsValidSegment(std::string_view a_s)
