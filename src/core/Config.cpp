@@ -11,23 +11,26 @@ namespace OSFUI
 		// them; call out the move instead so a user editing config.json learns
 		// where the knob went. One-release courtesy — drop after 1.x settles.
 		constexpr std::string_view kMovedToSettings[] = {
-			"toggleKey", "disableControls", "pauseMenuEntry", "vanillaKeyConflicts"
+			"toggleKey", "pauseMenuEntry", "vanillaKeyConflicts"
 		};
 
 		// Every key the parser reads (the item-8 typo diagnostic — config.json
 		// is host-owned, so an unknown key can only be a typo, never version
 		// skew). Keep in lockstep with the reads below.
 		constexpr std::initializer_list<std::string_view> kKnownKeys = {
-			"configVersion", "enabled", "startVisible", "renderer", "compositor",
+			"configVersion", "enabled", "renderer", "compositor",
 			"inputSource", "captureInput", "hardwareCursor", "focusMenu",
 			"engineInput", "pauseMenuEntryLabel", "pauseMenuEntryView",
-			"view", "views", "allowNetwork", "devMode", "devReloadKey",
+			"view", "views", "devMode", "devReloadKey",
 			// moved keys are "known" (they get the dedicated INFO, not the typo WARN)
-			"toggleKey", "disableControls", "pauseMenuEntry", "vanillaKeyConflicts",
+			"toggleKey", "pauseMenuEntry", "vanillaKeyConflicts",
 			// dropped: the Tab focus-cycle died with the single-menu stack;
 			// the console pass-through was retired (close the overlay, then
-			// open the console)
-			"focusKey", "consoleKey",
+			// open the console); the control freeze is always on now;
+			// startVisible was never consumed (the overlay always boots
+			// hidden); allowNetwork was never implemented (network stays off)
+			"focusKey", "consoleKey", "disableControls", "startVisible",
+			"allowNetwork",
 		};
 	}
 
@@ -68,7 +71,6 @@ namespace OSFUI
 		}
 
 		config.enabled = Json::GetBool(*json, "enabled", config.enabled);
-		config.startVisible = Json::GetBool(*json, "startVisible", config.startVisible);
 		config.renderer = Json::GetString(*json, "renderer", config.renderer);
 		config.compositor = Json::GetString(*json, "compositor", config.compositor);
 		config.inputSource = Json::GetString(*json, "inputSource", config.inputSource);
@@ -86,16 +88,8 @@ namespace OSFUI
 				}
 			}
 		}
-		config.allowNetwork = Json::GetBool(*json, "allowNetwork", config.allowNetwork);
 		config.devMode = Json::GetBool(*json, "devMode", config.devMode);
 		config.devReloadKey = Json::GetString(*json, "devReloadKey", config.devReloadKey);
-
-		if (config.allowNetwork) {
-			// Nothing in this codebase performs network access; refuse the flag
-			// loudly so nobody assumes it works.
-			REX::WARN("Config: allowNetwork=true is not supported in this build; forcing false");
-			config.allowNetwork = false;
-		}
 
 		REX::INFO("Config: loaded {} (renderer={}, compositor={}, inputSource={}, captureInput={}, hardwareCursor={}, focusMenu={}, view={}, devMode={})",
 			a_path.string(), config.renderer, config.compositor, config.inputSource, config.captureInput, config.hardwareCursor, config.focusMenu, config.view, config.devMode);

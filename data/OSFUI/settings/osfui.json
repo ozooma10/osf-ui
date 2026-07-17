@@ -20,13 +20,6 @@
       "label": "Interface",
       "settings": [
         {
-          "key": "disableControls",
-          "label": "Freeze gameplay controls",
-          "type": "bool",
-          "default": true,
-          "hint": "Stop player controls (including gamepad) through the engine while the overlay is open."
-        },
-        {
           "key": "pauseMenuEntry",
           "label": "Pause-menu entry",
           "type": "bool",

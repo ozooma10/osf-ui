@@ -48,7 +48,7 @@ reads `-UltralightSdkDir`, else `$env:ULTRALIGHT_SDK_DIR`, else the gitignored
    Ultralight builds) the Ultralight DLLs / EULA are missing.
 6. **Sanity warnings** (non-blocking) — flags a `config.json` that points at the
    `osf` view (needs the separate OSF Animation mod), or has `focusMenu` /
-   `disableControls` / `devMode` enabled.
+   `devMode` enabled.
 7. **Zip + report** — writes `dist/OSF-UI-v<version>[-tag].zip` and prints its
    size and SHA-256.
 

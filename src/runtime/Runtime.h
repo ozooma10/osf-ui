@@ -185,9 +185,8 @@ namespace OSFUI
 		void DrainEngineInput(double a_deltaSeconds);
 
 		// Engage/release the engine input-enable layer (device-agnostic control
-		// disable, incl. gamepad) to match the top menu's capture policy. On by
-		// default; config.disableControls is a diagnostic escape hatch (config.json
-		// only, like hardwareCursor). Main-thread-only. See input/ControlLayer.h.
+		// disable, incl. gamepad) to match the top menu's capture policy.
+		// Always on — no config gate. Main-thread-only. See input/ControlLayer.h.
 		void ReconcileControlLayer();
 
 		// Native reactions to settings changes (Phase 5b). Injected into the

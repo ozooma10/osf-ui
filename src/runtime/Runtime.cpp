@@ -335,9 +335,8 @@ namespace OSFUI
 		if (_config.focusMenu) {
 			ReconcileFocusMenu();
 		}
-		// Always reconcile: the config.disableControls check lives INSIDE, so a
-		// config with it off still RELEASES any engaged lock (a gate here would
-		// just stop reconciling and strand the player's controls).
+		// Always reconcile, so losing capture RELEASES any engaged lock (a gate
+		// here would stop reconciling and strand the player's controls).
 		ReconcileControlLayer();
 		// Sim pause (manifest pausesGame) — unconditional: it is a direct
 		// Main::isGameMenuPaused write, independent of the engine focus menu.
@@ -1073,9 +1072,7 @@ namespace OSFUI
 		// Main-thread (Tick). Drive the input-enable layer toward the top menu's CAPTURE policy; this is the ONLY gate that stops gamepad/XInput,
 		// so it must track capture (not pause), or a gamepad drives the game underneath a capturing menu.
 		// A live HUD (no capture) leaves controls enabled. Engage() may no-op until gameplay (manager not ready at the main menu); IsEngaged() stays false then, so we simply retry next tick.
-		// Gated on config.disableControls so turning the setting off releases any
-		// engaged lock (this fn is now called every tick, not behind an if).
-		const bool wantEngaged = _config.disableControls && _menus.DesiredCapture();
+		const bool wantEngaged = _menus.DesiredCapture();
 		if (wantEngaged == ControlLayer::IsEngaged()) {
 			return;
 		}
@@ -1396,14 +1393,6 @@ namespace OSFUI
 			_toggleKey = vk;
 			ApplyToggleKey();
 			REX::INFO("Runtime: setting osfui.toggleKey -> {} (VK {:#x})", name, vk);
-		}
-		// Engine control freeze (item 7, MCM-owned). Live both ways:
-		// ReconcileControlLayer runs EVERY tick with
-		// `wantEngaged = disableControls && DesiredCapture()`, so flipping off
-		// releases an engaged lock instead of stranding controls.
-		else if (a_key == "disableControls" && a_value.is_boolean()) {
-			_config.disableControls = a_value.get<bool>();
-			REX::INFO("Runtime: setting osfui.disableControls -> {}", _config.disableControls);
 		}
 		// Pause-menu entry (item 7, MCM-owned). Live by construction: the
 		// Scaleform inject runs per pause-menu open (Tick gates Reconcile on

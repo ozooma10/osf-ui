@@ -56,18 +56,20 @@ with the D-pad and face buttons.
 ## Where are my settings?
 
 Everything user-facing is in the in-game menu (**F10 → OSF UI**): the
-open/close key, freezing gameplay controls while the overlay is open, the
-pause-menu entry, and game-key collision warnings. (To use the game console,
-close the overlay first — its key is swallowed while the overlay is open.)
+open/close key, the pause-menu entry, and game-key collision warnings.
+(Gameplay controls — including gamepad — always freeze while a menu captures
+input; there is no setting for it. To use the game console, close the overlay
+first — its key is swallowed while the overlay is open.)
 Choices persist to `Documents\My Games\Starfield\OSFUI\settings\` (one JSON
 per mod) and survive mod updates.
 
 `SFSE/Plugins/OSFUI/config.json` is a **developer/boot file** (renderer
 backends, diagnostic switches). It is overwritten when the mod updates, so
 don't keep personal edits there — older releases' `toggleKey` /
-`disableControls` / `pauseMenuEntry` / `vanillaKeyConflicts` config keys are
+`pauseMenuEntry` / `vanillaKeyConflicts` config keys are
 now ignored with a log note pointing at Mod Settings, and the retired
-`consoleKey` / `focusKey` keys are ignored with a removal note.
+`consoleKey` / `focusKey` / `disableControls` / `startVisible` /
+`allowNetwork` keys are ignored with a removal note.
 
 **Fixing the game-key table:** the Keybinds view's "Starfield (…)" rows come
 from a curated table (`OSFUI/vanillakeys.json`) plus your in-game rebinds. If

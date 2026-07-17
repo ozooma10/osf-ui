@@ -21,7 +21,6 @@ namespace OSFUI
 		// mutates these fields live (they double as pre-replay boot defaults,
 		// so they MUST equal the schema defaults).
 		std::string toggleKey{ "F10" };  // key name -> Windows VK code (ResolveKeyName); consumed by the WndProc hook, verified in-game
-		bool        startVisible{ false };
 		std::string renderer{ "mock" };    // "null" | "mock" | "ultralight"
 		std::string compositor{ "null" };  // "null" | "d3d12" (d3d12 draws the overlay at present time)
 		std::string inputSource{ "none" }; // "none" | "ui" (WndProc subclass: toggle key + input capture; see input/OverlayInputHook)
@@ -43,15 +42,6 @@ namespace OSFUI
 		// base so the active-menu array stays consistent) are all stable. See
 		// input/FocusMenu.h.
 		bool        focusMenu{ true };
-		// While the overlay is visible, disable player controls through the
-		// engine input-enable layer (BSInputEnableManager) instead of only the
-		// WndProc message-swallow — this also stops gamepad/XInput, which the
-		// window hook never sees. On by default. Proven live on 1.16.244 with a
-		// controller (keyboard + mouse-look + gamepad sticks all froze and
-		// restored cleanly; OSF RE 2026-06-13-input-enable-layer-control-disable).
-		// See input/ControlLayer.h. MCM-owned (item 7) — not parsed from
-		// config.json; live via Runtime::OnSettingChanged.
-		bool        disableControls{ true };
 		// Level-2 engine-routed input: patch the focus menu's +0x10
 		// BSInputEventUser vtable so the engine's per-menu input dispatch —
 		// including GAMEPAD, which the WndProc never sees — reaches the runtime.
@@ -85,7 +75,6 @@ namespace OSFUI
 		// `view` is the active (input) view — it must be an interactive view.
 		// When empty, only `view` is loaded. Missing ids are skipped.
 		std::vector<std::string> views;
-		bool        allowNetwork{ false };  // reserved; nothing implements network access
 		bool        devMode{ false };  // release-safe default; the shipped config / a dev override turns on verbose logging
 		// Dev view-reload key (mcm-design.md §12.1): with devMode on, pressing
 		// this reloads the top open menu's URL in place — the fast alt-tab
