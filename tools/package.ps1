@@ -22,7 +22,7 @@
     parsed from src/core/Version.h.
 
 .PARAMETER Tag
-    Suffix appended after the version (e.g. "alpha" -> v0.1.0-alpha). "" omits it.
+    Suffix appended after the version (e.g. "alpha" -> v1.0.0-alpha). "" omits it.
 
 .PARAMETER NoUltralight
     Build/package the null-renderer variant (no Ultralight payload). The result
@@ -45,10 +45,10 @@
 
 .EXAMPLE
     pwsh tools/package.ps1
-    # release archive: dist/OSF-UI-v0.1.0-alpha.zip (Ultralight, releasedbg)
+    # release archive: dist/OSF-UI-v1.0.0-alpha.zip (Ultralight, releasedbg)
 
 .EXAMPLE
-    pwsh tools/package.ps1 -Version 0.1.0 -Tag beta
+    pwsh tools/package.ps1 -Version 1.0.0 -Tag beta
 
 .EXAMPLE
     pwsh tools/package.ps1 -SkipBuild
@@ -174,8 +174,10 @@ try {
     # --- root docs the distribution must carry ----------------------------
     # LICENSE + EXCEPTIONS are load-bearing: the GPL-3.0 section-7 linking
     # exception in EXCEPTIONS is what lets the mod ship proprietary Ultralight.
-    Step "Adding root docs (LICENSE, EXCEPTIONS)"
-    foreach ($doc in 'LICENSE', 'EXCEPTIONS') {
+    # README (user-facing overview) and CREDITS (attribution, incl. the
+    # "inspired by" credits) ship alongside them.
+    Step "Adding root docs (LICENSE, EXCEPTIONS, README.md, CREDITS.md)"
+    foreach ($doc in 'LICENSE', 'EXCEPTIONS', 'README.md', 'CREDITS.md') {
         $src = Join-Path $RepoRoot $doc
         if (Test-Path $src) {
             Copy-Item $src (Join-Path $Staging $doc) -Force
@@ -189,6 +191,8 @@ try {
     $required = @(
         'SFSE\Plugins\OSFUI.dll',
         'SFSE\Plugins\OSFUI\config.json',
+        'SFSE\Plugins\OSFUI\vanillakeys.json',       # vanilla-keybinds defaults table (runtime loads it at boot)
+        'SFSE\Plugins\OSFUI\settings\osfui.json',    # OSF UI's own Mod Settings schema
         'Scripts\OSFUI.pex'   # Papyrus surface (authoring-settings.md "From Papyrus")
     )
     if ($WithUltralight) {
@@ -205,9 +209,12 @@ try {
     if ($missing) {
         Die ("Staged archive is missing required files:`n    " + ($missing -join "`n    "))
     }
-    # At least one view must be present or the runtime has nothing to host.
-    if (-not (Get-ChildItem (Join-Path $Staging 'SFSE\Plugins\OSFUI\views') -Directory -ErrorAction SilentlyContinue)) {
-        Die "No views found under SFSE\Plugins\OSFUI\views -- nothing to render."
+    # At least one view manifest must be present or the runtime has nothing to
+    # host. Views live at views/<modId>/<viewName>/manifest.json (Ids.h grammar;
+    # views/shared/ is the asset kit, not a view).
+    $viewsRoot = Join-Path $Staging 'SFSE\Plugins\OSFUI\views'
+    if (-not (Get-ChildItem $viewsRoot -Recurse -Filter 'manifest.json' -ErrorAction SilentlyContinue)) {
+        Die "No view manifests found under SFSE\Plugins\OSFUI\views\<modId>\<viewName>\ -- nothing to render."
     }
 
     # --- content sanity checks ---------------------------------------------
@@ -216,15 +223,23 @@ try {
         $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json
         # HARD FAIL: every view the shipped config references must be in the
         # archive, or a fresh standalone install renders nothing on F10.
-        # External views (e.g. OSF Animation's 'osf' scene browser) ship with
-        # their own mod and may not be the framework's default.
+        # View ids are qualified '<modId>/<viewName>' and map onto
+        # views/<modId>/<viewName>/manifest.json (src/runtime/Ids.h grammar).
+        # External views (e.g. an 'ozooma10.almanac/planets') ship with their
+        # own mod and must not be a standalone default.
         $configuredViews = @(@($cfg.view) + @($cfg.views) | Where-Object { $_ } | Select-Object -Unique)
-        $stagedViews = @(Get-ChildItem (Join-Path $Staging 'SFSE\Plugins\OSFUI\views') -Directory | ForEach-Object Name)
-        $missingViews = @($configuredViews | Where-Object { $stagedViews -notcontains $_ })
+        $missingViews = @($configuredViews | Where-Object {
+            -not (Test-Path (Join-Path $viewsRoot ($_ -replace '/', '\') 'manifest.json'))
+        })
         if ($missingViews.Count -gt 0) {
-            Die ("config.json references view(s) not shipped in this archive: " + ($missingViews -join ', ') + "`n    Shipped views: " + ($stagedViews -join ', ') + "`n    A standalone release must render out of the box -- default to 'settings'.")
+            $stagedViews = @(Get-ChildItem $viewsRoot -Directory | Where-Object Name -ne 'shared' | ForEach-Object {
+                $mod = $_.Name
+                Get-ChildItem $_.FullName -Directory |
+                    Where-Object { Test-Path (Join-Path $_.FullName 'manifest.json') } |
+                    ForEach-Object { "$mod/$($_.Name)" }
+            })
+            Die ("config.json references view(s) not shipped in this archive: " + ($missingViews -join ', ') + "`n    Shipped views: " + ($stagedViews -join ', ') + "`n    A standalone release must render out of the box -- default to 'osfui/settings'.")
         }
-        if ($cfg.focusMenu)       { Warn "config.json has focusMenu=true (experimental custom IMenu). Confirm it is proven stable on 1.16.244 before shipping on-by-default." }
         if ($cfg.devMode)         { Warn "config.json has devMode=true (verbose logs + PNG dump). Turn OFF for release." }
     } catch {
         Warn "Could not parse staged config.json to sanity-check it: $($_.Exception.Message)"
