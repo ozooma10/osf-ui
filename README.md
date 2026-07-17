@@ -2,34 +2,14 @@
 
 [![CI](https://github.com/ozooma10/osf-ui/actions/workflows/ci.yml/badge.svg)](https://github.com/ozooma10/osf-ui/actions/workflows/ci.yml)
 
-**OSF UI** is an SFSE/CommonLibSF plugin that hosts HTML/CSS/JS UI views over
-Starfield. It is **heavily inspired by [Prisma UI](https://www.prismaui.dev/)
-by StarkMP** — the Skyrim framework that pioneered rendering modern web UIs over
-a Bethesda game with Ultralight — but it is an independent, from-scratch
-implementation for Starfield's Direct3D 12 engine, with its own name, API, and
-architecture, and contains **no Prisma UI code** (see
-[Credits & acknowledgments](#credits--acknowledgments)).
-
-Current state: **Phase 5b — interactive overlay + schema-driven settings.**
-Real HTML/CSS/JS pages render offscreen via Ultralight, upload to a GPU
-texture on the game's own D3D12 device, and are drawn as an alpha-blended
-overlay over the live game image through an `IDXGISwapChain::Present` slot-8
-hook. The overlay is **fully interactive**: while it is open the game is
-input-frozen (movement + camera), keyboard routes into the page, and the
-real Windows **hardware cursor** (zero-lag, framerate-independent) clicks
-the page's controls, with CSS `cursor` styles mapped to the matching system
-cursor. A multi-mod, schema-driven settings UI (MCM-style) ships on top. All
-user-verified on Starfield 1.16.244. See
-[What this is not yet](#what-this-is-not-yet) for the remaining gaps.
-
-Based on [commonlibsf-template](https://github.com/libxse/commonlibsf-template)
-(GPL-3.0).
+**OSF UI** is an SFSE/CommonLibSF plugin that hosts HTML/CSS/JS UI views over Starfield. 
+It is heavily inspired by **[Prisma UI](https://www.prismaui.dev/)
+by StarkMP**
 
 ## Requirements
 
 - [XMake](https://xmake.io) 3.0.0+
 - C++23 compiler (MSVC / Clang-CL)
-- Starfield (Steam) + [SFSE](https://sfse.silverlock.org/)
 
 ## Build
 
@@ -40,12 +20,18 @@ xmake build
 Output lands in `build/windows/x64/<mode>/`. To deploy automatically, set one
 of (before configuring):
 
-- `XSE_SF_MODS_PATH` — a mod manager `mods` folder → installs to
-  `<mods>/OSF UI/SFSE/Plugins/...` (mod folder == xmake target == repo folder)
-- `XSE_SF_GAME_PATH` — the game folder → installs to `Data/SFSE/Plugins/...`
+- `XSE_SF_MODS_PATH` - a mod manager `mods` folder → installs to `<mods>/OSF UI/SFSE/Plugins/...`
+- `XSE_SF_GAME_PATH` - the game folder → installs to `Data/SFSE/Plugins/...`
 
-The install includes the DLL, PDB, and the `OSFUI/` data folder
-(config + views).
+The install includes the DLL, PDB, and the `OSFUI/` data folder (config + views).
+
+## Documentation
+
+- [docs/troubleshooting.md](docs/troubleshooting.md) - **players start here**: requirements, install, troubleshooting, uninstall, and known limitations
+- [docs/authoring-views.md](docs/authoring-views.md) - **start here to build a view**: package layout, manifest fields, the bridge protocol, and the settings schema format
+- [docs/architecture.md](docs/architecture.md) - layers and data flow
+- [docs/security-model.md](docs/security-model.md) - JS-is-untrusted rules
+- [docs/reverse-engineering-notes.md](docs/reverse-engineering-notes.md) - what is unknown and must not be guessed
 
 ## Install / paths
 
@@ -55,10 +41,9 @@ Final layout (game or mod folder):
 Data/SFSE/Plugins/
   OSFUI.dll
   OSFUI/                 <- plugin data, resolved relative to the DLL
-                                  (name is the kDataFolderName constant, not the DLL name)
     config.json
     views/
-      settings/                <- built-in views (settings = the Mods surface, keybinds, shared)
+      settings/                <- built-in views
         manifest.json
         index.html  style.css  main.js
     ultralight/                <- only present in with_ultralight builds
@@ -68,39 +53,30 @@ Data/SFSE/Plugins/
         icudt67l.dat            (ICU data; cacert.pem deliberately not shipped)
 ```
 
-Logs go to the standard SFSE log folder
-(`Documents/My Games/Starfield/SFSE/Logs/OSF UI.log`).
+Logs go to the standard SFSE log folder (`Documents/My Games/Starfield/SFSE/Logs/OSF UI.log`).
 
 ## Config
 
-**User-facing settings live in the in-game menu** (F10 → OSF UI): the
-open/close key, the console pass-through key, the gameplay-control freeze, the
-pause-menu entry, and the game-key collision warnings. They persist under
-`Documents\My Games\Starfield\OSFUI\settings\osfui.json` and survive updates.
+**User-facing settings live in the in-game menu** (F10 → OSF UI): the open/close key. 
+They persist under `Documents\My Games\Starfield\OSFUI\settings\osfui.json` and survive updates.
 
-`OSFUI/config.json` is the **developer/boot file** — backends, input source,
-diagnostic escape hatches, the view set. It ships with the mod and is
-overwritten on update; it holds no user-facing keys. Missing file ⇒ built-in
-defaults (logged); unknown keys warn (they can only be typos); a
-`configVersion` stamp marks the format:
+`OSFUI/config.json` is the **developer/boot file** - backends, input source, diagnostic escape hatches, the view set. 
+It ships with the mod and is overwritten on update; it holds no user-facing keys. 
+
+The keys you might actually edit:
 
 | field | default | meaning |
 |---|---|---|
-| `configVersion` | `1` | format stamp; files written for a newer OSF UI parse leniently with a log note |
 | `enabled` | `true` | master switch |
-| `startVisible` | `false` | initial overlay visibility state |
-| `renderer` | `"mock"` | `null` \| `mock` \| `ultralight` (real offscreen backend; shipped config uses it — falls back to `null` with a warning in Ultralight-free builds) |
-| `compositor` | `"null"` | `null` \| `d3d12` — the real overlay path (uploads to the game's D3D12 device, draws at present time; verified in-game). Shipped config uses `d3d12` |
-| `inputSource` | `"none"` | `none` \| `ui` — installs the window-subclass input path (toggle key + input capture). Shipped config uses `ui`; set to `none` to rule the input hook out when debugging |
-| `captureInput` | `true` | when the overlay is visible, freeze the game and route keyboard/mouse into the web view (needs `inputSource: "ui"`). When `false` the overlay is a passive HUD: it draws, but the game still receives input |
-| `hardwareCursor` | `true` | show the real Windows (hardware) pointer while the overlay captures input — zero-lag, framerate-independent, and the page's CSS `cursor` maps to the matching system cursor. `false` falls back to the legacy raw-delta virtual cursor, which has **no visible pointer** (debugging escape hatch only) |
-| `focusMenu` | `true` | Register a real engine menu (`OSFUI_FocusMenu`) and open/close it with the overlay so the engine enters menu mode (cursor ownership + menu-stack presence + engine-routed input) rather than relying only on the WndProc message-swallow. On by default; **verified in-game on 1.16.244** — registration, Route-A stack admission, long-session survival, and clean post-close teardown (see `src/core/Config.h` and [docs/reverse-engineering-notes.md](docs/reverse-engineering-notes.md) §4). Set `false` if another overlay fights the engine menu stack |
-| `engineInput` | `true` | Bring the engine's per-menu input dispatch — including **gamepad**, which the WndProc never sees — into the runtime and route it into the focused view (D-pad/left-stick → move focus, A → activate, B → close, right-stick → scroll), plus raw `ui.gamepad` events a page can opt into via `osfui.gamepadRaw`. On by default; delivery + routing verified in-game on 1.16.244 with a controller. Keyboard/mouse stay on the WndProc path |
-| `pauseMenuEntryLabel` / `pauseMenuEntryView` | `"MOD MENUS"` / `"osfui/settings"` | label and target of the pause-menu entry (the entry's on/off switch itself is a user setting in Mod Settings) |
-| `view` | `"osfui/settings"` | the active (input) view the toggle key opens — a qualified `<modId>/<viewName>` id from `views/<modId>/<viewName>/manifest.json` (shipped config uses `osfui/settings`, the Mods surface) |
+| `view` | `"osfui/settings"` | the active (input) view the toggle key opens - a qualified `<modId>/<viewName>` id from `views/<modId>/<viewName>/manifest.json` (shipped config uses `osfui/settings`, the Mods surface) |
 | `views` | `[]` | optional multi-view set: every id is loaded and composited (layer order = each view's manifest `zorder`), and `view` must be one of them (the interactive one). Empty ⇒ only `view` loads. Missing ids are skipped with a log line. Shipped config uses `["osfui/settings", "osfui/keybinds"]` |
-| `allowNetwork` | `false` | recognized but force-disabled |
-| `devMode` | `false` | verbose per-call logging + first-frame PNG dump. **Defaults shown above are the built-in fallbacks (`src/core/Config.h`); the shipped `data/OSFUI/config.json` is the runtime config.** For development, set `devMode: true` and `startVisible: true` for verbose logs and a launch-visible overlay |
+| `devMode` | `false` | verbose per-call logging + first-frame PNG dump - turn on when developing views or attaching logs to a bug report |
+| `devReloadKey` | `"F11"` | with `devMode` on, reloads the top open menu's URL in place (the fast view-iteration loop); ignored otherwise |
+
+The remaining keys (`renderer`, `compositor`, `inputSource`, `captureInput`,
+`hardwareCursor`, `focusMenu`, `engineInput`, `pauseMenuEntryLabel`/`View`,
+`configVersion`) select backends and serve as diagnostic escape hatches - the
+shipped values are the only supported configuration.
 
 ## Ultralight backend
 
@@ -113,141 +89,26 @@ xmake f --with_ultralight=true
 xmake build
 ```
 
-The build fails with a clear message if `ULTRALIGHT_SDK_DIR` is missing, and
-the install step ships the SDK's runtime DLLs + ICU data into the
-`OSFUI/ultralight/` folder shown above. The SDK is proprietary —
-never commit its headers, libs, or binaries to this repository (keep local
-drops under the gitignored `external/`; also mind Ultralight's own licensing
-terms for distribution).
-
-CI (GitHub Actions) builds and layout-checks the **zero-Ultralight** target
-only — the proprietary SDK never enters CI. Release archives that bundle the
-Ultralight runtime (and its required license notices) are produced locally
-with `tools/package.ps1` (see [docs/PACKAGING.md](docs/PACKAGING.md)).
-
-Implementation notes (threading model, JS bridge, sandbox) live in
-[docs/architecture.md](docs/architecture.md) and
-[docs/security-model.md](docs/security-model.md).
-
-## What works today
-
-- Plugin loads under SFSE and logs its full lifecycle (preload, load, SFSE
-  broadcast messages).
-- `Runtime::Tick()` runs every frame on the game's main thread via an SFSE
-  `TaskInterface` permanent task (heartbeat logged in dev mode).
-- Menu open/close events are observed via the documented CommonLibSF
-  `RegisterSink` API; with `inputSource: "ui"`, a WndProc subclass on the game
-  window drives the configured toggle key and input capture (verified in-game
-  2026-06-12). A runtime layout guard (`UiLayoutGuard`) refuses all UI
-  integration if the compiled engine layout doesn't match the running binary.
-- Config and view manifests load defensively from the plugin data path.
-- Renderer/compositor backends are selected from config with safe fallbacks;
-  the mock renderer produces a real CPU RGBA test pattern, the null
-  compositor logs submitted frames.
-- With `with_ultralight`: real HTML/CSS/JS rendering offscreen (Ultralight
-  1.4 / WebKit on a dedicated worker thread), a sandboxed filesystem limited
-  to the view folder + ICU resources, and a two-way `window.osfui`
-  JSON bridge — verified in-game (devMode dumps the first rendered frame to
-  `OSFUI/ultralight/first-frame.png`).
-- With `compositor: "d3d12"`: the rendered frames upload into a GPU texture
-  on the game's own `ID3D12Device` (route reverse-engineered and QI-verified
-  at runtime; hook-free) and are **drawn over the game image** at present
-  time via an `IDXGISwapChain::Present` slot-8 hook — alpha-blended,
-  user-verified on screen. `startVisible`/F10 toggle it.
-- **Interactive input** (`inputSource: "ui"` + `captureInput: true`): a
-  WndProc subclass on the game window freezes gameplay while the overlay is
-  open, routes keyboard (VK codes) into the focused page, and shows the real
-  Windows **hardware cursor** to click the page's controls — zero-lag and
-  framerate-independent, with CSS `cursor` styles (hover hand, text I-beam)
-  mapped onto the OS pointer. F10 toggles, Esc closes.
-- **Schema-driven settings (MCM-style):** each mod drops a
-  `settings/<id>.json` schema (typed bool/int/float/enum/string knobs); the
-  built-in `settings` view — the **Mods surface** F10 opens — lands on
-  **Home**, an app-style launcher grid of every registered terminal and overlay
-  toggle (Keybinds included), with the rail listing every installed mod and
-  its page: settings controls + Reset, plus launch buttons and HUD toggles
-  for any views the mod registered (manifest `mod` field groups them). The native `SettingsStore` validates/clamps/persists
-  per-mod to a user-writable path and fires change reactions (e.g. live
-  cursor speed).
-- The JSON message bridge parses/dispatches the whitelisted commands —
-  surface control (`close`, `setVisible`, `menu.open` / `menu.close`,
-  `hud.show` / `hud.hide`, `setViewHidden`), diagnostics (`log`, `ping`),
-  read-only game data (`game.get`), the surface catalog (`views.get` — replies
-  with every loaded view's metadata + open/focus/load state and pushes updates
-  on change, the read behind the Mods surface's terminal/HUD rows), and the settings trio
-  (`settings.get` / `settings.set` / `settings.reset`) — and rejects everything
-  else. Trusted
-  *native* SFSE plugins can register additional commands through the exported
-  bridge API ([docs/native-plugin-api.md](docs/native-plugin-api.md));
-  untrusted JS cannot. Authoring a view? See
-  [docs/authoring-views.md](docs/authoring-views.md).
-- The built-in `settings` (the Mods surface — per-mod settings, terminal
-  launchers, and HUD toggles in one menu) and `keybinds` views are
-  self-contained HTML panels that also run standalone in a normal browser
-  (degraded mode) for development.
-
-## What this is not yet
-
-- **A young framework** — multiple views composite together with `Tab` focus
-  switching, and views can read basic game data (e.g. the in-game clock).
-  Still maturing: the `window.osfui` declarative bridge is **0.x and
-  unstable**, the DevTools inspector is stubbed, the native plugin API
-  (`sdk/OSFUI_API.h` / `OSFUI_RequestBridge` — lets a separate SFSE plugin
-  register bridge commands and drive views,
-  [docs/native-plugin-api.md](docs/native-plugin-api.md)) is brand-new with no
-  shipping consumer yet, and there's no packaging/distribution tooling for
-  third-party UIs yet. You ship a `settings/<author>.<modname>.json` schema and a
-  `views/<author>.<modname>/<view>/` folder for the declarative path. Render/menu integration points
-  were reverse engineered before use, never guessed
-  ([docs/reverse-engineering-notes.md](docs/reverse-engineering-notes.md)).
-- **Rough edges** — text entry follows the OS keyboard layout (dead keys and
-  AltGr included, verified in-game) but IME composition (e.g. CJK input) is
-  not supported yet; gamepad/controller navigation is **basic** (D-pad/stick
-  move focus, A activates, B closes) and still being refined; there is no
-  localization pipeline yet; HDR/10-bit backbuffers are detected and skipped
-  with a log warning rather than rendered (full HDR output is on the roadmap);
-  and coexistence with ReShade / Steam overlay / frame-gen is untested.
-- **Not compatible with Xbox/Game Pass** — SFSE itself is Steam-only.
-
-## Documentation
-
-- [docs/troubleshooting.md](docs/troubleshooting.md) — **players start here**:
-  requirements, install, troubleshooting, uninstall, and known limitations
-- [docs/authoring-views.md](docs/authoring-views.md) — **start here to build
-  a view**: package layout, manifest fields, the bridge protocol, and the
-  settings schema format
-- [docs/architecture.md](docs/architecture.md) — layers and data flow
-- [docs/security-model.md](docs/security-model.md) — JS-is-untrusted rules
-- [docs/reverse-engineering-notes.md](docs/reverse-engineering-notes.md) —
-  what is unknown and must not be guessed
+The build fails with a clear message if `ULTRALIGHT_SDK_DIR` is missing, and the install step ships the SDK's runtime DLLs + ICU data into the `OSFUI/ultralight/` folder shown above. 
 
 ## Credits & acknowledgments
 
-OSF UI exists because of **[Prisma UI](https://www.prismaui.dev/)** by
-**StarkMP** (with contributors incl. **langfod**) — the Skyrim Special Edition
-framework that pioneered rendering modern HTML/CSS/JS interfaces over a Bethesda
-game with Ultralight. The entire idea for this project came from Prisma UI, and
-StarkMP graciously gave permission to build a Starfield-flavored framework in
-its spirit. Thank you.
-
-OSF UI is an **independent, from-scratch implementation for Starfield** — a
-different game on a different engine (Direct3D 12 vs Prisma's Direct3D 11), with
-its own name, architecture, renderer, input handling, and native↔web bridge. It
-does **not** use Prisma UI's name, branding, or API, is **not affiliated with or
-endorsed by the Prisma UI project, and contains no Prisma UI code.**
+**OSF UI** exists because of **[Prisma UI](https://www.prismaui.dev/)**,
+the Skyrim Special Edition web-UI framework by **StarkMP**. Prisma UI pioneered the approach this project is built
+around - rendering modern HTML/CSS/JS interfaces in game using the
+Ultralight engine - and the entire idea for a Starfield equivalent came from it.
 
 - **[Prisma UI](https://www.nexusmods.com/skyrimspecialedition/mods/148718)** —
-  StarkMP & contributors — original concept and inspiration.
-- **[Ultralight](https://ultralig.ht/)** — Ultralight, Inc. — the lightweight,
+  StarkMP & contributors - original concept and inspiration.
+- **[Ultralight](https://ultralig.ht/)** - Ultralight, Inc. - the lightweight,
   WebKit-based renderer behind every view (used under the Ultralight Free
   License; notices ship in `OSFUI/ultralight/license/`).
 - **[commonlibsf-template](https://github.com/libxse/commonlibsf-template)** /
-  **CommonLibSF** & **[SFSE](https://sfse.silverlock.org/)** — the plugin
+  **CommonLibSF** & **[SFSE](https://sfse.silverlock.org/)** -= the plugin
   foundation this is built on.
 
-See [CREDITS.md](CREDITS.md) for the full text, including a paste-ready blurb
-for mod pages.
+See [CREDITS.md](CREDITS.md)
 
 ## License
 
-GPL-3.0 (inherited from the template). See `LICENSE` and `EXCEPTIONS`.
+GPL-3.0 See `LICENSE` and `EXCEPTIONS`.

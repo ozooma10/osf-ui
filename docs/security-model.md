@@ -13,8 +13,8 @@ ugly overlay", never "arbitrary native code execution".
    as a format string natively. Bridge input is parsed defensively
    (non-throwing JSON parse, typed accessors with defaults, length-bounded
    logging). [enforced in `MessageBridge` / `Json`]
-2. **No network by default.** `config.allowNetwork` and the per-view
-   `permissions.network` flag are recognized but force-disabled with a warning.
+2. **No network by default.** The per-view `permissions.network` flag is
+   recognized but force-disabled with a warning; there is no config switch.
    ⚠ Known gap since Phase 1: WebCore has its own HTTP stack and Ultralight's
    request-blocking `NetworkListener` is Pro-edition-only, so http(s) is not
    hard-blocked at the engine level. Mitigations in place: `cacert.pem` is
