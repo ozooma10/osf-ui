@@ -112,16 +112,71 @@ namespace OSFUI::API
 		return out;
 	}
 
+	bool SettingsMirror::ResolveNames(std::string_view a_modId, std::string_view a_key, std::string& a_outMod, std::string& a_outKey) const
+	{
+		std::lock_guard lock(_mutex);
+		const Values* values = nullptr;
+		if (const auto mod = _mods.find(std::string(a_modId)); mod != _mods.end()) {
+			a_outMod = mod->first;
+			values = &mod->second;
+		} else {
+			for (const auto& [id, v] : _mods) {
+				if (EqualsCaseInsensitiveAscii(id, a_modId)) {
+					a_outMod = id;
+					values = &v;
+					break;
+				}
+			}
+		}
+		if (!values) {
+			return false;
+		}
+		if (a_key.empty()) {
+			a_outKey.clear();
+			return true;
+		}
+		if (const auto it = values->find(std::string(a_key)); it != values->end()) {
+			a_outKey = it->first;
+			return true;
+		}
+		for (const auto& [key, v] : *values) {
+			if (EqualsCaseInsensitiveAscii(key, a_key)) {
+				a_outKey = key;
+				return true;
+			}
+		}
+		return false;
+	}
+
 	const nlohmann::json* SettingsMirror::Find(const char* a_modId, const char* a_key) const
 	{
 		if (!a_modId || !a_key) {
 			return nullptr;
 		}
-		const auto mod = _mods.find(a_modId);
-		if (mod == _mods.end()) {
+		const Values* values = nullptr;
+		if (const auto mod = _mods.find(a_modId); mod != _mods.end()) {
+			values = &mod->second;
+		} else {
+			// Case-insensitive fallback — see the header's BSFixedString
+			// interning rationale (Papyrus cannot control its casing).
+			for (const auto& [id, v] : _mods) {
+				if (EqualsCaseInsensitiveAscii(id, a_modId)) {
+					values = &v;
+					break;
+				}
+			}
+		}
+		if (!values) {
 			return nullptr;
 		}
-		const auto value = mod->second.find(a_key);
-		return value == mod->second.end() ? nullptr : &value->second;
+		if (const auto value = values->find(a_key); value != values->end()) {
+			return &value->second;
+		}
+		for (const auto& [key, value] : *values) {
+			if (EqualsCaseInsensitiveAscii(key, a_key)) {
+				return &value;
+			}
+		}
+		return nullptr;
 	}
 }

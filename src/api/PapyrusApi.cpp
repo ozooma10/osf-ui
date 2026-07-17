@@ -134,10 +134,14 @@ namespace OSFUI::API::Papyrus
 					if (e.generation == 0 || e.kind != a_kind) {
 						continue;
 					}
-					if (!e.modId.empty() && e.modId != a_modId) {
+					// Case-insensitive: registration filters arrived through
+					// BSFixedString interning, which hands back whatever casing
+					// was interned FIRST process-wide — the script's literal
+					// spelling never survives reliably (SettingsMirror.h).
+					if (!e.modId.empty() && !EqualsCaseInsensitiveAscii(e.modId, a_modId)) {
 						continue;
 					}
-					if (a_kind == Kind::kHotkey && !e.key.empty() && e.key != a_key) {
+					if (a_kind == Kind::kHotkey && !e.key.empty() && !EqualsCaseInsensitiveAscii(e.key, a_key)) {
 						continue;
 					}
 					targets.emplace_back(e.receiver, e.scriptName, e.fn);
@@ -452,6 +456,17 @@ namespace OSFUI::API::Papyrus
 			ops.swap(s_ops);
 		}
 		for (auto& op : ops) {
+			// Canonicalize to the authored spelling before hitting the
+			// case-exact store: the names arrived through BSFixedString
+			// interning (arbitrary casing — SettingsMirror.h). An unresolvable
+			// op keeps its raw names so the refusal log shows what the script
+			// actually sent.
+			std::string mod;
+			std::string key;
+			if (BridgeApi::Get().Mirror().ResolveNames(op.mod, op.key, mod, key)) {
+				op.mod = std::move(mod);
+				op.key = std::move(key);
+			}
 			if (op.reset) {
 				if (!a_store.Reset(op.mod, op.key)) {
 					REX::WARN("PapyrusApi: Reset {}.{} refused (unknown mod/key)", op.mod, op.key.empty() ? "*" : op.key);

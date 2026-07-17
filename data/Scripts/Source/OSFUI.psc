@@ -9,7 +9,9 @@ ScriptName OSFUI Native Hidden
 ;
 ; If OSF UI is not installed, every call here fails soft: Papyrus logs a  missing-native error and the call yields the declared default (GetVersion() yields 0 - the feature-detect gate).
 ;
-; Ids and keys are CASE-SENSITIVE and must match your schema file exactly (mod ids are lowercase "<author>.<modname>" by grammar).
+; Ids and keys match your schema file CASE-INSENSITIVELY (Papyrus string
+; interning can't preserve your casing, so OSF UI folds it for you); write them
+; as authored anyway (mod ids are lowercase "<author>.<modname>" by grammar).
 
 ; --- feature detect -----------------------------------------------------------
 
