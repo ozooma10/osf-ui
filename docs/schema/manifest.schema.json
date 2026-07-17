@@ -19,7 +19,7 @@
       "type": "string",
       "pattern": "^[a-z0-9-]+$",
       "maxLength": 64,
-      "description": "The view name. MUST equal the view folder name (a mismatch is rejected). The runtime's qualified view id is derived from the path: \"<modId>/<viewName>\" (e.g. \"ozooma10.almanac/planets\") — that qualified form is what config.json's \"view\"/\"views\", menu.open, and RegisterView use. Required."
+      "description": "The view id. MUST equal the view folder name. The runtime's qualified view id is derived from the path: \"<modId>/<viewName>\" (e.g. \"ozooma10.almanac/planets\") - that qualified form is what menu.open, and RegisterView use. Required."
     },
     "title": {
       "type": "string",
@@ -27,13 +27,7 @@
     },
     "description": {
       "type": "string",
-      "description": "One-line blurb shown in catalogs (views.data / the Mods surface). Defaults to empty."
-    },
-    "mod": {
-      "type": "string",
-      "pattern": "^([a-z0-9-]+\\.[a-z0-9-]+|osfui)$",
-      "maxLength": 64,
-      "description": "Optional consistency check: the owning mod id, derived from the mod folder the view lives under (views/<modId>/...). When declared it MUST equal that folder name; a mismatch is rejected. The Mods surface groups this view's launcher/toggle onto the settings page of the same mod id (settings/<modId>.json / RegisterSettingsSchema)."
+      "description": "One-line blurb shown in catalogs. Defaults to empty."
     },
     "entry": {
       "type": "string",
@@ -52,7 +46,7 @@
       "minimum": 1,
       "maximum": 16384,
       "default": 900,
-      "description": "Initial view height (resized at runtime; capped at 1440)."
+      "description": "Initial view height."
     },
     "transparent": {
       "type": "boolean",
