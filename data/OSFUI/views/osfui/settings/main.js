@@ -51,6 +51,11 @@ const saveStateEl = document.getElementById("save-state");
 let allMods = [];
 // Registered catalog views (views.data, hub !== false) — panels and HUDs.
 let allViews = [];
+// The running OSF UI version (runtime.ready handshake) and every catalog
+// view's declared manifest targetVersion (INCLUDING hub:false utility views —
+// a hidden view still wants a newer host). Feed the "needs update" badge.
+let hostVersion = "";
+let viewTargets = [];
 // Shape key of the last views.data (ids/owners/titles/loadState). A push that
 // only flips open/focus state updates switches in place instead of tearing
 // down the pane (views.data re-broadcasts on every such change).
@@ -79,7 +84,7 @@ let liveGroups = [];
 // ---- bridge ---------------------------------------------------------------
 // All traffic goes through the shared helper (../../shared/osfui.js, loaded by
 // index.html): osfui.send fire-and-forget, osfui.request for anything whose
-// outcome matters (the requestId/ui.result envelope, protocol 0.5), osfui.on
+// outcome matters (the requestId/ui.result envelope, protocol 1.0), osfui.on
 // for native pushes, osfui.ready/has for the handshake.
 
 function bridgeAvailable() { return osfui.available(); }
@@ -579,13 +584,15 @@ function makeSettingRow(mod, setting, current) {
   row.appendChild(text);
 
   const control = el("div", "control");
-  if (built.value) control.appendChild(built.value);
-  control.appendChild(built.control);
-  // Per-setting reset — appears on hover/when modified.
+  // Per-setting reset — appears on hover/when modified. Leads the cell so the
+  // control itself stays flush with the row's right edge, on the same line as
+  // surface/action rows (which have no reset slot).
   const reset = el("button", "row-reset", "↺");
   reset.type = "button"; reset.title = "Reset to default";
   reset.addEventListener("click", () => resetSetting(mod.id, setting.key));
   control.appendChild(reset);
+  if (built.value) control.appendChild(built.value);
+  control.appendChild(built.control);
   row.appendChild(control);
 
   liveRows.push({ row, control: built.control, setting, dot,
@@ -1519,7 +1526,7 @@ function beginCapture(mod, key, btn) {
     // a key — so the whole rebind is one awaited request. No request timeout:
     // the user may think as long as they like; the reply itself settles it
     // (Escape/refusal comes back `cancelled`). A second arm while one is live
-    // anywhere rejects with code "capture-busy" (protocol 0.5).
+    // anywhere rejects with code "capture-busy" (protocol 1.0).
     osfui.request("settings.captureKey", { mod, key }, { timeoutMs: 0 })
       .then((msg) => finishCapture(msg.payload))
       .catch((err) => {
@@ -1651,21 +1658,64 @@ if (sessionChipEl) sessionChipEl.addEventListener("click", openSessionPanel);
 // resolve an osfui.request() ALSO land here — one render path regardless of
 // who asked.
 
+// Dotted-version compare, numeric per component, missing parts are 0
+// ("1.2" < "1.10.0"). Trailing junk in a component is ignored (parseInt), so
+// the harness's "1.0.0-mock" still compares sanely.
+function versionLess(a, b) {
+  const pa = String(a).split("."), pb = String(b).split(".");
+  for (let i = 0; i < 3; i++) {
+    const x = parseInt(pa[i], 10) || 0, y = parseInt(pb[i], 10) || 0;
+    if (x !== y) return x < y;
+  }
+  return false;
+}
+
+// "Needs update" chip beside the OSF UI version number in the rail head:
+// shown when any installed view's manifest targetVersion is newer than the
+// running OSF UI — it's OSF UI itself that needs updating, and the tooltip
+// names the mods asking for it. Re-derived on every views.data push.
+function updateNeedsUpdateBadge() {
+  const badge = document.getElementById("plugin-version");
+  if (!badge) return;
+  let chip = document.getElementById("needs-update");
+  const wanting = hostVersion
+    ? [...new Set(viewTargets.filter((v) => versionLess(hostVersion, v.targetVersion))
+        .map((v) => homeModCaption(v) || v.mod || v.id))]
+    : [];
+  if (!wanting.length) {
+    if (chip) chip.remove();
+    return;
+  }
+  if (!chip) {
+    chip = el("span", "version-badge needs-update", "needs update");
+    chip.id = "needs-update";
+    badge.insertAdjacentElement("afterend", chip);
+  }
+  chip.title = "A newer OSF UI is expected by: " + wanting.join(", ");
+}
+
 // The handshake: version badge + initial reads. `osfui.has()` is the
-// documented feature gate (capabilities, protocol 0.5) — bridgeVersion is
+// documented feature gate (capabilities, protocol 1.0) — bridgeVersion is
 // informational, not something to do arithmetic on.
 osfui.ready.then((info) => {
   const badge = document.getElementById("plugin-version");
   if (badge && info.version) badge.textContent = "v" + info.version;
+  hostVersion = info.version || "";
+  updateNeedsUpdateBadge();
   sendCommand({ command: "settings.get" });
   if (osfui.has("views")) sendCommand({ command: "views.get" });  // also subscribes to change pushes
 });
 
 osfui.on("settings.data", (p) => {
   allMods = p.mods || [];
+  updateNeedsUpdateBadge();  // tooltip names mods by settings title once known
   render();
 });
 osfui.on("views.data", (p) => {
+  // Version targets come off the UNFILTERED catalog — a hub:false utility
+  // view still gets to ask for a newer host.
+  viewTargets = (p.views || []).filter((v) => v && v.targetVersion);
+  updateNeedsUpdateBadge();
   allViews = (p.views || []).filter((v) => v && v.hub !== false);
   // Pushes arrive on every open/focus flip (e.g. our own HUD toggle) —
   // only rebuild the pane when the catalog itself changed, or a settings

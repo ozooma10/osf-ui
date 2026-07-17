@@ -1,12 +1,13 @@
 {
+  "$schema": "./../../../../../docs/schema/manifest.schema.json",
   "id": "keybinds",
   "title": "Keybinds",
   "description": "Full keyboard map of mod and Game Bindings",
   "entry": "index.html",
   "mod": "osfui",
   "hub": true,
-  "width": 1280,
-  "height": 720,
+  "width": 1600,
+  "height": 900,
   "transparent": true,
   "interactive": true,
   "permissions": {

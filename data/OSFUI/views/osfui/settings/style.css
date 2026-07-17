@@ -334,6 +334,13 @@ html, body { height: 100%; overflow: hidden; }
   border: 1px solid var(--osf-line); border-radius: var(--osf-radius-pill);
 }
 .version-badge:empty { display: none; }
+/* "Needs update": an installed mod's manifest targets a newer OSF UI than
+   this one (views.data targetVersion vs the handshake version). Sits right
+   after the version badge; the tooltip names the mods asking. */
+.needs-update {
+  margin-left: 6px;
+  color: var(--osf-signal-warn); border-color: rgba(223, 166, 61, 0.5);
+}
 .filter { border-color: rgba(242, 239, 233, 0.18); }
 .rail-meta {
   display: flex; justify-content: space-between; align-items: center;
@@ -425,7 +432,7 @@ html, body { height: 100%; overflow: hidden; }
 .control { min-width: 210px; }
 .control .osf-range { width: 190px; }
 .row-reset {
-  width: 28px; height: 28px; margin-left: 2px;
+  width: 28px; height: 28px; margin-right: 2px;
   font-family: var(--osf-font-mono);
 }
 

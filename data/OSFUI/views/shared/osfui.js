@@ -1,4 +1,4 @@
-// osfui.js — the OSF UI bridge helper (bridge protocol 0.5, api-freeze item 5).
+// osfui.js — the OSF UI bridge helper (bridge protocol 1.0, api-freeze item 5).
 //
 // Load it like the shared stylesheet, BEFORE your view's own script:
 //   <script src="../../shared/osfui.js"></script>
@@ -120,7 +120,7 @@
       if (req.timer) clearTimeout(req.timer);
       const p = message.payload || {};
       if (message.type === "ui.error" || (message.type === "ui.result" && p.ok === false)) {
-        const err = new Error(p.message || p.reason || p.code || "request failed");
+        const err = new Error(p.message || p.code || "request failed");
         err.code = p.code || "";
         err.reply = message;
         req.reject(err);
