@@ -5,14 +5,16 @@ material only** — the installable release archive is produced separately by
 [`tools/package.ps1`](../tools/package.ps1) (see [docs/PACKAGING.md](../docs/PACKAGING.md)).
 
 Same NASA-punk mission-patch family as **OSF Animation**, re-themed from that
-project's amber + playback-curve identity to OSF UI's **teal/cyan + floating
-web-UI-window** identity, so the two read as siblings.
+project's amber + playback-curve identity to OSF UI's **teal/cyan +
+nested-frame signal** identity (two concentric view frames around a ringed
+focus node), so the two read as siblings.
 
 ## Contents
 
 | File | Size | Use |
 |---|---|---|
 | `branding/osf-ui-patch.{svg,png}` | 1024×1024 | **Main / thumbnail image** on Nexus (the mission patch) |
+| `branding/osf-ui-patch-emblem.{svg,png}` | 1024×1024 | Patch variant, no wordmark, emblem centered — badge in the header, avatars |
 | `branding/osf-ui-header.{svg,png}` | 1600×520 | Banner at the top of the description (gallery image) |
 | `branding/osf-ui-emblem.{svg,png}` | 512×512 | Standalone mark, transparent — icons/avatars |
 | `section-headers/svg/*.svg` | 1300×130 | Section dividers used inside the description |
@@ -35,6 +37,7 @@ render(){ "$EDGE" --headless --disable-gpu --force-device-scale-factor=1 \
   --screenshot="$(pwd -W)/$2" "$(pwd -W)/$1"; }
 
 render branding/osf-ui-patch.svg   branding/osf-ui-patch.png   1024,1024
+render branding/osf-ui-patch-emblem.svg branding/osf-ui-patch-emblem.png 1024,1024
 render branding/osf-ui-header.svg  branding/osf-ui-header.png  1600,520
 render branding/osf-ui-emblem.svg  branding/osf-ui-emblem.png  512,512
 for f in 01-overview 02-features 03-get-started 04-for-authors 05-credits; do

@@ -1,6 +1,6 @@
 <svg viewBox="0 0 512 512" width="512" height="512" xmlns="http://www.w3.org/2000/svg" role="img">
 <title>OSF UI nested-frame signal emblem</title>
-<desc>The OSF UI mark alone, transparent: two concentric teal view frames — an outer screen framing an inner OSF view — with a flat signal line running through the centre, diamond endpoint nodes, a ringed playhead-style focus node at dead centre, and a single 4-point star at the top right. The screen-space sibling of OSF Animation's amber playback-curve emblem.</desc>
+<desc>The OSF UI mark alone, transparent: two concentric teal view frames — an outer screen framing an inner OSF view — with a flat signal line running through the centre, diamond endpoint nodes, and a ringed playhead-style focus node at dead centre. The screen-space sibling of OSF Animation's amber playback-curve emblem.</desc>
 
 <!-- outer view (the game's screen) -->
 <rect x="120" y="162" width="272" height="188" fill="none" stroke="#3aa9c0" stroke-opacity="0.3" stroke-width="4"/>
@@ -23,7 +23,4 @@
 <!-- ringed focus node, dead centre -->
 <circle cx="256" cy="256" r="12" fill="none" stroke="#3aa9c0" stroke-width="5"/>
 <circle cx="256" cy="256" r="5" fill="#dff6f8"/>
-
-<!-- the single asymmetry: one star -->
-<path d="M404 134 L410 148 L424 154 L410 160 L404 174 L398 160 L384 154 L398 148 Z" fill="#6fd0da"/>
 </svg>
