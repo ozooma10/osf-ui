@@ -70,6 +70,14 @@ backends, diagnostic switches). It is overwritten when the mod updates, so
 don't keep personal edits there — unknown keys are ignored with a warning
 in the log.
 
+**A mod is missing from the list / a warning sits atop the Mods rail:** a
+settings file that fails to load is never dropped silently — the rail pins a
+warning naming the file and the reason (bad filename, JSON parse error with
+line/column, corrupt saved values). A corrupt values file is set aside as
+`<mod>.json.bad` next to the original and defaults take over; if you were
+hand-editing it, fix the `.bad` file and rename it back. The same details are
+in `OSF UI.log`.
+
 **Fixing the game-key table:** the Keybinds view's "Starfield (…)" rows come
 from a curated table (`OSFUI/vanillakeys.json`) plus your in-game rebinds. If
 a row is wrong or missing after a game patch, create

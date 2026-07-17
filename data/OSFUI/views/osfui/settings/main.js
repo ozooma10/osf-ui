@@ -50,7 +50,8 @@ const saveStateEl = document.getElementById("save-state");
 
 let allMods = [];
 // Settings artifacts that FAILED to load (settings.data `loadErrors`,
-// protocol 1.1) — schema files skipped or values files quarantined. Rendered
+// capability "settings.loadErrors") — schema files skipped or values files
+// quarantined. Rendered
 // as a rail alert: a mod silently missing from the list is a support thread,
 // a named file + reason is a fix.
 let loadErrors = [];

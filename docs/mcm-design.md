@@ -913,8 +913,15 @@ Ordering of the M1/M2 UI-vs-plumbing split is suggested, not contractual.
    for CJK/Cyrillic; bundle a Noto subset vs document a system-font
    requirement. Needs a spike, not an opinion — must be answered before
    localization is advertised (target: before M2 ships).
-2. **Corrupt/hand-edited values files:** today a parse failure silently
-   falls back to defaults. With sparse persistence that's indistinguishable
-   from "user reset everything". Standing recommendation (unchallenged): on
-   parse failure, rename the bad file to `<id>.json.bad` and warn in the log
-   + a settings-view banner, so user edits are never silently discarded.
+2. **Corrupt/hand-edited values files — RESOLVED as recommended (built
+   2026-07-17):** on parse failure the file is quarantined to
+   `<id>.json.bad` (newest kept), defaults are served, and the reason is
+   surfaced. Shipped alongside the broader load-error surfacing (the SkyUI
+   silent-drop lesson): `settings.data` carries an additive top-level
+   `loadErrors` array (capability `settings.loadErrors`) covering skipped
+   schema files too — bad filename (`schema-name`), unparseable JSON with
+   line/column (`schema-parse`), corrupt values (`values-parse`) — and the
+   Mods surface pins a warning alert atop the rail naming each file and
+   reason (shown even when the rail is otherwise empty or filtered). Schema
+   hot-reload updates the alert live: a broken save shows its parse error,
+   a fixed file clears it.

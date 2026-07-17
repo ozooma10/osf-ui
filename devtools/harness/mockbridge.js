@@ -81,6 +81,7 @@
     "settings", "settings.captureKey", "views", "game.calendar", "gamepad",
     "schema:requires", "request-id",
     "type:bool", "type:int", "type:float", "type:enum", "type:string", "type:key", "type:flags",
+    "settings.loadErrors",
   ];
   function eachSetting(schema, fn) {
     for (const g of (schema && schema.groups) || []) {

@@ -145,7 +145,7 @@ export interface SettingsDataPayload {
    */
   vanillaKeys?: Array<{ event: string; title: string; name: string }>;
   /**
-   * Additive (protocol 1.1, capability "settings.loadErrors"): settings
+   * Additive (capability "settings.loadErrors"): settings
    * artifacts that FAILED to load, so a surface can tell the user instead of
    * a mod silently vanishing. `kind` is a stable enum string:
    * "schema-name" (file name fails the mod-id grammar; file skipped),

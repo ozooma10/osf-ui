@@ -9,6 +9,10 @@ Initial release.
 - **HTML/CSS/JS views over Starfield** - an SFSE/CommonLibSF plugin that renders web UI in game via the Ultralight engine. Inspired by Prisma UI.
 - **Mods surface** - press **F10** (rebindable in game) to open the unified Mods menu, where OSF UI and content mods expose their settings.
 - **Keybinds view** - a visual keyboard map with inline rebinding and conflict badges.
+- **Controller support** - the Mods and Keybinds surfaces are fully navigable
+  with a gamepad: D-pad / left stick moves focus, A activates, B closes,
+  right stick scrolls, LB/RB switch mods. The same layer makes both surfaces
+  arrow-key navigable from the keyboard.
 
 ### For view authors
 

@@ -624,8 +624,10 @@ Tooling to author against the contract instead of from memory:
 `capabilities: string[]` — append-only named features (a capability, once
 shipped, is never removed or renamed): surface names (`settings`,
 `settings.captureKey`, `views`, `i18n`, `game.calendar`, `gamepad`), `request-id`
-(the `ui.result` envelope), `schema:requires`, and `type:<t>` per setting
-value type. It is the **same vocabulary** as a settings schema's `requires`
+(the `ui.result` envelope), `schema:requires`, `type:<t>` per setting
+value type, and `settings.loadErrors` (`settings.data` carries a top-level
+`loadErrors` array naming settings files that failed to load — see
+`osfui.d.ts` for the shape). It is the **same vocabulary** as a settings schema's `requires`
 array, so one name answers both "can this host render my schema" and "can my
 view use this feature":
 
