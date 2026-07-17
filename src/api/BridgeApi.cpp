@@ -9,12 +9,26 @@ namespace OSFUI::API
 {
 	namespace
 	{
-		// Platform / first-party namespaces a consumer may not register into.
-		bool IsReservedCommand(const std::string& a_cmd)
+		// Command shape (api-freeze-plan item 3, ABI 1.6): a plugin command is
+		// "<modId>.<name>" where modId is the item-1 "<author>.<modname>" grammar
+		// — so every registrable command carries TWO dots minimum. That makes
+		// ALL platform commands structurally unregisterable (dotless verbs like
+		// "close", single-dot "menu.open"/"game.get"/"osfui.gamepadRaw"), which
+		// replaces — and can never drift like — the old reserved-prefix list.
+		// The mod id must be pattern-valid but need not have a registered
+		// schema; the name after it is free-form (may itself contain dots,
+		// e.g. "acme.mymod.catalog.get").
+		bool IsValidPluginCommand(std::string_view a_cmd)
 		{
-			return a_cmd.starts_with("ui.") || a_cmd.starts_with("runtime.") ||
-			       a_cmd.starts_with("game.") || a_cmd.starts_with("settings.") ||
-			       a_cmd.starts_with("views.");
+			const auto first = a_cmd.find('.');
+			if (first == std::string_view::npos) {
+				return false;
+			}
+			const auto second = a_cmd.find('.', first + 1);
+			if (second == std::string_view::npos || second + 1 >= a_cmd.size()) {
+				return false;
+			}
+			return Ids::IsValidModId(a_cmd.substr(0, second));
 		}
 
 		// Cap on queued SendToWeb messages per target view while no bridge is
@@ -58,13 +72,24 @@ namespace OSFUI::API
 			return;
 		}
 		const std::string cmd(a_command);
-		if (IsReservedCommand(cmd)) {
-			REX::WARN("BridgeApi: refused RegisterCommand('{}') — reserved prefix (ui./runtime./game./settings./views.)", cmd);
+		if (!IsValidPluginCommand(cmd)) {
+			REX::WARN("BridgeApi: refused RegisterCommand('{}') — commands are '<author>.<modname>.<name>' "
+					  "(two dots minimum; the leading mod id follows the item-1 grammar). "
+					  "Single-dot and dotless names are the platform's",
+				cmd.substr(0, 128));
 			return;
 		}
 		std::lock_guard lock(_mutex);
+		// First-wins (ABI 1.6): a duplicate registration is REFUSED, not
+		// last-writer-wins — hijacking an already-claimed command is impossible
+		// instead of merely logged. Replacing your own handler is explicit:
+		// UnregisterCommand, then re-register (both in the ABI; the pair works
+		// back-to-back within one tick).
 		if (_commands.contains(cmd)) {
-			REX::WARN("BridgeApi: command '{}' re-registered — last writer wins", cmd);
+			REX::WARN("BridgeApi: refused RegisterCommand('{}') — already registered (first wins; "
+					  "UnregisterCommand first to replace your own handler)",
+				cmd);
+			return;
 		}
 		_commands[cmd] = { a_handler, a_user };
 		std::erase(_pendingUnregister, cmd);  // cancel a pending removal of the same id

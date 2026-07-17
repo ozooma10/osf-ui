@@ -31,8 +31,16 @@ Every public identifier derives from your **mod id** (api-freeze-plan item 1):
 
 Ids failing the grammar are **hard-rejected at load** with an ERROR in
 `OSF UI.log` naming the file and the rule. The same mod id names your settings
-schema (`settings/<modId>.json`), your values file, and your view namespace
-folder — one identity across all three surfaces.
+schema (`settings/<modId>.json`), your values file, your view namespace
+folder, and the prefix of your native bridge commands
+(`<modId>.<command>`) — one identity across every surface.
+
+**Claimed author prefixes.** The author segment is self-allocated (use a
+handle you already own — your Nexus/GitHub name), with two claims on record:
+`osfui` is the platform's (reserved, dotless) and **`osf`** is the OSF family
+of mods (`osf.animation`, and future `osf.*` siblings). Don't publish under
+an author segment someone else is already shipping under — the collision
+policy is deterministic first-wins, and the loser is you.
 
 Everything here assumes you have read [security-model.md](security-model.md):
 **your view is treated as untrusted code.** There is no network, no filesystem
@@ -237,8 +245,10 @@ Whitelisted commands (anything else is rejected + logged):
 > There is intentionally **no** "call any native function" escape hatch. New
 > commands come from native code only: either a handler in the OSF UI runtime,
 > or a **separate SFSE plugin** registering its own commands through the native
-> bridge API ([native-plugin-api.md](native-plugin-api.md) — reserved prefixes
-> `ui.`/`runtime.`/`game.`/`settings.`/`views.` are refused).
+> bridge API ([native-plugin-api.md](native-plugin-api.md)). Plugin commands
+> must be shaped `<author>.<modname>.<name>` (two dots minimum — the leading
+> mod id is the §0 grammar), so every platform command above is structurally
+> unregisterable by mods.
 
 ### Native → web
 

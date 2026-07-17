@@ -24,7 +24,7 @@ compile() { # <output> <sources...>
     local out=$1
     shift
     "$CXX" -std=c++2b -Wall -Wextra -g \
-        -I ../../src -I "$DEPS" -I stubs \
+        -I ../../src -I ../../sdk -I "$DEPS" -I stubs \
         -include stubs/pch.h \
         "$@" -o "$BUILD/$out"
 }
@@ -65,13 +65,23 @@ compile hotkey_subscriptions_tests \
     hotkey_subscriptions_tests.cpp \
     ../../src/api/HotkeySubscriptions.cpp
 
+compile bridge_api_tests \
+    bridge_api_tests.cpp \
+    ../../src/api/BridgeApi.cpp \
+    ../../src/api/SettingsMirror.cpp \
+    ../../src/api/SettingsSubscriptions.cpp \
+    ../../src/api/HotkeySubscriptions.cpp \
+    ../../src/runtime/MessageBridge.cpp \
+    ../../src/runtime/SettingsStore.cpp \
+    ../../src/runtime/Json.cpp
+
 compile vanilla_keys_tests \
     vanilla_keys_tests.cpp \
     ../../src/runtime/VanillaKeys.cpp \
     ../../src/runtime/Json.cpp
 
 failures=0
-for t in settings_store_tests settings_module_tests settings_mirror_tests settings_subscriptions_tests hotkey_service_tests hotkey_subscriptions_tests vanilla_keys_tests; do
+for t in settings_store_tests settings_module_tests settings_mirror_tests settings_subscriptions_tests hotkey_service_tests hotkey_subscriptions_tests bridge_api_tests vanilla_keys_tests; do
     echo "== $t =="
     "$BUILD/$t" || failures=$((failures + $?))
 done

@@ -205,7 +205,7 @@ the native store is the whole problem.
 
 ---
 
-## 3. Command namespace + registration policy — ✅ designed (2026-07-17)
+## 3. Command namespace + registration policy — 🔨 implemented (2026-07-17, OSF UI side; OSF Animation migration pending)
 
 **Problem.** `IsReservedCommand` (`src/api/BridgeApi.cpp`) blocks only
 `ui./runtime./game./settings./views.` — `menu.*`, `hud.*`, the bare platform
@@ -224,21 +224,34 @@ shipped header documents the list without `views.` (already drifted).
 
 ### Implementation checklist
 
-- [ ] `src/api/BridgeApi.cpp` — replace `IsReservedCommand` with the
-      `<modId>.<name>` shape validation; duplicate → refuse + WARN.
-      Behavioral ABI change → bump minor (1.6) and document the guarantee in
-      the header the way the 1.3 queue guarantee was.
-- [ ] `sdk/OSFUI_API.h` + `docs/native-plugin-api.md` — replace the (stale)
-      reserved-prefix prose with the command-shape rule.
+- [x] `src/api/BridgeApi.cpp` — `IsReservedCommand` DELETED, replaced by
+      `IsValidPluginCommand` (`<modId>.<name>`: split at the SECOND dot, the
+      leading `<author>.<modname>` must pass the item-1 grammar, the name may
+      itself contain dots — `acme.mymod.catalog.get`). Duplicate → refuse +
+      WARN naming the command (first-wins); Unregister→re-register within one
+      tick still replaces (the pendingUnregister bookkeeping already handled
+      it). ABI bumped to **1.6** with the guarantee documented in the header's
+      History like 1.3's.
+- [x] `sdk/OSFUI_API.h` + `docs/native-plugin-api.md` — reserved-prefix prose
+      replaced by the command-shape rule everywhere (interface comment, §7
+      guards, §11 test rows; §12 "namespacing" open question marked resolved).
 - [ ] OSF Animation repo — the `osf` → `osf.animation` migration (schema id,
       view folder, RegisterView, command names, vendored header 1.6).
       ⚠ That repo often has parallel in-flight work — path-limit the commits.
-- [ ] `docs/authoring-views.md` — document claimed author prefixes (`osf`,
-      `osfui` reserved).
+- [x] `docs/authoring-views.md` — claimed author prefixes documented in §0
+      (`osfui` platform-reserved dotless; `osf` = the OSF family's author
+      segment); the JS-side "no escape hatch" callout now states the
+      two-dot plugin-command shape.
+- [x] Tests: new `tests/native/bridge_api_tests.cpp` (39 checks — compiles
+      the REAL BridgeApi against the host stubs; wired into run.sh + the
+      MSVC batch): shape refusals incl. every platform verb + `osfui.*`,
+      dotted-name acceptance, first-wins refusal, dispatch round-trip
+      through a real MessageBridge, unregister-then-reregister replacement,
+      qualified RegisterView ids, Client wrapper gating.
 
 ---
 
-## 4. Native API version-gate + ABI hardening — ✅ designed (2026-07-17)
+## 4. Native API version-gate + ABI hardening — 🔨 implemented (2026-07-17, OSF UI side; OSF Animation wrapper migration pending)
 
 **Problem.** `OSFUI_RequestBridge` checks MAJOR only and returns the full
 singleton (`src/api/Exports.cpp`); a client built against a newer header that
@@ -261,13 +274,24 @@ found in the audit.
 
 ### Implementation checklist
 
-- [ ] `sdk/OSFUI_API.h` — wrapper class, ABI ground-rule comments,
-      static_asserts, include guard, lifetime contract lines, fixed examples.
-- [ ] `docs/native-plugin-api.md` — wrapper-first examples; multi-major
-      policy; reserved-prefix prose replaced by item-3 command-shape rule.
-- [ ] `src/api/Exports.cpp` — record the caller's requested minor (log line;
-      cheap telemetry for support).
-- [ ] OSF Animation — vendor the new header, consume via the wrapper.
+- [x] `sdk/OSFUI_API.h` — `OSFUI::API::Client` wrapper (caches the host MINOR
+      once at Init/Attach; every tail method gates to false/0/no-op;
+      `Has(Feature)` with Feature values = the introducing MINOR; `Raw()` for
+      advanced use; `Attach(IOSFUIBridge*)` for test doubles). ABI ground
+      rules + multi-major policy + lifetime contracts as header prose;
+      `static_assert(sizeof(void*) == 8)`; REX include guarded — a plain
+      Win32 consumer falls back to lean-and-mean `<Windows.h>`
+      (`OSFUI_API_NO_REX` forces it), and the loader/RequestBridge section is
+      `_WIN32`-only so host-side unit tests compile the header on Linux CI.
+      Protocol example strings fixed ("0.4", marked informational — gate on
+      the ABI MINOR, never parse the protocol string).
+- [x] `docs/native-plugin-api.md` — wrapper-first §10 example (static Client,
+      `osf.animation.*` command names); multi-major policy + ABI ground rules
+      in §4; Appendix B command names updated.
+- [x] `src/api/Exports.cpp` — logs every vend with the caller's requested
+      ABI MAJOR.MINOR vs the host's (and WARNs a refused MAJOR mismatch).
+- [ ] OSF Animation — vendor the new header, consume via the wrapper (rides
+      the item-3 migration).
 
 ---
 
@@ -580,10 +604,10 @@ here only for completeness.)*
 ## Status & implementation order
 
 **All 12 items designed as of 2026-07-17** (items 1–5, 7 via user Q&A; 6, 8,
-9–12 engineering designs). **Items 1 and 2 implemented 2026-07-17** (build
-green, all 7 native suites pass, nested layout verified in the MO2 deploy;
-in-game check + the OSF Animation rename still open). Dependency-ordered
-implementation slices:
+9–12 engineering designs). **Items 1–4 implemented 2026-07-17** on the OSF UI
+side (build green, all 8 native suites pass, nested layout verified in the
+MO2 deploy; in-game check + the OSF Animation `osf` → `osf.animation`
+migration still open). Dependency-ordered implementation slices:
 
 1. **Item 1** — ID namespacing + nested layout (everything else keys off the
    id rules; includes the OSF Animation `osf` → `osf.animation` rename

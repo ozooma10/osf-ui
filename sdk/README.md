@@ -9,10 +9,15 @@ everything here is hand-written and copied into a view project as needed.
 - [`osfui.d.ts`](osfui.d.ts) — TypeScript definitions for
   `window.osfui`, the message envelope, the `ui.command` whitelist, and the
   native→web message + settings-schema shapes (for **view authors**).
+- [`OSFUI_API.h`](OSFUI_API.h) — the copyable C++ header for **SFSE plugin
+  authors** (native bridge, C ABI 1.6). Consume it through the
+  `OSFUI::API::Client` wrapper — it version-gates every call so a too-old
+  host degrades to false/no-op instead of undefined behavior. See
+  [docs/native-plugin-api.md](../docs/native-plugin-api.md).
 
 ## Bridge protocol version
 
-**0.1 — unstable.** Minor bumps may break views until it reaches 1.0. Detect it
+**0.4 — unstable.** Minor bumps may break views until it reaches 1.0. Detect it
 at runtime from the `runtime.ready` handshake and refuse/degrade on a mismatch:
 
 ```ts
@@ -34,7 +39,7 @@ JSON Schemas for the two author-facing file formats live in
 [`docs/schema/`](../docs/schema/):
 
 - `manifest.schema.json` — for `views/<modId>/<viewName>/manifest.json`
-- `settings-schema.schema.json` — for `settings/<id>.json`
+- `settings-schema.schema.json` — for `settings/<author>.<modname>.json`
 
 Point your editor at them (e.g. VS Code `json.schemas`, or a top-level
 `"$schema"` key) for autocomplete and validation while you author.

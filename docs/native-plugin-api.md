@@ -119,24 +119,36 @@ OSFUI::API::IOSFUIBridge* OSFUI_RequestBridge(std::uint32_t a_abiVersion) noexce
 - **When:** the consumer requests it after SFSE `kPostLoad` (OSF UI's
   `Runtime::Initialize` has already run at `SFSE_PLUGIN_LOAD`, so the singleton
   exists). Fetch once and cache — never per-frame.
-- **Version:** packed `(MAJOR << 16) | MINOR`, currently `(1 << 16) | 5`.
+- **Version:** packed `(MAJOR << 16) | MINOR`, currently `(1 << 16) | 6`.
   - **MAJOR** breaks ABI (reordered/removed vmethod, changed signature). The
     export returns `nullptr` if the caller's MAJOR ≠ OSF UI's MAJOR.
+    **Multi-major policy (pre-committed):** the factory is a per-MAJOR
+    dispatcher — a future 2.0 host keeps vending the v1 interface to v1
+    callers; a MAJOR bump obsoletes the old interface for new code, it never
+    breaks shipped consumers.
   - **MINOR** bumps when a vmethod is **appended** to the end of the vtable —
-    or (1.3) when a behavioral guarantee is strengthened with no vtable change.
-    Older callers (lower MINOR) keep working; they simply never call the new
-    tail methods. History: **1.0** commands/sends/ready · **1.1** `RequestMenu`
-    · **1.2** settings (`SubscribeSettings`/`UnsubscribeSettings`, typed
-    getters, `RegisterSettingsSchema`/`UnregisterSettingsSchema`) · **1.3**
-    `SendToWeb` delivery guarantee (§6a) · **1.4** hotkeys
-    (`SubscribeHotkey`/`UnsubscribeHotkey`) · **1.5** `RegisterView` (runtime
-    view registration, §5c).
+    or when a behavioral guarantee is strengthened with no vtable change
+    (first done in 1.3). Older callers (lower MINOR) keep working; they simply
+    never call the new tail methods. History: **1.0** commands/sends/ready ·
+    **1.1** `RequestMenu` · **1.2** settings (`SubscribeSettings`/
+    `UnsubscribeSettings`, typed getters, `RegisterSettingsSchema`/
+    `UnregisterSettingsSchema`) · **1.3** `SendToWeb` delivery guarantee (§6a)
+    · **1.4** hotkeys (`SubscribeHotkey`/`UnsubscribeHotkey`) · **1.5**
+    `RegisterView` (runtime view registration, §5c) · **1.6** command-shape
+    guarantee (§5, no vtable change): `RegisterCommand` accepts only
+    `<author>.<modname>.<name>` and refuses duplicates first-wins.
   - **Feature detection:** an older 1.x `OSFUI.dll` accepts any 1.x caller, so
     a consumer built against a newer header can receive a bridge whose vtable
-    ends early. Gate calls to a later MINOR's methods on the runtime's version:
-    `(bridge->GetInterfaceVersion() & 0xFFFF) >= 2` before touching the
-    settings surface, `>= 4` before the hotkey surface, `>= 5` before
-    `RegisterView`.
+    ends early — calling a tail vmethod on it is UB. **Don't hand-roll the
+    gate: use the `OSFUI::API::Client` wrapper** (in the same header), which
+    caches the host MINOR once and turns a too-new call into false/0/no-op,
+    with `Has(Feature::…)` for explicit capability checks. (Raw equivalent:
+    `(bridge->GetInterfaceVersion() & 0xFFFF) >= N`.)
+  - **ABI ground rules (pre-committed in the header):** vmethods append-only
+    at the vtable end; any future boundary-crossing struct leads with a
+    caller-set `uint32_t size`; boundary enums/flags are append-only with
+    0 = unknown; x64, MSVC object ABI (MSVC/clang-cl), C++17 minimum
+    (static_asserted).
 - **Web protocol version** is separate: `GetBridgeProtocolVersion()` returns the
   version string from `core/Version.h` (currently `"0.4"`) so a consumer can
   gate its **JS message contract** independently of the C++ ABI.
@@ -189,13 +201,17 @@ namespace OSFUI::API
         virtual void          GetPluginVersion(std::uint32_t& a_major,
                                                std::uint32_t& a_minor,
                                                std::uint32_t& a_patch) = 0;
-        virtual const char*   GetBridgeProtocolVersion() = 0;  // web protocol, e.g. "0.1"
+        virtual const char*   GetBridgeProtocolVersion() = 0;  // web protocol, e.g. "0.4" — informational for native code
         virtual bool          IsBridgeReady() = 0;             // a nativeBridge view is live
 
         // --- command registration. Thread-safe; applied on the next main tick. ---
-        // Register/replace the handler for an EXACT command string (e.g. "osf.launch").
-        // Persists across bridge re-creation. Reserved prefixes are refused
-        // (see §7): ui. / runtime. / game. / settings. / views. Use your own namespace.
+        // Register the handler for an EXACT command string. Persists across
+        // bridge re-creation. SHAPE (1.6, api-freeze-plan item 3): commands are
+        // "<author>.<modname>.<name>" — two dots minimum, so every platform
+        // command (dotless verbs, single-dot menu.open/game.get/osfui.*) is
+        // structurally unregisterable; no reserved-prefix list exists anymore.
+        // Duplicates are REFUSED first-wins; replace your own handler with
+        // UnregisterCommand + re-register.
         virtual void RegisterCommand(const char* a_command, CommandFn a_handler, void* a_user) = 0;
         virtual void UnregisterCommand(const char* a_command) = 0;
 
@@ -411,11 +427,11 @@ reasons, and queued messages are delivered **before the view's first visible
 paint** after a `RequestMenu(viewId, true)`. The canonical consumer sequence
 
 ```cpp
-g_ui->SendToWeb("osf", "osf.mode", R"({"mode":"wheel"})");
-g_ui->RequestMenu("osf", true);
+g_ui.SendToWeb("osf.animation/browser", "osf.animation.mode", R"({"mode":"wheel"})");
+g_ui.RequestMenu("osf.animation/browser", true);
 ```
 
-guarantees the page's JS observes `osf.mode` before the view is on screen — no
+guarantees the page's JS observes the message before the view is on screen — no
 flash of the page's default face. Three host mechanisms compose into this:
 
 - `Runtime::Tick` snapshots `RequestMenu` ops **before** the bridge pump
@@ -459,11 +475,18 @@ still cannot call arbitrary native code.
 
 Guards the implementation enforces:
 
-- **Reserved prefixes.** `RegisterCommand` refuses (logs + ignores) any command
-  beginning `ui.`, `runtime.`, `game.`, `settings.`, or `views.` — the
-  platform/first-party namespaces. Consumers use their own (`osf.*`).
-- **Collision logging.** Re-registering an existing command logs a warning with
-  both owners; last-write-wins is preserved (matches `MessageBridge` today).
+- **Command shape (1.6, api-freeze-plan item 3).** `RegisterCommand` refuses
+  (logs + ignores) anything not shaped `<author>.<modname>.<name>` — the
+  leading mod id follows the item-1 grammar, so registrable commands carry
+  two dots minimum. Every platform command (dotless verbs, single-dot
+  `menu.open`/`game.get`/`settings.*`/`osfui.*`) is therefore structurally
+  unregisterable — the old reserved-prefix list is deleted, not extended,
+  and can never drift again. The mod id must be grammar-valid but need not
+  have a registered settings schema.
+- **First-wins collisions (1.6).** Registering a command someone already owns
+  is REFUSED with a warning naming the command — hijack impossible instead of
+  logged. Handler replacement is explicit: `UnregisterCommand`, then
+  re-register (the pair lands in order within one tick).
 - **Guaranteed-order delivery, bounded.** `SendToWeb` rides the per-view
   bounded `toWeb` queue (plus a bounded pre-ready queue in `BridgeApi` and a
   bounded per-view stash in the renderer); overflow drops the OLDEST with a
@@ -580,7 +603,7 @@ comments "single view root"). Until then, v1's disk-drop is the supported path.
 ## 10. Worked example — OSF Animation as the consumer
 
 OSF Animation links nothing; it copies `OSFUI_API.h`, requests the bridge after
-`kPostLoad`, registers its `osf.*` commands, and answers them **in its own
+`kPostLoad`, registers its `osf.animation.*` commands, and answers them **in its own
 process** (reading its live scene registry, calling its own `SceneRuntime`,
 resolving the crosshair via its own commonlibsf). No engine type ever crosses
 into OSF UI — only JSON.
@@ -589,7 +612,9 @@ into OSF UI — only JSON.
 #include "OSFUI_API.h"
 using namespace OSFUI::API;
 
-static IOSFUIBridge* g_ui = nullptr;
+// The version-gated wrapper is the primary API (item 4): static lifetime,
+// because registered handlers may fire for the remaining process life.
+static Client g_ui;
 
 // runs on the game main thread
 static void OnLaunch(const char*, const char* payloadJson, const char* srcView, void*) noexcept
@@ -597,10 +622,10 @@ static void OnLaunch(const char*, const char* payloadJson, const char* srcView, 
     // parse payloadJson with OSF Animation's own json lib:
     //   { "sceneId": "...", "actors": [tokens], "furnitureToken": n, "opts": {...} }
     // resolve tokens -> RE::Actor* (in-process), call SceneRuntime::Start(...),
-    // then reply to the view that asked:
+    // then reply to the view that asked (srcView is only valid for this call):
     const std::int32_t handle = /* ... start scene ... */ 0;
     const std::string reply = /* json: {"ok":handle>0,"handle":handle,...} */ "{}";
-    if (g_ui) g_ui->SendToWeb(srcView, "osf.launchResult", reply.c_str());
+    g_ui.SendToWeb(srcView, "osf.animation.launchResult", reply.c_str());
 }
 
 static void OnCatalogGet(const char*, const char*, const char* srcView, void*) noexcept
@@ -608,7 +633,7 @@ static void OnCatalogGet(const char*, const char*, const char* srcView, void*) n
     // serialize OSF Animation's LIVE registry (real, registered scenes — not an
     // optimistic disk scan) and push it back:
     const std::string catalog = /* json array of {id,title,tags,actorCount,requiresFurniture,...} */ "[]";
-    if (g_ui) g_ui->SendToWeb(srcView, "osf.catalog.data", catalog.c_str());
+    g_ui.SendToWeb(srcView, "osf.animation.catalog.data", catalog.c_str());
 }
 
 static void OnBridgeReady(void*) noexcept
@@ -619,18 +644,20 @@ static void OnBridgeReady(void*) noexcept
 // from OSF Animation's SFSE kPostLoad handler:
 void HookUpUi()
 {
-    g_ui = RequestBridge();           // nullptr if OSF UI absent -> skip UI, no error
-    if (!g_ui) return;
-    g_ui->SetReadyCallback(&OnBridgeReady, nullptr);
-    g_ui->RegisterCommand("osf.catalog.get",   &OnCatalogGet, nullptr);
-    g_ui->RegisterCommand("osf.launch",        &OnLaunch,     nullptr);
-    g_ui->RegisterCommand("osf.stop",          /* ... */ nullptr, nullptr);
-    g_ui->RegisterCommand("osf.pickCrosshair", /* ... */ nullptr, nullptr);
+    if (!g_ui.Init()) return;         // OSF UI absent / MAJOR mismatch -> skip UI, no error
+    g_ui.SetReadyCallback(&OnBridgeReady, nullptr);
+    // Commands are "<author>.<modname>.<name>" (1.6): the "osf.animation."
+    // prefix is the mod id, the rest the verb (dots allowed in the name).
+    g_ui.RegisterCommand("osf.animation.catalog.get",   &OnCatalogGet, nullptr);
+    g_ui.RegisterCommand("osf.animation.launch",        &OnLaunch,     nullptr);
+    g_ui.RegisterCommand("osf.animation.stop",          /* ... */ nullptr, nullptr);
+    g_ui.RegisterCommand("osf.animation.pickCrosshair", /* ... */ nullptr, nullptr);
     // 1.5: make the shipped views/osf.animation/browser/ folder an openable
     // surface — no config.views entry needed. Qualified "<modId>/<view>" id
-    // (api-freeze-plan item 1). Idempotent; gate on MINOR for old runtimes.
-    if ((g_ui->GetInterfaceVersion() & 0xFFFF) >= 5) {
-        g_ui->RegisterView("osf.animation/browser");
+    // (item 1). Idempotent; Client no-ops it on a pre-1.5 host — use Has()
+    // when you want to know:
+    if (g_ui.Has(Feature::kRegisterView)) {
+        g_ui.RegisterView("osf.animation/browser");
     }
 }
 ```
@@ -641,15 +668,15 @@ The view side is ordinary OSF UI authoring (`docs/authoring-views.md`): ship
 ```js
 window.osfui.onMessage = (json) => {
   const { type, payload } = JSON.parse(json);
-  if (type === "runtime.ready")    negotiate(payload.bridgeVersion);   // "0.4"
-  if (type === "osf.catalog.data") renderGrid(payload);
-  if (type === "osf.launchResult") showResult(payload);
+  if (type === "runtime.ready")              negotiate(payload.bridgeVersion);   // "0.4"
+  if (type === "osf.animation.catalog.data") renderGrid(payload);
+  if (type === "osf.animation.launchResult") showResult(payload);
 };
 const send = (command, args = {}) =>
   window.osfui.postMessage(JSON.stringify({ type: "ui.command", payload: { command, ...args } }));
 
-send("osf.catalog.get");
-send("osf.launch", { sceneId, actors, furnitureToken, opts });
+send("osf.animation.catalog.get");
+send("osf.animation.launch", { sceneId, actors, furnitureToken, opts });
 ```
 
 This replaces the previously-considered Papyrus `OSFUIBridge`: with the native
@@ -666,8 +693,12 @@ reflects the **live registered** scene set.
   confirm it's applied on `Tick` and the page can call it on first paint.
 - **Re-creation:** force a bridge rebuild; confirm registrations re-apply with no
   consumer action.
-- **Reserved prefix:** `RegisterCommand("settings.x", …)` is refused + logged.
-- **Collision:** two registrations of the same command → warn, last wins.
+- **Command shape (1.6):** `RegisterCommand("settings.x", …)`,
+  `RegisterCommand("close", …)`, and a grammar-violating mod id are refused +
+  logged; `"acme.mymod.echo"` (and dotted names like
+  `"acme.mymod.catalog.get"`) register.
+- **Collision (1.6):** a second registration of an owned command → refused +
+  warn (first wins); `UnregisterCommand` then re-register replaces.
 - **No-bridge `SendToWeb`:** queued (returns true) before any `nativeBridge`
   view loads; flushed FIFO once the bridge appears. If no bridge ever appears,
   the queue stays bounded (per-view cap, drop-oldest, warned).
@@ -693,9 +724,10 @@ reflects the **live registered** scene set.
 - **View distribution.** v1 drops the view into `OSFUI/views/`; the clean
   per-mod story needs `RegisterViewRoot` (§9, multi-root scan + per-view
   sandbox). Decide whether v1.1 lands with the first OSF Animation release.
-- **Multiple consumers / namespacing.** Flat exact-match registry; rely on the
-  reserved-prefix guard + a recommended `mod.*` convention. Revisit if many
-  third-party plugins coexist.
+- **Multiple consumers / namespacing.** RESOLVED by the 1.6 command shape
+  (api-freeze-plan item 3): every command is `<author>.<modname>.<name>` and
+  duplicates refuse first-wins, so coexisting plugins cannot collide or
+  hijack — no convention to rely on.
 - **`SendToWeb` failure granularity.** Without a `bool` from the renderer's
   `SendMessageToWeb`, "unknown view" is best-effort/logged, not reported. Add the
   return value if precise feedback matters.
@@ -721,17 +753,17 @@ single source of truth for signatures, per-method contracts, and
 
 ## Appendix B — message contract for the OSF Animation flagship (informative)
 
-The `osf.*` commands/messages the first consumer will use over this bridge. Not
+The `osf.animation.*` commands/messages the first consumer will use over this bridge. Not
 part of the API surface — the API only transports them — but recorded here so
 the two repos agree.
 
 | Direction | `type` / `command` | payload |
 |---|---|---|
-| web→native | `osf.catalog.get` | — |
-| native→web | `osf.catalog.data` | `[{id,title,tags[],actorCount,genders[],requiresFurniture,...}]` |
-| web→native | `osf.pickCrosshair` | `{slot:"actor"|"furniture"}` |
-| native→web | `osf.pick` | `{slot,token,name,formId,valid}` |
-| web→native | `osf.launch` | `{sceneId,mode,castTokens[],roleNames?,furnitureToken?,opts}` |
-| native→web | `osf.launchResult` | `{ok,handle,sceneId,error?}` |
-| web→native | `osf.stop` | `{handle}` |
+| web→native | `osf.animation.catalog.get` | — |
+| native→web | `osf.animation.catalog.data` | `[{id,title,tags[],actorCount,genders[],requiresFurniture,...}]` |
+| web→native | `osf.animation.pickCrosshair` | `{slot:"actor"|"furniture"}` |
+| native→web | `osf.animation.pick` | `{slot,token,name,formId,valid}` |
+| web→native | `osf.animation.launch` | `{sceneId,mode,castTokens[],roleNames?,furnitureToken?,opts}` |
+| native→web | `osf.animation.launchResult` | `{ok,handle,sceneId,error?}` |
+| web→native | `osf.animation.stop` | `{handle}` |
 | native→web | `runtime.ready` | `{game,plugin,version,bridgeVersion}` (platform; gate on `bridgeVersion`) |
