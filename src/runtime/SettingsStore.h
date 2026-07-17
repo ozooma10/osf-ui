@@ -161,7 +161,11 @@ namespace OSFUI
 		// on unparseable/invalid schema or refusal.
 		bool ReloadDropInFile(const std::filesystem::path& a_path);
 
-		void SetKeyNameResolver(KeyNameResolver a_resolver) { _keyResolver = std::move(a_resolver); }
+		void SetKeyNameResolver(KeyNameResolver a_resolver)
+		{
+			_keyResolver = std::move(a_resolver);
+			InvalidateData();
+		}
 
 		// The GAME's own key bindings (mcm-design.md §9 "vanilla hotkeys"),
 		// already resolved to VKs by the composition root (VanillaKeys). They
@@ -180,7 +184,11 @@ namespace OSFUI
 			// full keyboard map (keybinds view), not just colliding entries.
 			std::string   name;
 		};
-		void SetVanillaKeys(std::vector<VanillaKey> a_keys) { _vanillaKeys = std::move(a_keys); }
+		void SetVanillaKeys(std::vector<VanillaKey> a_keys)
+		{
+			_vanillaKeys = std::move(a_keys);
+			InvalidateData();
+		}
 
 		// Monotonic counter bumped on every registry shape change (LoadAll,
 		// RegisterSchema, RemoveMod). Consumers re-broadcast `settings.data`
@@ -198,6 +206,9 @@ namespace OSFUI
 		// A named input context with blocksGameplay omits @game entries as
 		// expected reuse; mod-to-mod collisions are never omitted.
 		[[nodiscard]] nlohmann::json Data() const;
+		// Cached read-only form for internal consumers that serialize or inspect
+		// immediately. The reference is invalidated by the next store mutation.
+		[[nodiscard]] const nlohmann::json& DataView() const;
 		[[nodiscard]] std::string    DataJson() const;
 
 		// The OTHER key-typed settings currently bound to physical key a_vk —
@@ -231,6 +242,9 @@ namespace OSFUI
 			std::string code;
 		};
 		[[nodiscard]] SetResult SetWithResult(std::string_view a_modId, std::string_view a_key, std::string_view a_valueJson);
+		// Parsed-value overload for callers that already decoded a containing
+		// message (notably settings.set); avoids dump + parse of the value.
+		[[nodiscard]] SetResult SetValueWithResult(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value);
 
 		// The changed setting's CURRENT conflict list — ConflictsFor() on its
 		// committed value (resolved through the key resolver), same shape and
@@ -336,6 +350,7 @@ namespace OSFUI
 		static bool Persist(const Mod& a_mod);
 		void        Notify(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value) const;
 		void        NotifyRegistryChanged() const;
+		void        InvalidateData() { _dataCache.reset(); }
 
 		std::vector<Mod>              _mods;
 		KeyNameResolver               _keyResolver;
@@ -343,6 +358,7 @@ namespace OSFUI
 		std::vector<ChangeListener>   _listeners;
 		std::vector<RegistryListener> _registryListeners;
 		std::vector<PersistListener>  _persistListeners;
+		mutable std::optional<nlohmann::json> _dataCache;
 		std::filesystem::path       _valuesDir;
 		std::uint64_t               _generation{ 0 };
 		bool                        _loaded{ false };

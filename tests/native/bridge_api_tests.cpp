@@ -108,6 +108,34 @@ int main()
 	api.OnBridgeReady(&bridge);
 	api.PumpMainThread();
 
+	// ABI sends validate once, retain the parsed payload while queued, and
+	// produce the normal bridge envelope when the main-thread pump drains.
+	toWeb.clear();
+	CHECK(api.SendToWeb("someview", "acme.mymod.data", R"({"x":1,"label":"ok"})"));
+	CHECK(!api.SendToWeb("someview", "acme.mymod.data", "{ bad json"));
+	api.PumpMainThread();
+	CHECK(toWeb.size() == 1);
+	if (!toWeb.empty()) {
+		const auto message = nlohmann::json::parse(toWeb.back().second, nullptr, false);
+		CHECK(message["type"] == "acme.mymod.data");
+		CHECK(message["payload"]["x"] == 1);
+		CHECK(message["payload"]["label"] == "ok");
+	}
+
+	// Multi-target pushes encode one identical envelope and retain target ids.
+	toWeb.clear();
+	bridge.SendToWeb(std::unordered_set<std::string>{ "view-a", "view-b" },
+		"test.broadcast", nlohmann::json{ { "large", nlohmann::json::array({ 1, 2, 3 }) } });
+	CHECK(toWeb.size() == 2);
+	if (toWeb.size() == 2) {
+		CHECK(toWeb[0].second == toWeb[1].second);
+		CHECK(toWeb[0].first != toWeb[1].first);
+		const auto message = nlohmann::json::parse(toWeb[0].second, nullptr, false);
+		CHECK(message["type"] == "test.broadcast");
+		CHECK(message["payload"]["large"] == nlohmann::json::array({ 1, 2, 3 }));
+	}
+	toWeb.clear();
+
 	bridge.HandleWebMessage("someview",
 		R"({ "type": "ui.command", "payload": { "command": "acme.mymod.ping", "x": 1 } })");
 	CHECK(g_firedA.size() == 1);

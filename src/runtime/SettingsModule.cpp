@@ -43,7 +43,7 @@ namespace OSFUI
 			if (!_bridge || _subscribers.empty()) {
 				return;
 			}
-			PushToSubscribers("settings.data", _store.Data());
+			PushToSubscribers("settings.data", _store.DataView());
 		});
 		// A mod's values file WRITE landed (the write-behind flush — distinct
 		// from the immediate settings.changed commit): tell subscribed views so
@@ -141,9 +141,7 @@ namespace OSFUI
 		if (!_bridge || _subscribers.empty()) {
 			return;
 		}
-		for (const auto& id : _subscribers) {
-			_bridge->SendToWeb(id, a_type, a_payload);
-		}
+		_bridge->SendToWeb(_subscribers, a_type, a_payload);
 	}
 
 	void SettingsModule::RegisterCommands(MessageBridge& a_bridge)
@@ -157,7 +155,7 @@ namespace OSFUI
 			// Subscribe-on-read (the views.get pattern): the caller now also
 			// receives settings.changed pushes and settings.data re-broadcasts.
 			_subscribers.insert(std::string(a_b.CurrentSource()));
-			a_b.SendToWeb("settings.data", _store.Data());
+			a_b.SendToWeb("settings.data", _store.DataView());
 		});
 
 		a_bridge.RegisterCommand("settings.set", [this](const nlohmann::json& a_payload, MessageBridge& a_b) {
@@ -174,7 +172,7 @@ namespace OSFUI
 				ack["code"] = "invalid-value";
 				ack["message"] = "missing value field";
 			} else {
-				const auto result = _store.SetWithResult(mod, key, valueIt->dump());
+				const auto result = _store.SetValueWithResult(mod, key, *valueIt);
 				ack["ok"] = result.ok;
 				if (result.ok) {
 					if (const auto* committed = _store.GetValue(mod, key)) {
@@ -203,7 +201,7 @@ namespace OSFUI
 				a_b.SendResult(false, "unknown-setting", "unknown mod or setting (or a requires-gated stub)");
 				return;
 			}
-			const auto data = _store.Data();
+			const auto& data = _store.DataView();
 			// The caller's copy goes through the reply path (echoes the
 			// requestId, so osfui.request("settings.reset") resolves with the
 			// authoritative document); other subscribers get the plain push.

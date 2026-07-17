@@ -712,6 +712,12 @@ int main()
 		// Clamp is SUCCESS (the ack carries the post-clamp value, not a code).
 		CHECK(s.SetWithResult("t.coded", "n", "99").ok);
 		CHECK(*s.GetValue("t.coded", "n") == 10);
+		// A caller that already parsed a containing message commits directly,
+		// and invalidates the cached settings document.
+		CHECK(s.DataView()["mods"][0]["values"]["n"] == 10);
+		CHECK(s.SetValueWithResult("t.coded", "n", nlohmann::json(4)).ok);
+		CHECK(*s.GetValue("t.coded", "n") == 4);
+		CHECK(s.DataView()["mods"][0]["values"]["n"] == 4);
 	}
 
 	// --- item 8: values-file $formatVersion stamp ---------------------------------

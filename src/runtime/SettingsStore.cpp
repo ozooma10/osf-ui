@@ -101,6 +101,7 @@ namespace OSFUI
 
 	void SettingsStore::LoadAll(const std::filesystem::path& a_schemaDir, const std::filesystem::path& a_valuesDir)
 	{
+		InvalidateData();
 		_mods.clear();
 		_valuesDir = a_valuesDir;
 		_loaded = true;
@@ -248,6 +249,7 @@ namespace OSFUI
 					const auto loser = a_sourcePath.filename().string();
 					if (std::find(existing->shadowed.begin(), existing->shadowed.end(), loser) == existing->shadowed.end()) {
 						existing->shadowed.push_back(loser);
+						InvalidateData();
 					}
 				}
 				return false;
@@ -307,6 +309,7 @@ namespace OSFUI
 			} else {
 				_mods.push_back(std::move(mod));
 			}
+			InvalidateData();
 			++_generation;
 			if (a_notify) {
 				NotifyRegistryChanged();  // nothing to replay — a stub serves no values
@@ -454,6 +457,7 @@ namespace OSFUI
 		} else {
 			_mods.push_back(std::move(mod));
 		}
+		InvalidateData();
 		++_generation;
 
 		if (a_notify) {
@@ -478,6 +482,7 @@ namespace OSFUI
 		}
 		REX::INFO("SettingsStore: removed mod '{}' (values file kept)", it->id);
 		_mods.erase(it);
+		InvalidateData();
 		++_generation;
 		NotifyRegistryChanged();
 		return true;
@@ -674,8 +679,11 @@ namespace OSFUI
 		return ConflictsFor(_keyResolver(value->get_ref<const std::string&>()), a_modId, a_key);
 	}
 
-	nlohmann::json SettingsStore::Data() const
+	const nlohmann::json& SettingsStore::DataView() const
 	{
+		if (_dataCache) {
+			return *_dataCache;
+		}
 		// Informational key-conflict grouping (mcm-design.md §9): resolve
 		// every key-typed setting's current value ONCE, so the annotation walk
 		// below is a lookup, not a re-resolve (an unresolvable name would
@@ -755,12 +763,18 @@ namespace OSFUI
 				data["vanillaKeys"] = std::move(vanilla);
 			}
 		}
-		return data;
+		_dataCache.emplace(std::move(data));
+		return *_dataCache;
+	}
+
+	nlohmann::json SettingsStore::Data() const
+	{
+		return DataView();
 	}
 
 	std::string SettingsStore::DataJson() const
 	{
-		return Data().dump();
+		return DataView().dump();
 	}
 
 	SettingsStore::Mod* SettingsStore::FindMod(std::string_view a_modId)
@@ -909,6 +923,15 @@ namespace OSFUI
 
 	SettingsStore::SetResult SettingsStore::SetWithResult(std::string_view a_modId, std::string_view a_key, std::string_view a_valueJson)
 	{
+		const auto parsed = Json::Parse(a_valueJson, "settings value");
+		if (!parsed) {
+			return { false, "invalid-value" };
+		}
+		return SetValueWithResult(a_modId, a_key, *parsed);
+	}
+
+	SettingsStore::SetResult SettingsStore::SetValueWithResult(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value)
+	{
 		auto* mod = FindMod(a_modId);
 		if (!mod) {
 			REX::WARN("SettingsStore: rejected set for unknown mod '{}'", a_modId.substr(0, 64));
@@ -931,11 +954,7 @@ namespace OSFUI
 				a_modId.substr(0, 64), a_key.substr(0, 64), Json::GetString(*setting, "type", "?").substr(0, 32));
 			return { false, "read-only" };
 		}
-		const auto parsed = Json::Parse(a_valueJson, "settings value");
-		if (!parsed) {
-			return { false, "invalid-value" };
-		}
-		auto valid = Validate(*setting, *parsed);
+		auto valid = Validate(*setting, a_value);
 		if (!valid) {
 			REX::WARN("SettingsStore: rejected invalid value for '{}.{}' (type {})",
 				a_modId.substr(0, 64), a_key.substr(0, 64), Json::GetString(*setting, "type", "?"));
@@ -944,6 +963,7 @@ namespace OSFUI
 
 		const std::string key{ a_key };
 		mod->values[key] = std::move(*valid);
+		InvalidateData();
 		MarkDirty(*mod);  // notification immediate; disk write coalesced (PumpPersistence)
 		Notify(mod->id, key, mod->values[key]);
 		if (Log::DevMode()) {
@@ -975,6 +995,7 @@ namespace OSFUI
 			mod->values[std::string(a_key)] = DefaultFor(*setting);
 		}
 
+		InvalidateData();
 		MarkDirty(*mod);  // sparse persistence drops the reset key(s) from the file
 		// Notify for every (possibly) changed value so consumers re-sync.
 		for (const auto& [key, value] : mod->values.items()) {

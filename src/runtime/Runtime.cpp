@@ -774,9 +774,7 @@ namespace OSFUI
 			return;
 		}
 		_lastViewsData = std::move(dumped);
-		for (const auto& id : _viewsSubscribers) {
-			_bridge->SendToWeb(id, "views.data", payload);
-		}
+		_bridge->SendToWeb(_viewsSubscribers, "views.data", payload);
 	}
 
 	Runtime::ViewLoadState Runtime::GetViewLoadState(std::string_view a_id) const
@@ -1117,7 +1115,7 @@ namespace OSFUI
 		});
 		store.AddRegistryListener([this] {
 			if (_settings) {  // teardown guard (_settings nulls before modules die)
-				API::BridgeApi::Get().Mirror().Rebuild(_settings->Store().Data());
+				API::BridgeApi::Get().Mirror().Rebuild(_settings->Store().DataView());
 			}
 		});
 

@@ -67,7 +67,7 @@ namespace OSFUI
 		// flipping, api-freeze-plan item 7: the conflict annotations live in
 		// Data() but SetVanillaKeys bumps no generation). No-op with no bridge
 		// or no subscribers. MAIN thread.
-		void BroadcastData() { PushToSubscribers("settings.data", _store.Data()); }
+		void BroadcastData() { PushToSubscribers("settings.data", _store.DataView()); }
 
 	private:
 		// Sends one { type, payload } to every subscribed view (no-op with no

@@ -159,14 +159,45 @@ namespace OSFUI
 		if (!_send || a_viewId.empty()) {
 			return;
 		}
-		Json::Value msg = {
-			{ "type", a_type },
-			{ "payload", a_payload },
-		};
-		if (!a_requestId.empty()) {
-			msg["requestId"] = a_requestId;
+		_send(a_viewId, EncodeMessage(a_type, a_payload, a_requestId));
+	}
+
+	void MessageBridge::SendToWeb(const std::unordered_set<std::string>& a_viewIds, std::string_view a_type, const nlohmann::json& a_payload)
+	{
+		if (!_send || a_viewIds.empty()) {
+			return;
 		}
-		_send(a_viewId, msg.dump());
+		const auto message = EncodeMessage(a_type, a_payload, {});
+		for (const auto& id : a_viewIds) {
+			if (!id.empty()) {
+				_send(id, message);
+			}
+		}
+	}
+
+	std::string MessageBridge::EncodeMessage(std::string_view a_type, const nlohmann::json& a_payload, std::string_view a_requestId)
+	{
+		// Serialize the payload directly into the envelope instead of first
+		// deep-copying it into a temporary json object. Keep nlohmann's normal
+		// object-key order (payload, requestId, type) for stable wire output.
+		const auto payload = a_payload.dump();
+		const auto type = nlohmann::json(std::string(a_type)).dump();
+		const auto requestId = a_requestId.empty()
+		                           ? std::string{}
+		                           : nlohmann::json(std::string(a_requestId)).dump();
+
+		std::string message;
+		message.reserve(payload.size() + type.size() + requestId.size() + 48);
+		message += R"({"payload":)";
+		message += payload;
+		if (!requestId.empty()) {
+			message += R"(,"requestId":)";
+			message += requestId;
+		}
+		message += R"(,"type":)";
+		message += type;
+		message += '}';
+		return message;
 	}
 
 	void MessageBridge::SendRuntimeReady(std::string_view a_viewId)

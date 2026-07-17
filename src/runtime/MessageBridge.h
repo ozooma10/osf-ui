@@ -57,6 +57,9 @@ namespace OSFUI
 		void SendToWeb(std::string_view a_type, const nlohmann::json& a_payload);
 		void SendToWeb(std::string_view a_viewId, std::string_view a_type, const nlohmann::json& a_payload);
 		void SendToWeb(std::string_view a_viewId, std::string_view a_type, const nlohmann::json& a_payload, std::string_view a_requestId);
+		// Fan out one identical envelope. The JSON text is encoded once, then
+		// handed to every target transport; useful for settings/catalog pushes.
+		void SendToWeb(const std::unordered_set<std::string>& a_viewIds, std::string_view a_type, const nlohmann::json& a_payload);
 
 		// Report the in-flight command's outcome as `ui.result { ok, command,
 		// code?, message? }` — but ONLY when the caller supplied a requestId
@@ -83,6 +86,7 @@ namespace OSFUI
 		[[nodiscard]] std::string_view CurrentRequestId() const { return _currentRequestId; }
 
 	private:
+		[[nodiscard]] static std::string EncodeMessage(std::string_view a_type, const nlohmann::json& a_payload, std::string_view a_requestId);
 		void HandleUiCommand(const nlohmann::json& a_payload);
 		void SendErrorToWeb(std::string_view a_code, std::string_view a_message, const nlohmann::json& a_extra);
 
