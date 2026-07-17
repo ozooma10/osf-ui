@@ -11,7 +11,7 @@ namespace OSFUI
 		// them; call out the move instead so a user editing config.json learns
 		// where the knob went. One-release courtesy — drop after 1.x settles.
 		constexpr std::string_view kMovedToSettings[] = {
-			"toggleKey", "consoleKey", "disableControls", "pauseMenuEntry", "vanillaKeyConflicts"
+			"toggleKey", "disableControls", "pauseMenuEntry", "vanillaKeyConflicts"
 		};
 
 		// Every key the parser reads (the item-8 typo diagnostic — config.json
@@ -23,9 +23,11 @@ namespace OSFUI
 			"engineInput", "pauseMenuEntryLabel", "pauseMenuEntryView",
 			"view", "views", "allowNetwork", "devMode", "devReloadKey",
 			// moved keys are "known" (they get the dedicated INFO, not the typo WARN)
-			"toggleKey", "consoleKey", "disableControls", "pauseMenuEntry", "vanillaKeyConflicts",
-			// dropped: the Tab focus-cycle died with the single-menu stack
-			"focusKey",
+			"toggleKey", "disableControls", "pauseMenuEntry", "vanillaKeyConflicts",
+			// dropped: the Tab focus-cycle died with the single-menu stack;
+			// the console pass-through was retired (close the overlay, then
+			// open the console)
+			"focusKey", "consoleKey",
 		};
 	}
 
@@ -60,6 +62,9 @@ namespace OSFUI
 		}
 		if (json->contains("focusKey")) {
 			REX::INFO("Config: 'focusKey' was removed (the Tab focus-cycle retired with the single-menu stack); the value is ignored");
+		}
+		if (json->contains("consoleKey")) {
+			REX::INFO("Config: 'consoleKey' was removed (the console pass-through was retired — close the overlay, then open the console); the value is ignored");
 		}
 
 		config.enabled = Json::GetBool(*json, "enabled", config.enabled);

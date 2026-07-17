@@ -259,9 +259,6 @@ namespace OSFUI
 		// drained in Tick (main thread); wired in BuildModules.
 		HotkeyService                           _hotkeys;
 		KeyCode                       _toggleKey{ kInvalidKeyCode };
-		// Passed through to the game (see OnHostKey). Atomic: read on the
-		// WINDOW thread, rebound live on MAIN (osfui.consoleKey, item 7).
-		std::atomic<KeyCode>          _consoleKey{ kInvalidKeyCode };
 		bool                          _vanillaKeysApplied{ false };  // main-thread; ApplyVanillaKeyConflicts edge detector
 		// Dev view-reload (mcm-design.md §12.1): resolved from config
 		// devReloadKey ONLY when devMode, so kInvalid doubles as the gate.

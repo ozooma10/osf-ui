@@ -209,13 +209,6 @@ namespace OSFUI
 		if (_toggleKey != kInvalidKeyCode) {
 			REX::INFO("Runtime: toggleKey '{}' resolved to VK code {:#x}", _config.toggleKey, _toggleKey);
 		}
-		// Boot default; the persisted MCM value (osfui.consoleKey) re-resolves
-		// through OnSettingChanged during the OnStart replay (item 7).
-		const auto bootConsoleVk = ResolveKeyName(_config.consoleKey);
-		_consoleKey.store(bootConsoleVk);
-		if (bootConsoleVk != kInvalidKeyCode) {
-			REX::INFO("Runtime: consoleKey '{}' resolved to VK code {:#x} (passed through to the game so the console opens while the overlay is up)", _config.consoleKey, bootConsoleVk);
-		}
 		// Dev view-reload key (mcm-design.md §12.1): resolved only in devMode
 		// — kInvalid is the whole gate in OnHostKey, so a user config with the
 		// shipped devReloadKey but devMode off never loses the key to us.
@@ -838,22 +831,6 @@ namespace OSFUI
 			return true;
 		}
 
-		// Console key: the game toggles its console from this key via MenuControls,
-		// which OSF RE (module ui.menu_input) proved runs BEFORE any per-menu UI
-		// input dispatch — so nothing on the menu stack can starve it, and the ONLY
-		// thing stopping the console while the overlay is up is our own WndProc
-		// swallow. Never consume it and never route it into the web view: hand it to
-		// the game untouched (both edges — the toggle fires on release). On the down
-		// edge, if the overlay is capturing, dismiss it so the console (which we
-		// composite over at Present) isn't left hidden behind the overlay. When the
-		// overlay is already closed this is a plain pass-through, matching gameplay.
-		if (const auto consoleVk = _consoleKey.load(); consoleVk != kInvalidKeyCode && a_vkCode == consoleVk) {
-			if (a_down && IsInputCaptured()) {
-				EnqueueMenuRequest(MenuReq::CloseAll);
-			}
-			return false;
-		}
-
 		// Hotkey dispatch (mcm-design.md §9): a key-DOWN edge may fire mods'
 		// key-typed bindings. The service self-suppresses while the overlay
 		// captures input or a rebind is armed (the armed path above returned
@@ -1419,26 +1396,6 @@ namespace OSFUI
 			_toggleKey = vk;
 			ApplyToggleKey();
 			REX::INFO("Runtime: setting osfui.toggleKey -> {} (VK {:#x})", name, vk);
-		}
-		// Console pass-through key (item 7, MCM-owned). "" = deliberately
-		// unbound (allowUnbound) = pass-through off. The VK is read on the
-		// WINDOW thread (OnHostKey), hence the atomic.
-		else if (a_key == "consoleKey" && a_value.is_string()) {
-			const auto name = a_value.get<std::string>();
-			if (name.empty()) {
-				_config.consoleKey.clear();
-				_consoleKey.store(kInvalidKeyCode);
-				REX::INFO("Runtime: setting osfui.consoleKey unbound — console pass-through disabled");
-				return;
-			}
-			const auto vk = ResolveKeyName(name);
-			if (vk == kInvalidKeyCode) {
-				REX::WARN("Runtime: setting osfui.consoleKey '{}' is not a resolvable key; keeping '{}'", name, _config.consoleKey);
-				return;
-			}
-			_config.consoleKey = name;
-			_consoleKey.store(vk);
-			REX::INFO("Runtime: setting osfui.consoleKey -> {} (VK {:#x})", name, vk);
 		}
 		// Engine control freeze (item 7, MCM-owned). Live both ways:
 		// ReconcileControlLayer runs EVERY tick with

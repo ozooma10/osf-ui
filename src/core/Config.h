@@ -21,13 +21,6 @@ namespace OSFUI
 		// mutates these fields live (they double as pre-replay boot defaults,
 		// so they MUST equal the schema defaults).
 		std::string toggleKey{ "F10" };  // key name -> Windows VK code (ResolveKeyName); consumed by the WndProc hook, verified in-game
-		// The game's console key. While the overlay captures input, the WndProc
-		// hook would otherwise swallow it and the console would never open; the
-		// runtime instead passes this key straight through to the game (and
-		// dismisses the overlay so the console isn't left behind it). VK_OEM_3
-		// (grave/tilde) on US layouts; rebind in Mod Settings for other
-		// layouts. Unbound ("") disables the pass-through.
-		std::string consoleKey{ "Grave" };
 		bool        startVisible{ false };
 		std::string renderer{ "mock" };    // "null" | "mock" | "ultralight"
 		std::string compositor{ "null" };  // "null" | "d3d12" (d3d12 draws the overlay at present time)
