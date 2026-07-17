@@ -28,6 +28,11 @@
       "minimum": 0,
       "description": "Optional schema version (default 0). New mods should declare \"version\": 1 so migration stamping is active from their first release. The renderer ignores it; the native store stamps it into the values file as the reserved $schemaVersion meta key and logs a version move on load (mcm-design.md §11). A v0 (unversioned) mod is never stamped, so bumping to 1+ is opt-in. Pair with per-setting `aliases` for renamed keys; type changes fall through validation to the new default."
     },
+    "requires": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Host capabilities this schema needs (api-freeze-plan item 2), e.g. [\"type:flags\"]. Named capabilities share one vocabulary with the runtime.ready capabilities list (item 6): command-namespace names for surfaces (settings, settings.captureKey, views, game.calendar, gamepad), type:<t> for setting value types, schema:<feature> for schema mechanisms. A host that can't satisfy every entry registers the mod as a read-only stub card ('needs a newer OSF UI') and leaves the values file untouched; hosts older than this field ignore it entirely. Distinct from the per-SETTING requires (restart/reload/newGame)."
+    },
     "accent": {
       "type": "string",
       "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
@@ -142,8 +147,8 @@
           "description": "Optional helper text shown under the control label. Localizable ($KEY)."
         },
         "type": {
-          "enum": ["bool", "int", "float", "enum", "string", "key"],
-          "description": "Control + validation kind. bool = toggle; int/float clamp to [min,max]; enum must be one of options; string truncates to maxLength (<=256 today, raised in the native slice); key = a rebindable key name captured by a press. (color and multi-select 'flags' land with the native validation slice.)"
+          "enum": ["bool", "int", "float", "enum", "string", "key", "flags"],
+          "description": "Control + validation kind — the FROZEN base set (api-freeze-plan item 2). bool = toggle; int/float clamp to [min,max]; enum must be one of options; string truncates to maxLength (<=256 today, raised in the native slice); key = a rebindable key name captured by a press; flags = multi-select over options (value = array of option strings, filtered/deduped natively). Colour is NOT a type: use type:\"string\" + widget:\"color\". A host that predates a type renders it read-only and serves the schema default; the saved value is preserved untouched. A genuinely new base type must ship behind a schema-level requires: [\"type:<t>\"] gate."
         },
         "default": {
           "description": "Initial value, used until the user changes it and on reset. Should match the type. The 'modified' indicator compares the live value against this."
@@ -160,7 +165,7 @@
         "options": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Allowed values for an enum. Stored value is always one of these strings."
+          "description": "Allowed values for an enum or flags setting. An enum's stored value is always one of these strings; a flags value is an array drawn from them (canonicalized to this order)."
         },
         "optionLabels": {
           "type": "array",
@@ -199,6 +204,10 @@
       "allOf": [
         {
           "if": { "properties": { "type": { "const": "enum" } } },
+          "then": { "required": ["options"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "flags" } } },
           "then": { "required": ["options"] }
         }
       ]

@@ -4,6 +4,7 @@
 #include <unordered_set>
 
 #include "core/Log.h"
+#include "runtime/Capabilities.h"
 #include "runtime/Ids.h"
 #include "runtime/Json.h"
 
@@ -36,6 +37,20 @@ namespace OSFUI
 			return std::all_of(a_id.begin() + 1, a_id.end(), [&](const char c) {
 				return isAlnum(c) || c == '.' || c == '_' || c == '-';
 			});
+		}
+
+		// The frozen base type set (api-freeze-plan item 2). A setting whose
+		// declared type is outside it is a FORWARD-COMPAT case, not an error:
+		// serve the schema default read-only and preserve the saved value
+		// opaquely — never the old wipe-on-load.
+		bool IsKnownType(std::string_view a_type)
+		{
+			for (const std::string_view t : { "bool", "int", "float", "enum", "string", "key", "flags" }) {
+				if (a_type == t) {
+					return true;
+				}
+			}
+			return false;
 		}
 
 		bool IsHexColor(std::string_view a_s)
@@ -244,8 +259,44 @@ namespace OSFUI
 		mod.schemaPath = std::move(a_sourcePath);
 		mod.source = a_source;
 		mod.values = nlohmann::json::object();
+		mod.preserved = nlohmann::json::object();
 		if (existing) {
 			mod.shadowed = std::move(existing->shadowed);  // conflicts outlive a replacement/hot-reload
+		}
+
+		// Capability gate (api-freeze-plan item 2): a schema may declare
+		// "requires": ["type:flags", ...]. Anything this host doesn't satisfy
+		// ⇒ register as an inert STUB card — the Mods surface renders "needs
+		// a newer OSF UI", no values are loaded/served, and the values file
+		// stays byte-untouched for the host that CAN satisfy it. A malformed
+		// entry counts as unmet (it names something we can't understand).
+		if (const auto req = mod.schema.find("requires"); req != mod.schema.end() && req->is_array()) {
+			for (const auto& r : *req) {
+				const auto cap = r.is_string() ? r.get<std::string>() : std::string{};
+				if (cap.empty() || !Caps::Has(cap)) {
+					mod.missingRequires.push_back(cap.empty() ? "(malformed)" : cap);
+				}
+			}
+		}
+		if (!mod.missingRequires.empty()) {
+			mod.stub = true;
+			std::string list;
+			for (const auto& c : mod.missingRequires) {
+				list += (list.empty() ? "" : ", ") + c;
+			}
+			REX::WARN("SettingsStore: '{}' requires capabilities this OSF UI lacks ({}) — "
+					  "registered as a stub; values file left untouched",
+				mod.id, list);
+			if (existing) {
+				*existing = std::move(mod);
+			} else {
+				_mods.push_back(std::move(mod));
+			}
+			++_generation;
+			if (a_notify) {
+				NotifyRegistryChanged();  // nothing to replay — a stub serves no values
+			}
+			return true;
 		}
 
 		// Persisted values over schema defaults. Replacement rebuilds from the
@@ -269,6 +320,11 @@ namespace OSFUI
 			}
 		}
 
+		// Keys this schema accounts for: declared keys and (for KNOWN-typed
+		// settings) their aliases. Whatever the file holds OUTSIDE this set
+		// is a forward-compat unknown and goes to the opaque preserved bag.
+		std::unordered_set<std::string> accounted;
+
 		std::size_t count = 0;
 		ForEachSetting(mod.schema, [&](const nlohmann::json& a_setting) {
 			const auto key = Json::GetString(a_setting, "key", "");
@@ -276,6 +332,28 @@ namespace OSFUI
 				return false;
 			}
 			++count;
+			accounted.insert(key);
+
+			// Unknown-typed setting (item 2): serve the schema default
+			// read-only; the saved value is preserved verbatim below, never
+			// served, never wiped. Its aliases stay UN-accounted on purpose —
+			// this host can't adopt them, and dropping them would strand a
+			// rename for the newer host that can.
+			if (!IsKnownType(Json::GetString(a_setting, "type", ""))) {
+				if (const auto it = saved.find(key); it != saved.end()) {
+					mod.preserved[key] = *it;
+				}
+				mod.values[key] = DefaultFor(a_setting);
+				return false;
+			}
+
+			if (const auto aliases = a_setting.find("aliases"); aliases != a_setting.end() && aliases->is_array()) {
+				for (const auto& alias : *aliases) {
+					if (alias.is_string()) {
+						accounted.insert(alias.get<std::string>());
+					}
+				}
+			}
 			if (const auto it = saved.find(key); it != saved.end()) {
 				if (auto valid = Validate(a_setting, *it)) {
 					mod.values[key] = std::move(*valid);
@@ -308,12 +386,29 @@ namespace OSFUI
 			return false;
 		});
 
+		// Preservation (item 2): saved keys no loaded schema fact accounts
+		// for — a setting that left the schema, or one from a newer schema
+		// than this host has seen — round-trip opaquely instead of being
+		// pruned. `$schemaVersion` stays owned by the stamp logic above.
+		for (const auto& [key, value] : saved.items()) {
+			if (key == kSchemaVersionKey || accounted.contains(key)) {
+				continue;
+			}
+			mod.preserved[key] = value;
+		}
+		if (!mod.preserved.empty() && Log::DevMode()) {
+			REX::DEBUG("SettingsStore: '{}' preserving {} entr{} this host can't understand (kept verbatim, not served)",
+				mod.id, mod.preserved.size(), mod.preserved.size() == 1 ? "y" : "ies");
+		}
+
 		// Prune-to-default on load (mcm-design.md §8.1 + §11): when the file
 		// differs from its sparse form — a legacy full file, a saved value
-		// that now equals an updated default, an adopted alias, junk/retyped
-		// keys, clamping, or a stale `$schemaVersion` — schedule a rewrite so
-		// those knobs track upstream defaults again instead of staying frozen
-		// forever, and so the version stamp advances.
+		// that now equals an updated default, an adopted alias, clamping, or
+		// a stale `$schemaVersion` — schedule a rewrite so those knobs track
+		// upstream defaults again instead of staying frozen forever, and so
+		// the version stamp advances. Preserved unknowns are PART of the
+		// sparse form, so a file whose only oddity is content this host
+		// doesn't understand loads clean (no rewrite churn).
 		if (saved != SparseValues(mod)) {
 			MarkDirty(mod);
 		}
@@ -388,8 +483,8 @@ namespace OSFUI
 	std::string SettingsStore::GetSettingType(std::string_view a_modId, std::string_view a_key) const
 	{
 		const auto* mod = FindMod(a_modId);
-		if (!mod) {
-			return {};
+		if (!mod || mod->stub) {
+			return {};  // a stub's schema is inert — no feature may act on it
 		}
 		const auto* setting = FindSetting(*mod, a_key);
 		return setting ? Json::GetString(*setting, "type", "") : std::string{};
@@ -586,6 +681,12 @@ namespace OSFUI
 			if (!mod.shadowed.empty()) {
 				entry["shadowed"] = mod.shadowed;
 			}
+			// Additive (item 2): requires-gated stub — the Mods surface renders
+			// a "needs a newer OSF UI" card instead of controls.
+			if (mod.stub) {
+				entry["stub"] = true;
+				entry["missingRequires"] = mod.missingRequires;
+			}
 			mods.push_back(std::move(entry));
 		}
 		nlohmann::json data{ { "mods", std::move(mods) } };
@@ -684,6 +785,30 @@ namespace OSFUI
 					}
 				}
 			}
+		} else if (type == "flags") {
+			// Multi-select over `options` (item 2): value = array of option
+			// strings. Resolve, don't reject: non-string elements, unknown
+			// options (e.g. removed upstream), and duplicates are filtered
+			// out — the enum-removal analogue of numeric clamping. Order
+			// follows the DECLARED options so the stored form is canonical.
+			if (a_value.is_array()) {
+				const auto options = a_setting.find("options");
+				if (options != a_setting.end() && options->is_array()) {
+					nlohmann::json out = nlohmann::json::array();
+					for (const auto& opt : *options) {
+						if (!opt.is_string()) {
+							continue;
+						}
+						for (const auto& v : a_value) {
+							if (v.is_string() && v == opt) {
+								out.push_back(opt);
+								break;
+							}
+						}
+					}
+					return out;
+				}
+			}
 		} else if (type == "string") {
 			if (a_value.is_string()) {
 				auto s = a_value.get<std::string>();
@@ -739,6 +864,10 @@ namespace OSFUI
 			REX::WARN("SettingsStore: rejected set for unknown mod '{}'", a_modId.substr(0, 64));
 			return false;
 		}
+		if (mod->stub) {
+			REX::WARN("SettingsStore: rejected set for '{}' — registered as a requires-gated stub", mod->id);
+			return false;
+		}
 		const auto* setting = FindSetting(*mod, a_key);
 		if (!setting) {
 			REX::WARN("SettingsStore: rejected unknown setting '{}.{}'", a_modId.substr(0, 64), a_key.substr(0, 64));
@@ -768,8 +897,8 @@ namespace OSFUI
 	bool SettingsStore::Reset(std::string_view a_modId, std::string_view a_key)
 	{
 		auto* mod = FindMod(a_modId);
-		if (!mod) {
-			return false;
+		if (!mod || mod->stub) {
+			return false;  // a stub serves nothing and must not touch the values file
 		}
 		if (a_key.empty()) {
 			// Whole mod back to defaults.
@@ -834,6 +963,13 @@ namespace OSFUI
 			}
 			return false;
 		});
+		// Forward-compat opaques (item 2) ride every rewrite verbatim — a
+		// newer mod's settings survive this host instead of being wiped.
+		// (Unknown-typed declared keys never enter the loop above: their
+		// served value IS the default, so there is no collision here.)
+		for (const auto& [key, value] : a_mod.preserved.items()) {
+			sparse[key] = value;
+		}
 		// Stamp the schema version (mcm-design.md §11) ONLY when a mod actually
 		// uses versioning: a v0 (unversioned) mod's file stays byte-for-byte
 		// as before, so no existing values file is dirtied just by this

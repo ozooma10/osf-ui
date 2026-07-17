@@ -14,12 +14,18 @@ namespace OSFUI
 	//
 	// Schema shape (defensive — bad fields fall back, never crash):
 	//   { "id": str, "title": str,
+	//     "requires": [capability, ...]   (api-freeze-plan item 2: unmet ⇒ stub)
 	//     "groups": [ { "label": str,
 	//                   "settings": [ { "key": str, "label": str,
-	//                                   "type": "bool"|"int"|"float"|"enum"|"string",
+	//                                   "type": "bool"|"int"|"float"|"enum"|"string"|"key"|"flags",
 	//                                   "default": <typed>,
 	//                                   "min"/"max"/"step": num   (int/float),
-	//                                   "options": [str, ...]      (enum) } ] } ] }
+	//                                   "options": [str, ...]      (enum/flags) } ] } ] }
+	// The base type set is FROZEN pre-1.0 (item 2): post-1.0 extension is a
+	// base type + `widget` + attributes; a genuinely new base type must ship
+	// behind a schema-level `requires: ["type:<t>"]` gate. A setting whose
+	// type this host doesn't know serves its schema default read-only; the
+	// user's saved value is preserved opaquely (never wiped, never served).
 	//
 	// Security: writes only ever touch a setting that EXISTS in some loaded
 	// schema, with the value validated/clamped to that setting's declared
@@ -236,6 +242,17 @@ namespace OSFUI
 			std::string           id;
 			nlohmann::json        schema;  // read-only
 			nlohmann::json        values;  // { key: current value }
+			// Forward-compat preservation (api-freeze-plan item 2): saved
+			// entries this host cannot understand — unknown-typed settings'
+			// values and keys no schema declares — round-trip verbatim
+			// through every rewrite. NEVER served: consumers only ever see
+			// store-validated `values`; a newer host re-adopts these.
+			nlohmann::json        preserved;  // { key: opaque saved value }
+			// Requires-gate stub (item 2): the schema declared `requires`
+			// capabilities this host lacks. Registered as an inert card —
+			// no values loaded/served/persisted; values file untouched.
+			bool                     stub{ false };
+			std::vector<std::string> missingRequires;
 			std::filesystem::path valuesPath;
 			std::filesystem::path schemaPath;  // drop-in source file; empty for runtime registrations
 			// Drop-in files that also claimed this id and were skipped

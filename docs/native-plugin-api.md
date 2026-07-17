@@ -301,6 +301,15 @@ namespace OSFUI::API
 - **`UnregisterSettingsSchema` only drops runtime-registered schemas** — it is
   ignored (with a log warning) for ids owned by drop-in files. The user's
   values file is always kept.
+- **Forward compatibility (api-freeze-plan item 2):** on a host that predates
+  one of your setting types, the replay (and every getter) delivers the
+  schema **default** for that setting — the user's saved value is preserved
+  on disk but never served until they upgrade, so code your consumption
+  against defaults-until-upgrade. Getters see the default's JSON shape;
+  `type:"flags"` values (arrays) have no typed getter yet — consume them via
+  `SettingChangedFn`'s JSON text. A schema-level `requires` array a host
+  can't satisfy registers the mod as an inert stub: NOTHING is served (no
+  replay, getters return false) and the values file stays untouched.
 
 ### 5b. Hotkey surface semantics (ABI 1.4, mcm-design.md §9)
 

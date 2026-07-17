@@ -87,6 +87,20 @@ export interface SettingsDataPayload {
     title: string;
     schema: SettingsSchema;
     values: Record<string, SettingValue>;
+    /**
+     * Additive (api-freeze-plan item 1): drop-in schema files that also
+     * claimed this id and lost first-wins — render a conflict badge.
+     * Omitted in the (normal) no-conflict case.
+     */
+    shadowed?: string[];
+    /**
+     * Additive (item 2): the schema's `requires` names capabilities this
+     * host lacks — the mod is registered INERT. `values` is empty, nothing
+     * is editable (settings.set/reset are refused), and the user's values
+     * file is preserved untouched. Render a "needs a newer OSF UI" card.
+     */
+    stub?: true;
+    missingRequires?: string[];
   }>;
   /**
    * The game's own key bindings (protocol 0.4, mcm-design §9 "vanilla
@@ -216,9 +230,16 @@ export type NativeToWebMessage =
 // Settings schema shapes (mirror docs/schema/settings-schema.schema.json)
 // ---------------------------------------------------------------------------
 
-export type SettingValue = boolean | number | string;
+export type SettingValue = boolean | number | string | string[];
 
-export type SettingType = "bool" | "int" | "float" | "enum" | "string" | "key";
+/**
+ * The FROZEN base type set (api-freeze-plan item 2). Colour is not a type —
+ * use `type:"string"` + `widget:"color"`. A host that predates a type renders
+ * the setting read-only and serves the schema default; the user's saved value
+ * is preserved on disk untouched. A genuinely new base type ships behind a
+ * schema-level `requires: ["type:<t>"]` gate.
+ */
+export type SettingType = "bool" | "int" | "float" | "enum" | "string" | "key" | "flags";
 
 /** Display hint; older runtimes ignore it and use the type default. */
 export type WidgetHint =
@@ -276,7 +297,7 @@ export interface Setting {
   maxLength?: number; // string length hint
   allowUnbound?: boolean; // key type only: "" is a legal, deliberate unbound state (no dispatch, no conflicts; the UI renders an unbind ×)
   inputContext?: string; // key type only: local InputContext id; absent/invalid/unknown => implicit gameplay
-  options?: string[]; // required when type === "enum"
+  options?: string[]; // required when type === "enum" or "flags" (a flags value = array drawn from these, canonicalized to this order)
   optionLabels?: string[]; // display labels parallel to options; stored value stays the option
   widget?: WidgetHint;
   format?: NumberFormat;
@@ -352,6 +373,15 @@ export interface SettingsSchema {
   title?: string;
   description?: string;  // one-line blurb shown under the title in the detail pane
   version?: number;      // schema version (default 0); native stamps it as $schemaVersion + logs a version move (§11). Renderer ignores it.
+  /**
+   * Host capabilities this schema needs (api-freeze-plan item 2), e.g.
+   * ["type:flags"]. Same vocabulary as `runtime.ready`'s capabilities list
+   * (item 6). A host that can't satisfy every entry registers the mod as a
+   * read-only stub card and leaves the values file untouched; hosts older
+   * than this field ignore it. Distinct from a SETTING's `requires`
+   * (restart/reload/newGame).
+   */
+  requires?: string[];
   accent?: string;       // per-mod accent "#rrggbb"/"#rrggbbaa"
   presets?: SettingsPreset[];
   inputContexts?: InputContext[];

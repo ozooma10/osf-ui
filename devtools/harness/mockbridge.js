@@ -45,6 +45,12 @@
       case "int":
       case "float": return typeof value === "number" ? clampNumber(setting, value) : undefined;
       case "enum": return (setting.options || []).includes(value) ? value : undefined;
+      case "flags": {
+        // Multi-select over options (item 2). Resolve like native: filter to
+        // known options, dedupe, canonicalize to declared-option order.
+        if (!Array.isArray(value) || !Array.isArray(setting.options)) return undefined;
+        return setting.options.filter((o) => typeof o === "string" && value.includes(o));
+      }
       case "string": {
         if (typeof value !== "string") return undefined;
         // A colour-widget string must be a parseable #rrggbb[aa], like native.
@@ -67,8 +73,16 @@
   function defaultFor(setting) { return "default" in setting ? setting.default : null; }
 
   function isSetting(item) {
-    return item && ["bool", "int", "float", "enum", "string", "key"].includes(item.type);
+    return item && ["bool", "int", "float", "enum", "flags", "string", "key"].includes(item.type);
   }
+
+  // Host capabilities this mock claims — mirror src/runtime/Capabilities.h
+  // (a mock that lies about capabilities defeats the requires gate).
+  const CAPABILITIES = [
+    "settings", "settings.captureKey", "views", "game.calendar", "gamepad",
+    "schema:requires",
+    "type:bool", "type:int", "type:float", "type:enum", "type:string", "type:key", "type:flags",
+  ];
   function eachSetting(schema, fn) {
     for (const g of (schema && schema.groups) || []) {
       for (const s of g.settings || []) { if (isSetting(s)) fn(s); }
@@ -107,6 +121,15 @@
 
   function buildMod(schema) {
     const id = schema.id || "mod";
+    // Requires gate (item 2): unmet capabilities register as an inert stub
+    // card — no values loaded/served, saved values untouched.
+    const missing = Array.isArray(schema.requires)
+      ? schema.requires.filter((r) => typeof r !== "string" || !CAPABILITIES.includes(r))
+          .map((r) => (typeof r === "string" && r ? r : "(malformed)"))
+      : [];
+    if (missing.length) {
+      return { id, title: schema.title || id, schema, values: {}, stub: true, missingRequires: missing };
+    }
     const saved = loadSaved(id);
     const values = {};
     eachSetting(schema, (s) => {
@@ -259,7 +282,7 @@
         setTimeout(sendData, 0);
         break;
       case "settings.set": {
-        const mod = mods.find((m) => m.id === p.mod);
+        const mod = mods.find((m) => m.id === p.mod && !m.stub);  // stubs are inert, like native
         let ok = false;
         if (mod) {
           let setting = null;
@@ -279,7 +302,7 @@
         break;
       }
       case "settings.reset": {
-        const mod = mods.find((m) => m.id === p.mod);
+        const mod = mods.find((m) => m.id === p.mod && !m.stub);
         if (mod) {
           eachSetting(mod.schema, (s) => {
             if (!p.key || s.key === p.key) {

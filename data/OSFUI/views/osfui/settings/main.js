@@ -262,7 +262,7 @@ function evalCondition(cond, values) {
 
 function isSetting(item) {
   return item && (item.type === "bool" || item.type === "int" || item.type === "float" ||
-    item.type === "enum" || item.type === "string" || item.type === "key");
+    item.type === "enum" || item.type === "flags" || item.type === "string" || item.type === "key");
 }
 // The schema setting object for a mod's key, or null.
 function findSettingInMod(mod, key) {
@@ -273,6 +273,10 @@ function findSettingInMod(mod, key) {
 }
 function isModified(setting, value) {
   if (value === undefined || !("default" in setting)) return false;
+  // Structural compare: flags values are arrays, where !== is always true.
+  if (typeof value === "object" || typeof setting.default === "object") {
+    return JSON.stringify(value) !== JSON.stringify(setting.default);
+  }
   return value !== setting.default;
 }
 function modifiedCount(mod) {
@@ -284,6 +288,12 @@ function modifiedCount(mod) {
   }
   return n;
 }
+// Structural equality for session-change tracking — flags values are arrays,
+// where !== is always true.
+function sameValue(a, b) {
+  if (typeof a === "object" || typeof b === "object") return JSON.stringify(a) === JSON.stringify(b);
+  return a === b;
+}
 function sessionChangeCount() {
   let n = 0;
   for (const modId in baseline) {
@@ -291,7 +301,7 @@ function sessionChangeCount() {
     if (!mod) continue;
     const values = mod.values || {};
     for (const key in baseline[modId]) {
-      if (values[key] !== baseline[modId][key]) n++;
+      if (!sameValue(values[key], baseline[modId][key])) n++;
     }
   }
   return n;
@@ -386,6 +396,30 @@ function buildEnum(modId, setting, id, current) {
   return { control: select, value: null };
 }
 
+function buildFlags(modId, setting, id, current) {
+  // Multi-select over `options` (checkbox group). Value = array of selected
+  // option strings; commits the whole array on every toggle. The store
+  // canonicalizes to declared-option order and drops unknowns, so render
+  // from the options list, not the stored array.
+  const opts = (setting.options || []).filter((o) => typeof o === "string");
+  const selected = new Set(Array.isArray(current) ? current.filter((v) => typeof v === "string") : []);
+  const group = el("div", "osf-flags"); group.id = id; group.setAttribute("role", "group");
+  for (const opt of opts) {
+    const lab = document.createElement("label");
+    lab.className = "osf-flag";
+    const box = document.createElement("input");
+    box.type = "checkbox"; box.className = "osf-flag-box"; box.value = opt;
+    box.checked = selected.has(opt);
+    box.addEventListener("change", () => {
+      if (box.checked) selected.add(opt); else selected.delete(opt);
+      commit(modId, setting.key, opts.filter((o) => selected.has(o)));  // canonical order, like the store
+    });
+    lab.append(box, el("span", "osf-flag-label", optionLabel(setting, opt)));
+    group.appendChild(lab);
+  }
+  return { control: group, value: null };
+}
+
 function buildString(modId, setting, id, current) {
   if (setting.widget === "color") return buildColor(modId, setting, id, current);
   // Native SettingsStore currently hard-caps strings at 256; the native slice
@@ -465,6 +499,7 @@ function buildSettingControl(modId, setting, id, current) {
     case "int":
     case "float": return buildRange(modId, setting, id, current);
     case "enum": return buildEnum(modId, setting, id, current);
+    case "flags": return buildFlags(modId, setting, id, current);
     case "string": return buildString(modId, setting, id, current);
     case "key": return buildKey(modId, setting, id, current);
     default: return null;
@@ -874,10 +909,13 @@ function renderDetailHead(mod, schema, isFramework) {
   if (schema.description) left.appendChild(el("div", "detail-desc", schema.description));
   head.appendChild(left);
 
-  const reset = el("button", "osf-btn osf-btn--danger osf-btn--sm", "Reset all");
-  reset.type = "button";
-  reset.addEventListener("click", () => resetMod(mod.id));
-  head.appendChild(reset);
+  // A requires-gated stub has nothing to reset — its settings are inert.
+  if (!mod.stub) {
+    const reset = el("button", "osf-btn osf-btn--danger osf-btn--sm", "Reset all");
+    reset.type = "button";
+    reset.addEventListener("click", () => resetMod(mod.id));
+    head.appendChild(reset);
+  }
   return head;
 }
 
@@ -1038,6 +1076,26 @@ function renderDetail() {
   applyAccent(detailEl, schema.accent);
 
   detailEl.appendChild(renderDetailHead(mod, schema, isFramework));
+
+  // Requires-gated stub (api-freeze-plan item 2): the schema declares host
+  // capabilities this OSF UI lacks, so native registered it inert — no
+  // values are served and nothing is editable. Saved settings are preserved
+  // on disk untouched. The mod's terminals/overlays still list (they're
+  // registered independently of the settings gate).
+  if (mod.stub) {
+    const body = el("div", "detail-body");
+    const surfaces = renderSurfaces(entry.views);
+    if (surfaces) body.appendChild(surfaces);
+    const note = el("div", "osf-note osf-note--warn");
+    note.appendChild(el("div", null,
+      `${titleOf(mod)} needs a newer OSF UI — this version can't show or edit its settings. Your saved values are kept and untouched.`));
+    if (Array.isArray(mod.missingRequires) && mod.missingRequires.length) {
+      note.appendChild(el("div", "row-hint", "Missing: " + mod.missingRequires.join(", ")));
+    }
+    body.appendChild(note);
+    detailEl.appendChild(body);
+    return;
+  }
 
   const body = el("div", "detail-body");
   const surfaces = renderSurfaces(entry.views);
@@ -1414,7 +1472,7 @@ function openSessionPanel() {
     for (const key in baseline[modId]) {
       const old = baseline[modId][key];
       const cur = values[key];
-      if (cur !== old) changes.push({ modId, key, old, now: cur, mod });
+      if (!sameValue(cur, old)) changes.push({ modId, key, old, now: cur, mod });
     }
   }
   if (!changes.length) return;
@@ -1650,7 +1708,7 @@ function onNativeMessage(jsonText) {
         sendCommand({ command: "settings.get" });
         break;
       }
-      if (mod.values[p.key] === p.value) {
+      if (sameValue(mod.values[p.key], p.value)) {
         // The common case: the echo of our own optimistic commit. Cheap sync.
         updateChip(); updateRailCounts();
         break;

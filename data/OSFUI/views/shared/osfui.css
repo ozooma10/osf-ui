@@ -376,6 +376,30 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
 .osf-segment:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
 
 /* ------------------------------------------------------------
+   Flags checkbox group  (type:"flags" — multi-select over options)
+   <div class="osf-flags" role="group">
+     <label class="osf-flag"><input type="checkbox" class="osf-flag-box"><span class="osf-flag-label">…</span></label>…
+   </div>
+   ------------------------------------------------------------ */
+.osf-flags { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.osf-flag { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.osf-flag-box {
+  -webkit-appearance: none; appearance: none;
+  width: 14px; height: 14px; margin: 0; flex: none;
+  background: rgba(5, 7, 10, 0.55); border: 1px solid var(--line-strong);
+  cursor: pointer;
+  transition: background var(--dur-fast), border-color var(--dur-fast);
+}
+.osf-flag-box:checked { background: var(--accent); border-color: var(--accent); }
+.osf-flag-box:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--accent-quiet); }
+.osf-flag-label {
+  font-size: var(--text-sm); color: var(--text-muted);
+  transition: color var(--dur-fast);
+}
+.osf-flag:hover .osf-flag-label { color: var(--text-bright); }
+.osf-flag-box:checked + .osf-flag-label { color: var(--text-bright); }
+
+/* ------------------------------------------------------------
    Stepper  (<div class="osf-stepper"><button>−</button><span>…</span><button>+</button>)
    ------------------------------------------------------------ */
 .osf-stepper {

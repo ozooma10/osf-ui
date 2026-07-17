@@ -27,6 +27,12 @@
           "widget": "segmented", "default": "compact",
           "visibleWhen": { "key": "hud.enabled", "eq": true } },
 
+        { "key": "hud.widgets", "label": "Widgets", "type": "flags",
+          "options": ["clock", "compass", "o2", "cargo"], "optionLabels": ["Clock", "Compass", "O₂", "Cargo"],
+          "default": ["clock", "compass"],
+          "hint": "Multi-select — the stored value is the array of enabled options.",
+          "visibleWhen": { "key": "hud.enabled", "eq": true } },
+
         { "key": "hud.opacity", "label": "Opacity", "type": "float", "min": 0, "max": 1, "step": 0.05, "default": 0.9,
           "format": { "scale": 100, "suffix": "%", "decimals": 0 },
           "enabledWhen": { "key": "hud.enabled", "eq": true } },

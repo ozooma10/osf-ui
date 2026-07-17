@@ -133,7 +133,7 @@ int main()
 	CHECK(store.GetValue("t.alpha", "enabled") && *store.GetValue("t.alpha", "enabled") == true);
 	CHECK(store.GetValue("t.alpha", "scale") && store.GetValue("t.alpha", "scale")->get<double>() == 2.0);  // 9.0 clamped
 	CHECK(store.GetValue("t.alpha", "mode") && *store.GetValue("t.alpha", "mode") == "full");               // persisted
-	CHECK(store.GetValue("t.alpha", "junk") == nullptr);                                                  // never adopted
+	CHECK(store.GetValue("t.alpha", "junk") == nullptr);                                                  // unknown key: preserved on disk, never served
 	CHECK(store.GetValue("t.beta", "evil") == nullptr);   // the impostor could not take beta's id...
 	CHECK(store.GetValue("t.zeta", "evil") != nullptr);   // ...it registered under its own stem
 	CHECK(store.GetValue("bad id", "x") == nullptr);
@@ -380,7 +380,9 @@ int main()
 				{ "key": "n", "type": "int",  "default": 3 },
 				{ "key": "b", "type": "bool", "default": false }
 			] } ] })json");
-		// Legacy FULL file: "n" frozen at the (still-current) default, plus junk.
+		// Legacy FULL file: "n" frozen at the (still-current) default, plus an
+		// unknown key — pruned to sparse, but the unknown key is PRESERVED
+		// (api-freeze-plan item 2), not wiped like it used to be.
 		WriteFile(valuesDir2 / "t.delta.json", R"json({ "n": 3, "b": true, "junk": 1 })json");
 
 		{
@@ -389,13 +391,13 @@ int main()
 			s2.PumpPersistence(SettingsStore::kPersistDelaySeconds);  // load opened a rewrite window
 			{
 				auto saved = nlohmann::json::parse(std::ifstream(valuesDir2 / "t.delta.json"), nullptr, false);
-				CHECK((saved == nlohmann::json{ { "b", true } }));  // frozen default + junk pruned: "n" tracks upstream again
+				CHECK((saved == nlohmann::json{ { "b", true }, { "junk", 1 } }));  // frozen default pruned; unknown key preserved
 			}
 			CHECK(s2.Set("t.delta", "n", "7"));
 			// No pump, no flush: teardown must land it.
 		}
 		auto saved = nlohmann::json::parse(std::ifstream(valuesDir2 / "t.delta.json"), nullptr, false);
-		CHECK((saved == nlohmann::json{ { "b", true }, { "n", 7 } }));  // ~SettingsStore flushed
+		CHECK((saved == nlohmann::json{ { "b", true }, { "junk", 1 }, { "n", 7 } }));  // ~SettingsStore flushed, opaque kept
 	}
 
 	// --- §11 renamed keys: per-setting `aliases` ----------------------------------
@@ -554,6 +556,131 @@ int main()
 			"groups": [ { "settings": [ { "key": "k", "type": "int", "default": 2 } ] } ] })json");
 		CHECK(!s.ReloadDropInFile(sd / "t.owned.json"));
 		CHECK(s.GetValue("t.owned", "k") && *s.GetValue("t.owned", "k") == 1);
+	}
+
+	// --- item 2: flags type ---------------------------------------------------------
+	{
+		const auto sd = root / "settings-flags";
+		const auto vd = root / "values-flags";
+		WriteFile(sd / "t.flaggy.json", R"json({
+			"id": "t.flaggy", "title": "Flaggy",
+			"groups": [ { "settings": [
+				{ "key": "widgets", "type": "flags", "options": ["clock", "compass", "o2"], "default": ["clock"] }
+			] } ] })json");
+		// Saved value: out of declared order, with a removed option and a dupe —
+		// resolved (filtered + deduped + canonical declared order), like clamping.
+		WriteFile(vd / "t.flaggy.json", R"json({ "widgets": ["o2", "zzz", "clock", "o2"] })json");
+
+		SettingsStore s;
+		s.LoadAll(sd, vd);
+		CHECK(s.GetValue("t.flaggy", "widgets") && *s.GetValue("t.flaggy", "widgets") == nlohmann::json::array({ "clock", "o2" }));
+		CHECK(s.GetSettingType("t.flaggy", "widgets") == "flags");
+		CHECK(s.Set("t.flaggy", "widgets", R"(["compass", "clock"])"));  // canonicalized to declared order
+		CHECK(*s.GetValue("t.flaggy", "widgets") == nlohmann::json::array({ "clock", "compass" }));
+		CHECK(s.Set("t.flaggy", "widgets", "[]"));  // empty selection is legal
+		CHECK(s.GetValue("t.flaggy", "widgets")->empty());
+		CHECK(!s.Set("t.flaggy", "widgets", "\"clock\""));  // not an array: rejected
+		CHECK(!s.Set("t.flaggy", "widgets", "3"));
+	}
+
+	// --- item 2: forward-compat preservation ------------------------------------------
+	{
+		const auto sd = root / "settings-fwd";
+		const auto vd = root / "values-fwd";
+		// A NEWER mod's schema on this host: one setting of an unknown type
+		// (with an alias carrying a rename), one known setting.
+		WriteFile(sd / "t.future.json", R"json({
+			"id": "t.future", "title": "Future",
+			"groups": [ { "settings": [
+				{ "key": "vec", "type": "vector3", "default": [0,0,0], "aliases": ["oldvec"] },
+				{ "key": "n",   "type": "int", "default": 1 }
+			] } ] })json");
+		// Saved: an unknown-typed value, a value under the unknown setting's old
+		// alias, a plain unknown key, and a sparse known value.
+		WriteFile(vd / "t.future.json", R"json({ "vec": [1,2,3], "oldvec": [9,9,9], "mystery": {"a":1}, "n": 5 })json");
+
+		SettingsStore s;
+		s.LoadAll(sd, vd);
+		// Unknown type: the schema default is served; the saved value withheld.
+		CHECK(s.GetValue("t.future", "vec") && *s.GetValue("t.future", "vec") == nlohmann::json::array({ 0, 0, 0 }));
+		CHECK(s.GetValue("t.future", "n") && *s.GetValue("t.future", "n") == 5);
+		CHECK(s.GetValue("t.future", "mystery") == nullptr);  // never served
+		// Writing an unknown-typed setting is refused (read-only until upgrade).
+		CHECK(!s.Set("t.future", "vec", "[4,5,6]"));
+		// The file is already in sparse+preserved form: the load must be CLEAN —
+		// no rewrite window, byte content untouched (no churn on every boot).
+		s.FlushPersistence();
+		{
+			std::ifstream f(vd / "t.future.json");
+			std::string   contents((std::istreambuf_iterator<char>(f)), {});
+			CHECK(contents == R"json({ "vec": [1,2,3], "oldvec": [9,9,9], "mystery": {"a":1}, "n": 5 })json");
+		}
+		// A real user change rewrites the file — every opaque rides along verbatim
+		// (this is the round-trip that used to WIPE them).
+		CHECK(s.Set("t.future", "n", "9"));
+		s.FlushPersistence();
+		{
+			auto saved = nlohmann::json::parse(std::ifstream(vd / "t.future.json"), nullptr, false);
+			CHECK((saved == nlohmann::json{ { "vec", { 1, 2, 3 } }, { "oldvec", { 9, 9, 9 } },
+			                                { "mystery", { { "a", 1 } } }, { "n", 9 } }));
+		}
+		// The web document serves the default too, and never the opaque bag.
+		{
+			const auto data = s.Data();
+			for (const auto& mod : data["mods"]) {
+				if (mod["id"] == "t.future") {
+					CHECK(mod["values"]["vec"] == nlohmann::json::array({ 0, 0, 0 }));
+					CHECK(!mod["values"].contains("mystery"));
+					CHECK(!mod["values"].contains("oldvec"));
+				}
+			}
+		}
+	}
+
+	// --- item 2: requires capability gate -> stub ---------------------------------------
+	{
+		const auto sd = root / "settings-req";
+		const auto vd = root / "values-req";
+		// Met requires: registers normally.
+		WriteFile(sd / "t.okreq.json", R"json({
+			"id": "t.okreq", "requires": ["type:flags", "settings"],
+			"groups": [ { "settings": [ { "key": "x", "type": "bool", "default": true } ] } ] })json");
+		// Unmet requires: registers as an inert stub; values file untouched.
+		WriteFile(sd / "t.gated.json", R"json({
+			"id": "t.gated", "title": "Gated", "requires": ["osfui.timetravel"],
+			"groups": [ { "settings": [ { "key": "y", "type": "bool", "default": false } ] } ] })json");
+		WriteFile(vd / "t.gated.json", R"json({ "y": true, "future": 1 })json");
+
+		SettingsStore s;
+		s.LoadAll(sd, vd);
+		CHECK(s.GetValue("t.okreq", "x") && *s.GetValue("t.okreq", "x") == true);
+		CHECK(LoggedContaining("WARN", "requires capabilities this OSF UI lacks"));
+		CHECK(s.GetValue("t.gated", "y") == nullptr);  // nothing served
+		CHECK(!s.Set("t.gated", "y", "false"));        // inert
+		CHECK(!s.Reset("t.gated", ""));
+		CHECK(s.GetSettingType("t.gated", "y").empty());
+		{
+			const auto data = s.Data();
+			bool found = false;
+			for (const auto& mod : data["mods"]) {
+				if (mod["id"] == "t.gated") {
+					found = true;
+					CHECK(mod["stub"] == true);
+					CHECK(mod["missingRequires"] == nlohmann::json::array({ "osfui.timetravel" }));
+					CHECK(mod["values"].empty());
+				} else {
+					CHECK(!mod.contains("stub"));
+				}
+			}
+			CHECK(found);
+		}
+		// The stub's values file stays byte-untouched through a flush.
+		s.FlushPersistence();
+		{
+			std::ifstream f(vd / "t.gated.json");
+			std::string   contents((std::istreambuf_iterator<char>(f)), {});
+			CHECK(contents == R"json({ "y": true, "future": 1 })json");
+		}
 	}
 
 	// ---------------------------------------------------------------------------

@@ -356,8 +356,30 @@ definition wins.
 | `int` | slider | number, clamped to `[min,max]`, rounded |
 | `float` | slider | number, clamped to `[min,max]` |
 | `enum` | dropdown | must be one of `options` |
+| `flags` | checkbox group | array of `options` strings — multi-select. Unknown options and duplicates are filtered out (the enum-removal analogue of numeric clamping) and the stored array is canonicalized to declared-option order |
 | `string` | text field | truncated to 256 chars |
 | `key` | press-to-bind button | key-name string (≤16 chars), non-empty unless the setting sets `"allowUnbound": true` — then `""` is the deliberate unbound state (no hotkey dispatch, no conflict badges, and the UI adds an unbind ×). **Framework-managed:** capture is armed via `settings.captureKey` and grabbed in the native input layer (so pressing the current toggle key rebinds instead of closing the overlay). Every `key`-typed setting of every mod is rebindable and dispatches via the HotkeyService (`ui.hotkey` / `SubscribeHotkey`) |
+
+This is the **frozen base type set** (api-freeze-plan item 2). There is no
+`color` type — use `type:"string"` + `widget:"color"`. Post-1.0 evolution is a
+base type plus a `widget` hint and attributes, never a new base type outside a
+capability gate.
+
+**Forward compatibility.** A host that predates one of your setting types
+renders that row read-only ("needs a newer OSF UI"), serves the schema
+`default` to consumers, and **preserves the user's saved value untouched** —
+it round-trips through every rewrite and the newer host picks it back up. If
+your schema is unusable without a capability, gate the whole mod instead:
+
+```jsonc
+{ "id": "yourname.mymod", "requires": ["type:flags"] }
+```
+
+A host that can't satisfy every `requires` entry registers your mod as an
+inert stub card (values file untouched, nothing served) instead of rendering
+it half-broken. The names share one vocabulary with `runtime.ready`'s
+capability list. Hosts older than the `requires` field ignore it — declare it
+from your first release.
 
 The `bool` control renders as a toggle switch, `int`/`float` as sliders with a
 value badge — see `views/shared/osfui.css` for the shared control styles.

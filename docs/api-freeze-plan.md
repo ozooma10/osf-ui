@@ -137,7 +137,7 @@ Follow-on alignments (tracked as their own items below):
 
 ---
 
-## 2. Settings-type forward compatibility — ✅ designed (2026-07-17)
+## 2. Settings-type forward compatibility — 🔨 implemented (2026-07-17)
 
 **Problem.** `SettingsStore::Validate` is a closed type set; worse, the
 load-time prune (`saved != SparseValues(mod)` → rewrite,
@@ -158,21 +158,50 @@ the native store is the whole problem.
 
 ### Implementation checklist
 
-- [ ] `src/runtime/SettingsStore.cpp` — carry unknown-typed/unknown-key saved
-      entries through `SparseValues`/`Persist` verbatim (separate opaque bag
-      per mod, excluded from `values`); keep serving `DefaultFor` for
-      unknown-typed settings; `flags` case in `Validate`; `requires`
-      evaluation at schema load → stub registration.
-- [ ] Settings view (`views/osfui/settings/main.js`) — `flags` checkbox-group
-      control; stub-card rendering for gated mods.
-- [ ] `devtools/harness/mockbridge.js` — `flags` + `requires` parity.
-- [ ] Contract lockstep: `docs/schema/settings-schema.schema.json` (add
-      `flags`, `requires`; delete the future-`color`-type promise),
-      `sdk/osfui.d.ts` (`SettingType`, `requires`), `docs/authoring-views.md`
-      type-rules table, `docs/native-plugin-api.md` (replay = default when
-      host predates a type).
-- [ ] Native tests: preservation round-trip (load→persist keeps opaque keys),
-      flags validation, requires-gate stub.
+- [x] `src/runtime/SettingsStore.cpp` — `Mod.preserved` opaque bag: filled at
+      load from (a) declared settings with an unknown type (saved value kept,
+      default served, `Set` refused) and (b) saved keys no schema fact
+      accounts for; merged into `SparseValues` so every rewrite carries the
+      opaques verbatim, and the load-clean check includes them (a file whose
+      only oddity is unknown content opens NO rewrite window). Known-typed
+      keys keep today's behavior exactly (clamp/alias/prune). *Detail:* an
+      unknown-typed setting's `aliases` are deliberately NOT accounted — this
+      host can't adopt them, and dropping them would strand a rename for the
+      newer host that can. `flags` case in `Validate` (array over `options`;
+      resolve, don't reject: filter unknowns + dedupe + canonicalize to
+      declared-option order — the enum-removal analogue of clamping).
+      `requires` evaluated at registration → stub Mod (inert: values empty,
+      `Set`/`Reset`/`GetSettingType` refuse, never dirtied, values file never
+      read or written); `settings.data` entry gains additive `stub: true` +
+      `missingRequires`. New `src/runtime/Capabilities.h` holds the
+      append-only named-capability set — the same list item 6 will emit in
+      `runtime.ready`.
+- [x] Settings view — `buildFlags` checkbox group (`.osf-flags` kit styles in
+      shared css; commits the full array in canonical order); stub card in
+      the detail pane ("needs a newer OSF UI" + missing list; Reset-all
+      hidden; the mod's terminals still listed — they register independently
+      of the settings gate). Structural (JSON) equality shims for array
+      values in `isModified`/session-undo/settings.changed echo detection.
+- [x] `devtools/harness/mockbridge.js` — `flags` validate case, `CAPABILITIES`
+      mirror of Capabilities.h, `requires` → stub in `buildMod`, stubs inert
+      for set/reset.
+- [x] Contract lockstep: settings-schema.schema.json (`flags` type +
+      top-level `requires`; the future-`color`-type promise replaced with
+      "colour is string+widget, base set frozen"), `sdk/osfui.d.ts`
+      (`SettingType`, `SettingValue` gains `string[]`, `SettingsSchema.requires`,
+      `settings.data` `stub`/`missingRequires`/`shadowed`),
+      authoring-views.md (type-rules row + forward-compat/`requires` section),
+      native-plugin-api.md §5a (replay/getters = default when the host
+      predates a type; stub = nothing served; flags via JSON callback, no
+      typed getter). `examples/settings-only/yourname.mymod.json` gained a
+      `flags` demo row.
+- [x] Native tests (settings_store_tests, all green 192/192): flags
+      validation (resolve/dedupe/canonical order/reject non-array),
+      preservation round-trip (unknown type + unknown-type alias + unknown
+      key: served defaults, clean load byte-identical, opaques survive a real
+      rewrite, never in `Data()`), requires-gate stub (met vs unmet, inert
+      surface, `stub`/`missingRequires` payload, values file byte-untouched);
+      legacy prune test updated — unknown keys now preserved, not wiped.
 
 ---
 
@@ -551,9 +580,9 @@ here only for completeness.)*
 ## Status & implementation order
 
 **All 12 items designed as of 2026-07-17** (items 1–5, 7 via user Q&A; 6, 8,
-9–12 engineering designs). **Item 1 implemented 2026-07-17** (build green,
-all 7 native suites pass, nested layout verified in the MO2 deploy; in-game
-check + the OSF Animation rename still open). Dependency-ordered
+9–12 engineering designs). **Items 1 and 2 implemented 2026-07-17** (build
+green, all 7 native suites pass, nested layout verified in the MO2 deploy;
+in-game check + the OSF Animation rename still open). Dependency-ordered
 implementation slices:
 
 1. **Item 1** — ID namespacing + nested layout (everything else keys off the
