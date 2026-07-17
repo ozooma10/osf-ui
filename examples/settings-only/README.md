@@ -5,15 +5,18 @@ and it renders a full settings card with typed, validated, persisted controls.
 
 ## 5-minute quickstart
 
-1. Copy `mymod.json` to `Data/OSFUI/settings/<yourid>.json`. The filename stem
-   is your mod id — it must match the `"id"` field (and it's how load-order
-   conflicts resolve, exactly like any other file in your mod).
+1. Copy `yourname.mymod.json` to `Data/OSFUI/settings/<author>.<modname>.json`.
+   The filename stem is your mod id — `"<author>.<modname>"`, lowercase
+   `[a-z0-9-]` segments with exactly one dot, where `author` is your
+   Nexus/GitHub handle (dotless ids are reserved for the platform). It must
+   match the `"id"` field (and it's how load-order conflicts resolve, exactly
+   like any other file in your mod).
 2. Edit the `title`, `groups`, and `settings` to taste.
 3. Launch the game, open the OSF UI overlay, and your card is in the left rail.
 
 That's the whole loop. To iterate without launching Starfield, use the browser
 harness in [`../../devtools/harness/`](../../devtools/harness/) — drag this
-file onto the page (or load `?schema=../../examples/settings-only/mymod.json`).
+file onto the page (or load `?schema=../../examples/settings-only/yourname.mymod.json`).
 
 ## What this file shows
 
@@ -36,9 +39,9 @@ The card above stores values; making them *do something* is the mod's job:
 - **SFSE plugin (C++):** fetch the bridge (`sdk/OSFUI_API.h`) and subscribe to
   your mod's changes / read typed getters. (Native slice — see
   `docs/mcm-design.md` §8.)
-- **Papyrus:** `OSFUI.GetInt("mymod", "hud.scale")` etc. (Native slice — §8.4.)
-- **Action buttons** (`mymod.recalibrate`) are delivered to your plugin's
-  registered command handler; reply with `{ type: "mymod.ack", payload: { key,
+- **Papyrus:** `OSFUI.GetInt("yourname.mymod", "hud.scale")` etc. (Native slice — §8.4.)
+- **Action buttons** (`yourname.mymod.recalibrate`) are delivered to your plugin's
+  registered command handler; reply with `{ type: "yourname.mymod.ack", payload: { key,
   ok, message } }` to resolve the button (otherwise it times out after 5s).
 
 ## Injection safety

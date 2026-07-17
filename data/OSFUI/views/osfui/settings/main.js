@@ -579,7 +579,7 @@ function buildImage(mod, item) {
   return fig;
 }
 
-// Confine an image to the mod's own views/<id>/ folder: reject "..", absolute
+// Confine an image to the mod's own views/<modId>/ folder: reject "..", absolute
 // paths, URL schemes, and percent-encoding (which WebKit would decode back into
 // "../" or a scheme after this check) before the src reaches the sandbox.
 function safeAssetSrc(modId, src) {
@@ -593,13 +593,14 @@ function safeAssetSrc(modId, src) {
   const id = String(modId || "");
   if (!id || id.includes("%") || bad(id)) return null;
   if (s.includes("%") || bad(s) || bad(decoded)) return null;
-  // In game every view mounts under one views/ root, so a mod's folder is
-  // always a sibling at "..". The dev harness serves this page from
+  // In game every view mounts under one views/ root and this page lives two
+  // levels deep (views/osfui/settings/), so a mod's namespace folder is
+  // always at "../../<modId>". The dev harness serves this page from
   // devtools/harness/ where that isn't true — its mock bridge maps mod ids
   // to their real view folders (OSFUI_MOD_ASSET_ROOTS). Never defined in
   // game, so the shipped path can't be redirected.
   const roots = window.OSFUI_MOD_ASSET_ROOTS;
-  const root = roots && typeof roots[id] === "string" ? roots[id] : "..";
+  const root = roots && typeof roots[id] === "string" ? roots[id] : "../..";
   return `${root}/${id}/${s}`;
 }
 
@@ -1737,10 +1738,10 @@ if (bridgeAvailable()) {
 
 function sampleViews() {
   return [
-    { id: "keybinds", title: "Keybinds", description: "Every key binding at a glance — mods, the game, and collisions. Rebind in place.", mod: "osfui", kind: "menu", hub: true, open: false, focused: false, loadState: "loaded" },
-    { id: "almanac", title: "Ship Almanac", description: "Browse ship modules, mass and performance readouts.", mod: "demo", kind: "menu", hub: true, open: false, focused: false, loadState: "loaded" },
-    { id: "atlas", title: "Star Atlas", description: "Annotated survey routes and anomalies by system.", mod: "", kind: "menu", hub: true, open: false, focused: false, loadState: "failed" },
-    { id: "hudwidgets", title: "HUD Widgets", description: "Clock and status overlays over the live game.", mod: "demo", kind: "hud", hub: true, open: true, loadState: "loaded" },
+    { id: "osfui/keybinds", title: "Keybinds", description: "Every key binding at a glance — mods, the game, and collisions. Rebind in place.", mod: "osfui", kind: "menu", hub: true, open: false, focused: false, loadState: "loaded" },
+    { id: "acme.shipworks/almanac", title: "Ship Almanac", description: "Browse ship modules, mass and performance readouts.", mod: "acme.shipworks", kind: "menu", hub: true, open: false, focused: false, loadState: "loaded" },
+    { id: "acme.atlas/atlas", title: "Star Atlas", description: "Annotated survey routes and anomalies by system.", mod: "acme.atlas", kind: "menu", hub: true, open: false, focused: false, loadState: "failed" },
+    { id: "acme.shipworks/hudwidgets", title: "HUD Widgets", description: "Clock and status overlays over the live game.", mod: "acme.shipworks", kind: "hud", hub: true, open: true, loadState: "loaded" },
   ];
 }
 

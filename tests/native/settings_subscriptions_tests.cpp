@@ -90,13 +90,13 @@ int main()
 	// --- replay on subscribe: once per current value, ONE-shot -------------------
 	{
 		SettingsMirror mirror;
-		mirror.Update("alpha", "enabled", true);
-		mirror.Update("alpha", "count", 42);
-		mirror.Update("alpha", "name", "hi");
+		mirror.Update("t.alpha", "enabled", true);
+		mirror.Update("t.alpha", "count", 42);
+		mirror.Update("t.alpha", "name", "hi");
 
 		SettingsSubscriptions subs;
 		Trace trace;
-		CHECK(subs.Subscribe("alpha", Recorder, &trace) != 0);
+		CHECK(subs.Subscribe("t.alpha", Recorder, &trace) != 0);
 		CHECK(trace.empty());  // nothing until the main-thread Pump
 
 		subs.Pump(mirror);
@@ -106,7 +106,7 @@ int main()
 		CHECK(values.at("count") == "42");         // not display strings
 		CHECK(values.at("name") == "\"hi\"");
 		for (const auto& r : trace) {
-			CHECK(r.mod == "alpha");
+			CHECK(r.mod == "t.alpha");
 		}
 
 		subs.Pump(mirror);  // replay is one-shot
@@ -138,17 +138,17 @@ int main()
 		SettingsMirror mirror;  // empty: replays contribute nothing
 		SettingsSubscriptions subs;
 		Trace a, b;
-		CHECK(subs.Subscribe("alpha", Recorder, &a) != 0);
-		CHECK(subs.Subscribe("beta", Recorder, &b) != 0);
+		CHECK(subs.Subscribe("t.alpha", Recorder, &a) != 0);
+		CHECK(subs.Subscribe("t.beta", Recorder, &b) != 0);
 		subs.Pump(mirror);  // consume the empty replays
 
-		subs.OnChanged("alpha", "x", 1);
-		subs.OnChanged("beta", "y", "s");
+		subs.OnChanged("t.alpha", "x", 1);
+		subs.OnChanged("t.beta", "y", "s");
 		subs.OnChanged("nobody", "z", 3);  // no subscriber: dropped
 		subs.Pump(mirror);
 
-		CHECK(a.size() == 1 && a[0].mod == "alpha" && a[0].key == "x" && a[0].valueJson == "1");
-		CHECK(b.size() == 1 && b[0].mod == "beta" && b[0].key == "y" && b[0].valueJson == "\"s\"");
+		CHECK(a.size() == 1 && a[0].mod == "t.alpha" && a[0].key == "x" && a[0].valueJson == "1");
+		CHECK(b.size() == 1 && b[0].mod == "t.beta" && b[0].key == "y" && b[0].valueJson == "\"s\"");
 
 		subs.Pump(mirror);  // queue drained
 		CHECK(a.size() == 1 && b.size() == 1);
@@ -157,16 +157,16 @@ int main()
 	// --- replay-before-events ordering in one Pump --------------------------------
 	{
 		SettingsMirror mirror;
-		mirror.Update("alpha", "a", 1);
+		mirror.Update("t.alpha", "a", 1);
 
 		SettingsSubscriptions subs;
 		Trace trace;
-		CHECK(subs.Subscribe("alpha", Recorder, &trace) != 0);
+		CHECK(subs.Subscribe("t.alpha", Recorder, &trace) != 0);
 
 		// A commit lands between Subscribe and Pump — Runtime wiring updates
 		// the mirror FIRST, then queues the event.
-		mirror.Update("alpha", "b", 2);
-		subs.OnChanged("alpha", "b", 2);
+		mirror.Update("t.alpha", "b", 2);
+		subs.OnChanged("t.alpha", "b", 2);
 
 		subs.Pump(mirror);
 		// Replay of the CURRENT values (a=1, b=2) first, then the queued
@@ -185,10 +185,10 @@ int main()
 		SettingsMirror mirror;
 		SettingsSubscriptions subs;
 		Trace trace;
-		const auto token = subs.Subscribe("alpha", Recorder, &trace);
+		const auto token = subs.Subscribe("t.alpha", Recorder, &trace);
 		subs.Pump(mirror);
 
-		subs.OnChanged("alpha", "k", 1);  // queued while subscribed
+		subs.OnChanged("t.alpha", "k", 1);  // queued while subscribed
 		subs.Unsubscribe(token);
 		subs.Pump(mirror);
 		CHECK(trace.empty());
@@ -211,12 +211,12 @@ int main()
 		SettingsMirror mirror;
 		SettingsSubscriptions subs;
 		KillCtx ctx{ &subs };
-		ctx.token = subs.Subscribe("alpha", killAfterFirst, &ctx);
+		ctx.token = subs.Subscribe("t.alpha", killAfterFirst, &ctx);
 		CHECK(ctx.token != 0);
 		subs.Pump(mirror);
 
-		subs.OnChanged("alpha", "one", 1);
-		subs.OnChanged("alpha", "two", 2);
+		subs.OnChanged("t.alpha", "one", 1);
+		subs.OnChanged("t.alpha", "two", 2);
 		subs.Pump(mirror);
 		CHECK(ctx.trace.size() == 1);  // second call skipped by the liveness re-check
 	}
@@ -232,15 +232,15 @@ int main()
 		const auto subscribeMore = [](const char* a_mod, const char* a_key, const char* a_valueJson, void* a_user) noexcept {
 			auto* ctx = static_cast<GrowCtx*>(a_user);
 			ctx->trace.push_back({ a_mod, a_key, a_valueJson });
-			(void)ctx->subs->Subscribe("alpha", Recorder, ctx->other);
+			(void)ctx->subs->Subscribe("t.alpha", Recorder, ctx->other);
 		};
 
 		SettingsMirror mirror;
-		mirror.Update("alpha", "k", 7);
+		mirror.Update("t.alpha", "k", 7);
 		SettingsSubscriptions subs;
 		Trace other;
 		GrowCtx ctx{ &subs, &other };
-		CHECK(subs.Subscribe("alpha", subscribeMore, &ctx) != 0);
+		CHECK(subs.Subscribe("t.alpha", subscribeMore, &ctx) != 0);
 
 		subs.Pump(mirror);  // replay -> callback -> re-entrant Subscribe
 		CHECK(ctx.trace.size() == 1);
@@ -273,12 +273,12 @@ int main()
 
 		// Subscribe BEFORE the mod exists: legal, silent until it registers.
 		Trace early;
-		CHECK(subs.Subscribe("beta", Recorder, &early) != 0);
+		CHECK(subs.Subscribe("t.beta", Recorder, &early) != 0);
 		subs.Pump(mirror);
 		CHECK(early.empty());
 
 		CHECK(store.RegisterSchema(nlohmann::json::parse(R"json({
-			"id": "beta", "title": "Beta",
+			"id": "t.beta", "title": "Beta",
 			"groups": [ { "label": "G", "settings": [
 				{ "key": "enabled", "type": "bool",  "default": true },
 				{ "key": "scale",   "type": "float", "default": 1.0, "min": 0.5, "max": 2.0 },
@@ -297,7 +297,7 @@ int main()
 
 		// Subscribe AFTER registration: the mirror snapshot replay.
 		Trace late;
-		CHECK(subs.Subscribe("beta", Recorder, &late) != 0);
+		CHECK(subs.Subscribe("t.beta", Recorder, &late) != 0);
 		subs.Pump(mirror);
 		CHECK(late.size() == 3);
 		CHECK(ByKey(late) == initial);
@@ -305,7 +305,7 @@ int main()
 		// A Set delivers the CLAMPED committed value to both subscribers.
 		early.clear();
 		late.clear();
-		CHECK(store.Set("beta", "scale", "9.9"));
+		CHECK(store.Set("t.beta", "scale", "9.9"));
 		subs.Pump(mirror);
 		CHECK(early.size() == 1 && early[0].key == "scale" && early[0].valueJson == "2.0");
 		CHECK(late.size() == 1 && late[0].valueJson == "2.0");
@@ -313,11 +313,11 @@ int main()
 		// RemoveMod: no change events — values simply stop resolving.
 		early.clear();
 		late.clear();
-		CHECK(store.RemoveMod("beta"));
+		CHECK(store.RemoveMod("t.beta"));
 		subs.Pump(mirror);
 		CHECK(early.empty() && late.empty());
 		bool b{};
-		CHECK(!mirror.GetBool("beta", "enabled", &b));
+		CHECK(!mirror.GetBool("t.beta", "enabled", &b));
 
 		fs::remove_all(root);
 	}

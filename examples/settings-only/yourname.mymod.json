@@ -1,6 +1,6 @@
 {
   "$schema": "https://github.com/ozooma10/osf-ui/blob/main/docs/schema/settings-schema.schema.json",
-  "id": "mymod",
+  "id": "yourname.mymod",
   "title": "My Mod",
   "description": "A copy-me starter that exercises every v1 settings widget.",
   "version": 1,
@@ -59,9 +59,9 @@
         { "key": "backend", "label": "Render backend", "type": "enum", "options": ["auto", "gpu", "cpu"],
           "default": "auto", "requires": "restart" },
 
-        { "type": "action", "key": "recalibrate", "label": "Run calibration", "command": "mymod.recalibrate",
+        { "type": "action", "key": "recalibrate", "label": "Run calibration", "command": "yourname.mymod.recalibrate",
           "style": "accent", "confirm": "Clear learned data and recalibrate now?",
-          "hint": "Fires the mymod.recalibrate command; handled by your SFSE plugin." }
+          "hint": "Fires the yourname.mymod.recalibrate command; handled by your SFSE plugin." }
       ]
     }
   ]

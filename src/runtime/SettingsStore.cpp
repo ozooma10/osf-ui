@@ -4,6 +4,7 @@
 #include <unordered_set>
 
 #include "core/Log.h"
+#include "runtime/Ids.h"
 #include "runtime/Json.h"
 
 namespace OSFUI
@@ -11,7 +12,7 @@ namespace OSFUI
 	namespace
 	{
 		constexpr std::size_t kMaxStringLen = 256;
-		constexpr std::size_t kMaxModIdLen = 64;
+		constexpr std::size_t kMaxModIdLen = Ids::kMaxModIdLen;
 		constexpr std::size_t kMaxInputContextIdLen = 64;
 
 		// Reserved meta key in a values file: the schema `version` the file was
@@ -19,28 +20,6 @@ namespace OSFUI
 		// collide with a setting key (the schema walk only sees declared keys)
 		// and is invisible to builds that predate versioning.
 		constexpr const char* kSchemaVersionKey = "$schemaVersion";
-
-		// A mod id becomes a filename (<valuesDir>/<id>.json) and a web asset
-		// path segment (views/<id>/...): restrict it to a safe charset and
-		// reject traversal so a schema-supplied id can never escape either
-		// confinement (docs/security-model.md).
-		bool IsValidModId(std::string_view a_id)
-		{
-			if (a_id.empty() || a_id.size() > kMaxModIdLen) {
-				return false;
-			}
-			if (a_id.front() == '.' || a_id.find("..") != std::string_view::npos) {
-				return false;
-			}
-			for (const char c : a_id) {
-				const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-				                (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-';
-				if (!ok) {
-					return false;
-				}
-			}
-			return true;
-		}
 
 		bool IsValidInputContextId(std::string_view a_id)
 		{
@@ -57,21 +36,6 @@ namespace OSFUI
 			return std::all_of(a_id.begin() + 1, a_id.end(), [&](const char c) {
 				return isAlnum(c) || c == '.' || c == '_' || c == '-';
 			});
-		}
-
-		// Framework bridge namespaces. The renderer only fires an action whose
-		// command is prefixed "<modId>.", so a mod id equal to one of these
-		// would make "namespaced" commands collide with framework commands
-		// (menu.close, settings.reset, ...). The framework's own id ("osfui")
-		// is not listed: its schema loads through the same drop-in path.
-		bool IsReservedModId(std::string_view a_id)
-		{
-			for (const std::string_view r : { "ui", "menu", "hud", "settings", "views", "game", "runtime" }) {
-				if (a_id == r) {
-					return true;
-				}
-			}
-			return false;
 		}
 
 		bool IsHexColor(std::string_view a_s)
@@ -137,13 +101,23 @@ namespace OSFUI
 		std::sort(files.begin(), files.end());
 
 		for (const auto& path : files) {
+			// Drop-in id == filename stem (enforced below), so the stem must
+			// pass the id grammar — hard-reject here to name the offending FILE
+			// (ValidateSchemaShape would only name the id).
+			if (const auto stem = path.stem().string(); !Ids::IsAcceptedModId(stem)) {
+				REX::ERROR("SettingsStore: skipping {} — settings files are named '<author>.<modname>.json' "
+						   "(lowercase [a-z0-9-] segments, exactly one dot in the mod id); "
+						   "dotless ids are reserved for the platform",
+					path.string());
+				continue;
+			}
 			auto schema = Json::ParseFile(path);
 			if (!schema || !schema->is_object()) {
 				REX::WARN("SettingsStore: skipping invalid schema {}", path.string());
 				continue;
 			}
 			// Startup load: notifications defer to the OnStart NotifyAll.
-			AddSchema(std::move(*schema), Source::kDropIn, path.stem().string(), /*a_notify=*/false);
+			AddSchema(std::move(*schema), Source::kDropIn, path.stem().string(), /*a_notify=*/false, /*a_dropInReplace=*/false, path);
 		}
 
 		REX::INFO("SettingsStore: {} mod schema(s) registered from {}", _mods.size(), a_schemaDir.string());
@@ -172,14 +146,16 @@ namespace OSFUI
 			REX::WARN("SettingsStore: rejected schema with no id");
 			return false;
 		}
-		if (!IsValidModId(id)) {
-			REX::WARN("SettingsStore: rejected schema id '{}' — ids are 1-{} chars of [A-Za-z0-9._-] "
-					  "with no leading '.' and no '..' (the id names the values file and asset folder)",
+		// Id grammar (docs/api-freeze-plan.md item 1): <author>.<modname>,
+		// lowercase [a-z0-9-] segments, exactly one dot. Dotless ids are
+		// platform-reserved by construction ("osfui" is the only built-in), so
+		// the old reserved-word list (ui/menu/hud/...) is subsumed — every
+		// reserved name is dotless and therefore already invalid.
+		if (!Ids::IsAcceptedModId(id)) {
+			REX::ERROR("SettingsStore: rejected schema id '{}' — mod ids are '<author>.<modname>' "
+					   "(lowercase [a-z0-9-] segments, exactly one dot, max {} chars); "
+					   "dotless ids are reserved for the platform",
 				id.substr(0, kMaxModIdLen), kMaxModIdLen);
-			return false;
-		}
-		if (IsReservedModId(id)) {
-			REX::WARN("SettingsStore: rejected schema id '{}' — reserved framework namespace", id);
 			return false;
 		}
 		return true;
@@ -193,10 +169,10 @@ namespace OSFUI
 			return false;
 		}
 		return AddSchema(std::move(*schema), Source::kDropIn, a_path.stem().string(),
-			/*a_notify=*/true, /*a_dropInReplace=*/true);
+			/*a_notify=*/true, /*a_dropInReplace=*/true, a_path);
 	}
 
-	bool SettingsStore::AddSchema(nlohmann::json a_schema, Source a_source, std::string a_idHint, bool a_notify, bool a_dropInReplace)
+	bool SettingsStore::AddSchema(nlohmann::json a_schema, Source a_source, std::string a_idHint, bool a_notify, bool a_dropInReplace, std::filesystem::path a_sourcePath)
 	{
 		if (!a_schema.is_object()) {
 			REX::WARN("SettingsStore: rejected schema — not a JSON object");
@@ -227,8 +203,23 @@ namespace OSFUI
 		if (existing) {
 			if (a_source == Source::kDropIn &&
 				!(a_dropInReplace && existing->source == Source::kDropIn)) {
-				REX::WARN("SettingsStore: duplicate schema id '{}' — keeping the {} one, ignoring the drop-in file",
-					id, existing->source == Source::kNative ? "runtime-registered" : "first-loaded");
+				// First-wins (api-freeze-plan item 1): ERROR naming both files,
+				// and record the loser so Data() can surface the conflict.
+				const auto kept = existing->source == Source::kNative
+				                      ? std::string("the runtime registration")
+				                      : (existing->schemaPath.empty() ? std::string("the first-loaded schema")
+				                                                      : existing->schemaPath.string());
+				REX::ERROR("SettingsStore: duplicate schema id '{}' — keeping {}, ignoring {}",
+					id, kept, a_sourcePath.empty() ? std::string("the drop-in file") : a_sourcePath.string());
+				// Conflict record only for file-vs-file collisions; a native
+				// registration outranking its own drop-in file is the normal
+				// tier-upgrade path, not a conflict to badge.
+				if (!a_sourcePath.empty() && existing->source == Source::kDropIn) {
+					const auto loser = a_sourcePath.filename().string();
+					if (std::find(existing->shadowed.begin(), existing->shadowed.end(), loser) == existing->shadowed.end()) {
+						existing->shadowed.push_back(loser);
+					}
+				}
 				return false;
 			}
 			if (a_source == Source::kDropIn) {
@@ -250,8 +241,12 @@ namespace OSFUI
 		mod.id = std::move(id);
 		mod.schema = std::move(a_schema);
 		mod.valuesPath = _valuesDir / (mod.id + ".json");
+		mod.schemaPath = std::move(a_sourcePath);
 		mod.source = a_source;
 		mod.values = nlohmann::json::object();
+		if (existing) {
+			mod.shadowed = std::move(existing->shadowed);  // conflicts outlive a replacement/hot-reload
+		}
 
 		// Persisted values over schema defaults. Replacement rebuilds from the
 		// same file — every committed Set persists, so nothing is lost, and
@@ -579,12 +574,19 @@ namespace OSFUI
 					return false;
 				});
 			}
-			mods.push_back({
+			nlohmann::json entry{
 				{ "id", mod.id },
 				{ "title", Json::GetString(mod.schema, "title", mod.id) },
 				{ "schema", std::move(schema) },
 				{ "values", mod.values },
-			});
+			};
+			// Additive (api-freeze-plan item 1): drop-in files that also claimed
+			// this id and lost first-wins — the Mods surface renders a conflict
+			// badge. Omitted in the (normal) no-conflict case.
+			if (!mod.shadowed.empty()) {
+				entry["shadowed"] = mod.shadowed;
+			}
+			mods.push_back(std::move(entry));
 		}
 		nlohmann::json data{ { "mods", std::move(mods) } };
 		// The game's own bindings as a top-level table (mcm-design.md §9

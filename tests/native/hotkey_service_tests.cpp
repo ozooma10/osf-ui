@@ -115,15 +115,15 @@ int main()
 
 	// alpha.toggleHud and beta.openMenu share F6 by default (the informational
 	// conflict case); alpha.screenshot is unique on F7.
-	WriteFile(schemaDir / "alpha.json", R"json({
-		"id": "alpha", "title": "Alpha Mod",
+	WriteFile(schemaDir / "t.alpha.json", R"json({
+		"id": "t.alpha", "title": "Alpha Mod",
 		"groups": [ { "label": "Keys", "settings": [
 			{ "key": "toggleHud",  "type": "key",  "default": "F6" },
 			{ "key": "screenshot", "type": "key",  "default": "F7" },
 			{ "key": "enabled",    "type": "bool", "default": true }
 		] } ] })json");
-	WriteFile(schemaDir / "beta.json", R"json({
-		"id": "beta", "title": "Beta Mod",
+	WriteFile(schemaDir / "t.beta.json", R"json({
+		"id": "t.beta", "title": "Beta Mod",
 		"groups": [ { "label": "Keys", "settings": [
 			{ "key": "openMenu", "type": "key", "default": "F6" }
 		] } ] })json");
@@ -155,8 +155,8 @@ int main()
 		svc.OnKeyDown(vkF6);
 		const auto fired = DrainAll(svc);
 		CHECK(fired.size() == 2);
-		CHECK(std::find(fired.begin(), fired.end(), "alpha.toggleHud") != fired.end());
-		CHECK(std::find(fired.begin(), fired.end(), "beta.openMenu") != fired.end());
+		CHECK(std::find(fired.begin(), fired.end(), "t.alpha.toggleHud") != fired.end());
+		CHECK(std::find(fired.begin(), fired.end(), "t.beta.openMenu") != fired.end());
 
 		CHECK(DrainAll(svc).empty());  // drained once
 
@@ -165,7 +165,7 @@ int main()
 
 		svc.OnKeyDown(vkF7);
 		const auto f7 = DrainAll(svc);
-		CHECK(f7.size() == 1 && f7[0] == "alpha.screenshot");
+		CHECK(f7.size() == 1 && f7[0] == "t.alpha.screenshot");
 	}
 
 	// --- suppression: captured/armed presses never fire --------------------------
@@ -185,33 +185,33 @@ int main()
 		svc.OnKeyDown(vkF6);
 		const auto fired = DrainAll(svc);
 		CHECK(fired.size() == 3);
-		CHECK(fired[0] == "alpha.screenshot");
+		CHECK(fired[0] == "t.alpha.screenshot");
 	}
 
 	// --- registry rebuild on rebind (store.Set through the change listener) ------
 	{
-		CHECK(store.Set("alpha", "toggleHud", "\"F8\""));
+		CHECK(store.Set("t.alpha", "toggleHud", "\"F8\""));
 
 		svc.OnKeyDown(vkF6);  // only beta remains on F6
 		auto fired = DrainAll(svc);
-		CHECK(fired.size() == 1 && fired[0] == "beta.openMenu");
+		CHECK(fired.size() == 1 && fired[0] == "t.beta.openMenu");
 
 		svc.OnKeyDown(vkF8);  // alpha moved here
 		fired = DrainAll(svc);
-		CHECK(fired.size() == 1 && fired[0] == "alpha.toggleHud");
+		CHECK(fired.size() == 1 && fired[0] == "t.alpha.toggleHud");
 	}
 
 	// --- an unresolvable stored name simply doesn't bind --------------------------
 	{
-		CHECK(store.Set("alpha", "toggleHud", "\"NotAKey\""));  // valid string, no VK
+		CHECK(store.Set("t.alpha", "toggleHud", "\"NotAKey\""));  // valid string, no VK
 		svc.OnKeyDown(vkF8);
 		CHECK(DrainAll(svc).empty());
-		CHECK(store.Set("alpha", "toggleHud", "\"F8\""));  // restore
+		CHECK(store.Set("t.alpha", "toggleHud", "\"F8\""));  // restore
 	}
 
 	// --- a non-key commit does not disturb the registry ---------------------------
 	{
-		CHECK(store.Set("alpha", "enabled", "false"));
+		CHECK(store.Set("t.alpha", "enabled", "false"));
 		svc.OnKeyDown(vkF8);
 		CHECK(DrainAll(svc).size() == 1);
 	}
@@ -219,7 +219,7 @@ int main()
 	// --- registry shape changes: late registration binds, removal unbinds --------
 	{
 		CHECK(store.RegisterSchema(nlohmann::json::parse(R"json({
-			"id": "gamma", "title": "Gamma",
+			"id": "t.gamma", "title": "Gamma",
 			"groups": [ { "settings": [
 				{ "key": "quickSlot", "type": "key", "default": "F6" }
 			] } ] })json"),
@@ -229,8 +229,8 @@ int main()
 		auto fired = DrainAll(svc);
 		CHECK(fired.size() == 2);  // beta + gamma
 
-		CHECK(store.RemoveMod("gamma"));
-		CHECK(store.RemoveMod("beta"));
+		CHECK(store.RemoveMod("t.gamma"));
+		CHECK(store.RemoveMod("t.beta"));
 		svc.OnKeyDown(vkF6);
 		CHECK(DrainAll(svc).empty());
 	}
@@ -242,16 +242,16 @@ int main()
 		// grouping must resolve names, not compare strings.
 		const auto root2 = root / "conflicts";
 		const auto schemaDir2 = root2 / "settings";
-		WriteFile(schemaDir2 / "delta.json", R"json({
-			"id": "delta", "title": "Delta Mod",
+		WriteFile(schemaDir2 / "t.delta.json", R"json({
+			"id": "t.delta", "title": "Delta Mod",
 			"groups": [ { "settings": [
 				{ "key": "boundA", "type": "key", "default": "F6" },
 				{ "key": "boundB", "type": "key", "default": "F6" },
 				{ "key": "unique", "type": "key", "default": "F9" },
 				{ "key": "grave",  "type": "key", "default": "Tilde" }
 			] } ] })json");
-		WriteFile(schemaDir2 / "epsilon.json", R"json({
-			"id": "epsilon", "title": "Epsilon Mod",
+		WriteFile(schemaDir2 / "t.epsilon.json", R"json({
+			"id": "t.epsilon", "title": "Epsilon Mod",
 			"groups": [ { "settings": [
 				{ "key": "console", "type": "key", "default": "Grave" }
 			] } ] })json");
@@ -262,17 +262,17 @@ int main()
 
 		auto data = s2.Data();
 		// Same-mod duplicate: both sides badge each other.
-		CHECK(ConflictsOf(FindEmittedSetting(data, "delta", "boundA")) == std::vector<std::string>{ "delta.boundB" });
-		CHECK(ConflictsOf(FindEmittedSetting(data, "delta", "boundB")) == std::vector<std::string>{ "delta.boundA" });
+		CHECK(ConflictsOf(FindEmittedSetting(data, "t.delta", "boundA")) == std::vector<std::string>{ "t.delta.boundB" });
+		CHECK(ConflictsOf(FindEmittedSetting(data, "t.delta", "boundB")) == std::vector<std::string>{ "t.delta.boundA" });
 		// Cross-mod alias collision (Tilde vs Grave = one VK), with titles.
-		CHECK(ConflictsOf(FindEmittedSetting(data, "delta", "grave")) == std::vector<std::string>{ "epsilon.console" });
-		CHECK(ConflictsOf(FindEmittedSetting(data, "epsilon", "console")) == std::vector<std::string>{ "delta.grave" });
+		CHECK(ConflictsOf(FindEmittedSetting(data, "t.delta", "grave")) == std::vector<std::string>{ "t.epsilon.console" });
+		CHECK(ConflictsOf(FindEmittedSetting(data, "t.epsilon", "console")) == std::vector<std::string>{ "t.delta.grave" });
 		{
-			const auto* setting = FindEmittedSetting(data, "epsilon", "console");
+			const auto* setting = FindEmittedSetting(data, "t.epsilon", "console");
 			CHECK(setting && setting->at("conflicts")[0].value("title", "") == "Delta Mod");
 		}
 		// Unique binding: no conflicts field at all.
-		CHECK(!FindEmittedSetting(data, "delta", "unique")->contains("conflicts"));
+		CHECK(!FindEmittedSetting(data, "t.delta", "unique")->contains("conflicts"));
 
 		// --- ConflictsFor(): the live-warn half (capture-time lookup) --------
 		// Same store state; the runtime calls this with the just-captured VK
@@ -287,33 +287,33 @@ int main()
 			return out;
 		};
 		// Rebinding delta.unique onto F6 would collide with both holders.
-		CHECK(names(s2.ConflictsFor(vkF6, "delta", "unique")) == (std::vector<std::string>{ "delta.boundA", "delta.boundB" }));
+		CHECK(names(s2.ConflictsFor(vkF6, "t.delta", "unique")) == (std::vector<std::string>{ "t.delta.boundA", "t.delta.boundB" }));
 		// Re-capturing F6 for a setting already on F6: self is excluded even
 		// though its stored value still resolves to the same VK.
-		CHECK(names(s2.ConflictsFor(vkF6, "delta", "boundA")) == std::vector<std::string>{ "delta.boundB" });
+		CHECK(names(s2.ConflictsFor(vkF6, "t.delta", "boundA")) == std::vector<std::string>{ "t.delta.boundB" });
 		// Alias-aware (Tilde vs Grave = one VK), and titles come through.
 		{
-			const auto conflicts = s2.ConflictsFor(ResolveKeyName("Tilde"), "delta", "grave");
-			CHECK(names(conflicts) == std::vector<std::string>{ "epsilon.console" });
+			const auto conflicts = s2.ConflictsFor(ResolveKeyName("Tilde"), "t.delta", "grave");
+			CHECK(names(conflicts) == std::vector<std::string>{ "t.epsilon.console" });
 			CHECK(!conflicts.empty() && conflicts[0].value("title", "") == "Epsilon Mod");
 		}
 		// A key nobody holds, and a key held only by self: empty either way.
-		CHECK(s2.ConflictsFor(ResolveKeyName("F12"), "delta", "unique").empty());
-		CHECK(s2.ConflictsFor(ResolveKeyName("F9"), "delta", "unique").empty());
+		CHECK(s2.ConflictsFor(ResolveKeyName("F12"), "t.delta", "unique").empty());
+		CHECK(s2.ConflictsFor(ResolveKeyName("F9"), "t.delta", "unique").empty());
 		// vk 0 (unresolvable capture) never conflicts.
-		CHECK(s2.ConflictsFor(0, "delta", "unique").empty());
+		CHECK(s2.ConflictsFor(0, "t.delta", "unique").empty());
 
 		// A rebind away clears both sides on the next Data() — i.e. the
 		// annotation lives on the emitted COPY; the stored schema is never
 		// mutated.
-		CHECK(s2.Set("delta", "boundB", "\"F10\""));
+		CHECK(s2.Set("t.delta", "boundB", "\"F10\""));
 		data = s2.Data();
-		CHECK(!FindEmittedSetting(data, "delta", "boundA")->contains("conflicts"));
-		CHECK(!FindEmittedSetting(data, "delta", "boundB")->contains("conflicts"));
+		CHECK(!FindEmittedSetting(data, "t.delta", "boundA")->contains("conflicts"));
+		CHECK(!FindEmittedSetting(data, "t.delta", "boundB")->contains("conflicts"));
 
 		// With the remaining collision (grave/console) also rebound away, no
 		// conflict data survives anywhere in the document.
-		CHECK(s2.Set("delta", "grave", "\"F11\""));
+		CHECK(s2.Set("t.delta", "grave", "\"F11\""));
 		CHECK(s2.DataJson().find("\"conflicts\"") == std::string::npos);
 
 		// Without a resolver, Data() emits no conflict data and ConflictsFor
@@ -322,19 +322,19 @@ int main()
 		SettingsStore s3;
 		s3.LoadAll(schemaDir2, root2 / "values3");
 		CHECK(s3.DataJson().find("\"conflicts\"") == std::string::npos);
-		CHECK(s3.ConflictsFor(vkF6, "delta", "unique").empty());
+		CHECK(s3.ConflictsFor(vkF6, "t.delta", "unique").empty());
 	}
 
 	// --- vanilla hotkeys (§9 v1): "@game" pseudo-entries in the grouping ----------
 	{
 		const auto root3 = root / "vanilla";
-		WriteFile(root3 / "settings" / "eta.json", R"json({
-			"id": "eta", "title": "Eta Mod",
+		WriteFile(root3 / "settings" / "t.eta.json", R"json({
+			"id": "t.eta", "title": "Eta Mod",
 			"groups": [ { "settings": [
 				{ "key": "globalSpace", "type": "key", "default": "Space" }
 			] } ] })json");
-		WriteFile(root3 / "settings" / "zeta.json", R"json({
-			"id": "zeta", "title": "Zeta Mod",
+		WriteFile(root3 / "settings" / "t.zeta.json", R"json({
+			"id": "t.zeta", "title": "Zeta Mod",
 			"inputContexts": [
 				{ "id": "scene", "label": "During scenes", "blocksGameplay": true },
 				{ "id": "scene", "label": "Ignored duplicate", "blocksGameplay": false },
@@ -366,27 +366,27 @@ int main()
 			{ "event", "QuickSave" }, { "title", "Starfield (Quicksave)" }, { "name", "F5" } }));
 
 		// Ordinary and fallback gameplay contexts still warn against @game.
-		CHECK(ConflictsOf(FindEmittedSetting(data, "zeta", "save")) ==
+		CHECK(ConflictsOf(FindEmittedSetting(data, "t.zeta", "save")) ==
 			std::vector<std::string>{ "@game.QuickSave" });
-		CHECK(ConflictsOf(FindEmittedSetting(data, "zeta", "unknown")) ==
+		CHECK(ConflictsOf(FindEmittedSetting(data, "t.zeta", "unknown")) ==
 			std::vector<std::string>{ "@game.QuickLoad" });
-		CHECK(ConflictsOf(FindEmittedSetting(data, "zeta", "invalid")) ==
+		CHECK(ConflictsOf(FindEmittedSetting(data, "t.zeta", "invalid")) ==
 			std::vector<std::string>{ "@game.Console" });
-		CHECK(!FindEmittedSetting(data, "zeta", "other")->contains("conflicts"));
+		CHECK(!FindEmittedSetting(data, "t.zeta", "other")->contains("conflicts"));
 
 		// The first valid duplicate context wins: scene omits @game.Jump but
 		// still reports the other mod on Space.
-		CHECK(ConflictsOf(FindEmittedSetting(data, "zeta", "scene")) ==
-			std::vector<std::string>{ "eta.globalSpace" });
-		CHECK(ConflictsOf(FindEmittedSetting(data, "eta", "globalSpace")) ==
-			(std::vector<std::string>{ "@game.Jump", "zeta.scene" }));
+		CHECK(ConflictsOf(FindEmittedSetting(data, "t.zeta", "scene")) ==
+			std::vector<std::string>{ "t.eta.globalSpace" });
+		CHECK(ConflictsOf(FindEmittedSetting(data, "t.eta", "globalSpace")) ==
+			(std::vector<std::string>{ "@game.Jump", "t.zeta.scene" }));
 
 		// Capture-time filtering uses the target setting's authored context.
 		const nlohmann::json sceneCapture{
-			{ "conflicts", s5.ConflictsFor(ResolveKeyName("Space"), "zeta", "scene") } };
-		CHECK(ConflictsOf(&sceneCapture) == std::vector<std::string>{ "eta.globalSpace" });
+			{ "conflicts", s5.ConflictsFor(ResolveKeyName("Space"), "t.zeta", "scene") } };
+		CHECK(ConflictsOf(&sceneCapture) == std::vector<std::string>{ "t.eta.globalSpace" });
 		const nlohmann::json fallbackCapture{
-			{ "conflicts", s5.ConflictsFor(ResolveKeyName("F9"), "zeta", "unknown") } };
+			{ "conflicts", s5.ConflictsFor(ResolveKeyName("F9"), "t.zeta", "unknown") } };
 		CHECK(ConflictsOf(&fallbackCapture) == std::vector<std::string>{ "@game.QuickLoad" });
 
 		// Metadata does not change dispatch: both mod bindings still fan out.
@@ -394,13 +394,13 @@ int main()
 		svc5.OnKeyDown(ResolveKeyName("Space"));
 		const auto fired = DrainAll(svc5);
 		CHECK(fired.size() == 2);
-		CHECK(std::find(fired.begin(), fired.end(), "eta.globalSpace") != fired.end());
-		CHECK(std::find(fired.begin(), fired.end(), "zeta.scene") != fired.end());
+		CHECK(std::find(fired.begin(), fired.end(), "t.eta.globalSpace") != fired.end());
+		CHECK(std::find(fired.begin(), fired.end(), "t.zeta.scene") != fired.end());
 
 		// A malformed top-level context table also falls back to gameplay.
 		const auto root4 = root / "bad-context-table";
-		WriteFile(root4 / "settings" / "theta.json", R"json({
-			"id": "theta", "inputContexts": { "id": "scene", "blocksGameplay": true },
+		WriteFile(root4 / "settings" / "t.theta.json", R"json({
+			"id": "t.theta", "inputContexts": { "id": "scene", "blocksGameplay": true },
 			"groups": [ { "settings": [
 				{ "key": "scene", "type": "key", "default": "Space", "inputContext": "scene" }
 			] } ] })json");
@@ -408,7 +408,7 @@ int main()
 		s6.SetKeyNameResolver(ResolveKeyName);
 		s6.LoadAll(root4 / "settings", root4 / "values");
 		s6.SetVanillaKeys({ { "Jump", "Starfield (Jump)", ResolveKeyName("Space"), "Space" } });
-		CHECK(ConflictsOf(FindEmittedSetting(s6.Data(), "theta", "scene")) ==
+		CHECK(ConflictsOf(FindEmittedSetting(s6.Data(), "t.theta", "scene")) ==
 			std::vector<std::string>{ "@game.Jump" });
 	}
 

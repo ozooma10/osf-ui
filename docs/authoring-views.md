@@ -7,14 +7,32 @@ a reference for the two data-driven extension points that work today:
 2. **Settings schemas** — typed knobs that appear in the built-in `settings`
    view (MCM-style), persisted and validated natively.
 
-> **Status / scope.** Today the runtime renders **one view at a time**
-> (`config.json` → `view`), and new *native* bridge commands or game-data
-> bindings still require core changes. What you can ship as pure content with
-> no recompile: a `views/<id>/` folder and a `settings/<id>.json` schema. The
+> **Status / scope.** What you can ship as pure content with no recompile: a
+> `views/<modId>/<viewName>/` folder and a `settings/<modId>.json` schema. The
 > bridge protocol is at version **0.4 — unstable**; minor bumps may break
 > views until it reaches 1.0. Detect it via the `bridgeVersion` field of the
 > `runtime.ready` handshake (below) and degrade/refuse on a mismatch. See the
 > roadmap in [renderer-plan.md](renderer-plan.md).
+
+## 0. Ids: one grammar for everything
+
+Every public identifier derives from your **mod id** (api-freeze-plan item 1):
+
+- **Mod id** — `<author>.<modname>`, e.g. `ozooma10.almanac`. Lowercase
+  `[a-z0-9-]` segments, **exactly one dot**, max 64 chars. `author` is a
+  handle you already own (Nexus/GitHub username) — self-allocated, no
+  registry. Dotless ids are **reserved for the platform** (`osfui` is the
+  only dotless built-in), so no reserved-word list exists to collide with.
+- **View name** — `[a-z0-9-]+`, local to your mod (`planets`).
+- **Qualified view id** — `<modId>/<viewName>` (`ozooma10.almanac/planets`).
+  This is the id everywhere views are referenced: `config.json` `view`/`views`,
+  `menu.open`, `views.data`, `RegisterView`. The slash mirrors the folder path
+  (a dotted join would be ambiguous, since mod ids contain a dot).
+
+Ids failing the grammar are **hard-rejected at load** with an ERROR in
+`OSF UI.log` naming the file and the rule. The same mod id names your settings
+schema (`settings/<modId>.json`), your values file, and your view namespace
+folder — one identity across all three surfaces.
 
 Everything here assumes you have read [security-model.md](security-model.md):
 **your view is treated as untrusted code.** There is no network, no filesystem
@@ -24,10 +42,11 @@ beyond your own folder, and no way to call arbitrary native functions.
 
 ## 1. View package layout
 
-A view is a folder under the plugin data dir:
+A view is a folder **inside your mod's namespace folder** under the plugin
+data dir:
 
 ```
-SFSE/Plugins/OSFUI/views/<your-id>/
+SFSE/Plugins/OSFUI/views/<author>.<modname>/<viewname>/
   manifest.json     required — declares the view
   index.html        your entry page (name configurable via manifest "entry")
   style.css         (optional) your styles
@@ -35,13 +54,20 @@ SFSE/Plugins/OSFUI/views/<your-id>/
   assets/...        (optional) images/fonts — local only
 ```
 
-The folder is discovered automatically at load. To make it the active view,
-set `view` in `config.json` to your manifest `id`.
+The two-level layout is discovered automatically at load (a mod folder may
+hold several views; subfolders without a `manifest.json` are ignored, so you
+can keep shared assets next to your views). The built-ins dogfood it:
+`views/osfui/settings/`, `views/osfui/keybinds/`. To open your view, use its
+qualified id `<modId>/<viewName>` — e.g. as a `config.json` `views` entry, a
+`menu.open` target, or a `RegisterView` argument.
 
-All asset references must be **relative and stay inside your folder**. Absolute
-paths, paths with a root, and any `..` component are rejected before disk I/O
-(`SandboxFileSystem`, enforced in the renderer). The page is loaded as
-`file:///<entry>`.
+All asset references must be **relative and stay inside your folder**.
+Absolute paths, paths with a root, and any `..` component are rejected before
+disk I/O (`SandboxFileSystem`, enforced in the renderer). The page is loaded
+as `file:///<modId>/<viewName>/<entry>`. One sanctioned exception: the shared
+UI kit at `views/shared/osfui.css` — link it as
+`../../shared/osfui.css` for the native look (it collapses to
+`file:///shared/osfui.css`).
 
 ---
 
@@ -49,10 +75,10 @@ paths, paths with a root, and any `..` component are rejected before disk I/O
 
 ```jsonc
 {
-  "id": "myhud",            // REQUIRED, unique; matches the folder + config "view"
-  "title": "My HUD",        // optional, defaults to id
+  "id": "myhud",            // REQUIRED; MUST equal the view folder name. The runtime id is the qualified "<modId>/myhud", derived from the path
+  "title": "My HUD",        // optional, defaults to the qualified id
   "description": "",        // optional; one-line blurb shown in catalogs (views.data / the Mods surface)
-  "mod": "mymod",           // optional; your settings mod id (RegisterSettingsSchema / settings/<id>.json) — groups this view's launcher onto your mod's page in the Mods surface. Absent = the view gets its own entry
+  "mod": "yourname.mymod",  // optional consistency check — derived from the mod folder; when declared it MUST match (mismatch = rejected). The Mods surface groups this view onto the settings page of the same mod id
   "hub": true,              // optional, default true; false = hidden utility view — loads and works, but isn't advertised in catalogs (name predates the Mods surface)
   "entry": "index.html",    // optional, default "index.html"; must stay inside the folder
   "width": 1280,            // optional, default 1280; clamped to 1..16384 — logical (authoring) size
@@ -81,23 +107,26 @@ Notes:
 - **`permissions.nativeBridge` must be `true`** if your page talks to the
   runtime. With it `false`, `window.osfui` is never injected and your page
   runs purely client-side.
-- A manifest that fails validation (missing `id`, escaping `entry`) is skipped
+- A manifest that fails validation (`id` ≠ folder name, declared `mod` ≠ mod
+  folder, escaping `entry`, a folder name violating the id grammar) is skipped
   with an error in `OSF UI.log`.
 
 ### Multiple views & layering
 
-Several views can be hosted and composited at once. `config.json` lists them:
+Several views can be hosted and composited at once. `config.json` lists them
+by qualified id:
 
 ```jsonc
 {
-  "view": "settings",                 // the ACTIVE view: receives input + the bridge
-  "views": ["settings", "hud"]        // the set of views to load (membership only)
+  "view": "osfui/settings",                          // the ACTIVE view: receives input + the bridge
+  "views": ["osfui/settings", "yourname.mymod/hud"]  // the set of views to load (membership only)
 }
 ```
 
 > **Shipping a view with a native mod?** Don't edit the user's `config.json` —
-> your SFSE plugin can register its shipped `views/<id>/` folder at runtime with
-> one bridge call (`RegisterView`, C ABI 1.5). The view then joins the views
+> your SFSE plugin can register its shipped `views/<modId>/<viewName>/` folder
+> at runtime with one bridge call (`RegisterView("<modId>/<viewName>")`, C ABI
+> 1.5). The view then joins the views
 > catalog — it appears on the Mods surface as a launch card on the Home page
 > and on its mod's page (set the manifest `mod` field so it lands there), and
 > opens via `RequestMenu` / `menu.open`. See
@@ -220,7 +249,7 @@ Assign `window.osfui.onMessage` and switch on `message.type`:
 | `runtime.ready` | `{ game, plugin, version, bridgeVersion }` | once, after your page loads — your cue to request data and to check `bridgeVersion` |
 | `runtime.pong` | `{}` | reply to your `ping` |
 | `game.data` | `{ available, day, month, year, hour, daysPassed }` | reply to `game.get`; `available:false` before a save is loaded |
-| `views.data` | `{ views: [ { id, title, description, mod, kind, interactive, hub, open, focused, loadState } ] }` | reply to `views.get`, and re-pushed to every subscribed view when any entry changes. `mod` = owning settings mod id (`""` = standalone); `kind` = `"menu"`\|`"hud"`; `loadState` = `"loading"`\|`"loaded"`\|`"failed"`; a view torn down by crash-recovery drops out of the list. Respect `hub:false` (don't list those) |
+| `views.data` | `{ views: [ { id, title, description, mod, kind, interactive, hub, open, focused, loadState } ] }` | reply to `views.get`, and re-pushed to every subscribed view when any entry changes. `id` is the qualified `<modId>/<viewName>`; `mod` = the owning mod id derived from the folder (a mod with no settings schema of that id just lists under its own title); `kind` = `"menu"`\|`"hud"`; `loadState` = `"loading"`\|`"loaded"`\|`"failed"`; a view torn down by crash-recovery drops out of the list. Respect `hub:false` (don't list those) |
 | `settings.data` | `{ mods: [ { id, title, schema, values } ], vanillaKeys? }` | reply to `settings.get` / after a `settings.reset`. A `key`-typed setting whose binding collides with another mod's carries runtime-injected `conflicts: [{mod, key, title}]` in its schema object — informational; render a badge, never block. `mod` may be the reserved id `@game` (the game's own bindings; display `title`, e.g. "Starfield (Quicksave)"). Top-level `vanillaKeys: [{event, title, name}]` is the game's FULL binding table (read-only; the keybinds view renders it); absent when the runtime has none |
 | `settings.ack` | `{ mod, key, ok }` | result of a `settings.set` (`ok:false` ⇒ rejected/clamped) |
 | `settings.captured` | `{ mod, key, name, cancelled, conflicts? }` | reply to `settings.captureKey`: the captured key `name` (an OSF UI key name), or `cancelled:true` (Escape / unbindable — keep the old binding). When the captured key is already bound elsewhere, `conflicts: [{mod, key, title}]` lists actionable collisions this bind would create; expected `@game` reuse from a `blocksGameplay` context is omitted. Warn live, never block. The view then sends a normal `settings.set` with `name` |
@@ -254,7 +283,7 @@ window.osfui.onMessage = (json) => {
 document.getElementById("close").onclick = () => send("close");
 ```
 
-See [`data/OSFUI/views/settings/main.js`](../data/OSFUI/views/settings/main.js)
+See [`data/OSFUI/views/osfui/settings/main.js`](../data/OSFUI/views/osfui/settings/main.js)
 for a complete, commented example.
 
 ---
@@ -264,7 +293,7 @@ for a complete, commented example.
 Drop a JSON schema at:
 
 ```
-SFSE/Plugins/OSFUI/settings/<your-mod-id>.json
+SFSE/Plugins/OSFUI/settings/<author>.<modname>.json
 ```
 
 Every schema in that folder is loaded as a separate "mod" and rendered as its
@@ -277,7 +306,7 @@ relaunch, and the runtime can react to changes natively.
 
 ```jsonc
 {
-  "id": "mymod",                 // optional, defaults to the filename
+  "id": "yourname.mymod",        // optional, defaults to the filename stem; "<author>.<modname>" grammar (see §0)
   "title": "My Mod",             // shown as the card header
   "groups": [
     {
@@ -331,7 +360,7 @@ definition wins.
 | `key` | press-to-bind button | key-name string (≤16 chars), non-empty unless the setting sets `"allowUnbound": true` — then `""` is the deliberate unbound state (no hotkey dispatch, no conflict badges, and the UI adds an unbind ×). **Framework-managed:** capture is armed via `settings.captureKey` and grabbed in the native input layer (so pressing the current toggle key rebinds instead of closing the overlay). Every `key`-typed setting of every mod is rebindable and dispatches via the HotkeyService (`ui.hotkey` / `SubscribeHotkey`) |
 
 The `bool` control renders as a toggle switch, `int`/`float` as sliders with a
-value badge — see `../shared/osfui.css` for the shared control styles.
+value badge — see `views/shared/osfui.css` for the shared control styles.
 
 Unknown keys, wrong types, and out-of-range values are rejected/clamped
 server-side and reported via `settings.ack {ok:false}`. **Untrusted JS cannot
@@ -355,7 +384,7 @@ So a mod's HUD view reacts live to its own settings with zero polling:
 ```js
 osfui.onMessage = (json) => {
   const msg = JSON.parse(json);
-  if (msg.type === "settings.changed" && msg.payload.mod === "mymod") {
+  if (msg.type === "settings.changed" && msg.payload.mod === "yourname.mymod") {
     applySetting(msg.payload.key, msg.payload.value);  // e.g. re-style, re-layout
   }
 };
@@ -372,7 +401,7 @@ user presses the bound key in-game, the runtime pushes
 single subscription above also makes your HUD toggleable:
 
 ```js
-if (msg.type === "ui.hotkey" && msg.payload.mod === "mymod" && msg.payload.key === "toggleHud") {
+if (msg.type === "ui.hotkey" && msg.payload.mod === "yourname.mymod" && msg.payload.key === "toggleHud") {
   send("setViewHidden", { hidden: visible = !visible });  // or hud.show/hud.hide
 }
 ```
@@ -427,12 +456,12 @@ With `devMode: true` the in-game loop is alt-tab fast too:
 
 ## 6. Checklist for shipping a view
 
-- [ ] `views/<id>/manifest.json` with a unique `id` and `permissions.nativeBridge` set as needed.
+- [ ] `views/<modId>/<viewName>/manifest.json` — folder names pass the id grammar (§0), manifest `id` equals the view folder name, `permissions.nativeBridge` set as needed.
 - [ ] Responsive CSS (no hardcoded 1280×720 assumptions; the view is resized to the screen).
 - [ ] All assets local and relative (no `..`, no absolute paths, no network).
 - [ ] `onMessage` assigned before you send anything; handle `runtime.ready`.
 - [ ] Only whitelisted `ui.command`s; handle `*.ack`/error replies.
-- [ ] (If configurable) a `settings/<id>.json` schema with sane `default`/`min`/`max`.
+- [ ] (If configurable) a `settings/<modId>.json` schema with sane `default`/`min`/`max`.
 - [ ] Verified standalone in a browser, then in-game via the log.
 
 ---
@@ -443,7 +472,7 @@ Tooling to author against the contract instead of from memory:
 
 - **JSON Schemas** ([`docs/schema/`](schema/)) validate your files in any
   editor that understands JSON Schema (e.g. VS Code):
-  - [`manifest.schema.json`](schema/manifest.schema.json) — `views/<id>/manifest.json`
+  - [`manifest.schema.json`](schema/manifest.schema.json) — `views/<modId>/<viewName>/manifest.json`
   - [`settings-schema.schema.json`](schema/settings-schema.schema.json) — `settings/<id>.json`
 
   Point your editor at them (VS Code `json.schemas`, or a top-level `"$schema"`

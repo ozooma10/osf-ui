@@ -48,20 +48,20 @@ int main()
 	// --- standalone: typed getters over Update-fed values ---------------------
 	{
 		SettingsMirror mirror;
-		mirror.Update("alpha", "enabled", true);
-		mirror.Update("alpha", "count", 42);
-		mirror.Update("alpha", "scale", 1.5);
-		mirror.Update("alpha", "name", "hello");
+		mirror.Update("t.alpha", "enabled", true);
+		mirror.Update("t.alpha", "count", 42);
+		mirror.Update("t.alpha", "scale", 1.5);
+		mirror.Update("t.alpha", "name", "hello");
 
 		bool b{};
 		std::int64_t i{};
 		double f{};
-		CHECK(mirror.GetBool("alpha", "enabled", &b) && b == true);
-		CHECK(mirror.GetInt("alpha", "count", &i) && i == 42);
-		CHECK(mirror.GetFloat("alpha", "scale", &f) && f == 1.5);
+		CHECK(mirror.GetBool("t.alpha", "enabled", &b) && b == true);
+		CHECK(mirror.GetInt("t.alpha", "count", &i) && i == 42);
+		CHECK(mirror.GetFloat("t.alpha", "scale", &f) && f == 1.5);
 
 		char buf[16] = {};
-		CHECK(mirror.GetString("alpha", "name", buf, sizeof(buf)) == 6);  // "hello" + NUL
+		CHECK(mirror.GetString("t.alpha", "name", buf, sizeof(buf)) == 6);  // "hello" + NUL
 		CHECK(std::string(buf) == "hello");
 	}
 
@@ -177,7 +177,7 @@ int main()
 
 		store.LoadAll(schemaDir, valuesDir);  // empty dir — runtime registration follows
 		CHECK(store.RegisterSchema(nlohmann::json::parse(R"json({
-			"id": "beta", "title": "Beta",
+			"id": "t.beta", "title": "Beta",
 			"groups": [ { "label": "G", "settings": [
 				{ "key": "enabled", "type": "bool",  "default": true },
 				{ "key": "scale",   "type": "float", "default": 1.0, "min": 0.5, "max": 2.0 },
@@ -189,23 +189,23 @@ int main()
 		bool b{};
 		double f{};
 		char buf[16] = {};
-		CHECK(mirror.GetBool("beta", "enabled", &b) && b == true);
-		CHECK(mirror.GetFloat("beta", "scale", &f) && f == 1.0);
-		CHECK(mirror.GetString("beta", "mode", buf, sizeof(buf)) == 8);
+		CHECK(mirror.GetBool("t.beta", "enabled", &b) && b == true);
+		CHECK(mirror.GetFloat("t.beta", "scale", &f) && f == 1.0);
+		CHECK(mirror.GetString("t.beta", "mode", buf, sizeof(buf)) == 8);
 		CHECK(std::string(buf) == "compact");
 
 		// A Set lands the CLAMPED value in the mirror — the reconciled truth,
 		// not the caller's raw input.
-		CHECK(store.Set("beta", "scale", "9.9"));
-		CHECK(mirror.GetFloat("beta", "scale", &f) && f == 2.0);
+		CHECK(store.Set("t.beta", "scale", "9.9"));
+		CHECK(mirror.GetFloat("t.beta", "scale", &f) && f == 2.0);
 
 		// Reset restores the default in the mirror too.
-		CHECK(store.Reset("beta", "scale"));
-		CHECK(mirror.GetFloat("beta", "scale", &f) && f == 1.0);
+		CHECK(store.Reset("t.beta", "scale"));
+		CHECK(mirror.GetFloat("t.beta", "scale", &f) && f == 1.0);
 
 		// RemoveMod → registry listener → Rebuild: the mod stops resolving.
-		CHECK(store.RemoveMod("beta"));
-		CHECK(!mirror.GetBool("beta", "enabled", &b));
+		CHECK(store.RemoveMod("t.beta"));
+		CHECK(!mirror.GetBool("t.beta", "enabled", &b));
 
 		fs::remove_all(root);
 	}

@@ -19,12 +19,14 @@
 
   // Where a mod's REAL view folder lives, relative to the harness pages. In
   // game every view mounts under one views/ root, so the settings view
-  // resolves schema `icon`/`image` assets at ../<modId>/<file>; from
+  // resolves schema `icon`/`image` assets at ../../<modId>/<file>; from
   // devtools/harness/ that lands nowhere. safeAssetSrc consults this map
-  // (root + "/<modId>/<file>") before falling back to "..". Sibling repo,
+  // (root + "/<modId>/<file>") before falling back to "../..". Sibling repo,
   // reachable under serve.cmd's root.
   window.OSFUI_MOD_ASSET_ROOTS = {
-    osf: "../../../OSF Animation/views",
+    // Pre-item-3 shim: OSF Animation still ships views/osf/ until its
+    // osf -> osf.animation migration lands (api-freeze-plan item 3).
+    "osf.animation": "../../../OSF Animation/views",
   };
 
   let mods = [];   // [{ id, title, schema, values }]
@@ -114,11 +116,13 @@
     return { id, title: schema.title || id, schema, values };
   }
 
-  // Mirror of SettingsStore id sanitization: ids become filenames and asset
-  // path segments, so the store rejects unsafe/reserved ones.
+  // Mirror of SettingsStore id validation (api-freeze-plan item 1): mod ids
+  // are "<author>.<modname>" — lowercase [a-z0-9-] segments, exactly one dot,
+  // max 64 chars. Dotless ids are platform-reserved; "osfui" is the only
+  // dotless built-in.
   function validModId(id) {
-    return typeof id === "string" && /^[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}$/.test(id) && !id.includes("..") &&
-           !["ui", "menu", "hud", "settings", "views", "game", "runtime"].includes(id);
+    return typeof id === "string" &&
+           (id === "osfui" || (id.length <= 64 && /^[a-z0-9-]+\.[a-z0-9-]+$/.test(id)));
   }
 
   function upsert(schema) {
@@ -194,19 +198,21 @@
   // mod — `mod` matches a schema id, view-only mods with no schema, a failed
   // load, HUD live / hidden). Hidden by default; toggle with the top-bar
   // "Sample views" button or ?fixtures=1 (persisted in localStorage).
-  const HARNESS_PAGES = { settings: "index.html", keybinds: "keybinds.html", osf: "osf.html" };
+  // View ids are qualified "<modId>/<viewName>" (api-freeze-plan item 1),
+  // mirroring the nested views/<modId>/<viewName>/ layout.
+  const HARNESS_PAGES = { "osfui/settings": "index.html", "osfui/keybinds": "keybinds.html", "osf.animation/browser": "osf.html" };
   const views = [
-    { id: "settings", title: "Mods", description: "Installed mods — settings, panels and HUD toggles.", mod: "osfui", kind: "menu", interactive: true, hub: false, open: false, focused: false, loadState: "loaded" },
-    { id: "keybinds", title: "Keybinds", description: "Full keyboard map of mod and game bindings.", mod: "osfui", kind: "menu", interactive: true, hub: true, open: false, focused: false, loadState: "loaded" },
-    // Real view from the sibling repo (VFS-merged in game). mod "osf" groups
-    // it onto the OSF Animation settings page (schema registered natively —
-    // see tryFetchNativeSchema). Open lands on osf.html.
-    { id: "osf", title: "OSF Animation Browser", description: "Scene browser and launcher — crew, furniture, launch.", mod: "osf", kind: "menu", interactive: true, hub: true, open: false, focused: false, loadState: "loaded" },
-    { id: "almanac", title: "Ship Almanac", description: "Browse ship modules, mass and performance readouts.", mod: "demo", kind: "menu", interactive: true, hub: true, open: false, focused: true, loadState: "loaded", fixture: true },
-    { id: "hudwidgets", title: "HUD Widgets", description: "Clock and status overlays over the live game.", mod: "demo", kind: "hud", interactive: false, hub: true, open: true, loadState: "loaded", fixture: true },
-    { id: "cargo", title: "Cargo Manifest", description: "Sortable inventory with a live mass budget.", mod: "", kind: "menu", interactive: true, hub: true, open: false, focused: false, loadState: "loaded", fixture: true },
-    { id: "atlas", title: "Star Atlas", description: "Annotated survey routes and anomalies by system.", mod: "", kind: "menu", interactive: true, hub: true, open: false, focused: false, loadState: "failed", fixture: true },
-    { id: "vitals", title: "Vitals Ring", description: "O2, health and affliction indicators.", mod: "", kind: "hud", interactive: false, hub: true, open: false, loadState: "loaded", fixture: true },
+    { id: "osfui/settings", title: "Mods", description: "Installed mods — settings, panels and HUD toggles.", mod: "osfui", kind: "menu", interactive: true, hub: false, open: false, focused: false, loadState: "loaded" },
+    { id: "osfui/keybinds", title: "Keybinds", description: "Full keyboard map of mod and game bindings.", mod: "osfui", kind: "menu", interactive: true, hub: true, open: false, focused: false, loadState: "loaded" },
+    // Real view from the sibling repo (VFS-merged in game). mod "osf.animation"
+    // groups it onto the OSF Animation settings page (schema registered
+    // natively — see tryFetchNativeSchema). Open lands on osf.html.
+    { id: "osf.animation/browser", title: "OSF Animation Browser", description: "Scene browser and launcher — crew, furniture, launch.", mod: "osf.animation", kind: "menu", interactive: true, hub: true, open: false, focused: false, loadState: "loaded" },
+    { id: "acme.shipworks/almanac", title: "Ship Almanac", description: "Browse ship modules, mass and performance readouts.", mod: "acme.shipworks", kind: "menu", interactive: true, hub: true, open: false, focused: true, loadState: "loaded", fixture: true },
+    { id: "acme.shipworks/hudwidgets", title: "HUD Widgets", description: "Clock and status overlays over the live game.", mod: "acme.shipworks", kind: "hud", interactive: false, hub: true, open: true, loadState: "loaded", fixture: true },
+    { id: "acme.cargo/cargo", title: "Cargo Manifest", description: "Sortable inventory with a live mass budget.", mod: "acme.cargo", kind: "menu", interactive: true, hub: true, open: false, focused: false, loadState: "loaded", fixture: true },
+    { id: "acme.atlas/atlas", title: "Star Atlas", description: "Annotated survey routes and anomalies by system.", mod: "acme.atlas", kind: "menu", interactive: true, hub: true, open: false, focused: false, loadState: "failed", fixture: true },
+    { id: "acme.vitals/vitals", title: "Vitals Ring", description: "O2, health and affliction indicators.", mod: "acme.vitals", kind: "hud", interactive: false, hub: true, open: false, loadState: "loaded", fixture: true },
   ];
   const FIXTURES_LS = LS_PREFIX + "fixtures";
   const fixturesParam = new URLSearchParams(location.search).get("fixtures");
@@ -358,11 +364,15 @@
         break;
       default:
         // Mod action command: reply with a simulated "<mod>.ack" so the button
-        // resolves. Real mods do this from their own SFSE plugin.
+        // resolves. Real mods do this from their own SFSE plugin. Mod ids
+        // contain a dot ("author.modname"), so derive the id from the payload's
+        // `mod` (the settings view sends it) rather than splitting the command.
         if (typeof cmd === "string" && cmd.includes(".") && !cmd.startsWith("ui.") &&
             !cmd.startsWith("settings.") && !cmd.startsWith("menu.") && !cmd.startsWith("hud.") &&
             !cmd.startsWith("views.")) {
-          const modId = cmd.slice(0, cmd.indexOf("."));
+          const modId = typeof p.mod === "string" && p.mod && cmd.startsWith(p.mod + ".")
+            ? p.mod
+            : cmd.slice(0, cmd.lastIndexOf("."));
           setTimeout(() => send(modId + ".ack", { key: p.key, ok: true, message: "Done (mock)" }), 400);
         }
         break;
@@ -431,10 +441,15 @@
       const s = await tryFetch(rel);
       if (s && s.groups) loaded.push(s);
     }
-    // OSF Animation's schema ("osf") — registered natively, extracted from its
+    // OSF Animation's schema — registered natively, extracted from its
     // plugin source so the Mods page shows its settings like in game.
     const osf = await tryFetchNativeSchema("../../../OSF Animation/src/API/UISettings.cpp");
-    if (osf && osf.groups) loaded.push(osf);
+    if (osf && osf.groups) {
+      // Pre-item-3 shim: remap the legacy dotless id until the sibling repo's
+      // osf -> osf.animation migration lands (the store now rejects "osf").
+      if (osf.id === "osf") osf.id = "osf.animation";
+      loaded.push(osf);
+    }
     // ?schema=<url> override / addition.
     const q = new URLSearchParams(location.search).get("schema");
     if (q) { const s = await tryFetch(q); if (s && s.groups) loaded.push(s); }

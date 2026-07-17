@@ -2,7 +2,7 @@
 
 Iterate on the shipped panels (the Mods surface, keybinds — and settings
 schemas) in a normal browser, without launching Starfield. Each page loads the
-**real** shipped view assets (`data/OSFUI/views/<view>/main.js` + CSS) behind a
+**real** shipped view assets (`data/OSFUI/views/osfui/<view>/main.js` + CSS) behind a
 `MockBridge` that speaks the bridge protocol — `settings.get/set/reset/captureKey`
 with the same validation and clamping rules as the native `SettingsStore`, plus
 the Mods surface's `views.get` / `menu.open` / `hud.show|hide` — persists to
@@ -34,7 +34,7 @@ Pages (the top bar cross-links them):
 Opening a page from `file://` also works — it just falls back to built-in
 sample data instead of fetching the shipped schemas.
 
-Style refinement loop: edit `data/OSFUI/views/<view>/style.css` or
+Style refinement loop: edit `data/OSFUI/views/osfui/<view>/style.css` or
 `views/shared/osfui.css`, then refresh the page (Ctrl+Shift+R to be safe) —
 the harness always reads the live repo files, so what you refine here is
 exactly what ships. **Note:** each harness page carries a *copy* of its view's
@@ -56,7 +56,7 @@ live.
 
 ## Load your schema (settings / keybinds pages)
 
-- **Drag-drop:** drop one or more `settings/<id>.json` files onto the page.
+- **Drag-drop:** drop one or more `settings/<author>.<modname>.json` files onto the page.
 - **Query param:** `…/devtools/harness/?schema=../../path/to/mymod.json`.
 - By default it loads the shipped `osfui` schema, plus OSF Animation's `osf`
   schema — that one is registered natively in game (`RegisterSettingsSchema`),

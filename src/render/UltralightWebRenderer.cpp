@@ -765,9 +765,13 @@ namespace OSFUI
 			// of the output instead of lingering as a stale frozen frame.
 			compositeDirty.store(true);
 
-			// Folder-qualified URL so the shared SandboxFileSystem can serve
-			// several views at once — no per-view "current root" to race.
-			const auto folder = a_manifest.rootDir.filename().string();
+			// Views-relative URL (file:///<modId>/<viewName>/<entry>) so the
+			// shared SandboxFileSystem can serve several views at once — no
+			// per-view "current root" to race. The two trailing path components
+			// of rootDir ARE the qualified id (ViewManager's nested layout);
+			// shared-kit links (../../shared/osfui.css) collapse to the frozen
+			// file:///shared/... form.
+			const auto folder = (a_manifest.rootDir.parent_path().filename() / a_manifest.rootDir.filename()).generic_string();
 			const auto url = "file:///" + folder + "/" + a_manifest.entry;
 			REX::INFO("UltralightWebRenderer: loading view '{}' -> {} (folder {})",
 				a_manifest.id, url, a_manifest.rootDir.string());

@@ -237,6 +237,11 @@ namespace OSFUI
 			nlohmann::json        schema;  // read-only
 			nlohmann::json        values;  // { key: current value }
 			std::filesystem::path valuesPath;
+			std::filesystem::path schemaPath;  // drop-in source file; empty for runtime registrations
+			// Drop-in files that also claimed this id and were skipped
+			// (first-wins, api-freeze-plan item 1). Surfaced additively in
+			// Data() so the Mods surface can badge the conflict.
+			std::vector<std::string> shadowed;
 			Source                source{ Source::kDropIn };
 			bool                  dirty{ false };  // has unflushed write-behind changes
 			double                dueAt{ 0.0 };    // when the open window flushes (store clock)
@@ -249,7 +254,7 @@ namespace OSFUI
 		// to NotifyAll). a_dropInReplace relaxes ONE precedence rule for the
 		// dev hot-reload: a drop-in may replace the SAME-SOURCE registration
 		// (its own earlier file), never a runtime one.
-		bool AddSchema(nlohmann::json a_schema, Source a_source, std::string a_idHint, bool a_notify, bool a_dropInReplace = false);
+		bool AddSchema(nlohmann::json a_schema, Source a_source, std::string a_idHint, bool a_notify, bool a_dropInReplace = false, std::filesystem::path a_sourcePath = {});
 
 		[[nodiscard]] Mod*       FindMod(std::string_view a_modId);
 		[[nodiscard]] const Mod* FindMod(std::string_view a_modId) const;

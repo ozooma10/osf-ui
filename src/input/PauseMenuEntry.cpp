@@ -28,7 +28,7 @@ namespace OSFUI
 		constexpr std::uint32_t kActionId = 100;
 
 		std::string g_label = "MOD SETTINGS";
-		std::string g_viewId = "settings";
+		std::string g_viewId = "osfui/settings";
 
 		// Open/close edge state (MenuEventSink thread -> Reconcile main thread).
 		// The generation counter makes per-open state (listener installed, log

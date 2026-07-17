@@ -6,7 +6,7 @@
   <title>OSF UI Settings — Dev Harness</title>
   <!-- The REAL shipped view assets: this harness previews actual code. -->
   <link rel="stylesheet" href="../../data/OSFUI/views/shared/osfui.css">
-  <link rel="stylesheet" href="../../data/OSFUI/views/settings/style.css">
+  <link rel="stylesheet" href="../../data/OSFUI/views/osfui/settings/style.css">
   <style>
     /* Give the transparent overlay a backdrop so it's visible in a normal tab. */
     html, body { height: 100%; }
@@ -92,7 +92,7 @@
 
   <!-- Bridge first (defines window.osfui), then the real view logic. -->
   <script src="mockbridge.js"></script>
-  <script src="../../data/OSFUI/views/settings/main.js"></script>
+  <script src="../../data/OSFUI/views/osfui/settings/main.js"></script>
   <script>
     document.getElementById("mock-reset").addEventListener("click", () => window.osfui._mock.reset());
     const fixturesBtn = document.getElementById("mock-fixtures");

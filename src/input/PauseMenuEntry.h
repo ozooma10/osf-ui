@@ -7,7 +7,7 @@ namespace OSFUI
 	// Config `pauseMenuEntry` (on by default; the inject + click round-trip is
 	// verified in-game on 1.16.244). Injects a "MOD SETTINGS" entry into the
 	// ENGINE's PauseMenu main list at runtime and opens a configured overlay
-	// view (default "settings") when it is pressed.
+	// view (default "osfui/settings") when it is pressed.
 	//
 	// Mechanism — live Scaleform manipulation, NO SWF edit (so no conflict with
 	// UI-overhaul mods, and pausemenu_lrg.swf large-font mode is covered for

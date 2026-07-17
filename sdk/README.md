@@ -33,7 +33,7 @@ The version constant lives in [`src/core/Version.h`](../src/core/Version.h)
 JSON Schemas for the two author-facing file formats live in
 [`docs/schema/`](../docs/schema/):
 
-- `manifest.schema.json` — for `views/<id>/manifest.json`
+- `manifest.schema.json` — for `views/<modId>/<viewName>/manifest.json`
 - `settings-schema.schema.json` — for `settings/<id>.json`
 
 Point your editor at them (e.g. VS Code `json.schemas`, or a top-level

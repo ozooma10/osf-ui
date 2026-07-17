@@ -14,8 +14,8 @@
   "engineInput": true,
   "pauseMenuEntry": true,
   "vanillaKeyConflicts": true,
-  "view": "settings",
-  "views": ["settings", "keybinds"],
+  "view": "osfui/settings",
+  "views": ["osfui/settings", "osfui/keybinds"],
   "allowNetwork": false,
   "devMode": false,
   "devReloadKey": "F11"

@@ -1,6 +1,7 @@
 #include "api/BridgeApi.h"
 
 #include "core/Version.h"
+#include "runtime/Ids.h"            // qualified view id shape — the synchronous RegisterView gate
 #include "runtime/MessageBridge.h"  // also pulls nlohmann/json
 #include "runtime/SettingsStore.h"  // ValidateSchemaShape — the synchronous shape gate
 
@@ -231,6 +232,16 @@ namespace OSFUI::API
 	bool BridgeApi::RegisterView(const char* a_viewId)
 	{
 		if (!a_viewId || !a_viewId[0]) {
+			return false;
+		}
+		// Shape gate, synchronous like RegisterSettingsSchema's: view ids are
+		// qualified "<author>.<modname>/<view>" (api-freeze-plan item 1). A
+		// structurally invalid id can never match a discovered manifest, so
+		// refuse it here where the caller sees the false.
+		if (!Ids::IsValidQualifiedViewId(a_viewId)) {
+			REX::WARN("BridgeApi: refused RegisterView('{}') — view ids are qualified "
+					  "'<author>.<modname>/<view>' (lowercase [a-z0-9-] segments)",
+				std::string_view(a_viewId).substr(0, 128));
 			return false;
 		}
 		// Queue it like RequestMenu; Runtime drains it on the main tick

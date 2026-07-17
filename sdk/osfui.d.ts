@@ -308,7 +308,7 @@ export interface NoteItem {
   visibleWhen?: Condition;
 }
 
-/** Static image, resolved relative to the mod's own views/<id>/ folder. */
+/** Static image, resolved relative to the mod's own views/<modId>/ namespace folder. */
 export interface ImageItem {
   type: "image";
   src: string;

@@ -85,8 +85,8 @@ int main()
 	const auto schemaDir = root / "settings";
 	const auto valuesDir = root / "values";
 
-	WriteFile(schemaDir / "alpha.json", R"json({
-		"id": "alpha", "title": "Alpha Mod",
+	WriteFile(schemaDir / "t.alpha.json", R"json({
+		"id": "t.alpha", "title": "Alpha Mod",
 		"groups": [ { "label": "General", "settings": [
 			{ "key": "enabled", "type": "bool",  "default": true },
 			{ "key": "scale",   "type": "float", "default": 1.0, "min": 0.5, "max": 2.0 }
@@ -117,7 +117,7 @@ int main()
 
 	// --- settings.set: ack to caller, settings.changed to ALL subscribers ------
 	g_sent.clear();
-	Command(bridge, "settingsview", { { "command", "settings.set" }, { "mod", "alpha" }, { "key", "scale" }, { "value", 1.5 } });
+	Command(bridge, "settingsview", { { "command", "settings.set" }, { "mod", "t.alpha" }, { "key", "scale" }, { "value", 1.5 } });
 	{
 		const auto acks = SentTo("settingsview", "settings.ack");
 		CHECK(acks.size() == 1 && acks[0].payload["ok"] == true);
@@ -127,7 +127,7 @@ int main()
 		const auto toHud = SentTo("hudview", "settings.changed");
 		CHECK(toSettings.size() == 1);
 		CHECK(toHud.size() == 1);
-		CHECK(toHud[0].payload["mod"] == "alpha" && toHud[0].payload["key"] == "scale" && toHud[0].payload["value"] == 1.5);
+		CHECK(toHud[0].payload["mod"] == "t.alpha" && toHud[0].payload["key"] == "scale" && toHud[0].payload["value"] == 1.5);
 
 		// Write-behind: the commit pushed settings.changed immediately, but the
 		// disk write (and its settings.persisted confirmation) waits for the flush.
@@ -139,7 +139,7 @@ int main()
 	module.Store().FlushPersistence();  // the set above left alpha dirty
 	for (const auto* view : { "settingsview", "hudview" }) {
 		const auto persisted = SentTo(view, "settings.persisted");
-		CHECK(persisted.size() == 1 && persisted[0].payload["mod"] == "alpha");
+		CHECK(persisted.size() == 1 && persisted[0].payload["mod"] == "t.alpha");
 	}
 	g_sent.clear();
 	module.Store().FlushPersistence();  // nothing dirty — no push
@@ -147,7 +147,7 @@ int main()
 
 	// --- rejected set: ack ok:false, NO settings.changed ------------------------
 	g_sent.clear();
-	Command(bridge, "settingsview", { { "command", "settings.set" }, { "mod", "alpha" }, { "key", "scale" }, { "value", "huge" } });
+	Command(bridge, "settingsview", { { "command", "settings.set" }, { "mod", "t.alpha" }, { "key", "scale" }, { "value", "huge" } });
 	{
 		const auto acks = SentTo("settingsview", "settings.ack");
 		CHECK(acks.size() == 1 && acks[0].payload["ok"] == false);
@@ -156,14 +156,14 @@ int main()
 
 	// --- a non-subscriber can set (it never called settings.get) ----------------
 	g_sent.clear();
-	Command(bridge, "otherview", { { "command", "settings.set" }, { "mod", "alpha" }, { "key", "enabled" }, { "value", false } });
+	Command(bridge, "otherview", { { "command", "settings.set" }, { "mod", "t.alpha" }, { "key", "enabled" }, { "value", false } });
 	CHECK(SentTo("otherview", "settings.ack").size() == 1);
 	CHECK(SentTo("otherview", "settings.changed").empty());  // not subscribed
 	CHECK(SentTo("hudview", "settings.changed").size() == 1);
 
 	// --- settings.reset: ONE settings.data to every subscriber, no per-key spam --
 	g_sent.clear();
-	Command(bridge, "settingsview", { { "command", "settings.reset" }, { "mod", "alpha" }, { "key", "" } });
+	Command(bridge, "settingsview", { { "command", "settings.reset" }, { "mod", "t.alpha" }, { "key", "" } });
 	CHECK(SentTo("settingsview", "settings.data").size() == 1);
 	CHECK(SentTo("hudview", "settings.data").size() == 1);
 	CHECK(SentTo("settingsview", "settings.changed").empty());  // superseded by the data re-send
@@ -171,14 +171,14 @@ int main()
 
 	// A caller that never subscribed still gets the authoritative re-send.
 	g_sent.clear();
-	Command(bridge, "otherview", { { "command", "settings.reset" }, { "mod", "alpha" }, { "key", "" } });
+	Command(bridge, "otherview", { { "command", "settings.reset" }, { "mod", "t.alpha" }, { "key", "" } });
 	CHECK(SentTo("otherview", "settings.data").size() == 1);
 	CHECK(SentTo("hudview", "settings.data").size() == 1);
 
 	// --- runtime registration: replay + settings.data re-broadcast (§8.5) -------
 	g_sent.clear();
 	auto gamma = nlohmann::json::parse(R"json({
-		"id": "gamma", "title": "Gamma (runtime)",
+		"id": "t.gamma", "title": "Gamma (runtime)",
 		"groups": [ { "label": "G", "settings": [
 			{ "key": "level", "type": "int", "default": 1, "min": 0, "max": 10 }
 		] } ] })json");
@@ -186,7 +186,7 @@ int main()
 	{
 		// Value replay reaches subscribers as settings.changed...
 		const auto changed = SentTo("hudview", "settings.changed");
-		CHECK(changed.size() == 1 && changed[0].payload["mod"] == "gamma");
+		CHECK(changed.size() == 1 && changed[0].payload["mod"] == "t.gamma");
 		// ...and the shape change re-broadcasts the full registry to BOTH.
 		for (const auto* view : { "settingsview", "hudview" }) {
 			const auto data = SentTo(view, "settings.data");
@@ -197,7 +197,7 @@ int main()
 
 	// --- removal re-broadcasts too ----------------------------------------------
 	g_sent.clear();
-	CHECK(module.Store().RemoveMod("gamma"));
+	CHECK(module.Store().RemoveMod("t.gamma"));
 	{
 		const auto data = SentTo("hudview", "settings.data");
 		CHECK(data.size() == 1 && data[0].payload["mods"].size() == 1);
@@ -205,30 +205,30 @@ int main()
 
 	// --- PushHotkey: ui.hotkey to every subscriber (views filter on mod) ---------
 	g_sent.clear();
-	module.PushHotkey("alpha", "toggleHud");
+	module.PushHotkey("t.alpha", "toggleHud");
 	for (const auto* view : { "settingsview", "hudview" }) {
 		const auto hotkeys = SentTo(view, "ui.hotkey");
-		CHECK(hotkeys.size() == 1 && hotkeys[0].payload["mod"] == "alpha" && hotkeys[0].payload["key"] == "toggleHud");
+		CHECK(hotkeys.size() == 1 && hotkeys[0].payload["mod"] == "t.alpha" && hotkeys[0].payload["key"] == "toggleHud");
 	}
 	CHECK(SentTo("otherview", "ui.hotkey").empty());  // never subscribed
 
 	// --- OnViewDestroyed: a torn-down view stops receiving pushes -----------------
 	g_sent.clear();
 	module.OnViewDestroyed("hudview");
-	CHECK(module.Store().Set("alpha", "scale", "0.75"));
+	CHECK(module.Store().Set("t.alpha", "scale", "0.75"));
 	CHECK(SentTo("hudview", "settings.changed").empty());
 	CHECK(SentTo("settingsview", "settings.changed").size() == 1);  // others unaffected
 
 	// --- OnBridgeDown: pushes stop, nothing dangles -------------------------------
 	g_sent.clear();
 	module.OnBridgeDown();
-	CHECK(module.Store().Set("alpha", "scale", "0.5"));  // direct native write (future ABI path)
+	CHECK(module.Store().Set("t.alpha", "scale", "0.5"));  // direct native write (future ABI path)
 	CHECK(g_sent.empty());
 
 	// A fresh RegisterCommands starts a clean subscriber set (views reload and
 	// re-subscribe; stale ids must not receive pushes).
 	module.RegisterCommands(bridge);
-	CHECK(module.Store().Set("alpha", "scale", "1.25"));
+	CHECK(module.Store().Set("t.alpha", "scale", "1.25"));
 	CHECK(g_sent.empty());
 
 	// --- schema hot-reload (mcm-design §12.1) --------------------------------------
@@ -241,10 +241,10 @@ int main()
 
 		// Edit alpha.json: retitle + add a setting. Bump mtime explicitly so
 		// the test never depends on filesystem timestamp resolution.
-		const auto alphaPath = schemaDir / "alpha.json";
+		const auto alphaPath = schemaDir / "t.alpha.json";
 		const auto oldTime = fs::last_write_time(alphaPath);
 		WriteFile(alphaPath, R"json({
-			"id": "alpha", "title": "Alpha Mod v2",
+			"id": "t.alpha", "title": "Alpha Mod v2",
 			"groups": [ { "label": "General", "settings": [
 				{ "key": "enabled", "type": "bool",  "default": true },
 				{ "key": "scale",   "type": "float", "default": 1.0, "min": 0.5, "max": 2.0 },
@@ -269,8 +269,8 @@ int main()
 		}
 
 		// A NEW drop-in file registers on the next scan.
-		WriteFile(schemaDir / "delta.json", R"json({
-			"id": "delta", "groups": [ { "settings": [
+		WriteFile(schemaDir / "t.delta.json", R"json({
+			"id": "t.delta", "groups": [ { "settings": [
 				{ "key": "on", "type": "bool", "default": false }
 			] } ] })json");
 		g_sent.clear();
@@ -281,7 +281,7 @@ int main()
 		}
 
 		// Deleting the file drops the mod (drop-ins only) and re-broadcasts.
-		fs::remove(schemaDir / "delta.json");
+		fs::remove(schemaDir / "t.delta.json");
 		g_sent.clear();
 		module.PumpSchemaHotReload(13.0);
 		{
@@ -293,20 +293,20 @@ int main()
 		// same-id file appearing neither replaces it nor, when deleted again,
 		// removes it.
 		CHECK(module.Store().RegisterSchema(nlohmann::json::parse(R"json({
-			"id": "epsilon", "title": "Native Epsilon",
+			"id": "t.epsilon", "title": "Native Epsilon",
 			"groups": [ { "settings": [ { "key": "n", "type": "int", "default": 1 } ] } ] })json"),
 			SettingsStore::Source::kNative));
-		WriteFile(schemaDir / "epsilon.json", R"json({
-			"id": "epsilon", "title": "File Impostor",
+		WriteFile(schemaDir / "t.epsilon.json", R"json({
+			"id": "t.epsilon", "title": "File Impostor",
 			"groups": [ { "settings": [ { "key": "n", "type": "int", "default": 99 } ] } ] })json");
 		module.PumpSchemaHotReload(14.0);
 		{
-			const auto* n = module.Store().GetValue("epsilon", "n");
+			const auto* n = module.Store().GetValue("t.epsilon", "n");
 			CHECK(n && *n == 1);  // native schema untouched by the file (default stays 1, not 99)
 		}
-		fs::remove(schemaDir / "epsilon.json");
+		fs::remove(schemaDir / "t.epsilon.json");
 		module.PumpSchemaHotReload(15.0);
-		CHECK(module.Store().GetValue("epsilon", "n") != nullptr);  // file deletion can't remove a native mod
+		CHECK(module.Store().GetValue("t.epsilon", "n") != nullptr);  // file deletion can't remove a native mod
 	}
 
 	// ---------------------------------------------------------------------------

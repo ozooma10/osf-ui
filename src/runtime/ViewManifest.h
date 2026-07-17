@@ -20,16 +20,18 @@ namespace OSFUI
 		Hud,
 	};
 
-	// Mirrors views/<id>/manifest.json.
+	// Mirrors views/<modId>/<viewName>/manifest.json (api-freeze-plan item 1).
 	struct ViewManifest
 	{
+		// Qualified view id "<modId>/<viewName>" — derived from the folder
+		// path, never from the file (the manifest's `id` field must equal the
+		// view folder name; it is a consistency check only).
 		std::string           id;
 		std::string           title;
 		std::string           description;  // one-line blurb for catalogs (views.data / the Mods surface)
-		// Optional: the settings mod id (RegisterSettingsSchema / settings/<id>.json)
-		// this view belongs to. The Mods surface groups a mod's panels/HUDs onto
-		// its settings page by matching this against settings.data mod ids. Empty
-		// = standalone (listed under its own title).
+		// The owning mod id — the mod folder name under views/. Matches the
+		// settings mod id (settings/<modId>.json / RegisterSettingsSchema), so
+		// the Mods surface groups a mod's terminals/HUDs onto its settings page.
 		std::string           mod;
 		std::string           entry{ "index.html" };
 		// Logical (authoring) size: the page always lays out at this size. The

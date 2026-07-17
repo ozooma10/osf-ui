@@ -92,8 +92,8 @@ Logs go to the standard SFSE log folder
 | `engineInput` | `true` | Bring the engine's per-menu input dispatch — including **gamepad**, which the WndProc never sees — into the runtime and route it into the focused view (D-pad/left-stick → move focus, A → activate, B → close, right-stick → scroll), plus raw `ui.gamepad` events a page can opt into via `osfui.gamepadRaw`. On by default; delivery + routing verified in-game on 1.16.244 with a controller. Keyboard/mouse stay on the WndProc path |
 | `pauseMenuEntry` | `true` | Inject a **"MOD SETTINGS"** entry into the game's pause menu (live Scaleform manipulation — no SWF edit, no conflict with UI-overhaul mods) that opens the overlay when pressed. On by default; inject + click verified in-game on 1.16.244. Label/target are `pauseMenuEntryLabel` / `pauseMenuEntryView` |
 | `disableControls` | `true` | While a menu captures input, disable player controls through the engine input-enable layer (`BSInputEnableManager`) — this also stops gamepad/XInput, which the WndProc hook never sees. **Proven live on 1.16.244 with a controller** (keyboard, mouse-look, and gamepad sticks all freeze and restore cleanly). On by default; `false` is a diagnostic escape hatch (config.json only, not a user-facing setting) for the rare case where another overlay fights the input layer |
-| `view` | `"settings"` | the active (input) view the toggle key opens — a view id from `views/*/manifest.json` (shipped config uses `settings`, the Mods surface) |
-| `views` | `[]` | optional multi-view set: every id is loaded and composited (layer order = each view's manifest `zorder`), and `view` must be one of them (the interactive one). Empty ⇒ only `view` loads. Missing ids are skipped with a log line. Shipped config uses `["settings", "keybinds"]` |
+| `view` | `"osfui/settings"` | the active (input) view the toggle key opens — a qualified `<modId>/<viewName>` id from `views/<modId>/<viewName>/manifest.json` (shipped config uses `osfui/settings`, the Mods surface) |
+| `views` | `[]` | optional multi-view set: every id is loaded and composited (layer order = each view's manifest `zorder`), and `view` must be one of them (the interactive one). Empty ⇒ only `view` loads. Missing ids are skipped with a log line. Shipped config uses `["osfui/settings", "osfui/keybinds"]` |
 | `allowNetwork` | `false` | recognized but force-disabled |
 | `devMode` | `false` | verbose per-call logging + first-frame PNG dump. **Defaults shown above are the built-in fallbacks (`src/core/Config.h`); the shipped `data/OSFUI/config.json` is the runtime config.** For development, set `devMode: true` and `startVisible: true` for verbose logs and a launch-visible overlay |
 
@@ -191,8 +191,8 @@ docs/HANDOFF.md §4.
   register bridge commands and drive views,
   [docs/native-plugin-api.md](docs/native-plugin-api.md)) is brand-new with no
   shipping consumer yet, and there's no packaging/distribution tooling for
-  third-party UIs yet. You ship a `settings/<id>.json` schema and a
-  `views/<id>/` folder for the declarative path. Render/menu integration points
+  third-party UIs yet. You ship a `settings/<author>.<modname>.json` schema and a
+  `views/<author>.<modname>/<view>/` folder for the declarative path. Render/menu integration points
   were reverse engineered before use, never guessed
   ([docs/reverse-engineering-notes.md](docs/reverse-engineering-notes.md)).
 - **Rough edges** — text entry follows the OS keyboard layout (dead keys and

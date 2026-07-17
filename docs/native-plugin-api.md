@@ -75,7 +75,7 @@ process* against *its own* commonlibsf, so no engine pointers ever cross.)
 **Non-goals (v1) — explicitly deferred**
 
 - Programmatic **view registration** from an arbitrary path. v1 reuses the
-  existing disk-discovery (`ViewManager` scans `OSFUI/views/*`); the consumer
+  existing disk-discovery (`ViewManager` scans `OSFUI/views/<modId>/<viewName>/`); the consumer
   ships a view folder there. A `RegisterViewRoot` extension is sketched in §9.
 - Direct **JS eval / fast interop** (`Invoke`/`InteropCall`) and a **DevTools**
   surface — these are Prisma-parity items parked in `docs/ROADMAP.md`; the
@@ -240,8 +240,11 @@ namespace OSFUI::API
         virtual void          UnsubscribeHotkey(std::uint32_t a_token) = 0;
 
         // --- 1.5: runtime view registration. Thread-safe; applied on the next
-        // main tick. Load + surface-register views/<id>/ WITHOUT a config.views
-        // entry. Idempotent; see §5c.
+        // main tick. Load + surface-register views/<modId>/<viewName>/ WITHOUT
+        // a config.views entry. a_viewId is the QUALIFIED id
+        // "<author>.<modname>/<view>" (lowercase [a-z0-9-] segments); a
+        // structurally invalid id is refused synchronously (returns false).
+        // Idempotent; see §5c.
         virtual bool RegisterView(const char* a_viewId) = 0;
 
     protected:
@@ -337,21 +340,26 @@ Before 1.5 a view only became an openable surface if the **user's**
 file (fragile, fights other mods) or piggybacked on OSF UI's shipped defaults.
 `RegisterView` removes that coupling: **ship the folder, register the id.**
 
+- **Qualified ids (api-freeze-plan item 1):** the argument is
+  `"<author>.<modname>/<view>"` — e.g. `RegisterView("osf.animation/browser")`
+  — matching the nested folder layout below. Both segments are lowercase
+  `[a-z0-9-]` (the mod id contains exactly one dot); anything else is refused
+  synchronously with a WARN.
 - **What it does:** on the next main tick, looks up the boot-discovered
-  `views/<id>/manifest.json` (your mod installs the folder into
-  `Data/SFSE/Plugins/OSFUI/views/<id>/` — the same disk-drop as before), loads
-  the view, and registers it as a surface. It then appears in the **views
-  catalog** (`views.data` re-broadcasts — the Mods surface lists it; set the
-  manifest `mod` field to your settings mod id so its launcher lands on your
-  mod's page) and responds to `RequestMenu` and the web `menu.open` command.
-  The manifest's `openOnStart` is honored.
+  `views/<modId>/<viewName>/manifest.json` (your mod installs its namespace
+  folder into `Data/SFSE/Plugins/OSFUI/views/<modId>/` — the same disk-drop as
+  before), loads the view, and registers it as a surface. It then appears in
+  the **views catalog** (`views.data` re-broadcasts — the Mods surface lists
+  it, grouped onto the settings page of the same mod id) and responds to
+  `RequestMenu` and the web `menu.open` command. The manifest's `openOnStart`
+  is honored.
 - **Idempotent:** an id that is already a registered surface — listed in the
   user's `config.views`, or registered by an earlier call — is left untouched
   (the live view is **not** reloaded). Call it unconditionally at startup.
 - **Failure is logged, not returned:** the call returns `false` only on a
-  null/empty id (it is asynchronous by design, like `RequestMenu`). A missing
-  view folder, or a `nativeBridge` view when no bridge came up at boot, warns
-  in `OSF UI.log` and does nothing.
+  null/empty/grammar-violating id (it is asynchronous by design, like
+  `RequestMenu`). A missing view folder, or a `nativeBridge` view when no
+  bridge came up at boot, warns in `OSF UI.log` and does nothing.
 - **One-tick composition:** `RegisterView(v)` → `SendToWeb(v, state)` →
   `RequestMenu(v, true)` issued back-to-back (any thread) land in call order
   on the same tick: registered, state queued (§6a delivery guarantee), opened.
@@ -539,11 +547,11 @@ matters if some future API passes engine types (don't), or for the consumer's
 ## 9. Future: programmatic views (`RegisterViewRoot`)
 
 **Half of this landed as ABI 1.5 `RegisterView` (§5c):** a consumer's
-disk-dropped `views/<id>/` folder no longer needs a `config.views` entry — the
-plugin registers it at runtime. What remains future is the *location*
-decoupling: the view still must be installed into `OSFUI/views/<id>/` (OSF UI's
-own data dir). A clean follow-up lets each mod ship its view under **its own**
-folder:
+disk-dropped `views/<modId>/<viewName>/` folder no longer needs a
+`config.views` entry — the plugin registers it at runtime. What remains future
+is the *location* decoupling: the view still must be installed into
+`OSFUI/views/<modId>/` (OSF UI's own data dir). A clean follow-up lets each
+mod ship its view under **its own** folder:
 
 ```cpp
 // v1.1 — appended to the vtable (MINOR bump).
@@ -609,16 +617,17 @@ void HookUpUi()
     g_ui->RegisterCommand("osf.launch",        &OnLaunch,     nullptr);
     g_ui->RegisterCommand("osf.stop",          /* ... */ nullptr, nullptr);
     g_ui->RegisterCommand("osf.pickCrosshair", /* ... */ nullptr, nullptr);
-    // 1.5: make the shipped views/osf/ folder an openable surface — no
-    // config.views entry needed. Idempotent; gate on MINOR for old runtimes.
+    // 1.5: make the shipped views/osf.animation/browser/ folder an openable
+    // surface — no config.views entry needed. Qualified "<modId>/<view>" id
+    // (api-freeze-plan item 1). Idempotent; gate on MINOR for old runtimes.
     if ((g_ui->GetInterfaceVersion() & 0xFFFF) >= 5) {
-        g_ui->RegisterView("osf");
+        g_ui->RegisterView("osf.animation/browser");
     }
 }
 ```
 
 The view side is ordinary OSF UI authoring (`docs/authoring-views.md`): ship
-`OSFUI/views/osf/` with `permissions.nativeBridge: true`, then:
+`OSFUI/views/osf.animation/browser/` with `permissions.nativeBridge: true`, then:
 
 ```js
 window.osfui.onMessage = (json) => {
@@ -653,10 +662,12 @@ reflects the **live registered** scene set.
 - **No-bridge `SendToWeb`:** queued (returns true) before any `nativeBridge`
   view loads; flushed FIFO once the bridge appears. If no bridge ever appears,
   the queue stays bounded (per-view cap, drop-oldest, warned).
-- **RegisterView (ABI 1.5):** `RegisterView("osf")` with the folder installed →
-  surface registered, views catalog updates, `RequestMenu("osf", true)` opens it;
-  repeat call → "already registered" INFO, live view untouched; missing folder
-  → WARN, nothing registered; `RegisterView` + `SendToWeb` + `RequestMenu`
+- **RegisterView (ABI 1.5):** `RegisterView("osf.animation/browser")` with the
+  folder installed → surface registered, views catalog updates,
+  `RequestMenu("osf.animation/browser", true)` opens it; repeat call →
+  "already registered" INFO, live view untouched; missing folder → WARN,
+  nothing registered; unqualified/grammar-violating id → refused synchronously
+  (returns false + WARN); `RegisterView` + `SendToWeb` + `RequestMenu`
   back-to-back → registered, message delivered, opened in one tick.
 - **Open-in-state (ABI 1.3):** `SendToWeb(v, mode)` then `RequestMenu(v, true)`
   from a cold start — the page must observe the message before its first

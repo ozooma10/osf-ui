@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/ozooma10/osf-ui/blob/main/docs/schema/manifest.schema.json",
   "title": "OSF UI View Manifest",
-  "description": "Schema for views/<id>/manifest.json. Bridge protocol 0.4 (unstable). Mirrors src/runtime/ViewManifest.cpp.",
+  "description": "Schema for views/<modId>/<viewName>/manifest.json. Bridge protocol 0.4 (unstable). Mirrors src/runtime/ViewManifest.cpp.",
   "type": "object",
   "required": ["id"],
   "additionalProperties": false,
@@ -13,12 +13,13 @@
     },
     "id": {
       "type": "string",
-      "minLength": 1,
-      "description": "Unique view id. Matches the folder name and config.json's \"view\". Required."
+      "pattern": "^[a-z0-9-]+$",
+      "maxLength": 64,
+      "description": "The view name. MUST equal the view folder name (a mismatch is rejected). The runtime's qualified view id is derived from the path: \"<modId>/<viewName>\" (e.g. \"ozooma10.almanac/planets\") — that qualified form is what config.json's \"view\"/\"views\", menu.open, and RegisterView use. Required."
     },
     "title": {
       "type": "string",
-      "description": "Human-readable name. Defaults to id."
+      "description": "Human-readable name. Defaults to the qualified id."
     },
     "description": {
       "type": "string",
@@ -26,7 +27,9 @@
     },
     "mod": {
       "type": "string",
-      "description": "Owning settings mod id (the RegisterSettingsSchema / settings/<id>.json id). The Mods surface groups this view's launcher/toggle onto that mod's page. Empty/absent = standalone: the view gets its own entry under its title."
+      "pattern": "^([a-z0-9-]+\\.[a-z0-9-]+|osfui)$",
+      "maxLength": 64,
+      "description": "Optional consistency check: the owning mod id, derived from the mod folder the view lives under (views/<modId>/...). When declared it MUST equal that folder name; a mismatch is rejected. The Mods surface groups this view's launcher/toggle onto the settings page of the same mod id (settings/<modId>.json / RegisterSettingsSchema)."
     },
     "entry": {
       "type": "string",

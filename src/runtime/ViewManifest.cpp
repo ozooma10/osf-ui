@@ -1,5 +1,6 @@
 #include "runtime/ViewManifest.h"
 
+#include "runtime/Ids.h"
 #include "runtime/Json.h"
 
 namespace OSFUI
@@ -12,12 +13,43 @@ namespace OSFUI
 			return std::nullopt;
 		}
 
+		// The path IS the identity (api-freeze-plan item 1): the manifest lives
+		// at views/<modId>/<viewName>/manifest.json, and the qualified view id
+		// is "<modId>/<viewName>". Declared fields are consistency checks, not
+		// sources of truth — a manifest can't claim another mod's namespace.
+		const auto viewName = a_path.parent_path().filename().string();
+		const auto modId = a_path.parent_path().parent_path().filename().string();
+		if (!Ids::IsAcceptedModId(modId) || !Ids::IsValidViewName(viewName)) {
+			REX::ERROR("ViewManifest: {} — views live at views/<author>.<modname>/<view>/manifest.json "
+					   "(lowercase [a-z0-9-] segments; dotless mod folders are reserved for the platform)",
+				a_path.string());
+			return std::nullopt;
+		}
+
 		ViewManifest manifest;
 		manifest.rootDir = a_path.parent_path();
-		manifest.id = Json::GetString(*json, "id", "");
+		manifest.id = modId + "/" + viewName;
+		manifest.mod = modId;
+
+		// Required `id` must equal the view folder name — a mismatch is a
+		// hard reject (a copied manifest that forgot the rename).
+		const auto declaredId = Json::GetString(*json, "id", "");
+		if (declaredId != viewName) {
+			REX::ERROR("ViewManifest: {} declares id '{}' but the view folder is '{}' — "
+					   "'id' must equal the folder name",
+				a_path.string(), declaredId, viewName);
+			return std::nullopt;
+		}
+		// Optional `mod` is derivable from the path; when declared it must match.
+		if (const auto declaredMod = Json::GetString(*json, "mod", ""); !declaredMod.empty() && declaredMod != modId) {
+			REX::ERROR("ViewManifest: {} declares mod '{}' but lives under views/{}/ — "
+					   "'mod' is optional and must equal the mod folder when present",
+				a_path.string(), declaredMod, modId);
+			return std::nullopt;
+		}
+
 		manifest.title = Json::GetString(*json, "title", manifest.id);
 		manifest.description = Json::GetString(*json, "description", "");
-		manifest.mod = Json::GetString(*json, "mod", "");
 		manifest.entry = Json::GetString(*json, "entry", manifest.entry);
 		manifest.width = static_cast<std::uint32_t>(std::clamp<std::int64_t>(
 			Json::GetInt(*json, "width", manifest.width), 1, 16384));
@@ -40,11 +72,6 @@ namespace OSFUI
 			manifest.permissions.nativeBridge = Json::GetBool(*it, "nativeBridge", false);
 			manifest.permissions.filesystem = Json::GetBool(*it, "filesystem", false);
 			manifest.permissions.network = Json::GetBool(*it, "network", false);
-		}
-
-		if (manifest.id.empty()) {
-			REX::ERROR("ViewManifest: {} is missing required field 'id'", a_path.string());
-			return std::nullopt;
 		}
 
 		// Reject entries that try to escape the view folder. Views may only

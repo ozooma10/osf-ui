@@ -1,5 +1,7 @@
 #include "runtime/ViewManager.h"
 
+#include "runtime/Ids.h"
+
 namespace OSFUI
 {
 	void ViewManager::LoadAll(const std::filesystem::path& a_viewsDir)
@@ -12,19 +14,45 @@ namespace OSFUI
 			return;
 		}
 
-		for (const auto& entry : std::filesystem::directory_iterator(a_viewsDir, ec)) {
-			if (!entry.is_directory()) {
+		// Two-level scan (api-freeze-plan item 1): views/<modId>/<viewName>/
+		// manifest.json. The mod folder is the namespace — its name must be a
+		// valid mod id ('<author>.<modname>'; dotless is platform-reserved, so
+		// only built-ins like osfui/ may be dotless). Top-level dirs without
+		// view subfolders (e.g. the shared/ kit) are skipped naturally.
+		for (const auto& modEntry : std::filesystem::directory_iterator(a_viewsDir, ec)) {
+			if (!modEntry.is_directory()) {
 				continue;
 			}
-			const auto manifestPath = entry.path() / "manifest.json";
-			if (!std::filesystem::exists(manifestPath, ec)) {
-				REX::WARN("ViewManager: {} has no manifest.json; skipping", entry.path().string());
+			const auto modId = modEntry.path().filename().string();
+			if (modId == "shared") {
+				continue;  // the shared kit (views/shared/osfui.css), not a mod
+			}
+			if (std::filesystem::exists(modEntry.path() / "manifest.json", ec)) {
+				REX::ERROR("ViewManager: {} uses the pre-1.0 flat layout — views live in "
+						   "views/<author>.<modname>/<view>/manifest.json now; skipping",
+					modEntry.path().string());
 				continue;
 			}
-			if (auto manifest = ViewManifest::Load(manifestPath)) {
-				REX::INFO("ViewManager: loaded view '{}' ({}, {}x{})",
-					manifest->id, manifest->title, manifest->width, manifest->height);
-				_views.push_back(std::move(*manifest));
+			if (!Ids::IsAcceptedModId(modId)) {
+				REX::ERROR("ViewManager: skipping {} — view folders are namespaced "
+						   "views/<author>.<modname>/<view>/ (lowercase [a-z0-9-] segments, exactly one "
+						   "dot in the mod id); dotless names are reserved for the platform",
+					modEntry.path().string());
+				continue;
+			}
+			for (const auto& viewEntry : std::filesystem::directory_iterator(modEntry.path(), ec)) {
+				if (!viewEntry.is_directory()) {
+					continue;
+				}
+				const auto manifestPath = viewEntry.path() / "manifest.json";
+				if (!std::filesystem::exists(manifestPath, ec)) {
+					continue;  // asset folder, not a view
+				}
+				if (auto manifest = ViewManifest::Load(manifestPath)) {
+					REX::INFO("ViewManager: loaded view '{}' ({}, {}x{})",
+						manifest->id, manifest->title, manifest->width, manifest->height);
+					_views.push_back(std::move(*manifest));
+				}
 			}
 		}
 		REX::INFO("ViewManager: {} view(s) loaded from {}", _views.size(), a_viewsDir.string());
