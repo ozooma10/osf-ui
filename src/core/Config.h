@@ -71,7 +71,8 @@ namespace OSFUI
 		bool        vanillaKeyConflicts{ true };
 		std::string view{ "osfui/settings" };  // qualified "<mod>/<view>" id
 		// Optional multi-view set. When non-empty, every id is loaded and
-		// composited together (layer order = each view's manifest `zorder`), and
+		// composited together (layer order is set by the menu/HUD framework —
+		// HUDs beneath open menus), and
 		// `view` is the active (input) view — it must be an interactive view.
 		// When empty, only `view` is loaded. Missing ids are skipped.
 		std::vector<std::string> views;

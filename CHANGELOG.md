@@ -13,7 +13,7 @@ Initial release.
 ### For view authors
 
 - View packages under `views/<modId>/<viewName>/` with a `manifest.json`;
-  multiple views can load and composite together (layer order via `zorder`).
+  multiple views can load and composite together (HUDs beneath open menus).
 - Manifest `targetVersion` — declare the OSF UI version a view is authored
   against; when the installed OSF UI is older, the Mods surface shows a
   "needs update" badge by the version number naming the mod (advisory only —

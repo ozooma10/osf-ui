@@ -69,7 +69,7 @@ The keys you might actually edit:
 |---|---|---|
 | `enabled` | `true` | master switch |
 | `view` | `"osfui/settings"` | the active (input) view the toggle key opens - a qualified `<modId>/<viewName>` id from `views/<modId>/<viewName>/manifest.json` (shipped config uses `osfui/settings`, the Mods surface) |
-| `views` | `[]` | optional multi-view set: every id is loaded and composited (layer order = each view's manifest `zorder`), and `view` must be one of them (the interactive one). Empty ⇒ only `view` loads. Missing ids are skipped with a log line. Shipped config uses `["osfui/settings", "osfui/keybinds"]` |
+| `views` | `[]` | optional multi-view set: every id is loaded and composited (layer order is set by the menu/HUD framework — HUDs beneath open menus), and `view` must be one of them (the interactive one). Empty ⇒ only `view` loads. Missing ids are skipped with a log line. Shipped config uses `["osfui/settings", "osfui/keybinds"]` |
 | `devMode` | `false` | verbose per-call logging + first-frame PNG dump - turn on when developing views or attaching logs to a bug report |
 | `devReloadKey` | `"F11"` | with `devMode` on, reloads the top open menu's URL in place (the fast view-iteration loop); ignored otherwise |
 

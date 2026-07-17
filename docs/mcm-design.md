@@ -349,7 +349,7 @@ without shipping a whole separate view.
   can walk `parent.document`. All of the cost, none of the benefit. Rejected.
 - **Separate Ultralight view composited into a slot.** True JS isolation, but
   it fights the architecture: views are full-screen surfaces composited by
-  zorder with exclusive focus and a single-menu policy. A "slot" means
+  layer order with exclusive focus and a single-menu policy. A "slot" means
   rect-sync messages, focus juggling across the slot boundary, an extra
   full-screen CPU surface per panel, and per-frame scroll tracking — the
   worst case for the dirty-rect optimizer. A season of native work to poorly

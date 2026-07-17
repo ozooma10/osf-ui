@@ -57,7 +57,7 @@ namespace OSFUI
 		if (Log::DevMode()) {
 			Json::ReportUnknownKeys(*json,
 				{ "manifestVersion", "id", "title", "description", "hub", "entry",
-					"width", "height", "transparent", "zorder", "interactive", "kind",
+					"width", "height", "transparent", "kind",
 					"capturesInput", "pausesGame", "openOnStart", "order", "permissions",
 					"targetVersion" },
 				"ViewManifest: " + a_path.string(), /*a_warn=*/false);
@@ -99,12 +99,14 @@ namespace OSFUI
 		manifest.height = static_cast<std::uint32_t>(std::clamp<std::int64_t>(
 			Json::GetInt(*json, "height", manifest.height), 1, 16384));
 		manifest.transparent = Json::GetBool(*json, "transparent", manifest.transparent);
-		manifest.zorder = static_cast<std::int32_t>(Json::GetInt(*json, "zorder", manifest.zorder));
-		manifest.interactive = Json::GetBool(*json, "interactive", manifest.interactive);
 
 		// Menu/HUD framework fields. Json has no enum helper, so `kind` is parsed manually; unknown values fall back to Menu
 		const auto kindStr = Json::GetString(*json, "kind", "menu");
 		manifest.kind = (kindStr == "hud") ? SurfaceKind::Hud : SurfaceKind::Menu;
+		// `interactive` is derived, not author-facing: focus always follows the
+		// top open menu (ApplyMenuPolicy), so menu ⇒ true, hud ⇒ false is the
+		// only coherent mapping. (Was a manifest field pre-1.0; now ignored.)
+		manifest.interactive = manifest.kind == SurfaceKind::Menu;
 		manifest.capturesInput = Json::GetBool(*json, "capturesInput", manifest.capturesInput);
 		manifest.pausesGame = Json::GetBool(*json, "pausesGame", manifest.pausesGame);
 		manifest.openOnStart = Json::GetBool(*json, "openOnStart", manifest.openOnStart);
@@ -161,7 +163,6 @@ namespace OSFUI
 			}
 			manifest.capturesInput = false;
 			manifest.pausesGame = false;
-			manifest.interactive = false;
 		}
 
 		return manifest;

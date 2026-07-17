@@ -304,7 +304,7 @@ export interface ViewsDataPayload {
     description: string;    // manifest `description`, "" when absent
     mod: string;            // manifest `mod` — owning settings mod id ("" = standalone); groups the view onto that mod's page on the Mods surface
     kind: "menu" | "hud";
-    interactive: boolean;
+    interactive: boolean;   // derived from kind (menu=true, hud=false): may hold focus
     hub: boolean;           // manifest `hub` — false = hidden utility view, omit from catalogs
     targetVersion: string;  // manifest `targetVersion` — OSF UI version the view was authored against; "" if undeclared
     open: boolean;          // menu: on the stack; hud: shown

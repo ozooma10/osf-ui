@@ -522,7 +522,7 @@ namespace OSFUI
 		if (!_renderer) {
 			return;
 		}
-		// Per-surface hidden + composite z (derived band order; the raw manifest zorder never governs menu/HUD paint order).
+		// Per-surface hidden + composite z, both derived from the framework band order (HUDs beneath menus; HUDs by `order`, menus by open-stack position).
 		for (const auto& layer : _menus.DesiredLayers()) {
 			_renderer->SetViewHidden(layer.id, layer.hidden);
 			_renderer->SetViewOrder(layer.id, layer.z);

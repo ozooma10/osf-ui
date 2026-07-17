@@ -108,11 +108,9 @@ UI kit at `views/shared/osfui.css` / `osfui.js` — link them as
   "hub": true,              // optional, default true; false = hidden utility view — loads and works, but isn't advertised in catalogs (name predates the Mods surface)
   "targetVersion": "1.0.0", // optional; the OSF UI version this view is authored against — advisory, never gates loading (see note below)
   "entry": "index.html",    // optional, default "index.html"; must stay inside the folder
-  "width": 1280,            // optional, default 1280; clamped to 1..16384 — logical (authoring) size
-  "height": 720,            // optional, default 720;  clamped to 1..16384 — logical (authoring) size
+  "width": 1600,            // optional, default 1600; clamped to 1..16384 — logical (authoring) size
+  "height": 900,            // optional, default 900;  clamped to 1..16384 — logical (authoring) size
   "transparent": true,      // optional, default true; lets the game show through
-  "zorder": 0,              // optional, default 0; compositing layer when several views are hosted — higher draws on top
-  "interactive": true,      // optional, default true; false = never receives input/focus (e.g. a passive HUD)
   "permissions": {          // optional; everything defaults to DENY
     "nativeBridge": true,   // false ⇒ no window.osfui bridge is created at all
     "filesystem": false,    // reserved; no effect yet
@@ -176,14 +174,16 @@ by qualified id:
 > [native-plugin-api.md](native-plugin-api.md) §5c. The `views` array is for the
 > user's own composition (and OSF UI's built-ins).
 
-- **Layering** is by each view's manifest `zorder` (not the array order): lower
-  draws beneath, higher on top; ties keep load order. A HUD with `zorder: 100`
-  always sits above a `zorder: 0` menu.
+- **Layering** is set by the menu/HUD framework, not the array order: every HUD
+  composites beneath every open menu. HUDs order among themselves by their
+  manifest `order` (higher on top, clamped 0..999); open menus stack in the
+  order they were opened, with the top menu on top. So an open menu always
+  sits above any HUD, whatever the HUD's `order`.
 - **The focus model — a versioned guarantee (protocol 1.0).** Input goes to
   exactly one view: the **top open menu** (the single-menu stack — opening a
-  menu replaces and focuses it). A view with `interactive: false` (a passive
-  HUD) is never focused and never receives input, even when it is the top
-  layer. There is no user-facing focus-cycle key.
+  menu replaces and focuses it). A `"kind": "hud"` view is passive: it is never
+  focused and never receives input, even when it is the top layer. There is no
+  user-facing focus-cycle key.
 - **Each bridge-enabled view (`nativeBridge: true`) has its own bridge.**
   Messages are attributed to their source view and replies route back to it, so
   several views can talk to native independently — even a passive HUD can

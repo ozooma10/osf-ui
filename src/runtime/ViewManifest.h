@@ -47,8 +47,7 @@ namespace OSFUI
 		std::uint32_t         width{ kDefaultViewWidth };
 		std::uint32_t         height{ kDefaultViewHeight };
 		bool                  transparent{ true };
-		std::int32_t          zorder{ 0 };         // compositing layer; lower draws beneath, higher on top
-		bool                  interactive{ true };  // may receive input and become the active (focused) view
+		bool                  interactive{ true };  // may receive input and become the active (focused) view. DERIVED from kind (menu=true, hud=false) — not a manifest field
 		ViewPermissions       permissions;
 		std::filesystem::path rootDir;  // directory containing the manifest
 
@@ -65,7 +64,10 @@ namespace OSFUI
 		// Menu: open at load. HUD: show at load.
 		bool openOnStart{ false };
 
-		// Within-band z ORDER HINT for the MenuController (HUD band vs menu band). Distinct from `zorder`, which is the raw runtime compositing sort key;
+		// HUD-only within-band paint order for the MenuController (clamped
+		// 0..999): higher HUDs draw on top. Ignored for menus (which always
+		// composite above HUDs and stack by open order). The compositor's raw
+		// sort key is derived from the framework band, never from the manifest.
 		std::int32_t order{ 0 };
 
 		// List this view in catalogs (views.data → the Mods surface rail).

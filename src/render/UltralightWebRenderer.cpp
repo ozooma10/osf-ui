@@ -1766,7 +1766,8 @@ namespace OSFUI
 				slot = std::make_unique<Impl::ViewState>();
 			}
 			slot->id = a_manifest.id;
-			slot->zorder = a_manifest.zorder;
+			// zorder starts at 0 and is set to the framework band z by
+			// ApplyMenuPolicy -> SetViewOrder before the view is revealed.
 			slot->interactive = a_manifest.interactive;
 			slot->bridgeAllowed = a_manifest.permissions.nativeBridge;
 			slot->pendingLoad = a_manifest;
