@@ -258,7 +258,9 @@
     { id: "osf.animation/browser", title: "OSF Animation Browser", description: "Scene browser and launcher — crew, furniture, launch.", mod: "osf.animation", kind: "menu", interactive: true, hub: true, open: false, focused: false, loadState: "loaded" },
     { id: "acme.shipworks/almanac", title: "Ship Almanac", description: "Browse ship modules, mass and performance readouts.", mod: "acme.shipworks", kind: "menu", interactive: true, hub: true, open: false, focused: true, loadState: "loaded", fixture: true },
     { id: "acme.shipworks/hudwidgets", title: "HUD Widgets", description: "Clock and status overlays over the live game.", mod: "acme.shipworks", kind: "hud", interactive: false, hub: true, open: true, loadState: "loaded", fixture: true },
-    { id: "acme.cargo/cargo", title: "Cargo Manifest", description: "Sortable inventory with a live mass budget.", mod: "acme.cargo", kind: "menu", interactive: true, hub: true, open: false, focused: false, loadState: "loaded", fixture: true },
+    // targetVersion newer than any real OSF UI — with fixtures on, the rail
+    // head shows the "needs update" badge next to the version number.
+    { id: "acme.cargo/cargo", title: "Cargo Manifest", description: "Sortable inventory with a live mass budget.", mod: "acme.cargo", kind: "menu", interactive: true, hub: true, open: false, focused: false, loadState: "loaded", targetVersion: "99.0.0", fixture: true },
     { id: "acme.atlas/atlas", title: "Star Atlas", description: "Annotated survey routes and anomalies by system.", mod: "acme.atlas", kind: "menu", interactive: true, hub: true, open: false, focused: false, loadState: "failed", fixture: true },
     { id: "acme.vitals/vitals", title: "Vitals Ring", description: "O2, health and affliction indicators.", mod: "acme.vitals", kind: "hud", interactive: false, hub: true, open: false, loadState: "loaded", fixture: true },
   ];
@@ -281,9 +283,9 @@
       .map((v) => Object.assign({ focused: false }, v)) }, requestId);
   }
 
-  // Mirrors SettingsModule subscribe-on-read (protocol 0.3): settings.get
+  // Mirrors SettingsModule subscribe-on-read (protocol 1.0): settings.get
   // subscribes the page; committed values then push as settings.changed.
-  // Key-typed pushes carry the recomputed `conflicts` (protocol 0.5).
+  // Key-typed pushes carry the recomputed `conflicts` (protocol 1.0).
   let subscribed = false;
   function pushChanged(modId, key, value) {
     if (!subscribed) return;
@@ -476,7 +478,7 @@
           }, 400);
         } else {
           send("ui.error", { code: "unknown-command", message: "unknown command",
-            reason: "unknown command", command: String(cmd).slice(0, 128) }, rid);
+            command: String(cmd).slice(0, 128) }, rid);
         }
         break;
     }
@@ -622,7 +624,7 @@
   // expose window.osfui._mock.visibility(v) for exercising the hide path.
   setTimeout(async () => {
     send("runtime.ready", { game: "Starfield", plugin: "OSF UI",
-      version: await pluginVersion, bridgeVersion: "0.5", capabilities: CAPABILITIES });
+      version: await pluginVersion, bridgeVersion: "1.0", capabilities: CAPABILITIES });
     send("ui.visibility", { visible: true });
   }, 0);
 })();

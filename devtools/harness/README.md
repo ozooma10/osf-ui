@@ -34,13 +34,17 @@ Pages (the top bar cross-links them):
 Opening a page from `file://` also works — it just falls back to built-in
 sample data instead of fetching the shipped schemas.
 
-The Mods and Keybinds pages have a **1920×1080** top-bar toggle that renders
-the view in a game-true 1080p stage, scaled to fit the browser window. In this
-mode the harness's bar-clearing margins are dropped and the view uses its
-shipped in-game layout, so what you see is the exact 1080p composition
-(the dashed outline marks the screen edge). Add `?res=1080` to the URL to
-start in this mode. OSF Animation's page has the equivalent **1280×720**
-toggle — that view's actual in-game surface size.
+The Mods and Keybinds pages have a **1600×900** top-bar toggle that renders
+the view in a game-true 900p stage — the manifest (logical) resolution the
+views are authored against — scaled to fill the browser window exactly the
+way the game scales it to screen (`device_scale = outputHeight / 900`, so a
+1080p window shows it at the in-game 1.2×). In this mode the harness's
+bar-clearing margins are dropped and the view uses its shipped in-game
+layout, so what you see is the exact in-game composition and text size (the
+dashed outline marks the screen edge). This is the default; add `?res=off`
+to the URL (or click the toggle) for the old fluid fill-the-window mode.
+OSF Animation's page has the equivalent **1280×720** toggle — that view's
+actual in-game surface size.
 
 Style refinement loop: edit `data/OSFUI/views/osfui/<view>/style.css` or
 `views/shared/osfui.css`, then refresh the page (Ctrl+Shift+R to be safe) —

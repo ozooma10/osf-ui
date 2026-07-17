@@ -28,17 +28,20 @@
       border: 1px solid var(--osf-line-strong); border-radius: 2px; padding: 2px 8px; cursor: pointer;
     }
     .harness-bar button.on { color: var(--osf-accent); border-color: var(--osf-accent); }
-    /* Harness-only margins to clear the top bar — dropped in the 1080p stage,
-       where the view keeps its shipped in-game layout. */
+    /* Harness-only margins to clear the top bar — dropped in the reference
+       stage, where the view keeps its shipped in-game layout. */
     #stage { height: 100%; }
-    body:not(.res1080) .settings { height: calc(100% - 72px); margin-top: 44px; margin-bottom: 28px; }
-    /* Game-true 1920×1080 stage, scaled by script to fit the window. The scale
-       transform also makes the stage the containing block for the view's
-       fixed-position scrim/toasts, so they stay inside the 1080p frame. */
-    body.res1080 { background: #05070b; }
-    body.res1080 #stage {
+    body:not(.res900) .settings { height: calc(100% - 72px); margin-top: 44px; margin-bottom: 28px; }
+    /* Game-true 1600×900 stage — the manifest (logical) resolution every view
+       is authored against. In game the view lays out at this size and is
+       scaled up to the output resolution, so the script scales this stage to
+       fill the window the same way. The scale transform also makes the stage
+       the containing block for the view's fixed-position scrim/toasts, so
+       they stay inside the 900p frame. */
+    body.res900 { background: #05070b; }
+    body.res900 #stage {
       position: fixed; top: 30px; left: 0;
-      width: 1920px; height: 1080px;
+      width: 1600px; height: 900px;
       transform-origin: 0 0; overflow: hidden;
       outline: 1px dashed var(--osf-line-strong);
       background: radial-gradient(120% 100% at 50% 30%, #10161f 0%, #05070b 100%);
@@ -53,7 +56,7 @@
     <a href="osf.html">OSF Animation</a>
     <button id="mock-reset" type="button">Reset stored values</button>
     <button id="mock-fixtures" type="button" title="Show fictional sample panels/HUDs that exercise every catalog state (failed load, HUD live/hidden, …)"></button>
-    <button id="res-toggle" type="button" title="Render the view in a game-true 1920×1080 stage, scaled to fit the window">1920×1080</button>
+    <button id="res-toggle" type="button" title="Render the view in the game-true 1600×900 reference stage, scaled to fill the window like the game scales it to screen">1600×900</button>
     <span class="hint">Drop a settings/&lt;id&gt;.json here, or add ?schema=&lt;url&gt; — traffic logs to the console</span>
   </div>
 
@@ -124,19 +127,24 @@
     const stage = document.getElementById("stage");
     const resBtn = document.getElementById("res-toggle");
     const fitStage = () => {
-      if (!document.body.classList.contains("res1080")) { stage.removeAttribute("style"); return; }
+      if (!document.body.classList.contains("res900")) { stage.removeAttribute("style"); return; }
       const bar = 30;
-      const scale = Math.min(window.innerWidth / 1920, (window.innerHeight - bar) / 1080, 1);
+      // No upscale cap: the game upscales the 900-logical view to the output
+      // resolution (device_scale = outputHeight/900), so filling a 1080p
+      // window at 1.2× IS the in-game text size.
+      const scale = Math.min(window.innerWidth / 1600, (window.innerHeight - bar) / 900);
       stage.style.transform = `scale(${scale})`;
-      stage.style.left = `${Math.max(0, (window.innerWidth - 1920 * scale) / 2)}px`;
-      stage.style.top = `${bar + Math.max(0, (window.innerHeight - bar - 1080 * scale) / 2)}px`;
+      stage.style.left = `${Math.max(0, (window.innerWidth - 1600 * scale) / 2)}px`;
+      stage.style.top = `${bar + Math.max(0, (window.innerHeight - bar - 900 * scale) / 2)}px`;
     };
     resBtn.addEventListener("click", () => {
-      resBtn.classList.toggle("on", document.body.classList.toggle("res1080"));
+      resBtn.classList.toggle("on", document.body.classList.toggle("res900"));
       fitStage();
     });
     window.addEventListener("resize", fitStage);
-    if (new URLSearchParams(location.search).get("res") === "1080") resBtn.click();
+    // Reference stage is the default; ?res=off starts in the fluid
+    // fill-the-window mode instead.
+    if (new URLSearchParams(location.search).get("res") !== "off") resBtn.click();
   </script>
 </body>
 </html>
