@@ -9,11 +9,13 @@
 
         1. (optionally) configure + build the release variant
         2. `xmake install -o <staging>`  -> staging/SFSE/Plugins/OSFUI(.dll|/...)
-        3. copy the license/readme files a distribution must carry into the root
+        3. copy the license files a distribution must carry into
+           SFSE/Plugins/OSFUI/ (inside the plugin's own folder, so the game's
+           Data root stays clean)
         4. verify the required files are present
         5. zip <staging> -> dist/OSF-UI-v<version>[-tag][-null].zip
 
-    The archive root contains `SFSE/` (+ the root docs), which is exactly the
+    The archive root contains `SFSE/` + `Scripts/`, which is exactly the
     structure MO2 / Vortex expect for a Starfield SFSE plugin: install it and it
     maps onto the game Data folder.
 
@@ -171,18 +173,22 @@ try {
             Remove-Item -Force
     }
 
-    # --- root docs the distribution must carry ----------------------------
+    # --- license docs the distribution must carry -------------------------
     # LICENSE + EXCEPTIONS are load-bearing: the GPL-3.0 section-7 linking
     # exception in EXCEPTIONS is what lets the mod ship proprietary Ultralight.
-    # README (user-facing overview) and CREDITS (attribution, incl. the
-    # "inspired by" credits) ship alongside them.
-    Step "Adding root docs (LICENSE, EXCEPTIONS, README.md, CREDITS.md)"
-    foreach ($doc in 'LICENSE', 'EXCEPTIONS', 'README.md', 'CREDITS.md') {
+    # CREDITS carries the attribution (incl. the "inspired by" credits).
+    # They live INSIDE the plugin's own data folder -- the archive root maps
+    # onto the game's Data\, and loose LICENSE/README files there would
+    # clutter every install. SFSE\Plugins\OSFUI\ already carries the
+    # Ultralight license folder, so ours sits next to it.
+    $docDest = Join-Path $Staging 'SFSE\Plugins\OSFUI'
+    Step "Adding license docs (LICENSE, EXCEPTIONS, CREDITS.md -> SFSE\Plugins\OSFUI\)"
+    foreach ($doc in 'LICENSE', 'EXCEPTIONS', 'CREDITS.md') {
         $src = Join-Path $RepoRoot $doc
         if (Test-Path $src) {
-            Copy-Item $src (Join-Path $Staging $doc) -Force
+            Copy-Item $src (Join-Path $docDest $doc) -Force
         } else {
-            Warn "root doc '$doc' not found -- omitted from the archive."
+            Warn "doc '$doc' not found -- omitted from the archive."
         }
     }
 
@@ -193,6 +199,9 @@ try {
         'SFSE\Plugins\OSFUI\config.json',
         'SFSE\Plugins\OSFUI\vanillakeys.json',       # vanilla-keybinds defaults table (runtime loads it at boot)
         'SFSE\Plugins\OSFUI\settings\osfui.json',    # OSF UI's own Mod Settings schema
+        'SFSE\Plugins\OSFUI\LICENSE',                # GPL-3.0 text (required to distribute)
+        'SFSE\Plugins\OSFUI\EXCEPTIONS',             # GPL 7 linking exception (legalizes bundling Ultralight)
+        'SFSE\Plugins\OSFUI\CREDITS.md',             # attribution
         'Scripts\OSFUI.pex'   # Papyrus surface (authoring-settings.md "From Papyrus")
     )
     if ($WithUltralight) {
