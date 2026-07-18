@@ -26,10 +26,16 @@ namespace OSFUI
 		// menu-mode model; do not build pause logic on it yet.
 		[[nodiscard]] static std::int32_t OpenMenuCount();
 
+		// The dev console is open (tracked off its open/close edges, same as
+		// the PauseMenu edge above). Feeds MenuMode::AnyGameMenuOpen — the
+		// console is kModal-clear so the flag walk alone misses it. Any thread.
+		[[nodiscard]] static bool ConsoleOpen();
+
 	private:
 		MenuEventSink() = default;
 
 		static MenuEventSink     s_instance;
 		static std::atomic_int32_t s_openMenus;
+		static std::atomic_bool  s_consoleOpen;
 	};
 }

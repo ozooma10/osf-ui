@@ -1261,9 +1261,9 @@ namespace OSFUI
 				inGameMenu = MenuMode::AnyGameMenuOpen();
 			}
 			if (*inGameMenu) {
-				if (Log::DevMode()) {
-					REX::DEBUG("Runtime: hotkey {}.{} dropped (game menu open)", a_mod, a_key);
-				}
+				// INFO on purpose: rare (a bound key inside a menu/console), and
+				// the decisive triage line for "my hotkey (didn't) fire" reports.
+				REX::INFO("Runtime: hotkey {}.{} dropped (game menu open)", a_mod, a_key);
 				return;
 			}
 			// All delivery channels (mcm-design.md §9): C ABI subscribers
@@ -1277,9 +1277,7 @@ namespace OSFUI
 			// Third delivery channel (mcm-design.md §8.4): registered Papyrus
 			// callbacks, queued onto the VM's async call stack.
 			API::Papyrus::OnHotkey(a_mod, a_key);
-			if (Log::DevMode()) {
-				REX::DEBUG("Runtime: hotkey fired for {}.{}", a_mod, a_key);
-			}
+			REX::INFO("Runtime: hotkey fired for {}.{}", a_mod, a_key);
 		});
 	}
 

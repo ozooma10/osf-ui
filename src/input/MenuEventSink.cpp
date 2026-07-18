@@ -8,6 +8,7 @@ namespace OSFUI
 {
 	MenuEventSink       MenuEventSink::s_instance;
 	std::atomic_int32_t MenuEventSink::s_openMenus{ 0 };
+	std::atomic_bool    MenuEventSink::s_consoleOpen{ false };
 
 	bool MenuEventSink::Install()
 	{
@@ -29,6 +30,14 @@ namespace OSFUI
 		// either way; the config.pauseMenuEntry gate lives in Runtime::Tick.
 		if (std::string_view{ a_event.menuName } == "PauseMenu") {
 			PauseMenuEntry::NotifyPauseMenu(a_event.opening);
+		}
+
+		// Console edge for the hotkey gameplay gate (MenuMode). INFO on purpose:
+		// rare, and it is the decisive line when triaging "my hotkey fired /
+		// didn't fire while the console was up" from a default (non-dev) log.
+		if (std::string_view{ a_event.menuName } == "Console") {
+			s_consoleOpen.store(a_event.opening, std::memory_order_relaxed);
+			REX::INFO("MenuEventSink: console {}", a_event.opening ? "opened" : "closed");
 		}
 
 		if (a_event.opening) {
@@ -61,5 +70,10 @@ namespace OSFUI
 	std::int32_t MenuEventSink::OpenMenuCount()
 	{
 		return s_openMenus.load(std::memory_order_relaxed);
+	}
+
+	bool MenuEventSink::ConsoleOpen()
+	{
+		return s_consoleOpen.load(std::memory_order_relaxed);
 	}
 }
