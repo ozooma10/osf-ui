@@ -23,8 +23,8 @@ export const COMMITTED_OUT = join(REPO, 'data', 'OSFUI', 'views');
 // untouched; 'bundle' builds main.tsx through Vite. Flipping one view at a time
 // is what keeps each migration phase independently revertable.
 export const VIEWS = [
-  { mod: 'osfui', name: 'keybinds', mode: 'verbatim' },
-  { mod: 'osfui', name: 'settings', mode: 'verbatim' },
+  { mod: 'osfui', name: 'keybinds', mode: 'bundle' },
+  { mod: 'osfui', name: 'settings', mode: 'bundle' },
 ];
 
 // Every file this build owns. verify-output asserts the emitted set is exactly
