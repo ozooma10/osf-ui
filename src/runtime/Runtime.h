@@ -80,6 +80,10 @@ namespace OSFUI
 		// overlay is up (the overlay is dismissed so it doesn't hide the console).
 		// Runs on the window-message thread.
 		bool OnHostKey(std::uint32_t a_vkCode, bool a_down);
+		// Called by WebView2's AcceleratorKeyPressed hook on its STA worker.
+		// Returns true only for framework-owned keys; ordinary typing remains
+		// unhandled so Chromium receives real Win32 keyboard and IME input.
+		bool OnNativeAcceleratorKey(std::uint32_t a_vkCode, bool a_down);
 
 		// Called by the WndProc hook for each OS text character (WM_CHAR/
 		// WM_UNICHAR), as a finished Unicode scalar value — layout-, dead-key-,
@@ -318,7 +322,7 @@ namespace OSFUI
 		std::string                   _captureMod;    // main-thread: mod owning the setting being rebound
 		std::string                   _captureKey;    // main-thread: which setting (e.g. "toggleKey")
 		std::string                   _captureRequestId;  // main-thread: arming request's id, echoed on settings.captured
-		KeyCode                       _captureUpVk{ kInvalidKeyCode };  // window-thread only
+		std::atomic<KeyCode>          _captureUpVk{ kInvalidKeyCode };
 
 		std::atomic_bool              _visible{ false };
 		bool                          _initialized{ false };

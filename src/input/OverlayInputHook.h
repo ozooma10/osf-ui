@@ -24,6 +24,9 @@ namespace OSFUI
 	// toggle key (consumed so it never reaches the game).
 	namespace OverlayInputHook
 	{
+		// Private message posted by a renderer worker when native child focus
+		// must return to Starfield's window-message thread.
+		inline constexpr std::uint32_t kRestoreGameFocusMessage = 0x8049;
 		// Finds the game's main top-level window for the current process and
 		// installs the WndProc subclass. Safe to call once game UI exists
 		// (kPostPostDataLoad). Returns false (and logs) if no window is found

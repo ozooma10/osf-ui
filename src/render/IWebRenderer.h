@@ -120,6 +120,7 @@ namespace OSFUI
 		// Multi-view backends honor it; single-view backends ignore it. No-op if
 		// the id is not loaded. Default no-op for backends without views.
 		virtual void SetActiveView(std::string_view /*a_id*/) {}
+		[[nodiscard]] virtual bool SupportsMultipleViews() const { return true; }
 
 		// Resizes the view surface(s). Multi-view backends resize every hosted
 		// view to the same output size so their frames composite 1:1.
@@ -178,6 +179,17 @@ namespace OSFUI
 		// no-op for backends without a JS engine.
 		using CursorChangeHandler = std::function<void(CursorShape a_shape)>;
 		virtual void SetCursorChangeHandler(CursorChangeHandler) {}
+
+		// Backends such as WebView2 receive keyboard/IME through a real focused
+		// native child window rather than InjectKeyEvent/InjectCharEvent. The host
+		// uses this seam to move focus on overlay open/close, while the backend's
+		// AcceleratorKeyPressed hook delegates framework-owned keys (toggle, Esc,
+		// key capture) back to the runtime. The callback returns true when Chromium
+		// must mark that accelerator handled.
+		using NativeAcceleratorHandler = std::function<bool(std::uint32_t a_vkCode, bool a_down)>;
+		virtual void SetNativeAcceleratorHandler(NativeAcceleratorHandler) {}
+		virtual void SetNativeKeyboardFocus(bool /*a_focused*/) {}
+		[[nodiscard]] virtual bool UsesNativeKeyboardFocus() const { return false; }
 
 		// Delivers one keyboard transition into the web view. a_vkCode is a
 		// Windows virtual-key code (the space Starfield ButtonEvents carry).

@@ -25,6 +25,7 @@
 #include "runtime/VanillaKeys.h"
 #include "render/NullWebRenderer.h"
 #include "render/UltralightWebRenderer.h"
+#include "render/WebView2WebRenderer.h"
 
 namespace OSFUI
 {
@@ -141,6 +142,11 @@ namespace OSFUI
 			if (toLoad.empty()) {
 				toLoad.push_back(_config.view);
 			}
+			if (!_renderer->SupportsMultipleViews() && toLoad.size() > 1) {
+				REX::WARN("Runtime: renderer '{}' supports one view in this phase; loading only default '{}'",
+					_renderer->Name(), _config.view);
+				toLoad.assign(1, _config.view);
+			}
 			std::vector<std::string> bridgeViews;
 			for (const auto& id : toLoad) {
 				if (const auto* m = _views.Find(id); m && m->permissions.nativeBridge) {
@@ -238,6 +244,10 @@ namespace OSFUI
 		// close the top menu, or delegate to a back-owning view (osfui.handleBack).
 		// Extracted so a live key-rebind (osfui.toggleKey) can re-apply it.
 		ApplyToggleKey();
+		_renderer->SetNativeAcceleratorHandler(
+			[this](std::uint32_t a_vkCode, bool a_down) {
+				return OnNativeAcceleratorKey(a_vkCode, a_down);
+			});
 
 		// Keyboard routing into the web view, gated by capture state (Phase 4).
 		_input.SetWebRouting(
@@ -520,6 +530,11 @@ namespace OSFUI
 				REX::INFO("Runtime: plugin RegisterView('{}') — already a registered surface, left untouched", id);
 				continue;
 			}
+			if (!_renderer->SupportsMultipleViews()) {
+				REX::WARN("Runtime: plugin RegisterView('{}') refused — renderer '{}' is single-view",
+					id, _renderer->Name());
+				continue;
+			}
 			const auto* m = _views.Find(id);
 			if (!m) {
 				REX::WARN("Runtime: plugin RegisterView('{}') ignored — no views/{}/manifest.json was discovered at boot (ids are qualified '<author>.<modname>/<view>'; is the view folder installed?)", id, id);
@@ -581,6 +596,10 @@ namespace OSFUI
 		// Visibility side-effects are owned here rather than routed through a change-guarded helper (which would drop the compositor push on the no-change startup path).
 		const bool visible = _menus.DesiredVisible();
 		const bool wasVisible = _visible.exchange(visible);
+		// WebView2's keyboard model is real Win32 focus. Its worker moves focus
+		// into Chromium on capture and asks the game WndProc to restore focus on
+		// close; injected key/char events remain unused for that backend.
+		_renderer->SetNativeKeyboardFocus(visible && _captureInput.load());
 		if (_compositor) {
 			if (visible && !wasVisible) {
 				// Closed->open edge: DEFER the reveal. The compositor redraws
@@ -858,7 +877,8 @@ namespace OSFUI
 			}
 			return true;
 		}
-		if (_captureUpVk != kInvalidKeyCode && a_vkCode == _captureUpVk && !a_down) {
+		const auto captureUpVk = _captureUpVk.load();
+		if (captureUpVk != kInvalidKeyCode && a_vkCode == captureUpVk && !a_down) {
 			_captureUpVk = kInvalidKeyCode;
 			return true;
 		}
@@ -898,6 +918,17 @@ namespace OSFUI
 		return consume;
 	}
 
+
+	bool Runtime::OnNativeAcceleratorKey(std::uint32_t a_vkCode, bool a_down)
+	{
+		const bool frameworkOwned =
+			_captureArmed.load() ||
+			(_captureUpVk.load() != kInvalidKeyCode && a_vkCode == _captureUpVk.load()) ||
+			a_vkCode == _toggleKey ||
+			(_devReloadKey != kInvalidKeyCode && a_vkCode == _devReloadKey) ||
+			(a_vkCode == 0x1B && IsInputCaptured());
+		return frameworkOwned && OnHostKey(a_vkCode, a_down);
+	}
 	void Runtime::OnHostChar(std::uint32_t a_codepoint)
 	{
 		if (!IsInputCaptured() || !_renderer) {
@@ -1451,15 +1482,8 @@ namespace OSFUI
 		});
 
 		// First read-only game-data provider: the in-game calendar (date/time).
-		// Bridge handlers dispatch from Tick()/Update() on the game's Main thread,
-		// so reading game singletons here is safe. Calendar is null before a save
-		// is loaded (main menu) — reported as available:false. A view polls this
-		// (e.g. once a second) and renders the result. Likely graduates to its own
-		// IUiModule as game-data grows (architecture.md "Feature modules").
+		// Bridge handlers dispatch from Tick()/Update() on the game's Main thread, so reading game singletons here is safe.
 		a_bridge.RegisterCommand("game.get", [](const nlohmann::json&, MessageBridge& a_b) {
-			// game.data nests each provider under its own object (api-freeze-plan
-			// item 11): future providers add SIBLINGS of `calendar` instead of
-			// colliding at the payload root.
 			nlohmann::json calendar = nlohmann::json::object();
 			if (const auto* cal = RE::Calendar::GetSingleton()) {
 				calendar["available"] = true;
@@ -1674,6 +1698,19 @@ namespace OSFUI
 		}
 		if (_config.renderer == "mock") {
 			return std::make_unique<MockWebRenderer>();
+		}
+		if (_config.renderer == "webview2") {
+#if defined(OSFUI_WITH_WEBVIEW2)
+			if (!WebView2WebRenderer::RuntimeAvailable()) {
+				REX::ERROR("Runtime: WebView2 evergreen runtime is unavailable; using null renderer");
+				return std::make_unique<NullWebRenderer>();
+			}
+			return std::make_unique<WebView2WebRenderer>();
+#else
+			REX::WARN("Runtime: renderer 'webview2' requested but this build was compiled without "
+					  "with_webview2; using null renderer");
+			return std::make_unique<NullWebRenderer>();
+#endif
 		}
 		if (_config.renderer == "ultralight") {
 #if defined(OSFUI_WITH_ULTRALIGHT)

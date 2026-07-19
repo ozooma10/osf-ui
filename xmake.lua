@@ -20,10 +20,60 @@ option("with_ultralight", function()
     set_showmenu(true)
     set_description("Enable the Ultralight web renderer backend (requires ULTRALIGHT_SDK_DIR env var)")
 end)
+-- Standalone WebView2 composition/capture spike. This deliberately remains an
+-- opt-in executable and does not alter the plugin or its Ultralight backend.
+-- Enable with: xmake f --with_webview2_poc=true
+-- The Microsoft.Web.WebView2 NuGet package may be unpacked to
+-- external/webview2, or WEBVIEW2_SDK_DIR may point at its package root.
+option("with_webview2_poc", function()
+    set_default(false)
+    set_showmenu(true)
+    set_description("Build the standalone WebView2 composition/capture proof of concept")
+end)
+-- In-process WebView2 renderer backend. Opt-in until the Phase 2 in-game gates pass.
+-- Uses only the static loader from the Microsoft.Web.WebView2 NuGet package;
+-- the evergreen runtime remains an OS dependency.
+option("with_webview2", function()
+    set_default(false)
+    set_showmenu(true)
+    set_description("Enable the experimental in-process WebView2 renderer backend")
+end)
 
 -- JSON for config, view manifests, and the message bridge
 add_requires("nlohmann_json")
 
+if has_config("with_webview2_poc") then
+    target("osfui-webview2-poc")
+        set_kind("binary")
+        set_default(false)
+        set_languages("c++23")
+        set_warnings("allextra")
+        add_rules("mode.debug", "mode.releasedbg")
+        add_files("tools/webview2_poc/**.cpp")
+        add_headerfiles("tools/webview2_poc/**.h")
+        add_syslinks(
+            "d3d11", "dxgi", "d3dcompiler", "dcomp", "windowsapp",
+            "runtimeobject", "CoreMessaging", "shlwapi", "shell32", "ole32", "user32",
+            "gdi32", "version")
+        add_ldflags("/SUBSYSTEM:WINDOWS", { force = true })
+
+        on_load(function(target)
+            local sdk = os.getenv("WEBVIEW2_SDK_DIR")
+            if not sdk or sdk == "" then
+                sdk = path.join(os.projectdir(), "external", "webview2")
+            end
+            local native = path.join(sdk, "build", "native")
+            local header = path.join(native, "include", "WebView2.h")
+            local loader = path.join(native, "x64", "WebView2LoaderStatic.lib")
+            if not os.isfile(header) or not os.isfile(loader) then
+                raise("OSFUI WebView2 POC: unpack Microsoft.Web.WebView2 into " ..
+                    "external/webview2 or set WEBVIEW2_SDK_DIR to the NuGet package root")
+            end
+            target:add("includedirs", path.join(native, "include"))
+            target:add("linkdirs", path.join(native, "x64"))
+            target:add("links", "WebView2LoaderStatic")
+        end)
+end
 -- define targets
 -- target name == repo folder == MO2 mod folder (deploy goes to XSE_SF_MODS_PATH\<target name>)
 target("OSF UI")
@@ -82,6 +132,30 @@ target("OSF UI")
                dependfile = target:dependfile("osfui_data_deploy") })
     end)
 
+    if has_config("with_webview2") then
+        add_defines("OSFUI_WITH_WEBVIEW2=1")
+        add_syslinks(
+            "d3d11", "dcomp", "windowsapp", "runtimeobject", "CoreMessaging",
+            "shlwapi", "user32", "gdi32", "version")
+        on_load(function(target)
+            local sdk = os.getenv("WEBVIEW2_SDK_DIR")
+            if not sdk or sdk == "" then
+                sdk = path.join(os.projectdir(), "external", "webview2")
+            end
+            local native = path.join(sdk, "build", "native")
+            local header = path.join(native, "include", "WebView2.h")
+            local loader = path.join(native, "x64", "WebView2LoaderStatic.lib")
+            if not os.isfile(header) or not os.isfile(loader) then
+                raise("OSFUI WebView2: unpack Microsoft.Web.WebView2 into " ..
+                    "external/webview2 or set WEBVIEW2_SDK_DIR to the NuGet package root")
+            end
+            target:add("includedirs", path.join(native, "include"))
+            target:add("linkdirs", path.join(native, "x64"))
+            target:add("links", "WebView2LoaderStatic")
+        end)
+    else
+        remove_files("src/render/WebView2WebRenderer.cpp")
+    end
     if has_config("with_ultralight") then
         add_defines("OSFUI_WITH_ULTRALIGHT=1")
         on_load(function(target)

@@ -167,6 +167,9 @@ namespace OSFUI::OverlayInputHook
 			}
 
 			switch (a_msg) {
+			case kRestoreGameFocusMessage:
+				::SetFocus(a_hwnd);
+				return 0;
 			case WM_KEYDOWN:
 			case WM_SYSKEYDOWN:
 			{
