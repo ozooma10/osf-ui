@@ -20,11 +20,13 @@ export interface ImageRowProps {
   height: number | undefined;
   /** tr("imageRejected", …) — passed in so this file stays localiser-free. */
   rejectedText: string;
+  /** `visibleWhen` said no — see the same prop on Note. */
+  hiddenCond: boolean;
 }
 
-export function ImageRow({ src, caption, height, rejectedText }: ImageRowProps) {
+export function ImageRow({ src, caption, height, rejectedText, hiddenCond }: ImageRowProps) {
   return (
-    <figure class="osf-figure">
+    <figure class={hiddenCond ? 'osf-figure hidden-cond' : 'osf-figure'}>
       {src ? (
         <img
           class="osf-image"

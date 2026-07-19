@@ -28,11 +28,24 @@ export interface NoteProps {
   style: unknown;
   /** Untrusted. Rendered through the micro-markdown grammar. */
   text: unknown;
+  /**
+   * `visibleWhen` said no. Adds `hidden-cond` (CSS `display:none`) rather than
+   * unmounting: padnav treats a zero-sized rect as invisible and skips it
+   * (src/legacy/padnav.js:88-89), so hiding by class and hiding by removal are
+   * equivalent to it — and the class is what ships today.
+   */
+  hiddenCond: boolean;
 }
 
-export function Note({ style, text }: NoteProps) {
+export function Note({ style, text, hiddenCond }: NoteProps) {
   return (
-    <div class={`osf-note osf-note--${noteStyle(style)}`}>
+    <div
+      class={
+        hiddenCond
+          ? `osf-note osf-note--${noteStyle(style)} hidden-cond`
+          : `osf-note osf-note--${noteStyle(style)}`
+      }
+    >
       {/* `item.text || ""` — a note with no text renders as an empty callout
           rather than the string "undefined" (main.legacy.js:629). */}
       <Inline text={text == null ? '' : text} />
