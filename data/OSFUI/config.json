@@ -12,5 +12,6 @@
   "view": "osfui/settings",
   "views": ["osfui/settings", "osfui/keybinds"],
   "devMode": false,
-  "devReloadKey": "F11"
+  "devReloadKey": "F11",
+  "benchStats": true
 }

@@ -22,7 +22,7 @@ namespace OSFUI
 		// mutates these fields live (they double as pre-replay boot defaults,
 		// so they MUST equal the schema defaults).
 		std::string toggleKey{ "F10" };  // key name -> Windows VK code (ResolveKeyName); consumed by the WndProc hook, verified in-game
-		std::string renderer{ "mock" };    // "null" | "mock" | "ultralight"
+		std::string renderer{ "mock" };    // "null" | "mock" | "ultralight" | "webview2" (out-of-process host) | "webview2-inproc" (diagnostic; needs MO2 blacklist workaround)
 		std::string compositor{ "null" };  // "null" | "d3d12" (d3d12 draws the overlay at present time)
 		std::string inputSource{ "none" }; // "none" | "ui" (WndProc subclass: toggle key + input capture; see input/OverlayInputHook)
 		bool        captureInput{ true };  // when visible, route input to the web view and block the game from acting on it (needs inputSource="ui")
@@ -78,6 +78,10 @@ namespace OSFUI
 		// When empty, only `view` is loaded. Missing ids are skipped.
 		std::vector<std::string> views;
 		bool        devMode{ false };  // release-safe default; the shipped config / a dev override turns on verbose logging
+		// Renderer-benchmark stats (docs/renderer-benchmark.md): periodic
+		// "Bench:" lines with frame/tick/present/produce timing percentiles.
+		// Dev knob for A/B measurement runs; off by default.
+		bool        benchStats{ false };
 		// Dev view-reload key (mcm-design.md §12.1): with devMode on, pressing
 		// this reloads the top open menu's URL in place — the fast alt-tab
 		// iteration loop for view assets (schema edits hot-reload on their

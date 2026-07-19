@@ -34,6 +34,13 @@ namespace OSFUI
 		// has observed the real target, preventing a manifest-sized first frame.
 		[[nodiscard]] virtual bool IsOutputSizeKnown() const { return true; }
 
+		// GPU transport (out-of-process WebView2 host): adopt a shared-texture
+		// ring; subsequent Submit() calls may carry sharedSlot frames that live
+		// in it. The compositor takes ownership of the handles (see
+		// SharedRingDesc). Default no-op — CPU-only compositors then simply
+		// ignore sharedSlot frames.
+		virtual void SetSharedRing(const SharedRingDesc& /*a_desc*/) {}
+
 		[[nodiscard]] virtual std::string_view Name() const = 0;
 	};
 }

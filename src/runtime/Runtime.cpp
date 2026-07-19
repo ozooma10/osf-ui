@@ -8,6 +8,7 @@
 #include "api/PapyrusApi.h"
 #include "composite/D3D12Compositor.h"
 #include "composite/NullCompositor.h"
+#include "core/BenchStats.h"
 #include "core/Log.h"
 #include "input/ControlLayer.h"
 #include "input/EngineInput.h"
@@ -25,6 +26,7 @@
 #include "runtime/VanillaKeys.h"
 #include "render/NullWebRenderer.h"
 #include "render/UltralightWebRenderer.h"
+#include "render/WebView2HostWebRenderer.h"
 #include "render/WebView2WebRenderer.h"
 
 namespace OSFUI
@@ -47,6 +49,10 @@ namespace OSFUI
 
 		_config = Config::Load(Paths::ConfigFile());
 		Log::SetDevMode(_config.devMode);
+		bench::SetEnabled(_config.benchStats);
+		if (_config.benchStats) {
+			REX::INFO("Bench: stats enabled (config benchStats) — see docs/renderer-benchmark.md");
+		}
 
 		if (!_config.enabled) {
 			REX::INFO("Runtime: disabled via config; nothing further will be initialized");
@@ -116,6 +122,15 @@ namespace OSFUI
 			_compositor = std::make_unique<NullCompositor>();
 			_compositor->Initialize();
 		}
+		// GPU frame transport (out-of-process WebView2 host): when the renderer
+		// announces a shared-texture ring, hand it to the compositor, which
+		// owns the handles from then on. Fires on the game thread (renderer
+		// Update()); no-op wiring for CPU-only renderer/compositor pairs.
+		_renderer->SetSharedRingHandler([this](const SharedRingDesc& a_desc) {
+			if (_compositor) {
+				_compositor->SetSharedRing(a_desc);
+			}
+		});
 		// Size the view to the real output once the compositor knows it, so
 		// the page renders aspect-correct instead of stretched.
 		_compositor->SetOutputResizeCallback([this](std::uint32_t a_w, std::uint32_t a_h) { OnOutputResized(a_w, a_h); });
@@ -394,8 +409,16 @@ namespace OSFUI
 		DriveRecovery();
 		// Dev view-reload keypress (devMode): reload the top open menu now.
 		DriveDevReload();
-		_renderer->Update(a_deltaSeconds);
-		SubmitFrameIfVisible();
+		{
+			bench::Scope probe(bench::Channel::kTick);
+			// Out-of-process backends mirror the accelerator state so their
+			// host process can decide `handled` synchronously; pushed every
+			// tick, backends diff and forward only changes (default no-op).
+			_renderer->SetAcceleratorKeys(_toggleKey, _devReloadKey,
+				IsInputCaptured(), _captureArmed.load(), _captureUpVk.load());
+			_renderer->Update(a_deltaSeconds);
+			SubmitFrameIfVisible();
+		}
 	}
 
 	void Runtime::EnqueueMenuRequest(MenuReq a_req)
@@ -656,6 +679,7 @@ namespace OSFUI
 		}
 		if (visible != wasVisible) {
 			REX::INFO("Runtime: overlay visibility -> {} (capture={})", visible, _captureInput.load());
+			bench::SetVisible(visible);
 		}
 
 		// Push the surface catalog to catalog subscribers (deduped: no-op when
@@ -1701,14 +1725,33 @@ namespace OSFUI
 		}
 		if (_config.renderer == "webview2") {
 #if defined(OSFUI_WITH_WEBVIEW2)
+			// Out-of-process host backend: the ONLY WebView2 variant that works
+			// under Mod Organizer 2 without the manual executable-blacklist
+			// workaround (USVFS injection crashes in-process-spawned browsers).
+			if (!WebView2HostWebRenderer::RuntimeAvailable()) {
+				REX::ERROR("Runtime: WebView2 evergreen runtime is unavailable; using null renderer");
+				return std::make_unique<NullWebRenderer>();
+			}
+			return std::make_unique<WebView2HostWebRenderer>();
+#else
+			REX::WARN("Runtime: renderer 'webview2' requested but this build was compiled without "
+					  "with_webview2; using null renderer");
+			return std::make_unique<NullWebRenderer>();
+#endif
+		}
+		if (_config.renderer == "webview2-inproc") {
+#if defined(OSFUI_WITH_WEBVIEW2)
+			// Diagnostic escape hatch: the original in-process backend (CPU
+			// full-frame readback; requires msedgewebview2.exe on MO2's
+			// executable blacklist).
 			if (!WebView2WebRenderer::RuntimeAvailable()) {
 				REX::ERROR("Runtime: WebView2 evergreen runtime is unavailable; using null renderer");
 				return std::make_unique<NullWebRenderer>();
 			}
 			return std::make_unique<WebView2WebRenderer>();
 #else
-			REX::WARN("Runtime: renderer 'webview2' requested but this build was compiled without "
-					  "with_webview2; using null renderer");
+			REX::WARN("Runtime: renderer 'webview2-inproc' requested but this build was compiled "
+					  "without with_webview2; using null renderer");
 			return std::make_unique<NullWebRenderer>();
 #endif
 		}

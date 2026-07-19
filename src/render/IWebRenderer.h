@@ -98,6 +98,33 @@ namespace OSFUI
 		// frameIndex advanced; consumers keeping their own staging copy must
 		// union rects across frames they skipped.
 		DirtyRect                     dirty{};
+		// GPU transport (out-of-process WebView2 host): when >= 0, `pixels` is
+		// EMPTY and the frame lives in slot `sharedSlot` of the shared-texture
+		// ring the renderer previously announced via the SharedRingHandler.
+		// frameIndex doubles as the produce-fence value for that slot. CPU-only
+		// compositors must ignore such frames.
+		std::int32_t                  sharedSlot{ -1 };
+	};
+
+	// A cross-process shared-texture ring (produced by the out-of-process
+	// WebView2 host), announced by the renderer on the game thread. All
+	// handles are already valid IN THIS PROCESS (duplicated by the producer)
+	// and are OWNED BY THE CONSUMER once delivered: open them with
+	// ID3D12Device::OpenSharedHandle, then CloseHandle. Synchronization is a
+	// produce fence (wait for value == frameIndex before sampling a slot) and
+	// a consume fence (signal frameIndex after the GPU read completes, so the
+	// producer may rewrite the slot). A new announcement (higher generation)
+	// invalidates every prior slot.
+	struct SharedRingDesc
+	{
+		static constexpr std::size_t kSlots = 3;
+
+		void*         slotHandles[kSlots]{};
+		void*         produceFence{ nullptr };
+		void*         consumeFence{ nullptr };
+		std::uint32_t width{ 0 };
+		std::uint32_t height{ 0 };
+		std::uint64_t generation{ 0 };
 	};
 
 	// Renderer backend interface. Backends render web (or fake) content into a
@@ -190,6 +217,23 @@ namespace OSFUI
 		virtual void SetNativeAcceleratorHandler(NativeAcceleratorHandler) {}
 		virtual void SetNativeKeyboardFocus(bool /*a_focused*/) {}
 		[[nodiscard]] virtual bool UsesNativeKeyboardFocus() const { return false; }
+
+		// Out-of-process backends decide SYNCHRONOUSLY (in the host process)
+		// whether a key is framework-owned and must be withheld from the page,
+		// so the host needs a mirror of the runtime's accelerator state. The
+		// runtime pushes it every tick; backends diff and forward on change.
+		// Default no-op for in-process backends (they call the accelerator
+		// handler directly instead).
+		virtual void SetAcceleratorKeys(std::uint32_t /*a_toggleVk*/,
+			std::uint32_t /*a_devReloadVk*/, bool /*a_captured*/,
+			bool /*a_captureArmed*/, std::uint32_t /*a_captureUpVk*/) {}
+
+		// Announces (or replaces) the renderer's GPU shared-texture ring, on
+		// the game thread (drained from Update()). The runtime forwards it to
+		// the compositor, which owns the handles from then on (SharedRingDesc
+		// docs). Only fired by backends that produce sharedSlot frames.
+		using SharedRingHandler = std::function<void(const SharedRingDesc&)>;
+		virtual void SetSharedRingHandler(SharedRingHandler) {}
 
 		// Delivers one keyboard transition into the web view. a_vkCode is a
 		// Windows virtual-key code (the space Starfield ButtonEvents carry).

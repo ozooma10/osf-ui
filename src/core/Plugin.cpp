@@ -1,6 +1,7 @@
 #include "core/Plugin.h"
 
 #include "api/PapyrusApi.h"
+#include "core/BenchStats.h"
 #include "core/Version.h"
 #include "input/FocusMenu.h"
 #include "input/MenuEventSink.h"
@@ -44,7 +45,9 @@ namespace OSFUI::Plugin
 					REX::INFO("FrameTick: first per-frame task received from SFSE TaskInterface");
 				}
 
+				bench::Add(bench::Channel::kFrame, dt * 1000.0);
 				Runtime::Get().Tick(dt);
+				bench::FlushIfDue();
 			}
 
 			void Destroy() override

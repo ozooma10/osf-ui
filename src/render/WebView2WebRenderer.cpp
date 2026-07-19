@@ -7,6 +7,7 @@
 #include <deque>
 #include <unordered_set>
 
+#include "core/BenchStats.h"
 #include "core/Log.h"
 #include "input/OverlayInputHook.h"
 
@@ -361,6 +362,12 @@ namespace OSFUI
 						if (FAILED(result)) LogHr("CreateCompositionController", result);
 						return S_OK;
 					});
+			// Note: --no-sandbox via AdditionalBrowserArguments does NOT fix the
+			// Mod Organizer 2 crash (tested in-game 2026-07-19). The process that
+			// dies is the browser/broker process itself — which Chromium never
+			// sandboxes — with c0000005 at a heap address inside USVFS's injected
+			// trampoline (same code offset 0x..00b7 across runs). Only the MO2
+			// executable blacklist prevents the injection.
 			const auto hr = ::CreateCoreWebView2EnvironmentWithOptions(
 				nullptr, userData.c_str(), nullptr, callback.Get());
 			if (FAILED(hr)) {
@@ -690,8 +697,11 @@ namespace OSFUI
 				if (scratch.serial == 1)
 					REX::INFO("WebView2WebRenderer: first capture frame published "
 						"({}x{})", scratch.width, scratch.height);
-				statReadbackMs += std::chrono::duration<double, std::milli>(
+				const auto readbackMs = std::chrono::duration<double, std::milli>(
 					std::chrono::steady_clock::now() - readbackStart).count();
+				bench::Add(bench::Channel::kProduce, readbackMs);
+				bench::CountProduced();
+				statReadbackMs += readbackMs;
 				++statFrames;
 				if (statFrames == 120 || statFrames % 1800 == 0) {
 					REX::INFO("WebView2WebRenderer: capture stats — {} frames, "

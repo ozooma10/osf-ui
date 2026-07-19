@@ -37,6 +37,10 @@ namespace OSFUI
 		void SetVisible(bool a_visible) override;
 		void SetOutputResizeCallback(OutputResizeCallback a_callback) override;
 		[[nodiscard]] bool IsOutputSizeKnown() const override;
+		// GPU transport (out-of-process WebView2 host): adopt the shared ring;
+		// sharedSlot frames submitted afterwards are sampled directly on the
+		// present thread (produce/consume fence synchronized, no CPU upload).
+		void SetSharedRing(const SharedRingDesc& a_desc) override;
 
 		[[nodiscard]] std::string_view Name() const override { return "d3d12"; }
 

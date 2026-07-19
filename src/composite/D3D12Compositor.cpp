@@ -1,6 +1,7 @@
 #include "composite/D3D12Compositor.h"
 
 #include "composite/EngineD3D12.h"
+#include "core/BenchStats.h"
 #include "core/Log.h"
 
 // GDI-free Win32/D3D12 so the ERROR macro never collides with REX::ERROR.
@@ -207,6 +208,26 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		DirtyRect                 dirtyRegion{};
 		std::uint64_t             lastSubmittedIndex{ 0 };
 
+		// ---- GPU shared-ring transport (out-of-process WebView2 host) ----
+		// SetSharedRing (game thread) parks the announced ring here; the
+		// present thread adopts it lazily (EnsureSharedRing) because opening
+		// the handles needs the located engine device. Handles are owned by
+		// this compositor from SetSharedRing on.
+		std::mutex     sharedMutex;
+		SharedRingDesc sharedPending{};
+		bool           sharedDirty{ false };
+		// present-thread-only, opened on the ENGINE device:
+		ID3D12Resource* sharedSlots[SharedRingDesc::kSlots]{};
+		ID3D12Fence*    sharedProduce{ nullptr };
+		ID3D12Fence*    sharedConsume{ nullptr };
+		std::uint64_t   sharedGeneration{ 0 };
+		bool            sharedOpenFailed{ false };
+		// pending GPU frame (guarded by frameMutex, like the CPU staging):
+		bool          gpuMode{ false };
+		std::uint32_t gpuSlot{ 0 };
+		std::uint64_t gpuSerial{ 0 };
+		std::uint32_t gpuWidth{ 0 }, gpuHeight{ 0 };
+
 		// ---- shared GPU objects (created once) ----
 		ID3D12Fence*          fence{ nullptr };
 		HANDLE                fenceEvent{ nullptr };
@@ -223,9 +244,11 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			bool                 failed{ false };
 		};
 		PsoEntry              psoCache[kMaxPsoFormats]{};
-		ID3D12DescriptorHeap* srvHeap{ nullptr };  // shader-visible, 1 SRV (the texture)
+		// shader-visible: slot 0 = CPU overlay texture, 1..kSlots = shared ring
+		ID3D12DescriptorHeap* srvHeap{ nullptr };
 		ID3D12DescriptorHeap* rtvHeap{ nullptr };  // backbuffer RTVs
 		std::uint32_t         rtvStride{ 0 };
+		std::uint32_t         srvStride{ 0 };
 		ID3DBlob*             vsBlob{ nullptr };
 		ID3DBlob*             psBlob{ nullptr };
 
@@ -300,6 +323,14 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		{
 			g_overlay.store(nullptr);
 			WaitForGpuIdle();
+			ReleaseSharedRing();
+			{
+				std::scoped_lock lk(sharedMutex);
+				if (sharedDirty) {
+					CloseRingHandles(sharedPending);
+					sharedDirty = false;
+				}
+			}
 			for (auto& t : targets) {
 				ReleaseTarget(t);
 			}
@@ -344,6 +375,111 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		{
 			SafeRelease(a_t.swap);  // no cached backbuffers to release
 			a_t = Target{};
+		}
+
+		// ============ GPU shared-ring transport ============
+
+		static void CloseRingHandles(SharedRingDesc& a_desc)
+		{
+			for (auto*& handle : a_desc.slotHandles) {
+				if (handle) {
+					::CloseHandle(handle);
+					handle = nullptr;
+				}
+			}
+			if (a_desc.produceFence) {
+				::CloseHandle(a_desc.produceFence);
+				a_desc.produceFence = nullptr;
+			}
+			if (a_desc.consumeFence) {
+				::CloseHandle(a_desc.consumeFence);
+				a_desc.consumeFence = nullptr;
+			}
+		}
+
+		void ReleaseSharedRing()
+		{
+			for (auto*& slot : sharedSlots) {
+				SafeRelease(slot);
+			}
+			SafeRelease(sharedProduce);
+			SafeRelease(sharedConsume);
+		}
+
+		// Game thread. The compositor owns the handles from here on.
+		void SetSharedRing(const SharedRingDesc& a_desc)
+		{
+			std::scoped_lock lk(sharedMutex);
+			if (sharedDirty) {
+				CloseRingHandles(sharedPending);  // superseded before adoption
+			}
+			sharedPending = a_desc;
+			sharedDirty = true;
+			sharedOpenFailed = false;
+		}
+
+		// Present thread: adopt the latest announced ring. Returns true when a
+		// usable ring is open.
+		[[nodiscard]] bool EnsureSharedRing()
+		{
+			SharedRingDesc pending{};
+			{
+				std::scoped_lock lk(sharedMutex);
+				if (!sharedDirty) {
+					return sharedSlots[0] != nullptr && !sharedOpenFailed;
+				}
+				pending = sharedPending;
+				sharedPending = {};
+				sharedDirty = false;
+			}
+			// Old slots may still be referenced by in-flight draws.
+			WaitForGpuIdle();
+			ReleaseSharedRing();
+
+			auto* dev = engine.device;
+			bool ok = true;
+			for (std::size_t i = 0; i < SharedRingDesc::kSlots; ++i) {
+				if (!pending.slotHandles[i] ||
+					FAILED(dev->OpenSharedHandle(pending.slotHandles[i],
+						__uuidof(ID3D12Resource), reinterpret_cast<void**>(&sharedSlots[i])))) {
+					ok = false;
+					break;
+				}
+			}
+			if (ok && (!pending.produceFence ||
+				FAILED(dev->OpenSharedHandle(pending.produceFence,
+					__uuidof(ID3D12Fence), reinterpret_cast<void**>(&sharedProduce))))) {
+				ok = false;
+			}
+			if (ok && (!pending.consumeFence ||
+				FAILED(dev->OpenSharedHandle(pending.consumeFence,
+					__uuidof(ID3D12Fence), reinterpret_cast<void**>(&sharedConsume))))) {
+				ok = false;
+			}
+			CloseRingHandles(pending);
+			if (!ok) {
+				REX::ERROR("D3D12Compositor: OpenSharedHandle on the shared ring failed — "
+						   "GPU frames from the WebView2 host cannot be composited");
+				ReleaseSharedRing();
+				sharedOpenFailed = true;
+				return false;
+			}
+			sharedGeneration = pending.generation;
+			for (std::uint32_t i = 0; i < SharedRingDesc::kSlots; ++i) {
+				D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
+				srv.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+				srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+				srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+				srv.Texture2D.MipLevels = 1;
+				const D3D12_CPU_DESCRIPTOR_HANDLE handle{
+					srvHeap->GetCPUDescriptorHandleForHeapStart().ptr +
+					static_cast<SIZE_T>(1 + i) * srvStride
+				};
+				dev->CreateShaderResourceView(sharedSlots[i], &srv, handle);
+			}
+			REX::INFO("D3D12Compositor: shared ring adopted ({}x{}, generation {})",
+				pending.width, pending.height, pending.generation);
+			return true;
 		}
 
 		// ================= setup (Submit / tick thread) =================
@@ -440,15 +576,17 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				return false;
 			}
 
-			// Descriptor heaps.
+			// Descriptor heaps. SRV slot 0 is the CPU-upload overlay texture;
+			// slots 1..kSlots hold the shared-ring textures (GPU transport).
 			D3D12_DESCRIPTOR_HEAP_DESC srvDesc{};
 			srvDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-			srvDesc.NumDescriptors = 1;
+			srvDesc.NumDescriptors = 1 + SharedRingDesc::kSlots;
 			srvDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 			if (FAILED(dev->CreateDescriptorHeap(&srvDesc, __uuidof(ID3D12DescriptorHeap), reinterpret_cast<void**>(&srvHeap)))) {
 				REX::ERROR("D3D12Compositor: CreateDescriptorHeap(SRV) failed");
 				return false;
 			}
+			srvStride = dev->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
 			D3D12_DESCRIPTOR_HEAP_DESC rtvDesc{};
 			rtvDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
@@ -608,10 +746,24 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				return;
 			}
 
-			// Make sure the texture matches the latest frame dims; upload if a
-			// new frame arrived. EnsureTexture/Upload read the CPU staging
-			// buffer under the lock.
-			if (!EnsureTextureForFrame()) {
+			// Everything below is overlay-attributable present-thread cost:
+			// texture/upload management, fence waits, record + submit.
+			bench::Scope probe(bench::Channel::kPresent);
+
+			bool gpu = false;
+			{
+				std::scoped_lock lk(frameMutex);
+				gpu = gpuMode;
+			}
+			if (gpu) {
+				// GPU transport: sample the host's shared slot directly — no
+				// CPU staging, no upload.
+				if (!EnsureSharedRing()) {
+					return;
+				}
+			} else if (!EnsureTextureForFrame()) {
+				// Make sure the texture matches the latest frame dims; upload
+				// happens in RecordAndExecute from the CPU staging buffer.
 				return;  // no frame yet, or texture creation failed
 			}
 			if (!target->supported) {
@@ -646,8 +798,99 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				return;
 			}
 
-			RecordAndExecute(slot, *target, backIndex, pipeline);
+			if (gpu) {
+				RecordAndExecuteShared(slot, *target, backIndex, pipeline);
+			} else {
+				RecordAndExecute(slot, *target, backIndex, pipeline);
+			}
 			++cmdIndex;
+		}
+
+		// GPU-transport draw: fullscreen quad sampling the shared ring slot.
+		// The queue waits on the host's produce fence before the draw and
+		// signals the consume fence after it, so the host can neither be read
+		// too early nor rewrite the slot too soon. The shared textures are
+		// cross-API resources (simultaneous-access); no barriers on them.
+		void RecordAndExecuteShared(CmdSlot& a_slot, Target& a_target,
+			const std::uint32_t a_backIndex, ID3D12PipelineState* a_pso)
+		{
+			std::uint32_t ringSlot = 0;
+			std::uint64_t serial = 0;
+			{
+				std::scoped_lock lk(frameMutex);
+				ringSlot = gpuSlot;
+				serial = gpuSerial;
+			}
+			if (ringSlot >= SharedRingDesc::kSlots || !sharedSlots[ringSlot] || serial == 0) {
+				return;
+			}
+
+			ID3D12Resource* backbuffer = nullptr;
+			if (FAILED(a_target.swap->GetBuffer(a_backIndex, __uuidof(ID3D12Resource), reinterpret_cast<void**>(&backbuffer))) || !backbuffer) {
+				return;
+			}
+			const D3D12_CPU_DESCRIPTOR_HANDLE rtv{
+				rtvHeap->GetCPUDescriptorHandleForHeapStart().ptr + static_cast<SIZE_T>(a_target.rtvBase + a_backIndex) * rtvStride
+			};
+			engine.device->CreateRenderTargetView(backbuffer, nullptr, rtv);
+
+			a_slot.allocator->Reset();
+			a_slot.list->Reset(a_slot.allocator, a_pso);
+			auto* list = a_slot.list;
+
+			D3D12_RESOURCE_BARRIER barrier{};
+			barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+			barrier.Transition.pResource = backbuffer;
+			barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+			barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+			barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+			list->ResourceBarrier(1, &barrier);
+
+			ID3D12DescriptorHeap* heaps[]{ srvHeap };
+			list->SetDescriptorHeaps(1, heaps);
+			list->SetGraphicsRootSignature(rootSig);
+			const D3D12_GPU_DESCRIPTOR_HANDLE srv{
+				srvHeap->GetGPUDescriptorHandleForHeapStart().ptr +
+				static_cast<UINT64>(1 + ringSlot) * srvStride
+			};
+			list->SetGraphicsRootDescriptorTable(0, srv);
+
+			D3D12_VIEWPORT vp{ 0.0f, 0.0f, static_cast<float>(a_target.width), static_cast<float>(a_target.height), 0.0f, 1.0f };
+			D3D12_RECT scissor{ 0, 0, static_cast<LONG>(a_target.width), static_cast<LONG>(a_target.height) };
+			list->RSSetViewports(1, &vp);
+			list->RSSetScissorRects(1, &scissor);
+			list->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+			list->SetPipelineState(a_pso);
+			list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+			list->DrawInstanced(3, 1, 0, 0);
+
+			barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+			barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
+			list->ResourceBarrier(1, &barrier);
+			list->Close();
+
+			if (sharedProduce) {
+				engine.directQueue->Wait(sharedProduce, serial);
+			}
+			ID3D12CommandList* lists[]{ list };
+			engine.directQueue->ExecuteCommandLists(1, lists);
+			if (sharedConsume) {
+				engine.directQueue->Signal(sharedConsume, serial);
+			}
+			a_slot.fenceValue = nextFenceValue++;
+			engine.directQueue->Signal(fence, a_slot.fenceValue);
+			backbuffer->Release();
+
+			++drawnFrames;
+			if (!firstDrawLogged) {
+				firstDrawLogged = true;
+				REX::INFO("D3D12Compositor: FIRST OVERLAY DRAW (GPU shared-ring transport, "
+						  "slot {} serial {} -> {}x{} target)",
+					ringSlot, serial, a_target.width, a_target.height);
+			} else if ((drawnFrames % 1200) == 0) {
+				REX::DEBUG("D3D12Compositor: {} overlay draws ({} waited on busy slot, {} dropped on timeout)",
+					drawnFrames, waitedBusy, skippedBusy);
+			}
 		}
 
 		// Resize/create the overlay texture + per-slot upload buffers + SRV to
@@ -926,6 +1169,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				}
 			}
 			if (uploaded) {
+				bench::CountUploaded();
 				D3D12_TEXTURE_COPY_LOCATION src{};
 				src.pResource = a_slot.upload;
 				src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
@@ -1036,6 +1280,22 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			}
 		}
 
+		// GPU-transport submit: just remember which ring slot/serial to draw.
+		// No pixel copy — the present thread samples the shared texture.
+		void CacheSharedFrame(const FrameBufferView& a_frame)
+		{
+			if (a_frame.frameIndex == lastSubmittedIndex) {
+				return;
+			}
+			lastSubmittedIndex = a_frame.frameIndex;
+			std::scoped_lock lk(frameMutex);
+			gpuMode = true;
+			gpuSlot = static_cast<std::uint32_t>(a_frame.sharedSlot);
+			gpuSerial = a_frame.frameIndex;
+			gpuWidth = a_frame.width;
+			gpuHeight = a_frame.height;
+		}
+
 		void CacheFrame(const FrameBufferView& a_frame)
 		{
 			if (a_frame.frameIndex == lastSubmittedIndex) {
@@ -1100,9 +1360,24 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		if (!_impl) {
 			return;
 		}
-		_impl->CacheFrame(a_frame);
+		if (a_frame.sharedSlot >= 0) {
+			_impl->CacheSharedFrame(a_frame);
+		} else {
+			_impl->CacheFrame(a_frame);
+		}
 		_impl->EnsureSetup();
 		_impl->CheckPresentLiveness();
+	}
+
+	void D3D12Compositor::SetSharedRing(const SharedRingDesc& a_desc)
+	{
+		if (_impl) {
+			_impl->SetSharedRing(a_desc);
+		} else {
+			// Not initialized: still own the handles — close them.
+			SharedRingDesc desc = a_desc;
+			Impl::CloseRingHandles(desc);
+		}
 	}
 
 	void D3D12Compositor::SetVisible(bool a_visible)

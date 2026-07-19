@@ -5,11 +5,26 @@
 namespace OSFUI
 {
 #if defined(OSFUI_WITH_WEBVIEW2)
-	class WebView2WebRenderer final : public IWebRenderer
+	// Out-of-process WebView2 backend (renderer id "webview2"). The browser
+	// stack lives in osfui_webview2_host.exe, launched OUTSIDE the game's
+	// process tree (tools/webview2_shared/Wv2BrokerLaunch) so Mod Organizer
+	// 2's USVFS never injects into msedgewebview2.exe — the zero-config fix
+	// for the in-process backend's E_UNEXPECTED controller failure under MO2.
+	//
+	// The plugin is a thin client: one named pipe carries control/input/
+	// bridge traffic (tools/webview2_shared/Wv2Protocol.h), and frames arrive
+	// as GPU shared textures the D3D12 compositor samples directly (no CPU
+	// readback). Keyboard stays the real-focus model: the host parents its
+	// browser HWND beneath the game window (window tree != process tree) and
+	// framework keys come back over the pipe.
+	//
+	// The in-process variant remains available as renderer "webview2-inproc"
+	// (diagnostic escape hatch; requires the MO2 blacklist workaround).
+	class WebView2HostWebRenderer final : public IWebRenderer
 	{
 	public:
-		WebView2WebRenderer();
-		~WebView2WebRenderer() override;
+		WebView2HostWebRenderer();
+		~WebView2HostWebRenderer() override;
 
 		[[nodiscard]] static bool RuntimeAvailable();
 
@@ -29,6 +44,10 @@ namespace OSFUI
 		void SetNativeAcceleratorHandler(NativeAcceleratorHandler a_handler) override;
 		void SetNativeKeyboardFocus(bool a_focused) override;
 		[[nodiscard]] bool UsesNativeKeyboardFocus() const override { return true; }
+		void SetAcceleratorKeys(std::uint32_t a_toggleVk, std::uint32_t a_devReloadVk,
+			bool a_captured, bool a_captureArmed, std::uint32_t a_captureUpVk) override;
+		void SetSharedRingHandler(SharedRingHandler a_handler) override;
+		void InjectKeyEvent(std::uint32_t a_vkCode, bool a_down) override;
 		void InjectMouseMove(int a_x, int a_y) override;
 		void InjectMouseButton(int a_x, int a_y, int a_button, bool a_down) override;
 		void InjectMouseWheel(int a_x, int a_y, int a_wheelDelta) override;
@@ -41,7 +60,7 @@ namespace OSFUI
 		void SetConsoleHandler(std::string_view a_viewId, ConsoleHandler a_handler) override;
 		void SetViewHidden(std::string_view a_viewId, bool a_hidden) override;
 		void DestroyView(std::string_view a_viewId) override;
-		[[nodiscard]] std::string_view Name() const override { return "webview2-inproc"; }
+		[[nodiscard]] std::string_view Name() const override { return "webview2"; }
 
 	private:
 		struct Impl;

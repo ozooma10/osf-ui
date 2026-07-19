@@ -2,6 +2,7 @@
 
 #if defined(OSFUI_WITH_ULTRALIGHT)
 
+	#include "core/BenchStats.h"
 	#include "core/Log.h"
 	#include "platform/WindowsPlatform.h"
 
@@ -790,6 +791,11 @@ namespace OSFUI
 
 		void PumpUltralight(const std::vector<ViewState*>& a_ordered)
 		{
+			// Worker-side production cost per pump iteration: engine Update +
+			// paint (Render) + harvest + publish. Idle pumps are included — they
+			// are real per-iteration overhead of this backend; the Bench "rates"
+			// line carries frames actually produced.
+			bench::Scope probe(bench::Channel::kProduce);
 			renderer->Update();
 			for (auto* vs : a_ordered) {
 				if (vs->view && vs->domReady) {
@@ -935,6 +941,7 @@ namespace OSFUI
 				}
 				a_vs.backFrame.index = ++frameSerial;
 				++a_vs.paintCount;
+				bench::CountProduced();
 				surface->UnlockPixels();
 			} else {
 				return;
