@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Out-of-process resource sampler for the OSF UI renderer benchmark
     (docs/renderer-benchmark.md).

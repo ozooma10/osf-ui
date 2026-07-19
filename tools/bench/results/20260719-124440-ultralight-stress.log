@@ -1,0 +1,572 @@
+[12:50:01.682] [49208] [I] OSF UI v1.0.0.0
+[12:50:01.682] [49208] [D] FHookStore: Init 0 queued hooks
+[12:50:01.682] [49208] [D] FHookStore: Enabled 0 PreLoad hooks
+[12:50:01.682] [49208] [I] OSF UI v1.0.0: preload entered
+[12:50:01.739] [49208] [D] FHookStore: Init 0 queued hooks
+[12:50:01.739] [49208] [D] FHookStore: Enabled 0 Load hooks
+[12:50:01.739] [49208] [I] OSF UI v1.0.0: load entered
+[12:50:01.739] [49208] [I] Paths: plugin dir = C:\Program Files (x86)\Steam\steamapps\common\Starfield\Data\SFSE\Plugins
+[12:50:01.739] [49208] [I] Paths: data dir   = C:\Program Files (x86)\Steam\steamapps\common\Starfield\Data\SFSE\Plugins\OSFUI
+[12:50:01.745] [49208] [I] Config: loaded C:\Program Files (x86)\Steam\steamapps\common\Starfield\Data\SFSE\Plugins\OSFUI\config.json (renderer=ultralight, compositor=d3d12, inputSource=ui, captureInput=true, hardwareCursor=true, focusMenu=true, view=osfui.bench/stress, devMode=false)
+[12:50:01.745] [49208] [I] Bench: stats enabled (config benchStats) — see docs/renderer-benchmark.md
+[12:50:01.746] [49208] [I] ViewManager: loaded view 'osf.animation/browser' (OSF Animation Browser, 1600x900)
+[12:50:01.746] [49208] [I] ViewManager: loaded view 'osfui/keybinds' (Keybinds, 1600x900)
+[12:50:01.747] [49208] [I] ViewManager: loaded view 'osfui/settings' (Mods, 1600x900)
+[12:50:01.752] [49208] [I] ViewManager: loaded view 'osfui.bench/stress' (Renderer Stress, 1600x900)
+[12:50:01.752] [49208] [I] ViewManager: 4 view(s) loaded from C:\Program Files (x86)\Steam\steamapps\common\Starfield\Data\SFSE\Plugins\OSFUI\views
+[12:50:01.756] [49208] [I] UltralightWebRenderer: SDK DLLs preloaded from C:\Program Files (x86)\Steam\steamapps\common\Starfield\Data\SFSE\Plugins\OSFUI\ultralight\bin
+[12:50:01.756] [49208] [I] UltralightWebRenderer: initialized (1600x900, CPU BitmapSurface; worker starts on first tick)
+[12:50:01.756] [49208] [I] Runtime: renderer = ultralight
+[12:50:01.756] [49208] [I] D3D12Compositor: initialized (present-time overlay; engine device/queue + Present hook are set up on the first submitted frame)
+[12:50:01.756] [49208] [I] Runtime: compositor = d3d12
+[12:50:01.756] [49208] [I] SettingsStore: loaded mod 'osfui' ('OSF UI', 4 settings)
+[12:50:01.756] [49208] [I] SettingsStore: 1 mod schema(s) registered from C:\Program Files (x86)\Steam\steamapps\common\Starfield\Data\SFSE\Plugins\OSFUI\settings
+[12:50:01.757] [49208] [I] Runtime: 1 UI module(s) loaded
+[12:50:01.757] [49208] [I] Localization: active locale -> autofasdsad
+[12:50:01.757] [49208] [I] VanillaKeys: 30 binding(s) from C:\Program Files (x86)\Steam\steamapps\common\Starfield\Data\SFSE\Plugins\OSFUI\vanillakeys.json
+[12:50:01.757] [49208] [I] Runtime: setting osfui.pauseMenuEntry -> true (applies the next time the pause menu opens)
+[12:50:01.757] [49208] [I] Runtime: setting osfui.toggleKey -> F10 (VK 0x79)
+[12:50:01.757] [49208] [I] Runtime: surface 'osfui.bench/stress' registered (menu, capturesInput=true, pausesGame=true)
+[12:50:01.757] [49208] [I] Runtime: loaded 1 view(s); default menu = 'osfui.bench/stress'
+[12:50:01.757] [49208] [I] Runtime: toggleKey 'F10' resolved to VK code 0x79
+[12:50:01.757] [49208] [I] Runtime: engineInput enabled — engine per-menu input (gamepad) routed into the focused view; keyboard/mouse stay on the WndProc path
+[12:50:01.757] [49208] [I] Runtime: input capture enabled (config captureInput)
+[12:50:01.757] [49208] [I] Runtime: initialized (visible=false)
+[12:50:01.757] [49208] [I] Plugin: per-frame tick registered via SFSE TaskInterface (v1)
+[12:50:01.757] [49208] [I] Plugin: SFSE message kPostLoad
+[12:50:01.757] [49208] [I] Plugin: SFSE message kPostPostLoad
+[12:50:10.271] [44272] [I] FrameTick: first per-frame task received from SFSE TaskInterface
+[12:50:10.271] [44272] [I] UltralightWebRenderer: starting worker thread
+[12:50:10.276] [44788] [I] UltralightWebRenderer: worker configuring Ultralight platform
+[12:50:10.276] [44788] [I] UltralightWebRenderer: worker acquiring platform font loader
+[12:50:10.278] [44788] [I] UltralightWebRenderer: worker calling Renderer::Create()
+[12:50:10.278] [44788] [D] Ultralight: Initializing Ultralight v1.4.0 (WebKit 615.1.18.100.1) with the following configuration
+    cache_path: 
+    resource_path_prefix: resources/
+    face_winding: CounterClockwise
+    font_hinting: Normal
+    font_gamma: 1.8
+    force_repaint: disabled
+    animation_timer_delay: 16.7 ms
+    scroll_timer_delay: 16.7 ms
+    recycle_delay: 4.0 s
+    memory_cache_size: 64.00 MB
+    page_cache_size: 0 pages
+    override_ram_size: disabled
+    min_large_heap_size: 32.00 MB
+    min_small_heap_size: 1.00 MB
+    num_re
+[12:50:10.291] [44788] [D] Ultralight: Creating Session with the following configuration:
+    id: 2
+    is_persistent: 1
+    name: default
+    is_default: 1
+    disk_path: default (you can adjust this location in Config::cache_path)
+[12:50:10.292] [44788] [D] Ultralight: Creating Session with the following configuration:
+    id: 9223372036854775810
+    is_persistent: 0
+    name: osfui
+    is_default: 0
+    disk_path: osfui (you can adjust this location in Config::cache_path)
+[12:50:10.292] [44788] [I] UltralightWebRenderer: Ultralight renderer created (CPU rendering, in-memory session)
+[12:50:10.309] [44788] [D] Ultralight: Creating View with the following configuration:
+    width: 1600
+    height: 900
+    device scale: 1
+    session id: 9223372036854775810
+    is_accelerated: 0
+[12:50:10.318] [44788] [I] UltralightWebRenderer: loading view 'osfui.bench/stress' -> file:///osfui.bench/stress/index.html (folder C:\Program Files (x86)\Steam\steamapps\common\Starfield\Data\SFSE\Plugins\OSFUI\views\osfui.bench\stress)
+[12:50:10.321] [44788] [D] Ultralight: Initializing Thread Pool with the following configuration:
+    physical processors (detected): 16
+    num threads: 15
+[12:50:10.324] [44788] [I] UltralightWebRenderer: first paint for view 'osfui.bench/stress' (1600x900, stride 6400)
+[12:50:10.437] [44788] [I] UltralightWebRenderer: DOM ready for view 'osfui.bench/stress' (file:///osfui.bench/stress/index.html)
+[12:50:10.442] [44788] [D] UltralightWebRenderer: [console] [stress] ready — OSF UI 1.0.0, scenes=6 × 20s
+[12:50:10.444] [45816] [I] Runtime: view 'osfui.bench/stress' finished loading (file:///osfui.bench/stress/index.html)
+[12:50:10.444] [45816] [I] Bench: [osfui.bench/stress] [stress] ready — OSF UI 1.0.0, scenes=6 × 20s
+[12:50:15.440] [49208] [I] Bench: ch=frame vis=0 win=5.17s n=4012 avg=1.021 p50=0.140 p95=5.660 p99=10.340 max=100.000
+[12:50:15.440] [49208] [I] Bench: ch=tick vis=0 win=5.17s n=4012 avg=0.002 p50=0.020 p95=0.020 p99=0.020 max=0.195
+[12:50:15.440] [49208] [I] Bench: ch=produce vis=0 win=5.17s n=292 avg=0.667 p50=0.060 p95=0.140 p99=5.100 max=150.721
+[12:50:15.440] [49208] [I] Bench: rates vis=0 win=5.17s produced=3 (0.6/s) uploaded=0 (0.0/s)
+[12:50:20.445] [49208] [I] Bench: ch=frame vis=0 win=5.00s n=2835 avg=1.765 p50=0.220 p95=8.860 p99=10.620 max=11.324
+[12:50:20.445] [49208] [I] Bench: ch=tick vis=0 win=5.00s n=2835 avg=0.002 p50=0.020 p95=0.020 p99=0.020 max=0.015
+[12:50:20.445] [49208] [I] Bench: ch=produce vis=0 win=5.00s n=297 avg=0.063 p50=0.060 p95=0.100 p99=0.140 max=0.186
+[12:50:25.498] [49208] [I] Bench: ch=frame vis=0 win=5.05s n=2492 avg=1.976 p50=0.300 p95=8.820 p99=11.980 max=100.000
+[12:50:25.498] [49208] [I] Bench: ch=tick vis=0 win=5.05s n=2492 avg=0.003 p50=0.020 p95=0.020 p99=0.020 max=0.028
+[12:50:25.498] [49208] [I] Bench: ch=produce vis=0 win=5.05s n=300 avg=0.074 p50=0.060 p95=0.140 p99=0.180 max=0.380
+[12:50:30.511] [49208] [I] Bench: ch=frame vis=0 win=5.01s n=2124 avg=2.360 p50=0.220 p95=10.820 p99=17.580 max=91.751
+[12:50:30.511] [49208] [I] Bench: ch=tick vis=0 win=5.01s n=2124 avg=0.003 p50=0.020 p95=0.020 p99=0.020 max=0.026
+[12:50:30.511] [49208] [I] Bench: ch=produce vis=0 win=5.01s n=295 avg=0.075 p50=0.060 p95=0.100 p99=0.180 max=0.261
+[12:50:35.515] [49208] [I] Bench: ch=frame vis=0 win=5.00s n=2764 avg=1.811 p50=0.260 p95=8.540 p99=11.060 max=28.349
+[12:50:35.515] [49208] [I] Bench: ch=tick vis=0 win=5.00s n=2764 avg=0.002 p50=0.020 p95=0.020 p99=0.020 max=0.013
+[12:50:35.515] [49208] [I] Bench: ch=produce vis=0 win=5.00s n=296 avg=0.069 p50=0.060 p95=0.100 p99=0.180 max=0.414
+[12:50:36.117] [45816] [I] BridgeApi: bridge vended (caller ABI 1.6, host 1.6)
+[12:50:36.117] [45816] [I] BridgeApi: bridge vended (caller ABI 1.6, host 1.6)
+[12:50:36.117] [45816] [I] Plugin: SFSE message kPostDataLoad
+[12:50:36.120] [49208] [I] Runtime: surface 'osf.animation/browser' registered via plugin RegisterView (menu, capturesInput=true, pausesGame=false)
+[12:50:36.120] [44788] [D] Ultralight: Creating View with the following configuration:
+    width: 1600
+    height: 900
+    device scale: 1
+    session id: 9223372036854775810
+    is_accelerated: 0
+[12:50:36.120] [49208] [I] SettingsStore: loaded mod 'osf.animation' ('OSF Animation', 5 settings)
+[12:50:36.121] [44788] [I] UltralightWebRenderer: loading view 'osf.animation/browser' -> file:///osf.animation/browser/index.html (folder C:\Program Files (x86)\Steam\steamapps\common\Starfield\Data\SFSE\Plugins\OSFUI\views\osf.animation\browser)
+[12:50:36.122] [45816] [I] PapyrusApi: natives bound on script 'OSFUI'
+[12:50:36.122] [45816] [I] Plugin: SFSE message kPostPostDataLoad
+[12:50:36.122] [45816] [I] MenuEventSink: registered for MenuOpenCloseEvent
+[12:50:36.122] [45816] [I] Plugin: focusMenu on — registering OSFUI_FocusMenu
+[12:50:36.122] [45816] [I] FocusMenu: registered 'OSFUI_FocusMenu' (hardened creator: engine base-init + engine vtable copy + interned +0xB0 name; opens only when the overlay does). RE-verified 1.16.244.
+[12:50:36.122] [45816] [I] OverlayInputHook: subclassed game WndProc (hwnd 0x200B70); overlay can now capture input
+[12:50:36.126] [44788] [I] UltralightWebRenderer: first paint for view 'osf.animation/browser' (1600x900, stride 6400)
+[12:50:36.195] [44788] [I] UltralightWebRenderer: DOM ready for view 'osf.animation/browser' (file:///osf.animation/browser/index.html)
+[12:50:36.318] [49208] [I] Runtime: view 'osf.animation/browser' finished loading (file:///osf.animation/browser/index.html)
+[12:50:36.447] [44100] [D] Plugin: SFSE message type 6
+[12:50:40.076] [44100] [D] Plugin: SFSE message type 7
+[12:50:40.173] [44100] [I] PapyrusApi: natives bound on script 'OSFUI'
+[12:50:40.515] [52124] [I] Bench: ch=frame vis=0 win=5.00s n=9199 avg=0.533 p50=0.100 p95=1.380 p99=5.100 max=100.000
+[12:50:40.515] [52124] [I] Bench: ch=tick vis=0 win=5.00s n=9199 avg=0.014 p50=0.020 p95=0.020 p99=0.020 max=71.725
+[12:50:40.515] [52124] [I] Bench: ch=produce vis=0 win=5.00s n=286 avg=0.763 p50=0.060 p95=0.140 p99=30.900 max=52.819
+[12:50:40.515] [52124] [I] Bench: rates vis=0 win=5.00s produced=7 (1.4/s) uploaded=0 (0.0/s)
+[12:50:45.516] [50200] [I] Bench: ch=frame vis=0 win=5.00s n=14248 avg=0.351 p50=0.140 p95=1.180 p99=1.540 max=5.352
+[12:50:45.516] [50200] [I] Bench: ch=tick vis=0 win=5.00s n=14248 avg=0.002 p50=0.020 p95=0.020 p99=0.020 max=0.102
+[12:50:45.516] [50200] [I] Bench: ch=produce vis=0 win=5.00s n=298 avg=0.085 p50=0.060 p95=0.100 p99=0.180 max=5.828
+[12:50:45.516] [50200] [I] Bench: rates vis=0 win=5.00s produced=1 (0.2/s) uploaded=0 (0.0/s)
+[12:50:50.516] [45816] [I] Bench: ch=frame vis=0 win=5.00s n=13756 avg=0.363 p50=0.140 p95=1.300 p99=1.700 max=2.482
+[12:50:50.516] [45816] [I] Bench: ch=tick vis=0 win=5.00s n=13756 avg=0.002 p50=0.020 p95=0.020 p99=0.020 max=0.041
+[12:50:50.516] [45816] [I] Bench: ch=produce vis=0 win=5.00s n=300 avg=0.063 p50=0.060 p95=0.100 p99=0.140 max=0.370
+[12:50:55.516] [49208] [I] Bench: ch=frame vis=0 win=5.00s n=13790 avg=0.363 p50=0.140 p95=1.300 p99=1.660 max=2.641
+[12:50:55.516] [49208] [I] Bench: ch=tick vis=0 win=5.00s n=13790 avg=0.002 p50=0.020 p95=0.020 p99=0.020 max=0.032
+[12:50:55.516] [49208] [I] Bench: ch=produce vis=0 win=5.00s n=299 avg=0.064 p50=0.060 p95=0.100 p99=0.140 max=0.256
+[12:51:00.516] [49456] [I] Bench: ch=frame vis=0 win=5.00s n=13800 avg=0.362 p50=0.140 p95=1.340 p99=1.700 max=2.505
+[12:51:00.516] [49456] [I] Bench: ch=tick vis=0 win=5.00s n=13800 avg=0.002 p50=0.020 p95=0.020 p99=0.020 max=0.035
+[12:51:00.516] [49456] [I] Bench: ch=produce vis=0 win=5.00s n=298 avg=0.061 p50=0.060 p95=0.100 p99=0.100 max=0.283
+[12:51:05.516] [44100] [I] Bench: ch=frame vis=0 win=5.00s n=13787 avg=0.363 p50=0.140 p95=1.300 p99=1.660 max=3.014
+[12:51:05.516] [44100] [I] Bench: ch=tick vis=0 win=5.00s n=13787 avg=0.002 p50=0.020 p95=0.020 p99=0.020 max=0.075
+[12:51:05.516] [44100] [I] Bench: ch=produce vis=0 win=5.00s n=300 avg=0.063 p50=0.060 p95=0.100 p99=0.140 max=0.168
+[12:51:10.517] [50200] [I] Bench: ch=frame vis=0 win=5.00s n=13790 avg=0.363 p50=0.140 p95=1.340 p99=1.700 max=2.255
+[12:51:10.517] [50200] [I] Bench: ch=tick vis=0 win=5.00s n=13790 avg=0.002 p50=0.020 p95=0.020 p99=0.020 max=0.036
+[12:51:10.517] [50200] [I] Bench: ch=produce vis=0 win=5.00s n=298 avg=0.061 p50=0.060 p95=0.100 p99=0.100 max=0.219
+[12:51:12.238] [49208] [I] Runtime: hotkey fired for osfui.toggleKey
+[12:51:12.239] [49208] [I] Runtime: overlay visibility -> true (capture=true)
+[12:51:12.239] [49208] [I] FocusMenu: open requested ('OSFUI_FocusMenu' kShow)
+[12:51:12.239] [49208] [I] ControlLayer: allocated input-enable layer (id 1)
+[12:51:12.239] [49208] [I] ControlLayer: player controls disabled (layer 1)
+[12:51:12.239] [49208] [I] SimPause: engaged (UI::pauseRequestCount incremented)
+[12:51:12.239] [49208] [I] FreeCursor: engaged (MenuCursor freeCursorRefCount now 1)
+[12:51:12.241] [49208] [I] EngineD3D12: located ID3D12Device=0x1BDCE49A160 + DIRECT ID3D12CommandQueue=0x1BDCC7C3170 (via RE::CreationRendererPrivate::Renderer; all pointers QI-verified)
+[12:51:12.273] [49208] [W] D3D12Compositor: Present slot 8 already points into 'C:\Program Files (x86)\Steam\steamapps\common\Starfield\sl.interposer.dll' — another overlay/hook tool is ahead of us; chaining after it. If the overlay misbehaves, include this line in reports.
+[12:51:12.273] [49208] [I] D3D12Compositor: hooked IDXGISwapChain::Present slot 8 (original 0x7FF9FCA26420)
+[12:51:12.275] [49208] [I] D3D12Compositor: present-time overlay armed (Present slot-8 hook installed)
+[12:51:12.276] [49208] [I] Bench: ch=frame vis=0 win=1.76s n=4748 avg=0.363 p50=0.140 p95=1.260 p99=1.620 max=2.519
+[12:51:12.276] [49208] [I] Bench: ch=tick vis=0 win=1.76s n=4748 avg=0.010 p50=0.020 p95=0.020 p99=0.020 max=36.916
+[12:51:12.276] [49208] [I] Bench: ch=produce vis=0 win=1.76s n=105 avg=0.196 p50=0.060 p95=0.100 p99=0.140 max=9.892
+[12:51:12.276] [49208] [I] Bench: rates vis=0 win=1.76s produced=1 (0.6/s) uploaded=0 (0.0/s)
+[12:51:12.277] [41220] [I] EngineInput: receiver installed on menu obj=0x000001CA60509820 (+0x10 vtable copy, observer only)
+[12:51:12.277] [41220] [I] FocusMenu: creator built engine-initialised menu obj=0x000001CA60509820 flags=0x00000000 (uiMovie=null, name@+0xB0 set)
+[12:51:12.278] [49208] [I] HardwareCursor: activated (showRaises=1, centered + clipped to client)
+[12:51:12.280] [11372] [I] D3D12Compositor: drawing on swapchain 0x1CA60B11480 (1280x768, 2 buffers, RT format R8G8B8A8_UNORM [28])
+[12:51:12.280] [11372] [I] Runtime: output 1280x768 -> view resized to 1280x768 (aspect-correct)
+[12:51:12.280] [11372] [I] D3D12Compositor: drawing on swapchain 0x1CA60B11880 (1280x768, 2 buffers, RT format R8G8B8A8_UNORM [28])
+[12:51:12.332] [11372] [I] D3D12Compositor: overlay texture ready (1280x768 BGRA8)
+[12:51:12.333] [11372] [I] D3D12Compositor: overlay pipeline ready (RT format R8G8B8A8_UNORM [28])
+[12:51:12.333] [11372] [I] D3D12Compositor: FIRST OVERLAY DRAW submitted over the game backbuffer (1280x768 overlay -> 1280x768 target) — Phase 3 composition live
+[12:51:12.338] [44788] [I] UltralightWebRenderer: first key routed into view 'osfui.bench/stress' (vk=0x79, down=false)
+[12:51:14.296] [11372] [D] D3D12Compositor: 1200 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:51:16.256] [11372] [D] D3D12Compositor: 2400 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:51:17.276] [45640] [I] Bench: ch=frame vis=1 win=5.00s n=7617 avg=0.661 p50=0.060 p95=1.940 p99=2.140 max=37.172
+[12:51:17.276] [45640] [I] Bench: ch=tick vis=1 win=5.00s n=7617 avg=0.002 p50=0.020 p95=0.020 p99=0.020 max=0.761
+[12:51:17.276] [45640] [I] Bench: ch=present vis=1 win=5.00s n=3016 avg=0.047 p50=0.060 p95=0.060 p99=0.100 max=10.066
+[12:51:17.276] [45640] [I] Bench: ch=produce vis=1 win=5.00s n=293 avg=0.357 p50=0.060 p95=2.100 p99=2.620 max=39.496
+[12:51:17.276] [45640] [I] Bench: rates vis=1 win=5.00s produced=21 (4.2/s) uploaded=20 (4.0/s)
+[12:51:18.229] [11372] [D] D3D12Compositor: 3600 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:51:20.195] [11372] [D] D3D12Compositor: 4800 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:51:22.170] [11372] [D] D3D12Compositor: 6000 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:51:22.277] [45640] [I] Bench: ch=frame vis=1 win=5.00s n=7620 avg=0.656 p50=0.060 p95=1.940 p99=2.140 max=2.668
+[12:51:22.277] [45640] [I] Bench: ch=tick vis=1 win=5.00s n=7620 avg=0.001 p50=0.020 p95=0.020 p99=0.020 max=0.271
+[12:51:22.277] [45640] [I] Bench: ch=present vis=1 win=5.00s n=3048 avg=0.042 p50=0.060 p95=0.060 p99=0.100 max=0.302
+[12:51:22.277] [45640] [I] Bench: ch=produce vis=1 win=5.00s n=296 avg=0.209 p50=0.060 p95=2.140 p99=2.420 max=2.648
+[12:51:22.277] [45640] [I] Bench: rates vis=1 win=5.00s produced=20 (4.0/s) uploaded=20 (4.0/s)
+[12:51:24.143] [11372] [D] D3D12Compositor: 7200 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:51:26.105] [11372] [D] D3D12Compositor: 8400 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:51:27.278] [49208] [I] Bench: ch=frame vis=1 win=5.00s n=7619 avg=0.656 p50=0.060 p95=1.940 p99=2.100 max=3.158
+[12:51:27.278] [49208] [I] Bench: ch=tick vis=1 win=5.00s n=7619 avg=0.001 p50=0.020 p95=0.020 p99=0.020 max=0.043
+[12:51:27.278] [49208] [I] Bench: ch=present vis=1 win=5.00s n=3046 avg=0.043 p50=0.060 p95=0.060 p99=0.100 max=0.210
+[12:51:27.278] [49208] [I] Bench: ch=produce vis=1 win=5.00s n=297 avg=0.204 p50=0.060 p95=2.020 p99=2.420 max=2.735
+[12:51:27.278] [49208] [I] Bench: rates vis=1 win=5.00s produced=19 (3.8/s) uploaded=19 (3.8/s)
+[12:51:28.080] [11372] [D] D3D12Compositor: 9600 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:51:30.068] [11372] [D] D3D12Compositor: 10800 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:51:32.045] [11372] [D] D3D12Compositor: 12000 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:51:32.266] [44788] [D] UltralightWebRenderer: [console] [stress] scene=idle reason=cycle secs=20.0 frames=870 avgFps=43.4 p50=18.00 p95=33.00 worst=45.0 longFrames=41
+[12:51:32.267] [49208] [I] Bench: [osfui.bench/stress] [stress] scene=idle reason=cycle secs=20.0 frames=870 avgFps=43.4 p50=18.00 p95=33.00 worst=45.0 longFrames=41
+[12:51:32.278] [45640] [I] Bench: ch=frame vis=1 win=5.00s n=7571 avg=0.660 p50=0.060 p95=1.980 p99=2.180 max=3.111
+[12:51:32.278] [45640] [I] Bench: ch=tick vis=1 win=5.00s n=7571 avg=0.001 p50=0.020 p95=0.020 p99=0.020 max=0.057
+[12:51:32.278] [45640] [I] Bench: ch=present vis=1 win=5.00s n=3030 avg=0.041 p50=0.060 p95=0.060 p99=0.100 max=0.183
+[12:51:32.278] [45640] [I] Bench: ch=produce vis=1 win=5.00s n=294 avg=0.202 p50=0.060 p95=2.140 p99=2.420 max=2.724
+[12:51:32.278] [45640] [I] Bench: rates vis=1 win=5.00s produced=19 (3.8/s) uploaded=19 (3.8/s)
+[12:51:34.038] [11372] [D] D3D12Compositor: 13200 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:51:36.028] [11372] [D] D3D12Compositor: 14400 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:51:37.279] [45640] [I] Bench: ch=frame vis=1 win=5.00s n=7540 avg=0.663 p50=0.100 p95=1.940 p99=2.260 max=2.933
+[12:51:37.279] [45640] [I] Bench: ch=tick vis=1 win=5.00s n=7540 avg=0.015 p50=0.020 p95=0.020 p99=0.620 max=1.371
+[12:51:37.279] [45640] [I] Bench: ch=present vis=1 win=5.00s n=3016 avg=0.060 p50=0.060 p95=0.260 p99=0.300 max=0.824
+[12:51:37.280] [45640] [I] Bench: ch=produce vis=1 win=5.00s n=151 avg=16.454 p50=15.980 p95=19.060 p99=20.540 max=20.797
+[12:51:37.280] [45640] [I] Bench: rates vis=1 win=5.00s produced=151 (30.2/s) uploaded=150 (30.0/s)
+[12:51:38.009] [11372] [D] D3D12Compositor: 15600 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:51:39.998] [11372] [D] D3D12Compositor: 16800 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:51:41.980] [11372] [D] D3D12Compositor: 18000 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:51:42.281] [49208] [I] Bench: ch=frame vis=1 win=5.00s n=7564 avg=0.661 p50=0.060 p95=1.900 p99=2.140 max=2.739
+[12:51:42.281] [49208] [I] Bench: ch=tick vis=1 win=5.00s n=7564 avg=0.014 p50=0.020 p95=0.020 p99=0.580 max=1.199
+[12:51:42.281] [49208] [I] Bench: ch=present vis=1 win=5.00s n=3024 avg=0.058 p50=0.060 p95=0.260 p99=0.300 max=0.571
+[12:51:42.281] [49208] [I] Bench: ch=produce vis=1 win=5.00s n=152 avg=15.887 p50=15.380 p95=18.540 p99=19.260 max=19.843
+[12:51:42.281] [49208] [I] Bench: rates vis=1 win=5.00s produced=152 (30.4/s) uploaded=153 (30.6/s)
+[12:51:43.967] [11372] [D] D3D12Compositor: 19200 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:51:45.956] [11372] [D] D3D12Compositor: 20400 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:51:47.281] [50200] [I] Bench: ch=frame vis=1 win=5.00s n=7553 avg=0.662 p50=0.100 p95=1.940 p99=2.180 max=3.217
+[12:51:47.281] [50200] [I] Bench: ch=tick vis=1 win=5.00s n=7553 avg=0.014 p50=0.020 p95=0.020 p99=0.580 max=1.400
+[12:51:47.281] [50200] [I] Bench: ch=present vis=1 win=5.00s n=3022 avg=0.058 p50=0.060 p95=0.260 p99=0.300 max=0.795
+[12:51:47.281] [50200] [I] Bench: ch=produce vis=1 win=5.00s n=152 avg=16.254 p50=15.700 p95=18.940 p99=19.380 max=19.995
+[12:51:47.281] [50200] [I] Bench: rates vis=1 win=5.00s produced=152 (30.4/s) uploaded=152 (30.4/s)
+[12:51:47.935] [11372] [D] D3D12Compositor: 21600 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:51:49.927] [11372] [D] D3D12Compositor: 22800 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:51:51.916] [11372] [D] D3D12Compositor: 24000 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:51:52.284] [49208] [I] Bench: ch=frame vis=1 win=5.00s n=7537 avg=0.664 p50=0.100 p95=1.980 p99=2.340 max=3.409
+[12:51:52.284] [49208] [I] Bench: ch=tick vis=1 win=5.00s n=7537 avg=0.015 p50=0.020 p95=0.020 p99=0.660 max=1.252
+[12:51:52.284] [49208] [I] Bench: ch=present vis=1 win=5.00s n=3014 avg=0.061 p50=0.060 p95=0.260 p99=0.340 max=0.689
+[12:51:52.284] [49208] [I] Bench: ch=produce vis=1 win=5.00s n=151 avg=16.475 p50=15.860 p95=19.180 p99=20.660 max=21.481
+[12:51:52.284] [49208] [I] Bench: rates vis=1 win=5.00s produced=151 (30.2/s) uploaded=150 (30.0/s)
+[12:51:52.299] [44788] [D] UltralightWebRenderer: [console] [stress] scene=css-transform reason=cycle secs=20.0 frames=606 avgFps=30.2 p50=33.00 p95=36.00 worst=39.0 longFrames=205
+[12:51:52.299] [49208] [I] Bench: [osfui.bench/stress] [stress] scene=css-transform reason=cycle secs=20.0 frames=606 avgFps=30.2 p50=33.00 p95=36.00 worst=39.0 longFrames=205
+[12:51:53.909] [11372] [D] D3D12Compositor: 25200 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:51:55.894] [11372] [D] D3D12Compositor: 26400 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:51:57.285] [45640] [I] Bench: ch=frame vis=1 win=5.00s n=7571 avg=0.661 p50=0.100 p95=1.940 p99=2.300 max=3.317
+[12:51:57.285] [45640] [I] Bench: ch=tick vis=1 win=5.00s n=7571 avg=0.006 p50=0.020 p95=0.020 p99=0.020 max=1.173
+[12:51:57.285] [45640] [I] Bench: ch=present vis=1 win=5.00s n=3030 avg=0.054 p50=0.060 p95=0.100 p99=0.260 max=0.732
+[12:51:57.285] [45640] [I] Bench: ch=produce vis=1 win=5.00s n=70 avg=54.476 p50=40.940 p95=40.940 p99=40.940 max=78.548
+[12:51:57.285] [45640] [I] Bench: rates vis=1 win=5.00s produced=70 (14.0/s) uploaded=71 (14.2/s)
+[12:51:57.867] [11372] [D] D3D12Compositor: 27600 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:51:59.852] [11372] [D] D3D12Compositor: 28800 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:52:01.835] [11372] [D] D3D12Compositor: 30000 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:52:02.285] [49208] [I] Bench: ch=frame vis=1 win=5.00s n=7559 avg=0.662 p50=0.100 p95=1.940 p99=2.300 max=2.978
+[12:52:02.285] [49208] [I] Bench: ch=tick vis=1 win=5.00s n=7559 avg=0.007 p50=0.020 p95=0.020 p99=0.020 max=0.999
+[12:52:02.285] [49208] [I] Bench: ch=present vis=1 win=5.00s n=3022 avg=0.055 p50=0.060 p95=0.100 p99=0.260 max=0.726
+[12:52:02.285] [49208] [I] Bench: ch=produce vis=1 win=5.00s n=69 avg=55.272 p50=40.940 p95=40.940 p99=40.940 max=65.422
+[12:52:02.285] [49208] [I] Bench: rates vis=1 win=5.00s produced=69 (13.8/s) uploaded=69 (13.8/s)
+[12:52:03.815] [11372] [D] D3D12Compositor: 31200 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:52:05.802] [11372] [D] D3D12Compositor: 32400 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:52:07.286] [49208] [I] Bench: ch=frame vis=1 win=5.00s n=7580 avg=0.660 p50=0.100 p95=1.900 p99=2.180 max=3.602
+[12:52:07.286] [49208] [I] Bench: ch=tick vis=1 win=5.00s n=7580 avg=0.006 p50=0.020 p95=0.020 p99=0.020 max=0.894
+[12:52:07.286] [49208] [I] Bench: ch=present vis=1 win=5.00s n=3032 avg=0.053 p50=0.060 p95=0.100 p99=0.260 max=0.560
+[12:52:07.286] [49208] [I] Bench: ch=produce vis=1 win=5.00s n=70 avg=54.974 p50=40.940 p95=40.940 p99=40.940 max=70.769
+[12:52:07.286] [49208] [I] Bench: rates vis=1 win=5.00s produced=70 (14.0/s) uploaded=70 (14.0/s)
+[12:52:07.778] [11372] [D] D3D12Compositor: 33600 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:52:09.759] [11372] [D] D3D12Compositor: 34800 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:52:11.749] [11372] [D] D3D12Compositor: 36000 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:52:12.287] [49208] [I] Bench: ch=frame vis=1 win=5.00s n=7565 avg=0.661 p50=0.100 p95=1.980 p99=2.300 max=3.355
+[12:52:12.287] [49208] [I] Bench: ch=tick vis=1 win=5.00s n=7565 avg=0.006 p50=0.020 p95=0.020 p99=0.020 max=1.012
+[12:52:12.287] [49208] [I] Bench: ch=present vis=1 win=5.00s n=3026 avg=0.056 p50=0.060 p95=0.100 p99=0.260 max=0.797
+[12:52:12.287] [49208] [I] Bench: ch=produce vis=1 win=5.00s n=69 avg=55.065 p50=40.940 p95=40.940 p99=40.940 max=64.862
+[12:52:12.287] [49208] [I] Bench: rates vis=1 win=5.00s produced=69 (13.8/s) uploaded=69 (13.8/s)
+[12:52:12.310] [44788] [D] UltralightWebRenderer: [console] [stress] scene=paint reason=cycle secs=20.0 frames=279 avgFps=13.9 p50=70.00 p95=79.00 worst=95.0 longFrames=279
+[12:52:12.310] [49208] [I] Bench: [osfui.bench/stress] [stress] scene=paint reason=cycle secs=20.0 frames=279 avgFps=13.9 p50=70.00 p95=79.00 worst=95.0 longFrames=279
+[12:52:13.722] [11372] [D] D3D12Compositor: 37200 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:52:15.707] [11372] [D] D3D12Compositor: 38400 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:52:17.287] [45640] [I] Bench: ch=frame vis=1 win=5.00s n=7581 avg=0.660 p50=0.060 p95=1.900 p99=2.140 max=2.968
+[12:52:17.287] [45640] [I] Bench: ch=tick vis=1 win=5.00s n=7581 avg=0.014 p50=0.020 p95=0.020 p99=0.580 max=1.131
+[12:52:17.287] [45640] [I] Bench: ch=present vis=1 win=5.00s n=3034 avg=0.057 p50=0.060 p95=0.180 p99=0.300 max=0.619
+[12:52:17.287] [45640] [I] Bench: ch=produce vis=1 win=5.00s n=147 avg=17.409 p50=16.540 p95=18.420 p99=36.060 max=51.304
+[12:52:17.287] [45640] [I] Bench: rates vis=1 win=5.00s produced=148 (29.6/s) uploaded=147 (29.4/s)
+[12:52:17.687] [11372] [D] D3D12Compositor: 39600 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:52:19.664] [11372] [D] D3D12Compositor: 40800 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:52:21.749] [11372] [D] D3D12Compositor: 42000 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:52:22.288] [49208] [I] Bench: ch=frame vis=1 win=5.00s n=7404 avg=0.675 p50=0.140 p95=2.180 p99=2.740 max=3.972
+[12:52:22.288] [49208] [I] Bench: ch=tick vis=1 win=5.00s n=7404 avg=0.015 p50=0.020 p95=0.020 p99=0.660 max=1.366
+[12:52:22.288] [49208] [I] Bench: ch=present vis=1 win=5.00s n=2962 avg=0.068 p50=0.060 p95=0.220 p99=0.340 max=0.642
+[12:52:22.288] [49208] [I] Bench: ch=produce vis=1 win=5.00s n=132 avg=21.305 p50=17.300 p95=40.420 p99=40.940 max=45.556
+[12:52:22.288] [49208] [I] Bench: rates vis=1 win=5.00s produced=131 (26.2/s) uploaded=132 (26.4/s)
+[12:52:23.758] [11372] [D] D3D12Compositor: 43200 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:52:26.004] [11372] [D] D3D12Compositor: 44400 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:52:27.288] [49208] [I] Bench: ch=frame vis=1 win=5.00s n=7100 avg=0.704 p50=0.180 p95=2.500 p99=2.980 max=3.904
+[12:52:27.288] [49208] [I] Bench: ch=tick vis=1 win=5.00s n=7100 avg=0.014 p50=0.020 p95=0.020 p99=0.700 max=1.955
+[12:52:27.288] [49208] [I] Bench: ch=present vis=1 win=5.00s n=2838 avg=0.085 p50=0.060 p95=0.220 p99=0.380 max=0.804
+[12:52:27.288] [49208] [I] Bench: ch=produce vis=1 win=5.00s n=108 avg=29.415 p50=21.020 p95=40.940 p99=40.940 max=56.105
+[12:52:27.288] [49208] [I] Bench: rates vis=1 win=5.00s produced=108 (21.6/s) uploaded=108 (21.6/s)
+[12:52:28.034] [11372] [D] D3D12Compositor: 45600 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:52:30.018] [11372] [D] D3D12Compositor: 46800 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:52:32.211] [11372] [D] D3D12Compositor: 48000 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:52:32.289] [50200] [I] Bench: ch=frame vis=1 win=5.00s n=7191 avg=0.695 p50=0.140 p95=2.380 p99=2.940 max=4.137
+[12:52:32.289] [50200] [I] Bench: ch=tick vis=1 win=5.00s n=7191 avg=0.016 p50=0.020 p95=0.020 p99=0.700 max=1.904
+[12:52:32.289] [50200] [I] Bench: ch=present vis=1 win=5.00s n=2878 avg=0.076 p50=0.060 p95=0.220 p99=0.380 max=0.573
+[12:52:32.289] [50200] [I] Bench: ch=produce vis=1 win=5.00s n=123 avg=23.787 p50=18.260 p95=40.940 p99=40.940 max=55.359
+[12:52:32.289] [50200] [I] Bench: rates vis=1 win=5.00s produced=123 (24.6/s) uploaded=123 (24.6/s)
+[12:52:32.356] [44788] [D] UltralightWebRenderer: [console] [stress] scene=canvas reason=cycle secs=20.0 frames=621 avgFps=31.0 p50=34.00 p95=39.00 worst=45.0 longFrames=369
+[12:52:32.357] [49208] [I] Bench: [osfui.bench/stress] [stress] scene=canvas reason=cycle secs=20.0 frames=621 avgFps=31.0 p50=34.00 p95=39.00 worst=45.0 longFrames=369
+[12:52:34.341] [11372] [D] D3D12Compositor: 49200 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:52:36.663] [11372] [D] D3D12Compositor: 50400 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:52:37.290] [50200] [I] Bench: ch=frame vis=1 win=5.00s n=6855 avg=0.730 p50=0.180 p95=2.580 p99=3.180 max=5.537
+[12:52:37.291] [50200] [I] Bench: ch=tick vis=1 win=5.00s n=6855 avg=0.020 p50=0.020 p95=0.020 p99=0.780 max=1.743
+[12:52:37.291] [50200] [I] Bench: ch=present vis=1 win=5.00s n=2742 avg=0.089 p50=0.060 p95=0.300 p99=0.420 max=0.757
+[12:52:37.291] [50200] [I] Bench: ch=produce vis=1 win=5.00s n=146 avg=17.609 p50=16.580 p95=23.940 p99=40.220 max=53.371
+[12:52:37.291] [50200] [I] Bench: rates vis=1 win=5.00s produced=146 (29.2/s) uploaded=146 (29.2/s)
+[12:52:38.636] [11372] [D] D3D12Compositor: 51600 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:52:40.618] [11372] [D] D3D12Compositor: 52800 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:52:42.291] [49208] [I] Bench: ch=frame vis=1 win=5.00s n=7572 avg=0.660 p50=0.100 p95=1.900 p99=2.140 max=3.119
+[12:52:42.291] [49208] [I] Bench: ch=tick vis=1 win=5.00s n=7572 avg=0.016 p50=0.020 p95=0.020 p99=0.620 max=1.357
+[12:52:42.291] [49208] [I] Bench: ch=present vis=1 win=5.00s n=3028 avg=0.059 p50=0.060 p95=0.260 p99=0.300 max=0.516
+[12:52:42.291] [49208] [I] Bench: ch=produce vis=1 win=5.00s n=170 avg=12.681 p50=12.180 p95=14.700 p99=15.500 max=15.875
+[12:52:42.291] [49208] [I] Bench: rates vis=1 win=5.00s produced=170 (34.0/s) uploaded=169 (33.8/s)
+[12:52:42.609] [11372] [D] D3D12Compositor: 54000 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:52:44.584] [11372] [D] D3D12Compositor: 55200 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:52:46.567] [11372] [D] D3D12Compositor: 56400 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:52:47.291] [50200] [I] Bench: ch=frame vis=1 win=5.00s n=7578 avg=0.660 p50=0.060 p95=1.900 p99=2.140 max=2.914
+[12:52:47.291] [50200] [I] Bench: ch=tick vis=1 win=5.00s n=7578 avg=0.016 p50=0.020 p95=0.020 p99=0.620 max=1.396
+[12:52:47.291] [50200] [I] Bench: ch=present vis=1 win=5.00s n=3032 avg=0.061 p50=0.060 p95=0.260 p99=0.300 max=0.692
+[12:52:47.291] [50200] [I] Bench: ch=produce vis=1 win=5.00s n=166 avg=13.162 p50=12.820 p95=15.140 p99=15.540 max=15.704
+[12:52:47.291] [50200] [I] Bench: rates vis=1 win=5.00s produced=166 (33.2/s) uploaded=167 (33.4/s)
+[12:52:48.546] [11372] [D] D3D12Compositor: 57600 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:52:50.524] [11372] [D] D3D12Compositor: 58800 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:52:52.291] [50200] [I] Bench: ch=frame vis=1 win=5.00s n=7570 avg=0.661 p50=0.100 p95=1.900 p99=2.180 max=2.733
+[12:52:52.291] [50200] [I] Bench: ch=tick vis=1 win=5.00s n=7570 avg=0.017 p50=0.020 p95=0.020 p99=0.620 max=1.599
+[12:52:52.291] [50200] [I] Bench: ch=present vis=1 win=5.00s n=3028 avg=0.060 p50=0.060 p95=0.260 p99=0.300 max=0.674
+[12:52:52.291] [50200] [I] Bench: ch=produce vis=1 win=5.00s n=169 avg=12.747 p50=12.340 p95=14.540 p99=15.540 max=15.931
+[12:52:52.291] [50200] [I] Bench: rates vis=1 win=5.00s produced=169 (33.8/s) uploaded=169 (33.8/s)
+[12:52:52.352] [44788] [D] UltralightWebRenderer: [console] [stress] scene=layout reason=cycle secs=20.0 frames=657 avgFps=32.8 p50=30.00 p95=36.00 worst=41.0 longFrames=70
+[12:52:52.353] [50200] [I] Bench: [osfui.bench/stress] [stress] scene=layout reason=cycle secs=20.0 frames=657 avgFps=32.8 p50=30.00 p95=36.00 worst=41.0 longFrames=70
+[12:52:52.508] [11372] [D] D3D12Compositor: 60000 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:52:54.485] [11372] [D] D3D12Compositor: 61200 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:52:56.470] [11372] [D] D3D12Compositor: 62400 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:52:57.291] [50200] [I] Bench: ch=frame vis=1 win=5.00s n=7575 avg=0.660 p50=0.100 p95=1.900 p99=2.100 max=4.352
+[12:52:57.291] [50200] [I] Bench: ch=tick vis=1 win=5.00s n=7575 avg=0.021 p50=0.020 p95=0.020 p99=0.660 max=1.481
+[12:52:57.291] [50200] [I] Bench: ch=present vis=1 win=5.00s n=3030 avg=0.064 p50=0.060 p95=0.260 p99=0.300 max=0.687
+[12:52:57.291] [50200] [I] Bench: ch=produce vis=1 win=5.00s n=234 avg=4.685 p50=4.580 p95=5.340 p99=6.020 max=12.198
+[12:52:57.291] [50200] [I] Bench: rates vis=1 win=5.00s produced=234 (46.8/s) uploaded=234 (46.8/s)
+[12:52:58.459] [11372] [D] D3D12Compositor: 63600 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:53:00.432] [11372] [D] D3D12Compositor: 64800 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:53:02.292] [50200] [I] Bench: ch=frame vis=1 win=5.00s n=7555 avg=0.662 p50=0.100 p95=1.900 p99=2.140 max=3.230
+[12:53:02.292] [50200] [I] Bench: ch=tick vis=1 win=5.00s n=7555 avg=0.023 p50=0.020 p95=0.020 p99=0.740 max=1.674
+[12:53:02.292] [50200] [I] Bench: ch=present vis=1 win=5.00s n=3022 avg=0.068 p50=0.060 p95=0.260 p99=0.340 max=0.841
+[12:53:02.292] [50200] [I] Bench: ch=produce vis=1 win=5.00s n=233 avg=4.601 p50=4.580 p95=5.100 p99=5.380 max=5.437
+[12:53:02.292] [50200] [I] Bench: rates vis=1 win=5.00s produced=234 (46.8/s) uploaded=233 (46.6/s)
+[12:53:02.423] [11372] [D] D3D12Compositor: 66000 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:53:04.403] [11372] [D] D3D12Compositor: 67200 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:53:06.384] [11372] [D] D3D12Compositor: 68400 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:53:07.294] [49208] [I] Bench: ch=frame vis=1 win=5.00s n=7574 avg=0.660 p50=0.100 p95=1.900 p99=2.140 max=3.179
+[12:53:07.294] [49208] [I] Bench: ch=tick vis=1 win=5.00s n=7574 avg=0.022 p50=0.020 p95=0.020 p99=0.660 max=1.742
+[12:53:07.294] [49208] [I] Bench: ch=present vis=1 win=5.00s n=3028 avg=0.065 p50=0.060 p95=0.260 p99=0.300 max=0.885
+[12:53:07.294] [49208] [I] Bench: ch=produce vis=1 win=5.00s n=234 avg=4.566 p50=4.540 p95=5.100 p99=5.340 max=5.641
+[12:53:07.294] [49208] [I] Bench: rates vis=1 win=5.00s produced=234 (46.8/s) uploaded=234 (46.8/s)
+[12:53:08.374] [11372] [D] D3D12Compositor: 69600 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:53:10.350] [11372] [D] D3D12Compositor: 70800 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:53:12.294] [49208] [I] Bench: ch=frame vis=1 win=5.00s n=7560 avg=0.661 p50=0.100 p95=1.900 p99=2.180 max=3.240
+[12:53:12.294] [49208] [I] Bench: ch=tick vis=1 win=5.00s n=7560 avg=0.022 p50=0.020 p95=0.020 p99=0.700 max=1.506
+[12:53:12.294] [49208] [I] Bench: ch=present vis=1 win=5.00s n=3024 avg=0.067 p50=0.060 p95=0.260 p99=0.340 max=0.894
+[12:53:12.294] [49208] [I] Bench: ch=produce vis=1 win=5.00s n=234 avg=4.598 p50=4.580 p95=5.140 p99=5.580 max=6.341
+[12:53:12.294] [49208] [I] Bench: rates vis=1 win=5.00s produced=233 (46.6/s) uploaded=234 (46.8/s)
+[12:53:12.336] [11372] [D] D3D12Compositor: 72000 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:53:12.360] [44788] [D] UltralightWebRenderer: [console] [stress] scene=fullscreen reason=cycle secs=20.0 frames=936 avgFps=46.8 p50=21.00 p95=23.00 worst=25.0 longFrames=0
+[12:53:12.361] [50200] [I] Bench: [osfui.bench/stress] [stress] scene=fullscreen reason=cycle secs=20.0 frames=936 avgFps=46.8 p50=21.00 p95=23.00 worst=25.0 longFrames=0
+[12:53:14.315] [11372] [D] D3D12Compositor: 73200 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:53:16.278] [11372] [D] D3D12Compositor: 74400 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:53:17.294] [49208] [I] Bench: ch=frame vis=1 win=5.00s n=7595 avg=0.658 p50=0.060 p95=1.940 p99=2.140 max=2.576
+[12:53:17.294] [49208] [I] Bench: ch=tick vis=1 win=5.00s n=7595 avg=0.002 p50=0.020 p95=0.020 p99=0.020 max=0.622
+[12:53:17.294] [49208] [I] Bench: ch=present vis=1 win=5.00s n=3038 avg=0.043 p50=0.060 p95=0.060 p99=0.100 max=0.323
+[12:53:17.294] [49208] [I] Bench: ch=produce vis=1 win=5.00s n=295 avg=0.249 p50=0.060 p95=1.740 p99=4.460 max=5.361
+[12:53:17.294] [49208] [I] Bench: rates vis=1 win=5.00s produced=23 (4.6/s) uploaded=23 (4.6/s)
+[12:53:18.257] [11372] [D] D3D12Compositor: 75600 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:53:20.234] [11372] [D] D3D12Compositor: 76800 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:53:22.198] [11372] [D] D3D12Compositor: 78000 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:53:22.295] [49208] [I] Bench: ch=frame vis=1 win=5.00s n=7620 avg=0.656 p50=0.060 p95=1.980 p99=2.140 max=2.674
+[12:53:22.295] [49208] [I] Bench: ch=tick vis=1 win=5.00s n=7620 avg=0.001 p50=0.020 p95=0.020 p99=0.020 max=0.044
+[12:53:22.295] [49208] [I] Bench: ch=present vis=1 win=5.00s n=3048 avg=0.041 p50=0.060 p95=0.060 p99=0.100 max=0.183
+[12:53:22.295] [49208] [I] Bench: ch=produce vis=1 win=5.00s n=295 avg=0.186 p50=0.060 p95=1.460 p99=1.940 max=2.916
+[12:53:22.295] [49208] [I] Bench: rates vis=1 win=5.00s produced=19 (3.8/s) uploaded=19 (3.8/s)
+[12:53:24.175] [11372] [D] D3D12Compositor: 79200 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:53:26.151] [11372] [D] D3D12Compositor: 80400 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:53:27.295] [49208] [I] Bench: ch=frame vis=1 win=5.00s n=7590 avg=0.659 p50=0.060 p95=1.940 p99=2.140 max=2.816
+[12:53:27.296] [49208] [I] Bench: ch=tick vis=1 win=5.00s n=7590 avg=0.001 p50=0.020 p95=0.020 p99=0.020 max=0.052
+[12:53:27.296] [49208] [I] Bench: ch=present vis=1 win=5.00s n=3036 avg=0.044 p50=0.060 p95=0.060 p99=0.100 max=0.282
+[12:53:27.296] [49208] [I] Bench: ch=produce vis=1 win=5.00s n=295 avg=0.200 p50=0.060 p95=1.660 p99=2.140 max=3.087
+[12:53:27.296] [49208] [I] Bench: rates vis=1 win=5.00s produced=20 (4.0/s) uploaded=20 (4.0/s)
+[12:53:28.121] [11372] [D] D3D12Compositor: 81600 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:53:30.102] [11372] [D] D3D12Compositor: 82800 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:53:32.074] [11372] [D] D3D12Compositor: 84000 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:53:32.296] [49208] [I] Bench: ch=frame vis=1 win=5.00s n=7590 avg=0.659 p50=0.060 p95=1.980 p99=2.100 max=2.560
+[12:53:32.296] [49208] [I] Bench: ch=tick vis=1 win=5.00s n=7590 avg=0.001 p50=0.020 p95=0.020 p99=0.020 max=0.065
+[12:53:32.296] [49208] [I] Bench: ch=present vis=1 win=5.00s n=3036 avg=0.042 p50=0.060 p95=0.060 p99=0.100 max=0.201
+[12:53:32.296] [49208] [I] Bench: ch=produce vis=1 win=5.00s n=295 avg=0.177 p50=0.060 p95=1.420 p99=1.980 max=2.362
+[12:53:32.296] [49208] [I] Bench: rates vis=1 win=5.00s produced=19 (3.8/s) uploaded=19 (3.8/s)
+[12:53:32.371] [44788] [D] UltralightWebRenderer: [console] [stress] scene=idle reason=cycle secs=20.0 frames=876 avgFps=43.8 p50=18.00 p95=33.00 worst=35.0 longFrames=41
+[12:53:32.372] [49208] [I] Bench: [osfui.bench/stress] [stress] scene=idle reason=cycle secs=20.0 frames=876 avgFps=43.8 p50=18.00 p95=33.00 worst=35.0 longFrames=41
+[12:53:34.051] [11372] [D] D3D12Compositor: 85200 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:53:36.037] [11372] [D] D3D12Compositor: 86400 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:53:37.296] [49208] [I] Bench: ch=frame vis=1 win=5.00s n=7590 avg=0.659 p50=0.060 p95=1.900 p99=2.100 max=2.831
+[12:53:37.296] [49208] [I] Bench: ch=tick vis=1 win=5.00s n=7590 avg=0.013 p50=0.020 p95=0.020 p99=0.580 max=1.106
+[12:53:37.296] [49208] [I] Bench: ch=present vis=1 win=5.00s n=3036 avg=0.056 p50=0.060 p95=0.220 p99=0.260 max=0.734
+[12:53:37.296] [49208] [I] Bench: ch=produce vis=1 win=5.00s n=154 avg=15.549 p50=15.660 p95=18.060 p99=18.500 max=18.764
+[12:53:37.296] [49208] [I] Bench: rates vis=1 win=5.00s produced=150 (30.0/s) uploaded=150 (30.0/s)
+[12:53:38.009] [11372] [D] D3D12Compositor: 87600 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:53:39.992] [11372] [D] D3D12Compositor: 88800 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:53:41.975] [11372] [D] D3D12Compositor: 90000 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:53:42.297] [50200] [I] Bench: ch=frame vis=1 win=5.00s n=7566 avg=0.661 p50=0.100 p95=1.900 p99=2.140 max=2.744
+[12:53:42.297] [50200] [I] Bench: ch=tick vis=1 win=5.00s n=7566 avg=0.014 p50=0.020 p95=0.020 p99=0.580 max=1.092
+[12:53:42.297] [50200] [I] Bench: ch=present vis=1 win=5.00s n=3028 avg=0.059 p50=0.060 p95=0.260 p99=0.300 max=0.616
+[12:53:42.297] [50200] [I] Bench: ch=produce vis=1 win=5.00s n=150 avg=16.390 p50=15.860 p95=18.660 p99=19.180 max=20.122
+[12:53:42.297] [50200] [I] Bench: rates vis=1 win=5.00s produced=151 (30.2/s) uploaded=150 (30.0/s)
+[12:53:43.946] [11372] [D] D3D12Compositor: 91200 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:53:45.926] [11372] [D] D3D12Compositor: 92400 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:53:47.297] [49208] [I] Bench: ch=frame vis=1 win=5.00s n=7604 avg=0.658 p50=0.060 p95=1.900 p99=2.100 max=2.486
+[12:53:47.297] [49208] [I] Bench: ch=tick vis=1 win=5.00s n=7604 avg=0.013 p50=0.020 p95=0.020 p99=0.580 max=1.177
+[12:53:47.297] [49208] [I] Bench: ch=present vis=1 win=5.00s n=3040 avg=0.056 p50=0.060 p95=0.260 p99=0.300 max=0.462
+[12:53:47.297] [49208] [I] Bench: ch=produce vis=1 win=5.00s n=153 avg=16.022 p50=15.700 p95=18.420 p99=18.900 max=19.471
+[12:53:47.297] [49208] [I] Bench: rates vis=1 win=5.00s produced=152 (30.4/s) uploaded=153 (30.6/s)
+[12:53:47.901] [11372] [D] D3D12Compositor: 93600 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:53:49.876] [11372] [D] D3D12Compositor: 94800 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:53:51.860] [11372] [D] D3D12Compositor: 96000 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:53:52.297] [50200] [I] Bench: ch=frame vis=1 win=5.00s n=7576 avg=0.660 p50=0.100 p95=1.900 p99=2.140 max=2.800
+[12:53:52.297] [50200] [I] Bench: ch=tick vis=1 win=5.00s n=7576 avg=0.014 p50=0.020 p95=0.020 p99=0.580 max=1.335
+[12:53:52.297] [50200] [I] Bench: ch=present vis=1 win=5.00s n=3032 avg=0.058 p50=0.060 p95=0.260 p99=0.300 max=0.821
+[12:53:52.297] [50200] [I] Bench: ch=produce vis=1 win=5.00s n=151 avg=16.314 p50=15.860 p95=18.820 p99=19.340 max=19.694
+[12:53:52.297] [50200] [I] Bench: rates vis=1 win=5.00s produced=151 (30.2/s) uploaded=151 (30.2/s)
+[12:53:52.393] [44788] [D] UltralightWebRenderer: [console] [stress] scene=css-transform reason=cycle secs=20.0 frames=607 avgFps=30.3 p50=33.00 p95=36.00 worst=38.0 longFrames=202
+[12:53:52.393] [49208] [I] Bench: [osfui.bench/stress] [stress] scene=css-transform reason=cycle secs=20.0 frames=607 avgFps=30.3 p50=33.00 p95=36.00 worst=38.0 longFrames=202
+[12:53:53.833] [11372] [D] D3D12Compositor: 97200 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:53:55.818] [11372] [D] D3D12Compositor: 98400 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:53:57.298] [49208] [I] Bench: ch=frame vis=1 win=5.00s n=7574 avg=0.660 p50=0.100 p95=1.940 p99=2.260 max=3.040
+[12:53:57.298] [49208] [I] Bench: ch=tick vis=1 win=5.00s n=7574 avg=0.007 p50=0.020 p95=0.020 p99=0.020 max=0.887
+[12:53:57.298] [49208] [I] Bench: ch=present vis=1 win=5.00s n=3028 avg=0.054 p50=0.060 p95=0.100 p99=0.260 max=0.404
+[12:53:57.298] [49208] [I] Bench: ch=produce vis=1 win=5.00s n=71 avg=52.860 p50=40.940 p95=40.940 p99=40.940 max=62.229
+[12:53:57.298] [49208] [I] Bench: rates vis=1 win=5.00s produced=72 (14.4/s) uploaded=71 (14.2/s)
+[12:53:57.801] [11372] [D] D3D12Compositor: 99600 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:53:59.770] [11372] [D] D3D12Compositor: 100800 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:54:01.759] [11372] [D] D3D12Compositor: 102000 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:54:02.299] [49208] [I] Bench: ch=frame vis=1 win=5.00s n=7580 avg=0.660 p50=0.100 p95=2.020 p99=2.420 max=3.680
+[12:54:02.299] [49208] [I] Bench: ch=tick vis=1 win=5.00s n=7580 avg=0.007 p50=0.020 p95=0.020 p99=0.020 max=1.411
+[12:54:02.299] [49208] [I] Bench: ch=present vis=1 win=5.00s n=3032 avg=0.058 p50=0.060 p95=0.100 p99=0.300 max=0.680
+[12:54:02.299] [49208] [I] Bench: ch=produce vis=1 win=5.00s n=68 avg=57.002 p50=40.940 p95=40.940 p99=40.940 max=67.231
+[12:54:02.299] [49208] [I] Bench: rates vis=1 win=5.00s produced=67 (13.4/s) uploaded=68 (13.6/s)
+[12:54:03.743] [11372] [D] D3D12Compositor: 103200 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:54:05.717] [11372] [D] D3D12Compositor: 104400 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:54:07.299] [49208] [I] Bench: ch=frame vis=1 win=5.00s n=7580 avg=0.660 p50=0.100 p95=1.980 p99=2.340 max=3.135
+[12:54:07.299] [49208] [I] Bench: ch=tick vis=1 win=5.00s n=7580 avg=0.007 p50=0.020 p95=0.020 p99=0.020 max=0.787
+[12:54:07.299] [49208] [I] Bench: ch=present vis=1 win=5.00s n=3032 avg=0.057 p50=0.060 p95=0.100 p99=0.300 max=0.595
+[12:54:07.299] [49208] [I] Bench: ch=produce vis=1 win=5.00s n=69 avg=56.288 p50=40.940 p95=40.940 p99=40.940 max=67.496
+[12:54:07.299] [49208] [I] Bench: rates vis=1 win=5.00s produced=69 (13.8/s) uploaded=69 (13.8/s)
+[12:54:07.692] [11372] [D] D3D12Compositor: 105600 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:54:09.656] [11372] [D] D3D12Compositor: 106800 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:54:11.630] [11372] [D] D3D12Compositor: 108000 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:54:12.300] [50200] [I] Bench: ch=frame vis=1 win=5.00s n=7621 avg=0.656 p50=0.100 p95=1.900 p99=2.180 max=2.962
+[12:54:12.300] [50200] [I] Bench: ch=tick vis=1 win=5.00s n=7621 avg=0.006 p50=0.020 p95=0.020 p99=0.020 max=0.808
+[12:54:12.300] [50200] [I] Bench: ch=present vis=1 win=5.00s n=3050 avg=0.053 p50=0.060 p95=0.100 p99=0.260 max=0.620
+[12:54:12.300] [50200] [I] Bench: ch=produce vis=1 win=5.00s n=71 avg=53.660 p50=40.940 p95=40.940 p99=40.940 max=65.050
+[12:54:12.300] [50200] [I] Bench: rates vis=1 win=5.00s produced=71 (14.2/s) uploaded=71 (14.2/s)
+[12:54:12.425] [44788] [D] UltralightWebRenderer: [console] [stress] scene=paint reason=cycle secs=20.0 frames=278 avgFps=13.9 p50=71.00 p95=80.00 worst=84.0 longFrames=278
+[12:54:12.425] [50200] [I] Bench: [osfui.bench/stress] [stress] scene=paint reason=cycle secs=20.0 frames=278 avgFps=13.9 p50=71.00 p95=80.00 worst=84.0 longFrames=278
+[12:54:13.612] [11372] [D] D3D12Compositor: 109200 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:54:15.592] [11372] [D] D3D12Compositor: 110400 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:54:17.300] [50200] [I] Bench: ch=frame vis=1 win=5.00s n=7560 avg=0.661 p50=0.100 p95=2.020 p99=2.460 max=3.822
+[12:54:17.300] [50200] [I] Bench: ch=tick vis=1 win=5.00s n=7560 avg=0.016 p50=0.020 p95=0.020 p99=0.700 max=1.439
+[12:54:17.300] [50200] [I] Bench: ch=present vis=1 win=5.00s n=3024 avg=0.066 p50=0.060 p95=0.260 p99=0.340 max=0.804
+[12:54:17.300] [50200] [I] Bench: ch=produce vis=1 win=5.00s n=144 avg=18.194 p50=16.900 p95=19.660 p99=38.980 max=55.707
+[12:54:17.300] [50200] [I] Bench: rates vis=1 win=5.00s produced=144 (28.8/s) uploaded=143 (28.6/s)
+[12:54:17.572] [11372] [D] D3D12Compositor: 111600 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:54:19.540] [11372] [D] D3D12Compositor: 112800 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:54:21.516] [11372] [D] D3D12Compositor: 114000 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:54:22.301] [50200] [I] Bench: ch=frame vis=1 win=5.00s n=7615 avg=0.657 p50=0.100 p95=1.900 p99=2.100 max=3.037
+[12:54:22.301] [50200] [I] Bench: ch=tick vis=1 win=5.00s n=7615 avg=0.015 p50=0.020 p95=0.020 p99=0.620 max=1.657
+[12:54:22.301] [50200] [I] Bench: ch=present vis=1 win=5.00s n=3046 avg=0.059 p50=0.060 p95=0.220 p99=0.300 max=0.832
+[12:54:22.301] [50200] [I] Bench: ch=produce vis=1 win=5.00s n=147 avg=17.149 p50=16.380 p95=18.780 p99=34.700 max=36.172
+[12:54:22.301] [50200] [I] Bench: rates vis=1 win=5.00s produced=147 (29.4/s) uploaded=148 (29.6/s)
+[12:54:23.496] [11372] [D] D3D12Compositor: 115200 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:54:25.458] [11372] [D] D3D12Compositor: 116400 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:54:27.301] [49208] [I] Bench: ch=frame vis=1 win=5.00s n=7599 avg=0.658 p50=0.100 p95=1.900 p99=2.220 max=3.008
+[12:54:27.301] [49208] [I] Bench: ch=tick vis=1 win=5.00s n=7599 avg=0.015 p50=0.020 p95=0.020 p99=0.660 max=1.524
+[12:54:27.301] [49208] [I] Bench: ch=present vis=1 win=5.00s n=3038 avg=0.060 p50=0.060 p95=0.180 p99=0.300 max=0.746
+[12:54:27.301] [49208] [I] Bench: ch=produce vis=1 win=5.00s n=147 avg=17.284 p50=16.420 p95=18.260 p99=36.060 max=37.993
+[12:54:27.301] [49208] [I] Bench: rates vis=1 win=5.00s produced=147 (29.4/s) uploaded=147 (29.4/s)
+[12:54:27.435] [11372] [D] D3D12Compositor: 117600 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:54:29.404] [11372] [D] D3D12Compositor: 118800 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:54:31.373] [11372] [D] D3D12Compositor: 120000 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:54:32.302] [50200] [I] Bench: ch=frame vis=1 win=5.00s n=7621 avg=0.656 p50=0.060 p95=1.860 p99=2.140 max=2.598
+[12:54:32.302] [50200] [I] Bench: ch=tick vis=1 win=5.00s n=7621 avg=0.014 p50=0.020 p95=0.020 p99=0.620 max=1.311
+[12:54:32.302] [50200] [I] Bench: ch=present vis=1 win=5.00s n=3050 avg=0.058 p50=0.060 p95=0.180 p99=0.300 max=1.014
+[12:54:32.302] [50200] [I] Bench: ch=produce vis=1 win=5.00s n=147 avg=17.130 p50=16.300 p95=17.860 p99=33.940 max=35.821
+[12:54:32.302] [50200] [I] Bench: rates vis=1 win=5.00s produced=147 (29.4/s) uploaded=147 (29.4/s)
+[12:54:32.460] [44788] [D] UltralightWebRenderer: [console] [stress] scene=canvas reason=cycle secs=20.0 frames=609 avgFps=30.4 p50=33.00 p95=35.00 worst=37.0 longFrames=235
+[12:54:32.461] [50200] [I] Bench: [osfui.bench/stress] [stress] scene=canvas reason=cycle secs=20.0 frames=609 avgFps=30.4 p50=33.00 p95=35.00 worst=37.0 longFrames=235
+[12:54:33.351] [11372] [D] D3D12Compositor: 121200 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:54:35.316] [11372] [D] D3D12Compositor: 122400 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:54:37.288] [11372] [D] D3D12Compositor: 123600 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:54:37.302] [50200] [I] Bench: ch=frame vis=1 win=5.00s n=7605 avg=0.658 p50=0.060 p95=1.900 p99=2.140 max=2.882
+[12:54:37.303] [50200] [I] Bench: ch=tick vis=1 win=5.00s n=7605 avg=0.016 p50=0.020 p95=0.020 p99=0.620 max=1.465
+[12:54:37.303] [50200] [I] Bench: ch=present vis=1 win=5.00s n=3042 avg=0.060 p50=0.060 p95=0.260 p99=0.300 max=0.864
+[12:54:37.303] [50200] [I] Bench: ch=produce vis=1 win=5.00s n=168 avg=12.903 p50=12.220 p95=14.740 p99=17.620 max=36.006
+[12:54:37.303] [50200] [I] Bench: rates vis=1 win=5.00s produced=168 (33.6/s) uploaded=168 (33.6/s)
+[12:54:39.260] [11372] [D] D3D12Compositor: 124800 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:54:41.221] [11372] [D] D3D12Compositor: 126000 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:54:42.304] [49208] [I] Bench: ch=frame vis=1 win=5.00s n=7619 avg=0.656 p50=0.100 p95=1.900 p99=2.140 max=2.597
+[12:54:42.304] [49208] [I] Bench: ch=tick vis=1 win=5.00s n=7619 avg=0.016 p50=0.020 p95=0.020 p99=0.620 max=1.325
+[12:54:42.304] [49208] [I] Bench: ch=present vis=1 win=5.00s n=3046 avg=0.060 p50=0.060 p95=0.260 p99=0.300 max=0.697
+[12:54:42.304] [49208] [I] Bench: ch=produce vis=1 win=5.00s n=169 avg=12.701 p50=12.300 p95=14.420 p99=15.220 max=18.092
+[12:54:42.304] [49208] [I] Bench: rates vis=1 win=5.00s produced=170 (34.0/s) uploaded=169 (33.8/s)
+[12:54:43.196] [11372] [D] D3D12Compositor: 127200 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:54:45.165] [11372] [D] D3D12Compositor: 128400 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:54:47.133] [11372] [D] D3D12Compositor: 129600 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:54:47.304] [49208] [I] Bench: ch=frame vis=1 win=5.00s n=7620 avg=0.656 p50=0.060 p95=1.900 p99=2.100 max=2.423
+[12:54:47.304] [49208] [I] Bench: ch=tick vis=1 win=5.00s n=7620 avg=0.015 p50=0.020 p95=0.020 p99=0.580 max=1.369
+[12:54:47.304] [49208] [I] Bench: ch=present vis=1 win=5.00s n=3048 avg=0.058 p50=0.060 p95=0.260 p99=0.300 max=0.615
+[12:54:47.304] [49208] [I] Bench: ch=produce vis=1 win=5.00s n=171 avg=12.483 p50=12.140 p95=14.300 p99=14.820 max=15.509
+[12:54:47.304] [49208] [I] Bench: rates vis=1 win=5.00s produced=170 (34.0/s) uploaded=171 (34.2/s)
+[12:54:49.117] [11372] [D] D3D12Compositor: 130800 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:54:51.086] [11372] [D] D3D12Compositor: 132000 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:54:52.305] [50200] [I] Bench: ch=frame vis=1 win=5.00s n=7586 avg=0.659 p50=0.100 p95=1.940 p99=2.260 max=4.397
+[12:54:52.305] [50200] [I] Bench: ch=tick vis=1 win=5.00s n=7586 avg=0.018 p50=0.020 p95=0.020 p99=0.700 max=1.552
+[12:54:52.305] [50200] [I] Bench: ch=present vis=1 win=5.00s n=3036 avg=0.064 p50=0.060 p95=0.260 p99=0.340 max=0.754
+[12:54:52.305] [50200] [I] Bench: ch=produce vis=1 win=5.00s n=168 avg=13.036 p50=12.980 p95=14.540 p99=15.500 max=17.466
+[12:54:52.305] [50200] [I] Bench: rates vis=1 win=5.00s produced=168 (33.6/s) uploaded=168 (33.6/s)
+[12:54:52.456] [44788] [D] UltralightWebRenderer: [console] [stress] scene=layout reason=cycle secs=20.0 frames=678 avgFps=33.9 p50=29.00 p95=32.00 worst=37.0 longFrames=4
+[12:54:52.457] [49208] [I] Bench: [osfui.bench/stress] [stress] scene=layout reason=cycle secs=20.0 frames=678 avgFps=33.9 p50=29.00 p95=32.00 worst=37.0 longFrames=4
+[12:54:53.060] [11372] [D] D3D12Compositor: 133200 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:54:55.040] [11372] [D] D3D12Compositor: 134400 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:54:57.006] [11372] [D] D3D12Compositor: 135600 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:54:57.305] [50200] [I] Bench: ch=frame vis=1 win=5.00s n=7610 avg=0.657 p50=0.100 p95=1.860 p99=2.100 max=2.787
+[12:54:57.305] [50200] [I] Bench: ch=tick vis=1 win=5.00s n=7610 avg=0.021 p50=0.020 p95=0.020 p99=0.660 max=1.511
+[12:54:57.305] [50200] [I] Bench: ch=present vis=1 win=5.00s n=3044 avg=0.063 p50=0.060 p95=0.260 p99=0.300 max=0.618
+[12:54:57.305] [50200] [I] Bench: ch=produce vis=1 win=5.00s n=232 avg=4.786 p50=4.580 p95=5.340 p99=11.860 max=12.518
+[12:54:57.305] [50200] [I] Bench: rates vis=1 win=5.00s produced=232 (46.4/s) uploaded=231 (46.2/s)
+[12:54:58.986] [11372] [D] D3D12Compositor: 136800 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:55:00.956] [11372] [D] D3D12Compositor: 138000 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:55:02.306] [49456] [I] Bench: ch=frame vis=1 win=5.00s n=6915 avg=0.718 p50=0.140 p95=1.980 p99=2.420 max=100.000
+[12:55:02.306] [49456] [I] Bench: ch=tick vis=1 win=5.00s n=6915 avg=0.025 p50=0.020 p95=0.020 p99=0.780 max=1.506
+[12:55:02.306] [49456] [I] Bench: ch=present vis=1 win=5.00s n=2766 avg=0.075 p50=0.060 p95=0.260 p99=0.380 max=0.905
+[12:55:02.306] [49456] [I] Bench: ch=produce vis=1 win=5.00s n=346 avg=3.206 p50=4.460 p95=5.460 p99=6.100 max=7.389
+[12:55:02.306] [49456] [I] Bench: rates vis=1 win=5.00s produced=234 (46.8/s) uploaded=221 (44.2/s)
+[12:55:03.452] [11372] [D] D3D12Compositor: 139200 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:55:05.617] [11372] [D] D3D12Compositor: 140400 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:55:07.308] [49208] [I] Bench: ch=frame vis=1 win=5.00s n=6994 avg=0.715 p50=0.100 p95=2.100 p99=2.460 max=4.341
+[12:55:07.308] [49208] [I] Bench: ch=tick vis=1 win=5.00s n=6994 avg=0.024 p50=0.020 p95=0.020 p99=0.700 max=1.357
+[12:55:07.308] [49208] [I] Bench: ch=present vis=1 win=5.00s n=2798 avg=0.072 p50=0.060 p95=0.260 p99=0.340 max=0.840
+[12:55:07.308] [49208] [I] Bench: ch=produce vis=1 win=5.00s n=234 avg=4.656 p50=4.620 p95=5.260 p99=5.500 max=6.249
+[12:55:07.308] [49208] [I] Bench: rates vis=1 win=5.00s produced=233 (46.6/s) uploaded=233 (46.6/s)
+[12:55:07.774] [11372] [D] D3D12Compositor: 141600 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:55:09.862] [11372] [D] D3D12Compositor: 142800 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:55:11.978] [11372] [D] D3D12Compositor: 144000 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:55:12.308] [49208] [I] Bench: ch=frame vis=1 win=5.00s n=7110 avg=0.703 p50=0.100 p95=2.060 p99=2.420 max=3.917
+[12:55:12.308] [49208] [I] Bench: ch=tick vis=1 win=5.00s n=7110 avg=0.025 p50=0.020 p95=0.020 p99=0.780 max=1.582
+[12:55:12.309] [49208] [I] Bench: ch=present vis=1 win=5.00s n=2842 avg=0.072 p50=0.060 p95=0.260 p99=0.380 max=0.690
+[12:55:12.309] [49208] [I] Bench: ch=produce vis=1 win=5.00s n=232 avg=4.674 p50=4.620 p95=5.340 p99=5.540 max=5.927
+[12:55:12.309] [49208] [I] Bench: rates vis=1 win=5.00s produced=233 (46.6/s) uploaded=233 (46.6/s)
+[12:55:12.456] [44788] [D] UltralightWebRenderer: [console] [stress] scene=fullscreen reason=cycle secs=20.0 frames=935 avgFps=46.8 p50=21.00 p95=23.00 worst=37.0 longFrames=1
+[12:55:12.456] [44384] [I] Bench: [osfui.bench/stress] [stress] scene=fullscreen reason=cycle secs=20.0 frames=935 avgFps=46.8 p50=21.00 p95=23.00 worst=37.0 longFrames=1
+[12:55:14.070] [11372] [D] D3D12Compositor: 145200 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[12:55:15.149] [49208] [I] Runtime: overlay visibility -> false (capture=false)
+[12:55:15.149] [49208] [I] FocusMenu: close requested ('OSFUI_FocusMenu' kHide)
+[12:55:15.149] [49208] [I] EngineInput: session summary — gates=69047 buttons=0 (kb=0 mouse=0 pad=0) sticks=0 chars=0 mouseMoves=0 cursorMoves=0; recent buttons: none
+[12:55:15.149] [49208] [I] ControlLayer: player controls restored
+[12:55:15.149] [49208] [I] SimPause: released (UI::pauseRequestCount decremented)
+[12:55:15.150] [49208] [I] FreeCursor: released (MenuCursor freeCursorRefCount now 0)
+[12:55:15.150] [49208] [I] Bench: ch=frame vis=1 win=2.84s n=4173 avg=0.681 p50=0.100 p95=1.980 p99=2.300 max=16.997
+[12:55:15.150] [49208] [I] Bench: ch=tick vis=1 win=2.84s n=4173 avg=0.003 p50=0.020 p95=0.020 p99=0.020 max=0.698
+[12:55:15.150] [49208] [I] Bench: ch=present vis=1 win=2.84s n=1670 avg=0.046 p50=0.060 p95=0.060 p99=0.140 max=0.276
+[12:55:15.150] [49208] [I] Bench: ch=produce vis=1 win=2.84s n=282 avg=0.249 p50=0.060 p95=1.700 p99=4.660 max=5.648
+[12:55:15.150] [49208] [I] Bench: rates vis=1 win=2.84s produced=17 (6.0/s) uploaded=18 (6.3/s)
+[12:55:15.156] [49208] [I] HardwareCursor: deactivated (visibility + clip returned to the game)
+[12:55:16.384] [49208] [I] MenuEventSink: console opened

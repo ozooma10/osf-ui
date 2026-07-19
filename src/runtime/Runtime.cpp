@@ -198,6 +198,17 @@ namespace OSFUI
 			for (const auto& id : toLoad) {
 				if (const auto* m = _views.Find(id)) {
 					_renderer->LoadView(*m);
+					// Benchmark runs mirror page console output into the log so a
+					// view's self-reported throughput sits next to the native
+					// Bench: channels for the same window (the stress view emits
+					// one "[stress] scene=…" line per scene). Registering a
+					// handler also switches the backends into console-capture
+					// mode, so this stays behind the benchStats knob.
+					if (_config.benchStats) {
+						_renderer->SetConsoleHandler(id, [id](int, std::string a_message) {
+							REX::INFO("Bench: [{}] {}", id, a_message);
+						});
+					}
 					_menus.Register({ id, m->kind, m->capturesInput, m->pausesGame, m->order });
 					// The policy fields decide runtime behavior (capture, sim pause)
 					// and an explicit manifest value silently overrides the defaults

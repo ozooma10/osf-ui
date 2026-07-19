@@ -1,0 +1,4 @@
+Waiting for Starfield.exe (up to 240 min)...
+Sampling PID 37064 -> C:\Modding\Starfield\OSF UI\tools\bench\results\20260719-123830-webview2-stress.csv (Ctrl+C to stop early)
+Game exited; snapshotting OSF UI.log
+Done: C:\Modding\Starfield\OSF UI\tools\bench\results\20260719-123830-webview2-stress.csv (orphans after exit: 0)
