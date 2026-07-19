@@ -18,6 +18,11 @@ namespace OSFUI
 	// browser HWND beneath the game window (window tree != process tree) and
 	// framework keys come back over the pipe.
 	//
+	// Multi-view: the host keeps one composition controller + child visual
+	// per view under ONE captured root, so sibling plugin views and the
+	// configured layer set all composite through the same shared-texture
+	// ring; this client just routes per-view ids over the pipe.
+	//
 	// The in-process variant remains available as renderer "webview2-inproc"
 	// (diagnostic escape hatch; requires the MO2 blacklist workaround).
 	class WebView2HostWebRenderer final : public IWebRenderer
@@ -32,7 +37,7 @@ namespace OSFUI
 		void Shutdown() override;
 		void LoadView(const ViewManifest& a_manifest) override;
 		void SetActiveView(std::string_view a_id) override;
-		[[nodiscard]] bool SupportsMultipleViews() const override { return false; }
+		[[nodiscard]] bool SupportsMultipleViews() const override { return true; }
 		void Resize(std::uint32_t a_width, std::uint32_t a_height) override;
 		void Update(double a_deltaSeconds) override;
 		std::optional<FrameBufferView> Render() override;
@@ -59,6 +64,7 @@ namespace OSFUI
 			JsListenerHandler a_callback) override;
 		void SetConsoleHandler(std::string_view a_viewId, ConsoleHandler a_handler) override;
 		void SetViewHidden(std::string_view a_viewId, bool a_hidden) override;
+		void SetViewOrder(std::string_view a_viewId, int a_order) override;
 		void DestroyView(std::string_view a_viewId) override;
 		[[nodiscard]] std::string_view Name() const override { return "webview2"; }
 

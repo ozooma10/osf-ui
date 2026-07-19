@@ -10,6 +10,8 @@
 #include <chrono>
 #include <format>
 #include <fstream>
+#include <memory>
+#include <vector>
 
 #include <DispatcherQueue.h>
 #include <WebView2.h>
@@ -135,22 +137,48 @@ namespace osfui::wv2
 			std::wstring          virtualHost{ L"osfui.local" };
 			std::uint32_t         width{ 1 }, height{ 1 };
 			bool                  devMode{ false };
+			bool                  defaultHidden{ true };  // init.hidden — a new view's starting state
 
 			// ---- windows ----
 			HWND bootstrapWindow{ nullptr };
 			HWND hostWindow{ nullptr };
 			bool reparented{ false };
 
-			// ---- view state ----
-			struct PendingNavigate { std::wstring url; };
-			std::optional<PendingNavigate> pendingNavigate;
-			bool         bridgeAllowed{ true };
-			bool         hidden{ true };
-			bool         domSeen{ false }, navigationSucceeded{ false }, domNotified{ false };
-			std::wstring currentUrl;
-			std::deque<std::string> queuedPostWeb;
-			struct QueuedEval { std::uint64_t id; std::string script; };
-			std::deque<QueuedEval> queuedEvals;
+			// ---- views ----
+			// One OSF UI view = one composition controller + WebView2 targeting
+			// its own child ContainerVisual of the captured root, plus a 1x1
+			// child HWND of hostWindow so focus and synthetic keys route per
+			// view. The root is captured ONCE — WGC sees the already-composited
+			// stack, so N views still cost one capture and one texture ring.
+			struct View
+			{
+				std::string id;
+				HWND        window{ nullptr };
+				winrt::Windows::UI::Composition::ContainerVisual visual{ nullptr };
+				ComPtr<ICoreWebView2Controller>            controller;
+				ComPtr<ICoreWebView2CompositionController> compositionController;
+				ComPtr<ICoreWebView2>                      webView;
+				ComPtr<ICoreWebView2DevToolsProtocolEventReceiver> consoleReceiver;
+				bool controllerRequested{ false };
+				bool bridgeAllowed{ true };
+				bool hidden{ true };
+				// Deferred visibility (flicker-free menu switches): a reveal
+				// waits for the page's first painted frame after Chromium
+				// resume, and hides wait for pending reveals (see ShowView).
+				bool          revealPending{ false };
+				bool          hideDeferred{ false };
+				std::uint64_t revealDeadline{ 0 };
+				int  order{ 0 };
+				bool domSeen{ false }, navigationSucceeded{ false }, domNotified{ false };
+				std::wstring currentUrl;
+				std::optional<std::wstring> pendingNavigate;
+				std::deque<std::string> queuedPostWeb;
+				struct QueuedEval { std::uint64_t id; std::string script; };
+				std::deque<QueuedEval> queuedEvals;
+			};
+			std::vector<std::unique_ptr<View>> views;  // creation order (= z tie-break)
+			View* active{ nullptr };  // mouse/focus/synthetic-key target
+			bool  captureStarted{ false };
 
 			// accel state pushed by the game (touched only on the STA thread)
 			std::uint32_t toggleVk{ 0x79 /*F10*/ }, devReloadVk{ 0 }, captureUpVk{ 0 };
@@ -199,14 +227,19 @@ namespace osfui::wv2
 			double        produceMsTotal{ 0.0 };
 			std::uint64_t produceCount{ 0 };
 
+			// Capture-cadence diagnostics (benchmark "48 fps ceiling"): the
+			// interval between WGC FrameArrived callbacks is DWM's commit
+			// cadence for the captured visual — the transport's actual input
+			// rate, upstream of everything the host controls. Touched only on
+			// the capture callback thread.
+			std::chrono::steady_clock::time_point captureLastArrival{};
+			double        captureGapMsTotal{ 0.0 };
+			double        captureGapMsMin{ 0.0 };
+			double        captureGapMsMax{ 0.0 };
+			std::uint64_t captureGapCount{ 0 };
+
 			// ---- WebView2 ----
-			ComPtr<ICoreWebView2Environment>           environment;
-			ComPtr<ICoreWebView2Controller>            controller;
-			ComPtr<ICoreWebView2CompositionController> compositionController;
-			ComPtr<ICoreWebView2>                      webView;
-			ComPtr<ICoreWebView2DevToolsProtocolEventReceiver> consoleReceiver;
-			EventRegistrationToken acceleratorToken{}, cursorToken{}, messageToken{};
-			EventRegistrationToken navigationToken{}, domToken{}, processFailedToken{}, consoleToken{};
+			ComPtr<ICoreWebView2Environment> environment;
 			bool environmentRequested{ false };
 
 			// ================= pipe =================
@@ -281,7 +314,9 @@ namespace osfui::wv2
 				compositor = winrt::Windows::UI::Composition::Compositor();
 				rootVisual = compositor.CreateContainerVisual();
 				rootVisual.Size({ static_cast<float>(width), static_cast<float>(height) });
-				rootVisual.IsVisible(!hidden);
+				// The root stays visible for the lifetime of the capture;
+				// per-view visibility lives on each view's child visual.
+				rootVisual.IsVisible(true);
 				return true;
 			}
 
@@ -550,6 +585,182 @@ namespace osfui::wv2
 					{ "width", ringWidth }, { "height", ringHeight } });
 			}
 
+			// ================= views =================
+
+			View* FindView(std::string_view a_id)
+			{
+				for (auto& view : views) {
+					if (view->id == a_id) return view.get();
+				}
+				return nullptr;
+			}
+
+			// View-scoped messages carry `view`; absent or unknown falls back
+			// to the active view (keeps the single-view POC client working).
+			View* ResolveView(const json& a_msg)
+			{
+				if (const auto it = a_msg.find("view"); it != a_msg.end() && it->is_string()) {
+					if (auto* view = FindView(it->get<std::string>())) return view;
+				}
+				return active;
+			}
+
+			View& CreateView(const std::string& a_id)
+			{
+				auto owned = std::make_unique<View>();
+				owned->id = a_id;
+				owned->hidden = defaultHidden;
+				owned->window = ::CreateWindowExW(0, L"STATIC", L"OSFUI WebView2 View",
+					WS_CHILD | WS_VISIBLE, 0, 0, 1, 1, hostWindow, nullptr,
+					::GetModuleHandleW(nullptr), nullptr);
+				if (!owned->window) {
+					log.Error(std::format("view '{}': child HWND creation failed ({})",
+						a_id, ::GetLastError()));
+				}
+				views.push_back(std::move(owned));
+				auto& view = *views.back();
+				if (!active) active = &view;
+				RequestController(view);
+				return view;
+			}
+
+			// View order maps to child order under the captured root: lower
+			// `order` composites beneath, ties keep creation order. Rebuilt
+			// wholesale — reorders are rare and the child count tiny.
+			void ReorderVisuals()
+			{
+				if (!rootVisual) return;
+				auto children = rootVisual.Children();
+				children.RemoveAll();
+				std::vector<View*> sorted;
+				for (auto& view : views) {
+					if (view->visual) sorted.push_back(view.get());
+				}
+				std::stable_sort(sorted.begin(), sorted.end(),
+					[](const View* a_a, const View* a_b) { return a_a->order < a_b->order; });
+				for (auto* view : sorted) {
+					children.InsertAtTop(view->visual);
+				}
+			}
+
+			// ---- deferred visibility (flicker-free switches) ----------------
+			// A hidden view's controller is put_IsVisible(FALSE), which makes
+			// Chromium SUSPEND rendering — on unhide it needs a few frames
+			// before anything is painted. A menu switch arrives as hide-old +
+			// show-new in one policy batch, so applying it verbatim blanks the
+			// output for those frames. Instead: resume Chromium immediately but
+			// keep the child visual hidden until the page confirms a painted
+			// frame (double-rAF sentinel posted as a web message the host
+			// intercepts), and hold the batch's hides until every pending
+			// reveal completes (or times out), so the old content stays up and
+			// the switch lands as ONE composition change.
+
+			static constexpr const wchar_t* kRevealSentinelScript =
+				L"requestAnimationFrame(function(){requestAnimationFrame(function(){"
+				L"chrome.webview.postMessage('__osfuiRevealReady');});});";
+			static constexpr std::string_view kRevealSentinel = "__osfuiRevealReady";
+			static constexpr std::uint64_t kRevealTimeoutMs = 300;
+
+			bool AnyRevealPending() const
+			{
+				for (const auto& view : views) {
+					if (view->revealPending) return true;
+				}
+				return false;
+			}
+
+			void ApplyDeferredHides()
+			{
+				for (auto& view : views) {
+					if (!view->hideDeferred) continue;
+					view->hideDeferred = false;
+					if (view->visual) view->visual.IsVisible(false);
+					if (view->controller) view->controller->put_IsVisible(FALSE);
+				}
+			}
+
+			void HideView(View& a_view)
+			{
+				if (a_view.hidden && !a_view.revealPending) return;
+				a_view.hidden = true;
+				a_view.revealPending = false;  // cancel an in-flight reveal
+				a_view.hideDeferred = true;    // applied at batch end / reveal end
+			}
+
+			void ShowView(View& a_view)
+			{
+				if (!a_view.hidden) {
+					a_view.hideDeferred = false;
+					return;
+				}
+				a_view.hidden = false;
+				a_view.hideDeferred = false;
+				// Resume Chromium first — nothing paints while suspended.
+				if (a_view.controller) a_view.controller->put_IsVisible(TRUE);
+				if (a_view.visual && a_view.visual.IsVisible()) {
+					return;  // its hide was still deferred — never left the screen
+				}
+				if (a_view.visual && a_view.webView && a_view.domSeen) {
+					a_view.revealPending = true;
+					a_view.revealDeadline = ::GetTickCount64() + kRevealTimeoutMs;
+					a_view.webView->ExecuteScript(kRevealSentinelScript,
+						Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
+							[](HRESULT, LPCWSTR) -> HRESULT { return S_OK; }).Get());
+				} else {
+					// No page to ask (still loading / no controller yet): show
+					// directly — the runtime's overlay reveal gate covers boot.
+					if (a_view.visual) a_view.visual.IsVisible(true);
+					RepublishLatest();
+				}
+			}
+
+			void CompleteReveal(View& a_view, bool a_timedOut)
+			{
+				if (!a_view.revealPending) return;
+				a_view.revealPending = false;
+				if (a_timedOut) {
+					log.Info(std::format(
+						"view '{}': reveal sentinel timed out — showing anyway", a_view.id));
+				}
+				if (a_view.visual && !a_view.hidden) a_view.visual.IsVisible(true);
+				if (!AnyRevealPending()) ApplyDeferredHides();
+				// Fresh serial for the runtime's reveal gate (an unchanged page
+				// may otherwise never produce a new captured frame).
+				RepublishLatest();
+			}
+
+			void TickReveals()
+			{
+				const auto now = ::GetTickCount64();
+				for (auto& view : views) {
+					if (view->revealPending && now >= view->revealDeadline) {
+						CompleteReveal(*view, /*a_timedOut=*/true);
+					}
+				}
+			}
+
+			void DestroyOneView(View& a_view)
+			{
+				if (a_view.compositionController) {
+					a_view.compositionController->put_RootVisualTarget(nullptr);
+				}
+				if (a_view.controller) {
+					a_view.controller->Close();
+				}
+				if (a_view.visual) {
+					if (rootVisual) rootVisual.Children().Remove(a_view.visual);
+					a_view.visual = nullptr;
+				}
+				a_view.consoleReceiver.Reset();
+				a_view.webView.Reset();
+				a_view.compositionController.Reset();
+				a_view.controller.Reset();
+				if (a_view.window) {
+					::DestroyWindow(a_view.window);
+					a_view.window = nullptr;
+				}
+			}
+
 			// ================= WebView2 =================
 
 			bool BeginEnvironment()
@@ -568,21 +779,10 @@ namespace osfui::wv2
 								return S_OK;
 							}
 							environment = a_environment;
-							ComPtr<ICoreWebView2Environment3> environment3;
-							if (FAILED(environment.As(&environment3))) {
-								log.Error("composition controller API unavailable");
-								return S_OK;
-							}
-							const auto hr = environment3->CreateCoreWebView2CompositionController(
-								hostWindow,
-								Callback<ICoreWebView2CreateCoreWebView2CompositionControllerCompletedHandler>(
-									[this](HRESULT a_controllerHr,
-										ICoreWebView2CompositionController* a_controller) -> HRESULT {
-										return OnController(a_controllerHr, a_controller);
-									}).Get());
-							if (FAILED(hr)) {
-								log.Error(std::format("CreateCompositionController failed (0x{:08X})",
-									static_cast<unsigned>(hr)));
+							// Views navigated before the environment came up
+							// have been waiting for their controllers.
+							for (auto& view : views) {
+								RequestController(*view);
 							}
 							return S_OK;
 						});
@@ -597,64 +797,110 @@ namespace osfui::wv2
 				return true;
 			}
 
-			HRESULT OnController(HRESULT a_hr, ICoreWebView2CompositionController* a_composition)
+			void RequestController(View& a_view)
+			{
+				if (a_view.controllerRequested || !environment || !a_view.window) return;
+				ComPtr<ICoreWebView2Environment3> environment3;
+				if (FAILED(environment.As(&environment3))) {
+					log.Error("composition controller API unavailable");
+					return;
+				}
+				a_view.controllerRequested = true;
+				// Capture the id, not the View*: the view can be destroyed while
+				// the controller is still in flight.
+				const auto hr = environment3->CreateCoreWebView2CompositionController(
+					a_view.window,
+					Callback<ICoreWebView2CreateCoreWebView2CompositionControllerCompletedHandler>(
+						[this, id = a_view.id](HRESULT a_controllerHr,
+							ICoreWebView2CompositionController* a_controller) -> HRESULT {
+							if (auto* view = FindView(id)) {
+								return OnController(*view, a_controllerHr, a_controller);
+							}
+							if (a_controller) {
+								ComPtr<ICoreWebView2Controller> orphan;
+								if (SUCCEEDED(ComPtr<ICoreWebView2CompositionController>(
+										a_controller).As(&orphan))) {
+									orphan->Close();
+								}
+							}
+							return S_OK;
+						}).Get());
+				if (FAILED(hr)) {
+					log.Error(std::format("view '{}': CreateCompositionController failed (0x{:08X})",
+						a_view.id, static_cast<unsigned>(hr)));
+					a_view.controllerRequested = false;
+				}
+			}
+
+			// Window tree != process tree: parent this STA's host child under
+			// the game's top-level window so Win32 focus/IME routing works,
+			// while the browser processes stay outside the game's job/hooks.
+			// Once, on the first controller success.
+			void EnsureReparented()
+			{
+				if (reparented || !gameTopLevel) return;
+				::SetLastError(ERROR_SUCCESS);
+				const auto oldParent = ::SetParent(hostWindow, gameTopLevel);
+				const auto parentError = ::GetLastError();
+				if (!oldParent && parentError != ERROR_SUCCESS) {
+					log.Error(std::format("cross-process SetParent failed ({})", parentError));
+					return;
+				}
+				const auto style = static_cast<DWORD_PTR>(
+					::GetWindowLongPtrW(hostWindow, GWL_STYLE));
+				::SetWindowLongPtrW(hostWindow, GWL_STYLE,
+					static_cast<LONG_PTR>((style & ~WS_POPUP) | WS_CHILD | WS_VISIBLE));
+				::SetWindowPos(hostWindow, nullptr, 0, 0, 1, 1,
+					SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOZORDER | SWP_FRAMECHANGED);
+				reparented = true;
+				log.InfoFwd("host window reparented beneath the game window (cross-process)");
+				if (bootstrapWindow) {
+					::DestroyWindow(bootstrapWindow);
+					bootstrapWindow = nullptr;
+				}
+			}
+
+			HRESULT OnController(View& a_view, HRESULT a_hr,
+				ICoreWebView2CompositionController* a_composition)
 			{
 				if (quit.load()) return S_OK;
 				if (FAILED(a_hr) || !a_composition) {
-					log.Error(std::format("composition controller callback failed (0x{:08X})",
-						static_cast<unsigned>(a_hr)));
+					log.Error(std::format("view '{}': composition controller callback failed (0x{:08X})",
+						a_view.id, static_cast<unsigned>(a_hr)));
 					return S_OK;
 				}
-				compositionController = a_composition;
+				a_view.compositionController = a_composition;
+				EnsureReparented();
 
-				// Window tree != process tree: parent this STA's host child under
-				// the game's top-level window so Win32 focus/IME routing works,
-				// while the browser processes stay outside the game's job/hooks.
-				if (gameTopLevel) {
-					::SetLastError(ERROR_SUCCESS);
-					const auto oldParent = ::SetParent(hostWindow, gameTopLevel);
-					const auto parentError = ::GetLastError();
-					if (!oldParent && parentError != ERROR_SUCCESS) {
-						log.Error(std::format("cross-process SetParent failed ({})", parentError));
-					} else {
-						const auto style = static_cast<DWORD_PTR>(
-							::GetWindowLongPtrW(hostWindow, GWL_STYLE));
-						::SetWindowLongPtrW(hostWindow, GWL_STYLE,
-							static_cast<LONG_PTR>((style & ~WS_POPUP) | WS_CHILD | WS_VISIBLE));
-						::SetWindowPos(hostWindow, nullptr, 0, 0, 1, 1,
-							SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOZORDER | SWP_FRAMECHANGED);
-						reparented = true;
-						log.InfoFwd("host window reparented beneath the game window (cross-process)");
-					}
-					if (bootstrapWindow && reparented) {
-						::DestroyWindow(bootstrapWindow);
-						bootstrapWindow = nullptr;
-					}
-				}
-
-				if (FAILED(compositionController.As(&controller)) ||
-					FAILED(controller->get_CoreWebView2(&webView)) || !webView) {
-					log.Error("failed to acquire CoreWebView2");
+				if (FAILED(a_view.compositionController.As(&a_view.controller)) ||
+					FAILED(a_view.controller->get_CoreWebView2(&a_view.webView)) || !a_view.webView) {
+					log.Error(std::format("view '{}': failed to acquire CoreWebView2", a_view.id));
 					return S_OK;
 				}
-				controller->put_Bounds(
+				a_view.controller->put_Bounds(
 					RECT{ 0, 0, static_cast<LONG>(width), static_cast<LONG>(height) });
 				// Apply the CURRENT hidden state, not a hardcoded one (an
 				// invisible controller suspends Chromium rendering entirely).
-				controller->put_IsVisible(hidden ? FALSE : TRUE);
+				a_view.controller->put_IsVisible(a_view.hidden ? FALSE : TRUE);
 				ComPtr<ICoreWebView2Controller2> controller2;
-				if (SUCCEEDED(controller.As(&controller2))) {
+				if (SUCCEEDED(a_view.controller.As(&controller2))) {
 					controller2->put_DefaultBackgroundColor(COREWEBVIEW2_COLOR{ 0, 0, 0, 0 });
 				}
-				const auto root = rootVisual.as<::IUnknown>();
-				auto result = compositionController->put_RootVisualTarget(root.get());
+				// The view's own child visual under the captured root; order and
+				// visibility live here.
+				a_view.visual = compositor.CreateContainerVisual();
+				a_view.visual.Size({ static_cast<float>(width), static_cast<float>(height) });
+				a_view.visual.IsVisible(!a_view.hidden);
+				ReorderVisuals();
+				const auto target = a_view.visual.as<::IUnknown>();
+				auto result = a_view.compositionController->put_RootVisualTarget(target.get());
 				if (FAILED(result)) {
-					log.Error(std::format("put_RootVisualTarget failed (0x{:08X})",
-						static_cast<unsigned>(result)));
+					log.Error(std::format("view '{}': put_RootVisualTarget failed (0x{:08X})",
+						a_view.id, static_cast<unsigned>(result)));
 					return S_OK;
 				}
 				ComPtr<ICoreWebView2_3> webView3;
-				if (FAILED(webView.As(&webView3))) {
+				if (FAILED(a_view.webView.As(&webView3))) {
 					log.Error("virtual host mapping API unavailable");
 					return S_OK;
 				}
@@ -666,16 +912,20 @@ namespace osfui::wv2
 						static_cast<unsigned>(result)));
 					return S_OK;
 				}
-				InstallEvents();
-				InstallBridgeShim();
-				if (!StartCapture()) return S_OK;
-				log.InfoFwd("composition controller and capture ready");
-				Send(json{ { "type", "ready" } });
-				DrainQueuedViewWork();
+				InstallEvents(a_view);
+				InstallBridgeShim(a_view);
+				if (!captureStarted) {
+					if (!StartCapture()) return S_OK;
+					captureStarted = true;
+					Send(json{ { "type", "ready" } });
+				}
+				log.InfoFwd(std::format("view '{}': controller ready ({} view(s) hosted)",
+					a_view.id, views.size()));
+				DrainQueuedViewWork(a_view);
 				return S_OK;
 			}
 
-			void InstallBridgeShim()
+			void InstallBridgeShim(View& a_view)
 			{
 				// Identical contract to the in-process backend: osfui.postMessage /
 				// osfui.onMessage with pre-install buffering.
@@ -706,7 +956,7 @@ namespace osfui::wv2
 							else pending.push(json);
 						});
 					})();)JS";
-				webView->AddScriptToExecuteOnDocumentCreated(shim,
+				a_view.webView->AddScriptToExecuteOnDocumentCreated(shim,
 					Callback<ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler>(
 						[this](HRESULT a_scriptHr, LPCWSTR) -> HRESULT {
 							if (FAILED(a_scriptHr)) {
@@ -717,18 +967,25 @@ namespace osfui::wv2
 						}).Get());
 			}
 
-			void InstallEvents()
+			void InstallEvents(View& a_view)
 			{
-				compositionController->add_CursorChanged(
+				// Views live behind stable unique_ptrs and their controllers are
+				// Close()d before removal, so the raw View* in these callbacks
+				// cannot outlive the view.
+				View* view = &a_view;
+				EventRegistrationToken token{};
+				a_view.compositionController->add_CursorChanged(
 					Callback<ICoreWebView2CursorChangedEventHandler>(
-						[this](ICoreWebView2CompositionController* a_sender, ::IUnknown*) -> HRESULT {
+						[this, view](ICoreWebView2CompositionController* a_sender, ::IUnknown*) -> HRESULT {
+							// Only the ACTIVE view drives the real OS pointer.
+							if (view != active) return S_OK;
 							UINT32 id = 0;
 							if (SUCCEEDED(a_sender->get_SystemCursorId(&id))) {
 								Send(json{ { "type", "cursor" }, { "id", id } });
 							}
 							return S_OK;
-						}).Get(), &cursorToken);
-				controller->add_AcceleratorKeyPressed(
+						}).Get(), &token);
+				a_view.controller->add_AcceleratorKeyPressed(
 					Callback<ICoreWebView2AcceleratorKeyPressedEventHandler>(
 						[this](ICoreWebView2Controller*,
 							ICoreWebView2AcceleratorKeyPressedEventArgs* a_args) -> HRESULT {
@@ -760,76 +1017,85 @@ namespace osfui::wv2
 							}
 							if (!down) handledKeys.erase(key);
 							return S_OK;
-						}).Get(), &acceleratorToken);
-				webView->add_WebMessageReceived(
+						}).Get(), &token);
+				a_view.webView->add_WebMessageReceived(
 					Callback<ICoreWebView2WebMessageReceivedEventHandler>(
-						[this](ICoreWebView2*,
+						[this, view](ICoreWebView2*,
 							ICoreWebView2WebMessageReceivedEventArgs* a_args) -> HRESULT {
 							LPWSTR value = nullptr;
 							if (FAILED(a_args->TryGetWebMessageAsString(&value)) || !value)
 								return S_OK;
 							auto text = ToUtf8(value);
 							::CoTaskMemFree(value);
-							Send(json{ { "type", "webMessage" }, { "json", std::move(text) } });
+							if (text == kRevealSentinel) {
+								// Host-internal paint handshake — never forwarded.
+								CompleteReveal(*view, /*a_timedOut=*/false);
+								return S_OK;
+							}
+							Send(json{ { "type", "webMessage" }, { "view", view->id },
+								{ "json", std::move(text) } });
 							return S_OK;
-						}).Get(), &messageToken);
-				webView->add_NavigationCompleted(
+						}).Get(), &token);
+				a_view.webView->add_NavigationCompleted(
 					Callback<ICoreWebView2NavigationCompletedEventHandler>(
-						[this](ICoreWebView2*,
+						[this, view](ICoreWebView2*,
 							ICoreWebView2NavigationCompletedEventArgs* a_args) -> HRESULT {
 							BOOL success = FALSE;
 							COREWEBVIEW2_WEB_ERROR_STATUS status{};
 							a_args->get_IsSuccess(&success);
 							a_args->get_WebErrorStatus(&status);
 							Send(json{ { "type", "loadEvent" },
+								{ "view", view->id },
 								{ "failed", success != TRUE },
-								{ "url", ToUtf8(currentUrl) },
+								{ "url", ToUtf8(view->currentUrl) },
 								{ "description", success ? "" : "WebView2 navigation failed" },
 								{ "code", static_cast<int>(status) } });
-							navigationSucceeded = success == TRUE;
-							if (navigationSucceeded && domSeen && !domNotified) {
-								domNotified = true;
-								Send(json{ { "type", "domReady" } });
+							view->navigationSucceeded = success == TRUE;
+							if (view->navigationSucceeded && view->domSeen && !view->domNotified) {
+								view->domNotified = true;
+								Send(json{ { "type", "domReady" }, { "view", view->id } });
 							}
 							return S_OK;
-						}).Get(), &navigationToken);
+						}).Get(), &token);
 				ComPtr<ICoreWebView2_2> webView2;
-				if (SUCCEEDED(webView.As(&webView2))) {
+				if (SUCCEEDED(a_view.webView.As(&webView2))) {
 					webView2->add_DOMContentLoaded(
 						Callback<ICoreWebView2DOMContentLoadedEventHandler>(
-							[this](ICoreWebView2*, ICoreWebView2DOMContentLoadedEventArgs*) -> HRESULT {
-								domSeen = true;
-								if (navigationSucceeded && !domNotified) {
-									domNotified = true;
-									Send(json{ { "type", "domReady" } });
+							[this, view](ICoreWebView2*, ICoreWebView2DOMContentLoadedEventArgs*) -> HRESULT {
+								view->domSeen = true;
+								if (view->navigationSucceeded && !view->domNotified) {
+									view->domNotified = true;
+									Send(json{ { "type", "domReady" }, { "view", view->id } });
 								}
-								DrainQueuedViewWork();
+								DrainQueuedViewWork(*view);
 								return S_OK;
-							}).Get(), &domToken);
+							}).Get(), &token);
 				}
-				webView->add_ProcessFailed(
+				a_view.webView->add_ProcessFailed(
 					Callback<ICoreWebView2ProcessFailedEventHandler>(
-						[this](ICoreWebView2*, ICoreWebView2ProcessFailedEventArgs* a_args) -> HRESULT {
+						[this, view](ICoreWebView2*, ICoreWebView2ProcessFailedEventArgs* a_args) -> HRESULT {
 							COREWEBVIEW2_PROCESS_FAILED_KIND kind{};
 							a_args->get_ProcessFailedKind(&kind);
-							log.Error(std::format("browser process failed (kind {})",
-								static_cast<int>(kind)));
+							log.Error(std::format("view '{}': browser process failed (kind {})",
+								view->id, static_cast<int>(kind)));
 							return S_OK;
-						}).Get(), &processFailedToken);
-				if (SUCCEEDED(webView->GetDevToolsProtocolEventReceiver(
-						L"Runtime.consoleAPICalled", &consoleReceiver)) && consoleReceiver) {
-					consoleReceiver->add_DevToolsProtocolEventReceived(
+						}).Get(), &token);
+				if (SUCCEEDED(a_view.webView->GetDevToolsProtocolEventReceiver(
+						L"Runtime.consoleAPICalled", &a_view.consoleReceiver)) &&
+					a_view.consoleReceiver) {
+					a_view.consoleReceiver->add_DevToolsProtocolEventReceived(
 						Callback<ICoreWebView2DevToolsProtocolEventReceivedEventHandler>(
-							[this](ICoreWebView2*,
+							[this, view](ICoreWebView2*,
 								ICoreWebView2DevToolsProtocolEventReceivedEventArgs* a_args) -> HRESULT {
 								LPWSTR value = nullptr;
 								if (SUCCEEDED(a_args->get_ParameterObjectAsJson(&value)) && value) {
-									Send(json{ { "type", "console" }, { "json", ToUtf8(value) } });
+									Send(json{ { "type", "console" }, { "view", view->id },
+										{ "json", ToUtf8(value) } });
 									::CoTaskMemFree(value);
 								}
 								return S_OK;
-							}).Get(), &consoleToken);
-					webView->CallDevToolsProtocolMethod(L"Runtime.enable", L"{}",
+							}).Get(), &token);
+					a_view.webView->CallDevToolsProtocolMethod(L"Runtime.enable", L"{}",
 						Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
 							[](HRESULT, LPCWSTR) -> HRESULT { return S_OK; }).Get());
 				}
@@ -868,6 +1134,29 @@ namespace osfui::wv2
 			{
 				if (quit.load() || captureClosing.load()) return;
 				try {
+					const auto arrival = std::chrono::steady_clock::now();
+					if (captureLastArrival.time_since_epoch().count() != 0) {
+						const auto gapMs = std::chrono::duration<double, std::milli>(
+							arrival - captureLastArrival).count();
+						// Gaps over a second are idle pauses (nothing painted),
+						// not cadence — they would swamp the average.
+						if (gapMs < 1000.0) {
+							captureGapMsTotal += gapMs;
+							captureGapMsMin = captureGapCount == 0 ? gapMs : (std::min)(captureGapMsMin, gapMs);
+							captureGapMsMax = captureGapCount == 0 ? gapMs : (std::max)(captureGapMsMax, gapMs);
+							++captureGapCount;
+							if (captureGapCount % 600 == 0) {
+								log.Info(std::format(
+									"capture cadence: {} gaps, avg {:.2f} ms ({:.1f}/s), min {:.2f}, max {:.2f}",
+									captureGapCount, captureGapMsTotal / static_cast<double>(captureGapCount),
+									1000.0 * static_cast<double>(captureGapCount) / captureGapMsTotal,
+									captureGapMsMin, captureGapMsMax));
+								captureGapMsTotal = 0.0;
+								captureGapCount = 0;
+							}
+						}
+					}
+					captureLastArrival = arrival;
 					auto capturedFrame = a_pool.TryGetNextFrame();
 					if (!capturedFrame) return;
 					auto access = capturedFrame.Surface().as<
@@ -886,37 +1175,38 @@ namespace osfui::wv2
 
 			// ================= command handling (STA thread) =================
 
-			void DrainQueuedViewWork()
+			void DrainQueuedViewWork(View& a_view)
 			{
-				if (!webView) return;
-				if (pendingNavigate) {
-					domSeen = navigationSucceeded = domNotified = false;
-					currentUrl = pendingNavigate->url;
-					pendingNavigate.reset();
-					const auto hr = webView->Navigate(currentUrl.c_str());
+				if (!a_view.webView) return;
+				if (a_view.pendingNavigate) {
+					a_view.domSeen = a_view.navigationSucceeded = a_view.domNotified = false;
+					a_view.currentUrl = *a_view.pendingNavigate;
+					a_view.pendingNavigate.reset();
+					const auto hr = a_view.webView->Navigate(a_view.currentUrl.c_str());
 					if (FAILED(hr)) {
-						Send(json{ { "type", "loadEvent" }, { "failed", true },
-							{ "url", ToUtf8(currentUrl) },
+						Send(json{ { "type", "loadEvent" }, { "view", a_view.id },
+							{ "failed", true },
+							{ "url", ToUtf8(a_view.currentUrl) },
 							{ "description", "Navigate returned failure" },
 							{ "code", static_cast<int>(hr) } });
 					}
 				}
-				if (!domSeen) return;
-				for (auto& message : queuedPostWeb) {
+				if (!a_view.domSeen) return;
+				for (auto& message : a_view.queuedPostWeb) {
 					const auto wide = ToWide(message);
-					webView->PostWebMessageAsString(wide.c_str());
+					a_view.webView->PostWebMessageAsString(wide.c_str());
 				}
-				queuedPostWeb.clear();
-				for (auto& eval : queuedEvals) {
-					RunEval(eval.id, eval.script);
+				a_view.queuedPostWeb.clear();
+				for (auto& eval : a_view.queuedEvals) {
+					RunEval(a_view, eval.id, eval.script);
 				}
-				queuedEvals.clear();
+				a_view.queuedEvals.clear();
 			}
 
-			void RunEval(std::uint64_t a_id, const std::string& a_script)
+			void RunEval(View& a_view, std::uint64_t a_id, const std::string& a_script)
 			{
 				const auto wide = ToWide(a_script);
-				webView->ExecuteScript(wide.c_str(),
+				a_view.webView->ExecuteScript(wide.c_str(),
 					Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
 						[this, a_id](HRESULT a_hr, LPCWSTR a_json) -> HRESULT {
 							Send(json{ { "type", "evalResult" }, { "id", a_id },
@@ -933,9 +1223,15 @@ namespace osfui::wv2
 				if (rootVisual) {
 					rootVisual.Size({ static_cast<float>(width), static_cast<float>(height) });
 				}
-				if (controller) {
-					controller->put_Bounds(
-						RECT{ 0, 0, static_cast<LONG>(width), static_cast<LONG>(height) });
+				// Every view renders output-sized so the composited stack maps 1:1.
+				for (auto& view : views) {
+					if (view->visual) {
+						view->visual.Size({ static_cast<float>(width), static_cast<float>(height) });
+					}
+					if (view->controller) {
+						view->controller->put_Bounds(
+							RECT{ 0, 0, static_cast<LONG>(width), static_cast<LONG>(height) });
+					}
 				}
 				if (!framePool) return;
 				try {
@@ -952,7 +1248,9 @@ namespace osfui::wv2
 
 			void SendMouse(const json& a_msg)
 			{
-				if (!compositionController) return;
+				// Mouse always targets the ACTIVE view (the runtime routes input
+				// to the top menu; sibling views never see the pointer).
+				if (!active || !active->compositionController) return;
 				const std::string kind = a_msg.value("kind", "move");
 				const int x = a_msg.value("x", 0);
 				const int y = a_msg.value("y", 0);
@@ -977,7 +1275,7 @@ namespace osfui::wv2
 							COREWEBVIEW2_MOUSE_EVENT_KIND_MIDDLE_BUTTON_UP;
 					}
 				}
-				compositionController->SendMouseInput(eventKind,
+				active->compositionController->SendMouseInput(eventKind,
 					COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE, data, POINT{ x, y });
 			}
 
@@ -995,35 +1293,57 @@ namespace osfui::wv2
 					height = (std::max)(1u, a_msg.value("height", 1u));
 					userData = std::filesystem::path(ToWide(a_msg.value("userDataDir", "")));
 					devMode = a_msg.value("devMode", false);
-					hidden = a_msg.value("hidden", true);
+					defaultHidden = a_msg.value("hidden", true);
 					if (userData.empty()) {
 						log.Error("init without userDataDir");
 						return;
 					}
 					rootVisual.Size({ static_cast<float>(width), static_cast<float>(height) });
-					rootVisual.IsVisible(!hidden);
 					log.Info(std::format("init: views='{}' {}x{} hidden={} topLevel=0x{:X}",
-						ToUtf8(viewsRoot.native()), width, height, hidden,
+						ToUtf8(viewsRoot.native()), width, height, defaultHidden,
 						reinterpret_cast<std::uintptr_t>(gameTopLevel)));
 					BeginEnvironment();
 				} else if (type == "navigate") {
-					bridgeAllowed = a_msg.value("bridge", true);
-					std::string path = a_msg.value("id", "") + "/" + a_msg.value("entry", "index.html");
+					// `id` IS the view id; the first navigate for an unknown id
+					// creates that view.
+					const std::string id = a_msg.value("id", "");
+					if (id.empty()) {
+						log.Warn("navigate without id ignored");
+						return;
+					}
+					auto* view = FindView(id);
+					if (!view) view = &CreateView(id);
+					view->bridgeAllowed = a_msg.value("bridge", true);
+					std::string path = id + "/" + a_msg.value("entry", "index.html");
 					std::ranges::replace(path, '\\', '/');
-					pendingNavigate = PendingNavigate{
-						L"https://" + virtualHost + L"/" + ToWide(path) };
-					DrainQueuedViewWork();
+					view->pendingNavigate = L"https://" + virtualHost + L"/" + ToWide(path);
+					if (view->webView) {
+						DrainQueuedViewWork(*view);
+					} else {
+						RequestController(*view);  // no-op until the environment is up
+					}
 				} else if (type == "resize") {
 					ApplyResize(a_msg.value("width", 1u), a_msg.value("height", 1u));
 				} else if (type == "setHidden") {
-					hidden = a_msg.value("hidden", true);
-					if (rootVisual) rootVisual.IsVisible(!hidden);
-					if (controller) controller->put_IsVisible(hidden ? FALSE : TRUE);
-					if (!hidden) RepublishLatest();
+					auto* view = ResolveView(a_msg);
+					if (!view) return;
+					if (a_msg.value("hidden", true)) {
+						HideView(*view);
+					} else {
+						ShowView(*view);
+					}
+				} else if (type == "setOrder") {
+					auto* view = ResolveView(a_msg);
+					if (!view) return;
+					view->order = a_msg.value("order", 0);
+					ReorderVisuals();
+				} else if (type == "setActive") {
+					auto* view = ResolveView(a_msg);
+					if (view) active = view;
 				} else if (type == "focus") {
 					const bool focused = a_msg.value("focused", false);
-					if (focused && controller && !hidden) {
-						controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+					if (focused && active && active->controller && !active->hidden) {
+						active->controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
 					} else if (!focused) {
 						handledKeys.clear();
 					}
@@ -1031,20 +1351,22 @@ namespace osfui::wv2
 					SendMouse(a_msg);
 				} else if (type == "key") {
 					// Synthetic key taps (gamepad nav, Esc back-delegation):
-					// posted straight to the Chromium widget HWND — no focus
-					// or foreground requirements.
+					// posted straight to the ACTIVE view's Chromium widget HWND —
+					// no focus or foreground requirements.
 					const auto vk = a_msg.value("vk", 0u);
 					const bool down = a_msg.value("down", false);
 					HWND widget = nullptr;
-					::EnumChildWindows(hostWindow, [](HWND a_hwnd, LPARAM a_param) -> BOOL {
-						wchar_t name[128]{};
-						::GetClassNameW(a_hwnd, name, static_cast<int>(std::size(name)));
-						if (std::wstring_view(name).starts_with(L"Chrome_WidgetWin_")) {
-							*reinterpret_cast<HWND*>(a_param) = a_hwnd;
-							return FALSE;
-						}
-						return TRUE;
-					}, reinterpret_cast<LPARAM>(&widget));
+					if (active && active->window) {
+						::EnumChildWindows(active->window, [](HWND a_hwnd, LPARAM a_param) -> BOOL {
+							wchar_t name[128]{};
+							::GetClassNameW(a_hwnd, name, static_cast<int>(std::size(name)));
+							if (std::wstring_view(name).starts_with(L"Chrome_WidgetWin_")) {
+								*reinterpret_cast<HWND*>(a_param) = a_hwnd;
+								return FALSE;
+							}
+							return TRUE;
+						}, reinterpret_cast<LPARAM>(&widget));
+					}
 					if (widget) {
 						const auto scan = ::MapVirtualKeyW(vk, MAPVK_VK_TO_VSC);
 						LPARAM lparam = 1 | (static_cast<LPARAM>(scan) << 16);
@@ -1061,11 +1383,16 @@ namespace osfui::wv2
 					while (serial > current &&
 						   !ackedSerial.compare_exchange_weak(current, serial)) {}
 				} else if (type == "postWeb") {
-					queuedPostWeb.push_back(a_msg.value("json", ""));
-					DrainQueuedViewWork();
+					if (auto* view = ResolveView(a_msg)) {
+						view->queuedPostWeb.push_back(a_msg.value("json", ""));
+						DrainQueuedViewWork(*view);
+					}
 				} else if (type == "eval") {
-					queuedEvals.push_back({ a_msg.value("id", 0ull), a_msg.value("script", "") });
-					DrainQueuedViewWork();
+					if (auto* view = ResolveView(a_msg)) {
+						view->queuedEvals.push_back(
+							{ a_msg.value("id", 0ull), a_msg.value("script", "") });
+						DrainQueuedViewWork(*view);
+					}
 				} else if (type == "accelState") {
 					toggleVk = a_msg.value("toggleVk", 0u);
 					devReloadVk = a_msg.value("devReloadVk", 0u);
@@ -1073,8 +1400,20 @@ namespace osfui::wv2
 					captureArmed = a_msg.value("captureArmed", false);
 					captureUpVk = a_msg.value("captureUpVk", 0u);
 				} else if (type == "destroyView") {
-					CloseWebResources();
-					environmentRequested = false;  // a later navigate re-creates
+					auto* view = ResolveView(a_msg);
+					if (!view) return;
+					log.Info(std::format("destroying view '{}'", view->id));
+					DestroyOneView(*view);
+					const bool wasActive = view == active;
+					std::erase_if(views, [view](const std::unique_ptr<View>& a_v) {
+						return a_v.get() == view;
+					});
+					if (wasActive) {
+						active = views.empty() ? nullptr : views.front().get();
+					}
+					// The destroyed view may have been the reveal the batch's
+					// hides were waiting on.
+					if (!AnyRevealPending()) ApplyDeferredHides();
 				} else if (type == "shutdown") {
 					log.Info(std::format(
 						"shutdown requested by the game (accelEvents={}, frames={})",
@@ -1097,6 +1436,9 @@ namespace osfui::wv2
 					}
 					HandleCommand(msg);
 				}
+				// Hides deferred within this batch apply now unless a reveal is
+				// still waiting on its incoming view's first painted frame.
+				if (!AnyRevealPending()) ApplyDeferredHides();
 			}
 
 			// ================= teardown =================
@@ -1120,14 +1462,13 @@ namespace osfui::wv2
 					std::scoped_lock lock(ringMutex);
 					ReleaseRing();
 				}
-				if (compositionController) compositionController->put_RootVisualTarget(nullptr);
-				if (controller) controller->Close();
-				consoleReceiver.Reset();
-				webView.Reset();
-				compositionController.Reset();
-				controller.Reset();
+				for (auto& view : views) {
+					DestroyOneView(*view);
+				}
+				views.clear();
+				active = nullptr;
 				environment.Reset();
-				domSeen = navigationSucceeded = domNotified = false;
+				captureStarted = false;
 			}
 
 			int Run()
@@ -1137,8 +1478,11 @@ namespace osfui::wv2
 				if (CreateWindows() && InitializeGraphics() && InitializeComposition()) {
 					const HANDLE waits[2] = { wakeEvent, gameProcess };
 					while (!quit.load()) {
+						// Short timeout only while a reveal awaits its paint
+						// sentinel, so the timeout fallback stays responsive.
 						const DWORD wait = ::MsgWaitForMultipleObjectsEx(
-							2, waits, 1000, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+							2, waits, AnyRevealPending() ? 50 : 1000,
+							QS_ALLINPUT, MWMO_INPUTAVAILABLE);
 						if (wait == WAIT_OBJECT_0 + 1) {
 							log.Info("game process exited — shutting down");
 							break;
@@ -1148,6 +1492,7 @@ namespace osfui::wv2
 							break;
 						}
 						DrainCommands();
+						TickReveals();
 						MSG message{};
 						while (::PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
 							::TranslateMessage(&message);

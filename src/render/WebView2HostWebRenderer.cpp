@@ -7,6 +7,7 @@
 #include <random>
 #include <thread>
 #include <unordered_map>
+#include <vector>
 
 #include "core/BenchStats.h"
 #include "core/Log.h"
@@ -113,6 +114,7 @@ namespace OSFUI
 		{
 			enum class Kind { Web, Dom, Load, Eval, Console, Ring, Log, Dead };
 			Kind           kind{ Kind::Web };
+			std::string    view;
 			std::string    text, detail;
 			bool           failed{};
 			int            code{};
@@ -123,24 +125,33 @@ namespace OSFUI
 		RendererConfig        config;
 		std::filesystem::path viewsRoot, mappedViewsRoot, userData;
 		std::filesystem::path hostExeSource, hostExeMirror;
-		std::string           viewId;
-		bool                  bridgeAllowed{};
 
 		WebMessageHandler       onWebMessage;
 		DomReadyHandler         onDomReady;
 		LoadHandler             onLoad;
 		CursorChangeHandler     onCursorChange;
 		NativeAcceleratorHandler onAccelerator;
-		ConsoleHandler          onConsole;
 		SharedRingHandler       onSharedRing;
-		std::unordered_map<std::string, JsListenerHandler> listeners;
+		// Game-thread only (Drain/setters), like the in-process backend.
+		std::unordered_map<std::string, JsListenerHandler> listeners;        // "viewId\nname" -> cb
+		std::unordered_map<std::string, ConsoleHandler>    consoleHandlers;  // viewId -> cb
 
 		// State the worker snapshots at connect time; later changes are sent
 		// as diffs from the calling thread (WriteMessage is thread-safe).
-		std::mutex                  stateMutex;
-		std::optional<ViewManifest> pendingManifest;
-		std::uint32_t               width{ 1 }, height{ 1 };
-		bool                        hidden{ true };
+		// Per-view records preserve creation order (the host's z tie-break).
+		struct ViewRec
+		{
+			std::string id;
+			std::string entry;
+			bool        bridge{ false };
+			bool        hidden{ true };
+			int         order{ 0 };
+		};
+		std::mutex           stateMutex;
+		std::vector<ViewRec> views;
+		std::string          activeId;
+		bool                 allHidden{ true };  // no visible view => Render() is never called
+		std::uint32_t        width{ 1 }, height{ 1 };
 		// accelState mirror (SetAcceleratorKeys diffs against this)
 		std::uint32_t accToggle{ 0 }, accDevReload{ 0 }, accCaptureUp{ 0 };
 		bool          accCaptured{ false }, accArmed{ false }, accSent{ false };
@@ -183,6 +194,27 @@ namespace OSFUI
 		{
 			if (connected.load()) {
 				pipe.WriteMessage(a_msg.dump());
+			}
+		}
+
+		// stateMutex must be held.
+		ViewRec* FindView(std::string_view a_id)
+		{
+			for (auto& view : views) {
+				if (view.id == a_id) return &view;
+			}
+			return nullptr;
+		}
+
+		// stateMutex must be held.
+		void RecomputeAllHidden()
+		{
+			allHidden = true;
+			for (const auto& view : views) {
+				if (!view.hidden) {
+					allHidden = false;
+					return;
+				}
 			}
 		}
 
@@ -346,7 +378,7 @@ namespace OSFUI
 					{ "height", height },
 					{ "userDataDir", ToUtf8(userData.native()) },
 					{ "devMode", config.devMode },
-					{ "hidden", hidden },
+					{ "hidden", allHidden },
 				}.dump());
 				pipe.WriteMessage(json{
 					{ "type", "accelState" },
@@ -354,12 +386,26 @@ namespace OSFUI
 					{ "captured", accCaptured }, { "captureArmed", accArmed },
 					{ "captureUpVk", accCaptureUp } }.dump());
 				accSent = true;
-				if (pendingManifest) {
+				// Replay every view registered before the host existed, with its
+				// current hidden/order state, then the active-view choice.
+				for (const auto& view : views) {
 					pipe.WriteMessage(json{
 						{ "type", "navigate" },
-						{ "id", pendingManifest->id },
-						{ "entry", pendingManifest->entry },
-						{ "bridge", pendingManifest->permissions.nativeBridge } }.dump());
+						{ "id", view.id },
+						{ "entry", view.entry },
+						{ "bridge", view.bridge } }.dump());
+					pipe.WriteMessage(json{
+						{ "type", "setHidden" },
+						{ "view", view.id },
+						{ "hidden", view.hidden } }.dump());
+					pipe.WriteMessage(json{
+						{ "type", "setOrder" },
+						{ "view", view.id },
+						{ "order", view.order } }.dump());
+				}
+				if (!activeId.empty()) {
+					pipe.WriteMessage(json{
+						{ "type", "setActive" }, { "view", activeId } }.dump());
 				}
 			}
 
@@ -387,17 +433,21 @@ namespace OSFUI
 					OnTexturesMessage(msg);
 				} else if (type == "webMessage") {
 					Push(Notify{ .kind = Notify::Kind::Web,
+						.view = msg.value("view", ""),
 						.text = msg.value("json", "") });
 				} else if (type == "domReady") {
-					Push(Notify{ .kind = Notify::Kind::Dom });
+					Push(Notify{ .kind = Notify::Kind::Dom,
+						.view = msg.value("view", "") });
 				} else if (type == "loadEvent") {
 					Push(Notify{ .kind = Notify::Kind::Load,
+						.view = msg.value("view", ""),
 						.text = msg.value("url", ""),
 						.detail = msg.value("description", ""),
 						.failed = msg.value("failed", false),
 						.code = msg.value("code", 0) });
 				} else if (type == "console") {
 					Push(Notify{ .kind = Notify::Kind::Console,
+						.view = msg.value("view", ""),
 						.text = msg.value("json", "") });
 				} else if (type == "cursor") {
 					// Contract allows renderer-thread delivery for cursor.
@@ -480,9 +530,9 @@ namespace OSFUI
 					// capture cost live in osfui_webview2_host.exe and are
 					// measured by the external sampler.
 					bench::CountProduced();
-					if (hidden) {
-						// Render() is not called while hidden; the host
-						// republishes on unhide, so this serial is disposable.
+					if (allHidden) {
+						// Render() is not called while every view is hidden; the
+						// host republishes on unhide, so this serial is disposable.
 						ackNew = true;
 					}
 				}
@@ -513,21 +563,28 @@ namespace OSFUI
 						const auto parsed = json::parse(value.text);
 						if (parsed.contains("__osfuiListener")) {
 							const auto name = parsed.value("__osfuiListener", "");
-							const auto found = listeners.find(name);
+							const auto found = listeners.find(value.view + "\n" + name);
 							if (found != listeners.end() && found->second)
 								found->second(parsed.value("argument", ""));
 							break;
 						}
 					} catch (...) {}
-					if (onWebMessage && bridgeAllowed) onWebMessage(viewId, value.text);
+					{
+						bool bridge = false;
+						{
+							std::scoped_lock lock(stateMutex);
+							if (const auto* view = FindView(value.view)) bridge = view->bridge;
+						}
+						if (onWebMessage && bridge) onWebMessage(value.view, value.text);
+					}
 					break;
 				case Notify::Kind::Dom:
-					if (onDomReady) onDomReady(viewId);
+					if (onDomReady) onDomReady(value.view);
 					break;
 				case Notify::Kind::Load:
 					if (onLoad) {
 						const LoadEvent event{
-							.viewId = viewId,
+							.viewId = value.view,
 							.failed = value.failed,
 							.url = value.text,
 							.description = value.detail,
@@ -551,7 +608,7 @@ namespace OSFUI
 					break;
 				}
 				case Notify::Kind::Console:
-					DeliverConsole(value.text);
+					DeliverConsole(value.view, value.text);
 					break;
 				case Notify::Kind::Ring:
 					announcedGeneration = value.ring.generation;
@@ -588,9 +645,10 @@ namespace OSFUI
 			}
 		}
 
-		void DeliverConsole(const std::string& a_payload)
+		void DeliverConsole(const std::string& a_view, const std::string& a_payload)
 		{
-			if (!onConsole) return;
+			const auto found = consoleHandlers.find(a_view);
+			if (found == consoleHandlers.end() || !found->second) return;
 			int level = 0;
 			std::string text = a_payload;
 			try {
@@ -604,7 +662,7 @@ namespace OSFUI
 					text = first.value("value", first.value("description", a_payload));
 				}
 			} catch (...) {}
-			onConsole(level, std::move(text));
+			found->second(level, std::move(text));
 		}
 
 		// ================= teardown =================
@@ -683,15 +741,21 @@ namespace OSFUI
 	{
 		{
 			std::scoped_lock lock(_impl->stateMutex);
-			if (!_impl->viewId.empty() && _impl->viewId != a_manifest.id) {
-				REX::WARN("WebView2HostWebRenderer: single view; ignoring '{}'",
-					a_manifest.id);
-				return;
+			auto* view = _impl->FindView(a_manifest.id);
+			if (!view) {
+				view = &_impl->views.emplace_back();
+				view->id = a_manifest.id;
 			}
-			_impl->viewId = a_manifest.id;
-			_impl->bridgeAllowed = a_manifest.permissions.nativeBridge;
-			_impl->pendingManifest = a_manifest;
+			view->entry = a_manifest.entry;
+			view->bridge = a_manifest.permissions.nativeBridge;
+			// The first loaded view receives input until the runtime says
+			// otherwise (mirrors the in-process backends).
+			if (_impl->activeId.empty()) {
+				_impl->activeId = a_manifest.id;
+			}
 		}
+		// A repeat LoadView for a live id re-navigates it (dev reload / crash
+		// recovery), same as the other backends.
 		_impl->Send(json{
 			{ "type", "navigate" },
 			{ "id", a_manifest.id },
@@ -701,9 +765,17 @@ namespace OSFUI
 
 	void WebView2HostWebRenderer::SetActiveView(std::string_view a_id)
 	{
-		if (!_impl->viewId.empty() && a_id != _impl->viewId)
-			REX::DEBUG("WebView2HostWebRenderer: ignored active view '{}' (single-view)",
-				a_id);
+		{
+			std::scoped_lock lock(_impl->stateMutex);
+			if (!_impl->FindView(a_id)) {
+				REX::WARN("WebView2HostWebRenderer: SetActiveView('{}') ignored — view not loaded",
+					a_id);
+				return;
+			}
+			if (_impl->activeId == a_id) return;
+			_impl->activeId = a_id;
+		}
+		_impl->Send(json{ { "type", "setActive" }, { "view", std::string(a_id) } });
 	}
 
 	void WebView2HostWebRenderer::Resize(std::uint32_t a_width, std::uint32_t a_height)
@@ -727,7 +799,7 @@ namespace OSFUI
 			bool wantsView = false;
 			{
 				std::scoped_lock lock(_impl->stateMutex);
-				wantsView = _impl->pendingManifest.has_value();
+				wantsView = !_impl->views.empty();
 			}
 			if (wantsView) _impl->Start();
 		}
@@ -759,8 +831,13 @@ namespace OSFUI
 	void WebView2HostWebRenderer::SendMessageToWeb(
 		std::string_view a_viewId, std::string_view a_json)
 	{
-		if (a_viewId != _impl->viewId || !_impl->bridgeAllowed) return;
-		_impl->Send(json{ { "type", "postWeb" }, { "json", std::string(a_json) } });
+		{
+			std::scoped_lock lock(_impl->stateMutex);
+			const auto* view = _impl->FindView(a_viewId);
+			if (!view || !view->bridge) return;
+		}
+		_impl->Send(json{ { "type", "postWeb" },
+			{ "view", std::string(a_viewId) }, { "json", std::string(a_json) } });
 	}
 
 	void WebView2HostWebRenderer::SetWebMessageHandler(WebMessageHandler a_handler)
@@ -859,7 +936,10 @@ namespace OSFUI
 		std::string_view a_viewId, std::string_view a_js,
 		ScriptResultHandler a_onResult)
 	{
-		if (a_viewId != _impl->viewId) return;
+		{
+			std::scoped_lock lock(_impl->stateMutex);
+			if (!_impl->FindView(a_viewId)) return;
+		}
 		std::uint64_t id = 0;
 		{
 			std::scoped_lock lock(_impl->nextEvalMutex);
@@ -869,7 +949,8 @@ namespace OSFUI
 			}
 		}
 		_impl->Send(json{
-			{ "type", "eval" }, { "id", id }, { "script", std::string(a_js) } });
+			{ "type", "eval" }, { "view", std::string(a_viewId) },
+			{ "id", id }, { "script", std::string(a_js) } });
 	}
 
 	void WebView2HostWebRenderer::CallJsFunction(
@@ -886,8 +967,12 @@ namespace OSFUI
 		std::string_view a_viewId, std::string_view a_name,
 		JsListenerHandler a_callback)
 	{
-		if (a_viewId != _impl->viewId) return;
-		_impl->listeners[std::string(a_name)] = std::move(a_callback);
+		{
+			std::scoped_lock lock(_impl->stateMutex);
+			if (!_impl->FindView(a_viewId)) return;
+		}
+		_impl->listeners[std::string(a_viewId) + "\n" + std::string(a_name)] =
+			std::move(a_callback);
 		const auto name = json(std::string(a_name)).dump();
 		EvaluateScript(a_viewId,
 			"window[" + name + "]=function(a){if(window.osfui&&"
@@ -898,24 +983,61 @@ namespace OSFUI
 	void WebView2HostWebRenderer::SetConsoleHandler(
 		std::string_view a_viewId, ConsoleHandler a_handler)
 	{
-		if (a_viewId == _impl->viewId)
-			_impl->onConsole = std::move(a_handler);
+		if (a_handler) {
+			_impl->consoleHandlers[std::string(a_viewId)] = std::move(a_handler);
+		} else {
+			_impl->consoleHandlers.erase(std::string(a_viewId));
+		}
 	}
 
 	void WebView2HostWebRenderer::SetViewHidden(std::string_view a_viewId, bool a_hidden)
 	{
-		if (a_viewId != _impl->viewId) return;
 		{
 			std::scoped_lock lock(_impl->stateMutex);
-			_impl->hidden = a_hidden;
+			auto* view = _impl->FindView(a_viewId);
+			if (!view) return;
+			view->hidden = a_hidden;
+			_impl->RecomputeAllHidden();
 		}
-		_impl->Send(json{ { "type", "setHidden" }, { "hidden", a_hidden } });
+		_impl->Send(json{ { "type", "setHidden" },
+			{ "view", std::string(a_viewId) }, { "hidden", a_hidden } });
+	}
+
+	void WebView2HostWebRenderer::SetViewOrder(std::string_view a_viewId, int a_order)
+	{
+		{
+			std::scoped_lock lock(_impl->stateMutex);
+			auto* view = _impl->FindView(a_viewId);
+			if (!view) return;
+			if (view->order == a_order) return;
+			view->order = a_order;
+		}
+		_impl->Send(json{ { "type", "setOrder" },
+			{ "view", std::string(a_viewId) }, { "order", a_order } });
 	}
 
 	void WebView2HostWebRenderer::DestroyView(std::string_view a_viewId)
 	{
-		if (a_viewId != _impl->viewId) return;
-		_impl->Send(json{ { "type", "destroyView" } });
+		{
+			std::scoped_lock lock(_impl->stateMutex);
+			const auto* view = _impl->FindView(a_viewId);
+			if (!view) return;
+			std::erase_if(_impl->views,
+				[&](const Impl::ViewRec& a_rec) { return a_rec.id == a_viewId; });
+			if (_impl->activeId == a_viewId) {
+				_impl->activeId = _impl->views.empty() ? std::string{} : _impl->views.front().id;
+			}
+			_impl->RecomputeAllHidden();
+		}
+		// Game-thread maps: purge the view's listeners and console handler.
+		std::erase_if(_impl->listeners, [&](const auto& a_entry) {
+			const auto& key = a_entry.first;
+			return key.size() > a_viewId.size() &&
+				key.compare(0, a_viewId.size(), a_viewId) == 0 &&
+				key[a_viewId.size()] == '\n';
+		});
+		_impl->consoleHandlers.erase(std::string(a_viewId));
+		_impl->Send(json{ { "type", "destroyView" }, { "view", std::string(a_viewId) } });
 	}
 }
 
