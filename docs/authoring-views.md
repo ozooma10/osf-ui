@@ -78,12 +78,36 @@ entry, a `menu.open` target, or a `RegisterView` argument.
 
 All asset references must be relative: absolute paths, paths with a root,
 and any `..` component are rejected before disk I/O (`SandboxFileSystem`,
-enforced in the renderer), which confines every request to the views root.
-The page is loaded as `file:///<modId>/<viewName>/<entry>`. Keep your
-references inside your own folder — the only cross-folder path that is part
-of the contract is the shared UI kit at `views/shared/osfui.css` /
-`osfui.js`; link those as `../../shared/osfui.css`, which collapses to
-`file:///shared/…`.
+enforced in the Ultralight renderer), which confines every request to the
+views root. Keep your references inside your own folder — the only
+cross-folder path that is part of the contract is the shared UI kit at
+`views/shared/osfui.css` / `osfui.js`; link those as
+`../../shared/osfui.css`.
+
+### The page URL depends on the renderer backend
+
+The views root is the URL root on both backends, and your view is always at
+`<modId>/<viewName>/<entry>` under it — but the scheme is not the same:
+
+| `renderer` | Your page's URL | Origin |
+|---|---|---|
+| `webview2` (the shipped default) | `https://osfui.local/<modId>/<viewName>/<entry>` | a normal https origin, mapped to the views folder by `SetVirtualHostNameToFolderMapping` |
+| `ultralight` | `file:///<modId>/<viewName>/<entry>` | opaque |
+
+Either way `../../shared/osfui.css` collapses to the shared kit at the views
+root (`https://osfui.local/shared/…` or `file:///shared/…`).
+
+> **Portability rule: classic `<script src>` only.**
+> `type="module"`, dynamic `import()` and `fetch()` all work on WebView2 and
+> all fail under Ultralight's opaque `file://` origin, where module and fetch
+> requests are CORS-checked against an origin that can never match. Ultralight
+> is the compatibility floor — it is what 1.0.0-alpha shipped and it remains
+> selectable — so a view that needs both backends must use plain classic
+> scripts, no module type, no code splitting, and must not `fetch()` its own
+> assets (inline the data or emit it into the bundle instead). The failure
+> mode is the expensive kind: a blank view and a console error nobody reads.
+> The built-in views are held to this by build gates
+> (`frontend/scripts/verify-output.mjs`); yours are on the honour system.
 
 ### The shared UI kit
 
@@ -103,6 +127,27 @@ contract:
   subtree with `osfui.applyAccent(el, "#e6904a")` (from `shared/osfui.js`),
   which derives the kit's linked accent set (`--osf-accent`, `-hover`,
   `-strong`, `-quiet`). A missing or invalid value clears it.
+
+### `padnav.js` is not part of the shared kit
+
+The built-in views ship a third script, `views/osfui/padnav.js`, which does
+spatial gamepad/focus navigation. It is **private to the `osfui` views**, by
+its own declaration — it is not published, not versioned, not frozen, and
+explicitly reserves the right to change shape freely. Two consequences:
+
+- **Don't link it.** It lives under the `osfui/` mod namespace, not under
+  `shared/`, so reaching it would need the `..` that the sandbox rejects. Only
+  `shared/osfui.css` and `shared/osfui.js` are contract paths.
+- **Don't depend on its DOM conventions.** It navigates by reading concrete
+  geometry and class names (`.row` bands, `.listening`, `[data-nav-modal]`).
+  Those are an internal arrangement between padnav and the built-in views, not
+  an API.
+
+Native gamepad→UI mapping (D-pad and left stick→arrows, A→Enter, B→back, right
+stick→scroll) is delivered by the runtime to *every* view regardless, so basic
+controller use works without padnav. If you want richer focus handling, own it
+in your own script — or take raw events with `osfui.gamepadRaw` (§3).
+See [`frontend/COMPATIBILITY.md`](../frontend/COMPATIBILITY.md) §3.
 
 ### Localization
 
@@ -394,8 +439,10 @@ async function openAlmanac() {
 </script>
 ```
 
-See [`data/OSFUI/views/osfui/settings/main.js`](../data/OSFUI/views/osfui/settings/main.js)
-for a complete, commented example.
+See [`frontend/src/views/osfui/settings/`](../frontend/src/views/osfui/settings/)
+for a complete, commented example — that is the *source* of the built-in Mods
+surface. The copy under `data/OSFUI/views/osfui/settings/` is generated build
+output; read it if you want the exact shipped bytes, but never edit it.
 
 ---
 
@@ -575,9 +622,9 @@ overlay's open/close key).
 
 ## 5. Testing locally
 
-Both shipped views detect a missing bridge and fall back to a standalone
-mode, so you can open `index.html` directly in a normal browser and iterate
-on layout and logic without launching the game:
+**Your own view:** open its `index.html` directly in a normal browser and
+iterate on layout and logic without launching the game. Detect the missing
+bridge and fall back to a standalone mode:
 
 ```js
 if (!osfui.available()) {
@@ -588,6 +635,23 @@ if (!osfui.available()) {
 (`shared/osfui.js` installs itself even without a bridge, so `osfui.available()`
 / `osfui.on()` are always safe to call; `osfui.ready` simply never resolves and
 `osfui.request()` rejects with code `"no-bridge"`.)
+
+Serve it over `http://` rather than opening it from `file://` if you can — a
+browser's `file://` rules are stricter than Ultralight's and will reject some
+things that work in game.
+
+**The built-in views** (`osfui/settings`, `osfui/keybinds`) are no longer
+openable this way: their shipped `index.html` is generated output, and the
+dev-time mock bridge lives in the frontend project. Use the Vite harness
+instead, which mounts them against a mock bridge that speaks the real
+protocol:
+
+```bat
+npm --prefix frontend run dev
+```
+
+See [`frontend/README.md`](../frontend/README.md) for the deep-link URLs and
+the locale/fixture/stage switches.
 
 In-game, watch `Documents\My Games\Starfield\SFSE\Logs\OSF UI.log`:
 - `MessageBridge: [web] ...` — your `log` commands.
@@ -604,7 +668,11 @@ With `devMode: true` the in-game loop is fast too:
   files.
 - **View reload key** (`devReloadKey`, default `F11`): reloads the top open
   menu's URL in place, so HTML/JS/CSS edits show up without relaunching. The
-  key is consumed by the framework while devMode is on.
+  key is consumed by the framework while devMode is on. It reloads whatever is
+  **on disk** — for your own hand-authored view that is the file you just
+  edited, but for a built-in view that is generated output, so run
+  `npm --prefix frontend run build` first or F11 will faithfully reload the
+  previous bundle.
 
 ---
 
@@ -613,6 +681,7 @@ With `devMode: true` the in-game loop is fast too:
 - [ ] `views/<modId>/<viewName>/manifest.json` — folder names pass the id grammar (§0), manifest `id` equals the view folder name, `permissions.nativeBridge` set as needed.
 - [ ] Responsive CSS (no hardcoded 1280×720 assumptions; the view is resized to the screen).
 - [ ] All assets local and relative (no `..`, no absolute paths, no network) — plus the sanctioned `../../shared/osfui.css` / `../../shared/osfui.js`.
+- [ ] Classic `<script src>` only — no `type="module"`, no dynamic `import()`, no `fetch()` (§1). Works on WebView2, silently blank under Ultralight.
 - [ ] Load `shared/osfui.js` before your script; boot off `osfui.ready`. Declare `targetVersion` if you use anything newer than the OSF UI you tested against.
 - [ ] Only whitelisted `ui.command`s; use `osfui.request()` (and its rejection `code`) where the outcome matters.
 - [ ] (If configurable) a `settings/<modId>.json` schema with sane `default`/`min`/`max`.

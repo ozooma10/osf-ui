@@ -63,6 +63,9 @@ param(
     [switch]$NoPdb,
     [string]$Mode = 'releasedbg',
     [switch]$SkipBuild,
+    # Regenerate data/OSFUI/views from frontend/ and hard-fail if the committed
+    # output was stale. Requires npm; off by default so packaging stays Node-free.
+    [switch]$RebuildFrontend,
     [string]$UltralightSdkDir,
     [string]$OutDir
 )
@@ -120,6 +123,34 @@ $env:XSE_SF_GAME_PATH  = $null
 
 Push-Location $RepoRoot
 try {
+    # --- generated view output must be current -----------------------------
+    # data/OSFUI/views is BUILD OUTPUT of frontend/ (Vite + TypeScript +
+    # Preact) that is committed so packaging, xmake install and the MO2
+    # redeploy can all consume it without Node. Shipping a stale bundle is
+    # invisible until someone opens the overlay in game, so check it here.
+    #
+    # Deliberately advisory-by-default and Node-free: packaging must keep
+    # working on a machine that has never run npm. Pass -RebuildFrontend to
+    # regenerate and hard-fail on drift (what release builds should use).
+    if ($RebuildFrontend) {
+        Step "Rebuilding frontend (npm run build) and checking for drift"
+        if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { Die "-RebuildFrontend requires npm on PATH." }
+        npm --prefix frontend ci
+        if ($LASTEXITCODE -ne 0) { Die "npm ci failed." }
+        npm --prefix frontend run build
+        if ($LASTEXITCODE -ne 0) { Die "Frontend build failed." }
+        npm --prefix frontend run check:dist
+        if ($LASTEXITCODE -ne 0) { Die "Generated views under data/OSFUI/views are stale. Commit the rebuilt output." }
+    } else {
+        # Cheap Node-free approximation: if the generated tree is dirty in git,
+        # someone edited output by hand or forgot to rebuild.
+        $dirty = & git status --porcelain -- data/OSFUI/views 2>$null
+        if ($LASTEXITCODE -eq 0 -and $dirty) {
+            Warn ("data/OSFUI/views has uncommitted changes -- it is GENERATED from frontend/src." +
+                  "`n    Run 'npm --prefix frontend run build' and commit, or re-run with -RebuildFrontend to verify.")
+        }
+    }
+
     # --- configure + build -------------------------------------------------
     if (-not $SkipBuild) {
         $ulFlag = if ($WithUltralight) { 'true' } else { 'false' }
@@ -202,6 +233,14 @@ try {
         'SFSE\Plugins\OSFUI\LICENSE',                # GPL-3.0 text (required to distribute)
         'SFSE\Plugins\OSFUI\EXCEPTIONS',             # GPL 7 linking exception (legalizes bundling Ultralight)
         'SFSE\Plugins\OSFUI\CREDITS.md',             # attribution
+        # The shared asset kit is a FROZEN public contract: third-party views
+        # link '../../shared/osfui.js' and '../../shared/osfui.css' by exact
+        # path, so an archive missing them silently breaks every third-party
+        # view while the built-ins keep working. padnav.js is private to the
+        # osfui views but both of them <script src> it, so it is equally fatal.
+        'SFSE\Plugins\OSFUI\views\shared\osfui.js',
+        'SFSE\Plugins\OSFUI\views\shared\osfui.css',
+        'SFSE\Plugins\OSFUI\views\osfui\padnav.js',
         'Scripts\OSFUI.pex'   # Papyrus surface (authoring-settings.md "From Papyrus")
     )
     if ($WithUltralight) {
@@ -236,7 +275,19 @@ try {
         # views/<modId>/<viewName>/manifest.json (src/runtime/Ids.h grammar).
         # External views (e.g. an 'ozooma10.almanac/planets') ship with their
         # own mod and must not be a standalone default.
-        $configuredViews = @(@($cfg.view) + @($cfg.views) | Where-Object { $_ } | Select-Object -Unique)
+        # Read the two keys defensively. Under `Set-StrictMode -Version Latest`
+        # (line 71) touching a property that does not exist THROWS, and the
+        # catch below downgrades that to a Warn -- so a config.json missing
+        # `views` used to skip this entire hard-fail check and still produce a
+        # zip. Probe the property names first so a missing key means "empty",
+        # not "silently unvalidated".
+        $names = $cfg.PSObject.Properties.Name
+        $viewValue  = if ($names -contains 'view')  { $cfg.view }  else { $null }
+        $viewsValue = if ($names -contains 'views') { $cfg.views } else { @() }
+        $configuredViews = @(@($viewValue) + @($viewsValue) | Where-Object { $_ } | Select-Object -Unique)
+        if ($configuredViews.Count -eq 0) {
+            Die "config.json declares no views ('view' and 'views' are both absent/empty) -- a standalone release would render nothing on F10."
+        }
         $missingViews = @($configuredViews | Where-Object {
             -not (Test-Path (Join-Path $viewsRoot ($_ -replace '/', '\') 'manifest.json'))
         })
@@ -249,7 +300,7 @@ try {
             })
             Die ("config.json references view(s) not shipped in this archive: " + ($missingViews -join ', ') + "`n    Shipped views: " + ($stagedViews -join ', ') + "`n    A standalone release must render out of the box -- default to 'osfui/settings'.")
         }
-        if ($cfg.devMode)         { Warn "config.json has devMode=true (verbose logs + PNG dump). Turn OFF for release." }
+        if ($names -contains 'devMode' -and $cfg.devMode) { Warn "config.json has devMode=true (verbose logs + PNG dump). Turn OFF for release." }
     } catch {
         Warn "Could not parse staged config.json to sanity-check it: $($_.Exception.Message)"
     }

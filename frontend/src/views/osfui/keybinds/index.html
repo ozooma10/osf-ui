@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Keybinds</title>
+  <link rel="stylesheet" href="../../shared/osfui.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- The whole view is rendered by main.js. The scrim, the panel and the toast
+       stack that used to be static markup here are components now.
+
+       No data-i18n attributes anywhere: osfui.localize() mutates DOM text in
+       place and caches originals in element-keyed WeakMaps, which a Preact
+       re-render reverts and a remount forgets. Strings go through the @lib/i18n
+       translator at render time instead. osfui.localize STAYS in the shared kit
+       for third-party views — it is simply not used by this one. -->
+  <div id="app"></div>
+
+  <!-- Classic scripts, in this order and no other: the frozen helper defines
+       window.osfui, padnav.js attaches its focus model to the document, and
+       main.js mounts into #app. All three are non-deferred and at the end of
+       body, so #app exists by the time main.js runs. -->
+  <script src="../../shared/osfui.js"></script>
+  <script src="../padnav.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>

@@ -60,7 +60,24 @@ Features are `IUiModule`s (`runtime/UiModule.h`). The core runtime hosts them wi
 
 ### Views
 
-`ViewManager` scans `<data>/views/*/manifest.json`. A `ViewManifest` declares id, entry page, size, transparency, and a permission block that defaults to deny (`nativeBridge`, `filesystem`, `network`). Manifest entries may not point outside the view folder.
+`ViewManager` does a **two-level** scan of `<data>/views/<modId>/<viewName>/manifest.json`. The first level is a mod namespace (its folder name must pass the mod-id grammar; `shared/` is skipped as the asset kit, and a manifest found at the first level is rejected as the pre-1.0 flat layout). The second level is the view. **The path is the identity**: the qualified view id is `<modId>/<viewName>`, derived from the folder, never from the file — the manifest's own `id` is only checked for consistency against the view folder name, so a manifest cannot claim another mod's namespace. Subfolders without a `manifest.json` are ignored, so a mod can keep shared assets beside its views.
+
+A `ViewManifest` declares id, entry page, size, transparency, and a permission block that defaults to deny (`nativeBridge`, `filesystem`, `network`). Manifest entries may not point outside the view folder.
+
+### Frontend build
+
+The built-in views are generated, not hand-written. `frontend/` is a Vite + TypeScript + Preact project whose build output *is* `data/OSFUI/views/`:
+
+```
+frontend/src/  ──(npm run build)──►  data/OSFUI/views/  ──► xmake install / MO2 redeploy / package.ps1
+```
+
+- Per view the build emits `main.js` and `style.css`, and copies `index.html` + `manifest.json` through unprocessed — Vite's HTML pipeline would inject `type="module"` and `crossorigin` and hash asset names, all three of which break the shipped contract.
+- `views/shared/osfui.{js,css}` and `views/osfui/padnav.js` are copied **verbatim** from source and asserted byte-identical on every build; they are compatibility boundaries, not unfinished work (`frontend/COMPATIBILITY.md`).
+- Output filenames are stable — no content hashes. The MO2 after-build redeploy overlays without pruning, so hashed names would accumulate orphans, and the staleness gate byte-compares.
+- The generated tree is **committed**. The three consumers above read `data/` directly and none of them can run Node, so Node is a frontend-build dependency only — not a runtime one, and not required by `xmake build`, the native tests, or `xmake install`. CI rebuilds and byte-compares (`npm run check:dist`) to keep the committed output honest.
+
+Nothing in the native runtime is frontend-aware: it discovers whatever manifests are on disk, exactly as it does for a third-party mod's hand-authored view.
 
 ## How an Ultralight backend fits
 

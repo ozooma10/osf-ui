@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OSF UI — Dev Harness</title>
+</head>
+<body>
+  <!--
+    DELIBERATELY EMPTY.
+
+    The old harness (devtools/harness/index.html + keybinds.html) hand-copied
+    each view's <body> markup into its own page, because the shipped view page
+    could not include the mock script. Keeping those copies in sync with the
+    real views was a standing chore and a standing source of "works in the
+    harness, broken in game" — devtools/harness/README.md:52-55 documents the
+    duty explicitly.
+
+    That duplication is exactly what this migration removes: every view now
+    renders from its own Preact App, and the harness only supplies the toolbar
+    and the stage around it. There is one page for all views, selected with
+    ?view=<modId>/<viewName>.
+  -->
+  <div id="harness-mount"></div>
+  <script type="module" src="/main.tsx"></script>
+</body>
+</html>

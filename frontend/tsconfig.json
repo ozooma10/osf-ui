@@ -1,0 +1,51 @@
+{
+  "compilerOptions": {
+    // ES2020 is the highest level with in-repo proof that the engine runs it:
+    // ES2019 optional-catch-binding and ES2020 `??` both ship in the released
+    // 1.0.0-alpha bundle and reach DOM ready under Ultralight with no console
+    // errors. Nothing in this repo exercises ES2021+, so we do not target it.
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact",
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": true,
+
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    // The published SDK declaration file is the single source of truth for the
+    // bridge protocol. src/lib/protocol.ts re-exports from it rather than
+    // restating it, so the frontend and sdk/osfui.d.ts cannot drift apart -
+    // a broken contract becomes a compile error, not a CI grep.
+    "paths": {
+      "@sdk": ["../sdk/osfui.d.ts"],
+      "@lib/*": ["./src/lib/*"],
+      "@ui/*": ["./src/ui/*"],
+      "@views/*": ["./src/views/*"],
+      "@harness/*": ["./harness/*"]
+    },
+    "allowJs": true,
+    "checkJs": false,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["vite/client"]
+  },
+  "include": ["src", "harness", "test", "scripts", "vite.config.ts"],
+  "exclude": [
+    "node_modules",
+    // Pre-migration hand-written views, kept as reference during the phased
+    // port. They are plain ES5-era scripts and are not type-checked.
+    "src/views/**/main.legacy.js",
+    // Frozen public contract, shipped verbatim - described by osfui-global.d.ts,
+    // never compiled.
+    "src/shared-kit/osfui.js",
+    "src/legacy/padnav.js"
+  ]
+}

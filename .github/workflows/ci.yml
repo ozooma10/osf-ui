@@ -46,6 +46,50 @@ jobs:
           check sdk/osfui.d.ts           "Bridge protocol version: $V"
           exit $fail
 
+  frontend:
+    name: Frontend (typecheck, build, stale-check, tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Pinned major, not 'latest': the staleness check below byte-compares
+          # generated output, so the toolchain must not drift under us.
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install (locked)
+        run: npm ci
+        working-directory: frontend
+
+      - name: Typecheck
+        run: npm run typecheck
+        working-directory: frontend
+
+      - name: Build generated views
+        run: npm run build
+        working-directory: frontend
+
+      # data/OSFUI/views is generated AND committed - packaging, the MO2 redeploy
+      # and xmake install all read it directly, and none of them can run Node.
+      # Rebuilding here and asserting nothing changed is what keeps the committed
+      # output honest. Runs before the test suite because the build-output gates
+      # in test/build.*.test.ts read that tree.
+      - name: Generated view output is up to date
+        run: npm run check:dist
+        working-directory: frontend
+
+      - name: Tests
+        run: npm test
+        working-directory: frontend
+
+      - name: Audit (production dependencies)
+        run: npm audit --omit=dev --audit-level=high
+        working-directory: frontend
+
   build:
     name: Build zero-Ultralight (${{ matrix.mode }})
     runs-on: windows-latest

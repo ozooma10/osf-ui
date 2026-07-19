@@ -1,0 +1,12 @@
+# Generated frontend output. Source lives in frontend/src — never hand-edit
+# anything under data/OSFUI/views (see frontend/README.md).
+#
+# eol=lf is load-bearing: the build writes LF, and this repo is developed with
+# core.autocrlf=true. Without it a Windows checkout would rewrite these files to
+# CRLF and the CI staleness check (`npm --prefix frontend run check:dist`) would
+# fail on line endings alone.
+data/OSFUI/views/**/main.js    text eol=lf linguist-generated=true
+data/OSFUI/views/**/style.css  text eol=lf linguist-generated=true
+data/OSFUI/views/**/index.html text eol=lf linguist-generated=true
+data/OSFUI/views/shared/**     text eol=lf linguist-generated=true
+data/OSFUI/views/osfui/padnav.js text eol=lf linguist-generated=true

@@ -10,6 +10,7 @@
 build/
 vs*/
 dist/
+node_modules/
 
 # local SDK drops (the Ultralight SDK is proprietary and must never be vendored)
 external/

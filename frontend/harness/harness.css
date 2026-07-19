@@ -1,0 +1,122 @@
+/* harness.css — dev harness chrome. DEV ONLY, never part of a view bundle.
+ *
+ * Ported from the <style> blocks that were duplicated across
+ * devtools/harness/index.html and keybinds.html. Only the harness's OWN chrome
+ * lives here: the toolbar, the page backdrop, and the fluid-mode margins that
+ * keep a view clear of the toolbar. Nothing here may restyle a view — the
+ * views must look here exactly as they look in game.
+ *
+ * The `--osf-*` custom properties come from src/shared-kit/osfui.css, which
+ * main.tsx imports first.
+ */
+
+html,
+body {
+  height: 100%;
+}
+
+/* The views are transparent overlays; without a backdrop they are invisible in
+   a normal browser tab. In stage mode the backdrop moves onto the stage box
+   itself (Stage.tsx paints it) so the area outside the 1600x900 frame reads as
+   "off screen". */
+body {
+  background: radial-gradient(120% 100% at 50% 30%, #10161f 0%, #05070b 100%) fixed;
+}
+
+body.res900 {
+  background: #05070b;
+}
+
+.harness-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 30;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px;
+  font-family: var(--osf-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--osf-text-faint);
+  background: rgba(4, 6, 10, 0.9);
+  border-bottom: 1px solid var(--osf-line);
+}
+
+.harness-bar b {
+  color: var(--osf-accent);
+  letter-spacing: 0.16em;
+}
+
+.harness-bar .hint {
+  margin-left: auto;
+}
+
+.harness-bar a {
+  color: var(--osf-text-muted);
+  text-decoration: none;
+}
+
+.harness-bar a:hover,
+.harness-bar a.here {
+  color: var(--osf-accent);
+}
+
+.harness-bar button {
+  font: inherit;
+  color: var(--osf-text-muted);
+  background: transparent;
+  border: 1px solid var(--osf-line-strong);
+  border-radius: 2px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.harness-bar button.on {
+  color: var(--osf-accent);
+  border-color: var(--osf-accent);
+}
+
+.harness-bar select {
+  font: inherit;
+  color: var(--osf-text-muted);
+  background: transparent;
+  border: 1px solid var(--osf-line-strong);
+  border-radius: 2px;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+
+.harness-bar select.on {
+  color: var(--osf-accent);
+  border-color: var(--osf-accent);
+}
+
+.harness-bar select option {
+  background: #0b0e12;
+}
+
+/* The single Preact root. Full height so the fluid-mode `#stage { height:100% }`
+   below resolves against something. */
+#harness-mount {
+  height: 100%;
+}
+
+#stage {
+  height: 100%;
+}
+
+/* Harness-only margins so the toolbar does not sit on top of the view. Dropped
+   in the reference stage, where the view MUST keep its shipped in-game layout —
+   that is the whole point of stage mode, and a harness margin there would make
+   the preview lie. Selectors are per-view roots (.settings / .keybinds), the
+   same ones the old per-view harness pages targeted. */
+body:not(.res900) .settings,
+body:not(.res900) .keybinds {
+  height: calc(100% - 72px);
+  margin-top: 44px;
+  margin-bottom: 28px;
+}

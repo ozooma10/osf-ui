@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mods</title>
+  <link rel="stylesheet" href="../../shared/osfui.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Dims the live game behind the panel into a menu backdrop. -->
+  <div class="scrim" aria-hidden="true"></div>
+
+  <div class="settings">
+    <!-- LEFT RAIL: subjects to configure (framework first, then mods) -->
+    <aside class="rail">
+      <div class="rail-head">
+        <div class="brand">
+          <svg class="brand-emblem" width="34" height="34" viewBox="0 0 200 200" aria-hidden="true">
+            <circle cx="100" cy="100" r="92" fill="#11151b" stroke="#5c646e" stroke-width="3"></circle>
+            <circle cx="100" cy="100" r="82" fill="none" stroke="#2f353d" stroke-width="1.2"></circle>
+            <g fill="none" stroke="#9fc7dc" stroke-linecap="round" stroke-width="8">
+              <line x1="62" y1="74" x2="138" y2="74"></line>
+              <line x1="62" y1="100" x2="138" y2="100"></line>
+              <line x1="62" y1="126" x2="138" y2="126"></line>
+            </g>
+            <circle cx="84" cy="74" r="9" fill="#0b0e12" stroke="#9fc7dc" stroke-width="6"></circle>
+            <circle cx="120" cy="100" r="9" fill="#0b0e12" stroke="#9fc7dc" stroke-width="6"></circle>
+            <circle cx="92" cy="126" r="9" fill="#0b0e12" stroke="#9fc7dc" stroke-width="6"></circle>
+          </svg>
+          <div class="brand-text">
+            <div class="brand-line">
+              <span class="wordmark-osf">OSF</span><span class="wordmark-ui">UI</span>
+            </div>
+            <div class="osf-eyebrow brand-sub" data-i18n="chrome.settings.controlDeck">CONTROL DECK</div>
+          </div>
+          <!-- Version from the runtime.ready handshake (hidden until it
+               arrives). The badge turns yellow and the tag below it shows when
+               an installed mod targets a newer OSF UI than this one. -->
+          <div class="version-stack">
+            <span id="plugin-version" class="version-badge" title="OSF UI version"></span>
+            <span id="needs-update-tag" class="needs-update-tag" hidden data-i18n="chrome.settings.needsUpdate">Needs update</span>
+          </div>
+        </div>
+        <label class="osf-search" for="filter">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="m16 16 4 4"></path></svg>
+          <input id="filter" class="osf-input filter" type="text" placeholder="Search mods & settings" aria-label="Search mods and settings" data-i18n-placeholder="chrome.settings.searchPlaceholder" data-i18n-aria-label="chrome.settings.searchLabel" aria-keyshortcuts="Control+F" autocomplete="off" spellcheck="false">
+          <kbd>Ctrl F</kbd>
+        </label>
+        <div class="rail-meta">
+          <span data-i18n="chrome.settings.installedSystems">Installed systems</span>
+          <span data-i18n="chrome.settings.configure">Configure</span>
+        </div>
+      </div>
+
+      <nav id="rail-list" class="rail-list" aria-label="Installed mods"></nav>
+
+      <div class="rail-foot">
+        <!-- Write-behind save feedback: "Saving…" until the runtime confirms
+             the disk write (settings.persisted), then "Saved" fading out. -->
+        <span id="save-state" class="save-state osf-eyebrow" aria-live="polite"></span>
+        <button id="session-chip" type="button" class="osf-btn osf-btn--ghost osf-btn--sm session-chip" style="display:none" data-i18n="chrome.settings.undoChangesEmpty">Undo changes (0)</button>
+        <button id="close" type="button" class="osf-btn osf-btn--ghost osf-btn--sm osf-close" aria-keyshortcuts="Escape">
+          <span data-i18n="chrome.settings.exit">Exit control deck</span><kbd>Esc</kbd>
+        </button>
+      </div>
+    </aside>
+
+    <!-- RIGHT PANE: the selected subject's controls -->
+    <section id="detail" class="detail" aria-live="polite">
+      <p id="status" class="status osf-eyebrow" data-i18n="chrome.common.loading">Loading…</p>
+    </section>
+  </div>
+
+  <!-- Transient action/preset feedback (top-right). -->
+  <div id="toast" class="toast-stack" aria-live="polite"></div>
+
+  <script src="../../shared/osfui.js"></script>
+  <script src="../padnav.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>

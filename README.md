@@ -25,10 +25,37 @@ of (before configuring):
 
 The install includes the DLL, PDB, and the `OSFUI/` data folder (config + views).
 
+## Building the frontend
+
+The built-in views are **not** hand-edited. Their source is a Vite + TypeScript +
+Preact project in [`frontend/`](frontend/README.md), which generates
+`data/OSFUI/views/`:
+
+```bat
+npm --prefix frontend ci        # once
+npm --prefix frontend run build # regenerate data/OSFUI/views/
+```
+
+> **`data/OSFUI/views/` is generated build output.** Edit `frontend/src/`, never
+> the files under `data/`. Hand edits there are destroyed by the next build and
+> CI fails the moment the two disagree.
+
+The generated tree is **committed** on purpose: `xmake install`, the MO2
+after-build redeploy and `tools/package.ps1` all read it directly, and none of
+them can run Node. Node is therefore a *frontend build* dependency only — never
+a runtime one, and not needed for `xmake build`, the native tests, or
+`xmake install`. `npm --prefix frontend run dev` serves the views in a browser
+with a mock bridge; `npm --prefix frontend run verify` is the pre-push gate.
+
+See [frontend/README.md](frontend/README.md) for the full command set and
+[frontend/COMPATIBILITY.md](frontend/COMPATIBILITY.md) for the artifacts that
+are deliberately shipped verbatim.
+
 ## Documentation
 
 - [docs/authoring-settings.md](docs/authoring-settings.md) - **start here to add settings to your mod**: one JSON file, no code — quickstart, widgets, hotkeys, presets, localization, testing
 - [docs/authoring-views.md](docs/authoring-views.md) - **start here to build a view**: package layout, manifest fields, the bridge protocol, and the settings schema format
+- [frontend/README.md](frontend/README.md) - **start here to change a built-in view**: the Vite/TS/Preact source that generates `data/OSFUI/views/`
 - [docs/architecture.md](docs/architecture.md) - layers and data flow
 - [docs/security-model.md](docs/security-model.md)
 - [docs/troubleshooting.md](docs/troubleshooting.md) - requirements, install, troubleshooting, uninstall, and known limitations
@@ -42,10 +69,19 @@ Data/SFSE/Plugins/
   OSFUI.dll
   OSFUI/                 <- plugin data, resolved relative to the DLL
     config.json
-    views/
-      settings/                <- built-in views
-        manifest.json
-        index.html  style.css  main.js
+    vanillakeys.json
+    views/                     <- GENERATED from frontend/ (see "Building the frontend")
+      shared/                     the shared UI kit — third-party views link it by exact path
+        osfui.css  osfui.js
+      osfui/                      <- a mod namespace: views live at views/<modId>/<viewName>/
+        padnav.js                    gamepad nav, private to the built-in views
+        settings/                    the Mods surface
+          manifest.json
+          index.html  style.css  main.js
+        keybinds/                    the input map
+          manifest.json
+          index.html  style.css  main.js
+    settings/                  <- settings schemas (one JSON per mod) + values/
     ultralight/                <- only present in with_ultralight builds
       bin/                        (delay-loaded at runtime, preloaded by the plugin)
         Ultralight.dll  UltralightCore.dll  WebCore.dll  AppCore.dll

@@ -1,0 +1,16 @@
+{
+  "id": "settings",
+  "title": "Mods",
+  "description": "Installed mods - settings, terminals and HUD toggles.",
+  "entry": "index.html",
+  "mod": "osfui",
+  "hub": false,
+  "width": 1600,
+  "height": 900,
+  "transparent": true,
+  "permissions": {
+    "nativeBridge": true,
+    "filesystem": false,
+    "network": false
+  }
+}
