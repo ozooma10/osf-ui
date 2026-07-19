@@ -73,7 +73,10 @@ export async function runBuild({ quiet = false } = {}) {
           input: join(FRONTEND, 'src/views', v.mod, v.name, 'main.tsx'),
           output: {
             format: 'iife',
-            inlineDynamicImports: true,
+            // No inlineDynamicImports: rolldown-vite disables code splitting
+            // for single-input IIFE builds already (and warns if it is set).
+            // The build.syntax gate (sourceType: 'script') still proves no
+            // import/export survives into the bundle.
             entryFileNames: 'main.js',
             // Stable names only. Content hashes would orphan files in the MO2
             // mod folder (the after_build redeploy uses os.cp, which overlays

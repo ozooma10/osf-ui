@@ -5,6 +5,11 @@
 # core.autocrlf=true. Without it a Windows checkout would rewrite these files to
 # CRLF and the CI staleness check (`npm --prefix frontend run check:dist`) would
 # fail on line endings alone.
+# Frontend sources are authored LF (the build and its tests byte-compare
+# against LF output; core.autocrlf=true would silently flip checkouts to CRLF).
+frontend/** text eol=lf
+frontend/**/*.png binary
+
 data/OSFUI/views/**/main.js    text eol=lf linguist-generated=true
 data/OSFUI/views/**/style.css  text eol=lf linguist-generated=true
 data/OSFUI/views/**/index.html text eol=lf linguist-generated=true

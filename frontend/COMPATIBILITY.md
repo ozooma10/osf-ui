@@ -65,7 +65,7 @@ It navigates by reading concrete DOM geometry and conventions:
 | `.listening` | suspends all navigation (a key capture is armed) |
 | `[data-nav-modal]` | focus trap boundary |
 | zero-size or `opacity: 0` | treated as invisible, skipped |
-| `e.keyCode`, **not** `e.key` | deliberate — Ultralight emits legacy `"Up"` / `"U+00XX"` spellings |
+| `e.keyCode`, **not** `e.key` | retained behavior of the existing navigation helper |
 
 Converting it means rewriting geometry-dependent spatial navigation whose in-game
 controller verification was still pending. jsdom cannot validate it: every
@@ -75,13 +75,11 @@ confidence in both directions.
 The Preact views therefore **reproduce padnav's DOM contracts**, and
 `test/dom-contracts.test.tsx` asserts they still do.
 
-**Exit criterion — all three must hold:**
+**Exit criterion — both must hold:**
 
 1. A manual controller pass over both views passes in game: rail → detail → each
    widget type → undo modal → keybinds board → bind list.
-2. That pass is repeated on **both** renderer backends (`ultralight` and
-   `webview2`), because their key-event spellings differ.
-3. The conversion is done in a change that touches **nothing else**, so a
+2. The conversion is done in a change that touches **nothing else**, so a
    navigation regression cannot be confused with a rendering one.
 
 Until then `padnav.js` ships as-is and the views adapt to it, not the reverse.

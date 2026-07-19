@@ -33,10 +33,10 @@ export function UndoPanel({ changes, tr, onRevert, onRevertAll, onClose }: UndoP
   // this is the belt to that braces.
   if (!changes.length) return null;
 
+  // Click-outside closes: the handler is on the OVERLAY and tests
+  // `e.target === e.currentTarget`, so a click that lands on the panel (or
+  // anything in it) bubbles up without matching and the panel stays put.
   return (
-    {/* Click-outside closes: the handler is on the OVERLAY and tests
-        `e.target === e.currentTarget`, so a click that lands on the panel (or
-        anything in it) bubbles up without matching and the panel stays put. */}
     <Overlay
       class="session-overlay"
       onClick={(e) => {

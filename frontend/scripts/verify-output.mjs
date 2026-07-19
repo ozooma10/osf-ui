@@ -79,7 +79,12 @@ export function verifyOutput() {
       // Transparency: the D3D12 compositor expects premultiplied BGRA and the
       // page's transparent body is the real mechanism. An opaque html/body
       // background renders the overlay as a black rectangle over the game.
-      if (/\b(html|body)\s*\{[^}]*background(-color)?\s*:\s*(?!none|transparent|inherit)(#|rgb|hsl|\w)/i.test(c)) {
+      // Allowlist note: the Oxc minifier rewrites `background: transparent`
+      // to the shorthand `background: 0 0` (position 0 0, everything else
+      // initial — initial background-color IS transparent), so bare `0` must
+      // pass. What we are catching is a colour: #hex, rgb()/hsl(), or a named
+      // colour ('black', 'red', ...).
+      if (/\b(html|body)\s*\{[^}]*background(-color)?\s*:\s*(?!none\b|transparent\b|inherit\b|0[\s;}])(#|rgba?\(|hsla?\(|[a-z])/i.test(c)) {
         fail(`${v.name}/style.css sets an opaque background on html/body (would black out the overlay)`);
       }
     }

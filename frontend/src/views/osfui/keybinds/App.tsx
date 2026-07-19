@@ -506,6 +506,7 @@ export function App({ bridge }: AppProps) {
             query={query}
             selectedKey={selectedKey}
             flash={flash}
+            loaded={loaded}
             tr={tr}
             onSelect={selectKey}
           />

@@ -27,14 +27,15 @@ markup and no mirroring step.
 
 ## Status of the files here
 
-`index.html`, `keybinds.html`, `osf.html`, `mockbridge.js` and `serve.cmd` are
-still present and still run, as a fallback while the built-in views finish
-migrating. They are frozen: fix them only if the Vite harness cannot yet do
-what you need, and prefer fixing the Vite harness. Nothing here is packaged
+The pages themselves (`index.html`, `keybinds.html`, `osf.html`,
+`mockbridge.js`, `serve.cmd`) were deleted once both built-in views finished
+migrating — only this pointer remains. `osf.html` lives on as
+`frontend/harness/public/osf.html`; the mock bridge was ported (and typed, and
+tested) as `frontend/harness/mockbridge.ts`. Nothing here was ever packaged
 (see [PACKAGING.md](../../docs/PACKAGING.md)).
 
-Two stale claims in the previous version of this file, corrected for anyone
-working on these pages:
+Two stale claims from the pre-migration version of this file, kept for
+anyone spelunking history:
 
 - `osf.html` loads OSF Animation's view from that repo's
   `views/osf.animation/browser/` — **not** `views\osf\`. The view folder layout

@@ -89,11 +89,11 @@ catalog onto the page.
 
 ### The fixed-resolution stage
 
-Views ship at 1600×900 (`manifest.json`) and Ultralight renders at exactly that
-size regardless of the game window. The harness reproduces this: it renders a
+Views declare an initial 1600×900 size (`manifest.json`); the runtime resizes
+them to the game output aspect once the swapchain is known. The harness renders a
 1600×900 frame scaled by `min(w/1600, (h-30)/900)`, never upscaled beyond 1:1.
-**Develop with the stage on.** A layout that only works fluid will be wrong in
-game. `?res=off` exists for inspecting overflow, not for authoring.
+**Develop with the stage on** for the baseline, then use `?res=off` to verify
+responsive behavior at other output sizes.
 
 ## Native bridge architecture
 
@@ -119,38 +119,21 @@ Load order in a view's `index.html` is load-bearing and asserted by the build
 gates: `shared/osfui.js` → `padnav.js` → `main.js`. The helper must decorate
 `window.osfui` before the bundle reads it.
 
-## Ultralight compatibility constraints
+## Shipping bundle constraints
 
-The plugin has two renderer backends and **Ultralight is the compatibility
-floor**, because it is what 1.0.0-alpha shipped and it remains selectable:
+The production WebView2 backend loads views at
+`https://osfui.local/<mod>/<view>/<entry>`. The built-in artifacts retain a
+deliberately conservative, stable bundle shape enforced by
+`scripts/verify-output.mjs` and `test/build.*`:
 
-| Backend | View URL | Module scripts |
-|---|---|---|
-| `webview2` (current default) | `https://osfui.local/<mod>/<view>/<entry>` | would work |
-| `ultralight` | `file:///<mod>/<view>/<entry>` | **blocked** — opaque origin |
-
-Consequences, all enforced by `scripts/verify-output.mjs` and `test/build.*`:
-
-- **Classic IIFE only.** One `<script src="main.js">` per view. No
-  `type="module"`, no dynamic `import()`, no code splitting. The failure mode on
-  Ultralight is a blank view with a console error nobody reads.
-- **ES2020 target.** This is the highest level with in-repo proof: ES2019
-  optional catch binding and ES2020 `??` both ship in the released bundle and
-  reach DOM ready under Ultralight with no console errors. The engine is
-  WebKit 615 / Safari 16.4 and very likely supports ES2022, but nothing in this
-  repo demonstrates it, so we do not rely on it.
-- **`?.` is avoided in authored code** despite being ES2020. It appears zero
-  times in 3,496 lines of shipped view code, with long-hand guards written
-  instead, and nothing documents why. Until someone verifies it in game under
-  the Ultralight backend, do not introduce it.
-- **No network, ever.** `permissions.network` is force-disabled natively. No
+- **One classic IIFE bundle per view.** Stable `main.js` filenames and no code
+  splitting keep the committed output and public asset paths deterministic.
+- **ES2020 target.** This remains the project's chosen compatibility target.
+- **No remote dependencies in built-ins.** No
   webfonts (all three `--osf-font-*` stacks resolve to Windows system faces), no
   CDN, no `fetch` to a remote host. The build fails on `@font-face` or a remote
-  `url()`.
-- **Runtime API caution.** The one recorded engine limit is `toFixed` throwing
-  `RangeError` past 20 decimals, which blanked an entire pane. Syntax targeting
-  says nothing about built-in availability — be conservative with recent
-  built-ins.
+  `url()`. This is a content gate, not a browser-level network sandbox; see
+  `docs/security-model.md`.
 
 ## Adding a new view
 

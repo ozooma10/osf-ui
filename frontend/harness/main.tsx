@@ -181,10 +181,31 @@ function Harness() {
         }}
       />
       <Stage enabled={stageOn}>
-        {App ? <App /> : <p class="status osf-eyebrow">{failed || 'Loading view…'}</p>}
+        {App ? renderView(App, activeView) : <p class="status osf-eyebrow">{failed || 'Loading view…'}</p>}
       </Stage>
     </>
   );
+}
+
+/**
+ * Mount a view's App, injecting the harness-only props it accepts.
+ *
+ * The Mods (settings) view resolves schema `icon`/`image` paths against a
+ * mod-id -> root map. In game every view sits under one `views/` root, so the
+ * shipped default "../../<modId>" is correct and the view passes NOTHING; from
+ * the harness that lands nowhere, so the mock's map has to be handed in
+ * explicitly. Reading the global the mock published (harness code may) and
+ * passing it as a PROP is what keeps `window.OSFUI_MOD_ASSET_ROOTS` out of
+ * src/ — the shipped path can no longer be redirected by anything that manages
+ * to set that global.
+ */
+function renderView(App: FunctionComponent, view: string) {
+  if (view === 'osfui/settings') {
+    const roots = (window as { OSFUI_MOD_ASSET_ROOTS?: Record<string, string> }).OSFUI_MOD_ASSET_ROOTS;
+    const Settings = App as FunctionComponent<{ assetRoots?: Record<string, string> }>;
+    return <Settings {...(roots ? { assetRoots: roots } : {})} />;
+  }
+  return <App />;
 }
 
 const mount = document.getElementById('harness-mount');

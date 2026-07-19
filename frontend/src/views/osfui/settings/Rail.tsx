@@ -147,7 +147,10 @@ function RailItem({ entry, selected, tr, assetRoots, onSelect }: RailItemProps) 
       <Mark
         class="rail-item-mark"
         iconClass="rail-item-mark--icon"
-        src={modIconSrc(entry.mod, assetRoots)}
+        // The SDK `SettingsSchema` type omits `icon` (it is an advisory field
+        // modIconSrc reads defensively as `unknown`); the loose cast bridges
+        // that gap without loosening the lib's own signature.
+        src={modIconSrc(entry.mod as Parameters<typeof modIconSrc>[0], assetRoots)}
         color=""
         // The framework gets a glyph rather than initials — "OU" would read as
         // just another mod.

@@ -67,9 +67,16 @@ export function ColorField({ id, value, disabled, onCommit, onInvalid }: ColorFi
     }
   }, [committed]);
 
-  const apply = () => {
-    const v = text.trim();
+  // Reads the field's LIVE value (not `text` state): legacy did
+  // `hex.value.trim()` off the DOM node on change (main.legacy.js:482), so a
+  // programmatic set-then-change — and the keyboard-nav commit path, which
+  // blurs without a preceding input — both see the current text.
+  const apply = (raw: string) => {
+    const v = raw.trim();
     if (HEX_RE.test(v)) {
+      // Keep the field in sync with what was committed (it may have been set
+      // programmatically, leaving `text` state behind).
+      setText(v);
       onCommit(v);
       return;
     }
@@ -93,7 +100,7 @@ export function ColorField({ id, value, disabled, onCommit, onInvalid }: ColorFi
         maxLength={9}
         disabled={disabled}
         onInput={(e) => setText((e.currentTarget as HTMLInputElement).value)}
-        onChange={apply}
+        onChange={(e) => apply((e.currentTarget as HTMLInputElement).value)}
       />
       <div class="osf-color-presets">
         {COLOR_PRESETS.map((p) => (

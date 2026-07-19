@@ -31,11 +31,19 @@ export interface BoardProps {
   selectedKey: string;
   flash: FlashState;
   tr: Translator;
+  /**
+   * False until the first render that had data. Legacy builds the board ONLY
+   * from `renderAll()` (main.legacy.js:377), which in-game never runs before
+   * `settings.data` arrives — so the shipped `#keyboard` div sits EMPTY until
+   * then, and fills in (with the layout reflow that implies) on first data. The
+   * sibling panels are gated the same way; the board was the odd one out.
+   */
+  loaded: boolean;
   onSelect: (name: string) => void;
 }
 
 export function Board(props: BoardProps) {
-  const { bindings, query, selectedKey, flash, tr, onSelect } = props;
+  const { bindings, query, selectedKey, flash, loaded, tr, onSelect } = props;
 
   // canonical key name -> cell node, exactly the role of legacy's `keyCells`
   // (main.legacy.js:202). The ONLY remaining consumer is the flash restart,
@@ -122,6 +130,12 @@ export function Board(props: BoardProps) {
         key={`key:${name}`}
         type="button"
         class={className}
+        // Legacy set `cell.dataset.name = item.n` on every live cell
+        // (main.legacy.js:224). Nothing in-tree reads it (the cell lookup goes
+        // through the `cells` ref, as legacy's went through `keyCells`), but it
+        // is part of the shipped DOM shape, so it is preserved verbatim rather
+        // than silently dropped.
+        data-name={name}
         style={{ flexGrow: item.w, flexBasis: 0 }}
         title={who || name}
         ref={(node) => {
@@ -152,10 +166,17 @@ export function Board(props: BoardProps) {
     </div>
   );
 
+  // The container is always present (it is static markup in legacy's
+  // index.html), but its CONTENTS appear only once data has landed — see the
+  // `loaded` doc above.
   return (
     <div id="keyboard" class="kb-board" aria-label="Keyboard map">
-      {renderBlock(KEYBOARD_MAIN, 'main')}
-      {renderBlock(KEYBOARD_NAV, 'nav')}
+      {loaded ? (
+        <>
+          {renderBlock(KEYBOARD_MAIN, 'main')}
+          {renderBlock(KEYBOARD_NAV, 'nav')}
+        </>
+      ) : null}
     </div>
   );
 }

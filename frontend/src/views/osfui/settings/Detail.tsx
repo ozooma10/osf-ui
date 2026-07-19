@@ -43,7 +43,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { Row } from '@ui/Row';
 import { Note } from '@ui/Note';
 import { ImageRow } from '@ui/ImageRow';
-import { ActionButton, ACTION_TIMEOUT_MS } from '@ui/ActionButton';
+import { ActionButton } from '@ui/ActionButton';
 import { Switch } from '@ui/Switch';
 import { evalGate } from '@lib/settings/conditions';
 import { isModified } from '@lib/settings/modified';
@@ -155,9 +155,9 @@ export function Detail(props: DetailProps) {
           <div class="osf-eyebrow">{tr('nothingSelected', 'Nothing selected')}</div>
         </div>
       ) : !entry.mod ? (
-        <ViewOnly entry={entry} {...props} />
+        <ViewOnly {...props} entry={entry} />
       ) : (
-        <SettingsPage mod={entry.mod} entryViews={entry.views} schema={schema} {...props} />
+        <SettingsPage {...props} mod={entry.mod} entryViews={entry.views} schema={schema} />
       )}
     </section>
   );
@@ -186,7 +186,7 @@ function ViewOnly(props: DetailProps & { entry: NonNullable<ReturnType<typeof fi
         {/* No "Reset all": there is nothing to reset. */}
       </div>
       <div class="detail-body">
-        <Surfaces views={entry.views} ownerId={entry.id} {...props} />
+        <Surfaces {...props} views={entry.views} ownerId={entry.id} />
         <p class="detail-quiet">{tr('noModSettings', 'This mod registers no settings.')}</p>
       </div>
     </>
@@ -237,7 +237,7 @@ function SettingsPage(props: SettingsPageProps) {
       </div>
 
       <div class="detail-body">
-        <Surfaces views={props.entryViews} ownerId={mod.id} {...props} />
+        <Surfaces {...props} views={props.entryViews} ownerId={mod.id} />
 
         {/* Advisory only. Everything below still renders best-effort — a
             setting of a type this host predates comes up read-only with its own
@@ -279,10 +279,10 @@ function SettingsPage(props: SettingsPageProps) {
           ) : null}
         </div>
 
-        {autoIndex ? <SectionIndex groups={groups} {...props} /> : null}
+        {autoIndex ? <SectionIndex {...props} groups={groups} /> : null}
 
         {groups.map((group, i) => (
-          <Group key={groupKey(mod.id, i)} group={group} index={i} values={values} {...props} />
+          <Group key={groupKey(mod.id, i)} {...props} group={group} index={i} values={values} />
         ))}
       </div>
     </>
@@ -374,7 +374,7 @@ function Group(props: GroupProps) {
       ) : null}
       <div class="group-rows">
         {(group.settings || []).map((item, i) => (
-          <Item key={itemKey(item, i)} item={item} values={values} {...props} />
+          <Item key={itemKey(item, i)} {...props} item={item} values={values} />
         ))}
       </div>
     </div>
@@ -605,5 +605,3 @@ function HudRow({
     </Row>
   );
 }
-
-export { ACTION_TIMEOUT_MS };

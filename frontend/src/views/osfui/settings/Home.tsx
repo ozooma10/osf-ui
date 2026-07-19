@@ -43,7 +43,10 @@ export function Home({ views, mods, tr, assetRoots, hudOn, onOpen, onHud }: Home
 
   const ownerIcon = (modId: string | undefined): string | null => {
     if (!modId) return null;
-    return modIconSrc(mods.find((m) => m.id === modId) || null, assetRoots);
+    // Cast: the SDK `SettingsSchema` omits the advisory `icon` field modIconSrc
+    // reads as `unknown`; this bridges the gap without loosening the lib.
+    const owner = (mods.find((m) => m.id === modId) || null) as Parameters<typeof modIconSrc>[0];
+    return modIconSrc(owner, assetRoots);
   };
   const caption = (v: ViewRecord): string => homeModCaption(v, mods);
 
