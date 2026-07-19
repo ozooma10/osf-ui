@@ -1,0 +1,248 @@
+[10:53:07.920] [16836] [I] OSF UI v1.0.0.0
+[10:53:07.920] [16836] [D] FHookStore: Init 0 queued hooks
+[10:53:07.920] [16836] [D] FHookStore: Enabled 0 PreLoad hooks
+[10:53:07.920] [16836] [I] OSF UI v1.0.0: preload entered
+[10:53:07.978] [16836] [D] FHookStore: Init 0 queued hooks
+[10:53:07.978] [16836] [D] FHookStore: Enabled 0 Load hooks
+[10:53:07.978] [16836] [I] OSF UI v1.0.0: load entered
+[10:53:07.978] [16836] [I] Paths: plugin dir = C:\Program Files (x86)\Steam\steamapps\common\Starfield\Data\SFSE\Plugins
+[10:53:07.978] [16836] [I] Paths: data dir   = C:\Program Files (x86)\Steam\steamapps\common\Starfield\Data\SFSE\Plugins\OSFUI
+[10:53:07.978] [16836] [I] Config: loaded C:\Program Files (x86)\Steam\steamapps\common\Starfield\Data\SFSE\Plugins\OSFUI\config.json (renderer=ultralight, compositor=d3d12, inputSource=ui, captureInput=true, hardwareCursor=true, focusMenu=true, view=osfui/settings, devMode=false)
+[10:53:07.979] [16836] [I] ViewManager: loaded view 'osf.animation/browser' (OSF Animation Browser, 1600x900)
+[10:53:07.980] [16836] [I] ViewManager: loaded view 'osfui/keybinds' (Keybinds, 1600x900)
+[10:53:07.980] [16836] [I] ViewManager: loaded view 'osfui/settings' (Mods, 1600x900)
+[10:53:07.980] [16836] [I] ViewManager: 3 view(s) loaded from C:\Program Files (x86)\Steam\steamapps\common\Starfield\Data\SFSE\Plugins\OSFUI\views
+[10:53:08.026] [16836] [I] UltralightWebRenderer: SDK DLLs preloaded from C:\Program Files (x86)\Steam\steamapps\common\Starfield\Data\SFSE\Plugins\OSFUI\ultralight\bin
+[10:53:08.026] [16836] [I] UltralightWebRenderer: initialized (1600x900, CPU BitmapSurface; worker starts on first tick)
+[10:53:08.026] [16836] [I] Runtime: renderer = ultralight
+[10:53:08.026] [16836] [I] D3D12Compositor: initialized (present-time overlay; engine device/queue + Present hook are set up on the first submitted frame)
+[10:53:08.026] [16836] [I] Runtime: compositor = d3d12
+[10:53:08.027] [16836] [I] SettingsStore: loaded mod 'osfui' ('OSF UI', 4 settings)
+[10:53:08.027] [16836] [I] SettingsStore: 1 mod schema(s) registered from C:\Program Files (x86)\Steam\steamapps\common\Starfield\Data\SFSE\Plugins\OSFUI\settings
+[10:53:08.027] [16836] [I] Runtime: 1 UI module(s) loaded
+[10:53:08.028] [16836] [I] Runtime: setting osfui.pauseMenuEntry -> true (applies the next time the pause menu opens)
+[10:53:08.028] [16836] [I] Runtime: setting osfui.toggleKey -> F10 (VK 0x79)
+[10:53:08.028] [16836] [I] VanillaKeys: 30 binding(s) from C:\Program Files (x86)\Steam\steamapps\common\Starfield\Data\SFSE\Plugins\OSFUI\vanillakeys.json
+[10:53:08.028] [16836] [I] Runtime: surface 'osfui/settings' registered (menu, capturesInput=true, pausesGame=true)
+[10:53:08.028] [16836] [I] Runtime: surface 'osfui/keybinds' registered (menu, capturesInput=true, pausesGame=true)
+[10:53:08.028] [16836] [I] Runtime: loaded 2 view(s); default menu = 'osfui/settings'
+[10:53:08.028] [16836] [I] Runtime: toggleKey 'F10' resolved to VK code 0x79
+[10:53:08.028] [16836] [I] Runtime: engineInput enabled — engine per-menu input (gamepad) routed into the focused view; keyboard/mouse stay on the WndProc path
+[10:53:08.028] [16836] [I] Runtime: input capture enabled (config captureInput)
+[10:53:08.028] [16836] [I] Runtime: initialized (visible=false)
+[10:53:08.028] [16836] [I] Plugin: per-frame tick registered via SFSE TaskInterface (v1)
+[10:53:08.028] [16836] [I] Plugin: SFSE message kPostLoad
+[10:53:08.028] [16836] [I] Plugin: SFSE message kPostPostLoad
+[10:53:18.255] [7828 ] [I] FrameTick: first per-frame task received from SFSE TaskInterface
+[10:53:18.255] [7828 ] [I] UltralightWebRenderer: starting worker thread
+[10:53:18.257] [19204] [I] UltralightWebRenderer: worker configuring Ultralight platform
+[10:53:18.257] [19204] [I] UltralightWebRenderer: worker acquiring platform font loader
+[10:53:18.258] [19204] [I] UltralightWebRenderer: worker calling Renderer::Create()
+[10:53:18.258] [19204] [D] Ultralight: Initializing Ultralight v1.4.0 (WebKit 615.1.18.100.1) with the following configuration
+    cache_path: 
+    resource_path_prefix: resources/
+    face_winding: CounterClockwise
+    font_hinting: Normal
+    font_gamma: 1.8
+    force_repaint: disabled
+    animation_timer_delay: 16.7 ms
+    scroll_timer_delay: 16.7 ms
+    recycle_delay: 4.0 s
+    memory_cache_size: 64.00 MB
+    page_cache_size: 0 pages
+    override_ram_size: disabled
+    min_large_heap_size: 32.00 MB
+    min_small_heap_size: 1.00 MB
+    num_re
+[10:53:18.270] [19204] [D] Ultralight: Creating Session with the following configuration:
+    id: 2
+    is_persistent: 1
+    name: default
+    is_default: 1
+    disk_path: default (you can adjust this location in Config::cache_path)
+[10:53:18.270] [19204] [D] Ultralight: Creating Session with the following configuration:
+    id: 9223372036854775810
+    is_persistent: 0
+    name: osfui
+    is_default: 0
+    disk_path: osfui (you can adjust this location in Config::cache_path)
+[10:53:18.270] [19204] [I] UltralightWebRenderer: Ultralight renderer created (CPU rendering, in-memory session)
+[10:53:18.288] [19204] [D] Ultralight: Creating View with the following configuration:
+    width: 1600
+    height: 900
+    device scale: 1
+    session id: 9223372036854775810
+    is_accelerated: 0
+[10:53:18.296] [19204] [I] UltralightWebRenderer: loading view 'osfui/settings' -> file:///osfui/settings/index.html (folder C:\Program Files (x86)\Steam\steamapps\common\Starfield\Data\SFSE\Plugins\OSFUI\views\osfui\settings)
+[10:53:18.297] [19204] [D] Ultralight: Creating View with the following configuration:
+    width: 1600
+    height: 900
+    device scale: 1
+    session id: 9223372036854775810
+    is_accelerated: 0
+[10:53:18.298] [19204] [I] UltralightWebRenderer: loading view 'osfui/keybinds' -> file:///osfui/keybinds/index.html (folder C:\Program Files (x86)\Steam\steamapps\common\Starfield\Data\SFSE\Plugins\OSFUI\views\osfui\keybinds)
+[10:53:18.302] [19204] [D] Ultralight: Initializing Thread Pool with the following configuration:
+    physical processors (detected): 16
+    num threads: 15
+[10:53:18.306] [19204] [I] UltralightWebRenderer: first paint for view 'osfui/settings' (1600x900, stride 6400)
+[10:53:18.307] [19204] [I] UltralightWebRenderer: first paint for view 'osfui/keybinds' (1600x900, stride 6400)
+[10:53:18.341] [19204] [I] UltralightWebRenderer: DOM ready for view 'osfui/settings' (file:///osfui/settings/index.html)
+[10:53:18.388] [35464] [I] Runtime: view 'osfui/settings' finished loading (file:///osfui/settings/index.html)
+[10:53:18.571] [19204] [I] UltralightWebRenderer: DOM ready for view 'osfui/keybinds' (file:///osfui/keybinds/index.html)
+[10:53:18.572] [36048] [I] Runtime: view 'osfui/keybinds' finished loading (file:///osfui/keybinds/index.html)
+[10:53:49.305] [29376] [I] BridgeApi: bridge vended (caller ABI 1.6, host 1.6)
+[10:53:49.305] [29376] [I] BridgeApi: bridge vended (caller ABI 1.6, host 1.6)
+[10:53:49.305] [29376] [I] Plugin: SFSE message kPostDataLoad
+[10:53:49.308] [16836] [I] Runtime: surface 'osf.animation/browser' registered via plugin RegisterView (menu, capturesInput=true, pausesGame=false)
+[10:53:49.308] [19204] [D] Ultralight: Creating View with the following configuration:
+    width: 1600
+    height: 900
+    device scale: 1
+    session id: 9223372036854775810
+    is_accelerated: 0
+[10:53:49.308] [16836] [I] SettingsStore: loaded mod 'osf.animation' ('OSF Animation', 5 settings)
+[10:53:49.309] [19204] [I] UltralightWebRenderer: loading view 'osf.animation/browser' -> file:///osf.animation/browser/index.html (folder C:\Program Files (x86)\Steam\steamapps\common\Starfield\Data\SFSE\Plugins\OSFUI\views\osf.animation\browser)
+[10:53:49.311] [29376] [I] PapyrusApi: natives bound on script 'OSFUI'
+[10:53:49.311] [29376] [I] Plugin: SFSE message kPostPostDataLoad
+[10:53:49.311] [29376] [I] MenuEventSink: registered for MenuOpenCloseEvent
+[10:53:49.311] [29376] [I] Plugin: focusMenu on — registering OSFUI_FocusMenu
+[10:53:49.311] [29376] [I] FocusMenu: registered 'OSFUI_FocusMenu' (hardened creator: engine base-init + engine vtable copy + interned +0xB0 name; opens only when the overlay does). RE-verified 1.16.244.
+[10:53:49.312] [29376] [I] OverlayInputHook: subclassed game WndProc (hwnd 0x330992); overlay can now capture input
+[10:53:49.354] [19204] [I] UltralightWebRenderer: first paint for view 'osf.animation/browser' (1600x900, stride 6400)
+[10:53:49.392] [19204] [I] UltralightWebRenderer: DOM ready for view 'osf.animation/browser' (file:///osf.animation/browser/index.html)
+[10:53:49.508] [16836] [I] Runtime: view 'osf.animation/browser' finished loading (file:///osf.animation/browser/index.html)
+[10:57:29.070] [17216] [I] Runtime: overlay visibility -> true (capture=true)
+[10:57:29.070] [17216] [I] FocusMenu: open requested ('OSFUI_FocusMenu' kShow)
+[10:57:29.070] [17216] [I] ControlLayer: allocated input-enable layer (id 1)
+[10:57:29.070] [17216] [I] ControlLayer: player controls disabled (layer 1)
+[10:57:29.070] [17216] [I] SimPause: engaged (UI::pauseRequestCount incremented)
+[10:57:29.070] [17216] [I] FreeCursor: engaged (MenuCursor freeCursorRefCount now 1)
+[10:57:29.072] [17216] [I] EngineD3D12: located ID3D12Device=0x204F238F660 + DIRECT ID3D12CommandQueue=0x204F2FACAD0 (via RE::CreationRendererPrivate::Renderer; all pointers QI-verified)
+[10:57:29.105] [17216] [W] D3D12Compositor: Present slot 8 already points into 'C:\Program Files (x86)\Steam\steamapps\common\Starfield\sl.interposer.dll' — another overlay/hook tool is ahead of us; chaining after it. If the overlay misbehaves, include this line in reports.
+[10:57:29.105] [17216] [I] D3D12Compositor: hooked IDXGISwapChain::Present slot 8 (original 0x7FF9E3C56420)
+[10:57:29.108] [17216] [I] D3D12Compositor: present-time overlay armed (Present slot-8 hook installed)
+[10:57:29.111] [16836] [I] HardwareCursor: activated (showRaises=1, centered + clipped to client)
+[10:57:29.112] [16836] [I] EngineInput: receiver installed on menu obj=0x00000204CCDE86E0 (+0x10 vtable copy, observer only)
+[10:57:29.112] [16836] [I] FocusMenu: creator built engine-initialised menu obj=0x00000204CCDE86E0 flags=0x00000000 (uiMovie=null, name@+0xB0 set)
+[10:57:29.116] [48228] [I] D3D12Compositor: drawing on swapchain 0x21160C3C210 (3440x1409, 2 buffers, RT format R8G8B8A8_UNORM [28])
+[10:57:29.116] [48228] [I] Runtime: output 3440x1409 -> view resized to 3440x1409 (aspect-correct)
+[10:57:29.116] [48228] [I] D3D12Compositor: drawing on swapchain 0x21160C3C150 (3440x1409, 2 buffers, RT format R8G8B8A8_UNORM [28])
+[10:57:29.345] [19204] [I] UltralightWebRenderer: first key routed into view 'osfui/settings' (vk=0x79, down=false)
+[10:57:29.360] [48228] [I] D3D12Compositor: overlay texture ready (3440x1409 BGRA8)
+[10:57:29.361] [48228] [I] D3D12Compositor: overlay pipeline ready (RT format R8G8B8A8_UNORM [28])
+[10:57:29.362] [48228] [I] D3D12Compositor: FIRST OVERLAY DRAW submitted over the game backbuffer (3440x1409 overlay -> 3440x1409 target) — Phase 3 composition live
+[10:57:30.294] [36048] [I] SimPause: released (UI::pauseRequestCount decremented)
+[10:57:32.979] [48228] [D] D3D12Compositor: 1200 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[10:57:34.907] [16836] [I] Runtime: overlay visibility -> false (capture=false)
+[10:57:34.907] [16836] [I] FocusMenu: close requested ('OSFUI_FocusMenu' kHide)
+[10:57:34.907] [16836] [I] EngineInput: session summary — gates=955 buttons=0 (kb=0 mouse=0 pad=0) sticks=0 chars=0 mouseMoves=0 cursorMoves=0; recent buttons: none
+[10:57:34.907] [16836] [I] ControlLayer: player controls restored
+[10:57:34.907] [16836] [I] FreeCursor: released (MenuCursor freeCursorRefCount now 0)
+[10:57:34.911] [16836] [I] HardwareCursor: deactivated (visibility + clip returned to the game)
+[10:57:35.062] [29376] [I] Runtime: overlay visibility -> true (capture=true)
+[10:57:35.062] [29376] [I] FocusMenu: open requested ('OSFUI_FocusMenu' kShow)
+[10:57:35.062] [29376] [I] ControlLayer: player controls disabled (layer 1)
+[10:57:35.062] [29376] [I] SimPause: engaged (UI::pauseRequestCount incremented)
+[10:57:35.062] [29376] [I] FreeCursor: engaged (MenuCursor freeCursorRefCount now 1)
+[10:57:35.070] [16836] [I] HardwareCursor: activated (showRaises=1, centered + clipped to client)
+[10:57:35.072] [16836] [I] EngineInput: receiver installed on menu obj=0x00000211ADFB4220 (+0x10 vtable copy, observer only)
+[10:57:35.072] [16836] [I] FocusMenu: creator built engine-initialised menu obj=0x00000211ADFB4220 flags=0x00000000 (uiMovie=null, name@+0xB0 set)
+[10:57:36.500] [16836] [I] Runtime: overlay visibility -> false (capture=false)
+[10:57:36.500] [16836] [I] FocusMenu: close requested ('OSFUI_FocusMenu' kHide)
+[10:57:36.500] [16836] [I] EngineInput: session summary — gates=234 buttons=0 (kb=0 mouse=0 pad=0) sticks=0 chars=0 mouseMoves=0 cursorMoves=0; recent buttons: none
+[10:57:36.500] [16836] [I] ControlLayer: player controls restored
+[10:57:36.500] [16836] [I] SimPause: released (UI::pauseRequestCount decremented)
+[10:57:36.500] [16836] [I] FreeCursor: released (MenuCursor freeCursorRefCount now 0)
+[10:57:36.504] [16836] [I] HardwareCursor: deactivated (visibility + clip returned to the game)
+[10:57:41.050] [16836] [I] Runtime: overlay visibility -> true (capture=true)
+[10:57:41.050] [16836] [I] FocusMenu: open requested ('OSFUI_FocusMenu' kShow)
+[10:57:41.050] [16836] [I] ControlLayer: player controls disabled (layer 1)
+[10:57:41.050] [16836] [I] FreeCursor: engaged (MenuCursor freeCursorRefCount now 2)
+[10:57:41.058] [16836] [I] EngineInput: receiver installed on menu obj=0x0000021397F088B0 (+0x10 vtable copy, observer only)
+[10:57:41.058] [16836] [I] FocusMenu: creator built engine-initialised menu obj=0x0000021397F088B0 flags=0x00000000 (uiMovie=null, name@+0xB0 set)
+[10:57:41.137] [16836] [I] HardwareCursor: activated (showRaises=1, centered + clipped to client)
+[10:57:41.198] [19204] [I] UltralightWebRenderer: first key routed into view 'osf.animation/browser' (vk=0x41, down=true)
+[10:57:41.341] [48228] [D] D3D12Compositor: 2400 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[10:57:43.377] [16836] [I] Runtime: overlay visibility -> false (capture=false)
+[10:57:43.377] [16836] [I] FocusMenu: close requested ('OSFUI_FocusMenu' kHide)
+[10:57:43.377] [16836] [I] EngineInput: session summary — gates=1 buttons=0 (kb=0 mouse=0 pad=0) sticks=0 chars=0 mouseMoves=0 cursorMoves=0; recent buttons: none
+[10:57:43.377] [16836] [I] ControlLayer: player controls restored
+[10:57:43.377] [16836] [I] FreeCursor: released (MenuCursor freeCursorRefCount now 1)
+[10:57:43.395] [16836] [I] HardwareCursor: deactivated (visibility + clip returned to the game)
+[10:57:45.846] [16836] [I] Runtime: overlay visibility -> true (capture=true)
+[10:57:45.846] [16836] [I] FocusMenu: open requested ('OSFUI_FocusMenu' kShow)
+[10:57:45.846] [16836] [I] ControlLayer: player controls disabled (layer 1)
+[10:57:45.846] [16836] [I] FreeCursor: engaged (MenuCursor freeCursorRefCount now 2)
+[10:57:45.853] [16836] [I] EngineInput: receiver installed on menu obj=0x00000211D50C0700 (+0x10 vtable copy, observer only)
+[10:57:45.853] [16836] [I] FocusMenu: creator built engine-initialised menu obj=0x00000211D50C0700 flags=0x00000000 (uiMovie=null, name@+0xB0 set)
+[10:57:45.886] [16836] [I] HardwareCursor: activated (showRaises=1, centered + clipped to client)
+[10:57:46.048] [16836] [I] Runtime: overlay visibility -> false (capture=false)
+[10:57:46.048] [16836] [I] FocusMenu: close requested ('OSFUI_FocusMenu' kHide)
+[10:57:46.048] [16836] [I] EngineInput: session summary — gates=31 buttons=0 (kb=0 mouse=0 pad=0) sticks=0 chars=0 mouseMoves=0 cursorMoves=0; recent buttons: none
+[10:57:46.048] [16836] [I] ControlLayer: player controls restored
+[10:57:46.048] [16836] [I] FreeCursor: released (MenuCursor freeCursorRefCount now 1)
+[10:57:46.126] [16836] [I] HardwareCursor: deactivated (visibility + clip returned to the game)
+[10:58:09.466] [29432] [I] Runtime: overlay visibility -> true (capture=true)
+[10:58:09.466] [29432] [I] FocusMenu: open requested ('OSFUI_FocusMenu' kShow)
+[10:58:09.466] [29432] [I] ControlLayer: player controls disabled (layer 1)
+[10:58:09.466] [29432] [I] SimPause: engaged (UI::pauseRequestCount incremented)
+[10:58:09.466] [29432] [I] FreeCursor: engaged (MenuCursor freeCursorRefCount now 1)
+[10:58:09.480] [16836] [I] EngineInput: receiver installed on menu obj=0x00000213978BDBB0 (+0x10 vtable copy, observer only)
+[10:58:09.480] [16836] [I] FocusMenu: creator built engine-initialised menu obj=0x00000213978BDBB0 flags=0x00000000 (uiMovie=null, name@+0xB0 set)
+[10:58:09.500] [16836] [I] HardwareCursor: activated (showRaises=1, centered + clipped to client)
+[10:58:11.104] [16836] [I] SimPause: released (UI::pauseRequestCount decremented)
+[10:58:13.301] [48228] [D] D3D12Compositor: 3600 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[10:58:23.372] [48228] [D] D3D12Compositor: 4800 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[10:58:33.520] [48228] [D] D3D12Compositor: 6000 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[10:58:44.233] [48228] [D] D3D12Compositor: 7200 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[10:58:54.433] [48228] [D] D3D12Compositor: 8400 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[10:59:04.585] [48228] [D] D3D12Compositor: 9600 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[10:59:14.852] [48228] [D] D3D12Compositor: 10800 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[10:59:17.996] [16836] [I] Runtime: overlay visibility -> false (capture=false)
+[10:59:17.996] [16836] [I] FocusMenu: close requested ('OSFUI_FocusMenu' kHide)
+[10:59:17.996] [16836] [I] EngineInput: session summary — gates=5053 buttons=0 (kb=0 mouse=0 pad=0) sticks=0 chars=0 mouseMoves=0 cursorMoves=0; recent buttons: none
+[10:59:17.996] [16836] [I] ControlLayer: player controls restored
+[10:59:17.996] [16836] [I] FreeCursor: released (MenuCursor freeCursorRefCount now 0)
+[10:59:18.002] [16836] [I] HardwareCursor: deactivated (visibility + clip returned to the game)
+[10:59:19.492] [16836] [I] PauseMenuEntry: 'MOD MENUS' injected into PauseMenu main list (11 vanilla entries)
+[10:59:23.725] [17216] [I] Runtime: overlay visibility -> true (capture=true)
+[10:59:23.725] [17216] [I] FocusMenu: open requested ('OSFUI_FocusMenu' kShow)
+[10:59:23.725] [17216] [I] ControlLayer: player controls disabled (layer 1)
+[10:59:23.725] [17216] [I] FreeCursor: engaged (MenuCursor freeCursorRefCount now 1)
+[10:59:23.733] [17216] [I] EngineInput: receiver installed on menu obj=0x000002131CB70330 (+0x10 vtable copy, observer only)
+[10:59:23.733] [17216] [I] FocusMenu: creator built engine-initialised menu obj=0x000002131CB70330 flags=0x00000000 (uiMovie=null, name@+0xB0 set)
+[10:59:23.744] [16836] [I] HardwareCursor: activated (showRaises=1, centered + clipped to client)
+[10:59:26.460] [16836] [I] Runtime: overlay visibility -> false (capture=false)
+[10:59:26.460] [16836] [I] FocusMenu: close requested ('OSFUI_FocusMenu' kHide)
+[10:59:26.460] [16836] [I] EngineInput: session summary — gates=156 buttons=0 (kb=0 mouse=0 pad=0) sticks=0 chars=0 mouseMoves=0 cursorMoves=0; recent buttons: none
+[10:59:26.460] [16836] [I] ControlLayer: player controls restored
+[10:59:26.460] [16836] [I] FreeCursor: released (MenuCursor freeCursorRefCount now 0)
+[10:59:26.476] [16836] [I] HardwareCursor: deactivated (visibility + clip returned to the game)
+[10:59:28.481] [47944] [I] Runtime: overlay visibility -> true (capture=true)
+[10:59:28.481] [47944] [I] FocusMenu: open requested ('OSFUI_FocusMenu' kShow)
+[10:59:28.481] [47944] [I] ControlLayer: player controls disabled (layer 1)
+[10:59:28.481] [47944] [I] FreeCursor: engaged (MenuCursor freeCursorRefCount now 1)
+[10:59:28.496] [16836] [I] HardwareCursor: activated (showRaises=1, centered + clipped to client)
+[10:59:28.504] [47256] [I] EngineInput: receiver installed on menu obj=0x000002133F38C730 (+0x10 vtable copy, observer only)
+[10:59:28.504] [47256] [I] FocusMenu: creator built engine-initialised menu obj=0x000002133F38C730 flags=0x00000000 (uiMovie=null, name@+0xB0 set)
+[10:59:33.005] [48228] [D] D3D12Compositor: 12000 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[10:59:43.338] [48228] [D] D3D12Compositor: 13200 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[10:59:53.666] [48228] [D] D3D12Compositor: 14400 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[11:00:03.968] [48228] [D] D3D12Compositor: 15600 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[11:00:14.204] [48228] [D] D3D12Compositor: 16800 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[11:00:24.382] [48228] [D] D3D12Compositor: 18000 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[11:00:34.914] [48228] [D] D3D12Compositor: 19200 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[11:00:45.477] [48228] [D] D3D12Compositor: 20400 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[11:00:56.455] [48228] [D] D3D12Compositor: 21600 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[11:01:07.402] [48228] [D] D3D12Compositor: 22800 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[11:01:18.326] [48228] [D] D3D12Compositor: 24000 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[11:01:29.339] [48228] [D] D3D12Compositor: 25200 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[11:01:40.258] [48228] [D] D3D12Compositor: 26400 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[11:01:51.298] [48228] [D] D3D12Compositor: 27600 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[11:02:02.314] [48228] [D] D3D12Compositor: 28800 overlay draws (0 waited on busy slot, 0 dropped on timeout)
+[11:02:12.462] [29432] [I] Runtime: overlay visibility -> false (capture=false)
+[11:02:12.462] [29432] [I] FocusMenu: close requested ('OSFUI_FocusMenu' kHide)
+[11:02:12.462] [29432] [I] EngineInput: session summary — gates=790 buttons=0 (kb=0 mouse=0 pad=0) sticks=0 chars=0 mouseMoves=0 cursorMoves=0; recent buttons: none
+[11:02:12.462] [29432] [I] ControlLayer: player controls restored
+[11:02:12.462] [29432] [I] FreeCursor: released (MenuCursor freeCursorRefCount now 0)
+[11:02:12.478] [16836] [I] HardwareCursor: deactivated (visibility + clip returned to the game)

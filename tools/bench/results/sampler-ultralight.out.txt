@@ -1,0 +1,4 @@
+Waiting for Starfield.exe (up to 240 min)...
+Sampling PID 33380 -> C:\Modding\Starfield\OSF UI\tools\bench\results\20260719-113419-ultralight.csv (Ctrl+C to stop early)
+Game exited; snapshotting OSF UI.log
+Done: C:\Modding\Starfield\OSF UI\tools\bench\results\20260719-113419-ultralight.csv (orphans after exit: 0)

@@ -38,6 +38,15 @@ option("with_webview2", function()
     set_showmenu(true)
     set_description("Enable the experimental in-process WebView2 renderer backend")
 end)
+-- Out-of-process WebView2 host (zero-config MO2 compatibility): the browser
+-- lives in osfui_webview2_host.exe, launched OUTSIDE the game's process tree
+-- so USVFS never injects into msedgewebview2.exe. Also builds the standalone
+-- game stand-in POC that drives the Phase 1 gates without the game.
+option("with_webview2_host", function()
+    set_default(false)
+    set_showmenu(true)
+    set_description("Build the out-of-process WebView2 host exe (+ its standalone POC client)")
+end)
 
 -- JSON for config, view manifests, and the message bridge
 add_requires("nlohmann_json")
@@ -73,6 +82,67 @@ if has_config("with_webview2_poc") then
             target:add("linkdirs", path.join(native, "x64"))
             target:add("links", "WebView2LoaderStatic")
         end)
+end
+-- The host exe is required by the plugin's "webview2" renderer (with_webview2)
+-- and by the standalone POC (with_webview2_host).
+if has_config("with_webview2") or has_config("with_webview2_host") then
+    -- Production host executable. Self-contained on purpose: static CRT +
+    -- static WebView2 loader, because it runs from a mirrored real path
+    -- (%LOCALAPPDATA%\OSFUI\bin\<version>) with no neighbours.
+    target("osfui-webview2-host")
+        set_kind("binary")
+        set_basename("osfui_webview2_host")
+        set_default(false)
+        set_languages("c++23")
+        set_warnings("allextra")
+        set_runtimes("MT")
+        add_rules("mode.debug", "mode.releasedbg")
+        add_files("tools/webview2_host/**.cpp", "tools/webview2_shared/**.cpp")
+        add_headerfiles("tools/webview2_host/**.h", "tools/webview2_shared/**.h")
+        add_includedirs("tools/webview2_shared")
+        add_packages("nlohmann_json")
+        add_syslinks(
+            "d3d11", "dxgi", "windowsapp", "runtimeobject", "CoreMessaging",
+            "ole32", "oleaut32", "uuid", "comsuppw", "taskschd", "advapi32",
+            "user32", "shell32")
+        add_ldflags("/SUBSYSTEM:WINDOWS", { force = true })
+        on_load(function(target)
+            local sdk = os.getenv("WEBVIEW2_SDK_DIR")
+            if not sdk or sdk == "" then
+                sdk = path.join(os.projectdir(), "external", "webview2")
+            end
+            local native = path.join(sdk, "build", "native")
+            if not os.isfile(path.join(native, "include", "WebView2.h")) then
+                raise("OSFUI WebView2 host: unpack Microsoft.Web.WebView2 into " ..
+                    "external/webview2 or set WEBVIEW2_SDK_DIR to the NuGet package root")
+            end
+            target:add("includedirs", path.join(native, "include"))
+            target:add("linkdirs", path.join(native, "x64"))
+            target:add("links", "WebView2LoaderStatic")
+        end)
+
+end
+if has_config("with_webview2_host") then
+    -- Phase 1 game stand-in: pipe server + broker launch + D3D12 shared-
+    -- texture compositing + automated gates. Console app so gate results are
+    -- capturable. Does not link the WebView2 SDK at all — everything browser
+    -- reaches it across the process boundary, exactly like the game will.
+    target("osfui-webview2-host-poc")
+        set_kind("binary")
+        set_basename("osfui-webview2-host-poc")
+        set_default(false)
+        set_languages("c++23")
+        set_warnings("allextra")
+        set_runtimes("MT")
+        add_rules("mode.debug", "mode.releasedbg")
+        add_files("tools/webview2_host_poc/**.cpp", "tools/webview2_shared/**.cpp")
+        add_headerfiles("tools/webview2_shared/**.h")
+        add_includedirs("tools/webview2_shared")
+        add_packages("nlohmann_json")
+        add_deps("osfui-webview2-host")
+        add_syslinks(
+            "d3d12", "dxgi", "d3dcompiler", "ole32", "oleaut32", "uuid",
+            "comsuppw", "taskschd", "advapi32", "user32", "shell32")
 end
 -- define targets
 -- target name == repo folder == MO2 mod folder (deploy goes to XSE_SF_MODS_PATH\<target name>)
@@ -130,14 +200,50 @@ target("OSF UI")
             cprint("${dim}deploying data/OSFUI + data/Scripts to %s ..", target:installdir())
         end, { files = files, values = files,
                dependfile = target:dependfile("osfui_data_deploy") })
+        -- Out-of-process WebView2 host: ship the exe inside the plugin data
+        -- dir (SFSE/Plugins/OSFUI/bin). The renderer mirrors it to a REAL
+        -- path outside the MO2 VFS at runtime before broker-launching it.
+        import("core.project.config")
+        if config.get("with_webview2") then
+            import("core.project.project")
+            local host = project.target("osfui-webview2-host")
+            if host and os.isfile(host:targetfile()) then
+                local bindir = path.join(target:installdir(), "SFSE", "Plugins", "OSFUI", "bin")
+                os.mkdir(bindir)
+                os.cp(host:targetfile(), path.join(bindir, "osfui_webview2_host.exe"))
+                cprint("${dim}deploying osfui_webview2_host.exe to %s ..", bindir)
+            end
+        end
     end)
 
     if has_config("with_webview2") then
         add_defines("OSFUI_WITH_WEBVIEW2=1")
         add_syslinks(
             "d3d11", "dcomp", "windowsapp", "runtimeobject", "CoreMessaging",
-            "shlwapi", "user32", "gdi32", "version")
-        on_load(function(target)
+            "shlwapi", "user32", "gdi32", "version",
+            -- out-of-process host client (pipe ACL + Explorer/TaskScheduler broker)
+            "oleaut32", "uuid", "comsuppw", "taskschd", "advapi32")
+        -- Wv2SharedCompat.cpp compiles tools/webview2_shared through the pch.
+        add_includedirs("tools/webview2_shared")
+        -- Host exe must exist before the data deploy below can package it.
+        add_deps("osfui-webview2-host")
+    else
+        remove_files("src/render/WebView2WebRenderer.cpp")
+        remove_files("src/render/WebView2HostWebRenderer.cpp")
+    end
+    if has_config("with_ultralight") then
+        add_defines("OSFUI_WITH_ULTRALIGHT=1")
+    else
+        -- UltralightWebRenderer.cpp is also fully #if-guarded, but exclude it outright so the default build never touches it.
+        remove_files("src/render/UltralightWebRenderer.cpp")
+    end
+    -- ONE on_load for both optional backends: on_load is a single-slot hook
+    -- (a second call REPLACES the first), so per-option on_load blocks would
+    -- silently drop whichever backend registered first when both are enabled
+    -- (the dual-backend benchmark build, docs/renderer-benchmark.md).
+    on_load(function(target)
+        import("core.project.config")
+        if config.get("with_webview2") then
             local sdk = os.getenv("WEBVIEW2_SDK_DIR")
             if not sdk or sdk == "" then
                 sdk = path.join(os.projectdir(), "external", "webview2")
@@ -152,13 +258,8 @@ target("OSF UI")
             target:add("includedirs", path.join(native, "include"))
             target:add("linkdirs", path.join(native, "x64"))
             target:add("links", "WebView2LoaderStatic")
-        end)
-    else
-        remove_files("src/render/WebView2WebRenderer.cpp")
-    end
-    if has_config("with_ultralight") then
-        add_defines("OSFUI_WITH_ULTRALIGHT=1")
-        on_load(function(target)
+        end
+        if config.get("with_ultralight") then
             local sdk = os.getenv("ULTRALIGHT_SDK_DIR")
             if not sdk or sdk == "" then
                 raise("OSFUI: with_ultralight=true requires the ULTRALIGHT_SDK_DIR environment variable to point at a local Ultralight SDK (https://ultralig.ht). ")
@@ -192,8 +293,5 @@ target("OSF UI")
             -- Ship Ultralight's license texts next to its binaries so the required attribution travels with the distributed mod.
             target:add("installfiles", path.join(sdk, "license", "(**)"),
                 { prefixdir = "SFSE/Plugins/OSFUI/ultralight/license" })
-        end)
-    else
-        -- UltralightWebRenderer.cpp is also fully #if-guarded, but exclude it outright so the default build never touches it.
-        remove_files("src/render/UltralightWebRenderer.cpp")
-    end
+        end
+    end)
