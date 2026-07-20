@@ -52,14 +52,12 @@ export function verifyOutput() {
     const js = join(dir, 'main.js');
 
     // --- Classic scripts only ---------------------------------------------
-    // Ultralight loads views over file:///, an opaque origin. Module scripts
-    // are CORS-checked and would fail there with a blank view. IIFE + classic
-    // <script src> is the only form that works on BOTH backends, and it is
-    // what preserves the load-order contract (shared/osfui.js must execute
+    // The built-in views deliberately retain one stable classic IIFE bundle.
+    // This preserves the load-order contract (shared/osfui.js must execute
     // before main.js and OWNS osfui.onMessage; modules are deferred).
     if (existsSync(html)) {
       const h = readFileSync(html, 'utf8');
-      if (/type\s*=\s*["']module["']/.test(h)) fail(`${v.name}/index.html uses type="module" (breaks Ultralight's file:// origin)`);
+      if (/type\s*=\s*["']module["']/.test(h)) fail(`${v.name}/index.html uses type="module" (built-in bundles must remain classic IIFEs)`);
       if (/\bcrossorigin\b/.test(h)) fail(`${v.name}/index.html has a crossorigin attribute (Vite HTML pipeline leaked in)`);
       if (!/src="\.\.\/\.\.\/shared\/osfui\.js"/.test(h)) fail(`${v.name}/index.html no longer loads ../../shared/osfui.js`);
       if (!/href="\.\.\/\.\.\/shared\/osfui\.css"/.test(h)) fail(`${v.name}/index.html no longer links ../../shared/osfui.css`);

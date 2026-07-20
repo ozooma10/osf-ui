@@ -13,7 +13,7 @@
 //               board alike)
 //   Enter (A)   activates the focused element (click) — buttons, switches,
 //               rows; on a text input it commits (blur + refocus)
-//   Left/Right  on a range slider adjust the value (WebCore's native
+//   Left/Right  on a range slider adjust the value (the browser's native
 //               handling); on a <select> they cycle the options
 //   B / Esc     stay native (the runtime closes the top menu itself)
 //
@@ -58,9 +58,8 @@
   // the same place instead of restarting at the top-left.
   let lastRect = null;
 
-  // Ultralight builds key events from VK codes and legacy key identifiers, so
-  // `e.key` can be the legacy "Up"/"Down" spelling (or a "U+00XX" string) —
-  // keyCode is the invariant across Ultralight and plain browsers.
+  // Use keyCode for consistent handling of browser, synthetic, and forwarded
+  // Windows virtual-key events.
   function keyNameOf(e) {
     switch (e.keyCode) {
       case 13: return "enter";
@@ -156,8 +155,7 @@
   function focusEl(el) {
     el.focus();
     lastRect = el.getBoundingClientRect();
-    // Options object is fine here: the views already rely on it elsewhere
-    // (renderSearch's block:"center"), so this Ultralight supports it.
+    // Keep the element visible after spatial navigation moves focus.
     if (el.scrollIntoView) el.scrollIntoView({ block: "nearest", inline: "nearest" });
   }
 
@@ -174,8 +172,8 @@
     return !["range", "checkbox", "radio", "button", "submit", "reset", "color"].includes(el.type);
   }
 
-  // <select>: cycle options directly (deterministic — Ultralight has no
-  // dropdown popup to fall back on) and fire the change the views commit on.
+  // <select>: cycle options directly for deterministic gamepad behavior and
+  // fire the change event the views commit on.
   function adjustSelect(el, delta) {
     const n = el.options.length;
     if (!n) return;
@@ -214,7 +212,7 @@
     if (active) {
       const tag = active.tagName;
       if (tag === "INPUT" && active.type === "range") {
-        // Left/right adjust the slider — WebCore's own handling, which
+        // Left/right adjust the slider — the browser's own handling, which
         // fires the input/change events the views commit on. Up/down
         // fall through to navigation (preventDefault below stops the
         // native value change).

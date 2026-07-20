@@ -1,5 +1,9 @@
 # Renderer benchmark — Ultralight vs WebView2
 
+> **Historical comparison.** Ultralight was removed after WebView2 passed the
+> in-game gates. The old results and methodology remain here as decision
+> evidence; current benchmark tooling only accepts active renderers.
+
 Objective, repeatable comparison of the two web renderer backends on
 performance and resource usage. First run: 2026-07-19.
 
@@ -93,11 +97,15 @@ Three traps this view hit, worth knowing before authoring another one:
 
 ## Running a pass
 
+The `-Renderer ultralight` leg below is shown as it was run at the time;
+that backend no longer exists, and `Prepare-BenchRun.ps1` now accepts only
+`webview2`, `webview2-inproc`, and `mock`.
+
 ```powershell
 xmake                                                  # build + deploy first
 tools\bench\Prepare-BenchRun.ps1 -Renderer webview2   -View stress
 #   ... launch via MO2, play the session, quit ...
-tools\bench\Prepare-BenchRun.ps1 -Renderer ultralight -View stress
+tools\bench\Prepare-BenchRun.ps1 -Renderer ultralight -View stress   # historical
 #   ... same session again ...
 tools\bench\Report-OsfUiBench.ps1 -Csv results\<stamp>-<label>.csv -Log results\<stamp>-<label>.log
 ```
@@ -109,7 +117,8 @@ the sampler.
 ## Fairness rules
 
 - One dual-backend build (`xmake f -m releasedbg --with_ultralight=true
-  --with_webview2=true`): the ONLY difference between runs is the
+  --with_webview2=true` — the `with_ultralight` option has since been
+  removed): the ONLY difference between runs is the
   `renderer` string in the deployed `config.json`. (This build combination
   required the xmake.lua on_load merge — see the comment there.)
 - Same machine state: no other 3D apps, same MO2 profile, same save, same
@@ -129,7 +138,7 @@ the sampler.
   executables blacklist (Settings → Workarounds) or the browser process
   dies at launch with 0x8000FFFF (see webview2-spike-report.md).
 - The MO2 profile must run the DEV mod (`+OSF UI`), not `OSF UI DIST` —
-  the DIST package is a stale Ultralight-only DLL with no instrumentation.
+  the DIST package is a stale release build with no instrumentation.
   Verify `Bench: stats enabled` appears in the first seconds of
   `OSF UI.log` before investing a session.
 - Same display resolution/window mode in both runs: output size sets the

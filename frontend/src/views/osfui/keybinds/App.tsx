@@ -34,7 +34,7 @@
 // resolves.
 
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import type { Bridge } from '@lib/bridge';
+import { windowBridge, type Bridge } from '@lib/bridge';
 import { makeTranslator } from '@lib/i18n';
 import { canonicalName } from '@lib/keybinds/canonical';
 import { domKeyName } from '@lib/keybinds/domKeyName';
@@ -77,10 +77,16 @@ function codeOf(err: unknown): string {
 }
 
 export interface AppProps {
-  bridge: Bridge;
+  /**
+   * Optional, and defaulted, for the same reason the Mods view's is: the dev
+   * harness mounts `<App />` with no props (harness/main.tsx renderView), so a
+   * REQUIRED bridge arrives as `undefined` and the translator below dereferences
+   * it before the first render. Production still passes it explicitly.
+   */
+  bridge?: Bridge;
 }
 
-export function App({ bridge }: AppProps) {
+export function App({ bridge = windowBridge }: AppProps) {
   const tr = useMemo(() => makeTranslator(bridge, 'chrome.keybinds'), [bridge]);
 
   // ---- state ---------------------------------------------------------------
@@ -363,8 +369,8 @@ export function App({ bridge }: AppProps) {
         }
         return;
       }
-      // `keyCode` as well as `key`: Ultralight builds key events from VK codes
-      // and legacy key identifiers, so `e.key` is not reliably "Escape" there.
+      // Keep `keyCode` as a fallback for synthetic/legacy key events where
+      // `e.key` is not reliably "Escape".
       //
       // SWALLOWED while a capture is armed — the press belongs to the rebind,
       // not to us. (The standalone capture path also preventDefaults it in the
@@ -381,8 +387,8 @@ export function App({ bridge }: AppProps) {
 
   // ---- standalone preview --------------------------------------------------
   // Sample data so the view is usable in a plain browser with no bridge.
-  // DEV-only: under Ultralight the bridge is always injected, so this branch is
-  // unreachable in a shipped build and esbuild drops it entirely.
+  // DEV-only: the production host injects the bridge, so this branch is
+  // unreachable in a shipped build.
 
   useEffect(() => {
     if (!import.meta.env.DEV) return;

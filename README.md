@@ -9,6 +9,8 @@ by StarkMP**
 ## Requirements
 
 - [XMake](https://xmake.io) 3.0.0+
+- Microsoft Edge WebView2 Runtime (Evergreen)
+- Microsoft.Web.WebView2 SDK package unpacked to `external/webview2`, or `WEBVIEW2_SDK_DIR` set to its package root
 - C++23 compiler (MSVC / Clang-CL)
 
 ## Build
@@ -82,11 +84,8 @@ Data/SFSE/Plugins/
           manifest.json
           index.html  style.css  main.js
     settings/                  <- settings schemas (one JSON per mod) + values/
-    ultralight/                <- only present in with_ultralight builds
-      bin/                        (delay-loaded at runtime, preloaded by the plugin)
-        Ultralight.dll  UltralightCore.dll  WebCore.dll  AppCore.dll
-      resources/
-        icudt67l.dat            (ICU data; cacert.pem deliberately not shipped)
+    bin/
+      osfui_webview2_host.exe   <- out-of-process browser host
 ```
 
 Logs go to the standard SFSE log folder (`Documents/My Games/Starfield/SFSE/Logs/OSF UI.log`).
@@ -114,18 +113,18 @@ The remaining keys (`renderer`, `compositor`, `inputSource`, `captureInput`,
 `configVersion`) select backends and serve as diagnostic escape hatches - the
 shipped values are the only supported configuration.
 
-## Ultralight backend
+## WebView2 backend
 
-The default build has **zero** Ultralight footprint and must stay that way.
-To compile the real renderer:
+WebView2 is the production renderer and is enabled by default:
 
 ```bat
-set ULTRALIGHT_SDK_DIR=C:\path\to\ultralight-sdk
-xmake f --with_ultralight=true
+xmake f --with_webview2=true
 xmake build
 ```
 
-The build fails with a clear message if `ULTRALIGHT_SDK_DIR` is missing, and the install step ships the SDK's runtime DLLs + ICU data into the `OSFUI/ultralight/` folder shown above. 
+The build uses the static WebView2 loader from the SDK package; users still
+need the Evergreen WebView2 Runtime installed. The install step ships
+`osfui_webview2_host.exe` in the `OSFUI/bin/` folder shown above.
 
 ## Credits & acknowledgments
 
@@ -136,9 +135,10 @@ Ultralight engine - and the entire idea for a Starfield equivalent came from it.
 
 - **[Prisma UI](https://www.nexusmods.com/skyrimspecialedition/mods/148718)** —
   StarkMP & contributors - original concept and inspiration.
-- **[Ultralight](https://ultralig.ht/)** - Ultralight, Inc. - the lightweight,
-  WebKit-based renderer behind every view (used under the Ultralight Free
-  License; notices ship in `OSFUI/ultralight/license/`).
+- **[Microsoft Edge WebView2](https://developer.microsoft.com/microsoft-edge/webview2/)** -
+  the Chromium-based renderer behind OSF UI views.
+- **[Ultralight](https://ultralig.ht/)** - the renderer used by Prisma UI and
+  by OSF UI's initial release.
 - **[commonlibsf-template](https://github.com/libxse/commonlibsf-template)** /
   **CommonLibSF** & **[SFSE](https://sfse.silverlock.org/)** -= the plugin
   foundation this is built on.

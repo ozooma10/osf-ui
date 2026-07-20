@@ -76,38 +76,20 @@ same layout: `views/osfui/settings/`, `views/osfui/keybinds/`. To open your
 view, use its qualified id `<modId>/<viewName>` — as a `config.json` `views`
 entry, a `menu.open` target, or a `RegisterView` argument.
 
-All asset references must be relative: absolute paths, paths with a root,
-and any `..` component are rejected before disk I/O (`SandboxFileSystem`,
-enforced in the Ultralight renderer), which confines every request to the
-views root. Keep your references inside your own folder — the only
-cross-folder path that is part of the contract is the shared UI kit at
-`views/shared/osfui.css` / `osfui.js`; link those as
+Views load at `https://osfui.local/<modId>/<viewName>/<entry>`. WebView2 maps
+`osfui.local` to the shared views root with
+`SetVirtualHostNameToFolderMapping`; it exposes no other local filesystem path.
+Keep assets in your own folder. The supported cross-folder contract is the
+shared UI kit at `views/shared/osfui.css` / `osfui.js`, linked as
 `../../shared/osfui.css`.
 
-### The page URL depends on the renderer backend
-
-The views root is the URL root on both backends, and your view is always at
-`<modId>/<viewName>/<entry>` under it — but the scheme is not the same:
-
-| `renderer` | Your page's URL | Origin |
-|---|---|---|
-| `webview2` (the shipped default) | `https://osfui.local/<modId>/<viewName>/<entry>` | a normal https origin, mapped to the views folder by `SetVirtualHostNameToFolderMapping` |
-| `ultralight` | `file:///<modId>/<viewName>/<entry>` | opaque |
-
-Either way `../../shared/osfui.css` collapses to the shared kit at the views
-root (`https://osfui.local/shared/…` or `file:///shared/…`).
-
-> **Portability rule: classic `<script src>` only.**
-> `type="module"`, dynamic `import()` and `fetch()` all work on WebView2 and
-> all fail under Ultralight's opaque `file://` origin, where module and fetch
-> requests are CORS-checked against an origin that can never match. Ultralight
-> is the compatibility floor — it is what 1.0.0-alpha shipped and it remains
-> selectable — so a view that needs both backends must use plain classic
-> scripts, no module type, no code splitting, and must not `fetch()` its own
-> assets (inline the data or emit it into the bundle instead). The failure
-> mode is the expensive kind: a blank view and a console error nobody reads.
-> The built-in views are held to this by build gates
-> (`frontend/scripts/verify-output.mjs`); yours are on the honour system.
+Module scripts, dynamic `import()`, and same-origin `fetch()` work under the
+WebView2 origin. The built-in views still ship a single classic `main.js` bundle
+with stable filenames because those bytes and paths are part of their published
+artifact contract; third-party views are not required to copy that build shape.
+Remote requests are not currently blocked by the host despite
+`permissions.network` being force-disabled, so views must keep dependencies and
+assets local. See `security-model.md`.
 
 ### The shared UI kit
 
@@ -636,9 +618,8 @@ if (!osfui.available()) {
 / `osfui.on()` are always safe to call; `osfui.ready` simply never resolves and
 `osfui.request()` rejects with code `"no-bridge"`.)
 
-Serve it over `http://` rather than opening it from `file://` if you can — a
-browser's `file://` rules are stricter than Ultralight's and will reject some
-things that work in game.
+Serve it over `http://` rather than opening it from `file://` so local testing
+uses a normal origin like the in-game `https://osfui.local` mapping.
 
 **The built-in views** (`osfui/settings`, `osfui/keybinds`) are no longer
 openable this way: their shipped `index.html` is generated output, and the
@@ -656,9 +637,7 @@ the locale/fixture/stage switches.
 In-game, watch `Documents\My Games\Starfield\SFSE\Logs\OSF UI.log`:
 - `MessageBridge: [web] ...` — your `log` commands.
 - `MessageBridge: rejected unknown ui.command '...'` — you sent a non-whitelisted command.
-- `UltralightWebRenderer: [console] ...` — your `console.log/warn/error` is forwarded here.
-- Set `devMode: true` in `config.json` for verbose per-call logging and a
-  first-frame PNG dump under `OSFUI/ultralight/`.
+- Set `devMode: true` in `config.json` for verbose renderer and bridge logging.
 
 With `devMode: true` the in-game loop is fast too:
 - **Settings schemas hot-reload**: edits to `settings/*.json` are picked up
@@ -681,7 +660,7 @@ With `devMode: true` the in-game loop is fast too:
 - [ ] `views/<modId>/<viewName>/manifest.json` — folder names pass the id grammar (§0), manifest `id` equals the view folder name, `permissions.nativeBridge` set as needed.
 - [ ] Responsive CSS (no hardcoded 1280×720 assumptions; the view is resized to the screen).
 - [ ] All assets local and relative (no `..`, no absolute paths, no network) — plus the sanctioned `../../shared/osfui.css` / `../../shared/osfui.js`.
-- [ ] Classic `<script src>` only — no `type="module"`, no dynamic `import()`, no `fetch()` (§1). Works on WebView2, silently blank under Ultralight.
+- [ ] All dependencies and assets are local; test the view under the WebView2 `osfui.local` origin (§1).
 - [ ] Load `shared/osfui.js` before your script; boot off `osfui.ready`. Declare `targetVersion` if you use anything newer than the OSF UI you tested against.
 - [ ] Only whitelisted `ui.command`s; use `osfui.request()` (and its rejection `code`) where the outcome matters.
 - [ ] (If configurable) a `settings/<modId>.json` schema with sane `default`/`min`/`max`.

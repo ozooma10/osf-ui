@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Promoted the out-of-process WebView2 host to the sole production renderer.
+- Removed the Ultralight backend, SDK build option, runtime payload, and
+  renderer-specific packaging path.
+- Release builds now install and verify
+  `OSFUI/bin/osfui_webview2_host.exe`.
+
 ## 1.0.0 — 2026-07-17
 
 Initial release.

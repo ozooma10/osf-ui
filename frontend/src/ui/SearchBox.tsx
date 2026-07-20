@@ -5,9 +5,8 @@
 // and the trailing <kbd> around the input), so nothing here is configurable
 // except the strings and the input's own extra class.
 //
-// The inline SVG is copied character-for-character: no external asset can be
-// fetched under Ultralight's file:// origin, and the two path commands are
-// exactly what ships today.
+// The inline SVG is copied character-for-character so the component has no
+// external asset dependency and retains the exact icon that ships today.
 
 import type { Ref } from 'preact';
 

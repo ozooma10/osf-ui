@@ -27,6 +27,13 @@ export interface FakeBridge extends Bridge {
 export interface MakeBridgeOptions {
   version?: string;
   available?: boolean;
+  /**
+   * Never resolve `ready()`. Models a real transport that dropped the one-shot
+   * `runtime.ready` greeting (the WebView2 host process starts long after the
+   * runtime emits it). The view must still work: nothing but the version badge
+   * may depend on that handshake.
+   */
+  readyNeverResolves?: boolean;
 }
 
 export function makeBridge(opts: MakeBridgeOptions = {}): FakeBridge {
@@ -41,7 +48,9 @@ export function makeBridge(opts: MakeBridgeOptions = {}): FakeBridge {
     sent: [],
     requests: [],
     ready() {
-      return Promise.resolve({ version } as never);
+      return opts.readyNeverResolves
+        ? (new Promise(() => {}) as never)
+        : (Promise.resolve({ version }) as never);
     },
     send(command, fields) {
       bridge.sent.push(fields === undefined ? { command } : { command, fields });

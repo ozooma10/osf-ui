@@ -7,11 +7,9 @@ namespace OSFUI::HardwareCursor
 	// Drives the REAL Windows (hardware) pointer while the overlay captures
 	// input. The OS composites it on the display's cursor plane, outside the
 	// game's render loop entirely, so it moves with zero perceived lag at any
-	// game framerate — unlike anything drawn inside a view (a full Ultralight
-	// paint + upload + Present behind the hand) or at Present time (one game
-	// frame behind). Ultralight is built for this split: the page reports the
-	// CSS cursor it wants (ViewListener::OnChangeCursor) and the host shows
-	// the matching OS pointer.
+	// game framerate — unlike anything drawn inside a view or at Present time
+	// (one game frame behind). The page reports the CSS cursor it wants and the
+	// host shows the matching OS pointer.
 	//
 	// Threading: everything except SetShape must be called on the window-
 	// message thread (from the WndProc hook) — the game manages cursor state

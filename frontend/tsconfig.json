@@ -1,9 +1,7 @@
 {
   "compilerOptions": {
-    // ES2020 is the highest level with in-repo proof that the engine runs it:
-    // ES2019 optional-catch-binding and ES2020 `??` both ship in the released
-    // 1.0.0-alpha bundle and reach DOM ready under Ultralight with no console
-    // errors. Nothing in this repo exercises ES2021+, so we do not target it.
+    // Keep emitted syntax at the project's documented compatibility target.
+    // Raising it is a deliberate output-contract change.
     "target": "ES2020",
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
     "module": "ESNext",

@@ -1,7 +1,7 @@
 # OSF UI WebView2 composition/capture POC
 
 This is the standalone Phase 1 spike for a WebView2 renderer. It does not
-compile into or modify the Starfield plugin, and Ultralight remains untouched.
+compile into or modify the Starfield plugin.
 
 ## Dependency and build
 

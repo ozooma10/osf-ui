@@ -162,6 +162,10 @@ namespace osfui::wv2
 				bool controllerRequested{ false };
 				bool bridgeAllowed{ true };
 				bool hidden{ true };
+				// Manifest (authoring) height — the page always lays out at this
+				// height; ApplyScale turns the output size into the matching
+				// rasterization scale. Set by `navigate`.
+				std::uint32_t logicalHeight{ kDefaultLogicalHeight };
 				// Deferred visibility (flicker-free menu switches): a reveal
 				// waits for the page's first painted frame after Chromium
 				// resume, and hides wait for pending reveals (see ShowView).
@@ -685,12 +689,15 @@ namespace osfui::wv2
 				a_view.hidden = true;
 				a_view.revealPending = false;  // cancel an in-flight reveal
 				a_view.hideDeferred = true;    // applied at batch end / reveal end
+				log.Info(std::format("view '{}': hide (deferred to batch end)", a_view.id));
 			}
 
 			void ShowView(View& a_view)
 			{
 				if (!a_view.hidden) {
 					a_view.hideDeferred = false;
+					log.Info(std::format("view '{}': show — already visible (visual={})",
+						a_view.id, a_view.visual && a_view.visual.IsVisible()));
 					return;
 				}
 				a_view.hidden = false;
@@ -698,17 +705,24 @@ namespace osfui::wv2
 				// Resume Chromium first — nothing paints while suspended.
 				if (a_view.controller) a_view.controller->put_IsVisible(TRUE);
 				if (a_view.visual && a_view.visual.IsVisible()) {
-					return;  // its hide was still deferred — never left the screen
+					log.Info(std::format(
+						"view '{}': show — hide was still deferred, never left the screen", a_view.id));
+					return;
 				}
 				if (a_view.visual && a_view.webView && a_view.domSeen) {
 					a_view.revealPending = true;
 					a_view.revealDeadline = ::GetTickCount64() + kRevealTimeoutMs;
+					log.Info(std::format("view '{}': show — reveal pending ({} ms timeout)",
+						a_view.id, kRevealTimeoutMs));
 					a_view.webView->ExecuteScript(kRevealSentinelScript,
 						Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
 							[](HRESULT, LPCWSTR) -> HRESULT { return S_OK; }).Get());
 				} else {
 					// No page to ask (still loading / no controller yet): show
 					// directly — the runtime's overlay reveal gate covers boot.
+					log.Info(std::format(
+						"view '{}': show — direct (visual={} webView={} domSeen={})", a_view.id,
+						a_view.visual != nullptr, a_view.webView != nullptr, a_view.domSeen));
 					if (a_view.visual) a_view.visual.IsVisible(true);
 					RepublishLatest();
 				}
@@ -721,6 +735,8 @@ namespace osfui::wv2
 				if (a_timedOut) {
 					log.Info(std::format(
 						"view '{}': reveal sentinel timed out — showing anyway", a_view.id));
+				} else {
+					log.Info(std::format("view '{}': reveal sentinel arrived — showing", a_view.id));
 				}
 				if (a_view.visual && !a_view.hidden) a_view.visual.IsVisible(true);
 				if (!AnyRevealPending()) ApplyDeferredHides();
@@ -879,6 +895,7 @@ namespace osfui::wv2
 				}
 				a_view.controller->put_Bounds(
 					RECT{ 0, 0, static_cast<LONG>(width), static_cast<LONG>(height) });
+				ApplyScale(a_view);
 				// Apply the CURRENT hidden state, not a hardcoded one (an
 				// invisible controller suspends Chromium rendering entirely).
 				a_view.controller->put_IsVisible(a_view.hidden ? FALSE : TRUE);
@@ -1216,6 +1233,34 @@ namespace osfui::wv2
 						}).Get());
 			}
 
+			// Bounds are PHYSICAL pixels (always the output size, so the
+			// composited stack maps 1:1); the rasterization scale is what makes
+			// the page lay out at its manifest height and scale CSS px up to
+			// output pixels. Without it a view lays out at scale 1.0 against
+			// the full output resolution, i.e. everything is undersized on any
+			// display taller than the manifest (visibly so at 1440p/4K).
+			//
+			// ShouldDetectMonitorScaleChanges must be off: otherwise WebView2
+			// folds the monitor's DPI into the scale on top of ours and the
+			// result goes machine-dependent.
+			void ApplyScale(View& a_view)
+			{
+				if (!a_view.controller) return;
+				ComPtr<ICoreWebView2Controller4> controller4;
+				if (FAILED(a_view.controller.As(&controller4)) || !controller4) {
+					// Pre-1.0.1108 runtime: no rasterization scale to set. The
+					// page renders unscaled — log once per view so an odd-looking
+					// overlay is traceable rather than mysterious.
+					log.Warn(std::format("view '{}': ICoreWebView2Controller4 unavailable — "
+						"rasterization scale not applied (WebView2 runtime too old)", a_view.id));
+					return;
+				}
+				controller4->put_ShouldDetectMonitorScaleChanges(FALSE);
+				const auto logical = (std::max)(1u, a_view.logicalHeight);
+				controller4->put_RasterizationScale(
+					static_cast<double>(height) / static_cast<double>(logical));
+			}
+
 			void ApplyResize(std::uint32_t a_width, std::uint32_t a_height)
 			{
 				width = (std::max)(1u, a_width);
@@ -1231,6 +1276,7 @@ namespace osfui::wv2
 					if (view->controller) {
 						view->controller->put_Bounds(
 							RECT{ 0, 0, static_cast<LONG>(width), static_cast<LONG>(height) });
+						ApplyScale(*view);
 					}
 				}
 				if (!framePool) return;
@@ -1314,6 +1360,11 @@ namespace osfui::wv2
 					auto* view = FindView(id);
 					if (!view) view = &CreateView(id);
 					view->bridgeAllowed = a_msg.value("bridge", true);
+					view->logicalHeight = (std::max)(1u,
+						a_msg.value("logicalHeight", kDefaultLogicalHeight));
+					// A re-navigate may carry a different manifest height (dev
+					// reload); the controller may already exist, so re-apply.
+					ApplyScale(*view);
 					std::string path = id + "/" + a_msg.value("entry", "index.html");
 					std::ranges::replace(path, '\\', '/');
 					view->pendingNavigate = L"https://" + virtualHost + L"/" + ToWide(path);
@@ -1339,7 +1390,10 @@ namespace osfui::wv2
 					ReorderVisuals();
 				} else if (type == "setActive") {
 					auto* view = ResolveView(a_msg);
-					if (view) active = view;
+					if (view) {
+						active = view;
+						log.Info(std::format("active view -> '{}'", view->id));
+					}
 				} else if (type == "focus") {
 					const bool focused = a_msg.value("focused", false);
 					if (focused && active && active->controller && !active->hidden) {

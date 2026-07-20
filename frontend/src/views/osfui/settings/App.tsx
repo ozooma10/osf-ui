@@ -555,14 +555,22 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     // peel the undo panel first. Sticky per page load.
     if (bridge.available()) sendCommand('osfui.handleBack', { handle: true });
 
-    // The handshake: version badge + the initial reads. Legacy sent
-    // settings.get/views.get TWICE — once at script end and once from here.
-    // Collapsed to one: `ready` resolves as soon as the runtime announces
-    // itself, and the store treats the get as idempotent either way.
+    // The initial reads are NOT gated on `ready`. `runtime.ready` is a
+    // one-shot greeting the runtime emits when it initializes, which can be
+    // long before this page's transport can carry it (the WebView2 host is a
+    // separate process that starts on the first game tick) — gating the reads
+    // on it once left the Mods surface permanently empty when that greeting
+    // was missed. The gets are idempotent and also subscribe to the change
+    // pushes, so send them as soon as there is a bridge to send them on.
+    if (bridge.available()) {
+      sendCommand('settings.get');
+      sendCommand('views.get');
+    }
+
+    // The version badge is the only thing that genuinely needs the handshake;
+    // it stays blank until (and if) it lands.
     void bridge.ready().then((info) => {
       setHostVersion(info.version || '');
-      sendCommand('settings.get');
-      sendCommand('views.get'); // also subscribes to change pushes
     });
 
     return () => {
@@ -596,8 +604,8 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
         }
         return;
       }
-      // `keyCode` as well as `key`: Ultralight builds key events from VK codes
-      // and legacy key identifiers, so `e.key` is not reliably "Escape" there.
+      // Keep `keyCode` as a fallback for synthetic/legacy key events where
+      // `e.key` is not reliably "Escape".
       //
       // SWALLOWED while a capture is armed — the press belongs to the rebind.
       if ((e.key === 'Escape' || e.keyCode === 27) && !e.defaultPrevented && !capture.isCapturing()) {

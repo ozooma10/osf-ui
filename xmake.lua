@@ -12,16 +12,8 @@ set_warnings("allextra")
 add_rules("mode.debug", "mode.releasedbg")
 add_rules("plugin.vsxmake.autoupdate")
 
--- optional Ultralight renderer backend.
--- The Ultralight SDK is proprietary and is NEVER vendored into this repository.
--- Enable with:  xmake f --with_ultralight=true   (requires ULTRALIGHT_SDK_DIR)
-option("with_ultralight", function()
-    set_default(false)
-    set_showmenu(true)
-    set_description("Enable the Ultralight web renderer backend (requires ULTRALIGHT_SDK_DIR env var)")
-end)
 -- Standalone WebView2 composition/capture spike. This deliberately remains an
--- opt-in executable and does not alter the plugin or its Ultralight backend.
+-- opt-in executable and does not alter the plugin renderer.
 -- Enable with: xmake f --with_webview2_poc=true
 -- The Microsoft.Web.WebView2 NuGet package may be unpacked to
 -- external/webview2, or WEBVIEW2_SDK_DIR may point at its package root.
@@ -30,13 +22,14 @@ option("with_webview2_poc", function()
     set_showmenu(true)
     set_description("Build the standalone WebView2 composition/capture proof of concept")
 end)
--- In-process WebView2 renderer backend. Opt-in until the Phase 2 in-game gates pass.
--- Uses only the static loader from the Microsoft.Web.WebView2 NuGet package;
--- the evergreen runtime remains an OS dependency.
+-- Production WebView2 renderer backend. This builds both the out-of-process
+-- host used in game and the in-process diagnostic fallback. Uses only the
+-- static loader from the Microsoft.Web.WebView2 NuGet package; the evergreen
+-- runtime remains an OS dependency.
 option("with_webview2", function()
-    set_default(false)
+    set_default(true)
     set_showmenu(true)
-    set_description("Enable the experimental in-process WebView2 renderer backend")
+    set_description("Build the WebView2 renderer and out-of-process host")
 end)
 -- Out-of-process WebView2 host (zero-config MO2 compatibility): the browser
 -- lives in osfui_webview2_host.exe, launched OUTSIDE the game's process tree
@@ -216,6 +209,23 @@ target("OSF UI")
         end
     end)
 
+    -- xmake install is also used by the release packager. Install the
+    -- production host explicitly; unlike the MO2 auto-deploy above, this path
+    -- runs with XSE_SF_* unset and must not depend on an after-build side effect.
+    after_install(function(target)
+        import("core.project.config")
+        if config.get("with_webview2") then
+            import("core.project.project")
+            local host = project.target("osfui-webview2-host")
+            if not host or not os.isfile(host:targetfile()) then
+                raise("OSFUI WebView2 host was not built; cannot install a runnable plugin")
+            end
+            local bindir = path.join(target:installdir(), "SFSE", "Plugins", "OSFUI", "bin")
+            os.mkdir(bindir)
+            os.cp(host:targetfile(), path.join(bindir, "osfui_webview2_host.exe"))
+        end
+    end)
+
     if has_config("with_webview2") then
         add_defines("OSFUI_WITH_WEBVIEW2=1")
         add_syslinks(
@@ -231,16 +241,6 @@ target("OSF UI")
         remove_files("src/render/WebView2WebRenderer.cpp")
         remove_files("src/render/WebView2HostWebRenderer.cpp")
     end
-    if has_config("with_ultralight") then
-        add_defines("OSFUI_WITH_ULTRALIGHT=1")
-    else
-        -- UltralightWebRenderer.cpp is also fully #if-guarded, but exclude it outright so the default build never touches it.
-        remove_files("src/render/UltralightWebRenderer.cpp")
-    end
-    -- ONE on_load for both optional backends: on_load is a single-slot hook
-    -- (a second call REPLACES the first), so per-option on_load blocks would
-    -- silently drop whichever backend registered first when both are enabled
-    -- (the dual-backend benchmark build, docs/renderer-benchmark.md).
     on_load(function(target)
         import("core.project.config")
         if config.get("with_webview2") then
@@ -258,40 +258,5 @@ target("OSF UI")
             target:add("includedirs", path.join(native, "include"))
             target:add("linkdirs", path.join(native, "x64"))
             target:add("links", "WebView2LoaderStatic")
-        end
-        if config.get("with_ultralight") then
-            local sdk = os.getenv("ULTRALIGHT_SDK_DIR")
-            if not sdk or sdk == "" then
-                raise("OSFUI: with_ultralight=true requires the ULTRALIGHT_SDK_DIR environment variable to point at a local Ultralight SDK (https://ultralig.ht). ")
-            end
-            if not os.isdir(path.join(sdk, "include")) then
-                raise("OSFUI: ULTRALIGHT_SDK_DIR is set but '" .. path.join(sdk, "include") .. "' does not exist. Point ULTRALIGHT_SDK_DIR at the SDK root.")
-            end
-            target:add("includedirs", path.join(sdk, "include"))
-            target:add("linkdirs", path.join(sdk, "lib"))
-            -- AppCore is linked ONLY for GetPlatformFontLoader (DirectWrite); no window/app machinery is used (offscreen rendering only).
-            -- Symbol homes: the C++ core API (Platform/String/Buffer/BitmapSurface) is in UltralightCore, JavaScriptCore's C API is in WebCore.
-            target:add("links", "Ultralight", "UltralightCore", "WebCore", "AppCore")
-            -- Delay-load the SDK DLLs: SFSE loads plugins with plain LoadLibrary, so static imports would never resolve from the plugin's folder. 
-            -- UltralightWebRenderer::Initialize preloads the DLLs from <data>/ultralight/bin before first use.
-            target:add("syslinks", "delayimp")
-            -- this target is a shared lib, so xmake feeds the linker from "shflags" (plain ldflags are silently ignored here).
-            target:add("shflags",
-                "/DELAYLOAD:Ultralight.dll",
-                "/DELAYLOAD:UltralightCore.dll",
-                "/DELAYLOAD:WebCore.dll",
-                "/DELAYLOAD:AppCore.dll",
-                { force = true })
-            -- Ship the runtime pieces with the plugin data folder:
-            --   SFSE/Plugins/OSFUI/ultralight/bin/*.dll
-            --   SFSE/Plugins/OSFUI/ultralight/resources/icudt67l.dat
-            -- cacert.pem is intentionally NOT shipped: network stays off (docs/security-model.md), so no TLS roots are needed.
-            target:add("installfiles", path.join(sdk, "bin", "(*.dll)"),
-                { prefixdir = "SFSE/Plugins/OSFUI/ultralight/bin" })
-            target:add("installfiles", path.join(sdk, "resources", "(icudt67l.dat)"),
-                { prefixdir = "SFSE/Plugins/OSFUI/ultralight/resources" })
-            -- Ship Ultralight's license texts next to its binaries so the required attribution travels with the distributed mod.
-            target:add("installfiles", path.join(sdk, "license", "(**)"),
-                { prefixdir = "SFSE/Plugins/OSFUI/ultralight/license" })
         end
     end)

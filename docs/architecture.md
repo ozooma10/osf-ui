@@ -2,10 +2,9 @@
 
 ## Backends
 
-The production path is `UltralightWebRenderer` + `D3D12Compositor`. The stand-in backends remain selectable from config for development and fault isolation:
+The production path is `WebView2HostWebRenderer` + `D3D12Compositor`. The stand-in backends remain selectable from config for development and fault isolation:
 
-- `MockWebRenderer` produces a CPU RGBA buffer (an animated test pattern), exercising the renderer → compositor path without the proprietary
-  Ultralight SDK;
+- `MockWebRenderer` produces a CPU RGBA buffer (an animated test pattern), exercising the renderer → compositor path without a browser;
 - `NullCompositor` receives frames and logs them instead of drawing;
 - `NullWebRenderer` is the fallback when a configured backend can't initialize (missing SDK/runtime files); initialization failures are logged, not fatal.
 
@@ -24,12 +23,11 @@ Backends implement `IWebRenderer` / `ICompositor`; the rest of the runtime doesn
    core/Config    runtime/      render/       composite/         input/
    core/Paths     ViewManager   IWebRenderer  ICompositor        InputRouter
                   ViewManifest     │              │              OverlayInputHook
-                                ┌──┴────────┐  ┌──┴─────────┐    (WndProc subclass)
-                                │ Null      │  │ Null       │   HardwareCursor
-                                │ Mock      │  │ D3D12      │   UiLayoutGuard
-                                │ Ultralight│  └────────────┘   MenuEventSink
-                                │  (option) │                   FocusMenu
-                                └───────────┘                   ControlLayer
+                                ┌────┴─────┐  ┌──┴─────────┐    (WndProc subclass)
+                                │ Null     │  │ Null       │   HardwareCursor
+                                │ Mock     │  │ D3D12      │   UiLayoutGuard
+                                │ WebView2 │  └────────────┘   MenuEventSink
+                                └──────────┘                   FocusMenu / ControlLayer
                                    │    ▲
                           runtime/MessageBridge    JSON, whitelisted commands
 ```
@@ -38,9 +36,8 @@ Backends implement `IWebRenderer` / `ICompositor`; the rest of the runtime doesn
 
 1. An SFSE permanent task (registered in `core/Plugin.cpp`) calls `Runtime::Tick(dt)` every frame on the game's Main thread, with a self-timed, 100 ms-clamped dt.
 2. `IWebRenderer::Update(dt)` advances the web content.
-3. If the overlay is visible, `IWebRenderer::Render()` returns a `FrameBufferView`, a non-owning view of CPU pixels valid only until the next renderer call.
-4. `ICompositor::Submit(frame)` consumes it immediately (copy/upload), never
-   stores it.
+3. The WebView2 host publishes frames through a shared D3D12 texture ring; `IWebRenderer::Render()` returns the ready slot and fence serial.
+4. `ICompositor::Submit(frame)` records that slot, and the Present hook samples it directly without a CPU readback or upload.
 
 ### Message bridge
 
@@ -79,13 +76,16 @@ frontend/src/  ──(npm run build)──►  data/OSFUI/views/  ──► xmak
 
 Nothing in the native runtime is frontend-aware: it discovers whatever manifests are on disk, exactly as it does for a third-party mod's hand-authored view.
 
-## How an Ultralight backend fits
+## How the WebView2 backend fits
 
-`UltralightWebRenderer` implements `IWebRenderer` over an offscreen Ultralight renderer using the CPU `BitmapSurface`.
+`WebView2HostWebRenderer` launches `osfui_webview2_host.exe` outside the
+game's process tree, communicates over a framed named pipe, and receives
+browser frames through shared D3D12 textures. Keeping Chromium out of process
+avoids MO2/USVFS injection into `msedgewebview2.exe`.
 
 ## How the D3D12 compositor works
 
-`D3D12Compositor` implements `ICompositor` on the game's own D3D12 device: on `Submit` it uploads the CPU frame into a GPU texture, and an `IDXGISwapChain::Present` slot-8 vtable hook draws an alpha-blended fullscreen quad over the backbuffer before the original Present runs. 
+`D3D12Compositor` implements `ICompositor` on the game's own D3D12 device. Production frames are sampled directly from the WebView2 host's shared texture ring; CPU frames from the mock backend use the upload path. An `IDXGISwapChain::Present` slot-8 vtable hook draws an alpha-blended fullscreen quad over the backbuffer before the original Present runs.
 
 Remaining open areas: HDR/10-bit backbuffers, frame-gen swapchain selection, and coexistence with other overlay hooks
 

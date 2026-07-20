@@ -10,9 +10,10 @@
 build/
 vs*/
 dist/
+out/
 node_modules/
 
-# local SDK drops (the Ultralight SDK is proprietary and must never be vendored)
+# local SDK/package drops (use WEBVIEW2_SDK_DIR for an external location)
 external/
 
 # files

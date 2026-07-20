@@ -8,13 +8,11 @@ import type { Setting } from '@sdk';
 /**
  * Hard bounds on `format.decimals`.
  *
- * `Number.prototype.toFixed` throws a RangeError outside [0,100] in modern
- * engines and outside [0,20] on the older WebKit/JSCore that Ultralight ships.
- * An uncaught throw inside the row builder aborts `renderDetail` and BLANKS THE
+ * `Number.prototype.toFixed` throws a RangeError outside its supported range.
+ * An uncaught throw inside the row builder aborts `renderDetail` and blanks the
  * WHOLE DETAIL PANE — a schema typo (`decimals: 21`) would take out the entire
  * mod page. See the comment at main.legacy.js:254-256. Clamping is therefore a
- * crash guard, not cosmetics; keep 20 even when the engine is upgraded, because
- * the shipped bundle still runs on the old one.
+ * crash guard, not cosmetics; 20 remains the documented schema limit.
  */
 export const MIN_DECIMALS = 0;
 export const MAX_DECIMALS = 20;

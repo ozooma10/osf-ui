@@ -1,5 +1,15 @@
 # WebView2 renderer spike — Phase 1 decision report
 
+> **Historical record — superseded.** The decisions below apply to the
+> *in-process* WebView2 backend, whose Gate A failure inside Starfield is
+> what motivated the out-of-process host. That host was subsequently built,
+> passed the in-game gates, and is now the sole production renderer:
+> Ultralight has been removed and `renderer: webview2` is the shipped
+> default. Statements here about keeping Ultralight or an `ultralight`
+> default config record what was true on 2026-07-18 and are no longer
+> operative. See [architecture.md](architecture.md) for the current design
+> and [renderer-benchmark.md](renderer-benchmark.md) for the A/B evidence.
+
 Date: 2026-07-18  
 SDK: Microsoft.Web.WebView2 1.0.4078.44 (stable)  
 Runtime tested: Evergreen runtime detected by the static loader  
@@ -184,6 +194,9 @@ WebView2 work requires a materially different architecture (for example an
 out-of-process browser host and IPC/shared-texture transport), which is outside
 this spike.
 
+> Superseded: that out-of-process architecture was built the following day
+> and shipped. Ultralight was removed once it passed the in-game gates.
+
 > **Superseded 2026-07-19:** the in-process backend below is now the
 > diagnostic escape hatch (renderer `webview2-inproc`). The shipping-candidate
 > WebView2 path is the OUT-OF-PROCESS host described in
@@ -351,7 +364,8 @@ each left zero `osfui_webview2_host.exe` / OSFUI-flavored
 the data deploy ships it at `SFSE/Plugins/OSFUI/bin/osfui_webview2_host.exe`.
 `--with_webview2_host=true` additionally builds the standalone POC client.
 Shipped default config remains `renderer: ultralight`; Ultralight itself is
-untouched.
+untouched. (Superseded: the shipped default is now `renderer: webview2` and
+Ultralight has been removed.)
 
 ### Multi-view (2026-07-19) — implemented per the Phase 1 sketch
 

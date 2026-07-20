@@ -8,7 +8,7 @@
 
 [center][img]https://staticdelivery.nexusmods.com/mods/4187/images/17711/17711-1784306240-930784041.png[/img][/center]
 
-OSF UI is an SFSE plugin that lets mods build their interfaces in [b]HTML, CSS and JavaScript[/b] and draws them over the game - rendered by [b]Ultralight[/b] (WebKit), composited on Starfield's own Direct3D 12 device. Heavily inspired by Skyrim's Prisma UI framework.
+OSF UI is an SFSE plugin that lets mods build their interfaces in [b]HTML, CSS and JavaScript[/b] and draws them over the game - rendered by [b]Microsoft Edge WebView2[/b] (Chromium), composited on Starfield's own Direct3D 12 device. Heavily inspired by Skyrim's Prisma UI framework.
 
 Out of the box:
 
@@ -27,7 +27,7 @@ The Mods surface is simply the first thing built on the framework - any mod can 
 [center][img]https://staticdelivery.nexusmods.com/mods/4187/images/17711/17711-1784306240-1196566958.png[/img][/center]
 
 [list]
-[*][b]Rich Web Page UI In-Game[/b] - HTML/CSS/JS views rendered by Ultralight, composited on the game's own D3D12 device.[/*]
+[*][b]Rich Web Page UI In-Game[/b] - HTML/CSS/JS views rendered by WebView2, composited on the game's own D3D12 device.[/*]
 [*][b]Fully interactive[/b] - While a view is open mods get full input control. And can optionally register hotkeys to callback into themselves[/*]
 [*][b]Gamepad navigable[/b] - D-pad/stick moves focus, A activates, B closes, right stick scrolls. (Mod support dependent)[/*]
 [*][b]Schema-driven settings[/b] - a mod drops one small JSON schema and gets a full settings page with persistence, migration, and hotkey delivery - no UI code at all[/*]
@@ -74,14 +74,15 @@ Load a save and press [b]F10[/b]. The Mods surface opens over the game, and OSF 
 [/list]
 
 [size=4][b]Source, permissions &amp; license[/b][/size]
-OSF UI is [b]open source[/b] (GPL-3.0 with a modding/linking exception that permits shipping the proprietary Ultralight runtime). Full source, build instructions, and issue tracker: [url=https://github.com/ozooma10/osf-ui]github.com/ozooma10/osf-ui[/url]. 
+OSF UI is [b]open source[/b] (GPL-3.0 with a modding/linking exception). Full source, build instructions, and issue tracker: [url=https://github.com/ozooma10/osf-ui]github.com/ozooma10/osf-ui[/url].
 Bug reports and pull requests welcome.
 
 [size=4][b]Credits[/b][/size]
 OSF UI exists because of [b]Prisma UI[/b] by [b]StarkMP[/b] - the Skyrim framework that pioneered rendering modern HTML/CSS/JS interfaces with Ultralight.
 [list]
 [*][b]StarkMP[/b] - [url=https://www.nexusmods.com/skyrimspecialedition/mods/148718]Prisma UI[/url] - original concept and inspiration[/*]
-[*][b][url=https://ultralig.ht/]Ultralight[/url][/b] (Ultralight, Inc.) - the WebKit-based renderer behind every view[/*]
+[*][b]Microsoft Edge WebView2[/b] - the Chromium-based renderer used by OSF UI[/*]
+[*][b][url=https://ultralig.ht/]Ultralight[/url][/b] (Ultralight, Inc.) - renderer used by Prisma UI and OSF UI's initial release[/*]
 [*][b]CommonLibSF[/b] / [url=https://sfse.silverlock.org/]SFSE[/url] - foundation to build on[/*]
 [/list]
 Full attributions and licenses are in CREDITS.md and THIRD_PARTY notices in the repository.

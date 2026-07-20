@@ -66,9 +66,7 @@ describe('build output', () => {
     const html = () => readFileSync(join(OUT, v.mod, v.name, 'index.html'), 'utf8');
 
     it('does not use type="module"', () => {
-      // See build.syntax.test.ts for the full reasoning: module scripts are
-      // CORS-blocked on Ultralight's opaque file:// origin and the view renders
-      // blank. Load order is also load-bearing here — shared/osfui.js OWNS
+      // Load order is load-bearing here — shared/osfui.js OWNS
       // osfui.onMessage and must execute before main.js — and modules are
       // deferred, which would silently invert that order even if CORS passed.
       expect(html()).not.toMatch(/type\s*=\s*["']module["']/);

@@ -22,7 +22,7 @@ namespace OSFUI
 		// mutates these fields live (they double as pre-replay boot defaults,
 		// so they MUST equal the schema defaults).
 		std::string toggleKey{ "F10" };  // key name -> Windows VK code (ResolveKeyName); consumed by the WndProc hook, verified in-game
-		std::string renderer{ "mock" };    // "null" | "mock" | "ultralight" | "webview2" (out-of-process host) | "webview2-inproc" (diagnostic; needs MO2 blacklist workaround)
+		std::string renderer{ "mock" };    // "null" | "mock" | "webview2" (out-of-process host) | "webview2-inproc" (diagnostic; needs MO2 blacklist workaround)
 		std::string compositor{ "null" };  // "null" | "d3d12" (d3d12 draws the overlay at present time)
 		std::string inputSource{ "none" }; // "none" | "ui" (WndProc subclass: toggle key + input capture; see input/OverlayInputHook)
 		bool        captureInput{ true };  // when visible, route input to the web view and block the game from acting on it (needs inputSource="ui")

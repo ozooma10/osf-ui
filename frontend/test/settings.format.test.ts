@@ -12,8 +12,8 @@ describe('formatNumber — decimals clamp to [0,20]', () => {
   });
 
   it('CLAMPS above 20 instead of throwing RangeError', () => {
-    // toFixed(21) throws on the Ultralight WebKit; an uncaught throw here
-    // aborts renderDetail and blanks the entire mod page.
+    // Keep schema mistakes bounded; an uncaught formatter error would abort
+    // renderDetail and blank the entire mod page.
     expect(() => formatNumber(num({ format: { decimals: 21 } }), 1)).not.toThrow();
     expect(formatNumber(num({ format: { decimals: 21 } }), 1)).toBe((1).toFixed(20));
     expect(formatNumber(num({ format: { decimals: 1000 } }), 1)).toBe((1).toFixed(20));

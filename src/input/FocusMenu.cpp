@@ -77,7 +77,7 @@ namespace OSFUI
 
 		// ---- vtable thunks (MS x64 ABI matches the vtable thiscall) ----
 		const char*   Thunk_GetName(void*) { return FocusMenu::MENU_NAME.data(); }
-		const char*   Thunk_GetRootPath(void*) { return ""; }  // Ultralight-backed: no .swf root
+		const char*   Thunk_GetRootPath(void*) { return ""; }  // web-backed: no .swf root
 		std::uint64_t Thunk_GetUnk05(void*) { return 0; }
 		bool          Thunk_LoadMovie(void*, bool, bool) { return true; }  // success, no Scaleform movie
 
@@ -210,7 +210,7 @@ namespace OSFUI
 		// Install our patched primary vtable (engine copy + our 5 slots).
 		*reinterpret_cast<void**>(bytes + 0) = &g_vtable[0];
 
-		// Ultralight-backed: keep uiMovie null. The per-frame movie sites all
+		// Web-backed: keep uiMovie null. The per-frame movie sites all
 		// null-guard +0x88 (proven), so movie work is skipped, not dereferenced.
 		*reinterpret_cast<void**>(bytes + kOffMovie) = nullptr;
 

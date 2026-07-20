@@ -15,12 +15,10 @@
 
 .EXAMPLE
     .\Prepare-BenchRun.ps1 -Renderer webview2 -View stress
-    .\Prepare-BenchRun.ps1 -Renderer ultralight -View stress
-    .\Prepare-BenchRun.ps1 -Renderer ultralight -View settings
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)][ValidateSet('webview2', 'webview2-inproc', 'ultralight', 'mock')]
+    [Parameter(Mandatory)][ValidateSet('webview2', 'webview2-inproc', 'mock')]
     [string]$Renderer,
 
     # stress = the animation-heavy benchmark view; settings = the shipped

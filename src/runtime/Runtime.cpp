@@ -25,7 +25,6 @@
 #include "runtime/Ids.h"
 #include "runtime/VanillaKeys.h"
 #include "render/NullWebRenderer.h"
-#include "render/UltralightWebRenderer.h"
 #include "render/WebView2HostWebRenderer.h"
 #include "render/WebView2WebRenderer.h"
 
@@ -1712,7 +1711,7 @@ namespace OSFUI
 					return;
 				}
 				if (frame->width != _viewWidth.load() || frame->height != _viewHeight.load()) {
-					// The output callback requested a resize, but WebCore has not
+					// The output callback requested a resize, but the host has not
 					// painted the correctly sized replacement yet.
 					return;
 				}
@@ -1763,21 +1762,6 @@ namespace OSFUI
 #else
 			REX::WARN("Runtime: renderer 'webview2-inproc' requested but this build was compiled "
 					  "without with_webview2; using null renderer");
-			return std::make_unique<NullWebRenderer>();
-#endif
-		}
-		if (_config.renderer == "ultralight") {
-#if defined(OSFUI_WITH_ULTRALIGHT)
-			// Must run before the renderer object exists: even constructing
-			// it touches delay-loaded SDK symbols (see PreloadRuntime docs).
-			if (!UltralightWebRenderer::PreloadRuntime(Paths::DataDir())) {
-				REX::ERROR("Runtime: Ultralight runtime preload failed; using null renderer");
-				return std::make_unique<NullWebRenderer>();
-			}
-			return std::make_unique<UltralightWebRenderer>();
-#else
-			REX::WARN("Runtime: renderer 'ultralight' requested but this build was compiled without "
-					  "with_ultralight; using null renderer");
 			return std::make_unique<NullWebRenderer>();
 #endif
 		}

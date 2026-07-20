@@ -16,10 +16,10 @@ handling, and native<->web bridge.
 
 ## Technology
 
-- **[Ultralight](https://ultralig.ht/)** (Ultralight, Inc.) - the lightweight,
-  WebKit-based HTML renderer behind every view. Used under the Ultralight Free
-  License Agreement; the full notices ship in
-  `OSFUI/ultralight/license/`.
+- **[Microsoft Edge WebView2](https://developer.microsoft.com/microsoft-edge/webview2/)**
+  — the Chromium-based renderer used by OSF UI.
+- **[Ultralight](https://ultralig.ht/)** (Ultralight, Inc.) — the renderer used
+  by Prisma UI and by OSF UI's initial release.
 - **[CommonLibSF](https://github.com/Starfield-Reverse-Engineering/CommonLibSF)**
   and **[commonlibsf-template](https://github.com/libxse/commonlibsf-template)**
   — the plugin framework and project scaffold this is built on (GPL-3.0).

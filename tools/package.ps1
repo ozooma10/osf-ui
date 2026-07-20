@@ -13,7 +13,7 @@
            SFSE/Plugins/OSFUI/ (inside the plugin's own folder, so the game's
            Data root stays clean)
         4. verify the required files are present
-        5. zip <staging> -> dist/OSF-UI-v<version>[-tag][-null].zip
+        5. zip <staging> -> dist/OSF-UI-v<version>[-tag].zip
 
     The archive root contains `SFSE/` + `Scripts/`, which is exactly the
     structure MO2 / Vortex expect for a Starfield SFSE plugin: install it and it
@@ -25,12 +25,6 @@
 
 .PARAMETER Tag
     Suffix appended after the version (e.g. "alpha" -> v1.0.0-alpha). "" omits it.
-
-.PARAMETER NoUltralight
-    Build/package the null-renderer variant (no Ultralight payload). The result
-    is NOT a shippable build -- it falls back to the null renderer in-game. For
-    smoke-testing the packaging flow only. Marks the archive name with `-null`.
-
 .PARAMETER Mode
     xmake build mode. Defaults to "releasedbg" (optimized + PDB for crash logs).
 
@@ -38,16 +32,16 @@
     Package the current build without reconfiguring/rebuilding. Use when you have
     just built the exact variant you want to ship.
 
-.PARAMETER UltralightSdkDir
-    Path to the Ultralight SDK. Defaults to $env:ULTRALIGHT_SDK_DIR, else the
-    gitignored external/ultralight-free-sdk-1.4.0-win-x64 drop.
+.PARAMETER WebView2SdkDir
+    Path to the unpacked Microsoft.Web.WebView2 NuGet package. Defaults to
+    $env:WEBVIEW2_SDK_DIR, else external/webview2.
 
 .PARAMETER OutDir
     Where the .zip is written. Defaults to <repo>/dist.
 
 .EXAMPLE
     pwsh tools/package.ps1
-    # release archive: dist/OSF-UI-v1.0.0-alpha.zip (Ultralight, releasedbg)
+    # release archive: dist/OSF-UI-v1.0.0-alpha.zip (WebView2, releasedbg)
 
 .EXAMPLE
     pwsh tools/package.ps1 -Version 1.0.0 -Tag beta
@@ -59,14 +53,13 @@
 param(
     [string]$Version,
     [string]$Tag = 'alpha',
-    [switch]$NoUltralight,
     [switch]$NoPdb,
     [string]$Mode = 'releasedbg',
     [switch]$SkipBuild,
     # Regenerate data/OSFUI/views from frontend/ and hard-fail if the committed
     # output was stale. Requires npm; off by default so packaging stays Node-free.
     [switch]$RebuildFrontend,
-    [string]$UltralightSdkDir,
+    [string]$WebView2SdkDir,
     [string]$OutDir
 )
 
@@ -75,7 +68,6 @@ Set-StrictMode -Version Latest
 
 # --- paths -----------------------------------------------------------------
 $RepoRoot = Split-Path $PSScriptRoot -Parent
-$WithUltralight = -not $NoUltralight
 if (-not $OutDir) { $OutDir = Join-Path $RepoRoot 'dist' }
 $Staging = Join-Path $RepoRoot 'build\package\staging'
 
@@ -96,24 +88,23 @@ if (-not $Version) {
 }
 $verLabel = "v$Version"
 if ($Tag) { $verLabel += "-$Tag" }
-if (-not $WithUltralight) { $verLabel += '-null' }
 
-Step "Packaging OSF UI $verLabel  (mode=$Mode, ultralight=$WithUltralight)"
+Step "Packaging OSF UI $verLabel  (mode=$Mode, renderer=webview2)"
 
-# --- Ultralight SDK sanity -------------------------------------------------
-if ($WithUltralight) {
-    if (-not $UltralightSdkDir) {
-        $UltralightSdkDir = $env:ULTRALIGHT_SDK_DIR
-    }
-    if (-not $UltralightSdkDir) {
-        $UltralightSdkDir = Join-Path $RepoRoot 'external\ultralight-free-sdk-1.4.0-win-x64'
-    }
-    if (-not (Test-Path (Join-Path $UltralightSdkDir 'include'))) {
-        Die "Ultralight SDK not found at '$UltralightSdkDir'. Set -UltralightSdkDir or `$env:ULTRALIGHT_SDK_DIR, or use -NoUltralight for a (non-shippable) null build."
-    }
-    $env:ULTRALIGHT_SDK_DIR = $UltralightSdkDir
-    Write-Host "    Ultralight SDK: $UltralightSdkDir"
+# --- WebView2 SDK sanity ---------------------------------------------------
+if (-not $WebView2SdkDir) {
+    $WebView2SdkDir = $env:WEBVIEW2_SDK_DIR
 }
+if (-not $WebView2SdkDir) {
+    $WebView2SdkDir = Join-Path $RepoRoot 'external\webview2'
+}
+$webView2Native = Join-Path $WebView2SdkDir 'build\native'
+if (-not (Test-Path (Join-Path $webView2Native 'include\WebView2.h')) -or
+    -not (Test-Path (Join-Path $webView2Native 'x64\WebView2LoaderStatic.lib'))) {
+    Die "WebView2 SDK not found at '$WebView2SdkDir'. Unpack Microsoft.Web.WebView2 there or set -WebView2SdkDir."
+}
+$env:WEBVIEW2_SDK_DIR = $WebView2SdkDir
+Write-Host "    WebView2 SDK: $WebView2SdkDir"
 
 # Neutralize auto-deploy: the commonlibsf.plugin rule sets installdir from these
 # at config time, which would fight `xmake install -o`. Clear them for THIS
@@ -153,9 +144,8 @@ try {
 
     # --- configure + build -------------------------------------------------
     if (-not $SkipBuild) {
-        $ulFlag = if ($WithUltralight) { 'true' } else { 'false' }
-        Step "xmake f -m $Mode --with_ultralight=$ulFlag"
-        xmake f -m $Mode --with_ultralight=$ulFlag -y
+        Step "xmake f -m $Mode --with_webview2=true"
+        xmake f -m $Mode --with_webview2=true -y
         if ($LASTEXITCODE -ne 0) { Die "xmake config failed." }
 
         Step "xmake build"
@@ -177,15 +167,15 @@ try {
     # xmake's add_installfiles("data/(OSFUI/**)") glob is CACHED and can go
     # stale: a view added/removed after the last clean reconfigure silently
     # won't match what's on disk (this is the deploy-race trap in docs). So we
-    # do not trust install for the data folder -- we mirror the authoritative
-    # data/OSFUI/ over the staged tree, preserving only the SDK-sourced
-    # ultralight/ payload that install just laid down.
+    # do not trust install for the data folder -- mirror the authoritative
+    # data/OSFUI/ over the staged tree while preserving the host executable
+    # installed into bin/.
     $stagedData = Join-Path $Staging 'SFSE\Plugins\OSFUI'
     $srcData    = Join-Path $RepoRoot 'data\OSFUI'
     if (-not (Test-Path $srcData)) { Die "Source data folder not found: $srcData" }
     Step "Syncing data folder from data/OSFUI (authoritative; bypasses install-glob cache)"
     Get-ChildItem $stagedData -Force -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -ne 'ultralight' } |
+        Where-Object { $_.Name -ne 'bin' } |
         Remove-Item -Recurse -Force
     Copy-Item (Join-Path $srcData '*') $stagedData -Recurse -Force
 
@@ -205,13 +195,11 @@ try {
     }
 
     # --- license docs the distribution must carry -------------------------
-    # LICENSE + EXCEPTIONS are load-bearing: the GPL-3.0 section-7 linking
-    # exception in EXCEPTIONS is what lets the mod ship proprietary Ultralight.
+    # LICENSE + EXCEPTIONS are load-bearing distribution terms.
     # CREDITS carries the attribution (incl. the "inspired by" credits).
     # They live INSIDE the plugin's own data folder -- the archive root maps
     # onto the game's Data\, and loose LICENSE/README files there would
-    # clutter every install. SFSE\Plugins\OSFUI\ already carries the
-    # Ultralight license folder, so ours sits next to it.
+    # clutter every install.
     $docDest = Join-Path $Staging 'SFSE\Plugins\OSFUI'
     Step "Adding license docs (LICENSE, EXCEPTIONS, CREDITS.md -> SFSE\Plugins\OSFUI\)"
     foreach ($doc in 'LICENSE', 'EXCEPTIONS', 'CREDITS.md') {
@@ -228,10 +216,11 @@ try {
     $required = @(
         'SFSE\Plugins\OSFUI.dll',
         'SFSE\Plugins\OSFUI\config.json',
+        'SFSE\Plugins\OSFUI\bin\osfui_webview2_host.exe',
         'SFSE\Plugins\OSFUI\vanillakeys.json',       # vanilla-keybinds defaults table (runtime loads it at boot)
         'SFSE\Plugins\OSFUI\settings\osfui.json',    # OSF UI's own Mod Settings schema
         'SFSE\Plugins\OSFUI\LICENSE',                # GPL-3.0 text (required to distribute)
-        'SFSE\Plugins\OSFUI\EXCEPTIONS',             # GPL 7 linking exception (legalizes bundling Ultralight)
+        'SFSE\Plugins\OSFUI\EXCEPTIONS',             # GPL 7 modding/linking exception
         'SFSE\Plugins\OSFUI\CREDITS.md',             # attribution
         # The shared asset kit is a FROZEN public contract: third-party views
         # link '../../shared/osfui.js' and '../../shared/osfui.css' by exact
@@ -243,16 +232,6 @@ try {
         'SFSE\Plugins\OSFUI\views\osfui\padnav.js',
         'Scripts\OSFUI.pex'   # Papyrus surface (authoring-settings.md "From Papyrus")
     )
-    if ($WithUltralight) {
-        $required += @(
-            'SFSE\Plugins\OSFUI\ultralight\bin\Ultralight.dll',
-            'SFSE\Plugins\OSFUI\ultralight\bin\UltralightCore.dll',
-            'SFSE\Plugins\OSFUI\ultralight\bin\WebCore.dll',
-            'SFSE\Plugins\OSFUI\ultralight\bin\AppCore.dll',
-            'SFSE\Plugins\OSFUI\ultralight\resources\icudt67l.dat',
-            'SFSE\Plugins\OSFUI\ultralight\license\EULA.txt'   # Ultralight EULA must ship (Free License 4.3)
-        )
-    }
     $missing = $required | Where-Object { -not (Test-Path (Join-Path $Staging $_)) }
     if ($missing) {
         Die ("Staged archive is missing required files:`n    " + ($missing -join "`n    "))

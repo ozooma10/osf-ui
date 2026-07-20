@@ -1,12 +1,10 @@
 // Stage.tsx — the game-true 1600x900 reference frame. DEV ONLY.
 //
-// Every view manifest declares width 1600 / height 900, and Ultralight lays the
-// page out at exactly that logical size regardless of the game's output
-// resolution, then upscales the rendered surface (device_scale =
-// outputHeight/900). A view that only looks right when it can reflow to the
-// browser window will be wrong in game.
+// Every built-in view manifest declares width 1600 / height 900 as its initial
+// size. The game later resizes the page to the output aspect, so this stage is
+// the reference composition rather than the only in-game resolution.
 //
-// So the harness reproduces the real thing: a fixed 1600x900 box, uniformly
+// The harness provides a fixed 1600x900 box, uniformly
 // scaled to fill the window. There is deliberately NO upscale cap - filling a
 // 1080p window at 1.2x IS the in-game text size, and capping at 1:1 would make
 // everything look smaller here than it does in game.

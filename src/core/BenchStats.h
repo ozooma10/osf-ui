@@ -11,8 +11,8 @@
 //   tick    — main-thread overlay cost per tick (renderer Update + Submit)
 //   present — present-hook overlay cost per drawn present (upload + composite
 //             record/submit, including fence waits)
-//   produce — in-process CPU cost to obtain one web frame (Ultralight: worker
-//             pump incl. engine paint + harvest; WebView2: WGC readback)
+//   produce — in-process CPU cost to obtain one web frame (used by the
+//             diagnostic WebView2 WGC readback path)
 // plus two rate counters: frames PRODUCED by the web renderer and frames
 // UPLOADED by the compositor (the effective on-screen UI rate).
 //

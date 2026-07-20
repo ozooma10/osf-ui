@@ -34,6 +34,10 @@ namespace osfui::wv2
 	// one being composited.
 	inline constexpr std::uint32_t kRingSlots = 3;
 
+	// Fallback for `navigate.logicalHeight` (the view manifest's authoring
+	// height) when a client omits it. Mirrors kDefaultViewHeight plugin-side.
+	inline constexpr std::uint32_t kDefaultLogicalHeight = 900;
+
 	// Multi-view (v2): the host keeps one composition controller + child
 	// ContainerVisual per OSF UI view under ONE captured root visual, so a
 	// single WGC capture / shared-texture ring carries the already-composited
@@ -46,7 +50,12 @@ namespace osfui::wv2
 	// --- message types, game -> host ---
 	// init          { topLevelHwnd:u64, viewsPath:str, virtualHost:str,
 	//                 width:u32, height:u32, userDataDir:str, devMode:bool }
-	// navigate      { id:str, entry:str, bridge:bool }   (creates view `id` on first sight)
+	// navigate      { id:str, entry:str, bridge:bool, logicalHeight:u32 }
+	//               (creates view `id` on first sight; logicalHeight is the
+	//                manifest's authoring height and drives the view's
+	//                rasterization scale = outputHeight/logicalHeight, so the
+	//                page lays out at logical size and CSS px scale up to
+	//                output pixels. Optional — omitted means kDefaultLogicalHeight.)
 	// resize        { width:u32, height:u32 }    (global: every view renders output-sized)
 	// setHidden     { view:str, hidden:bool }    (child-visual visibility + Chromium suspend)
 	// setOrder      { view:str, order:i32 }      (composite z: lower beneath, ties by creation)

@@ -146,6 +146,10 @@ namespace OSFUI
 			bool        bridge{ false };
 			bool        hidden{ true };
 			int         order{ 0 };
+			// Manifest (authoring) height. The host divides the output height by
+			// this for the view's rasterization scale, so the page lays out at
+			// logical size and CSS px scale up to output pixels.
+			std::uint32_t logicalHeight{ kDefaultViewHeight };
 		};
 		std::mutex           stateMutex;
 		std::vector<ViewRec> views;
@@ -195,6 +199,61 @@ namespace OSFUI
 			if (connected.load()) {
 				pipe.WriteMessage(a_msg.dump());
 			}
+		}
+
+		// Outbound messages that CANNOT be reconstructed at connect time.
+		//
+		// The host process starts lazily (first game tick), but the runtime
+		// greets every bridge-enabled view during Runtime::Initialize — seconds
+		// earlier. The connect-time snapshot below replays view STATE
+		// (navigate/setHidden/setOrder/setActive) but a bridge message is an
+		// event, not state: dropping `runtime.ready` there stalled the settings
+		// view forever (it gates its initial settings.get/views.get on that
+		// handshake), so F10 showed an empty Mods surface. Queue those messages
+		// while disconnected and flush them, in order, as the pipe opens.
+		static constexpr std::size_t kMaxPendingOut = 512;
+		std::mutex               pendingOutMutex;  // also guards the connected flip
+		std::vector<std::string> pendingOut;
+		std::size_t              pendingDropped{ 0 };
+
+		void SendOrQueue(const json& a_msg)
+		{
+			std::scoped_lock lock(pendingOutMutex);
+			if (connected.load()) {
+				pipe.WriteMessage(a_msg.dump());
+				return;
+			}
+			// A host that never comes up (launch failure) must not grow this
+			// without bound; the renderer degrades to a hidden overlay anyway.
+			if (pendingOut.size() >= kMaxPendingOut) {
+				++pendingDropped;
+				return;
+			}
+			pendingOut.push_back(a_msg.dump());
+		}
+
+		// Worker thread, at the end of the connect snapshot. Draining and
+		// flipping `connected` under one lock keeps ordering exact: a game-thread
+		// send either lands in the queue (flushed here, in order) or goes
+		// straight down the pipe after everything queued before it.
+		void FlushPendingOut()
+		{
+			std::scoped_lock lock(pendingOutMutex);
+			for (const auto& message : pendingOut) {
+				pipe.WriteMessage(message);
+			}
+			if (!pendingOut.empty()) {
+				REX::INFO("WebView2HostWebRenderer: flushed {} message(s) queued before the host connected",
+					pendingOut.size());
+			}
+			if (pendingDropped) {
+				REX::WARN("WebView2HostWebRenderer: dropped {} pre-connect message(s) over the {}-message cap",
+					pendingDropped, kMaxPendingOut);
+			}
+			pendingOut.clear();
+			pendingOut.shrink_to_fit();
+			pendingDropped = 0;
+			connected.store(true);
 		}
 
 		// stateMutex must be held.
@@ -362,11 +421,12 @@ namespace OSFUI
 			}
 			REX::INFO("WebView2HostWebRenderer: host pid {} up (WebView2 runtime {})",
 				hostPid, hello.value("runtimeVersion", "?"));
-			connected.store(true);
 
 			// Connect-time snapshot of everything the game set before the host
 			// existed. Diffs sent later by the game thread may interleave with
 			// this — both carry current values, so last-write-wins is fine.
+			// `connected` stays false until FlushPendingOut() below, so a
+			// concurrent bridge send queues instead of overtaking the snapshot.
 			{
 				std::scoped_lock lock(stateMutex);
 				pipe.WriteMessage(json{
@@ -393,7 +453,8 @@ namespace OSFUI
 						{ "type", "navigate" },
 						{ "id", view.id },
 						{ "entry", view.entry },
-						{ "bridge", view.bridge } }.dump());
+						{ "bridge", view.bridge },
+						{ "logicalHeight", view.logicalHeight } }.dump());
 					pipe.WriteMessage(json{
 						{ "type", "setHidden" },
 						{ "view", view.id },
@@ -408,6 +469,11 @@ namespace OSFUI
 						{ "type", "setActive" }, { "view", activeId } }.dump());
 				}
 			}
+
+			// Bridge messages sent before the pipe existed (notably the
+			// runtime.ready greeting) go out now, after the views they address
+			// have been navigated. This also opens the gate for direct sends.
+			FlushPendingOut();
 
 			ReadLoop();
 
@@ -748,6 +814,7 @@ namespace OSFUI
 			}
 			view->entry = a_manifest.entry;
 			view->bridge = a_manifest.permissions.nativeBridge;
+			view->logicalHeight = (std::max)(1u, a_manifest.height);
 			// The first loaded view receives input until the runtime says
 			// otherwise (mirrors the in-process backends).
 			if (_impl->activeId.empty()) {
@@ -760,7 +827,8 @@ namespace OSFUI
 			{ "type", "navigate" },
 			{ "id", a_manifest.id },
 			{ "entry", a_manifest.entry },
-			{ "bridge", a_manifest.permissions.nativeBridge } });
+			{ "bridge", a_manifest.permissions.nativeBridge },
+			{ "logicalHeight", (std::max)(1u, a_manifest.height) } });
 	}
 
 	void WebView2HostWebRenderer::SetActiveView(std::string_view a_id)
@@ -836,7 +904,7 @@ namespace OSFUI
 			const auto* view = _impl->FindView(a_viewId);
 			if (!view || !view->bridge) return;
 		}
-		_impl->Send(json{ { "type", "postWeb" },
+		_impl->SendOrQueue(json{ { "type", "postWeb" },
 			{ "view", std::string(a_viewId) }, { "json", std::string(a_json) } });
 	}
 
@@ -948,7 +1016,9 @@ namespace OSFUI
 				_impl->evalCallbacks[id] = std::move(a_onResult);
 			}
 		}
-		_impl->Send(json{
+		// Queued like postWeb when the host is not up yet: an eval issued before
+		// connect has a caller waiting on its result callback.
+		_impl->SendOrQueue(json{
 			{ "type", "eval" }, { "view", std::string(a_viewId) },
 			{ "id", id }, { "script", std::string(a_js) } });
 	}

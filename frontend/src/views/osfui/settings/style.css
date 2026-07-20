@@ -6,6 +6,10 @@
    ============================================================ */
 
 html, body { height: 100%; overflow: hidden; }
+/* The Preact mount point. Without an explicit height here the deck's
+   `height: 100%` would resolve against an auto-height box and the panel
+   would size to its content instead of the viewport. */
+#app { height: 100%; }
 
 /* Dim the live game into a menu backdrop (background stays transparent). */
 .scrim {
@@ -488,8 +492,8 @@ html, body { height: 100%; overflow: hidden; }
    The deck's landing page: registered panels as app-style launch
    tiles, overlays as toggle cards. Tile aesthetics descend from
    the retired hub launcher, recut on the deck's surfaces. No
-   infinite animations — a perpetually dirty Ultralight surface
-   repaints every frame (see the old hub's scrim note). */
+   infinite animations — a perpetually dirty browser surface
+   wastes work while the menu is idle. */
 
 .rail-item--home .rail-item-mark { font-size: 16px; }
 .rail-item--home { margin-bottom: 6px; }

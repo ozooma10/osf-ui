@@ -3,9 +3,8 @@
 // Production shape is deliberately tiny: import the stylesheet (Vite extracts it
 // to the sibling style.css), mount the app against the real bridge, done.
 //
-// The bundle is ONE CLASSIC IIFE — no ESM, no dynamic import(), no code
-// splitting. Ultralight loads views over `file:///` (an opaque origin) where
-// module scripts are CORS-blocked and the view would render blank.
+// The built-in artifact contract is one stable classic IIFE — no dynamic
+// import() or code splitting.
 //
 // index.html loads three classic scripts in a fixed order before this one:
 // shared/osfui.js (the frozen helper that owns `window.osfui`), ../padnav.js

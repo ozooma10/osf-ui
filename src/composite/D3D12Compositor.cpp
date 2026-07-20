@@ -3,6 +3,7 @@
 #include "composite/EngineD3D12.h"
 #include "core/BenchStats.h"
 #include "core/Log.h"
+#include "platform/WindowsPlatform.h"
 
 // GDI-free Win32/D3D12 so the ERROR macro never collides with REX::ERROR.
 #define WIN32_LEAN_AND_MEAN
@@ -105,6 +106,40 @@ namespace OSFUI
 			return std::string(utf8, static_cast<std::size_t>(written));
 		}
 
+		// Companion diagnostic to the slot-owner check: a vtable-slot read CANNOT
+		// see tools that hook Present by patching the function's first bytes
+		// instead (MinHook-style — BetterConsole does this); the slot still points
+		// into dxgi.dll while dxgi!Present's first instruction jumps into the
+		// tool. Follow rel32 JMPs and [rip+disp32] indirect JMPs (bounded,
+		// readability-guarded) to where the code actually lands.
+		[[nodiscard]] const void* FollowInlineJmps(const void* a_code)
+		{
+			auto* code = static_cast<const std::uint8_t*>(a_code);
+			for (int depth = 0; depth < 8; ++depth) {
+				if (!Platform::IsReadableRange(reinterpret_cast<std::uintptr_t>(code), 6)) {
+					break;
+				}
+				if (code[0] == 0xE9) {  // jmp rel32
+					std::int32_t disp = 0;
+					std::memcpy(&disp, code + 1, sizeof(disp));
+					code += 5 + static_cast<std::ptrdiff_t>(disp);
+					continue;
+				}
+				if (code[0] == 0xFF && code[1] == 0x25) {  // jmp [rip+disp32]
+					std::int32_t disp = 0;
+					std::memcpy(&disp, code + 2, sizeof(disp));
+					std::uintptr_t target = 0;
+					if (!Platform::SafeReadPointer(reinterpret_cast<std::uintptr_t>(code) + 6 + disp, target) || target == 0) {
+						break;
+					}
+					code = reinterpret_cast<const std::uint8_t*>(target);
+					continue;
+				}
+				break;
+			}
+			return code;
+		}
+
 		// Best-effort diagnostic for the unsupported-format warning: is the
 		// output this swapchain sits on in HDR (advanced color) mode? DXGI has
 		// no getter for a swapchain's own color space, so the output's state is
@@ -144,8 +179,8 @@ VSOut main(uint id : SV_VertexID) {
 }
 )";
 
-		// The overlay texture is BGRA8 premultiplied alpha (Ultralight's CPU
-		// surface). Sample straight through; the premultiplied-over blend is
+		// The overlay texture is BGRA8 premultiplied alpha. Sample straight
+		// through; the premultiplied-over blend is
 		// configured in the PSO.
 		constexpr const char* kPixelShader = R"(
 Texture2D    gTex : register(t0);
@@ -618,10 +653,29 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			return true;
 		}
 
-		// Capture the swapchain Present vtable from a throwaway swapchain (the
-		// "Kiero" technique): the vtable is shared by every swapchain in the
-		// process, so one slot-8 swap hooks the game's real presents too. No
-		// engine offsets involved — pure DXGI.
+		// Capture the swapchain Present vtable from a throwaway PROBE swapchain
+		// (the "Kiero" technique): dxgi implements one swapchain class, so the
+		// vtable is shared by every swapchain in the process and one slot-8 swap
+		// hooks the game's real presents too. No engine offsets involved — pure
+		// DXGI.
+		//
+		// COEXISTENCE — the probe is deliberately shaped to be invisible to
+		// other hook tools. Root-caused 2026-07-19: BetterConsole inline-hooks
+		// CreateSwapChainForHwnd and treats EVERY call as a real game presenter.
+		// Our old HWND probe on engine.directQueue (a) evicted the game's entry
+		// from its queue-keyed swapchain table, leaving a dangling probe pointer
+		// there → null-deref CTD inside its Present hook one frame after F10,
+		// and (b) got its dummy window re-subclassed, clobbering the single
+		// global that tool chains the GAME window's WndProc through →
+		// DefWindowProcW severed the game's input handling. Hence:
+		//   * windowless probe: CreateSwapChainForComposition never enters
+		//     CreateSwapChainForHwnd, so hooks there never fire and there is no
+		//     window to re-subclass;
+		//   * private throwaway DIRECT queue, never engine.directQueue, so tools
+		//     that key state by command-queue pointer cannot mistake the probe
+		//     for the game's presenter.
+		// The dummy-window HWND probe survives only as a fallback (also on the
+		// private queue) for systems where composition creation fails.
 		[[nodiscard]] bool InstallPresentHook()
 		{
 			IDXGIFactory2* factory = nullptr;
@@ -630,19 +684,16 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				return false;
 			}
 
-			WNDCLASSEXW wc{};
-			wc.cbSize = sizeof(wc);
-			wc.lpfnWndProc = ::DefWindowProcW;
-			wc.hInstance = ::GetModuleHandleW(nullptr);
-			wc.lpszClassName = L"OSFUIOverlayDummyWnd";
-			::RegisterClassExW(&wc);
-			HWND dummyWnd = ::CreateWindowExW(0, wc.lpszClassName, L"", WS_OVERLAPPEDWINDOW,
-				0, 0, 1, 1, nullptr, nullptr, wc.hInstance, nullptr);
-			if (!dummyWnd) {
-				REX::ERROR("D3D12Compositor: dummy window creation failed");
-				SafeRelease(factory);
-				::UnregisterClassW(wc.lpszClassName, wc.hInstance);
-				return false;
+			ID3D12CommandQueue* probeQueue = nullptr;
+			{
+				D3D12_COMMAND_QUEUE_DESC qDesc{};
+				qDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+				if (FAILED(engine.device->CreateCommandQueue(&qDesc,
+						__uuidof(ID3D12CommandQueue), reinterpret_cast<void**>(&probeQueue)))) {
+					REX::ERROR("D3D12Compositor: probe CreateCommandQueue failed");
+					SafeRelease(factory);
+					return false;
+				}
 			}
 
 			DXGI_SWAP_CHAIN_DESC1 scDesc{};
@@ -652,14 +703,55 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			scDesc.SampleDesc.Count = 1;
 			scDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
 			scDesc.BufferCount = 2;
-			scDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-			scDesc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
+			scDesc.Scaling = DXGI_SCALING_STRETCH;
 
-			IDXGISwapChain1* dummySwap = nullptr;
-			const auto hr = factory->CreateSwapChainForHwnd(engine.directQueue, dummyWnd, &scDesc, nullptr, nullptr, &dummySwap);
+			WNDCLASSEXW wc{};
+			wc.cbSize = sizeof(wc);
+			wc.lpfnWndProc = ::DefWindowProcW;
+			wc.hInstance = ::GetModuleHandleW(nullptr);
+			wc.lpszClassName = L"OSFUIOverlayDummyWnd";
+			HWND dummyWnd = nullptr;
+			bool dummyClassRegistered = false;
+
+			IDXGISwapChain1* probeSwap = nullptr;
+			{
+				// Composition swapchains require flip model + a definite alpha mode.
+				auto compDesc = scDesc;
+				compDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+				compDesc.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
+				const auto hr = factory->CreateSwapChainForComposition(probeQueue, &compDesc, nullptr, &probeSwap);
+				if (SUCCEEDED(hr) && probeSwap) {
+					REX::INFO("D3D12Compositor: probe = windowless composition swapchain on a private queue");
+				} else {
+					probeSwap = nullptr;
+					REX::WARN("D3D12Compositor: CreateSwapChainForComposition failed (hr=0x{:08X}) — falling back to "
+							  "an HWND probe swapchain. Tools that hook CreateSwapChainForHwnd (e.g. BetterConsole) "
+							  "may misinterpret the probe; include this line in coexistence reports.",
+						static_cast<std::uint32_t>(hr));
+				}
+			}
+
+			if (!probeSwap) {
+				dummyClassRegistered = ::RegisterClassExW(&wc) != 0;
+				dummyWnd = ::CreateWindowExW(0, wc.lpszClassName, L"", WS_OVERLAPPEDWINDOW,
+					0, 0, 1, 1, nullptr, nullptr, wc.hInstance, nullptr);
+				if (dummyWnd) {
+					auto hwndDesc = scDesc;
+					hwndDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+					hwndDesc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
+					const auto hr = factory->CreateSwapChainForHwnd(probeQueue, dummyWnd, &hwndDesc, nullptr, nullptr, &probeSwap);
+					if (FAILED(hr) || !probeSwap) {
+						probeSwap = nullptr;
+						REX::ERROR("D3D12Compositor: probe CreateSwapChainForHwnd failed (hr=0x{:08X})", static_cast<std::uint32_t>(hr));
+					}
+				} else {
+					REX::ERROR("D3D12Compositor: dummy window creation failed");
+				}
+			}
+
 			bool ok = false;
-			if (SUCCEEDED(hr) && dummySwap) {
-				auto** vtbl = *reinterpret_cast<void***>(dummySwap);
+			if (probeSwap) {
+				auto** vtbl = *reinterpret_cast<void***>(probeSwap);
 				auto& slot8 = vtbl[8];  // IDXGISwapChain::Present
 				g_originalPresent.store(reinterpret_cast<PresentFn>(slot8));
 
@@ -675,6 +767,20 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 						owner);
 				} else {
 					REX::INFO("D3D12Compositor: Present slot 8 owner before hook: '{}'", owner);
+				}
+
+				// The slot-owner check misses CODE-patching hooks (BetterConsole
+				// et al.): the slot still reads as dxgi.dll while Present's first
+				// instruction jumps into the tool. Best-effort: follow the jmp
+				// chain and report where it lands. Chaining still works — we call
+				// the patched code as "original". (Best-effort also because such
+				// tools may install their patch only later in the session.)
+				const auto* slotTarget = reinterpret_cast<const void*>(g_originalPresent.load());
+				const auto* effective = FollowInlineJmps(slotTarget);
+				if (effective != slotTarget) {
+					REX::WARN("D3D12Compositor: Present's code is inline-patched — effective handler is in '{}'; "
+							  "chaining after it. Include this line in coexistence reports.",
+						ModuleNameOfAddress(effective));
 				}
 
 				DWORD oldProtect = 0;
@@ -694,14 +800,17 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				} else {
 					REX::ERROR("D3D12Compositor: VirtualProtect on the Present vtable slot failed");
 				}
-			} else {
-				REX::ERROR("D3D12Compositor: dummy CreateSwapChainForHwnd failed (hr=0x{:08X})", static_cast<std::uint32_t>(hr));
 			}
 
-			SafeRelease(dummySwap);
+			SafeRelease(probeSwap);
+			SafeRelease(probeQueue);
 			SafeRelease(factory);
-			::DestroyWindow(dummyWnd);
-			::UnregisterClassW(wc.lpszClassName, wc.hInstance);
+			if (dummyWnd) {
+				::DestroyWindow(dummyWnd);
+			}
+			if (dummyClassRegistered) {
+				::UnregisterClassW(wc.lpszClassName, wc.hInstance);
+			}
 			return ok;
 		}
 
@@ -1026,7 +1135,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			desc.RTVFormats[0] = a_rtFormat;
 			desc.SampleDesc.Count = 1;
 
-			// Premultiplied-alpha "over" blend (Ultralight's BGRA is premult).
+			// Premultiplied-alpha "over" blend for BGRA browser frames.
 			auto& rt = desc.BlendState.RenderTarget[0];
 			rt.BlendEnable = TRUE;
 			rt.SrcBlend = D3D12_BLEND_ONE;

@@ -10,9 +10,9 @@ namespace OSFUI
 		std::uint32_t height{ kDefaultViewHeight };
 		bool          devMode{ false };
 
-		// Plugin data root (Paths::DataDir()). Backends that need runtime
-		// assets resolve them under here (e.g. ultralight/bin, ultralight/
-		// resources) so render/ stays decoupled from core/Paths.
+		// Plugin data root (Paths::DataDir()). Backends resolve packaged assets
+		// such as bin/osfui_webview2_host.exe under here so render/ stays
+		// decoupled from core/Paths.
 		std::filesystem::path dataDir;
 	};
 

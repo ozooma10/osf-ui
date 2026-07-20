@@ -12,6 +12,7 @@ edges; read *Known limitations* before installing.
   https://sfse.silverlock.org/
 - Address Library for Starfield with the `versionlib-<your build>.bin` for
   your game version (the common AIO Address Library mod provides this).
+- Microsoft Edge WebView2 Runtime (Evergreen).
 - Windows with a D3D12-capable GPU (any modern card).
 
 OSF UI is pinned to the game build it was compiled against (currently
@@ -26,7 +27,8 @@ like any other SFSE plugin and enable it. The payload is:
 ```
 SFSE/Plugins/
   OSFUI.dll
-  OSFUI/            (config + views + the Ultralight runtime)
+  OSFUI/            (config + views)
+    bin/osfui_webview2_host.exe
 ```
 
 Manual: extract that `SFSE/Plugins/...` tree into your Starfield `Data`
@@ -102,10 +104,11 @@ Check `OSF UI.log` first.
 |---|---|
 | F10 does nothing, no log file | The game wasn't launched through SFSE, or SFSE doesn't match the game version. |
 | Log says `UI layout guard FAILED` | The game updated and the plugin's data is stale for this build. Don't play with it enabled; wait for an updated release (or a matching Address Library / CommonLibSF). This is intentional: the plugin disables itself rather than patch the wrong offsets. |
-| Overlay never appears, renderer/compositor warnings in log | The Ultralight runtime DLLs or the game's device weren't available, so the overlay disabled itself. Re-install the archive intact. |
-| Overlay appears but is blank | The renderer fell back to `null` because `ultralight/` runtime files are missing. Re-install. |
+| Overlay never appears, renderer/compositor warnings in log | The WebView2 Runtime, host executable, or the game's device wasn't available, so the overlay disabled itself. Install the Evergreen WebView2 Runtime and re-install the archive intact. |
+| Overlay appears but is blank | Check the log for WebView2 host launch, pipe, navigation, or shared-texture errors; then verify `OSFUI/bin/osfui_webview2_host.exe` is present. |
 | Overlay lingers oddly during a load | It should auto-hide on loading screens and the main menu. If it doesn't, hide it with F10 and report the log. |
-| Overlay never appears (or vanishes) while running ReShade / RTSS / Steam overlay / frame-gen tools | Hook-chain ordering. Check the log for `Present slot 8 owner before hook` (says which tool hooked first) and `no present has reached our hook` (a tool re-hooked over OSF UI without chaining). Try changing the injection/load order of your overlay tools, and include the log lines and your overlay stack in a report. |
+| Overlay never appears (or vanishes) while running ReShade / RTSS / Steam overlay / frame-gen tools | Hook-chain ordering. Check the log for `Present slot 8 owner before hook` (says which tool hooked first), `Present's code is inline-patched` (a tool hooked by patching Present itself), and `no present has reached our hook` (a tool re-hooked over OSF UI without chaining). Try changing the injection/load order of your overlay tools, and include the log lines and your overlay stack in a report. |
+| Crash when first opening the overlay (F10) with BetterConsole installed | Fixed: older builds probed the Present hook in a way BetterConsole's own swapchain hook misread, crashing the game a frame later (or on the next console open). Update OSF UI — a fixed build logs `probe = windowless composition swapchain` when the overlay first opens. |
 | No pointer while the overlay is open, or the pointer flickers/jumps to center | The engine or another overlay is fighting the hardware cursor. The log shows `HardwareCursor: activated/deactivated` pairs on F10. Report it. As a stopgap, `"hardwareCursor": false` in `config.json` restores the old input path, but that path has no visible pointer, so treat it as a diagnostic, not a fix. |
 | *(developers)* I edited a built-in view's `main.js` / `style.css` and nothing changed | You edited generated output. Everything under `data/OSFUI/views/` is built from `frontend/src/` — the game loaded exactly what is on disk, and your edit will be destroyed by the next build. Edit `frontend/src/`, run `npm --prefix frontend run build`, redeploy, then F11 (with `devMode`). See [../frontend/README.md](../frontend/README.md). Your *own* mod's view is unaffected: third-party views are hand-authored and load as-is. |
 

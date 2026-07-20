@@ -4,29 +4,17 @@
 
 Views (HTML/CSS/JS) are mod content downloaded from the internet. Every view is treated as untrusted code running next to the game process with a native plugin attached. The runtime's goal is that a hostile view can at worst draw an ugly overlay, never execute native code.
 
-## Two backends, two postures
+## Renderer posture
 
-Most of this document was written for the Ultralight backend, whose sandbox is
-built out of an embedder-supplied `FileSystem` and an engine with no TLS roots.
-The shipped default is now `renderer: "webview2"`, which is **full Chromium**.
-Several Ultralight-specific mitigations simply do not exist there, and pretending
-otherwise would be the worst kind of security documentation. Rules 2, 3 and 7
-below are therefore split per backend; the rest hold on both, because they are
-enforced in native C++ above the renderer.
+OSF UI uses the out-of-process WebView2 host. Views run in full Chromium at
+`https://osfui.local/…`, mapped to the shared views root. The browser uses the
+OS trust store and OSF UI currently installs no `WebResourceRequested` filter
+or CSP, so there is **no engine-level network block**.
 
-| | `webview2` (default; out-of-process host) | `ultralight` |
-|---|---|---|
-| View origin | `https://osfui.local/…`, mapped to the views root | opaque `file:///…` |
-| Filesystem reach | whole views root, via the virtual-host mapping | whole views root, via `SandboxFileSystem` lexical checks |
-| TLS roots | the OS trust store — **https works** | none shipped — https fails for lack of roots |
-| Request interception | none (no `WebResourceRequested` filter, no CSP injection) | none (`NetworkListener` is Ultralight Pro only) |
-| Process boundary | separate `osfui_webview2_host.exe` | in-process with the game |
-
-The honest summary: on WebView2 there is **no engine-level network block at
-all**. What is actually enforced on both backends is the native bridge surface
-(rules 1, 4, 5, 6) — which is where the "hostile view executes native code"
-threat lives — plus the fact that view content is local mod content the user
-installed.
+The controls that prevent a hostile view from executing native code are the
+native bridge rules below. Chromium lives in a separate
+`osfui_webview2_host.exe` process; that boundary reduces renderer failure impact
+but is not a substitute for validating bridge messages.
 
 One structural mitigation is new and applies to the built-in views only:
 `data/OSFUI/views/` is **generated build output that is committed to git**, and
@@ -41,21 +29,9 @@ Each rule notes where it is enforced and any known gaps.
 
 1. **JS is untrusted.** Nothing a view sends is executed, evaluated, or used as a format string natively. Bridge input is parsed defensively: non-throwing JSON parse, typed accessors with defaults, length-bounded logging. Enforced in `MessageBridge` / `Json`.
 
-2. **No network by declaration; not hard-blocked on either backend.** The per-view `permissions.network` flag is recognized but force-disabled with a warning, and there is no config switch to turn it on (`ViewManifest.cpp`). That flag is *declaratory* — nothing downstream consults it to filter requests. Per backend:
+2. **No network by declaration; not yet hard-blocked.** The per-view `permissions.network` flag is recognized but force-disabled with a warning, yet nothing downstream currently filters Chromium requests. Remote `https://`, `fetch()`, WebSockets, service workers, and storage remain available. Shipped views make no remote requests, and their build gates reject `@font-face` and remote `url()`. A real request filter and/or CSP remains required hardening.
 
-   - **`ultralight`** — WebCore has its own HTTP stack and the request-blocking `NetworkListener` is Pro-edition only, so http(s) is not blocked at the engine level. Mitigations: `cacert.pem` is deliberately not shipped, so all https fails for lack of TLS roots, and views load from `file:///` only.
-   - **`webview2`** — **that mitigation does not hold.** This is a full Chromium using the OS certificate store, so `https://` and `fetch()` to a remote host work normally from a view. There is no `WebResourceRequested` filter installed and no CSP injected on either the in-process renderer or the out-of-process host, so nothing intercepts requests. The page is served from a real https origin, which also means the ordinary web platform is available to it (service workers, storage, WebSockets).
-
-   What remains true on both: shipped views are local content and make no requests, and the built-in views' build gates fail on `@font-face` or a remote `url()`. A real block on WebView2 (a `WebResourceRequested` filter that denies anything not under `osfui.local`, and/or an injected CSP) is the obvious hardening and is not done.
-
-3. **No filesystem access for views** beyond the views root. Per backend:
-
-   - **`ultralight`** — enforced in `SandboxFileSystem` (`UltralightWebRenderer.cpp`): relative paths only, no root name or root directory, any `..` component rejected, and two whitelisted base directories (the shared `views/` dir and the read-only ICU resources dir).
-   - **`webview2`** — enforced by `SetVirtualHostNameToFolderMapping`, which exposes exactly one folder (the views root) under `osfui.local` and nothing else on disk. There is no lexical path filter; the mapping *is* the boundary. Requests that escape it are simply requests to some other origin, which is the network question (rule 2), not a filesystem one.
-
-   Manifest `entry` validation is separate, native, and unchanged — it applies on both backends.
-
-Multi-view note: on both backends every view is served out of one shared `views/` root under folder-qualified URLs, so a view can read a sibling view's local assets. That is acceptable for local mod content, but it is not strict per-view isolation; strict isolation would need a per-request view context that neither Ultralight's FileSystem API nor a single virtual-host mapping provides. The Ultralight checks are lexical only; symlink and ADS canonicalization is future hardening.
+3. **No local filesystem access beyond the views root.** `SetVirtualHostNameToFolderMapping` exposes exactly the shared views folder under `osfui.local`; nothing else on disk is mapped. Manifest `entry` validation separately rejects paths that escape a view folder. Because every view shares one mapped root, a view can read a sibling view's assets; strict per-view isolation would require separate mappings or request filtering.
 
 4. **No process execution.** No bridge command spawns processes, and none is planned.
 
@@ -71,18 +47,12 @@ Multi-view note: on both backends every view is served out of one shared `views/
 
 6. **Per-view permissions** (`nativeBridge`, `filesystem`, `network`) default to deny in the manifest parser. Today `nativeBridge=false` prevents bridge creation, blocks the `window.osfui` injection for that view, and drops any outbound send targeting it; finer-grained, per-command grants come later with multi-view support. Partially enforced.
 
-7. **Clipboard is user-gesture only.** A view the user pastes into receives whatever text is on the system clipboard (which may be sensitive), and a view the user copies from can write to it. There is no bridge command that touches the clipboard on either backend, so views cannot read or write it *via the bridge*. Per backend:
-
-   - **`ultralight`** — a real system clipboard provider (`WinClipboard`, installed from `UltralightWebRenderer.cpp`) serves in-page copy/cut/paste; this supersedes the earlier "no clipboard handler" posture. Ultralight invokes it from its editing path when a focused editable field receives Ctrl+C/X/V. First read and first write are logged. Whether WebCore blocks a programmatic `document.execCommand("paste")` without a user gesture has not been verified and is a known gap.
-   - **`webview2`** — clipboard access is Chromium's own, not ours: no OSF UI code participates, so nothing is logged and the gesture rules are whatever that Chromium build enforces (the async Clipboard API normally requires a user gesture and, for reads, a permission prompt — unverified here). Note the view runs on a real https origin, so it is not automatically in the restricted bucket an opaque origin would be.
-
-   Per-view clipboard gating is future hardening on both.
+7. **Clipboard follows Chromium's gesture rules.** There is no OSF UI bridge command for clipboard access. In-page copy, cut, paste, and the async Clipboard API are handled by Chromium; OSF UI does not log or independently gate them. A user paste can disclose sensitive clipboard text to a view, and per-view clipboard gating remains future hardening.
 
 ## Future hardening
 
-- **A real network block on WebView2** (rule 2): a `WebResourceRequested` filter that denies any request not under `osfui.local`, and/or an injected CSP. This is the largest open gap, because the Ultralight-era "no `cacert.pem`" mitigation does not carry over to Chromium and nothing replaced it.
-- Canonical-path sandbox for the Ultralight FileSystem: reject symlink and ADS tricks by prefix-checking after canonicalization. Current checks are lexical.
-- Per-view clipboard gating (rule 7): verify WebCore denies programmatic paste without a user gesture, and consider a manifest permission so passive HUD views get no clipboard at all.
+- **A real network block** (rule 2): a `WebResourceRequested` filter that denies requests outside `osfui.local`, and/or an injected CSP.
+- Per-view clipboard gating (rule 7), especially for passive HUD views.
 - Rate-limit bridge messages per view, so JS cannot stall the game thread with message floods. Both bridge queues are already capped at 64 messages (drop and warn once beyond that); per-time-window limits remain to do.
 - Message size caps. Log text is already truncated at 512 chars; generalize this.
 - Versioned bridge API so views cannot probe for undocumented commands. Partially done: `runtime.ready` already carries `bridgeVersion` (and the plugin `version`); the remaining gap is that unknown-command `ui.error` replies still let a view enumerate what exists.

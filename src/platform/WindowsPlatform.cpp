@@ -10,27 +10,8 @@
 
 #include <ShlObj.h>
 
-#include <cstring>
-
 namespace OSFUI::Platform
 {
-	namespace
-	{
-		// The clipboard is a single global resource other processes also grab;
-		// a short bounded retry rides out transient contention without blocking
-		// the worker for long.
-		bool OpenClipboardWithRetry()
-		{
-			for (int attempt = 0; attempt < 5; ++attempt) {
-				if (::OpenClipboard(nullptr)) {
-					return true;
-				}
-				::Sleep(1);
-			}
-			return false;
-		}
-	}
-
 	std::filesystem::path GetDocumentsPath()
 	{
 		PWSTR raw = nullptr;
@@ -126,67 +107,5 @@ namespace OSFUI::Platform
 		}
 		a_value = *reinterpret_cast<const std::uintptr_t*>(a_address);
 		return true;
-	}
-
-	std::wstring GetClipboardText()
-	{
-		if (!::IsClipboardFormatAvailable(CF_UNICODETEXT) || !OpenClipboardWithRetry()) {
-			return {};
-		}
-		std::wstring result;
-		if (const HANDLE data = ::GetClipboardData(CF_UNICODETEXT)) {
-			if (const auto* text = static_cast<const wchar_t*>(::GlobalLock(data))) {
-				// CF_UNICODETEXT is NUL-terminated, but GlobalSize is the upper
-				// bound — scan to the NUL within it so a malformed block can't
-				// over-read.
-				const std::size_t maxChars = ::GlobalSize(data) / sizeof(wchar_t);
-				std::size_t       len = 0;
-				while (len < maxChars && text[len] != L'\0') {
-					++len;
-				}
-				result.assign(text, len);
-				::GlobalUnlock(data);
-			}
-		}
-		::CloseClipboard();
-		return result;
-	}
-
-	bool SetClipboardText(const std::wstring& a_text)
-	{
-		if (!OpenClipboardWithRetry()) {
-			return false;
-		}
-		bool ok = false;
-		if (::EmptyClipboard()) {
-			const std::size_t bytes = (a_text.size() + 1) * sizeof(wchar_t);  // incl NUL
-			if (const HGLOBAL mem = ::GlobalAlloc(GMEM_MOVEABLE, bytes)) {
-				if (auto* dst = static_cast<wchar_t*>(::GlobalLock(mem))) {
-					std::memcpy(dst, a_text.c_str(), bytes);
-					::GlobalUnlock(mem);
-					// On success the system takes ownership of `mem`; on failure
-					// we must free it ourselves.
-					if (::SetClipboardData(CF_UNICODETEXT, mem)) {
-						ok = true;
-					} else {
-						::GlobalFree(mem);
-					}
-				} else {
-					::GlobalFree(mem);
-				}
-			}
-		}
-		::CloseClipboard();
-		return ok;
-	}
-
-	bool ClearClipboard()
-	{
-		if (!OpenClipboardWithRetry()) {
-			return false;
-		}
-		const bool ok = ::EmptyClipboard() != 0;
-		::CloseClipboard();
-		return ok;
 	}
 }

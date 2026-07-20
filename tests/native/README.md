@@ -29,7 +29,7 @@ the test file itself — `src/core/Log.cpp` pulls game deps and is not compiled.
 
 ## Scope
 
-Only sources with no game/SFSE/Ultralight includes can live here. Currently:
+Only sources with no game/SFSE/browser-SDK includes can live here. Currently:
 
 | Test | Covers |
 |---|---|

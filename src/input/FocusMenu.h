@@ -33,7 +33,7 @@ namespace OSFUI
 	// primary vtable (RE::VTABLE::IMenu[0] = REL::ID 475515) with slots
 	// 3/4/5/6/8 + 0x0A patched -> construct a valid menuName in place at +0xB0 ->
 	// pin the refcount. The +0xB0 name is the specific guard against the crash;
-	// uiMovie stays null (Ultralight-backed; the per-frame movie sites null-guard
+	// uiMovie stays null (web-backed; the per-frame movie sites null-guard
 	// +0x88, so no .swf is required). Open/close CALLS are proven
 	// (UIMessageQueue::AddMessage 130659).
 	//
@@ -107,7 +107,7 @@ namespace OSFUI
 
 		// pure virtuals (vfuncs 03/04/05)
 		const char*   GetName() const override { return MENU_NAME.data(); }
-		const char*   GetRootPath() const override { return ""; }  // Ultralight-backed: no .swf root (the runtime object's slot-4 is Thunk_GetRootPath, also "")
+		const char*   GetRootPath() const override { return ""; }  // web-backed: no .swf root (the runtime object's slot-4 is Thunk_GetRootPath, also "")
 		std::uint64_t GetUnk05() override { return 0; }
 
 		// IMenu also derives BSTEventSink<UpdateSceneRectEvent>; satisfy its pure
