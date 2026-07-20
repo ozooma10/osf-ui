@@ -8,6 +8,7 @@
 #include "api/BridgeApi.h"
 
 #include "core/Log.h"
+#include "core/Version.h"  // kBridgeProtocolVersion (runtime.ready assertion)
 #include "runtime/MessageBridge.h"
 
 namespace
@@ -262,7 +263,9 @@ int main()
 		bridge.SendRuntimeReady("someview");
 		CHECK(toWeb.size() == 1);
 		CHECK(!toWeb.empty() && toWeb.back().second.find("\"version\":") != std::string::npos);
-		CHECK(!toWeb.empty() && toWeb.back().second.find("\"bridgeVersion\":\"1.0\"") != std::string::npos);
+		// Built from the constant, not a literal — the version bumps on additive
+		// protocol changes and this check is about the FIELD being present.
+		CHECK(!toWeb.empty() && toWeb.back().second.find(std::format("\"bridgeVersion\":\"{}\"", OSFUI::kBridgeProtocolVersion)) != std::string::npos);
 		CHECK(!toWeb.empty() && toWeb.back().second.find("\"capabilities\"") == std::string::npos);
 	}
 

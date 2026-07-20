@@ -5,6 +5,23 @@
 // SettingsStore) compile and run on any desktop toolchain. Never used by the
 // real plugin build — xmake force-includes src/pch.h there.
 
+// The suites also compile on Windows (local MSVC loop; CI is clang/Linux).
+// sdk/OSFUI_API.h's non-REX fallback includes <Windows.h> there — keep
+// wingdi's ERROR macro (and min/max) from clobbering REX::ERROR / std::min
+// in the sources under test. This stub pch is force-included first, so the
+// defines land before any transitive <Windows.h>.
+#ifdef _WIN32
+#	ifndef WIN32_LEAN_AND_MEAN
+#		define WIN32_LEAN_AND_MEAN
+#	endif
+#	ifndef NOMINMAX
+#		define NOMINMAX
+#	endif
+#	ifndef NOGDI
+#		define NOGDI
+#	endif
+#endif
+
 #include <algorithm>
 #include <atomic>
 #include <charconv>

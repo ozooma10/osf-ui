@@ -2,6 +2,7 @@
 
 #include "api/BridgeApi.h"  // SettingsMirror access + RequestMenu
 #include "core/Version.h"
+#include "runtime/Ids.h"  // id grammar validation + case-insensitive matching
 #include "runtime/SettingsStore.h"
 
 #include "RE/B/BSScriptUtil.h"  // BindNativeMethod marshaling, GameVM, VirtualMachine
@@ -28,6 +29,7 @@ namespace OSFUI::API::Papyrus
 		{
 			kSettings,
 			kHotkey,
+			kAction,  // view-fired ui.action relay: modId required, key unused
 		};
 
 		struct Entry
@@ -49,12 +51,28 @@ namespace OSFUI::API::Papyrus
 			bool           reset{ false };
 		};
 
-		// Guards the slot table AND the op queue (both are tiny; natives touch
+		// Guards the slot table AND the op/push queues (all tiny; natives touch
 		// them for microseconds from VM threads, the main thread drains).
 		std::mutex             s_lock;
 		std::vector<Entry>     s_slots;
 		std::uint16_t          s_nextGen = 1;
 		std::vector<QueuedOp>  s_ops;
+		std::vector<ViewPush>  s_pushes;
+
+		// Fold to the id grammar's lowercase before validating/matching: the
+		// string arrived through BSFixedString interning, which hands back the
+		// FIRST-seen casing process-wide (SettingsMirror.h), so the script's
+		// literal spelling never survives reliably.
+		std::string ToLowerAscii(std::string_view a_s)
+		{
+			std::string out(a_s);
+			for (char& c : out) {
+				if (c >= 'A' && c <= 'Z') {
+					c = static_cast<char>(c + 32);
+				}
+			}
+			return out;
+		}
 
 		constexpr std::int32_t MakeToken(std::uint16_t a_gen, std::uint16_t a_slot)
 		{
@@ -97,8 +115,10 @@ namespace OSFUI::API::Papyrus
 			const auto token = MakeToken(gen, slot);
 			REX::DEBUG("PapyrusApi: registered token {:#010x} -> {}{}(string, string) ({} filter '{}'{}{})",
 				token, e.scriptName.empty() ? "" : std::string(e.scriptName.c_str()) + ".", e.fn.c_str(),
-				a_kind == Kind::kHotkey ? "hotkey" : "settings", e.modId,
-				e.key.empty() ? "" : ".", e.key);
+				a_kind == Kind::kHotkey ? "hotkey" :
+				a_kind == Kind::kAction ? "action" :
+				                          "settings",
+				e.modId, e.key.empty() ? "" : ".", e.key);
 			return token;
 		}
 
@@ -114,58 +134,75 @@ namespace OSFUI::API::Papyrus
 			};
 		}
 
-		// Fan (a_modId, a_key) out to every matching registration of a_kind.
-		// Snapshot under the lock, dispatch outside it (a callback may
-		// re-enter Register/Unregister). DispatchMethodCall/DispatchStaticCall
-		// only queue onto the VM — cheap and any-thread, though today every
-		// caller is the main thread.
-		void Dispatch(Kind a_kind, std::string_view a_modId, std::string_view a_key)
+		struct Target
 		{
-			struct Target
-			{
-				RE::BSTSmartPointer<RE::BSScript::Object> receiver;
-				RE::BSFixedString                         scriptName;
-				RE::BSFixedString                         fn;
-			};
+			RE::BSTSmartPointer<RE::BSScript::Object> receiver;
+			RE::BSFixedString                         scriptName;
+			RE::BSFixedString                         fn;
+		};
+
+		// Snapshot the registrations of a_kind matching (a_modId, a_key) under
+		// the lock; the caller dispatches OUTSIDE it (a callback may re-enter
+		// Register/Unregister).
+		std::vector<Target> CollectTargets(Kind a_kind, std::string_view a_modId, std::string_view a_key)
+		{
 			std::vector<Target> targets;
-			{
-				std::lock_guard l{ s_lock };
-				for (const auto& e : s_slots) {
-					if (e.generation == 0 || e.kind != a_kind) {
-						continue;
-					}
-					// Case-insensitive: registration filters arrived through
-					// BSFixedString interning, which hands back whatever casing
-					// was interned FIRST process-wide — the script's literal
-					// spelling never survives reliably (SettingsMirror.h).
-					if (!e.modId.empty() && !Ids::EqualsCaseInsensitiveAscii(e.modId, a_modId)) {
-						continue;
-					}
-					if (a_kind == Kind::kHotkey && !e.key.empty() && !Ids::EqualsCaseInsensitiveAscii(e.key, a_key)) {
-						continue;
-					}
-					targets.emplace_back(e.receiver, e.scriptName, e.fn);
+			std::lock_guard     l{ s_lock };
+			for (const auto& e : s_slots) {
+				if (e.generation == 0 || e.kind != a_kind) {
+					continue;
 				}
+				// Case-insensitive: registration filters arrived through
+				// BSFixedString interning, which hands back whatever casing
+				// was interned FIRST process-wide — the script's literal
+				// spelling never survives reliably (SettingsMirror.h).
+				if (!e.modId.empty() && !Ids::EqualsCaseInsensitiveAscii(e.modId, a_modId)) {
+					continue;
+				}
+				if (a_kind == Kind::kHotkey && !e.key.empty() && !Ids::EqualsCaseInsensitiveAscii(e.key, a_key)) {
+					continue;
+				}
+				targets.emplace_back(e.receiver, e.scriptName, e.fn);
 			}
-			if (targets.empty()) {
+			return targets;
+		}
+
+		// Queue the two-string call (a_arg1, a_arg2) to every target.
+		// DispatchMethodCall/DispatchStaticCall only queue onto the VM — cheap
+		// and any-thread, though today every caller is the main thread.
+		void DispatchToTargets(const std::vector<Target>& a_targets, std::string_view a_arg1, std::string_view a_arg2)
+		{
+			if (a_targets.empty()) {
 				return;
 			}
-
 			auto* vm = VM::GetSingleton();
 			if (!vm) {
 				REX::WARN("PapyrusApi: dispatch with no VM");
 				return;
 			}
-			const RE::BSFixedString mod{ std::string(a_modId).c_str() };
-			const RE::BSFixedString key{ std::string(a_key).c_str() };
+			const RE::BSFixedString arg1{ std::string(a_arg1).c_str() };
+			const RE::BSFixedString arg2{ std::string(a_arg2).c_str() };
 			const RE::BSTSmartPointer<RE::BSScript::IStackCallbackFunctor> noCallback{};
-			for (auto& t : targets) {
+			for (const auto& t : a_targets) {
 				if (!t.scriptName.empty()) {
-					vm->DispatchStaticCall(t.scriptName, t.fn, MakeArgs(mod, key), noCallback, 0);
+					vm->DispatchStaticCall(t.scriptName, t.fn, MakeArgs(arg1, arg2), noCallback, 0);
 				} else {
-					vm->DispatchMethodCall(t.receiver, t.fn, MakeArgs(mod, key), noCallback, 0);
+					vm->DispatchMethodCall(t.receiver, t.fn, MakeArgs(arg1, arg2), noCallback, 0);
 				}
 			}
+		}
+
+		// Fan (a_modId, a_key) out to every matching registration of a_kind —
+		// the settings/hotkey shape, where the filter values ARE the call args.
+		void Dispatch(Kind a_kind, std::string_view a_modId, std::string_view a_key)
+		{
+			DispatchToTargets(CollectTargets(a_kind, a_modId, a_key), a_modId, a_key);
+		}
+
+		// The action shape: filter on a_modId, but call with (action, arg).
+		void DispatchAction(std::string_view a_modId, std::string_view a_action, std::string_view a_arg)
+		{
+			DispatchToTargets(CollectTargets(Kind::kAction, a_modId, {}), a_action, a_arg);
 		}
 
 		void QueueOp(RE::BSFixedString& a_mod, RE::BSFixedString& a_key, nlohmann::json a_value, bool a_reset)
@@ -186,6 +223,38 @@ namespace OSFUI::API::Papyrus
 				return;
 			}
 			s_ops.push_back({ mod, key ? key : "", std::move(a_value), a_reset });
+		}
+
+		// PushToView native body (VM tasklet thread): validate, then queue for
+		// Runtime::Tick's DrainViewPushes — the same queue-on-VM-thread /
+		// drain-on-main-thread shape as QueueOp.
+		void QueuePush(RE::BSFixedString& a_mod, RE::BSFixedString& a_key, std::vector<RE::BSFixedString>& a_values)
+		{
+			// Fold to the grammar's lowercase before validating: the interned
+			// casing is arbitrary, and the folded id is also what the delivery
+			// prefix-matches against (lowercase-by-grammar) view ids.
+			auto        mod = ToLowerAscii(a_mod.c_str() ? a_mod.c_str() : "");
+			const char* key = a_key.c_str();
+			if (!Ids::IsAcceptedModId(mod) || !key || !*key) {
+				REX::WARN("PapyrusApi: PushToView('{}', '{}') refused (invalid mod id or empty key)",
+					mod.substr(0, 64), key ? std::string_view(key).substr(0, 64) : "");
+				return;
+			}
+			std::vector<std::string> values;
+			values.reserve(a_values.size());
+			for (const auto& v : a_values) {
+				values.emplace_back(v.c_str() ? v.c_str() : "");
+			}
+			std::lock_guard l{ s_lock };
+			// Same drop-newest discipline as the settings-op queue: with the
+			// runtime disabled the drain never runs, and a scripted push loop
+			// must not grow memory forever.
+			constexpr std::size_t kMaxPendingPushes = 1024;
+			if (s_pushes.size() >= kMaxPendingPushes) {
+				REX::WARN("PapyrusApi: pending view-push queue full; dropping PushToView for {}.{}", mod, key);
+				return;
+			}
+			s_pushes.push_back({ std::move(mod), key, std::move(values) });
 		}
 
 		// ---------------------------------------------------------------- natives
@@ -313,6 +382,36 @@ namespace OSFUI::API::Papyrus
 			return AddEntry(Kind::kHotkey, {}, a_script, a_fn.c_str(), a_modId.c_str(), a_key.c_str() ? a_key.c_str() : "");
 		}
 
+		std::int32_t RegisterForViewActions(PapVM&, std::uint32_t, std::monostate,
+			RE::BSTSmartPointer<RE::BSScript::Object> a_receiver, RE::BSFixedString a_fn, RE::BSFixedString a_modId)
+		{
+			const auto modId = ToLowerAscii(a_modId.c_str() ? a_modId.c_str() : "");
+			if (!a_receiver.get() || a_fn.empty() || !Ids::IsAcceptedModId(modId)) {
+				REX::DEBUG("PapyrusApi: RegisterForViewActions: null receiver, empty function name, or invalid mod id");
+				return 0;
+			}
+			std::lock_guard l{ s_lock };
+			return AddEntry(Kind::kAction, a_receiver, {}, a_fn.c_str(), modId, {});
+		}
+
+		std::int32_t RegisterForViewActionsStatic(PapVM&, std::uint32_t, std::monostate,
+			RE::BSFixedString a_script, RE::BSFixedString a_fn, RE::BSFixedString a_modId)
+		{
+			const auto modId = ToLowerAscii(a_modId.c_str() ? a_modId.c_str() : "");
+			if (a_script.empty() || a_fn.empty() || !Ids::IsAcceptedModId(modId)) {
+				REX::DEBUG("PapyrusApi: RegisterForViewActionsStatic: empty script, empty function name, or invalid mod id");
+				return 0;
+			}
+			std::lock_guard l{ s_lock };
+			return AddEntry(Kind::kAction, {}, a_script, a_fn.c_str(), modId, {});
+		}
+
+		void PushToView(PapVM&, std::uint32_t, std::monostate,
+			RE::BSFixedString a_mod, RE::BSFixedString a_key, std::vector<RE::BSFixedString> a_values)
+		{
+			QueuePush(a_mod, a_key, a_values);
+		}
+
 		bool Unregister(PapVM&, std::uint32_t, std::monostate, std::int32_t a_token)
 		{
 			if (a_token == 0) {
@@ -362,7 +461,11 @@ namespace OSFUI::API::Papyrus
 			a_vm->BindNativeMethod(kScriptName, "RegisterForSettingChangesStatic", &RegisterForSettingChangesStatic, true, false);
 			a_vm->BindNativeMethod(kScriptName, "RegisterForHotkey", &RegisterForHotkey, true, false);
 			a_vm->BindNativeMethod(kScriptName, "RegisterForHotkeyStatic", &RegisterForHotkeyStatic, true, false);
+			a_vm->BindNativeMethod(kScriptName, "RegisterForViewActions", &RegisterForViewActions, true, false);
+			a_vm->BindNativeMethod(kScriptName, "RegisterForViewActionsStatic", &RegisterForViewActionsStatic, true, false);
 			a_vm->BindNativeMethod(kScriptName, "Unregister", &Unregister, true, false);
+
+			a_vm->BindNativeMethod(kScriptName, "PushToView", &PushToView, true, false);
 
 			a_vm->BindNativeMethod(kScriptName, "OpenMenu", &OpenMenu, true, false);
 			a_vm->BindNativeMethod(kScriptName, "CloseMenu", &CloseMenu, true, false);
@@ -446,6 +549,23 @@ namespace OSFUI::API::Papyrus
 	void OnHotkey(std::string_view a_modId, std::string_view a_key)
 	{
 		Dispatch(Kind::kHotkey, a_modId, a_key);
+	}
+
+	void OnViewAction(std::string_view a_modId, std::string_view a_action, std::string_view a_arg)
+	{
+		DispatchAction(a_modId, a_action, a_arg);
+	}
+
+	void DrainViewPushes(const std::function<void(const ViewPush&)>& a_deliver)
+	{
+		std::vector<ViewPush> pushes;
+		{
+			std::lock_guard l{ s_lock };
+			pushes.swap(s_pushes);
+		}
+		for (const auto& p : pushes) {
+			a_deliver(p);
+		}
 	}
 
 	void DrainSettingsOps(SettingsStore& a_store)

@@ -365,6 +365,31 @@ namespace OSFUI
 		if (_settings) {
 			API::Papyrus::DrainSettingsOps(_settings->Store());
 		}
+		// Papyrus PushToView payloads fan out to the pushing mod's live views
+		// as `data.push` — before PumpMainThread/Update flush the per-view
+		// outbound queues, so a push lands in this tick's frame. Deliberately
+		// no subscriber set: the target list is derived fresh from the live
+		// surfaces each time, so there is nothing to prune or go stale.
+		if (_bridge) {
+			API::Papyrus::DrainViewPushes([this](const API::Papyrus::ViewPush& a_push) {
+				std::unordered_set<std::string> targets;
+				const std::string               prefix = a_push.mod + "/";
+				for (const auto& m : _views.All()) {
+					if (_menus.IsRegistered(m.id) && m.id.starts_with(prefix)) {
+						targets.insert(m.id);
+					}
+				}
+				if (targets.empty()) {
+					// Fire-and-forget: a mod pushing with no view installed/live
+					// is not an error, but leave a devMode trace.
+					REX::DEBUG("Runtime: PushToView {}.{} had no live '{}/...' view to deliver to",
+						a_push.mod, a_push.key, a_push.mod);
+					return;
+				}
+				_bridge->SendToWeb(targets, "data.push", nlohmann::json{
+					{ "mod", a_push.mod }, { "key", a_push.key }, { "values", a_push.values } });
+			});
+		}
 		// Apply the native plugin API's queued ops (command (re)registration +
 		// off-thread SendToWeb) on the main thread, before Update() flushes the
 		// per-view outbound queues to the pages.
@@ -1505,6 +1530,24 @@ namespace OSFUI
 			a_b.DeferResult();
 			_captureArmed.store(true);
 			REX::INFO("Runtime: armed key capture for {}.{} (from view '{}')", mod, key, _captureView);
+		});
+		// Fire an action at the owning mod's Papyrus scripts
+		// (OSFUI.RegisterForViewActions). The mod id comes from the SOURCE view
+		// id — never the payload — so a view cannot fire actions into another
+		// mod's callbacks. Fire-and-forget by design (no reply payload; a
+		// requestId still gets the auto ui.result ack meaning "queued to the
+		// VM", not "handled").
+		a_bridge.RegisterCommand("ui.action", [](const nlohmann::json& a_p, MessageBridge& a_b) {
+			const std::string source(a_b.CurrentSource());
+			const auto        slash = source.find('/');
+			const std::string mod = slash == std::string::npos ? source : source.substr(0, slash);
+			const std::string action = Json::GetString(a_p, "action", "");
+			if (action.empty()) {
+				REX::WARN("Runtime: ui.action from '{}' ignored — empty 'action'", source);
+				a_b.SendResult(false, "invalid-action", "ui.action requires a non-empty 'action' string");
+				return;
+			}
+			API::Papyrus::OnViewAction(mod, action, Json::GetString(a_p, "arg", ""));
 		});
 		a_bridge.RegisterCommand("log", [](const nlohmann::json& a_p, MessageBridge&) {
 			// Untrusted content: bound the length so JS cannot flood the log.

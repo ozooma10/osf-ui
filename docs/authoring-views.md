@@ -14,7 +14,7 @@ a reference for the two data-driven extension points that work today:
 
 > **Status / scope.** Pure content, no recompile: a
 > `views/<modId>/<viewName>/` folder and a `settings/<modId>.json` schema. The
-> bridge protocol is at version **1.0 — stable**; additive changes bump the
+> bridge protocol is at version **1.1 — stable**; additive changes bump the
 > minor version, breaking changes bump the major. Compatibility is advisory:
 > declare the OSF UI version you authored against as `targetVersion` (manifest
 > and/or settings schema, §7), and the Mods surface shows a "needs update"
@@ -364,6 +364,7 @@ Whitelisted commands (anything else is rejected, logged, and answered with
 | `settings.captureKey` | `mod, key` | arm native key-rebind capture for any `key`-typed setting of any mod; the next key press replies with `settings.captured`, echoing the arming `requestId` however many ticks later, so `osfui.request("settings.captureKey", …, {timeoutMs: 0})` awaits the whole rebind. One capture at a time; a second arm answers `ui.result { ok:false, code:"capture-busy" }`. Capture happens in the native input layer, so pressing the current toggle key rebinds instead of closing the overlay |
 | `osfui.gamepadRaw` | `raw: bool` | *(experimental — exempt from the 1.0 stability guarantee until stabilized)* take over gamepad handling: suppress the default nav mapping and consume raw `ui.gamepad` events yourself. The grant is sticky per view — it survives overlay hide/show and clears only when your page (re)loads or the view is destroyed; other views never inherit it |
 | `osfui.handleBack` | `handle: bool` | own the back action. While your menu is ACTIVE, Esc / gamepad B are delivered to your page as a synthetic Escape keydown/keyup instead of closing the top menu — handle it and decide: navigate (`menu.open`), dismiss an inner panel, or send `close`. Same sticky-per-view lifecycle as `osfui.gamepadRaw` (clears on page (re)load / view destroy — re-assert in your boot code). The overlay toggle key always closes natively, so a page that stops responding cannot strand the player |
+| `ui.action` | `action: string`, `arg?: string` | *(protocol 1.1)* fire an action at the OWNING mod's Papyrus scripts (`OSFUI.RegisterForViewActions`). The target mod id is derived from the calling view's id — the payload cannot spoof it. Fire-and-forget: no reply payload (a `requestId` still gets the auto `ui.result`, meaning "queued to the VM", not "handled"); the script answers by pushing state back as `data.push`. Convention: fire `{ action: "ready" }` on page load so the script (re)pushes current state — see [authoring-dynamic-data.md](authoring-dynamic-data.md) |
 
 > There is intentionally no "call any native function" escape hatch. New
 > commands come from native code only: either a handler in the OSF UI
@@ -390,6 +391,7 @@ serves both:
 | `settings.ack` | `{ mod, key, ok, value?, code?, message? }` | result of a `settings.set`. `ok:true` carries `value`, the authoritative post-clamp committed value (compare with what you sent to detect clamping — no re-fetch needed); `ok:false` carries a stable `code`: `unknown-setting`, `read-only` (a setting type this host doesn't know), or `invalid-value` |
 | `settings.captured` | `{ mod, key, name, cancelled, conflicts? }` | reply to `settings.captureKey`: the captured key `name` (an OSF UI key name), or `cancelled:true` (Escape / unbindable — keep the old binding). When the captured key is already bound elsewhere, `conflicts: [{mod, key, title}]` lists actionable collisions this bind would create; expected `@game` reuse from a `blocksGameplay` context is omitted. Warn live, never block. The view then sends a normal `settings.set` with `name` |
 | `ui.hotkey` | `{ mod, key }` | the physical key currently bound to that `key`-typed setting was pressed in-game (protocol 1.0). Pushed to every `settings.get` subscriber — filter on `mod`. Suppressed while the overlay captures input or a rebind is armed; rebinds re-route automatically |
+| `data.push` | `{ mod, key, values }` | *(protocol 1.1)* dynamic data pushed by the owning mod's Papyrus script (`OSFUI.PushToView`), delivered to every loaded view of that mod. `values` is the WHOLE current string list for that `key` (state replacement, not a delta); nothing is cached natively — fire a `ready` `ui.action` on page load to get the initial state. Compare `key` case-insensitively (Papyrus interning does not preserve casing) and ignore keys you don't know — see [authoring-dynamic-data.md](authoring-dynamic-data.md) |
 | `ui.result` | `{ ok, command?, code?, message? }` | the uniform outcome (protocol 1.0), sent only when your `ui.command` carried a `requestId`: verb commands (`close`, `menu.open`, …) answer `ok:true` on success; failures carry a stable `code` (`unknown-view`, `capture-busy`, `unknown-setting`, …). For a plugin-registered command, `ok:true` means delivered to the plugin's handler. `osfui.request()` consumes this for you |
 | `ui.gamepad` | `{ kind:"button", button:{id, down} }` \| `{ kind:"stick", axes:{lx, ly, rx, ry} }` | *(experimental — gamepad navigation is being refined; exempt from the 1.0 stability guarantee until stabilized)* raw gamepad events to the ACTIVE view while the overlay captures input (per-kind nesting, protocol 1.0). The default nav mapping (D-pad and left stick→arrows, A→Enter, B→back — a synthetic Escape to the page under `osfui.handleBack`, otherwise close, right stick→scroll) also applies unless you asserted `osfui.gamepadRaw` |
 | `ui.visibility` | `{ visible }` | the receiving view was shown/hidden with the overlay (edge-triggered). The reference views scope per-visit state off this |
@@ -701,7 +703,7 @@ const info = await osfui.ready;
 console.log(`running OSF UI ${info.version}`);
 ```
 
-The protocol version is **1.0**, emitted as `bridgeVersion` — informational
+The protocol version is **1.1**, emitted as `bridgeVersion` — informational
 (logs, bug reports), distinct from the plugin `version`. From 1.0 the
 contract is stable: additive changes bump the minor version; anything that
 would break a shipped view bumps the major. The constant lives in

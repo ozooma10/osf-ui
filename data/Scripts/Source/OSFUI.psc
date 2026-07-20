@@ -72,6 +72,41 @@ int Function RegisterForHotkey(ScriptObject akReceiver, string asFn, string asMo
 ; Instance-free variant: GLOBAL function asScript.asFn(string, string).
 int Function RegisterForHotkeyStatic(string asScript, string asFn, string asModId, string asKey = "") Global Native
 
+; --- dynamic data <-> views ---------------------------------------------------
+; Move DYNAMIC state (live lists, tables, arbitrary strings) between your
+; script and your mod's OSF UI views - no static settings schema, no native
+; plugin (see docs/authoring-dynamic-data.md for a worked example).
+;
+; The flow is one-directional: your script OWNS the data and pushes it; the
+; view only renders and fires actions back. OSF UI caches nothing - when a
+; view (re)opens or resyncs after a game load it fires a `ready` action, and
+; your OnUIAction handler answers by pushing current state again.
+
+; Push a list of strings to every live view owned by asModId (view ids
+; "<asModId>/..."), delivered to the page as `data.push { mod, key, values }`.
+; Fire-and-forget: queued on the calling thread, delivered on OSF UI's next
+; frame; nothing is stored natively. Views ignore keys they don't know, so
+; push freely. An empty asKey or an id that fails the mod-id grammar is
+; logged and dropped.
+Function PushToView(string asModId, string asKey, string[] asValues) Global Native
+
+; Calls akReceiver.asFn(string asAction, string asArg) when a view owned by
+; asModId fires an action (`osfui.send('ui.action', ...)` on the JS side).
+; Returns a token (0 = failed). Actions are fire-and-forget - there is no
+; return value; respond by pushing state back with PushToView.
+;
+;   Function OnUIAction(string asAction, string asArg)   ; on akReceiver
+;
+; The action/arg strings may arrive cased differently than the view sent them
+; (same interning caveat as above) - compare them with Papyrus == (itself
+; case-insensitive), and keep any case-SENSITIVE comparison out of your JS.
+; SESSION-scoped exactly like RegisterForSettingChanges - re-register every
+; time your script handles a game load.
+int Function RegisterForViewActions(ScriptObject akReceiver, string asFn, string asModId) Global Native
+; Instance-free variant for script LIBRARIES: dispatches to the GLOBAL
+; function asScript.asFn(string, string). Same semantics/token as above.
+int Function RegisterForViewActionsStatic(string asScript, string asFn, string asModId) Global Native
+
 ; Release a RegisterFor* token. False on a stale/invalid token.
 bool Function Unregister(int aiToken) Global Native
 

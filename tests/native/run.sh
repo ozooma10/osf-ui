@@ -75,6 +75,17 @@ compile bridge_api_tests \
     ../../src/runtime/SettingsStore.cpp \
     ../../src/runtime/Json.cpp
 
+compile papyrus_action_tests \
+    papyrus_action_tests.cpp \
+    ../../src/api/PapyrusApi.cpp \
+    ../../src/api/BridgeApi.cpp \
+    ../../src/api/SettingsMirror.cpp \
+    ../../src/api/SettingsSubscriptions.cpp \
+    ../../src/api/HotkeySubscriptions.cpp \
+    ../../src/runtime/MessageBridge.cpp \
+    ../../src/runtime/SettingsStore.cpp \
+    ../../src/runtime/Json.cpp
+
 compile vanilla_keys_tests \
     vanilla_keys_tests.cpp \
     ../../src/runtime/VanillaKeys.cpp \
@@ -86,7 +97,7 @@ compile localization_service_tests \
 	../../src/runtime/Json.cpp
 
 failures=0
-for t in settings_store_tests settings_module_tests settings_mirror_tests settings_subscriptions_tests hotkey_service_tests hotkey_subscriptions_tests bridge_api_tests vanilla_keys_tests localization_service_tests; do
+for t in settings_store_tests settings_module_tests settings_mirror_tests settings_subscriptions_tests hotkey_service_tests hotkey_subscriptions_tests bridge_api_tests papyrus_action_tests vanilla_keys_tests localization_service_tests; do
     echo "== $t =="
     "$BUILD/$t" || failures=$((failures + $?))
 done

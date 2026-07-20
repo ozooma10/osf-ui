@@ -35,6 +35,31 @@ namespace OSFUI::API::Papyrus
 	// matching registered script callbacks.
 	void OnHotkey(std::string_view a_modId, std::string_view a_key);
 
+	// MAIN thread (Runtime's `ui.action` bridge command): fan a view-fired
+	// action out to the mod's RegisterForViewActions callbacks as
+	// asFn(asAction, asArg). a_modId is derived from the SOURCE view id by the
+	// caller (never the payload) and matched case-insensitively. Fire-and-
+	// forget: no return value, no callback functor — deliberately no RPC into
+	// the VM (docs/authoring-dynamic-data.md).
+	void OnViewAction(std::string_view a_modId, std::string_view a_action, std::string_view a_arg);
+
+	// One queued PushToView payload. mod is canonical lowercase (folded from
+	// the interned Papyrus string and validated against the id grammar), so
+	// delivery can prefix-match it against lowercase-by-grammar view ids.
+	struct ViewPush
+	{
+		std::string              mod;
+		std::string              key;
+		std::vector<std::string> values;
+	};
+
+	// MAIN thread (Runtime::Tick, next to DrainSettingsOps): hand each queued
+	// Papyrus PushToView payload to a_deliver, which fans it out to the mod's
+	// live views as `data.push`. Fire-and-forget end to end — nothing is
+	// cached natively; a view that (re)opens fires a `ready` action and the
+	// script re-pushes current state.
+	void DrainViewPushes(const std::function<void(const ViewPush&)>& a_deliver);
+
 	// MAIN thread (Runtime::Tick): apply queued Papyrus Set*/Reset ops through
 	// the store's validated/clamped path. Refusals are logged, never thrown —
 	// the setters are documented fire-and-forget.

@@ -361,6 +361,11 @@ token for `Unregister(token)`; `...Static` variants dispatch to global
 functions on a named script for library-style mods. `OpenMenu()` opens the
 Mods surface (same as F10) for a "configure" shortcut.
 
+Settings cover pre-declared scalars. For **dynamic data** — pushing live
+lists/tables to a view of your own and reacting to its clicks, all from
+Papyrus — see [authoring-dynamic-data.md](authoring-dynamic-data.md)
+(`PushToView` / `RegisterForViewActions`).
+
 ---
 
 ## 9. Updating your mod

@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **Dynamic data for Papyrus mods** (bridge protocol 1.0 → 1.1, additive):
+  scripts can now drive a view with live data and react to its clicks — no
+  SFSE plugin needed. `OSFUI.PushToView(modId, key, values)` delivers a
+  string list to every loaded view of the mod as a `data.push` message;
+  views fire actions back with `osfui.send('ui.action', { action, arg })`,
+  dispatched to `OSFUI.RegisterForViewActions(receiver, fn, modId)` /
+  `...Static` callbacks (session-scoped, released with `Unregister`).
+  Everything is fire-and-forget: Papyrus owns the data, views re-request
+  state by firing a `ready` action on load, and OSF UI caches nothing. See
+  the new `docs/authoring-dynamic-data.md` (worked example: porting a
+  terminal menu).
+
 - Promoted the out-of-process WebView2 host to the sole production renderer.
 - Removed the Ultralight backend, SDK build option, runtime payload, and
   renderer-specific packaging path.

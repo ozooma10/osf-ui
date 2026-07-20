@@ -1,7 +1,7 @@
 /**
  * TypeScript definitions for the OSF UI native <-> web bridge.
  *
- * Bridge protocol version: 1.0 (STABLE — additive changes bump the minor;
+ * Bridge protocol version: 1.1 (STABLE — additive changes bump the minor;
  * breaking changes bump the major). Compatibility is advisory: declare the
  * OSF UI version you authored against as `targetVersion` (view manifest /
  * settings schema) and the Mods surface badges "needs update" when the
@@ -67,7 +67,17 @@ export type UiCommand =
   /** EXPERIMENTAL (gamepad navigation is being refined; exempt from the 1.0 stability guarantee until stabilized). Take over gamepad handling: suppress the default nav/scroll mapping and consume raw ui.gamepad events. STICKY PER VIEW — survives overlay hide/show; cleared when your page (re)loads or the view is destroyed. */
   | { command: "osfui.gamepadRaw"; raw: boolean }
   /** Own the back action. While your menu is ACTIVE, Esc / gamepad B arrive as a synthetic Escape keydown/keyup instead of closing the top menu — your page decides: navigate (`menu.open`), dismiss an inner panel, or send `close`. STICKY PER VIEW — survives overlay hide/show; cleared when your page (re)loads or the view is destroyed. The overlay toggle key always closes natively regardless. */
-  | { command: "osfui.handleBack"; handle: boolean };
+  | { command: "osfui.handleBack"; handle: boolean }
+  /**
+   * Fire an action at the OWNING mod's Papyrus scripts
+   * (OSFUI.RegisterForViewActions). The mod id is derived from the calling
+   * view's id — it cannot be spoofed via the payload. Fire-and-forget: there
+   * is no reply payload; the script answers by pushing state back as
+   * `data.push`. Convention: send `{ action: "ready" }` on load (and on
+   * `runtime.ready` re-handshakes) so the script knows to (re)push current
+   * state — OSF UI caches nothing (docs/authoring-dynamic-data.md).
+   */
+  | { command: "ui.action"; action: string; arg?: string };
 
 /**
  * A mod-defined action command fired by a schema `action` item. The command
@@ -329,8 +339,25 @@ export interface ViewsDataPayload {
   }>;
 }
 
+/**
+ * Dynamic data pushed from the owning mod's Papyrus script
+ * (OSFUI.PushToView), delivered to every live view of that mod. `key` names
+ * which piece of the mod's state this is — IGNORE keys you don't know
+ * (additive contract), and compare `key` case-INSENSITIVELY: Papyrus string
+ * interning means it can arrive cased differently than the script authored
+ * it. The payload is the WHOLE current value for that key (state replacement,
+ * not a delta); nothing is cached natively, so re-request state by firing a
+ * `ready` ui.action whenever your page (re)loads.
+ */
+export interface DataPushPayload {
+  mod: string;      // canonical lowercase pushing-mod id
+  key: string;      // which state slice; mod-defined
+  values: string[]; // the current value, as a list of strings
+}
+
 export type NativeToWebMessage =
   | BridgeEnvelope<"runtime.ready", RuntimeReadyPayload>
+  | BridgeEnvelope<"data.push", DataPushPayload>
   | BridgeEnvelope<"runtime.pong", Record<string, never>>
   | BridgeEnvelope<"game.data", GameDataPayload>
   | BridgeEnvelope<"views.data", ViewsDataPayload>
