@@ -1,12 +1,10 @@
-// stepper.ts — the int/float stepper arithmetic (main.legacy.js:353-388).
-//
-// The − / + buttons do NOT simply add `step` to the stored value. They snap the
-// result onto the step grid measured FROM `min`, then clamp. Both halves matter
-// and the ORDER matters; see `applyStep`.
+// Int/float stepper arithmetic. The − / + buttons do not just add `step` to the
+// stored value: they snap the result onto the step grid measured from `min`,
+// then clamp. The order matters; see `applyStep`.
 
 import type { Setting } from '@sdk';
 
-/** Type defaults for a missing/invalid `step` (main.legacy.js:359). */
+/** Type defaults for a missing/invalid `step`. */
 export const DEFAULT_INT_STEP = 1;
 export const DEFAULT_FLOAT_STEP = 0.01;
 
@@ -19,21 +17,17 @@ export interface StepperSpec {
 }
 
 /**
- * Was the schema's `step` unusable? Exposed so the caller can emit the
- * dev warning the legacy renderer logged inline (main.legacy.js:360) without
- * this module touching `console`.
+ * Was the schema's `step` unusable? Separate from `stepperFor` so the caller
+ * owns the dev warning and this module never touches `console`.
  */
 export function hasInvalidStep(setting: Pick<Setting, 'step'>): boolean {
   const declared = setting.step;
-  // `!= null`, NOT `!== undefined`: `stepperFor` resolves the step with `??`,
-  // so a `step: null` is NULLISH and silently takes the type default — the
-  // legacy renderer never warned about it (main.legacy.js:359-360 evaluates the
-  // guard on the POST-`??` value, which is already the default by then).
-  // Warning on null would be a diagnostic the shipped view never emitted.
+  // `!= null`, not `!== undefined`: `stepperFor` resolves the step with `??`,
+  // so a null step is nullish and silently takes the type default. Warning on
+  // it would be a diagnostic the shipped view never emitted.
   if (declared == null) return false;
-  // The legacy guard is `!(step > 0)`, which is true for 0, negatives AND NaN
-  // in one expression — a NaN step would divide-by-zero in `snap` and commit
-  // NaN over the bridge.
+  // `!(step > 0)` catches 0, negatives and NaN in one expression — a NaN step
+  // divides by zero in `snap` and commits NaN over the bridge.
   return !(declared > 0);
 }
 
@@ -47,17 +41,17 @@ export function stepperFor(setting: Pick<Setting, 'type' | 'min' | 'max' | 'step
   return { min, max, step, isInt };
 }
 
-/** main.legacy.js:370 — note `Math.min(max, ...)` wins when min > max. */
+/** `Math.min(max, ...)` wins when min > max. */
 export function clamp(spec: StepperSpec, v: number): number {
   return Math.min(spec.max, Math.max(spec.min, v));
 }
 
 /**
- * Snap onto the step grid measured from `min`, so a stored value that started
- * off-grid still lands on grid, and round away IEEE drift so repeated float
- * steps stay STRUCTURALLY comparable to the schema default (1.2, not
- * 1.2000000000000002 — otherwise the modified dot lights up on a value that is
- * numerically the default). main.legacy.js:374-377.
+ * Snap onto the step grid measured from `min`, so a value that started off-grid
+ * lands on grid. Floats round to 1e-6 to shed IEEE drift: repeated steps must
+ * stay structurally comparable to the schema default (1.2, not
+ * 1.2000000000000002), or the modified dot lights up on a value that is
+ * numerically the default.
  */
 export function snap(spec: StepperSpec, v: number): number {
   const s = spec.min + Math.round((v - spec.min) / spec.step) * spec.step;
@@ -65,20 +59,17 @@ export function snap(spec: StepperSpec, v: number): number {
 }
 
 /**
- * What the − / + buttons commit: SNAP FIRST, CLAMP SECOND
- * (`clamp(snap(v))`, main.legacy.js:379).
- *
- * The order is load-bearing and is NOT the same as clamp-then-snap. With
- * min:0 max:10 step:3, pressing + from 9 asks for 12: snap(12) = 12, clamp = 10
- * — the value parks on the BOUND, off the step grid. Clamp-then-snap would give
- * snap(10) = 9 and the + button would appear dead at the top of the range.
- * Parking on the bound is the intended UX; do not "fix" it.
+ * What the − / + buttons commit: snap first, clamp second. The order is
+ * load-bearing. With min:0 max:10 step:3, + from 9 asks for 12: snap(12) = 12,
+ * clamp = 10, so the value parks on the bound, off the step grid.
+ * Clamp-then-snap would give snap(10) = 9 and the + button would look dead at
+ * the top of the range. Parking on the bound is intended; do not "fix" it.
  */
 export function applyStep(spec: StepperSpec, v: number): number {
   return clamp(spec, snap(spec, v));
 }
 
-/** Convenience: one decrement / increment from the current value. */
+/** One decrement / increment from the current value. */
 export function stepDown(spec: StepperSpec, current: number): number {
   return applyStep(spec, current - spec.step);
 }

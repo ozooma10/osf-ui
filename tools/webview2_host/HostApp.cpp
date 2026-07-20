@@ -90,8 +90,7 @@ namespace osfui::wv2
 						file.flush();
 					}
 				}
-				// Forward warnings/errors (and a few key info lines the caller
-				// opts into by calling LogFwd) into the game's own log.
+				// Warnings/errors also reach the game's own log; info only via InfoFwd.
 				if (a_level > 0) {
 					Forward(a_level, a_text);
 				}
@@ -106,7 +105,7 @@ namespace osfui::wv2
 			}
 
 			void Info(const std::string& a_text) { Log(0, a_text); }
-			// Info that is ALSO forwarded to the game log (milestones).
+			// Info that also reaches the game log (milestones).
 			void InfoFwd(const std::string& a_text)
 			{
 				Log(0, a_text);
@@ -118,7 +117,6 @@ namespace osfui::wv2
 
 		struct App
 		{
-			// ---- configuration / plumbing ----
 			HostOptions options;
 			Logger      log;
 			Pipe        pipe;
@@ -131,7 +129,7 @@ namespace osfui::wv2
 			std::deque<json> commands;
 			std::atomic_bool pipeDead{ false };
 
-			// ---- init state (from the game) ----
+			// Init state from the game.
 			bool                  initialized{ false };
 			HWND                  gameTopLevel{ nullptr };
 			std::filesystem::path viewsRoot, userData;
@@ -140,17 +138,15 @@ namespace osfui::wv2
 			bool                  devMode{ false };
 			bool                  defaultHidden{ true };  // init.hidden — a new view's starting state
 
-			// ---- windows ----
 			HWND bootstrapWindow{ nullptr };
 			HWND hostWindow{ nullptr };
 			bool reparented{ false };
 
-			// ---- views ----
-			// One OSF UI view = one composition controller + WebView2 targeting
-			// its own child ContainerVisual of the captured root, plus a 1x1
-			// child HWND of hostWindow so focus and synthetic keys route per
-			// view. The root is captured ONCE — WGC sees the already-composited
-			// stack, so N views still cost one capture and one texture ring.
+			// One view = one composition controller + WebView2 targeting its own
+			// child ContainerVisual of the captured root, plus a 1x1 child HWND of
+			// hostWindow so focus and synthetic keys route per view. Only the root
+			// is captured: WGC sees the already-composited stack, so N views still
+			// cost one capture and one texture ring.
 			struct View
 			{
 				std::string id;
@@ -163,13 +159,11 @@ namespace osfui::wv2
 				bool controllerRequested{ false };
 				bool bridgeAllowed{ true };
 				bool hidden{ true };
-				// Manifest (authoring) height — the page always lays out at this
-				// height; ApplyScale turns the output size into the matching
-				// rasterization scale. Set by `navigate`.
+				// Manifest (authoring) height, set by `navigate`: the page lays out at
+				// this height and ApplyScale derives the rasterization scale from it.
 				std::uint32_t logicalHeight{ kDefaultLogicalHeight };
-				// Deferred visibility (flicker-free menu switches): a reveal
-				// waits for the page's first painted frame after Chromium
-				// resume, and hides wait for pending reveals (see ShowView).
+				// Deferred visibility: a reveal waits for the page's first painted
+				// frame after Chromium resume, and hides wait for pending reveals.
 				bool          revealPending{ false };
 				bool          hideDeferred{ false };
 				std::uint64_t revealDeadline{ 0 };
@@ -189,41 +183,32 @@ namespace osfui::wv2
 			std::uint32_t toggleVk{ 0x79 /*F10*/ }, devReloadVk{ 0 }, captureUpVk{ 0 };
 			bool          captured{ false }, captureArmed{ false };
 			std::unordered_set<UINT> handledKeys;
-			std::uint64_t accelEvents{ 0 };  // ALL AcceleratorKeyPressed callbacks (diagnostic)
-			// Keys this host itself posted into the widget (the "key" command:
+			std::uint64_t accelEvents{ 0 };  // every AcceleratorKeyPressed callback (diagnostic)
+			// Keys this host posted into the widget itself (the "key" command:
 			// gamepad-nav taps, the runtime's Esc back-delegation). Their
-			// AcceleratorKeyPressed callbacks must reach the PAGE — never be
-			// marked handled or forwarded to the game. A delegated Esc that
-			// re-enters the accelerator path reads as a fresh real press:
-			// the game re-enqueues Back and injects again, an infinite
-			// game<->host ping-pong the page never sees. Keyed by
+			// AcceleratorKeyPressed callbacks must reach the page — marking them
+			// handled or forwarding them to the game makes a delegated Esc read as
+			// a fresh real press, so the game re-enqueues Back and injects again:
+			// an infinite game<->host ping-pong the page never sees. Keyed by
 			// (vk << 1) | down; counted, because a tap queues down+up before
 			// either callback runs.
 			std::unordered_map<UINT, int> syntheticKeys;
 
-			// ---- rebind capture of CHARACTER keys ----
-			// AcceleratorKeyPressed is the only key path this host has, and it
-			// deliberately does not fire for keys that map to a character with
-			// neither Ctrl nor Alt held (documented: "A key is considered an
-			// accelerator if ... the pressed key does not map to a character").
-			// F-keys, Esc and arrows therefore rebind fine while letters and
-			// digits never reach the game at all.
-			//
-			// So for the (brief, user-initiated) window where a capture is
-			// armed, subclass the Chromium widget that actually owns keyboard
-			// focus and forward its WM_KEYDOWN over the same "accelerator"
-			// message. Scoped to the armed window on purpose: no permanent hook
-			// on Chromium's internals, and nothing changes for normal typing.
-			//
-			// Unlike a WndProc hook in the GAME process, this one lives in the
-			// host, so it cannot collide with other SFSE plugins' hooks.
+			// Rebind capture of character keys. AcceleratorKeyPressed, this host's
+			// only key path, by design does not fire for keys that map to a character
+			// with neither Ctrl nor Alt held ("A key is considered an accelerator
+			// if ... the pressed key does not map to a character"), so F-keys, Esc
+			// and arrows rebind but letters and digits never reach the game. While a
+			// capture is armed, subclass the Chromium widget that owns keyboard focus
+			// and forward its WM_KEYDOWN over the same "accelerator" message. Scoped
+			// to the armed window, and in the host rather than the game process, so
+			// it cannot collide with other SFSE plugins' WndProc hooks.
 			HWND    captureWidget{ nullptr };
 			WNDPROC captureWidgetProc{ nullptr };
-			// A WNDPROC cannot carry state, and there is exactly one App per
-			// host process. Set only while the subclass is installed.
+			// A WNDPROC cannot carry state and there is one App per host process.
+			// Set only while the subclass is installed.
 			static inline App* s_app{ nullptr };
 
-			// ---- D3D / capture ----
 			ComPtr<ID3D11Device>         device;
 			ComPtr<ID3D11Device5>        device5;
 			ComPtr<ID3D11DeviceContext>  context;
@@ -239,8 +224,8 @@ namespace osfui::wv2
 			winrt::event_token frameToken{};
 			std::atomic_bool   captureClosing{ true };
 
-			// ---- shared texture ring (capture thread owns; ringMutex guards
-			//      against teardown from the STA thread) ----
+			// Shared texture ring: the capture thread owns it; ringMutex guards
+			// against teardown from the STA thread.
 			std::mutex ringMutex;
 			struct Slot
 			{
@@ -256,30 +241,26 @@ namespace osfui::wv2
 			std::uint64_t frameSerial{ 0 };
 			std::uint32_t lastSlot{ 0 };
 			bool          anyFramePublished{ false };
-			// Serials the game released WITHOUT a GPU read (hidden overlay,
-			// stale ring): it has no device to CPU-signal the consume fence,
-			// so it acks over the pipe instead.
+			// Serials the game released without a GPU read (hidden overlay, stale
+			// ring): it has no device to CPU-signal the consume fence, so it acks
+			// over the pipe instead.
 			std::atomic<std::uint64_t> ackedSerial{ 0 };
 			std::uint64_t consumeWaitTimeouts{ 0 };
 			double        produceMsTotal{ 0.0 };
 			std::uint64_t produceCount{ 0 };
 
-			// Capture-cadence diagnostics (benchmark "48 fps ceiling"): the
-			// interval between WGC FrameArrived callbacks is DWM's commit
-			// cadence for the captured visual — the transport's actual input
-			// rate, upstream of everything the host controls. Touched only on
-			// the capture callback thread.
+			// Capture-cadence diagnostics (the benchmark's 48 fps ceiling): the
+			// interval between WGC FrameArrived callbacks is DWM's commit cadence
+			// for the captured visual, i.e. the transport's input rate, upstream of
+			// anything the host controls. Touched only on the capture callback thread.
 			std::chrono::steady_clock::time_point captureLastArrival{};
 			double        captureGapMsTotal{ 0.0 };
 			double        captureGapMsMin{ 0.0 };
 			double        captureGapMsMax{ 0.0 };
 			std::uint64_t captureGapCount{ 0 };
 
-			// ---- WebView2 ----
 			ComPtr<ICoreWebView2Environment> environment;
 			bool environmentRequested{ false };
-
-			// ================= pipe =================
 
 			void Send(const json& a_msg) { pipe.WriteMessage(a_msg.dump()); }
 
@@ -301,8 +282,6 @@ namespace osfui::wv2
 				pipeDead.store(true);
 				::SetEvent(wakeEvent);
 			}
-
-			// ================= graphics =================
 
 			bool InitializeGraphics()
 			{
@@ -351,17 +330,17 @@ namespace osfui::wv2
 				compositor = winrt::Windows::UI::Composition::Compositor();
 				rootVisual = compositor.CreateContainerVisual();
 				rootVisual.Size({ static_cast<float>(width), static_cast<float>(height) });
-				// The root stays visible for the lifetime of the capture;
-				// per-view visibility lives on each view's child visual.
+				// The root stays visible for the lifetime of the capture; per-view
+				// visibility lives on each view's child visual.
 				rootVisual.IsVisible(true);
 				return true;
 			}
 
 			bool CreateWindows()
 			{
-				// Same shape the in-process spike proved: a visible 1x1 child
-				// beneath a visible (offscreen) top-level owned by this STA. The
-				// child is reparented beneath the game window once Chromium is up.
+				// A visible 1x1 child beneath a visible (offscreen) top-level owned
+				// by this STA; the child is reparented beneath the game window once
+				// Chromium is up.
 				bootstrapWindow = ::CreateWindowExW(WS_EX_TOOLWINDOW, L"STATIC",
 					L"OSFUI WebView2 Host Bootstrap", WS_POPUP | WS_VISIBLE,
 					-32000, -32000, 1, 1, nullptr, nullptr, ::GetModuleHandleW(nullptr), nullptr);
@@ -378,8 +357,6 @@ namespace osfui::wv2
 				}
 				return true;
 			}
-
-			// ================= shared ring =================
 
 			void ReleaseRing()
 			{
@@ -444,8 +421,8 @@ namespace osfui::wv2
 				desc.SampleDesc.Count = 1;
 				desc.Usage = D3D11_USAGE_DEFAULT;
 				desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
-				// Preferred: NT-handle shared WITHOUT keyed mutex — the D3D12 side
-				// has no IDXGIKeyedMutex, synchronization is the shared fences.
+				// Preferred: NT-handle shared without a keyed mutex — the D3D12 side
+				// has no IDXGIKeyedMutex; the shared fences do the synchronizing.
 				desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE;
 				ringKeyedMutex = false;
 				auto hr = device->CreateTexture2D(&desc, nullptr, &ring[0].texture);
@@ -536,10 +513,10 @@ namespace osfui::wv2
 				if (!EnsureRing(a_width, a_height)) return;
 
 				auto& slot = ring[ringWrite];
-				// Slot reuse guard: the game GPU-signals `consume` with each serial
-				// it finished reading, and pipe-acks frames it skipped, so this
-				// wait is normally already satisfied. Bounded so a wedged
-				// consumer can only ever cost us 50 ms, not a deadlock.
+				// Slot reuse guard: the game GPU-signals `consume` with each serial it
+				// finished reading and pipe-acks frames it skipped, so this wait is
+				// normally already satisfied. Bounded, so a wedged consumer costs
+				// 50 ms rather than a deadlock.
 				const auto consumed = [this] {
 					return (std::max)(consumeFence->GetCompletedValue(), ackedSerial.load());
 				};
@@ -581,8 +558,8 @@ namespace osfui::wv2
 				lastSlot = ringWrite;
 				ringWrite = (ringWrite + 1) % kRingSlots;
 				context4->Signal(produceFence.Get(), serial);
-				// Flush so the copy + signal reach the GPU now — the consumer's
-				// wait must not depend on this context's next natural flush.
+				// Flush so the copy + signal reach the GPU now: the consumer's wait
+				// must not depend on this context's next natural flush.
 				context->Flush();
 				anyFramePublished = true;
 				Send(json{
@@ -600,15 +577,15 @@ namespace osfui::wv2
 				}
 			}
 
-			// STA thread, on unhide: the runtime's reveal gate needs a FRESH
-			// serial after unhide, but a static page paints nothing new — resend
-			// the newest pixels under a new serial.
+			// STA thread, on unhide: the runtime's reveal gate needs a fresh serial,
+			// but a static page paints nothing new — resend the newest pixels under
+			// a new serial.
 			void RepublishLatest()
 			{
 				std::scoped_lock lock(ringMutex);
-				// The last slot must actually hold pixels: after a resize
-				// recreated the ring, nothing is republishable until the first
-				// capture lands in the NEW ring.
+				// The last slot must actually hold pixels: after a resize recreated
+				// the ring, nothing is republishable until the first capture lands
+				// in the new ring.
 				if (!anyFramePublished || !ring[0].texture ||
 					ring[lastSlot].lastSerial == 0) {
 					return;
@@ -622,8 +599,6 @@ namespace osfui::wv2
 					{ "width", ringWidth }, { "height", ringHeight } });
 			}
 
-			// ================= views =================
-
 			View* FindView(std::string_view a_id)
 			{
 				for (auto& view : views) {
@@ -632,8 +607,8 @@ namespace osfui::wv2
 				return nullptr;
 			}
 
-			// View-scoped messages carry `view`; absent or unknown falls back
-			// to the active view (keeps the single-view POC client working).
+			// View-scoped messages carry `view`; absent or unknown falls back to the
+			// active view.
 			View* ResolveView(const json& a_msg)
 			{
 				if (const auto it = a_msg.find("view"); it != a_msg.end() && it->is_string()) {
@@ -661,9 +636,9 @@ namespace osfui::wv2
 				return view;
 			}
 
-			// View order maps to child order under the captured root: lower
-			// `order` composites beneath, ties keep creation order. Rebuilt
-			// wholesale — reorders are rare and the child count tiny.
+			// View order maps to child order under the captured root: lower `order`
+			// composites beneath, ties keep creation order. Rebuilt wholesale;
+			// reorders are rare and the child count tiny.
 			void ReorderVisuals()
 			{
 				if (!rootVisual) return;
@@ -680,17 +655,15 @@ namespace osfui::wv2
 				}
 			}
 
-			// ---- deferred visibility (flicker-free switches) ----------------
-			// A hidden view's controller is put_IsVisible(FALSE), which makes
-			// Chromium SUSPEND rendering — on unhide it needs a few frames
-			// before anything is painted. A menu switch arrives as hide-old +
-			// show-new in one policy batch, so applying it verbatim blanks the
-			// output for those frames. Instead: resume Chromium immediately but
-			// keep the child visual hidden until the page confirms a painted
-			// frame (double-rAF sentinel posted as a web message the host
-			// intercepts), and hold the batch's hides until every pending
-			// reveal completes (or times out), so the old content stays up and
-			// the switch lands as ONE composition change.
+			// Deferred visibility. A hidden view's controller gets
+			// put_IsVisible(FALSE), which suspends Chromium rendering, so on unhide
+			// it needs a few frames before it paints. A menu switch arrives as
+			// hide-old + show-new in one policy batch, so applying it verbatim blanks
+			// the output for those frames. Instead: resume Chromium at once but keep
+			// the child visual hidden until the page confirms a painted frame
+			// (double-rAF sentinel posted as a web message the host intercepts), and
+			// hold the batch's hides until every pending reveal completes or times
+			// out — the old content stays up and the switch is one composition change.
 
 			static constexpr const wchar_t* kRevealSentinelScript =
 				L"requestAnimationFrame(function(){requestAnimationFrame(function(){"
@@ -752,7 +725,7 @@ namespace osfui::wv2
 							[](HRESULT, LPCWSTR) -> HRESULT { return S_OK; }).Get());
 				} else {
 					// No page to ask (still loading / no controller yet): show
-					// directly — the runtime's overlay reveal gate covers boot.
+					// directly; the runtime's overlay reveal gate covers boot.
 					log.Info(std::format(
 						"view '{}': show — direct (visual={} webView={} domSeen={})", a_view.id,
 						a_view.visual != nullptr, a_view.webView != nullptr, a_view.domSeen));
@@ -773,8 +746,8 @@ namespace osfui::wv2
 				}
 				if (a_view.visual && !a_view.hidden) a_view.visual.IsVisible(true);
 				if (!AnyRevealPending()) ApplyDeferredHides();
-				// Fresh serial for the runtime's reveal gate (an unchanged page
-				// may otherwise never produce a new captured frame).
+				// Fresh serial for the runtime's reveal gate: an unchanged page may
+				// otherwise never produce a new captured frame.
 				RepublishLatest();
 			}
 
@@ -790,8 +763,8 @@ namespace osfui::wv2
 
 			void DestroyOneView(View& a_view)
 			{
-				// The rebind subclass may be sitting on this view's widget —
-				// unhook before the HWND goes away.
+				// The rebind subclass may be sitting on this view's widget: unhook
+				// before the HWND goes away.
 				if (captureWidget && ::IsChild(a_view.window, captureWidget)) {
 					RemoveCaptureSubclass();
 				}
@@ -815,8 +788,6 @@ namespace osfui::wv2
 				}
 			}
 
-			// ================= WebView2 =================
-
 			bool BeginEnvironment()
 			{
 				if (environmentRequested) return true;
@@ -833,8 +804,8 @@ namespace osfui::wv2
 								return S_OK;
 							}
 							environment = a_environment;
-							// Views navigated before the environment came up
-							// have been waiting for their controllers.
+							// Views navigated before the environment came up have
+							// been waiting for their controllers.
 							for (auto& view : views) {
 								RequestController(*view);
 							}
@@ -860,8 +831,8 @@ namespace osfui::wv2
 					return;
 				}
 				a_view.controllerRequested = true;
-				// Capture the id, not the View*: the view can be destroyed while
-				// the controller is still in flight.
+				// Capture the id, not the View*: the view can be destroyed while the
+				// controller is still in flight.
 				const auto hr = environment3->CreateCoreWebView2CompositionController(
 					a_view.window,
 					Callback<ICoreWebView2CreateCoreWebView2CompositionControllerCompletedHandler>(
@@ -886,10 +857,10 @@ namespace osfui::wv2
 				}
 			}
 
-			// Window tree != process tree: parent this STA's host child under
-			// the game's top-level window so Win32 focus/IME routing works,
-			// while the browser processes stay outside the game's job/hooks.
-			// Once, on the first controller success.
+			// Window tree != process tree: parent this STA's host child under the
+			// game's top-level window so Win32 focus/IME routing works, while the
+			// browser processes stay outside the game's job/hooks. Runs once, on the
+			// first controller success.
 			void EnsureReparented()
 			{
 				if (reparented || !gameTopLevel) return;
@@ -934,15 +905,15 @@ namespace osfui::wv2
 				a_view.controller->put_Bounds(
 					RECT{ 0, 0, static_cast<LONG>(width), static_cast<LONG>(height) });
 				ApplyScale(a_view);
-				// Apply the CURRENT hidden state, not a hardcoded one (an
-				// invisible controller suspends Chromium rendering entirely).
+				// Apply the current hidden state, not a hardcoded one: an invisible
+				// controller suspends Chromium rendering entirely.
 				a_view.controller->put_IsVisible(a_view.hidden ? FALSE : TRUE);
 				ComPtr<ICoreWebView2Controller2> controller2;
 				if (SUCCEEDED(a_view.controller.As(&controller2))) {
 					controller2->put_DefaultBackgroundColor(COREWEBVIEW2_COLOR{ 0, 0, 0, 0 });
 				}
 				// The view's own child visual under the captured root; order and
-				// visibility live here.
+				// visibility live on it.
 				a_view.visual = compositor.CreateContainerVisual();
 				a_view.visual.Size({ static_cast<float>(width), static_cast<float>(height) });
 				a_view.visual.IsVisible(!a_view.hidden);
@@ -982,8 +953,8 @@ namespace osfui::wv2
 
 			void InstallBridgeShim(View& a_view)
 			{
-				// Identical contract to the in-process backend: osfui.postMessage /
-				// osfui.onMessage with pre-install buffering.
+				// Bridge contract: osfui.postMessage / osfui.onMessage, with
+				// buffering for messages that arrive before onMessage is installed.
 				static constexpr wchar_t shim[] = LR"JS(
 					(() => {
 						const bridge = window.osfui = window.osfui || {};
@@ -1025,14 +996,14 @@ namespace osfui::wv2
 			void InstallEvents(View& a_view)
 			{
 				// Views live behind stable unique_ptrs and their controllers are
-				// Close()d before removal, so the raw View* in these callbacks
-				// cannot outlive the view.
+				// Close()d before removal, so the raw View* in these callbacks cannot
+				// outlive the view.
 				View* view = &a_view;
 				EventRegistrationToken token{};
 				a_view.compositionController->add_CursorChanged(
 					Callback<ICoreWebView2CursorChangedEventHandler>(
 						[this, view](ICoreWebView2CompositionController* a_sender, ::IUnknown*) -> HRESULT {
-							// Only the ACTIVE view drives the real OS pointer.
+							// Only the active view drives the real OS pointer.
 							if (view != active) return S_OK;
 							UINT32 id = 0;
 							if (SUCCEEDED(a_sender->get_SystemCursorId(&id))) {
@@ -1052,17 +1023,17 @@ namespace osfui::wv2
 							const bool down =
 								kind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN ||
 								kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN;
-							// A key WE posted (the "key" command): its whole purpose
-							// is to reach the page, so it bypasses the framework-
-							// owned logic below — which would both swallow it and
-							// round-trip it to the game as if freshly pressed.
+							// A key this host posted (the "key" command) exists to reach
+							// the page, so it bypasses the framework-owned logic below,
+							// which would swallow it and round-trip it to the game as
+							// if freshly pressed.
 							if (const auto synth =
 									syntheticKeys.find((key << 1) | (down ? 1u : 0u));
 								synth != syntheticKeys.end()) {
 								if (--synth->second == 0) syntheticKeys.erase(synth);
 								return S_OK;
 							}
-							// The synchronous stand-in for Runtime::OnNativeAcceleratorKey:
+							// Synchronous stand-in for Runtime::OnNativeAcceleratorKey;
 							// the game keeps this state fresh over the pipe (accelState).
 							const bool frameworkOwned =
 								captureArmed ||
@@ -1093,7 +1064,7 @@ namespace osfui::wv2
 							auto text = ToUtf8(value);
 							::CoTaskMemFree(value);
 							if (text == kRevealSentinel) {
-								// Host-internal paint handshake — never forwarded.
+								// Host-internal paint handshake; not forwarded.
 								CompleteReveal(*view, /*a_timedOut=*/false);
 								return S_OK;
 							}
@@ -1204,7 +1175,7 @@ namespace osfui::wv2
 						const auto gapMs = std::chrono::duration<double, std::milli>(
 							arrival - captureLastArrival).count();
 						// Gaps over a second are idle pauses (nothing painted),
-						// not cadence — they would swamp the average.
+						// not cadence, and would swamp the average.
 						if (gapMs < 1000.0) {
 							captureGapMsTotal += gapMs;
 							captureGapMsMin = captureGapCount == 0 ? gapMs : (std::min)(captureGapMsMin, gapMs);
@@ -1230,15 +1201,15 @@ namespace osfui::wv2
 					winrt::check_hresult(access->GetInterface(IID_PPV_ARGS(&source)));
 					D3D11_TEXTURE2D_DESC desc{};
 					source->GetDesc(&desc);
-					// No warmup-drop: static pages may paint fewer than 3 times
-					// total, so the very first captured frame must publish.
+					// No warmup drop: a static page may paint fewer than 3 times in
+					// total, so the first captured frame has to publish.
 					PublishFrame(source.Get(), desc.Width, desc.Height);
 				} catch (const winrt::hresult_error& a_error) {
 					log.Warn(std::format("capture callback failed: {}", ToUtf8(a_error.message())));
 				}
 			}
 
-			// ================= command handling (STA thread) =================
+			// Command handling; STA thread.
 
 			void DrainQueuedViewWork(View& a_view)
 			{
@@ -1281,24 +1252,22 @@ namespace osfui::wv2
 						}).Get());
 			}
 
-			// Bounds are PHYSICAL pixels (always the output size, so the
-			// composited stack maps 1:1); the rasterization scale is what makes
-			// the page lay out at its manifest height and scale CSS px up to
-			// output pixels. Without it a view lays out at scale 1.0 against
-			// the full output resolution, i.e. everything is undersized on any
-			// display taller than the manifest (visibly so at 1440p/4K).
-			//
-			// ShouldDetectMonitorScaleChanges must be off: otherwise WebView2
-			// folds the monitor's DPI into the scale on top of ours and the
-			// result goes machine-dependent.
+			// Bounds are physical pixels (always the output size, so the composited
+			// stack maps 1:1); the rasterization scale is what makes the page lay out
+			// at its manifest height and scales CSS px up to output pixels. Without
+			// it a view lays out at scale 1.0 against the full output resolution,
+			// i.e. undersized on any display taller than the manifest (visibly so at
+			// 1440p/4K). ShouldDetectMonitorScaleChanges must be off, or WebView2
+			// folds the monitor's DPI in on top of ours and the result becomes
+			// machine-dependent.
 			void ApplyScale(View& a_view)
 			{
 				if (!a_view.controller) return;
 				ComPtr<ICoreWebView2Controller4> controller4;
 				if (FAILED(a_view.controller.As(&controller4)) || !controller4) {
-					// Pre-1.0.1108 runtime: no rasterization scale to set. The
-					// page renders unscaled — log once per view so an odd-looking
-					// overlay is traceable rather than mysterious.
+					// Pre-1.0.1108 runtime: no rasterization scale to set, so the page
+					// renders unscaled. Logged once per view so an odd-looking overlay
+					// is traceable.
 					log.Warn(std::format("view '{}': ICoreWebView2Controller4 unavailable — "
 						"rasterization scale not applied (WebView2 runtime too old)", a_view.id));
 					return;
@@ -1336,13 +1305,12 @@ namespace osfui::wv2
 				} catch (const winrt::hresult_error& a_error) {
 					log.Warn(std::format("frame pool resize failed: {}", ToUtf8(a_error.message())));
 				}
-				// The ring itself recreates lazily on the next capture with the
-				// new dimensions (PublishFrame -> EnsureRing).
+				// The ring recreates lazily on the next capture at the new dimensions
+				// (PublishFrame -> EnsureRing).
 			}
 
-			/// The ACTIVE view's Chromium widget — the HWND that actually holds
-			/// keyboard focus. Synthetic key taps target it, and the rebind
-			/// capture subclasses it.
+			/// The active view's Chromium widget: the HWND that holds keyboard focus.
+			/// Synthetic key taps target it and the rebind capture subclasses it.
 			HWND FindActiveWidget() const
 			{
 				HWND widget = nullptr;
@@ -1360,8 +1328,8 @@ namespace osfui::wv2
 				return widget;
 			}
 
-			/// Follow the game's armed/disarmed edge. Idempotent, and safe to
-			/// call when the widget has gone away (view switch, teardown).
+			/// Follows the game's armed/disarmed edge. Idempotent, and safe to call
+			/// when the widget has gone away (view switch, teardown).
 			void SetCaptureSubclass(bool a_armed)
 			{
 				if (a_armed) {
@@ -1386,8 +1354,8 @@ namespace osfui::wv2
 			void RemoveCaptureSubclass()
 			{
 				if (!captureWidget) return;
-				// Only unhook if we are still the installed proc — restoring
-				// blindly over someone else's later subclass would strand it.
+				// Only unhook if we are still the installed proc: restoring blindly
+				// over someone else's later subclass would strand it.
 				const auto current = reinterpret_cast<WNDPROC>(
 					::GetWindowLongPtrW(captureWidget, GWLP_WNDPROC));
 				if (current == &CaptureWndProc && captureWidgetProc) {
@@ -1399,8 +1367,8 @@ namespace osfui::wv2
 				s_app = nullptr;  // after the restore above, never before
 			}
 
-			/// Runs on the host's UI thread (the widget's own thread), so it
-			/// touches app state directly — same thread as the message pump.
+			/// Runs on the host's UI thread (the widget's own thread, same one as the
+			/// message pump), so it touches app state directly.
 			static LRESULT CALLBACK CaptureWndProc(
 				HWND a_hwnd, UINT a_msg, WPARAM a_wparam, LPARAM a_lparam)
 			{
@@ -1410,9 +1378,9 @@ namespace osfui::wv2
 					const auto vk = static_cast<std::uint32_t>(a_wparam);
 					const bool repeat = (a_lparam & 0x40000000) != 0;
 					if (!repeat) {
-						// Same envelope the accelerator path uses, so the game
-						// side needs no new message type. Swallowed: mid-rebind
-						// the press is a binding, not text for the page.
+						// Same envelope as the accelerator path, so the game side
+						// needs no new message type. Swallowed: mid-rebind the
+						// press is a binding, not text for the page.
 						self->Send(json{ { "type", "accelerator" },
 							{ "vk", vk }, { "down", true } });
 						return 0;
@@ -1427,8 +1395,8 @@ namespace osfui::wv2
 
 			void SendMouse(const json& a_msg)
 			{
-				// Mouse always targets the ACTIVE view (the runtime routes input
-				// to the top menu; sibling views never see the pointer).
+				// Mouse always targets the active view: the runtime routes input to
+				// the top menu, so sibling views never see the pointer.
 				if (!active || !active->compositionController) return;
 				const std::string kind = a_msg.value("kind", "move");
 				const int x = a_msg.value("x", 0);
@@ -1483,7 +1451,7 @@ namespace osfui::wv2
 						reinterpret_cast<std::uintptr_t>(gameTopLevel)));
 					BeginEnvironment();
 				} else if (type == "navigate") {
-					// `id` IS the view id; the first navigate for an unknown id
+					// `id` is the view id; the first navigate for an unknown id
 					// creates that view.
 					const std::string id = a_msg.value("id", "");
 					if (id.empty()) {
@@ -1496,7 +1464,7 @@ namespace osfui::wv2
 					view->logicalHeight = (std::max)(1u,
 						a_msg.value("logicalHeight", kDefaultLogicalHeight));
 					// A re-navigate may carry a different manifest height (dev
-					// reload); the controller may already exist, so re-apply.
+					// reload) onto an existing controller, so re-apply.
 					ApplyScale(*view);
 					std::string path = id + "/" + a_msg.value("entry", "index.html");
 					std::ranges::replace(path, '\\', '/');
@@ -1533,17 +1501,17 @@ namespace osfui::wv2
 						active->controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
 					} else if (!focused) {
 						handledKeys.clear();
-						// Taps still in flight died with the overlay (or their
-						// accel callback never fires for char-mapping VKs) —
-						// don't let stale markers misclassify a later real key.
+						// Taps still in flight died with the overlay, and for VKs
+						// that map to a character the accel callback never fires
+						// at all; stale markers would misclassify a later real key.
 						syntheticKeys.clear();
 					}
 				} else if (type == "mouse") {
 					SendMouse(a_msg);
 				} else if (type == "key") {
-					// Synthetic key taps (gamepad nav, Esc back-delegation):
-					// posted straight to the ACTIVE view's Chromium widget HWND —
-					// no focus or foreground requirements.
+					// Synthetic key taps (gamepad nav, Esc back-delegation) go
+					// straight to the active view's Chromium widget HWND: no focus
+					// or foreground requirement.
 					const auto vk = a_msg.value("vk", 0u);
 					const bool down = a_msg.value("down", false);
 					HWND widget = FindActiveWidget();
@@ -1555,9 +1523,9 @@ namespace osfui::wv2
 						}
 						::PostMessageW(widget, down ? WM_KEYDOWN : WM_KEYUP,
 							static_cast<WPARAM>(vk), lparam);
-						// Mark it so the accelerator callback (which fires when
-						// the pump dispatches this message) lets it through to
-						// the page instead of treating it as a real press.
+						// Mark it so the accelerator callback (which fires when the
+						// pump dispatches this message) lets it through to the page
+						// instead of treating it as a real press.
 						++syntheticKeys[(vk << 1) | (down ? 1u : 0u)];
 					}
 				} else if (type == "frameAck") {
@@ -1583,8 +1551,8 @@ namespace osfui::wv2
 					captured = a_msg.value("captured", false);
 					captureArmed = a_msg.value("captureArmed", false);
 					captureUpVk = a_msg.value("captureUpVk", 0u);
-					// Follow the armed edge: character keys only need the
-					// subclass for the moment the user is picking a key.
+					// Character keys only need the subclass while the user is
+					// picking a key.
 					SetCaptureSubclass(captureArmed);
 				} else if (type == "destroyView") {
 					auto* view = ResolveView(a_msg);
@@ -1598,8 +1566,8 @@ namespace osfui::wv2
 					if (wasActive) {
 						active = views.empty() ? nullptr : views.front().get();
 					}
-					// The destroyed view may have been the reveal the batch's
-					// hides were waiting on.
+					// The destroyed view may have been the reveal the batch's hides
+					// were waiting on.
 					if (!AnyRevealPending()) ApplyDeferredHides();
 				} else if (type == "shutdown") {
 					log.Info(std::format(
@@ -1623,12 +1591,10 @@ namespace osfui::wv2
 					}
 					HandleCommand(msg);
 				}
-				// Hides deferred within this batch apply now unless a reveal is
+				// Hides deferred within this batch apply now, unless a reveal is
 				// still waiting on its incoming view's first painted frame.
 				if (!AnyRevealPending()) ApplyDeferredHides();
 			}
-
-			// ================= teardown =================
 
 			void CloseWebResources()
 			{
@@ -1665,8 +1631,8 @@ namespace osfui::wv2
 				if (CreateWindows() && InitializeGraphics() && InitializeComposition()) {
 					const HANDLE waits[2] = { wakeEvent, gameProcess };
 					while (!quit.load()) {
-						// Short timeout only while a reveal awaits its paint
-						// sentinel, so the timeout fallback stays responsive.
+						// Short timeout only while a reveal awaits its paint sentinel,
+						// so the timeout fallback stays responsive.
 						const DWORD wait = ::MsgWaitForMultipleObjectsEx(
 							2, waits, AnyRevealPending() ? 50 : 1000,
 							QS_ALLINPUT, MWMO_INPUTAVAILABLE);
@@ -1731,8 +1697,8 @@ namespace osfui::wv2
 		app.log.Info(std::format("osfui_webview2_host starting (pid {}, game pid {}, pipe '{}')",
 			::GetCurrentProcessId(), a_options.gamePid, ToUtf8(a_options.pipeName)));
 
-		// One host per game process — a relaunch while a previous host is alive
-		// must not fight over the pipe/windows.
+		// One host per game process: a relaunch while a previous host is alive must
+		// not fight over the pipe/windows.
 		const auto mutexName = std::format(L"Local\\osfui-wv2-host-{}", a_options.gamePid);
 		const HANDLE instanceMutex = ::CreateMutexW(nullptr, TRUE, mutexName.c_str());
 		if (!instanceMutex || ::GetLastError() == ERROR_ALREADY_EXISTS) {

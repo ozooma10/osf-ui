@@ -1,11 +1,8 @@
-// fixtures/vanillaKeys.ts — the game's own bindings. DEV ONLY.
+// The game's own bindings, dev harness only.
 //
-// mcm-design §9 "vanilla hotkeys": native loads vanillakeys.json plus the
-// engine's controlmap overrides and injects "@game" pseudo-entries. The mock
-// ships this small sample so the harness exercises the "Starfield (…)" side of
-// conflict badges and of the live-warn during a key capture.
-//
-// Ported verbatim from devtools/harness/mockbridge.js:361-367.
+// Per mcm-design §9, native loads vanillakeys.json plus the engine's controlmap
+// overrides and injects "@game" pseudo-entries. This sample exercises the
+// "Starfield (…)" side of conflict badges and of the live-warn during a capture.
 
 import type { SettingsDataPayload } from '@sdk';
 

@@ -6,9 +6,8 @@ namespace OSFUI
 {
 	namespace
 	{
-		// Every key the parser reads (the item-8 typo diagnostic — config.json
-		// is host-owned, so an unknown key can only be a typo, never version
-		// skew). Keep in lockstep with the reads below.
+		// Every key the parser reads. config.json is host-owned, so an unknown
+		// key is a typo, never version skew. Keep in lockstep with the reads below.
 		constexpr std::initializer_list<std::string_view> kKnownKeys = {
 			"configVersion", "enabled", "renderer", "compositor",
 			"inputSource", "captureInput", "hardwareCursor", "focusMenu",
@@ -33,9 +32,8 @@ namespace OSFUI
 			return config;
 		}
 
-		// Format stamp + migration hook (item 8): newer file = parse leniently
-		// (unknown fields ignore themselves); older = where migrations would
-		// run (none exist yet — the hook is the point).
+		// Format stamp + migration hook. Newer file: parse leniently, ignoring
+		// unknown fields. Older file: where migrations would run (none yet).
 		if (const auto v = Json::GetInt(*json, "configVersion", kConfigVersion); v > kConfigVersion) {
 			REX::INFO("Config: {} declares configVersion {} (this build knows {}) — written by a newer OSF UI; unknown fields are ignored",
 				a_path.string(), v, kConfigVersion);

@@ -1,18 +1,14 @@
 // UndoPanel.tsx — "changed this visit", with a revert per row.
 //
-// Ports `openSessionPanel` (settings/main.legacy.js:1490-1534).
-//
-// THIS IS NOT AN "UNSAVED CHANGES" DIALOG, and the copy goes out of its way to
-// say so. Persistence is write-behind and automatic: everything listed here is
-// ALREADY saved to disk. What the panel offers is an UNDO facility scoped to
-// "since you opened settings this time" — which is precisely why the baseline
-// is dropped on every `ui.visibility` open edge. Framing it as unsaved work
-// would train users to look for a Save button that does not exist.
+// Not an unsaved-changes dialog: persistence is write-behind, so everything
+// listed here is already on disk. This is undo scoped to "since you opened
+// settings this time", which is why the baseline is dropped on every
+// `ui.visibility` open edge. There is no Save button to point users at.
 //
 // The overlay carries `data-nav-modal="1"` via @ui/Overlay: while it is in the
 // document, padnav enumerates candidates only inside it and drops an `active`
-// element outside it (src/legacy/padnav.js:76, 211-212). That attribute IS the
-// focus trap — there is no other mechanism.
+// element outside it. That attribute is the focus trap; there is no other
+// mechanism.
 
 import { Overlay } from '@ui/Overlay';
 import { titleOf } from '@lib/settings/rail';
@@ -28,14 +24,12 @@ export interface UndoPanelProps {
 }
 
 export function UndoPanel({ changes, tr, onRevert, onRevertAll, onClose }: UndoPanelProps) {
-  // Legacy returned early rather than opening an empty panel
-  // (main.legacy.js:1502). The chip that opens it is hidden at zero anyway, so
-  // this is the belt to that braces.
+  // The chip that opens this is hidden at zero anyway; belt to that braces.
   if (!changes.length) return null;
 
-  // Click-outside closes: the handler is on the OVERLAY and tests
-  // `e.target === e.currentTarget`, so a click that lands on the panel (or
-  // anything in it) bubbles up without matching and the panel stays put.
+  // Click-outside closes: the handler is on the overlay and tests
+  // `e.target === e.currentTarget`, so a click landing on the panel bubbles up
+  // without matching and the panel stays put.
   return (
     <Overlay
       class="session-overlay"
@@ -67,9 +61,9 @@ export function UndoPanel({ changes, tr, onRevert, onRevertAll, onClose }: UndoP
             <div key={`${c.modId} ${c.key}`} class="session-row">
               <div class="session-info">
                 <div class="session-key">{`${titleOf(c.mod)} · ${c.key}`}</div>
-                {/* JSON.stringify, not a friendly formatter: the point is to
-                    show the STORED value unambiguously — "true" vs "\"true\"",
-                    [] vs "" — because that is what the revert writes back. */}
+                {/* JSON.stringify, not a friendly formatter: shows the stored
+                    value unambiguously ("true" vs "\"true\"", [] vs ""),
+                    because that is what the revert writes back. */}
                 <div class="session-delta">{`${JSON.stringify(c.old)} → ${JSON.stringify(c.now)}`}</div>
               </div>
               <button

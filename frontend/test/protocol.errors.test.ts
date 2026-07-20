@@ -1,11 +1,10 @@
 // @vitest-environment jsdom
 //
-// Failure classification and the BridgeError contract.
-//
-// Two rules here are easy to "fix" into breakage and must not be:
-//   1. ONLY `ui.error` and `ui.result { ok:false }` are failures. A
-//      `settings.ack { ok:false }` is a successful REQUEST that reports a
-//      rejected value — callers inspect it, they do not catch it.
+// Failure classification and the BridgeError contract. Two rules that look like
+// bugs but are load-bearing:
+//   1. Only `ui.error` and `ui.result { ok:false }` are failures. A
+//      `settings.ack { ok:false }` is a successful request reporting a rejected
+//      value — callers inspect it, they do not catch it.
 //   2. `err.code` is always a string, `""` when the reply carried none, because
 //      call sites branch with `e.code === "capture-busy"` and friends.
 
@@ -15,9 +14,9 @@ import { resolve } from 'node:path';
 import { isFailureReply, isBridgeError } from '@lib/protocol';
 import type { BridgeEnvelope } from '@sdk';
 
-// Read from disk rather than importing: osfui.js is a classic script, not a
-// module. Resolved against the vitest root (frontend/) because under the jsdom
-// environment `import.meta.url` is an http: URL, not a file: one.
+// Read from disk rather than imported: osfui.js is a classic script, not a
+// module. Resolved against the vitest root (frontend/) because under jsdom
+// `import.meta.url` is an http: URL, not a file: one.
 const HELPER_SRC = readFileSync(resolve(process.cwd(), 'src/shared-kit/osfui.js'), 'utf8');
 
 interface Frame {
@@ -31,9 +30,9 @@ interface Helper {
   request(
     command: string,
     fields?: Record<string, unknown>,
-    // `number | undefined` (not just optional) on purpose: one test passes an
-    // EXPLICIT undefined, which `exactOptionalPropertyTypes` would otherwise
-    // reject — and that call is exactly the surprising path being pinned.
+    // `number | undefined` rather than just optional: one test passes an
+    // explicit undefined, which `exactOptionalPropertyTypes` would reject —
+    // and that call is the path being pinned.
     opts?: { timeoutMs?: number | undefined },
   ): Promise<unknown>;
   onMessage(json: string): void;
@@ -47,7 +46,7 @@ interface CaughtError extends Error {
 /** See protocol.envelope.test.ts for why this is `new Function`, not an import. */
 function loadHelper(opts?: { bridge?: boolean }): { helper: Helper; sent: Frame[] } {
   const sent: Frame[] = [];
-  // Omitting postMessage models a view WITHOUT permissions.nativeBridge (or a
+  // Omitting postMessage models a view without permissions.nativeBridge (or a
   // plain browser): `available()` is `typeof g.postMessage === "function"`.
   const stub: Record<string, unknown> =
     opts?.bridge === false
@@ -67,10 +66,9 @@ function deliver(helper: Helper, message: unknown): void {
 }
 
 /**
- * Await a promise that must REJECT and hand back the error, typed.
- *
- * Call it BEFORE advancing fake timers: it attaches its handler synchronously,
- * which is what stops a timeout rejection from surfacing as unhandled.
+ * Await a promise that must reject and hand back the error, typed. Call it
+ * before advancing fake timers: it attaches its handler synchronously, which is
+ * what stops a timeout rejection from surfacing as unhandled.
  */
 async function caught(promise: Promise<unknown>): Promise<CaughtError> {
   try {
@@ -113,9 +111,9 @@ describe('isFailureReply', () => {
   });
 
   it('requires ok === false EXACTLY — a merely falsy ok is not a failure', () => {
-    // The helper compares `p.ok === false` (shared-kit/osfui.js:174), so a
-    // malformed 0/""/null/absent `ok` RESOLVES. Preserved: a host that ever
-    // shipped a sloppy ok would otherwise start throwing at existing views.
+    // The helper compares `p.ok === false`, so a malformed 0/""/null/absent
+    // `ok` resolves. A host that shipped a sloppy ok would otherwise start
+    // throwing at existing views.
     expect(isFailureReply(env('ui.result', { ok: 0 }))).toBe(false);
     expect(isFailureReply(env('ui.result', { ok: null }))).toBe(false);
     expect(isFailureReply(env('ui.result', { ok: 'false' }))).toBe(false);
@@ -135,12 +133,12 @@ describe('isFailureReply', () => {
       ['views.data', { views: [] }],
       ['i18n.data', { mod: 'osfui', locale: 'en', strings: {} }],
       ['settings.data', { mods: [] }],
-      // A rejected VALUE, not a failed request: settings.set resolves and the
+      // A rejected value, not a failed request: settings.set resolves and the
       // caller reads ack.ok / ack.code to show "invalid value" inline.
       ['settings.ack', { mod: 'm', key: 'k', ok: false, code: 'invalid-value' }],
       ['settings.changed', { mod: 'm', key: 'k', value: 1 }],
       ['settings.persisted', { mod: 'm' }],
-      // Likewise `cancelled` capture: the request succeeded, the user pressed Esc.
+      // Likewise a cancelled capture: the request succeeded, the user pressed Esc.
       ['settings.captured', { mod: 'm', key: 'k', name: '', cancelled: true }],
       ['ui.hotkey', { mod: 'm', key: 'k' }],
       ['ui.visibility', { visible: false }],
@@ -156,8 +154,8 @@ describe('BridgeError contract — code', () => {
   it('is "" (never undefined) when the reply carries no code', async () => {
     const err = await rejectionFor({ ok: false, message: 'it did not work' });
 
-    // `err.code = p.code || ""` (shared-kit/osfui.js:176). Call sites do
-    // `e.code === "..."` and log e.code; undefined would print "undefined".
+    // `err.code = p.code || ""`. Call sites do `e.code === "..."` and log
+    // e.code; undefined would print "undefined".
     expect(err.code).toBe('');
     expect(err.code).not.toBeUndefined();
     expect(typeof err.code).toBe('string');
@@ -209,7 +207,7 @@ describe('BridgeError contract — reply', () => {
     deliver(helper, reply);
 
     const err = await caught(promise);
-    // The message, not the payload — views inspect err.reply.payload and can
+    // The whole message, not the payload — views inspect err.reply.payload and
     // correlate on err.reply.requestId.
     expect(err.reply).toEqual(reply);
   });
@@ -225,7 +223,7 @@ describe('BridgeError contract — reply', () => {
     expect(err.code).toBe('timeout');
     expect(err.message).toBe('"ping" got no reply within 10000ms');
     // Not "present and undefined": the key is never assigned, so consumers can
-    // use `"reply" in err` to distinguish a real refusal from a local giving-up.
+    // use `"reply" in err` to tell a host refusal from a local give-up.
     expect('reply' in err).toBe(false);
   });
 
@@ -286,7 +284,7 @@ describe('shipped helper — timeouts', () => {
     const { helper, sent } = loadHelper();
 
     // settings.captureKey is the reason this exists: it waits on the user
-    // pressing a key and has no legitimate deadline (bridge.ts RequestOptions).
+    // pressing a key and has no legitimate deadline.
     let settled = false;
     const promise = helper.request(
       'settings.captureKey',
@@ -304,10 +302,10 @@ describe('shipped helper — timeouts', () => {
     await Promise.resolve();
     expect(settled).toBe(false);
 
-    // DOCUMENTED LEAK, asserted as-is rather than idealised: nothing ever
-    // removes the pending entry, so if the reply never comes the closure (and
-    // its resolve/reject) is retained for the life of the page. The observable
-    // proof is that an arbitrarily late reply STILL correlates and settles.
+    // Known leak, asserted as-is: nothing removes the pending entry, so if the
+    // reply never comes the closure (and its resolve/reject) is retained for
+    // the life of the page. Proof: an arbitrarily late reply still correlates
+    // and settles.
     const rid = sent[0]!.requestId!;
     deliver(helper, {
       type: 'settings.captured',
@@ -329,9 +327,9 @@ describe('shipped helper — timeouts', () => {
     vi.useFakeTimers();
     const { helper } = loadHelper();
 
-    // The default is chosen with `"timeoutMs" in opts`, so an EXPLICIT
-    // `{ timeoutMs: undefined }` opts out of the default and — being neither
-    // > 0 — disables the timeout. Surprising, but it is what ships.
+    // The default is chosen with `"timeoutMs" in opts`, so an explicit
+    // `{ timeoutMs: undefined }` opts out of the default and — not being > 0 —
+    // disables the timeout. Surprising, but it is what ships.
     void helper.request('ping', undefined, {}).catch(() => {});
     expect(vi.getTimerCount()).toBe(1);
 

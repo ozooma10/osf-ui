@@ -17,11 +17,10 @@ namespace OSFUI
 			return std::nullopt;
 		}
 
-		// Format bookkeeping (api-freeze-plan item 8). `manifestVersion` is
-		// accepted but not required — the nested views/<mod>/<view>/ layout
-		// (item 1) is itself the v2 discriminator. Unknown keys are the NORMAL
-		// compatible case for author-shipped files (a newer mod on an older
-		// host), so they surface as devMode INFO, never a warning.
+		// `manifestVersion` is accepted but not required — the nested
+		// views/<mod>/<view>/ layout is itself the v2 discriminator. Unknown keys
+		// are the normal compatible case (a newer mod on an older host), so they
+		// surface as devMode INFO, never a warning.
 		if (const auto v = Json::GetInt(*json, "manifestVersion", 1); v > 1) {
 			REX::INFO("ViewManifest: {} declares manifestVersion {} — authored for a newer OSF UI; unknown fields are ignored",
 				a_path.string(), v);
@@ -35,9 +34,9 @@ namespace OSFUI
 				"ViewManifest: " + a_path.string(), /*a_warn=*/false);
 		}
 
-		// The path IS the identity (api-freeze-plan item 1): the manifest lives
-		// at views/<modId>/<viewName>/manifest.json, and the qualified view id
-		// is "<modId>/<viewName>". Declared fields are consistency checks, not
+		// The path is the identity: the manifest lives at
+		// views/<modId>/<viewName>/manifest.json and the qualified view id is
+		// "<modId>/<viewName>". Declared fields are consistency checks, not
 		// sources of truth — a manifest can't claim another mod's namespace.
 		const auto viewName = a_path.parent_path().filename().string();
 		const auto modId = a_path.parent_path().parent_path().filename().string();
@@ -53,8 +52,8 @@ namespace OSFUI
 		manifest.id = modId + "/" + viewName;
 		manifest.mod = modId;
 
-		// Required `id` must equal the view folder name — a mismatch is a
-		// hard reject (a copied manifest that forgot the rename).
+		// Required `id` must equal the view folder name; a mismatch is a hard
+		// reject (a copied manifest that forgot the rename).
 		const auto declaredId = Json::GetString(*json, "id", "");
 		if (declaredId != viewName) {
 			REX::ERROR("ViewManifest: {} declares id '{}' but the view folder is '{}' — "
@@ -72,12 +71,12 @@ namespace OSFUI
 			Json::GetInt(*json, "height", manifest.height), 1, 16384));
 		manifest.transparent = Json::GetBool(*json, "transparent", manifest.transparent);
 
-		// Menu/HUD framework fields. Json has no enum helper, so `kind` is parsed manually; unknown values fall back to Menu
+		// Json has no enum helper, so `kind` is parsed manually; unknown values fall back to Menu.
 		const auto kindStr = Json::GetString(*json, "kind", "menu");
 		manifest.kind = (kindStr == "hud") ? SurfaceKind::Hud : SurfaceKind::Menu;
-		// `interactive` is derived, not author-facing: focus always follows the
-		// top open menu (ApplyMenuPolicy), so menu ⇒ true, hud ⇒ false is the
-		// only coherent mapping. (Was a manifest field pre-1.0; now ignored.)
+		// `interactive` is derived, not author-facing: focus follows the top open
+		// menu (ApplyMenuPolicy), so menu => true, hud => false. Was a manifest
+		// field pre-1.0; now ignored.
 		manifest.interactive = manifest.kind == SurfaceKind::Menu;
 		manifest.capturesInput = Json::GetBool(*json, "capturesInput", manifest.capturesInput);
 		manifest.pausesGame = Json::GetBool(*json, "pausesGame", manifest.pausesGame);
@@ -85,10 +84,9 @@ namespace OSFUI
 		manifest.order = static_cast<std::int32_t>(Json::GetInt(*json, "order", manifest.order));
 		manifest.hub = Json::GetBool(*json, "hub", manifest.hub);
 
-		// Advisory host-version target: never gates loading (a view authored
-		// for a newer OSF UI still loads and does what it can — same lenient
-		// stance as unknown keys), but the catalog carries it so the Mods
-		// surface can badge "needs update", and the log records it for triage.
+		// Advisory host-version target; does not gate loading (a view authored for
+		// a newer OSF UI still loads and does what it can). The catalog carries it
+		// so the Mods surface can badge "needs update".
 		if (auto target = Json::GetString(*json, "targetVersion", ""); !target.empty()) {
 			std::array<std::uint32_t, 3> targetParts{};
 			if (ParseDottedVersion(target, targetParts)) {
@@ -109,8 +107,8 @@ namespace OSFUI
 			manifest.permissions.network = Json::GetBool(*it, "network", false);
 		}
 
-		// Reject entries that try to escape the view folder. Views may only
-		// reference their own local assets.
+		// Views may only reference their own local assets; reject entries that
+		// escape the view folder.
 		const auto entryPath = std::filesystem::path(manifest.entry);
 		if (entryPath.is_absolute() ||
 			std::ranges::any_of(entryPath, [](const auto& part) { return part == ".."; })) {
@@ -124,8 +122,9 @@ namespace OSFUI
 			manifest.permissions.network = false;
 		}
 
-		// A HUD is passive by definition: it draws live over gameplay but never captures input, pauses, or becomes the focused/active view
-		// Force the invariants so a mis-authored manifest can't create a HUD that teals input.
+		// A HUD is passive: it draws over live gameplay but never captures input,
+		// pauses, or becomes the focused view. Forced here so a mis-authored
+		// manifest can't create a HUD that steals input.
 		if (manifest.kind == SurfaceKind::Hud) {
 			if (manifest.capturesInput || manifest.pausesGame) {
 				REX::WARN("ViewManifest: HUD '{}' cannot capture input or pause; forcing both off", manifest.id);

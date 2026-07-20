@@ -3,10 +3,9 @@ import { makeTranslator, isAbsoluteAddress, type TranslatorHost } from '@lib/i18
 import { nullBridge } from '@lib/bridge';
 
 /**
- * A stand-in for the frozen `osfui.t`, reproducing its two behaviours exactly
- * (shared-kit/osfui.js:52-57): catalog hit or authored English, then `{name}`
- * interpolation over the RESULT. It also records every address it was asked
- * for, which is what the prefixing assertions actually check.
+ * Stand-in for the frozen `osfui.t` in shared-kit/osfui.js: catalog hit or
+ * authored English, then `{name}` interpolation over the result. Records every
+ * address it was asked for — that is what the prefixing assertions check.
  */
 function catalogHost(strings: Record<string, string> = {}): TranslatorHost & {
   asked: string[];
@@ -51,8 +50,8 @@ describe('makeTranslator address resolution', () => {
   });
 
   it('passes a dotted (absolute) address through UNPREFIXED', () => {
-    // The fix: the legacy keybinds tr hard-codes its prefix and would ask for
-    // "chrome.keybinds.chrome.common.loading", which no catalog carries.
+    // Blind prefixing would ask for "chrome.keybinds.chrome.common.loading",
+    // which no catalog carries.
     const host = catalogHost({ 'chrome.common.loading': 'Chargement…' });
     const tr = makeTranslator(host, 'chrome.keybinds.');
     expect(tr('chrome.common.loading', 'Loading…')).toBe('Chargement…');
@@ -86,9 +85,9 @@ describe('interpolation', () => {
 
   it('leaves an unmatched placeholder LITERAL rather than blanking it', () => {
     const tr = makeTranslator(catalogHost(), 'chrome.settings.');
-    // /\{([A-Za-z0-9_]+)\}/g only replaces names present in `vars`; anything
-    // else survives verbatim, so a stale catalog string degrades visibly
-    // instead of silently losing text.
+    // Only names present in `vars` are replaced; anything else survives
+    // verbatim, so a stale catalog string degrades visibly instead of
+    // silently losing text.
     expect(tr('alsoBoundBy', 'Also bound by: {others}')).toBe('Also bound by: {others}');
     expect(tr('x', '{a} and {b}', { a: '1' })).toBe('1 and {b}');
   });
@@ -134,8 +133,7 @@ describe('two-form plural selection', () => {
     const host = catalogHost();
     const tr = makeTranslator(host, 'chrome.settings.');
     expect(tr.plural('terminal', 3, 'Terminal', '{count} terminals')).toBe('3 terminals');
-    // Zero and negatives take Other — English-shaped, not CLDR. Preserved from
-    // the legacy `n === 1 ? "...One" : "...Other"` ternaries.
+    // Zero and negatives take Other — English-shaped, not CLDR.
     expect(tr.plural('terminal', 0, 'Terminal', '{count} terminals')).toBe('0 terminals');
     expect(host.asked).toEqual(['chrome.settings.terminalOther', 'chrome.settings.terminalOther']);
   });

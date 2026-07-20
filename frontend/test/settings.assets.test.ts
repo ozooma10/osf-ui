@@ -25,14 +25,13 @@ describe('safeAssetSrc — every rejection', () => {
   it('rejects ".." RAW', () => {
     expect(safeAssetSrc(MOD, '../secret.png')).toBeNull();
     expect(safeAssetSrc(MOD, 'a/../../b.png')).toBeNull();
-    // Broader than a segment check by design.
+    // Broader than a segment check.
     expect(safeAssetSrc(MOD, 'a..b.png')).toBeNull();
   });
 
   it('rejects ".." after DECODING', () => {
     // WebKit resolves the URL again after this check, turning these back into
-    // "../" — hence the decoded pass. (The bare "%" rule below also catches
-    // them; the decoded check is the belt to that braces.)
+    // "../". The bare "%" rule below also catches them.
     expect(safeAssetSrc(MOD, '%2e%2e%2fsecret.png')).toBeNull();
     expect(safeAssetSrc(MOD, '%2E%2E/secret.png')).toBeNull();
   });
@@ -73,8 +72,7 @@ describe('safeAssetSrc — every rejection', () => {
   });
 
   it('checks the src decode BEFORE the mod id', () => {
-    // Order matters only for the diagnostic, but the result must stay null
-    // whichever rule fires first.
+    // Order only affects the diagnostic; the result is null whichever rule fires.
     expect(safeAssetSrc('..', '%zz')).toBeNull();
   });
 });

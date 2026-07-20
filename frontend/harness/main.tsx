@@ -1,21 +1,17 @@
-// main.tsx — the Vite dev harness entry. DEV ONLY.
+// Vite dev harness entry, dev only. One page, one mock, one stage;
+// `?view=<modId>/<viewName>` selects which view's App is mounted.
 //
-// Replaces devtools/harness/{index.html,keybinds.html} and their duplicated
-// inline scripts. One page, one mock, one stage; `?view=<modId>/<viewName>`
-// selects which view's App is mounted.
-//
-// THE IMPORT BLOCK BELOW IS ORDER-SENSITIVE — see install-mock.ts. The mock has
-// to have installed `window.osfui.postMessage` before the shared kit's module
-// body runs, or the kit concludes there is no bridge and every view boots into
-// its standalone path.
+// The import block below is order-sensitive: the mock must install
+// `window.osfui.postMessage` before the shared kit's module body runs, or the
+// kit concludes there is no bridge and every view boots standalone.
 
 import './install-mock';
 import '../src/shared-kit/osfui.js';
 import '../src/legacy/padnav.js';
 
-// Stylesheets in shipped order: the kit's tokens first (the harness chrome
-// consumes its --osf-* custom properties), the harness chrome last. Each view's
-// own style.css loads with the view, below.
+// Stylesheets in shipped order: kit tokens first (the harness chrome consumes
+// its --osf-* custom properties), harness chrome last. Each view's own style.css
+// loads with the view, below.
 import '../src/shared-kit/osfui.css';
 import './harness.css';
 
@@ -28,16 +24,9 @@ import { Toolbar } from './Toolbar';
 import { mock } from './install-mock';
 import { LOCALE_EVENT } from './mockbridge';
 
-// ---------------------------------------------------------------------------
-// view registry
-// ---------------------------------------------------------------------------
-//
-// `import.meta.glob` rather than static imports for two reasons:
-//   1. It typechecks and builds even while a view's App.tsx does not exist yet
-//      (the views are being ported one at a time), instead of failing the whole
-//      harness on a missing module.
-//   2. Each view's App and its style.css load only when selected, so a broken
-//      view cannot take the other one down with it.
+// View registry. `import.meta.glob` rather than static imports: it builds even
+// while a view's App.tsx does not exist yet, and each view's App and style.css
+// load only when selected, so a broken view cannot take the others down.
 
 const VIEW_APPS = import.meta.glob<{ App: FunctionComponent }>('../src/views/*/*/App.tsx');
 const VIEW_STYLES = import.meta.glob('../src/views/*/*/style.css');
@@ -59,8 +48,8 @@ function knownViews(): string[] {
   return Object.keys(VIEW_APPS)
     .map((path) => path.replace('../src/views/', '').replace('/App.tsx', ''))
     .sort((a, b) => {
-      // Keep the documented order (Mods, then Keybinds, then anything new)
-      // rather than the alphabetical one, which would put Keybinds first.
+      // Documented order (Mods, Keybinds, then anything new) rather than
+      // alphabetical, which would put Keybinds first.
       const ia = Object.keys(VIEW_TITLES).indexOf(a);
       const ib = Object.keys(VIEW_TITLES).indexOf(b);
       if (ia !== ib) return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
@@ -68,18 +57,12 @@ function knownViews(): string[] {
     });
 }
 
-// ---------------------------------------------------------------------------
-// url state
-// ---------------------------------------------------------------------------
-
 const params = new URLSearchParams(location.search);
 
-// `?view=` picks the mounted view. Anything unrecognised falls back to the Mods
-// surface rather than rendering an empty stage.
+// `?view=` picks the mounted view.
 const requested = params.get('view') || DEFAULT_VIEW;
-// Fall back to the Mods surface, and past that to whatever App DOES exist: the
-// views are being ported one at a time, and a harness that renders nothing
-// because the DEFAULT view has not landed yet is a harness nobody can use.
+// Unrecognised falls back to the Mods surface, and past that to whatever App
+// does exist, so the harness never renders an empty stage.
 const activeView = VIEW_APPS[viewKey(requested, 'App.tsx')]
   ? requested
   : VIEW_APPS[viewKey(DEFAULT_VIEW, 'App.tsx')]
@@ -89,18 +72,15 @@ if (activeView !== requested) {
   console.warn(`[harness] no App at src/views/${requested}/App.tsx — showing ${activeView}.`);
 }
 
-// The reference stage is the DEFAULT (README:44-46): a view that only looks
-// right when it can reflow to the browser window will be wrong in game.
-// `?res=off` opts into the old fluid fill-the-window mode.
+// The fixed reference stage is the default: a view that only looks right when it
+// can reflow to the browser window will be wrong in game. `?res=off` opts into
+// the fluid fill-the-window mode.
 const STAGE_DEFAULT = params.get('res') !== 'off';
 
-// NOTE on the other query params: `?schema=`, `?fixtures=1` and `?locale=` are
-// read (and persisted to localStorage) by the mock itself, as is the drag-drop
-// loader for schemas and `<modId>_<locale>.json` catalogs. They are deliberately
-// NOT duplicated here — the mock owns everything that changes what the bridge
-// serves; this file owns only what changes how the page is framed.
-
-// ---------------------------------------------------------------------------
+// `?schema=`, `?fixtures=1` and `?locale=` are read (and persisted to
+// localStorage) by the mock itself, as is the drag-drop loader for schemas and
+// `<modId>_<locale>.json` catalogs. The mock owns what the bridge serves; this
+// file owns only how the page is framed.
 
 function Harness() {
   const [App, setApp] = useState<FunctionComponent | null>(null);
@@ -115,7 +95,6 @@ function Harness() {
     mock.setSelfView(activeView);
   }, []);
 
-  // Load the selected view's stylesheet and App.
   useEffect(() => {
     let live = true;
     const style = VIEW_STYLES[viewKey(activeView, 'style.css')];
@@ -140,15 +119,15 @@ function Harness() {
     };
   }, []);
 
-  // Stage mode drives a body class, because the fluid-mode margins that clear
-  // the toolbar are a body-level rule (harness.css) — the view's own root must
+  // Stage mode drives a body class: the fluid-mode margins that clear the
+  // toolbar are a body-level rule in harness.css, and the view's own root must
   // stay untouched in stage mode.
   useEffect(() => {
     document.body.classList.toggle('res900', stageOn);
   }, [stageOn]);
 
   // A dropped catalog can auto-activate its locale (mockbridge applyLocale), so
-  // the picker follows the mock rather than the other way round.
+  // the picker follows the mock, not the other way round.
   useEffect(() => {
     const onLocale = (e: Event) => {
       const detail = (e as CustomEvent<{ locale: string }>).detail;
@@ -165,9 +144,9 @@ function Harness() {
         view={activeView}
         views={[
           ...knownViews().map((id) => ({ id, title: VIEW_TITLES[id] || id })),
-          // The OSF Animation browser is the sibling repo's REAL view in an
-          // iframe on its own page — it self-mocks and must not get this page's
-          // bridge, so it is a plain link, not a ?view= target.
+          // The OSF Animation browser is the sibling repo's view in an iframe on
+          // its own page: it self-mocks and must not get this page's bridge, so
+          // it is a plain link, not a ?view= target.
           { id: 'osf.animation/browser', title: 'OSF Animation', href: 'osf.html' },
         ]}
         stageOn={stageOn}
@@ -192,12 +171,11 @@ function Harness() {
  *
  * The Mods (settings) view resolves schema `icon`/`image` paths against a
  * mod-id -> root map. In game every view sits under one `views/` root, so the
- * shipped default "../../<modId>" is correct and the view passes NOTHING; from
- * the harness that lands nowhere, so the mock's map has to be handed in
- * explicitly. Reading the global the mock published (harness code may) and
- * passing it as a PROP is what keeps `window.OSFUI_MOD_ASSET_ROOTS` out of
- * src/ — the shipped path can no longer be redirected by anything that manages
- * to set that global.
+ * shipped default "../../<modId>" is correct and the view passes nothing; from
+ * the harness that lands nowhere, so the mock's map is handed in explicitly.
+ * Reading the mock's global here and passing it as a prop keeps
+ * `window.OSFUI_MOD_ASSET_ROOTS` out of src/, so nothing that sets that global
+ * can redirect the shipped path.
  */
 function renderView(App: FunctionComponent, view: string) {
   if (view === 'osfui/settings') {

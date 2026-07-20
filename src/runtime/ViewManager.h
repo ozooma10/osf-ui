@@ -5,7 +5,7 @@
 namespace OSFUI
 {
 	// Discovers and owns view manifests found under
-	// <data>/views/<modId>/<viewName>/manifest.json (api-freeze-plan item 1).
+	// <data>/views/<modId>/<viewName>/manifest.json (frozen public path).
 	class ViewManager
 	{
 	public:

@@ -1,9 +1,5 @@
-// helpers/settingsHarness.tsx — a fake bridge + mount helpers shared by the
-// settings-view test files. DEV/TEST ONLY.
-//
-// Modelled on test/dom-contracts.test.tsx's inline harness; extracted here
-// because four settings suites need the same scaffolding and duplicating it
-// four ways invites drift.
+// Fake bridge + mount helpers shared by the settings-view test suites.
+// Test only.
 
 import { render } from 'preact';
 import { act } from 'preact/test-utils';
@@ -18,9 +14,8 @@ export interface FakeBridge extends Bridge {
   requests: Array<{ command: string; fields?: Record<string, unknown>; opts?: unknown }>;
   settle(index: number, value: unknown): void;
   reject(index: number, err: unknown): void;
-  /** How many requests of a given command have been issued. */
   countRequests(command: string): number;
-  /** The index of the Nth (0-based) request matching `command`, or -1. */
+  /** Index of the Nth (0-based) request matching `command`, or -1. */
   indexOf(command: string, nth?: number): number;
 }
 
@@ -28,7 +23,7 @@ export interface MakeBridgeOptions {
   version?: string;
   available?: boolean;
   /**
-   * Never resolve `ready()`. Models a real transport that dropped the one-shot
+   * Never resolve `ready()`. Models a transport that missed the one-shot
    * `runtime.ready` greeting (the WebView2 host process starts long after the
    * runtime emits it). The view must still work: nothing but the version badge
    * may depend on that handshake.
@@ -77,7 +72,7 @@ export function makeBridge(opts: MakeBridgeOptions = {}): FakeBridge {
       };
     },
     applyAccent() {
-      // The DOM side-effect is not under test; swallow it.
+      // DOM side-effect is not under test.
     },
     emit(type, payload, message) {
       const set = listeners.get(type);
@@ -124,11 +119,9 @@ export const flushDebounce = async () => {
 
 /**
  * Type into the filter box and settle both the input state and the 120ms
- * debounce.
- *
- * The input dispatch MUST land in its own `act` before the debounce timer is
- * waited on: otherwise Preact has not yet processed the value change when the
- * debounce window opens, and `query` never updates.
+ * debounce. The input dispatch must land in its own `act` before the debounce
+ * timer is waited on, or Preact has not processed the value change when the
+ * debounce window opens and `query` never updates.
  */
 export async function typeFilter(el: HTMLElement, value: string): Promise<void> {
   const input = el.querySelector('#filter') as HTMLInputElement;

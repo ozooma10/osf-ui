@@ -62,23 +62,22 @@ describe('compareBindings', () => {
   });
 
   it('keeps input order for identical key and owner (stable sort)', () => {
-    // Identity assertions, NOT toEqual: a and b are structurally identical, so
-    // a toEqual comparison would pass even if the comparator reordered them -
-    // i.e. it would assert nothing at all.
+    // Identity assertions, not toEqual: a and b are structurally identical, so
+    // toEqual would pass even if the comparator reordered them.
     const a = row('F5', 'Same');
     const b = row('F5', 'Same');
-    expect(compareBindings(a, b)).toBe(0); // no ordering opinion...
+    expect(compareBindings(a, b)).toBe(0);
     const forward = [a, b].sort(compareBindings);
     expect(forward[0]).toBe(a);
     expect(forward[1]).toBe(b);
-    const reverse = [b, a].sort(compareBindings); // ...so input order survives
+    const reverse = [b, a].sort(compareBindings);
     expect(reverse[0]).toBe(b);
     expect(reverse[1]).toBe(a);
   });
 
   it('never orders by label - only key name then owner', () => {
-    // Legacy line 351-352 has no third comparison key, so two rows from the
-    // same owner on the same key keep model order regardless of their labels.
+    // There is no third comparison key, so two rows from the same owner on the
+    // same key keep model order regardless of their labels.
     const zed = { ...row('F5', 'Same'), label: 'zzz' };
     const abc = { ...row('F5', 'Same'), label: 'aaa' };
     const sorted = [zed, abc].sort(compareBindings);

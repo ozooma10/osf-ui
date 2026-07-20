@@ -1,11 +1,11 @@
 #pragma once
 
 // Message-framed named-pipe transport for the OSF UI <-> webview2 host IPC.
-// Deliberately logging-free (shared between the SFSE plugin and standalone
-// tools); every failure surfaces through return values + LastErrorText().
+// Logging-free (shared between the SFSE plugin and standalone tools); failures
+// surface through return values + LastErrorText().
 //
-// Threading: WriteMessage is serialized by an internal mutex and safe from
-// any thread. ReadMessage is blocking and must only run on ONE reader thread.
+// Threading: WriteMessage is serialized by an internal mutex and safe from any
+// thread. ReadMessage blocks and must run on a single reader thread only.
 // Close() cancels pending I/O and unblocks the reader.
 
 #include <cstdint>

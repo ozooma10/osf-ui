@@ -1,25 +1,20 @@
-// marks.tsx — the little identity glyphs shared by the rail and the Home
-// launcher: title initials, the derived card accent, and the icon-with-fallback
-// avatar.
+// Identity glyphs shared by the rail and the Home launcher: title initials, the
+// derived card accent, and the icon-with-fallback avatar (three states: schema
+// icon, broken icon, no icon).
 //
-// Extracted rather than duplicated because the rail (main.legacy.js:813-829),
-// the Home HUD chip (:1270-1287) and the Home card monogram (:1222-1235) all
-// implement the SAME three-state widget — schema icon, broken icon, no icon —
-// and legacy had it written out three times. The patch/monogram variant keeps
-// its own copy in Home.tsx because its fallback sits inside an SVG frame rather
-// than replacing the whole node.
+// The Home patch/monogram variant keeps its own copy in Home.tsx because its
+// fallback sits inside an SVG frame rather than replacing the whole node.
 
 import { useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 
 /**
- * Up to two letters standing in for a title (main.legacy.js:181-185).
+ * Up to two letters standing in for a title. Two words -> their initials
+ * ("Ship Almanac" -> "SA"); one word -> its first two alphanumeric characters,
+ * so "acme.shipworks" reads "AC" without the stray dot.
  *
- * Two words -> their initials ("Ship Almanac" -> "SA"). One word -> its first
- * two ALPHANUMERIC characters, so "acme.shipworks" reads "AC" rather than
- * "AC" with a stray dot. Note the two branches are asymmetric: the two-word
- * path does NOT strip punctuation, so ".x y" yields ".Y" — faithful, and
- * unreachable for any title the schema validator accepts.
+ * The branches are asymmetric: the two-word path does not strip punctuation, so
+ * ".x y" yields ".Y" — unreachable for any title the schema validator accepts.
  */
 export function initials(title: unknown): string {
   const words = String(title).trim().split(/\s+/);
@@ -32,9 +27,9 @@ export function initials(title: unknown): string {
 }
 
 /**
- * The Home card palette (main.legacy.js:1172). Muted, deliberately NOT the kit
- * accent: these tint unbranded third-party views, and they must read as
- * "assigned automatically", not as "this mod chose teal".
+ * Home card palette. Muted and not the kit accent: these tint unbranded
+ * third-party views and must read as assigned automatically, not as a mod's
+ * own colour choice.
  */
 export const HOME_PALETTE = [
   '#6f93b0',
@@ -48,10 +43,9 @@ export const HOME_PALETTE = [
 ] as const;
 
 /**
- * djb2-ish string hash, `>>> 0` to stay in unsigned 32-bit
- * (main.legacy.js:1173-1177). Only stability matters — the same view id must
- * pick the same colour across sessions, so no randomness and no ordering
- * dependence.
+ * djb2-ish string hash; `>>> 0` keeps it unsigned 32-bit. Only stability
+ * matters: the same view id must pick the same colour across sessions, so no
+ * randomness and no ordering dependence.
  */
 export function hashId(id: string): number {
   let h = 0;
@@ -66,7 +60,7 @@ export function homeAccentFor(id: unknown): string {
 export interface MarkProps {
   /** Base class, e.g. "rail-item-mark". */
   class: string;
-  /** Added ONLY while a real icon is showing, e.g. "rail-item-mark--icon". */
+  /** Added only while a real icon is showing, e.g. "rail-item-mark--icon". */
   iconClass: string;
   /** Already through safeAssetSrc; null when the mod ships none / it was rejected. */
   src: string | null;
@@ -77,11 +71,9 @@ export interface MarkProps {
 }
 
 /**
- * A mod's schema `icon` when it has one, its initials otherwise.
- *
- * The `onError` fallback is the point: a schema can name a file that was
- * removed, renamed, or never shipped, and a stale path must leave initials —
- * not a broken-image hole in the middle of the rail.
+ * A mod's schema `icon` when it has one, its initials otherwise. The `onError`
+ * fallback matters: a schema can name a file that was removed, renamed or never
+ * shipped, and a stale path must leave initials rather than a broken-image hole.
  */
 export function Mark({ class: base, iconClass, src, color, fallback }: MarkProps) {
   const [failed, setFailed] = useState(false);

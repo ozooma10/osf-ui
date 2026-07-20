@@ -1,10 +1,7 @@
-// check-dist.mjs — the stale-generated-output gate, suitable for CI.
-//
-// Rebuilds the frontend into a scratch directory and byte-compares against the
-// committed data/OSFUI/views. Deliberately does NOT rely on `git diff`, so it
-// also catches drift in a dirty tree and works before the output is committed.
-//
-// Exits non-zero with a precise per-file report when anything differs.
+// Stale-generated-output gate for CI: rebuilds into a scratch directory and
+// byte-compares against the committed data/OSFUI/views, exiting non-zero with a
+// per-file report on any difference. Does not use `git diff`, so it also catches
+// drift in a dirty tree and works before the output is committed.
 
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

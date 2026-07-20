@@ -1,50 +1,35 @@
-// ActionButton.tsx — an `type:"action"` row's control cell.
+// Control cell for a `type:"action"` row.
 //
-// Ports `buildAction` + `askConfirm` (settings/main.legacy.js:675-738).
-//
-// ---------------------------------------------------------------------------
-// THE COMMAND IS VALIDATED CLIENT-SIDE, TWICE, AND NATIVE VALIDATES IT AGAIN
-// ---------------------------------------------------------------------------
-// A schema is untrusted author data, and this button fires a bridge command by
-// name. Two rules gate it (main.legacy.js:689-699):
+// A schema is untrusted author data and this button fires a bridge command by
+// name, so two rules gate it client-side:
 //
 //   1. the command must start with `<mod.id>.` — a mod may only fire into its
 //      own namespace;
-//   2. the leading namespace must not be one of RESERVED_NS — the framework's
-//      own command families, which no mod owns even if its schema CLAIMS one of
-//      those strings as its id.
+//   2. the leading namespace must not be one of RESERVED_NS — framework command
+//      families, which no mod owns even if its schema claims one as its id.
 //
 // Rule 2 is not implied by rule 1: the store rejects reserved mod ids on load,
 // but the renderer also runs against mock data and against whatever an older
-// host served, so the defence stays layered. Native refuses the same two cases
-// independently — this pair exists to give a MESSAGE instead of a silent
-// no-op, not to be the only check.
+// host served. Native refuses both cases independently; this pair exists to
+// give a message instead of a silent no-op, not to be the only check.
 //
-// ---------------------------------------------------------------------------
-// THE INLINE CONFIRM IS COMPONENT STATE (a deliberate change from legacy)
-// ---------------------------------------------------------------------------
-// Legacy kept the confirm prompt in the DOM only: `askConfirm` hid the button
-// with `style.display = "none"` and appended a `.confirm` box next to it. Any
-// full re-render of the pane — applying a preset, an external `settings.changed`
-// — threw the whole subtree away, so a half-answered confirmation silently
-// vanished. Holding it as state makes it survive re-renders, which is a
-// user-visible FIX and is flagged as such.
+// The inline confirm is component state, not DOM-only, so a half-answered
+// confirmation survives a full re-render of the pane (preset apply, external
+// `settings.changed`).
 //
 // The `pending` class is a contract with the row's enabledWhen handling: the
-// settings App must never re-enable a mid-flight action button underneath
-// itself, so `disabled` here is `pending || !enabled` and the class is what
-// legacy's DOM walk tested (main.legacy.js:1446).
+// settings App must not re-enable a mid-flight action button underneath itself,
+// so `disabled` here is `pending || !enabled`.
 
 import { useState } from 'preact/hooks';
 import type { Translator } from '@lib/i18n';
 
 /**
- * Bridge command namespaces owned by the framework (main.legacy.js:38 — mirrors
- * the reserved-id list in SettingsStore.cpp).
+ * Bridge command namespaces owned by the framework. Mirrors the reserved-id
+ * list in SettingsStore.cpp.
  */
 export const RESERVED_NS = ['ui', 'menu', 'hud', 'settings', 'views', 'game', 'runtime'] as const;
 
-/** main.legacy.js:39. */
 export const ACTION_TIMEOUT_MS = 5000;
 
 export type ActionRefusal =
@@ -53,18 +38,15 @@ export type ActionRefusal =
   | null;
 
 /**
- * Why this command may not be fired, or null when it may.
- *
- * Note the `namespace` check also covers a NON-STRING command: legacy tested
- * `typeof item.command !== "string" || !command.startsWith(...)` as one
- * condition and reported both the same way.
+ * Why this command may not be fired, or null when it may. The `namespace` kind
+ * also covers a non-string command.
  */
 export function actionRefusal(modId: string, command: unknown): ActionRefusal {
   if (typeof command !== 'string' || !command.startsWith(modId + '.')) {
     return { kind: 'namespace', command: String(command) };
   }
-  // `slice(0, indexOf("."))` — the FIRST dot, so "acme.tools.run" has namespace
-  // "acme", not "acme.tools". Same split native uses.
+  // First dot only, so "acme.tools.run" has namespace "acme", not "acme.tools".
+  // Same split native uses.
   const ns = command.slice(0, command.indexOf('.'));
   if ((RESERVED_NS as readonly string[]).includes(ns)) return { kind: 'reserved', namespace: ns };
   return null;
@@ -81,7 +63,7 @@ export interface ActionButtonProps {
   /**
    * Fire the command. Resolves with an optional message to surface, rejects
    * with an error carrying `.code` ("timeout") / `.message`. The caller owns
-   * the bridge (and the ACTION_TIMEOUT_MS option) so this file stays free of it.
+   * the bridge and the ACTION_TIMEOUT_MS option.
    */
   onRun: () => Promise<string | null>;
 }
@@ -119,8 +101,8 @@ export function ActionButton({ modId, item, enabled, tr, onToast, onRun }: Actio
       (message) => {
         setPending(false);
         // A plugin may answer with its own text; `ok:true` alone is silent.
-        // Legacy passed kind "info", which no stylesheet defines — see the
-        // ToastKind note in @lib/toast. A plain toast is the same pixels.
+        // No kind: no stylesheet defines "info" (see the ToastKind note in
+        // @lib/toast).
         if (message) onToast(message);
       },
       (err: unknown) => {
@@ -138,8 +120,6 @@ export function ActionButton({ modId, item, enabled, tr, onToast, onRun }: Actio
   };
 
   if (confirming) {
-    // Legacy HID the trigger (`btn.style.display = "none"`) and appended the
-    // box as a sibling; unmounting it is equivalent and keeps the tree honest.
     return (
       <div class="confirm">
         <span class="confirm-msg">{item.confirm}</span>
@@ -168,14 +148,12 @@ export function ActionButton({ modId, item, enabled, tr, onToast, onRun }: Actio
     <button
       type="button"
       class={pending ? `osf-btn osf-btn--sm${style} pending` : `osf-btn osf-btn--sm${style}`}
-      // `pending ||` FIRST: a mid-flight button stays disabled even if its
-      // enabledWhen gate has since flipped true (legacy's refreshLive skipped
-      // `.pending` nodes rather than re-enabling them).
+      // `pending ||` first: a mid-flight button stays disabled even if its
+      // enabledWhen gate has since flipped true.
       disabled={pending || !enabled}
       onClick={() => (item.confirm ? setConfirming(true) : fire())}
     >
-      {/* The in-flight label is a lone ellipsis character, and the resting
-          label falls back to "Run" only when the schema names none. */}
+      {/* Resting label falls back to "Run" only when the schema names none. */}
       {pending ? '…' : item.label || tr('run', 'Run')}
     </button>
   );

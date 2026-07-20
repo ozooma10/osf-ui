@@ -1,20 +1,17 @@
 // Note.tsx — a static rich-text callout (`type:"note"`).
 //
-// Ports `buildNote` (settings/main.legacy.js:624-632).
+// The style whitelist is a security control: `item.style` is untrusted schema
+// author text landing in the class list. Unchecked interpolation would let a
+// schema write `style: "info x\" onmouseover=…"` into the attribute, or borrow
+// arbitrary kit classes (including the ones that position modals). Anything
+// outside the enum falls back to "info".
 //
-// THE STYLE IS WHITELISTED, and that is a security control rather than a
-// nicety: `item.style` is untrusted schema author text that lands in the class
-// LIST. Interpolating it unchecked would let a schema write
-// `style: "info x\" onmouseover=…"`-shaped values into the attribute, or at
-// minimum borrow arbitrary classes from the kit's stylesheet (including the
-// ones that position modals). Anything outside the enum falls back to "info".
-//
-// The body goes through the micro-markdown renderer, which can only emit
-// <strong>/<em>/<code>/<br> and text — no links, no raw HTML. See Inline.tsx.
+// The body goes through the micro-markdown renderer in Inline.tsx, which emits
+// only <strong>/<em>/<code>/<br> and text — no links, no raw HTML.
 
 import { Inline } from './Inline';
 
-/** main.legacy.js:627. The ONLY three accepted values. */
+/** The only three accepted values. */
 export const NOTE_STYLES = ['info', 'warn', 'danger'] as const;
 export type NoteStyle = (typeof NOTE_STYLES)[number];
 
@@ -30,9 +27,7 @@ export interface NoteProps {
   text: unknown;
   /**
    * `visibleWhen` said no. Adds `hidden-cond` (CSS `display:none`) rather than
-   * unmounting: padnav treats a zero-sized rect as invisible and skips it
-   * (src/legacy/padnav.js:88-89), so hiding by class and hiding by removal are
-   * equivalent to it — and the class is what ships today.
+   * unmounting; padnav skips zero-sized rects, so both are equivalent to it.
    */
   hiddenCond: boolean;
 }
@@ -46,8 +41,7 @@ export function Note({ style, text, hiddenCond }: NoteProps) {
           : `osf-note osf-note--${noteStyle(style)}`
       }
     >
-      {/* `item.text || ""` — a note with no text renders as an empty callout
-          rather than the string "undefined" (main.legacy.js:629). */}
+      {/* A note with no text renders as an empty callout, not "undefined". */}
       <Inline text={text == null ? '' : text} />
     </div>
   );

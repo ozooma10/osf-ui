@@ -22,9 +22,9 @@ namespace OSFUI
 		constexpr std::string_view kMenuName = "PauseMenu";
 
 		// uActionType of the injected entry. Vanilla PMA_* ids are
-		// EnumHelper-sequential ints 0..11 (decompiled pausemenu.swf 1.16.244,
-		// tmp/pausemenu-re); 100 is far outside that range and, thanks to the
-		// priority-1000 listener below, never reaches the engine anyway.
+		// EnumHelper-sequential ints 0..11 (decompiled pausemenu.swf 1.16.244);
+		// 100 is outside that range and, thanks to the priority-1000 listener
+		// below, never reaches the engine anyway.
 		constexpr std::uint32_t kActionId = 100;
 
 		std::string g_label = "MOD MENUS";
@@ -43,8 +43,8 @@ namespace OSFUI
 		bool          g_entryLogged{ false };
 		bool          g_failWarned{ false };
 
-		// Extract any AS3 numeric (the VM stores ints, uints or Numbers
-		// depending on origin) as a double for comparisons.
+		// The VM stores ints, uints or Numbers depending on origin; normalise to
+		// double for comparisons.
 		bool NumericValue(const RE::Scaleform::GFx::Value& a_val, double& a_out)
 		{
 			using Type = RE::Scaleform::GFx::Value::ValueType;
@@ -63,11 +63,10 @@ namespace OSFUI
 			}
 		}
 
-		// The native press callback, installed into the movie via
-		// asMovieRoot->CreateFunction + root.addEventListener. Fires on the
-		// game's main thread DURING the movie's event dispatch, so it must stay
-		// tiny and re-entrancy-free: identify our entry, swallow the event,
-		// flag the click for the next Reconcile.
+		// Native press callback, installed via asMovieRoot->CreateFunction +
+		// root.addEventListener. Fires on the game's main thread inside the
+		// movie's event dispatch, so it must stay tiny and re-entrancy-free:
+		// identify our entry, swallow the event, flag the click for Reconcile.
 		class ClickHandler final : public RE::Scaleform::GFx::FunctionHandler
 		{
 		public:
@@ -92,7 +91,7 @@ namespace OSFUI
 				if (id != static_cast<double>(kActionId)) {
 					return;  // a vanilla entry — leave the event alone
 				}
-				// Ours. Our listener runs FIRST (priority 1000 vs. the menu's
+				// Ours. This listener runs first (priority 1000 vs. the menu's
 				// own priority-0 listener on the same node), so stopping here
 				// keeps PauseMenu from forwarding an unknown actionType to the
 				// engine as PauseMenu_StartAction.
@@ -101,17 +100,16 @@ namespace OSFUI
 			}
 		};
 
-		// Heap singleton, intentionally never Release()d by us: CreateFunction's
-		// function object add-refs it per movie and releases on movie teardown,
-		// so our construction ref (1) pins it alive forever — the engine can
-		// never drive the count to 0 and free a CRT allocation through the
-		// Scaleform allocator (the same allocator-mismatch guard as FocusMenu's
-		// pinned refcount).
+		// Heap singleton, never Release()d by us: CreateFunction's function
+		// object add-refs per movie and releases on movie teardown, so the
+		// construction ref (1) pins it forever. Keeps the engine from driving
+		// the count to 0 and freeing a CRT allocation through the Scaleform
+		// allocator (same allocator-mismatch guard as FocusMenu's pinned ref).
 		ClickHandler* g_handler{ nullptr };
 
-		// One WARN per pause-menu open when the expected AS3 shape is missing
-		// (a UI-overhaul SWF replacing pausemenu.swf could rename clips); after
-		// that stay silent so a per-tick reconcile can't flood the log.
+		// One WARN per pause-menu open when the expected AS3 shape is missing (a
+		// UI-overhaul SWF replacing pausemenu.swf can rename clips); silent
+		// after that, so the per-tick reconcile can't flood the log.
 		void WarnOnce(const char* a_what)
 		{
 			if (!g_failWarned) {
@@ -138,8 +136,8 @@ namespace OSFUI
 
 	void PauseMenuEntry::Reconcile()
 	{
-		// Act on a pending click first — even if the pause menu already went
-		// away for another reason (kHide on a closing menu is harmless).
+		// Act on a pending click first, even if the pause menu already went away
+		// for another reason (kHide on a closing menu is harmless).
 		if (g_clicked.exchange(false, std::memory_order_acq_rel)) {
 			REX::INFO("PauseMenuEntry: entry pressed -> closing PauseMenu, opening view '{}'", g_viewId);
 			if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
@@ -154,8 +152,8 @@ namespace OSFUI
 			return;
 		}
 
-		// New pause-menu session: reset per-open state (the menu object — and
-		// with it our listener — may have been rebuilt).
+		// New session: reset per-open state; the menu object (and with it our
+		// listener) may have been rebuilt.
 		if (const auto gen = g_openGen.load(std::memory_order_acquire); gen != g_handledGen) {
 			g_handledGen = gen;
 			g_listenerInstalled = false;
@@ -188,10 +186,10 @@ namespace OSFUI
 			return;
 		}
 
-		// Read the list through BSScrollingContainer's PUBLIC surface —
-		// entryCount + GetDataForEntry(i). The `entryList` getter itself is
-		// PROTECTED in AS3 and invisible to GFx GetMember (proven live
-		// 2026-07-13: GetMember("entryList") failed on the real movie).
+		// Read the list through BSScrollingContainer's public surface:
+		// entryCount + GetDataForEntry(i). The `entryList` getter is protected
+		// in AS3 and invisible to GFx GetMember (verified live 2026-07-13:
+		// GetMember("entryList") failed on the real movie).
 		RE::Scaleform::GFx::Value countVal;
 		double                    countNum = 0.0;
 		if (!mainList.GetMember("entryCount", &countVal) || !NumericValue(countVal, countNum)) {
@@ -207,9 +205,9 @@ namespace OSFUI
 			return;
 		}
 
-		// Install the press listener once per pause-menu session. The listener
-		// lives on the ROOT (presses bubble to it from MainPanel), so the
-		// engine re-pushing list data doesn't disturb it.
+		// Install the press listener once per session. It lives on the root
+		// (presses bubble up from MainPanel), so the engine re-pushing list
+		// data doesn't disturb it.
 		if (!g_listenerInstalled) {
 			if (!g_handler) {
 				g_handler = new ClickHandler();
@@ -217,8 +215,8 @@ namespace OSFUI
 			RE::Scaleform::GFx::Value fn;
 			movieRoot.CreateFunction(&fn, g_handler);
 			// Managed VM string for the event type too (same raw-kString
-			// hazard as the entry label — a mis-read type would make the
-			// listener silently never match).
+			// hazard as the entry label: a mis-read type makes the listener
+			// silently never match).
 			RE::Scaleform::GFx::Value eventType;
 			movieRoot.CreateString(&eventType, "MainPanel_EntryPress");
 			const RE::Scaleform::GFx::Value args[4] = {
@@ -235,8 +233,8 @@ namespace OSFUI
 		}
 
 		// Scan for our entry while copying the current entries into a fresh
-		// array for a potential re-populate (both via GetDataForEntry — one
-		// pass over ~10 entries per tick).
+		// array for a potential re-populate: one GetDataForEntry pass over ~10
+		// entries per tick.
 		RE::Scaleform::GFx::Value newList;
 		movieRoot.CreateArray(&newList);
 		bool foundOurs = false;
@@ -259,19 +257,18 @@ namespace OSFUI
 			return;  // steady state: entry present, nothing to do this tick
 		}
 
-		// (Re)inject: append ours and hand the rebuilt array to the menu's own
-		// PopulateMainList — the same path the engine's data push takes, so
-		// rawEntries/entryList/selection all stay coherent.
+		// (Re)inject through the menu's own PopulateMainList — the same path the
+		// engine's data push takes, so rawEntries/entryList/selection stay
+		// coherent.
 		RE::Scaleform::GFx::Value entry;
 		movieRoot.CreateObject(&entry);
-		// The label field is `sActionText`, NOT the BSContainerEntry base's
-		// `text`: MainPanelListEntry OVERRIDES SetEntryText and reads
-		// {sActionText, bDisabled, bShowSpinner, bHasNotification}. The class
-		// lives in mainpanel.swf (a runtime-loaded sub-SWF sharing the app
-		// domain), which is why the pausemenu.swf decompile alone missed it —
-		// second live run rendered a blank row until this was decompiled too.
-		// Strings are built as managed VM strings (CreateString), the
-		// canonical GFx4/AS3 form for values crossing into AS3 objects.
+		// The label field is `sActionText`, not the BSContainerEntry base's
+		// `text`: MainPanelListEntry overrides SetEntryText and reads
+		// {sActionText, bDisabled, bShowSpinner, bHasNotification}. That class
+		// lives in mainpanel.swf, a runtime-loaded sub-SWF sharing the app
+		// domain (pausemenu.swf alone doesn't show it; using `text` renders a
+		// blank row). Strings must be managed VM strings (CreateString), the
+		// GFx4/AS3 form for values crossing into AS3 objects.
 		RE::Scaleform::GFx::Value label;
 		movieRoot.CreateString(&label, g_label.c_str());
 		RE::Scaleform::GFx::Value emptyStr;

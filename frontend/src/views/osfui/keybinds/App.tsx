@@ -1,37 +1,23 @@
-// App.tsx — the keybinds view.
-//
-// Every key binding at a glance, rebind in place. A visual keyboard map
-// (mod-bound keys glow accent, game-bound keys steel, collisions warn), a
-// holders panel for the selected key, and a searchable list of every binding.
+// The keybinds view: a keyboard map (mod-bound keys accent, game-bound steel,
+// collisions warn), a holders panel for the selected key, and a searchable list.
 //
 // Data is the same `settings.data` document the settings view consumes: every
 // `type:"key"` setting of every mod, plus the top-level `vanillaKeys` table
-// (the game's own bindings — read-only rows). Rebinds reuse the generic capture
+// (the game's own bindings, read-only rows). Rebinds reuse the generic capture
 // machinery (`settings.captureKey` -> `settings.captured` -> echoed
 // `settings.set`), including the capture-time conflict live-warn. `ui.hotkey`
 // pushes flash the pressed key on the board.
 //
-// Grouping is by KEY NAME with the same alias folding as native
+// Grouping is by key name with the same alias folding as native
 // (Tilde/Backtick/Console -> Grave, Return -> Enter), so the board agrees with
 // the store's vk-resolved conflict data without re-resolving VKs in JS.
 //
-// Ported from main.legacy.js, which stays in-tree as the behavioural reference.
-//
-// ---------------------------------------------------------------------------
-// WHY THERE IS NO data-i18n IN THIS VIEW ANY MORE
-// ---------------------------------------------------------------------------
-// `osfui.localize()` mutates text and attributes IN PLACE and caches the
-// originals in element-keyed WeakMaps. Preact re-rendering the same nodes
-// reverts localised strings to the authored English, and remounted nodes lose
-// the cache entirely. So every string is resolved through the @lib/i18n
-// translator at render time instead. `osfui.localize` is untouched in the
-// shared kit — third-party views still use it.
-//
-// The factory also fixes a real bug: legacy's `tr()` was an unconditional
-// `"chrome.keybinds." + address` concatenation, so it could never address the
-// shared `chrome.common.loading` entry that index.html reached declaratively.
-// The status line below asks for it by absolute address and now actually
-// resolves.
+// No data-i18n here: `osfui.localize()` mutates text and attributes in place and
+// caches the originals in element-keyed WeakMaps, so a Preact re-render reverts
+// localised strings to the authored English and remounted nodes lose the cache
+// entirely. Every string resolves through the @lib/i18n translator at render
+// time instead. `osfui.localize` itself is untouched in the shared kit —
+// third-party views still use it.
 
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { windowBridge, type Bridge } from '@lib/bridge';
@@ -49,7 +35,7 @@ import { DetailPanel } from './DetailPanel';
 
 /**
  * Back to the Mods hub rather than dismissing the overlay: single-menu policy
- * means opening the hub REPLACES this menu, so no explicit close is needed.
+ * means opening the hub replaces this menu, so no explicit close is needed.
  */
 const HUB_VIEW = 'osfui/settings';
 
@@ -62,8 +48,8 @@ interface Capture {
 
 /**
  * What `finishCapture` accepts: a real `settings.captured` payload, or the
- * synthetic cancel legacy builds locally on a rejected request. Every field is
- * optional because both shapes flow through one function.
+ * synthetic cancel built locally on a rejected request. Every field is optional
+ * because both shapes flow through one function.
  */
 interface CapturePayload {
   name?: string;
@@ -78,10 +64,9 @@ function codeOf(err: unknown): string {
 
 export interface AppProps {
   /**
-   * Optional, and defaulted, for the same reason the Mods view's is: the dev
-   * harness mounts `<App />` with no props (harness/main.tsx renderView), so a
-   * REQUIRED bridge arrives as `undefined` and the translator below dereferences
-   * it before the first render. Production still passes it explicitly.
+   * Defaulted because the dev harness mounts `<App />` with no props, so an
+   * undefined bridge would be dereferenced by the translator before the first
+   * render. Production passes it explicitly.
    */
   bridge?: Bridge;
 }
@@ -89,13 +74,9 @@ export interface AppProps {
 export function App({ bridge = windowBridge }: AppProps) {
   const tr = useMemo(() => makeTranslator(bridge, 'chrome.keybinds'), [bridge]);
 
-  // ---- state ---------------------------------------------------------------
-  // The three module-level `let`s of the legacy view (`mods`, `vanilla`,
-  // `selectedKey`) plus the render gate that replaced `statusEl.style.display`.
-  //
   // `mods`/`vanilla` are mirrored into refs because the bridge subscriptions are
   // registered once and their closures would otherwise read the first render's
-  // values — legacy read live module state, and this is the equivalent.
+  // values.
   const [mods, setModsState] = useState<ModEntry[]>([]);
   const [vanilla, setVanillaState] = useState<VanillaKey[]>([]);
   const modsRef = useRef<ModEntry[]>(mods);
@@ -112,9 +93,9 @@ export function App({ bridge = windowBridge }: AppProps) {
   const [selectedKey, setSelectedKey] = useState('');
   const [search, setSearch] = useState('');
   const [loaded, setLoaded] = useState(false);
-  // Bumped on every `i18n.data` push so the memo below re-runs — the model
-  // carries translated strings ("Starfield", "Gameplay"), so a locale change
-  // has to rebuild it, not just repaint.
+  // Bumped on every `i18n.data` push so the memo below re-runs: the model
+  // carries translated strings, so a locale change has to rebuild it, not just
+  // repaint.
   const [i18nSeq, setI18nSeq] = useState(0);
   const [flash, setFlash] = useState<FlashState>({ name: '', seq: 0 });
   const [capturing, setCapturingState] = useState<Capture | null>(null);
@@ -133,30 +114,24 @@ export function App({ bridge = windowBridge }: AppProps) {
 
   const bindings = useMemo(
     () => buildModel(mods, vanilla, tr),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- i18nSeq is the
-    // locale generation; it has no other consumer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- i18nSeq is the locale generation.
     [mods, vanilla, tr, i18nSeq],
   );
   const bindingsRef = useRef<BindingRow[]>(bindings);
   bindingsRef.current = bindings;
 
-  // Trimmed + lowercased once, exactly where legacy did it (main.legacy.js:245
-  // and :349). Both consumers take it pre-normalised — see matchesQuery().
+  // Both consumers take this pre-normalised — see matchesQuery().
   const query = search.trim().toLowerCase();
 
-  // ---- bridge helpers ------------------------------------------------------
-
-  // `sendCommand` is guarded on availability the way legacy's was: with no
-  // bridge these are silent no-ops rather than rejected promises.
+  // With no bridge these are silent no-ops rather than rejected promises.
   const sendCommand = (command: string, fields?: Record<string, unknown>) => {
     if (bridge.available()) bridge.send(command, fields);
   };
 
   /**
-   * Esc / pad-B and the header button.
-   *
-   * If the hub view isn't registered (`unknown-view`) fall back to a plain
-   * close, so Esc can never strand the user in a menu they cannot leave.
+   * Esc / pad-B and the header button. If the hub view isn't registered
+   * (`unknown-view`) fall back to a plain close, so Esc can never strand the
+   * user in a menu they cannot leave.
    */
   const goBack = () => {
     if (!bridge.available()) return;
@@ -165,12 +140,10 @@ export function App({ bridge = windowBridge }: AppProps) {
       .catch(() => sendCommand('close'));
   };
 
-  // ---- rebind capture (one at a time) --------------------------------------
-
   /**
-   * Settle a capture. Idempotent: the second delivery of the same result — the
-   * awaited request AND the belt-and-braces `settings.captured` subscription
-   * both call this — no-ops because `capturing` is already cleared.
+   * Settle a capture. Idempotent: both the awaited request and the
+   * belt-and-braces `settings.captured` subscription call this, and the second
+   * delivery no-ops because `capturing` is already cleared.
    */
   const finishCapture = (payload: CapturePayload | null | undefined) => {
     const current = capturingRef.current;
@@ -193,13 +166,9 @@ export function App({ bridge = windowBridge }: AppProps) {
       );
     }
 
-    // Optimistic local apply + the authoritative echo (settings.set). Legacy
-    // mutated `mod.values` in place; an immutable replacement is what makes the
-    // re-render happen here, and is otherwise identical.
-    //
-    // NOTE the lookup uses the mod id we ARMED with, not `payload.mod` —
-    // faithful to main.legacy.js:446, and the safer of the two: a mis-correlated
-    // reply cannot write into a different mod's values.
+    // Optimistic local apply plus the authoritative echo (settings.set). The
+    // lookup uses the mod id we armed with, not `payload.mod`: a mis-correlated
+    // reply then cannot write into a different mod's values.
     const next = modsRef.current.map((m) =>
       m && m.id === mod ? { ...m, values: { ...(m.values || {}), [key]: name } } : m,
     );
@@ -230,7 +199,7 @@ export function App({ bridge = windowBridge }: AppProps) {
     setCapturing({ mod, key, instanceId });
 
     if (bridge.available()) {
-      // ONE awaited request for the whole rebind: the settings.captured reply
+      // One awaited request for the whole rebind: the settings.captured reply
       // echoes this request's id even though the user may take seconds to press
       // a key (timeoutMs 0 — the reply itself settles it; Escape/refusal comes
       // back `cancelled`). A second arm anywhere rejects with "capture-busy".
@@ -238,8 +207,8 @@ export function App({ bridge = windowBridge }: AppProps) {
         .request('settings.captureKey', { mod, key }, { timeoutMs: 0 })
         .then((msg) => finishCapture(msg.payload as CapturePayload))
         .catch((err: unknown) => {
-          // Only if OUR arm is still the live one — a rejection that arrives
-          // after the capture was settled some other way must not toast.
+          // Only if our arm is still the live one: a rejection that arrives
+          // after the capture settled some other way must not toast.
           const current = capturingRef.current;
           if (current && current.instanceId === instanceId) {
             finishCapture({ cancelled: true });
@@ -266,17 +235,12 @@ export function App({ bridge = windowBridge }: AppProps) {
     window.addEventListener('keydown', onKey, true);
   };
 
-  // ---- selection -----------------------------------------------------------
-
-  /** TOGGLES: clicking the already-selected key clears the panel. */
+  /** Toggles: clicking the already-selected key clears the panel. */
   const selectKey = (name: string) => {
     setSelectedKey((current) => (name === current ? '' : name));
   };
 
-  // ---- messages ------------------------------------------------------------
-  // Registered once. Replies that resolve a request() also land here — one
-  // render path either way.
-
+  // Registered once; replies that resolve a request() land here too.
   useEffect(() => {
     const offData = bridge.on('settings.data', (p) => {
       setMods(Array.isArray(p.mods) ? p.mods : []);
@@ -285,8 +249,7 @@ export function App({ bridge = windowBridge }: AppProps) {
     });
 
     const offI18n = bridge.on('i18n.data', () => {
-      // Guarded exactly as legacy (main.legacy.js:491): a catalog that arrives
-      // BEFORE any data must not hide the loading line.
+      // A catalog that arrives before any data must not hide the loading line.
       if (modsRef.current.length || vanillaRef.current.length) {
         setI18nSeq((n) => n + 1);
         setLoaded(true);
@@ -294,10 +257,9 @@ export function App({ bridge = windowBridge }: AppProps) {
     });
 
     const offChanged = bridge.on('settings.changed', (p) => {
-      // Only key-typed settings matter here (the schema says which); update the
-      // local value and repaint. This board derives collisions itself by
-      // key-name grouping, so the pushed `conflicts` list needs no separate
-      // handling. Non-key traffic is ignored.
+      // Only key-typed settings matter here (the schema says which); other
+      // traffic is ignored. The board derives collisions itself by key-name
+      // grouping, so the pushed `conflicts` list needs no separate handling.
       const mod = modsRef.current.find((m) => m && m.id === p.mod);
       if (!mod) return;
       const isKey = ((mod.schema && mod.schema.groups) || []).some((g) =>
@@ -318,15 +280,15 @@ export function App({ bridge = windowBridge }: AppProps) {
 
     // Belt-and-braces alongside the beginCapture promise: catches a reply that
     // lost its correlation (older host without requestId echo). finishCapture
-    // is idempotent — see its doc comment.
+    // is idempotent.
     const offCaptured = bridge.on('settings.captured', (p) => finishCapture(p as CapturePayload));
 
     const offHotkey = bridge.on('ui.hotkey', (p) => {
       const b = bindingsRef.current.find(
         (x) => x.kind === 'mod' && x.mod === p.mod && x.key === p.key,
       );
-      // Nothing to flash for an unbound or non-board key. Board itself no-ops
-      // when no cell carries the name, which covers the rest.
+      // Nothing to flash for an unbound key; Board itself no-ops when no cell
+      // carries the name.
       if (!b) return;
       setFlash((f) => ({ name: b.name, seq: f.seq + 1 }));
     });
@@ -339,10 +301,9 @@ export function App({ bridge = windowBridge }: AppProps) {
       sendCommand('settings.get');
     });
 
-    // Sent AGAIN, immediately: legacy issues one at the bottom of the file and
-    // one from the ready handler (main.legacy.js:481 and :545). Both are kept —
-    // the early one gets data to a view that booted after the runtime was
-    // already up, and the store treats a duplicate get as idempotent.
+    // Sent again immediately: this early get serves a view that booted after
+    // the runtime was already up, and the store treats a duplicate as
+    // idempotent.
     if (bridge.available()) sendCommand('settings.get');
 
     return () => {
@@ -352,11 +313,8 @@ export function App({ bridge = windowBridge }: AppProps) {
       offCaptured();
       offHotkey();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- registered once
-    // per bridge, exactly like the legacy module-scope subscriptions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- registered once per bridge.
   }, [bridge]);
-
-  // ---- keyboard ------------------------------------------------------------
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -369,32 +327,26 @@ export function App({ bridge = windowBridge }: AppProps) {
         }
         return;
       }
-      // Keep `keyCode` as a fallback for synthetic/legacy key events where
-      // `e.key` is not reliably "Escape".
-      //
-      // SWALLOWED while a capture is armed — the press belongs to the rebind,
-      // not to us. (The standalone capture path also preventDefaults it in the
-      // capture phase, which `defaultPrevented` catches independently.)
+      // `keyCode` is the fallback for synthetic key events where `e.key` is not
+      // reliably "Escape". Swallowed while a capture is armed: the press belongs
+      // to the rebind. (The standalone capture path also preventDefaults it in
+      // the capture phase, which `defaultPrevented` catches independently.)
       if ((e.key === 'Escape' || e.keyCode === 27) && !e.defaultPrevented && !capturingRef.current) {
         goBack();
       }
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- goBack only reads
-    // `bridge`, which is the dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- goBack only reads `bridge`.
   }, [bridge]);
 
-  // ---- standalone preview --------------------------------------------------
-  // Sample data so the view is usable in a plain browser with no bridge.
-  // DEV-only: the production host injects the bridge, so this branch is
-  // unreachable in a shipped build.
-
+  // Standalone preview: sample data so the view works in a plain browser. Dev-only,
+  // and the production host always injects a bridge, so this branch never ships.
   useEffect(() => {
     if (!import.meta.env.DEV) return;
     if (bridge.available()) return;
-    // Cast: this is a hand-written fixture, not a wire payload, and spelling out
-    // every optional field of SettingsSchema would obscure what it is testing.
+    // Cast: hand-written fixture, not a wire payload; spelling out every
+    // optional field of SettingsSchema would obscure what it is testing.
     setMods([
       {
         id: 'osfui',
@@ -421,8 +373,6 @@ export function App({ bridge = windowBridge }: AppProps) {
     setLoaded(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- boot-time only.
   }, [bridge]);
-
-  // ---- render --------------------------------------------------------------
 
   const capturingId = capturing ? capturing.instanceId : null;
 
@@ -486,8 +436,8 @@ export function App({ bridge = windowBridge }: AppProps) {
               </div>
               <p>{tr('instructions', 'Select a key to inspect every action assigned to it.')}</p>
             </div>
-            {/* Decorative: every swatch it explains is also encoded in the
-                per-key tooltip, so it is hidden from assistive tech. */}
+            {/* Hidden from assistive tech: every swatch is also encoded in the
+                per-key tooltip. */}
             <div class="kb-legend osf-eyebrow" aria-hidden="true">
               <span class="legend-item">
                 <i class="legend-swatch legend-mod" />
@@ -519,7 +469,7 @@ export function App({ bridge = windowBridge }: AppProps) {
         </section>
 
         <div class="kb-lower">
-          {/* No `query` prop, deliberately — see the note in DetailPanel.tsx. */}
+          {/* No `query` prop — see the note in DetailPanel.tsx. */}
           <DetailPanel
             bindings={bindings}
             selectedKey={selectedKey}
@@ -539,10 +489,8 @@ export function App({ bridge = windowBridge }: AppProps) {
           />
         </div>
 
-        {/* Legacy hid this with `style.display = "none"` rather than removing
-            it; unmounting is equivalent and keeps the tree honest. The address
-            is ABSOLUTE — the shared catalog entry legacy's prefixed `tr()`
-            could not reach. */}
+        {/* Absolute address: the shared catalog entry, outside this view's
+            `chrome.keybinds` prefix. */}
         {loaded ? null : (
           <p id="status" class="kb-status osf-eyebrow">
             {tr('chrome.common.loading', 'Loading…')}

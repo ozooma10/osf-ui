@@ -1,8 +1,8 @@
 #include "platform/WindowsPlatform.h"
 
-// Keep <Windows.h> confined to this translation unit. NOGDI prevents the ERROR
-// macro (wingdi.h) from clobbering REX::ERROR elsewhere; we still avoid REX
-// logging here entirely so this file has no ordering requirements.
+// Keep <Windows.h> confined to this TU. NOGDI stops wingdi.h's ERROR macro from
+// clobbering REX::ERROR; this file uses no REX logging, so it has no init-order
+// requirements.
 #define WIN32_LEAN_AND_MEAN
 #define NOGDI
 #define NOMINMAX
@@ -54,7 +54,7 @@ namespace OSFUI::Platform
 				buffer.resize(len);
 				break;
 			}
-			// Path longer than the buffer; grow and retry.
+			// Truncated; grow and retry.
 			buffer.resize(buffer.size() * 2);
 		}
 		return std::filesystem::path(buffer);

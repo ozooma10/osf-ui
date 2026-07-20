@@ -23,12 +23,11 @@ namespace OSFUI
 {
 	namespace
 	{
-		// Ring depth must cover every present that can be in flight before the
-		// oldest slot's GPU work completes. The game drives MORE THAN ONE
-		// swapchain through this one ring (two seen in-game), so each swapchain
-		// only gets kCmdSlots/N frames of depth — keep this comfortably above
-		// (max swapchains in play) x (game's frame-queue depth) so a slot is
-		// almost never still busy when we cycle back to it.
+		// Ring depth must cover every present in flight before the oldest slot's
+		// GPU work completes. The game drives more than one swapchain through
+		// this single ring (two seen in-game), so each swapchain only gets
+		// kCmdSlots/N frames of depth — keep this above (max swapchains) x
+		// (game's frame-queue depth) or slots are still busy when we cycle back.
 		constexpr std::uint32_t kCmdSlots = 6;          // command allocator/list ring depth
 		constexpr std::uint32_t kMaxSwapchains = 4;     // distinct swapchains we'll draw on
 		constexpr std::uint32_t kMaxBackBuffers = 4;    // per swapchain
@@ -55,12 +54,11 @@ namespace OSFUI
 			return a_format == PixelFormat::kBGRA8 ? DXGI_FORMAT_B8G8R8A8_UNORM : DXGI_FORMAT_R8G8B8A8_UNORM;
 		}
 
-		// Backbuffer formats the overlay is KNOWN to render correctly into:
-		// 8-bit UNORM, sRGB-encoded SDR — the in-game-verified path. Everything
-		// else is refused per swapchain with a loud warning instead of drawing
-		// wrong: HDR10 (R10G10B10A2 + PQ) and scRGB (FP16) need a different
-		// encode in the pixel shader, and an _SRGB view would double-encode our
-		// already-sRGB pixels. Full-HDR scope lives in docs/ROADMAP.md (P1).
+		// Formats the overlay renders correctly into: 8-bit UNORM, sRGB-encoded
+		// SDR. Anything else is refused per swapchain with a warning instead of
+		// drawing wrong — HDR10 (R10G10B10A2 + PQ) and scRGB (FP16) need a
+		// different encode in the pixel shader, and an _SRGB view would
+		// double-encode our already-sRGB pixels. Full HDR: docs/ROADMAP.md (P1).
 		[[nodiscard]] constexpr bool IsSupportedRtFormat(const DXGI_FORMAT a_format)
 		{
 			return a_format == DXGI_FORMAT_R8G8B8A8_UNORM || a_format == DXGI_FORMAT_B8G8R8A8_UNORM;
@@ -80,9 +78,8 @@ namespace OSFUI
 		}
 
 		// Coexistence diagnostic: which module does a code address live in?
-		// Used to log who owns the Present slot before we hook it — if ReShade/
-		// RTSS/Steam overlay hooked first, their module shows up here instead of
-		// dxgi.dll, which is exactly what a coexistence bug report needs.
+		// Logs who owns the Present slot before we hook it — if ReShade/RTSS/
+		// Steam overlay hooked first, their module shows up instead of dxgi.dll.
 		[[nodiscard]] std::string ModuleNameOfAddress(const void* a_address)
 		{
 			HMODULE mod = nullptr;
@@ -105,11 +102,10 @@ namespace OSFUI
 			return std::string(utf8, static_cast<std::size_t>(written));
 		}
 
-		// Companion diagnostic to the slot-owner check: a vtable-slot read CANNOT
-		// see tools that hook Present by patching the function's first bytes
-		// instead (MinHook-style — BetterConsole does this); the slot still points
-		// into dxgi.dll while dxgi!Present's first instruction jumps into the
-		// tool. Follow rel32 JMPs and [rip+disp32] indirect JMPs (bounded,
+		// A vtable-slot read cannot see tools that hook Present by patching the
+		// function's first bytes (MinHook-style — BetterConsole does this): the
+		// slot still points into dxgi.dll while dxgi!Present's first instruction
+		// jumps into the tool. Follow rel32 and [rip+disp32] JMPs (bounded,
 		// readability-guarded) to where the code actually lands.
 		[[nodiscard]] const void* FollowInlineJmps(const void* a_code)
 		{
@@ -139,10 +135,9 @@ namespace OSFUI
 			return code;
 		}
 
-		// Best-effort diagnostic for the unsupported-format warning: is the
-		// output this swapchain sits on in HDR (advanced color) mode? DXGI has
-		// no getter for a swapchain's own color space, so the output's state is
-		// the closest signal a log reader can act on.
+		// Is the output this swapchain sits on in HDR (advanced color) mode?
+		// DXGI has no getter for a swapchain's own color space, so the output's
+		// state is the closest signal available.
 		[[nodiscard]] const char* OutputColorModeInfo(IDXGISwapChain3* a_swap)
 		{
 			IDXGIOutput* output = nullptr;
@@ -179,8 +174,7 @@ VSOut main(uint id : SV_VertexID) {
 )";
 
 		// The overlay texture is BGRA8 premultiplied alpha. Sample straight
-		// through; the premultiplied-over blend is
-		// configured in the PSO.
+		// through; the premultiplied-over blend is configured in the PSO.
 		constexpr const char* kPixelShader = R"(
 Texture2D    gTex : register(t0);
 SamplerState gSmp : register(s0);
@@ -214,7 +208,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 	struct D3D12Compositor::Impl
 	{
-		// ---- located engine objects ----
 		EngineD3D12   engine{};
 		bool          devMode{ false };
 		std::atomic_bool visible{ false };
@@ -225,11 +218,10 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		std::uint32_t        notifiedOutputH{ 0 };
 		std::atomic_bool     outputSizeKnown{ false };
 
-		// ---- setup state ----
 		bool setupAttempted{ false };
 		bool setupOk{ false };
 
-		// ---- CPU frame staging (Submit thread <-> present thread) ----
+		// CPU frame staging (Submit thread <-> present thread).
 		std::mutex                frameMutex;
 		std::vector<std::uint8_t> cpuPixels;  // tightly packed w*4
 		std::uint32_t             frameWidth{ 0 };
@@ -242,15 +234,15 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		DirtyRect                 dirtyRegion{};
 		std::uint64_t             lastSubmittedIndex{ 0 };
 
-		// ---- GPU shared-ring transport (out-of-process WebView2 host) ----
-		// SetSharedRing (game thread) parks the announced ring here; the
-		// present thread adopts it lazily (EnsureSharedRing) because opening
-		// the handles needs the located engine device. Handles are owned by
-		// this compositor from SetSharedRing on.
+		// GPU shared-ring transport (out-of-process WebView2 host). SetSharedRing
+		// (game thread) parks the announced ring here; the present thread adopts
+		// it lazily (EnsureSharedRing) because opening the handles needs the
+		// located engine device. The compositor owns the handles from
+		// SetSharedRing on.
 		std::mutex     sharedMutex;
 		SharedRingDesc sharedPending{};
 		bool           sharedDirty{ false };
-		// present-thread-only, opened on the ENGINE device:
+		// present-thread-only, opened on the engine device:
 		ID3D12Resource* sharedSlots[SharedRingDesc::kSlots]{};
 		ID3D12Fence*    sharedProduce{ nullptr };
 		ID3D12Fence*    sharedConsume{ nullptr };
@@ -262,15 +254,15 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		std::uint64_t gpuSerial{ 0 };
 		std::uint32_t gpuWidth{ 0 }, gpuHeight{ 0 };
 
-		// ---- shared GPU objects (created once) ----
+		// Shared GPU objects, created once.
 		ID3D12Fence*          fence{ nullptr };
 		HANDLE                fenceEvent{ nullptr };
 		std::uint64_t         nextFenceValue{ 1 };
 		ID3D12RootSignature*  rootSig{ nullptr };
-		// One PSO per *supported* backbuffer format actually seen — the game and
-		// an injected frame-gen/overlay swapchain can legitimately differ, so
-		// first-seen-wins would starve one of them. `failed` marks a format whose
-		// PSO creation failed so we don't retry (and spam the log) every present.
+		// One PSO per supported backbuffer format seen — the game and an injected
+		// frame-gen/overlay swapchain can differ, so first-seen-wins would starve
+		// one of them. `failed` marks a format whose PSO creation failed, so we
+		// don't retry (and spam the log) every present.
 		struct PsoEntry
 		{
 			DXGI_FORMAT          format{ DXGI_FORMAT_UNKNOWN };
@@ -297,26 +289,24 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		CmdSlot       cmdSlots[kCmdSlots]{};
 		std::uint64_t cmdIndex{ 0 };
 
-		// ---- overlay texture (sized to the frame) ----
+		// Overlay texture, sized to the frame.
 		ID3D12Resource* texture{ nullptr };
 		std::uint32_t   texWidth{ 0 };
 		std::uint32_t   texHeight{ 0 };
 		DXGI_FORMAT     texFormat{ DXGI_FORMAT_UNKNOWN };
 		std::uint32_t   uploadRowPitch{ 0 };
-		// A freshly (re)created texture has undefined contents — the next
+		// A freshly (re)created texture has undefined contents, so the next
 		// upload must cover the whole frame regardless of the dirty region.
-		// Present-thread-only (set in EnsureTextureForFrame, consumed in
+		// Present thread only (set in EnsureTextureForFrame, consumed in
 		// RecordAndExecute).
 		bool            needsFullUpload{ true };
 
-		// ---- per-swapchain backbuffer targets ----
-		// NOTE: we deliberately do NOT cache the swapchain's backbuffer
-		// resources. Holding a backbuffer reference blocks the game's
-		// IDXGISwapChain::ResizeBuffers (resolution change / alt-tab /
-		// fullscreen transition), which crashed the game (2026-06-12). Each
-		// present does GetBuffer + CreateRTV fresh and releases the buffer,
-		// so we never hold a ref across frames. (The swapchain ref itself is
-		// fine — only outstanding BACKBUFFER refs block ResizeBuffers.)
+		// Per-swapchain backbuffer targets. Backbuffer resources are not cached:
+		// holding a backbuffer reference blocks the game's ResizeBuffers
+		// (resolution change / alt-tab / fullscreen transition), which crashed
+		// the game (2026-06-12). Each present does GetBuffer + CreateRTV fresh
+		// and releases the buffer. The swapchain ref itself is fine — only
+		// outstanding backbuffer refs block ResizeBuffers.
 		struct Target
 		{
 			IDXGISwapChain3* swap{ nullptr };  // owned (QI'd), key is the raw self ptr
@@ -328,27 +318,25 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			std::uint32_t    rtvBase{ 0 };  // base index into rtvHeap
 			bool             seen{ false };  // dims known yet?
 			bool             logged{ false };
-			// The overlay renders correctly into this swapchain's format
-			// (IsSupportedRtFormat). Re-evaluated on every format change (e.g.
-			// the user toggles HDR mid-session), warned once per change.
+			// IsSupportedRtFormat for this swapchain's format. Re-evaluated on
+			// every format change (e.g. HDR toggled mid-session), warned once
+			// per change.
 			bool             supported{ false };
 		};
 		Target targets[kMaxSwapchains]{};
 
-		// ---- stats ----
 		std::uint64_t drawnFrames{ 0 };
 		std::uint64_t waitedBusy{ 0 };   // presents that had to wait for a busy slot
 		std::uint64_t skippedBusy{ 0 };  // presents dropped because the wait timed out (GPU hung)
 		bool          firstDrawLogged{ false };
 		bool          targetsFullLogged{ false };
 
-		// ---- hook-liveness watchdog (coexistence diagnostic) ----
-		// Another overlay that (re)hooks Present non-chainingly after us would
-		// silently stop our thunk from ever running — the overlay just vanishes.
-		// OnPresent stamps this every call (present thread); Submit's watchdog
-		// (tick thread) warns when the game keeps ticking but no present has
-		// reached us for a while. No false positive on focus loss: the game
-		// pauses the tick loop too, so the watchdog isn't polled then.
+		// Hook-liveness watchdog. Another overlay that re-hooks Present after us
+		// without chaining silently stops our thunk from running — the overlay
+		// just vanishes. OnPresent stamps this every call (present thread);
+		// CheckPresentLiveness (tick thread) warns when the game keeps ticking
+		// but no present has reached us. No false positive on focus loss: the
+		// game pauses the tick loop too, so the watchdog isn't polled then.
 		std::atomic<std::uint64_t> lastPresentMs{ 0 };
 		std::uint64_t              setupCompletedMs{ 0 };  // tick thread only
 		bool                       bypassWarned{ false };  // tick thread only
@@ -410,8 +398,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			SafeRelease(a_t.swap);  // no cached backbuffers to release
 			a_t = Target{};
 		}
-
-		// ============ GPU shared-ring transport ============
 
 		static void CloseRingHandles(SharedRingDesc& a_desc)
 		{
@@ -516,8 +502,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			return true;
 		}
 
-		// ================= setup (Submit / tick thread) =================
-
+		// Setup, on the Submit / tick thread.
 		void EnsureSetup()
 		{
 			if (setupAttempted) {
@@ -649,21 +634,20 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			return true;
 		}
 
-		// Capture the swapchain Present vtable from a throwaway PROBE swapchain
+		// Capture the swapchain Present vtable from a throwaway probe swapchain
 		// (the "Kiero" technique): dxgi implements one swapchain class, so the
 		// vtable is shared by every swapchain in the process and one slot-8 swap
-		// hooks the game's real presents too. No engine offsets involved — pure
-		// DXGI.
+		// hooks the game's real presents too. No engine offsets — pure DXGI.
 		//
-		// COEXISTENCE — the probe is deliberately shaped to be invisible to
-		// other hook tools. Root-caused 2026-07-19: BetterConsole inline-hooks
-		// CreateSwapChainForHwnd and treats EVERY call as a real game presenter.
-		// Our old HWND probe on engine.directQueue (a) evicted the game's entry
-		// from its queue-keyed swapchain table, leaving a dangling probe pointer
-		// there → null-deref CTD inside its Present hook one frame after F10,
-		// and (b) got its dummy window re-subclassed, clobbering the single
-		// global that tool chains the GAME window's WndProc through →
-		// DefWindowProcW severed the game's input handling. Hence:
+		// The probe's shape is load-bearing for coexistence. Root-caused
+		// 2026-07-19: BetterConsole inline-hooks CreateSwapChainForHwnd and
+		// treats every call as a real game presenter. The old HWND probe on
+		// engine.directQueue (a) evicted the game's entry from its queue-keyed
+		// swapchain table, leaving a dangling probe pointer there → null-deref
+		// CTD inside its Present hook one frame after F10, and (b) got its dummy
+		// window re-subclassed, clobbering the single global that tool chains the
+		// game window's WndProc through → DefWindowProcW severed the game's
+		// input handling. Hence:
 		//   * windowless probe: CreateSwapChainForComposition never enters
 		//     CreateSwapChainForHwnd, so hooks there never fire and there is no
 		//     window to re-subclass;
@@ -751,11 +735,10 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				auto& slot8 = vtbl[8];  // IDXGISwapChain::Present
 				g_originalPresent.store(reinterpret_cast<PresentFn>(slot8));
 
-				// Coexistence diagnostic: who owns Present before we hook it?
-				// Clean stack -> dxgi.dll. ReShade/RTSS/Steam-overlay/frame-gen
-				// hooked first -> their module. Either way we CHAIN (we call
-				// whatever was there as "original"), so hooking after others is
-				// the safe order; the log makes the stack order reportable.
+				// Who owns Present before we hook it? Clean stack -> dxgi.dll;
+				// ReShade/RTSS/Steam-overlay/frame-gen hooked first -> their
+				// module. Either way we chain (calling whatever was there as
+				// "original"), so hooking after others is the safe order.
 				const auto owner = ModuleNameOfAddress(reinterpret_cast<const void*>(g_originalPresent.load()));
 				if (owner.find("dxgi.dll") == std::string::npos && owner.find("<unknown") == std::string::npos) {
 					REX::WARN("D3D12Compositor: Present slot 8 already points into '{}' — another overlay/hook tool "
@@ -765,12 +748,12 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 					REX::INFO("D3D12Compositor: Present slot 8 owner before hook: '{}'", owner);
 				}
 
-				// The slot-owner check misses CODE-patching hooks (BetterConsole
+				// The slot-owner check misses code-patching hooks (BetterConsole
 				// et al.): the slot still reads as dxgi.dll while Present's first
-				// instruction jumps into the tool. Best-effort: follow the jmp
-				// chain and report where it lands. Chaining still works — we call
-				// the patched code as "original". (Best-effort also because such
-				// tools may install their patch only later in the session.)
+				// instruction jumps into the tool. Follow the jmp chain and
+				// report where it lands. Chaining still works — we call the
+				// patched code as "original". Best-effort: such tools may install
+				// their patch only later in the session.
 				const auto* slotTarget = reinterpret_cast<const void*>(g_originalPresent.load());
 				const auto* effective = FollowInlineJmps(slotTarget);
 				if (effective != slotTarget) {
@@ -783,8 +766,8 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				if (::VirtualProtect(&slot8, sizeof(void*), PAGE_EXECUTE_READWRITE, &oldProtect)) {
 					slot8 = reinterpret_cast<void*>(&PresentThunk);
 					::VirtualProtect(&slot8, sizeof(void*), oldProtect, &oldProtect);
-					// Paranoia read-back: if another tool raced the same slot
-					// between our write and here, say so rather than wonder later.
+					// Read back in case another tool raced the same slot between
+					// our write and here.
 					if (slot8 != reinterpret_cast<void*>(&PresentThunk)) {
 						REX::WARN("D3D12Compositor: Present slot changed immediately after our write "
 								  "(now in '{}') — another overlay re-hooked; relying on it chaining to us",
@@ -810,8 +793,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			return ok;
 		}
 
-		// ================= present (render thread) =================
-
+		// Present, on the render thread.
 		static HRESULT STDMETHODCALLTYPE PresentThunk(IDXGISwapChain* a_swap, UINT a_sync, UINT a_flags)
 		{
 			if (auto* self = static_cast<Impl*>(g_overlay.load())) {
@@ -823,7 +805,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 		void OnPresent(IDXGISwapChain* a_swap, UINT a_flags)
 		{
-			// Watchdog stamp FIRST (before any early-out): it answers "does the
+			// Stamp the watchdog before any early-out: it answers "does the
 			// present stream still reach our thunk at all", independent of
 			// visibility or frame availability.
 			lastPresentMs.store(::GetTickCount64(), std::memory_order_relaxed);
@@ -832,17 +814,17 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				return;
 			}
 
-			// Discover the real output even while hidden. The first submitted
-			// manifest-sized frame installs this hook, but Runtime deliberately
-			// keeps it invisible until this callback has resized the web view.
-			// AcquireTarget only reads GetDesc1 and holds no backbuffer reference.
+			// Discover the real output even while hidden: the first submitted
+			// manifest-sized frame installs this hook, but Runtime keeps it
+			// invisible until the resize callback below has resized the web view.
+			// AcquireTarget only reads GetDesc1 and holds no backbuffer ref.
 			auto* target = AcquireTarget(a_swap);
 			if (!target) {
 				return;
 			}
 
-			// Tell the runtime the real output size so it can size the view to
-			// match (aspect-correct). Fire on first sight and on any change.
+			// Real output size -> runtime, so the view is aspect-correct. Fires
+			// on first sight and on any change.
 			if (onOutputResize && (target->width != notifiedOutputW || target->height != notifiedOutputH)) {
 				notifiedOutputW = target->width;
 				notifiedOutputH = target->height;
@@ -866,8 +848,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 					return;
 				}
 			} else if (!EnsureTextureForFrame()) {
-				// Make sure the texture matches the latest frame dims; upload
-				// happens in RecordAndExecute from the CPU staging buffer.
 				return;  // no frame yet, or texture creation failed
 			}
 			if (!target->supported) {
@@ -881,13 +861,13 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			auto& slot = cmdSlots[cmdIndex % kCmdSlots];
 			if (slot.fenceValue != 0 && fence->GetCompletedValue() < slot.fenceValue) {
 				// The slot's prior GPU work must finish before we reuse its
-				// allocator/upload buffer. Skipping the draw here (the old
-				// behavior) left THIS present without the overlay -> visible
-				// flicker (~7% of presents, since multiple swapchains share this
-				// ring). Wait instead: the overlay is one triangle, so the fence
-				// is almost always already signaled and this returns at once.
-				// Only a genuinely stuck GPU (timeout) falls through to a skip,
-				// which stays safe — reusing in-flight resources would corrupt.
+				// allocator/upload buffer. Skipping the draw instead left this
+				// present without the overlay -> visible flicker (~7% of
+				// presents, since multiple swapchains share this ring). Waiting
+				// is cheap: the overlay is one triangle, so the fence is almost
+				// always already signaled. Only a stuck GPU hits the timeout and
+				// falls through to a skip — reusing in-flight resources would
+				// corrupt.
 				++waitedBusy;
 				fence->SetEventOnCompletion(slot.fenceValue, fenceEvent);
 				::WaitForSingleObject(fenceEvent, kSlotWaitTimeoutMs);
@@ -910,11 +890,11 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			++cmdIndex;
 		}
 
-		// GPU-transport draw: fullscreen quad sampling the shared ring slot.
-		// The queue waits on the host's produce fence before the draw and
-		// signals the consume fence after it, so the host can neither be read
-		// too early nor rewrite the slot too soon. The shared textures are
-		// cross-API resources (simultaneous-access); no barriers on them.
+		// GPU-transport draw: fullscreen quad sampling the shared ring slot. The
+		// queue waits on the host's produce fence before the draw and signals the
+		// consume fence after it, so the slot is neither read too early nor
+		// rewritten too soon. The shared textures are cross-API resources
+		// (simultaneous-access); no barriers on them.
 		void RecordAndExecuteShared(CmdSlot& a_slot, Target& a_target,
 			const std::uint32_t a_backIndex, ID3D12PipelineState* a_pso)
 		{
@@ -1086,10 +1066,10 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			return true;
 		}
 
-		// Get-or-create the PSO for one supported backbuffer format. Returns
-		// nullptr (warn-once via `failed`) when creation fails or more distinct
-		// formats appear than the cache holds. Callers gate on Target::supported
-		// first, so only formats the overlay renders correctly into land here.
+		// Get-or-create the PSO for one backbuffer format. Returns nullptr
+		// (warn-once via `failed`) when creation fails or more distinct formats
+		// appear than the cache holds. Callers gate on Target::supported first,
+		// so only formats the overlay renders correctly into land here.
 		[[nodiscard]] ID3D12PipelineState* EnsurePipeline(const DXGI_FORMAT a_rtFormat)
 		{
 			PsoEntry* entry = nullptr;
@@ -1177,9 +1157,9 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			return RefreshTarget(*freeSlot) ? freeSlot : nullptr;
 		}
 
-		// Refresh the cached swapchain dimensions/format. Cheap (GetDesc1
-		// only) and holds no backbuffer refs, so it never blocks ResizeBuffers
-		// — the actual backbuffer is fetched per-present in RecordAndExecute.
+		// Refresh the cached swapchain dimensions/format. GetDesc1 only, holds no
+		// backbuffer refs, so it cannot block ResizeBuffers — the backbuffer is
+		// fetched per-present in RecordAndExecute.
 		[[nodiscard]] bool RefreshTarget(Target& a_t)
 		{
 			DXGI_SWAP_CHAIN_DESC1 desc{};
@@ -1198,9 +1178,8 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			if (formatChanged) {
 				// Detect-and-degrade (ROADMAP P1 "HDR / frame-gen"): drawing our
 				// sRGB-encoded pixels into an HDR (PQ/scRGB) or _SRGB backbuffer
-				// renders wrong colors, so an unsupported format means we skip
-				// this swapchain entirely and say so once per change. Re-checked
-				// whenever the format changes (e.g. HDR toggled mid-session).
+				// renders wrong colors, so an unsupported format skips this
+				// swapchain entirely, warned once per change.
 				a_t.supported = IsSupportedRtFormat(a_t.format);
 				if (!a_t.supported) {
 					REX::WARN("D3D12Compositor: swapchain 0x{:X} uses backbuffer format {} [{}] ({}) — the overlay "
@@ -1227,9 +1206,9 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		void RecordAndExecute(CmdSlot& a_slot, Target& a_target, const std::uint32_t a_backIndex,
 			ID3D12PipelineState* a_pso)
 		{
-			// Fetch the backbuffer fresh each present and release it before we
-			// return — never hold a ref across frames (that blocks the game's
-			// ResizeBuffers). The swapchain keeps its own ref, and the command
+			// Fetch the backbuffer fresh each present and release it before
+			// returning: a ref held across frames blocks the game's
+			// ResizeBuffers. The swapchain keeps its own ref, and the command
 			// queue keeps the resource alive for the GPU work we submit.
 			ID3D12Resource* backbuffer = nullptr;
 			if (FAILED(a_target.swap->GetBuffer(a_backIndex, __uuidof(ID3D12Resource), reinterpret_cast<void**>(&backbuffer))) || !backbuffer) {
@@ -1244,12 +1223,12 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			a_slot.list->Reset(a_slot.allocator, a_pso);
 			auto* list = a_slot.list;
 
-			// Upload a new frame into the texture (only when one arrived). Only
-			// the dirty region is copied into the mapped upload buffer AND box-
+			// Upload a new frame into the texture, only when one arrived. Only
+			// the dirty region is copied into the mapped upload buffer and box-
 			// copied to the texture: each ring slot's buffer holds stale bytes
-			// outside whatever rect was last written into it, which is safe
-			// precisely because pSrcBox never reads them. A recreated texture
-			// forces a full-frame pass (needsFullUpload).
+			// outside the rect last written into it, which is safe only because
+			// pSrcBox never reads them. A recreated texture forces a full-frame
+			// pass (needsFullUpload).
 			bool      uploaded = false;
 			DirtyRect rect{};
 			{
@@ -1334,8 +1313,8 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			a_slot.fenceValue = nextFenceValue++;
 			engine.directQueue->Signal(fence, a_slot.fenceValue);
 
-			// Drop our backbuffer ref now — the queue holds the resource alive
-			// until the GPU finishes; the swapchain owns it regardless.
+			// Safe to drop now: the queue holds the resource alive until the GPU
+			// finishes, and the swapchain owns it regardless.
 			backbuffer->Release();
 
 			++drawnFrames;
@@ -1350,13 +1329,10 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			}
 		}
 
-		// ================= submit (tick thread) =================
-
-		// Coexistence watchdog: the game is ticking (we're being called), so it
-		// is presenting — if no present has reached our thunk for a while, some
-		// other tool re-hooked Present over us WITHOUT chaining, and the overlay
-		// silently stopped drawing. Warn once with the actionable context; log
-		// recovery if presents come back (e.g. the tool was closed).
+		// Tick thread. The game is ticking (we're being called), so it is
+		// presenting — if no present has reached our thunk for a while, another
+		// tool re-hooked Present over us without chaining and the overlay
+		// silently stopped drawing. Warn once; log recovery if presents return.
 		void CheckPresentLiveness()
 		{
 			if (!setupOk) {
@@ -1408,10 +1384,9 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 			const auto rowBytes = a_frame.width * 4u;
 			std::scoped_lock lk(frameMutex);
-			// cpuPixels persists across frames, so only the delivered dirty
-			// rect needs copying — except when the staging buffer was just
-			// (re)sized (its other pixels are garbage) or the rect is absent/
-			// out of bounds, which fall back to a full copy.
+			// cpuPixels persists across frames, so only the delivered dirty rect
+			// needs copying. A just-(re)sized staging buffer (garbage elsewhere)
+			// or an absent/out-of-bounds rect falls back to a full copy.
 			const bool realloc = frameWidth != a_frame.width || frameHeight != a_frame.height ||
 				cpuPixels.size() != static_cast<std::size_t>(rowBytes) * a_frame.height;
 			if (realloc) {

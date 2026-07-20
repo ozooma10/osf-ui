@@ -1,19 +1,13 @@
-// Segmented.tsx — the `type:"enum"` control, in both of its forms.
+// The `type:"enum"` control, in both of its forms.
 //
-// Ports `buildEnum` (settings/main.legacy.js:399-426). The form is chosen by a
-// TWO-PART test that must be reproduced exactly:
+// Segmented form requires `widget === "segmented"` and 1 <= options.length <= 5;
+// either half failing falls back to a <select>. The upper bound is layout (a
+// single row of equal-width buttons; six overflow the control cell); the lower
+// bound catches `widget:"segmented"` with no options, which would render an
+// empty un-clickable frame instead of an empty dropdown.
 //
-//   widget === "segmented"  AND  1 <= options.length <= 5
-//
-// Either half failing falls back to a <select>. The upper bound is a layout
-// constraint (a segmented control is a single row of equal-width buttons; six
-// of them overflow the control cell), and the lower bound catches a schema that
-// declares `widget:"segmented"` with no options at all — which would otherwise
-// render an empty, un-clickable frame instead of an empty dropdown.
-//
-// Note the segmented form marks selection with `aria-pressed` on each button,
-// like the kit's switch: `.osf-segment[aria-pressed="true"]` is what osfui.css
-// styles, so the attribute is the visual.
+// Selection is marked with `aria-pressed`: osfui.css styles
+// `.osf-segment[aria-pressed="true"]`, so the attribute is the visual.
 
 import { optionLabel } from '@lib/settings/format';
 import type { Setting } from '@sdk';
@@ -21,7 +15,7 @@ import type { Setting } from '@sdk';
 /** Just the fields both forms read. */
 export type EnumSource = Pick<Setting, 'options' | 'optionLabels' | 'widget'>;
 
-/** main.legacy.js:401 — the segmented-vs-select decision, isolated for testing. */
+/** The segmented-vs-select decision, isolated for testing. */
 export function isSegmented(setting: EnumSource): boolean {
   const opts = setting.options || [];
   return setting.widget === 'segmented' && opts.length > 0 && opts.length <= 5;
@@ -47,10 +41,8 @@ export function Segmented({ id, setting, value, disabled, onCommit }: SegmentedP
             key={opt}
             type="button"
             class="osf-segment"
-            // `data-opt` is how legacy re-found each button to update the
-            // pressed state (main.legacy.js:405). Nothing reads it now, but it
-            // ships in the DOM today and a third-party stylesheet could key off
-            // it, so it stays.
+            // Nothing reads `data-opt` now, but it ships in the DOM and a
+            // third-party stylesheet could key off it, so it stays.
             data-opt={opt}
             aria-pressed={opt === value ? 'true' : 'false'}
             disabled={disabled}
@@ -67,10 +59,9 @@ export function Segmented({ id, setting, value, disabled, onCommit }: SegmentedP
     <select
       class="osf-select"
       id={id}
-      // A value that is not among the options selects nothing, so the browser
-      // shows the first option — exactly what legacy's "no <option selected>"
-      // produced. The store cannot hold such a value, but a mock or an older
-      // schema can.
+      // A value outside the options selects nothing, so the browser shows the
+      // first option. The store cannot hold such a value, but a mock or an
+      // older schema can.
       value={value ?? ''}
       disabled={disabled}
       onChange={(e) => onCommit((e.currentTarget as HTMLSelectElement).value)}

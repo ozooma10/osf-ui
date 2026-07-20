@@ -1,16 +1,16 @@
 #pragma once
 
-// Shared wire protocol between the OSF UI plugin (or the standalone POC
-// client) and osfui_webview2_host.exe. Both sides compile this header; the
-// transport is one message-framed named pipe (Wv2Pipe.h) carrying UTF-8 JSON.
+// Wire protocol between the OSF UI plugin (or the standalone POC client) and
+// osfui_webview2_host.exe. Both sides compile this header; the transport is one
+// message-framed named pipe (Wv2Pipe.h) carrying UTF-8 JSON.
 //
-// Framing: [u32 little-endian payload byte count][payload]. Payloads are one
-// JSON object with a "type" field. Unknown types must be ignored (forward
-// compatibility), unknown fields likewise.
+// Framing: [u32 little-endian payload byte count][payload]. Each payload is one
+// JSON object with a "type" field. Unknown types and unknown fields must be
+// ignored, for forward compatibility.
 //
-// Roles: the GAME side is the pipe SERVER (it owns the pipe name + ACL and
-// launches the host); the HOST is the pipe CLIENT. The host exits when the
-// pipe breaks or the game process handle signals.
+// The game side is the pipe server (owns the pipe name + ACL, launches the
+// host); the host is the client. The host exits when the pipe breaks or the
+// game process handle signals.
 
 #include <cstdint>
 
@@ -20,7 +20,7 @@ namespace osfui::wv2
 	// client hello and exits (both binaries ship together, so a mismatch means
 	// a stale mirrored exe — the launcher versions the mirror dir to avoid it).
 	// v2: multi-view — per-view `view` routing on game->host view messages and
-	// `view` tagging on host->game page events (see below).
+	// `view` tagging on host->game page events.
 	inline constexpr std::uint32_t kProtocolVersion = 2;
 
 	// Pipe name pattern: \\.\pipe\osfui-wv2-<gamePid>-<nonce>
@@ -39,15 +39,15 @@ namespace osfui::wv2
 	inline constexpr std::uint32_t kDefaultLogicalHeight = 900;
 
 	// Multi-view (v2): the host keeps one composition controller + child
-	// ContainerVisual per OSF UI view under ONE captured root visual, so a
-	// single WGC capture / shared-texture ring carries the already-composited
-	// stack. `navigate`'s `id` IS the view id — the first navigate for an
+	// ContainerVisual per OSF UI view under a single captured root visual, so
+	// one WGC capture / shared-texture ring carries the already-composited
+	// stack. `navigate`'s `id` is the view id — the first navigate for an
 	// unknown id creates that view. View-scoped game->host messages carry
-	// `view:str`; when it is absent or unknown they fall back to the ACTIVE
-	// view (keeps the single-view POC client working). Page events host->game
-	// are tagged with their source `view`.
+	// `view:str`; absent or unknown, they fall back to the active view (keeps
+	// the single-view POC client working). Page events host->game are tagged
+	// with their source `view`.
 	//
-	// --- message types, game -> host ---
+	// Message types, game -> host:
 	// init          { topLevelHwnd:u64, viewsPath:str, virtualHost:str,
 	//                 width:u32, height:u32, userDataDir:str, devMode:bool }
 	// navigate      { id:str, entry:str, bridge:bool, logicalHeight:u32 }
@@ -60,7 +60,7 @@ namespace osfui::wv2
 	// setHidden     { view:str, hidden:bool }    (child-visual visibility + Chromium suspend)
 	// setOrder      { view:str, order:i32 }      (composite z: lower beneath, ties by creation)
 	// setActive     { view:str }                 (mouse/focus/synthetic-key target)
-	// focus         { focused:bool }             (moves real focus into the ACTIVE view)
+	// focus         { focused:bool }             (moves real focus into the active view)
 	// mouse         { kind:"move"|"button"|"wheel", x:i32, y:i32,
 	//                 button:i32, down:bool, wheel:i32 }   (active view)
 	// key           { vk:u32, down:bool }        (synthetic tap into the active view's widget)
@@ -71,12 +71,12 @@ namespace osfui::wv2
 	// destroyView   { view:str }
 	// shutdown      { }
 	//
-	// --- message types, host -> game ---
+	// Message types, host -> game:
 	// hello         { protocolVersion:u32, hostVersion:str, runtimeVersion:str, pid:u32 }
 	// ready         { }                          (first controller + capture up)
 	// textures      { width:u32, height:u32, slots:[u64...],
 	//                 produceFence:u64, consumeFence:u64, keyedMutex:bool }
-	//               (handles already duplicated INTO the game process; every
+	//               (handles already duplicated into the game process; every
 	//                textures message invalidates all prior slots)
 	// sharedMemory  { name:str, width:u32, height:u32, slots:u32 }   (CPU fallback ring)
 	// frame         { slot:u32, serial:u64, width:u32, height:u32 }

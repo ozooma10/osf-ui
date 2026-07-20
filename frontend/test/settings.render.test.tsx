@@ -1,10 +1,8 @@
 // @vitest-environment jsdom
 //
-// settings.render.test.tsx — the widget quirks, pinned.
-//
-// Each `it` names the exact behaviour from the migration brief that it guards.
-// These are the details that read as arbitrary but are load-bearing — the ones
-// a well-meaning refactor would "clean up" and thereby break a shipped view.
+// Pins the settings widget quirks. Each `it` names the exact behaviour it
+// guards; these read as arbitrary but a refactor that "cleans them up" breaks
+// a shipped view.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { makeBridge, mount, unmount, flush } from './helpers/settingsHarness';
@@ -12,7 +10,7 @@ import { WIDGETS, VIEWS } from './helpers/settingsFixtures';
 
 afterEach(unmount);
 
-/** Mount + deliver the widget mod, then select it in the rail. */
+/** Mount, deliver the widget mod, then select it in the rail. */
 async function mountKit() {
   const bridge = makeBridge();
   const el = await mount(bridge);
@@ -35,7 +33,7 @@ describe('settings widget rendering', () => {
     expect(sw).not.toBeNull();
     expect(sw!.tagName).toBe('BUTTON');
     expect(sw!.getAttribute('role')).toBe('switch');
-    expect(sw!.getAttribute('aria-pressed')).toBe('true'); // value === true
+    expect(sw!.getAttribute('aria-pressed')).toBe('true');
   });
 
   it('bool initial state is value === true STRICTLY (truthy non-true is off)', async () => {
@@ -83,7 +81,6 @@ describe('settings widget rendering', () => {
     const stepper = el.querySelector('#ctl-acme\\.kit-step')!;
     expect(stepper.classList.contains('osf-stepper')).toBe(true);
     expect(stepper.querySelector('.osf-stepper-val')).not.toBeNull();
-    // The stepper contributes no separate .osf-value readout to its control cell.
     expect(stepper.closest('.control')!.querySelector('.osf-value')).toBeNull();
 
     // + snaps onto the grid from min (3 -> 6) and commits.
@@ -111,9 +108,9 @@ describe('settings widget rendering', () => {
   it('flags recommits the whole array in canonical declared order', async () => {
     const { bridge, el } = await mountKit();
     const group = el.querySelector('#ctl-acme\\.kit-flagSet')!;
-    // exec is unchecked; check it. Declared order is [read, write, exec], and
-    // the stored value is [read, write], so the commit must be exactly that
-    // order with exec appended — never insertion order.
+    // Declared order is [read, write, exec] and the stored value is
+    // [read, write], so checking exec must commit declared order, not
+    // insertion order.
     const boxes = group.querySelectorAll<HTMLInputElement>('.osf-flag-box');
     const exec = [...boxes].find((b) => b.value === 'exec')!;
     exec.checked = true;
@@ -129,7 +126,6 @@ describe('settings widget rendering', () => {
   it('color accepts uppercase hex and reverts to the last committed value on junk', async () => {
     const { bridge, el } = await mountKit();
     const hex = el.querySelector<HTMLInputElement>('#ctl-acme\\.kit-colorHex .osf-color-hex')!;
-    // Uppercase is accepted verbatim.
     hex.value = '#AABBCC';
     hex.dispatchEvent(new Event('change', { bubbles: true }));
     await flush();
@@ -140,7 +136,7 @@ describe('settings widget rendering', () => {
     });
     const commits = bridge.countRequests('settings.set');
 
-    // Junk reverts to the LAST COMMITTED colour (#AABBCC), not the session start.
+    // Junk reverts to the last committed colour (#AABBCC), not the session start.
     hex.value = 'nonsense';
     hex.dispatchEvent(new Event('change', { bubbles: true }));
     await flush();
@@ -154,8 +150,8 @@ describe('settings widget rendering', () => {
     const wrap = el.querySelector('#ctl-acme\\.kit-bindKey')!.closest('.osf-key-wrap');
     expect(wrap).not.toBeNull();
     expect(wrap!.querySelector('.osf-key-clear')).not.toBeNull();
-    // The framework toggleKey has no allowUnbound -> no wrap.
-    // (Select osfui first to check it.)
+    // The framework toggleKey has no allowUnbound -> no wrap (unchecked here;
+    // needs the osfui mod selected).
   });
 
   it('note style is whitelisted and its body runs through micro-markdown', async () => {
@@ -178,7 +174,7 @@ describe('settings widget rendering', () => {
     )!;
     reserved.click();
     await flush();
-    // No request fired (ui.doThing never left the client).
+    // ui.doThing never left the client.
     expect(bridge.requests.length).toBe(before);
     expect(el.querySelector('.toast--danger')).not.toBeNull();
   });
@@ -191,7 +187,7 @@ describe('settings widget rendering', () => {
     go.click();
     await flush();
     expect(bridge.requests[bridge.requests.length - 1]!.command).toBe('acme.kit.run');
-    // The in-flight button shows the ellipsis and carries `pending`.
+    // In-flight buttons carry `pending` and are disabled.
     expect(go.classList.contains('pending')).toBe(true);
     expect(go.disabled).toBe(true);
   });
@@ -269,9 +265,7 @@ describe('settings widget rendering', () => {
 
     const row = el.querySelector('.row[data-key="child"]')!;
     expect(row.classList.contains('disabled')).toBe(true);
-    // The control switch is disabled...
     expect(row.querySelector<HTMLButtonElement>('#ctl-g\\.mod-child')!.disabled).toBe(true);
-    // ...but its reset button is not.
     expect(row.querySelector<HTMLButtonElement>('.row-reset')!.disabled).toBe(false);
   });
 });

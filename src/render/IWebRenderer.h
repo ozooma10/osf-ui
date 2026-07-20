@@ -11,7 +11,7 @@ namespace OSFUI
 		bool          devMode{ false };
 
 		// Plugin data root (Paths::DataDir()). Backends resolve packaged assets
-		// such as bin/osfui_webview2_host.exe under here so render/ stays
+		// such as bin/osfui_webview2_host.exe under here, keeping render/
 		// decoupled from core/Paths.
 		std::filesystem::path dataDir;
 	};
@@ -22,11 +22,10 @@ namespace OSFUI
 		kBGRA8,
 	};
 
-	// Cursor shape a page wants (CSS `cursor`), for the host to mirror on the
-	// REAL OS pointer while the overlay captures input (input/HardwareCursor).
-	// Deliberately small: web cursors without a stock Win32 equivalent collapse
-	// to the nearest listed one (kArrow when nothing fits). kNone means the
-	// page asked to hide the pointer (`cursor: none`).
+	// Cursor shape a page wants (CSS `cursor`), mirrored onto the OS pointer
+	// while the overlay captures input (input/HardwareCursor). Web cursors with
+	// no stock Win32 equivalent collapse to the nearest listed one (kArrow when
+	// nothing fits). kNone means `cursor: none`.
 	enum class CursorShape
 	{
 		kArrow,
@@ -46,7 +45,7 @@ namespace OSFUI
 
 	// Region of a frame that changed relative to the frame delivered just
 	// before it at the same dimensions; pixels outside the rect are identical.
-	// An EMPTY rect means "unknown — treat the whole frame as changed", so
+	// An empty rect means "unknown — treat the whole frame as changed", so
 	// producers that don't track dirty regions stay correct by default.
 	struct DirtyRect
 	{
@@ -81,10 +80,9 @@ namespace OSFUI
 
 	// Non-owning view of one CPU-side frame produced by a renderer.
 	//
-	// Ownership/lifetime contract: the pixel data is owned by the renderer that
-	// returned it and is valid ONLY until the next call to Render(), Resize(),
-	// or Shutdown() on that renderer. Consumers (compositors) must copy or
-	// upload the data before returning control. Never store a FrameBufferView.
+	// The pixel data is owned by the renderer and valid only until the next
+	// Render(), Resize(), or Shutdown() on it. Consumers (compositors) must
+	// copy or upload before returning control; never store a FrameBufferView.
 	struct FrameBufferView
 	{
 		std::span<const std::uint8_t> pixels;  // tightly packed rows unless strideBytes says otherwise
@@ -93,28 +91,27 @@ namespace OSFUI
 		std::uint32_t                 strideBytes{ 0 };  // bytes per row
 		PixelFormat                   format{ PixelFormat::kRGBA8 };
 		std::uint64_t                 frameIndex{ 0 };
-		// Changed region vs the PREVIOUS frame this renderer returned at the
+		// Changed region vs the previous frame this renderer returned at the
 		// same dimensions (empty = whole frame). Only meaningful when
 		// frameIndex advanced; consumers keeping their own staging copy must
 		// union rects across frames they skipped.
 		DirtyRect                     dirty{};
 		// GPU transport (out-of-process WebView2 host): when >= 0, `pixels` is
-		// EMPTY and the frame lives in slot `sharedSlot` of the shared-texture
-		// ring the renderer previously announced via the SharedRingHandler.
-		// frameIndex doubles as the produce-fence value for that slot. CPU-only
+		// empty and the frame lives in slot `sharedSlot` of the shared-texture
+		// ring the renderer announced via the SharedRingHandler. frameIndex
+		// doubles as the produce-fence value for that slot. CPU-only
 		// compositors must ignore such frames.
 		std::int32_t                  sharedSlot{ -1 };
 	};
 
-	// A cross-process shared-texture ring (produced by the out-of-process
-	// WebView2 host), announced by the renderer on the game thread. All
-	// handles are already valid IN THIS PROCESS (duplicated by the producer)
-	// and are OWNED BY THE CONSUMER once delivered: open them with
-	// ID3D12Device::OpenSharedHandle, then CloseHandle. Synchronization is a
-	// produce fence (wait for value == frameIndex before sampling a slot) and
-	// a consume fence (signal frameIndex after the GPU read completes, so the
-	// producer may rewrite the slot). A new announcement (higher generation)
-	// invalidates every prior slot.
+	// Cross-process shared-texture ring produced by the out-of-process WebView2
+	// host, announced by the renderer on the game thread. Handles are already
+	// valid in this process (duplicated by the producer) and owned by the
+	// consumer once delivered: open with ID3D12Device::OpenSharedHandle, then
+	// CloseHandle. Sync is a produce fence (wait for value == frameIndex before
+	// sampling a slot) and a consume fence (signal frameIndex after the GPU read
+	// completes, so the producer may rewrite the slot). A new announcement
+	// (higher generation) invalidates every prior slot.
 	struct SharedRingDesc
 	{
 		static constexpr std::size_t kSlots = 3;
@@ -137,15 +134,13 @@ namespace OSFUI
 		virtual bool Initialize(const RendererConfig& a_config) = 0;
 		virtual void Shutdown() = 0;
 
-		// Loads (or replaces) a view by its manifest id. Backends that support
-		// it keep previously-loaded views so several can be hosted and composited
-		// at once; the first loaded view becomes active by default. Call
-		// SetActiveView to choose which one receives input.
+		// Loads (or replaces) a view by its manifest id. Multi-view backends keep
+		// previously-loaded views so several composite at once; the first loaded
+		// view becomes active by default. Use SetActiveView to change that.
 		virtual void LoadView(const ViewManifest& a_manifest) = 0;
 
 		// Selects which loaded view receives input (and, today, the bridge).
-		// Multi-view backends honor it; single-view backends ignore it. No-op if
-		// the id is not loaded. Default no-op for backends without views.
+		// No-op if the id is not loaded, or for single-view backends.
 		virtual void SetActiveView(std::string_view /*a_id*/) {}
 		[[nodiscard]] virtual bool SupportsMultipleViews() const { return true; }
 
@@ -158,33 +153,29 @@ namespace OSFUI
 		// present. See FrameBufferView for the lifetime contract.
 		virtual std::optional<FrameBufferView> Render() = 0;
 
-		// Delivers a JSON message to ONE view (native -> web). a_viewId is the
-		// manifest id of the target view. Backends without a JS engine may log
-		// and drop it; single-view backends may ignore the id.
+		// Delivers a JSON message to one view (native -> web); a_viewId is the
+		// target's manifest id. Backends without a JS engine may log and drop it;
+		// single-view backends may ignore the id.
 		virtual void SendMessageToWeb(std::string_view a_viewId, std::string_view a_json) = 0;
 
-		// Receives JSON messages (web -> native), tagged with the SOURCE view id
-		// so responses route back to the right view. Backends with a JS engine
-		// invoke the handler from Update() on the calling (game) thread, never
-		// from a renderer-internal thread. Backends without a JS engine ignore
-		// this. Set before LoadView.
+		// Receives JSON messages (web -> native), tagged with the source view id
+		// so responses route back. Invoked from Update() on the calling (game)
+		// thread, never from a renderer-internal thread. Set before LoadView.
 		using WebMessageHandler = std::function<void(std::string_view a_viewId, std::string_view a_json)>;
 		virtual void SetWebMessageHandler(WebMessageHandler) {}
 
-		// Invoked once per view when its DOM becomes ready, on the game thread
-		// (drained from Update()), tagged with the view id. Backs the consumer
-		// API's CreateView DOM-ready callback. Set once before LoadView; no-op
-		// for backends without a JS engine.
+		// Fires once per view when its DOM becomes ready, on the game thread
+		// (drained from Update()). Backs the consumer API's CreateView DOM-ready
+		// callback. Set once before LoadView.
 		using DomReadyHandler = std::function<void(std::string_view a_viewId)>;
 		virtual void SetDomReadyHandler(DomReadyHandler) {}
 
 		// A main-frame load reaching a terminal state, on the game thread
-		// (drained from Update()), tagged with the view id. `failed` is false for
-		// a successful finish (which is followed by the DOM-ready handler) and
-		// true for a load failure, in which case description/errorDomain/errorCode
-		// carry the backend's diagnostics. A failed load NEVER fires DOM-ready, so
-		// this is the only signal that a view did not come up. Set once before
-		// LoadView; no-op for backends without a JS engine.
+		// (drained from Update()). `failed` false means success and is followed
+		// by DOM-ready; true means failure, with description/errorDomain/
+		// errorCode carrying the backend's diagnostics. A failed load does not
+		// fire DOM-ready, so this is the only signal that a view did not come
+		// up. Set once before LoadView.
 		struct LoadEvent
 		{
 			std::string_view viewId;
@@ -197,13 +188,12 @@ namespace OSFUI
 		using LoadHandler = std::function<void(const LoadEvent& a_event)>;
 		virtual void SetLoadHandler(LoadHandler) {}
 
-		// Fires when the ACTIVE (input) view's requested cursor changes, so the
+		// Fires when the active (input) view's requested cursor changes, so the
 		// host can switch the real OS pointer (hover feedback, text I-beam).
-		// UNLIKE the other handlers, backends may invoke this from a renderer-
-		// internal thread — the handler must be cheap and thread-safe (the
-		// in-tree consumer is a single atomic store; the shape is applied by the
-		// window hook on the next mouse message). Set once before LoadView;
-		// no-op for backends without a JS engine.
+		// WARNING: unlike the other handlers, this may be invoked from a
+		// renderer-internal thread — the handler must be cheap and thread-safe.
+		// The in-tree consumer is a single atomic store; the window hook applies
+		// the shape on the next mouse message. Set once before LoadView.
 		using CursorChangeHandler = std::function<void(CursorShape a_shape)>;
 		virtual void SetCursorChangeHandler(CursorChangeHandler) {}
 
@@ -218,58 +208,54 @@ namespace OSFUI
 		virtual void SetNativeKeyboardFocus(bool /*a_focused*/) {}
 		[[nodiscard]] virtual bool UsesNativeKeyboardFocus() const { return false; }
 
-		// Out-of-process backends decide SYNCHRONOUSLY (in the host process)
+		// Out-of-process backends decide synchronously, in the host process,
 		// whether a key is framework-owned and must be withheld from the page,
 		// so the host needs a mirror of the runtime's accelerator state. The
 		// runtime pushes it every tick; backends diff and forward on change.
-		// Default no-op for in-process backends (they call the accelerator
-		// handler directly instead).
+		// No-op for in-process backends, which call the accelerator handler
+		// directly instead.
 		virtual void SetAcceleratorKeys(std::uint32_t /*a_toggleVk*/,
 			std::uint32_t /*a_devReloadVk*/, bool /*a_captured*/,
 			bool /*a_captureArmed*/, std::uint32_t /*a_captureUpVk*/) {}
 
-		// Announces (or replaces) the renderer's GPU shared-texture ring, on
-		// the game thread (drained from Update()). The runtime forwards it to
-		// the compositor, which owns the handles from then on (SharedRingDesc
-		// docs). Only fired by backends that produce sharedSlot frames.
+		// Announces (or replaces) the renderer's GPU shared-texture ring, on the
+		// game thread (drained from Update()). The runtime forwards it to the
+		// compositor, which owns the handles from then on — see SharedRingDesc.
+		// Only fired by backends that produce sharedSlot frames.
 		using SharedRingHandler = std::function<void(const SharedRingDesc&)>;
 		virtual void SetSharedRingHandler(SharedRingHandler) {}
 
 		// Delivers one keyboard transition into the web view. a_vkCode is a
 		// Windows virtual-key code (the space Starfield ButtonEvents carry).
-		// Thread-safe to call from the input thread; backends with a JS engine
-		// dispatch it onto their own thread. No-op for backends without one.
+		// Thread-safe to call from the input thread; backends dispatch onto
+		// their own thread.
 		virtual void InjectKeyEvent(std::uint32_t /*a_vkCode*/, bool /*a_down*/) {}
 
-		// Delivers one text character into the web view, as a finished Unicode
-		// scalar value from the OS char stream (WM_CHAR/WM_UNICHAR) — already
-		// resolved for the active layout, dead keys, and AltGr. Queued after the
-		// matching key's RawKeyDown. Thread-safe; no-op for backends without a JS
-		// engine.
+		// Delivers one text character into the web view: a finished Unicode
+		// scalar from the OS char stream (WM_CHAR/WM_UNICHAR), already resolved
+		// for the active layout, dead keys, and AltGr. Queued after the matching
+		// key's RawKeyDown. Thread-safe.
 		virtual void InjectCharEvent(std::uint32_t /*a_codepoint*/) {}
 
-		// Mouse input in VIEW pixel coordinates (0..width, 0..height). Move
-		// reports an absolute position (the caller maintains a virtual cursor,
-		// since the OS cursor is hidden in gameplay); button uses the
-		// MouseButton order (0=left, 1=right, 2=middle). Thread-safe; no-op
-		// for backends without a JS engine.
+		// Mouse input in view pixel coordinates (0..width, 0..height). Move
+		// reports an absolute position — the caller maintains a virtual cursor,
+		// since the OS cursor is hidden in gameplay. Button uses MouseButton
+		// order (0=left, 1=right, 2=middle). Thread-safe.
 		virtual void InjectMouseMove(int /*a_x*/, int /*a_y*/) {}
 		virtual void InjectMouseButton(int /*a_x*/, int /*a_y*/, int /*a_button*/, bool /*a_down*/) {}
-		// Mouse wheel at a VIEW-space position. a_wheelDelta is a signed multiple
+		// Mouse wheel at a view-space position. a_wheelDelta is a signed multiple
 		// of WHEEL_DELTA (120); positive scrolls up. The backend converts notches
-		// to pixels via the per-view scroll step (SetScrollPixelSize). No-op for
-		// backends without a JS engine.
+		// to pixels via the per-view scroll step (SetScrollPixelSize).
 		virtual void InjectMouseWheel(int /*a_x*/, int /*a_y*/, int /*a_wheelDelta*/) {}
 
-		// --- Per-view JS interaction primitives -------------------------------
-		// Backends with a JS engine marshal the work onto their own worker thread
-		// and deliver any callback back on the game thread (drained from Update()),
-		// exactly like SetWebMessageHandler. Default no-ops so non-JS backends
-		// (null/mock) build and link unchanged. a_viewId is the manifest/internal
-		// view id.
+		// Per-view JS interaction primitives. Backends marshal the work onto
+		// their own worker thread and deliver callbacks on the game thread
+		// (drained from Update()), like SetWebMessageHandler. No-ops by default
+		// so non-JS backends (null/mock) still link. a_viewId is the
+		// manifest/internal view id.
 
-		// Run arbitrary JS in a view; if a_onResult is set it receives the
-		// expression result as a string, on the game thread.
+		// If a_onResult is set it receives the expression result as a string, on
+		// the game thread.
 		using ScriptResultHandler = std::function<void(std::string a_result)>;
 		virtual void EvaluateScript(std::string_view /*a_viewId*/, std::string_view /*a_js*/,
 			ScriptResultHandler /*a_onResult*/ = nullptr) {}
@@ -289,13 +275,12 @@ namespace OSFUI
 		using ConsoleHandler = std::function<void(int a_level, std::string a_message)>;
 		virtual void SetConsoleHandler(std::string_view /*a_viewId*/, ConsoleHandler /*a_handler*/) {}
 
-		// Per-view state mutated at runtime. Multi-view backends honor them in the
-		// compositing/scroll path; others ignore.
+		// Per-view state mutated at runtime. Honored by multi-view backends in
+		// the compositing/scroll path; others ignore.
 		virtual void SetViewHidden(std::string_view /*a_viewId*/, bool /*a_hidden*/) {}
 		virtual void SetViewOrder(std::string_view /*a_viewId*/, int /*a_order*/) {}
 		virtual void SetScrollPixelSize(std::string_view /*a_viewId*/, int /*a_pixels*/) {}
 
-		// Tear down a single view and free its resources.
 		virtual void DestroyView(std::string_view /*a_viewId*/) {}
 
 		[[nodiscard]] virtual std::string_view Name() const = 0;

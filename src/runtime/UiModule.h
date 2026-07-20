@@ -4,12 +4,11 @@ namespace OSFUI
 {
 	class MessageBridge;
 
-	// A self-contained feature ("app") built on the OSF UI platform. The core
-	// runtime hosts modules without knowing what any of them does: it calls
-	// OnStart() once at load, and RegisterCommands() so the module can wire its
-	// own web<->native bridge commands. Settings is the first such module; a
-	// HUD, quest tracker, etc. would each be another. This is the seam a future
-	// public plugin API would expose so modules can ship in separate DLLs.
+	// A self-contained feature ("app") built on the OSF UI platform. The runtime
+	// hosts modules without knowing what any of them does: OnStart() once at
+	// load, RegisterCommands() so the module can wire its own web<->native
+	// bridge commands. This is the seam a future public plugin API would expose
+	// so modules can ship in separate DLLs.
 	class IUiModule
 	{
 	public:
@@ -26,13 +25,13 @@ namespace OSFUI
 		// OnBridgeDown (or a later RegisterCommands replaces it).
 		virtual void RegisterCommands(MessageBridge& a_bridge) = 0;
 
-		// The bridge passed to RegisterCommands is about to be destroyed —
-		// drop any retained pointer/subscriber state.
+		// The bridge passed to RegisterCommands is about to be destroyed; drop
+		// any retained pointer/subscriber state.
 		virtual void OnBridgeDown() {}
 
 		// One view was destroyed (crash-recovery teardown) while the bridge
-		// stays up — drop the id from any per-view subscriber state, or pushes
-		// to it leak for the process lifetime.
+		// stays up. Drop the id from any per-view subscriber state, or pushes to
+		// it leak for the process lifetime.
 		virtual void OnViewDestroyed(std::string_view /*a_viewId*/) {}
 
 		[[nodiscard]] virtual std::string_view Name() const = 0;

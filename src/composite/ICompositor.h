@@ -4,9 +4,9 @@
 
 namespace OSFUI
 {
-	// Consumes CPU frames from a renderer and (eventually) presents them over
-	// the game image. Submit() must finish using the FrameBufferView before
-	// returning — the pixels are only valid for the duration of the call.
+	// Consumes CPU frames from a renderer and presents them over the game image.
+	// Submit() must finish using the FrameBufferView before returning; the
+	// pixels are valid only for the duration of the call.
 	class ICompositor
 	{
 	public:
@@ -16,29 +16,28 @@ namespace OSFUI
 		virtual void Shutdown() = 0;
 		virtual void Submit(const FrameBufferView& a_frame) = 0;
 
-		// Overlay visibility. A present-time compositor keeps drawing the last
-		// frame every present, so it needs an explicit hide signal (Submit
-		// simply stops being called when hidden, which is not observable from
-		// the present hook). Default no-op for compositors that draw nothing.
+		// Overlay visibility. A present-time compositor redraws the last frame
+		// every present, so it needs an explicit hide signal: hiding only stops
+		// Submit() being called, which the present hook cannot observe.
+		// Default no-op for compositors that draw nothing.
 		virtual void SetVisible(bool /*a_visible*/) {}
 
-		// Set a callback invoked (on the present/render thread) when the output
-		// surface size becomes known or changes. The runtime uses it to resize
-		// the web view to match the screen so the page renders aspect-correct
-		// instead of stretched. Default no-op (a null compositor has no output).
+		// Callback invoked on the present/render thread when the output surface
+		// size becomes known or changes. The runtime resizes the web view to
+		// match, so the page renders aspect-correct instead of stretched.
+		// Default no-op (a null compositor has no output).
 		using OutputResizeCallback = std::function<void(std::uint32_t a_width, std::uint32_t a_height)>;
 		virtual void SetOutputResizeCallback(OutputResizeCallback /*a_callback*/) {}
 
-		// Most compositors do not need an asynchronously discovered output size.
-		// A compositor that does can hold a deferred reveal until its present hook
-		// has observed the real target, preventing a manifest-sized first frame.
+		// Default true: most compositors need no asynchronously discovered output
+		// size. One that does returns false until its present hook has observed
+		// the real target, holding a deferred reveal off a manifest-sized frame.
 		[[nodiscard]] virtual bool IsOutputSizeKnown() const { return true; }
 
 		// GPU transport (out-of-process WebView2 host): adopt a shared-texture
-		// ring; subsequent Submit() calls may carry sharedSlot frames that live
-		// in it. The compositor takes ownership of the handles (see
-		// SharedRingDesc). Default no-op — CPU-only compositors then simply
-		// ignore sharedSlot frames.
+		// ring; later Submit() calls may carry sharedSlot frames living in it.
+		// The compositor takes ownership of the handles (see SharedRingDesc).
+		// Default no-op; CPU-only compositors ignore sharedSlot frames.
 		virtual void SetSharedRing(const SharedRingDesc& /*a_desc*/) {}
 
 		[[nodiscard]] virtual std::string_view Name() const = 0;

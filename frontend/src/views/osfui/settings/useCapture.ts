@@ -1,39 +1,31 @@
 // useCapture.ts — the key-rebind capture state machine.
 //
-// Ports `beginCapture` / `finishCapture` / `localKeyConflicts`
-// (settings/main.legacy.js:1543-1633).
+// One capture at a time, view-wide, not per row: the runtime can only have one
+// key grab armed and a second arm anywhere rejects with `capture-busy`
+// (protocol 1.0). The armed row lives here at the view's root; each KeyField
+// renders `listening` by comparing itself against it.
 //
-// ONE CAPTURE AT A TIME, VIEW-WIDE. Not per row: the runtime can only have one
-// key grab armed, and a second arm anywhere rejects with `capture-busy`
-// (protocol 1.0). So the armed row is held here, at the view's root, and each
-// KeyField renders `listening` by comparing itself against it.
-//
-// WHY THE RUNTIME CAPTURES, NOT A keydown LISTENER: the user may be rebinding
-// the very key that opens this overlay. Native sees the press before its own
-// hotkey dispatch, so `settings.captureKey` is what makes "press F10 to rebind
-// F10" work instead of closing the surface. The request is issued with
-// `timeoutMs: 0` — the user may think for as long as they like, and the reply
-// itself is what settles it (Escape or a refusal comes back `cancelled`).
-//
-// NOT PORTED: `capturing.timer`. Legacy destructured a `timer` field out of the
-// capture record and cleared it (main.legacy.js:1615-1616), but nothing ever
-// assigned one — a leftover from a pre-`timeoutMs:0` design. Dead on arrival.
+// The runtime captures rather than a keydown listener because the user may be
+// rebinding the very key that opens this overlay. Native sees the press before
+// its own hotkey dispatch, so `settings.captureKey` is what makes "press F10 to
+// rebind F10" work instead of closing the surface. Issued with `timeoutMs: 0`:
+// the user may think for as long as they like and the reply settles it (Escape
+// or a refusal comes back `cancelled`).
 
 import { useRef, useState } from 'preact/hooks';
 import type { Bridge } from '@lib/bridge';
 import { domKeyName } from '@lib/keybinds/domKeyName';
 import { titleOf, type ModRecord } from '@lib/settings/rail';
 
-/** The armed rebind: which mod's which key. */
 export interface CaptureTarget {
   modId: string;
   key: string;
 }
 
 /**
- * What `finish` accepts: a real `settings.captured` payload, or the synthetic
- * cancel built locally when the request rejects. Every field is optional
- * because both shapes flow through one function.
+ * What `finish` accepts: a `settings.captured` payload, or the synthetic cancel
+ * built locally when the request rejects. Every field is optional because both
+ * shapes flow through one function.
  */
 export interface CapturePayload {
   name?: string | undefined;
@@ -44,10 +36,10 @@ export interface CapturePayload {
 export interface CaptureApi {
   /** The armed target, or null. A KeyField is `listening` when it matches. */
   capturing: CaptureTarget | null;
-  /** True while ANY capture is armed — the Escape handler's guard. */
+  /** True while any capture is armed; the Escape handler's guard. */
   isCapturing: () => boolean;
   begin: (modId: string, key: string) => void;
-  /** Settle a capture. Idempotent — a second delivery no-ops. */
+  /** Settle a capture. Idempotent: a second delivery no-ops. */
   finish: (payload: CapturePayload | null | undefined) => void;
 }
 
@@ -63,10 +55,10 @@ export interface CaptureOptions {
 }
 
 /**
- * Standalone-only preview of `SettingsStore::ConflictsFor`: the OTHER key
- * settings whose CURRENT value is the captured name. In game the real list
+ * Standalone-only preview of `SettingsStore::ConflictsFor`: the other key
+ * settings whose current value is the captured name. In game the real list
  * arrives inside `settings.captured`, resolved by virtual-key code; here a
- * string compare is close enough to demo the warning (main.legacy.js:1585-1598).
+ * string compare is close enough to demo the warning.
  */
 export function localKeyConflicts(
   mods: ModRecord[],
@@ -81,7 +73,7 @@ export function localKeyConflicts(
         const item = s as { type?: unknown; key?: unknown } | null;
         if (!item || item.type !== 'key' || typeof item.key !== 'string') continue;
         if ((m.values || {})[item.key] !== name) continue;
-        // Skip the setting being rebound — it is trivially "already bound" to
+        // Skip the setting being rebound; it is trivially "already bound" to
         // whatever it is being set to.
         if (m.id === modId && item.key === key) continue;
         others.push({ mod: m.id, key: item.key, title: titleOf(m) });
@@ -95,8 +87,8 @@ export function useCapture(opts: CaptureOptions): CaptureApi {
   const { bridge, modsRef, onCommit, toast, tr } = opts;
 
   const [capturing, setCapturingState] = useState<CaptureTarget | null>(null);
-  // Mirrored into a ref because the bridge callbacks below are created inside a
-  // render and settle much later, when `capturing` in their closure is stale.
+  // Mirrored into a ref: the bridge callbacks below are created during a render
+  // and settle much later, when `capturing` in their closure is stale.
   const capturingRef = useRef<CaptureTarget | null>(null);
   const setCapturing = (next: CaptureTarget | null) => {
     capturingRef.current = next;
@@ -105,22 +97,21 @@ export function useCapture(opts: CaptureOptions): CaptureApi {
 
   const finish = (payload: CapturePayload | null | undefined) => {
     const current = capturingRef.current;
-    // Idempotent: the awaited request AND the belt-and-braces
+    // Idempotent: the awaited request and the belt-and-braces
     // `settings.captured` subscription both call this.
     if (!current) return;
     const { modId, key } = current;
     setCapturing(null);
 
     // A cancel (Escape, a refusal, a nameless reply) restores the button by
-    // simply re-rendering it from the model — legacy stashed the previous
-    // label in `prev` because it was mutating textContent directly.
+    // re-rendering it from the model.
     if (!payload || payload.cancelled || !payload.name) return;
     const name = payload.name;
 
     // Live-warn (mcm-design §9): the runtime checked the captured key against
-    // every other binding BEFORE this commit lands, so the warning shows now
+    // every other binding before this commit lands, so the warning shows now
     // rather than after the settings.data round trip that repaints the row
-    // badges. Informational — the bind stands either way.
+    // badges. Informational; the bind stands either way.
     if (Array.isArray(payload.conflicts) && payload.conflicts.length) {
       const others = [...new Set(payload.conflicts.map((c) => c.title || c.mod))];
       toast(
@@ -132,8 +123,8 @@ export function useCapture(opts: CaptureOptions): CaptureApi {
       );
     }
 
-    // The mod/key we ARMED with, never the payload's — a mis-correlated reply
-    // cannot then write into a different mod's values.
+    // Commit against the mod/key we armed with, not the payload's, so a
+    // mis-correlated reply cannot write into a different mod's values.
     onCommit(modId, key, name);
   };
 
@@ -146,7 +137,7 @@ export function useCapture(opts: CaptureOptions): CaptureApi {
         .request('settings.captureKey', { mod: modId, key }, { timeoutMs: 0 })
         .then((msg) => finish(msg.payload as CapturePayload))
         .catch((err: unknown) => {
-          // Only if OUR arm is still live: a rejection arriving after the
+          // Only if our arm is still live: a rejection arriving after the
           // capture was settled some other way must not toast.
           const live = capturingRef.current;
           if (!live || live.modId !== modId || live.key !== key) return;
@@ -164,7 +155,7 @@ export function useCapture(opts: CaptureOptions): CaptureApi {
     }
 
     // Standalone preview: no runtime to capture for us, so read the key off the
-    // DOM. CAPTURE PHASE + preventDefault, so the press never reaches the
+    // DOM. Capture phase plus preventDefault, so the press never reaches the
     // document-level Escape handler (which would close the surface mid-rebind).
     const onKey = (e: KeyboardEvent) => {
       window.removeEventListener('keydown', onKey, true);

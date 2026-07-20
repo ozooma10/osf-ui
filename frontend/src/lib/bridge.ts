@@ -1,28 +1,22 @@
-// bridge.ts — a typed façade over the shipped `window.osfui` helper.
+// Typed façade over the shipped `window.osfui` helper.
 //
-// This WRAPS the frozen helper (data/OSFUI/views/shared/osfui.js); it does not
-// reimplement it. The helper owns `onMessage`, request/reply correlation, the
-// i18n catalog and the ready handshake, and it is loaded by a classic <script>
-// tag before this bundle runs. Reimplementing any of that here would fork the
-// public contract that third-party views also depend on.
+// Wraps the frozen helper (data/OSFUI/views/shared/osfui.js), never reimplements
+// it: the helper owns onMessage, request/reply correlation, the i18n catalog and
+// the ready handshake, and is loaded by a classic <script> tag before this
+// bundle runs. Forking any of that would fork the contract third-party views use.
 //
-// The façade exists for three reasons:
-//   1. Types. The global is `Partial<OSFUIHelper>` because it may be a bare
-//      injected bridge; every call site would otherwise need the same guards.
-//   2. Testability. `Bridge` is an interface, so pure logic and components can
-//      be exercised without a global.
-//   3. Standalone safety. `available()` is false in a plain browser, and the
-//      helper rejects `request()` immediately with code "no-bridge". Callers
-//      get one documented failure mode instead of three.
+// The global is `Partial<OSFUIHelper>` (it may be a bare injected bridge), so
+// every member guards. Standalone, `available()` is false and `request()`
+// rejects with code "no-bridge".
 
 import type { NativeMessageType, PayloadOf, BridgeError } from './protocol';
 import type { NativeToWebMessage, RuntimeReadyPayload } from '@sdk';
 
 export interface RequestOptions {
   /**
-   * Milliseconds before the request rejects with code "timeout".
-   * Default 10000. Pass 0 to disable - required for `settings.captureKey`,
-   * which waits on the user pressing a key and legitimately has no deadline.
+   * Milliseconds before the request rejects with code "timeout". Default 10000.
+   * Pass 0 to disable — required for `settings.captureKey`, which waits on a
+   * keypress and has no deadline.
    */
   timeoutMs?: number;
 }
@@ -62,11 +56,9 @@ function noBridgeError(): BridgeError {
 }
 
 /**
- * The real bridge, reading the global the shared kit decorated.
- *
- * Every member degrades safely when the helper is absent, because this module
- * is also imported by the dev harness before the mock installs, and by unit
- * tests running in plain node.
+ * Reads the global the shared kit decorated. Every member degrades when the
+ * helper is absent: this module is imported by the dev harness before the mock
+ * installs, and by unit tests in plain node.
  */
 export const windowBridge: Bridge = {
   available: () => !!window.osfui?.available?.(),
@@ -98,8 +90,8 @@ export const windowBridge: Bridge = {
 
   locale: () => window.osfui?.locale?.() ?? 'en',
 
-  // Falls back to interpolating the authored English so a view still renders
-  // readable text when the helper is missing entirely (plain-browser preview).
+  // Without the helper, interpolate the authored English so a view still
+  // renders readable text (plain-browser preview).
   t: (address, english, vars) => {
     const t = window.osfui?.t;
     if (t) return t.call(window.osfui, address, english, vars);
@@ -116,9 +108,9 @@ export const windowBridge: Bridge = {
 };
 
 /**
- * A bridge that is never available - the standalone/plain-browser case, and the
- * default in unit tests. Kept here rather than in the harness so production
- * code can depend on it without pulling dev-only modules into the graph.
+ * Never-available bridge: the standalone/plain-browser case and the unit-test
+ * default. Lives here, not in the harness, so production code can depend on it
+ * without pulling dev-only modules into the graph.
  */
 export const nullBridge: Bridge = {
   available: () => false,

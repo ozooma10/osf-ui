@@ -1,7 +1,4 @@
-// BindList.tsx — the searchable "All bindings" list.
-//
-// Ports `renderList()` (main.legacy.js:348-373) plus the panel chrome that used
-// to be static markup (index.html:66-69).
+// The searchable "All bindings" list, plus its panel chrome.
 
 import { holderState } from '@lib/keybinds/conflicts';
 import { compareBindings } from '@lib/keybinds/sort';
@@ -14,7 +11,7 @@ export interface BindListProps {
   bindings: readonly BindingRow[];
   /** Already trimmed + lowercased by the caller, per matchesQuery(). */
   query: string;
-  /** See DetailPanelProps.loaded — the title stays uncounted until data lands. */
+  /** The title stays uncounted until data lands. */
   loaded: boolean;
   tr: Translator;
   capturingId: string | null;
@@ -25,8 +22,8 @@ export interface BindListProps {
 export function BindList(props: BindListProps) {
   const { bindings, query, loaded, tr, capturingId, onRebind, onSelect } = props;
 
-  // `.filter().sort()` — filter already returns a fresh array, so the in-place
-  // sort does not disturb the model, exactly as in legacy.
+  // filter already returns a fresh array, so the in-place sort can't disturb
+  // the model.
   const rows = bindings.filter(matchesQuery(query)).sort(compareBindings);
 
   return (
@@ -41,9 +38,9 @@ export function BindList(props: BindListProps) {
           ? null
           : rows.length
             ? rows.map((b) => {
-                // holderState compares by IDENTITY, so `b` must be a row from
-                // the array being queried — which it is: `filter` copies the
-                // references, it does not clone the rows.
+                // holderState compares by identity, so `b` must be a row from
+                // the array being queried — `filter` copies references, it
+                // does not clone rows.
                 const state = holderState(bindings, b);
                 const stateClass = state.conflict
                   ? 'kb-holder--conflict'
@@ -64,8 +61,8 @@ export function BindList(props: BindListProps) {
                 );
               })
             : (
-              // Two distinct empty states: a filter that matched nothing vs. a
-              // registry with no key settings at all.
+              // Two empty states: a filter that matched nothing vs. a registry
+              // with no key settings at all.
               <p class="kb-hint">
                 {query
                   ? tr('noMatches', 'No bindings match.')

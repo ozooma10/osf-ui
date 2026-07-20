@@ -61,8 +61,8 @@ describe('saveStatePersisted', () => {
   });
 
   it('does NOT clear the indicator — it swaps the text and adds classes', () => {
-    // The asymmetry that matters: "persisted" is a success announcement, not a
-    // teardown. Only the 1800ms fade (or an abandon) hides it.
+    // "persisted" is a success announcement, not a teardown: only the 1800ms
+    // fade (or an abandon) hides it.
     const s = saveStatePending(initialSaveState, 'a').state;
     const out = saveStatePersisted(s, 'a');
     expect(isSaveStateVisible(out.state)).toBe(true);
@@ -71,7 +71,7 @@ describe('saveStatePersisted', () => {
   });
 
   it('ignores a persisted push this view never asked for', () => {
-    // A sibling DLL or another view wrote; we must not claim its confirmation.
+    // A sibling DLL or another view wrote; don't claim its confirmation.
     const s = saveStatePending(initialSaveState, 'a').state;
     const out = saveStatePersisted(s, 'someone.else');
     expect(pendingIds(out.state)).toEqual(['a']);
@@ -93,7 +93,7 @@ describe('saveStatePersisted', () => {
     s = saveStateFaded(s);
     expect(s.classes).toEqual([]);
     expect(isSaveStateVisible(s)).toBe(false);
-    // The label is NOT reset — the legacy code only touches classList.
+    // The label is not reset — the fade only clears classes.
     expect(s.label).toBe('saved');
   });
 });
@@ -108,14 +108,13 @@ describe('saveStateAbandon', () => {
   });
 
   it('leaves the stale "Saving…" label in place under the hidden element', () => {
-    // Quirk: legacy abandon only does classList.remove("visible","done") and
-    // never touches textContent.
+    // Quirk: abandon clears the classes only, never the label text.
     const s = saveStatePending(initialSaveState, 'a').state;
     expect(saveStateAbandon(s, 'a').state.label).toBe('saving');
   });
 
   it('does not cancel an armed fade timer', () => {
-    // Quirk: unlike pending/persisted, abandon never clears saveFadeTimer.
+    // Quirk: unlike pending/persisted, abandon never clears the fade timer.
     // Harmless — the timer removes exactly the classes abandon just removed.
     const s = saveStatePending(initialSaveState, 'a').state;
     expect(saveStateAbandon(s, 'a').cancelFade).toBe(false);
@@ -132,7 +131,7 @@ describe('saveStateAbandon', () => {
   it('drops the entry so a later persisted push finds nothing', () => {
     // Losing the confirmation is the intended trade: never show a false one.
     let s = saveStatePending(initialSaveState, 'a').state;
-    s = saveStatePending(s, 'a').state; // two in-flight writes, ONE set entry
+    s = saveStatePending(s, 'a').state; // two in-flight writes, one set entry
     s = saveStateAbandon(s, 'a').state; // one rejected -> entry gone
     expect(pendingIds(s)).toEqual([]);
 

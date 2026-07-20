@@ -1,21 +1,16 @@
-// warn.ts — the view's schema-diagnostic channel.
+// The view's schema-diagnostic channel: messages aimed at a mod author reading
+// OSF UI.log after a schema misbehaves (condition naming a missing key, setting
+// with no key, step of zero). None is user-facing — the pane still renders,
+// degraded.
 //
-// Ports `devWarn` (settings/main.legacy.js:216). Every message it carries is
-// aimed at a MOD AUTHOR looking at OSF UI.log with a schema that does not do
-// what they expected — a condition naming a key that does not exist, a setting
-// with no key, a step of zero. None of them is a user-facing error: the pane
-// still renders, degraded, which is the whole point.
-//
-// It is NOT wrapped in `import.meta.env.DEV`, deliberately. These fire against
-// third-party schemas in a shipped build, on an end user's machine, and that is
-// exactly where a mod author needs them to have fired. Stripping them would
-// make "my setting doesn't show up" undiagnosable in the field.
+// Not wrapped in `import.meta.env.DEV`: these must fire against third-party
+// schemas in shipped builds on end-user machines, or "my setting doesn't show
+// up" is undiagnosable in the field.
 
-/** The log prefix legacy used; kept so existing log-grep habits still work. */
+/** Stable log prefix — existing log-grep habits depend on it. */
 const PREFIX = '[osfui settings] ';
 
 export function devWarn(message: string): void {
-  // Preserve the legacy guard: a missing `console.warn` must not throw out
-  // of a render.
+  // A missing `console.warn` must not throw out of a render.
   if (typeof console !== 'undefined' && console.warn) console.warn(PREFIX + message);
 }

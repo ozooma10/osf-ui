@@ -91,8 +91,8 @@ describe('applyConflictUpdate — symmetric mirroring', () => {
       { mod: 'osfui', key: 'toggleKey', title: 'OSF UI' },
     ];
     const after = applyConflictUpdate(mods, 'osfui', 'toggleKey', []);
-    // Empty list => the property is DROPPED, which is the documented
-    // "no collisions" encoding, not an empty array.
+    // Empty list drops the property; that is the documented "no collisions"
+    // encoding, not an empty array.
     expect(find(after, 'acme.demo', 'open')).not.toHaveProperty('conflicts');
     expect(find(after, 'osfui', 'toggleKey')).not.toHaveProperty('conflicts');
   });
@@ -147,9 +147,9 @@ describe('applyConflictUpdate — symmetric mirroring', () => {
 
 describe('applyConflictUpdate — duplicate-key quirk', () => {
   it('applies the push to the FIRST matching setting only, leaving the second stale', () => {
-    // A malformed schema declaring the same key twice. The legacy renderer set
-    // the list on findSettingInMod's FIRST hit and skipped all same-key
-    // settings in the mirror loop, so the duplicate keeps whatever it had.
+    // Malformed schema declaring the same key twice: the list is set on
+    // findSettingInMod's first hit and same-key settings are skipped in the
+    // mirror loop, so the duplicate keeps whatever it had.
     const mods: ModRecord[] = [
       {
         id: 'acme.demo',

@@ -1,12 +1,10 @@
-// osfui.js — the OSF UI bridge helper (bridge protocol 1.0, api-freeze item 5).
+// osfui.js — OSF UI bridge helper (bridge protocol 1.0, api-freeze item 5).
 //
 // Load it like the shared stylesheet, BEFORE your view's own script:
 //   <script src="../../shared/osfui.js"></script>
 //
-// It decorates the native-injected `window.osfui` object (creating a stub when
-// no bridge is present, e.g. a plain browser) with a deliberately THIN surface
-// — this file is part of the frozen contract, so it grows features about as
-// often as the protocol does:
+// Decorates the native-injected `window.osfui` (creating a stub when no bridge
+// is present, e.g. a plain browser). Part of the frozen contract:
 //
 //   osfui.available()            -> bridge present (false = standalone preview)
 //   osfui.ready                  -> Promise of the runtime.ready payload
@@ -14,7 +12,7 @@
 //   osfui.send(command, fields)  -> fire-and-forget ui.command; returns false
 //                                   when no bridge is present
 //   osfui.request(command, fields, { timeoutMs }) -> Promise of the reply
-//                                   MESSAGE ({ type, payload, requestId }).
+//                                   message ({ type, payload, requestId }).
 //                                   Rejects (Error with .code) on ui.error, on
 //                                   ui.result { ok:false }, on timeout
 //                                   (default 10000 ms; 0 disables — e.g. a
@@ -30,10 +28,10 @@
 //   osfui.localize(root)         -> apply data-i18n* attributes under root.
 //   osfui.i18nReady              -> first i18n.data catalog has arrived.
 //
-// The helper OWNS `osfui.onMessage` — with it loaded, never assign onMessage
-// yourself; use osfui.on(). Replies that resolve a request() ALSO dispatch to
-// on() subscribers (so one render path can consume settings.data no matter who
-// asked); commands with no reply type of their own resolve with
+// This helper owns `osfui.onMessage` — with it loaded, do not assign onMessage
+// yourself; use osfui.on(). Replies that resolve a request() also dispatch to
+// on() subscribers, so one render path can consume settings.data no matter who
+// asked. Commands with no reply type of their own resolve with
 // `ui.result { ok, command, code?, message? }`.
 
 "use strict";
@@ -119,12 +117,11 @@
     return () => set.delete(fn);
   };
 
-  // Per-mod theming (api-freeze item 9): a schema/manifest `accent` is ONE
-  // hex; the kit reads a linked set of four tokens (accent, hover, strong,
-  // quiet), so derive and set them together on the element — or clear the
-  // whole set on a missing/invalid hex, so nothing leaks from a previously
-  // themed subtree. This is the only theming mechanism (the old theme-class
-  // enum is gone from osfui.css).
+  // Per-mod theming (api-freeze item 9): a schema/manifest `accent` is one hex,
+  // but the kit reads a linked set of four tokens (accent, hover, strong,
+  // quiet), so derive and set them together — or clear the whole set on a
+  // missing/invalid hex, so nothing leaks from a previously themed subtree.
+  // This is the only theming mechanism; the old theme-class enum is gone.
   const ACCENT_TOKENS = ["--osf-accent", "--osf-accent-hover", "--osf-accent-quiet", "--osf-accent-strong"];
   g.applyAccent = (el, hex) => {
     if (typeof hex === "string" && /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(hex)) {
@@ -146,11 +143,10 @@
     if (!message || typeof message.type !== "string") return;
     if (message.type === "runtime.ready") {
       resolveReady(message.payload || {});
-		// The catalog request is unconditional: every bridge-bearing host
-		// serves i18n.get, and the i18n.data reply resolves i18nReady. A
-		// failure still resolves (with the authored English) so views
-		// awaiting i18nReady never hang; a host without the command (the dev
-		// harness mock) refuses it fast and quietly.
+		// Every bridge-bearing host serves i18n.get; the i18n.data reply
+		// resolves i18nReady. A failure still resolves (with the authored
+		// English) so views awaiting i18nReady can't hang; a host without the
+		// command (the dev harness mock) refuses it fast and quietly.
 		g.request("i18n.get").catch((e) => {
 			if (!e || e.code !== "unknown-command") console.error("OSF UI localization load failed:", e);
 			resolveI18n({ locale, strings });
@@ -164,7 +160,7 @@
 			g.localize(document);
 			resolveI18n(payload);
 		}
-    // Correlated reply: settle the request() promise...
+    // Correlated reply: settle the request() promise.
     const rid = typeof message.requestId === "string" ? message.requestId : "";
     const req = rid && pending.get(rid);
     if (req) {
@@ -180,7 +176,7 @@
         req.resolve(message);
       }
     }
-    // ...and ALWAYS dispatch to type subscribers (see the header note).
+    // Dispatch to type subscribers unconditionally, resolved request or not.
     const set = listeners.get(message.type);
     if (set) {
       for (const fn of [...set]) {

@@ -57,8 +57,8 @@ describe('normalizeValue — int / float', () => {
   it('CLAMPS FIRST then rounds — a sub-min fraction lands on min, not below', () => {
     const gated = setting({ type: 'int', min: 1, max: 10 });
     expect(normalizeValue(gated, 0.4)).toBe(1);
-    // Round-then-clamp would have produced 0 -> clamped to 1 too; the case that
-    // actually distinguishes them is a max boundary with a fraction above it.
+    // Round-then-clamp also lands on 1 here; the max boundary with a fraction
+    // above it is the case that distinguishes the two orders.
     expect(normalizeValue(gated, 10.6)).toBe(10);
   });
 
@@ -144,15 +144,14 @@ describe('normalizeValue — string', () => {
   });
 
   it('QUIRK: a negative maxLength chops from the END (Math.min(256, -3) = -3)', () => {
-    // Native ignores maxLength <= 0 entirely; the renderer formula does not.
-    // Preserved and reported, not silently corrected.
+    // Native ignores maxLength <= 0; the renderer formula does not. Divergence
+    // is preserved, not corrected.
     expect(normalizeValue(setting({ type: 'string', maxLength: -3 }), 'abcdef')).toBe('abc');
   });
 
   it('QUIRK: a FRACTIONAL maxLength truncates (native requires an integer)', () => {
-    // SettingsStore.cpp:1080 gates on is_number_integer(), so native ignores
-    // 2.5 entirely; the renderer formula slices at 2. Same class of divergence
-    // as the negative case above — preserved, reported, not corrected.
+    // SettingsStore.cpp gates on is_number_integer(), so native ignores 2.5;
+    // the renderer formula slices at 2. Same divergence as the negative case.
     const frac = { key: 'k', type: 'string', maxLength: 2.5 } as unknown as Setting;
     expect(normalizeValue(frac, 'abcdef')).toBe('ab');
   });
@@ -179,7 +178,7 @@ describe('normalizeValue — key', () => {
   });
 
   it('REFUSES "" unless the schema opted into allowUnbound', () => {
-    // A blank must never clobber a working binding by accident.
+    // A blank must not clobber a working binding by accident.
     expect(normalizeValue(setting({ type: 'key' }), '')).toBeUndefined();
     expect(normalizeValue(setting({ type: 'key', allowUnbound: true }), '')).toBe('');
   });

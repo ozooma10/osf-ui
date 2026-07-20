@@ -15,9 +15,9 @@ afterEach(() => {
 });
 
 /**
- * Drive the state machine the way a component would: arm each returned timer
- * with `setTimeout`, then let fake timers advance. This is what makes the
- * 2600/3000 assertions meaningful — they are measured, not restated.
+ * Drives the state machine the way a component would: arms each returned timer
+ * with `setTimeout`, then lets fake timers advance, so the 2600/3000
+ * assertions are measured rather than restated.
  */
 function driver(): { get: () => ToastState; add: (m: string) => number } {
   let state = initialToastState;
@@ -38,8 +38,8 @@ function driver(): { get: () => ToastState; add: (m: string) => number } {
 
 describe('timings', () => {
   it('pins the exact millisecond constants', () => {
-    // These are paired with the .leaving CSS transition in osfui.css; the 400ms
-    // gap between them IS the fade window. Do not change one alone.
+    // Paired with the .leaving CSS transition in osfui.css; the 400ms gap
+    // between them is the fade window. Do not change one alone.
     expect(TOAST_LEAVING_MS).toBe(2600);
     expect(TOAST_REMOVE_MS).toBe(3000);
   });
@@ -92,7 +92,7 @@ describe('timings', () => {
     vi.advanceTimersByTime(400);
     expect(d.get().entries.map((e) => [e.message, e.leaving])).toEqual([['second', false]]);
 
-    // t=3600 = the second's OWN 2600ms.
+    // t=3600 = the second's own 2600ms.
     vi.advanceTimersByTime(600);
     expect(d.get().entries.map((e) => [e.message, e.leaving])).toEqual([['second', true]]);
 
@@ -130,7 +130,7 @@ describe('list semantics', () => {
     const a = addToast(initialToastState, 'one');
     expect(expireToast(a.state, 999)).toBe(a.state);
     expect(removeToast(a.state, 999)).toBe(a.state);
-    // ...and a second expire of the same id is a no-op too.
+    // A second expire of the same id is a no-op too.
     const expired = expireToast(a.state, a.entry.id);
     expect(expireToast(expired, a.entry.id)).toBe(expired);
   });

@@ -1,20 +1,15 @@
-// layout.ts — the on-screen keyboard layout.
+// On-screen keyboard layout: US ANSI, minus the numpad.
 //
-// Extracted verbatim from src/views/osfui/keybinds/main.legacy.js:177-200.
+// `d` is the printed label, `n` the OSF UI key name it maps to, `w` a width in
+// flex units (flex-grow with flex-basis 0, so widths are relative within a row).
 //
-// A US ANSI keyboard, minus the numpad. `d` is the printed label, `n` is the
-// OSF UI key NAME the label maps to, `w` is a width in units (flex-grow, with
-// flex-basis 0, so the units are relative within a row).
+// `n: null` marks a dead cell — drawn, but not bindable by mods. Esc is the only
+// one: it resolves fine, but is reserved because the capture flow reads a press
+// of it as "cancel", so binding it would make rebinds unescapable.
 //
-// `n: null` marks a DEAD cell — drawn, but not bindable by mods. Esc is now
-// the only one: it IS resolvable, but is reserved because the capture flow
-// treats a press of it as "cancel", so binding it would make rebinds
-// unescapable.
-//
-// The punctuation keys (- = [ ] \ ; ' , . /) used to be dead too, because
-// native had no name for their VKs. They resolve now (InputRouter.cpp
-// KeyName/kNamedKeys), so they are ordinary bindable cells. Their names are the
-// US ANSI meanings — the same layout assumption `Grave` has always carried.
+// Punctuation names (- = [ ] \ ; ' , . /) assume US ANSI meanings, the same
+// layout assumption `Grave` carries; native resolves them in InputRouter
+// KeyName/kNamedKeys.
 
 export interface KeyCell {
   /** Printed label. */
@@ -32,18 +27,14 @@ export interface GapCell {
 
 export type LayoutItem = KeyCell | GapCell;
 
-/** Type guard for the discriminated pair — legacy tested `"gap" in item`. */
 export function isGap(item: LayoutItem): item is GapCell {
   return 'gap' in item;
 }
 
 /**
- * Bindable cell. `n` defaults to `d` when omitted — the shorthand behind
- * `K("F1")` and `K("Q")`, where label and key name coincide. The default is
- * keyed on `undefined` specifically, so an explicit `null` still makes a dead
- * cell if a caller wants one.
- *
- * `w || 1` means a width of 0 silently becomes 1. Preserved from legacy 182.
+ * Bindable cell. `n` defaults to `d` when omitted (label and key name coincide);
+ * the default keys on `undefined` only, so an explicit `null` still yields a dead
+ * cell. `w || 1` means a width of 0 becomes 1.
  */
 export const K = (d: string, n?: string | null, w?: number): KeyCell => ({
   d,
@@ -54,19 +45,16 @@ export const K = (d: string, n?: string | null, w?: number): KeyCell => ({
 /** Non-bindable cell. */
 export const DEAD = (d: string, w?: number): KeyCell => ({ d, n: null, w: w || 1 });
 
-/** Spacer. */
 export const GAP = (w: number): GapCell => ({ gap: w });
 
 /**
- * Main block: function row, number row, QWERTY, home row, ZXCV, modifier row.
+ * Main block. Function-row GAPs reproduce the physical F1-F4 / F5-F8 / F9-F12
+ * clusters; widths are ANSI ratios (Tab 1.45, Caps 1.75, LShift 2.25, Enter 2.15,
+ * Space 7.3).
  *
- * The GAPs in the function row reproduce the physical F1-F4 / F5-F8 / F9-F12
- * clusters. Widths are the real ANSI ratios (Tab 1.45, Caps 1.75, LShift 2.25,
- * Enter 2.15, Space 7.3) so the board reads as a keyboard at a glance.
- *
- * Shift/Ctrl/Alt are drawn with the SAME label on both sides but distinct
- * names (LShift/RShift, ...), because native resolves them to distinct VKs
- * and a mod binding one does not get the other.
+ * Shift/Ctrl/Alt share a label on both sides but carry distinct names
+ * (LShift/RShift, ...): native resolves them to distinct VKs, so a mod binding
+ * one does not get the other.
  */
 export const KEYBOARD_MAIN: readonly (readonly LayoutItem[])[] = [
   [DEAD('Esc', 1.2), GAP(0.55), K('F1'), K('F2'), K('F3'), K('F4'), GAP(0.35), K('F5'), K('F6'), K('F7'), K('F8'), GAP(0.35), K('F9'), K('F10'), K('F11'), K('F12')],
@@ -78,9 +66,9 @@ export const KEYBOARD_MAIN: readonly (readonly LayoutItem[])[] = [
 ];
 
 /**
- * Navigation block: the 6-key cluster, a spacer row, then the inverted-T
- * arrows. Row 3 is a bare GAP(3) purely to open vertical space between the
- * two clusters; rows 4-5 use GAP(1) shoulders to centre the Up arrow.
+ * Navigation block: 6-key cluster, spacer row, inverted-T arrows. Row 3's bare
+ * GAP(3) opens vertical space between the clusters; the GAP(1) shoulders in rows
+ * 4-5 centre the Up arrow.
  */
 export const KEYBOARD_NAV: readonly (readonly LayoutItem[])[] = [
   [K('Ins', 'Insert'), K('Home'), K('PgUp', 'PageUp')],

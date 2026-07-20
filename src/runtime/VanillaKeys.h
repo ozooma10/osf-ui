@@ -2,19 +2,18 @@
 
 namespace OSFUI
 {
-	// The game's own key bindings, feeding the informational key-conflict
-	// view (mcm-design.md §9 "vanilla hotkeys", v1 — no engine RE). Starfield
-	// ships no controlmap data file (its defaults live in the executable;
-	// CommonLibSF has only RTTI ids for the live ControlMap singleton), so:
-	// a curated, shipped defaults table (vanillakeys.json), overlaid by the
-	// same controlmap text files the ENGINE honors — a mod-provided
+	// The game's own key bindings, feeding the informational key-conflict view.
+	// Starfield ships no controlmap data file (defaults live in the executable;
+	// CommonLibSF has only RTTI ids for the live ControlMap singleton), so this
+	// is a curated shipped defaults table (vanillakeys.json) overlaid by the
+	// same controlmap text files the engine honors: a mod-provided
 	// Data/Interface/Controls/PC/ControlMap.txt and the user's
 	// Documents/My Games/Starfield/ControlMap_Custom.txt. Reading the live
 	// singleton is the RE'd v2 that can replace this behind Bindings().
 	//
 	// Host-testable: no Windows or game includes — the two platform facts
 	// (OSF UI key names -> VK, DirectInput scan code -> VK) are injected by
-	// the composition root, like SettingsStore's KeyNameResolver.
+	// the composition root.
 	class VanillaKeys
 	{
 	public:
@@ -39,32 +38,31 @@ namespace OSFUI
 
 		// Overlay one engine controlmap text file (tab-separated: event id,
 		// keyboard DIK hex code(s), then mouse/gamepad/flags columns we
-		// ignore). Only events present in the defaults table are touched —
+		// ignore). Only events present in the defaults table are touched;
 		// first occurrence wins (gameplay context precedes menu contexts in
-		// the engine files): the row's binding is replaced, or removed on
+		// the engine files). The row's binding is replaced, or removed on
 		// 0xff (unbound). Chorded specs ("0x1d+0x2e") are skipped — the
 		// conflict domain is single physical keys. A missing file is a
 		// silent no-op. Returns the number of rows applied.
 		std::size_t OverlayControlMap(const std::filesystem::path& a_path, const ScanResolver& a_scan);
 
-		// Format stamp for vanillakeys.json + vanillakeys.user.json
-		// (api-freeze-plan item 8): a file declaring a NEWER version parses
-		// leniently with an INFO; unknown keys WARN (host-owned/host-format
-		// files — a typo, not version skew).
+		// Format stamp for vanillakeys.json + vanillakeys.user.json (frozen
+		// contract): a file declaring a newer version parses leniently with an
+		// INFO; unknown keys warn (host-owned format — a typo, not skew).
 		static constexpr std::int64_t kFormatVersion = 1;
 
-		// The user's ADDITIVE overlay (api-freeze-plan item 7):
-		// Documents/My Games/Starfield/OSFUI/vanillakeys.user.json —
+		// The user's additive overlay,
+		// Documents/My Games/Starfield/OSFUI/vanillakeys.user.json:
 		//   { "formatVersion": 1,
 		//     "add":      [ { "event", "label", "key" } ],   new rows
 		//     "replace":  [ { "event", "key", "label"? } ],  rebind an existing row
 		//     "suppress": [ "EventName", ... ] }             remove rows
-		// Fixes survive OSF UI updates (the file lives under Documents), and
-		// untouched shipped rows keep receiving upstream corrections. Rows with
-		// an unresolvable key, and replace/suppress naming an unknown event,
-		// WARN (a typo — the shipped table is the event-id source of truth).
-		// A missing file is a silent no-op. Returns the number of rows touched.
-		// Apply AFTER the controlmap overlays: the user's word is final.
+		// Living under Documents, fixes survive OSF UI updates while untouched
+		// shipped rows keep receiving upstream corrections. Rows with an
+		// unresolvable key, and replace/suppress naming an unknown event, warn
+		// (the shipped table is the event-id source of truth). A missing file is
+		// a silent no-op. Returns the number of rows touched.
+		// Apply after the controlmap overlays: the user's word is final.
 		std::size_t OverlayUserFile(const std::filesystem::path& a_path, const NameResolver& a_names);
 
 		// All rows; one unbound by an overlay (0xff) carries vk == 0 —

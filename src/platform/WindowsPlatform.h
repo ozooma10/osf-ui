@@ -1,7 +1,6 @@
 #pragma once
 
-// Small, isolated Win32 helpers. Keep all direct Win32 usage in this file pair
-// so the rest of the codebase stays platform-call free.
+// Win32 helpers. All direct Win32 usage lives in this file pair.
 
 namespace OSFUI::Platform
 {
@@ -9,16 +8,16 @@ namespace OSFUI::Platform
 	// Returns an empty path on failure.
 	[[nodiscard]] std::filesystem::path GetThisModulePath();
 
-	// Loads a DLL from an absolute path so that its own same-directory
-	// dependencies resolve (LOAD_WITH_ALTERED_SEARCH_PATH). Needed because
-	// SFSE loads plugins with plain LoadLibrary: a plugin's dependencies do
-	// NOT resolve from the plugin's folder, only from the game EXE dir/PATH.
+	// Loads a DLL from an absolute path so its own same-directory dependencies
+	// resolve (LOAD_WITH_ALTERED_SEARCH_PATH). SFSE loads plugins with plain
+	// LoadLibrary, under which a plugin's dependencies resolve only from the
+	// game EXE dir/PATH, never from the plugin's folder.
 	// Returns false and sets a_lastError (GetLastError) on failure.
 	bool LoadLibraryAbsolute(const std::filesystem::path& a_path, std::uint32_t& a_lastError);
 
 	// The user's Documents folder (FOLDERID_Documents — follows OneDrive
-	// redirection). Empty on failure. Used as the base for persisted, writable
-	// data (e.g. settings values), which must NOT live under the read-only,
+	// redirection). Empty on failure. Base for persisted, writable data (e.g.
+	// settings values), which cannot live under the read-only,
 	// MO2/Program-Files-mapped plugin data folder.
 	[[nodiscard]] std::filesystem::path GetDocumentsPath();
 

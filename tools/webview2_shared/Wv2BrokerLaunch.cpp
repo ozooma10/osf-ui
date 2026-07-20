@@ -17,9 +17,9 @@
 
 #include <format>
 
-// shellapi.h (pulled in by shlobj.h) macro-renames ShellExecute ->
-// ShellExecuteW, which would mangle the IShellDispatch2::ShellExecute METHOD
-// name below. The COM method has no A/W variants — undo the macro.
+// shellapi.h (via shlobj.h) macro-renames ShellExecute -> ShellExecuteW, which
+// would mangle the IShellDispatch2::ShellExecute method name below. The COM
+// method has no A/W variants — undo the macro.
 #ifdef ShellExecute
 #	undef ShellExecute
 #endif
@@ -52,9 +52,9 @@ namespace osfui::wv2
 			return std::format("0x{:08X}", static_cast<unsigned>(a_hr));
 		}
 
-		// The classic "run as the shell user / out of our process tree" hop:
-		// desktop shell view -> automation object -> IShellDispatch2 lives in
-		// explorer.exe, so its ShellExecute makes explorer the parent.
+		// Hop out of our process tree: desktop shell view -> automation object ->
+		// IShellDispatch2, which lives in explorer.exe, so its ShellExecute makes
+		// explorer the parent.
 		HRESULT ExplorerShellExecute(const std::wstring& a_exe, const std::wstring& a_args,
 			std::string& a_detail)
 		{

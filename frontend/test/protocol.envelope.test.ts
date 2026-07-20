@@ -1,22 +1,18 @@
 // @vitest-environment jsdom
 //
-// Outbound envelope shape. The contract under test is NOT "what a clean design
-// would emit" — it is byte-for-byte what the shipped helper
-// (src/shared-kit/osfui.js, frozen bridge protocol 1.0) has always emitted and
-// what src/runtime/MessageBridge.cpp parses. Both sides are shipped, so every
-// oddity asserted here is load-bearing.
-//
-// jsdom is required because half the file drives the REAL shipped helper (an
-// IIFE that decorates `window.osfui`) rather than a reimplementation of it.
+// Outbound envelope shape: what the shipped helper (src/shared-kit/osfui.js,
+// frozen bridge protocol 1.0) emits and what src/runtime/MessageBridge.cpp
+// parses. Every oddity asserted here is load-bearing. jsdom is needed because
+// half the file drives the real helper (an IIFE decorating `window.osfui`).
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { encodeCommand } from '@lib/protocol';
 
-// Read from disk rather than importing: osfui.js is a classic script, not a
-// module. Resolved against the vitest root (frontend/) because under the jsdom
-// environment `import.meta.url` is an http: URL, not a file: one.
+// Read from disk, not imported: osfui.js is a classic script. Resolved against
+// the vitest root (frontend/) because under jsdom `import.meta.url` is an http:
+// URL, not a file: one.
 const HELPER_SRC = readFileSync(resolve(process.cwd(), 'src/shared-kit/osfui.js'), 'utf8');
 
 interface Frame {
@@ -39,11 +35,10 @@ interface Helper {
 /**
  * Install a fake native bridge and evaluate the shipped helper over it.
  *
- * `new Function` (not import) because osfui.js is a classic script, not a
- * module: it is loaded by a plain <script> tag in the shipped views and its
+ * `new Function` rather than import: osfui.js is a classic script whose
  * `window` / `document` / `setTimeout` references must bind to jsdom's globals.
- * A fresh `window.osfui` object each call also resets the helper's private
- * `seq` closure, so request ids are deterministic per test.
+ * A fresh `window.osfui` per call resets the helper's private `seq` closure, so
+ * request ids are deterministic per test.
  */
 function loadHelper(): { helper: Helper; raw: string[]; sent: Frame[] } {
   const raw: string[] = [];
@@ -62,9 +57,8 @@ describe('encodeCommand — outbound envelope shape', () => {
   it('nests the command name INSIDE the payload', () => {
     const env = encodeCommand('settings.set', { mod: 'demo', key: 'x', value: 1 });
 
-    // This is the contract, not a bug: MessageBridge reads `payload.command`,
-    // and the shipped helper has always built the payload as
-    // `Object.assign({ command }, fields)` (shared-kit/osfui.js:88, :111).
+    // Contract, not a bug: MessageBridge reads `payload.command`, and the
+    // shipped helper builds the payload as `Object.assign({ command }, fields)`.
     // There is no top-level `command` key and native would not look at one.
     expect(env).toEqual({
       type: 'ui.command',
@@ -83,11 +77,10 @@ describe('encodeCommand — outbound envelope shape', () => {
   });
 
   it('lets a caller-supplied `command` field WIN over the command argument', () => {
-    // Object.assign({ command }, fields) copies fields LAST, so a stray
-    // `command` in fields silently overwrites the argument. Preserved because
-    // the shipped helper does exactly this (shared-kit/osfui.js:88) and a mod
-    // action's field bag is caller-controlled; changing the precedence could
-    // change which command native dispatches for an existing view.
+    // Object.assign({ command }, fields) copies fields last, so a stray
+    // `command` in fields overwrites the argument. The shipped helper does the
+    // same, and a mod action's field bag is caller-controlled; changing the
+    // precedence would change which command native dispatches for existing views.
     const env = encodeCommand('demo.doThing', { command: 'close' });
     expect(env.payload.command).toBe('close');
   });
@@ -95,9 +88,9 @@ describe('encodeCommand — outbound envelope shape', () => {
   it('omits requestId ENTIRELY when none is supplied', () => {
     const env = encodeCommand('close');
 
-    // Not "present and undefined" — absent. Native treats an absent id as
-    // fire-and-forget and answers nothing at all (no ui.result), so an
-    // accidentally-present key would change the reply behaviour.
+    // Absent, not present-and-undefined. Native treats an absent id as
+    // fire-and-forget and sends no ui.result, so a stray key changes the reply
+    // behaviour.
     expect('requestId' in env).toBe(false);
     expect(JSON.parse(JSON.stringify(env))).not.toHaveProperty('requestId');
   });
@@ -105,9 +98,9 @@ describe('encodeCommand — outbound envelope shape', () => {
   it('attaches requestId when supplied, including the empty string', () => {
     expect(encodeCommand('ping', undefined, 'q7').requestId).toBe('q7');
 
-    // Only `=== undefined` suppresses the key (protocol.ts:71), so "" IS
-    // attached — and native then discards it (MessageBridge.cpp:23 rejects an
-    // empty id), degrading the call to fire-and-forget. Documented, not fixed.
+    // Only `=== undefined` suppresses the key, so "" is attached — and native
+    // then rejects the empty id, degrading the call to fire-and-forget.
+    // Documented, not fixed.
     const empty = encodeCommand('ping', undefined, '');
     expect('requestId' in empty).toBe(true);
     expect(empty.requestId).toBe('');
@@ -120,7 +113,7 @@ describe('encodeCommand — outbound envelope shape', () => {
     const shipped = raw[0]!;
     const ours = JSON.stringify(encodeCommand('log', { text: 'hi' }));
     expect(JSON.parse(ours)).toEqual(JSON.parse(shipped));
-    // For a fire-and-forget frame the serialisations are in fact identical...
+    // For a fire-and-forget frame the serialisations are identical.
     expect(ours).toBe(shipped);
   });
 
@@ -131,12 +124,10 @@ describe('encodeCommand — outbound envelope shape', () => {
     const shipped = raw[0]!;
     const ours = JSON.stringify(encodeCommand('ping', undefined, 'q1'));
 
-    // protocol.ts:70 claims the emitted JSON is "byte-identical" to the
-    // helper's. It is not: the helper builds {type, requestId, payload} in one
-    // literal (shared-kit/osfui.js:111) while encodeCommand appends requestId
-    // after payload, so the key order is {type, payload, requestId}. Harmless
-    // — both sides parse JSON, key order is not significant — but assert the
-    // real bytes so nobody "verifies" the stale comment.
+    // protocol.ts claims the emitted JSON is byte-identical to the helper's. It
+    // is not: the helper builds {type, requestId, payload} in one literal while
+    // encodeCommand appends requestId after payload. Harmless — both sides parse
+    // JSON — but assert the real bytes so nobody "verifies" the stale comment.
     expect(ours).not.toBe(shipped);
     expect(JSON.parse(ours)).toEqual(JSON.parse(shipped));
     expect(Object.keys(JSON.parse(ours) as object)).toEqual(['type', 'payload', 'requestId']);
@@ -161,9 +152,9 @@ describe('shipped helper — request id format', () => {
   });
 });
 
-// Mirror of MessageBridge.cpp's ExtractRequestId (src/runtime/MessageBridge.cpp:16-28).
-// Kept here as an executable statement of the native rule the JS side must
-// respect: ids are BOUNDED, and an over-long one is dropped, never shortened.
+// Mirror of ExtractRequestId in src/runtime/MessageBridge.cpp: an executable
+// statement of the native rule the JS side must respect — ids are bounded, and
+// an over-long one is dropped, never shortened.
 const K_MAX_REQUEST_ID_LENGTH = 64;
 function nativeExtractRequestId(msg: { requestId?: unknown }): string {
   if (typeof msg.requestId !== 'string') return '';
@@ -181,10 +172,9 @@ describe('requestId length — native treats an over-long id as ABSENT', () => {
     const id = 'q'.repeat(65);
     const env = encodeCommand('ping', undefined, id);
 
-    // The JS side happily sends it; native then ignores it and answers
-    // nothing, so the caller's request() would hang until its timeout. A
-    // truncated id would be worse still — it would never correlate — which is
-    // exactly why native drops instead (MessageBridge.cpp:10-14).
+    // The JS side sends it; native ignores it and answers nothing, so the
+    // caller's request() hangs until its timeout. A truncated id would be worse
+    // — it would never correlate — which is why native drops instead.
     expect(env.requestId).toBe(id);
     expect(nativeExtractRequestId(env)).toBe('');
     expect(nativeExtractRequestId(env)).not.toBe(id.slice(0, 64));
@@ -197,8 +187,8 @@ describe('requestId length — native treats an over-long id as ABSENT', () => {
 
     expect(id.length).toBeLessThanOrEqual(K_MAX_REQUEST_ID_LENGTH);
     expect(nativeExtractRequestId(sent[0]!)).toBe(id);
-    // "q" + counter stays short for any plausible session length: even a
-    // billion requests in one session is 11 chars.
+    // "q" + counter stays short for any plausible session: a billion requests
+    // is 11 chars.
     expect(('q' + 1e9).length).toBeLessThan(K_MAX_REQUEST_ID_LENGTH);
   });
 });

@@ -6,47 +6,43 @@ namespace OSFUI
 {
 	class SettingsStore;
 
-	// Central hotkey dispatch (mcm-design.md §9): every `type:"key"` setting
-	// of every registered mod is a live binding — a physical key press during
-	// gameplay routes to the setting's owner over the C ABI (SubscribeHotkey)
-	// and/or as a `ui.hotkey` web push. Centralized because OSF UI owns both
-	// the input hook AND the policy context: a mod's own raw hook can't know a
-	// press happened while the user was typing in an overlay text field or
-	// mid-rebind, so per-mod hooks systematically double-fire; and web-only or
-	// Papyrus mods have no input hook at all — this service is the only way
-	// their `key` settings ever DO anything.
+	// Central hotkey dispatch (mcm-design.md §9): every `type:"key"` setting of
+	// every registered mod is a live binding; a gameplay key press routes to the
+	// setting's owner over the C ABI (SubscribeHotkey) and/or as a `ui.hotkey`
+	// web push. Centralized because only OSF UI has the policy context — a mod's
+	// own raw hook can't tell that the press landed in an overlay text field or
+	// mid-rebind, so per-mod hooks double-fire; web-only and Papyrus mods have no
+	// hook at all.
 	//
-	// The service is pure registry + queue: Runtime feeds it (OnHostKey on the
-	// window thread, Rebuild/Drain on the main thread) and fans the drained
-	// fires out to the delivery channels. Dispatch never consumes the key.
-	// The "during gameplay" half of the contract is enforced by Runtime at
-	// drain time (DrainHotkeys + MenuMode::AnyGameMenuOpen): presses made
-	// while a game menu is open are dropped, never delivered.
+	// Registry + queue only: Runtime feeds it (OnHostKey on the window thread,
+	// Rebuild/Drain on the main thread) and fans drained fires out to the
+	// delivery channels. Dispatch never consumes the key. The "during gameplay"
+	// half is enforced by Runtime at drain time (DrainHotkeys +
+	// MenuMode::AnyGameMenuOpen): presses made with a game menu open are dropped.
 	class HotkeyService
 	{
 	public:
-		// The window-thread context gate, wired once at composition (before
-		// the input hook is live): returns true while a press must NOT fire —
-		// the overlay captures input (the user is typing into a view) or a
-		// rebind capture is armed (the press IS the new binding).
+		// Window-thread context gate, wired once at composition (before the input
+		// hook goes live): true while a press must not fire — the overlay is
+		// capturing input, or a rebind capture is armed and the press is the new
+		// binding.
 		void SetSuppression(std::function<bool()> a_suppressed) { _suppressed = std::move(a_suppressed); }
 
-		// MAIN thread: rebuild the vk -> [(mod, key)] registry from every
+		// Main thread: rebuild the vk -> [(mod, key)] registry from every
 		// key-typed setting's current value (SettingsStore::KeySettings via
-		// ResolveKeyName). Called at composition, on any key-typed commit, and
-		// on registry shape change. A name that doesn't resolve simply doesn't
-		// bind (warned by ResolveKeyName).
+		// ResolveKeyName). Called at composition, on any key-typed commit, and on
+		// registry shape change. An unresolvable name doesn't bind (ResolveKeyName
+		// warns).
 		void Rebuild(const SettingsStore& a_store);
 
-		// WINDOW thread (Runtime::OnHostKey): a key-DOWN edge (repeats never
-		// reach here — the WndProc hook filters them). Queues one fire per
-		// binding of a_vk unless the suppression gate holds; Drain delivers on
-		// the main thread.
+		// Window thread (Runtime::OnHostKey): key-down edge only — the WndProc
+		// hook filters repeats. Queues one fire per binding of a_vk unless the
+		// suppression gate holds; Drain delivers on the main thread.
 		void OnKeyDown(KeyCode a_vk);
 
-		// MAIN thread (Runtime::Tick): deliver queued fires FIFO. The queue is
-		// drained before invoking, so a_fire may safely re-enter the store /
-		// trigger a Rebuild.
+		// Main thread (Runtime::Tick): deliver queued fires FIFO. The queue is
+		// drained before invoking, so a_fire may re-enter the store or trigger a
+		// Rebuild.
 		using FireFn = std::function<void(const std::string& a_modId, const std::string& a_key)>;
 		void Drain(const FireFn& a_fire);
 
@@ -57,9 +53,9 @@ namespace OSFUI
 			std::string key;
 		};
 
-		// Presses queued while the main thread stalls are dropped past this
-		// (drop-NEWEST: replaying a burst of stale presses after a hitch is
-		// worse than losing it). Generous — a human can't outrun it.
+		// Cap on presses queued while the main thread stalls; past it we drop the
+		// newest, since replaying a burst of stale presses after a hitch is worse
+		// than losing them. A human can't outrun this bound.
 		static constexpr std::size_t kMaxPendingFires = 64;
 
 		std::function<bool()> _suppressed;  // wired once; read on the window thread

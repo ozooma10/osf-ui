@@ -1,60 +1,23 @@
-// mockbridge.ts — a browser stand-in for the OSF UI native bridge. DEV ONLY.
+// mockbridge.ts — browser stand-in for the OSF UI native bridge. Dev only.
 //
-// Port of devtools/harness/mockbridge.js. It installs `window.osfui` with a
-// `postMessage` BEFORE the shared kit loads, so the kit decorates the same
-// object and the view under test takes its normal bridge path
-// (settings.get/set/reset/captureKey, views.get, i18n.get, …). Values persist
+// Installs `window.osfui` with a `postMessage` before the shared kit loads, so the
+// kit decorates the same object and the view under test takes its normal bridge
+// path (settings.get/set/reset/captureKey, views.get, i18n.get, …). Values persist
 // to localStorage; every message is logged to the console.
 //
-// LOAD ORDER IS LOAD-BEARING. src/shared-kit/osfui.js:84 defines
-// `available()` as `typeof g.postMessage === "function"`, and it OWNS
-// `onMessage`. So: this module first (postMessage), the kit second (onMessage
-// + request correlation), the view last. harness/install-mock.ts exists purely
-// to make that order an import-statement order in main.tsx.
+// Load order is load-bearing: src/shared-kit/osfui.js defines `available()` as
+// `typeof g.postMessage === "function"` and owns `onMessage`. So: this module first
+// (postMessage), the kit second (onMessage + request correlation), the view last.
+// harness/install-mock.ts exists to make that order an import-statement order in
+// main.tsx.
 //
-// ---------------------------------------------------------------------------
-// WHAT CHANGED FROM THE LEGACY MOCK, AND WHY
-// ---------------------------------------------------------------------------
+// Validation is not re-implemented here: `normalizeValue`/`isSetting` come from
+// @lib/settings/normalize and `resolveInputContext` from @lib/settings/inputContext,
+// so the harness cannot drift into accepting a value the game refuses.
 //
-// 1. VALIDATION IS NO LONGER MIRRORED. mockbridge.js:43-79 hand-copied
-//    SettingsStore::Validate a third time (the renderer has its own copy in
-//    @lib/settings/normalize). Nothing enforced parity between the three, so
-//    the harness could happily accept a value the game refuses — a silent
-//    false-positive in the exact tool whose job is to predict the game. This
-//    module imports `normalizeValue`/`isSetting` from @lib/settings/normalize
-//    and `resolveInputContext` from @lib/settings/inputContext instead, which
-//    turns that drift class into a compile-time impossibility.
-//
-// 2. SCHEMA / CATALOG SOURCES ARE `import.meta.glob`, NOT `fetch`. The legacy
-//    mock fetched repo files by relative URL, which only worked under a server
-//    rooted one level ABOVE the repo (devtools/harness/serve.cmd). Vite's dev
-//    root is frontend/harness/, so those URLs would clamp at the root and 404.
-//    `import.meta.glob` resolves relative to THIS FILE at transform time and
-//    goes through Vite's fs.allow, so the same files are read the same way
-//    with no server-root ceremony. A missing file yields an empty map (the
-//    graceful-degradation the fetch version got from a failed request) — and
-//    now warns instead of failing silently.
-//
-// 3. GAPS CLOSED (each was a silent harness failure, not a design choice):
-//      - `ui.hotkey`, `ui.gamepad` and `runtime.pong` were never emitted, so
-//        the view-side handlers for them could only ever be tested in game.
-//        Injectors are on the api (and wired to toolbar buttons).
-//      - `log`, `ping`, `menu.close`, `setVisible`, `setViewHidden` and
-//        `osfui.gamepadRaw` are real UiCommands (sdk/osfui.d.ts:41-70) that
-//        fell through to `ui.error {unknown-command}`.
-//      - a key capture had NO disarm path: only a keydown cleared
-//        `captureBusy`, so clicking away left the arm live — it would swallow
-//        an unrelated later keypress, and every subsequent capture answered
-//        `capture-busy` forever.
-//      - `catalogCache` memoised NEGATIVE lookups permanently, so a catalog
-//        dropped onto the page after its locale had been visited once was
-//        never picked up. Only hits are cached now.
-//
-// 4. `data/OSFUI/l10n/` DOES NOT EXIST in this repo, so half the legacy
-//    catalog fetch 404'd on every locale switch. The directory is NOT
-//    fabricated here and its absence is NOT warned about — it is the expected
-//    state. Catalogs come from examples/settings-only/l10n/ and from files
-//    dropped onto the page, which is the path that actually works.
+// `data/OSFUI/l10n/` does not exist in this repo; that is the expected state and is
+// not warned about. Catalogs come from examples/settings-only/l10n/ and from files
+// dropped onto the page.
 
 import type {
   SettingValue,
@@ -75,11 +38,7 @@ import {
   type MockView,
 } from './fixtures';
 
-// ---------------------------------------------------------------------------
-// public shapes
-// ---------------------------------------------------------------------------
-
-/** The locale picker's list — devtools/harness/index.html:67-77, verbatim. */
+/** The locale picker's list. */
 export const LOCALES: string[] = [
   'en',
   'pseudo',
@@ -94,7 +53,7 @@ export const LOCALES: string[] = [
   'zh-Hans',
 ];
 
-/** One registered mod, exactly as `settings.data` carries it. */
+/** One registered mod, as `settings.data` carries it. */
 export interface MockMod {
   id: string;
   title: string;
@@ -120,8 +79,8 @@ export interface MockOptions {
   /** Load the real schema sources at install. Default true. */
   autoLoad?: boolean;
   /**
-   * Push `runtime.ready` + `ui.visibility` a macrotask after install, the way
-   * the runtime greets every view (SendRuntimeReady). Default true.
+   * Push `runtime.ready` + `ui.visibility` a macrotask after install, as the
+   * runtime greets every view (SendRuntimeReady). Default true.
    */
   greet?: boolean;
   /** Id of the view being hosted; resolves commands that omit `view`. */
@@ -137,19 +96,17 @@ export interface MockApi {
   /** Read the active preview locale, or switch it (resolves with the applied one). */
   locale(): string;
   locale(next: string): Promise<string>;
-  /** The live mod list (same objects the mock serves — mutate at your peril). */
+  /** The live mod list — the same objects the mock serves, not copies. */
   mods(): MockMod[];
   /** Fake an overlay show/hide edge. */
   visibility(visible: boolean): void;
   /**
-   * Fire a `ui.hotkey` for a `type:"key"` setting. With no arguments it picks
-   * the first key-typed setting in the registry, which is the common case (the
-   * overlay toggle) and keeps the toolbar button a one-click affair.
+   * Fire a `ui.hotkey` for a `type:"key"` setting. With no arguments it picks the
+   * first key-typed setting in the registry (usually the overlay toggle).
    */
   hotkey(mod?: string, key?: string): boolean;
   /** Inject a shoulder-button down edge followed by its release. */
   gamepad(button: 'LB' | 'RB'): void;
-  /** Is a `settings.captureKey` currently armed? */
   captureArmed(): boolean;
   /** Disarm an armed capture, answering `cancelled: true`. False when none was armed. */
   cancelCapture(): boolean;
@@ -159,19 +116,15 @@ export interface MockApi {
   loaded(): Promise<void>;
 }
 
-/** The window-ish object the mock installs onto and dispatches events on. */
 type MockHost = Window & typeof globalThis;
 
 /** The event the toolbar listens for when a dropped catalog auto-activates. */
 export const LOCALE_EVENT = 'osfui-mock-locale';
 
-// ---------------------------------------------------------------------------
-// repo sources
-// ---------------------------------------------------------------------------
-//
-// See note 2 in the header. Paths are relative to THIS file (frontend/harness/):
-// `../..` is the repo root, `../../..` is the parent directory holding sibling
-// repos. vite.config.ts `server.fs.allow` already covers both.
+// Repo sources. Glob paths are relative to this file (frontend/harness/): `../..`
+// is the repo root, `../../..` the parent directory holding sibling repos.
+// vite.config.ts `server.fs.allow` covers both. Globs resolve at transform time,
+// so no dev-server root ceremony; a missing file yields an empty map.
 
 /** Shipped settings documents — data/OSFUI/settings/*.json. */
 const SHIPPED_SCHEMAS = import.meta.glob<SettingsSchema>('../../data/OSFUI/settings/*.json', {
@@ -179,12 +132,9 @@ const SHIPPED_SCHEMAS = import.meta.glob<SettingsSchema>('../../data/OSFUI/setti
 });
 
 /**
- * l10n catalogs: flat address->string maps named `<modId>_<locale>.json` —
- * exactly the files the game loads from SFSE/Plugins/OSFUI/l10n/.
- *
- * `data/OSFUI/l10n/` is deliberately absent from this list: it does not exist
- * (see header note 4) and globbing it would only produce an empty branch that
- * later readers would mistake for a bug.
+ * l10n catalogs: flat address->string maps named `<modId>_<locale>.json` — the
+ * files the game loads from SFSE/Plugins/OSFUI/l10n/. `data/OSFUI/l10n/` is absent
+ * from this list because it does not exist in this repo.
  */
 const L10N_CATALOGS = import.meta.glob<Record<string, string>>(
   '../../examples/settings-only/l10n/*.json',
@@ -192,7 +142,7 @@ const L10N_CATALOGS = import.meta.glob<Record<string, string>>(
 );
 
 /**
- * OSF Animation registers its schema NATIVELY (RegisterSettingsSchema) with the
+ * OSF Animation registers its schema natively (RegisterSettingsSchema) with the
  * JSON compiled into the DLL as an `R"json(...)json"` literal — there is no
  * settings/<id>.json on disk. Read the literal out of the plugin source so the
  * harness shows the exact document the DLL registers.
@@ -208,12 +158,8 @@ const VERSION_HEADER = import.meta.glob<string>('../../src/core/Version.h', {
   import: 'default',
 });
 
-/** Kept when the real version cannot be read, so a fake is never mistaken for real. */
+/** Used when the real version cannot be read; the suffix marks it as not real. */
 const FALLBACK_VERSION = '1.0.0-mock';
-
-// ---------------------------------------------------------------------------
-// small helpers
-// ---------------------------------------------------------------------------
 
 const LS_PREFIX = 'osfui.mock.';
 const LOCALE_LS = LS_PREFIX + 'locale';
@@ -223,10 +169,9 @@ const FIXTURES_LS = LS_PREFIX + 'fixtures';
 const PAD_BUTTONS: Record<'LB' | 'RB', number> = { LB: 0x0100, RB: 0x0200 };
 
 /**
- * Mirror of SettingsStore id validation (api-freeze-plan item 1): mod ids are
- * "<author>.<modname>" — lowercase [a-z0-9-] segments, exactly one dot, max 64
- * chars. Dotless ids are platform-reserved; "osfui" is the only dotless
- * built-in.
+ * Mirror of SettingsStore id validation: mod ids are "<author>.<modname>" —
+ * lowercase [a-z0-9-] segments, exactly one dot, max 64 chars. Dotless ids are
+ * platform-reserved; "osfui" is the only dotless built-in.
  */
 export function validModId(id: unknown): id is string {
   return (
@@ -250,10 +195,9 @@ function str(p: CommandPayload, field: string): string {
 }
 
 /**
- * Map an OS key event onto an OSF UI key name. Verbatim from
- * mockbridge.js:707-714 — note it is NOT the shipped view's `domKeyName`
- * (@lib/keybinds/domKeyName): this one plays the NATIVE side of the capture and
- * deliberately supports only the small set the mock can name.
+ * Map an OS key event onto an OSF UI key name. Not the shipped view's
+ * `domKeyName` (@lib/keybinds/domKeyName): this one plays the native side of the
+ * capture and supports only the small set the mock can name.
  */
 function domKeyName(e: KeyboardEvent): string {
   if (/^F([1-9]|1[0-9]|2[0-4])$/.test(e.key)) return e.key;
@@ -272,10 +216,6 @@ function domKeyName(e: KeyboardEvent): string {
   return named[e.key] || '';
 }
 
-// ---------------------------------------------------------------------------
-// install
-// ---------------------------------------------------------------------------
-
 export function installMock(opts: MockOptions = {}): MockApi {
   const host = window as MockHost;
   const search = opts.search !== undefined ? opts.search : location.search;
@@ -289,11 +229,11 @@ export function installMock(opts: MockOptions = {}): MockApi {
   const log = (dir: string, msg: string) => console.log(`%c[mock ${dir}]`, 'color:#5aa9b8', msg);
 
   // Asset roots for the settings view's icon/image resolution. Global because
-  // @lib/settings/assets reads it off the window, same as the legacy view did.
+  // @lib/settings/assets reads it off the window.
   (host as unknown as { OSFUI_MOD_ASSET_ROOTS?: Record<string, string> }).OSFUI_MOD_ASSET_ROOTS =
     MOD_ASSET_ROOTS;
 
-  // ---- persistence ----------------------------------------------------------
+  // Persistence
 
   function loadSaved(id: string): Record<string, unknown> {
     if (!storage) return {};
@@ -313,11 +253,11 @@ export function installMock(opts: MockOptions = {}): MockApi {
     try {
       storage.setItem(LS_PREFIX + mod.id, JSON.stringify(mod.values));
     } catch {
-      /* quota / private mode — the harness works fine without persistence */
+      /* quota / private mode — the harness works without persistence */
     }
   }
 
-  // ---- schema walking -------------------------------------------------------
+  // Schema walking
 
   function eachSetting(schema: SettingsSchema | undefined, fn: (s: Setting) => void): void {
     const groups = schema && Array.isArray(schema.groups) ? schema.groups : [];
@@ -328,22 +268,22 @@ export function installMock(opts: MockOptions = {}): MockApi {
   }
 
   function findSetting(mod: MockMod | undefined, key: string): Setting | null {
-    // Accumulated into an array rather than a captured `let`: TypeScript's
-    // control-flow analysis cannot see that the callback ran, so a captured
-    // variable narrows back to its initialiser type at the return.
+    // Array rather than a captured `let`: TypeScript's control-flow analysis
+    // cannot see that the callback ran, so a captured variable narrows back to
+    // its initialiser type at the return.
     const found: Setting[] = [];
     eachSetting(mod && mod.schema, (s) => {
       if (s.key === key) found.push(s);
     });
-    // LAST match wins, preserving mockbridge.js:108-112 — a schema that
-    // declares the same key twice serves the later declaration.
+    // Last match wins: a schema declaring the same key twice serves the later
+    // declaration.
     return found.length ? (found[found.length - 1] as Setting) : null;
   }
 
   /**
-   * `default` is served as-is when present and `null` otherwise. Note the
-   * legacy `"default" in setting` test is preserved: a schema that explicitly
-   * writes `default: null` keeps null rather than being treated as undeclared.
+   * `default` is served as-is when present, `null` otherwise. The `"default" in
+   * setting` test matters: a schema that explicitly writes `default: null` keeps
+   * null rather than being treated as undeclared.
    */
   function defaultFor(setting: Setting): SettingValue | null {
     return 'default' in setting && setting.default !== undefined ? setting.default : null;
@@ -351,8 +291,8 @@ export function installMock(opts: MockOptions = {}): MockApi {
 
   /**
    * Does this key setting live in a context that asserts blocksGameplay? Such a
-   * context omits @game conflicts, because reusing a game key there is the
-   * expected design, not a collision (sdk/osfui.d.ts:427-440).
+   * context omits @game conflicts: reusing a game key there is the expected
+   * design, not a collision.
    */
   function blocksGameplay(schema: SettingsSchema | undefined, setting: Setting | null): boolean {
     if (!setting) return false;
@@ -364,15 +304,14 @@ export function installMock(opts: MockOptions = {}): MockApi {
     const saved = loadSaved(id);
     const values: Record<string, SettingValue> = {};
     eachSetting(schema, (s) => {
-      // Persisted values round-trip through the SAME normalizer a settings.set
-      // goes through, so a hand-edited localStorage entry (or a schema whose
-      // min/max tightened since it was written) is clamped or refused on load
-      // exactly as the store would do it.
+      // Persisted values go through the same normalizer as a settings.set, so a
+      // hand-edited localStorage entry (or a schema whose min/max tightened since
+      // it was written) is clamped or refused on load as the store would.
       const v = s.key in saved ? normalizeValue(s, saved[s.key]) : undefined;
       const resolved = v !== undefined ? v : defaultFor(s);
-      // `null` means "no default declared". It is not a SettingValue, but the
-      // legacy mock served it and the views render it as an empty control —
-      // preserved deliberately rather than substituting a type-shaped zero.
+      // `null` means "no default declared" — not a SettingValue, but the views
+      // render it as an empty control, so it is served rather than substituting a
+      // type-shaped zero.
       values[s.key] = resolved as SettingValue;
     });
     const mod: MockMod = { id, title: schema.title || id, schema, values };
@@ -395,7 +334,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
     else mods.push(mod);
   }
 
-  // ---- localization ---------------------------------------------------------
+  // Localization
 
   const localeParam = params.get('locale');
   if (localeParam !== null && storage) {
@@ -409,7 +348,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
 
   const droppedCatalogs: Record<string, Record<string, Record<string, string>>> =
     Object.create(null);
-  /** HITS ONLY. Caching misses is what broke drop-after-visit (header note 3). */
+  /** Hits only: caching a miss would hide a catalog dropped after that locale was visited. */
   const catalogCache = new Map<string, Record<string, string>>();
 
   async function fetchCatalog(modId: string, loc: string): Promise<Record<string, string> | null> {
@@ -436,9 +375,9 @@ export function installMock(opts: MockOptions = {}): MockApi {
 
   /**
    * Catalog-affecting operations (locale switches, schema (re)loads, i18n.get)
-   * serialize through one queue: a locale switch overlapping the async schema
-   * load would otherwise build its catalog set from a stale mod list and push
-   * an unlocalized settings.data.
+   * serialize through one queue: a locale switch overlapping the async schema load
+   * would build its catalog set from a stale mod list and push an unlocalized
+   * settings.data.
    */
   let i18nQueue: Promise<unknown> = Promise.resolve();
   function queued<T>(fn: () => Promise<T>): Promise<T> {
@@ -453,8 +392,8 @@ export function installMock(opts: MockOptions = {}): MockApi {
 
   /**
    * Merged active-locale overrides per mod (native CatalogFor): base language
-   * first, exact locale over it (FallbackLocales, minus the "en" tail — "en"
-   * here means localization OFF so the harness default stays pristine).
+   * first, exact locale over it (FallbackLocales minus the "en" tail — "en" here
+   * means localization off, so the authored strings show through unchanged).
    */
   async function refreshCatalogs(): Promise<void> {
     const next: Record<string, Record<string, string>> = Object.create(null);
@@ -481,8 +420,8 @@ export function installMock(opts: MockOptions = {}): MockApi {
   }
 
   /**
-   * Per-string resolve, like LocalizationService::Resolve: catalog override,
-   * else authored English (pseudo-transformed in pseudo mode).
+   * Per-string resolve, like LocalizationService::Resolve: catalog override, else
+   * authored English (pseudo-transformed in pseudo mode).
    */
   function resolverFor(modId: string): (address: string, english: string) => string {
     const cat = activeCatalogs[modId];
@@ -505,8 +444,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
 
   /**
    * Mirror of SettingsStore's LocalizeSchema: resolve schema text fields at the
-   * SAME structural addresses, so a real catalog behaves like it does in game.
-   * Ported field-for-field from mockbridge.js:245-288.
+   * same structural addresses, so a real catalog behaves as it does in game.
    */
   function localizeSchema(schema: SettingsSchema, resolve: Resolve): void {
     const s = schema as unknown as Record<string, unknown>;
@@ -572,8 +510,8 @@ export function installMock(opts: MockOptions = {}): MockApi {
   }
 
   /**
-   * Native DataView localizes a COPY per send; the authored originals stay
-   * pristine so switching locales never compounds.
+   * Native DataView localizes a copy per send; the authored originals stay
+   * untouched so repeated locale switches never compound.
    */
   function localizedMods(): MockMod[] {
     if (locale === 'en') return mods;
@@ -586,10 +524,10 @@ export function installMock(opts: MockOptions = {}): MockApi {
 
   /**
    * Views cannot be told "pseudo" through a catalog (it is address->string and
-   * they supply inline English), so pseudo mode wraps the shared kit's
-   * `osfui.t` ONCE — every t()/data-i18n resolution then passes through it. The
-   * kit loads AFTER this module but decorates the same window.osfui, so the
-   * wrap happens lazily (first i18n.get / locale change), when `t` exists.
+   * they supply inline English), so pseudo mode wraps the shared kit's `osfui.t`
+   * once and every t()/data-i18n resolution passes through it. The kit loads after
+   * this module but decorates the same window.osfui, so the wrap happens lazily
+   * (first i18n.get / locale change), once `t` exists.
    */
   let origT: ((address: string, english: string, vars?: unknown) => string) | null = null;
   function installPseudoT(): void {
@@ -608,8 +546,8 @@ export function installMock(opts: MockOptions = {}): MockApi {
     }
   }
 
-  // i18n.get subscribes the page (Runtime keeps _i18nSubscribers); the mock
-  // hosts one view per page, so one remembered mod domain suffices.
+  // i18n.get subscribes the page (Runtime keeps _i18nSubscribers); the mock hosts
+  // one view per page, so one remembered mod domain suffices.
   let i18nMod: string | null = null;
   function sendI18nData(requestId?: string): void {
     if (i18nMod === null) return;
@@ -639,21 +577,21 @@ export function installMock(opts: MockOptions = {}): MockApi {
       sendI18nData();
       sendData();
       sendViews();
-      // Keep the toolbar picker in sync when the switch came from elsewhere
-      // (e.g. a dropped catalog auto-activating its locale).
+      // Keeps the toolbar picker in sync when the switch came from elsewhere, e.g.
+      // a dropped catalog auto-activating its locale.
       host.dispatchEvent(new CustomEvent(LOCALE_EVENT, { detail: { locale } }));
       log('info', `locale -> ${locale}`);
       return locale;
     });
   }
 
-  // ---- native -> web --------------------------------------------------------
+  // Native -> web
 
   function send(type: string, payload: unknown, requestId?: string): void {
     log('→web', type + (requestId ? ` [${requestId}]` : ''));
     const g = host.osfui as { onMessage?: (json: string) => void } | undefined;
     if (g && typeof g.onMessage === 'function') {
-      // Item-5 envelope: replies echo the caller's requestId TOP-LEVEL, like
+      // Replies echo the caller's requestId at the top level, like
       // MessageBridge::SendToWeb.
       const msg: { type: string; payload: unknown; requestId?: string } = { type, payload };
       if (requestId) msg.requestId = requestId;
@@ -661,14 +599,13 @@ export function installMock(opts: MockOptions = {}): MockApi {
     }
   }
 
-  // ---- conflicts ------------------------------------------------------------
+  // Conflicts
 
   /**
-   * Mirror SettingsStore::Data()'s key-conflict grouping (mcm-design §9): a key
-   * setting whose bound value is also bound elsewhere gets
-   * conflicts:[{mod,key,title}]. Native groups by RESOLVED vk; the mock groups
-   * by the value string (close enough for harness visuals). Recomputed fresh on
-   * each send so a rebind that clears a conflict drops the badge.
+   * Mirror SettingsStore::Data()'s key-conflict grouping: a key setting whose bound
+   * value is also bound elsewhere gets conflicts:[{mod,key,title}]. Native groups
+   * by resolved vk; the mock groups by the value string. Recomputed on each send so
+   * a rebind that clears a conflict drops the badge.
    */
   function annotateConflicts(): void {
     const byVal = new Map<string, ConflictRef[]>();
@@ -704,9 +641,8 @@ export function installMock(opts: MockOptions = {}): MockApi {
   }
 
   /**
-   * The changed setting's fresh conflict list (native: ConflictsForSetting,
-   * emitted with key-typed settings.changed, item 11). String compare, like
-   * annotateConflicts.
+   * The changed setting's fresh conflict list (native ConflictsForSetting, emitted
+   * with key-typed settings.changed). String compare, like annotateConflicts.
    */
   function conflictsForSetting(modId: string, key: string): ConflictRef[] {
     const m = mods.find((x) => x.id === modId);
@@ -731,18 +667,18 @@ export function installMock(opts: MockOptions = {}): MockApi {
     annotateConflicts();
     const payload: SettingsDataPayload = {
       mods: localizedMods(),
-      // Mirror SettingsStore::Data()'s top-level vanillaKeys table (the game's
-      // own bindings, full map — the keybinds view renders it).
+      // Mirror SettingsStore::Data()'s top-level vanillaKeys table: the game's own
+      // bindings, full map, rendered by the keybinds view.
       vanillaKeys: VANILLA_KEYS.map((v) => ({ event: v.event, title: v.title, name: v.name })),
     };
     send('settings.data', payload, requestId);
   }
 
-  // ---- view catalog ---------------------------------------------------------
+  // View catalog
 
-  // A working COPY: menu.open / hud.show mutate open/focused, and the fixtures
-  // module must stay a pristine dataset (a test that installs twice would
-  // otherwise inherit the first install's state).
+  // A working copy: menu.open / hud.show mutate open/focused, and the fixtures
+  // module must stay an unmutated dataset — otherwise a test that installs twice
+  // inherits the first install's state.
   const views: MockView[] = MOCK_VIEWS.map((v) => Object.assign({}, v));
 
   const fixturesParam = params.get('fixtures');
@@ -772,13 +708,12 @@ export function installMock(opts: MockOptions = {}): MockApi {
     const out = views
       .filter((v) => fixturesOn || !v.fixture)
       .map((v) => {
-        // Strip the harness-only marker: it is not part of the protocol, and a
-        // view reading views.data must never see a field the runtime cannot
-        // produce.
+        // Strip the harness-only marker: not part of the protocol, and a view
+        // reading views.data must not see a field the runtime cannot produce.
         const { fixture: _fixture, ...entry } = v;
         if (locale !== 'en') {
-          // Manifest title/description localize natively at
-          // views.<name>.title / .description under the owning mod's domain.
+          // Manifest title/description localize natively at views.<name>.title /
+          // .description under the owning mod's domain.
           const resolve = resolverFor(v.mod);
           const name = v.id.split('/')[1] || v.id;
           entry.title = resolve(`views.${name}.title`, v.title);
@@ -789,7 +724,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
     send('views.data', { views: out }, requestId);
   }
 
-  // ---- subscriptions --------------------------------------------------------
+  // Subscriptions
 
   // Mirrors SettingsModule subscribe-on-read (protocol 1.0): settings.get
   // subscribes the page; committed values then push as settings.changed.
@@ -811,11 +746,10 @@ export function installMock(opts: MockOptions = {}): MockApi {
   }
 
   /**
-   * Mirrors the native write-behind (SettingsStore::PumpPersistence, ~500ms
-   * per-mod window opened at the first unflushed change): one
-   * settings.persisted push per window confirms the "disk write". The mock's
-   * persist() above is immediate — only the notification is delayed, which is
-   * all the view can observe anyway.
+   * Mirrors the native write-behind (SettingsStore::PumpPersistence, ~500ms per-mod
+   * window opened at the first unflushed change): one settings.persisted push per
+   * window confirms the disk write. persist() above is immediate — only the
+   * notification is delayed, which is all the view can observe.
    */
   const persistTimers = new Map<string, ReturnType<typeof setTimeout>>();
   function pushPersisted(modId: string): void {
@@ -829,7 +763,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
     );
   }
 
-  // ---- key capture ----------------------------------------------------------
+  // Key capture
 
   interface ArmedCapture {
     mod: string;
@@ -840,12 +774,10 @@ export function installMock(opts: MockOptions = {}): MockApi {
   let capture: ArmedCapture | null = null;
 
   /**
-   * Finish an armed capture. `cancelled` covers Escape, an unbindable key, AND
-   * the disarm paths the legacy mock lacked entirely (see header note 3): a
-   * click elsewhere or a window blur means the user walked away, and the game's
-   * capture would have ended too. Leaving the arm live was the bug — it made
-   * the NEXT capture answer `capture-busy` forever and swallowed an unrelated
-   * keypress in the meantime.
+   * Finish an armed capture. `cancelled` covers Escape, an unbindable key, and the
+   * disarm paths: a click elsewhere or a window blur means the user walked away and
+   * the game's capture would have ended too. An arm left live swallows an unrelated
+   * later keypress and makes every subsequent capture answer `capture-busy`.
    */
   function finishCapture(name: string, cancelled: boolean): void {
     const armed = capture;
@@ -861,9 +793,9 @@ export function installMock(opts: MockOptions = {}): MockApi {
       conflicts?: ConflictRef[];
     } = { mod: armed.mod, key: armed.key, name, cancelled };
 
-    // Live-warn during capture (mcm-design §9): the OTHER key settings already
-    // on the captured key, delivered BEFORE the view commits — mirrors
-    // SettingsStore::ConflictsFor. Omitted when unique, like native.
+    // Live-warn during capture: the other key settings already on the captured
+    // key, delivered before the view commits (mirrors SettingsStore::ConflictsFor).
+    // Omitted when unique, like native.
     if (!cancelled) {
       const targetMod = mods.find((m) => m.id === armed.mod);
       const targetSetting = findSetting(targetMod, armed.key);
@@ -881,7 +813,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
       if (others.length) payload.conflicts = others;
     }
 
-    // Deferred reply: echoes the ARMING request's id (item 5), like
+    // Deferred reply: echoes the arming request's id, like
     // Runtime::DrainKeyCapture.
     send('settings.captured', payload, armed.rid);
   }
@@ -892,9 +824,9 @@ export function installMock(opts: MockOptions = {}): MockApi {
       const name = domKeyName(e);
       finishCapture(name, e.key === 'Escape' || !name);
     };
-    // A pointer press outside the capture disarms it. Registered a macrotask
-    // late so the very click that armed the capture (still propagating when
-    // settings.captureKey is handled) cannot cancel it immediately.
+    // A pointer press outside the capture disarms it. Registered a macrotask late
+    // so the click that armed the capture — still propagating when
+    // settings.captureKey is handled — cannot cancel it immediately.
     const onPointer = () => finishCapture('', true);
     const onBlur = () => finishCapture('', true);
 
@@ -920,13 +852,13 @@ export function installMock(opts: MockOptions = {}): MockApi {
     };
   }
 
-  // ---- web -> native --------------------------------------------------------
+  // Web -> native
 
   /**
-   * `rid` is the ui.command's requestId ("" = fire-and-forget). Every reply
-   * echoes it; verb commands with no reply type of their own answer
-   * `ui.result { ok, command }` when it was supplied — mirroring MessageBridge's
-   * auto-ack (item 5).
+   * `rid` is the ui.command's requestId ("" = fire-and-forget). Every reply echoes
+   * it; verb commands with no reply type of their own answer
+   * `ui.result { ok, command }` when it was supplied, mirroring MessageBridge's
+   * auto-ack.
    */
   function handle(p: CommandPayload, rid: string): void {
     const cmd = typeof p['command'] === 'string' ? (p['command'] as string) : '';
@@ -935,7 +867,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
         setTimeout(() => send('ui.result', Object.assign({ ok, command: cmd }, extra || {}), rid), 0);
       }
     };
-    /** `view` omitted targets the CALLING view (sdk/osfui.d.ts:46-53). */
+    /** An omitted `view` targets the calling view. */
     const targetView = () => str(p, 'view') || selfView;
 
     switch (cmd) {
@@ -948,8 +880,8 @@ export function installMock(opts: MockOptions = {}): MockApi {
         const modId = str(p, 'mod');
         const key = str(p, 'key');
         const mod = mods.find((m) => m.id === modId);
-        // Ack shape (items 5 + 11): ok + the authoritative post-clamp `value`,
-        // or a machine `code` mirroring SettingsStore::SetWithResult.
+        // Ack shape: ok + the authoritative post-clamp `value`, or a machine `code`
+        // mirroring SettingsStore::SetWithResult.
         const ack: { mod: string; key: string; ok: boolean; value?: SettingValue; code?: string } = {
           mod: modId,
           key,
@@ -980,11 +912,10 @@ export function installMock(opts: MockOptions = {}): MockApi {
         const key = str(p, 'key');
         const mod = mods.find((m) => m.id === modId);
         if (!mod) {
-          // Not silent (item 5): a request-carrying caller learns why.
           result(false, { code: 'unknown-setting', message: 'unknown mod or setting' });
           break;
         }
-        // Native parity (item 12): NO per-key settings.changed fan-out — the one
+        // Native parity: no per-key settings.changed fan-out — the single
         // authoritative settings.data below re-syncs everything.
         eachSetting(mod.schema, (s) => {
           if (!key || s.key === key) mod.values[s.key] = defaultFor(s) as SettingValue;
@@ -996,9 +927,9 @@ export function installMock(opts: MockOptions = {}): MockApi {
       }
 
       case 'settings.captureKey': {
-        // Captures ANY (mod,key), matching the in-game runtime: native arms
-        // capture for every setting a schema declares `type:"key"`. One at a
-        // time — a second arm refuses visibly (item 11).
+        // Captures any (mod,key), matching the in-game runtime: native arms capture
+        // for every setting a schema declares `type:"key"`. One at a time — a
+        // second arm refuses.
         if (capture) {
           result(false, { code: 'capture-busy', message: 'a key capture is already in progress' });
           break;
@@ -1012,10 +943,10 @@ export function installMock(opts: MockOptions = {}): MockApi {
         break;
 
       case 'i18n.get': {
-        // Mirror Runtime's i18n.get: reply i18n.data with the merged
-        // active-locale catalog for the mod domain and subscribe the page so a
-        // locale change re-pushes. Native defaults `mod` to the calling view's
-        // owner — the harness chrome is "osfui".
+        // Mirror Runtime's i18n.get: reply i18n.data with the merged active-locale
+        // catalog for the mod domain and subscribe the page so a locale change
+        // re-pushes. Native defaults `mod` to the calling view's owner — the
+        // harness chrome is "osfui".
         const mod = str(p, 'mod') || 'osfui';
         if (!validModId(mod)) {
           result(false, { code: 'invalid-mod', message: 'invalid localization mod id' });
@@ -1031,8 +962,8 @@ export function installMock(opts: MockOptions = {}): MockApi {
       }
 
       case 'game.get':
-        // Nested per-provider (item 11): future providers are SIBLINGS of
-        // `calendar`. Fixed sample date — enough to render a HUD clock.
+        // Nested per-provider: future providers are siblings of `calendar`. Fixed
+        // sample date, enough to render a HUD clock.
         setTimeout(
           () =>
             send(
@@ -1054,13 +985,13 @@ export function installMock(opts: MockOptions = {}): MockApi {
         break;
 
       case 'ping':
-        // NEW (header note 3). `runtime.pong` carries an empty payload — it IS
-        // the reply, so there is no additional ui.result auto-ack.
+        // `runtime.pong` carries an empty payload and is itself the reply, so
+        // there is no additional ui.result auto-ack.
         setTimeout(() => send('runtime.pong', {}, rid), 0);
         break;
 
       case 'log':
-        // NEW. Native writes this to OSF UI.log; the console is the harness's log.
+        // Native writes this to OSF UI.log; the console is the harness's log.
         console.log('%c[view log]', 'color:#8b95a1', str(p, 'text'));
         result(true);
         break;
@@ -1069,17 +1000,17 @@ export function installMock(opts: MockOptions = {}): MockApi {
         const id = targetView();
         const page = HARNESS_PAGES[id];
         if (page) {
-          // Real shipped view — hand off to its harness location (brief delay,
-          // like the in-game single-menu swap).
+          // Real shipped view — hand off to its harness location, after a brief
+          // delay like the in-game single-menu swap.
           log('info', `menu.open ${id} → ${page}`);
           result(true);
           setTimeout(() => {
             location.href = page;
           }, 450);
         } else if (views.some((v) => v.id === id)) {
-          // Fictional view — mark it open/focused and push, which clears the
-          // launch overlay (mirrors the runtime's reconcile push); the verb
-          // itself acks via ui.result like native's auto-ack.
+          // Fictional view — mark it open/focused and push, which clears the launch
+          // overlay (mirrors the runtime's reconcile push); the verb itself acks
+          // via ui.result like native's auto-ack.
           result(true);
           setTimeout(() => {
             for (const v of views) {
@@ -1097,7 +1028,6 @@ export function installMock(opts: MockOptions = {}): MockApi {
       }
 
       case 'menu.close': {
-        // NEW (header note 3): a real UiCommand the legacy mock never answered.
         const id = targetView();
         const v = views.find((x) => x.id === id);
         if (!v) {
@@ -1125,17 +1055,15 @@ export function installMock(opts: MockOptions = {}): MockApi {
       }
 
       case 'setVisible':
-        // NEW. Native opens/closes the CALLING surface; the only thing a page
-        // can observe is the visibility edge, so that is what the mock emits.
+        // Native opens/closes the calling surface; the only thing a page can
+        // observe is the visibility edge, so that is what the mock emits.
         result(true);
         setTimeout(() => send('ui.visibility', { visible: p['visible'] === true }), 0);
         break;
 
       case 'setViewHidden':
-        // NEW. Per-view hidden state has no field in views.data
-        // (sdk/osfui.d.ts:316-330), so there is nothing to reconcile — the ack
-        // is the whole observable behaviour, and answering it beats the
-        // `unknown-command` error the legacy mock returned.
+        // Per-view hidden state has no field in views.data, so there is nothing to
+        // reconcile — the ack is the whole observable behaviour.
         log('info', `setViewHidden ${targetView()} -> ${p['hidden'] === true}`);
         result(true);
         break;
@@ -1146,27 +1074,27 @@ export function installMock(opts: MockOptions = {}): MockApi {
         break;
 
       case 'osfui.gamepadRaw':
-        // NEW. The grant only suppresses the RUNTIME's default pad mapping;
-        // the harness has no such mapping (padnav is view-side and unaffected),
-        // so the grant is a no-op here — but it must ack, or every view that
-        // asserts it starts up with a rejected request.
+        // The grant only suppresses the runtime's default pad mapping; the harness
+        // has no such mapping (padnav is view-side and unaffected), so it is a
+        // no-op here — but it must ack, or every view that asserts it starts up
+        // with a rejected request.
         log('info', `osfui.gamepadRaw ${p['raw'] === true ? 'granted' : 'released'} (no-op in harness)`);
         result(true);
         break;
 
       case 'osfui.handleBack':
         // In game this reroutes Esc/pad-B to the page instead of closing the
-        // overlay; the harness delivers DOM keys to the page natively anyway,
-        // so just ack the grant to keep view boot code warning-free.
+        // overlay; the harness delivers DOM keys to the page anyway, so ack the
+        // grant to keep view boot code warning-free.
         log('info', `osfui.handleBack ${p['handle'] ? 'granted' : 'released'} (no-op in harness)`);
         result(true);
         break;
 
       default:
-        // Plugin command shape (item 3): "<author>.<modname>.<name>" — two dots
-        // minimum. The mock plays the BRIDGE's part: ui.result ok:true =
-        // delivered to the plugin's handler (native auto-ack). Anything else is
-        // an unknown command -> ui.error, like MessageBridge.
+        // Plugin command shape: "<author>.<modname>.<name>" — two dots minimum. The
+        // mock plays the bridge's part: ui.result ok:true means delivered to the
+        // plugin's handler (native auto-ack). Anything else is an unknown command
+        // -> ui.error, like MessageBridge.
         if (cmd.indexOf('.') > 0 && cmd.indexOf('.', cmd.indexOf('.') + 1) > 0) {
           setTimeout(() => {
             if (rid) send('ui.result', { ok: true, command: cmd, message: 'Done (mock)' }, rid);
@@ -1186,7 +1114,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
     }
   }
 
-  // ---- schema sources -------------------------------------------------------
+  // Schema sources
 
   async function tryFetchJson(url: string): Promise<unknown> {
     try {
@@ -1202,7 +1130,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
     return !!v && typeof v === 'object' && Array.isArray((v as SettingsSchema).groups);
   }
 
-  /** Load the FIRST module a glob matched, or null. Warns on the failure path. */
+  /** Load the first module a glob matched, or null. Warns on the failure path. */
   async function loadOnly<T>(
     glob: Record<string, () => Promise<T>>,
     what: string,
@@ -1210,9 +1138,8 @@ export function installMock(opts: MockOptions = {}): MockApi {
     const keys = Object.keys(glob);
     const first = keys.length ? glob[keys[0] as string] : undefined;
     if (!first) {
-      // The legacy mock failed here SILENTLY, which is how a stale checkout or
-      // a moved sibling repo turned into "the harness just shows different
-      // data" instead of a visible problem.
+      // Warn loudly: silence here turns a stale checkout or a moved sibling repo
+      // into "the harness shows different data" rather than a visible problem.
       console.warn(`[mock] ${what} not found — falling back.`);
       return null;
     }
@@ -1225,10 +1152,9 @@ export function installMock(opts: MockOptions = {}): MockApi {
   }
 
   /**
-   * The real plugin version, read out of src/core/Version.h so the harness
-   * version badge shows what the DLL would report. Best-effort: an unreachable
-   * file keeps the "-mock" marker so a stale/fake version is never mistaken for
-   * a real one.
+   * The real plugin version, read out of src/core/Version.h so the harness badge
+   * shows what the DLL would report. Best-effort: an unreachable file keeps the
+   * "-mock" marker so a fake version is not mistaken for a real one.
    */
   const pluginVersion: Promise<string> = (async () => {
     const text = await loadOnly(VERSION_HEADER, 'src/core/Version.h');
@@ -1277,15 +1203,14 @@ export function installMock(opts: MockOptions = {}): MockApi {
 
     const osf = await nativeSchema();
     if (hasGroups(osf)) {
-      // Stale-checkout shim: remap the pre-migration dotless id (the store
-      // rejects "osf"; the sibling repo registers "osf.animation" since its
-      // api-freeze migration).
+      // Stale-checkout shim: the store rejects the dotless "osf"; the sibling repo
+      // registers "osf.animation" since its api-freeze migration.
       if (osf.id === 'osf') osf.id = 'osf.animation';
       loaded.push(osf);
     }
 
-    // ?schema=<url> override / addition. Still a real fetch: the URL is
-    // user-supplied at runtime and therefore cannot be a build-time glob.
+    // ?schema=<url> override / addition. A real fetch: the URL is user-supplied at
+    // runtime and so cannot be a build-time glob.
     const q = params.get('schema');
     if (q) {
       const s = await tryFetchJson(q);
@@ -1303,7 +1228,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
     log('info', `loaded ${mods.length} schema(s): ${mods.map((m) => m.id).join(', ')}`);
   }
 
-  // ---- drag-drop live schema loading ---------------------------------------
+  // Drag-drop live schema loading
 
   function wireDrop(): void {
     const stop = (e: Event) => {
@@ -1326,8 +1251,8 @@ export function installMock(opts: MockOptions = {}): MockApi {
           reader.onload = () => {
             try {
               const s: unknown = JSON.parse(String(reader.result));
-              // l10n catalog by filename, like the native loader's stem parse:
-              // <modId>_<locale>.json, content a flat address->string object.
+              // l10n catalog detected by filename, like the native loader's stem
+              // parse: <modId>_<locale>.json, content a flat address->string map.
               const cat = /^(.+)_([A-Za-z][A-Za-z0-9-]{0,15})\.json$/.exec(f.name);
               const modId = cat ? cat[1] : undefined;
               const catLocale = cat ? cat[2] : undefined;
@@ -1360,10 +1285,9 @@ export function installMock(opts: MockOptions = {}): MockApi {
               log('info', `bad JSON in ${f.name}: ${String(err)}`);
             }
             if (--pending === 0) {
-              // applyLocale re-merges catalogs and re-sends both registries
-              // (covering plain schema drops too). A dropped catalog activates
-              // its locale when none is selected, so the translation shows up
-              // without a second step.
+              // applyLocale re-merges catalogs and re-sends both registries, which
+              // covers plain schema drops too. A dropped catalog activates its
+              // locale when none is selected.
               void applyLocale(droppedLoc && locale === 'en' ? droppedLoc : locale);
             }
           };
@@ -1374,7 +1298,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
     );
   }
 
-  // ---- api ------------------------------------------------------------------
+  // Api
 
   function firstKeySetting(): { mod: string; key: string } | null {
     for (const m of mods) {
@@ -1388,9 +1312,9 @@ export function installMock(opts: MockOptions = {}): MockApi {
     return null;
   }
 
-  // Overload signatures live on a function declaration because an object
-  // literal member cannot carry them: `MockApi.locale` is read-or-write and the
-  // two arms have different return types.
+  // Overload signatures live on a function declaration because an object literal
+  // member cannot carry them: `MockApi.locale` is read-or-write and the two arms
+  // have different return types.
   function localeApi(): string;
   function localeApi(next: string): Promise<string>;
   function localeApi(next?: string): string | Promise<string> {
@@ -1415,8 +1339,8 @@ export function installMock(opts: MockOptions = {}): MockApi {
         console.warn('[mock] no type:"key" setting in the registry — nothing to fire a hotkey for.');
         return false;
       }
-      // Native pushes to every settings.get subscriber; the harness hosts one
-      // page, so "subscribed" is the whole audience.
+      // Native pushes to every settings.get subscriber; the harness hosts one page,
+      // so "subscribed" is the whole audience.
       send('ui.hotkey', { mod: target.mod, key: target.key });
       return true;
     },
@@ -1425,9 +1349,9 @@ export function installMock(opts: MockOptions = {}): MockApi {
       const down: UiGamepadPayload = { kind: 'button', button: { id, down: true } };
       const up: UiGamepadPayload = { kind: 'button', button: { id, down: false } };
       send('ui.gamepad', down);
-      // The release matters: @lib/lifecycle's padButtonEdge only reports a DOWN
-      // edge once per press and needs the up to re-arm, so a down-only injector
-      // would fire exactly once per page load.
+      // The release matters: @lib/lifecycle's padButtonEdge reports a down edge
+      // once per press and needs the up to re-arm, so a down-only injector would
+      // fire exactly once per page load.
       setTimeout(() => send('ui.gamepad', up), 0);
     },
     captureArmed: () => capture !== null,
@@ -1442,15 +1366,15 @@ export function installMock(opts: MockOptions = {}): MockApi {
     loaded: () => initial,
   };
 
-  // ---- install --------------------------------------------------------------
+  // Install
 
-  // MUST happen before the shared kit loads: it defines available() as
-  // `typeof g.postMessage === "function"` and then takes ownership of
-  // onMessage. Decorating (not replacing) keeps whatever the kit already put
-  // here if the order ever gets swapped by accident.
-  // Cast: Window.osfui is typed as the FULL injected bridge (postMessage +
-  // onMessage both required), because in game it only ever exists fully formed.
-  // The mock is what makes it exist, so it necessarily starts empty.
+  // Must happen before the shared kit loads: it defines available() as
+  // `typeof g.postMessage === "function"` and then takes ownership of onMessage.
+  // Decorating rather than replacing keeps whatever the kit already put here if the
+  // order ever gets swapped by accident.
+  // Cast: Window.osfui is typed as the full injected bridge (postMessage +
+  // onMessage both required) because in game it only ever exists fully formed; the
+  // mock is what makes it exist, so it starts empty.
   const w = host as unknown as { osfui?: Record<string, unknown> };
   if (!w.osfui) w.osfui = {};
   const g = w.osfui;
@@ -1464,7 +1388,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
     const payload =
       m.payload && typeof m.payload === 'object' ? (m.payload as CommandPayload) : {};
     log('←web', String(payload['command'] || m.type));
-    // requestId cap mirrors MessageBridge (<=64 chars, string, else absent).
+    // requestId cap mirrors MessageBridge: string, 1..64 chars, else absent.
     const rid =
       typeof m.requestId === 'string' && m.requestId.length > 0 && m.requestId.length <= 64
         ? m.requestId
@@ -1481,12 +1405,11 @@ export function installMock(opts: MockOptions = {}): MockApi {
   const initial: Promise<void> = opts.autoLoad === false ? Promise.resolve() : loadSources();
 
   if (opts.greet !== false) {
-    // Native greets every view on load (SendRuntimeReady) — push runtime.ready
-    // proactively like the runtime does, instead of gating it behind views.get
-    // (item 12: divergent boot semantics). Deferred a macrotask so the shared
-    // kit (loaded after this module) has installed its onMessage. The runtime
-    // also pushes ui.visibility on show/hide edges (item 10); the harness has
-    // no real overlay, so announce "shown" once at install.
+    // Native greets every view on load (SendRuntimeReady), so push runtime.ready
+    // rather than gating it behind views.get, which would diverge from in-game boot
+    // semantics. Deferred a macrotask so the shared kit (loaded after this module)
+    // has installed its onMessage. The runtime also pushes ui.visibility on
+    // show/hide edges; the harness has no real overlay, so announce "shown" once.
     setTimeout(async () => {
       send('runtime.ready', {
         game: 'Starfield',
@@ -1499,8 +1422,6 @@ export function installMock(opts: MockOptions = {}): MockApi {
   }
 
   return api;
-
-  // ---- late-bound helpers ---------------------------------------------------
 
   function readStored(key: string): string {
     if (!storage) return '';

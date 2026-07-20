@@ -1,14 +1,7 @@
-// fixtures/views.ts — the mock view catalog (panels + HUDs on the Mods
-// surface). DEV ONLY.
+// Mock view catalog (panels + HUDs on the Mods surface); dev only. Mirrors the
+// runtime's `views.data` push.
 //
-// Mirrors the runtime's `views.data` push. Ported from
-// devtools/harness/mockbridge.js:440-455, absorbing the duplicate fictional set
-// that main.legacy.js:1921-1928 `sampleViews()` compiled into the SHIPPED
-// bundle (same acme.shipworks / acme.atlas cast, fewer states). The mock's list
-// is a strict superset, so folding them loses nothing and removes the demo data
-// from production for good.
-//
-// The real shipped views come first: `menu.open` on one of those navigates the
+// Real shipped views come first: `menu.open` on one of those navigates the
 // harness to it, so panel launch works here the way it does in game. The
 // `fixture: true` entries are fictional and exercise every state the Mods
 // surface renders — a view owned by a settings mod (`mod` matches a schema id),
@@ -24,22 +17,18 @@ import type { ViewsDataPayload } from '@sdk';
 export type MockView = ViewsDataPayload['views'][number] & { fixture?: boolean };
 
 /**
- * Where a mod's REAL view folder lives, relative to the harness page. In game
+ * Where a mod's real view folder lives, relative to the harness page. In game
  * every view mounts under one views/ root, so the settings view resolves schema
  * `icon`/`image` assets at ../../<modId>/<file>; from the harness that lands
  * nowhere. The asset resolver consults this map (root + "/<modId>/<file>")
- * before falling back to "../.." — mockbridge.js:35-37.
+ * before falling back to "../..".
  */
 export const MOD_ASSET_ROOTS: Record<string, string> = {
   'osf.animation': '../../../OSF Animation/views',
 };
 
-// DEVIATION from mockbridge.js, stated plainly: `targetVersion` is spelled on
-// EVERY entry ("" = undeclared) rather than only on the one fixture that
-// declares a real value. The SDK marks the field required
-// (sdk/osfui.d.ts:325) and the legacy mock already made exactly this argument
-// for `focused` (mockbridge.js:469-470) before spelling it in the send path.
-// Doing it here instead means the send path no longer has to patch the shape.
+// `targetVersion` is spelled on every entry ("" = undeclared) because the SDK
+// marks the field required, so the send path never has to patch the shape.
 export const MOCK_VIEWS: MockView[] = [
   {
     id: 'osfui/settings',
@@ -69,8 +58,7 @@ export const MOCK_VIEWS: MockView[] = [
   },
   // Real view from the sibling repo (VFS-merged in game). mod "osf.animation"
   // groups it onto the OSF Animation settings page (schema registered
-  // natively — see the native-schema source in mockbridge.ts). Open lands on
-  // the standalone osf.html page.
+  // natively). Open lands on the standalone osf.html page.
   {
     id: 'osf.animation/browser',
     title: 'OSF Animation Browser',
@@ -159,12 +147,10 @@ export const MOCK_VIEWS: MockView[] = [
 ];
 
 /**
- * Where `menu.open` on a REAL shipped view lands. The old harness kept one HTML
- * page per view (mockbridge.js:440); the Vite harness is a single page that
- * swaps the mounted App off `?view=`, so two of the three are now query strings
- * on the same document. OSF Animation still has its own page — it loads the
- * sibling repo's real view in an iframe and deliberately does NOT install a
- * mock bridge (that view self-mocks).
+ * Where `menu.open` on a real shipped view lands. The harness is a single page
+ * that swaps the mounted App off `?view=`. OSF Animation has its own page: it
+ * loads the sibling repo's real view in an iframe and installs no mock bridge,
+ * since that view self-mocks.
  */
 export const HARNESS_PAGES: Record<string, string> = {
   'osfui/settings': '?view=osfui%2Fsettings',

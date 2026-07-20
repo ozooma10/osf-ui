@@ -1,9 +1,6 @@
-// nullBridge — the "there is no native bridge" façade.
-//
-// This is what runs in a plain browser preview and in every unit test, so its
-// job is to be inert but never to throw and never to hang a caller that is
-// awaiting it. Deliberately a NODE-environment test: nullBridge must not touch
-// `window`, and running it without a DOM proves that.
+// nullBridge — the "there is no native bridge" façade used by browser preview
+// and unit tests: inert, but never throws and never hangs an awaiting caller.
+// Runs in the node environment so a stray `window` access fails the test.
 
 import { describe, it, expect } from 'vitest';
 import { nullBridge } from '@lib/bridge';
@@ -14,7 +11,7 @@ interface CaughtError extends Error {
   reply?: unknown;
 }
 
-/** Await a promise that must REJECT and hand back the error, typed. */
+/** Await a promise that must reject and hand back the error, typed. */
 async function caught(promise: Promise<unknown>): Promise<CaughtError> {
   try {
     await promise;
@@ -30,8 +27,8 @@ describe('nullBridge — presence', () => {
   });
 
   it('does not require a DOM to import or call', () => {
-    // Guards the "no globals in src/lib" rule: in vitest's node environment
-    // `window` is undefined, so any stray access here would ReferenceError.
+    // Guards the "no globals in src/lib" rule: `window` is undefined here, so
+    // any stray access would ReferenceError.
     expect(typeof globalThis.window).toBe('undefined');
     expect(nullBridge.available()).toBe(false);
   });
@@ -39,8 +36,8 @@ describe('nullBridge — presence', () => {
 
 describe('nullBridge — send', () => {
   it('returns false instead of throwing', () => {
-    // Views check the boolean to decide whether to show an offline notice;
-    // throwing would take the whole render down in standalone preview.
+    // Views check the boolean to show an offline notice; throwing would take
+    // the whole render down in standalone preview.
     expect(nullBridge.send('close')).toBe(false);
     expect(nullBridge.send('settings.set', { mod: 'm', key: 'k', value: 1 })).toBe(false);
   });
@@ -57,15 +54,14 @@ describe('nullBridge — request', () => {
   });
 
   it('omits `reply` — the error is synthesised, not a message', async () => {
-    // Same contract as the shipped helper's local rejections (timeout and
+    // Same contract as the shipped helper's local rejections (timeout,
     // no-bridge): `"reply" in err` distinguishes "the host refused" from
     // "we gave up / there is no host".
     expect('reply' in (await caught(nullBridge.request('ping')))).toBe(false);
   });
 
   it('rejects immediately rather than waiting out a timeout', async () => {
-    // No deadline is honoured because there is nothing to wait for; even the
-    // "timeout disabled" option rejects at once.
+    // No deadline is honoured; even the "timeout disabled" option rejects at once.
     await expect(nullBridge.request('settings.captureKey', {}, { timeoutMs: 0 })).rejects.toThrow();
   });
 
@@ -86,21 +82,18 @@ describe('nullBridge — on', () => {
     expect(() => off()).not.toThrow();
     expect(() => off()).not.toThrow();
 
-    // DIVERGENCE, pinned deliberately: nullBridge's unsubscribe returns
-    // undefined, whereas the shipped helper's returns `set.delete(fn)` — a
-    // boolean (shared-kit/osfui.js:119). Nothing reads that return value today
-    // (the legacy views discard it), so the two are interchangeable in practice;
-    // asserted here so a caller who ever starts depending on the boolean finds
-    // this note instead of a silent standalone-only bug.
+    // Pinned divergence: nullBridge's unsubscribe returns undefined, while the
+    // shipped helper (shared-kit/osfui.js) returns `set.delete(fn)`, a boolean.
+    // Nothing reads the return value today; asserted so a caller who starts
+    // depending on the boolean hits this instead of a standalone-only bug.
     expect(off()).toBeUndefined();
   });
 });
 
 describe('nullBridge — ready / i18n', () => {
   it('never resolves ready() — standalone has no runtime.ready', async () => {
-    // Views gate on ready() to know the host version; resolving with a fake one
-    // would make a preview claim capabilities it does not have. A forever-
-    // pending promise is the deliberate choice (bridge.ts:46).
+    // Views gate on ready() to learn the host version; resolving with a fake one
+    // would make a preview claim capabilities it lacks, so it stays pending.
     const sentinel = Symbol('pending');
     const settled = await Promise.race([
       nullBridge.ready().then(() => 'resolved' as const),
@@ -110,9 +103,8 @@ describe('nullBridge — ready / i18n', () => {
   });
 
   it('resolves i18nReady immediately with the empty English catalog', async () => {
-    // The opposite choice from ready(), and for a concrete reason: views AWAIT
-    // i18nReady before their first paint. Leaving it pending would render
-    // nothing at all in a plain browser.
+    // Opposite of ready(): views await i18nReady before first paint, so leaving
+    // it pending would render nothing in a plain browser.
     await expect(nullBridge.i18nReady()).resolves.toEqual({ locale: 'en', strings: {} });
   });
 
@@ -137,29 +129,28 @@ describe('nullBridge — t()', () => {
   });
 
   it('leaves an UNMATCHED placeholder literal', () => {
-    // Not blanked: a visible "{name}" in the UI is a legible authoring bug,
-    // whereas an empty gap silently reads as finished copy.
+    // Not blanked: a visible "{name}" reads as an authoring bug, an empty gap
+    // reads as finished copy.
     expect(nullBridge.t('a', 'Hello, {name}!')).toBe('Hello, {name}!');
     expect(nullBridge.t('a', '{a} and {b}', { a: 'x' })).toBe('x and {b}');
   });
 
   it('ignores inherited properties when resolving a placeholder', () => {
-    // `hasOwnProperty` guard: "toString" is on Object.prototype but must not be
+    // `hasOwnProperty` guard: "toString" is on Object.prototype and must not be
     // substituted into user-facing copy.
     expect(nullBridge.t('a', '{toString}')).toBe('{toString}');
   });
 
   it('only matches [A-Za-z0-9_] placeholder names', () => {
-    // `{mod.id}` and `{ name }` are not placeholders — the pattern excludes
-    // dots and spaces, so such text passes through untouched.
+    // The pattern excludes dots and spaces, so `{mod.id}` and `{ name }` pass
+    // through untouched.
     expect(nullBridge.t('a', '{mod.id} / { name } / {a-b}', { name: 'x' })).toBe(
       '{mod.id} / { name } / {a-b}',
     );
   });
 
   it('coerces a null/undefined English to the empty string', () => {
-    // `String(english ?? "")`, so a missing default renders blank rather than
-    // the literal text "undefined".
+    // `String(english ?? "")`: a missing default renders blank, not "undefined".
     expect(nullBridge.t('a', undefined as unknown as string)).toBe('');
     expect(nullBridge.t('a', null as unknown as string)).toBe('');
   });

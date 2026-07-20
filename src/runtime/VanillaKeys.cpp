@@ -55,8 +55,7 @@ namespace OSFUI
 			REX::WARN("VanillaKeys: {} missing or invalid; no vanilla key-conflict data", a_path.string());
 			return false;
 		}
-		// Format stamp + typo diagnostics (item 8): host-shipped file, so an
-		// unknown key is a typo, never version skew.
+		// Host-shipped file, so an unknown key is a typo, never version skew.
 		if (const auto v = Json::GetInt(*json, "formatVersion", kFormatVersion); v > kFormatVersion) {
 			REX::INFO("VanillaKeys: {} declares formatVersion {} (this build knows {}) — written for a newer OSF UI; unknown fields are ignored",
 				a_path.string(), v, kFormatVersion);
@@ -101,9 +100,9 @@ namespace OSFUI
 			return 0;
 		}
 
-		// First occurrence of an event wins: gameplay context precedes the
-		// menu contexts in the engine's controlmap files, and our table is
-		// context-less by design (menu keys would drown mod hotkeys in noise).
+		// First occurrence of an event wins: gameplay context precedes the menu
+		// contexts in the engine's controlmap files, and this table is
+		// context-less (menu keys would drown mod hotkeys in noise).
 		std::vector<const Binding*> applied;
 		std::size_t                 count = 0;
 		std::string                 line;
@@ -194,8 +193,8 @@ namespace OSFUI
 		};
 
 		std::size_t count = 0;
-		// suppress: ["EventName"] — remove the row entirely (it also leaves
-		// the keybinds view's full map, which is the point).
+		// suppress: ["EventName"] — remove the row entirely, so it also leaves
+		// the keybinds view's map.
 		if (const auto it = json->find("suppress"); it != json->end() && it->is_array()) {
 			for (const auto& entry : *it) {
 				if (!entry.is_string()) {

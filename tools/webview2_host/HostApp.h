@@ -1,17 +1,17 @@
 #pragma once
 
-// osfui_webview2_host.exe — out-of-process WebView2 host for OSF UI.
+// osfui_webview2_host.exe — out-of-process WebView2 host for OSF UI. Owns the
+// WebView2 environment/composition controller, the Windows.Graphics.Capture
+// session over the composition visual, and a ring of NT-handle shared D3D11
+// textures the game composites directly (shared-fence synchronized).
 //
-// Owns the WebView2 environment/composition controller, the Windows.Graphics.
-// Capture session over the composition visual, and a ring of NT-handle shared
-// D3D11 textures the game composites directly (shared-fence synchronized).
-// The game plugin (or the standalone POC client) is the pipe server; this
-// process is launched OUT OF THE GAME'S PROCESS TREE (Wv2BrokerLaunch) so
-// MO2's USVFS never injects into the browser processes it spawns.
+// The plugin is the pipe server; this process is launched outside the game's
+// process tree (Wv2BrokerLaunch) so MO2's USVFS can't inject into the browser
+// processes it spawns.
 //
-// Lifetime: exits when the pipe breaks, when a shutdown message arrives, or
-// when the game process handle signals. Never orphans: the game PID is a
-// required argument and is waited on in the main pump.
+// Exits when the pipe breaks, on a shutdown message, or when the game process
+// handle signals — gamePid is required and waited on in the main pump so the
+// host can't be orphaned.
 
 #include <cstdint>
 #include <deque>

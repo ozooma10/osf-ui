@@ -14,11 +14,10 @@ namespace OSFUI
 			return;
 		}
 
-		// Two-level scan (api-freeze-plan item 1): views/<modId>/<viewName>/
-		// manifest.json. The mod folder is the namespace — its name must be a
-		// valid mod id ('<author>.<modname>'; dotless is platform-reserved, so
-		// only built-ins like osfui/ may be dotless). Top-level dirs without
-		// view subfolders (e.g. the shared/ kit) are skipped naturally.
+		// Two-level scan: views/<modId>/<viewName>/manifest.json. The mod folder
+		// is the namespace and its name must be a valid mod id
+		// ('<author>.<modname>'); dotless ids are reserved for built-ins like
+		// osfui/. Top-level dirs without view subfolders are skipped naturally.
 		for (const auto& modEntry : std::filesystem::directory_iterator(a_viewsDir, ec)) {
 			if (!modEntry.is_directory()) {
 				continue;

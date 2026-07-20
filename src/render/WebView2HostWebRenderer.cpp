@@ -130,13 +130,13 @@ namespace OSFUI
 		CursorChangeHandler     onCursorChange;
 		NativeAcceleratorHandler onAccelerator;
 		SharedRingHandler       onSharedRing;
-		// Game-thread only (Drain/setters), like the in-process backend.
+		// Game-thread only (Drain/setters).
 		std::unordered_map<std::string, JsListenerHandler> listeners;        // "viewId\nname" -> cb
 		std::unordered_map<std::string, ConsoleHandler>    consoleHandlers;  // viewId -> cb
 
 		// State the worker snapshots at connect time; later changes are sent
 		// as diffs from the calling thread (WriteMessage is thread-safe).
-		// Per-view records preserve creation order (the host's z tie-break).
+		// Record order is creation order — the host's z tie-break.
 		struct ViewRec
 		{
 			std::string id;
@@ -144,9 +144,9 @@ namespace OSFUI
 			bool        bridge{ false };
 			bool        hidden{ true };
 			int         order{ 0 };
-			// Manifest (authoring) height. The host divides the output height by
-			// this for the view's rasterization scale, so the page lays out at
-			// logical size and CSS px scale up to output pixels.
+			// Manifest (authoring) height. The host divides output height by this
+			// for the rasterization scale, so the page lays out at logical size
+			// and CSS px scale up to output pixels.
 			std::uint32_t logicalHeight{ kDefaultViewHeight };
 		};
 		std::mutex           stateMutex;
@@ -168,14 +168,13 @@ namespace OSFUI
 		HWND             topLevel{ nullptr };
 
 		// Focus watchdog (game thread only — SetNativeKeyboardFocus and Update
-		// both run there). This backend's keyboard model is REAL Win32 focus in
-		// a cross-process Chromium child of the game window, and the close-time
-		// restore (posted kRestoreGameFocusMessage -> SetFocus) races
-		// Chromium's asynchronous MoveFocus: a focus grab still in flight can
-		// land after the restore and strand focus in a hidden child — the game
-		// then receives no keyboard AND no raw mouse input (WM_INPUT is
-		// focus-gated) until something reactivates it. The watchdog detects
-		// that state and re-asserts; see Update().
+		// both run there). Keyboard input here is real Win32 focus in a
+		// cross-process Chromium child of the game window, and the close-time
+		// restore (posted kRestoreGameFocusMessage -> SetFocus) races Chromium's
+		// asynchronous MoveFocus: an in-flight focus grab can land after the
+		// restore and strand focus in a hidden child, leaving the game with no
+		// keyboard and no raw mouse input (WM_INPUT is focus-gated) until
+		// something reactivates it. Update() detects that and re-asserts.
 		bool   focusRequested{ false };  // last SetNativeKeyboardFocus argument
 		double focusCheckAccum{ 0.0 };
 		bool   focusFixWarned{ false };  // one WARN per strand episode
@@ -212,16 +211,14 @@ namespace OSFUI
 			}
 		}
 
-		// Outbound messages that CANNOT be reconstructed at connect time.
-		//
-		// The host process starts lazily (first game tick), but the runtime
-		// greets every bridge-enabled view during Runtime::Initialize — seconds
-		// earlier. The connect-time snapshot below replays view STATE
-		// (navigate/setHidden/setOrder/setActive) but a bridge message is an
-		// event, not state: dropping `runtime.ready` there stalled the settings
-		// view forever (it gates its initial settings.get/views.get on that
-		// handshake), so F10 showed an empty Mods surface. Queue those messages
-		// while disconnected and flush them, in order, as the pipe opens.
+		// Outbound messages that cannot be reconstructed at connect time.
+		// The host starts lazily (first game tick), but the runtime greets every
+		// bridge-enabled view during Runtime::Initialize, seconds earlier. The
+		// connect snapshot replays view state (navigate/setHidden/setOrder/
+		// setActive); a bridge message is an event, not state. Dropping
+		// `runtime.ready` stalled the settings view forever (it gates its initial
+		// settings.get/views.get on that handshake), so F10 showed an empty Mods
+		// surface. Queue while disconnected, flush in order as the pipe opens.
 		static constexpr std::size_t kMaxPendingOut = 512;
 		std::mutex               pendingOutMutex;  // also guards the connected flip
 		std::vector<std::string> pendingOut;
@@ -235,7 +232,7 @@ namespace OSFUI
 				return;
 			}
 			// A host that never comes up (launch failure) must not grow this
-			// without bound; the renderer degrades to a hidden overlay anyway.
+			// without bound; the overlay just stays hidden.
 			if (pendingOut.size() >= kMaxPendingOut) {
 				++pendingDropped;
 				return;
@@ -245,8 +242,8 @@ namespace OSFUI
 
 		// Worker thread, at the end of the connect snapshot. Draining and
 		// flipping `connected` under one lock keeps ordering exact: a game-thread
-		// send either lands in the queue (flushed here, in order) or goes
-		// straight down the pipe after everything queued before it.
+		// send either lands in the queue (flushed here, in order) or goes down
+		// the pipe after everything queued before it.
 		void FlushPendingOut()
 		{
 			std::scoped_lock lock(pendingOutMutex);
@@ -288,12 +285,12 @@ namespace OSFUI
 			}
 		}
 
-		// ================= startup (worker thread) =================
+		// Startup (worker thread)
 
 		// Mod Organizer 2 presents the mod folder only inside USVFS-hooked
-		// processes; the host and its browser children are deliberately
-		// UNHOOKED, so both the views tree and the host exe itself must live
-		// at REAL paths before anything outside the game can use them.
+		// processes, and the host and its browser children are unhooked: both
+		// the views tree and the host exe must live at real paths before
+		// anything outside the game can use them.
 		void ResolveMappedViewsRoot()
 		{
 			mappedViewsRoot = viewsRoot;
@@ -319,7 +316,7 @@ namespace OSFUI
 
 		// The host exe ships inside the mod folder (VFS-only under MO2) but is
 		// launched by Explorer/the task scheduler, which cannot see the VFS.
-		// Mirror it to a real, VERSIONED path first.
+		// Mirror it to a real, version-stamped path first.
 		bool MirrorHostExe()
 		{
 			const auto mirrorDir = LocalOsfuiDir() / "bin" / kPluginVersion;
@@ -389,7 +386,7 @@ namespace OSFUI
 
 			// Direct spawn is only safe without USVFS: MO2 injects into every
 			// child of this process and the injection crashes the WebView2
-			// broker. With USVFS present, ONLY out-of-tree brokers are viable.
+			// broker. With USVFS present, only out-of-tree brokers work.
 			const bool usvfs = ::GetModuleHandleW(L"usvfs_x64.dll") != nullptr;
 			const auto launch = osfui::wv2::LaunchDetached(
 				hostExeMirror.native(), args, /*a_preferBroker=*/usvfs);
@@ -431,9 +428,8 @@ namespace OSFUI
 				hostProcess = ::OpenProcess(SYNCHRONIZE | PROCESS_TERMINATE, FALSE, hostPid);
 			}
 			// The host reports "unknown" when GetAvailableCoreWebView2Browser-
-			// VersionString found no Evergreen runtime. It will fail to create
-			// the environment moments later; say why now, while the log line
-			// still points at the cause rather than the symptom.
+			// VersionString found no Evergreen runtime. Environment creation
+			// fails moments later, so log the cause here rather than the symptom.
 			const auto runtimeVersion = hello.value("runtimeVersion", "?");
 			if (runtimeVersion == "unknown") {
 				REX::ERROR("WebView2HostWebRenderer: the WebView2 Evergreen runtime is not "
@@ -444,10 +440,10 @@ namespace OSFUI
 				hostPid, runtimeVersion);
 
 			// Connect-time snapshot of everything the game set before the host
-			// existed. Diffs sent later by the game thread may interleave with
-			// this — both carry current values, so last-write-wins is fine.
-			// `connected` stays false until FlushPendingOut() below, so a
-			// concurrent bridge send queues instead of overtaking the snapshot.
+			// existed. Game-thread diffs may interleave with this; both carry
+			// current values, so last-write-wins is fine. `connected` stays false
+			// until FlushPendingOut() below, so a concurrent bridge send queues
+			// instead of overtaking the snapshot.
 			{
 				std::scoped_lock lock(stateMutex);
 				pipe.WriteMessage(json{
@@ -467,7 +463,7 @@ namespace OSFUI
 					{ "captured", accCaptured }, { "captureArmed", accArmed },
 					{ "captureUpVk", accCaptureUp } }.dump());
 				accSent = true;
-				// Replay every view registered before the host existed, with its
+				// Replay views registered before the host existed with their
 				// current hidden/order state, then the active-view choice.
 				for (const auto& view : views) {
 					pipe.WriteMessage(json{
@@ -491,9 +487,9 @@ namespace OSFUI
 				}
 			}
 
-			// Bridge messages sent before the pipe existed (notably the
-			// runtime.ready greeting) go out now, after the views they address
-			// have been navigated. This also opens the gate for direct sends.
+			// Bridge messages sent before the pipe existed (notably runtime.ready)
+			// go out now, after the views they address have been navigated. Also
+			// opens the gate for direct sends.
 			FlushPendingOut();
 
 			ReadLoop();
@@ -505,7 +501,7 @@ namespace OSFUI
 			}
 		}
 
-		// ================= inbound (worker thread) =================
+		// Inbound (worker thread)
 
 		void ReadLoop()
 		{
@@ -542,8 +538,7 @@ namespace OSFUI
 						onCursorChange(CursorFromId(msg.value("id", 0u)));
 					}
 				} else if (type == "accelerator") {
-					// Same threading as the in-process backend: the handler is
-					// invoked off the game thread and must stay cheap.
+					// Invoked off the game thread; the handler must stay cheap.
 					if (onAccelerator) {
 						onAccelerator(msg.value("vk", 0u), msg.value("down", false));
 					}
@@ -602,8 +597,8 @@ namespace OSFUI
 					ackNew = true;  // stale ring — release the slot immediately
 				} else {
 					if (haveFrame && frameSerial != submittedSerial) {
-						// The previous frame was never handed to the compositor;
-						// nothing will ever signal its consumption — ack it.
+						// The previous frame never reached the compositor, so
+						// nothing will signal its consumption — ack it.
 						ackSerial = frameSerial;
 					}
 					frameSlot = slot;
@@ -613,8 +608,9 @@ namespace OSFUI
 					frameGeneration = ringGeneration;
 					haveFrame = true;
 					if (allHidden) {
-						// Render() is not called while every view is hidden; the
-						// host republishes on unhide, so this serial is disposable.
+						// Render() is not called while every view is hidden and
+						// the host republishes on unhide, so this serial is
+						// disposable.
 						ackNew = true;
 					}
 				}
@@ -629,7 +625,7 @@ namespace OSFUI
 			}
 		}
 
-		// ================= game-thread dispatch =================
+		// Game-thread dispatch
 
 		void DrainNotifications()
 		{
@@ -697,7 +693,7 @@ namespace OSFUI
 					if (onSharedRing) {
 						onSharedRing(value.ring);
 					} else {
-						// Nobody adopts the handles — close them so they don't leak.
+						// Nobody adopts the handles; close them or they leak.
 						for (auto* handle : value.ring.slotHandles) {
 							if (handle) ::CloseHandle(handle);
 						}
@@ -747,7 +743,7 @@ namespace OSFUI
 			found->second(level, std::move(text));
 		}
 
-		// ================= teardown =================
+		// Teardown
 
 		void Stop()
 		{
@@ -756,9 +752,9 @@ namespace OSFUI
 			if (connected.load()) {
 				pipe.WriteMessage(json{ { "type", "shutdown" } }.dump());
 			}
-			// Bounded wait for a clean host exit. This runs on the SFSE main
-			// thread, NOT the game's window thread, so the host's teardown of
-			// its game-parented HWND cannot deadlock against us.
+			// Bounded wait for a clean host exit. Runs on the SFSE main thread,
+			// not the game's window thread, so the host's teardown of its
+			// game-parented HWND cannot deadlock against us.
 			if (hostProcess) {
 				if (::WaitForSingleObject(hostProcess, 3000) != WAIT_OBJECT_0) {
 					REX::WARN("WebView2HostWebRenderer: host did not exit in 3s — terminating");
@@ -782,11 +778,10 @@ namespace OSFUI
 
 	bool WebView2HostWebRenderer::Initialize(const RendererConfig& a_config)
 	{
-		// No Evergreen-runtime probe here on purpose. Detecting it in-process
-		// means linking the WebView2 SDK loader into this GPL'd plugin for a
-		// single symbol; the host exe already links the SDK and reports the
-		// runtime version in its hello handshake, so a missing runtime is
-		// diagnosed there instead (see the hello handler above).
+		// No Evergreen-runtime probe here: detecting it in-process would link the
+		// WebView2 SDK loader into this GPL'd plugin for one symbol. The host exe
+		// already links the SDK and reports the runtime version in its hello, so
+		// a missing runtime is diagnosed there.
 		_impl->config = a_config;
 		_impl->viewsRoot = a_config.dataDir / "views";
 		_impl->userData = LocalOsfuiDir() / "WebView2";
@@ -821,13 +816,13 @@ namespace OSFUI
 			view->bridge = a_manifest.permissions.nativeBridge;
 			view->logicalHeight = (std::max)(1u, a_manifest.height);
 			// The first loaded view receives input until the runtime says
-			// otherwise (mirrors the in-process backends).
+			// otherwise.
 			if (_impl->activeId.empty()) {
 				_impl->activeId = a_manifest.id;
 			}
 		}
 		// A repeat LoadView for a live id re-navigates it (dev reload / crash
-		// recovery), same as the other backends.
+		// recovery).
 		_impl->Send(json{
 			{ "type", "navigate" },
 			{ "id", a_manifest.id },
@@ -865,9 +860,9 @@ namespace OSFUI
 
 	void WebView2HostWebRenderer::Update(double a_deltaSeconds)
 	{
-		// Warm start once a view is configured (mirrors the in-process
-		// backend): the mirror copies, broker launch, environment creation,
-		// and navigation all happen while the overlay is still hidden.
+		// Warm start once a view is configured: mirror copies, broker launch,
+		// environment creation and navigation all happen while the overlay is
+		// still hidden.
 		if (!_impl->started.load() && !_impl->dead.load()) {
 			bool wantsView = false;
 			{
@@ -879,10 +874,10 @@ namespace OSFUI
 		_impl->DrainNotifications();
 
 		// Focus watchdog (see the Impl member note for the race this heals).
-		// GetGUIThreadInfo(0) reports the FOREGROUND thread's focus window:
-		// while the user is alt-tabbed away that window is not in the game
-		// window's tree, so both branches below no-op — this can never steal
-		// focus from another application.
+		// GetGUIThreadInfo(0) reports the foreground thread's focus window: while
+		// the user is alt-tabbed away that window is outside the game window's
+		// tree, so both branches no-op and focus is never stolen from another
+		// application.
 		if (_impl->topLevel && _impl->connected.load()) {
 			_impl->focusCheckAccum += a_deltaSeconds;
 			if (_impl->focusCheckAccum >= 0.5) {
@@ -898,7 +893,7 @@ namespace OSFUI
 					if (!_impl->focusRequested && inGameTree &&
 						focusPid != ::GetCurrentProcessId()) {
 						// Overlay closed but focus is stranded in the host's
-						// Chromium child: the game is deaf. Re-assert.
+						// Chromium child: the game is deaf.
 						healthy = false;
 						if (!_impl->focusFixWarned) {
 							_impl->focusFixWarned = true;
@@ -910,7 +905,7 @@ namespace OSFUI
 							OverlayInputHook::kRestoreGameFocusMessage, 0, 0);
 					} else if (_impl->focusRequested && info.hwndFocus == _impl->topLevel) {
 						// Overlay open but Chromium never took focus (MoveFocus
-						// lost): typing would go nowhere. Re-request.
+						// lost): typing would go nowhere.
 						healthy = false;
 						if (!_impl->focusFixWarned) {
 							_impl->focusFixWarned = true;
@@ -932,8 +927,8 @@ namespace OSFUI
 		std::scoped_lock lock(_impl->frameMutex);
 		if (!_impl->haveFrame ||
 			_impl->frameGeneration != _impl->announcedGeneration) {
-			// No frame, or its ring has not been announced to the compositor
-			// yet (the Ring notification dispatches from Update()).
+			// No frame, or its ring is not yet announced to the compositor
+			// (the Ring notification dispatches from Update()).
 			return std::nullopt;
 		}
 		_impl->submittedSerial = _impl->frameSerial;
@@ -995,8 +990,7 @@ namespace OSFUI
 		_impl->focusRequested = a_focused;
 		_impl->Send(json{ { "type", "focus" }, { "focused", a_focused } });
 		if (!a_focused && _impl->topLevel) {
-			// Restore game focus on the game's own window thread, exactly like
-			// the in-process backend.
+			// Restore game focus on the game's own window thread.
 			::PostMessageW(_impl->topLevel,
 				OverlayInputHook::kRestoreGameFocusMessage, 0, 0);
 		}
@@ -1032,8 +1026,8 @@ namespace OSFUI
 
 	void WebView2HostWebRenderer::InjectKeyEvent(std::uint32_t a_vkCode, bool a_down)
 	{
-		// Synthetic keys (gamepad nav taps, Esc back-delegation). Real typing
-		// never comes through here — it rides real OS focus.
+		// Synthetic keys only (gamepad nav taps, Esc back-delegation). Real
+		// typing rides OS focus and never comes through here.
 		_impl->Send(json{ { "type", "key" }, { "vk", a_vkCode }, { "down", a_down } });
 	}
 
@@ -1070,7 +1064,7 @@ namespace OSFUI
 				_impl->evalCallbacks[id] = std::move(a_onResult);
 			}
 		}
-		// Queued like postWeb when the host is not up yet: an eval issued before
+		// Queued like postWeb when the host is not up: an eval issued before
 		// connect has a caller waiting on its result callback.
 		_impl->SendOrQueue(json{
 			{ "type", "eval" }, { "view", std::string(a_viewId) },
@@ -1153,7 +1147,7 @@ namespace OSFUI
 			}
 			_impl->RecomputeAllHidden();
 		}
-		// Game-thread maps: purge the view's listeners and console handler.
+		// Game-thread maps; no lock.
 		std::erase_if(_impl->listeners, [&](const auto& a_entry) {
 			const auto& key = a_entry.first;
 			return key.size() > a_viewId.size() &&

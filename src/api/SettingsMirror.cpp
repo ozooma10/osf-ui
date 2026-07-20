@@ -13,15 +13,14 @@ namespace OSFUI::API
 
 	void SettingsMirror::Rebuild(const nlohmann::json& a_data)
 	{
-		// Build the replacement outside the lock so getters are only ever
-		// blocked for the swap, not the parse.
+		// Build outside the lock so getters block only for the swap, not the parse.
 		std::unordered_map<std::string, Values> fresh;
 		if (const auto mods = a_data.find("mods"); mods != a_data.end() && mods->is_array()) {
 			for (const auto& mod : *mods) {
 				const auto id = mod.find("id");
 				const auto values = mod.find("values");
 				if (id == mod.end() || !id->is_string() || values == mod.end() || !values->is_object()) {
-					continue;  // defensive: skip a malformed entry, never throw
+					continue;  // skip a malformed entry rather than throw
 				}
 				Values& slot = fresh[id->get<std::string>()];
 				for (const auto& [key, value] : values->items()) {
@@ -64,8 +63,8 @@ namespace OSFUI::API
 	{
 		std::lock_guard lock(_mutex);
 		const auto* value = Find(a_modId, a_key);
-		// Any number: a float-typed setting legitimately holds integral JSON
-		// (the user typed "1"), and the mirror has no schema to say otherwise.
+		// Any number: a float-typed setting can hold integral JSON (the user
+		// typed "1"), and the mirror has no schema to say otherwise.
 		if (!value || !value->is_number() || !a_out) {
 			return false;
 		}
@@ -81,16 +80,15 @@ namespace OSFUI::API
 			return 0;
 		}
 		const auto& str = value->get_ref<const std::string&>();
-		// Contract (OSFUI_API.h): return required length incl. NUL; copy
-		// min(a_bufLen), always NUL-terminated. A null/empty buffer is the
-		// "how big?" probe.
+		// Contract (OSFUI_API.h): return required length incl. NUL; copy at most
+		// a_bufLen, always NUL-terminated. A null/empty buffer is the size probe.
 		if (a_buf && a_bufLen > 0) {
 			const auto copied = std::min<std::size_t>(a_bufLen - 1, str.size());
 			std::memcpy(a_buf, str.data(), copied);
 			a_buf[copied] = '\0';
 		}
-		// Store caps strings at 4096 so this never overflows in practice, but
-		// the mirror shouldn't be the component that assumes that.
+		// Store caps strings at 4096, so this can't overflow in practice; the
+		// mirror doesn't rely on that.
 		const std::uint64_t required = static_cast<std::uint64_t>(str.size()) + 1;
 		return required > std::numeric_limits<std::uint32_t>::max()
 		           ? std::numeric_limits<std::uint32_t>::max()
@@ -157,8 +155,8 @@ namespace OSFUI::API
 		if (const auto mod = _mods.find(a_modId); mod != _mods.end()) {
 			values = &mod->second;
 		} else {
-			// Case-insensitive fallback — see the header's BSFixedString
-			// interning rationale (Papyrus cannot control its casing).
+			// Case-insensitive fallback: Papyrus cannot control BSFixedString
+			// casing (see header).
 			for (const auto& [id, v] : _mods) {
 				if (Ids::EqualsCaseInsensitiveAscii(id, a_modId)) {
 					values = &v;

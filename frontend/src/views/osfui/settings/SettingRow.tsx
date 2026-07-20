@@ -1,39 +1,24 @@
-// SettingRow.tsx — one `.row` of a settings group: label line, hint, and the
-// typed control.
+// One `.row` of a settings group: label line, hint, and the typed control.
 //
-// Ports `makeSettingRow`, `unknownRow` and `buildSettingControl`
-// (settings/main.legacy.js:525-622).
+// Structural rules:
 //
-// ---------------------------------------------------------------------------
-// THE THREE STRUCTURAL RULES
-// ---------------------------------------------------------------------------
+// 1. Row ids are mod-prefixed (`ctl-<mod.id>-<setting.key>`). Two mods both
+//    declaring a key "enabled" would otherwise mint the same DOM id and
+//    `label[for]` would bind one mod's label to the other mod's control.
 //
-// 1. THE ROW ID IS MOD-PREFIXED: `ctl-<mod.id>-<setting.key>`. Two mods that
-//    both declare a key called "enabled" would otherwise mint the same DOM id,
-//    and `label[for]` would bind the second mod's label to the FIRST mod's
-//    control — clicking one label would toggle a different mod's setting.
+// 2. A setting with no usable key is skipped, not rendered: the store keeps
+//    schemas verbatim, so a keyless setting arrives intact but can neither be
+//    committed nor labelled. Dropped with a devWarn.
 //
-// 2. A SETTING WITH NO USABLE KEY IS SKIPPED, not rendered. The store keeps
-//    schemas verbatim, so a keyless setting reaches us intact; it can neither be
-//    committed nor even labelled, and rendering it would put a dead control in
-//    the pane. It is dropped with a devWarn instead (main.legacy.js:545-550).
+// 3. Control cell order is `[reset ↺][optional readout][control]`. Reset leads
+//    so the control stays flush with the row's right edge, in line with surface
+//    and action rows, which have no reset slot. Only the slider contributes a
+//    readout; the stepper carries its own (see Stepper.tsx).
 //
-// 3. THE CONTROL CELL ORDER IS `[reset ↺][optional readout][control]`. The
-//    reset LEADS so the control itself stays flush with the row's right edge,
-//    on the same line as surface and action rows — which have no reset slot at
-//    all (main.legacy.js:598-606). Only the slider contributes a readout; the
-//    stepper carries its own inside itself (see Stepper.tsx).
-//
-// ---------------------------------------------------------------------------
-// DISABLING IS SCOPED TO THE CONTROL, NOT THE ROW
-// ---------------------------------------------------------------------------
-// `enabledWhen` greys the row (class `disabled`) but only actually disables the
-// CONTROL subtree — the per-setting reset stays live, so a setting you have
-// gated yourself out of is still resettable (main.legacy.js:1442-1446). Legacy
-// achieved that by walking `control.querySelectorAll("input,select,button,
-// textarea")` and skipping `.pending` nodes; here the `disabled` flag is simply
-// threaded into the widget and withheld from the reset, which is the same set
-// declaratively. The `.pending` exclusion lives in ActionButton.
+// `enabledWhen` greys the row (class `disabled`) but only disables the control
+// subtree — the per-setting reset stays live, so a setting you have gated
+// yourself out of is still resettable. The `.pending` exclusion lives in
+// ActionButton.
 
 import { Row } from '@ui/Row';
 import { Badge } from '@ui/Badge';
@@ -54,7 +39,6 @@ import type { Translator } from '@lib/i18n';
 import type { Setting, SettingValue } from '@sdk';
 import { devWarn } from './warn';
 
-/** main.legacy.js:553. */
 export function rowId(modId: string, key: string): string {
   return `ctl-${modId}-${key}`;
 }
@@ -65,9 +49,9 @@ export interface SettingRowProps {
   value: SettingValue | undefined;
   /** `visibleWhen` result — false adds `hidden-cond` (CSS display:none). */
   visible: boolean;
-  /** `enabledWhen` result — false adds `disabled` AND disables the control. */
+  /** `enabledWhen` result — false adds `disabled` and disables the control. */
   enabled: boolean;
-  /** True while THIS setting's key capture is armed. */
+  /** True while this setting's key capture is armed. */
   listening: boolean;
   /** Search-jump highlight (`.flash`, 1.2s). */
   flashing: boolean;
@@ -91,10 +75,8 @@ export function SettingRow(props: SettingRowProps) {
   const control = renderControl(props, id);
 
   // An unknown/newer type renders read-only so a stale runtime degrades
-  // cleanly. NOTE what this row does NOT do: it takes no part in
-  // visibleWhen/enabledWhen and carries no modified dot (legacy returns before
-  // pushing it into `liveRows`, main.legacy.js:557), and it has no `data-key`,
-  // so a search result can never jump to it.
+  // cleanly. It takes no part in visibleWhen/enabledWhen, carries no modified
+  // dot, and has no `data-key`, so a search result cannot jump to it.
   if (control === null) {
     return (
       <div class="row row--unknown" data-label={labelText(setting)}>
@@ -140,9 +122,9 @@ export function SettingRow(props: SettingRowProps) {
               {requiresLabel(setting.requires, tr)}
             </Badge>
           ) : null}
-          {/* The gameplay context is the implicit default, so it earns no
-              badge — an unresolvable reference falls back to it and therefore
-              reads as "no special context" rather than as a broken badge. */}
+          {/* Gameplay is the implicit default, so it gets no badge — an
+              unresolvable reference falls back to it and reads as "no special
+              context" rather than as a broken badge. */}
           {context && context.id !== 'gameplay' ? (
             <Badge
               modifier=""
@@ -158,8 +140,8 @@ export function SettingRow(props: SettingRowProps) {
               {context.label}
             </Badge>
           ) : null}
-          {/* Key collisions are INFORMATIONAL (mcm-design §9): the runtime
-              never refuses a colliding bind, it just badges both sides. */}
+          {/* Key collisions are informational (mcm-design §9): the runtime does
+              not refuse a colliding bind, it badges both sides. */}
           {conflicts.length ? (
             <Badge
               modifier="osf-badge--stop"
@@ -179,7 +161,7 @@ export function SettingRow(props: SettingRowProps) {
           type="button"
           class="row-reset"
           title={tr('resetDefault', 'Reset to default')}
-          // Deliberately NOT disabled by enabledWhen — see the header.
+          // Not disabled by enabledWhen — see the header.
           onClick={() => props.onReset(setting.key)}
         >
           ↺
@@ -198,9 +180,8 @@ function labelText(setting: Setting): string {
 /**
  * The typed control, or null when this host predates the type.
  *
- * Mirrors `buildSettingControl`'s switch (main.legacy.js:525-536) — including
- * `int` and `float` sharing one builder, which is why the int/float split lives
- * inside `stepperFor` rather than here.
+ * `int` and `float` share one builder; the int/float split lives inside
+ * `stepperFor`, not here.
  */
 function renderControl(props: SettingRowProps, id: string) {
   const { mod, setting, value, enabled, tr } = props;
@@ -212,8 +193,8 @@ function renderControl(props: SettingRowProps, id: string) {
       return (
         <Switch
           id={id}
-          // STRICTLY `=== true`: undefined, or a truthy non-boolean that
-          // slipped past the store, renders OFF.
+          // Strictly `=== true`: undefined, or a truthy non-boolean that
+          // slipped past the store, renders off.
           on={value === true}
           disabled={disabled}
           onToggle={commit}
@@ -223,9 +204,8 @@ function renderControl(props: SettingRowProps, id: string) {
     case 'int':
     case 'float': {
       // A step of 0, a negative, or a NaN would divide-by-zero inside the
-      // stepper's snap and commit NaN over the bridge. hasInvalidStep reports
-      // exactly the cases legacy warned about (a `step: null` is nullish and
-      // silently takes the type default, with no warning — see the lib).
+      // stepper's snap and commit NaN over the bridge. `step: null` is nullish
+      // and silently takes the type default, without a warning.
       if (hasInvalidStep(setting)) {
         devWarn(`"${setting.key}" has invalid step ${String(setting.step)}`);
       }
@@ -284,8 +264,8 @@ function renderControl(props: SettingRowProps, id: string) {
           listening={props.listening}
           disabled={disabled}
           onRebind={() => props.onBeginCapture(setting.key)}
-          // The ✕ commits the deliberate unbound state; the store accepts ""
-          // only because `allowUnbound` gates the button's existence.
+          // The ✕ commits the unbound state; the store accepts "" only because
+          // `allowUnbound` gates the button's existence.
           onUnbind={() => commit('')}
           listeningLabel={tr('pressKey', 'Press a key…')}
           unbindTitle={tr('unbind', 'Unbind')}

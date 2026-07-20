@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
-// settings.navigation.test.tsx — the pane's five detail modes in dispatch
-// order, the section index threshold, search-jump, and rail cycling.
+// The pane's five detail modes in dispatch order, the section index threshold,
+// search-jump, and rail cycling.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { makeBridge, mount, unmount, flush, typeFilter } from './helpers/settingsHarness';
@@ -29,8 +29,6 @@ describe('detail modes', () => {
     const { el } = await mountWith(WIDGETS, VIEWS);
     expect(el.querySelector('.detail-body--home')).not.toBeNull();
     expect(el.querySelector('.home-grid')).not.toBeNull();
-    // Home clears the accent (applyAccent is a no-op in the fake, but the mode
-    // is what we assert): the card grid, not a settings page.
     expect(el.querySelector('.detail-head h2')!.textContent).toBe('All systems');
   });
 
@@ -43,11 +41,9 @@ describe('detail modes', () => {
   });
 
   it('mode 3 (not found): a selection naming no entry shows the empty state', async () => {
-    // Deliver only errors, no mods -> select nothing resolvable. Force a bogus
-    // selection by searching then clearing to a dead id is awkward; instead a
-    // mod that unregisters. Simpler: empty registry shows "nothing registered".
+    // Errors but no mods: nothing resolvable to select, so the pane falls back
+    // to the empty state and the rail alert is pinned.
     const { el } = await mountWith(WITH_LOAD_ERRORS);
-    // The rail alert is pinned; the pane shows the empty/registered state.
     expect(el.querySelector('.rail-alert')).not.toBeNull();
   });
 
@@ -56,7 +52,7 @@ describe('detail modes', () => {
     selectRail(el, 'Standalone Browser');
     await flush();
     expect(el.querySelector('.detail-quiet')!.textContent).toBe('This mod registers no settings.');
-    // It has the surfaces section but no Reset all button.
+    // Surfaces section, but no Reset all button.
     expect(el.querySelector('.group')).not.toBeNull();
     expect([...el.querySelectorAll('.osf-btn')].some((b) => b.textContent === 'Reset all')).toBe(false);
   });
@@ -125,7 +121,6 @@ describe('search jump', () => {
     // Filter cleared -> back to the settings page.
     expect(input.value).toBe('');
     expect(el.querySelector('.search-results')).toBeNull();
-    // The target row is flashing.
     const row = el.querySelector('.row[data-key="slide"]')!;
     expect(row.classList.contains('flash')).toBe(true);
   });
@@ -135,7 +130,6 @@ describe('rail cycling (LB/RB)', () => {
   it('RB steps the selection forward in painted order', async () => {
     const { bridge, el } = await mountWith(WIDGETS, VIEWS);
     // Painted order: Home, framework (osfui), then title-sorted mods.
-    // Start on Home; RB should move to the framework entry.
     expect(el.querySelector('.rail-item--home.selected')).not.toBeNull();
     bridge.emit('ui.gamepad', { kind: 'button', button: { id: 0x0200, down: true } });
     await flush();

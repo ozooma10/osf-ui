@@ -1,21 +1,14 @@
-// Flags.tsx — the `type:"flags"` multi-select (a checkbox group).
+// The `type:"flags"` multi-select (a checkbox group).
 //
-// Ports `buildFlags` (settings/main.legacy.js:428-450).
-//
-// THE COMMIT IS THE WHOLE ARRAY, EVERY TIME, AND IT IS BUILT BY FILTERING THE
-// DECLARED OPTIONS — never by pushing onto the stored array:
-//
-//   opts.filter((o) => selected.has(o))
-//
-// That single expression does four things the store also does
-// (SettingsStore.cpp:1050-1066): canonicalises to DECLARED order, drops
-// unknown options, drops non-string junk, and dedupes. Committing the stored
-// array with one entry spliced in would preserve whatever order and garbage
-// the file happened to contain, the store would canonicalise it, and the echo
-// would then differ from the optimistic local value — which the settings App
-// reads as "an external writer disagreed" and repaints the pane mid-edit.
-//
-// Rendering follows the same rule: iterate `options`, not the value.
+// Every commit is the whole array, built by filtering the declared options
+// (`opts.filter((o) => selected.has(o))`) rather than by splicing the stored
+// array. That mirrors what SettingsStore.cpp does: canonicalise to declared
+// order, drop unknown options, drop non-string junk, dedupe. Splicing instead
+// would preserve whatever order and garbage the file held, the store would
+// canonicalise it, and the echo would then differ from the optimistic local
+// value — which the settings App reads as an external writer and repaints the
+// pane mid-edit. Rendering follows the same rule: iterate `options`, not the
+// value.
 
 import { optionLabel } from '@lib/settings/format';
 import type { Setting } from '@sdk';
@@ -32,9 +25,8 @@ export interface FlagsProps {
 }
 
 export function Flags({ id, setting, value, disabled, onCommit }: FlagsProps) {
-  // Non-string entries are dropped on the way IN as well as on the way out —
-  // a `["a", 3]` value must not make option "3" look checked (legacy filtered
-  // both directions, main.legacy.js:433-434).
+  // Non-string entries are dropped inbound as well as outbound: a `["a", 3]`
+  // value must not make option "3" look checked.
   const opts = (setting.options || []).filter((o): o is string => typeof o === 'string');
   const selected = new Set(
     Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [],

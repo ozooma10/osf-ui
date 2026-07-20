@@ -14,7 +14,6 @@ describe('versionLess', () => {
   });
 
   it('compares numerically, NOT lexically', () => {
-    // The whole reason this exists: "1.2" < "1.10.0" as a human expects.
     expect(versionLess('1.2', '1.10.0')).toBe(true);
     expect(versionLess('1.10.0', '1.2')).toBe(false);
     expect(versionLess('1.0.9', '1.0.10')).toBe(true);
@@ -30,8 +29,8 @@ describe('versionLess', () => {
   });
 
   it('ignores a FOURTH component entirely', () => {
-    // Only three are compared, so a build-number suffix can never make one
-    // version newer than another.
+    // Only three components are compared, so a build-number suffix can't
+    // make one version newer than another.
     expect(versionLess('1.0.0.1', '1.0.0.9')).toBe(false);
     expect(versionLess('1.0.0', '1.0.0.9')).toBe(false);
   });
@@ -79,8 +78,8 @@ describe('deriveNeedsUpdate', () => {
   });
 
   it('suppresses the badge entirely when the host version is unknown', () => {
-    // Quirk preserved: the pre-handshake state shows no badge, even though
-    // versionLess("", "1.2.0") is true. Re-derived once runtime.ready lands.
+    // Pre-handshake state shows no badge even though versionLess("", "1.2.0")
+    // is true. Re-derived once runtime.ready lands.
     expect(versionLess('', '1.2.0')).toBe(true);
     expect(deriveNeedsUpdate('', [view('Star Atlas', '1.2.0')], [])).toEqual({
       outdated: false,

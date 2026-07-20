@@ -59,7 +59,7 @@ describe('formatNumber — scale, prefix, suffix, type defaults', () => {
   });
 
   it('coerces a STRING value, as the slider path passes it', () => {
-    // main.legacy.js:393 hands the DOM input's `value` straight in.
+    // The slider path hands the DOM input's `value` straight in.
     expect(formatNumber(num({ type: 'int' }), '7')).toBe('7');
   });
 });

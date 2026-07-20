@@ -1,27 +1,24 @@
-// modified.ts — "is this different from the default?" and "what have I changed
-// since I opened settings?" (main.legacy.js:303-337, 1491-1501).
+// "Is this different from the default?" and "what have I changed since I opened
+// settings?"
 //
-// Both questions have the same trap: a `flags` value is an ARRAY, so `!==` is
-// ALWAYS true for two structurally identical values and every flags setting
-// would show a permanent modified dot and a permanent undo entry. Hence the
-// JSON.stringify comparison below — see `sameValue`.
+// Both share one trap: a `flags` value is an array, so `!==` is always true for
+// two structurally identical values and every flags setting would show a
+// permanent modified dot and a permanent undo entry. Hence `sameValue`.
 
 import type { Setting, SettingValue } from '@sdk';
 import type { ModRecord } from './rail';
 import { isSetting } from './normalize';
 
 /**
- * Structural equality for setting values (main.legacy.js:322-325).
+ * Structural equality for setting values.
  *
- * `JSON.stringify` is used, not a deep-equal: setting values are the closed
+ * `JSON.stringify` rather than a deep-equal: values are the closed
  * `SettingValue` set (boolean | number | string | string[]), so stringify is
- * total, order-sensitive (which is CORRECT — the store canonicalises flags to
- * declared order, so a different order means a different stored value), and has
- * no cycles to worry about.
+ * total and cycle-free. Order-sensitivity is wanted — the store canonicalises
+ * flags to declared order, so a different order is a different stored value.
  *
- * The `typeof === "object"` guard means the stringify path is taken when EITHER
- * side is an object, so comparing an array against a scalar still goes
- * structural ("[]" vs "0") rather than reference-equal.
+ * The `typeof === "object"` guard takes the stringify path when either side is
+ * an object, so array-vs-scalar still compares structurally ("[]" vs "0").
  */
 export function sameValue(a: unknown, b: unknown): boolean {
   if (typeof a === 'object' || typeof b === 'object') {
@@ -34,12 +31,10 @@ export function sameValue(a: unknown, b: unknown): boolean {
  * Is `value` different from the setting's declared default?
  *
  * Two "not modified" short-circuits, both load-bearing:
- *  - `value === undefined` — the mod has no stored value for this key yet, so
- *    there is nothing to have changed.
- *  - no `default` key in the schema — a setting that declares no default has
- *    nothing to be modified FROM. Note this is a key-presence test, so an
- *    explicit `default: undefined` still counts as declared and the comparison
- *    runs (yielding "not modified" via the undefined check above anyway).
+ *  - `value === undefined`: no stored value for this key yet, nothing to change.
+ *  - no `default` key in the schema: nothing to be modified from. Key-presence
+ *    test, so an explicit `default: undefined` counts as declared and the
+ *    comparison runs.
  */
 export function isModified(setting: Setting, value: SettingValue | undefined): boolean {
   if (value === undefined || !('default' in setting)) return false;
@@ -49,13 +44,12 @@ export function isModified(setting: Setting, value: SettingValue | undefined): b
   return value !== setting.default;
 }
 
-/** The schema setting object for a mod's key, or null. main.legacy.js:297-302. */
+/** The schema setting object for a mod's key, or null. */
 export function findSettingInMod(mod: ModRecord, key: string): Setting | null {
   for (const g of (mod.schema && mod.schema.groups) || []) {
     for (const s of g.settings || []) {
-      // Deliberately NOT gated on isSetting: the legacy lookup matches any item
-      // carrying this key, which is how a keyed `action` item could be returned.
-      // Callers check `.type` themselves (main.legacy.js:1786).
+      // Not gated on isSetting: matches any item carrying this key, so a keyed
+      // `action` item can come back. Callers check `.type` themselves.
       if (s && (s as { key?: unknown }).key === key) return s as Setting;
     }
   }
@@ -75,9 +69,9 @@ export function modifiedCount(mod: ModRecord): number {
 }
 
 /**
- * The session baseline: `baseline[modId][key]` = the value when this VISIT
- * began. Nested rather than a joined "mod key" string so a key containing a
- * space cannot corrupt the split (main.legacy.js:85).
+ * Session baseline: `baseline[modId][key]` = the value when this visit began.
+ * Nested rather than a joined "mod key" string so a key containing a space
+ * cannot corrupt the split.
  */
 export type Baseline = Record<string, Record<string, SettingValue | undefined>>;
 
@@ -91,12 +85,11 @@ export interface SessionChange {
 }
 
 /**
- * Everything changed since the baseline was taken — the undo chip's count and
- * the revert panel's list, from one function (main.legacy.js:326-337 and
- * 1491-1501 were two copies of this loop).
+ * Everything changed since the baseline was taken — feeds both the undo chip's
+ * count and the revert panel's list.
  *
- * A baseline entry whose mod is no longer loaded is SKIPPED, not reported: a
- * mod that unregistered mid-visit has nothing to revert into.
+ * A baseline entry whose mod is no longer loaded is skipped, not reported: a mod
+ * that unregistered mid-visit has nothing to revert into.
  */
 export function sessionDiff(baseline: Baseline, mods: ModRecord[]): SessionChange[] {
   const changes: SessionChange[] = [];

@@ -1,19 +1,16 @@
 // @vitest-environment jsdom
 //
-// settings.handshake.test.tsx — the view must not depend on `runtime.ready`
-// for anything but the version badge.
+// The view must not depend on `runtime.ready` for anything but the version
+// badge.
 //
-// REGRESSION (2026-07-19, in-game "F10 opens an empty Mods surface"):
-// `runtime.ready` is a one-shot greeting the runtime emits during its own
-// initialization. On the out-of-process WebView2 backend the host that carries
-// it does not exist yet at that moment, so the greeting can be missed
-// entirely. The view used to gate its initial `settings.get` / `views.get` on
-// that promise, so a missed greeting meant the reads were never sent, no data
-// ever arrived, and the rail stayed empty forever — with no error anywhere.
-//
-// The transport gap is fixed on the native side (pre-connect bridge messages
-// are queued and flushed), but the view must not be one dropped message away
-// from useless, so the contract is pinned here.
+// Regression (2026-07-19, in-game "F10 opens an empty Mods surface"):
+// `runtime.ready` is a one-shot greeting emitted during runtime init. On the
+// out-of-process WebView2 backend the host that carries it may not exist yet,
+// so the greeting can be missed. The view used to gate its initial
+// `settings.get` / `views.get` on that promise, so a missed greeting meant the
+// reads were never sent and the rail stayed empty, with no error anywhere.
+// The transport gap is fixed natively (pre-connect bridge messages are queued
+// and flushed); this pins the view-side contract too.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { makeBridge, mount, unmount, flush } from './helpers/settingsHarness';
@@ -36,7 +33,7 @@ describe('a runtime.ready that never arrives', () => {
     const bridge = makeBridge({ readyNeverResolves: true });
     const el = await mount(bridge);
 
-    // The runtime answers the gets; nothing about that path involves `ready`.
+    // The runtime answers the gets; that path never involves `ready`.
     bridge.emit('settings.data', WIDGETS);
     bridge.emit('views.data', VIEWS);
     await flush();
@@ -52,8 +49,8 @@ describe('a runtime.ready that never arrives', () => {
     bridge.emit('views.data', VIEWS);
     await flush();
 
-    // Whatever chrome carries the host version must not claim a version it
-    // never learned (the badge suppresses itself before the handshake).
+    // The badge suppresses itself before the handshake rather than claiming a
+    // version it never learned.
     expect(el.textContent).not.toMatch(/\b1\.0\.0\b/);
   });
 });

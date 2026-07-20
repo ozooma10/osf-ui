@@ -37,7 +37,7 @@ describe('holdersOf', () => {
     expect(holdersOf([a, c, b], 'F5')).toEqual([a, b]);
     expect(holdersOf([a, c, b], 'F9')).toEqual([c]);
     expect(holdersOf([a, c, b], 'F1')).toEqual([]);
-    // No folding here - rows are canonical already.
+    // No folding here — rows are canonical already.
     expect(holdersOf([modRow('Grave')], 'Tilde')).toEqual([]);
   });
 });
@@ -47,7 +47,7 @@ describe('pairIsShared', () => {
     const blocking = modRow('F5', { blocks: true });
     const game = gameRow('F5');
     expect(pairIsShared(blocking, game)).toBe(true);
-    // Symmetric in ARGUMENT ORDER - the mod side is found either way.
+    // Symmetric in argument order — the mod side is found either way.
     expect(pairIsShared(game, blocking)).toBe(true);
   });
 
@@ -58,13 +58,13 @@ describe('pairIsShared', () => {
   it('ASYMMETRY: mod-vs-mod always conflicts, even when BOTH block gameplay', () => {
     const a = modRow('F5', { owner: 'a', blocks: true });
     const b = modRow('F5', { owner: 'b', blocks: true });
-    // Blocking gameplay says nothing about another MOD's dispatch: both fire.
+    // Blocking gameplay says nothing about another mod's dispatch: both fire.
     expect(pairIsShared(a, b)).toBe(false);
   });
 
   it('ASYMMETRY: game-vs-game always conflicts, even with the flag set', () => {
-    // Unreachable via buildModel (vanilla rows are hardcoded false) but this is
-    // what the code does: `mod` resolves to null so the flag is never read.
+    // Unreachable via buildModel (vanilla rows hardcode false), but `mod`
+    // resolves to null so the flag is never read.
     expect(pairIsShared(gameRow('F5', { blocks: true }), gameRow('F5', { blocks: true }))).toBe(
       false,
     );
@@ -125,7 +125,7 @@ describe('holderState', () => {
 
   it('excludes self BY IDENTITY, not by value', () => {
     // Two structurally identical rows (a mod registering the same binding
-    // twice, or a duplicated vanillaKeys entry) DO conflict with each other.
+    // twice, or a duplicated vanillaKeys entry) do conflict with each other.
     const a = modRow('F5');
     const clone = modRow('F5');
     expect(a).toEqual(clone); // same value...

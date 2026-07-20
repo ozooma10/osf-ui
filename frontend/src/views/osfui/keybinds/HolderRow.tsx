@@ -1,21 +1,15 @@
-// HolderRow.tsx — one binding, rendered identically in the detail panel and in
-// the all-bindings list.
-//
-// Ports `holderRow()` (main.legacy.js:286-309) plus the extra classes and
-// handlers `renderList()` layers on top of it (main.legacy.js:355-367). Both
-// consumers share one component because legacy shares one builder — the list
-// literally calls `holderRow(b)` and then mutates the returned node.
+// One binding, rendered identically in the detail panel and in the
+// all-bindings list.
 
 import type { BindingRow } from '@lib/keybinds/model';
 import type { Translator } from '@lib/i18n';
 
-/** The list-only decoration. `null` renders the plain detail-panel variant. */
+/** List-only decoration. `null` renders the plain detail-panel variant. */
 export interface HolderListMode {
   /**
-   * "kb-holder--conflict" | "kb-holder--shared" | "". Computed by the caller
-   * from holderState(); mutually exclusive by legacy's `else if`
-   * (main.legacy.js:362-363), so a row that is BOTH shows only the conflict
-   * stripe.
+   * "kb-holder--conflict" | "kb-holder--shared" | "", computed by the caller
+   * from holderState(). Mutually exclusive: a row that is both shows only the
+   * conflict stripe.
    */
   stateClass: string;
   onSelect: (name: string) => void;
@@ -25,14 +19,11 @@ export interface HolderRowProps {
   binding: BindingRow;
   tr: Translator;
   /**
-   * Identity of this RENDERED instance, not of the binding.
-   *
-   * The same (mod, key) can be on screen twice — once in the detail panel for
-   * the selected key and once in the list — and legacy arms the capture on the
-   * clicked BUTTON ELEMENT (`capturing.btn`), so only that one copy shows
-   * "Press a key…". Keying on the binding alone would light up both. Scope +
-   * content, not index, so a search that reorders the list cannot move the
-   * armed state onto a different row mid-capture.
+   * Identity of this rendered instance, not of the binding. The same (mod, key)
+   * can be on screen twice — detail panel and list — and only the clicked copy
+   * shows "Press a key…"; keying on the binding alone would light up both.
+   * Scope + content, not index, so a search that reorders the list cannot move
+   * the armed state onto a different row mid-capture.
    */
   instanceId: string;
   /** instanceId of the armed capture, or null when none is. */
@@ -41,7 +32,7 @@ export interface HolderRowProps {
   list: HolderListMode | null;
 }
 
-/** The stable per-instance key described on `instanceId` above. */
+/** The stable per-instance key described on `instanceId`. */
 export function holderInstanceId(scope: string, b: BindingRow): string {
   return `${scope}:${b.kind}:${b.mod || ''}:${b.key}`;
 }
@@ -50,9 +41,8 @@ export function HolderRow(props: HolderRowProps) {
   const { binding: b, tr, instanceId, capturingId, onRebind, list } = props;
   const listening = capturingId === instanceId;
 
-  // Class order reproduces the legacy build order exactly: the base class from
-  // `el("div", "kb-holder")`, then `classList.add("kb-holder--list")`, then the
-  // conflict/shared stripe.
+  // Class order is fixed: base, then kb-holder--list, then the conflict/shared
+  // stripe.
   let className = 'kb-holder';
   if (list) {
     className += ' kb-holder--list';
@@ -60,22 +50,22 @@ export function HolderRow(props: HolderRowProps) {
   }
 
   // Game rows are identified by the engine controlmap event; mod rows by
-  // "<modId>.<settingKey>". main.legacy.js:297.
+  // "<modId>.<settingKey>".
   const identity = b.kind === 'game' ? `controlmap · ${b.key}` : `${b.mod}.${b.key}`;
 
-  // Built as one spread so the two list-only attributes cannot get out of step:
-  // a focusable row with no activation, or an activating row nothing can focus,
+  // One spread so the two list-only attributes cannot get out of step: a
+  // focusable row with no activation, or an activating row nothing can focus,
   // would each half-break controller support.
   const rowAttrs = list
     ? {
         // padnav contract: the row is click-to-select, so it must be focusable
-        // for Enter/A to reach it (main.legacy.js:358-360). Detail-panel rows
-        // are NOT focusable — they have no row-level action.
+        // for Enter/A to reach it. Detail-panel rows are not focusable — they
+        // have no row-level action.
         tabIndex: 0,
         onClick: (e: MouseEvent) => {
-          // A click that landed on (or inside) the Rebind button stays a
-          // rebind — without this the row's select would also fire and change
-          // the detail panel out from under the capture. main.legacy.js:365.
+          // A click on (or inside) the Rebind button stays a rebind — without
+          // this the row's select also fires and changes the detail panel out
+          // from under the capture.
           const target = e.target as Element | null;
           if (target && target.closest && target.closest('button')) return;
           list.onSelect(b.name);
@@ -93,8 +83,8 @@ export function HolderRow(props: HolderRowProps) {
           >
             {b.kind === 'game' ? tr('gameBadge', 'GAME') : b.owner}
           </span>
-          {/* The context badge is mod-only and suppressed for the implicit
-              default — a "Gameplay" chip on every row would be noise. */}
+          {/* Context badge is mod-only and suppressed for the implicit
+              default — a chip on every row would be noise. */}
           {b.kind === 'mod' && b.contextId !== 'gameplay' ? (
             <span class="osf-badge kb-context">{b.contextLabel}</span>
           ) : null}
@@ -105,8 +95,8 @@ export function HolderRow(props: HolderRowProps) {
       {b.kind === 'mod' ? (
         <button
           type="button"
-          // padnav suspends ALL navigation while any `.listening` element
-          // exists (padnav.js:207) — the next key press belongs to the capture.
+          // padnav suspends all navigation while any `.listening` element
+          // exists — the next key press belongs to the capture.
           class={`osf-btn osf-btn--sm osf-key${listening ? ' listening' : ''}`}
           onClick={() => onRebind(b, instanceId)}
         >

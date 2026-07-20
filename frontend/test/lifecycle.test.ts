@@ -47,7 +47,7 @@ describe('reduceVisibility', () => {
     expect(out.state).toBe(state);
     expect(out.reselect).toBe(false);
     // ...but the baseline and padnav reset still happen: the undo scope is the
-    // VISIT, and the gamepad resume point starts over regardless.
+    // visit, and the gamepad resume point starts over regardless.
     expect(out.clearBaseline).toBe(true);
     expect(out.resetPadnav).toBe(true);
   });
@@ -71,7 +71,7 @@ describe('padButtonEdge', () => {
     expect(out.pressed).toBe(PAD_RSHOULDER);
     state = out.state;
 
-    // Held: the runtime may re-report the same button on later polls.
+    // Held: the runtime re-reports the same button on later polls.
     out = padButtonEdge(state, button(PAD_RSHOULDER, true));
     expect(out.pressed).toBeNull();
     state = out.state;
@@ -93,10 +93,8 @@ describe('padButtonEdge', () => {
   });
 
   it('survives a malformed native push instead of throwing', () => {
-    // The legacy guard tested `!p` and `!p.button` explicitly
-    // (main.legacy.js:1867). These payloads are ill-typed on purpose: they
-    // model a bridge frame that does not match its declared shape, which must
-    // be ignored rather than throw and kill the subscription.
+    // Ill-typed on purpose: a bridge frame that doesn't match its declared
+    // shape must be ignored, not throw and kill the subscription.
     for (const bad of [null, undefined, {}, { kind: 'button' }]) {
       const out = padButtonEdge(initialPadButtonState, bad as unknown as UiGamepadPayload);
       expect(out.pressed).toBeNull();
@@ -124,8 +122,8 @@ describe('cycleRail', () => {
   });
 
   it('falls to the FIRST entry regardless of direction when the selection is gone', () => {
-    // Quirk (main.legacy.js:1886-1887): indexOf -> -1 is treated as index 0
-    // *before* delta is applied, so LB and RB both land on ids[0].
+    // indexOf -> -1 is treated as index 0 *before* delta is applied, so LB and
+    // RB both land on ids[0].
     expect(cycleRail(ids, 'filtered-away', 1)).toBe(HOME_ID);
     expect(cycleRail(ids, 'filtered-away', -1)).toBe(HOME_ID);
   });

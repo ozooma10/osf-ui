@@ -9,21 +9,20 @@ namespace OSFUI
 {
 	inline constexpr const char* kPluginName = "OSF UI";
 	inline constexpr const char* kPluginVersion = "1.0.0";
-	// Numeric form of kPluginVersion, for the native plugin API
-	// (IOSFUIBridge::GetPluginVersion). Keep in lockstep with kPluginVersion.
+	// Numeric form of kPluginVersion, for IOSFUIBridge::GetPluginVersion.
+	// Keep in lockstep with kPluginVersion.
 	inline constexpr std::uint32_t kPluginVersionMajor = 1;
 	inline constexpr std::uint32_t kPluginVersionMinor = 0;
 	inline constexpr std::uint32_t kPluginVersionPatch = 0;
 
-	// Version of the native<->web bridge protocol (message envelope, command
-	// whitelist, native->web message types). Distinct from kPluginVersion:
-	// views see THIS as the `bridgeVersion` field of the `runtime.ready`
-	// handshake. Keep in lockstep with docs/authoring-views.md,
-	// docs/schema/*, and sdk/*.d.ts (CI enforces the headline sites).
-	// 1.0 = STABLE: additive changes bump the minor; anything that would
-	// break a shipped view bumps the major. Compat is advisory, not gated:
-	// an artifact authored for a newer OSF UI declares `targetVersion` and
-	// the Mods surface badges "needs update" against the host `version`.
+	// Native<->web bridge protocol version (message envelope, command whitelist,
+	// native->web message types). Distinct from kPluginVersion: views see this as
+	// the `bridgeVersion` field of the `runtime.ready` handshake. Keep in lockstep
+	// with docs/authoring-views.md, docs/schema/*, and sdk/*.d.ts (CI enforces the
+	// headline sites). Stable since 1.0: additive changes bump the minor, anything
+	// that breaks a shipped view bumps the major. Compat is advisory, not gated —
+	// an artifact declares `targetVersion` and the Mods surface badges
+	// "needs update" against the host `version`.
 	inline constexpr const char* kBridgeProtocolVersion = "1.1";
 
 	// "<major>[.<minor>[.<patch>]]", digits only — missing parts are 0.

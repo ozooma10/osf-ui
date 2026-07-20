@@ -15,8 +15,8 @@ describe('domKeyName', () => {
 
   it('uppercases letters of EITHER case', () => {
     expect(k('a')).toBe('A');
-    // Unlike canonicalName, the /i flag means an uppercase letter also takes
-    // this branch (same result, different path).
+    // Unlike canonicalName, the /i flag sends an uppercase letter down this
+    // same branch.
     expect(k('A')).toBe('A');
     expect(k('z')).toBe('Z');
   });
@@ -48,8 +48,8 @@ describe('domKeyName', () => {
 
   it('returns "" for unmapped keys, which the capture path treats as cancel', () => {
     expect(k('Escape')).toBe('');
-    // Modifiers are drawn on the board but are NOT resolvable from e.key,
-    // since DOM cannot distinguish the left and right sides here.
+    // Modifiers are drawn on the board but aren't resolvable from e.key: the
+    // DOM can't distinguish left from right here.
     expect(k('Shift')).toBe('');
     expect(k('Control')).toBe('');
     expect(k('Alt')).toBe('');
@@ -58,8 +58,8 @@ describe('domKeyName', () => {
   });
 
   it('names the OEM punctuation keys, which used to be unbindable', () => {
-    // These resolve natively now (InputRouter.cpp KeyName), so the board makes
-    // them ordinary bindable cells and this path has to agree with it.
+    // InputRouter.cpp KeyName resolves these natively, so the board treats them
+    // as ordinary bindable cells and this path must agree.
     expect(k('-')).toBe('Minus');
     expect(k('=')).toBe('Equals');
     expect(k('[')).toBe('LBracket');

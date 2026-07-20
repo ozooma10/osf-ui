@@ -16,18 +16,18 @@ namespace OSFUI::API
 	// Concrete IOSFUIBridge singleton — the native-side implementation a sibling
 	// SFSE plugin talks to via OSFUI_RequestBridge (src/api/Exports.cpp).
 	//
-	// It keeps its OWN command registry, independent of MessageBridge lifetime, so
-	// a consumer can register before any bridge exists and never re-register: the
+	// Keeps its own command registry, independent of MessageBridge lifetime, so a
+	// consumer can register before any bridge exists and never re-register: the
 	// registry is (re)applied to the live MessageBridge on the main thread whenever
 	// it appears or is re-created. All ABI methods are callable from any thread;
 	// effects are marshaled onto Runtime::Tick via PumpMainThread. Command/ready
-	// callbacks always fire on the main thread. See docs/native-plugin-api.md.
+	// callbacks fire on the main thread. See docs/native-plugin-api.md.
 	class BridgeApi final : public IOSFUIBridge
 	{
 	public:
 		[[nodiscard]] static BridgeApi& Get();
 
-		// --- IOSFUIBridge ABI surface (any thread) ---
+		// IOSFUIBridge ABI surface (any thread).
 		std::uint32_t GetInterfaceVersion() override;
 		void          GetPluginVersion(std::uint32_t& a_major, std::uint32_t& a_minor, std::uint32_t& a_patch) override;
 		const char*   GetBridgeProtocolVersion() override;
@@ -49,17 +49,17 @@ namespace OSFUI::API
 		void          UnsubscribeHotkey(std::uint32_t a_token) override;
 		bool          RegisterView(const char* a_viewId) override;
 
-		// --- Runtime wiring (MAIN thread only) ---
+		// Runtime wiring (main thread only).
 		// A menu open/close a sibling plugin requested via RequestMenu.
 		struct MenuRequest
 		{
 			std::string view;
 			bool        open{ true };
 		};
-		// Drain the queued menu requests (MAIN thread). Runtime snapshots these at
-		// the top of Tick (TakeMenuRequests) and applies each through its own menu
-		// policy (_menus.Open/Close + ApplyMenuPolicy) AFTER PumpMainThread — see
-		// Runtime::Tick for the SendToWeb-before-RequestMenu ordering guarantee.
+		// Drain the queued menu requests. Runtime snapshots these at the top of
+		// Tick and applies each through its own menu policy (_menus.Open/Close +
+		// ApplyMenuPolicy) after PumpMainThread, which is what guarantees
+		// SendToWeb lands before RequestMenu.
 		std::vector<MenuRequest> TakeMenuRequests();
 
 		// A queued RegisterSettingsSchema (schema is an object) or
@@ -71,37 +71,36 @@ namespace OSFUI::API
 			nlohmann::json schema;
 			std::string    modId;
 		};
-		// Drain the queued schema ops (MAIN thread). Runtime applies each to
-		// the SettingsStore (Source::kNative) in DrainSchemaOps.
+		// Drain the queued schema ops. Runtime applies each to the SettingsStore
+		// (Source::kNative) in DrainSchemaOps.
 		std::vector<SchemaOp> TakeSchemaOps();
 
-		// Drain the queued RegisterView ids (MAIN thread). Runtime loads +
-		// surface-registers each in DrainViewRegistrations — BEFORE the menu
-		// request snapshot, so RegisterView -> SendToWeb -> RequestMenu issued
-		// back-to-back land in one tick (ABI 1.5).
+		// Drain the queued RegisterView ids. Runtime loads + surface-registers each
+		// in DrainViewRegistrations, before the menu request snapshot, so
+		// RegisterView -> SendToWeb -> RequestMenu issued back-to-back land in one
+		// tick (ABI 1.5).
 		std::vector<std::string> TakeViewRegistrations();
 
 		// The any-thread settings value mirror the ABI typed getters read
 		// (mcm-design.md §8.2). Runtime::BuildModules feeds it from the store's
-		// change/registry listeners on the MAIN thread; the getter methods (and
-		// later Papyrus natives) read it from any thread.
+		// change/registry listeners on the main thread; the getters (and the
+		// Papyrus natives) read it from any thread.
 		[[nodiscard]] SettingsMirror& Mirror() { return _mirror; }
 
 		// SubscribeSettings bookkeeping (mcm-design.md §8.2). Runtime's store
-		// change listener feeds OnChanged (right after Mirror().Update, MAIN
+		// change listener feeds OnChanged (right after Mirror().Update, main
 		// thread); PumpMainThread drains replays + queued changes each tick.
 		[[nodiscard]] SettingsSubscriptions& Subscriptions() { return _subscriptions; }
 
 		// SubscribeHotkey bookkeeping (mcm-design.md §9). Runtime::DrainHotkeys
-		// feeds OnFired (MAIN thread); PumpMainThread drains the queue each
-		// tick.
+		// feeds OnFired (main thread); PumpMainThread drains the queue each tick.
 		[[nodiscard]] HotkeySubscriptions& Hotkeys() { return _hotkeys; }
 
 		// Hand the live MessageBridge (or nullptr when no nativeBridge view exists)
 		// to the API. A different pointer than last time triggers a full re-apply.
 		void OnBridgeReady(MessageBridge* a_bridge);
-		// Drain queued ops on the main thread: (re)apply the command registry to the
-		// live bridge, flush queued sends, fire the ready callback once. Call each tick.
+		// Main thread; call each tick. (Re)applies the command registry to the live
+		// bridge, flushes queued sends, fires the ready callback once.
 		void PumpMainThread();
 
 	private:

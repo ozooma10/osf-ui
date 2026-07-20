@@ -1,12 +1,9 @@
 // SearchBox.tsx — the kit's search field.
 //
-// Ported from keybinds/index.html:36-41, which the settings view repeats almost
-// verbatim. The markup is fixed by osfui.css (`.osf-search` positions the icon
-// and the trailing <kbd> around the input), so nothing here is configurable
-// except the strings and the input's own extra class.
-//
-// The inline SVG is copied character-for-character so the component has no
-// external asset dependency and retains the exact icon that ships today.
+// The markup is fixed by osfui.css (`.osf-search` positions the icon and the
+// trailing <kbd> around the input), so nothing is configurable except the
+// strings and the input's extra class. The icon is inline SVG so the component
+// has no external asset dependency.
 
 import type { Ref } from 'preact';
 
@@ -17,10 +14,8 @@ export interface SearchBoxProps {
   onInput: (value: string) => void;
   placeholder: string;
   /**
-   * Accessible name. Legacy pointed BOTH `placeholder` and `aria-label` at the
-   * same catalog address (data-i18n-placeholder / data-i18n-aria-label, both
-   * `chrome.keybinds.searchPlaceholder`), so they are always the same string —
-   * but they stay separate props because the settings view may not follow suit.
+   * Accessible name. Callers today point this and `placeholder` at the same
+   * catalog address, but they stay separate props so a view can diverge.
    */
   ariaLabel: string;
   /** Printed in the trailing <kbd> chip, e.g. "Ctrl F". */
@@ -29,7 +24,7 @@ export interface SearchBoxProps {
   keyshortcuts: string;
   /** Extra class on the <input>, appended after the kit's `osf-input`. */
   inputClass: string;
-  /** Needed by the Ctrl+F handler, which focuses AND selects. */
+  /** Needed by the Ctrl+F handler, which focuses and selects. */
   inputRef: Ref<HTMLInputElement>;
 }
 

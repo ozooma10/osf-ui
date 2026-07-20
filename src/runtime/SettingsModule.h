@@ -7,24 +7,21 @@
 
 namespace OSFUI
 {
-	// The schema-driven settings feature as a self-contained module.
-	// Owns the SettingsStore, registers the
-	// settings.* bridge commands, and applies persisted values at startup.
-	// Core knows nothing about it beyond the IUiModule contract — it could be
-	// lifted into a separate plugin once a public registration API exists.
+	// The schema-driven settings feature as a self-contained module: owns the
+	// SettingsStore, registers the settings.* bridge commands, applies
+	// persisted values at startup. Core knows nothing about it beyond the
+	// IUiModule contract.
 	//
-	// Native reactions (a setting changing core behaviour) are NOT the module's
-	// job: it just stores/validates/persists/notifies. Consumers inject a
-	// ChangeListener and react to the keys they own (e.g. the runtime reacting
-	// to its own cursor-speed knob).
+	// Native reactions are the consumer's job; the module only stores/
+	// validates/persists/notifies. Inject a ChangeListener and react to the
+	// keys you own (e.g. the runtime's cursor-speed knob).
 	//
-	// Web change delivery (mcm-design.md §8.5): `settings.get` SUBSCRIBES the
-	// calling view — every later committed value is pushed to it as
-	// `settings.changed { mod, key, value }`, a registry shape change
-	// (runtime schema registration/removal) re-sends the full `settings.data`,
-	// and a landed write-behind disk write pushes `settings.persisted { mod }`
-	// (save feedback). Subscribe-on-read, the `views.get` pattern; a mod's own
-	// HUD reacts live to its settings with zero polling and zero native code.
+	// Web change delivery (mcm-design.md §8.5) is subscribe-on-read, the
+	// `views.get` pattern: `settings.get` subscribes the calling view — every
+	// later committed value is pushed to it as `settings.changed { mod, key,
+	// value }`, a registry shape change (runtime schema registration/removal)
+	// re-sends the full `settings.data`, and a landed write-behind disk write
+	// pushes `settings.persisted { mod }`.
 	class SettingsModule final : public IUiModule
 	{
 	public:
@@ -43,22 +40,21 @@ namespace OSFUI
 		// getters) reaches it through here.
 		[[nodiscard]] SettingsStore& Store() { return _store; }
 
-		// Web hotkey delivery (mcm-design.md §9): push `ui.hotkey {mod, key}`
+		// Web hotkey delivery (mcm-design.md §9): pushes `ui.hotkey {mod, key}`
 		// to every settings.get subscriber — the same set that gets
-		// settings.changed; a receiving view filters on payload.mod. A mod's
-		// own HUD subscribes with one settings.get and can "toggle myself"
-		// with zero native code. Called by Runtime::DrainHotkeys, MAIN thread.
+		// settings.changed; a receiving view filters on payload.mod. Called by
+		// Runtime::DrainHotkeys, main thread.
 		void PushHotkey(std::string_view a_modId, std::string_view a_key) const;
 
-		// Schema hot-reload (mcm-design.md §12.1, dev mode): mtime-poll
+		// Schema hot-reload (mcm-design.md §12.1, dev mode): mtime-polls
 		// settings/*.json on a ~1 s cadence — a changed or new file reloads/
 		// registers through the store (values preserved, §11 aliases honored,
 		// registry re-broadcast pushes fresh settings.data to subscribers); a
-		// deleted file removes its mod, but only a DROP-IN one (a runtime
-		// registration never tracks files). The caller gates on devMode and
-		// passes its monotonic clock (Runtime::Tick uptime, like
-		// PumpPersistence). The mtime snapshot is seeded at construction, so
-		// the first pump reloads nothing.
+		// deleted file removes its mod, but only a drop-in one (a runtime
+		// registration tracks no files). The caller gates on devMode and passes
+		// its monotonic clock (Runtime::Tick uptime, like PumpPersistence). The
+		// mtime snapshot is seeded at construction, so the first pump reloads
+		// nothing.
 		static constexpr double kHotReloadScanSeconds = 1.0;
 		void PumpSchemaHotReload(double a_nowSeconds);
 
@@ -66,7 +62,7 @@ namespace OSFUI
 		// the store's own listeners can't see (e.g. the vanilla-keys table
 		// flipping, api-freeze-plan item 7: the conflict annotations live in
 		// Data() but SetVanillaKeys bumps no generation). No-op with no bridge
-		// or no subscribers. MAIN thread.
+		// or no subscribers. Main thread.
 		void BroadcastData() { PushToSubscribers("settings.data", _store.DataView()); }
 
 	private:
@@ -74,10 +70,10 @@ namespace OSFUI
 		// bridge or no subscribers — e.g. during the OnStart NotifyAll replay).
 		void PushToSubscribers(std::string_view a_type, const nlohmann::json& a_payload) const;
 
-		// stem -> last SEEN write time (recorded per attempt, success or not:
-		// a half-written editor save fails to parse but its final write bumps
-		// the mtime again, so it retries; a genuinely broken file logs once
-		// per save instead of once per scan).
+		// stem -> last seen write time, recorded per attempt whether or not it
+		// parsed: a half-written editor save fails to parse but its final write
+		// bumps the mtime again, so it retries; a broken file logs once per save
+		// instead of once per scan.
 		using SchemaMtimes = std::unordered_map<std::string, std::filesystem::file_time_type>;
 		[[nodiscard]] SchemaMtimes ScanSchemaDir() const;
 

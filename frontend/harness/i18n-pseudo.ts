@@ -1,18 +1,14 @@
-// i18n-pseudo.ts — the harness pseudo-locale transform. DEV ONLY.
-//
-// Ported from devtools/harness/mockbridge.js:168-179.
+// Harness pseudo-locale transform. Dev only.
 //
 // Accent every letter (glyph coverage), pad ~30% (German-ish expansion), and
-// bracket the whole string. The brackets are the point: a bare-English survivor
-// on screen is a string that never went through the localization path, and
-// anything overflowing its box is a layout that will not survive a real
-// translation. Text stays readable throughout, so the page is still usable
-// while you audit it.
+// bracket the string. The brackets are the point: unbracketed text on screen is
+// a string that never went through the localization path, and anything
+// overflowing its box will not survive a real translation.
 
 /**
- * Latin letter -> accented look-alike. Kept as a plain object literal (not a
- * computed range) so the exact glyph set is reviewable: these are the
- * characters the shipped font must cover for pseudo mode to be legible.
+ * Latin letter -> accented look-alike. A literal rather than a computed range
+ * so the glyph set stays reviewable: the shipped font must cover exactly these
+ * for pseudo mode to be legible.
  */
 const PSEUDO_ACCENTS: Record<string, string> = {
   A: 'Å', B: 'Ɓ', C: 'Ç', D: 'Đ', E: 'É', F: 'Ƒ', G: 'Ĝ', H: 'Ĥ', I: 'Î', J: 'Ĵ', K: 'Ķ', L: 'Ļ', M: 'Ṁ',
@@ -22,11 +18,8 @@ const PSEUDO_ACCENTS: Record<string, string> = {
 };
 
 /**
- * Pseudo-localize one string.
- *
- * Non-strings and the empty string pass through UNCHANGED — the legacy guard
- * was `if (typeof s !== "string" || !s) return s`, and it matters: bracketing
- * "" would put a stray "[·]" into every empty label slot on the page.
+ * Pseudo-localize one string. Non-strings and the empty string pass through
+ * unchanged: bracketing "" would put a stray "[·]" in every empty label slot.
  */
 export function pseudoize<T>(s: T): T | string {
   if (typeof s !== 'string' || !s) return s;

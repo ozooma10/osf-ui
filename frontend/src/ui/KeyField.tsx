@@ -1,39 +1,33 @@
-// KeyField.tsx — the `type:"key"` rebind button, plus its optional unbind ✕.
+// The `type:"key"` rebind button, plus its optional unbind ✕.
 //
-// Ports `buildKey` (settings/main.legacy.js:500-523).
+// Capture is native, not a keydown listener: pressing the current overlay
+// toggle key must rebind it, not close the overlay, and only the runtime sees
+// the press before its own hotkey dispatch. Clicking arms
+// `settings.captureKey`; the answer comes back as `settings.captured`. The
+// browser-side fallback exists only for the bridge-less preview.
 //
-// WHY THE CAPTURE IS NATIVE, NOT A keydown LISTENER: pressing the CURRENT
-// overlay toggle key must rebind it, not close the overlay. Only the runtime
-// sees the press before its own hotkey dispatch does, so clicking this arms
-// `settings.captureKey` and the answer comes back as `settings.captured`. The
-// browser-side fallback exists purely for the bridge-less preview.
-//
-// TWO padnav contracts live here:
-//
-//  * `class="listening"` while armed. src/legacy/padnav.js:207 suspends ALL
-//    arrow navigation while any `.listening` element exists — the next key
-//    press belongs to the capture. The class is appended AFTER the kit classes,
-//    matching legacy's `classList.add` (so the className reads
-//    "osf-btn osf-btn--sm osf-key listening").
+// Two padnav contracts:
+//  * `class="listening"` while armed — padnav suspends all arrow navigation
+//    while any `.listening` element exists, since the next key press belongs
+//    to the capture. The class must come after the kit classes, so className
+//    reads "osf-btn osf-btn--sm osf-key listening".
 //  * The ✕ is a real <button>, so padnav can reach it.
 //
-// The unbind affordance appears ONLY when BOTH hold: the schema opted into the
-// unbound state (`allowUnbound`) AND there is a current value to clear
-// (main.legacy.js:508). Without allowUnbound the store refuses "" outright, so
-// offering the button would render a control whose only action is rejected.
+// The unbind affordance appears only when the schema opted into the unbound
+// state (`allowUnbound`) and there is a current value to clear. Without
+// allowUnbound the store refuses "", so the button's only action would be
+// rejected.
 
 export interface KeyFieldProps {
   id: string;
   /** The bound key name, or "" / undefined when unbound. */
   value: string | undefined;
-  /** Schema `allowUnbound` — strictly, the ✕'s first precondition. */
   allowUnbound: boolean;
-  /** True while THIS field's capture is armed. */
+  /** True while this field's capture is armed. */
   listening: boolean;
   disabled: boolean;
-  /** Arm the capture. */
   onRebind: () => void;
-  /** Commit "" (the deliberate unbound state). */
+  /** Commit "" (the unbound state). */
   onUnbind: () => void;
   /** Label shown while armed, e.g. tr("pressKey", "Press a key…"). */
   listeningLabel: string;
@@ -54,8 +48,8 @@ export function KeyField(props: KeyFieldProps) {
       disabled={disabled}
       onClick={props.onRebind}
     >
-      {/* An em-dash placeholder for "unbound" — legacy's `current || "—"`, so
-          an empty-string value shows the dash rather than an empty button. */}
+      {/* Em-dash placeholder for "unbound", so an empty-string value shows the
+          dash rather than an empty button. */}
       {listening ? props.listeningLabel : value || '—'}
     </button>
   );

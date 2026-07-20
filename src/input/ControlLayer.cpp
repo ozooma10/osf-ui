@@ -14,14 +14,12 @@ namespace OSFUI
 		RE::BSInputEnableLayer* g_layer{ nullptr };
 		bool                    g_engaged{ false };
 
-		// Flag set to clear while the overlay is open — "freeze the player":
-		// movement, look/camera, combat, sneak, activate, sprint, POV, zoom,
-		// quick-keys/favorites, and the travel verbs. `Menu` is left ENABLED on
-		// purpose so the engine cursor/menu path keeps working (esp. alongside
-		// FocusMenu). The USER bits below are all runtime-proven on 1.16.244 (the
-		// controller run): Looking(b1) is the mouse-look/camera bit — so OTHER::
-		// CamSwitch is NOT needed for camera and is deliberately not in the OTHER
-		// set. TabMenuMaybe/Console stayed out (inconclusive / disproven).
+		// Flags cleared while the overlay is open, to freeze the player. `Menu`
+		// stays enabled so the engine cursor/menu path keeps working (notably
+		// alongside FocusMenu). These bits are runtime-proven on 1.16.244:
+		// Looking(b1) is the mouse-look/camera bit, so OTHER::CamSwitch is not
+		// needed for camera and is absent below. TabMenuMaybe/Console stayed out
+		// (inconclusive / disproven).
 		constexpr RE::USER_EVENT_FLAG kUserDisable =
 			RE::USER_EVENT_FLAG::Movement |     // Walking | Jumping
 			RE::USER_EVENT_FLAG::Looking |      // mouse-look / camera (proven)
@@ -40,16 +38,15 @@ namespace OSFUI
 			RE::OTHER_EVENT_FLAG::FastTravel |
 			RE::OTHER_EVENT_FLAG::GravJump |
 			RE::OTHER_EVENT_FLAG::Takeoff |
-			// Gamepad-reachable verbs found leaking once Level-2 testing put a
-			// controller in hand with the overlay open (2026-07-02: LB opened the
-			// hand scanner under the menu — ControlLayer never covered it):
+			// Gamepad-reachable verbs that leaked with the overlay open
+			// (2026-07-02: LB opened the hand scanner under the menu):
 			RE::OTHER_EVENT_FLAG::HandScanner |  // LB
 			RE::OTHER_EVENT_FLAG::Journal |      // Start
 			RE::OTHER_EVENT_FLAG::Inventory |
 			RE::OTHER_EVENT_FLAG::FarTravel;
 
-		// Allocate the session layer on first use. Returns false (warn-once) when
-		// the manager isn't ready yet (main menu) — the caller retries next tick.
+		// Allocates the session layer on first use. Returns false when the manager
+		// isn't ready yet (main menu); the caller retries next tick.
 		bool EnsureLayer()
 		{
 			if (g_layer) {
@@ -92,11 +89,10 @@ namespace OSFUI
 			return;
 		}
 		if (g_layer) {
-			// Re-enable exactly what we disabled. We keep the layer for the session
-			// and toggle its mask rather than DecRef-on-close: DecRef now works (the
-			// engine release runs LayerFreed and restores controls), but a held layer
-			// avoids re-claiming a pool slot on every overlay toggle. The layer is
-			// reused next Engage.
+			// Re-enable exactly what we disabled. The layer is held for the session
+			// and its mask toggled rather than DecRef-on-close: DecRef does work
+			// (engine release runs LayerFreed and restores controls), but holding it
+			// avoids re-claiming a pool slot on every overlay toggle.
 			g_layer->EnableUserEvent(kUserDisable, true);
 			g_layer->EnableOtherEvent(kOtherDisable, true);
 		}

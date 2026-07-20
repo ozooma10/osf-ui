@@ -18,8 +18,8 @@ namespace OSFUI
 			});
 		};
 
-		// Keyboard ButtonEvents carry Windows VK codes (see InputTypes.h for
-		// the in-game proof), so names resolve to VK values.
+		// Keyboard ButtonEvents carry Windows VK codes (proof in InputTypes.h),
+		// so names resolve to VK values.
 
 		// F1-F24: VK_F1 (0x70) .. VK_F24 (0x87) are contiguous.
 		if (a_name.size() >= 2 && (a_name[0] == 'F' || a_name[0] == 'f')) {
@@ -50,15 +50,14 @@ namespace OSFUI
 			{ "LAlt", 0xA4 }, { "RAlt", 0xA5 },
 			// Console/grave key (VK_OEM_3 on US layouts). Aliases for the same VK.
 			{ "Grave", 0xC0 }, { "Tilde", 0xC0 }, { "Backtick", 0xC0 }, { "Console", 0xC0 },
-			// OEM punctuation. LAYOUT-DEPENDENT, exactly like Grave above: these
-			// are the US ANSI meanings of each VK. On a German layout VK_OEM_1
-			// is 'ö', not ';' — the NAME (and the on-screen board) still says
-			// Semicolon, because the name is persisted in config JSON and has to
-			// mean the same key on every machine that loads it. Only the printed
-			// keycap differs. Making names follow the active layout would make a
-			// saved binding machine-dependent — see the note on KeyName below.
-			// First spelling per VK is canonical (KeyName returns it); the rest
-			// are input aliases so hand-edited configs and schema defaults work.
+			// OEM punctuation, layout-dependent like Grave above: these are the
+			// US ANSI meanings of each VK. On a German layout VK_OEM_1 is 'ö',
+			// not ';', but the name (and the on-screen board) still says
+			// Semicolon — names are persisted in config JSON and must mean the
+			// same key on every machine that loads it; only the printed keycap
+			// differs (see the note on KeyName below). First spelling per VK is
+			// canonical (KeyName returns it); the rest are input aliases so
+			// hand-edited configs and schema defaults work.
 			{ "Minus", 0xBD }, { "Hyphen", 0xBD }, { "Dash", 0xBD },
 			{ "Equals", 0xBB }, { "Equal", 0xBB }, { "Plus", 0xBB },
 			{ "LBracket", 0xDB }, { "LeftBracket", 0xDB },
@@ -92,9 +91,8 @@ namespace OSFUI
 		if ((a_vk >= 0x30 && a_vk <= 0x39) || (a_vk >= 0x41 && a_vk <= 0x5A)) {
 			return std::string(1, static_cast<char>(a_vk));
 		}
-		// Named keys — the canonical (first) name per VK, matching the forward
-		// table's primary spelling (aliases like Return/Tilde resolve back to
-		// Enter/Grave). Keep in lockstep with ResolveKeyName's kNamedKeys.
+		// Canonical (first) name per VK; aliases like Return/Tilde resolve back
+		// to Enter/Grave. Keep in lockstep with ResolveKeyName's kNamedKeys.
 		switch (a_vk) {
 		case 0x20: return "Space";
 		case 0x0D: return "Enter";
@@ -122,8 +120,8 @@ namespace OSFUI
 		case 0xA4: return "LAlt";
 		case 0xA5: return "RAlt";
 		case 0xC0: return "Grave";
-		// OEM punctuation — canonical (first) spelling per VK, US ANSI. Kept in
-		// lockstep with kNamedKeys above; see the layout note there.
+		// OEM punctuation — canonical spelling per VK, US ANSI; see the layout
+		// note on kNamedKeys.
 		case 0xBD: return "Minus";
 		case 0xBB: return "Equals";
 		case 0xDB: return "LBracket";
@@ -160,12 +158,11 @@ namespace OSFUI
 
 	void InputRouter::OnKeyDown(KeyCode a_key)
 	{
-		// Toggle path: fed by the WndProc hook. Handled before capture so the toggle
-		// key always works, even while the overlay owns input. The toggle key and a
-		// captured ESC are distinct intents (F10 toggles the default menu; ESC is
-		// the back action — the runtime closes the top menu, or delegates to a
-		// back-owning view via osfui.handleBack). Both are consumed here regardless
-		// so the key never also routes into the view as a plain keystroke.
+		// Fed by the WndProc hook. Toggle is handled before capture so it works
+		// even while the overlay owns input, and is a distinct intent from a
+		// captured Esc (Esc = back: close the top menu, or delegate to a
+		// back-owning view via osfui.handleBack). Both are consumed here so the
+		// key never also routes into the view as a plain keystroke.
 		const bool captured = Captured();
 		if (_toggleKey != kInvalidKeyCode && a_key == _toggleKey) {
 			if (_onToggle) {

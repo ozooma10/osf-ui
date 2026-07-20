@@ -8,8 +8,7 @@ namespace OSFUI::API
 			return 0;
 		}
 		std::lock_guard lock(_mutex);
-		// 0 is the "failed" sentinel; on the (theoretical) 4-billionth
-		// subscribe, skip it and any token still live.
+		// 0 is the "failed" sentinel; after wraparound also skip any live token.
 		while (_nextToken == 0 || _subs.contains(_nextToken)) {
 			++_nextToken;
 		}
@@ -26,9 +25,9 @@ namespace OSFUI::API
 
 	void HotkeySubscriptions::OnFired(std::string_view a_modId, std::string_view a_key)
 	{
-		// Drop early when nobody listens so an unsubscribed hotkey never
-		// accumulates queue entries (dispatch fires for EVERY key-typed
-		// setting; most have no native consumer).
+		// Drop early when nobody listens, else queue entries accumulate:
+		// dispatch fires for every key-typed setting and most have no native
+		// consumer.
 		std::lock_guard lock(_mutex);
 		const bool anySubscriber = std::any_of(_subs.begin(), _subs.end(),
 			[&](const auto& a_entry) { return a_entry.second.modId == a_modId && a_entry.second.key == a_key; });
@@ -49,9 +48,9 @@ namespace OSFUI::API
 			std::string   key;
 		};
 
-		// Resolve the queued fires to the subscriber set under one lock, then
-		// invoke unlocked with a per-call liveness re-check (the
-		// SettingsSubscriptions::Pump discipline).
+		// Resolve queued fires against the subscriber set under one lock, then
+		// invoke unlocked with a per-call liveness re-check (same discipline as
+		// SettingsSubscriptions::Pump).
 		std::vector<Call> calls;
 		{
 			std::lock_guard lock(_mutex);

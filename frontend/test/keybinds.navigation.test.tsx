@@ -1,14 +1,9 @@
 // @vitest-environment jsdom
 //
-// keybinds.navigation.test.tsx — the four behaviours of the keybinds view that
-// a well-meaning refactor would "fix" into something else.
-//
-// Each of these is deliberate shipped behaviour, and each looks like a bug from
-// the outside:
-//   * selecting the selected key DESELECTS it;
-//   * searching re-scopes the board and the list but NOT the detail panel;
-//   * a click inside a row's button is not a click on the row;
-//   * goBack navigates to the hub and only closes the overlay if that fails.
+// Four shipped keybinds behaviours that look like bugs from the outside:
+// selecting the selected key deselects it; search re-scopes the board and list
+// but not the detail panel; a click inside a row's button is not a click on the
+// row; goBack opens the hub and only closes the overlay if that fails.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { render } from 'preact';
@@ -16,10 +11,6 @@ import { act } from 'preact/test-utils';
 import { App } from '@views/osfui/keybinds/App';
 import { nullBridge, type Bridge } from '@lib/bridge';
 import type { SettingsDataPayload } from '@sdk';
-
-// ---------------------------------------------------------------------------
-// harness
-// ---------------------------------------------------------------------------
 
 type Listener = (payload: unknown) => void;
 
@@ -78,13 +69,10 @@ function makeBridge(): FakeBridge {
 }
 
 /**
- * Let Preact settle.
- *
- * `act` is what actually matters here: Preact schedules useEffect callbacks
- * with requestAnimationFrame, so without it the bridge subscriptions and the
+ * Let Preact settle. Preact schedules useEffect callbacks with
+ * requestAnimationFrame, so outside `act` the bridge subscriptions and the
  * document-level keydown listener are never installed and every push is
- * silently dropped. The inner timeout drains promise callbacks (the bridge
- * request chains) too.
+ * dropped. The inner timeout drains promise callbacks (bridge request chains).
  */
 const flush = async () => {
   await act(async () => {
@@ -93,9 +81,8 @@ const flush = async () => {
 };
 
 /**
- * Two mods and two vanilla rows. `osfui.toggleKey` is F10; `demo.panelKey` is
- * F5, which COLLIDES with the vanilla Quicksave — so the fixture exercises the
- * conflict paths as well as the plain ones.
+ * Two mods and two vanilla rows. `demo.panelKey` (F5) collides with the vanilla
+ * Quicksave, so the fixture covers the conflict paths as well as the plain ones.
  */
 const DATA: SettingsDataPayload = {
   mods: [
@@ -127,10 +114,10 @@ let host: HTMLElement | null = null;
 async function mount(bridge: Bridge) {
   host = document.createElement('div');
   document.body.appendChild(host);
-  // The initial render MUST be inside `act`, not merely followed by it:
-  // Preact queues useEffect callbacks through `afterPaint`, and a render
-  // performed outside an act scope leaves that queue unflushed, so the view
-  // mounts with none of its bridge subscriptions installed.
+  // The initial render must be inside `act`, not merely followed by it: Preact
+  // queues useEffect callbacks through `afterPaint`, and a render outside an act
+  // scope leaves that queue unflushed, so the view mounts with none of its
+  // bridge subscriptions installed.
   await act(async () => {
     render(<App bridge={bridge} />, host as HTMLElement);
   });
@@ -138,7 +125,6 @@ async function mount(bridge: Bridge) {
   return host;
 }
 
-/** The board cell whose printed label is `label`. */
 function cell(el: HTMLElement, label: string): HTMLButtonElement {
   const found = [...el.querySelectorAll<HTMLButtonElement>('#keyboard button')].find(
     (c) => c.querySelector('.kb-key-label')!.textContent === label,
@@ -163,12 +149,9 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
-// ---------------------------------------------------------------------------
-
 describe('keybinds — selection', () => {
   it('selectKey TOGGLES: clicking the selected key deselects it', async () => {
-    // main.legacy.js:281 `selectedKey = name === selectedKey ? "" : name;`
-    // This is the only way to clear the panel — there is no close affordance.
+    // Toggling is the only way to clear the panel — there is no close affordance.
     const bridge = makeBridge();
     const el = await mount(bridge);
     bridge.emit('settings.data', DATA);
@@ -189,8 +172,8 @@ describe('keybinds — selection', () => {
     expect(title()).toBe('Select a key');
     expect(cell(el, 'F10').classList.contains('is-selected')).toBe(false);
 
-    // A DIFFERENT key selects rather than toggling, so the toggle really is
-    // an equality test and not a "click clears" rule.
+    // A different key selects rather than toggling: the toggle is an equality
+    // test, not a "click clears" rule.
     cell(el, 'F10').click();
     await flush();
     cell(el, 'F5').click();
@@ -203,15 +186,14 @@ describe('keybinds — selection', () => {
 
 describe('keybinds — search scope', () => {
   it('repaints the board and the list but NOT the detail panel', async () => {
-    // main.legacy.js:518 — the input handler calls paintKeyboard() and
-    // renderList() and nothing else. Re-scoping the detail panel on every
-    // keystroke would make the inspected key vanish while you type its name.
+    // Re-scoping the detail panel on every keystroke would make the inspected
+    // key vanish while you type its name.
     const bridge = makeBridge();
     const el = await mount(bridge);
     bridge.emit('settings.data', DATA);
     await flush();
 
-    // Select F5 — a mod binding AND the vanilla Quicksave, i.e. a conflict.
+    // Select F5 — a mod binding plus the vanilla Quicksave, i.e. a conflict.
     cell(el, 'F5').click();
     await flush();
 
@@ -219,7 +201,7 @@ describe('keybinds — search scope', () => {
     const detailTitleBefore = el.querySelector('#detail-title')!.innerHTML;
     const listBefore = el.querySelector('#bindlist')!.innerHTML;
 
-    // A query that matches NOTHING in the detail panel's key.
+    // A query that matches nothing in the detail panel's key.
     await typeSearch(el, 'interact');
 
     // The list narrowed...
@@ -238,8 +220,8 @@ describe('keybinds — search scope', () => {
   });
 
   it('dims a key only when neither its holders nor its own name match', async () => {
-    // main.legacy.js:256 — the second clause is why searching "f10" keeps F10
-    // lit even for a key nothing is bound to.
+    // Matching the key's own name is why searching "f10" keeps F10 lit even
+    // though nothing is bound to it.
     const bridge = makeBridge();
     const el = await mount(bridge);
     bridge.emit('settings.data', DATA);
@@ -253,9 +235,8 @@ describe('keybinds — search scope', () => {
 
 describe('keybinds — list row activation', () => {
   it('IGNORES a row click that landed inside a button', async () => {
-    // main.legacy.js:365 `if (e.target.closest("button")) return;` — a Rebind
-    // click must stay a rebind. Without it, arming a capture would also change
-    // the selection out from under the user.
+    // A Rebind click must stay a rebind; otherwise arming a capture would also
+    // change the selection out from under the user.
     const bridge = makeBridge();
     const el = await mount(bridge);
     bridge.emit('settings.data', DATA);
@@ -267,12 +248,12 @@ describe('keybinds — list row activation', () => {
     rebind.click();
     await flush();
 
-    // The capture armed, and the selection did NOT move.
+    // The capture armed, and the selection did not move.
     expect(document.querySelectorAll('.listening').length).toBe(1);
     expect(el.querySelector('#detail-title')!.textContent).toBe('Select a key');
     expect(bridge.requests[0]!.command).toBe('settings.captureKey');
 
-    // The control case: a click elsewhere in the same row DOES select.
+    // Control case: a click elsewhere in the same row does select.
     const row = rebind.closest('.kb-holder--list') as HTMLElement;
     const chip = row.querySelector('.kb-chip') as HTMLElement;
     chip.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -283,10 +264,9 @@ describe('keybinds — list row activation', () => {
 
 describe('keybinds — goBack', () => {
   it('opens the hub, and falls back to a bare close when that rejects', async () => {
-    // main.legacy.js:525-529. Single-menu policy means opening the hub REPLACES
-    // this menu, so the happy path needs no close at all. The fallback exists
-    // so an unregistered hub view cannot strand the user in a menu they have no
-    // way to leave.
+    // Single-menu policy: opening the hub replaces this menu, so the happy path
+    // needs no close. The fallback stops an unregistered hub view from stranding
+    // the user in a menu they cannot leave.
     const bridge = makeBridge();
     const el = await mount(bridge);
     bridge.emit('settings.data', DATA);

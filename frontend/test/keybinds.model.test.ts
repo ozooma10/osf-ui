@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { buildModel, vanillaLabel, inputContextFor } from '@lib/keybinds/model';
 import type { ModEntry, VanillaKey } from '@lib/keybinds/model';
 
-/** Minimal mod entry builder — the fields buildModel actually reads. */
+/** Builds a mod entry holding only the fields buildModel reads. */
 function mod(entry: {
   id: string;
   title?: string;
@@ -29,7 +29,7 @@ describe('vanillaLabel', () => {
 
   it('keeps the innermost content when the label itself has parens', () => {
     // `(.+)` is greedy and anchored on the trailing ")", so nested parens on
-    // the RIGHT are kept whole.
+    // the right are kept whole.
     expect(vanillaLabel('Starfield (Scanner (flashlight))')).toBe('Scanner (flashlight)');
   });
 
@@ -134,8 +134,8 @@ describe('buildModel', () => {
             { key: 'unbound', type: 'key' },
             { key: 'missing', type: 'key' },
           ],
-          // "" is the deliberate allowUnbound state - it must not produce a row,
-          // which is why an unbound key can never conflict with anything.
+          // "" is the allowUnbound state: no row, so an unbound key can never
+          // conflict with anything.
           values: { bound: 'F5', unbound: '' },
         }),
       ],
@@ -260,9 +260,8 @@ describe('buildModel', () => {
   });
 
   it('degrades falsy (not just nullish) groups/settings/values to empty', () => {
-    // Legacy used `||`, not `??` (main.legacy.js:109/110/112). A hand-edited or
-    // hostile manifest carrying `groups: 0` must degrade to no rows, NOT throw
-    // out of the for-of and kill the whole render.
+    // A hand-edited or hostile manifest carrying `groups: 0` must degrade to no
+    // rows, not throw out of the for-of and kill the whole render.
     const junk = [
       { id: 'a', schema: { groups: 0 } },
       { id: 'b', schema: { groups: [{ settings: 0 }] } },
@@ -272,8 +271,8 @@ describe('buildModel', () => {
   });
 
   it('skips null entries rather than throwing (documented divergence)', () => {
-    // Legacy dereferenced `mod.schema` / `v.event` unguarded, so a null entry
-    // threw and took the render down. Native never sends one.
+    // Native never sends a null entry; skipping one beats throwing out of the
+    // render.
     const rows = buildModel(
       [null, mod({ id: 'm', settings: [{ key: 'k', type: 'key' }], values: { k: 'F1' } })] as
         unknown as ModEntry[],

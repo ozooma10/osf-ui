@@ -9,15 +9,14 @@ namespace OSFUI::API
 {
 	namespace
 	{
-		// Command shape (api-freeze-plan item 3, ABI 1.6): a plugin command is
-		// "<modId>.<name>" where modId is the item-1 "<author>.<modname>" grammar
-		// — so every registrable command carries TWO dots minimum. That makes
-		// ALL platform commands structurally unregisterable (dotless verbs like
-		// "close", single-dot "menu.open"/"game.get"/"osfui.gamepadRaw"), which
-		// replaces — and can never drift like — the old reserved-prefix list.
-		// The mod id must be pattern-valid but need not have a registered
-		// schema; the name after it is free-form (may itself contain dots,
-		// e.g. "acme.mymod.catalog.get").
+		// Command shape (api-freeze item 3, ABI 1.6): a plugin command is
+		// "<modId>.<name>" with modId the item-1 "<author>.<modname>" grammar, so
+		// every registrable command carries two dots minimum. That makes platform
+		// commands structurally unregisterable (dotless verbs like "close",
+		// single-dot "menu.open"/"game.get"/"osfui.gamepadRaw") without a
+		// reserved-prefix list that could drift. The mod id must be pattern-valid
+		// but need not have a registered schema; the name after it is free-form
+		// and may contain dots ("acme.mymod.catalog.get").
 		bool IsValidPluginCommand(std::string_view a_cmd)
 		{
 			const auto first = a_cmd.find('.');
@@ -31,10 +30,10 @@ namespace OSFUI::API
 			return Ids::IsValidModId(a_cmd.substr(0, second));
 		}
 
-		// Cap on queued SendToWeb messages per target view while no bridge is
-		// live to flush them (ABI 1.3 queue-until-deliverable). Matches the
-		// renderer's per-view queue bound; overflow drops the OLDEST so the
-		// view still converges on the newest pushed state when it comes up.
+		// Cap on queued SendToWeb messages per target view while no bridge is live
+		// to flush them (ABI 1.3 queue-until-deliverable). Matches the renderer's
+		// per-view queue bound; overflow drops the oldest so the view still
+		// converges on the newest pushed state when it comes up.
 		constexpr std::size_t kMaxPendingSendsPerView = 64;
 	}
 
@@ -80,11 +79,10 @@ namespace OSFUI::API
 			return;
 		}
 		std::lock_guard lock(_mutex);
-		// First-wins (ABI 1.6): a duplicate registration is REFUSED, not
-		// last-writer-wins — hijacking an already-claimed command is impossible
-		// instead of merely logged. Replacing your own handler is explicit:
-		// UnregisterCommand, then re-register (both in the ABI; the pair works
-		// back-to-back within one tick).
+		// First-wins (ABI 1.6): a duplicate registration is refused, not
+		// last-writer-wins, so an already-claimed command cannot be hijacked.
+		// Replacing your own handler means UnregisterCommand then re-register;
+		// the pair works back-to-back within one tick.
 		if (_commands.contains(cmd)) {
 			REX::WARN("BridgeApi: refused RegisterCommand('{}') — already registered (first wins; "
 					  "UnregisterCommand first to replace your own handler)",
@@ -121,12 +119,11 @@ namespace OSFUI::API
 			return false;
 		}
 		std::lock_guard lock(_mutex);
-		// ABI 1.3: QUEUE even before a bridge is live (older MINORs returned
-		// false here). The pump flushes FIFO once one appears, and the renderer
-		// then stashes per view until the page can receive — so a send issued at
-		// plugin load, or right before a RequestMenu open, is never dropped.
-		// Bounded per view so pushes to a view that never comes up can't grow
-		// memory unboundedly.
+		// ABI 1.3: queue even before a bridge is live (older minors returned false
+		// here). The pump flushes FIFO once one appears and the renderer stashes
+		// per view until the page can receive, so a send issued at plugin load or
+		// right before a RequestMenu open is not dropped. Bounded per view so
+		// pushes to a view that never comes up can't grow memory unboundedly.
 		if (!_ready.load()) {
 			std::size_t sameView = 0;
 			for (const auto& s : _pendingSends) {
@@ -161,8 +158,9 @@ namespace OSFUI::API
 		if (!a_viewId || !a_viewId[0]) {
 			return false;
 		}
-		// Queue it like a send; Runtime drains it on the main tick and runs it through the normal menu policy. Requesting an open before any bridge is live is fine
-		// the request waits and Runtime applies it once a surface can be shown.
+		// Queued like a send; Runtime drains it on the main tick through the normal
+		// menu policy. An open requested before any bridge is live waits until a
+		// surface can be shown.
 		std::lock_guard lock(_mutex);
 		_pendingMenuReqs.push_back({ std::string(a_viewId), a_open });
 		return true;
@@ -213,9 +211,9 @@ namespace OSFUI::API
 		if (!a_schemaJson) {
 			return false;
 		}
-		// Parse + shape errors report synchronously (the ABI contract); the
-		// store merge itself is marshaled to the main tick (Runtime::
-		// DrainSchemaOps), where precedence resolves with a log warning.
+		// Parse and shape errors report synchronously (ABI contract); the store
+		// merge is marshaled to the main tick (Runtime::DrainSchemaOps), where
+		// precedence resolves with a log warning.
 		auto schema = nlohmann::json::parse(a_schemaJson, nullptr, /*allow_exceptions*/ false);
 		if (schema.is_discarded()) {
 			REX::WARN("BridgeApi: RegisterSettingsSchema rejected — malformed JSON");
@@ -259,19 +257,19 @@ namespace OSFUI::API
 		if (!a_viewId || !a_viewId[0]) {
 			return false;
 		}
-		// Shape gate, synchronous like RegisterSettingsSchema's: view ids are
-		// qualified "<author>.<modname>/<view>" (api-freeze-plan item 1). A
-		// structurally invalid id can never match a discovered manifest, so
-		// refuse it here where the caller sees the false.
+		// Synchronous shape gate: view ids are qualified
+		// "<author>.<modname>/<view>" (api-freeze item 1). A structurally invalid
+		// id can never match a discovered manifest, so refuse it here where the
+		// caller sees the false.
 		if (!Ids::IsValidQualifiedViewId(a_viewId)) {
 			REX::WARN("BridgeApi: refused RegisterView('{}') — view ids are qualified "
 					  "'<author>.<modname>/<view>' (lowercase [a-z0-9-] segments)",
 				std::string_view(a_viewId).substr(0, 128));
 			return false;
 		}
-		// Queue it like RequestMenu; Runtime drains it on the main tick
-		// (DrainViewRegistrations), where the manifest lookup + surface
-		// registration happen — a not-found id warns there, not here.
+		// Runtime drains this on the main tick (DrainViewRegistrations), where the
+		// manifest lookup and surface registration happen; a not-found id warns
+		// there, not here.
 		std::lock_guard lock(_mutex);
 		_pendingViewRegs.emplace_back(a_viewId);
 		return true;
@@ -293,9 +291,9 @@ namespace OSFUI::API
 
 	void BridgeApi::PumpMainThread()
 	{
-		// Snapshot the work under the lock, then act unlocked — the actions call
-		// into MessageBridge and the ready callback, which must never run while
-		// holding _mutex (the callback may re-enter our API).
+		// Snapshot the work under the lock, then act unlocked: MessageBridge and
+		// the ready callback must not run while holding _mutex — the callback may
+		// re-enter our API.
 		MessageBridge* bridge = nullptr;
 		std::vector<std::string>                      toUnregister;
 		std::vector<std::pair<std::string, Registration>> toRegister;
@@ -340,14 +338,13 @@ namespace OSFUI::API
 			for (const auto& [cmd, reg] : toRegister) {
 				// Trampoline: adapt the ABI-safe CommandFn to the internal handler.
 				bridge->RegisterCommand(cmd, [cmd, reg](const nlohmann::json& a_payload, MessageBridge& a_b) {
-					// Item-5 envelope: the caller's requestId rides INSIDE the
+					// Item-5 envelope: the caller's requestId rides inside the
 					// payload JSON (additive — plugins that ignore it lose
-					// nothing). After this handler returns, the bridge
-					// auto-answers `ui.result { ok:true }` = delivered-and-
-					// handled; a plugin that wants to publish richer results
-					// sends its own message type via SendToWeb, echoing the
-					// payload's requestId in its own payload if it wants
-					// correlation.
+					// nothing). After this handler returns the bridge
+					// auto-answers `ui.result { ok:true }`, meaning
+					// delivered-and-handled. Richer results go out as the
+					// plugin's own SendToWeb message, echoing the payload's
+					// requestId for correlation.
 					std::string dump;
 					if (const auto rid = a_b.CurrentRequestId(); !rid.empty()) {
 						nlohmann::json withId = a_payload;
@@ -370,13 +367,13 @@ namespace OSFUI::API
 			readyCb(readyUser);
 		}
 
-		// Settings subscriptions last, so a SubscribeSettings issued from the
-		// ready callback above gets its replay THIS tick, not the next.
-		// _subscriptions locks itself and invokes consumer callbacks unlocked;
-		// _mutex is not held here.
+		// Settings subscriptions last, so a SubscribeSettings issued from the ready
+		// callback above gets its replay this tick, not the next. _subscriptions
+		// locks itself and invokes consumer callbacks unlocked; _mutex is not held
+		// here.
 		_subscriptions.Pump(_mirror);
-		// Hotkey fires queued by Runtime::DrainHotkeys earlier this tick —
-		// same locking discipline as the settings pump above.
+		// Hotkey fires queued by Runtime::DrainHotkeys earlier this tick; same
+		// locking discipline as the settings pump above.
 		_hotkeys.Pump();
 	}
 }

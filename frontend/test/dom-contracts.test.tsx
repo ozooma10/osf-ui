@@ -1,14 +1,11 @@
 // @vitest-environment jsdom
 //
-// dom-contracts.test.tsx — the padnav coupling, pinned.
+// Pins the DOM shapes padnav.js queries. padnav ships verbatim and navigates by
+// reading the DOM; it is not imported, bundled or type-checked, so nothing else
+// catches a component that stops emitting the shape it queries. The symptom is a
+// controller that silently cannot reach a control in game.
 //
-// src/legacy/padnav.js ships VERBATIM and navigates by reading the DOM. It is
-// not imported, not bundled and not type-checked, so nothing else in this repo
-// can tell you when a component stops producing the shape it queries — the
-// symptom is a controller that silently cannot reach a control in game.
-//
-// Every assertion below quotes the padnav line that consumes it. If one of
-// these fails, the fix is in the component, never in padnav.
+// If one of these fails, the fix is in the component, not in padnav.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { render } from 'preact';
@@ -19,9 +16,7 @@ import { App } from '@views/osfui/keybinds/App';
 import { nullBridge, type Bridge } from '@lib/bridge';
 import type { SettingsDataPayload } from '@sdk';
 
-// ---------------------------------------------------------------------------
-// harness
-// ---------------------------------------------------------------------------
+// Harness
 
 type Listener = (payload: unknown) => void;
 
@@ -82,13 +77,10 @@ function makeBridge(): FakeBridge {
 }
 
 /**
- * Let Preact settle.
- *
- * `act` is what actually matters here: Preact schedules useEffect callbacks
- * with requestAnimationFrame, so without it the bridge subscriptions and the
- * document-level keydown listener are never installed and every push is
- * silently dropped. The inner timeout drains promise callbacks (the bridge
- * request chains) too.
+ * Let Preact settle. `act` is required: Preact schedules useEffect callbacks via
+ * requestAnimationFrame, so without it the bridge subscriptions and the
+ * document-level keydown listener are never installed and every push is dropped.
+ * The inner timeout drains promise callbacks (the bridge request chains).
  */
 const flush = async () => {
   await act(async () => {
@@ -117,10 +109,10 @@ let host: HTMLElement | null = null;
 async function mount(bridge: Bridge) {
   host = document.createElement('div');
   document.body.appendChild(host);
-  // The initial render MUST be inside `act`, not merely followed by it:
-  // Preact queues useEffect callbacks through `afterPaint`, and a render
-  // performed outside an act scope leaves that queue unflushed, so the view
-  // mounts with none of its bridge subscriptions installed.
+  // The initial render must be inside `act`, not merely followed by it: Preact
+  // queues useEffect callbacks through `afterPaint`, and a render outside an act
+  // scope leaves that queue unflushed, so the view mounts with none of its
+  // bridge subscriptions installed.
   await act(async () => {
     render(<App bridge={bridge} />, host as HTMLElement);
   });
@@ -137,12 +129,10 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
-// ---------------------------------------------------------------------------
-
 describe('padnav DOM contracts', () => {
   it('Row emits class="row" — the navigation band padnav measures against', () => {
-    // padnav.js:99-102 `bandOf`: `el.closest(".row")` decides whether two
-    // controls count as one navigation line. No `.row`, no band.
+    // padnav `bandOf` uses `el.closest(".row")` to decide whether two controls
+    // count as one navigation line. No `.row`, no band.
     const el = document.createElement('div');
     render(
       <Row class="" dataLabel="" dataKey="">
@@ -153,7 +143,7 @@ describe('padnav DOM contracts', () => {
     const row = el.querySelector('div');
     expect(row).not.toBeNull();
     expect(row!.classList.contains('row')).toBe(true);
-    // Extra classes must APPEND, never replace the contract class.
+    // Extra classes must append, not replace the contract class.
     render(
       <Row class="row-danger" dataLabel="open / close key" dataKey="toggleKey">
         <button type="button">x</button>
@@ -168,9 +158,8 @@ describe('padnav DOM contracts', () => {
   });
 
   it('Overlay emits data-nav-modal="1" — the focus trap', () => {
-    // padnav.js:76 `navRoot()` and :211 both query `[data-nav-modal]` by
-    // ATTRIBUTE PRESENCE, so any value traps; "1" matches the shipped markup
-    // (settings/main.legacy.js:1505).
+    // padnav queries `[data-nav-modal]` by attribute presence, so any value
+    // traps; "1" matches the shipped markup.
     const el = document.createElement('div');
     render(
       <Overlay class="session-overlay">
@@ -187,9 +176,9 @@ describe('padnav DOM contracts', () => {
   });
 
   it('bind-list rows carry tabIndex=0 so Enter/A can reach them', async () => {
-    // padnav.js:85-86 enumerates `button, input, select, textarea, a[href],
-    // [tabindex]` and skips anything with `tabIndex < 0`. A click-to-select div
-    // is invisible to it without an explicit tabindex.
+    // padnav enumerates `button, input, select, textarea, a[href], [tabindex]`
+    // and skips anything with `tabIndex < 0`. A click-to-select div is invisible
+    // to it without an explicit tabindex.
     const bridge = makeBridge();
     const el = await mount(bridge);
     bridge.emit('settings.data', DATA);
@@ -202,10 +191,10 @@ describe('padnav DOM contracts', () => {
       expect(row.getAttribute('tabindex')).toBe('0');
     }
 
-    // Detail-panel rows are NOT focusable — they have no row-level action, so
-    // making them targets would add dead stops to the navigation path.
-    // F5 specifically — the first LIVE cell (F1) holds nothing, so it would
-    // render the empty-state hint instead of any rows.
+    // Detail-panel rows are not focusable: no row-level action, so making them
+    // targets would add dead stops to the navigation path.
+    // F5 specifically — the first live cell (F1) holds nothing and would render
+    // the empty-state hint instead of any rows.
     [...el.querySelectorAll<HTMLButtonElement>('#keyboard button')]
       .find((c) => c.querySelector('.kb-key-label')!.textContent === 'F5')!
       .click();
@@ -219,11 +208,11 @@ describe('padnav DOM contracts', () => {
   });
 
   it('dead keyboard cells render disabled so navigation skips them', async () => {
-    // padnav.js:87 `if (el.disabled || el.tabIndex < 0) continue;`. Without
-    // `disabled` the arrow keys would stop on a cell that can never be bound.
+    // padnav skips `el.disabled || el.tabIndex < 0`. Without `disabled` the
+    // arrow keys would stop on a cell that can never be bound.
     //
-    // Esc is the ONLY such cell now: the punctuation keys became bindable once
-    // native learned their names, so this asserts the reserved-Esc contract
+    // Esc is the only such cell now — the punctuation keys became bindable once
+    // native learned their names — so this asserts the reserved-Esc contract
     // rather than a count.
     const bridge = makeBridge();
     const el = await mount(bridge);
@@ -235,8 +224,8 @@ describe('padnav DOM contracts', () => {
     for (const cell of dead) {
       expect(cell.disabled).toBe(true);
     }
-    // The punctuation keys are live cells now — bindable, and not skipped by
-    // padnav. Guards the regression of them silently going dead again.
+    // Punctuation keys are live cells: bindable, not skipped by padnav. Guards
+    // against them silently going dead again.
     const punctuation = [...el.querySelectorAll<HTMLButtonElement>('#keyboard button')]
       .filter((c) => ['-', '=', '[', ']', '\\', ';', "'", ',', '.', '/'].includes(c.textContent!));
     expect(punctuation.length).toBe(10);
@@ -244,22 +233,22 @@ describe('padnav DOM contracts', () => {
       expect(cell.classList.contains('is-dead')).toBe(false);
       expect(cell.disabled).toBe(false);
     }
-    // Esc gets its own reason: it IS resolvable natively, but the capture flow
-    // reads a press of it as "cancel".
+    // Esc is resolvable natively, but the capture flow reads a press of it as
+    // "cancel".
     const esc = [...dead].find((c) => c.textContent === 'Esc');
     expect(esc).toBeDefined();
     expect(esc!.title).toBe('Reserved (cancels rebinds)');
 
-    // Live cells are the inverse: enabled, and never marked dead.
+    // Live cells are the inverse: enabled, not marked dead.
     const live = el.querySelectorAll<HTMLButtonElement>('#keyboard button:not(.is-dead)');
     expect(live.length).toBeGreaterThan(0);
     for (const cell of live) expect(cell.disabled).toBe(false);
   });
 
   it('an armed capture puts class="listening" in the document', async () => {
-    // padnav.js:207 `if (document.querySelector(".listening")) return;` —
-    // ALL navigation suspends while a rebind is armed, because the next key
-    // press belongs to the capture.
+    // padnav bails on `document.querySelector(".listening")`: all navigation
+    // suspends while a rebind is armed, because the next key press belongs to
+    // the capture.
     const bridge = makeBridge();
     const el = await mount(bridge);
     bridge.emit('settings.data', DATA);
@@ -274,15 +263,15 @@ describe('padnav DOM contracts', () => {
 
     const listening = el.querySelector('.listening');
     expect(listening).not.toBeNull();
-    // It is the BUTTON that listens, and it keeps its kit classes.
+    // The button listens, and keeps its kit classes.
     expect(listening!.tagName).toBe('BUTTON');
     expect(listening!.className).toBe('osf-btn osf-btn--sm osf-key listening');
 
     // Exactly one, even though the same binding may also be on screen in the
-    // detail panel: legacy arms the clicked BUTTON, not the binding.
+    // detail panel: the clicked button arms, not the binding.
     expect(document.querySelectorAll('.listening').length).toBe(1);
 
-    // ...and the capture really did go out as one open-ended request.
+    // The capture went out as one open-ended request.
     expect(bridge.requests[0]).toEqual({
       command: 'settings.captureKey',
       fields: { mod: 'osfui', key: 'toggleKey' },
@@ -295,7 +284,7 @@ describe('padnav DOM contracts', () => {
     bridge.emit('settings.data', DATA);
     await flush();
 
-    // Select F10 so the mod binding renders in the detail panel AND the list.
+    // Select F10 so the mod binding renders in both the detail panel and the list.
     const f10 = [...el.querySelectorAll<HTMLButtonElement>('#keyboard button')].find(
       (c) => c.textContent!.startsWith('F10'),
     );

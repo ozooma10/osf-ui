@@ -3,8 +3,8 @@
 namespace OSFUI
 {
 	// Subclasses the game's main window procedure (SetWindowLongPtr on the
-	// game HWND — NOT a global SetWindowsHookEx) to intercept input at the OS
-	// message boundary. This is the only point that can block GAMEPLAY input
+	// game HWND, not a global SetWindowsHookEx) to intercept input at the OS
+	// message boundary. This is the only point that can block gameplay input
 	// (movement + camera/mouse-look): those read the raw WM_INPUT stream
 	// directly, so blocking the engine's UI input sink is not enough (proven
 	// in-game 2026-06-12 — see docs/reverse-engineering-notes.md §3).
@@ -14,9 +14,9 @@ namespace OSFUI
 	//   - the toggle key still toggles,
 	//   - all mouse/raw-input messages are consumed so the game freezes,
 	//   - the mouse drives the view, always routed from raw WM_INPUT (the
-	//     game's raw-input registration suppresses the legacy WM_MOUSE*
-	//     stream, so it is the only source). Default (config.hardwareCursor):
-	//     the REAL OS pointer is shown (input/HardwareCursor — zero-lag,
+	//     game's raw-input registration suppresses the WM_MOUSE* stream, so
+	//     it is the only source). Default (config.hardwareCursor): the OS
+	//     pointer is shown (input/HardwareCursor — zero-lag,
 	//     hardware-composited) and its live position (GetCursorPos) is the
 	//     routed position. Fallback (hardwareCursor=false): raw deltas drive
 	//     the runtime's invisible virtual cursor instead.

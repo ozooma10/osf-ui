@@ -26,15 +26,15 @@ namespace OSFUI
 		const RE::MenuOpenCloseEvent& a_event,
 		RE::BSTEventSource<RE::MenuOpenCloseEvent>*)
 	{
-		// Edge for the injected PauseMenu "mod settings" entry — cheap atomics
-		// either way; the config.pauseMenuEntry gate lives in Runtime::Tick.
+		// Edge for the injected PauseMenu "mod settings" entry. The
+		// config.pauseMenuEntry gate lives in Runtime::Tick.
 		if (std::string_view{ a_event.menuName } == "PauseMenu") {
 			PauseMenuEntry::NotifyPauseMenu(a_event.opening);
 		}
 
 		// Console edge for the hotkey gameplay gate (MenuMode). INFO on purpose:
-		// rare, and it is the decisive line when triaging "my hotkey fired /
-		// didn't fire while the console was up" from a default (non-dev) log.
+		// rare, and the decisive line when triaging "my hotkey fired / didn't
+		// fire while the console was up" from a default (non-dev) log.
 		if (std::string_view{ a_event.menuName } == "Console") {
 			s_consoleOpen.store(a_event.opening, std::memory_order_relaxed);
 			REX::INFO("MenuEventSink: console {}", a_event.opening ? "opened" : "closed");
@@ -43,19 +43,18 @@ namespace OSFUI
 		if (a_event.opening) {
 			s_openMenus.fetch_add(1, std::memory_order_relaxed);
 
-			// Force-hide the overlay on transition / system menus: it must not
-			// linger over a loading screen or sit at the main menu (where the
-			// game device + state we read may not be valid), and hiding releases
-			// input capture so the game is never left input-frozen across a
-			// transition. The user re-opens with the toggle key afterwards.
+			// Force-hide on transition / system menus: the overlay must not
+			// linger over a loading screen or the main menu (where the game
+			// device and state we read may be invalid), and hiding releases
+			// input capture so the game is not left input-frozen across a
+			// transition. The user re-opens with the toggle key.
 			const std::string_view name = a_event.menuName;
 			if ((name == "LoadingMenu" || name == "MainMenu") && Runtime::Get().IsVisible()) {
 				REX::INFO("MenuEventSink: '{}' opened -> closing all OSF UI surfaces", name);
 				Runtime::Get().EnqueueMenuRequest(Runtime::MenuReq::CloseAll);
 			}
 		} else {
-			// Menus open before we registered can close after; don't go
-			// negative.
+			// Menus open before registration can close after; don't go negative.
 			auto count = s_openMenus.load(std::memory_order_relaxed);
 			while (count > 0 && !s_openMenus.compare_exchange_weak(count, count - 1, std::memory_order_relaxed)) {}
 		}

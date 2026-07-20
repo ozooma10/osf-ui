@@ -12,12 +12,12 @@ namespace OSFUI
 		_valuesDir(std::move(a_valuesDir))
 	{
 		// Subscriber #0: the runtime's core reaction (framework knobs). Later
-		// listeners (web push, ABI mirror) multicast behind it.
+		// listeners multicast behind it.
 		_store.AddChangeListener(std::move(a_onChange));
-		// Subscriber #1: the web push — every committed value goes to every
-		// view that has read the registry (mcm-design.md §8.5). The no-listener
-		// guard runs BEFORE the payload is built: startup NotifyAll and every
-		// set with no view open would otherwise allocate json for nobody.
+		// Subscriber #1: web push — every committed value goes to every view
+		// that has read the registry (mcm-design.md §8.5). The no-listener guard
+		// runs before the payload is built; startup NotifyAll and every set with
+		// no view open would otherwise allocate json for nobody.
 		_store.AddChangeListener([this](std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value) {
 			if (_suppressChangedPush || !_bridge || _subscribers.empty()) {
 				return;
@@ -30,24 +30,24 @@ namespace OSFUI
 			// Key-typed changes carry the setting's recomputed conflict list
 			// (api-freeze-plan item 11) — always present for keys, [] = none —
 			// so views update badges in place instead of re-fetching the whole
-			// registry after every rebind (the old N+1).
+			// registry after every rebind.
 			if (_store.GetSettingType(a_mod, a_key) == "key") {
 				payload["conflicts"] = _store.ConflictsForSetting(a_mod, a_key);
 			}
 			PushToSubscribers("settings.changed", payload);
 		});
 		// Registry shape changed (runtime registration/removal while views are
-		// live): re-send the full document — the settings view fully re-renders
-		// on settings.data, so late registration Just Works.
+		// live): re-send the full document. The settings view re-renders fully
+		// on settings.data, so late registration needs nothing else.
 		_store.AddRegistryListener([this] {
 			if (!_bridge || _subscribers.empty()) {
 				return;
 			}
 			PushToSubscribers("settings.data", _store.DataView());
 		});
-		// A mod's values file WRITE landed (the write-behind flush — distinct
-		// from the immediate settings.changed commit): tell subscribed views so
-		// the settings UI can show "Saved" feedback.
+		// A mod's values-file write landed (the write-behind flush, distinct
+		// from the immediate settings.changed commit): lets the settings UI
+		// show "Saved" feedback.
 		_store.AddPersistListener([this](std::string_view a_mod) {
 			if (!_bridge || _subscribers.empty()) {
 				return;
@@ -82,23 +82,22 @@ namespace OSFUI
 		_nextSchemaScan = a_nowSeconds + kHotReloadScanSeconds;
 
 		auto seen = ScanSchemaDir();
-		// Changed or new files reload/register through the store; every
-		// consequence (value preservation via the flush-then-overlay path,
-		// §11 alias adoption, settings.data re-broadcast to subscribers,
-		// HotkeyService rebuild via the registry listener) rides the same
-		// wiring as a runtime registration. The mtime is recorded even when
-		// the reload fails (mid-save torn file, invalid schema): the editor's
-		// final write bumps it again, and a broken file logs once per save
-		// instead of once per scan.
+		// Changed or new files reload through the store; every consequence
+		// (value preservation via flush-then-overlay, §11 alias adoption,
+		// settings.data re-broadcast, HotkeyService rebuild via the registry
+		// listener) rides the same wiring as a runtime registration. The mtime
+		// is recorded even when the reload fails (mid-save torn file, invalid
+		// schema): the editor's final write bumps it again, and a broken file
+		// logs once per save instead of once per scan.
 		for (const auto& [stem, mtime] : seen) {
 			const auto it = _schemaMtimes.find(stem);
 			if (it == _schemaMtimes.end() || it->second != mtime) {
 				_store.ReloadDropInFile(_schemaDir / (stem + ".json"));
 			}
 		}
-		// A deleted file removes its mod — but only a drop-in one: a runtime
-		// registration owns its schema regardless of any same-id file coming
-		// or going (same precedence as load). Values files are kept (§10).
+		// A deleted file removes its mod, but only a drop-in one: a runtime
+		// registration owns its schema regardless of any same-id file coming or
+		// going (same precedence as load). Values files are kept (§10).
 		for (const auto& [stem, mtime] : _schemaMtimes) {
 			if (!seen.contains(stem) && _store.GetSource(stem) == SettingsStore::Source::kDropIn) {
 				REX::INFO("SettingsModule: settings file '{}' removed — dropping its mod", stem);
@@ -123,7 +122,7 @@ namespace OSFUI
 
 	void SettingsModule::OnViewDestroyed(std::string_view a_viewId)
 	{
-		// Mirror of the runtime's _viewsSubscribers pruning: a view torn down by
+		// Mirrors the runtime's _viewsSubscribers pruning: a view torn down by
 		// crash-recovery must not keep receiving pushes for the process lifetime.
 		_subscribers.erase(std::string(a_viewId));
 	}
@@ -163,9 +162,9 @@ namespace OSFUI
 			const auto key = Json::GetString(a_payload, "key", "");
 			const auto valueIt = a_payload.find("value");
 			// Ack shape (api-freeze-plan items 5 + 11): `value` is the
-			// authoritative post-clamp committed value — an unsubscribed caller
-			// learns what was stored without a re-fetch (and a subscribed one
-			// can tell clamped from accepted); failures carry a machine `code`.
+			// post-clamp committed value, so an unsubscribed caller learns what
+			// was stored without a re-fetch and a subscribed one can tell
+			// clamped from accepted. Failures carry a machine `code`.
 			nlohmann::json ack = { { "mod", mod }, { "key", key } };
 			if (valueIt == a_payload.end()) {
 				ack["ok"] = false;
@@ -188,23 +187,23 @@ namespace OSFUI
 		a_bridge.RegisterCommand("settings.reset", [this](const nlohmann::json& a_payload, MessageBridge& a_b) {
 			const auto mod = Json::GetString(a_payload, "mod", "");
 			const auto key = Json::GetString(a_payload, "key", "");
-			// Suppress the per-key settings.changed fan-out for the web: the one
-			// authoritative settings.data below syncs every subscriber (a whole-mod
-			// reset would otherwise send N redundant messages first). The core
-			// change listener (native reactions) still fires per key.
+			// Suppress the per-key settings.changed fan-out for the web: the
+			// settings.data below syncs every subscriber, and a whole-mod reset
+			// would otherwise send N redundant messages first. The core change
+			// listener (native reactions) still fires per key.
 			_suppressChangedPush = true;
 			const bool ok = _store.Reset(mod, key);
 			_suppressChangedPush = false;
 			if (!ok) {
-				// Failure is no longer silent (item 5): a request-carrying
-				// caller gets ui.result; fire-and-forget stays quiet as before.
+				// Item 5: a request-carrying caller gets ui.result;
+				// fire-and-forget stays silent.
 				a_b.SendResult(false, "unknown-setting", "unknown mod or setting (or a requires-gated stub)");
 				return;
 			}
 			const auto& data = _store.DataView();
-			// The caller's copy goes through the reply path (echoes the
-			// requestId, so osfui.request("settings.reset") resolves with the
-			// authoritative document); other subscribers get the plain push.
+			// The caller's copy goes through the reply path, which echoes the
+			// requestId so osfui.request("settings.reset") resolves with the
+			// document; other subscribers get the plain push.
 			const std::string caller(a_b.CurrentSource());
 			for (const auto& id : _subscribers) {
 				if (id != caller) {

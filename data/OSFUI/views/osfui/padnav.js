@@ -3,59 +3,39 @@
 //
 // The runtime's default gamepad mapping (Runtime::DrainEngineInput) turns
 // D-pad / left-stick edges into injected arrow-key taps, A into Enter and B
-// into close — so a view has controller support exactly when its DOM is
-// arrow-key navigable. These pages are mouse-first (click handlers on
-// buttons/rows); this layer adds the missing focus model:
+// into close, so a view has controller support exactly when its DOM is
+// arrow-key navigable — and keyboard-only users get the same fix. These pages
+// are mouse-first, so this layer supplies the missing focus model: spatial
+// arrow navigation, Enter to activate, B/Esc left native for the runtime to
+// close the top menu.
 //
-//   Arrows      move focus to the nearest interactive element in that
-//               direction (spatial — no zone bookkeeping, so it works for the
-//               rail list, settings rows, the Home card grid and the keyboard
-//               board alike)
-//   Enter (A)   activates the focused element (click) — buttons, switches,
-//               rows; on a text input it commits (blur + refocus)
-//   Left/Right  on a range slider adjust the value (the browser's native
-//               handling); on a <select> they cycle the options
-//   B / Esc     stay native (the runtime closes the top menu itself)
+// Private to the osfui views (loaded as ../padnav.js), not part of the shared
+// kit: osfui.js is frozen (api-freeze item 5) and gamepad is still
+// experimental, so this must be free to change shape.
 //
-// Keyboard-only users get the same fix for free: per the frozen input
-// contract, gamepad support == arrow-key support.
-//
-// Deliberately PRIVATE to the osfui views (loaded as ../padnav.js) — not part
-// of the shared kit: osfui.js is frozen (api-freeze item 5) and gamepad is
-// still experimental, so this must be able to change shape freely.
-//
-// Coupling notes (fine for a private helper):
-//   - `[data-nav-modal]` on an overlay scopes navigation inside it (the
-//     settings undo panel sets it).
-//   - A `.row` ancestor is the element's navigation "band": cross-axis
-//     distance is measured between row rects, not element rects, so a
-//     left-aligned group header and the right-aligned control of the full-width
-//     row under it count as vertically adjacent (not as different columns).
-//   - While a key-rebind capture is armed (an element with class "listening"
-//     exists) all navigation is suspended — the next key press belongs to the
-//     capture, not to us.
-//   - `.row:focus-within` CSS in the views makes hover-only affordances (the
-//     per-setting reset button) appear when focus lands on them.
+// Coupling: `[data-nav-modal]` on an overlay scopes navigation inside it (the
+// settings undo panel sets it), and `.row:focus-within` CSS in the views makes
+// hover-only affordances (the per-setting reset button) appear when focus lands
+// on them.
 
 "use strict";
 
 (function () {
   const html = document.documentElement;
 
-  // A universal focus ring, active only while navigating by key. The kit's
-  // own :focus-visible rules override this for kit controls (they carry their
-  // own accent styling); this catches everything else (rail items, list rows,
-  // board keys, home cards). Removed on mousedown so mouse users never see
-  // rings appear from an earlier controller session.
+  // A universal focus ring, active only while navigating by key. The kit's own
+  // :focus-visible rules override it for kit controls; this catches everything
+  // else (rail items, list rows, board keys, home cards). Removed on mousedown
+  // so mouse users never see rings left over from a controller session.
   const style = document.createElement("style");
   style.textContent =
     "html.padnav-kb :focus { outline: 2px solid var(--osf-accent, #5aa9b8); outline-offset: 1px; }";
   document.head.appendChild(style);
   document.addEventListener("mousedown", () => html.classList.remove("padnav-kb"), true);
 
-  // Where focus last was — survives the views' teardown-and-rebuild renders
-  // (selecting a rail item rebuilds both panes), so navigation resumes from
-  // the same place instead of restarting at the top-left.
+  // Where focus last was. Survives the views' teardown-and-rebuild renders
+  // (selecting a rail item rebuilds both panes), so navigation resumes in place
+  // instead of restarting at the top-left.
   let lastRect = null;
 
   // Use keyCode for consistent handling of browser, synthetic, and forwarded
@@ -76,8 +56,8 @@
   }
 
   // Every visible, enabled interactive element in the current scope. A
-  // display:none ancestor (collapsed group, hidden-cond row, [hidden]) yields
-  // a zero rect, which is the visibility test; own opacity 0 (the hover-only
+  // display:none ancestor (collapsed group, hidden-cond row, [hidden]) yields a
+  // zero rect — that is the visibility test; own opacity 0 (the hover-only
   // per-setting reset chip) is invisible too and must not be a target.
   function candidates() {
     const list = [];
@@ -92,9 +72,9 @@
     return list;
   }
 
-  // The rect cross-axis distances are measured between: the enclosing `.row`
-  // when there is one (a settings row is one navigation line no matter where
-  // in it the control sits), the element itself otherwise.
+  // Cross-axis distances are measured against the enclosing `.row` when there
+  // is one (a settings row is one navigation line no matter where in it the
+  // control sits), the element itself otherwise.
   function bandOf(el, r) {
     const row = el.closest && el.closest(".row");
     return row ? row.getBoundingClientRect() : r;
@@ -103,20 +83,19 @@
   const cx = (r) => r.left + r.width / 2;
   const cy = (r) => r.top + r.height / 2;
 
-  // Nearest candidate in `dir` from `from`. Direction is gated on the EDGE,
-  // not the center: to count as "right" a candidate's center must clear the
-  // current element's right edge (etc.) — otherwise a same-column neighbour
-  // that happens to sit a few pixels off-center outranks a genuine sideways
-  // jump (the rail's undo chip beating the whole detail pane).
+  // Nearest candidate in `dir` from `from`. Direction is gated on the edge, not
+  // the center: to count as "right" a candidate's center must clear the current
+  // element's right edge (etc.), otherwise a same-column neighbour sitting a
+  // few pixels off-center outranks a genuine sideways jump (the rail's undo
+  // chip beating the whole detail pane).
   //
-  // Off-axis distance is the GAP between the two nav bands (0 when they
-  // overlap), heavily penalized so travel stays in its column/row — but
-  // measured on `band`, not the element: a group header (left) and the next
-  // row's control (right) share the pane's horizontal span, so Down goes into
-  // the group instead of skipping to the next header, while the rail and the
-  // detail pane (disjoint spans) still never bleed into each other. A small
-  // center-distance term breaks ties inside one band (same-row elements) in
-  // favour of the aligned one.
+  // Off-axis distance is the gap between the two nav bands (0 when they
+  // overlap), heavily penalized so travel stays in its column/row — measured on
+  // `band`, not the element: a group header (left) and the next row's control
+  // (right) share the pane's horizontal span, so Down enters the group instead
+  // of skipping to the next header, while the rail and the detail pane
+  // (disjoint spans) never bleed into each other. A small center-distance term
+  // breaks ties inside one band in favour of the aligned element.
   function pickDirectional(from, fromBand, dir, cands) {
     const fx = cx(from), fy = cy(from);
     const gap = (a1, a2, b1, b2) => Math.max(0, Math.max(a1, b1) - Math.min(a2, b2));
@@ -212,10 +191,10 @@
     if (active) {
       const tag = active.tagName;
       if (tag === "INPUT" && active.type === "range") {
-        // Left/right adjust the slider — the browser's own handling, which
-        // fires the input/change events the views commit on. Up/down
-        // fall through to navigation (preventDefault below stops the
-        // native value change).
+        // Left/right adjust the slider via the browser's own handling, which
+        // fires the input/change events the views commit on. Up/down fall
+        // through to navigation (preventDefault below stops the native value
+        // change).
         if (name === "left" || name === "right") return;
       } else if (tag === "SELECT") {
         if (name === "left" || name === "right") {
@@ -256,7 +235,6 @@
       return;
     }
 
-    // ---- arrow navigation ----
     e.preventDefault();
     html.classList.add("padnav-kb");
     const cands = candidates();

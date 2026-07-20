@@ -1,18 +1,13 @@
-// Home.tsx — the launcher, and the page every fresh visit lands on.
+// The launcher, and the page every fresh visit lands on.
 //
-// Ports `renderHomeDetail` and its card builders
-// (settings/main.legacy.js:1164-1345).
+// A card grid rather than settings rows: a registered panel is a surface a mod
+// ships, not a preference. Settings stay per-mod on the rail; anything you
+// launch lives here, across every mod.
 //
-// WHY A CARD GRID AND NOT A LIST OF SETTINGS ROWS: a registered panel is a
-// SURFACE a mod ships, not a preference — "Ship Almanac" is an app, and reading
-// it as a row with an [Open] button buried under three sliders made shipped
-// mods feel like configuration. Settings stay per-mod on the rail; the things
-// you LAUNCH all live here, across every mod.
-//
-// Cards derive a monogram and an accent from the view id (see marks.tsx), so an
-// unbranded third-party view still looks intentional rather than blank. Every
-// piece of untrusted text (titles, descriptions) renders as a text child; the
-// only markup is the static patch SVG below.
+// Cards derive a monogram and an accent from the view id (marks.tsx), so an
+// unbranded third-party view still looks intentional. All untrusted text
+// (titles, descriptions) renders as a text child; the only markup is the static
+// patch SVG below.
 
 import { useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
@@ -21,7 +16,7 @@ import { titleOf, type ModRecord, type ViewRecord } from '@lib/settings/rail';
 import type { Translator } from '@lib/i18n';
 import { homeAccentFor, initials } from './marks';
 
-/** How long a launched card stays inert (main.legacy.js:1256). */
+/** How long a launched card stays inert. */
 const OPEN_COOLDOWN_MS = 1600;
 
 export interface HomeProps {
@@ -37,14 +32,14 @@ export interface HomeProps {
 
 export function Home({ views, mods, tr, assetRoots, hudOn, onOpen, onHud }: HomeProps) {
   const menus = views.filter((v) => v.kind === 'menu');
-  // Anything that is not a menu is treated as a HUD — an unknown future `kind`
-  // lands here rather than vanishing (main.legacy.js:1313).
+  // Anything that is not a menu is treated as a HUD, so an unknown future
+  // `kind` lands here rather than vanishing.
   const huds = views.filter((v) => v.kind !== 'menu');
 
   const ownerIcon = (modId: string | undefined): string | null => {
     if (!modId) return null;
-    // Cast: the SDK `SettingsSchema` omits the advisory `icon` field modIconSrc
-    // reads as `unknown`; this bridges the gap without loosening the lib.
+    // Cast: the SDK `SettingsSchema` omits the advisory `icon` field that
+    // modIconSrc reads as `unknown`; bridges it without loosening the lib.
     const owner = (mods.find((m) => m.id === modId) || null) as Parameters<typeof modIconSrc>[0];
     return modIconSrc(owner, assetRoots);
   };
@@ -118,9 +113,9 @@ export function Home({ views, mods, tr, assetRoots, hudOn, onOpen, onHud }: Home
 }
 
 /**
- * The owning-mod caption for a card (main.legacy.js:1182-1186): the settings
- * mod's title when one is loaded, else the manifest `mod` string verbatim (a
- * view-only mod has no schema title to borrow).
+ * Owning-mod caption for a card: the settings mod's title when one is loaded,
+ * else the manifest `mod` string verbatim (a view-only mod has no schema title
+ * to borrow).
  */
 export function homeModCaption(v: ViewRecord, mods: ModRecord[]): string {
   if (!v.mod) return '';
@@ -128,13 +123,11 @@ export function homeModCaption(v: ViewRecord, mods: ModRecord[]): string {
   return owner ? titleOf(owner) : v.mod;
 }
 
-// ---------------------------------------------------------------------------
-
 function SectionHead({ title, count, note }: { title: string; count: number; note: string }) {
   return (
     <div class="home-head">
       <span class="home-head-title">{title}</span>
-      {/* Zero-padded to two digits — a deliberately instrument-panel reading. */}
+      {/* Zero-padded to two digits — instrument-panel reading. */}
       <span class="home-head-count">{String(count).padStart(2, '0')}</span>
       <span class="home-head-rule" />
       {note ? <span class="home-head-note">{note}</span> : null}
@@ -143,16 +136,12 @@ function SectionHead({ title, count, note }: { title: string; count: number; not
 }
 
 /**
- * The card's ring.
- *
- * THIS IS THE ONE PLACE THE LEGACY VIEW USED innerHTML (main.legacy.js:1192-1198)
- * — a static SVG template with no interpolated data except a boolean branch.
- * As JSX it is the same nodes with none of the parsing, and there is no
- * `dangerouslySetInnerHTML` anywhere in this migration.
+ * The card's ring. Static SVG nodes only; no `dangerouslySetInnerHTML` here or
+ * anywhere in this view.
  *
  * Tinted through `currentColor`, so the whole ring recolours from one inline
- * `color` on the wrapper — and a failed view overrides that to the kit's stop
- * signal rather than needing a second copy of the markup.
+ * `color` on the wrapper — a failed view overrides that to the kit's stop
+ * signal instead of needing a second copy of the markup.
  */
 function Patch({
   accent,
@@ -179,8 +168,8 @@ function Patch({
         <polygon points="22,100 27,94 32,100 27,106" fill="currentColor" opacity="0.8" />
         <polygon points="178,100 173,94 168,100 173,106" fill="currentColor" opacity="0.8" />
         {failed ? (
-          // An exclamation mark drawn as two strokes: a glyph would need a font
-          // the shipped bundle cannot rely on.
+          // Exclamation mark as two strokes: a glyph would need a font the
+          // shipped bundle cannot rely on.
           <g stroke="currentColor" stroke-width="6" stroke-linecap="round" fill="none">
             <path d="M100 78 v26" />
             <path d="M100 118 v.5" />
@@ -203,9 +192,9 @@ interface MenuCardProps {
 function MenuCard({ view: v, tr, iconSrc, caption, onOpen }: MenuCardProps) {
   const failed = v.loadState === 'failed';
   const accent = homeAccentFor(v.id);
-  // Single-menu policy: the opened panel REPLACES this surface, so there is no
-  // local state to reconcile afterwards — the cooldown exists only to swallow a
-  // dead double-click if the open never happens (main.legacy.js:1251-1257).
+  // Single-menu policy: the opened panel replaces this surface, so there is no
+  // local state to reconcile afterwards. The cooldown only swallows a dead
+  // double-click when the open never happens.
   const [cooling, setCooling] = useState(false);
   const [iconFailed, setIconFailed] = useState(false);
   const showIcon = !!iconSrc && !iconFailed;
@@ -223,7 +212,7 @@ function MenuCard({ view: v, tr, iconSrc, caption, onOpen }: MenuCardProps) {
       }}
     >
       <Patch accent={accent} failed={failed}>
-        {/* A failed view shows the alert stroke instead of an identity — its
+        {/* A failed view shows the alert stroke instead of an identity: its
             monogram would read as a working app. */}
         {failed ? null : showIcon ? (
           <img class="home-patch-icon" src={iconSrc as string} alt="" onError={() => setIconFailed(true)} />
@@ -256,10 +245,10 @@ interface HudCardProps {
 }
 
 /**
- * A HUD's card IS the switch: `role="switch"` on the card itself, with the
- * `.osf-switch` span inside as pure decoration keyed off the card's
- * `aria-pressed` in CSS. That is why the span carries no role of its own —
- * two nested switches would be two tab stops for one control.
+ * The card itself is the switch: `role="switch"` on the button, with the
+ * `.osf-switch` span as decoration keyed off the card's `aria-pressed` in CSS.
+ * The span carries no role of its own — two nested switches would be two tab
+ * stops for one control.
  */
 function HudCard({ view: v, on, iconSrc, caption, onToggle }: HudCardProps) {
   const accent = homeAccentFor(v.id);
@@ -286,8 +275,8 @@ function HudCard({ view: v, on, iconSrc, caption, onToggle }: HudCardProps) {
       </span>
       <span class="home-hud-main">
         <span class="home-hud-name">{v.title || v.id}</span>
-        {/* Falls back through description -> owning mod -> empty, so the line
-            keeps its height even when a view describes itself with nothing. */}
+        {/* description -> owning mod -> empty, so the line keeps its height
+            even when a view describes itself with nothing. */}
         <span class="home-hud-desc">{v.description || caption || ''}</span>
       </span>
       <span class="osf-switch home-hud-switch" />

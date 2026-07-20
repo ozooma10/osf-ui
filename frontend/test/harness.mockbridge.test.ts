@@ -1,25 +1,15 @@
 // @vitest-environment jsdom
 //
-// harness.mockbridge.test.ts — the dev harness's mock bridge.
-//
-// The harness is a prediction tool: what it shows must be what the game does.
-// The legacy mock had no tests at all, which is how it accumulated four silent
-// failure modes (see mockbridge.ts's header). These cases lock down the ones
-// that matter:
-//
-//   1. every supported command answers, and an unsupported one errors;
-//   2. validation IS @lib/settings/normalize, not a look-alike;
-//   3. an armed key capture can be disarmed;
-//   4. persisted values round-trip through normalize on load.
+// The dev harness's mock bridge. The harness is a prediction tool: what it shows
+// must be what the game does. Locks down command coverage, that validation is
+// @lib/settings/normalize itself rather than a look-alike, that an armed key
+// capture can be disarmed, and that persisted values round-trip through normalize
+// on load.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Setting } from '@sdk';
 import { normalizeValue } from '@lib/settings/normalize';
 import { installMock, validModId, type MockApi, type StorageLike } from '@harness/mockbridge';
-
-// ---------------------------------------------------------------------------
-// harness plumbing
-// ---------------------------------------------------------------------------
 
 interface Frame {
   type: string;
@@ -27,7 +17,7 @@ interface Frame {
   requestId?: string;
 }
 
-/** An in-memory Storage stand-in, so cases cannot leak into each other. */
+/** In-memory Storage stand-in, so cases cannot leak into each other. */
 function memStorage(seed: Record<string, string> = {}): StorageLike {
   const map = new Map(Object.entries(seed));
   return {
@@ -41,11 +31,11 @@ let frames: Frame[] = [];
 let mock: MockApi;
 
 /**
- * Every mock installed during a case. jsdom hands the whole FILE one `window`,
- * and an armed key capture holds a real keydown listener on it — so a case that
- * deliberately leaves a capture armed would otherwise preventDefault() the next
- * case's key events. Disarming them in afterEach is test hygiene, not a product
- * behaviour: in the browser each install gets a fresh page.
+ * Every mock installed during a case. jsdom shares one `window` across the file
+ * and an armed key capture holds a real keydown listener on it, so a case that
+ * leaves a capture armed would preventDefault() the next case's key events.
+ * Disarming in afterEach is test hygiene: in the browser each install gets a
+ * fresh page.
  */
 let installed: MockApi[] = [];
 
@@ -60,7 +50,7 @@ function command(payload: Record<string, unknown>, requestId?: string): void {
   bridge().postMessage(JSON.stringify(envelope));
 }
 
-/** Drain queued macrotasks — the mock defers nearly every reply by design. */
+/** Drain queued macrotasks — the mock defers nearly every reply. */
 async function settle(ms = 0): Promise<void> {
   await vi.advanceTimersByTimeAsync(ms);
 }
@@ -74,14 +64,14 @@ function lastOf(type: string): Frame | undefined {
 }
 
 /**
- * Install a mock with the network-ish parts switched off: no real source load
- * (the fallback schema is seeded synchronously and is enough), no greeting, no
- * drag-drop wiring on the shared jsdom window.
+ * Install a mock with the network-ish parts off: no real source load (the
+ * fallback schema is seeded synchronously), no greeting, no drag-drop wiring on
+ * the shared jsdom window.
  */
 function install(storage: StorageLike | null = memStorage(), search = ''): MockApi {
   const api = installMock({ search, storage, autoLoad: false, greet: false, drop: false });
   // The mock calls `window.osfui.onMessage` for every native->web frame; the
-  // shared kit owns that slot in the real page. Here it is the recorder.
+  // shared kit owns that slot in the real page, the recorder owns it here.
   (window as unknown as { osfui: { onMessage: (json: string) => void } }).osfui.onMessage = (
     json: string,
   ) => {
@@ -94,9 +84,8 @@ function install(storage: StorageLike | null = memStorage(), search = ''): MockA
 beforeEach(() => {
   vi.useFakeTimers();
   // The mock logs every frame and warns when a repo source is unreachable
-  // (vitest's fs sandbox denies the ?raw reads of Version.h / UISettings.cpp
-  // that the dev server allows). Both are correct behaviour and both would
-  // bury the test output.
+  // (vitest's fs sandbox denies the ?raw reads of Version.h / UISettings.cpp the
+  // dev server allows). Both are correct, and both would bury the test output.
   vi.spyOn(console, 'log').mockImplementation(() => {});
   vi.spyOn(console, 'warn').mockImplementation(() => {});
   frames = [];
@@ -111,10 +100,6 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
-
-// ---------------------------------------------------------------------------
-// command coverage
-// ---------------------------------------------------------------------------
 
 describe('command coverage', () => {
   it('answers settings.get with the seeded registry', async () => {
@@ -164,7 +149,7 @@ describe('command coverage', () => {
 
     command({ command: 'settings.reset', mod: 'osfui' }, 'r3');
     await settle();
-    // Native parity (item 12): one authoritative settings.data, not N pushes.
+    // Native parity: one authoritative settings.data, not N per-key pushes.
     expect(framesOf('settings.changed')).toHaveLength(0);
     expect(lastOf('settings.data')?.requestId).toBe('r3');
     expect(mock.mods()[0]?.values['allowPanels']).toBe(true);
@@ -195,8 +180,8 @@ describe('command coverage', () => {
     await settle();
     const ids = (lastOf('views.data')?.payload['views'] as Array<{ id: string }>).map((v) => v.id);
     expect(ids).not.toContain('acme.atlas/atlas');
-    // The harness-only `fixture` marker must never reach a view: it is not a
-    // field the runtime can produce.
+    // The harness-only `fixture` marker must not reach a view: the runtime
+    // cannot produce that field.
     expect(lastOf('views.data')?.payload['views']).not.toContainEqual(
       expect.objectContaining({ fixture: expect.anything() }),
     );
@@ -253,8 +238,6 @@ describe('command coverage', () => {
     expect(lastOf('game.data')?.payload['calendar']).toMatchObject({ available: true });
   });
 
-  // The six commands below are real UiCommands that the LEGACY mock answered
-  // with ui.error {unknown-command} — every one of them a silent harness gap.
   it('answers ping with runtime.pong', async () => {
     command({ command: 'ping' }, 'r12');
     await settle();
@@ -315,7 +298,7 @@ describe('command coverage', () => {
   });
 
   it('treats a single-dot non-command as unknown, not as a plugin command', async () => {
-    // "<author>.<modname>.<name>" needs TWO dots; one dot is a typo'd builtin.
+    // "<author>.<modname>.<name>" needs two dots; one dot is a typo'd builtin.
     command({ command: 'settings.nope' }, 'r21');
     await settle();
     expect(lastOf('ui.error')?.payload).toMatchObject({ code: 'unknown-command' });
@@ -327,10 +310,6 @@ describe('command coverage', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// injectors the legacy mock lacked entirely
-// ---------------------------------------------------------------------------
-
 describe('injectors', () => {
   it('fires ui.hotkey for the first key-typed setting', () => {
     expect(mock.hotkey()).toBe(true);
@@ -341,8 +320,8 @@ describe('injectors', () => {
     mock.gamepad('LB');
     await settle();
     const pad = framesOf('ui.gamepad').map((f) => f.payload);
-    // Without the release, @lib/lifecycle's edge tracker would never re-arm and
-    // the button would work exactly once per page load.
+    // Without the release, @lib/lifecycle's edge tracker never re-arms and the
+    // button works exactly once per page load.
     expect(pad).toEqual([
       { kind: 'button', button: { id: 0x0100, down: true } },
       { kind: 'button', button: { id: 0x0100, down: false } },
@@ -355,15 +334,11 @@ describe('injectors', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// validation parity
-// ---------------------------------------------------------------------------
-
 describe('validation delegates to @lib/settings/normalize', () => {
-  // One table, two consumers: the module under test (through settings.set) and
-  // the module it is supposed to be using. Any divergence — a clamp order, a
-  // refusal, the maxLength quirk — fails here instead of silently making the
-  // harness disagree with the game.
+  // One table, two consumers: the mock (through settings.set) and the module it
+  // is supposed to be using. Any divergence — clamp order, a refusal, the
+  // maxLength quirk — fails here instead of making the harness disagree with the
+  // game.
   const CASES: Array<{ name: string; setting: Setting; value: unknown }> = [
     { name: 'bool accepts a boolean', setting: { key: 'b', type: 'bool' }, value: true },
     { name: 'bool refuses 1', setting: { key: 'b', type: 'bool' }, value: 1 },
@@ -417,8 +392,8 @@ describe('validation delegates to @lib/settings/normalize', () => {
 
   for (const c of CASES) {
     it(c.name, async () => {
-      // A single-setting schema whose key is the case's key, dropped in by the
-      // same path a ?schema= or dropped file would take.
+      // Single-setting schema, dropped in by the same path a ?schema= or
+      // dropped file takes.
       const api = await freshWithSchema({
         id: 'acme.probe',
         groups: [{ settings: [c.setting] }],
@@ -440,10 +415,6 @@ describe('validation delegates to @lib/settings/normalize', () => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// key capture
-// ---------------------------------------------------------------------------
-
 describe('key capture', () => {
   it('resolves on a keydown and reports conflicts with the game bindings', async () => {
     command({ command: 'settings.captureKey', mod: 'osfui', key: 'toggleKey' }, 'cap1');
@@ -454,9 +425,9 @@ describe('key capture', () => {
     await settle();
 
     const captured = lastOf('settings.captured');
-    expect(captured?.requestId).toBe('cap1'); // echoes the ARMING request
+    expect(captured?.requestId).toBe('cap1'); // echoes the arming request
     expect(captured?.payload).toMatchObject({ name: 'F5', cancelled: false });
-    // F5 is Starfield's Quicksave — the live-warn the view renders mid-capture.
+    // F5 is Starfield's Quicksave — the live warning the view renders mid-capture.
     expect(captured?.payload['conflicts']).toContainEqual(
       expect.objectContaining({ mod: '@game', key: 'QuickSave' }),
     );
@@ -481,7 +452,7 @@ describe('key capture', () => {
 
   it('DISARMS on a click away — the legacy mock wedged every later capture here', async () => {
     command({ command: 'settings.captureKey', mod: 'osfui', key: 'toggleKey' }, 'cap5');
-    // The pointer listener arms a macrotask late, so the click that STARTED the
+    // The pointer listener arms a macrotask late, so the click that started the
     // capture (still propagating) cannot cancel it immediately.
     await settle();
 
@@ -491,7 +462,7 @@ describe('key capture', () => {
     expect(lastOf('settings.captured')?.payload).toMatchObject({ name: '', cancelled: true });
     expect(mock.captureArmed()).toBe(false);
 
-    // The point of the fix: the NEXT capture still works.
+    // The next capture still arms.
     frames = [];
     command({ command: 'settings.captureKey', mod: 'osfui', key: 'toggleKey' }, 'cap6');
     await settle();
@@ -516,17 +487,13 @@ describe('key capture', () => {
     const e = new KeyboardEvent('keydown', { key: 'A', bubbles: true, cancelable: true });
     window.dispatchEvent(e);
     await settle();
-    // Legacy left the keydown listener attached, so an unrelated later press was
-    // preventDefault()ed and reported as a capture for a setting nobody was
-    // editing.
+    // Disarming must detach the keydown listener: a stale one preventDefault()s
+    // an unrelated later press and reports it as a capture for a setting nobody
+    // is editing.
     expect(e.defaultPrevented).toBe(false);
     expect(framesOf('settings.captured')).toHaveLength(0);
   });
 });
-
-// ---------------------------------------------------------------------------
-// persistence
-// ---------------------------------------------------------------------------
 
 describe('persisted values round-trip through normalize on load', () => {
   it('clamps an out-of-range persisted number', async () => {
@@ -545,8 +512,8 @@ describe('persisted values round-trip through normalize on load', () => {
       },
       { 'osfui.mock.acme.probe': JSON.stringify({ b: 'yes' }) },
     );
-    // normalizeValue REFUSES (undefined) rather than coercing, so the schema
-    // default is served — exactly what the store does with a bad values file.
+    // normalizeValue returns undefined rather than coercing, so the schema
+    // default is served — what the store does with a bad values file.
     expect(api.mods().find((m) => m.id === 'acme.probe')?.values['b']).toBe(true);
   });
 
@@ -577,10 +544,6 @@ describe('persisted values round-trip through normalize on load', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// mod id grammar
-// ---------------------------------------------------------------------------
-
 describe('validModId', () => {
   it('accepts the reserved dotless built-in and <author>.<modname>', () => {
     expect(validModId('osfui')).toBe(true);
@@ -595,15 +558,12 @@ describe('validModId', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-
 /**
  * Reinstall the mock with `schema` dropped in as an extra registered mod.
  *
- * The mock takes its registry from async sources, so a test that needs a
- * specific schema installs a fresh instance and upserts through the same
- * settings-source path (`?schema=<url>`) using a stubbed fetch — the point
- * being that nothing here reaches into mock internals a real caller could not.
+ * The registry comes from async sources, so this installs a fresh instance and
+ * upserts through the same settings-source path (`?schema=<url>`) with a stubbed
+ * fetch, touching no mock internals a real caller could not reach.
  */
 async function freshWithSchema(
   schema: Record<string, unknown>,
@@ -620,7 +580,7 @@ async function freshWithSchema(
   const api = installMock({
     search: '?schema=probe.json',
     storage: memStorage(seed),
-    // autoLoad ON: this is the path a ?schema= URL actually takes.
+    // autoLoad on: the path a ?schema= URL takes.
     greet: false,
     drop: false,
   });

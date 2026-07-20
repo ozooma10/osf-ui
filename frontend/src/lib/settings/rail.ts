@@ -1,18 +1,15 @@
-// rail.ts — the left-hand mod rail: which entries exist, and in what order the
-// pane paints them (main.legacy.js:747-927 and 1875-1889).
+// The left-hand mod rail: which entries exist, and in what order the pane
+// paints them.
 //
-// An entry is the UNION of two independent registries: settings schemas
+// An entry is the union of two independent registries: settings schemas
 // (`settings.data`) and catalog views (`views.data`). A view attaches to a
 // settings mod when its manifest `mod` matches that mod's id; every other view
-// groups into a synthetic "view-only" entry. Neither registry is authoritative
-// on its own — a mod may ship settings with no views, views with no settings,
-// or both.
+// groups into a synthetic "view-only" entry. A mod may ship settings with no
+// views, views with no settings, or both.
 //
-// This module also hosts the loose model records the other settings modules
-// share. They are deliberately LOOSER than `SettingsDataPayload['mods'][number]`
-// / `ViewsDataPayload['views'][number]`: the legacy renderer defends against
-// every field being absent (it runs against harness mocks and against older
-// hosts), and the ports must be able to reproduce those branches.
+// The model records here are looser than `SettingsDataPayload['mods'][number]`
+// / `ViewsDataPayload['views'][number]`: every field may be absent, since the
+// renderer also runs against harness mocks and older hosts.
 
 import type { SettingsSchema, SettingValue, ViewsDataPayload, SettingsDataPayload } from '@sdk';
 import { railMatches } from './search';
@@ -32,12 +29,11 @@ export type ViewRecord = Partial<ViewsDataPayload['views'][number]> & { id: stri
 /** A `settings.data` load-failure record. */
 export type LoadError = NonNullable<SettingsDataPayload['loadErrors']>[number];
 
-/** The framework's own settings mod id — pinned first (main.legacy.js:32). */
+/** The framework's own settings mod id — pinned first. */
 export const FRAMEWORK_ID = 'osfui';
 /**
  * The Home launcher's rail id. "~" keeps it out of the mod-id namespace (native
  * mod ids can never start with it), so a real mod cannot shadow Home.
- * main.legacy.js:35.
  */
 export const HOME_ID = '~home';
 
@@ -45,20 +41,16 @@ export interface RailEntry {
   id: string;
   /** The settings record, or null for a view-only entry. */
   mod: ModRecord | null;
-  /** The catalog views attached to this entry. */
   views: ViewRecord[];
   title: string;
 }
 
-/** main.legacy.js:186 — schema title only as a fallback, id as the last resort. */
+/** Schema title only as a fallback, id as the last resort. */
 export function titleOf(mod: ModRecord): string {
   return mod.title || (mod.schema && mod.schema.title) || mod.id;
 }
 
-/**
- * The unordered entry set: one per settings mod, plus one per orphaned view
- * group.
- */
+/** Unordered entry set: one per settings mod, plus one per orphaned view group. */
 export function railEntries(mods: ModRecord[], views: ViewRecord[]): RailEntry[] {
   const entries: RailEntry[] = mods.map((m) => ({
     id: m.id,
@@ -79,13 +71,12 @@ export function railEntries(mods: ModRecord[], views: ViewRecord[]): RailEntry[]
     else orphans.set(key, [v]);
   }
   for (const [key, group] of orphans) {
-    // A view-only mod has no schema title; borrow its first PANEL's title (a
-    // menu reads like a product name; a HUD often does not). Falls back to the
-    // first view of any kind, then to the grouping key.
+    // A view-only mod has no schema title; borrow its first menu view's title
+    // (a menu reads like a product name; a HUD often does not). Falls back to
+    // the first view of any kind, then to the grouping key.
     const lead = group.find((v) => v.kind === 'menu') || group[0];
     entries.push({
-      // The "view:" prefix keeps synthetic ids out of the mod-id namespace, the
-      // same trick HOME_ID uses.
+      // "view:" keeps synthetic ids out of the mod-id namespace, as HOME_ID does.
       id: 'view:' + key,
       mod: null,
       views: group,
@@ -95,7 +86,7 @@ export function railEntries(mods: ModRecord[], views: ViewRecord[]): RailEntry[]
   return entries;
 }
 
-/** main.legacy.js:771. Recomputes the entry set — cheap, and always current. */
+/** Recomputes the entry set — cheap, and always current. */
 export function findEntry(
   mods: ModRecord[],
   views: ViewRecord[],
@@ -107,8 +98,8 @@ export function findEntry(
 export { railMatches } from './search';
 
 /**
- * One painted element of the rail, in order. Modelled as data so the port can
- * render it and `cycleRail` can walk it from the same source.
+ * One painted element of the rail, in order. Modelled as data so rendering and
+ * `cycleRail` walk the same source.
  */
 export type RailNode =
   | { kind: 'loadErrors'; errors: LoadError[] }
@@ -125,21 +116,20 @@ export interface RailModel {
 }
 
 /**
- * The rail exactly as `renderRail` paints it (main.legacy.js:896-927):
+ * The rail in paint order:
  *
- *  1. the load-failure alert, PINNED ABOVE EVERYTHING and never filtered — a
- *     user filtering for the mod that failed to load must see WHY, not
+ *  1. the load-failure alert, pinned above everything and never filtered — a
+ *     user filtering for the mod that failed to load must see why, not
  *     "no mods match" (mcm-design.md §14.2, the SkyUI-MCM lesson);
- *  2. Home, but ONLY when no filter is active — while filtering the rail scopes
- *     to matching mods and the launcher steps aside like the framework does;
+ *  2. Home, only when no filter is active — while filtering the rail scopes to
+ *     matching mods and the launcher steps aside, as the framework does;
  *  3. the framework entry (if it matches), with no header of its own — it
  *     self-labels as "Framework";
- *  4. the "Mods" section header, ALWAYS emitted, even when the list below it is
+ *  4. the "Mods" section header, always emitted, even when the list below it is
  *     empty;
  *  5. every other matching entry, title-sorted case-insensitively.
  *
- * `query` is expected pre-trimmed and pre-lowercased, as the legacy caller
- * passes it (main.legacy.js:897).
+ * `query` must arrive pre-trimmed and pre-lowercased.
  */
 export function railNodes(model: RailModel, query: string): RailNode[] {
   const nodes: RailNode[] = [];
@@ -167,23 +157,22 @@ export function railNodes(model: RailModel, query: string): RailNode[] {
 function sortedMods(entries: RailEntry[], query: string): RailEntry[] {
   return entries
     .filter((e) => e.id !== FRAMEWORK_ID && railMatches(e, query))
-    // `localeCompare(undefined, { sensitivity: "base" })`: case- AND
-    // accent-insensitive, so "acme" and "Acme" sort adjacently rather than in
-    // two ASCII blocks. `undefined` locale = the host's, which in game is
-    // whatever the WebView reports.
+    // sensitivity "base" is case- and accent-insensitive, so "acme" and "Acme"
+    // sort adjacently rather than in two ASCII blocks. Undefined locale = the
+    // host's, which in game is whatever the WebView reports.
     .sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
 }
 
 /**
  * Move the rail selection by `delta`, wrapping. Returns the id to select, or
- * `null` when nothing should change. main.legacy.js:1875-1889.
+ * `null` when nothing should change.
  *
  * Reproduces `railNodes`' order exactly (Home when unfiltered, framework, then
- * title-sorted mods) — the two MUST agree or LB/RB would skip visible rows.
+ * title-sorted mods) — the two must agree or LB/RB would skip visible rows.
  *
- * QUIRK: when the current selection is not in the list (i < 0), the result is
- * `ids[0]` with `delta` IGNORED — pressing LB from an off-list selection moves
- * FORWARD to the first entry, not backward to the last.
+ * Quirk: when the current selection is not in the list (i < 0) the result is
+ * `ids[0]` and `delta` is ignored — LB from an off-list selection moves forward
+ * to the first entry, not backward to the last.
  */
 export function cycleRail(
   model: RailModel,

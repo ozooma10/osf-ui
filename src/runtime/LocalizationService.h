@@ -9,10 +9,9 @@
 namespace OSFUI
 {
 	// One localization source for settings schemas, view manifests, built-in
-	// chrome, and custom views. Authors write ordinary English; translation
-	// files override stable structural addresses such as
-	// "settings.toggleKey.label". Missing entries always fall back to the
-	// authored English supplied by the caller.
+	// chrome, and custom views. Authors write English; translation files
+	// override structural addresses such as "settings.toggleKey.label".
+	// Missing entries fall back to the authored English supplied by the caller.
 	class LocalizationService
 	{
 	public:
@@ -29,15 +28,15 @@ namespace OSFUI
 		[[nodiscard]] const std::string& Locale() const { return _locale; }
 
 		// Resolve one address. Lookup order: exact locale, base language, en,
-		// authored English. English catalog files may therefore intentionally
-		// copy-edit an authored source string too.
+		// authored English. An en catalog file can therefore copy-edit an
+		// authored source string.
 		[[nodiscard]] std::string Resolve(std::string_view a_modId,
 			std::string_view a_address,
 			std::string_view a_authoredEnglish) const;
 
-		// Effective merged overrides for bridge consumers. It deliberately does
-		// not invent defaults: a custom view supplies its inline English to
-		// osfui.t(address, english).
+		// Effective merged overrides for bridge consumers. Invents no defaults:
+		// a custom view supplies its inline English to osfui.t(address,
+		// english).
 		[[nodiscard]] nlohmann::json CatalogFor(std::string_view a_modId) const;
 
 		// Re-read catalogs when their directory snapshot changes. Intended for

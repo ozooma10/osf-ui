@@ -1,13 +1,7 @@
-// DetailPanel.tsx — everything bound to the selected key.
+// Everything bound to the selected key.
 //
-// Ports `renderDetail()` (main.legacy.js:311-338) together with the panel
-// chrome that used to be static markup (index.html:62-65).
-//
-// NOTE WHAT IS ABSENT: `query`. Legacy calls renderDetail() only from
-// selectKey() and renderAll(), never from the search input handler
-// (main.legacy.js:518 paints the board and the list and nothing else), so
-// typing in the search box does NOT re-scope this panel. Taking no query prop
-// is how that guarantee is enforced here rather than merely observed.
+// Takes no `query` prop: typing in the search box must not re-scope this panel,
+// and the missing prop is what enforces that.
 
 import { holdersOf, keyState } from '@lib/keybinds/conflicts';
 import type { BindingRow } from '@lib/keybinds/model';
@@ -17,11 +11,7 @@ import { HolderRow, holderInstanceId } from './HolderRow';
 export interface DetailPanelProps {
   bindings: readonly BindingRow[];
   selectedKey: string;
-  /**
-   * False until the first render that had data (legacy's `renderAll`). Before
-   * that the panel shows only its static title, because legacy's renderDetail
-   * had simply not run yet — the hint paragraph appears with the first payload.
-   */
+  /** False until the first render that had data; until then only the title shows. */
   loaded: boolean;
   tr: Translator;
   capturingId: string | null;
@@ -40,13 +30,11 @@ export function DetailPanel(props: DetailPanelProps) {
         {selectedKey ? (
           <>
             <span class="kb-chip kb-chip--lg">{selectedKey}</span>
-            {/* The leading space is a real text node in legacy
-                (`document.createTextNode(" " + ...)`), not CSS spacing. */}
+            {/* The leading space is a text node, not CSS spacing. */}
             {holders.length
               ? ` ${tr.plural('bindingCount', holders.length, '{count} binding', '{count} bindings')}`
               : ` ${tr('unbound', 'unbound')}`}
-            {/* Both badges can show at once — keyState reports the flags
-                independently, and three holders can genuinely be both. */}
+            {/* Both badges can show at once; keyState reports the flags independently. */}
             {state.conflict ? (
               <span class="osf-badge osf-badge--stop">{tr('keyConflict', 'Key conflict')}</span>
             ) : null}
@@ -66,9 +54,8 @@ export function DetailPanel(props: DetailPanelProps) {
             {tr('selectKeyHint', 'Click any key on the board to see what holds it.')}
           </p>
         ) : !holders.length ? (
-          // Reachable: a key can be selected and then have its last holder
-          // rebound away, and `settings.changed` repaints without clearing the
-          // selection.
+          // Reachable: a selected key can lose its last holder to a rebind, and
+          // `settings.changed` repaints without clearing the selection.
           <p class="kb-hint">{tr('nothingBound', 'Nothing is bound here.')}</p>
         ) : (
           holders.map((b) => {

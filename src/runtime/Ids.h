@@ -4,30 +4,28 @@ namespace OSFUI::Ids
 {
 	// The public id grammar (docs/api-freeze-plan.md item 1, frozen pre-1.0):
 	//
-	//   mod id        = <author>.<modname>     e.g. "ozooma10.almanac"
-	//   view name     = <name>                 e.g. "planets"
+	//   mod id         = <author>.<modname>    e.g. "ozooma10.almanac"
+	//   view name      = <name>                e.g. "planets"
 	//   qualified view = <modId>/<viewName>    e.g. "ozooma10.almanac/planets"
 	//
-	// Every segment is lowercase [a-z0-9-]+. A mod id contains EXACTLY one dot,
-	// which makes dotless ids platform-reserved by construction: built-ins
-	// ("osfui") may be dotless, third parties may not — no reserved-word list
-	// to maintain. The qualified join uses a slash because mod ids contain a
-	// dot (a dotted join would be ambiguous to split); the slash also mirrors
-	// the on-disk layout views/<modId>/<viewName>/.
+	// Every segment is lowercase [a-z0-9-]+. Exactly one dot per mod id reserves
+	// dotless ids for built-ins ("osfui") by construction — no reserved-word
+	// list. The join is a slash (a dotted join would be ambiguous to split) and
+	// mirrors the on-disk layout views/<modId>/<viewName>/.
 	//
 	// Ids become filenames (settings/<modId>.json) and sandbox URL segments
-	// (file:///<modId>/<viewName>/...), so the charset doubles as the
-	// path-safety boundary (docs/security-model.md).
+	// (file:///<modId>/<viewName>/...), so the charset is also the path-safety
+	// boundary (docs/security-model.md).
 
 	inline constexpr std::size_t kMaxModIdLen = 64;
 	inline constexpr std::size_t kMaxViewNameLen = 64;
 
-	// ASCII-only case-insensitive equality. The Papyrus surface matches names
-	// and enum values with this: script strings intern as BSFixedString, which
-	// hands back the FIRST-seen casing process-wide, so a script's literal
-	// spelling never survives reliably (api/SettingsMirror.h has the full
-	// rationale). Sufficient because ids are lowercase [a-z0-9-] by grammar
-	// and keys/options are ASCII identifiers in practice.
+	// ASCII-only case-insensitive equality, used by the Papyrus surface to match
+	// names and enum values: script strings intern as BSFixedString, which hands
+	// back the first-seen casing process-wide, so a script's literal spelling
+	// does not survive reliably (full rationale in api/SettingsMirror.h). ASCII
+	// suffices because ids are lowercase [a-z0-9-] by grammar and keys/options
+	// are ASCII identifiers in practice.
 	inline bool EqualsCaseInsensitiveAscii(std::string_view a_lhs, std::string_view a_rhs)
 	{
 		if (a_lhs.size() != a_rhs.size()) {
@@ -61,8 +59,8 @@ namespace OSFUI::Ids
 		return true;
 	}
 
-	// Dotless ids the platform itself ships under. Everything else dotless is
-	// invalid by the grammar, so no further reservation logic is needed.
+	// Dotless ids the platform ships under. Any other dotless id is invalid by
+	// the grammar, so no further reservation logic is needed.
 	inline bool IsBuiltInModId(std::string_view a_id)
 	{
 		return a_id == "osfui";

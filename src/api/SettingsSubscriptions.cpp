@@ -10,8 +10,7 @@ namespace OSFUI::API
 			return 0;
 		}
 		std::lock_guard lock(_mutex);
-		// 0 is the "failed" sentinel; on the (theoretical) 4-billionth
-		// subscribe, skip it and any token still live.
+		// 0 is the failure sentinel; on wraparound skip it and any live token.
 		while (_nextToken == 0 || _subs.contains(_nextToken)) {
 			++_nextToken;
 		}
@@ -28,8 +27,8 @@ namespace OSFUI::API
 
 	void SettingsSubscriptions::OnChanged(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value)
 	{
-		// Drop early when nobody listens so an unsubscribed world never
-		// accumulates queue entries. Serialization happens outside the lock.
+		// Drop early when nobody listens, so the queue never grows with no
+		// subscribers. Serialization happens outside the lock.
 		{
 			std::lock_guard lock(_mutex);
 			const bool anySubscriber = std::any_of(_subs.begin(), _subs.end(),
@@ -63,8 +62,8 @@ namespace OSFUI::API
 		};
 
 		// Resolve all work under one lock: replays consume their one-shot flag
-		// even when the mod is unknown (late registration replays through the
-		// store change feed instead, never the snapshot); events resolve to the
+		// even when the mod is unknown (late registration then replays through
+		// the store change feed, not the snapshot); events resolve against the
 		// subscriber set as of this Pump.
 		std::vector<Replay> replays;
 		std::vector<Call>   eventCalls;
@@ -86,8 +85,8 @@ namespace OSFUI::API
 			_events.clear();
 		}
 
-		// Replays first (see header), expanded unlocked — the mirror has its
-		// own mutex and dumps each value in SnapshotMod.
+		// Replays first (see header), expanded unlocked: the mirror has its own
+		// mutex and dumps each value in SnapshotMod.
 		std::vector<Call> calls;
 		for (auto& r : replays) {
 			for (auto& [key, valueJson] : a_mirror.SnapshotMod(r.modId)) {
@@ -98,8 +97,8 @@ namespace OSFUI::API
 			std::make_move_iterator(eventCalls.begin()), std::make_move_iterator(eventCalls.end()));
 
 		// Invoke unlocked, re-checking liveness per call so an Unsubscribe —
-		// including one issued by an earlier callback this Pump — stops
-		// delivery immediately.
+		// including one from an earlier callback in this Pump — stops delivery
+		// immediately.
 		for (const auto& c : calls) {
 			{
 				std::lock_guard lock(_mutex);

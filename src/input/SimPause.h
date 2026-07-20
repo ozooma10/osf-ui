@@ -2,27 +2,25 @@
 
 namespace OSFUI
 {
-	// Step-3 sim pause, the proven mechanism (OSF RE module ui.menu_pause,
-	// closed 2026-07-02). How the engine actually pauses:
-	//   - Main::isGameMenuPaused (Main+0x448) is READ-ONLY OUTPUT — Main::Update
-	//     recomputes it EVERY frame as
+	// Sim pause (OSF RE module ui.menu_pause, closed 2026-07-02). How the engine
+	// pauses:
+	//   - Main::isGameMenuPaused (Main+0x448) is a read-only output. Main::Update
+	//     recomputes it every frame as
 	//       (UI::pauseRequestCount > 0) || IsOpen("MainMenu") || g_145FB4B78
-	//     right before the sim aggregator reads it, so no foreign byte write can
-	//     ever survive (the first SimPause implementation lost exactly that
-	//     write-war, log-proven).
-	//   - Native menus with IMenu flag bit 1 (the REAL kPausesGame; bit 27 is
-	//     the letterbox latch and was misassigned for weeks) get counted in/out
-	//     of UI::pauseRequestCount (+0x4B4) by the open/close dispatch via
-	//     UI_ModifyMenuPauseCounter.
-	// The sanctioned plugin recipe (live-proven: repeated freeze/resume cycles
-	// in normal gameplay, gameHour bit-identical while frozen, clean resume, no
-	// letterbox): call UI::ModifyMenuPauseCounter(name, true/false) and let the
-	// engine derive the byte. This class does that with strictly balanced
-	// edge-triggered calls — a leaked increment would pause the game forever.
+	//     right before the sim aggregator reads it, so no foreign byte write
+	//     survives (log-proven: the first SimPause lost that write-war).
+	//   - Native menus with IMenu flag bit 1 — the real kPausesGame; bit 27 is
+	//     the letterbox latch — are counted in/out of UI::pauseRequestCount
+	//     (+0x4B4) by the open/close dispatch via UI_ModifyMenuPauseCounter.
+	// So: call UI::ModifyMenuPauseCounter(name, true/false) and let the engine
+	// derive the byte. Live-proven over repeated freeze/resume cycles, gameHour
+	// bit-identical while frozen, clean resume, no letterbox. Calls here are
+	// strictly balanced and edge-triggered; a leaked increment pauses the game
+	// forever.
 	//
-	// Still unproven (RE left-open): quickload regression — the pause-released
-	// path entered a load cleanly but that probe session died to an unrelated
-	// silent load-crash; one quickload in a stable session settles it.
+	// Unproven: quickload regression. The pause-released path entered a load
+	// cleanly, but that probe session died to an unrelated silent load-crash;
+	// one quickload in a stable session settles it.
 	class SimPause
 	{
 	public:

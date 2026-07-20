@@ -17,14 +17,13 @@ namespace OSFUI::OverlayInputHook
 		WNDPROC g_originalProc{ nullptr };
 		HWND    g_hwnd{ nullptr };
 
-		// A pending UTF-16 high surrogate from WM_CHAR, awaiting its low half to
-		// form an astral-plane codepoint. Touched only on the window-message
-		// thread (where WndProc runs), so a plain value is safe.
+		// Pending UTF-16 high surrogate from WM_CHAR, awaiting its low half.
+		// Window-message thread only (where WndProc runs), so a plain value is safe.
 		std::uint16_t g_pendingHighSurrogate{ 0 };
 
-		// Whether the hardware (OS) pointer is currently engaged. Capture flips
-		// on the game main thread (ApplyMenuPolicy); this thread only observes
-		// the edge, at the top of WndProc. Window-message thread only.
+		// Whether the hardware (OS) pointer is engaged. Capture flips on the game
+		// main thread (ApplyMenuPolicy); WndProc only observes the edge.
+		// Window-message thread only.
 		bool g_hwCursorActive{ false };
 
 		struct FindWindowData
@@ -71,17 +70,16 @@ namespace OSFUI::OverlayInputHook
 			}
 		}
 
-		// Route a WM_INPUT mouse packet into the overlay. This is the ONLY mouse
-		// source: the game registers raw input in a way that suppresses the
-		// legacy WM_MOUSE* stream (verified in-game 2026-07-01 — clicks routed
-		// from legacy messages never arrived), so everything must come from the
-		// raw packet.
+		// Route a WM_INPUT mouse packet into the overlay. The only mouse source:
+		// the game's raw-input registration suppresses the legacy WM_MOUSE*
+		// stream (verified in-game 2026-07-01 — clicks routed from legacy
+		// messages never arrived).
 		//
-		// Position source depends on the cursor mode:
-		//  - hardware cursor (a_hardwareCursor): the OS pointer is visible and
-		//    authoritative — read its live position (GetCursorPos) and sync the
-		//    runtime's view-space cursor to it, so buttons/hover land exactly
-		//    where the user sees the pointer. Deltas are ignored.
+		// Position source depends on cursor mode:
+		//  - hardware cursor (a_hardwareCursor): the visible OS pointer is
+		//    authoritative — read GetCursorPos and sync the runtime's view-space
+		//    cursor to it so buttons/hover land where the user sees it. Deltas
+		//    are ignored.
 		//  - fallback (config.hardwareCursor=false): the OS pointer stays
 		//    hidden/clipped, so accumulate raw deltas into the virtual cursor.
 		void RouteRawMouse(HWND a_hwnd, LPARAM a_lparam, bool a_hardwareCursor)
@@ -104,9 +102,8 @@ namespace OSFUI::OverlayInputHook
 				// The engine may re-hide/re-clip the pointer at any time; heal it
 				// on the packet the user would notice it on.
 				HardwareCursor::Reassert(a_hwnd);
-				// Sync from the live OS pointer on EVERY packet (not just moves)
-				// so even a click without a preceding move lands where the
-				// pointer is.
+				// Sync from the live OS pointer on every packet, not just moves,
+				// so a click without a preceding move still lands correctly.
 				POINT pt{};
 				RECT  client{};
 				if (::GetCursorPos(&pt) && ::ScreenToClient(a_hwnd, &pt) &&
@@ -138,9 +135,9 @@ namespace OSFUI::OverlayInputHook
 				runtime.OnHostMouseButton(2, false);
 			}
 
-			// Vertical wheel. usButtonData is a USHORT carrying a SIGNED
-			// WHEEL_DELTA (120) multiple, so reinterpret it as short before
-			// widening (positive = rotated forward/up).
+			// usButtonData is a USHORT carrying a signed WHEEL_DELTA (120)
+			// multiple, so reinterpret as short before widening
+			// (positive = rotated forward/up).
 			if (buttons & RI_MOUSE_WHEEL) {
 				const auto wheelDelta = static_cast<short>(mouse.usButtonData);
 				if (wheelDelta != 0) {
@@ -153,9 +150,8 @@ namespace OSFUI::OverlayInputHook
 		{
 			auto& runtime = Runtime::Get();
 
-			// Reconcile the hardware pointer with the capture state on every
-			// message: capture flips on the game main thread, so this is where
-			// the open/close edge becomes visible to the window thread.
+			// Capture flips on the game main thread, so this is where the
+			// open/close edge becomes visible to the window thread.
 			const bool wantHwCursor = runtime.IsInputCaptured() && runtime.GetConfig().hardwareCursor;
 			if (wantHwCursor != g_hwCursorActive) {
 				g_hwCursorActive = wantHwCursor;
@@ -194,11 +190,11 @@ namespace OSFUI::OverlayInputHook
 			}
 			case WM_CHAR:
 			{
-				// Text entry. wparam is one UTF-16 code unit (layout-, dead-key-,
-				// and AltGr-resolved by Windows). Route real text into the overlay
-				// and always block it from the game while captured; navigation /
-				// editing keys (Enter, Tab, Backspace, Ctrl+letter -> control
-				// chars) are handled via the VK/RawKeyDown path, so we drop them.
+				// wparam is one UTF-16 code unit (layout-, dead-key- and
+				// AltGr-resolved by Windows). Route text into the overlay and
+				// block it from the game while captured; navigation/editing keys
+				// (Enter, Tab, Backspace, Ctrl+letter -> control chars) come in
+				// via the VK/RawKeyDown path, so drop them here.
 				if (!runtime.IsInputCaptured()) {
 					break;
 				}
@@ -226,10 +222,9 @@ namespace OSFUI::OverlayInputHook
 				return 0;
 			}
 			case WM_UNICHAR:
-				// UTF-32 char protocol. Answer the capability probe so senders may
-				// use it, then route real text — only while captured, so the
-				// game's own WM_UNICHAR handling is untouched when the overlay is
-				// closed.
+				// UTF-32 char protocol. Answer the capability probe, then route
+				// text — only while captured, so the game's own WM_UNICHAR
+				// handling is untouched when the overlay is closed.
 				if (!runtime.IsInputCaptured()) {
 					break;
 				}
@@ -241,19 +236,18 @@ namespace OSFUI::OverlayInputHook
 				}
 				return 0;
 			case WM_DEADCHAR:
-				// A dead key (accent) — no finished character yet; the composed
-				// result arrives as a later WM_CHAR. Just block it from the game
+				// Dead key (accent): no finished character yet, the composed
+				// result arrives as a later WM_CHAR. Block it from the game
 				// while captured.
 				if (runtime.IsInputCaptured()) {
 					return 0;
 				}
 				break;
 			case WM_SETCURSOR:
-				// Rarely (if ever) delivered — the game's raw-input registration
-				// suppresses the legacy mouse stream — but if it does arrive,
-				// apply the page's requested shape and keep the game's proc from
-				// resetting/hiding the pointer. (Reassert covers the shape on
-				// the WM_INPUT path.)
+				// Rarely delivered (raw-input registration suppresses the legacy
+				// mouse stream), but if it arrives, apply the page's requested
+				// shape and keep the game's proc from resetting/hiding the
+				// pointer. Reassert covers the shape on the WM_INPUT path.
 				if (g_hwCursorActive) {
 					HardwareCursor::ApplyShape();
 					return TRUE;
@@ -261,11 +255,9 @@ namespace OSFUI::OverlayInputHook
 				break;
 			case WM_INPUT:
 				if (runtime.IsInputCaptured()) {
-					// The ONLY mouse source (see RouteRawMouse). Route into the
-					// overlay, then consume so the game's camera/movement gets
-					// nothing — WM_INPUT must still go to DefWindowProc to
-					// release the raw input buffer (the game's proc is what
-					// we skip).
+					// Route into the overlay, then skip the game's proc so its
+					// camera/movement gets nothing. WM_INPUT must still reach
+					// DefWindowProc to release the raw input buffer.
 					RouteRawMouse(a_hwnd, a_lparam, g_hwCursorActive);
 					return ::DefWindowProcW(a_hwnd, a_msg, a_wparam, a_lparam);
 				}

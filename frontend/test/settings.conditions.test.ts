@@ -39,7 +39,7 @@ describe('evalCondition — fail-CLOSED on an unknown key', () => {
   });
 
   it('fails closed even for an operator that would otherwise be TRUE', () => {
-    // `truthy: false` against a missing key must NOT read as "absent is falsy".
+    // `truthy: false` against a missing key must not read as "absent is falsy".
     expect(evalCondition({ key: 'nope', truthy: false }, values)).toBe(false);
     // ...and neither does `ne`, which would be true against undefined.
     expect(evalCondition({ key: 'nope', ne: 'anything' }, values)).toBe(false);
@@ -56,8 +56,8 @@ describe('evalCondition — fail-CLOSED on an unknown key', () => {
   });
 
   it('QUIRK: `in` walks the prototype chain, so "toString" reads as KNOWN', () => {
-    // Legacy uses `cond.key in values` (main.legacy.js:277). Documented, not
-    // desired — a fail-closed case flipping open would be the regression.
+    // Presence uses `cond.key in values`. Documented, not desired — the
+    // regression to watch for is a fail-closed case flipping open.
     expect(evalCondition({ key: 'toString', truthy: true }, {})).toBe(true);
     expect(evalCondition({ key: 'toString', truthy: false }, {})).toBe(false);
   });
@@ -139,7 +139,7 @@ describe('evalCondition — combinators', () => {
   });
 
   it('not of an unknown key inverts the fail-closed FALSE into TRUE', () => {
-    // The fail-closed rule is about the LEAF, so negation still applies.
+    // The fail-closed rule applies to the leaf, so negation still applies on top.
     expect(evalCondition({ not: { key: 'nope', truthy: true } }, values)).toBe(true);
   });
 

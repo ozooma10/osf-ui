@@ -1,9 +1,4 @@
-// Toolbar.tsx — the dev harness control bar. DEV ONLY, never in a shipped view.
-//
-// Ports the inline script that used to live in devtools/harness/index.html.
-// Every control here existed before; the only additions are the view picker
-// (previously separate .html files with hand-copied view markup) and the
-// hotkey/gamepad injectors, which were previously unmockable at all.
+// Dev harness control bar. Dev only, never shipped in a view.
 
 import { LOCALES, type MockApi } from './mockbridge';
 
@@ -76,8 +71,8 @@ export function Toolbar(props: ToolbarProps) {
         title="Preview localization. 'pseudo' pseudo-localizes every localized string ([åççéñŧš] + padding) so hardcoded text and tight layouts stand out; a real locale applies l10n catalogs — drop a <modId>_<locale>.json on the page, same file the game loads."
         onChange={(e) => onLocale((e.currentTarget as HTMLSelectElement).value)}
       >
-        {/* A dropped catalog can introduce a locale not in this list; include
-            the active one so the select never shows a blank value. */}
+        {/* A dropped catalog can introduce a locale not in this list; include the
+            active one so the select never shows a blank value. */}
         {(LOCALES.includes(locale) ? LOCALES : [...LOCALES, locale]).map((l) => (
           <option key={l} value={l}>
             Locale: {l}
@@ -86,8 +81,7 @@ export function Toolbar(props: ToolbarProps) {
         ))}
       </select>
 
-      {/* New: the real runtime pushes these, but the old mock emitted neither,
-          so the view-side handlers could only ever be tested in game. */}
+      {/* Injectors for the messages the runtime pushes in game. */}
       <button type="button" title="Inject a ui.hotkey message" onClick={() => mock.hotkey()}>
         Hotkey
       </button>

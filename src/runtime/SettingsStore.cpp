@@ -17,14 +17,12 @@ namespace OSFUI
 		constexpr std::size_t kMaxModIdLen = Ids::kMaxModIdLen;
 		constexpr std::size_t kMaxInputContextIdLen = 64;
 
-		// Reserved meta key in a values file: the schema `version` the file was
-		// last written under (mcm-design.md §11). `$`-prefixed so it can never
-		// collide with a setting key (the schema walk only sees declared keys)
-		// and is invisible to builds that predate versioning.
+		// Reserved meta key: the schema `version` the file was last written under
+		// (mcm-design.md §11). `$`-prefixed so it can never collide with a setting
+		// key, and is ignored by builds that predate versioning.
 		constexpr const char* kSchemaVersionKey = "$schemaVersion";
 
-		// Values-file ENCODING version (api-freeze-plan item 8) — the sparse
-		// format itself, distinct from the mod's schema `version` above.
+		// Values-file encoding version, distinct from the mod's schema `version`.
 		// Stamped on every rewrite; a newer host's higher stamp round-trips
 		// (Mod::formatVersion keeps the max).
 		constexpr const char*  kFormatVersionKey = "$formatVersion";
@@ -47,10 +45,9 @@ namespace OSFUI
 			});
 		}
 
-		// The frozen base type set (api-freeze-plan item 2). A setting whose
-		// declared type is outside it is a FORWARD-COMPAT case, not an error:
-		// serve the schema default read-only and preserve the saved value
-		// opaquely — never the old wipe-on-load.
+		// The frozen base type set. A setting whose declared type is outside it is
+		// a forward-compat case, not an error: serve the schema default read-only
+		// and preserve the saved value opaquely, never wipe it.
 		bool IsKnownType(std::string_view a_type)
 		{
 			for (const std::string_view t : { "bool", "int", "float", "enum", "string", "key", "flags" }) {
@@ -72,8 +69,8 @@ namespace OSFUI
 		}
 
 		// Iterate every setting object across all groups. `a_fn(setting)` may
-		// return true to stop early. Templated on the json's constness so
-		// Data() can annotate its schema COPY through the same walk.
+		// return true to stop early. Templated on the json's constness so Data()
+		// can annotate its schema copy through the same walk.
 		template <class Json, class Fn>
 		void ForEachSetting(Json& a_schema, Fn&& a_fn)
 		{
@@ -212,8 +209,8 @@ namespace OSFUI
 			return;
 		}
 
-		// Collect + sort by filename: directory_iterator order is unspecified,
-		// and duplicate-id resolution (first wins) must be deterministic.
+		// Sort by filename: directory_iterator order is unspecified, and
+		// duplicate-id resolution (first wins) must be deterministic.
 		std::vector<std::filesystem::path> files;
 		for (const auto& entry : std::filesystem::directory_iterator(a_schemaDir, ec)) {
 			if (entry.is_regular_file() && entry.path().extension() == ".json") {
@@ -223,9 +220,8 @@ namespace OSFUI
 		std::sort(files.begin(), files.end());
 
 		for (const auto& path : files) {
-			// Drop-in id == filename stem (enforced below), so the stem must
-			// pass the id grammar — hard-reject here to name the offending FILE
-			// (ValidateSchemaShape would only name the id).
+			// Drop-in id == filename stem, so the stem must pass the id grammar.
+			// Rejected here, not in ValidateSchemaShape, so the log names the file.
 			if (const auto stem = path.stem().string(); !Ids::IsAcceptedModId(stem)) {
 				REX::ERROR("SettingsStore: skipping {} — settings files are named '<author>.<modname>.json' "
 						   "(lowercase [a-z0-9-] segments, exactly one dot in the mod id); "
@@ -253,9 +249,9 @@ namespace OSFUI
 	bool SettingsStore::RegisterSchema(nlohmann::json a_schema, Source a_source)
 	{
 		if (!_loaded) {
-			// By construction registrations arrive via the main-thread pump,
-			// which only runs after Runtime::Initialize → LoadAll. Reject
-			// loudly rather than register with no values directory.
+			// Registrations arrive via the main-thread pump, which only runs
+			// after Runtime::Initialize → LoadAll. Reject rather than register
+			// with no values directory.
 			REX::WARN("SettingsStore: RegisterSchema before LoadAll — rejected");
 			return false;
 		}
@@ -273,11 +269,9 @@ namespace OSFUI
 			REX::WARN("SettingsStore: rejected schema with no id");
 			return false;
 		}
-		// Id grammar (docs/api-freeze-plan.md item 1): <author>.<modname>,
-		// lowercase [a-z0-9-] segments, exactly one dot. Dotless ids are
-		// platform-reserved by construction ("osfui" is the only built-in), so
-		// the old reserved-word list (ui/menu/hud/...) is subsumed — every
-		// reserved name is dotless and therefore already invalid.
+		// Id grammar: <author>.<modname>, lowercase [a-z0-9-] segments, exactly
+		// one dot. Dotless ids are platform-reserved ("osfui" is the only
+		// built-in), which subsumes the old reserved-word list (ui/menu/hud/...).
 		if (!Ids::IsAcceptedModId(id)) {
 			REX::ERROR("SettingsStore: rejected schema id '{}' — mod ids are '<author>.<modname>' "
 					   "(lowercase [a-z0-9-] segments, exactly one dot, max {} chars); "
@@ -295,17 +289,16 @@ namespace OSFUI
 		if (!schema || !schema->is_object()) {
 			const auto why = schema ? std::string("not a JSON object") : parseError;
 			REX::WARN("SettingsStore: hot-reload skipped — {}: {}", a_path.string(), why);
-			// Live banner in the author's alt-tab loop: record (replace-or-add)
-			// and re-broadcast so the open Mods surface shows the parse error
-			// now, not on the next menu open. No generation bump — the registry
-			// SHAPE is unchanged.
+			// Record (replace-or-add) and re-broadcast so an open Mods surface
+			// shows the parse error now, not on the next menu open. No generation
+			// bump: the registry shape is unchanged.
 			RecordLoadError("schema-parse", a_path.filename().string(), "", why);
 			NotifyRegistryChanged();
 			return false;
 		}
-		// A fixed file drops its banner entry: the successful AddSchema below
-		// re-broadcasts; if it is instead REFUSED (a runtime registration
-		// outranks the file) the stale entry is still gone on the next fetch.
+		// A fixed file drops its banner entry: a successful AddSchema below
+		// re-broadcasts; if it is refused (a runtime registration outranks the
+		// file) the stale entry is still gone on the next fetch.
 		EraseLoadErrorsForFile(a_path.filename().string());
 		return AddSchema(std::move(*schema), Source::kDropIn, a_path.stem().string(),
 			/*a_notify=*/true, /*a_dropInReplace=*/true, a_path);
@@ -318,10 +311,10 @@ namespace OSFUI
 			return false;
 		}
 		auto id = Json::GetString(a_schema, "id", a_idHint);
-		// Drop-ins: the id MUST equal the filename stem (documented contract,
-		// docs/schema + mcm-design.md §8.1) — warn and override, so a file
-		// can't hijack another mod's id and MO2's per-file VFS priority stays
-		// the arbiter of who owns settings/<id>.json.
+		// Drop-ins: the id must equal the filename stem (documented contract,
+		// mcm-design.md §8.1) — warn and override, so a file can't hijack another
+		// mod's id and MO2's per-file VFS priority stays the arbiter of who owns
+		// settings/<id>.json.
 		if (a_source == Source::kDropIn && !a_idHint.empty() && id != a_idHint) {
 			REX::WARN("SettingsStore: schema id '{}' must equal the filename stem — using '{}'",
 				id.substr(0, kMaxModIdLen), a_idHint);
@@ -331,8 +324,8 @@ namespace OSFUI
 		if (!ValidateSchemaShape(a_schema)) {
 			return false;
 		}
-		// Author-shipped file: unknown top-level keys are the NORMAL compatible
-		// case (a newer schema on an older host — item 8), so devMode INFO only.
+		// Unknown top-level keys are the normal compatible case (a newer schema on
+		// an older host), so devMode only.
 		if (Log::DevMode()) {
 			Json::ReportUnknownKeys(a_schema,
 				{ "id", "title", "description", "version", "targetVersion", "accent",
@@ -340,27 +333,25 @@ namespace OSFUI
 				"SettingsStore: schema '" + id + "'", /*a_warn=*/false);
 		}
 
-		// Source precedence on id collision (mcm-design.md §14.1): a runtime
-		// (DLL) registration replaces a drop-in file — a mod upgrading tiers
-		// must not require users to hand-delete the stale JSON — and replaces
-		// its own earlier registration (dev iteration). A drop-in never
-		// replaces anything: duplicate drop-in ids resolve first-wins (MO2's
-		// per-file VFS priority is the intended arbiter, §8.1).
+		// Source precedence on id collision (mcm-design.md §14.1): a runtime (DLL)
+		// registration replaces a drop-in file (so upgrading tiers needs no
+		// hand-deleted JSON) and its own earlier registration (dev iteration).
+		// A drop-in replaces nothing; duplicate drop-in ids are first-wins, with
+		// MO2's per-file VFS priority as the intended arbiter (§8.1).
 		Mod* existing = FindMod(id);
 		if (existing) {
 			if (a_source == Source::kDropIn &&
 				!(a_dropInReplace && existing->source == Source::kDropIn)) {
-				// First-wins (api-freeze-plan item 1): ERROR naming both files,
-				// and record the loser so Data() can surface the conflict.
+				// First-wins: log both files and record the loser so Data() can
+				// surface the conflict.
 				const auto kept = existing->source == Source::kNative
 				                      ? std::string("the runtime registration")
 				                      : (existing->schemaPath.empty() ? std::string("the first-loaded schema")
 				                                                      : existing->schemaPath.string());
 				REX::ERROR("SettingsStore: duplicate schema id '{}' — keeping {}, ignoring {}",
 					id, kept, a_sourcePath.empty() ? std::string("the drop-in file") : a_sourcePath.string());
-				// Conflict record only for file-vs-file collisions; a native
-				// registration outranking its own drop-in file is the normal
-				// tier-upgrade path, not a conflict to badge.
+				// File-vs-file collisions only; a native registration outranking
+				// its own drop-in file is the tier-upgrade path, not a conflict.
 				if (!a_sourcePath.empty() && existing->source == Source::kDropIn) {
 					const auto loser = a_sourcePath.filename().string();
 					if (std::find(existing->shadowed.begin(), existing->shadowed.end(), loser) == existing->shadowed.end()) {
@@ -377,7 +368,7 @@ namespace OSFUI
 					existing->source == Source::kDropIn ? "drop-in" : "earlier runtime", id);
 			}
 			if (existing->dirty) {
-				// The overlay below reads the values FILE; land any unflushed
+				// The overlay below reads the values file; land any unflushed
 				// write-behind changes first or the replacement reverts them.
 				PersistNow(*existing);
 			}
@@ -398,11 +389,9 @@ namespace OSFUI
 		}
 
 		// Advisory host-version target, same field and semantics as a view
-		// manifest's: never gates loading (a schema authored for a newer
-		// OSF UI still loads best-effort — unknown types serve read-only
-		// defaults, unknown keys are preserved), but settings.data carries
-		// it so the Mods surface can badge "needs update", and the log
-		// records it for triage.
+		// manifest's. Never gates loading: a schema authored for a newer OSF UI
+		// loads best-effort (unknown types serve read-only defaults, unknown keys
+		// are preserved). Carried in settings.data for the "needs update" badge.
 		if (auto target = Json::GetString(mod.schema, "targetVersion", ""); !target.empty()) {
 			std::array<std::uint32_t, 3> targetParts{};
 			if (ParseDottedVersion(target, targetParts)) {
@@ -417,13 +406,12 @@ namespace OSFUI
 			}
 		}
 
-		// Persisted values over schema defaults. Replacement rebuilds from the
-		// same file — every committed Set persists, so nothing is lost, and
-		// added/removed/retyped keys resolve exactly like a fresh load.
-		// A corrupt file is NEVER silently discarded (mcm-design.md §14.2:
-		// under sparse persistence that would be indistinguishable from "user
-		// reset everything"): quarantine it to <id>.json.bad, serve defaults,
-		// and surface the reason in Data()'s loadErrors.
+		// Persisted values over schema defaults; a replacement rebuilds from the
+		// same file, so added/removed/retyped keys resolve like a fresh load.
+		// A corrupt file is never silently discarded (mcm-design.md §14.2: under
+		// sparse persistence that is indistinguishable from "user reset
+		// everything") — quarantine to <id>.json.bad, serve defaults, and surface
+		// the reason in Data()'s loadErrors.
 		EraseLoadErrorsForMod(mod.id);  // a clean overlay clears a stale record
 		nlohmann::json saved = nlohmann::json::object();
 		std::error_code fsEc;
@@ -436,7 +424,7 @@ namespace OSFUI
 				const auto why = parsed ? std::string("not a JSON object") : parseError;
 				auto quarantine = mod.valuesPath;
 				quarantine += ".bad";
-				std::filesystem::remove(quarantine, fsEc);  // keep the NEWEST bad file
+				std::filesystem::remove(quarantine, fsEc);  // keep the newest bad file
 				std::filesystem::rename(mod.valuesPath, quarantine, fsEc);
 				REX::ERROR("SettingsStore: '{}' values file is corrupt ({}) — {}; defaults served",
 					mod.id, why,
@@ -446,32 +434,29 @@ namespace OSFUI
 			}
 		}
 
-		// Version bookkeeping (mcm-design.md §11): the schema's declared
-		// `version` (default 0) is stamped into the values file as the
-		// reserved `$schemaVersion` meta key. `$`-prefixed keys are invisible
-		// to the schema walk below (no setting may be named `$…`), so an older
-		// build simply ignores it. Log a version move for support triage; the
-		// alias adoption below is what actually carries values across a rename.
+		// Version bookkeeping (mcm-design.md §11): the schema's `version`
+		// (default 0) is stamped as `$schemaVersion`. `$`-prefixed keys are
+		// invisible to the schema walk below (no setting may be named `$…`), so
+		// older builds ignore it. The log line is triage only; alias adoption
+		// below is what carries values across a rename.
 		const auto schemaVersion = static_cast<std::int64_t>(Json::GetInt(mod.schema, "version", 0));
 		if (const auto it = saved.find(kSchemaVersionKey); it != saved.end() && it->is_number_integer()) {
 			if (const auto fileVersion = it->get<std::int64_t>(); fileVersion != schemaVersion) {
 				REX::INFO("SettingsStore: '{}' values migrating v{} -> v{}", mod.id, fileVersion, schemaVersion);
 			}
 		}
-		// Values-file FORMAT stamp (api-freeze-plan item 8, distinct from the
-		// schema version above: this one is the ENCODING's). Written on every
-		// rewrite; a file from a newer OSF UI keeps its higher stamp verbatim
-		// (max below) so round-tripping through this host never "downgrades"
-		// it. Migrations would run here (none exist yet — the hook is the point).
+		// Encoding-format stamp, written on every rewrite. A file from a newer
+		// OSF UI keeps its higher stamp, so round-tripping through this host never
+		// downgrades it. Format migrations would run here; none exist yet.
 		if (const auto v = Json::GetInt(saved, kFormatVersionKey, kValuesFormatVersion); v > kValuesFormatVersion) {
 			REX::INFO("SettingsStore: '{}' values file declares format v{} (this build writes v{}) — written by a newer OSF UI; unknown content rides in the preserved bag",
 				mod.id, v, kValuesFormatVersion);
 			mod.formatVersion = v;
 		}
 
-		// Keys this schema accounts for: declared keys and (for KNOWN-typed
-		// settings) their aliases. Whatever the file holds OUTSIDE this set
-		// is a forward-compat unknown and goes to the opaque preserved bag.
+		// Keys this schema accounts for: declared keys and, for known-typed
+		// settings, their aliases. Whatever the file holds outside this set is a
+		// forward-compat unknown and goes to the opaque preserved bag.
 		std::unordered_set<std::string> accounted;
 
 		std::size_t count = 0;
@@ -483,11 +468,10 @@ namespace OSFUI
 			++count;
 			accounted.insert(key);
 
-			// Unknown-typed setting (item 2): serve the schema default
-			// read-only; the saved value is preserved verbatim below, never
-			// served, never wiped. Its aliases stay UN-accounted on purpose —
-			// this host can't adopt them, and dropping them would strand a
-			// rename for the newer host that can.
+			// Unknown-typed setting: serve the schema default read-only; the
+			// saved value is preserved verbatim below, never served or wiped.
+			// Its aliases stay un-accounted on purpose — this host can't adopt
+			// them, and dropping them would strand a rename for the host that can.
 			if (!IsKnownType(Json::GetString(a_setting, "type", ""))) {
 				if (const auto it = saved.find(key); it != saved.end()) {
 					mod.preserved[key] = *it;
@@ -509,12 +493,10 @@ namespace OSFUI
 					return false;
 				}
 			}
-			// Renamed key (mcm-design.md §11): the current key is absent (or
-			// its value no longer validates), so adopt the first declared
-			// `alias` present in the file that DOES validate. The old key is
-			// not schema-declared, so SparseValues drops it and the next write
-			// lands under the new name — a one-way, declarative rename with no
-			// version arithmetic.
+			// Renamed key (mcm-design.md §11): the current key is absent or no
+			// longer validates, so adopt the first declared `alias` in the file
+			// that does. The old key is not schema-declared, so SparseValues drops
+			// it and the next write lands under the new name.
 			if (const auto aliases = a_setting.find("aliases"); aliases != a_setting.end() && aliases->is_array()) {
 				for (const auto& alias : *aliases) {
 					if (!alias.is_string()) {
@@ -535,12 +517,11 @@ namespace OSFUI
 			return false;
 		});
 
-		// Preservation (item 2): saved keys no loaded schema fact accounts
-		// for — a setting that left the schema, or one from a newer schema
-		// than this host has seen — round-trip opaquely instead of being
-		// pruned. The two stamps ($schemaVersion, $formatVersion) stay owned
-		// by their logic above; any OTHER $-key (a future format's meta) is
-		// preserved like unknown settings.
+		// Saved keys nothing in the schema accounts for — a setting that left the
+		// schema, or one from a newer schema — round-trip opaquely instead of
+		// being pruned. $schemaVersion and $formatVersion stay owned by the logic
+		// above; any other $-key (future format meta) is preserved like an
+		// unknown setting.
 		for (const auto& [key, value] : saved.items()) {
 			if (key == kSchemaVersionKey || key == kFormatVersionKey || accounted.contains(key)) {
 				continue;
@@ -552,16 +533,12 @@ namespace OSFUI
 				mod.id, mod.preserved.size(), mod.preserved.size() == 1 ? "y" : "ies");
 		}
 
-		// Prune-to-default on load (mcm-design.md §8.1 + §11): when the file
-		// differs from its sparse form — a legacy full file, a saved value
-		// that now equals an updated default, an adopted alias, clamping, or
-		// a stale `$schemaVersion` — schedule a rewrite so those knobs track
-		// upstream defaults again instead of staying frozen forever, and so
-		// the version stamp advances. Preserved unknowns are PART of the
-		// sparse form, so a file whose only oddity is content this host
-		// doesn't understand loads clean (no rewrite churn). A MISSING
-		// `$formatVersion` alone is also clean (item 8: the stamp lands on the
-		// next real write) — stamping is never the sole reason to rewrite.
+		// Prune-to-default on load (mcm-design.md §8.1 + §11): a file differing
+		// from its sparse form — full legacy file, saved value now equal to an
+		// updated default, adopted alias, clamping, stale `$schemaVersion` —
+		// schedules a rewrite so those knobs track upstream defaults again.
+		// Preserved unknowns are part of the sparse form, and a missing
+		// `$formatVersion` alone is clean: stamping never triggers a rewrite.
 		if (const auto expected = SparseValues(mod); saved != expected) {
 			auto stampedOnly = saved;
 			stampedOnly[kFormatVersionKey] = mod.formatVersion;
@@ -583,7 +560,7 @@ namespace OSFUI
 
 		if (a_notify) {
 			// Replay so consumers that subscribed before this mod registered
-			// sync without a separate read (mcm-design.md §10) — then announce
+			// sync without a separate read (mcm-design.md §10), then announce
 			// the shape change so the web layer re-broadcasts the registry.
 			NotifyMod(existing ? existing->id : _mods.back().id);
 			NotifyRegistryChanged();
@@ -806,10 +783,9 @@ namespace OSFUI
 					bound.push_back({ setting.modId, setting.key, std::move(title), vk, blocksGameplay });
 				}
 			}
-			// The game's own bindings (mcm-design.md §9 "vanilla hotkeys"):
-			// pseudo-entries under the reserved id "@game". Gated on the same
-			// resolver as mod settings — without one there is no conflict
-			// grouping at all, so vanilla data would never be consulted.
+			// The game's own bindings (mcm-design.md §9): pseudo-entries under
+			// the reserved id "@game". Gated on the same resolver as mod
+			// settings — without one there is no conflict grouping at all.
 			for (const auto& vanilla : _vanillaKeys) {
 				if (vanilla.vk != 0) {
 					bound.push_back({ "@game", vanilla.event, vanilla.title, vanilla.vk, false });
@@ -861,11 +837,10 @@ namespace OSFUI
 		if (_dataCache) {
 			return *_dataCache;
 		}
-		// Informational key-conflict grouping (mcm-design.md §9): resolve
-		// every key-typed setting's current value ONCE, so the annotation walk
-		// below is a lookup, not a re-resolve (an unresolvable name would
-		// otherwise warn once per setting per pass). Never blocking — the
-		// renderer badges both sides of a collision; the bind stands.
+		// Informational key-conflict grouping (mcm-design.md §9): resolve every
+		// key-typed setting's value once, so the annotation walk below is a lookup
+		// (a re-resolve would warn once per setting per pass on an unresolvable
+		// name). Non-blocking: the renderer badges both sides, the bind stands.
 		const std::vector<BoundKey> bound = ResolveBoundKeys();
 
 		nlohmann::json mods = nlohmann::json::array();
@@ -906,26 +881,22 @@ namespace OSFUI
 				{ "schema", std::move(schema) },
 				{ "values", mod.values },
 			};
-			// Additive (api-freeze-plan item 1): drop-in files that also claimed
-			// this id and lost first-wins — the Mods surface renders a conflict
-			// badge. Omitted in the (normal) no-conflict case.
+			// Additive field: drop-in files that also claimed this id and lost
+			// first-wins; the Mods surface badges the conflict. Omitted if none.
 			if (!mod.shadowed.empty()) {
 				entry["shadowed"] = mod.shadowed;
 			}
-			// Advisory authored-against version (same contract as a view
-			// manifest's targetVersion): feeds the Mods surface "needs
-			// update" badge. Omitted when undeclared.
+			// Advisory authored-against version (same contract as a view manifest's
+			// targetVersion): feeds the "needs update" badge. Omitted if undeclared.
 			if (!mod.targetVersion.empty()) {
 				entry["targetVersion"] = mod.targetVersion;
 			}
 			mods.push_back(std::move(entry));
 		}
 		nlohmann::json data{ { "mods", std::move(mods) } };
-		// The game's own bindings as a top-level table (mcm-design.md §9
-		// "vanilla hotkeys" + the keybinds view): the FULL curated map, not
-		// just colliding entries — a bindings overview needs both. Additive
-		// field (protocol 1.0); omitted when the feature is off/empty, and
-		// views ignore unknown top-level fields.
+		// The game's own bindings as a top-level table (mcm-design.md §9 + the
+		// keybinds view): the full curated map, not just colliding entries.
+		// Additive field (protocol 1.0), omitted when off/empty.
 		if (!_vanillaKeys.empty()) {
 			nlohmann::json vanilla = nlohmann::json::array();
 			for (const auto& v : _vanillaKeys) {
@@ -941,10 +912,8 @@ namespace OSFUI
 				data["vanillaKeys"] = std::move(vanilla);
 			}
 		}
-		// Additive field: artifacts that
-		// failed to load, so the Mods surface can SAY so instead of a mod
-		// silently vanishing (the SkyUI-MCM support lesson; §14.2). Omitted in
-		// the (normal) clean case; views ignore unknown top-level fields.
+		// Additive field: artifacts that failed to load, so the Mods surface can
+		// say so instead of a mod silently vanishing (§14.2). Omitted when clean.
 		if (!_loadErrors.empty()) {
 			nlohmann::json errors = nlohmann::json::array();
 			for (const auto& e : _loadErrors) {
@@ -1042,11 +1011,11 @@ namespace OSFUI
 				}
 			}
 		} else if (type == "flags") {
-			// Multi-select over `options` (item 2): value = array of option
-			// strings. Resolve, don't reject: non-string elements, unknown
-			// options (e.g. removed upstream), and duplicates are filtered
-			// out — the enum-removal analogue of numeric clamping. Order
-			// follows the DECLARED options so the stored form is canonical.
+			// Multi-select over `options`: value is an array of option strings.
+			// Resolve, don't reject: non-string elements, unknown options
+			// (removed upstream) and duplicates are filtered out — the
+			// enum-removal analogue of numeric clamping. Output order follows
+			// the declared options so the stored form is canonical.
 			if (a_value.is_array()) {
 				const auto options = a_setting.find("options");
 				if (options != a_setting.end() && options->is_array()) {
@@ -1068,14 +1037,14 @@ namespace OSFUI
 		} else if (type == "string") {
 			if (a_value.is_string()) {
 				auto s = a_value.get<std::string>();
-				// A colour-widget string must be a parseable #rrggbb[aa] — any
-				// writer (preset, ABI, Papyrus), not just the UI, is held to it.
+				// A colour-widget string must be a parseable #rrggbb[aa]; every
+				// writer (preset, ABI, Papyrus) is held to it, not just the UI.
 				if (Json::GetString(a_setting, "widget", "") == "color" && !IsHexColor(s)) {
 					return std::nullopt;
 				}
-				// Per-setting maxLength, capped by the store-wide hard limit
-				// (raising kMaxStringLen is the native slice; bump the renderer
-				// + mock clamps in lockstep).
+				// Per-setting maxLength, capped by the store-wide hard limit.
+				// Raising kMaxStringLen requires bumping the renderer and mock
+				// clamps in lockstep.
 				std::size_t cap = kMaxStringLen;
 				if (const auto ml = a_setting.find("maxLength"); ml != a_setting.end() && ml->is_number_integer()) {
 					if (const auto v = ml->get<std::int64_t>(); v > 0) {
@@ -1088,13 +1057,12 @@ namespace OSFUI
 				return nlohmann::json(std::move(s));
 			}
 		} else if (type == "key") {
-			// A rebindable key: a short key NAME string (e.g. "F10"). The store
-			// stays feature-agnostic — it only bounds the length; whether the name
-			// actually resolves to a VK is enforced by the consumer
-			// (Runtime::OnSettingChanged via ResolveKeyName). Empty is rejected so
-			// a blank never clobbers a working binding — UNLESS the schema opts in
-			// with "allowUnbound": true, where "" is the deliberate unbound state
-			// (skipped by HotkeyService/conflicts; the UI renders an unbind ✕).
+			// A rebindable key: a short key-name string (e.g. "F10"). The store
+			// only bounds the length; whether the name resolves to a VK is the
+			// consumer's job (Runtime::OnSettingChanged via ResolveKeyName).
+			// Empty is rejected so a blank can't clobber a working binding, unless
+			// the schema sets "allowUnbound": true, where "" is the unbound state
+			// (skipped by HotkeyService and conflicts).
 			if (a_value.is_string()) {
 				auto s = a_value.get<std::string>();
 				if (s.empty()) {
@@ -1139,9 +1107,9 @@ namespace OSFUI
 			REX::WARN("SettingsStore: rejected unknown setting '{}.{}'", a_modId.substr(0, 64), a_key.substr(0, 64));
 			return { false, "unknown-setting" };
 		}
-		// A type this host doesn't know serves its default read-only (item 2)
-		// — surfaced as its own code so a view can say "needs a newer OSF UI"
-		// instead of "bad value".
+		// A type this host doesn't know serves its default read-only. Its own
+		// result code, so a view can say "needs a newer OSF UI" rather than
+		// "bad value".
 		if (!IsKnownType(Json::GetString(*setting, "type", ""))) {
 			REX::WARN("SettingsStore: rejected set for '{}.{}' — unknown type '{}' is served read-only",
 				a_modId.substr(0, 64), a_key.substr(0, 64), Json::GetString(*setting, "type", "?").substr(0, 32));
@@ -1220,11 +1188,10 @@ namespace OSFUI
 
 	nlohmann::json SettingsStore::SparseValues(const Mod& a_mod)
 	{
-		// Sparse persistence (mcm-design.md §8.1): only a value ≠ the schema
-		// default is the user's; whatever equals the default keeps tracking
-		// upstream default changes, and reset-to-default = key removal. Legacy
-		// full files shed their frozen defaults the first time they pass
-		// through here.
+		// Sparse persistence (mcm-design.md §8.1): only a value != the schema
+		// default is the user's; anything equal to the default keeps tracking
+		// upstream default changes, and reset-to-default means key removal. Full
+		// legacy files shed their frozen defaults the first time through here.
 		nlohmann::json sparse = nlohmann::json::object();
 		ForEachSetting(a_mod.schema, [&](const nlohmann::json& a_setting) {
 			const auto key = Json::GetString(a_setting, "key", "");
@@ -1235,27 +1202,24 @@ namespace OSFUI
 			}
 			return false;
 		});
-		// Forward-compat opaques (item 2) ride every rewrite verbatim — a
-		// newer mod's settings survive this host instead of being wiped.
-		// (Unknown-typed declared keys never enter the loop above: their
-		// served value IS the default, so there is no collision here.)
+		// Forward-compat opaques ride every rewrite verbatim, so a newer mod's
+		// settings survive this host. Unknown-typed declared keys never enter the
+		// loop above (their served value is the default), so no collision here.
 		for (const auto& [key, value] : a_mod.preserved.items()) {
 			sparse[key] = value;
 		}
-		// Stamp the schema version (mcm-design.md §11) ONLY when a mod actually
-		// uses versioning: a v0 (unversioned) mod's file stays byte-for-byte
-		// as before, so no existing values file is dirtied just by this
-		// feature landing. The schema's `version` is the sole source of truth
-		// — the stamp records "last written under vN"; a schema reverting to
-		// v0 drops the stamp (a genuine downgrade), which the load-time
-		// compare treats as any other version move.
+		// Stamp the schema version (mcm-design.md §11) only when a mod uses
+		// versioning: a v0 (unversioned) mod's file stays byte-for-byte as before,
+		// so no existing values file is dirtied by this feature. The schema's
+		// `version` is the source of truth; the stamp records "last written under
+		// vN", and reverting to v0 drops it — a version move like any other.
 		if (const auto v = Json::GetInt(a_mod.schema, "version", 0); v != 0) {
 			sparse[kSchemaVersionKey] = v;
 		}
-		// Format stamp (item 8): every rewrite carries the encoding version —
-		// a_mod.formatVersion is max(known, loaded), so a newer host's stamp
-		// survives this host's rewrites. The load-time compare tolerates a
-		// missing stamp, so this alone never dirties an existing file.
+		// Every rewrite carries the encoding version. a_mod.formatVersion is
+		// max(known, loaded), so a newer host's stamp survives this host's
+		// rewrites. The load-time compare tolerates a missing stamp, so this alone
+		// never dirties an existing file.
 		sparse[kFormatVersionKey] = a_mod.formatVersion;
 		return sparse;
 	}
@@ -1264,7 +1228,7 @@ namespace OSFUI
 	{
 		if (!a_mod.dirty) {
 			a_mod.dirty = true;
-			// The window opens at the FIRST unflushed change and is not pushed
+			// The window opens at the first unflushed change and is not pushed
 			// back by later ones, so a continuous slider drag still lands on
 			// disk every kPersistDelaySeconds, not only when it ends.
 			a_mod.dueAt = _now + kPersistDelaySeconds;

@@ -1,7 +1,6 @@
 #pragma once
 
-// Entry-point glue between the SFSE plugin macros (src/main.cpp) and the
-// Runtime. Keeps main.cpp trivial and the template entry pattern intact.
+// Entry-point glue between the SFSE plugin macros in main.cpp and the Runtime.
 
 namespace SFSE
 {

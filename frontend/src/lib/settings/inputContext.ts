@@ -1,26 +1,24 @@
-// inputContext.ts — resolving a `type:"key"` setting's input context
-// (main.legacy.js:187-209).
+// Resolves a `type:"key"` setting's input context.
 //
 // A key binding may declare that it is only live inside a mod-local "input
-// context". `gameplay` is the implicit default and is RESERVED: it can never be
+// context". `gameplay` is the implicit default and is reserved: it can never be
 // redeclared, so a schema cannot relabel or re-flag it. Everything here is
-// display metadata — the badge next to a key row — and the runtime's dispatch
-// is unaffected either way.
+// display metadata (the badge next to a key row); runtime dispatch is
+// unaffected either way.
 
 import type { InputContext, Setting, SettingsSchema } from '@sdk';
 
 /**
- * The id grammar, mirrored from the native side (SettingsStore.cpp
- * `kMaxInputContextIdLen` = 64): an alphanumeric first character, then up to 63
- * more of [A-Za-z0-9._-]. Anchored, so a newline-bearing id cannot slip past.
- * main.legacy.js:187.
+ * Id grammar, mirrored from SettingsStore.cpp (`kMaxInputContextIdLen` = 64):
+ * alphanumeric first character, then up to 63 more of [A-Za-z0-9._-]. Anchored,
+ * so a newline-bearing id cannot slip past.
  */
 export const INPUT_CONTEXT_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
-/** The reserved id of the implicit default context. */
+/** Reserved id of the implicit default context. */
 export const GAMEPLAY_ID = 'gameplay';
 
-/** A resolved context, always fully populated (no optional fields to defend). */
+/** Always fully populated — no optional fields to defend. */
 export interface ResolvedInputContext {
   id: string;
   label: string;
@@ -29,24 +27,22 @@ export interface ResolvedInputContext {
 
 /**
  * Build the implicit gameplay fallback. `label` is injected so this module
- * stays free of the localiser (the legacy code called `tr("gameplay",
- * "Gameplay")` inline at main.legacy.js:189).
+ * stays free of the localiser.
  */
 export function gameplayContext(label = 'Gameplay'): ResolvedInputContext {
   return { id: GAMEPLAY_ID, label, blocksGameplay: false };
 }
 
 /**
- * The schema's declared contexts, filtered and deduped exactly as the legacy
- * lookup does on the fly (main.legacy.js:194-199):
+ * The schema's declared contexts, filtered and deduped:
  *
  *  - non-object entries are dropped;
  *  - an entry redeclaring the reserved `gameplay` id is dropped;
  *  - an entry whose id fails the grammar is dropped;
- *  - on a DUPLICATE id, the FIRST declaration wins and later ones are dropped.
+ *  - on a duplicate id, the first declaration wins.
  *
- * Note the dedupe records an id as seen BEFORE the match test, so first-wins
- * holds even when a later duplicate is the one being searched for.
+ * The dedupe records an id as seen before the match test, so first-wins holds
+ * even when a later duplicate is the one being searched for.
  */
 export function dedupeInputContexts(contexts: unknown): ResolvedInputContext[] {
   if (!Array.isArray(contexts)) return [];
@@ -60,10 +56,9 @@ export function dedupeInputContexts(contexts: unknown): ResolvedInputContext[] {
     seen.add(id);
     out.push({
       id,
-      // `typeof === "string" && label` — an empty label falls back to the id, so
-      // a badge is never blank.
+      // An empty label falls back to the id, so a badge is never blank.
       label: typeof c.label === 'string' && c.label ? c.label : id,
-      // Strict `=== true`: any other truthy value is NOT an assertion.
+      // Strict `=== true`: any other truthy value is not an assertion.
       blocksGameplay: c.blocksGameplay === true,
     });
   }
@@ -71,23 +66,20 @@ export function dedupeInputContexts(contexts: unknown): ResolvedInputContext[] {
 }
 
 /**
- * Resolve the context a key setting belongs to.
- *
- * FOUR paths fall back to the implicit gameplay context, and they are distinct
- * cases even though they share a result:
- *  1. no `inputContext` on the setting (or a non-string one) — the normal case;
+ * Resolve the context a key setting belongs to. Four paths fall back to the
+ * implicit gameplay context:
+ *  1. no `inputContext` on the setting (or a non-string one);
  *  2. an explicit `inputContext: "gameplay"` — the reserved id resolves to the
- *     implicit context WITHOUT consulting the schema, so it can never pick up a
+ *     implicit context without consulting the schema, so it can never pick up a
  *     rogue declaration's label or `blocksGameplay`;
  *  3. an `inputContext` that fails `INPUT_CONTEXT_ID_RE`;
- *  4. a VALID id that no surviving `schema.inputContexts` entry declares — the
- *     dangling-reference case (a context removed from the schema, or shadowed
- *     out by the dedupe above). The setting still works; it just loses its
- *     badge.
+ *  4. a valid id that no surviving `schema.inputContexts` entry declares (a
+ *     context removed from the schema, or shadowed out by the dedupe above).
+ *     The setting still works; it just loses its badge.
  *
  * Case 4 is why the badge is suppressed whenever `id === "gameplay"`: an
  * unresolvable reference must read as "no special context", not as a broken
- * badge (main.legacy.js:575-582).
+ * badge.
  */
 export function resolveInputContext(
   schema: SettingsSchema | undefined,

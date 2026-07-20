@@ -18,16 +18,16 @@ namespace OSFUI
 	{
 		std::atomic_bool g_enabled{ false };
 
-		// ---- patched +0x10 receiver vtable (copy of engine 475517) ----
-		// 10 slots (0 dtor .. 9 Unk09) + one LEADING slot for the engine's RTTI
-		// COL (vtable[-1]) so dynamic_cast through the copy stays valid — the
-		// exact failure mode the primary-vtable copy hit on Route A.
+		// Patched +0x10 receiver vtable (copy of engine 475517): 10 slots
+		// (0 dtor .. 9 Unk09) plus one leading slot for the engine's RTTI COL
+		// (vtable[-1]), without which dynamic_cast through the copy fails — the
+		// failure mode the primary-vtable copy hit on Route A.
 		constexpr std::size_t kRecvSlots = 10;
 		std::atomic_bool      g_recvBuilt{ false };
 		void*                 g_recvStore[kRecvSlots + 1]{};
 		void** const          g_recvVtable = &g_recvStore[1];
 
-		// ---- observation state (thunks run on the engine's worker pool) ----
+		// Observation state; thunks run on the engine's worker pool.
 		std::atomic<std::uint32_t> g_shouldCalls{ 0 };
 		std::atomic<std::uint32_t> g_buttons{ 0 };
 		std::atomic<std::uint32_t> g_buttonsKeyboard{ 0 };
@@ -51,13 +51,12 @@ namespace OSFUI
 		std::size_t           g_ringNext{ 0 };
 		std::size_t           g_ringCount{ 0 };
 
-		// ---- increment-3 routing state (gamepad only) ----
-		// Button edges are QUEUED (worker thread -> main-thread drain) in a
-		// FIXED ring — no allocation on the engine's worker threads, keeping the
-		// header's contract honest. Overflow drops the oldest edge (harmless for
-		// the default mapping, which only acts on presses). Stick deflection is
-		// LATEST-WINS (atomic overwrite — we only ever want the current value).
-		// g_padRaw short-circuits the default mapping.
+		// Routing state (gamepad only). Button edges are queued worker-thread ->
+		// main-thread drain in a fixed ring: no allocation on the engine's worker
+		// threads, per the header's contract. Overflow drops the oldest edge,
+		// harmless for the default mapping, which only acts on presses. Stick
+		// deflection is latest-wins (atomic overwrite; only the current value
+		// matters). g_padRaw short-circuits the default mapping.
 		std::atomic_bool               g_padRaw{ false };
 		constexpr std::size_t          kPadQueueCap = 64;
 		std::mutex                     g_padMutex;  // leaf lock, guards the ring below
@@ -66,12 +65,11 @@ namespace OSFUI
 		std::size_t                    g_padCount{ 0 };
 		std::atomic<float>             g_lx{ 0.0f }, g_ly{ 0.0f }, g_rx{ 0.0f }, g_ry{ 0.0f };
 
-		// Staleness guard for the sticks: it is UNPROVEN whether the engine sends
-		// a final zero-deflection ThumbstickEvent on release, or simply stops
-		// dispatching. If it stops, latest-wins would hold the last deflection
-		// forever and the default mapping would auto-repeat until the overlay
-		// closes. So GetSticks() reports zero once the last write is older than
-		// this. Costs nothing if the engine does send the zero.
+		// Stick staleness guard. Unproven whether the engine sends a final
+		// zero-deflection ThumbstickEvent on release or just stops dispatching;
+		// if it stops, latest-wins would hold the last deflection forever and the
+		// default mapping would auto-repeat until the overlay closes. GetSticks()
+		// therefore reports zero once the last write is older than this.
 		constexpr std::int64_t    kStickStaleMs = 150;
 		std::atomic<std::int64_t> g_stickWriteMs{ 0 };
 
@@ -85,11 +83,11 @@ namespace OSFUI
 		constexpr std::int32_t kStickLeftId = 0x0B;
 		constexpr std::int32_t kStickRightId = 0x0C;
 
-		// ---- receiver thunks (this = the BSInputEventUser subobject) ----
+		// Receiver thunks; `this` is the BSInputEventUser subobject.
 
 		// Accept every event type the dispatcher offers so the typed slots below
-		// are exercised. Observation only: we never touch event->status, so
-		// downstream menus see exactly what they saw before.
+		// are exercised. Observation only: event->status is never touched, so
+		// downstream menus see what they saw before.
 		bool Thunk_ShouldHandleEvent(void*, const RE::InputEvent*)
 		{
 			g_shouldCalls.fetch_add(1, std::memory_order_relaxed);
@@ -104,8 +102,7 @@ namespace OSFUI
 			}
 			// ThumbstickEvent (proven layout): IDEvent base, x/y @ +0x38/+0x3C,
 			// idCode 0x0B left / 0x0C right. One event carries both axes of one
-			// stick; store latest-wins so the main-thread drain sees current
-			// deflection.
+			// stick; latest-wins so the main-thread drain sees current deflection.
 			const auto* b = reinterpret_cast<const std::uint8_t*>(a_event);
 			const auto  id = *reinterpret_cast<const std::int32_t*>(b + 0x30);
 			const float x = *reinterpret_cast<const float*>(b + 0x38);
@@ -175,9 +172,8 @@ namespace OSFUI
 					++g_ringCount;
 				}
 			}
-			// Queue gamepad EDGES only (press/release; skip held repeats) for the
-			// main-thread router. Keyboard/mouse are NOT queued — they stay on
-			// the WndProc path.
+			// Queue gamepad edges only (press/release; skip held repeats) for the
+			// main-thread router. Keyboard/mouse stay on the WndProc path.
 			if (a_event->deviceType == RE::InputEvent::DeviceType::kGamepad && (down || release)) {
 				std::lock_guard lock(g_padMutex);
 				if (g_padCount == kPadQueueCap) {  // full: drop the oldest edge
@@ -201,7 +197,7 @@ namespace OSFUI
 			}
 			// RE::VTABLE::IMenu = { 475515 primary, 475519 (+0x50 event sink),
 			// 475517 (+0x10 BSInputEventUser) } — index 2 is the receiver vtable
-			// (array order is publication order, NOT subobject memory order).
+			// (array order is publication order, not subobject memory order).
 			static REL::Relocation<std::uintptr_t> engineVtbl{ RE::VTABLE::IMenu[2] };
 			const auto* src = reinterpret_cast<void* const*>(engineVtbl.address());
 			g_recvStore[0] = src[-1];  // RTTI COL — mandatory (see header)
@@ -237,8 +233,8 @@ namespace OSFUI
 		}
 		BuildReceiverVtable();
 		// The receiver subobject lives at IMenu+0x10; its vptr is the first
-		// pointer there. base-init installed the engine vtable; replace it with
-		// our patched copy (engine slots except the six we observe).
+		// pointer there. Base-init installed the engine vtable; swap in the
+		// patched copy (engine slots except the six observed ones).
 		*reinterpret_cast<void**>(static_cast<std::uint8_t*>(a_menuObj) + 0x10) = &g_recvVtable[0];
 		REX::INFO("EngineInput: receiver installed on menu obj=0x{:016X} (+0x10 vtable copy, observer only)",
 			reinterpret_cast<std::uintptr_t>(a_menuObj));
@@ -309,9 +305,8 @@ namespace OSFUI
 
 	EngineInput::GamepadSticks EngineInput::GetSticks()
 	{
-		// Staleness guard (see kStickStaleMs): no fresh thumbstick dispatch means
-		// "treat as centered", so a possibly-missing release event can never
-		// leave the default mapping auto-repeating.
+		// No fresh thumbstick dispatch within kStickStaleMs means "centered", so a
+		// possibly-missing release event cannot leave the mapping auto-repeating.
 		if (NowMs() - g_stickWriteMs.load(std::memory_order_relaxed) > kStickStaleMs) {
 			return {};
 		}

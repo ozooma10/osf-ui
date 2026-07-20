@@ -2,7 +2,7 @@
 
 #include <atomic>
 
-// Keep <Windows.h> confined to this file (same hygiene as OverlayInputHook).
+// Keep <Windows.h> confined to this file.
 #define WIN32_LEAN_AND_MEAN
 #define NOGDI
 #define NOMINMAX
@@ -12,8 +12,8 @@ namespace OSFUI::HardwareCursor
 {
 	namespace
 	{
-		// Written by SetShape (renderer worker thread), read on the window-
-		// message thread when applying.
+		// Written by SetShape (renderer worker thread), read on the window-message
+		// thread when applying.
 		std::atomic<CursorShape> g_shape{ CursorShape::kArrow };
 
 		// Window-message thread only.
@@ -21,9 +21,8 @@ namespace OSFUI::HardwareCursor
 		int  g_showRaises{ 0 };  // net ShowCursor(TRUE) calls, undone on Deactivate
 		RECT g_clip{};           // the clip rect we last applied
 
-		// The game may have hidden the pointer several counter-levels deep;
-		// don't raise forever in case visibility is held by something we can't
-		// (and shouldn't) override.
+		// The game may have hidden the pointer several counter-levels deep; cap
+		// the raises in case visibility is held by something we shouldn't override.
 		constexpr int kMaxShowRaises = 8;
 
 		[[nodiscard]] HCURSOR SystemCursor(CursorShape a_shape)
@@ -45,7 +44,7 @@ namespace OSFUI::HardwareCursor
 			case CursorShape::kSizeAll:    id = IDC_SIZEALL; break;
 			default:                       break;  // kArrow (kNone never reaches here)
 			}
-			// Shared system handle: never destroyed, cheap to look up.
+			// Shared system handle: not destroyed, cheap to look up.
 			return ::LoadCursorA(nullptr, id);
 		}
 
@@ -120,8 +119,8 @@ namespace OSFUI::HardwareCursor
 		RaiseUntilShowing();
 		ApplyShape();
 		// Re-fence if the engine re-clipped (or a resolution change moved the
-		// client area). Compare against the LIVE clip, not g_clip: the engine
-		// changing it out from under us is precisely the case to heal.
+		// client area). Compare against the live clip, not g_clip: the engine
+		// changing it out from under us is the case to heal.
 		RECT want{};
 		if (!ClientRectOnScreen(static_cast<HWND>(a_hwnd), want)) {
 			return;
@@ -138,8 +137,8 @@ namespace OSFUI::HardwareCursor
 	void ApplyShape()
 	{
 		const auto shape = g_shape.load(std::memory_order_relaxed);
-		// kNone = the page asked to hide the pointer (CSS `cursor: none`);
-		// a null cursor hides it without touching the show counter.
+		// kNone = the page asked to hide the pointer (CSS `cursor: none`); a null
+		// cursor hides it without touching the show counter.
 		::SetCursor(shape == CursorShape::kNone ? nullptr : SystemCursor(shape));
 	}
 

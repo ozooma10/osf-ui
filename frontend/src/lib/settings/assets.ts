@@ -1,24 +1,17 @@
-// assets.ts — the image/icon path sandbox (main.legacy.js:653-673).
+// Image/icon path sandbox. Schema-declared asset paths (`type:"image"` rows and
+// the rail `icon`) are untrusted author text destined for an <img src>, so they
+// are confined to the mod's own `views/<modId>/` folder first.
 //
-// A schema may point at an image (`type:"image"` rows, and the rail `icon`).
-// The path is UNTRUSTED author text that ends up in an <img src>, so it is
-// confined to the mod's own `views/<modId>/` folder before it goes anywhere
-// near the DOM.
-//
-// The rejection set is belt-and-braces on purpose — several rules overlap, and
-// each is cheap. Percent-encoding is rejected OUTRIGHT rather than decoded and
-// re-checked, because WebKit resolves the URL a second time after this function
-// runs and would turn a surviving "%2e%2e%2f" back into "../".
+// The overlapping rejection rules are belt-and-braces. Percent-encoding is
+// rejected outright rather than decoded and re-checked: WebKit resolves the URL
+// a second time after this runs and would turn a surviving "%2e%2e%2f" back
+// into "../".
 
 /**
- * Optional mod-id -> asset-root overrides.
- *
- * The legacy version read `window.OSFUI_MOD_ASSET_ROOTS`, a global the dev
- * harness defines because it serves this page from devtools/harness/ where the
- * "../../<modId>" assumption is false. This port takes it as a PARAMETER
- * instead: production code never passes one, so the shipped path cannot be
- * redirected by anything that manages to set a global, and the harness injects
- * its map explicitly at the call site.
+ * Optional mod-id -> asset-root overrides. A parameter, not a global: production
+ * never passes one, so the shipped path cannot be redirected by anything that
+ * sets a global. The dev harness passes its map at the call site because it
+ * serves the page from devtools/harness/ where "../../<modId>" is false.
  */
 export type AssetRoots = Record<string, string>;
 
@@ -33,12 +26,12 @@ export const DEFAULT_ASSET_ROOT = '../..';
 const SCHEME_RE = /^[a-z]+:/i;
 
 /**
- * Traversal / absolute / scheme test, applied to the mod id AND to the source
- * path AND to the decoded source path.
+ * Traversal / absolute / scheme test, applied to the mod id, the source path and
+ * the decoded source path.
  *
- * `includes("..")` is intentionally broader than a path-segment check: it also
- * rejects "a..b", which no legitimate asset name needs, in exchange for never
- * having to reason about separator normalisation.
+ * `includes("..")` is broader than a path-segment check — it also rejects
+ * "a..b", which no legitimate asset name needs — in exchange for never having to
+ * reason about separator normalisation.
  */
 function isBadPath(v: string): boolean {
   return v.includes('..') || SCHEME_RE.test(v) || v.startsWith('/') || v.startsWith('\\');
@@ -47,14 +40,14 @@ function isBadPath(v: string): boolean {
 /**
  * Resolve a schema-declared asset path to a URL, or `null` when it is rejected.
  *
- * Rejects, in this order (order matters — a malformed escape short-circuits
- * before the mod id is even looked at):
+ * Rejects in this order (a malformed escape short-circuits before the mod id is
+ * looked at):
  *  1. an empty/absent `src`;
  *  2. a `src` whose percent-escapes do not decode (`decodeURIComponent` throws);
- *  3. an empty mod id, a mod id containing "%", or a mod id that fails
- *     `isBadPath` — the id is interpolated into the path too, and while the
- *     store sanitises real ids this renderer also runs against mock data;
- *  4. a `src` containing "%" at all, or failing `isBadPath` raw OR decoded.
+ *  3. an empty mod id, a mod id containing "%", or a mod id failing `isBadPath` —
+ *     the id is interpolated into the path too, and while the store sanitises
+ *     real ids this renderer also runs against mock data;
+ *  4. a `src` containing "%" at all, or failing `isBadPath` raw or decoded.
  */
 export function safeAssetSrc(
   modId: unknown,
@@ -79,16 +72,16 @@ export function safeAssetSrc(
 
   const override = roots ? roots[id] : undefined;
   const root = typeof override === 'string' ? override : DEFAULT_ASSET_ROOT;
-  // The RAW `s` is interpolated, not `decoded` — the decode was only ever a
-  // check. (With "%" already rejected the two are identical anyway; using `s`
-  // keeps that true by construction if the "%" rule is ever relaxed.)
+  // Interpolate the raw `s`, not `decoded` — the decode was only a check. With
+  // "%" already rejected the two are identical; using `s` keeps that true if the
+  // "%" rule is ever relaxed.
   return `${root}/${id}/${s}`;
 }
 
 /**
- * The rail avatar / detail icon path: a mod's schema `icon`, held to the same
- * sandbox. Non-string icons (or none) yield null so the caller falls back to
- * title initials. main.legacy.js:801-804.
+ * Rail avatar / detail icon path: a mod's schema `icon`, held to the same
+ * sandbox. Non-string or absent icons yield null so the caller falls back to
+ * title initials.
  */
 export function modIconSrc(
   mod: { id: string; schema?: { icon?: unknown } | undefined } | null | undefined,

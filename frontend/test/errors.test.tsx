@@ -1,12 +1,7 @@
 // @vitest-environment jsdom
 //
-// errors.test.tsx — the failure paths.
-//
-//   * settings.set rejection -> writeRejected toast, saveStateAbandon, and a
-//     re-sent settings.get to pull authoritative state back;
-//   * action timeout -> a "No response from {mod}" warn toast, button restored;
-//   * capture-busy -> a warn toast and the armed button restored;
-//   * Escape peels the undo overlay BEFORE it closes the surface.
+// Settings surface failure paths: rejected writes, action timeout, capture-busy,
+// and Escape peeling the undo overlay before it closes the surface.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { makeBridge, mount, unmount, flush } from './helpers/settingsHarness';
@@ -41,16 +36,13 @@ describe('settings.set rejection', () => {
     bridge.reject(setIdx, { code: 'invalid-value' });
     await flush();
 
-    // A danger toast names the setting and the code.
     const toast = el.querySelector('.toast--danger')!;
     expect(toast).not.toBeNull();
     expect(toast.textContent).toContain('acme.kit.boolOn');
     expect(toast.textContent).toContain('invalid-value');
 
-    // The save indicator was abandoned (classes cleared).
     expect(el.querySelector('#save-state')!.classList.contains('visible')).toBe(false);
 
-    // Authoritative state was pulled back — settings.get was re-sent.
     expect(bridge.sent.some((s) => s.command === 'settings.get')).toBe(true);
   });
 });
@@ -73,7 +65,6 @@ describe('action timeout', () => {
     const toast = el.querySelector('.toast--warn')!;
     expect(toast).not.toBeNull();
     expect(toast.textContent).toContain('No response from acme.kit');
-    // Restored: no longer pending or disabled, label back to normal.
     const restored = [...el.querySelectorAll<HTMLButtonElement>('.row--action .osf-btn')].find(
       (b) => b.textContent === 'Run it',
     )!;
@@ -88,7 +79,7 @@ describe('capture-busy', () => {
     const keyBtn = el.querySelector<HTMLButtonElement>('#ctl-acme\\.kit-bindKey')!;
     keyBtn.click();
     await flush();
-    // Armed: the class padnav suspends navigation on.
+    // `.listening` is the class padnav suspends navigation on.
     expect(el.querySelector('.listening')).not.toBeNull();
 
     const idx = bridge.indexOf('settings.captureKey');
@@ -97,7 +88,6 @@ describe('capture-busy', () => {
 
     const toast = el.querySelector('.toast--warn')!;
     expect(toast!.textContent).toContain('Another rebind is already listening.');
-    // No longer listening; the button shows its value again.
     expect(el.querySelector('.listening')).toBeNull();
     expect(el.querySelector<HTMLButtonElement>('#ctl-acme\\.kit-bindKey')!.textContent).toBe('K');
   });
@@ -114,13 +104,13 @@ describe('Escape peels the undo overlay before closing', () => {
 
     const closesBefore = bridge.sent.filter((s) => s.command === 'close').length;
 
-    // First Escape: peel the overlay, DO NOT close.
+    // First Escape peels the overlay and must not close.
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27 }));
     await flush();
     expect(el.querySelector('.session-overlay')).toBeNull();
     expect(bridge.sent.filter((s) => s.command === 'close').length).toBe(closesBefore);
 
-    // Second Escape: now close.
+    // Second Escape closes.
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27 }));
     await flush();
     expect(bridge.sent.filter((s) => s.command === 'close').length).toBe(closesBefore + 1);

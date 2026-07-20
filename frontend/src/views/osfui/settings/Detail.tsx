@@ -1,43 +1,18 @@
-// Detail.tsx — the right-hand pane, and the dispatcher for its five mutually
-// exclusive modes.
-//
-// Ports `renderDetail`, `renderDetailHead`, `renderSurfaces`,
-// `renderSectionIndex`, `renderRestartBanner` and `renderViewOnlyDetail`
-// (settings/main.legacy.js:929-1162, 1347-1381).
-//
-// ---------------------------------------------------------------------------
-// THE FIVE MODES, IN DISPATCH ORDER — the order IS the behaviour
-// ---------------------------------------------------------------------------
-//   1. search results   a non-empty filter REPLACES the pane, whatever is
-//                       selected (main.legacy.js:1090-1091)
+// The right-hand pane, and the dispatcher for its five mutually exclusive
+// modes. Dispatch order is the behaviour:
+//   1. search results   a non-empty filter replaces the pane, whatever is selected
 //   2. Home             the launcher
 //   3. not found        a selection that names no entry
 //   4. view-only        an entry with views but no settings schema
 //   5. settings page    the normal case
-//
 // Search wins over Home, so typing while on the launcher shows results rather
 // than a filtered card grid. "Not found" precedes the view-only test because
 // `entry.mod` cannot be read off an entry that does not exist.
 //
-// ---------------------------------------------------------------------------
-// THE ACCENT IS APPLIED ON ENTRY AND CLEARED ON HOME / VIEW-ONLY
-// ---------------------------------------------------------------------------
-// A mod's schema `accent` drives the kit's whole linked accent set on this
-// subtree. Modes 2 and 4 CLEAR it (`applyAccent(detailEl, null)`), so one mod's
-// colour cannot leak onto the launcher or onto a mod that ships none. Modes 1
-// and 3 do not touch it at all — legacy never called applyAccent on those
-// paths, so the previous mod's accent survives a search. Faithful, and visible:
+// Accent: a mod's schema `accent` drives the kit's whole linked accent set on
+// this subtree. Modes 2 and 4 clear it, so one mod's colour cannot leak onto the
+// launcher or onto a mod that ships none. Modes 1 and 3 leave it untouched, so
 // searching from a red mod keeps a red-tinted result list.
-//
-// ---------------------------------------------------------------------------
-// WHAT IS GONE: liveRows / liveGroups / refreshLive
-// ---------------------------------------------------------------------------
-// Legacy kept a registry of every rendered node so it could re-evaluate
-// conditions and modified dots by toggling classes, WITHOUT tearing the pane
-// down — because rendering was destructive (`detailEl.textContent = ""`).
-// Preact reconciles, so the conditions are simply evaluated during render and
-// the registry has no reason to exist. `refreshSurfaceStates` goes the same
-// way: the HUD switches derive from the live view records.
 
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Row } from '@ui/Row';
@@ -61,10 +36,10 @@ import { Presets, type PresetRecord } from './Presets';
 import type { CaptureTarget } from './useCapture';
 import { devWarn } from './warn';
 
-/** How long a launched panel's button stays "Opening…" (main.legacy.js:1011). */
+/** How long a launched panel's button stays "Opening…". */
 const OPEN_COOLDOWN_MS = 1600;
 
-/** main.legacy.js:1145 — the anchor a section-index button jumps to. */
+/** The anchor a section-index button jumps to. */
 export function groupSlug(label: string): string {
   return 'grp-' + label.toLowerCase().replace(/\s+/g, '-');
 }
@@ -106,9 +81,8 @@ export interface DetailProps {
   onApplyPreset: (mod: ModRecord, preset: PresetRecord) => void;
   onJump: (result: SearchResult) => void;
   onToast: (message: string, kind?: 'warn' | 'danger') => void;
-  /** Runs the plugin command behind an action row. */
   runAction: (command: string, modId: string, key: string | undefined) => Promise<string | null>;
-  /** bridge.applyAccent — injected so this file never touches the bridge. */
+  /** bridge.applyAccent, injected so this file never touches the bridge. */
   applyAccent: (el: HTMLElement, hex: string | null) => void;
 }
 
@@ -119,7 +93,7 @@ export function Detail(props: DetailProps) {
   const entry = query || selectedId === HOME_ID ? undefined : findEntry(mods, views, selectedId);
   const schema: SettingsSchema = (entry && entry.mod && entry.mod.schema) || {};
 
-  // `undefined` means "do not touch the accent at all" — see the header.
+  // `undefined` means "do not touch the accent at all".
   let accentIntent: string | null | undefined;
   if (query) accentIntent = undefined;
   else if (selectedId === HOME_ID) accentIntent = null;
@@ -131,9 +105,8 @@ export function Detail(props: DetailProps) {
     const el = paneRef.current;
     if (!el || accentIntent === undefined) return;
     props.applyAccent(el, accentIntent);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the accent is a
-    // side effect on the DOM node; re-running it on anything but a change of
-    // intent would fight the kit's own transitions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-running on
+    // anything but a change of intent fights the kit's own transitions.
   }, [accentIntent]);
 
   return (
@@ -163,14 +136,11 @@ export function Detail(props: DetailProps) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// mode 4 — a mod that registered views but no settings schema
-// ---------------------------------------------------------------------------
-
+// Mode 4: a mod that registered views but no settings schema.
 function ViewOnly(props: DetailProps & { entry: NonNullable<ReturnType<typeof findEntry>> }) {
   const { entry, tr } = props;
-  // Same lead-view rule as the rail title: a panel reads like a product name,
-  // a HUD often does not.
+  // Same lead-view rule as the rail title: prefer a menu, which reads like a
+  // product name where a HUD often does not.
   const lead = entry.views.find((v) => v.kind === 'menu') || entry.views[0];
 
   return (
@@ -193,10 +163,7 @@ function ViewOnly(props: DetailProps & { entry: NonNullable<ReturnType<typeof fi
   );
 }
 
-// ---------------------------------------------------------------------------
-// mode 5 — the settings page
-// ---------------------------------------------------------------------------
-
+// Mode 5: the settings page.
 interface SettingsPageProps extends DetailProps {
   mod: ModRecord;
   entryViews: ViewRecord[];
@@ -209,9 +176,9 @@ function SettingsPage(props: SettingsPageProps) {
   const isFramework = mod.id === FRAMEWORK_ID;
   const groups = schema.groups || [];
 
-  // The section index appears only when there are MORE THAN 4 labelled groups
-  // — below that it is longer than the content it indexes. Unlabelled groups
-  // do not count (they have no anchor to jump to) but DO still render.
+  // The section index appears only above 4 labelled groups; below that it is
+  // longer than the content it indexes. Unlabelled groups do not count (no
+  // anchor to jump to) but still render.
   const labelled = groups.filter((g) => g.label);
   const autoIndex = labelled.length > 4;
 
@@ -239,9 +206,9 @@ function SettingsPage(props: SettingsPageProps) {
       <div class="detail-body">
         <Surfaces {...props} views={props.entryViews} ownerId={mod.id} />
 
-        {/* Advisory only. Everything below still renders best-effort — a
-            setting of a type this host predates comes up read-only with its own
-            per-row hint — so this is a note, not a gate. */}
+        {/* Advisory only, not a gate: everything below still renders
+            best-effort, and a setting of a type this host predates comes up
+            read-only with its own per-row hint. */}
         {mod.targetVersion && versionLess(hostVersion, mod.targetVersion) ? (
           <div class="osf-note osf-note--warn">
             <div>
@@ -260,10 +227,7 @@ function SettingsPage(props: SettingsPageProps) {
           onApply={(preset) => props.onApplyPreset(mod, preset)}
         />
 
-        {/* Legacy reserved this slot BEFORE the groups and filled it after, so
-            refreshLive could swap the banner without moving anything. Preact
-            needs no such reservation, but the slot is a styled node in the
-            stylesheet's flow and is kept. */}
+        {/* The empty slot is kept: it is a styled node in the stylesheet's flow. */}
         <div class="banner-slot">
           {restartCount ? (
             <div class="banner banner--warn">
@@ -292,10 +256,8 @@ function SettingsPage(props: SettingsPageProps) {
 /**
  * How many changed-from-default settings are flagged `requires:"restart"`.
  *
- * Counts the same population legacy's `liveRows` scan did (main.legacy.js:1073):
- * real settings with a usable key. Keyless settings are skipped before ever
- * being rendered, and unknown-type rows never enter the registry, so neither
- * can contribute — a row you cannot see the value of must not claim a restart.
+ * Only settings with a usable key count: keyless and unknown-type rows are not
+ * rendered, and a row you cannot see the value of must not claim a restart.
  */
 function countRestartChanges(mod: ModRecord): number {
   const values = mod.values || {};
@@ -311,8 +273,6 @@ function countRestartChanges(mod: ModRecord): number {
   }
   return n;
 }
-
-// ---------------------------------------------------------------------------
 
 interface SectionIndexProps extends SettingsPageProps {
   groups: SettingsGroup[];
@@ -352,10 +312,9 @@ interface GroupProps extends SettingsPageProps {
 function Group(props: GroupProps) {
   const { group, index, values, mod, collapsed, onToggleGroup } = props;
   const key = groupKey(mod.id, index);
-  // The schema's `collapsed` is the DEFAULT; a user toggle overrides it and
-  // now PERSISTS across re-renders. In legacy the state lived only in the DOM,
-  // so applying a preset (which rebuilt the pane) silently snapped every group
-  // back to its schema default. That is fixed here, and it is user-visible.
+  // The schema's `collapsed` is only the default; a user toggle overrides it
+  // and persists across re-renders, so applying a preset no longer snaps every
+  // group back to its schema default.
   const isCollapsed = collapsed[key] ?? group.collapsed === true;
   const visible = evalGate(group.visibleWhen, values, (k) =>
     devWarn(`condition references unknown key "${k}"`),
@@ -382,13 +341,10 @@ function Group(props: GroupProps) {
 }
 
 /**
- * Reconciliation identity for a group item.
- *
- * The key must be stable across re-renders or a control would be remounted
- * mid-edit (losing an in-flight text edit or an open action confirmation), and
- * unique within the group or Preact would reuse the wrong instance. `key` is
- * the natural id for settings and actions; notes and images have none, so they
- * fall back to the index.
+ * Reconciliation identity for a group item. Must be stable across re-renders
+ * (else a control remounts mid-edit, losing an in-flight text edit or an open
+ * action confirmation) and unique within the group (else Preact reuses the
+ * wrong instance). Notes and images have no key, so they fall back to the index.
  */
 function itemKey(item: SettingsItem, index: number): string {
   const it = item as { type?: unknown; key?: unknown; id?: unknown };
@@ -401,7 +357,7 @@ interface ItemProps extends GroupProps {
   item: SettingsItem;
 }
 
-/** `buildItem` (main.legacy.js:740-745): notes/images/actions, then settings. */
+/** Dispatch order: notes, images, actions, then settings as the fallthrough. */
 function Item(props: ItemProps) {
   const { item, values, mod, tr } = props;
   const it = item as { type?: unknown } | null;
@@ -422,9 +378,9 @@ function Item(props: ItemProps) {
     const img = item as { src?: unknown; caption?: unknown; height?: unknown; visibleWhen?: unknown };
     return (
       <ImageRow
-        // Resolved HERE, with the harness roots the App was given — never from
-        // a global. In production `assetRoots` is undefined and the path can
-        // only ever resolve inside ../../<modId>/.
+        // Resolved with the harness roots the App was given, not from a global.
+        // In production `assetRoots` is undefined and the path can only resolve
+        // inside ../../<modId>/.
         src={safeAssetSrc(mod.id, img.src, props.assetRoots)}
         caption={typeof img.caption === 'string' ? img.caption : ''}
         height={typeof img.height === 'number' ? img.height : undefined}
@@ -497,12 +453,10 @@ function Item(props: ItemProps) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// surfaces (panels + HUD toggles)
-// ---------------------------------------------------------------------------
-// The catalog views attached to this entry, rendered ABOVE the settings groups:
-// a menu gets an Open button (menu.open — single-menu policy, so the opened
-// panel replaces this surface), a HUD gets a switch (hud.show / hud.hide).
+// Surfaces: the catalog views attached to this entry, rendered above the
+// settings groups. A menu gets an Open button (menu.open — single-menu policy,
+// so the opened panel replaces this surface); a HUD gets a hud.show/hud.hide
+// switch.
 
 interface SurfacesProps extends DetailProps {
   views: ViewRecord[];
@@ -570,9 +524,8 @@ function PanelRow({
           onClick={() => {
             onOpen(v.id);
             // The opened panel replaces this surface, so this state is normally
-            // discarded with the page. The timer exists for the case where the
-            // open never happens (a failed registration) — don't leave the
-            // button stuck.
+            // discarded with the page. The timer covers the open never
+            // happening (failed registration), which would strand the button.
             setOpening(true);
             setTimeout(() => setOpening(false), OPEN_COOLDOWN_MS);
           }}

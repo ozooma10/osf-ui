@@ -6,9 +6,9 @@
 
 // osfui_webview2_host.exe --pipe=<name> --game-pid=<pid> [--log=<file>]
 //
-// Launched by the OSF UI plugin (via an out-of-tree broker; see
-// Wv2BrokerLaunch.h) from a REAL filesystem mirror of the mod folder —
-// never from inside the MO2 VFS, which brokered launchers cannot see.
+// Launched by the OSF UI plugin via an out-of-tree broker (Wv2BrokerLaunch.h)
+// from a real filesystem mirror of the mod folder, never from inside the MO2
+// VFS — brokered launchers cannot see it.
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
 {
 	int argc = 0;

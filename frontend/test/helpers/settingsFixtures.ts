@@ -1,9 +1,6 @@
-// helpers/settingsFixtures.ts — hand-written settings.data / views.data
-// payloads for the settings-view suites. TEST ONLY.
-//
-// Cast through `unknown`: these are wire fixtures, not values built through the
-// SDK constructors, and spelling out every optional field would bury what each
-// test is actually exercising.
+// Hand-written settings.data / views.data payloads for the settings-view suites.
+// Cast through `unknown`: wire fixtures, not SDK-constructed values, so optional
+// fields are omitted.
 
 import type { SettingsDataPayload, ViewsDataPayload } from '@sdk';
 
@@ -110,7 +107,7 @@ export const WIDGETS: SettingsDataPayload = {
               { type: 'note', style: 'evil', text: 'sneaky' },
               { type: 'action', key: 'go', label: 'Run it', command: 'acme.kit.run' },
               { type: 'action', key: 'bad', label: 'Reserved', command: 'ui.doThing' },
-              // A keyless setting: must be SKIPPED, not rendered.
+              // A keyless setting: must be skipped, not rendered.
               { label: 'No key here', type: 'bool', default: false },
               // A type this host predates: read-only row--unknown.
               { key: 'future', label: 'Future', type: 'quantum', default: 0 },
@@ -122,7 +119,7 @@ export const WIDGETS: SettingsDataPayload = {
   ],
 } as unknown as SettingsDataPayload;
 
-/** Views for the Home launcher and view-only modes. */
+/** Views for the Home launcher, including a mod with no settings behind it. */
 export const VIEWS: ViewsDataPayload = {
   views: [
     {

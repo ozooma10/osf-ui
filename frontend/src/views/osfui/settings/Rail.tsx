@@ -1,18 +1,13 @@
-// Rail.tsx — the left-hand list of things you can configure.
+// Rail.tsx — the left-hand list of things you can configure. The painted order
+// comes from @lib/settings/rail's `railNodes` so this file and the LB/RB
+// `cycleRail` walk cannot drift apart; the order itself is argued there.
 //
-// Ports `renderRail` and its helpers (settings/main.legacy.js:747-927), reading
-// the painted ORDER from @lib/settings/rail's `railNodes` so that this file and
-// the LB/RB `cycleRail` walk cannot drift apart.
+// The load-failure alert is never filtered, which looks like a bug but isn't: a
+// user typing the name of the mod that failed to load must see why it is
+// missing, not "No mods match the filter" (mcm-design.md §14.2).
 //
-// The order itself is argued in railNodes' doc comment. The one rule worth
-// repeating here because it looks like a bug: THE LOAD-FAILURE ALERT IS NEVER
-// FILTERED. A user typing the name of the mod that failed to load must see WHY
-// it is missing, not "No mods match the filter" (mcm-design.md §14.2 — the
-// SkyUI-MCM lesson: a mod silently absent from the list is a support thread, a
-// named file plus a reason is a fix).
-//
-// `liveRows`/`updateRailCounts` are gone: the modified-count badge is derived
-// from the model on every render now, so there is nothing to reconcile.
+// The modified-count badge is derived from the model on every render, so there
+// is no row state to reconcile.
 
 import { modifiedCount } from '@lib/settings/modified';
 import { modIconSrc, type AssetRoots } from '@lib/settings/assets';
@@ -82,10 +77,9 @@ export function Rail(props: RailProps) {
           case 'entry':
             return (
               <RailItem
-                // The entry id is unique across the rail (mods by id, view-only
-                // entries behind a "view:" prefix), so it is a real identity —
-                // which keeps each item's icon-failed state attached to the
-                // right mod when the filter reorders the list.
+                // Entry ids are unique across the rail (mods by id, view-only
+                // entries behind a "view:" prefix), so each item's icon-failed
+                // state stays with the right mod when the filter reorders.
                 key={node.entry.id}
                 entry={node.entry}
                 selected={node.entry.id === selectedId}
@@ -103,12 +97,11 @@ export function Rail(props: RailProps) {
   );
 }
 
-// ---------------------------------------------------------------------------
 
 /**
- * What the entry OFFERS, for the sub-line (main.legacy.js:787-796): "Framework"
- * for OSF UI itself, the mod id for a settings mod, and a surface census for a
- * view-only entry (which has no id worth showing — its id is synthetic).
+ * Sub-line text: "Framework" for OSF UI itself, the mod id for a settings mod,
+ * a surface census for a view-only entry (whose id is synthetic, so not worth
+ * showing).
  */
 function railSub(entry: RailEntry, tr: Translator): string {
   if (entry.id === FRAMEWORK_ID) return tr('framework', 'Framework');
@@ -118,8 +111,8 @@ function railSub(entry: RailEntry, tr: Translator): string {
   const parts: string[] = [];
   if (menus) parts.push(tr.plural('terminal', menus, 'Terminal', '{count} terminals'));
   if (huds) parts.push(tr.plural('overlay', huds, 'Overlay', '{count} overlays'));
-  // A view-only entry with zero views cannot exist (it is built FROM views), so
-  // the fallback is unreachable defence carried over from legacy.
+  // A view-only entry is built from views, so zero views is unreachable; the
+  // fallback is defence only.
   return parts.join(' · ') || tr('mod', 'Mod');
 }
 
@@ -139,21 +132,19 @@ function RailItem({ entry, selected, tr, assetRoots, onSelect }: RailItemProps) 
     <button
       type="button"
       class={selected ? 'rail-item selected' : 'rail-item'}
-      // Legacy re-found each item by this attribute to repaint its badge
-      // (main.legacy.js:1462-1463). Nothing needs it now, but it ships today.
+      // Nothing reads this attribute any more, but it ships in the DOM today.
       data-mod={entry.id}
       onClick={() => onSelect(entry.id)}
     >
       <Mark
         class="rail-item-mark"
         iconClass="rail-item-mark--icon"
-        // The SDK `SettingsSchema` type omits `icon` (it is an advisory field
-        // modIconSrc reads defensively as `unknown`); the loose cast bridges
-        // that gap without loosening the lib's own signature.
+        // The SDK `SettingsSchema` type omits `icon` (advisory field, read as
+        // `unknown` by modIconSrc); the cast bridges that without loosening the
+        // lib's signature.
         src={modIconSrc(entry.mod as Parameters<typeof modIconSrc>[0], assetRoots)}
         color=""
-        // The framework gets a glyph rather than initials — "OU" would read as
-        // just another mod.
+        // Glyph rather than initials: "OU" would read as just another mod.
         fallback={isFramework ? '◆' : initials(entry.title)}
       />
       <span class="rail-item-text">
@@ -179,7 +170,7 @@ interface HomeItemProps {
   onSelect: (id: string) => void;
 }
 
-/** Home's pinned rail item — same chrome as a mod entry, selected the same way. */
+/** Pinned rail item — same chrome as a mod entry, selected the same way. */
 function HomeItem({ views, selected, tr, onSelect }: HomeItemProps) {
   const menus = views.filter((v) => v.kind === 'menu').length;
   const huds = views.length - menus;
@@ -223,8 +214,7 @@ function LoadAlert({ errors, tr }: LoadAlertProps) {
           <div class="rail-alert-file">{e.file || e.mod || '?'}</div>
           <div class="rail-alert-msg">
             {e.kind === 'values-parse'
-              ? // The one failure with a recovery story worth spelling out: the
-                // mod still works, on defaults, and the unreadable file is kept.
+              ? // Recoverable: the mod runs on defaults and the bad file is kept.
                 tr(
                   'loadErrorValues',
                   'Saved settings for {mod} were unreadable — defaults are in use; the old file is kept next to it as {file}.bad. ({message})',

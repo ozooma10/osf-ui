@@ -18,10 +18,9 @@ namespace OSFUI
 	namespace
 	{
 		// QI a candidate pointer to T. The engine accessor hands back raw,
-		// unvalidated pointers, so guard readability before touching the vtable:
-		// a not-yet-initialized renderer then fails cleanly instead of crashing.
-		// A successful QI also AddRefs, giving the caller the owned reference it
-		// later Releases.
+		// unvalidated pointers, so check readability before touching the vtable:
+		// a not-yet-initialized renderer fails cleanly instead of crashing.
+		// A successful QI AddRefs; the caller owns that reference and Releases it.
 		template <class T>
 		[[nodiscard]] T* QueryCandidate(const char* a_label, const std::uintptr_t a_candidate)
 		{
@@ -62,17 +61,17 @@ namespace OSFUI
 	{
 		EngineD3D12 result{};
 
-		// The proven offset walk (g_RendererRoot -> device / DIRECT queue) lives
-		// in CommonLibSF now; this returns raw, unverified engine pointers.
+		// The offset walk (g_RendererRoot -> device / DIRECT queue) lives in
+		// CommonLibSF; it returns raw, unverified engine pointers.
 		auto* renderer = RE::CreationRendererPrivate::Renderer::GetSingleton();
 		if (!renderer) {
 			REX::WARN("EngineD3D12: RE::CreationRendererPrivate::Renderer is null — renderer not initialized yet?");
 			return result;
 		}
 
-		// Re-prove the pair on our side: QI confirms the pointers really are the
-		// interfaces we expect (catching a layout that drifted under a patch),
-		// the queue must be DIRECT, and it must belong to this exact device.
+		// Re-verify the pair here: QI confirms the pointers are the interfaces we
+		// expect (catches a layout that drifted under a patch), the queue must be
+		// DIRECT, and it must belong to this exact device.
 		auto* device = QueryCandidate<ID3D12Device>("device", reinterpret_cast<std::uintptr_t>(renderer->GetDevice()));
 		if (!device) {
 			return result;

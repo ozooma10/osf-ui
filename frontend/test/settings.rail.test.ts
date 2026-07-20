@@ -51,7 +51,7 @@ describe('railEntries — union of settings mods and catalog views', () => {
   });
 
   it('titles an orphan group from its first kind:"menu" view, not the first view', () => {
-    // orphanHud comes first in the list, but a terminal reads like a product.
+    // orphanHud is first in the list, but the menu names the group better.
     expect(railEntries([], [orphanHud, orphanMenu])[0]?.title).toBe('Solo Terminal');
   });
 
@@ -97,8 +97,8 @@ describe('railNodes — paint order', () => {
       'home',
       FRAMEWORK_ID,
       'section',
-      // localeCompare with sensitivity "base": "alpha works" sorts before
-      // "Zeta Tools" despite the case difference.
+      // localeCompare sensitivity "base": "alpha works" sorts before "Zeta
+      // Tools" despite the case difference.
       'acme.alpha',
       'acme.zeta',
     ]);
@@ -121,8 +121,8 @@ describe('railNodes — paint order', () => {
   });
 
   it('keeps the loadErrors alert PINNED even when the filter matches nothing', () => {
-    // The SkyUI-MCM lesson: a user filtering for the mod that failed to load
-    // must see WHY, not "no mods match".
+    // A user filtering for the mod that failed to load must see why, not
+    // "no mods match".
     const withErrors: RailModel = {
       mods: [],
       views: [],
@@ -165,8 +165,8 @@ describe('cycleRail — reproduces the painted order exactly', () => {
   });
 
   it('excludes Home while filtering', () => {
-    // "a" matches "alpha works" and "Zeta Tools" but not "OSF UI", so the
-    // cycle list is exactly the two mods — no Home, no framework.
+    // "a" matches "alpha works" and "Zeta Tools" but not "OSF UI", so the cycle
+    // list is the two mods — no Home, no framework.
     expect(cycleRail(model, 'a', 'acme.alpha', 1)).toBe('acme.zeta');
     expect(cycleRail(model, 'a', 'acme.alpha', -1)).toBe('acme.zeta');
     expect(cycleRail(model, 'a', 'acme.zeta', 1)).toBe('acme.alpha');

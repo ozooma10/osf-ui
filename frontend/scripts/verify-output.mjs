@@ -1,16 +1,14 @@
-// verify-output.mjs — post-build gates on data/OSFUI/views.
-//
-// These run as part of `npm run build` (so a bad build never reaches the tree)
-// and again from frontend/test/build.*.test.ts (so CI reports them as tests).
-// Every gate here encodes a constraint that would otherwise only fail in game,
-// where the symptom is a blank overlay and a console error nobody reads.
+// Post-build gates on data/OSFUI/views. Run from `npm run build` so a bad build
+// never reaches the tree, and again from frontend/test/build.*.test.ts so CI
+// reports them as tests. Each gate catches a constraint that would otherwise
+// only fail in game, as a blank overlay plus a console error nobody reads.
 
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { OUT, FRONTEND, VIEWS, expectedOutputs, walk } from './config.mjs';
 
-// Identifiers that exist only in the dev harness. If any reaches a shipped
-// bundle, the DEV-branch dead-code elimination silently stopped working.
+// Identifiers that exist only in the dev harness. Any of them in a shipped
+// bundle means the DEV-branch dead-code elimination silently stopped working.
 const DEV_SENTINELS = [
   'OSFUI_MOCK_BRIDGE',
   'OSFUI_MOD_ASSET_ROOTS',
@@ -22,18 +20,18 @@ export function verifyOutput() {
   const problems = [];
   const fail = (m) => problems.push(m);
 
-  // --- File set is exactly what build.mjs owns -----------------------------
+  // File set is exactly what build.mjs owns.
   const expected = expectedOutputs();
   const actual = walk(OUT).sort();
   for (const f of expected) if (!actual.includes(f)) fail(`missing output: ${f}`);
   for (const f of actual) {
     if (!expected.includes(f)) fail(`unexpected file in views output: ${f} (add it to expectedOutputs() or stop emitting it)`);
   }
-  // Source maps must never land here: nothing in package.ps1 or CI excludes by
-  // extension, so a .map would ship in every archive.
+  // Nothing in package.ps1 or CI excludes by extension, so a stray .map would
+  // ship in every archive.
   for (const f of actual) if (f.endsWith('.map')) fail(`source map in shipped output: ${f}`);
 
-  // --- Verbatim artifacts are byte-identical to their sources --------------
+  // Verbatim artifacts must stay byte-identical to their sources.
   const verbatim = [
     ['src/shared-kit/osfui.js', 'shared/osfui.js'],
     ['src/shared-kit/osfui.css', 'shared/osfui.css'],
@@ -51,50 +49,43 @@ export function verifyOutput() {
     const css = join(dir, 'style.css');
     const js = join(dir, 'main.js');
 
-    // --- Classic scripts only ---------------------------------------------
-    // The built-in views deliberately retain one stable classic IIFE bundle.
-    // This preserves the load-order contract (shared/osfui.js must execute
-    // before main.js and OWNS osfui.onMessage; modules are deferred).
+    // Classic scripts only: the built-in views stay on one stable classic IIFE
+    // bundle to hold the load-order contract — shared/osfui.js must execute
+    // before main.js and owns osfui.onMessage. Modules are deferred.
     if (existsSync(html)) {
       const h = readFileSync(html, 'utf8');
       if (/type\s*=\s*["']module["']/.test(h)) fail(`${v.name}/index.html uses type="module" (built-in bundles must remain classic IIFEs)`);
       if (/\bcrossorigin\b/.test(h)) fail(`${v.name}/index.html has a crossorigin attribute (Vite HTML pipeline leaked in)`);
       if (!/src="\.\.\/\.\.\/shared\/osfui\.js"/.test(h)) fail(`${v.name}/index.html no longer loads ../../shared/osfui.js`);
       if (!/href="\.\.\/\.\.\/shared\/osfui\.css"/.test(h)) fail(`${v.name}/index.html no longer links ../../shared/osfui.css`);
-      // Load order is load-bearing, not cosmetic.
       const kit = h.indexOf('shared/osfui.js'), main = h.indexOf('src="main.js"');
       if (kit >= 0 && main >= 0 && kit > main) fail(`${v.name}/index.html loads main.js before the shared kit`);
     }
 
-    // --- Network-free, self-contained -------------------------------------
-    // permissions.network is force-disabled natively (ViewManifest.cpp), and
-    // all three --osf-font-* stacks resolve to Windows system faces. Nothing
-    // may reach out.
+    // Network-free and self-contained: permissions.network is force-disabled
+    // natively (ViewManifest.cpp) and all three --osf-font-* stacks resolve to
+    // Windows system faces.
     if (existsSync(css)) {
       const c = readFileSync(css, 'utf8');
       if (/@font-face/.test(c)) fail(`${v.name}/style.css contains @font-face (views must ship zero webfont binaries)`);
       if (/url\(\s*["']?https?:/i.test(c)) fail(`${v.name}/style.css loads a remote URL`);
-      // Transparency: the D3D12 compositor expects premultiplied BGRA and the
-      // page's transparent body is the real mechanism. An opaque html/body
-      // background renders the overlay as a black rectangle over the game.
-      // Allowlist note: the Oxc minifier rewrites `background: transparent`
-      // to the shorthand `background: 0 0` (position 0 0, everything else
-      // initial — initial background-color IS transparent), so bare `0` must
-      // pass. What we are catching is a colour: #hex, rgb()/hsl(), or a named
-      // colour ('black', 'red', ...).
+      // The D3D12 compositor expects premultiplied BGRA; the page's transparent
+      // body is what supplies it. An opaque html/body background renders the
+      // overlay as a black rectangle over the game.
+      // The Oxc minifier rewrites `background: transparent` to the shorthand
+      // `background: 0 0` (position 0 0, everything else initial — initial
+      // background-color is transparent), so bare `0` must pass. The target is a
+      // colour: #hex, rgb()/hsl(), or a named colour.
       if (/\b(html|body)\s*\{[^}]*background(-color)?\s*:\s*(?!none\b|transparent\b|inherit\b|0[\s;}])(#|rgba?\(|hsla?\(|[a-z])/i.test(c)) {
         fail(`${v.name}/style.css sets an opaque background on html/body (would black out the overlay)`);
       }
     }
 
-    // --- No dev-only code survived into the bundle -------------------------
-    // Scoped to bundled views on purpose. The pre-migration hand-written views
-    // DO ship harness code - `sampleMods()`/`sampleViews()` demo fixtures and a
-    // `window.OSFUI_MOD_ASSET_ROOTS` read inside the production asset-path
-    // sanitiser - and that is precisely what migrating each view fixes. A
-    // verbatim copy has no DEV elimination to verify; asserting it here would
-    // only block the baseline. The gate arms itself the moment a view flips to
-    // `mode: 'bundle'`.
+    // No dev-only code survived into the bundle. Scoped to `mode: 'bundle'`
+    // views: a verbatim copy has no DEV elimination to verify, and hand-written
+    // views do ship harness code (sampleMods()/sampleViews() fixtures, a
+    // window.OSFUI_MOD_ASSET_ROOTS read in the asset-path sanitiser), so the
+    // gate would only block them.
     if (existsSync(js)) {
       const j = readFileSync(js, 'utf8');
       if (v.mode === 'bundle') {

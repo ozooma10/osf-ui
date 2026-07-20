@@ -7,9 +7,9 @@ namespace OSFUI
 {
 	namespace
 	{
-		// Index of the BSInputEventReceiver vtable in RE::UI::VTABLE
-		// (AddressLib ID 475439). Proven on game 1.16.244 — see
-		// VerifyUiLayout(), which hard-fails if this stops being true.
+		// Index of the BSInputEventReceiver vtable in RE::UI::VTABLE (AddressLib
+		// ID 475439), confirmed on game 1.16.244. VerifyUiLayout() hard-fails if
+		// this stops holding.
 		constexpr std::size_t kReceiverVtblIndex = 10;
 	}
 
@@ -21,22 +21,21 @@ namespace OSFUI
 			return false;
 		}
 
-		// Cross-check the compiled UI base offsets against the running binary
-		// before anything writes to or registers on the UI object: the vptr of
-		// the live BSInputEventReceiver subobject must be exactly the vtable
-		// AddressLib reports for it. A stale CommonLibSF layout fails this
-		// instead of corrupting UI state — that exact failure shipped against
-		// game 1.16.244 with a pre-PR#26 submodule and crashed on save load.
+		// Cross-check compiled UI base offsets against the running binary before
+		// anything writes to or registers on the UI object: the live
+		// BSInputEventReceiver subobject's vptr must equal the vtable AddressLib
+		// reports. A stale CommonLibSF layout then fails here instead of
+		// corrupting UI state — that shipped against 1.16.244 with a pre-PR#26
+		// submodule and crashed on save load.
 		//
-		// The receiver's entry is VTABLE[kReceiverVtblIndex], NOT VTABLE[0] or
-		// [1]: the IDs_VTABLE.h array order does not follow base-declaration
-		// order. Proven 2026-06-12 by resolving all 11 entries from
-		// versionlib-1-16-244 (tools/parse_versionlib.py) against the vptr
-		// observed in the running game; the matched vtable is also the only
-		// 2-slot one in the cluster (dtor + PerformInputProcessing), which is
-		// exactly BSInputEventReceiver's shape. Both checks below stay hard
-		// requirements: if CommonLibSF reorders the array or a patch moves the
-		// vtable, this refuses and dumps the data needed to re-derive.
+		// The receiver's entry is VTABLE[kReceiverVtblIndex], not VTABLE[0] or [1];
+		// IDs_VTABLE.h array order does not follow base-declaration order. Derived
+		// 2026-06-12 by resolving all 11 versionlib-1-16-244 entries
+		// (tools/parse_versionlib.py) against the live vptr; the match is also the
+		// cluster's only 2-slot vtable (dtor + PerformInputProcessing), which is
+		// BSInputEventReceiver's shape. Both checks below stay hard requirements:
+		// a reordered array or a moved vtable refuses and dumps what re-derivation
+		// needs.
 		auto* receiver = static_cast<RE::BSInputEventReceiver*>(ui);
 		const auto liveVptr = *reinterpret_cast<const std::uintptr_t*>(receiver);
 		const REL::Relocation<std::uintptr_t> vtbl{ RE::UI::VTABLE[kReceiverVtblIndex] };

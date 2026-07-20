@@ -5,28 +5,23 @@
 namespace OSFUI
 {
 #if defined(OSFUI_WITH_WEBVIEW2)
-	// Out-of-process WebView2 backend (renderer id "webview2"). The browser
-	// stack lives in osfui_webview2_host.exe, launched OUTSIDE the game's
-	// process tree (tools/webview2_shared/Wv2BrokerLaunch) so Mod Organizer
-	// 2's USVFS never injects into msedgewebview2.exe — the zero-config fix
-	// for the in-process backend's E_UNEXPECTED controller failure under MO2.
+	// Out-of-process WebView2 backend (renderer id "webview2"), and the only
+	// browser backend. The browser stack lives in osfui_webview2_host.exe,
+	// launched outside the game's process tree (Wv2BrokerLaunch) so MO2's
+	// USVFS never injects into msedgewebview2.exe — that injection is what
+	// made the removed in-process variant fail controller creation with
+	// E_UNEXPECTED unless the user added an MO2 blacklist entry by hand.
 	//
-	// The plugin is a thin client: one named pipe carries control/input/
-	// bridge traffic (tools/webview2_shared/Wv2Protocol.h), and frames arrive
-	// as GPU shared textures the D3D12 compositor samples directly (no CPU
-	// readback). Keyboard stays the real-focus model: the host parents its
-	// browser HWND beneath the game window (window tree != process tree) and
-	// framework keys come back over the pipe.
+	// The plugin is a thin client: one named pipe carries control/input/bridge
+	// traffic (Wv2Protocol.h), and frames arrive as GPU shared textures the
+	// D3D12 compositor samples directly (no CPU readback). Keyboard uses the
+	// real-focus model: the host parents its browser HWND beneath the game
+	// window (window tree != process tree) and framework keys come back over
+	// the pipe.
 	//
-	// Multi-view: the host keeps one composition controller + child visual
-	// per view under ONE captured root, so sibling plugin views and the
-	// configured layer set all composite through the same shared-texture
-	// ring; this client just routes per-view ids over the pipe.
-	//
-	// This is the only browser backend. The former in-process variant
-	// ("webview2-inproc") was removed: it needed a manual MO2 executable
-	// blacklist entry to survive USVFS injection, and offered nothing this
-	// does not.
+	// Multi-view: the host keeps one composition controller + child visual per
+	// view under a single captured root, so all views composite through the
+	// same shared-texture ring; this client just routes per-view ids.
 	class WebView2HostWebRenderer final : public IWebRenderer
 	{
 	public:

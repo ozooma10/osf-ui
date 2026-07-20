@@ -1,7 +1,6 @@
-// config.mjs — paths and the output manifest, shared by build.mjs and
-// verify-output.mjs. Kept separate so verification can import it without
-// importing the builder (which would be a cycle, and a cycle across a
-// top-level await deadlocks silently rather than erroring).
+// Paths and the output manifest, shared by build.mjs and verify-output.mjs.
+// Separate so verification can import it without importing the builder: that
+// cycle would cross a top-level await and deadlock silently instead of erroring.
 
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -19,17 +18,16 @@ export const OUT = process.env.OSFUI_VIEWS_OUT
 
 export const COMMITTED_OUT = join(REPO, 'data', 'OSFUI', 'views');
 
-// Per-view emit mode. 'verbatim' ships the pre-migration hand-written main.js
-// untouched; 'bundle' builds main.tsx through Vite. Flipping one view at a time
-// is what keeps each migration phase independently revertable.
+// Per-view emit mode: 'verbatim' copies a hand-written main.js untouched,
+// 'bundle' builds main.tsx through Vite.
 export const VIEWS = [
   { mod: 'osfui', name: 'keybinds', mode: 'bundle' },
   { mod: 'osfui', name: 'settings', mode: 'bundle' },
 ];
 
-// Every file this build owns. verify-output asserts the emitted set is exactly
-// this - so a stray file (a .map, a fixture, an orphaned chunk) fails the build
-// rather than silently shipping in the next archive.
+// Every file this build owns. verify-output asserts the emitted set matches
+// exactly, so a stray .map/fixture/orphaned chunk fails the build instead of
+// shipping in the next archive.
 export function expectedOutputs() {
   const files = ['shared/osfui.js', 'shared/osfui.css', 'osfui/padnav.js'];
   for (const v of VIEWS) {

@@ -31,8 +31,8 @@ describe('stepperFor', () => {
   });
 
   it('falls back to the type default for step 0, negative and NaN', () => {
-    // All three would divide-by-zero (or NaN) inside snap and commit NaN over
-    // the bridge — the reason the guard is `!(step > 0)` rather than `step < 0`.
+    // All three divide-by-zero (or NaN) inside snap and commit NaN over the
+    // bridge — why the guard is `!(step > 0)` rather than `step < 0`.
     expect(stepperFor(s({ type: 'int', step: 0 })).step).toBe(1);
     expect(stepperFor(s({ type: 'int', step: -5 })).step).toBe(1);
     expect(stepperFor(s({ type: 'float', step: NaN })).step).toBe(0.01);
@@ -47,8 +47,8 @@ describe('stepperFor', () => {
   });
 
   it('does NOT flag a nullish step — `??` gives it the type default silently', () => {
-    // The legacy guard runs on the POST-`??` value, so `step: null` resolved to
-    // the default and never warned. Warning here would be a new diagnostic.
+    // The guard runs on the post-`??` value, so a nullish step resolves to the
+    // type default without warning. Warning would be a new diagnostic.
     const nulled = { step: null } as unknown as Pick<Setting, 'step'>;
     expect(hasInvalidStep(nulled)).toBe(false);
     expect(stepperFor({ type: 'int', ...nulled }).step).toBe(DEFAULT_INT_STEP);

@@ -1,21 +1,18 @@
-// build.mjs — the OSF UI frontend build orchestrator.
+// OSF UI frontend build orchestrator.
 //
-// Emits `data/OSFUI/views/**` EXACTLY: the shipped view directories are this
-// script's output, and three separate pipelines already treat that path as
-// authoritative (xmake `add_installfiles("data/(OSFUI/**)")`, the after_build
-// MO2 redeploy, and tools/package.ps1's recursive staging copy). Emitting
-// anywhere else would mean editing all three; emitting here means editing none.
+// Output path is fixed at `data/OSFUI/views/**`: three pipelines treat it as
+// authoritative (xmake `add_installfiles("data/(OSFUI/**)")`, the after_build MO2
+// redeploy, tools/package.ps1's staging copy).
 //
-// Why an orchestrator instead of one `vite build`:
-//   Rollup refuses IIFE with multiple inputs ("UMD and IIFE output formats are
-//   not supported for code-splitting builds"), and `inlineDynamicImports` only
-//   permits a single input. Two views => two separate single-entry builds.
+// One build per view, not one `vite build`: Rollup refuses IIFE with multiple
+// inputs ("UMD and IIFE output formats are not supported for code-splitting
+// builds") and `inlineDynamicImports` allows only a single input.
 //
-// Why index.html is copied, never processed by Vite:
-//   Vite's HTML pipeline rewrites script/link hrefs against `base`, injects
-//   `type="module"` + `crossorigin`, and hashes assets. The views must keep the
-//   exact tag shape and the exact relative depth `../../shared/osfui.css` that
-//   docs/authoring-views.md promises to third-party authors.
+// index.html is copied, never run through Vite: the HTML pipeline rewrites
+// script/link hrefs against `base`, injects `type="module"` + `crossorigin`, and
+// hashes assets. Views must keep the exact tag shape and relative depth
+// `../../shared/osfui.css` that docs/authoring-views.md promises to third-party
+// authors.
 
 import { build } from 'vite';
 import { copyFileSync, mkdirSync, rmSync } from 'node:fs';
@@ -30,19 +27,18 @@ function copy(from, to) {
 export async function runBuild({ quiet = false } = {}) {
   const log = quiet ? () => {} : (m) => console.log(m);
 
-  // 1. Clean ONLY the paths we own. Never wipe the whole views root: a
-  //    third-party mod installed into data/ for local testing must survive.
+  // 1. Clean only the paths we own — never wipe the whole views root, or a
+  //    third-party mod installed into data/ for local testing goes with it.
   for (const rel of expectedOutputs()) rmSync(join(OUT, rel), { force: true });
 
   // 2. Verbatim copies.
-  //    - shared/osfui.{js,css} are the FROZEN public contract (bridge protocol
+  //    - shared/osfui.{js,css} are the frozen public contract (bridge protocol
   //      1.0, api-freeze item 5). Third-party mods link `../../shared/osfui.js`
-  //      by exact path; regenerating risks byte-level behaviour change against
-  //      unknown consumers for zero user-visible gain.
-  //    - padnav.js is private-but-unfrozen: its own header calls it
-  //      "deliberately PRIVATE to the osfui views". It reads concrete DOM
-  //      geometry and its in-game controller verification is still pending, so
-  //      it ships as-is. See frontend/COMPATIBILITY.md for the exit criteria.
+  //      by exact path, so regenerating risks byte-level behaviour change
+  //      against unknown consumers.
+  //    - padnav.js is private but unfrozen. It reads concrete DOM geometry and
+  //      its in-game controller verification is still pending, so it ships
+  //      as-is. Exit criteria in frontend/COMPATIBILITY.md.
   copy(join(FRONTEND, 'src/shared-kit/osfui.js'), join(OUT, 'shared/osfui.js'));
   copy(join(FRONTEND, 'src/shared-kit/osfui.css'), join(OUT, 'shared/osfui.css'));
   copy(join(FRONTEND, 'src/legacy/padnav.js'), join(OUT, 'osfui/padnav.js'));
@@ -73,8 +69,8 @@ export async function runBuild({ quiet = false } = {}) {
           input: join(FRONTEND, 'src/views', v.mod, v.name, 'main.tsx'),
           output: {
             format: 'iife',
-            // No inlineDynamicImports: rolldown-vite disables code splitting
-            // for single-input IIFE builds already (and warns if it is set).
+            // No inlineDynamicImports: rolldown-vite already disables code
+            // splitting for single-input IIFE builds, and warns if it is set.
             // The build.syntax gate (sourceType: 'script') still proves no
             // import/export survives into the bundle.
             entryFileNames: 'main.js',

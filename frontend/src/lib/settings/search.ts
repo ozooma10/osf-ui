@@ -1,19 +1,15 @@
-// search.ts — the filter box. Two consumers, two behaviours:
+// Filter box. `railMatches` scopes the rail to matching entries;
+// `searchResults` replaces the detail pane with a flat, cross-mod result list.
 //
-//  * `railMatches` scopes the RAIL to entries that match (main.legacy.js:773).
-//  * `searchResults` replaces the DETAIL pane with a flat, cross-mod result
-//    list (main.legacy.js:1384-1426).
-//
-// Both take a query that the caller has already trimmed and lowercased, exactly
-// as the legacy view does once at main.legacy.js:897/1090. They do NOT lowercase
-// it again — pass a raw mixed-case query and nothing will match.
+// Both expect a query the caller has already trimmed and lowercased. Neither
+// lowercases again — a raw mixed-case query matches nothing.
 
 import type { SettingsGroup } from '@sdk';
 import type { ModRecord, RailEntry } from './rail';
 import { titleOf } from './rail';
 import { isSetting } from './normalize';
 
-/** The groups of a mod, defended the way the legacy renderer defends them. */
+/** A mod's groups, or [] for any missing link in the chain. */
 function groupsOf(mod: ModRecord | null | undefined): SettingsGroup[] {
   return (mod && mod.schema && mod.schema.groups) || [];
 }
@@ -21,10 +17,9 @@ function groupsOf(mod: ModRecord | null | undefined): SettingsGroup[] {
 /**
  * Does this rail entry survive the filter? An empty query matches everything.
  *
- * Matching is deliberately WIDE: the entry title, any attached view's title,
- * and any of the mod's setting labels. Filtering for a setting name therefore
- * leaves the owning mod visible in the rail, so the result list in the detail
- * pane and the rail agree about which mods are involved.
+ * Matching is wide — entry title, any attached view's title, any of the mod's
+ * setting labels — so filtering for a setting name keeps the owning mod in the
+ * rail and the rail agrees with the detail pane's result list.
  */
 export function railMatches(entry: RailEntry, query: string): boolean {
   if (!query) return true;
@@ -32,16 +27,14 @@ export function railMatches(entry: RailEntry, query: string): boolean {
   if (entry.views.some((v) => (v.title || '').toLowerCase().includes(query))) return true;
   for (const g of groupsOf(entry.mod)) {
     for (const s of g.settings || []) {
-      // NOTE: unlike the cross-mod scan below this does NOT require `isSetting`
-      // or a non-empty key — a note/action/image item whose `label` matches
-      // keeps its mod in the rail. Faithful to main.legacy.js:777-781, where
-      // the loop reads `s.label || s.key || ""` off any item.
+      // Unlike the cross-mod scan below, this requires neither `isSetting` nor
+      // a non-empty key: a note/action/image item whose `label` matches keeps
+      // its mod in the rail.
       //
-      // ONE hardening beyond legacy: the `typeof === 'string'` guards. Legacy
-      // called `.toLowerCase()` on whatever `label || key` produced, so a schema
-      // with a NUMERIC label threw a TypeError out of `renderRail` and left the
-      // rail empty. Coercing to "" instead only ever converts a crash into a
-      // non-match, and the schema validator rejects such labels upstream anyway.
+      // The `typeof === 'string'` guards matter — calling `.toLowerCase()` on a
+      // numeric label throws out of the rail render and leaves the rail empty.
+      // Coercing to "" turns that crash into a non-match. (The schema validator
+      // rejects such labels upstream anyway.)
       const item = s as { label?: unknown; key?: unknown };
       const text = (typeof item.label === 'string' && item.label) ||
         (typeof item.key === 'string' && item.key) || '';
@@ -57,7 +50,7 @@ export interface SearchResult {
   modTitle: string;
   /** The owning group's label, or "" when the group is unlabelled. */
   groupLabel: string;
-  /** The setting key — always a non-empty string (that is the scan's filter). */
+  /** Setting key; always a non-empty string (that is the scan's filter). */
   key: string;
   /** `label || key`, the text the row displays. */
   label: string;
@@ -66,16 +59,14 @@ export interface SearchResult {
 }
 
 /**
- * Flat, cross-mod settings search (main.legacy.js:1395-1422).
+ * Flat, cross-mod settings search.
  *
- * The scan keeps ONLY real settings with a non-empty string key — notes,
- * images, actions and keyless settings are skipped, because clicking a result
- * jumps to `.row[data-key=...]` and a row without a key has no anchor to jump
- * to.
+ * Keeps only real settings with a non-empty string key; notes, images, actions
+ * and keyless settings are skipped because clicking a result jumps to
+ * `.row[data-key=...]` and a keyless row has no anchor.
  *
- * A row is a hit when the query matches the setting's own text OR the owning
- * mod's TITLE — so searching a mod name lists every one of its settings, which
- * is what makes the filter usable as "show me everything in this mod".
+ * A row hits when the query matches the setting's own text or the owning mod's
+ * title, so searching a mod name lists every one of its settings.
  */
 export function searchResults(mods: ModRecord[], query: string): SearchResult[] {
   const out: SearchResult[] = [];
