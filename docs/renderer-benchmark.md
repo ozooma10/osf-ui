@@ -99,7 +99,7 @@ Three traps this view hit, worth knowing before authoring another one:
 
 The `-Renderer ultralight` leg below is shown as it was run at the time;
 that backend no longer exists, and `Prepare-BenchRun.ps1` now accepts only
-`webview2`, `webview2-inproc`, and `mock`.
+`webview2` and `mock`.
 
 ```powershell
 xmake                                                  # build + deploy first
@@ -133,10 +133,11 @@ the sampler.
   4. Esc → ≥30 s closed → F10 → ≥60 s open (reopen cost / stability)
   5. Esc → quit to desktop normally (orphan check)
 - Renderer ids: `webview2` is the OUT-OF-PROCESS host (GPU shared-texture
-  transport; no MO2 workaround needed); `webview2-inproc` is the legacy
-  in-process backend, which still requires `msedgewebview2.exe` on MO2's
-  executables blacklist (Settings → Workarounds) or the browser process
-  dies at launch with 0x8000FFFF (see webview2-spike-report.md).
+  transport; no MO2 workaround needed) and is now the only browser backend.
+  The legacy in-process `webview2-inproc` was removed — it required
+  `msedgewebview2.exe` on MO2's executables blacklist (Settings →
+  Workarounds) or the browser died at launch with 0x8000FFFF (see
+  webview2-spike-report.md).
 - The MO2 profile must run the DEV mod (`+OSF UI`), not `OSF UI DIST` —
   the DIST package is a stale release build with no instrumentation.
   Verify `Bench: stats enabled` appears in the first seconds of

@@ -5,6 +5,11 @@
 - Promoted the out-of-process WebView2 host to the sole production renderer.
 - Removed the Ultralight backend, SDK build option, runtime payload, and
   renderer-specific packaging path.
+- Removed the in-process `webview2-inproc` renderer. It required a manual
+  MO2 executable-blacklist entry for `msedgewebview2.exe` and was superseded
+  by the out-of-process host. An existing `renderer: webview2-inproc` in
+  `config.json` now warns once and uses `webview2` rather than falling back
+  to a blank overlay.
 - Release builds now install and verify
   `OSFUI/bin/osfui_webview2_host.exe`.
 

@@ -238,25 +238,11 @@ target("OSF UI")
         -- Host exe must exist before the data deploy below can package it.
         add_deps("osfui-webview2-host")
     else
-        remove_files("src/render/WebView2WebRenderer.cpp")
         remove_files("src/render/WebView2HostWebRenderer.cpp")
     end
-    on_load(function(target)
-        import("core.project.config")
-        if config.get("with_webview2") then
-            local sdk = os.getenv("WEBVIEW2_SDK_DIR")
-            if not sdk or sdk == "" then
-                sdk = path.join(os.projectdir(), "external", "webview2")
-            end
-            local native = path.join(sdk, "build", "native")
-            local header = path.join(native, "include", "WebView2.h")
-            local loader = path.join(native, "x64", "WebView2LoaderStatic.lib")
-            if not os.isfile(header) or not os.isfile(loader) then
-                raise("OSFUI WebView2: unpack Microsoft.Web.WebView2 into " ..
-                    "external/webview2 or set WEBVIEW2_SDK_DIR to the NuGet package root")
-            end
-            target:add("includedirs", path.join(native, "include"))
-            target:add("linkdirs", path.join(native, "x64"))
-            target:add("links", "WebView2LoaderStatic")
-        end
-    end)
+    -- NOTE: the plugin deliberately does NOT link the WebView2 SDK. Everything
+    -- that touches the browser lives in osfui_webview2_host.exe; this DLL only
+    -- speaks the pipe protocol. Keeping the proprietary loader out of the
+    -- GPL-3.0 plugin is intentional — do not add it back for a convenience
+    -- call. If you need runtime facts (version, availability), read them from
+    -- the host's hello handshake.

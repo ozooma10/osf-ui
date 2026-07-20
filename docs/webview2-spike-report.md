@@ -5,9 +5,11 @@
 > what motivated the out-of-process host. That host was subsequently built,
 > passed the in-game gates, and is now the sole production renderer:
 > Ultralight has been removed and `renderer: webview2` is the shipped
-> default. Statements here about keeping Ultralight or an `ultralight`
-> default config record what was true on 2026-07-18 and are no longer
-> operative. See [architecture.md](architecture.md) for the current design
+> default. The in-process backend it discusses was later removed too, so
+> `webview2-inproc` is no longer a selectable renderer. Statements here
+> about keeping Ultralight, an `ultralight` default config, or a compiled-in
+> in-process escape hatch record what was true on 2026-07-18 and are no
+> longer operative. See [architecture.md](architecture.md) for the current design
 > and [renderer-benchmark.md](renderer-benchmark.md) for the A/B evidence.
 
 Date: 2026-07-18  
@@ -197,9 +199,10 @@ this spike.
 > Superseded: that out-of-process architecture was built the following day
 > and shipped. Ultralight was removed once it passed the in-game gates.
 
-> **Superseded 2026-07-19:** the in-process backend below is now the
-> diagnostic escape hatch (renderer `webview2-inproc`). The shipping-candidate
-> WebView2 path is the OUT-OF-PROCESS host described in
+> **Superseded 2026-07-19:** the in-process backend below was demoted to a
+> diagnostic escape hatch (renderer `webview2-inproc`) and has since been
+> removed entirely. The shipping WebView2 path is the OUT-OF-PROCESS host
+> described in
 > "Phase 3 — out-of-process host" at the end of this report, which needs no
 > MO2 configuration at all.
 

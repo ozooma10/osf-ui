@@ -23,15 +23,15 @@ namespace OSFUI
 	// configured layer set all composite through the same shared-texture
 	// ring; this client just routes per-view ids over the pipe.
 	//
-	// The in-process variant remains available as renderer "webview2-inproc"
-	// (diagnostic escape hatch; requires the MO2 blacklist workaround).
+	// This is the only browser backend. The former in-process variant
+	// ("webview2-inproc") was removed: it needed a manual MO2 executable
+	// blacklist entry to survive USVFS injection, and offered nothing this
+	// does not.
 	class WebView2HostWebRenderer final : public IWebRenderer
 	{
 	public:
 		WebView2HostWebRenderer();
 		~WebView2HostWebRenderer() override;
-
-		[[nodiscard]] static bool RuntimeAvailable();
 
 		bool Initialize(const RendererConfig& a_config) override;
 		void Shutdown() override;

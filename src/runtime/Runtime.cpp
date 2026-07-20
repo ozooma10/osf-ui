@@ -26,7 +26,6 @@
 #include "runtime/VanillaKeys.h"
 #include "render/NullWebRenderer.h"
 #include "render/WebView2HostWebRenderer.h"
-#include "render/WebView2WebRenderer.h"
 
 namespace OSFUI
 {
@@ -1733,35 +1732,25 @@ namespace OSFUI
 		if (_config.renderer == "mock") {
 			return std::make_unique<MockWebRenderer>();
 		}
-		if (_config.renderer == "webview2") {
+		// "webview2-inproc" was the original in-process backend, removed after the
+		// out-of-process host superseded it. Accept the name so an existing
+		// config.json keeps working instead of silently falling through to the
+		// null renderer (which looks like a black overlay).
+		if (_config.renderer == "webview2" || _config.renderer == "webview2-inproc") {
+			if (_config.renderer == "webview2-inproc") {
+				REX::WARN("Runtime: renderer 'webview2-inproc' was removed; using 'webview2' "
+						  "(the out-of-process host). Update config.json to silence this.");
+			}
 #if defined(OSFUI_WITH_WEBVIEW2)
 			// Out-of-process host backend: the ONLY WebView2 variant that works
 			// under Mod Organizer 2 without the manual executable-blacklist
 			// workaround (USVFS injection crashes in-process-spawned browsers).
-			if (!WebView2HostWebRenderer::RuntimeAvailable()) {
-				REX::ERROR("Runtime: WebView2 evergreen runtime is unavailable; using null renderer");
-				return std::make_unique<NullWebRenderer>();
-			}
+			// A missing Evergreen runtime is reported by the host over the
+			// hello handshake, not probed here — see WebView2HostWebRenderer.
 			return std::make_unique<WebView2HostWebRenderer>();
 #else
 			REX::WARN("Runtime: renderer 'webview2' requested but this build was compiled without "
 					  "with_webview2; using null renderer");
-			return std::make_unique<NullWebRenderer>();
-#endif
-		}
-		if (_config.renderer == "webview2-inproc") {
-#if defined(OSFUI_WITH_WEBVIEW2)
-			// Diagnostic escape hatch: the original in-process backend (CPU
-			// full-frame readback; requires msedgewebview2.exe on MO2's
-			// executable blacklist).
-			if (!WebView2WebRenderer::RuntimeAvailable()) {
-				REX::ERROR("Runtime: WebView2 evergreen runtime is unavailable; using null renderer");
-				return std::make_unique<NullWebRenderer>();
-			}
-			return std::make_unique<WebView2WebRenderer>();
-#else
-			REX::WARN("Runtime: renderer 'webview2-inproc' requested but this build was compiled "
-					  "without with_webview2; using null renderer");
 			return std::make_unique<NullWebRenderer>();
 #endif
 		}

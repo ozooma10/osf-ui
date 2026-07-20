@@ -18,7 +18,7 @@
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)][ValidateSet('webview2', 'webview2-inproc', 'mock')]
+    [Parameter(Mandatory)][ValidateSet('webview2', 'mock')]
     [string]$Renderer,
 
     # stress = the animation-heavy benchmark view; settings = the shipped

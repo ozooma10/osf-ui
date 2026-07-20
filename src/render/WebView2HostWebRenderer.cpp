@@ -19,7 +19,6 @@
 #define NOMINMAX
 #include <Windows.h>
 #include <ShlObj.h>
-#include <WebView2.h>
 #include <nlohmann/json.hpp>
 
 #include "Wv2BrokerLaunch.h"
@@ -419,8 +418,18 @@ namespace OSFUI
 			if (hostPid) {
 				hostProcess = ::OpenProcess(SYNCHRONIZE | PROCESS_TERMINATE, FALSE, hostPid);
 			}
+			// The host reports "unknown" when GetAvailableCoreWebView2Browser-
+			// VersionString found no Evergreen runtime. It will fail to create
+			// the environment moments later; say why now, while the log line
+			// still points at the cause rather than the symptom.
+			const auto runtimeVersion = hello.value("runtimeVersion", "?");
+			if (runtimeVersion == "unknown") {
+				REX::ERROR("WebView2HostWebRenderer: the WebView2 Evergreen runtime is not "
+						   "installed — install it from "
+						   "https://developer.microsoft.com/microsoft-edge/webview2/");
+			}
 			REX::INFO("WebView2HostWebRenderer: host pid {} up (WebView2 runtime {})",
-				hostPid, hello.value("runtimeVersion", "?"));
+				hostPid, runtimeVersion);
 
 			// Connect-time snapshot of everything the game set before the host
 			// existed. Diffs sent later by the game thread may interleave with
@@ -764,24 +773,13 @@ namespace OSFUI
 
 	WebView2HostWebRenderer::~WebView2HostWebRenderer() { Shutdown(); }
 
-	bool WebView2HostWebRenderer::RuntimeAvailable()
-	{
-		wchar_t forced[2]{};
-		if (::GetEnvironmentVariableW(
-				L"OSFUI_WEBVIEW2_FORCE_RUNTIME_ABSENT", forced, 2) > 0)
-			return false;
-		LPWSTR version = nullptr;
-		const auto result =
-			::GetAvailableCoreWebView2BrowserVersionString(nullptr, &version);
-		if (FAILED(result) || !version) return false;
-		REX::INFO("WebView2HostWebRenderer: evergreen runtime {}", ToUtf8(version));
-		::CoTaskMemFree(version);
-		return true;
-	}
-
 	bool WebView2HostWebRenderer::Initialize(const RendererConfig& a_config)
 	{
-		if (!RuntimeAvailable()) return false;
+		// No Evergreen-runtime probe here on purpose. Detecting it in-process
+		// means linking the WebView2 SDK loader into this GPL'd plugin for a
+		// single symbol; the host exe already links the SDK and reports the
+		// runtime version in its hello handshake, so a missing runtime is
+		// diagnosed there instead (see the hello handler above).
 		_impl->config = a_config;
 		_impl->viewsRoot = a_config.dataDir / "views";
 		_impl->userData = LocalOsfuiDir() / "WebView2";
