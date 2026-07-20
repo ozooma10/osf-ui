@@ -9,6 +9,7 @@
 #include "composite/D3D12Compositor.h"
 #include "composite/NullCompositor.h"
 #include "core/Log.h"
+#include "core/Version.h"
 #include "input/ControlLayer.h"
 #include "input/EngineInput.h"
 #include "input/FocusMenu.h"
@@ -1530,6 +1531,20 @@ namespace OSFUI
 				_gamepadRawViews.insert(src);
 			} else {
 				_gamepadRawViews.erase(src);
+			}
+		});
+		a_bridge.RegisterCommand("osfui.openModPage", [](const nlohmann::json&, MessageBridge& a_b) {
+			// "Update OSF UI" affordances in views (e.g. OSF Animation's status-line
+			// UPDATE badge): open OSF UI's own Nexus page in the SYSTEM browser —
+			// the overlay itself must never navigate, and the URL is a compile-time
+			// constant precisely so page content cannot steer the shell (the
+			// payload carries nothing). Behind a fullscreen game the browser opens
+			// unfocused; alt-tab surfaces it.
+			if (Platform::OpenSystemBrowser(kNexusPageURLW)) {
+				REX::INFO("Runtime: osfui.openModPage -> {}", kNexusPageURL);
+			} else {
+				REX::WARN("Runtime: osfui.openModPage — the shell refused to open {}", kNexusPageURL);
+				a_b.SendResult(false, "shell-failed", "could not open the system browser");
 			}
 		});
 		a_bridge.RegisterCommand("osfui.handleBack", [this](const nlohmann::json& a_p, MessageBridge& a_b) {

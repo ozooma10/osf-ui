@@ -67,6 +67,8 @@ import type { PresetRecord } from './Presets';
 const FILTER_DEBOUNCE_MS = 120;
 /** How long a search-jump target stays highlighted. */
 const FLASH_MS = 1200;
+/** Where the "needs update" tag sends the user to fetch a newer OSF UI. */
+const NEXUS_PAGE_URL = 'https://www.nexusmods.com/starfield/mods/17711';
 
 function codeOf(err: unknown): string {
   const e = err as { code?: unknown } | null;
@@ -693,7 +695,9 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
               {/* Version from the runtime.ready handshake (empty until it
                   arrives). Badge turns yellow and the tag appears when an
                   installed mod or view targets a newer OSF UI than this one; the
-                  tooltip names who is asking. */}
+                  tooltip names who is asking. The tag links to the Nexus page;
+                  in-game the host intercepts target="_blank" and opens the
+                  default browser. */}
               <div class="version-stack">
                 <span
                   id="plugin-version"
@@ -702,14 +706,17 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
                 >
                   {hostVersion ? `v${hostVersion}` : ''}
                 </span>
-                <span
+                <a
                   id="needs-update-tag"
                   class="needs-update-tag"
                   hidden={!needsUpdate.outdated}
                   title={versionTitle}
+                  href={NEXUS_PAGE_URL}
+                  target="_blank"
+                  rel="noreferrer"
                 >
                   {tr('needsUpdate', 'Needs update')}
-                </span>
+                </a>
               </div>
             </div>
 

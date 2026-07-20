@@ -372,7 +372,9 @@ html, body { height: 100%; overflow: hidden; }
 .needs-update-tag {
   font-family: var(--osf-font-mono); font-size: 8px;
   letter-spacing: 0.1em; text-transform: uppercase; color: var(--osf-signal-warn);
+  text-decoration: none;
 }
+.needs-update-tag:hover, .needs-update-tag:focus-visible { text-decoration: underline; }
 .needs-update-tag[hidden] { display: none; }
 .filter { border-color: rgba(242, 239, 233, 0.18); }
 .rail-meta {

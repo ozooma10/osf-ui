@@ -8,11 +8,11 @@
 namespace OSFUI
 {
 	inline constexpr const char* kPluginName = "OSF UI";
-	inline constexpr const char* kPluginVersion = "1.0.0";
+	inline constexpr const char* kPluginVersion = "1.1.0";
 	// Numeric form of kPluginVersion, for IOSFUIBridge::GetPluginVersion.
 	// Keep in lockstep with kPluginVersion.
 	inline constexpr std::uint32_t kPluginVersionMajor = 1;
-	inline constexpr std::uint32_t kPluginVersionMinor = 0;
+	inline constexpr std::uint32_t kPluginVersionMinor = 1;
 	inline constexpr std::uint32_t kPluginVersionPatch = 0;
 
 	// Native<->web bridge protocol version (message envelope, command whitelist,
@@ -56,6 +56,13 @@ namespace OSFUI
 	inline constexpr std::array<std::uint32_t, 3> kPluginVersionParts{
 		kPluginVersionMajor, kPluginVersionMinor, kPluginVersionPatch
 	};
+
+	// OSF UI's public Nexus Mods page, opened IN THE SYSTEM BROWSER by the
+	// `osfui.openModPage` web command. Hardcoded here (narrow twin for
+	// logs/replies) so page content can only ever trigger this exact page —
+	// never steer the shell to a URL of its choosing.
+	inline constexpr const wchar_t* kNexusPageURLW = L"https://www.nexusmods.com/starfield/mods/17711";
+	inline constexpr const char*    kNexusPageURL = "https://www.nexusmods.com/starfield/mods/17711";
 
 	// Name of the plugin data folder, resolved relative to the plugin DLL:
 	//   Data/SFSE/Plugins/OSFUI/

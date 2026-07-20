@@ -9,9 +9,18 @@
 #include <Windows.h>
 
 #include <ShlObj.h>
+#include <shellapi.h>  // ShellExecuteW (lean-and-mean excludes it)
 
 namespace OSFUI::Platform
 {
+	bool OpenSystemBrowser(const wchar_t* a_url)
+	{
+		// ShellExecute contract: values > 32 are success; <= 32 are error codes.
+		const auto rc = reinterpret_cast<std::intptr_t>(
+			::ShellExecuteW(nullptr, L"open", a_url, nullptr, nullptr, SW_SHOWNORMAL));
+		return rc > 32;
+	}
+
 	std::filesystem::path GetDocumentsPath()
 	{
 		PWSTR raw = nullptr;

@@ -68,6 +68,8 @@ export type UiCommand =
   | { command: "osfui.gamepadRaw"; raw: boolean }
   /** Own the back action. While your menu is ACTIVE, Esc / gamepad B arrive as a synthetic Escape keydown/keyup instead of closing the top menu — your page decides: navigate (`menu.open`), dismiss an inner panel, or send `close`. STICKY PER VIEW — survives overlay hide/show; cleared when your page (re)loads or the view is destroyed. The overlay toggle key always closes natively regardless. */
   | { command: "osfui.handleBack"; handle: boolean }
+  /** (protocol 1.1) Open OSF UI's own Nexus Mods page in the user's SYSTEM browser — the overlay itself never navigates. The URL is hardcoded in the host and the payload carries nothing, so page content cannot steer the shell. For "update OSF UI" affordances. Failures answer ui.result { ok:false, code:"shell-failed" }. */
+  | { command: "osfui.openModPage" }
   /**
    * Fire an action at the OWNING mod's Papyrus scripts
    * (OSFUI.RegisterForViewActions). The mod id is derived from the calling

@@ -27,6 +27,12 @@ namespace OSFUI::Platform
 	// controlmap overlays (mcm-design.md §9 "vanilla hotkeys").
 	[[nodiscard]] std::uint32_t DirectInputScanToVk(std::uint32_t a_scanCode);
 
+	// Opens a URL in the user's default web browser (ShellExecuteW "open").
+	// False when the shell refused. The caller owns deciding WHAT may open —
+	// pass compile-time constants only, never web-supplied strings
+	// (docs/security-model.md: no URL-steering from page content).
+	bool OpenSystemBrowser(const wchar_t* a_url);
+
 	// True when [a_address, a_address + a_size) is committed, non-guard,
 	// readable memory (VirtualQuery walk). For probing engine pointers.
 	[[nodiscard]] bool IsReadableRange(std::uintptr_t a_address, std::size_t a_size);

@@ -16,6 +16,7 @@
 
 #include <DispatcherQueue.h>
 #include <WebView2.h>
+#include <shellapi.h>
 #include <wrl.h>
 #include <wrl/client.h>
 #include <d3d10_1.h>
@@ -1072,6 +1073,35 @@ namespace osfui::wv2
 								{ "json", std::move(text) } });
 							return S_OK;
 						}).Get(), &token);
+				a_view.webView->add_NewWindowRequested(
+					Callback<ICoreWebView2NewWindowRequestedEventHandler>(
+						[this, view](ICoreWebView2*,
+							ICoreWebView2NewWindowRequestedEventArgs* a_args) -> HRESULT {
+							// Views are local content; a target="_blank" link (e.g. the
+							// settings view's "needs update" tag pointing at Nexus) means
+							// "leave the game". Unhandled, WebView2 would spawn a popup
+							// window over the game instead.
+							a_args->put_Handled(TRUE);
+							LPWSTR raw = nullptr;
+							if (FAILED(a_args->get_Uri(&raw)) || !raw) return S_OK;
+							std::wstring uri(raw);
+							::CoTaskMemFree(raw);
+							if (!uri.starts_with(L"https://") && !uri.starts_with(L"http://")) {
+								log.Warn(std::format("view '{}': blocked non-http new-window: {}",
+									view->id, ToUtf8(uri)));
+								return S_OK;
+							}
+							const auto rc = reinterpret_cast<INT_PTR>(::ShellExecuteW(
+								nullptr, L"open", uri.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
+							if (rc <= 32) {
+								log.Error(std::format("view '{}': browser open failed ({}): {}",
+									view->id, rc, ToUtf8(uri)));
+							} else {
+								log.InfoFwd(std::format("view '{}': opened in default browser: {}",
+									view->id, ToUtf8(uri)));
+							}
+							return S_OK;
+						}).Get(), &token);
 				a_view.webView->add_NavigationCompleted(
 					Callback<ICoreWebView2NavigationCompletedEventHandler>(
 						[this, view](ICoreWebView2*,
@@ -1733,7 +1763,7 @@ namespace osfui::wv2
 		app.Send(json{
 			{ "type", "hello" },
 			{ "protocolVersion", kProtocolVersion },
-			{ "hostVersion", "1.0.0" },
+			{ "hostVersion", "1.1.0" },
 			{ "runtimeVersion", runtime },
 			{ "pid", ::GetCurrentProcessId() },
 		});

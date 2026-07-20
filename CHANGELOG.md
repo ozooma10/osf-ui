@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.1.0 - Unreleased
+## 1.1.0 — 2026-07-20
 
 Views now render in Chromium, and Papyrus mods can drive them with live data.
 
@@ -28,9 +28,17 @@ Views now render in Chromium, and Papyrus mods can drive them with live data.
 
 - Bridge **protocol 1.1** — additive over 1.0: the new `data.push` message
   and `ui.action` request. Existing 1.0 views are unaffected.
+- New `osfui.openModPage` command: opens OSF UI's Nexus page in the user's
+  system browser, for "update OSF UI" affordances in views. The URL is
+  hardcoded in the host — the payload carries nothing, so page content cannot
+  steer the shell. (`target="_blank"` links also open in the system browser
+  now, but carry whatever URL the page puts in `href`; prefer the command for
+  the OSF UI page.)
 
 ### Other changes
 
+- The "Needs update" tag in the Mods menu now links to the OSF UI Nexus
+  page; in game it opens in the default browser.
 - The Ultralight backend, its SDK build option, runtime payload, and
   renderer-specific packaging path are gone.
 - Release builds install and verify `OSFUI/bin/osfui_webview2_host.exe`.
