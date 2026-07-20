@@ -1304,7 +1304,8 @@ namespace OSFUI
 		// Deferred reply (item 5): echo the arming request's id so the view's
 		// osfui.request("settings.captureKey", ...) promise settles with this.
 		_bridge->SendToWeb(_captureView, "settings.captured", payload, _captureRequestId);
-		REX::INFO("Runtime: key capture -> {} ({}.{})", cancelled ? "(cancelled)" : name, _captureMod, _captureKey);
+		REX::INFO("Runtime: key capture -> {} (VK {:#04x}) ({}.{})",
+			cancelled ? "(cancelled)" : name, vk, _captureMod, _captureKey);
 		_captureView.clear();
 		_captureMod.clear();
 		_captureKey.clear();

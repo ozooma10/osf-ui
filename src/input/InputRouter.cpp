@@ -50,6 +50,25 @@ namespace OSFUI
 			{ "LAlt", 0xA4 }, { "RAlt", 0xA5 },
 			// Console/grave key (VK_OEM_3 on US layouts). Aliases for the same VK.
 			{ "Grave", 0xC0 }, { "Tilde", 0xC0 }, { "Backtick", 0xC0 }, { "Console", 0xC0 },
+			// OEM punctuation. LAYOUT-DEPENDENT, exactly like Grave above: these
+			// are the US ANSI meanings of each VK. On a German layout VK_OEM_1
+			// is 'ö', not ';' — the NAME (and the on-screen board) still says
+			// Semicolon, because the name is persisted in config JSON and has to
+			// mean the same key on every machine that loads it. Only the printed
+			// keycap differs. Making names follow the active layout would make a
+			// saved binding machine-dependent — see the note on KeyName below.
+			// First spelling per VK is canonical (KeyName returns it); the rest
+			// are input aliases so hand-edited configs and schema defaults work.
+			{ "Minus", 0xBD }, { "Hyphen", 0xBD }, { "Dash", 0xBD },
+			{ "Equals", 0xBB }, { "Equal", 0xBB }, { "Plus", 0xBB },
+			{ "LBracket", 0xDB }, { "LeftBracket", 0xDB },
+			{ "RBracket", 0xDD }, { "RightBracket", 0xDD },
+			{ "Backslash", 0xDC },
+			{ "Semicolon", 0xBA },
+			{ "Apostrophe", 0xDE }, { "Quote", 0xDE },
+			{ "Comma", 0xBC },
+			{ "Period", 0xBE }, { "Dot", 0xBE },
+			{ "Slash", 0xBF },
 		};
 		for (const auto& key : kNamedKeys) {
 			if (equalsIgnoreCase(key.name, a_name)) {
@@ -103,6 +122,18 @@ namespace OSFUI
 		case 0xA4: return "LAlt";
 		case 0xA5: return "RAlt";
 		case 0xC0: return "Grave";
+		// OEM punctuation — canonical (first) spelling per VK, US ANSI. Kept in
+		// lockstep with kNamedKeys above; see the layout note there.
+		case 0xBD: return "Minus";
+		case 0xBB: return "Equals";
+		case 0xDB: return "LBracket";
+		case 0xDD: return "RBracket";
+		case 0xDC: return "Backslash";
+		case 0xBA: return "Semicolon";
+		case 0xDE: return "Apostrophe";
+		case 0xBC: return "Comma";
+		case 0xBE: return "Period";
+		case 0xBF: return "Slash";
 		default: return {};
 		}
 	}

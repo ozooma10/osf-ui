@@ -54,8 +54,22 @@ describe('domKeyName', () => {
     expect(k('Control')).toBe('');
     expect(k('Alt')).toBe('');
     expect(k('CapsLock')).toBe('');
-    expect(k('-')).toBe('');
     expect(k('')).toBe('');
+  });
+
+  it('names the OEM punctuation keys, which used to be unbindable', () => {
+    // These resolve natively now (InputRouter.cpp KeyName), so the board makes
+    // them ordinary bindable cells and this path has to agree with it.
+    expect(k('-')).toBe('Minus');
+    expect(k('=')).toBe('Equals');
+    expect(k('[')).toBe('LBracket');
+    expect(k(']')).toBe('RBracket');
+    expect(k('\\')).toBe('Backslash');
+    expect(k(';')).toBe('Semicolon');
+    expect(k("'")).toBe('Apostrophe');
+    expect(k(',')).toBe('Comma');
+    expect(k('.')).toBe('Period');
+    expect(k('/')).toBe('Slash');
   });
 
   it('does not inherit Object.prototype members through the named table', () => {

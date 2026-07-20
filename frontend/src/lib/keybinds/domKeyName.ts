@@ -25,6 +25,19 @@ const NAMED: Readonly<Record<string, string>> = {
   ArrowLeft: 'Left',
   ArrowRight: 'Right',
   '`': 'Grave',
+  // OEM punctuation, matching InputRouter.cpp KeyName. Keyed by the PRODUCED
+  // character, per the `e.key`-only note below — so this agrees with native on
+  // a US layout and diverges on others exactly as `Grave` already does.
+  '-': 'Minus',
+  '=': 'Equals',
+  '[': 'LBracket',
+  ']': 'RBracket',
+  '\\': 'Backslash',
+  ';': 'Semicolon',
+  "'": 'Apostrophe',
+  ',': 'Comma',
+  '.': 'Period',
+  '/': 'Slash',
 };
 
 /**

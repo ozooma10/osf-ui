@@ -220,25 +220,35 @@ describe('padnav DOM contracts', () => {
 
   it('dead keyboard cells render disabled so navigation skips them', async () => {
     // padnav.js:87 `if (el.disabled || el.tabIndex < 0) continue;`. Without
-    // `disabled` the arrow keys would stop on the punctuation keys and Esc,
-    // none of which can ever be bound.
+    // `disabled` the arrow keys would stop on a cell that can never be bound.
+    //
+    // Esc is the ONLY such cell now: the punctuation keys became bindable once
+    // native learned their names, so this asserts the reserved-Esc contract
+    // rather than a count.
     const bridge = makeBridge();
     const el = await mount(bridge);
     bridge.emit('settings.data', DATA);
     await flush();
 
     const dead = el.querySelectorAll<HTMLButtonElement>('#keyboard button.is-dead');
-    // The layout has a dead Esc plus the punctuation block.
-    expect(dead.length).toBeGreaterThan(5);
+    expect(dead.length).toBe(1);
     for (const cell of dead) {
       expect(cell.disabled).toBe(true);
+    }
+    // The punctuation keys are live cells now — bindable, and not skipped by
+    // padnav. Guards the regression of them silently going dead again.
+    const punctuation = [...el.querySelectorAll<HTMLButtonElement>('#keyboard button')]
+      .filter((c) => ['-', '=', '[', ']', '\\', ';', "'", ',', '.', '/'].includes(c.textContent!));
+    expect(punctuation.length).toBe(10);
+    for (const cell of punctuation) {
+      expect(cell.classList.contains('is-dead')).toBe(false);
+      expect(cell.disabled).toBe(false);
     }
     // Esc gets its own reason: it IS resolvable natively, but the capture flow
     // reads a press of it as "cancel".
     const esc = [...dead].find((c) => c.textContent === 'Esc');
     expect(esc).toBeDefined();
     expect(esc!.title).toBe('Reserved (cancels rebinds)');
-    expect([...dead].find((c) => c.textContent === ';')!.title).toBe('Not bindable by mods');
 
     // Live cells are the inverse: enabled, and never marked dead.
     const live = el.querySelectorAll<HTMLButtonElement>('#keyboard button:not(.is-dead)');

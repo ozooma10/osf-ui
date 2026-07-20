@@ -11,6 +11,7 @@
 #include <format>
 #include <fstream>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 #include <DispatcherQueue.h>
@@ -189,6 +190,38 @@ namespace osfui::wv2
 			bool          captured{ false }, captureArmed{ false };
 			std::unordered_set<UINT> handledKeys;
 			std::uint64_t accelEvents{ 0 };  // ALL AcceleratorKeyPressed callbacks (diagnostic)
+			// Keys this host itself posted into the widget (the "key" command:
+			// gamepad-nav taps, the runtime's Esc back-delegation). Their
+			// AcceleratorKeyPressed callbacks must reach the PAGE — never be
+			// marked handled or forwarded to the game. A delegated Esc that
+			// re-enters the accelerator path reads as a fresh real press:
+			// the game re-enqueues Back and injects again, an infinite
+			// game<->host ping-pong the page never sees. Keyed by
+			// (vk << 1) | down; counted, because a tap queues down+up before
+			// either callback runs.
+			std::unordered_map<UINT, int> syntheticKeys;
+
+			// ---- rebind capture of CHARACTER keys ----
+			// AcceleratorKeyPressed is the only key path this host has, and it
+			// deliberately does not fire for keys that map to a character with
+			// neither Ctrl nor Alt held (documented: "A key is considered an
+			// accelerator if ... the pressed key does not map to a character").
+			// F-keys, Esc and arrows therefore rebind fine while letters and
+			// digits never reach the game at all.
+			//
+			// So for the (brief, user-initiated) window where a capture is
+			// armed, subclass the Chromium widget that actually owns keyboard
+			// focus and forward its WM_KEYDOWN over the same "accelerator"
+			// message. Scoped to the armed window on purpose: no permanent hook
+			// on Chromium's internals, and nothing changes for normal typing.
+			//
+			// Unlike a WndProc hook in the GAME process, this one lives in the
+			// host, so it cannot collide with other SFSE plugins' hooks.
+			HWND    captureWidget{ nullptr };
+			WNDPROC captureWidgetProc{ nullptr };
+			// A WNDPROC cannot carry state, and there is exactly one App per
+			// host process. Set only while the subclass is installed.
+			static inline App* s_app{ nullptr };
 
 			// ---- D3D / capture ----
 			ComPtr<ID3D11Device>         device;
@@ -757,6 +790,11 @@ namespace osfui::wv2
 
 			void DestroyOneView(View& a_view)
 			{
+				// The rebind subclass may be sitting on this view's widget —
+				// unhook before the HWND goes away.
+				if (captureWidget && ::IsChild(a_view.window, captureWidget)) {
+					RemoveCaptureSubclass();
+				}
 				if (a_view.compositionController) {
 					a_view.compositionController->put_RootVisualTarget(nullptr);
 				}
@@ -1014,6 +1052,16 @@ namespace osfui::wv2
 							const bool down =
 								kind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN ||
 								kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN;
+							// A key WE posted (the "key" command): its whole purpose
+							// is to reach the page, so it bypasses the framework-
+							// owned logic below — which would both swallow it and
+							// round-trip it to the game as if freshly pressed.
+							if (const auto synth =
+									syntheticKeys.find((key << 1) | (down ? 1u : 0u));
+								synth != syntheticKeys.end()) {
+								if (--synth->second == 0) syntheticKeys.erase(synth);
+								return S_OK;
+							}
 							// The synchronous stand-in for Runtime::OnNativeAcceleratorKey:
 							// the game keeps this state fresh over the pipe (accelState).
 							const bool frameworkOwned =
@@ -1292,6 +1340,91 @@ namespace osfui::wv2
 				// new dimensions (PublishFrame -> EnsureRing).
 			}
 
+			/// The ACTIVE view's Chromium widget — the HWND that actually holds
+			/// keyboard focus. Synthetic key taps target it, and the rebind
+			/// capture subclasses it.
+			HWND FindActiveWidget() const
+			{
+				HWND widget = nullptr;
+				if (active && active->window) {
+					::EnumChildWindows(active->window, [](HWND a_hwnd, LPARAM a_param) -> BOOL {
+						wchar_t name[128]{};
+						::GetClassNameW(a_hwnd, name, static_cast<int>(std::size(name)));
+						if (std::wstring_view(name).starts_with(L"Chrome_WidgetWin_")) {
+							*reinterpret_cast<HWND*>(a_param) = a_hwnd;
+							return FALSE;
+						}
+						return TRUE;
+					}, reinterpret_cast<LPARAM>(&widget));
+				}
+				return widget;
+			}
+
+			/// Follow the game's armed/disarmed edge. Idempotent, and safe to
+			/// call when the widget has gone away (view switch, teardown).
+			void SetCaptureSubclass(bool a_armed)
+			{
+				if (a_armed) {
+					HWND widget = FindActiveWidget();
+					if (!widget || widget == captureWidget) return;
+					RemoveCaptureSubclass();  // a different view is active now
+					s_app = this;             // before install: the proc may run immediately
+					auto* previous = reinterpret_cast<WNDPROC>(::SetWindowLongPtrW(
+						widget, GWLP_WNDPROC,
+						reinterpret_cast<LONG_PTR>(&CaptureWndProc)));
+					if (!previous) {
+						s_app = nullptr;  // subclass refused; accelerators still work
+						return;
+					}
+					captureWidget = widget;
+					captureWidgetProc = previous;
+				} else {
+					RemoveCaptureSubclass();
+				}
+			}
+
+			void RemoveCaptureSubclass()
+			{
+				if (!captureWidget) return;
+				// Only unhook if we are still the installed proc — restoring
+				// blindly over someone else's later subclass would strand it.
+				const auto current = reinterpret_cast<WNDPROC>(
+					::GetWindowLongPtrW(captureWidget, GWLP_WNDPROC));
+				if (current == &CaptureWndProc && captureWidgetProc) {
+					::SetWindowLongPtrW(captureWidget, GWLP_WNDPROC,
+						reinterpret_cast<LONG_PTR>(captureWidgetProc));
+				}
+				captureWidget = nullptr;
+				captureWidgetProc = nullptr;
+				s_app = nullptr;  // after the restore above, never before
+			}
+
+			/// Runs on the host's UI thread (the widget's own thread), so it
+			/// touches app state directly — same thread as the message pump.
+			static LRESULT CALLBACK CaptureWndProc(
+				HWND a_hwnd, UINT a_msg, WPARAM a_wparam, LPARAM a_lparam)
+			{
+				auto* self = s_app;
+				if (self && self->captureArmed &&
+					(a_msg == WM_KEYDOWN || a_msg == WM_SYSKEYDOWN)) {
+					const auto vk = static_cast<std::uint32_t>(a_wparam);
+					const bool repeat = (a_lparam & 0x40000000) != 0;
+					if (!repeat) {
+						// Same envelope the accelerator path uses, so the game
+						// side needs no new message type. Swallowed: mid-rebind
+						// the press is a binding, not text for the page.
+						self->Send(json{ { "type", "accelerator" },
+							{ "vk", vk }, { "down", true } });
+						return 0;
+					}
+				}
+				const auto proc = (self && self->captureWidgetProc)
+					? self->captureWidgetProc
+					: nullptr;
+				return proc ? ::CallWindowProcW(proc, a_hwnd, a_msg, a_wparam, a_lparam)
+							: ::DefWindowProcW(a_hwnd, a_msg, a_wparam, a_lparam);
+			}
+
 			void SendMouse(const json& a_msg)
 			{
 				// Mouse always targets the ACTIVE view (the runtime routes input
@@ -1400,6 +1533,10 @@ namespace osfui::wv2
 						active->controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
 					} else if (!focused) {
 						handledKeys.clear();
+						// Taps still in flight died with the overlay (or their
+						// accel callback never fires for char-mapping VKs) —
+						// don't let stale markers misclassify a later real key.
+						syntheticKeys.clear();
 					}
 				} else if (type == "mouse") {
 					SendMouse(a_msg);
@@ -1409,18 +1546,7 @@ namespace osfui::wv2
 					// no focus or foreground requirements.
 					const auto vk = a_msg.value("vk", 0u);
 					const bool down = a_msg.value("down", false);
-					HWND widget = nullptr;
-					if (active && active->window) {
-						::EnumChildWindows(active->window, [](HWND a_hwnd, LPARAM a_param) -> BOOL {
-							wchar_t name[128]{};
-							::GetClassNameW(a_hwnd, name, static_cast<int>(std::size(name)));
-							if (std::wstring_view(name).starts_with(L"Chrome_WidgetWin_")) {
-								*reinterpret_cast<HWND*>(a_param) = a_hwnd;
-								return FALSE;
-							}
-							return TRUE;
-						}, reinterpret_cast<LPARAM>(&widget));
-					}
+					HWND widget = FindActiveWidget();
 					if (widget) {
 						const auto scan = ::MapVirtualKeyW(vk, MAPVK_VK_TO_VSC);
 						LPARAM lparam = 1 | (static_cast<LPARAM>(scan) << 16);
@@ -1429,6 +1555,10 @@ namespace osfui::wv2
 						}
 						::PostMessageW(widget, down ? WM_KEYDOWN : WM_KEYUP,
 							static_cast<WPARAM>(vk), lparam);
+						// Mark it so the accelerator callback (which fires when
+						// the pump dispatches this message) lets it through to
+						// the page instead of treating it as a real press.
+						++syntheticKeys[(vk << 1) | (down ? 1u : 0u)];
 					}
 				} else if (type == "frameAck") {
 					// Monotonic release marker for frames the game never read.
@@ -1453,6 +1583,9 @@ namespace osfui::wv2
 					captured = a_msg.value("captured", false);
 					captureArmed = a_msg.value("captureArmed", false);
 					captureUpVk = a_msg.value("captureUpVk", 0u);
+					// Follow the armed edge: character keys only need the
+					// subclass for the moment the user is picking a key.
+					SetCaptureSubclass(captureArmed);
 				} else if (type == "destroyView") {
 					auto* view = ResolveView(a_msg);
 					if (!view) return;

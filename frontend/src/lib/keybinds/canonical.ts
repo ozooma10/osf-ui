@@ -18,6 +18,18 @@ export const NAME_ALIASES: Readonly<Record<string, string>> = {
   backtick: 'Grave',
   console: 'Grave',
   return: 'Enter',
+  // OEM punctuation aliases, mirroring InputRouter.cpp kNamedKeys. A mod that
+  // declares "Quote" or "Dash" in its schema resolves to the same VK natively,
+  // so the board has to fold them to the same cell or one binding would appear
+  // twice under two names.
+  hyphen: 'Minus',
+  dash: 'Minus',
+  equal: 'Equals',
+  plus: 'Equals',
+  leftbracket: 'LBracket',
+  rightbracket: 'RBracket',
+  quote: 'Apostrophe',
+  dot: 'Period',
 };
 
 /**

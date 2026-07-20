@@ -412,6 +412,33 @@ int main()
 			std::vector<std::string>{ "@game.Jump" });
 	}
 
+	// ---- key-name round trip -------------------------------------------------
+	// KeyName (VK -> name) and kNamedKeys (name -> VK) are two hand-written
+	// tables that MUST agree: a name KeyName emits after a rebind capture is
+	// written straight into the values JSON, and ResolveKeyName has to turn it
+	// back into the same VK on the next load. The OEM punctuation keys were
+	// unbindable precisely because they were missing from both.
+	{
+		using OSFUI::KeyName;
+		for (const char* name : { "Minus", "Equals", "LBracket", "RBracket",
+				 "Backslash", "Semicolon", "Apostrophe", "Comma", "Period",
+				 "Slash", "Grave", "Space", "Enter", "F10", "K", "7" }) {
+			const auto vk = ResolveKeyName(name);
+			CHECK(vk != OSFUI::kInvalidKeyCode);
+			// Canonical spelling round-trips exactly — this is the property a
+			// saved binding depends on.
+			CHECK(KeyName(vk) == std::string(name));
+		}
+		// Aliases resolve to the same VK but fold to the canonical spelling.
+		CHECK(ResolveKeyName("Quote") == ResolveKeyName("Apostrophe"));
+		CHECK(ResolveKeyName("Dash") == ResolveKeyName("Minus"));
+		CHECK(ResolveKeyName("Plus") == ResolveKeyName("Equals"));
+		CHECK(KeyName(ResolveKeyName("Dot")) == "Period");
+		// Distinct physical keys must not collide.
+		CHECK(ResolveKeyName("Minus") != ResolveKeyName("Equals"));
+		CHECK(ResolveKeyName("Comma") != ResolveKeyName("Period"));
+	}
+
 	fs::remove_all(root);
 	std::fprintf(stderr, "hotkey_service_tests: %d checks, %d failure(s)\n", g_checks, g_failures);
 	return g_failures;
