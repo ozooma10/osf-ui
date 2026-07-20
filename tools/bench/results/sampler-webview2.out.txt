@@ -1,4 +1,0 @@
-Waiting for Starfield.exe (up to 240 min)...
-Sampling PID 22332 -> C:\Modding\Starfield\OSF UI\tools\bench\results\20260719-112428-webview2.csv (Ctrl+C to stop early)
-Game exited; snapshotting OSF UI.log
-Done: C:\Modding\Starfield\OSF UI\tools\bench\results\20260719-112428-webview2.csv (orphans after exit: 0)

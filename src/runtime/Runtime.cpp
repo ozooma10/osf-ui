@@ -8,7 +8,6 @@
 #include "api/PapyrusApi.h"
 #include "composite/D3D12Compositor.h"
 #include "composite/NullCompositor.h"
-#include "core/BenchStats.h"
 #include "core/Log.h"
 #include "input/ControlLayer.h"
 #include "input/EngineInput.h"
@@ -47,10 +46,6 @@ namespace OSFUI
 
 		_config = Config::Load(Paths::ConfigFile());
 		Log::SetDevMode(_config.devMode);
-		bench::SetEnabled(_config.benchStats);
-		if (_config.benchStats) {
-			REX::INFO("Bench: stats enabled (config benchStats) — see docs/renderer-benchmark.md");
-		}
 
 		if (!_config.enabled) {
 			REX::INFO("Runtime: disabled via config; nothing further will be initialized");
@@ -196,17 +191,6 @@ namespace OSFUI
 			for (const auto& id : toLoad) {
 				if (const auto* m = _views.Find(id)) {
 					_renderer->LoadView(*m);
-					// Benchmark runs mirror page console output into the log so a
-					// view's self-reported throughput sits next to the native
-					// Bench: channels for the same window (the stress view emits
-					// one "[stress] scene=…" line per scene). Registering a
-					// handler also switches the backends into console-capture
-					// mode, so this stays behind the benchStats knob.
-					if (_config.benchStats) {
-						_renderer->SetConsoleHandler(id, [id](int, std::string a_message) {
-							REX::INFO("Bench: [{}] {}", id, a_message);
-						});
-					}
 					_menus.Register({ id, m->kind, m->capturesInput, m->pausesGame, m->order });
 					// The policy fields decide runtime behavior (capture, sim pause)
 					// and an explicit manifest value silently overrides the defaults
@@ -444,7 +428,6 @@ namespace OSFUI
 		// Dev view-reload keypress (devMode): reload the top open menu now.
 		DriveDevReload();
 		{
-			bench::Scope probe(bench::Channel::kTick);
 			// Out-of-process backends mirror the accelerator state so their
 			// host process can decide `handled` synchronously; pushed every
 			// tick, backends diff and forward only changes (default no-op).
@@ -694,26 +677,32 @@ namespace OSFUI
 			}
 			if (active) {
 				_renderer->InjectMouseMove(static_cast<int>(_cursorX), static_cast<int>(_cursorY));
-				// Tell the newly-focused view it is being shown so it can play its
-				// entry treatment (e.g. a dim-backdrop fade — "you're in a menu").
-				// Only on the closed->open edge. _bridge may be null very early.
-				if (!wasVisible && _bridge) {
-					_bridge->SendToWeb(*active, "ui.visibility", nlohmann::json{ { "visible", true } });
-					_lastShownView = *active;
-				}
 			}
-		} else if (wasVisible && _bridge && !_lastShownView.empty()) {
-			// Open->closed edge: the compositor already hid the overlay this frame, so no fade-OUT
-			// can render (a rendered fade-out would need a real close handshake).
-			// The hide is still SIGNALLED: the view's JS keeps
-			// running while hidden, and consumers need the edge (e.g. the OSF scene browser
-			// forwards it so the orbit camera can switch between drag-steer and free-look).
-			_bridge->SendToWeb(_lastShownView, "ui.visibility", nlohmann::json{ { "visible", false } });
-			_lastShownView.clear();
+		}
+		// ui.visibility keys off the SHOWN view (the focused menu of a visible overlay)
+		// CHANGING — not off the overlay's open/close edge. A menu.open view switch while
+		// the overlay stays up (Control Deck hub -> panel) is a real show for the new view
+		// and a real hide for the old one: the OSF scene browser arms its whole session
+		// off this signal (drag-orbit routing, UI-cursor mode, open-time crosshair
+		// capture, close-time scene stops), so an edge-only send left hub-opened views
+		// permanently "closed". The hide can't render a fade-out (on the overlay-close
+		// path the compositor already hid this frame), but the view's JS keeps running
+		// while hidden and consumers need the edge. By overlay close ActiveMenu() is
+		// already empty, hence the tracked name. _bridge may be null very early.
+		if (_bridge) {
+			const std::string shown = (visible && active) ? *active : std::string();
+			if (shown != _lastShownView) {
+				if (!_lastShownView.empty()) {
+					_bridge->SendToWeb(_lastShownView, "ui.visibility", nlohmann::json{ { "visible", false } });
+				}
+				if (!shown.empty()) {
+					_bridge->SendToWeb(shown, "ui.visibility", nlohmann::json{ { "visible", true } });
+				}
+				_lastShownView = shown;
+			}
 		}
 		if (visible != wasVisible) {
 			REX::INFO("Runtime: overlay visibility -> {} (capture={})", visible, _captureInput.load());
-			bench::SetVisible(visible);
 		}
 
 		// Push the surface catalog to catalog subscribers (deduped: no-op when
@@ -1813,15 +1802,7 @@ namespace OSFUI
 		if (_config.renderer == "mock") {
 			return std::make_unique<MockWebRenderer>();
 		}
-		// "webview2-inproc" was the original in-process backend, removed after the
-		// out-of-process host superseded it. Accept the name so an existing
-		// config.json keeps working instead of silently falling through to the
-		// null renderer (which looks like a black overlay).
-		if (_config.renderer == "webview2" || _config.renderer == "webview2-inproc") {
-			if (_config.renderer == "webview2-inproc") {
-				REX::WARN("Runtime: renderer 'webview2-inproc' was removed; using 'webview2' "
-						  "(the out-of-process host). Update config.json to silence this.");
-			}
+		if (_config.renderer == "webview2") {
 #if defined(OSFUI_WITH_WEBVIEW2)
 			// Out-of-process host backend: the ONLY WebView2 variant that works
 			// under Mod Organizer 2 without the manual executable-blacklist

@@ -1,7 +1,6 @@
 #include "composite/D3D12Compositor.h"
 
 #include "composite/EngineD3D12.h"
-#include "core/BenchStats.h"
 #include "core/Log.h"
 #include "platform/WindowsPlatform.h"
 
@@ -262,9 +261,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		std::uint32_t gpuSlot{ 0 };
 		std::uint64_t gpuSerial{ 0 };
 		std::uint32_t gpuWidth{ 0 }, gpuHeight{ 0 };
-		// present-thread-only: last ring serial actually drawn, so bench
-		// counts each consumed frame once (the GPU-path "upload" analogue).
-		std::uint64_t gpuDrawnSerial{ 0 };
 
 		// ---- shared GPU objects (created once) ----
 		ID3D12Fence*          fence{ nullptr };
@@ -858,10 +854,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				return;
 			}
 
-			// Everything below is overlay-attributable present-thread cost:
-			// texture/upload management, fence waits, record + submit.
-			bench::Scope probe(bench::Channel::kPresent);
-
 			bool gpu = false;
 			{
 				std::scoped_lock lk(frameMutex);
@@ -988,10 +980,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			engine.directQueue->ExecuteCommandLists(1, lists);
 			if (sharedConsume) {
 				engine.directQueue->Signal(sharedConsume, serial);
-			}
-			if (serial != gpuDrawnSerial) {
-				gpuDrawnSerial = serial;
-				bench::CountUploaded();
 			}
 			a_slot.fenceValue = nextFenceValue++;
 			engine.directQueue->Signal(fence, a_slot.fenceValue);
@@ -1285,7 +1273,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				}
 			}
 			if (uploaded) {
-				bench::CountUploaded();
 				D3D12_TEXTURE_COPY_LOCATION src{};
 				src.pResource = a_slot.upload;
 				src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;

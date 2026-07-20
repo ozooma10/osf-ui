@@ -78,10 +78,6 @@ namespace OSFUI
 		// When empty, only `view` is loaded. Missing ids are skipped.
 		std::vector<std::string> views;
 		bool        devMode{ false };  // release-safe default; the shipped config / a dev override turns on verbose logging
-		// Renderer-benchmark stats (docs/renderer-benchmark.md): periodic
-		// "Bench:" lines with frame/tick/present/produce timing percentiles.
-		// Dev knob for A/B measurement runs; off by default.
-		bool        benchStats{ false };
 		// Dev view-reload key (mcm-design.md §12.1): with devMode on, pressing
 		// this reloads the top open menu's URL in place — the fast alt-tab
 		// iteration loop for view assets (schema edits hot-reload on their

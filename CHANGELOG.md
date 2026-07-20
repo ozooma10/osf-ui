@@ -19,11 +19,22 @@
   renderer-specific packaging path.
 - Removed the in-process `webview2-inproc` renderer. It required a manual
   MO2 executable-blacklist entry for `msedgewebview2.exe` and was superseded
-  by the out-of-process host. An existing `renderer: webview2-inproc` in
-  `config.json` now warns once and uses `webview2` rather than falling back
-  to a blank overlay.
+  by the out-of-process host. The name is no longer accepted in
+  `config.json` (it never shipped in a release; the mod-owned config is
+  overwritten on update).
 - Release builds now install and verify
   `OSFUI/bin/osfui_webview2_host.exe`.
+- Fixed: mod hotkeys no longer fire while typing in the game console.
+- Fixed: the OEM punctuation keys (`- = [ ] \ ; ' , . /`) are now bindable —
+  they previously drew as dead cells on the keybinds board and captures of
+  them could not be persisted (names use their US ANSI meanings, same
+  layout caveat as Grave).
+- Fixed: input no longer dies after closing the Mods menu in rare cases —
+  added a FocusMenu admitted-state watchdog and a WebView2 focus watchdog
+  that heal a missed focus/teardown handoff.
+- Internal: built-in views are now generated from a Vite + TypeScript +
+  Preact workspace under `frontend/` (`data/OSFUI/views` is a committed
+  build output; CI checks staleness). The shipped JS contract is unchanged.
 
 ## 1.0.0 — 2026-07-17
 

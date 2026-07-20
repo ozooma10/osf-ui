@@ -9,7 +9,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include "core/BenchStats.h"
 #include "core/Log.h"
 #include "core/Version.h"
 #include "input/OverlayInputHook.h"
@@ -613,11 +612,6 @@ namespace OSFUI
 					frameHeight = h;
 					frameGeneration = ringGeneration;
 					haveFrame = true;
-					// One host-produced GPU frame delivered. There is no
-					// in-process kProduce cost to time here — the browser and
-					// capture cost live in osfui_webview2_host.exe and are
-					// measured by the external sampler.
-					bench::CountProduced();
 					if (allHidden) {
 						// Render() is not called while every view is hidden; the
 						// host republishes on unhide, so this serial is disposable.

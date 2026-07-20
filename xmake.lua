@@ -3,7 +3,7 @@ includes("lib/commonlibsf")
 
 -- set project constants
 set_project("OSF UI")
-set_version("1.0.0")
+set_version("1.1.0")
 set_license("GPL-3.0")
 set_languages("c++23")
 set_warnings("allextra")
@@ -12,73 +12,22 @@ set_warnings("allextra")
 add_rules("mode.debug", "mode.releasedbg")
 add_rules("plugin.vsxmake.autoupdate")
 
--- Standalone WebView2 composition/capture spike. This deliberately remains an
--- opt-in executable and does not alter the plugin renderer.
--- Enable with: xmake f --with_webview2_poc=true
--- The Microsoft.Web.WebView2 NuGet package may be unpacked to
--- external/webview2, or WEBVIEW2_SDK_DIR may point at its package root.
-option("with_webview2_poc", function()
-    set_default(false)
-    set_showmenu(true)
-    set_description("Build the standalone WebView2 composition/capture proof of concept")
-end)
--- Production WebView2 renderer backend. This builds both the out-of-process
--- host used in game and the in-process diagnostic fallback. Uses only the
--- static loader from the Microsoft.Web.WebView2 NuGet package; the evergreen
--- runtime remains an OS dependency.
+-- Production WebView2 renderer backend: the plugin-side renderer plus the
+-- out-of-process host. Uses only the static loader from the
+-- Microsoft.Web.WebView2 NuGet package; the evergreen runtime remains an OS
+-- dependency. The package may be unpacked to external/webview2, or
+-- WEBVIEW2_SDK_DIR may point at its package root.
 option("with_webview2", function()
     set_default(true)
     set_showmenu(true)
     set_description("Build the WebView2 renderer and out-of-process host")
 end)
--- Out-of-process WebView2 host (zero-config MO2 compatibility): the browser
--- lives in osfui_webview2_host.exe, launched OUTSIDE the game's process tree
--- so USVFS never injects into msedgewebview2.exe. Also builds the standalone
--- game stand-in POC that drives the Phase 1 gates without the game.
-option("with_webview2_host", function()
-    set_default(false)
-    set_showmenu(true)
-    set_description("Build the out-of-process WebView2 host exe (+ its standalone POC client)")
-end)
 
 -- JSON for config, view manifests, and the message bridge
 add_requires("nlohmann_json")
 
-if has_config("with_webview2_poc") then
-    target("osfui-webview2-poc")
-        set_kind("binary")
-        set_default(false)
-        set_languages("c++23")
-        set_warnings("allextra")
-        add_rules("mode.debug", "mode.releasedbg")
-        add_files("tools/webview2_poc/**.cpp")
-        add_headerfiles("tools/webview2_poc/**.h")
-        add_syslinks(
-            "d3d11", "dxgi", "d3dcompiler", "dcomp", "windowsapp",
-            "runtimeobject", "CoreMessaging", "shlwapi", "shell32", "ole32", "user32",
-            "gdi32", "version")
-        add_ldflags("/SUBSYSTEM:WINDOWS", { force = true })
-
-        on_load(function(target)
-            local sdk = os.getenv("WEBVIEW2_SDK_DIR")
-            if not sdk or sdk == "" then
-                sdk = path.join(os.projectdir(), "external", "webview2")
-            end
-            local native = path.join(sdk, "build", "native")
-            local header = path.join(native, "include", "WebView2.h")
-            local loader = path.join(native, "x64", "WebView2LoaderStatic.lib")
-            if not os.isfile(header) or not os.isfile(loader) then
-                raise("OSFUI WebView2 POC: unpack Microsoft.Web.WebView2 into " ..
-                    "external/webview2 or set WEBVIEW2_SDK_DIR to the NuGet package root")
-            end
-            target:add("includedirs", path.join(native, "include"))
-            target:add("linkdirs", path.join(native, "x64"))
-            target:add("links", "WebView2LoaderStatic")
-        end)
-end
--- The host exe is required by the plugin's "webview2" renderer (with_webview2)
--- and by the standalone POC (with_webview2_host).
-if has_config("with_webview2") or has_config("with_webview2_host") then
+-- The host exe is required by the plugin's "webview2" renderer.
+if has_config("with_webview2") then
     -- Production host executable. Self-contained on purpose: static CRT +
     -- static WebView2 loader, because it runs from a mirrored real path
     -- (%LOCALAPPDATA%\OSFUI\bin\<version>) with no neighbours.
@@ -114,28 +63,6 @@ if has_config("with_webview2") or has_config("with_webview2_host") then
             target:add("links", "WebView2LoaderStatic")
         end)
 
-end
-if has_config("with_webview2_host") then
-    -- Phase 1 game stand-in: pipe server + broker launch + D3D12 shared-
-    -- texture compositing + automated gates. Console app so gate results are
-    -- capturable. Does not link the WebView2 SDK at all — everything browser
-    -- reaches it across the process boundary, exactly like the game will.
-    target("osfui-webview2-host-poc")
-        set_kind("binary")
-        set_basename("osfui-webview2-host-poc")
-        set_default(false)
-        set_languages("c++23")
-        set_warnings("allextra")
-        set_runtimes("MT")
-        add_rules("mode.debug", "mode.releasedbg")
-        add_files("tools/webview2_host_poc/**.cpp", "tools/webview2_shared/**.cpp")
-        add_headerfiles("tools/webview2_shared/**.h")
-        add_includedirs("tools/webview2_shared")
-        add_packages("nlohmann_json")
-        add_deps("osfui-webview2-host")
-        add_syslinks(
-            "d3d12", "dxgi", "d3dcompiler", "ole32", "oleaut32", "uuid",
-            "comsuppw", "taskschd", "advapi32", "user32", "shell32")
 end
 -- define targets
 -- target name == repo folder == MO2 mod folder (deploy goes to XSE_SF_MODS_PATH\<target name>)

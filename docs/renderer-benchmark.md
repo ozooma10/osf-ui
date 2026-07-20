@@ -1,8 +1,12 @@
 # Renderer benchmark — Ultralight vs WebView2
 
 > **Historical comparison.** Ultralight was removed after WebView2 passed the
-> in-game gates. The old results and methodology remain here as decision
-> evidence; current benchmark tooling only accepts active renderers.
+> in-game gates, and the benchmark tooling this document describes (the
+> `benchStats` config knob, `src/core/BenchStats`, and `tools/bench/`) was
+> removed with it once the decision was made. The results and methodology
+> remain here as decision evidence; the curated summaries were
+> `20260719-comparison.md` and `20260719-stress-comparison.md` (see git
+> history for the raw runs and scripts).
 
 Objective, repeatable comparison of the two web renderer backends on
 performance and resource usage. First run: 2026-07-19.

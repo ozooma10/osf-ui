@@ -341,9 +341,10 @@ namespace OSFUI
 		bool          _revealFrameReady{ false };
 		std::uint64_t _lastSubmittedFrame{ 0 };
 
-		// The view that last received ui.visibility{visible:true}, so the open->closed edge can
-		// signal the SAME view {visible:false} (by then ActiveMenu() is already empty). Main-thread
-		// only (ApplyMenuPolicy).
+		// The view currently shown as the overlay's focused menu — the last one sent
+		// ui.visibility{visible:true}. Any change (overlay close, menu.open view switch)
+		// signals {visible:false} to THIS view first (by overlay close ActiveMenu() is
+		// already empty, so the name must be tracked). Main-thread only (ApplyMenuPolicy).
 		std::string                   _lastShownView;
 
 		// Last focus-menu open state we drove (main-thread only, reconciled in
