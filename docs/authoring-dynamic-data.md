@@ -2,7 +2,7 @@
 
 **Audience:** Papyrus mod authors. If your mod ships an esm + scripts and you
 want an OSF UI view to show *live* data — a list that changes at runtime, a
-table, arbitrary state — this is the surface for it. No SFSE plugin, no C++.
+table, arbitrary state — this is the surface for it.
 
 [authoring-settings.md](authoring-settings.md) covers *settings*: scalar
 values in a pre-declared schema. This page covers everything that doesn't fit
@@ -26,7 +26,7 @@ Papyrus script  ──  PushToView(...)  ──▶  your view   (data.push messa
 Papyrus script  ◀──  OnUIAction(...) ──   your view   (ui.action command)
 ```
 
-- Your **script pushes** state. OSF UI stores nothing — every push is
+- Your **script pushes** state. OSF UI stores nothing - every push is
   delivered to your mod's currently-loaded views and forgotten.
 - Your **view fires actions** (a click, a toggle). Actions are
   **fire-and-forget**: they have no return value and no reply. The way a view

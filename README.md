@@ -128,21 +128,6 @@ need the Evergreen WebView2 Runtime installed. The install step ships
 
 ## Credits & acknowledgments
 
-**OSF UI** exists because of **[Prisma UI](https://www.prismaui.dev/)**,
-the Skyrim Special Edition web-UI framework by **StarkMP**. Prisma UI pioneered the approach this project is built
-around - rendering modern HTML/CSS/JS interfaces in game using the
-Ultralight engine - and the entire idea for a Starfield equivalent came from it.
-
-- **[Prisma UI](https://www.nexusmods.com/skyrimspecialedition/mods/148718)** —
-  StarkMP & contributors - original concept and inspiration.
-- **[Microsoft Edge WebView2](https://developer.microsoft.com/microsoft-edge/webview2/)** -
-  the Chromium-based renderer behind OSF UI views.
-- **[Ultralight](https://ultralig.ht/)** - the renderer used by Prisma UI and
-  by OSF UI's initial release.
-- **[commonlibsf-template](https://github.com/libxse/commonlibsf-template)** /
-  **CommonLibSF** & **[SFSE](https://sfse.silverlock.org/)** -= the plugin
-  foundation this is built on.
-
 See [CREDITS.md](CREDITS.md)
 
 ## License

@@ -1,40 +1,42 @@
 # Changelog
 
-## Unreleased
+## 1.1.0 - Unreleased
 
-- **Dynamic data for Papyrus mods** (bridge protocol 1.0 → 1.1, additive):
-  scripts can now drive a view with live data and react to its clicks — no
-  SFSE plugin needed. `OSFUI.PushToView(modId, key, values)` delivers a
-  string list to every loaded view of the mod as a `data.push` message;
-  views fire actions back with `osfui.send('ui.action', { action, arg })`,
-  dispatched to `OSFUI.RegisterForViewActions(receiver, fn, modId)` /
-  `...Static` callbacks (session-scoped, released with `Unregister`).
-  Everything is fire-and-forget: Papyrus owns the data, views re-request
-  state by firing a `ready` action on load, and OSF UI caches nothing. See
-  the new `docs/authoring-dynamic-data.md` (worked example: porting a
-  terminal menu).
+Views now render in Chromium, and Papyrus mods can drive them with live data.
 
-- Promoted the out-of-process WebView2 host to the sole production renderer.
-- Removed the Ultralight backend, SDK build option, runtime payload, and
-  renderer-specific packaging path.
-- Removed the in-process `webview2-inproc` renderer. It required a manual
-  MO2 executable-blacklist entry for `msedgewebview2.exe` and was superseded
-  by the out-of-process host. The name is no longer accepted in
-  `config.json` (it never shipped in a release; the mod-owned config is
-  overwritten on update).
-- Release builds now install and verify
-  `OSFUI/bin/osfui_webview2_host.exe`.
-- Fixed: mod hotkeys no longer fire while typing in the game console.
-- Fixed: the OEM punctuation keys (`- = [ ] \ ; ' , . /`) are now bindable —
-  they previously drew as dead cells on the keybinds board and captures of
-  them could not be persisted (names use their US ANSI meanings, same
-  layout caveat as Grave).
-- Fixed: input no longer dies after closing the Mods menu in rare cases —
-  added a FocusMenu admitted-state watchdog and a WebView2 focus watchdog
-  that heal a missed focus/teardown handoff.
-- Internal: built-in views are now generated from a Vite + TypeScript +
-  Preact workspace under `frontend/` (`data/OSFUI/views` is a committed
-  build output; CI checks staleness). The shipped JS contract is unchanged.
+### Highlights
+
+- **New renderer: WebView2.** Views render in Microsoft Edge WebView2 inside a separate host process, replacing Ultralight.
+- **Dynamic data for Papyrus mods.** Scripts can drive a view with live data and react to its clicks.
+  `OSFUI.PushToView(modId, key, values)` delivers a string list to every loaded view of the mod as a `data.push` message; 
+  views fire actions back with `osfui.send('ui.action', { action, arg })`, dispatched to `OSFUI.RegisterForViewActions(receiver, fn, modId)` / `...Static` callbacks (session-scoped, released with `Unregister`). 
+  Everything is fire-and-forget: Papyrus owns the data, views re-request state by firing a `ready` action on load, and OSF UI caches nothing. 
+  See the new `docs/authoring-dynamic-data.md` (worked example: porting a terminal menu).
+
+### Fixed
+
+- Mod hotkeys no longer fire while typing in the game console.
+- The OEM punctuation keys (`- = [ ] \ ; ' , . /`) are now bindable — they
+  previously drew as dead cells on the keybinds board and captures of them
+  could not be persisted (names use their US ANSI meanings, same layout
+  caveat as Grave).
+- Input no longer dies after closing the Mods menu in rare cases — a
+  FocusMenu admitted-state watchdog and a WebView2 focus watchdog now heal a
+  missed focus/teardown handoff.
+
+### For view authors
+
+- Bridge **protocol 1.1** — additive over 1.0: the new `data.push` message
+  and `ui.action` request. Existing 1.0 views are unaffected.
+
+### Other changes
+
+- The Ultralight backend, its SDK build option, runtime payload, and
+  renderer-specific packaging path are gone.
+- Release builds install and verify `OSFUI/bin/osfui_webview2_host.exe`.
+- Internal: built-in views are generated from a Vite + TypeScript + Preact
+  workspace under `frontend/` (`data/OSFUI/views` is a committed build
+  output; CI checks staleness). The shipped JS contract is unchanged.
 
 ## 1.0.0 — 2026-07-17
 
