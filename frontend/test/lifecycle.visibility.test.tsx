@@ -1,15 +1,12 @@
 // @vitest-environment jsdom
 //
-// lifecycle.visibility.test.tsx — the overlay open-edge reset.
-//
-// A `ui.visibility` push with `visible: true` is the runtime telling the view a
-// fresh visit has begun. The reset set is exact and each member is a distinct
-// decision (see @lib/lifecycle):
-//   * the undo baseline is dropped (undo scopes to THIS visit);
-//   * the filter is cleared and the selection returns to Home — but only when
-//     it was not already there (the no-op guard);
-//   * padnav.reset() fires UNCONDITIONALLY, even on the no-op path;
-//   * a `visible: false` push changes nothing at all.
+// The overlay open-edge reset. A `ui.visibility` push with `visible: true`
+// means a fresh visit began (see @lib/lifecycle):
+//   * the undo baseline is dropped (undo scopes to one visit);
+//   * the filter is cleared and the selection returns to Home, but only when it
+//     was not already there;
+//   * padnav.reset() fires even on that no-op path;
+//   * a `visible: false` push changes nothing.
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { makeBridge, mount, unmount, flush, typeFilter } from './helpers/settingsHarness';
@@ -63,7 +60,7 @@ describe('ui.visibility open edge', () => {
 
     bridge.emit('ui.visibility', { visible: true });
     await flush();
-    // Baseline gone -> zero changes -> chip hidden again.
+    // Baseline gone -> zero changes -> chip hidden.
     expect(el.querySelector<HTMLButtonElement>('#session-chip')!.style.display).toBe('none');
   });
 
@@ -74,13 +71,37 @@ describe('ui.visibility open edge', () => {
     const el = await mount(bridge);
     bridge.emit('settings.data', WIDGETS);
     await flush();
-    // Already on Home with an empty filter — the reselect is a no-op...
+    // Already on Home with an empty filter: the reselect is a no-op.
     expect(el.querySelector('.rail-item--home.selected')).not.toBeNull();
 
     bridge.emit('ui.visibility', { visible: true });
     await flush();
-    // ...but padnav.reset still fired.
+    // padnav.reset still fires.
     expect(reset).toHaveBeenCalled();
+  });
+
+  it('a focus-switch show (reason:"focus") changes nothing — same visit', async () => {
+    const reset = vi.fn();
+    (window as { padnav?: unknown }).padnav = { reset };
+    const bridge = makeBridge();
+    const el = await mount(bridge);
+    bridge.emit('settings.data', WIDGETS);
+    bridge.emit('views.data', VIEWS);
+    await flush();
+
+    selectRail(el, 'Acme Kit');
+    await flush();
+    el.querySelector<HTMLButtonElement>('#ctl-acme\\.kit-boolOn')!.click();
+    await flush();
+    expect(el.querySelector<HTMLButtonElement>('#session-chip')!.style.display).not.toBe('none');
+
+    bridge.emit('ui.visibility', { visible: false, reason: 'focus' });
+    bridge.emit('ui.visibility', { visible: true, reason: 'focus' });
+    await flush();
+
+    expect(el.querySelector('.detail-head h2')!.textContent).toBe('Acme Kit');
+    expect(el.querySelector<HTMLButtonElement>('#session-chip')!.style.display).not.toBe('none');
+    expect(reset).not.toHaveBeenCalled();
   });
 
   it('a hide edge (visible:false) changes nothing', async () => {

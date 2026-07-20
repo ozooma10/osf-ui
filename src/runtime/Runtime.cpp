@@ -57,15 +57,14 @@ namespace OSFUI
 		_localization.Load(Paths::DataDir() / "l10n",
 			LocalizationService::DetectGameLocale(starfieldDir));
 
-		// The injected PauseMenu entry's label + target view (Reconcile itself
-		// is gated on config.pauseMenuEntry in Tick).
+		// Label + target view for the injected PauseMenu entry; Tick gates
+		// Reconcile on config.pauseMenuEntry.
 		PauseMenuEntry::Configure(
 			_localization.Resolve("osfui", "chrome.pauseMenuEntry", _config.pauseMenuEntryLabel),
 			_config.pauseMenuEntryView);
 
 		_views.LoadAll(Paths::ViewsDir());
 
-		// Renderer
 		_renderer = CreateRenderer();
 		const auto* view = _views.Find(_config.view);
 		const auto initialWidth = view ? view->width : kDefaultViewWidth;
@@ -87,65 +86,54 @@ namespace OSFUI
 		}
 		REX::INFO("Runtime: renderer = {}", _renderer->Name());
 
-		// Route per-view load finish/fail to the internal core hook. A failed
-		// load never fires DOM-ready, so this is the only signal a view didn't
-		// come up — groundwork for crash-recovery.
+		// A failed load never fires DOM-ready, so this is the only signal a view
+		// didn't come up. Drives crash-recovery.
 		_renderer->SetLoadHandler([this](const IWebRenderer::LoadEvent& a_e) {
 			OnViewLoad(a_e.viewId, a_e.failed, a_e.url, a_e.description, a_e.errorCode);
 		});
 
-		// The active page's CSS `cursor` drives the real OS pointer (hover
-		// hand, text I-beam, …). NOTE: unlike the other handlers this fires on
-		// the renderer's WORKER thread (IWebRenderer.h contract) — SetShape is
-		// one atomic store, applied by the WndProc hook on the next mouse
-		// message.
-		// hardwareCursor is a boot-time config knob (config.json), not a runtime
-		// setting — its only alternative is an invisible software cursor (debug
-		// escape hatch), so it's deliberately not surfaced in the settings UI.
+		// The active page's CSS `cursor` drives the real OS pointer. Unlike the
+		// other handlers this fires on the renderer's worker thread (IWebRenderer
+		// contract) — SetShape is one atomic store, applied by the WndProc hook on
+		// the next mouse message. hardwareCursor is a boot-time config knob, not a
+		// setting; the only alternative is an invisible software cursor.
 		if (_config.hardwareCursor) {
 			_renderer->SetCursorChangeHandler([](CursorShape a_shape) {
 				HardwareCursor::SetShape(a_shape);
 			});
 		}
 
-		// Compositor
 		_compositor = CreateCompositor();
 		if (!_compositor->Initialize()) {
 			REX::WARN("Runtime: compositor '{}' failed to initialize; falling back to null compositor", _compositor->Name());
 			_compositor = std::make_unique<NullCompositor>();
 			_compositor->Initialize();
 		}
-		// GPU frame transport (out-of-process WebView2 host): when the renderer
-		// announces a shared-texture ring, hand it to the compositor, which
-		// owns the handles from then on. Fires on the game thread (renderer
-		// Update()); no-op wiring for CPU-only renderer/compositor pairs.
+		// GPU frame transport (out-of-process WebView2 host): the compositor owns
+		// the shared-texture ring handles once handed over. Fires on the game
+		// thread (renderer Update()); no-op for CPU-only renderer/compositor pairs.
 		_renderer->SetSharedRingHandler([this](const SharedRingDesc& a_desc) {
 			if (_compositor) {
 				_compositor->SetSharedRing(a_desc);
 			}
 		});
-		// Size the view to the real output once the compositor knows it, so
-		// the page renders aspect-correct instead of stretched.
+		// Size the view to the real output so the page renders aspect-correct.
 		_compositor->SetOutputResizeCallback([this](std::uint32_t a_w, std::uint32_t a_h) { OnOutputResized(a_w, a_h); });
 		REX::INFO("Runtime: compositor = {}", _compositor->Name());
 
 		_captureInput.store(_config.captureInput);
 
-		// Feature modules ("apps" on the platform). Core hosts them via the
-		// IUiModule contract and knows nothing of what they do — settings is
-		// just the first. This is the composition root; everything past here
-		// treats modules generically. OnStart() applies persisted state (e.g.
-		// fires the cursor-speed reaction) before the first frame.
+		// Composition root for feature modules (hosted generically via IUiModule).
+		// OnStart() applies persisted state before the first frame.
 		BuildModules();
 		for (const auto& module : _modules) {
 			module->OnStart();
 		}
 
-		// Views + bridge. The bridge and web->native handler are wired BEFORE
-		// LoadView so no early page message can race past them; the renderer
-		// queues native->web messages per view until each page is ready.
+		// The bridge and web->native handler must be wired before LoadView so no
+		// early page message races past them; the renderer queues native->web
+		// messages per view until each page is ready.
 		if (view) {
-			// The layer set to load, and which of those request the bridge.
 			std::vector<std::string> toLoad = _config.views;
 			if (toLoad.empty()) {
 				toLoad.push_back(_config.view);
@@ -162,17 +150,16 @@ namespace OSFUI
 				}
 			}
 
-			// One feature-agnostic bridge serves every bridge-enabled view: the
-			// renderer tags each inbound message with its source view, and replies
-			// route back to that view (MessageBridge tracks the current source).
+			// One bridge serves every bridge-enabled view: the renderer tags each
+			// inbound message with its source view, and replies route back to that
+			// view (MessageBridge tracks the current source).
 			if (!bridgeViews.empty()) {
 				_bridge = std::make_unique<MessageBridge>([this](std::string_view a_viewId, std::string_view a_json) {
 					if (_renderer) {
 						_renderer->SendMessageToWeb(a_viewId, a_json);
 					}
 				});
-				// Platform (window) commands live in core; everything else is a
-				// module's to register.
+				// Core owns only platform commands; the rest are the modules'.
 				RegisterPlatformCommands(*_bridge);
 				for (const auto& module : _modules) {
 					module->RegisterCommands(*_bridge);
@@ -186,15 +173,16 @@ namespace OSFUI
 				REX::INFO("Runtime: no loaded view requests nativeBridge; bridge disabled");
 			}
 
-			// Load the layer set and register each as a surface. Ordering, focus, and visibility are then owned by the MenuController + ApplyMenuPolicy, not the raw manifest order or a single active view.
+			// Ordering, focus and visibility are owned by MenuController +
+			// ApplyMenuPolicy, not by manifest order or a single active view.
 			std::size_t loaded = 0;
 			for (const auto& id : toLoad) {
 				if (const auto* m = _views.Find(id)) {
 					_renderer->LoadView(*m);
 					_menus.Register({ id, m->kind, m->capturesInput, m->pausesGame, m->order });
-					// The policy fields decide runtime behavior (capture, sim pause)
-					// and an explicit manifest value silently overrides the defaults
-					// — log them so a "why doesn't it pause" is a log-read away.
+					// An explicit manifest value silently overrides the capture /
+					// pause defaults — log them so "why doesn't it pause" is a
+					// log-read away.
 					REX::INFO("Runtime: surface '{}' registered ({}, capturesInput={}, pausesGame={})",
 						id, m->kind == SurfaceKind::Hud ? "hud" : "menu", m->capturesInput, m->pausesGame);
 					if (m->openOnStart) {
@@ -210,7 +198,7 @@ namespace OSFUI
 				REX::WARN("Runtime: default view '{}' is not among the loaded surfaces; the toggle key will have nothing to open (check config.view is listed in config.views)", _config.view);
 			}
 
-			// Greet each bridge-enabled view. The renderer queues this per view until that view's DOM is ready, so order here doesn't matter.
+			// Queued per view until that view's DOM is ready, so order is free.
 			if (_bridge) {
 				for (const auto& id : bridgeViews) {
 					_bridge->SendRuntimeReady(id);
@@ -226,15 +214,15 @@ namespace OSFUI
 		// See docs/native-plugin-api.md.
 		API::BridgeApi::Get().OnBridgeReady(_bridge.get());
 
-		// Input. Key events reach the router from the WndProc subclass
-		// (OverlayInputHook → OnHostKey), installed when config
-		// inputSource="ui" (core/Plugin.cpp, kPostPostDataLoad).
+		// Key events reach the router from the WndProc subclass (OverlayInputHook
+		// → OnHostKey), installed when config inputSource="ui" (core/Plugin.cpp,
+		// kPostPostDataLoad).
 		_toggleKey = ResolveKeyName(_config.toggleKey);
 		if (_toggleKey != kInvalidKeyCode) {
 			REX::INFO("Runtime: toggleKey '{}' resolved to VK code {:#x}", _config.toggleKey, _toggleKey);
 		}
-		// Dev view-reload key (mcm-design.md §12.1): resolved only in devMode
-		// — kInvalid is the whole gate in OnHostKey, so a user config with the
+		// Dev view-reload key (mcm-design.md §12.1): resolved only in devMode —
+		// kInvalid is the whole gate in OnHostKey, so a user config with the
 		// shipped devReloadKey but devMode off never loses the key to us.
 		if (_config.devMode && !_config.devReloadKey.empty()) {
 			_devReloadKey = ResolveKeyName(_config.devReloadKey);
@@ -248,16 +236,15 @@ namespace OSFUI
 			REX::INFO("Runtime: engineInput enabled — engine per-menu input (gamepad) routed into the focused view; keyboard/mouse stay on the WndProc path");
 		}
 
-		// F10 toggles the default menu; Esc (while captured) is the back action —
-		// close the top menu, or delegate to a back-owning view (osfui.handleBack).
-		// Extracted so a live key-rebind (osfui.toggleKey) can re-apply it.
+		// Toggle key opens/closes the default menu; Esc (while captured) is the back
+		// action — close the top menu, or delegate to a back-owning view
+		// (osfui.handleBack). Separate so a live rebind can re-apply it.
 		ApplyToggleKey();
 		_renderer->SetNativeAcceleratorHandler(
 			[this](std::uint32_t a_vkCode, bool a_down) {
 				return OnNativeAcceleratorKey(a_vkCode, a_down);
 			});
 
-		// Keyboard routing into the web view, gated by capture state (Phase 4).
 		_input.SetWebRouting(
 			[this] { return IsInputCaptured(); },
 			[this](KeyCode a_key, bool a_down) {
@@ -268,7 +255,7 @@ namespace OSFUI
 		REX::INFO("Runtime: input capture {} (config captureInput)", _config.captureInput ? "enabled" : "disabled");
 
 		_initialized = true;
-		// Derive + push the initial policy (hidden/order/active/capture/visibility) from whatever is open. Also covers the closed case (nothing visible).
+		// Push the initial policy derived from whatever is open (incl. nothing).
 		ApplyMenuPolicy();
 		REX::INFO("Runtime: initialized (visible={})", _visible.load());
 
@@ -277,9 +264,9 @@ namespace OSFUI
 
 	void Runtime::Shutdown()
 	{
-		// NOTE: SFSE provides no plugin shutdown callback; this is only ever
-		// reached if we someday wire process-detach or an explicit teardown.
-		// Everything here must stay safe to skip entirely.
+		// SFSE provides no plugin shutdown callback; this is only reached if
+		// process-detach or an explicit teardown is ever wired. Everything here
+		// must stay safe to skip entirely.
 		if (!_initialized) {
 			return;
 		}
@@ -291,7 +278,8 @@ namespace OSFUI
 			_renderer->Shutdown();
 			_renderer.reset();
 		}
-		// Detach the native plugin API from the bridge before we destroy it, so its non-owning pointer never dangles and it reports not-ready.
+		// Detach the native plugin API before destroying the bridge, so its
+		// non-owning pointer never dangles and it reports not-ready.
 		API::BridgeApi::Get().OnBridgeReady(nullptr);
 		// Same for modules that retain the bridge for unsolicited pushes.
 		for (const auto& module : _modules) {
@@ -314,46 +302,45 @@ namespace OSFUI
 			return;
 		}
 		_uptime += a_deltaSeconds;
-		// config.pauseMenuEntry: keep the injected "mod settings" entry present
-		// in the engine PauseMenu and act on its clicks. BEFORE the snapshot
-		// below so a click's EnqueueOpenView lands
-		// this same tick (kHide for the pause menu is queued inside; the
-		// overlay open then applies through the normal policy path).
+		// Keep the injected "mod settings" entry present in the engine PauseMenu
+		// and act on its clicks. Before the snapshot below so a click's
+		// EnqueueOpenView lands this same tick (kHide for the pause menu is queued
+		// inside; the overlay open then applies through the normal policy path).
 		if (_config.pauseMenuEntry) {
 			PauseMenuEntry::Reconcile();
 		}
-		// Register plugin-supplied views (ABI 1.5) BEFORE the menu-request
-		// snapshot below, so a RegisterView followed by RequestMenu in the same
-		// frame finds its surface registered when the request is applied.
+		// Register plugin-supplied views (ABI 1.5) before the menu-request snapshot
+		// below, so a RegisterView followed by RequestMenu in the same frame finds
+		// its surface registered when the request is applied.
 		DrainViewRegistrations();
-		// SNAPSHOT queued menu requests (F10/Esc/transition + plugin RequestMenu)
-		// now, but APPLY them after the bridge pump below — the ABI 1.3 ordering
-		// guarantee: a consumer that called SendToWeb(v, ...) and then
+		// Snapshot queued menu requests (toggle/Esc/transition + plugin
+		// RequestMenu) now, but apply them after the bridge pump below — the ABI
+		// 1.3 ordering guarantee: a consumer that called SendToWeb(v, ...) then
 		// RequestMenu(v, true) has its send in _pendingSends before the request
 		// entered this snapshot, so the pump flushes the message into v's queue
 		// before the open unhides v (message before first visible paint).
 		const auto menuWork = TakeMenuRequests();
 		// Deliver a captured rebind key back to the settings view (main thread).
 		DrainKeyCapture();
-		// Deliver queued hotkey fires (window thread -> main, mcm-design.md
-		// §9) BEFORE the bridge pump below, so the C ABI callbacks they queue
-		// are invoked this same tick.
+		// Deliver queued hotkey fires (window thread -> main, mcm-design.md §9)
+		// before the bridge pump below, so the C ABI callbacks they queue are
+		// invoked this same tick.
 		DrainHotkeys();
-		// Apply queued runtime schema (un)registrations to the store first,
-		// so their value replay is already queued when the pump below drains
+		// Apply queued runtime schema (un)registrations to the store first, so
+		// their value replay is already queued when the pump below drains
 		// SubscribeSettings callbacks — registration lands in one tick.
 		DrainSchemaOps();
-		// Papyrus Set*/Reset ops (mcm-design.md §8.4) land through the same
-		// validated store path as every other writer. After DrainSchemaOps so
-		// a set against a just-registered schema resolves this tick.
+		// Papyrus Set*/Reset ops (mcm-design.md §8.4) go through the same validated
+		// store path as every other writer. After DrainSchemaOps so a set against a
+		// just-registered schema resolves this tick.
 		if (_settings) {
 			API::Papyrus::DrainSettingsOps(_settings->Store());
 		}
-		// Papyrus PushToView payloads fan out to the pushing mod's live views
-		// as `data.push` — before PumpMainThread/Update flush the per-view
-		// outbound queues, so a push lands in this tick's frame. Deliberately
-		// no subscriber set: the target list is derived fresh from the live
-		// surfaces each time, so there is nothing to prune or go stale.
+		// Papyrus PushToView payloads fan out to the pushing mod's live views as
+		// `data.push` — before PumpMainThread/Update flush the per-view outbound
+		// queues, so a push lands in this tick's frame. No subscriber set: the
+		// target list is derived fresh from the live surfaces each time, so there
+		// is nothing to prune or go stale.
 		if (_bridge) {
 			API::Papyrus::DrainViewPushes([this](const API::Papyrus::ViewPush& a_push) {
 				std::unordered_set<std::string> targets;
@@ -364,8 +351,8 @@ namespace OSFUI
 					}
 				}
 				if (targets.empty()) {
-					// Fire-and-forget: a mod pushing with no view installed/live
-					// is not an error, but leave a devMode trace.
+					// A mod pushing with no view installed/live is not an error;
+					// leave a devMode trace.
 					REX::DEBUG("Runtime: PushToView {}.{} had no live '{}/...' view to deliver to",
 						a_push.mod, a_push.key, a_push.mod);
 					return;
@@ -378,12 +365,12 @@ namespace OSFUI
 		// off-thread SendToWeb) on the main thread, before Update() flushes the
 		// per-view outbound queues to the pages.
 		API::BridgeApi::Get().PumpMainThread();
-		// NOW apply the snapshot, so the reconcilers below and the frame
-		// submitted this tick reflect the new menu state.
+		// Apply the snapshot now, so the reconcilers below and the frame submitted
+		// this tick reflect the new menu state.
 		ApplyMenuRequests(menuWork);
 		// Land coalesced settings value writes once their write-behind window
-		// elapses (mcm-design.md §8.1) — a slider drag costs one disk write
-		// per ~500ms, not one per step.
+		// elapses (mcm-design.md §8.1) — a slider drag costs one disk write per
+		// ~500ms, not one per step.
 		if (_settings) {
 			_settings->Store().PumpPersistence(_uptime);
 			// Schema hot-reload (mcm-design.md §12.1, devMode): edited
@@ -399,24 +386,23 @@ namespace OSFUI
 				}
 			}
 		}
-		// Reconcile engine menu-mode + control-disable toward the derived CAPTURE state (not visibility): a live HUD must not disable controls.
+		// Reconcile engine menu-mode + control-disable toward the derived capture
+		// state (not visibility): a live HUD must not disable controls.
 		if (_config.focusMenu) {
 			ReconcileFocusMenu();
 		}
-		// Always reconcile, so losing capture RELEASES any engaged lock (a gate
-		// here would stop reconciling and strand the player's controls).
+		// Unconditional, so losing capture releases any engaged lock (a gate here
+		// would stop reconciling and strand the player's controls).
 		ReconcileControlLayer();
-		// Sim pause (manifest pausesGame) — unconditional: it is a direct
+		// Sim pause (manifest pausesGame) — unconditional: a direct
 		// Main::isGameMenuPaused write, independent of the engine focus menu.
 		ReconcileSimPause();
-		// OS-cursor release — unconditional, tracks CAPTURE (the same policy
-		// that activates the hardware cursor): while a menu captures input, hold
-		// a reference on MenuCursor::freeCursorRefCount so the per-frame clip
+		// OS-cursor release — unconditional, tracks capture (the same policy that
+		// activates the hardware cursor): while a menu captures input, hold a
+		// reference on MenuCursor::freeCursorRefCount so the per-frame clip
 		// releases the pointer (no engine arrow — the focus menu carries no
 		// ShowCursor bit). Edge-triggered inside Apply.
 		FreeCursor::Apply(_menus.DesiredCapture());
-		// Route engine-delivered gamepad input into the active view (Level 2,
-		// increment 3). No-op unless config.engineInput.
 		if (_config.engineInput) {
 			DrainEngineInput(a_deltaSeconds);
 		}
@@ -425,12 +411,11 @@ namespace OSFUI
 		}
 		// Fire any due crash-recovery reloads before Update pumps the renderer.
 		DriveRecovery();
-		// Dev view-reload keypress (devMode): reload the top open menu now.
 		DriveDevReload();
 		{
-			// Out-of-process backends mirror the accelerator state so their
-			// host process can decide `handled` synchronously; pushed every
-			// tick, backends diff and forward only changes (default no-op).
+			// Out-of-process backends mirror the accelerator state so their host
+			// process can decide `handled` synchronously; pushed every tick,
+			// backends diff and forward only changes (default no-op).
 			_renderer->SetAcceleratorKeys(_toggleKey, _devReloadKey,
 				IsInputCaptured(), _captureArmed.load(), _captureUpVk.load());
 			_renderer->Update(a_deltaSeconds);
@@ -440,7 +425,7 @@ namespace OSFUI
 
 	void Runtime::EnqueueMenuRequest(MenuReq a_req)
 	{
-		// Callable from any thread (WndProc F10/Esc, MenuEventSink transition).
+		// Callable from any thread (WndProc toggle/Esc, MenuEventSink transition).
 		// Leaf lock: it only guards the queue; the request is acted on in Tick.
 		std::lock_guard lock(_reqMutex);
 		_reqs.push_back(a_req);
@@ -448,25 +433,24 @@ namespace OSFUI
 
 	void Runtime::EnqueueOpenView(std::string a_viewId)
 	{
-		// Callable from any thread (PauseMenuEntry click, future native
-		// triggers). Same leaf-lock discipline as EnqueueMenuRequest.
+		// Callable from any thread (PauseMenuEntry click). Same leaf-lock
+		// discipline as EnqueueMenuRequest.
 		std::lock_guard lock(_reqMutex);
 		_openViewReqs.push_back(std::move(a_viewId));
 	}
 
 	Runtime::PendingMenuWork Runtime::TakeMenuRequests()
 	{
-		// Snapshot under the lock, then act unlocked (in ApplyMenuRequests) —
-		// the actions call into the renderer/compositor and must never run
-		// while holding _reqMutex.
+		// Snapshot under the lock, then act unlocked (in ApplyMenuRequests): the
+		// actions call into the renderer/compositor and must never run while
+		// holding _reqMutex.
 		PendingMenuWork work;
 		{
 			std::lock_guard lock(_reqMutex);
 			work.local.swap(_reqs);
 			work.openViews.swap(_openViewReqs);
 		}
-		// Menu opens/closes a sibling plugin requested by id via the bridge API (e.g. an
-		// in-game item opening the scene browser). Same policy path as the F10 toggle.
+		// Sibling-plugin opens/closes by id; same policy path as the toggle key.
 		work.plugin = API::BridgeApi::Get().TakeMenuRequests();
 		return work;
 	}
@@ -485,11 +469,11 @@ namespace OSFUI
 				break;
 			case MenuReq::Back: {
 				// Esc / pad-B. A back-owning active view (osfui.handleBack) gets
-				// the action delegated as a synthetic Escape tap and decides
-				// itself — navigate to another menu, peel an inner panel, or
-				// send `close`. Everyone else keeps the default: close the top
-				// menu (single-menu policy: that hides the overlay). F10 never
-				// delegates, so a broken page cannot strand the user.
+				// the action delegated as a synthetic Escape tap and decides for
+				// itself — navigate elsewhere, peel an inner panel, or send
+				// `close`. Everyone else closes the top menu (single-menu policy:
+				// that hides the overlay). The toggle key never delegates, so a
+				// broken page cannot strand the user.
 				const auto active = _menus.ActiveMenu();
 				if (active && _backOwnerViews.contains(*active) && _renderer) {
 					constexpr std::uint32_t kVkEscape = 0x1B;
@@ -537,8 +521,8 @@ namespace OSFUI
 		auto& store = _settings->Store();
 		for (auto& op : ops) {
 			if (!op.schema.is_null()) {
-				// Shape was validated synchronously at the ABI boundary;
-				// what's left here is precedence (native wins, logged inside).
+				// Shape was validated synchronously at the ABI boundary; what's
+				// left here is precedence (native wins, logged inside).
 				store.RegisterSchema(std::move(op.schema), SettingsStore::Source::kNative);
 			} else if (store.GetSource(op.modId) == SettingsStore::Source::kNative) {
 				store.RemoveMod(op.modId);
@@ -555,8 +539,8 @@ namespace OSFUI
 			return;
 		}
 		if (!_renderer) {
-			// Overlay disabled or never came up: views can't exist. Drop loudly
-			// rather than queueing forever.
+			// Overlay disabled or never came up: drop loudly rather than
+			// queueing forever.
 			for (const auto& id : ids) {
 				REX::WARN("Runtime: plugin RegisterView('{}') ignored — overlay not running", id);
 			}
@@ -564,8 +548,8 @@ namespace OSFUI
 		}
 		bool catalogChanged = false;
 		for (const auto& id : ids) {
-			// Idempotent: never reload a live surface (config-listed or a repeat
-			// call) — a reload would blow away its page state.
+			// Idempotent: reloading a live surface (config-listed or a repeat
+			// call) would blow away its page state.
 			if (_menus.IsRegistered(id)) {
 				REX::INFO("Runtime: plugin RegisterView('{}') — already a registered surface, left untouched", id);
 				continue;
@@ -580,7 +564,7 @@ namespace OSFUI
 				REX::WARN("Runtime: plugin RegisterView('{}') ignored — no views/{}/manifest.json was discovered at boot (ids are qualified '<author>.<modname>/<view>'; is the view folder installed?)", id, id);
 				continue;
 			}
-			// The bridge + web-message handler are wired at Initialize only; they
+			// The bridge + web-message handler are wired at Initialize only and
 			// can't be brought up mid-session. Every shipped built-in view is
 			// bridge-enabled, so this only fires on a hand-stripped config.
 			if (m->permissions.nativeBridge && !_bridge) {
@@ -591,9 +575,8 @@ namespace OSFUI
 			_viewLoadState[id] = ViewLoadState::Loading;
 			_renderer->LoadView(*m);
 			// A fresh view starts at manifest dimensions; restore the
-			// output-matched size so it composites 1:1 (the crash-recovery /
-			// dev-reload pair). Before the first present the size is unknown —
-			// the normal output-resize path will cover it.
+			// output-matched size so it composites 1:1. Before the first present
+			// the size is unknown — the normal output-resize path covers it.
 			if (const auto w = _viewWidth.load(), h = _viewHeight.load(); w && h) {
 				_renderer->Resize(w, h);
 			}
@@ -619,7 +602,8 @@ namespace OSFUI
 		if (!_renderer) {
 			return;
 		}
-		// Per-surface hidden + composite z, both derived from the framework band order (HUDs beneath menus; HUDs by `order`, menus by open-stack position).
+		// Per-surface hidden + composite z, derived from the band order: HUDs
+		// beneath menus; HUDs by `order`, menus by open-stack position.
 		for (const auto& layer : _menus.DesiredLayers()) {
 			_renderer->SetViewHidden(layer.id, layer.hidden);
 			_renderer->SetViewOrder(layer.id, layer.z);
@@ -629,11 +613,13 @@ namespace OSFUI
 		if (active) {
 			_renderer->SetActiveView(*active);
 		}
-		// Capture is the top menu's policy (false for HUD-only => the game keeps input).
-		// This is the runtime writer of _captureInput that IsInputCaptured() reads; OnHost* handlers are unchanged.
+		// Capture is the top menu's policy (false for HUD-only => the game keeps
+		// input). The runtime writer of _captureInput; the boot-time default is
+		// stored from config during Initialize.
 		_captureInput.store(_menus.DesiredCapture());
 
-		// Visibility side-effects are owned here rather than routed through a change-guarded helper (which would drop the compositor push on the no-change startup path).
+		// Visibility side-effects live here rather than behind a change guard,
+		// which would drop the compositor push on the no-change startup path.
 		const bool visible = _menus.DesiredVisible();
 		const bool wasVisible = _visible.exchange(visible);
 		// WebView2's keyboard model is real Win32 focus. Its worker moves focus
@@ -642,11 +628,11 @@ namespace OSFUI
 		_renderer->SetNativeKeyboardFocus(visible && _captureInput.load());
 		if (_compositor) {
 			if (visible && !wasVisible) {
-				// Closed->open edge: DEFER the reveal. The compositor redraws
+				// Closed->open edge: defer the reveal. The compositor redraws
 				// its last cached texture every present while visible, so
 				// showing it now would flash stale pre-open content for the
 				// frames it takes the renderer to deliver queued messages and
-				// hand over a post-open frame (see _revealPending).
+				// hand over a post-open frame.
 				_revealPending = true;
 				_revealFrameReady = false;
 			} else {
@@ -660,16 +646,16 @@ namespace OSFUI
 			}
 		}
 
-		// Open->closed edge: the user just finished editing — flush the
-		// settings write-behind now instead of letting the window run out
-		// (mcm-design.md §8.1: "flushed on menu close and shutdown"; shutdown
-		// is ~SettingsStore).
+		// Open->closed edge: flush the settings write-behind instead of waiting
+		// out the window (mcm-design.md §8.1; the shutdown flush is
+		// ~SettingsStore).
 		if (!visible && wasVisible && _settings) {
 			_settings->Store().FlushPersistence();
 		}
 
-		// Recenter the virtual cursor on the closed->open edge; otherwise keep its position.
-		// Either way, (re)place it in the active menu so a freshly focused  view shows the cursor at the right spot rather than at its stale origin.
+		// Recenter the virtual cursor on the closed->open edge, else keep its
+		// position; either way (re)place it in the active menu so a freshly
+		// focused view shows it at the right spot, not its stale origin.
 		if (visible) {
 			if (!wasVisible) {
 				_cursorX = _viewWidth.load() * 0.5f;
@@ -679,24 +665,28 @@ namespace OSFUI
 				_renderer->InjectMouseMove(static_cast<int>(_cursorX), static_cast<int>(_cursorY));
 			}
 		}
-		// ui.visibility keys off the SHOWN view (the focused menu of a visible overlay)
-		// CHANGING — not off the overlay's open/close edge. A menu.open view switch while
-		// the overlay stays up (Control Deck hub -> panel) is a real show for the new view
-		// and a real hide for the old one: the OSF scene browser arms its whole session
-		// off this signal (drag-orbit routing, UI-cursor mode, open-time crosshair
-		// capture, close-time scene stops), so an edge-only send left hub-opened views
-		// permanently "closed". The hide can't render a fade-out (on the overlay-close
-		// path the compositor already hid this frame), but the view's JS keeps running
-		// while hidden and consumers need the edge. By overlay close ActiveMenu() is
-		// already empty, hence the tracked name. _bridge may be null very early.
+		// ui.visibility keys off the shown view (the focused menu of a visible
+		// overlay) changing, not off the overlay's open/close edge: a view switch
+		// while the overlay stays up (hub -> panel) is a real show for the new view
+		// and a real hide for the old one. Consumers arm whole sessions off this
+		// signal, so an edge-only send left hub-opened views permanently "closed".
+		// The hide can't render a fade-out (the compositor already hid this frame
+		// on the overlay-close path), but the view's JS keeps running while hidden.
+		// By overlay close ActiveMenu() is already empty, hence the tracked name.
 		if (_bridge) {
 			const std::string shown = (visible && active) ? *active : std::string();
 			if (shown != _lastShownView) {
+				// reason lets views scope per-overlay-visit state to real overlay
+				// edges while still seeing focus handoffs: "overlay" = the overlay
+				// opened/closed this tick, "focus" = only the focused menu changed.
+				const char* reason = (visible == wasVisible) ? "focus" : "overlay";
 				if (!_lastShownView.empty()) {
-					_bridge->SendToWeb(_lastShownView, "ui.visibility", nlohmann::json{ { "visible", false } });
+					_bridge->SendToWeb(_lastShownView, "ui.visibility",
+						nlohmann::json{ { "visible", false }, { "reason", reason } });
 				}
 				if (!shown.empty()) {
-					_bridge->SendToWeb(shown, "ui.visibility", nlohmann::json{ { "visible", true } });
+					_bridge->SendToWeb(shown, "ui.visibility",
+						nlohmann::json{ { "visible", true }, { "reason", reason } });
 				}
 				_lastShownView = shown;
 			}
@@ -705,8 +695,6 @@ namespace OSFUI
 			REX::INFO("Runtime: overlay visibility -> {} (capture={})", visible, _captureInput.load());
 		}
 
-		// Push the surface catalog to catalog subscribers (deduped: no-op when
-		// nothing in the catalog actually changed).
 		BroadcastViewsData();
 	}
 
@@ -717,8 +705,7 @@ namespace OSFUI
 
 	bool Runtime::SetViewHidden(std::string_view a_id, bool a_hidden)
 	{
-		// Only views that were actually loaded can be addressed. The renderer
-		// would silently no-op an unknown id, so reject here for a clear log.
+		// The renderer would silently no-op an unknown id; reject for a clear log.
 		const auto& loaded = _config.views;
 		const bool known = std::ranges::find(loaded, a_id) != loaded.end() ||
 			(loaded.empty() && a_id == _config.view);
@@ -738,14 +725,13 @@ namespace OSFUI
 	{
 		const std::string id(a_viewId);
 		_viewLoadState[id] = a_failed ? ViewLoadState::Failed : ViewLoadState::Finished;
-		// A (re)loaded page starts un-granted: the gamepad raw / back-owner
-		// flags are sticky for the PAGE's lifetime (item 10), and this is a new
-		// page — it re-asserts in its own boot code if it still wants them.
+		// The gamepad-raw / back-owner grants are sticky for a page's lifetime, so
+		// a (re)loaded page starts un-granted and re-asserts in its own boot code.
 		_gamepadRawViews.erase(id);
 		_backOwnerViews.erase(id);
 		if (!a_failed) {
-			// A healthy load clears the view's strikes, so a much later failure
-			// gets the full retry budget again.
+			// A healthy load clears the strikes, so a later failure gets the full
+			// retry budget again.
 			if (_recovery.erase(id) > 0) {
 				REX::INFO("Runtime: view '{}' recovered ({})", a_viewId, a_url);
 			} else {
@@ -758,10 +744,10 @@ namespace OSFUI
 		REX::ERROR("Runtime: view '{}' FAILED to load ({}): {} [{}]",
 			a_viewId, a_url, a_description, a_errorCode);
 
-		// URL crash-recovery: schedule a bounded reload with backoff. attempts
-		// counts reloads already fired; the budget exhausted means the content
-		// is genuinely broken — tear the view down and unregister its surface so
-		// F10/menu.open cannot re-open an invisible, input-capturing shell.
+		// Crash-recovery: schedule a bounded reload with backoff. attempts counts
+		// reloads already fired; an exhausted budget means the content is broken,
+		// so tear the view down and unregister its surface — otherwise the toggle
+		// key / menu.open can re-open an invisible, input-capturing shell.
 		constexpr std::uint32_t kMaxAttempts = 3;
 		constexpr double        kBackoffSec[kMaxAttempts] = { 2.0, 5.0, 15.0 };
 		auto& rec = _recovery[id];
@@ -778,10 +764,10 @@ namespace OSFUI
 			}
 			_viewsSubscribers.erase(id);  // a destroyed view can't receive pushes
 			_i18nSubscribers.erase(id);
-			_gamepadRawViews.erase(id);   // its sticky gamepad grant dies with it (item 10)
+			_gamepadRawViews.erase(id);   // its sticky gamepad grant dies with it
 			_backOwnerViews.erase(id);    // ditto the back-owner grant
 			for (const auto& mod : _modules) {
-				mod->OnViewDestroyed(id);  // module-held subscriber sets too (e.g. settings)
+				mod->OnViewDestroyed(id);  // module-held subscriber sets too
 			}
 			BroadcastViewsData();  // it also drops out of the catalog
 			return;
@@ -821,9 +807,8 @@ namespace OSFUI
 		if (!_devReloadRequested.exchange(false) || !_renderer) {
 			return;
 		}
-		// The top open menu is what the author is looking at. HUD-only setups
-		// have no reload target here — dev iteration on HUDs goes through the
-		// browser harness (mcm-design.md §12.2).
+		// HUD-only setups have no reload target: dev iteration on HUDs goes
+		// through the browser harness (mcm-design.md §12.2).
 		const auto active = _menus.ActiveMenu();
 		if (!active) {
 			REX::INFO("Runtime: dev reload — no open menu to reload");
@@ -835,8 +820,7 @@ namespace OSFUI
 		}
 		REX::INFO("Runtime: dev-reloading view '{}' (devReloadKey)", *active);
 		// Same pair as crash-recovery: fresh URL load, then restore the
-		// output-matched size so it composites 1:1 again. A load-state event
-		// follows from the renderer (OnViewLoad), same as any load.
+		// output-matched size so it composites 1:1 again.
 		_viewLoadState[*active] = ViewLoadState::Loading;
 		BroadcastViewsData();
 		_renderer->LoadView(*manifest);
@@ -848,9 +832,8 @@ namespace OSFUI
 		nlohmann::json views = nlohmann::json::array();
 		const auto     active = _menus.ActiveMenu();
 		for (const auto& m : _views.All()) {
-			// Discovered-but-not-loaded manifests (not in config.views) and views
-			// torn down by crash-recovery are not registered — not part of the
-			// catalog: menu.open on them would fail anyway.
+			// Discovered-but-not-loaded manifests and views torn down by
+			// crash-recovery aren't registered: menu.open on them would fail.
 			if (!_menus.IsRegistered(m.id)) {
 				continue;
 			}
@@ -911,11 +894,11 @@ namespace OSFUI
 
 	bool Runtime::OnHostKey(std::uint32_t a_vkCode, bool a_down)
 	{
-		// Key-rebind capture (armed by the settings.captureKey command). Grab the
-		// next key press for the rebind and CONSUME it, so pressing the current
-		// toggle key (or Esc) rebinds instead of closing the overlay. The actual
-		// apply happens on the main thread (DrainKeyCapture) — here we only stash
-		// the VK. The matching key-up is swallowed too so it can't leak/route.
+		// Key-rebind capture (armed by settings.captureKey). Grab the next key
+		// press and consume it, so pressing the current toggle key (or Esc)
+		// rebinds instead of closing the overlay. Only stash the VK here; the
+		// apply happens on the main thread in DrainKeyCapture. The matching key-up
+		// is swallowed too so it can't leak/route.
 		if (_captureArmed.load()) {
 			if (a_down) {
 				_capturedVk.store(a_vkCode);
@@ -930,12 +913,12 @@ namespace OSFUI
 			return true;
 		}
 
-		// Dev view-reload key (mcm-design.md §12.1; _devReloadKey only resolves
-		// in devMode). Window thread: just raise the flag — the reload runs
-		// from Tick (DriveDevReload; renderer calls are main-thread). Consumed
-		// on both edges like the toggle key, and BEFORE hotkey dispatch so a
-		// mod binding the same key doesn't also fire. Capture (above) still
-		// wins: mid-rebind this key is a binding like any other.
+		// Dev view-reload key (mcm-design.md §12.1; _devReloadKey only resolves in
+		// devMode). Window thread: only raise the flag — the reload runs from Tick
+		// (DriveDevReload; renderer calls are main-thread). Consumed on both edges
+		// like the toggle key, and before hotkey dispatch so a mod binding the same
+		// key doesn't also fire. Capture (above) still wins: mid-rebind this key is
+		// a binding like any other.
 		if (_devReloadKey != kInvalidKeyCode && a_vkCode == _devReloadKey) {
 			if (a_down) {
 				_devReloadRequested.store(true);
@@ -943,19 +926,19 @@ namespace OSFUI
 			return true;
 		}
 
-		// Hotkey dispatch (mcm-design.md §9): a key-DOWN edge may fire mods'
+		// Hotkey dispatch (mcm-design.md §9): a key-down edge may fire mods'
 		// key-typed bindings. The service self-suppresses while the overlay
-		// captures input or a rebind is armed (the armed path above returned
-		// already — belt and braces); fires queue here on the window thread
-		// and deliver from Tick (DrainHotkeys). Never consumes: the game (and
-		// the toggle/router path below) still sees the key.
+		// captures input or a rebind is armed (belt and braces — the armed path
+		// above already returned); fires queue here on the window thread and
+		// deliver from Tick (DrainHotkeys). Does not consume: the game (and the
+		// toggle/router path below) still sees the key.
 		if (a_down) {
 			_hotkeys.OnKeyDown(a_vkCode);
 		}
 
-		// Decide consumption before routing: capturing OR the toggle key must
-		// not reach the game. (The toggle press itself is captured so opening
-		// the overlay never also acts in-game.)
+		// Decide consumption before routing: capturing or the toggle key must not
+		// reach the game (the toggle press itself is consumed so opening the
+		// overlay never also acts in-game).
 		const bool consume = IsInputCaptured() || a_vkCode == _toggleKey;
 		if (a_down) {
 			_input.OnKeyDown(a_vkCode);
@@ -981,8 +964,7 @@ namespace OSFUI
 		if (!IsInputCaptured() || !_renderer) {
 			return;
 		}
-		// Pure text entry — no toggle/focus logic, so route straight to the
-		// active view (the VK stream handles toggle/focus via OnHostKey).
+		// Pure text entry; the VK stream handles toggle/focus via OnHostKey.
 		_renderer->InjectCharEvent(a_codepoint);
 	}
 
@@ -991,10 +973,10 @@ namespace OSFUI
 		if (!IsInputCaptured() || !_renderer || a_clientW <= 0 || a_clientH <= 0) {
 			return;
 		}
-		// The OS pointer moves in window-client space; the view is the same
-		// aspect but height-capped (OnOutputResized), so scale through the
-		// client size. Uniform scale => the pointer and the page's hit-testing
-		// stay aligned at every resolution.
+		// The OS pointer moves in window-client space; the view is the same aspect
+		// but height-capped (OnOutputResized), so scale through the client size.
+		// Uniform scale keeps the pointer and the page's hit-testing aligned at
+		// every resolution.
 		const auto viewW = static_cast<float>(_viewWidth.load(std::memory_order_relaxed));
 		const auto viewH = static_cast<float>(_viewHeight.load(std::memory_order_relaxed));
 		_cursorX = std::clamp(static_cast<float>(a_clientX) * viewW / static_cast<float>(a_clientW), 0.0f, viewW - 1.0f);
@@ -1007,9 +989,8 @@ namespace OSFUI
 		if (!IsInputCaptured() || !_renderer) {
 			return;
 		}
-		// Scale raw deltas so the cursor crosses the view in a screen-size-
-		// independent amount of physical mouse travel (the view tracks the
-		// screen now, so a fixed 1:1 mapping would feel slow on big views).
+		// Scale raw deltas so a view sweep costs the same physical travel at any
+		// resolution; the view tracks the screen, so 1:1 would feel slow when big.
 		const auto scale = _cursorScale.load(std::memory_order_relaxed);
 		const auto maxX = static_cast<float>(_viewWidth.load(std::memory_order_relaxed) - 1);
 		const auto maxY = static_cast<float>(_viewHeight.load(std::memory_order_relaxed) - 1);
@@ -1038,11 +1019,11 @@ namespace OSFUI
 
 	void Runtime::ReconcileFocusMenu()
 	{
-		// Runs on the game main thread (Tick). Drive the engine menu's open state
-		// toward the top menu's CAPTURE policy. Pause is deliberately NOT wired
-		// through this menu's flags (the real pause flag, bit 1, would tie pause
-		// to capture instead of the per-view pausesGame policy) — the sim pause
-		// is ReconcileSimPause. Only act on a change — no per-frame queue spam.
+		// Game main thread (Tick). Drive the engine menu's open state toward the
+		// top menu's capture policy. Pause is not wired through this menu's flags
+		// (the real pause flag, bit 1, would tie pause to capture instead of the
+		// per-view pausesGame policy) — sim pause is ReconcileSimPause. Act only
+		// on a change, to avoid per-frame queue spam.
 		const bool wantOpen = _menus.DesiredCapture();
 		if (wantOpen != _focusMenuOpen) {
 			_focusMenuOpen = wantOpen;
@@ -1053,25 +1034,22 @@ namespace OSFUI
 				FocusMenu::Close();
 				// One observer summary per overlay session (no-op unless engineInput).
 				EngineInput::LogSessionSummary();
-				// NOTE: gamepad raw-passthrough is deliberately NOT reset here
-				// (api-freeze-plan item 10): it is a sticky PER-VIEW property
-				// (_gamepadRawViews) that survives overlay hide/show — another
-				// menu opening can't inherit it, because DrainEngineInput reads
-				// the ACTIVE view's flag each tick.
+				// Gamepad raw-passthrough is not reset here: it is a sticky
+				// per-view property (_gamepadRawViews) that survives overlay
+				// hide/show. Another menu opening can't inherit it, because
+				// DrainEngineInput reads the active view's flag each tick.
 			}
 			return;
 		}
 
-		// Watchdog: the request above is a fire-and-forget UI-queue message; the
-		// engine's admitted state must converge on it. A dropped kHide would
-		// leave the engine in menu mode with the overlay gone — every control
-		// (Esc included) dead until the process is killed (bug report
-		// 2026-07-20, "controls unresponsive after closing the Mods menu"). A
+		// Watchdog: the request above is a fire-and-forget UI-queue message, so the
+		// engine's admitted state must be checked to converge. A dropped kHide
+		// leaves the engine in menu mode with the overlay gone — every control (Esc
+		// included) dead until the process is killed (bug report 2026-07-20). A
 		// dropped kShow is the milder mirror (game input under a capturing
-		// overlay). The grace window covers normal queue latency (the pump runs
-		// within a frame or two) and transition churn: a load-screen stack
-		// clear is followed by MenuEventSink's CloseAll within a tick, which
-		// re-enters the branch above before this fires.
+		// overlay). The grace window covers queue latency (a frame or two) and
+		// transition churn: a load-screen stack clear is followed by
+		// MenuEventSink's CloseAll within a tick, re-entering the branch above.
 		if (!FocusMenu::IsRegistered()) {
 			return;
 		}
@@ -1101,7 +1079,7 @@ namespace OSFUI
 
 	void Runtime::ReconcileSimPause()
 	{
-		// Main thread (Tick), unconditional — the sim pause needs no engine menu
+		// Main thread (Tick), unconditional: the sim pause needs no engine menu
 		// (UI::ModifyMenuPauseCounter; see input/SimPause), so it is not gated on
 		// config.focusMenu. Driven by the top menu's manifest pausesGame (default
 		// true for menus). Edge-triggered inside Apply.
@@ -1115,28 +1093,26 @@ namespace OSFUI
 		}
 		const bool captured = IsInputCaptured();
 		const auto active = _menus.ActiveMenu();
-		// Raw mode is the ACTIVE view's sticky flag (item 10) — per view, so
-		// menu switches can't leak one page's grant to another. The EngineInput
-		// global just mirrors it (keeps the mode-flip log in one place).
+		// Raw mode is the active view's sticky flag — per view, so menu switches
+		// can't leak one page's grant to another. The EngineInput global mirrors
+		// it, keeping the mode-flip log in one place.
 		const bool raw = active && _gamepadRawViews.contains(*active);
 		EngineInput::SetRawMode(raw);
 
-		// Discrete down+up tap: robust against a missed release (no stuck key).
+		// Discrete down+up tap: a missed release can't leave a stuck key.
 		const auto tap = [this](std::uint32_t a_vk) {
 			_renderer->InjectKeyEvent(a_vk, true);
 			_renderer->InjectKeyEvent(a_vk, false);
 		};
 
-		// ---- button edges (queued by the worker-thread thunks) ----
+		// Button edges, queued by the worker-thread thunks.
 		EngineInput::GamepadButtonEdge e;
 		while (EngineInput::PollGamepadButton(e)) {
 			if (!captured) {
 				continue;  // drain-and-discard while not capturing
 			}
-			// Raw event for every edge — a page may own gamepad handling.
-			// Per-kind nesting (api-freeze-plan item 11): extensions add fields
-			// inside `button` (or a `pad` index for a second controller) without
-			// colliding at the payload root.
+			// Raw event for every edge — a page may own gamepad handling. Per-kind
+			// nesting keeps extensions (e.g. a `pad` index) off the payload root.
 			if (_bridge && active) {
 				_bridge->SendToWeb(*active, "ui.gamepad",
 					nlohmann::json{ { "kind", "button" },
@@ -1165,12 +1141,11 @@ namespace OSFUI
 			return;
 		}
 
-		// ---- sticks (latest deflection) ----
 		const auto            s = EngineInput::GetSticks();
 		constexpr float       kDeadzone = 0.25f;
 
-		// Raw stick events, throttled to meaningful change (so a page can drive
-		// e.g. camera orbit off the raw values).
+		// Raw stick events, throttled to meaningful change, so a page can drive
+		// e.g. camera orbit off the raw values.
 		if (_bridge && active) {
 			const float cur[4] = { s.lx, s.ly, s.rx, s.ry };
 			bool        changed = false;
@@ -1213,9 +1188,8 @@ namespace OSFUI
 			}
 		}
 
-		// Right stick Y -> scroll. Accumulate fractional notches for smooth,
-		// framerate-independent scrolling; +y (stick up) = positive wheel delta
-		// = scroll up (sign is easy to flip if it feels inverted in-game).
+		// Right stick Y -> scroll. Fractional notches accumulate for
+		// framerate-independent scrolling; +y (stick up) = wheel up.
 		if (std::fabs(s.ry) > kDeadzone) {
 			constexpr float kScrollNotchesPerSec = 8.0f;
 			_padScrollAccum += s.ry * kScrollNotchesPerSec * static_cast<float>(a_deltaSeconds);
@@ -1230,9 +1204,12 @@ namespace OSFUI
 
 	void Runtime::ReconcileControlLayer()
 	{
-		// Main-thread (Tick). Drive the input-enable layer toward the top menu's CAPTURE policy; this is the ONLY gate that stops gamepad/XInput,
-		// so it must track capture (not pause), or a gamepad drives the game underneath a capturing menu.
-		// A live HUD (no capture) leaves controls enabled. Engage() may no-op until gameplay (manager not ready at the main menu); IsEngaged() stays false then, so we simply retry next tick.
+		// Main thread (Tick). Drive the input-enable layer toward the top menu's
+		// capture policy. This is the only gate that stops gamepad/XInput, so it
+		// must track capture (not pause), or a gamepad drives the game underneath
+		// a capturing menu. A live HUD (no capture) leaves controls enabled.
+		// Engage() may no-op until gameplay (manager not ready at the main menu);
+		// IsEngaged() stays false then, so we retry next tick.
 		const bool wantEngaged = _menus.DesiredCapture();
 		if (wantEngaged == ControlLayer::IsEngaged()) {
 			return;
@@ -1247,12 +1224,10 @@ namespace OSFUI
 	void Runtime::BuildModules()
 	{
 		// Settings: schemas ship read-only under <data>/settings/*.json; values
-		// persist per-mod under <data>/settings/values — deliberately IN the
-		// Data tree, not Documents: under MO2 the write is VFS-captured
-		// (Overwrite), so settings are per-profile, travel with instance
-		// backups, and sit next to the mod (the MCM-Helper precedent; see
-		// mcm-design.md §8.1). The change listener is how core reacts to
-		// settings it owns; the module itself is feature-agnostic.
+		// persist per-mod under <data>/settings/values — in the Data tree, not
+		// Documents, because under MO2 the write is VFS-captured (Overwrite), so
+		// settings are per-profile, travel with instance backups, and sit next to
+		// the mod (MCM-Helper precedent; mcm-design.md §8.1).
 		const auto schemaDir = Paths::DataDir() / "settings";
 		const auto valuesDir = schemaDir / "values";
 		auto settings = std::make_unique<SettingsModule>(schemaDir, valuesDir,
@@ -1267,19 +1242,19 @@ namespace OSFUI
 		// ABI feed (mcm-design.md §8.2): every committed value — including the
 		// OnStart NotifyAll replay below and the per-mod replay after an
 		// incremental RegisterSchema — lands in the any-thread mirror the C ABI
-		// typed getters read, then queues for SubscribeSettings consumers
-		// (drained on the main thread by BridgeApi::PumpMainThread). Mirror
-		// FIRST: a subscribe replay snapshots the mirror, so it must never lag
-		// the queued event. Registry shape changes rebuild the mirror from the
-		// store document so a removed mod's values stop resolving.
+		// typed getters read, then queues for SubscribeSettings consumers (drained
+		// on the main thread by BridgeApi::PumpMainThread). Mirror first: a
+		// subscribe replay snapshots the mirror, so it must never lag the queued
+		// event. Registry shape changes rebuild the mirror from the store document
+		// so a removed mod's values stop resolving.
 		auto& store = _settings->Store();
 		store.AddChangeListener([](std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value) {
 			auto& api = API::BridgeApi::Get();
 			api.Mirror().Update(a_mod, a_key, a_value);
 			api.Subscriptions().OnChanged(a_mod, a_key, a_value);
-			// Papyrus change callbacks (mcm-design.md §8.4). AFTER the mirror
-			// update: the dispatched script call reads current values through
-			// the mirror-backed getters, so the mirror must never lag it.
+			// Papyrus change callbacks (mcm-design.md §8.4), after the mirror
+			// update: the dispatched script call reads current values through the
+			// mirror-backed getters, so the mirror must never lag it.
 			API::Papyrus::OnSettingChanged(a_mod, a_key);
 		});
 		store.AddRegistryListener([this] {
@@ -1288,20 +1263,18 @@ namespace OSFUI
 			}
 		});
 
-		// HotkeyService (mcm-design.md §9): every key-typed setting is a live,
-		// dispatchable binding. The registry rebuilds on any key-typed commit
-		// (a rebind through ANY writer — web, ABI, reset) and on registry
-		// shape change; the store's informational conflict grouping shares the
-		// same key-name resolution so the store itself stays input-agnostic.
-		// Suppression reads the SAME capture state OnHostKey consults, so a
-		// press while the user types in a settings field or mid-rebind can
-		// never fire a hotkey.
+		// HotkeyService (mcm-design.md §9): every key-typed setting is a live
+		// binding. The registry rebuilds on any key-typed commit (web, ABI or
+		// reset) and on registry shape change; the store's conflict grouping shares
+		// this key-name resolution, so the store stays input-agnostic. Suppression
+		// reads the same capture state OnHostKey consults, so a press while the
+		// user types in a settings field or mid-rebind cannot fire a hotkey.
 		store.SetKeyNameResolver(ResolveKeyName);
 
-		// Vanilla hotkeys (mcm-design.md §9): NOT loaded here — the
-		// osfui.vanillaKeyConflicts setting is MCM-owned (item 7), so the
-		// OnStart NotifyAll replay drives ApplyVanillaKeyConflicts with the
-		// persisted value (default on → loads then; off → never pays the parse).
+		// Vanilla hotkeys (mcm-design.md §9) are not loaded here: the
+		// osfui.vanillaKeyConflicts setting is MCM-owned, so the OnStart NotifyAll
+		// replay drives ApplyVanillaKeyConflicts with the persisted value (default
+		// on → loads then; off → never pays the parse).
 
 		_hotkeys.SetSuppression([this] { return IsInputCaptured() || _captureArmed.load(); });
 		store.AddChangeListener([this](std::string_view a_mod, std::string_view a_key, const nlohmann::json&) {
@@ -1335,24 +1308,23 @@ namespace OSFUI
 		const std::string name = (vk == kVkEscape) ? std::string{} : KeyName(vk);
 		const bool cancelled = name.empty();
 		// Tell the view which setting + the captured name; it echoes back a normal
-		// settings.set (so the store persists + OnSettingChanged re-resolves).
+		// settings.set, so the store persists and OnSettingChanged re-resolves.
 		nlohmann::json payload{
 			{ "mod", _captureMod },
 			{ "key", _captureKey },
 			{ "name", name },
 			{ "cancelled", cancelled },
 		};
-		// Live-warn during capture (mcm-design.md §9): which OTHER key-typed
-		// settings already sit on the captured key, so the rebind UI warns
-		// BEFORE the view commits. The store still holds the OLD binding for
-		// this setting (the commit is the view's echo), so exclude self.
-		// Informational, never blocking — same contract as Data()'s badges.
+		// Live-warn during capture (mcm-design.md §9): which other key-typed
+		// settings already sit on this key, so the UI warns before the view
+		// commits. The store still holds this setting's old binding (the commit is
+		// the view's echo), so exclude self. Informational, never blocking.
 		if (!cancelled && _settings) {
 			if (auto conflicts = _settings->Store().ConflictsFor(vk, _captureMod, _captureKey); !conflicts.empty()) {
 				payload["conflicts"] = std::move(conflicts);
 			}
 		}
-		// Deferred reply (item 5): echo the arming request's id so the view's
+		// Deferred reply: echo the arming request's id so the view's
 		// osfui.request("settings.captureKey", ...) promise settles with this.
 		_bridge->SendToWeb(_captureView, "settings.captured", payload, _captureRequestId);
 		REX::INFO("Runtime: key capture -> {} (VK {:#04x}) ({}.{})",
@@ -1365,33 +1337,31 @@ namespace OSFUI
 
 	void Runtime::DrainHotkeys()
 	{
-		// Gameplay gate (mcm-design.md §9): hotkeys are gameplay bindings — a
-		// press while a game menu is up (PauseMenu, inventory, dialogue, main
-		// menu, ...) must not fire. Checked here at delivery, on the game
-		// thread, via the engine's own menu-mode discriminator (MenuMode.h);
-		// evaluated lazily so idle ticks never touch RE::UI. Gated presses are
-		// DROPPED, not deferred — replaying them on menu close would be worse.
+		// Gameplay gate (mcm-design.md §9): a press while a game menu is up
+		// (PauseMenu, inventory, dialogue, main menu, ...) must not fire. Checked
+		// at delivery on the game thread via the engine's menu-mode discriminator
+		// (MenuMode.h), lazily so idle ticks never touch RE::UI. Gated presses are
+		// dropped, not deferred — replaying them on menu close would be worse.
 		std::optional<bool> inGameMenu;
 		_hotkeys.Drain([this, &inGameMenu](const std::string& a_mod, const std::string& a_key) {
 			if (!inGameMenu) {
 				inGameMenu = MenuMode::AnyGameMenuOpen();
 			}
 			if (*inGameMenu) {
-				// INFO on purpose: rare (a bound key inside a menu/console), and
-				// the decisive triage line for "my hotkey (didn't) fire" reports.
+				// INFO on purpose: rare (a bound key inside a menu/console), and the
+				// decisive triage line for "my hotkey (didn't) fire" reports.
 				REX::INFO("Runtime: hotkey {}.{} dropped (game menu open)", a_mod, a_key);
 				return;
 			}
-			// All delivery channels (mcm-design.md §9): C ABI subscribers
-			// (queued here, invoked unlocked by BridgeApi::PumpMainThread
-			// later this tick) and the web `ui.hotkey` push to settings
-			// subscribers.
+			// Delivery channels (mcm-design.md §9): C ABI subscribers (queued
+			// here, invoked unlocked by BridgeApi::PumpMainThread later this
+			// tick) and the web `ui.hotkey` push to settings subscribers.
 			API::BridgeApi::Get().Hotkeys().OnFired(a_mod, a_key);
 			if (_settings) {
 				_settings->PushHotkey(a_mod, a_key);
 			}
-			// Third delivery channel (mcm-design.md §8.4): registered Papyrus
-			// callbacks, queued onto the VM's async call stack.
+			// Third channel (mcm-design.md §8.4): registered Papyrus callbacks,
+			// queued onto the VM's async call stack.
 			API::Papyrus::OnHotkey(a_mod, a_key);
 			REX::INFO("Runtime: hotkey fired for {}.{}", a_mod, a_key);
 		});
@@ -1402,7 +1372,8 @@ namespace OSFUI
 		// The platform owns only window/diagnostic commands. Features register
 		// their own; there is no generic "call native" escape hatch.
 		a_bridge.RegisterCommand("close", [this](const nlohmann::json&, MessageBridge& a_b) {
-			// Dismiss the calling surface. Closing the last open menu empties the stack, so the overlay hides; same effect as the old global close, but a coexisting live HUD (if any) stays up by design.
+			// Dismiss the calling surface. Closing the last open menu empties the
+			// stack, so the overlay hides; a coexisting live HUD stays up.
 			if (_menus.Close(a_b.CurrentSource())) {
 				ApplyMenuPolicy();
 			}
@@ -1414,7 +1385,9 @@ namespace OSFUI
 				ApplyMenuPolicy();
 			}
 		});
-		// Open/close a surface by id (defaults to the calling view). menu.* and hud.* are aliases — a surface's kind is fixed by its manifest, not the command used.
+		// Open/close a surface by id (defaults to the calling view). menu.* and
+		// hud.* are aliases: a surface's kind is fixed by its manifest, not by the
+		// command used.
 		const auto surfaceOpen = [this](const nlohmann::json& a_p, MessageBridge& a_b) {
 			std::string id = Json::GetString(a_p, "view", "");
 			if (id.empty()) {
@@ -1455,19 +1428,18 @@ namespace OSFUI
 				a_b.SendResult(false, "unknown-view", "not a loaded view");
 			}
 		});
-		// Catalog of loaded surfaces (the Mods surface's read, bridge 0.2).
-		// Replies with `views.data` and SUBSCRIBES the caller: any later open/
-		// close/focus/load-state change re-sends the catalog (see
-		// BroadcastViewsData), so the catalog reflects state without polling.
+		// Catalog of loaded surfaces (bridge 0.2). Replies with `views.data` and
+		// subscribes the caller: any later open/close/focus/load-state change
+		// re-sends the catalog, so it stays current without polling.
 		a_bridge.RegisterCommand("views.get", [this](const nlohmann::json&, MessageBridge& a_b) {
 			const auto payload = BuildViewsData();
 			_viewsSubscribers.insert(std::string(a_b.CurrentSource()));
 			_lastViewsData = payload.dump();
 			a_b.SendToWeb("views.data", payload);
 		});
-		// A custom view supplies inline English to osfui.t(address, english);
-		// this returns only active-locale overrides for its mod domain. The
-		// caller subscribes so a live language change replaces the catalog.
+		// A custom view supplies inline English to osfui.t(address, english); this
+		// returns only active-locale overrides for its mod domain. The caller
+		// subscribes so a live language change replaces the catalog.
 		a_bridge.RegisterCommand("i18n.get", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
 			const std::string source(a_b.CurrentSource());
 			const auto slash = source.find('/');
@@ -1483,17 +1455,16 @@ namespace OSFUI
 				{ "strings", _localization.CatalogFor(mod) },
 			});
 		});
-		// Arm key-rebind capture: the NEXT key press is grabbed by OnHostKey and
-		// reported back via `settings.captured`. Any setting a loaded schema
-		// declares `type:"key"` is rebindable — the schema fact gates the
-		// capture, not an allowlist. Runs on the main thread; OnHostKey (window
-		// thread) reads the armed flag.
+		// Arm key-rebind capture: the next key press is grabbed by OnHostKey and
+		// reported back via `settings.captured`. Any schema-declared `type:"key"`
+		// setting is rebindable — the schema gates the capture, not an allowlist.
+		// Main thread; OnHostKey (window thread) reads the armed flag.
 		a_bridge.RegisterCommand("settings.captureKey", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
 			const std::string mod = Json::GetString(a_p, "mod", "");
 			const std::string key = Json::GetString(a_p, "key", "");
-			// One capture at a time (api-freeze-plan item 11): a second arm
-			// while one is live is refused VISIBLY instead of silently
-			// clobbering the first view's pending capture.
+			// One capture at a time: a second arm while one is live is refused
+			// visibly rather than silently clobbering the first view's pending
+			// capture.
 			if (_captureArmed.load()) {
 				REX::WARN("Runtime: settings.captureKey rejected — a capture is already in progress ({}.{})",
 					_captureMod, _captureKey);
@@ -1512,20 +1483,19 @@ namespace OSFUI
 			_captureView = std::string(a_b.CurrentSource());
 			_captureMod = mod;
 			_captureKey = key;
-			// Correlation across the async gap (item 5): the eventual
-			// settings.captured echoes the arming request's id. DeferResult
-			// suppresses the auto ui.result — arming is not the outcome.
+			// Correlation across the async gap: the eventual settings.captured
+			// echoes the arming request's id. DeferResult suppresses the auto
+			// ui.result — arming is not the outcome.
 			_captureRequestId = std::string(a_b.CurrentRequestId());
 			a_b.DeferResult();
 			_captureArmed.store(true);
 			REX::INFO("Runtime: armed key capture for {}.{} (from view '{}')", mod, key, _captureView);
 		});
 		// Fire an action at the owning mod's Papyrus scripts
-		// (OSFUI.RegisterForViewActions). The mod id comes from the SOURCE view
-		// id — never the payload — so a view cannot fire actions into another
-		// mod's callbacks. Fire-and-forget by design (no reply payload; a
-		// requestId still gets the auto ui.result ack meaning "queued to the
-		// VM", not "handled").
+		// (OSFUI.RegisterForViewActions). The mod id comes from the source view id,
+		// never the payload, so a view cannot fire actions into another mod's
+		// callbacks. Fire-and-forget: no reply payload; a requestId still gets the
+		// auto ui.result ack, meaning "queued to the VM", not "handled".
 		a_bridge.RegisterCommand("ui.action", [](const nlohmann::json& a_p, MessageBridge& a_b) {
 			const std::string source(a_b.CurrentSource());
 			const auto        slash = source.find('/');
@@ -1546,13 +1516,11 @@ namespace OSFUI
 			a_b.SendToWeb("runtime.pong", nlohmann::json::object());
 		});
 		a_bridge.RegisterCommand("osfui.gamepadRaw", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
-			// A page that wants to own the gamepad (e.g. stick-driven camera
-			// orbit) sets this to suppress the default nav/scroll mapping; it
-			// then handles the raw `ui.gamepad` events itself. STICKY PER VIEW
-			// (item 10): the grant survives overlay hide/show and clears only
-			// when the page reloads or the view is destroyed — no more
-			// re-assert-on-every-show coupling. DrainEngineInput applies the
-			// ACTIVE view's flag each tick.
+			// A page that wants to own the gamepad (e.g. stick-driven camera orbit)
+			// sets this to suppress the default nav/scroll mapping and handle raw
+			// `ui.gamepad` events itself. Sticky per view: survives overlay
+			// hide/show, clears on page reload or view destroy. DrainEngineInput
+			// applies the active view's flag each tick.
 			const std::string src(a_b.CurrentSource());
 			if (src.empty()) {
 				a_b.SendResult(false, "unknown-view", "no source view");
@@ -1566,12 +1534,11 @@ namespace OSFUI
 		});
 		a_bridge.RegisterCommand("osfui.handleBack", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
 			// A page that owns back navigation (e.g. a sub-menu whose Esc should
-			// return to the Mods hub, not dismiss the overlay) sets this; while
-			// it is the ACTIVE menu, Esc / pad-B arrive as a synthetic Escape
+			// return to the hub, not dismiss the overlay) sets this; while it is
+			// the active menu, Esc / pad-B arrive as a synthetic Escape
 			// keydown/keyup instead of closing the top menu. Same lifecycle as
-			// osfui.gamepadRaw: sticky per view, cleared on page (re)load and
-			// view destroy — the page re-asserts in its boot code. The toggle
-			// key still closes natively, so this can never strand the user.
+			// osfui.gamepadRaw. The toggle key still closes natively, so this
+			// cannot strand the user.
 			const std::string src(a_b.CurrentSource());
 			if (src.empty()) {
 				a_b.SendResult(false, "unknown-view", "no source view");
@@ -1584,8 +1551,9 @@ namespace OSFUI
 			}
 		});
 
-		// First read-only game-data provider: the in-game calendar (date/time).
-		// Bridge handlers dispatch from Tick()/Update() on the game's Main thread, so reading game singletons here is safe.
+		// Read-only game data: the in-game calendar. Bridge handlers dispatch from
+		// Tick()/Update() on the game's main thread, so reading game singletons
+		// here is safe.
 		a_bridge.RegisterCommand("game.get", [](const nlohmann::json&, MessageBridge& a_b) {
 			nlohmann::json calendar = nlohmann::json::object();
 			if (const auto* cal = RE::Calendar::GetSingleton()) {
@@ -1604,18 +1572,15 @@ namespace OSFUI
 
 	void Runtime::OnSettingChanged(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value)
 	{
-		// The Phase 5b payoff: settings drive native behaviour live. Only the
-		// framework's own knobs (mod "osfui") are handled here; other mods'
-		// settings are theirs to react to. Fires on the MAIN thread (settings
-		// commands dispatch from Tick), and once per value at startup via the
-		// settings module's NotifyAll — so a persisted choice applies on boot.
+		// Only the framework's own knobs (mod "osfui"); other mods' settings are
+		// theirs to react to. Main thread (settings commands dispatch from Tick),
+		// plus once per value at startup via NotifyAll, so persisted choices apply
+		// on boot.
 		if (a_modId != "osfui") {
 			return;
 		}
-		// Toggle key rebind: re-resolve the name and re-apply it to the input
-		// router. Reject an unresolvable name (keep the working key) rather than
-		// disabling the toggle. Fires on the main thread (settings dispatch), so
-		// re-Configuring the router is as safe as the initial Configure.
+		// Toggle key rebind: re-resolve and re-apply to the input router. An
+		// unresolvable name keeps the working key rather than disabling the toggle.
 		if (a_key == "toggleKey" && a_value.is_string()) {
 			const auto name = a_value.get<std::string>();
 			const auto vk = ResolveKeyName(name);
@@ -1628,14 +1593,14 @@ namespace OSFUI
 			ApplyToggleKey();
 			REX::INFO("Runtime: setting osfui.toggleKey -> {} (VK {:#x})", name, vk);
 		}
-		// Pause-menu entry (item 7, MCM-owned). Live by construction: the
-		// Scaleform inject runs per pause-menu open (Tick gates Reconcile on
-		// this flag), so the change applies the next time the menu opens.
+		// Pause-menu entry (MCM-owned). The Scaleform inject runs per pause-menu
+		// open (Tick gates Reconcile on this flag), so the change applies the next
+		// time the menu opens.
 		else if (a_key == "pauseMenuEntry" && a_value.is_boolean()) {
 			_config.pauseMenuEntry = a_value.get<bool>();
 			REX::INFO("Runtime: setting osfui.pauseMenuEntry -> {} (applies the next time the pause menu opens)", _config.pauseMenuEntry);
 		}
-		// Vanilla key-conflict data (item 7, MCM-owned). Lazy build / clear.
+		// Vanilla key-conflict data (MCM-owned). Lazy build / clear.
 		else if (a_key == "vanillaKeyConflicts" && a_value.is_boolean()) {
 			_config.vanillaKeyConflicts = a_value.get<bool>();
 			ApplyVanillaKeyConflicts(_config.vanillaKeyConflicts);
@@ -1689,15 +1654,14 @@ namespace OSFUI
 			store.SetVanillaKeys({});
 			REX::INFO("Runtime: vanilla key-conflict data disabled");
 		} else {
-			// The game's own bindings join the informational conflict grouping
-			// as "@game" pseudo-entries (mcm-design.md §9, v1 — no engine RE).
-			// Defaults come from the curated shipped table (the engine bakes
-			// its defaults into the executable — no controlmap ships in the
-			// archives); the SAME controlmap text files the engine honors
-			// overlay it (a mod-provided Data override, then the user's in-game
-			// remaps); finally the user's additive OSF UI overlay
-			// (vanillakeys.user.json, item 7) — fixes survive updates while
-			// untouched rows keep receiving upstream corrections.
+			// The game's own bindings join the conflict grouping as "@game"
+			// pseudo-entries (mcm-design.md §9; no engine RE). Defaults come from
+			// the curated shipped table — the engine bakes its defaults into the
+			// executable and no controlmap ships in the archives. The controlmap
+			// text files the engine honors overlay it (mod-provided Data override,
+			// then the user's in-game remaps), then the user's additive
+			// vanillakeys.user.json: fixes survive updates while untouched rows
+			// keep upstream corrections.
 			VanillaKeys vanilla;
 			if (vanilla.LoadDefaults(Paths::DataDir() / "vanillakeys.json", ResolveKeyName)) {
 				const auto scanToVk = [](std::uint32_t a_sc) { return Platform::DirectInputScanToVk(a_sc); };
@@ -1713,8 +1677,8 @@ namespace OSFUI
 				std::vector<SettingsStore::VanillaKey> keys;
 				for (const auto& b : vanilla.Bindings()) {
 					if (b.vk != 0) {
-						// name AFTER the overlays: a rebound event displays
-						// its live key, not the curated default's spelling.
+						// Name resolved after the overlays: a rebound event
+						// displays its live key, not the curated default's.
 						const auto label = _localization.Resolve("osfui", "gameBindings." + b.event + ".label", b.label);
 						const auto owner = _localization.Resolve("osfui", "gameBindings.owner", "Starfield");
 						keys.push_back({ b.event, owner + " (" + label + ")", b.vk, KeyName(b.vk) });
@@ -1723,8 +1687,8 @@ namespace OSFUI
 				store.SetVanillaKeys(std::move(keys));
 			}
 		}
-		// The conflict annotations live inside the settings document —
-		// re-sync any open view (no-op with no subscribers, e.g. at boot).
+		// The conflict annotations live inside the settings document, so re-sync
+		// any open view (no-op with no subscribers, e.g. at boot).
 		_settings->BroadcastData();
 	}
 
@@ -1733,10 +1697,10 @@ namespace OSFUI
 		if (a_width == 0 || a_height == 0 || !_renderer) {
 			return;
 		}
-		// Match the view's aspect to the screen, capped to a sane UI height so
-		// CPU rasterization stays bounded on 4K+ (the page is responsive, so
-		// any size lays out correctly). Equal aspect => the compositor's
-		// fill-the-backbuffer draw is a uniform scale, i.e. no distortion.
+		// Match the view's aspect to the screen, height-capped so rasterization
+		// stays bounded on 4K+ (the page is responsive, so any size lays out).
+		// Equal aspect makes the compositor's fill-the-backbuffer draw a uniform
+		// scale, i.e. no distortion.
 		constexpr std::uint32_t kMaxViewHeight = 1440;
 		const auto viewHeight = (std::min)(a_height, kMaxViewHeight);
 		const auto viewWidth = static_cast<std::uint32_t>(
@@ -1748,8 +1712,8 @@ namespace OSFUI
 
 		_viewWidth.store(viewWidth);
 		_viewHeight.store(viewHeight);
-		// Keep cursor speed consistent across resolutions: ~1920 counts to
-		// sweep the view width, regardless of view size.
+		// Keep cursor speed consistent across resolutions: ~1920 counts sweep the
+		// view width regardless of view size.
 		_cursorScale.store((std::max)(1.0f, static_cast<float>(viewWidth) / 1920.0f));
 		_renderer->Resize(viewWidth, viewHeight);
 		REX::INFO("Runtime: output {}x{} -> view resized to {}x{} (aspect-correct)",
@@ -1769,7 +1733,7 @@ namespace OSFUI
 					_revealFrameReady = true;
 				}
 				if (!_revealFrameReady) {
-					// Still the frame from before the open — the renderer
+					// Still the frame from before the open; the renderer
 					// republishes under a new serial once the (re)shown view is
 					// presentable (messages delivered), so hold the reveal.
 					return;
@@ -1804,11 +1768,11 @@ namespace OSFUI
 		}
 		if (_config.renderer == "webview2") {
 #if defined(OSFUI_WITH_WEBVIEW2)
-			// Out-of-process host backend: the ONLY WebView2 variant that works
+			// Out-of-process host backend: the only WebView2 variant that works
 			// under Mod Organizer 2 without the manual executable-blacklist
 			// workaround (USVFS injection crashes in-process-spawned browsers).
-			// A missing Evergreen runtime is reported by the host over the
-			// hello handshake, not probed here — see WebView2HostWebRenderer.
+			// A missing Evergreen runtime is reported by the host over the hello
+			// handshake, not probed here — see WebView2HostWebRenderer.
 			return std::make_unique<WebView2HostWebRenderer>();
 #else
 			REX::WARN("Runtime: renderer 'webview2' requested but this build was compiled without "

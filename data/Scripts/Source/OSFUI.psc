@@ -2,21 +2,23 @@ ScriptName OSFUI Native Hidden
 
 ; OSF UI - Papyrus surface for the shared settings platform (MCM).
 ;
-; Your mod's settings live in a drop-in schema file:
+; Settings are declared in a drop-in schema file:
 ;   Data/OSFUI/settings/<author>.<modname>.json
-; (see docs/authoring-settings.md and examples/settings-only/).
-; this script is how Papyrus reads them back, writes them, and reacts to changes and hotkey presses.
+; (see docs/authoring-settings.md and examples/settings-only/). This script
+; reads them back, writes them, and reacts to changes and hotkey presses.
 ;
-; If OSF UI is not installed, every call here fails soft: Papyrus logs a  missing-native error and the call yields the declared default (GetVersion() yields 0 - the feature-detect gate).
+; If OSF UI is absent, every call fails soft: Papyrus logs a missing-native
+; error and the call yields the declared default (GetVersion() yields 0 - the
+; feature-detect gate).
 ;
-; Ids, keys, and enum option values match your schema file CASE-INSENSITIVELY
-; (Papyrus string interning can't preserve your casing, so OSF UI folds it for
-; you); write them as authored anyway (mod ids are lowercase
-; "<author>.<modname>" by grammar). The same interning means strings DELIVERED
-; to your callbacks may arrive cased differently than authored - Papyrus ==
-; is itself case-insensitive, so plain compares still Just Work.
+; Ids, keys, and enum option values match the schema case-insensitively
+; (Papyrus string interning cannot preserve casing, so OSF UI folds it); write
+; them as authored anyway - mod ids are lowercase "<author>.<modname>" by
+; grammar. The same interning means strings delivered to your callbacks may
+; arrive cased differently than authored; Papyrus == is itself
+; case-insensitive, so plain compares still work.
 
-; --- feature detect -----------------------------------------------------------
+; Feature detect
 
 ; Packed host version: major*10000 + minor*100 + patch (1.0.0 -> 10000).
 ; 0 => OSF UI absent.
@@ -24,21 +26,21 @@ int Function GetVersion() Global Native
 ; Human-readable host version ("1.0.0").
 string Function GetVersionString() Global Native
 
-; --- reading settings ---------------------------------------------------------
-; Typed getters over the live value store. 
-; Unknown mod/key, or a value whose type does not match the getter (e.g. GetInt on a float setting), yields the passed default. 
-; Cheap and thread-safe; fine to call every time you need the value instead of caching.
+; Reading settings
+; Typed getters over the live value store.
+; Unknown mod/key, or a type mismatch (e.g. GetInt on a float setting), yields the passed default.
+; Cheap and thread-safe; call per use rather than caching.
 bool Function GetBool(string asModId, string asKey, bool abDefault = false) Global Native
 int Function GetInt(string asModId, string asKey, int aiDefault = 0) Global Native
 float Function GetFloat(string asModId, string asKey, float afDefault = 0.0) Global Native
 
-; Covers string-, enum-, and key-typed settings (enum yields the stored option value, key yields the key NAME, e.g. "F10").
+; Covers string-, enum-, and key-typed settings (enum yields the stored option value, key yields the key name, e.g. "F10").
 string Function GetString(string asModId, string asKey, string asDefault = "") Global Native
 
-; --- writing settings ---------------------------------------------------------
-; Fire-and-forget: the write is queued, then validated/clamped against the schema and persisted by OSF UI on its next frame - exactly the same path as the settings menu. 
-; A refused write (unknown key, wrong type) is logged to OSF UI's log and dropped. 
-; An open settings menu updates live, and your registered change callback fires once the value commits.
+; Writing settings
+; Fire-and-forget: the write is queued, then validated/clamped against the schema and persisted on OSF UI's next frame - the same path as the settings menu.
+; A refused write (unknown key, wrong type) is logged to OSF UI's log and dropped.
+; An open settings menu updates live, and the registered change callback fires once the value commits.
 
 Function SetBool(string asModId, string asKey, bool abValue) Global Native
 Function SetInt(string asModId, string asKey, int aiValue) Global Native

@@ -294,11 +294,22 @@ export interface GameDataPayload {
 }
 
 /**
- * Overlay visibility flips for the receiving view (pushed on show/hide edges).
- * The reference views scope their "session undo" to a visit off this.
+ * The receiving view was shown/hidden as the overlay's focused menu (pushed on
+ * edges). Fires on overlay open/close AND on a `menu.open` view switch while
+ * the overlay stays up (the outgoing view gets `visible:false`, the incoming
+ * one `visible:true`). The reference views scope their "session undo" to a
+ * visit off this.
  */
 export interface UiVisibilityPayload {
   visible: boolean;
+  /**
+   * Why the edge fired: "overlay" = the overlay itself opened/closed;
+   * "focus" = the overlay stayed up and only the focused menu changed
+   * (hub -> panel navigation). Absent on runtimes older than this field —
+   * treat absent as "overlay". Scope per-visit resets to "overlay" shows;
+   * treat any `visible:false` as a real hide.
+   */
+  reason?: 'overlay' | 'focus';
 }
 
 /**
