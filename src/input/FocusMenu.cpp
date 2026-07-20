@@ -291,6 +291,26 @@ namespace OSFUI
 		return g_registered.load(std::memory_order_acquire);
 	}
 
+	bool FocusMenu::IsOpenInEngine()
+	{
+		if (!g_registered.load(std::memory_order_acquire)) {
+			return false;
+		}
+		auto* ui = RE::UI::GetSingleton();
+		if (!ui) {
+			return false;
+		}
+		// UI+0x430 admitted-array walk (see MenuMode::AnyGameMenuOpen). The
+		// runtime object's +0xB0 name is interned by the creator, so the
+		// BSFixedString compare is valid for it.
+		for (const auto& menu : ui->menuArray) {
+			if (menu && menu->menuName == MENU_NAME) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	void FocusMenu::Open()
 	{
 		if (!g_registered.load(std::memory_order_acquire)) {

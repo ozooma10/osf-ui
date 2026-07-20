@@ -99,6 +99,13 @@ namespace OSFUI
 		// True once Register() has run successfully this session.
 		[[nodiscard]] static bool IsRegistered();
 
+		// ENGINE truth: whether the menu is currently in the admitted (active)
+		// menu array — the state that actually gates input, unlike the
+		// fire-and-forget Open/Close requests above. Same admitted-array walk
+		// MenuMode uses (RE::UI::IsMenuOpen is not trusted: it returned false
+		// for an open Console in a 2026-07-18 live run). Main thread.
+		[[nodiscard]] static bool IsOpenInEngine();
+
 		// ---- RE::IMenu contract ----
 		FocusMenu();
 

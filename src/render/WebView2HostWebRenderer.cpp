@@ -168,6 +168,19 @@ namespace OSFUI
 		HANDLE           hostProcess{ nullptr };
 		HWND             topLevel{ nullptr };
 
+		// Focus watchdog (game thread only — SetNativeKeyboardFocus and Update
+		// both run there). This backend's keyboard model is REAL Win32 focus in
+		// a cross-process Chromium child of the game window, and the close-time
+		// restore (posted kRestoreGameFocusMessage -> SetFocus) races
+		// Chromium's asynchronous MoveFocus: a focus grab still in flight can
+		// land after the restore and strand focus in a hidden child — the game
+		// then receives no keyboard AND no raw mouse input (WM_INPUT is
+		// focus-gated) until something reactivates it. The watchdog detects
+		// that state and re-asserts; see Update().
+		bool   focusRequested{ false };  // last SetNativeKeyboardFocus argument
+		double focusCheckAccum{ 0.0 };
+		bool   focusFixWarned{ false };  // one WARN per strand episode
+
 		std::mutex         notifyMutex;
 		std::deque<Notify> notifications;
 
@@ -856,7 +869,7 @@ namespace OSFUI
 			{ "type", "resize" }, { "width", a_width }, { "height", a_height } });
 	}
 
-	void WebView2HostWebRenderer::Update(double)
+	void WebView2HostWebRenderer::Update(double a_deltaSeconds)
 	{
 		// Warm start once a view is configured (mirrors the in-process
 		// backend): the mirror copies, broker launch, environment creation,
@@ -870,6 +883,54 @@ namespace OSFUI
 			if (wantsView) _impl->Start();
 		}
 		_impl->DrainNotifications();
+
+		// Focus watchdog (see the Impl member note for the race this heals).
+		// GetGUIThreadInfo(0) reports the FOREGROUND thread's focus window:
+		// while the user is alt-tabbed away that window is not in the game
+		// window's tree, so both branches below no-op — this can never steal
+		// focus from another application.
+		if (_impl->topLevel && _impl->connected.load()) {
+			_impl->focusCheckAccum += a_deltaSeconds;
+			if (_impl->focusCheckAccum >= 0.5) {
+				_impl->focusCheckAccum = 0.0;
+				GUITHREADINFO info{};
+				info.cbSize = sizeof(info);
+				bool healthy = true;
+				if (::GetGUIThreadInfo(0, &info) && info.hwndFocus) {
+					DWORD focusPid = 0;
+					::GetWindowThreadProcessId(info.hwndFocus, &focusPid);
+					const bool inGameTree = info.hwndFocus == _impl->topLevel ||
+											::IsChild(_impl->topLevel, info.hwndFocus) != FALSE;
+					if (!_impl->focusRequested && inGameTree &&
+						focusPid != ::GetCurrentProcessId()) {
+						// Overlay closed but focus is stranded in the host's
+						// Chromium child: the game is deaf. Re-assert.
+						healthy = false;
+						if (!_impl->focusFixWarned) {
+							_impl->focusFixWarned = true;
+							REX::WARN("WebView2HostWebRenderer: focus stranded in host child "
+									  "0x{:X} after close; re-asserting game focus (watchdog)",
+								reinterpret_cast<std::uintptr_t>(info.hwndFocus));
+						}
+						::PostMessageW(_impl->topLevel,
+							OverlayInputHook::kRestoreGameFocusMessage, 0, 0);
+					} else if (_impl->focusRequested && info.hwndFocus == _impl->topLevel) {
+						// Overlay open but Chromium never took focus (MoveFocus
+						// lost): typing would go nowhere. Re-request.
+						healthy = false;
+						if (!_impl->focusFixWarned) {
+							_impl->focusFixWarned = true;
+							REX::WARN("WebView2HostWebRenderer: overlay captured but game window "
+									  "still owns focus; re-sending focus request (watchdog)");
+						}
+						_impl->Send(json{ { "type", "focus" }, { "focused", true } });
+					}
+				}
+				if (healthy) {
+					_impl->focusFixWarned = false;
+				}
+			}
+		}
 	}
 
 	std::optional<FrameBufferView> WebView2HostWebRenderer::Render()
@@ -937,6 +998,7 @@ namespace OSFUI
 		if (a_focused) {
 			_impl->Start();
 		}
+		_impl->focusRequested = a_focused;
 		_impl->Send(json{ { "type", "focus" }, { "focused", a_focused } });
 		if (!a_focused && _impl->topLevel) {
 			// Restore game focus on the game's own window thread, exactly like

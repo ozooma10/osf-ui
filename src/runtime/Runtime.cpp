@@ -1030,21 +1030,58 @@ namespace OSFUI
 		// to capture instead of the per-view pausesGame policy) — the sim pause
 		// is ReconcileSimPause. Only act on a change — no per-frame queue spam.
 		const bool wantOpen = _menus.DesiredCapture();
-		if (wantOpen == _focusMenuOpen) {
+		if (wantOpen != _focusMenuOpen) {
+			_focusMenuOpen = wantOpen;
+			_focusMenuMismatchSince = -1.0;  // fresh request: full grace window
+			if (wantOpen) {
+				FocusMenu::Open();
+			} else {
+				FocusMenu::Close();
+				// One observer summary per overlay session (no-op unless engineInput).
+				EngineInput::LogSessionSummary();
+				// NOTE: gamepad raw-passthrough is deliberately NOT reset here
+				// (api-freeze-plan item 10): it is a sticky PER-VIEW property
+				// (_gamepadRawViews) that survives overlay hide/show — another
+				// menu opening can't inherit it, because DrainEngineInput reads
+				// the ACTIVE view's flag each tick.
+			}
 			return;
 		}
-		_focusMenuOpen = wantOpen;
+
+		// Watchdog: the request above is a fire-and-forget UI-queue message; the
+		// engine's admitted state must converge on it. A dropped kHide would
+		// leave the engine in menu mode with the overlay gone — every control
+		// (Esc included) dead until the process is killed (bug report
+		// 2026-07-20, "controls unresponsive after closing the Mods menu"). A
+		// dropped kShow is the milder mirror (game input under a capturing
+		// overlay). The grace window covers normal queue latency (the pump runs
+		// within a frame or two) and transition churn: a load-screen stack
+		// clear is followed by MenuEventSink's CloseAll within a tick, which
+		// re-enters the branch above before this fires.
+		if (!FocusMenu::IsRegistered()) {
+			return;
+		}
+		if (FocusMenu::IsOpenInEngine() == wantOpen) {
+			_focusMenuMismatchSince = -1.0;
+			return;
+		}
+		constexpr double kHealSeconds = 1.0;
+		if (_focusMenuMismatchSince < 0.0) {
+			_focusMenuMismatchSince = _uptime;
+			return;
+		}
+		if (_uptime - _focusMenuMismatchSince < kHealSeconds) {
+			return;
+		}
+		REX::WARN("FocusMenu: engine admitted state diverged from requested (want {}, engine {}) "
+				  "for {:.1f}s; re-sending {} (watchdog)",
+			wantOpen ? "open" : "closed", wantOpen ? "closed" : "open",
+			_uptime - _focusMenuMismatchSince, wantOpen ? "kShow" : "kHide");
+		_focusMenuMismatchSince = -1.0;  // re-arm: another full window before the next retry
 		if (wantOpen) {
 			FocusMenu::Open();
 		} else {
 			FocusMenu::Close();
-			// One observer summary per overlay session (no-op unless engineInput).
-			EngineInput::LogSessionSummary();
-			// NOTE: gamepad raw-passthrough is deliberately NOT reset here
-			// (api-freeze-plan item 10): it is a sticky PER-VIEW property
-			// (_gamepadRawViews) that survives overlay hide/show — another
-			// menu opening can't inherit it, because DrainEngineInput reads
-			// the ACTIVE view's flag each tick.
 		}
 	}
 

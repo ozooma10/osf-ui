@@ -350,6 +350,15 @@ namespace OSFUI
 		// Tick against the menu policy). See config.focusMenu.
 		bool                          _focusMenuOpen{ false };
 
+		// Watchdog for the above (main-thread only): _uptime when the ENGINE's
+		// admitted state was first observed to disagree with _focusMenuOpen, or
+		// <0 while they agree / a request is freshly in flight. kShow/kHide are
+		// fire-and-forget UI-queue messages; if one is ever dropped the engine
+		// would otherwise stay in menu mode forever with every control dead
+		// (bug report 2026-07-20). ReconcileFocusMenu re-sends after the
+		// mismatch persists past its grace window.
+		double                        _focusMenuMismatchSince{ -1.0 };
+
 		// Gamepad routing state (main-thread only; DrainEngineInput). Left-stick
 		// nav uses per-direction repeat timers (0=up,1=down,2=left,3=right;
 		// value 0 = inactive/fresh sentinel, else next-fire time in _uptime
