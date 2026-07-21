@@ -138,6 +138,11 @@ namespace OSFUI
 		// (focus-on-demand). Edge-guarded; main thread only.
 		void ReconcileNativeFocus();
 
+		// Record the current virtual-cursor position as the pending coalesced
+		// mouse move (window thread for raw packets, main thread for the
+		// overlay-open placement). Tick flushes it as one InjectMouseMove.
+		void QueueMouseMove();
+
 		// Queued menu requests, snapshotted at the top of Tick (F10/Esc/
 		// transition plus the native API's RequestMenu ops) and applied after
 		// BridgeApi::PumpMainThread. The snapshot-first/apply-after split is the
@@ -307,14 +312,32 @@ namespace OSFUI
 		std::vector<std::string>      _openViewReqs;  // EnqueueOpenView, same lock/drain discipline
 
 		// Virtual cursor in view-pixel space (the OS cursor is hidden during
-		// gameplay, so raw deltas are accumulated instead). Position is touched
-		// only by the WndProc (input) thread; the view dims + cursor scale are
-		// written by the render thread on resize and read by input, hence atomic.
+		// gameplay, so raw deltas are accumulated instead). Position is written
+		// by the WndProc (input) thread (plus the main-thread recenter on the
+		// overlay-open edge); the view dims + cursor scale are written by the
+		// render thread on resize and read by input, hence atomic.
 		float                         _cursorX{ 0.0f };
 		float                         _cursorY{ 0.0f };
 		std::atomic<std::uint32_t>    _viewWidth{ kDefaultViewWidth };
 		std::atomic<std::uint32_t>    _viewHeight{ kDefaultViewHeight };
 		std::atomic<float>            _cursorScale{ 1.0f };   // resolution-based, set on resize
+
+		// Coalesced mouse-move handoff (QueueMouseMove -> Tick). OnHostMouse*
+		// fire per raw-input packet on the window thread; a pipe write per
+		// packet made a 500-1000 Hz mouse cost hundreds of JSON encode/parse/
+		// SendMouseInput round-trips per second while the page only samples at
+		// display refresh. Instead the latest position is packed here (two
+		// non-negative ints, so the all-bits-set sentinel can never collide)
+		// and Tick injects at most one move per frame. Buttons/wheel stay
+		// immediate — they carry their own coordinates, so a click between
+		// ticks still lands at the right spot.
+		static constexpr std::uint64_t kNoPendingMouseMove = ~0ull;
+		std::atomic<std::uint64_t>     _pendingMouseMove{ kNoPendingMouseMove };
+		// Coalescing telemetry: packets recorded (any thread) vs. moves sent
+		// (main thread); logged and reset every few seconds in devMode.
+		std::atomic<std::uint32_t>     _mouseMovePackets{ 0 };
+		std::uint32_t                  _mouseMoveSends{ 0 };
+		double                         _nextMouseStatsLog{ 0.0 };
 
 		// Initialised from config. When false the overlay is a HUD: it draws but
 		// the game still gets input.

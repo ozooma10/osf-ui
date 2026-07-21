@@ -431,6 +431,25 @@ namespace OSFUI
 		// Fire any due crash-recovery reloads before Update pumps the renderer.
 		DriveRecovery();
 		DriveDevReload();
+		// Flush the coalesced mouse move (QueueMouseMove): one injected move
+		// per frame carrying the latest position, however many raw packets the
+		// window thread recorded since the last tick.
+		if (const auto packed = _pendingMouseMove.exchange(kNoPendingMouseMove);
+			packed != kNoPendingMouseMove) {
+			_renderer->InjectMouseMove(
+				static_cast<int>(packed >> 32),
+				static_cast<int>(packed & 0xFFFF'FFFFull));
+			++_mouseMoveSends;
+		}
+		if (_config.devMode && _uptime >= _nextMouseStatsLog) {
+			_nextMouseStatsLog = _uptime + 5.0;
+			const auto packets = _mouseMovePackets.exchange(0, std::memory_order_relaxed);
+			if (packets != 0 || _mouseMoveSends != 0) {
+				REX::DEBUG("Runtime: coalesced {} mouse-move packets into {} sends over ~5s",
+					packets, _mouseMoveSends);
+				_mouseMoveSends = 0;
+			}
+		}
 		{
 			// Out-of-process backends mirror the accelerator state so their host
 			// process can decide `handled` synchronously; pushed every tick,
@@ -690,7 +709,7 @@ namespace OSFUI
 				_cursorY = _viewHeight.load() * 0.5f;
 			}
 			if (active) {
-				_renderer->InjectMouseMove(static_cast<int>(_cursorX), static_cast<int>(_cursorY));
+				QueueMouseMove();  // flushed by Tick's once-per-frame move injection
 			}
 		}
 		// ui.visibility keys off the shown view (the focused menu of a visible
@@ -1033,7 +1052,7 @@ namespace OSFUI
 		const auto viewH = static_cast<float>(_viewHeight.load(std::memory_order_relaxed));
 		_cursorX = std::clamp(static_cast<float>(a_clientX) * viewW / static_cast<float>(a_clientW), 0.0f, viewW - 1.0f);
 		_cursorY = std::clamp(static_cast<float>(a_clientY) * viewH / static_cast<float>(a_clientH), 0.0f, viewH - 1.0f);
-		_renderer->InjectMouseMove(static_cast<int>(_cursorX), static_cast<int>(_cursorY));
+		QueueMouseMove();
 	}
 
 	void Runtime::OnHostMouseDelta(int a_dx, int a_dy)
@@ -1048,7 +1067,21 @@ namespace OSFUI
 		const auto maxY = static_cast<float>(_viewHeight.load(std::memory_order_relaxed) - 1);
 		_cursorX = std::clamp(_cursorX + static_cast<float>(a_dx) * scale, 0.0f, maxX);
 		_cursorY = std::clamp(_cursorY + static_cast<float>(a_dy) * scale, 0.0f, maxY);
-		_renderer->InjectMouseMove(static_cast<int>(_cursorX), static_cast<int>(_cursorY));
+		QueueMouseMove();
+	}
+
+	void Runtime::QueueMouseMove()
+	{
+		// Raw-input packets arrive at the mouse's polling rate (500-1000 Hz);
+		// a pipe write per packet is pure overhead when the page samples at
+		// display refresh. Last writer wins — only the newest position
+		// matters — and Tick flushes at most one InjectMouseMove per frame.
+		// Coords are non-negative ints well under 2^31, so the packed value
+		// can never equal the all-bits-set no-pending sentinel.
+		const auto x = static_cast<std::uint32_t>(static_cast<int>(_cursorX));
+		const auto y = static_cast<std::uint32_t>(static_cast<int>(_cursorY));
+		_pendingMouseMove.store((static_cast<std::uint64_t>(x) << 32) | y);
+		_mouseMovePackets.fetch_add(1, std::memory_order_relaxed);
 	}
 
 	void Runtime::OnHostMouseButton(int a_button, bool a_down)
