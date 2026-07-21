@@ -18,6 +18,7 @@
 #define NOMINMAX
 #include <Windows.h>
 #include <ShlObj.h>
+#include <TlHelp32.h>
 #include <nlohmann/json.hpp>
 
 #include "Wv2BrokerLaunch.h"
@@ -64,6 +65,96 @@ namespace OSFUI
 			std::filesystem::path out(value);
 			::CoTaskMemFree(value);
 			return out / "OSFUI";
+		}
+
+		// Next to "OSF UI.log": one folder to share covers plugin + host. The
+		// SFSE log dir is a real (never VFS-virtualized) path, so the unhooked
+		// host can write there.
+		std::filesystem::path HostLogPath()
+		{
+			if (const auto dir = SFSE::log::log_directory()) {
+				return *dir / "OSF UI.webview2-host.log";
+			}
+			return LocalOsfuiDir() / "webview2-host.log";
+		}
+
+		bool IsThisProcessElevated()
+		{
+			HANDLE token = nullptr;
+			if (!::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, &token)) {
+				return false;
+			}
+			TOKEN_ELEVATION elevation{};
+			DWORD size = 0;
+			const bool ok = ::GetTokenInformation(token, TokenElevation,
+				&elevation, sizeof(elevation), &size);
+			::CloseHandle(token);
+			return ok && elevation.TokenIsElevated;
+		}
+
+		bool HasMarkOfTheWeb(const std::filesystem::path& a_file)
+		{
+			return ::GetFileAttributesW((a_file.native() + L":Zone.Identifier").c_str()) !=
+			       INVALID_FILE_ATTRIBUTES;
+		}
+
+		bool HostProcessRunning()
+		{
+			const HANDLE snapshot = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+			if (snapshot == INVALID_HANDLE_VALUE) {
+				return false;
+			}
+			PROCESSENTRY32W entry{ .dwSize = sizeof(PROCESSENTRY32W) };
+			bool found = false;
+			if (::Process32FirstW(snapshot, &entry)) {
+				do {
+					if (::_wcsicmp(entry.szExeFile, L"osfui_webview2_host.exe") == 0) {
+						found = true;
+						break;
+					}
+				} while (::Process32NextW(snapshot, &entry));
+			}
+			::CloseHandle(snapshot);
+			return found;
+		}
+
+		// Last lines of the host's own log, for embedding into this log when the
+		// host fails before/at the handshake — one shared file then tells the
+		// whole story.
+		std::vector<std::string> ReadLogTail(const std::filesystem::path& a_file,
+			std::size_t a_maxLines)
+		{
+			std::ifstream stream(a_file, std::ios::binary);
+			if (!stream) {
+				return {};
+			}
+			constexpr std::streamoff kMaxBytes = 8192;
+			stream.seekg(0, std::ios::end);
+			const std::streamoff size = stream.tellg();
+			stream.seekg(size > kMaxBytes ? size - kMaxBytes : 0, std::ios::beg);
+			std::string chunk(static_cast<std::size_t>((std::min)(size, kMaxBytes)), '\0');
+			stream.read(chunk.data(), static_cast<std::streamsize>(chunk.size()));
+			chunk.resize(static_cast<std::size_t>(stream.gcount()));
+
+			std::vector<std::string> lines;
+			std::size_t start = 0;
+			for (std::size_t i = 0; i <= chunk.size(); ++i) {
+				if (i == chunk.size() || chunk[i] == '\n') {
+					auto line = chunk.substr(start, i - start);
+					while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) {
+						line.pop_back();
+					}
+					if (!line.empty()) {
+						lines.push_back(std::move(line));
+					}
+					start = i + 1;
+				}
+			}
+			if (lines.size() > a_maxLines) {
+				lines.erase(lines.begin(),
+					lines.begin() + static_cast<std::ptrdiff_t>(lines.size() - a_maxLines));
+			}
+			return lines;
 		}
 
 		struct FindWindowData { DWORD pid; HWND result; };
@@ -123,6 +214,7 @@ namespace OSFUI
 		RendererConfig        config;
 		std::filesystem::path viewsRoot, mappedViewsRoot, userData;
 		std::filesystem::path hostExeSource, hostExeMirror;
+		std::filesystem::path hostLog;  // set in Initialize; read by worker + notify drain
 
 		WebMessageHandler       onWebMessage;
 		DomReadyHandler         onDomReady;
@@ -354,6 +446,19 @@ namespace OSFUI
 					}
 				}
 			}
+			// CopyFileW carries the Zone.Identifier stream from a downloaded
+			// zip onto the mirror, and Explorer launching a Mark-of-the-Web exe
+			// can hit a SmartScreen block nobody sees behind a fullscreen game.
+			if (HasMarkOfTheWeb(hostExeMirror)) {
+				if (::DeleteFileW((hostExeMirror.native() + L":Zone.Identifier").c_str())) {
+					REX::INFO("WebView2HostWebRenderer: stripped Mark-of-the-Web from the "
+							  "host exe mirror");
+				} else {
+					REX::WARN("WebView2HostWebRenderer: host exe mirror carries "
+							  "Mark-of-the-Web and stripping it failed ({}) — SmartScreen "
+							  "may silently block the host launch", ::GetLastError());
+				}
+			}
 			return true;
 		}
 
@@ -363,6 +468,58 @@ namespace OSFUI
 			REX::INFO("WebView2HostWebRenderer: starting host connection worker");
 			worker = std::thread([this] { WorkerMain(); });
 			return true;
+		}
+
+		// Worker thread, after the host failed to launch/handshake: narrow "it
+		// never connected" down to which stage died, using only what this
+		// process can see, and embed the host's own log tail so one shared
+		// "OSF UI.log" carries the whole story.
+		void LogHostStartFailureDiagnostics(std::filesystem::file_time_type a_launchTime)
+		{
+			std::error_code ec;
+			const auto exeSize = std::filesystem::file_size(hostExeMirror, ec);
+			if (ec) {
+				REX::ERROR("HostDiag: host exe mirror is GONE from {} ({}) — an "
+						   "antivirus likely quarantined it; restore/exclude it and retry",
+					hostExeMirror.string(), ec.message());
+			} else if (HasMarkOfTheWeb(hostExeMirror)) {
+				REX::ERROR("HostDiag: host exe mirror still carries Mark-of-the-Web — "
+						   "SmartScreen has likely blocked the launch silently; unblock {} "
+						   "(file Properties -> Unblock)", hostExeMirror.string());
+			} else {
+				REX::INFO("HostDiag: host exe mirror present ({} bytes, no Mark-of-the-Web)",
+					exeSize);
+			}
+
+			if (IsThisProcessElevated()) {
+				REX::ERROR("HostDiag: the game runs elevated (as administrator) — a "
+						   "brokered host launches unelevated and cannot open the game "
+						   "process; run the game/MO2 without administrator rights");
+			}
+
+			REX::INFO("HostDiag: a process named osfui_webview2_host.exe {} running",
+				HostProcessRunning() ? "IS still" : "is NOT");
+
+			ec.clear();
+			const auto logTime = std::filesystem::last_write_time(hostLog, ec);
+			if (ec) {
+				REX::ERROR("HostDiag: host log {} does not exist — the host process never "
+						   "started (SmartScreen/antivirus block, or the exe failed to run)",
+					hostLog.string());
+				return;
+			}
+			if (logTime < a_launchTime) {
+				REX::ERROR("HostDiag: host log {} is STALE (predates this launch) — the "
+						   "host process never started this session (SmartScreen/antivirus "
+						   "block, or the exe failed to run)", hostLog.string());
+				return;
+			}
+			const auto tail = ReadLogTail(hostLog, 20);
+			REX::INFO("HostDiag: host log tail ({} line(s) from {}):",
+				tail.size(), hostLog.string());
+			for (const auto& line : tail) {
+				REX::INFO("HostDiag: | {}", line);
+			}
 		}
 
 		void WorkerMain()
@@ -380,7 +537,6 @@ namespace OSFUI
 			const auto nonce = static_cast<std::uint32_t>(rng());
 			const auto pipeName = std::format(L"{}{}-{:08x}",
 				osfui::wv2::kPipePrefix, ::GetCurrentProcessId(), nonce);
-			const auto hostLog = LocalOsfuiDir() / "webview2-host.log";
 			const auto args = std::format(L"--pipe={} --game-pid={} --log=\"{}\"",
 				pipeName, ::GetCurrentProcessId(), hostLog.native());
 
@@ -388,6 +544,17 @@ namespace OSFUI
 			// child of this process and the injection crashes the WebView2
 			// broker. With USVFS present, only out-of-tree brokers work.
 			const bool usvfs = ::GetModuleHandleW(L"usvfs_x64.dll") != nullptr;
+			const bool elevated = IsThisProcessElevated();
+			if (elevated && usvfs) {
+				// Explorer's broker children are always unelevated and cannot
+				// open an elevated game process (host exit code 4); only the
+				// elevated task-scheduler route works from here.
+				REX::WARN("WebView2HostWebRenderer: the game is running elevated (as "
+						  "administrator) under MO2 — falling back to an elevated "
+						  "task-scheduler launch; if the overlay stays invisible, run "
+						  "the game/MO2 without administrator rights");
+			}
+			const auto launchTime = std::filesystem::file_time_type::clock::now();
 			const auto launch = osfui::wv2::LaunchDetached(
 				hostExeMirror.native(), args, /*a_preferBroker=*/usvfs);
 			if (!launch.ok) {
@@ -396,29 +563,53 @@ namespace OSFUI
 				Push(Notify{ .kind = Notify::Kind::Dead });
 				return;
 			}
-			REX::INFO("WebView2HostWebRenderer: host launched via {} (usvfs={}){}",
-				osfui::wv2::LaunchMethodName(launch.method), usvfs,
+			REX::INFO("WebView2HostWebRenderer: host launched via {} (usvfs={}, elevated={}){}",
+				osfui::wv2::LaunchMethodName(launch.method), usvfs, elevated,
 				launch.detail.empty() ? "" : " detail=[" + launch.detail + "]");
 
 			if (!pipe.CreateServerAndWait(pipeName, 20000)) {
 				REX::ERROR("WebView2HostWebRenderer: host never connected: {} "
 						   "(host log: {})", pipe.LastErrorText(), hostLog.string());
+				LogHostStartFailureDiagnostics(launchTime);
 				dead.store(true);
 				Push(Notify{ .kind = Notify::Kind::Dead });
 				return;
 			}
 
+			// The host forwards startup warnings/errors over the pipe before its
+			// hello (e.g. OpenProcess denied), so a pre-hello failure is
+			// explained in this log instead of a bare "no hello".
 			std::string payload;
-			if (!pipe.ReadMessage(payload)) {
-				REX::ERROR("WebView2HostWebRenderer: no hello from host");
-				dead.store(true);
-				Push(Notify{ .kind = Notify::Kind::Dead });
-				return;
+			json hello;
+			for (int preHello = 0; ; ++preHello) {
+				if (!pipe.ReadMessage(payload)) {
+					REX::ERROR("WebView2HostWebRenderer: host connected but exited before "
+							   "its hello — its last log lines follow");
+					LogHostStartFailureDiagnostics(launchTime);
+					dead.store(true);
+					Push(Notify{ .kind = Notify::Kind::Dead });
+					return;
+				}
+				hello = json::parse(payload, nullptr, false);
+				if (preHello < 32 && !hello.is_discarded() &&
+					hello.value("type", "") == "log") {
+					const auto level = hello.value("level", 0);
+					const auto text = hello.value("text", "");
+					if (level >= 2) {
+						REX::ERROR("WebView2 host: {}", text);
+					} else if (level == 1) {
+						REX::WARN("WebView2 host: {}", text);
+					} else {
+						REX::INFO("WebView2 host: {}", text);
+					}
+					continue;
+				}
+				break;
 			}
-			const json hello = json::parse(payload, nullptr, false);
 			if (hello.is_discarded() || hello.value("type", "") != "hello" ||
 				hello.value("protocolVersion", 0u) != osfui::wv2::kProtocolVersion) {
-				REX::ERROR("WebView2HostWebRenderer: bad hello (protocol mismatch?)");
+				REX::ERROR("WebView2HostWebRenderer: bad hello (protocol mismatch? host "
+						   "log: {})", hostLog.string());
 				dead.store(true);
 				Push(Notify{ .kind = Notify::Kind::Dead });
 				return;
@@ -715,8 +906,7 @@ namespace OSFUI
 						deadLogged = true;
 						REX::ERROR("WebView2HostWebRenderer: host connection lost — the "
 								   "overlay stays hidden for the rest of this session "
-								   "(host log: {})",
-							(LocalOsfuiDir() / "webview2-host.log").string());
+								   "(host log: {})", hostLog.string());
 					}
 					break;
 				}
@@ -785,6 +975,7 @@ namespace OSFUI
 		_impl->config = a_config;
 		_impl->viewsRoot = a_config.dataDir / "views";
 		_impl->userData = LocalOsfuiDir() / "WebView2";
+		_impl->hostLog = HostLogPath();
 		_impl->hostExeSource = a_config.dataDir / "bin" / "osfui_webview2_host.exe";
 		_impl->width = (std::max)(1u, a_config.width);
 		_impl->height = (std::max)(1u, a_config.height);

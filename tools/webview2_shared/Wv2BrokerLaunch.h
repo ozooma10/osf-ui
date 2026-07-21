@@ -12,6 +12,10 @@
 //      (vanilla / Vortex installs); also the last resort under MO2 (it will
 //      inject, but a dead overlay beats no attempt plus a clear log line).
 //
+// When the caller is elevated the order flips to Task Scheduler (at
+// TASK_RUNLEVEL_HIGHEST) first: Explorer's children are always unelevated and
+// an unelevated child cannot open the elevated game process later.
+//
 // No PID is returned: brokered launches cannot observe it reliably. The host
 // identifies itself over the pipe (hello.pid) instead.
 //

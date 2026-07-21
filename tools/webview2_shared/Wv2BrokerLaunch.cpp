@@ -134,11 +134,28 @@ namespace osfui::wv2
 			return hr;
 		}
 
+		bool IsCallerElevated()
+		{
+			HANDLE token = nullptr;
+			if (!::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, &token)) {
+				return false;
+			}
+			TOKEN_ELEVATION elevation{};
+			DWORD size = 0;
+			const bool ok = ::GetTokenInformation(token, TokenElevation,
+				&elevation, sizeof(elevation), &size);
+			::CloseHandle(token);
+			return ok && elevation.TokenIsElevated;
+		}
+
 		// One-shot scheduled task, run immediately in the caller's interactive
 		// session, then deleted. The spawned process is a child of svchost's
-		// task host — also outside the game's tree.
+		// task host — also outside the game's tree. a_elevated runs the task at
+		// the interactive token's highest level so the child can open an
+		// elevated game process; registering HIGHEST requires the caller to be
+		// elevated itself, which is exactly the case where it's needed.
 		HRESULT TaskSchedulerExecute(const std::wstring& a_exe, const std::wstring& a_args,
-			std::string& a_detail)
+			bool a_elevated, std::string& a_detail)
 		{
 			ComPtr<ITaskService> service;
 			auto hr = ::CoCreateInstance(CLSID_TaskScheduler, nullptr, CLSCTX_INPROC_SERVER,
@@ -178,7 +195,8 @@ namespace osfui::wv2
 				ComPtr<IPrincipal> principal;
 				if (SUCCEEDED(task->get_Principal(&principal))) {
 					principal->put_LogonType(TASK_LOGON_INTERACTIVE_TOKEN);
-					principal->put_RunLevel(TASK_RUNLEVEL_LUA);
+					principal->put_RunLevel(
+						a_elevated ? TASK_RUNLEVEL_HIGHEST : TASK_RUNLEVEL_LUA);
 				}
 			}
 			ComPtr<IActionCollection> actions;
@@ -261,14 +279,28 @@ namespace osfui::wv2
 	{
 		LaunchResult result;
 		if (a_preferBroker) {
+			// Elevated caller: Explorer's children are always unelevated and
+			// cannot open this process afterwards — the elevated task-scheduler
+			// route goes first, Explorer stays as a (log-visible) last resort.
+			const bool elevated = IsCallerElevated();
+			if (elevated) {
+				result.detail += "caller elevated, task-scheduler(highest) first; ";
+			}
 			ComApartment com;
 			if (com.Usable()) {
+				if (elevated && SUCCEEDED(TaskSchedulerExecute(a_exe, a_args,
+										true, result.detail))) {
+					result.ok = true;
+					result.method = LaunchMethod::kTaskScheduler;
+					return result;
+				}
 				if (SUCCEEDED(ExplorerShellExecute(a_exe, a_args, result.detail))) {
 					result.ok = true;
 					result.method = LaunchMethod::kExplorer;
 					return result;
 				}
-				if (SUCCEEDED(TaskSchedulerExecute(a_exe, a_args, result.detail))) {
+				if (!elevated && SUCCEEDED(TaskSchedulerExecute(a_exe, a_args,
+										 false, result.detail))) {
 					result.ok = true;
 					result.method = LaunchMethod::kTaskScheduler;
 					return result;

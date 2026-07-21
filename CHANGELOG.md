@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.1.1 — 2026-07-20
+
+### Fixed
+
+- Running the game/MO2 as administrator no longer leaves the overlay invisible: an elevated game now launches the WebView2 host elevated via the Task Scheduler, so the host can connect (thanks to the user who reported this!).
+
+### Other changes
+
+- The WebView2 host now logs to `Documents\My Games\Starfield\SFSE\Logs\OSF UI.webview2-host.log`, next to `OSF UI.log` — sharing that one folder covers both.
+- When the host fails to start, `OSF UI.log` now explains why: host startup errors are forwarded into it, it embeds the host log's tail, and it reports whether the host exe survived (antivirus), carries Mark-of-the-Web (SmartScreen), or the game runs as administrator. Mark-of-the-Web is stripped from the mirrored host exe automatically.
+
 ## 1.1.0 — 2026-07-20
 
 Views now render in Chromium, and Papyrus mods can drive them with live data.
@@ -9,7 +20,7 @@ Views now render in Chromium, and Papyrus mods can drive them with live data.
 - **New renderer: WebView2.** Views render in Microsoft Edge WebView2 inside a separate host process, replacing Ultralight.
 - **Dynamic data for Papyrus mods.** Scripts can drive a view with live data and react to its clicks.
   `OSFUI.PushToView(modId, key, values)` delivers a string list to every loaded view of the mod as a `data.push` message; 
-  views fire actions back with `osfui.send('ui.action', { action, arg })`, dispatched to `OSFUI.RegisterForViewActions(receiver, fn, modId)` / `...Static` callbacks (session-scoped, released with `Unregister`). 
+  views fire actions back with `osfui.send('ui.action', { action, arg })`, dispatched to `OSFUI.RegisterForViewActions(receiver, fn, modId)` / `...Static` callbacks (session-scoped,  released with `Unregister`). 
   Everything is fire-and-forget: Papyrus owns the data, views re-request state by firing a `ready` action on load, and OSF UI caches nothing. 
   See the new `docs/authoring-dynamic-data.md` (worked example: porting a terminal menu).
 

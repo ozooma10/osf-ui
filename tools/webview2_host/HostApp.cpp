@@ -1724,8 +1724,25 @@ namespace osfui::wv2
 		App app;
 		app.options = a_options;
 		app.log.Open(a_options.logFile);
-		app.log.Info(std::format("osfui_webview2_host starting (pid {}, game pid {}, pipe '{}')",
-			::GetCurrentProcessId(), a_options.gamePid, ToUtf8(a_options.pipeName)));
+
+		bool elevated = false;
+		{
+			HANDLE token = nullptr;
+			if (::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, &token)) {
+				TOKEN_ELEVATION elevation{};
+				DWORD size = 0;
+				elevated = ::GetTokenInformation(token, TokenElevation,
+								&elevation, sizeof(elevation), &size) &&
+				           elevation.TokenIsElevated;
+				::CloseHandle(token);
+			}
+		}
+		wchar_t exePath[MAX_PATH]{};
+		::GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+		app.log.Info(std::format(
+			"osfui_webview2_host starting (pid {}, game pid {}, pipe '{}', elevated={}, exe '{}')",
+			::GetCurrentProcessId(), a_options.gamePid, ToUtf8(a_options.pipeName),
+			elevated ? "yes" : "no", ToUtf8(exePath)));
 
 		// One host per game process: a relaunch while a previous host is alive must
 		// not fight over the pipe/windows.
@@ -1736,22 +1753,33 @@ namespace osfui::wv2
 			return 3;
 		}
 
-		app.gameProcess = ::OpenProcess(
-			PROCESS_DUP_HANDLE | SYNCHRONIZE, FALSE, a_options.gamePid);
-		if (!app.gameProcess) {
-			app.log.Error(std::format("OpenProcess(game pid {}) failed ({})",
-				a_options.gamePid, ::GetLastError()));
-			::CloseHandle(instanceMutex);
-			return 4;
-		}
-
+		// Pipe before OpenProcess: once log.pipe is set, every warning/error below
+		// is forwarded into the game's own log, so a startup death is diagnosable
+		// from "OSF UI.log" alone. The game tolerates log messages before hello.
 		if (!app.pipe.Connect(a_options.pipeName, 15000)) {
 			app.log.Error("pipe connect failed: " + app.pipe.LastErrorText());
-			::CloseHandle(app.gameProcess);
 			::CloseHandle(instanceMutex);
 			return 2;
 		}
 		app.log.pipe = &app.pipe;
+
+		app.gameProcess = ::OpenProcess(
+			PROCESS_DUP_HANDLE | SYNCHRONIZE, FALSE, a_options.gamePid);
+		if (!app.gameProcess) {
+			const auto error = ::GetLastError();
+			auto message = std::format("OpenProcess(game pid {}) failed ({})",
+				a_options.gamePid, error);
+			if (error == ERROR_ACCESS_DENIED) {
+				message += std::format(
+					" — access denied: the game is likely running elevated (as "
+					"administrator) while this host is not (elevated={}); run the "
+					"game/MO2 without administrator rights",
+					elevated ? "yes" : "no");
+			}
+			app.log.Error(message);
+			::CloseHandle(instanceMutex);
+			return 4;
+		}
 
 		LPWSTR runtimeVersion = nullptr;
 		std::string runtime = "unknown";
@@ -1763,7 +1791,7 @@ namespace osfui::wv2
 		app.Send(json{
 			{ "type", "hello" },
 			{ "protocolVersion", kProtocolVersion },
-			{ "hostVersion", "1.1.0" },
+			{ "hostVersion", "1.1.1" },
 			{ "runtimeVersion", runtime },
 			{ "pid", ::GetCurrentProcessId() },
 		});
