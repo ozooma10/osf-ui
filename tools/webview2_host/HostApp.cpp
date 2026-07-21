@@ -163,6 +163,7 @@ namespace osfui::wv2
 			HANDLE      wakeEvent{ nullptr };
 			std::thread reader;
 			std::atomic_bool quit{ false };
+			std::string      byeReason;  // overrides the default bye reason (STA thread only)
 
 			std::mutex       commandMutex;
 			std::deque<json> commands;
@@ -1389,6 +1390,41 @@ namespace osfui::wv2
 							a_args->get_ProcessFailedKind(&kind);
 							log.Error(std::format("view '{}': browser process failed (kind {})",
 								view->id, static_cast<int>(kind)));
+							switch (kind) {
+							case COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED:
+								// The whole environment died with the browser process;
+								// every controller is dead COM and a Navigate cannot
+								// revive anything. Exit so the pipe drop reaches the
+								// game's host-death path (overlay hidden, logged)
+								// instead of leaving a zombie host the game still
+								// believes in.
+								byeReason = "browser-process-exited";
+								quit.store(true);
+								break;
+							case COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED:
+							case COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE:
+								// This view's content is gone/hung but the webView
+								// object survives, and a Navigate revives it — report
+								// a failed load so the game's crash-recovery reload
+								// reacts (Runtime::OnViewLoad) rather than leaving a
+								// blank input-capturing shell.
+								view->navigationSucceeded = false;
+								view->domSeen = false;
+								view->domNotified = false;
+								Send(json{ { "type", "loadEvent" },
+									{ "view", view->id },
+									{ "failed", true },
+									{ "url", ToUtf8(view->currentUrl) },
+									{ "description",
+										kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED
+											? "WebView2 render process exited"
+											: "WebView2 render process unresponsive" },
+									{ "code", static_cast<int>(kind) } });
+								break;
+							default:
+								// Frame/GPU/utility children restart on their own.
+								break;
+							}
 							return S_OK;
 						}).Get(), &token);
 				if (SUCCEEDED(a_view.webView->GetDevToolsProtocolEventReceiver(
@@ -1938,7 +1974,9 @@ namespace osfui::wv2
 				}
 
 				Send(json{ { "type", "bye" },
-					{ "reason", exitCode == 0 ? "shutdown" : "init-failed" } });
+					{ "reason", !byeReason.empty() ? byeReason.c_str()
+							: exitCode == 0      ? "shutdown"
+												 : "init-failed" } });
 				log.pipe = nullptr;
 				CloseWebResources();
 				if (dispatcher) {
