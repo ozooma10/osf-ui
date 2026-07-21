@@ -761,11 +761,28 @@ namespace OSFUI
 
 		void OnTexturesMessage(const json& a_msg)
 		{
+			// Ring depth comes from the announcement, not a compiled constant —
+			// the host may retune it as long as it fits our capacity.
+			static_assert(osfui::wv2::kRingSlots <= SharedRingDesc::kMaxSlots);
 			SharedRingDesc desc{};
 			const auto& slots = a_msg.at("slots");
-			for (std::size_t i = 0; i < SharedRingDesc::kSlots && i < slots.size(); ++i) {
+			for (std::size_t i = 0; i < SharedRingDesc::kMaxSlots && i < slots.size(); ++i) {
 				desc.slotHandles[i] = reinterpret_cast<void*>(
 					static_cast<std::uintptr_t>(slots[i].get<std::uint64_t>()));
+				++desc.slotCount;
+			}
+			for (std::size_t i = SharedRingDesc::kMaxSlots; i < slots.size(); ++i) {
+				// Announced more than we can hold (mismatched builds — the
+				// launcher's versioned mirror should prevent this). Close the
+				// already-duplicated handles so they don't leak; frames landing
+				// in those slots will not be drawn.
+				::CloseHandle(reinterpret_cast<HANDLE>(
+					static_cast<std::uintptr_t>(slots[i].get<std::uint64_t>())));
+			}
+			if (slots.size() > SharedRingDesc::kMaxSlots) {
+				REX::WARN("WebView2HostWebRenderer: host announced {} ring slots, "
+						  "capacity is {} — excess slots ignored",
+					slots.size(), SharedRingDesc::kMaxSlots);
 			}
 			desc.produceFence = reinterpret_cast<void*>(
 				static_cast<std::uintptr_t>(a_msg.value("produceFence", 0ull)));
