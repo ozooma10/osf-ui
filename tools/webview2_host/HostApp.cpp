@@ -1791,7 +1791,7 @@ namespace osfui::wv2
 		app.Send(json{
 			{ "type", "hello" },
 			{ "protocolVersion", kProtocolVersion },
-			{ "hostVersion", "1.1.1" },
+			{ "hostVersion", "1.1.2" },
 			{ "runtimeVersion", runtime },
 			{ "pid", ::GetCurrentProcessId() },
 		});
