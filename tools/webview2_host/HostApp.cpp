@@ -183,6 +183,14 @@ namespace osfui::wv2
 			// accel state pushed by the game (touched only on the STA thread)
 			std::uint32_t toggleVk{ 0x79 /*F10*/ }, devReloadVk{ 0 }, captureUpVk{ 0 };
 			bool          captured{ false }, captureArmed{ false };
+			// Whether the game asked us to hold real OS focus (the "focus"
+			// message, sent per text-entry grant). Outside a grant, Chromium
+			// still grabs focus by itself when a synthetic click lands on a
+			// focusable element — cross-process, that kills the game's
+			// keyboard, raw mouse AND gamepad (WGI is focus-gated) until the
+			// game-side watchdog notices (up to 0.5s later). GotFocus bounces
+			// it back immediately instead.
+			bool          focusGranted{ false };
 			std::unordered_set<UINT> handledKeys;
 			std::uint64_t accelEvents{ 0 };  // every AcceleratorKeyPressed callback (diagnostic)
 			// NOTE: the "key" command used to PostMessage into the Chromium widget
@@ -939,6 +947,28 @@ namespace osfui::wv2
 				}
 				InstallEvents(a_view);
 				InstallBridgeShim(a_view);
+				// Focus-on-demand leaves the widget OS-unfocused for the whole
+				// session, and an unfocused renderer stops matching
+				// :focus/:focus-visible/:focus-within and reports
+				// document.hasFocus()=false — so focus styling (padnav's ring,
+				// any view's own focus affordances) silently doesn't render even
+				// though navigation works (2026-07-21 report: "arrows/gamepad
+				// don't move focus"; they did — invisibly). Emulate a focused,
+				// active page at the CDP layer; the emulation is a renderer-side
+				// flag, so it neither takes OS focus from the game nor conflicts
+				// with real focus during a text-entry grant.
+				a_view.webView->CallDevToolsProtocolMethod(
+					L"Emulation.setFocusEmulationEnabled", LR"({"enabled":true})",
+					Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
+						[this, view = &a_view](HRESULT a_cdpHr, LPCWSTR) -> HRESULT {
+							if (FAILED(a_cdpHr)) {
+								log.Warn(std::format(
+									"view '{}': focus emulation enable failed (0x{:08X}) — "
+									"focus styling will not render without real focus",
+									view->id, static_cast<unsigned>(a_cdpHr)));
+							}
+							return S_OK;
+						}).Get());
 				if (!captureStarted) {
 					if (!StartCapture()) return S_OK;
 					captureStarted = true;
@@ -1169,6 +1199,20 @@ namespace osfui::wv2
 							UINT32 id = 0;
 							if (SUCCEEDED(a_sender->get_SystemCursorId(&id))) {
 								Send(json{ { "type", "cursor" }, { "id", id } });
+							}
+							return S_OK;
+						}).Get(), &token);
+				a_view.controller->add_GotFocus(
+					Callback<ICoreWebView2FocusChangedEventHandler>(
+						[this](ICoreWebView2Controller*, ::IUnknown*) -> HRESULT {
+							// Chromium grabs real OS focus on its own when a click
+							// (real or SendMouseInput-synthetic) lands on a focusable
+							// element. Without a text-entry grant that strands focus
+							// in this process and the game goes deaf — keyboard, raw
+							// mouse and gamepad (WGI is focus-gated). Hand it straight
+							// back instead of waiting for the game-side watchdog.
+							if (!focusGranted && gameTopLevel) {
+								::PostMessageW(gameTopLevel, kRestoreGameFocusMessage, 0, 0);
 							}
 							return S_OK;
 						}).Get(), &token);
@@ -1687,6 +1731,7 @@ namespace osfui::wv2
 					// captured edge instead). The game side restores its own
 					// focus on revoke (kRestoreGameFocusMessage).
 					const bool focused = a_msg.value("focused", false);
+					focusGranted = focused;
 					if (focused && active && active->controller && !active->hidden) {
 						active->controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
 					}

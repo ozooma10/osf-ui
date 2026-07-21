@@ -26,6 +26,13 @@ namespace osfui::wv2
 	// Pipe name pattern: \\.\pipe\osfui-wv2-<gamePid>-<nonce>
 	inline constexpr const wchar_t* kPipePrefix = L"osfui-wv2-";
 
+	// Window message posted to the game's top-level window to hand keyboard
+	// focus back to the game (its WndProc subclass answers with SetFocus).
+	// Game side: OverlayInputHook::kRestoreGameFocusMessage — the renderer
+	// static_asserts the two stay equal. The host posts it from GotFocus when
+	// Chromium grabs focus without a live text-entry grant.
+	inline constexpr std::uint32_t kRestoreGameFocusMessage = 0x8049;
+
 	// Hard cap on one framed message (a resize-storm of eval results should
 	// never approach this; protects both sides from a corrupt length prefix).
 	inline constexpr std::uint32_t kMaxMessageBytes = 8u * 1024u * 1024u;

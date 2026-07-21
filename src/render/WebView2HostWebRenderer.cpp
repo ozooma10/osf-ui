@@ -27,6 +27,11 @@
 
 using nlohmann::json;
 
+// The host posts this message on its own (GotFocus without a text-entry
+// grant); both sides must agree on the value.
+static_assert(OSFUI::OverlayInputHook::kRestoreGameFocusMessage ==
+	osfui::wv2::kRestoreGameFocusMessage);
+
 namespace OSFUI
 {
 	namespace
