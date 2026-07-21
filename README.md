@@ -13,6 +13,22 @@ by StarkMP**
 - Microsoft.Web.WebView2 SDK package unpacked to `external/webview2`, or `WEBVIEW2_SDK_DIR` set to its package root
 - C++23 compiler (MSVC / Clang-CL)
 
+## First-time setup
+
+On a fresh clone, run the setup script once. It fetches the build-time
+dependencies that are **not** checked into the repo — currently the
+Microsoft.Web.WebView2 SDK — and unpacks them into `external/webview2`:
+
+```bat
+pwsh tools/setup.ps1
+```
+
+Without this, `xmake build` fails with `OSFUI WebView2 host: unpack
+Microsoft.Web.WebView2 into external/webview2 ...` because `external/` is
+gitignored. The script is idempotent; pass `-Force` to re-fetch. It does **not**
+install xmake, the Edge WebView2 Evergreen runtime, or Node — those are listed
+under Requirements above (and Node only for [building the frontend](#building-the-frontend)).
+
 ## Build
 
 ```bat
