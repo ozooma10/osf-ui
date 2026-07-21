@@ -12,7 +12,7 @@ namespace OSFUI
 			"configVersion", "enabled", "renderer", "compositor",
 			"inputSource", "captureInput", "hardwareCursor", "focusMenu",
 			"engineInput", "pauseMenuEntryLabel", "pauseMenuEntryView",
-			"view", "views", "devMode", "devReloadKey",
+			"view", "views", "devMode", "devReloadKey", "uiPassProbe",
 		};
 	}
 
@@ -60,6 +60,7 @@ namespace OSFUI
 		}
 		config.devMode = Json::GetBool(*json, "devMode", config.devMode);
 		config.devReloadKey = Json::GetString(*json, "devReloadKey", config.devReloadKey);
+		config.uiPassProbe = Json::GetBool(*json, "uiPassProbe", config.uiPassProbe);
 
 		REX::INFO("Config: loaded {} (renderer={}, compositor={}, inputSource={}, captureInput={}, hardwareCursor={}, focusMenu={}, view={}, devMode={})",
 			a_path.string(), config.renderer, config.compositor, config.inputSource, config.captureInput, config.hardwareCursor, config.focusMenu, config.view, config.devMode);

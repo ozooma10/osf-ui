@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Other changes
+
+- New dev config knob `uiPassProbe` (default off, no effect in normal play): hooks the engine's own Scaleform render passes in log-only mode and writes a characterization of the drawing seam to `OSF UI.log`. This is groundwork for rendering views *underneath* the game's native menus and HUD (and correctly inside Frame Generation's UI handling) instead of always on top of everything.
+
 ## 1.2.0 — 2026-07-21
 
 Controller play works properly again, views are cut off from the network for real, and the overlay now survives renderer crashes and game stutters. (This release also includes everything from the unpublished 1.1.2.)

@@ -8,6 +8,7 @@
 #include "api/PapyrusApi.h"
 #include "composite/D3D12Compositor.h"
 #include "composite/NullCompositor.h"
+#include "composite/UiPassSeam.h"
 #include "core/Log.h"
 #include "core/Version.h"
 #include "input/ControlLayer.h"
@@ -120,6 +121,14 @@ namespace OSFUI
 		});
 		// Size the view to the real output so the page renders aspect-correct.
 		_compositor->SetOutputResizeCallback([this](std::uint32_t a_w, std::uint32_t a_h) { OnOutputResized(a_w, a_h); });
+
+		if (_config.uiPassProbe) {
+			// Dev knob: log-only hooks on the engine's Scaleform render passes,
+			// characterizing the future under-native-UI injection point
+			// (composite/UiPassSeam.h). Vtables are static .rdata — no need to
+			// wait for the renderer root the way the D3D12 compositor does.
+			UiPassSeam::Install();
+		}
 		REX::INFO("Runtime: compositor = {}", _compositor->Name());
 
 		_captureInput.store(_config.captureInput);
