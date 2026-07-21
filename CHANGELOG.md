@@ -5,10 +5,16 @@
 ### Fixed
 
 - With a menu open, gamepad input no longer leaks into the game underneath: the thumbsticks walked the player around (and buttons could trigger game actions) behind the overlay, because the engine's control-disable flags don't gate thumbstick movement. Gamepad events are now consumed at the overlay's input receiver while a capturing menu is open, so the game never sees them; views still receive them normally (default navigation mapping and raw `ui.gamepad` alike).
+- A crashed or hung view no longer strands a blank overlay that still swallows input. When a view's browser render process exits or becomes unresponsive, the host now reports it and the runtime retries the load with backoff, then cleanly removes the view if it keeps failing; a total browser-process loss hides the overlay for the rest of the session (with the cause logged) instead of leaving a dead host the game still believes is alive.
+
+### Security
+
+- Views can no longer reach the network. OSF UI's no-network policy was declared but not actually enforced; the WebView2 host now denies every http(s) request whose origin isn't the local `osfui.local` view root — answering with a local 403 before anything leaves the machine, page navigations included — and removes the transport and worker APIs that could otherwise slip past a request filter: `WebSocket`, `RTCPeerConnection`/WebRTC, `WebTransport`, `Worker`, and `SharedWorker`. Views must bundle their assets locally; remote fonts, images, scripts, or analytics are blocked. `target="_blank"` links still open in the system browser as before. See `docs/security-model.md` (rule 2).
 
 ### Other changes
 
 - If the Microsoft Edge WebView2 Runtime is not installed, a dialog now appears at game launch naming the problem and offering to open Microsoft's installer download — previously the overlay just never appeared, with the cause buried in `OSF UI.log`.
+- In `devMode`, a view's `console.log` / `console.warn` / `console.error` output is now mirrored into `OSF UI.log` (at INFO / WARN / ERROR), so a misbehaving view is diagnosable in game rather than only in the browser harness. Off in normal play.
 
 ## 1.1.2 — 2026-07-21
 
