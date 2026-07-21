@@ -1342,14 +1342,27 @@ namespace osfui::wv2
 							}
 							return S_OK;
 						}).Get(), &token);
-				// The non-HTTP transports the filter can't see. Runs in every
-				// document (iframes included) before any page script; the
-				// non-configurable define means page code cannot restore the
-				// constructor, and `undefined` keeps feature detection on the
-				// graceful-degradation path.
+				// The channels the request filter can't see. Runs in every document
+				// (iframes included) before any page script; the non-configurable
+				// define means page code cannot restore the constructor, and
+				// `undefined` keeps feature detection on the graceful-degradation
+				// path. Two groups:
+				// - transports: WebSocket/WebRTC/WebTransport are non-HTTP, so the
+				//   403 filter never sees them.
+				// - workers: a Worker/SharedWorker loaded from a network URL gets its
+				//   OWN CSP from its script response, not the document's, and this
+				//   script does not run in worker scopes — so a worker is the one
+				//   place the transport neutering above wouldn't reach. WebView2's
+				//   folder mapping serves worker scripts internally without raising
+				//   WebResourceRequested, so a per-response CSP header isn't an
+				//   option either. Removing the constructors closes that scope
+				//   entirely. Views are local, no-network mod UIs; none use workers.
+				//   (Service workers are unaffected here but have no WebSocket, and
+				//   their fetches are already caught by the request filter.)
 				static constexpr auto kNeuter = LR"JS((() => {
 					for (const name of ['WebSocket', 'RTCPeerConnection',
-							'webkitRTCPeerConnection', 'WebTransport']) {
+							'webkitRTCPeerConnection', 'WebTransport',
+							'Worker', 'SharedWorker']) {
 						try {
 							Object.defineProperty(window, name,
 								{ value: undefined, writable: false, configurable: false });
