@@ -1,5 +1,6 @@
 #include "composite/UiPassSeam.h"
 
+#include "composite/EngineD3D12.h"
 #include "core/Log.h"
 #include "platform/WindowsPlatform.h"
 
@@ -263,6 +264,206 @@ namespace OSFUI::UiPassSeam
 			return CallGetterSeh(getter.get(), a_graphCtx);
 		}
 
+		// ------------------------------------------------- D3D12 call capture
+		// The blind scans found no D3D12 interfaces reachable from the engine
+		// command context (first run: zero hits at 0x200/1-hop), so instead of
+		// guessing offsets, catch the engine in the act: hook the process-wide
+		// ID3D12GraphicsCommandList vtable (obtained from a throwaway list
+		// created on the game's own device — same trick as the Present hook's
+		// throwaway swapchain) and log, ONLY while ScaleformComposite's
+		// original Execute runs on the bracket thread, which list sets render
+		// targets and which resources get barrier-transitioned. That yields
+		// the live list pointer (searched back through the ctx object to
+		// derive its offset) and the composite target's format via GetDesc.
+		//
+		// Slot indices are fixed COM ABI, straight from the d3d12.h C vtable
+		// (ID3D12GraphicsCommandListVtbl): 26 = ResourceBarrier,
+		// 46 = OMSetRenderTargets. Trust but verify: after hooking, each slot
+		// is self-tested by calling it on our own throwaway list and checking
+		// the thunk observed the sentinel — a wrong index unhooks itself.
+		constexpr std::size_t kSlotResourceBarrier = 26;
+		constexpr std::size_t kSlotOMSetRenderTargets = 46;
+		constexpr std::uint32_t kMaxCaptureBrackets = 6;  // composite brackets to log
+
+		using OMSetRenderTargetsFn = void(STDMETHODCALLTYPE*)(
+			ID3D12GraphicsCommandList*, UINT, const D3D12_CPU_DESCRIPTOR_HANDLE*, BOOL,
+			const D3D12_CPU_DESCRIPTOR_HANDLE*);
+		using ResourceBarrierFn = void(STDMETHODCALLTYPE*)(
+			ID3D12GraphicsCommandList*, UINT, const D3D12_RESOURCE_BARRIER*);
+
+		std::atomic<OMSetRenderTargetsFn> g_origOMSetRenderTargets{ nullptr };
+		std::atomic<ResourceBarrierFn> g_origResourceBarrier{ nullptr };
+		std::atomic<std::uint32_t> g_captureTid{ 0 };       // bracket: composite worker tid, else 0
+		std::atomic<std::uintptr_t> g_capturedList{ 0 };    // last list seen inside a bracket
+		std::atomic<std::uint32_t> g_captureBrackets{ 0 };  // brackets logged so far
+		std::atomic<int> g_captureState{ 0 };               // 0 untried, 1 ready, -1 failed
+		ID3D12GraphicsCommandList* g_selfTestList = nullptr;  // non-null only during self-test
+		std::atomic<bool> g_selfTestOMSeen{ false };
+		std::atomic<bool> g_selfTestBarrierSeen{ false };
+
+		void STDMETHODCALLTYPE OMSetRenderTargetsThunk(
+			ID3D12GraphicsCommandList* a_self,
+			const UINT a_numRTs,
+			const D3D12_CPU_DESCRIPTOR_HANDLE* a_rts,
+			const BOOL a_singleRange,
+			const D3D12_CPU_DESCRIPTOR_HANDLE* a_dsv)
+		{
+			if (a_self == g_selfTestList) {
+				g_selfTestOMSeen.store(true, std::memory_order_relaxed);
+			} else if (g_captureTid.load(std::memory_order_relaxed) == ::GetCurrentThreadId()) {
+				g_capturedList.store(reinterpret_cast<std::uintptr_t>(a_self), std::memory_order_relaxed);
+				REX::INFO("[UiPassSeam] capture OMSetRenderTargets list=0x{:X} numRTs={} rtv0=0x{:X} dsv={}",
+					reinterpret_cast<std::uintptr_t>(a_self), a_numRTs,
+					(a_rts && a_numRTs > 0) ? a_rts[0].ptr : 0,
+					a_dsv ? "yes" : "no");
+			}
+			if (const auto original = g_origOMSetRenderTargets.load(std::memory_order_relaxed)) {
+				original(a_self, a_numRTs, a_rts, a_singleRange, a_dsv);
+			}
+		}
+
+		void STDMETHODCALLTYPE ResourceBarrierThunk(
+			ID3D12GraphicsCommandList* a_self,
+			const UINT a_numBarriers,
+			const D3D12_RESOURCE_BARRIER* a_barriers)
+		{
+			if (a_self == g_selfTestList) {
+				g_selfTestBarrierSeen.store(true, std::memory_order_relaxed);
+			} else if (g_captureTid.load(std::memory_order_relaxed) == ::GetCurrentThreadId()) {
+				g_capturedList.store(reinterpret_cast<std::uintptr_t>(a_self), std::memory_order_relaxed);
+				const auto count = a_barriers ? (a_numBarriers < 8u ? a_numBarriers : 8u) : 0u;
+				for (UINT i = 0; i < count; ++i) {
+					const auto& barrier = a_barriers[i];
+					if (barrier.Type != D3D12_RESOURCE_BARRIER_TYPE_TRANSITION || !barrier.Transition.pResource) {
+						continue;
+					}
+					const auto desc = barrier.Transition.pResource->GetDesc();
+					REX::INFO("[UiPassSeam] capture barrier list=0x{:X} res=0x{:X} {}x{} fmt={} ({}) states 0x{:X}->0x{:X}",
+						reinterpret_cast<std::uintptr_t>(a_self),
+						reinterpret_cast<std::uintptr_t>(barrier.Transition.pResource),
+						static_cast<std::uint64_t>(desc.Width), desc.Height,
+						static_cast<int>(desc.Format), FormatName(desc.Format),
+						static_cast<std::uint32_t>(barrier.Transition.StateBefore),
+						static_cast<std::uint32_t>(barrier.Transition.StateAfter));
+				}
+			}
+			if (const auto original = g_origResourceBarrier.load(std::memory_order_relaxed)) {
+				original(a_self, a_numBarriers, a_barriers);
+			}
+		}
+
+		[[nodiscard]] void* PatchSlot(void** a_vtbl, const std::size_t a_slot, void* a_thunk)
+		{
+			DWORD oldProtect = 0;
+			if (!::VirtualProtect(&a_vtbl[a_slot], sizeof(void*), PAGE_READWRITE, &oldProtect)) {
+				return nullptr;
+			}
+			void* original = a_vtbl[a_slot];
+			a_vtbl[a_slot] = a_thunk;
+			::VirtualProtect(&a_vtbl[a_slot], sizeof(void*), oldProtect, &oldProtect);
+			return original;
+		}
+
+		// Lazy, once. Creates a throwaway DIRECT list on the game's device to
+		// reach the shared d3d12.dll vtable, hooks the two slots, and proves
+		// the slot indices by calling both methods on the throwaway list
+		// (OMSetRenderTargets with zero targets and a global-UAV barrier are
+		// both legal no-ops). A failed self-test restores the slots.
+		void EnsureCaptureInstalled()
+		{
+			int expected = 0;
+			if (!g_captureState.compare_exchange_strong(expected, -1, std::memory_order_acq_rel)) {
+				return;  // already tried (state is 1 or -1); never retry
+			}
+
+			const auto engine = LocateEngineD3D12();
+			if (!engine) {
+				REX::WARN("[UiPassSeam] capture: engine D3D12 device not reachable; skipping call capture");
+				return;
+			}
+
+			ID3D12CommandAllocator* allocator = nullptr;
+			ID3D12GraphicsCommandList* list = nullptr;
+			auto* device = reinterpret_cast<ID3D12Device*>(engine.device);
+			const bool created =
+				SUCCEEDED(device->CreateCommandAllocator(
+					D3D12_COMMAND_LIST_TYPE_DIRECT, __uuidof(ID3D12CommandAllocator),
+					reinterpret_cast<void**>(&allocator))) &&
+				SUCCEEDED(device->CreateCommandList(
+					0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator, nullptr,
+					__uuidof(ID3D12GraphicsCommandList), reinterpret_cast<void**>(&list)));
+
+			if (created) {
+				auto** vtbl = *reinterpret_cast<void***>(list);
+				g_selfTestList = list;
+				const auto origOM = PatchSlot(vtbl, kSlotOMSetRenderTargets, reinterpret_cast<void*>(&OMSetRenderTargetsThunk));
+				const auto origBarrier = PatchSlot(vtbl, kSlotResourceBarrier, reinterpret_cast<void*>(&ResourceBarrierThunk));
+				g_origOMSetRenderTargets.store(reinterpret_cast<OMSetRenderTargetsFn>(origOM), std::memory_order_relaxed);
+				g_origResourceBarrier.store(reinterpret_cast<ResourceBarrierFn>(origBarrier), std::memory_order_relaxed);
+
+				if (origOM && origBarrier) {
+					list->OMSetRenderTargets(0, nullptr, FALSE, nullptr);
+					D3D12_RESOURCE_BARRIER uav{};
+					uav.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+					uav.UAV.pResource = nullptr;  // global UAV barrier: legal on any list
+					list->ResourceBarrier(1, &uav);
+				}
+
+				const bool omOk = g_selfTestOMSeen.load(std::memory_order_relaxed);
+				const bool barrierOk = g_selfTestBarrierSeen.load(std::memory_order_relaxed);
+				if (origOM && origBarrier && omOk && barrierOk) {
+					g_selfTestList = nullptr;
+					g_captureState.store(1, std::memory_order_release);
+					REX::INFO("[UiPassSeam] capture armed: ID3D12GraphicsCommandList vtable slots {} (barrier) / {} (OMSetRenderTargets) hooked and self-tested",
+						kSlotResourceBarrier, kSlotOMSetRenderTargets);
+				} else {
+					// Wrong slot layout or protect failure: undo what we did.
+					if (origOM) {
+						(void)PatchSlot(vtbl, kSlotOMSetRenderTargets, origOM);
+					}
+					if (origBarrier) {
+						(void)PatchSlot(vtbl, kSlotResourceBarrier, origBarrier);
+					}
+					g_origOMSetRenderTargets.store(nullptr, std::memory_order_relaxed);
+					g_origResourceBarrier.store(nullptr, std::memory_order_relaxed);
+					g_selfTestList = nullptr;
+					REX::WARN("[UiPassSeam] capture self-test FAILED (patch={}/{} seen={}/{}); vtable restored, call capture disabled",
+						origOM != nullptr, origBarrier != nullptr, omOk, barrierOk);
+				}
+				list->Close();
+			} else {
+				REX::WARN("[UiPassSeam] capture: throwaway command list creation failed; skipping call capture");
+			}
+
+			if (list) {
+				list->Release();
+			}
+			if (allocator) {
+				allocator->Release();
+			}
+			engine.directQueue->Release();
+			engine.device->Release();
+		}
+
+		// After a captured bracket: where does the engine ctx keep that list?
+		void ReportListOffset(const char* a_tag, const std::uintptr_t a_object, const std::uintptr_t a_list)
+		{
+			if (!a_object) {
+				return;
+			}
+			bool found = false;
+			for (std::size_t offset = 0; offset < 0x1000; offset += sizeof(std::uintptr_t)) {
+				std::uintptr_t value = 0;
+				if (Platform::SafeReadPointer(a_object + offset, value) && value == a_list) {
+					REX::INFO("[UiPassSeam] capture: {}+0x{:X} holds the recording ID3D12GraphicsCommandList", a_tag, offset);
+					found = true;
+				}
+			}
+			if (!found) {
+				REX::INFO("[UiPassSeam] capture: list 0x{:X} not stored in {}'s first 0x1000 bytes", a_list, a_tag);
+			}
+		}
+
 		// ------------------------------------------------------------- thunks
 		void* BeginThunk(void* a_this, void* a_ctx, void* a_io, void* a_r9)
 		{
@@ -307,8 +508,9 @@ namespace OSFUI::UiPassSeam
 
 			// Pre-original: this is where the future under-UI draw records, so
 			// probe the state the draw would actually see.
+			std::uintptr_t cmdCtx = 0;
 			if (count <= kMaxDetailLogs) {
-				const auto cmdCtx = reinterpret_cast<std::uintptr_t>(GetEngineCmdCtx(a_ctx));
+				cmdCtx = reinterpret_cast<std::uintptr_t>(GetEngineCmdCtx(a_ctx));
 				REX::INFO("[UiPassSeam] Composite[{}] tid={} this=0x{:X} ctx=0x{:X} io=0x{:X} cmdCtx=0x{:X}",
 					count, ::GetCurrentThreadId(),
 					reinterpret_cast<std::uintptr_t>(a_this), reinterpret_cast<std::uintptr_t>(a_ctx),
@@ -325,8 +527,38 @@ namespace OSFUI::UiPassSeam
 				}
 			}
 
+			// Bracket the original Execute with D3D12 call capture on this
+			// thread: the engine records the composite via this very ctx, so
+			// whatever list its calls land on IS the one the draw path needs.
+			EnsureCaptureInstalled();
+			const bool capture =
+				g_captureState.load(std::memory_order_acquire) == 1 &&
+				g_captureBrackets.load(std::memory_order_relaxed) < kMaxCaptureBrackets;
+			if (capture) {
+				g_capturedList.store(0, std::memory_order_relaxed);
+				g_captureTid.store(::GetCurrentThreadId(), std::memory_order_release);
+			}
+
 			const auto original = reinterpret_cast<ExecuteFn>(g_origComposite.load(std::memory_order_relaxed));
-			return original ? original(a_this, a_ctx, a_io, a_r9) : nullptr;
+			void* result = original ? original(a_this, a_ctx, a_io, a_r9) : nullptr;
+
+			if (capture) {
+				g_captureTid.store(0, std::memory_order_release);
+				const auto bracket = g_captureBrackets.fetch_add(1, std::memory_order_relaxed) + 1;
+				const auto list = g_capturedList.load(std::memory_order_relaxed);
+				if (list) {
+					if (!cmdCtx) {
+						cmdCtx = reinterpret_cast<std::uintptr_t>(GetEngineCmdCtx(a_ctx));
+					}
+					ReportListOffset("cmdCtx", cmdCtx, list);
+					ReportListOffset("graphCtx", reinterpret_cast<std::uintptr_t>(a_ctx), list);
+				} else {
+					// No D3D12 calls seen: the early-skip path (UI buffer
+					// untouched) — expected on frames with no live movies.
+					REX::INFO("[UiPassSeam] capture bracket {}: no OMSetRenderTargets/barrier calls (composite skipped?)", bracket);
+				}
+			}
+			return result;
 		}
 
 		// -------------------------------------------------------------- hooks
