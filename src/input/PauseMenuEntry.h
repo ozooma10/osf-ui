@@ -35,9 +35,14 @@ namespace OSFUI
 	//     policy path (Runtime::EnqueueOpenView).
 	//
 	// The engine may re-push PauseMenuListData at any time, which re-runs
-	// PopulateMainList and wipes the injected entry, so Reconcile re-checks
-	// presence every tick while the pause menu is open — ~10 small GFx reads at
-	// pause-menu framerate.
+	// PopulateMainList and wipes the injected entry. While the pause menu is
+	// open, Reconcile's steady state is a single entryCount read per tick; the
+	// per-entry GetDataForEntry scan (and any re-inject) runs only when the
+	// count deviates from the shape last established. That count-gate plus an
+	// SEH guard (first access violation inside the AS3 interop logs and
+	// disables injection for the session) hardens against a 2026-07-20 field
+	// CTD: a per-tick GetDataForEntry invoke dispatched through a null AS3
+	// method slot mid list-rebuild, on vanilla SWFs.
 	//
 	// Source of truth for the AS3 structure: pausemenu.swf 1.16.244 decompiled
 	// with JPEXS 2026-07-13 (kept at tmp/pausemenu-re next to this repo); see
