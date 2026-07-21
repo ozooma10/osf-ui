@@ -4,7 +4,9 @@
 
 ### Fixed
 
-- The game no longer crashes shortly after opening the overlay when NVIDIA DLSS Frame Generation is enabled. The overlay now detects swapchains that Frame Generation drives and leaves them alone instead of drawing into them, and it guards against the overlapping present calls that Frame Generation introduces (thanks to the user who reported this!). While Frame Generation is on, the overlay does not display on that output — turn Frame Generation off to use it; broader Frame Generation support is still on the roadmap.
+- Fixed a crash tied to the pause-menu entry while the menu list was rebuilding.
+- Try to fix crashes when Frame Generation enabled.
+
 
 ## 1.1.1 — 2026-07-20
 
