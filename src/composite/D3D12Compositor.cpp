@@ -13,7 +13,9 @@
 #include <d3d12.h>
 #include <d3dcompiler.h>
 #include <dxgi1_6.h>
+#include <intrin.h>  // _ReturnAddress: classify who invokes our Present thunk
 
+#include <cctype>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -100,6 +102,17 @@ namespace OSFUI
 				return "<unknown module>";
 			}
 			return std::string(utf8, static_cast<std::size_t>(written));
+		}
+
+		// Bare lowercase filename of a module path, for prefix matching.
+		[[nodiscard]] std::string ModuleFileNameLower(const std::string& a_path)
+		{
+			const auto sep = a_path.find_last_of("\\/");
+			auto name = sep == std::string::npos ? a_path : a_path.substr(sep + 1);
+			for (auto& c : name) {
+				c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+			}
+			return name;
 		}
 
 		// A vtable-slot read cannot see tools that hook Present by patching the
@@ -322,18 +335,39 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			// every format change (e.g. HDR toggled mid-session), warned once
 			// per change.
 			bool             supported{ false };
+			// Who calls Present on this swapchain (immediate return address of
+			// our thunk, re-resolved to a module when the call site changes).
+			// Presents arriving from sl.dlss_g.dll mean NVIDIA Frame Generation
+			// is pacing this swapchain from its own thread — drawing into it
+			// races Streamline's queue work (external CTD: null-deref inside
+			// sl.dlss_g during swapchain recreation seconds after our first
+			// draw), so fgDriven targets are never drawn on. sl.interposer
+			// alone is NOT a trigger: every vanilla install ships it, and
+			// passive game-thread forwarding through it draws fine.
+			const void*      callerRet{ nullptr };
+			bool             fgDriven{ false };
+			bool             callerLogged{ false };
 		};
 		Target targets[kMaxSwapchains]{};
 
 		std::uint64_t drawnFrames{ 0 };
 		std::uint64_t waitedBusy{ 0 };   // presents that had to wait for a busy slot
 		std::uint64_t skippedBusy{ 0 };  // presents dropped because the wait timed out (GPU hung)
+
+		// Single-flight gate for OnPresent. With Frame Generation active the
+		// real swapchain presents from FG's pacing thread concurrently with the
+		// game thread's presents, and everything OnPresent touches (targets,
+		// cmdSlots, cmdIndex, PSO cache) is single-thread state. An overlapped
+		// present skips the overlay draw instead of corrupting that state.
+		std::atomic_bool           presentBusy{ false };
+		std::atomic<std::uint64_t> skippedConcurrent{ 0 };
+		std::atomic_bool           concurrentWarned{ false };
 		bool          firstDrawLogged{ false };
 		bool          targetsFullLogged{ false };
 
 		// Hook-liveness watchdog. Another overlay that re-hooks Present after us
 		// without chaining silently stops our thunk from running — the overlay
-		// just vanishes. OnPresent stamps this every call (present thread);
+		// just vanishes. PresentThunk stamps this every call (present thread);
 		// CheckPresentLiveness (tick thread) warns when the game keeps ticking
 		// but no present has reached us. No false positive on focus loss: the
 		// game pauses the tick loop too, so the watchdog isn't polled then.
@@ -793,23 +827,34 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			return ok;
 		}
 
-		// Present, on the render thread.
+		// Present, on whichever thread presents — the game's render thread, or
+		// a frame-generation pacing thread when Streamline FG is active.
 		static HRESULT STDMETHODCALLTYPE PresentThunk(IDXGISwapChain* a_swap, UINT a_sync, UINT a_flags)
 		{
 			if (auto* self = static_cast<Impl*>(g_overlay.load())) {
-				self->OnPresent(a_swap, a_flags);
+				// Stamp the watchdog before any gate: it answers "does the
+				// present stream still reach our thunk at all", independent of
+				// visibility, frame availability, or the single-flight gate.
+				self->lastPresentMs.store(::GetTickCount64(), std::memory_order_relaxed);
+
+				if (!self->presentBusy.exchange(true, std::memory_order_acquire)) {
+					self->OnPresent(a_swap, a_flags, _ReturnAddress());
+					self->presentBusy.store(false, std::memory_order_release);
+				} else {
+					self->skippedConcurrent.fetch_add(1, std::memory_order_relaxed);
+					if (!self->concurrentWarned.exchange(true, std::memory_order_relaxed)) {
+						REX::WARN("D3D12Compositor: overlapping Present calls from two threads — "
+								  "a frame-generation pacing thread is likely active. Overlapped "
+								  "presents skip the overlay draw (counted, warned once).");
+					}
+				}
 			}
 			const auto original = g_originalPresent.load();
 			return original ? original(a_swap, a_sync, a_flags) : S_OK;
 		}
 
-		void OnPresent(IDXGISwapChain* a_swap, UINT a_flags)
+		void OnPresent(IDXGISwapChain* a_swap, UINT a_flags, const void* a_callerRet)
 		{
-			// Stamp the watchdog before any early-out: it answers "does the
-			// present stream still reach our thunk at all", independent of
-			// visibility or frame availability.
-			lastPresentMs.store(::GetTickCount64(), std::memory_order_relaxed);
-
 			if (!setupOk || !a_swap || (a_flags & DXGI_PRESENT_TEST)) {
 				return;
 			}
@@ -823,6 +868,8 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				return;
 			}
 
+			UpdatePresentCaller(*target, a_callerRet);
+
 			// Real output size -> runtime, so the view is aspect-correct. Fires
 			// on first sight and on any change.
 			if (onOutputResize && (target->width != notifiedOutputW || target->height != notifiedOutputH)) {
@@ -834,6 +881,10 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 			if (!visible.load(std::memory_order_relaxed)) {
 				return;
+			}
+
+			if (target->fgDriven) {
+				return;  // FG-paced swapchain: never draw (see Target::fgDriven)
 			}
 
 			bool gpu = false;
@@ -888,6 +939,38 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				RecordAndExecute(slot, *target, backIndex, pipeline);
 			}
 			++cmdIndex;
+		}
+
+		// Re-classify a target when its Present call site changes (cheap pointer
+		// compare per present; module resolution only on change). Rationale for
+		// the sl.dlss_g-only trigger is on Target::fgDriven.
+		void UpdatePresentCaller(Target& a_t, const void* a_callerRet)
+		{
+			if (a_callerRet == a_t.callerRet) {
+				return;
+			}
+			a_t.callerRet = a_callerRet;
+			const auto owner = ModuleNameOfAddress(a_callerRet);
+			const bool fg = ModuleFileNameLower(owner).rfind("sl.dlss_g", 0) == 0;
+			if (fg && !a_t.fgDriven) {
+				REX::WARN("D3D12Compositor: swapchain 0x{:X} is presented from '{}' — NVIDIA Frame "
+						  "Generation is pacing this swapchain, and drawing into it races Streamline's "
+						  "queue work (can crash the game). The overlay will NOT draw on this swapchain. "
+						  "If the overlay is invisible, disable Frame Generation in Starfield's display "
+						  "settings. Frame-gen compatibility is tracked in the project roadmap.",
+					a_t.key, owner);
+			} else if (!fg && a_t.fgDriven) {
+				REX::INFO("D3D12Compositor: swapchain 0x{:X} presents from '{}' again — Frame Generation "
+						  "no longer pacing it; resuming overlay draws",
+					a_t.key, owner);
+			} else if (!a_t.callerLogged) {
+				// One coexistence line per swapchain: who normally presents it
+				// (Starfield.exe directly, sl.interposer forwarding, or another
+				// overlay's chained hook).
+				REX::INFO("D3D12Compositor: swapchain 0x{:X} presents from '{}'", a_t.key, owner);
+			}
+			a_t.callerLogged = true;
+			a_t.fgDriven = fg;
 		}
 
 		// GPU-transport draw: fullscreen quad sampling the shared ring slot. The
@@ -972,8 +1055,9 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 						  "slot {} serial {} -> {}x{} target)",
 					ringSlot, serial, a_target.width, a_target.height);
 			} else if ((drawnFrames % 1200) == 0) {
-				REX::DEBUG("D3D12Compositor: {} overlay draws ({} waited on busy slot, {} dropped on timeout)",
-					drawnFrames, waitedBusy, skippedBusy);
+				REX::DEBUG("D3D12Compositor: {} overlay draws ({} waited on busy slot, {} dropped on timeout, "
+						   "{} skipped as concurrent)",
+					drawnFrames, waitedBusy, skippedBusy, skippedConcurrent.load(std::memory_order_relaxed));
 			}
 		}
 
@@ -1324,8 +1408,9 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 						  "({}x{} overlay -> {}x{} target) — Phase 3 composition live",
 					texWidth, texHeight, a_target.width, a_target.height);
 			} else if ((drawnFrames % 1200) == 0) {
-				REX::DEBUG("D3D12Compositor: {} overlay draws ({} waited on busy slot, {} dropped on timeout)",
-					drawnFrames, waitedBusy, skippedBusy);
+				REX::DEBUG("D3D12Compositor: {} overlay draws ({} waited on busy slot, {} dropped on timeout, "
+						   "{} skipped as concurrent)",
+					drawnFrames, waitedBusy, skippedBusy, skippedConcurrent.load(std::memory_order_relaxed));
 			}
 		}
 
