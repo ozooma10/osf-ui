@@ -20,7 +20,7 @@ Out of the box:
 
 The Mods surface is simply the first thing built on the framework - any mod can ship its own views, settings, and hotkeys through it. See it powering a full mod today: [url=https://www.nexusmods.com/starfield/mods/17457]OSF Animation[/url]'s scene browser, emote wheel, settings, and hotkeys all run on OSF UI.
 
-[i][b]Status: early alpha.[/b] 1.0.0 is the first public build - working and verified in-game on Starfield 1.16.244, but expect rough edges. Bug reports are very welcome, here or on [url=https://github.com/ozooma10/osf-ui]GitHub[/url].[/i]
+[i][b]Status: early alpha.[/b] 1.1.1 renders through Microsoft Edge WebView2 - working and verified in-game on Starfield 1.16.244, but expect rough edges. Bug reports are very welcome, here or on [url=https://github.com/ozooma10/osf-ui]GitHub[/url] - please attach [font=Courier New]OSF UI.log[/font] and [font=Courier New]OSF UI.webview2-host.log[/font] from [font=Courier New]Documents\My Games\Starfield\SFSE\Logs[/font].[/i]
 
 [line]
 
@@ -44,13 +44,14 @@ The Mods surface is simply the first thing built on the framework - any mod can 
 [size=4][b]Requirements[/b][/size]
 [list]
 [*][url=https://www.nexusmods.com/starfield/mods/3256]Address Library for SFSE Plugins[/url][/*]
+[*][url=https://developer.microsoft.com/microsoft-edge/webview2/]WebView2 Evergreen Runtime[/url] - already installed on up-to-date Windows 10/11; only needed manually on stripped-down systems.[/*]
 [/list]
 
 [size=4][b]Installation[/b][/size]
-Install with a mod manager (Mod Organizer 2 / Vortex) and enable it.sssss Launch the game through SFSE.
+Install with a mod manager (Mod Organizer 2 / Vortex) and enable it. Launch the game through SFSE.
 
 [size=4][b]Try it[/b][/size]
-Load a save and press [b]F10[/b]. The Mods surface opens over the game, and OSF UI's own settings and the Keybinds map are already there. Press [b]F10[/b] again (or [b]Esc[/b]) to close. Then install a mod that supports it - like [url=https://www.nexusmods.com/starfield/mods/17457]OSF Animation[/url] -ss and watch its card appear.
+Load a save and press [b]F10[/b]. The Mods surface opens over the game, and OSF UI's own settings and the Keybinds map are already there. Press [b]F10[/b] again (or [b]Esc[/b]) to close. Then install a mod that supports it - like [url=https://www.nexusmods.com/starfield/mods/17457]OSF Animation[/url] - and watch its card appear.
 
 [line]
 
