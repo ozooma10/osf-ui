@@ -37,9 +37,12 @@ namespace osfui::wv2
 	// never approach this; protects both sides from a corrupt length prefix).
 	inline constexpr std::uint32_t kMaxMessageBytes = 8u * 1024u * 1024u;
 
-	// Shared-texture ring depth. 3 slots: one being written, one in flight,
-	// one being composited.
-	inline constexpr std::uint32_t kRingSlots = 3;
+	// Shared-texture ring depth. 4 slots: one being written, one in flight,
+	// one being composited, plus one spare so a single slow game present does
+	// not stall the capture thread on the consume fence. The consumer sizes
+	// itself from the `textures` message's slots array (up to its capacity),
+	// so this is host-side tuning, not a wire-protocol change.
+	inline constexpr std::uint32_t kRingSlots = 4;
 
 	// Fallback for `navigate.logicalHeight` (the view manifest's authoring
 	// height) when a client omits it. Mirrors kDefaultViewHeight plugin-side.

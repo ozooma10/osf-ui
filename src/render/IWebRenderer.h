@@ -114,9 +114,13 @@ namespace OSFUI
 	// (higher generation) invalidates every prior slot.
 	struct SharedRingDesc
 	{
-		static constexpr std::size_t kSlots = 3;
+		// Capacity only — the producer announces the actual ring depth per
+		// generation (slotCount); entries past it stay null. Keeps the depth a
+		// producer-side tuning knob instead of a cross-binary constant.
+		static constexpr std::size_t kMaxSlots = 8;
 
-		void*         slotHandles[kSlots]{};
+		void*         slotHandles[kMaxSlots]{};
+		std::uint32_t slotCount{ 0 };
 		void*         produceFence{ nullptr };
 		void*         consumeFence{ nullptr };
 		std::uint32_t width{ 0 };

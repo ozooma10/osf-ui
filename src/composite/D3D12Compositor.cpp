@@ -256,7 +256,8 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		SharedRingDesc sharedPending{};
 		bool           sharedDirty{ false };
 		// present-thread-only, opened on the engine device:
-		ID3D12Resource* sharedSlots[SharedRingDesc::kSlots]{};
+		ID3D12Resource* sharedSlots[SharedRingDesc::kMaxSlots]{};
+		std::uint32_t   sharedSlotCount{ 0 };
 		ID3D12Fence*    sharedProduce{ nullptr };
 		ID3D12Fence*    sharedConsume{ nullptr };
 		std::uint64_t   sharedGeneration{ 0 };
@@ -283,7 +284,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			bool                 failed{ false };
 		};
 		PsoEntry              psoCache[kMaxPsoFormats]{};
-		// shader-visible: slot 0 = CPU overlay texture, 1..kSlots = shared ring
+		// shader-visible: slot 0 = CPU overlay texture, 1..kMaxSlots = shared ring
 		ID3D12DescriptorHeap* srvHeap{ nullptr };
 		ID3D12DescriptorHeap* rtvHeap{ nullptr };  // backbuffer RTVs
 		std::uint32_t         rtvStride{ 0 };
@@ -456,6 +457,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			for (auto*& slot : sharedSlots) {
 				SafeRelease(slot);
 			}
+			sharedSlotCount = 0;
 			SafeRelease(sharedProduce);
 			SafeRelease(sharedConsume);
 		}
@@ -491,13 +493,13 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			ReleaseSharedRing();
 
 			auto* dev = engine.device;
-			bool ok = true;
-			for (std::size_t i = 0; i < SharedRingDesc::kSlots; ++i) {
+			bool ok = pending.slotCount > 0 &&
+			          pending.slotCount <= SharedRingDesc::kMaxSlots;
+			for (std::size_t i = 0; ok && i < pending.slotCount; ++i) {
 				if (!pending.slotHandles[i] ||
 					FAILED(dev->OpenSharedHandle(pending.slotHandles[i],
 						__uuidof(ID3D12Resource), reinterpret_cast<void**>(&sharedSlots[i])))) {
 					ok = false;
-					break;
 				}
 			}
 			if (ok && (!pending.produceFence ||
@@ -519,7 +521,8 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				return false;
 			}
 			sharedGeneration = pending.generation;
-			for (std::uint32_t i = 0; i < SharedRingDesc::kSlots; ++i) {
+			sharedSlotCount = pending.slotCount;
+			for (std::uint32_t i = 0; i < sharedSlotCount; ++i) {
 				D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
 				srv.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
 				srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
@@ -531,8 +534,8 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				};
 				dev->CreateShaderResourceView(sharedSlots[i], &srv, handle);
 			}
-			REX::INFO("D3D12Compositor: shared ring adopted ({}x{}, generation {})",
-				pending.width, pending.height, pending.generation);
+			REX::INFO("D3D12Compositor: shared ring adopted ({}x{}, {} slots, generation {})",
+				pending.width, pending.height, sharedSlotCount, pending.generation);
 			return true;
 		}
 
@@ -630,10 +633,10 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			}
 
 			// Descriptor heaps. SRV slot 0 is the CPU-upload overlay texture;
-			// slots 1..kSlots hold the shared-ring textures (GPU transport).
+			// slots 1..kMaxSlots hold the shared-ring textures (GPU transport).
 			D3D12_DESCRIPTOR_HEAP_DESC srvDesc{};
 			srvDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-			srvDesc.NumDescriptors = 1 + SharedRingDesc::kSlots;
+			srvDesc.NumDescriptors = 1 + SharedRingDesc::kMaxSlots;
 			srvDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 			if (FAILED(dev->CreateDescriptorHeap(&srvDesc, __uuidof(ID3D12DescriptorHeap), reinterpret_cast<void**>(&srvHeap)))) {
 				REX::ERROR("D3D12Compositor: CreateDescriptorHeap(SRV) failed");
@@ -988,7 +991,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				ringSlot = gpuSlot;
 				serial = gpuSerial;
 			}
-			if (ringSlot >= SharedRingDesc::kSlots || !sharedSlots[ringSlot] || serial == 0) {
+			if (ringSlot >= sharedSlotCount || !sharedSlots[ringSlot] || serial == 0) {
 				return;
 			}
 
