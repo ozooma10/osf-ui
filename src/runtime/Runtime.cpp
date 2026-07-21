@@ -623,10 +623,19 @@ namespace OSFUI
 		// which would drop the compositor push on the no-change startup path.
 		const bool visible = _menus.DesiredVisible();
 		const bool wasVisible = _visible.exchange(visible);
-		// WebView2's keyboard model is real Win32 focus. Its worker moves focus
-		// into Chromium on capture and asks the game WndProc to restore focus on
-		// close; injected key/char events remain unused for that backend.
-		_renderer->SetNativeKeyboardFocus(visible && _captureInput.load());
+		// Focus-on-demand keyboard model: the game window keeps real Win32 focus
+		// by default — Windows.Gaming.Input (the engine's gamepad source) stops
+		// delivering the moment another process owns the focused window, so a
+		// session-long Chromium focus grab kills all gamepad input (2026-07-21
+		// report). Keys reach the page as injected events via the WndProc capture
+		// path; the WebView only takes real focus (typing/IME) while the active
+		// view holds a text-entry grant.
+		if (!visible && wasVisible) {
+			// Session over: typing grants don't outlive the overlay, or a
+			// controller-first reopen would start with the gamepad dead.
+			_textFocusViews.clear();
+		}
+		ReconcileNativeFocus();
 		if (_compositor) {
 			if (visible && !wasVisible) {
 				// Closed->open edge: defer the reveal. The compositor redraws
@@ -699,6 +708,25 @@ namespace OSFUI
 		BroadcastViewsData();
 	}
 
+	void Runtime::ReconcileNativeFocus()
+	{
+		// Main thread (ApplyMenuPolicy, osfui.textFocus handler, view cleanup).
+		// Edge-guarded: the false side posts a game-focus restore to the window
+		// thread, and the true side races Chromium's async MoveFocus, so repeat
+		// sends would only feed the focus watchdog more churn.
+		if (!_renderer) {
+			return;
+		}
+		const auto active = _menus.ActiveMenu();
+		const bool want = _visible.load() && _captureInput.load() &&
+			active && _textFocusViews.contains(*active);
+		if (want == _nativeFocusGranted) {
+			return;
+		}
+		_nativeFocusGranted = want;
+		_renderer->SetNativeKeyboardFocus(want);
+	}
+
 	bool Runtime::IsVisible() const
 	{
 		return _visible.load();
@@ -726,10 +754,13 @@ namespace OSFUI
 	{
 		const std::string id(a_viewId);
 		_viewLoadState[id] = a_failed ? ViewLoadState::Failed : ViewLoadState::Finished;
-		// The gamepad-raw / back-owner grants are sticky for a page's lifetime, so
-		// a (re)loaded page starts un-granted and re-asserts in its own boot code.
+		// The gamepad-raw / back-owner / text-entry grants are sticky for a page's
+		// lifetime, so a (re)loaded page starts un-granted and re-asserts in its
+		// own boot code (text-entry via the injected shim's intent tracking).
 		_gamepadRawViews.erase(id);
 		_backOwnerViews.erase(id);
+		_textFocusViews.erase(id);
+		ReconcileNativeFocus();  // a reloading page can't be typed into
 		if (!a_failed) {
 			// A healthy load clears the strikes, so a later failure gets the full
 			// retry budget again.
@@ -767,6 +798,8 @@ namespace OSFUI
 			_i18nSubscribers.erase(id);
 			_gamepadRawViews.erase(id);   // its sticky gamepad grant dies with it
 			_backOwnerViews.erase(id);    // ditto the back-owner grant
+			_textFocusViews.erase(id);    // and the text-entry grant
+			ReconcileNativeFocus();
 			for (const auto& mod : _modules) {
 				mod->OnViewDestroyed(id);  // module-held subscriber sets too
 			}
@@ -1532,6 +1565,27 @@ namespace OSFUI
 			} else {
 				_gamepadRawViews.erase(src);
 			}
+		});
+		a_bridge.RegisterCommand("osfui.textFocus", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
+			// Live text entry in the page (sent by the host bridge shim on real
+			// typing intent — a click into an editable or a printable keystroke
+			// inside one). While the active view holds the grant the WebView owns
+			// real OS keyboard focus so typing/IME work; revoking hands focus
+			// back to the game window so Windows.Gaming.Input resumes feeding
+			// the engine's gamepad path. Same lifecycle as osfui.gamepadRaw,
+			// plus a clear on overlay close (ApplyMenuPolicy) — a stale grant
+			// would reopen the overlay with the gamepad dead.
+			const std::string src(a_b.CurrentSource());
+			if (src.empty()) {
+				a_b.SendResult(false, "unknown-view", "no source view");
+				return;
+			}
+			if (Json::GetBool(a_p, "focused", false)) {
+				_textFocusViews.insert(src);
+			} else {
+				_textFocusViews.erase(src);
+			}
+			ReconcileNativeFocus();
 		});
 		a_bridge.RegisterCommand("osfui.openModPage", [](const nlohmann::json&, MessageBridge& a_b) {
 			// "Update OSF UI" affordances in views (e.g. OSF Animation's status-line

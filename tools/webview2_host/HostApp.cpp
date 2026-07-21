@@ -185,15 +185,13 @@ namespace osfui::wv2
 			bool          captured{ false }, captureArmed{ false };
 			std::unordered_set<UINT> handledKeys;
 			std::uint64_t accelEvents{ 0 };  // every AcceleratorKeyPressed callback (diagnostic)
-			// Keys this host posted into the widget itself (the "key" command:
-			// gamepad-nav taps, the runtime's Esc back-delegation). Their
-			// AcceleratorKeyPressed callbacks must reach the page — marking them
-			// handled or forwarding them to the game makes a delegated Esc read as
-			// a fresh real press, so the game re-enqueues Back and injects again:
-			// an infinite game<->host ping-pong the page never sees. Keyed by
-			// (vk << 1) | down; counted, because a tap queues down+up before
-			// either callback runs.
-			std::unordered_map<UINT, int> syntheticKeys;
+			// NOTE: the "key" command used to PostMessage into the Chromium widget
+			// and mark each tap in a syntheticKeys map so AcceleratorKeyPressed
+			// would pass it to the page instead of round-tripping it to the game
+			// (a delegated Esc read as a fresh press caused an infinite ping-pong).
+			// Keys are now delivered as DOM events by the bridge shim — no Win32
+			// message, no accelerator callback, no markers needed. Only REAL
+			// presses (WebView focused during text entry) reach the accel path.
 
 			// Rebind capture of character keys. AcceleratorKeyPressed, this host's
 			// only key path, by design does not fire for keys that map to a character
@@ -956,6 +954,13 @@ namespace osfui::wv2
 			{
 				// Bridge contract: osfui.postMessage / osfui.onMessage, with
 				// buffering for messages that arrive before onMessage is installed.
+				// Also hosts the text-entry focus tracker (focus-on-demand keyboard
+				// model): the game window keeps real OS focus so Windows.Gaming.Input
+				// keeps feeding the engine's gamepad path; the WebView only takes
+				// focus while the user is actually typing. DOM focus alone is NOT
+				// typing intent — padnav moves it on every dpad/arrow step — so a
+				// grant needs a pointer press or a printable keystroke. Living in
+				// the shim, every view (content mods included) gets it for free.
 				static constexpr wchar_t shim[] = LR"JS(
 					(() => {
 						const bridge = window.osfui = window.osfui || {};
@@ -976,9 +981,164 @@ namespace osfui::wv2
 							chrome.webview.postMessage(JSON.stringify({
 								__osfuiListener: String(name), argument: String(arg)
 							}));
+
+						// --- text-entry focus tracker (osfui.textFocus) ---
+						const editable = (el) => {
+							if (!el || el === document.body) return false;
+							if (el.isContentEditable) return true;
+							const tag = el.tagName ? el.tagName.toLowerCase() : '';
+							if (tag === 'textarea') return true;
+							if (tag !== 'input') return false;
+							const type = (el.getAttribute('type') || 'text').toLowerCase();
+							return !['button', 'checkbox', 'radio', 'range', 'submit',
+								'reset', 'color', 'file', 'image'].includes(type);
+						};
+						let granted = false;
+						const sendTextFocus = (f) => {
+							if (f === granted) return;
+							granted = f;
+							chrome.webview.postMessage(JSON.stringify({
+								type: 'ui.command',
+								payload: { command: 'osfui.textFocus', focused: f }
+							}));
+						};
+						// Typing intent: a pointer press, or any single-character key
+						// (plain or Ctrl/Cmd-chorded, e.g. Ctrl+F focusing a search
+						// box). Gamepad nav arrives as Arrow*/Enter — never intent.
+						let lastIntent = 0;
+						document.addEventListener('pointerdown', () => {
+							lastIntent = Date.now();
+						}, true);
+						document.addEventListener('keydown', (e) => {
+							if (!e.isTrusted || typeof e.key !== 'string' ||
+								e.key.length !== 1) return;
+							lastIntent = Date.now();
+							// Typing into a field that was DOM-focused by navigation:
+							// grant now (this first character is lost to the async
+							// focus handoff; from the next one typing is native).
+							if (!granted && editable(document.activeElement))
+								sendTextFocus(true);
+						}, true);
+						// Settle after the focus transition: focusout's activeElement
+						// still points at the old node until the frame turns over.
+						const settle = () => setTimeout(() => {
+							const el = document.activeElement;
+							if (!editable(el)) sendTextFocus(false);
+							else if (Date.now() - lastIntent < 500) sendTextFocus(true);
+							// else: navigation/programmatic focus — no grant, the
+							// gamepad keeps the engine.
+						}, 0);
+						document.addEventListener('focusin', settle, true);
+						document.addEventListener('focusout', settle, true);
+
+						// --- synthetic key delivery (__osfuiKey web messages) ---
+						// While the game owns OS focus, keys reach the page here as
+						// scripted KeyboardEvents (Chromium ignores Win32 key
+						// messages on an unfocused widget). padnav and the views
+						// key off keyCode / e.key, not isTrusted, by contract.
+						const VK_KEYS = {
+							0x08: ['Backspace', 'Backspace'], 0x09: ['Tab', 'Tab'],
+							0x0D: ['Enter', 'Enter'], 0x1B: ['Escape', 'Escape'],
+							0x20: [' ', 'Space'],
+							0x21: ['PageUp', 'PageUp'], 0x22: ['PageDown', 'PageDown'],
+							0x23: ['End', 'End'], 0x24: ['Home', 'Home'],
+							0x25: ['ArrowLeft', 'ArrowLeft'], 0x26: ['ArrowUp', 'ArrowUp'],
+							0x27: ['ArrowRight', 'ArrowRight'], 0x28: ['ArrowDown', 'ArrowDown'],
+							0x2D: ['Insert', 'Insert'], 0x2E: ['Delete', 'Delete'],
+							0x10: ['Shift', 'ShiftLeft'], 0x11: ['Control', 'ControlLeft'],
+							0x12: ['Alt', 'AltLeft'],
+							0xA0: ['Shift', 'ShiftLeft'], 0xA1: ['Shift', 'ShiftRight'],
+							0xA2: ['Control', 'ControlLeft'], 0xA3: ['Control', 'ControlRight'],
+							0xA4: ['Alt', 'AltLeft'], 0xA5: ['Alt', 'AltRight']
+						};
+						const MOD_VKS = {
+							0x10: 'shift', 0xA0: 'shift', 0xA1: 'shift',
+							0x11: 'ctrl', 0xA2: 'ctrl', 0xA3: 'ctrl',
+							0x12: 'alt', 0xA4: 'alt', 0xA5: 'alt'
+						};
+						const heldMods = { shift: false, ctrl: false, alt: false };
+						const synthesizeKey = (vk, down) => {
+							const mod = MOD_VKS[vk];
+							if (mod) heldMods[mod] = down;
+							let key, code;
+							const named = VK_KEYS[vk];
+							if (named) {
+								key = named[0]; code = named[1];
+							} else if (vk >= 0x41 && vk <= 0x5A) {
+								const ch = String.fromCharCode(vk);
+								key = heldMods.shift ? ch : ch.toLowerCase();
+								code = 'Key' + ch;
+							} else if (vk >= 0x30 && vk <= 0x39) {
+								key = String.fromCharCode(vk);
+								code = 'Digit' + key;
+							} else if (vk >= 0x70 && vk <= 0x87) {
+								key = 'F' + (vk - 0x6F); code = key;
+							} else {
+								return;  // unmapped VK: nothing sensible to synthesize
+							}
+							// A printable key is typing intent, exactly like the
+							// trusted-keydown path the browser can't see while the
+							// game owns focus.
+							if (down && key.length === 1) {
+								lastIntent = Date.now();
+								if (!granted && editable(document.activeElement))
+									sendTextFocus(true);
+							}
+							const target = document.activeElement || document.body;
+							const ev = new KeyboardEvent(down ? 'keydown' : 'keyup', {
+								key, code, bubbles: true, cancelable: true, composed: true,
+								shiftKey: heldMods.shift, ctrlKey: heldMods.ctrl,
+								altKey: heldMods.alt
+							});
+							// The constructor ignores legacy fields; padnav keys off
+							// keyCode, so define them explicitly.
+							Object.defineProperty(ev, 'keyCode', { get: () => vk });
+							Object.defineProperty(ev, 'which', { get: () => vk });
+							target.dispatchEvent(ev);
+							// Scripted events run no native default actions. Emulate
+							// the one the views rely on: arrow keys adjusting a
+							// range slider (padnav deliberately leaves left/right
+							// on a focused slider to the browser).
+							if (down && !ev.defaultPrevented && target.tagName === 'INPUT' &&
+								target.type === 'range' && key.startsWith('Arrow')) {
+								const step = Number(target.step) || 1;
+								const dir = (key === 'ArrowRight' || key === 'ArrowUp') ? 1 : -1;
+								const min = target.min !== '' ? Number(target.min) : 0;
+								const max = target.max !== '' ? Number(target.max) : 100;
+								const cur = Number(target.value) || 0;
+								const next = Math.min(max, Math.max(min, cur + dir * step));
+								if (next !== cur) {
+									target.value = String(next);
+									target.dispatchEvent(new Event('input', { bubbles: true }));
+									target.dispatchEvent(new Event('change', { bubbles: true }));
+								}
+							}
+						};
+
 						chrome.webview.addEventListener('message', (event) => {
+							// Key channel: object-typed (PostWebMessageAsJson), never
+							// forwarded to the page's onMessage.
+							if (event.data && typeof event.data === 'object' &&
+								event.data.__osfuiKey) {
+								const k = event.data.__osfuiKey;
+								synthesizeKey(k.vk | 0, !!k.down);
+								return;
+							}
 							const json = typeof event.data === 'string' ?
 								event.data : JSON.stringify(event.data);
+							// Session boundary: on hide, blur any editable so the
+							// runtime's cleared grant and the DOM agree — a field
+							// left DOM-focused would otherwise look focused on
+							// reopen but never re-grant (no new focusin).
+							try {
+								const m = JSON.parse(json);
+								if (m && m.type === 'ui.visibility' && m.payload &&
+									m.payload.visible === false) {
+									const el = document.activeElement;
+									if (editable(el) && el.blur) el.blur();
+									sendTextFocus(false);
+								}
+							} catch (_) {}
 							if (typeof onMessage === 'function') onMessage(json);
 							else pending.push(json);
 						});
@@ -1024,16 +1184,10 @@ namespace osfui::wv2
 							const bool down =
 								kind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN ||
 								kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN;
-							// A key this host posted (the "key" command) exists to reach
-							// the page, so it bypasses the framework-owned logic below,
-							// which would swallow it and round-trip it to the game as
-							// if freshly pressed.
-							if (const auto synth =
-									syntheticKeys.find((key << 1) | (down ? 1u : 0u));
-								synth != syntheticKeys.end()) {
-								if (--synth->second == 0) syntheticKeys.erase(synth);
-								return S_OK;
-							}
+							// Only REAL presses arrive here (the WebView holds focus
+							// solely during a text-entry grant; synthetic keys are
+							// DOM events dispatched by the shim and never reach
+							// this hook).
 							// Synchronous stand-in for Runtime::OnNativeAcceleratorKey;
 							// the game keeps this state fresh over the pipe (accelState).
 							const bool frameworkOwned =
@@ -1339,8 +1493,10 @@ namespace osfui::wv2
 				// (PublishFrame -> EnsureRing).
 			}
 
-			/// The active view's Chromium widget: the HWND that holds keyboard focus.
-			/// Synthetic key taps target it and the rebind capture subclasses it.
+			/// The active view's Chromium widget: the HWND that holds keyboard
+			/// focus while a text-entry grant is live. The rebind capture
+			/// subclasses it (synthetic keys no longer target it — they are DOM
+			/// events dispatched by the bridge shim).
 			HWND FindActiveWidget() const
 			{
 				HWND widget = nullptr;
@@ -1526,37 +1682,33 @@ namespace osfui::wv2
 						log.Info(std::format("active view -> '{}'", view->id));
 					}
 				} else if (type == "focus") {
+					// Focus-on-demand: this arrives per text-entry grant, not per
+					// overlay session (handledKeys clearing rides the accelState
+					// captured edge instead). The game side restores its own
+					// focus on revoke (kRestoreGameFocusMessage).
 					const bool focused = a_msg.value("focused", false);
 					if (focused && active && active->controller && !active->hidden) {
 						active->controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
-					} else if (!focused) {
-						handledKeys.clear();
-						// Taps still in flight died with the overlay, and for VKs
-						// that map to a character the accel callback never fires
-						// at all; stale markers would misclassify a later real key.
-						syntheticKeys.clear();
 					}
 				} else if (type == "mouse") {
 					SendMouse(a_msg);
 				} else if (type == "key") {
-					// Synthetic key taps (gamepad nav, Esc back-delegation) go
-					// straight to the active view's Chromium widget HWND: no focus
-					// or foreground requirement.
+					// Synthetic keys (gamepad nav taps, Esc back-delegation, and
+					// keyboard keys the game WndProc swallows while the game owns
+					// focus). Delivered as DOM KeyboardEvents by the bridge shim
+					// (`__osfuiKey` web message), NOT as Win32 key messages:
+					// Chromium ignores WM_KEYDOWN posted to an unfocused widget,
+					// and under focus-on-demand the widget is unfocused except
+					// during text entry — exactly when this path is idle anyway
+					// (real typing rides real focus). The object-typed message is
+					// distinguishable from runtime traffic, which arrives as
+					// strings (PostWebMessageAsString).
 					const auto vk = a_msg.value("vk", 0u);
 					const bool down = a_msg.value("down", false);
-					HWND widget = FindActiveWidget();
-					if (widget) {
-						const auto scan = ::MapVirtualKeyW(vk, MAPVK_VK_TO_VSC);
-						LPARAM lparam = 1 | (static_cast<LPARAM>(scan) << 16);
-						if (!down) {
-							lparam |= (1ll << 30) | (1ll << 31);
-						}
-						::PostMessageW(widget, down ? WM_KEYDOWN : WM_KEYUP,
-							static_cast<WPARAM>(vk), lparam);
-						// Mark it so the accelerator callback (which fires when the
-						// pump dispatches this message) lets it through to the page
-						// instead of treating it as a real press.
-						++syntheticKeys[(vk << 1) | (down ? 1u : 0u)];
+					if (active && active->webView) {
+						const auto payload = json{ { "__osfuiKey",
+							{ { "vk", vk }, { "down", down } } } }.dump();
+						active->webView->PostWebMessageAsJson(ToWide(payload).c_str());
 					}
 				} else if (type == "frameAck") {
 					// Monotonic release marker for frames the game never read.
@@ -1576,6 +1728,7 @@ namespace osfui::wv2
 						DrainQueuedViewWork(*view);
 					}
 				} else if (type == "accelState") {
+					const bool wasCaptured = captured;
 					toggleVk = a_msg.value("toggleVk", 0u);
 					devReloadVk = a_msg.value("devReloadVk", 0u);
 					captured = a_msg.value("captured", false);
@@ -1584,6 +1737,12 @@ namespace osfui::wv2
 					// Character keys only need the subclass while the user is
 					// picking a key.
 					SetCaptureSubclass(captureArmed);
+					if (wasCaptured && !captured) {
+						// Overlay session over: an accelerator down without its up
+						// (session closed mid-press) would leave a stale entry that
+						// misclassifies a later real press.
+						handledKeys.clear();
+					}
 				} else if (type == "destroyView") {
 					auto* view = ResolveView(a_msg);
 					if (!view) return;

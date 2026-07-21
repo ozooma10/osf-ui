@@ -134,6 +134,10 @@ namespace OSFUI
 		// visibility).
 		void ApplyMenuPolicy();
 
+		// Drive real OS keyboard focus toward the active view's text-entry grant
+		// (focus-on-demand). Edge-guarded; main thread only.
+		void ReconcileNativeFocus();
+
 		// Queued menu requests, snapshotted at the top of Tick (F10/Esc/
 		// transition plus the native API's RequestMenu ops) and applied after
 		// BridgeApi::PumpMainThread. The snapshot-first/apply-after split is the
@@ -282,6 +286,20 @@ namespace OSFUI
 		// inner panel, or sends `close` itself). Same stickiness/cleanup rules
 		// as _gamepadRawViews. Main thread only.
 		std::unordered_set<std::string> _backOwnerViews;
+		// Views whose page reported live text entry (osfui.textFocus, sent by
+		// the host bridge shim on real typing intent — a click into an editable
+		// or a printable keystroke inside one, NOT mere DOM focus, which padnav
+		// moves on every dpad step). While the active menu holds this grant the
+		// WebView owns real OS keyboard focus (typing/IME); otherwise the game
+		// window keeps focus, because Windows.Gaming.Input — Starfield's
+		// gamepad source — stops delivering the moment another process owns
+		// the focused window (2026-07-21 report: gamepad dead all session under
+		// WebView2's take-focus-on-open model). Cleared on page (re)load, view
+		// destroy, and overlay close. Main thread only.
+		std::unordered_set<std::string> _textFocusViews;
+		// Last value pushed to IWebRenderer::SetNativeKeyboardFocus; the false
+		// side posts a game-focus restore, so sends are edge-only. Main thread.
+		bool _nativeFocusGranted{ false };
 		// Menu requests raised off the main thread, drained in Tick. _reqMutex is
 		// a strict leaf lock: snapshot under it, release, then act.
 		std::mutex                    _reqMutex;

@@ -1,9 +1,10 @@
 # Changelog
 
-## 1.1.2 — 2026-07-20
+## 1.1.2 — 2026-07-21
 
 ### Fixed
 
+- Controller support works again. The WebView2 renderer kept Windows keyboard focus in the browser for the whole overlay session, and Windows only delivers gamepad input to the process whose window has focus — so the game engine (and the overlay with it) went controller-deaf. The overlay now leaves focus with the game and only moves it into the browser while you actually type in a text field (click a field or start typing); controller navigation resumes the moment text entry ends.
 - Fixed a crash tied to the pause-menu entry while the menu list was rebuilding.
 - Try to fix crashes when Frame Generation enabled.
 
