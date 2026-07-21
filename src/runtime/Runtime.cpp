@@ -1150,6 +1150,12 @@ namespace OSFUI
 		// it, keeping the mode-flip log in one place.
 		const bool raw = active && _gamepadRawViews.contains(*active);
 		EngineInput::SetRawMode(raw);
+		// While capturing, the receiver thunks consume gamepad events after
+		// recording them (status=kStop): the ControlLayer disable flags do not
+		// gate thumbstick movement, so without this the player walks around
+		// under the open overlay. Tracks capture, not visibility — a live HUD
+		// (no capture) must leave the pad with the game.
+		EngineInput::SetConsumeGamepad(captured);
 
 		// Discrete down+up tap: a missed release can't leave a stuck key.
 		const auto tap = [this](std::uint32_t a_vk) {

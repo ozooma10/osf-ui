@@ -37,13 +37,18 @@ namespace OSFUI
 	// the thunks only bump atomic counters and a small ring — no allocation, no
 	// game calls.
 	//
-	// The tap does not mark events handled, so WndProc stays authoritative for
-	// keyboard/mouse (no double input); while the overlay captures, the WndProc
-	// swallow starves the engine of keyboard/mouse, so the tap sees gamepad
-	// events only. Queued edges + sticks below are drained on the main thread by
-	// Runtime::DrainEngineInput and routed into the web view (nav/activate/
-	// close/scroll) plus raw `ui.gamepad` events. Verified in-game on 1.16.244
-	// with a controller (2026-07-02).
+	// Keyboard/mouse events are never marked handled, so WndProc stays
+	// authoritative for them (no double input); while the overlay captures, the
+	// WndProc swallow starves the engine of keyboard/mouse, so the tap sees
+	// gamepad events only. GAMEPAD events, however, ARE consumed while the
+	// overlay captures (SetConsumeGamepad): the receiver records them for the
+	// runtime, then sets InputEvent::status = kStop so downstream receivers —
+	// notably the player controls, which ignore the ControlLayer disable flags
+	// for thumbstick movement — never act on them (the player walked around
+	// under the open overlay otherwise). Queued edges + sticks below are drained
+	// on the main thread by Runtime::DrainEngineInput and routed into the web
+	// view (nav/activate/close/scroll) plus raw `ui.gamepad` events. Verified
+	// in-game on 1.16.244 with a controller (2026-07-02).
 	//
 	// The +0x10 vtable copy must carry its RTTI COL at [-1], as with the primary
 	// vtable copy: a COL-less copy access-violates the first time the engine
@@ -101,5 +106,14 @@ namespace OSFUI
 		// default nav dead for the next menu.
 		static void SetRawMode(bool a_raw);
 		[[nodiscard]] static bool IsRawMode();
+
+		// Consume gamepad events at the receiver while the overlay captures
+		// input: the thunks record the event for the runtime, then mark it
+		// status=kStop so it never reaches the player controls (thumbstick
+		// walking is not gated by the ControlLayer disable flags). Mirrored
+		// from IsInputCaptured() each tick by Runtime::DrainEngineInput.
+		// Keyboard/mouse events are never touched.
+		static void SetConsumeGamepad(bool a_consume);
+		[[nodiscard]] static bool IsConsumeGamepad();
 	};
 }

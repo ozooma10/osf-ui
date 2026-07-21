@@ -58,6 +58,10 @@ namespace OSFUI
 		// deflection is latest-wins (atomic overwrite; only the current value
 		// matters). g_padRaw short-circuits the default mapping.
 		std::atomic_bool               g_padRaw{ false };
+		// While set (overlay captures input), the thunks mark gamepad events
+		// status=kStop after recording them, so they never reach the player
+		// controls (see the header). Keyboard/mouse are never touched.
+		std::atomic_bool               g_padConsume{ false };
 		constexpr std::size_t          kPadQueueCap = 64;
 		std::mutex                     g_padMutex;  // leaf lock, guards the ring below
 		EngineInput::GamepadButtonEdge g_padQueue[kPadQueueCap]{};
@@ -86,12 +90,23 @@ namespace OSFUI
 		// Receiver thunks; `this` is the BSInputEventUser subobject.
 
 		// Accept every event type the dispatcher offers so the typed slots below
-		// are exercised. Observation only: event->status is never touched, so
-		// downstream menus see what they saw before.
+		// are exercised. This gate itself never touches event->status; the typed
+		// thunks consume GAMEPAD events (status=kStop) while g_padConsume is set,
+		// and keyboard/mouse pass through untouched.
 		bool Thunk_ShouldHandleEvent(void*, const RE::InputEvent*)
 		{
 			g_shouldCalls.fetch_add(1, std::memory_order_relaxed);
 			return true;
+		}
+
+		// Mark an event consumed so receivers after us in the dispatch order —
+		// notably the player controls — skip it. The player's thumbstick movement
+		// ignores the ControlLayer disable flags (the player walked around under
+		// the open overlay), so consumption here is the only reliable gate.
+		void ConsumeEvent(const void* a_event)
+		{
+			const_cast<RE::InputEvent*>(static_cast<const RE::InputEvent*>(a_event))->status =
+				RE::InputEvent::Status::kStop;
 		}
 
 		void Thunk_OnThumbstick(void*, const void* a_event)
@@ -115,6 +130,9 @@ namespace OSFUI
 				g_ry.store(y, std::memory_order_relaxed);
 			}
 			g_stickWriteMs.store(NowMs(), std::memory_order_relaxed);
+			if (g_padConsume.load(std::memory_order_relaxed)) {
+				ConsumeEvent(a_event);  // recorded above; the player must not also walk with it
+			}
 			if (Log::DevMode()) {
 				REX::DEBUG("EngineInput: stick id={:#x} x={:.3f} y={:.3f}", id, x, y);
 			}
@@ -174,14 +192,20 @@ namespace OSFUI
 			}
 			// Queue gamepad edges only (press/release; skip held repeats) for the
 			// main-thread router. Keyboard/mouse stay on the WndProc path.
-			if (a_event->deviceType == RE::InputEvent::DeviceType::kGamepad && (down || release)) {
-				std::lock_guard lock(g_padMutex);
-				if (g_padCount == kPadQueueCap) {  // full: drop the oldest edge
-					g_padHead = (g_padHead + 1) % kPadQueueCap;
-					--g_padCount;
+			if (a_event->deviceType == RE::InputEvent::DeviceType::kGamepad) {
+				if (down || release) {
+					std::lock_guard lock(g_padMutex);
+					if (g_padCount == kPadQueueCap) {  // full: drop the oldest edge
+						g_padHead = (g_padHead + 1) % kPadQueueCap;
+						--g_padCount;
+					}
+					g_padQueue[(g_padHead + g_padCount) % kPadQueueCap] = { static_cast<std::uint32_t>(a_event->idCode), down };
+					++g_padCount;
 				}
-				g_padQueue[(g_padHead + g_padCount) % kPadQueueCap] = { static_cast<std::uint32_t>(a_event->idCode), down };
-				++g_padCount;
+				// Held repeats are consumed too — a held button must not leak either.
+				if (g_padConsume.load(std::memory_order_relaxed)) {
+					ConsumeEvent(a_event);
+				}
 			}
 			if (Log::DevMode()) {
 				REX::DEBUG("EngineInput: button dev={} id={:#x} value={:.2f} held={:.2f}",
@@ -327,5 +351,18 @@ namespace OSFUI
 	bool EngineInput::IsRawMode()
 	{
 		return g_padRaw.load(std::memory_order_relaxed);
+	}
+
+	void EngineInput::SetConsumeGamepad(bool a_consume)
+	{
+		if (g_padConsume.exchange(a_consume, std::memory_order_relaxed) != a_consume) {
+			REX::INFO("EngineInput: gamepad consume-at-receiver {} (engine {} sees pad input past the overlay)",
+				a_consume ? "ON" : "off", a_consume ? "no longer" : "again");
+		}
+	}
+
+	bool EngineInput::IsConsumeGamepad()
+	{
+		return g_padConsume.load(std::memory_order_relaxed);
 	}
 }
