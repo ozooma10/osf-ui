@@ -231,6 +231,9 @@ namespace osfui::wv2
 			// it back immediately instead.
 			bool          focusGranted{ false };
 			std::unordered_set<UINT> handledKeys;
+			// Warn-once dedupe for denied egress ("viewId|host"): a page that
+			// retries a blocked fetch in a loop must not spam the log.
+			std::unordered_set<std::string> egressWarned;
 			std::uint64_t accelEvents{ 0 };  // every AcceleratorKeyPressed callback (diagnostic)
 			// NOTE: the "key" command used to PostMessage into the Chromium widget
 			// and mark each tap in a syntheticKeys map so AcceleratorKeyPressed
@@ -993,6 +996,7 @@ namespace osfui::wv2
 						static_cast<unsigned>(result)));
 					return S_OK;
 				}
+				InstallNetworkGuard(a_view);
 				InstallEvents(a_view);
 				InstallBridgeShim(a_view);
 				// Focus-on-demand leaves the widget OS-unfocused for the whole
@@ -1226,6 +1230,137 @@ namespace osfui::wv2
 						[this](HRESULT a_scriptHr, LPCWSTR) -> HRESULT {
 							if (FAILED(a_scriptHr)) {
 								log.Error(std::format("bridge shim install failed (0x{:08X})",
+									static_cast<unsigned>(a_scriptHr)));
+							}
+							return S_OK;
+						}).Get());
+			}
+
+			// Host of a URI, for the deny log / warn-once key only (not a parser).
+			[[nodiscard]] static std::wstring UriHost(const std::wstring& a_uri)
+			{
+				const auto scheme = a_uri.find(L"://");
+				if (scheme == std::wstring::npos) return a_uri;
+				const auto start = scheme + 3;
+				const auto end = a_uri.find_first_of(L"/?#", start);
+				return a_uri.substr(start,
+					end == std::wstring::npos ? std::wstring::npos : end - start);
+			}
+
+			// True only for the virtual-host origin the folder mapping serves.
+			// The "/" (or end-of-string) right after the host is load-bearing:
+			// it rejects https://osfui.local.evil.com/ and userinfo tricks like
+			// https://osfui.local@evil.com/ without parsing the URI.
+			[[nodiscard]] bool IsLocalViewUri(std::wstring a_uri) const
+			{
+				for (auto& ch : a_uri) {
+					if (ch >= L'A' && ch <= L'Z') ch += 32;  // scheme/host are ASCII
+				}
+				for (const auto* scheme : { L"https://", L"http://" }) {
+					const auto base = scheme + virtualHost;
+					if (a_uri == base || a_uri.starts_with(base + L"/")) return true;
+				}
+				return false;
+			}
+
+			// security-model.md rule 2 (default-deny egress): everything a view may
+			// legitimately load lives under the virtual-host folder mapping, so any
+			// other destination is exfiltration surface. Two mechanisms, because no
+			// single one covers everything:
+			// - a WebResourceRequested filter answers non-local http(s) requests
+			//   (documents, fetch/XHR, media, SSE; with source-kind ALL also
+			//   service/shared-worker-initiated ones) locally with 403;
+			// - WebResourceRequested cannot see non-HTTP transports, so the
+			//   document-created script below removes their entry points
+			//   (WebSocket, WebRTC, WebTransport) from every document instead.
+			// Non-network schemes (about:, data:, blob:, devtools:) stay unfiltered.
+			// Deliberate non-exceptions: devMode is NOT exempt (harness dev happens
+			// in a desktop browser), and target=_blank links are unaffected — the
+			// NewWindowRequested handler hands those to the OS default browser
+			// without this WebView ever fetching them.
+			void InstallNetworkGuard(View& a_view)
+			{
+				View* view = &a_view;
+				HRESULT filterHr = E_NOINTERFACE;
+				ComPtr<ICoreWebView2_22> webView22;
+				if (SUCCEEDED(a_view.webView.As(&webView22))) {
+					filterHr = S_OK;
+					for (const auto* pattern : { L"http://*", L"https://*" }) {
+						if (SUCCEEDED(filterHr)) {
+							filterHr = webView22->AddWebResourceRequestedFilterWithRequestSourceKinds(
+								pattern, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
+								COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_ALL);
+						}
+					}
+				}
+				if (FAILED(filterHr)) {
+					// Pre-source-kinds Evergreen runtime: documents/fetch/XHR are
+					// still filtered below; only requests initiated from service/
+					// shared workers escape the older registration.
+					log.Warn(std::format(
+						"view '{}': source-kind egress filter unavailable (0x{:08X}); "
+						"worker-initiated requests are not filtered on this WebView2 runtime",
+						a_view.id, static_cast<unsigned>(filterHr)));
+					filterHr = S_OK;
+					for (const auto* pattern : { L"http://*", L"https://*" }) {
+						if (SUCCEEDED(filterHr)) {
+							filterHr = a_view.webView->AddWebResourceRequestedFilter(
+								pattern, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
+						}
+					}
+					if (FAILED(filterHr)) {
+						log.Error(std::format(
+							"view '{}': AddWebResourceRequestedFilter failed (0x{:08X}); "
+							"network egress is NOT blocked",
+							a_view.id, static_cast<unsigned>(filterHr)));
+						return;
+					}
+				}
+				EventRegistrationToken token{};
+				a_view.webView->add_WebResourceRequested(
+					Callback<ICoreWebView2WebResourceRequestedEventHandler>(
+						[this, view](ICoreWebView2*,
+							ICoreWebView2WebResourceRequestedEventArgs* a_args) -> HRESULT {
+							ComPtr<ICoreWebView2WebResourceRequest> request;
+							if (FAILED(a_args->get_Request(&request)) || !request) return S_OK;
+							LPWSTR raw = nullptr;
+							if (FAILED(request->get_Uri(&raw)) || !raw) return S_OK;
+							std::wstring uri(raw);
+							::CoTaskMemFree(raw);
+							if (IsLocalViewUri(uri)) return S_OK;
+							ComPtr<ICoreWebView2WebResourceResponse> response;
+							if (environment && SUCCEEDED(environment->CreateWebResourceResponse(
+									nullptr, 403, L"Forbidden", L"", &response))) {
+								a_args->put_Response(response.Get());
+							}
+							const auto key = view->id + "|" + ToUtf8(UriHost(uri));
+							if (egressWarned.insert(key).second) {
+								log.Warn(std::format(
+									"view '{}': blocked network egress to {} (further "
+									"denials for this origin are silent)",
+									view->id, ToUtf8(uri)));
+							}
+							return S_OK;
+						}).Get(), &token);
+				// The non-HTTP transports the filter can't see. Runs in every
+				// document (iframes included) before any page script; the
+				// non-configurable define means page code cannot restore the
+				// constructor, and `undefined` keeps feature detection on the
+				// graceful-degradation path.
+				static constexpr auto kNeuter = LR"JS((() => {
+					for (const name of ['WebSocket', 'RTCPeerConnection',
+							'webkitRTCPeerConnection', 'WebTransport']) {
+						try {
+							Object.defineProperty(window, name,
+								{ value: undefined, writable: false, configurable: false });
+						} catch (_) {}
+					}
+				})();)JS";
+				a_view.webView->AddScriptToExecuteOnDocumentCreated(kNeuter,
+					Callback<ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler>(
+						[this](HRESULT a_scriptHr, LPCWSTR) -> HRESULT {
+							if (FAILED(a_scriptHr)) {
+								log.Error(std::format("egress neuter script install failed (0x{:08X})",
 									static_cast<unsigned>(a_scriptHr)));
 							}
 							return S_OK;

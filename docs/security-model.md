@@ -7,9 +7,11 @@ Views (HTML/CSS/JS) are mod content downloaded from the internet. Every view is 
 ## Renderer posture
 
 OSF UI uses the out-of-process WebView2 host. Views run in full Chromium at
-`https://osfui.local/…`, mapped to the shared views root. The browser uses the
-OS trust store and OSF UI currently installs no `WebResourceRequested` filter
-or CSP, so there is **no engine-level network block**.
+`https://osfui.local/…`, mapped to the shared views root. The host installs a
+default-deny egress guard per view (rule 2 below): http(s) requests outside
+`osfui.local` are answered locally with 403, and the non-HTTP transports the
+request filter cannot see (WebSocket, WebRTC, WebTransport) have their
+constructors removed from every document.
 
 The controls that prevent a hostile view from executing native code are the
 native bridge rules below. Chromium lives in a separate
@@ -29,7 +31,12 @@ Each rule notes where it is enforced and any known gaps.
 
 1. **JS is untrusted.** Nothing a view sends is executed, evaluated, or used as a format string natively. Bridge input is parsed defensively: non-throwing JSON parse, typed accessors with defaults, length-bounded logging. Enforced in `MessageBridge` / `Json`.
 
-2. **No network by declaration; not yet hard-blocked.** The per-view `permissions.network` flag is recognized but force-disabled with a warning, yet nothing downstream currently filters Chromium requests. Remote `https://`, `fetch()`, WebSockets, service workers, and storage remain available. Shipped views make no remote requests, and their build gates reject `@font-face` and remote `url()`. A real request filter and/or CSP remains required hardening.
+2. **No network, enforced default-deny.** The per-view `permissions.network` flag is recognized but force-disabled with a warning (`ViewManifest`), and the host enforces the deny with two mechanisms, because no single one covers everything (`InstallNetworkGuard` in `tools/webview2_host/HostApp.cpp`):
+
+   - A `WebResourceRequested` filter answers every http(s) request outside the `osfui.local` virtual host locally with 403 — documents, `fetch()`/XHR, media, SSE, and (via the source-kinds registration, standard on current Evergreen runtimes) service/shared-worker-initiated requests. The check requires `/` or end-of-string immediately after the host, so `osfui.local.evil.com` and `osfui.local@evil.com` lookalikes are denied. Denials are logged warn-once per view+origin.
+   - `WebResourceRequested` cannot see non-HTTP transports, so a document-created script removes their entry points — `WebSocket`, `RTCPeerConnection` (+`webkit` alias), `WebTransport` — as non-configurable `undefined` in every document, iframes included, before any page script runs.
+
+   `devMode` is deliberately not exempt (harness development happens in a desktop browser, not in-game). `target="_blank"` links still open in the OS default browser via `NewWindowRequested` — the WebView itself never fetches them. On a pre-source-kinds runtime the filter degrades to documents/fetch/XHR and logs the gap. Verified end-to-end against a live host (remote fetch blocked before any network contact, local fetch 200, lookalike hosts denied, all four constructors `undefined`).
 
 3. **No local filesystem access beyond the views root.** `SetVirtualHostNameToFolderMapping` exposes exactly the shared views folder under `osfui.local`; nothing else on disk is mapped. Manifest `entry` validation separately rejects paths that escape a view folder. Because every view shares one mapped root, a view can read a sibling view's assets; strict per-view isolation would require separate mappings or request filtering.
 
@@ -51,7 +58,7 @@ Each rule notes where it is enforced and any known gaps.
 
 ## Future hardening
 
-- **A real network block** (rule 2): a `WebResourceRequested` filter that denies requests outside `osfui.local`, and/or an injected CSP.
+- An injected CSP as belt-and-suspenders behind the rule 2 request filter (the filter already denies before any network contact; a CSP would add a second, renderer-enforced layer).
 - Per-view clipboard gating (rule 7), especially for passive HUD views.
 - Rate-limit bridge messages per view, so JS cannot stall the game thread with message floods. Both bridge queues are already capped at 64 messages (drop and warn once beyond that); per-time-window limits remain to do.
 - Message size caps. Log text is already truncated at 512 chars; generalize this.
