@@ -1,0 +1,16 @@
+{
+  "name": "osfui",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Root convenience scripts. The actual frontend lives in frontend/.",
+  "license": "GPL-3.0-or-later",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "npm --prefix frontend run build",
+    "test": "npm --prefix frontend test",
+    "verify": "npm --prefix frontend run verify"
+  }
+}
