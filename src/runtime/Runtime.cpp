@@ -180,6 +180,24 @@ namespace OSFUI
 			for (const auto& id : toLoad) {
 				if (const auto* m = _views.Find(id)) {
 					_renderer->LoadView(*m);
+					// devMode: mirror the page's console into this log so a broken
+					// view is diagnosable in-game, not just in the browser harness
+					// (the host forwards console events either way; without a
+					// handler the renderer drops them). Off in release — a chatty
+					// view would spam every user's log. Survives crash-recovery
+					// reloads: the handler map is per view id and only DestroyView
+					// erases it.
+					if (_config.devMode) {
+						_renderer->SetConsoleHandler(id, [id](int a_level, std::string a_message) {
+							if (a_level == 2) {
+								REX::ERROR("Runtime: view '{}' console: {}", id, a_message);
+							} else if (a_level == 1) {
+								REX::WARN("Runtime: view '{}' console: {}", id, a_message);
+							} else {
+								REX::INFO("Runtime: view '{}' console: {}", id, a_message);
+							}
+						});
+					}
 					_menus.Register({ id, m->kind, m->capturesInput, m->pausesGame, m->order });
 					// An explicit manifest value silently overrides the capture /
 					// pause defaults — log them so "why doesn't it pause" is a

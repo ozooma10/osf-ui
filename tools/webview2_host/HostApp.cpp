@@ -1427,7 +1427,12 @@ namespace osfui::wv2
 							}
 							return S_OK;
 						}).Get(), &token);
-				if (SUCCEEDED(a_view.webView->GetDevToolsProtocolEventReceiver(
+				// devMode only: the game side registers a console handler solely in
+				// devMode, so forwarding in release would cross the pipe just to be
+				// dropped (and Runtime.enable keeps DevTools instrumentation live in
+				// every renderer for nothing).
+				if (devMode &&
+					SUCCEEDED(a_view.webView->GetDevToolsProtocolEventReceiver(
 						L"Runtime.consoleAPICalled", &a_view.consoleReceiver)) &&
 					a_view.consoleReceiver) {
 					a_view.consoleReceiver->add_DevToolsProtocolEventReceived(
