@@ -1,11 +1,16 @@
 # Changelog
 
-## Unreleased
+## 1.2.0 — 2026-07-21
+
+Controller play works properly again, views are cut off from the network for real, and the overlay now survives renderer crashes and game stutters. (This release also includes everything from the unpublished 1.1.2.)
 
 ### Fixed
 
+- Controller support works again. The WebView2 renderer kept Windows keyboard focus in the browser for the whole overlay session, and Windows only delivers gamepad input to the process whose window has focus — so the game engine (and the overlay with it) went controller-deaf. The overlay now leaves focus with the game and only moves it into the browser while you actually type in a text field (click a field or start typing); controller navigation resumes the moment text entry ends.
 - With a menu open, gamepad input no longer leaks into the game underneath: the thumbsticks walked the player around (and buttons could trigger game actions) behind the overlay, because the engine's control-disable flags don't gate thumbstick movement. Gamepad events are now consumed at the overlay's input receiver while a capturing menu is open, so the game never sees them; views still receive them normally (default navigation mapping and raw `ui.gamepad` alike).
 - A crashed or hung view no longer strands a blank overlay that still swallows input. When a view's browser render process exits or becomes unresponsive, the host now reports it and the runtime retries the load with backoff, then cleanly removes the view if it keeps failing; a total browser-process loss hides the overlay for the rest of the session (with the cause logged) instead of leaving a dead host the game still believes is alive.
+- Fixed a crash tied to the pause-menu entry while the menu list was rebuilding.
+- Likely fix for crashes with Frame Generation enabled: overlay drawing is now gated to real presents and skips FG-paced swapchains. If you crashed with FG on, please try again and report.
 - Keyboard and gamepad focus is visible again, and clicking inside a view no longer briefly makes the game go input-deaf. Because focus now stays with the game so controllers keep working, the browser itself was never focused — so focus outlines and `:focus`/`:focus-visible` styling didn't render (navigation was working, but looked like nothing was happening), and a click landing on a focusable element could strand Windows focus in the browser process, cutting keyboard, mouse, and gamepad until a watchdog recovered it. The overlay now emulates page focus for styling without taking OS focus, and hands focus straight back to the game if a click grabs it.
 
 ### Security
@@ -18,15 +23,6 @@
 - In `devMode`, a view's `console.log` / `console.warn` / `console.error` output is now mirrored into `OSF UI.log` (at INFO / WARN / ERROR), so a misbehaving view is diagnosable in game rather than only in the browser harness. Off in normal play.
 - The overlay rides out brief game stutters without dropping frames: the shared-texture ring between the WebView2 host and the game grew from 3 to 4 slots, so one slow game frame no longer stalls the host's capture thread (which showed up as skipped or late overlay frames under load). Costs one extra overlay-sized texture of VRAM (~8 MB at 1080p, ~33 MB at 4K).
 - Moving the mouse over the overlay is now much cheaper: a high-polling-rate mouse (500–1000 Hz) was sending one cursor-update message to the WebView2 host per raw input packet — hundreds per second of pure overhead, since the page only samples the pointer at display refresh. Cursor moves are now coalesced to a single message per game frame carrying the latest position; clicks and scrolling are unaffected and still fire immediately. In `devMode` the log periodically reports how many packets were folded into how many sends.
-
-## 1.1.2 — 2026-07-21
-
-### Fixed
-
-- Controller support works again. The WebView2 renderer kept Windows keyboard focus in the browser for the whole overlay session, and Windows only delivers gamepad input to the process whose window has focus — so the game engine (and the overlay with it) went controller-deaf. The overlay now leaves focus with the game and only moves it into the browser while you actually type in a text field (click a field or start typing); controller navigation resumes the moment text entry ends.
-- Fixed a crash tied to the pause-menu entry while the menu list was rebuilding.
-- Try to fix crashes when Frame Generation enabled.
-
 
 ## 1.1.1 — 2026-07-20
 
