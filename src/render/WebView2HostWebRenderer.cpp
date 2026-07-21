@@ -632,8 +632,9 @@ namespace OSFUI
 			const auto runtimeVersion = hello.value("runtimeVersion", "?");
 			if (runtimeVersion == "unknown") {
 				REX::ERROR("WebView2HostWebRenderer: the WebView2 Evergreen runtime is not "
-						   "installed — install it from "
-						   "https://developer.microsoft.com/microsoft-edge/webview2/");
+						   "installed — the host has shown an install dialog; download "
+						   "https://go.microsoft.com/fwlink/p/?LinkId=2124703 , run it, "
+						   "then restart the game");
 			}
 			REX::INFO("WebView2HostWebRenderer: host pid {} up (WebView2 runtime {})",
 				hostPid, runtimeVersion);

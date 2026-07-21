@@ -116,6 +116,44 @@ namespace osfui::wv2
 			void Error(const std::string& a_text) { Log(2, a_text); }
 		};
 
+		// Microsoft's permanent link to the WebView2 Evergreen Bootstrapper
+		// (see /microsoft-edge/webview2/concepts/distribution, "online-only
+		// deployment") — opening it downloads MicrosoftEdgeWebview2Setup.exe.
+		constexpr wchar_t kRuntimeDownloadUrl[] =
+			L"https://go.microsoft.com/fwlink/p/?LinkId=2124703";
+
+		// A missing Evergreen runtime leaves the overlay invisible, and players
+		// don't read logs — raise a real dialog. This process lives outside the
+		// game, so parking a throwaway thread in MessageBox is safe and topmost
+		// works over the (borderless) game window. At most one prompt per host.
+		void PromptInstallWebView2Runtime(Logger& a_log)
+		{
+			static std::atomic_bool prompted{ false };
+			if (prompted.exchange(true)) return;
+			a_log.Error(
+				"the WebView2 Evergreen runtime is not installed — showing the "
+				"install dialog (download: "
+				"https://go.microsoft.com/fwlink/p/?LinkId=2124703)");
+			std::thread([] {
+				const auto choice = ::MessageBoxW(nullptr,
+					L"OSF UI cannot start because the Microsoft Edge WebView2 "
+					L"Runtime is not installed on this PC.\n\n"
+					L"The in-game overlay (Mods menu / mod settings) will not "
+					L"appear without it.\n\n"
+					L"Open the download in your browser now? Run the downloaded "
+					L"\"MicrosoftEdgeWebview2Setup.exe\", then restart the game.",
+					// ASCII only: MSVC parses this file as ANSI, so non-ASCII
+					// in wide literals turns to mojibake (narrow literals pass
+					// through as raw UTF-8 and are fine).
+					L"OSF UI - WebView2 Runtime missing",
+					MB_YESNO | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND);
+				if (choice == IDYES) {
+					::ShellExecuteW(nullptr, L"open", kRuntimeDownloadUrl,
+						nullptr, nullptr, SW_SHOWNORMAL);
+				}
+			}).detach();
+		}
+
 		struct App
 		{
 			HostOptions options;
@@ -808,6 +846,9 @@ namespace osfui::wv2
 							if (FAILED(a_hr) || !a_environment) {
 								log.Error(std::format("environment callback failed (0x{:08X})",
 									static_cast<unsigned>(a_hr)));
+								if (a_hr == HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)) {
+									PromptInstallWebView2Runtime(log);
+								}
 								return S_OK;
 							}
 							environment = a_environment;
@@ -823,6 +864,12 @@ namespace osfui::wv2
 				if (FAILED(hr)) {
 					log.Error(std::format("CreateCoreWebView2EnvironmentWithOptions failed (0x{:08X})",
 						static_cast<unsigned>(hr)));
+					// 0x80070002: the documented "runtime not found" result — a
+					// missing or broken Evergreen install that slipped past the
+					// startup version check.
+					if (hr == HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)) {
+						PromptInstallWebView2Runtime(log);
+					}
 					environmentRequested = false;
 					return false;
 				}
@@ -1991,6 +2038,8 @@ namespace osfui::wv2
 			runtimeVersion) {
 			runtime = ToUtf8(runtimeVersion);
 			::CoTaskMemFree(runtimeVersion);
+		} else {
+			PromptInstallWebView2Runtime(app.log);
 		}
 		app.Send(json{
 			{ "type", "hello" },

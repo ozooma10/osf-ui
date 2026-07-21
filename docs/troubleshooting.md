@@ -12,7 +12,11 @@ edges; read *Known limitations* before installing.
   https://sfse.silverlock.org/
 - Address Library for Starfield with the `versionlib-<your build>.bin` for
   your game version (the common AIO Address Library mod provides this).
-- Microsoft Edge WebView2 Runtime (Evergreen).
+- Microsoft Edge WebView2 Runtime (Evergreen). Preinstalled on Windows 11 and
+  most Windows 10 machines; if it's missing, OSF UI shows a dialog at game
+  launch with a download link
+  (https://go.microsoft.com/fwlink/p/?LinkId=2124703 — install, then restart
+  the game).
 - Windows with a D3D12-capable GPU (any modern card).
 
 OSF UI is pinned to the game build it was compiled against (currently
@@ -104,6 +108,7 @@ Check `OSF UI.log` first.
 |---|---|
 | F10 does nothing, no log file | The game wasn't launched through SFSE, or SFSE doesn't match the game version. |
 | Log says `UI layout guard FAILED` | The game updated and the plugin's data is stale for this build. Don't play with it enabled; wait for an updated release (or a matching Address Library / CommonLibSF). This is intentional: the plugin disables itself rather than patch the wrong offsets. |
+| A "WebView2 Runtime missing" dialog appears at game launch | The Microsoft Edge WebView2 Runtime isn't installed. Click Yes to download the installer (or get it from https://go.microsoft.com/fwlink/p/?LinkId=2124703), run it, then restart the game. No mod reinstall needed. |
 | Overlay never appears, renderer/compositor warnings in log | The WebView2 Runtime, host executable, or the game's device wasn't available, so the overlay disabled itself. Install the Evergreen WebView2 Runtime and re-install the archive intact. |
 | Overlay appears but is blank | Check the log for WebView2 host launch, pipe, navigation, or shared-texture errors; then verify `OSFUI/bin/osfui_webview2_host.exe` is present. |
 | Overlay lingers oddly during a load | It should auto-hide on loading screens and the main menu. If it doesn't, hide it with F10 and report the log. |
