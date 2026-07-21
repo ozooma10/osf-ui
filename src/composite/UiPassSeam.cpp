@@ -200,6 +200,17 @@ namespace OSFUI::UiPassSeam
 			return true;
 		}
 
+		// The blobs being scanned are raw worker-stack memory, so most qwords
+		// are not pointers at all (counters, -1 sentinels, flag words). Filter
+		// to the user-mode canonical range before spending a VirtualQuery on
+		// them — and before arithmetic that could wrap (a -1 "pointer" plus a
+		// size overflowed the pre-fix IsReadableRange into a false positive:
+		// the probe's one field crash).
+		[[nodiscard]] bool IsPlausiblePointer(const std::uintptr_t a_candidate)
+		{
+			return a_candidate >= 0x10000 && a_candidate < 0x0000'8000'0000'0000;
+		}
+
 		void ScanObject(
 			const char* a_tag,
 			const std::uintptr_t a_base,
@@ -214,7 +225,7 @@ namespace OSFUI::UiPassSeam
 					return;
 				}
 				std::uintptr_t candidate = 0;
-				if (!Platform::SafeReadPointer(a_base + offset, candidate) || candidate == 0) {
+				if (!Platform::SafeReadPointer(a_base + offset, candidate) || !IsPlausiblePointer(candidate)) {
 					continue;
 				}
 				if (ClassifyCandidate(a_tag, offset, candidate, a_d3d12, a_budget)) {

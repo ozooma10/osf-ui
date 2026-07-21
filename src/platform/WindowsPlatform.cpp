@@ -91,6 +91,13 @@ namespace OSFUI::Platform
 
 		std::uintptr_t cursor = a_address;
 		const auto end = a_address + a_size;
+		if (end < a_address) {
+			// Range wraps the top of the address space (e.g. probing a garbage
+			// value like 0xFFFF'FFFF'FFFF'FFFF): the walk below would be
+			// vacuously true. Seen in the wild via UiPassSeam scanning -1 out
+			// of a worker-stack blob.
+			return false;
+		}
 		while (cursor < end) {
 			MEMORY_BASIC_INFORMATION mbi{};
 			if (::VirtualQuery(reinterpret_cast<LPCVOID>(cursor), &mbi, sizeof(mbi)) == 0) {
