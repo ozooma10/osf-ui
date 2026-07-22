@@ -136,20 +136,18 @@ namespace OSFUI
 		_compositor->SetOutputResizeCallback([this](std::uint32_t a_w, std::uint32_t a_h) { OnOutputResized(a_w, a_h); });
 
 		if (_config.uiPassProbe || _config.uiPassDraw) {
-			// Dev knobs: hooks on the engine's Scaleform render passes —
-			// uiPassProbe = log-only characterization, uiPassDraw = the seam
-			// draw: the overlay is recorded into the engine's UI buffers at
-			// the under-Scaleform hand-off and rides Frame Generation's UI
-			// path (composite/UiPassSeam.h + docs/seam-draw-design.md).
-			// Vtables are static .rdata — no need to wait for the renderer
-			// root the way the D3D12 compositor does.
-			const auto fgMode = _config.uiPassFgMode == "off"      ? UiPassSeam::FgMode::kOff :
-			                    _config.uiPassFgMode == "premul"   ? UiPassSeam::FgMode::kPremul :
-			                                                         UiPassSeam::FgMode::kStraight;
-			UiPassSeam::Install(_config.uiPassDraw, fgMode);
-			if (_config.uiPassDraw) {
+			// The release path records into Starfield's transparent Scaleform UI
+			// layer, upstream of both real-frame composition and Frame Generation.
+			// uiPassProbe keeps the characterization logs available without
+			// enabling the draw. Vtables are static .rdata, so installation does
+			// not wait for the renderer root like the D3D12 compositor does.
+			const bool seamReady = UiPassSeam::Install(_config.uiPassDraw, _config.uiPassProbe);
+			if (_config.uiPassDraw && seamReady) {
 				// The present hook stops drawing and becomes plumbing only.
-				_compositor->SetSeamDrawMode(true, _config.uiPassCompare);
+				_compositor->SetSeamDrawMode(true);
+			} else if (_config.uiPassDraw) {
+				REX::WARN("Runtime: Scaleform seam unavailable — using the legacy present-time overlay; "
+						  "Frame Generation will suspend that fallback for safety");
 			}
 		}
 		REX::INFO("Runtime: compositor = {}", _compositor->Name());

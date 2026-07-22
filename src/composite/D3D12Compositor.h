@@ -10,16 +10,14 @@ namespace OSFUI
 	// Seam-draw hook, defined in D3D12Compositor.cpp and called by UiPassSeam
 	// from a render worker inside the engine's UI-buffer hand-off: records the
 	// overlay quad onto the ENGINE's own command list, into the engine's UI
-	// buffer. a_fgTarget identifies the FG UI-input hand-off independently of
-	// a_straightAlpha, which selects its diagnostic byte convention. The
-	// composite-pass input always uses premultiplied alpha. Returns
+	// buffer. a_fgTarget identifies the FG UI-input hand-off. Returns
 	// true when a quad was recorded (the caller then restores the engine's
 	// descriptor-heap binding). False when the compositor is not set up,
 	// hidden, or has no ready GPU frame — the seam simply skips.
 	// a_regionFirst: first seam draw of this frame's End region — the ring
 	// serial is promoted only then, so both targets sample the same frame.
 	[[nodiscard]] bool RecordSeamOverlayDraw(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
-		bool a_fgTarget, bool a_straightAlpha, bool a_regionFirst);
+		bool a_fgTarget, bool a_regionFirst);
 
 	// Draws the renderer's frames over the game image at present time, on the
 	// game's own ID3D12Device + DIRECT queue (located via composite/EngineD3D12.h;
@@ -56,7 +54,7 @@ namespace OSFUI
 		void SetSharedRing(const SharedRingDesc& a_desc) override;
 		// Seam-draw mode: the present hook keeps discovery/plumbing duties but
 		// never draws; RecordSeamOverlayDraw (above) does, at the engine seam.
-		void SetSeamDrawMode(bool a_enabled, bool a_compare = false) override;
+		void SetSeamDrawMode(bool a_enabled) override;
 
 		[[nodiscard]] std::string_view Name() const override { return "d3d12"; }
 

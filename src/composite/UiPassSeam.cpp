@@ -12,7 +12,6 @@
 #include <Windows.h>
 
 #include <d3d12.h>
-#include <d3dcompiler.h>
 
 #include <array>
 #include <atomic>
@@ -59,6 +58,8 @@ namespace OSFUI::UiPassSeam
 		std::atomic<std::uintptr_t> g_origEnd{ 0 };
 		std::atomic<std::uintptr_t> g_origComposite{ 0 };
 		std::atomic<bool> g_installed{ false };
+		std::atomic<bool> g_installOk{ false };
+		std::atomic<bool> g_probeEnabled{ false };
 
 		struct SiteState
 		{
@@ -299,10 +300,6 @@ namespace OSFUI::UiPassSeam
 		constexpr std::size_t kSlotSetDescriptorHeaps = 28;
 		constexpr std::size_t kSlotOMSetRenderTargets = 46;
 
-		// Draw the phase-2 debug triangle instead of the real overlay quad.
-		// Kept for seam triage: flip to true to take the compositor (ring,
-		// transport, heaps) out of the equation entirely.
-		constexpr bool kSeamDebugTriangle = false;
 
 		// Whole-UI-frame capture WINDOW (phase 1b): armed at ScaleformBegin
 		// entry, disarmed after ScaleformComposite returns. The RE probe proved
@@ -375,20 +372,12 @@ namespace OSFUI::UiPassSeam
 		// 2026-07-21). Expire the remaining slot after a few calls so it can
 		// never fire deep in the window inside another pass's stream.
 		thread_local int tl_callsAfterFirstDraw = -1;  // -1 = no draw yet this region
-		// RecordSeamOverlay may issue diagnostic barriers of its own. Those calls
-		// re-enter this hooked slot and must be forwarded without running the
-		// hand-off matcher again, or the comparator recursively consumes the
-		// second draw slot while the resource is already changing state.
-		thread_local bool tl_insideSeamDraw = false;
-		// FG UI-input target treatment (config uiPassFgMode; see UiPassSeam.h).
-		std::atomic<FgMode> g_fgMode{ FgMode::kPremul };
-		// a_fgTarget identifies the RT -> COPY_SOURCE hand-off independently;
-		// a_straightAlpha selects its diagnostic byte convention.
+		// a_fgTarget identifies the RT -> COPY_SOURCE hand-off.
 		// a_regionFirst: first draw of this End
 		// region — the compositor promotes its ring serial only then, so both
 		// targets of one frame sample the SAME overlay frame.
 		void RecordSeamDrawAtHandoff(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
-			bool a_fgTarget, bool a_straightAlpha, bool a_regionFirst);
+			bool a_fgTarget, bool a_regionFirst);
 		ID3D12GraphicsCommandList* g_selfTestList = nullptr;  // non-null only during self-test
 		std::atomic<bool> g_selfTestOMSeen{ false };
 		std::atomic<bool> g_selfTestBarrierSeen{ false };
@@ -456,7 +445,7 @@ namespace OSFUI::UiPassSeam
 				tl_handoffDrawsLeft = 0;  // second hand-off would have appeared by now
 				tl_callsAfterFirstDraw = -1;
 			}
-			if (!tl_insideSeamDraw && tl_handoffDrawsLeft > 0 && a_barriers) {
+			if (tl_handoffDrawsLeft > 0 && a_barriers) {
 				for (UINT i = 0; i < a_numBarriers && tl_handoffDrawsLeft > 0; ++i) {
 					const auto& barrier = a_barriers[i];
 					if (barrier.Type != D3D12_RESOURCE_BARRIER_TYPE_TRANSITION || !barrier.Transition.pResource ||
@@ -478,19 +467,13 @@ namespace OSFUI::UiPassSeam
 					const bool fgTarget =
 						(barrier.Transition.StateAfter & D3D12_RESOURCE_STATE_COPY_SOURCE) != 0 &&
 						(barrier.Transition.StateAfter & D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE) == 0;
-					const auto fgMode = g_fgMode.load(std::memory_order_relaxed);
-					if (fgTarget && fgMode == FgMode::kOff) {
-						continue;  // triage mode: leave the FG UI input untouched (keeps the draw budget)
-					}
 					const bool regionFirst = tl_handoffDrawsLeft == 2;  // pins both draws to one ring serial
 					--tl_handoffDrawsLeft;
 					if (tl_callsAfterFirstDraw < 0) {
 						tl_callsAfterFirstDraw = 0;  // start the expiry clock at the first draw
 					}
-					tl_insideSeamDraw = true;
-					RecordSeamDrawAtHandoff(a_self, barrier.Transition.pResource,
-						fgTarget, fgTarget && fgMode == FgMode::kStraight, regionFirst);
-					tl_insideSeamDraw = false;
+					RecordSeamDrawAtHandoff(
+						a_self, barrier.Transition.pResource, fgTarget, regionFirst);
 				}
 			}
 
@@ -666,205 +649,36 @@ namespace OSFUI::UiPassSeam
 			}
 		}
 
-		// -------------------------------------------- phase-2 seam draw (dev)
-		// Records a solid premultiplied triangle into ScaleformCompositeBuffer
-		// (config `uiPassDraw`) inside the hand-off barrier — see
-		// tl_expectBufferTransition for why the draw lives there and nowhere
-		// else. cmdCtx+0x60 (runtime-proven recording-list offset) is kept as
-		// documentation for phase 3; the hand-off path gets the list for free.
-		constexpr std::uintptr_t kCmdCtxListOffset = 0x60;
-
+		// ------------------------------------------------------ seam draw state
 		std::atomic<bool> g_drawEnabled{ false };
-		std::atomic<int> g_drawState{ 0 };  // 0 untried, 1 ready, -1 failed
 		std::atomic<std::uint64_t> g_seamDraws{ 0 };
 		std::atomic<std::uintptr_t> g_lastDrawBuffer{ 0 };   // churn diagnostics only
 		std::atomic<std::uint32_t> g_bufferChangeLogs{ 0 };  // bounded (loads churn hard)
-
-		ID3D12Device* g_drawDevice = nullptr;
-		ID3D12RootSignature* g_drawRootSig = nullptr;
-		ID3D12PipelineState* g_drawPso = nullptr;
-		// RTV ring: transient buffers churn (loads) and two workers can record
-		// different frames concurrently, so every draw writes a fresh slot
-		// instead of racing a single cached view.
-		constexpr std::uint32_t kRtvRingSlots = 8;
-		ID3D12DescriptorHeap* g_drawRtvHeap = nullptr;
-		std::uint32_t g_rtvStride = 0;
-		std::atomic<std::uint32_t> g_rtvNext{ 0 };
-
-		// Small corner triangle in clip space (bottom-left), so the debug draw
-		// proves the seam without obscuring the screen.
-		constexpr const char* kSeamVS = R"(
-float4 main(uint id : SV_VertexID) : SV_Position {
-    float2 p[3] = { float2(-0.95, -0.95), float2(-0.95, -0.35), float2(-0.35, -0.95) };
-    return float4(p[id], 0.0, 1.0);
-}
-)";
-		// Premultiplied 50% teal: the buffer's alpha drives both the engine's
-		// composite blend and Frame Generation's UI composition.
-		constexpr const char* kSeamPS = R"(
-float4 main() : SV_Target { return float4(0.0, 0.35, 0.4, 0.5); }
-)";
-
-		[[nodiscard]] ID3DBlob* CompileSeamShader(const char* a_src, const char* a_target)
-		{
-			ID3DBlob* code = nullptr;
-			ID3DBlob* errors = nullptr;
-			const auto hr = ::D3DCompile(a_src, std::strlen(a_src), nullptr, nullptr, nullptr,
-				"main", a_target, D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &errors);
-			if (FAILED(hr)) {
-				REX::ERROR("[UiPassSeam] draw: shader '{}' compile failed (hr=0x{:08X}): {}",
-					a_target, static_cast<std::uint32_t>(hr),
-					errors ? static_cast<const char*>(errors->GetBufferPointer()) : "no message");
-			}
-			if (errors) {
-				errors->Release();
-			}
-			return code;
-		}
-
-		// Lazy, once, on the first End seam with draw enabled.
-		void EnsureDrawObjects()
-		{
-			int expected = 0;
-			if (!g_drawState.compare_exchange_strong(expected, -1, std::memory_order_acq_rel)) {
-				return;  // already tried; never retry
-			}
-
-			const auto engine = LocateEngineD3D12();
-			if (!engine) {
-				REX::WARN("[UiPassSeam] draw: engine device not reachable; seam draw disabled");
-				return;
-			}
-			engine.directQueue->Release();  // draw records on the engine's list; no queue use
-			g_drawDevice = reinterpret_cast<ID3D12Device*>(engine.device);
-
-			auto* vs = CompileSeamShader(kSeamVS, "vs_5_0");
-			auto* ps = CompileSeamShader(kSeamPS, "ps_5_0");
-
-			D3D12_ROOT_SIGNATURE_DESC rsDesc{};  // no parameters: constants live in the shader
-			ID3DBlob* rsBlob = nullptr;
-			ID3DBlob* rsError = nullptr;
-			bool ok = vs && ps &&
-			          SUCCEEDED(::D3D12SerializeRootSignature(&rsDesc, D3D_ROOT_SIGNATURE_VERSION_1, &rsBlob, &rsError)) &&
-			          SUCCEEDED(g_drawDevice->CreateRootSignature(0, rsBlob->GetBufferPointer(), rsBlob->GetBufferSize(),
-						  __uuidof(ID3D12RootSignature), reinterpret_cast<void**>(&g_drawRootSig)));
-			if (rsBlob) {
-				rsBlob->Release();
-			}
-			if (rsError) {
-				rsError->Release();
-			}
-
-			if (ok) {
-				D3D12_GRAPHICS_PIPELINE_STATE_DESC desc{};
-				desc.pRootSignature = g_drawRootSig;
-				desc.VS = { vs->GetBufferPointer(), vs->GetBufferSize() };
-				desc.PS = { ps->GetBufferPointer(), ps->GetBufferSize() };
-				desc.SampleMask = UINT_MAX;
-				desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
-				desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
-				desc.RasterizerState.DepthClipEnable = TRUE;
-				desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-				desc.NumRenderTargets = 1;
-				// The buffer is R8G8B8A8_TYPELESS; the engine's own RTV choice is
-				// unknown, so start with the plain UNORM view (capture 2026-07-21).
-				desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
-				desc.SampleDesc.Count = 1;
-				auto& rt = desc.BlendState.RenderTarget[0];
-				rt.BlendEnable = TRUE;
-				rt.SrcBlend = D3D12_BLEND_ONE;  // premultiplied over
-				rt.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
-				rt.BlendOp = D3D12_BLEND_OP_ADD;
-				rt.SrcBlendAlpha = D3D12_BLEND_ONE;
-				rt.DestBlendAlpha = D3D12_BLEND_INV_SRC_ALPHA;
-				rt.BlendOpAlpha = D3D12_BLEND_OP_ADD;
-				rt.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-				ok = SUCCEEDED(g_drawDevice->CreateGraphicsPipelineState(&desc,
-					__uuidof(ID3D12PipelineState), reinterpret_cast<void**>(&g_drawPso)));
-			}
-
-			if (ok) {
-				D3D12_DESCRIPTOR_HEAP_DESC heap{};
-				heap.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-				heap.NumDescriptors = kRtvRingSlots;
-				ok = SUCCEEDED(g_drawDevice->CreateDescriptorHeap(&heap,
-					__uuidof(ID3D12DescriptorHeap), reinterpret_cast<void**>(&g_drawRtvHeap)));
-				g_rtvStride = g_drawDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-			}
-
-			if (vs) {
-				vs->Release();
-			}
-			if (ps) {
-				ps->Release();
-			}
-			if (ok) {
-				g_drawState.store(1, std::memory_order_release);
-				REX::INFO("[UiPassSeam] draw: pipeline ready (RTV view R8G8B8A8_UNORM on the typeless buffer)");
-			} else {
-				REX::WARN("[UiPassSeam] draw: pipeline setup failed; seam draw disabled");
-			}
-		}
 
 		// Inside the hand-off barrier: a_buffer is THIS frame's UI buffer,
 		// still in RENDER_TARGET state (the transition is forwarded after we
 		// return), and a_list is the recording list it was drawn on.
 		void RecordSeamDrawAtHandoff(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
-			const bool a_fgTarget, const bool a_straightAlpha, const bool a_regionFirst)
+			const bool a_fgTarget, const bool a_regionFirst)
 		{
 			if (!g_drawEnabled.load(std::memory_order_relaxed) || !a_list || !a_buffer) {
 				return;
 			}
 
-			if constexpr (kSeamDebugTriangle) {
-				EnsureDrawObjects();
-				if (g_drawState.load(std::memory_order_acquire) != 1) {
-					return;
-				}
+			// Snapshot the engine's descriptor-heap binding before the
+			// compositor binds its own shader-visible heap.
+			ID3D12DescriptorHeap* engineHeaps[2]{ tl_heaps[0], tl_heaps[1] };
+			const UINT engineHeapCount = tl_heapCount;
+			const bool heapKnown = engineHeapCount > 0 && tl_heapList == a_list;
 
-				const auto desc = a_buffer->GetDesc();
-				const auto slot = g_rtvNext.fetch_add(1, std::memory_order_relaxed) % kRtvRingSlots;
-				D3D12_CPU_DESCRIPTOR_HANDLE rtv{ g_drawRtvHeap->GetCPUDescriptorHandleForHeapStart().ptr +
-					static_cast<SIZE_T>(slot) * g_rtvStride };
-				D3D12_RENDER_TARGET_VIEW_DESC rtvDesc{};
-				rtvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;  // typed view on the typeless buffer
-				rtvDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
-				g_drawDevice->CreateRenderTargetView(a_buffer, &rtvDesc, rtv);
-
-				const D3D12_VIEWPORT vp{ 0.0f, 0.0f, static_cast<float>(desc.Width), static_cast<float>(desc.Height), 0.0f, 1.0f };
-				const D3D12_RECT scissor{ 0, 0, static_cast<LONG>(desc.Width), static_cast<LONG>(desc.Height) };
-
-				a_list->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
-				a_list->RSSetViewports(1, &vp);
-				a_list->RSSetScissorRects(1, &scissor);
-				a_list->SetGraphicsRootSignature(g_drawRootSig);
-				a_list->SetPipelineState(g_drawPso);
-				a_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-				a_list->DrawInstanced(3, 1, 0, 0);
-			} else {
-				// Real overlay (phase 3): the compositor records its quad — the
-				// shared-ring texture, premultiplied over — onto the engine's
-				// list. Snapshot the engine's descriptor-heap binding FIRST:
-				// the compositor binds its own shader-visible heap (the quad
-				// samples an SRV), and the snapshot is taken before that bind
-				// runs through our SetDescriptorHeaps thunk and overwrites the
-				// thread-local tracking.
-				ID3D12DescriptorHeap* engineHeaps[2]{ tl_heaps[0], tl_heaps[1] };
-				const UINT engineHeapCount = tl_heapCount;
-				const bool heapKnown = engineHeapCount > 0 && tl_heapList == a_list;
-
-				if (!RecordSeamOverlayDraw(a_list, a_buffer, a_fgTarget, a_straightAlpha, a_regionFirst)) {
-					return;  // hidden, no ready GPU frame, or non-GPU transport
-				}
-				if (heapKnown) {
-					// Restore the engine's heaps: cached-state layers downstream
-					// may legally skip a "redundant" rebind.
-					if (const auto original = g_origSetDescriptorHeaps.load(std::memory_order_relaxed)) {
-						original(a_list, engineHeapCount, engineHeaps);
-					}
+			if (!RecordSeamOverlayDraw(a_list, a_buffer, a_fgTarget, a_regionFirst)) {
+				return;
+			}
+			if (heapKnown) {
+				if (const auto original = g_origSetDescriptorHeaps.load(std::memory_order_relaxed)) {
+					original(a_list, engineHeapCount, engineHeaps);
 				}
 			}
-
 			const auto draws = g_seamDraws.fetch_add(1, std::memory_order_relaxed) + 1;
 			if (draws == 1) {
 				REX::INFO("[UiPassSeam] draw: FIRST SEAM DRAW recorded at the hand-off (buffer 0x{:X}, list 0x{:X})",
@@ -888,7 +702,8 @@ float4 main() : SV_Target { return float4(0.0, 0.35, 0.4, 0.5); }
 		// ------------------------------------------------------------- thunks
 		void* BeginThunk(void* a_this, void* a_ctx, void* a_io, void* a_r9)
 		{
-			const auto count = g_begin.count.fetch_add(1, std::memory_order_relaxed) + 1;
+			const bool probe = g_probeEnabled.load(std::memory_order_relaxed);
+			const auto count = probe ? g_begin.count.fetch_add(1, std::memory_order_relaxed) + 1 : 0;
 
 			// Arm the capture window PRE-original: ScaleformBegin's own
 			// recording (the buffer's clear/acquire, if anywhere) must land
@@ -904,7 +719,7 @@ float4 main() : SV_Target { return float4(0.0, 0.35, 0.4, 0.5); }
 			// UI-input pipeline they existed to capture is now decoded (see
 			// tl_handoffDrawsLeft). Re-add a bounded re-arm only when a new
 			// unknown needs gameplay-state capture.
-			const bool allowWindow = g_captureWindows.load(std::memory_order_relaxed) < kMaxCaptureWindows;
+			const bool allowWindow = probe && g_captureWindows.load(std::memory_order_relaxed) < kMaxCaptureWindows;
 			if (allowWindow) {
 				std::uint32_t expected = 0;
 				if (g_captureTid.compare_exchange_strong(expected, tid, std::memory_order_acq_rel) ||
@@ -917,7 +732,7 @@ float4 main() : SV_Target { return float4(0.0, 0.35, 0.4, 0.5); }
 						g_seamDraws.load(std::memory_order_relaxed));
 				}
 			}
-			if (count <= kMaxDetailLogs) {
+			if (probe && count <= kMaxDetailLogs) {
 				ScanPassInstance("BeginPass", g_begin, a_this);
 			}
 
@@ -925,7 +740,7 @@ float4 main() : SV_Target { return float4(0.0, 0.35, 0.4, 0.5); }
 			void* result = original ? original(a_this, a_ctx, a_io, a_r9) : nullptr;
 
 			// Post-original: ScaleformBegin has just bound the HAL fields.
-			if (count <= kMaxDetailLogs) {
+			if (probe && count <= kMaxDetailLogs) {
 				const auto halRT = ReadHalField(kHalRTOffset);
 				const auto halCtx = ReadHalField(kHalCtxOffset);
 				const auto getterCtx = reinterpret_cast<std::uintptr_t>(GetEngineCmdCtx(a_ctx));
@@ -960,12 +775,13 @@ float4 main() : SV_Target { return float4(0.0, 0.35, 0.4, 0.5); }
 
 		void* EndThunk(void* a_this, void* a_ctx, void* a_io, void* a_r9)
 		{
-			const auto count = g_end.count.fetch_add(1, std::memory_order_relaxed) + 1;
-			const bool window = g_captureTid.load(std::memory_order_relaxed) == ::GetCurrentThreadId();
+			const bool probe = g_probeEnabled.load(std::memory_order_relaxed);
+			const auto count = probe ? g_end.count.fetch_add(1, std::memory_order_relaxed) + 1 : 0;
+			const bool window = probe && g_captureTid.load(std::memory_order_relaxed) == ::GetCurrentThreadId();
 			if (window) {
 				REX::INFO("[UiPassSeam] window: End enter");
 			}
-			if (count <= kMaxDetailLogs) {
+			if (probe && count <= kMaxDetailLogs) {
 				REX::INFO("[UiPassSeam] End[{}] tid={} this=0x{:X} ctx=0x{:X} io=0x{:X} cmdCtx=0x{:X}",
 					count, ::GetCurrentThreadId(),
 					reinterpret_cast<std::uintptr_t>(a_this), reinterpret_cast<std::uintptr_t>(a_ctx),
@@ -996,15 +812,16 @@ float4 main() : SV_Target { return float4(0.0, 0.35, 0.4, 0.5); }
 		{
 			tl_handoffDrawsLeft = 0;  // hand-off glue region over for this frame
 			tl_callsAfterFirstDraw = -1;
-			const auto count = g_composite.count.fetch_add(1, std::memory_order_relaxed) + 1;
-			const bool window = g_captureTid.load(std::memory_order_relaxed) == ::GetCurrentThreadId();
+			const bool probe = g_probeEnabled.load(std::memory_order_relaxed);
+			const auto count = probe ? g_composite.count.fetch_add(1, std::memory_order_relaxed) + 1 : 0;
+			const bool window = probe && g_captureTid.load(std::memory_order_relaxed) == ::GetCurrentThreadId();
 			if (window) {
 				REX::INFO("[UiPassSeam] window: Composite enter");
 			}
 
 			// Pre-original probe of the state a draw would see here.
 			std::uintptr_t cmdCtx = 0;
-			if (count <= kMaxDetailLogs) {
+			if (probe && count <= kMaxDetailLogs) {
 				cmdCtx = reinterpret_cast<std::uintptr_t>(GetEngineCmdCtx(a_ctx));
 				REX::INFO("[UiPassSeam] Composite[{}] tid={} this=0x{:X} ctx=0x{:X} io=0x{:X} cmdCtx=0x{:X}",
 					count, ::GetCurrentThreadId(),
@@ -1089,19 +906,13 @@ float4 main() : SV_Target { return float4(0.0, 0.35, 0.4, 0.5); }
 		}
 	}
 
-	bool Install(const bool a_draw, const FgMode a_fgMode)
+	bool Install(const bool a_draw, const bool a_probe)
 	{
 		if (g_installed.exchange(true, std::memory_order_relaxed)) {
-			return true;
-		}
-		g_drawEnabled.store(a_draw, std::memory_order_relaxed);
-		g_fgMode.store(a_fgMode, std::memory_order_relaxed);
-		if (a_draw) {
-			REX::INFO("[UiPassSeam] seam DRAW enabled (uiPassDraw): overlay into the engine's UI buffers "
-					  "at the ScaleformEnd seam (FG UI-input mode: {})",
-				a_fgMode == FgMode::kOff ? "off" : a_fgMode == FgMode::kPremul ? "premul" : "straight");
+			return g_installOk.load(std::memory_order_acquire);
 		}
 
+		g_probeEnabled.store(a_probe, std::memory_order_relaxed);
 		const auto origBegin = HookExecuteSlot(
 			"ScaleformBegin", kVtblScaleformBegin, kIdBeginExecute, &BeginThunk);
 		const auto origEnd = HookExecuteSlot(
@@ -1113,8 +924,14 @@ float4 main() : SV_Target { return float4(0.0, 0.35, 0.4, 0.5); }
 		g_origComposite.store(origComposite, std::memory_order_relaxed);
 
 		const bool ok = origBegin != 0 && origEnd != 0 && origComposite != 0;
+		g_installOk.store(ok, std::memory_order_release);
+		g_drawEnabled.store(ok && a_draw, std::memory_order_release);
 		if (!ok) {
-			REX::WARN("[UiPassSeam] probe incomplete — see slot warnings above (unhooked passes run untouched)");
+			REX::WARN("[UiPassSeam] hook set incomplete — seam draw disabled; "
+					  "the legacy present path remains active");
+		} else if (a_draw) {
+			REX::INFO("[UiPassSeam] seam draw enabled: overlay records into Starfield's "
+					  "transparent UI layer at the ScaleformEnd hand-off");
 		}
 		return ok;
 	}
