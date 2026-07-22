@@ -3,7 +3,7 @@ includes("lib/commonlibsf")
 
 -- set project constants
 set_project("OSF UI")
-set_version("1.2.1")
+set_version("1.3.0")
 set_license("GPL-3.0")
 set_languages("c++23")
 set_warnings("allextra")
@@ -41,7 +41,7 @@ if has_config("with_webview2") then
         add_rules("mode.debug", "mode.releasedbg")
         add_files("tools/webview2_host/**.cpp", "tools/webview2_shared/**.cpp")
         add_headerfiles("tools/webview2_host/**.h", "tools/webview2_shared/**.h")
-        add_includedirs("tools/webview2_shared")
+        add_includedirs("src", "tools/webview2_shared")
         add_packages("nlohmann_json")
         add_syslinks(
             "d3d11", "dxgi", "windowsapp", "runtimeobject", "CoreMessaging",

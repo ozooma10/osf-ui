@@ -1,5 +1,6 @@
 #include "HostApp.h"
 
+#include "core/Version.h"
 #include "Wv2BrokerLaunch.h"  // LaunchMethodName (logging only)
 #include "Wv2Pipe.h"
 #include "Wv2Protocol.h"
@@ -2847,7 +2848,7 @@ namespace osfui::wv2
 		app.Send(json{
 			{ "type", "hello" },
 			{ "protocolVersion", kProtocolVersion },
-			{ "hostVersion", "1.2.1" },
+			{ "hostVersion", OSFUI::kPluginVersion },
 			{ "runtimeVersion", runtime },
 			{ "pid", ::GetCurrentProcessId() },
 		});

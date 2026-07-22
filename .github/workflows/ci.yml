@@ -44,6 +44,25 @@ jobs:
           check sdk/osfui.d.ts           "Bridge protocol version: $V"
           exit $fail
 
+      - name: Check plugin version lockstep
+        run: |
+          set -e
+          V=$(sed -n 's/.*kPluginVersion = "\([0-9.]*\)".*/\1/p' src/core/Version.h)
+          test -n "$V" || { echo "::error::could not extract kPluginVersion"; exit 1; }
+          grep -qF "set_version(\"$V\")" xmake.lua || {
+            echo "::error file=xmake.lua::project version does not match kPluginVersion $V"
+            exit 1
+          }
+          IFS=. read -r MAJOR MINOR PATCH <<< "$V"
+          for pair in Major:$MAJOR Minor:$MINOR Patch:$PATCH; do
+            name=${pair%%:*}
+            value=${pair#*:}
+            grep -qE "kPluginVersion${name} = ${value};" src/core/Version.h || {
+              echo "::error file=src/core/Version.h::numeric $name does not match kPluginVersion $V"
+              exit 1
+            }
+          done
+
   frontend:
     name: Frontend (typecheck, build, stale-check, tests)
     runs-on: ubuntu-latest
