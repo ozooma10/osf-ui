@@ -27,11 +27,16 @@ namespace OSFUI
 		// Private message posted by a renderer worker when native child focus
 		// must return to Starfield's window-message thread.
 		inline constexpr std::uint32_t kRestoreGameFocusMessage = 0x8049;
+		// Wake the game window thread after the main-thread menu policy changes.
+		// Its WndProc owns ShowCursor/ClipCursor state, which must be applied even
+		// if native focus moves to the WebView before another input packet arrives.
+		inline constexpr std::uint32_t kRefreshInputStateMessage = 0x804A;
 		// Finds the game's main top-level window for the current process and
 		// installs the WndProc subclass. Safe to call once game UI exists
 		// (kPostPostDataLoad). Returns false (and logs) if no window is found
 		// or the swap fails. One-way: never un-subclassed (other overlays may
 		// chain on the same window).
 		bool Install();
+		void RequestStateRefresh();
 	}
 }

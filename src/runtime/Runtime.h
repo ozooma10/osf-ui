@@ -139,8 +139,8 @@ namespace OSFUI
 		// visibility).
 		void ApplyMenuPolicy();
 
-		// Drive real OS keyboard focus toward the active view's text-entry grant
-		// (focus-on-demand). Edge-guarded; main thread only.
+		// Drive real OS focus toward the interactive-menu session. HUD-only and
+		// closed states keep Starfield focused. Edge-guarded; main thread only.
 		void ReconcileNativeFocus();
 
 		// Record the current virtual-cursor position as the pending coalesced
@@ -325,24 +325,13 @@ namespace OSFUI
 		// inner panel, or sends `close` itself). Same stickiness/cleanup rules
 		// as _gamepadRawViews. Main thread only.
 		std::unordered_set<std::string> _backOwnerViews;
-		// Views whose page reported live text entry (osfui.textFocus, sent by
-		// the host bridge shim on real typing intent — a click into an editable
-		// or a printable keystroke inside one, NOT mere DOM focus, which padnav
-		// moves on every dpad step). While the active menu holds this grant the
-		// WebView owns real OS keyboard focus (typing/IME); otherwise the game
-		// window keeps focus, because Windows.Gaming.Input — Starfield's
-		// gamepad source — stops delivering the moment another process owns
-		// the focused window (2026-07-21 report: gamepad dead all session under
-		// WebView2's take-focus-on-open model). Cleared on page (re)load, view
-		// destroy, and overlay close. Main thread only.
-		std::unordered_set<std::string> _textFocusViews;
 		// Persisted osfui.renderStats setting. Applied to every loaded surface;
 		// LoadSurface also applies it to views discovered and opened later.
 		bool _renderStatsEnabled{ false };
 		bool _renderStatsHaveBaseline{ false };
 		double _renderStatsLastSampleAt{ 0.0 };
 		CompositorStats _renderStatsBaseline{};
-		// Last value pushed to IWebRenderer::SetNativeKeyboardFocus; the false
+		// Last value pushed to IWebRenderer::SetNativeFocus; the false
 		// side posts a game-focus restore, so sends are edge-only. Main thread.
 		bool _nativeFocusGranted{ false };
 		// Menu requests raised off the main thread, drained in Tick. _reqMutex is
@@ -442,6 +431,12 @@ namespace OSFUI
 		double                        _padNavNextRepeat[4]{};
 		float                         _padScrollAccum{ 0.0f };
 		float                         _padLastSentSticks[4]{};  // lx,ly,rx,ry last sent as raw bridge event
+		// When the WebView owns foreground focus, Starfield's engine gamepad
+		// feed is suspended. XInput is polled directly for that interval; the
+		// first sample is a baseline so the button that opened the menu cannot
+		// leak through as an activation.
+		bool                          _directPadActive{ false };
+		std::uint32_t                 _directPadButtons{ 0 };
 
 		// Written from the renderer's load hook, read by GetViewLoadState.
 		// Game-thread only.

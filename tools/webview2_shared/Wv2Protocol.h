@@ -30,7 +30,7 @@ namespace osfui::wv2
 	// focus back to the game (its WndProc subclass answers with SetFocus).
 	// Game side: OverlayInputHook::kRestoreGameFocusMessage — the renderer
 	// static_asserts the two stay equal. The host posts it from GotFocus when
-	// Chromium grabs focus without a live text-entry grant.
+	// Chromium grabs focus outside an interactive-menu session.
 	inline constexpr std::uint32_t kRestoreGameFocusMessage = 0x8049;
 
 	// Hard cap on one framed message (a resize-storm of eval results should

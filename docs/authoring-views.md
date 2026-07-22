@@ -132,17 +132,15 @@ controller use works without padnav. If you want richer focus handling, own it
 in your own script — or take raw events with `osfui.gamepadRaw` (§3).
 See [`frontend/COMPATIBILITY.md`](../frontend/COMPATIBILITY.md) §3.
 
-**Text entry vs. the controller.** Windows only delivers gamepad input to the
-process whose window has keyboard focus, so the overlay leaves real OS focus
-with the game and injects keys into your page instead. Typing is the
-exception: when the player clicks into an editable element (or starts typing
-in one), the platform moves real focus into the browser so text and IME work,
-and moves it back — restoring controller input — the moment focus leaves the
-field. This is automatic for standard editables (`input`, `textarea`,
-`contenteditable`); a custom text surface that isn't one of those (e.g. a
-canvas editor) can drive the grant itself with the `osfui.textFocus` command
-(§3). While a text-entry grant is live, gamepad input is unavailable engine-wide
-— that is the OS trade-off, not a bug.
+**Focus and input.** An input-capturing menu gives the WebView real OS focus
+for its full visible session. Physical keyboard and IME input therefore work
+natively, and Windows schedules the interactive browser as foreground work.
+The host captures and forwards mouse input directly. Because Starfield's
+Windows.Gaming.Input feed pauses while another process is focused, the runtime
+polls an XInput-compatible controller for that interval and preserves the same
+default and raw mappings described above. HUD-only views never capture input:
+Starfield remains focused and their capture cadence is capped at 60 Hz to bound
+GPU/copy pressure during gameplay.
 
 ### Localization
 
@@ -396,7 +394,7 @@ Whitelisted commands (anything else is rejected, logged, and answered with
 | `settings.captureKey` | `mod, key` | arm native key-rebind capture for any `key`-typed setting of any mod; the next key press replies with `settings.captured`, echoing the arming `requestId` however many ticks later, so `osfui.request("settings.captureKey", …, {timeoutMs: 0})` awaits the whole rebind. One capture at a time; a second arm answers `ui.result { ok:false, code:"capture-busy" }`. Capture happens in the native input layer, so pressing the current toggle key rebinds instead of closing the overlay |
 | `osfui.gamepadRaw` | `raw: bool` | *(experimental — exempt from the 1.0 stability guarantee until stabilized)* take over gamepad handling: suppress the default nav mapping and consume raw `ui.gamepad` events yourself. The grant is sticky per view — it survives overlay hide/show and clears only when your page (re)loads or the view is destroyed; other views never inherit it |
 | `osfui.handleBack` | `handle: bool` | own the back action. While your menu is ACTIVE, Esc / gamepad B are delivered to your page as a synthetic Escape keydown/keyup instead of closing the top menu — handle it and decide: navigate (`menu.open`), dismiss an inner panel, or send `close`. Same sticky-per-view lifecycle as `osfui.gamepadRaw` (clears on page (re)load / view destroy — re-assert in your boot code). The overlay toggle key always closes natively, so a page that stops responding cannot strand the player |
-| `osfui.textFocus` | `focused: bool` | *(experimental — exempt from the 1.0 stability guarantee until stabilized)* declare live text entry. While your ACTIVE view holds the grant, real OS keyboard focus sits in the browser so typing and IME work — and gamepad input is unavailable engine-wide (see §1 "Text entry vs. the controller"). Standard editables get this automatically from the platform's intent tracking; only send it yourself for a custom text surface (e.g. a canvas editor), and revoke it the moment text entry ends. Cleared on page (re)load, view destroy, and overlay close |
+| `osfui.textFocus` | `focused: bool` | *(legacy experimental compatibility command)* accepted as a no-op. Interactive menus now hold native focus for their entire visible session, so views no longer need to request or release a separate text-entry grant |
 | `osfui.openModPage` | — | *(protocol 1.1)* open OSF UI's own Nexus Mods page in the user's **system browser** (the overlay itself never navigates — it has no chrome to come back through). The URL is hardcoded in the host; the payload carries nothing, so page content cannot steer the shell. For "update OSF UI" affordances in views. Behind a fullscreen game the browser opens unfocused (alt-tab); failures answer `ui.result { ok:false, code:"shell-failed" }` |
 | `ui.action` | `action: string`, `arg?: string` | *(protocol 1.1)* fire an action at the OWNING mod's Papyrus scripts (`OSFUI.RegisterForViewActions`). The target mod id is derived from the calling view's id — the payload cannot spoof it. Fire-and-forget: no reply payload (a `requestId` still gets the auto `ui.result`, meaning "queued to the VM", not "handled"); the script answers by pushing state back as `data.push`. Convention: fire `{ action: "ready" }` on page load so the script (re)pushes current state — see [authoring-dynamic-data.md](authoring-dynamic-data.md) |
 

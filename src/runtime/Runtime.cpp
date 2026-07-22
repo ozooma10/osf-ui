@@ -17,8 +17,10 @@
 #include "input/FreeCursor.h"
 #include "input/HardwareCursor.h"
 #include "input/MenuMode.h"
+#include "input/OverlayInputHook.h"
 #include "input/PauseMenuEntry.h"
 #include "input/SimPause.h"
+#include "input/XInputPoller.h"
 #include "core/Paths.h"
 #include "platform/WindowsPlatform.h"
 #include "render/MockWebRenderer.h"
@@ -912,24 +914,22 @@ namespace OSFUI
 		// Capture is the top menu's policy (false for HUD-only => the game keeps
 		// input). The runtime writer of _captureInput; the boot-time default is
 		// stored from config during Initialize.
-		_captureInput.store(_menus.DesiredCapture());
+		const bool desiredCapture = _menus.DesiredCapture();
+		const bool captureChanged = _captureInput.exchange(desiredCapture) != desiredCapture;
+		if (captureChanged) {
+			// Hardware cursor state belongs to the game window thread. Wake it now;
+			// a menu-session focus transfer can otherwise happen before the next
+			// WM_INPUT packet and leave the OS pointer hidden for the whole session.
+			OverlayInputHook::RequestStateRefresh();
+		}
 
 		// Visibility side-effects live here rather than behind a change guard,
 		// which would drop the compositor push on the no-change startup path.
 		const bool visible = _menus.DesiredVisible();
 		const bool wasVisible = _visible.exchange(visible);
-		// Focus-on-demand keyboard model: the game window keeps real Win32 focus
-		// by default — Windows.Gaming.Input (the engine's gamepad source) stops
-		// delivering the moment another process owns the focused window, so a
-		// session-long Chromium focus grab kills all gamepad input (2026-07-21
-		// report). Keys reach the page as injected events via the WndProc capture
-		// path; the WebView only takes real focus (typing/IME) while the active
-		// view holds a text-entry grant.
-		if (!visible && wasVisible) {
-			// Session over: typing grants don't outlive the overlay, or a
-			// controller-first reopen would start with the gamepad dead.
-			_textFocusViews.clear();
-		}
+		// Interactive menus use real browser focus for the full session so Windows
+		// schedules Chromium as foreground work. HUD-only views leave the game
+		// focused. Mouse and controller have focus-independent paths for the menu.
 		ReconcileNativeFocus();
 		if (_compositor) {
 			if (visible && !wasVisible) {
@@ -1005,7 +1005,7 @@ namespace OSFUI
 
 	void Runtime::ReconcileNativeFocus()
 	{
-		// Main thread (ApplyMenuPolicy, osfui.textFocus handler, view cleanup).
+		// Main thread (ApplyMenuPolicy).
 		// Edge-guarded: the false side posts a game-focus restore to the window
 		// thread, and the true side races Chromium's async MoveFocus, so repeat
 		// sends would only feed the focus watchdog more churn.
@@ -1013,13 +1013,16 @@ namespace OSFUI
 			return;
 		}
 		const auto active = _menus.ActiveMenu();
-		const bool want = _visible.load() && _captureInput.load() &&
-			active && _textFocusViews.contains(*active);
+		// A capturing menu owns native focus for its whole visible session. This
+		// reproduces Windows' smooth foreground scheduling without changing GPU
+		// priorities. HUD-only views have no active capturing menu and leave the
+		// game focused.
+		const bool want = _visible.load() && _captureInput.load() && active.has_value();
 		if (want == _nativeFocusGranted) {
 			return;
 		}
 		_nativeFocusGranted = want;
-		_renderer->SetNativeKeyboardFocus(want);
+		_renderer->SetNativeFocus(want);
 	}
 
 	bool Runtime::IsVisible() const
@@ -1049,13 +1052,10 @@ namespace OSFUI
 	{
 		const std::string id(a_viewId);
 		_viewLoadState[id] = a_failed ? ViewLoadState::Failed : ViewLoadState::Finished;
-		// The gamepad-raw / back-owner / text-entry grants are sticky for a page's
-		// lifetime, so a (re)loaded page starts un-granted and re-asserts in its
-		// own boot code (text-entry via the injected shim's intent tracking).
+		// The gamepad-raw and back-owner grants are sticky for a page's lifetime,
+		// so a (re)loaded page starts un-granted and re-asserts in its own boot code.
 		_gamepadRawViews.erase(id);
 		_backOwnerViews.erase(id);
-		_textFocusViews.erase(id);
-		ReconcileNativeFocus();  // a reloading page can't be typed into
 		if (!a_failed) {
 			// A healthy load clears the strikes, so a later failure gets the full
 			// retry budget again.
@@ -1104,8 +1104,6 @@ namespace OSFUI
 			_i18nSubscribers.erase(id);
 			_gamepadRawViews.erase(id);   // its sticky gamepad grant dies with it
 			_backOwnerViews.erase(id);    // ditto the back-owner grant
-			_textFocusViews.erase(id);    // and the text-entry grant
-			ReconcileNativeFocus();
 			for (const auto& mod : _modules) {
 				mod->OnViewDestroyed(id);  // module-held subscriber sets too
 			}
@@ -1468,12 +1466,7 @@ namespace OSFUI
 			_renderer->InjectKeyEvent(a_vk, false);
 		};
 
-		// Button edges, queued by the worker-thread thunks.
-		EngineInput::GamepadButtonEdge e;
-		while (EngineInput::PollGamepadButton(e)) {
-			if (!captured) {
-				continue;  // drain-and-discard while not capturing
-			}
+		const auto routeButtonEdge = [&](const EngineInput::GamepadButtonEdge& e) {
 			// Raw event for every edge — a page may own gamepad handling. Per-kind
 			// nesting keeps extensions (e.g. a `pad` index) off the payload root.
 			if (_bridge && active) {
@@ -1482,7 +1475,7 @@ namespace OSFUI
 						{ "button", { { "id", e.idCode }, { "down", e.down } } } });
 			}
 			if (raw || !e.down) {
-				continue;  // raw mode = page owns it; else act on the press edge only
+				return;  // raw mode = page owns it; else act on the press edge only
 			}
 			switch (e.idCode) {
 			case XInputButton::kDPadUp:    tap(0x26); break;  // VK_UP
@@ -1492,6 +1485,47 @@ namespace OSFUI
 			case XInputButton::kA:         tap(0x0D); break;  // VK_RETURN — activate
 			case XInputButton::kB:         EnqueueMenuRequest(MenuReq::Back); break;  // back — delegate (osfui.handleBack) or close
 			default: break;  // shoulders/thumbs/Start/Back -> raw event only
+			}
+		};
+
+		// Starfield's Windows.Gaming.Input dispatch stops when WebView2 owns
+		// foreground focus. Poll XInput only during that capturing interval and
+		// keep draining the engine queue so no stale edges are replayed later.
+		const bool directPad = captured && _nativeFocusGranted;
+		XInputPoller::State directState{};
+		EngineInput::GamepadButtonEdge e;
+		if (directPad) {
+			while (EngineInput::PollGamepadButton(e)) {}
+			directState = XInputPoller::Poll();
+			if (!_directPadActive) {
+				// Baseline only: a held menu-open button must not activate the page.
+				_directPadActive = true;
+				_directPadButtons = directState.buttons;
+			} else {
+				const auto changed = _directPadButtons ^ directState.buttons;
+				constexpr std::uint32_t masks[] = {
+					XInputButton::kDPadUp, XInputButton::kDPadDown,
+					XInputButton::kDPadLeft, XInputButton::kDPadRight,
+					XInputButton::kStart, XInputButton::kBack,
+					XInputButton::kLThumb, XInputButton::kRThumb,
+					XInputButton::kLShoulder, XInputButton::kRShoulder,
+					XInputButton::kA, XInputButton::kB,
+					XInputButton::kX, XInputButton::kY,
+				};
+				for (const auto mask : masks) {
+					if ((changed & mask) != 0) {
+						routeButtonEdge({ mask, (directState.buttons & mask) != 0 });
+					}
+				}
+				_directPadButtons = directState.buttons;
+			}
+		} else {
+			_directPadActive = false;
+			_directPadButtons = 0;
+			while (EngineInput::PollGamepadButton(e)) {
+				if (captured) {
+					routeButtonEdge(e);
+				}
 			}
 		}
 
@@ -1504,7 +1538,9 @@ namespace OSFUI
 			return;
 		}
 
-		const auto            s = EngineInput::GetSticks();
+		const auto s = directPad ?
+			EngineInput::GamepadSticks{ directState.lx, directState.ly, directState.rx, directState.ry } :
+			EngineInput::GetSticks();
 		constexpr float       kDeadzone = 0.25f;
 
 		// Raw stick events, throttled to meaningful change, so a page can drive
@@ -1924,27 +1960,11 @@ namespace OSFUI
 				_gamepadRawViews.erase(src);
 			}
 		});
-		a_bridge.RegisterCommand("osfui.textFocus", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
-			// Live text entry in the page (sent by the host bridge shim on real
-			// typing intent — a click into an editable or a printable keystroke
-			// inside one). While the active view holds the grant the WebView owns
-			// real OS keyboard focus so typing/IME work; revoking hands focus
-			// back to the game window so Windows.Gaming.Input resumes feeding
-			// the engine's gamepad path. Same lifecycle as osfui.gamepadRaw,
-			// plus a clear on overlay close (ApplyMenuPolicy) — a stale grant
-			// would reopen the overlay with the gamepad dead.
-			const std::string src(a_b.CurrentSource());
-			if (src.empty()) {
-				a_b.SendResult(false, "unknown-view", "no source view");
-				return;
-			}
-			if (Json::GetBool(a_p, "focused", false)) {
-				_textFocusViews.insert(src);
-			} else {
-				_textFocusViews.erase(src);
-			}
-			ReconcileNativeFocus();
-		});
+		// Compatibility no-op: pre-session-focus views may still send this
+		// experimental command. Interactive menus already own focus throughout,
+		// so accepting it avoids an unknown-command break without changing policy.
+		a_bridge.RegisterCommand("osfui.textFocus",
+			[](const nlohmann::json&, MessageBridge&) {});
 		a_bridge.RegisterCommand("osfui.openModPage", [](const nlohmann::json&, MessageBridge& a_b) {
 			// "Update OSF UI" affordances in views (e.g. OSF Animation's status-line
 			// UPDATE badge): open OSF UI's own Nexus page in the SYSTEM browser —
@@ -2256,7 +2276,7 @@ namespace OSFUI
 		};
 		_renderer->SetRenderStatsSample(sample);
 		REX::INFO(
-			"Render diagnostics ({:.2f}s): fresh view {:.1f} fps, compositor draw {:.1f} fps "
+			"Render diagnostics ({:.2f}s): fresh view {:.1f} fps, overlay passes {:.1f}/s "
 			"({} reused), frame submit {:.1f} fps, present-hook {:.1f}/s; source-to-draw {:.2f} ms, "
 			"record CPU {:.3f} ms; waits {}, dropped {}, concurrent skips {}; path={}, FG={}",
 			elapsed, sample.freshFps, sample.drawFps, reused, sample.submitFps, sample.presentFps,

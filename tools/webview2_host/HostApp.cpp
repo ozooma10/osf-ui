@@ -181,6 +181,9 @@ namespace osfui::wv2
 
 			HWND bootstrapWindow{ nullptr };
 			HWND hostWindow{ nullptr };
+			WNDPROC hostWindowProc{ nullptr };
+			// A WNDPROC cannot carry state; one App exists per host process.
+			static inline App* s_hostInputApp{ nullptr };
 			bool reparented{ false };
 
 			// One view = one composition controller + WebView2 targeting its own
@@ -231,14 +234,13 @@ namespace osfui::wv2
 			// accel state pushed by the game (touched only on the STA thread)
 			std::uint32_t toggleVk{ 0x79 /*F10*/ }, devReloadVk{ 0 }, captureUpVk{ 0 };
 			bool          captured{ false }, captureArmed{ false };
-			// Whether the game asked us to hold real OS focus (the "focus"
-			// message, sent per text-entry grant). Outside a grant, Chromium
-			// still grabs focus by itself when a synthetic click lands on a
-			// focusable element — cross-process, that kills the game's
-			// keyboard, raw mouse AND gamepad (WGI is focus-gated) until the
-			// game-side watchdog notices (up to 0.5s later). GotFocus bounces
-			// it back immediately instead.
+			// Whether an input-capturing menu owns real OS focus. HUD-only views
+			// leave this false so Starfield stays foreground. During a grant the
+			// host HWND captures legacy mouse input; keyboard/IME route naturally
+			// to Chromium, and the game polls XInput independently of its suspended
+			// Windows.Gaming.Input stream.
 			bool          focusGranted{ false };
+			int           capturedMouseX{ 0 }, capturedMouseY{ 0 };
 			std::unordered_set<UINT> handledKeys;
 			// Warn-once dedupe for denied egress ("viewId|host"): a page that
 			// retries a blocked fetch in a loop must not spam the log.
@@ -248,19 +250,19 @@ namespace osfui::wv2
 			// and mark each tap in a syntheticKeys map so AcceleratorKeyPressed
 			// would pass it to the page instead of round-tripping it to the game
 			// (a delegated Esc read as a fresh press caused an infinite ping-pong).
-			// Keys are now delivered as DOM events by the bridge shim — no Win32
-			// message, no accelerator callback, no markers needed. Only REAL
-			// presses (WebView focused during text entry) reach the accel path.
+			// Synthetic gamepad keys are delivered as DOM events by the bridge
+			// shim — no Win32 message or marker needed. Physical presses reach the
+			// accelerator path throughout an interactive-menu session.
 
 			// Rebind capture of character keys. AcceleratorKeyPressed, this host's
 			// only key path, by design does not fire for keys that map to a character
 			// with neither Ctrl nor Alt held ("A key is considered an accelerator
 			// if ... the pressed key does not map to a character"), so F-keys, Esc
 			// and arrows rebind but letters and digits never reach the game. While a
-			// capture is armed, subclass the Chromium widget that owns keyboard focus
-			// and forward its WM_KEYDOWN over the same "accelerator" message. Scoped
-			// to the armed window, and in the host rather than the game process, so
-			// it cannot collide with other SFSE plugins' WndProc hooks.
+			// capture is armed, the Chromium focus widget's session subclass forwards
+			// WM_KEYDOWN over the same "accelerator" message. That subclass also
+			// catches focused WM_MOUSEWHEEL during interactive menus. It lives in the
+			// host rather than the game, so it cannot collide with SFSE WndProc hooks.
 			HWND    captureWidget{ nullptr };
 			WNDPROC captureWidgetProc{ nullptr };
 			// A WNDPROC cannot carry state and there is one App per host process.
@@ -282,9 +284,14 @@ namespace osfui::wv2
 			winrt::Windows::Graphics::Capture::GraphicsCaptureSession captureSession{ nullptr };
 			winrt::event_token frameToken{};
 			std::atomic_bool   captureClosing{ true };
+			std::uint32_t      captureCadenceHz{ 0 };
 
 			// Shared texture ring: the capture thread owns it; ringMutex guards
-			// against teardown from the STA thread.
+			// against teardown from the STA thread. WGC dirty rectangles are relative
+			// to the immediately previous capture, but a reused ring slot contains a
+			// frame from several publishes ago. Copying only the current dirty rects
+			// would therefore leave stale pixels; keep full copies unless per-slot
+			// dirty-history accumulation is added.
 			std::mutex ringMutex;
 			struct Slot
 			{
@@ -464,6 +471,16 @@ namespace osfui::wv2
 					::GetModuleHandleW(nullptr), nullptr);
 				if (!hostWindow) {
 					log.Error(std::format("host child HWND creation failed ({})", ::GetLastError()));
+					return false;
+				}
+				s_hostInputApp = this;
+				::SetLastError(ERROR_SUCCESS);
+				hostWindowProc = reinterpret_cast<WNDPROC>(::SetWindowLongPtrW(
+					hostWindow, GWLP_WNDPROC,
+					reinterpret_cast<LONG_PTR>(&HostInputWndProc)));
+				if (!hostWindowProc && ::GetLastError() != ERROR_SUCCESS) {
+					log.Error(std::format("host child HWND subclass failed ({})", ::GetLastError()));
+					s_hostInputApp = nullptr;
 					return false;
 				}
 				return true;
@@ -1007,7 +1024,7 @@ namespace osfui::wv2
 
 			void DestroyOneView(View& a_view)
 			{
-				// The rebind subclass may be sitting on this view's widget: unhook
+				// The session-input subclass may be sitting on this view's widget: unhook
 				// before the HWND goes away.
 				if (captureWidget && ::IsChild(a_view.window, captureWidget)) {
 					RemoveCaptureSubclass();
@@ -1231,16 +1248,14 @@ namespace osfui::wv2
 				InstallEvents(a_view);
 				InstallBridgeShim(a_view);
 				InstallRenderStats(a_view);
-				// Focus-on-demand leaves the widget OS-unfocused for the whole
-				// session, and an unfocused renderer stops matching
+				// HUD-only mode leaves the widget OS-unfocused, and an unfocused renderer stops matching
 				// :focus/:focus-visible/:focus-within and reports
 				// document.hasFocus()=false — so focus styling (padnav's ring,
 				// any view's own focus affordances) silently doesn't render even
 				// though navigation works (2026-07-21 report: "arrows/gamepad
 				// don't move focus"; they did — invisibly). Emulate a focused,
-				// active page at the CDP layer; the emulation is a renderer-side
-				// flag, so it neither takes OS focus from the game nor conflicts
-				// with real focus during a text-entry grant.
+				// active page at the CDP layer. Interactive menus additionally get
+				// real focus for their full session.
 				a_view.webView->CallDevToolsProtocolMethod(
 					L"Emulation.setFocusEmulationEnabled", LR"({"enabled":true})",
 					Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
@@ -1261,6 +1276,10 @@ namespace osfui::wv2
 				log.InfoFwd(std::format("view '{}': controller ready ({} view(s) hosted)",
 					a_view.id, views.size()));
 				DrainQueuedViewWork(a_view);
+				if (focusGranted && active == &a_view && !a_view.hidden) {
+					a_view.controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+				}
+				ReconcileInputWidgetSubclass();
 				return S_OK;
 			}
 
@@ -1268,13 +1287,6 @@ namespace osfui::wv2
 			{
 				// Bridge contract: osfui.postMessage / osfui.onMessage, with
 				// buffering for messages that arrive before onMessage is installed.
-				// Also hosts the text-entry focus tracker (focus-on-demand keyboard
-				// model): the game window keeps real OS focus so Windows.Gaming.Input
-				// keeps feeding the engine's gamepad path; the WebView only takes
-				// focus while the user is actually typing. DOM focus alone is NOT
-				// typing intent — padnav moves it on every dpad/arrow step — so a
-				// grant needs a pointer press or a printable keystroke. Living in
-				// the shim, every view (content mods included) gets it for free.
 				static constexpr wchar_t shim[] = LR"JS(
 					(() => {
 						const bridge = window.osfui = window.osfui || {};
@@ -1296,62 +1308,10 @@ namespace osfui::wv2
 								__osfuiListener: String(name), argument: String(arg)
 							}));
 
-						// --- text-entry focus tracker (osfui.textFocus) ---
-						const editable = (el) => {
-							if (!el || el === document.body) return false;
-							if (el.isContentEditable) return true;
-							const tag = el.tagName ? el.tagName.toLowerCase() : '';
-							if (tag === 'textarea') return true;
-							if (tag !== 'input') return false;
-							const type = (el.getAttribute('type') || 'text').toLowerCase();
-							return !['button', 'checkbox', 'radio', 'range', 'submit',
-								'reset', 'color', 'file', 'image'].includes(type);
-						};
-						let granted = false;
-						const sendTextFocus = (f) => {
-							// Child-frame shim instances may have no chrome.webview;
-							// the grant is the top frame's job.
-							if (f === granted || !window.chrome || !chrome.webview) return;
-							granted = f;
-							chrome.webview.postMessage(JSON.stringify({
-								type: 'ui.command',
-								payload: { command: 'osfui.textFocus', focused: f }
-							}));
-						};
-						// Typing intent: a pointer press, or any single-character key
-						// (plain or Ctrl/Cmd-chorded, e.g. Ctrl+F focusing a search
-						// box). Gamepad nav arrives as Arrow*/Enter — never intent.
-						let lastIntent = 0;
-						document.addEventListener('pointerdown', () => {
-							lastIntent = Date.now();
-						}, true);
-						document.addEventListener('keydown', (e) => {
-							if (!e.isTrusted || typeof e.key !== 'string' ||
-								e.key.length !== 1) return;
-							lastIntent = Date.now();
-							// Typing into a field that was DOM-focused by navigation:
-							// grant now (this first character is lost to the async
-							// focus handoff; from the next one typing is native).
-							if (!granted && editable(document.activeElement))
-								sendTextFocus(true);
-						}, true);
-						// Settle after the focus transition: focusout's activeElement
-						// still points at the old node until the frame turns over.
-						const settle = () => setTimeout(() => {
-							const el = document.activeElement;
-							if (!editable(el)) sendTextFocus(false);
-							else if (Date.now() - lastIntent < 500) sendTextFocus(true);
-							// else: navigation/programmatic focus — no grant, the
-							// gamepad keeps the engine.
-						}, 0);
-						document.addEventListener('focusin', settle, true);
-						document.addEventListener('focusout', settle, true);
-
 						// --- synthetic key delivery (__osfuiKey web messages) ---
-						// While the game owns OS focus, keys reach the page here as
-						// scripted KeyboardEvents (Chromium ignores Win32 key
-						// messages on an unfocused widget). padnav and the views
-						// key off keyCode / e.key, not isTrusted, by contract.
+						// Gamepad navigation reaches the page here as scripted
+						// KeyboardEvents. padnav and the views key off keyCode / e.key,
+						// not isTrusted, by contract.
 						const VK_KEYS = {
 							0x08: ['Backspace', 'Backspace'], 0x09: ['Tab', 'Tab'],
 							0x0D: ['Enter', 'Enter'], 0x1B: ['Escape', 'Escape'],
@@ -1808,12 +1768,14 @@ namespace osfui::wv2
 				a_view.controller->add_GotFocus(
 					Callback<ICoreWebView2FocusChangedEventHandler>(
 						[this](ICoreWebView2Controller*, ::IUnknown*) -> HRESULT {
-							// Chromium grabs real OS focus on its own when a click
-							// (real or SendMouseInput-synthetic) lands on a focusable
-							// element. Without a text-entry grant that strands focus
-							// in this process and the game goes deaf — keyboard, raw
-							// mouse and gamepad (WGI is focus-gated). Hand it straight
-							// back instead of waiting for the game-side watchdog.
+							// Once the requested menu focus has landed, foreground mouse
+							// capture is permitted and replaces Starfield's now-suspended
+							// raw-input stream. An unsolicited focus grab outside a menu
+							// session is still bounced back immediately.
+							if (focusGranted) {
+								ApplyMouseCapture();
+								ReconcileInputWidgetSubclass();
+							}
 							if (!focusGranted && gameTopLevel) {
 								::PostMessageW(gameTopLevel, kRestoreGameFocusMessage, 0, 0);
 							}
@@ -1831,10 +1793,8 @@ namespace osfui::wv2
 							const bool down =
 								kind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN ||
 								kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN;
-							// Only REAL presses arrive here (the WebView holds focus
-							// solely during a text-entry grant; synthetic keys are
-							// DOM events dispatched by the shim and never reach
-							// this hook).
+							// Only physical presses arrive here; synthetic gamepad keys
+							// are DOM events and never reach this hook.
 							// Synchronous stand-in for Runtime::OnNativeAcceleratorKey;
 							// the game keeps this state fresh over the pipe (accelState).
 							const bool frameworkOwned =
@@ -2043,6 +2003,35 @@ namespace osfui::wv2
 				}
 			}
 
+			void ApplyCaptureCadence()
+			{
+				if (!captureSession) return;
+				const std::uint32_t desiredHz = focusGranted ? 240u : 60u;
+				if (captureCadenceHz == desiredHz) return;
+				try {
+					if (const auto cadence = captureSession.try_as<
+						winrt::Windows::Graphics::Capture::IGraphicsCaptureSession5>()) {
+						const auto interval = std::chrono::duration_cast<
+							winrt::Windows::Foundation::TimeSpan>(
+								std::chrono::duration<double>(
+									1.0 / static_cast<double>(desiredHz)));
+						cadence.MinUpdateInterval(interval);
+						const auto applied = cadence.MinUpdateInterval();
+						captureCadenceHz = desiredHz;
+						log.InfoFwd(std::format(
+							"WGC cadence -> {} mode, up to {} Hz ({:.3f} ms)",
+							focusGranted ? "interactive" : "HUD",
+							desiredHz,
+							std::chrono::duration<double, std::milli>(applied).count()));
+					} else {
+						captureCadenceHz = desiredHz;
+						log.InfoFwd("WGC explicit cadence control unavailable; using the system default");
+					}
+				} catch (const winrt::hresult_error& a_error) {
+					log.Warn(std::format("WGC cadence update failed: {}", ToUtf8(a_error.message())));
+				}
+			}
+
 			bool StartCapture()
 			{
 				captureClosing.store(false);
@@ -2062,26 +2051,10 @@ namespace osfui::wv2
 						});
 					captureSession = framePool.CreateCaptureSession(captureItem);
 					try { captureSession.IsCursorCaptureEnabled(false); } catch (...) {}
-					// Recent Windows builds expose an explicit WGC cadence request. The
-					// system default settled at ~48 Hz on the reporter's 144 Hz display;
-					// a moderately expensive WebView then missed alternate capture slots
-					// and snapped to ~24 fps despite a healthy browser/compositor. Ask WGC
-					// for a permissive high-rate interval when the interface is available.
-					// Do not derive this from the game HWND: borderless Starfield can report
-					// a legacy 60 Hz display mode while DWM and Chromium are running at 144 Hz.
-					if (const auto cadence = captureSession.try_as<IGraphicsCaptureSession5>()) {
-						constexpr std::uint32_t kCaptureRateCeilingHz = 240;
-						const auto interval = std::chrono::duration_cast<
-							winrt::Windows::Foundation::TimeSpan>(
-								std::chrono::duration<double>(
-									1.0 / static_cast<double>(kCaptureRateCeilingHz)));
-						cadence.MinUpdateInterval(interval);
-						const auto applied = cadence.MinUpdateInterval();
-						log.InfoFwd(std::format(
-							"WGC high-rate update interval requested at up to {} Hz ({:.3f} ms)",
-							kCaptureRateCeilingHz,
-							std::chrono::duration<double, std::milli>(applied).count()));
-					}
+					// Interactive menus get a permissive ceiling so capture can follow a
+					// high-refresh foreground WebView. HUD-only mode is deliberately capped
+					// at 60 Hz to bound capture/copy pressure while gameplay owns the GPU.
+					ApplyCaptureCadence();
 					captureSession.StartCapture();
 					return true;
 				} catch (const winrt::hresult_error& a_error) {
@@ -2241,12 +2214,16 @@ namespace osfui::wv2
 			}
 
 			/// The active view's Chromium widget: the HWND that holds keyboard
-			/// focus while a text-entry grant is live. The rebind capture
-			/// subclasses it (synthetic keys no longer target it — they are DOM
-			/// events dispatched by the bridge shim).
+			/// focus during an interactive-menu session. The session input path
+			/// subclasses it for wheel/rebind messages (synthetic keys are DOM events).
 			HWND FindActiveWidget() const
 			{
-				HWND widget = nullptr;
+				HWND widget = ::GetFocus();
+				if (active && active->window && widget &&
+					(widget == active->window || ::IsChild(active->window, widget))) {
+					return widget;
+				}
+				widget = nullptr;
 				if (active && active->window) {
 					::EnumChildWindows(active->window, [](HWND a_hwnd, LPARAM a_param) -> BOOL {
 						wchar_t name[128]{};
@@ -2261,11 +2238,12 @@ namespace osfui::wv2
 				return widget;
 			}
 
-			/// Follows the game's armed/disarmed edge. Idempotent, and safe to call
-			/// when the widget has gone away (view switch, teardown).
-			void SetCaptureSubclass(bool a_armed)
+			/// Keeps one subclass while either native menu focus needs physical
+			/// wheel routing or key-rebind capture needs character-key interception.
+			/// Idempotent and safe across view switches/teardown.
+			void ReconcileInputWidgetSubclass()
 			{
-				if (a_armed) {
+				if (captureArmed || focusGranted) {
 					HWND widget = FindActiveWidget();
 					if (!widget || widget == captureWidget) return;
 					RemoveCaptureSubclass();  // a different view is active now
@@ -2282,6 +2260,22 @@ namespace osfui::wv2
 				} else {
 					RemoveCaptureSubclass();
 				}
+			}
+
+			[[nodiscard]] bool SendFocusedMouseWheel(WPARAM a_wparam)
+			{
+				if (!focusGranted || !active || !active->compositionController) {
+					return false;
+				}
+				const auto delta = static_cast<SHORT>(HIWORD(a_wparam));
+				if (delta == 0) return false;
+				active->compositionController->SendMouseInput(
+					COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL,
+					static_cast<COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS>(
+						static_cast<UINT32>(LOWORD(a_wparam))),
+					static_cast<UINT32>(delta),
+					POINT{ capturedMouseX, capturedMouseY });
+				return true;
 			}
 
 			void RemoveCaptureSubclass()
@@ -2306,6 +2300,13 @@ namespace osfui::wv2
 				HWND a_hwnd, UINT a_msg, WPARAM a_wparam, LPARAM a_lparam)
 			{
 				auto* self = s_app;
+				if (self && a_msg == WM_MOUSEWHEEL &&
+					self->SendFocusedMouseWheel(a_wparam)) {
+					// Wheel messages target the keyboard-focused Chromium widget,
+					// not the HWND holding SetCapture. Forward explicitly into the
+					// windowless composition controller and suppress duplication.
+					return 0;
+				}
 				if (self && self->captureArmed &&
 					(a_msg == WM_KEYDOWN || a_msg == WM_SYSKEYDOWN)) {
 					const auto vk = static_cast<std::uint32_t>(a_wparam);
@@ -2326,14 +2327,121 @@ namespace osfui::wv2
 							: ::DefWindowProcW(a_hwnd, a_msg, a_wparam, a_lparam);
 			}
 
+			void ApplyMouseCapture()
+			{
+				if (focusGranted && hostWindow) {
+					if (::GetCapture() != hostWindow) {
+						::SetCapture(hostWindow);
+					}
+				} else {
+					if (hostWindow && ::GetCapture() == hostWindow) {
+						::ReleaseCapture();
+					}
+				}
+			}
+
+			[[nodiscard]] bool SendCapturedMouse(
+				UINT a_msg, WPARAM a_wparam, LPARAM a_lparam)
+			{
+				if (!focusGranted || !active || !active->compositionController ||
+					!hostWindow || !gameTopLevel) {
+					return false;
+				}
+
+				POINT point{
+					static_cast<SHORT>(LOWORD(a_lparam)),
+					static_cast<SHORT>(HIWORD(a_lparam))
+				};
+				// Wheel messages carry screen coordinates; the other legacy mouse
+				// messages are relative to our captured 1x1 host HWND.
+				if (a_msg != WM_MOUSEWHEEL) {
+					::ClientToScreen(hostWindow, &point);
+				}
+				::ScreenToClient(gameTopLevel, &point);
+				RECT client{};
+				if (!::GetClientRect(gameTopLevel, &client) ||
+					client.right <= client.left || client.bottom <= client.top) {
+					return false;
+				}
+				const auto x = std::clamp(::MulDiv(point.x - client.left,
+					static_cast<int>(width), client.right - client.left),
+					0, static_cast<int>(width) - 1);
+				const auto y = std::clamp(::MulDiv(point.y - client.top,
+					static_cast<int>(height), client.bottom - client.top),
+					0, static_cast<int>(height) - 1);
+				capturedMouseX = x;
+				capturedMouseY = y;
+
+				COREWEBVIEW2_MOUSE_EVENT_KIND eventKind{};
+				switch (a_msg) {
+				case WM_MOUSEMOVE:   eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_MOVE; break;
+				case WM_LBUTTONDOWN: eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_DOWN; break;
+				case WM_LBUTTONUP:   eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_UP; break;
+				case WM_RBUTTONDOWN: eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_RIGHT_BUTTON_DOWN; break;
+				case WM_RBUTTONUP:   eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_RIGHT_BUTTON_UP; break;
+				case WM_MBUTTONDOWN: eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_MIDDLE_BUTTON_DOWN; break;
+				case WM_MBUTTONUP:   eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_MIDDLE_BUTTON_UP; break;
+				case WM_MOUSEWHEEL:  eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL; break;
+				default: return false;
+				}
+				const auto keys = static_cast<COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS>(
+					static_cast<UINT32>(LOWORD(a_wparam)));
+				const auto data = a_msg == WM_MOUSEWHEEL ?
+					static_cast<UINT32>(static_cast<SHORT>(HIWORD(a_wparam))) : 0u;
+				active->compositionController->SendMouseInput(
+					eventKind, keys, data, POINT{ x, y });
+				return true;
+			}
+
+			static LRESULT CALLBACK HostInputWndProc(
+				HWND a_hwnd, UINT a_msg, WPARAM a_wparam, LPARAM a_lparam)
+			{
+				auto* self = s_hostInputApp;
+				if (self && self->focusGranted) {
+					if (a_msg == WM_SETCURSOR) {
+						// While this HWND owns capture, the game no longer receives
+						// mouse packets on which to apply CursorChanged. Apply the
+						// composition controller's current CSS system cursor here.
+						UINT32 id = 0;
+						if (self->active && self->active->compositionController &&
+							SUCCEEDED(self->active->compositionController->get_SystemCursorId(&id))) {
+							HCURSOR cursor = id == 0 ? nullptr : ::LoadCursorW(
+								nullptr, MAKEINTRESOURCEW(id));
+							if (id != 0 && !cursor) {
+								cursor = ::LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
+							}
+							::SetCursor(cursor);
+						}
+						return TRUE;
+					}
+					if (self->SendCapturedMouse(a_msg, a_wparam, a_lparam)) {
+						return 0;
+					}
+				}
+				const auto proc = self ? self->hostWindowProc : nullptr;
+				return proc ? ::CallWindowProcW(proc, a_hwnd, a_msg, a_wparam, a_lparam)
+							: ::DefWindowProcW(a_hwnd, a_msg, a_wparam, a_lparam);
+			}
+
 			void SendMouse(const json& a_msg)
 			{
 				// Mouse always targets the active view: the runtime routes input to
 				// the top menu, so sibling views never see the pointer.
 				if (!active || !active->compositionController) return;
 				const std::string kind = a_msg.value("kind", "move");
-				const int x = a_msg.value("x", 0);
-				const int y = a_msg.value("y", 0);
+				int x = a_msg.value("x", 0);
+				int y = a_msg.value("y", 0);
+				// Right-stick scrolling still arrives over the pipe. Once the host
+				// owns physical mouse capture, target it at the last real pointer
+				// position rather than the game runtime's now-stale WM_INPUT position.
+				if (focusGranted && kind == "wheel") {
+					x = capturedMouseX;
+					y = capturedMouseY;
+				}
+				if (kind == "move") {
+					capturedMouseX = std::clamp(x, 0, static_cast<int>(width) - 1);
+					capturedMouseY = std::clamp(y, 0, static_cast<int>(height) - 1);
+				}
 				COREWEBVIEW2_MOUSE_EVENT_KIND eventKind{};
 				UINT32 data = 0;
 				if (kind == "move") {
@@ -2452,17 +2560,23 @@ namespace osfui::wv2
 					if (view) {
 						active = view;
 						log.Info(std::format("active view -> '{}'", view->id));
+						if (focusGranted && view->controller && !view->hidden) {
+							view->controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+						}
+						ReconcileInputWidgetSubclass();
 					}
 				} else if (type == "focus") {
-					// Focus-on-demand: this arrives per text-entry grant, not per
-					// overlay session (handledKeys clearing rides the accelState
-					// captured edge instead). The game side restores its own
-					// focus on revoke (kRestoreGameFocusMessage).
+					// Session focus: true for an input-capturing menu, false for
+					// HUD-only/closed states. Revoke releases mouse capture; the
+					// game side restores its own focus on its window thread.
 					const bool focused = a_msg.value("focused", false);
 					focusGranted = focused;
 					if (focused && active && active->controller && !active->hidden) {
 						active->controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
 					}
+					ReconcileInputWidgetSubclass();
+					ApplyMouseCapture();
+					ApplyCaptureCadence();
 				} else if (type == "mouse") {
 					SendMouse(a_msg);
 				} else if (type == "key") {
@@ -2470,10 +2584,8 @@ namespace osfui::wv2
 					// keyboard keys the game WndProc swallows while the game owns
 					// focus). Delivered as DOM KeyboardEvents by the bridge shim
 					// (`__osfuiKey` web message), NOT as Win32 key messages:
-					// Chromium ignores WM_KEYDOWN posted to an unfocused widget,
-					// and under focus-on-demand the widget is unfocused except
-					// during text entry — exactly when this path is idle anyway
-					// (real typing rides real focus). The object-typed message is
+					// Chromium ignores WM_KEYDOWN posted to an unfocused widget.
+					// The object-typed message is
 					// distinguishable from runtime traffic, which arrives as
 					// strings (PostWebMessageAsString).
 					const auto vk = a_msg.value("vk", 0u);
@@ -2507,9 +2619,9 @@ namespace osfui::wv2
 					captured = a_msg.value("captured", false);
 					captureArmed = a_msg.value("captureArmed", false);
 					captureUpVk = a_msg.value("captureUpVk", 0u);
-					// Character keys only need the subclass while the user is
-					// picking a key.
-					SetCaptureSubclass(captureArmed);
+					// Outside native menu focus, character keys need the subclass
+					// only while the user is picking a key.
+					ReconcileInputWidgetSubclass();
 					if (wasCaptured && !captured) {
 						// Overlay session over: an accelerator down without its up
 						// (session closed mid-press) would leave a stale entry that
@@ -2560,6 +2672,10 @@ namespace osfui::wv2
 
 			void CloseWebResources()
 			{
+				focusGranted = false;
+				captureArmed = false;
+				ReconcileInputWidgetSubclass();
+				ApplyMouseCapture();
 				captureClosing.store(true);
 				if (framePool) {
 					try { framePool.FrameArrived(frameToken); } catch (...) {}
@@ -2568,6 +2684,7 @@ namespace osfui::wv2
 					captureSession.Close();
 					captureSession = nullptr;
 				}
+				captureCadenceHz = 0;
 				if (framePool) {
 					framePool.Close();
 					framePool = nullptr;
@@ -2642,6 +2759,8 @@ namespace osfui::wv2
 					::DestroyWindow(hostWindow);
 					hostWindow = nullptr;
 				}
+				hostWindowProc = nullptr;
+				s_hostInputApp = nullptr;
 				if (bootstrapWindow) {
 					::DestroyWindow(bootstrapWindow);
 					bootstrapWindow = nullptr;

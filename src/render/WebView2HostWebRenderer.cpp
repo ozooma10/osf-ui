@@ -29,8 +29,8 @@
 
 using nlohmann::json;
 
-// The host posts this message on its own (GotFocus without a text-entry
-// grant); both sides must agree on the value.
+// The host posts this on an unsolicited focus grab outside an interactive
+// menu session; both sides must agree on the value.
 static_assert(OSFUI::OverlayInputHook::kRestoreGameFocusMessage ==
 	osfui::wv2::kRestoreGameFocusMessage);
 
@@ -252,18 +252,16 @@ namespace OSFUI
 		HANDLE           hostProcess{ nullptr };
 		HWND             topLevel{ nullptr };
 
-		// Focus watchdog (game thread only — SetNativeKeyboardFocus and Update
-		// both run there). Keyboard input here is real Win32 focus in a
-		// cross-process Chromium child of the game window, granted per
-		// text-entry demand (osfui.textFocus) — the game window keeps focus the
-		// rest of the session so Windows.Gaming.Input keeps feeding the engine's
-		// gamepad path. The revoke-time restore (posted kRestoreGameFocusMessage
+		// Focus watchdog (game thread only — SetNativeFocus and Update
+		// both run there). Interactive menus grant real Win32 focus to a
+		// cross-process Chromium child; HUD-only/closed states keep Starfield
+		// focused. The revoke-time restore (posted kRestoreGameFocusMessage
 		// -> SetFocus) races Chromium's asynchronous MoveFocus: an in-flight
 		// focus grab can land after the restore and strand focus in the child,
 		// leaving the game with no keyboard, no raw mouse input (WM_INPUT is
 		// focus-gated) — and no gamepad, WGI being focus-gated too. Update()
 		// detects that and re-asserts.
-		bool   focusRequested{ false };  // last SetNativeKeyboardFocus argument
+		std::atomic_bool focusRequested{ false };  // last SetNativeFocus argument
 		double focusCheckAccum{ 0.0 };
 		bool   focusFixWarned{ false };  // one WARN per strand episode
 
@@ -706,6 +704,8 @@ namespace OSFUI
 					pipe.WriteMessage(json{
 						{ "type", "setActive" }, { "view", activeId } }.dump());
 				}
+				pipe.WriteMessage(json{
+					{ "type", "focus" }, { "focused", focusRequested.load() } }.dump());
 			}
 
 			// Bridge messages sent before the pipe existed (notably runtime.ready)
@@ -1134,26 +1134,26 @@ namespace OSFUI
 											::IsChild(_impl->topLevel, info.hwndFocus) != FALSE;
 					if (!_impl->focusRequested && inGameTree &&
 						focusPid != ::GetCurrentProcessId()) {
-						// No text-entry grant is live (overlay closed, or open in
-						// gamepad/keyboard mode) but focus is stranded in the
+						// No interactive-menu session is live, but focus is stranded in the
 						// host's Chromium child: keyboard, raw mouse AND gamepad
 						// (WGI) are all dead for the game.
 						healthy = false;
 						if (!_impl->focusFixWarned) {
 							_impl->focusFixWarned = true;
 							REX::WARN("WebView2HostWebRenderer: focus stranded in host child "
-									  "0x{:X} with no text-entry grant; re-asserting game focus (watchdog)",
+									  "0x{:X} outside an interactive menu; re-asserting game focus (watchdog)",
 								reinterpret_cast<std::uintptr_t>(info.hwndFocus));
 						}
 						::PostMessageW(_impl->topLevel,
 							OverlayInputHook::kRestoreGameFocusMessage, 0, 0);
 					} else if (_impl->focusRequested && info.hwndFocus == _impl->topLevel) {
-						// Text-entry grant live but Chromium never took focus
-						// (MoveFocus lost): typing would go nowhere.
+						// Interactive-menu session live but Chromium never took
+						// focus (MoveFocus lost): input and foreground scheduling
+						// would remain on the wrong process.
 						healthy = false;
 						if (!_impl->focusFixWarned) {
 							_impl->focusFixWarned = true;
-							REX::WARN("WebView2HostWebRenderer: text-entry grant live but game window "
+							REX::WARN("WebView2HostWebRenderer: interactive menu live but game window "
 									  "still owns focus; re-sending focus request (watchdog)");
 						}
 						_impl->Send(json{ { "type", "focus" }, { "focused", true } });
@@ -1227,7 +1227,7 @@ namespace OSFUI
 		_impl->onSharedRing = std::move(a_handler);
 	}
 
-	void WebView2HostWebRenderer::SetNativeKeyboardFocus(bool a_focused)
+	void WebView2HostWebRenderer::SetNativeFocus(bool a_focused)
 	{
 		if (a_focused) {
 			_impl->Start();
@@ -1271,13 +1271,9 @@ namespace OSFUI
 
 	void WebView2HostWebRenderer::InjectKeyEvent(std::uint32_t a_vkCode, bool a_down)
 	{
-		// Dispatched into the active view's page as a DOM KeyboardEvent by the
-		// host's bridge shim (Chromium ignores Win32 key messages on an
-		// unfocused widget, and under focus-on-demand the widget is unfocused
-		// outside text entry). Carries gamepad nav taps, Esc back-delegation,
-		// and every keyboard key the game WndProc swallows while captured
-		// without a text-entry grant. Actual text (WM_CHAR/IME) still rides
-		// real OS focus, which the runtime only grants while typing in a field.
+		// Dispatched into the active page as a DOM KeyboardEvent by the host shim.
+		// Used for gamepad nav taps and Esc back-delegation; physical keyboard and
+		// IME input route natively while the interactive menu owns focus.
 		_impl->Send(json{ { "type", "key" }, { "vk", a_vkCode }, { "down", a_down } });
 	}
 

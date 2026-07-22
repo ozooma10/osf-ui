@@ -163,6 +163,9 @@ namespace OSFUI::OverlayInputHook
 			}
 
 			switch (a_msg) {
+			case kRefreshInputStateMessage:
+				// The capture/cursor edge was already reconciled above.
+				return 0;
 			case kRestoreGameFocusMessage:
 				::SetFocus(a_hwnd);
 				return 0;
@@ -297,5 +300,12 @@ namespace OSFUI::OverlayInputHook
 		REX::INFO("OverlayInputHook: subclassed game WndProc (hwnd 0x{:X}); overlay can now capture input",
 			reinterpret_cast<std::uintptr_t>(g_hwnd));
 		return true;
+	}
+
+	void RequestStateRefresh()
+	{
+		if (g_hwnd) {
+			::PostMessageW(g_hwnd, kRefreshInputStateMessage, 0, 0);
+		}
 	}
 }

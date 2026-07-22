@@ -251,19 +251,17 @@ namespace OSFUI
 		using CursorChangeHandler = std::function<void(CursorShape a_shape)>;
 		virtual void SetCursorChangeHandler(CursorChangeHandler) {}
 
-		// Backends such as WebView2 receive text/IME through a real focused
+		// Backends such as WebView2 receive keyboard/IME through a real focused
 		// native child window rather than InjectCharEvent. The runtime uses this
-		// seam to move focus on demand: granted only while the active view holds
-		// a live text-entry grant (osfui.textFocus), revoked otherwise so the
-		// game window keeps focus and Windows.Gaming.Input keeps feeding the
-		// engine's gamepad path. While the WebView holds focus, the backend's
+		// seam for the whole interactive-menu session; HUD-only and closed states
+		// revoke it so the game remains the foreground owner. While the WebView
+		// holds focus, the backend's
 		// AcceleratorKeyPressed hook delegates framework-owned keys (toggle, Esc,
 		// key capture) back to the runtime; the callback returns true when
-		// Chromium must mark that accelerator handled. Without the grant, keys
-		// travel the WndProc capture path as InjectKeyEvent.
+		// Chromium must mark that accelerator handled.
 		using NativeAcceleratorHandler = std::function<bool(std::uint32_t a_vkCode, bool a_down)>;
 		virtual void SetNativeAcceleratorHandler(NativeAcceleratorHandler) {}
-		virtual void SetNativeKeyboardFocus(bool /*a_focused*/) {}
+		virtual void SetNativeFocus(bool /*a_focused*/) {}
 		[[nodiscard]] virtual bool UsesNativeKeyboardFocus() const { return false; }
 
 		// Out-of-process backends decide synchronously, in the host process,
