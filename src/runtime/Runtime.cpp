@@ -124,11 +124,17 @@ namespace OSFUI
 
 		if (_config.uiPassProbe || _config.uiPassDraw) {
 			// Dev knobs: hooks on the engine's Scaleform render passes —
-			// uiPassProbe = log-only characterization, uiPassDraw = phase-2
-			// debug triangle into ScaleformCompositeBuffer at the End seam
-			// (composite/UiPassSeam.h). Vtables are static .rdata — no need to
-			// wait for the renderer root the way the D3D12 compositor does.
+			// uiPassProbe = log-only characterization, uiPassDraw = the seam
+			// draw: the overlay is recorded into the engine's UI buffers at
+			// the under-Scaleform hand-off and rides Frame Generation's UI
+			// path (composite/UiPassSeam.h + docs/seam-draw-design.md).
+			// Vtables are static .rdata — no need to wait for the renderer
+			// root the way the D3D12 compositor does.
 			UiPassSeam::Install(_config.uiPassDraw);
+			if (_config.uiPassDraw) {
+				// The present hook stops drawing and becomes plumbing only.
+				_compositor->SetSeamDrawMode(true);
+			}
 		}
 		REX::INFO("Runtime: compositor = {}", _compositor->Name());
 

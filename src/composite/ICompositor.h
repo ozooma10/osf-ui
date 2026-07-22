@@ -40,6 +40,12 @@ namespace OSFUI
 		// Default no-op; CPU-only compositors ignore sharedSlot frames.
 		virtual void SetSharedRing(const SharedRingDesc& /*a_desc*/) {}
 
+		// Seam-draw mode (dev knob `uiPassDraw`): the overlay is recorded into
+		// the engine's own UI render pass (composite/UiPassSeam.h) instead of at
+		// present time, which makes it ride Frame Generation's UI handling.
+		// Default no-op for compositors without a seam path.
+		virtual void SetSeamDrawMode(bool /*a_enabled*/) {}
+
 		[[nodiscard]] virtual std::string_view Name() const = 0;
 	};
 }

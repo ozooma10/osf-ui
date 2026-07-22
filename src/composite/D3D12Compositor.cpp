@@ -256,6 +256,12 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		std::atomic<void*>     g_overlay{ nullptr };  // D3D12Compositor::Impl*
 		std::atomic<PresentFn> g_originalPresent{ nullptr };
 
+		// Bridge for the seam-draw hook: Impl is private to the class, so the
+		// free function RecordSeamOverlayDraw goes through a pointer that only
+		// Impl (which can name itself) installs at setup.
+		using SeamDrawFn = bool (*)(ID3D12GraphicsCommandList*, ID3D12Resource*);
+		std::atomic<SeamDrawFn> g_seamDrawFn{ nullptr };
+
 		[[nodiscard]] ID3DBlob* CompileShader(const char* a_src, const char* a_entry, const char* a_target)
 		{
 			ID3DBlob* code = nullptr;
@@ -305,6 +311,34 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		// it lazily (EnsureSharedRing) because opening the handles needs the
 		// located engine device. The compositor owns the handles from
 		// SetSharedRing on.
+		// Seam-draw mode (config uiPassDraw): UiPassSeam records the overlay
+		// quad into the engine's UI buffer via RecordSeamOverlay below; the
+		// present hook stays as plumbing (discovery, resize notify, ring
+		// adoption) and never draws. ringMutex guards the opened ring
+		// (sharedSlots/fences/SRVs) between the present thread (adoption) and
+		// the seam's render workers (sampling).
+		std::atomic<bool> seamMode{ false };
+		std::mutex        ringMutex;
+		static constexpr std::uint32_t kSeamRtvSlots = 8;
+		ID3D12DescriptorHeap*      seamRtvHeap{ nullptr };  // typed RTVs onto the engine's (typeless) UI buffers
+		std::atomic<std::uint32_t> seamRtvNext{ 0 };
+		std::uint64_t seamLastConsumeSignaled{ 0 };  // ringMutex
+		std::uint64_t seamDraws{ 0 };                // ringMutex
+		bool          seamGpuWarned{ false };        // ringMutex
+		// Newest slot whose produce fence is CPU-verified complete. The seam
+		// cannot queue-wait on the host's fence (not our queue), and skipping
+		// incomplete frames flickers under rapid production (mouse-move
+		// repaints, 2026-07-21) — so an incomplete newest frame falls back to
+		// this one instead: one frame stale, never absent.
+		std::uint32_t seamReadySlot{ 0 };    // ringMutex
+		std::uint64_t seamReadySerial{ 0 };  // ringMutex
+		// The previous ring generation is retired, not released, on adoption:
+		// seam draws live inside ENGINE command lists that our idle fence
+		// cannot cover, so the old textures must outlive one more adoption.
+		ID3D12Resource* retiredSlots[SharedRingDesc::kMaxSlots]{};
+		ID3D12Fence*    retiredProduce{ nullptr };
+		ID3D12Fence*    retiredConsume{ nullptr };
+
 		std::mutex     sharedMutex;
 		SharedRingDesc sharedPending{};
 		bool           sharedDirty{ false };
@@ -482,6 +516,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			SafeRelease(rootSig);
 			SafeRelease(srvHeap);
 			SafeRelease(rtvHeap);
+			SafeRelease(seamRtvHeap);
 			SafeRelease(vsBlob);
 			SafeRelease(psBlob);
 			SafeRelease(fence);
@@ -527,8 +562,36 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			}
 		}
 
+		// Adoption path: previous generation moves to the retirement slots
+		// (freeing whatever was retired before), so engine lists recorded just
+		// before a re-announce still reference live textures.
+		void RetireSharedRing()
+		{
+			for (auto*& slot : retiredSlots) {
+				SafeRelease(slot);
+			}
+			SafeRelease(retiredProduce);
+			SafeRelease(retiredConsume);
+			for (std::size_t i = 0; i < SharedRingDesc::kMaxSlots; ++i) {
+				retiredSlots[i] = sharedSlots[i];
+				sharedSlots[i] = nullptr;
+			}
+			retiredProduce = sharedProduce;
+			sharedProduce = nullptr;
+			retiredConsume = sharedConsume;
+			sharedConsume = nullptr;
+			sharedSlotCount = 0;
+			seamReadySlot = 0;  // slots of the old generation are gone
+			seamReadySerial = 0;
+		}
+
 		void ReleaseSharedRing()
 		{
+			for (auto*& slot : retiredSlots) {
+				SafeRelease(slot);
+			}
+			SafeRelease(retiredProduce);
+			SafeRelease(retiredConsume);
 			for (auto*& slot : sharedSlots) {
 				SafeRelease(slot);
 			}
@@ -563,9 +626,12 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				sharedPending = {};
 				sharedDirty = false;
 			}
-			// Old slots may still be referenced by in-flight draws.
+			// Old slots may still be referenced by in-flight draws (our own are
+			// idle-fenced; ENGINE lists carrying seam draws are covered by ring
+			// retirement). ringMutex: the seam worker must not sample mid-swap.
 			WaitForGpuIdle();
-			ReleaseSharedRing();
+			std::scoped_lock ring(ringMutex);
+			RetireSharedRing();
 
 			auto* dev = engine.device;
 			bool ok = pending.slotCount > 0 &&
@@ -645,6 +711,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			}
 
 			g_overlay.store(this);
+			g_seamDrawFn.store(&Impl::SeamDrawThunk, std::memory_order_release);
 			setupOk = true;
 			setupCompletedMs = ::GetTickCount64();
 			REX::INFO("D3D12Compositor: present-time overlay armed (Present slot-8 hook installed)");
@@ -752,6 +819,21 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 					return false;
 				}
 				slot.list->Close();
+			}
+
+			// Seam-draw RTV ring: typed views created per draw onto the
+			// engine's (typeless, churning) UI buffers. Descriptors are copied
+			// into the command list at OMSetRenderTargets time, so a small
+			// ring outlives concurrent worker frames.
+			{
+				D3D12_DESCRIPTOR_HEAP_DESC heap{};
+				heap.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+				heap.NumDescriptors = kSeamRtvSlots;
+				if (FAILED(dev->CreateDescriptorHeap(&heap,
+						__uuidof(ID3D12DescriptorHeap), reinterpret_cast<void**>(&seamRtvHeap)))) {
+					REX::ERROR("D3D12Compositor: seam RTV heap creation failed");
+					return false;
+				}
 			}
 			return true;
 		}
@@ -965,6 +1047,25 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				notifiedOutputH = target->height;
 				onOutputResize(target->width, target->height);
 				outputSizeKnown.store(true, std::memory_order_release);
+			}
+
+			if (seamMode.load(std::memory_order_relaxed)) {
+				// Seam mode (uiPassDraw): the quad is recorded into the
+				// engine's UI buffer at the under-Scaleform hand-off
+				// (RecordSeamOverlay, called from UiPassSeam), which rides
+				// Frame Generation's UI path. Here we only keep the plumbing
+				// alive: target discovery and resize notify above, plus ring
+				// adoption so the seam has SRVs the moment the overlay opens.
+				// FG pacing is irrelevant on this path — nothing draws here.
+				bool gpu = false;
+				{
+					std::scoped_lock lk(frameMutex);
+					gpu = gpuMode;
+				}
+				if (gpu) {
+					(void)EnsureSharedRing();
+				}
+				return;
 			}
 
 			if (!visible.load(std::memory_order_relaxed)) {
@@ -1193,6 +1294,106 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 						   "{} skipped as concurrent)",
 					drawnFrames, waitedBusy, skippedBusy, skippedConcurrent.load(std::memory_order_relaxed));
 			}
+		}
+
+		// Seam draw (UiPassSeam, render worker, inside the engine's UI-buffer
+		// hand-off): record the overlay quad onto the ENGINE's list into the
+		// engine's UI buffer — upstream of Frame Generation, so both real and
+		// generated frames carry it. v1 transport: the produce fence is checked
+		// on the CPU (we cannot wait on a queue we don't control) and the
+		// consume fence is signaled from the CPU; ring depth covers the gap, a
+		// lost race is a rare torn overlay frame, never a hazard.
+		[[nodiscard]] bool RecordSeamOverlay(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer)
+		{
+			if (!setupOk || !seamRtvHeap || !visible.load(std::memory_order_relaxed)) {
+				return false;
+			}
+			bool gpu = false;
+			std::uint32_t ringSlot = 0;
+			std::uint64_t serial = 0;
+			{
+				std::scoped_lock lk(frameMutex);
+				gpu = gpuMode;
+				ringSlot = gpuSlot;
+				serial = gpuSerial;
+			}
+
+			std::scoped_lock ring(ringMutex);
+			if (!gpu) {
+				if (!seamGpuWarned) {
+					seamGpuWarned = true;
+					REX::WARN("D3D12Compositor: seam draw requires the GPU shared-ring transport "
+							  "(webview2 host); CPU-staged frames are not seam-drawn");
+				}
+				return false;
+			}
+			// Promote the newest frame to "ready" once its produce fence has
+			// completed; an incomplete newest frame falls back to the last
+			// ready one (see seamReadySlot) instead of skipping the draw.
+			if (serial != 0 && ringSlot < sharedSlotCount && sharedSlots[ringSlot] &&
+				(!sharedProduce || sharedProduce->GetCompletedValue() >= serial)) {
+				seamReadySlot = ringSlot;
+				seamReadySerial = serial;
+			}
+			if (seamReadySerial == 0 || seamReadySlot >= sharedSlotCount || !sharedSlots[seamReadySlot]) {
+				return false;  // no fully-produced frame yet this ring generation
+			}
+			ringSlot = seamReadySlot;
+			serial = seamReadySerial;
+
+			auto* pso = EnsurePipeline(DXGI_FORMAT_R8G8B8A8_UNORM);
+			if (!pso) {
+				return false;
+			}
+
+			const auto desc = a_buffer->GetDesc();
+			const auto rtvSlot = seamRtvNext.fetch_add(1, std::memory_order_relaxed) % kSeamRtvSlots;
+			const D3D12_CPU_DESCRIPTOR_HANDLE rtv{
+				seamRtvHeap->GetCPUDescriptorHandleForHeapStart().ptr + static_cast<SIZE_T>(rtvSlot) * rtvStride
+			};
+			D3D12_RENDER_TARGET_VIEW_DESC rtvDesc{};
+			rtvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;  // typed view on the typeless UI buffer
+			rtvDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+			engine.device->CreateRenderTargetView(a_buffer, &rtvDesc, rtv);
+
+			ID3D12DescriptorHeap* heaps[]{ srvHeap };
+			a_list->SetDescriptorHeaps(1, heaps);
+			a_list->SetGraphicsRootSignature(rootSig);
+			const D3D12_GPU_DESCRIPTOR_HANDLE srv{
+				srvHeap->GetGPUDescriptorHandleForHeapStart().ptr +
+				static_cast<UINT64>(1 + ringSlot) * srvStride
+			};
+			a_list->SetGraphicsRootDescriptorTable(0, srv);
+
+			const D3D12_VIEWPORT vp{ 0.0f, 0.0f, static_cast<float>(desc.Width), static_cast<float>(desc.Height), 0.0f, 1.0f };
+			const D3D12_RECT scissor{ 0, 0, static_cast<LONG>(desc.Width), static_cast<LONG>(desc.Height) };
+			a_list->RSSetViewports(1, &vp);
+			a_list->RSSetScissorRects(1, &scissor);
+			a_list->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+			a_list->SetPipelineState(pso);
+			a_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+			a_list->DrawInstanced(3, 1, 0, 0);
+
+			if (sharedConsume && serial > seamLastConsumeSignaled) {
+				// CPU-side pacing: lets the host reuse older slots. The GPU may
+				// not have sampled yet, but ring depth (4 slots) covers it.
+				sharedConsume->Signal(serial);
+				seamLastConsumeSignaled = serial;
+			}
+
+			++seamDraws;
+			if (seamDraws == 1) {
+				REX::INFO("D3D12Compositor: FIRST SEAM OVERLAY DRAW (ring slot {} serial {} -> {}x{} UI buffer 0x{:X})",
+					ringSlot, serial, static_cast<std::uint64_t>(desc.Width), desc.Height,
+					reinterpret_cast<std::uintptr_t>(a_buffer));
+			}
+			return true;
+		}
+
+		static bool SeamDrawThunk(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer)
+		{
+			auto* self = static_cast<Impl*>(g_overlay.load(std::memory_order_acquire));
+			return self && self->RecordSeamOverlay(a_list, a_buffer);
 		}
 
 		// Resize/create the overlay texture + per-slot upload buffers + SRV to
@@ -1688,6 +1889,23 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		}
 		_impl->EnsureSetup();
 		_impl->CheckPresentLiveness();
+	}
+
+	void D3D12Compositor::SetSeamDrawMode(const bool a_enabled)
+	{
+		if (_impl) {
+			_impl->seamMode.store(a_enabled, std::memory_order_relaxed);
+			if (a_enabled) {
+				REX::INFO("D3D12Compositor: SEAM DRAW MODE (uiPassDraw) — the overlay is recorded into the "
+						  "engine's UI render pass; the present hook does discovery/plumbing only and never draws");
+			}
+		}
+	}
+
+	bool RecordSeamOverlayDraw(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer)
+	{
+		const auto fn = g_seamDrawFn.load(std::memory_order_acquire);
+		return fn && a_list && a_buffer && fn(a_list, a_buffer);
 	}
 
 	void D3D12Compositor::SetSharedRing(const SharedRingDesc& a_desc)
