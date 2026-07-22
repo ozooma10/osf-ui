@@ -199,6 +199,7 @@ namespace osfui::wv2
 				bool controllerRequested{ false };
 				bool bridgeAllowed{ true };
 				bool hidden{ true };
+				bool renderStats{ false };
 				// Manifest (authoring) height, set by `navigate`: the page lays out at
 				// this height and ApplyScale derives the rasterization scale from it.
 				std::uint32_t logicalHeight{ kDefaultLogicalHeight };
@@ -308,6 +309,12 @@ namespace osfui::wv2
 			double        captureGapMsMin{ 0.0 };
 			double        captureGapMsMax{ 0.0 };
 			std::uint64_t captureGapCount{ 0 };
+			std::atomic<std::uint64_t> captureArrivalCount{ 0 };
+			std::uint64_t statsLastMs{ 0 };
+			std::uint64_t statsLastCapture{ 0 };
+			std::uint64_t statsLastPublish{ 0 };
+			double        statsLastProduceMs{ 0.0 };
+			std::uint64_t statsLastTimeouts{ 0 };
 
 			ComPtr<ICoreWebView2Environment> environment;
 			bool environmentRequested{ false };
@@ -857,6 +864,76 @@ namespace osfui::wv2
 				}
 			}
 
+			bool AnyVisibleRenderStats() const
+			{
+				for (const auto& view : views) {
+					if (view->renderStats && !view->hidden && view->webView) return true;
+				}
+				return false;
+			}
+
+			void ApplyRenderStats(View& a_view)
+			{
+				if (!a_view.webView) return;
+				const auto script = std::format(
+					"window.__osfuiSetRenderStats&&window.__osfuiSetRenderStats({},{});",
+					a_view.renderStats ? "true" : "false", json(a_view.id).dump());
+				a_view.webView->ExecuteScript(ToWide(script).c_str(),
+					Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
+						[](HRESULT, LPCWSTR) -> HRESULT { return S_OK; }).Get());
+			}
+
+			void TickRenderStats()
+			{
+				if (!AnyVisibleRenderStats()) {
+					statsLastMs = 0;
+					return;
+				}
+				const auto now = ::GetTickCount64();
+				if (statsLastMs == 0) {
+					statsLastMs = now;
+					statsLastCapture = captureArrivalCount.load(std::memory_order_relaxed);
+					std::scoped_lock lock(ringMutex);
+					statsLastPublish = frameSerial;
+					statsLastProduceMs = produceMsTotal;
+					statsLastTimeouts = consumeWaitTimeouts;
+					return;
+				}
+				const auto elapsed = now - statsLastMs;
+				if (elapsed < 500) return;
+
+				const auto capture = captureArrivalCount.load(std::memory_order_relaxed);
+				std::uint64_t publish = 0, timeouts = 0;
+				double produceMs = 0.0;
+				{
+					std::scoped_lock lock(ringMutex);
+					publish = frameSerial;
+					produceMs = produceMsTotal;
+					timeouts = consumeWaitTimeouts;
+				}
+				const auto captureDelta = capture - statsLastCapture;
+				const auto publishDelta = publish - statsLastPublish;
+				const double seconds = static_cast<double>(elapsed) / 1000.0;
+				const json sample{ { "__osfuiRenderStats", {
+					{ "captureFps", static_cast<double>(captureDelta) / seconds },
+					{ "transferFps", static_cast<double>(publishDelta) / seconds },
+					{ "copyMs", publishDelta ?
+						(produceMs - statsLastProduceMs) / static_cast<double>(publishDelta) : 0.0 },
+					{ "backpressure", timeouts - statsLastTimeouts }
+				} } };
+				const auto wide = ToWide(sample.dump());
+				for (const auto& view : views) {
+					if (view->renderStats && !view->hidden && view->webView) {
+						view->webView->PostWebMessageAsJson(wide.c_str());
+					}
+				}
+				statsLastMs = now;
+				statsLastCapture = capture;
+				statsLastPublish = publish;
+				statsLastProduceMs = produceMs;
+				statsLastTimeouts = timeouts;
+			}
+
 			void DestroyOneView(View& a_view)
 			{
 				// The rebind subclass may be sitting on this view's widget: unhook
@@ -1046,6 +1123,7 @@ namespace osfui::wv2
 				InstallNetworkGuard(a_view);
 				InstallEvents(a_view);
 				InstallBridgeShim(a_view);
+				InstallRenderStats(a_view);
 				// Focus-on-demand leaves the widget OS-unfocused for the whole
 				// session, and an unfocused renderer stops matching
 				// :focus/:focus-visible/:focus-within and reports
@@ -1291,6 +1369,12 @@ namespace osfui::wv2
 								synthesizeKey(k.vk | 0, !!k.down);
 								return;
 							}
+							if (event.data && typeof event.data === 'object' &&
+								event.data.__osfuiRenderStats) {
+								if (typeof window.__osfuiRenderStatsNative === 'function')
+									window.__osfuiRenderStatsNative(event.data.__osfuiRenderStats);
+								return;
+							}
 							const json = typeof event.data === 'string' ?
 								event.data : JSON.stringify(event.data);
 							// Session boundary: on hide, blur any editable so the
@@ -1316,6 +1400,93 @@ namespace osfui::wv2
 							if (FAILED(a_scriptHr)) {
 								log.Error(std::format("bridge shim install failed (0x{:08X})",
 									static_cast<unsigned>(a_scriptHr)));
+							}
+							return S_OK;
+						}).Get());
+			}
+
+			void InstallRenderStats(View& a_view)
+			{
+				// Shadow DOM isolates the host panel from arbitrary authored CSS. The
+				// sampler is fully dormant while disabled and only writes twice a
+				// second while enabled, keeping its own diagnostic cost bounded.
+				static constexpr wchar_t script[] = LR"JS(
+					(() => {
+						let enabled=false, host=null, raf=0, lastFrame=0;
+						let windowStart=0, frames=0, gaps=[], longCount=0, longMs=0;
+						let observer=null, viewId='';
+						const safe=(n,d=1)=>Number.isFinite(Number(n))?Number(n).toFixed(d):'--';
+						const ensurePanel=()=>{
+							if(host&&host.isConnected)return host.shadowRoot;
+							host=document.createElement('div');
+							host.id='__osfui-render-stats';
+							host.style.cssText='all:initial;position:fixed;z-index:2147483647;top:12px;right:12px;pointer-events:none;contain:layout style paint;';
+							const root=host.attachShadow({mode:'open'});
+							root.innerHTML=`<style>
+								.panel{min-width:264px;padding:10px 12px;color:#e7f6ff;background:rgba(4,8,12,.92);border:1px solid rgba(118,199,239,.72);box-shadow:0 4px 20px rgba(0,0,0,.45);font:11px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.03em}
+								.head{color:#7ed2ff;font-weight:700;border-bottom:1px solid rgba(126,210,255,.3);padding-bottom:5px;margin-bottom:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:360px}
+								.row{display:grid;grid-template-columns:76px 1fr;gap:8px}.key{color:#8da0ad}.bad{color:#ffb36b}
+							</style><div class="panel"><div class="head"></div><div class="rows"></div></div>`;
+							(document.documentElement||document).appendChild(host);
+							return root;
+						};
+						const percentile=(values,p)=>{
+							if(!values.length)return 0;
+							const sorted=values.slice().sort((a,b)=>a-b);
+							return sorted[Math.min(sorted.length-1,Math.floor(sorted.length*p))];
+						};
+						const frame=(now)=>{
+							if(!enabled)return;
+							if(!windowStart)windowStart=now;
+							if(lastFrame)gaps.push(now-lastFrame);
+							lastFrame=now;frames++;
+							raf=requestAnimationFrame(frame);
+						};
+						window.__osfuiRenderStatsNative=(native)=>{
+							if(!enabled)return;
+							const now=performance.now(),elapsed=Math.max(1,now-windowStart);
+							const pageFps=frames*1000/elapsed,p95=percentile(gaps,.95);
+							const max=gaps.length?Math.max(...gaps):0;
+							const memory=performance.memory&&performance.memory.usedJSHeapSize?
+								`${safe(performance.memory.usedJSHeapSize/1048576,0)} MB`:'n/a';
+							const root=ensurePanel(),bad=pageFps<50||p95>25;
+							root.querySelector('.head').textContent=`RENDER STATS · ${viewId}`;
+							root.querySelector('.rows').innerHTML=
+								`<div class="row ${bad?'bad':''}"><span class="key">PAGE RAF</span><span>${safe(pageFps)} fps · p95 ${safe(p95)} ms · max ${safe(max)} ms</span></div>`+
+								`<div class="row"><span class="key">CAPTURE</span><span>${safe(native.captureFps)} fps · visual updates</span></div>`+
+								`<div class="row"><span class="key">TRANSFER</span><span>${safe(native.transferFps)} fps · copy ${safe(native.copyMs,2)} ms</span></div>`+
+								`<div class="row ${longCount?'bad':''}"><span class="key">LONG TASKS</span><span>${longCount} · ${safe(longMs,0)} ms total</span></div>`+
+								`<div class="row"><span class="key">PAGE</span><span>${document.getElementsByTagName('*').length} nodes · heap ${memory}</span></div>`+
+								`<div class="row ${native.backpressure?'bad':''}"><span class="key">BACKPRESSURE</span><span>${native.backpressure||0} ring waits</span></div>`;
+							windowStart=now;frames=0;gaps=[];longCount=0;longMs=0;
+						};
+						window.__osfuiSetRenderStats=(next,id)=>{
+							viewId=String(id||'');
+							if(!!next===enabled)return;
+							enabled=!!next;
+							if(!enabled){
+								if(raf)cancelAnimationFrame(raf);
+								raf=0;lastFrame=0;windowStart=0;frames=0;gaps=[];
+								if(observer)observer.disconnect();
+								observer=null;if(host)host.remove();host=null;return;
+							}
+							ensurePanel();windowStart=performance.now();raf=requestAnimationFrame(frame);
+							try{
+								observer=new PerformanceObserver((list)=>{
+									for(const entry of list.getEntries()){longCount++;longMs+=entry.duration;}
+								});
+								observer.observe({type:'longtask',buffered:true});
+							}catch(_){}
+						};
+					})();
+				)JS";
+				a_view.webView->AddScriptToExecuteOnDocumentCreated(script,
+					Callback<ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler>(
+						[this, view = &a_view](HRESULT a_hr, LPCWSTR) -> HRESULT {
+							if (FAILED(a_hr)) {
+								log.Warn(std::format(
+									"view '{}': render-stats shim install failed (0x{:08X})",
+									view->id, static_cast<unsigned>(a_hr)));
 							}
 							return S_OK;
 						}).Get());
@@ -1613,6 +1784,7 @@ namespace osfui::wv2
 									Send(json{ { "type", "domReady" }, { "view", view->id } });
 								}
 								DrainQueuedViewWork(*view);
+								ApplyRenderStats(*view);
 								return S_OK;
 							}).Get(), &token);
 				}
@@ -1744,6 +1916,7 @@ namespace osfui::wv2
 					captureLastArrival = arrival;
 					auto capturedFrame = a_pool.TryGetNextFrame();
 					if (!capturedFrame) return;
+					captureArrivalCount.fetch_add(1, std::memory_order_relaxed);
 					auto access = capturedFrame.Surface().as<
 						::Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess>();
 					ComPtr<ID3D11Texture2D> source;
@@ -2052,6 +2225,11 @@ namespace osfui::wv2
 					if (!view) return;
 					view->order = a_msg.value("order", 0);
 					ReorderVisuals();
+				} else if (type == "setRenderStats") {
+					auto* view = ResolveView(a_msg);
+					if (!view) return;
+					view->renderStats = a_msg.value("enabled", false);
+					ApplyRenderStats(*view);
 				} else if (type == "setActive") {
 					auto* view = ResolveView(a_msg);
 					if (view) {
@@ -2201,7 +2379,7 @@ namespace osfui::wv2
 						// Short timeout only while a reveal awaits its paint sentinel,
 						// so the timeout fallback stays responsive.
 						const DWORD wait = ::MsgWaitForMultipleObjectsEx(
-							2, waits, AnyRevealPending() ? 50 : 1000,
+							2, waits, AnyRevealPending() ? 50 : AnyVisibleRenderStats() ? 100 : 1000,
 							QS_ALLINPUT, MWMO_INPUTAVAILABLE);
 						if (wait == WAIT_OBJECT_0 + 1) {
 							log.Info("game process exited — shutting down");
@@ -2213,6 +2391,7 @@ namespace osfui::wv2
 						}
 						DrainCommands();
 						TickReveals();
+						TickRenderStats();
 						MSG message{};
 						while (::PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
 							::TranslateMessage(&message);

@@ -60,6 +60,7 @@ namespace OSFUI
 		void SetConsoleHandler(std::string_view a_viewId, ConsoleHandler a_handler) override;
 		void SetViewHidden(std::string_view a_viewId, bool a_hidden) override;
 		void SetViewOrder(std::string_view a_viewId, int a_order) override;
+		void SetRenderStats(std::string_view a_viewId, bool a_enabled) override;
 		void DestroyView(std::string_view a_viewId) override;
 		[[nodiscard]] std::string_view Name() const override { return "webview2"; }
 

@@ -244,6 +244,7 @@ namespace OSFUI
 			std::string entry;
 			bool        bridge{ false };
 			bool        hidden{ true };
+			bool        renderStats{ false };
 			int         order{ 0 };
 			// Manifest (authoring) height. The host divides output height by this
 			// for the rasterization scale, so the page lays out at logical size
@@ -708,6 +709,10 @@ namespace OSFUI
 						{ "type", "setOrder" },
 						{ "view", view.id },
 						{ "order", view.order } }.dump());
+					pipe.WriteMessage(json{
+						{ "type", "setRenderStats" },
+						{ "view", view.id },
+						{ "enabled", view.renderStats } }.dump());
 				}
 				if (!activeId.empty()) {
 					pipe.WriteMessage(json{
@@ -1386,6 +1391,18 @@ namespace OSFUI
 		}
 		_impl->Send(json{ { "type", "setOrder" },
 			{ "view", std::string(a_viewId) }, { "order", a_order } });
+	}
+
+	void WebView2HostWebRenderer::SetRenderStats(std::string_view a_viewId, bool a_enabled)
+	{
+		{
+			std::scoped_lock lock(_impl->stateMutex);
+			auto* view = _impl->FindView(a_viewId);
+			if (!view || view->renderStats == a_enabled) return;
+			view->renderStats = a_enabled;
+		}
+		_impl->Send(json{ { "type", "setRenderStats" },
+			{ "view", std::string(a_viewId) }, { "enabled", a_enabled } });
 	}
 
 	void WebView2HostWebRenderer::DestroyView(std::string_view a_viewId)

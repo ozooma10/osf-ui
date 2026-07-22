@@ -1187,6 +1187,7 @@ namespace OSFUI
 				{ "targetVersion", m.targetVersion },
 				{ "open", _menus.IsOpen(m.id) },
 				{ "focused", active.has_value() && *active == m.id },
+				{ "renderStats", _renderStatsViews.contains(m.id) },
 				{ "loadState", state == ViewLoadState::Failed ? "failed" :
 				               state == ViewLoadState::Finished ? "loaded" :
 				                                                  "loading" },
@@ -1821,6 +1822,22 @@ namespace OSFUI
 			_viewsSubscribers.insert(std::string(a_b.CurrentSource()));
 			_lastViewsData = payload.dump();
 			a_b.SendToWeb("views.data", payload);
+		});
+		// Host-injected, per-view diagnostics. The state is session-scoped and
+		// survives page reloads; the renderer owns the panel so content cannot
+		// accidentally omit the instrumentation.
+		a_bridge.RegisterCommand("renderStats.set", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
+			std::string id = Json::GetString(a_p, "view", "");
+			if (id.empty()) id = std::string(a_b.CurrentSource());
+			if (!_menus.IsRegistered(id)) {
+				a_b.SendResult(false, "unknown-view", "not a loaded view");
+				return;
+			}
+			const bool enabled = Json::GetBool(a_p, "enabled", true);
+			if (enabled) _renderStatsViews.insert(id);
+			else _renderStatsViews.erase(id);
+			_renderer->SetRenderStats(id, enabled);
+			BroadcastViewsData();
 		});
 		// A custom view supplies inline English to osfui.t(address, english); this
 		// returns only active-locale overrides for its mod domain. The caller

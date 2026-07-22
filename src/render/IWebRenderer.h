@@ -292,6 +292,9 @@ namespace OSFUI
 		virtual void SetViewHidden(std::string_view /*a_viewId*/, bool /*a_hidden*/) {}
 		virtual void SetViewOrder(std::string_view /*a_viewId*/, int /*a_order*/) {}
 		virtual void SetScrollPixelSize(std::string_view /*a_viewId*/, int /*a_pixels*/) {}
+		// Host-owned diagnostics drawn inside one view. The overlay must not
+		// require cooperation from (or changes to) the authored page.
+		virtual void SetRenderStats(std::string_view /*a_viewId*/, bool /*a_enabled*/) {}
 
 		virtual void DestroyView(std::string_view /*a_viewId*/) {}
 

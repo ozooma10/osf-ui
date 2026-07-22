@@ -4,76 +4,31 @@
 
 namespace OSFUI
 {
-	// Config `pauseMenuEntry` (on by default). Injects a "MOD SETTINGS" entry
-	// into the engine's PauseMenu main list at runtime and opens a configured
-	// overlay view (default "osfui/settings") on press.
+	// Config `pauseMenuEntry` (on by default). Injects a "MOD MENUS" entry into
+	// PauseMenu and opens the configured overlay view when pressed.
 	//
-	// Live Scaleform manipulation, no SWF edit: no conflict with UI-overhaul mods,
-	// and pausemenu_lrg.swf large-font mode is covered for free (same AS3
-	// classes).
+	// This is live Scaleform manipulation rather than a SWF replacement, so it
+	// works with both normal and large-font PauseMenu movies. The implementation
+	// relies on three invariants verified against Starfield 1.16.244:
 	//
-	//   * The main list is data-driven from native: the engine pushes
-	//     PauseMenuListData.aPauseMenuList (entries {text, uActionType,
-	//     bDisabled, sConfirmText}) into PauseMenu.OnPauseListDataUpdate ->
-	//     MainPanel.PopulateMainList. We read the live entryList, append our
-	//     entry (uActionType 100; vanilla PMA_* ids are EnumHelper-sequential
-	//     0..11) and re-invoke PopulateMainList through the movie's GFx Value
-	//     API. PopulateMainList preserves the selection by action id, so a
-	//     mid-session re-add doesn't jump the cursor. The list is read through
-	//     the public entryCount/GetDataForEntry surface: the entryList getter is
-	//     protected in AS3 and invisible to GFx GetMember (confirmed live).
-	//   * Presses bubble from MainPanel as CustomEvent "MainPanel_EntryPress"
-	//     {entryAction}; the PauseMenu root forwards them to the engine as
-	//     PauseMenu_StartAction. We addEventListener on the root at priority
-	//     1000 (the menu's own listener is priority 0 on the same node) with a
-	//     CreateFunction-wrapped native callback: for our action id it calls
-	//     stopImmediatePropagation() — so the engine never sees the unknown
-	//     actionType — and flags the click for the next Tick.
-	//   * On click (main thread, next Reconcile): close the pause menu via the
-	//     engine's own channel (UIMessageQueue kHide, the same pattern as
-	//     FocusMenu) and queue the overlay view open through the normal menu
-	//     policy path (Runtime::EnqueueOpenView).
+	//   * Only the admitted PauseMenu with kAdvancesMovie and a live AS3 root is
+	//     callable. The registration-map slot and MenuOpenCloseEvent are not
+	//     lifecycle authorities; both lag teardown.
+	//   * PopulateMainList -> InitializeEntries -> InvalidateData -> Update is
+	//     synchronous on the game thread. Runtime::Tick therefore runs before or
+	//     after a list rebuild, never inside one.
+	//   * Action 100 is consumed in the callback's originating movie before the
+	//     current live movie is checked, so stale callbacks cannot leak the
+	//     private action into the engine or open a replacement menu's overlay.
 	//
-	// The engine may re-push PauseMenuListData at any time, which re-runs
-	// PopulateMainList and wipes the injected entry. While the pause menu is
-	// open, Reconcile's steady state is a single entryCount read per tick; the
-	// per-entry GetDataForEntry scan (and any re-inject) runs only when the
-	// count deviates from the shape last established.
-	//
-	// Safety against the 2026-07 field CTD/hang (a null/poison AS3 method-slot
-	// dispatch, Starfield.exe+333E929, when an Invoke lands on a movie that is
-	// loading, tearing down, or mid list-rebuild) is layered:
-	//   * Every tick, all AS3 access is gated on the movie being live and
-	//     advancing — IMenu bit 6 (kAdvancesMovie) read live + active-array
-	//     membership — which goes false the frame the engine removes the menu,
-	//     ahead of the (lagging) MenuOpenCloseEvent close edge. Covers the
-	//     open/close transition windows.
-	//   * A two-tick entryCount debounce covers the one window the flag can't
-	//     see (an in-place list re-push while the menu stays open): the scan /
-	//     re-inject Invokes run only after the count is stable for two ticks.
-	//   * A demoted, diagnostic-only SEH latch remains as a last-resort telemetry
-	//     backstop — never the containment (catching an engine-VM fault corrupts
-	//     the VM and hangs; the gate + debounce are what prevent it).
-	//
-	// Source of truth for the AS3 structure: pausemenu.swf 1.16.244 decompiled
-	// with JPEXS 2026-07-13 (kept at tmp/pausemenu-re next to this repo); see
-	// docs/reverse-engineering-notes.md. Inject + click round-trip verified
-	// in-game on 1.16.244, where the SFSE per-frame task keeps ticking while
-	// PauseMenu is open.
-	//
-	// All GFx access runs on the game's main thread (Runtime::Tick); no engine
-	// hooks — GetMenu/GetRootPath/GFx Value are documented CommonLibSF surface
-	// backed by AddressLib IDs.
+	// The count gate keeps steady state to one entryCount read per tick. A native
+	// list re-push changes the count and re-arms the scan/re-injection path.
 	class PauseMenuEntry
 	{
 	public:
 		// Set the entry label + the overlay view id opened on press. Call once
 		// from Runtime::Initialize before the first Tick.
 		static void Configure(std::string a_label, std::string a_viewId);
-
-		// MenuEventSink edge for the engine "PauseMenu" (any thread; atomics
-		// only). opening=false also resets the per-open injection state.
-		static void NotifyPauseMenu(bool a_opening);
 
 		// Main thread, every Tick (gated on config.pauseMenuEntry by the
 		// caller): act on a pending click, then keep the entry + click listener

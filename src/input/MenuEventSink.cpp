@@ -1,7 +1,6 @@
 #include "input/MenuEventSink.h"
 
 #include "core/Log.h"
-#include "input/PauseMenuEntry.h"
 #include "runtime/Runtime.h"
 
 namespace OSFUI
@@ -26,12 +25,6 @@ namespace OSFUI
 		const RE::MenuOpenCloseEvent& a_event,
 		RE::BSTEventSource<RE::MenuOpenCloseEvent>*)
 	{
-		// Edge for the injected PauseMenu "mod settings" entry. The
-		// config.pauseMenuEntry gate lives in Runtime::Tick.
-		if (std::string_view{ a_event.menuName } == "PauseMenu") {
-			PauseMenuEntry::NotifyPauseMenu(a_event.opening);
-		}
-
 		// Console edge for the hotkey gameplay gate (MenuMode). INFO on purpose:
 		// rare, and the decisive line when triaging "my hotkey fired / didn't
 		// fire while the console was up" from a default (non-dev) log.

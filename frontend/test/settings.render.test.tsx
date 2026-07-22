@@ -27,6 +27,27 @@ async function mountKit() {
 }
 
 describe('settings widget rendering', () => {
+  it('framework diagnostics lists every loaded view and toggles stats through the bridge', async () => {
+    const bridge = makeBridge();
+    const el = await mount(bridge);
+    bridge.emit('settings.data', WIDGETS);
+    bridge.emit('views.data', VIEWS);
+    await flush();
+    [...el.querySelectorAll<HTMLButtonElement>('.rail-item')]
+      .find((b) => b.textContent!.includes('OSF UI'))!
+      .click();
+    await flush();
+
+    const diagnostics = el.querySelector('.render-diagnostics')!;
+    expect(diagnostics.querySelectorAll('.row').length).toBe(VIEWS.views.length);
+    diagnostics.querySelector<HTMLButtonElement>('[role="switch"]')!.click();
+    await flush();
+    expect(bridge.sent[bridge.sent.length - 1]).toEqual({
+      command: 'renderStats.set',
+      fields: { view: VIEWS.views[0]!.id, enabled: true },
+    });
+  });
+
   it('bool renders as a button[role=switch] with state in aria-pressed', async () => {
     const { el } = await mountKit();
     const sw = el.querySelector<HTMLButtonElement>('#ctl-acme\\.kit-boolOn');

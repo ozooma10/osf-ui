@@ -113,7 +113,10 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
   };
 
   const [loadErrors, setLoadErrors] = useState<LoadError[]>([]);
-  const [viewTargets, setViewTargets] = useState<ViewRecord[]>([]);
+  // Unfiltered catalog, including hub:false utility surfaces. The launcher
+  // still honors hub:false, but framework diagnostics must be able to target
+  // every loaded view (including this Mods surface itself).
+  const [allViews, setAllViews] = useState<ViewRecord[]>([]);
   const [hostVersion, setHostVersion] = useState('');
 
   const [selectedId, setSelectedIdState] = useState<string | null>(null);
@@ -381,7 +384,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
       const all = (p.views || []) as ViewRecord[];
       // Version targets come off the unfiltered catalog — a `hub:false` utility
       // view still gets to ask for a newer host.
-      setViewTargets(all.filter((v) => v && v.targetVersion));
+      setAllViews(all.filter((v) => v));
       setViews(all.filter((v) => v && v.hub !== false));
       // This push is the authority on HUD open state; drop the optimistic
       // overrides.
@@ -604,7 +607,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
   const changes = sessionDiff(baseline, mods);
   const needsUpdate = deriveNeedsUpdate(
     hostVersion,
-    viewTargets.map((v) => ({
+    allViews.filter((v) => v.targetVersion).map((v) => ({
       targetVersion: v.targetVersion,
       // Views name themselves by their owning mod's title when one is loaded,
       // then the raw manifest `mod` string, then the view id.
@@ -787,6 +790,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
         <Detail
           mods={mods}
           views={views}
+          diagnosticViews={allViews}
           query={query}
           selectedId={selectedId}
           hostVersion={hostVersion}
@@ -802,6 +806,9 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
             setHudOverride((o) => ({ ...o, [viewId]: next }));
             sendCommand(next ? 'hud.show' : 'hud.hide', { view: viewId });
           }}
+          onRenderStatsToggle={(viewId, next) =>
+            sendCommand('renderStats.set', { view: viewId, enabled: next })
+          }
           onCommit={commit}
           onResetSetting={(modId, key) => requestReset(modId, key)}
           onResetMod={(modId) => requestReset(modId, null)}

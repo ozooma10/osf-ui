@@ -14,7 +14,7 @@ a reference for the two data-driven extension points that work today:
 
 > **Status / scope.** Pure content, no recompile: a
 > `views/<modId>/<viewName>/` folder and a `settings/<modId>.json` schema. The
-> bridge protocol is at version **1.2 — stable**; additive changes bump the
+> bridge protocol is at version **1.3 — stable**; additive changes bump the
 > minor version, breaking changes bump the major. Compatibility is advisory:
 > declare the OSF UI version you authored against as `targetVersion` (manifest
 > and/or settings schema, §7), and the Mods surface shows a "needs update"
@@ -389,6 +389,7 @@ Whitelisted commands (anything else is rejected, logged, and answered with
 | `ping` | — | runtime replies with `runtime.pong` |
 | `game.get` | — | runtime replies with `game.data` (in-game date/time from the calendar) |
 | `views.get` | — | runtime replies with `views.data` (catalog of loaded surfaces) and subscribes the caller: any later open/close/focus/load-state change pushes a fresh `views.data` unsolicited, so no polling is needed |
+| `renderStats.set` | `view?: string`, `enabled: bool` | *(protocol 1.3)* show/hide OSF UI's host-injected diagnostics panel for a loaded view (omitted ⇒ the calling view). Reports page RAF cadence and stalls, visual-capture and texture-transfer rates, copy time, long tasks, DOM/heap size, and ring backpressure. Session-scoped and survives page reloads; enabling it adds a small amount of diagnostic work |
 | `i18n.get` | `mod?` | runtime replies with `i18n.data` for the requested mod (omitted `mod` = the calling view's owner) and subscribes the caller to live language/catalog changes |
 | `settings.get` | — | runtime replies with `settings.data` |
 | `settings.set` | `mod, key, value` | set one schema-declared setting (validated) |
@@ -419,7 +420,7 @@ serves both:
 | `runtime.ready` | `{ game, plugin, version, bridgeVersion }` | once, after your page loads (`osfui.ready` resolves with it) — your cue to request data. `version` is the running OSF UI (the reference point for `targetVersion`, §7); `bridgeVersion` is informational |
 | `runtime.pong` | `{}` | reply to your `ping` |
 | `game.data` | `{ calendar: { available, day, month, year, hour, daysPassed } }` | reply to `game.get`; each provider nests under its own object (future providers are siblings of `calendar`); `available:false` before a save is loaded |
-| `views.data` | `{ views: [ { id, title, description, mod, kind, interactive, hub, targetVersion, open, focused, loadState } ] }` | reply to `views.get`, and re-pushed to every subscribed view when any entry changes. `id` is the qualified `<modId>/<viewName>`; `mod` = the owning mod id derived from the folder (a mod with no settings schema of that id just lists under its own title); `kind` = `"menu"`\|`"hud"`; `targetVersion` = the manifest's declared target (empty string when undeclared); `loadState` = `"loading"`\|`"loaded"`\|`"failed"`; a view torn down by crash-recovery drops out of the list. Respect `hub:false` (don't list those) |
+| `views.data` | `{ views: [ { id, title, description, mod, kind, interactive, hub, targetVersion, open, focused, renderStats, loadState } ] }` | reply to `views.get`, and re-pushed to every subscribed view when any entry changes. `id` is the qualified `<modId>/<viewName>`; `mod` = the owning mod id derived from the folder (a mod with no settings schema of that id just lists under its own title); `kind` = `"menu"`\|`"hud"`; `targetVersion` = the manifest's declared target (empty string when undeclared); `renderStats` reports whether the host diagnostics panel is enabled; `loadState` = `"loading"`\|`"loaded"`\|`"failed"`; a view torn down by crash-recovery drops out of the list. Respect `hub:false` (don't list those) |
 | `i18n.data` | `{ mod, locale, strings }` | reply to `i18n.get`, then re-pushed to subscribed views after a language change or a dev-mode catalog reload; `strings` contains active-locale overrides keyed by stable structural address |
 | `settings.data` | `{ mods: [ { id, title, schema, values, shadowed?, targetVersion? } ], vanillaKeys?, loadErrors? }` | reply to `settings.get` / after a `settings.reset`. Per-mod `shadowed?` lists drop-in schema files that also claimed this id and lost first-wins (render a conflict badge); `targetVersion?` is the schema's advisory authored-against version (§7), omitted when undeclared. A `key`-typed setting whose binding collides with another mod's carries runtime-injected `conflicts: [{mod, key, title}]` in its schema object — informational; render a badge, never block. `mod` may be the reserved id `@game` (the game's own bindings; display `title`, e.g. "Starfield (Quicksave)"). Top-level `vanillaKeys: [{event, title, name}]` is the game's full binding table (read-only; the keybinds view renders it); absent when the runtime has none. Top-level `loadErrors: [{kind, file, mod?, message}]` names settings files that failed to load — `schema-name` / `schema-parse` (file skipped) or `values-parse` (values quarantined as `<file>.bad`, defaults served); absent when everything loaded clean. The Mods surface renders these as a rail alert |
 | `settings.ack` | `{ mod, key, ok, value?, code?, message? }` | result of a `settings.set`. `ok:true` carries `value`, the authoritative post-clamp committed value (compare with what you sent to detect clamping — no re-fetch needed); `ok:false` carries a stable `code`: `unknown-setting`, `read-only` (a setting type this host doesn't know), or `invalid-value` |
@@ -737,7 +738,7 @@ const info = await osfui.ready;
 console.log(`running OSF UI ${info.version}`);
 ```
 
-The protocol version is **1.2**, emitted as `bridgeVersion` — informational
+The protocol version is **1.3**, emitted as `bridgeVersion` — informational
 (logs, bug reports), distinct from the plugin `version`. From 1.0 the
 contract is stable: additive changes bump the minor version; anything that
 would break a shipped view bumps the major. The constant lives in
