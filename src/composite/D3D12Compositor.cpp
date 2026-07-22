@@ -249,12 +249,10 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 }
 )";
 
-		// Straight-alpha variant for the seam's FG UI-input target: FSR3's UI
-		// composition consumes that buffer with STRAIGHT (non-premultiplied)
-		// alpha, so premultiplied pixels there get alpha-multiplied twice —
-		// translucent overlay regions flickered darker on every generated
-		// frame (2026-07-22). Un-premultiply in the shader; the PSO pairs it
-		// with a SRC_ALPHA/INV_SRC_ALPHA blend.
+		// Diagnostic straight-alpha variant for the seam's FG UI-input target.
+		// A/B testing found that neither premultiplied nor true-straight bytes
+		// match the game's stable translucent UI, so this stays available only
+		// to characterize the downstream FFX composition transform.
 		constexpr const char* kPixelShaderStraight = R"(
 Texture2D    gTex : register(t0);
 SamplerState gSmp : register(s0);
@@ -275,7 +273,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		// Bridge for the seam-draw hook: Impl is private to the class, so the
 		// free function RecordSeamOverlayDraw goes through a pointer that only
 		// Impl (which can name itself) installs at setup.
-		using SeamDrawFn = bool (*)(ID3D12GraphicsCommandList*, ID3D12Resource*, bool, bool);
+		using SeamDrawFn = bool (*)(ID3D12GraphicsCommandList*, ID3D12Resource*, bool, bool, bool);
 		std::atomic<SeamDrawFn> g_seamDrawFn{ nullptr };
 
 		[[nodiscard]] ID3DBlob* CompileShader(const char* a_src, const char* a_entry, const char* a_target)
@@ -352,7 +350,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		// kPixelShaderStraight); the composite-input target keeps the
 		// premultiplied PSO from the shared cache.
 		ID3D12PipelineState* seamPsoStraight{ nullptr };
-		std::uint64_t seamDrawsStraight{ 0 };  // ringMutex (diagnostics)
+		std::uint64_t seamDrawsFgTarget{ 0 };  // ringMutex (diagnostics)
 
 		// One-shot byte comparator (diagnosing the FG translucency flicker):
 		// the GAME's own UI bytes are captured from BOTH seam targets before
@@ -360,8 +358,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		// UI is stable under FG while ours is not, so the game applies some
 		// transform between the two buffers that the diff will expose.
 		// kind 0 = composite input (RT->pixel-SRV), 1 = FG UI input
-		// (RT->COPY_SOURCE); requires uiPassFgMode=straight so the kind is
-		// derivable from a_straightAlpha.
+		// (RT->COPY_SOURCE), identified independently of its alpha triage mode.
 		static constexpr std::uint32_t kCmpRows = 4;
 		static constexpr std::uint32_t kCmpRowPitch = 5120;  // 1280 px * 4, 512-aligned
 		static constexpr std::uint32_t kCmpMaxWidth = 1280;
@@ -1409,7 +1406,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		// consume fence is signaled from the CPU; ring depth covers the gap, a
 		// lost race is a rare torn overlay frame, never a hazard.
 		[[nodiscard]] bool RecordSeamOverlay(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
-			const bool a_straightAlpha, const bool a_regionFirst)
+			const bool a_fgTarget, const bool a_straightAlpha, const bool a_regionFirst)
 		{
 			if (!setupOk || !seamRtvHeap || !visible.load(std::memory_order_relaxed)) {
 				return false;
@@ -1457,7 +1454,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			}
 
 			const auto desc = a_buffer->GetDesc();
-			RecordCompareCapture(a_list, a_buffer, desc, a_straightAlpha ? 1 : 0);
+			RecordCompareCapture(a_list, a_buffer, desc, a_fgTarget ? 1 : 0);
 			const auto rtvSlot = seamRtvNext.fetch_add(1, std::memory_order_relaxed) % kSeamRtvSlots;
 			const D3D12_CPU_DESCRIPTOR_HANDLE rtv{
 				seamRtvHeap->GetCPUDescriptorHandleForHeapStart().ptr + static_cast<SIZE_T>(rtvSlot) * rtvStride
@@ -1493,14 +1490,15 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			}
 
 			++seamDraws;
-			if (a_straightAlpha) {
-				++seamDrawsStraight;
+			if (a_fgTarget) {
+				++seamDrawsFgTarget;
 			}
-			// One-time log per target kind: if the straight line never
-			// appears, the FG UI-input hand-off is not being matched.
-			if (seamDraws == 1 || (a_straightAlpha && seamDrawsStraight == 1)) {
+			// One-time log per target kind: if the FG line never appears, its
+			// hand-off is not being matched.
+			if (seamDraws == 1 || (a_fgTarget && seamDrawsFgTarget == 1)) {
 				REX::INFO("D3D12Compositor: FIRST SEAM OVERLAY DRAW [{}] (ring slot {} serial {} -> {}x{} UI buffer 0x{:X})",
-					a_straightAlpha ? "straight-alpha / FG UI input" : "premultiplied / composite input",
+					a_fgTarget ? (a_straightAlpha ? "straight-alpha / FG UI input" :
+						"premultiplied / FG UI input") : "premultiplied / composite input",
 					ringSlot, serial, static_cast<std::uint64_t>(desc.Width), desc.Height,
 					reinterpret_cast<std::uintptr_t>(a_buffer));
 			}
@@ -1508,10 +1506,10 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		}
 
 		static bool SeamDrawThunk(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
-			const bool a_straightAlpha, const bool a_regionFirst)
+			const bool a_fgTarget, const bool a_straightAlpha, const bool a_regionFirst)
 		{
 			auto* self = static_cast<Impl*>(g_overlay.load(std::memory_order_acquire));
-			return self && self->RecordSeamOverlay(a_list, a_buffer, a_straightAlpha, a_regionFirst);
+			return self && self->RecordSeamOverlay(a_list, a_buffer, a_fgTarget, a_straightAlpha, a_regionFirst);
 		}
 
 		// Comparator capture: copy kCmpRows scanlines of the target's CURRENT
@@ -2143,10 +2141,10 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 	}
 
 	bool RecordSeamOverlayDraw(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
-		const bool a_straightAlpha, const bool a_regionFirst)
+		const bool a_fgTarget, const bool a_straightAlpha, const bool a_regionFirst)
 	{
 		const auto fn = g_seamDrawFn.load(std::memory_order_acquire);
-		return fn && a_list && a_buffer && fn(a_list, a_buffer, a_straightAlpha, a_regionFirst);
+		return fn && a_list && a_buffer && fn(a_list, a_buffer, a_fgTarget, a_straightAlpha, a_regionFirst);
 	}
 
 	void D3D12Compositor::SetSharedRing(const SharedRingDesc& a_desc)

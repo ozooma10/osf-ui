@@ -375,14 +375,20 @@ namespace OSFUI::UiPassSeam
 		// 2026-07-21). Expire the remaining slot after a few calls so it can
 		// never fire deep in the window inside another pass's stream.
 		thread_local int tl_callsAfterFirstDraw = -1;  // -1 = no draw yet this region
+		// RecordSeamOverlay may issue diagnostic barriers of its own. Those calls
+		// re-enter this hooked slot and must be forwarded without running the
+		// hand-off matcher again, or the comparator recursively consumes the
+		// second draw slot while the resource is already changing state.
+		thread_local bool tl_insideSeamDraw = false;
 		// FG UI-input target treatment (config uiPassFgMode; see UiPassSeam.h).
-		std::atomic<FgMode> g_fgMode{ FgMode::kStraight };
-		// a_straightAlpha: draw the FG UI-input source (RT -> COPY_SOURCE
-		// hand-off) un-premultiplied; a_regionFirst: first draw of this End
+		std::atomic<FgMode> g_fgMode{ FgMode::kPremul };
+		// a_fgTarget identifies the RT -> COPY_SOURCE hand-off independently;
+		// a_straightAlpha selects its diagnostic byte convention.
+		// a_regionFirst: first draw of this End
 		// region — the compositor promotes its ring serial only then, so both
 		// targets of one frame sample the SAME overlay frame.
 		void RecordSeamDrawAtHandoff(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
-			bool a_straightAlpha, bool a_regionFirst);
+			bool a_fgTarget, bool a_straightAlpha, bool a_regionFirst);
 		ID3D12GraphicsCommandList* g_selfTestList = nullptr;  // non-null only during self-test
 		std::atomic<bool> g_selfTestOMSeen{ false };
 		std::atomic<bool> g_selfTestBarrierSeen{ false };
@@ -450,7 +456,7 @@ namespace OSFUI::UiPassSeam
 				tl_handoffDrawsLeft = 0;  // second hand-off would have appeared by now
 				tl_callsAfterFirstDraw = -1;
 			}
-			if (tl_handoffDrawsLeft > 0 && a_barriers) {
+			if (!tl_insideSeamDraw && tl_handoffDrawsLeft > 0 && a_barriers) {
 				for (UINT i = 0; i < a_numBarriers && tl_handoffDrawsLeft > 0; ++i) {
 					const auto& barrier = a_barriers[i];
 					if (barrier.Type != D3D12_RESOURCE_BARRIER_TYPE_TRANSITION || !barrier.Transition.pResource ||
@@ -481,8 +487,10 @@ namespace OSFUI::UiPassSeam
 					if (tl_callsAfterFirstDraw < 0) {
 						tl_callsAfterFirstDraw = 0;  // start the expiry clock at the first draw
 					}
+					tl_insideSeamDraw = true;
 					RecordSeamDrawAtHandoff(a_self, barrier.Transition.pResource,
-						fgTarget && fgMode == FgMode::kStraight, regionFirst);
+						fgTarget, fgTarget && fgMode == FgMode::kStraight, regionFirst);
+					tl_insideSeamDraw = false;
 				}
 			}
 
@@ -802,7 +810,7 @@ float4 main() : SV_Target { return float4(0.0, 0.35, 0.4, 0.5); }
 		// still in RENDER_TARGET state (the transition is forwarded after we
 		// return), and a_list is the recording list it was drawn on.
 		void RecordSeamDrawAtHandoff(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
-			const bool a_straightAlpha, const bool a_regionFirst)
+			const bool a_fgTarget, const bool a_straightAlpha, const bool a_regionFirst)
 		{
 			if (!g_drawEnabled.load(std::memory_order_relaxed) || !a_list || !a_buffer) {
 				return;
@@ -845,7 +853,7 @@ float4 main() : SV_Target { return float4(0.0, 0.35, 0.4, 0.5); }
 				const UINT engineHeapCount = tl_heapCount;
 				const bool heapKnown = engineHeapCount > 0 && tl_heapList == a_list;
 
-				if (!RecordSeamOverlayDraw(a_list, a_buffer, a_straightAlpha, a_regionFirst)) {
+				if (!RecordSeamOverlayDraw(a_list, a_buffer, a_fgTarget, a_straightAlpha, a_regionFirst)) {
 					return;  // hidden, no ready GPU frame, or non-GPU transport
 				}
 				if (heapKnown) {

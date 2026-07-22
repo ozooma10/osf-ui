@@ -49,10 +49,10 @@ namespace OSFUI::UiPassSeam
 	{
 		kOff,       // don't draw into the FG UI input (generated frames lose the overlay)
 		kPremul,    // premultiplied, same as the composite input
-		kStraight,  // un-premultiplied (FSR3 default UI composition semantics)
+		kStraight,  // diagnostic un-premultiplied bytes
 	};
 
 	// a_draw: additionally record the overlay into the engine's UI buffers at
 	// the ScaleformEnd seam (config `uiPassDraw`).
-	bool Install(bool a_draw = false, FgMode a_fgMode = FgMode::kStraight);
+	bool Install(bool a_draw = false, FgMode a_fgMode = FgMode::kPremul);
 }

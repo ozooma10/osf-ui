@@ -81,8 +81,8 @@ namespace OSFUI
 		// Generation like the game's own HUD.
 		bool        uiPassDraw{ false };
 		// Dev triage for the FG UI-input target's draw (the buffer FSR3
-		// composites onto GENERATED frames): "straight" (un-premultiplied,
-		// default), "premul", or "off" (skip that target entirely). Used to
+		// composites onto GENERATED frames): "premul" (default), "straight"
+		// (un-premultiplied), or "off" (skip that target entirely). Used to
 		// isolate the generated-frame alpha mismatch; irrelevant with FG off.
 		std::string uiPassFgMode{ "premul" };
 		// Dev diagnostic (default off): one-shot capture + CPU diff of the
