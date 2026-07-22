@@ -1,7 +1,7 @@
 /**
  * TypeScript definitions for the OSF UI native <-> web bridge.
  *
- * Bridge protocol version: 1.1 (STABLE — additive changes bump the minor;
+ * Bridge protocol version: 1.2 (STABLE — additive changes bump the minor;
  * breaking changes bump the major). Compatibility is advisory: declare the
  * OSF UI version you authored against as `targetVersion` (view manifest /
  * settings schema) and the Mods surface badges "needs update" when the
@@ -43,12 +43,18 @@ export type UiCommand =
   | { command: "close" }
   /** Open/close the calling surface. */
   | { command: "setVisible"; visible: boolean }
-  /** Open/close a registered surface by id; `view` omitted targets the calling view. */
+  /** Open a discovered surface by id (loading on demand), or close a loaded one;
+   * `view` omitted targets the calling view. Closing never loads a surface.
+   */
   | { command: "menu.open"; view?: string }
   | { command: "menu.close"; view?: string }
   /** Aliases of menu.open/menu.close — a surface's kind is fixed by its manifest. */
   | { command: "hud.show"; view?: string }
   | { command: "hud.hide"; view?: string }
+  /** (protocol 1.2) Declare that the calling page has meaningful content ready
+   * to paint. Used only when its manifest sets readySignal:true.
+   */
+  | { command: "view.ready" }
   /** Show/hide one loaded view, independent of the overlay toggle; `view` omitted = self. */
   | { command: "setViewHidden"; view?: string; hidden: boolean }
   | { command: "log"; text: string }
@@ -370,6 +376,16 @@ export interface DataPushPayload {
   values: string[]; // the current value, as a list of strings
 }
 
+/** Platform-private state for the always-warm first-load handoff surface. */
+export interface HandoffStatePayload {
+  target: string;
+  mod: string;
+  title: string;
+  accent: string;
+  phase: "linking" | "retrying" | "error";
+  retry: boolean;
+}
+
 export type NativeToWebMessage =
   | BridgeEnvelope<"runtime.ready", RuntimeReadyPayload>
   | BridgeEnvelope<"data.push", DataPushPayload>
@@ -378,6 +394,7 @@ export type NativeToWebMessage =
   | BridgeEnvelope<"views.data", ViewsDataPayload>
   | BridgeEnvelope<"i18n.data", I18nDataPayload>
   | BridgeEnvelope<"settings.data", SettingsDataPayload>
+  | BridgeEnvelope<"handoff.state", HandoffStatePayload>
   | BridgeEnvelope<"settings.ack", SettingsAckPayload>
   | BridgeEnvelope<"settings.changed", SettingsChangedPayload>
   | BridgeEnvelope<"settings.persisted", SettingsPersistedPayload>
@@ -569,7 +586,7 @@ export interface OSFUIBridge {
 
 /**
  * The surface added by the shipped helper, data/OSFUI/views/shared/osfui.js
- * (protocol 1.0) — load it before your own script:
+ * (protocol 1.2) — load it before your own script:
  *   <script src="../../shared/osfui.js"></script>
  * It decorates the same window.osfui object (creating a stub when no native
  * bridge is present, so these members exist even in a plain browser).
@@ -581,6 +598,8 @@ export interface OSFUIHelper {
   ready: Promise<RuntimeReadyPayload>;
   /** Fire-and-forget ui.command. Returns false when no bridge is present. */
   send(command: string, fields?: object): boolean;
+  /** Declare meaningful readiness for a manifest with readySignal:true. */
+  viewReady(): boolean;
   /**
    * ui.command with a generated requestId; resolves with the reply MESSAGE
    * ({ type, requestId, payload }). Rejects (Error with .code) on ui.error,

@@ -50,9 +50,12 @@ that with an OSF UI view takes three pieces.
 ### 1. The view folder
 
 Ship a view under your mod's namespace folder
-(see [authoring-views.md](authoring-views.md) for the full layout and how the
-view gets loaded — a `config.json` `views` entry, or a companion plugin's
-`RegisterView`):
+(see [authoring-views.md](authoring-views.md) for the full layout). OSF UI
+discovers this drop-in folder at boot and loads it on the first
+`menu.open`, Papyrus `OSFUI.OpenMenu`, or native `RequestMenu`; a Papyrus-only
+mod needs no `config.json` edit or companion plugin. `config.json` is for the
+user's boot-time composition, while native plugins may still use
+`RegisterView` to load a plugin-shipped folder explicitly:
 
 ```
 SFSE/Plugins/OSFUI/views/yourname.autosort/slots/

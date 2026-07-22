@@ -1,5 +1,7 @@
 #pragma once
 
+#include <unordered_set>
+
 #include "OSFUI_API.h"  // IOSFUIBridge, CommandFn, ReadyFn, version constants (sdk/, on the include path)
 
 #include "api/HotkeySubscriptions.h"
@@ -61,6 +63,13 @@ namespace OSFUI::API
 		// ApplyMenuPolicy) after PumpMainThread, which is what guarantees
 		// SendToWeb lands before RequestMenu.
 		std::vector<MenuRequest> TakeMenuRequests();
+
+		// Install the boot discovery catalog used by RequestMenu's synchronous
+		// existence check, and mirror surface load/unload transitions for close
+		// validation. Runtime owns the catalog; these copies are protected by the
+		// API mutex because RequestMenu is callable from any thread.
+		void SetViewCatalog(const std::vector<std::string>& a_viewIds);
+		void SetSurfaceLoaded(std::string_view a_viewId, bool a_loaded);
 
 		// A queued RegisterSettingsSchema (schema is an object) or
 		// UnregisterSettingsSchema (schema is null, modId set) — already
@@ -129,6 +138,8 @@ namespace OSFUI::API
 		std::vector<std::string>                      _pendingUnregister;  // to remove from a live bridge
 		std::vector<PendingSend>                       _pendingSends;
 		std::vector<MenuRequest>                      _pendingMenuReqs;    // RequestMenu ops, drained by Runtime
+		std::unordered_set<std::string>               _knownViews;         // boot-discovered manifest ids
+		std::unordered_set<std::string>               _loadedViews;        // currently registered renderer surfaces
 		std::vector<SchemaOp>                         _pendingSchemaOps;   // schema (un)registrations, drained by Runtime
 		std::vector<std::string>                      _pendingViewRegs;    // RegisterView ids, drained by Runtime
 		MessageBridge*                                _bridge{ nullptr };         // non-owning; set on main thread

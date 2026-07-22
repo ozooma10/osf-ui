@@ -1,4 +1,4 @@
-// osfui.js — OSF UI bridge helper (bridge protocol 1.0, api-freeze item 5).
+// osfui.js — OSF UI bridge helper (bridge protocol 1.2, api-freeze item 5).
 //
 // Load it like the shared stylesheet, BEFORE your view's own script:
 //   <script src="../../shared/osfui.js"></script>
@@ -18,6 +18,9 @@
 //                                   (default 10000 ms; 0 disables — e.g. a
 //                                   key capture that waits on the user), and
 //                                   immediately when no bridge is present.
+//   osfui.viewReady()            -> declare meaningful first-paint readiness
+//                                   for a manifest with readySignal:true;
+//                                   returns false when no bridge is present
 //   osfui.on(type, fn)           -> subscribe to a native->web message type;
 //                                   fn(payload, message); returns unsubscribe.
 //   osfui.applyAccent(el, hex)   -> apply a mod's `accent` hex to a subtree
@@ -86,6 +89,8 @@
     g.postMessage(JSON.stringify({ type: "ui.command", payload: Object.assign({ command }, fields || {}) }));
     return true;
   };
+
+  g.viewReady = () => g.send("view.ready");
 
   g.request = (command, fields, opts) => {
     if (!g.available()) {

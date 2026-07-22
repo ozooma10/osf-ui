@@ -45,12 +45,12 @@ namespace OSFUI
 		};
 		void EnqueueMenuRequest(MenuReq a_req);
 
-		// Open one registered surface by id on the next tick (any thread; same
+		// Open one discovered surface by id on the next tick (any thread; same
 		// policy path as the plugin API's RequestMenu). Used by internal native
 		// triggers — e.g. the injected PauseMenu "mod settings" entry.
 		void EnqueueOpenView(std::string a_viewId);
 
-		// Show/hide one loaded (config.views) declarative view by id, independent
+		// Show/hide one loaded declarative view by id, independent
 		// of the global overlay toggle. Returns false for an unknown/unloaded id.
 		// Drives the renderer's per-view hidden flag.
 		bool SetViewHidden(std::string_view a_id, bool a_hidden);
@@ -129,6 +129,11 @@ namespace OSFUI
 		void BuildModules();
 		void RegisterPlatformCommands(MessageBridge& a_bridge);
 
+		// Create and register one discovered surface with exactly the same
+		// renderer/console/bridge/load-state wiring at boot, RegisterView time,
+		// and first open. Idempotent for an already-live surface.
+		bool LoadSurface(const ViewManifest& a_manifest, std::string_view a_reason);
+
 		// Derive the desired UI state from the MenuController and apply it to the
 		// renderer/compositor/flags (hidden, order, active view, capture,
 		// visibility).
@@ -157,7 +162,19 @@ namespace OSFUI
 			std::vector<API::BridgeApi::MenuRequest> plugin;
 		};
 		[[nodiscard]] PendingMenuWork TakeMenuRequests();
+		void                          PrepareMenuRequests(const PendingMenuWork& a_work);
 		void                          ApplyMenuRequests(const PendingMenuWork& a_work);
+
+		// First-open handoff: keep a newly-created menu hidden until its page is
+		// usable. Fast loads open directly; slower loads temporarily show the
+		// always-warm osfui/handoff surface with the target menu's input/pause
+		// policy. Views may opt into an explicit `view.ready` milestone.
+		bool BeginSurfaceOpen(std::string_view a_id);
+		bool CancelPendingOpen();
+		void RetryPendingOpen();
+		void DrivePendingOpen();
+		void ShowHandoff(std::string_view a_phase, bool a_retry);
+		void FinishPendingOpen();
 
 		// Apply the native API's queued RegisterSettingsSchema /
 		// UnregisterSettingsSchema ops to the store (Source::kNative) on the main
@@ -279,6 +296,20 @@ namespace OSFUI
 		// Registered surfaces (menus/HUDs) + open state. Mutated only on the main
 		// thread (Tick / bridge handlers).
 		MenuController                _menus;
+		struct PendingSurfaceOpen
+		{
+			std::string target;
+			double      startedAt{ 0.0 };
+			double      loadedAt{ -1.0 };
+			std::string phase;
+			bool        handoffVisible{ false };
+			bool        error{ false };
+			bool        retryRequested{ false };
+		};
+		std::optional<PendingSurfaceOpen> _pendingSurfaceOpen;
+		// Explicit readiness is page-lifetime state. Cleared before every
+		// navigation and set only by that page's `view.ready` command.
+		std::unordered_set<std::string> _readyViews;
 
 		// Views holding the gamepad raw-passthrough grant (osfui.gamepadRaw).
 		// Sticky per view: survives overlay hide/show, cleared on page (re)load

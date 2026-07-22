@@ -35,6 +35,9 @@ namespace OSFUI
 		std::string           id;
 		std::string           title;
 		std::string           description;  // one-line blurb for catalogs (views.data / the Mods surface)
+		// Optional UI accent used by platform chrome such as the first-load
+		// handoff. Canonical #rrggbb; empty means the OSF UI default.
+		std::string           accent;
 		// Owning mod id = the mod folder name under views/. Matches the settings
 		// mod id (settings/<modId>.json / RegisterSettingsSchema) so the Mods
 		// surface groups a mod's terminals/HUDs onto its settings page.
@@ -73,6 +76,11 @@ namespace OSFUI
 		// false = hidden utility view; still loads and works, just unadvertised.
 		// Field name predates the Mods surface, kept for compat.
 		bool hub{ true };
+
+		// When true, a first on-demand open remains behind the handoff surface
+		// until the page sends the protocol-1.2 `view.ready` command. Requires
+		// nativeBridge; false falls back to successful main-frame load completion.
+		bool readySignal{ false };
 
 		// OSF UI version this view was authored against ("1.2.0"). Advisory only,
 		// never gates loading; when newer than the running OSF UI the Mods

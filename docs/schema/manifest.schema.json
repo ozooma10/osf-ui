@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/ozooma10/osf-ui/blob/main/docs/schema/manifest.schema.json",
   "title": "OSF UI View Manifest",
-  "description": "Schema for views/<modId>/<viewName>/manifest.json. Bridge protocol 1.0. Mirrors src/runtime/ViewManifest.cpp. Unknown keys are ALLOWED — the runtime parses leniently, and a manifest written for a newer OSF UI carrying extra fields is the normal compatible case (api-freeze-plan item 8).",
+  "description": "Schema for views/<modId>/<viewName>/manifest.json. Bridge protocol 1.2. Mirrors src/runtime/ViewManifest.cpp. Unknown keys are ALLOWED — the runtime parses leniently, and a manifest written for a newer OSF UI carrying extra fields is the normal compatible case (api-freeze-plan item 8).",
   "type": "object",
   "required": ["id"],
   "additionalProperties": true,
@@ -24,6 +24,11 @@
     "description": {
       "type": "string",
       "description": "One-line blurb shown in catalogs. Defaults to empty."
+    },
+    "accent": {
+      "type": "string",
+      "pattern": "^#[0-9a-fA-F]{6}$",
+      "description": "Optional accent used by platform chrome such as the first-load handoff."
     },
     "entry": {
       "type": "string",
@@ -81,6 +86,11 @@
       "description": "List this view in catalogs (views.data / the Mods surface). false = hidden utility view; it still loads and works, it just isn't advertised. (Field name predates the Mods surface.)"
     },
     "targetVersion": {
+    "readySignal": {
+      "type": "boolean",
+      "default": false,
+      "description": "When true, first open waits for osfui.viewReady() rather than main-frame load completion. Requires permissions.nativeBridge. A 15-second post-load timeout offers retry instead of trapping the player."
+    },
       "type": "string",
       "pattern": "^[0-9]+(\\.[0-9]+){0,2}$",
       "description": "The OSF UI version this view was authored against (e.g. \"1.1.0\")."

@@ -1,0 +1,21 @@
+{
+  "$schema": "./../../../../../docs/schema/manifest.schema.json",
+  "id": "handoff",
+  "title": "Local Interface Link",
+  "description": "Warm platform surface for first-load view handoffs",
+  "entry": "index.html",
+  "mod": "osfui",
+  "hub": false,
+  "width": 1600,
+  "height": 900,
+  "transparent": true,
+  "kind": "menu",
+  "capturesInput": true,
+  "pausesGame": true,
+  "openOnStart": false,
+  "permissions": {
+    "nativeBridge": true,
+    "filesystem": false,
+    "network": false
+  }
+}

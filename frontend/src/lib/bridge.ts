@@ -26,6 +26,8 @@ export interface Bridge {
   available(): boolean;
   /** Fire-and-forget. Returns false when no bridge is present. */
   send(command: string, fields?: Record<string, unknown>): boolean;
+  /** Declare meaningful readiness for a manifest with readySignal:true. */
+  viewReady(): boolean;
   /** Correlated request. Rejects with a {@link BridgeError}. */
   request<T extends NativeToWebMessage = NativeToWebMessage>(
     command: string,
@@ -64,6 +66,8 @@ export const windowBridge: Bridge = {
   available: () => !!window.osfui?.available?.(),
 
   send: (command, fields) => window.osfui?.send?.(command, fields) ?? false,
+
+  viewReady: () => window.osfui?.viewReady?.() ?? false,
 
   request: <T extends NativeToWebMessage = NativeToWebMessage>(
     command: string,
@@ -115,6 +119,7 @@ export const windowBridge: Bridge = {
 export const nullBridge: Bridge = {
   available: () => false,
   send: () => false,
+  viewReady: () => false,
   request: () => Promise.reject(noBridgeError()),
   on: () => () => {},
   ready: () => new Promise(() => {}),

@@ -209,11 +209,17 @@ namespace OSFUI::API
 		virtual void SetReadyCallback(ReadyFn a_callback, void* a_user) = 0;
 
 		// --- menu control. Thread-safe; applied on the next main tick. ---
-		// Open or close a registered SURFACE (menu/HUD view) by its qualified
-		// "<modId>/<viewName>" id; the request is marshaled onto the main
-		// thread and run through the normal menu policy. Lets a sibling plugin
-		// surface its own view (e.g. an in-game item that opens the scene
-		// browser). No-op if the id is not a registered surface.
+		// Open or close a SURFACE (menu/HUD view) by its qualified
+		// "<modId>/<viewName>" id. An open of a valid folder discovered under
+		// views/<modId>/<viewName>/ loads and registers it on demand; the request
+		// is then run through the normal menu policy on the next main tick. This
+		// lets a sibling plugin surface a drop-in view without RegisterView or a
+		// config.json edit.
+		//
+		// Returns true when an open target exists (loaded or discovered) and the
+		// request was queued; false synchronously when no such view was discovered.
+		// Closing returns true only for a loaded surface and never loads one.
+		// True does not promise that page navigation/rendering will succeed.
 		virtual bool RequestMenu(const char* a_viewId, bool a_open) = 0;
 
 		// ===== settings consumption (MINOR 1.2 block, mcm-design.md §8.2) =====

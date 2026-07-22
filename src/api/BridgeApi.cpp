@@ -158,12 +158,34 @@ namespace OSFUI::API
 		if (!a_viewId || !a_viewId[0]) {
 			return false;
 		}
-		// Queued like a send; Runtime drains it on the main tick through the normal
-		// menu policy. An open requested before any bridge is live waits until a
-		// surface can be shown.
+		const std::string id(a_viewId);
 		std::lock_guard lock(_mutex);
-		_pendingMenuReqs.push_back({ std::string(a_viewId), a_open });
+		// Truthful queue-time contract: opens accept anything discovered at boot
+		// (Runtime will load it on demand); closes accept only a live surface and
+		// never cause an unloaded view to be created.
+		if (a_open ? !_knownViews.contains(id) : !_loadedViews.contains(id)) {
+			return false;
+		}
+		_pendingMenuReqs.push_back({ id, a_open });
 		return true;
+	}
+
+	void BridgeApi::SetViewCatalog(const std::vector<std::string>& a_viewIds)
+	{
+		std::lock_guard lock(_mutex);
+		_knownViews.clear();
+		_knownViews.insert(a_viewIds.begin(), a_viewIds.end());
+		_loadedViews.clear();
+	}
+
+	void BridgeApi::SetSurfaceLoaded(std::string_view a_viewId, bool a_loaded)
+	{
+		std::lock_guard lock(_mutex);
+		if (a_loaded) {
+			_loadedViews.emplace(a_viewId);
+		} else {
+			_loadedViews.erase(std::string(a_viewId));
+		}
 	}
 
 	std::uint32_t BridgeApi::SubscribeSettings(const char* a_modId, SettingChangedFn a_fn, void* a_user)

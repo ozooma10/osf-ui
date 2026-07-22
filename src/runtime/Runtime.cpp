@@ -30,6 +30,13 @@
 
 namespace OSFUI
 {
+	namespace
+	{
+		constexpr std::string_view kHandoffViewId{ "osfui/handoff" };
+		constexpr double           kHandoffDelaySeconds{ 0.15 };
+		constexpr double           kReadySignalTimeoutSeconds{ 15.0 };
+	}
+
 	Runtime& Runtime::Get()
 	{
 		static Runtime instance;
@@ -66,6 +73,12 @@ namespace OSFUI
 			_config.pauseMenuEntryView);
 
 		_views.LoadAll(Paths::ViewsDir());
+		std::vector<std::string> discoveredViewIds;
+		discoveredViewIds.reserve(_views.All().size());
+		for (const auto& manifest : _views.All()) {
+			discoveredViewIds.push_back(manifest.id);
+		}
+		API::BridgeApi::Get().SetViewCatalog(discoveredViewIds);
 
 		_renderer = CreateRenderer();
 		const auto* view = _views.Find(_config.view);
@@ -147,6 +160,35 @@ namespace OSFUI
 			module->OnStart();
 		}
 
+		// One bridge serves every bridge-enabled view. Build it before any view is
+		// loaded so a first-open lazy surface gets exactly the same handler wiring
+		// as a boot surface. BridgeApi is told it is ready only when LoadSurface
+		// actually creates a nativeBridge surface, preserving its readiness contract
+		// and pre-ready SendToWeb queue.
+		_bridge = std::make_unique<MessageBridge>([this](std::string_view a_viewId, std::string_view a_json) {
+			if (_renderer) {
+				_renderer->SendMessageToWeb(a_viewId, a_json);
+			}
+		});
+		RegisterPlatformCommands(*_bridge);
+		for (const auto& module : _modules) {
+			module->RegisterCommands(*_bridge);
+		}
+		_renderer->SetWebMessageHandler([this](std::string_view a_viewId, std::string_view a_json) {
+			if (_bridge) {
+				_bridge->HandleWebMessage(a_viewId, a_json);
+			}
+		});
+
+		// The first-load handoff is useful only on a renderer that can keep it
+		// warm beside a target view. It is a hidden platform surface, loaded
+		// independently of config.views so drop-in menus inherit the behavior.
+		if (_renderer->SupportsMultipleViews()) {
+			if (const auto* handoff = _views.Find(kHandoffViewId)) {
+				LoadSurface(*handoff, "as the warm first-load handoff");
+			}
+		}
+
 		// The bridge and web->native handler must be wired before LoadView so no
 		// early page message races past them; the renderer queues native->web
 		// messages per view until each page is ready.
@@ -160,70 +202,21 @@ namespace OSFUI
 					_renderer->Name(), _config.view);
 				toLoad.assign(1, _config.view);
 			}
-			std::vector<std::string> bridgeViews;
-			for (const auto& id : toLoad) {
-				if (const auto* m = _views.Find(id); m && m->permissions.nativeBridge) {
-					bridgeViews.push_back(id);
-				}
-			}
-
-			// One bridge serves every bridge-enabled view: the renderer tags each
-			// inbound message with its source view, and replies route back to that
-			// view (MessageBridge tracks the current source).
-			if (!bridgeViews.empty()) {
-				_bridge = std::make_unique<MessageBridge>([this](std::string_view a_viewId, std::string_view a_json) {
-					if (_renderer) {
-						_renderer->SendMessageToWeb(a_viewId, a_json);
-					}
-				});
-				// Core owns only platform commands; the rest are the modules'.
-				RegisterPlatformCommands(*_bridge);
-				for (const auto& module : _modules) {
-					module->RegisterCommands(*_bridge);
-				}
-				_renderer->SetWebMessageHandler([this](std::string_view a_viewId, std::string_view a_json) {
-					if (_bridge) {
-						_bridge->HandleWebMessage(a_viewId, a_json);
-					}
-				});
-			} else {
-				REX::INFO("Runtime: no loaded view requests nativeBridge; bridge disabled");
-			}
 
 			// Ordering, focus and visibility are owned by MenuController +
 			// ApplyMenuPolicy, not by manifest order or a single active view.
 			std::size_t loaded = 0;
 			for (const auto& id : toLoad) {
+				if (id == kHandoffViewId) {
+					continue;  // platform-owned and already loaded above
+				}
 				if (const auto* m = _views.Find(id)) {
-					_renderer->LoadView(*m);
-					// devMode: mirror the page's console into this log so a broken
-					// view is diagnosable in-game, not just in the browser harness
-					// (the host forwards console events either way; without a
-					// handler the renderer drops them). Off in release — a chatty
-					// view would spam every user's log. Survives crash-recovery
-					// reloads: the handler map is per view id and only DestroyView
-					// erases it.
-					if (_config.devMode) {
-						_renderer->SetConsoleHandler(id, [id](int a_level, std::string a_message) {
-							if (a_level == 2) {
-								REX::ERROR("Runtime: view '{}' console: {}", id, a_message);
-							} else if (a_level == 1) {
-								REX::WARN("Runtime: view '{}' console: {}", id, a_message);
-							} else {
-								REX::INFO("Runtime: view '{}' console: {}", id, a_message);
-							}
-						});
+					if (LoadSurface(*m, "config")) {
+						++loaded;
 					}
-					_menus.Register({ id, m->kind, m->capturesInput, m->pausesGame, m->order });
-					// An explicit manifest value silently overrides the capture /
-					// pause defaults — log them so "why doesn't it pause" is a
-					// log-read away.
-					REX::INFO("Runtime: surface '{}' registered ({}, capturesInput={}, pausesGame={})",
-						id, m->kind == SurfaceKind::Hud ? "hud" : "menu", m->capturesInput, m->pausesGame);
-					if (m->openOnStart) {
+					if (m->openOnStart && _menus.IsRegistered(id)) {
 						_menus.Open(id);
 					}
-					++loaded;
 				} else {
 					REX::WARN("Runtime: configured view '{}' not found; skipping", id);
 				}
@@ -232,22 +225,9 @@ namespace OSFUI
 			if (!_menus.IsRegistered(_config.view)) {
 				REX::WARN("Runtime: default view '{}' is not among the loaded surfaces; the toggle key will have nothing to open (check config.view is listed in config.views)", _config.view);
 			}
-
-			// Queued per view until that view's DOM is ready, so order is free.
-			if (_bridge) {
-				for (const auto& id : bridgeViews) {
-					_bridge->SendRuntimeReady(id);
-				}
-			}
 		} else {
 			REX::WARN("Runtime: configured view '{}' was not found; overlay has no content", _config.view);
 		}
-
-		// Hand the (possibly null) bridge to the native plugin API so a sibling
-		// SFSE plugin's registered commands + queued sends apply on the next tick.
-		// Null when no nativeBridge view loaded — the API then stays not-ready.
-		// See docs/native-plugin-api.md.
-		API::BridgeApi::Get().OnBridgeReady(_bridge.get());
 
 		// Key events reach the router from the WndProc subclass (OverlayInputHook
 		// → OnHostKey), installed when config inputSource="ui" (core/Plugin.cpp,
@@ -316,6 +296,7 @@ namespace OSFUI
 		// Detach the native plugin API before destroying the bridge, so its
 		// non-owning pointer never dangles and it reports not-ready.
 		API::BridgeApi::Get().OnBridgeReady(nullptr);
+		API::BridgeApi::Get().SetViewCatalog({});
 		// Same for modules that retain the bridge for unsolicited pushes.
 		for (const auto& module : _modules) {
 			module->OnBridgeDown();
@@ -355,6 +336,9 @@ namespace OSFUI
 		// entered this snapshot, so the pump flushes the message into v's queue
 		// before the open unhides v (message before first visible paint).
 		const auto menuWork = TakeMenuRequests();
+		// Load discovered targets while they are still hidden, before queued sends
+		// are pumped. ApplyMenuRequests performs only the visibility transition.
+		PrepareMenuRequests(menuWork);
 		// Deliver a captured rebind key back to the settings view (main thread).
 		DrainKeyCapture();
 		// Deliver queued hotkey fires (window thread -> main, mcm-design.md §9)
@@ -473,6 +457,7 @@ namespace OSFUI
 			_renderer->SetAcceleratorKeys(_toggleKey, _devReloadKey,
 				IsInputCaptured(), _captureArmed.load(), _captureUpVk.load());
 			_renderer->Update(a_deltaSeconds);
+			DrivePendingOpen();
 			SubmitFrameIfVisible();
 		}
 	}
@@ -493,6 +478,63 @@ namespace OSFUI
 		_openViewReqs.push_back(std::move(a_viewId));
 	}
 
+	bool Runtime::LoadSurface(const ViewManifest& a_manifest, std::string_view a_reason)
+	{
+		const auto& id = a_manifest.id;
+		if (_menus.IsRegistered(id)) {
+			return true;
+		}
+		if (!_renderer) {
+			return false;
+		}
+		if (!_renderer->SupportsMultipleViews() && !_menus.DesiredLayers().empty()) {
+			REX::WARN("Runtime: cannot load surface '{}' on demand — renderer '{}' is single-view",
+				id, _renderer->Name());
+			return false;
+		}
+
+		// Install diagnostics before navigation so even the earliest page console
+		// output is captured. The handler survives recovery reloads until the view
+		// is explicitly destroyed.
+		if (_config.devMode) {
+			_renderer->SetConsoleHandler(id, [id](int a_level, std::string a_message) {
+				if (a_level == 2) {
+					REX::ERROR("Runtime: view '{}' console: {}", id, a_message);
+				} else if (a_level == 1) {
+					REX::WARN("Runtime: view '{}' console: {}", id, a_message);
+				} else {
+					REX::INFO("Runtime: view '{}' console: {}", id, a_message);
+				}
+			});
+		}
+
+		_recovery.erase(id);
+		_viewLoadState[id] = ViewLoadState::Loading;
+		_readyViews.erase(id);
+		_renderer->LoadView(a_manifest);
+		// A fresh view starts at manifest dimensions; restore the current
+		// output-matched size. Before first present these are the initialized
+		// logical dimensions and the normal output-resize path supersedes them.
+		if (const auto w = _viewWidth.load(), h = _viewHeight.load(); w && h) {
+			_renderer->Resize(w, h);
+		}
+		_menus.Register({ id, a_manifest.kind, a_manifest.capturesInput,
+			a_manifest.pausesGame, a_manifest.order });
+		API::BridgeApi::Get().SetSurfaceLoaded(id, true);
+
+		REX::INFO("Runtime: surface '{}' loaded {} ({}, capturesInput={}, pausesGame={})",
+			id, a_reason, a_manifest.kind == SurfaceKind::Hud ? "hud" : "menu",
+			a_manifest.capturesInput, a_manifest.pausesGame);
+		if (a_manifest.permissions.nativeBridge && _bridge) {
+			// This may be the first bridge-enabled surface. Publish the bridge before
+			// this tick's PumpMainThread so queued SendToWeb work reaches the newly
+			// created renderer view.
+			API::BridgeApi::Get().OnBridgeReady(_bridge.get());
+			_bridge->SendRuntimeReady(id);
+		}
+		return true;
+	}
+
 	Runtime::PendingMenuWork Runtime::TakeMenuRequests()
 	{
 		// Snapshot under the lock, then act unlocked (in ApplyMenuRequests): the
@@ -509,6 +551,27 @@ namespace OSFUI
 		return work;
 	}
 
+	void Runtime::PrepareMenuRequests(const PendingMenuWork& a_work)
+	{
+		const auto prepare = [this](std::string_view a_id, std::string_view a_reason) {
+			if (_menus.IsRegistered(a_id)) {
+				return;
+			}
+			if (const auto* manifest = _views.Find(a_id)) {
+				LoadSurface(*manifest, a_reason);
+			}
+		};
+
+		for (const auto& id : a_work.openViews) {
+			prepare(id, "on demand");
+		}
+		for (const auto& request : a_work.plugin) {
+			if (request.open) {
+				prepare(request.view, "on demand");
+			}
+		}
+	}
+
 	void Runtime::ApplyMenuRequests(const PendingMenuWork& a_work)
 	{
 		const auto& reqs = a_work.local;
@@ -519,7 +582,13 @@ namespace OSFUI
 		for (const auto req : reqs) {
 			switch (req) {
 			case MenuReq::ToggleDefault:
-				_menus.ToggleDefault(_config.view);
+				if (_pendingSurfaceOpen) {
+					CancelPendingOpen();
+				} else if (_menus.ActiveMenu()) {
+					_menus.CloseTop();
+				} else {
+					BeginSurfaceOpen(_config.view);
+				}
 				break;
 			case MenuReq::Back: {
 				// Esc / pad-B. A back-owning active view (osfui.handleBack) gets
@@ -529,7 +598,9 @@ namespace OSFUI
 				// that hides the overlay). The toggle key never delegates, so a
 				// broken page cannot strand the user.
 				const auto active = _menus.ActiveMenu();
-				if (active && _backOwnerViews.contains(*active) && _renderer) {
+				if (_pendingSurfaceOpen && (!active || *active == kHandoffViewId)) {
+					CancelPendingOpen();
+				} else if (active && _backOwnerViews.contains(*active) && _renderer) {
 					constexpr std::uint32_t kVkEscape = 0x1B;
 					_renderer->InjectKeyEvent(kVkEscape, true);
 					_renderer->InjectKeyEvent(kVkEscape, false);
@@ -539,28 +610,210 @@ namespace OSFUI
 				break;
 			}
 			case MenuReq::CloseTop:
-				_menus.CloseTop();
+				if (_pendingSurfaceOpen) {
+					CancelPendingOpen();
+				} else {
+					_menus.CloseTop();
+				}
 				break;
 			case MenuReq::CloseAll:
+				CancelPendingOpen();
 				_menus.CloseAll();
 				break;
 			}
 		}
 		for (const auto& id : a_work.openViews) {
-			if (!_menus.Open(id)) {
-				REX::WARN("Runtime: EnqueueOpenView('{}') ignored — not a registered surface (or already open)", id);
+			if (!_menus.IsRegistered(id)) {
+				REX::WARN("Runtime: EnqueueOpenView('{}') ignored — no discovered surface could be loaded", id);
+			} else {
+				BeginSurfaceOpen(id);
 			}
 		}
 		for (const auto& r : pluginReqs) {
 			if (r.open) {
-				if (!_menus.Open(r.view)) {
-					REX::WARN("Runtime: plugin RequestMenu('{}', open) ignored — not a registered surface (or already open)", r.view);
+				if (!_menus.IsRegistered(r.view)) {
+					REX::WARN("Runtime: plugin RequestMenu('{}', open) could not load the discovered surface", r.view);
+				} else {
+					BeginSurfaceOpen(r.view);
 				}
 			} else {
+				if (_pendingSurfaceOpen &&
+					(_pendingSurfaceOpen->target == r.view || r.view == kHandoffViewId)) {
+					CancelPendingOpen();
+				}
 				_menus.Close(r.view);
 			}
 		}
 		ApplyMenuPolicy();
+	}
+
+	bool Runtime::BeginSurfaceOpen(std::string_view a_id)
+	{
+		if (!_menus.IsRegistered(a_id)) {
+			return false;
+		}
+		const auto* manifest = _views.Find(a_id);
+		if (!manifest || manifest->kind == SurfaceKind::Hud ||
+			a_id == kHandoffViewId || !_menus.IsRegistered(kHandoffViewId)) {
+			CancelPendingOpen();
+			return _menus.Open(a_id);
+		}
+
+		const auto loadState = GetViewLoadState(a_id);
+		const bool ready = manifest->readySignal ?
+			_readyViews.contains(std::string(a_id)) :
+			loadState == ViewLoadState::Finished;
+		if (ready) {
+			CancelPendingOpen();
+			return _menus.Open(a_id);
+		}
+		if (_pendingSurfaceOpen && _pendingSurfaceOpen->target == a_id) {
+			return false;
+		}
+
+		CancelPendingOpen();
+		PendingSurfaceOpen pending;
+		pending.target = std::string(a_id);
+		pending.startedAt = _uptime;
+		if (loadState == ViewLoadState::Finished) {
+			pending.loadedAt = _uptime;
+		}
+		_pendingSurfaceOpen = std::move(pending);
+		REX::INFO("Runtime: holding first open of '{}' until the view is ready", a_id);
+		return true;
+	}
+
+	bool Runtime::CancelPendingOpen()
+	{
+		if (!_pendingSurfaceOpen) {
+			return false;
+		}
+		const auto target = _pendingSurfaceOpen->target;
+		const bool changed = _menus.Close(kHandoffViewId);
+		_pendingSurfaceOpen.reset();
+		REX::INFO("Runtime: cancelled pending open of '{}'", target);
+		return changed;
+	}
+
+	void Runtime::ShowHandoff(std::string_view a_phase, bool a_retry)
+	{
+		if (!_pendingSurfaceOpen || !_bridge) {
+			return;
+		}
+		auto& pending = *_pendingSurfaceOpen;
+		const auto* target = _views.Find(pending.target);
+		if (!target || !_menus.IsRegistered(kHandoffViewId)) {
+			return;
+		}
+		const bool stateChanged = !pending.handoffVisible || pending.phase != a_phase ||
+			pending.error != a_retry;
+		if (!stateChanged) {
+			return;
+		}
+
+		// The warm surface borrows the target menu's policy, so loading feels
+		// like entering that same terminal instead of opening global UI chrome.
+		_menus.Register({ std::string(kHandoffViewId), SurfaceKind::Menu,
+			target->capturesInput, target->pausesGame, target->order });
+		const auto slash = target->id.find('/');
+		const auto viewName = slash == std::string::npos ? target->id : target->id.substr(slash + 1);
+		const auto title = _localization.Resolve(target->mod,
+			"views." + viewName + ".title", target->title);
+		_bridge->SendToWeb(kHandoffViewId, "handoff.state", nlohmann::json{
+			{ "target", target->id },
+			{ "mod", target->mod },
+			{ "title", title },
+			{ "accent", target->accent },
+			{ "phase", a_phase },
+			{ "retry", a_retry },
+		});
+		_menus.Open(kHandoffViewId);
+		pending.handoffVisible = true;
+		pending.phase = std::string(a_phase);
+		pending.error = a_retry;
+		ApplyMenuPolicy();
+	}
+
+	void Runtime::FinishPendingOpen()
+	{
+		if (!_pendingSurfaceOpen) {
+			return;
+		}
+		const auto target = _pendingSurfaceOpen->target;
+		_menus.Close(kHandoffViewId);
+		_menus.Open(target);
+		_pendingSurfaceOpen.reset();
+		REX::INFO("Runtime: first-load handoff completed for '{}'", target);
+		ApplyMenuPolicy();
+	}
+
+	void Runtime::DrivePendingOpen()
+	{
+		if (!_pendingSurfaceOpen) {
+			return;
+		}
+		auto& pending = *_pendingSurfaceOpen;
+		const auto* manifest = _views.Find(pending.target);
+		if (!manifest || !_menus.IsRegistered(pending.target)) {
+			ShowHandoff("error", true);
+			return;
+		}
+		if (pending.retryRequested) {
+			pending.retryRequested = false;
+			if (!_renderer) {
+				return;
+			}
+			if (!_menus.IsRegistered(pending.target)) {
+				if (!LoadSurface(*manifest, "for first-load handoff retry")) {
+					ShowHandoff("error", true);
+					return;
+				}
+			} else {
+				_recovery.erase(pending.target);
+				_viewLoadState[pending.target] = ViewLoadState::Loading;
+				_readyViews.erase(pending.target);
+				_renderer->LoadView(*manifest);
+				_renderer->Resize(_viewWidth.load(), _viewHeight.load());
+				if (manifest->permissions.nativeBridge && _bridge) {
+					_bridge->SendRuntimeReady(pending.target);
+				}
+			}
+			pending.startedAt = _uptime;
+			pending.loadedAt = -1.0;
+			pending.phase.clear();
+			pending.error = false;
+			ShowHandoff("linking", false);
+			BroadcastViewsData();
+			return;
+		}
+
+		const auto state = GetViewLoadState(pending.target);
+		if (state == ViewLoadState::Finished && pending.loadedAt < 0.0) {
+			pending.loadedAt = _uptime;
+		}
+		const bool ready = manifest->readySignal ?
+			_readyViews.contains(pending.target) :
+			state == ViewLoadState::Finished;
+		if (ready) {
+			FinishPendingOpen();
+			return;
+		}
+		if (manifest->readySignal && pending.loadedAt >= 0.0 &&
+			_uptime - pending.loadedAt >= kReadySignalTimeoutSeconds) {
+			ShowHandoff("error", true);
+			return;
+		}
+		if (_uptime - pending.startedAt < kHandoffDelaySeconds) {
+			return;
+		}
+		ShowHandoff(state == ViewLoadState::Failed ? "retrying" : "linking", false);
+	}
+
+	void Runtime::RetryPendingOpen()
+	{
+		if (_pendingSurfaceOpen && _pendingSurfaceOpen->error) {
+			_pendingSurfaceOpen->retryRequested = true;
+		}
 	}
 
 	void Runtime::DrainSchemaOps()
@@ -618,27 +871,8 @@ namespace OSFUI
 				REX::WARN("Runtime: plugin RegisterView('{}') ignored — no views/{}/manifest.json was discovered at boot (ids are qualified '<author>.<modname>/<view>'; is the view folder installed?)", id, id);
 				continue;
 			}
-			// The bridge + web-message handler are wired at Initialize only and
-			// can't be brought up mid-session. Every shipped built-in view is
-			// bridge-enabled, so this only fires on a hand-stripped config.
-			if (m->permissions.nativeBridge && !_bridge) {
-				REX::WARN("Runtime: plugin RegisterView('{}') refused — the view requests nativeBridge but no bridge-enabled view loaded at boot", id);
+			if (!LoadSurface(*m, "via plugin RegisterView")) {
 				continue;
-			}
-			_recovery.erase(id);  // explicit re-registration = fresh crash-recovery budget
-			_viewLoadState[id] = ViewLoadState::Loading;
-			_renderer->LoadView(*m);
-			// A fresh view starts at manifest dimensions; restore the
-			// output-matched size so it composites 1:1. Before the first present
-			// the size is unknown — the normal output-resize path covers it.
-			if (const auto w = _viewWidth.load(), h = _viewHeight.load(); w && h) {
-				_renderer->Resize(w, h);
-			}
-			_menus.Register({ id, m->kind, m->capturesInput, m->pausesGame, m->order });
-			REX::INFO("Runtime: surface '{}' registered via plugin RegisterView ({}, capturesInput={}, pausesGame={})",
-				id, m->kind == SurfaceKind::Hud ? "hud" : "menu", m->capturesInput, m->pausesGame);
-			if (_bridge && m->permissions.nativeBridge) {
-				_bridge->SendRuntimeReady(id);
 			}
 			if (m->openOnStart) {
 				_menus.Open(id);
@@ -847,6 +1081,17 @@ namespace OSFUI
 			if (_menus.Unregister(id)) {
 				ApplyMenuPolicy();  // it was open: release capture/visibility now
 			}
+			API::BridgeApi::Get().SetSurfaceLoaded(id, false);
+			bool bridgeSurfaceRemains = false;
+			for (const auto& manifest : _views.All()) {
+				if (manifest.permissions.nativeBridge && _menus.IsRegistered(manifest.id)) {
+					bridgeSurfaceRemains = true;
+					break;
+				}
+			}
+			if (!bridgeSurfaceRemains) {
+				API::BridgeApi::Get().OnBridgeReady(nullptr);
+			}
 			_viewsSubscribers.erase(id);  // a destroyed view can't receive pushes
 			_i18nSubscribers.erase(id);
 			_gamepadRawViews.erase(id);   // its sticky gamepad grant dies with it
@@ -882,6 +1127,8 @@ namespace OSFUI
 			}
 			++rec.attempts;
 			REX::INFO("Runtime: crash-recovery reloading view '{}' (attempt {})", id, rec.attempts);
+			_viewLoadState[id] = ViewLoadState::Loading;
+			_readyViews.erase(id);
 			_renderer->LoadView(*manifest);
 			// A recreated view starts at manifest dimensions; restore the
 			// output-matched size so it composites 1:1 again.
@@ -909,6 +1156,7 @@ namespace OSFUI
 		// Same pair as crash-recovery: fresh URL load, then restore the
 		// output-matched size so it composites 1:1 again.
 		_viewLoadState[*active] = ViewLoadState::Loading;
+		_readyViews.erase(*active);
 		BroadcastViewsData();
 		_renderer->LoadView(*manifest);
 		_renderer->Resize(_viewWidth.load(), _viewHeight.load());
@@ -920,7 +1168,7 @@ namespace OSFUI
 		const auto     active = _menus.ActiveMenu();
 		for (const auto& m : _views.All()) {
 			// Discovered-but-not-loaded manifests and views torn down by
-			// crash-recovery aren't registered: menu.open on them would fail.
+			// crash-recovery stay out of this catalog but can open on demand.
 			if (!_menus.IsRegistered(m.id)) {
 				continue;
 			}
@@ -1479,6 +1727,10 @@ namespace OSFUI
 		// The platform owns only window/diagnostic commands. Features register
 		// their own; there is no generic "call native" escape hatch.
 		a_bridge.RegisterCommand("close", [this](const nlohmann::json&, MessageBridge& a_b) {
+			if (a_b.CurrentSource() == kHandoffViewId && CancelPendingOpen()) {
+				ApplyMenuPolicy();
+				return;
+			}
 			// Dismiss the calling surface. Closing the last open menu empties the
 			// stack, so the overlay hides; a coexisting live HUD stays up.
 			if (_menus.Close(a_b.CurrentSource())) {
@@ -1500,20 +1752,28 @@ namespace OSFUI
 			if (id.empty()) {
 				id = std::string(a_b.CurrentSource());
 			}
-			if (_menus.Open(id)) {
-				ApplyMenuPolicy();
-			} else if (!_menus.IsRegistered(id)) {
-				REX::WARN("Runtime: menu.open/hud.show ignored — '{}' is not a registered surface", id);
-				a_b.SendResult(false, "unknown-view", "not a registered surface");
+			if (!_views.Find(id)) {
+				REX::WARN("Runtime: menu.open/hud.show refused — '{}' was not discovered", id);
+				a_b.SendResult(false, "unknown-view", "view was not discovered");
+				return;
 			}
-			// Already open = desired state reached: the auto ui.result acks it.
+			// Use the same snapshot/load/pump/open path as native RequestMenu so a
+			// discovered surface is created while hidden on the next tick.
+			EnqueueOpenView(std::move(id));
 		};
 		const auto surfaceClose = [this](const nlohmann::json& a_p, MessageBridge& a_b) {
 			std::string id = Json::GetString(a_p, "view", "");
 			if (id.empty()) {
 				id = std::string(a_b.CurrentSource());
 			}
+			bool cancelled = false;
+			if (_pendingSurfaceOpen &&
+				(_pendingSurfaceOpen->target == id || id == kHandoffViewId)) {
+				cancelled = CancelPendingOpen();
+			}
 			if (_menus.Close(id)) {
+				ApplyMenuPolicy();
+			} else if (cancelled) {
 				ApplyMenuPolicy();
 			} else if (!_menus.IsRegistered(id)) {
 				a_b.SendResult(false, "unknown-view", "not a registered surface");
@@ -1524,6 +1784,23 @@ namespace OSFUI
 		a_bridge.RegisterCommand("menu.close", surfaceClose);
 		a_bridge.RegisterCommand("hud.show", surfaceOpen);
 		a_bridge.RegisterCommand("hud.hide", surfaceClose);
+		a_bridge.RegisterCommand("view.ready", [this](const nlohmann::json&, MessageBridge& a_b) {
+			const std::string source(a_b.CurrentSource());
+			const auto* manifest = _views.Find(source);
+			if (!manifest || !manifest->permissions.nativeBridge) {
+				a_b.SendResult(false, "forbidden", "view.ready requires nativeBridge");
+				return;
+			}
+			_readyViews.insert(source);
+			REX::DEBUG("Runtime: view '{}' declared meaningful readiness", source);
+		});
+		a_bridge.RegisterCommand("osfui.handoffRetry", [this](const nlohmann::json&, MessageBridge& a_b) {
+			if (a_b.CurrentSource() != kHandoffViewId) {
+				a_b.SendResult(false, "forbidden", "platform handoff command");
+				return;
+			}
+			RetryPendingOpen();
+		});
 		a_bridge.RegisterCommand("setViewHidden", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
 			// Show/hide one loaded view by id, independent of the overlay toggle.
 			// Omitting "view" targets the calling view (self-hide).

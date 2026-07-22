@@ -4,12 +4,18 @@
 
 ### Fixed
 
+- Drop-in views can now be opened without editing the user's `config.json` or shipping a companion SFSE plugin: `menu.open`, Papyrus `OSFUI.OpenMenu`, and the native `RequestMenu` API load a discovered `views/<modId>/<viewName>/` folder on first use. Missing ids are rejected synchronously, so Papyrus and native callers can reliably fall back instead of receiving success for an open that the runtime later ignored; Papyrus view ids are also matched correctly when `BSFixedString` interning changes their letter casing.
 - Fixed a crash when toggling Frame Generation (or changing display settings with FG enabled), reported on AMD FSR3 frame generation. The overlay kept a reference to every swapchain it had drawn on, so when the game tore its swapchain down and built a new one on the same window, the old one couldn't actually die — and the game's frame-interpolation swapchain creation crashes when that happens. The overlay now borrows the swapchain only for the duration of each present and holds no lasting reference, so recreation proceeds exactly as if the overlay weren't there. (The same mechanism most likely contributed to the earlier DLSS Frame Generation recreation crash that 1.2.0 partially mitigated.)
 - The game's built-in FSR3 frame generation is now detected the same way NVIDIA DLSS frame generation already was, and while Frame Generation is active the overlay suspends drawing on **all** swapchains — not just the FG-paced one. Local reproduction showed that with FG on, the game presents through two swapchains and a single overlay draw into the *other* one also crashes the game (that draw is what set off the earlier `sl.dlss_g` crashes during swapchain recreation). If the overlay is invisible, disable Frame Generation in Starfield's display settings — the log says exactly this when it happens. Proper frame-gen compatibility remains on the roadmap.
 
 ### Other changes
 
+- First-time menu opens now stay in-world while their WebView starts: quick loads appear directly, while slower ones use an always-warm local-link panel carrying the destination's title, accent, and input/pause behavior. Broken or never-ready views offer retry/cancel instead of exposing a blank input-capturing screen; subsequent opens remain immediate.
 - New dev config knob `uiPassProbe` (default off, no effect in normal play): hooks the engine's own Scaleform render passes in log-only mode and writes a characterization of the drawing seam to `OSF UI.log`. This is groundwork for rendering views *underneath* the game's native menus and HUD (and correctly inside Frame Generation's UI handling) instead of always on top of everything.
+
+### For view authors
+
+- Bridge protocol 1.2 adds optional manifest `accent` and `readySignal` fields plus `osfui.viewReady()`: views that need initial async or Papyrus data can now choose their meaningful first-paint milestone, and OSF UI holds the diegetic handoff until they report it.
 
 ## 1.2.0 — 2026-07-21
 

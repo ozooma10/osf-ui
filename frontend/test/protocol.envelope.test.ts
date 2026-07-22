@@ -24,6 +24,7 @@ interface Frame {
 interface Helper {
   available(): boolean;
   send(command: string, fields?: Record<string, unknown>): boolean;
+  viewReady(): boolean;
   request(
     command: string,
     fields?: Record<string, unknown>,
@@ -148,6 +149,17 @@ describe('shipped helper — request id format', () => {
   it('never puts a requestId on send() — send is fire-and-forget by design', () => {
     const { helper, sent } = loadHelper();
     expect(helper.send('close')).toBe(true);
+    expect('requestId' in sent[0]!).toBe(false);
+  });
+
+  it('viewReady() emits the protocol-1.2 readiness command without correlation', () => {
+    const { helper, sent } = loadHelper();
+
+    expect(helper.viewReady()).toBe(true);
+    expect(sent).toEqual([{
+      type: 'ui.command',
+      payload: { command: 'view.ready' },
+    }]);
     expect('requestId' in sent[0]!).toBe(false);
   });
 });

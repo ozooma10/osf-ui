@@ -7,6 +7,7 @@
 // drain (canonical folding, validation, the drop-newest cap).
 // Assert-style; process exit code is the failure count.
 
+#include "api/BridgeApi.h"
 #include "api/PapyrusApi.h"
 
 #include "RE/B/BSScriptUtil.h"
@@ -78,6 +79,10 @@ int main()
 		vm->GetNative<bool (*)(IVM&, std::uint32_t, std::monostate, std::int32_t)>("Unregister");
 	const auto pushToView =
 		vm->GetNative<void (*)(IVM&, std::uint32_t, std::monostate, Str, Str, std::vector<Str>)>("PushToView");
+	const auto openMenu =
+		vm->GetNative<bool (*)(IVM&, std::uint32_t, std::monostate, Str)>("OpenMenu");
+	const auto closeMenu =
+		vm->GetNative<bool (*)(IVM&, std::uint32_t, std::monostate, Str)>("CloseMenu");
 
 	// --- registration validation ------------------------------------------------
 	CHECK(registerStatic(*vm, 0, {}, "", "OnUIAction", "t.alpha") == 0);          // empty script
@@ -90,6 +95,26 @@ int main()
 	// Interned casing folds to the grammar's lowercase and is accepted.
 	const auto tokenStatic = registerStatic(*vm, 0, {}, "MyLib", "OnUIAction", "T.Alpha");
 	CHECK(tokenStatic != 0);
+
+	// --- menu ids from BSFixedString are canonicalized before lookup ------------
+	API::BridgeApi::Get().SetViewCatalog({ "mixed.case/view" });
+	CHECK(openMenu(*vm, 0, {}, "MiXeD.CaSe/View"));
+	CHECK(!openMenu(*vm, 0, {}, "MiXeD.CaSe/Missing"));
+	CHECK(!closeMenu(*vm, 0, {}, "MiXeD.CaSe/View"));  // discovered but not loaded
+	{
+		const auto requests = API::BridgeApi::Get().TakeMenuRequests();
+		CHECK(requests.size() == 1);
+		if (requests.size() == 1) {
+			CHECK(requests[0].view == "mixed.case/view");
+			CHECK(requests[0].open);
+		}
+	}
+	API::BridgeApi::Get().SetSurfaceLoaded("mixed.case/view", true);
+	CHECK(closeMenu(*vm, 0, {}, "MiXeD.CaSe/View"));
+	{
+		const auto requests = API::BridgeApi::Get().TakeMenuRequests();
+		CHECK(requests.size() == 1 && requests[0].view == "mixed.case/view" && !requests[0].open);
+	}
 
 	// --- static dispatch + case-insensitive mod filter ---------------------------
 	vm->calls.clear();

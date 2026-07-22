@@ -96,8 +96,13 @@ compile localization_service_tests \
 	../../src/runtime/LocalizationService.cpp \
 	../../src/runtime/Json.cpp
 
+compile view_manifest_tests \
+	view_manifest_tests.cpp \
+	../../src/runtime/ViewManifest.cpp \
+	../../src/runtime/Json.cpp
+
 failures=0
-for t in settings_store_tests settings_module_tests settings_mirror_tests settings_subscriptions_tests hotkey_service_tests hotkey_subscriptions_tests bridge_api_tests papyrus_action_tests vanilla_keys_tests localization_service_tests; do
+for t in settings_store_tests settings_module_tests settings_mirror_tests settings_subscriptions_tests hotkey_service_tests hotkey_subscriptions_tests bridge_api_tests papyrus_action_tests vanilla_keys_tests localization_service_tests view_manifest_tests; do
     echo "== $t =="
     "$BUILD/$t" || failures=$((failures + $?))
 done

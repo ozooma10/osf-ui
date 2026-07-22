@@ -425,12 +425,14 @@ namespace OSFUI::API::Papyrus
 
 		bool OpenMenu(PapVM&, std::uint32_t, std::monostate, RE::BSFixedString a_viewId)
 		{
-			return BridgeApi::Get().RequestMenu(a_viewId.c_str(), true);
+			const auto id = ToLowerAscii(a_viewId.c_str());
+			return BridgeApi::Get().RequestMenu(id.c_str(), true);
 		}
 
 		bool CloseMenu(PapVM&, std::uint32_t, std::monostate, RE::BSFixedString a_viewId)
 		{
-			return BridgeApi::Get().RequestMenu(a_viewId.c_str(), false);
+			const auto id = ToLowerAscii(a_viewId.c_str());
+			return BridgeApi::Get().RequestMenu(id.c_str(), false);
 		}
 
 		void BindNatives(PapVM* a_vm)

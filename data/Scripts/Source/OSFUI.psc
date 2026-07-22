@@ -114,6 +114,9 @@ bool Function Unregister(int aiToken) Global Native
 
 ; --- menus --------------------------------------------------------------------
 ; Ask OSF UI to open/close an overlay view; "settings" is the Mods surface (same as F10), where your settings card lives. 
-; Honored on OSF UI's next frame through its normal menu policy. False only on a malformed view id.
+; Honored on OSF UI's next frame through its normal menu policy. OpenMenu returns
+; true when the qualified view id exists (already loaded or discovered and queued
+; for on-demand loading), false when no installed view has that id. CloseMenu
+; returns false for an unknown or discovered-but-never-loaded view.
 bool Function OpenMenu(string asViewId = "settings") Global Native
 bool Function CloseMenu(string asViewId = "settings") Global Native

@@ -14,7 +14,7 @@ a reference for the two data-driven extension points that work today:
 
 > **Status / scope.** Pure content, no recompile: a
 > `views/<modId>/<viewName>/` folder and a `settings/<modId>.json` schema. The
-> bridge protocol is at version **1.1 — stable**; additive changes bump the
+> bridge protocol is at version **1.2 — stable**; additive changes bump the
 > minor version, breaking changes bump the major. Compatibility is advisory:
 > declare the OSF UI version you authored against as `targetVersion` (manifest
 > and/or settings schema, §7), and the Mods surface shows a "needs update"
@@ -73,8 +73,9 @@ The two-level layout is discovered automatically at load. A mod folder may
 hold several views, and subfolders without a `manifest.json` are ignored, so
 you can keep shared assets next to your views. The built-in views use the
 same layout: `views/osfui/settings/`, `views/osfui/keybinds/`. To open your
-view, use its qualified id `<modId>/<viewName>` — as a `config.json` `views`
-entry, a `menu.open` target, or a `RegisterView` argument.
+view, use its qualified id `<modId>/<viewName>` as a `menu.open` target (it
+loads on demand). Use a `config.json` `views` entry for boot loading, or
+`RegisterView` when a native plugin wants to load its shipped view explicitly.
 
 Views load at `https://osfui.local/<modId>/<viewName>/<entry>`. WebView2 maps
 `osfui.local` to the shared views root with
@@ -179,8 +180,10 @@ an optional English override, then the inline English.
   "id": "myhud",            // required; must equal the view folder name. The runtime id is the qualified "<modId>/myhud", derived from the path
   "title": "My HUD",        // optional, defaults to the qualified id
   "description": "",        // optional; one-line blurb shown in catalogs (views.data / the Mods surface)
+  "accent": "#e6904a",      // optional; colors platform chrome such as the first-load handoff
   "hub": true,              // optional, default true; false = hidden utility view — loads and works, but isn't advertised in catalogs (name predates the Mods surface)
-  "targetVersion": "1.0.0", // optional; the OSF UI version this view is authored against — advisory, never gates loading (see note below)
+  "readySignal": true,       // optional, default false; wait for osfui.viewReady() before first reveal (requires nativeBridge)
+  "targetVersion": "1.2.0", // optional; the OSF UI version this view is authored against — advisory, never gates loading (see note below)
   "entry": "index.html",    // optional, default "index.html"; must stay inside the folder
   "width": 1600,            // optional, default 1600; clamped to 1..16384 — logical (authoring) size
   "height": 900,            // optional, default 900;  clamped to 1..16384 — logical (authoring) size
@@ -222,6 +225,17 @@ Notes:
 - `permissions.nativeBridge` must be `true` if your page talks to the
   runtime. When it is `false`, `window.osfui` is never injected and your page
   runs purely client-side.
+- On a menu's first open, OSF UI keeps the new WebView hidden until its main
+  frame has loaded. Loads that take longer than 150 ms show a small in-world
+  local-link panel carrying the menu's title, accent, input-capture policy, and
+  pause policy; already-warm opens remain immediate. A failed load stays on
+  that panel with retry/cancel controls instead of revealing a blank surface.
+- Set `readySignal:true` when DOM load is too early — for example, when the
+  page needs initial Papyrus data before it has anything meaningful to paint.
+  After rendering that state, call `osfui.viewReady()` once. This field
+  requires `permissions.nativeBridge:true`; without it the runtime logs a
+  warning and falls back to load completion. If a loaded page never signals,
+  the handoff offers retry after 15 seconds so it cannot strand the player.
 - A manifest that fails validation (`id` not matching the folder name, an
   `entry` escaping the folder, a folder name violating the id grammar) is
   skipped with an error in `OSF UI.log`. The owning mod id is taken from the
@@ -231,24 +245,28 @@ Notes:
 ### Multiple views & layering
 
 Several views can be hosted and composited at once. `config.json` lists them
-by qualified id:
+by qualified id when the user wants them loaded at startup:
 
 ```jsonc
 {
   "view": "osfui/settings",                          // the ACTIVE view: receives input + the bridge
-  "views": ["osfui/settings", "yourname.mymod/hud"]  // the set of views to load (membership only)
+  "views": ["osfui/settings", "yourname.mymod/hud"]  // views to load at boot
 }
 ```
 
-> Shipping a view with a native mod? Don't edit the user's `config.json`.
-> Your SFSE plugin can register its shipped `views/<modId>/<viewName>/`
-> folder at runtime with one bridge call
-> (`RegisterView("<modId>/<viewName>")`, C ABI 1.5). The view then joins the
-> views catalog: it appears on the Mods surface as a launch card on the Home
-> page and on its mod's page (grouped by the `views/<modId>/` folder it lives
-> under), and opens via `RequestMenu` / `menu.open`. See
-> [native-plugin-api.md](native-plugin-api.md) §5c. The `views` array is for
-> the user's own composition (and OSF UI's built-ins).
+Do not edit the user's `config.json` when shipping a view. Any valid drop-in
+folder under `views/<modId>/<viewName>/` is discovered at boot and loaded the
+first time it is opened through `menu.open`, Papyrus
+`OSFUI.OpenMenu("<modId>/<viewName>")`, or the C ABI's
+`RequestMenu("<modId>/<viewName>", true)`. Closed views stay loaded and warm
+for later opens. This is enough for a Papyrus-only mod: no companion SFSE
+plugin is required.
+
+The `views` array remains the user's own composition and is useful for views
+that must load at boot, such as HUDs. A native plugin may still call
+`RegisterView("<modId>/<viewName>")` (C ABI 1.5) for a plugin-shipped folder;
+that explicitly loads it before its first open. See
+[native-plugin-api.md](native-plugin-api.md) §5c.
 
 - Layering is set by the menu/HUD framework, not the array order: every HUD
   composites beneath every open menu. HUDs order among themselves by their
@@ -298,6 +316,7 @@ osfui.available()                 // bridge present? false = plain browser
 const info = await osfui.ready;   // the runtime.ready payload (info.version = the running OSF UI)
 osfui.send("close");              // fire-and-forget ui.command
 const reply = await osfui.request("settings.get");   // correlated request
+osfui.viewReady();                 // meaningful first paint is ready (readySignal:true)
 const off = osfui.on("settings.changed", (payload) => { ... });  // subscribe
 ```
 
@@ -361,10 +380,11 @@ Whitelisted commands (anything else is rejected, logged, and answered with
 |---|---|---|
 | `close` | — | close the calling surface (closing the last open menu hides the overlay; a coexisting live HUD stays up) |
 | `setVisible` | `visible: bool` | open/close the calling surface |
-| `menu.open` | `view?: string` | open a registered surface by id (omitted ⇒ the calling view). Opening a menu also focuses it: under the single-menu policy it replaces the current menu and becomes the input target |
-| `menu.close` | `view?: string` | close a registered surface by id (omitted ⇒ the calling view) |
-| `hud.show` / `hud.hide` | `view?: string` | aliases of `menu.open` / `menu.close`; a surface's kind (menu vs. HUD) is fixed by its manifest, not by which command you use |
+| `menu.open` | `view?: string` | open a discovered surface by id, loading it on demand (omitted ⇒ the calling view). Opening a menu also focuses it: under the single-menu policy it replaces the current menu and becomes the input target |
+| `menu.close` | `view?: string` | close a loaded surface by id (omitted ⇒ the calling view); never loads an unopened view |
+| `hud.show` / `hud.hide` | `view?: string` | aliases of `menu.open` / `menu.close`, including on-demand loading for show; a surface's kind (menu vs. HUD) is fixed by its manifest, not by which command you use |
 | `setViewHidden` | `view?: string`, `hidden: bool` | show/hide one *loaded* view, independent of the global overlay toggle (omitted `view` ⇒ self) |
+| `view.ready` | — | *(protocol 1.2; normally call `osfui.viewReady()`)* declare that the calling page has meaningful content ready for its first reveal; used by manifests with `readySignal:true` |
 | `log` | `text: string` | write to `OSF UI.log` (truncated to 512 chars) |
 | `ping` | — | runtime replies with `runtime.pong` |
 | `game.get` | — | runtime replies with `game.data` (in-game date/time from the calendar) |

@@ -9,6 +9,20 @@
 
 namespace OSFUI
 {
+	namespace
+	{
+		bool IsHexColor(std::string_view a_value)
+		{
+			if (a_value.size() != 7 || a_value.front() != '#') {
+				return false;
+			}
+			return std::ranges::all_of(a_value.substr(1), [](char c) {
+				return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
+				       (c >= 'A' && c <= 'F');
+			});
+		}
+	}
+
 	std::optional<ViewManifest> ViewManifest::Load(const std::filesystem::path& a_path)
 	{
 		const auto json = Json::ParseFile(a_path);
@@ -27,9 +41,9 @@ namespace OSFUI
 		}
 		if (Log::DevMode()) {
 			Json::ReportUnknownKeys(*json,
-				{ "manifestVersion", "id", "title", "description", "hub", "entry",
+				{ "manifestVersion", "id", "title", "description", "accent", "hub", "entry",
 					"width", "height", "transparent", "kind",
-					"capturesInput", "pausesGame", "openOnStart", "order", "permissions",
+					"capturesInput", "pausesGame", "openOnStart", "order", "readySignal", "permissions",
 					"targetVersion" },
 				"ViewManifest: " + a_path.string(), /*a_warn=*/false);
 		}
@@ -64,6 +78,16 @@ namespace OSFUI
 
 		manifest.title = Json::GetString(*json, "title", manifest.id);
 		manifest.description = Json::GetString(*json, "description", "");
+		if (auto accent = Json::GetString(*json, "accent", ""); !accent.empty()) {
+			if (IsHexColor(accent)) {
+				std::ranges::transform(accent, accent.begin(), [](char c) {
+					return (c >= 'A' && c <= 'F') ? static_cast<char>(c + 32) : c;
+				});
+				manifest.accent = std::move(accent);
+			} else {
+				REX::WARN("ViewManifest: view '{}' accent '{}' is not #rrggbb — ignored", manifest.id, accent);
+			}
+		}
 		manifest.entry = Json::GetString(*json, "entry", manifest.entry);
 		manifest.width = static_cast<std::uint32_t>(std::clamp<std::int64_t>(
 			Json::GetInt(*json, "width", manifest.width), 1, 16384));
@@ -83,6 +107,7 @@ namespace OSFUI
 		manifest.openOnStart = Json::GetBool(*json, "openOnStart", manifest.openOnStart);
 		manifest.order = static_cast<std::int32_t>(Json::GetInt(*json, "order", manifest.order));
 		manifest.hub = Json::GetBool(*json, "hub", manifest.hub);
+		manifest.readySignal = Json::GetBool(*json, "readySignal", manifest.readySignal);
 
 		// Advisory host-version target; does not gate loading (a view authored for
 		// a newer OSF UI still loads and does what it can). The catalog carries it
@@ -105,6 +130,10 @@ namespace OSFUI
 			manifest.permissions.nativeBridge = Json::GetBool(*it, "nativeBridge", false);
 			manifest.permissions.filesystem = Json::GetBool(*it, "filesystem", false);
 			manifest.permissions.network = Json::GetBool(*it, "network", false);
+		}
+		if (manifest.readySignal && !manifest.permissions.nativeBridge) {
+			REX::WARN("ViewManifest: view '{}' requests readySignal without nativeBridge; using load completion", manifest.id);
+			manifest.readySignal = false;
 		}
 
 		// Views may only reference their own local assets; reject entries that

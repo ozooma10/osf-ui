@@ -281,6 +281,52 @@ int main()
 		CHECK(regs.size() == 2 && regs[0] == "acme.mymod/dash" && regs[1] == "osfui/settings");
 	}
 
+	// --- RequestMenu validates against discovery at queue time ----------------
+	api.SetViewCatalog({ "acme.mymod/dash", "osfui/settings" });
+	CHECK(!api.RequestMenu("acme.mymod/missing", true));  // typo: synchronous fallback signal
+
+	// Model a boot with no nativeBridge surface: sends stay queued while the API
+	// is not ready. Publishing the bridge as the discovered surface is loaded on
+	// demand flushes them, and web messages from that first surface are handled.
+	api.OnBridgeReady(nullptr);
+	api.PumpMainThread();
+	CHECK(!api.IsBridgeReady());
+	CHECK(api.SendToWeb("acme.mymod/dash", "acme.mymod.data", R"({"lazy":true})"));
+	CHECK(api.RequestMenu("acme.mymod/dash", true));      // discovered, not loaded: accepted
+	CHECK(!api.RequestMenu("acme.mymod/dash", false));    // close must not lazy-load
+	{
+		const auto requests = api.TakeMenuRequests();
+		CHECK(requests.size() == 1);
+		if (requests.size() == 1) {
+			CHECK(requests[0].view == "acme.mymod/dash");
+			CHECK(requests[0].open);
+		}
+	}
+	toWeb.clear();
+	MessageBridge lazyBridge([&](std::string_view a_viewId, std::string_view a_json) {
+		toWeb.emplace_back(std::string(a_viewId), std::string(a_json));
+	});
+	api.OnBridgeReady(&lazyBridge);
+	api.PumpMainThread();
+	CHECK(api.IsBridgeReady());
+	CHECK(toWeb.size() == 1 && toWeb[0].first == "acme.mymod/dash");
+	lazyBridge.HandleWebMessage("acme.mymod/dash",
+		R"({ "type": "ui.command", "payload": { "command": "acme.mymod.catalog.get" } })");
+	CHECK(g_firedA.size() == 3);  // handler is wired on the first lazy bridge
+	api.OnBridgeReady(nullptr);
+	api.PumpMainThread();
+
+	api.SetSurfaceLoaded("acme.mymod/dash", true);
+	CHECK(api.RequestMenu("acme.mymod/dash", false));
+	{
+		const auto requests = api.TakeMenuRequests();
+		CHECK(requests.size() == 1);
+		if (requests.size() == 1) {
+			CHECK(requests[0].view == "acme.mymod/dash");
+			CHECK(!requests[0].open);
+		}
+	}
+
 	// --- the Client wrapper (item 4): version-gated calls ---------------------
 	{
 		using OSFUI::API::Client;
