@@ -40,11 +40,13 @@ describe('settings widget rendering', () => {
 
     const diagnostics = el.querySelector('.render-diagnostics')!;
     expect(diagnostics.querySelectorAll('.row').length).toBe(VIEWS.views.length);
-    diagnostics.querySelector<HTMLButtonElement>('[role="switch"]')!.click();
+    const firstRow = diagnostics.querySelector('.row')!;
+    const firstViewId = firstRow.querySelector('.row-hint')!.textContent;
+    firstRow.querySelector<HTMLButtonElement>('[role="switch"]')!.click();
     await flush();
     expect(bridge.sent[bridge.sent.length - 1]).toEqual({
       command: 'renderStats.set',
-      fields: { view: VIEWS.views[0]!.id, enabled: true },
+      fields: { view: firstViewId, enabled: true },
     });
   });
 
