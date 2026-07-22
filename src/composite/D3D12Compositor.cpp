@@ -359,7 +359,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		// transform between the two buffers that the diff will expose.
 		// kind 0 = composite input (RT->pixel-SRV), 1 = FG UI input
 		// (RT->COPY_SOURCE), identified independently of its alpha triage mode.
-		static constexpr std::uint32_t kCmpRows = 4;
+		static constexpr std::uint32_t kCmpRows = 16;
 		static constexpr std::uint32_t kCmpRowPitch = 5120;  // 1280 px * 4, 512-aligned
 		static constexpr std::uint32_t kCmpMaxWidth = 1280;
 		// OPT-IN (config uiPassCompare): the capture recording is suspected in
@@ -1454,7 +1454,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			}
 
 			const auto desc = a_buffer->GetDesc();
-			RecordCompareCapture(a_list, a_buffer, desc, a_fgTarget ? 1 : 0);
+			RecordCompareCapture(a_list, a_buffer, desc, a_fgTarget ? 1 : 0, a_regionFirst);
 			const auto rtvSlot = seamRtvNext.fetch_add(1, std::memory_order_relaxed) % kSeamRtvSlots;
 			const D3D12_CPU_DESCRIPTOR_HANDLE rtv{
 				seamRtvHeap->GetCPUDescriptorHandleForHeapStart().ptr + static_cast<SIZE_T>(rtvSlot) * rtvStride
@@ -1519,10 +1519,22 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		// (its next barrier still departs from RENDER_TARGET). ringMutex held
 		// by the caller.
 		void RecordCompareCapture(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
-			const D3D12_RESOURCE_DESC& a_desc, const int a_kind)
+			const D3D12_RESOURCE_DESC& a_desc, const int a_kind, const bool a_regionFirst)
 		{
 			if (!cmpEnabled.load(std::memory_order_relaxed) ||
-				cmpPhase.load(std::memory_order_relaxed) != 0 || cmpRecorded[a_kind]) {
+				cmpPhase.load(std::memory_order_relaxed) != 0) {
+				return;
+			}
+			// A target can appear alone while FG is still starting. Never pair that
+			// stale capture with the other target from a later frame: at the first
+			// hand-off of each End region, discard an unmatched prior capture and
+			// start the pair again. The second hand-off in this same region then
+			// completes a frame-aligned comparison.
+			if (a_regionFirst && cmpRecorded[0] != cmpRecorded[1]) {
+				cmpRecorded[0] = false;
+				cmpRecorded[1] = false;
+			}
+			if (cmpRecorded[a_kind]) {
 				return;
 			}
 			if (!cmpReadback[a_kind]) {
@@ -1580,7 +1592,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			if (cmpRecorded[0] && cmpRecorded[1]) {
 				cmpCapturedMs.store(::GetTickCount64(), std::memory_order_relaxed);
 				cmpPhase.store(1, std::memory_order_release);
-				REX::INFO("D3D12Compositor: seam byte-comparator captured both targets ({} px x {} rows); "
+				REX::INFO("D3D12Compositor: seam byte-comparator captured both targets in one UI region ({} px x {} rows); "
 						  "diff logs in ~2s", cmpWidth, kCmpRows);
 			}
 		}
