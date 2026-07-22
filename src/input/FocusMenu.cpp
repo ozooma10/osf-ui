@@ -210,7 +210,7 @@ namespace OSFUI
 		// would AddRef via our vtable. Scaleform::Ptr is { T* }.
 		*reinterpret_cast<void**>(a_out) = obj;
 
-		REX::INFO("FocusMenu: creator built engine-initialised menu obj=0x{:016X} flags=0x{:08X} (uiMovie=null, name@+0xB0 set)",
+		REX::DEBUG("FocusMenu: creator built engine-initialised menu obj=0x{:016X} flags=0x{:08X} (uiMovie=null, name@+0xB0 set)",
 			reinterpret_cast<std::uintptr_t>(obj), static_cast<std::uint32_t>(flags));
 		return a_out;
 	}
@@ -236,7 +236,7 @@ namespace OSFUI
 		BuildVtable();
 
 		if (ui->IsMenuRegistered(MenuName())) {
-			REX::INFO("FocusMenu: '{}' already registered", MENU_NAME);
+			REX::DEBUG("FocusMenu: '{}' already registered", MENU_NAME);
 			g_registered.store(true, std::memory_order_release);
 			return true;
 		}
@@ -280,7 +280,7 @@ namespace OSFUI
 		}
 		if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
 			queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kShow);
-			REX::INFO("FocusMenu: open requested ('{}' kShow)", MENU_NAME);
+			REX::DEBUG("FocusMenu: open requested ('{}' kShow)", MENU_NAME);
 		} else {
 			REX::WARN("FocusMenu: UIMessageQueue singleton null; cannot open");
 		}
@@ -293,7 +293,7 @@ namespace OSFUI
 		}
 		if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
 			queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kHide);
-			REX::INFO("FocusMenu: close requested ('{}' kHide)", MENU_NAME);
+			REX::DEBUG("FocusMenu: close requested ('{}' kHide)", MENU_NAME);
 		}
 	}
 

@@ -14,5 +14,8 @@ namespace OSFUI::Log
 
 	// True when config devMode is enabled; gates chatty per-call logging.
 	[[nodiscard]] bool DevMode();
-	void               SetDevMode(bool a_enabled);
+	// Records the devMode flag and sets the log floor: Info for normal play,
+	// Debug (the full firehose) when devMode is on. Call once, right after
+	// config load.
+	void SetDevMode(bool a_enabled);
 }

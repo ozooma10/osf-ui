@@ -65,20 +65,20 @@ namespace OSFUI::Plugin
 			}
 			switch (a_msg->type) {
 				case SFSE::MessagingInterface::kPostLoad:
-					REX::INFO("Plugin: SFSE message kPostLoad");
+					REX::DEBUG("Plugin: SFSE message kPostLoad");
 					break;
 				case SFSE::MessagingInterface::kPostPostLoad:
-					REX::INFO("Plugin: SFSE message kPostPostLoad");
+					REX::DEBUG("Plugin: SFSE message kPostPostLoad");
 					break;
 				case SFSE::MessagingInterface::kPostDataLoad:
-					REX::INFO("Plugin: SFSE message kPostDataLoad");
+					REX::DEBUG("Plugin: SFSE message kPostDataLoad");
 					// GameVM exists from here. Bind the Papyrus natives even
 					// when the overlay is disabled — scripts then read schema
 					// defaults through the mirror instead of hard-failing.
 					API::Papyrus::Install();
 					break;
 				case SFSE::MessagingInterface::kPostPostDataLoad:
-					REX::INFO("Plugin: SFSE message kPostPostDataLoad");
+					REX::DEBUG("Plugin: SFSE message kPostPostDataLoad");
 					// Earliest point game singletons (the UI event source) are
 					// treated as safely constructed.
 					if (Runtime::Get().GetConfig().enabled) {
@@ -95,7 +95,7 @@ namespace OSFUI::Plugin
 						// kShow) when the overlay becomes visible, from
 						// Runtime's main-thread tick.
 						if (Runtime::Get().GetConfig().focusMenu) {
-							REX::INFO("Plugin: focusMenu on — registering OSFUI_FocusMenu");
+							REX::DEBUG("Plugin: focusMenu on — registering OSFUI_FocusMenu");
 							FocusMenu::Register();
 						}
 						// The WndProc subclass is the only input path: it drives

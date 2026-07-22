@@ -92,7 +92,7 @@ namespace OSFUI::HardwareCursor
 			::SetCursorPos((screen.left + screen.right) / 2, (screen.top + screen.bottom) / 2);
 			::ClipCursor(&screen);
 		}
-		REX::INFO("HardwareCursor: activated (showRaises={}, centered + clipped to client)", g_showRaises);
+		REX::DEBUG("HardwareCursor: activated (showRaises={}, centered + clipped to client)", g_showRaises);
 	}
 
 	void Deactivate()
@@ -105,7 +105,7 @@ namespace OSFUI::HardwareCursor
 			::ShowCursor(FALSE);
 		}
 		::ClipCursor(nullptr);
-		REX::INFO("HardwareCursor: deactivated (visibility + clip returned to the game)");
+		REX::DEBUG("HardwareCursor: deactivated (visibility + clip returned to the game)");
 	}
 
 	void Reassert(void* a_hwnd)

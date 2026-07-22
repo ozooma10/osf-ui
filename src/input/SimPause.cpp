@@ -43,7 +43,7 @@ namespace OSFUI
 		}
 		ui->ModifyMenuPauseCounter(PauseSourceName(), a_desired);
 		g_engaged = a_desired;
-		REX::INFO("SimPause: {} (UI::pauseRequestCount {})", a_desired ? "engaged" : "released",
+		REX::DEBUG("SimPause: {} (UI::pauseRequestCount {})", a_desired ? "engaged" : "released",
 			a_desired ? "incremented" : "decremented");
 	}
 

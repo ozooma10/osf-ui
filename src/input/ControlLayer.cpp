@@ -64,7 +64,7 @@ namespace OSFUI
 				g_layer = nullptr;
 				return false;
 			}
-			REX::INFO("ControlLayer: allocated input-enable layer (id {})", g_layer->GetLayerID());
+			REX::DEBUG("ControlLayer: allocated input-enable layer (id {})", g_layer->GetLayerID());
 			return true;
 		}
 	}
@@ -80,7 +80,7 @@ namespace OSFUI
 		g_layer->EnableUserEvent(kUserDisable, false);
 		g_layer->EnableOtherEvent(kOtherDisable, false);
 		g_engaged = true;
-		REX::INFO("ControlLayer: player controls disabled (layer {})", g_layer->GetLayerID());
+		REX::DEBUG("ControlLayer: player controls disabled (layer {})", g_layer->GetLayerID());
 	}
 
 	void ControlLayer::Release()
@@ -97,7 +97,7 @@ namespace OSFUI
 			g_layer->EnableOtherEvent(kOtherDisable, true);
 		}
 		g_engaged = false;
-		REX::INFO("ControlLayer: player controls restored");
+		REX::DEBUG("ControlLayer: player controls restored");
 	}
 
 	bool ControlLayer::IsEngaged()

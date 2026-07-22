@@ -38,7 +38,7 @@ namespace OSFUI
 			--cursor->freeCursorRefCount;
 		}
 		g_engaged = a_desired;
-		REX::INFO("FreeCursor: {} (MenuCursor freeCursorRefCount now {})",
+		REX::DEBUG("FreeCursor: {} (MenuCursor freeCursorRefCount now {})",
 			a_desired ? "engaged" : "released", cursor->freeCursorRefCount);
 	}
 

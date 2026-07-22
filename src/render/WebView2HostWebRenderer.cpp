@@ -338,7 +338,7 @@ namespace OSFUI
 				pipe.WriteMessage(message);
 			}
 			if (!pendingOut.empty()) {
-				REX::INFO("WebView2HostWebRenderer: flushed {} message(s) queued before the host connected",
+				REX::DEBUG("WebView2HostWebRenderer: flushed {} message(s) queued before the host connected",
 					pendingOut.size());
 			}
 			if (pendingDropped) {
@@ -479,11 +479,11 @@ namespace OSFUI
 					adapterLuidHigh = static_cast<std::uint32_t>(luid.HighPart);
 					adapterLuidKnown = true;
 				}
-				REX::INFO("WebView2HostWebRenderer: game adapter LUID 0x{:08X}:0x{:08X}",
+				REX::DEBUG("WebView2HostWebRenderer: game adapter LUID 0x{:08X}:0x{:08X}",
 					adapterLuidHigh, adapterLuidLow);
 			}
 			worker = std::thread([this] { WorkerMain(); });
-			REX::INFO("WebView2HostWebRenderer: starting host connection worker");
+			REX::DEBUG("WebView2HostWebRenderer: starting host connection worker");
 			return true;
 		}
 

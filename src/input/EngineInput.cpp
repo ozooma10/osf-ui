@@ -260,7 +260,7 @@ namespace OSFUI
 		// pointer there. Base-init installed the engine vtable; swap in the
 		// patched copy (engine slots except the six observed ones).
 		*reinterpret_cast<void**>(static_cast<std::uint8_t*>(a_menuObj) + 0x10) = &g_recvVtable[0];
-		REX::INFO("EngineInput: receiver installed on menu obj=0x{:016X} (+0x10 vtable copy, observer only)",
+		REX::DEBUG("EngineInput: receiver installed on menu obj=0x{:016X} (+0x10 vtable copy, observer only)",
 			reinterpret_cast<std::uintptr_t>(a_menuObj));
 	}
 
@@ -307,12 +307,12 @@ namespace OSFUI
 
 		if (should == 0 && buttons == 0 && sticks == 0 && chars == 0 && mm == 0 && cm == 0) {
 			if (Log::DevMode()) {
-				REX::INFO("EngineInput: session summary — no engine dispatch observed (menu likely never admitted or no input while open)");
+				REX::DEBUG("EngineInput: session summary — no engine dispatch observed (menu likely never admitted or no input while open)");
 			}
 			return;
 		}
 		if (Log::DevMode()) {
-			REX::INFO(
+			REX::DEBUG(
 				"EngineInput: session summary — gates={} buttons={} (kb={} mouse={} pad={}) sticks={} chars={} mouseMoves={} cursorMoves={}; recent buttons:{}",
 				should, buttons, kb, mouse, pad, sticks, chars, mm, cm,
 				recent.empty() ? " none" : recent.c_str());
@@ -347,7 +347,7 @@ namespace OSFUI
 	void EngineInput::SetRawMode(bool a_raw)
 	{
 		if (g_padRaw.exchange(a_raw, std::memory_order_relaxed) != a_raw) {
-			REX::INFO("EngineInput: gamepad raw-passthrough mode {} (default nav/scroll mapping {})",
+			REX::DEBUG("EngineInput: gamepad raw-passthrough mode {} (default nav/scroll mapping {})",
 				a_raw ? "ON" : "off", a_raw ? "suppressed" : "active");
 		}
 	}
@@ -355,7 +355,7 @@ namespace OSFUI
 	void EngineInput::SetConsumeGamepad(bool a_consume)
 	{
 		if (g_padConsume.exchange(a_consume, std::memory_order_relaxed) != a_consume) {
-			REX::INFO("EngineInput: gamepad consume-at-receiver {} (engine {} sees pad input past the overlay)",
+			REX::DEBUG("EngineInput: gamepad consume-at-receiver {} (engine {} sees pad input past the overlay)",
 				a_consume ? "ON" : "off", a_consume ? "no longer" : "again");
 		}
 	}

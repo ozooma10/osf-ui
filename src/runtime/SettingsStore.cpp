@@ -362,7 +362,7 @@ namespace OSFUI
 				return false;
 			}
 			if (a_source == Source::kDropIn) {
-				REX::INFO("SettingsStore: hot-reloading drop-in schema '{}'", id);
+				REX::DEBUG("SettingsStore: hot-reloading drop-in schema '{}'", id);
 			} else {
 				REX::WARN("SettingsStore: runtime registration replaces {} schema for id '{}'",
 					existing->source == Source::kDropIn ? "drop-in" : "earlier runtime", id);
@@ -1241,7 +1241,7 @@ namespace OSFUI
 		if (!Persist(a_mod)) {
 			return;
 		}
-		REX::INFO("SettingsStore: saved '{}' values", a_mod.id);
+		REX::DEBUG("SettingsStore: saved '{}' values", a_mod.id);
 		for (const auto& listener : _persistListeners) {
 			if (listener) {
 				listener(a_mod.id);

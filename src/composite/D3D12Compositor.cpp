@@ -1011,7 +1011,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				compDesc.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
 				const auto hr = factory->CreateSwapChainForComposition(probeQueue, &compDesc, nullptr, &probeSwap);
 				if (SUCCEEDED(hr) && probeSwap) {
-					REX::INFO("D3D12Compositor: probe = windowless composition swapchain on a private queue");
+					REX::DEBUG("D3D12Compositor: probe = windowless composition swapchain on a private queue");
 				} else {
 					probeSwap = nullptr;
 					REX::WARN("D3D12Compositor: CreateSwapChainForComposition failed (hr=0x{:08X}) — falling back to "
@@ -1055,7 +1055,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 							  "is ahead of us; chaining after it. If the overlay misbehaves, include this line in reports.",
 						owner);
 				} else {
-					REX::INFO("D3D12Compositor: Present slot 8 owner before hook: '{}'", owner);
+					REX::DEBUG("D3D12Compositor: Present slot 8 owner before hook: '{}'", owner);
 				}
 
 				// The slot-owner check misses code-patching hooks (BetterConsole
@@ -1084,7 +1084,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 							ModuleNameOfAddress(slot8));
 					}
 					ok = true;
-					REX::INFO("D3D12Compositor: hooked IDXGISwapChain::Present slot 8 (original 0x{:X})",
+					REX::DEBUG("D3D12Compositor: hooked IDXGISwapChain::Present slot 8 (original 0x{:X})",
 						reinterpret_cast<std::uintptr_t>(g_originalPresent.load()));
 				} else {
 					REX::ERROR("D3D12Compositor: VirtualProtect on the Present vtable slot failed");
@@ -1319,14 +1319,14 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 					       : "the game's built-in FSR3 frame-interpolation code",
 					ret);
 			} else if (!fg && a_t.fgDriven) {
-				REX::INFO("D3D12Compositor: swapchain 0x{:X} presents from '{}' again — Frame Generation "
+				REX::DEBUG("D3D12Compositor: swapchain 0x{:X} presents from '{}' again — Frame Generation "
 						  "no longer pacing it; resuming overlay draws",
 					a_t.key, owner);
 			} else if (!a_t.callerLogged) {
 				// One coexistence line per swapchain: who normally presents it
 				// (Starfield.exe directly, sl.interposer forwarding, or another
 				// overlay's chained hook).
-				REX::INFO("D3D12Compositor: swapchain 0x{:X} presents from '{}'", a_t.key, owner);
+				REX::DEBUG("D3D12Compositor: swapchain 0x{:X} presents from '{}'", a_t.key, owner);
 			}
 			a_t.callerLogged = true;
 			a_t.fgDriven = fg;
@@ -1450,7 +1450,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			const bool fgActive = frameGenActiveSignal.load(std::memory_order_acquire);
 			if (fgActive && !a_fgTarget) {
 				if (!seamFgLayerOnlyLogged.exchange(true, std::memory_order_relaxed)) {
-					REX::INFO("D3D12Compositor: FG seam uses only the transparent COPY_SOURCE UI layer");
+					REX::DEBUG("D3D12Compositor: FG seam uses only the transparent COPY_SOURCE UI layer");
 				}
 				return false;
 			}
@@ -1799,7 +1799,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			}
 			if (!a_t.logged) {
 				a_t.logged = true;
-				REX::INFO("D3D12Compositor: {} swapchain 0x{:X} ({}x{}, {} buffers, RT format {} [{}])",
+				REX::DEBUG("D3D12Compositor: {} swapchain 0x{:X} ({}x{}, {} buffers, RT format {} [{}])",
 					a_t.supported ? "drawing on" : "SKIPPING (unsupported format)",
 					a_t.key, a_t.width, a_t.height, a_t.bufferCount, FormatName(a_t.format), static_cast<int>(a_t.format));
 			}

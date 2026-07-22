@@ -105,7 +105,7 @@ namespace OSFUI
 			return result;
 		}
 
-		REX::INFO(
+		REX::DEBUG(
 			"EngineD3D12: located ID3D12Device=0x{:X} + DIRECT ID3D12CommandQueue=0x{:X} "
 			"(via RE::CreationRendererPrivate::Renderer; all pointers QI-verified)",
 			reinterpret_cast<std::uintptr_t>(device), reinterpret_cast<std::uintptr_t>(queue));

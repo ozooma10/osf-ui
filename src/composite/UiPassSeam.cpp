@@ -230,7 +230,7 @@ namespace OSFUI::UiPassSeam
 				g_selfTestOMSeen.store(true, std::memory_order_relaxed);
 			} else if (g_captureTid.load(std::memory_order_relaxed) == ::GetCurrentThreadId() && WindowLogSlot()) {
 				g_capturedList.store(reinterpret_cast<std::uintptr_t>(a_self), std::memory_order_relaxed);
-				REX::INFO("[UiPassSeam] capture OMSetRenderTargets list=0x{:X} numRTs={} rtv0=0x{:X} dsv={}",
+				REX::DEBUG("[UiPassSeam] capture OMSetRenderTargets list=0x{:X} numRTs={} rtv0=0x{:X} dsv={}",
 					reinterpret_cast<std::uintptr_t>(a_self), a_numRTs,
 					(a_rts && a_numRTs > 0) ? a_rts[0].ptr : 0,
 					a_dsv ? "yes" : "no");
@@ -308,7 +308,7 @@ namespace OSFUI::UiPassSeam
 						break;
 					}
 					const auto desc = barrier.Transition.pResource->GetDesc();
-					REX::INFO("[UiPassSeam] capture barrier list=0x{:X} res=0x{:X} {}x{} fmt={} ({}) states 0x{:X}->0x{:X}",
+					REX::DEBUG("[UiPassSeam] capture barrier list=0x{:X} res=0x{:X} {}x{} fmt={} ({}) states 0x{:X}->0x{:X}",
 						reinterpret_cast<std::uintptr_t>(a_self),
 						reinterpret_cast<std::uintptr_t>(barrier.Transition.pResource),
 						static_cast<std::uint64_t>(desc.Width), desc.Height,
@@ -414,7 +414,7 @@ namespace OSFUI::UiPassSeam
 				if (patched && barrierOk && heapsOk && (!probe || omSeen)) {
 					g_selfTestList = nullptr;
 					g_captureState.store(1, std::memory_order_release);
-					REX::INFO("[UiPassSeam] capture armed: ID3D12GraphicsCommandList vtable slots {} (barrier) / {} "
+					REX::DEBUG("[UiPassSeam] capture armed: ID3D12GraphicsCommandList vtable slots {} (barrier) / {} "
 							  "(SetDescriptorHeaps){} hooked and self-tested",
 						kSlotResourceBarrier, kSlotSetDescriptorHeaps,
 						probe ? " / OMSetRenderTargets" : "");
@@ -461,12 +461,12 @@ namespace OSFUI::UiPassSeam
 			for (std::size_t offset = 0; offset < 0x1000; offset += sizeof(std::uintptr_t)) {
 				std::uintptr_t value = 0;
 				if (Platform::SafeReadPointer(a_object + offset, value) && value == a_list) {
-					REX::INFO("[UiPassSeam] capture: {}+0x{:X} holds the recording ID3D12GraphicsCommandList", a_tag, offset);
+					REX::DEBUG("[UiPassSeam] capture: {}+0x{:X} holds the recording ID3D12GraphicsCommandList", a_tag, offset);
 					found = true;
 				}
 			}
 			if (!found) {
-				REX::INFO("[UiPassSeam] capture: list 0x{:X} not stored in {}'s first 0x1000 bytes", a_list, a_tag);
+				REX::DEBUG("[UiPassSeam] capture: list 0x{:X} not stored in {}'s first 0x1000 bytes", a_list, a_tag);
 			}
 		}
 
@@ -506,7 +506,7 @@ namespace OSFUI::UiPassSeam
 			const auto draws = g_seamDraws.fetch_add(1, std::memory_order_relaxed) + 1;
 			if (g_probeEnabled.load(std::memory_order_relaxed)) {
 				if (draws == 1) {
-					REX::INFO("[UiPassSeam] draw: FIRST SEAM DRAW recorded at the hand-off (buffer 0x{:X}, list 0x{:X})",
+					REX::DEBUG("[UiPassSeam] draw: FIRST SEAM DRAW recorded at the hand-off (buffer 0x{:X}, list 0x{:X})",
 						reinterpret_cast<std::uintptr_t>(a_buffer),
 						reinterpret_cast<std::uintptr_t>(a_list));
 				}
@@ -516,11 +516,11 @@ namespace OSFUI::UiPassSeam
 				const auto prev = g_lastDrawBuffer.exchange(reinterpret_cast<std::uintptr_t>(a_buffer), std::memory_order_relaxed);
 				if (prev != reinterpret_cast<std::uintptr_t>(a_buffer) && prev != 0 &&
 					g_bufferChangeLogs.fetch_add(1, std::memory_order_relaxed) < 12) {
-					REX::INFO("[UiPassSeam] draw: hand-off buffer changed 0x{:X} -> 0x{:X} (draw #{})",
+					REX::DEBUG("[UiPassSeam] draw: hand-off buffer changed 0x{:X} -> 0x{:X} (draw #{})",
 						prev, reinterpret_cast<std::uintptr_t>(a_buffer), draws);
 				}
 				if (draws % 18000 == 0) {  // liveness only, ~every 1-2 min; logging here runs on a render worker
-					REX::INFO("[UiPassSeam] draw: {} seam draws recorded", draws);
+					REX::DEBUG("[UiPassSeam] draw: {} seam draws recorded", draws);
 				}
 			}
 		}
@@ -552,7 +552,7 @@ namespace OSFUI::UiPassSeam
 					window = true;
 					g_capturedList.store(0, std::memory_order_relaxed);
 					g_windowLines.store(kWindowLineBudget, std::memory_order_relaxed);
-					REX::INFO("[UiPassSeam] window {} armed: Begin enter tid={} (seam draws so far: {})",
+					REX::DEBUG("[UiPassSeam] window {} armed: Begin enter tid={} (seam draws so far: {})",
 						g_captureWindows.load(std::memory_order_relaxed) + 1, tid,
 						g_seamDraws.load(std::memory_order_relaxed));
 				}
@@ -562,7 +562,7 @@ namespace OSFUI::UiPassSeam
 			void* result = original ? original(a_this, a_ctx, a_io, a_r9) : nullptr;
 
 			if (window) {
-				REX::INFO("[UiPassSeam] window: Begin exit");
+				REX::DEBUG("[UiPassSeam] window: Begin exit");
 			}
 			return result;
 		}
@@ -573,10 +573,10 @@ namespace OSFUI::UiPassSeam
 			const auto count = probe ? g_end.count.fetch_add(1, std::memory_order_relaxed) + 1 : 0;
 			const bool window = probe && g_captureTid.load(std::memory_order_relaxed) == ::GetCurrentThreadId();
 			if (window) {
-				REX::INFO("[UiPassSeam] window: End enter");
+				REX::DEBUG("[UiPassSeam] window: End enter");
 			}
 			if (probe && count <= kMaxDetailLogs) {
-				REX::INFO("[UiPassSeam] End[{}] tid={} this=0x{:X} ctx=0x{:X} io=0x{:X} cmdCtx=0x{:X}",
+				REX::DEBUG("[UiPassSeam] End[{}] tid={} this=0x{:X} ctx=0x{:X} io=0x{:X} cmdCtx=0x{:X}",
 					count, ::GetCurrentThreadId(),
 					reinterpret_cast<std::uintptr_t>(a_this), reinterpret_cast<std::uintptr_t>(a_ctx),
 					reinterpret_cast<std::uintptr_t>(a_io),
@@ -596,7 +596,7 @@ namespace OSFUI::UiPassSeam
 			tl_callsAfterFirstDraw = -1;
 
 			if (window) {
-				REX::INFO("[UiPassSeam] window: End exit");
+				REX::DEBUG("[UiPassSeam] window: End exit");
 			}
 			return result;
 		}
@@ -609,14 +609,14 @@ namespace OSFUI::UiPassSeam
 			const auto count = probe ? g_composite.count.fetch_add(1, std::memory_order_relaxed) + 1 : 0;
 			const bool window = probe && g_captureTid.load(std::memory_order_relaxed) == ::GetCurrentThreadId();
 			if (window) {
-				REX::INFO("[UiPassSeam] window: Composite enter");
+				REX::DEBUG("[UiPassSeam] window: Composite enter");
 			}
 
 			// Pre-original probe of the state a draw would see here.
 			std::uintptr_t cmdCtx = 0;
 			if (probe && count <= kMaxDetailLogs) {
 				cmdCtx = reinterpret_cast<std::uintptr_t>(GetEngineCmdCtx(a_ctx));
-				REX::INFO("[UiPassSeam] Composite[{}] tid={} this=0x{:X} ctx=0x{:X} io=0x{:X} cmdCtx=0x{:X}",
+				REX::DEBUG("[UiPassSeam] Composite[{}] tid={} this=0x{:X} ctx=0x{:X} io=0x{:X} cmdCtx=0x{:X}",
 					count, ::GetCurrentThreadId(),
 					reinterpret_cast<std::uintptr_t>(a_this), reinterpret_cast<std::uintptr_t>(a_ctx),
 					reinterpret_cast<std::uintptr_t>(a_io), cmdCtx);
@@ -639,10 +639,10 @@ namespace OSFUI::UiPassSeam
 				} else {
 					// No D3D12 calls seen: capture disabled, or the whole UI
 					// section skipped (no live movies).
-					REX::INFO("[UiPassSeam] window {}: no OMSetRenderTargets/barrier calls captured", windowNo);
+					REX::DEBUG("[UiPassSeam] window {}: no OMSetRenderTargets/barrier calls captured", windowNo);
 				}
 				const auto left = g_windowLines.load(std::memory_order_relaxed);
-				REX::INFO("[UiPassSeam] window {} closed (Composite exit, {} log slots left)",
+				REX::DEBUG("[UiPassSeam] window {} closed (Composite exit, {} log slots left)",
 					windowNo, left > 0 ? left : 0);
 				g_captureTid.store(0, std::memory_order_release);
 			}
@@ -688,7 +688,7 @@ namespace OSFUI::UiPassSeam
 			a_orig.store(current, std::memory_order_release);
 			*slot = reinterpret_cast<void*>(a_thunk);
 			::VirtualProtect(slot, sizeof(void*), oldProtect, &oldProtect);
-			REX::INFO("[UiPassSeam] hooked {} slot 7 (vtbl 0x{:X}, original 0x{:X})", a_label, vtbl.address(), current);
+			REX::DEBUG("[UiPassSeam] hooked {} slot 7 (vtbl 0x{:X}, original 0x{:X})", a_label, vtbl.address(), current);
 			return current;
 		}
 	}
@@ -714,7 +714,7 @@ namespace OSFUI::UiPassSeam
 			REX::WARN("[UiPassSeam] hook set incomplete — seam draw disabled; "
 					  "the legacy present path remains active");
 		} else if (a_draw) {
-			REX::INFO("[UiPassSeam] seam draw enabled: overlay records into Starfield's "
+			REX::DEBUG("[UiPassSeam] seam draw enabled: overlay records into Starfield's "
 					  "transparent UI layer at the ScaleformEnd hand-off");
 		}
 		return ok;

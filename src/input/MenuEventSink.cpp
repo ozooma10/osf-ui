@@ -30,7 +30,7 @@ namespace OSFUI
 		// fire while the console was up" from a default (non-dev) log.
 		if (std::string_view{ a_event.menuName } == "Console") {
 			s_consoleOpen.store(a_event.opening, std::memory_order_relaxed);
-			REX::INFO("MenuEventSink: console {}", a_event.opening ? "opened" : "closed");
+			REX::DEBUG("MenuEventSink: console {}", a_event.opening ? "opened" : "closed");
 		}
 
 		if (a_event.opening) {
@@ -43,7 +43,7 @@ namespace OSFUI
 			// transition. The user re-opens with the toggle key.
 			const std::string_view name = a_event.menuName;
 			if ((name == "LoadingMenu" || name == "MainMenu") && Runtime::Get().IsVisible()) {
-				REX::INFO("MenuEventSink: '{}' opened -> closing all OSF UI surfaces", name);
+				REX::DEBUG("MenuEventSink: '{}' opened -> closing all OSF UI surfaces", name);
 				Runtime::Get().EnqueueMenuRequest(Runtime::MenuReq::CloseAll);
 			}
 		} else {

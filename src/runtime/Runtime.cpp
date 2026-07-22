@@ -250,13 +250,13 @@ namespace OSFUI
 		if (_config.devMode && !_config.devReloadKey.empty()) {
 			_devReloadKey = ResolveKeyName(_config.devReloadKey);
 			if (_devReloadKey != kInvalidKeyCode) {
-				REX::INFO("Runtime: devReloadKey '{}' resolved to VK code {:#x} (reloads the top open menu)", _config.devReloadKey, _devReloadKey);
+				REX::DEBUG("Runtime: devReloadKey '{}' resolved to VK code {:#x} (reloads the top open menu)", _config.devReloadKey, _devReloadKey);
 			}
 		}
 
 		EngineInput::SetEnabled(_config.engineInput);
 		if (_config.engineInput) {
-			REX::INFO("Runtime: engineInput enabled — engine per-menu input (gamepad) routed into the focused view; keyboard/mouse stay on the WndProc path");
+			REX::DEBUG("Runtime: engineInput enabled — engine per-menu input (gamepad) routed into the focused view; keyboard/mouse stay on the WndProc path");
 		}
 
 		// Toggle key opens/closes the default menu; Esc (while captured) is the back
@@ -696,7 +696,7 @@ namespace OSFUI
 			pending.loadedAt = _uptime;
 		}
 		_pendingSurfaceOpen = std::move(pending);
-		REX::INFO("Runtime: holding first open of '{}' until the view is ready", a_id);
+		REX::DEBUG("Runtime: holding first open of '{}' until the view is ready", a_id);
 		return true;
 	}
 
@@ -708,7 +708,7 @@ namespace OSFUI
 		const auto target = _pendingSurfaceOpen->target;
 		const bool changed = _menus.Close(kHandoffViewId);
 		_pendingSurfaceOpen.reset();
-		REX::INFO("Runtime: cancelled pending open of '{}'", target);
+		REX::DEBUG("Runtime: cancelled pending open of '{}'", target);
 		return changed;
 	}
 
@@ -760,7 +760,7 @@ namespace OSFUI
 		_menus.Close(kHandoffViewId);
 		_menus.Open(target);
 		_pendingSurfaceOpen.reset();
-		REX::INFO("Runtime: first-load handoff completed for '{}'", target);
+		REX::DEBUG("Runtime: first-load handoff completed for '{}'", target);
 		ApplyMenuPolicy();
 	}
 
@@ -875,7 +875,7 @@ namespace OSFUI
 			// Idempotent: reloading a live surface (config-listed or a repeat
 			// call) would blow away its page state.
 			if (_menus.IsRegistered(id)) {
-				REX::INFO("Runtime: plugin RegisterView('{}') — already a registered surface, left untouched", id);
+				REX::DEBUG("Runtime: plugin RegisterView('{}') — already a registered surface, left untouched", id);
 				continue;
 			}
 			if (!_renderer->SupportsMultipleViews()) {
@@ -1050,7 +1050,7 @@ namespace OSFUI
 		if (_renderer) {
 			_renderer->SetViewHidden(a_id, a_hidden);
 		}
-		REX::INFO("Runtime: view '{}' hidden -> {}", a_id, a_hidden);
+		REX::DEBUG("Runtime: view '{}' hidden -> {}", a_id, a_hidden);
 		return true;
 	}
 
@@ -1158,14 +1158,14 @@ namespace OSFUI
 		// through the browser harness (mcm-design.md §12.2).
 		const auto active = _menus.ActiveMenu();
 		if (!active) {
-			REX::INFO("Runtime: dev reload — no open menu to reload");
+			REX::DEBUG("Runtime: dev reload — no open menu to reload");
 			return;
 		}
 		const auto* manifest = _views.Find(*active);
 		if (!manifest) {
 			return;
 		}
-		REX::INFO("Runtime: dev-reloading view '{}' (devReloadKey)", *active);
+		REX::DEBUG("Runtime: dev-reloading view '{}' (devReloadKey)", *active);
 		// Same pair as crash-recovery: fresh URL load, then restore the
 		// output-matched size so it composites 1:1 again.
 		_viewLoadState[*active] = ViewLoadState::Loading;
@@ -1733,7 +1733,7 @@ namespace OSFUI
 		// Deferred reply: echo the arming request's id so the view's
 		// osfui.request("settings.captureKey", ...) promise settles with this.
 		_bridge->SendToWeb(_captureView, "settings.captured", payload, _captureRequestId);
-		REX::INFO("Runtime: key capture -> {} (VK {:#04x}) ({}.{})",
+		REX::DEBUG("Runtime: key capture -> {} (VK {:#04x}) ({}.{})",
 			cancelled ? "(cancelled)" : name, vk, _captureMod, _captureKey);
 		_captureView.clear();
 		_captureMod.clear();
@@ -1756,7 +1756,7 @@ namespace OSFUI
 			if (*inGameMenu) {
 				// INFO on purpose: rare (a bound key inside a menu/console), and the
 				// decisive triage line for "my hotkey (didn't) fire" reports.
-				REX::INFO("Runtime: hotkey {}.{} dropped (game menu open)", a_mod, a_key);
+				REX::DEBUG("Runtime: hotkey {}.{} dropped (game menu open)", a_mod, a_key);
 				return;
 			}
 			// Delivery channels (mcm-design.md §9): C ABI subscribers (queued
@@ -1769,7 +1769,7 @@ namespace OSFUI
 			// Third channel (mcm-design.md §8.4): registered Papyrus callbacks,
 			// queued onto the VM's async call stack.
 			API::Papyrus::OnHotkey(a_mod, a_key);
-			REX::INFO("Runtime: hotkey fired for {}.{}", a_mod, a_key);
+			REX::DEBUG("Runtime: hotkey fired for {}.{}", a_mod, a_key);
 		});
 	}
 
@@ -1924,7 +1924,7 @@ namespace OSFUI
 			_captureRequestId = std::string(a_b.CurrentRequestId());
 			a_b.DeferResult();
 			_captureArmed.store(true);
-			REX::INFO("Runtime: armed key capture for {}.{} (from view '{}')", mod, key, _captureView);
+			REX::DEBUG("Runtime: armed key capture for {}.{} (from view '{}')", mod, key, _captureView);
 		});
 		// Fire an action at the owning mod's Papyrus scripts
 		// (OSFUI.RegisterForViewActions). The mod id comes from the source view id,
@@ -1969,7 +1969,7 @@ namespace OSFUI
 		});
 		a_bridge.RegisterCommand("log", [](const nlohmann::json& a_p, MessageBridge&) {
 			// Untrusted content: bound the length so JS cannot flood the log.
-			REX::INFO("MessageBridge: [web] {}", Json::GetString(a_p, "text", "").substr(0, 512));
+			REX::DEBUG("MessageBridge: [web] {}", Json::GetString(a_p, "text", "").substr(0, 512));
 		});
 		a_bridge.RegisterCommand("ping", [](const nlohmann::json&, MessageBridge& a_b) {
 			a_b.SendToWeb("runtime.pong", nlohmann::json::object());
@@ -2004,7 +2004,7 @@ namespace OSFUI
 			// payload carries nothing). Behind a fullscreen game the browser opens
 			// unfocused; alt-tab surfaces it.
 			if (Platform::OpenSystemBrowser(kNexusPageURLW)) {
-				REX::INFO("Runtime: osfui.openModPage -> {}", kNexusPageURL);
+				REX::DEBUG("Runtime: osfui.openModPage -> {}", kNexusPageURL);
 			} else {
 				REX::WARN("Runtime: osfui.openModPage — the shell refused to open {}", kNexusPageURL);
 				a_b.SendResult(false, "shell-failed", "could not open the system browser");
@@ -2076,7 +2076,7 @@ namespace OSFUI
 		// time the menu opens.
 		else if (a_key == "pauseMenuEntry" && a_value.is_boolean()) {
 			_config.pauseMenuEntry = a_value.get<bool>();
-			REX::INFO("Runtime: setting osfui.pauseMenuEntry -> {} (applies the next time the pause menu opens)", _config.pauseMenuEntry);
+			REX::DEBUG("Runtime: setting osfui.pauseMenuEntry -> {} (applies the next time the pause menu opens)", _config.pauseMenuEntry);
 		}
 		// Vanilla key-conflict data (MCM-owned). Lazy build / clear.
 		else if (a_key == "vanillaKeyConflicts" && a_value.is_boolean()) {
@@ -2096,13 +2096,13 @@ namespace OSFUI
 					}
 				}
 			}
-			REX::INFO("Runtime: setting osfui.renderStats -> {} for all views",
+			REX::DEBUG("Runtime: setting osfui.renderStats -> {} for all views",
 				_renderStatsEnabled);
 		}
 		else if (a_key == "debugMode" && a_value.is_boolean()) {
 			_config.debugMode = a_value.get<bool>();
 			BroadcastViewsData();  // debugOnly views appear/leave the mod menu live
-			REX::INFO("Runtime: setting osfui.debugMode -> {} (developer views {} in the mod menu)",
+			REX::DEBUG("Runtime: setting osfui.debugMode -> {} (developer views {} in the mod menu)",
 				_config.debugMode, _config.debugMode ? "shown" : "hidden");
 		}
 		else if (a_key == "language" && a_value.is_string()) {
@@ -2152,7 +2152,7 @@ namespace OSFUI
 		auto& store = _settings->Store();
 		if (!a_enabled) {
 			store.SetVanillaKeys({});
-			REX::INFO("Runtime: vanilla key-conflict data disabled");
+			REX::DEBUG("Runtime: vanilla key-conflict data disabled");
 		} else {
 			// The game's own bindings join the conflict grouping as "@game"
 			// pseudo-entries (mcm-design.md §9; no engine RE). Defaults come from
@@ -2216,7 +2216,7 @@ namespace OSFUI
 		// view width regardless of view size.
 		_cursorScale.store((std::max)(1.0f, static_cast<float>(viewWidth) / 1920.0f));
 		_renderer->Resize(viewWidth, viewHeight);
-		REX::INFO("Runtime: output {}x{} -> view resized to {}x{} (aspect-correct)",
+		REX::DEBUG("Runtime: output {}x{} -> view resized to {}x{} (aspect-correct)",
 			a_width, a_height, viewWidth, viewHeight);
 	}
 

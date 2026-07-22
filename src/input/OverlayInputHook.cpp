@@ -1,5 +1,6 @@
 #include "input/OverlayInputHook.h"
 
+#include "core/Log.h"
 #include "input/HardwareCursor.h"
 #include "runtime/Runtime.h"
 
@@ -140,6 +141,9 @@ namespace OSFUI::OverlayInputHook
 			// (positive = rotated forward/up).
 			if (buttons & RI_MOUSE_WHEEL) {
 				const auto wheelDelta = static_cast<short>(mouse.usButtonData);
+				if (runtime.GetConfig().devMode) {
+					REX::INFO("[wheel-probe] WM_INPUT RI_MOUSE_WHEEL delta={}", wheelDelta);
+				}
 				if (wheelDelta != 0) {
 					runtime.OnHostMouseWheel(static_cast<int>(wheelDelta));
 				}
@@ -267,6 +271,11 @@ namespace OSFUI::OverlayInputHook
 				break;
 			default:
 				if (IsLegacyMouseMessage(a_msg) && runtime.IsInputCaptured()) {
+					if (runtime.GetConfig().devMode &&
+						(a_msg == WM_MOUSEWHEEL || a_msg == WM_MOUSEHWHEEL)) {
+						REX::INFO("[wheel-probe] legacy WM_MOUSEWHEEL delta={} (blocked)",
+							static_cast<short>(HIWORD(a_wparam)));
+					}
 					// Everything already routes from WM_INPUT; block any legacy
 					// duplicates from the game.
 					return 0;

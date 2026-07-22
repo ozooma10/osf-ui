@@ -179,7 +179,7 @@ namespace OSFUI
 			}
 			g_pendingClick = false;
 
-			REX::INFO("PauseMenuEntry: entry pressed -> closing PauseMenu, opening view '{}'", g_viewId);
+			REX::DEBUG("PauseMenuEntry: entry pressed -> closing PauseMenu, opening view '{}'", g_viewId);
 			if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
 				queue->AddMessage(RE::BSFixedString(kMenuName.data()), RE::UI_MESSAGE_TYPE::kHide);
 			} else {
@@ -345,7 +345,7 @@ namespace OSFUI
 			g_session.expectedCount = count + 1;
 			if (!g_session.entryLogged) {
 				g_session.entryLogged = true;
-				REX::INFO("PauseMenuEntry: '{}' injected into PauseMenu main list ({} vanilla entries)",
+				REX::DEBUG("PauseMenuEntry: '{}' injected into PauseMenu main list ({} vanilla entries)",
 					g_label, count);
 			}
 		}
