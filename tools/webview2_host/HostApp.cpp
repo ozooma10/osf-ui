@@ -262,6 +262,7 @@ namespace osfui::wv2
 			ComPtr<ID3D11Device5>        device5;
 			ComPtr<ID3D11DeviceContext>  context;
 			ComPtr<ID3D11DeviceContext4> context4;
+			LUID                         graphicsAdapterLuid{};
 
 			winrt::Windows::System::DispatcherQueueController dispatcher{ nullptr };
 			winrt::Windows::UI::Composition::Compositor compositor{ nullptr };
@@ -332,12 +333,43 @@ namespace osfui::wv2
 				::SetEvent(wakeEvent);
 			}
 
-			bool InitializeGraphics()
+			bool InitializeGraphics(const std::optional<LUID>& a_requestedLuid)
 			{
+				ComPtr<IDXGIAdapter1> selectedAdapter;
+				if (a_requestedLuid) {
+					ComPtr<IDXGIFactory1> factory;
+					const auto factoryHr = ::CreateDXGIFactory1(IID_PPV_ARGS(&factory));
+					if (SUCCEEDED(factoryHr)) {
+						for (UINT index = 0; ; ++index) {
+							ComPtr<IDXGIAdapter1> candidate;
+							if (factory->EnumAdapters1(index, &candidate) == DXGI_ERROR_NOT_FOUND) break;
+							DXGI_ADAPTER_DESC1 desc{};
+							if (SUCCEEDED(candidate->GetDesc1(&desc)) &&
+								desc.AdapterLuid.LowPart == a_requestedLuid->LowPart &&
+								desc.AdapterLuid.HighPart == a_requestedLuid->HighPart) {
+								selectedAdapter = std::move(candidate);
+								break;
+							}
+						}
+					} else {
+						log.Warn(std::format(
+							"CreateDXGIFactory1 failed while matching the game adapter (0x{:08X}); "
+							"falling back to the host default GPU", static_cast<unsigned>(factoryHr)));
+					}
+					if (!selectedAdapter) {
+						log.Warn(std::format(
+							"game adapter LUID 0x{:08X}:0x{:08X} was not found in the host; "
+							"falling back to the host default GPU",
+							static_cast<std::uint32_t>(a_requestedLuid->HighPart),
+							a_requestedLuid->LowPart));
+					}
+				}
+
 				const D3D_FEATURE_LEVEL levels[] = { D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0 };
 				D3D_FEATURE_LEVEL actual{};
-				auto hr = ::D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
-					D3D11_CREATE_DEVICE_BGRA_SUPPORT, levels,
+				auto hr = ::D3D11CreateDevice(selectedAdapter.Get(),
+					selectedAdapter ? D3D_DRIVER_TYPE_UNKNOWN : D3D_DRIVER_TYPE_HARDWARE,
+					nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT, levels,
 					static_cast<UINT>(std::size(levels)), D3D11_SDK_VERSION,
 					&device, &actual, &context);
 				if (FAILED(hr)) {
@@ -352,6 +384,19 @@ namespace osfui::wv2
 				}
 				ComPtr<IDXGIDevice> dxgi;
 				if (FAILED(device.As(&dxgi))) return false;
+				ComPtr<IDXGIAdapter> actualAdapter;
+				DXGI_ADAPTER_DESC actualDesc{};
+				if (FAILED(dxgi->GetAdapter(&actualAdapter)) ||
+					FAILED(actualAdapter->GetDesc(&actualDesc))) {
+					log.Error("could not identify the D3D11 capture adapter");
+					return false;
+				}
+				graphicsAdapterLuid = actualDesc.AdapterLuid;
+				log.InfoFwd(std::format("D3D11 capture adapter '{}' LUID 0x{:08X}:0x{:08X}",
+					ToUtf8(actualDesc.Description),
+					static_cast<std::uint32_t>(graphicsAdapterLuid.HighPart),
+					graphicsAdapterLuid.LowPart));
+
 				winrt::com_ptr<::IInspectable> inspectable;
 				hr = ::CreateDirect3D11DeviceFromDXGIDevice(dxgi.Get(), inspectable.put());
 				if (FAILED(hr)) {
@@ -546,6 +591,8 @@ namespace osfui::wv2
 					{ "produceFence", reinterpret_cast<std::uint64_t>(produceRemote) },
 					{ "consumeFence", reinterpret_cast<std::uint64_t>(consumeRemote) },
 					{ "keyedMutex", ringKeyedMutex },
+					{ "adapterLuidLow", graphicsAdapterLuid.LowPart },
+					{ "adapterLuidHigh", static_cast<std::uint32_t>(graphicsAdapterLuid.HighPart) },
 				});
 				log.InfoFwd(std::format(
 					"shared texture ring ready {}x{} ({} slots, keyedMutex={})",
@@ -1911,6 +1958,18 @@ namespace osfui::wv2
 						log.Error("init without userDataDir");
 						return;
 					}
+					std::optional<LUID> requestedAdapter;
+					if (a_msg.contains("adapterLuidLow") && a_msg.contains("adapterLuidHigh")) {
+						LUID luid{};
+						luid.LowPart = a_msg.value("adapterLuidLow", 0u);
+						luid.HighPart = static_cast<LONG>(a_msg.value("adapterLuidHigh", 0u));
+						requestedAdapter = luid;
+					}
+					if (!InitializeGraphics(requestedAdapter)) {
+						byeReason = "graphics-init-failed";
+						quit.store(true);
+						return;
+					}
 					rootVisual.Size({ static_cast<float>(width), static_cast<float>(height) });
 					log.Info(std::format("init: views='{}' {}x{} hidden={} topLevel=0x{:X}",
 						ToUtf8(viewsRoot.native()), width, height, defaultHidden,
@@ -2098,7 +2157,7 @@ namespace osfui::wv2
 			{
 				winrt::init_apartment(winrt::apartment_type::single_threaded);
 				int exitCode = 0;
-				if (CreateWindows() && InitializeGraphics() && InitializeComposition()) {
+				if (CreateWindows() && InitializeComposition()) {
 					const HANDLE waits[2] = { wakeEvent, gameProcess };
 					while (!quit.load()) {
 						// Short timeout only while a reveal awaits its paint sentinel,

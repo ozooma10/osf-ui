@@ -9,6 +9,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "composite/EngineD3D12.h"
 #include "core/Log.h"
 #include "core/Version.h"
 #include "input/OverlayInputHook.h"
@@ -19,6 +20,7 @@
 #include <Windows.h>
 #include <ShlObj.h>
 #include <TlHelp32.h>
+#include <d3d12.h>
 #include <nlohmann/json.hpp>
 
 #include "Wv2BrokerLaunch.h"
@@ -220,6 +222,8 @@ namespace OSFUI
 		std::filesystem::path viewsRoot, mappedViewsRoot, userData;
 		std::filesystem::path hostExeSource, hostExeMirror;
 		std::filesystem::path hostLog;  // set in Initialize; read by worker + notify drain
+		std::uint32_t adapterLuidLow{ 0 }, adapterLuidHigh{ 0 };
+		bool          adapterLuidKnown{ false };
 
 		WebMessageHandler       onWebMessage;
 		DomReadyHandler         onDomReady;
@@ -473,8 +477,30 @@ namespace OSFUI
 		bool Start()
 		{
 			if (started.exchange(true)) return true;
-			REX::INFO("WebView2HostWebRenderer: starting host connection worker");
+			// The host must create its D3D11 capture textures on the same adapter
+			// as Starfield's D3D12 device. On hybrid-GPU systems the OS default for
+			// a newly brokered process is commonly the iGPU, while the game runs on
+			// the dGPU; those otherwise-valid shared handles cannot be opened.
+			if (!adapterLuidKnown) {
+				auto engine = LocateEngineD3D12();
+				if (!engine) {
+					started.store(false);
+					return false;
+				}
+				const auto luid = engine.device->GetAdapterLuid();
+				engine.directQueue->Release();
+				engine.device->Release();
+				{
+					std::scoped_lock lock(stateMutex);
+					adapterLuidLow = luid.LowPart;
+					adapterLuidHigh = static_cast<std::uint32_t>(luid.HighPart);
+					adapterLuidKnown = true;
+				}
+				REX::INFO("WebView2HostWebRenderer: game adapter LUID 0x{:08X}:0x{:08X}",
+					adapterLuidHigh, adapterLuidLow);
+			}
 			worker = std::thread([this] { WorkerMain(); });
+			REX::INFO("WebView2HostWebRenderer: starting host connection worker");
 			return true;
 		}
 
@@ -656,6 +682,8 @@ namespace OSFUI
 					{ "userDataDir", ToUtf8(userData.native()) },
 					{ "devMode", config.devMode },
 					{ "hidden", allHidden },
+					{ "adapterLuidLow", adapterLuidLow },
+					{ "adapterLuidHigh", adapterLuidHigh },
 				}.dump());
 				pipe.WriteMessage(json{
 					{ "type", "accelState" },
@@ -790,6 +818,8 @@ namespace OSFUI
 				static_cast<std::uintptr_t>(a_msg.value("consumeFence", 0ull)));
 			desc.width = a_msg.value("width", 0u);
 			desc.height = a_msg.value("height", 0u);
+			desc.adapterLuidLow = a_msg.value("adapterLuidLow", 0u);
+			desc.adapterLuidHigh = a_msg.value("adapterLuidHigh", 0u);
 			{
 				std::scoped_lock lock(frameMutex);
 				desc.generation = ++ringGeneration;

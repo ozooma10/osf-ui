@@ -125,6 +125,10 @@ namespace OSFUI
 		void*         consumeFence{ nullptr };
 		std::uint32_t width{ 0 };
 		std::uint32_t height{ 0 };
+		// Adapter that created the resources, copied from the host's D3D11
+		// device. Used only for diagnostics when D3D12 rejects a handle.
+		std::uint32_t adapterLuidLow{ 0 };
+		std::uint32_t adapterLuidHigh{ 0 };
 		std::uint64_t generation{ 0 };
 	};
 

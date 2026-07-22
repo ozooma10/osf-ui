@@ -59,7 +59,10 @@ namespace osfui::wv2
 	//
 	// Message types, game -> host:
 	// init          { topLevelHwnd:u64, viewsPath:str, virtualHost:str,
-	//                 width:u32, height:u32, userDataDir:str, devMode:bool }
+	//                 width:u32, height:u32, userDataDir:str, devMode:bool,
+	//                 adapterLuidLow:u32, adapterLuidHigh:u32 }
+	//               (adapter LUID is the game's D3D12 device; the host creates
+	//                its D3D11 capture device on the same physical adapter)
 	// navigate      { id:str, entry:str, bridge:bool, logicalHeight:u32 }
 	//               (creates view `id` on first sight; logicalHeight is the
 	//                manifest's authoring height and drives the view's
@@ -85,7 +88,8 @@ namespace osfui::wv2
 	// hello         { protocolVersion:u32, hostVersion:str, runtimeVersion:str, pid:u32 }
 	// ready         { }                          (first controller + capture up)
 	// textures      { width:u32, height:u32, slots:[u64...],
-	//                 produceFence:u64, consumeFence:u64, keyedMutex:bool }
+	//                 produceFence:u64, consumeFence:u64, keyedMutex:bool,
+	//                 adapterLuidLow:u32, adapterLuidHigh:u32 }
 	//               (handles already duplicated into the game process; every
 	//                textures message invalidates all prior slots)
 	// sharedMemory  { name:str, width:u32, height:u32, slots:u32 }   (CPU fallback ring)

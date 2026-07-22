@@ -636,27 +636,43 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			auto* dev = engine.device;
 			bool ok = pending.slotCount > 0 &&
 			          pending.slotCount <= SharedRingDesc::kMaxSlots;
+			HRESULT openHr = ok ? S_OK : E_INVALIDARG;
+			const char* openObject = "ring metadata";
+			int openSlot = -1;
 			for (std::size_t i = 0; ok && i < pending.slotCount; ++i) {
-				if (!pending.slotHandles[i] ||
-					FAILED(dev->OpenSharedHandle(pending.slotHandles[i],
-						__uuidof(ID3D12Resource), reinterpret_cast<void**>(&sharedSlots[i])))) {
+				openObject = "texture";
+				openSlot = static_cast<int>(i);
+				if (!pending.slotHandles[i]) {
+					openHr = E_HANDLE;
 					ok = false;
+				} else {
+					openHr = dev->OpenSharedHandle(pending.slotHandles[i],
+						__uuidof(ID3D12Resource), reinterpret_cast<void**>(&sharedSlots[i]));
+					ok = SUCCEEDED(openHr);
 				}
 			}
-			if (ok && (!pending.produceFence ||
-				FAILED(dev->OpenSharedHandle(pending.produceFence,
-					__uuidof(ID3D12Fence), reinterpret_cast<void**>(&sharedProduce))))) {
-				ok = false;
+			if (ok) {
+				openObject = "produce fence";
+				openSlot = -1;
+				openHr = pending.produceFence ? dev->OpenSharedHandle(pending.produceFence,
+					__uuidof(ID3D12Fence), reinterpret_cast<void**>(&sharedProduce)) : E_HANDLE;
+				ok = SUCCEEDED(openHr);
 			}
-			if (ok && (!pending.consumeFence ||
-				FAILED(dev->OpenSharedHandle(pending.consumeFence,
-					__uuidof(ID3D12Fence), reinterpret_cast<void**>(&sharedConsume))))) {
-				ok = false;
+			if (ok) {
+				openObject = "consume fence";
+				openHr = pending.consumeFence ? dev->OpenSharedHandle(pending.consumeFence,
+					__uuidof(ID3D12Fence), reinterpret_cast<void**>(&sharedConsume)) : E_HANDLE;
+				ok = SUCCEEDED(openHr);
 			}
 			CloseRingHandles(pending);
 			if (!ok) {
-				REX::ERROR("D3D12Compositor: OpenSharedHandle on the shared ring failed — "
-						   "GPU frames from the WebView2 host cannot be composited");
+				const auto gameLuid = dev->GetAdapterLuid();
+				REX::ERROR("D3D12Compositor: OpenSharedHandle failed for {} (slot {}, hr=0x{:08X}); "
+					"game adapter LUID 0x{:08X}:0x{:08X}, host adapter LUID 0x{:08X}:0x{:08X} — "
+					"GPU frames from the WebView2 host cannot be composited",
+					openObject, openSlot, static_cast<std::uint32_t>(openHr),
+					static_cast<std::uint32_t>(gameLuid.HighPart), gameLuid.LowPart,
+					pending.adapterLuidHigh, pending.adapterLuidLow);
 				ReleaseSharedRing();
 				sharedOpenFailed = true;
 				return false;
