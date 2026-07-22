@@ -504,6 +504,12 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		std::uint64_t waitedBusy{ 0 };   // presents that had to wait for a busy slot
 		std::uint64_t skippedBusy{ 0 };  // presents dropped because the wait timed out (GPU hung)
 		bool          fgSuspendLogged{ false };  // FrameGenActive transition logging (present thread only)
+		// Present threads publish FG liveness for seam render workers. With FG
+		// active, the first RT->pixel-SRV match is an opaque scene buffer, not
+		// the transparent Scaleform UI layer; only the RT->COPY_SOURCE hand-off
+		// is safe to decorate (it later feeds both the real composite and FFX).
+		std::atomic_bool frameGenActiveSignal{ false };
+		std::atomic_bool seamFgLayerOnlyLogged{ false };
 
 		// Single-flight gate for OnPresent. With Frame Generation active the
 		// real swapchain presents from FG's pacing thread concurrently with the
@@ -1140,6 +1146,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			}
 
 			UpdatePresentCaller(*target, a_callerRet);
+			frameGenActiveSignal.store(AnyFrameGenActive(), std::memory_order_release);
 
 			// Real output size -> runtime, so the view is aspect-correct. Fires
 			// on first sight and on any change.
@@ -1151,13 +1158,13 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			}
 
 			if (seamMode.load(std::memory_order_relaxed)) {
-				// Seam mode (uiPassDraw): the quad is recorded into the
-				// engine's UI buffer at the under-Scaleform hand-off
-				// (RecordSeamOverlay, called from UiPassSeam), which rides
-				// Frame Generation's UI path. Here we only keep the plumbing
-				// alive: target discovery and resize notify above, plus ring
-				// adoption so the seam has SRVs the moment the overlay opens.
-				// FG pacing is irrelevant on this path — nothing draws here.
+				// Seam mode records into the engine's transparent UI layer.
+				// Present discovery above also publishes FG liveness so the seam
+				// ignores the opaque scene hand-off that only exists in the FG
+				// graph. Here we keep the remaining plumbing alive: resize
+				// notification and ring adoption so the seam has SRVs the moment
+				// the overlay opens. Nothing draws from the present hook in this
+				// mode.
 				bool gpu = false;
 				{
 					std::scoped_lock lk(frameMutex);
@@ -1246,20 +1253,24 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			++cmdIndex;
 		}
 
-		// Is any FG-paced swapchain still presenting? Present-thread only (like
-		// all of targets[]). The 2s staleness window releases the suspension
-		// once the FG chain is torn down (FG toggled off) even if its target
-		// entry hasn't been evicted yet.
-		[[nodiscard]] bool FrameGenActive()
+		// Present-thread only (like all of targets[]). The 2s staleness window
+		// releases the signal once the FG chain is torn down even if its target
+		// entry has not been evicted yet.
+		[[nodiscard]] bool AnyFrameGenActive() const
 		{
 			const auto nowMs = ::GetTickCount64();
-			bool active = false;
 			for (const auto& t : targets) {
 				if (t.key != 0 && t.fgDriven && nowMs - t.lastSeenMs < 2000) {
-					active = true;
-					break;
+					return true;
 				}
 			}
+			return false;
+		}
+
+		[[nodiscard]] bool FrameGenActive()
+		{
+			const bool active = AnyFrameGenActive();
+			frameGenActiveSignal.store(active, std::memory_order_release);
 			if (active && !fgSuspendLogged) {
 				fgSuspendLogged = true;
 				REX::WARN("D3D12Compositor: Frame Generation is active — overlay drawing suspended on ALL "
@@ -1411,6 +1422,22 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			if (!setupOk || !seamRtvHeap || !visible.load(std::memory_order_relaxed)) {
 				return false;
 			}
+			// In the FG graph the RT->pixel-SRV candidate is the already-opaque
+			// scene/composite image. Drawing there puts the overlay into the frame
+			// interpolation input, then FFX composites the transparent UI layer on
+			// top a second time. Opaque pixels hide that duplication; translucent
+			// pixels alternate between one and two blends. The COPY_SOURCE target
+			// is the actual transparent UI layer and later feeds both paths.
+			if (a_fgTarget) {
+				frameGenActiveSignal.store(true, std::memory_order_release);
+			}
+			const bool fgActive = frameGenActiveSignal.load(std::memory_order_acquire);
+			if (fgActive && !a_fgTarget) {
+				if (!seamFgLayerOnlyLogged.exchange(true, std::memory_order_relaxed)) {
+					REX::INFO("D3D12Compositor: FG seam uses only the transparent COPY_SOURCE UI layer");
+				}
+				return false;
+			}
 			bool gpu = false;
 			std::uint32_t ringSlot = 0;
 			std::uint64_t serial = 0;
@@ -1433,10 +1460,10 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			// Promote the newest frame to "ready" once its produce fence has
 			// completed; an incomplete newest frame falls back to the last
 			// ready one (see seamReadySlot) instead of skipping the draw.
-			// Promotion only on the region's FIRST draw: both targets of one
-			// game frame must sample the SAME overlay frame, or their contents
-			// diverge between real and generated presents.
-			if (a_regionFirst &&
+			// Under FG the preceding opaque target was deliberately skipped, so
+			// the transparent target becomes the effective first draw.
+			const bool effectiveRegionFirst = a_regionFirst || (fgActive && a_fgTarget);
+			if (effectiveRegionFirst &&
 				serial != 0 && ringSlot < sharedSlotCount && sharedSlots[ringSlot] &&
 				(!sharedProduce || sharedProduce->GetCompletedValue() >= serial)) {
 				seamReadySlot = ringSlot;

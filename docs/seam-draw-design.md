@@ -124,7 +124,47 @@ the produce fence is CPU-complete, then samples the private copy.
   (foreign slot value → no hook → present path continues). The OSF RE sandbox
   UIPass experiment must stay disabled when the knob is on (same slots).
 
+## Validated implementation state (2026-07-22)
+
+- The live seam is the strict `RENDER_TARGET` hand-off matcher immediately
+  after `ScaleformEnd`; transient resources are never retained across frames.
+- Starfield's embedded FSR3 UI-composition pixel shader is premultiplied-over:
+  `ui.rgb + frame.rgb * (1 - ui.a)`, with output alpha forced to one. The FG
+  UI input therefore remains premultiplied; the earlier straight-alpha mode is
+  diagnostic only.
+- The one-shot byte comparator is recursion-safe and frame-aligned. Its FG
+  capture proved the two initial barrier matches are not equivalent UI targets:
+  the pixel-SRV candidate is an already-opaque scene/composite image, while the
+  COPY_SOURCE candidate is the transparent UI layer consumed by FFX.
+- Drawing into both targets put the overlay into the interpolation input and
+  then composited it over generated frames a second time. Opaque pixels hid the
+  duplicate blend, while translucent pixels alternated visibly. Under FG the
+  implementation now skips the opaque candidate and writes only the transparent
+  COPY_SOURCE layer; without FG, the normal RT-to-pixel-SRV UI hand-off remains
+  the seam.
+- Present discovery publishes a short-lived FG-active signal to the render
+  workers. Seeing the COPY_SOURCE hand-off also latches that signal immediately,
+  so a late present classification can affect at most the activation boundary.
+
+## Seam-default rollout plan
+
+1. Gate the default flip on an FSR3-FG acceptance matrix: translucent gradient
+   and opaque solid, real/generated cadence, load transitions, rapid mouse
+   repaint, and an in-session FG off/on cycle with no device removal or hitch.
+2. Make seam draw the normal path only after that matrix passes. Keep one
+   release of explicit legacy fallback so a failed hook install can still draw
+   without FG; never fall back to present-path drawing while FG is active.
+3. Keep the Present hook initially for output-size discovery, liveness, shared
+   ring adoption, and the FG-active signal, but remove its backbuffer draw and
+   command-list/RTV machinery from the seam-enabled path.
+4. After one release of seam-default telemetry, delete the legacy present draw
+   entirely. `FrameGenActive()` then stops being a draw-suspension safety net;
+   its caller classification remains as the seam target-selection signal until
+   the render graph exposes a stronger native FG state bit.
+5. Preserve `uiPassProbe` and the comparator as off-by-default diagnostics for
+   one compatibility cycle, then retire them once supported game builds have
 ## Phases
+
 
 1. ~~Capture session~~ DONE 2026-07-21 (composite bracket; findings above).
 1b. **Probe extension**: hook ScaleformEnd + bracket Begin/End with the call
