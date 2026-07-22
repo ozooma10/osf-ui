@@ -1124,7 +1124,9 @@ namespace osfui::wv2
 						};
 						let granted = false;
 						const sendTextFocus = (f) => {
-							if (f === granted) return;
+							// Child-frame shim instances may have no chrome.webview;
+							// the grant is the top frame's job.
+							if (f === granted || !window.chrome || !chrome.webview) return;
 							granted = f;
 							chrome.webview.postMessage(JSON.stringify({
 								type: 'ui.command',
@@ -1205,15 +1207,37 @@ namespace osfui::wv2
 							} else {
 								return;  // unmapped VK: nothing sensible to synthesize
 							}
+							// Scripted dispatch does not cross frame boundaries the
+							// way real (OS-focus) key routing does. If the focused
+							// element is an <iframe> (e.g. a content mod embedding
+							// its game in a frame), descend into same-origin frames
+							// to the innermost focused document; hand cross-origin
+							// frames the key via postMessage to the shim instance
+							// injected there.
+							let doc = document;
+							let target = doc.activeElement || doc.body;
+							while (target && target.tagName === 'IFRAME') {
+								let inner = null;
+								try { inner = target.contentDocument; } catch (_) {}
+								if (!inner) break;
+								doc = inner;
+								target = doc.activeElement || doc.body;
+							}
+							if (target && target.tagName === 'IFRAME') {
+								if (target.contentWindow)
+									target.contentWindow.postMessage(
+										{ __osfuiKeyRelay: { vk, down } }, '*');
+								return;
+							}
+							if (!target) target = document.body;
 							// A printable key is typing intent, exactly like the
 							// trusted-keydown path the browser can't see while the
 							// game owns focus.
 							if (down && key.length === 1) {
 								lastIntent = Date.now();
-								if (!granted && editable(document.activeElement))
+								if (!granted && editable(target))
 									sendTextFocus(true);
 							}
-							const target = document.activeElement || document.body;
 							const ev = new KeyboardEvent(down ? 'keydown' : 'keyup', {
 								key, code, bubbles: true, cancelable: true, composed: true,
 								shiftKey: heldMods.shift, ctrlKey: heldMods.ctrl,
@@ -1244,6 +1268,20 @@ namespace osfui::wv2
 							}
 						};
 
+						// Relay receiver: keys handed across a cross-origin frame
+						// boundary by the parent's shim instance (synthesizeKey
+						// above). Same-origin frames are reached by direct
+						// dispatch and never see a relay.
+						window.addEventListener('message', (event) => {
+							if (event.source !== window.parent) return;
+							const k = event.data && typeof event.data === 'object' ?
+								event.data.__osfuiKeyRelay : null;
+							if (k) synthesizeKey(k.vk | 0, !!k.down);
+						});
+
+						// Child frames may lack chrome.webview entirely; their shim
+						// instance only serves the relay receiver above.
+						if (!window.chrome || !chrome.webview) return;
 						chrome.webview.addEventListener('message', (event) => {
 							// Key channel: object-typed (PostWebMessageAsJson), never
 							// forwarded to the page's onMessage.
