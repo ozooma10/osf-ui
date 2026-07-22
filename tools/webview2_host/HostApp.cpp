@@ -199,6 +199,11 @@ namespace osfui::wv2
 				bool controllerRequested{ false };
 				bool bridgeAllowed{ true };
 				bool hidden{ true };
+				// One-shot hidden paint requested by the game. Unlike leaving the
+				// controller visible indefinitely, this primes Chromium without
+				// running closed-view animations for the rest of the session.
+				bool prewarm{ false };
+				bool prewarmPending{ false };
 				bool renderStats{ false };
 				// Manifest (authoring) height, set by `navigate`: the page lays out at
 				// this height and ApplyScale derives the rasterization scale from it.
@@ -772,7 +777,37 @@ namespace osfui::wv2
 				L"requestAnimationFrame(function(){requestAnimationFrame(function(){"
 				L"chrome.webview.postMessage('__osfuiRevealReady');});});";
 			static constexpr std::string_view kRevealSentinel = "__osfuiRevealReady";
+			static constexpr const wchar_t* kPrewarmSentinelScript =
+				L"requestAnimationFrame(function(){requestAnimationFrame(function(){"
+				L"chrome.webview.postMessage('__osfuiPrewarmReady');});});";
+			static constexpr std::string_view kPrewarmSentinel = "__osfuiPrewarmReady";
 			static constexpr std::uint64_t kRevealTimeoutMs = 300;
+
+			void BeginPrewarm(View& a_view)
+			{
+				if (!a_view.prewarm || !a_view.hidden) return;
+				if (!a_view.prewarmPending) {
+					a_view.prewarmPending = true;
+					if (a_view.controller) a_view.controller->put_IsVisible(TRUE);
+				}
+				// The request may arrive before navigation reaches DOMContentLoaded.
+				// Calling again there arms the paint handshake once rAF exists.
+				if (a_view.webView && a_view.domSeen) {
+					a_view.webView->ExecuteScript(kPrewarmSentinelScript,
+						Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
+							[](HRESULT, LPCWSTR) -> HRESULT { return S_OK; }).Get());
+				}
+			}
+
+			void CompletePrewarm(View& a_view)
+			{
+				if (!a_view.prewarmPending) return;
+				a_view.prewarmPending = false;
+				if (a_view.hidden && a_view.controller) {
+					a_view.controller->put_IsVisible(FALSE);
+				}
+				log.Info(std::format("view '{}': hidden prewarm complete", a_view.id));
+			}
 
 			bool AnyRevealPending() const
 			{
@@ -797,6 +832,7 @@ namespace osfui::wv2
 				if (a_view.hidden && !a_view.revealPending) return;
 				a_view.hidden = true;
 				a_view.revealPending = false;  // cancel an in-flight reveal
+				a_view.prewarmPending = false;
 				a_view.hideDeferred = true;    // applied at batch end / reveal end
 				log.Info(std::format("view '{}': hide (deferred to batch end)", a_view.id));
 			}
@@ -811,6 +847,7 @@ namespace osfui::wv2
 				}
 				a_view.hidden = false;
 				a_view.hideDeferred = false;
+				a_view.prewarmPending = false;
 				// Resume Chromium first — nothing paints while suspended.
 				if (a_view.controller) a_view.controller->put_IsVisible(TRUE);
 				if (a_view.visual && a_view.visual.IsVisible()) {
@@ -1087,9 +1124,10 @@ namespace osfui::wv2
 				a_view.controller->put_Bounds(
 					RECT{ 0, 0, static_cast<LONG>(width), static_cast<LONG>(height) });
 				ApplyScale(a_view);
-				// Apply the current hidden state, not a hardcoded one: an invisible
-				// controller suspends Chromium rendering entirely.
-				a_view.controller->put_IsVisible(a_view.hidden ? FALSE : TRUE);
+				// Apply the current hidden state, except during the one-shot prewarm:
+				// an invisible controller suspends Chromium rendering entirely.
+				a_view.controller->put_IsVisible(
+					a_view.hidden && !a_view.prewarmPending ? FALSE : TRUE);
 				ComPtr<ICoreWebView2Controller2> controller2;
 				if (SUCCEEDED(a_view.controller.As(&controller2))) {
 					controller2->put_DefaultBackgroundColor(COREWEBVIEW2_COLOR{ 0, 0, 0, 0 });
@@ -1719,6 +1757,11 @@ namespace osfui::wv2
 								CompleteReveal(*view, /*a_timedOut=*/false);
 								return S_OK;
 							}
+							if (text == kPrewarmSentinel) {
+								// Host-internal one-shot warmup; not forwarded.
+								CompletePrewarm(*view);
+								return S_OK;
+							}
 							Send(json{ { "type", "webMessage" }, { "view", view->id },
 								{ "json", std::move(text) } });
 							return S_OK;
@@ -1785,6 +1828,7 @@ namespace osfui::wv2
 								}
 								DrainQueuedViewWork(*view);
 								ApplyRenderStats(*view);
+								BeginPrewarm(*view);
 								return S_OK;
 							}).Get(), &token);
 				}
@@ -1938,8 +1982,10 @@ namespace osfui::wv2
 				if (!a_view.webView) return;
 				if (a_view.pendingNavigate) {
 					a_view.domSeen = a_view.navigationSucceeded = a_view.domNotified = false;
+					a_view.prewarmPending = false;
 					a_view.currentUrl = *a_view.pendingNavigate;
 					a_view.pendingNavigate.reset();
+					if (a_view.prewarm && a_view.hidden) BeginPrewarm(a_view);
 					const auto hr = a_view.webView->Navigate(a_view.currentUrl.c_str());
 					if (FAILED(hr)) {
 						Send(json{ { "type", "loadEvent" }, { "view", a_view.id },
@@ -2212,6 +2258,11 @@ namespace osfui::wv2
 					}
 				} else if (type == "resize") {
 					ApplyResize(a_msg.value("width", 1u), a_msg.value("height", 1u));
+				} else if (type == "prewarm") {
+					auto* view = ResolveView(a_msg);
+					if (!view) return;
+					view->prewarm = true;
+					BeginPrewarm(*view);
 				} else if (type == "setHidden") {
 					auto* view = ResolveView(a_msg);
 					if (!view) return;

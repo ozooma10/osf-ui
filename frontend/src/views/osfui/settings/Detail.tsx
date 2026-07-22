@@ -55,8 +55,6 @@ export function surfacesKey(ownerId: string): string {
 export interface DetailProps {
   mods: ModRecord[];
   views: ViewRecord[];
-  /** Unfiltered views.data, including hub:false platform/utility surfaces. */
-  diagnosticViews: ViewRecord[];
   /** Pre-trimmed, pre-lowercased. Non-empty selects mode 1. */
   query: string;
   selectedId: string | null;
@@ -75,7 +73,6 @@ export interface DetailProps {
   hudOn: (view: ViewRecord) => boolean;
   onOpenView: (viewId: string) => void;
   onHudToggle: (viewId: string, next: boolean) => void;
-  onRenderStatsToggle: (viewId: string, next: boolean) => void;
 
   onCommit: (modId: string, key: string, value: SettingValue) => void;
   onResetSetting: (modId: string, key: string) => void;
@@ -209,8 +206,6 @@ function SettingsPage(props: SettingsPageProps) {
       <div class="detail-body">
         <Surfaces {...props} views={props.entryViews} ownerId={mod.id} />
 
-        {isFramework ? <RenderDiagnostics {...props} /> : null}
-
         {/* Advisory only, not a gate: everything below still renders
             best-effort, and a setting of a type this host predates comes up
             read-only with its own per-row hint. */}
@@ -255,49 +250,6 @@ function SettingsPage(props: SettingsPageProps) {
         ))}
       </div>
     </>
-  );
-}
-
-function RenderDiagnostics({ diagnosticViews, onRenderStatsToggle, tr }: DetailProps) {
-  const views = [...diagnosticViews].sort((a, b) =>
-    (a.title || a.id).localeCompare(b.title || b.id, undefined, { sensitivity: 'base' }),
-  );
-  if (!views.length) return null;
-
-  return (
-    <div class="group render-diagnostics">
-      <div class="group-label-static">{tr('renderDiagnostics', 'Render diagnostics')}</div>
-      <p class="group-hint">
-        {tr(
-          'renderDiagnosticsHint',
-          'Overlay live browser, capture and transfer timing on a view. Diagnostic sampling adds a small amount of work.',
-        )}
-      </p>
-      <div class="group-rows">
-        {views.map((view) => {
-          const failed = view.loadState === 'failed';
-          return (
-            <Row key={view.id} class={failed ? 'disabled' : ''} dataLabel={(view.title || view.id).toLowerCase()} dataKey="">
-              <div class="row-text">
-                <div class="row-label">{view.title || view.id}</div>
-                <div class="row-hint">{view.id}</div>
-              </div>
-              <div class="control render-stats-control">
-                <span class="render-stats-state">
-                  {view.renderStats ? tr('statsOn', 'Stats on') : tr('statsOff', 'Stats off')}
-                </span>
-                <Switch
-                  id={`render-stats-${view.id}`}
-                  on={view.renderStats === true}
-                  disabled={failed}
-                  onToggle={(next) => onRenderStatsToggle(view.id, next)}
-                />
-              </div>
-            </Row>
-          );
-        })}
-      </div>
-    </div>
   );
 }
 

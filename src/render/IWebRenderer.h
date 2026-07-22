@@ -290,6 +290,10 @@ namespace OSFUI
 		// Per-view state mutated at runtime. Honored by multi-view backends in
 		// the compositing/scroll path; others ignore.
 		virtual void SetViewHidden(std::string_view /*a_viewId*/, bool /*a_hidden*/) {}
+		// Prime a hidden view's first Chromium paint, then suspend it again. This
+		// keeps an on-demand platform surface cheap while removing the cold
+		// renderer/controller path from its first reveal.
+		virtual void PrewarmView(std::string_view /*a_viewId*/) {}
 		virtual void SetViewOrder(std::string_view /*a_viewId*/, int /*a_order*/) {}
 		virtual void SetScrollPixelSize(std::string_view /*a_viewId*/, int /*a_pixels*/) {}
 		// Host-owned diagnostics drawn inside one view. The overlay must not

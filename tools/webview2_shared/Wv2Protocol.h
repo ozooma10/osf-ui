@@ -70,6 +70,7 @@ namespace osfui::wv2
 	//                page lays out at logical size and CSS px scale up to
 	//                output pixels. Optional — omitted means kDefaultLogicalHeight.)
 	// resize        { width:u32, height:u32 }    (global: every view renders output-sized)
+	// prewarm       { view:str }                 (one hidden paint, then suspend again)
 	// setHidden     { view:str, hidden:bool }    (child-visual visibility + Chromium suspend)
 	// setOrder      { view:str, order:i32 }      (composite z: lower beneath, ties by creation)
 	// setActive     { view:str }                 (mouse/focus/synthetic-key target)

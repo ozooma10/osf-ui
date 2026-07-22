@@ -333,9 +333,9 @@ namespace OSFUI
 		// WebView2's take-focus-on-open model). Cleared on page (re)load, view
 		// destroy, and overlay close. Main thread only.
 		std::unordered_set<std::string> _textFocusViews;
-		// Session-scoped, per-view host diagnostics. Kept outside page state so
-		// reloads cannot remove the panel and no authored view code is required.
-		std::unordered_set<std::string> _renderStatsViews;
+		// Persisted osfui.renderStats setting. Applied to every loaded surface;
+		// LoadSurface also applies it to views discovered and opened later.
+		bool _renderStatsEnabled{ false };
 		// Last value pushed to IWebRenderer::SetNativeKeyboardFocus; the false
 		// side posts a game-focus restore, so sends are edge-only. Main thread.
 		bool _nativeFocusGranted{ false };

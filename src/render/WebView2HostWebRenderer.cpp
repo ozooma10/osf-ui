@@ -244,6 +244,7 @@ namespace OSFUI
 			std::string entry;
 			bool        bridge{ false };
 			bool        hidden{ true };
+			bool        prewarm{ false };
 			bool        renderStats{ false };
 			int         order{ 0 };
 			// Manifest (authoring) height. The host divides output height by this
@@ -701,6 +702,10 @@ namespace OSFUI
 						{ "entry", view.entry },
 						{ "bridge", view.bridge },
 						{ "logicalHeight", view.logicalHeight } }.dump());
+					if (view.prewarm) {
+						pipe.WriteMessage(json{
+							{ "type", "prewarm" }, { "view", view.id } }.dump());
+					}
 					pipe.WriteMessage(json{
 						{ "type", "setHidden" },
 						{ "view", view.id },
@@ -1378,6 +1383,17 @@ namespace OSFUI
 		}
 		_impl->Send(json{ { "type", "setHidden" },
 			{ "view", std::string(a_viewId) }, { "hidden", a_hidden } });
+	}
+
+	void WebView2HostWebRenderer::PrewarmView(std::string_view a_viewId)
+	{
+		{
+			std::scoped_lock lock(_impl->stateMutex);
+			auto* view = _impl->FindView(a_viewId);
+			if (!view || view->prewarm) return;
+			view->prewarm = true;
+		}
+		_impl->Send(json{ { "type", "prewarm" }, { "view", std::string(a_viewId) } });
 	}
 
 	void WebView2HostWebRenderer::SetViewOrder(std::string_view a_viewId, int a_order)

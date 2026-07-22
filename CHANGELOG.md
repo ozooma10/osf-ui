@@ -4,15 +4,12 @@
 
 ### Fixed
 
+- The first-load transition is now painted once during startup while it is still hidden, so invoking it no longer waits for a cold WebView renderer before it can appear.
 - Hardened the Pause-menu “MOD MENUS” entry against close/reopen races: periodic injection now runs only while the engine-admitted movie is advancing, and stale click callbacks are swallowed without opening the overlay or forwarding OSF UI's private action id into the game. Unexpected Scaleform faults are also left to the crash logger instead of being caught after the VM is already corrupted, which previously turned the crash into a hang.
 
 ### Other changes
 
-- The OSF UI settings page can now overlay live render diagnostics on any loaded view. Page animation cadence and stalls are shown beside host capture/transfer rates, texture-copy time, long tasks, DOM and heap size, and shared-ring backpressure, making it possible to tell slow view code from capture or compositor lag without modifying the view.
-
-### For view authors
-
-- Bridge protocol 1.3 adds `renderStats.set` and the `views.data.renderStats` state, so a view can also toggle the host-owned diagnostics panel for itself or another loaded surface.
+- Mod Settings now has one persistent **Show render stats** switch under OSF UI → Diagnostics. It overlays page animation cadence and stalls beside host capture/transfer rates, texture-copy time, long tasks, DOM and heap size, and shared-ring backpressure on every view, including views loaded after it is enabled.
 
 ## 1.2.1 — 2026-07-22
 

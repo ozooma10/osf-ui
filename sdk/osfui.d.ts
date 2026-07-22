@@ -1,7 +1,7 @@
 /**
  * TypeScript definitions for the OSF UI native <-> web bridge.
  *
- * Bridge protocol version: 1.3 (STABLE — additive changes bump the minor;
+ * Bridge protocol version: 1.2 (STABLE — additive changes bump the minor;
  * breaking changes bump the major). Compatibility is advisory: declare the
  * OSF UI version you authored against as `targetVersion` (view manifest /
  * settings schema) and the Mods surface badges "needs update" when the
@@ -62,8 +62,6 @@ export type UiCommand =
   | { command: "game.get" }
   /** Catalog of loaded surfaces; replies `views.data` and subscribes the caller to change pushes. */
   | { command: "views.get" }
-	/** (protocol 1.3) Show/hide host-owned render diagnostics; `view` omitted targets the caller. */
-	| { command: "renderStats.set"; view?: string; enabled: boolean }
 	/** Active-locale overrides for a mod (omitted mod = calling view's owner); replies and subscribes with i18n.data. */
 	| { command: "i18n.get"; mod?: string }
   /** Read the settings registry; replies `settings.data` and SUBSCRIBES the caller: committed values arrive as `settings.changed`, registry shape changes re-send `settings.data`. */
@@ -358,7 +356,6 @@ export interface ViewsDataPayload {
     targetVersion: string;  // manifest `targetVersion` — OSF UI version the view was authored against; "" if undeclared
     open: boolean;          // menu: on the stack; hud: shown
     focused: boolean;       // the top open menu (receives input)
-    renderStats?: boolean;  // protocol 1.3; host-injected render diagnostics are enabled for this view
     loadState: "loading" | "loaded" | "failed";
   }>;
 }

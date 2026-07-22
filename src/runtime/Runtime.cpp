@@ -186,7 +186,12 @@ namespace OSFUI
 		// independently of config.views so drop-in menus inherit the behavior.
 		if (_renderer->SupportsMultipleViews()) {
 			if (const auto* handoff = _views.Find(kHandoffViewId)) {
-				LoadSurface(*handoff, "as the warm first-load handoff");
+				if (LoadSurface(*handoff, "as the warm first-load handoff")) {
+					// Hidden WebView2 controllers normally suspend before their first
+					// paint. Prime this one at boot so opening a cold target never also
+					// pays the handoff surface's renderer startup cost.
+					_renderer->PrewarmView(kHandoffViewId);
+				}
 			}
 		}
 
@@ -513,6 +518,7 @@ namespace OSFUI
 		_viewLoadState[id] = ViewLoadState::Loading;
 		_readyViews.erase(id);
 		_renderer->LoadView(a_manifest);
+		_renderer->SetRenderStats(id, _renderStatsEnabled);
 		// A fresh view starts at manifest dimensions; restore the current
 		// output-matched size. Before first present these are the initialized
 		// logical dimensions and the normal output-resize path supersedes them.
@@ -1187,7 +1193,6 @@ namespace OSFUI
 				{ "targetVersion", m.targetVersion },
 				{ "open", _menus.IsOpen(m.id) },
 				{ "focused", active.has_value() && *active == m.id },
-				{ "renderStats", _renderStatsViews.contains(m.id) },
 				{ "loadState", state == ViewLoadState::Failed ? "failed" :
 				               state == ViewLoadState::Finished ? "loaded" :
 				                                                  "loading" },
@@ -1823,22 +1828,6 @@ namespace OSFUI
 			_lastViewsData = payload.dump();
 			a_b.SendToWeb("views.data", payload);
 		});
-		// Host-injected, per-view diagnostics. The state is session-scoped and
-		// survives page reloads; the renderer owns the panel so content cannot
-		// accidentally omit the instrumentation.
-		a_bridge.RegisterCommand("renderStats.set", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
-			std::string id = Json::GetString(a_p, "view", "");
-			if (id.empty()) id = std::string(a_b.CurrentSource());
-			if (!_menus.IsRegistered(id)) {
-				a_b.SendResult(false, "unknown-view", "not a loaded view");
-				return;
-			}
-			const bool enabled = Json::GetBool(a_p, "enabled", true);
-			if (enabled) _renderStatsViews.insert(id);
-			else _renderStatsViews.erase(id);
-			_renderer->SetRenderStats(id, enabled);
-			BroadcastViewsData();
-		});
 		// A custom view supplies inline English to osfui.t(address, english); this
 		// returns only active-locale overrides for its mod domain. The caller
 		// subscribes so a live language change replaces the catalog.
@@ -2041,6 +2030,18 @@ namespace OSFUI
 		else if (a_key == "vanillaKeyConflicts" && a_value.is_boolean()) {
 			_config.vanillaKeyConflicts = a_value.get<bool>();
 			ApplyVanillaKeyConflicts(_config.vanillaKeyConflicts);
+		}
+		else if (a_key == "renderStats" && a_value.is_boolean()) {
+			_renderStatsEnabled = a_value.get<bool>();
+			if (_renderer) {
+				for (const auto& manifest : _views.All()) {
+					if (_menus.IsRegistered(manifest.id)) {
+						_renderer->SetRenderStats(manifest.id, _renderStatsEnabled);
+					}
+				}
+			}
+			REX::INFO("Runtime: setting osfui.renderStats -> {} for all views",
+				_renderStatsEnabled);
 		}
 		else if (a_key == "language" && a_value.is_string()) {
 			const auto requested = a_value.get<std::string>();

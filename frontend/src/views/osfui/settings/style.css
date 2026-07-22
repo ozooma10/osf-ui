@@ -143,16 +143,6 @@ html, body { height: 100%; overflow: hidden; }
 
 .group-rows { display: block; }
 .group.collapsed .group-rows { display: none; }
-.group-label-static {
-  font-family: var(--osf-font-mono); font-size: var(--osf-text-2xs);
-  letter-spacing: var(--osf-tracking-label); text-transform: uppercase; color: var(--osf-text-faint);
-  margin-bottom: 5px;
-}
-.group-hint { margin: 0 0 8px; max-width: 76ch; font-size: var(--osf-text-xs); color: var(--osf-text-faint); }
-.render-stats-state {
-  min-width: 52px; font-family: var(--osf-font-mono); font-size: var(--osf-text-2xs);
-  letter-spacing: 0.08em; text-transform: uppercase; color: var(--osf-text-faint);
-}
 .group-label {
   display: inline-flex; align-items: center; gap: 8px;
   background: none; border: 0; padding: 0; cursor: pointer; text-align: left;

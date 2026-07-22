@@ -23,7 +23,7 @@ namespace OSFUI
 	// that breaks a shipped view bumps the major. Compat is advisory, not gated —
 	// an artifact declares `targetVersion` and the Mods surface badges
 	// "needs update" against the host `version`.
-	inline constexpr const char* kBridgeProtocolVersion = "1.3";
+	inline constexpr const char* kBridgeProtocolVersion = "1.2";
 
 	// "<major>[.<minor>[.<patch>]]", digits only — missing parts are 0.
 	// Shared by every `targetVersion` site (view manifests, settings

@@ -44,6 +44,19 @@
           "hint": "Badge mod hotkeys that collide with Starfield's own bindings."
         }
       ]
+    },
+    {
+      "id": "diagnostics",
+      "label": "Diagnostics",
+      "settings": [
+        {
+          "key": "renderStats",
+          "label": "Show render stats",
+          "type": "bool",
+          "default": false,
+          "hint": "Overlay live page, capture and transfer performance on every view. Diagnostic sampling adds a small amount of work."
+        }
+      ]
     }
   ]
 }
