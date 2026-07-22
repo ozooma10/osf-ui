@@ -138,11 +138,17 @@ To disable without uninstalling: set `"enabled": false` in
   be wrong). Symptom: the overlay never appears and `OSF UI.log` has a
   `cannot render correctly into it yet` line. Workaround: run Starfield in
   SDR. HDR output is planned.
-- Untested display/overlay setups: frame generation (DLSS-G / FSR-FG) and
-  overlay tools (ReShade, Steam overlay, RTSS) haven't been validated. With
-  those the overlay may not appear or may draw on the wrong output. OSF UI
-  chains after tools that hooked first and logs diagnostics for the broken
-  cases (see the table above). Reports welcome.
+- Frame Generation (NVIDIA DLSS-FG and AMD FSR3-FG) is detected and the
+  overlay deliberately does not draw while FG paces the swapchain — drawing
+  there races the frame-gen presenter and can crash the game. Symptom: the
+  overlay never appears and `OSF UI.log` has a `Frame Generation is pacing
+  this swapchain` warning. Workaround: disable Frame Generation in
+  Starfield's display settings while using the overlay. Proper FG
+  compatibility is on the roadmap.
+- Untested overlay setups: overlay tools (ReShade, Steam overlay, RTSS)
+  haven't been validated. With those the overlay may not appear or may draw
+  on the wrong output. OSF UI chains after tools that hooked first and logs
+  diagnostics for the broken cases (see the table above). Reports welcome.
 - Tied to a game build via the Address Library; a patch can require an
   update.
 - Input: text entry follows your OS keyboard layout (dead keys and AltGr

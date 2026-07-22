@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+
+- Fixed a crash when toggling Frame Generation (or changing display settings with FG enabled), reported on AMD FSR3 frame generation. The overlay kept a reference to every swapchain it had drawn on, so when the game tore its swapchain down and built a new one on the same window, the old one couldn't actually die — and the game's frame-interpolation swapchain creation crashes when that happens. The overlay now borrows the swapchain only for the duration of each present and holds no lasting reference, so recreation proceeds exactly as if the overlay weren't there. (The same mechanism most likely contributed to the earlier DLSS Frame Generation recreation crash that 1.2.0 partially mitigated.)
+- The game's built-in FSR3 frame generation is now detected the same way NVIDIA DLSS frame generation already was, and while Frame Generation is active the overlay suspends drawing on **all** swapchains — not just the FG-paced one. Local reproduction showed that with FG on, the game presents through two swapchains and a single overlay draw into the *other* one also crashes the game (that draw is what set off the earlier `sl.dlss_g` crashes during swapchain recreation). If the overlay is invisible, disable Frame Generation in Starfield's display settings — the log says exactly this when it happens. Proper frame-gen compatibility remains on the roadmap.
+
 ### Other changes
 
 - New dev config knob `uiPassProbe` (default off, no effect in normal play): hooks the engine's own Scaleform render passes in log-only mode and writes a characterization of the drawing seam to `OSF UI.log`. This is groundwork for rendering views *underneath* the game's native menus and HUD (and correctly inside Frame Generation's UI handling) instead of always on top of everything.

@@ -115,6 +115,59 @@ namespace OSFUI
 			return name;
 		}
 
+		// Starfield statically links AMD FidelityFX FSR3 *and exports its C
+		// api*, so the frame-interpolation swapchain implementation can be
+		// bounded from the exe's own export table — no engine offsets. The
+		// FrameInterpolationSwapChainDX12 methods themselves (including the
+		// pacing thread that presents the real swapchain when Frame Generation
+		// is on) are unexported, but they sit between these exports in the
+		// image (proven from a 2026-07-21 trainwreck stack: internal frames at
+		// +3512F07..+35156A5 on 1.16.244, inside the export span below). The
+		// padding covers unexported neighbors from the same translation units;
+		// the surrounding code on both sides is still FidelityFX/AGS, so the
+		// padded range cannot swallow game render-loop call sites. Resolves to
+		// {0,0} (detection off, drawing proceeds as before) if a future patch
+		// stops exporting these.
+		struct FfxFrameInterpRegion
+		{
+			std::uintptr_t lo{ 0 };
+			std::uintptr_t hi{ 0 };
+		};
+		[[nodiscard]] FfxFrameInterpRegion ResolveFfxFrameInterpRegion()
+		{
+			static constexpr const char* kExports[] = {
+				"ffxFsr3SkipPresent",
+				"ffxFsr3DispatchFrameGeneration",
+				"ffxCreateFrameinterpolationSwapchainDX12",
+				"ffxCreateFrameinterpolationSwapchainForHwndDX12",
+				"ffxGetFrameinterpolationCommandlistDX12",
+				"ffxGetFrameinterpolationTextureDX12",
+				"ffxRegisterFrameinterpolationUiResourceDX12",
+				"ffxReplaceSwapchainForFrameinterpolationDX12",
+				"ffxSetFrameGenerationConfigToSwapchainDX12",
+				"ffxWaitForPresents",
+			};
+			constexpr std::uintptr_t kPad = 0x10000;
+
+			const HMODULE exe = ::GetModuleHandleW(nullptr);
+			std::uintptr_t lo = 0;
+			std::uintptr_t hi = 0;
+			int found = 0;
+			for (const auto* name : kExports) {
+				const auto addr = reinterpret_cast<std::uintptr_t>(::GetProcAddress(exe, name));
+				if (!addr) {
+					continue;
+				}
+				++found;
+				lo = lo == 0 ? addr : (std::min)(lo, addr);
+				hi = (std::max)(hi, addr);
+			}
+			if (found < 4) {  // export surface changed; don't guess from a sliver
+				return {};
+			}
+			return { lo - kPad, hi + kPad };
+		}
+
 		// A vtable-slot read cannot see tools that hook Present by patching the
 		// function's first bytes (MinHook-style — BetterConsole does this): the
 		// slot still points into dxgi.dll while dxgi!Present's first instruction
@@ -319,11 +372,18 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		// holding a backbuffer reference blocks the game's ResizeBuffers
 		// (resolution change / alt-tab / fullscreen transition), which crashed
 		// the game (2026-06-12). Each present does GetBuffer + CreateRTV fresh
-		// and releases the buffer. The swapchain ref itself is fine — only
-		// outstanding backbuffer refs block ResizeBuffers.
+		// and releases the buffer. The swapchain itself is not ref'd either:
+		// a lasting ref keeps a game-released swapchain alive, its HWND stays
+		// associated, and the game's next CreateSwapChainForHwnd on that window
+		// fails — Starfield's built-in FSR3 frame-interpolation swapchain
+		// creation null-derefs on exactly that failure (external CTD,
+		// 2026-07-21, crash inside ffxCreateFrameinterpolationSwapchainForHwndDX12).
+		// `swap` is borrowed: refreshed by AcquireTarget on every present and
+		// only dereferenced below that call in the same present, while the
+		// presenting swapchain is guaranteed alive by its own Present call.
 		struct Target
 		{
-			IDXGISwapChain3* swap{ nullptr };  // owned (QI'd), key is the raw self ptr
+			IDXGISwapChain3* swap{ nullptr };  // borrowed (NOT ref'd), key is the raw self ptr
 			std::uintptr_t   key{ 0 };
 			std::uint32_t    width{ 0 };
 			std::uint32_t    height{ 0 };
@@ -338,22 +398,38 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			bool             supported{ false };
 			// Who calls Present on this swapchain (immediate return address of
 			// our thunk, re-resolved to a module when the call site changes).
-			// Presents arriving from sl.dlss_g.dll mean NVIDIA Frame Generation
-			// is pacing this swapchain from its own thread — drawing into it
-			// races Streamline's queue work (external CTD: null-deref inside
-			// sl.dlss_g during swapchain recreation seconds after our first
-			// draw), so fgDriven targets are never drawn on. sl.interposer
-			// alone is NOT a trigger: every vanilla install ships it, and
-			// passive game-thread forwarding through it draws fine.
+			// Two Frame Generation pacers are recognized, and fgDriven targets
+			// are never drawn on because drawing races the pacer's own queue
+			// work from its pacing thread:
+			//  - sl.dlss_g.dll (NVIDIA DLSS-FG via Streamline; external CTD:
+			//    null-deref inside sl.dlss_g during swapchain recreation
+			//    seconds after our first draw). sl.interposer alone is NOT a
+			//    trigger: every vanilla install ships it, and passive
+			//    game-thread forwarding through it draws fine.
+			//  - the exe's own statically-linked FSR3 frame-interpolation
+			//    swapchain (external CTD 2026-07-21), detected by return
+			//    address inside the export-bounded ffx region — its module is
+			//    Starfield.exe, so a module-name check can't see it.
 			const void*      callerRet{ nullptr };
 			bool             fgDriven{ false };
 			bool             callerLogged{ false };
+			// Last present tick, for evicting dead entries: swapchain
+			// recreation (FG toggle, display-mode change) churns pointers, and
+			// without eviction the fixed table fills with keys that never
+			// present again.
+			std::uint64_t    lastSeenMs{ 0 };
 		};
 		Target targets[kMaxSwapchains]{};
+
+		// Address range of the exe's built-in FSR3 frame-interpolation code
+		// (resolved once in EnsureSetup; {0,0} = undetectable, treat no caller
+		// as FSR-FG). See ResolveFfxFrameInterpRegion.
+		FfxFrameInterpRegion ffxFrameInterp{};
 
 		std::uint64_t drawnFrames{ 0 };
 		std::uint64_t waitedBusy{ 0 };   // presents that had to wait for a busy slot
 		std::uint64_t skippedBusy{ 0 };  // presents dropped because the wait timed out (GPU hung)
+		bool          fgSuspendLogged{ false };  // FrameGenActive transition logging (present thread only)
 
 		// Single-flight gate for OnPresent. With Frame Generation active the
 		// real swapchain presents from FG's pacing thread concurrently with the
@@ -430,8 +506,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 		void ReleaseTarget(Target& a_t)
 		{
-			SafeRelease(a_t.swap);  // no cached backbuffers to release
-			a_t = Target{};
+			a_t = Target{};  // no COM refs held (swap is borrowed, backbuffers uncached)
 		}
 
 		static void CloseRingHandles(SharedRingDesc& a_desc)
@@ -557,6 +632,16 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			if (!CreateSharedObjects() || !InstallPresentHook()) {
 				REX::ERROR("D3D12Compositor: setup failed; overlay disabled this session");
 				return;
+			}
+
+			ffxFrameInterp = ResolveFfxFrameInterpRegion();
+			if (ffxFrameInterp.lo != 0) {
+				REX::INFO("D3D12Compositor: FSR3 frame-interpolation code bounded at [0x{:X}, 0x{:X}) — "
+						  "presents issued from it will be recognized as Frame Generation pacing",
+					ffxFrameInterp.lo, ffxFrameInterp.hi);
+			} else {
+				REX::WARN("D3D12Compositor: could not bound the exe's FSR3 frame-interpolation code from its "
+						  "exports; FSR3 Frame Generation pacing will NOT be detected (DLSS-FG detection unaffected)");
 			}
 
 			g_overlay.store(this);
@@ -890,6 +975,20 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				return;  // FG-paced swapchain: never draw (see Target::fgDriven)
 			}
 
+			// Frame Generation suspends the overlay on EVERY swapchain, not
+			// just the FG-paced one. With FSR3-FG active the game presents two
+			// real swapchains (the FI-paced one plus a game-thread sibling
+			// forwarded through sl.interposer), and one draw into the sibling
+			// killed the game instantly (2026-07-21 local repro: log ends on
+			// the same millisecond as FIRST OVERLAY DRAW; the earlier
+			// sl.dlss_g+0x23EE0 crashes — a null-context dispatch stub — were
+			// the downstream symptom during the resulting recreation). The FG
+			// pipeline owns backbuffer state across the whole chain, so any
+			// PRESENT->RT->PRESENT round trip of ours races it.
+			if (FrameGenActive()) {
+				return;
+			}
+
 			bool gpu = false;
 			{
 				std::scoped_lock lk(frameMutex);
@@ -944,9 +1043,35 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			++cmdIndex;
 		}
 
+		// Is any FG-paced swapchain still presenting? Present-thread only (like
+		// all of targets[]). The 2s staleness window releases the suspension
+		// once the FG chain is torn down (FG toggled off) even if its target
+		// entry hasn't been evicted yet.
+		[[nodiscard]] bool FrameGenActive()
+		{
+			const auto nowMs = ::GetTickCount64();
+			bool active = false;
+			for (const auto& t : targets) {
+				if (t.key != 0 && t.fgDriven && nowMs - t.lastSeenMs < 2000) {
+					active = true;
+					break;
+				}
+			}
+			if (active && !fgSuspendLogged) {
+				fgSuspendLogged = true;
+				REX::WARN("D3D12Compositor: Frame Generation is active — overlay drawing suspended on ALL "
+						  "swapchains (drawing anywhere in an FG present chain can crash the game). "
+						  "Disable Frame Generation in Starfield's display settings to see the overlay.");
+			} else if (!active && fgSuspendLogged) {
+				fgSuspendLogged = false;
+				REX::INFO("D3D12Compositor: Frame Generation no longer pacing any swapchain — overlay drawing resumed");
+			}
+			return active;
+		}
+
 		// Re-classify a target when its Present call site changes (cheap pointer
 		// compare per present; module resolution only on change). Rationale for
-		// the sl.dlss_g-only trigger is on Target::fgDriven.
+		// the two triggers is on Target::fgDriven.
 		void UpdatePresentCaller(Target& a_t, const void* a_callerRet)
 		{
 			if (a_callerRet == a_t.callerRet) {
@@ -954,14 +1079,20 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			}
 			a_t.callerRet = a_callerRet;
 			const auto owner = ModuleNameOfAddress(a_callerRet);
-			const bool fg = ModuleFileNameLower(owner).rfind("sl.dlss_g", 0) == 0;
+			const auto ret = reinterpret_cast<std::uintptr_t>(a_callerRet);
+			const bool dlssFg = ModuleFileNameLower(owner).rfind("sl.dlss_g", 0) == 0;
+			const bool fsrFg = ffxFrameInterp.lo != 0 && ret >= ffxFrameInterp.lo && ret < ffxFrameInterp.hi;
+			const bool fg = dlssFg || fsrFg;
 			if (fg && !a_t.fgDriven) {
-				REX::WARN("D3D12Compositor: swapchain 0x{:X} is presented from '{}' — NVIDIA Frame "
-						  "Generation is pacing this swapchain, and drawing into it races Streamline's "
+				REX::WARN("D3D12Compositor: swapchain 0x{:X} is presented from {} (caller 0x{:X}) — Frame "
+						  "Generation is pacing this swapchain, and drawing into it races the frame-gen "
 						  "queue work (can crash the game). The overlay will NOT draw on this swapchain. "
 						  "If the overlay is invisible, disable Frame Generation in Starfield's display "
 						  "settings. Frame-gen compatibility is tracked in the project roadmap.",
-					a_t.key, owner);
+					a_t.key,
+					dlssFg ? "'" + owner + "' (NVIDIA DLSS Frame Generation)"
+					       : "the game's built-in FSR3 frame-interpolation code",
+					ret);
 			} else if (!fg && a_t.fgDriven) {
 				REX::INFO("D3D12Compositor: swapchain 0x{:X} presents from '{}' again — Frame Generation "
 						  "no longer pacing it; resuming overlay draws",
@@ -1214,32 +1345,56 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		}
 
 		// Find or (re)build the backbuffer target for this swapchain pointer.
+		// The returned target's `swap` is a borrowed pointer valid only for the
+		// remainder of this present (see the Target comment): the QI ref is
+		// dropped immediately so this table never extends a swapchain's
+		// lifetime past the game's own release.
 		[[nodiscard]] Target* AcquireTarget(IDXGISwapChain* a_swap)
 		{
+			IDXGISwapChain3* swap3 = nullptr;
+			if (FAILED(a_swap->QueryInterface(__uuidof(IDXGISwapChain3), reinterpret_cast<void**>(&swap3))) || !swap3) {
+				return nullptr;  // pre-3 swapchains: no GetCurrentBackBufferIndex
+			}
+			swap3->Release();  // borrow: the in-progress Present call keeps it alive
+
 			const auto key = reinterpret_cast<std::uintptr_t>(a_swap);
+			const auto nowMs = ::GetTickCount64();
 			Target* freeSlot = nullptr;
+			Target* stalest = nullptr;
 			for (auto& t : targets) {
 				if (t.key == key) {
+					t.swap = swap3;
+					t.lastSeenMs = nowMs;
 					return RefreshTarget(t) ? &t : nullptr;
 				}
 				if (t.key == 0 && !freeSlot) {
 					freeSlot = &t;
 				}
+				if (t.key != 0 && (!stalest || t.lastSeenMs < stalest->lastSeenMs)) {
+					stalest = &t;
+				}
 			}
 			if (!freeSlot) {
-				if (!targetsFullLogged) {
-					targetsFullLogged = true;
-					REX::WARN("D3D12Compositor: more than {} swapchains seen; ignoring extras", kMaxSwapchains);
+				// Evict an entry that stopped presenting (its swapchain was
+				// almost certainly destroyed in a recreation) rather than
+				// ignoring the new one forever.
+				if (stalest && nowMs - stalest->lastSeenMs > 2000) {
+					REX::INFO("D3D12Compositor: swapchain 0x{:X} silent for {} ms; evicting for new swapchain 0x{:X}",
+						stalest->key, nowMs - stalest->lastSeenMs, key);
+					ReleaseTarget(*stalest);
+					freeSlot = stalest;
+				} else {
+					if (!targetsFullLogged) {
+						targetsFullLogged = true;
+						REX::WARN("D3D12Compositor: more than {} swapchains presenting concurrently; ignoring extras", kMaxSwapchains);
+					}
+					return nullptr;
 				}
-				return nullptr;
 			}
 
-			IDXGISwapChain3* swap3 = nullptr;
-			if (FAILED(a_swap->QueryInterface(__uuidof(IDXGISwapChain3), reinterpret_cast<void**>(&swap3))) || !swap3) {
-				return nullptr;  // pre-3 swapchains: no GetCurrentBackBufferIndex
-			}
 			freeSlot->swap = swap3;
 			freeSlot->key = key;
+			freeSlot->lastSeenMs = nowMs;
 			freeSlot->rtvBase = static_cast<std::uint32_t>(freeSlot - targets) * kMaxBackBuffers;
 			return RefreshTarget(*freeSlot) ? freeSlot : nullptr;
 		}
