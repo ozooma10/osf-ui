@@ -4,7 +4,8 @@
 
 ### Fixed
 
-- Prevented visible animated and game views from intermittently collapsing to roughly 24–30 FPS. Chromium no longer treats OSF UI's deliberately tiny offscreen capture window or its renderer processes as background work, and supported Windows builds now permit high-rate capture updates instead of settling at a lower system-default cadence. Explicitly hidden views still suspend normally.
+- Prevented visible animated and game views from intermittently collapsing to roughly 24–30 FPS, especially while Starfield had focus. Chromium no longer treats OSF UI's deliberately tiny offscreen capture window or its renderer/compositor as occluded background work, and supported Windows builds now permit high-rate capture updates instead of settling at a lower system-default cadence. Explicitly hidden views still suspend normally.
+- Fixed CSS crosshair cursors appearing as the Windows loading spinner, most visibly over the Web Performance Lab's animation stage.
 - The first-load transition is now painted once during startup while it is still hidden, so invoking it no longer waits for a cold WebView renderer before it can appear.
 - Hardened the Pause-menu “MOD MENUS” entry against close/reopen races: periodic injection now runs only while the engine-admitted movie is advancing, and stale click callbacks are swallowed without opening the overlay or forwarding OSF UI's private action id into the game. Unexpected Scaleform faults are also left to the crash logger instead of being caught after the VM is already corrupted, which previously turned the crash into a hang.
 

@@ -1064,12 +1064,15 @@ namespace osfui::wv2
 				// game. Chromium's Windows occlusion tracker can classify that tiny
 				// owner as occluded and background the otherwise-visible controller;
 				// telemetry then shows rAF snapping from the monitor cadence to ~24-30
-				// fps. Ignore native HWND occlusion for this capture-only browser. We do
-				// Keep visible renderers at foreground scheduling priority as well. The
+				// fps. Ignore native HWND occlusion for this capture-only browser. Keep
+				// visible renderers at foreground scheduling priority as well. The
 				// native owner never receives ordinary foreground activation, so Chromium
 				// can otherwise demote a busy renderer even after native occlusion
-				// backgrounding is disabled. Explicit put_IsVisible(FALSE) remains the
-				// lifecycle gate that suspends hidden OSF UI views.
+				// backgrounding is disabled. Native occlusion can also be applied directly
+				// to Chromium's compositor through a separately field-trialled feature, so
+				// disable both the calculation and compositor policy for this capture-only
+				// HWND. Explicit put_IsVisible(FALSE) remains the lifecycle gate that
+				// suspends hidden OSF UI views.
 				auto environmentOptions = Microsoft::WRL::Make<CoreWebView2EnvironmentOptions>();
 				if (!environmentOptions) {
 					log.Error("could not allocate WebView2 environment options");
@@ -1077,7 +1080,8 @@ namespace osfui::wv2
 					return false;
 				}
 				constexpr wchar_t kCaptureBrowserArguments[] =
-					L"--disable-backgrounding-occluded-windows --disable-renderer-backgrounding";
+					L"--disable-backgrounding-occluded-windows --disable-renderer-backgrounding "
+					L"--disable-features=CalculateNativeWinOcclusion,ApplyNativeOcclusionToCompositor";
 				const auto optionsHr = environmentOptions->put_AdditionalBrowserArguments(
 					kCaptureBrowserArguments);
 				if (FAILED(optionsHr)) {
@@ -1088,7 +1092,7 @@ namespace osfui::wv2
 					return false;
 				}
 				log.InfoFwd(
-					"WebView2 background renderer/occlusion throttling disabled for the offscreen capture host");
+					"WebView2 renderer and native-occlusion throttling disabled for the offscreen capture host");
 				const auto hr = ::CreateCoreWebView2EnvironmentWithOptions(
 					nullptr, userData.c_str(), environmentOptions.Get(), callback.Get());
 				if (FAILED(hr)) {
