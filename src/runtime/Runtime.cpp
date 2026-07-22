@@ -1188,7 +1188,7 @@ namespace OSFUI
 				{ "mod", m.mod },
 				{ "kind", m.kind == SurfaceKind::Hud ? "hud" : "menu" },
 				{ "interactive", m.interactive },
-				{ "hub", m.hub },
+				{ "hub", m.hub && (!m.debugOnly || _config.debugMode) },
 				{ "targetVersion", m.targetVersion },
 				{ "open", _menus.IsOpen(m.id) },
 				{ "focused", active.has_value() && *active == m.id },
@@ -2067,6 +2067,12 @@ namespace OSFUI
 			}
 			REX::INFO("Runtime: setting osfui.renderStats -> {} for all views",
 				_renderStatsEnabled);
+		}
+		else if (a_key == "debugMode" && a_value.is_boolean()) {
+			_config.debugMode = a_value.get<bool>();
+			BroadcastViewsData();  // debugOnly views appear/leave the mod menu live
+			REX::INFO("Runtime: setting osfui.debugMode -> {} (developer views {} in the mod menu)",
+				_config.debugMode, _config.debugMode ? "shown" : "hidden");
 		}
 		else if (a_key == "language" && a_value.is_string()) {
 			const auto requested = a_value.get<std::string>();

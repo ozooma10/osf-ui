@@ -41,7 +41,7 @@ namespace OSFUI
 		}
 		if (Log::DevMode()) {
 			Json::ReportUnknownKeys(*json,
-				{ "manifestVersion", "id", "title", "description", "accent", "hub", "entry",
+				{ "manifestVersion", "id", "title", "description", "accent", "hub", "debugOnly", "entry",
 					"width", "height", "transparent", "kind",
 					"capturesInput", "pausesGame", "openOnStart", "order", "readySignal", "permissions",
 					"targetVersion" },
@@ -107,6 +107,7 @@ namespace OSFUI
 		manifest.openOnStart = Json::GetBool(*json, "openOnStart", manifest.openOnStart);
 		manifest.order = static_cast<std::int32_t>(Json::GetInt(*json, "order", manifest.order));
 		manifest.hub = Json::GetBool(*json, "hub", manifest.hub);
+		manifest.debugOnly = Json::GetBool(*json, "debugOnly", manifest.debugOnly);
 		manifest.readySignal = Json::GetBool(*json, "readySignal", manifest.readySignal);
 
 		// Advisory host-version target; does not gate loading (a view authored for

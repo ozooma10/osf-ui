@@ -16,8 +16,13 @@
 
 ### Other changes
 
-- Added a built-in **Web Performance Lab** under OSF UI's panels. It runs repeatable paint, transform, DOM layout, Canvas 2D, CSS effects and mixed-scene workloads without pausing the game; records RAF cadence, frame-time percentiles, JavaScript work, timer jitter and input-to-RAF delay; and can run or copy a complete reference suite for comparing machines and OSF UI builds.
+- Added a built-in **Web Performance Lab**: repeatable paint, transform, DOM layout, Canvas 2D, CSS effects and mixed-scene workloads run without pausing the game; it records RAF cadence, frame-time percentiles, JavaScript work, timer jitter and input-to-RAF delay, and can run or copy a complete reference suite for comparing machines and OSF UI builds. It is a developer tool, so it no longer appears in the mod menu during normal play — turn on **Debug mode** (below) to reveal it.
+- Mod Settings has a new **Debug mode** switch under OSF UI → Diagnostics (off by default). When on, developer views such as the Web Performance Lab are listed in the mod menu; off keeps them hidden. Normal play is unaffected.
 - Mod Settings now has one persistent **Show render stats** switch under OSF UI → Diagnostics. Its primary **Fresh view** rate measures new WebView textures that actually reach the game's compositor, rather than browser animation callbacks. The panel and periodic OSF UI logs also separate capture, transport, internal overlay-pass and present cadence; report capture-to-draw and compositor CPU time; count reused frames, stalls, waits and drops; and sample the actual animated document inside same-origin iframes instead of misreporting a static launcher. It applies to every view, including views loaded after it is enabled.
+
+### For view authors
+
+- A view manifest can set `"debugOnly": true` to keep the view out of the mod menu unless the player enables **Debug mode** (OSF UI → Diagnostics). The view still loads and can be opened by id — useful for a mod's own diagnostic/developer surfaces.
 
 ## 1.2.1 — 2026-07-22
 

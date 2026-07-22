@@ -55,6 +55,13 @@
           "type": "bool",
           "default": false,
           "hint": "Show fresh view FPS and pipeline timings on every view, and write periodic diagnostics to the OSF UI logs. Sampling adds a small amount of work."
+        },
+        {
+          "key": "debugMode",
+          "label": "Debug mode",
+          "type": "bool",
+          "default": false,
+          "hint": "Show developer tools, such as the Web Performance Lab, in the mod menu list. Leave off for normal play."
         }
       ]
     }

@@ -62,6 +62,10 @@ namespace OSFUI
 		// the engine honors. Informational only — warn, never block. MCM-owned;
 		// toggles live (the table loads lazily on first enable).
 		bool        vanillaKeyConflicts{ true };
+		// MCM-owned dev toggle (default off): when on, views marked debugOnly in
+		// their manifest (e.g. the built-in Web Performance Lab) are listed in the
+		// mod menu; off keeps them loaded but hidden. Must equal the schema default.
+		bool        debugMode{ false };
 		std::string view{ "osfui/settings" };  // qualified "<mod>/<view>" id
 		// Optional multi-view set. When non-empty, every id is loaded and
 		// composited together (layer order set by the menu/HUD framework — HUDs
