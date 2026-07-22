@@ -11,6 +11,7 @@
 - Closed a startup race in the Scaleform UI-seam hooks: the overlay's D3D12 command-list hooks now publish the engine's original function *before* the hook becomes reachable, eliminating a narrow window where a render thread could route through a half-installed hook, drop a GPU call or skip a UI pass, and fault the game. The render-target capture hook (a `uiPassProbe`-only diagnostic) is also no longer installed during normal play, so it no longer sits on a hot engine code path.
 - Hardened settings persistence: if writing a settings file fails partway (disk full or I/O error), OSF UI now keeps your existing values instead of replacing them with a truncated file that would be quarantined and reset to defaults on the next load.
 - A malformed, truncated, or version-mismatched message from the WebView2 host is now dropped with a warning instead of throwing out of the host-reader thread, which previously crashed the whole game to desktop.
+- Fixed synthetic key presses (gamepad-driven typing, and the Space key) being silently dropped inside views: a leftover reference from the focus rework threw before the key was dispatched. Text fields also blur correctly again when a view is hidden.
 
 ### Other changes
 

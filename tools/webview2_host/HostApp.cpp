@@ -202,7 +202,6 @@ namespace osfui::wv2
 				ComPtr<ICoreWebView2>                      webView;
 				ComPtr<ICoreWebView2DevToolsProtocolEventReceiver> consoleReceiver;
 				bool controllerRequested{ false };
-				bool bridgeAllowed{ true };
 				bool hidden{ true };
 				// One-shot hidden paint requested by the game. Unlike leaving the
 				// controller visible indefinitely, this primes Chromium without
@@ -680,6 +679,8 @@ namespace osfui::wv2
 						}
 						context->CopyResource(slot.texture.Get(), a_source);
 						mutex->ReleaseSync(0);
+					} else {
+						return;  // keyed-mutex QI unexpectedly failed; drop rather than publish an uncopied slot
 					}
 				} else {
 					context->CopyResource(slot.texture.Get(), a_source);
@@ -704,9 +705,6 @@ namespace osfui::wv2
 				++produceCount;
 				if (serial == 1) {
 					log.InfoFwd(std::format("first frame published ({}x{})", a_width, a_height));
-				} else if (produceCount == 120 || produceCount % 3600 == 0) {
-					log.Info(std::format("produce stats: {} frames, avg {:.3f} ms",
-						produceCount, produceMsTotal / static_cast<double>(produceCount)));
 				}
 			}
 
@@ -1376,14 +1374,6 @@ namespace osfui::wv2
 								return;
 							}
 							if (!target) target = document.body;
-							// A printable key is typing intent, exactly like the
-							// trusted-keydown path the browser can't see while the
-							// game owns focus.
-							if (down && key.length === 1) {
-								lastIntent = Date.now();
-								if (!granted && editable(target))
-									sendTextFocus(true);
-							}
 							const ev = new KeyboardEvent(down ? 'keydown' : 'keyup', {
 								key, code, bubbles: true, cancelable: true, composed: true,
 								shiftKey: heldMods.shift, ctrlKey: heldMods.ctrl,
@@ -1454,8 +1444,7 @@ namespace osfui::wv2
 								if (m && m.type === 'ui.visibility' && m.payload &&
 									m.payload.visible === false) {
 									const el = document.activeElement;
-									if (editable(el) && el.blur) el.blur();
-									sendTextFocus(false);
+									if (el && el !== document.body && typeof el.blur === 'function') el.blur();
 								}
 							} catch (_) {}
 							if (typeof onMessage === 'function') onMessage(json);
@@ -2019,14 +2008,14 @@ namespace osfui::wv2
 						cadence.MinUpdateInterval(interval);
 						const auto applied = cadence.MinUpdateInterval();
 						captureCadenceHz = desiredHz;
-						log.InfoFwd(std::format(
+						log.Info(std::format(
 							"WGC cadence -> {} mode, up to {} Hz ({:.3f} ms)",
 							focusGranted ? "interactive" : "HUD",
 							desiredHz,
 							std::chrono::duration<double, std::milli>(applied).count()));
 					} else {
 						captureCadenceHz = desiredHz;
-						log.InfoFwd("WGC explicit cadence control unavailable; using the system default");
+						log.Info("WGC explicit cadence control unavailable; using the system default");
 					}
 				} catch (const winrt::hresult_error& a_error) {
 					log.Warn(std::format("WGC cadence update failed: {}", ToUtf8(a_error.message())));
@@ -2071,7 +2060,7 @@ namespace osfui::wv2
 				if (quit.load() || captureClosing.load()) return;
 				try {
 					const auto arrival = std::chrono::steady_clock::now();
-					if (captureLastArrival.time_since_epoch().count() != 0) {
+					if (AnyVisibleRenderStats() && captureLastArrival.time_since_epoch().count() != 0) {
 						const auto gapMs = std::chrono::duration<double, std::milli>(
 							arrival - captureLastArrival).count();
 						// Gaps over a second are idle pauses (nothing painted),
@@ -2514,7 +2503,6 @@ namespace osfui::wv2
 					}
 					auto* view = FindView(id);
 					if (!view) view = &CreateView(id);
-					view->bridgeAllowed = a_msg.value("bridge", true);
 					view->logicalHeight = (std::max)(1u,
 						a_msg.value("logicalHeight", kDefaultLogicalHeight));
 					// A re-navigate may carry a different manifest height (dev
