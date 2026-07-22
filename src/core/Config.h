@@ -75,6 +75,12 @@ namespace OSFUI
 		// (command-context internals, UI buffer format). Independent of the
 		// compositor backend. See composite/UiPassSeam.h.
 		bool        uiPassProbe{ false };
+		// Dev experiment (default off, implies the probe's hooks): additionally
+		// record a solid debug triangle into ScaleformCompositeBuffer at the
+		// ScaleformEnd seam — phase 2 of docs/seam-draw-design.md. Visible as a
+		// translucent teal wedge over the game UI; rides through Frame
+		// Generation like the game's own HUD.
+		bool        uiPassDraw{ false };
 		// With devMode on, reloads the top open menu's URL in place (schema
 		// edits hot-reload on their own). Consumed like the toggle key; empty
 		// disables. Ignored without devMode, so shipping it in config.json is

@@ -122,12 +122,13 @@ namespace OSFUI
 		// Size the view to the real output so the page renders aspect-correct.
 		_compositor->SetOutputResizeCallback([this](std::uint32_t a_w, std::uint32_t a_h) { OnOutputResized(a_w, a_h); });
 
-		if (_config.uiPassProbe) {
-			// Dev knob: log-only hooks on the engine's Scaleform render passes,
-			// characterizing the future under-native-UI injection point
+		if (_config.uiPassProbe || _config.uiPassDraw) {
+			// Dev knobs: hooks on the engine's Scaleform render passes —
+			// uiPassProbe = log-only characterization, uiPassDraw = phase-2
+			// debug triangle into ScaleformCompositeBuffer at the End seam
 			// (composite/UiPassSeam.h). Vtables are static .rdata — no need to
 			// wait for the renderer root the way the D3D12 compositor does.
-			UiPassSeam::Install();
+			UiPassSeam::Install(_config.uiPassDraw);
 		}
 		REX::INFO("Runtime: compositor = {}", _compositor->Name());
 
