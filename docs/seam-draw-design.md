@@ -90,8 +90,9 @@ legacy present renderer for compatibility diagnosis. That fallback still uses
 than risking a crash while FG is active.
 
 `uiPassProbe` remains an off-by-default compatibility diagnostic for one release
-cycle. When false, the seam keeps only the hook and draw work; bounded capture
-windows, object scans, and characterization logging do not run.
+cycle. When false, the seam keeps only the hook and draw work; the
+`OMSetRenderTargets` capture hook, bounded capture windows, and characterization
+logging do not run (the barrier/heaps hooks the draw itself needs stay in place).
 
 The OSF RE sandbox UIPass experiment must remain disabled because it owns the
 same vtable slots.
