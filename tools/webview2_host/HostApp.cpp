@@ -1594,7 +1594,7 @@ namespace osfui::wv2
 							root.querySelector('.head').textContent=`RENDER STATS · ${viewId}`;
 							root.querySelector('.rows').innerHTML=
 								`<div class="row primary"><span class="key">FRESH VIEW</span><span>${safe(fresh)} fps · new textures drawn in game</span></div>`+
-								`<div class="row"><span class="key">GAME DRAW</span><span>${safe(native.drawFps)} fps · ${native.reusedDraws||0} reused</span></div>`+
+								`<div class="row"><span class="key">OVERLAY PASSES</span><span>${safe(native.drawFps)} /s · ${native.reusedDraws||0} reused</span></div>`+
 								`<div class="row"><span class="key">CAPTURE</span><span>${safe(native.captureFps)} fps WGC · publish ${safe(native.transferFps)}</span></div>`+
 								`<div class="row"><span class="key">TRANSPORT</span><span>submit ${safe(native.submitFps)} fps · copy ${safe(native.copyMs,2)} ms</span></div>`+
 								`<div class="row"><span class="key">LATENCY</span><span>capture→draw ${safe(native.sourceToDrawMs,2)} ms · CPU ${safe(native.recordCpuMs,3)} ms</span></div>`+
