@@ -4,6 +4,26 @@
 
 namespace OSFUI
 {
+	// Monotonic counters sampled on the game thread while render diagnostics are
+	// enabled. Implementations may leave unsupported fields at zero.
+	struct CompositorStats
+	{
+		std::uint64_t presents{ 0 };
+		std::uint64_t draws{ 0 };
+		std::uint64_t freshFrames{ 0 };
+		std::uint64_t reusedDraws{ 0 };
+		std::uint64_t submits{ 0 };
+		std::uint64_t busyWaits{ 0 };
+		std::uint64_t droppedBusy{ 0 };
+		std::uint64_t skippedConcurrent{ 0 };
+		std::uint64_t sourceToDrawMsTotal{ 0 };
+		std::uint64_t sourceToDrawSamples{ 0 };
+		std::uint64_t recordCpuUsTotal{ 0 };
+		std::uint64_t recordCpuSamples{ 0 };
+		bool seamMode{ false };
+		bool frameGeneration{ false };
+	};
+
 	// Consumes CPU frames from a renderer and presents them over the game image.
 	// Submit() must finish using the FrameBufferView before returning; the
 	// pixels are valid only for the duration of the call.
@@ -44,6 +64,11 @@ namespace OSFUI
 		// at present time, which makes it ride Frame Generation's UI handling.
 		// Default no-op for compositors without a seam path.
 		virtual void SetSeamDrawMode(bool /*a_enabled*/) {}
+
+		// Low-overhead counters used by the global render-diagnostics setting.
+		// Disabled by default so normal play does not pay atomic/timing costs.
+		virtual void SetRenderStatsEnabled(bool /*a_enabled*/) {}
+		[[nodiscard]] virtual CompositorStats GetRenderStats() const { return {}; }
 
 		[[nodiscard]] virtual std::string_view Name() const = 0;
 	};

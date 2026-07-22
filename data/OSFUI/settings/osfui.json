@@ -54,7 +54,7 @@
           "label": "Show render stats",
           "type": "bool",
           "default": false,
-          "hint": "Overlay live page, capture and transfer performance on every view. Diagnostic sampling adds a small amount of work."
+          "hint": "Show fresh view FPS and pipeline timings on every view, and write periodic diagnostics to the OSF UI logs. Sampling adds a small amount of work."
         }
       ]
     }

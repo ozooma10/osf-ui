@@ -55,6 +55,8 @@ namespace OSFUI
 		// Seam-draw mode: the present hook keeps discovery/plumbing duties but
 		// never draws; RecordSeamOverlayDraw (above) does, at the engine seam.
 		void SetSeamDrawMode(bool a_enabled) override;
+		void SetRenderStatsEnabled(bool a_enabled) override;
+		[[nodiscard]] CompositorStats GetRenderStats() const override;
 
 		[[nodiscard]] std::string_view Name() const override { return "d3d12"; }
 

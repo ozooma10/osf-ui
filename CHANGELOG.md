@@ -4,12 +4,13 @@
 
 ### Fixed
 
+- Prevented Chromium from treating OSF UI's deliberately tiny offscreen capture window as occluded and intermittently throttling visible views to roughly 24–30 FPS. Explicitly hidden views still suspend normally, while visible animated and game views keep their foreground browser cadence instead of abruptly becoming choppy.
 - The first-load transition is now painted once during startup while it is still hidden, so invoking it no longer waits for a cold WebView renderer before it can appear.
 - Hardened the Pause-menu “MOD MENUS” entry against close/reopen races: periodic injection now runs only while the engine-admitted movie is advancing, and stale click callbacks are swallowed without opening the overlay or forwarding OSF UI's private action id into the game. Unexpected Scaleform faults are also left to the crash logger instead of being caught after the VM is already corrupted, which previously turned the crash into a hang.
 
 ### Other changes
 
-- Mod Settings now has one persistent **Show render stats** switch under OSF UI → Diagnostics. It overlays page animation cadence and stalls beside host capture/transfer rates, texture-copy time, long tasks, DOM and heap size, and shared-ring backpressure on every view, including views loaded after it is enabled.
+- Mod Settings now has one persistent **Show render stats** switch under OSF UI → Diagnostics. Its primary **Fresh view** rate measures new WebView textures that actually reach the game's compositor, rather than browser animation callbacks. The panel and periodic OSF UI logs also separate capture, transport, game-draw and present cadence; report capture-to-draw and compositor CPU time; and count reused frames, stalls, waits and drops, making a laggy stage identifiable. It applies to every view, including views loaded after it is enabled.
 
 ## 1.2.1 — 2026-07-22
 

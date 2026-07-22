@@ -293,6 +293,7 @@ namespace OSFUI
 		bool          haveFrame{ false };
 		std::uint32_t frameSlot{ 0 };
 		std::uint64_t frameSerial{ 0 };
+		std::uint64_t frameSourceTimeMs{ 0 };
 		std::uint32_t frameWidth{ 0 }, frameHeight{ 0 };
 		std::uint64_t frameGeneration{ 0 };
 		std::uint64_t submittedSerial{ 0 };
@@ -844,6 +845,7 @@ namespace OSFUI
 		{
 			const auto slot = a_msg.value("slot", 0u);
 			const auto serial = a_msg.value("serial", 0ull);
+			const auto sourceTimeMs = a_msg.value("sourceTimeMs", 0ull);
 			const auto w = a_msg.value("width", 0u);
 			const auto h = a_msg.value("height", 0u);
 			std::uint64_t ackSerial = 0;
@@ -860,6 +862,7 @@ namespace OSFUI
 					}
 					frameSlot = slot;
 					frameSerial = serial;
+					frameSourceTimeMs = sourceTimeMs;
 					frameWidth = w;
 					frameHeight = h;
 					frameGeneration = ringGeneration;
@@ -1200,6 +1203,7 @@ namespace OSFUI
 			.frameIndex = _impl->frameSerial,
 			.dirty = DirtyRect::Full(_impl->frameWidth, _impl->frameHeight),
 			.sharedSlot = static_cast<std::int32_t>(_impl->frameSlot),
+			.sourceTimeMs = _impl->frameSourceTimeMs,
 		};
 	}
 
@@ -1419,6 +1423,25 @@ namespace OSFUI
 		}
 		_impl->Send(json{ { "type", "setRenderStats" },
 			{ "view", std::string(a_viewId) }, { "enabled", a_enabled } });
+	}
+
+	void WebView2HostWebRenderer::SetRenderStatsSample(const RenderStatsSample& a_sample)
+	{
+		_impl->Send(json{
+			{ "type", "renderStatsSample" },
+			{ "presentFps", a_sample.presentFps },
+			{ "drawFps", a_sample.drawFps },
+			{ "freshFps", a_sample.freshFps },
+			{ "submitFps", a_sample.submitFps },
+			{ "sourceToDrawMs", a_sample.sourceToDrawMs },
+			{ "recordCpuMs", a_sample.recordCpuMs },
+			{ "reusedDraws", a_sample.reusedDraws },
+			{ "busyWaits", a_sample.busyWaits },
+			{ "droppedBusy", a_sample.droppedBusy },
+			{ "skippedConcurrent", a_sample.skippedConcurrent },
+			{ "seamMode", a_sample.seamMode },
+			{ "frameGeneration", a_sample.frameGeneration },
+		});
 	}
 
 	void WebView2HostWebRenderer::DestroyView(std::string_view a_viewId)

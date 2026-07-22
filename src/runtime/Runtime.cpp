@@ -465,6 +465,7 @@ namespace OSFUI
 			_renderer->Update(a_deltaSeconds);
 			DrivePendingOpen();
 			SubmitFrameIfVisible();
+			UpdateRenderDiagnostics();
 		}
 	}
 
@@ -2033,6 +2034,10 @@ namespace OSFUI
 		}
 		else if (a_key == "renderStats" && a_value.is_boolean()) {
 			_renderStatsEnabled = a_value.get<bool>();
+			_renderStatsHaveBaseline = false;
+			if (_compositor) {
+				_compositor->SetRenderStatsEnabled(_renderStatsEnabled);
+			}
 			if (_renderer) {
 				for (const auto& manifest : _views.All()) {
 					if (_menus.IsRegistered(manifest.id)) {
@@ -2194,6 +2199,72 @@ namespace OSFUI
 			_lastSubmittedFrame = frame->frameIndex;
 			_compositor->Submit(*frame);
 		}
+	}
+
+	void Runtime::UpdateRenderDiagnostics()
+	{
+		if (!_renderStatsEnabled || !IsVisible() || !_renderer || !_compositor) {
+			_renderStatsHaveBaseline = false;
+			return;
+		}
+
+		const auto current = _compositor->GetRenderStats();
+		if (!_renderStatsHaveBaseline) {
+			_renderStatsBaseline = current;
+			_renderStatsLastSampleAt = _uptime;
+			_renderStatsHaveBaseline = true;
+			return;
+		}
+		const auto elapsed = _uptime - _renderStatsLastSampleAt;
+		if (elapsed < 2.0) return;
+
+		const auto delta = [](const std::uint64_t a_now, const std::uint64_t a_before) {
+			return a_now >= a_before ? a_now - a_before : a_now;
+		};
+		const auto presents = delta(current.presents, _renderStatsBaseline.presents);
+		const auto draws = delta(current.draws, _renderStatsBaseline.draws);
+		const auto fresh = delta(current.freshFrames, _renderStatsBaseline.freshFrames);
+		const auto reused = delta(current.reusedDraws, _renderStatsBaseline.reusedDraws);
+		const auto submits = delta(current.submits, _renderStatsBaseline.submits);
+		const auto waits = delta(current.busyWaits, _renderStatsBaseline.busyWaits);
+		const auto dropped = delta(current.droppedBusy, _renderStatsBaseline.droppedBusy);
+		const auto concurrent = delta(current.skippedConcurrent, _renderStatsBaseline.skippedConcurrent);
+		const auto latencyMs = delta(current.sourceToDrawMsTotal,
+			_renderStatsBaseline.sourceToDrawMsTotal);
+		const auto latencySamples = delta(current.sourceToDrawSamples,
+			_renderStatsBaseline.sourceToDrawSamples);
+		const auto recordUs = delta(current.recordCpuUsTotal,
+			_renderStatsBaseline.recordCpuUsTotal);
+		const auto recordSamples = delta(current.recordCpuSamples,
+			_renderStatsBaseline.recordCpuSamples);
+
+		const RenderStatsSample sample{
+			.presentFps = static_cast<double>(presents) / elapsed,
+			.drawFps = static_cast<double>(draws) / elapsed,
+			.freshFps = static_cast<double>(fresh) / elapsed,
+			.submitFps = static_cast<double>(submits) / elapsed,
+			.sourceToDrawMs = latencySamples ?
+				static_cast<double>(latencyMs) / static_cast<double>(latencySamples) : 0.0,
+			.recordCpuMs = recordSamples ?
+				static_cast<double>(recordUs) / (1000.0 * static_cast<double>(recordSamples)) : 0.0,
+			.reusedDraws = reused,
+			.busyWaits = waits,
+			.droppedBusy = dropped,
+			.skippedConcurrent = concurrent,
+			.seamMode = current.seamMode,
+			.frameGeneration = current.frameGeneration,
+		};
+		_renderer->SetRenderStatsSample(sample);
+		REX::INFO(
+			"Render diagnostics ({:.2f}s): fresh view {:.1f} fps, compositor draw {:.1f} fps "
+			"({} reused), frame submit {:.1f} fps, present-hook {:.1f}/s; source-to-draw {:.2f} ms, "
+			"record CPU {:.3f} ms; waits {}, dropped {}, concurrent skips {}; path={}, FG={}",
+			elapsed, sample.freshFps, sample.drawFps, reused, sample.submitFps, sample.presentFps,
+			sample.sourceToDrawMs, sample.recordCpuMs, waits, dropped, concurrent,
+			current.seamMode ? "UI seam" : "Present", current.frameGeneration ? "on" : "off");
+
+		_renderStatsBaseline = current;
+		_renderStatsLastSampleAt = _uptime;
 	}
 
 	std::unique_ptr<IWebRenderer> Runtime::CreateRenderer() const

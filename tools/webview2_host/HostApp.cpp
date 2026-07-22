@@ -16,6 +16,7 @@
 
 #include <DispatcherQueue.h>
 #include <WebView2.h>
+#include <WebView2EnvironmentOptions.h>
 #include <shellapi.h>
 #include <wrl.h>
 #include <wrl/client.h>
@@ -206,6 +207,7 @@ namespace osfui::wv2
 				bool prewarmPending{ false };
 				std::uint64_t prewarmDeadline{ 0 };
 				bool renderStats{ false };
+				std::uint64_t renderStatsLastPageLogMs{ 0 };
 				// Manifest (authoring) height, set by `navigate`: the page lays out at
 				// this height and ApplyScale derives the rasterization scale from it.
 				std::uint32_t logicalHeight{ kDefaultLogicalHeight };
@@ -321,6 +323,8 @@ namespace osfui::wv2
 			std::uint64_t statsLastPublish{ 0 };
 			double        statsLastProduceMs{ 0.0 };
 			std::uint64_t statsLastTimeouts{ 0 };
+			std::uint64_t statsLastLogMs{ 0 };
+			json          compositorStats{ json::object() };
 
 			ComPtr<ICoreWebView2Environment> environment;
 			bool environmentRequested{ false };
@@ -617,6 +621,7 @@ namespace osfui::wv2
 			void PublishFrame(ID3D11Texture2D* a_source, std::uint32_t a_width, std::uint32_t a_height)
 			{
 				const auto start = std::chrono::steady_clock::now();
+				const auto sourceTimeMs = ::GetTickCount64();
 				std::scoped_lock lock(ringMutex);
 				if (captureClosing.load()) return;
 				if (!EnsureRing(a_width, a_height)) return;
@@ -673,7 +678,8 @@ namespace osfui::wv2
 				anyFramePublished = true;
 				Send(json{
 					{ "type", "frame" }, { "slot", lastSlot }, { "serial", serial },
-					{ "width", a_width }, { "height", a_height } });
+					{ "width", a_width }, { "height", a_height },
+					{ "sourceTimeMs", sourceTimeMs } });
 
 				produceMsTotal += std::chrono::duration<double, std::milli>(
 					std::chrono::steady_clock::now() - start).count();
@@ -705,7 +711,8 @@ namespace osfui::wv2
 				context->Flush();
 				Send(json{
 					{ "type", "frame" }, { "slot", lastSlot }, { "serial", serial },
-					{ "width", ringWidth }, { "height", ringHeight } });
+					{ "width", ringWidth }, { "height", ringHeight },
+					{ "sourceTimeMs", ::GetTickCount64() } });
 			}
 
 			View* FindView(std::string_view a_id)
@@ -937,6 +944,7 @@ namespace osfui::wv2
 			{
 				if (!AnyVisibleRenderStats()) {
 					statsLastMs = 0;
+					statsLastLogMs = 0;
 					return;
 				}
 				const auto now = ::GetTickCount64();
@@ -963,19 +971,32 @@ namespace osfui::wv2
 				}
 				const auto captureDelta = capture - statsLastCapture;
 				const auto publishDelta = publish - statsLastPublish;
+				const auto timeoutDelta = timeouts - statsLastTimeouts;
 				const double seconds = static_cast<double>(elapsed) / 1000.0;
-				const json sample{ { "__osfuiRenderStats", {
+				const double copyMs = publishDelta ?
+					(produceMs - statsLastProduceMs) / static_cast<double>(publishDelta) : 0.0;
+				json values{
 					{ "captureFps", static_cast<double>(captureDelta) / seconds },
 					{ "transferFps", static_cast<double>(publishDelta) / seconds },
-					{ "copyMs", publishDelta ?
-						(produceMs - statsLastProduceMs) / static_cast<double>(publishDelta) : 0.0 },
-					{ "backpressure", timeouts - statsLastTimeouts }
-				} } };
+					{ "copyMs", copyMs },
+					{ "backpressure", timeoutDelta }
+				};
+				values.update(compositorStats);
+				const json sample{ { "__osfuiRenderStats", values } };
 				const auto wide = ToWide(sample.dump());
 				for (const auto& view : views) {
 					if (view->renderStats && !view->hidden && view->webView) {
 						view->webView->PostWebMessageAsJson(wide.c_str());
 					}
+				}
+				if (statsLastLogMs == 0 || now - statsLastLogMs >= 2000) {
+					statsLastLogMs = now;
+					log.InfoFwd(std::format(
+						"render diagnostics: WGC capture {:.1f} fps, shared-ring publish {:.1f} fps, "
+						"publish CPU {:.3f} ms, backpressure timeouts {}",
+						static_cast<double>(captureDelta) / seconds,
+						static_cast<double>(publishDelta) / seconds,
+						copyMs, timeoutDelta));
 				}
 				statsLastMs = now;
 				statsLastCapture = capture;
@@ -1037,8 +1058,35 @@ namespace osfui::wv2
 							}
 							return S_OK;
 						});
+				// This host is intentionally windowless in practice: Chromium renders
+				// into a DirectComposition visual that WGC captures, while the native
+				// owner stays a visible 1x1 child so it cannot cover or intercept the
+				// game. Chromium's Windows occlusion tracker can classify that tiny
+				// owner as occluded and background the otherwise-visible controller;
+				// telemetry then shows rAF snapping from the monitor cadence to ~24-30
+				// fps. Ignore native HWND occlusion for this capture-only browser. We do
+				// NOT disable general background timer/renderer throttling: explicit
+				// put_IsVisible(FALSE) still suspends hidden OSF UI views.
+				auto environmentOptions = Microsoft::WRL::Make<CoreWebView2EnvironmentOptions>();
+				if (!environmentOptions) {
+					log.Error("could not allocate WebView2 environment options");
+					environmentRequested = false;
+					return false;
+				}
+				constexpr wchar_t kCaptureBrowserArguments[] =
+					L"--disable-backgrounding-occluded-windows";
+				const auto optionsHr = environmentOptions->put_AdditionalBrowserArguments(
+					kCaptureBrowserArguments);
+				if (FAILED(optionsHr)) {
+					log.Error(std::format(
+						"WebView2 capture browser arguments rejected (0x{:08X})",
+						static_cast<unsigned>(optionsHr)));
+					environmentRequested = false;
+					return false;
+				}
+				log.InfoFwd("WebView2 native-window occlusion throttling disabled for the offscreen capture host");
 				const auto hr = ::CreateCoreWebView2EnvironmentWithOptions(
-					nullptr, userData.c_str(), nullptr, callback.Get());
+					nullptr, userData.c_str(), environmentOptions.Get(), callback.Get());
 				if (FAILED(hr)) {
 					log.Error(std::format("CreateCoreWebView2EnvironmentWithOptions failed (0x{:08X})",
 						static_cast<unsigned>(hr)));
@@ -1474,9 +1522,9 @@ namespace osfui::wv2
 							host.style.cssText='all:initial;position:fixed;z-index:2147483647;top:12px;right:12px;pointer-events:none;contain:layout style paint;';
 							const root=host.attachShadow({mode:'open'});
 							root.innerHTML=`<style>
-								.panel{min-width:264px;padding:10px 12px;color:#e7f6ff;background:rgba(4,8,12,.92);border:1px solid rgba(118,199,239,.72);box-shadow:0 4px 20px rgba(0,0,0,.45);font:11px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.03em}
+								.panel{min-width:340px;padding:10px 12px;color:#e7f6ff;background:rgba(4,8,12,.92);border:1px solid rgba(118,199,239,.72);box-shadow:0 4px 20px rgba(0,0,0,.45);font:11px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.03em}
 								.head{color:#7ed2ff;font-weight:700;border-bottom:1px solid rgba(126,210,255,.3);padding-bottom:5px;margin-bottom:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:360px}
-								.row{display:grid;grid-template-columns:76px 1fr;gap:8px}.key{color:#8da0ad}.bad{color:#ffb36b}
+								.row{display:grid;grid-template-columns:88px 1fr;gap:8px}.key{color:#8da0ad}.primary{color:#9ee6a8;font-weight:700}.bad{color:#ffb36b}
 							</style><div class="panel"><div class="head"></div><div class="rows"></div></div>`;
 							(document.documentElement||document).appendChild(host);
 							return root;
@@ -1498,17 +1546,29 @@ namespace osfui::wv2
 							const now=performance.now(),elapsed=Math.max(1,now-windowStart);
 							const pageFps=frames*1000/elapsed,p95=percentile(gaps,.95);
 							const max=gaps.length?Math.max(...gaps):0;
+							const fresh=Number.isFinite(Number(native.freshFps))?native.freshFps:native.transferFps;
 							const memory=performance.memory&&performance.memory.usedJSHeapSize?
 								`${safe(performance.memory.usedJSHeapSize/1048576,0)} MB`:'n/a';
-							const root=ensurePanel(),bad=pageFps<50||p95>25;
+							const root=ensurePanel(),bad=p95>25||max>50;
 							root.querySelector('.head').textContent=`RENDER STATS · ${viewId}`;
 							root.querySelector('.rows').innerHTML=
+								`<div class="row primary"><span class="key">FRESH VIEW</span><span>${safe(fresh)} fps · new textures drawn in game</span></div>`+
+								`<div class="row"><span class="key">GAME DRAW</span><span>${safe(native.drawFps)} fps · ${native.reusedDraws||0} reused</span></div>`+
+								`<div class="row"><span class="key">CAPTURE</span><span>${safe(native.captureFps)} fps WGC · publish ${safe(native.transferFps)}</span></div>`+
+								`<div class="row"><span class="key">TRANSPORT</span><span>submit ${safe(native.submitFps)} fps · copy ${safe(native.copyMs,2)} ms</span></div>`+
+								`<div class="row"><span class="key">LATENCY</span><span>capture→draw ${safe(native.sourceToDrawMs,2)} ms · CPU ${safe(native.recordCpuMs,3)} ms</span></div>`+
 								`<div class="row ${bad?'bad':''}"><span class="key">PAGE RAF</span><span>${safe(pageFps)} fps · p95 ${safe(p95)} ms · max ${safe(max)} ms</span></div>`+
-								`<div class="row"><span class="key">CAPTURE</span><span>${safe(native.captureFps)} fps · visual updates</span></div>`+
-								`<div class="row"><span class="key">TRANSFER</span><span>${safe(native.transferFps)} fps · copy ${safe(native.copyMs,2)} ms</span></div>`+
 								`<div class="row ${longCount?'bad':''}"><span class="key">LONG TASKS</span><span>${longCount} · ${safe(longMs,0)} ms total</span></div>`+
 								`<div class="row"><span class="key">PAGE</span><span>${document.getElementsByTagName('*').length} nodes · heap ${memory}</span></div>`+
-								`<div class="row ${native.backpressure?'bad':''}"><span class="key">BACKPRESSURE</span><span>${native.backpressure||0} ring waits</span></div>`;
+								`<div class="row ${native.backpressure||native.droppedBusy||native.skippedConcurrent?'bad':''}"><span class="key">DROPS/WAITS</span><span>ring ${native.backpressure||0} · GPU ${native.droppedBusy||0} · concurrent ${native.skippedConcurrent||0}</span></div>`;
+							try{
+								chrome.webview.postMessage('__osfuiRenderStatsPage:'+JSON.stringify({
+									pageFps,p95,max,longCount,longMs,
+									nodes:document.getElementsByTagName('*').length,
+									heapMb:performance.memory&&performance.memory.usedJSHeapSize?
+										performance.memory.usedJSHeapSize/1048576:0
+								}));
+							}catch(_){}
 							windowStart=now;frames=0;gaps=[];longCount=0;longMs=0;
 						};
 						window.__osfuiSetRenderStats=(next,id)=>{
@@ -1774,6 +1834,30 @@ namespace osfui::wv2
 								// Host-internal one-shot warmup; not forwarded.
 								CompletePrewarm(*view);
 								return S_OK;
+							}
+							static constexpr std::string_view kStatsPrefix = "__osfuiRenderStatsPage:";
+							if (text.starts_with(kStatsPrefix)) {
+								const auto now = ::GetTickCount64();
+								if (view->renderStats &&
+									(now - view->renderStatsLastPageLogMs >= 2000)) {
+									const auto sample = json::parse(text.substr(kStatsPrefix.size()), nullptr, false);
+									if (!sample.is_discarded()) {
+										try {
+											view->renderStatsLastPageLogMs = now;
+											log.InfoFwd(std::format(
+												"view '{}': page diagnostics: RAF {:.1f} fps, gap p95 {:.2f} ms, "
+												"max {:.2f} ms, long tasks {} / {:.1f} ms, DOM {} nodes, heap {:.1f} MB",
+												view->id, sample.value("pageFps", 0.0), sample.value("p95", 0.0),
+												sample.value("max", 0.0), sample.value("longCount", 0ull),
+												sample.value("longMs", 0.0), sample.value("nodes", 0ull),
+												sample.value("heapMb", 0.0)));
+										} catch (...) {
+											// Authored content can post arbitrary strings; malformed
+											// lookalikes must not enter the public bridge or fault the host.
+										}
+									}
+								}
+								return S_OK;  // host-internal diagnostics; never enter the public bridge
 							}
 							Send(json{ { "type", "webMessage" }, { "view", view->id },
 								{ "json", std::move(text) } });
@@ -2299,6 +2383,9 @@ namespace osfui::wv2
 					if (!view) return;
 					view->renderStats = a_msg.value("enabled", false);
 					ApplyRenderStats(*view);
+				} else if (type == "renderStatsSample") {
+					compositorStats = a_msg;
+					compositorStats.erase("type");
 				} else if (type == "setActive") {
 					auto* view = ResolveView(a_msg);
 					if (view) {

@@ -217,6 +217,9 @@ namespace OSFUI
 		// Injected into the settings module as its change listener; reacts only
 		// to the knobs core owns (e.g. cursor speed).
 		void OnSettingChanged(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value);
+		// Reduce compositor counters into a readable interval sample, forward it
+		// to the host overlay, and write the same evidence to the SFSE log.
+		void UpdateRenderDiagnostics();
 
 		// (Re)apply _toggleKey to the input router with the standard
 		// toggle/close callbacks. Called at init and after a live rebind.
@@ -336,6 +339,9 @@ namespace OSFUI
 		// Persisted osfui.renderStats setting. Applied to every loaded surface;
 		// LoadSurface also applies it to views discovered and opened later.
 		bool _renderStatsEnabled{ false };
+		bool _renderStatsHaveBaseline{ false };
+		double _renderStatsLastSampleAt{ 0.0 };
+		CompositorStats _renderStatsBaseline{};
 		// Last value pushed to IWebRenderer::SetNativeKeyboardFocus; the false
 		// side posts a game-focus restore, so sends are edge-only. Main thread.
 		bool _nativeFocusGranted{ false };

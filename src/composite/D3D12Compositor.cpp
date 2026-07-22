@@ -306,6 +306,8 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		// drains them (guarded by frameMutex like frameDirty).
 		DirtyRect                 dirtyRegion{};
 		std::uint64_t             lastSubmittedIndex{ 0 };
+		std::uint64_t             cpuSerial{ 0 };
+		std::uint64_t             cpuSourceTimeMs{ 0 };
 
 		// GPU shared-ring transport (out-of-process WebView2 host). SetSharedRing
 		// (game thread) parks the announced ring here; the present thread adopts
@@ -355,6 +357,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		bool          gpuMode{ false };
 		std::uint32_t gpuSlot{ 0 };
 		std::uint64_t gpuSerial{ 0 };
+		std::uint64_t gpuSourceTimeMs{ 0 };
 		std::uint32_t gpuWidth{ 0 }, gpuHeight{ 0 };
 
 		// Shared GPU objects, created once.
@@ -484,6 +487,24 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		bool          firstDrawLogged{ false };
 		bool          targetsFullLogged{ false };
 
+		// Opt-in counters behind osfui.renderStats. These span the game tick,
+		// present and UI-seam render threads, so every field read by Runtime is
+		// atomic. Normal play leaves the gate false and pays only one relaxed load
+		// at each candidate event.
+		std::atomic_bool           renderStatsEnabled{ false };
+		std::atomic<std::uint64_t> statsPresents{ 0 };
+		std::atomic<std::uint64_t> statsDraws{ 0 };
+		std::atomic<std::uint64_t> statsFreshFrames{ 0 };
+		std::atomic<std::uint64_t> statsReusedDraws{ 0 };
+		std::atomic<std::uint64_t> statsSubmits{ 0 };
+		std::atomic<std::uint64_t> statsBusyWaits{ 0 };
+		std::atomic<std::uint64_t> statsDroppedBusy{ 0 };
+		std::atomic<std::uint64_t> statsLastSerial{ 0 };
+		std::atomic<std::uint64_t> statsSourceToDrawMsTotal{ 0 };
+		std::atomic<std::uint64_t> statsSourceToDrawSamples{ 0 };
+		std::atomic<std::uint64_t> statsRecordCpuUsTotal{ 0 };
+		std::atomic<std::uint64_t> statsRecordCpuSamples{ 0 };
+
 		// Hook-liveness watchdog. Another overlay that re-hooks Present after us
 		// without chaining silently stops our thunk from running — the overlay
 		// just vanishes. PresentThunk stamps this every call (present thread);
@@ -533,6 +554,68 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			}
 			SafeRelease(engine.directQueue);
 			SafeRelease(engine.device);
+		}
+
+		void CountRenderStatsDraw(const std::uint64_t a_serial,
+			const std::uint64_t a_sourceTimeMs,
+			const std::chrono::steady_clock::time_point a_started)
+		{
+			if (!renderStatsEnabled.load(std::memory_order_relaxed)) return;
+			statsDraws.fetch_add(1, std::memory_order_relaxed);
+			if (statsLastSerial.exchange(a_serial, std::memory_order_relaxed) != a_serial) {
+				statsFreshFrames.fetch_add(1, std::memory_order_relaxed);
+				const auto now = ::GetTickCount64();
+				if (a_sourceTimeMs != 0 && now >= a_sourceTimeMs) {
+					statsSourceToDrawMsTotal.fetch_add(now - a_sourceTimeMs, std::memory_order_relaxed);
+					statsSourceToDrawSamples.fetch_add(1, std::memory_order_relaxed);
+				}
+			} else {
+				statsReusedDraws.fetch_add(1, std::memory_order_relaxed);
+			}
+			const auto us = std::chrono::duration_cast<std::chrono::microseconds>(
+				std::chrono::steady_clock::now() - a_started).count();
+			statsRecordCpuUsTotal.fetch_add(static_cast<std::uint64_t>((std::max)(us, 0ll)),
+				std::memory_order_relaxed);
+			statsRecordCpuSamples.fetch_add(1, std::memory_order_relaxed);
+		}
+
+		void SetRenderStatsEnabled(const bool a_enabled)
+		{
+			renderStatsEnabled.store(false, std::memory_order_relaxed);
+			if (!a_enabled) return;
+			statsPresents.store(0, std::memory_order_relaxed);
+			statsDraws.store(0, std::memory_order_relaxed);
+			statsFreshFrames.store(0, std::memory_order_relaxed);
+			statsReusedDraws.store(0, std::memory_order_relaxed);
+			statsSubmits.store(0, std::memory_order_relaxed);
+			statsBusyWaits.store(0, std::memory_order_relaxed);
+			statsDroppedBusy.store(0, std::memory_order_relaxed);
+			statsLastSerial.store(0, std::memory_order_relaxed);
+			statsSourceToDrawMsTotal.store(0, std::memory_order_relaxed);
+			statsSourceToDrawSamples.store(0, std::memory_order_relaxed);
+			statsRecordCpuUsTotal.store(0, std::memory_order_relaxed);
+			statsRecordCpuSamples.store(0, std::memory_order_relaxed);
+			renderStatsEnabled.store(true, std::memory_order_release);
+		}
+
+		[[nodiscard]] CompositorStats GetRenderStats() const
+		{
+			return {
+				.presents = statsPresents.load(std::memory_order_relaxed),
+				.draws = statsDraws.load(std::memory_order_relaxed),
+				.freshFrames = statsFreshFrames.load(std::memory_order_relaxed),
+				.reusedDraws = statsReusedDraws.load(std::memory_order_relaxed),
+				.submits = statsSubmits.load(std::memory_order_relaxed),
+				.busyWaits = statsBusyWaits.load(std::memory_order_relaxed),
+				.droppedBusy = statsDroppedBusy.load(std::memory_order_relaxed),
+				.skippedConcurrent = skippedConcurrent.load(std::memory_order_relaxed),
+				.sourceToDrawMsTotal = statsSourceToDrawMsTotal.load(std::memory_order_relaxed),
+				.sourceToDrawSamples = statsSourceToDrawSamples.load(std::memory_order_relaxed),
+				.recordCpuUsTotal = statsRecordCpuUsTotal.load(std::memory_order_relaxed),
+				.recordCpuSamples = statsRecordCpuSamples.load(std::memory_order_relaxed),
+				.seamMode = seamMode.load(std::memory_order_relaxed),
+				.frameGeneration = frameGenActiveSignal.load(std::memory_order_relaxed),
+			};
 		}
 
 		void WaitForGpuIdle()
@@ -1027,6 +1110,10 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		static HRESULT STDMETHODCALLTYPE PresentThunk(IDXGISwapChain* a_swap, UINT a_sync, UINT a_flags)
 		{
 			if (auto* self = static_cast<Impl*>(g_overlay.load())) {
+				if (!(a_flags & DXGI_PRESENT_TEST) &&
+					self->renderStatsEnabled.load(std::memory_order_relaxed)) {
+					self->statsPresents.fetch_add(1, std::memory_order_relaxed);
+				}
 				// Stamp the watchdog before any gate: it answers "does the
 				// present stream still reach our thunk at all", independent of
 				// visibility, frame availability, or the single-flight gate.
@@ -1149,10 +1236,16 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				// falls through to a skip — reusing in-flight resources would
 				// corrupt.
 				++waitedBusy;
+				if (renderStatsEnabled.load(std::memory_order_relaxed)) {
+					statsBusyWaits.fetch_add(1, std::memory_order_relaxed);
+				}
 				fence->SetEventOnCompletion(slot.fenceValue, fenceEvent);
 				::WaitForSingleObject(fenceEvent, kSlotWaitTimeoutMs);
 				if (fence->GetCompletedValue() < slot.fenceValue) {
 					++skippedBusy;  // GPU still not done after the timeout; drop (rare)
+					if (renderStatsEnabled.load(std::memory_order_relaxed)) {
+						statsDroppedBusy.fetch_add(1, std::memory_order_relaxed);
+					}
 					return;
 				}
 			}
@@ -1246,12 +1339,15 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		void RecordAndExecuteShared(CmdSlot& a_slot, Target& a_target,
 			const std::uint32_t a_backIndex, ID3D12PipelineState* a_pso)
 		{
+			const auto statsStarted = std::chrono::steady_clock::now();
 			std::uint32_t ringSlot = 0;
 			std::uint64_t serial = 0;
+			std::uint64_t sourceTimeMs = 0;
 			{
 				std::scoped_lock lk(frameMutex);
 				ringSlot = gpuSlot;
 				serial = gpuSerial;
+				sourceTimeMs = gpuSourceTimeMs;
 			}
 			if (ringSlot >= sharedSlotCount || !sharedSlots[ringSlot] || serial == 0) {
 				return;
@@ -1312,6 +1408,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			a_slot.fenceValue = nextFenceValue++;
 			engine.directQueue->Signal(fence, a_slot.fenceValue);
 			backbuffer->Release();
+			CountRenderStatsDraw(serial, sourceTimeMs, statsStarted);
 
 			++drawnFrames;
 			if (!firstDrawLogged) {
@@ -1336,6 +1433,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		[[nodiscard]] bool RecordSeamOverlay(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
 			const bool a_fgTarget, const bool a_regionFirst)
 		{
+			const auto statsStarted = std::chrono::steady_clock::now();
 			if (!setupOk || !seamRtvHeap || !visible.load(std::memory_order_relaxed)) {
 				return false;
 			}
@@ -1358,11 +1456,13 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			bool gpu = false;
 			std::uint32_t ringSlot = 0;
 			std::uint64_t serial = 0;
+			std::uint64_t sourceTimeMs = 0;
 			{
 				std::scoped_lock lk(frameMutex);
 				gpu = gpuMode;
 				ringSlot = gpuSlot;
 				serial = gpuSerial;
+				sourceTimeMs = gpuSourceTimeMs;
 			}
 
 			std::scoped_lock ring(ringMutex);
@@ -1433,6 +1533,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			}
 
 			++seamDraws;
+			CountRenderStatsDraw(serial, sourceTimeMs, statsStarted);
 			if (a_fgTarget) {
 				++seamDrawsFgTarget;
 			}
@@ -1707,6 +1808,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		void RecordAndExecute(CmdSlot& a_slot, Target& a_target, const std::uint32_t a_backIndex,
 			ID3D12PipelineState* a_pso)
 		{
+			const auto statsStarted = std::chrono::steady_clock::now();
 			// Fetch the backbuffer fresh each present and release it before
 			// returning: a ref held across frames blocks the game's
 			// ResizeBuffers. The swapchain keeps its own ref, and the command
@@ -1817,6 +1919,14 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			// Safe to drop now: the queue holds the resource alive until the GPU
 			// finishes, and the swapchain owns it regardless.
 			backbuffer->Release();
+			std::uint64_t serial = 0;
+			std::uint64_t sourceTimeMs = 0;
+			{
+				std::scoped_lock lk(frameMutex);
+				serial = cpuSerial;
+				sourceTimeMs = cpuSourceTimeMs;
+			}
+			CountRenderStatsDraw(serial, sourceTimeMs, statsStarted);
 
 			++drawnFrames;
 			if (!firstDrawLogged) {
@@ -1873,8 +1983,12 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			gpuMode = true;
 			gpuSlot = static_cast<std::uint32_t>(a_frame.sharedSlot);
 			gpuSerial = a_frame.frameIndex;
+			gpuSourceTimeMs = a_frame.sourceTimeMs;
 			gpuWidth = a_frame.width;
 			gpuHeight = a_frame.height;
+			if (renderStatsEnabled.load(std::memory_order_relaxed)) {
+				statsSubmits.fetch_add(1, std::memory_order_relaxed);
+			}
 		}
 
 		void CacheFrame(const FrameBufferView& a_frame)
@@ -1908,9 +2022,14 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			frameWidth = a_frame.width;
 			frameHeight = a_frame.height;
 			frameFormat = ToDxgiFormat(a_frame.format);
+			cpuSerial = a_frame.frameIndex;
+			cpuSourceTimeMs = a_frame.sourceTimeMs;
 			// Presents can lag submits: accumulate until an upload consumes it.
 			dirtyRegion = frameDirty ? DirtyRect::Union(dirtyRegion, rect) : rect;
 			frameDirty = true;
+			if (renderStatsEnabled.load(std::memory_order_relaxed)) {
+				statsSubmits.fetch_add(1, std::memory_order_relaxed);
+			}
 		}
 	};
 
@@ -1958,6 +2077,18 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 						  "discovery/plumbing duties and no longer draws");
 			}
 		}
+	}
+
+	void D3D12Compositor::SetRenderStatsEnabled(const bool a_enabled)
+	{
+		if (_impl) {
+			_impl->SetRenderStatsEnabled(a_enabled);
+		}
+	}
+
+	CompositorStats D3D12Compositor::GetRenderStats() const
+	{
+		return _impl ? _impl->GetRenderStats() : CompositorStats{};
 	}
 
 	bool RecordSeamOverlayDraw(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
