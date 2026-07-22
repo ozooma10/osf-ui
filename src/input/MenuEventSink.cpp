@@ -59,11 +59,6 @@ namespace OSFUI
 		return RE::BSEventNotifyControl::kContinue;
 	}
 
-	std::int32_t MenuEventSink::OpenMenuCount()
-	{
-		return s_openMenus.load(std::memory_order_relaxed);
-	}
-
 	bool MenuEventSink::ConsoleOpen()
 	{
 		return s_consoleOpen.load(std::memory_order_relaxed);

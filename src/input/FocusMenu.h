@@ -42,12 +42,12 @@ namespace OSFUI
 	//
 	// This class satisfies RE::IMenu's pure virtuals so the type compiles, but the
 	// live object the engine receives is the raw engine-built one from the static
-	// Creator, not a C++ FocusMenu instance: the members below are only the type
-	// contract, the runtime menu uses the copied engine vtable.
+	// Creator, not a C++ FocusMenu instance, so this class carries only static
+	// entry points and named constants; the runtime uses the copied engine vtable.
 	//
 	// Flag bits (1.16.244): bit3 ShowCursor, bit8 kModal, bit27 freeze-frame
 	// latch. The real kPausesGame is bit 1, not bit 27.
-	class FocusMenu final : public RE::IMenu
+	class FocusMenu final
 	{
 	public:
 		static constexpr std::string_view MENU_NAME = "OSFUI_FocusMenu";
@@ -94,27 +94,8 @@ namespace OSFUI
 		// in a live run). Main thread.
 		[[nodiscard]] static bool IsOpenInEngine();
 
-		FocusMenu();
 
 		// Creator handed to RE::UI::RegisterMenu (UIMenuEntry::Create_t).
 		static RE::Scaleform::Ptr<RE::IMenu>* Creator(RE::Scaleform::Ptr<RE::IMenu>* a_out);
-
-		// pure virtuals (vfuncs 03/04/05)
-		const char*   GetName() const override { return MENU_NAME.data(); }
-		const char*   GetRootPath() const override { return ""; }  // web-backed: no .swf root (the runtime object's slot-4 is Thunk_GetRootPath, also "")
-		std::uint64_t GetUnk05() override { return 0; }
-
-		// IMenu also derives BSTEventSink<UpdateSceneRectEvent>; satisfy its pure
-		// ProcessEvent. Scene-rect changes need no reaction.
-		RE::BSEventNotifyControl ProcessEvent(
-			const RE::UpdateSceneRectEvent&,
-			RE::BSTEventSource<RE::UpdateSceneRectEvent>*) override
-		{
-			return RE::BSEventNotifyControl::kContinue;
-		}
-
-		// Allocate on the Scaleform heap like every engine menu: the open path
-		// frees menus through that heap, so a global-new'd object would mismatch.
-		SF_SCALEFORM_HEAP_REDEFINE_NEW(FocusMenu);
 	};
 }

@@ -282,7 +282,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 	struct D3D12Compositor::Impl
 	{
 		EngineD3D12   engine{};
-		bool          devMode{ false };
 		std::atomic_bool visible{ false };
 
 		// Output-size signal -> runtime (resize the view to match the screen).
@@ -358,7 +357,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		std::uint32_t gpuSlot{ 0 };
 		std::uint64_t gpuSerial{ 0 };
 		std::uint64_t gpuSourceTimeMs{ 0 };
-		std::uint32_t gpuWidth{ 0 }, gpuHeight{ 0 };
 
 		// Shared GPU objects, created once.
 		ID3D12Fence*          fence{ nullptr };
@@ -1984,8 +1982,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			gpuSlot = static_cast<std::uint32_t>(a_frame.sharedSlot);
 			gpuSerial = a_frame.frameIndex;
 			gpuSourceTimeMs = a_frame.sourceTimeMs;
-			gpuWidth = a_frame.width;
-			gpuHeight = a_frame.height;
 			if (renderStatsEnabled.load(std::memory_order_relaxed)) {
 				statsSubmits.fetch_add(1, std::memory_order_relaxed);
 			}
@@ -2039,7 +2035,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 	bool D3D12Compositor::Initialize()
 	{
 		_impl = std::make_unique<Impl>();
-		_impl->devMode = Log::DevMode();
 		REX::INFO("D3D12Compositor: initialized (present-time overlay; engine device/queue + Present hook "
 				  "are set up on the first submitted frame)");
 		return true;

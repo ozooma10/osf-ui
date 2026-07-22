@@ -84,6 +84,10 @@ namespace osfui::wv2
 	//                 captureArmed:bool, captureUpVk:u32 }
 	// destroyView   { view:str }
 	// shutdown      { }
+	// frameAck      { serial:u64 }             (consumer acked this frame serial; releases its ring slot)
+	// setRenderStats { view:str, enabled:bool } (toggle the render-stats overlay + sampling for a view)
+	// renderStatsSample { presentFps, drawFps, freshFps, submitFps, sourceToDrawMs, recordCpuMs, ... }
+	//               (periodic render-stats telemetry, forwarded to the views' overlay)
 	//
 	// Message types, host -> game:
 	// hello         { protocolVersion:u32, hostVersion:str, runtimeVersion:str, pid:u32 }
@@ -93,7 +97,6 @@ namespace osfui::wv2
 	//                 adapterLuidLow:u32, adapterLuidHigh:u32 }
 	//               (handles already duplicated into the game process; every
 	//                textures message invalidates all prior slots)
-	// sharedMemory  { name:str, width:u32, height:u32, slots:u32 }   (CPU fallback ring)
 	// frame         { slot:u32, serial:u64, width:u32, height:u32 }
 	// domReady      { view:str }
 	// loadEvent     { view:str, failed:bool, url:str, description:str, code:i32 }

@@ -20,7 +20,6 @@ namespace OSFUI
 
 	void MockWebRenderer::LoadView(const ViewManifest& a_manifest)
 	{
-		_loadedViewId = a_manifest.id;
 		Resize(a_manifest.width, a_manifest.height);
 		REX::INFO("MockWebRenderer: 'loaded' view '{}' from {} (metadata only; HTML is not rendered by the mock backend)",
 			a_manifest.id, a_manifest.EntryPath().string());

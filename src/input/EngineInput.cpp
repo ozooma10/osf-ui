@@ -306,13 +306,17 @@ namespace OSFUI
 		g_stickWriteMs.store(0, std::memory_order_relaxed);
 
 		if (should == 0 && buttons == 0 && sticks == 0 && chars == 0 && mm == 0 && cm == 0) {
-			REX::INFO("EngineInput: session summary — no engine dispatch observed (menu likely never admitted or no input while open)");
+			if (Log::DevMode()) {
+				REX::INFO("EngineInput: session summary — no engine dispatch observed (menu likely never admitted or no input while open)");
+			}
 			return;
 		}
-		REX::INFO(
-			"EngineInput: session summary — gates={} buttons={} (kb={} mouse={} pad={}) sticks={} chars={} mouseMoves={} cursorMoves={}; recent buttons:{}",
-			should, buttons, kb, mouse, pad, sticks, chars, mm, cm,
-			recent.empty() ? " none" : recent.c_str());
+		if (Log::DevMode()) {
+			REX::INFO(
+				"EngineInput: session summary — gates={} buttons={} (kb={} mouse={} pad={}) sticks={} chars={} mouseMoves={} cursorMoves={}; recent buttons:{}",
+				should, buttons, kb, mouse, pad, sticks, chars, mm, cm,
+				recent.empty() ? " none" : recent.c_str());
+		}
 	}
 
 	bool EngineInput::PollGamepadButton(GamepadButtonEdge& a_out)
@@ -348,11 +352,6 @@ namespace OSFUI
 		}
 	}
 
-	bool EngineInput::IsRawMode()
-	{
-		return g_padRaw.load(std::memory_order_relaxed);
-	}
-
 	void EngineInput::SetConsumeGamepad(bool a_consume)
 	{
 		if (g_padConsume.exchange(a_consume, std::memory_order_relaxed) != a_consume) {
@@ -361,8 +360,4 @@ namespace OSFUI
 		}
 	}
 
-	bool EngineInput::IsConsumeGamepad()
-	{
-		return g_padConsume.load(std::memory_order_relaxed);
-	}
 }

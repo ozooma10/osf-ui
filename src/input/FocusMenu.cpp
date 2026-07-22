@@ -155,29 +155,6 @@ namespace OSFUI
 		}
 	}
 
-	FocusMenu::FocusMenu()
-	{
-		// No flags at all (OSF RE ui.menu_flags).
-		//
-		// No kModal: every world-visible menu (HUDMenu, CursorMenu, FaderMenu,
-		// FavoritesMenu, PowersMenu) has it clear; every menu that stops rendering
-		// the 3D world (PauseMenu, ContainerMenu, MainMenu, ...) has it set. Once
-		// admitted (Route A), kModal makes the engine treat us as a full application
-		// menu and suppress the world render -> opaque black behind the overlay.
-		// Input doesn't need it: gating is flags bit 4 (ui.menu_input).
-		//
-		// No pause bits — the sim pause runs through input/SimPause (UI pause counter).
-		//
-		// No ShowCursor (bit 3): it only makes the cursor-visibility driver open
-		// CursorMenu, whose kShow/kHide reference-count the OS-cursor release and
-		// draw the frozen center arrow (ui.menu_cursor). input/FreeCursor takes the
-		// free-cursor reference directly, so bit 3 clear = release with no arrow, and
-		// the driver kHides any stray CursorMenu while we are the decider menu.
-		//
-		// SetFlags only writes members (flags @0xC0 + flagsUpdated), safe anytime.
-		SetFlags(0);
-	}
-
 	RE::Scaleform::Ptr<RE::IMenu>* FocusMenu::Creator(RE::Scaleform::Ptr<RE::IMenu>* a_out)
 	{
 		// Builds a fully engine-initialised menu so the engine's name-keyed menu walk

@@ -29,6 +29,5 @@ namespace OSFUI
 		std::uint64_t             _frameIndex{ 0 };
 		double                    _elapsed{ 0.0 };
 		bool                      _devMode{ false };
-		std::string               _loadedViewId;
 	};
 }

@@ -19,10 +19,6 @@ namespace OSFUI
 			const RE::MenuOpenCloseEvent& a_event,
 			RE::BSTEventSource<RE::MenuOpenCloseEvent>*) override;
 
-		// Best-effort count of menus opened since registration. Not a full
-		// menu-mode model; do not build pause logic on it.
-		[[nodiscard]] static std::int32_t OpenMenuCount();
-
 		// Dev console open, tracked off its open/close edges. Feeds
 		// MenuMode::AnyGameMenuOpen — the console is kModal-clear, so the flag
 		// walk alone misses it. Any thread.

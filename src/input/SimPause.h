@@ -28,7 +28,5 @@ namespace OSFUI
 		// only; call every tick (edges are detected internally). No-ops until
 		// the UI singleton exists.
 		static void Apply(bool a_desired);
-
-		[[nodiscard]] static bool IsEngaged();
 	};
 }

@@ -19,7 +19,6 @@ namespace OSFUI::HardwareCursor
 		// Window-message thread only.
 		bool g_active{ false };
 		int  g_showRaises{ 0 };  // net ShowCursor(TRUE) calls, undone on Deactivate
-		RECT g_clip{};           // the clip rect we last applied
 
 		// The game may have hidden the pointer several counter-levels deep; cap
 		// the raises in case visibility is held by something we shouldn't override.
@@ -92,7 +91,6 @@ namespace OSFUI::HardwareCursor
 		if (ClientRectOnScreen(hwnd, screen)) {
 			::SetCursorPos((screen.left + screen.right) / 2, (screen.top + screen.bottom) / 2);
 			::ClipCursor(&screen);
-			g_clip = screen;
 		}
 		REX::INFO("HardwareCursor: activated (showRaises={}, centered + clipped to client)", g_showRaises);
 	}
@@ -107,7 +105,6 @@ namespace OSFUI::HardwareCursor
 			::ShowCursor(FALSE);
 		}
 		::ClipCursor(nullptr);
-		g_clip = RECT{};
 		REX::INFO("HardwareCursor: deactivated (visibility + clip returned to the game)");
 	}
 
@@ -119,8 +116,8 @@ namespace OSFUI::HardwareCursor
 		RaiseUntilShowing();
 		ApplyShape();
 		// Re-fence if the engine re-clipped (or a resolution change moved the
-		// client area). Compare against the live clip, not g_clip: the engine
-		// changing it out from under us is the case to heal.
+		// client area). Compare against the live clip (::GetClipCursor below):
+		// the engine changing it out from under us is the case to heal.
 		RECT want{};
 		if (!ClientRectOnScreen(static_cast<HWND>(a_hwnd), want)) {
 			return;
@@ -131,7 +128,6 @@ namespace OSFUI::HardwareCursor
 			current.right != want.right || current.bottom != want.bottom) {
 			::ClipCursor(&want);
 		}
-		g_clip = want;
 	}
 
 	void ApplyShape()

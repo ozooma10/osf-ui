@@ -105,7 +105,6 @@ namespace OSFUI
 		// re-assert it on each ui.visibility show; a stale grant would leave
 		// default nav dead for the next menu.
 		static void SetRawMode(bool a_raw);
-		[[nodiscard]] static bool IsRawMode();
 
 		// Consume gamepad events at the receiver while the overlay captures
 		// input: the thunks record the event for the runtime, then mark it
@@ -114,6 +113,5 @@ namespace OSFUI
 		// from IsInputCaptured() each tick by Runtime::DrainEngineInput.
 		// Keyboard/mouse events are never touched.
 		static void SetConsumeGamepad(bool a_consume);
-		[[nodiscard]] static bool IsConsumeGamepad();
 	};
 }

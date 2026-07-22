@@ -13,7 +13,6 @@ namespace OSFUI::Platform
 	// LoadLibrary, under which a plugin's dependencies resolve only from the
 	// game EXE dir/PATH, never from the plugin's folder.
 	// Returns false and sets a_lastError (GetLastError) on failure.
-	bool LoadLibraryAbsolute(const std::filesystem::path& a_path, std::uint32_t& a_lastError);
 
 	// The user's Documents folder (FOLDERID_Documents — follows OneDrive
 	// redirection). Empty on failure. Base for persisted, writable data (e.g.

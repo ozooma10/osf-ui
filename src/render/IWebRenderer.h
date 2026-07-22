@@ -300,8 +300,8 @@ namespace OSFUI
 		virtual void InjectMouseMove(int /*a_x*/, int /*a_y*/) {}
 		virtual void InjectMouseButton(int /*a_x*/, int /*a_y*/, int /*a_button*/, bool /*a_down*/) {}
 		// Mouse wheel at a view-space position. a_wheelDelta is a signed multiple
-		// of WHEEL_DELTA (120); positive scrolls up. The backend converts notches
-		// to pixels via the per-view scroll step (SetScrollPixelSize).
+		// of WHEEL_DELTA (120); positive scrolls up. The backend forwards the raw
+		// delta to the host's WebView2 WHEEL input, which performs the scroll.
 		virtual void InjectMouseWheel(int /*a_x*/, int /*a_y*/, int /*a_wheelDelta*/) {}
 
 		// Per-view JS interaction primitives. Backends marshal the work onto
@@ -339,7 +339,6 @@ namespace OSFUI
 		// renderer/controller path from its first reveal.
 		virtual void PrewarmView(std::string_view /*a_viewId*/) {}
 		virtual void SetViewOrder(std::string_view /*a_viewId*/, int /*a_order*/) {}
-		virtual void SetScrollPixelSize(std::string_view /*a_viewId*/, int /*a_pixels*/) {}
 		// Host-owned diagnostics drawn inside one view. The overlay must not
 		// require cooperation from (or changes to) the authored page.
 		virtual void SetRenderStats(std::string_view /*a_viewId*/, bool /*a_enabled*/) {}

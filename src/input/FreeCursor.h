@@ -27,7 +27,5 @@ namespace OSFUI
 		// Main thread only; call every tick (edges detected internally).
 		// No-ops until the MenuCursor singleton exists.
 		static void Apply(bool a_desired);
-
-		[[nodiscard]] static bool IsEngaged();
 	};
 }

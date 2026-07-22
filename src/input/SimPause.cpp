@@ -47,8 +47,4 @@ namespace OSFUI
 			a_desired ? "incremented" : "decremented");
 	}
 
-	bool SimPause::IsEngaged()
-	{
-		return g_engaged;
-	}
 }

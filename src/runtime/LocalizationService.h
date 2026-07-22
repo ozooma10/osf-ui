@@ -50,10 +50,6 @@ namespace OSFUI
 
 	private:
 		using CatalogKey = std::pair<std::string, std::string>;  // mod, locale
-		struct CatalogKeyLess
-		{
-			bool operator()(const CatalogKey& a_lhs, const CatalogKey& a_rhs) const { return a_lhs < a_rhs; }
-		};
 		using FileSnapshot = std::map<std::filesystem::path, std::filesystem::file_time_type>;
 
 		void LoadFiles();
@@ -62,7 +58,7 @@ namespace OSFUI
 
 		std::filesystem::path                     _dir;
 		std::string                               _locale{ "en" };
-		std::map<CatalogKey, Catalog, CatalogKeyLess> _catalogs;
+		std::map<CatalogKey, Catalog> _catalogs;
 		FileSnapshot                              _snapshot;
 	};
 }

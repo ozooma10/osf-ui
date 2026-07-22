@@ -42,8 +42,4 @@ namespace OSFUI
 			a_desired ? "engaged" : "released", cursor->freeCursorRefCount);
 	}
 
-	bool FreeCursor::IsEngaged()
-	{
-		return g_engaged;
-	}
 }

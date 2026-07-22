@@ -458,14 +458,17 @@ namespace osfui::wv2
 			{
 				// A visible 1x1 child beneath a visible (offscreen) top-level owned
 				// by this STA; the child is reparented beneath the game window once
-				// Chromium is up.
-				bootstrapWindow = ::CreateWindowExW(WS_EX_TOOLWINDOW, L"STATIC",
-					L"OSFUI WebView2 Host Bootstrap", WS_POPUP | WS_VISIBLE,
+				// Chromium is up. The bootstrap must never activate: creating a
+				// visible top-level popup in the freshly launched host can otherwise
+				// make Windows foreground the helper and background Starfield.
+				bootstrapWindow = ::CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"STATIC",
+					L"OSFUI WebView2 Host Bootstrap", WS_POPUP,
 					-32000, -32000, 1, 1, nullptr, nullptr, ::GetModuleHandleW(nullptr), nullptr);
 				if (!bootstrapWindow) {
 					log.Error(std::format("bootstrap HWND creation failed ({})", ::GetLastError()));
 					return false;
 				}
+				::ShowWindow(bootstrapWindow, SW_SHOWNOACTIVATE);
 				hostWindow = ::CreateWindowExW(0, L"STATIC", L"OSFUI WebView2 Host",
 					WS_CHILD | WS_VISIBLE, 0, 0, 1, 1, bootstrapWindow, nullptr,
 					::GetModuleHandleW(nullptr), nullptr);
