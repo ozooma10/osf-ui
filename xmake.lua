@@ -3,7 +3,7 @@ includes("lib/commonlibsf")
 
 -- set project constants
 set_project("OSF UI")
-set_version("1.2.0")
+set_version("1.2.1")
 set_license("GPL-3.0")
 set_languages("c++23")
 set_warnings("allextra")

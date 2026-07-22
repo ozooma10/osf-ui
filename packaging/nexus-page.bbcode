@@ -20,7 +20,7 @@ Out of the box:
 
 The Mods surface is simply the first thing built on the framework - any mod can ship its own views, settings, and hotkeys through it. See it powering a full mod today: [url=https://www.nexusmods.com/starfield/mods/17457]OSF Animation[/url]'s scene browser, emote wheel, settings, and hotkeys all run on OSF UI.
 
-[i][b]Status: early alpha.[/b] 1.2.0 renders through Microsoft Edge WebView2 - working and verified in-game on Starfield 1.16.244, but expect rough edges. Bug reports are very welcome, here or on [url=https://github.com/ozooma10/osf-ui]GitHub[/url] - please attach [font=Courier New]OSF UI.log[/font] and [font=Courier New]OSF UI.webview2-host.log[/font] from [font=Courier New]Documents\My Games\Starfield\SFSE\Logs[/font].[/i]
+[i][b]Status: early alpha.[/b] 1.2.1 renders through Microsoft Edge WebView2 - working and verified in-game on Starfield 1.16.244, but expect rough edges. Bug reports are very welcome, here or on [url=https://github.com/ozooma10/osf-ui]GitHub[/url] - please attach [font=Courier New]OSF UI.log[/font] and [font=Courier New]OSF UI.webview2-host.log[/font] from [font=Courier New]Documents\My Games\Starfield\SFSE\Logs[/font].[/i]
 
 [line]
 
@@ -71,7 +71,7 @@ Load a save and press [b]F10[/b]. The Mods surface opens over the game, and OSF 
 
 [size=4][b]Compatibility[/b][/size]
 [list]
-[*]Coexistence with ReShade / frame-generation is untested; HDR / 10-bit backbuffers are detected and skipped. Please report any issues so I can investigate.[/*]
+[*]Starfield's built-in AMD FSR3 Frame Generation is verified: the overlay appears on real and generated frames, including translucent content, and remains stable through loading and display-mode changes. Other frame-generation integrations and ReShade still need broader compatibility reports; HDR / 10-bit backbuffers are detected and skipped.[/*]
 [/list]
 
 [size=4][b]Source, permissions &amp; license[/b][/size]
