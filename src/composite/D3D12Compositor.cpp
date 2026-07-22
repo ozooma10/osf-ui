@@ -1149,7 +1149,10 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			}
 
 			UpdatePresentCaller(*target, a_callerRet);
-			frameGenActiveSignal.store(AnyFrameGenActive(), std::memory_order_release);
+			// Compute the frame-gen signal once per present and publish it (the seam
+			// path reads it before returning); the non-seam draw gate reuses this value.
+			const bool fgActive = AnyFrameGenActive();
+			frameGenActiveSignal.store(fgActive, std::memory_order_release);
 
 			// Real output size -> runtime, so the view is aspect-correct. Fires
 			// on first sight and on any change.
@@ -1197,7 +1200,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			// the downstream symptom during the resulting recreation). The FG
 			// pipeline owns backbuffer state across the whole chain, so any
 			// PRESENT->RT->PRESENT round trip of ours races it.
-			if (FrameGenActive()) {
+			if (FrameGenActive(fgActive)) {
 				return;
 			}
 
@@ -1275,20 +1278,20 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			return false;
 		}
 
-		[[nodiscard]] bool FrameGenActive()
+		// Logging-only frame-gen edge: OnPresent computes and stores the signal once
+		// per present, then feeds the value here for the suspend/resume log.
+		[[nodiscard]] bool FrameGenActive(const bool a_active)
 		{
-			const bool active = AnyFrameGenActive();
-			frameGenActiveSignal.store(active, std::memory_order_release);
-			if (active && !fgSuspendLogged) {
+			if (a_active && !fgSuspendLogged) {
 				fgSuspendLogged = true;
 				REX::WARN("D3D12Compositor: Frame Generation is active — overlay drawing suspended on ALL "
 						  "swapchains (drawing anywhere in an FG present chain can crash the game). "
 						  "Disable Frame Generation in Starfield's display settings to see the overlay.");
-			} else if (!active && fgSuspendLogged) {
+			} else if (!a_active && fgSuspendLogged) {
 				fgSuspendLogged = false;
 				REX::INFO("D3D12Compositor: Frame Generation no longer pacing any swapchain — overlay drawing resumed");
 			}
-			return active;
+			return a_active;
 		}
 
 		// Re-classify a target when its Present call site changes (cheap pointer
