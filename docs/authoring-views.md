@@ -737,7 +737,7 @@ const info = await osfui.ready;
 console.log(`running OSF UI ${info.version}`);
 ```
 
-The protocol version is **1.1**, emitted as `bridgeVersion` — informational
+The protocol version is **1.2**, emitted as `bridgeVersion` — informational
 (logs, bug reports), distinct from the plugin `version`. From 1.0 the
 contract is stable: additive changes bump the minor version; anything that
 would break a shipped view bumps the major. The constant lives in
