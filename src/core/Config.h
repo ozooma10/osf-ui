@@ -74,11 +74,6 @@ namespace OSFUI
 		// skipped.
 		std::vector<std::string> views;
 		bool        devMode{ false };  // release-safe default; the shipped config / a dev override turns on verbose logging
-		// Dev diagnostic (default off): hook the engine's Scaleform render-pass
-		// vtables LOG-ONLY to characterize the under-native-UI injection seam
-		// (command-context internals, UI buffer format). Independent of the
-		// compositor backend. See composite/UiPassSeam.h.
-		bool        uiPassProbe{ false };
 		// Record the overlay into the engine's transparent UI layer at the
 		// ScaleformEnd seam, so real and generated frames share one composition
 		// path. Default on; false is a temporary legacy-present fallback for

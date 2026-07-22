@@ -18,8 +18,8 @@ namespace OSFUI::UiPassSeam
 	// closed when a vtable slot does not hold the expected game implementation.
 	// There is no uninstall; process exit owns teardown.
 	//
-	// Installs the Begin/End/Composite hooks. a_draw enables the release seam and
-	// a_probe enables bounded characterization logs. Returns false if any hook
-	// cannot be installed, allowing Runtime to retain the legacy present path.
-	bool Install(bool a_draw = true, bool a_probe = false);
+	// Installs the Begin/End/Composite hooks. a_draw enables the release seam.
+	// Returns false if any hook cannot be installed, allowing Runtime to retain
+	// the legacy present path.
+	bool Install(bool a_draw = true);
 }

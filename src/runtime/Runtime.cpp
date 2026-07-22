@@ -137,17 +137,16 @@ namespace OSFUI
 		// Size the view to the real output so the page renders aspect-correct.
 		_compositor->SetOutputResizeCallback([this](std::uint32_t a_w, std::uint32_t a_h) { OnOutputResized(a_w, a_h); });
 
-		if (_config.uiPassProbe || _config.uiPassDraw) {
+		if (_config.uiPassDraw) {
 			// The release path records into Starfield's transparent Scaleform UI
 			// layer, upstream of both real-frame composition and Frame Generation.
-			// uiPassProbe keeps the characterization logs available without
-			// enabling the draw. Vtables are static .rdata, so installation does
-			// not wait for the renderer root like the D3D12 compositor does.
-			const bool seamReady = UiPassSeam::Install(_config.uiPassDraw, _config.uiPassProbe);
-			if (_config.uiPassDraw && seamReady) {
+			// Vtables are static .rdata, so installation does not wait for the
+			// renderer root like the D3D12 compositor does.
+			const bool seamReady = UiPassSeam::Install(_config.uiPassDraw);
+			if (seamReady) {
 				// The present hook stops drawing and becomes plumbing only.
 				_compositor->SetSeamDrawMode(true);
-			} else if (_config.uiPassDraw) {
+			} else {
 				REX::WARN("Runtime: Scaleform seam unavailable — using the legacy present-time overlay; "
 						  "Frame Generation will suspend that fallback for safety");
 			}

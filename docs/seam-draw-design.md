@@ -89,10 +89,11 @@ legacy present renderer for compatibility diagnosis. That fallback still uses
 `FrameGenActive()` suspension, so it intentionally becomes invisible rather
 than risking a crash while FG is active.
 
-`uiPassProbe` remains an off-by-default compatibility diagnostic for one release
-cycle. When false, the seam keeps only the hook and draw work; the
-`OMSetRenderTargets` capture hook, bounded capture windows, and characterization
-logging do not run (the barrier/heaps hooks the draw itself needs stay in place).
+The `uiPassProbe` characterization diagnostic has been removed now that the
+frame graph, FG target selection, and hand-off decode are baked into the seam.
+Only the seam's own load-bearing hooks remain: the `ScaleformBegin`/`End`/
+`Composite` slot-7 hooks and the `ResourceBarrier`/`SetDescriptorHeaps`
+command-list hooks the draw needs (hand-off match plus engine heap restore).
 
 The OSF RE sandbox UIPass experiment must remain disabled because it owns the
 same vtable slots.

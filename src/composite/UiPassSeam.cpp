@@ -13,12 +13,9 @@
 
 #include <d3d12.h>
 
-#include <array>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
-#include <cstdio>
-#include <cstring>
 
 namespace OSFUI::UiPassSeam
 {
@@ -32,114 +29,45 @@ namespace OSFUI::UiPassSeam
 		constexpr std::uint64_t kIdBeginExecute = 145955;          // ScaleformBegin::ExecuteRenderPass
 		constexpr std::uint64_t kIdEndExecute = 145956;            // ScaleformEnd::ExecuteRenderPass
 		constexpr std::uint64_t kIdCompositeExecute = 145827;      // ScaleformCompositeRenderPass::ExecuteRenderPass
-		constexpr std::uint64_t kIdGraphCtxGetCmdCtx = 144161;     // GraphContext -> engine command context getter
 
 		// RenderPass vtable slot 7 = ExecuteRenderPass(this, GraphContext*, IOHandles*).
 		constexpr std::size_t kExecuteSlot = 7;
 
-		constexpr std::uint32_t kMaxDetailLogs = 8;  // per site: plain call logs
-
 		using ExecuteFn = void* (*)(void*, void*, void*, void*);
-		using GetCmdCtxFn = void* (*)(void*);
 
 		std::atomic<std::uintptr_t> g_origBegin{ 0 };
 		std::atomic<std::uintptr_t> g_origEnd{ 0 };
 		std::atomic<std::uintptr_t> g_origComposite{ 0 };
 		std::atomic<bool> g_installed{ false };
 		std::atomic<bool> g_installOk{ false };
-		std::atomic<bool> g_probeEnabled{ false };
 
-		struct SiteState
-		{
-			std::atomic<std::uint64_t> count{ 0 };
-		};
-		SiteState g_end;
-		SiteState g_composite;
-
-		// ---------------------------------------------------------------- SEH
-		// GetEngineCmdCtx calls an engine getter through a pointer we only
-		// BELIEVE is a live GraphContext; the call sits behind SEH so a wrong
-		// guess logs nothing instead of crashing a render worker. This helper
-		// holds no C++ objects (C2712: __try cannot share a frame with
-		// unwinding).
-
-		[[nodiscard]] void* CallGetterSeh(GetCmdCtxFn a_fn, void* a_arg) noexcept
-		{
-			__try {
-				return a_fn(a_arg);
-			} __except (EXCEPTION_EXECUTE_HANDLER) {
-				return nullptr;
-			}
-		}
-
-		[[nodiscard]] const char* FormatName(const DXGI_FORMAT a_format)
-		{
-			switch (a_format) {
-				case DXGI_FORMAT_R8G8B8A8_UNORM:       return "R8G8B8A8_UNORM";
-				case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:  return "R8G8B8A8_UNORM_SRGB";
-				case DXGI_FORMAT_B8G8R8A8_UNORM:       return "B8G8R8A8_UNORM";
-				case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:  return "B8G8R8A8_UNORM_SRGB";
-				case DXGI_FORMAT_R10G10B10A2_UNORM:    return "R10G10B10A2_UNORM";
-				case DXGI_FORMAT_R11G11B10_FLOAT:      return "R11G11B10_FLOAT";
-				case DXGI_FORMAT_R16G16B16A16_FLOAT:   return "R16G16B16A16_FLOAT";
-				default:                               return "other";
-			}
-		}
-
-		// ------------------------------------------------------------- engine
-		[[nodiscard]] void* GetEngineCmdCtx(void* a_graphCtx)
-		{
-			if (!a_graphCtx) {
-				return nullptr;
-			}
-			static const REL::Relocation<GetCmdCtxFn> getter{ REL::ID(kIdGraphCtxGetCmdCtx) };
-			return CallGetterSeh(getter.get(), a_graphCtx);
-		}
-
-		// ------------------------------------------------- D3D12 call capture
-		// The blind scans found no D3D12 interfaces reachable from the engine
-		// command context (first run: zero hits at 0x200/1-hop), so instead of
-		// guessing offsets, catch the engine in the act: hook the process-wide
-		// ID3D12GraphicsCommandList vtable (obtained from a throwaway list
-		// created on the game's own device — same trick as the Present hook's
-		// throwaway swapchain) and log, ONLY while ScaleformComposite's
-		// original Execute runs on the bracket thread, which list sets render
-		// targets and which resources get barrier-transitioned. That yields
-		// the live list pointer (searched back through the ctx object to
-		// derive its offset) and the composite target's format via GetDesc.
+		// -------------------------------------------------- D3D12 seam hooks
+		// The seam draws from inside the engine's own command recording, so it
+		// hooks the process-wide ID3D12GraphicsCommandList vtable (obtained from
+		// a throwaway list created on the game's own device — same trick as the
+		// Present hook's throwaway swapchain) at two slots:
+		//
+		//   ResourceBarrier    — the hand-off match/draw point. The engine
+		//                        transitions each UI buffer out of RENDER_TARGET
+		//                        right after ScaleformEnd; the thunk draws the
+		//                        overlay into the buffer just before forwarding
+		//                        that barrier.
+		//   SetDescriptorHeaps — tracks the engine's bound heaps so the seam
+		//                        draw can restore them after binding its own.
 		//
 		// Slot indices are fixed COM ABI, straight from the d3d12.h C vtable
 		// (ID3D12GraphicsCommandListVtbl): 26 = ResourceBarrier,
-		// 46 = OMSetRenderTargets. Trust but verify: after hooking, each slot
-		// is self-tested by calling it on our own throwaway list and checking
-		// the thunk observed the sentinel — a wrong index unhooks itself.
+		// 28 = SetDescriptorHeaps. Trust but verify: after hooking, each slot is
+		// self-tested by calling it on our own throwaway list and checking the
+		// thunk observed the sentinel — a wrong index unhooks itself.
 		constexpr std::size_t kSlotResourceBarrier = 26;
 		constexpr std::size_t kSlotSetDescriptorHeaps = 28;
-		constexpr std::size_t kSlotOMSetRenderTargets = 46;
 
-
-		// Whole-UI-frame capture WINDOW (phase 1b): armed at ScaleformBegin
-		// entry, disarmed after ScaleformComposite returns. The RE probe proved
-		// the whole Begin -> movie renders -> End -> [graph glue / Frame
-		// Interpolation] -> Composite sequence stays on ONE worker thread per
-		// frame, so a tid-keyed window catches every OMSetRenderTargets and
-		// barrier the engine records for the UI section — including
-		// ScaleformCompositeBuffer's clear/transitions, which never appeared in
-		// the old composite-only bracket. Phase-marker lines (Begin/End/
-		// Composite enter+exit) segment the capture temporally, answering which
-		// side of the buffer's RT->SRV transition each pass sits on.
-		constexpr std::uint32_t kMaxCaptureWindows = 4;   // full UI windows to log
-		constexpr int           kWindowLineBudget = 48;   // OM+barrier lines per window
-
-		using OMSetRenderTargetsFn = void(STDMETHODCALLTYPE*)(
-			ID3D12GraphicsCommandList*, UINT, const D3D12_CPU_DESCRIPTOR_HANDLE*, BOOL,
-			const D3D12_CPU_DESCRIPTOR_HANDLE*);
 		using ResourceBarrierFn = void(STDMETHODCALLTYPE*)(
 			ID3D12GraphicsCommandList*, UINT, const D3D12_RESOURCE_BARRIER*);
 		using SetDescriptorHeapsFn = void(STDMETHODCALLTYPE*)(
 			ID3D12GraphicsCommandList*, UINT, ID3D12DescriptorHeap* const*);
 
-		std::atomic<OMSetRenderTargetsFn> g_origOMSetRenderTargets{ nullptr };
 		std::atomic<ResourceBarrierFn> g_origResourceBarrier{ nullptr };
 		std::atomic<SetDescriptorHeapsFn> g_origSetDescriptorHeaps{ nullptr };
 
@@ -151,18 +79,7 @@ namespace OSFUI::UiPassSeam
 		thread_local ID3D12GraphicsCommandList* tl_heapList = nullptr;
 		thread_local ID3D12DescriptorHeap* tl_heaps[2] = {};
 		thread_local UINT tl_heapCount = 0;
-		std::atomic<std::uint32_t> g_captureTid{ 0 };       // window: UI worker tid, else 0
-		std::atomic<std::uintptr_t> g_capturedList{ 0 };    // last list seen inside the window
-		std::atomic<std::uint32_t> g_captureWindows{ 0 };   // windows completed so far
-		std::atomic<int> g_windowLines{ kWindowLineBudget };  // per-window log budget
-		std::atomic<int> g_captureState{ 0 };               // 0 untried, 1 ready, -1 failed
-
-		// One budgeted log line inside the active window (present thread only
-		// checks tid first — cheap two loads on the common path).
-		[[nodiscard]] bool WindowLogSlot()
-		{
-			return g_windowLines.fetch_sub(1, std::memory_order_relaxed) > 0;
-		}
+		std::atomic<int> g_hookInstallState{ 0 };  // 0 untried, 1 ready, -1 failed
 
 		// Seam-draw state shared with the barrier thunk (phase 2; the draw
 		// machinery itself is further down). Armed at End-exit, cleared at
@@ -196,7 +113,6 @@ namespace OSFUI::UiPassSeam
 		void RecordSeamDrawAtHandoff(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
 			bool a_fgTarget, bool a_regionFirst);
 		ID3D12GraphicsCommandList* g_selfTestList = nullptr;  // non-null only during self-test
-		std::atomic<bool> g_selfTestOMSeen{ false };
 		std::atomic<bool> g_selfTestBarrierSeen{ false };
 		std::atomic<bool> g_selfTestHeapsSeen{ false };
 
@@ -216,27 +132,6 @@ namespace OSFUI::UiPassSeam
 			}
 			if (const auto original = g_origSetDescriptorHeaps.load(std::memory_order_relaxed)) {
 				original(a_self, a_num, a_heaps);
-			}
-		}
-
-		void STDMETHODCALLTYPE OMSetRenderTargetsThunk(
-			ID3D12GraphicsCommandList* a_self,
-			const UINT a_numRTs,
-			const D3D12_CPU_DESCRIPTOR_HANDLE* a_rts,
-			const BOOL a_singleRange,
-			const D3D12_CPU_DESCRIPTOR_HANDLE* a_dsv)
-		{
-			if (a_self == g_selfTestList) {
-				g_selfTestOMSeen.store(true, std::memory_order_relaxed);
-			} else if (g_captureTid.load(std::memory_order_relaxed) == ::GetCurrentThreadId() && WindowLogSlot()) {
-				g_capturedList.store(reinterpret_cast<std::uintptr_t>(a_self), std::memory_order_relaxed);
-				REX::DEBUG("[UiPassSeam] capture OMSetRenderTargets list=0x{:X} numRTs={} rtv0=0x{:X} dsv={}",
-					reinterpret_cast<std::uintptr_t>(a_self), a_numRTs,
-					(a_rts && a_numRTs > 0) ? a_rts[0].ptr : 0,
-					a_dsv ? "yes" : "no");
-			}
-			if (const auto original = g_origOMSetRenderTargets.load(std::memory_order_relaxed)) {
-				original(a_self, a_numRTs, a_rts, a_singleRange, a_dsv);
 			}
 		}
 
@@ -296,26 +191,6 @@ namespace OSFUI::UiPassSeam
 
 			if (a_self == g_selfTestList) {
 				g_selfTestBarrierSeen.store(true, std::memory_order_relaxed);
-			} else if (g_captureTid.load(std::memory_order_relaxed) == ::GetCurrentThreadId()) {
-				g_capturedList.store(reinterpret_cast<std::uintptr_t>(a_self), std::memory_order_relaxed);
-				const auto count = a_barriers ? (a_numBarriers < 8u ? a_numBarriers : 8u) : 0u;
-				for (UINT i = 0; i < count; ++i) {
-					const auto& barrier = a_barriers[i];
-					if (barrier.Type != D3D12_RESOURCE_BARRIER_TYPE_TRANSITION || !barrier.Transition.pResource) {
-						continue;
-					}
-					if (!WindowLogSlot()) {
-						break;
-					}
-					const auto desc = barrier.Transition.pResource->GetDesc();
-					REX::DEBUG("[UiPassSeam] capture barrier list=0x{:X} res=0x{:X} {}x{} fmt={} ({}) states 0x{:X}->0x{:X}",
-						reinterpret_cast<std::uintptr_t>(a_self),
-						reinterpret_cast<std::uintptr_t>(barrier.Transition.pResource),
-						static_cast<std::uint64_t>(desc.Width), desc.Height,
-						static_cast<int>(desc.Format), FormatName(desc.Format),
-						static_cast<std::uint32_t>(barrier.Transition.StateBefore),
-						static_cast<std::uint32_t>(barrier.Transition.StateAfter));
-				}
 			}
 			if (const auto original = g_origResourceBarrier.load(std::memory_order_relaxed)) {
 				original(a_self, a_numBarriers, a_barriers);
@@ -335,20 +210,20 @@ namespace OSFUI::UiPassSeam
 		}
 
 		// Lazy, once. Creates a throwaway DIRECT list on the game's device to
-		// reach the shared d3d12.dll vtable, hooks the two slots, and proves
-		// the slot indices by calling both methods on the throwaway list
-		// (OMSetRenderTargets with zero targets and a global-UAV barrier are
-		// both legal no-ops). A failed self-test restores the slots.
-		void EnsureCaptureInstalled()
+		// reach the shared d3d12.dll vtable, hooks the two slots the seam draw
+		// needs, and proves the slot indices by calling both methods on the
+		// throwaway list (a global-UAV barrier and clearing heaps are both legal
+		// no-ops). A failed self-test restores the slots.
+		void EnsureDrawHooksInstalled()
 		{
 			int expected = 0;
-			if (!g_captureState.compare_exchange_strong(expected, -1, std::memory_order_acq_rel)) {
+			if (!g_hookInstallState.compare_exchange_strong(expected, -1, std::memory_order_acq_rel)) {
 				return;  // already tried (state is 1 or -1); never retry
 			}
 
 			const auto engine = LocateEngineD3D12();
 			if (!engine) {
-				REX::WARN("[UiPassSeam] capture: engine D3D12 device not reachable; skipping call capture");
+				REX::WARN("[UiPassSeam] draw hooks: engine D3D12 device not reachable; seam draw disabled");
 				return;
 			}
 
@@ -364,18 +239,15 @@ namespace OSFUI::UiPassSeam
 					__uuidof(ID3D12GraphicsCommandList), reinterpret_cast<void**>(&list)));
 
 			if (created) {
-				const bool probe = g_probeEnabled.load(std::memory_order_relaxed);
 				auto** vtbl = *reinterpret_cast<void***>(list);
 				g_selfTestList = list;
 				// Publish each forward target into its atomic BEFORE its thunk becomes
 				// reachable on the shared d3d12.dll vtable (release store), so a
 				// concurrent render worker routing through a just-installed thunk can
-				// never load a null original and drop the engine's D3D12 call. Barrier
-				// + SetDescriptorHeaps are load-bearing for the seam draw (hand-off
-				// match + engine heap restore); OMSetRenderTargets only feeds the
-				// uiPassProbe capture log, so hook it only under the probe instead of
-				// leaving a thunk on the process-global vtable running on every
-				// OMSetRenderTargets call in the game for an inert release diagnostic.
+				// never load a null original and drop the engine's D3D12 call. Both
+				// are load-bearing for the seam draw: ResourceBarrier is the hand-off
+				// match/draw point, SetDescriptorHeaps tracks the engine's heaps so
+				// the draw can restore them.
 				const auto origBarrier = reinterpret_cast<ResourceBarrierFn>(vtbl[kSlotResourceBarrier]);
 				const auto origHeaps = reinterpret_cast<SetDescriptorHeapsFn>(vtbl[kSlotSetDescriptorHeaps]);
 				g_origResourceBarrier.store(origBarrier, std::memory_order_release);
@@ -384,61 +256,44 @@ namespace OSFUI::UiPassSeam
 					PatchSlot(vtbl, kSlotResourceBarrier, reinterpret_cast<void*>(&ResourceBarrierThunk)) != nullptr;
 				const bool patchedHeaps =
 					PatchSlot(vtbl, kSlotSetDescriptorHeaps, reinterpret_cast<void*>(&SetDescriptorHeapsThunk)) != nullptr;
-				OMSetRenderTargetsFn origOM = nullptr;
-				bool patchedOM = false;
-				if (probe) {
-					origOM = reinterpret_cast<OMSetRenderTargetsFn>(vtbl[kSlotOMSetRenderTargets]);
-					g_origOMSetRenderTargets.store(origOM, std::memory_order_release);
-					patchedOM =
-						PatchSlot(vtbl, kSlotOMSetRenderTargets, reinterpret_cast<void*>(&OMSetRenderTargetsThunk)) != nullptr;
-				}
 
 				// Prove the slot indices by calling each hooked method on the throwaway
-				// list (all legal no-ops) and checking the thunk saw the sentinel.
-				// Barrier + heaps are mandatory; OM only when probe-hooked.
-				const bool patched = patchedBarrier && patchedHeaps && (!probe || patchedOM);
+				// list (both legal no-ops) and checking the thunk saw the sentinel — a
+				// wrong index unhooks itself.
+				const bool patched = patchedBarrier && patchedHeaps;
 				if (patched) {
 					D3D12_RESOURCE_BARRIER uav{};
 					uav.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
 					uav.UAV.pResource = nullptr;  // global UAV barrier: legal on any list
 					list->ResourceBarrier(1, &uav);
 					list->SetDescriptorHeaps(0, nullptr);  // clearing heaps: legal no-op
-					if (probe) {
-						list->OMSetRenderTargets(0, nullptr, FALSE, nullptr);
-					}
 				}
 
 				const bool barrierOk = g_selfTestBarrierSeen.load(std::memory_order_relaxed);
 				const bool heapsOk = g_selfTestHeapsSeen.load(std::memory_order_relaxed);
-				const bool omSeen = g_selfTestOMSeen.load(std::memory_order_relaxed);
-				if (patched && barrierOk && heapsOk && (!probe || omSeen)) {
+				if (patched && barrierOk && heapsOk) {
 					g_selfTestList = nullptr;
-					g_captureState.store(1, std::memory_order_release);
-					REX::DEBUG("[UiPassSeam] capture armed: ID3D12GraphicsCommandList vtable slots {} (barrier) / {} "
-							  "(SetDescriptorHeaps){} hooked and self-tested",
-						kSlotResourceBarrier, kSlotSetDescriptorHeaps,
-						probe ? " / OMSetRenderTargets" : "");
+					g_hookInstallState.store(1, std::memory_order_release);
+					REX::DEBUG("[UiPassSeam] seam draw hooks armed: ID3D12GraphicsCommandList vtable slots {} (barrier) / {} "
+							  "(SetDescriptorHeaps) hooked and self-tested",
+						kSlotResourceBarrier, kSlotSetDescriptorHeaps);
 				} else {
 					// Wrong slot layout or protect failure: undo what we did.
-					if (patchedOM) {
-						(void)PatchSlot(vtbl, kSlotOMSetRenderTargets, reinterpret_cast<void*>(origOM));
-					}
 					if (patchedBarrier) {
 						(void)PatchSlot(vtbl, kSlotResourceBarrier, reinterpret_cast<void*>(origBarrier));
 					}
 					if (patchedHeaps) {
 						(void)PatchSlot(vtbl, kSlotSetDescriptorHeaps, reinterpret_cast<void*>(origHeaps));
 					}
-					g_origOMSetRenderTargets.store(nullptr, std::memory_order_relaxed);
 					g_origResourceBarrier.store(nullptr, std::memory_order_relaxed);
 					g_origSetDescriptorHeaps.store(nullptr, std::memory_order_relaxed);
 					g_selfTestList = nullptr;
-					REX::WARN("[UiPassSeam] capture self-test FAILED (patch b/h/om={}/{}/{} seen b/h/om={}/{}/{}); vtable restored, call capture disabled",
-						patchedBarrier, patchedHeaps, patchedOM, barrierOk, heapsOk, omSeen);
+					REX::WARN("[UiPassSeam] seam draw hook self-test FAILED (patch b/h={}/{} seen b/h={}/{}); vtable restored, seam draw disabled",
+						patchedBarrier, patchedHeaps, barrierOk, heapsOk);
 				}
 				list->Close();
 			} else {
-				REX::WARN("[UiPassSeam] capture: throwaway command list creation failed; skipping call capture");
+				REX::WARN("[UiPassSeam] draw hooks: throwaway command list creation failed; seam draw disabled");
 			}
 
 			if (list) {
@@ -451,30 +306,8 @@ namespace OSFUI::UiPassSeam
 			engine.device->Release();
 		}
 
-		// After a captured window: where does the engine ctx keep that list?
-		void ReportListOffset(const char* a_tag, const std::uintptr_t a_object, const std::uintptr_t a_list)
-		{
-			if (!a_object) {
-				return;
-			}
-			bool found = false;
-			for (std::size_t offset = 0; offset < 0x1000; offset += sizeof(std::uintptr_t)) {
-				std::uintptr_t value = 0;
-				if (Platform::SafeReadPointer(a_object + offset, value) && value == a_list) {
-					REX::DEBUG("[UiPassSeam] capture: {}+0x{:X} holds the recording ID3D12GraphicsCommandList", a_tag, offset);
-					found = true;
-				}
-			}
-			if (!found) {
-				REX::DEBUG("[UiPassSeam] capture: list 0x{:X} not stored in {}'s first 0x1000 bytes", a_list, a_tag);
-			}
-		}
-
 		// ------------------------------------------------------ seam draw state
 		std::atomic<bool> g_drawEnabled{ false };
-		std::atomic<std::uint64_t> g_seamDraws{ 0 };
-		std::atomic<std::uintptr_t> g_lastDrawBuffer{ 0 };   // churn diagnostics only
-		std::atomic<std::uint32_t> g_bufferChangeLogs{ 0 };  // bounded (loads churn hard)
 
 		// Inside the hand-off barrier: a_buffer is THIS frame's UI buffer,
 		// still in RENDER_TARGET state (the transition is forwarded after we
@@ -500,89 +333,21 @@ namespace OSFUI::UiPassSeam
 					original(a_list, engineHeapCount, engineHeaps);
 				}
 			}
-			// Keep the draw counter live for the probe-side window-arm log, but
-			// gate the diagnostics: the seam draw runs on a render worker in the
-			// default (uiPassDraw) build, so they stay silent unless uiPassProbe.
-			const auto draws = g_seamDraws.fetch_add(1, std::memory_order_relaxed) + 1;
-			if (g_probeEnabled.load(std::memory_order_relaxed)) {
-				if (draws == 1) {
-					REX::DEBUG("[UiPassSeam] draw: FIRST SEAM DRAW recorded at the hand-off (buffer 0x{:X}, list 0x{:X})",
-						reinterpret_cast<std::uintptr_t>(a_buffer),
-						reinterpret_cast<std::uintptr_t>(a_list));
-				}
-				// Churn diagnostics: buffer pointer changes mark graph rebuilds
-				// (loads); the periodic count correlates a crash time with whether
-				// draws were still being recorded.
-				const auto prev = g_lastDrawBuffer.exchange(reinterpret_cast<std::uintptr_t>(a_buffer), std::memory_order_relaxed);
-				if (prev != reinterpret_cast<std::uintptr_t>(a_buffer) && prev != 0 &&
-					g_bufferChangeLogs.fetch_add(1, std::memory_order_relaxed) < 12) {
-					REX::DEBUG("[UiPassSeam] draw: hand-off buffer changed 0x{:X} -> 0x{:X} (draw #{})",
-						prev, reinterpret_cast<std::uintptr_t>(a_buffer), draws);
-				}
-				if (draws % 18000 == 0) {  // liveness only, ~every 1-2 min; logging here runs on a render worker
-					REX::DEBUG("[UiPassSeam] draw: {} seam draws recorded", draws);
-				}
-			}
 		}
 
 		// ------------------------------------------------------------- thunks
 		void* BeginThunk(void* a_this, void* a_ctx, void* a_io, void* a_r9)
 		{
-			const bool probe = g_probeEnabled.load(std::memory_order_relaxed);
-
-			// Arm the capture window PRE-original: ScaleformBegin's own
-			// recording (the buffer's clear/acquire, if anywhere) must land
-			// inside it. A tid re-match re-arms a window left open by a frame
-			// whose composite never ran.
-			EnsureCaptureInstalled();
-			const auto tid = ::GetCurrentThreadId();
-			bool window = false;
-			// Only the first kMaxCaptureWindows fire (session start / main
-			// menu). Periodic gameplay re-arms are RETIRED: each window bursts
-			// dozens of synchronous log lines on a render worker mid-frame —
-			// a visible hitch every ~5000 draws (2026-07-21) — and the FG
-			// UI-input pipeline they existed to capture is now decoded (see
-			// tl_handoffDrawsLeft). Re-add a bounded re-arm only when a new
-			// unknown needs gameplay-state capture.
-			const bool allowWindow = probe && g_captureWindows.load(std::memory_order_relaxed) < kMaxCaptureWindows;
-			if (allowWindow) {
-				std::uint32_t expected = 0;
-				if (g_captureTid.compare_exchange_strong(expected, tid, std::memory_order_acq_rel) ||
-					expected == tid) {
-					window = true;
-					g_capturedList.store(0, std::memory_order_relaxed);
-					g_windowLines.store(kWindowLineBudget, std::memory_order_relaxed);
-					REX::DEBUG("[UiPassSeam] window {} armed: Begin enter tid={} (seam draws so far: {})",
-						g_captureWindows.load(std::memory_order_relaxed) + 1, tid,
-						g_seamDraws.load(std::memory_order_relaxed));
-				}
-			}
+			// Install the barrier/heaps hooks the seam draw needs, once, on the
+			// first pass call (the engine's device is live by now).
+			EnsureDrawHooksInstalled();
 
 			const auto original = reinterpret_cast<ExecuteFn>(g_origBegin.load(std::memory_order_relaxed));
-			void* result = original ? original(a_this, a_ctx, a_io, a_r9) : nullptr;
-
-			if (window) {
-				REX::DEBUG("[UiPassSeam] window: Begin exit");
-			}
-			return result;
+			return original ? original(a_this, a_ctx, a_io, a_r9) : nullptr;
 		}
 
 		void* EndThunk(void* a_this, void* a_ctx, void* a_io, void* a_r9)
 		{
-			const bool probe = g_probeEnabled.load(std::memory_order_relaxed);
-			const auto count = probe ? g_end.count.fetch_add(1, std::memory_order_relaxed) + 1 : 0;
-			const bool window = probe && g_captureTid.load(std::memory_order_relaxed) == ::GetCurrentThreadId();
-			if (window) {
-				REX::DEBUG("[UiPassSeam] window: End enter");
-			}
-			if (probe && count <= kMaxDetailLogs) {
-				REX::DEBUG("[UiPassSeam] End[{}] tid={} this=0x{:X} ctx=0x{:X} io=0x{:X} cmdCtx=0x{:X}",
-					count, ::GetCurrentThreadId(),
-					reinterpret_cast<std::uintptr_t>(a_this), reinterpret_cast<std::uintptr_t>(a_ctx),
-					reinterpret_cast<std::uintptr_t>(a_io),
-					reinterpret_cast<std::uintptr_t>(GetEngineCmdCtx(a_ctx)));
-			}
-
 			const auto original = reinterpret_cast<ExecuteFn>(g_origEnd.load(std::memory_order_relaxed));
 			void* result = original ? original(a_this, a_ctx, a_io, a_r9) : nullptr;
 
@@ -594,10 +359,6 @@ namespace OSFUI::UiPassSeam
 			// the game). Two draws: composite input + FG UI-input source.
 			tl_handoffDrawsLeft = 2;
 			tl_callsAfterFirstDraw = -1;
-
-			if (window) {
-				REX::DEBUG("[UiPassSeam] window: End exit");
-			}
 			return result;
 		}
 
@@ -605,48 +366,9 @@ namespace OSFUI::UiPassSeam
 		{
 			tl_handoffDrawsLeft = 0;  // hand-off glue region over for this frame
 			tl_callsAfterFirstDraw = -1;
-			const bool probe = g_probeEnabled.load(std::memory_order_relaxed);
-			const auto count = probe ? g_composite.count.fetch_add(1, std::memory_order_relaxed) + 1 : 0;
-			const bool window = probe && g_captureTid.load(std::memory_order_relaxed) == ::GetCurrentThreadId();
-			if (window) {
-				REX::DEBUG("[UiPassSeam] window: Composite enter");
-			}
-
-			// Pre-original probe of the state a draw would see here.
-			std::uintptr_t cmdCtx = 0;
-			if (probe && count <= kMaxDetailLogs) {
-				cmdCtx = reinterpret_cast<std::uintptr_t>(GetEngineCmdCtx(a_ctx));
-				REX::DEBUG("[UiPassSeam] Composite[{}] tid={} this=0x{:X} ctx=0x{:X} io=0x{:X} cmdCtx=0x{:X}",
-					count, ::GetCurrentThreadId(),
-					reinterpret_cast<std::uintptr_t>(a_this), reinterpret_cast<std::uintptr_t>(a_ctx),
-					reinterpret_cast<std::uintptr_t>(a_io), cmdCtx);
-
-			}
 
 			const auto original = reinterpret_cast<ExecuteFn>(g_origComposite.load(std::memory_order_relaxed));
-			void* result = original ? original(a_this, a_ctx, a_io, a_r9) : nullptr;
-
-			// Window close (the whole UI section of this frame is now
-			// recorded): report the list location and release the window slot.
-			if (window) {
-				const auto windowNo = g_captureWindows.fetch_add(1, std::memory_order_relaxed) + 1;
-				const auto list = g_capturedList.load(std::memory_order_relaxed);
-				if (list) {
-					if (!cmdCtx) {
-						cmdCtx = reinterpret_cast<std::uintptr_t>(GetEngineCmdCtx(a_ctx));
-					}
-					ReportListOffset("cmdCtx", cmdCtx, list);
-				} else {
-					// No D3D12 calls seen: capture disabled, or the whole UI
-					// section skipped (no live movies).
-					REX::DEBUG("[UiPassSeam] window {}: no OMSetRenderTargets/barrier calls captured", windowNo);
-				}
-				const auto left = g_windowLines.load(std::memory_order_relaxed);
-				REX::DEBUG("[UiPassSeam] window {} closed (Composite exit, {} log slots left)",
-					windowNo, left > 0 ? left : 0);
-				g_captureTid.store(0, std::memory_order_release);
-			}
-			return result;
+			return original ? original(a_this, a_ctx, a_io, a_r9) : nullptr;
 		}
 
 		// -------------------------------------------------------------- hooks
@@ -693,13 +415,12 @@ namespace OSFUI::UiPassSeam
 		}
 	}
 
-	bool Install(const bool a_draw, const bool a_probe)
+	bool Install(const bool a_draw)
 	{
 		if (g_installed.exchange(true, std::memory_order_relaxed)) {
 			return g_installOk.load(std::memory_order_acquire);
 		}
 
-		g_probeEnabled.store(a_probe, std::memory_order_relaxed);
 		const auto origBegin = HookExecuteSlot(
 			"ScaleformBegin", kVtblScaleformBegin, kIdBeginExecute, &BeginThunk, g_origBegin);
 		const auto origEnd = HookExecuteSlot(
