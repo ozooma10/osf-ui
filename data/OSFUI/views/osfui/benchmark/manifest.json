@@ -1,0 +1,20 @@
+{
+  "$schema": "./../../../../../docs/schema/manifest.schema.json",
+  "id": "benchmark",
+  "title": "Web Performance Lab",
+  "description": "Repeatable browser rendering workloads and frame-time reference measurements.",
+  "entry": "index.html",
+  "mod": "osfui",
+  "hub": true,
+  "kind": "menu",
+  "width": 1600,
+  "height": 900,
+  "transparent": true,
+  "capturesInput": true,
+  "pausesGame": false,
+  "permissions": {
+    "nativeBridge": true,
+    "filesystem": false,
+    "network": false
+  }
+}

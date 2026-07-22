@@ -10,7 +10,7 @@
   "focusMenu": true,
   "engineInput": true,
   "view": "osfui/settings",
-  "views": ["osfui/settings", "osfui/keybinds"],
+  "views": ["osfui/settings", "osfui/keybinds", "osfui/benchmark"],
   "devMode": false,
   "devReloadKey": "F11",
   "uiPassProbe": false,

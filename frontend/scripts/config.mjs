@@ -21,6 +21,7 @@ export const COMMITTED_OUT = join(REPO, 'data', 'OSFUI', 'views');
 // Per-view emit mode: 'verbatim' copies a hand-written main.js untouched,
 // 'bundle' builds main.tsx through Vite.
 export const VIEWS = [
+  { mod: 'osfui', name: 'benchmark', mode: 'bundle' },
   { mod: 'osfui', name: 'handoff', mode: 'verbatim' },
   { mod: 'osfui', name: 'keybinds', mode: 'bundle' },
   { mod: 'osfui', name: 'settings', mode: 'bundle' },

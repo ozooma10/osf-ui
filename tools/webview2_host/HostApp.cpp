@@ -1065,8 +1065,11 @@ namespace osfui::wv2
 				// owner as occluded and background the otherwise-visible controller;
 				// telemetry then shows rAF snapping from the monitor cadence to ~24-30
 				// fps. Ignore native HWND occlusion for this capture-only browser. We do
-				// NOT disable general background timer/renderer throttling: explicit
-				// put_IsVisible(FALSE) still suspends hidden OSF UI views.
+				// Keep visible renderers at foreground scheduling priority as well. The
+				// native owner never receives ordinary foreground activation, so Chromium
+				// can otherwise demote a busy renderer even after native occlusion
+				// backgrounding is disabled. Explicit put_IsVisible(FALSE) remains the
+				// lifecycle gate that suspends hidden OSF UI views.
 				auto environmentOptions = Microsoft::WRL::Make<CoreWebView2EnvironmentOptions>();
 				if (!environmentOptions) {
 					log.Error("could not allocate WebView2 environment options");
@@ -1074,7 +1077,7 @@ namespace osfui::wv2
 					return false;
 				}
 				constexpr wchar_t kCaptureBrowserArguments[] =
-					L"--disable-backgrounding-occluded-windows";
+					L"--disable-backgrounding-occluded-windows --disable-renderer-backgrounding";
 				const auto optionsHr = environmentOptions->put_AdditionalBrowserArguments(
 					kCaptureBrowserArguments);
 				if (FAILED(optionsHr)) {
@@ -1084,7 +1087,8 @@ namespace osfui::wv2
 					environmentRequested = false;
 					return false;
 				}
-				log.InfoFwd("WebView2 native-window occlusion throttling disabled for the offscreen capture host");
+				log.InfoFwd(
+					"WebView2 background renderer/occlusion throttling disabled for the offscreen capture host");
 				const auto hr = ::CreateCoreWebView2EnvironmentWithOptions(
 					nullptr, userData.c_str(), environmentOptions.Get(), callback.Get());
 				if (FAILED(hr)) {
@@ -1514,6 +1518,7 @@ namespace osfui::wv2
 						let enabled=false, host=null, raf=0, lastFrame=0;
 						let windowStart=0, frames=0, gaps=[], longCount=0, longMs=0;
 						let observer=null, viewId='';
+						const isTop=window===window.top;
 						const safe=(n,d=1)=>Number.isFinite(Number(n))?Number(n).toFixed(d):'--';
 						const ensurePanel=()=>{
 							if(host&&host.isConnected)return host.shadowRoot;
@@ -1541,14 +1546,46 @@ namespace osfui::wv2
 							lastFrame=now;frames++;
 							raf=requestAnimationFrame(frame);
 						};
-						window.__osfuiRenderStatsNative=(native)=>{
-							if(!enabled)return;
+						const localSample=()=>{
 							const now=performance.now(),elapsed=Math.max(1,now-windowStart);
-							const pageFps=frames*1000/elapsed,p95=percentile(gaps,.95);
-							const max=gaps.length?Math.max(...gaps):0;
+							const result={
+								pageFps:frames*1000/elapsed,p95:percentile(gaps,.95),
+								max:gaps.length?Math.max(...gaps):0,longCount,longMs,
+								nodes:document.getElementsByTagName('*').length,
+								heapMb:performance.memory&&performance.memory.usedJSHeapSize?
+									performance.memory.usedJSHeapSize/1048576:0,
+								frame:location.pathname||document.title||'document'
+							};
+							windowStart=now;frames=0;gaps=[];longCount=0;longMs=0;
+							return result;
+						};
+						const setChildStats=(next)=>{
+							for(const iframe of document.querySelectorAll('iframe')){
+								try{iframe.contentWindow?.__osfuiSetRenderStats?.(next,viewId);}catch(_){}
+							}
+						};
+						const takeSample=()=>{
+							let selected=localSample(),selectedArea=0;
+							for(const iframe of document.querySelectorAll('iframe')){
+								try{
+									const rect=iframe.getBoundingClientRect();
+									const area=Math.max(0,rect.width)*Math.max(0,rect.height);
+									if(area<1)continue;
+									const child=iframe.contentWindow;
+									child?.__osfuiSetRenderStats?.(true,viewId);
+									const sample=child?.__osfuiTakeRenderStatsSample?.();
+									if(sample&&area>selectedArea){selected=sample;selectedArea=area;}
+								}catch(_){}
+							}
+							return selected;
+						};
+						window.__osfuiTakeRenderStatsSample=takeSample;
+						window.__osfuiRenderStatsNative=(native)=>{
+							if(!enabled||!isTop)return;
+							const page=takeSample();
+							const {pageFps,p95,max,longCount,longMs}=page;
 							const fresh=Number.isFinite(Number(native.freshFps))?native.freshFps:native.transferFps;
-							const memory=performance.memory&&performance.memory.usedJSHeapSize?
-								`${safe(performance.memory.usedJSHeapSize/1048576,0)} MB`:'n/a';
+							const memory=page.heapMb?`${safe(page.heapMb,0)} MB`:'n/a';
 							const root=ensurePanel(),bad=p95>25||max>50;
 							root.querySelector('.head').textContent=`RENDER STATS · ${viewId}`;
 							root.querySelector('.rows').innerHTML=
@@ -1559,20 +1596,18 @@ namespace osfui::wv2
 								`<div class="row"><span class="key">LATENCY</span><span>capture→draw ${safe(native.sourceToDrawMs,2)} ms · CPU ${safe(native.recordCpuMs,3)} ms</span></div>`+
 								`<div class="row ${bad?'bad':''}"><span class="key">PAGE RAF</span><span>${safe(pageFps)} fps · p95 ${safe(p95)} ms · max ${safe(max)} ms</span></div>`+
 								`<div class="row ${longCount?'bad':''}"><span class="key">LONG TASKS</span><span>${longCount} · ${safe(longMs,0)} ms total</span></div>`+
-								`<div class="row"><span class="key">PAGE</span><span>${document.getElementsByTagName('*').length} nodes · heap ${memory}</span></div>`+
+								`<div class="row"><span class="key">PAGE</span><span>${page.nodes} nodes · heap ${memory}</span></div>`+
 								`<div class="row ${native.backpressure||native.droppedBusy||native.skippedConcurrent?'bad':''}"><span class="key">DROPS/WAITS</span><span>ring ${native.backpressure||0} · GPU ${native.droppedBusy||0} · concurrent ${native.skippedConcurrent||0}</span></div>`;
 							try{
 								chrome.webview.postMessage('__osfuiRenderStatsPage:'+JSON.stringify({
 									pageFps,p95,max,longCount,longMs,
-									nodes:document.getElementsByTagName('*').length,
-									heapMb:performance.memory&&performance.memory.usedJSHeapSize?
-										performance.memory.usedJSHeapSize/1048576:0
+									nodes:page.nodes,heapMb:page.heapMb,frame:page.frame
 								}));
 							}catch(_){}
-							windowStart=now;frames=0;gaps=[];longCount=0;longMs=0;
 						};
 						window.__osfuiSetRenderStats=(next,id)=>{
 							viewId=String(id||'');
+							setChildStats(!!next);
 							if(!!next===enabled)return;
 							enabled=!!next;
 							if(!enabled){
@@ -1581,7 +1616,8 @@ namespace osfui::wv2
 								if(observer)observer.disconnect();
 								observer=null;if(host)host.remove();host=null;return;
 							}
-							ensurePanel();windowStart=performance.now();raf=requestAnimationFrame(frame);
+							if(isTop)ensurePanel();
+							windowStart=performance.now();raf=requestAnimationFrame(frame);
 							try{
 								observer=new PerformanceObserver((list)=>{
 									for(const entry of list.getEntries()){longCount++;longMs+=entry.duration;}
@@ -1845,9 +1881,10 @@ namespace osfui::wv2
 										try {
 											view->renderStatsLastPageLogMs = now;
 											log.InfoFwd(std::format(
-												"view '{}': page diagnostics: RAF {:.1f} fps, gap p95 {:.2f} ms, "
+												"view '{}': page diagnostics for '{}': RAF {:.1f} fps, gap p95 {:.2f} ms, "
 												"max {:.2f} ms, long tasks {} / {:.1f} ms, DOM {} nodes, heap {:.1f} MB",
-												view->id, sample.value("pageFps", 0.0), sample.value("p95", 0.0),
+												view->id, sample.value("frame", std::string{ "document" }),
+												sample.value("pageFps", 0.0), sample.value("p95", 0.0),
 												sample.value("max", 0.0), sample.value("longCount", 0ull),
 												sample.value("longMs", 0.0), sample.value("nodes", 0ull),
 												sample.value("heapMb", 0.0)));
@@ -2021,6 +2058,26 @@ namespace osfui::wv2
 						});
 					captureSession = framePool.CreateCaptureSession(captureItem);
 					try { captureSession.IsCursorCaptureEnabled(false); } catch (...) {}
+					// Recent Windows builds expose an explicit WGC cadence request. The
+					// system default settled at ~48 Hz on the reporter's 144 Hz display;
+					// a moderately expensive WebView then missed alternate capture slots
+					// and snapped to ~24 fps despite a healthy browser/compositor. Ask WGC
+					// for a permissive high-rate interval when the interface is available.
+					// Do not derive this from the game HWND: borderless Starfield can report
+					// a legacy 60 Hz display mode while DWM and Chromium are running at 144 Hz.
+					if (const auto cadence = captureSession.try_as<IGraphicsCaptureSession5>()) {
+						constexpr std::uint32_t kCaptureRateCeilingHz = 240;
+						const auto interval = std::chrono::duration_cast<
+							winrt::Windows::Foundation::TimeSpan>(
+								std::chrono::duration<double>(
+									1.0 / static_cast<double>(kCaptureRateCeilingHz)));
+						cadence.MinUpdateInterval(interval);
+						const auto applied = cadence.MinUpdateInterval();
+						log.InfoFwd(std::format(
+							"WGC high-rate update interval requested at up to {} Hz ({:.3f} ms)",
+							kCaptureRateCeilingHz,
+							std::chrono::duration<double, std::milli>(applied).count()));
+					}
 					captureSession.StartCapture();
 					return true;
 				} catch (const winrt::hresult_error& a_error) {

@@ -4,13 +4,14 @@
 
 ### Fixed
 
-- Prevented Chromium from treating OSF UI's deliberately tiny offscreen capture window as occluded and intermittently throttling visible views to roughly 24–30 FPS. Explicitly hidden views still suspend normally, while visible animated and game views keep their foreground browser cadence instead of abruptly becoming choppy.
+- Prevented visible animated and game views from intermittently collapsing to roughly 24–30 FPS. Chromium no longer treats OSF UI's deliberately tiny offscreen capture window or its renderer processes as background work, and supported Windows builds now permit high-rate capture updates instead of settling at a lower system-default cadence. Explicitly hidden views still suspend normally.
 - The first-load transition is now painted once during startup while it is still hidden, so invoking it no longer waits for a cold WebView renderer before it can appear.
 - Hardened the Pause-menu “MOD MENUS” entry against close/reopen races: periodic injection now runs only while the engine-admitted movie is advancing, and stale click callbacks are swallowed without opening the overlay or forwarding OSF UI's private action id into the game. Unexpected Scaleform faults are also left to the crash logger instead of being caught after the VM is already corrupted, which previously turned the crash into a hang.
 
 ### Other changes
 
-- Mod Settings now has one persistent **Show render stats** switch under OSF UI → Diagnostics. Its primary **Fresh view** rate measures new WebView textures that actually reach the game's compositor, rather than browser animation callbacks. The panel and periodic OSF UI logs also separate capture, transport, game-draw and present cadence; report capture-to-draw and compositor CPU time; and count reused frames, stalls, waits and drops, making a laggy stage identifiable. It applies to every view, including views loaded after it is enabled.
+- Added a built-in **Web Performance Lab** under OSF UI's panels. It runs repeatable paint, transform, DOM layout, Canvas 2D, CSS effects and mixed-scene workloads without pausing the game; records RAF cadence, frame-time percentiles, JavaScript work, timer jitter and input-to-RAF delay; and can run or copy a complete reference suite for comparing machines and OSF UI builds.
+- Mod Settings now has one persistent **Show render stats** switch under OSF UI → Diagnostics. Its primary **Fresh view** rate measures new WebView textures that actually reach the game's compositor, rather than browser animation callbacks. The panel and periodic OSF UI logs also separate capture, transport, game-draw and present cadence; report capture-to-draw and compositor CPU time; count reused frames, stalls, waits and drops; and sample the actual animated document inside same-origin iframes instead of misreporting a static launcher. It applies to every view, including views loaded after it is enabled.
 
 ## 1.2.1 — 2026-07-22
 
