@@ -67,12 +67,18 @@ int main()
 	CHECK(vm->natives.contains("PushToView"));
 	CHECK(vm->natives.contains("RegisterForViewActions"));
 	CHECK(vm->natives.contains("RegisterForViewActionsStatic"));
+	CHECK(vm->natives.contains("RegisterForViewActionsArgs"));
+	CHECK(vm->natives.contains("RegisterForViewActionsArgsStatic"));
 	CHECK(vm->natives.contains("Unregister"));
 
 	const auto registerStatic =
 		vm->GetNative<std::int32_t (*)(IVM&, std::uint32_t, std::monostate, Str, Str, Str)>("RegisterForViewActionsStatic");
 	const auto registerInstance =
 		vm->GetNative<std::int32_t (*)(IVM&, std::uint32_t, std::monostate, ObjPtr, Str, Str)>("RegisterForViewActions");
+	const auto registerArgsStatic =
+		vm->GetNative<std::int32_t (*)(IVM&, std::uint32_t, std::monostate, Str, Str, Str)>("RegisterForViewActionsArgsStatic");
+	const auto registerArgsInstance =
+		vm->GetNative<std::int32_t (*)(IVM&, std::uint32_t, std::monostate, ObjPtr, Str, Str)>("RegisterForViewActionsArgs");
 	const auto registerSettingsStatic =
 		vm->GetNative<std::int32_t (*)(IVM&, std::uint32_t, std::monostate, Str, Str, Str)>("RegisterForSettingChangesStatic");
 	const auto unregister =
@@ -118,7 +124,7 @@ int main()
 
 	// --- static dispatch + case-insensitive mod filter ---------------------------
 	vm->calls.clear();
-	API::Papyrus::OnViewAction("t.alpha", "sort", "5");
+	API::Papyrus::OnViewAction("t.alpha", "sort", { "5" });
 	CHECK(vm->calls.size() == 1);
 	if (vm->calls.size() == 1) {
 		const auto& c = vm->calls[0];
@@ -130,7 +136,7 @@ int main()
 
 	// Another mod's action never reaches this registration.
 	vm->calls.clear();
-	API::Papyrus::OnViewAction("t.beta", "sort", "");
+	API::Papyrus::OnViewAction("t.beta", "sort", { "" });
 	CHECK(vm->calls.empty());
 
 	// --- kind isolation: kAction vs kSettings ------------------------------------
@@ -138,7 +144,7 @@ int main()
 	CHECK(settingsToken != 0);
 
 	vm->calls.clear();
-	API::Papyrus::OnViewAction("t.alpha", "go", "");
+	API::Papyrus::OnViewAction("t.alpha", "go", { "" });
 	CHECK(vm->calls.size() == 1);  // the action registration only
 	if (!vm->calls.empty()) {
 		CHECK(vm->calls[0].fn == "OnUIAction");
@@ -159,7 +165,7 @@ int main()
 	CHECK(tokenInstance != 0);
 
 	vm->calls.clear();
-	API::Papyrus::OnViewAction("T.ALPHA", "toggle", "slot3");  // caller casing is folded by the filter too
+	API::Papyrus::OnViewAction("T.ALPHA", "toggle", { "slot3" });  // caller casing is folded by the filter too
 	CHECK(vm->calls.size() == 2);
 	bool sawMethodCall = false;
 	for (const auto& c : vm->calls) {
@@ -175,7 +181,7 @@ int main()
 	CHECK(!unregister(*vm, 0, {}, tokenInstance));  // stale token
 	CHECK(!unregister(*vm, 0, {}, 0));              // 0 is the documented failure token
 	vm->calls.clear();
-	API::Papyrus::OnViewAction("t.alpha", "x", "");
+	API::Papyrus::OnViewAction("t.alpha", "x", { "" });
 	CHECK(vm->calls.size() == 1);  // only the static registration remains
 
 	// --- push queue / drain --------------------------------------------------------
@@ -230,7 +236,7 @@ int main()
 	RE::TESLoadGameEvent::GetEventSource()->Notify(RE::TESLoadGameEvent{});
 	CHECK(vm->natives.contains("RegisterForViewActions"));  // re-bound
 	vm->calls.clear();
-	API::Papyrus::OnViewAction("t.alpha", "sort", "1");
+	API::Papyrus::OnViewAction("t.alpha", "sort", { "1" });
 	CHECK(vm->calls.empty());                    // registrations gone
 	CHECK(!unregister(*vm, 0, {}, tokenStatic));  // pre-load token never validates again
 
@@ -239,8 +245,63 @@ int main()
 	CHECK(tokenAfterLoad != 0);
 	CHECK(tokenAfterLoad != tokenStatic);
 	vm->calls.clear();
-	API::Papyrus::OnViewAction("t.alpha", "ready", "");
+	API::Papyrus::OnViewAction("t.alpha", "ready", { "" });
 	CHECK(vm->calls.size() == 1);
+	CHECK(unregister(*vm, 0, {}, tokenAfterLoad));
+
+	// --- args-list shape (RegisterForViewActionsArgs) ----------------------------
+	// A view sends `args: [...]`; the whole list reaches the callback as a
+	// Papyrus string[] (the stub's recording VM flattens the packed array back
+	// into the call's args, after the leading action string).
+	const auto argsStatic = registerArgsStatic(*vm, 0, {}, "ArgsLib", "OnUIAction", "t.delta");
+	CHECK(argsStatic != 0);
+	vm->calls.clear();
+	API::Papyrus::OnViewAction("t.delta", "untrack", { "1", "7" });
+	CHECK(vm->calls.size() == 1);
+	if (vm->calls.size() == 1) {
+		CHECK(vm->calls[0].isStatic);
+		CHECK(vm->calls[0].scriptName == "ArgsLib");
+		CHECK((vm->calls[0].args == std::vector<std::string>{ "untrack", "1", "7" }));  // action + list
+	}
+
+	// No-arg action to an args-list registrant delivers an empty list.
+	vm->calls.clear();
+	API::Papyrus::OnViewAction("t.delta", "ready", {});
+	CHECK(vm->calls.size() == 1);
+	if (!vm->calls.empty()) {
+		CHECK((vm->calls[0].args == std::vector<std::string>{ "ready" }));  // action only, empty list
+	}
+
+	// Mixed shapes on one mod: the scalar registrant gets args[0], the args-list
+	// registrant gets the whole list — each in the form it registered for.
+	const auto scalarOnDelta = registerStatic(*vm, 0, {}, "ScalarLib", "OnUIAction", "t.delta");
+	CHECK(scalarOnDelta != 0);
+	vm->calls.clear();
+	API::Papyrus::OnViewAction("t.delta", "edit", { "3", "tag" });
+	CHECK(vm->calls.size() == 2);
+	bool sawScalar = false, sawArgs = false;
+	for (const auto& c : vm->calls) {
+		if (c.scriptName == "ScalarLib") {
+			sawScalar = (c.args == std::vector<std::string>{ "edit", "3" });  // action + first element
+		} else if (c.scriptName == "ArgsLib") {
+			sawArgs = (c.args == std::vector<std::string>{ "edit", "3", "tag" });  // action + whole list
+		}
+	}
+	CHECK(sawScalar);
+	CHECK(sawArgs);
+
+	// Instance args-list variant registers and dispatches too.
+	const auto argsReceiver = std::make_shared<RE::BSScript::Object>();
+	const auto argsInstance = registerArgsInstance(*vm, 0, {}, ObjPtr{ argsReceiver }, "OnUIAction", "t.epsilon");
+	CHECK(argsInstance != 0);
+	vm->calls.clear();
+	API::Papyrus::OnViewAction("t.epsilon", "rename", { "0", "5" });
+	CHECK(vm->calls.size() == 1);
+	if (!vm->calls.empty()) {
+		CHECK(!vm->calls[0].isStatic);
+		CHECK(vm->calls[0].receiver == argsReceiver.get());
+		CHECK((vm->calls[0].args == std::vector<std::string>{ "rename", "0", "5" }));
+	}
 
 	std::fprintf(stderr, "papyrus_action_tests: %d checks, %d failures\n", g_checks, g_failures);
 	return g_failures;

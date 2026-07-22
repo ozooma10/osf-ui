@@ -39,6 +39,11 @@ namespace OSFUI::API::Papyrus
 			RE::BSFixedString                         fn;
 			std::string                               modId;  // settings: empty = every mod; hotkey: required
 			std::string                               key;    // hotkey only: empty = every key-typed setting of modId
+			// kAction only: false => callback is OnUIAction(string, string) (the
+			// scalar-arg shape); true => OnUIAction(string, string[]) (the
+			// args-list shape from RegisterForViewActionsArgs). Both shapes can
+			// coexist for one mod and each is dispatched in its declared form.
+			bool wantsArgs{ false };
 		};
 
 		struct QueuedOp
@@ -80,7 +85,8 @@ namespace OSFUI::API::Papyrus
 		// Slot allocation + token mint. a_receiver XOR a_scriptName. Caller
 		// validated the inputs; requires s_lock held.
 		std::int32_t AddEntry(Kind a_kind, const RE::BSTSmartPointer<RE::BSScript::Object>& a_receiver,
-			RE::BSFixedString a_scriptName, std::string_view a_fn, std::string_view a_modId, std::string_view a_key)
+			RE::BSFixedString a_scriptName, std::string_view a_fn, std::string_view a_modId, std::string_view a_key,
+			bool a_wantsArgs = false)
 		{
 			std::uint16_t slot = 0;
 			for (; slot < s_slots.size(); slot++) {
@@ -109,10 +115,12 @@ namespace OSFUI::API::Papyrus
 			e.fn = RE::BSFixedString(std::string(a_fn).c_str());
 			e.modId = std::string(a_modId);
 			e.key = std::string(a_key);
+			e.wantsArgs = a_wantsArgs;
 
 			const auto token = MakeToken(gen, slot);
-			REX::DEBUG("PapyrusApi: registered token {:#010x} -> {}{}(string, string) ({} filter '{}'{}{})",
+			REX::DEBUG("PapyrusApi: registered token {:#010x} -> {}{}({}) ({} filter '{}'{}{})",
 				token, e.scriptName.empty() ? "" : std::string(e.scriptName.c_str()) + ".", e.fn.c_str(),
+				a_wantsArgs ? "string, string[]" : "string, string",
 				a_kind == Kind::kHotkey ? "hotkey" :
 				a_kind == Kind::kAction ? "action" :
 				                          "settings",
@@ -132,11 +140,29 @@ namespace OSFUI::API::Papyrus
 			};
 		}
 
+		// The args-list action shape: OnUIAction(string asAction, string[] asArgs).
+		// The Papyrus string[] is built when the closure runs on the VM thread
+		// (PackVariable self-serves the VM); the value vector is copied per target.
+		auto MakeArgsArray(RE::BSFixedString a_action, std::vector<RE::BSFixedString> a_args)
+		{
+			return [action = std::move(a_action), args = std::move(a_args)](RE::BSScrapArray<RE::BSScript::Variable>& a_out) -> bool {
+				a_out.resize(2);
+				a_out[0] = action;
+				// PackVariable's array overload needs a non-const lvalue (its
+				// concept can't form a const uninitialized probe object), and the
+				// captured vector is const in this non-mutable functor — copy it.
+				std::vector<RE::BSFixedString> values = args;
+				RE::BSScript::PackVariable(a_out[1], values);
+				return true;
+			};
+		}
+
 		struct Target
 		{
 			RE::BSTSmartPointer<RE::BSScript::Object> receiver;
 			RE::BSFixedString                         scriptName;
 			RE::BSFixedString                         fn;
+			bool                                      wantsArgs{ false };  // kAction: string[] shape
 		};
 
 		// Snapshot the registrations of a_kind matching (a_modId, a_key) under
@@ -159,7 +185,7 @@ namespace OSFUI::API::Papyrus
 				if (a_kind == Kind::kHotkey && !e.key.empty() && !Ids::EqualsCaseInsensitiveAscii(e.key, a_key)) {
 					continue;
 				}
-				targets.emplace_back(e.receiver, e.scriptName, e.fn);
+				targets.emplace_back(e.receiver, e.scriptName, e.fn, e.wantsArgs);
 			}
 			return targets;
 		}
@@ -195,10 +221,48 @@ namespace OSFUI::API::Papyrus
 			DispatchToTargets(CollectTargets(a_kind, a_modId, a_key), a_modId, a_key);
 		}
 
-		// Action shape: filter on a_modId, but call with (action, arg).
-		void DispatchAction(std::string_view a_modId, std::string_view a_action, std::string_view a_arg)
+		// Action shape: filter on a_modId, call each target in its declared form.
+		// Scalar-arg registrants get OnUIAction(action, args[0]-or-"") — identical
+		// to the pre-args behaviour; args-list registrants get the whole vector as
+		// a Papyrus string[]. Both shapes can be registered for one mod at once.
+		void DispatchAction(std::string_view a_modId, std::string_view a_action, const std::vector<std::string>& a_args)
 		{
-			DispatchToTargets(CollectTargets(Kind::kAction, a_modId, {}), a_action, a_arg);
+			const auto targets = CollectTargets(Kind::kAction, a_modId, {});
+			if (targets.empty()) {
+				return;
+			}
+			auto* vm = VM::GetSingleton();
+			if (!vm) {
+				REX::WARN("PapyrusApi: action dispatch with no VM");
+				return;
+			}
+
+			const RE::BSFixedString action{ std::string(a_action).c_str() };
+			// Legacy scalar: the first list element (empty when the list is empty),
+			// so a migrated view sending args[] still drives an unmigrated script.
+			const RE::BSFixedString scalar{ a_args.empty() ? "" : a_args.front().c_str() };
+			std::vector<RE::BSFixedString> argv;
+			argv.reserve(a_args.size());
+			for (const auto& s : a_args) {
+				argv.emplace_back(s.c_str());
+			}
+
+			const RE::BSTSmartPointer<RE::BSScript::IStackCallbackFunctor> noCallback{};
+			for (const auto& t : targets) {
+				if (t.wantsArgs) {
+					if (!t.scriptName.empty()) {
+						vm->DispatchStaticCall(t.scriptName, t.fn, MakeArgsArray(action, argv), noCallback, 0);
+					} else {
+						vm->DispatchMethodCall(t.receiver, t.fn, MakeArgsArray(action, argv), noCallback, 0);
+					}
+				} else {
+					if (!t.scriptName.empty()) {
+						vm->DispatchStaticCall(t.scriptName, t.fn, MakeArgs(action, scalar), noCallback, 0);
+					} else {
+						vm->DispatchMethodCall(t.receiver, t.fn, MakeArgs(action, scalar), noCallback, 0);
+					}
+				}
+			}
 		}
 
 		void QueueOp(RE::BSFixedString& a_mod, RE::BSFixedString& a_key, nlohmann::json a_value, bool a_reset)
@@ -400,6 +464,34 @@ namespace OSFUI::API::Papyrus
 			return AddEntry(Kind::kAction, {}, a_script, a_fn.c_str(), modId, {});
 		}
 
+		// Args-list variants: identical to RegisterForViewActions[Static] but the
+		// callback is OnUIAction(string asAction, string[] asArgs). Lets a view
+		// send several values per action (osfui.send 'ui.action' { args: [...] })
+		// instead of packing ints into one string.
+		std::int32_t RegisterForViewActionsArgs(PapVM&, std::uint32_t, std::monostate,
+			RE::BSTSmartPointer<RE::BSScript::Object> a_receiver, RE::BSFixedString a_fn, RE::BSFixedString a_modId)
+		{
+			const auto modId = ToLowerAscii(a_modId.c_str() ? a_modId.c_str() : "");
+			if (!a_receiver.get() || a_fn.empty() || !Ids::IsAcceptedModId(modId)) {
+				REX::DEBUG("PapyrusApi: RegisterForViewActionsArgs: null receiver, empty function name, or invalid mod id");
+				return 0;
+			}
+			std::lock_guard l{ s_lock };
+			return AddEntry(Kind::kAction, a_receiver, {}, a_fn.c_str(), modId, {}, true);
+		}
+
+		std::int32_t RegisterForViewActionsArgsStatic(PapVM&, std::uint32_t, std::monostate,
+			RE::BSFixedString a_script, RE::BSFixedString a_fn, RE::BSFixedString a_modId)
+		{
+			const auto modId = ToLowerAscii(a_modId.c_str() ? a_modId.c_str() : "");
+			if (a_script.empty() || a_fn.empty() || !Ids::IsAcceptedModId(modId)) {
+				REX::DEBUG("PapyrusApi: RegisterForViewActionsArgsStatic: empty script, empty function name, or invalid mod id");
+				return 0;
+			}
+			std::lock_guard l{ s_lock };
+			return AddEntry(Kind::kAction, {}, a_script, a_fn.c_str(), modId, {}, true);
+		}
+
 		void PushToView(PapVM&, std::uint32_t, std::monostate,
 			RE::BSFixedString a_mod, RE::BSFixedString a_key, std::vector<RE::BSFixedString> a_values)
 		{
@@ -457,6 +549,8 @@ namespace OSFUI::API::Papyrus
 			a_vm->BindNativeMethod(kScriptName, "RegisterForHotkeyStatic", &RegisterForHotkeyStatic, true, false);
 			a_vm->BindNativeMethod(kScriptName, "RegisterForViewActions", &RegisterForViewActions, true, false);
 			a_vm->BindNativeMethod(kScriptName, "RegisterForViewActionsStatic", &RegisterForViewActionsStatic, true, false);
+			a_vm->BindNativeMethod(kScriptName, "RegisterForViewActionsArgs", &RegisterForViewActionsArgs, true, false);
+			a_vm->BindNativeMethod(kScriptName, "RegisterForViewActionsArgsStatic", &RegisterForViewActionsArgsStatic, true, false);
 			a_vm->BindNativeMethod(kScriptName, "Unregister", &Unregister, true, false);
 
 			a_vm->BindNativeMethod(kScriptName, "PushToView", &PushToView, true, false);
@@ -544,9 +638,9 @@ namespace OSFUI::API::Papyrus
 		Dispatch(Kind::kHotkey, a_modId, a_key);
 	}
 
-	void OnViewAction(std::string_view a_modId, std::string_view a_action, std::string_view a_arg)
+	void OnViewAction(std::string_view a_modId, std::string_view a_action, const std::vector<std::string>& a_args)
 	{
-		DispatchAction(a_modId, a_action, a_arg);
+		DispatchAction(a_modId, a_action, a_args);
 	}
 
 	void DrainViewPushes(const std::function<void(const ViewPush&)>& a_deliver)

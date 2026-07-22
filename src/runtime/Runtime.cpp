@@ -1934,7 +1934,31 @@ namespace OSFUI
 				a_b.SendResult(false, "invalid-action", "ui.action requires a non-empty 'action' string");
 				return;
 			}
-			API::Papyrus::OnViewAction(mod, action, Json::GetString(a_p, "arg", ""));
+			// `args` (protocol 1.3): a string list delivered to args-list
+			// registrants as a Papyrus string[]. Non-string elements are coerced
+			// so a view can send `args: [1, 7]` without stringifying. When absent
+			// (or not an array) fall back to the legacy scalar `arg` as a single
+			// element, so an unmigrated view keeps working unchanged.
+			std::vector<std::string> args;
+			if (const auto it = a_p.find("args"); it != a_p.end() && it->is_array()) {
+				args.reserve(it->size());
+				for (const auto& e : *it) {
+					if (e.is_string()) {
+						args.push_back(e.get<std::string>());
+					} else if (e.is_number_integer()) {
+						args.push_back(std::to_string(e.get<std::int64_t>()));
+					} else if (e.is_number()) {
+						args.push_back(std::to_string(e.get<double>()));
+					} else if (e.is_boolean()) {
+						args.emplace_back(e.get<bool>() ? "true" : "false");
+					} else {
+						args.emplace_back();  // null/object/array element -> ""
+					}
+				}
+			} else {
+				args.push_back(Json::GetString(a_p, "arg", ""));
+			}
+			API::Papyrus::OnViewAction(mod, action, args);
 		});
 		a_bridge.RegisterCommand("log", [](const nlohmann::json& a_p, MessageBridge&) {
 			// Untrusted content: bound the length so JS cannot flood the log.

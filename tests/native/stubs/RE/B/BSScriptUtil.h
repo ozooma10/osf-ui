@@ -64,23 +64,47 @@ namespace RE
 		struct IStackCallbackFunctor
 		{};
 
-		// Only string assignment is modeled: the code under test packs
-		// BSFixedStrings via its args functor; the test reads them back out of
-		// recorded calls.
+		// String assignment (scalar args) and a string[] via PackVariable (the
+		// args-list action shape) are modeled: the code under test packs
+		// BSFixedStrings and vectors through its args functor; the test reads them
+		// back out of recorded calls.
 		class Variable
 		{
 		public:
 			Variable& operator=(const BSFixedString& a_str)
 			{
 				_str = a_str.c_str();
+				_isList = false;
 				return *this;
 			}
 
 			[[nodiscard]] const std::string& String() const noexcept { return _str; }
 
+			[[nodiscard]] bool                             IsList() const noexcept { return _isList; }
+			[[nodiscard]] const std::vector<std::string>&  List() const noexcept { return _list; }
+			void SetList(std::vector<std::string> a_list)
+			{
+				_list = std::move(a_list);
+				_isList = true;
+			}
+
 		private:
-			std::string _str;
+			std::string              _str;
+			std::vector<std::string> _list;
+			bool                     _isList{ false };
 		};
+
+		// Minimal stand-in for CommonLibSF's PackVariable array overload: store
+		// the string[] elements so the recording VM can flatten them back out.
+		inline void PackVariable(Variable& a_var, const std::vector<BSFixedString>& a_values)
+		{
+			std::vector<std::string> out;
+			out.reserve(a_values.size());
+			for (const auto& v : a_values) {
+				out.emplace_back(v.c_str());
+			}
+			a_var.SetList(std::move(out));
+		}
 
 		class IVirtualMachine
 		{
@@ -153,8 +177,17 @@ namespace RE
 					a_makeArgs(packed);
 					std::vector<std::string> out;
 					out.reserve(packed.size());
+					// A string[] arg (the args-list action shape) flattens inline:
+					// its elements follow the leading action string, so a test can
+					// assert on the whole call as one flat vector.
 					for (const auto& v : packed) {
-						out.push_back(v.String());
+						if (v.IsList()) {
+							for (const auto& s : v.List()) {
+								out.push_back(s);
+							}
+						} else {
+							out.push_back(v.String());
+						}
 					}
 					return out;
 				}

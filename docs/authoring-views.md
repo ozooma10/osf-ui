@@ -14,7 +14,7 @@ a reference for the two data-driven extension points that work today:
 
 > **Status / scope.** Pure content, no recompile: a
 > `views/<modId>/<viewName>/` folder and a `settings/<modId>.json` schema. The
-> bridge protocol is at version **1.2 — stable**; additive changes bump the
+> bridge protocol is at version **1.3 — stable**; additive changes bump the
 > minor version, breaking changes bump the major. Compatibility is advisory:
 > declare the OSF UI version you authored against as `targetVersion` (manifest
 > and/or settings schema, §7), and the Mods surface shows a "needs update"
@@ -396,7 +396,7 @@ Whitelisted commands (anything else is rejected, logged, and answered with
 | `osfui.handleBack` | `handle: bool` | own the back action. While your menu is ACTIVE, Esc / gamepad B are delivered to your page as a synthetic Escape keydown/keyup instead of closing the top menu — handle it and decide: navigate (`menu.open`), dismiss an inner panel, or send `close`. Same sticky-per-view lifecycle as `osfui.gamepadRaw` (clears on page (re)load / view destroy — re-assert in your boot code). The overlay toggle key always closes natively, so a page that stops responding cannot strand the player |
 | `osfui.textFocus` | `focused: bool` | *(legacy experimental compatibility command)* accepted as a no-op. Interactive menus now hold native focus for their entire visible session, so views no longer need to request or release a separate text-entry grant |
 | `osfui.openModPage` | — | *(protocol 1.1)* open OSF UI's own Nexus Mods page in the user's **system browser** (the overlay itself never navigates — it has no chrome to come back through). The URL is hardcoded in the host; the payload carries nothing, so page content cannot steer the shell. For "update OSF UI" affordances in views. Behind a fullscreen game the browser opens unfocused (alt-tab); failures answer `ui.result { ok:false, code:"shell-failed" }` |
-| `ui.action` | `action: string`, `arg?: string` | *(protocol 1.1)* fire an action at the OWNING mod's Papyrus scripts (`OSFUI.RegisterForViewActions`). The target mod id is derived from the calling view's id — the payload cannot spoof it. Fire-and-forget: no reply payload (a `requestId` still gets the auto `ui.result`, meaning "queued to the VM", not "handled"); the script answers by pushing state back as `data.push`. Convention: fire `{ action: "ready" }` on page load so the script (re)pushes current state — see [authoring-dynamic-data.md](authoring-dynamic-data.md) |
+| `ui.action` | `action: string`, `arg?: string`, `args?: (string\|number\|boolean)[]` | *(protocol 1.1; `args` added 1.3)* fire an action at the OWNING mod's Papyrus scripts (`OSFUI.RegisterForViewActions`). The target mod id is derived from the calling view's id — the payload cannot spoof it. Send `arg` for a single string (delivered as `OnUIAction(action, arg)`) or `args` for a LIST (delivered as `OnUIAction(action, string[])` to a `RegisterForViewActionsArgs` callback) — the latter replaces packing several ints into one string. Non-string `args` elements are coerced to strings. Fire-and-forget: no reply payload (a `requestId` still gets the auto `ui.result`, meaning "queued to the VM", not "handled"); the script answers by pushing state back as `data.push`. Convention: fire `{ action: "ready" }` on page load so the script (re)pushes current state — see [authoring-dynamic-data.md](authoring-dynamic-data.md) |
 
 > There is intentionally no "call any native function" escape hatch. New
 > commands come from native code only: either a handler in the OSF UI
@@ -735,7 +735,7 @@ const info = await osfui.ready;
 console.log(`running OSF UI ${info.version}`);
 ```
 
-The protocol version is **1.2**, emitted as `bridgeVersion` — informational
+The protocol version is **1.3**, emitted as `bridgeVersion` — informational
 (logs, bug reports), distinct from the plugin `version`. From 1.0 the
 contract is stable: additive changes bump the minor version; anything that
 would break a shipped view bumps the major. The constant lives in

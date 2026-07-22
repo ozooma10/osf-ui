@@ -33,11 +33,14 @@ namespace OSFUI::API::Papyrus
 	void OnHotkey(std::string_view a_modId, std::string_view a_key);
 
 	// Main thread (Runtime's `ui.action` bridge command): fan a view-fired
-	// action out to the mod's RegisterForViewActions callbacks as
-	// asFn(asAction, asArg). a_modId is derived from the source view id by the
-	// caller, never the payload, and matched case-insensitively. Fire-and-
+	// action out to the mod's RegisterForViewActions callbacks. a_modId is
+	// derived from the source view id by the caller, never the payload, and
+	// matched case-insensitively. a_args is the action's argument list (the
+	// legacy scalar `arg` arrives as a one-element vector): scalar-arg
+	// registrants get asFn(asAction, a_args[0]-or-""), args-list registrants
+	// (RegisterForViewActionsArgs) get asFn(asAction, string[]). Fire-and-
 	// forget: no return value, no callback functor, no RPC into the VM.
-	void OnViewAction(std::string_view a_modId, std::string_view a_action, std::string_view a_arg);
+	void OnViewAction(std::string_view a_modId, std::string_view a_action, const std::vector<std::string>& a_args);
 
 	// One queued PushToView payload. mod is canonical lowercase (folded from
 	// the interned Papyrus string and validated against the id grammar), so

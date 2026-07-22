@@ -13,8 +13,12 @@ The whole API is three functions on the shipped `OSFUI` script (plus the
 
 ```papyrus
 Function PushToView(string asModId, string asKey, string[] asValues) Global Native
+; scalar-arg callback: OnUIAction(string asAction, string asArg)
 int Function RegisterForViewActions(ScriptObject akReceiver, string asFn, string asModId) Global Native
 int Function RegisterForViewActionsStatic(string asScript, string asFn, string asModId) Global Native
+; args-list callback: OnUIAction(string asAction, string[] asArgs)  — host 1.3.0+
+int Function RegisterForViewActionsArgs(ScriptObject akReceiver, string asFn, string asModId) Global Native
+int Function RegisterForViewActionsArgsStatic(string asScript, string asFn, string asModId) Global Native
 ```
 
 ## The model: your script owns the truth
@@ -101,16 +105,26 @@ osfui.onMessage = (msg) => {
 // load — which is also every overlay reload and every game load resync.
 osfui.send('ui.action', { action: 'ready' });
 
-// A click fires an action; the script answers with a fresh push.
+// A click fires an action; the script answers with a fresh push. Pass several
+// values as a list — each becomes one asArgs[i] on the Papyrus side (host
+// 1.3+); host coerces non-strings, so numbers are fine.
 function onRemoveTag(slotIndex, tag) {
-  osfui.send('ui.action', { action: 'removeTag', arg: slotIndex + ':' + tag });
+  osfui.send('ui.action', { action: 'removeTag', args: [slotIndex, tag] });
 }
 ```
 
-`arg` is a single string — encode structure yourself (`"3:WeapMelee"` above).
-For anything bigger, prefer more actions with small args over parsing blobs.
+`args` is a LIST — send each value as its own element and index it directly on
+the script side (below). Prefer this over the old idiom of packing multiple
+values into one `arg` string (`"3:WeapMelee"`, or `kind*100+slot` for ints):
+Papyrus has neither substring parsing nor a modulo operator, so unpacking a
+blob was always the awkward part. A single scalar still works — send `arg:
+"..."` and read it as the second parameter of the scalar callback form.
 
 ### 3. The Papyrus script
+
+Register with `RegisterForViewActionsArgs` to receive the argument list as a
+`string[]`. (The older `RegisterForViewActions` delivers a single `string asArg`
+instead — use it only if you target hosts before 1.3.0.)
 
 ```papyrus
 ScriptName AutoSortUI Extends Quest
@@ -118,17 +132,16 @@ ScriptName AutoSortUI Extends Quest
 int uiToken = 0
 
 Function RegisterUI()
-    uiToken = OSFUI.RegisterForViewActions(self as ScriptObject, "OnUIAction", "yourname.autosort")
+    uiToken = OSFUI.RegisterForViewActionsArgs(self as ScriptObject, "OnUIAction", "yourname.autosort")
 EndFunction
 
-Function OnUIAction(string asAction, string asArg)
-    If asAction == "ready"          ; view (re)opened or resynced: push everything
+Function OnUIAction(string asAction, string[] asArgs)
+    If asAction == "ready"           ; view (re)opened or resynced: push everything
         PushAll()
-    ElseIf asAction == "removeTag"  ; "<slotIndex>:<tag>"
-        int sep = StringFindSubstring(asArg, ":")
-        int slot = StringToInt(StringSubstring(asArg, 0, sep))
-        RemoveTag(slot, StringSubstring(asArg, sep + 1))
-        PushSlot(slot)              ; the "reply" is a fresh push
+    ElseIf asAction == "removeTag"   ; asArgs = [slotIndex, tag]
+        int slot = asArgs[0] as int
+        RemoveTag(slot, asArgs[1])
+        PushSlot(slot)               ; the "reply" is a fresh push
     EndIf
 EndFunction
 

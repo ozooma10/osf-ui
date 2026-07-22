@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- View actions can now carry a **list of arguments** (bridge protocol 1.3). A view sends `osfui.send('ui.action', { action, args: [...] })` and a script registered with the new `OSFUI.RegisterForViewActionsArgs` receives them as `OnUIAction(string asAction, string[] asArgs)`. This replaces the long-standing workaround of packing several small ints into one string (`kind*100+slot`) to squeeze through the single-string `arg` channel — Papyrus has neither a modulo operator nor substring parsing, which made unpacking awkward. The original scalar `arg` / `RegisterForViewActions` shape is unchanged, and both can be used by the same mod at once.
+
 ### Fixed
 
 - Starting Starfield with OSF UI enabled no longer lets the WebView2 helper's offscreen bootstrap window take foreground activation and leave the game backgrounded during launch.

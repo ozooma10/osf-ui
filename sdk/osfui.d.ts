@@ -1,7 +1,7 @@
 /**
  * TypeScript definitions for the OSF UI native <-> web bridge.
  *
- * Bridge protocol version: 1.2 (STABLE — additive changes bump the minor;
+ * Bridge protocol version: 1.3 (STABLE — additive changes bump the minor;
  * breaking changes bump the major). Compatibility is advisory: declare the
  * OSF UI version you authored against as `targetVersion` (view manifest /
  * settings schema) and the Mods surface badges "needs update" when the
@@ -86,8 +86,18 @@ export type UiCommand =
    * `data.push`. Convention: send `{ action: "ready" }` on load (and on
    * `runtime.ready` re-handshakes) so the script knows to (re)push current
    * state — OSF UI caches nothing (docs/authoring-dynamic-data.md).
+   *
+   * Argument passing has two forms. `arg` is the original single string,
+   * delivered to a RegisterForViewActions callback as OnUIAction(action, arg).
+   * `args` (protocol 1.3) is a LIST, delivered to a RegisterForViewActionsArgs
+   * callback as OnUIAction(action, string[]) — use it instead of packing
+   * several small ints into one string (kind*100+slot and the like), which
+   * Papyrus's lack of a modulo operator and string parsing made painful.
+   * Non-string elements are coerced to strings by the host, so `args: [1, 7]`
+   * is fine. Send at most one of the two; when both are present `args` wins for
+   * an args-list registrant and `arg` (or args[0]) for a scalar registrant.
    */
-  | { command: "ui.action"; action: string; arg?: string };
+  | { command: "ui.action"; action: string; arg?: string; args?: Array<string | number | boolean> };
 
 /**
  * A mod-defined action command fired by a schema `action` item. The command
