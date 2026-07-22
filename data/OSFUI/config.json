@@ -13,6 +13,8 @@
   "views": ["osfui/settings", "osfui/keybinds"],
   "devMode": false,
   "devReloadKey": "F11",
-  "uiPassProbe": true,
-  "uiPassDraw": true
+  "uiPassProbe": false,
+  "uiPassDraw": false,
+  "uiPassFgMode": "premul",
+  "uiPassCompare": false
 }

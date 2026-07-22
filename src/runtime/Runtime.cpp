@@ -143,10 +143,13 @@ namespace OSFUI
 			// path (composite/UiPassSeam.h + docs/seam-draw-design.md).
 			// Vtables are static .rdata — no need to wait for the renderer
 			// root the way the D3D12 compositor does.
-			UiPassSeam::Install(_config.uiPassDraw);
+			const auto fgMode = _config.uiPassFgMode == "off"      ? UiPassSeam::FgMode::kOff :
+			                    _config.uiPassFgMode == "premul"   ? UiPassSeam::FgMode::kPremul :
+			                                                         UiPassSeam::FgMode::kStraight;
+			UiPassSeam::Install(_config.uiPassDraw, fgMode);
 			if (_config.uiPassDraw) {
 				// The present hook stops drawing and becomes plumbing only.
-				_compositor->SetSeamDrawMode(true);
+				_compositor->SetSeamDrawMode(true, _config.uiPassCompare);
 			}
 		}
 		REX::INFO("Runtime: compositor = {}", _compositor->Name());

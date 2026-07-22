@@ -375,7 +375,14 @@ namespace OSFUI::UiPassSeam
 		// 2026-07-21). Expire the remaining slot after a few calls so it can
 		// never fire deep in the window inside another pass's stream.
 		thread_local int tl_callsAfterFirstDraw = -1;  // -1 = no draw yet this region
-		void RecordSeamDrawAtHandoff(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer);
+		// FG UI-input target treatment (config uiPassFgMode; see UiPassSeam.h).
+		std::atomic<FgMode> g_fgMode{ FgMode::kStraight };
+		// a_straightAlpha: draw the FG UI-input source (RT -> COPY_SOURCE
+		// hand-off) un-premultiplied; a_regionFirst: first draw of this End
+		// region — the compositor promotes its ring serial only then, so both
+		// targets of one frame sample the SAME overlay frame.
+		void RecordSeamDrawAtHandoff(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
+			bool a_straightAlpha, bool a_regionFirst);
 		ID3D12GraphicsCommandList* g_selfTestList = nullptr;  // non-null only during self-test
 		std::atomic<bool> g_selfTestOMSeen{ false };
 		std::atomic<bool> g_selfTestBarrierSeen{ false };
@@ -462,11 +469,20 @@ namespace OSFUI::UiPassSeam
 					if (a_self->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT) {
 						continue;
 					}
+					const bool fgTarget =
+						(barrier.Transition.StateAfter & D3D12_RESOURCE_STATE_COPY_SOURCE) != 0 &&
+						(barrier.Transition.StateAfter & D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE) == 0;
+					const auto fgMode = g_fgMode.load(std::memory_order_relaxed);
+					if (fgTarget && fgMode == FgMode::kOff) {
+						continue;  // triage mode: leave the FG UI input untouched (keeps the draw budget)
+					}
+					const bool regionFirst = tl_handoffDrawsLeft == 2;  // pins both draws to one ring serial
 					--tl_handoffDrawsLeft;
 					if (tl_callsAfterFirstDraw < 0) {
 						tl_callsAfterFirstDraw = 0;  // start the expiry clock at the first draw
 					}
-					RecordSeamDrawAtHandoff(a_self, barrier.Transition.pResource);
+					RecordSeamDrawAtHandoff(a_self, barrier.Transition.pResource,
+						fgTarget && fgMode == FgMode::kStraight, regionFirst);
 				}
 			}
 
@@ -785,7 +801,8 @@ float4 main() : SV_Target { return float4(0.0, 0.35, 0.4, 0.5); }
 		// Inside the hand-off barrier: a_buffer is THIS frame's UI buffer,
 		// still in RENDER_TARGET state (the transition is forwarded after we
 		// return), and a_list is the recording list it was drawn on.
-		void RecordSeamDrawAtHandoff(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer)
+		void RecordSeamDrawAtHandoff(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
+			const bool a_straightAlpha, const bool a_regionFirst)
 		{
 			if (!g_drawEnabled.load(std::memory_order_relaxed) || !a_list || !a_buffer) {
 				return;
@@ -828,7 +845,7 @@ float4 main() : SV_Target { return float4(0.0, 0.35, 0.4, 0.5); }
 				const UINT engineHeapCount = tl_heapCount;
 				const bool heapKnown = engineHeapCount > 0 && tl_heapList == a_list;
 
-				if (!RecordSeamOverlayDraw(a_list, a_buffer)) {
+				if (!RecordSeamOverlayDraw(a_list, a_buffer, a_straightAlpha, a_regionFirst)) {
 					return;  // hidden, no ready GPU frame, or non-GPU transport
 				}
 				if (heapKnown) {
@@ -1064,15 +1081,17 @@ float4 main() : SV_Target { return float4(0.0, 0.35, 0.4, 0.5); }
 		}
 	}
 
-	bool Install(const bool a_draw)
+	bool Install(const bool a_draw, const FgMode a_fgMode)
 	{
 		if (g_installed.exchange(true, std::memory_order_relaxed)) {
 			return true;
 		}
 		g_drawEnabled.store(a_draw, std::memory_order_relaxed);
+		g_fgMode.store(a_fgMode, std::memory_order_relaxed);
 		if (a_draw) {
-			REX::INFO("[UiPassSeam] seam DRAW enabled (uiPassDraw): debug triangle into "
-					  "ScaleformCompositeBuffer at the ScaleformEnd seam");
+			REX::INFO("[UiPassSeam] seam DRAW enabled (uiPassDraw): overlay into the engine's UI buffers "
+					  "at the ScaleformEnd seam (FG UI-input mode: {})",
+				a_fgMode == FgMode::kOff ? "off" : a_fgMode == FgMode::kPremul ? "premul" : "straight");
 		}
 
 		const auto origBegin = HookExecuteSlot(

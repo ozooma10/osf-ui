@@ -249,6 +249,22 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 }
 )";
 
+		// Straight-alpha variant for the seam's FG UI-input target: FSR3's UI
+		// composition consumes that buffer with STRAIGHT (non-premultiplied)
+		// alpha, so premultiplied pixels there get alpha-multiplied twice —
+		// translucent overlay regions flickered darker on every generated
+		// frame (2026-07-22). Un-premultiply in the shader; the PSO pairs it
+		// with a SRC_ALPHA/INV_SRC_ALPHA blend.
+		constexpr const char* kPixelShaderStraight = R"(
+Texture2D    gTex : register(t0);
+SamplerState gSmp : register(s0);
+float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
+    float4 c = gTex.Sample(gSmp, uv);
+    float3 straight = c.a > 0.0001 ? c.rgb / c.a : float3(0.0, 0.0, 0.0);
+    return float4(straight, c.a);
+}
+)";
+
 		using PresentFn = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT);
 
 		// Process-static so the thunk keeps working even if the compositor
@@ -259,7 +275,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		// Bridge for the seam-draw hook: Impl is private to the class, so the
 		// free function RecordSeamOverlayDraw goes through a pointer that only
 		// Impl (which can name itself) installs at setup.
-		using SeamDrawFn = bool (*)(ID3D12GraphicsCommandList*, ID3D12Resource*);
+		using SeamDrawFn = bool (*)(ID3D12GraphicsCommandList*, ID3D12Resource*, bool, bool);
 		std::atomic<SeamDrawFn> g_seamDrawFn{ nullptr };
 
 		[[nodiscard]] ID3DBlob* CompileShader(const char* a_src, const char* a_entry, const char* a_target)
@@ -332,6 +348,33 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		// this one instead: one frame stale, never absent.
 		std::uint32_t seamReadySlot{ 0 };    // ringMutex
 		std::uint64_t seamReadySerial{ 0 };  // ringMutex
+		// Straight-alpha PSO for the FG UI-input target (see
+		// kPixelShaderStraight); the composite-input target keeps the
+		// premultiplied PSO from the shared cache.
+		ID3D12PipelineState* seamPsoStraight{ nullptr };
+		std::uint64_t seamDrawsStraight{ 0 };  // ringMutex (diagnostics)
+
+		// One-shot byte comparator (diagnosing the FG translucency flicker):
+		// the GAME's own UI bytes are captured from BOTH seam targets before
+		// our draw touches them, then diffed on the CPU — vanilla translucent
+		// UI is stable under FG while ours is not, so the game applies some
+		// transform between the two buffers that the diff will expose.
+		// kind 0 = composite input (RT->pixel-SRV), 1 = FG UI input
+		// (RT->COPY_SOURCE); requires uiPassFgMode=straight so the kind is
+		// derivable from a_straightAlpha.
+		static constexpr std::uint32_t kCmpRows = 4;
+		static constexpr std::uint32_t kCmpRowPitch = 5120;  // 1280 px * 4, 512-aligned
+		static constexpr std::uint32_t kCmpMaxWidth = 1280;
+		// OPT-IN (config uiPassCompare): the capture recording is suspected in
+		// a first-open crash (2026-07-22, log ended before the first seam draw)
+		// and stays off until debugged — likely with a RenderDoc capture of
+		// the FI composition instead.
+		std::atomic<bool> cmpEnabled{ false };
+		ID3D12Resource* cmpReadback[2]{};   // ringMutex; READBACK heap, kCmpRows rows each
+		bool            cmpRecorded[2]{};   // ringMutex
+		std::uint32_t   cmpWidth{ 0 };      // ringMutex; min(buffer width, kCmpMaxWidth)
+		std::atomic<int> cmpPhase{ 0 };     // 0 capturing, 1 captured, 2 done
+		std::atomic<std::uint64_t> cmpCapturedMs{ 0 };
 		// The previous ring generation is retired, not released, on adoption:
 		// seam draws live inside ENGINE command lists that our idle fence
 		// cannot cover, so the old textures must outlive one more adoption.
@@ -517,6 +560,9 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			SafeRelease(srvHeap);
 			SafeRelease(rtvHeap);
 			SafeRelease(seamRtvHeap);
+			SafeRelease(seamPsoStraight);
+			SafeRelease(cmpReadback[0]);
+			SafeRelease(cmpReadback[1]);
 			SafeRelease(vsBlob);
 			SafeRelease(psBlob);
 			SafeRelease(fence);
@@ -851,6 +897,48 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 					return false;
 				}
 			}
+
+			// Straight-alpha seam PSO (FG UI-input target).
+			{
+				auto* psStraight = CompileShader(kPixelShaderStraight, "main", "ps_5_0");
+				if (!psStraight) {
+					return false;
+				}
+				D3D12_GRAPHICS_PIPELINE_STATE_DESC desc{};
+				desc.pRootSignature = rootSig;
+				desc.VS = { vsBlob->GetBufferPointer(), vsBlob->GetBufferSize() };
+				desc.PS = { psStraight->GetBufferPointer(), psStraight->GetBufferSize() };
+				desc.SampleMask = UINT_MAX;
+				desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+				desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+				desc.RasterizerState.DepthClipEnable = TRUE;
+				desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+				desc.NumRenderTargets = 1;
+				desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+				desc.SampleDesc.Count = 1;
+				auto& rt = desc.BlendState.RenderTarget[0];
+				rt.BlendEnable = TRUE;
+				// SrcBlend ONE, NOT SRC_ALPHA: with SRC_ALPHA the hardware
+				// re-multiplies the shader's un-premultiplied output by alpha,
+				// storing premultiplied bytes again wherever the destination is
+				// empty — which made "straight" indistinguishable from "premul"
+				// over the overlay's backdrop (2026-07-22). ONE stores the
+				// straight color itself over empty regions.
+				rt.SrcBlend = D3D12_BLEND_ONE;
+				rt.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+				rt.BlendOp = D3D12_BLEND_OP_ADD;
+				rt.SrcBlendAlpha = D3D12_BLEND_ONE;   // alpha accumulates the same either way
+				rt.DestBlendAlpha = D3D12_BLEND_INV_SRC_ALPHA;
+				rt.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+				rt.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+				const auto hr = dev->CreateGraphicsPipelineState(&desc,
+					__uuidof(ID3D12PipelineState), reinterpret_cast<void**>(&seamPsoStraight));
+				psStraight->Release();
+				if (FAILED(hr)) {
+					REX::ERROR("D3D12Compositor: straight-alpha seam PSO creation failed");
+					return false;
+				}
+			}
 			return true;
 		}
 
@@ -1081,6 +1169,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				if (gpu) {
 					(void)EnsureSharedRing();
 				}
+				MaybeLogCompare();
 				return;
 			}
 
@@ -1319,7 +1408,8 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		// on the CPU (we cannot wait on a queue we don't control) and the
 		// consume fence is signaled from the CPU; ring depth covers the gap, a
 		// lost race is a rare torn overlay frame, never a hazard.
-		[[nodiscard]] bool RecordSeamOverlay(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer)
+		[[nodiscard]] bool RecordSeamOverlay(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
+			const bool a_straightAlpha, const bool a_regionFirst)
 		{
 			if (!setupOk || !seamRtvHeap || !visible.load(std::memory_order_relaxed)) {
 				return false;
@@ -1346,7 +1436,11 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			// Promote the newest frame to "ready" once its produce fence has
 			// completed; an incomplete newest frame falls back to the last
 			// ready one (see seamReadySlot) instead of skipping the draw.
-			if (serial != 0 && ringSlot < sharedSlotCount && sharedSlots[ringSlot] &&
+			// Promotion only on the region's FIRST draw: both targets of one
+			// game frame must sample the SAME overlay frame, or their contents
+			// diverge between real and generated presents.
+			if (a_regionFirst &&
+				serial != 0 && ringSlot < sharedSlotCount && sharedSlots[ringSlot] &&
 				(!sharedProduce || sharedProduce->GetCompletedValue() >= serial)) {
 				seamReadySlot = ringSlot;
 				seamReadySerial = serial;
@@ -1357,12 +1451,13 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			ringSlot = seamReadySlot;
 			serial = seamReadySerial;
 
-			auto* pso = EnsurePipeline(DXGI_FORMAT_R8G8B8A8_UNORM);
+			auto* pso = a_straightAlpha ? seamPsoStraight : EnsurePipeline(DXGI_FORMAT_R8G8B8A8_UNORM);
 			if (!pso) {
 				return false;
 			}
 
 			const auto desc = a_buffer->GetDesc();
+			RecordCompareCapture(a_list, a_buffer, desc, a_straightAlpha ? 1 : 0);
 			const auto rtvSlot = seamRtvNext.fetch_add(1, std::memory_order_relaxed) % kSeamRtvSlots;
 			const D3D12_CPU_DESCRIPTOR_HANDLE rtv{
 				seamRtvHeap->GetCPUDescriptorHandleForHeapStart().ptr + static_cast<SIZE_T>(rtvSlot) * rtvStride
@@ -1398,18 +1493,145 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			}
 
 			++seamDraws;
-			if (seamDraws == 1) {
-				REX::INFO("D3D12Compositor: FIRST SEAM OVERLAY DRAW (ring slot {} serial {} -> {}x{} UI buffer 0x{:X})",
+			if (a_straightAlpha) {
+				++seamDrawsStraight;
+			}
+			// One-time log per target kind: if the straight line never
+			// appears, the FG UI-input hand-off is not being matched.
+			if (seamDraws == 1 || (a_straightAlpha && seamDrawsStraight == 1)) {
+				REX::INFO("D3D12Compositor: FIRST SEAM OVERLAY DRAW [{}] (ring slot {} serial {} -> {}x{} UI buffer 0x{:X})",
+					a_straightAlpha ? "straight-alpha / FG UI input" : "premultiplied / composite input",
 					ringSlot, serial, static_cast<std::uint64_t>(desc.Width), desc.Height,
 					reinterpret_cast<std::uintptr_t>(a_buffer));
 			}
 			return true;
 		}
 
-		static bool SeamDrawThunk(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer)
+		static bool SeamDrawThunk(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
+			const bool a_straightAlpha, const bool a_regionFirst)
 		{
 			auto* self = static_cast<Impl*>(g_overlay.load(std::memory_order_acquire));
-			return self && self->RecordSeamOverlay(a_list, a_buffer);
+			return self && self->RecordSeamOverlay(a_list, a_buffer, a_straightAlpha, a_regionFirst);
+		}
+
+		// Comparator capture: copy kCmpRows scanlines of the target's CURRENT
+		// (game-only — called before our draw) content into a readback buffer.
+		// The buffer is in RENDER_TARGET state here; wrap the copy in a
+		// COPY_SOURCE round trip, invisible to the engine's state tracking
+		// (its next barrier still departs from RENDER_TARGET). ringMutex held
+		// by the caller.
+		void RecordCompareCapture(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
+			const D3D12_RESOURCE_DESC& a_desc, const int a_kind)
+		{
+			if (!cmpEnabled.load(std::memory_order_relaxed) ||
+				cmpPhase.load(std::memory_order_relaxed) != 0 || cmpRecorded[a_kind]) {
+				return;
+			}
+			if (!cmpReadback[a_kind]) {
+				D3D12_HEAP_PROPERTIES heap{};
+				heap.Type = D3D12_HEAP_TYPE_READBACK;
+				D3D12_RESOURCE_DESC buf{};
+				buf.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+				buf.Width = static_cast<UINT64>(kCmpRows) * kCmpRowPitch;
+				buf.Height = 1;
+				buf.DepthOrArraySize = 1;
+				buf.MipLevels = 1;
+				buf.SampleDesc.Count = 1;
+				buf.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+				if (FAILED(engine.device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &buf,
+						D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+						__uuidof(ID3D12Resource), reinterpret_cast<void**>(&cmpReadback[a_kind])))) {
+					cmpPhase.store(2, std::memory_order_relaxed);  // give up quietly
+					return;
+				}
+			}
+			cmpWidth = static_cast<std::uint32_t>((std::min)(static_cast<UINT64>(kCmpMaxWidth), a_desc.Width));
+
+			D3D12_RESOURCE_BARRIER barrier{};
+			barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+			barrier.Transition.pResource = a_buffer;
+			barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+			barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+			barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+			a_list->ResourceBarrier(1, &barrier);
+
+			D3D12_TEXTURE_COPY_LOCATION src{};
+			src.pResource = a_buffer;
+			src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+			src.SubresourceIndex = 0;
+			for (std::uint32_t i = 0; i < kCmpRows; ++i) {
+				const auto y = static_cast<UINT>((a_desc.Height * (i + 1)) / (kCmpRows + 1));
+				D3D12_TEXTURE_COPY_LOCATION dst{};
+				dst.pResource = cmpReadback[a_kind];
+				dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+				dst.PlacedFootprint.Offset = static_cast<UINT64>(i) * kCmpRowPitch;
+				dst.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+				dst.PlacedFootprint.Footprint.Width = cmpWidth;
+				dst.PlacedFootprint.Footprint.Height = 1;
+				dst.PlacedFootprint.Footprint.Depth = 1;
+				dst.PlacedFootprint.Footprint.RowPitch = kCmpRowPitch;
+				D3D12_BOX box{ 0, y, 0, cmpWidth, y + 1, 1 };
+				a_list->CopyTextureRegion(&dst, 0, 0, 0, &src, &box);
+			}
+
+			barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+			barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+			a_list->ResourceBarrier(1, &barrier);
+
+			cmpRecorded[a_kind] = true;
+			if (cmpRecorded[0] && cmpRecorded[1]) {
+				cmpCapturedMs.store(::GetTickCount64(), std::memory_order_relaxed);
+				cmpPhase.store(1, std::memory_order_release);
+				REX::INFO("D3D12Compositor: seam byte-comparator captured both targets ({} px x {} rows); "
+						  "diff logs in ~2s", cmpWidth, kCmpRows);
+			}
+		}
+
+		// Called from the present thread once the capture has certainly been
+		// executed by the engine (wall-clock deferral — we own no fence on the
+		// engine's queue).
+		void MaybeLogCompare()
+		{
+			if (cmpPhase.load(std::memory_order_acquire) != 1 ||
+				::GetTickCount64() - cmpCapturedMs.load(std::memory_order_relaxed) < 2000) {
+				return;
+			}
+			cmpPhase.store(2, std::memory_order_release);
+
+			void* mapped[2]{};
+			const D3D12_RANGE readRange{ 0, static_cast<SIZE_T>(kCmpRows) * kCmpRowPitch };
+			if (!cmpReadback[0] || !cmpReadback[1] ||
+				FAILED(cmpReadback[0]->Map(0, &readRange, &mapped[0])) ||
+				FAILED(cmpReadback[1]->Map(0, &readRange, &mapped[1]))) {
+				REX::WARN("D3D12Compositor: seam byte-comparator map failed");
+				return;
+			}
+			for (std::uint32_t row = 0; row < kCmpRows; ++row) {
+				const auto* c = reinterpret_cast<const std::uint32_t*>(
+					static_cast<const std::uint8_t*>(mapped[0]) + static_cast<std::size_t>(row) * kCmpRowPitch);
+				const auto* a = reinterpret_cast<const std::uint32_t*>(
+					static_cast<const std::uint8_t*>(mapped[1]) + static_cast<std::size_t>(row) * kCmpRowPitch);
+				std::uint32_t nonzero = 0;
+				std::uint32_t differing = 0;
+				std::uint32_t samplesLogged = 0;
+				for (std::uint32_t x = 0; x < cmpWidth; ++x) {
+					if (c[x] == 0 && a[x] == 0) {
+						continue;
+					}
+					++nonzero;
+					if (c[x] != a[x]) {
+						++differing;
+						if (samplesLogged < 6 && (differing % 37) == 1) {  // spread the samples out
+							++samplesLogged;
+							REX::INFO("D3D12Compositor: cmp row {} x={}: composite=0x{:08X} fgInput=0x{:08X} (ABGR)",
+								row, x, c[x], a[x]);
+						}
+					}
+				}
+				REX::INFO("D3D12Compositor: cmp row {}: {} nonzero px, {} differ", row, nonzero, differing);
+			}
+			cmpReadback[0]->Unmap(0, nullptr);
+			cmpReadback[1]->Unmap(0, nullptr);
 		}
 
 		// Resize/create the overlay texture + per-slot upload buffers + SRV to
@@ -1907,21 +2129,24 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		_impl->CheckPresentLiveness();
 	}
 
-	void D3D12Compositor::SetSeamDrawMode(const bool a_enabled)
+	void D3D12Compositor::SetSeamDrawMode(const bool a_enabled, const bool a_compare)
 	{
 		if (_impl) {
 			_impl->seamMode.store(a_enabled, std::memory_order_relaxed);
+			_impl->cmpEnabled.store(a_compare, std::memory_order_relaxed);
 			if (a_enabled) {
 				REX::INFO("D3D12Compositor: SEAM DRAW MODE (uiPassDraw) — the overlay is recorded into the "
-						  "engine's UI render pass; the present hook does discovery/plumbing only and never draws");
+						  "engine's UI render pass; the present hook does discovery/plumbing only and never draws{}",
+					a_compare ? " (byte comparator ARMED)" : "");
 			}
 		}
 	}
 
-	bool RecordSeamOverlayDraw(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer)
+	bool RecordSeamOverlayDraw(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
+		const bool a_straightAlpha, const bool a_regionFirst)
 	{
 		const auto fn = g_seamDrawFn.load(std::memory_order_acquire);
-		return fn && a_list && a_buffer && fn(a_list, a_buffer);
+		return fn && a_list && a_buffer && fn(a_list, a_buffer, a_straightAlpha, a_regionFirst);
 	}
 
 	void D3D12Compositor::SetSharedRing(const SharedRingDesc& a_desc)

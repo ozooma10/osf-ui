@@ -43,8 +43,10 @@ namespace OSFUI
 		// Seam-draw mode (dev knob `uiPassDraw`): the overlay is recorded into
 		// the engine's own UI render pass (composite/UiPassSeam.h) instead of at
 		// present time, which makes it ride Frame Generation's UI handling.
-		// Default no-op for compositors without a seam path.
-		virtual void SetSeamDrawMode(bool /*a_enabled*/) {}
+		// a_compare additionally arms the one-shot seam byte comparator (dev
+		// knob `uiPassCompare`). Default no-op for compositors without a seam
+		// path.
+		virtual void SetSeamDrawMode(bool /*a_enabled*/, bool /*a_compare*/ = false) {}
 
 		[[nodiscard]] virtual std::string_view Name() const = 0;
 	};

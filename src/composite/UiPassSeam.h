@@ -44,7 +44,15 @@ namespace OSFUI::UiPassSeam
 	// expected engine implementation (game patch, foreign hook) is left alone.
 	// There is no uninstall — SFSE has no shutdown callback and the hooks must
 	// tolerate teardown by process exit, like the rest of the runtime.
-	// a_draw: additionally record the phase-2 debug triangle into
-	// ScaleformCompositeBuffer at the ScaleformEnd seam (config `uiPassDraw`).
-	bool Install(bool a_draw = false);
+	// The FG UI-input target's draw treatment (config `uiPassFgMode`).
+	enum class FgMode
+	{
+		kOff,       // don't draw into the FG UI input (generated frames lose the overlay)
+		kPremul,    // premultiplied, same as the composite input
+		kStraight,  // un-premultiplied (FSR3 default UI composition semantics)
+	};
+
+	// a_draw: additionally record the overlay into the engine's UI buffers at
+	// the ScaleformEnd seam (config `uiPassDraw`).
+	bool Install(bool a_draw = false, FgMode a_fgMode = FgMode::kStraight);
 }

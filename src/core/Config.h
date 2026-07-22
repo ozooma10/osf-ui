@@ -75,12 +75,21 @@ namespace OSFUI
 		// (command-context internals, UI buffer format). Independent of the
 		// compositor backend. See composite/UiPassSeam.h.
 		bool        uiPassProbe{ false };
-		// Dev experiment (default off, implies the probe's hooks): additionally
-		// record a solid debug triangle into ScaleformCompositeBuffer at the
-		// ScaleformEnd seam — phase 2 of docs/seam-draw-design.md. Visible as a
-		// translucent teal wedge over the game UI; rides through Frame
+		// Dev experiment (default off, implies the probe's hooks): record the
+		// overlay into the engine's UI buffers at the ScaleformEnd seam —
+		// phases 2/3 of docs/seam-draw-design.md. Rides through Frame
 		// Generation like the game's own HUD.
 		bool        uiPassDraw{ false };
+		// Dev triage for the FG UI-input target's draw (the buffer FSR3
+		// composites onto GENERATED frames): "straight" (un-premultiplied,
+		// default), "premul", or "off" (skip that target entirely). Used to
+		// isolate the generated-frame alpha mismatch; irrelevant with FG off.
+		std::string uiPassFgMode{ "premul" };
+		// Dev diagnostic (default off): one-shot capture + CPU diff of the
+		// game's own bytes in both seam targets, to expose the transform the
+		// engine applies between them. Suspected in a first-open crash — keep
+		// off unless actively debugging the FG translucency mismatch.
+		bool        uiPassCompare{ false };
 		// With devMode on, reloads the top open menu's URL in place (schema
 		// edits hot-reload on their own). Consumed like the toggle key; empty
 		// disables. Ignored without devMode, so shipping it in config.json is

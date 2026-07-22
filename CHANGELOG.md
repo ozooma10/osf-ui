@@ -13,6 +13,7 @@
 
 - First-time menu opens now stay in-world while their WebView starts: quick loads appear directly, while slower ones use an always-warm local-link panel carrying the destination's title, accent, and input/pause behavior. Broken or never-ready views offer retry/cancel instead of exposing a blank input-capturing screen; subsequent opens remain immediate.
 - New dev config knob `uiPassProbe` (default off, no effect in normal play): hooks the engine's own Scaleform render passes in log-only mode and writes a characterization of the drawing seam to `OSF UI.log`. This is groundwork for rendering views *underneath* the game's native menus and HUD (and correctly inside Frame Generation's UI handling) instead of always on top of everything.
+- The opt-in `uiPassDraw` experiment now records the real overlay into Starfield's Scaleform UI buffers, so it survives loading and appears on both real and generated FSR3 frames without mouse-movement dropouts. It remains off by default while a generated-frame translucency mismatch is being resolved; additional off-by-default diagnostics can compare the two UI targets without affecting normal play.
 
 ### For view authors
 
