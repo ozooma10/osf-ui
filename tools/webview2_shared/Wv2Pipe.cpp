@@ -205,7 +205,10 @@ namespace osfui::wv2
 	{
 		_closing = true;
 		if (_pipe != INVALID_HANDLE_VALUE) {
-			::CancelIoEx(_pipe, nullptr);
+			::CancelIoEx(_pipe, nullptr);  // unblock any parked reader/writer BEFORE taking the lock
+			// Serialize handle teardown against a concurrent WriteMessage so it
+			// cannot be mid-syscall on _pipe when we close it.
+			std::scoped_lock lock(_writeMutex);
 			::CloseHandle(_pipe);
 			_pipe = INVALID_HANDLE_VALUE;
 		}

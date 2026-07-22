@@ -1282,6 +1282,12 @@ namespace OSFUI
 				return false;
 			}
 			out << SparseValues(a_mod).dump(2);
+			out.close();  // flush now so a disk-full / IO error surfaces before the rename
+			if (!out) {
+				REX::ERROR("SettingsStore: write to {} failed (disk full/IO?); keeping existing values", tmp.string());
+				std::filesystem::remove(tmp, ec);
+				return false;
+			}
 		}
 		std::filesystem::rename(tmp, a_mod.valuesPath, ec);
 		if (ec) {

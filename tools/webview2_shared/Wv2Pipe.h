@@ -8,6 +8,7 @@
 // thread. ReadMessage blocks and must run on a single reader thread only.
 // Close() cancels pending I/O and unblocks the reader.
 
+#include <atomic>
 #include <cstdint>
 #include <mutex>
 #include <string>
@@ -58,6 +59,6 @@ namespace osfui::wv2
 		HANDLE      _writeEvent{ nullptr };  // overlapped write
 		std::mutex  _writeMutex;
 		std::string _lastError;
-		volatile bool _closing{ false };
+		std::atomic<bool> _closing{ false };
 	};
 }

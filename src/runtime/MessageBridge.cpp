@@ -95,8 +95,13 @@ namespace OSFUI
 			// Pages retry unregistered commands (polling), so warn once per
 			// command name to avoid flooding the log. The ui.error reply still
 			// goes back every time — the page needs it.
-			if (_warnedUnknownCommands.insert(command).second) {
-				REX::WARN("MessageBridge: rejected unknown ui.command '{}' (further rejections of this command are not logged)", command);
+			// Cap the dedupe set so a page spamming distinct bogus command names
+			// can't grow it without bound; key on the bounded (truncated) string.
+			constexpr std::size_t kMaxWarnedCommands = 512;
+			const std::string warnKey{ command.substr(0, 128) };
+			if (_warnedUnknownCommands.size() < kMaxWarnedCommands &&
+				_warnedUnknownCommands.insert(warnKey).second) {
+				REX::WARN("MessageBridge: rejected unknown ui.command '{}' (further rejections of this command are not logged)", warnKey);
 			}
 			SendErrorToWeb("unknown-command", "unknown command", { { "command", command.substr(0, 128) } });
 		}

@@ -730,52 +730,58 @@ namespace OSFUI
 			while (!stopRequested.load() && pipe.ReadMessage(payload)) {
 				const json msg = json::parse(payload, nullptr, false);
 				if (msg.is_discarded()) continue;
-				const std::string type = msg.value("type", "");
-				if (type == "frame") {
-					OnFrameMessage(msg);
-				} else if (type == "textures") {
-					OnTexturesMessage(msg);
-				} else if (type == "webMessage") {
-					Push(Notify{ .kind = Notify::Kind::Web,
-						.view = msg.value("view", ""),
-						.text = msg.value("json", "") });
-				} else if (type == "domReady") {
-					Push(Notify{ .kind = Notify::Kind::Dom,
-						.view = msg.value("view", "") });
-				} else if (type == "loadEvent") {
-					Push(Notify{ .kind = Notify::Kind::Load,
-						.view = msg.value("view", ""),
-						.text = msg.value("url", ""),
-						.detail = msg.value("description", ""),
-						.failed = msg.value("failed", false),
-						.code = msg.value("code", 0) });
-				} else if (type == "console") {
-					Push(Notify{ .kind = Notify::Kind::Console,
-						.view = msg.value("view", ""),
-						.text = msg.value("json", "") });
-				} else if (type == "cursor") {
-					// Contract allows renderer-thread delivery for cursor.
-					if (onCursorChange) {
-						onCursorChange(CursorShapeFromSystemCursorId(msg.value("id", 0u)));
+				try {
+					const std::string type = msg.value("type", "");
+					if (type == "frame") {
+						OnFrameMessage(msg);
+					} else if (type == "textures") {
+						OnTexturesMessage(msg);
+					} else if (type == "webMessage") {
+						Push(Notify{ .kind = Notify::Kind::Web,
+							.view = msg.value("view", ""),
+							.text = msg.value("json", "") });
+					} else if (type == "domReady") {
+						Push(Notify{ .kind = Notify::Kind::Dom,
+							.view = msg.value("view", "") });
+					} else if (type == "loadEvent") {
+						Push(Notify{ .kind = Notify::Kind::Load,
+							.view = msg.value("view", ""),
+							.text = msg.value("url", ""),
+							.detail = msg.value("description", ""),
+							.failed = msg.value("failed", false),
+							.code = msg.value("code", 0) });
+					} else if (type == "console") {
+						Push(Notify{ .kind = Notify::Kind::Console,
+							.view = msg.value("view", ""),
+							.text = msg.value("json", "") });
+					} else if (type == "cursor") {
+						// Contract allows renderer-thread delivery for cursor.
+						if (onCursorChange) {
+							onCursorChange(CursorShapeFromSystemCursorId(msg.value("id", 0u)));
+						}
+					} else if (type == "accelerator") {
+						// Invoked off the game thread; the handler must stay cheap.
+						if (onAccelerator) {
+							onAccelerator(msg.value("vk", 0u), msg.value("down", false));
+						}
+					} else if (type == "evalResult") {
+						Push(Notify{ .kind = Notify::Kind::Eval,
+							.text = msg.value("result", ""),
+							.id = msg.value("id", 0ull) });
+					} else if (type == "log") {
+						Push(Notify{ .kind = Notify::Kind::Log,
+							.text = msg.value("text", ""),
+							.code = msg.value("level", 0) });
+					} else if (type == "ready" || type == "hello") {
+						// informational
+					} else if (type == "bye") {
+						REX::INFO("WebView2HostWebRenderer: host bye ({})",
+							msg.value("reason", ""));
 					}
-				} else if (type == "accelerator") {
-					// Invoked off the game thread; the handler must stay cheap.
-					if (onAccelerator) {
-						onAccelerator(msg.value("vk", 0u), msg.value("down", false));
-					}
-				} else if (type == "evalResult") {
-					Push(Notify{ .kind = Notify::Kind::Eval,
-						.text = msg.value("result", ""),
-						.id = msg.value("id", 0ull) });
-				} else if (type == "log") {
-					Push(Notify{ .kind = Notify::Kind::Log,
-						.text = msg.value("text", ""),
-						.code = msg.value("level", 0) });
-				} else if (type == "ready" || type == "hello") {
-					// informational
-				} else if (type == "bye") {
-					REX::INFO("WebView2HostWebRenderer: host bye ({})",
-						msg.value("reason", ""));
+				} catch (const std::exception& e) {
+					// A malformed / partial / version-mismatched host message must not
+					// unwind out of the worker thread (that calls std::terminate).
+					REX::WARN("WebView2HostWebRenderer: dropping malformed host message: {}", e.what());
 				}
 			}
 		}

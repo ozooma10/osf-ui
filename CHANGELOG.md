@@ -9,6 +9,8 @@
 - The first-load transition is now painted once during startup while it is still hidden, so invoking it no longer waits for a cold WebView renderer before it can appear.
 - Hardened the Pause-menu “MOD MENUS” entry against close/reopen races: periodic injection now runs only while the engine-admitted movie is advancing, and stale click callbacks are swallowed without opening the overlay or forwarding OSF UI's private action id into the game. Unexpected Scaleform faults are also left to the crash logger instead of being caught after the VM is already corrupted, which previously turned the crash into a hang.
 - Closed a startup race in the Scaleform UI-seam hooks: the overlay's D3D12 command-list hooks now publish the engine's original function *before* the hook becomes reachable, eliminating a narrow window where a render thread could route through a half-installed hook, drop a GPU call or skip a UI pass, and fault the game. The render-target capture hook (a `uiPassProbe`-only diagnostic) is also no longer installed during normal play, so it no longer sits on a hot engine code path.
+- Hardened settings persistence: if writing a settings file fails partway (disk full or I/O error), OSF UI now keeps your existing values instead of replacing them with a truncated file that would be quarantined and reset to defaults on the next load.
+- A malformed, truncated, or version-mismatched message from the WebView2 host is now dropped with a warning instead of throwing out of the host-reader thread, which previously crashed the whole game to desktop.
 
 ### Other changes
 
