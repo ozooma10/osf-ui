@@ -84,8 +84,8 @@ namespace OSFUI
 		// interactive. When empty, only `view` is loaded. Missing ids are
 		// skipped.
 		std::vector<std::string> views;
-		// Verbose per-call logging (the DEBUG "firehose") + first-frame PNG dump
-		// + the devReloadKey. Default is build-mode driven (kDevModeDefault: on in
+		// Verbose per-call logging (the DEBUG "firehose") + the devReloadKey.
+		// Default is build-mode driven (kDevModeDefault: on in
 		// a debug build, off in release), so a local dev build is chatty and a
 		// shipped release is quiet with no file to remember to flip. config.json
 		// omits the key to let that default stand; setting it there forces the

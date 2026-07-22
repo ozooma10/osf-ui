@@ -27,7 +27,7 @@
 
 ### For view authors
 
-- Verbose developer logging (`devMode`) now follows the **build mode** instead of a hand-flipped `config.json` flag: a local `debug` build turns it on automatically (the DEBUG "firehose" logging, first-frame PNG dump, and the `devReloadKey`), while a `releasedbg`/release build — what the release packager ships — leaves it off. The shipped `config.json` no longer carries a `devMode` line, so there is nothing to accidentally flip on before a release or to remember to turn off after debugging. Setting `"devMode": true` (or `false`) in `config.json` still forces the value in either build — e.g. a player turning on verbose logs for a bug report on a release install.
+- Verbose developer logging (`devMode`) now follows the **build mode** instead of a hand-flipped `config.json` flag: a local `debug` build turns it on automatically (the DEBUG "firehose" logging and the `devReloadKey`), while a `releasedbg`/release build — what the release packager ships — leaves it off. The shipped `config.json` no longer carries a `devMode` line, so there is nothing to accidentally flip on before a release or to remember to turn off after debugging. Setting `"devMode": true` (or `false`) in `config.json` still forces the value in either build — e.g. a player turning on verbose logs for a bug report on a release install.
 - A view manifest can set `"debugOnly": true` to keep the view out of the mod menu unless the player enables **Debug mode** (OSF UI → Diagnostics). The view still loads and can be opened by id — useful for a mod's own diagnostic/developer surfaces.
 
 ## 1.2.1 — 2026-07-22

@@ -279,7 +279,7 @@ try {
             })
             Die ("config.json references view(s) not shipped in this archive: " + ($missingViews -join ', ') + "`n    Shipped views: " + ($stagedViews -join ', ') + "`n    A standalone release must render out of the box -- default to 'osfui/settings'.")
         }
-        if ($names -contains 'devMode' -and $cfg.devMode) { Warn "config.json has devMode=true (verbose logs + PNG dump). Turn OFF for release." }
+        if ($names -contains 'devMode' -and $cfg.devMode) { Warn "config.json has devMode=true (verbose logs). Turn OFF for release." }
     } catch {
         Warn "Could not parse staged config.json to sanity-check it: $($_.Exception.Message)"
     }

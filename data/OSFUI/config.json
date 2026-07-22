@@ -11,7 +11,7 @@
   "engineInput": true,
   "view": "osfui/settings",
   "views": ["osfui/settings", "osfui/keybinds", "osfui/benchmark"],
-  "$comment_devMode": "devMode (verbose logging + PNG dump + reload key) is intentionally omitted: it defaults on in a debug build and off in a release build. Add \"devMode\": true here to force it on (e.g. for a bug report).",
+  "$comment_devMode": "devMode (verbose logging + reload key) is intentionally omitted: it defaults on in a debug build and off in a release build. Add \"devMode\": true here to force it on (e.g. for a bug report).",
   "devReloadKey": "F11",
   "uiPassProbe": false,
   "uiPassDraw": true
