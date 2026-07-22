@@ -184,24 +184,6 @@ namespace OSFUI
 			return data.result;
 		}
 
-		CursorShape CursorFromId(std::uint32_t a_id)
-		{
-			switch (a_id) {
-			case 0: return CursorShape::kNone;
-			case 32513: return CursorShape::kIBeam;
-			case 32514: return CursorShape::kCross;
-			case 32515: return CursorShape::kWait;
-			case 32642: return CursorShape::kSizeNWSE;
-			case 32643: return CursorShape::kSizeNESW;
-			case 32644: return CursorShape::kSizeAll;
-			case 32645: return CursorShape::kSizeWE;
-			case 32646: return CursorShape::kSizeNS;
-			case 32648: return CursorShape::kNotAllowed;
-			case 32649: return CursorShape::kHand;
-			case 32651: return CursorShape::kHelp;
-			default: return CursorShape::kArrow;
-			}
-		}
 	}
 
 	struct WebView2HostWebRenderer::Impl
@@ -774,7 +756,7 @@ namespace OSFUI
 				} else if (type == "cursor") {
 					// Contract allows renderer-thread delivery for cursor.
 					if (onCursorChange) {
-						onCursorChange(CursorFromId(msg.value("id", 0u)));
+						onCursorChange(CursorShapeFromSystemCursorId(msg.value("id", 0u)));
 					}
 				} else if (type == "accelerator") {
 					// Invoked off the game thread; the handler must stay cheap.

@@ -43,6 +43,28 @@ namespace OSFUI
 		kNone,
 	};
 
+	// ICoreWebView2CompositionController::get_SystemCursorId returns the Win32
+	// OCR_* integer IDs. Keep this platform-neutral so the translation can be
+	// tested without loading WebView2 or the game.
+	[[nodiscard]] constexpr CursorShape CursorShapeFromSystemCursorId(std::uint32_t a_id) noexcept
+	{
+		switch (a_id) {
+		case 0:     return CursorShape::kNone;
+		case 32513: return CursorShape::kIBeam;       // OCR_IBEAM
+		case 32514: return CursorShape::kWait;        // OCR_WAIT
+		case 32515: return CursorShape::kCross;       // OCR_CROSS
+		case 32642: return CursorShape::kSizeNWSE;    // OCR_SIZENWSE
+		case 32643: return CursorShape::kSizeNESW;    // OCR_SIZENESW
+		case 32644: return CursorShape::kSizeAll;     // OCR_SIZEALL
+		case 32645: return CursorShape::kSizeWE;      // OCR_SIZEWE
+		case 32646: return CursorShape::kSizeNS;      // OCR_SIZENS
+		case 32648: return CursorShape::kNotAllowed;  // OCR_NO
+		case 32649: return CursorShape::kHand;        // OCR_HAND
+		case 32651: return CursorShape::kHelp;        // OCR_HELP
+		default:    return CursorShape::kArrow;
+		}
+	}
+
 	// Region of a frame that changed relative to the frame delivered just
 	// before it at the same dimensions; pixels outside the rect are identical.
 	// An empty rect means "unknown — treat the whole frame as changed", so
