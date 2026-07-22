@@ -16,8 +16,9 @@ body[data-live="true"] { opacity: 1; }
 
 .link-panel {
   position: absolute;
-  left: 6.5%;
-  bottom: 10%;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
   width: min(590px, 52vw);
   min-height: 230px;
   padding: 22px 28px 17px;
@@ -194,8 +195,8 @@ body[data-phase="error"] .status-light {
 body[data-phase="error"] .carrier i { background: var(--osf-signal-stop); animation: none; opacity: .18; }
 
 @keyframes panel-in {
-  from { opacity: 0; transform: translateX(-18px); }
-  to { opacity: 1; transform: translateX(0); }
+  from { opacity: 0; transform: translate(-50%, calc(-50% + 14px)); }
+  to { opacity: 1; transform: translate(-50%, -50%); }
 }
 
 @keyframes pulse { 50% { opacity: .3; box-shadow: 0 0 2px var(--osf-accent); } }
