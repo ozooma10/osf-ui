@@ -37,6 +37,11 @@ if has_config("with_webview2") then
         set_default(false)
         set_languages("c++23")
         set_warnings("allextra")
+        -- Interpret source (and encode narrow/wide literals) as UTF-8. Without
+        -- /utf-8 MSVC decodes UTF-8 bytes as the system code page, mangling the
+        -- non-ASCII characters in the render-stats overlay JS (LR"JS(...)JS" in
+        -- HostApp.cpp) into mojibake on screen.
+        set_encodings("utf-8")
         set_runtimes("MT")
         add_rules("mode.debug", "mode.releasedbg")
         add_files("tools/webview2_host/**.cpp", "tools/webview2_shared/**.cpp")
@@ -70,6 +75,10 @@ target("OSF UI")
     -- DLL basename (target name has a space for the MO2 folder; the binary itself is the space-free "OSFUI.dll"). 
     -- Data folder is SFSE/Plugins/OSFUI/
     set_basename("OSFUI")
+    -- Compile UTF-8 source with UTF-8 narrow/wide literals (see the host target
+    -- note above); the commonlibsf subproject sets this for itself but it does
+    -- not propagate to this target.
+    set_encodings("utf-8")
     add_rules("commonlibsf.plugin", {
         name = "OSF UI",
         author = "ozooma10",
