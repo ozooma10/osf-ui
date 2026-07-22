@@ -384,8 +384,15 @@ namespace OSFUI
 						a_push.mod, a_push.key, a_push.mod);
 					return;
 				}
-				_bridge->SendToWeb(targets, "data.push", nlohmann::json{
-					{ "mod", a_push.mod }, { "key", a_push.key }, { "values", a_push.values } });
+				nlohmann::json payload{
+					{ "mod", a_push.mod }, { "key", a_push.key }, { "values", a_push.values }
+				};
+				if (a_push.forms) {
+					// PushFormsToView (protocol 1.3): serialized form identity
+					// objects ride the same data.push as an additive field.
+					payload["forms"] = *a_push.forms;
+				}
+				_bridge->SendToWeb(targets, "data.push", std::move(payload));
 			});
 		}
 		// Apply the native plugin API's queued ops (command (re)registration +

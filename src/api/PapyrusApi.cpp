@@ -5,8 +5,12 @@
 #include "runtime/Ids.h"  // id grammar validation + case-insensitive matching
 #include "runtime/SettingsStore.h"
 
-#include "RE/B/BSScriptUtil.h"  // BindNativeMethod marshaling, GameVM, VirtualMachine
-#include "RE/E/Events.h"        // TESLoadGameEvent
+#include "RE/B/BSScriptUtil.h"       // BindNativeMethod marshaling, GameVM, VirtualMachine
+#include "RE/E/Events.h"             // TESLoadGameEvent
+#include "RE/F/FORM_ENUM_STRING.h"   // FormType -> record-signature table
+#include "RE/RTTI.h"                 // starfield_cast (TESForm -> TESFullName)
+#include "RE/T/TESForm.h"            // LookupByID + form identity reads
+#include "RE/T/TESFullName.h"        // display-name component
 
 namespace OSFUI::API::Papyrus
 {
@@ -54,13 +58,26 @@ namespace OSFUI::API::Papyrus
 			bool           reset{ false };
 		};
 
+		// One pending PushToView/PushFormsToView. Forms are captured as FormIDs
+		// (stable values) on the VM thread — never TESForm* — and serialized at
+		// drain time on the main thread, where form field reads are safe.
+		// has_value() on formIds marks a forms push even when the array is
+		// empty ("the list is now empty").
+		struct QueuedPush
+		{
+			std::string                                mod;
+			std::string                                key;
+			std::vector<std::string>                   values;
+			std::optional<std::vector<std::uint32_t>>  formIds;
+		};
+
 		// Guards the slot table and the op/push queues: natives fill them from
 		// VM threads, the main thread drains.
-		std::mutex             s_lock;
-		std::vector<Entry>     s_slots;
-		std::uint16_t          s_nextGen = 1;
-		std::vector<QueuedOp>  s_ops;
-		std::vector<ViewPush>  s_pushes;
+		std::mutex               s_lock;
+		std::vector<Entry>       s_slots;
+		std::uint16_t            s_nextGen = 1;
+		std::vector<QueuedOp>    s_ops;
+		std::vector<QueuedPush>  s_pushes;
 
 		// Fold to the id grammar's lowercase before validating/matching: the
 		// string arrived through BSFixedString interning, which hands back the
@@ -285,35 +302,105 @@ namespace OSFUI::API::Papyrus
 			s_ops.push_back({ mod, key ? key : "", std::move(a_value), a_reset });
 		}
 
-		// PushToView body (VM tasklet thread): validate, then queue for
-		// Runtime::Tick's DrainViewPushes — same queue-on-VM-thread /
-		// drain-on-main-thread shape as QueueOp.
-		void QueuePush(RE::BSFixedString& a_mod, RE::BSFixedString& a_key, std::vector<RE::BSFixedString>& a_values)
+		// Shared PushToView/PushFormsToView target validation (VM tasklet
+		// thread). Fold to the grammar's lowercase before validating: the
+		// interned casing is arbitrary, and the folded id is what delivery
+		// prefix-matches against the (lowercase-by-grammar) view ids. Returns
+		// the folded mod id, or nullopt after logging the refusal.
+		std::optional<std::string> FoldPushTarget(const RE::BSFixedString& a_mod, const RE::BSFixedString& a_key, std::string_view a_native)
 		{
-			// Fold to the grammar's lowercase before validating: the interned
-			// casing is arbitrary, and the folded id is what delivery
-			// prefix-matches against the (lowercase-by-grammar) view ids.
 			auto        mod = ToLowerAscii(a_mod.c_str() ? a_mod.c_str() : "");
 			const char* key = a_key.c_str();
 			if (!Ids::IsAcceptedModId(mod) || !key || !*key) {
-				REX::WARN("PapyrusApi: PushToView('{}', '{}') refused (invalid mod id or empty key)",
-					mod.substr(0, 64), key ? std::string_view(key).substr(0, 64) : "");
-				return;
+				REX::WARN("PapyrusApi: {}('{}', '{}') refused (invalid mod id or empty key)",
+					a_native, mod.substr(0, 64), key ? std::string_view(key).substr(0, 64) : "");
+				return std::nullopt;
 			}
-			std::vector<std::string> values;
-			values.reserve(a_values.size());
-			for (const auto& v : a_values) {
-				values.emplace_back(v.c_str() ? v.c_str() : "");
-			}
+			return mod;
+		}
+
+		// Queue a validated push for Runtime::Tick's DrainViewPushes — same
+		// queue-on-VM-thread / drain-on-main-thread shape as QueueOp.
+		void EnqueuePush(QueuedPush a_push)
+		{
 			std::lock_guard l{ s_lock };
 			// Same drop-newest cap as the settings-op queue, for the same
 			// reason: with the runtime disabled the drain never runs.
 			constexpr std::size_t kMaxPendingPushes = 1024;
 			if (s_pushes.size() >= kMaxPendingPushes) {
-				REX::WARN("PapyrusApi: pending view-push queue full; dropping PushToView for {}.{}", mod, key);
+				REX::WARN("PapyrusApi: pending view-push queue full; dropping push for {}.{}", a_push.mod, a_push.key);
 				return;
 			}
-			s_pushes.push_back({ std::move(mod), key, std::move(values) });
+			s_pushes.push_back(std::move(a_push));
+		}
+
+		// FormType -> 4-char record signature ("KYWD", "WEAP", ...) via the
+		// game's own table. Main thread (the table is relocated game data).
+		// Unknown types fall back to the numeric enum value so the field is
+		// always present and stable for JS to switch on.
+		std::string FormTypeSignature(RE::FormType a_type)
+		{
+			for (const auto& entry : RE::FORM_ENUM_STRING::GetFormEnumString()) {
+				if (entry.formType == a_type && entry.formString && *entry.formString) {
+					return entry.formString;
+				}
+			}
+			return std::to_string(static_cast<std::uint32_t>(a_type));
+		}
+
+		// One element of the data.push `forms` array: the identity-only shape
+		// of docs/form-references-design.md, or JSON null (a None input, or a
+		// form that vanished between queue and drain) so a parallel values
+		// push stays index-aligned. Main thread only — reads form fields.
+		nlohmann::json SerializeForm(std::uint32_t a_formId)
+		{
+			if (a_formId == 0) {
+				return nullptr;  // None input keeps its slot
+			}
+			const auto* form = RE::TESForm::LookupByID(a_formId);
+			if (!form) {
+				REX::DEBUG("PapyrusApi: form {:#010x} vanished before serialization; delivering null slot", a_formId);
+				return nullptr;
+			}
+			nlohmann::json out{
+				{ "formId", static_cast<std::uint32_t>(form->GetFormID()) },
+				{ "formType", FormTypeSignature(form->GetFormType()) },
+			};
+			if (const auto* fullName = starfield_cast<const RE::TESFullName*>(form)) {
+				if (const char* name = fullName->GetFullName(); name && *name) {
+					out["name"] = name;
+				}
+			}
+			if (const char* editorId = form->GetFormEditorID(); editorId && *editorId) {
+				out["editorId"] = editorId;  // best-effort: usually absent at runtime
+			}
+			return out;
+		}
+
+		// GetFormById/GetFormsById body (VM tasklet thread — LookupByID is the
+		// same any-thread lookup every Papyrus native uses; no field reads).
+		// Accepts the two spellings a view echo can arrive in: decimal (the
+		// host's number->string arg coercion) and "0x..." hex (authors quoting
+		// a formId for display). None on garbage or an id that resolves to
+		// nothing — the latter is the documented stale-reference case
+		// (runtime FormIDs are session-scoped; see form-references-design.md).
+		RE::TESForm* ResolveFormId(std::string_view a_text)
+		{
+			const bool  hex = a_text.size() > 2 && a_text[0] == '0' && (a_text[1] == 'x' || a_text[1] == 'X');
+			const char* first = a_text.data() + (hex ? 2 : 0);
+			const char* last = a_text.data() + a_text.size();
+
+			std::uint32_t id = 0;
+			const auto [ptr, ec] = std::from_chars(first, last, id, hex ? 16 : 10);
+			if (ec != std::errc{} || ptr != last || first == last) {
+				REX::WARN("PapyrusApi: GetFormById('{}') is not a form id", a_text.substr(0, 64));
+				return nullptr;
+			}
+			if (auto* form = RE::TESForm::LookupByID(id)) {
+				return form;
+			}
+			REX::DEBUG("PapyrusApi: GetFormById({:#010x}) resolved no form (stale reference?)", id);
+			return nullptr;
 		}
 
 		// Natives. All run on VM tasklet threads: getters read the any-thread
@@ -495,7 +582,50 @@ namespace OSFUI::API::Papyrus
 		void PushToView(PapVM&, std::uint32_t, std::monostate,
 			RE::BSFixedString a_mod, RE::BSFixedString a_key, std::vector<RE::BSFixedString> a_values)
 		{
-			QueuePush(a_mod, a_key, a_values);
+			auto mod = FoldPushTarget(a_mod, a_key, "PushToView");
+			if (!mod) {
+				return;
+			}
+			std::vector<std::string> values;
+			values.reserve(a_values.size());
+			for (const auto& v : a_values) {
+				values.emplace_back(v.c_str() ? v.c_str() : "");
+			}
+			EnqueuePush({ std::move(*mod), a_key.c_str(), std::move(values), std::nullopt });
+		}
+
+		// Protocol 1.3: serialize real forms into the mod's live views as the
+		// data.push `forms` field. Only FormIDs are captured here on the VM
+		// thread (a None element captures 0, keeping its slot); the identity
+		// fields are read at drain time on the main thread.
+		void PushFormsToView(PapVM&, std::uint32_t, std::monostate,
+			RE::BSFixedString a_mod, RE::BSFixedString a_key, std::vector<RE::TESForm*> a_forms)
+		{
+			auto mod = FoldPushTarget(a_mod, a_key, "PushFormsToView");
+			if (!mod) {
+				return;
+			}
+			std::vector<std::uint32_t> ids;
+			ids.reserve(a_forms.size());
+			for (const auto* form : a_forms) {
+				ids.push_back(form ? static_cast<std::uint32_t>(form->GetFormID()) : 0);
+			}
+			EnqueuePush({ std::move(*mod), a_key.c_str(), {}, std::move(ids) });
+		}
+
+		RE::TESForm* GetFormById(PapVM&, std::uint32_t, std::monostate, RE::BSFixedString a_formId)
+		{
+			return ResolveFormId(a_formId.c_str() ? a_formId.c_str() : "");
+		}
+
+		std::vector<RE::TESForm*> GetFormsById(PapVM&, std::uint32_t, std::monostate, std::vector<RE::BSFixedString> a_formIds)
+		{
+			std::vector<RE::TESForm*> out;
+			out.reserve(a_formIds.size());
+			for (const auto& id : a_formIds) {
+				out.push_back(ResolveFormId(id.c_str() ? id.c_str() : ""));
+			}
+			return out;
 		}
 
 		bool Unregister(PapVM&, std::uint32_t, std::monostate, std::int32_t a_token)
@@ -554,6 +684,9 @@ namespace OSFUI::API::Papyrus
 			a_vm->BindNativeMethod(kScriptName, "Unregister", &Unregister, true, false);
 
 			a_vm->BindNativeMethod(kScriptName, "PushToView", &PushToView, true, false);
+			a_vm->BindNativeMethod(kScriptName, "PushFormsToView", &PushFormsToView, true, false);
+			a_vm->BindNativeMethod(kScriptName, "GetFormById", &GetFormById, true, false);
+			a_vm->BindNativeMethod(kScriptName, "GetFormsById", &GetFormsById, true, false);
 
 			a_vm->BindNativeMethod(kScriptName, "OpenMenu", &OpenMenu, true, false);
 			a_vm->BindNativeMethod(kScriptName, "CloseMenu", &CloseMenu, true, false);
@@ -645,13 +778,23 @@ namespace OSFUI::API::Papyrus
 
 	void DrainViewPushes(const std::function<void(const ViewPush&)>& a_deliver)
 	{
-		std::vector<ViewPush> pushes;
+		std::vector<QueuedPush> pushes;
 		{
 			std::lock_guard l{ s_lock };
 			pushes.swap(s_pushes);
 		}
-		for (const auto& p : pushes) {
-			a_deliver(p);
+		for (auto& p : pushes) {
+			ViewPush out{ std::move(p.mod), std::move(p.key), std::move(p.values), std::nullopt };
+			if (p.formIds) {
+				// Serialize here, on the main thread: the queue held FormIDs,
+				// and a form that vanished since keeps its slot as null.
+				auto forms = nlohmann::json::array();
+				for (const auto id : *p.formIds) {
+					forms.push_back(SerializeForm(id));
+				}
+				out.forms = std::move(forms);
+			}
+			a_deliver(out);
 		}
 	}
 

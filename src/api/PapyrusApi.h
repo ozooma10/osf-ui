@@ -1,5 +1,7 @@
 #pragma once
 
+#include <nlohmann/json.hpp>
+
 namespace OSFUI
 {
 	class SettingsStore;
@@ -42,14 +44,22 @@ namespace OSFUI::API::Papyrus
 	// forget: no return value, no callback functor, no RPC into the VM.
 	void OnViewAction(std::string_view a_modId, std::string_view a_action, const std::vector<std::string>& a_args);
 
-	// One queued PushToView payload. mod is canonical lowercase (folded from
-	// the interned Papyrus string and validated against the id grammar), so
-	// delivery can prefix-match it against lowercase-by-grammar view ids.
+	// One drained PushToView/PushFormsToView payload. mod is canonical
+	// lowercase (folded from the interned Papyrus string and validated against
+	// the id grammar), so delivery can prefix-match it against
+	// lowercase-by-grammar view ids.
 	struct ViewPush
 	{
 		std::string              mod;
 		std::string              key;
 		std::vector<std::string> values;
+		// PushFormsToView only (protocol 1.3): the serialized `forms` array for
+		// the data.push payload — identity objects with null slots preserved
+		// (docs/form-references-design.md). Built at drain time on the main
+		// thread (form field reads are main-thread-only; the queue holds
+		// FormIDs). has_value() distinguishes an EMPTY forms push ("the list is
+		// now empty") from a plain PushToView, which omits the field entirely.
+		std::optional<nlohmann::json> forms;
 	};
 
 	// Main thread (Runtime::Tick, next to DrainSettingsOps): hand each queued

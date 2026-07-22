@@ -41,6 +41,7 @@ SUITES=(
 "hotkey_subscriptions_tests hotkey_subscriptions_tests.cpp ../../src/api/HotkeySubscriptions.cpp"
 "bridge_api_tests bridge_api_tests.cpp ../../src/api/BridgeApi.cpp ../../src/api/SettingsMirror.cpp ../../src/api/SettingsSubscriptions.cpp ../../src/api/HotkeySubscriptions.cpp ../../src/runtime/MessageBridge.cpp ../../src/runtime/SettingsStore.cpp ../../src/runtime/Json.cpp"
 "papyrus_action_tests papyrus_action_tests.cpp ../../src/api/PapyrusApi.cpp ../../src/api/BridgeApi.cpp ../../src/api/SettingsMirror.cpp ../../src/api/SettingsSubscriptions.cpp ../../src/api/HotkeySubscriptions.cpp ../../src/runtime/MessageBridge.cpp ../../src/runtime/SettingsStore.cpp ../../src/runtime/Json.cpp"
+"papyrus_form_tests papyrus_form_tests.cpp ../../src/api/PapyrusApi.cpp ../../src/api/BridgeApi.cpp ../../src/api/SettingsMirror.cpp ../../src/api/SettingsSubscriptions.cpp ../../src/api/HotkeySubscriptions.cpp ../../src/runtime/MessageBridge.cpp ../../src/runtime/SettingsStore.cpp ../../src/runtime/Json.cpp"
 "vanilla_keys_tests vanilla_keys_tests.cpp ../../src/runtime/VanillaKeys.cpp ../../src/runtime/Json.cpp"
 "localization_service_tests localization_service_tests.cpp ../../src/runtime/LocalizationService.cpp ../../src/runtime/Json.cpp"
 "view_manifest_tests view_manifest_tests.cpp ../../src/runtime/ViewManifest.cpp ../../src/runtime/Json.cpp"

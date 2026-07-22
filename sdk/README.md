@@ -17,7 +17,7 @@ everything here is hand-written and copied into a view project as needed.
 
 ## Bridge protocol version
 
-**1.2 — stable.** Additive changes bump the minor; breaking changes bump the
+**1.3 — stable.** Additive changes bump the minor; breaking changes bump the
 major. Compatibility is advisory, not gated: declare the OSF UI version you
 authored against as `targetVersion` (in your view manifest and/or settings
 schema) and the Mods surface shows a "needs update" badge when the running

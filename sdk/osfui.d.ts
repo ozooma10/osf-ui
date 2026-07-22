@@ -96,6 +96,10 @@ export type UiCommand =
    * Non-string elements are coerced to strings by the host, so `args: [1, 7]`
    * is fine. Send at most one of the two; when both are present `args` wins for
    * an args-list registrant and `arg` (or args[0]) for a scalar registrant.
+   *
+   * A FORM REFERENCE (protocol 1.3) is just another args element: echo a
+   * SerializedForm's `formId` back and the script resolves it with
+   * `OSFUI.GetFormById(asArgs[i])`. See DataPushPayload.forms.
    */
   | { command: "ui.action"; action: string; arg?: string; args?: Array<string | number | boolean> };
 
@@ -371,6 +375,23 @@ export interface ViewsDataPayload {
 }
 
 /**
+ * One real game form, serialized by OSFUI.PushFormsToView (protocol 1.3).
+ * Identity only — richer display data (counts, stats) is pushed by the script
+ * via a parallel PushToView, index-aligned with this array.
+ *
+ * To reference the form in an action, echo `formId` back in the `args` list
+ * (`osfui.send('ui.action', { action, args: [form.formId] })`); the script
+ * resolves it with `OSFUI.GetFormById`. Runtime FormIDs are SESSION-SCOPED —
+ * never persist one; re-request state via the `ready` handshake as usual.
+ */
+export interface SerializedForm {
+  formId: number;    // runtime FormID — also the echo token (send it back verbatim)
+  formType: string;  // record signature ("KYWD" | "WEAP" | "FLST" | ...); numeric string for unknown types
+  name?: string;     // TESFullName when the form has one
+  editorId?: string; // best-effort: usually UNAVAILABLE at runtime in Starfield
+}
+
+/**
  * Dynamic data pushed from the owning mod's Papyrus script
  * (OSFUI.PushToView), delivered to every live view of that mod. `key` names
  * which piece of the mod's state this is — IGNORE keys you don't know
@@ -383,7 +404,15 @@ export interface ViewsDataPayload {
 export interface DataPushPayload {
   mod: string;      // canonical lowercase pushing-mod id
   key: string;      // which state slice; mod-defined
-  values: string[]; // the current value, as a list of strings
+  values: string[]; // the current value, as a list of strings ([] on a forms push)
+  /**
+   * Present when the push came from OSFUI.PushFormsToView (protocol 1.3):
+   * real game forms as identity objects. A `null` element is a `None` (or
+   * since-deleted) input KEEPING ITS SLOT, so a parallel values push stays
+   * index-aligned — filter nulls when you don't correlate by index. Give
+   * forms pushes their own keys rather than reusing a values key.
+   */
+  forms?: Array<SerializedForm | null>;
 }
 
 /** Platform-private state for the always-warm first-load handoff surface. */

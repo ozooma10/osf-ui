@@ -80,6 +80,20 @@ int Function RegisterForHotkeyStatic(string asScript, string asFn, string asModI
 ; Views ignore keys they don't know, so push freely. An empty asKey or an id that fails the mod-id grammar is logged and dropped.
 Function PushToView(string asModId, string asKey, string[] asValues) Global Native
 
+; --- real forms across the bridge (host 1.3+) ---------------------------------
+; Serialize REAL game forms into your views: each element of akForms is delivered to the page as an object { formId, formType, name } inside `data.push { mod, key, values: [], forms: [...] }`.
+; Same fire-and-forget model as PushToView. A None element keeps its slot as a JS null, so a parallel PushToView (counts, stats, ...) stays index-aligned with it - give forms pushes their own keys.
+; A FormList is serialized as ONE form (formType "FLST"); push its members as a Form[] (GetSize/GetAt loop) when the view should see them.
+Function PushFormsToView(string asModId, string asKey, Form[] akForms) Global Native
+
+; Resolve a form reference a view echoed back (the `formId` of a pushed form, sent as an args element).
+; Accepts decimal ("1370322" - what a JS number arrives as) and hex ("0x0014E8D2"). Unlike Game.GetForm, the full 32-bit range and hex both work.
+; Returns None for garbage or a form that no longer exists - CHECK before acting, and cast to the expected type (`GetFormById(asArgs[0]) as Keyword`).
+; Runtime FormIDs are SESSION-scoped: resolve promptly, never save one in a script var across saves.
+Form Function GetFormById(string asFormId) Global Native
+; Bulk variant: element i resolves asFormIds[i]; unresolved entries are None at the same index (length preserved).
+Form[] Function GetFormsById(string[] asFormIds) Global Native
+
 ; Calls akReceiver.asFn(string asAction, string asArg) when a view owned by asModId fires an action (`osfui.send('ui.action', ...)` on the JS side).
 ; Returns a token (0 = failed). Actions are fire-and-forget - there is no return value; respond by pushing state back with PushToView.
 ;

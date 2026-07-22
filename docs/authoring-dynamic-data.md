@@ -19,6 +19,10 @@ int Function RegisterForViewActionsStatic(string asScript, string asFn, string a
 ; args-list callback: OnUIAction(string asAction, string[] asArgs)  — host 1.3.0+
 int Function RegisterForViewActionsArgs(ScriptObject akReceiver, string asFn, string asModId) Global Native
 int Function RegisterForViewActionsArgsStatic(string asScript, string asFn, string asModId) Global Native
+; real forms across the bridge — host 1.3+ (see "Real forms" below)
+Function PushFormsToView(string asModId, string asKey, Form[] akForms) Global Native
+Form Function GetFormById(string asFormId) Global Native
+Form[] Function GetFormsById(string[] asFormIds) Global Native
 ```
 
 ## The model: your script owns the truth
@@ -187,7 +191,89 @@ That's the whole loop: `ready` → push, click → action → mutate → push.
   is dropped with a WARN in `OSF UI.log`. Pushes are capped at 1024 pending
   deliveries (drop-newest, logged) — unreachable in normal use, it only guards
   a runaway push loop while the overlay is disabled.
-- **Strings only, by design.** Values are `string[]`; there is no `Form` or
-  `ObjectReference` marshaling. Push display text and stable ids you can
-  resolve back on the script side, never anything you'd need the VM to look
-  up from the view.
+- **Values are strings; forms are references.** `PushToView` carries
+  `string[]` display data. Real game forms cross the bridge only through
+  `PushFormsToView` (below) — as *references* the script resolves back, never
+  as anything JS could operate on itself. The view still cannot touch game
+  state; every game operation runs in your Papyrus.
+
+## Real forms across the bridge (host 1.3+)
+
+Before 1.3, a mod with a dynamic form list (keywords, items) had to encode
+each form as a catalog index and resolve it back by position. Now the script
+pushes the actual `Form[]`:
+
+```papyrus
+Keyword[] kws = GetCatalogKeywords()
+OSFUI.PushFormsToView("yourname.autosort", "catalog", kws as Form[])
+```
+
+Each form arrives in the same `data.push` handler as an identity object in a
+`forms` array (`values` is `[]` on a forms push):
+
+```js
+osfui.on('data.push', ({ key, values, forms }) => {
+  if (key.toLowerCase() === 'catalog') {
+    // forms: [{ formId: 1370322, formType: "KYWD", name: "Melee Weapons" }, ...]
+    renderCatalog(forms.filter(Boolean));   // a None input arrives as null
+  }
+});
+```
+
+`formId` is the form's runtime FormID — and it is also how the view refers to
+the form later. A click just echoes it back as an ordinary args element:
+
+```js
+osfui.send('ui.action', { action: 'addTag', args: [slotIndex, form.formId] });
+```
+
+and the script resolves it with one call — no index math, no catalogs:
+
+```papyrus
+Function OnUIAction(string asAction, string[] asArgs)
+    If asAction == "addTag"
+        Keyword kw = OSFUI.GetFormById(asArgs[1]) as Keyword
+        If kw != None                    ; ALWAYS check — see the caveats below
+            AddTag(asArgs[0] as int, kw)
+            PushSlot(asArgs[0] as int)
+        EndIf
+    EndIf
+EndFunction
+```
+
+`GetFormById` accepts what a view actually sends: decimal (a JS number
+crosses the bridge as `"1370322"`) or `"0x0014E8D2"` hex. Unlike
+`Game.GetForm`, hex and the full 32-bit dynamic-FormID range both work.
+
+### Pairing forms with display data
+
+The serialized objects carry identity only (`formId`, `formType`, `name`,
+best-effort `editorId`). Anything else — counts, equipped state, prices —
+you push alongside as normal values, **index-aligned**: a `None` (or deleted)
+form keeps its slot as `null` in the `forms` array precisely so the two
+arrays line up.
+
+```papyrus
+Form[] items = GetTrackedItems()
+OSFUI.PushFormsToView("yourname.mod", "inv", items)
+OSFUI.PushToView("yourname.mod", "invCounts", GetTrackedCounts())  ; counts[i] belongs to forms[i]
+```
+
+### Caveats
+
+- **Runtime FormIDs are session-scoped.** Never persist one (script var
+  across saves, localStorage, anywhere). Dynamic (`FF`-prefixed) ids are even
+  recycled across save loads, so a stale reference can resolve to a
+  *different* form. In practice the `ready` re-handshake replaces the view's
+  state on every reload; still, resolve promptly, check for `None`, and cast
+  to the type you expect (`as Keyword`) before doing anything destructive.
+- **A FormList serializes as one form** (`formType: "FLST"`), not its
+  members. Push the members as a `Form[]` (a `GetSize`/`GetAt` loop) when the
+  view should see them — you usually want to control order/filtering anyway.
+- `name` is the form's `TESFullName` and is omitted when it has none;
+  `editorId` is usually unavailable at runtime in Starfield. For forms
+  without names (e.g. bare `ObjectReference`s), push display text as a
+  parallel values array.
+- There is no "ask the game about this form" query from JS. The view renders
+  what the script pushed; if it needs more, fire an action and let the script
+  push more.
