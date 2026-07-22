@@ -38,11 +38,22 @@ namespace OSFUI
 	// PopulateMainList and wipes the injected entry. While the pause menu is
 	// open, Reconcile's steady state is a single entryCount read per tick; the
 	// per-entry GetDataForEntry scan (and any re-inject) runs only when the
-	// count deviates from the shape last established. That count-gate plus an
-	// SEH guard (first access violation inside the AS3 interop logs and
-	// disables injection for the session) hardens against a 2026-07-20 field
-	// CTD: a per-tick GetDataForEntry invoke dispatched through a null AS3
-	// method slot mid list-rebuild, on vanilla SWFs.
+	// count deviates from the shape last established.
+	//
+	// Safety against the 2026-07 field CTD/hang (a null/poison AS3 method-slot
+	// dispatch, Starfield.exe+333E929, when an Invoke lands on a movie that is
+	// loading, tearing down, or mid list-rebuild) is layered:
+	//   * Every tick, all AS3 access is gated on the movie being live and
+	//     advancing — IMenu bit 6 (kAdvancesMovie) read live + active-array
+	//     membership — which goes false the frame the engine removes the menu,
+	//     ahead of the (lagging) MenuOpenCloseEvent close edge. Covers the
+	//     open/close transition windows.
+	//   * A two-tick entryCount debounce covers the one window the flag can't
+	//     see (an in-place list re-push while the menu stays open): the scan /
+	//     re-inject Invokes run only after the count is stable for two ticks.
+	//   * A demoted, diagnostic-only SEH latch remains as a last-resort telemetry
+	//     backstop — never the containment (catching an engine-VM fault corrupts
+	//     the VM and hangs; the gate + debounce are what prevent it).
 	//
 	// Source of truth for the AS3 structure: pausemenu.swf 1.16.244 decompiled
 	// with JPEXS 2026-07-13 (kept at tmp/pausemenu-re next to this repo); see

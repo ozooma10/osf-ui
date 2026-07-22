@@ -44,6 +44,7 @@ namespace OSFUI
 		bool          g_entryLogged{ false };
 		bool          g_failWarned{ false };
 		std::int32_t  g_expectedCount{ -1 };  // entryCount we last left the list at (ours included); -1 = not established
+		std::int32_t  g_lastCount{ -1 };      // entryCount seen the previous tick; used to debounce an in-flight re-push
 
 		// The VM stores ints, uints or Numbers depending on origin; normalise to
 		// double for comparisons.
@@ -65,6 +66,54 @@ namespace OSFUI
 			}
 		}
 
+		// The engine's own per-frame liveness signal. kAdvancesMovie (bit 6,
+		// 0x40) is set at active-array INSERTION — after LoadMovie has built the
+		// movie + AS3 root — and cleared the instant the engine removes the menu
+		// on teardown (UI_AdvanceActiveMenus gates the advance on this exact bit).
+		// A LIVE read each tick therefore tracks "genuinely open & being
+		// advanced," unlike RE::UI::GetMenu, which is a header reimplementation
+		// returning the raw registration-map slot (UI+0x470) — non-null through
+		// BOTH construction and teardown, so it cannot see the transition windows.
+		//
+		// This is the fix for the close-event-lag hole: MenuEventSink's
+		// opening=false edge (g_pauseMenuOpen) trails real teardown by hundreds of
+		// ms (field repro: fault ~485ms after close began), so g_pauseMenuOpen is
+		// NOT a safe teardown barrier. bit 6 + array membership go false the frame
+		// the engine removes the menu, independent of when the close event fires.
+		//
+		// Returns true only when it is safe to touch the movie's AS3 side this
+		// tick. Caller must read menu->flags LIVE (never cache) every tick.
+		// CAVEAT: bit 6 stays SET during an in-place PauseMenuListData re-push
+		// (the list rebuilds while the menu is fully open); that window is covered
+		// by the count-gate + debounce in ReconcileList, not by this signal.
+		bool IsLiveAdvancing(RE::UI* a_ui, const RE::IMenu* a_menu)
+		{
+			if (!a_ui || !a_menu) {
+				return false;
+			}
+			// Live advance gate: clears on teardown ahead of the close event.
+			if ((a_menu->flags & RE::IMenu::Flag::kAdvancesMovie) == 0) {
+				return false;
+			}
+			// Admission ground truth: pointer identity in UI->menuArray (UI+0x430),
+			// the array bit 6 rides on. Also rejects a stale registration-map slot
+			// left pointing at a different/dying instance.
+			bool admitted = false;
+			for (const auto& m : a_ui->menuArray) {
+				if (m.get() == a_menu) {
+					admitted = true;
+					break;
+				}
+			}
+			if (!admitted) {
+				return false;
+			}
+			// Movie + AS3 root constructed. Belt for the one unproven ordering
+			// caveat (whether bit 6 can outlive asMovieRoot on teardown): if the
+			// root is already gone we bail here regardless of the flag.
+			return a_menu->uiMovie && a_menu->uiMovie->asMovieRoot;
+		}
+
 		// Native press callback, installed via asMovieRoot->CreateFunction +
 		// root.addEventListener. Fires on the game's main thread inside the
 		// movie's event dispatch, so it must stay tiny and re-entrancy-free:
@@ -75,6 +124,16 @@ namespace OSFUI
 			void Call(const Params& a_params) override
 			{
 				if (a_params.argCount < 1 || !a_params.args) {
+					return;
+				}
+				// Same live-advance gate as Reconcile: never run AS3 interop
+				// (GetMember / stopImmediatePropagation Invoke) on a movie the
+				// engine is tearing down. This callback normally only fires while
+				// the menu is live, but it runs UNGUARDED in the engine event pump
+				// (outside Reconcile's SEH belt), so a stray dispatch mid-teardown
+				// must drop rather than dispatch into a dying VM.
+				auto* ui = RE::UI::GetSingleton();
+				if (!ui || !IsLiveAdvancing(ui, ui->GetMenu(RE::BSFixedString(kMenuName.data())).get())) {
 					return;
 				}
 				auto& event = a_params.args[0];
@@ -121,11 +180,14 @@ namespace OSFUI
 			}
 		}
 
-		// One-way fuse, tripped by the first hardware fault inside the AS3
-		// interop below; a pause menu without our entry beats a CTD. Field
-		// report 2026-07-20 (vanilla pausemenu.swf, no other mods): null
-		// method-slot dispatch under GetDataForEntry — Starfield.exe+333E929,
-		// `call qword ptr [r10]` with r10=0.
+		// Diagnostic-only latch (see Reconcile). Demoted from "the fix" — the real
+		// containment is IsLiveAdvancing + the re-push debounce, engineered so this
+		// never trips. It stays only so an unmodelled fault still self-disables the
+		// entry and leaves one telemetry line; a trip means the gate has a hole, not
+		// that the fuse saved us (catching an engine-AS3-VM fault corrupts the VM and
+		// hangs, reproduced 2026-07-22). History: field report 2026-07-20 (vanilla
+		// pausemenu.swf, no other mods) — null method-slot dispatch under
+		// GetDataForEntry, Starfield.exe+333E929, `call [r10]`, r10=0/-2.
 		bool g_faulted{ false };
 
 		// SEH filter: contain access violations only; anything else (including
@@ -182,15 +244,24 @@ namespace OSFUI
 				g_entryLogged = false;
 				g_failWarned = false;
 				g_expectedCount = -1;
+				g_lastCount = -1;
 			}
 
 			auto* ui = RE::UI::GetSingleton();
 			if (!ui) {
 				return;
 			}
+			// The single safety gate: the menu must be engine-admitted AND being
+			// advanced THIS tick (kAdvancesMovie live + menuArray identity + AS3
+			// root present). Bails during the loading and teardown transition
+			// windows the old GetMenu/uiMovie/asMovieRoot chain could not see —
+			// the whole ReconcileList body below runs synchronously with no engine
+			// interleave, so one read here makes every AS3 touch that follows safe
+			// from those windows. `menu` (a Scaleform::Ptr) also holds a ref for
+			// the rest of this call.
 			const auto menu = ui->GetMenu(RE::BSFixedString(kMenuName.data()));
-			if (!menu || !menu->uiMovie || !menu->uiMovie->asMovieRoot) {
-				return;  // movie not up yet this frame; retry next tick
+			if (!IsLiveAdvancing(ui, menu.get())) {
+				return;  // loading, tearing down, or not admitted this frame
 			}
 			auto& movieRoot = *menu->uiMovie->asMovieRoot;
 
@@ -220,6 +291,8 @@ namespace OSFUI
 				return;
 			}
 			const auto count = static_cast<std::int32_t>(countNum);
+			const auto prevCount = g_lastCount;
+			g_lastCount = count;  // updated every tick (even under the gates below) so the debounce sees a re-push
 
 			// Wait for the engine's PauseMenuListData push before injecting: an
 			// empty list means OnPauseListDataUpdate hasn't run yet, and anything
@@ -239,6 +312,18 @@ namespace OSFUI
 			// our entry stays missing for the rest of this pause session.)
 			if (count == g_expectedCount) {
 				return;
+			}
+
+			// Debounce the re-push settle window — the ONE crash window the
+			// liveness gate can't cover, because bit 6 stays set while the engine
+			// rebuilds PauseMenuListData in place on a fully-open menu. A rebuild
+			// can present a transient entryCount for a frame; require the same
+			// count on two consecutive ticks before we scan (GetDataForEntry) or
+			// re-inject (PopulateMainList), so those fl_events-dispatching invokes
+			// never land mid-rebuild on a half-built entry clip (the +333E929 null
+			// method-slot fault). Costs at most one extra tick (~16ms); self-heals.
+			if (count != prevCount) {
+				return;  // count still settling; re-check next tick
 			}
 
 			// Install the press listener once per session. It lives on the root
@@ -356,10 +441,15 @@ namespace OSFUI
 		if (g_faulted) {
 			return;
 		}
-		// SEH belt over the count-gate's suspenders: one bad edge in the engine's
-		// AS3 VM must not take the game down. On a fault the unwound frames skip
-		// GFx::Value destructors (no /EHa) — a one-time ref leak is acceptable;
-		// the fuse prevents a repeat.
+		// SEH latch, DIAGNOSTIC-ONLY — no longer the containment strategy. The
+		// live-advance gate (kAdvancesMovie + menuArray identity) plus the
+		// re-push debounce are what keep us from ever invoking into a
+		// tearing-down or mid-rebuild VM, so this should now never trip. It stays
+		// only to record a NoteFault line and self-disable if some unmodelled
+		// window still exists: catching the AV here does NOT recover the game
+		// (the fault is inside the engine AS3 VM; unwinding ~12 non-/EHa frames
+		// skips GFx::Value dtors and corrupts the VM -> hang, reproduced
+		// 2026-07-22). A tripped fuse is a signal to fix the gate, not a fix.
 		__try {
 			ReconcileList();
 		} __except (FaultFilter(GetExceptionCode())) {
