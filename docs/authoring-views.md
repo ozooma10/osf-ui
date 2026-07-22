@@ -671,7 +671,8 @@ the locale/fixture/stage switches.
 In-game, watch `Documents\My Games\Starfield\SFSE\Logs\OSF UI.log`:
 - `MessageBridge: [web] ...` — your `log` commands.
 - `MessageBridge: rejected unknown ui.command '...'` — you sent a non-whitelisted command.
-- Set `devMode: true` in `config.json` for verbose renderer and bridge logging.
+- Verbose renderer and bridge logging comes on automatically in a local `debug`
+  build; in a release build set `devMode: true` in `config.json` to force it on.
 
 With `devMode: true` the in-game loop is fast too:
 - **Settings schemas hot-reload**: edits to `settings/*.json` are picked up

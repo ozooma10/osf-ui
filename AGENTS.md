@@ -28,6 +28,11 @@ change that isn't in the changelog is a change that will be forgotten at release
 - `xmake build` builds the plugin **and** the `osfui-webview2-host` exe and auto-deploys both to
   `MO2\mods\OSF UI` (the WebView2 host lands in `SFSE/Plugins/OSFUI/bin/`). Building the host
   target alone: `xmake build osfui-webview2-host`.
+- Build mode drives the dev defaults: a `debug` build (`xmake f -m debug`) turns
+  `devMode` on automatically (verbose "firehose" logging + first-frame PNG dump +
+  the `devReloadKey`); `releasedbg`/`release` — what `tools/package.ps1` ships —
+  leaves it off. `config.json` omits the `devMode` key so this default stands; set
+  it explicitly there to force either value. See `Config::kDevModeDefault`.
 - Native host-side unit tests live in `tests/native/` (`run.sh`, needs a C++23 compiler — no
   clang on this box; use the MSVC dev shell, see memory `mcm-native-m1-progress`). They compile
   real runtime sources against stubs; no game required.

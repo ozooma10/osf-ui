@@ -14,6 +14,17 @@ namespace OSFUI
 		// OSF UI logs INFO and parses leniently.
 		static constexpr std::int64_t kConfigVersion = 1;
 
+		// Build-mode default for the dev knobs (see devMode below). A local
+		// `debug` build defines OSFUI_DEV_DEFAULTS (xmake.lua) so verbose logging
+		// and the reload key come on automatically; `releasedbg`/`release` — what
+		// the release packager ships — leaves them off. config.json omits the key
+		// so this default applies, but an explicit `devMode` there still wins.
+#if defined(OSFUI_DEV_DEFAULTS) && OSFUI_DEV_DEFAULTS
+		static constexpr bool kDevModeDefault = true;
+#else
+		static constexpr bool kDevModeDefault = false;
+#endif
+
 		bool        enabled{ true };
 		// MCM-owned knobs: not parsed from config.json — the `osfui` schema is
 		// the sole owner and Runtime::OnSettingChanged mutates these fields
@@ -73,7 +84,13 @@ namespace OSFUI
 		// interactive. When empty, only `view` is loaded. Missing ids are
 		// skipped.
 		std::vector<std::string> views;
-		bool        devMode{ false };  // release-safe default; the shipped config / a dev override turns on verbose logging
+		// Verbose per-call logging (the DEBUG "firehose") + first-frame PNG dump
+		// + the devReloadKey. Default is build-mode driven (kDevModeDefault: on in
+		// a debug build, off in release), so a local dev build is chatty and a
+		// shipped release is quiet with no file to remember to flip. config.json
+		// omits the key to let that default stand; setting it there forces the
+		// value in either build.
+		bool        devMode{ kDevModeDefault };
 		// Dev diagnostic (default off): hook the engine's Scaleform render-pass
 		// vtables LOG-ONLY to characterize the under-native-UI injection seam
 		// (command-context internals, UI buffer format). Independent of the

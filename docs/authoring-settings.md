@@ -414,7 +414,8 @@ For CI or a final check:
 npx ajv-cli validate --spec=draft2020 -s docs/schema/settings-schema.schema.json -d yourname.mymod.json
 ```
 
-**In-game hot reload.** With `"devMode": true` in OSF UI's `config.json`,
+**In-game hot reload.** With `devMode` active — automatic in a local `debug`
+build, or `"devMode": true` in OSF UI's `config.json` on a release build —
 saved changes to `settings\*.json` are picked up within ~1 s while the game
 runs — values survive, the open menu repaints. F11 (configurable
 `devReloadKey`) reloads the open view.

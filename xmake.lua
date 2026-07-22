@@ -104,6 +104,17 @@ target("OSF UI")
     add_includedirs("sdk")
     set_pcxxheader("src/pch.h")
 
+    -- Dev defaults keyed to the build mode: a local `debug` build turns the dev
+    -- knobs (verbose "firehose" logging, view hot-reload key) ON without anyone
+    -- editing config.json, while `releasedbg`/`release` — what tools/package.ps1
+    -- ships — leaves them OFF. The shipped config.json deliberately omits the
+    -- key so this default applies; an explicit `devMode` in config.json still
+    -- wins in either build (e.g. a user turning on verbose logs for a bug
+    -- report). See Config::kDevModeDefault in src/core/Config.h.
+    if is_mode("debug") then
+        add_defines("OSFUI_DEV_DEFAULTS=1")
+    end
+
     -- ship the plugin data folder (config + views) next to the DLL:
     -- <install>/SFSE/Plugins/OSFUI/...
     add_installfiles("data/(OSFUI/**)", { prefixdir = "SFSE/Plugins" })
