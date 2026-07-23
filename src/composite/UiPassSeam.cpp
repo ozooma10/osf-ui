@@ -60,16 +60,19 @@ namespace OSFUI::UiPassSeam
 		//
 		// Slot indices are fixed COM ABI, straight from the d3d12.h C vtable
 		// (ID3D12GraphicsCommandListVtbl): 26 = ResourceBarrier,
-		// 28 = SetDescriptorHeaps. Trust but verify: after hooking, each slot is
-		// self-tested by calling it on our own throwaway list and checking the
+		// 28 = SetDescriptorHeaps. Trust but verify: after hooking, the two ANCHOR
+		// slots (barrier/heaps) are self-tested by invoking a legal no-op and checking the
 		// thunk observed the sentinel — a wrong index unhooks itself.
 		constexpr std::size_t kSlotResourceBarrier = 26;
 		constexpr std::size_t kSlotSetDescriptorHeaps = 28;
 		// The seam draw also clobbers the engine's bound pipeline state and
 		// graphics root signature. Both are tracked (below) so the draw can
 		// restore them, for the same reason the heaps are — see the comment on
-		// tl_heaps. Slot indices from the d3d12.h C vtable, self-tested below:
-		// 25 = SetPipelineState, 30 = SetGraphicsRootSignature.
+		// tl_heaps. Slot indices from the d3d12.h C vtable: 25 = SetPipelineState,
+		// 30 = SetGraphicsRootSignature. These two are NOT invoked to self-test
+		// (no legal no-op arg: SetPipelineState(null) faults D3D12Core), so they
+		// are trusted from the anchors: same fixed vtable, if 26/28 are right,
+		// 25/30 are right. See EnsureDrawHooksInstalled.
 		constexpr std::size_t kSlotSetPipelineState = 25;
 		constexpr std::size_t kSlotSetGraphicsRootSignature = 30;
 
@@ -140,8 +143,6 @@ namespace OSFUI::UiPassSeam
 		ID3D12GraphicsCommandList* g_selfTestList = nullptr;  // non-null only during self-test
 		std::atomic<bool> g_selfTestBarrierSeen{ false };
 		std::atomic<bool> g_selfTestHeapsSeen{ false };
-		std::atomic<bool> g_selfTestRootSigSeen{ false };
-		std::atomic<bool> g_selfTestPsoSeen{ false };
 		// One-time log when a hand-off draw is skipped because the engine's
 		// clobbered state can't be restored for the recording list.
 		std::atomic<bool> g_restoreSkipLogged{ false };
@@ -165,18 +166,14 @@ namespace OSFUI::UiPassSeam
 			}
 		}
 
+		// These two are NOT invoked by the self-test (see EnsureDrawHooksInstalled):
+		// there is no legal no-op argument — SetPipelineState(null) faults
+		// D3D12Core — so their slot indices are trusted from the barrier/heaps
+		// anchors instead. No g_selfTestList branch is therefore needed.
 		void STDMETHODCALLTYPE SetGraphicsRootSignatureThunk(
 			ID3D12GraphicsCommandList* a_self,
 			ID3D12RootSignature* a_rootSig)
 		{
-			if (a_self == g_selfTestList) {
-				// Self-test only proves the thunk fired; do NOT forward. The
-				// throwaway list is never executed, and its sibling
-				// SetPipelineState thunk MUST NOT forward its null argument (see
-				// there) — skip here too for symmetry.
-				g_selfTestRootSigSeen.store(true, std::memory_order_relaxed);
-				return;
-			}
 			tl_rootSigList = a_self;
 			tl_rootSig = a_rootSig;
 			if (const auto original = g_origSetGraphicsRootSignature.load(std::memory_order_relaxed)) {
@@ -188,16 +185,6 @@ namespace OSFUI::UiPassSeam
 			ID3D12GraphicsCommandList* a_self,
 			ID3D12PipelineState* a_pso)
 		{
-			if (a_self == g_selfTestList) {
-				// Self-test only proves the thunk fired; do NOT forward. Unlike
-				// SetDescriptorHeaps(0,null) and a null-resource UAV barrier,
-				// SetPipelineState(null) is NOT a legal no-op — D3D12Core
-				// dereferences the PSO and faults (crash 2026-07-23). The
-				// throwaway list is never executed, so skipping the forward is
-				// safe.
-				g_selfTestPsoSeen.store(true, std::memory_order_relaxed);
-				return;
-			}
 			tl_psoList = a_self;
 			tl_pso = a_pso;
 			if (const auto original = g_origSetPipelineState.load(std::memory_order_relaxed)) {
@@ -336,12 +323,19 @@ namespace OSFUI::UiPassSeam
 				const bool patchedPso =
 					PatchSlot(vtbl, kSlotSetPipelineState, reinterpret_cast<void*>(&SetPipelineStateThunk)) != nullptr;
 
-				// Prove the slot indices by calling each hooked method on the throwaway
-				// list and checking the thunk saw the sentinel — a wrong index unhooks
-				// itself. The barrier/heaps thunks forward their (legal no-op) calls;
-				// the rootsig/pso thunks record the sentinel and return WITHOUT
-				// forwarding, because SetPipelineState(null) faults D3D12Core (the
-				// list is a throwaway, never executed, so not forwarding is safe).
+				// Prove the two ANCHOR slots (ResourceBarrier, SetDescriptorHeaps) by
+				// calling them on the throwaway list — both are genuine legal no-ops
+				// (a null-resource global UAV barrier; clearing 0 heaps) — and
+				// checking the thunk saw the sentinel; a wrong index unhooks itself.
+				//
+				// The rootsig/pso slots are NOT invoked: there is no legal no-op
+				// argument for them (SetPipelineState(null) dereferences the PSO and
+				// faults D3D12Core — startup CTD 2026-07-23). Instead they are trusted
+				// from the anchors: ID3D12GraphicsCommandList's vtable is a fixed,
+				// append-only COM ABI, so if slots 26/28 are the real ResourceBarrier/
+				// SetDescriptorHeaps then 25/30 are the real SetPipelineState/
+				// SetGraphicsRootSignature. We only sanity-check that their originals
+				// are non-null (real vtable entries) before enabling.
 				const bool patched = patchedBarrier && patchedHeaps && patchedRootSig && patchedPso;
 				if (patched) {
 					D3D12_RESOURCE_BARRIER uav{};
@@ -349,19 +343,16 @@ namespace OSFUI::UiPassSeam
 					uav.UAV.pResource = nullptr;  // global UAV barrier: legal on any list
 					list->ResourceBarrier(1, &uav);
 					list->SetDescriptorHeaps(0, nullptr);       // clearing heaps: legal no-op
-					list->SetGraphicsRootSignature(nullptr);    // sentinel only (thunk skips forward)
-					list->SetPipelineState(nullptr);            // sentinel only (thunk skips forward)
 				}
 
 				const bool barrierOk = g_selfTestBarrierSeen.load(std::memory_order_relaxed);
 				const bool heapsOk = g_selfTestHeapsSeen.load(std::memory_order_relaxed);
-				const bool rootSigOk = g_selfTestRootSigSeen.load(std::memory_order_relaxed);
-				const bool psoOk = g_selfTestPsoSeen.load(std::memory_order_relaxed);
-				if (patched && barrierOk && heapsOk && rootSigOk && psoOk) {
+				const bool anchorsOk = origRootSig != nullptr && origPso != nullptr;
+				if (patched && barrierOk && heapsOk && anchorsOk) {
 					g_selfTestList = nullptr;
 					g_hookInstallState.store(1, std::memory_order_release);
 					REX::DEBUG("[UiPassSeam] seam draw hooks armed: ID3D12GraphicsCommandList vtable slots {} (barrier) / {} "
-							  "(SetDescriptorHeaps) / {} (SetGraphicsRootSignature) / {} (SetPipelineState) hooked and self-tested",
+							  "(SetDescriptorHeaps) self-tested; {} (SetGraphicsRootSignature) / {} (SetPipelineState) trusted from anchors",
 						kSlotResourceBarrier, kSlotSetDescriptorHeaps, kSlotSetGraphicsRootSignature, kSlotSetPipelineState);
 				} else {
 					// Wrong slot layout or protect failure: undo what we did.
@@ -382,8 +373,9 @@ namespace OSFUI::UiPassSeam
 					g_origSetGraphicsRootSignature.store(nullptr, std::memory_order_relaxed);
 					g_origSetPipelineState.store(nullptr, std::memory_order_relaxed);
 					g_selfTestList = nullptr;
-					REX::WARN("[UiPassSeam] seam draw hook self-test FAILED (patch b/h/r/p={}/{}/{}/{} seen b/h/r/p={}/{}/{}/{}); vtable restored, seam draw disabled",
-						patchedBarrier, patchedHeaps, patchedRootSig, patchedPso, barrierOk, heapsOk, rootSigOk, psoOk);
+					REX::WARN("[UiPassSeam] seam draw hook self-test FAILED (patch b/h/r/p={}/{}/{}/{} seen b/h={}/{} anchors r/p!=null={}/{}); vtable restored, seam draw disabled",
+						patchedBarrier, patchedHeaps, patchedRootSig, patchedPso, barrierOk, heapsOk,
+						origRootSig != nullptr, origPso != nullptr);
 				}
 				list->Close();
 			} else {
