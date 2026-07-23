@@ -353,10 +353,11 @@ export type UiGamepadPayload =
   | { kind: "stick"; axes: { lx: number; ly: number; rx: number; ry: number } };
 
 /**
- * One entry per loaded (registered) surface. Reply to `views.get`; also pushed
+ * One entry per discovered surface. Reply to `views.get`; also pushed
  * unsolicited to every view that has sent `views.get` whenever any entry's
- * open/focused/loadState changes (a view torn down by crash-recovery drops out
- * of the list entirely).
+ * open/focused/loadState changes. Includes surfaces that are only discovered
+ * on disk and not yet loaded (`loadState: "unloaded"`) so a launcher can offer
+ * them as click-to-load cards — opening one (`menu.open`) loads it on demand.
  */
 export interface ViewsDataPayload {
   views: Array<{
@@ -370,7 +371,9 @@ export interface ViewsDataPayload {
     targetVersion: string;  // manifest `targetVersion` — OSF UI version the view was authored against; "" if undeclared
     open: boolean;          // menu: on the stack; hud: shown
     focused: boolean;       // the top open menu (receives input)
-    loadState: "loading" | "loaded" | "failed";
+    // "unloaded" = discovered on disk but never loaded; opening it loads on demand.
+    // "loading" = load in flight, "loaded" = ready, "failed" = load failed (recovery exhausted).
+    loadState: "unloaded" | "loading" | "loaded" | "failed";
   }>;
 }
 

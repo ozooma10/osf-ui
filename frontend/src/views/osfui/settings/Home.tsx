@@ -191,6 +191,9 @@ interface MenuCardProps {
 
 function MenuCard({ view: v, tr, iconSrc, caption, onOpen }: MenuCardProps) {
   const failed = v.loadState === 'failed';
+  // Discovered on disk but not yet loaded: the card still opens (menu.open loads
+  // it on demand), but the foot says LOAD so a cold surface reads as such.
+  const notLoaded = v.loadState === 'unloaded';
   const accent = homeAccentFor(v.id);
   // Single-menu policy: the opened panel replaces this surface, so there is no
   // local state to reconcile afterwards. The cooldown only swallows a dead
@@ -230,7 +233,11 @@ function MenuCard({ view: v, tr, iconSrc, caption, onOpen }: MenuCardProps) {
       </span>
 
       <span class="home-tile-foot">
-        {failed ? tr('failedSeeLog', 'FAILED — SEE OSF UI.LOG') : tr('openArrow', 'OPEN ▸')}
+        {failed
+          ? tr('failedSeeLog', 'FAILED — SEE OSF UI.LOG')
+          : notLoaded
+            ? tr('loadArrow', 'LOAD ▸')
+            : tr('openArrow', 'OPEN ▸')}
       </span>
     </button>
   );

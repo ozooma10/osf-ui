@@ -144,6 +144,23 @@ export const MOCK_VIEWS: MockView[] = [
     loadState: 'loaded',
     fixture: true,
   },
+  // Discovered on disk but never loaded: a drop-in content view no schema, no
+  // config `views` entry, never opened. The launcher lists it as a click-to-load
+  // card (foot reads LOAD); opening it would load it on demand in game.
+  {
+    id: 'acme.codex/codex',
+    title: 'Field Codex',
+    description: 'Reference terminal — dropped in, not yet opened.',
+    mod: 'acme.codex',
+    kind: 'menu',
+    interactive: true,
+    hub: true,
+    targetVersion: '',
+    open: false,
+    focused: false,
+    loadState: 'unloaded',
+    fixture: true,
+  },
 ];
 
 /**

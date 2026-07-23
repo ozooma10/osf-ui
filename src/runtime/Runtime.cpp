@@ -1179,12 +1179,21 @@ namespace OSFUI
 		nlohmann::json views = nlohmann::json::array();
 		const auto     active = _menus.ActiveMenu();
 		for (const auto& m : _views.All()) {
-			// Discovered-but-not-loaded manifests and views torn down by
-			// crash-recovery stay out of this catalog but can open on demand.
-			if (!_menus.IsRegistered(m.id)) {
-				continue;
-			}
+			// Every discovered manifest is a launchable surface, so list them all.
+			// A registered surface carries its live load state; a discovered-but-
+			// unregistered one is reported "unloaded" so the Mods launcher can show
+			// it as a click-to-load card (the click's menu.open loads it on demand
+			// through EnqueueOpenView). A view whose recovery was exhausted stays
+			// "failed" — its _viewLoadState entry survives the Unregister, so it is
+			// caught below before the registered/unloaded split. hub:false and
+			// debugOnly views are still withheld via the hub flag.
+			const bool registered = _menus.IsRegistered(m.id);
 			const auto state = GetViewLoadState(m.id);
+			const char* loadState =
+				state == ViewLoadState::Failed   ? "failed" :
+				state == ViewLoadState::Finished ? "loaded" :
+				registered                       ? "loading" :
+				                                   "unloaded";
 			views.push_back(nlohmann::json{
 				{ "id", m.id },
 				{ "title", _localization.Resolve(m.mod,
@@ -1198,9 +1207,7 @@ namespace OSFUI
 				{ "targetVersion", m.targetVersion },
 				{ "open", _menus.IsOpen(m.id) },
 				{ "focused", active.has_value() && *active == m.id },
-				{ "loadState", state == ViewLoadState::Failed ? "failed" :
-				               state == ViewLoadState::Finished ? "loaded" :
-				                                                  "loading" },
+				{ "loadState", loadState },
 			});
 		}
 		return nlohmann::json{ { "views", std::move(views) } };
@@ -1863,8 +1870,8 @@ namespace OSFUI
 				a_b.SendResult(false, "unknown-view", "not a loaded view");
 			}
 		});
-		// Catalog of loaded surfaces (bridge 0.2). Replies with `views.data` and
-		// subscribes the caller: any later open/close/focus/load-state change
+		// Catalog of discovered surfaces (bridge 0.2), loaded or not. Replies with
+		// `views.data` and subscribes the caller: any later open/close/focus/load-state change
 		// re-sends the catalog, so it stays current without polling.
 		a_bridge.RegisterCommand("views.get", [this](const nlohmann::json&, MessageBridge& a_b) {
 			const auto payload = BuildViewsData();
