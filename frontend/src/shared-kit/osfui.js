@@ -11,6 +11,10 @@
 //                                   (payload.version = the running OSF UI)
 //   osfui.send(command, fields)  -> fire-and-forget ui.command; returns false
 //                                   when no bridge is present
+//   osfui.action(name, ...args)  -> fire a view ui.action (the JS half of
+//                                   Papyrus RegisterForViewActionsArgs); extra
+//                                   values ride as an args list. Returns false
+//                                   when no bridge is present.
 //   osfui.request(command, fields, { timeoutMs }) -> Promise of the reply
 //                                   message ({ type, payload, requestId }).
 //                                   Rejects (Error with .code) on ui.error, on
@@ -89,6 +93,14 @@
     g.postMessage(JSON.stringify({ type: "ui.command", payload: Object.assign({ command }, fields || {}) }));
     return true;
   };
+
+  // Fire a view ui.action: the JS counterpart to Papyrus
+  // RegisterForViewActionsArgs / OnUIAction(asAction, asArgs). Extra values ride
+  // as an args list; the native ui.action handler coerces non-string elements
+  // (protocol 1.3), so numbers can be passed as-is. A bare action omits `args`
+  // entirely. Returns false when no bridge is present (mirrors send()).
+  g.action = (name, ...args) =>
+    g.send("ui.action", args.length ? { action: name, args } : { action: name });
 
   g.viewReady = () => g.send("view.ready");
 
