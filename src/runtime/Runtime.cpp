@@ -435,7 +435,8 @@ namespace OSFUI
 		// activates the hardware cursor): while a menu captures input, hold a
 		// reference on MenuCursor::freeCursorRefCount so the per-frame clip
 		// releases the pointer (no engine arrow — the focus menu carries no
-		// ShowCursor bit). Edge-triggered inside Apply.
+		// ShowCursor bit). Edge-triggered inside Apply, which marshals the ref bump
+		// onto the main thread (Tick runs off-main; proven 2026-07-23).
 		FreeCursor::Apply(_menus.DesiredCapture());
 		if (_config.engineInput) {
 			DrainEngineInput(a_deltaSeconds);
@@ -1012,7 +1013,9 @@ namespace OSFUI
 
 	void Runtime::ReconcileNativeFocus()
 	{
-		// Main thread (ApplyMenuPolicy).
+		// Runs from Tick (an off-main worker; proven 2026-07-23). This drives
+		// renderer/WebView focus, not engine main-thread state, so the thread it
+		// runs on is not load-bearing here.
 		// Edge-guarded: the false side posts a game-focus restore to the window
 		// thread, and the true side races Chromium's async MoveFocus, so repeat
 		// sends would only feed the focus watchdog more churn.
@@ -1389,8 +1392,11 @@ namespace OSFUI
 
 	void Runtime::ReconcileFocusMenu()
 	{
-		// Game main thread (Tick). Drive the engine menu's open state toward the
-		// top menu's capture policy. Pause is not wired through this menu's flags
+		// Runs from Tick (an off-main render-graph worker; proven 2026-07-23).
+		// Drive the engine menu's open state toward the top menu's capture policy
+		// — via the fire-and-forget UIMessageQueue (thread-safe), not a direct
+		// RE::UI walk; the watchdog below reads the pump's main-thread snapshot for
+		// the same reason. Pause is not wired through this menu's flags
 		// (the real pause flag, bit 1, would tie pause to capture instead of the
 		// per-view pausesGame policy) — sim pause is ReconcileSimPause. Act only
 		// on a change, to avoid per-frame queue spam.
@@ -1456,10 +1462,11 @@ namespace OSFUI
 
 	void Runtime::ReconcileSimPause()
 	{
-		// Main thread (Tick), unconditional: the sim pause needs no engine menu
+		// Unconditional: the sim pause needs no engine menu
 		// (UI::ModifyMenuPauseCounter; see input/SimPause), so it is not gated on
 		// config.focusMenu. Driven by the top menu's manifest pausesGame (default
-		// true for menus). Edge-triggered inside Apply.
+		// true for menus). Edge-triggered inside Apply, which marshals the counter
+		// touch onto the main thread (Tick runs off-main; proven 2026-07-23).
 		SimPause::Apply(_menus.DesiredPause());
 	}
 
@@ -1625,21 +1632,14 @@ namespace OSFUI
 
 	void Runtime::ReconcileControlLayer()
 	{
-		// Main thread (Tick). Drive the input-enable layer toward the top menu's
-		// capture policy. This is the only gate that stops gamepad/XInput, so it
-		// must track capture (not pause), or a gamepad drives the game underneath
-		// a capturing menu. A live HUD (no capture) leaves controls enabled.
-		// Engage() may no-op until gameplay (manager not ready at the main menu);
-		// IsEngaged() stays false then, so we retry next tick.
-		const bool wantEngaged = _menus.DesiredCapture();
-		if (wantEngaged == ControlLayer::IsEngaged()) {
-			return;
-		}
-		if (wantEngaged) {
-			ControlLayer::Engage();
-		} else {
-			ControlLayer::Release();
-		}
+		// Tick runs on an off-main render-graph worker (proven 2026-07-23), but the
+		// input-enable layer (BSInputEnableManager) is main-thread-owned, so
+		// ControlLayer::Apply marshals the engage/release onto the main thread via
+		// BSService::TaskQueue (edges detected internally; no-ops until the manager
+		// exists). This is the only gate that stops gamepad/XInput, so it tracks
+		// capture (not pause), or a gamepad drives the game underneath a capturing
+		// menu. A live HUD (no capture) leaves controls enabled.
+		ControlLayer::Apply(_menus.DesiredCapture());
 	}
 
 	void Runtime::BuildModules()
@@ -2049,8 +2049,11 @@ namespace OSFUI
 		});
 
 		// Read-only game data: the in-game calendar. Bridge handlers dispatch from
-		// Tick()/Update() on the game's main thread, so reading game singletons
-		// here is safe.
+		// Tick, which runs on an off-main worker (proven 2026-07-23) — but these
+		// are read-only accessors on the long-lived Calendar singleton, so the
+		// worst case is a momentarily stale field, not corruption. (Contrast the
+		// pause/cursor/input reconcilers, which MUTATE engine state and so marshal
+		// to the main thread via BSService::TaskQueue.)
 		a_bridge.RegisterCommand("game.get", [](const nlohmann::json&, MessageBridge& a_b) {
 			nlohmann::json calendar = nlohmann::json::object();
 			if (const auto* cal = RE::Calendar::GetSingleton()) {
@@ -2070,9 +2073,9 @@ namespace OSFUI
 	void Runtime::OnSettingChanged(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value)
 	{
 		// Only the framework's own knobs (mod "osfui"); other mods' settings are
-		// theirs to react to. Main thread (settings commands dispatch from Tick),
-		// plus once per value at startup via NotifyAll, so persisted choices apply
-		// on boot.
+		// theirs to react to. Invoked from Tick (an off-main worker; proven
+		// 2026-07-23) as settings commands dispatch, plus once per value at startup
+		// via NotifyAll, so persisted choices apply on boot.
 		if (a_modId != "osfui") {
 			return;
 		}

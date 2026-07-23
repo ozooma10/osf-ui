@@ -5,14 +5,18 @@
 #include "RE/U/UserEvents.h"
 
 #include "core/Log.h"
+#include "core/MainThreadLatch.h"
 
 namespace OSFUI
 {
 	namespace
 	{
-		// Main-thread-only state (Engage/Release run from Runtime::Tick).
+		// BSInputEnableManager/BSInputEnableLayer are main-thread-owned, but
+		// Runtime::Tick runs on an off-main worker (proven 2026-07-23), so the
+		// engage/release is marshalled onto the main thread by this latch. g_layer
+		// is therefore only ever touched on the main thread (inside ApplyOnMain).
+		MainThreadLatch         g_latch;
 		RE::BSInputEnableLayer* g_layer{ nullptr };
-		bool                    g_engaged{ false };
 
 		// Flags cleared while the overlay is open, to freeze the player. `Menu`
 		// stays enabled so the engine cursor/menu path keeps working (notably
@@ -69,39 +73,37 @@ namespace OSFUI
 		}
 	}
 
-	void ControlLayer::Engage()
+	namespace
 	{
-		if (g_engaged) {
-			return;
+		// Runs on the game MAIN thread (via g_latch). Returns false to defer when
+		// the input manager isn't ready yet (main menu), so Request retries next
+		// tick. The session layer is held and its mask toggled rather than
+		// DecRef-on-close: DecRef does work (engine release runs LayerFreed and
+		// restores controls), but holding it avoids re-claiming a pool slot on
+		// every overlay toggle.
+		bool ApplyOnMain(bool a_engage)
+		{
+			if (a_engage) {
+				if (!EnsureLayer()) {
+					return false;  // not in gameplay yet; retry next tick
+				}
+				g_layer->EnableUserEvent(kUserDisable, false);
+				g_layer->EnableOtherEvent(kOtherDisable, false);
+				REX::DEBUG("ControlLayer: player controls disabled (layer {})", g_layer->GetLayerID());
+			} else {
+				if (g_layer) {
+					// Re-enable exactly what we disabled.
+					g_layer->EnableUserEvent(kUserDisable, true);
+					g_layer->EnableOtherEvent(kOtherDisable, true);
+				}
+				REX::DEBUG("ControlLayer: player controls restored");
+			}
+			return true;
 		}
-		if (!EnsureLayer()) {
-			return;  // not in gameplay yet; caller retries
-		}
-		g_layer->EnableUserEvent(kUserDisable, false);
-		g_layer->EnableOtherEvent(kOtherDisable, false);
-		g_engaged = true;
-		REX::DEBUG("ControlLayer: player controls disabled (layer {})", g_layer->GetLayerID());
 	}
 
-	void ControlLayer::Release()
+	void ControlLayer::Apply(bool a_engage)
 	{
-		if (!g_engaged) {
-			return;
-		}
-		if (g_layer) {
-			// Re-enable exactly what we disabled. The layer is held for the session
-			// and its mask toggled rather than DecRef-on-close: DecRef does work
-			// (engine release runs LayerFreed and restores controls), but holding it
-			// avoids re-claiming a pool slot on every overlay toggle.
-			g_layer->EnableUserEvent(kUserDisable, true);
-			g_layer->EnableOtherEvent(kOtherDisable, true);
-		}
-		g_engaged = false;
-		REX::DEBUG("ControlLayer: player controls restored");
-	}
-
-	bool ControlLayer::IsEngaged()
-	{
-		return g_engaged;
+		g_latch.Request(a_engage, &ApplyOnMain);
 	}
 }

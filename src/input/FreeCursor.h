@@ -23,9 +23,11 @@ namespace OSFUI
 	class FreeCursor
 	{
 	public:
-		// Drive our reference on the free-cursor counter toward a_desired.
-		// Main thread only; call every tick (edges detected internally).
-		// No-ops until the MenuCursor singleton exists.
+		// Drive our reference on the free-cursor counter toward a_desired. Call
+		// every tick from Tick (any thread); edges are detected internally and the
+		// ref bump is marshalled onto the main thread via BSService::TaskQueue (see
+		// core/MainThreadLatch), since Tick runs off-main. No-ops until the
+		// MenuCursor singleton exists.
 		static void Apply(bool a_desired);
 	};
 }
