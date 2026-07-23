@@ -170,11 +170,15 @@ namespace OSFUI::UiPassSeam
 			ID3D12RootSignature* a_rootSig)
 		{
 			if (a_self == g_selfTestList) {
+				// Self-test only proves the thunk fired; do NOT forward. The
+				// throwaway list is never executed, and its sibling
+				// SetPipelineState thunk MUST NOT forward its null argument (see
+				// there) — skip here too for symmetry.
 				g_selfTestRootSigSeen.store(true, std::memory_order_relaxed);
-			} else {
-				tl_rootSigList = a_self;
-				tl_rootSig = a_rootSig;
+				return;
 			}
+			tl_rootSigList = a_self;
+			tl_rootSig = a_rootSig;
 			if (const auto original = g_origSetGraphicsRootSignature.load(std::memory_order_relaxed)) {
 				original(a_self, a_rootSig);
 			}
@@ -185,11 +189,17 @@ namespace OSFUI::UiPassSeam
 			ID3D12PipelineState* a_pso)
 		{
 			if (a_self == g_selfTestList) {
+				// Self-test only proves the thunk fired; do NOT forward. Unlike
+				// SetDescriptorHeaps(0,null) and a null-resource UAV barrier,
+				// SetPipelineState(null) is NOT a legal no-op — D3D12Core
+				// dereferences the PSO and faults (crash 2026-07-23). The
+				// throwaway list is never executed, so skipping the forward is
+				// safe.
 				g_selfTestPsoSeen.store(true, std::memory_order_relaxed);
-			} else {
-				tl_psoList = a_self;
-				tl_pso = a_pso;
+				return;
 			}
+			tl_psoList = a_self;
+			tl_pso = a_pso;
 			if (const auto original = g_origSetPipelineState.load(std::memory_order_relaxed)) {
 				original(a_self, a_pso);
 			}
@@ -327,8 +337,11 @@ namespace OSFUI::UiPassSeam
 					PatchSlot(vtbl, kSlotSetPipelineState, reinterpret_cast<void*>(&SetPipelineStateThunk)) != nullptr;
 
 				// Prove the slot indices by calling each hooked method on the throwaway
-				// list (all legal no-ops) and checking the thunk saw the sentinel — a
-				// wrong index unhooks itself.
+				// list and checking the thunk saw the sentinel — a wrong index unhooks
+				// itself. The barrier/heaps thunks forward their (legal no-op) calls;
+				// the rootsig/pso thunks record the sentinel and return WITHOUT
+				// forwarding, because SetPipelineState(null) faults D3D12Core (the
+				// list is a throwaway, never executed, so not forwarding is safe).
 				const bool patched = patchedBarrier && patchedHeaps && patchedRootSig && patchedPso;
 				if (patched) {
 					D3D12_RESOURCE_BARRIER uav{};
@@ -336,8 +349,8 @@ namespace OSFUI::UiPassSeam
 					uav.UAV.pResource = nullptr;  // global UAV barrier: legal on any list
 					list->ResourceBarrier(1, &uav);
 					list->SetDescriptorHeaps(0, nullptr);       // clearing heaps: legal no-op
-					list->SetGraphicsRootSignature(nullptr);    // unbinding root sig: legal no-op
-					list->SetPipelineState(nullptr);            // unbinding PSO: legal no-op
+					list->SetGraphicsRootSignature(nullptr);    // sentinel only (thunk skips forward)
+					list->SetPipelineState(nullptr);            // sentinel only (thunk skips forward)
 				}
 
 				const bool barrierOk = g_selfTestBarrierSeen.load(std::memory_order_relaxed);
@@ -408,26 +421,29 @@ namespace OSFUI::UiPassSeam
 			// HUD and menu until that state happens to change again.
 			//
 			// Every piece must be observable for THIS list (the recording worker
-			// set it this frame). If any isn't — pass execution moved among render
-			// workers, or the engine's own shadow skipped the set — we cannot
-			// guarantee a full restore, so skip the draw entirely rather than
-			// corrupt the engine. The overlay is invisible for that frame, never
-			// the game. In the normal path ScaleformEnd just drew, so the engine
-			// set all three on this list and the snapshots are valid.
+			// set it this frame) AND non-null. If any isn't — pass execution moved
+			// among render workers, the engine's own shadow skipped the set, or it
+			// bound a null we could not safely re-forward (SetPipelineState(null)
+			// faults D3D12Core) — we cannot guarantee a full restore, so skip the
+			// draw entirely rather than corrupt or crash the engine. The overlay is
+			// invisible for that frame, never the game. In the normal path
+			// ScaleformEnd just drew, so the engine set all three on this list to
+			// live objects and the snapshots are valid.
 			ID3D12DescriptorHeap* engineHeaps[2]{ tl_heaps[0], tl_heaps[1] };
 			const UINT engineHeapCount = tl_heapCount;
 			ID3D12RootSignature* const engineRootSig = tl_rootSig;
 			ID3D12PipelineState* const enginePso = tl_pso;
 			const bool restorable =
 				engineHeapCount > 0 && tl_heapList == a_list &&
-				tl_rootSigList == a_list &&
-				tl_psoList == a_list;
+				tl_rootSigList == a_list && engineRootSig &&
+				tl_psoList == a_list && enginePso;
 			if (!restorable) {
 				if (!g_restoreSkipLogged.exchange(true, std::memory_order_relaxed)) {
-					REX::DEBUG("[UiPassSeam] hand-off draw skipped: engine state not fully observable for the "
-							  "recording list (heaps/rootsig/pso lists match={}/{}/{}, heapCount={}) — "
-							  "overlay withheld this frame to avoid clobbering engine state",
-						tl_heapList == a_list, tl_rootSigList == a_list, tl_psoList == a_list, engineHeapCount);
+					REX::DEBUG("[UiPassSeam] hand-off draw skipped: engine state not fully restorable for the "
+							  "recording list (heaps/rootsig/pso lists match={}/{}/{}, rootsig/pso non-null={}/{}, "
+							  "heapCount={}) — overlay withheld this frame to avoid clobbering engine state",
+						tl_heapList == a_list, tl_rootSigList == a_list, tl_psoList == a_list,
+						engineRootSig != nullptr, enginePso != nullptr, engineHeapCount);
 				}
 				return;
 			}
