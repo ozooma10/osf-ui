@@ -3,6 +3,7 @@
 #include "api/PapyrusApi.h"
 #include "core/Version.h"
 #include "input/FocusMenu.h"
+#include "input/MainThreadMenuPump.h"
 #include "input/MenuEventSink.h"
 #include "input/OverlayInputHook.h"
 #include "input/UiLayoutGuard.h"
@@ -88,6 +89,13 @@ namespace OSFUI::Plugin
 							break;
 						}
 						MenuEventSink::Install();
+						// Engine-UI work station: hooks the main-loop UI update so
+						// PauseMenuEntry's Scaleform access and the menu-state
+						// snapshots Runtime reads run on the thread that owns the
+						// AS3 VM. SFSE tasks run on a render-graph worker, NOT the
+						// main thread (crash-stack-proven 2026-07-23) — without
+						// this, per-tick RE::UI access races the engine.
+						MainThreadMenuPump::Install();
 						// Register the engine-built IMenu so the engine enters
 						// menu mode with the overlay (registration, open and
 						// long-session survival verified on 1.16.244; see

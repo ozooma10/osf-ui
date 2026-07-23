@@ -14,14 +14,16 @@ namespace OSFUI
 	//   * Only the admitted PauseMenu with kAdvancesMovie and a live AS3 root is
 	//     callable. The registration-map slot and MenuOpenCloseEvent are not
 	//     lifecycle authorities; both lag teardown.
-	//   * PopulateMainList -> InitializeEntries -> InvalidateData -> Update is
-	//     synchronous on the game thread. Runtime::Tick therefore runs before or
-	//     after a list rebuild, never inside one.
+	//   * ALL engine-UI access (GetMenu, menuArray, AS3 invokes) must run on the
+	//     game main thread. SFSE tasks (Runtime::Tick) run on a render-graph
+	//     worker — invoking from there raced the AS3 VM and CTD'd (trainwreck
+	//     2026-07-23) — so Reconcile is driven by MainThreadMenuPump, post
+	//     UI_AdvanceActiveMenus, where the engine owns the VM and it is idle.
 	//   * Action 100 is consumed in the callback's originating movie before the
 	//     current live movie is checked, so stale callbacks cannot leak the
 	//     private action into the engine or open a replacement menu's overlay.
 	//
-	// The count gate keeps steady state to one entryCount read per tick. A native
+	// The count gate keeps steady state to one entryCount read per pass. A native
 	// list re-push changes the count and re-arms the scan/re-injection path.
 	class PauseMenuEntry
 	{
@@ -30,9 +32,13 @@ namespace OSFUI
 		// from Runtime::Initialize before the first Tick.
 		static void Configure(std::string a_label, std::string a_viewId);
 
-		// Main thread, every Tick (gated on config.pauseMenuEntry by the
-		// caller): act on a pending click, then keep the entry + click listener
-		// present while the pause menu is open.
+		// Config/MCM gate (osfui.pauseMenuEntry). Runtime syncs it at init and
+		// on MCM change; Reconcile is a no-op while disabled.
+		static void SetEnabled(bool a_enabled);
+
+		// Game main thread only — called by MainThreadMenuPump after
+		// UI_AdvanceActiveMenus each frame: act on a pending click, then keep
+		// the entry + click listener present while the pause menu is open.
 		static void Reconcile();
 	};
 }

@@ -16,6 +16,7 @@
 #include "input/FocusMenu.h"
 #include "input/FreeCursor.h"
 #include "input/HardwareCursor.h"
+#include "input/MainThreadMenuPump.h"
 #include "input/MenuMode.h"
 #include "input/OverlayInputHook.h"
 #include "input/PauseMenuEntry.h"
@@ -68,11 +69,12 @@ namespace OSFUI
 		_localization.Load(Paths::DataDir() / "l10n",
 			LocalizationService::DetectGameLocale(starfieldDir));
 
-		// Label + target view for the injected PauseMenu entry; Tick gates
-		// Reconcile on config.pauseMenuEntry.
+		// Label + target view for the injected PauseMenu entry; the main-thread
+		// pump gates Reconcile on config.pauseMenuEntry via SetEnabled.
 		PauseMenuEntry::Configure(
 			_localization.Resolve("osfui", "chrome.pauseMenuEntry", _config.pauseMenuEntryLabel),
 			_config.pauseMenuEntryView);
+		PauseMenuEntry::SetEnabled(_config.pauseMenuEntry);
 
 		_views.LoadAll(Paths::ViewsDir());
 		std::vector<std::string> discoveredViewIds;
@@ -325,13 +327,12 @@ namespace OSFUI
 			return;
 		}
 		_uptime += a_deltaSeconds;
-		// Keep the injected "mod settings" entry present in the engine PauseMenu
-		// and act on its clicks. Before the snapshot below so a click's
-		// EnqueueOpenView lands this same tick (kHide for the pause menu is queued
-		// inside; the overlay open then applies through the normal policy path).
-		if (_config.pauseMenuEntry) {
-			PauseMenuEntry::Reconcile();
-		}
+		// The pause-menu entry (PauseMenuEntry::Reconcile) is NOT driven from
+		// here anymore: SFSE tasks run on a render-graph worker, not the game
+		// main thread, and its Scaleform access raced the AS3 VM (CTD family,
+		// trainwreck-proven 2026-07-23). MainThreadMenuPump drives it post
+		// UI_AdvanceActiveMenus on the owning thread; a click's EnqueueOpenView
+		// is thread-safe and lands in the snapshot below on the next tick.
 		// Register plugin-supplied views (ABI 1.5) before the menu-request snapshot
 		// below, so a RegisterView followed by RequestMenu in the same frame finds
 		// its surface registered when the request is applied.
@@ -1422,7 +1423,14 @@ namespace OSFUI
 		if (!FocusMenu::IsRegistered()) {
 			return;
 		}
-		if (FocusMenu::IsOpenInEngine() == wantOpen) {
+		// Prefer the pump's frame-old snapshot: IsOpenInEngine walks RE::UI's
+		// menuArray, and this tick runs on a render-graph worker, not the main
+		// thread — a direct walk races engine mutation. The legacy direct read
+		// remains only for the pump-not-installed case (accepting the old race
+		// rather than losing the watchdog, whose absence is an input-death bug).
+		const auto engineOpenSnap = MainThreadMenuPump::FocusMenuOpenSnapshot();
+		const bool engineOpen = engineOpenSnap ? *engineOpenSnap : FocusMenu::IsOpenInEngine();
+		if (engineOpen == wantOpen) {
 			_focusMenuMismatchSince = -1.0;
 			return;
 		}
@@ -1758,7 +1766,11 @@ namespace OSFUI
 		std::optional<bool> inGameMenu;
 		_hotkeys.Drain([this, &inGameMenu](const std::string& a_mod, const std::string& a_key) {
 			if (!inGameMenu) {
-				inGameMenu = MenuMode::AnyGameMenuOpen();
+				// Pump snapshot first: AnyGameMenuOpen walks RE::UI's menuArray
+				// and this tick runs on a render-graph worker (see the focus
+				// watchdog note). Direct walk only when the pump is absent.
+				const auto snap = MainThreadMenuPump::AnyGameMenuOpenSnapshot();
+				inGameMenu = snap ? *snap : MenuMode::AnyGameMenuOpen();
 			}
 			if (*inGameMenu) {
 				// INFO on purpose: rare (a bound key inside a menu/console), and the
@@ -2079,10 +2091,11 @@ namespace OSFUI
 			REX::INFO("Runtime: setting osfui.toggleKey -> {} (VK {:#x})", name, vk);
 		}
 		// Pause-menu entry (MCM-owned). The Scaleform inject runs per pause-menu
-		// open (Tick gates Reconcile on this flag), so the change applies the next
-		// time the menu opens.
+		// open (MainThreadMenuPump gates Reconcile on this flag), so the change
+		// applies the next time the menu opens.
 		else if (a_key == "pauseMenuEntry" && a_value.is_boolean()) {
 			_config.pauseMenuEntry = a_value.get<bool>();
+			PauseMenuEntry::SetEnabled(_config.pauseMenuEntry);
 			REX::DEBUG("Runtime: setting osfui.pauseMenuEntry -> {} (applies the next time the pause menu opens)", _config.pauseMenuEntry);
 		}
 		// Vanilla key-conflict data (MCM-owned). Lazy build / clear.

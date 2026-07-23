@@ -12,6 +12,7 @@
 #include "core/Log.h"
 #include "runtime/Runtime.h"
 
+#include <atomic>
 #include <cstdint>
 
 namespace OSFUI
@@ -29,7 +30,12 @@ namespace OSFUI
 		std::string g_label = "MOD MENUS";
 		std::string g_viewId = "osfui/settings";
 
-		// Click dispatch and Runtime::Tick both run on the game main thread.
+		// Written by Runtime (init + MCM change, SFSE task / bridge threads),
+		// read by Reconcile on the main thread.
+		std::atomic<bool> g_enabled{ true };
+
+		// ClickHandler::Call (engine AS3 dispatch) and Reconcile (MainThreadMenuPump)
+		// both run on the game main thread, so this needs no synchronization.
 		bool g_pendingClick{ false };
 
 		// State belongs to a specific movie, not to the delayed open/close event
@@ -40,6 +46,11 @@ namespace OSFUI
 		{
 			RE::Scaleform::Ptr<RE::Scaleform::GFx::Movie> movie;
 			std::int32_t                                  expectedCount{ -1 };
+			// Stability debounce: entryCount seen last tick and how many
+			// consecutive ticks it has held that value. AS3 is only touched once
+			// the list has settled (see kListStableTicks).
+			std::int32_t                                  lastSeenCount{ -1 };
+			int                                           stableTicks{ 0 };
 			bool                                          listenerInstalled{ false };
 			bool                                          entryLogged{ false };
 			bool                                          failWarned{ false };
@@ -48,11 +59,25 @@ namespace OSFUI
 			{
 				movie = std::move(a_movie);
 				expectedCount = -1;
+				lastSeenCount = -1;
+				stableTicks = 0;
 				listenerInstalled = false;
 				entryLogged = false;
 				failWarned = false;
 			}
 		};
+
+		// The pause-menu list must hold the same entryCount for this many
+		// consecutive Runtime ticks before we invoke any AS3 on it. Invoking
+		// PopulateMainList into the Scaleform AS3 VM while the list is still
+		// churning — during the open transition, or when the engine re-pushes
+		// PauseMenuListData (save spinner, bDisabled flips) — faults inside the
+		// VM on a NaN-boxed atom (report #3; trainwreck 2026-07-23, crash under
+		// FSR3 Frame Generation). Waiting for the count to settle keeps every
+		// injection in a quiescent window. ~3 ticks is imperceptible (<~50 ms at
+		// 60 fps) yet skips the transient states the engine-level liveness gate
+		// (kAdvancesMovie + admitted + asMovieRoot) cannot see.
+		constexpr int kListStableTicks = 3;
 
 		SessionState g_session;
 
@@ -227,6 +252,17 @@ namespace OSFUI
 			}
 			const auto count = static_cast<std::int32_t>(countNum);
 
+			// Advance the stability debounce every tick: reset the run on any
+			// entryCount change (the list is churning), otherwise accumulate
+			// toward kListStableTicks. Tracked before the guards below so a
+			// change is registered even on ticks that early-return.
+			if (count != g_session.lastSeenCount) {
+				g_session.lastSeenCount = count;
+				g_session.stableTicks = 0;
+			} else if (g_session.stableTicks < kListStableTicks) {
+				++g_session.stableTicks;
+			}
+
 			// Wait for the engine's PauseMenuListData push before injecting: an
 			// empty list means OnPauseListDataUpdate hasn't run yet, and anything
 			// we add now would be stomped (and briefly selected) a frame later.
@@ -247,13 +283,17 @@ namespace OSFUI
 				return;
 			}
 
-			// No timing debounce is needed here. Decompiled 1.16.244 AS3 shows
-			// PauseMenu.OnPauseListDataUpdate calling PopulateMainList, which calls
-			// InitializeEntries -> InvalidateData -> Update synchronously. Runtime's
-			// tick and Scaleform dispatch both run on the game main thread, so this
-			// code can run before or after that chain, never in its middle. A stable
-			// entryCount would not be a completion signal anyway; the live menu gate
-			// above is the actual teardown barrier.
+			// The list shape changed (first tick of an open, or an engine
+			// re-push). Do NOT invoke AS3 until it has settled for
+			// kListStableTicks: PopulateMainList into a churning VM is the
+			// confirmed report #3 CTD (NaN-boxed atom deref, reproduced under
+			// FSR3 FG 2026-07-23). The engine-level liveness gate (LivePauseMenu)
+			// proves the menu is admitted and advancing but cannot see the AS3
+			// VM's transient re-populate state; the count settling for a few
+			// ticks does. Re-check next tick — this is cheap (one GetMember).
+			if (g_session.stableTicks < kListStableTicks) {
+				return;
+			}
 
 			// Install the press listener once per session. It lives on the root
 			// (presses bubble up from MainPanel), so the engine re-pushing list
@@ -357,8 +397,16 @@ namespace OSFUI
 		g_viewId = std::move(a_viewId);
 	}
 
+	void PauseMenuEntry::SetEnabled(const bool a_enabled)
+	{
+		g_enabled.store(a_enabled, std::memory_order_relaxed);
+	}
+
 	void PauseMenuEntry::Reconcile()
 	{
+		if (!g_enabled.load(std::memory_order_relaxed)) {
+			return;
+		}
 		HandleClick();
 		ReconcileList();
 	}

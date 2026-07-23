@@ -11,7 +11,7 @@ namespace OSFUI
 		constexpr std::initializer_list<std::string_view> kKnownKeys = {
 			"configVersion", "enabled", "renderer", "compositor",
 			"inputSource", "captureInput", "hardwareCursor", "focusMenu",
-			"engineInput", "pauseMenuEntryLabel", "pauseMenuEntryView",
+			"engineInput", "pauseMenuEntry", "pauseMenuEntryLabel", "pauseMenuEntryView",
 			"view", "views", "devMode", "devReloadKey", "uiPassDraw",
 		};
 	}
@@ -48,6 +48,7 @@ namespace OSFUI
 		config.hardwareCursor = Json::GetBool(*json, "hardwareCursor", config.hardwareCursor);
 		config.focusMenu = Json::GetBool(*json, "focusMenu", config.focusMenu);
 		config.engineInput = Json::GetBool(*json, "engineInput", config.engineInput);
+		config.pauseMenuEntry = Json::GetBool(*json, "pauseMenuEntry", config.pauseMenuEntry);
 		config.pauseMenuEntryLabel = Json::GetString(*json, "pauseMenuEntryLabel", config.pauseMenuEntryLabel);
 		config.pauseMenuEntryView = Json::GetString(*json, "pauseMenuEntryView", config.pauseMenuEntryView);
 		config.view = Json::GetString(*json, "view", config.view);
