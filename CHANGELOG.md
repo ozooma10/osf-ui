@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- The Scaleform seam compositor is restored to its known-good pre-`b8e3643` implementation. The attempted root-signature and pipeline-state interception for a rare black-HUD edge case could instead make Mod Settings disappear or crash the graphics driver, so those hooks and their fail-closed draw gating have been removed. Opening the menu while its toggle key is still held also ignores WebView2's cross-focus key repeat, so one press cannot immediately close the UI again.
 - OSF UI's per-frame runtime now runs on Starfield's main thread even though SFSE supplies its frame notifications from render workers. Pause, free-cursor and control-layer bookkeeping no longer races the engine, in-game calendar reads are synchronized, and native plugin callbacks once again honor their documented main-thread contract.
 
 ## 1.3.0 — 2026-07-22

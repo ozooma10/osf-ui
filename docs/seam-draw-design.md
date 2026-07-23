@@ -68,17 +68,9 @@ engine resource or command list across calls. The transient target is validated
 by state, format, dimensions, and direct-list type at each handoff.
 
 The compositor binds its own RTV, descriptor heap, root signature, and
-premultiplied PSO, then restores the engine's tracked descriptor heap, root
-signature, and PSO. All three are restored because the engine's render
-abstraction shadow-caches bound state and legally skips a "redundant" rebind
-downstream; a clobbered-but-unrestored state makes the following Scaleform
-composite draw against the compositor's state, blanking the HUD and menu text
-until the engine next changes that state for another reason. The three states
-are tracked by hooking the engine's `SetDescriptorHeaps`,
-`SetGraphicsRootSignature`, and `SetPipelineState` per recording list; if any is
-not observable for the hand-off list (pass execution moved among render workers,
-or the engine's own shadow skipped the set), the seam withholds the draw for
-that frame rather than clobber engine state it cannot restore.
+premultiplied PSO, then restores the engine's tracked descriptor heaps. This is
+the known-good seam behavior from before `b8e3643`; root-signature and
+pipeline-state interception is intentionally not part of the release path.
 
 The shared WebView texture ring uses the newest produce-fence-complete slot; if
 the newest publication is incomplete, the seam reuses the last ready slot rather
@@ -103,9 +95,8 @@ than risking a crash while FG is active.
 The `uiPassProbe` characterization diagnostic has been removed now that the
 frame graph, FG target selection, and hand-off decode are baked into the seam.
 Only the seam's own load-bearing hooks remain: the `ScaleformBegin`/`End`/
-`Composite` slot-7 hooks and the `ResourceBarrier`/`SetDescriptorHeaps`/
-`SetGraphicsRootSignature`/`SetPipelineState` command-list hooks the draw needs
-(hand-off match plus engine descriptor-heap, root-signature, and PSO restore).
+`Composite` slot-7 hooks and the `ResourceBarrier`/`SetDescriptorHeaps`
+command-list hooks the draw needs (hand-off match plus engine heap restore).
 
 The OSF RE sandbox UIPass experiment must remain disabled because it owns the
 same vtable slots.

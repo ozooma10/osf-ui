@@ -1781,8 +1781,10 @@ namespace osfui::wv2
 							ICoreWebView2AcceleratorKeyPressedEventArgs* a_args) -> HRESULT {
 							UINT key = 0;
 							COREWEBVIEW2_KEY_EVENT_KIND kind{};
+							COREWEBVIEW2_PHYSICAL_KEY_STATUS physical{};
 							a_args->get_VirtualKey(&key);
 							a_args->get_KeyEventKind(&kind);
+							a_args->get_PhysicalKeyStatus(&physical);
 							++accelEvents;
 							const bool down =
 								kind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN ||
@@ -1797,9 +1799,19 @@ namespace osfui::wv2
 								key == toggleVk ||
 								(devReloadVk != 0 && key == devReloadVk) ||
 								(key == 0x1B && captured);
-							bool handled = down && handledKeys.contains(key);
+							const bool alreadyHandled = handledKeys.contains(key);
+							// Opening a menu transfers keyboard focus from Starfield
+							// to this WebView while the opening toggle can still be
+							// physically down. Its first auto-repeat therefore arrives
+							// here without a matching initial down in handledKeys.
+							// WasKeyDown identifies both that cross-focus repeat and
+							// ordinary repeats; neither is a second toggle intent.
+							const bool duplicateDown = down &&
+								(alreadyHandled || (frameworkOwned && physical.WasKeyDown));
+							bool handled = duplicateDown;
 							if (!handled && frameworkOwned) handled = true;
-							if (frameworkOwned || (!down && handledKeys.contains(key))) {
+							if (!duplicateDown &&
+								(frameworkOwned || (!down && alreadyHandled))) {
 								Send(json{ { "type", "accelerator" },
 									{ "vk", key }, { "down", down } });
 							}

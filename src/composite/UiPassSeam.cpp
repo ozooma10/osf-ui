@@ -23,14 +23,13 @@ namespace OSFUI::UiPassSeam
 	{
 		// AddrLib IDs, proven on 1.16.244. Canonical record with disassembly
 		// evidence: OSF RE context module `rendering.ui_pass` (2026-07-21).
-		constexpr std::uint64_t kVtblScaleformBegin = 497423;      // anon-ns ScaleformBegin pass vtable
-		constexpr std::uint64_t kVtblScaleformEnd = 497425;        // anon-ns ScaleformEnd pass vtable
-		constexpr std::uint64_t kVtblScaleformComposite = 497272;  // ScaleformCompositeRenderPass vtable
-		constexpr std::uint64_t kIdBeginExecute = 145955;          // ScaleformBegin::ExecuteRenderPass
-		constexpr std::uint64_t kIdEndExecute = 145956;            // ScaleformEnd::ExecuteRenderPass
-		constexpr std::uint64_t kIdCompositeExecute = 145827;      // ScaleformCompositeRenderPass::ExecuteRenderPass
+		constexpr std::uint64_t kVtblScaleformBegin = 497423;
+		constexpr std::uint64_t kVtblScaleformEnd = 497425;
+		constexpr std::uint64_t kVtblScaleformComposite = 497272;
+		constexpr std::uint64_t kIdBeginExecute = 145955;
+		constexpr std::uint64_t kIdEndExecute = 145956;
+		constexpr std::uint64_t kIdCompositeExecute = 145827;
 
-		// RenderPass vtable slot 7 = ExecuteRenderPass(this, GraphContext*, IOHandles*).
 		constexpr std::size_t kExecuteSlot = 7;
 
 		using ExecuteFn = void* (*)(void*, void*, void*, void*);
@@ -42,110 +41,32 @@ namespace OSFUI::UiPassSeam
 		std::atomic<bool> g_installOk{ false };
 
 		// -------------------------------------------------- D3D12 seam hooks
-		// The seam draws from inside the engine's own command recording, so it
-		// hooks the process-wide ID3D12GraphicsCommandList vtable (obtained from
-		// a throwaway list created on the game's own device — same trick as the
-		// Present hook's throwaway swapchain) at four slots (ResourceBarrier is
-		// the hand-off match/draw point; SetDescriptorHeaps, SetGraphicsRootSignature
-		// and SetPipelineState track the three states the seam draw clobbers so it
-		// can restore each — see RecordSeamDrawAtHandoff):
-		//
-		//   ResourceBarrier    — the hand-off match/draw point. The engine
-		//                        transitions each UI buffer out of RENDER_TARGET
-		//                        right after ScaleformEnd; the thunk draws the
-		//                        overlay into the buffer just before forwarding
-		//                        that barrier.
-		//   SetDescriptorHeaps — tracks the engine's bound heaps so the seam
-		//                        draw can restore them after binding its own.
-		//
-		// Slot indices are fixed COM ABI, straight from the d3d12.h C vtable
-		// (ID3D12GraphicsCommandListVtbl): 26 = ResourceBarrier,
-		// 28 = SetDescriptorHeaps. Trust but verify: after hooking, the two ANCHOR
-		// slots (barrier/heaps) are self-tested by invoking a legal no-op and checking the
-		// thunk observed the sentinel — a wrong index unhooks itself.
+		// This is the known-good pre-b8e3643 implementation. It hooks only the
+		// hand-off barrier and descriptor heaps; root-signature/PSO interception
+		// is intentionally absent.
 		constexpr std::size_t kSlotResourceBarrier = 26;
 		constexpr std::size_t kSlotSetDescriptorHeaps = 28;
-		// The seam draw also clobbers the engine's bound pipeline state and
-		// graphics root signature. Both are tracked (below) so the draw can
-		// restore them, for the same reason the heaps are — see the comment on
-		// tl_heaps. Slot indices from the d3d12.h C vtable: 25 = SetPipelineState,
-		// 30 = SetGraphicsRootSignature. These two are NOT invoked to self-test
-		// (no legal no-op arg: SetPipelineState(null) faults D3D12Core), so they
-		// are trusted from the anchors: same fixed vtable, if 26/28 are right,
-		// 25/30 are right. See EnsureDrawHooksInstalled.
-		constexpr std::size_t kSlotSetPipelineState = 25;
-		constexpr std::size_t kSlotSetGraphicsRootSignature = 30;
 
 		using ResourceBarrierFn = void(STDMETHODCALLTYPE*)(
 			ID3D12GraphicsCommandList*, UINT, const D3D12_RESOURCE_BARRIER*);
 		using SetDescriptorHeapsFn = void(STDMETHODCALLTYPE*)(
 			ID3D12GraphicsCommandList*, UINT, ID3D12DescriptorHeap* const*);
-		using SetGraphicsRootSignatureFn = void(STDMETHODCALLTYPE*)(
-			ID3D12GraphicsCommandList*, ID3D12RootSignature*);
-		using SetPipelineStateFn = void(STDMETHODCALLTYPE*)(
-			ID3D12GraphicsCommandList*, ID3D12PipelineState*);
 
 		std::atomic<ResourceBarrierFn> g_origResourceBarrier{ nullptr };
 		std::atomic<SetDescriptorHeapsFn> g_origSetDescriptorHeaps{ nullptr };
-		std::atomic<SetGraphicsRootSignatureFn> g_origSetGraphicsRootSignature{ nullptr };
-		std::atomic<SetPipelineStateFn> g_origSetPipelineState{ nullptr };
 
-		// The engine's live descriptor-heap binding, tracked per thread: the
-		// real-overlay seam draw binds the compositor's shader-visible heap on
-		// the engine's list and must restore the engine's afterwards — the
-		// engine's abstraction layer caches bound state and may legally skip a
-		// "redundant" rebind downstream.
 		thread_local ID3D12GraphicsCommandList* tl_heapList = nullptr;
 		thread_local ID3D12DescriptorHeap* tl_heaps[2] = {};
 		thread_local UINT tl_heapCount = 0;
-		// Same rationale as tl_heaps, for the other two states the seam draw
-		// clobbers and the engine's abstraction shadow-caches: the graphics root
-		// signature and the pipeline state. If either isn't observable for the
-		// hand-off list (the recording worker didn't set it this frame), the
-		// seam skips the draw rather than leave it clobbered and unrestored.
-		thread_local ID3D12GraphicsCommandList* tl_rootSigList = nullptr;
-		thread_local ID3D12RootSignature* tl_rootSig = nullptr;
-		thread_local ID3D12GraphicsCommandList* tl_psoList = nullptr;
-		thread_local ID3D12PipelineState* tl_pso = nullptr;
-		std::atomic<int> g_hookInstallState{ 0 };  // 0 untried, 1 ready, -1 failed
+		std::atomic<int> g_hookInstallState{ 0 };
 
-		// Seam-draw state shared with the barrier thunk (phase 2; the draw
-		// machinery itself is further down). Armed at End-exit, cleared at
-		// Composite-enter: inside that span, the first RENDER_TARGET ->
-		// shader-resource transition this thread records IS this frame's
-		// ScaleformCompositeBuffer hand-off, and the draw happens right there
-		// (before the barrier is forwarded) — the only point with the CURRENT
-		// frame's resource, still in RT state, on the current recording list.
-		// v1 latched the pointer and drew NEXT frame from the End thunk; load
-		// transitions churn the transient buffer pool (three different buffers
-		// in 2.3 s, 2026-07-21) and a one-frame-stale render-target write into
-		// re-aliased pool memory GPU-faulted the game. Never target a graph
-		// transient across frames.
-		// Hand-off draws remaining in the current End glue region. With FG
-		// active the glue right after End records TWO UI hand-offs back to
-		// back (gameplay capture 2026-07-21): the composite-pass input
-		// (RT -> pixel-SRV, feeds REAL frames) and the FG UI-input source
-		// (RT -> COPY_SOURCE, copied to the texture FI's compute composites
-		// onto GENERATED frames). Drawing into both kills the FG 2x flicker;
-		// both sit in glue, not inside another pass's stream (the v4 crash).
 		thread_local int tl_handoffDrawsLeft = 0;
-		// After the first hand-off draw, the second legitimate hand-off sits
-		// within the next couple of barrier calls (same glue batch — capture
-		// 2026-07-21). Expire the remaining slot after a few calls so it can
-		// never fire deep in the window inside another pass's stream.
-		thread_local int tl_callsAfterFirstDraw = -1;  // -1 = no draw yet this region
-		// a_fgTarget identifies the RT -> COPY_SOURCE hand-off.
-		// a_regionFirst: first draw of this End
-		// region — the compositor promotes its ring serial only then, so both
-		// targets of one frame sample the SAME overlay frame.
+		thread_local int tl_callsAfterFirstDraw = -1;
 		void RecordSeamDrawAtHandoff(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
 			bool a_fgTarget, bool a_regionFirst);
-		ID3D12GraphicsCommandList* g_selfTestList = nullptr;  // non-null only during self-test
+		ID3D12GraphicsCommandList* g_selfTestList = nullptr;
 		std::atomic<bool> g_selfTestBarrierSeen{ false };
 		std::atomic<bool> g_selfTestHeapsSeen{ false };
-		// One-time log when a hand-off draw is skipped because the engine's
-		// clobbered state can't be restored for the recording list.
-		std::atomic<bool> g_restoreSkipLogged{ false };
 
 		void STDMETHODCALLTYPE SetDescriptorHeapsThunk(
 			ID3D12GraphicsCommandList* a_self,
@@ -166,61 +87,25 @@ namespace OSFUI::UiPassSeam
 			}
 		}
 
-		// These two are NOT invoked by the self-test (see EnsureDrawHooksInstalled):
-		// there is no legal no-op argument — SetPipelineState(null) faults
-		// D3D12Core — so their slot indices are trusted from the barrier/heaps
-		// anchors instead. No g_selfTestList branch is therefore needed.
-		void STDMETHODCALLTYPE SetGraphicsRootSignatureThunk(
-			ID3D12GraphicsCommandList* a_self,
-			ID3D12RootSignature* a_rootSig)
-		{
-			tl_rootSigList = a_self;
-			tl_rootSig = a_rootSig;
-			if (const auto original = g_origSetGraphicsRootSignature.load(std::memory_order_relaxed)) {
-				original(a_self, a_rootSig);
-			}
-		}
-
-		void STDMETHODCALLTYPE SetPipelineStateThunk(
-			ID3D12GraphicsCommandList* a_self,
-			ID3D12PipelineState* a_pso)
-		{
-			tl_psoList = a_self;
-			tl_pso = a_pso;
-			if (const auto original = g_origSetPipelineState.load(std::memory_order_relaxed)) {
-				original(a_self, a_pso);
-			}
-		}
-
 		void STDMETHODCALLTYPE ResourceBarrierThunk(
 			ID3D12GraphicsCommandList* a_self,
 			const UINT a_numBarriers,
 			const D3D12_RESOURCE_BARRIER* a_barriers)
 		{
-			// THE SEAM (see tl_handoffDrawsLeft): draw into this frame's UI
-			// buffers right before their hand-off barriers are recorded.
-			// Matching is strict on all axes because the transition alone does
-			// NOT identify a UI buffer — load-transition graphs interleave
-			// other nodes' passes on this worker, and drawing into a foreign
-			// RT (wrong format for our R8G8B8A8_UNORM view) or onto a
-			// non-DIRECT list faults the GPU. Accepted hand-offs: RT ->
-			// pixel-SRV (composite input, real frames) and RT -> COPY_SOURCE
-			// (FG UI-input source, generated frames). At most two draws per
-			// End region — drawing at arbitrary later matches (v4) injected
-			// state into the middle of other passes' streams, whose recording
-			// then used our clobbered state via the engine's cached-state
-			// abstraction layer and null-derefed the driver.
-			if (tl_handoffDrawsLeft > 0 && tl_callsAfterFirstDraw >= 0 && ++tl_callsAfterFirstDraw > 4) {
-				tl_handoffDrawsLeft = 0;  // second hand-off would have appeared by now
+			if (tl_handoffDrawsLeft > 0 && tl_callsAfterFirstDraw >= 0 &&
+				++tl_callsAfterFirstDraw > 4) {
+				tl_handoffDrawsLeft = 0;
 				tl_callsAfterFirstDraw = -1;
 			}
 			if (tl_handoffDrawsLeft > 0 && a_barriers) {
 				for (UINT i = 0; i < a_numBarriers && tl_handoffDrawsLeft > 0; ++i) {
 					const auto& barrier = a_barriers[i];
-					if (barrier.Type != D3D12_RESOURCE_BARRIER_TYPE_TRANSITION || !barrier.Transition.pResource ||
+					if (barrier.Type != D3D12_RESOURCE_BARRIER_TYPE_TRANSITION ||
+						!barrier.Transition.pResource ||
 						barrier.Transition.StateBefore != D3D12_RESOURCE_STATE_RENDER_TARGET ||
 						!(barrier.Transition.StateAfter &
-							(D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_COPY_SOURCE))) {
+							(D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE |
+								D3D12_RESOURCE_STATE_COPY_SOURCE))) {
 						continue;
 					}
 					const auto desc = barrier.Transition.pResource->GetDesc();
@@ -236,10 +121,10 @@ namespace OSFUI::UiPassSeam
 					const bool fgTarget =
 						(barrier.Transition.StateAfter & D3D12_RESOURCE_STATE_COPY_SOURCE) != 0 &&
 						(barrier.Transition.StateAfter & D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE) == 0;
-					const bool regionFirst = tl_handoffDrawsLeft == 2;  // pins both draws to one ring serial
+					const bool regionFirst = tl_handoffDrawsLeft == 2;
 					--tl_handoffDrawsLeft;
 					if (tl_callsAfterFirstDraw < 0) {
-						tl_callsAfterFirstDraw = 0;  // start the expiry clock at the first draw
+						tl_callsAfterFirstDraw = 0;
 					}
 					RecordSeamDrawAtHandoff(
 						a_self, barrier.Transition.pResource, fgTarget, regionFirst);
@@ -266,16 +151,12 @@ namespace OSFUI::UiPassSeam
 			return original;
 		}
 
-		// Lazy, once. Creates a throwaway DIRECT list on the game's device to
-		// reach the shared d3d12.dll vtable, hooks the two slots the seam draw
-		// needs, and proves the slot indices by calling both methods on the
-		// throwaway list (a global-UAV barrier and clearing heaps are both legal
-		// no-ops). A failed self-test restores the slots.
 		void EnsureDrawHooksInstalled()
 		{
 			int expected = 0;
-			if (!g_hookInstallState.compare_exchange_strong(expected, -1, std::memory_order_acq_rel)) {
-				return;  // already tried (state is 1 or -1); never retry
+			if (!g_hookInstallState.compare_exchange_strong(
+					expected, -1, std::memory_order_acq_rel)) {
+				return;
 			}
 
 			const auto engine = LocateEngineD3D12();
@@ -298,84 +179,57 @@ namespace OSFUI::UiPassSeam
 			if (created) {
 				auto** vtbl = *reinterpret_cast<void***>(list);
 				g_selfTestList = list;
-				// Publish each forward target into its atomic BEFORE its thunk becomes
-				// reachable on the shared d3d12.dll vtable (release store), so a
-				// concurrent render worker routing through a just-installed thunk can
-				// never load a null original and drop the engine's D3D12 call. All
-				// four are load-bearing for the seam draw: ResourceBarrier is the
-				// hand-off match/draw point; SetDescriptorHeaps, SetGraphicsRootSignature
-				// and SetPipelineState track the engine's bound state so the draw can
-				// restore each of the three states it clobbers.
-				const auto origBarrier = reinterpret_cast<ResourceBarrierFn>(vtbl[kSlotResourceBarrier]);
-				const auto origHeaps = reinterpret_cast<SetDescriptorHeapsFn>(vtbl[kSlotSetDescriptorHeaps]);
-				const auto origRootSig = reinterpret_cast<SetGraphicsRootSignatureFn>(vtbl[kSlotSetGraphicsRootSignature]);
-				const auto origPso = reinterpret_cast<SetPipelineStateFn>(vtbl[kSlotSetPipelineState]);
+				const auto origBarrier =
+					reinterpret_cast<ResourceBarrierFn>(vtbl[kSlotResourceBarrier]);
+				const auto origHeaps =
+					reinterpret_cast<SetDescriptorHeapsFn>(vtbl[kSlotSetDescriptorHeaps]);
 				g_origResourceBarrier.store(origBarrier, std::memory_order_release);
 				g_origSetDescriptorHeaps.store(origHeaps, std::memory_order_release);
-				g_origSetGraphicsRootSignature.store(origRootSig, std::memory_order_release);
-				g_origSetPipelineState.store(origPso, std::memory_order_release);
 				const bool patchedBarrier =
-					PatchSlot(vtbl, kSlotResourceBarrier, reinterpret_cast<void*>(&ResourceBarrierThunk)) != nullptr;
+					PatchSlot(vtbl, kSlotResourceBarrier,
+						reinterpret_cast<void*>(&ResourceBarrierThunk)) != nullptr;
 				const bool patchedHeaps =
-					PatchSlot(vtbl, kSlotSetDescriptorHeaps, reinterpret_cast<void*>(&SetDescriptorHeapsThunk)) != nullptr;
-				const bool patchedRootSig =
-					PatchSlot(vtbl, kSlotSetGraphicsRootSignature, reinterpret_cast<void*>(&SetGraphicsRootSignatureThunk)) != nullptr;
-				const bool patchedPso =
-					PatchSlot(vtbl, kSlotSetPipelineState, reinterpret_cast<void*>(&SetPipelineStateThunk)) != nullptr;
+					PatchSlot(vtbl, kSlotSetDescriptorHeaps,
+						reinterpret_cast<void*>(&SetDescriptorHeapsThunk)) != nullptr;
 
-				// Prove the two ANCHOR slots (ResourceBarrier, SetDescriptorHeaps) by
-				// calling them on the throwaway list — both are genuine legal no-ops
-				// (a null-resource global UAV barrier; clearing 0 heaps) — and
-				// checking the thunk saw the sentinel; a wrong index unhooks itself.
-				//
-				// The rootsig/pso slots are NOT invoked: there is no legal no-op
-				// argument for them (SetPipelineState(null) dereferences the PSO and
-				// faults D3D12Core — startup CTD 2026-07-23). Instead they are trusted
-				// from the anchors: ID3D12GraphicsCommandList's vtable is a fixed,
-				// append-only COM ABI, so if slots 26/28 are the real ResourceBarrier/
-				// SetDescriptorHeaps then 25/30 are the real SetPipelineState/
-				// SetGraphicsRootSignature. We only sanity-check that their originals
-				// are non-null (real vtable entries) before enabling.
-				const bool patched = patchedBarrier && patchedHeaps && patchedRootSig && patchedPso;
+				const bool patched = patchedBarrier && patchedHeaps;
 				if (patched) {
 					D3D12_RESOURCE_BARRIER uav{};
 					uav.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-					uav.UAV.pResource = nullptr;  // global UAV barrier: legal on any list
+					uav.UAV.pResource = nullptr;
 					list->ResourceBarrier(1, &uav);
-					list->SetDescriptorHeaps(0, nullptr);       // clearing heaps: legal no-op
+					list->SetDescriptorHeaps(0, nullptr);
 				}
 
-				const bool barrierOk = g_selfTestBarrierSeen.load(std::memory_order_relaxed);
-				const bool heapsOk = g_selfTestHeapsSeen.load(std::memory_order_relaxed);
-				const bool anchorsOk = origRootSig != nullptr && origPso != nullptr;
-				if (patched && barrierOk && heapsOk && anchorsOk) {
+				const bool barrierOk =
+					g_selfTestBarrierSeen.load(std::memory_order_relaxed);
+				const bool heapsOk =
+					g_selfTestHeapsSeen.load(std::memory_order_relaxed);
+				if (patched && barrierOk && heapsOk) {
 					g_selfTestList = nullptr;
 					g_hookInstallState.store(1, std::memory_order_release);
-					REX::DEBUG("[UiPassSeam] seam draw hooks armed: ID3D12GraphicsCommandList vtable slots {} (barrier) / {} "
-							  "(SetDescriptorHeaps) self-tested; {} (SetGraphicsRootSignature) / {} (SetPipelineState) trusted from anchors",
-						kSlotResourceBarrier, kSlotSetDescriptorHeaps, kSlotSetGraphicsRootSignature, kSlotSetPipelineState);
+					REX::DEBUG("[UiPassSeam] seam draw hooks armed: "
+							   "ID3D12GraphicsCommandList vtable slots {} (barrier) / {} "
+							   "(SetDescriptorHeaps) hooked and self-tested",
+						kSlotResourceBarrier, kSlotSetDescriptorHeaps);
 				} else {
-					// Wrong slot layout or protect failure: undo what we did.
 					if (patchedBarrier) {
-						(void)PatchSlot(vtbl, kSlotResourceBarrier, reinterpret_cast<void*>(origBarrier));
+						(void)PatchSlot(
+							vtbl, kSlotResourceBarrier,
+							reinterpret_cast<void*>(origBarrier));
 					}
 					if (patchedHeaps) {
-						(void)PatchSlot(vtbl, kSlotSetDescriptorHeaps, reinterpret_cast<void*>(origHeaps));
-					}
-					if (patchedRootSig) {
-						(void)PatchSlot(vtbl, kSlotSetGraphicsRootSignature, reinterpret_cast<void*>(origRootSig));
-					}
-					if (patchedPso) {
-						(void)PatchSlot(vtbl, kSlotSetPipelineState, reinterpret_cast<void*>(origPso));
+						(void)PatchSlot(
+							vtbl, kSlotSetDescriptorHeaps,
+							reinterpret_cast<void*>(origHeaps));
 					}
 					g_origResourceBarrier.store(nullptr, std::memory_order_relaxed);
 					g_origSetDescriptorHeaps.store(nullptr, std::memory_order_relaxed);
-					g_origSetGraphicsRootSignature.store(nullptr, std::memory_order_relaxed);
-					g_origSetPipelineState.store(nullptr, std::memory_order_relaxed);
 					g_selfTestList = nullptr;
-					REX::WARN("[UiPassSeam] seam draw hook self-test FAILED (patch b/h/r/p={}/{}/{}/{} seen b/h={}/{} anchors r/p!=null={}/{}); vtable restored, seam draw disabled",
-						patchedBarrier, patchedHeaps, patchedRootSig, patchedPso, barrierOk, heapsOk,
-						origRootSig != nullptr, origPso != nullptr);
+					REX::WARN("[UiPassSeam] seam draw hook self-test FAILED "
+							  "(patch b/h={}/{} seen b/h={}/{}); "
+							  "vtable restored, seam draw disabled",
+						patchedBarrier, patchedHeaps, barrierOk, heapsOk);
 				}
 				list->Close();
 			} else {
@@ -392,92 +246,50 @@ namespace OSFUI::UiPassSeam
 			engine.device->Release();
 		}
 
-		// ------------------------------------------------------ seam draw state
 		std::atomic<bool> g_drawEnabled{ false };
 
-		// Inside the hand-off barrier: a_buffer is THIS frame's UI buffer,
-		// still in RENDER_TARGET state (the transition is forwarded after we
-		// return), and a_list is the recording list it was drawn on.
-		void RecordSeamDrawAtHandoff(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
-			const bool a_fgTarget, const bool a_regionFirst)
+		void RecordSeamDrawAtHandoff(
+			ID3D12GraphicsCommandList* a_list,
+			ID3D12Resource* a_buffer,
+			const bool a_fgTarget,
+			const bool a_regionFirst)
 		{
-			if (!g_drawEnabled.load(std::memory_order_relaxed) || !a_list || !a_buffer) {
+			if (!g_drawEnabled.load(std::memory_order_relaxed) ||
+				!a_list || !a_buffer) {
 				return;
 			}
 
-			// Snapshot the engine's bound state (descriptor heaps, graphics root
-			// signature, pipeline state) before the compositor clobbers all three
-			// with its own. The engine's abstraction shadow-caches these and skips
-			// "redundant" rebinds downstream, so a clobber left unrestored makes
-			// the engine draw the Scaleform composite against our state — a black
-			// HUD and menu until that state happens to change again.
-			//
-			// Every piece must be observable for THIS list (the recording worker
-			// set it this frame) AND non-null. If any isn't — pass execution moved
-			// among render workers, the engine's own shadow skipped the set, or it
-			// bound a null we could not safely re-forward (SetPipelineState(null)
-			// faults D3D12Core) — we cannot guarantee a full restore, so skip the
-			// draw entirely rather than corrupt or crash the engine. The overlay is
-			// invisible for that frame, never the game. In the normal path
-			// ScaleformEnd just drew, so the engine set all three on this list to
-			// live objects and the snapshots are valid.
 			ID3D12DescriptorHeap* engineHeaps[2]{ tl_heaps[0], tl_heaps[1] };
 			const UINT engineHeapCount = tl_heapCount;
-			ID3D12RootSignature* const engineRootSig = tl_rootSig;
-			ID3D12PipelineState* const enginePso = tl_pso;
-			const bool restorable =
-				engineHeapCount > 0 && tl_heapList == a_list &&
-				tl_rootSigList == a_list && engineRootSig &&
-				tl_psoList == a_list && enginePso;
-			if (!restorable) {
-				if (!g_restoreSkipLogged.exchange(true, std::memory_order_relaxed)) {
-					REX::DEBUG("[UiPassSeam] hand-off draw skipped: engine state not fully restorable for the "
-							  "recording list (heaps/rootsig/pso lists match={}/{}/{}, rootsig/pso non-null={}/{}, "
-							  "heapCount={}) — overlay withheld this frame to avoid clobbering engine state",
-						tl_heapList == a_list, tl_rootSigList == a_list, tl_psoList == a_list,
-						engineRootSig != nullptr, enginePso != nullptr, engineHeapCount);
+			const bool heapKnown =
+				engineHeapCount > 0 && tl_heapList == a_list;
+
+			if (!RecordSeamOverlayDraw(
+					a_list, a_buffer, a_fgTarget, a_regionFirst)) {
+				return;
+			}
+			if (heapKnown) {
+				if (const auto original =
+						g_origSetDescriptorHeaps.load(std::memory_order_relaxed)) {
+					original(a_list, engineHeapCount, engineHeaps);
 				}
-				return;
-			}
-
-			if (!RecordSeamOverlayDraw(a_list, a_buffer, a_fgTarget, a_regionFirst)) {
-				return;
-			}
-
-			// Restore, so the engine's list state matches its shadow again.
-			if (const auto original = g_origSetDescriptorHeaps.load(std::memory_order_relaxed)) {
-				original(a_list, engineHeapCount, engineHeaps);
-			}
-			if (const auto original = g_origSetGraphicsRootSignature.load(std::memory_order_relaxed)) {
-				original(a_list, engineRootSig);
-			}
-			if (const auto original = g_origSetPipelineState.load(std::memory_order_relaxed)) {
-				original(a_list, enginePso);
 			}
 		}
 
-		// ------------------------------------------------------------- thunks
 		void* BeginThunk(void* a_this, void* a_ctx, void* a_io, void* a_r9)
 		{
-			// Install the barrier/heaps hooks the seam draw needs, once, on the
-			// first pass call (the engine's device is live by now).
 			EnsureDrawHooksInstalled();
-
-			const auto original = reinterpret_cast<ExecuteFn>(g_origBegin.load(std::memory_order_relaxed));
+			const auto original =
+				reinterpret_cast<ExecuteFn>(g_origBegin.load(std::memory_order_relaxed));
 			return original ? original(a_this, a_ctx, a_io, a_r9) : nullptr;
 		}
 
 		void* EndThunk(void* a_this, void* a_ctx, void* a_io, void* a_r9)
 		{
-			const auto original = reinterpret_cast<ExecuteFn>(g_origEnd.load(std::memory_order_relaxed));
-			void* result = original ? original(a_this, a_ctx, a_io, a_r9) : nullptr;
-
-			// Arm the hand-off watch: every movie has rendered into the UI
-			// buffers, and their hand-off transitions land in the glue after
-			// this return (capture 2026-07-21). The barrier thunk draws right
-			// there — the only spot with the CURRENT frame's buffers (the
-			// transient pool churns during loads; a stale pointer GPU-faulted
-			// the game). Two draws: composite input + FG UI-input source.
+			const auto original =
+				reinterpret_cast<ExecuteFn>(g_origEnd.load(std::memory_order_relaxed));
+			void* result =
+				original ? original(a_this, a_ctx, a_io, a_r9) : nullptr;
 			tl_handoffDrawsLeft = 2;
 			tl_callsAfterFirstDraw = -1;
 			return result;
@@ -485,19 +297,14 @@ namespace OSFUI::UiPassSeam
 
 		void* CompositeThunk(void* a_this, void* a_ctx, void* a_io, void* a_r9)
 		{
-			tl_handoffDrawsLeft = 0;  // hand-off glue region over for this frame
+			tl_handoffDrawsLeft = 0;
 			tl_callsAfterFirstDraw = -1;
-
-			const auto original = reinterpret_cast<ExecuteFn>(g_origComposite.load(std::memory_order_relaxed));
+			const auto original =
+				reinterpret_cast<ExecuteFn>(
+					g_origComposite.load(std::memory_order_relaxed));
 			return original ? original(a_this, a_ctx, a_io, a_r9) : nullptr;
 		}
 
-		// -------------------------------------------------------------- hooks
-		// Fail-closed slot swap: only hook when slot 7 still holds the engine's
-		// own implementation (both sides resolved through AddrLib, so the guard
-		// survives game patches that shift addresses). A foreign value means a
-		// game-patch layout change or another mod hooked first — leave it alone
-		// and say so, rather than chain onto an unknown ABI.
 		[[nodiscard]] std::uintptr_t HookExecuteSlot(
 			const char* a_label,
 			const std::uint64_t a_vtblId,
@@ -507,15 +314,18 @@ namespace OSFUI::UiPassSeam
 		{
 			const REL::Relocation<std::uintptr_t> vtbl{ REL::ID(a_vtblId) };
 			const REL::Relocation<std::uintptr_t> expected{ REL::ID(a_implId) };
-			const auto slotAddress = vtbl.address() + kExecuteSlot * sizeof(std::uintptr_t);
+			const auto slotAddress =
+				vtbl.address() + kExecuteSlot * sizeof(std::uintptr_t);
 
 			std::uintptr_t current = 0;
 			if (!Platform::SafeReadPointer(slotAddress, current)) {
-				REX::WARN("[UiPassSeam] {}: vtable slot at 0x{:X} unreadable; not hooking", a_label, slotAddress);
+				REX::WARN("[UiPassSeam] {}: vtable slot at 0x{:X} unreadable; not hooking",
+					a_label, slotAddress);
 				return 0;
 			}
 			if (current != expected.address()) {
-				REX::WARN("[UiPassSeam] {}: slot 7 holds 0x{:X}, expected 0x{:X} (game patch or foreign hook); not hooking",
+				REX::WARN("[UiPassSeam] {}: slot 7 holds 0x{:X}, expected 0x{:X} "
+						  "(game patch or foreign hook); not hooking",
 					a_label, current, expected.address());
 				return 0;
 			}
@@ -526,12 +336,12 @@ namespace OSFUI::UiPassSeam
 				REX::WARN("[UiPassSeam] {}: VirtualProtect failed; not hooking", a_label);
 				return 0;
 			}
-			// Publish the forward target before the thunk becomes reachable, so a
-			// concurrent pass call never loads a null original and skips the pass.
 			a_orig.store(current, std::memory_order_release);
 			*slot = reinterpret_cast<void*>(a_thunk);
 			::VirtualProtect(slot, sizeof(void*), oldProtect, &oldProtect);
-			REX::DEBUG("[UiPassSeam] hooked {} slot 7 (vtbl 0x{:X}, original 0x{:X})", a_label, vtbl.address(), current);
+			REX::DEBUG("[UiPassSeam] hooked {} slot 7 "
+					   "(vtbl 0x{:X}, original 0x{:X})",
+				a_label, vtbl.address(), current);
 			return current;
 		}
 	}
@@ -543,21 +353,25 @@ namespace OSFUI::UiPassSeam
 		}
 
 		const auto origBegin = HookExecuteSlot(
-			"ScaleformBegin", kVtblScaleformBegin, kIdBeginExecute, &BeginThunk, g_origBegin);
+			"ScaleformBegin", kVtblScaleformBegin, kIdBeginExecute,
+			&BeginThunk, g_origBegin);
 		const auto origEnd = HookExecuteSlot(
-			"ScaleformEnd", kVtblScaleformEnd, kIdEndExecute, &EndThunk, g_origEnd);
+			"ScaleformEnd", kVtblScaleformEnd, kIdEndExecute,
+			&EndThunk, g_origEnd);
 		const auto origComposite = HookExecuteSlot(
-			"ScaleformComposite", kVtblScaleformComposite, kIdCompositeExecute, &CompositeThunk, g_origComposite);
+			"ScaleformComposite", kVtblScaleformComposite, kIdCompositeExecute,
+			&CompositeThunk, g_origComposite);
 
-		const bool ok = origBegin != 0 && origEnd != 0 && origComposite != 0;
+		const bool ok =
+			origBegin != 0 && origEnd != 0 && origComposite != 0;
 		g_installOk.store(ok, std::memory_order_release);
 		g_drawEnabled.store(ok && a_draw, std::memory_order_release);
 		if (!ok) {
 			REX::WARN("[UiPassSeam] hook set incomplete — seam draw disabled; "
 					  "the legacy present path remains active");
 		} else if (a_draw) {
-			REX::DEBUG("[UiPassSeam] seam draw enabled: overlay records into Starfield's "
-					  "transparent UI layer at the ScaleformEnd hand-off");
+			REX::DEBUG("[UiPassSeam] seam draw enabled: overlay records into "
+					   "Starfield's transparent UI layer at the ScaleformEnd hand-off");
 		}
 		return ok;
 	}
