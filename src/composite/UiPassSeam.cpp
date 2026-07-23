@@ -45,7 +45,10 @@ namespace OSFUI::UiPassSeam
 		// The seam draws from inside the engine's own command recording, so it
 		// hooks the process-wide ID3D12GraphicsCommandList vtable (obtained from
 		// a throwaway list created on the game's own device — same trick as the
-		// Present hook's throwaway swapchain) at two slots:
+		// Present hook's throwaway swapchain) at four slots (ResourceBarrier is
+		// the hand-off match/draw point; SetDescriptorHeaps, SetGraphicsRootSignature
+		// and SetPipelineState track the three states the seam draw clobbers so it
+		// can restore each — see RecordSeamDrawAtHandoff):
 		//
 		//   ResourceBarrier    — the hand-off match/draw point. The engine
 		//                        transitions each UI buffer out of RENDER_TARGET
@@ -62,14 +65,27 @@ namespace OSFUI::UiPassSeam
 		// thunk observed the sentinel — a wrong index unhooks itself.
 		constexpr std::size_t kSlotResourceBarrier = 26;
 		constexpr std::size_t kSlotSetDescriptorHeaps = 28;
+		// The seam draw also clobbers the engine's bound pipeline state and
+		// graphics root signature. Both are tracked (below) so the draw can
+		// restore them, for the same reason the heaps are — see the comment on
+		// tl_heaps. Slot indices from the d3d12.h C vtable, self-tested below:
+		// 25 = SetPipelineState, 30 = SetGraphicsRootSignature.
+		constexpr std::size_t kSlotSetPipelineState = 25;
+		constexpr std::size_t kSlotSetGraphicsRootSignature = 30;
 
 		using ResourceBarrierFn = void(STDMETHODCALLTYPE*)(
 			ID3D12GraphicsCommandList*, UINT, const D3D12_RESOURCE_BARRIER*);
 		using SetDescriptorHeapsFn = void(STDMETHODCALLTYPE*)(
 			ID3D12GraphicsCommandList*, UINT, ID3D12DescriptorHeap* const*);
+		using SetGraphicsRootSignatureFn = void(STDMETHODCALLTYPE*)(
+			ID3D12GraphicsCommandList*, ID3D12RootSignature*);
+		using SetPipelineStateFn = void(STDMETHODCALLTYPE*)(
+			ID3D12GraphicsCommandList*, ID3D12PipelineState*);
 
 		std::atomic<ResourceBarrierFn> g_origResourceBarrier{ nullptr };
 		std::atomic<SetDescriptorHeapsFn> g_origSetDescriptorHeaps{ nullptr };
+		std::atomic<SetGraphicsRootSignatureFn> g_origSetGraphicsRootSignature{ nullptr };
+		std::atomic<SetPipelineStateFn> g_origSetPipelineState{ nullptr };
 
 		// The engine's live descriptor-heap binding, tracked per thread: the
 		// real-overlay seam draw binds the compositor's shader-visible heap on
@@ -79,6 +95,15 @@ namespace OSFUI::UiPassSeam
 		thread_local ID3D12GraphicsCommandList* tl_heapList = nullptr;
 		thread_local ID3D12DescriptorHeap* tl_heaps[2] = {};
 		thread_local UINT tl_heapCount = 0;
+		// Same rationale as tl_heaps, for the other two states the seam draw
+		// clobbers and the engine's abstraction shadow-caches: the graphics root
+		// signature and the pipeline state. If either isn't observable for the
+		// hand-off list (the recording worker didn't set it this frame), the
+		// seam skips the draw rather than leave it clobbered and unrestored.
+		thread_local ID3D12GraphicsCommandList* tl_rootSigList = nullptr;
+		thread_local ID3D12RootSignature* tl_rootSig = nullptr;
+		thread_local ID3D12GraphicsCommandList* tl_psoList = nullptr;
+		thread_local ID3D12PipelineState* tl_pso = nullptr;
 		std::atomic<int> g_hookInstallState{ 0 };  // 0 untried, 1 ready, -1 failed
 
 		// Seam-draw state shared with the barrier thunk (phase 2; the draw
@@ -115,6 +140,11 @@ namespace OSFUI::UiPassSeam
 		ID3D12GraphicsCommandList* g_selfTestList = nullptr;  // non-null only during self-test
 		std::atomic<bool> g_selfTestBarrierSeen{ false };
 		std::atomic<bool> g_selfTestHeapsSeen{ false };
+		std::atomic<bool> g_selfTestRootSigSeen{ false };
+		std::atomic<bool> g_selfTestPsoSeen{ false };
+		// One-time log when a hand-off draw is skipped because the engine's
+		// clobbered state can't be restored for the recording list.
+		std::atomic<bool> g_restoreSkipLogged{ false };
 
 		void STDMETHODCALLTYPE SetDescriptorHeapsThunk(
 			ID3D12GraphicsCommandList* a_self,
@@ -132,6 +162,36 @@ namespace OSFUI::UiPassSeam
 			}
 			if (const auto original = g_origSetDescriptorHeaps.load(std::memory_order_relaxed)) {
 				original(a_self, a_num, a_heaps);
+			}
+		}
+
+		void STDMETHODCALLTYPE SetGraphicsRootSignatureThunk(
+			ID3D12GraphicsCommandList* a_self,
+			ID3D12RootSignature* a_rootSig)
+		{
+			if (a_self == g_selfTestList) {
+				g_selfTestRootSigSeen.store(true, std::memory_order_relaxed);
+			} else {
+				tl_rootSigList = a_self;
+				tl_rootSig = a_rootSig;
+			}
+			if (const auto original = g_origSetGraphicsRootSignature.load(std::memory_order_relaxed)) {
+				original(a_self, a_rootSig);
+			}
+		}
+
+		void STDMETHODCALLTYPE SetPipelineStateThunk(
+			ID3D12GraphicsCommandList* a_self,
+			ID3D12PipelineState* a_pso)
+		{
+			if (a_self == g_selfTestList) {
+				g_selfTestPsoSeen.store(true, std::memory_order_relaxed);
+			} else {
+				tl_psoList = a_self;
+				tl_pso = a_pso;
+			}
+			if (const auto original = g_origSetPipelineState.load(std::memory_order_relaxed)) {
+				original(a_self, a_pso);
 			}
 		}
 
@@ -244,39 +304,52 @@ namespace OSFUI::UiPassSeam
 				// Publish each forward target into its atomic BEFORE its thunk becomes
 				// reachable on the shared d3d12.dll vtable (release store), so a
 				// concurrent render worker routing through a just-installed thunk can
-				// never load a null original and drop the engine's D3D12 call. Both
-				// are load-bearing for the seam draw: ResourceBarrier is the hand-off
-				// match/draw point, SetDescriptorHeaps tracks the engine's heaps so
-				// the draw can restore them.
+				// never load a null original and drop the engine's D3D12 call. All
+				// four are load-bearing for the seam draw: ResourceBarrier is the
+				// hand-off match/draw point; SetDescriptorHeaps, SetGraphicsRootSignature
+				// and SetPipelineState track the engine's bound state so the draw can
+				// restore each of the three states it clobbers.
 				const auto origBarrier = reinterpret_cast<ResourceBarrierFn>(vtbl[kSlotResourceBarrier]);
 				const auto origHeaps = reinterpret_cast<SetDescriptorHeapsFn>(vtbl[kSlotSetDescriptorHeaps]);
+				const auto origRootSig = reinterpret_cast<SetGraphicsRootSignatureFn>(vtbl[kSlotSetGraphicsRootSignature]);
+				const auto origPso = reinterpret_cast<SetPipelineStateFn>(vtbl[kSlotSetPipelineState]);
 				g_origResourceBarrier.store(origBarrier, std::memory_order_release);
 				g_origSetDescriptorHeaps.store(origHeaps, std::memory_order_release);
+				g_origSetGraphicsRootSignature.store(origRootSig, std::memory_order_release);
+				g_origSetPipelineState.store(origPso, std::memory_order_release);
 				const bool patchedBarrier =
 					PatchSlot(vtbl, kSlotResourceBarrier, reinterpret_cast<void*>(&ResourceBarrierThunk)) != nullptr;
 				const bool patchedHeaps =
 					PatchSlot(vtbl, kSlotSetDescriptorHeaps, reinterpret_cast<void*>(&SetDescriptorHeapsThunk)) != nullptr;
+				const bool patchedRootSig =
+					PatchSlot(vtbl, kSlotSetGraphicsRootSignature, reinterpret_cast<void*>(&SetGraphicsRootSignatureThunk)) != nullptr;
+				const bool patchedPso =
+					PatchSlot(vtbl, kSlotSetPipelineState, reinterpret_cast<void*>(&SetPipelineStateThunk)) != nullptr;
 
 				// Prove the slot indices by calling each hooked method on the throwaway
-				// list (both legal no-ops) and checking the thunk saw the sentinel — a
+				// list (all legal no-ops) and checking the thunk saw the sentinel — a
 				// wrong index unhooks itself.
-				const bool patched = patchedBarrier && patchedHeaps;
+				const bool patched = patchedBarrier && patchedHeaps && patchedRootSig && patchedPso;
 				if (patched) {
 					D3D12_RESOURCE_BARRIER uav{};
 					uav.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
 					uav.UAV.pResource = nullptr;  // global UAV barrier: legal on any list
 					list->ResourceBarrier(1, &uav);
-					list->SetDescriptorHeaps(0, nullptr);  // clearing heaps: legal no-op
+					list->SetDescriptorHeaps(0, nullptr);       // clearing heaps: legal no-op
+					list->SetGraphicsRootSignature(nullptr);    // unbinding root sig: legal no-op
+					list->SetPipelineState(nullptr);            // unbinding PSO: legal no-op
 				}
 
 				const bool barrierOk = g_selfTestBarrierSeen.load(std::memory_order_relaxed);
 				const bool heapsOk = g_selfTestHeapsSeen.load(std::memory_order_relaxed);
-				if (patched && barrierOk && heapsOk) {
+				const bool rootSigOk = g_selfTestRootSigSeen.load(std::memory_order_relaxed);
+				const bool psoOk = g_selfTestPsoSeen.load(std::memory_order_relaxed);
+				if (patched && barrierOk && heapsOk && rootSigOk && psoOk) {
 					g_selfTestList = nullptr;
 					g_hookInstallState.store(1, std::memory_order_release);
 					REX::DEBUG("[UiPassSeam] seam draw hooks armed: ID3D12GraphicsCommandList vtable slots {} (barrier) / {} "
-							  "(SetDescriptorHeaps) hooked and self-tested",
-						kSlotResourceBarrier, kSlotSetDescriptorHeaps);
+							  "(SetDescriptorHeaps) / {} (SetGraphicsRootSignature) / {} (SetPipelineState) hooked and self-tested",
+						kSlotResourceBarrier, kSlotSetDescriptorHeaps, kSlotSetGraphicsRootSignature, kSlotSetPipelineState);
 				} else {
 					// Wrong slot layout or protect failure: undo what we did.
 					if (patchedBarrier) {
@@ -285,11 +358,19 @@ namespace OSFUI::UiPassSeam
 					if (patchedHeaps) {
 						(void)PatchSlot(vtbl, kSlotSetDescriptorHeaps, reinterpret_cast<void*>(origHeaps));
 					}
+					if (patchedRootSig) {
+						(void)PatchSlot(vtbl, kSlotSetGraphicsRootSignature, reinterpret_cast<void*>(origRootSig));
+					}
+					if (patchedPso) {
+						(void)PatchSlot(vtbl, kSlotSetPipelineState, reinterpret_cast<void*>(origPso));
+					}
 					g_origResourceBarrier.store(nullptr, std::memory_order_relaxed);
 					g_origSetDescriptorHeaps.store(nullptr, std::memory_order_relaxed);
+					g_origSetGraphicsRootSignature.store(nullptr, std::memory_order_relaxed);
+					g_origSetPipelineState.store(nullptr, std::memory_order_relaxed);
 					g_selfTestList = nullptr;
-					REX::WARN("[UiPassSeam] seam draw hook self-test FAILED (patch b/h={}/{} seen b/h={}/{}); vtable restored, seam draw disabled",
-						patchedBarrier, patchedHeaps, barrierOk, heapsOk);
+					REX::WARN("[UiPassSeam] seam draw hook self-test FAILED (patch b/h/r/p={}/{}/{}/{} seen b/h/r/p={}/{}/{}/{}); vtable restored, seam draw disabled",
+						patchedBarrier, patchedHeaps, patchedRootSig, patchedPso, barrierOk, heapsOk, rootSigOk, psoOk);
 				}
 				list->Close();
 			} else {
@@ -319,19 +400,51 @@ namespace OSFUI::UiPassSeam
 				return;
 			}
 
-			// Snapshot the engine's descriptor-heap binding before the
-			// compositor binds its own shader-visible heap.
+			// Snapshot the engine's bound state (descriptor heaps, graphics root
+			// signature, pipeline state) before the compositor clobbers all three
+			// with its own. The engine's abstraction shadow-caches these and skips
+			// "redundant" rebinds downstream, so a clobber left unrestored makes
+			// the engine draw the Scaleform composite against our state — a black
+			// HUD and menu until that state happens to change again.
+			//
+			// Every piece must be observable for THIS list (the recording worker
+			// set it this frame). If any isn't — pass execution moved among render
+			// workers, or the engine's own shadow skipped the set — we cannot
+			// guarantee a full restore, so skip the draw entirely rather than
+			// corrupt the engine. The overlay is invisible for that frame, never
+			// the game. In the normal path ScaleformEnd just drew, so the engine
+			// set all three on this list and the snapshots are valid.
 			ID3D12DescriptorHeap* engineHeaps[2]{ tl_heaps[0], tl_heaps[1] };
 			const UINT engineHeapCount = tl_heapCount;
-			const bool heapKnown = engineHeapCount > 0 && tl_heapList == a_list;
+			ID3D12RootSignature* const engineRootSig = tl_rootSig;
+			ID3D12PipelineState* const enginePso = tl_pso;
+			const bool restorable =
+				engineHeapCount > 0 && tl_heapList == a_list &&
+				tl_rootSigList == a_list &&
+				tl_psoList == a_list;
+			if (!restorable) {
+				if (!g_restoreSkipLogged.exchange(true, std::memory_order_relaxed)) {
+					REX::DEBUG("[UiPassSeam] hand-off draw skipped: engine state not fully observable for the "
+							  "recording list (heaps/rootsig/pso lists match={}/{}/{}, heapCount={}) — "
+							  "overlay withheld this frame to avoid clobbering engine state",
+						tl_heapList == a_list, tl_rootSigList == a_list, tl_psoList == a_list, engineHeapCount);
+				}
+				return;
+			}
 
 			if (!RecordSeamOverlayDraw(a_list, a_buffer, a_fgTarget, a_regionFirst)) {
 				return;
 			}
-			if (heapKnown) {
-				if (const auto original = g_origSetDescriptorHeaps.load(std::memory_order_relaxed)) {
-					original(a_list, engineHeapCount, engineHeaps);
-				}
+
+			// Restore, so the engine's list state matches its shadow again.
+			if (const auto original = g_origSetDescriptorHeaps.load(std::memory_order_relaxed)) {
+				original(a_list, engineHeapCount, engineHeaps);
+			}
+			if (const auto original = g_origSetGraphicsRootSignature.load(std::memory_order_relaxed)) {
+				original(a_list, engineRootSig);
+			}
+			if (const auto original = g_origSetPipelineState.load(std::memory_order_relaxed)) {
+				original(a_list, enginePso);
 			}
 		}
 
