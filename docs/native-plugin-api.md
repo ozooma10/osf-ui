@@ -1,6 +1,6 @@
 # Native plugin API
 
-For SFSE plugin authors. Lets your DLL talk to OSF UI. 
+Lets your DLL communicate with OSF UI. 
 Handle commands from a view, push data to a view, read settings and hotkeys, and open views.
 
 The whole API is one header: [`sdk/OSFUI_API.h`](../sdk/OSFUI_API.h) (C ABI **1.6**). 
