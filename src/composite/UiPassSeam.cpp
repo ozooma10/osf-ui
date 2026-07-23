@@ -161,7 +161,7 @@ namespace OSFUI::UiPassSeam
 
 			const auto engine = LocateEngineD3D12();
 			if (!engine) {
-				REX::WARN("[UiPassSeam] draw hooks: engine D3D12 device not reachable; seam draw disabled");
+				REX::ERROR("[UiPassSeam] draw hooks: engine D3D12 device not reachable; seam draw disabled");
 				return;
 			}
 
@@ -346,7 +346,7 @@ namespace OSFUI::UiPassSeam
 		}
 	}
 
-	bool Install(const bool a_draw)
+	bool Install()
 	{
 		if (g_installed.exchange(true, std::memory_order_relaxed)) {
 			return g_installOk.load(std::memory_order_acquire);
@@ -365,11 +365,11 @@ namespace OSFUI::UiPassSeam
 		const bool ok =
 			origBegin != 0 && origEnd != 0 && origComposite != 0;
 		g_installOk.store(ok, std::memory_order_release);
-		g_drawEnabled.store(ok && a_draw, std::memory_order_release);
+		g_drawEnabled.store(ok, std::memory_order_release);
 		if (!ok) {
-			REX::WARN("[UiPassSeam] hook set incomplete — seam draw disabled; "
-					  "the legacy present path remains active");
-		} else if (a_draw) {
+			REX::ERROR("[UiPassSeam] hook set incomplete — the overlay has no draw path this "
+					   "session. See the per-hook lines above for which slot declined.");
+		} else {
 			REX::DEBUG("[UiPassSeam] seam draw enabled: overlay records into "
 					   "Starfield's transparent UI layer at the ScaleformEnd hand-off");
 		}

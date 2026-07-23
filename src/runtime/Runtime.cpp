@@ -138,19 +138,18 @@ namespace OSFUI
 		// Size the view to the real output so the page renders aspect-correct.
 		_compositor->SetOutputResizeCallback([this](std::uint32_t a_w, std::uint32_t a_h) { OnOutputResized(a_w, a_h); });
 
-		if (_config.uiPassDraw) {
-			// The release path records into Starfield's transparent Scaleform UI
-			// layer, upstream of both real-frame composition and Frame Generation.
-			// Vtables are static .rdata, so installation does not wait for the
-			// renderer root like the D3D12 compositor does.
-			const bool seamReady = UiPassSeam::Install(_config.uiPassDraw);
-			if (seamReady) {
-				// The present hook stops drawing and becomes plumbing only.
-				_compositor->SetSeamDrawMode(true);
-			} else {
-				REX::WARN("Runtime: Scaleform seam unavailable — using the legacy present-time overlay; "
-						  "Frame Generation will suspend that fallback for safety");
-			}
+		// The overlay records into Starfield's transparent Scaleform UI layer,
+		// upstream of both real-frame composition and Frame Generation. Vtables
+		// are static .rdata, so installation does not wait for the renderer root
+		// like the D3D12 compositor does. There is no present-time fallback: if
+		// the seam cannot be hooked, nothing draws, so fail loudly.
+		if (UiPassSeam::Install()) {
+			_compositor->SetSeamDrawMode(true);
+		} else {
+			REX::ERROR("Runtime: the Scaleform UI seam could not be hooked — OSF UI will not be "
+					   "visible this session. This usually means another mod hooked the same "
+					   "Scaleform vtable slots first, or the game build is not one the seam has "
+					   "been proven on. See the [UiPassSeam] lines above.");
 		}
 		REX::INFO("Runtime: compositor = {}", _compositor->Name());
 

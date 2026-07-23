@@ -74,11 +74,6 @@ namespace OSFUI
 		// skipped.
 		std::vector<std::string> views;
 		bool        devMode{ false };  // release-safe default; the shipped config / a dev override turns on verbose logging
-		// Record the overlay into the engine's transparent UI layer at the
-		// ScaleformEnd seam, so real and generated frames share one composition
-		// path. Default on; false selects the legacy-present fallback for
-		// compatibility diagnosis. See docs/seam-draw-design.md.
-		bool        uiPassDraw{ true };
 		// With devMode on, reloads the top open menu's URL in place (schema
 		// edits hot-reload on their own). Consumed like the toggle key; empty
 		// disables. Ignored without devMode, so shipping it in config.json is

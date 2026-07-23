@@ -18,8 +18,8 @@ namespace OSFUI::UiPassSeam
 	// closed when a vtable slot does not hold the expected game implementation.
 	// There is no uninstall; process exit owns teardown.
 	//
-	// Installs the Begin/End/Composite hooks. a_draw enables the release seam.
-	// Returns false if any hook cannot be installed, allowing Runtime to retain
-	// the legacy present path.
-	bool Install(bool a_draw = true);
+	// Installs the Begin/End/Composite hooks and enables the seam draw. This is
+	// the only path that puts the overlay on screen — the present-time renderer
+	// was retired — so a false return means OSF UI cannot draw this session.
+	bool Install();
 }

@@ -19,23 +19,24 @@ namespace OSFUI
 	[[nodiscard]] bool RecordSeamOverlayDraw(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
 		bool a_fgTarget, bool a_regionFirst);
 
-	// Draws the renderer's frames over the game image at present time, on the
-	// game's own ID3D12Device + DIRECT queue (located via composite/EngineD3D12.h;
-	// we create no device).
+	// Draws the renderer's frames into Starfield's own transparent Scaleform UI
+	// layer, on the game's own ID3D12Device (located via composite/EngineD3D12.h;
+	// we create no device). See docs/seam-draw-design.md.
 	//
 	// Threading:
-	//  - Submit() (SFSE tick thread) only copies the CPU frame into a
-	//    lock-protected staging buffer. No GPU work there.
+	//  - Submit() (SFSE tick thread) only records which shared-ring slot the
+	//    host published. No GPU work there.
+	//  - RecordSeamOverlayDraw (above) runs on an engine render worker and does
+	//    all GPU work, onto the engine's own command list.
 	//  - A hook on IDXGISwapChain::Present (vtable slot 8, captured from a
 	//    throwaway swapchain so no engine offsets are touched; the vtable is
-	//    shared by every swapchain in the process) runs on the render thread and
-	//    does all GPU work: upload the cached frame to a texture, draw it as an
-	//    alpha-blended fullscreen quad onto the current backbuffer, then call the
-	//    original Present. So there is no cross-thread resource state.
+	//    shared by every swapchain in the process) draws nothing. It exists for
+	//    what only the present stream can report: output size, Frame Generation
+	//    pacer classification, shared-ring adoption, and hook liveness.
 	//
-	// Owns nothing of the game's: own root signature, PSO, descriptor heaps,
-	// fence, command allocators. Setup (locate + hook install) is lazy on the
-	// first Submit — the renderer root global is empty during SFSE plugin load.
+	// Owns nothing of the game's: own root signature, PSO, descriptor heaps and
+	// fence. Setup (locate + hook install) is lazy on the first Submit — the
+	// renderer root global is empty during SFSE plugin load.
 	class D3D12Compositor final : public ICompositor
 	{
 	public:
@@ -52,8 +53,8 @@ namespace OSFUI
 		// sharedSlot frames submitted afterwards are sampled directly on the
 		// present thread (produce/consume fence synchronized, no CPU upload).
 		void SetSharedRing(const SharedRingDesc& a_desc) override;
-		// Seam-draw mode: the present hook keeps discovery/plumbing duties but
-		// never draws; RecordSeamOverlayDraw (above) does, at the engine seam.
+		// Records that the engine seam is hooked and drawing. Reported in the
+		// render diagnostics; the present hook never draws either way.
 		void SetSeamDrawMode(bool a_enabled) override;
 		void SetRenderStatsEnabled(bool a_enabled) override;
 		[[nodiscard]] CompositorStats GetRenderStats() const override;

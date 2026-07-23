@@ -12,6 +12,5 @@
   "view": "osfui/settings",
   "views": ["osfui/settings", "osfui/keybinds"],
   "devMode": false,
-  "devReloadKey": "F11",
-  "uiPassDraw": true
+  "devReloadKey": "F11"
 }

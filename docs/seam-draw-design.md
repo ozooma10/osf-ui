@@ -61,7 +61,9 @@ late present classification to the activation boundary.
 `UiPassSeam` hooks slot 7 on `ScaleformBegin`, `ScaleformEnd`, and
 `ScaleformComposite`. Installation is fail-closed: every slot must still hold
 the expected game implementation. A partial or foreign hook disables seam
-drawing and leaves the legacy present renderer active.
+drawing, and since the present-time renderer has been retired that means the
+overlay does not draw at all that session — so `Install()` failure is logged at
+error level by both `UiPassSeam` and `Runtime`.
 
 Pass execution moves among render workers, so the implementation retains no
 engine resource or command list across calls. The transient target is validated
@@ -76,21 +78,35 @@ The shared WebView texture ring uses the newest produce-fence-complete slot; if
 the newest publication is incomplete, the seam reuses the last ready slot rather
 than dropping the overlay for one frame.
 
-In seam mode the Present hook performs plumbing only:
+The Present hook performs plumbing only:
 
 - output-size discovery;
 - WebView shared-ring adoption;
 - present liveness; and
 - FG caller classification.
 
-It never records a backbuffer draw.
+It records no draw of any kind, and holds no backbuffer, RTV, PSO, or command
+allocator.
 
-## Defaults, fallback, and diagnostics
+## Diagnostics
 
-`uiPassDraw` defaults to `true`. Setting it to `false` temporarily selects the
-legacy present renderer for compatibility diagnosis. That fallback still uses
-`FrameGenActive()` suspension, so it intentionally becomes invisible rather
-than risking a crash while FG is active.
+The seam is unconditional; there is no `uiPassDraw` switch and no present-time
+fallback to select. A knob whose off position renders no UI is not a useful
+compatibility control, and the seam's own fail-closed slot check already
+declines to hook when another mod owns the vtable.
+
+Two consequences of dropping the backbuffer draw are worth noting:
+
+- HDR and `_SRGB` backbuffers no longer suppress the overlay. The seam renders
+  through a typed `R8G8B8A8_UNORM` view onto the engine's UI buffer, so the
+  swapchain's own format is no longer inspected.
+- Frame Generation no longer suspends drawing. `FrameGenActive()` and its
+  swapchain-format gating are gone; FG classification survives only to pick the
+  correct UI hand-off.
+
+`CompositorStats::busyWaits` and `droppedBusy` counted the retired draw ring and
+now stay zero. The fields remain on the wire so the host diagnostics page needs
+no version dance.
 
 The `uiPassProbe` characterization diagnostic has been removed now that the
 frame graph, FG target selection, and hand-off decode are baked into the seam.
@@ -112,11 +128,18 @@ The final FSR3-FG run showed:
 - no device removal, crash, or present fallback; and
 - load-safe, hitch-free behavior from the preceding seam acceptance sessions.
 
-## Follow-up retirement
+## Retirement of the present-time renderer
 
-Keep the legacy present renderer for one release as a fail-closed compatibility
-fallback. If supported game builds show no seam-install failures, remove its
-backbuffer command allocators, RTVs, draw PSOs, and `FrameGenActive()` draw
-suspension. Retain Present discovery only for output sizing, shared-ring
-adoption, liveness, and FG target selection until a stronger engine FG state is
-available.
+Done. The backbuffer command allocators, upload ring, CPU staging buffer, RTV
+heap, per-format draw PSOs, and `FrameGenActive()` draw suspension were removed;
+Present discovery was retained for output sizing, shared-ring adoption, liveness,
+and FG target selection, as planned. `D3D12Compositor.cpp` went from 2128 to
+~1470 lines.
+
+Remaining step: migrate those four discovery duties onto the seam itself and drop
+the Present hook entirely. Each is reachable from there —
+`a_buffer->GetDesc()` carries the UI buffer dimensions, `LocateEngineD3D12()`
+gives a device for ring adoption without a present, and the seam already latches
+FG from the COPY_SOURCE hand-off. The hook should stay until the seam-only build
+has real in-game time, because losing present discovery also loses the only
+signal that classifies an FG pacer *before* the first hand-off of a frame.

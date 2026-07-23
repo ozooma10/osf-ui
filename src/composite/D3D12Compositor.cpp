@@ -16,26 +16,16 @@
 #include <intrin.h>  // _ReturnAddress: classify who invokes our Present thunk
 
 #include <cctype>
+#include <chrono>
 #include <cstring>
 #include <mutex>
 #include <string>
-#include <vector>
 
 namespace OSFUI
 {
 	namespace
 	{
-		// Ring depth must cover every present in flight before the oldest slot's
-		// GPU work completes. The game drives more than one swapchain through
-		// this single ring (two seen in-game), so each swapchain only gets
-		// kCmdSlots/N frames of depth — keep this above (max swapchains) x
-		// (game's frame-queue depth) or slots are still busy when we cycle back.
-		constexpr std::uint32_t kCmdSlots = 6;          // command allocator/list ring depth
-		constexpr std::uint32_t kMaxSwapchains = 4;     // distinct swapchains we'll draw on
-		constexpr std::uint32_t kMaxBackBuffers = 4;    // per swapchain
-		constexpr std::uint32_t kMaxPsoFormats = 4;     // distinct backbuffer formats we'll build PSOs for
-		constexpr std::uint32_t kRowPitchAlignment = 256;  // D3D12_TEXTURE_DATA_PITCH_ALIGNMENT
-		constexpr DWORD         kSlotWaitTimeoutMs = 100;  // cap the wait for a busy ring slot
+		constexpr std::uint32_t kMaxSwapchains = 4;  // distinct swapchains we track for discovery
 
 		template <class T>
 		void SafeRelease(T*& a_ptr)
@@ -43,39 +33,6 @@ namespace OSFUI
 			if (a_ptr) {
 				a_ptr->Release();
 				a_ptr = nullptr;
-			}
-		}
-
-		[[nodiscard]] constexpr std::uint32_t AlignUp(const std::uint32_t a_value, const std::uint32_t a_alignment)
-		{
-			return (a_value + a_alignment - 1) & ~(a_alignment - 1);
-		}
-
-		[[nodiscard]] DXGI_FORMAT ToDxgiFormat(const PixelFormat a_format)
-		{
-			return a_format == PixelFormat::kBGRA8 ? DXGI_FORMAT_B8G8R8A8_UNORM : DXGI_FORMAT_R8G8B8A8_UNORM;
-		}
-
-		// Formats the overlay renders correctly into: 8-bit UNORM, sRGB-encoded
-		// SDR. Anything else is refused per swapchain with a warning instead of
-		// drawing wrong — HDR10 (R10G10B10A2 + PQ) and scRGB (FP16) need a
-		// different encode in the pixel shader, and an _SRGB view would
-		// double-encode our already-sRGB pixels. Full HDR: docs/ROADMAP.md (P1).
-		[[nodiscard]] constexpr bool IsSupportedRtFormat(const DXGI_FORMAT a_format)
-		{
-			return a_format == DXGI_FORMAT_R8G8B8A8_UNORM || a_format == DXGI_FORMAT_B8G8R8A8_UNORM;
-		}
-
-		[[nodiscard]] const char* FormatName(const DXGI_FORMAT a_format)
-		{
-			switch (a_format) {
-				case DXGI_FORMAT_R8G8B8A8_UNORM:      return "R8G8B8A8_UNORM";
-				case DXGI_FORMAT_B8G8R8A8_UNORM:      return "B8G8R8A8_UNORM";
-				case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB: return "R8G8B8A8_UNORM_SRGB";
-				case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB: return "B8G8R8A8_UNORM_SRGB";
-				case DXGI_FORMAT_R10G10B10A2_UNORM:   return "R10G10B10A2_UNORM (10-bit / HDR10)";
-				case DXGI_FORMAT_R16G16B16A16_FLOAT:  return "R16G16B16A16_FLOAT (scRGB HDR)";
-				default:                              return "unrecognized";
 			}
 		}
 
@@ -126,8 +83,7 @@ namespace OSFUI
 		// padding covers unexported neighbors from the same translation units;
 		// the surrounding code on both sides is still FidelityFX/AGS, so the
 		// padded range cannot swallow game render-loop call sites. Resolves to
-		// {0,0} (detection off, drawing proceeds as before) if a future patch
-		// stops exporting these.
+		// {0,0} (detection off) if a future patch stops exporting these.
 		struct FfxFrameInterpRegion
 		{
 			std::uintptr_t lo{ 0 };
@@ -201,32 +157,6 @@ namespace OSFUI
 			return code;
 		}
 
-		// Is the output this swapchain sits on in HDR (advanced color) mode?
-		// DXGI has no getter for a swapchain's own color space, so the output's
-		// state is the closest signal available.
-		[[nodiscard]] const char* OutputColorModeInfo(IDXGISwapChain3* a_swap)
-		{
-			IDXGIOutput* output = nullptr;
-			if (FAILED(a_swap->GetContainingOutput(&output)) || !output) {
-				return "output color mode unknown";
-			}
-			IDXGIOutput6* output6 = nullptr;
-			const auto hr = output->QueryInterface(__uuidof(IDXGIOutput6), reinterpret_cast<void**>(&output6));
-			output->Release();
-			if (FAILED(hr) || !output6) {
-				return "output color mode unknown (pre-DXGI-1.6)";
-			}
-			DXGI_OUTPUT_DESC1 desc{};
-			const bool ok = SUCCEEDED(output6->GetDesc1(&desc));
-			output6->Release();
-			if (!ok) {
-				return "output color mode unknown";
-			}
-			return desc.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020
-				? "output IS in HDR mode"
-				: "output is in SDR mode";
-		}
-
 		// Fullscreen triangle from SV_VertexID (no vertex buffer). UV (0,0) is
 		// the top-left so the texture's row 0 lands at the top of the screen.
 		constexpr const char* kVertexShader = R"(
@@ -293,40 +223,26 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		bool setupAttempted{ false };
 		bool setupOk{ false };
 
-		// CPU frame staging (Submit thread <-> present thread).
-		std::mutex                frameMutex;
-		std::vector<std::uint8_t> cpuPixels;  // tightly packed w*4
-		std::uint32_t             frameWidth{ 0 };
-		std::uint32_t             frameHeight{ 0 };
-		DXGI_FORMAT               frameFormat{ DXGI_FORMAT_UNKNOWN };
-		bool                      frameDirty{ false };
-		// Region of cpuPixels changed since the last consumed upload; presents
-		// can lag submits, so CacheFrame unions rects until RecordAndExecute
-		// drains them (guarded by frameMutex like frameDirty).
-		DirtyRect                 dirtyRegion{};
-		std::uint64_t             lastSubmittedIndex{ 0 };
-		std::uint64_t             cpuSerial{ 0 };
-		std::uint64_t             cpuSourceTimeMs{ 0 };
-
 		// GPU shared-ring transport (out-of-process WebView2 host). SetSharedRing
 		// (game thread) parks the announced ring here; the present thread adopts
 		// it lazily (EnsureSharedRing) because opening the handles needs the
 		// located engine device. The compositor owns the handles from
 		// SetSharedRing on.
-		// Seam-draw mode (config uiPassDraw): UiPassSeam records the overlay
-		// quad into the engine's UI buffer via RecordSeamOverlay below; the
-		// present hook stays as plumbing (discovery, resize notify, ring
-		// adoption) and never draws. ringMutex guards the opened ring
-		// (sharedSlots/fences/SRVs) between the present thread (adoption) and
-		// the seam's render workers (sampling).
+		//
+		// All drawing happens at the engine seam: UiPassSeam records the overlay
+		// quad into Starfield's transparent UI layer via RecordSeamOverlay below.
+		// The Present hook draws nothing (see OnPresent). ringMutex guards the
+		// opened ring (sharedSlots/fences/SRVs) between the present thread
+		// (adoption) and the seam's render workers (sampling).
 		std::atomic<bool> seamMode{ false };
 		std::mutex        ringMutex;
 		static constexpr std::uint32_t kSeamRtvSlots = 8;
 		ID3D12DescriptorHeap*      seamRtvHeap{ nullptr };  // typed RTVs onto the engine's (typeless) UI buffers
 		std::atomic<std::uint32_t> seamRtvNext{ 0 };
 		std::uint64_t seamLastConsumeSignaled{ 0 };  // ringMutex
-		std::uint64_t seamDraws{ 0 };                // ringMutex
-		bool          seamGpuWarned{ false };        // ringMutex
+		std::atomic<std::uint64_t> seamDraws{ 0 };
+		std::atomic<std::uint64_t> seamDrawsFgTarget{ 0 };  // diagnostics
+		bool          noSharedFrameLogged{ false };  // ringMutex
 		// Newest slot whose produce fence is CPU-verified complete. The seam
 		// cannot queue-wait on the host's fence (not our queue), and skipping
 		// incomplete frames flickers under rapid production (mouse-move
@@ -334,7 +250,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		// this one instead: one frame stale, never absent.
 		std::uint32_t seamReadySlot{ 0 };    // ringMutex
 		std::uint64_t seamReadySerial{ 0 };  // ringMutex
-		std::uint64_t seamDrawsFgTarget{ 0 };  // ringMutex (diagnostics)
 		// The previous ring generation is retired, not released, on adoption:
 		// seam draws live inside ENGINE command lists that our idle fence
 		// cannot cover, so the old textures must outlive one more adoption.
@@ -352,101 +267,61 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		ID3D12Fence*    sharedConsume{ nullptr };
 		std::uint64_t   sharedGeneration{ 0 };
 		bool            sharedOpenFailed{ false };
-		// pending GPU frame (guarded by frameMutex, like the CPU staging):
-		bool          gpuMode{ false };
+		// Latest published ring frame (guarded by frameMutex). sharedFrameReady
+		// stays false until the host has submitted its first shared-slot frame.
+		std::mutex    frameMutex;
+		std::uint64_t lastSubmittedIndex{ 0 };
+		bool          sharedFrameReady{ false };
 		std::uint32_t gpuSlot{ 0 };
 		std::uint64_t gpuSerial{ 0 };
 		std::uint64_t gpuSourceTimeMs{ 0 };
+		bool          cpuFrameWarned{ false };  // Submit thread only
 
 		// Shared GPU objects, created once.
 		ID3D12Fence*          fence{ nullptr };
 		HANDLE                fenceEvent{ nullptr };
 		std::uint64_t         nextFenceValue{ 1 };
 		ID3D12RootSignature*  rootSig{ nullptr };
-		// One PSO per supported backbuffer format seen — the game and an injected
-		// frame-gen/overlay swapchain can differ, so first-seen-wins would starve
-		// one of them. `failed` marks a format whose PSO creation failed, so we
-		// don't retry (and spam the log) every present.
-		struct PsoEntry
-		{
-			DXGI_FORMAT          format{ DXGI_FORMAT_UNKNOWN };
-			ID3D12PipelineState* pso{ nullptr };
-			bool                 failed{ false };
-		};
-		PsoEntry              psoCache[kMaxPsoFormats]{};
-		// shader-visible: slot 0 = CPU overlay texture, 1..kMaxSlots = shared ring
+		// One PSO. The seam always renders through a typed R8G8B8A8_UNORM view
+		// onto the engine's UI buffer, so unlike the retired backbuffer draw
+		// there is no per-swapchain format to match — and HDR or _SRGB
+		// backbuffers no longer suppress the overlay.
+		ID3D12PipelineState*  seamPso{ nullptr };
+		bool                  seamPsoFailed{ false };  // ringMutex; don't retry+spam
+		// shader-visible: slot 0 unused, 1..kMaxSlots = shared ring
 		ID3D12DescriptorHeap* srvHeap{ nullptr };
-		ID3D12DescriptorHeap* rtvHeap{ nullptr };  // backbuffer RTVs
 		std::uint32_t         rtvStride{ 0 };
 		std::uint32_t         srvStride{ 0 };
 		ID3DBlob*             vsBlob{ nullptr };
 		ID3DBlob*             psBlob{ nullptr };
 
-		struct CmdSlot
-		{
-			ID3D12CommandAllocator*    allocator{ nullptr };
-			ID3D12GraphicsCommandList* list{ nullptr };
-			ID3D12Resource*            upload{ nullptr };
-			std::uint8_t*              mapped{ nullptr };
-			std::uint64_t              fenceValue{ 0 };
-		};
-		CmdSlot       cmdSlots[kCmdSlots]{};
-		std::uint64_t cmdIndex{ 0 };
-
-		// Overlay texture, sized to the frame.
-		ID3D12Resource* texture{ nullptr };
-		std::uint32_t   texWidth{ 0 };
-		std::uint32_t   texHeight{ 0 };
-		DXGI_FORMAT     texFormat{ DXGI_FORMAT_UNKNOWN };
-		std::uint32_t   uploadRowPitch{ 0 };
-		// A freshly (re)created texture has undefined contents, so the next
-		// upload must cover the whole frame regardless of the dirty region.
-		// Present thread only (set in EnsureTextureForFrame, consumed in
-		// RecordAndExecute).
-		bool            needsFullUpload{ true };
-
-		// Per-swapchain backbuffer targets. Backbuffer resources are not cached:
-		// holding a backbuffer reference blocks the game's ResizeBuffers
-		// (resolution change / alt-tab / fullscreen transition), which crashed
-		// the game (2026-06-12). Each present does GetBuffer + CreateRTV fresh
-		// and releases the buffer. The swapchain itself is not ref'd either:
-		// a lasting ref keeps a game-released swapchain alive, its HWND stays
-		// associated, and the game's next CreateSwapChainForHwnd on that window
-		// fails — Starfield's built-in FSR3 frame-interpolation swapchain
-		// creation null-derefs on exactly that failure (external CTD,
-		// 2026-07-21, crash inside ffxCreateFrameinterpolationSwapchainForHwndDX12).
-		// `swap` is borrowed: refreshed by AcquireTarget on every present and
-		// only dereferenced below that call in the same present, while the
-		// presenting swapchain is guaranteed alive by its own Present call.
+		// Per-swapchain discovery state. The swapchain is not ref'd: a lasting
+		// ref keeps a game-released swapchain alive, its HWND stays associated,
+		// and the game's next CreateSwapChainForHwnd on that window fails —
+		// Starfield's built-in FSR3 frame-interpolation swapchain creation
+		// null-derefs on exactly that failure (external CTD, 2026-07-21, crash
+		// inside ffxCreateFrameinterpolationSwapchainForHwndDX12). `swap` is
+		// borrowed: refreshed by AcquireTarget on every present and only
+		// dereferenced below that call in the same present, while the presenting
+		// swapchain is guaranteed alive by its own Present call.
 		struct Target
 		{
 			IDXGISwapChain3* swap{ nullptr };  // borrowed (NOT ref'd), key is the raw self ptr
 			std::uintptr_t   key{ 0 };
 			std::uint32_t    width{ 0 };
 			std::uint32_t    height{ 0 };
-			DXGI_FORMAT      format{ DXGI_FORMAT_UNKNOWN };
-			std::uint32_t    bufferCount{ 0 };
-			std::uint32_t    rtvBase{ 0 };  // base index into rtvHeap
 			bool             seen{ false };  // dims known yet?
-			bool             logged{ false };
-			// IsSupportedRtFormat for this swapchain's format. Re-evaluated on
-			// every format change (e.g. HDR toggled mid-session), warned once
-			// per change.
-			bool             supported{ false };
 			// Who calls Present on this swapchain (immediate return address of
 			// our thunk, re-resolved to a module when the call site changes).
 			// Two Frame Generation pacers are recognized, and fgDriven targets
-			// are never drawn on because drawing races the pacer's own queue
-			// work from its pacing thread:
-			//  - sl.dlss_g.dll (NVIDIA DLSS-FG via Streamline; external CTD:
-			//    null-deref inside sl.dlss_g during swapchain recreation
-			//    seconds after our first draw). sl.interposer alone is NOT a
-			//    trigger: every vanilla install ships it, and passive
-			//    game-thread forwarding through it draws fine.
+			// tell the seam that the frame graph currently interpolates — which
+			// changes which UI hand-off is safe to decorate:
+			//  - sl.dlss_g.dll (NVIDIA DLSS-FG via Streamline). sl.interposer
+			//    alone is NOT a trigger: every vanilla install ships it.
 			//  - the exe's own statically-linked FSR3 frame-interpolation
-			//    swapchain (external CTD 2026-07-21), detected by return
-			//    address inside the export-bounded ffx region — its module is
-			//    Starfield.exe, so a module-name check can't see it.
+			//    swapchain, detected by return address inside the export-bounded
+			//    ffx region — its module is Starfield.exe, so a module-name
+			//    check can't see it.
 			const void*      callerRet{ nullptr };
 			bool             fgDriven{ false };
 			bool             callerLogged{ false };
@@ -459,14 +334,10 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		Target targets[kMaxSwapchains]{};
 
 		// Address range of the exe's built-in FSR3 frame-interpolation code
-		// (resolved once in EnsureSetup; {0,0} = undetectable, treat no caller
-		// as FSR-FG). See ResolveFfxFrameInterpRegion.
+		// (resolved once in EnsureSetup; {0,0} = undetectable). See
+		// ResolveFfxFrameInterpRegion.
 		FfxFrameInterpRegion ffxFrameInterp{};
 
-		std::uint64_t drawnFrames{ 0 };
-		std::uint64_t waitedBusy{ 0 };   // presents that had to wait for a busy slot
-		std::uint64_t skippedBusy{ 0 };  // presents dropped because the wait timed out (GPU hung)
-		bool          fgSuspendLogged{ false };  // FrameGenActive transition logging (present thread only)
 		// Present threads publish FG liveness for seam render workers. With FG
 		// active, the first RT->pixel-SRV match is an opaque scene buffer, not
 		// the transparent Scaleform UI layer; only the RT->COPY_SOURCE hand-off
@@ -476,13 +347,12 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 		// Single-flight gate for OnPresent. With Frame Generation active the
 		// real swapchain presents from FG's pacing thread concurrently with the
-		// game thread's presents, and everything OnPresent touches (targets,
-		// cmdSlots, cmdIndex, PSO cache) is single-thread state. An overlapped
-		// present skips the overlay draw instead of corrupting that state.
+		// game thread's presents, and the discovery state OnPresent touches
+		// (targets, caller classification) is single-thread state. An
+		// overlapped present skips discovery instead of corrupting it.
 		std::atomic_bool           presentBusy{ false };
 		std::atomic<std::uint64_t> skippedConcurrent{ 0 };
 		std::atomic_bool           concurrentWarned{ false };
-		bool          firstDrawLogged{ false };
 		bool          targetsFullLogged{ false };
 
 		// Opt-in counters behind osfui.renderStats. These span the game tick,
@@ -495,8 +365,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		std::atomic<std::uint64_t> statsFreshFrames{ 0 };
 		std::atomic<std::uint64_t> statsReusedDraws{ 0 };
 		std::atomic<std::uint64_t> statsSubmits{ 0 };
-		std::atomic<std::uint64_t> statsBusyWaits{ 0 };
-		std::atomic<std::uint64_t> statsDroppedBusy{ 0 };
 		std::atomic<std::uint64_t> statsLastSerial{ 0 };
 		std::atomic<std::uint64_t> statsSourceToDrawMsTotal{ 0 };
 		std::atomic<std::uint64_t> statsSourceToDrawSamples{ 0 };
@@ -504,11 +372,12 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		std::atomic<std::uint64_t> statsRecordCpuSamples{ 0 };
 
 		// Hook-liveness watchdog. Another overlay that re-hooks Present after us
-		// without chaining silently stops our thunk from running — the overlay
-		// just vanishes. PresentThunk stamps this every call (present thread);
-		// CheckPresentLiveness (tick thread) warns when the game keeps ticking
-		// but no present has reached us. No false positive on focus loss: the
-		// game pauses the tick loop too, so the watchdog isn't polled then.
+		// without chaining silently stops our thunk from running — output-size
+		// discovery and FG classification then freeze. PresentThunk stamps this
+		// every call (present thread); CheckPresentLiveness (tick thread) warns
+		// when the game keeps ticking but no present has reached us. No false
+		// positive on focus loss: the game pauses the tick loop too, so the
+		// watchdog isn't polled then.
 		std::atomic<std::uint64_t> lastPresentMs{ 0 };
 		std::uint64_t              setupCompletedMs{ 0 };  // tick thread only
 		bool                       bypassWarned{ false };  // tick thread only
@@ -516,6 +385,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		~Impl()
 		{
 			g_overlay.store(nullptr);
+			g_seamDrawFn.store(nullptr, std::memory_order_release);
 			WaitForGpuIdle();
 			ReleaseSharedRing();
 			{
@@ -525,24 +395,9 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 					sharedDirty = false;
 				}
 			}
-			for (auto& t : targets) {
-				ReleaseTarget(t);
-			}
-			for (auto& s : cmdSlots) {
-				if (s.upload && s.mapped) {
-					s.upload->Unmap(0, nullptr);
-				}
-				SafeRelease(s.upload);
-				SafeRelease(s.list);
-				SafeRelease(s.allocator);
-			}
-			SafeRelease(texture);
-			for (auto& e : psoCache) {
-				SafeRelease(e.pso);
-			}
+			SafeRelease(seamPso);
 			SafeRelease(rootSig);
 			SafeRelease(srvHeap);
-			SafeRelease(rtvHeap);
 			SafeRelease(seamRtvHeap);
 			SafeRelease(vsBlob);
 			SafeRelease(psBlob);
@@ -586,8 +441,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			statsFreshFrames.store(0, std::memory_order_relaxed);
 			statsReusedDraws.store(0, std::memory_order_relaxed);
 			statsSubmits.store(0, std::memory_order_relaxed);
-			statsBusyWaits.store(0, std::memory_order_relaxed);
-			statsDroppedBusy.store(0, std::memory_order_relaxed);
 			statsLastSerial.store(0, std::memory_order_relaxed);
 			statsSourceToDrawMsTotal.store(0, std::memory_order_relaxed);
 			statsSourceToDrawSamples.store(0, std::memory_order_relaxed);
@@ -596,6 +449,9 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			renderStatsEnabled.store(true, std::memory_order_release);
 		}
 
+		// busyWaits/droppedBusy belonged to the retired present-time draw ring
+		// and stay at their zero defaults; the wire format keeps the fields so
+		// the host's diagnostics page needs no version dance.
 		[[nodiscard]] CompositorStats GetRenderStats() const
 		{
 			return {
@@ -604,8 +460,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				.freshFrames = statsFreshFrames.load(std::memory_order_relaxed),
 				.reusedDraws = statsReusedDraws.load(std::memory_order_relaxed),
 				.submits = statsSubmits.load(std::memory_order_relaxed),
-				.busyWaits = statsBusyWaits.load(std::memory_order_relaxed),
-				.droppedBusy = statsDroppedBusy.load(std::memory_order_relaxed),
 				.skippedConcurrent = skippedConcurrent.load(std::memory_order_relaxed),
 				.sourceToDrawMsTotal = statsSourceToDrawMsTotal.load(std::memory_order_relaxed),
 				.sourceToDrawSamples = statsSourceToDrawSamples.load(std::memory_order_relaxed),
@@ -616,6 +470,9 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			};
 		}
 
+		// Drain the engine's DIRECT queue up to this point. We submit no work of
+		// our own any more, but seam draws ride ENGINE command lists on this
+		// queue, so this is what makes retiring a ring generation safe.
 		void WaitForGpuIdle()
 		{
 			if (!fence || !fenceEvent || !engine.directQueue) {
@@ -626,11 +483,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				fence->SetEventOnCompletion(value, fenceEvent);
 				::WaitForSingleObject(fenceEvent, 2000);
 			}
-		}
-
-		void ReleaseTarget(Target& a_t)
-		{
-			a_t = Target{};  // no COM refs held (swap is borrowed, backbuffers uncached)
 		}
 
 		static void CloseRingHandles(SharedRingDesc& a_desc)
@@ -715,9 +567,10 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				sharedPending = {};
 				sharedDirty = false;
 			}
-			// Old slots may still be referenced by in-flight draws (our own are
-			// idle-fenced; ENGINE lists carrying seam draws are covered by ring
-			// retirement). ringMutex: the seam worker must not sample mid-swap.
+			// Old slots may still be referenced by in-flight ENGINE lists
+			// carrying seam draws; the queue drain plus one generation of
+			// retirement covers them. ringMutex: the seam worker must not
+			// sample mid-swap.
 			WaitForGpuIdle();
 			std::scoped_lock ring(ringMutex);
 			RetireSharedRing();
@@ -819,7 +672,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			g_seamDrawFn.store(&Impl::SeamDrawThunk, std::memory_order_release);
 			setupOk = true;
 			setupCompletedMs = ::GetTickCount64();
-			REX::INFO("D3D12Compositor: present-time overlay armed (Present slot-8 hook installed)");
+			REX::INFO("D3D12Compositor: seam overlay armed (Present slot-8 hook installed for discovery only)");
 		}
 
 		[[nodiscard]] bool CreateSharedObjects()
@@ -889,8 +742,9 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				return false;
 			}
 
-			// Descriptor heaps. SRV slot 0 is the CPU-upload overlay texture;
-			// slots 1..kMaxSlots hold the shared-ring textures (GPU transport).
+			// Descriptor heaps. SRV slot 0 is left unused (it held the retired
+			// CPU-upload overlay texture); slots 1..kMaxSlots hold the
+			// shared-ring textures.
 			D3D12_DESCRIPTOR_HEAP_DESC srvDesc{};
 			srvDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 			srvDesc.NumDescriptors = 1 + SharedRingDesc::kMaxSlots;
@@ -900,31 +754,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				return false;
 			}
 			srvStride = dev->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-
-			D3D12_DESCRIPTOR_HEAP_DESC rtvDesc{};
-			rtvDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-			rtvDesc.NumDescriptors = kMaxSwapchains * kMaxBackBuffers;
-			rtvDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-			if (FAILED(dev->CreateDescriptorHeap(&rtvDesc, __uuidof(ID3D12DescriptorHeap), reinterpret_cast<void**>(&rtvHeap)))) {
-				REX::ERROR("D3D12Compositor: CreateDescriptorHeap(RTV) failed");
-				return false;
-			}
 			rtvStride = dev->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-
-			// Command allocator/list ring (lists kept closed when idle).
-			for (auto& slot : cmdSlots) {
-				if (FAILED(dev->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
-						__uuidof(ID3D12CommandAllocator), reinterpret_cast<void**>(&slot.allocator)))) {
-					REX::ERROR("D3D12Compositor: CreateCommandAllocator failed");
-					return false;
-				}
-				if (FAILED(dev->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, slot.allocator, nullptr,
-						__uuidof(ID3D12GraphicsCommandList), reinterpret_cast<void**>(&slot.list)))) {
-					REX::ERROR("D3D12Compositor: CreateCommandList failed");
-					return false;
-				}
-				slot.list->Close();
-			}
 
 			// Seam-draw RTV ring: typed views created per draw onto the
 			// engine's (typeless, churning) UI buffers. Descriptors are copied
@@ -947,7 +777,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		// Capture the swapchain Present vtable from a throwaway probe swapchain
 		// (the "Kiero" technique): dxgi implements one swapchain class, so the
 		// vtable is shared by every swapchain in the process and one slot-8 swap
-		// hooks the game's real presents too. No engine offsets — pure DXGI.
+		// sees the game's real presents too. No engine offsets — pure DXGI.
 		//
 		// The probe's shape is load-bearing for coexistence. Root-caused
 		// 2026-07-19: BetterConsole inline-hooks CreateSwapChainForHwnd and
@@ -1114,7 +944,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				}
 				// Stamp the watchdog before any gate: it answers "does the
 				// present stream still reach our thunk at all", independent of
-				// visibility, frame availability, or the single-flight gate.
+				// the single-flight gate.
 				self->lastPresentMs.store(::GetTickCount64(), std::memory_order_relaxed);
 
 				if (!self->presentBusy.exchange(true, std::memory_order_acquire)) {
@@ -1123,9 +953,10 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				} else {
 					self->skippedConcurrent.fetch_add(1, std::memory_order_relaxed);
 					if (!self->concurrentWarned.exchange(true, std::memory_order_relaxed)) {
-						REX::WARN("D3D12Compositor: overlapping Present calls from two threads — "
-								  "a frame-generation pacing thread is likely active. Overlapped "
-								  "presents skip the overlay draw (counted, warned once).");
+						REX::DEBUG("D3D12Compositor: overlapping Present calls from two threads — "
+								   "a frame-generation pacing thread is likely active. Overlapped "
+								   "presents skip discovery (counted, logged once); the seam draw "
+								   "is unaffected.");
 					}
 				}
 			}
@@ -1133,6 +964,13 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			return original ? original(a_swap, a_sync, a_flags) : S_OK;
 		}
 
+		// Plumbing only — the Present hook records nothing. All drawing happens
+		// at the engine seam (RecordSeamOverlay). What still has to happen here
+		// is what only the present stream can tell us:
+		//   * the real output size, so the runtime can size the web view;
+		//   * which swapchains a Frame Generation pacer drives, which decides
+		//     the UI hand-off the seam is allowed to decorate; and
+		//   * shared-ring adoption, on a thread guaranteed past device setup.
 		void OnPresent(IDXGISwapChain* a_swap, UINT a_flags, const void* a_callerRet)
 		{
 			if (!setupOk || !a_swap || (a_flags & DXGI_PRESENT_TEST)) {
@@ -1149,10 +987,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			}
 
 			UpdatePresentCaller(*target, a_callerRet);
-			// Compute the frame-gen signal once per present and publish it (the seam
-			// path reads it before returning); the non-seam draw gate reuses this value.
-			const bool fgActive = AnyFrameGenActive();
-			frameGenActiveSignal.store(fgActive, std::memory_order_release);
+			frameGenActiveSignal.store(AnyFrameGenActive(), std::memory_order_release);
 
 			// Real output size -> runtime, so the view is aspect-correct. Fires
 			// on first sight and on any change.
@@ -1163,105 +998,16 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				outputSizeKnown.store(true, std::memory_order_release);
 			}
 
-			if (seamMode.load(std::memory_order_relaxed)) {
-				// Seam mode records into the engine's transparent UI layer.
-				// Present discovery above also publishes FG liveness so the seam
-				// ignores the opaque scene hand-off that only exists in the FG
-				// graph. Here we keep the remaining plumbing alive: resize
-				// notification and ring adoption so the seam has SRVs the moment
-				// the overlay opens. Nothing draws from the present hook in this
-				// mode.
-				bool gpu = false;
-				{
-					std::scoped_lock lk(frameMutex);
-					gpu = gpuMode;
-				}
-				if (gpu) {
-					(void)EnsureSharedRing();
-				}
-				return;
-			}
-
-			if (!visible.load(std::memory_order_relaxed)) {
-				return;
-			}
-
-			if (target->fgDriven) {
-				return;  // FG-paced swapchain: never draw (see Target::fgDriven)
-			}
-
-			// Frame Generation suspends the overlay on EVERY swapchain, not
-			// just the FG-paced one. With FSR3-FG active the game presents two
-			// real swapchains (the FI-paced one plus a game-thread sibling
-			// forwarded through sl.interposer), and one draw into the sibling
-			// killed the game instantly (2026-07-21 local repro: log ends on
-			// the same millisecond as FIRST OVERLAY DRAW; the earlier
-			// sl.dlss_g+0x23EE0 crashes — a null-context dispatch stub — were
-			// the downstream symptom during the resulting recreation). The FG
-			// pipeline owns backbuffer state across the whole chain, so any
-			// PRESENT->RT->PRESENT round trip of ours races it.
-			if (FrameGenActive(fgActive)) {
-				return;
-			}
-
-			bool gpu = false;
+			// Adopt the ring as soon as the host has published a frame, so the
+			// seam has SRVs the moment the overlay opens.
+			bool ready = false;
 			{
 				std::scoped_lock lk(frameMutex);
-				gpu = gpuMode;
+				ready = sharedFrameReady;
 			}
-			if (gpu) {
-				// GPU transport: sample the host's shared slot directly — no
-				// CPU staging, no upload.
-				if (!EnsureSharedRing()) {
-					return;
-				}
-			} else if (!EnsureTextureForFrame()) {
-				return;  // no frame yet, or texture creation failed
+			if (ready) {
+				(void)EnsureSharedRing();
 			}
-			if (!target->supported) {
-				return;  // HDR/unknown backbuffer format; warned in RefreshTarget
-			}
-			auto* pipeline = EnsurePipeline(target->format);
-			if (!pipeline) {
-				return;
-			}
-
-			auto& slot = cmdSlots[cmdIndex % kCmdSlots];
-			if (slot.fenceValue != 0 && fence->GetCompletedValue() < slot.fenceValue) {
-				// The slot's prior GPU work must finish before we reuse its
-				// allocator/upload buffer. Skipping the draw instead left this
-				// present without the overlay -> visible flicker (~7% of
-				// presents, since multiple swapchains share this ring). Waiting
-				// is cheap: the overlay is one triangle, so the fence is almost
-				// always already signaled. Only a stuck GPU hits the timeout and
-				// falls through to a skip — reusing in-flight resources would
-				// corrupt.
-				++waitedBusy;
-				if (renderStatsEnabled.load(std::memory_order_relaxed)) {
-					statsBusyWaits.fetch_add(1, std::memory_order_relaxed);
-				}
-				fence->SetEventOnCompletion(slot.fenceValue, fenceEvent);
-				::WaitForSingleObject(fenceEvent, kSlotWaitTimeoutMs);
-				if (fence->GetCompletedValue() < slot.fenceValue) {
-					++skippedBusy;  // GPU still not done after the timeout; drop (rare)
-					if (renderStatsEnabled.load(std::memory_order_relaxed)) {
-						statsDroppedBusy.fetch_add(1, std::memory_order_relaxed);
-					}
-					return;
-				}
-			}
-
-			const auto backIndex = target->swap->GetCurrentBackBufferIndex();
-			if (backIndex >= target->bufferCount) {
-				return;
-			}
-
-			if (gpu) {
-				RecordAndExecuteShared(slot, *target, backIndex, pipeline);
-			} else {
-				RecordAndExecute(slot, *target, backIndex, pipeline);
-			}
-			++cmdIndex;
 		}
 
 		// Present-thread only (like all of targets[]). The 2s staleness window
@@ -1276,22 +1022,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				}
 			}
 			return false;
-		}
-
-		// Logging-only frame-gen edge: OnPresent computes and stores the signal once
-		// per present, then feeds the value here for the suspend/resume log.
-		[[nodiscard]] bool FrameGenActive(const bool a_active)
-		{
-			if (a_active && !fgSuspendLogged) {
-				fgSuspendLogged = true;
-				REX::WARN("D3D12Compositor: Frame Generation is active — overlay drawing suspended on ALL "
-						  "swapchains (drawing anywhere in an FG present chain can crash the game). "
-						  "Disable Frame Generation in Starfield's display settings to see the overlay.");
-			} else if (!a_active && fgSuspendLogged) {
-				fgSuspendLogged = false;
-				REX::INFO("D3D12Compositor: Frame Generation no longer pacing any swapchain — overlay drawing resumed");
-			}
-			return a_active;
 		}
 
 		// Re-classify a target when its Present call site changes (cheap pointer
@@ -1309,18 +1039,17 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			const bool fsrFg = ffxFrameInterp.lo != 0 && ret >= ffxFrameInterp.lo && ret < ffxFrameInterp.hi;
 			const bool fg = dlssFg || fsrFg;
 			if (fg && !a_t.fgDriven) {
-				REX::WARN("D3D12Compositor: swapchain 0x{:X} is presented from {} (caller 0x{:X}) — Frame "
-						  "Generation is pacing this swapchain, and drawing into it races the frame-gen "
-						  "queue work (can crash the game). The overlay will NOT draw on this swapchain. "
-						  "If the overlay is invisible, disable Frame Generation in Starfield's display "
-						  "settings. Frame-gen compatibility is tracked in the project roadmap.",
+				REX::INFO("D3D12Compositor: swapchain 0x{:X} is presented from {} (caller 0x{:X}) — Frame "
+						  "Generation is pacing this swapchain. The overlay rides the engine's UI layer, so "
+						  "it composites into real and generated frames alike; the seam now decorates only "
+						  "the transparent UI hand-off consumed by frame interpolation.",
 					a_t.key,
 					dlssFg ? "'" + owner + "' (NVIDIA DLSS Frame Generation)"
 					       : "the game's built-in FSR3 frame-interpolation code",
 					ret);
 			} else if (!fg && a_t.fgDriven) {
 				REX::DEBUG("D3D12Compositor: swapchain 0x{:X} presents from '{}' again — Frame Generation "
-						  "no longer pacing it; resuming overlay draws",
+						  "no longer pacing it",
 					a_t.key, owner);
 			} else if (!a_t.callerLogged) {
 				// One coexistence line per swapchain: who normally presents it
@@ -1330,98 +1059,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			}
 			a_t.callerLogged = true;
 			a_t.fgDriven = fg;
-		}
-
-		// GPU-transport draw: fullscreen quad sampling the shared ring slot. The
-		// queue waits on the host's produce fence before the draw and signals the
-		// consume fence after it, so the slot is neither read too early nor
-		// rewritten too soon. The shared textures are cross-API resources
-		// (simultaneous-access); no barriers on them.
-		void RecordAndExecuteShared(CmdSlot& a_slot, Target& a_target,
-			const std::uint32_t a_backIndex, ID3D12PipelineState* a_pso)
-		{
-			const auto statsStarted = std::chrono::steady_clock::now();
-			std::uint32_t ringSlot = 0;
-			std::uint64_t serial = 0;
-			std::uint64_t sourceTimeMs = 0;
-			{
-				std::scoped_lock lk(frameMutex);
-				ringSlot = gpuSlot;
-				serial = gpuSerial;
-				sourceTimeMs = gpuSourceTimeMs;
-			}
-			if (ringSlot >= sharedSlotCount || !sharedSlots[ringSlot] || serial == 0) {
-				return;
-			}
-
-			ID3D12Resource* backbuffer = nullptr;
-			if (FAILED(a_target.swap->GetBuffer(a_backIndex, __uuidof(ID3D12Resource), reinterpret_cast<void**>(&backbuffer))) || !backbuffer) {
-				return;
-			}
-			const D3D12_CPU_DESCRIPTOR_HANDLE rtv{
-				rtvHeap->GetCPUDescriptorHandleForHeapStart().ptr + static_cast<SIZE_T>(a_target.rtvBase + a_backIndex) * rtvStride
-			};
-			engine.device->CreateRenderTargetView(backbuffer, nullptr, rtv);
-
-			a_slot.allocator->Reset();
-			a_slot.list->Reset(a_slot.allocator, a_pso);
-			auto* list = a_slot.list;
-
-			D3D12_RESOURCE_BARRIER barrier{};
-			barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-			barrier.Transition.pResource = backbuffer;
-			barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-			barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
-			barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
-			list->ResourceBarrier(1, &barrier);
-
-			ID3D12DescriptorHeap* heaps[]{ srvHeap };
-			list->SetDescriptorHeaps(1, heaps);
-			list->SetGraphicsRootSignature(rootSig);
-			const D3D12_GPU_DESCRIPTOR_HANDLE srv{
-				srvHeap->GetGPUDescriptorHandleForHeapStart().ptr +
-				static_cast<UINT64>(1 + ringSlot) * srvStride
-			};
-			list->SetGraphicsRootDescriptorTable(0, srv);
-
-			D3D12_VIEWPORT vp{ 0.0f, 0.0f, static_cast<float>(a_target.width), static_cast<float>(a_target.height), 0.0f, 1.0f };
-			D3D12_RECT scissor{ 0, 0, static_cast<LONG>(a_target.width), static_cast<LONG>(a_target.height) };
-			list->RSSetViewports(1, &vp);
-			list->RSSetScissorRects(1, &scissor);
-			list->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
-			list->SetPipelineState(a_pso);
-			list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-			list->DrawInstanced(3, 1, 0, 0);
-
-			barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
-			barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
-			list->ResourceBarrier(1, &barrier);
-			list->Close();
-
-			if (sharedProduce) {
-				engine.directQueue->Wait(sharedProduce, serial);
-			}
-			ID3D12CommandList* lists[]{ list };
-			engine.directQueue->ExecuteCommandLists(1, lists);
-			if (sharedConsume) {
-				engine.directQueue->Signal(sharedConsume, serial);
-			}
-			a_slot.fenceValue = nextFenceValue++;
-			engine.directQueue->Signal(fence, a_slot.fenceValue);
-			backbuffer->Release();
-			CountRenderStatsDraw(serial, sourceTimeMs, statsStarted);
-
-			++drawnFrames;
-			if (!firstDrawLogged) {
-				firstDrawLogged = true;
-				REX::INFO("D3D12Compositor: FIRST OVERLAY DRAW (GPU shared-ring transport, "
-						  "slot {} serial {} -> {}x{} target)",
-					ringSlot, serial, a_target.width, a_target.height);
-			} else if ((drawnFrames % 1200) == 0) {
-				REX::DEBUG("D3D12Compositor: {} overlay draws ({} waited on busy slot, {} dropped on timeout, "
-						   "{} skipped as concurrent)",
-					drawnFrames, waitedBusy, skippedBusy, skippedConcurrent.load(std::memory_order_relaxed));
-			}
 		}
 
 		// Seam draw (UiPassSeam, render worker, inside the engine's UI-buffer
@@ -1454,24 +1091,26 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				}
 				return false;
 			}
-			bool gpu = false;
+			bool ready = false;
 			std::uint32_t ringSlot = 0;
 			std::uint64_t serial = 0;
 			std::uint64_t sourceTimeMs = 0;
 			{
 				std::scoped_lock lk(frameMutex);
-				gpu = gpuMode;
+				ready = sharedFrameReady;
 				ringSlot = gpuSlot;
 				serial = gpuSerial;
 				sourceTimeMs = gpuSourceTimeMs;
 			}
 
 			std::scoped_lock ring(ringMutex);
-			if (!gpu) {
-				if (!seamGpuWarned) {
-					seamGpuWarned = true;
-					REX::WARN("D3D12Compositor: seam draw requires the GPU shared-ring transport "
-							  "(webview2 host); CPU-staged frames are not seam-drawn");
+			if (!ready) {
+				// Normally a brief startup transient: the overlay can be revealed
+				// on the frame the host publishes its first shared slot.
+				if (!noSharedFrameLogged) {
+					noSharedFrameLogged = true;
+					REX::DEBUG("D3D12Compositor: seam hand-off reached before the WebView2 host "
+							   "published a shared-ring frame; nothing to draw yet");
 				}
 				return false;
 			}
@@ -1493,7 +1132,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			ringSlot = seamReadySlot;
 			serial = seamReadySerial;
 
-			auto* pso = EnsurePipeline(DXGI_FORMAT_R8G8B8A8_UNORM);
+			auto* pso = EnsureSeamPipeline();
 			if (!pso) {
 				return false;
 			}
@@ -1533,14 +1172,14 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				seamLastConsumeSignaled = serial;
 			}
 
-			++seamDraws;
+			const auto drawIndex = seamDraws.fetch_add(1, std::memory_order_relaxed) + 1;
+			const auto fgIndex = a_fgTarget
+				? seamDrawsFgTarget.fetch_add(1, std::memory_order_relaxed) + 1
+				: 0;
 			CountRenderStatsDraw(serial, sourceTimeMs, statsStarted);
-			if (a_fgTarget) {
-				++seamDrawsFgTarget;
-			}
 			// One-time log per target kind: if the FG line never appears, its
 			// hand-off is not being matched.
-			if (seamDraws == 1 || (a_fgTarget && seamDrawsFgTarget == 1)) {
+			if (drawIndex == 1 || fgIndex == 1) {
 				REX::INFO("D3D12Compositor: FIRST SEAM OVERLAY DRAW [{}] (ring slot {} serial {} -> {}x{} UI buffer 0x{:X})",
 					a_fgTarget ? "premultiplied / FG UI input" : "premultiplied / composite input",
 					ringSlot, serial, static_cast<std::uint64_t>(desc.Width), desc.Height,
@@ -1556,118 +1195,14 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			return self && self->RecordSeamOverlay(a_list, a_buffer, a_fgTarget, a_regionFirst);
 		}
 
-		// Resize/create the overlay texture + per-slot upload buffers + SRV to
-		// match the cached frame. Returns false if there is no frame yet.
-		[[nodiscard]] bool EnsureTextureForFrame()
+		// Get-or-create the one seam PSO. Called under ringMutex, so the cache
+		// needs no separate synchronization. `seamPsoFailed` stops a failed
+		// creation from retrying (and spamming the log) on every hand-off.
+		[[nodiscard]] ID3D12PipelineState* EnsureSeamPipeline()
 		{
-			std::uint32_t w = 0;
-			std::uint32_t h = 0;
-			DXGI_FORMAT   fmt = DXGI_FORMAT_UNKNOWN;
-			{
-				std::scoped_lock lk(frameMutex);
-				if (cpuPixels.empty()) {
-					return false;
-				}
-				w = frameWidth;
-				h = frameHeight;
-				fmt = frameFormat;
+			if (seamPso || seamPsoFailed) {
+				return seamPso;
 			}
-			if (texture && texWidth == w && texHeight == h && texFormat == fmt) {
-				return true;
-			}
-
-			WaitForGpuIdle();
-			SafeRelease(texture);
-			for (auto& slot : cmdSlots) {
-				if (slot.upload && slot.mapped) {
-					slot.upload->Unmap(0, nullptr);
-					slot.mapped = nullptr;
-				}
-				SafeRelease(slot.upload);
-			}
-
-			texWidth = w;
-			texHeight = h;
-			texFormat = fmt;
-			uploadRowPitch = AlignUp(w * 4, kRowPitchAlignment);
-
-			D3D12_HEAP_PROPERTIES defaultHeap{};
-			defaultHeap.Type = D3D12_HEAP_TYPE_DEFAULT;
-			D3D12_RESOURCE_DESC texDesc{};
-			texDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-			texDesc.Width = w;
-			texDesc.Height = h;
-			texDesc.DepthOrArraySize = 1;
-			texDesc.MipLevels = 1;
-			texDesc.Format = fmt;
-			texDesc.SampleDesc.Count = 1;
-			texDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-			if (FAILED(engine.device->CreateCommittedResource(&defaultHeap, D3D12_HEAP_FLAG_NONE, &texDesc,
-					D3D12_RESOURCE_STATE_COPY_DEST, nullptr, __uuidof(ID3D12Resource), reinterpret_cast<void**>(&texture)))) {
-				REX::ERROR("D3D12Compositor: failed to create {}x{} overlay texture", w, h);
-				return false;
-			}
-
-			D3D12_HEAP_PROPERTIES uploadHeap{};
-			uploadHeap.Type = D3D12_HEAP_TYPE_UPLOAD;
-			D3D12_RESOURCE_DESC bufDesc{};
-			bufDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-			bufDesc.Width = static_cast<std::uint64_t>(uploadRowPitch) * h;
-			bufDesc.Height = 1;
-			bufDesc.DepthOrArraySize = 1;
-			bufDesc.MipLevels = 1;
-			bufDesc.SampleDesc.Count = 1;
-			bufDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-			for (auto& slot : cmdSlots) {
-				if (FAILED(engine.device->CreateCommittedResource(&uploadHeap, D3D12_HEAP_FLAG_NONE, &bufDesc,
-						D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, __uuidof(ID3D12Resource), reinterpret_cast<void**>(&slot.upload)))) {
-					REX::ERROR("D3D12Compositor: failed to create upload buffer");
-					return false;
-				}
-				if (FAILED(slot.upload->Map(0, nullptr, reinterpret_cast<void**>(&slot.mapped)))) {
-					REX::ERROR("D3D12Compositor: failed to map upload buffer");
-					return false;
-				}
-				slot.fenceValue = 0;
-			}
-
-			D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
-			srv.Format = fmt;
-			srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-			srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-			srv.Texture2D.MipLevels = 1;
-			engine.device->CreateShaderResourceView(texture, &srv, srvHeap->GetCPUDescriptorHandleForHeapStart());
-
-			needsFullUpload = true;  // new texture = undefined contents
-
-			REX::INFO("D3D12Compositor: overlay texture ready ({}x{} {})", w, h,
-				fmt == DXGI_FORMAT_B8G8R8A8_UNORM ? "BGRA8" : "RGBA8");
-			return true;
-		}
-
-		// Get-or-create the PSO for one backbuffer format. Returns nullptr
-		// (warn-once via `failed`) when creation fails or more distinct formats
-		// appear than the cache holds. Callers gate on Target::supported first,
-		// so only formats the overlay renders correctly into land here.
-		[[nodiscard]] ID3D12PipelineState* EnsurePipeline(const DXGI_FORMAT a_rtFormat)
-		{
-			PsoEntry* entry = nullptr;
-			for (auto& e : psoCache) {
-				if (e.format == a_rtFormat) {
-					entry = &e;
-					break;
-				}
-				if (e.format == DXGI_FORMAT_UNKNOWN && !entry) {
-					entry = &e;  // first free slot; keep scanning for an exact match
-				}
-			}
-			if (!entry) {
-				return nullptr;  // more than kMaxPsoFormats distinct formats (absurd)
-			}
-			if (entry->format == a_rtFormat) {
-				return entry->failed ? nullptr : entry->pso;
-			}
-			entry->format = a_rtFormat;
 
 			D3D12_GRAPHICS_PIPELINE_STATE_DESC desc{};
 			desc.pRootSignature = rootSig;
@@ -1679,10 +1214,11 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			desc.RasterizerState.DepthClipEnable = TRUE;
 			desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
 			desc.NumRenderTargets = 1;
-			desc.RTVFormats[0] = a_rtFormat;
+			desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
 			desc.SampleDesc.Count = 1;
 
-			// Premultiplied-alpha "over" blend for BGRA browser frames.
+			// Premultiplied-alpha "over" blend for BGRA browser frames, matching
+			// the engine's own UI composition (docs/seam-draw-design.md).
 			auto& rt = desc.BlendState.RenderTarget[0];
 			rt.BlendEnable = TRUE;
 			rt.SrcBlend = D3D12_BLEND_ONE;
@@ -1693,20 +1229,18 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			rt.BlendOpAlpha = D3D12_BLEND_OP_ADD;
 			rt.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
 
-			if (FAILED(engine.device->CreateGraphicsPipelineState(&desc, __uuidof(ID3D12PipelineState), reinterpret_cast<void**>(&entry->pso)))) {
-				REX::ERROR("D3D12Compositor: CreateGraphicsPipelineState failed (RT format {} [{}])",
-					FormatName(a_rtFormat), static_cast<int>(a_rtFormat));
-				entry->pso = nullptr;
-				entry->failed = true;
+			if (FAILED(engine.device->CreateGraphicsPipelineState(&desc, __uuidof(ID3D12PipelineState), reinterpret_cast<void**>(&seamPso)))) {
+				REX::ERROR("D3D12Compositor: seam CreateGraphicsPipelineState failed");
+				seamPso = nullptr;
+				seamPsoFailed = true;
 				return nullptr;
 			}
-			REX::INFO("D3D12Compositor: overlay pipeline ready (RT format {} [{}])",
-				FormatName(a_rtFormat), static_cast<int>(a_rtFormat));
-			return entry->pso;
+			REX::INFO("D3D12Compositor: seam pipeline ready (premultiplied over, R8G8B8A8_UNORM)");
+			return seamPso;
 		}
 
-		// Find or (re)build the backbuffer target for this swapchain pointer.
-		// The returned target's `swap` is a borrowed pointer valid only for the
+		// Find or (re)build the discovery entry for this swapchain pointer. The
+		// returned target's `swap` is a borrowed pointer valid only for the
 		// remainder of this present (see the Target comment): the QI ref is
 		// dropped immediately so this table never extends a swapchain's
 		// lifetime past the game's own release.
@@ -1714,7 +1248,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		{
 			IDXGISwapChain3* swap3 = nullptr;
 			if (FAILED(a_swap->QueryInterface(__uuidof(IDXGISwapChain3), reinterpret_cast<void**>(&swap3))) || !swap3) {
-				return nullptr;  // pre-3 swapchains: no GetCurrentBackBufferIndex
+				return nullptr;
 			}
 			swap3->Release();  // borrow: the in-progress Present call keeps it alive
 
@@ -1742,7 +1276,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				if (stalest && nowMs - stalest->lastSeenMs > 2000) {
 					REX::INFO("D3D12Compositor: swapchain 0x{:X} silent for {} ms; evicting for new swapchain 0x{:X}",
 						stalest->key, nowMs - stalest->lastSeenMs, key);
-					ReleaseTarget(*stalest);
+					*stalest = Target{};  // no COM refs held (swap is borrowed)
 					freeSlot = stalest;
 				} else {
 					if (!targetsFullLogged) {
@@ -1756,196 +1290,36 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			freeSlot->swap = swap3;
 			freeSlot->key = key;
 			freeSlot->lastSeenMs = nowMs;
-			freeSlot->rtvBase = static_cast<std::uint32_t>(freeSlot - targets) * kMaxBackBuffers;
 			return RefreshTarget(*freeSlot) ? freeSlot : nullptr;
 		}
 
-		// Refresh the cached swapchain dimensions/format. GetDesc1 only, holds no
-		// backbuffer refs, so it cannot block ResizeBuffers — the backbuffer is
-		// fetched per-present in RecordAndExecute.
+		// Refresh the cached swapchain dimensions. GetDesc1 only, holds no
+		// backbuffer refs, so it cannot block the game's ResizeBuffers. The
+		// backbuffer format is deliberately not inspected: the seam renders into
+		// the engine's UI buffer, so an HDR or _SRGB backbuffer — which the
+		// retired present-time draw had to refuse — is no longer our concern.
 		[[nodiscard]] bool RefreshTarget(Target& a_t)
 		{
 			DXGI_SWAP_CHAIN_DESC1 desc{};
 			if (FAILED(a_t.swap->GetDesc1(&desc))) {
 				return false;
 			}
-			const bool formatChanged = !a_t.seen || a_t.format != desc.Format;
-			const bool changed = formatChanged || a_t.width != desc.Width || a_t.height != desc.Height ||
-				a_t.bufferCount != desc.BufferCount;
+			const bool changed = !a_t.seen || a_t.width != desc.Width || a_t.height != desc.Height;
 			a_t.seen = true;
 			a_t.width = desc.Width;
 			a_t.height = desc.Height;
-			a_t.format = desc.Format;
-			a_t.bufferCount = (std::min)(desc.BufferCount, kMaxBackBuffers);
-
-			if (formatChanged) {
-				// Detect-and-degrade (ROADMAP P1 "HDR / frame-gen"): drawing our
-				// sRGB-encoded pixels into an HDR (PQ/scRGB) or _SRGB backbuffer
-				// renders wrong colors, so an unsupported format skips this
-				// swapchain entirely, warned once per change.
-				a_t.supported = IsSupportedRtFormat(a_t.format);
-				if (!a_t.supported) {
-					REX::WARN("D3D12Compositor: swapchain 0x{:X} uses backbuffer format {} [{}] ({}) — the overlay "
-							  "cannot render correctly into it yet and will NOT draw on this swapchain. If the "
-							  "overlay is invisible, switch Starfield to SDR / disable HDR and frame generation. "
-							  "Full HDR output is tracked in the project roadmap.",
-						a_t.key, FormatName(a_t.format), static_cast<int>(a_t.format), OutputColorModeInfo(a_t.swap));
-				}
-			}
-
-			if (changed && a_t.logged) {
-				REX::DEBUG("D3D12Compositor: swapchain 0x{:X} now {}x{}, {} buffers, RT format {} [{}]",
-					a_t.key, a_t.width, a_t.height, a_t.bufferCount, FormatName(a_t.format), static_cast<int>(a_t.format));
-			}
-			if (!a_t.logged) {
-				a_t.logged = true;
-				REX::DEBUG("D3D12Compositor: {} swapchain 0x{:X} ({}x{}, {} buffers, RT format {} [{}])",
-					a_t.supported ? "drawing on" : "SKIPPING (unsupported format)",
-					a_t.key, a_t.width, a_t.height, a_t.bufferCount, FormatName(a_t.format), static_cast<int>(a_t.format));
+			if (changed) {
+				REX::DEBUG("D3D12Compositor: swapchain 0x{:X} is {}x{}", a_t.key, a_t.width, a_t.height);
 			}
 			return true;
 		}
 
-		void RecordAndExecute(CmdSlot& a_slot, Target& a_target, const std::uint32_t a_backIndex,
-			ID3D12PipelineState* a_pso)
-		{
-			const auto statsStarted = std::chrono::steady_clock::now();
-			// Fetch the backbuffer fresh each present and release it before
-			// returning: a ref held across frames blocks the game's
-			// ResizeBuffers. The swapchain keeps its own ref, and the command
-			// queue keeps the resource alive for the GPU work we submit.
-			ID3D12Resource* backbuffer = nullptr;
-			if (FAILED(a_target.swap->GetBuffer(a_backIndex, __uuidof(ID3D12Resource), reinterpret_cast<void**>(&backbuffer))) || !backbuffer) {
-				return;
-			}
-			const D3D12_CPU_DESCRIPTOR_HANDLE rtv{
-				rtvHeap->GetCPUDescriptorHandleForHeapStart().ptr + static_cast<SIZE_T>(a_target.rtvBase + a_backIndex) * rtvStride
-			};
-			engine.device->CreateRenderTargetView(backbuffer, nullptr, rtv);
-
-			a_slot.allocator->Reset();
-			a_slot.list->Reset(a_slot.allocator, a_pso);
-			auto* list = a_slot.list;
-
-			// Upload a new frame into the texture, only when one arrived. Only
-			// the dirty region is copied into the mapped upload buffer and box-
-			// copied to the texture: each ring slot's buffer holds stale bytes
-			// outside the rect last written into it, which is safe only because
-			// pSrcBox never reads them. A recreated texture forces a full-frame
-			// pass (needsFullUpload).
-			bool      uploaded = false;
-			DirtyRect rect{};
-			{
-				std::scoped_lock lk(frameMutex);
-				if (frameDirty && frameWidth == texWidth && frameHeight == texHeight) {
-					rect = dirtyRegion;
-					if (needsFullUpload || rect.Empty() ||
-						rect.x + rect.width > texWidth || rect.y + rect.height > texHeight) {
-						rect = DirtyRect::Full(texWidth, texHeight);
-					}
-					const auto rowBytes = texWidth * 4u;
-					const auto rowStart = static_cast<std::size_t>(rect.x) * 4u;
-					const auto rowLen = static_cast<std::size_t>(rect.width) * 4u;
-					for (std::uint32_t y = rect.y; y < rect.y + rect.height; ++y) {
-						std::memcpy(a_slot.mapped + static_cast<std::size_t>(y) * uploadRowPitch + rowStart,
-							cpuPixels.data() + static_cast<std::size_t>(y) * rowBytes + rowStart, rowLen);
-					}
-					frameDirty = false;
-					needsFullUpload = false;
-					uploaded = true;
-				}
-			}
-			if (uploaded) {
-				D3D12_TEXTURE_COPY_LOCATION src{};
-				src.pResource = a_slot.upload;
-				src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-				src.PlacedFootprint.Footprint.Format = texFormat;
-				src.PlacedFootprint.Footprint.Width = texWidth;
-				src.PlacedFootprint.Footprint.Height = texHeight;
-				src.PlacedFootprint.Footprint.Depth = 1;
-				src.PlacedFootprint.Footprint.RowPitch = uploadRowPitch;
-				D3D12_TEXTURE_COPY_LOCATION dst{};
-				dst.pResource = texture;
-				dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-				dst.SubresourceIndex = 0;
-				// Box coordinates are in the source subresource's texture space,
-				// which matches the texture 1:1 (rows at y*uploadRowPitch).
-				D3D12_BOX box{};
-				box.left = rect.x;
-				box.top = rect.y;
-				box.front = 0;
-				box.right = rect.x + rect.width;
-				box.bottom = rect.y + rect.height;
-				box.back = 1;
-				list->CopyTextureRegion(&dst, rect.x, rect.y, 0, &src, &box);
-			}
-
-			const auto barrier = [&](ID3D12Resource* r, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) {
-				D3D12_RESOURCE_BARRIER b{};
-				b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-				b.Transition.pResource = r;
-				b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-				b.Transition.StateBefore = before;
-				b.Transition.StateAfter = after;
-				list->ResourceBarrier(1, &b);
-			};
-
-			barrier(texture, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-			barrier(backbuffer, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
-
-			ID3D12DescriptorHeap* heaps[]{ srvHeap };
-			list->SetDescriptorHeaps(1, heaps);
-			list->SetGraphicsRootSignature(rootSig);
-			list->SetGraphicsRootDescriptorTable(0, srvHeap->GetGPUDescriptorHandleForHeapStart());
-
-			D3D12_VIEWPORT vp{ 0.0f, 0.0f, static_cast<float>(a_target.width), static_cast<float>(a_target.height), 0.0f, 1.0f };
-			D3D12_RECT scissor{ 0, 0, static_cast<LONG>(a_target.width), static_cast<LONG>(a_target.height) };
-			list->RSSetViewports(1, &vp);
-			list->RSSetScissorRects(1, &scissor);
-
-			list->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
-			list->SetPipelineState(a_pso);
-			list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-			list->DrawInstanced(3, 1, 0, 0);
-
-			barrier(backbuffer, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
-			barrier(texture, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
-
-			list->Close();
-			ID3D12CommandList* lists[]{ list };
-			engine.directQueue->ExecuteCommandLists(1, lists);
-			a_slot.fenceValue = nextFenceValue++;
-			engine.directQueue->Signal(fence, a_slot.fenceValue);
-
-			// Safe to drop now: the queue holds the resource alive until the GPU
-			// finishes, and the swapchain owns it regardless.
-			backbuffer->Release();
-			std::uint64_t serial = 0;
-			std::uint64_t sourceTimeMs = 0;
-			{
-				std::scoped_lock lk(frameMutex);
-				serial = cpuSerial;
-				sourceTimeMs = cpuSourceTimeMs;
-			}
-			CountRenderStatsDraw(serial, sourceTimeMs, statsStarted);
-
-			++drawnFrames;
-			if (!firstDrawLogged) {
-				firstDrawLogged = true;
-				REX::INFO("D3D12Compositor: FIRST OVERLAY DRAW submitted over the game backbuffer "
-						  "({}x{} overlay -> {}x{} target) — Phase 3 composition live",
-					texWidth, texHeight, a_target.width, a_target.height);
-			} else if ((drawnFrames % 1200) == 0) {
-				REX::DEBUG("D3D12Compositor: {} overlay draws ({} waited on busy slot, {} dropped on timeout, "
-						   "{} skipped as concurrent)",
-					drawnFrames, waitedBusy, skippedBusy, skippedConcurrent.load(std::memory_order_relaxed));
-			}
-		}
-
 		// Tick thread. The game is ticking (we're being called), so it is
 		// presenting — if no present has reached our thunk for a while, another
-		// tool re-hooked Present over us without chaining and the overlay
-		// silently stopped drawing. Warn once; log recovery if presents return.
+		// tool re-hooked Present over us without chaining. Seam draws already
+		// running survive that, but ring adoption, output sizing and FG
+		// classification all stop, so an overlay that has not opened yet never
+		// will. Warn once; log recovery if presents return.
 		void CheckPresentLiveness()
 		{
 			if (!setupOk) {
@@ -1965,15 +1339,16 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				bypassWarned = true;
 				REX::WARN("D3D12Compositor: no present has reached our hook for >{}s while the game is ticking — "
 						  "another overlay (ReShade/RTSS/Steam overlay/frame-gen tool) appears to have re-hooked "
-						  "IDXGISwapChain::Present without chaining. The OSF UI overlay cannot draw until it is "
-						  "restored. Try changing the load/injection order of overlay tools, and include this "
-						  "line plus your overlay stack in reports.",
+						  "IDXGISwapChain::Present without chaining. Drawing happens at the engine seam and is "
+						  "not itself hooked, but the shared frame ring is adopted here — so if the overlay has "
+						  "not appeared yet, it will not until this is restored. Try changing the load/injection "
+						  "order of overlay tools, and include this line plus your overlay stack in reports.",
 					kStallMs / 1000);
 			}
 		}
 
-		// GPU-transport submit: just remember which ring slot/serial to draw.
-		// No pixel copy — the present thread samples the shared texture.
+		// Submit: just remember which ring slot/serial the seam should draw.
+		// No pixel copy — the seam samples the shared texture directly.
 		void CacheSharedFrame(const FrameBufferView& a_frame)
 		{
 			if (a_frame.frameIndex == lastSubmittedIndex) {
@@ -1981,7 +1356,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			}
 			lastSubmittedIndex = a_frame.frameIndex;
 			std::scoped_lock lk(frameMutex);
-			gpuMode = true;
+			sharedFrameReady = true;
 			gpuSlot = static_cast<std::uint32_t>(a_frame.sharedSlot);
 			gpuSerial = a_frame.frameIndex;
 			gpuSourceTimeMs = a_frame.sourceTimeMs;
@@ -1990,45 +1365,18 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			}
 		}
 
-		void CacheFrame(const FrameBufferView& a_frame)
+		// The seam samples the host's shared texture on the engine's own command
+		// list; there is no path that uploads CPU pixels any more. The shipping
+		// renderer (WebView2 host) always publishes shared-slot frames, so this
+		// only fires for a renderer that has no GPU transport.
+		void WarnCpuFrameUnsupported()
 		{
-			if (a_frame.frameIndex == lastSubmittedIndex) {
-				return;  // renderer returned its cached frame; nothing new
+			if (cpuFrameWarned) {
+				return;
 			}
-			lastSubmittedIndex = a_frame.frameIndex;
-
-			const auto rowBytes = a_frame.width * 4u;
-			std::scoped_lock lk(frameMutex);
-			// cpuPixels persists across frames, so only the delivered dirty rect
-			// needs copying. A just-(re)sized staging buffer (garbage elsewhere)
-			// or an absent/out-of-bounds rect falls back to a full copy.
-			const bool realloc = frameWidth != a_frame.width || frameHeight != a_frame.height ||
-				cpuPixels.size() != static_cast<std::size_t>(rowBytes) * a_frame.height;
-			if (realloc) {
-				cpuPixels.resize(static_cast<std::size_t>(rowBytes) * a_frame.height);
-			}
-			DirtyRect rect = a_frame.dirty;
-			if (realloc || rect.Empty() ||
-				rect.x + rect.width > a_frame.width || rect.y + rect.height > a_frame.height) {
-				rect = DirtyRect::Full(a_frame.width, a_frame.height);
-			}
-			const auto rowStart = static_cast<std::size_t>(rect.x) * 4u;
-			const auto rowLen = static_cast<std::size_t>(rect.width) * 4u;
-			for (std::uint32_t y = rect.y; y < rect.y + rect.height; ++y) {
-				std::memcpy(cpuPixels.data() + static_cast<std::size_t>(y) * rowBytes + rowStart,
-					a_frame.pixels.data() + static_cast<std::size_t>(y) * a_frame.strideBytes + rowStart, rowLen);
-			}
-			frameWidth = a_frame.width;
-			frameHeight = a_frame.height;
-			frameFormat = ToDxgiFormat(a_frame.format);
-			cpuSerial = a_frame.frameIndex;
-			cpuSourceTimeMs = a_frame.sourceTimeMs;
-			// Presents can lag submits: accumulate until an upload consumes it.
-			dirtyRegion = frameDirty ? DirtyRect::Union(dirtyRegion, rect) : rect;
-			frameDirty = true;
-			if (renderStatsEnabled.load(std::memory_order_relaxed)) {
-				statsSubmits.fetch_add(1, std::memory_order_relaxed);
-			}
+			cpuFrameWarned = true;
+			REX::WARN("D3D12Compositor: the renderer submitted a CPU-staged frame, which the seam "
+					  "cannot draw — this compositor requires the shared-texture GPU transport");
 		}
 	};
 
@@ -2038,7 +1386,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 	bool D3D12Compositor::Initialize()
 	{
 		_impl = std::make_unique<Impl>();
-		REX::INFO("D3D12Compositor: initialized (present-time overlay; engine device/queue + Present hook "
+		REX::INFO("D3D12Compositor: initialized (seam overlay; engine device/queue + Present discovery hook "
 				  "are set up on the first submitted frame)");
 		return true;
 	}
@@ -2046,8 +1394,8 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 	void D3D12Compositor::Shutdown()
 	{
 		if (_impl) {
-			REX::INFO("D3D12Compositor: shutdown after {} overlay draw(s) ({} waited on busy slot, {} dropped on timeout)",
-				_impl->drawnFrames, _impl->waitedBusy, _impl->skippedBusy);
+			REX::INFO("D3D12Compositor: shutdown after {} seam overlay draw(s)",
+				_impl->seamDraws.load(std::memory_order_relaxed));
 			_impl.reset();
 		}
 	}
@@ -2060,7 +1408,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		if (a_frame.sharedSlot >= 0) {
 			_impl->CacheSharedFrame(a_frame);
 		} else {
-			_impl->CacheFrame(a_frame);
+			_impl->WarnCpuFrameUnsupported();
 		}
 		_impl->EnsureSetup();
 		_impl->CheckPresentLiveness();
@@ -2070,10 +1418,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 	{
 		if (_impl) {
 			_impl->seamMode.store(a_enabled, std::memory_order_relaxed);
-			if (a_enabled) {
-				REX::INFO("D3D12Compositor: seam draw active — the present hook keeps "
-						  "discovery/plumbing duties and no longer draws");
-			}
 		}
 	}
 
