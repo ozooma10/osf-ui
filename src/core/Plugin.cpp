@@ -1,6 +1,7 @@
 #include "core/Plugin.h"
 
 #include "api/PapyrusApi.h"
+#include "core/ThreadAffinityProbe.h"
 #include "core/Version.h"
 #include "input/FocusMenu.h"
 #include "input/MainThreadMenuPump.h"
@@ -43,6 +44,14 @@ namespace OSFUI::Plugin
 					// menu-uncapped frame rates.
 					REX::INFO("FrameTick: first per-frame task received from SFSE TaskInterface");
 				}
+
+				// Thread-affinity probe (devMode only, self-gated & bounded):
+				// sample the thread this SFSE task drains on, and post a probe
+				// through the engine's native BSService queue to sample its drain
+				// thread too. Together with the main-loop anchor this yields the
+				// three thread ids that settle where each queue actually runs.
+				ThreadProbe::NoteSfseTask();
+				ThreadProbe::ProbeEngineQueue();
 
 				Runtime::Get().Tick(dt);
 			}
