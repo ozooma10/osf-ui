@@ -240,6 +240,7 @@ namespace osfui::wv2
 			// to Chromium, and the game polls XInput independently of its suspended
 			// Windows.Gaming.Input stream.
 			bool          focusGranted{ false };
+			bool          rawMouseRegistered{ false };
 			int           capturedMouseX{ 0 }, capturedMouseY{ 0 };
 			std::unordered_set<UINT> handledKeys;
 			// Warn-once dedupe for denied egress ("viewId|host"): a page that
@@ -2260,6 +2261,11 @@ namespace osfui::wv2
 				if (!focusGranted || !active || !active->compositionController) {
 					return false;
 				}
+				// Raw input is the authoritative physical-wheel source while native
+				// menu focus is live. A legacy WM_MOUSEWHEEL can still reach a
+				// same-process widget on some WebView2 builds; consume that duplicate.
+				if (rawMouseRegistered) return true;
+
 				const auto delta = static_cast<SHORT>(HIWORD(a_wparam));
 				if (delta == 0) return false;
 				active->compositionController->SendMouseInput(
@@ -2333,12 +2339,62 @@ namespace osfui::wv2
 				}
 			}
 
+			void SetRawMouseInput(bool a_enabled)
+			{
+				if (a_enabled == rawMouseRegistered || !hostWindow) return;
+				RAWINPUTDEVICE rawDevice{
+					.usUsagePage = 0x01,
+					.usUsage = 0x02,
+					.dwFlags = static_cast<DWORD>(
+						a_enabled ? RIDEV_INPUTSINK : RIDEV_REMOVE),
+					.hwndTarget = a_enabled ? hostWindow : nullptr
+				};
+				if (!::RegisterRawInputDevices(&rawDevice, 1, sizeof(rawDevice))) {
+					log.Warn(std::format("{} host raw mouse input failed ({}) — "
+						"mouse wheel will use the legacy/game fallback",
+						a_enabled ? "registering" : "removing", ::GetLastError()));
+					return;
+				}
+				rawMouseRegistered = a_enabled;
+			}
+
+			void SendRawMouseWheel(LPARAM a_lparam)
+			{
+				if (!focusGranted || !rawMouseRegistered || !active ||
+					!active->compositionController) {
+					return;
+				}
+				UINT size = 0;
+				if (::GetRawInputData(reinterpret_cast<HRAWINPUT>(a_lparam), RID_INPUT,
+					nullptr, &size, sizeof(RAWINPUTHEADER)) != 0 ||
+					size == 0 || size > sizeof(RAWINPUT)) {
+					return;
+				}
+				RAWINPUT raw{};
+				if (::GetRawInputData(reinterpret_cast<HRAWINPUT>(a_lparam), RID_INPUT,
+					&raw, &size, sizeof(RAWINPUTHEADER)) != size ||
+					raw.header.dwType != RIM_TYPEMOUSE ||
+					(raw.data.mouse.usButtonFlags & RI_MOUSE_WHEEL) == 0) {
+					return;
+				}
+				const auto delta = static_cast<SHORT>(raw.data.mouse.usButtonData);
+				if (delta == 0) return;
+				active->compositionController->SendMouseInput(
+					COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL,
+					COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE,
+					static_cast<UINT32>(delta),
+					POINT{ capturedMouseX, capturedMouseY });
+			}
+
 			[[nodiscard]] bool SendCapturedMouse(
 				UINT a_msg, WPARAM a_wparam, LPARAM a_lparam)
 			{
 				if (!focusGranted || !active || !active->compositionController ||
 					!hostWindow || !gameTopLevel) {
 					return false;
+				}
+				if (a_msg == WM_MOUSEWHEEL && rawMouseRegistered) {
+					return true;
 				}
 
 				POINT point{
@@ -2390,6 +2446,10 @@ namespace osfui::wv2
 				HWND a_hwnd, UINT a_msg, WPARAM a_wparam, LPARAM a_lparam)
 			{
 				auto* self = s_hostInputApp;
+				if (self && a_msg == WM_INPUT) {
+					self->SendRawMouseWheel(a_lparam);
+					// The original proc must still release the raw-input buffer.
+				}
 				if (self && self->focusGranted) {
 					if (a_msg == WM_SETCURSOR) {
 						// While this HWND owns capture, the game no longer receives
@@ -2422,12 +2482,16 @@ namespace osfui::wv2
 				// the top menu, so sibling views never see the pointer.
 				if (!active || !active->compositionController) return;
 				const std::string kind = a_msg.value("kind", "move");
+				const bool physicalWheel = kind == "physicalWheel";
+				// Prefer direct host raw input and discard the later game-pipe
+				// fallback so one physical notch scrolls exactly once.
+				if (physicalWheel && rawMouseRegistered) return;
 				int x = a_msg.value("x", 0);
 				int y = a_msg.value("y", 0);
 				// Right-stick scrolling still arrives over the pipe. Once the host
 				// owns physical mouse capture, target it at the last real pointer
 				// position rather than the game runtime's now-stale WM_INPUT position.
-				if (focusGranted && kind == "wheel") {
+				if (focusGranted && (kind == "wheel" || physicalWheel)) {
 					x = capturedMouseX;
 					y = capturedMouseY;
 				}
@@ -2439,7 +2503,7 @@ namespace osfui::wv2
 				UINT32 data = 0;
 				if (kind == "move") {
 					eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_MOVE;
-				} else if (kind == "wheel") {
+				} else if (kind == "wheel" || physicalWheel) {
 					eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL;
 					data = static_cast<UINT32>(a_msg.value("wheel", 0));
 				} else {
@@ -2563,6 +2627,7 @@ namespace osfui::wv2
 					// game side restores its own focus on its window thread.
 					const bool focused = a_msg.value("focused", false);
 					focusGranted = focused;
+					SetRawMouseInput(focused);
 					if (focused && active && active->controller && !active->hidden) {
 						active->controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
 					}
@@ -2665,6 +2730,7 @@ namespace osfui::wv2
 			void CloseWebResources()
 			{
 				focusGranted = false;
+				SetRawMouseInput(false);
 				captureArmed = false;
 				ReconcileInputWidgetSubclass();
 				ApplyMouseCapture();

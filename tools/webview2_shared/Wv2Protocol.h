@@ -75,7 +75,7 @@ namespace osfui::wv2
 	// setOrder      { view:str, order:i32 }      (composite z: lower beneath, ties by creation)
 	// setActive     { view:str }                 (mouse/focus/synthetic-key target)
 	// focus         { focused:bool }             (moves real focus into the active view)
-	// mouse         { kind:"move"|"button"|"wheel", x:i32, y:i32,
+	// mouse         { kind:"move"|"button"|"wheel"|"physicalWheel", x:i32, y:i32,
 	//                 button:i32, down:bool, wheel:i32 }   (active view)
 	// key           { vk:u32, down:bool }        (synthetic tap into the active view's widget)
 	// postWeb       { view:str, json:str }

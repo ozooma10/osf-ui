@@ -51,6 +51,7 @@ namespace OSFUI
 		void InjectMouseMove(int a_x, int a_y) override;
 		void InjectMouseButton(int a_x, int a_y, int a_button, bool a_down) override;
 		void InjectMouseWheel(int a_x, int a_y, int a_wheelDelta) override;
+		void InjectPhysicalMouseWheel(int a_x, int a_y, int a_wheelDelta) override;
 		void EvaluateScript(std::string_view a_viewId, std::string_view a_js,
 			ScriptResultHandler a_onResult = nullptr) override;
 		void CallJsFunction(std::string_view a_viewId, std::string_view a_fnName,

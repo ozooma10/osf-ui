@@ -9,6 +9,8 @@
 
 ### Fixed
 
+- Mouse-wheel scrolling now works in interactive UI pages after browser focus moves into the WebView2 helper. The helper captures wheel packets on its own window instead of depending on subclassing Chromium's focused child window across a process boundary, while retaining the previous routes as fallbacks.
+- Fixed a crash when OSF UI and BetterConsole are enabled together. If BetterConsole re-hooks the game window after OSF UI, the two input hooks no longer chain back into each other until the process exhausts its stack; both overlays still receive input and Starfield's own window procedure remains at the end of the chain.
 - Starting Starfield with OSF UI enabled no longer lets the WebView2 helper's offscreen bootstrap window take foreground activation and leave the game backgrounded during launch.
 - Interactive menus now give their WebView genuine foreground focus for the whole session, matching the smooth behavior observed when Starfield loses focus without overriding either process's GPU priority. Keyboard and IME input route natively, mouse movement/buttons/wheel are captured by the host, and XInput gamepads keep the existing navigation/raw-event behavior even though Starfield's focus-gated controller feed pauses. HUD-only views keep Starfield focused and cap capture at 60 Hz to bound gameplay GPU/copy pressure; interactive capture can run up to 240 Hz on supported Windows builds. Chromium also no longer treats the tiny offscreen capture host as occluded background work, while explicitly hidden views still suspend normally.
 - Fixed CSS crosshair cursors appearing as the Windows loading spinner, most visibly over the Web Performance Lab's animation stage.

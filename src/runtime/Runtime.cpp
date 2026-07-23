@@ -1375,7 +1375,8 @@ namespace OSFUI
 		}
 		// Route at the current virtual cursor; the renderer forwards the raw
 		// delta to the host's WebView2 WHEEL input, which performs the scroll.
-		_renderer->InjectMouseWheel(static_cast<int>(_cursorX), static_cast<int>(_cursorY), a_wheelDelta);
+		_renderer->InjectPhysicalMouseWheel(
+			static_cast<int>(_cursorX), static_cast<int>(_cursorY), a_wheelDelta);
 	}
 
 	void Runtime::ReconcileFocusMenu()

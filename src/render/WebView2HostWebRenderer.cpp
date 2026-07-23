@@ -1300,6 +1300,13 @@ namespace OSFUI
 			{ "x", a_x }, { "y", a_y }, { "wheel", a_wheelDelta } });
 	}
 
+	void WebView2HostWebRenderer::InjectPhysicalMouseWheel(
+		int a_x, int a_y, int a_wheelDelta)
+	{
+		_impl->Send(json{ { "type", "mouse" }, { "kind", "physicalWheel" },
+			{ "x", a_x }, { "y", a_y }, { "wheel", a_wheelDelta } });
+	}
+
 	void WebView2HostWebRenderer::EvaluateScript(
 		std::string_view a_viewId, std::string_view a_js,
 		ScriptResultHandler a_onResult)

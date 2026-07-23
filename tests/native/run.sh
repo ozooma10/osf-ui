@@ -46,6 +46,7 @@ SUITES=(
 "localization_service_tests localization_service_tests.cpp ../../src/runtime/LocalizationService.cpp ../../src/runtime/Json.cpp"
 "view_manifest_tests view_manifest_tests.cpp ../../src/runtime/ViewManifest.cpp ../../src/runtime/Json.cpp"
 "cursor_shape_tests cursor_shape_tests.cpp"
+"wndproc_chain_tests wndproc_chain_tests.cpp"
 )
 
 # Deterministic object path for a source (flatten dir separators into the name).

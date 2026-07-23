@@ -303,6 +303,14 @@ namespace OSFUI
 		// of WHEEL_DELTA (120); positive scrolls up. The backend forwards the raw
 		// delta to the host's WebView2 WHEEL input, which performs the scroll.
 		virtual void InjectMouseWheel(int /*a_x*/, int /*a_y*/, int /*a_wheelDelta*/) {}
+		// Physical mouse-wheel fallback from the game window. The out-of-process
+		// WebView2 backend normally captures this directly once it owns menu focus;
+		// keeping a distinct path lets it ignore the duplicate game-side raw packet
+		// while still using it if host-side raw-input registration failed.
+		virtual void InjectPhysicalMouseWheel(int a_x, int a_y, int a_wheelDelta)
+		{
+			InjectMouseWheel(a_x, a_y, a_wheelDelta);
+		}
 
 		// Per-view JS interaction primitives. Backends marshal the work onto
 		// their own worker thread and deliver callbacks on the game thread
