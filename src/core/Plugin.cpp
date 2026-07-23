@@ -10,13 +10,39 @@
 #include "input/UiLayoutGuard.h"
 #include "runtime/Runtime.h"
 
+#include "RE/B/BSService.h"
+
 namespace OSFUI::Plugin
 {
 	namespace
 	{
-		// Per-frame tick source. SFSE permanent tasks run every frame on the
-		// main thread without being deleted (sfse/PluginAPI.h); SFSE owns the
-		// underlying game hook, so no addresses live on our side.
+		// Queue-only counterpart to BSService::TaskQueue::AddTask. QueueTask
+		// leaves the caller's reference intact when it would use an inline
+		// fallback; destroy that delegate without running it so worker-owned
+		// producers can retry rather than violating main-thread affinity.
+		template <class Fn>
+			requires(std::invocable<std::remove_cvref_t<Fn>&>)
+		[[nodiscard]] bool TryQueueMainThread(Fn&& a_fn)
+		{
+			auto* queue = RE::BSService::TaskQueue::GetSingleton();
+			if (!queue) {
+				return false;
+			}
+			RE::BSService::QueuedDelegate* task =
+				new RE::BSService::detail::QueuedFunctorDelegate<std::remove_cvref_t<Fn>>(
+					std::forward<Fn>(a_fn));
+			queue->QueueTask(task);
+			if (task) {
+				delete task;
+				return false;
+			}
+			return true;
+		}
+
+		// Per-frame tick source. SFSE permanent tasks drain on rotating
+		// render-graph workers, not the game main thread. This delegate is only a
+		// lightweight producer: it coalesces and posts Runtime::Tick through the
+		// engine's BSService queue, whose normal drain is on the main thread.
 		//
 		// There is no RemovePermanentTask API, so this delegate must have
 		// process lifetime (function-local static below), Destroy() must be a
@@ -27,16 +53,6 @@ namespace OSFUI::Plugin
 		public:
 			void Run() override
 			{
-				const auto now = std::chrono::steady_clock::now();
-				double dt = 0.0;
-				if (_last) {
-					dt = std::chrono::duration<double>(now - *_last).count();
-				}
-				_last = now;
-				// Clamp: the game pauses on focus loss and this task stalls
-				// with it; don't feed a huge step on resume.
-				dt = std::clamp(dt, 0.0, 0.1);
-
 				++_ticks;
 				if (_ticks == 1) {
 					// One-shot boot marker: proves the SFSE task pump reached
@@ -46,14 +62,22 @@ namespace OSFUI::Plugin
 				}
 
 				// Thread-affinity probe (devMode only, self-gated & bounded):
-				// sample the thread this SFSE task drains on, and post a probe
-				// through the engine's native BSService queue to sample its drain
-				// thread too. Together with the main-loop anchor this yields the
-				// three thread ids that settle where each queue actually runs.
+				// sample the SFSE producer here; the queued callback samples the
+				// actual Runtime tick against the main-loop anchor.
 				ThreadProbe::NoteSfseTask();
-				ThreadProbe::ProbeEngineQueue();
 
-				Runtime::Get().Tick(dt);
+				// At most one tick may be queued or running. If the main thread
+				// stalls, shed redundant worker notifications rather than build
+				// an unbounded queue of stale frames.
+				if (_tickPending.exchange(true, std::memory_order_acq_rel)) {
+					return;
+				}
+				if (!TryQueueMainThread([this]() { RunTickOnMain(); })) {
+					// Queueing can be disabled during early boot. The helper
+					// deliberately refuses BSService's off-main inline fallback;
+					// retry on the next SFSE frame instead.
+					_tickPending.store(false, std::memory_order_release);
+				}
 			}
 
 			void Destroy() override
@@ -62,7 +86,28 @@ namespace OSFUI::Plugin
 			}
 
 		private:
-			std::optional<std::chrono::steady_clock::time_point> _last;
+			void RunTickOnMain()
+			{
+				// Directly sample the code path we care about rather than posting
+				// a separate diagnostic delegate.
+				ThreadProbe::NoteRuntimeTick();
+
+				const auto now = std::chrono::steady_clock::now();
+				double dt = 0.0;
+				if (_lastMainTick) {
+					dt = std::chrono::duration<double>(now - *_lastMainTick).count();
+				}
+				_lastMainTick = now;
+				// Clamp: the game pauses on focus loss and this task stalls with
+				// it; don't feed a huge step on resume.
+				dt = std::clamp(dt, 0.0, 0.1);
+
+				Runtime::Get().Tick(dt);
+				_tickPending.store(false, std::memory_order_release);
+			}
+
+			std::atomic_bool                                      _tickPending{ false };
+			std::optional<std::chrono::steady_clock::time_point> _lastMainTick;
 			std::uint64_t                                        _ticks{ 0 };
 		};
 		// SFSE broadcast messages. kPostPostDataLoad is the earliest point
@@ -99,11 +144,9 @@ namespace OSFUI::Plugin
 						}
 						MenuEventSink::Install();
 						// Engine-UI work station: hooks the main-loop UI update so
-						// PauseMenuEntry's Scaleform access and the menu-state
-						// snapshots Runtime reads run on the thread that owns the
-						// AS3 VM. SFSE tasks run on a render-graph worker, NOT the
-						// main thread (crash-stack-proven 2026-07-23) — without
-						// this, per-tick RE::UI access races the engine.
+						// PauseMenuEntry's Scaleform access runs not only on the
+						// main thread, but specifically after active movies have
+						// advanced and nothing else is inside the AS3 VM.
 						MainThreadMenuPump::Install();
 						// Register the engine-built IMenu so the engine enters
 						// menu mode with the overlay (registration, open and

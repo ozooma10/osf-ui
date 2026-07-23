@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- OSF UI's per-frame runtime now runs on Starfield's main thread even though SFSE supplies its frame notifications from render workers. Pause, free-cursor and control-layer bookkeeping no longer races the engine, in-game calendar reads are synchronized, and native plugin callbacks once again honor their documented main-thread contract.
+
 ## 1.3.0 — 2026-07-22
 
 Papyrus scripts can now hand real game forms and multi-argument actions to their views across the bridge (protocol 1.3), interactive views get genuine keyboard/gamepad focus without backgrounding the game, and the pause-menu and render-seam paths are hardened against startup races and Scaleform faults. Adds a built-in Web Performance Lab and a Debug-mode switch for developer surfaces.

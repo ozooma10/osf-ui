@@ -24,10 +24,8 @@ namespace OSFUI
 	class SimPause
 	{
 	public:
-		// Drive the engine pause-request counter toward a_desired. Call every tick
-		// from Tick (any thread); edges are detected internally and the counter
-		// touch is marshalled onto the main thread via BSService::TaskQueue (see
-		// core/MainThreadLatch), since Tick runs off-main. No-ops until the UI
+		// Drive the engine pause-request counter toward a_desired. Call every
+		// main-thread Tick; edges are detected internally. No-ops until the UI
 		// singleton exists.
 		static void Apply(bool a_desired);
 	};

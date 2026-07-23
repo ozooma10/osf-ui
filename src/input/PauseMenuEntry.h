@@ -15,9 +15,8 @@ namespace OSFUI
 	//     callable. The registration-map slot and MenuOpenCloseEvent are not
 	//     lifecycle authorities; both lag teardown.
 	//   * ALL engine-UI access (GetMenu, menuArray, AS3 invokes) must run on the
-	//     game main thread. SFSE tasks (Runtime::Tick) run on a render-graph
-	//     worker — invoking from there raced the AS3 VM and CTD'd (trainwreck
-	//     2026-07-23) — so Reconcile is driven by MainThreadMenuPump, post
+	//     game main thread, and AS3 calls must also avoid VM re-entry.
+	//     Reconcile is therefore driven by MainThreadMenuPump after
 	//     UI_AdvanceActiveMenus, where the engine owns the VM and it is idle.
 	//   * Action 100 is consumed in the callback's originating movie before the
 	//     current live movie is checked, so stale callbacks cannot leak the

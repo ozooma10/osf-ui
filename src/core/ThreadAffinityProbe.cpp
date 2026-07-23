@@ -2,8 +2,6 @@
 
 #include "core/Log.h"
 
-#include "RE/B/BSService.h"
-
 // Keep <Windows.h> confined to this file. NOGDI stops wingdi's ERROR macro from
 // clobbering REX::ERROR. We only need GetCurrentThreadId / RtlCaptureStackBackTrace
 // / GetModuleHandleW.
@@ -25,13 +23,13 @@ namespace OSFUI::ThreadProbe
 		// Sample budgets: enough to show stability/variance across frames, not
 		// enough to spam the log at menu-uncapped frame rates.
 		std::atomic<int> g_sfseSamples{ 0 };
-		std::atomic<int> g_enginePosts{ 0 };
+		std::atomic<int> g_runtimeSamples{ 0 };
 		constexpr int    kSfseSampleBudget = 3;
-		constexpr int    kEnginePostBudget = 3;
+		constexpr int    kRuntimeSampleBudget = 1;
 
-		// One module-relative backtrace per source, so the render-graph vs
-		// main-loop frames are captured deterministically — the trainwreck stack,
-		// made non-fatal. Compare the printed offsets against the addresses in
+		// Bounded module-relative backtraces, so the render-graph vs main-loop
+		// frames are captured deterministically — the trainwreck stack, made
+		// non-fatal. Compare the printed offsets against the addresses in
 		// MainThreadMenuPump.h (main loop 0x141890c60 -> module+0x1890c60).
 		void LogBacktrace(const char* a_tag)
 		{
@@ -88,41 +86,24 @@ namespace OSFUI::ThreadProbe
 		LogBacktrace("sfse-task");
 	}
 
-	void ProbeEngineQueue()
+	void NoteRuntimeTick()
 	{
 		if (!Log::DevMode()) {
 			return;
 		}
-		// Wait for the main-loop anchor before posting, so the drain's same=
-		// comparison against the main thread is meaningful (and steady-state, not
-		// early-boot before the queue's drainer is even running).
-		if (g_mainLoopTid.load(std::memory_order_acquire) == 0) {
+		const auto mainTid = g_mainLoopTid.load(std::memory_order_acquire);
+		if (mainTid == 0) {
 			return;
 		}
-		const int n = g_enginePosts.fetch_add(1, std::memory_order_relaxed);
-		if (n >= kEnginePostBudget) {
+		if (g_runtimeSamples.fetch_add(1, std::memory_order_relaxed) >= kRuntimeSampleBudget) {
 			return;
 		}
-		auto* queue = RE::BSService::TaskQueue::GetSingleton();
-		if (!queue) {
-			REX::INFO("ThreadProbe[engine-queue #{}]: TaskQueue singleton null (early boot?) — skipped", n);
-			return;
-		}
-		const auto postTid = static_cast<std::uint32_t>(::GetCurrentThreadId());
-		// Fire-and-forget: AddTask owns the delegate and runs it on the next
-		// budgeted drain (or inline right here if this very thread is the drainer
-		// / queueing is disabled — which the inline=YES line below reveals).
-		queue->AddTask([postTid, n]() {
-			const auto drainTid = static_cast<std::uint32_t>(::GetCurrentThreadId());
-			const auto mainTid = g_mainLoopTid.load(std::memory_order_acquire);
-			const auto sfseTid = g_sfseTaskTid.load(std::memory_order_relaxed);
-			REX::INFO("ThreadProbe[engine-queue #{}]: BSService drain tid={} | mainLoopTid={} same={} | "
-					  "postTid={} inline={} | sfseTaskTid={} same={}",
-				n, drainTid,
-				mainTid, (mainTid != 0 && drainTid == mainTid) ? "YES" : "no",
-				postTid, (drainTid == postTid) ? "YES" : "no",
-				sfseTid, (sfseTid != 0 && drainTid == sfseTid) ? "YES" : "no");
-			LogBacktrace("engine-queue");
-		});
+		const auto tickTid = static_cast<std::uint32_t>(::GetCurrentThreadId());
+		const auto sfseTid = g_sfseTaskTid.load(std::memory_order_relaxed);
+		REX::INFO("ThreadProbe[runtime-tick]: Runtime::Tick runs on tid={} | mainLoopTid={} same={} | "
+				  "sfseTaskTid={} same={}",
+			tickTid, mainTid, tickTid == mainTid ? "YES" : "no",
+			sfseTid, (sfseTid != 0 && tickTid == sfseTid) ? "YES" : "no");
+		LogBacktrace("runtime-tick");
 	}
 }

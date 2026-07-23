@@ -11,9 +11,8 @@ namespace OSFUI
 	// overlay itself does not read as a game menu here.
 	namespace MenuMode
 	{
-		// Game MAIN thread only (MainThreadMenuPump; SFSE-task ticks run on a
-		// render-graph worker and must use the pump's snapshot instead): walks
-		// RE::UI's active menu array.
+		// Game MAIN thread only: walks RE::UI's active menu array. Runtime::Tick
+		// satisfies this by draining through RE::BSService::TaskQueue.
 		// True while any admitted kModal menu is open, i.e. not plain gameplay.
 		// Also true while the dev console is open: it is kModal-clear (gameplay
 		// keeps running) but console typing must not fire hotkeys.

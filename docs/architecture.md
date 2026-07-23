@@ -34,7 +34,7 @@ Backends implement `IWebRenderer` / `ICompositor`; the rest of the runtime doesn
 
 ### Data flow per frame
 
-1. An SFSE permanent task (registered in `core/Plugin.cpp`) calls `Runtime::Tick(dt)` every frame on the game's Main thread, with a self-timed, 100 ms-clamped dt.
+1. An SFSE permanent task (registered in `core/Plugin.cpp`) runs on the engine's render-graph workers and posts one coalesced `Runtime::Tick(dt)` through `RE::BSService::TaskQueue`. The queue drains Tick on the game main thread; if BSService cannot enqueue yet, the worker drops that notification and retries next frame rather than taking the queue's unsafe inline fallback. Tick self-times on the main thread and clamps `dt` to 100 ms.
 2. `IWebRenderer::Update(dt)` advances the web content.
 3. The WebView2 host publishes frames through a shared D3D12 texture ring; `IWebRenderer::Render()` returns the ready slot and fence serial.
 4. `ICompositor::Submit(frame)` records that slot, and the Present hook samples it directly without a CPU readback or upload.

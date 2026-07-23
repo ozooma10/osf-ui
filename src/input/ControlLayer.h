@@ -21,19 +21,15 @@ namespace OSFUI
 	// restore with no leak), but a session-held layer avoids re-allocating from
 	// the fixed 100-slot pool on every open.
 	//
-	// The engine mutation must run on the game main thread, but Runtime drives
-	// this from Tick, which runs on an off-main worker (proven 2026-07-23). So
-	// Apply() marshals the engage/release onto the main thread via
-	// BSService::TaskQueue (see core/MainThreadLatch). The manager singleton is
-	// invalid at the main menu, so the deferred apply no-ops (warn-once) until
-	// gameplay; the overlay force-hides there anyway.
+	// Main-thread only: Runtime drives this from its BSService-queued Tick. The
+	// manager singleton is invalid at the main menu, so Apply() no-ops
+	// (warn-once) until gameplay; the overlay force-hides there anyway.
 	class ControlLayer
 	{
 	public:
-		// Drive the control-disable layer toward a_engage. Call every tick from
-		// Tick (any thread); edges are detected internally and the actual layer
-		// alloc/toggle happens on the main thread. Disabling allocates the layer
-		// on first use; the pooled layer is kept for reuse across toggles.
+		// Drive the control-disable layer toward a_engage. Call every main-thread
+		// Tick; edges are detected internally. Disabling allocates the layer on
+		// first use; the pooled layer is kept for reuse across toggles.
 		static void Apply(bool a_engage);
 
 	private:

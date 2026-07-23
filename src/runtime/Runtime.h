@@ -28,10 +28,10 @@ namespace OSFUI
 		bool Initialize();
 		void Shutdown();
 
-		// Advances the renderer and submits a frame when visible. Called every
-		// frame on the game's Main thread via an SFSE permanent task, under
-		// SFSE's task-queue lock: keep it cheap, never block. Cadence at main
-		// menu / pause is unverified in-game.
+		// Advances the renderer and submits a frame when visible. Called on the
+		// game main thread through RE::BSService::TaskQueue; an SFSE permanent
+		// task running on a render-graph worker is only the coalesced producer.
+		// Keep it cheap and never block.
 		void Tick(double a_deltaSeconds);
 
 		[[nodiscard]] bool IsVisible() const;

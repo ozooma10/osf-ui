@@ -1,7 +1,5 @@
 #include "input/MainThreadMenuPump.h"
 
-#include "input/FocusMenu.h"
-#include "input/MenuMode.h"
 #include "input/PauseMenuEntry.h"
 
 #include "core/Log.h"
@@ -11,7 +9,6 @@
 #include "REL/Trampoline.h"
 
 #include <atomic>
-#include <chrono>
 #include <cstdint>
 #include <cstring>
 
@@ -38,22 +35,6 @@ namespace OSFUI::MainThreadMenuPump
 		std::atomic<bool>      g_installed{ false };
 		std::atomic<bool>      g_installTried{ false };
 
-		// Snapshots published after each advance pass. Tri-state: -1 = never
-		// published. Freshness guards against a stalled pump (load screens can
-		// reroute the UI update) handing Tick a stale answer forever.
-		std::atomic<int>           g_focusMenuOpen{ -1 };
-		std::atomic<int>           g_anyGameMenuOpen{ -1 };
-		std::atomic<std::uint64_t> g_lastPassMs{ 0 };
-		constexpr std::uint64_t    kFreshWindowMs = 500;
-
-		[[nodiscard]] std::uint64_t NowMs()
-		{
-			return static_cast<std::uint64_t>(
-				std::chrono::duration_cast<std::chrono::milliseconds>(
-					std::chrono::steady_clock::now().time_since_epoch())
-					.count());
-		}
-
 		void* AdvanceThunk(void* a_1, void* a_2, void* a_3, void* a_4)
 		{
 			const auto original = g_original.load(std::memory_order_relaxed);
@@ -67,22 +48,7 @@ namespace OSFUI::MainThreadMenuPump
 			// runs this thunk IS the main thread (devMode only; no-op otherwise).
 			ThreadProbe::NoteMainLoop();
 			PauseMenuEntry::Reconcile();
-			g_focusMenuOpen.store(FocusMenu::IsOpenInEngine() ? 1 : 0, std::memory_order_release);
-			g_anyGameMenuOpen.store(MenuMode::AnyGameMenuOpen() ? 1 : 0, std::memory_order_release);
-			g_lastPassMs.store(NowMs(), std::memory_order_release);
 			return result;
-		}
-
-		[[nodiscard]] std::optional<bool> Snapshot(const std::atomic<int>& a_state)
-		{
-			const auto state = a_state.load(std::memory_order_acquire);
-			if (state < 0) {
-				return std::nullopt;
-			}
-			if (NowMs() - g_lastPassMs.load(std::memory_order_acquire) > kFreshWindowMs) {
-				return std::nullopt;
-			}
-			return state != 0;
 		}
 	}
 
@@ -149,18 +115,4 @@ namespace OSFUI::MainThreadMenuPump
 		return true;
 	}
 
-	bool Installed()
-	{
-		return g_installed.load(std::memory_order_acquire);
-	}
-
-	std::optional<bool> FocusMenuOpenSnapshot()
-	{
-		return Snapshot(g_focusMenuOpen);
-	}
-
-	std::optional<bool> AnyGameMenuOpenSnapshot()
-	{
-		return Snapshot(g_anyGameMenuOpen);
-	}
 }

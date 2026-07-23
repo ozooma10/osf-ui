@@ -22,10 +22,7 @@ namespace OSFUI::ThreadProbe
 	// backtrace), then goes silent.
 	void NoteSfseTask();
 
-	// Post a delegate through the engine's native RE::BSService::TaskQueue and
-	// sample the thread it actually runs on — a DIFFERENT queue than SFSE's.
-	// Call from a non-drain thread (e.g. FrameTickTask::Run) so it can't mask
-	// the real drain thread via the inline fallback. Posts a bounded number of
-	// probes total, then stops.
-	void ProbeEngineQueue();
+	// Sample the actual Runtime::Tick delegate after BSService drains it. Logs
+	// once with comparisons to both the main-loop and SFSE-task threads.
+	void NoteRuntimeTick();
 }
