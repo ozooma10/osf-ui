@@ -63,6 +63,12 @@ namespace OSFUI::API
 		// nullptr on unknown mod/key. Caller must hold _mutex.
 		[[nodiscard]] const nlohmann::json* Find(const char* a_modId, const char* a_key) const;
 
+		// Exact-case then ASCII-CI element lookup (the class-comment fallback);
+		// nullptr on no match. LookupMod reads _mods, so the caller holds _mutex;
+		// LookupKey works on an already-resolved Values.
+		[[nodiscard]] const std::pair<const std::string, Values>* LookupMod(std::string_view a_modId) const;
+		[[nodiscard]] static const std::pair<const std::string, nlohmann::json>* LookupKey(const Values& a_values, std::string_view a_key);
+
 		mutable std::mutex                      _mutex;
 		std::unordered_map<std::string, Values> _mods;
 	};

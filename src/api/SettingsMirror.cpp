@@ -113,66 +113,61 @@ namespace OSFUI::API
 	bool SettingsMirror::ResolveNames(std::string_view a_modId, std::string_view a_key, std::string& a_outMod, std::string& a_outKey) const
 	{
 		std::lock_guard lock(_mutex);
-		const Values* values = nullptr;
-		if (const auto mod = _mods.find(std::string(a_modId)); mod != _mods.end()) {
-			a_outMod = mod->first;
-			values = &mod->second;
-		} else {
-			for (const auto& [id, v] : _mods) {
-				if (Ids::EqualsCaseInsensitiveAscii(id, a_modId)) {
-					a_outMod = id;
-					values = &v;
-					break;
-				}
-			}
-		}
-		if (!values) {
+		const auto* mod = LookupMod(a_modId);
+		if (!mod) {
 			return false;
 		}
+		a_outMod = mod->first;
+		// Empty key resolves the mod only (whole-mod Reset); do not look up a key.
 		if (a_key.empty()) {
 			a_outKey.clear();
 			return true;
 		}
-		if (const auto it = values->find(std::string(a_key)); it != values->end()) {
-			a_outKey = it->first;
-			return true;
+		const auto* entry = LookupKey(mod->second, a_key);
+		if (!entry) {
+			return false;
 		}
-		for (const auto& [key, v] : *values) {
-			if (Ids::EqualsCaseInsensitiveAscii(key, a_key)) {
-				a_outKey = key;
-				return true;
-			}
-		}
-		return false;
+		a_outKey = entry->first;
+		return true;
 	}
 
 	const nlohmann::json* SettingsMirror::Find(const char* a_modId, const char* a_key) const
 	{
+		// Null-check before any string_view is built from these pointers.
 		if (!a_modId || !a_key) {
 			return nullptr;
 		}
-		const Values* values = nullptr;
-		if (const auto mod = _mods.find(a_modId); mod != _mods.end()) {
-			values = &mod->second;
-		} else {
-			// Case-insensitive fallback: Papyrus cannot control BSFixedString
-			// casing (see header).
-			for (const auto& [id, v] : _mods) {
-				if (Ids::EqualsCaseInsensitiveAscii(id, a_modId)) {
-					values = &v;
-					break;
-				}
-			}
-		}
-		if (!values) {
+		const auto* mod = LookupMod(a_modId);
+		if (!mod) {
 			return nullptr;
 		}
-		if (const auto value = values->find(a_key); value != values->end()) {
-			return &value->second;
+		const auto* entry = LookupKey(mod->second, a_key);
+		return entry ? &entry->second : nullptr;
+	}
+
+	const std::pair<const std::string, SettingsMirror::Values>* SettingsMirror::LookupMod(std::string_view a_modId) const
+	{
+		if (const auto it = _mods.find(std::string(a_modId)); it != _mods.end()) {
+			return &*it;
 		}
-		for (const auto& [key, value] : *values) {
-			if (Ids::EqualsCaseInsensitiveAscii(key, a_key)) {
-				return &value;
+		// Case-insensitive fallback: Papyrus cannot control BSFixedString casing
+		// (see header).
+		for (const auto& entry : _mods) {
+			if (Ids::EqualsCaseInsensitiveAscii(entry.first, a_modId)) {
+				return &entry;
+			}
+		}
+		return nullptr;
+	}
+
+	const std::pair<const std::string, nlohmann::json>* SettingsMirror::LookupKey(const Values& a_values, std::string_view a_key)
+	{
+		if (const auto it = a_values.find(std::string(a_key)); it != a_values.end()) {
+			return &*it;
+		}
+		for (const auto& entry : a_values) {
+			if (Ids::EqualsCaseInsensitiveAscii(entry.first, a_key)) {
+				return &entry;
 			}
 		}
 		return nullptr;
