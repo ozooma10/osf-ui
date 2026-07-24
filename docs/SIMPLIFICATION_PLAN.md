@@ -333,11 +333,53 @@ each `§`-pointer referenced. Left for the maintainer to choose.
   format-validity branch regardless, and a logging helper would pull REX logging into the otherwise
   dependency-free `Version.h`. Only the pure predicate was shared.
 
+### §4c.5 — pipe message-builders (landed, `3e5b049`)
+Eight wire shapes were authored twice (snapshot vs setter) and parsed by a *separate binary*, so
+drift was silent. One builder per shape; each shape now has exactly one authoring.
+
+The race guardrail is **structurally enforced** rather than comment-enforced: the builders live in
+the anonymous namespace, which closes *before* `Impl::ViewRec` is declared, so a `const ViewRec&`
+signature cannot compile there. Two checks worth repeating on any future edit:
+- a per-shape grep must return exactly one authoring each;
+- `accelState`'s adjacent bools — the locals are `accCaptured`/`accArmed` but the wire keys are
+  `captured`/`captureArmed`, so a swap compiles clean and silently changes the wire.
+
+⚠ **`xmake build` alone does not prove this file compiled** — it is behind
+`#if defined(OSFUI_WITH_WEBVIEW2)` (option defaults on, `xmake.lua`). Confirm the compile output
+actually names `WebView2HostWebRenderer.cpp`. `tests/native/run.sh` never compiles it.
+
+### §4c.6 — `PatchVtableSlot` — DEFERRED to Phase 5 (in-game gated)
+Designed and adversarially reviewed; **not implemented**, because it cannot be validated headlessly
+and its value is marginal:
+- It touches `IDXGISwapChain::Present` **slot 8** — the hook implicated in CTD reports #2/#4 — plus
+  the two UiPassSeam sites. Verification requires an in-game F10 overlay open, confirming
+  `[UiPassSeam] seam draw hooks armed` and `D3D12Compositor: hooked IDXGISwapChain::Present slot 8`
+  appear and `seam draw hook self-test FAILED` does **not**.
+- LOC is roughly neutral once the helper's doc comment is counted. The real payoff is deleting the
+  local `PatchSlot`, whose `[[nodiscard]] void*` return *looks* like a chain source but is only ever
+  a success boolean — exactly the shape the guardrail forbids.
+
+When executed, the verified constraints are:
+- Signature `bool PatchVtableSlot(void** slot, void* value, std::uint32_t protect)` in
+  `platform/WindowsPlatform.{h,cpp}`. It must **never** read the slot before writing and must
+  **never** return the old value.
+- Page protection stays **parameterized, not unified**: `PAGE_EXECUTE_READWRITE` on Present slot 8,
+  `PAGE_READWRITE` on both seam sites.
+- Every caller keeps publishing the original pointer **before** the slot write (store-before-write);
+  where the release-store currently sits inside the protect window it moves *earlier*, never later.
+  Keep the compensating `a_orig.store(0, release)` rollback on failure.
+- Read-back diagnostics and all logging stay in the callers; no `FlushInstructionCache`.
+- Do **not** add an include to `platform/WindowsPlatform.h` — it deliberately has none and relies on
+  the project PCH; that is what keeps the Win32-free-facade contract.
+- Current line anchors (verified against this tree): `UiPassSeam.cpp` local `PatchSlot` 136–146,
+  install block 176–187, rollback 210–219, `HookExecuteSlot` mechanics 327–335;
+  `D3D12Compositor.cpp` Present block 868–916, mechanics 900–903, read-back 904–910.
+
 ### Still open
-§4c.5 (pipe message-builders) and §4c.6 (`PatchVtableSlot`) — the two race/ordering-sensitive items;
-under independent design + adversarial review before implementation. Then §5 (frontend, incl. the two
-items needing an in-game controller pass), protocol-name centralization, Phase 2 (in-game gated),
-Phase 4 and Phase 5.
+**§4c is now complete except §4c.6** (deferred above) and the two declined items. Remaining: §5
+(frontend, incl. the two items needing an in-game controller pass), protocol-name centralization,
+Phase 2 (in-game gated), Phase 4, and Phase 5 — which should absorb §4c.6 alongside §6b.2, since both
+are seam/FG-thread changes needing the same in-game smoke.
 
 ---
 
