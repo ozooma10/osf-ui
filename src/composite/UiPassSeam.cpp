@@ -5,13 +5,7 @@
 #include "core/Log.h"
 #include "platform/WindowsPlatform.h"
 
-// GDI-free Win32/D3D12 so the ERROR macro never collides with REX::ERROR.
-#define WIN32_LEAN_AND_MEAN
-#define NOGDI
-#define NOMINMAX
-#include <Windows.h>
-
-#include <d3d12.h>
+#include "composite/D3D12Prologue.h"  // GDI-free <Windows.h> + <d3d12.h>
 
 #include <atomic>
 #include <cstddef>

@@ -5,13 +5,8 @@
 #include "core/StringUtil.h"
 #include "platform/WindowsPlatform.h"
 
-// GDI-free Win32/D3D12 so the ERROR macro never collides with REX::ERROR.
-#define WIN32_LEAN_AND_MEAN
-#define NOGDI
-#define NOMINMAX
-#include <Windows.h>
+#include "composite/D3D12Prologue.h"  // GDI-free <Windows.h> + <d3d12.h>
 
-#include <d3d12.h>
 #include <d3dcompiler.h>
 #include <dxgi1_6.h>
 #include <intrin.h>  // _ReturnAddress: classify who invokes our Present thunk

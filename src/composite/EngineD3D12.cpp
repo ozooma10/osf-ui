@@ -4,14 +4,7 @@
 
 #include "RE/C/CreationRenderer.h"
 
-// Keep the Win32/D3D12 headers GDI-free so the ERROR macro never collides
-// with REX::ERROR in this translation unit.
-#define WIN32_LEAN_AND_MEAN
-#define NOGDI
-#define NOMINMAX
-#include <Windows.h>
-
-#include <d3d12.h>
+#include "composite/D3D12Prologue.h"  // GDI-free <Windows.h> + <d3d12.h>
 
 namespace OSFUI
 {
