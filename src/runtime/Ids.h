@@ -83,4 +83,19 @@ namespace OSFUI::Ids
 		}
 		return IsAcceptedModId(a_id.substr(0, slash)) && IsValidViewName(a_id.substr(slash + 1));
 	}
+
+	// Split a qualified id "<modId>/<viewName>" on the first '/'. The results are
+	// VIEWS into a_id — do not outlive it. A degenerate id with no '/' returns the
+	// whole id from both, matching every caller's existing fallback.
+	[[nodiscard]] inline std::string_view ModOf(std::string_view a_id) noexcept
+	{
+		const auto slash = a_id.find('/');
+		return slash == std::string_view::npos ? a_id : a_id.substr(0, slash);
+	}
+
+	[[nodiscard]] inline std::string_view ViewNameOf(std::string_view a_id) noexcept
+	{
+		const auto slash = a_id.find('/');
+		return slash == std::string_view::npos ? a_id : a_id.substr(slash + 1);
+	}
 }

@@ -744,10 +744,8 @@ namespace OSFUI
 		// like entering that same terminal instead of opening global UI chrome.
 		_menus.Register({ std::string(kHandoffViewId), SurfaceKind::Menu,
 			target->capturesInput, target->pausesGame, target->order });
-		const auto slash = target->id.find('/');
-		const auto viewName = slash == std::string::npos ? target->id : target->id.substr(slash + 1);
 		const auto title = _localization.Resolve(target->mod,
-			"views." + viewName + ".title", target->title);
+			"views." + std::string(Ids::ViewNameOf(target->id)) + ".title", target->title);
 		_bridge->SendToWeb(kHandoffViewId, "handoff.state", nlohmann::json{
 			{ "target", target->id },
 			{ "mod", target->mod },
@@ -1215,9 +1213,9 @@ namespace OSFUI
 			views.push_back(nlohmann::json{
 				{ "id", m.id },
 				{ "title", _localization.Resolve(m.mod,
-					"views." + m.id.substr(m.id.find('/') + 1) + ".title", m.title) },
+					"views." + std::string(Ids::ViewNameOf(m.id)) + ".title", m.title) },
 				{ "description", _localization.Resolve(m.mod,
-					"views." + m.id.substr(m.id.find('/') + 1) + ".description", m.description) },
+					"views." + std::string(Ids::ViewNameOf(m.id)) + ".description", m.description) },
 				{ "mod", m.mod },
 				{ "kind", m.kind == SurfaceKind::Hud ? "hud" : "menu" },
 				{ "interactive", m.interactive },
@@ -2177,8 +2175,7 @@ namespace OSFUI
 		// subscribes so a live language change replaces the catalog.
 		a_bridge.RegisterCommand("i18n.get", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
 			const std::string source(a_b.CurrentSource());
-			const auto slash = source.find('/');
-			const std::string ownMod = slash == std::string::npos ? source : source.substr(0, slash);
+			const std::string ownMod{ Ids::ModOf(source) };
 			std::string mod = Json::GetString(a_p, "mod", ownMod);
 			if (!Ids::IsAcceptedModId(mod)) {
 				a_b.SendResult(false, "invalid-mod", "invalid localization mod id");
@@ -2233,8 +2230,7 @@ namespace OSFUI
 		// auto ui.result ack, meaning "queued to the VM", not "handled".
 		a_bridge.RegisterCommand("ui.action", [](const nlohmann::json& a_p, MessageBridge& a_b) {
 			const std::string source(a_b.CurrentSource());
-			const auto        slash = source.find('/');
-			const std::string mod = slash == std::string::npos ? source : source.substr(0, slash);
+			const std::string mod{ Ids::ModOf(source) };
 			const std::string action = Json::GetString(a_p, "action", "");
 			if (action.empty()) {
 				REX::WARN("Runtime: ui.action from '{}' ignored — empty 'action'", source);
