@@ -257,6 +257,18 @@ namespace OSFUI
 		void OnViewLoad(std::string_view a_viewId, bool a_failed, std::string_view a_url,
 			std::string_view a_description, int a_errorCode);
 
+		// Is this view ready to be shown? A manifest that declares readySignal is
+		// ready only once the view signalled it (osfui.viewReady); everything else
+		// is ready when its load finished. a_state is the caller's already-resolved
+		// GetViewLoadState, so this does not re-look it up.
+		[[nodiscard]] bool IsViewReady(std::string_view a_id, const ViewManifest& a_manifest, ViewLoadState a_state) const;
+
+		// Reload one view's URL in place: mark it Loading, drop its ready state,
+		// LoadView, then restore the output-matched size. The shared core of
+		// crash-recovery, dev-reload, and pending-open retry. The renderer must
+		// exist — every caller guards _renderer first.
+		void ReloadViewInPlace(const std::string& a_id, const ViewManifest& a_manifest);
+
 		// Fire due reload attempts scheduled by OnViewLoad. Called from Tick on
 		// the game thread.
 		void DriveRecovery();

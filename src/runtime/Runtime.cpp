@@ -689,10 +689,7 @@ namespace OSFUI
 		}
 
 		const auto loadState = GetViewLoadState(a_id);
-		const bool ready = manifest->readySignal ?
-			_readyViews.contains(std::string(a_id)) :
-			loadState == ViewLoadState::Finished;
-		if (ready) {
+		if (IsViewReady(a_id, *manifest, loadState)) {
 			CancelPendingOpen();
 			return _menus.Open(a_id);
 		}
@@ -797,10 +794,7 @@ namespace OSFUI
 				}
 			} else {
 				_recovery.erase(pending.target);
-				_viewLoadState[pending.target] = ViewLoadState::Loading;
-				_readyViews.erase(pending.target);
-				_renderer->LoadView(*manifest);
-				_renderer->Resize(_viewWidth.load(), _viewHeight.load());
+				ReloadViewInPlace(pending.target, *manifest);
 				if (manifest->permissions.nativeBridge && _bridge) {
 					_bridge->SendRuntimeReady(pending.target);
 				}
@@ -818,10 +812,7 @@ namespace OSFUI
 		if (state == ViewLoadState::Finished && pending.loadedAt < 0.0) {
 			pending.loadedAt = _uptime;
 		}
-		const bool ready = manifest->readySignal ?
-			_readyViews.contains(pending.target) :
-			state == ViewLoadState::Finished;
-		if (ready) {
+		if (IsViewReady(pending.target, *manifest, state)) {
 			FinishPendingOpen();
 			return;
 		}
@@ -1139,6 +1130,22 @@ namespace OSFUI
 		BroadcastViewsData();  // loadState -> failed
 	}
 
+	bool Runtime::IsViewReady(std::string_view a_id, const ViewManifest& a_manifest, ViewLoadState a_state) const
+	{
+		return a_manifest.readySignal ? _readyViews.contains(std::string(a_id)) :
+										a_state == ViewLoadState::Finished;
+	}
+
+	void Runtime::ReloadViewInPlace(const std::string& a_id, const ViewManifest& a_manifest)
+	{
+		_viewLoadState[a_id] = ViewLoadState::Loading;
+		_readyViews.erase(a_id);
+		_renderer->LoadView(a_manifest);
+		// A recreated view starts at manifest dimensions; restore the
+		// output-matched size so it composites 1:1 again.
+		_renderer->Resize(_viewWidth.load(), _viewHeight.load());
+	}
+
 	void Runtime::DriveRecovery()
 	{
 		if (_recovery.empty() || !_renderer) {
@@ -1155,12 +1162,7 @@ namespace OSFUI
 			}
 			++rec.attempts;
 			REX::INFO("Runtime: crash-recovery reloading view '{}' (attempt {})", id, rec.attempts);
-			_viewLoadState[id] = ViewLoadState::Loading;
-			_readyViews.erase(id);
-			_renderer->LoadView(*manifest);
-			// A recreated view starts at manifest dimensions; restore the
-			// output-matched size so it composites 1:1 again.
-			_renderer->Resize(_viewWidth.load(), _viewHeight.load());
+			ReloadViewInPlace(id, *manifest);
 		}
 	}
 
@@ -1181,13 +1183,10 @@ namespace OSFUI
 			return;
 		}
 		REX::DEBUG("Runtime: dev-reloading view '{}' (devReloadKey)", *active);
-		// Same pair as crash-recovery: fresh URL load, then restore the
-		// output-matched size so it composites 1:1 again.
-		_viewLoadState[*active] = ViewLoadState::Loading;
-		_readyViews.erase(*active);
+		ReloadViewInPlace(*active, *manifest);
+		// Broadcast AFTER the reload core sets the Loading state — broadcasting
+		// before would send the stale 'loaded' state.
 		BroadcastViewsData();
-		_renderer->LoadView(*manifest);
-		_renderer->Resize(_viewWidth.load(), _viewHeight.load());
 	}
 
 	nlohmann::json Runtime::BuildViewsData() const
