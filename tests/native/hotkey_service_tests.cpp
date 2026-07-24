@@ -413,11 +413,17 @@ int main()
 	}
 
 	// ---- key-name round trip -------------------------------------------------
-	// KeyName (VK -> name) and kNamedKeys (name -> VK) are two hand-written
-	// tables that MUST agree: a name KeyName emits after a rebind capture is
-	// written straight into the values JSON, and ResolveKeyName has to turn it
-	// back into the same VK on the next load. The OEM punctuation keys were
-	// unbindable precisely because they were missing from both.
+	// KeyName (VK -> name) and ResolveKeyName (name -> VK) now read the SAME
+	// kNamedKeys table, so they cannot drift the way two hand-written tables
+	// could. What still needs guarding is the property that replaced that risk:
+	// KeyName returns the FIRST row matching a VK, so the canonical spelling is
+	// whichever row comes first. Moving an alias ahead of its canonical row
+	// (e.g. { "Return", 0x0D } before { "Enter", 0x0D }) would silently change
+	// the name written into the values JSON on a rebind capture — which
+	// ResolveKeyName must still turn back into the same VK on the next load.
+	// The list below therefore holds the canonical spelling of every VK that has
+	// an alias. The OEM punctuation keys were unbindable precisely because they
+	// were missing from the table entirely.
 	{
 		using OSFUI::KeyName;
 		for (const char* name : { "Minus", "Equals", "LBracket", "RBracket",

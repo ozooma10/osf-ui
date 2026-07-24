@@ -126,9 +126,12 @@ namespace OSFUI
 		std::unique_ptr<ICompositor>  CreateCompositor() const;
 
 		// Composition root for feature modules (settings, diagnostics) and the
-		// platform's own bridge commands. Modules are owned as concrete types and
-		// also driven through the shared IUiModule lifecycle loops, in
-		// registration order (diagnostics registered last).
+		// platform's own bridge commands. Ownership is through the base type —
+		// `_modules` holds `unique_ptr<IUiModule>` — while `_settings`/`_diagnostics`
+		// keep non-owning concrete-typed pointers the core reaches through directly.
+		// Both are real: the modules are driven polymorphically through the shared
+		// IUiModule lifecycle loops in registration order (diagnostics last), AND
+		// named concretely at the ~38 sites that need module-specific facts.
 		void BuildModules();
 		void RegisterPlatformCommands(MessageBridge& a_bridge);
 

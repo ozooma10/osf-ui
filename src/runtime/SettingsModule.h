@@ -9,8 +9,10 @@ namespace OSFUI
 {
 	// The schema-driven settings feature as a self-contained module: owns the
 	// SettingsStore, registers the settings.* bridge commands, applies
-	// persisted values at startup. The runtime owns it as a concrete
-	// SettingsModule and also drives it through the shared IUiModule lifecycle.
+	// persisted values at startup. The runtime holds it by `unique_ptr<IUiModule>`
+	// in `_modules` and keeps a non-owning `SettingsModule*` beside it, so it is
+	// both driven through the shared IUiModule lifecycle and reached through
+	// concretely for schema facts.
 	//
 	// Native reactions are the consumer's job; the module only stores/
 	// validates/persists/notifies. Inject a ChangeListener and react to the

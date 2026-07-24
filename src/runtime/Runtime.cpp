@@ -1184,8 +1184,17 @@ namespace OSFUI
 		}
 		REX::DEBUG("Runtime: dev-reloading view '{}' (devReloadKey)", *active);
 		ReloadViewInPlace(*active, *manifest);
-		// Broadcast AFTER the reload core sets the Loading state — broadcasting
-		// before would send the stale 'loaded' state.
+		// Identical payload at the OLD and NEW call sites. The pre-extraction code
+		// broadcast from INSIDE what is now ReloadViewInPlace — after the Loading
+		// store, before LoadView/Resize — and neither LoadView nor Resize touches
+		// _viewLoadState/_readyViews (both just queue a host-pipe message), so the
+		// views.data content is the same. Only wire ORDER changed: the push now
+		// follows the navigate/resize instead of preceding them.
+		//
+		// Do NOT "simplify" this by hoisting it above ReloadViewInPlace. There the
+		// view is still Finished, so BuildViewsData produces the previous payload —
+		// and BroadcastViewsData dedupes against _lastViewsData, so nothing would be
+		// sent at all and the web would never see the loading state.
 		BroadcastViewsData();
 	}
 
