@@ -1339,20 +1339,15 @@ namespace OSFUI
 			std::string target;
 		};
 		std::vector<Wanting> wanting;
-		const auto outdated = [](std::string_view a_target) {
-			std::array<std::uint32_t, 3> parts{};
-			return !a_target.empty() && ParseDottedVersion(a_target, parts) &&
-				parts > kPluginVersionParts;
-		};
 		for (const auto& manifest : _views.All()) {
-			if (outdated(manifest.targetVersion)) {
+			if (IsTargetNewerThanHost(manifest.targetVersion)) {
 				wanting.push_back({ manifest.id, "view", manifest.targetVersion });
 			}
 		}
 		if (_settings) {
 			for (const auto& mod : _settings->Store().DataView().value("mods", nlohmann::json::array())) {
 				const auto target = mod.value("targetVersion", std::string{});
-				if (outdated(target)) {
+				if (IsTargetNewerThanHost(target)) {
 					wanting.push_back({ mod.value("id", std::string{}), "mod", target });
 				}
 			}

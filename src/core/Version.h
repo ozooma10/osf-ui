@@ -57,6 +57,16 @@ namespace OSFUI
 		kPluginVersionMajor, kPluginVersionMinor, kPluginVersionPatch
 	};
 
+	// True when a declared `targetVersion` is newer than the running host — the
+	// "needs update" condition behind the Mods-surface compat badge. Empty or
+	// unparsable versions are not newer (they never badge). Same digits-only
+	// dotted format as ParseDottedVersion (missing parts = 0).
+	[[nodiscard]] inline bool IsTargetNewerThanHost(std::string_view a_target)
+	{
+		std::array<std::uint32_t, 3> parts{};
+		return !a_target.empty() && ParseDottedVersion(a_target, parts) && kPluginVersionParts < parts;
+	}
+
 	// OSF UI's public Nexus Mods page, opened IN THE SYSTEM BROWSER by the
 	// `osfui.openModPage` web command. Hardcoded here (narrow twin for
 	// logs/replies) so page content can only ever trigger this exact page —
