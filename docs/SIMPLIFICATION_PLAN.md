@@ -277,6 +277,70 @@ the IUiModule comment fix, `architecture.md`/dangling-docs hygiene, protocol-nam
 
 ---
 
+## 5b. Execution log
+
+Work landed on branch `simplify/phase-1` (branched from `main` at `e4db141`). Every commit was
+validated independently against the gates that apply to the files it touches: `xmake build` (full
+plugin), `bash tests/native/run.sh`, and `npm --prefix frontend run verify`.
+
+### Phase 1 — complete
+| Commit | Item(s) |
+|---|---|
+| `d0fff12` | §6.1–6.5 dead code + diagnostics-only removals; `LogSessionSummary` → `ResetSessionRouting` (behavioural reset preserved, §2.4) |
+| `f3ba3b3` | IUiModule comment honesty, orphaned doc comment, **pause-menu CTD attribution corrected** (§2.1), `architecture.md` draw-path + IUiModule |
+| `58ab7c0` | §5.9/5.10/5.11 frontend dedupe; §6.7 dead `cycleRail` |
+
+**Not done — needs a decision (§3 Phase 1, "dangling design docs").** Git shows `mcm-design.md`,
+`api-freeze-plan.md`, `reverse-engineering-notes.md` and `docs/ROADMAP.md` were **deliberately
+deleted** in cleanup commits (`c20163f`, `901107f`, `0126172`); `form-references-design.md` and a
+root `ROADMAP.md` were never tracked. So "restore from git history" would revert intentional
+deletions. The alternative is rewriting ~38 citations across ~30 files, which loses the rationale
+each `§`-pointer referenced. Left for the maintainer to choose.
+
+### Phase 3 — §4b shared helpers: complete
+| Commit | Item |
+|---|---|
+| `d22943b` | §4b.1 `core/StringUtil.h` (6 sites; `ModuleFileNameLower` basename kept per §7) |
+| `46fca00` | §4b.3 `Json::CheckFormatVersion` (4) + §4b.4 `GetStringArray` (4; Runtime arg-coercion excluded per §7) |
+| `04e1e47` | §4b.5 `Ids::ModOf`/`ViewNameOf` (5 sites) |
+| `2d19a3b` | §4b.6 `KeyName` derived from `kNamedKeys` |
+| `d83a9bc` | §4b.2 `Version::IsTargetNewerThanHost` (scoped to the pure predicate — see below) |
+
+### Phase 3 — §4c native copy-paste: partial
+| Commit | Item |
+|---|---|
+| `8040be0` | §4c.4 `SettingsMirror::LookupMod`/`LookupKey` (guardrails kept: null-check before `string_view`; empty-key branch caller-side) |
+| `11bc8a8` | §4c.3 `SettingsStore::CollectConflicts` (`selfBlocksGameplay` as a parameter) |
+| `6ad515d` | §4c.7 `PapyrusApi::DispatchOne` |
+| `501ec5b` | §4c.1 `ReloadViewInPlace` (+ `BroadcastViewsData` moved after the reload core) and §4c.2 `IsViewReady` |
+| `2cbcfad` | §4c.11 `composite/D3D12Prologue.h` |
+| `2c19887` | §4c.8 action registrars → 2 shared bodies + `ValidateActionModId` |
+
+**Evaluated and declined** (recorded so nobody re-opens them without new information):
+
+- **§4c.10 `EdgeLatch`** — declined. `FreeCursor::Apply` and `SimPause::Apply` share ~8 lines, but a
+  shared latch needs a state bool plus an `acquire` callable and an `apply` callable (different
+  singleton types, different effects, different logs) — as long as the duplication it removes, across
+  exactly two ~30-line self-contained functions. The plan already sanctioned this outcome.
+- **§4c.9 subscription-registry base** — declined. The genuinely identical parts are `Unsubscribe`,
+  the token-mint loop, and the per-call liveness re-check (~15 lines). Sharing them needs a template
+  base, which forces both classes' nested `Subscription`/`Event` types out to namespace scope: two
+  self-contained files become three for roughly a wash in line count. A shared base for **two**
+  implementations is premature. (The one real readability win, `IsLive(token)` instead of an inline
+  scoped-lock block, is not worth the restructuring on its own.)
+- **§4b.2 partial scope** — the `AcceptTargetVersion` logging helper was not added. The
+  ViewManifest/SettingsStore parse-and-store blocks need `ParseDottedVersion` for their
+  format-validity branch regardless, and a logging helper would pull REX logging into the otherwise
+  dependency-free `Version.h`. Only the pure predicate was shared.
+
+### Still open
+§4c.5 (pipe message-builders) and §4c.6 (`PatchVtableSlot`) — the two race/ordering-sensitive items;
+under independent design + adversarial review before implementation. Then §5 (frontend, incl. the two
+items needing an in-game controller pass), protocol-name centralization, Phase 2 (in-game gated),
+Phase 4 and Phase 5.
+
+---
+
 ## 6. Provenance
 
 Produced by two orchestrated workflows (75-agent subsystem audit → 7-agent verification+fusion) over
