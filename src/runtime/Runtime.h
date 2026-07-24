@@ -125,8 +125,10 @@ namespace OSFUI
 		std::unique_ptr<IWebRenderer> CreateRenderer() const;
 		std::unique_ptr<ICompositor>  CreateCompositor() const;
 
-		// Composition root for feature modules (settings, future HUD, …) and the
-		// platform's own bridge commands. Core knows only the IUiModule contract.
+		// Composition root for feature modules (settings, diagnostics) and the
+		// platform's own bridge commands. Modules are owned as concrete types and
+		// also driven through the shared IUiModule lifecycle loops, in
+		// registration order (diagnostics registered last).
 		void BuildModules();
 		void RegisterPlatformCommands(MessageBridge& a_bridge);
 

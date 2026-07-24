@@ -284,13 +284,20 @@ namespace OSFUI
 			}
 
 			// The list shape changed (first tick of an open, or an engine
-			// re-push). Do NOT invoke AS3 until it has settled for
-			// kListStableTicks: PopulateMainList into a churning VM is the
-			// confirmed report #3 CTD (NaN-boxed atom deref, reproduced under
-			// FSR3 FG 2026-07-23). The engine-level liveness gate (LivePauseMenu)
-			// proves the menu is admitted and advancing but cannot see the AS3
-			// VM's transient re-populate state; the count settling for a few
-			// ticks does. Re-check next tick — this is cheap (one GetMember).
+			// re-push). Defensive debounce: wait until entryCount has settled for
+			// kListStableTicks before invoking AS3 (PopulateMainList).
+			//
+			// NOTE (provenance): the report #3 pause-menu CTD was a CROSS-THREAD
+			// race — engine-UI work running off a rotating SFSE worker — fixed by
+			// running reconcile on the game main thread just after
+			// UI_AdvanceActiveMenus (MainThreadMenuPump), when the AS3 VM is idle.
+			// Its own commit (426146a) concluded "timing debounces could never fix
+			// it." This debounce was added in that same commit and has NOT been
+			// shown necessary under the corrected boundary, so it is a candidate
+			// for removal pending an in-game FSR3-Frame-Generation acceptance run
+			// (docs/SIMPLIFICATION_PLAN.md §2.1). The engine-level liveness gate
+			// (LivePauseMenu) proves the menu is admitted and advancing.
+			// Re-check next tick — this is cheap (one GetMember).
 			if (g_session.stableTicks < kListStableTicks) {
 				return;
 			}

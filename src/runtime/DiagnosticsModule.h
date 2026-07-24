@@ -60,7 +60,6 @@ namespace OSFUI
 			nlohmann::json context;   // bounded technical detail (object), sanitized on entry
 		};
 
-		void OnStart() override {}
 		void RegisterCommands(MessageBridge& a_bridge) override;
 		void OnBridgeDown() override;
 		void OnViewDestroyed(std::string_view a_viewId) override;

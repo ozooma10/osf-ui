@@ -37,7 +37,7 @@ Backends implement `IWebRenderer` / `ICompositor`; the rest of the runtime doesn
 1. An SFSE permanent task (registered in `core/Plugin.cpp`) runs on the engine's render-graph workers and posts one coalesced `Runtime::Tick(dt)` through `RE::BSService::TaskQueue`. The queue drains Tick on the game main thread; if BSService cannot enqueue yet, the worker drops that notification and retries next frame rather than taking the queue's unsafe inline fallback. Tick self-times on the main thread and clamps `dt` to 100 ms.
 2. `IWebRenderer::Update(dt)` advances the web content.
 3. The WebView2 host publishes frames through a shared D3D12 texture ring; `IWebRenderer::Render()` returns the ready slot and fence serial.
-4. `ICompositor::Submit(frame)` records that slot, and the Present hook samples it directly without a CPU readback or upload.
+4. `ICompositor::Submit(frame)` records that slot; the overlay is drawn later, inside the engine's Scaleform UI pass (see *How the D3D12 compositor works*), sampling the shared texture directly with no CPU readback or upload.
 
 ### Message bridge
 
@@ -52,7 +52,7 @@ The bridge is constructed with just a `SendFn` transport (wired to the renderer)
 
 ### Feature modules ("apps" on the platform)
 
-Features are `IUiModule`s (`runtime/UiModule.h`). The core runtime hosts them without knowing what they do: `OnStart()` applies persisted state at load and `RegisterCommands(bridge)` lets a module wire its own bridge commands.
+Features are `IUiModule`s (`runtime/UiModule.h`). `IUiModule` is a uniform lifecycle fan-out: the runtime drives every module through the same points — `OnStart()` (applies persisted state at load), `RegisterCommands(bridge)` (wire its own bridge commands), `OnBridgeDown()`, `OnViewDestroyed()` — from one loop in registration order, rather than a per-module call at each site. It is not a decoupling seam: the runtime still owns and reaches through the concrete module types directly.
 `Runtime::BuildModules()` is the composition root - the one place that names concrete modules and injects their dependencies
 
 ### Views
@@ -85,7 +85,7 @@ avoids MO2/USVFS injection into `msedgewebview2.exe`.
 
 ## How the D3D12 compositor works
 
-`D3D12Compositor` implements `ICompositor` on the game's own D3D12 device. Production frames are sampled directly from the WebView2 host's shared texture ring; CPU frames from the mock backend use the upload path. An `IDXGISwapChain::Present` slot-8 vtable hook draws an alpha-blended fullscreen quad over the backbuffer before the original Present runs.
+`D3D12Compositor` implements `ICompositor` on the game's own D3D12 device. Frames are sampled directly from the WebView2 host's shared texture ring — no CPU readback or upload (CPU frames from the mock backend are not supported on this device path). The overlay quad is drawn *inside the engine's Scaleform UI pass* (`composite/UiPassSeam`, hooked at ScaleformEnd) so frame generation (FSR3 / DLSS-G) paces the overlay like native UI. The `IDXGISwapChain::Present` slot-8 vtable hook itself no longer draws; it is retained for swapchain discovery, frame-generation classification, shared-ring adoption, and hook-liveness.
 
 Remaining open areas: HDR/10-bit backbuffers, frame-gen swapchain selection, and coexistence with other overlay hooks
 

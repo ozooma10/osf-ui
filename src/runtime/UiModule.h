@@ -4,11 +4,15 @@ namespace OSFUI
 {
 	class MessageBridge;
 
-	// A self-contained feature ("app") built on the OSF UI platform. The runtime
-	// hosts modules without knowing what any of them does: OnStart() once at
-	// load, RegisterCommands() so the module can wire its own web<->native
-	// bridge commands. This is the seam a future public plugin API would expose
-	// so modules can ship in separate DLLs.
+	// A feature module ("app") hosted by the runtime. Its purpose is a uniform
+	// lifecycle fan-out: the runtime owns a fixed, ordered list of concrete
+	// modules and drives each one through the same lifecycle points below —
+	// OnStart(), RegisterCommands(), OnBridgeDown(), OnViewDestroyed() — from a
+	// single loop instead of a per-module call at every site. It is NOT a
+	// decoupling seam and NOT a plugin ABI: the runtime still holds and reaches
+	// through the concrete module types (SettingsModule, DiagnosticsModule)
+	// directly; this only keeps the lifecycle loops single and in registration
+	// order (registration order is meaningful — see BuildModules).
 	class IUiModule
 	{
 	public:
