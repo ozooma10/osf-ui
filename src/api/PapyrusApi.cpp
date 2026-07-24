@@ -520,56 +520,73 @@ namespace OSFUI::API::Papyrus
 			return AddEntry(Kind::kHotkey, {}, a_script, a_fn.c_str(), a_modId.c_str(), a_key.c_str() ? a_key.c_str() : "");
 		}
 
-		std::int32_t RegisterForViewActions(PapVM&, std::uint32_t, std::monostate,
-			RE::BSTSmartPointer<RE::BSScript::Object> a_receiver, RE::BSFixedString a_fn, RE::BSFixedString a_modId)
+		// Fold a script-supplied action mod id to the id grammar's lowercase and
+		// accept only a valid one (nullopt = reject). Action registration is the
+		// only Kind that validates the id up front: kSettings takes it raw as a
+		// filter, kHotkey only requires it non-empty.
+		std::optional<std::string> ValidateActionModId(const RE::BSFixedString& a_modId)
 		{
-			const auto modId = ToLowerAscii(a_modId.c_str() ? a_modId.c_str() : "");
-			if (!a_receiver.get() || a_fn.empty() || !Ids::IsAcceptedModId(modId)) {
-				REX::DEBUG("PapyrusApi: RegisterForViewActions: null receiver, empty function name, or invalid mod id");
+			auto modId = ToLowerAscii(a_modId.c_str() ? a_modId.c_str() : "");
+			if (!Ids::IsAcceptedModId(modId)) {
+				return std::nullopt;
+			}
+			return modId;
+		}
+
+		// The two action-registration bodies behind the four natives below.
+		// a_wantsArgs picks the callback shape; a_native names the caller so a
+		// rejection still logs the exact native the script called.
+		std::int32_t RegisterActionInstance(const RE::BSTSmartPointer<RE::BSScript::Object>& a_receiver,
+			const RE::BSFixedString& a_fn, const RE::BSFixedString& a_modId, bool a_wantsArgs, const char* a_native)
+		{
+			const auto modId = ValidateActionModId(a_modId);
+			if (!a_receiver.get() || a_fn.empty() || !modId) {
+				REX::DEBUG("PapyrusApi: {}: null receiver, empty function name, or invalid mod id", a_native);
 				return 0;
 			}
 			std::lock_guard l{ s_lock };
-			return AddEntry(Kind::kAction, a_receiver, {}, a_fn.c_str(), modId, {});
+			return AddEntry(Kind::kAction, a_receiver, {}, a_fn.c_str(), *modId, {}, a_wantsArgs);
+		}
+
+		std::int32_t RegisterActionStatic(const RE::BSFixedString& a_script,
+			const RE::BSFixedString& a_fn, const RE::BSFixedString& a_modId, bool a_wantsArgs, const char* a_native)
+		{
+			const auto modId = ValidateActionModId(a_modId);
+			if (a_script.empty() || a_fn.empty() || !modId) {
+				REX::DEBUG("PapyrusApi: {}: empty script, empty function name, or invalid mod id", a_native);
+				return 0;
+			}
+			std::lock_guard l{ s_lock };
+			return AddEntry(Kind::kAction, {}, a_script, a_fn.c_str(), *modId, {}, a_wantsArgs);
+		}
+
+		// The four action natives. The "Args" pair differs only in the callback
+		// shape: OnUIAction(string asAction, string[] asArgs) instead of a single
+		// scalar, so a view can send several values per action
+		// (osfui.send 'ui.action' { args: [...] }) instead of packing them into
+		// one string.
+		std::int32_t RegisterForViewActions(PapVM&, std::uint32_t, std::monostate,
+			RE::BSTSmartPointer<RE::BSScript::Object> a_receiver, RE::BSFixedString a_fn, RE::BSFixedString a_modId)
+		{
+			return RegisterActionInstance(a_receiver, a_fn, a_modId, false, "RegisterForViewActions");
 		}
 
 		std::int32_t RegisterForViewActionsStatic(PapVM&, std::uint32_t, std::monostate,
 			RE::BSFixedString a_script, RE::BSFixedString a_fn, RE::BSFixedString a_modId)
 		{
-			const auto modId = ToLowerAscii(a_modId.c_str() ? a_modId.c_str() : "");
-			if (a_script.empty() || a_fn.empty() || !Ids::IsAcceptedModId(modId)) {
-				REX::DEBUG("PapyrusApi: RegisterForViewActionsStatic: empty script, empty function name, or invalid mod id");
-				return 0;
-			}
-			std::lock_guard l{ s_lock };
-			return AddEntry(Kind::kAction, {}, a_script, a_fn.c_str(), modId, {});
+			return RegisterActionStatic(a_script, a_fn, a_modId, false, "RegisterForViewActionsStatic");
 		}
 
-		// Args-list variants: identical to RegisterForViewActions[Static] but the
-		// callback is OnUIAction(string asAction, string[] asArgs). Lets a view
-		// send several values per action (osfui.send 'ui.action' { args: [...] })
-		// instead of packing ints into one string.
 		std::int32_t RegisterForViewActionsArgs(PapVM&, std::uint32_t, std::monostate,
 			RE::BSTSmartPointer<RE::BSScript::Object> a_receiver, RE::BSFixedString a_fn, RE::BSFixedString a_modId)
 		{
-			const auto modId = ToLowerAscii(a_modId.c_str() ? a_modId.c_str() : "");
-			if (!a_receiver.get() || a_fn.empty() || !Ids::IsAcceptedModId(modId)) {
-				REX::DEBUG("PapyrusApi: RegisterForViewActionsArgs: null receiver, empty function name, or invalid mod id");
-				return 0;
-			}
-			std::lock_guard l{ s_lock };
-			return AddEntry(Kind::kAction, a_receiver, {}, a_fn.c_str(), modId, {}, true);
+			return RegisterActionInstance(a_receiver, a_fn, a_modId, true, "RegisterForViewActionsArgs");
 		}
 
 		std::int32_t RegisterForViewActionsArgsStatic(PapVM&, std::uint32_t, std::monostate,
 			RE::BSFixedString a_script, RE::BSFixedString a_fn, RE::BSFixedString a_modId)
 		{
-			const auto modId = ToLowerAscii(a_modId.c_str() ? a_modId.c_str() : "");
-			if (a_script.empty() || a_fn.empty() || !Ids::IsAcceptedModId(modId)) {
-				REX::DEBUG("PapyrusApi: RegisterForViewActionsArgsStatic: empty script, empty function name, or invalid mod id");
-				return 0;
-			}
-			std::lock_guard l{ s_lock };
-			return AddEntry(Kind::kAction, {}, a_script, a_fn.c_str(), modId, {}, true);
+			return RegisterActionStatic(a_script, a_fn, a_modId, true, "RegisterForViewActionsArgsStatic");
 		}
 
 		void PushToView(PapVM&, std::uint32_t, std::monostate,
