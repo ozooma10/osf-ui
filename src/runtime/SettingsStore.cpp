@@ -786,21 +786,13 @@ namespace OSFUI
 		return bound;
 	}
 
-	nlohmann::json SettingsStore::ConflictsFor(std::uint32_t a_vk, std::string_view a_excludeMod, std::string_view a_excludeKey) const
+	nlohmann::json SettingsStore::CollectConflicts(const std::vector<BoundKey>& a_bound, std::uint32_t a_vk,
+		std::string_view a_excludeMod, std::string_view a_excludeKey, bool a_selfBlocksGameplay)
 	{
 		nlohmann::json conflicts = nlohmann::json::array();
-		if (a_vk == 0) {
-			return conflicts;  // unresolvable: never conflicts (mirrors Data())
-		}
-		bool blocksGameplay = false;
-		if (const auto* mod = FindMod(a_excludeMod)) {
-			if (const auto* setting = FindSetting(*mod, a_excludeKey)) {
-				blocksGameplay = ResolveInputContext(*mod, *setting).blocksGameplay;
-			}
-		}
-		for (const auto& other : ResolveBoundKeys()) {
+		for (const auto& other : a_bound) {
 			if (other.vk == a_vk && (other.modId != a_excludeMod || other.key != a_excludeKey) &&
-				!(blocksGameplay && other.modId == "@game")) {
+				!(a_selfBlocksGameplay && other.modId == "@game")) {
 				conflicts.push_back({
 					{ "mod", other.modId },
 					{ "key", other.key },
@@ -809,6 +801,20 @@ namespace OSFUI
 			}
 		}
 		return conflicts;
+	}
+
+	nlohmann::json SettingsStore::ConflictsFor(std::uint32_t a_vk, std::string_view a_excludeMod, std::string_view a_excludeKey) const
+	{
+		if (a_vk == 0) {
+			return nlohmann::json::array();  // unresolvable: never conflicts (mirrors Data())
+		}
+		bool blocksGameplay = false;
+		if (const auto* mod = FindMod(a_excludeMod)) {
+			if (const auto* setting = FindSetting(*mod, a_excludeKey)) {
+				blocksGameplay = ResolveInputContext(*mod, *setting).blocksGameplay;
+			}
+		}
+		return CollectConflicts(ResolveBoundKeys(), a_vk, a_excludeMod, a_excludeKey, blocksGameplay);
 	}
 
 	nlohmann::json SettingsStore::ConflictsForSetting(std::string_view a_modId, std::string_view a_key) const
@@ -849,17 +855,7 @@ namespace OSFUI
 					if (self == bound.end()) {
 						return false;  // unresolvable/empty value: never conflicts
 					}
-					nlohmann::json conflicts = nlohmann::json::array();
-					for (const auto& other : bound) {
-						if (other.vk == self->vk && (other.modId != mod.id || other.key != key) &&
-							!(self->blocksGameplay && other.modId == "@game")) {
-							conflicts.push_back({
-								{ "mod", other.modId },
-								{ "key", other.key },
-								{ "title", other.title },
-							});
-						}
-					}
+					nlohmann::json conflicts = CollectConflicts(bound, self->vk, mod.id, key, self->blocksGameplay);
 					if (!conflicts.empty()) {
 						a_setting["conflicts"] = std::move(conflicts);
 					}

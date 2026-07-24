@@ -372,6 +372,12 @@ namespace OSFUI
 			bool          blocksGameplay{ false };
 		};
 		[[nodiscard]] std::vector<BoundKey> ResolveBoundKeys() const;
+		// Conflict rows for a_vk among a_bound: same VK, not the setting itself
+		// (a_excludeMod/a_excludeKey), and not the vanilla "@game" side when the
+		// setting blocks gameplay. Shared by DataView()'s annotation and
+		// ConflictsFor(); a_selfBlocksGameplay is derived differently by each.
+		[[nodiscard]] static nlohmann::json CollectConflicts(const std::vector<BoundKey>& a_bound, std::uint32_t a_vk,
+			std::string_view a_excludeMod, std::string_view a_excludeKey, bool a_selfBlocksGameplay);
 		// The values that go to disk: sparse — only those ≠ schema default.
 		[[nodiscard]] static nlohmann::json SparseValues(const Mod& a_mod);
 		// Open (or join) the mod's write-behind window; PumpPersistence lands it.
