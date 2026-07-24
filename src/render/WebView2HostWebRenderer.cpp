@@ -184,6 +184,97 @@ namespace OSFUI
 			return data.result;
 		}
 
+		// ---- Outbound host-message builders -------------------------------
+		//
+		// Each shape below is authored in two places: the connect-time snapshot
+		// in the worker (holding stateMutex, walking `views`) and the matching
+		// per-view setter (game thread, after the lock is released). One builder
+		// per shape so the two cannot drift. Wire shapes are specified in
+		// tools/webview2_shared/Wv2Protocol.h and parsed by a separate binary.
+		//
+		// PRIMITIVE / VIEW ARGUMENTS ONLY — never a `const ViewRec&`. The setter
+		// send paths run OUTSIDE stateMutex by design and read their own
+		// by-value parameters; `views` reallocates, so a ViewRec reference
+		// dereferenced there would be a new data race. (ViewRec is not even
+		// declared yet at this point in the file — keep it that way.)
+		// string_view arguments are COPIED into the json before the builder
+		// returns: never store one, never defer. The snapshot binds them to
+		// ViewRec fields while it still holds stateMutex, so the copy happens
+		// under the lock, on the worker thread, exactly as the inline code did.
+		//
+		// These builders only BUILD: send-gating (Send vs SendOrQueue vs the
+		// raw pipe write) and every state side-effect stay in the callers.
+
+		json ViewMsg(std::string_view a_type, std::string_view a_viewId)
+		{
+			return json{ { "type", std::string(a_type) },
+				{ "view", std::string(a_viewId) } };
+		}
+
+		// NOTE: "navigate" keys the view id as "id", not "view" (wire protocol),
+		// so it is deliberately not a ViewMsg.
+		json NavigateMsg(std::string_view a_viewId, std::string_view a_entry,
+			bool a_bridge, std::uint32_t a_logicalHeight)
+		{
+			return json{
+				{ "type", "navigate" },
+				{ "id", std::string(a_viewId) },
+				{ "entry", std::string(a_entry) },
+				{ "bridge", a_bridge },
+				{ "logicalHeight", a_logicalHeight } };
+		}
+
+		json PrewarmMsg(std::string_view a_viewId)
+		{
+			return ViewMsg("prewarm", a_viewId);
+		}
+
+		json SetActiveMsg(std::string_view a_viewId)
+		{
+			return ViewMsg("setActive", a_viewId);
+		}
+
+		json SetHiddenMsg(std::string_view a_viewId, bool a_hidden)
+		{
+			return json{ { "type", "setHidden" },
+				{ "view", std::string(a_viewId) }, { "hidden", a_hidden } };
+		}
+
+		json SetOrderMsg(std::string_view a_viewId, int a_order)
+		{
+			return json{ { "type", "setOrder" },
+				{ "view", std::string(a_viewId) }, { "order", a_order } };
+		}
+
+		json SetRenderStatsMsg(std::string_view a_viewId, bool a_enabled)
+		{
+			return json{ { "type", "setRenderStats" },
+				{ "view", std::string(a_viewId) }, { "enabled", a_enabled } };
+		}
+
+		json FocusMsg(bool a_focused)
+		{
+			return json{ { "type", "focus" }, { "focused", a_focused } };
+		}
+
+		// Argument ORDER is the hazard here: captured then captureArmed. The
+		// snapshot's locals are named accCaptured/accArmed while the wire key is
+		// "captureArmed", so a swap would compile clean and change the wire.
+		json AccelStateMsg(std::uint32_t a_toggleVk, std::uint32_t a_devReloadVk,
+			bool a_captured, bool a_captureArmed, std::uint32_t a_captureUpVk)
+		{
+			return json{
+				{ "type", "accelState" },
+				{ "toggleVk", a_toggleVk }, { "devReloadVk", a_devReloadVk },
+				{ "captured", a_captured }, { "captureArmed", a_captureArmed },
+				{ "captureUpVk", a_captureUpVk } };
+		}
+
+		json FrameAckMsg(std::uint64_t a_serial)
+		{
+			return json{ { "type", "frameAck" }, { "serial", a_serial } };
+		}
+
 	}
 
 	struct WebView2HostWebRenderer::Impl
@@ -685,44 +776,28 @@ namespace OSFUI
 					{ "adapterLuidLow", adapterLuidLow },
 					{ "adapterLuidHigh", adapterLuidHigh },
 				}.dump());
-				pipe.WriteMessage(json{
-					{ "type", "accelState" },
-					{ "toggleVk", accToggle }, { "devReloadVk", accDevReload },
-					{ "captured", accCaptured }, { "captureArmed", accArmed },
-					{ "captureUpVk", accCaptureUp } }.dump());
+				pipe.WriteMessage(AccelStateMsg(accToggle, accDevReload,
+					accCaptured, accArmed, accCaptureUp).dump());
 				accSent = true;
 				// Replay views registered before the host existed with their
 				// current hidden/order state, then the active-view choice.
+				// The builders never see the record: bools/ints go by value and
+				// the strings go as string_views that are copied inside the
+				// call, all while stateMutex is still held.
 				for (const auto& view : views) {
-					pipe.WriteMessage(json{
-						{ "type", "navigate" },
-						{ "id", view.id },
-						{ "entry", view.entry },
-						{ "bridge", view.bridge },
-						{ "logicalHeight", view.logicalHeight } }.dump());
+					pipe.WriteMessage(NavigateMsg(view.id, view.entry,
+						view.bridge, view.logicalHeight).dump());
 					if (view.prewarm) {
-						pipe.WriteMessage(json{
-							{ "type", "prewarm" }, { "view", view.id } }.dump());
+						pipe.WriteMessage(PrewarmMsg(view.id).dump());
 					}
-					pipe.WriteMessage(json{
-						{ "type", "setHidden" },
-						{ "view", view.id },
-						{ "hidden", view.hidden } }.dump());
-					pipe.WriteMessage(json{
-						{ "type", "setOrder" },
-						{ "view", view.id },
-						{ "order", view.order } }.dump());
-					pipe.WriteMessage(json{
-						{ "type", "setRenderStats" },
-						{ "view", view.id },
-						{ "enabled", view.renderStats } }.dump());
+					pipe.WriteMessage(SetHiddenMsg(view.id, view.hidden).dump());
+					pipe.WriteMessage(SetOrderMsg(view.id, view.order).dump());
+					pipe.WriteMessage(SetRenderStatsMsg(view.id, view.renderStats).dump());
 				}
 				if (!activeId.empty()) {
-					pipe.WriteMessage(json{
-						{ "type", "setActive" }, { "view", activeId } }.dump());
+					pipe.WriteMessage(SetActiveMsg(activeId).dump());
 				}
-				pipe.WriteMessage(json{
-					{ "type", "focus" }, { "focused", focusRequested.load() } }.dump());
+				pipe.WriteMessage(FocusMsg(focusRequested.load()).dump());
 			}
 
 			// Bridge messages sent before the pipe existed (notably runtime.ready)
@@ -885,12 +960,10 @@ namespace OSFUI
 				}
 			}
 			if (ackSerial) {
-				pipe.WriteMessage(json{
-					{ "type", "frameAck" }, { "serial", ackSerial } }.dump());
+				pipe.WriteMessage(FrameAckMsg(ackSerial).dump());
 			}
 			if (ackNew) {
-				pipe.WriteMessage(json{
-					{ "type", "frameAck" }, { "serial", serial } }.dump());
+				pipe.WriteMessage(FrameAckMsg(serial).dump());
 			}
 		}
 
@@ -1074,6 +1147,9 @@ namespace OSFUI
 
 	void WebView2HostWebRenderer::LoadView(const ViewManifest& a_manifest)
 	{
+		// One expression for the clamp, so the stored value and the sent value
+		// cannot drift.
+		const auto logicalHeight = (std::max)(1u, a_manifest.height);
 		{
 			std::scoped_lock lock(_impl->stateMutex);
 			auto* view = _impl->FindView(a_manifest.id);
@@ -1083,7 +1159,7 @@ namespace OSFUI
 			}
 			view->entry = a_manifest.entry;
 			view->bridge = a_manifest.permissions.nativeBridge;
-			view->logicalHeight = (std::max)(1u, a_manifest.height);
+			view->logicalHeight = logicalHeight;
 			// The first loaded view receives input until the runtime says
 			// otherwise.
 			if (_impl->activeId.empty()) {
@@ -1092,12 +1168,8 @@ namespace OSFUI
 		}
 		// A repeat LoadView for a live id re-navigates it (dev reload / crash
 		// recovery).
-		_impl->Send(json{
-			{ "type", "navigate" },
-			{ "id", a_manifest.id },
-			{ "entry", a_manifest.entry },
-			{ "bridge", a_manifest.permissions.nativeBridge },
-			{ "logicalHeight", (std::max)(1u, a_manifest.height) } });
+		_impl->Send(NavigateMsg(a_manifest.id, a_manifest.entry,
+			a_manifest.permissions.nativeBridge, logicalHeight));
 	}
 
 	void WebView2HostWebRenderer::SetActiveView(std::string_view a_id)
@@ -1112,7 +1184,7 @@ namespace OSFUI
 			if (_impl->activeId == a_id) return;
 			_impl->activeId = a_id;
 		}
-		_impl->Send(json{ { "type", "setActive" }, { "view", std::string(a_id) } });
+		_impl->Send(SetActiveMsg(a_id));
 	}
 
 	void WebView2HostWebRenderer::Resize(std::uint32_t a_width, std::uint32_t a_height)
@@ -1183,7 +1255,7 @@ namespace OSFUI
 							REX::WARN("WebView2HostWebRenderer: interactive menu live but game window "
 									  "still owns focus; re-sending focus request (watchdog)");
 						}
-						_impl->Send(json{ { "type", "focus" }, { "focused", true } });
+						_impl->Send(FocusMsg(true));
 					}
 				}
 				if (healthy) {
@@ -1283,7 +1355,7 @@ namespace OSFUI
 			_impl->Start();
 		}
 		_impl->focusRequested = a_focused;
-		_impl->Send(json{ { "type", "focus" }, { "focused", a_focused } });
+		_impl->Send(FocusMsg(a_focused));
 		if (!a_focused && _impl->topLevel) {
 			// Restore game focus on the game's own window thread.
 			::PostMessageW(_impl->topLevel,
@@ -1311,11 +1383,8 @@ namespace OSFUI
 			if (changed && _impl->connected.load()) _impl->accSent = true;
 		}
 		if (changed) {
-			_impl->Send(json{
-				{ "type", "accelState" },
-				{ "toggleVk", a_toggleVk }, { "devReloadVk", a_devReloadVk },
-				{ "captured", a_captured }, { "captureArmed", a_captureArmed },
-				{ "captureUpVk", a_captureUpVk } });
+			_impl->Send(AccelStateMsg(a_toggleVk, a_devReloadVk, a_captured,
+				a_captureArmed, a_captureUpVk));
 		}
 	}
 
@@ -1420,8 +1489,7 @@ namespace OSFUI
 			view->hidden = a_hidden;
 			_impl->RecomputeAllHidden();
 		}
-		_impl->Send(json{ { "type", "setHidden" },
-			{ "view", std::string(a_viewId) }, { "hidden", a_hidden } });
+		_impl->Send(SetHiddenMsg(a_viewId, a_hidden));
 	}
 
 	void WebView2HostWebRenderer::PrewarmView(std::string_view a_viewId)
@@ -1432,7 +1500,7 @@ namespace OSFUI
 			if (!view || view->prewarm) return;
 			view->prewarm = true;
 		}
-		_impl->Send(json{ { "type", "prewarm" }, { "view", std::string(a_viewId) } });
+		_impl->Send(PrewarmMsg(a_viewId));
 	}
 
 	void WebView2HostWebRenderer::SetViewOrder(std::string_view a_viewId, int a_order)
@@ -1444,8 +1512,7 @@ namespace OSFUI
 			if (view->order == a_order) return;
 			view->order = a_order;
 		}
-		_impl->Send(json{ { "type", "setOrder" },
-			{ "view", std::string(a_viewId) }, { "order", a_order } });
+		_impl->Send(SetOrderMsg(a_viewId, a_order));
 	}
 
 	void WebView2HostWebRenderer::SetRenderStats(std::string_view a_viewId, bool a_enabled)
@@ -1456,8 +1523,7 @@ namespace OSFUI
 			if (!view || view->renderStats == a_enabled) return;
 			view->renderStats = a_enabled;
 		}
-		_impl->Send(json{ { "type", "setRenderStats" },
-			{ "view", std::string(a_viewId) }, { "enabled", a_enabled } });
+		_impl->Send(SetRenderStatsMsg(a_viewId, a_enabled));
 	}
 
 	void WebView2HostWebRenderer::SetRenderStatsSample(const RenderStatsSample& a_sample)
