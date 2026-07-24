@@ -1,6 +1,7 @@
 #include "api/PapyrusApi.h"
 
 #include "api/BridgeApi.h"  // SettingsMirror access + RequestMenu
+#include "core/StringUtil.h"  // ToLowerAscii
 #include "core/Version.h"
 #include "runtime/Ids.h"  // id grammar validation + case-insensitive matching
 #include "runtime/SettingsStore.h"
@@ -83,16 +84,7 @@ namespace OSFUI::API::Papyrus
 		// string arrived through BSFixedString interning, which hands back the
 		// first-seen casing process-wide, so the script's literal spelling does
 		// not survive reliably.
-		std::string ToLowerAscii(std::string_view a_s)
-		{
-			std::string out(a_s);
-			for (char& c : out) {
-				if (c >= 'A' && c <= 'Z') {
-					c = static_cast<char>(c + 32);
-				}
-			}
-			return out;
-		}
+		using StringUtil::ToLowerAscii;
 
 		constexpr std::int32_t MakeToken(std::uint16_t a_gen, std::uint16_t a_slot)
 		{

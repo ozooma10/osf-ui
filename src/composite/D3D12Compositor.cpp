@@ -2,6 +2,7 @@
 
 #include "composite/EngineD3D12.h"
 #include "core/Log.h"
+#include "core/StringUtil.h"
 #include "platform/WindowsPlatform.h"
 
 // GDI-free Win32/D3D12 so the ERROR macro never collides with REX::ERROR.
@@ -61,15 +62,14 @@ namespace OSFUI
 			return std::string(utf8, static_cast<std::size_t>(written));
 		}
 
-		// Bare lowercase filename of a module path, for prefix matching.
+		// Bare lowercase filename of a module path, for prefix matching. Basename
+		// extraction stays here (it feeds the sl.dlss_g FrameGen prefix match); only
+		// the lowercasing is shared.
 		[[nodiscard]] std::string ModuleFileNameLower(const std::string& a_path)
 		{
 			const auto sep = a_path.find_last_of("\\/");
-			auto name = sep == std::string::npos ? a_path : a_path.substr(sep + 1);
-			for (auto& c : name) {
-				c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-			}
-			return name;
+			const auto name = sep == std::string::npos ? a_path : a_path.substr(sep + 1);
+			return StringUtil::ToLowerAscii(name);
 		}
 
 		// Starfield statically links AMD FidelityFX FSR3 *and exports its C

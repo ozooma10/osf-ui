@@ -3,6 +3,7 @@
 #include <cctype>
 
 #include "core/Log.h"
+#include "core/StringUtil.h"
 
 namespace OSFUI
 {
@@ -11,12 +12,6 @@ namespace OSFUI
 		if (a_name.empty()) {
 			return kInvalidKeyCode;
 		}
-
-		const auto equalsIgnoreCase = [](std::string_view a_lhs, std::string_view a_rhs) {
-			return std::ranges::equal(a_lhs, a_rhs, [](unsigned char l, unsigned char r) {
-				return std::tolower(l) == std::tolower(r);
-			});
-		};
 
 		// Keyboard ButtonEvents carry Windows VK codes (proof in InputTypes.h),
 		// so names resolve to VK values.
@@ -70,7 +65,7 @@ namespace OSFUI
 			{ "Slash", 0xBF },
 		};
 		for (const auto& key : kNamedKeys) {
-			if (equalsIgnoreCase(key.name, a_name)) {
+			if (StringUtil::EqualsCaseInsensitiveAscii(key.name, a_name)) {
 				return key.vk;
 			}
 		}

@@ -4,6 +4,7 @@
 #include <fstream>
 
 #include "core/Log.h"
+#include "core/StringUtil.h"
 #include "runtime/Ids.h"
 #include "runtime/Json.h"
 
@@ -11,24 +12,17 @@ namespace OSFUI
 {
 	namespace
 	{
+		// Owning wrappers over the shared ASCII primitives: NormalizeLocale mutates
+		// the trimmed string in place, and ReadIniLanguage returns it, so both need
+		// std::string rather than the non-owning TrimAscii view.
 		std::string Trim(std::string_view a_text)
 		{
-			while (!a_text.empty() && std::isspace(static_cast<unsigned char>(a_text.front()))) {
-				a_text.remove_prefix(1);
-			}
-			while (!a_text.empty() && std::isspace(static_cast<unsigned char>(a_text.back()))) {
-				a_text.remove_suffix(1);
-			}
-			return std::string(a_text);
+			return std::string(StringUtil::TrimAscii(a_text));
 		}
 
 		std::string Lower(std::string_view a_text)
 		{
-			std::string out(a_text);
-			std::ranges::transform(out, out.begin(), [](unsigned char c) {
-				return static_cast<char>(std::tolower(c));
-			});
-			return out;
+			return StringUtil::ToLowerAscii(a_text);
 		}
 
 		std::optional<std::string> ReadIniLanguage(const std::filesystem::path& a_path)

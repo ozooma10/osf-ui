@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/StringUtil.h"
+
 namespace OSFUI::Ids
 {
 	// The public id grammar (docs/api-freeze-plan.md item 1, frozen pre-1.0):
@@ -21,27 +23,9 @@ namespace OSFUI::Ids
 	inline constexpr std::size_t kMaxViewNameLen = 64;
 
 	// ASCII-only case-insensitive equality, used by the Papyrus surface to match
-	// names and enum values: script strings intern as BSFixedString, which hands
-	// back the first-seen casing process-wide, so a script's literal spelling
-	// does not survive reliably (full rationale in api/SettingsMirror.h). ASCII
-	// suffices because ids are lowercase [a-z0-9-] by grammar and keys/options
-	// are ASCII identifiers in practice.
-	inline bool EqualsCaseInsensitiveAscii(std::string_view a_lhs, std::string_view a_rhs)
-	{
-		if (a_lhs.size() != a_rhs.size()) {
-			return false;
-		}
-		for (std::size_t i = 0; i < a_lhs.size(); ++i) {
-			const char a = a_lhs[i];
-			const char b = a_rhs[i];
-			const char la = (a >= 'A' && a <= 'Z') ? static_cast<char>(a + 32) : a;
-			const char lb = (b >= 'A' && b <= 'Z') ? static_cast<char>(b + 32) : b;
-			if (la != lb) {
-				return false;
-			}
-		}
-		return true;
-	}
+	// names and enum values (rationale in core/StringUtil.h). Re-exported here so
+	// the existing Ids::EqualsCaseInsensitiveAscii call sites read naturally.
+	using StringUtil::EqualsCaseInsensitiveAscii;
 
 	// One grammar segment: [a-z0-9-]+ (lowercase enforced at load, so
 	// case-sensitive compares are correct on case-insensitive filesystems).
