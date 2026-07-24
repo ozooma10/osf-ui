@@ -21,6 +21,19 @@ namespace OSFUI::Platform
 		return rc > 32;
 	}
 
+	bool OpenFolder(const std::filesystem::path& a_folder)
+	{
+		std::error_code ec;
+		if (a_folder.empty() || !std::filesystem::is_directory(a_folder, ec)) {
+			// Explorer would happily "open" a nonexistent path as a search; a
+			// refusal the caller can report is more useful than a stray window.
+			return false;
+		}
+		const auto rc = reinterpret_cast<std::intptr_t>(
+			::ShellExecuteW(nullptr, L"open", a_folder.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
+		return rc > 32;
+	}
+
 	std::filesystem::path GetDocumentsPath()
 	{
 		PWSTR raw = nullptr;

@@ -32,6 +32,13 @@ namespace OSFUI::Platform
 	// (docs/security-model.md: no URL-steering from page content).
 	bool OpenSystemBrowser(const wchar_t* a_url);
 
+	// Opens a FOLDER in the shell's file browser. Refuses anything that is not
+	// an existing directory, so a caller cannot turn this into "run whatever
+	// this path points at". Same rule as OpenSystemBrowser: the caller decides
+	// WHAT may open, and web content never supplies the target
+	// (docs/security-model.md).
+	bool OpenFolder(const std::filesystem::path& a_folder);
+
 	// True when [a_address, a_address + a_size) is committed, non-guard,
 	// readable memory (VirtualQuery walk). For probing engine pointers.
 	[[nodiscard]] bool IsReadableRange(std::uintptr_t a_address, std::size_t a_size);

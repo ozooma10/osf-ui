@@ -37,6 +37,7 @@ SUITES=(
 "settings_module_tests settings_module_tests.cpp ../../src/runtime/SettingsModule.cpp ../../src/runtime/MessageBridge.cpp ../../src/runtime/SettingsStore.cpp ../../src/runtime/Json.cpp"
 "settings_mirror_tests settings_mirror_tests.cpp ../../src/api/SettingsMirror.cpp ../../src/runtime/SettingsStore.cpp ../../src/runtime/Json.cpp"
 "settings_subscriptions_tests settings_subscriptions_tests.cpp ../../src/api/SettingsSubscriptions.cpp ../../src/api/SettingsMirror.cpp ../../src/runtime/SettingsStore.cpp ../../src/runtime/Json.cpp"
+"diagnostics_tests diagnostics_tests.cpp ../../src/runtime/DiagnosticsModule.cpp ../../src/runtime/MessageBridge.cpp ../../src/runtime/Json.cpp"
 "hotkey_service_tests hotkey_service_tests.cpp ../../src/runtime/HotkeyService.cpp ../../src/runtime/SettingsStore.cpp ../../src/runtime/Json.cpp ../../src/input/InputRouter.cpp"
 "hotkey_subscriptions_tests hotkey_subscriptions_tests.cpp ../../src/api/HotkeySubscriptions.cpp"
 "bridge_api_tests bridge_api_tests.cpp ../../src/api/BridgeApi.cpp ../../src/api/SettingsMirror.cpp ../../src/api/SettingsSubscriptions.cpp ../../src/api/HotkeySubscriptions.cpp ../../src/runtime/MessageBridge.cpp ../../src/runtime/SettingsStore.cpp ../../src/runtime/Json.cpp"

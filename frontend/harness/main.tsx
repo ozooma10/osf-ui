@@ -87,6 +87,7 @@ function Harness() {
   const [failed, setFailed] = useState<string>('');
   const [stageOn, setStageOn] = useState(STAGE_DEFAULT);
   const [fixturesOn, setFixturesOn] = useState(mock.fixturesOn());
+  const [healthScenario, setHealthScenario] = useState(mock.healthScenario());
   const [locale, setLocale] = useState(mock.locale());
 
   // Commands that omit `view` target the calling surface; tell the mock which
@@ -153,6 +154,8 @@ function Harness() {
         onStage={setStageOn}
         fixturesOn={fixturesOn}
         onFixtures={(on) => setFixturesOn(mock.fixtures(on))}
+        healthScenario={healthScenario}
+        onHealth={() => setHealthScenario(mock.health())}
         locale={locale}
         onLocale={(loc) => {
           setLocale(loc);

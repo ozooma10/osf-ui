@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { ModRecord, RailModel, RailNode, ViewRecord } from '@lib/settings/rail';
 import {
   FRAMEWORK_ID,
+  HEALTH_ID,
   HOME_ID,
   cycleRail,
   findEntry,
@@ -87,13 +88,9 @@ describe('findEntry', () => {
 describe('railNodes — paint order', () => {
   const model: RailModel = { mods: [zeta, framework, alpha], views: [] };
 
-  it('is loadErrors, Home, framework, "Mods" header, then sorted mods', () => {
-    const withErrors: RailModel = {
-      ...model,
-      loadErrors: [{ kind: 'schema-parse', file: 'bad.json', message: 'boom' }],
-    };
-    expect(ids(railNodes(withErrors, ''))).toEqual([
-      'loadErrors',
+  it('is Health, Home, framework, "Mods" header, then sorted mods', () => {
+    expect(ids(railNodes(model, ''))).toEqual([
+      'health',
       'home',
       FRAMEWORK_ID,
       'section',
@@ -104,8 +101,9 @@ describe('railNodes — paint order', () => {
     ]);
   });
 
-  it('omits the loadErrors node when there are none', () => {
-    expect(ids(railNodes(model, ''))[0]).toBe('home');
+  it('emits Health unconditionally — it is a destination, not an alert', () => {
+    // Nothing wrong: the entry is still there, reading "Nominal".
+    expect(ids(railNodes({ mods: [], views: [] }, ''))[0]).toBe('health');
   });
 
   it('sorts case- and accent-insensitively, not by ASCII', () => {
@@ -113,22 +111,21 @@ describe('railNodes — paint order', () => {
       mods: [{ id: 'b', title: 'beta' }, { id: 'a', title: 'Alpha' }],
       views: [],
     };
-    expect(ids(railNodes(mixed, ''))).toEqual(['home', 'section', 'a', 'b']);
+    expect(ids(railNodes(mixed, ''))).toEqual(['health', 'home', 'section', 'a', 'b']);
   });
 
   it('DROPS Home while a filter is active', () => {
-    expect(ids(railNodes(model, 'zeta'))).toEqual(['section', 'acme.zeta']);
+    expect(ids(railNodes(model, 'zeta'))).toEqual(['health', 'section', 'acme.zeta']);
   });
 
-  it('keeps the loadErrors alert PINNED even when the filter matches nothing', () => {
-    // A user filtering for the mod that failed to load must see why, not
-    // "no mods match".
-    const withErrors: RailModel = {
-      mods: [],
-      views: [],
-      loadErrors: [{ kind: 'schema-name', file: 'nope.json', message: 'bad name' }],
-    };
-    expect(ids(railNodes(withErrors, 'zzz'))).toEqual(['loadErrors', 'section', 'empty']);
+  it('keeps Health PINNED even when the filter matches nothing', () => {
+    // A user filtering for the mod that failed to load must still be able to
+    // reach the reason, not be told "no mods match".
+    expect(ids(railNodes({ mods: [], views: [] }, 'zzz'))).toEqual([
+      'health',
+      'section',
+      'empty',
+    ]);
   });
 
   it('always emits the "Mods" header, even with an empty list', () => {
@@ -144,46 +141,46 @@ describe('railNodes — paint order', () => {
   });
 
   it('hides the framework entry when it does not match the filter', () => {
-    expect(ids(railNodes(model, 'alpha'))).toEqual(['section', 'acme.alpha']);
+    // Health stays pinned above the filtered list.
+    expect(ids(railNodes(model, 'alpha'))).toEqual(['health', 'section', 'acme.alpha']);
   });
 });
 
 describe('cycleRail — reproduces the painted order exactly', () => {
   const model: RailModel = { mods: [zeta, framework, alpha], views: [] };
-  // Painted order: ~home, osfui, acme.alpha, acme.zeta.
+  // Painted order: ~health, ~home, osfui, acme.alpha, acme.zeta.
 
-  it('steps forward and wraps', () => {
+  it('steps forward and wraps, including the pinned Health destination', () => {
+    expect(cycleRail(model, '', HEALTH_ID, 1)).toBe(HOME_ID);
     expect(cycleRail(model, '', HOME_ID, 1)).toBe(FRAMEWORK_ID);
     expect(cycleRail(model, '', FRAMEWORK_ID, 1)).toBe('acme.alpha');
     expect(cycleRail(model, '', 'acme.alpha', 1)).toBe('acme.zeta');
-    expect(cycleRail(model, '', 'acme.zeta', 1)).toBe(HOME_ID);
+    expect(cycleRail(model, '', 'acme.zeta', 1)).toBe(HEALTH_ID);
   });
 
   it('steps backward and wraps', () => {
-    expect(cycleRail(model, '', HOME_ID, -1)).toBe('acme.zeta');
+    expect(cycleRail(model, '', HEALTH_ID, -1)).toBe('acme.zeta');
+    expect(cycleRail(model, '', HOME_ID, -1)).toBe(HEALTH_ID);
     expect(cycleRail(model, '', FRAMEWORK_ID, -1)).toBe(HOME_ID);
   });
 
-  it('excludes Home while filtering', () => {
+  it('excludes Home while filtering but KEEPS Health', () => {
     // "a" matches "alpha works" and "Zeta Tools" but not "OSF UI", so the cycle
-    // list is the two mods — no Home, no framework.
+    // list is Health plus the two mods — no Home, no framework.
     expect(cycleRail(model, 'a', 'acme.alpha', 1)).toBe('acme.zeta');
-    expect(cycleRail(model, 'a', 'acme.alpha', -1)).toBe('acme.zeta');
-    expect(cycleRail(model, 'a', 'acme.zeta', 1)).toBe('acme.alpha');
+    expect(cycleRail(model, 'a', 'acme.zeta', 1)).toBe(HEALTH_ID);
+    expect(cycleRail(model, 'a', HEALTH_ID, 1)).toBe('acme.alpha');
   });
 
   it('QUIRK: an off-list selection lands on ids[0] and IGNORES the delta', () => {
-    expect(cycleRail(model, '', 'not.installed', -1)).toBe(HOME_ID);
-    expect(cycleRail(model, '', null, -1)).toBe(HOME_ID);
+    expect(cycleRail(model, '', 'not.installed', -1)).toBe(HEALTH_ID);
+    expect(cycleRail(model, '', null, -1)).toBe(HEALTH_ID);
   });
 
   it('returns null when nothing would change', () => {
-    const single: RailModel = { mods: [zeta], views: [] };
-    // Filtered so Home is out; only one id remains, so any delta wraps to self.
-    expect(cycleRail(single, 'zeta', 'acme.zeta', 1)).toBeNull();
-  });
-
-  it('returns null when the list is empty', () => {
-    expect(cycleRail({ mods: [], views: [] }, 'zzz', HOME_ID, 1)).toBeNull();
+    const single: RailModel = { mods: [], views: [] };
+    // Filtered so Home is out and nothing matches; only Health remains, so any
+    // delta wraps to self.
+    expect(cycleRail(single, 'zzz', HEALTH_ID, 1)).toBeNull();
   });
 });

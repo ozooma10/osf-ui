@@ -242,6 +242,26 @@ namespace OSFUI
 		using LoadHandler = std::function<void(const LoadEvent& a_event)>;
 		virtual void SetLoadHandler(LoadHandler) {}
 
+		// Backend health worth surfacing in the Mods surface's System Health pane
+		// (bridge protocol 1.4). Only DEGRADED-BUT-ALIVE conditions belong here —
+		// a reduced shared-texture ring, focus stranded in the backend's own
+		// child window. A backend that cannot render at all reports through the
+		// log and the launch dialog instead, because there is no frontend left
+		// to draw a card in. `code` is a stable machine string the built-in
+		// frontend maps to player-facing copy; `detail` is short technical text
+		// shown only under the card's disclosure and must carry no absolute
+		// paths. Fired on the game thread, drained from Update(), and both edges
+		// are reported: `active` false means the condition cleared. Set once
+		// before LoadView.
+		struct HealthEvent
+		{
+			std::string_view code;
+			bool             active{ true };
+			std::string_view detail;
+		};
+		using HealthHandler = std::function<void(const HealthEvent& a_event)>;
+		virtual void SetHealthHandler(HealthHandler) {}
+
 		// Fires when the active (input) view's requested cursor changes, so the
 		// host can switch the real OS pointer (hover feedback, text I-beam).
 		// WARNING: unlike the other handlers, this may be invoked from a

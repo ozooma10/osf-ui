@@ -13,6 +13,7 @@
 
 import type { SettingsSchema, SettingValue, ViewsDataPayload, SettingsDataPayload } from '@sdk';
 import { railMatches } from './search';
+import { HEALTH_ID } from './diagnostics';
 
 /** A `settings.data` mod record as the renderer actually treats it. */
 export interface ModRecord {
@@ -26,8 +27,16 @@ export interface ModRecord {
 /** A `views.data` catalog entry, every field optional but `id`. */
 export type ViewRecord = Partial<ViewsDataPayload['views'][number]> & { id: string };
 
-/** A `settings.data` load-failure record. */
+/**
+ * A `settings.data` load-failure record. No longer painted by the rail — the
+ * same failures arrive as System Health issues, which can say what they mean
+ * and offer actions. Still exported: the type describes a live wire field, and
+ * the App maps these records to their health issues for the deep link.
+ */
 export type LoadError = NonNullable<SettingsDataPayload['loadErrors']>[number];
+
+/** Re-exported so rail consumers need only one import for the pinned ids. */
+export { HEALTH_ID } from './diagnostics';
 
 /** The framework's own settings mod id — pinned first. */
 export const FRAMEWORK_ID = 'osfui';
@@ -102,7 +111,7 @@ export { railMatches } from './search';
  * `cycleRail` walk the same source.
  */
 export type RailNode =
-  | { kind: 'loadErrors'; errors: LoadError[] }
+  | { kind: 'health' }
   | { kind: 'home' }
   | { kind: 'entry'; entry: RailEntry }
   | { kind: 'section' }
@@ -112,17 +121,20 @@ export type RailNode =
 export interface RailModel {
   mods: ModRecord[];
   views: ViewRecord[];
-  loadErrors?: LoadError[];
 }
 
 /**
  * The rail in paint order:
  *
- *  1. the load-failure alert, pinned above everything and never filtered — a
- *     user filtering for the mod that failed to load must see why, not
- *     "no mods match" (mcm-design.md §14.2, the SkyUI-MCM lesson);
+ *  1. System Health, pinned above everything and NEVER filtered — a user
+ *     filtering for the mod that failed to load must still be able to reach the
+ *     reason, not be shown "no mods match" (mcm-design.md §14.2, the SkyUI-MCM
+ *     lesson). This is the same argument the old settings-load alert was pinned
+ *     on; health now carries those load failures as issues instead;
  *  2. Home, only when no filter is active — while filtering the rail scopes to
- *     matching mods and the launcher steps aside, as the framework does;
+ *     matching mods and the launcher steps aside, as the framework does. Home,
+ *     not Health, is still the landing page: health is a place you go, not a
+ *     place you are put;
  *  3. the framework entry (if it matches), with no header of its own — it
  *     self-labels as "Framework";
  *  4. the "Mods" section header, always emitted, even when the list below it is
@@ -133,8 +145,7 @@ export interface RailModel {
  */
 export function railNodes(model: RailModel, query: string): RailNode[] {
   const nodes: RailNode[] = [];
-  const errors = model.loadErrors || [];
-  if (errors.length) nodes.push({ kind: 'loadErrors', errors });
+  nodes.push({ kind: 'health' });
   if (!query) nodes.push({ kind: 'home' });
 
   const entries = railEntries(model.mods, model.views);
@@ -167,8 +178,9 @@ function sortedMods(entries: RailEntry[], query: string): RailEntry[] {
  * Move the rail selection by `delta`, wrapping. Returns the id to select, or
  * `null` when nothing should change.
  *
- * Reproduces `railNodes`' order exactly (Home when unfiltered, framework, then
- * title-sorted mods) — the two must agree or LB/RB would skip visible rows.
+ * Reproduces `railNodes`' order exactly (Health, Home when unfiltered,
+ * framework, then title-sorted mods) — the two must agree or LB/RB would skip
+ * visible rows.
  *
  * Quirk: when the current selection is not in the list (i < 0) the result is
  * `ids[0]` and `delta` is ignored — LB from an off-list selection moves forward
@@ -181,7 +193,7 @@ export function cycleRail(
   delta: number,
 ): string | null {
   const entries = railEntries(model.mods, model.views);
-  const ids: string[] = [];
+  const ids: string[] = [HEALTH_ID];
   if (!query) ids.push(HOME_ID);
   for (const e of entries) {
     if (e.id === FRAMEWORK_ID && railMatches(e, query)) ids.push(e.id);

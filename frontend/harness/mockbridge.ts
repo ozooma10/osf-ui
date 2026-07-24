@@ -32,6 +32,8 @@ import { pseudoize } from './i18n-pseudo';
 import {
   FALLBACK_SCHEMAS,
   HARNESS_PAGES,
+  HEALTH_SCENARIOS,
+  MOCK_HEALTH,
   MOCK_VIEWS,
   MOD_ASSET_ROOTS,
   VANILLA_KEYS,
@@ -112,6 +114,10 @@ export interface MockApi {
   cancelCapture(): boolean;
   /** Point the omitted-`view` commands at the currently mounted view. */
   setSelfView(id: string): void;
+  /** Switch the System Health scenario (no arg = advance the cycle). Returns the new name. */
+  health(name?: string): string;
+  /** The active System Health scenario name. */
+  healthScenario(): string;
   /** Resolves when the initial source load has settled (tests, mostly). */
   loaded(): Promise<void>;
 }
@@ -724,6 +730,31 @@ export function installMock(opts: MockOptions = {}): MockApi {
     send('views.data', { views: out }, requestId);
   }
 
+  // System Health (protocol 1.4). Same subscribe-on-read contract as
+  // settings/views: `diagnostics.get` replies with the snapshot and every later
+  // scenario switch pushes to the subscriber.
+  let healthScenario = (() => {
+    const wanted = params.get('health') || '';
+    return Object.prototype.hasOwnProperty.call(MOCK_HEALTH, wanted) ? wanted : 'clean';
+  })();
+  let healthSubscribed = false;
+
+  function sendHealth(requestId?: string): void {
+    send('diagnostics.data', MOCK_HEALTH[healthScenario] ?? MOCK_HEALTH['clean'], requestId);
+  }
+
+  /** Switch scenario (no arg = advance the cycle). Returns the new name. */
+  function setHealth(name?: string): string {
+    if (name && Object.prototype.hasOwnProperty.call(MOCK_HEALTH, name)) {
+      healthScenario = name;
+    } else if (name === undefined) {
+      const at = HEALTH_SCENARIOS.indexOf(healthScenario);
+      healthScenario = HEALTH_SCENARIOS[(at + 1) % HEALTH_SCENARIOS.length] as string;
+    }
+    if (healthSubscribed) sendHealth();
+    return healthScenario;
+  }
+
   // Subscriptions
 
   // Mirrors SettingsModule subscribe-on-read (protocol 1.0): settings.get
@@ -940,6 +971,23 @@ export function installMock(opts: MockOptions = {}): MockApi {
 
       case 'views.get':
         setTimeout(() => sendViews(rid), 0);
+        break;
+
+      case 'diagnostics.get':
+        healthSubscribed = true;
+        setTimeout(() => sendHealth(rid), 0);
+        break;
+
+      case 'osfui.openLogFolder':
+        // Payload-free and fixed-target in game; there is nothing to open from a
+        // browser, so the harness just proves the command was fired.
+        log('info', 'osfui.openLogFolder (no-op in harness)');
+        result(true);
+        break;
+
+      case 'osfui.openModPage':
+        log('info', 'osfui.openModPage (no-op in harness)');
+        result(true);
         break;
 
       case 'i18n.get': {
@@ -1363,6 +1411,8 @@ export function installMock(opts: MockOptions = {}): MockApi {
     setSelfView(id: string) {
       selfView = id;
     },
+    health: setHealth,
+    healthScenario: () => healthScenario,
     loaded: () => initial,
   };
 

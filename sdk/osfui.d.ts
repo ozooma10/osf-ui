@@ -1,7 +1,7 @@
 /**
  * TypeScript definitions for the OSF UI native <-> web bridge.
  *
- * Bridge protocol version: 1.3 (STABLE — additive changes bump the minor;
+ * Bridge protocol version: 1.4 (STABLE — additive changes bump the minor;
  * breaking changes bump the major). Compatibility is advisory: declare the
  * OSF UI version you authored against as `targetVersion` (view manifest /
  * settings schema) and the Mods surface badges "needs update" when the
@@ -78,6 +78,10 @@ export type UiCommand =
   | { command: "osfui.textFocus"; focused: boolean }
   /** (protocol 1.1) Open OSF UI's own Nexus Mods page in the user's SYSTEM browser — the overlay itself never navigates. The URL is hardcoded in the host and the payload carries nothing, so page content cannot steer the shell. For "update OSF UI" affordances. Failures answer ui.result { ok:false, code:"shell-failed" }. */
   | { command: "osfui.openModPage" }
+  /** (protocol 1.4) Open the SFSE log folder in the system file browser. Payload-free and fixed-target: the directory is derived natively (Documents/My Games/Starfield/SFSE/Logs) and the host refuses anything that is not an existing directory, so page content can neither choose the target nor make this run something. Failures answer ui.result { ok:false, code:"no-log-folder" | "shell-failed" }. */
+  | { command: "osfui.openLogFolder" }
+  /** (protocol 1.4) Read the session diagnostics snapshot; replies `diagnostics.data` and SUBSCRIBES the caller — every later change to the health registry is pushed to you. */
+  | { command: "diagnostics.get" }
   /**
    * Fire an action at the OWNING mod's Papyrus scripts
    * (OSFUI.RegisterForViewActions). The mod id is derived from the calling
@@ -418,6 +422,61 @@ export interface DataPushPayload {
   forms?: Array<SerializedForm | null>;
 }
 
+/**
+ * One durable condition in the session health registry (protocol 1.4). Reply to
+ * `diagnostics.get`; also pushed unsolicited to every subscriber whenever the
+ * registry changes.
+ *
+ * This is a CURATED registry, not a log view: an entry appears only because a
+ * subsystem explicitly raised it, and leaves `status: "active"` only because
+ * that subsystem explicitly withdrew it. Entries are never dismissed by hand.
+ *
+ * Player-facing copy is derived from `code` by the built-in Mods surface, so it
+ * stays localizable and cannot be authored by a mod. `context` is bounded
+ * technical detail for the collapsed disclosure only — it never contains
+ * absolute paths, URLs, or shell targets (the host redacts them).
+ */
+export interface DiagnosticIssue {
+  /** Stable identity, the dedupe key. Recurrence reuses it and bumps `occurrences`. */
+  id: string;
+  /**
+   * Stable machine code. v1 families:
+   * `settings.schema-name` | `settings.schema-parse` | `settings.values-parse`
+   * | `view.load-retrying` | `view.load-failed`
+   * | `host.focus-stranded` | `host.ring-truncated`
+   * | `render.framegen-fallback`
+   * | `compat.needs-newer-osfui`
+   * Treat an unknown code as generic and show its technical details.
+   */
+  code: string;
+  severity: "warning" | "error";
+  /** "resolved" = the condition cleared; the record stays for this session only. */
+  status: "active" | "resolved";
+  /** Producing subsystem: "settings" | "views" | "host" | "render" | "compat". */
+  source: string;
+  /** Affected mod / view / component id, "" when the condition names none. */
+  subject: string;
+  /** Bounded technical detail; keys are code-specific. */
+  context: Record<string, string | number | boolean>;
+  /** How many times this identity has been raised this session (>= 1). */
+  occurrences: number;
+  /** Session-relative seconds since the runtime started. */
+  firstAt: number;
+  lastAt: number;
+  /** Present only while `status` is "resolved". */
+  resolvedAt?: number;
+}
+
+/**
+ * The session health snapshot (protocol 1.4). `system` is an informational
+ * key/value block (OSF UI and bridge versions, renderer/compositor path, host
+ * state) — informational facts live here rather than as noisy "info" issues.
+ */
+export interface DiagnosticsDataPayload {
+  system: Record<string, string | number | boolean>;
+  issues: DiagnosticIssue[];
+}
+
 /** Platform-private state for the always-warm first-load handoff surface. */
 export interface HandoffStatePayload {
   target: string;
@@ -434,6 +493,7 @@ export type NativeToWebMessage =
   | BridgeEnvelope<"runtime.pong", Record<string, never>>
   | BridgeEnvelope<"game.data", GameDataPayload>
   | BridgeEnvelope<"views.data", ViewsDataPayload>
+  | BridgeEnvelope<"diagnostics.data", DiagnosticsDataPayload>
   | BridgeEnvelope<"i18n.data", I18nDataPayload>
   | BridgeEnvelope<"settings.data", SettingsDataPayload>
   | BridgeEnvelope<"handoff.state", HandoffStatePayload>

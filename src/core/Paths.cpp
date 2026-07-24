@@ -51,4 +51,16 @@ namespace OSFUI::Paths
 	{
 		return g_dataDir / "views";
 	}
+
+	std::filesystem::path LogDir()
+	{
+		// Where SFSE writes plugin logs. Documents is resolved through the known
+		// folder API, so OneDrive redirection is followed rather than assuming
+		// %USERPROFILE%\Documents.
+		const auto documents = Platform::GetDocumentsPath();
+		if (documents.empty()) {
+			return {};
+		}
+		return documents / "My Games" / "Starfield" / "SFSE" / "Logs";
+	}
 }

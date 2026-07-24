@@ -37,6 +37,11 @@ namespace OSFUI
 		constexpr std::string_view kHandoffViewId{ "osfui/handoff" };
 		constexpr double           kHandoffDelaySeconds{ 0.15 };
 		constexpr double           kReadySignalTimeoutSeconds{ 15.0 };
+		// System Health producers without a cheap change signal (the render path,
+		// the system-information block) are sampled on this cadence instead of
+		// every tick. Slow enough to be free, fast enough that a player who just
+		// toggled Frame Generation sees the pane agree with the screen.
+		constexpr double           kDiagnosticsPollSeconds{ 2.0 };
 	}
 
 	Runtime& Runtime::Get()
@@ -108,6 +113,12 @@ namespace OSFUI
 		// didn't come up. Drives crash-recovery.
 		_renderer->SetLoadHandler([this](const IWebRenderer::LoadEvent& a_e) {
 			OnViewLoad(a_e.viewId, a_e.failed, a_e.url, a_e.description, a_e.errorCode);
+		});
+
+		// Degraded-but-alive backend conditions, into System Health (protocol
+		// 1.4). Game thread, both edges — see IWebRenderer::HealthEvent.
+		_renderer->SetHealthHandler([this](const IWebRenderer::HealthEvent& a_e) {
+			OnRendererHealth(a_e);
 		});
 
 		// The active page's CSS `cursor` drives the real OS pointer. Unlike the
@@ -313,7 +324,8 @@ namespace OSFUI
 		_bridge.reset();
 		_viewsSubscribers.clear();
 		_i18nSubscribers.clear();
-		_settings = nullptr;  // owned by _modules, about to go away
+		_settings = nullptr;     // owned by _modules, about to go away
+		_diagnostics = nullptr;  // ditto
 		_modules.clear();
 		_initialized = false;
 		REX::INFO("Runtime: shutdown complete");
@@ -473,6 +485,9 @@ namespace OSFUI
 			SubmitFrameIfVisible();
 			UpdateRenderDiagnostics();
 		}
+		// After Update(), so a health edge the renderer raised this tick is in
+		// the registry before the snapshot goes out.
+		PumpDiagnostics();
 	}
 
 	void Runtime::EnqueueMenuRequest(MenuReq a_req)
@@ -1068,6 +1083,7 @@ namespace OSFUI
 			} else {
 				REX::INFO("Runtime: view '{}' finished loading ({})", a_viewId, a_url);
 			}
+			ReportViewLoadDiagnostic(a_viewId, false, {}, 0, 0);
 			BroadcastViewsData();  // loadState loading -> loaded
 			return;
 		}
@@ -1104,6 +1120,8 @@ namespace OSFUI
 			if (!bridgeSurfaceRemains) {
 				API::BridgeApi::Get().OnBridgeReady(nullptr);
 			}
+			// The retry budget is spent: this is the error a player has to act on.
+			ReportViewLoadDiagnostic(a_viewId, true, a_description, a_errorCode, 0);
 			_viewsSubscribers.erase(id);  // a destroyed view can't receive pushes
 			_i18nSubscribers.erase(id);
 			_gamepadRawViews.erase(id);   // its sticky gamepad grant dies with it
@@ -1118,6 +1136,8 @@ namespace OSFUI
 		rec.retryAt = _uptime + kBackoffSec[rec.attempts];
 		REX::WARN("Runtime: view '{}' reload attempt {}/{} scheduled in {:.0f}s",
 			a_viewId, rec.attempts + 1, kMaxAttempts, kBackoffSec[rec.attempts]);
+		ReportViewLoadDiagnostic(a_viewId, true, a_description, a_errorCode,
+			kMaxAttempts - rec.attempts);
 		BroadcastViewsData();  // loadState -> failed
 	}
 
@@ -1229,6 +1249,280 @@ namespace OSFUI
 	{
 		const auto it = _viewLoadState.find(std::string(a_id));
 		return it == _viewLoadState.end() ? ViewLoadState::Loading : it->second;
+	}
+
+	// -- System Health (bridge protocol 1.4) ---------------------------------
+	//
+	// Every producer below follows the same shape: work out what is wrong RIGHT
+	// NOW, upsert those conditions, and resolve the ones that are no longer
+	// true. Nothing here reads the log, and nothing here writes player-facing
+	// prose — issues carry stable codes and the built-in frontend owns the
+	// wording, so it stays localizable and a mod's schema text can never become
+	// UI chrome. See docs/security-model.md.
+
+	void Runtime::PumpDiagnostics()
+	{
+		if (!_diagnostics) {
+			return;
+		}
+		// The settings registry moves rarely (boot, a runtime registration, a
+		// dev hot-reload), so its generation counter is the whole gate for two
+		// of the three reconciles.
+		if (_settings) {
+			const auto generation = _settings->Store().Generation();
+			if (!_diagSettingsSynced || generation != _diagSettingsGeneration) {
+				_diagSettingsGeneration = generation;
+				_diagSettingsSynced = true;
+				SyncSettingsDiagnostics();
+			}
+		}
+		// Compat, the render path, and the system-information block change slowly
+		// and have no cheap per-tick change signal, so they are sampled rather
+		// than watched — compat walks every manifest and schema, so keeping it
+		// off the hot path matters. A 2s lag before "needs a newer OSF UI"
+		// appears is imperceptible.
+		if (_uptime >= _nextDiagnosticsPoll) {
+			_nextDiagnosticsPoll = _uptime + kDiagnosticsPollSeconds;
+			SyncCompatDiagnostics();
+			SyncRenderDiagnostics();
+			UpdateDiagnosticSystemInfo();
+		}
+		_diagnostics->Broadcast();
+	}
+
+	void Runtime::SyncSettingsDiagnostics()
+	{
+		if (!_settings || !_diagnostics) {
+			return;
+		}
+		std::unordered_set<std::string> live;
+		for (const auto& error : _settings->Store().LoadErrors()) {
+			// Identity is the failing artifact, not the message: a mod whose
+			// values file fails to parse on every reload is one issue with a
+			// rising occurrence count, not a new card each time.
+			const auto subject = error.mod.empty() ? error.file : error.mod;
+			auto       id = "settings." + error.kind + ":" + subject;
+			live.insert(id);
+			// "values-parse" is recoverable — the mod runs on defaults and its
+			// old file is kept as <id>.json.bad — so it is a warning. A schema
+			// that cannot be read means the mod's settings are absent entirely.
+			const auto severity = error.kind == "values-parse" ?
+				DiagnosticsModule::Severity::Warning :
+				DiagnosticsModule::Severity::Error;
+			_diagnostics->Upsert(DiagnosticsModule::IssueSpec{
+									 .id = std::move(id),
+									 .code = "settings." + error.kind,
+									 .severity = severity,
+									 .source = "settings",
+									 .subject = subject,
+									 .context = nlohmann::json{
+										 { "file", error.file },
+										 { "message", error.message },
+									 },
+								 },
+				_uptime);
+		}
+		_diagnostics->ResolveMissing("settings", live, _uptime);
+	}
+
+	void Runtime::SyncCompatDiagnostics()
+	{
+		if (!_diagnostics) {
+			return;
+		}
+		// One issue per artifact that declares a targetVersion this host cannot
+		// satisfy. Advisory in the same sense the "needs update" badge is: the
+		// artifact still loads, but a setting type or manifest field it expects
+		// may not exist here.
+		struct Wanting
+		{
+			std::string id;
+			std::string kind;  // "view" | "mod"
+			std::string target;
+		};
+		std::vector<Wanting> wanting;
+		const auto outdated = [](std::string_view a_target) {
+			std::array<std::uint32_t, 3> parts{};
+			return !a_target.empty() && ParseDottedVersion(a_target, parts) &&
+				parts > kPluginVersionParts;
+		};
+		for (const auto& manifest : _views.All()) {
+			if (outdated(manifest.targetVersion)) {
+				wanting.push_back({ manifest.id, "view", manifest.targetVersion });
+			}
+		}
+		if (_settings) {
+			for (const auto& mod : _settings->Store().DataView().value("mods", nlohmann::json::array())) {
+				const auto target = mod.value("targetVersion", std::string{});
+				if (outdated(target)) {
+					wanting.push_back({ mod.value("id", std::string{}), "mod", target });
+				}
+			}
+		}
+
+		// Recomputing this walks every manifest and schema, so the result is
+		// only pushed when it actually differs from the last pass.
+		std::string signature;
+		for (const auto& w : wanting) {
+			signature += w.kind + ':' + w.id + '@' + w.target + ';';
+		}
+		if (signature == _diagCompatSignature) {
+			return;
+		}
+		_diagCompatSignature = signature;
+
+		std::unordered_set<std::string> live;
+		for (const auto& w : wanting) {
+			auto id = "compat.needs-newer-osfui:" + w.kind + ':' + w.id;
+			live.insert(id);
+			_diagnostics->Upsert(DiagnosticsModule::IssueSpec{
+									 .id = std::move(id),
+									 .code = "compat.needs-newer-osfui",
+									 .severity = DiagnosticsModule::Severity::Warning,
+									 .source = "compat",
+									 .subject = w.id,
+									 .context = nlohmann::json{
+										 { "kind", w.kind },
+										 { "targetVersion", w.target },
+										 { "installedVersion", kPluginVersion },
+									 },
+								 },
+				_uptime);
+		}
+		_diagnostics->ResolveMissing("compat", live, _uptime);
+	}
+
+	void Runtime::SyncRenderDiagnostics()
+	{
+		if (!_diagnostics || !_compositor) {
+			return;
+		}
+		const auto stats = _compositor->GetRenderStats();
+		// Frame Generation paces a second, generated present chain. The overlay
+		// only rides that correctly when it records into the engine's own UI
+		// pass; on the present-time fallback it suspends itself instead, so the
+		// player sees FG working and the overlay missing. That is a real,
+		// actionable condition (turn FG off, or fix the seam) and the frontend
+		// is still up to say so, because a menu that is open right now is being
+		// drawn by the seam it is complaining about only when FG is off.
+		constexpr std::string_view kId = "render.framegen-fallback";
+		if (stats.frameGeneration && !stats.seamMode) {
+			_diagnostics->Upsert(DiagnosticsModule::IssueSpec{
+									 .id = std::string(kId),
+									 .code = "render.framegen-fallback",
+									 .severity = DiagnosticsModule::Severity::Warning,
+									 .source = "render",
+									 .subject = std::string(_compositor->Name()),
+									 .context = nlohmann::json{
+										 { "compositor", std::string(_compositor->Name()) },
+										 { "seamMode", false },
+										 { "frameGeneration", true },
+									 },
+								 },
+				_uptime);
+		} else {
+			_diagnostics->Resolve(kId, _uptime);
+		}
+	}
+
+	void Runtime::UpdateDiagnosticSystemInfo()
+	{
+		if (!_diagnostics) {
+			return;
+		}
+		const auto stats = _compositor ? _compositor->GetRenderStats() : CompositorStats{};
+		_diagnostics->SetSystemInfo(nlohmann::json{
+			{ "version", kPluginVersion },
+			{ "bridgeVersion", kBridgeProtocolVersion },
+			{ "renderer", _renderer ? std::string(_renderer->Name()) : std::string("none") },
+			{ "compositor", _compositor ? std::string(_compositor->Name()) : std::string("none") },
+			// Which of the two draw paths is live. The seam records into the
+			// engine's UI pass; anything else is the present-time fallback.
+			{ "drawPath", stats.seamMode ? "ui-seam" : "present" },
+			{ "frameGeneration", stats.frameGeneration },
+			{ "nativeFocus", _renderer && _renderer->UsesNativeKeyboardFocus() },
+			{ "locale", _localization.Locale() },
+			{ "debugMode", _config.debugMode },
+		});
+	}
+
+	void Runtime::OnRendererHealth(const IWebRenderer::HealthEvent& a_event)
+	{
+		if (!_diagnostics || a_event.code.empty()) {
+			return;
+		}
+		const std::string code(a_event.code);
+		if (!a_event.active) {
+			_diagnostics->Resolve(code, _uptime);
+			_diagnostics->Broadcast();
+			return;
+		}
+		// A backend never chooses severity or wording: it reports a code, and
+		// the frontend maps that to copy and to the actions it is willing to
+		// offer. `detail` rides along as technical context only.
+		nlohmann::json context = nlohmann::json::object();
+		if (!a_event.detail.empty()) {
+			context["detail"] = std::string(a_event.detail);
+		}
+		context["renderer"] = _renderer ? std::string(_renderer->Name()) : std::string("none");
+		_diagnostics->Upsert(DiagnosticsModule::IssueSpec{
+								 .id = code,
+								 .code = code,
+								 .severity = DiagnosticsModule::Severity::Warning,
+								 .source = "host",
+								 .subject = _renderer ? std::string(_renderer->Name()) : std::string{},
+								 .context = std::move(context),
+							 },
+			_uptime);
+		_diagnostics->Broadcast();
+	}
+
+	void Runtime::ReportViewLoadDiagnostic(std::string_view a_viewId, bool a_failed,
+		std::string_view a_description, int a_errorCode, std::uint32_t a_attemptsLeft)
+	{
+		if (!_diagnostics) {
+			return;
+		}
+		const std::string id(a_viewId);
+		// Two distinct conditions, so the pane can say "recovering" while the
+		// retries run and "give up" once they are spent — the second is what a
+		// player has to act on, and it must not be buried under the first.
+		const auto retrying = "view.load-retrying:" + id;
+		const auto failed = "view.load-failed:" + id;
+		if (!a_failed) {
+			// A healthy load is the resolve signal for both, including one that
+			// had already exhausted its budget and was reloaded by hand.
+			_diagnostics->Resolve(retrying, _uptime);
+			_diagnostics->Resolve(failed, _uptime);
+			return;
+		}
+		nlohmann::json context{
+			{ "errorCode", a_errorCode },
+			{ "description", std::string(a_description) },
+			{ "attemptsLeft", a_attemptsLeft },
+		};
+		if (a_attemptsLeft > 0) {
+			_diagnostics->Upsert(DiagnosticsModule::IssueSpec{
+									 .id = retrying,
+									 .code = "view.load-retrying",
+									 .severity = DiagnosticsModule::Severity::Warning,
+									 .source = "views",
+									 .subject = id,
+									 .context = std::move(context),
+								 },
+				_uptime);
+			return;
+		}
+		_diagnostics->Resolve(retrying, _uptime);
+		_diagnostics->Upsert(DiagnosticsModule::IssueSpec{
+								 .id = failed,
+								 .code = "view.load-failed",
+								 .severity = DiagnosticsModule::Severity::Error,
+								 .source = "views",
+								 .subject = id,
+								 .context = std::move(context),
+							 },
+			_uptime);
 	}
 
 	bool Runtime::IsInputCaptured() const
@@ -1695,6 +1989,14 @@ namespace OSFUI
 
 		_modules.push_back(std::move(settings));
 
+		// System Health (bridge protocol 1.4): a session-scoped registry every
+		// subsystem reports durable, actionable conditions to. Deliberately
+		// LAST, so a producer that fires during another module's OnStart finds
+		// the registry already constructed.
+		auto diagnostics = std::make_unique<DiagnosticsModule>();
+		_diagnostics = diagnostics.get();
+		_modules.push_back(std::move(diagnostics));
+
 		REX::INFO("Runtime: {} UI module(s) loaded", _modules.size());
 	}
 
@@ -2006,6 +2308,26 @@ namespace OSFUI
 			} else {
 				REX::WARN("Runtime: osfui.openModPage — the shell refused to open {}", kNexusPageURL);
 				a_b.SendResult(false, "shell-failed", "could not open the system browser");
+			}
+		});
+		a_bridge.RegisterCommand("osfui.openLogFolder", [](const nlohmann::json&, MessageBridge& a_b) {
+			// System Health's "Open log folder" action (protocol 1.4). The twin
+			// of osfui.openModPage and held to the same rule: the target is
+			// DERIVED NATIVELY (Paths::LogDir()) and the payload carries nothing,
+			// so no amount of page content can turn this into "open an arbitrary
+			// folder" — let alone "run an arbitrary thing". Platform::OpenFolder
+			// additionally refuses anything that is not an existing directory.
+			const auto folder = Paths::LogDir();
+			if (folder.empty()) {
+				REX::WARN("Runtime: osfui.openLogFolder — could not resolve the Documents folder");
+				a_b.SendResult(false, "no-log-folder", "could not resolve the log folder");
+				return;
+			}
+			if (Platform::OpenFolder(folder)) {
+				REX::DEBUG("Runtime: osfui.openLogFolder -> {}", folder.string());
+			} else {
+				REX::WARN("Runtime: osfui.openLogFolder — the shell refused to open {}", folder.string());
+				a_b.SendResult(false, "shell-failed", "could not open the log folder");
 			}
 		});
 		a_bridge.RegisterCommand("osfui.handleBack", [this](const nlohmann::json& a_p, MessageBridge& a_b) {

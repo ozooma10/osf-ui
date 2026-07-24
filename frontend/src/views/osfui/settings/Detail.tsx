@@ -1,18 +1,20 @@
-// The right-hand pane, and the dispatcher for its five mutually exclusive
+// The right-hand pane, and the dispatcher for its six mutually exclusive
 // modes. Dispatch order is the behaviour:
-//   1. search results   a non-empty filter replaces the pane, whatever is selected
-//   2. Home             the launcher
-//   3. not found        a selection that names no entry
-//   4. view-only        an entry with views but no settings schema
-//   5. settings page    the normal case
+//   1. System Health    the pinned destination, which outranks even search —
+//                       selecting it clears the filter, so the two never fight
+//   2. search results   a non-empty filter replaces the pane, whatever is selected
+//   3. Home             the launcher
+//   4. not found        a selection that names no entry
+//   5. view-only        an entry with views but no settings schema
+//   6. settings page    the normal case
 // Search wins over Home, so typing while on the launcher shows results rather
 // than a filtered card grid. "Not found" precedes the view-only test because
 // `entry.mod` cannot be read off an entry that does not exist.
 //
 // Accent: a mod's schema `accent` drives the kit's whole linked accent set on
-// this subtree. Modes 2 and 4 clear it, so one mod's colour cannot leak onto the
-// launcher or onto a mod that ships none. Modes 1 and 3 leave it untouched, so
-// searching from a red mod keeps a red-tinted result list.
+// this subtree. Modes 1, 3 and 5 clear it, so one mod's colour cannot leak onto
+// the launcher, onto System Health, or onto a mod that ships none. Modes 2 and 4
+// leave it untouched, so searching from a red mod keeps a red-tinted result list.
 
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Row } from '@ui/Row';
@@ -24,13 +26,15 @@ import { evalGate } from '@lib/settings/conditions';
 import { isModified } from '@lib/settings/modified';
 import { isSetting } from '@lib/settings/normalize';
 import { safeAssetSrc, type AssetRoots } from '@lib/settings/assets';
-import { findEntry, titleOf, FRAMEWORK_ID, HOME_ID, type ModRecord, type ViewRecord } from '@lib/settings/rail';
+import { findEntry, titleOf, FRAMEWORK_ID, HEALTH_ID, HOME_ID, type ModRecord, type ViewRecord } from '@lib/settings/rail';
+import { issueForSubject, type HealthModel } from '@lib/settings/diagnostics';
 import { versionLess } from '@lib/version';
 import type { SearchResult } from '@lib/settings/search';
 import type { Translator } from '@lib/i18n';
 import type { Setting, SettingsGroup, SettingsItem, SettingsSchema, SettingValue } from '@sdk';
 import { SettingRow } from './SettingRow';
 import { SearchResults } from './SearchResults';
+import { Health } from './Health';
 import { Home } from './Home';
 import { Presets, type PresetRecord } from './Presets';
 import type { CaptureTarget } from './useCapture';
@@ -55,12 +59,20 @@ export function surfacesKey(ownerId: string): string {
 export interface DetailProps {
   mods: ModRecord[];
   views: ViewRecord[];
-  /** Pre-trimmed, pre-lowercased. Non-empty selects mode 1. */
+  health: HealthModel;
+  /** Pre-trimmed, pre-lowercased. Non-empty selects mode 2. */
   query: string;
   selectedId: string | null;
   hostVersion: string;
   tr: Translator;
   assetRoots: AssetRoots | undefined;
+
+  /** Issue to expand on the Health pane, set by a deep link and cleared after. */
+  focusIssueId: string | null;
+  /** Jump to System Health with `issueId` expanded (failed-view card). */
+  onOpenIssue: (issueId: string) => void;
+  /** Fire a payload-free shell command from a health card. */
+  onShellCommand: (command: string) => void;
 
   /** User overrides on top of each group's schema `collapsed` default. */
   collapsed: Record<string, boolean>;
@@ -90,12 +102,15 @@ export function Detail(props: DetailProps) {
   const { mods, views, query, selectedId, tr } = props;
   const paneRef = useRef<HTMLElement | null>(null);
 
-  const entry = query || selectedId === HOME_ID ? undefined : findEntry(mods, views, selectedId);
+  const health = selectedId === HEALTH_ID;
+  const entry =
+    health || query || selectedId === HOME_ID ? undefined : findEntry(mods, views, selectedId);
   const schema: SettingsSchema = (entry && entry.mod && entry.mod.schema) || {};
 
   // `undefined` means "do not touch the accent at all".
   let accentIntent: string | null | undefined;
-  if (query) accentIntent = undefined;
+  if (health) accentIntent = null;
+  else if (query) accentIntent = undefined;
   else if (selectedId === HOME_ID) accentIntent = null;
   else if (!entry) accentIntent = undefined;
   else if (!entry.mod) accentIntent = null;
@@ -111,17 +126,28 @@ export function Detail(props: DetailProps) {
 
   return (
     <section id="detail" class="detail" aria-live="polite" ref={paneRef}>
-      {query ? (
+      {health ? (
+        <Health
+          health={props.health}
+          tr={tr}
+          focusIssueId={props.focusIssueId}
+          onRetryView={props.onOpenView}
+          onShellCommand={props.onShellCommand}
+          onToast={props.onToast}
+        />
+      ) : query ? (
         <SearchResults mods={mods} query={query} tr={tr} onJump={props.onJump} />
       ) : selectedId === HOME_ID ? (
         <Home
           views={views}
           mods={mods}
+          health={props.health}
           tr={tr}
           assetRoots={props.assetRoots}
           hudOn={props.hudOn}
           onOpen={props.onOpenView}
           onHud={props.onHudToggle}
+          onOpenIssue={props.onOpenIssue}
         />
       ) : !entry ? (
         <div class="detail-empty">
@@ -487,7 +513,14 @@ function Surfaces(props: SurfacesProps) {
       </button>
       <div class="group-rows">
         {menus.map((v) => (
-          <PanelRow key={v.id} view={v} tr={tr} onOpen={props.onOpenView} />
+          <PanelRow
+            key={v.id}
+            view={v}
+            tr={tr}
+            issueId={(issueForSubject(props.health.issues, v.id) || {}).id ?? null}
+            onOpen={props.onOpenView}
+            onOpenIssue={props.onOpenIssue}
+          />
         ))}
         {huds.map((v) => (
           <HudRow key={v.id} view={v} on={props.hudOn(v)} onToggle={props.onHudToggle} />
@@ -500,14 +533,42 @@ function Surfaces(props: SurfacesProps) {
 function PanelRow({
   view: v,
   tr,
+  issueId,
   onOpen,
+  onOpenIssue,
 }: {
   view: ViewRecord;
   tr: Translator;
+  /** Health issue naming this view, when one is active. */
+  issueId: string | null;
   onOpen: (id: string) => void;
+  onOpenIssue: (issueId: string) => void;
 }) {
   const failed = v.loadState === 'failed';
   const [opening, setOpening] = useState(false);
+
+  // A failed row sends the player to the issue rather than to the log: the
+  // issue says what happened, and carries the retry. A failure with no issue
+  // (an older host) keeps the old dead-end button.
+  if (failed && issueId) {
+    return (
+      <Row class="" dataLabel={(v.title || '').toLowerCase()} dataKey="">
+        <div class="row-text">
+          <div class="row-label">{v.title || v.id}</div>
+          {v.description ? <div class="row-hint">{v.description}</div> : null}
+        </div>
+        <div class="control">
+          <button
+            type="button"
+            class="osf-btn osf-btn--sm osf-btn--danger"
+            onClick={() => onOpenIssue(issueId)}
+          >
+            {tr('reviewIssue', 'Review issue')}
+          </button>
+        </div>
+      </Row>
+    );
+  }
 
   return (
     <Row class="" dataLabel={(v.title || '').toLowerCase()} dataKey="">

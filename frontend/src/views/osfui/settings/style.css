@@ -89,26 +89,6 @@ html, body { height: 100%; overflow: hidden; }
   border: 1px dashed var(--osf-line-strong); border-radius: var(--osf-radius);
 }
 
-/* Load-failure alert (settings.data loadErrors) — pinned at the rail top */
-.rail-alert {
-  padding: 9px 12px 10px; margin: 2px 6px 8px;
-  border: 1px solid var(--osf-line); border-left: 3px solid var(--osf-signal-warn);
-  border-radius: var(--osf-radius); background: rgba(224, 162, 60, 0.08);
-}
-.rail-alert-title {
-  font-size: var(--osf-text-xs); font-weight: 600; color: var(--osf-signal-warn);
-  letter-spacing: 0.04em;
-}
-.rail-alert-title::before { content: "⚠ "; }
-.rail-alert-row { margin-top: 7px; }
-.rail-alert-file {
-  font-family: var(--osf-font-mono); font-size: 9.5px; letter-spacing: 0.06em;
-  color: var(--osf-text-bright); word-break: break-all;
-}
-.rail-alert-msg {
-  font-size: var(--osf-text-xs); color: var(--osf-text-body); line-height: 1.45;
-  overflow-wrap: anywhere;
-}
 .rail-empty code { color: var(--osf-text-muted); font-size: 11px; }
 
 .rail-foot { flex: none; padding: 12px 16px; border-top: 1px solid var(--osf-line); }
@@ -635,6 +615,139 @@ html, body { height: 100%; overflow: hidden; }
 }
 .home-empty p { max-width: 46ch; margin: 10px auto 0; font-size: var(--osf-text-sm); line-height: 1.6; }
 
+/* ---- System Health ------------------------------------------
+   The deck's status board. Severity is carried three ways — the
+   word, the glyph, and the colour — so it survives a monochrome
+   screen and a colour-blind reading; the colour is the last of
+   the three to be added, never the only one. Cards stay quiet by
+   default: instrument-panel calm, not a wall of red. */
+
+.rail-item--health .rail-item-mark { font-size: 14px; color: var(--osf-signal-go); }
+.rail-item--health { margin-bottom: 6px; }
+.rail-item--health-warning .rail-item-mark { color: var(--osf-signal-warn); }
+.rail-item--health-error .rail-item-mark { color: var(--osf-signal-stop); }
+.rail-item-count--warning { color: var(--osf-signal-warn); background: rgba(223, 166, 61, 0.14); }
+.rail-item-count--error { color: var(--osf-signal-stop); background: rgba(200, 80, 58, 0.16); }
+
+/* Per-mod severity marker. Sits BESIDE the modified-setting count, so the
+   count keeps its auto margin and this rides just before it. */
+.rail-item-severity {
+  flex: none; margin-left: auto;
+  font-family: var(--osf-font-mono); font-size: 10px; line-height: 1;
+  width: 16px; height: 16px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--osf-radius-pill);
+}
+.rail-item-severity + .rail-item-count { margin-left: 4px; }
+.rail-item-severity--warning { color: var(--osf-signal-warn); background: rgba(223, 166, 61, 0.14); }
+.rail-item-severity--error { color: var(--osf-signal-stop); background: rgba(200, 80, 58, 0.16); }
+
+.detail-body--health { width: min(100%, 860px); }
+
+/* Shared severity chip: glyph + word, used by the summary and every card. */
+.health-mark { display: inline-flex; align-items: center; gap: 7px; flex: none; }
+.health-mark-glyph {
+  width: 22px; height: 22px; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-family: var(--osf-font-mono); font-size: 12px; line-height: 1;
+  border: 1px solid currentColor; border-radius: var(--osf-radius-pill);
+}
+.health-mark-label {
+  font-family: var(--osf-font-mono); font-size: 9px; letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.health-mark--ok { color: var(--osf-signal-go); }
+.health-mark--warning { color: var(--osf-signal-warn); }
+.health-mark--error { color: var(--osf-signal-stop); }
+
+.health-summary {
+  display: flex; align-items: center; gap: 16px;
+  margin-top: 4px; padding: 16px 18px;
+  border: 1px solid var(--osf-line); border-left: 3px solid var(--osf-signal-go);
+  border-radius: var(--osf-radius-md); background: var(--osf-surface-card);
+}
+.health-summary--warning { border-left-color: var(--osf-signal-warn); }
+.health-summary--error { border-left-color: var(--osf-signal-stop); }
+.health-summary-title {
+  font-family: var(--osf-font-display); font-size: 17px; letter-spacing: 0.06em;
+  color: var(--osf-text-bright);
+}
+.health-summary-detail {
+  margin-top: 3px; font-size: var(--osf-text-sm); color: var(--osf-text-muted);
+}
+
+.health-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 4px; }
+/* The troubleshooting link is an <a>; keep it on the button baseline. */
+.health-actions a.osf-btn { text-decoration: none; display: inline-flex; align-items: center; }
+
+.health-list { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+
+.health-card {
+  padding: 14px 16px 12px;
+  border: 1px solid var(--osf-line); border-left: 3px solid var(--osf-signal-warn);
+  border-radius: var(--osf-radius-md); background: var(--osf-surface-card);
+}
+.health-card--error { border-left-color: var(--osf-signal-stop); }
+/* History reads as settled: no signal stripe, and the whole card steps back. */
+.health-card--resolved { border-left-color: var(--osf-line-strong); opacity: 0.72; }
+
+.health-card-head { display: flex; align-items: flex-start; gap: 12px; }
+.health-card-heading { flex: 1; min-width: 0; }
+.health-card-title {
+  font-family: var(--osf-font-display); font-size: 15px; font-weight: 600;
+  letter-spacing: 0.03em; color: var(--osf-text-bright); margin: 0;
+}
+.health-card-subject {
+  margin-top: 2px;
+  font-family: var(--osf-font-mono); font-size: 10px; letter-spacing: 0.06em;
+  color: var(--osf-text-faint); overflow-wrap: anywhere;
+}
+.health-card-tag {
+  flex: none;
+  font-family: var(--osf-font-mono); font-size: 9px; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--osf-text-faint);
+  padding: 2px 7px; border: 1px solid var(--osf-line); border-radius: var(--osf-radius-sm);
+}
+.health-card-impact {
+  margin: 10px 0 0; font-size: var(--osf-text-sm); line-height: 1.55;
+  color: var(--osf-text-body);
+}
+.health-card-next {
+  margin: 6px 0 0; font-size: var(--osf-text-sm); line-height: 1.55;
+  color: var(--osf-text-muted);
+}
+.health-card-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.health-card-disclose { margin-left: auto; }
+.health-card-technical {
+  margin: 12px 0 0; padding: 10px 12px;
+  max-height: 260px; overflow: auto;
+  font-family: var(--osf-font-mono); font-size: 10.5px; line-height: 1.6;
+  color: var(--osf-text-muted); white-space: pre-wrap; overflow-wrap: anywhere;
+  background: var(--osf-void-800); border: 1px solid var(--osf-line);
+  border-radius: var(--osf-radius);
+  /* Selectable and focusable: when the clipboard refuses, this is what the
+     player copies by hand. */
+  user-select: text;
+}
+
+.health-history { margin-top: 22px; }
+.health-history-toggle { width: 100%; }
+
+.health-system { margin-top: 26px; }
+.health-system-list { margin: 10px 0 0; display: flex; flex-direction: column; gap: 0; }
+.health-system-row {
+  display: grid; grid-template-columns: minmax(0, 170px) minmax(0, 1fr); gap: 12px;
+  padding: 7px 2px; border-bottom: 1px solid var(--osf-line);
+}
+.health-system-row dt {
+  font-family: var(--osf-font-mono); font-size: 10px; letter-spacing: 0.08em;
+  color: var(--osf-text-faint);
+}
+.health-system-row dd {
+  margin: 0; font-family: var(--osf-font-mono); font-size: 10.5px;
+  color: var(--osf-text-body); overflow-wrap: anywhere;
+}
+
 @media (max-width: 920px) {
   .settings { grid-template-columns: 240px minmax(0, 1fr); width: calc(100% - 28px); height: calc(100% - 28px); margin: 14px auto; }
   .rail-head { padding-inline: 14px; }
@@ -657,4 +770,12 @@ html, body { height: 100%; overflow: hidden; }
   .detail-head h2 { font-size: 23px; }
   .row { grid-template-columns: 1fr; gap: 10px; }
   .control { min-width: 0; justify-content: flex-start; }
+  /* The rail drops its marks at this width; the health severity chip is the
+     row's only status carrier there, so it stays. */
+  .rail-item--health .rail-item-mark { display: inline-flex; }
+  .health-summary { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .health-card-head { flex-wrap: wrap; }
+  .health-card-disclose { margin-left: 0; }
+  /* Two 170px columns do not fit; stack the key over its value. */
+  .health-system-row { grid-template-columns: 1fr; gap: 2px; }
 }

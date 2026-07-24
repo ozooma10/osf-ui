@@ -28,13 +28,18 @@ import { ToastStack, useToasts } from '@ui/Toast';
 import { ACTION_TIMEOUT_MS } from '@ui/ActionButton';
 import type { AssetRoots } from '@lib/settings/assets';
 import {
+  HEALTH_ID,
   HOME_ID,
   railNodes,
   titleOf,
-  type LoadError,
   type ModRecord,
   type ViewRecord,
 } from '@lib/settings/rail';
+import {
+  EMPTY_HEALTH,
+  readHealth,
+  type HealthModel,
+} from '@lib/settings/diagnostics';
 import { applyConflictUpdate } from '@lib/settings/conflicts';
 import { findSettingInMod, sameValue, sessionDiff, type Baseline } from '@lib/settings/modified';
 import { deriveNeedsUpdate } from '@lib/version';
@@ -112,9 +117,19 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     setViewsState(next);
   };
 
-  const [loadErrors, setLoadErrors] = useState<LoadError[]>([]);
   const [viewTargets, setViewTargets] = useState<ViewRecord[]>([]);
   const [hostVersion, setHostVersion] = useState('');
+
+  /**
+   * The session health snapshot. Settings-file load failures used to be a rail
+   * banner fed by `settings.data`'s `loadErrors`; they are now health issues
+   * like everything else, so this is the single model behind the pinned
+   * destination, the rail badge, the per-mod severity markers and the failed
+   * card deep links.
+   */
+  const [health, setHealth] = useState<HealthModel>(EMPTY_HEALTH);
+  /** Issue the Health pane should expand and scroll to, from a deep link. */
+  const [focusIssueId, setFocusIssueId] = useState<string | null>(null);
 
   const [selectedId, setSelectedIdState] = useState<string | null>(null);
   const selectedIdRef = useRef<string | null>(null);
@@ -329,7 +344,31 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     if (changed) setBaseline(next);
   };
 
-  const selectMod = (id: string) => setSelectedId(id);
+  /**
+   * Rail selection. Choosing System Health CLEARS an active search: the pane is
+   * dispatched on the selection, but a non-empty filter otherwise wins and would
+   * show search results under a selected Health entry. Clearing here rather than
+   * refusing the selection keeps the pinned entry reachable from a filtered
+   * rail, which is the whole reason it is never filtered out.
+   */
+  const selectMod = (id: string) => {
+    if (id === HEALTH_ID) {
+      setFilter('');
+      setQuery('');
+    } else {
+      // Any other destination drops a deep link's expanded-issue intent.
+      setFocusIssueId(null);
+    }
+    setSelectedId(id);
+  };
+
+  /** Jump to System Health with one issue expanded (a failed view's card). */
+  const openIssue = (issueId: string) => {
+    setFilter('');
+    setQuery('');
+    setFocusIssueId(issueId);
+    setSelectedId(HEALTH_ID);
+  };
 
   /**
    * Default selection, re-run whenever the entry set changes: settings.data and
@@ -337,21 +376,24 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
    * not leave the pane pointed at nothing.
    */
   useEffect(() => {
-    const nodes = railNodes({ mods, views, loadErrors }, '');
+    const nodes = railNodes({ mods, views }, '');
     const ids = nodes.filter((n) => n.kind === 'entry').map((n) => (n as { entry: { id: string } }).entry.id);
     if (!ids.length) return; // nothing registered
 
     const pending = pendingHashSelect.current;
-    if (pending && (pending === HOME_ID || ids.includes(pending))) {
+    if (pending && (pending === HOME_ID || pending === HEALTH_ID || ids.includes(pending))) {
       pendingHashSelect.current = null; // honoured once; later pushes must not override clicks
       setSelectedId(pending);
       return;
     }
     const current = selectedIdRef.current;
-    if (current !== HOME_ID && (current === null || !ids.includes(current))) {
-      setSelectedId(HOME_ID); // the launcher is the deck's landing page
+    // Home stays the landing page. Health is pinned above it but is a place you
+    // go, not a place you are put — landing there would make every launch read
+    // as a problem report.
+    if (current !== HOME_ID && current !== HEALTH_ID && (current === null || !ids.includes(current))) {
+      setSelectedId(HOME_ID);
     }
-  }, [mods, views, loadErrors]);
+  }, [mods, views]);
 
   useEffect(() => {
     const t = setTimeout(() => setQuery(filter.trim().toLowerCase()), FILTER_DEBOUNCE_MS);
@@ -373,9 +415,13 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     const offSettings = bridge.on('settings.data', (p) => {
       const list = (p.mods || []) as ModRecord[];
       setMods(list);
-      setLoadErrors(Array.isArray(p.loadErrors) ? p.loadErrors : []);
+      // `p.loadErrors` is deliberately ignored here: the same failures arrive
+      // as `diagnostics.data` issues, which carry severity, an occurrence
+      // count and actions. Reading both would double-report them.
       captureBaseline(list);
     });
+
+    const offDiagnostics = bridge.on('diagnostics.data', (p) => setHealth(readHealth(p)));
 
     const offViews = bridge.on('views.data', (p) => {
       const all = (p.views || []) as ViewRecord[];
@@ -471,6 +517,9 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
         setQuery('');
         setSelectedId(intent.state.selectedId);
       }
+      // Outside the guard, like the padnav reset below: a visit that happens to
+      // land back on Health must not re-expand the issue a past visit opened.
+      setFocusIssueId(null);
       // Outside the reselect guard: a visit that lands back on an
       // already-selected Home still forgets the gamepad resume point.
       const padnav = (window as { padnav?: { reset?: () => void } }).padnav;
@@ -486,9 +535,16 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
         { mods: modsRef.current, views: viewsRef.current },
         queryRef.current,
       );
+      // LB/RB walk every focusable rail row, pinned destinations included.
       const railIds = nodes
-        .filter((n) => n.kind === 'home' || n.kind === 'entry')
-        .map((n) => (n.kind === 'home' ? HOME_ID : (n as { entry: { id: string } }).entry.id));
+        .filter((n) => n.kind === 'health' || n.kind === 'home' || n.kind === 'entry')
+        .map((n) =>
+          n.kind === 'health'
+            ? HEALTH_ID
+            : n.kind === 'home'
+              ? HOME_ID
+              : (n as { entry: { id: string } }).entry.id,
+        );
       const intent = reduceGamepad(padRef.current, p, {
         railIds,
         selectedId: selectedIdRef.current ?? '',
@@ -512,6 +568,9 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     if (bridge.available()) {
       sendCommand('settings.get');
       sendCommand('views.get');
+      // Same subscribe-on-read contract. A host that predates protocol 1.4
+      // answers ui.error and the pane simply stays nominal.
+      sendCommand('diagnostics.get');
     }
 
     // The version badge is the only consumer of the handshake; it stays blank
@@ -522,6 +581,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
 
     return () => {
       offSettings();
+      offDiagnostics();
       offViews();
       offI18n();
       offChanged();
@@ -741,7 +801,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
           <Rail
             mods={mods}
             views={views}
-            loadErrors={loadErrors}
+            health={health}
             query={query}
             selectedId={selectedId}
             tr={tr}
@@ -787,11 +847,15 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
         <Detail
           mods={mods}
           views={views}
+          health={health}
           query={query}
           selectedId={selectedId}
           hostVersion={hostVersion}
           tr={tr}
           assetRoots={assetRoots}
+          focusIssueId={focusIssueId}
+          onOpenIssue={openIssue}
+          onShellCommand={(command) => sendCommand(command)}
           collapsed={collapsed}
           onToggleGroup={(key, next) => setCollapsed((c) => ({ ...c, [key]: next }))}
           capturing={capture.capturing}

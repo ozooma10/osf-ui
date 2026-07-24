@@ -197,8 +197,3 @@ export const FOUR_GROUPS: SettingsDataPayload = {
   ],
 } as unknown as SettingsDataPayload;
 
-/** A load-failure record for the rail alert. */
-export const WITH_LOAD_ERRORS: SettingsDataPayload = {
-  mods: [],
-  loadErrors: [{ kind: 'values-parse', file: 'acme.broken.json', mod: 'acme.broken', message: 'bad json' }],
-} as unknown as SettingsDataPayload;

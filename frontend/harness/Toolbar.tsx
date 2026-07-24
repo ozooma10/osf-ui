@@ -22,12 +22,15 @@ export interface ToolbarProps {
   onStage: (on: boolean) => void;
   fixturesOn: boolean;
   onFixtures: (on: boolean) => void;
+  healthScenario: string;
+  onHealth: () => void;
   locale: string;
   onLocale: (loc: string) => void;
 }
 
 export function Toolbar(props: ToolbarProps) {
-  const { mock, view, views, stageOn, onStage, fixturesOn, onFixtures, locale, onLocale } = props;
+  const { mock, view, views, stageOn, onStage, fixturesOn, onFixtures, healthScenario, onHealth, locale, onLocale } =
+    props;
 
   return (
     <div class="harness-bar">
@@ -54,6 +57,15 @@ export function Toolbar(props: ToolbarProps) {
         onClick={() => onFixtures(!fixturesOn)}
       >
         Sample views: {fixturesOn ? 'on' : 'off'}
+      </button>
+
+      <button
+        type="button"
+        class={healthScenario !== 'clean' ? 'on' : ''}
+        title="Cycle the System Health scenario pushed as diagnostics.data: clean → warnings → errors → mixed → resolved-only"
+        onClick={onHealth}
+      >
+        Health: {healthScenario}
       </button>
 
       <button

@@ -2,10 +2,18 @@
 
 ## Unreleased
 
+### Added
+
+- Mod Settings has a new **System Health** destination, pinned at the top of the rail. It shows durable, plain-language warnings and errors — a settings file that could not be read, a screen that failed to load, keyboard focus getting stuck in the browser helper, Frame Generation leaving the overlay unable to draw, or something installed that needs a newer OSF UI — each with what it means, what to do next, and safe actions like **Retry view**, **Open log folder** or **Update OSF UI**. A calm summary reads **All systems nominal**, **Warnings detected** or **Action required**; the rail badge and per-mod markers point you to what needs attention. Issues clear themselves when the underlying condition goes away and move to a **Resolved this session** list (cleared on exit) — nothing to dismiss by hand, and no log noise. A **Copy diagnostic report** button produces a paste-ready summary for bug reports. This replaces the old settings-load alert; failed launcher cards now read **FAILED — REVIEW ISSUE ▸** and link straight to the issue. Conditions that stop OSF UI from rendering at all still surface through the launch dialog and logs as before.
+
 ### Fixed
 
 - The Scaleform seam compositor is restored to its known-good pre-`b8e3643` implementation. The attempted root-signature and pipeline-state interception for a rare black-HUD edge case could instead make Mod Settings disappear or crash the graphics driver, so those hooks and their fail-closed draw gating have been removed. Opening the menu while its toggle key is still held also ignores WebView2's cross-focus key repeat, so one press cannot immediately close the UI again.
 - OSF UI's per-frame runtime now runs on Starfield's main thread even though SFSE supplies its frame notifications from render workers. Pause, free-cursor and control-layer bookkeeping no longer races the engine, in-game calendar reads are synchronized, and native plugin callbacks once again honor their documented main-thread contract.
+
+### For view authors
+
+- Bridge protocol 1.4 (additive, stable) adds the session-health channel behind System Health: `diagnostics.get` returns the current `{ system, issues }` snapshot and subscribes the caller to `diagnostics.data` change pushes. Each issue carries a stable machine `code`, `severity`, `status`, source/subject ids, bounded and path-free technical `context`, an occurrence count, and session-relative timings — player-facing wording is derived from the code in the built-in frontend, never sent on the wire. Also adds the payload-free, fixed-target `osfui.openLogFolder` command (the SFSE log directory) alongside the existing `osfui.openModPage`. A normal content view needs none of this; it powers the framework's own Mods surface. Declarations are in `sdk/osfui.d.ts` and `docs/authoring-views.md`.
 
 ## 1.3.0 — 2026-07-22
 

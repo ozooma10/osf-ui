@@ -47,6 +47,7 @@ namespace OSFUI
 		void SetAcceleratorKeys(std::uint32_t a_toggleVk, std::uint32_t a_devReloadVk,
 			bool a_captured, bool a_captureArmed, std::uint32_t a_captureUpVk) override;
 		void SetSharedRingHandler(SharedRingHandler a_handler) override;
+		void SetHealthHandler(HealthHandler a_handler) override;
 		void InjectKeyEvent(std::uint32_t a_vkCode, bool a_down) override;
 		void InjectMouseMove(int a_x, int a_y) override;
 		void InjectMouseButton(int a_x, int a_y, int a_button, bool a_down) override;

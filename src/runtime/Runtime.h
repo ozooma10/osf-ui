@@ -7,6 +7,7 @@
 #include "core/Config.h"
 #include "input/InputRouter.h"
 #include "render/IWebRenderer.h"
+#include "runtime/DiagnosticsModule.h"
 #include "runtime/HotkeyService.h"
 #include "runtime/LocalizationService.h"
 #include "runtime/MenuController.h"
@@ -268,6 +269,32 @@ namespace OSFUI
 		// snapshot; a view torn down by crash-recovery drops out (unregistered).
 		[[nodiscard]] nlohmann::json BuildViewsData() const;
 
+		// System Health (bridge protocol 1.4). Reconcile the diagnostic registry
+		// against everything the runtime can observe, then push if anything
+		// moved. Called from Tick on the game thread; each producer is cheap and
+		// gated on its own change signal, so an idle tick does almost nothing.
+		void PumpDiagnostics();
+		// Settings schema/name/value-file load failures — recomputed when the
+		// store's registry generation moves.
+		void SyncSettingsDiagnostics();
+		// Installed mods/views that declare a `targetVersion` newer than this
+		// host. Same trigger as above plus catalog changes.
+		void SyncCompatDiagnostics();
+		// Renderer/compositor degradation that can still be reported because the
+		// frontend is up (e.g. Frame Generation active while the overlay is stuck
+		// on the present-time path). Polled on a slow cadence.
+		void SyncRenderDiagnostics();
+		// The System Health "System information" block: versions, bridge
+		// protocol, renderer/compositor path, host and locale state.
+		void UpdateDiagnosticSystemInfo();
+		// Renderer health edges (IWebRenderer::HealthHandler) translated into
+		// issue upserts/resolves. Game thread.
+		void OnRendererHealth(const IWebRenderer::HealthEvent& a_event);
+		// Per-view load diagnostics, raised from OnViewLoad: `a_state` is the
+		// terminal state, `a_attemptsLeft` how many reloads recovery still has.
+		void ReportViewLoadDiagnostic(std::string_view a_viewId, bool a_failed,
+			std::string_view a_description, int a_errorCode, std::uint32_t a_attemptsLeft);
+
 		// Re-send `views.data` to every view that requested it (`views.get`
 		// subscribes the caller), but only when the catalog changed — callers
 		// invoke this unconditionally after any potential state change
@@ -282,6 +309,7 @@ namespace OSFUI
 		std::unique_ptr<MessageBridge>          _bridge;
 		std::vector<std::unique_ptr<IUiModule>> _modules;
 		SettingsModule*                         _settings{ nullptr };  // owned by _modules; core reads schema facts through it
+		DiagnosticsModule*                      _diagnostics{ nullptr };  // ditto; every producer reaches the registry through here
 		InputRouter                             _input;
 		// Live key-typed bindings -> owner dispatch. Fed by OnHostKey (window
 		// thread), rebuilt from the store's listeners and drained in Tick (main
@@ -462,6 +490,14 @@ namespace OSFUI
 		std::unordered_map<std::string, std::string> _i18nSubscribers;
 		std::string                     _lastViewsData;
 		double                          _nextLocalizationScan{ 0.0 };
+		// Diagnostics change signals (main-thread only). The settings/compat
+		// reconciles are driven off the store's registry generation and the
+		// views-catalog dump; the render poll and system-info refresh run on a
+		// slow timer so an idle tick costs a comparison, not a rebuild.
+		std::uint64_t                   _diagSettingsGeneration{ 0 };
+		bool                            _diagSettingsSynced{ false };
+		std::string                     _diagCompatSignature;
+		double                          _nextDiagnosticsPoll{ 0.0 };
 		// Monotonic-ish plugin uptime accumulated from Tick's clamped dt; used
 		// only to schedule recovery backoff (stalls with the game, which is the
 		// cadence reloads should follow).

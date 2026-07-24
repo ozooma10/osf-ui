@@ -5,7 +5,7 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { makeBridge, mount, unmount, flush, typeFilter } from './helpers/settingsHarness';
-import { WIDGETS, VIEWS, MANY_GROUPS, FOUR_GROUPS, WITH_LOAD_ERRORS } from './helpers/settingsFixtures';
+import { WIDGETS, VIEWS, MANY_GROUPS, FOUR_GROUPS } from './helpers/settingsFixtures';
 
 afterEach(unmount);
 
@@ -40,11 +40,11 @@ describe('detail modes', () => {
     expect(el.querySelector('.detail-head h2')!.textContent).toContain('slider');
   });
 
-  it('mode 3 (not found): a selection naming no entry shows the empty state', async () => {
-    // Errors but no mods: nothing resolvable to select, so the pane falls back
-    // to the empty state and the rail alert is pinned.
-    const { el } = await mountWith(WITH_LOAD_ERRORS);
-    expect(el.querySelector('.rail-alert')).not.toBeNull();
+  it('mode 3 (not found): nothing installed still pins System Health', async () => {
+    // No mods and no views: the rail collapses to its pinned destinations, so
+    // System Health is always reachable — it is where load failures now live.
+    const { el } = await mountWith({ mods: [] });
+    expect(el.querySelector('.rail-item--health')).not.toBeNull();
   });
 
   it('mode 4 (view-only): a views-but-no-schema entry shows "registers no settings"', async () => {
@@ -155,10 +155,44 @@ describe('rail cycling (LB/RB)', () => {
   });
 });
 
-describe('load-error alert', () => {
-  it('is pinned even while a filter is active', async () => {
-    const { el } = await mountWith(WITH_LOAD_ERRORS);
+describe('System Health rail entry', () => {
+  it('is pinned even while a filter matches nothing', async () => {
+    // The reason the old load-error alert was never filtered: a player typing
+    // the name of a broken mod must still reach the explanation.
+    const { el } = await mountWith({ mods: [] });
     await typeFilter(el, 'anything');
-    expect(el.querySelector('.rail-alert')).not.toBeNull();
+    expect(el.querySelector('.rail-item--health')).not.toBeNull();
+  });
+
+  it('reflects diagnostics severity in its badge and clears search when selected', async () => {
+    const { bridge, el } = await mountWith(WIDGETS, VIEWS);
+    bridge.emit('diagnostics.data', {
+      system: {},
+      issues: [
+        {
+          id: 'view.load-failed:x/y',
+          code: 'view.load-failed',
+          severity: 'error',
+          status: 'active',
+          source: 'views',
+          subject: 'x/y',
+          context: {},
+          occurrences: 1,
+          firstAt: 1,
+          lastAt: 1,
+        },
+      ],
+    });
+    await flush();
+    const health = el.querySelector('.rail-item--health')!;
+    expect(health.classList.contains('rail-item--health-error')).toBe(true);
+    expect(health.querySelector('.rail-item-count--error')!.textContent).toBe('1');
+
+    // Selecting Health from a filtered rail clears the search and shows the pane.
+    await typeFilter(el, 'zzz');
+    (health as HTMLButtonElement).click();
+    await flush();
+    expect(el.querySelector('#health-summary')).not.toBeNull();
+    expect(el.querySelector<HTMLInputElement>('#filter')!.value).toBe('');
   });
 });
