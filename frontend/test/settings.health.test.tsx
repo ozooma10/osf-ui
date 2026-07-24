@@ -83,7 +83,7 @@ describe('summary states', () => {
 describe('cards', () => {
   it('renders active issues error-first and keeps resolved in collapsed history', async () => {
     const { el } = await mountHealth([
-      ISSUE({ id: 'w', severity: 'warning', code: 'host.focus-stranded', lastAt: 1 }),
+      ISSUE({ id: 'w', severity: 'warning', code: 'host.ring-truncated', lastAt: 1 }),
       ISSUE({ id: 'e', severity: 'error', code: 'view.load-failed', subject: 'x/y', lastAt: 2 }),
       ISSUE({ id: 'r', severity: 'error', status: 'resolved', resolvedAt: 3 }),
     ]);

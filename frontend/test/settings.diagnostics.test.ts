@@ -137,7 +137,7 @@ describe('copyForCode', () => {
     expect(canRetryView(issue({ id: 'a', code: 'view.load-failed', subject: 'x/y' }))).toBe(true);
     expect(canRetryView(issue({ id: 'a', code: 'view.load-failed', subject: '' }))).toBe(false);
     // A warning family that never offers retry stays false regardless of subject.
-    expect(canRetryView(issue({ id: 'a', code: 'host.focus-stranded', subject: 'x' }))).toBe(false);
+    expect(canRetryView(issue({ id: 'a', code: 'host.ring-truncated', subject: 'x' }))).toBe(false);
   });
 });
 

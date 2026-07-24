@@ -443,8 +443,7 @@ export interface DiagnosticIssue {
    * Stable machine code. v1 families:
    * `settings.schema-name` | `settings.schema-parse` | `settings.values-parse`
    * | `view.load-retrying` | `view.load-failed`
-   * | `host.focus-stranded` | `host.ring-truncated`
-   * | `render.framegen-fallback`
+   * | `host.ring-truncated`
    * | `compat.needs-newer-osfui`
    * Treat an unknown code as generic and show its technical details.
    */

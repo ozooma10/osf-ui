@@ -132,17 +132,17 @@ int main()
 	// --- Resolve moves to session history; recurrence reactivates ----------
 	{
 		DiagnosticsModule diag;
-		diag.Upsert(spec("host.focus-stranded", "host.focus-stranded", Severity::Warning, "host"), 2.0);
-		CHECK(diag.IsActive("host.focus-stranded"));
+		diag.Upsert(spec("host.ring-truncated", "host.ring-truncated", Severity::Warning, "host"), 2.0);
+		CHECK(diag.IsActive("host.ring-truncated"));
 
-		CHECK(diag.Resolve("host.focus-stranded", 5.0));
-		CHECK(!diag.IsActive("host.focus-stranded"));
+		CHECK(diag.Resolve("host.ring-truncated", 5.0));
+		CHECK(!diag.IsActive("host.ring-truncated"));
 		// Resolving twice is a no-op, so producers may resolve unconditionally
 		// every tick without generating a push each time.
-		CHECK(!diag.Resolve("host.focus-stranded", 6.0));
+		CHECK(!diag.Resolve("host.ring-truncated", 6.0));
 		CHECK(!diag.Resolve("nothing.here", 6.0));
 
-		auto resolved = IssueById(diag.Snapshot(), "host.focus-stranded");
+		auto resolved = IssueById(diag.Snapshot(), "host.ring-truncated");
 		CHECK(resolved.value("status", "") == "resolved");
 		CHECK(resolved.value("resolvedAt", -1.0) == 5.0);
 		CHECK(resolved.value("occurrences", 0u) == 1u);
@@ -150,8 +150,8 @@ int main()
 		CHECK(diag.Snapshot().at("issues").size() == 1);
 
 		// The same condition coming back reuses the record and keeps its count.
-		CHECK(diag.Upsert(spec("host.focus-stranded", "host.focus-stranded", Severity::Warning, "host"), 8.0));
-		auto again = IssueById(diag.Snapshot(), "host.focus-stranded");
+		CHECK(diag.Upsert(spec("host.ring-truncated", "host.ring-truncated", Severity::Warning, "host"), 8.0));
+		auto again = IssueById(diag.Snapshot(), "host.ring-truncated");
 		CHECK(again.value("status", "") == "active");
 		CHECK(again.value("occurrences", 0u) == 2u);
 		CHECK(again.value("firstAt", -1.0) == 2.0);
@@ -181,7 +181,7 @@ int main()
 		DiagnosticsModule diag;
 		diag.Upsert(spec("w-old", "compat.needs-newer-osfui", Severity::Warning, "compat"), 1.0);
 		diag.Upsert(spec("e-old", "view.load-failed", Severity::Error, "views"), 2.0);
-		diag.Upsert(spec("w-new", "host.focus-stranded", Severity::Warning, "host"), 3.0);
+		diag.Upsert(spec("w-new", "host.ring-truncated", Severity::Warning, "host"), 3.0);
 		diag.Upsert(spec("e-new", "settings.schema-parse", Severity::Error, "settings"), 4.0);
 		diag.Upsert(spec("r-done", "view.load-failed", Severity::Error, "views"), 5.0);
 		diag.Resolve("r-done", 6.0);
@@ -295,7 +295,7 @@ int main()
 		// A destroyed view stops receiving pushes; the survivor keeps them.
 		const auto before = SentTo("acme/panel", "diagnostics.data").size();
 		diag.OnViewDestroyed("acme/panel");
-		diag.Upsert(spec("host.focus-stranded", "host.focus-stranded", Severity::Warning, "host"), 7.0);
+		diag.Upsert(spec("host.ring-truncated", "host.ring-truncated", Severity::Warning, "host"), 7.0);
 		diag.Broadcast();
 		CHECK(SentTo("acme/panel", "diagnostics.data").size() == before);
 		CHECK(SentTo("osfui/settings", "diagnostics.data").size() == 4);
@@ -303,7 +303,7 @@ int main()
 		// A bridge teardown drops every subscriber and the retained pointer.
 		diag.OnBridgeDown();
 		const auto sealed = g_sent.size();
-		diag.Upsert(spec("render.framegen-fallback", "render.framegen-fallback", Severity::Warning, "render"), 9.0);
+		diag.Upsert(spec("settings.schema-parse:late.mod", "settings.schema-parse", Severity::Error, "settings"), 9.0);
 		diag.Broadcast();
 		CHECK(g_sent.size() == sealed);
 	}

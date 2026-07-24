@@ -238,18 +238,12 @@ const COPY: Record<string, IssueCopy> = {
     ],
     actions: ['retry-view', 'copy-details', 'open-logs'],
   },
-  'host.focus-stranded': {
-    title: ['issueFocusStrandedTitle', 'Keyboard focus was stuck in the browser helper'],
-    impact: [
-      'issueFocusStrandedImpact',
-      'While this happens the game may not respond to keyboard, mouse or controller input. OSF UI recovers it automatically.',
-    ],
-    next: [
-      'issueFocusStrandedNext',
-      'If input stays dead, close and reopen the OSF UI menu.',
-    ],
-    actions: ['copy-details', 'open-logs'],
-  },
+  // NOTE: there is deliberately no `host.focus-stranded` entry. The renderer no
+  // longer reports that condition — the focus watchdog corrects it within a tick
+  // or two, so the card described an internal mechanism the player cannot act on
+  // and which had usually already cleared by the time they read it. It stays a
+  // log-only WARN. A host older than this build that still emits the code falls
+  // through to GENERIC_COPY, which is the intended degradation.
   'host.ring-truncated': {
     title: ['issueRingTruncatedTitle', 'The browser helper does not match this OSF UI'],
     impact: [
@@ -262,18 +256,10 @@ const COPY: Record<string, IssueCopy> = {
     ],
     actions: ['copy-details', 'open-logs'],
   },
-  'render.framegen-fallback': {
-    title: ['issueFrameGenTitle', 'Frame Generation is on and the overlay cannot draw over it'],
-    impact: [
-      'issueFrameGenImpact',
-      'OSF UI stops drawing rather than risk a crash, so overlays may be invisible while Frame Generation is active.',
-    ],
-    next: [
-      'issueFrameGenNext',
-      "Turn Frame Generation off in the game's display settings, or update OSF UI.",
-    ],
-    actions: ['update-osfui', 'copy-details', 'open-logs'],
-  },
+  // NOTE: there is deliberately no `render.framegen-fallback` entry either, and
+  // for a sharper reason than the one above: that card could only ever be ACTIVE
+  // in the exact state where the overlay suspends its draws, so the pane meant to
+  // show it was itself invisible. See the note in src/runtime/Runtime.h.
   'compat.needs-newer-osfui': {
     title: ['issueNeedsNewerTitle', 'Something installed expects a newer OSF UI'],
     impact: [

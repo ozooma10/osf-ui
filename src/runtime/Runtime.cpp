@@ -1290,7 +1290,6 @@ namespace OSFUI
 		if (_uptime >= _nextDiagnosticsPoll) {
 			_nextDiagnosticsPoll = _uptime + kDiagnosticsPollSeconds;
 			SyncCompatDiagnostics();
-			SyncRenderDiagnostics();
 			UpdateDiagnosticSystemInfo();
 		}
 		_diagnostics->Broadcast();
@@ -1391,39 +1390,6 @@ namespace OSFUI
 				_uptime);
 		}
 		_diagnostics->ResolveMissing("compat", live, _uptime);
-	}
-
-	void Runtime::SyncRenderDiagnostics()
-	{
-		if (!_diagnostics || !_compositor) {
-			return;
-		}
-		const auto stats = _compositor->GetRenderStats();
-		// Frame Generation paces a second, generated present chain. The overlay
-		// only rides that correctly when it records into the engine's own UI
-		// pass; on the present-time fallback it suspends itself instead, so the
-		// player sees FG working and the overlay missing. That is a real,
-		// actionable condition (turn FG off, or fix the seam) and the frontend
-		// is still up to say so, because a menu that is open right now is being
-		// drawn by the seam it is complaining about only when FG is off.
-		constexpr std::string_view kId = "render.framegen-fallback";
-		if (stats.frameGeneration && !stats.seamMode) {
-			_diagnostics->Upsert(DiagnosticsModule::IssueSpec{
-									 .id = std::string(kId),
-									 .code = "render.framegen-fallback",
-									 .severity = DiagnosticsModule::Severity::Warning,
-									 .source = "render",
-									 .subject = std::string(_compositor->Name()),
-									 .context = nlohmann::json{
-										 { "compositor", std::string(_compositor->Name()) },
-										 { "seamMode", false },
-										 { "frameGeneration", true },
-									 },
-								 },
-				_uptime);
-		} else {
-			_diagnostics->Resolve(kId, _uptime);
-		}
 	}
 
 	void Runtime::UpdateDiagnosticSystemInfo()
@@ -2303,7 +2269,8 @@ namespace OSFUI
 			// payload carries nothing). Behind a fullscreen game the browser opens
 			// unfocused; alt-tab surfaces it.
 			if (Platform::OpenSystemBrowser(kNexusPageURLW)) {
-				REX::DEBUG("Runtime: osfui.openModPage -> {}", kNexusPageURL);
+				// INFO for the same reason as osfui.openLogFolder below.
+				REX::INFO("Runtime: osfui.openModPage -> {}", kNexusPageURL);
 			} else {
 				REX::WARN("Runtime: osfui.openModPage — the shell refused to open {}", kNexusPageURL);
 				a_b.SendResult(false, "shell-failed", "could not open the system browser");
@@ -2323,7 +2290,11 @@ namespace OSFUI
 				return;
 			}
 			if (Platform::OpenFolder(folder)) {
-				REX::DEBUG("Runtime: osfui.openLogFolder -> {}", folder.string());
+				// INFO, not DEBUG: the window opens behind a fullscreen game, so a
+				// working button and a dead one look identical to the player. At
+				// the default log level this line is the only way to tell them
+				// apart — it cost a bug report once already.
+				REX::INFO("Runtime: osfui.openLogFolder -> {}", folder.string());
 			} else {
 				REX::WARN("Runtime: osfui.openLogFolder — the shell refused to open {}", folder.string());
 				a_b.SendResult(false, "shell-failed", "could not open the log folder");

@@ -473,12 +473,12 @@ not a draw mode). Keep the false-on-Install-failure signal. **Leave the wire-fac
 `seamMode` and `drawPath` `'ui-seam'`/`'present'` literals unchanged** (bridge-protocol contract —
 see §7).
 
-### 6b.4 — Collapse the focus watchdog to one episode flag · **S / low**
+### 6b.4 — Collapse the focus watchdog to one episode flag · **DONE BY REMOVAL**
 `src/render/WebView2HostWebRenderer.cpp`
-Replace `focusFixWarned` + `focusStrandReported` with one `inStrandEpisode`, compute
-`stranded = !healthy`, and drive both effects off it. **KEEP** each WARN inside its own branch with
-its distinct message (gate on `!inStrandEpisode`); write `inStrandEpisode` **only** at the report
-edge, never inside a branch.
+Obsolete: `focusStrandReported` is gone. The `host.focus-stranded` System Health report was removed
+(the condition self-corrects within a tick or two, so the card described an internal mechanism the
+player could not act on), leaving `focusFixWarned` as the only flag and nothing to collapse. The
+per-branch WARNs this item was written to protect are unchanged.
 
 ### 6b.5 — MessageBridge: drop the redundant trailing reset + inline `EncodeMessage` · **S / low**
 `src/runtime/MessageBridge.cpp`, `src/runtime/MessageBridge.h`

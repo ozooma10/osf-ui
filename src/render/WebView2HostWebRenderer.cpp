@@ -363,7 +363,6 @@ namespace OSFUI
 		// edge. Zero means "no announcement seen since the last report".
 		std::atomic<std::uint32_t> ringSlotsAnnounced{ 0 };
 		std::uint32_t              ringSlotsReported{ 0 };  // game thread only
-		bool                       focusStrandReported{ false };  // game thread only
 
 		// Fire one health edge at the runtime. Game thread only.
 		void ReportHealth(std::string_view a_code, bool a_active, std::string_view a_detail = {})
@@ -1261,12 +1260,12 @@ namespace OSFUI
 				if (healthy) {
 					_impl->focusFixWarned = false;
 				}
-				// Both edges, so the card clears itself once the watchdog wins.
-				if (healthy != !_impl->focusStrandReported) {
-					_impl->focusStrandReported = !healthy;
-					_impl->ReportHealth("host.focus-stranded", !healthy,
-						healthy ? std::string_view{} : "focus watchdog re-asserting");
-				}
+				// Deliberately NOT reported to System Health. This condition is
+				// self-correcting within a tick or two — the watchdog above is the
+				// fix, not a mitigation someone has to act on — so a card told the
+				// player about an internal mechanism they cannot influence and
+				// which had already resolved by the time they read it. The WARN
+				// above remains for log-based diagnosis.
 			}
 		}
 

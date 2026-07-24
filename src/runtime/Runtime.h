@@ -297,10 +297,13 @@ namespace OSFUI
 		// Installed mods/views that declare a `targetVersion` newer than this
 		// host. Same trigger as above plus catalog changes.
 		void SyncCompatDiagnostics();
-		// Renderer/compositor degradation that can still be reported because the
-		// frontend is up (e.g. Frame Generation active while the overlay is stuck
-		// on the present-time path). Polled on a slow cadence.
-		void SyncRenderDiagnostics();
+		// NOTE: there is deliberately no renderer/compositor degradation report.
+		// The one that existed (`render.framegen-fallback`, Frame Generation on
+		// while the overlay sat on the present-time path) could never be read
+		// while it was active: that exact state is the one where the overlay
+		// suspends its draws, so System Health was invisible. The condition is
+		// still legible in the log and in the "System information" block below,
+		// via `drawPath` and `frameGeneration`.
 		// The System Health "System information" block: versions, bridge
 		// protocol, renderer/compositor path, host and locale state.
 		void UpdateDiagnosticSystemInfo();
