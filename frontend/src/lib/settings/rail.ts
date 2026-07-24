@@ -40,11 +40,8 @@ export { HEALTH_ID } from './diagnostics';
 
 /** The framework's own settings mod id — pinned first. */
 export const FRAMEWORK_ID = 'osfui';
-/**
- * The Home launcher's rail id. "~" keeps it out of the mod-id namespace (native
- * mod ids can never start with it), so a real mod cannot shadow Home.
- */
-export const HOME_ID = '~home';
+/** Re-exported so rail consumers need only one import for the pinned ids. */
+export { HOME_ID } from '../ids';
 
 export interface RailEntry {
   id: string;

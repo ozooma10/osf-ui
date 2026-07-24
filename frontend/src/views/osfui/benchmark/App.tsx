@@ -59,8 +59,13 @@ const EMPTY_LIVE: LiveResult = {
   timerP95: 0,
 };
 
+function workloadOf(id: WorkloadId): Workload | undefined {
+  return WORKLOADS.find((workload) => workload.id === id);
+}
+
+/** Thin wrapper for the places that only need the display string. */
 function workloadName(id: WorkloadId): string {
-  return WORKLOADS.find((workload) => workload.id === id)?.name || id;
+  return workloadOf(id)?.name || id;
 }
 
 function canvasExercise(canvas: HTMLCanvasElement, intensity: number, now: number): void {
@@ -293,38 +298,33 @@ export function App({ bridge = windowBridge }: AppProps) {
     });
   };
 
+  const inputP95 = percentile(inputSamples, 0.95);
+
   const copyResults = async () => {
     const payload = JSON.stringify(
       {
         generatedAt: new Date().toISOString(),
         userAgent: navigator.userAgent,
         devicePixelRatio,
-        inputToRafP95: percentile(inputSamples, 0.95),
+        inputToRafP95: inputP95,
         results,
       },
       null,
       2,
     );
+    // writeText can reject (no permission, or the overlay lost focus), so the
+    // catch stays — only the deprecated execCommand fallback is gone.
     try {
       await navigator.clipboard.writeText(payload);
       setCopyState('Copied');
     } catch {
-      const text = document.createElement('textarea');
-      text.value = payload;
-      text.style.position = 'fixed';
-      text.style.opacity = '0';
-      document.body.appendChild(text);
-      text.select();
-      document.execCommand('copy');
-      text.remove();
-      setCopyState('Copied');
+      setCopyState('Copy failed');
     }
     window.setTimeout(() => setCopyState('Copy results'), 1400);
   };
 
   const tileCount = 48 * intensity;
   const layoutCount = 72 * intensity;
-  const inputP95 = percentile(inputSamples, 0.95);
 
   return (
     <div class="benchmark-shell">
@@ -369,8 +369,8 @@ export function App({ bridge = windowBridge }: AppProps) {
               {Array.from({ length: 18 * intensity }, (_, i) => <span class="data-cell" key={i}>0000</span>)}
             </div>
             <div class="stage-caption">
-              <strong>{workloadName(workload)}</strong>
-              <span>{WORKLOADS.find((entry) => entry.id === workload)?.detail}</span>
+              <strong>{workloadOf(workload)?.name ?? workload}</strong>
+              <span>{workloadOf(workload)?.detail}</span>
             </div>
           </div>
 

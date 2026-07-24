@@ -4,11 +4,9 @@
 
 import type { UiGamepadPayload, UiVisibilityPayload } from '@sdk';
 
-/**
- * The Home launcher's rail id. "~" keeps it out of the mod-id namespace — native
- * mod ids never start with it — so it cannot shadow a real entry.
- */
-export const HOME_ID = '~home';
+/** Re-exported so existing `@lib/lifecycle` consumers need no import change. */
+export { HOME_ID } from './ids';
+import { HOME_ID } from './ids';
 
 /** The slice of view state a visibility flip can touch. */
 export interface LifecycleState {
