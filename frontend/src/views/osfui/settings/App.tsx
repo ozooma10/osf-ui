@@ -198,8 +198,12 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
   }
 
   const toasts = useToasts();
-  const toastRef = useRef(toasts);
-  toastRef.current = toasts;
+  // Reaches `push` from the long-lived bridge closures. Belt-and-braces rather
+  // than strictly required: `useToasts` hands back a fresh `push` each render,
+  // but every one of them reads through the hook's own `stateRef`, so even a
+  // captured stale `push` behaves correctly. The mirror keeps that an internal
+  // detail of `useToasts` instead of something this file depends on.
+  const toastRef = useLatest(toasts);
   const toast = (message: string, kind?: 'warn' | 'danger') => {
     // `exactOptionalPropertyTypes` forbids passing an explicit undefined where
     // the absence is what suppresses the modifier.
@@ -544,8 +548,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
   }, [bridge]);
 
   // `undoOpen` is read from the gamepad subscription's stale closure.
-  const undoOpenRef = useRef(undoOpen);
-  undoOpenRef.current = undoOpen;
+  const undoOpenRef = useLatest(undoOpen);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {

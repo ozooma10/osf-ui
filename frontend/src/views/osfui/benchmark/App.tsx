@@ -183,6 +183,11 @@ export function App({ bridge = windowBridge }: AppProps) {
   const [results, setResults] = useState<BenchmarkResult[]>([]);
   const [inputSamples, setInputSamples] = useState<number[]>([]);
   const [copyState, setCopyState] = useState('Copy results');
+  // Payload held for manual copy after a clipboard failure. Same principle as
+  // Health's copyText: a failure must not take the data away from someone who
+  // now has to select it by hand.
+  const [manualCopy, setManualCopy] = useState<string | null>(null);
+  const manualCopyRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     let animationFrame = 0;
@@ -275,6 +280,7 @@ export function App({ bridge = windowBridge }: AppProps) {
     suiteTokenRef.current = token;
     finishRun();
     setResults([]);
+    setManualCopy(null);  // same reason as Clear: the old payload is now stale
     setSuiteRunning(true);
     for (const candidate of WORKLOADS) {
       if (suiteTokenRef.current !== token) break;
@@ -300,6 +306,15 @@ export function App({ bridge = windowBridge }: AppProps) {
     });
   };
 
+  // Select the fallback payload ONCE per failure, so Ctrl+C works immediately.
+  // Keyed on the payload rather than done in a ref callback: an inline ref arrow
+  // re-runs on every render, and a run started while this is open re-renders
+  // 4×/second (the rAF loop's setLive), which would keep stealing the user's own
+  // selection back.
+  useEffect(() => {
+    if (manualCopy) manualCopyRef.current?.select();
+  }, [manualCopy]);
+
   const inputP95 = percentile(inputSamples, 0.95);
 
   const copyResults = async () => {
@@ -314,13 +329,22 @@ export function App({ bridge = windowBridge }: AppProps) {
       null,
       2,
     );
-    // writeText can reject (no permission, or the overlay lost focus), so the
-    // catch stays — only the deprecated execCommand fallback is gone.
+    // writeText CAN reject — clipboard permission policy, or a document that is
+    // not focused. Not the common case for this view: it is a capturing menu, so
+    // ReconcileNativeFocus grants the overlay native focus for its whole visible
+    // session. But the grant is asynchronous (the same Chromium MoveFocus race
+    // the host's focus watchdog exists to heal), so a rejection is reachable and
+    // must not silently swallow the data. The deprecated execCommand fallback is
+    // gone — it wanted document focus too — so instead the payload is surfaced
+    // selectable, and stays up until dismissed rather than expiring with the
+    // 1400 ms label reset.
     try {
       await navigator.clipboard.writeText(payload);
       setCopyState('Copied');
+      setManualCopy(null);
     } catch {
       setCopyState('Copy failed');
+      setManualCopy(payload);
     }
     window.setTimeout(() => setCopyState('Copy results'), 1400);
   };
@@ -441,10 +465,29 @@ export function App({ bridge = windowBridge }: AppProps) {
         <div class="panel-title results-title">
           <span>REFERENCE RESULTS</span>
           <div>
-            <button type="button" disabled={!results.length} onClick={() => setResults([])}>Clear</button>
+            {/* Clearing the results also drops the fallback: it describes results
+                that no longer exist, and both buttons are disabled once the table
+                is empty, so it could not otherwise be refreshed. */}
+            <button
+              type="button"
+              disabled={!results.length}
+              onClick={() => {
+                setResults([]);
+                setManualCopy(null);
+              }}
+            >
+              Clear
+            </button>
             <button type="button" disabled={!results.length} onClick={copyResults}>{copyState}</button>
           </div>
         </div>
+        {manualCopy ? (
+          <div class="results-manual-copy">
+            <span>Could not reach the clipboard — select the JSON below and copy it manually.</span>
+            <textarea readOnly rows={6} value={manualCopy} ref={manualCopyRef} />
+            <button type="button" onClick={() => setManualCopy(null)}>Dismiss</button>
+          </div>
+        ) : null}
         {results.length ? (
           <div class="results-table" role="table" aria-label="Benchmark results">
             <div class="result-row result-head" role="row">

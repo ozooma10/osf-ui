@@ -8,13 +8,14 @@
 
 import type { ComponentChildren } from 'preact';
 import { cx } from './cx';
+import { optAttr } from './optAttr';
 
 export interface BadgeProps {
   children: ComponentChildren;
   /**
    * Modifier appended after the base `osf-badge`, e.g. "osf-badge--warn".
-   * Pass "" for the neutral badge; an optional prop would trip
-   * `exactOptionalPropertyTypes` at every call site.
+   * Pass "" for the neutral badge — `cx` drops it (the kit's required-with-""
+   * convention; the rationale is consolidated in optAttr's doc).
    */
   modifier: string;
   /** Tooltip. "" omits the attribute rather than emitting an empty one. */
@@ -23,10 +24,7 @@ export interface BadgeProps {
 
 export function Badge({ children, modifier, title }: BadgeProps) {
   return (
-    <span
-      class={cx('osf-badge', modifier)}
-      {...(title ? { title } : {})}
-    >
+    <span class={cx('osf-badge', modifier)} {...optAttr('title', title)}>
       {children}
     </span>
   );

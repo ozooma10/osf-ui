@@ -6,12 +6,23 @@
 // controller that silently cannot reach a control in game.
 //
 // If one of these fails, the fix is in the component, not in padnav.
+//
+// One caveat on framing. padnav reads classes in exactly two places, both
+// order-blind: `el.closest(".row")` for banding (padnav.js:79) and
+// `document.querySelector(".listening")` as a presence test (padnav.js:184). It
+// never queries `.pending`. So the verbatim `className` comparisons on the kit's
+// KeyField/ActionButton are not padnav contracts — they pin the kit's own cx()
+// argument-order convention, which is what keeps these strings stable enough to
+// assert at all. Kept in this file because it is where shipped class strings are
+// pinned.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { render } from 'preact';
 import { act } from 'preact/test-utils';
 import { Row } from '@ui/Row';
 import { Overlay } from '@ui/Overlay';
+import { KeyField } from '@ui/KeyField';
+import { ActionButton } from '@ui/ActionButton';
 import { App } from '@views/osfui/keybinds/App';
 import { nullBridge, type Bridge } from '@lib/bridge';
 import type { SettingsDataPayload } from '@sdk';
@@ -153,6 +164,75 @@ describe('padnav DOM contracts', () => {
     const decorated = el.querySelector('div')!;
     expect(decorated.className).toBe('row row-danger');
     expect(decorated.getAttribute('data-key')).toBe('toggleKey');
+    render(null, el);
+  });
+
+  it('KeyField appends .listening LAST — the class padnav suspends navigation on', () => {
+    // The settings pane renders @ui/KeyField (keybinds has its own HolderRow
+    // copy, asserted separately below). padnav only tests for the PRESENCE of
+    // `.listening`, but className is compared verbatim here so the kit's
+    // cx() argument order cannot drift unnoticed — that ordering is the whole
+    // contract cx() documents.
+    const el = document.createElement('div');
+    const props = {
+      id: 'k',
+      value: 'F10',
+      allowUnbound: false,
+      disabled: false,
+      onRebind: () => {},
+      onUnbind: () => {},
+      listeningLabel: 'Press a key…',
+      unbindTitle: 'Unbind',
+      unbindLabel: 'Unbind setting',
+    };
+    render(<KeyField {...props} listening={false} />, el);
+    expect(el.querySelector('button')!.className).toBe('osf-btn osf-btn--sm osf-key');
+    render(<KeyField {...props} listening />, el);
+    expect(el.querySelector('button')!.className).toBe('osf-btn osf-btn--sm osf-key listening');
+    // And the selector padnav actually runs must find it.
+    expect(el.querySelector('.listening')).not.toBeNull();
+    render(null, el);
+  });
+
+  it('ActionButton appends .pending LAST, after the style modifier', () => {
+    // Three orderings in one: base, base+modifier, base+modifier+state. A
+    // reordered cx() call would change the string even though CSS matching
+    // would not notice. NOTE: unlike `.listening`, padnav never queries
+    // `.pending` — this pins the kit's cx() convention, not a padnav contract.
+    const el = document.createElement('div');
+    const base = {
+      modId: 'acme.tools',
+      enabled: true,
+      tr: ((_a: string, english: string) => english) as never,
+      onToast: () => {},
+    };
+    render(
+      <ActionButton {...base} item={{ command: 'acme.tools.run', label: 'Run' }} onRun={() => Promise.resolve(null)} />,
+      el,
+    );
+    expect(el.querySelector('button')!.className).toBe('osf-btn osf-btn--sm');
+    render(
+      <ActionButton
+        {...base}
+        item={{ command: 'acme.tools.run', label: 'Wipe', style: 'danger' }}
+        onRun={() => Promise.resolve(null)}
+      />,
+      el,
+    );
+    expect(el.querySelector('button')!.className).toBe('osf-btn osf-btn--sm osf-btn--danger');
+    // A never-settling run leaves the button in the pending state.
+    render(
+      <ActionButton
+        {...base}
+        item={{ command: 'acme.tools.run', label: 'Wipe', style: 'danger' }}
+        onRun={() => new Promise<string | null>(() => {})}
+      />,
+      el,
+    );
+    act(() => {
+      el.querySelector('button')!.click();
+    });
+    expect(el.querySelector('button')!.className).toBe('osf-btn osf-btn--sm osf-btn--danger pending');
     render(null, el);
   });
 

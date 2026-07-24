@@ -279,10 +279,23 @@ button:disabled { opacity: 0.38; cursor: default; }
 .reference-note p { margin: 6px 0 0; color: var(--osf-text-muted); font-size: 10px; line-height: 1.42; }
 .reference-note b { color: var(--osf-text-body); }
 
-.results-panel { min-height: 0; padding: 10px 12px; overflow: hidden; }
+/* The panel is a fixed-height grid row, so it distributes its own space instead
+   of each child guessing it with `height: calc(100% - <title>)`. That guess only
+   ever accounted for the title, so a second sibling (the clipboard fallback
+   below) pushed the table straight out of the `overflow: hidden` box. Column
+   flex rather than fixed grid rows because the fallback is conditionally
+   rendered — the child count is 2 or 3. */
+.results-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 10px 12px;
+  overflow: hidden;
+}
+.results-title { flex: 0 0 auto; }
 .results-title > div { display: flex; gap: 5px; }
 .results-title button { padding: 5px 9px; font-size: 10px; }
-.results-table { height: calc(100% - 28px); overflow: auto; border-top: 1px solid var(--osf-line); }
+.results-table { flex: 1 1 auto; min-height: 0; overflow: auto; border-top: 1px solid var(--osf-line); }
 .result-row {
   display: grid;
   grid-template-columns: 1.45fr 0.42fr repeat(6, 0.72fr);
@@ -296,7 +309,15 @@ button:disabled { opacity: 0.38; cursor: default; }
 .result-head { position: sticky; top: 0; z-index: 2; color: var(--osf-text-muted); background: #0a1118; letter-spacing: 0.08em; }
 .result-row span:not(:first-child) { text-align: right; }
 .result-row .hot { color: #ffc176; }
-.results-empty { display: grid; place-items: center; height: calc(100% - 24px); color: var(--osf-text-muted); font-size: 11px; }
+.results-empty { display: grid; place-items: center; flex: 1 1 auto; min-height: 0; color: var(--osf-text-muted); font-size: 11px; }
+
+/* Clipboard-failure fallback: the payload stays selectable so it can be copied
+   by hand. Only rendered after navigator.clipboard rejected. Never grows at the
+   table's expense — `flex: 0 0 auto` plus a capped textarea. */
+.results-manual-copy { flex: 0 0 auto; display: grid; gap: 6px; margin: 6px 0; padding: 8px; border: 1px solid rgba(92, 121, 137, 0.32); border-radius: 4px; }
+.results-manual-copy span { color: var(--osf-text-muted); font-size: 11px; }
+.results-manual-copy textarea { width: 100%; max-height: 96px; resize: vertical; color: var(--osf-text-body); background: #0a1118; border: 1px solid rgba(92, 121, 137, 0.24); border-radius: 3px; font: 10px var(--osf-font-mono); }
+.results-manual-copy button { justify-self: start; }
 
 @media (max-width: 1050px) {
   .benchmark-shell { width: calc(100% - 24px); height: calc(100% - 24px); margin: 12px auto; grid-template-rows: auto minmax(0, 1fr) 200px; }

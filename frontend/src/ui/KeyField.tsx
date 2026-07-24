@@ -9,8 +9,11 @@
 // Two padnav contracts:
 //  * `class="listening"` while armed — padnav suspends all arrow navigation
 //    while any `.listening` element exists, since the next key press belongs
-//    to the capture. The class must come after the kit classes, so className
-//    reads "osf-btn osf-btn--sm osf-key listening".
+//    to the capture. That is a PRESENCE test (padnav.js:184), so only the class
+//    itself is the padnav contract; its trailing POSITION is the kit's cx()
+//    convention, pinned verbatim by dom-contracts.test.tsx ("osf-btn
+//    osf-btn--sm osf-key listening"). An earlier version of this comment
+//    presented the ordering as a padnav requirement — it is not.
 //  * The ✕ is a real <button>, so padnav can reach it.
 //
 // The unbind affordance appears only when the schema opted into the unbound
