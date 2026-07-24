@@ -186,7 +186,8 @@ describe('System Health rail entry', () => {
     await flush();
     const health = el.querySelector('.rail-item--health')!;
     expect(health.classList.contains('rail-item--health-error')).toBe(true);
-    expect(health.querySelector('.rail-item-count--error')!.textContent).toBe('1');
+    // The count is folded into the status phrase, not a separate badge.
+    expect(health.querySelector('.rail-health-status--error')!.textContent).toBe('1 error');
 
     // Selecting Health from a filtered rail clears the search and shows the pane.
     await typeFilter(el, 'zzz');

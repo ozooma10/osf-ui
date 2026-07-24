@@ -127,7 +127,11 @@ export interface RailModel {
  *     filtering for the mod that failed to load must still be able to reach the
  *     reason, not be shown "no mods match" (mcm-design.md §14.2, the SkyUI-MCM
  *     lesson). This is the same argument the old settings-load alert was pinned
- *     on; health now carries those load failures as issues instead;
+ *     on; health now carries those load failures as issues instead.
+ *     NOTE: this node is NOT painted by the rail list — App renders it in the
+ *     rail head, above the "Installed systems" label, because it is a pinned
+ *     destination rather than an installed system. It stays first here because
+ *     LB/RB cycle order is derived from this same sequence;
  *  2. Home, only when no filter is active — while filtering the rail scopes to
  *     matching mods and the launcher steps aside, as the framework does. Home,
  *     not Health, is still the landing page: health is a place you go, not a

@@ -98,6 +98,34 @@ describe('cards', () => {
     expect(el.querySelectorAll('#health-resolved .health-card')).toHaveLength(1);
   });
 
+  it('gives errors a full card and collapses active warnings into a tier', async () => {
+    const { el } = await mountHealth([
+      ISSUE({ id: 'e', severity: 'error', code: 'view.load-failed', subject: 'x/y', lastAt: 9 }),
+      ISSUE({ id: 'w1', severity: 'warning', code: 'settings.values-parse', lastAt: 2 }),
+      ISSUE({ id: 'w2', severity: 'warning', code: 'host.ring-truncated', lastAt: 1 }),
+    ]);
+    openHealth(el);
+    await flush();
+
+    // The error is a card: its impact copy and actions are visible unprompted.
+    const error = el.querySelector('.health-card[data-issue="e"]')!;
+    expect(error.classList.contains('health-card--row')).toBe(false);
+    expect(error.querySelector('.health-card-impact')).not.toBeNull();
+
+    // Both warnings are rows, counted by a tier label, and folded shut.
+    expect(el.querySelector('#health-warning-tier')!.textContent).toContain('2');
+    const rows = [...el.querySelectorAll('.health-card--row')];
+    expect(rows.map((r) => r.getAttribute('data-issue'))).toEqual(['w1', 'w2']);
+    expect(rows.every((r) => r.querySelector('.health-card-impact') === null)).toBe(true);
+
+    // Opening one row reveals the same body an error card shows, and leaves
+    // the other row shut — the tier is not an all-or-nothing disclosure.
+    rows[0]!.querySelector<HTMLButtonElement>('.health-row-head')!.click();
+    await flush();
+    expect(rows[0]!.querySelector('.health-card-impact')).not.toBeNull();
+    expect(rows[1]!.querySelector('.health-card-impact')).toBeNull();
+  });
+
   it('offers Retry view and fires menu.open with the issue subject', async () => {
     const { bridge, el } = await mountHealth([
       ISSUE({ id: 'e', severity: 'error', code: 'view.load-failed', subject: 'broken/panel' }),
@@ -136,6 +164,10 @@ describe('cards', () => {
     ]);
     openHealth(el);
     await flush();
+    // A warning is a collapsed row: its actions live behind the row itself.
+    expect(el.querySelector('.health-card-disclose')).toBeNull();
+    el.querySelector<HTMLButtonElement>('.health-row-head')!.click();
+    await flush();
     expect(el.querySelector('.health-card-technical')).toBeNull();
     [...el.querySelectorAll<HTMLButtonElement>('.health-card-disclose')][0]!.click();
     await flush();
@@ -166,7 +198,15 @@ describe('copy diagnostic report', () => {
     const writeText = vi.fn().mockRejectedValue(new Error('denied'));
     vi.stubGlobal('navigator', { clipboard: { writeText } });
     const { el } = await mountHealth([
-      ISSUE({ id: 'e', code: 'view.load-failed', subject: 'x/y', context: { errorCode: -6 } }),
+      // An error, so this stays a full card and the test is about the
+      // clipboard degrading rather than about the warning tier.
+      ISSUE({
+        id: 'e',
+        severity: 'error',
+        code: 'view.load-failed',
+        subject: 'x/y',
+        context: { errorCode: -6 },
+      }),
     ]);
     openHealth(el);
     await flush();

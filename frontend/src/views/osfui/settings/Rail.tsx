@@ -55,15 +55,11 @@ export function Rail(props: RailProps) {
       {nodes.map((node, i) => {
         switch (node.kind) {
           case 'health':
-            return (
-              <HealthItem
-                key="health"
-                health={health}
-                selected={selectedId === HEALTH_ID}
-                tr={tr}
-                onSelect={onSelect}
-              />
-            );
+            // Painted by App in the rail HEAD, above the "Installed systems"
+            // label — it is a pinned destination, not an installed system, and
+            // grouping it under that label was the whole complaint. The node
+            // stays in the model because LB/RB cycle order still starts here.
+            return null;
           case 'home':
             return (
               <HomeItem
@@ -231,7 +227,7 @@ function HomeItem({ views, selected, tr, onSelect }: HomeItemProps) {
   );
 }
 
-interface HealthItemProps {
+export interface HealthItemProps {
   health: HealthModel;
   selected: boolean;
   tr: Translator;
@@ -239,18 +235,25 @@ interface HealthItemProps {
 }
 
 /**
- * The pinned System Health destination. Same chrome as a mod entry so it reads
- * as a place, not a banner — and it is the persistent notification surface:
- * whatever is wrong keeps a count here until it clears, where a toast would
- * have scrolled away seconds after the player missed it.
+ * The pinned System Health destination, painted in the rail HEAD above the
+ * "Installed systems" label.
+ *
+ * It deliberately does NOT wear mod-entry chrome. It is not an installed
+ * system, and dressing it as one both mis-grouped it and made it the heaviest
+ * object in the rail even when nothing was wrong. One line: severity glyph,
+ * name, and the state in words.
+ *
+ * It is still the persistent notification surface — whatever is wrong keeps a
+ * count here until it clears, where a toast would have scrolled away seconds
+ * after the player missed it. The count is folded INTO the status phrase rather
+ * than sitting beside it as a separate badge, because "Action required" next to
+ * a red "1" stated the same fact twice.
  */
-function HealthItem({ health, selected, tr, onSelect }: HealthItemProps) {
+export function HealthItem({ health, selected, tr, onSelect }: HealthItemProps) {
   const counts = countIssues(health.issues);
   const severity = overallSeverity(counts);
-  const badge = severity === 'error' ? counts.errors : severity === 'warning' ? counts.warnings : 0;
 
   const classes = [
-    'rail-item',
     'rail-item--health',
     severity ? `rail-item--health-${severity}` : '',
     selected ? 'selected' : '',
@@ -258,26 +261,25 @@ function HealthItem({ health, selected, tr, onSelect }: HealthItemProps) {
     .filter(Boolean)
     .join(' ');
 
+  // Errors outrank warnings, same precedence as the pane's own summary.
+  const status =
+    counts.errors > 0
+      ? tr.plural('errorCount', counts.errors, '{count} error', '{count} errors')
+      : counts.warnings > 0
+        ? tr.plural('warningCount', counts.warnings, '{count} warning', '{count} warnings')
+        : tr('nominal', 'Nominal');
+
   return (
     <button type="button" class={classes} onClick={() => onSelect(HEALTH_ID)}>
-      <span class="rail-item-mark" aria-hidden="true">
+      <span class="rail-health-mark" aria-hidden="true">
         {severity === 'error' ? '✕' : severity === 'warning' ? '!' : '✓'}
       </span>
-      <span class="rail-item-text">
-        <span class="rail-item-title">{tr('systemHealth', 'System health')}</span>
-        {/* The sub-line states the severity in words — the badge's colour is
-            never the only carrier. */}
-        <span class="rail-item-sub">
-          {severity === 'error'
-            ? tr('actionRequired', 'Action required')
-            : severity === 'warning'
-              ? tr('warningsDetected', 'Warnings detected')
-              : tr('nominal', 'Nominal')}
-        </span>
+      <span class="rail-health-title">{tr('systemHealth', 'System health')}</span>
+      {/* The state in words, so the glyph's colour is never the only carrier. */}
+      <span class={`rail-health-status rail-health-status--${severity ?? 'ok'}`}>{status}</span>
+      <span class="rail-health-chevron" aria-hidden="true">
+        ▸
       </span>
-      {badge ? (
-        <span class={`rail-item-count rail-item-count--${severity}`}>{String(badge)}</span>
-      ) : null}
     </button>
   );
 }

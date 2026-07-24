@@ -6,6 +6,13 @@
 // subsystem withdraws it. That is why there is no dismiss button — a card you
 // could dismiss would be a card that could lie.
 //
+// Space follows severity. An error keeps a full card — title, what it means for
+// you, what to do, and its actions all visible. An active warning collapses to a
+// single row that expands in place, because a warning that is not worth acting
+// on should not cost the same vertical space as one that is. Both live in the
+// same #health-active list so paint order (errors first) is unchanged and a
+// deep link still finds its issue either way.
+//
 // Severity is carried three ways (word, colour, icon), never by colour alone.
 // Everything a native payload supplies is rendered as a text child; the only
 // prose in the pane comes from the code->copy table in @lib/settings/diagnostics,
@@ -55,6 +62,9 @@ export function Health({
   onToast,
 }: HealthProps) {
   const active = activeIssues(health);
+  // Already sorted errors-first by activeIssues; partitioning preserves that.
+  const activeErrors = active.filter((i) => severityOf(i) === 'error');
+  const activeWarnings = active.filter((i) => severityOf(i) !== 'error');
   const resolved = resolvedIssues(health);
   const counts = countIssues(health.issues);
   const overall = overallSeverity(counts);
@@ -120,11 +130,37 @@ export function Health({
 
         {active.length ? (
           <div class="health-list" id="health-active">
-            {active.map((issue) => (
+            {activeErrors.map((issue) => (
               <IssueCard
                 key={issue.id}
                 issue={issue}
                 tr={tr}
+                defaultOpen={issue.id === focusIssueId}
+                onRetryView={onRetryView}
+                onShellCommand={onShellCommand}
+                onCopyDetails={(text) =>
+                  copyText(text, tr('detailsCopied', 'Details copied'))
+                }
+              />
+            ))}
+
+            {activeWarnings.length ? (
+              <div class="group-label health-tier-label" id="health-warning-tier">
+                {tr.plural(
+                  'warningTier',
+                  activeWarnings.length,
+                  'Warning ({count})',
+                  'Warnings ({count})',
+                )}
+              </div>
+            ) : null}
+
+            {activeWarnings.map((issue) => (
+              <IssueCard
+                key={issue.id}
+                issue={issue}
+                tr={tr}
+                compact
                 defaultOpen={issue.id === focusIssueId}
                 onRetryView={onRetryView}
                 onShellCommand={onShellCommand}
@@ -221,7 +257,16 @@ function Summary({
  * beside it is the accessible name, so the severity survives both a screen
  * reader and a colour-blind reading.
  */
-function SeverityMark({ severity, tr }: { severity: Severity | null; tr: Translator }) {
+function SeverityMark({
+  severity,
+  tr,
+  compact,
+}: {
+  severity: Severity | null;
+  tr: Translator;
+  /** Row form: the word is read but not painted — the row has no space for it. */
+  compact?: boolean;
+}) {
   const glyph = severity === 'error' ? '✕' : severity === 'warning' ? '!' : '✓';
   const label =
     severity === 'error'
@@ -234,7 +279,12 @@ function SeverityMark({ severity, tr }: { severity: Severity | null; tr: Transla
       <span class="health-mark-glyph" aria-hidden="true">
         {glyph}
       </span>
-      <span class="health-mark-label">{label}</span>
+      {/* Hidden, not dropped: severity must survive a screen reader. Sighted
+          readers still get two non-colour signals — the glyph differs per
+          severity ("✕" vs "!"), so this is not colour-alone. */}
+      <span class={compact ? 'health-mark-label health-mark-label--sr' : 'health-mark-label'}>
+        {label}
+      </span>
     </span>
   );
 }
@@ -243,6 +293,8 @@ interface IssueCardProps {
   issue: IssueRecord;
   tr: Translator;
   defaultOpen: boolean;
+  /** Render as a one-line row that expands in place (the warning tier). */
+  compact?: boolean;
   onRetryView: (viewId: string) => void;
   onShellCommand: (command: string) => void;
   onCopyDetails: (text: string) => void;
@@ -252,11 +304,15 @@ function IssueCard({
   issue,
   tr,
   defaultOpen,
+  compact,
   onRetryView,
   onShellCommand,
   onCopyDetails,
 }: IssueCardProps) {
   const [open, setOpen] = useState(defaultOpen);
+  // A compact row carries a second state: whether the row itself is unfolded.
+  // A deep link opens both, so arriving at a warning shows it in full.
+  const [rowOpen, setRowOpen] = useState(defaultOpen);
   const copy = copyForCode(issue.code);
   const severity = severityOf(issue);
   const resolvedCard = isResolved(issue);
@@ -285,30 +341,21 @@ function IssueCard({
     }
   };
 
-  return (
-    <article
-      class={`health-card health-card--${severity}${resolvedCard ? ' health-card--resolved' : ''}`}
-      data-issue={issue.id}
-      data-code={issue.code || ''}
+  const tag = resolvedCard ? (
+    <span class="health-card-tag">{tr('resolved', 'Resolved')}</span>
+  ) : (issue.occurrences ?? 1) > 1 ? (
+    <span
+      class="health-card-tag"
+      title={tr('occurrenceHint', 'How many times this happened this session')}
     >
-      <header class="health-card-head">
-        <SeverityMark severity={resolvedCard ? null : severity} tr={tr} />
-        <div class="health-card-heading">
-          <h3 class="health-card-title">{tr(copy.title[0], copy.title[1])}</h3>
-          {issue.subject ? <div class="health-card-subject">{issue.subject}</div> : null}
-        </div>
-        {resolvedCard ? (
-          <span class="health-card-tag">{tr('resolved', 'Resolved')}</span>
-        ) : (issue.occurrences ?? 1) > 1 ? (
-          <span
-            class="health-card-tag"
-            title={tr('occurrenceHint', 'How many times this happened this session')}
-          >
-            {tr('timesCount', '{count}×', { count: issue.occurrences ?? 1 })}
-          </span>
-        ) : null}
-      </header>
+      {tr('timesCount', '{count}×', { count: issue.occurrences ?? 1 })}
+    </span>
+  ) : null;
 
+  // Everything below the heading. Identical in both forms — a compact row is a
+  // smaller door onto the same content, never a reduced version of it.
+  const body = (
+    <>
       <p class="health-card-impact">{tr(copy.impact[0], copy.impact[1])}</p>
       <p class="health-card-next">{tr(copy.next[0], copy.next[1])}</p>
 
@@ -342,6 +389,55 @@ function IssueCard({
           {detailsText}
         </pre>
       ) : null}
+    </>
+  );
+
+  if (compact) {
+    return (
+      <article
+        class={`health-card health-card--row health-card--${severity}${
+          rowOpen ? ' health-card--row-open' : ''
+        }${resolvedCard ? ' health-card--resolved' : ''}`}
+        data-issue={issue.id}
+        data-code={issue.code || ''}
+      >
+        {/* The whole row is the control: a one-line summary that is its own
+            disclosure button, so there is no separate hit target to find. */}
+        <button
+          type="button"
+          class="health-row-head"
+          aria-expanded={rowOpen ? 'true' : 'false'}
+          onClick={() => setRowOpen(!rowOpen)}
+        >
+          <SeverityMark severity={resolvedCard ? null : severity} tr={tr} compact />
+          <span class="health-row-title">{tr(copy.title[0], copy.title[1])}</span>
+          {issue.subject ? <span class="health-row-subject">{issue.subject}</span> : null}
+          {tag}
+          <span class="health-row-chevron" aria-hidden="true">
+            {rowOpen ? '▾' : '▸'}
+          </span>
+        </button>
+        {rowOpen ? <div class="health-row-body">{body}</div> : null}
+      </article>
+    );
+  }
+
+  return (
+    <article
+      class={`health-card health-card--${severity}${resolvedCard ? ' health-card--resolved' : ''}`}
+      data-issue={issue.id}
+      data-code={issue.code || ''}
+    >
+      <header class="health-card-head">
+        <SeverityMark severity={resolvedCard ? null : severity} tr={tr} />
+        <div class="health-card-heading">
+          <h3 class="health-card-title">{tr(copy.title[0], copy.title[1])}</h3>
+          {issue.subject ? <div class="health-card-subject">{issue.subject}</div> : null}
+        </div>
+        {tag}
+      </header>
+
+      {body}
     </article>
   );
 }

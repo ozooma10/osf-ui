@@ -68,7 +68,7 @@ import {
 } from '@lib/saveState';
 import type { SettingValue } from '@sdk';
 import { Detail } from './Detail';
-import { Rail } from './Rail';
+import { HealthItem, Rail } from './Rail';
 import { UndoPanel } from './UndoPanel';
 import { homeModCaption } from './Home';
 import { useCapture } from './useCapture';
@@ -731,6 +731,16 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
               keyshortcuts="Control+F"
               inputClass="filter"
               inputRef={filterInput}
+            />
+
+            {/* Above the "Installed systems" label on purpose: System Health is
+                a pinned destination, not an installed system. Living in the head
+                also means it never scrolls away with the list. */}
+            <HealthItem
+              health={health}
+              selected={selectedId === HEALTH_ID}
+              tr={tr}
+              onSelect={selectMod}
             />
 
             <div class="rail-meta">
