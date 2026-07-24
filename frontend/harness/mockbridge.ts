@@ -234,6 +234,22 @@ export function installMock(opts: MockOptions = {}): MockApi {
 
   const log = (dir: string, msg: string) => console.log(`%c[mock ${dir}]`, 'color:#5aa9b8', msg);
 
+  /**
+   * Transient on-screen note for a command whose real effect is outside the
+   * browser. The console line alone is not enough: a button like "Open log
+   * folder" is a no-op here by nature, so without visible feedback there is no
+   * way to tell a wired button from a dead one. Harness chrome, never a view.
+   */
+  function notify(msg: string): void {
+    const doc = (host as unknown as { document?: Document }).document;
+    if (!doc || !doc.body) return;
+    const el = doc.createElement('div');
+    el.className = 'harness-toast';
+    el.textContent = msg;
+    doc.body.appendChild(el);
+    setTimeout(() => el.remove(), 2600);
+  }
+
   // Asset roots for the settings view's icon/image resolution. Global because
   // @lib/settings/assets reads it off the window.
   (host as unknown as { OSFUI_MOD_ASSET_ROOTS?: Record<string, string> }).OSFUI_MOD_ASSET_ROOTS =
@@ -982,11 +998,13 @@ export function installMock(opts: MockOptions = {}): MockApi {
         // Payload-free and fixed-target in game; there is nothing to open from a
         // browser, so the harness just proves the command was fired.
         log('info', 'osfui.openLogFolder (no-op in harness)');
+        notify('osfui.openLogFolder — fired (opens the SFSE log folder in game)');
         result(true);
         break;
 
       case 'osfui.openModPage':
         log('info', 'osfui.openModPage (no-op in harness)');
+        notify('osfui.openModPage — fired (opens the mod page in game)');
         result(true);
         break;
 

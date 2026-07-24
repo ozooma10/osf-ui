@@ -27,6 +27,13 @@ body.res900 {
   background: #05070b;
 }
 
+/* The bar's 30px is load-bearing: Stage.tsx's BAR_H reserves exactly that much
+   when it scales the 1600x900 frame. So it must never grow — which means the
+   controls must never wrap. Left to itself, flex shrinks each item below its
+   text width and the labels wrap mid-phrase and spill out of the bar. Every
+   child is therefore pinned to its natural width (`.harness-bar > *` below) and
+   the bar scrolls horizontally instead; the hint is the one item allowed to
+   give way, since it is prose rather than a control. */
 .harness-bar {
   position: fixed;
   top: 0;
@@ -35,9 +42,15 @@ body.res900 {
   z-index: 30;
   height: 30px;
   display: flex;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   padding: 0 14px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  /* A visible scrollbar would eat into the 30px. Scrolling still works by
+     wheel/trackpad/drag. */
+  scrollbar-width: none;
   font-family: var(--osf-font-mono);
   font-size: 11px;
   letter-spacing: 0.1em;
@@ -46,13 +59,29 @@ body.res900 {
   border-bottom: 1px solid var(--osf-line);
 }
 
+.harness-bar::-webkit-scrollbar {
+  display: none;
+}
+
+/* No control may shrink or wrap — see the note on .harness-bar. */
+.harness-bar > * {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .harness-bar b {
   color: var(--osf-accent);
   letter-spacing: 0.16em;
 }
 
+/* The one item that yields when the bar runs out of room: it is prose, not a
+   control, so it truncates rather than pushing the buttons off the edge. */
 .harness-bar .hint {
   margin-left: auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .harness-bar a {
@@ -119,4 +148,42 @@ body:not(.res900) .keybinds {
   height: calc(100% - 72px);
   margin-top: 44px;
   margin-bottom: 28px;
+}
+
+/* Feedback for a mocked command whose real effect is outside the browser (see
+   notify() in mockbridge.ts). Deliberately harness-styled rather than view-
+   styled — it must never be mistaken for something the shipped UI draws.
+   Bottom-right so it stays clear of the toolbar and of a view's own toasts. */
+.harness-toast {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  z-index: 40;
+  max-width: 420px;
+  padding: 7px 11px;
+  font-family: var(--osf-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--osf-accent);
+  background: rgba(4, 6, 10, 0.94);
+  border: 1px solid var(--osf-accent);
+  border-radius: 2px;
+  pointer-events: none;
+  animation: harness-toast-in 120ms ease-out;
+}
+
+/* Later toasts stack upward instead of covering the first. */
+.harness-toast ~ .harness-toast {
+  bottom: 50px;
+}
+
+.harness-toast ~ .harness-toast ~ .harness-toast {
+  bottom: 86px;
+}
+
+@keyframes harness-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
 }

@@ -85,6 +85,28 @@ Query parameters:
 | `?fixtures=1` | load the richer demo dataset (also togglable in the toolbar) |
 | `?locale=<code>` | switch locale; `pseudo` expands strings to catch tight layouts and hardcoded text |
 | `?schema=<url>` | load a settings schema from a URL instead of the fixtures |
+| `?health=<name>` | pin the System Health scenario pushed as `diagnostics.data` (also cycled by the toolbar "Health" button) |
+
+### System Health scenarios
+
+The Health destination renders from a `diagnostics.data` snapshot, so it needs no
+broken game to exercise — the harness pushes a canned one. Scenarios live in
+`harness/fixtures/diagnostics.ts`:
+
+| `?health=` | What it shows |
+|---|---|
+| `clean` | nominal summary, no cards (the default) |
+| `warnings` | warnings only |
+| `errors` | an active error alongside a warning, with a degraded `system` block |
+| `mixed` | both severities plus one resolved card |
+| `resolved` | nominal summary but a non-empty history |
+| `catalog` | **one card per known code, plus an unrecognised one** — the whole copy table on one page |
+
+Use `catalog` to proof-read the diagnostic copy: every title, impact/next line and
+action row the shell can emit, side by side. Add `&locale=pseudo` to check none of
+it is hardcoded or overflowing. Adding a code to `COPY` in
+`src/lib/settings/diagnostics.ts` without adding it to `catalog` means that card
+has never been looked at.
 
 You can also drag-and-drop a settings schema JSON or a `<modId>_<locale>.json`
 catalog onto the page.

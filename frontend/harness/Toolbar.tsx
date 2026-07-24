@@ -46,8 +46,8 @@ export function Toolbar(props: ToolbarProps) {
         </a>
       ))}
 
-      <button type="button" onClick={() => mock.reset()}>
-        Reset stored values
+      <button type="button" title="Clear stored setting values" onClick={() => mock.reset()}>
+        Reset values
       </button>
 
       <button
@@ -62,7 +62,7 @@ export function Toolbar(props: ToolbarProps) {
       <button
         type="button"
         class={healthScenario !== 'clean' ? 'on' : ''}
-        title="Cycle the System Health scenario pushed as diagnostics.data: clean → warnings → errors → mixed → resolved-only"
+        title="Cycle the System Health scenario pushed as diagnostics.data: clean → warnings → errors → mixed → resolved-only → catalog (every known code + one unknown)"
         onClick={onHealth}
       >
         Health: {healthScenario}
@@ -87,7 +87,7 @@ export function Toolbar(props: ToolbarProps) {
             active one so the select never shows a blank value. */}
         {(LOCALES.includes(locale) ? LOCALES : [...LOCALES, locale]).map((l) => (
           <option key={l} value={l}>
-            Locale: {l}
+            {l}
             {l === 'en' ? ' (authored)' : ''}
           </option>
         ))}
@@ -112,9 +112,13 @@ export function Toolbar(props: ToolbarProps) {
         RB
       </button>
 
-      <span class="hint">
-        Drop a settings/&lt;id&gt;.json or l10n/&lt;id&gt;_&lt;locale&gt;.json here, or add ?schema=&lt;url&gt; —
-        traffic logs to the console
+      {/* Kept short so it does not crowd the controls; the full instruction is
+          in the tooltip, and this truncates before any button does. */}
+      <span
+        class="hint"
+        title="Drop a settings/<id>.json or l10n/<id>_<locale>.json onto the page, or add ?schema=<url>. Bridge traffic logs to the console."
+      >
+        Drop a schema or l10n file here
       </span>
     </div>
   );
