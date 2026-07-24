@@ -1210,6 +1210,18 @@ namespace osfui::wv2
 					log.Error(std::format("view '{}': failed to acquire CoreWebView2", a_view.id));
 					return S_OK;
 				}
+				// The Edge context menu is a real HWND-backed popup outside our
+				// captured visual tree: it would draw over the game unclipped, and its
+				// Back/Reload/Save/Inspect entries are meaningless for a mod view.
+				// Suppressing it does NOT suppress the DOM `contextmenu` event, so
+				// right-click still reaches page script.
+				ComPtr<ICoreWebView2Settings> settings;
+				if (SUCCEEDED(a_view.webView->get_Settings(&settings)) && settings) {
+					settings->put_AreDefaultContextMenusEnabled(FALSE);
+				} else {
+					log.Warn(std::format("view '{}': settings unavailable — the browser "
+						"context menu stays enabled", a_view.id));
+				}
 				a_view.controller->put_Bounds(
 					RECT{ 0, 0, static_cast<LONG>(width), static_cast<LONG>(height) });
 				ApplyScale(a_view);
