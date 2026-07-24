@@ -36,17 +36,19 @@ interface ActiveRun {
   timerId: number;
 }
 
-interface BenchmarkResult extends FrameSummary {
+/** A frame summary plus the setTimeout-drift measure both result shapes carry. */
+interface TimedSummary extends FrameSummary {
+  timerP95: number;
+}
+
+interface BenchmarkResult extends TimedSummary {
   workload: WorkloadId;
   name: string;
   intensity: number;
   durationMs: number;
-  timerP95: number;
 }
 
-interface LiveResult extends FrameSummary {
-  timerP95: number;
-}
+type LiveResult = TimedSummary;
 
 const EMPTY_LIVE: LiveResult = {
   fps: 0,

@@ -375,11 +375,42 @@ When executed, the verified constraints are:
   install block 176–187, rollback 210–219, `HookExecuteSlot` mechanics 327–335;
   `D3D12Compositor.cpp` Present block 868–916, mechanics 900–903, read-back 904–910.
 
+### Phase 3 — §5 frontend consolidation: all but the two race-sensitive items
+| Commit | Item(s) |
+|---|---|
+| `aa6a072` | §5.8 single `HOME_ID` owner (new leaf `lib/ids.ts`); §5.12 `workloadOf`; §5.13 `inputP95` reuse; §6.9 `execCommand` fallback dropped, try/catch kept |
+| `dae3b29` | §5.3 `seedBaseline` + §5.4 `patchModValues` (3 copies each) |
+| `7082991` | §5.5 `useCommittedText` |
+| `eef7565` | §5.6 `HudCard`→`Mark`; §5.7 `BrandEmblem`; §5.14 `ViewRowText` |
+| `505f036` | §6.8 `data-label`/`data-mod` removal |
+| `c52258b` | §5.15 `cx()` |
+| (with the above) | §5.13 `TimedSummary` shared by both result shapes |
+
+Notes worth keeping:
+- **§6.8 was verified before deleting**, not taken on faith: no CSS selector, no `padnav.js`, no shipped
+  kit, no docs/sdk reference — the only reader was a self-fulfilling test assertion. The code agreed
+  (`labelText`'s doc said "for the (removed) DOM filter"; Rail's attribute carried "Nothing reads this
+  any more"). `data-key` **stays** — it is the live search-jump anchor.
+- **§5.15 `cx()` argument order is a contract**, documented on the helper: padnav selects on the
+  trailing state classes (`.listening`, `.pending`). The DOM-contract test asserts the resulting
+  `className` verbatim, so it guards the ordering.
+- **§5.3's `ensureEntry` flag** is load-bearing: only the whole-list capture may seed an entry for a
+  mod with no values. Folding that into the shared path would make a zero-key preset force a render.
+
+**Still open in §5** — the two race-sensitive items, deliberately left for a focused pass:
+- **§5.1 `useStateRef`** (~8 sites): the state+ref+dual-write triple exists because once-registered
+  bridge closures read first-render state. Mechanical, but it touches every piece of long-lived state
+  in two views, so it wants its own commit and careful review.
+- **§5.2 reuse `useCapture` in keybinds** (~-90 lines, highest §5 value): a duplicated race-sensitive
+  capture state machine. Per the plan it needs an **in-game controller smoke** (the keybinds catalog
+  must still resolve `alsoBoundBy`), which cannot be run headlessly — so it belongs with the other
+  in-game-gated work.
+
 ### Still open
-**§4c is now complete except §4c.6** (deferred above) and the two declined items. Remaining: §5
-(frontend, incl. the two items needing an in-game controller pass), protocol-name centralization,
+Phase 3 is complete except **§5.1**, **§5.2** (above) and the protocol-name centralization. Then
 Phase 2 (in-game gated), Phase 4, and Phase 5 — which should absorb §4c.6 alongside §6b.2, since both
-are seam/FG-thread changes needing the same in-game smoke.
+are seam/FG-thread changes needing the same in-game smoke, and §5.2 alongside them for its controller
+pass.
 
 ---
 
