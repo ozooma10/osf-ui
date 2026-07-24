@@ -16,19 +16,16 @@ export interface RowProps {
    * prop would run into `exactOptionalPropertyTypes` at every call site.
    */
   class: string;
-  /** `data-label`; "" omits the attribute. */
-  dataLabel: string;
-  /** `data-key`; "" omits the attribute. */
+  /** `data-key`; "" omits the attribute. The search-jump anchor. */
   dataKey: string;
 }
 
-export function Row({ children, class: extra, dataLabel, dataKey }: RowProps) {
+export function Row({ children, class: extra, dataKey }: RowProps) {
   return (
     <div
       class={extra ? `row ${extra}` : 'row'}
-      // Emitted only when non-empty: an empty `data-label=""` would match
-      // `[data-label]` selectors that expect content.
-      {...(dataLabel ? { 'data-label': dataLabel } : {})}
+      // Emitted only when non-empty: an empty `data-key=""` would match
+      // `[data-key]` selectors that expect content.
       {...(dataKey ? { 'data-key': dataKey } : {})}
     >
       {children}

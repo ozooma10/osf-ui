@@ -228,7 +228,6 @@ function MenuCard({ view: v, tr, iconSrc, caption, issueId, onOpen, onOpenIssue 
     <button
       type="button"
       class={failed ? 'home-tile failed' : 'home-tile'}
-      data-label={(v.title || '').toLowerCase()}
       disabled={(failed && !reviewable) || cooling}
       onClick={() => {
         if (reviewable) {

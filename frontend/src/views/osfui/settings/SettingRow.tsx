@@ -79,7 +79,7 @@ export function SettingRow(props: SettingRowProps) {
   // dot, and has no `data-key`, so a search result cannot jump to it.
   if (control === null) {
     return (
-      <div class="row row--unknown" data-label={labelText(setting)}>
+      <div class="row row--unknown">
         <div class="row-text">
           <div class="row-label">{setting.label || setting.key || '(setting)'}</div>
           <div class="row-hint">
@@ -107,7 +107,7 @@ export function SettingRow(props: SettingRowProps) {
   const conflicts = setting.type === 'key' && Array.isArray(setting.conflicts) ? setting.conflicts : [];
 
   return (
-    <Row class={classes} dataLabel={labelText(setting)} dataKey={setting.key}>
+    <Row class={classes} dataKey={setting.key}>
       <div class="row-text">
         <div class="row-label-line">
           <label class="row-label" for={id}>
@@ -170,11 +170,6 @@ export function SettingRow(props: SettingRowProps) {
       </div>
     </Row>
   );
-}
-
-/** `row.dataset.label`, lowercased for the (removed) DOM filter. */
-function labelText(setting: Setting): string {
-  return (setting.label || setting.key || '').toLowerCase();
 }
 
 /**

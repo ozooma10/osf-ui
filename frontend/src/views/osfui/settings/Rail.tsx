@@ -156,8 +156,6 @@ function RailItem({ entry, selected, severity, tr, assetRoots, onSelect }: RailI
     <button
       type="button"
       class={selected ? 'rail-item selected' : 'rail-item'}
-      // Nothing reads this attribute any more, but it ships in the DOM today.
-      data-mod={entry.id}
       onClick={() => onSelect(entry.id)}
     >
       <Mark

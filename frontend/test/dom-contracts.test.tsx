@@ -135,7 +135,7 @@ describe('padnav DOM contracts', () => {
     // count as one navigation line. No `.row`, no band.
     const el = document.createElement('div');
     render(
-      <Row class="" dataLabel="" dataKey="">
+      <Row class="" dataKey="">
         <button type="button">x</button>
       </Row>,
       el,
@@ -145,14 +145,13 @@ describe('padnav DOM contracts', () => {
     expect(row!.classList.contains('row')).toBe(true);
     // Extra classes must append, not replace the contract class.
     render(
-      <Row class="row-danger" dataLabel="open / close key" dataKey="toggleKey">
+      <Row class="row-danger" dataKey="toggleKey">
         <button type="button">x</button>
       </Row>,
       el,
     );
     const decorated = el.querySelector('div')!;
     expect(decorated.className).toBe('row row-danger');
-    expect(decorated.getAttribute('data-label')).toBe('open / close key');
     expect(decorated.getAttribute('data-key')).toBe('toggleKey');
     render(null, el);
   });

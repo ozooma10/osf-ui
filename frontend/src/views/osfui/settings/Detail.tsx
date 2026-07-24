@@ -435,7 +435,7 @@ function Item(props: ItemProps) {
       .join(' ');
 
     return (
-      <Row class={classes} dataLabel={(action.label || action.key || '').toLowerCase()} dataKey="">
+      <Row class={classes} dataKey="">
         <div class="row-text">
           <div class="row-label">{action.label || action.key || '(action)'}</div>
           {action.hint ? <div class="row-hint">{action.hint}</div> : null}
@@ -563,7 +563,7 @@ function PanelRow({
   // (an older host) keeps the old dead-end button.
   if (failed && issueId) {
     return (
-      <Row class="" dataLabel={(v.title || '').toLowerCase()} dataKey="">
+      <Row class="" dataKey="">
         <ViewRowText view={v} />
         <div class="control">
           <button
@@ -579,7 +579,7 @@ function PanelRow({
   }
 
   return (
-    <Row class="" dataLabel={(v.title || '').toLowerCase()} dataKey="">
+    <Row class="" dataKey="">
       <ViewRowText view={v} />
       <div class="control">
         <button
@@ -613,7 +613,7 @@ function HudRow({
   onToggle: (id: string, next: boolean) => void;
 }) {
   return (
-    <Row class="" dataLabel={(v.title || '').toLowerCase()} dataKey="">
+    <Row class="" dataKey="">
       <ViewRowText view={v} />
       <div class="control">
         <Switch id="" on={on} disabled={false} onToggle={(next) => onToggle(v.id, next)} />
