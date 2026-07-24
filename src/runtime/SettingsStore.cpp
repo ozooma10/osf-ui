@@ -480,12 +480,8 @@ namespace OSFUI
 				return false;
 			}
 
-			if (const auto aliases = a_setting.find("aliases"); aliases != a_setting.end() && aliases->is_array()) {
-				for (const auto& alias : *aliases) {
-					if (alias.is_string()) {
-						accounted.insert(alias.get<std::string>());
-					}
-				}
+			for (const auto& alias : Json::GetStringArray(a_setting, "aliases")) {
+				accounted.insert(alias);
 			}
 			if (const auto it = saved.find(key); it != saved.end()) {
 				if (auto valid = Validate(a_setting, *it)) {
@@ -497,20 +493,15 @@ namespace OSFUI
 			// longer validates, so adopt the first declared `alias` in the file
 			// that does. The old key is not schema-declared, so SparseValues drops
 			// it and the next write lands under the new name.
-			if (const auto aliases = a_setting.find("aliases"); aliases != a_setting.end() && aliases->is_array()) {
-				for (const auto& alias : *aliases) {
-					if (!alias.is_string()) {
-						continue;
-					}
-					const auto it = saved.find(alias.get<std::string>());
-					if (it == saved.end()) {
-						continue;
-					}
-					if (auto valid = Validate(a_setting, *it)) {
-						REX::INFO("SettingsStore: '{}.{}' adopted from alias '{}'", mod.id, key, alias.get<std::string>());
-						mod.values[key] = std::move(*valid);
-						return false;
-					}
+			for (const auto& alias : Json::GetStringArray(a_setting, "aliases")) {
+				const auto it = saved.find(alias);
+				if (it == saved.end()) {
+					continue;
+				}
+				if (auto valid = Validate(a_setting, *it)) {
+					REX::INFO("SettingsStore: '{}.{}' adopted from alias '{}'", mod.id, key, alias);
+					mod.values[key] = std::move(*valid);
+					return false;
 				}
 			}
 			mod.values[key] = DefaultFor(a_setting);

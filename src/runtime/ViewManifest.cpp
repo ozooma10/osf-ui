@@ -35,10 +35,7 @@ namespace OSFUI
 		// views/<mod>/<view>/ layout is itself the v2 discriminator. Unknown keys
 		// are the normal compatible case (a newer mod on an older host), so they
 		// surface as devMode INFO, never a warning.
-		if (const auto v = Json::GetInt(*json, "manifestVersion", 1); v > 1) {
-			REX::INFO("ViewManifest: {} declares manifestVersion {} — authored for a newer OSF UI; unknown fields are ignored",
-				a_path.string(), v);
-		}
+		Json::CheckFormatVersion(*json, "manifestVersion", 1, "ViewManifest: " + a_path.string());
 		if (Log::DevMode()) {
 			Json::ReportUnknownKeys(*json,
 				{ "manifestVersion", "id", "title", "description", "accent", "hub", "debugOnly", "entry",

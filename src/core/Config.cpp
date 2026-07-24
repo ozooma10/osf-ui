@@ -34,10 +34,7 @@ namespace OSFUI
 
 		// Format stamp + migration hook. Newer file: parse leniently, ignoring
 		// unknown fields. Older file: where migrations would run (none yet).
-		if (const auto v = Json::GetInt(*json, "configVersion", kConfigVersion); v > kConfigVersion) {
-			REX::INFO("Config: {} declares configVersion {} (this build knows {}) — written by a newer OSF UI; unknown fields are ignored",
-				a_path.string(), v, kConfigVersion);
-		}
+		Json::CheckFormatVersion(*json, "configVersion", kConfigVersion, "Config: " + a_path.string());
 		Json::ReportUnknownKeys(*json, kKnownKeys, "Config: " + a_path.string(), /*a_warn=*/true);
 
 		config.enabled = Json::GetBool(*json, "enabled", config.enabled);
@@ -52,13 +49,7 @@ namespace OSFUI
 		config.pauseMenuEntryLabel = Json::GetString(*json, "pauseMenuEntryLabel", config.pauseMenuEntryLabel);
 		config.pauseMenuEntryView = Json::GetString(*json, "pauseMenuEntryView", config.pauseMenuEntryView);
 		config.view = Json::GetString(*json, "view", config.view);
-		if (const auto it = json->find("views"); it != json->end() && it->is_array()) {
-			for (const auto& v : *it) {
-				if (v.is_string()) {
-					config.views.push_back(v.get<std::string>());
-				}
-			}
-		}
+		config.views = Json::GetStringArray(*json, "views");
 		config.devMode = Json::GetBool(*json, "devMode", config.devMode);
 		config.devReloadKey = Json::GetString(*json, "devReloadKey", config.devReloadKey);
 

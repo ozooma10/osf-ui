@@ -2,6 +2,9 @@
 
 #include <nlohmann/json.hpp>
 
+#include <string>
+#include <vector>
+
 // JSON helpers. All parsing goes through these (no exceptions escape) and
 // through typed Get*() accessors that fall back to defaults on missing keys or
 // wrong types. JSON here is mod-provided content: untrusted input, never a
@@ -27,6 +30,10 @@ namespace OSFUI::Json
 	[[nodiscard]] bool        GetBool(const Value& a_obj, std::string_view a_key, bool a_default);
 	[[nodiscard]] std::int64_t GetInt(const Value& a_obj, std::string_view a_key, std::int64_t a_default);
 
+	// Every string element of a_key's array, in order. Non-string elements are
+	// skipped; a missing or non-array key yields an empty vector.
+	[[nodiscard]] std::vector<std::string> GetStringArray(const Value& a_obj, std::string_view a_key);
+
 	// Typo/format-skew diagnostics: logs every key of a_obj not in a_known.
 	// The caller picks the level via a_warn — true = WARN for host-owned files
 	// (config.json, vanillakeys*.json, where an unknown key can only be a typo);
@@ -34,4 +41,10 @@ namespace OSFUI::Json
 	// makes unknown keys the normal compatible case (gate that call on devMode).
 	// Never rejects; lenient parsing is the contract.
 	void ReportUnknownKeys(const Value& a_obj, std::initializer_list<std::string_view> a_known, std::string_view a_sourceName, bool a_warn);
+
+	// Logs one INFO line when a_obj's a_key is greater than a_known (the version
+	// this build understands) — the "authored for a newer OSF UI" case, where
+	// lenient parsing then ignores unknown fields. No-op otherwise. Absent key
+	// defaults to a_known, so a file that omits the stamp stays silent.
+	void CheckFormatVersion(const Value& a_obj, std::string_view a_key, std::int64_t a_known, std::string_view a_sourceName);
 }

@@ -41,10 +41,7 @@ namespace OSFUI
 			return false;
 		}
 		// Host-shipped file, so an unknown key is a typo, never version skew.
-		if (const auto v = Json::GetInt(*json, "formatVersion", kFormatVersion); v > kFormatVersion) {
-			REX::INFO("VanillaKeys: {} declares formatVersion {} (this build knows {}) — written for a newer OSF UI; unknown fields are ignored",
-				a_path.string(), v, kFormatVersion);
-		}
+		Json::CheckFormatVersion(*json, "formatVersion", kFormatVersion, "VanillaKeys: " + a_path.string());
 		Json::ReportUnknownKeys(*json, { "formatVersion", "bindings" }, "VanillaKeys: " + a_path.string(), /*a_warn=*/true);
 		const auto it = json->find("bindings");
 		if (it == json->end() || !it->is_array()) {
@@ -165,10 +162,7 @@ namespace OSFUI
 			return 0;
 		}
 		const auto source = "VanillaKeys: " + a_path.string();
-		if (const auto v = Json::GetInt(*json, "formatVersion", kFormatVersion); v > kFormatVersion) {
-			REX::INFO("{} declares formatVersion {} (this build knows {}) — written for a newer OSF UI; unknown fields are ignored",
-				source, v, kFormatVersion);
-		}
+		Json::CheckFormatVersion(*json, "formatVersion", kFormatVersion, source);
 		Json::ReportUnknownKeys(*json, { "formatVersion", "add", "replace", "suppress" }, source, /*a_warn=*/true);
 
 		const auto findByEvent = [this](std::string_view a_event) {
@@ -180,18 +174,12 @@ namespace OSFUI
 		std::size_t count = 0;
 		// suppress: ["EventName"] — remove the row entirely, so it also leaves
 		// the keybinds view's map.
-		if (const auto it = json->find("suppress"); it != json->end() && it->is_array()) {
-			for (const auto& entry : *it) {
-				if (!entry.is_string()) {
-					continue;
-				}
-				const auto event = entry.get<std::string>();
-				if (const auto row = findByEvent(event); row != _bindings.end()) {
-					_bindings.erase(row);
-					++count;
-				} else {
-					REX::WARN("{} suppresses unknown event '{}' (typo? the shipped table names the event ids)", source, event.substr(0, 64));
-				}
+		for (const auto& event : Json::GetStringArray(*json, "suppress")) {
+			if (const auto row = findByEvent(event); row != _bindings.end()) {
+				_bindings.erase(row);
+				++count;
+			} else {
+				REX::WARN("{} suppresses unknown event '{}' (typo? the shipped table names the event ids)", source, event.substr(0, 64));
 			}
 		}
 		// replace: [{event, key, label?}] — rebind an existing row.

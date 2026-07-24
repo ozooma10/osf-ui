@@ -75,6 +75,27 @@ namespace OSFUI::Json
 		return a_default;
 	}
 
+	std::vector<std::string> GetStringArray(const Value& a_obj, std::string_view a_key)
+	{
+		std::vector<std::string> out;
+		if (const auto it = a_obj.find(a_key); it != a_obj.end() && it->is_array()) {
+			for (const auto& elem : *it) {
+				if (elem.is_string()) {
+					out.push_back(elem.get<std::string>());
+				}
+			}
+		}
+		return out;
+	}
+
+	void CheckFormatVersion(const Value& a_obj, std::string_view a_key, std::int64_t a_known, std::string_view a_sourceName)
+	{
+		if (const auto v = GetInt(a_obj, a_key, a_known); v > a_known) {
+			REX::INFO("{} declares {} {} (this build knows {}) — written for a newer OSF UI; unknown fields are ignored",
+				a_sourceName, a_key, v, a_known);
+		}
+	}
+
 	void ReportUnknownKeys(const Value& a_obj, std::initializer_list<std::string_view> a_known, std::string_view a_sourceName, bool a_warn)
 	{
 		if (!a_obj.is_object()) {
