@@ -7,6 +7,47 @@
 
 namespace OSFUI
 {
+	namespace
+	{
+		struct NamedKey
+		{
+			std::string_view name;
+			KeyCode          vk;
+		};
+
+		// The one source of truth for both directions (ResolveKeyName / KeyName).
+		// The FIRST spelling per VK is canonical — KeyName returns it; the
+		// remaining same-VK rows are input aliases so hand-edited configs and
+		// schema defaults resolve.
+		//
+		// OEM punctuation is layout-dependent: these are the US ANSI meanings of
+		// each VK. On a German layout VK_OEM_1 is 'ö', not ';', but the name (and
+		// the on-screen board) still says Semicolon — names are persisted in config
+		// JSON and must mean the same key on every machine that loads it; only the
+		// printed keycap differs.
+		constexpr NamedKey kNamedKeys[] = {
+			{ "Space", 0x20 }, { "Enter", 0x0D }, { "Return", 0x0D }, { "Tab", 0x09 },
+			{ "Escape", 0x1B }, { "Backspace", 0x08 }, { "Insert", 0x2D }, { "Delete", 0x2E },
+			{ "Home", 0x24 }, { "End", 0x23 }, { "PageUp", 0x21 }, { "PageDown", 0x22 },
+			{ "Up", 0x26 }, { "Down", 0x28 }, { "Left", 0x25 }, { "Right", 0x27 },
+			{ "CapsLock", 0x14 }, { "NumLock", 0x90 }, { "ScrollLock", 0x91 }, { "Pause", 0x13 },
+			{ "LShift", 0xA0 }, { "RShift", 0xA1 }, { "LCtrl", 0xA2 }, { "RCtrl", 0xA3 },
+			{ "LAlt", 0xA4 }, { "RAlt", 0xA5 },
+			// Console/grave key (VK_OEM_3 on US layouts). Aliases for the same VK.
+			{ "Grave", 0xC0 }, { "Tilde", 0xC0 }, { "Backtick", 0xC0 }, { "Console", 0xC0 },
+			{ "Minus", 0xBD }, { "Hyphen", 0xBD }, { "Dash", 0xBD },
+			{ "Equals", 0xBB }, { "Equal", 0xBB }, { "Plus", 0xBB },
+			{ "LBracket", 0xDB }, { "LeftBracket", 0xDB },
+			{ "RBracket", 0xDD }, { "RightBracket", 0xDD },
+			{ "Backslash", 0xDC },
+			{ "Semicolon", 0xBA },
+			{ "Apostrophe", 0xDE }, { "Quote", 0xDE },
+			{ "Comma", 0xBC },
+			{ "Period", 0xBE }, { "Dot", 0xBE },
+			{ "Slash", 0xBF },
+		};
+	}
+
 	KeyCode ResolveKeyName(std::string_view a_name)
 	{
 		if (a_name.empty()) {
@@ -30,40 +71,6 @@ namespace OSFUI
 			return static_cast<KeyCode>(std::toupper(static_cast<unsigned char>(a_name[0])));
 		}
 
-		struct NamedKey
-		{
-			std::string_view name;
-			KeyCode          vk;
-		};
-		static constexpr NamedKey kNamedKeys[] = {
-			{ "Space", 0x20 }, { "Enter", 0x0D }, { "Return", 0x0D }, { "Tab", 0x09 },
-			{ "Escape", 0x1B }, { "Backspace", 0x08 }, { "Insert", 0x2D }, { "Delete", 0x2E },
-			{ "Home", 0x24 }, { "End", 0x23 }, { "PageUp", 0x21 }, { "PageDown", 0x22 },
-			{ "Up", 0x26 }, { "Down", 0x28 }, { "Left", 0x25 }, { "Right", 0x27 },
-			{ "CapsLock", 0x14 }, { "NumLock", 0x90 }, { "ScrollLock", 0x91 }, { "Pause", 0x13 },
-			{ "LShift", 0xA0 }, { "RShift", 0xA1 }, { "LCtrl", 0xA2 }, { "RCtrl", 0xA3 },
-			{ "LAlt", 0xA4 }, { "RAlt", 0xA5 },
-			// Console/grave key (VK_OEM_3 on US layouts). Aliases for the same VK.
-			{ "Grave", 0xC0 }, { "Tilde", 0xC0 }, { "Backtick", 0xC0 }, { "Console", 0xC0 },
-			// OEM punctuation, layout-dependent like Grave above: these are the
-			// US ANSI meanings of each VK. On a German layout VK_OEM_1 is 'ö',
-			// not ';', but the name (and the on-screen board) still says
-			// Semicolon — names are persisted in config JSON and must mean the
-			// same key on every machine that loads it; only the printed keycap
-			// differs (see the note on KeyName below). First spelling per VK is
-			// canonical (KeyName returns it); the rest are input aliases so
-			// hand-edited configs and schema defaults work.
-			{ "Minus", 0xBD }, { "Hyphen", 0xBD }, { "Dash", 0xBD },
-			{ "Equals", 0xBB }, { "Equal", 0xBB }, { "Plus", 0xBB },
-			{ "LBracket", 0xDB }, { "LeftBracket", 0xDB },
-			{ "RBracket", 0xDD }, { "RightBracket", 0xDD },
-			{ "Backslash", 0xDC },
-			{ "Semicolon", 0xBA },
-			{ "Apostrophe", 0xDE }, { "Quote", 0xDE },
-			{ "Comma", 0xBC },
-			{ "Period", 0xBE }, { "Dot", 0xBE },
-			{ "Slash", 0xBF },
-		};
 		for (const auto& key : kNamedKeys) {
 			if (StringUtil::EqualsCaseInsensitiveAscii(key.name, a_name)) {
 				return key.vk;
@@ -86,49 +93,15 @@ namespace OSFUI
 		if ((a_vk >= 0x30 && a_vk <= 0x39) || (a_vk >= 0x41 && a_vk <= 0x5A)) {
 			return std::string(1, static_cast<char>(a_vk));
 		}
-		// Canonical (first) name per VK; aliases like Return/Tilde resolve back
-		// to Enter/Grave. Keep in lockstep with ResolveKeyName's kNamedKeys.
-		switch (a_vk) {
-		case 0x20: return "Space";
-		case 0x0D: return "Enter";
-		case 0x09: return "Tab";
-		case 0x1B: return "Escape";
-		case 0x08: return "Backspace";
-		case 0x2D: return "Insert";
-		case 0x2E: return "Delete";
-		case 0x24: return "Home";
-		case 0x23: return "End";
-		case 0x21: return "PageUp";
-		case 0x22: return "PageDown";
-		case 0x26: return "Up";
-		case 0x28: return "Down";
-		case 0x25: return "Left";
-		case 0x27: return "Right";
-		case 0x14: return "CapsLock";
-		case 0x90: return "NumLock";
-		case 0x91: return "ScrollLock";
-		case 0x13: return "Pause";
-		case 0xA0: return "LShift";
-		case 0xA1: return "RShift";
-		case 0xA2: return "LCtrl";
-		case 0xA3: return "RCtrl";
-		case 0xA4: return "LAlt";
-		case 0xA5: return "RAlt";
-		case 0xC0: return "Grave";
-		// OEM punctuation — canonical spelling per VK, US ANSI; see the layout
-		// note on kNamedKeys.
-		case 0xBD: return "Minus";
-		case 0xBB: return "Equals";
-		case 0xDB: return "LBracket";
-		case 0xDD: return "RBracket";
-		case 0xDC: return "Backslash";
-		case 0xBA: return "Semicolon";
-		case 0xDE: return "Apostrophe";
-		case 0xBC: return "Comma";
-		case 0xBE: return "Period";
-		case 0xBF: return "Slash";
-		default: return {};
+		// Canonical (first) name per VK; aliases like Return/Tilde resolve back to
+		// Enter/Grave. The first kNamedKeys row per VK is the canonical spelling,
+		// so the two directions cannot drift.
+		for (const auto& key : kNamedKeys) {
+			if (key.vk == a_vk) {
+				return std::string(key.name);
+			}
 		}
+		return {};
 	}
 
 	namespace
