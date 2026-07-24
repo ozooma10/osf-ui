@@ -16,12 +16,19 @@ body { background: transparent; }
   box-shadow: inset 0 0 200px 50px rgba(2, 4, 7, 0.72);
 }
 
+/* ONE deck, matching the settings view's `.settings`: a single panel with the
+   sections flush inside it, divided by hairlines. This used to be a bare column
+   holding three separately-bordered cards, which is what made the view feel
+   like a different product from Mods — same tokens, different architecture. */
 .keybinds {
   position: relative; z-index: 1;
-  display: flex; flex-direction: column; gap: 12px;
+  display: flex; flex-direction: column;
   width: min(1150px, calc(100% - 64px));
   height: calc(100% - 56px);
   margin: 28px auto;
+  overflow: hidden;
+  background: var(--osf-surface-card); border: 1px solid var(--osf-line);
+  border-radius: var(--osf-radius);
 }
 
 /* ---- brand (same recipe as the settings view rail) --------------------------- */
@@ -37,11 +44,14 @@ body { background: transparent; }
 
 /* ---- header ---------------------------------------------------------------- */
 
+/* Flush band inside the deck, like the settings rail head: a bottom hairline
+   instead of a border box. Padding matches `.rail-head` so the emblem and
+   wordmark land on the same coordinates in both views. */
 .kb-head {
+  flex: none;
   display: flex; align-items: center; gap: 18px;
-  padding: 12px 18px;
-  background: var(--osf-surface-card); border: 1px solid var(--osf-line);
-  border-radius: var(--osf-radius);
+  padding: 20px 18px 14px;
+  border-bottom: 1px solid var(--osf-line);
 }
 .kb-search { flex: 1; max-width: 360px; }
 .kb-legend { display: flex; gap: 14px; margin-left: auto; }
@@ -60,8 +70,6 @@ body { background: transparent; }
 .kb-board {
   display: flex; gap: 16px;
   padding: 16px 18px;
-  background: var(--osf-surface-card); border: 1px solid var(--osf-line);
-  border-radius: var(--osf-radius);
 }
 .kb-block { display: flex; flex-direction: column; gap: 5px; }
 .kb-block:first-child { flex: 1; }
@@ -111,14 +119,14 @@ body { background: transparent; }
 
 /* ---- lower panels ------------------------------------------------------------ */
 
-.kb-lower { display: flex; gap: 12px; flex: 1; min-height: 0; }
+/* Flush columns, split by a hairline — the same seam the settings deck uses
+   between its rail and detail, rather than a gutter between floating cards. */
+.kb-lower { display: flex; flex: 1; min-height: 0; border-top: 1px solid var(--osf-line); }
 .kb-panel {
   display: flex; flex-direction: column; min-height: 0;
   padding: 12px 16px;
-  background: var(--osf-surface-card); border: 1px solid var(--osf-line);
-  border-radius: var(--osf-radius);
 }
-.kb-detail-panel { flex: 2; }
+.kb-detail-panel { flex: 2; border-right: 1px solid var(--osf-line); }
 .kb-list-panel { flex: 3; }
 .kb-panel-title {
   display: flex; align-items: center; gap: 10px;
@@ -198,11 +206,23 @@ body { background: transparent; }
   -webkit-mask-image: linear-gradient(to right, transparent, black 38%, black);
 }
 
+/* Same deck geometry and chrome as `.settings` at this width, so switching
+   between the two views does not move the panel or the logo. */
 .keybinds {
-  gap: 13px;
   width: min(1240px, calc(100% - 56px));
   height: calc(100% - 56px);
   margin: 28px auto;
+  background: rgba(10, 13, 18, 0.94);
+  border: 1px solid rgba(242, 239, 233, 0.16);
+  border-radius: var(--osf-radius);
+  box-shadow: 0 26px 90px rgba(0, 0, 0, 0.56);
+}
+/* Accent stripe along the deck's top edge — one per view, as in settings. */
+.keybinds::before {
+  content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px; z-index: 8;
+  background: linear-gradient(90deg,
+    var(--osf-accent) 0, var(--osf-accent) 96px,
+    rgba(242, 239, 233, 0.16) 220px);
 }
 .brand { min-width: 190px; gap: 11px; }
 .brand-emblem {
@@ -212,30 +232,21 @@ body { background: transparent; }
 .wordmark-ui { color: var(--osf-accent); }
 .brand-sub { margin-top: 5px; font-size: 9px; letter-spacing: 0.19em; }
 
+/* Padding mirrors `.rail-head` at this width (22px 20px 14px) so the brand
+   block sits at the same coordinates as in the settings deck. */
 .kb-head {
-  position: relative; overflow: hidden;
-  min-height: 74px; gap: 22px; padding: 15px 18px;
-  background: rgba(10, 13, 18, 0.94);
-  border-color: rgba(242, 239, 233, 0.16);
-  box-shadow: 0 16px 50px rgba(0, 0, 0, 0.34);
+  min-height: 74px; gap: 22px; padding: 22px 20px 14px;
+  border-bottom: 1px solid rgba(242, 239, 233, 0.16);
 }
-/* Accent stripe along the header's top edge (same motif as the
-   settings deck): a short accent bar running out into a hairline. */
-.kb-head::before {
-  content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px;
-  background: linear-gradient(90deg,
-    var(--osf-accent) 0, var(--osf-accent) 96px,
-    rgba(242, 239, 233, 0.16) 220px);
-}
-.kb-head .osf-search { flex: 1; max-width: 470px; margin-left: auto; }
+/* Left-aligned, like the settings rail's search sitting under its brand —
+   `margin-left: auto` parked it in the far right of the header, which is the
+   other reason the two views scanned differently. */
+.kb-head .osf-search { flex: 1; max-width: 470px; }
 .kb-search { max-width: none; border-color: rgba(242, 239, 233, 0.18); }
 .kb-head .osf-close { min-width: 112px; }
 
 .kb-board-shell {
-  flex: none; padding: 14px 18px 17px;
-  background: rgba(10, 13, 18, 0.94);
-  border: 1px solid rgba(242, 239, 233, 0.16);
-  box-shadow: 0 16px 50px rgba(0, 0, 0, 0.3);
+  flex: none; padding: 14px 20px 17px;
 }
 .kb-board-head {
   display: flex; align-items: center; justify-content: space-between; gap: 20px;
@@ -302,14 +313,9 @@ body { background: transparent; }
 }
 .kb-key.is-selected .kb-dot { background: var(--osf-void-900); }
 
-.kb-lower { gap: 13px; }
-.kb-panel {
-  padding: 0;
-  background: rgba(10, 13, 18, 0.94);
-  border-color: rgba(242, 239, 233, 0.16);
-  box-shadow: 0 16px 50px rgba(0, 0, 0, 0.3);
-}
-.kb-detail-panel { flex: 5; }
+.kb-lower { border-top-color: rgba(242, 239, 233, 0.16); }
+.kb-panel { padding: 0; }
+.kb-detail-panel { flex: 5; border-right-color: rgba(242, 239, 233, 0.16); }
 .kb-list-panel { flex: 6; }
 .kb-panel-title {
   min-height: 49px; margin: 0; padding: 0 17px;
@@ -350,14 +356,18 @@ body { background: transparent; }
 }
 
 @media (max-width: 740px) {
-  .keybinds { width: 100%; height: 100%; margin: 0; gap: 8px; }
-  .kb-head, .kb-board-shell, .kb-panel { border-radius: 0; }
+  /* Edge-to-edge, same as `.settings` at this width. */
+  .keybinds { width: 100%; height: 100%; margin: 0; border: 0; border-radius: 0; }
   .kb-head { min-height: 64px; padding: 10px 12px; }
   .brand-emblem { display: none; }
   .brand { min-width: 104px; }
   .kb-head .osf-close { min-width: 42px; width: 42px; padding: 0; }
   .kb-head .osf-close span, .kb-head .osf-close kbd { display: none; }
   .kb-board-head .kb-legend { display: none; }
+  /* Stacked: the columns' vertical seam becomes a horizontal one. */
   .kb-lower { flex-direction: column; }
-  .kb-detail-panel { flex: none; max-height: 34%; }
+  .kb-detail-panel {
+    flex: none; max-height: 34%;
+    border-right: 0; border-bottom: 1px solid rgba(242, 239, 233, 0.16);
+  }
 }
