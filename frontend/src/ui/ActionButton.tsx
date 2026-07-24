@@ -23,6 +23,7 @@
 
 import { useState } from 'preact/hooks';
 import type { Translator } from '@lib/i18n';
+import { cx } from './cx';
 
 /**
  * Bridge command namespaces owned by the framework. Mirrors the reserved-id
@@ -147,7 +148,7 @@ export function ActionButton({ modId, item, enabled, tr, onToast, onRun }: Actio
   return (
     <button
       type="button"
-      class={pending ? `osf-btn osf-btn--sm${style} pending` : `osf-btn osf-btn--sm${style}`}
+      class={cx('osf-btn', `osf-btn--sm${style}`, pending && 'pending')}
       // `pending ||` first: a mid-flight button stays disabled even if its
       // enabledWhen gate has since flipped true.
       disabled={pending || !enabled}

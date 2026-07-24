@@ -8,6 +8,7 @@
 // two different columns. Shared by settings and keybinds so they cannot drift.
 
 import type { ComponentChildren } from 'preact';
+import { cx } from './cx';
 
 export interface RowProps {
   children: ComponentChildren;
@@ -23,7 +24,7 @@ export interface RowProps {
 export function Row({ children, class: extra, dataKey }: RowProps) {
   return (
     <div
-      class={extra ? `row ${extra}` : 'row'}
+      class={cx('row', extra)}
       // Emitted only when non-empty: an empty `data-key=""` would match
       // `[data-key]` selectors that expect content.
       {...(dataKey ? { 'data-key': dataKey } : {})}

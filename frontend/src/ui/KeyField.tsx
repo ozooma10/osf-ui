@@ -18,6 +18,8 @@
 // allowUnbound the store refuses "", so the button's only action would be
 // rejected.
 
+import { cx } from './cx';
+
 export interface KeyFieldProps {
   id: string;
   /** The bound key name, or "" / undefined when unbound. */
@@ -43,7 +45,7 @@ export function KeyField(props: KeyFieldProps) {
   const button = (
     <button
       type="button"
-      class={listening ? 'osf-btn osf-btn--sm osf-key listening' : 'osf-btn osf-btn--sm osf-key'}
+      class={cx('osf-btn', 'osf-btn--sm', 'osf-key', listening && 'listening')}
       id={id}
       disabled={disabled}
       onClick={props.onRebind}

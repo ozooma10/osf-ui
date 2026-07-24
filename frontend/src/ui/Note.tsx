@@ -10,6 +10,7 @@
 // only <strong>/<em>/<code>/<br> and text — no links, no raw HTML.
 
 import { Inline } from './Inline';
+import { cx } from './cx';
 
 /** The only three accepted values. */
 export const NOTE_STYLES = ['info', 'warn', 'danger'] as const;
@@ -35,11 +36,7 @@ export interface NoteProps {
 export function Note({ style, text, hiddenCond }: NoteProps) {
   return (
     <div
-      class={
-        hiddenCond
-          ? `osf-note osf-note--${noteStyle(style)} hidden-cond`
-          : `osf-note osf-note--${noteStyle(style)}`
-      }
+      class={cx('osf-note', `osf-note--${noteStyle(style)}`, hiddenCond && 'hidden-cond')}
     >
       {/* A note with no text renders as an empty callout, not "undefined". */}
       <Inline text={text == null ? '' : text} />

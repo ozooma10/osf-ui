@@ -7,6 +7,7 @@
 // schema author text — but renders as a text child, never as markup.
 
 import type { ComponentChildren } from 'preact';
+import { cx } from './cx';
 
 export interface BadgeProps {
   children: ComponentChildren;
@@ -23,7 +24,7 @@ export interface BadgeProps {
 export function Badge({ children, modifier, title }: BadgeProps) {
   return (
     <span
-      class={modifier ? `osf-badge ${modifier}` : 'osf-badge'}
+      class={cx('osf-badge', modifier)}
       {...(title ? { title } : {})}
     >
       {children}
