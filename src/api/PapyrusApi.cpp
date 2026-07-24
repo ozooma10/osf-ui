@@ -199,6 +199,21 @@ namespace OSFUI::API::Papyrus
 			return targets;
 		}
 
+		// Queue one already-built args functor to one target — a static call when
+		// it registered by script name, a method call otherwise. The functor (from
+		// MakeArgs/MakeArgsArray) is built per call so it captures that dispatch's
+		// BSFixedStrings.
+		template <class Args>
+		void DispatchOne(VM* a_vm, const Target& a_target, Args&& a_args)
+		{
+			const RE::BSTSmartPointer<RE::BSScript::IStackCallbackFunctor> noCallback{};
+			if (!a_target.scriptName.empty()) {
+				a_vm->DispatchStaticCall(a_target.scriptName, a_target.fn, std::forward<Args>(a_args), noCallback, 0);
+			} else {
+				a_vm->DispatchMethodCall(a_target.receiver, a_target.fn, std::forward<Args>(a_args), noCallback, 0);
+			}
+		}
+
 		// Queue the two-string call (a_arg1, a_arg2) to every target.
 		// DispatchMethodCall/DispatchStaticCall only queue onto the VM, so this
 		// is any-thread, though today every caller is the main thread.
@@ -214,13 +229,8 @@ namespace OSFUI::API::Papyrus
 			}
 			const RE::BSFixedString arg1{ std::string(a_arg1).c_str() };
 			const RE::BSFixedString arg2{ std::string(a_arg2).c_str() };
-			const RE::BSTSmartPointer<RE::BSScript::IStackCallbackFunctor> noCallback{};
 			for (const auto& t : a_targets) {
-				if (!t.scriptName.empty()) {
-					vm->DispatchStaticCall(t.scriptName, t.fn, MakeArgs(arg1, arg2), noCallback, 0);
-				} else {
-					vm->DispatchMethodCall(t.receiver, t.fn, MakeArgs(arg1, arg2), noCallback, 0);
-				}
+				DispatchOne(vm, t, MakeArgs(arg1, arg2));
 			}
 		}
 
@@ -256,20 +266,11 @@ namespace OSFUI::API::Papyrus
 				argv.emplace_back(s.c_str());
 			}
 
-			const RE::BSTSmartPointer<RE::BSScript::IStackCallbackFunctor> noCallback{};
 			for (const auto& t : targets) {
 				if (t.wantsArgs) {
-					if (!t.scriptName.empty()) {
-						vm->DispatchStaticCall(t.scriptName, t.fn, MakeArgsArray(action, argv), noCallback, 0);
-					} else {
-						vm->DispatchMethodCall(t.receiver, t.fn, MakeArgsArray(action, argv), noCallback, 0);
-					}
+					DispatchOne(vm, t, MakeArgsArray(action, argv));
 				} else {
-					if (!t.scriptName.empty()) {
-						vm->DispatchStaticCall(t.scriptName, t.fn, MakeArgs(action, scalar), noCallback, 0);
-					} else {
-						vm->DispatchMethodCall(t.receiver, t.fn, MakeArgs(action, scalar), noCallback, 0);
-					}
+					DispatchOne(vm, t, MakeArgs(action, scalar));
 				}
 			}
 		}
