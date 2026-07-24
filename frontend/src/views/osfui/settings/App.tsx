@@ -23,6 +23,7 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { windowBridge, type Bridge } from '@lib/bridge';
 import { makeTranslator } from '@lib/i18n';
 import { BrandEmblem } from '@ui/BrandEmblem';
+import { useLatest, useStateRef } from '@ui/useStateRef';
 import { Scrim } from '@ui/Scrim';
 import { SearchBox } from '@ui/SearchBox';
 import { ToastStack, useToasts } from '@ui/Toast';
@@ -111,19 +112,8 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
   // subscriptions are registered once and their closures would otherwise read
   // the first render's values.
 
-  const [mods, setModsState] = useState<ModRecord[]>([]);
-  const modsRef = useRef<ModRecord[]>(mods);
-  const setMods = (next: ModRecord[]) => {
-    modsRef.current = next;
-    setModsState(next);
-  };
-
-  const [views, setViewsState] = useState<ViewRecord[]>([]);
-  const viewsRef = useRef<ViewRecord[]>(views);
-  const setViews = (next: ViewRecord[]) => {
-    viewsRef.current = next;
-    setViewsState(next);
-  };
+  const [mods, setMods, modsRef] = useStateRef<ModRecord[]>([]);
+  const [views, setViews, viewsRef] = useStateRef<ViewRecord[]>([]);
 
   const [viewTargets, setViewTargets] = useState<ViewRecord[]>([]);
   const [hostVersion, setHostVersion] = useState('');
@@ -139,25 +129,14 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
   /** Issue the Health pane should expand and scroll to, from a deep link. */
   const [focusIssueId, setFocusIssueId] = useState<string | null>(null);
 
-  const [selectedId, setSelectedIdState] = useState<string | null>(null);
-  const selectedIdRef = useRef<string | null>(null);
-  const setSelectedId = (next: string | null) => {
-    selectedIdRef.current = next;
-    setSelectedIdState(next);
-  };
+  const [selectedId, setSelectedId, selectedIdRef] = useStateRef<string | null>(null);
 
   // `filter` is what the input shows (immediate); `query` is what the rail and
   // the detail pane consume (debounced, trimmed, lowercased — both consumers
   // take it pre-normalised).
-  const [filter, setFilterState] = useState('');
-  const filterRef = useRef('');
-  const setFilter = (next: string) => {
-    filterRef.current = next;
-    setFilterState(next);
-  };
+  const [filter, setFilter, filterRef] = useStateRef('');
   const [query, setQuery] = useState('');
-  const queryRef = useRef('');
-  queryRef.current = query;
+  const queryRef = useLatest(query);
 
   /**
    * `baseline[modId][key]` — the value when this visit began. Drives the undo
@@ -165,12 +144,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
    * re-broadcast does not lose undo history) and cleared on every overlay open
    * edge, so the scope is "since you opened settings", not the whole session.
    */
-  const [baseline, setBaselineState] = useState<Baseline>({});
-  const baselineRef = useRef<Baseline>({});
-  const setBaseline = (next: Baseline) => {
-    baselineRef.current = next;
-    setBaselineState(next);
-  };
+  const [baseline, setBaseline, baselineRef] = useStateRef<Baseline>({});
 
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   /**
@@ -184,20 +158,17 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
   const [flash, setFlash] = useState<{ modId: string; key: string } | null>(null);
   const [i18nSeq, setI18nSeq] = useState(0);
 
-  const [save, setSaveState] = useState<SaveState>(initialSaveState);
-  const saveRef = useRef<SaveState>(initialSaveState);
+  const [save, setSave, saveRef] = useStateRef<SaveState>(initialSaveState);
   const fadeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const applySave = (t: SaveTransition) => {
-    saveRef.current = t.state;
-    setSaveState(t.state);
+    setSave(t.state);
     if (t.cancelFade && fadeTimer.current !== null) {
       clearTimeout(fadeTimer.current);
       fadeTimer.current = null;
     }
     if (t.scheduleFadeMs !== null) {
       fadeTimer.current = setTimeout(() => {
-        saveRef.current = { ...saveRef.current, classes: [] };
-        setSaveState(saveRef.current);
+        setSave({ ...saveRef.current, classes: [] });
       }, t.scheduleFadeMs);
     }
   };

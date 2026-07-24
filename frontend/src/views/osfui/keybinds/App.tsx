@@ -27,6 +27,7 @@ import { domKeyName } from '@lib/keybinds/domKeyName';
 import { buildModel, type ModEntry, type VanillaKey } from '@lib/keybinds/model';
 import type { BindingRow } from '@lib/keybinds/model';
 import { BrandEmblem } from '@ui/BrandEmblem';
+import { useLatest, useStateRef } from '@ui/useStateRef';
 import { Scrim } from '@ui/Scrim';
 import { SearchBox } from '@ui/SearchBox';
 import { ToastStack, useToasts } from '@ui/Toast';
@@ -78,18 +79,8 @@ export function App({ bridge = windowBridge }: AppProps) {
   // `mods`/`vanilla` are mirrored into refs because the bridge subscriptions are
   // registered once and their closures would otherwise read the first render's
   // values.
-  const [mods, setModsState] = useState<ModEntry[]>([]);
-  const [vanilla, setVanillaState] = useState<VanillaKey[]>([]);
-  const modsRef = useRef<ModEntry[]>(mods);
-  const vanillaRef = useRef<VanillaKey[]>(vanilla);
-  const setMods = (next: ModEntry[]) => {
-    modsRef.current = next;
-    setModsState(next);
-  };
-  const setVanilla = (next: VanillaKey[]) => {
-    vanillaRef.current = next;
-    setVanillaState(next);
-  };
+  const [mods, setMods, modsRef] = useStateRef<ModEntry[]>([]);
+  const [vanilla, setVanilla, vanillaRef] = useStateRef<VanillaKey[]>([]);
 
   const [selectedKey, setSelectedKey] = useState('');
   const [search, setSearch] = useState('');
@@ -99,17 +90,11 @@ export function App({ bridge = windowBridge }: AppProps) {
   // repaint.
   const [i18nSeq, setI18nSeq] = useState(0);
   const [flash, setFlash] = useState<FlashState>({ name: '', seq: 0 });
-  const [capturing, setCapturingState] = useState<Capture | null>(null);
-  const capturingRef = useRef<Capture | null>(null);
-  const setCapturing = (next: Capture | null) => {
-    capturingRef.current = next;
-    setCapturingState(next);
-  };
+  const [capturing, setCapturing, capturingRef] = useStateRef<Capture | null>(null);
 
   const toasts = useToasts();
   // Same reason as mods/vanilla: `push` is called from long-lived closures.
-  const toastRef = useRef(toasts);
-  toastRef.current = toasts;
+  const toastRef = useLatest(toasts);
 
   const searchRef = useRef<HTMLInputElement | null>(null);
 
@@ -118,8 +103,7 @@ export function App({ bridge = windowBridge }: AppProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- i18nSeq is the locale generation.
     [mods, vanilla, tr, i18nSeq],
   );
-  const bindingsRef = useRef<BindingRow[]>(bindings);
-  bindingsRef.current = bindings;
+  const bindingsRef = useLatest(bindings);
 
   // Both consumers take this pre-normalised — see matchesQuery().
   const query = search.trim().toLowerCase();
