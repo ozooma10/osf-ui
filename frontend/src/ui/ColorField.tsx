@@ -15,8 +15,8 @@
 // The swatch derives from `value`: it shows the committed colour, never what is
 // being typed.
 
-import { useEffect, useRef, useState } from 'preact/hooks';
 import { HEX_RE } from '@lib/settings/normalize';
+import { useCommittedText } from './useCommittedText';
 
 /**
  * Curated in-house palette, not derived from anything. Order is fixed: the row
@@ -44,20 +44,7 @@ export interface ColorFieldProps {
 
 export function ColorField({ id, value, disabled, onCommit, onInvalid }: ColorFieldProps) {
   const committed = value || '';
-  // Edit-in-progress state: holds whatever the user is typing, so it cannot be
-  // driven straight off the model.
-  const [text, setText] = useState(committed);
-
-  // Re-seed when the model moves under us (external writer, preset, reset).
-  // Guarded on a change in `committed`; running it unconditionally would let
-  // every keystroke's re-render wipe the field.
-  const lastCommitted = useRef(committed);
-  useEffect(() => {
-    if (lastCommitted.current !== committed) {
-      lastCommitted.current = committed;
-      setText(committed);
-    }
-  }, [committed]);
+  const [text, setText] = useCommittedText(committed);
 
   // Callers pass the field's live DOM value, not `text` state, so a programmatic
   // set-then-change and the keyboard-nav commit path (blur with no preceding

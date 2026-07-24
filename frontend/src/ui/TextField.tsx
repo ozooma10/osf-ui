@@ -10,8 +10,8 @@
 // hard-caps strings at 256, so a larger cap here would show text the store
 // silently truncates. Raising it is a native change first — bump both in lockstep.
 
-import { useEffect, useRef, useState } from 'preact/hooks';
 import { MAX_STRING_LEN } from '@lib/settings/normalize';
+import { useCommittedText } from './useCommittedText';
 import type { Setting } from '@sdk';
 
 export type TextSource = Pick<Setting, 'widget' | 'maxLength'>;
@@ -33,19 +33,7 @@ export interface TextFieldProps {
 }
 
 export function TextField({ id, setting, value, disabled, onCommit }: TextFieldProps) {
-  const committed = value ?? '';
-  // Edit-in-progress state: a controlled input driven straight off the model
-  // would fight the user's typing.
-  const [text, setText] = useState(committed);
-
-  const lastCommitted = useRef(committed);
-  useEffect(() => {
-    if (lastCommitted.current !== committed) {
-      lastCommitted.current = committed;
-      setText(committed);
-    }
-  }, [committed]);
-
+  const [text, setText] = useCommittedText(value ?? '');
   const maxLength = textCap(setting);
 
   if (setting.widget === 'textarea') {
