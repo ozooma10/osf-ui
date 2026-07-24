@@ -376,6 +376,12 @@ Add variadic `cx(...parts)` (falsy-skip, joins in argument order) and `optAttr(n
 ActionButton's `.pending` are padnav selectors that must stay last. Consolidate the
 `exactOptionalPropertyTypes` rationale into the helper doc.
 
+> **Correction (post-implementation).** The stated reason for preserving order is wrong: padnav's
+> `.listening` read is a PRESENCE test (`padnav.js:184`) and it never queries `.pending` at all, so
+> neither is an order-sensitive selector — class order inside a `class` attribute is invisible to
+> CSS and `querySelector` alike. Preserving the order is still right, but as a kit convention pinned
+> verbatim by `dom-contracts.test.tsx`, not as a padnav contract. See `SIMPLIFICATION_PLAN.md` §5b.
+
 ---
 
 ## 6. Theme E — Delete dead code and vestigial machinery

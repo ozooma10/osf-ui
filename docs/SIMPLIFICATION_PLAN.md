@@ -164,7 +164,7 @@ still resolves `alsoBoundBy`). Protocol-name swap must keep emitted wire strings
 
 | Item | Source |
 |---|---|
-| `core/StringUtil.h`: `TrimAscii`/`ToLowerAscii`/`EqualsCaseInsensitiveAscii` (6 sites; do NOT reroute `ModuleFileNameLower`) | A §4b.1 |
+| `core/StringUtil.h`: `TrimAscii`/`ToLowerAscii`/`EqualsCaseInsensitiveAscii` (6 sites; `ModuleFileNameLower` may delegate its inner lowercasing loop ONLY — its basename extraction stays local) | A §4b.1 |
 | `Version.h` targetVersion helpers + `Json::CheckFormatVersion` + `Json::GetStringArray` (do NOT touch `Runtime.cpp:2250-2267`) | A §4b.2/4b.3/4b.4 |
 | `Ids::ModOf`/`ViewNameOf` (5 sites) + derive `KeyName` from `kNamedKeys` | A §4b.5/4b.6 |
 | Native copy-paste collapse §4c.1–4c.11, each with its guardrail (pipe builders take primitive args; `PatchVtableSlot` doesn't source the chain ptr; `D3D12Prologue.h` not folded into WindowsPlatform.h; etc.) | A §4c |
@@ -233,8 +233,13 @@ multi-view smoke; verify the Present hook still draws nothing and its discovery/
 - **EngineInput routing reset (`:296-306`)** — behavioral, not diagnostic; keep as `ResetSessionRouting()`
   on the close edge.
 - **`MenuEventSink::s_consoleOpen`/`ConsoleOpen()`** + LoadingMenu/MainMenu force-hide — behavioral.
-- **`D3D12Compositor::ModuleFileNameLower`** — do NOT fold into shared `ToLowerAscii` (basename before
-  the `sl.dlss_g` FrameGen match).
+- **`D3D12Compositor::ModuleFileNameLower`'s basename extraction** — must run BEFORE the `sl.dlss_g`
+  FrameGen prefix match, and stays local to the function. Lowercasing a full path would leave
+  `dlssFg` permanently false and silently regress the FrameGen draw-suspension mitigation (CTD
+  reports #2/#4). Delegating only the inner lowercasing loop to `StringUtil::ToLowerAscii` is fine
+  and is what landed in `d22943b` — matching audit §4b.1/§7.5. (Earlier revisions of this line read
+  "do NOT fold into shared `ToLowerAscii`", which dropped the audit's qualifier and made a compliant
+  tree look like a §4 violation.)
 - **`Runtime.cpp` args handling (~2250-2267)** — do NOT apply `GetStringArray` (coerces non-string args).
 - **`ThreadAffinityProbe`/`NoteRuntimeTick`** — do NOT delete now; validates the just-landed `7ab68ad`
   fix; follow keep-then-remove cadence.
@@ -310,9 +315,10 @@ each `§`-pointer referenced. Left for the maintainer to choose.
 | Commit | Item |
 |---|---|
 | `8040be0` | §4c.4 `SettingsMirror::LookupMod`/`LookupKey` (guardrails kept: null-check before `string_view`; empty-key branch caller-side) |
+| (follow-up) | §4c.4's acceptance tests. `8040be0` shipped with the refactored paths at **zero** coverage — `ResolveNames` had no test at all and nothing fed the mirror a case-variant id or key, so its "verified by settings_mirror + settings_subscriptions tests" claim did not reach the changed code. `settings_mirror_tests.cpp` now covers empty-key whole-mod-resolve and exact-beats-case-variant through both entry points (`ResolveNames` and the typed getters' `Find`). Mutation-checked — each of these was applied, confirmed to turn the suite red, and reverted: CI-before-exact in `LookupMod`; CI-before-exact in `LookupKey`; removing `LookupMod`'s CI fallback; removing the `a_outKey.clear()` on the empty-key path; writing `a_outMod` on a failed lookup. Deliberately no failure COUNTS recorded: `_mods` is an `unordered_map`, so how many assertions a given mutation trips depends on hash order and is not a stable property — "goes red" is, and the assertions that could legitimately resolve to either case-variant accept both. |
 | `11bc8a8` | §4c.3 `SettingsStore::CollectConflicts` (`selfBlocksGameplay` as a parameter) |
 | `6ad515d` | §4c.7 `PapyrusApi::DispatchOne` |
-| `501ec5b` | §4c.1 `ReloadViewInPlace` (+ `BroadcastViewsData` moved after the reload core) and §4c.2 `IsViewReady` |
+| `501ec5b` | §4c.1 `ReloadViewInPlace` (+ `BroadcastViewsData` moved after the reload core) and §4c.2 `IsViewReady`. ⚠ The commit message justifies the move as avoiding a "stale 'loaded' state" — that premise is **false**: the pre-extraction code already set `Loading` before broadcasting, so the payload is identical either way. The real (benign) delta is wire ORDER — the `views.data` push now follows the navigate/resize instead of preceding them, and the only view whose position changes is the one being navigated away. Comment corrected in the tree. |
 | `2cbcfad` | §4c.11 `composite/D3D12Prologue.h` |
 | `2c19887` | §4c.8 action registrars → 2 shared bodies + `ValidateActionModId` |
 
@@ -379,6 +385,7 @@ When executed, the verified constraints are:
 | Commit | Item(s) |
 |---|---|
 | `aa6a072` | §5.8 single `HOME_ID` owner (new leaf `lib/ids.ts`); §5.12 `workloadOf`; §5.13 `inputP95` reuse; §6.9 `execCommand` fallback dropped, try/catch kept |
+| (follow-up) | §5.15 `optAttr` — the other half of §5.15, landed late (see below) |
 | `dae3b29` | §5.3 `seedBaseline` + §5.4 `patchModValues` (3 copies each) |
 | `7082991` | §5.5 `useCommittedText` |
 | `eef7565` | §5.6 `HudCard`→`Mark`; §5.7 `BrandEmblem`; §5.14 `ViewRowText` |
@@ -391,11 +398,45 @@ Notes worth keeping:
   kit, no docs/sdk reference — the only reader was a self-fulfilling test assertion. The code agreed
   (`labelText`'s doc said "for the (removed) DOM filter"; Rail's attribute carried "Nothing reads this
   any more"). `data-key` **stays** — it is the live search-jump anchor.
-- **§5.15 `cx()` argument order is a contract**, documented on the helper: padnav selects on the
-  trailing state classes (`.listening`, `.pending`). The DOM-contract test asserts the resulting
-  `className` verbatim, so it guards the ordering.
+- **§5.15 `cx()` argument order is a convention the DOM-contract tests pin** — and be precise about
+  why, because the original wording here was wrong twice over. It claimed padnav "selects on the
+  trailing state classes (`.listening`, `.pending`)". padnav does neither. It reads classes in
+  exactly two places, both order-blind: `el.closest('.row')` for banding (`padnav.js:79` — the
+  load-bearing one, and the contract `Row.tsx` documents) and `document.querySelector('.listening')`
+  as a presence test (`padnav.js:184`). It never queries `.pending` at all — and class order inside a
+  `class` attribute is invisible to both CSS matching and `querySelector` regardless.
+  It then claimed the DOM-contract test guarded the ordering; that test mounts the **keybinds** view,
+  whose `HolderRow` still hand-writes the string, so it never rendered the migrated `@ui/KeyField`
+  or `@ui/ActionButton` at all — either could have been reordered with all tests green.
+  `dom-contracts.test.tsx` now renders both kit components directly and compares `className`
+  verbatim (mutation-checked: reordering `KeyField`'s `cx()` args fails the suite). The ordering is
+  worth keeping for consistency and to make those assertions writable — it is not a padnav contract.
+- **§5.15 `optAttr` landed late.** `c52258b` shipped only the `cx()` half; `optAttr` was neither
+  implemented nor recorded as declined, which is what made the "Phase 3 complete" claim below wrong.
+  It now exists at `frontend/src/ui/optAttr.ts` and carries the consolidated
+  `exactOptionalPropertyTypes` rationale §5.15 asked for. Applied to the two conditional-attribute
+  sites inside §5.15's named scope (`Badge` `title`, `Row` `data-key`). Six further sites use the
+  same idiom outside that scope and are deliberately left alone for now: `Switch` (`id`),
+  `Detail` (`id`, `title`), `Presets` (`title`) would migrate cleanly; `Overlay` (`onClick`),
+  `ImageRow` and `marks` (`style`) should NOT — a handler or style object spread through
+  `optAttr`'s index signature loses its precise type.
 - **§5.3's `ensureEntry` flag** is load-bearing: only the whole-list capture may seed an entry for a
   mod with no values. Folding that into the shared path would make a zero-key preset force a render.
+- **§6.9 is a deliberate BEHAVIOUR CHANGE, not a cleanup** — the only *user-visible* one on this
+  branch, so it must not be filed as tidying. (`501ec5b`'s views.data wire-order shift is also
+  observable, but only to a view being navigated away — see the §4c.1 row.) Dropping the
+  `execCommand` fallback means a `navigator.clipboard.writeText` rejection no longer copies anything.
+  Scope it honestly: an earlier draft of this note claimed the overlay "normally" lacks focus in
+  game, and that is **wrong** — the benchmark manifest is `kind: "menu"` with `capturesInput: true`,
+  so `Runtime::ReconcileNativeFocus` grants it native focus for its whole visible session. A
+  rejection is reachable (clipboard permission policy, or the asynchronous focus grant losing the
+  race the host's focus watchdog heals) but it is not the common path, which makes this a smaller
+  regression than first reported. The commit message's premise — that the old path produced "a false
+  'Copied'" — is plausible (`execCommand` wants document focus too) but was never demonstrated.
+  Resolution: keep the removal (the deprecated API stays gone), but the failure path now surfaces the
+  JSON in a selectable, auto-selected `textarea` that persists until dismissed, so the data is never
+  taken away from someone who has to copy it by hand — the same principle as `Health.tsx`'s
+  `copyText`. It is cleared by Clear and Run-suite, which discard the results it describes.
 
 **§5.1 `useStateRef` / `useLatest` — landed (`e4e685a`).** Eight state+ref+dual-write triples and
 three render-synced mirrors across the two views are now declarative. The ordering rule is the
@@ -404,6 +445,19 @@ closure running later in the same tick sees the new value and back-to-back bridg
 `applySave` builds on the hook rather than collapsing into it — it calls `setSave` for the pair and
 keeps its own fade-timer bookkeeping, including the deferred `saveRef.current` read inside the
 timeout.
+
+`e4e685a` left **two** render-synced mirrors in `settings/App.tsx` hand-written (`toastRef`,
+`undoOpenRef`) while converting the byte-identical pattern in `keybinds/App.tsx` — an inconsistency,
+not a behaviour difference. Both are now `useLatest`. The remaining `useRef`s in these three views
+are genuinely out of §5.1's scope: DOM handles (`filterInput`, `searchRef`, `stageRef`, `canvasRef`,
+and `manualCopyRef`, added by the §6.9 follow-up above), a timer handle (`fadeTimer`), and plain
+mutable state with no `useState` pair (`padRef`, `pendingHashSelect`, `hashRead`, `activeRef`,
+`suiteTokenRef`). None of these mirrors a `useState` value, which is what §5.1 was about.
+
+One latent hazard the hook introduces, harmless today: `useStateRef`'s setter is re-created every
+render rather than `useCallback`-stable like a raw `useState` setter. No dependency array in any of
+the three views lists one, so nothing re-runs — but adding a setter to a `useEffect`/`useMemo` dep
+list would now loop.
 
 **Still open in §5 — §5.2 only:**
 - **Reuse `useCapture` in keybinds** (~-90 lines, the highest-value §5 item): a duplicated
@@ -436,18 +490,42 @@ literals. Surveying the actual surface first changed the answer:
    contract with no compile-time signal — the worst outcome for a frozen public protocol.
 6. **The one guard worth having cannot be made reliable.** A cross-layer test (assert every emitted
    type is declared) has to grep C++ source, and emission paths vary — `SendToWeb` overloads,
-   multi-line calls, and `PushToSubscribers`. A careful regex written for this survey produced **five
-   false negatives** (`i18n.data`, `settings.changed`, `settings.persisted`, `ui.hotkey`,
-   `ui.command` all *are* emitted). A test that unreliable is worse than none.
+   multi-line calls, and `PushToSubscribers`. A careful regex written for this survey produced **four
+   false negatives** (`i18n.data`, `settings.changed`, `settings.persisted`, `ui.hotkey` all *are*
+   emitted). A source-grepping test that unreliable is not worth having — but see the retraction
+   below for why that does not extend to every possible guard.
+   (This list originally read "five", counting `ui.command`. That was the same error as the retracted
+   finding below: `ui.command` is never emitted native→web. Its only appearance in `src/` as a
+   message TYPE is `MessageBridge.cpp:65`, matching an INCOMING web→native message; the other six
+   hits are a log string and doc comments.)
 
-**Net-new finding for the maintainer (not acted on):** `ui.command` appears in the SDK's
-`NativeToWebMessage` union, but it is the *web→native* envelope type — `on('ui.command')` can never
-fire. Removing it would be correct but is a public `.d.ts` change third-party authors may reference,
-so it is flagged rather than changed unilaterally.
+**Retracted — the "net-new finding" was wrong.** An earlier revision of this section claimed
+`ui.command` appears in the SDK's `NativeToWebMessage` union and should be removed. It does not.
+That union is 18 members (`sdk/osfui.d.ts:490-508`) and `ui.command` is not among them; its only
+declaration is `WebToNativeMessage` (`sdk/osfui.d.ts:122`) — already the correct direction. Acting on
+the original note would have deleted a correct declaration from a public `.d.ts`. Nothing to do.
+
+Worth drawing the obvious lesson: the survey that declined centralization on the grounds that "no
+drift exists today" itself shipped a factual error about that very union. That does not overturn
+points 1–5 above — the wire names really are frozen, really are 1–2 uses each in production, and a
+value typo really would be silent. But it does soften point 6: the reason a cross-layer guard was
+rejected is that a *source-grepping* test is unreliable, and that is true. A hand-maintained C++ name
+list asserted equal to the SDK union is weaker than what the plan originally wanted, but it is not
+"worse than none" — it is exactly the check that would have caught this.
 
 ### Still open
-**Phase 3 is complete.** Everything in it either landed, or was declined/deferred with the reasons
-recorded above (§4c.6 deferred; §4c.9, §4c.10 and protocol-name centralization declined).
+**Phase 3 is complete** — as of the follow-up pass, not as of `204dcde`. Everything in it either
+landed, or was declined/deferred with the reasons recorded above (§4c.6 deferred; §4c.9, §4c.10 and
+protocol-name centralization declined).
+
+When this section first claimed completeness it was not true, and the gaps were invisible because
+nothing recorded them either way. A post-branch review found three, all now closed: §5.15's `optAttr`
+half was never implemented and never declined; §5.1 left two of its own sites unconverted; and
+§4c.4's stated acceptance tests were never written, so its "verified by" claim did not reach the
+refactored code. **Rule for the next pass: an item is closed when it has landed OR has a written
+decline — a table row naming the commit is not by itself evidence that the item's own acceptance
+criteria were met.** Where a §5b entry claims a test guards something, name the test and check it
+actually renders the code in question; two of the claims here did not.
 
 Every remaining item needs the game running, so they form one batch for a session at the keyboard:
 - **Phase 2** — the two thread-defense retirement experiments (pause-menu debounce; instrument the
