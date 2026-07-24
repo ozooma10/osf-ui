@@ -416,11 +416,46 @@ timeout.
   `rebindRejected`/get fallback, `setSelectedKey`, `setLoaded` — not just `setMods`. Verify the
   keybinds catalog still resolves `alsoBoundBy`.
 
+### Protocol-name centralization — DECLINED after survey (evidence below)
+The plan called for one C++ `Protocol.h` + a mirrored TS module replacing the scattered wire-name
+literals. Surveying the actual surface first changed the answer:
+
+1. **No drift exists today.** Every native→web type C++ emits is declared in the SDK's
+   `NativeToWebMessage` union. Nothing is emitted-but-undeclared.
+2. **The "23x / 16x" duplication counts came from tests**, not production. Production uses each name
+   only **1–2 times** (C++ `src` ~40 literals, `frontend/src` 40; `frontend/test` 229 and
+   `tests/native` 121). Literals in tests are *correct*: a test that shares a constant with the
+   implementation cannot catch a wrong value.
+3. **These names are frozen wire contract** — consumed by the byte-compared `osfui.js` and by
+   third-party mods. They will never be renamed, so the rename-drift risk that normally motivates
+   centralizing constants does not apply here.
+4. **It would work against readability.** At a handler, `RegisterCommand("settings.get", …)` is more
+   intuitive than `RegisterCommand(Protocol::kSettingsGet, …)`: the wire name *is* the domain
+   vocabulary, and the indirection forces a jump to learn what actually goes on the wire.
+5. **The failure mode is bad.** A value typo while swapping ~80 sites silently breaks the native↔web
+   contract with no compile-time signal — the worst outcome for a frozen public protocol.
+6. **The one guard worth having cannot be made reliable.** A cross-layer test (assert every emitted
+   type is declared) has to grep C++ source, and emission paths vary — `SendToWeb` overloads,
+   multi-line calls, and `PushToSubscribers`. A careful regex written for this survey produced **five
+   false negatives** (`i18n.data`, `settings.changed`, `settings.persisted`, `ui.hotkey`,
+   `ui.command` all *are* emitted). A test that unreliable is worse than none.
+
+**Net-new finding for the maintainer (not acted on):** `ui.command` appears in the SDK's
+`NativeToWebMessage` union, but it is the *web→native* envelope type — `on('ui.command')` can never
+fire. Removing it would be correct but is a public `.d.ts` change third-party authors may reference,
+so it is flagged rather than changed unilaterally.
+
 ### Still open
-Phase 3 is complete except **§5.2** (above) and the protocol-name centralization. Then
-Phase 2 (in-game gated), Phase 4, and Phase 5 — which should absorb §4c.6 alongside §6b.2, since both
-are seam/FG-thread changes needing the same in-game smoke, and §5.2 alongside them for its controller
-pass.
+**Phase 3 is complete.** Everything in it either landed, or was declined/deferred with the reasons
+recorded above (§4c.6 deferred; §4c.9, §4c.10 and protocol-name centralization declined).
+
+Every remaining item needs the game running, so they form one batch for a session at the keyboard:
+- **Phase 2** — the two thread-defense retirement experiments (pause-menu debounce; instrument the
+  admitted-state watchdog), each with the FSR3-FG-ON acceptance run.
+- **§5.2** — reuse `useCapture` in keybinds (controller smoke).
+- **§4c.6** and **§6b.2** — seam / Present-slot changes sharing the same in-game smoke.
+- **Phase 4** and **Phase 5** — the god-object decompositions (`RuntimeDiagnostics` first, then the
+  `HostApp.cpp` sequence), which have no headless harness and need an overlay smoke per extraction.
 
 ---
 
