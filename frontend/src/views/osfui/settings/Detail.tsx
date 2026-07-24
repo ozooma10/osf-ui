@@ -528,6 +528,19 @@ function Surfaces(props: SurfacesProps) {
   );
 }
 
+/**
+ * The label/hint pair every view row renders. Action rows keep their own copy —
+ * they label from `label`/`key` and hint from `hint`, a different shape.
+ */
+function ViewRowText({ view }: { view: ViewRecord }) {
+  return (
+    <div class="row-text">
+      <div class="row-label">{view.title || view.id}</div>
+      {view.description ? <div class="row-hint">{view.description}</div> : null}
+    </div>
+  );
+}
+
 function PanelRow({
   view: v,
   tr,
@@ -551,10 +564,7 @@ function PanelRow({
   if (failed && issueId) {
     return (
       <Row class="" dataLabel={(v.title || '').toLowerCase()} dataKey="">
-        <div class="row-text">
-          <div class="row-label">{v.title || v.id}</div>
-          {v.description ? <div class="row-hint">{v.description}</div> : null}
-        </div>
+        <ViewRowText view={v} />
         <div class="control">
           <button
             type="button"
@@ -570,10 +580,7 @@ function PanelRow({
 
   return (
     <Row class="" dataLabel={(v.title || '').toLowerCase()} dataKey="">
-      <div class="row-text">
-        <div class="row-label">{v.title || v.id}</div>
-        {v.description ? <div class="row-hint">{v.description}</div> : null}
-      </div>
+      <ViewRowText view={v} />
       <div class="control">
         <button
           type="button"
@@ -607,10 +614,7 @@ function HudRow({
 }) {
   return (
     <Row class="" dataLabel={(v.title || '').toLowerCase()} dataKey="">
-      <div class="row-text">
-        <div class="row-label">{v.title || v.id}</div>
-        {v.description ? <div class="row-hint">{v.description}</div> : null}
-      </div>
+      <ViewRowText view={v} />
       <div class="control">
         <Switch id="" on={on} disabled={false} onToggle={(next) => onToggle(v.id, next)} />
       </div>

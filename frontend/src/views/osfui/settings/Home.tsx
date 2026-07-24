@@ -15,7 +15,7 @@ import { modIconSrc, type AssetRoots } from '@lib/settings/assets';
 import { titleOf, type ModRecord, type ViewRecord } from '@lib/settings/rail';
 import { issueForSubject, type HealthModel } from '@lib/settings/diagnostics';
 import type { Translator } from '@lib/i18n';
-import { homeAccentFor, initials } from './marks';
+import { homeAccentFor, initials, Mark } from './marks';
 import { OPEN_COOLDOWN_MS } from './openCooldown';
 
 export interface HomeProps {
@@ -286,10 +286,6 @@ interface HudCardProps {
  * stops for one control.
  */
 function HudCard({ view: v, on, iconSrc, caption, onToggle }: HudCardProps) {
-  const accent = homeAccentFor(v.id);
-  const [iconFailed, setIconFailed] = useState(false);
-  const showIcon = !!iconSrc && !iconFailed;
-
   return (
     <button
       type="button"
@@ -298,16 +294,13 @@ function HudCard({ view: v, on, iconSrc, caption, onToggle }: HudCardProps) {
       aria-pressed={on ? 'true' : 'false'}
       onClick={() => onToggle(v.id, !on)}
     >
-      <span
-        class={showIcon ? 'home-hud-chip home-hud-chip--icon' : 'home-hud-chip'}
-        style={{ color: accent }}
-      >
-        {showIcon ? (
-          <img src={iconSrc as string} alt="" onError={() => setIconFailed(true)} />
-        ) : (
-          initials(v.title || v.id)
-        )}
-      </span>
+      <Mark
+        class="home-hud-chip"
+        iconClass="home-hud-chip--icon"
+        src={iconSrc}
+        color={homeAccentFor(v.id)}
+        fallback={initials(v.title || v.id)}
+      />
       <span class="home-hud-main">
         <span class="home-hud-name">{v.title || v.id}</span>
         {/* description -> owning mod -> empty, so the line keeps its height
