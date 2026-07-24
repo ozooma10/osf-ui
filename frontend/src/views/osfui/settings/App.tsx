@@ -41,7 +41,14 @@ import {
   type HealthModel,
 } from '@lib/settings/diagnostics';
 import { applyConflictUpdate } from '@lib/settings/conflicts';
-import { findSettingInMod, sameValue, sessionDiff, type Baseline } from '@lib/settings/modified';
+import {
+  findSettingInMod,
+  patchModValues,
+  sameValue,
+  seedBaseline,
+  sessionDiff,
+  type Baseline,
+} from '@lib/settings/modified';
 import { deriveNeedsUpdate } from '@lib/version';
 import {
   initialPadButtonState,
@@ -286,29 +293,12 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     if (!mod) return;
     const values = mod.values || {};
 
-    const nextBaseline: Baseline = { ...baselineRef.current };
-    const tracked = { ...(nextBaseline[modId] || {}) };
-    let baselineChanged = false;
-    for (const [key] of entries) {
-      // Seeded once per key: the first change is what the visit is measured
-      // from, and a second edit of the same key must not move the goalposts.
-      if (!(key in tracked)) {
-        tracked[key] = values[key];
-        baselineChanged = true;
-      }
-    }
-    if (baselineChanged) {
-      nextBaseline[modId] = tracked;
-      setBaseline(nextBaseline);
-    }
+    const seeded = seedBaseline(baselineRef.current, modId, entries.map(([key]) => key), values);
+    if (seeded) setBaseline(seeded);
 
     const patch: Record<string, SettingValue> = {};
     for (const [key, value] of entries) patch[key] = value;
-    setMods(
-      modsRef.current.map((m) =>
-        m.id === modId ? { ...m, values: { ...(m.values || {}), ...patch } } : m,
-      ),
-    );
+    setMods(patchModValues(modsRef.current, modId, patch));
   };
 
   /** A user commit: local model first, then the wire. */
@@ -325,19 +315,15 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
    * writers.
    */
   const captureBaseline = (list: ModRecord[]) => {
-    const next: Baseline = { ...baselineRef.current };
+    let next = baselineRef.current;
     let changed = false;
     for (const mod of list) {
-      const tracked = { ...(next[mod.id] || {}) };
-      let modChanged = false;
-      for (const key in mod.values || {}) {
-        if (!(key in tracked)) {
-          tracked[key] = (mod.values || {})[key];
-          modChanged = true;
-        }
-      }
-      if (modChanged || !next[mod.id]) {
-        next[mod.id] = tracked;
+      const values = mod.values || {};
+      // ensureEntry: a mod with no values still gets an entry, marking it
+      // snapshotted. Only this whole-list capture wants that.
+      const seeded = seedBaseline(next, mod.id, Object.keys(values), values, true);
+      if (seeded) {
+        next = seeded;
         changed = true;
       }
     }
@@ -452,13 +438,8 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
 
       // Seed the baseline before overwriting, so an external writer's change is
       // undoable too.
-      const nextBaseline: Baseline = { ...baselineRef.current };
-      const tracked = { ...(nextBaseline[modId] || {}) };
-      if (!(key in tracked)) {
-        tracked[key] = (mod.values || {})[key];
-        nextBaseline[modId] = tracked;
-        setBaseline(nextBaseline);
-      }
+      const seeded = seedBaseline(baselineRef.current, modId, [key], mod.values || {});
+      if (seeded) setBaseline(seeded);
 
       const changedSetting = findSettingInMod(mod, key);
       if (changedSetting && changedSetting.type === 'key') {
@@ -467,9 +448,9 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
         // instead of re-fetching the whole registry. Handled before the echo
         // check so our own rebind — already applied optimistically — still
         // updates the badges.
-        const withValue = modsRef.current.map((m) =>
-          m.id === modId ? { ...m, values: { ...(m.values || {}), [key]: p.value as SettingValue } } : m,
-        );
+        const withValue = patchModValues(modsRef.current, modId, {
+          [key]: p.value as SettingValue,
+        });
         setMods(
           applyConflictUpdate(withValue, modId, key, Array.isArray(p.conflicts) ? p.conflicts : []),
         );
@@ -483,11 +464,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
       }
       // The store disagrees with the local model (a native clamp, or an
       // external writer): adopt its value.
-      setMods(
-        modsRef.current.map((m) =>
-          m.id === modId ? { ...m, values: { ...(m.values || {}), [key]: p.value as SettingValue } } : m,
-        ),
-      );
+      setMods(patchModValues(modsRef.current, modId, { [key]: p.value as SettingValue }));
     });
 
     // Backstop alongside the useCapture promise: catches a reply that lost its

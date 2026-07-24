@@ -73,6 +73,50 @@ export function modifiedCount(mod: ModRecord): number {
  */
 export type Baseline = Record<string, Record<string, SettingValue | undefined>>;
 
+/**
+ * Merge `patch` into one mod's values, returning a new list. Rows other than
+ * `modId` come back by identity, so unrelated entries keep their references.
+ */
+export function patchModValues(
+  list: ModRecord[],
+  modId: string,
+  patch: Record<string, SettingValue>,
+): ModRecord[] {
+  return list.map((m) => (m.id === modId ? { ...m, values: { ...(m.values || {}), ...patch } } : m));
+}
+
+/**
+ * Record the pre-change value of every key in `keys` that is not tracked yet,
+ * returning the new baseline — or null when nothing needed seeding, so the
+ * caller can skip a render.
+ *
+ * Seeded once per key: the first change is what the visit is measured from, and
+ * a second edit of the same key must not move the goalposts.
+ *
+ * `ensureEntry` additionally creates an entry for a mod that has none, which
+ * records "this mod has been snapshotted". ONLY the whole-list capture wants
+ * that — the per-change callers must not, or applying a preset that touches no
+ * keys would seed an entry and force a pointless render.
+ */
+export function seedBaseline(
+  base: Baseline,
+  modId: string,
+  keys: Iterable<string>,
+  values: Record<string, SettingValue | undefined>,
+  ensureEntry = false,
+): Baseline | null {
+  const tracked = { ...(base[modId] || {}) };
+  let changed = false;
+  for (const key of keys) {
+    if (!(key in tracked)) {
+      tracked[key] = values[key];
+      changed = true;
+    }
+  }
+  if (!changed && !(ensureEntry && !base[modId])) return null;
+  return { ...base, [modId]: tracked };
+}
+
 export interface SessionChange {
   modId: string;
   key: string;
