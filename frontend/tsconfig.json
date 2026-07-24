@@ -38,9 +38,6 @@
   "include": ["src", "harness", "test", "scripts", "vite.config.ts"],
   "exclude": [
     "node_modules",
-    // Pre-migration hand-written views, kept as reference during the phased
-    // port. They are plain ES5-era scripts and are not type-checked.
-    "src/views/**/main.legacy.js",
     // Frozen public contract, shipped verbatim - described by osfui-global.d.ts,
     // never compiled.
     "src/shared-kit/osfui.js",

@@ -55,6 +55,8 @@ frontend/
     views/osfui/
       settings/     the Mods surface
       keybinds/     the input map
+      handoff/      the always-warm first-load link surface (platform-private)
+      benchmark/    the renderer workload lab
   harness/          DEV ONLY — mock bridge, fixtures, fixed-resolution stage
   scripts/          build orchestrator + output gates
   test/             vitest suites

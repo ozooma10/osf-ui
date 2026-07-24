@@ -8,34 +8,7 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <main class="handoff" aria-live="polite">
-    <section class="link-panel">
-      <div class="edge edge--top"></div>
-      <header>
-        <span class="eyebrow">LOCAL INTERFACE // HANDOFF</span>
-        <span class="channel" id="channel">OSF-LINK 00</span>
-      </header>
-      <div class="title-row">
-        <span class="locator" aria-hidden="true"></span>
-        <div>
-          <div class="owner" id="owner">LOCAL SYSTEM</div>
-          <h1 id="title">INTERFACE</h1>
-        </div>
-      </div>
-      <div class="telemetry">
-        <span class="status-light" aria-hidden="true"></span>
-        <span id="status">ESTABLISHING LOCAL LINK</span>
-        <div class="carrier" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
-      </div>
-      <p class="detail" id="detail">Negotiating display surface and local data channels.</p>
-      <div class="actions" id="actions" hidden>
-        <button class="osf-btn osf-btn--osf-accent" id="retry" type="button">RETRY LINK</button>
-        <button class="osf-btn osf-btn--ghost" id="close" type="button">CANCEL</button>
-      </div>
-      <footer><span>LOCAL BUS</span><span id="target">UNRESOLVED</span></footer>
-      <div class="edge edge--bottom"></div>
-    </section>
-  </main>
+  <div id="app"></div>
   <script src="../../shared/osfui.js"></script>
   <script src="main.js"></script>
 </body>

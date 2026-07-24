@@ -103,9 +103,13 @@ editor-only convenience.
 
 ## What is NOT a boundary
 
-`main.js` and `style.css` for both views are **fully generated** from
-`src/views/osfui/<view>/`. The pre-migration hand-written sources are retained
-beside them as `main.legacy.js` purely as a behavioural reference during review;
-they are excluded from `tsconfig.json` and are not in any build graph. Once both
-views have had an in-game verification pass, delete them — they are the single
-biggest source of "which file is real?" confusion for a newcomer.
+`main.js` and `style.css` for **every** view are fully generated from
+`src/views/osfui/<view>/`. All four built-in views (`settings`, `keybinds`,
+`benchmark`, `handoff`) are Preact/TypeScript on `mode: 'bundle'`; the phased
+port is complete and the `main.legacy.js` references have been deleted.
+
+`mode: 'verbatim'` survives in `scripts/config.mjs` as the migration ramp for a
+*future* hand-written view — it ships a `main.legacy.js` untouched so the
+pipeline can be proven to round-trip byte-identically before any behaviour
+changes. No view uses it today. It is not a compatibility boundary: nothing
+outside this repo depends on a built-in view's `main.js` bytes.

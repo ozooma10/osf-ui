@@ -22,7 +22,7 @@ export const COMMITTED_OUT = join(REPO, 'data', 'OSFUI', 'views');
 // 'bundle' builds main.tsx through Vite.
 export const VIEWS = [
   { mod: 'osfui', name: 'benchmark', mode: 'bundle' },
-  { mod: 'osfui', name: 'handoff', mode: 'verbatim' },
+  { mod: 'osfui', name: 'handoff', mode: 'bundle' },
   { mod: 'osfui', name: 'keybinds', mode: 'bundle' },
   { mod: 'osfui', name: 'settings', mode: 'bundle' },
 ];
