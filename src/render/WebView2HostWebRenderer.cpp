@@ -1230,7 +1230,6 @@ namespace OSFUI
 			.strideBytes = 0,
 			.format = PixelFormat::kBGRA8,
 			.frameIndex = _impl->frameSerial,
-			.dirty = DirtyRect::Full(_impl->frameWidth, _impl->frameHeight),
 			.sharedSlot = static_cast<std::int32_t>(_impl->frameSlot),
 			.sourceTimeMs = _impl->frameSourceTimeMs,
 		};

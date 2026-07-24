@@ -1694,8 +1694,8 @@ namespace OSFUI
 				FocusMenu::Open();
 			} else {
 				FocusMenu::Close();
-				// One observer summary per overlay session (no-op unless engineInput).
-				EngineInput::LogSessionSummary();
+				// Clear the gamepad routing queue/sticks (no-op unless engineInput).
+				EngineInput::ResetSessionRouting();
 				// Gamepad raw-passthrough is not reset here: it is a sticky
 				// per-view property (_gamepadRawViews) that survives overlay
 				// hide/show. Another menu opening can't inherit it, because

@@ -8,9 +8,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
-#include <format>
 #include <mutex>
-#include <string>
 
 namespace OSFUI
 {
@@ -26,30 +24,6 @@ namespace OSFUI
 		std::atomic_bool      g_recvBuilt{ false };
 		void*                 g_recvStore[kRecvSlots + 1]{};
 		void** const          g_recvVtable = &g_recvStore[1];
-
-		// Observation state; thunks run on the engine's worker pool.
-		std::atomic<std::uint32_t> g_shouldCalls{ 0 };
-		std::atomic<std::uint32_t> g_buttons{ 0 };
-		std::atomic<std::uint32_t> g_buttonsKeyboard{ 0 };
-		std::atomic<std::uint32_t> g_buttonsMouse{ 0 };
-		std::atomic<std::uint32_t> g_buttonsGamepad{ 0 };
-		std::atomic<std::uint32_t> g_sticks{ 0 };
-		std::atomic<std::uint32_t> g_chars{ 0 };
-		std::atomic<std::uint32_t> g_mouseMoves{ 0 };
-		std::atomic<std::uint32_t> g_cursorMoves{ 0 };
-
-		// Small ring of the most recent button events for the summary line.
-		struct ButtonRecord
-		{
-			std::int32_t  idCode{ -1 };
-			std::uint32_t deviceType{ 0 };
-			bool          down{ false };
-		};
-		constexpr std::size_t kRingSize = 8;
-		std::mutex            g_ringMutex;  // leaf lock, thunk-side only
-		ButtonRecord          g_ring[kRingSize]{};
-		std::size_t           g_ringNext{ 0 };
-		std::size_t           g_ringCount{ 0 };
 
 		// Routing state (gamepad only). Button edges are queued worker-thread ->
 		// main-thread drain in a fixed ring: no allocation on the engine's worker
@@ -95,7 +69,6 @@ namespace OSFUI
 		// and keyboard/mouse pass through untouched.
 		bool Thunk_ShouldHandleEvent(void*, const RE::InputEvent*)
 		{
-			g_shouldCalls.fetch_add(1, std::memory_order_relaxed);
 			return true;
 		}
 
@@ -111,7 +84,6 @@ namespace OSFUI
 
 		void Thunk_OnThumbstick(void*, const void* a_event)
 		{
-			g_sticks.fetch_add(1, std::memory_order_relaxed);
 			if (!a_event) {
 				return;
 			}
@@ -138,19 +110,13 @@ namespace OSFUI
 			}
 		}
 
-		void Thunk_OnCursorMove(void*, const void*)
-		{
-			g_cursorMoves.fetch_add(1, std::memory_order_relaxed);
-		}
-
-		void Thunk_OnMouseMove(void*, const void*)
-		{
-			g_mouseMoves.fetch_add(1, std::memory_order_relaxed);
-		}
+		// Cursor/mouse-move slots exist only so the receiver vtable owns them;
+		// keyboard/mouse stay on the WndProc path, so nothing to route here.
+		void Thunk_OnCursorMove(void*, const void*) {}
+		void Thunk_OnMouseMove(void*, const void*) {}
 
 		void Thunk_OnCharacter(void*, const void* a_event)
 		{
-			g_chars.fetch_add(1, std::memory_order_relaxed);
 			if (a_event && Log::DevMode()) {
 				// CharacterEvent (proven layout): codepoint dword @ +0x28.
 				REX::DEBUG("EngineInput: char U+{:04X}",
@@ -161,35 +127,12 @@ namespace OSFUI
 
 		void Thunk_OnButton(void*, const RE::ButtonEvent* a_event)
 		{
-			g_buttons.fetch_add(1, std::memory_order_relaxed);
 			if (!a_event) {
 				return;
-			}
-			switch (a_event->deviceType) {
-			case RE::InputEvent::DeviceType::kKeyboard:
-				g_buttonsKeyboard.fetch_add(1, std::memory_order_relaxed);
-				break;
-			case RE::InputEvent::DeviceType::kMouse:
-				g_buttonsMouse.fetch_add(1, std::memory_order_relaxed);
-				break;
-			case RE::InputEvent::DeviceType::kGamepad:
-				g_buttonsGamepad.fetch_add(1, std::memory_order_relaxed);
-				break;
-			default:
-				break;
 			}
 			// Proven edge semantics: down = value!=0 && held==0; release = value==0.
 			const bool down = a_event->value != 0.0f && a_event->heldDownSecs == 0.0f;
 			const bool release = a_event->value == 0.0f;
-			{
-				std::lock_guard lock(g_ringMutex);
-				g_ring[g_ringNext] = { a_event->idCode,
-					static_cast<std::uint32_t>(a_event->deviceType), down };
-				g_ringNext = (g_ringNext + 1) % kRingSize;
-				if (g_ringCount < kRingSize) {
-					++g_ringCount;
-				}
-			}
 			// Queue gamepad edges only (press/release; skip held repeats) for the
 			// main-thread router. Keyboard/mouse stay on the WndProc path.
 			if (a_event->deviceType == RE::InputEvent::DeviceType::kGamepad) {
@@ -264,34 +207,11 @@ namespace OSFUI
 			reinterpret_cast<std::uintptr_t>(a_menuObj));
 	}
 
-	void EngineInput::LogSessionSummary()
+	void EngineInput::ResetSessionRouting()
 	{
 		if (!IsEnabled()) {
 			return;
 		}
-		const auto should = g_shouldCalls.exchange(0, std::memory_order_relaxed);
-		const auto buttons = g_buttons.exchange(0, std::memory_order_relaxed);
-		const auto kb = g_buttonsKeyboard.exchange(0, std::memory_order_relaxed);
-		const auto mouse = g_buttonsMouse.exchange(0, std::memory_order_relaxed);
-		const auto pad = g_buttonsGamepad.exchange(0, std::memory_order_relaxed);
-		const auto sticks = g_sticks.exchange(0, std::memory_order_relaxed);
-		const auto chars = g_chars.exchange(0, std::memory_order_relaxed);
-		const auto mm = g_mouseMoves.exchange(0, std::memory_order_relaxed);
-		const auto cm = g_cursorMoves.exchange(0, std::memory_order_relaxed);
-
-		std::string recent;
-		{
-			std::lock_guard lock(g_ringMutex);
-			for (std::size_t i = 0; i < g_ringCount; ++i) {
-				const auto& r = g_ring[(g_ringNext + kRingSize - g_ringCount + i) % kRingSize];
-				recent += std::format(" {}{:#x}{}",
-					r.deviceType == 2 ? "pad:" : (r.deviceType == 1 ? "mouse:" : "kb:"),
-					static_cast<std::uint32_t>(r.idCode), r.down ? "v" : "^");
-			}
-			g_ringCount = 0;
-			g_ringNext = 0;
-		}
-
 		// Clear routing state so a released stick / unpopped edge can't leak into
 		// the next overlay session.
 		{
@@ -304,19 +224,6 @@ namespace OSFUI
 		g_rx.store(0.0f, std::memory_order_relaxed);
 		g_ry.store(0.0f, std::memory_order_relaxed);
 		g_stickWriteMs.store(0, std::memory_order_relaxed);
-
-		if (should == 0 && buttons == 0 && sticks == 0 && chars == 0 && mm == 0 && cm == 0) {
-			if (Log::DevMode()) {
-				REX::DEBUG("EngineInput: session summary — no engine dispatch observed (menu likely never admitted or no input while open)");
-			}
-			return;
-		}
-		if (Log::DevMode()) {
-			REX::DEBUG(
-				"EngineInput: session summary — gates={} buttons={} (kb={} mouse={} pad={}) sticks={} chars={} mouseMoves={} cursorMoves={}; recent buttons:{}",
-				should, buttons, kb, mouse, pad, sticks, chars, mm, cm,
-				recent.empty() ? " none" : recent.c_str());
-		}
 	}
 
 	bool EngineInput::PollGamepadButton(GamepadButtonEdge& a_out)

@@ -27,8 +27,7 @@ namespace OSFUI
 	private:
 		MenuEventSink() = default;
 
-		static MenuEventSink     s_instance;
-		static std::atomic_int32_t s_openMenus;
-		static std::atomic_bool  s_consoleOpen;
+		static MenuEventSink    s_instance;
+		static std::atomic_bool s_consoleOpen;
 	};
 }

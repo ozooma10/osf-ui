@@ -34,8 +34,8 @@ namespace OSFUI
 	// by type to receiver vtable slots (1 ShouldHandleEvent, 4 thumbstick,
 	// 5 cursorMove, 6 mouseMove, 7 char, 8 button; base slot 9 stays =
 	// held/release admission). Dispatch arrives on a frame-worker thread pool, so
-	// the thunks only bump atomic counters and a small ring — no allocation, no
-	// game calls.
+	// the thunks only queue gamepad edges/sticks into fixed rings — no
+	// allocation, no game calls.
 	//
 	// Keyboard/mouse events are never marked handled, so WndProc stays
 	// authoritative for them (no double input); while the overlay captures, the
@@ -65,12 +65,10 @@ namespace OSFUI
 		// creator; no-op unless enabled.
 		static void InstallReceiver(void* a_menuObj);
 
-		// One INFO line summarizing everything observed since the last call,
-		// then reset. Runtime calls this on the focus-menu close edge so each
-		// overlay session gets exactly one summary. Also clears the routing
-		// queue and zeroes the sticks so a released stick can't leak into the
-		// next session.
-		static void LogSessionSummary();
+		// Clear the gamepad routing queue and zero the sticks so a released
+		// stick / unpopped edge can't leak into the next overlay session.
+		// Runtime calls this on the focus-menu close edge. No-op unless enabled.
+		static void ResetSessionRouting();
 
 		// Gamepad routing. Keyboard/mouse (text/IME + cursor position) stay on
 		// the WndProc path. Populated by the receiver thunks on engine worker

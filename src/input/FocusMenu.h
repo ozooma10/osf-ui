@@ -22,8 +22,8 @@ namespace OSFUI
 	// FocusMenu skips the engine base-init, so vtable + refcount + name field are
 	// not engine-wired) — AV with RCX=0 on the UI worker thread.
 	//
-	// So the .cpp Creator (g_creatorReady=true) builds a fully engine-initialised
-	// menu: calloc -> engine IMenu base-init (REL::ID 130615, not named in
+	// So the .cpp Creator builds a fully engine-initialised menu: calloc ->
+	// engine IMenu base-init (REL::ID 130615, not named in
 	// CommonLibSF) -> copy the engine primary vtable (RE::VTABLE::IMenu[0] =
 	// REL::ID 475515) with slots 3/4/5/6/8 + 0x0A patched -> construct a valid
 	// menuName in place at +0xB0 -> pin the refcount. The +0xB0 name is the guard

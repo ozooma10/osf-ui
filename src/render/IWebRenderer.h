@@ -65,41 +65,6 @@ namespace OSFUI
 		}
 	}
 
-	// Region of a frame that changed relative to the frame delivered just
-	// before it at the same dimensions; pixels outside the rect are identical.
-	// An empty rect means "unknown — treat the whole frame as changed", so
-	// producers that don't track dirty regions stay correct by default.
-	struct DirtyRect
-	{
-		std::uint32_t x{ 0 };
-		std::uint32_t y{ 0 };
-		std::uint32_t width{ 0 };
-		std::uint32_t height{ 0 };
-
-		[[nodiscard]] bool Empty() const { return width == 0 || height == 0; }
-
-		[[nodiscard]] static DirtyRect Full(std::uint32_t a_w, std::uint32_t a_h)
-		{
-			return DirtyRect{ 0, 0, a_w, a_h };
-		}
-
-		// Bounding box of both rects; an empty side yields the other unchanged.
-		[[nodiscard]] static DirtyRect Union(const DirtyRect& a_a, const DirtyRect& a_b)
-		{
-			if (a_a.Empty()) {
-				return a_b;
-			}
-			if (a_b.Empty()) {
-				return a_a;
-			}
-			const auto x0 = (std::min)(a_a.x, a_b.x);
-			const auto y0 = (std::min)(a_a.y, a_b.y);
-			const auto x1 = (std::max)(a_a.x + a_a.width, a_b.x + a_b.width);
-			const auto y1 = (std::max)(a_a.y + a_a.height, a_b.y + a_b.height);
-			return DirtyRect{ x0, y0, x1 - x0, y1 - y0 };
-		}
-	};
-
 	// Non-owning view of one CPU-side frame produced by a renderer.
 	//
 	// The pixel data is owned by the renderer and valid only until the next
@@ -113,11 +78,6 @@ namespace OSFUI
 		std::uint32_t                 strideBytes{ 0 };  // bytes per row
 		PixelFormat                   format{ PixelFormat::kRGBA8 };
 		std::uint64_t                 frameIndex{ 0 };
-		// Changed region vs the previous frame this renderer returned at the
-		// same dimensions (empty = whole frame). Only meaningful when
-		// frameIndex advanced; consumers keeping their own staging copy must
-		// union rects across frames they skipped.
-		DirtyRect                     dirty{};
 		// GPU transport (out-of-process WebView2 host): when >= 0, `pixels` is
 		// empty and the frame lives in slot `sharedSlot` of the shared-texture
 		// ring the renderer announced via the SharedRingHandler. frameIndex

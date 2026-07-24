@@ -83,11 +83,6 @@ namespace OSFUI
 		_hudShown.clear();
 	}
 
-	bool MenuController::ToggleDefault(std::string_view a_defId)
-	{
-		return _menuStack.empty() ? Open(a_defId) : CloseTop();
-	}
-
 	bool MenuController::DesiredVisible() const
 	{
 		return !_hudShown.empty() || !_menuStack.empty();

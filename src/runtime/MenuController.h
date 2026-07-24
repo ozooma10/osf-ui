@@ -34,7 +34,6 @@ namespace OSFUI
 		bool Close(std::string_view a_id);
 		bool CloseTop();                               // pop the top menu (HUDs untouched)
 		void CloseAll();                              // clear the stack and every shown HUD
-		bool ToggleDefault(std::string_view a_defId);  // stack empty ? Open(def) : CloseTop()
 
 		// Derived desired state — read on the main thread after any change.
 		[[nodiscard]] bool DesiredVisible() const;  // any HUD shown || any menu open

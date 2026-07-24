@@ -24,12 +24,6 @@ namespace OSFUI
 		// from Runtime::Tick).
 		std::atomic_bool g_registered{ false };
 
-		// Kill switch for the creator. The creator builds a fully engine-initialised
-		// IMenu (engine vtable + interned +0xB0 menuName) so the engine's name-keyed
-		// menu walk never derefs a null/garbage `this` — the dump-confirmed headless
-		// crash root cause.
-		bool g_creatorReady{ true };
-
 		// One interned BSFixedString for the menu name (AddMessage takes a ref).
 		const RE::BSFixedString& MenuName()
 		{
@@ -217,10 +211,6 @@ namespace OSFUI
 
 	bool FocusMenu::Register()
 	{
-		if (!g_creatorReady) {
-			REX::WARN("FocusMenu: not registering '{}' — creator gated off (g_creatorReady=false).", MENU_NAME);
-			return false;
-		}
 		if (g_registered.load(std::memory_order_acquire)) {
 			return true;
 		}
