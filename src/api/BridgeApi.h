@@ -18,12 +18,8 @@ namespace OSFUI::API
 	// Concrete IOSFUIBridge singleton — the native-side implementation a sibling
 	// SFSE plugin talks to via OSFUI_RequestBridge (src/api/Exports.cpp).
 	//
-	// Keeps its own command registry, independent of MessageBridge lifetime, so a
-	// consumer can register before any bridge exists and never re-register: the
-	// registry is (re)applied to the live MessageBridge on the main thread whenever
-	// it appears or is re-created. All ABI methods are callable from any thread;
-	// effects are marshaled onto Runtime::Tick via PumpMainThread. Command/ready
-	// callbacks fire on the main thread. See docs/native-plugin-api.md.
+	// All ABI methods are callable from any thread;
+	// Command/ready callbacks fire on the main thread. See docs/native-plugin-api.md.
 	class BridgeApi final : public IOSFUIBridge
 	{
 	public:
