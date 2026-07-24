@@ -397,17 +397,27 @@ Notes worth keeping:
 - **§5.3's `ensureEntry` flag** is load-bearing: only the whole-list capture may seed an entry for a
   mod with no values. Folding that into the shared path would make a zero-key preset force a render.
 
-**Still open in §5** — the two race-sensitive items, deliberately left for a focused pass:
-- **§5.1 `useStateRef`** (~8 sites): the state+ref+dual-write triple exists because once-registered
-  bridge closures read first-render state. Mechanical, but it touches every piece of long-lived state
-  in two views, so it wants its own commit and careful review.
-- **§5.2 reuse `useCapture` in keybinds** (~-90 lines, highest §5 value): a duplicated race-sensitive
-  capture state machine. Per the plan it needs an **in-game controller smoke** (the keybinds catalog
-  must still resolve `alsoBoundBy`), which cannot be run headlessly — so it belongs with the other
-  in-game-gated work.
+**§5.1 `useStateRef` / `useLatest` — landed (`e4e685a`).** Eight state+ref+dual-write triples and
+three render-synced mirrors across the two views are now declarative. The ordering rule is the
+load-bearing part and is documented on the hook: **the setter writes the ref BEFORE the state**, so a
+closure running later in the same tick sees the new value and back-to-back bridge pushes compose.
+`applySave` builds on the hook rather than collapsing into it — it calls `setSave` for the pair and
+keeps its own fade-timer bookkeeping, including the deferred `saveRef.current` read inside the
+timeout.
+
+**Still open in §5 — §5.2 only:**
+- **Reuse `useCapture` in keybinds** (~-90 lines, the highest-value §5 item): a duplicated
+  race-sensitive capture state machine. It needs an **in-game controller smoke** that cannot be run
+  headlessly, so it belongs with the other in-game-gated work. When executed:
+  generalize `CaptureTarget` to an opaque instance token (keybinds keys by `instanceId`, settings by
+  `mod:key`) and expose `capturingId`; make the conflict-toast i18n address a hook **option** so
+  keybinds keeps `alsoBoundBy` while settings keeps `capturedAlsoBound` (naive reuse silently orphans
+  a catalog entry); route **all** post-commit work through `onCommit` — `setMods`, `settings.set`, the
+  `rebindRejected`/get fallback, `setSelectedKey`, `setLoaded` — not just `setMods`. Verify the
+  keybinds catalog still resolves `alsoBoundBy`.
 
 ### Still open
-Phase 3 is complete except **§5.1**, **§5.2** (above) and the protocol-name centralization. Then
+Phase 3 is complete except **§5.2** (above) and the protocol-name centralization. Then
 Phase 2 (in-game gated), Phase 4, and Phase 5 — which should absorb §4c.6 alongside §6b.2, since both
 are seam/FG-thread changes needing the same in-game smoke, and §5.2 alongside them for its controller
 pass.
