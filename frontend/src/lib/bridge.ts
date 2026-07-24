@@ -58,6 +58,17 @@ function noBridgeError(): BridgeError {
 }
 
 /**
+ * Interpolate `{name}` placeholders into the authored English — the fallback
+ * both bridges use when the i18n helper is absent (plain-browser preview / unit
+ * tests), so a view still renders readable text.
+ */
+function interpolateEnglish(english: string, vars?: Record<string, string | number>): string {
+  return String(english ?? '').replace(/\{([A-Za-z0-9_]+)\}/g, (all, name: string) =>
+    vars && Object.prototype.hasOwnProperty.call(vars, name) ? String(vars[name]) : all,
+  );
+}
+
+/**
  * Reads the global the shared kit decorated. Every member degrades when the
  * helper is absent: this module is imported by the dev harness before the mock
  * installs, and by unit tests in plain node.
@@ -99,9 +110,7 @@ export const windowBridge: Bridge = {
   t: (address, english, vars) => {
     const t = window.osfui?.t;
     if (t) return t.call(window.osfui, address, english, vars);
-    return String(english ?? '').replace(/\{([A-Za-z0-9_]+)\}/g, (all, name: string) =>
-      vars && Object.prototype.hasOwnProperty.call(vars, name) ? String(vars[name]) : all,
-    );
+    return interpolateEnglish(english, vars);
   },
 
   applyAccent: (el, hex) => {
@@ -125,9 +134,6 @@ export const nullBridge: Bridge = {
   ready: () => new Promise(() => {}),
   i18nReady: () => Promise.resolve({ locale: 'en', strings: {} }),
   locale: () => 'en',
-  t: (_address, english, vars) =>
-    String(english ?? '').replace(/\{([A-Za-z0-9_]+)\}/g, (all, name: string) =>
-      vars && Object.prototype.hasOwnProperty.call(vars, name) ? String(vars[name]) : all,
-    ),
+  t: (_address, english, vars) => interpolateEnglish(english, vars),
   applyAccent: () => {},
 };

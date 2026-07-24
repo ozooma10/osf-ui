@@ -16,9 +16,7 @@ import { titleOf, type ModRecord, type ViewRecord } from '@lib/settings/rail';
 import { issueForSubject, type HealthModel } from '@lib/settings/diagnostics';
 import type { Translator } from '@lib/i18n';
 import { homeAccentFor, initials } from './marks';
-
-/** How long a launched card stays inert. */
-const OPEN_COOLDOWN_MS = 1600;
+import { OPEN_COOLDOWN_MS } from './openCooldown';
 
 export interface HomeProps {
   views: ViewRecord[];

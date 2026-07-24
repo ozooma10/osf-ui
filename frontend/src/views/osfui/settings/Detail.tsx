@@ -39,9 +39,7 @@ import { Home } from './Home';
 import { Presets, type PresetRecord } from './Presets';
 import type { CaptureTarget } from './useCapture';
 import { devWarn } from './warn';
-
-/** How long a launched panel's button stays "Opening…". */
-const OPEN_COOLDOWN_MS = 1600;
+import { OPEN_COOLDOWN_MS } from './openCooldown';
 
 /** The anchor a section-index button jumps to. */
 export function groupSlug(label: string): string {

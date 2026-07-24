@@ -38,10 +38,8 @@ export function sameValue(a: unknown, b: unknown): boolean {
  */
 export function isModified(setting: Setting, value: SettingValue | undefined): boolean {
   if (value === undefined || !('default' in setting)) return false;
-  if (typeof value === 'object' || typeof setting.default === 'object') {
-    return JSON.stringify(value) !== JSON.stringify(setting.default);
-  }
-  return value !== setting.default;
+  // sameValue already encapsulates the flags-array trap (see its doc).
+  return !sameValue(value, setting.default);
 }
 
 /** The schema setting object for a mod's key, or null. */

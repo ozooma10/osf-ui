@@ -173,36 +173,3 @@ function sortedMods(entries: RailEntry[], query: string): RailEntry[] {
     // host's, which in game is whatever the WebView reports.
     .sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
 }
-
-/**
- * Move the rail selection by `delta`, wrapping. Returns the id to select, or
- * `null` when nothing should change.
- *
- * Reproduces `railNodes`' order exactly (Health, Home when unfiltered,
- * framework, then title-sorted mods) — the two must agree or LB/RB would skip
- * visible rows.
- *
- * Quirk: when the current selection is not in the list (i < 0) the result is
- * `ids[0]` and `delta` is ignored — LB from an off-list selection moves forward
- * to the first entry, not backward to the last.
- */
-export function cycleRail(
-  model: RailModel,
-  query: string,
-  selectedId: string | null,
-  delta: number,
-): string | null {
-  const entries = railEntries(model.mods, model.views);
-  const ids: string[] = [HEALTH_ID];
-  if (!query) ids.push(HOME_ID);
-  for (const e of entries) {
-    if (e.id === FRAMEWORK_ID && railMatches(e, query)) ids.push(e.id);
-  }
-  for (const e of sortedMods(entries, query)) ids.push(e.id);
-  if (!ids.length) return null;
-
-  const i = ids.indexOf(selectedId ?? '');
-  const next = ids[i < 0 ? 0 : (i + delta + ids.length) % ids.length];
-  if (next === undefined || next === selectedId) return null;
-  return next;
-}

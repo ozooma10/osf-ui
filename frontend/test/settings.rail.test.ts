@@ -2,9 +2,6 @@ import { describe, it, expect } from 'vitest';
 import type { ModRecord, RailModel, RailNode, ViewRecord } from '@lib/settings/rail';
 import {
   FRAMEWORK_ID,
-  HEALTH_ID,
-  HOME_ID,
-  cycleRail,
   findEntry,
   railEntries,
   railNodes,
@@ -143,44 +140,5 @@ describe('railNodes — paint order', () => {
   it('hides the framework entry when it does not match the filter', () => {
     // Health stays pinned above the filtered list.
     expect(ids(railNodes(model, 'alpha'))).toEqual(['health', 'section', 'acme.alpha']);
-  });
-});
-
-describe('cycleRail — reproduces the painted order exactly', () => {
-  const model: RailModel = { mods: [zeta, framework, alpha], views: [] };
-  // Painted order: ~health, ~home, osfui, acme.alpha, acme.zeta.
-
-  it('steps forward and wraps, including the pinned Health destination', () => {
-    expect(cycleRail(model, '', HEALTH_ID, 1)).toBe(HOME_ID);
-    expect(cycleRail(model, '', HOME_ID, 1)).toBe(FRAMEWORK_ID);
-    expect(cycleRail(model, '', FRAMEWORK_ID, 1)).toBe('acme.alpha');
-    expect(cycleRail(model, '', 'acme.alpha', 1)).toBe('acme.zeta');
-    expect(cycleRail(model, '', 'acme.zeta', 1)).toBe(HEALTH_ID);
-  });
-
-  it('steps backward and wraps', () => {
-    expect(cycleRail(model, '', HEALTH_ID, -1)).toBe('acme.zeta');
-    expect(cycleRail(model, '', HOME_ID, -1)).toBe(HEALTH_ID);
-    expect(cycleRail(model, '', FRAMEWORK_ID, -1)).toBe(HOME_ID);
-  });
-
-  it('excludes Home while filtering but KEEPS Health', () => {
-    // "a" matches "alpha works" and "Zeta Tools" but not "OSF UI", so the cycle
-    // list is Health plus the two mods — no Home, no framework.
-    expect(cycleRail(model, 'a', 'acme.alpha', 1)).toBe('acme.zeta');
-    expect(cycleRail(model, 'a', 'acme.zeta', 1)).toBe(HEALTH_ID);
-    expect(cycleRail(model, 'a', HEALTH_ID, 1)).toBe('acme.alpha');
-  });
-
-  it('QUIRK: an off-list selection lands on ids[0] and IGNORES the delta', () => {
-    expect(cycleRail(model, '', 'not.installed', -1)).toBe(HEALTH_ID);
-    expect(cycleRail(model, '', null, -1)).toBe(HEALTH_ID);
-  });
-
-  it('returns null when nothing would change', () => {
-    const single: RailModel = { mods: [], views: [] };
-    // Filtered so Home is out and nothing matches; only Health remains, so any
-    // delta wraps to self.
-    expect(cycleRail(single, 'zzz', HEALTH_ID, 1)).toBeNull();
   });
 });
