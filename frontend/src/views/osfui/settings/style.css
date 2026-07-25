@@ -615,6 +615,18 @@ html, body { height: 100%; overflow: hidden; }
 }
 .home-empty p { max-width: 46ch; margin: 10px auto 0; font-size: var(--osf-text-sm); line-height: 1.6; }
 
+/* Complete discovery inventory embedded in OSF UI -> Diagnostics. */
+.registered-views { display: contents; }
+.registered-views-head {
+  padding: 15px 18px 10px;
+  border-top: 1px solid var(--osf-line);
+}
+.registered-view-meta { font-family: var(--osf-font-mono); }
+.registered-view-id { color: var(--osf-text-muted); }
+.registered-views-empty {
+  padding: 12px 18px 15px;
+  color: var(--osf-text-faint); font-size: var(--osf-text-sm);
+}
 /* ---- System Health ------------------------------------------
    The deck's status board. Severity is carried three ways — the
    word, the glyph, and the colour — so it survives a monochrome

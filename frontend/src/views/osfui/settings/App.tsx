@@ -115,7 +115,10 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
   const [mods, setMods, modsRef] = useStateRef<ModRecord[]>([]);
   const [views, setViews, viewsRef] = useStateRef<ViewRecord[]>([]);
 
-  const [viewTargets, setViewTargets] = useState<ViewRecord[]>([]);
+  // The normal launcher/rail consumes only hub-visible views. Diagnostics
+  // deliberately keeps the complete discovery catalog so hidden utilities,
+  // debug-only entries and not-yet-loaded views remain inspectable/triggerable.
+  const [discoveredViews, setDiscoveredViews] = useState<ViewRecord[]>([]);
   const [hostVersion, setHostVersion] = useState('');
 
   /**
@@ -387,9 +390,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
 
     const offViews = bridge.on('views.data', (p) => {
       const all = (p.views || []) as ViewRecord[];
-      // Version targets come off the unfiltered catalog — a `hub:false` utility
-      // view still gets to ask for a newer host.
-      setViewTargets(all.filter((v) => v && v.targetVersion));
+      setDiscoveredViews(all.filter((v) => v && v.id));
       setViews(all.filter((v) => v && v.hub !== false));
       // This push is the authority on HUD open state; drop the optimistic
       // overrides.
@@ -616,12 +617,14 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
   const changes = sessionDiff(baseline, mods);
   const needsUpdate = deriveNeedsUpdate(
     hostVersion,
-    viewTargets.map((v) => ({
-      targetVersion: v.targetVersion,
-      // Views name themselves by their owning mod's title when one is loaded,
-      // then the raw manifest `mod` string, then the view id.
-      label: homeModCaption(v, mods) || v.mod || v.id,
-    })),
+    discoveredViews
+      .filter((v) => v.targetVersion)
+      .map((v) => ({
+        targetVersion: v.targetVersion,
+        // Views name themselves by their owning mod's title when one is loaded,
+        // then the raw manifest `mod` string, then the view id.
+        label: homeModCaption(v, mods) || v.mod || v.id,
+      })),
     mods.map((m) => ({ targetVersion: m.targetVersion, label: titleOf(m) })),
   );
   const versionTitle = needsUpdate.outdated
@@ -797,6 +800,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
         <Detail
           mods={mods}
           views={views}
+          discoveredViews={discoveredViews}
           health={health}
           query={query}
           selectedId={selectedId}
