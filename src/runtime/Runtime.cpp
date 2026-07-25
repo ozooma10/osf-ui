@@ -568,6 +568,9 @@ namespace OSFUI
 			if (const auto worldFrame = _worldRenderer->Render()) {
 				WorldSurface::Submit(*worldFrame);
 			}
+			// Unconditional: Render() only yields on repaint, and the engine may
+			// restore the placeholder descriptor at any time.
+			WorldSurface::Refresh();
 		}
 		// After Update(), so health edges raised by either renderer this tick are
 		// in the registry before the snapshot goes out.

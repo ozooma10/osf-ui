@@ -1,8 +1,9 @@
 # Web UI on world-space screens: investigation notes
 
-Status: end-to-end world-material rendering is proven on Starfield 1.16.244.
-WebView content reached a vanilla cockpit mesh through a targeted D3D12 SRV in
-a dev-only proof.
+Status: end-to-end world-material rendering is proven on Starfield 1.16.244,
+now through a dedicated renderer and shared ring that run independently of the
+fullscreen overlay. WebView content reaches a vanilla cockpit mesh through a
+targeted D3D12 SRV, verified in-game 2026-07-25.
 
 ## What the engine already has
 
@@ -151,11 +152,81 @@ Expected log on a good run: `armed` → `captured placeholder` →
 samples browser ring slot N`. Bounded warnings fire if the produce fence
 stops completing instead.
 
+Consume pacing followed in the next iteration: `Submit` signals the consume
+fence with the previously displayed serial on the following tick — one full
+engine frame after that slot was last sampled, mirroring the overlay seam's
+CPU-side pacing model. The host's 50 ms bounded-overwrite guard therefore
+never fires in steady state (`consume lagging` warnings in the world host
+log would indicate a regression). A good run adds
+`consume signaling live (serial N)` after the first descriptor write.
+
+## Second live run: all three milestones, still placeholder
+
+The instance-separation fix worked. The second run logged, in order:
+
+```
+[WorldSurface] material binding armed for unique 1000x1000 placeholder textures
+[WorldSurface] adopted dedicated 1600x900 browser ring (4 slots, generation 1)
+[WorldSurface] placeholder descriptor now samples browser ring slot 1 (serial 2)
+[WorldSurface] captured placeholder 1000x1000 at srvCpu=0x287DB869B80
+```
+
+The cockpit screen nevertheless stayed on the checkerboard for the remaining
+2.5 minutes of the session. Two defects, both visible in that ordering:
+
+1. **The "now samples" line was a false positive.** `Submit` ran ~25 s before
+   the cockpit material loaded, so `WriteReplacement` returned early on
+   `g_targetSrv.ptr == 0` — but it still latched `g_lastSerial` and the
+   one-shot log. `WriteReplacement` now reports whether the write landed and
+   only a landed write latches the log.
+2. **The descriptor was written at most once.** `Runtime` calls `Submit` only
+   when `IWebRenderer::Render()` yields a *new* frame, and the world host
+   publishes only on repaint — its log shows `frames=16`, all before the
+   player reached the cockpit. So after the capture-time write nothing ever
+   rewrote the descriptor, and `frameIndex <= g_lastSerial` would have
+   suppressed it anyway. Anything that restores that descriptor afterwards
+   (texture-streaming residency, descriptor-heap rebuild) wins permanently.
+
+### Outcome: confirmed working
+
+The third live run showed WebView content on the cockpit screen. The log
+isolates the cause to defect 2 alone:
+
+```
+[WorldSurface] adopted dedicated 1600x900 browser ring (4 slots, generation 1)
+[WorldSurface] consume signaling live (serial 1)
+[WorldSurface] captured placeholder ... (resFormat 90, mips 1, viewFormat 87, replaced=true)
+[WorldSurface] descriptor refresh #1 -> slot 1 (serial 14, srvCpu=0x201538B56C0)
+[WorldSurface] descriptor refresh #512 -> slot 1 (serial 14, ...)
+```
+
+Exactly one `captured placeholder` line: the engine never re-creates that
+descriptor, so `CopyDescriptors` interception is not needed. The srvCpu handle
+is stable for the whole session. The browser serial is frozen at 14 because
+`osfui/settings` finished painting — which is precisely why a write driven only
+by new frames was not enough, and why the per-tick re-assert fixes it. The
+world host also logged no `consume lagging` warning this run, so the one-frame-late
+consume pacing is behaving.
+
+`WorldSurface::Refresh()` now runs unconditionally every `Runtime` tick and
+rewrites the captured descriptor to the currently displayed slot. It is one
+free-threaded `CreateShaderResourceView` call, it makes a static page keep
+displaying, and it makes the binding self-healing. It is also the experiment:
+if the surface now shows Web content, the engine was restoring the descriptor;
+if it still shows the checkerboard while `descriptor refresh #N` is logging,
+the descriptor we hold is not the one the material samples, and the next step
+is `CopyDescriptors`/`CopyDescriptorsSimple` interception rather than
+`CreateShaderResourceView`. (Resolved: it was the former; see above.)
+
+The capture log now also records the resource format, mip count, view format,
+and whether a ring slot was substituted. A *second* capture line for the same
+material is direct evidence of engine-side descriptor re-creation.
+
 ## Next engineering steps
 
-1. Give world surfaces a dedicated view and shared ring instead of borrowing the overlay ring.
-2. Track the current fully produced slot and signal its consume fence while the surface is visible.
-3. Refresh the targeted descriptor safely when the current slot changes or the ring is recreated.
+1. ~~Give world surfaces a dedicated view and shared ring instead of borrowing the overlay ring.~~ Done.
+2. ~~Track the current fully produced slot and signal its consume fence while the surface is visible.~~ Done (one-frame-late CPU signal).
+3. ~~Refresh the targeted descriptor safely when the current slot changes or the ring is recreated.~~ Done (unconditional per-tick re-assert).
 4. Match browser resolution/aspect, UV crop, color space, alpha, and emissive treatment to the mesh.
 5. Add per-instance lifecycle, visibility throttling, and raycast-to-UV input mapping.
 

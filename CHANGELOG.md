@@ -4,7 +4,7 @@
 
 ### Highlights
 
-- Added the first opt-in in-world Web UI surface: a configured view now runs in its own WebView2 host and shared-texture ring, remains alive while the fullscreen overlay is closed, and follows completed ring slots instead of freezing on the proof's first texture. A uniquely sized placeholder texture identifies the intended material without replacing every texture of the same format. This initial slice is rendering-only and supports one surface; custom mesh/material packaging, consume-fence integration, interaction, and multiple instances remain follow-up work.
+- Added the first opt-in in-world Web UI surface: a configured view now runs in its own WebView2 host and shared-texture ring, remains alive while the fullscreen overlay is closed, and follows completed ring slots instead of freezing on the proof's first texture. Each displayed slot is released back to the browser host through the consume fence one engine frame later, so the host reuses older slots without stalling on its bounded overwrite guard. A uniquely sized placeholder texture identifies the intended material without replacing every texture of the same format. This initial slice is rendering-only and supports one surface; custom mesh/material packaging, interaction, and multiple instances remain follow-up work.
 
 ### Added
 
@@ -16,6 +16,7 @@
 
 ### Fixed
 
+- The in-world surface stayed on its placeholder even after the browser ring was adopted and the material was found. Its texture binding was written only when the browser published a *new* frame, so a page that had finished painting left the binding written once — or, if the game rebuilt that binding afterwards, never. The surface now re-asserts its binding every frame, so a still page keeps showing and the surface repairs itself instead of silently reverting. A related log line also claimed the surface had been bound when the material had not been loaded yet.
 - The in-world surface's browser host could never actually start alongside the overlay's: both hosts drew the same random pipe name (a same-millisecond seed collision), and the host's one-per-game-process instance lock then refused the second launch outright — so the cockpit screen kept showing its placeholder instead of Web content. Second hosts now get their own pipe name, instance lock, WebView2 profile, views mirror, and log file, and the overlay's focus watchdog only reclaims focus from its own host's windows, never from the world surface's.
 
 ### For view authors
