@@ -6,9 +6,12 @@ import {
   activeIssues,
   canRetryView,
   copyForCode,
+  copyForIssue,
   countIssues,
   GENERIC_COPY,
   issueForSubject,
+  MOD_COPY,
+  modIdOf,
   overallSeverity,
   readHealth,
   resolvedIssues,
@@ -104,6 +107,14 @@ describe('severityForMod — rail marker attribution', () => {
     expect(severityForMod(solo, 'view:solo', ['solo/hud'])).toBe('warning');
   });
 
+  it("attributes a mod's OWN reports by source, whatever their subject", () => {
+    // An ABI 1.7 report names the thing the mod cares about — a pack, a file —
+    // which is never the mod id, so source is the only link back to the rail.
+    const own = [issue({ id: 'r', severity: 'error', source: 'acme.kit', subject: 'highlights' })];
+    expect(severityForMod(own, 'acme.kit')).toBe('error');
+    expect(severityForMod(own, 'other.mod')).toBeNull();
+  });
+
   it('ignores resolved issues and unrelated subjects', () => {
     expect(severityForMod([issues[3] as IssueRecord], 'solo')).toBeNull();
     expect(severityForMod(issues, 'nobody')).toBeNull();
@@ -131,6 +142,32 @@ describe('copyForCode', () => {
   it('falls back to generic copy for an unknown code', () => {
     expect(copyForCode('future.unknown')).toBe(GENERIC_COPY);
     expect(copyForCode(undefined)).toBe(GENERIC_COPY);
+  });
+
+  it('separates a mod-reported code from an unknown platform one', () => {
+    // Platform source, unknown code: this build is behind -> the generic card.
+    expect(copyForIssue(issue({ id: 'a', code: 'future.unknown', source: 'host' }))).toBe(
+      GENERIC_COPY,
+    );
+    // Mod source: updating OSF UI would change nothing, so the card names the
+    // mod and points at its author instead.
+    const mod = copyForIssue(
+      issue({ id: 'b', code: 'osf.animation:catalog.parse-failed', source: 'osf.animation' }),
+    );
+    expect(mod.title).toEqual(MOD_COPY.title);
+    expect(mod.params).toEqual({ mod: 'osf.animation' });
+    expect(mod.next[1]).not.toMatch(/update osf ui/i);
+    // A code this build DOES know still wins over the fallback, whoever sent it.
+    expect(copyForIssue(issue({ id: 'c', code: 'view.load-failed', source: 'acme.kit' }))).toBe(
+      copyForCode('view.load-failed'),
+    );
+  });
+
+  it('tells a mod source from a platform one by the mod-id dot', () => {
+    expect(modIdOf(issue({ id: 'a', source: 'osf.animation' }))).toBe('osf.animation');
+    for (const platform of ['settings', 'views', 'host', 'render', 'compat', '']) {
+      expect(modIdOf(issue({ id: 'a', source: platform }))).toBeNull();
+    }
   });
 
   it('offers Retry view only when a subject is present', () => {

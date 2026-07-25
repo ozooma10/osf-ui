@@ -445,13 +445,21 @@ export interface DiagnosticIssue {
    * | `view.load-retrying` | `view.load-failed`
    * | `host.ring-truncated`
    * | `compat.needs-newer-osfui`
-   * Treat an unknown code as generic and show its technical details.
+   * A report from another mod (native ABI 1.7) carries ITS code, prefixed with
+   * its mod id: `<author>.<modname>:<code>`. Treat an unknown code as generic
+   * and show its technical details.
    */
   code: string;
   severity: "warning" | "error";
   /** "resolved" = the condition cleared; the record stays for this session only. */
   status: "active" | "resolved";
-  /** Producing subsystem: "settings" | "views" | "host" | "render" | "compat". */
+  /**
+   * Producing subsystem: "settings" | "views" | "host" | "render" | "compat" —
+   * or, for a report another mod raised through the native ABI (1.7), that
+   * mod's "<author>.<modname>" id. The host assigns this from the calling
+   * plugin, never from the payload, so it is a trustworthy attribution and the
+   * dot is a reliable tell for "came from a mod".
+   */
   source: string;
   /** Affected mod / view / component id, "" when the condition names none. */
   subject: string;

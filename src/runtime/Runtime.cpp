@@ -1355,6 +1355,11 @@ namespace OSFUI
 		if (!_diagnostics) {
 			return;
 		}
+		// Consumer reports first: they are already-validated ops waiting from any
+		// thread, and draining them here means the Broadcast at the bottom of this
+		// function carries them — a report and the push that shows it land in the
+		// same tick.
+		DrainDiagnosticOps();
 		// The settings registry moves rarely (boot, a runtime registration, a
 		// dev hot-reload), so its generation counter is the whole gate for two
 		// of the three reconciles.
@@ -1377,6 +1382,58 @@ namespace OSFUI
 			UpdateDiagnosticSystemInfo();
 		}
 		_diagnostics->Broadcast();
+	}
+
+	void Runtime::DrainDiagnosticOps()
+	{
+		const auto ops = API::BridgeApi::Get().TakeDiagnosticOps();
+		if (ops.empty()) {
+			return;
+		}
+		// Namespacing is what makes third-party reporting safe to hand out. The
+		// source is the caller's mod id, and both the issue id and the code are
+		// prefixed with it, so:
+		//   * two mods can use the same local id ("pack-parse") without colliding;
+		//   * no mod can resolve or overwrite a platform issue, because platform
+		//     sources ("settings", "views", "host", "render", "compat") and the ids
+		//     they mint carry no "<author>.<modname>:" prefix, which BridgeApi has
+		//     already validated every caller does;
+		//   * ClearIssuesExcept sweeps only that mod's own source bucket.
+		// The frontend reads the mod id back off `source` to name the mod on the
+		// card (@lib/settings/diagnostics), which is why it is not stripped here.
+		const auto qualify = [](const std::string& a_modId, const std::string& a_local) {
+			return a_modId + ":" + a_local;
+		};
+		for (const auto& op : ops) {
+			switch (op.kind) {
+			case API::BridgeApi::DiagnosticOp::Kind::kReport:
+				_diagnostics->Upsert(DiagnosticsModule::IssueSpec{
+										 .id = qualify(op.modId, op.id),
+										 .code = qualify(op.modId, op.code),
+										 .severity = op.error ?
+											 DiagnosticsModule::Severity::Error :
+											 DiagnosticsModule::Severity::Warning,
+										 .source = op.modId,
+										 .subject = op.subject,
+										 .context = op.context,
+									 },
+					_uptime);
+				break;
+			case API::BridgeApi::DiagnosticOp::Kind::kClear:
+				_diagnostics->Resolve(qualify(op.modId, op.id), _uptime);
+				break;
+			case API::BridgeApi::DiagnosticOp::Kind::kClearExcept:
+				{
+					std::unordered_set<std::string> keep;
+					keep.reserve(op.keep.size());
+					for (const auto& local : op.keep) {
+						keep.insert(qualify(op.modId, local));
+					}
+					_diagnostics->ResolveMissing(op.modId, keep, _uptime);
+				}
+				break;
+			}
+		}
 	}
 
 	void Runtime::SyncSettingsDiagnostics()

@@ -294,6 +294,11 @@ namespace OSFUI
 		// Settings schema/name/value-file load failures — recomputed when the
 		// store's registry generation moves.
 		void SyncSettingsDiagnostics();
+		// Health reports from sibling SFSE plugins (ABI 1.7), drained from
+		// BridgeApi at the top of PumpDiagnostics. Every id, code and source is
+		// namespaced to the reporting mod here, so a consumer can neither collide
+		// with a platform issue nor resolve one.
+		void DrainDiagnosticOps();
 		// Installed mods/views that declare a `targetVersion` newer than this
 		// host. Same trigger as above plus catalog changes.
 		void SyncCompatDiagnostics();

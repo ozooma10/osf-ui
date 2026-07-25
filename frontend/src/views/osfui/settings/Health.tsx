@@ -25,7 +25,7 @@ import type { Translator } from '@lib/i18n';
 import {
   activeIssues,
   canRetryView,
-  copyForCode,
+  copyForIssue,
   countIssues,
   isResolved,
   overallSeverity,
@@ -313,7 +313,11 @@ function IssueCard({
   // A compact row carries a second state: whether the row itself is unfolded.
   // A deep link opens both, so arriving at a warning shows it in full.
   const [rowOpen, setRowOpen] = useState(defaultOpen);
-  const copy = copyForCode(issue.code);
+  const copy = copyForIssue(issue);
+  // Every line of copy goes through the same substitution: the mod-reported
+  // fallback names its mod via `{mod}`, and the fixed platform strings simply
+  // have nothing to substitute.
+  const line = (pair: [string, string]) => tr(pair[0], pair[1], copy.params);
   const severity = severityOf(issue);
   const resolvedCard = isResolved(issue);
 
@@ -356,8 +360,8 @@ function IssueCard({
   // smaller door onto the same content, never a reduced version of it.
   const body = (
     <>
-      <p class="health-card-impact">{tr(copy.impact[0], copy.impact[1])}</p>
-      <p class="health-card-next">{tr(copy.next[0], copy.next[1])}</p>
+      <p class="health-card-impact">{line(copy.impact)}</p>
+      <p class="health-card-next">{line(copy.next)}</p>
 
       <div class="health-card-actions">
         {copy.actions.map((kind) =>
@@ -410,7 +414,7 @@ function IssueCard({
           onClick={() => setRowOpen(!rowOpen)}
         >
           <SeverityMark severity={resolvedCard ? null : severity} tr={tr} compact />
-          <span class="health-row-title">{tr(copy.title[0], copy.title[1])}</span>
+          <span class="health-row-title">{line(copy.title)}</span>
           {issue.subject ? <span class="health-row-subject">{issue.subject}</span> : null}
           {tag}
           <span class="health-row-chevron" aria-hidden="true">
@@ -431,7 +435,7 @@ function IssueCard({
       <header class="health-card-head">
         <SeverityMark severity={resolvedCard ? null : severity} tr={tr} />
         <div class="health-card-heading">
-          <h3 class="health-card-title">{tr(copy.title[0], copy.title[1])}</h3>
+          <h3 class="health-card-title">{line(copy.title)}</h3>
           {issue.subject ? <div class="health-card-subject">{issue.subject}</div> : null}
         </div>
         {tag}

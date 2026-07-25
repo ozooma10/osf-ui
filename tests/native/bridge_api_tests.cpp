@@ -74,9 +74,9 @@ int main()
 	using OSFUI::MessageBridge;
 	auto& api = OSFUI::API::BridgeApi::Get();
 
-	// --- version constants: 1.6 (command-shape guarantee) ---------------------
+	// --- version constants: 1.7 (consumer health reporting) -------------------
 	CHECK(OSFUI::API::kBridgeAPIMajor == 1);
-	CHECK(OSFUI::API::kBridgeAPIMinor == 6);
+	CHECK(OSFUI::API::kBridgeAPIMinor == 7);
 	CHECK(api.GetInterfaceVersion() == OSFUI::API::kBridgeAPIVersion);
 
 	// --- command shape (item 3): two dots minimum, item-1 mod-id grammar ------
@@ -346,7 +346,7 @@ int main()
 		CHECK(c.Has(Feature::kCommands) && c.Has(Feature::kRequestMenu) &&
 		      c.Has(Feature::kSettings) && c.Has(Feature::kDeliveryGuarantee) &&
 		      c.Has(Feature::kHotkeys) && c.Has(Feature::kRegisterView) &&
-		      c.Has(Feature::kCommandShape));
+		      c.Has(Feature::kCommandShape) && c.Has(Feature::kDiagnostics));
 		CHECK(c.Raw() == &api);
 
 		// Gated pass-throughs reach the real implementation.
@@ -358,6 +358,78 @@ int main()
 		}
 		c.Attach(nullptr);
 		CHECK(!c.IsConnected());
+	}
+
+	// --- health reporting (ABI 1.7) -------------------------------------------
+	// Validation is synchronous; the ops queue for the main tick, where Runtime
+	// namespaces them into the registry.
+	{
+		using Op = OSFUI::API::BridgeApi::DiagnosticOp;
+		using Sev = OSFUI::API::IssueSeverity;
+		const auto kWarn = static_cast<std::uint32_t>(Sev::kWarning);
+		const auto kErr = static_cast<std::uint32_t>(Sev::kError);
+
+		api.TakeDiagnosticOps();  // start from an empty queue
+
+		// The caller's mod id is the source, so it must be a real mod id.
+		CHECK(!api.ReportIssue(nullptr, "x", "y", kWarn, "", nullptr));
+		CHECK(!api.ReportIssue("", "x", "y", kWarn, "", nullptr));
+		CHECK(!api.ReportIssue("Acme.Mod", "x", "y", kWarn, "", nullptr));
+		CHECK(!api.ReportIssue("settings", "x", "y", kWarn, "", nullptr));  // a platform source
+		CHECK(LoggedContaining("WARN", "refused ReportIssue('Acme.Mod')"));
+		// Identity and kind are both required.
+		CHECK(!api.ReportIssue("acme.mymod", "", "y", kWarn, "", nullptr));
+		CHECK(!api.ReportIssue("acme.mymod", "x", "", kWarn, "", nullptr));
+		// Context must be an object when present — an array or a scalar is a
+		// producer bug, reported at the call rather than silently dropped.
+		CHECK(!api.ReportIssue("acme.mymod", "x", "y", kWarn, "", "[1,2]"));
+		CHECK(!api.ReportIssue("acme.mymod", "x", "y", kWarn, "", "\"nope\""));
+		CHECK(!api.ReportIssue("acme.mymod", "x", "y", kWarn, "", "{not json"));
+		CHECK(api.TakeDiagnosticOps().empty());  // nothing invalid was queued
+
+		// Accepted: null/empty context means "none"; an unknown severity is
+		// treated as the worst tier known rather than silently softened.
+		CHECK(api.ReportIssue("acme.mymod", "pack-parse", "catalog.parse-failed", kErr,
+			"highlights", "{\"file\":\"C:\\\\Mods\\\\packs\\\\bad.json\",\"line\":12}"));
+		CHECK(api.ReportIssue("acme.mymod", "quiet", "audio.missing", kWarn, "", nullptr));
+		CHECK(api.ReportIssue("acme.mymod", "future", "odd.tier", 9u, "", ""));
+		CHECK(LoggedContaining("WARN", "unknown severity 9"));
+		CHECK(api.ClearIssue("acme.mymod", "quiet"));
+		CHECK(!api.ClearIssue("acme.mymod", ""));
+		CHECK(!api.ClearIssue("bogus id", "quiet"));
+		CHECK(api.ClearIssuesExcept("acme.mymod", "[\"pack-parse\"]"));
+		CHECK(api.ClearIssuesExcept("acme.mymod", "[]"));   // sweep all of mine
+		CHECK(api.ClearIssuesExcept("acme.mymod", nullptr));  // same, absent payload
+		CHECK(!api.ClearIssuesExcept("acme.mymod", "{\"a\":1}"));
+		CHECK(!api.ClearIssuesExcept("acme.mymod", "[\"ok\", 7]"));
+
+		const auto ops = api.TakeDiagnosticOps();
+		// FIFO across kinds: a report-then-sweep pair must land in call order.
+		CHECK(ops.size() == 7);
+		CHECK(ops[0].kind == Op::Kind::kReport && ops[0].modId == "acme.mymod");
+		CHECK(ops[0].id == "pack-parse" && ops[0].code == "catalog.parse-failed");
+		CHECK(ops[0].error && ops[0].subject == "highlights");
+		// The context rides through verbatim — redaction is the registry's job,
+		// so the path here is still whole at this layer.
+		CHECK(ops[0].context.value("line", 0) == 12);
+		CHECK(!ops[1].error);
+		CHECK(ops[2].error);  // severity 9 -> error
+		CHECK(ops[3].kind == Op::Kind::kClear && ops[3].id == "quiet");
+		CHECK(ops[4].kind == Op::Kind::kClearExcept && ops[4].keep.size() == 1 &&
+		      ops[4].keep[0] == "pack-parse");
+		CHECK(ops[5].kind == Op::Kind::kClearExcept && ops[5].keep.empty());
+		CHECK(ops[6].kind == Op::Kind::kClearExcept && ops[6].keep.empty());
+		CHECK(api.TakeDiagnosticOps().empty());  // drained
+
+		// A producer looping off-thread hits the queue cap instead of growing
+		// memory; the refusal is the incoming op, so earlier state is kept.
+		for (int i = 0; i < 300; ++i) {
+			api.ReportIssue("acme.mymod", ("id" + std::to_string(i)).c_str(), "spam", kWarn, "", nullptr);
+		}
+		const auto capped = api.TakeDiagnosticOps();
+		CHECK(capped.size() == 256);
+		CHECK(capped.front().id == "id0");  // oldest kept
+		CHECK(LoggedContaining("WARN", "health reports already queued"));
 	}
 
 	// --- teardown: bridge going away must not dangle --------------------------

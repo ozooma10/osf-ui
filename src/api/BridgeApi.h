@@ -46,6 +46,10 @@ namespace OSFUI::API
 		std::uint32_t SubscribeHotkey(const char* a_modId, const char* a_key, HotkeyFn a_fn, void* a_user) override;
 		void          UnsubscribeHotkey(std::uint32_t a_token) override;
 		bool          RegisterView(const char* a_viewId) override;
+		bool          ReportIssue(const char* a_modId, const char* a_id, const char* a_code,
+					 std::uint32_t a_severity, const char* a_subject, const char* a_contextJson) override;
+		bool          ClearIssue(const char* a_modId, const char* a_id) override;
+		bool          ClearIssuesExcept(const char* a_modId, const char* a_keepIdsJson) override;
 
 		// Runtime wiring (main thread only).
 		// A menu open/close a sibling plugin requested via RequestMenu.
@@ -79,6 +83,32 @@ namespace OSFUI::API
 		// Drain the queued schema ops. Runtime applies each to the SettingsStore
 		// (Source::kNative) in DrainSchemaOps.
 		std::vector<SchemaOp> TakeSchemaOps();
+
+		// One queued health report from a sibling plugin (ABI 1.7). Already
+		// validated synchronously; the registry write happens on the main tick.
+		// FIFO across all three kinds so a report-then-sweep pair from one
+		// producer lands in call order.
+		struct DiagnosticOp
+		{
+			enum class Kind
+			{
+				kReport,
+				kClear,
+				kClearExcept,
+			};
+			Kind                     kind{ Kind::kReport };
+			std::string              modId;    // the producing mod = the issue source
+			std::string              id;       // kReport/kClear: producer-local issue id
+			std::string              code;     // kReport only
+			bool                     error{ false };  // kReport severity
+			std::string              subject;  // kReport only
+			nlohmann::json           context;  // kReport only (object; sanitized in the registry)
+			std::vector<std::string> keep;     // kClearExcept only: producer-local ids to keep
+		};
+		// Drain the queued health reports. Runtime applies them to the
+		// DiagnosticsModule in DrainDiagnosticOps, inside PumpDiagnostics, so the
+		// broadcast that follows carries them.
+		std::vector<DiagnosticOp> TakeDiagnosticOps();
 
 		// Drain the queued RegisterView ids. Runtime loads + surface-registers each
 		// in DrainViewRegistrations, before the menu request snapshot, so
@@ -138,6 +168,7 @@ namespace OSFUI::API
 		std::unordered_set<std::string>               _loadedViews;        // currently registered renderer surfaces
 		std::vector<SchemaOp>                         _pendingSchemaOps;   // schema (un)registrations, drained by Runtime
 		std::vector<std::string>                      _pendingViewRegs;    // RegisterView ids, drained by Runtime
+		std::vector<DiagnosticOp>                     _pendingDiagnostics; // health reports, drained by Runtime
 		MessageBridge*                                _bridge{ nullptr };         // non-owning; set on main thread
 		MessageBridge*                                _appliedBridge{ nullptr };  // bridge we last applied to
 		bool                                          _dirty{ false };            // command set changed since apply

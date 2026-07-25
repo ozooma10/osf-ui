@@ -14,10 +14,11 @@ Writing a view (HTML/JS) instead? See [authoring-views.md](authoring-views.md) -
 - [2. Versioning](#2-versioning)
 - [3. Commands (web → native)](#3-commands-web--native)
 - [4. Status & readiness](#4-status--readiness)
-- [5. Settings, hotkeys, and views](#5-settings-hotkeys-and-views)
+- [5. Settings, hotkeys, views, and health](#5-settings-hotkeys-views-and-health)
   - [5a. Settings](#5a-settings)
   - [5b. Hotkeys](#5b-hotkeys)
   - [5c. Views](#5c-views)
+  - [5d. Session health](#5d-session-health)
 - [6. Native → web messaging](#6-native--web-messaging)
   - [6a. SendToWeb](#6a-sendtoweb)
 - [7. Threading & lifetime](#7-threading--lifetime)
@@ -81,7 +82,7 @@ Three separate version numbers.
 
 | Version | Read it with | Gates |
 |---|---|---|
-| **C ABI** (`1.6`) | `GetInterfaceVersion()` | which native methods exist. Gate on this. |
+| **C ABI** (`1.7`) | `GetInterfaceVersion()` | which native methods exist. Gate on this. |
 | **Plugin** (OSF UI release) | `GetPluginVersion()` | nothing - log it for support. |
 | **Web protocol** (e.g. `"1.0"`) | `GetBridgeProtocolVersion()` | the JS handshake. Native code: don't parse it. |
 
@@ -143,7 +144,7 @@ You rarely need this. You can `SendToWeb` before the bridge is ready and the mes
 
 ---
 
-## 5. Settings, hotkeys, and views
+## 5. Settings, hotkeys, views, and health
 
 Callable from any thread; callbacks fire on the game main thread. 
 The JS side of these lives in [authoring-settings.md](authoring-settings.md).
@@ -260,6 +261,65 @@ tick, and (§6a) the page sees the state message before its first paint.
 first open. A plain drop-in view is found at boot and loads on first open with
 no plugin at all.
 
+### 5d. Session health
+
+ABI 1.7 (`Feature::kDiagnostics`).
+
+Report a condition into OSF UI's **System Health** pane — the one place a player
+looks when something is wrong, whichever mod noticed it. Don't build a second
+health page in your own view: a player who has to know which mod broke before
+they know where to look has the problem backwards.
+
+```cpp
+constexpr const char* kMod = "acme.mymod";
+
+// Something is wrong, and stays wrong until it isn't.
+g_ui.ReportIssue(kMod, "pack-parse:highlights", "catalog.parse-failed",
+                 OSFUI::API::IssueSeverity::kError, "highlights",
+                 R"({"file":"highlights.json","line":12})");
+
+// It cleared.
+g_ui.ClearIssue(kMod, "pack-parse:highlights");
+```
+
+**This is not a log channel and not a toast.** Report only what is *durable*
+(still true when the player reads it), *actionable* (they can do something), and
+*worth interrupting them for*. Routine progress, one-frame hiccups, and anything
+that has already corrected itself belong in your log. A pane full of noise is a
+pane players learn to skip.
+
+Identity, not events:
+
+- `id` is **your** dedupe key. Re-reporting a live id bumps its occurrence count
+  in place — that is what tells "once at startup" from "every few seconds" —
+  instead of stacking cards.
+- `code` is **your** stable machine code for the *kind* of condition. Never
+  prose: OSF UI owns the wording so it stays localizable and no mod can write the
+  words on its own card. A code OSF UI doesn't know renders as a card naming your
+  mod with your context shown as technical detail — degraded, never broken.
+- `ClearIssue` moves it to **Resolved this session**, which is exactly what a
+  player wants to see after a retry. Cheap to call unconditionally.
+- Recomputing a whole set? Report what's wrong now, then sweep:
+  `ClearIssuesExcept(kMod, R"(["still-bad-1","still-bad-2"])")`. FIFO with
+  `ReportIssue`, so the pair lands correctly in one tick. **The sweep is scoped to
+  your mod, not to one producer inside it** — if your plugin reports from several
+  places, the keep list must name every id you still want live, or the others are
+  withdrawn as collateral. Track what you've raised.
+
+Everything is namespaced to the calling mod: the issue's `source` is **your mod
+id, assigned by the host** — never a parameter — and your ids and codes are
+prefixed with it. Two mods can use the same local id without colliding, and no
+mod can resolve or overwrite a platform issue.
+
+`context` is optional bounded detail: a **flat JSON object** of string / number /
+bool values, capped at 8 entries and 240 chars per value. It is sanitized on the
+way in — anything path-, URL-, or command-shaped is cut to its trailing
+component, because an absolute path identifies the player's machine and account.
+Pass bare filenames and ids; don't rely on nested values surviving.
+
+On a host older than 1.7 all three are no-ops returning false. Reporting your
+health unconditionally is safe — you just have nowhere to report to.
+
 ---
 
 ## 6. Native → web messaging
@@ -344,6 +404,9 @@ All on `IOSFUIBridge`, mirrored on `Client` (which adds the version gate).
 | `SubscribeHotkey(mod,key,fn,user)` | 1.4 | any | no replay; returns token/0 |
 | `UnsubscribeHotkey(token)` | 1.4 | any | |
 | `RegisterView(view)` | 1.5 | any | `<modId>/<viewName>`; idempotent |
+| `ReportIssue(mod,id,code,sev,subj,ctx)` | 1.7 | any | false on bad mod id / empty id or code / non-object context |
+| `ClearIssue(mod,id)` | 1.7 | any | true = queued, not "was active" |
+| `ClearIssuesExcept(mod,keepJson)` | 1.7 | any | keep list is a JSON array of ids |
 
 ---
 

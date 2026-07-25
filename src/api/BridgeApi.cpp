@@ -35,6 +35,32 @@ namespace OSFUI::API
 		// per-view queue bound; overflow drops the oldest so the view still
 		// converges on the newest pushed state when it comes up.
 		constexpr std::size_t kMaxPendingSendsPerView = 64;
+
+		// Cap on queued health reports awaiting the main tick (ABI 1.7). The
+		// registry has its own caps, so this only bounds the window between a
+		// producer's call and the drain — normally one frame. A producer looping
+		// on ReportIssue off-thread hits this instead of growing memory; the
+		// overflow is refused (false) rather than evicting, because dropping an
+		// older op could drop a report while keeping the clear that cancels it.
+		constexpr std::size_t kMaxPendingDiagnosticOps = 256;
+
+		// Shared front half of every ABI 1.7 diagnostics call: the source of an
+		// issue is the CALLER's mod id, never a payload field, so a mod cannot
+		// file a report against someone else or against a platform source.
+		bool ValidateDiagnosticCaller(std::string_view a_fn, const char* a_modId)
+		{
+			if (!a_modId || !a_modId[0]) {
+				REX::WARN("BridgeApi: refused {} — no mod id", a_fn);
+				return false;
+			}
+			if (!Ids::IsValidModId(a_modId)) {
+				REX::WARN("BridgeApi: refused {}('{}') — mod ids are '<author>.<modname>' "
+						  "(lowercase [a-z0-9-] segments)",
+					a_fn, std::string_view(a_modId).substr(0, 128));
+				return false;
+			}
+			return true;
+		}
 	}
 
 	BridgeApi& BridgeApi::Get()
@@ -302,6 +328,119 @@ namespace OSFUI::API
 		std::lock_guard lock(_mutex);
 		std::vector<std::string> out;
 		out.swap(_pendingViewRegs);
+		return out;
+	}
+
+	bool BridgeApi::ReportIssue(const char* a_modId, const char* a_id, const char* a_code,
+		std::uint32_t a_severity, const char* a_subject, const char* a_contextJson)
+	{
+		if (!ValidateDiagnosticCaller("ReportIssue", a_modId)) {
+			return false;
+		}
+		if (!a_id || !a_id[0] || !a_code || !a_code[0]) {
+			REX::WARN("BridgeApi: refused ReportIssue from '{}' — both an id (the dedupe key) "
+					  "and a code (the kind of condition) are required",
+				a_modId);
+			return false;
+		}
+		// Context is optional, but a non-object is a producer bug worth reporting
+		// synchronously: silently dropping it would leave a card with no detail
+		// and no explanation of why.
+		nlohmann::json context = nlohmann::json::object();
+		if (a_contextJson && a_contextJson[0]) {
+			context = nlohmann::json::parse(a_contextJson, nullptr, /*allow_exceptions*/ false);
+			if (context.is_discarded() || !context.is_object()) {
+				REX::WARN("BridgeApi: refused ReportIssue('{}', '{}') — context must be a JSON object",
+					a_modId, a_id);
+				return false;
+			}
+		}
+		// Severity is a closed two-value set; a value from a header newer than this
+		// host is treated as the worst tier we know, so a future "critical" cannot
+		// arrive looking milder than it is.
+		if (a_severity > 1u) {
+			REX::WARN("BridgeApi: ReportIssue('{}', '{}') — unknown severity {}, treating as error",
+				a_modId, a_id, a_severity);
+		}
+
+		std::lock_guard lock(_mutex);
+		if (_pendingDiagnostics.size() >= kMaxPendingDiagnosticOps) {
+			REX::WARN("BridgeApi: refused ReportIssue('{}', '{}') — {} health reports already queued "
+					  "for this tick; is a producer reporting in a loop?",
+				a_modId, a_id, kMaxPendingDiagnosticOps);
+			return false;
+		}
+		_pendingDiagnostics.push_back(DiagnosticOp{
+			.kind = DiagnosticOp::Kind::kReport,
+			.modId = a_modId,
+			.id = a_id,
+			.code = a_code,
+			.error = a_severity >= 1u,
+			.subject = a_subject ? a_subject : "",
+			.context = std::move(context),
+		});
+		return true;
+	}
+
+	bool BridgeApi::ClearIssue(const char* a_modId, const char* a_id)
+	{
+		if (!ValidateDiagnosticCaller("ClearIssue", a_modId)) {
+			return false;
+		}
+		if (!a_id || !a_id[0]) {
+			return false;
+		}
+		std::lock_guard lock(_mutex);
+		if (_pendingDiagnostics.size() >= kMaxPendingDiagnosticOps) {
+			return false;  // warned by the report path; a clear storm implies one
+		}
+		_pendingDiagnostics.push_back(DiagnosticOp{
+			.kind = DiagnosticOp::Kind::kClear,
+			.modId = a_modId,
+			.id = a_id,
+		});
+		return true;
+	}
+
+	bool BridgeApi::ClearIssuesExcept(const char* a_modId, const char* a_keepIdsJson)
+	{
+		if (!ValidateDiagnosticCaller("ClearIssuesExcept", a_modId)) {
+			return false;
+		}
+		std::vector<std::string> keep;
+		if (a_keepIdsJson && a_keepIdsJson[0]) {
+			const auto parsed = nlohmann::json::parse(a_keepIdsJson, nullptr, /*allow_exceptions*/ false);
+			if (parsed.is_discarded() || !parsed.is_array()) {
+				REX::WARN("BridgeApi: refused ClearIssuesExcept('{}') — keep list must be a JSON array of ids",
+					a_modId);
+				return false;
+			}
+			for (const auto& entry : parsed) {
+				if (!entry.is_string()) {
+					REX::WARN("BridgeApi: refused ClearIssuesExcept('{}') — keep list holds a non-string entry",
+						a_modId);
+					return false;
+				}
+				keep.push_back(entry.get<std::string>());
+			}
+		}
+		std::lock_guard lock(_mutex);
+		if (_pendingDiagnostics.size() >= kMaxPendingDiagnosticOps) {
+			return false;
+		}
+		_pendingDiagnostics.push_back(DiagnosticOp{
+			.kind = DiagnosticOp::Kind::kClearExcept,
+			.modId = a_modId,
+			.keep = std::move(keep),
+		});
+		return true;
+	}
+
+	std::vector<BridgeApi::DiagnosticOp> BridgeApi::TakeDiagnosticOps()
+	{
+		std::lock_guard lock(_mutex);
+		std::vector<DiagnosticOp> out;
+		out.swap(_pendingDiagnostics);
 		return out;
 	}
 

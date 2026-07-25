@@ -130,11 +130,15 @@ export function severityForMod(
   for (const issue of issues) {
     if (isResolved(issue)) continue;
     const subject = issue.subject || '';
-    if (!subject) continue;
+    // `source` is the authority for a mod's OWN reports (ABI 1.7): those name
+    // whatever the mod cares about as the subject — a pack, a file, an actor —
+    // so subject-matching alone would leave them off that mod's rail marker.
     const mine =
-      subject === modId ||
-      subject.startsWith(modId + '/') ||
-      viewIds.indexOf(subject) >= 0;
+      issue.source === modId ||
+      (!!subject &&
+        (subject === modId ||
+          subject.startsWith(modId + '/') ||
+          viewIds.indexOf(subject) >= 0));
     if (!mine) continue;
     if (severityOf(issue) === 'error') return 'error';
     worst = 'warning';
@@ -165,6 +169,8 @@ export function issueForSubject(
 export type ActionKind = 'retry-view' | 'update-osfui' | 'open-logs' | 'copy-details';
 
 export interface IssueCopy {
+  /** Substitutions for the three strings below, e.g. `{ mod: 'osf.animation' }`. */
+  params?: Record<string, string>;
   /** i18n address suffix and the authored English, for `tr(address, english)`. */
   title: [string, string];
   /** What this means for the player, in plain language. */
@@ -282,13 +288,59 @@ export const GENERIC_COPY: IssueCopy = {
   actions: ['copy-details', 'open-logs'],
 };
 
+/**
+ * Fallback for a condition another mod reported through the ABI (1.7). It is
+ * separate from {@link GENERIC_COPY} because the honest next step is different:
+ * an unknown PLATFORM code means this build is behind and updating may help,
+ * whereas an unknown MOD code means the report is simply not one OSF UI knows —
+ * updating OSF UI would change nothing, and the mod's author is the right
+ * destination. The mod is named rather than quoted: `{mod}` is substituted with
+ * the id from `source`, which is host-assigned from the calling plugin, never a
+ * payload field, so no mod can author the words on its own card.
+ */
+export const MOD_COPY: IssueCopy = {
+  title: ['issueModTitle', '{mod} reported a problem'],
+  impact: [
+    'issueModImpact',
+    'That mod flagged this itself, so part of it may not be working. The technical details are below.',
+  ],
+  next: [
+    'issueModNext',
+    "This is for that mod to fix — include the details below when you report it to its author.",
+  ],
+  actions: ['copy-details', 'open-logs'],
+};
+
+/**
+ * The mod that reported this issue, or null when it came from OSF UI itself.
+ * Platform sources are bare words ("settings", "views", "host", "render",
+ * "compat"); a consumer's source is its "<author>.<modname>" id, which the host
+ * validated before accepting the report — so the dot is a reliable tell.
+ */
+export function modIdOf(issue: IssueRecord): string | null {
+  const source = issue.source || '';
+  return source.indexOf('.') > 0 ? source : null;
+}
+
 export function copyForCode(code: string | undefined): IssueCopy {
   return (code && COPY[code]) || GENERIC_COPY;
 }
 
+/**
+ * Copy for one issue: an exact code match wins, then the mod-reported fallback,
+ * then the platform generic. Prefer this over {@link copyForCode} — it is the
+ * one that can tell those two fallbacks apart.
+ */
+export function copyForIssue(issue: IssueRecord): IssueCopy {
+  const exact = issue.code ? COPY[issue.code] : undefined;
+  if (exact) return exact;
+  const mod = modIdOf(issue);
+  return mod ? { ...MOD_COPY, params: { mod } } : GENERIC_COPY;
+}
+
 /** True when the card should offer "Retry view" for this issue. */
 export function canRetryView(issue: IssueRecord): boolean {
-  return copyForCode(issue.code).actions.indexOf('retry-view') >= 0 && !!issue.subject;
+  return copyForIssue(issue).actions.indexOf('retry-view') >= 0 && !!issue.subject;
 }
 
 // ---------------------------------------------------------------------------

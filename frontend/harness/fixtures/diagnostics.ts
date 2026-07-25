@@ -298,6 +298,22 @@ export const MOCK_HEALTH: Record<string, MockHealth> = {
         firstAt: 50.0,
         lastAt: 50.0,
       },
+      // A report another mod raised through the native ABI (1.7). The host
+      // namespaces its code and assigns the source, and MOD_COPY names that mod
+      // rather than telling the player to update OSF UI — which would change
+      // nothing here.
+      {
+        id: 'osf.animation:pack-parse:highlights',
+        code: 'osf.animation:catalog.pack-parse',
+        severity: 'error',
+        status: 'active',
+        source: 'osf.animation',
+        subject: 'highlights',
+        context: { file: 'highlights.json', line: 12, message: 'unexpected token' },
+        occurrences: 2,
+        firstAt: 4.0,
+        lastAt: 61.0,
+      },
       // One resolved card so the history section is populated too.
       {
         id: 'view.load-failed:fixed.mod/panel',
