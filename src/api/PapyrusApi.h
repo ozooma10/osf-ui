@@ -44,6 +44,28 @@ namespace OSFUI::API::Papyrus
 	// forget: no return value, no callback functor, no RPC into the VM.
 	void OnViewAction(std::string_view a_modId, std::string_view a_action, const std::vector<std::string>& a_args);
 
+	// Main thread: dispatch one correlated request from an owning view to its
+	// registered Papyrus listener. The callback receives (request, string[] args,
+	// replyToken). False means no listener/capacity and nothing was dispatched.
+	bool OnViewRequest(std::string_view a_modId, std::string_view a_request,
+		const std::vector<std::string>& a_args, std::string_view a_viewId, std::string_view a_requestId);
+
+	struct ViewReply
+	{
+		std::string    view;
+		std::string    requestId;
+		bool           rejected{ false };
+		std::string    code;
+		std::string    message;
+		nlohmann::json value;
+	};
+
+	// Main thread: emit answered requests and expire unanswered ones. Successful
+	// replies carry value; failures carry a stable code/message. Tokens are
+	// host-owned, one-shot, capped, and session-scoped.
+	void DrainViewReplies(const std::function<void(const ViewReply&)>& a_deliver,
+		std::chrono::steady_clock::time_point a_now = std::chrono::steady_clock::now());
+
 	// One drained PushToView/PushFormsToView payload. mod is canonical
 	// lowercase (folded from the interned Papyrus string and validated against
 	// the id grammar), so delivery can prefix-match it against
@@ -60,6 +82,10 @@ namespace OSFUI::API::Papyrus
 		// FormIDs). has_value() distinguishes an EMPTY forms push ("the list is
 		// now empty") from a plain PushToView, which omits the field entirely.
 		std::optional<nlohmann::json> forms;
+		// SetView* only (protocol 1.6): the typed complete value carried by
+		// data.state. Its presence marks retained state rather than a transient
+		// legacy data.push; forms state is serialized into this field at drain.
+		std::optional<nlohmann::json> stateValue;
 	};
 
 	// Main thread (Runtime::Tick, next to DrainSettingsOps): hand each queued
@@ -68,6 +94,11 @@ namespace OSFUI::API::Papyrus
 	// natively; a view that (re)opens fires a `ready` action and the script
 	// re-pushes current state.
 	void DrainViewPushes(const std::function<void(const ViewPush&)>& a_deliver);
+
+	// Replay every retained SetView* value for one canonical mod id. Called when
+	// an owning view is created/reloaded; values are copied under the queue lock
+	// and delivered outside it. The cache is session-scoped and cleared on load.
+	void ReplayViewState(std::string_view a_modId, const std::function<void(const ViewPush&)>& a_deliver);
 
 	// Main thread (Runtime::Tick): apply queued Papyrus Set*/Reset ops through
 	// the store's validated/clamped path. Refusals are logged, never thrown —

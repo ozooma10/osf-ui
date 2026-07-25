@@ -1,7 +1,7 @@
 /**
  * TypeScript definitions for the OSF UI native <-> web bridge.
  *
- * Bridge protocol version: 1.4 (STABLE — additive changes bump the minor;
+ * Bridge protocol version: 1.6 (STABLE — additive changes bump the minor;
  * breaking changes bump the major). Compatibility is advisory: declare the
  * OSF UI version you authored against as `targetVersion` (view manifest /
  * settings schema) and the Mods surface badges "needs update" when the
@@ -105,7 +105,9 @@ export type UiCommand =
    * SerializedForm's `formId` back and the script resolves it with
    * `OSFUI.GetFormById(asArgs[i])`. See DataPushPayload.forms.
    */
-  | { command: "ui.action"; action: string; arg?: string; args?: Array<string | number | boolean> };
+  | { command: "ui.action"; action: string; arg?: string; args?: Array<string | number | boolean> }
+  /** (protocol 1.6) Correlated request to the owning mod's single Papyrus request listener. */
+  | { command: "ui.papyrusRequest"; request: string; args?: Array<string | number | boolean> };
 
 /**
  * A mod-defined action command fired by a schema `action` item. The command
@@ -398,6 +400,13 @@ export interface SerializedForm {
   editorId?: string; // best-effort: usually UNAVAILABLE at runtime in Starfield
 }
 
+/** Cached, typed state published by OSFUI.SetView* (protocol 1.6). */
+export interface DataStatePayload<TValue = unknown> {
+  mod: string;   // canonical lowercase owning-mod id
+  key: string;   // mod-defined state slice; compare case-insensitively
+  value: TValue; // complete current value for this key, never a delta
+}
+
 /**
  * Dynamic data pushed from the owning mod's Papyrus script
  * (OSFUI.PushToView), delivered to every live view of that mod. `key` names
@@ -422,6 +431,10 @@ export interface DataPushPayload {
   forms?: Array<SerializedForm | null>;
 }
 
+/** Successful correlated reply from an owning Papyrus listener (protocol 1.6). */
+export interface PapyrusResultPayload<TValue = unknown> {
+  value: TValue;
+}
 /**
  * One durable condition in the session health registry (protocol 1.4). Reply to
  * `diagnostics.get`; also pushed unsolicited to every subscriber whenever the
@@ -497,6 +510,8 @@ export interface HandoffStatePayload {
 export type NativeToWebMessage =
   | BridgeEnvelope<"runtime.ready", RuntimeReadyPayload>
   | BridgeEnvelope<"data.push", DataPushPayload>
+  | BridgeEnvelope<"data.state", DataStatePayload>
+  | BridgeEnvelope<"papyrus.result", PapyrusResultPayload>
   | BridgeEnvelope<"runtime.pong", Record<string, never>>
   | BridgeEnvelope<"game.data", GameDataPayload>
   | BridgeEnvelope<"views.data", ViewsDataPayload>
@@ -700,6 +715,8 @@ export interface OSFUIBridge {
  * It decorates the same window.osfui object (creating a stub when no native
  * bridge is present, so these members exist even in a plain browser).
  */
+export type PapyrusArgument = string | number | boolean;
+
 export interface OSFUIHelper {
   /** True when a native bridge (or the harness mock) is present. */
   available(): boolean;
@@ -707,6 +724,15 @@ export interface OSFUIHelper {
   ready: Promise<RuntimeReadyPayload>;
   /** Fire-and-forget ui.command. Returns false when no bridge is present. */
   send(command: string, fields?: object): boolean;
+  /** Author-friendly alias for send(). */
+  emit(command: string, fields?: object): boolean;
+  /** Fire-and-forget action to the owning mod's Papyrus listeners. */
+  action(name: string, ...args: PapyrusArgument[]): boolean;
+  /** Explicit owning-Papyrus event/request namespace. */
+  papyrus: {
+    action(name: string, ...args: PapyrusArgument[]): boolean;
+    request<TResult = unknown>(name: string, ...args: PapyrusArgument[]): Promise<TResult>;
+  };
   /** Declare meaningful readiness for a manifest with readySignal:true. */
   viewReady(): boolean;
   /**
@@ -715,8 +741,18 @@ export interface OSFUIHelper {
    * ui.result ok:false, timeout (default 10000 ms; 0 disables), or no bridge.
    */
   request(command: string, fields?: object, opts?: { timeoutMs?: number }): Promise<NativeToWebMessage & { requestId?: string }>;
+  /** Correlated request that resolves directly with the reply payload. */
+  call<TResult = unknown>(command: string, fields?: object, opts?: { timeoutMs?: number }): Promise<TResult>;
   /** Subscribe to a native->web message type; returns the unsubscribe fn. */
-  on(type: string, fn: (payload: unknown, message: NativeToWebMessage) => void): () => void;
+  on<TPayload = unknown>(type: string, fn: (payload: TPayload, message: NativeToWebMessage) => void): () => void;
+  /** Typed, cached Papyrus-owned state, matched case-insensitively by key. */
+  data: {
+    get<TValue = unknown>(key: string): TValue | undefined;
+    on<TValue = unknown>(
+      key: string,
+      fn: (value: TValue, payload: DataStatePayload<TValue> | DataPushPayload, message: NativeToWebMessage) => void,
+    ): () => void;
+  };
 	/** Current normalized locale ("en", "de", "pt-BR", ...). */
 	locale(): string;
 	/** Resolves after the first active-locale override catalog arrives. */

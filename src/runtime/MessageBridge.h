@@ -31,16 +31,19 @@ namespace OSFUI
 		// Handler for one `ui.command` command: the payload plus the bridge to
 		// reply through. Registered by core/modules.
 		using CommandHandler = std::function<void(const nlohmann::json& a_payload, MessageBridge& a_bridge)>;
+		using RequestHandler = CommandHandler;
 
 		explicit MessageBridge(SendFn a_send);
 
 		// Register (or replace) the handler for an exact command string, e.g.
 		// "settings.get". Unknown commands are rejected and logged.
 		void RegisterCommand(std::string a_command, CommandHandler a_handler);
+		bool RegisterRequest(std::string a_command, RequestHandler a_handler);
 
 		// No-op if absent. Used by the native plugin API (src/api) for hot
 		// cleanup / re-sync.
 		void UnregisterCommand(std::string_view a_command);
+		void UnregisterRequest(std::string_view a_command);
 
 		// Entry point for web -> native messages (raw JSON text) from a given
 		// source view; replies via the no-target SendToWeb route back to it.
@@ -97,6 +100,7 @@ namespace OSFUI
 
 		SendFn                                          _send;
 		std::unordered_map<std::string, CommandHandler> _commands;
+		std::unordered_map<std::string, RequestHandler> _requests;
 		std::string                                     _currentSource;     // source view of the in-flight message (reply target)
 		std::string                                     _currentRequestId;  // requestId of the in-flight message ("" = none)
 		std::string                                     _currentCommand;    // command of the in-flight ui.command (ui.result echo)

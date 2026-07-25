@@ -7,6 +7,8 @@
 // on load.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { Setting } from '@sdk';
 import { normalizeValue } from '@lib/settings/normalize';
 import { installMock, validModId, type MockApi, type StorageLike } from '@harness/mockbridge';
@@ -289,6 +291,21 @@ describe('command coverage', () => {
     });
   });
 
+  it('request() waits past a plugin delivery ack for the typed payload', async () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/shared-kit/osfui.js'), 'utf8');
+    window.eval(source);
+    const helper = (window as unknown as {
+      osfui: { request(command: string): Promise<Frame> };
+    }).osfui;
+
+    const waiting = helper.request('acme.shipworks.getWeight');
+    await settle(0); // delivery-only ui.result { ok:true }
+    await settle(10); // plugin-owned response
+    await expect(waiting).resolves.toMatchObject({
+      type: 'acme.shipworks.weight',
+      payload: { weight: 42.5 },
+    });
+  });
   it('answers an unknown command with ui.error {unknown-command}', async () => {
     command({ command: 'totallyMadeUp' }, 'r20');
     await settle();

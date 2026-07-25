@@ -1157,6 +1157,11 @@ export function installMock(opts: MockOptions = {}): MockApi {
         break;
 
       default:
+        if (cmd === 'acme.shipworks.getWeight') {
+          setTimeout(() => send('ui.result', { ok: true, command: cmd }, rid), 0);
+          setTimeout(() => send('acme.shipworks.weight', { weight: 42.5 }, rid), 10);
+          break;
+        }
         // Plugin command shape: "<author>.<modname>.<name>" — two dots minimum. The
         // mock plays the bridge's part: ui.result ok:true means delivered to the
         // plugin's handler (native auto-ack). Anything else is an unknown command

@@ -23,6 +23,15 @@ option("with_webview2", function()
     set_description("Build the WebView2 renderer and out-of-process host")
 end)
 
+-- Research-only render-to-texture experiments. Release builds leave this off:
+-- it excludes both the observational Scaleform probe and the material-backed
+-- world-surface runtime from the DLL.
+option("with_world_surfaces", function()
+    set_default(false)
+    set_showmenu(true)
+    set_description("Build experimental in-world Web UI surface runtime")
+end)
+
 -- JSON for config, view manifests, and the message bridge
 add_requires("nlohmann_json")
 
@@ -98,9 +107,17 @@ target("OSF UI")
     add_files("src/**.cpp")
     add_headerfiles("src/**.h")
     add_includedirs("src")
+    if has_config("with_world_surfaces") then
+        add_defines("OSFUI_WITH_WORLD_SURFACES=1")
+    else
+        remove_files(
+            "src/composite/ScaleformToTextureProbe.cpp",
+            "src/composite/WorldTextureProbe.cpp",
+            "src/composite/WorldSurface.cpp")
+    end
     -- sdk/ holds the public single-header native API (OSFUI_API.h); 
     -- src/api includes it directly so the impl and the consumer copy share one ABI def.
-    add_headerfiles("sdk/OSFUI_API.h")
+    add_headerfiles("sdk/OSFUI_API.h", "sdk/OSFUI_JSON.h")
     add_includedirs("sdk")
     set_pcxxheader("src/pch.h")
 

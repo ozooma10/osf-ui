@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <unordered_set>
 
 #include "OSFUI_API.h"  // IOSFUIBridge, CommandFn, ReadyFn, version constants (sdk/, on the include path)
@@ -32,6 +33,8 @@ namespace OSFUI::API
 		bool          IsBridgeReady() override;
 		void          RegisterCommand(const char* a_command, CommandFn a_handler, void* a_user) override;
 		void          UnregisterCommand(const char* a_command) override;
+		void          RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user) override;
+		void          UnregisterRequest(const char* a_name) override;
 		bool          SendToWeb(const char* a_viewId, const char* a_type, const char* a_payloadJson) override;
 		void          SetReadyCallback(ReadyFn a_callback, void* a_user) override;
 		bool          RequestMenu(const char* a_viewId, bool a_open) override;
@@ -136,7 +139,7 @@ namespace OSFUI::API
 		void OnBridgeReady(MessageBridge* a_bridge);
 		// Main thread; call each tick. (Re)applies the command registry to the live
 		// bridge, flushes queued sends, fires the ready callback once.
-		void PumpMainThread();
+		void PumpMainThread(std::chrono::steady_clock::time_point a_now = std::chrono::steady_clock::now());
 
 	private:
 		BridgeApi() = default;
@@ -156,12 +159,49 @@ namespace OSFUI::API
 			std::string payloadJson;
 		};
 
+		struct RequestRegistration
+		{
+			RequestFn fn{ nullptr };
+			void*     user{ nullptr };
+		};
+		struct InflightRequest
+		{
+			std::uint64_t token{ 0 };
+			std::string view;
+			std::string requestId;
+			std::string name;
+			std::chrono::steady_clock::time_point deadline;
+			bool answered{ false };
+			bool rejected{ false };
+			std::string type;
+			std::string payloadJson;
+			std::string code;
+			std::string message;
+		};
+		struct PendingReply
+		{
+			std::string view;
+			std::string requestId;
+			std::string type;
+			std::string payloadJson;
+		};
+
+		static void RespondThunk(std::uint64_t, const char*, const char*) noexcept;
+		static void RejectThunk(std::uint64_t, const char*, const char*) noexcept;
+		void RespondRequest(std::uint64_t, const char*, const char*) noexcept;
+		void RejectRequest(std::uint64_t, const char*, const char*) noexcept;
+		void DispatchRequest(const std::string&, const RequestRegistration&,
+			const nlohmann::json&, MessageBridge&);
 		std::mutex                                    _mutex;
 		SettingsMirror                                _mirror;            // own locking; never touched under _mutex
 		SettingsSubscriptions                         _subscriptions;     // own locking; never touched under _mutex
 		HotkeySubscriptions                           _hotkeys;           // own locking; never touched under _mutex
-		std::unordered_map<std::string, Registration> _commands;          // desired command set
-		std::vector<std::string>                      _pendingUnregister;  // to remove from a live bridge
+		std::unordered_map<std::string, Registration>        _commands;          // desired command set
+		std::unordered_map<std::string, RequestRegistration> _requests;          // desired request set
+		std::vector<std::string>                      _pendingUnregister;  // commands to remove
+		std::vector<std::string>                      _pendingRequestUnregister;
+		std::unordered_map<std::uint64_t, InflightRequest> _inflightRequests;
+		std::uint64_t                                 _nextRequestToken{ 1 };
 		std::vector<PendingSend>                       _pendingSends;
 		std::vector<MenuRequest>                      _pendingMenuReqs;    // RequestMenu ops, drained by Runtime
 		std::unordered_set<std::string>               _knownViews;         // boot-discovered manifest ids

@@ -6,6 +6,7 @@
 // NOTE: BridgeApi is a process singleton — sections share state, in order.
 
 #include "api/BridgeApi.h"
+#include "OSFUI_JSON.h"
 
 #include "core/Log.h"
 #include "core/Version.h"  // kBridgeProtocolVersion (runtime.ready assertion)
@@ -53,6 +54,58 @@ namespace
 	{
 		g_firedB.push_back({ a_cmd, a_payload, a_src });
 	}
+	std::optional<OSFUI::API::Request> g_request;
+	std::vector<OSFUI::API::Request> g_requests;
+	std::uint64_t g_jsonToken = 0;
+	std::string g_jsonType, g_jsonPayload, g_jsonCode, g_jsonMessage;
+	void CaptureJsonResponse(std::uint64_t a_token, const char* a_type, const char* a_payload) noexcept
+	{
+		g_jsonToken = a_token;
+		g_jsonType = a_type ? a_type : "";
+		g_jsonPayload = a_payload ? a_payload : "";
+	}
+	void CaptureJsonRejection(std::uint64_t a_token, const char* a_code, const char* a_message) noexcept
+	{
+		g_jsonToken = a_token;
+		g_jsonCode = a_code ? a_code : "";
+		g_jsonMessage = a_message ? a_message : "";
+	}
+	std::string g_requestCommand, g_requestPayload, g_requestSource;
+	void RequestHandler(const OSFUI::API::Request& a_request, void*) noexcept
+	{
+		g_request = a_request;
+		g_requests.push_back(a_request);
+		g_requestCommand = a_request.command; g_requestPayload = a_request.payloadJson; g_requestSource = a_request.sourceViewId;
+	}
+	struct OldHost final : OSFUI::API::IOSFUIBridge
+	{
+		int requestCalls{ 0 };
+		std::uint32_t GetInterfaceVersion() override { return (1u << 16) | 7u; }
+		void GetPluginVersion(std::uint32_t& a, std::uint32_t& b, std::uint32_t& c) override { a=b=c=0; }
+		const char* GetBridgeProtocolVersion() override { return "1.4"; }
+		bool IsBridgeReady() override { return false; }
+		void RegisterCommand(const char*, OSFUI::API::CommandFn, void*) override {}
+		void UnregisterCommand(const char*) override {}
+		bool SendToWeb(const char*, const char*, const char*) override { return false; }
+		void SetReadyCallback(OSFUI::API::ReadyFn, void*) override {}
+		bool RequestMenu(const char*, bool) override { return false; }
+		std::uint32_t SubscribeSettings(const char*, OSFUI::API::SettingChangedFn, void*) override { return 0; }
+		void UnsubscribeSettings(std::uint32_t) override {}
+		bool GetSettingBool(const char*, const char*, bool*) override { return false; }
+		bool GetSettingInt(const char*, const char*, std::int64_t*) override { return false; }
+		bool GetSettingFloat(const char*, const char*, double*) override { return false; }
+		std::uint32_t GetSettingString(const char*, const char*, char*, std::uint32_t) override { return 0; }
+		bool RegisterSettingsSchema(const char*) override { return false; }
+		void UnregisterSettingsSchema(const char*) override {}
+		std::uint32_t SubscribeHotkey(const char*, const char*, OSFUI::API::HotkeyFn, void*) override { return 0; }
+		void UnsubscribeHotkey(std::uint32_t) override {}
+		bool RegisterView(const char*) override { return false; }
+		bool ReportIssue(const char*, const char*, const char*, std::uint32_t, const char*, const char*) override { return false; }
+		bool ClearIssue(const char*, const char*) override { return false; }
+		bool ClearIssuesExcept(const char*, const char*) override { return false; }
+		void RegisterRequest(const char*, OSFUI::API::RequestFn, void*) override { ++requestCalls; }
+		void UnregisterRequest(const char*) override { ++requestCalls; }
+	};
 }
 
 // core/Log.h declarations (real impl pulls game deps — stub it here).
@@ -76,7 +129,7 @@ int main()
 
 	// --- version constants: 1.7 (consumer health reporting) -------------------
 	CHECK(OSFUI::API::kBridgeAPIMajor == 1);
-	CHECK(OSFUI::API::kBridgeAPIMinor == 7);
+	CHECK(OSFUI::API::kBridgeAPIMinor == 8);
 	CHECK(api.GetInterfaceVersion() == OSFUI::API::kBridgeAPIVersion);
 
 	// --- command shape (item 3): two dots minimum, item-1 mod-id grammar ------
@@ -269,7 +322,64 @@ int main()
 		CHECK(!toWeb.empty() && toWeb.back().second.find("\"capabilities\"") == std::string::npos);
 	}
 
-	// --- RegisterView takes qualified ids only (item 1) -----------------------
+	// --- ABI 1.8 request/response ---------------------------------------------
+	api.RegisterRequest("acme.mymod.getWeight", &RequestHandler, nullptr);
+	api.RegisterRequest("acme.mymod.getWeight", &RequestHandler, nullptr); // duplicate refused
+	api.RegisterRequest("acme.mymod.ping", &RequestHandler, nullptr);      // command/request collision refused
+	api.RegisterCommand("acme.mymod.getWeight", &HandlerA, nullptr);       // reverse collision refused
+	api.PumpMainThread();
+	CHECK(LoggedContaining("WARN", "refused RegisterRequest('acme.mymod.getWeight')"));
+
+	// Deferred success carries the plugin's type and original requestId, never an ack.
+	toWeb.clear(); g_request.reset();
+	bridge.HandleWebMessage("request-view", R"({"type":"ui.command","requestId":"rq1","payload":{"command":"acme.mymod.getWeight","unit":"kg"}})");
+	CHECK(g_request.has_value()); CHECK(toWeb.empty());
+	if (g_request) {
+		CHECK(g_requestCommand == "acme.mymod.getWeight");
+		CHECK(g_requestPayload.find("requestId") == std::string::npos);
+		g_request->Respond("acme.mymod.weight", R"({"weight":42.5})");
+		g_request->Respond("acme.mymod.weight", R"({"weight":99})"); // ignored
+	}
+	api.PumpMainThread();
+	CHECK(toWeb.size() == 1);
+	CHECK(!toWeb.empty() && toWeb.back().second.find("\"type\":\"acme.mymod.weight\"") != std::string::npos);
+	CHECK(!toWeb.empty() && toWeb.back().second.find("\"requestId\":\"rq1\"") != std::string::npos);
+	CHECK(LoggedContaining("WARN", "ignored second response"));
+
+	// A dropped token times out as correlated ui.error { no-response }.
+	toWeb.clear(); g_request.reset();
+	bridge.HandleWebMessage("request-view", R"({"type":"ui.command","requestId":"rq2","payload":{"command":"acme.mymod.getWeight"}})");
+	api.PumpMainThread(std::chrono::steady_clock::now() + std::chrono::seconds(31));
+	CHECK(toWeb.size() == 1);
+	CHECK(!toWeb.empty() && toWeb.back().second.find("\"code\":\"no-response\"") != std::string::npos);
+
+	// Closing the source view reaps its token; a late response is a safe no-op.
+	toWeb.clear(); g_request.reset();
+	bridge.HandleWebMessage("closing-view", R"({"type":"ui.command","requestId":"rq3","payload":{"command":"acme.mymod.getWeight"}})");
+	api.SetSurfaceLoaded("closing-view", false);
+	if (g_request) g_request->Respond(R"({"weight":1})");
+	api.PumpMainThread();
+	CHECK(toWeb.empty());
+	CHECK(LoggedContaining("WARN", "ignored late response"));
+
+	// Plugin failures become correlated ui.error with the plugin's stable code.
+	toWeb.clear(); g_request.reset();
+	bridge.HandleWebMessage("request-view", R"({"type":"ui.command","requestId":"rq4","payload":{"command":"acme.mymod.getWeight"}})");
+	if (g_request) g_request->Reject("weight-unavailable", "no player");
+	api.PumpMainThread();
+	CHECK(toWeb.size() == 1);
+	CHECK(!toWeb.empty() && toWeb.back().second.find("\"code\":\"weight-unavailable\"") != std::string::npos);
+
+	// The 65th in-flight request from one view fails fast instead of growing.
+	toWeb.clear(); g_requests.clear();
+	for (int i = 0; i < 65; ++i) {
+		bridge.HandleWebMessage("cap-view", std::format(
+			R"({{"type":"ui.command","requestId":"cap{}","payload":{{"command":"acme.mymod.getWeight"}}}})", i));
+	}
+	CHECK(g_requests.size() == 64);
+	CHECK(toWeb.size() == 1);
+	CHECK(!toWeb.empty() && toWeb.back().second.find("\"code\":\"request-capacity\"") != std::string::npos);
+	api.SetSurfaceLoaded("cap-view", false);	// --- RegisterView takes qualified ids only (item 1) -----------------------
 	CHECK(!api.RegisterView("osf"));              // unqualified: refused synchronously
 	CHECK(!api.RegisterView("osfui.settings"));   // dotted join, not slash
 	CHECK(!api.RegisterView("Acme.Mod/dash"));    // bad mod id
@@ -333,6 +443,13 @@ int main()
 		using OSFUI::API::Feature;
 
 		Client c;
+		OldHost oldHost;
+		CHECK(c.Attach(&oldHost));
+		CHECK(!c.Has(Feature::kRequests));
+		c.RegisterRequest("acme.mymod.old", &RequestHandler, nullptr);
+		c.UnregisterRequest("acme.mymod.old");
+		CHECK(oldHost.requestCalls == 0);
+		c.Attach(nullptr);
 		CHECK(!c.IsConnected());
 		CHECK(!c.Has(Feature::kCommands));           // unattached: everything gates off
 		CHECK(!c.RequestMenu("osfui/settings", true));
@@ -346,7 +463,8 @@ int main()
 		CHECK(c.Has(Feature::kCommands) && c.Has(Feature::kRequestMenu) &&
 		      c.Has(Feature::kSettings) && c.Has(Feature::kDeliveryGuarantee) &&
 		      c.Has(Feature::kHotkeys) && c.Has(Feature::kRegisterView) &&
-		      c.Has(Feature::kCommandShape) && c.Has(Feature::kDiagnostics));
+		      c.Has(Feature::kCommandShape) && c.Has(Feature::kDiagnostics) &&
+		      c.Has(Feature::kRequests));
 		CHECK(c.Raw() == &api);
 
 		// Gated pass-throughs reach the real implementation.
@@ -432,6 +550,53 @@ int main()
 		CHECK(LoggedContaining("WARN", "health reports already queued"));
 	}
 
+	// --- optional JSON authoring facade ---------------------------------------
+	{
+		using OSFUI::API::Json;
+		using OSFUI::API::JsonCommand;
+		using OSFUI::API::JsonRequest;
+
+		JsonCommand command{ "acme.mymod.set", R"({"weight":42.5,"name":"ore"})", "acme.mymod/view" };
+		CHECK(command.IsValid());
+		CHECK(command.Command() == "acme.mymod.set");
+		CHECK(command.SourceViewId() == "acme.mymod/view");
+		CHECK(command.Require<double>("weight") == 42.5);
+		CHECK(command.Value<std::string>("name", "") == "ore");
+		CHECK(command.Value<int>("missing", 7) == 7);
+		int numeric = 0;
+		CHECK(!command.TryGet("name", numeric));  // wrong field type returns false
+
+		JsonCommand malformed{ "x", "{bad", "v" };
+		CHECK(!malformed.IsValid());
+		CHECK(!malformed.Error().empty());
+
+		OSFUI::API::Request raw;
+		raw.command = "acme.mymod.getWeight";
+		raw.payloadJson = R"({"formId":42})";
+		raw.sourceViewId = "acme.mymod/view";
+		raw._token = 91;
+		raw._respond = &CaptureJsonResponse;
+		raw._reject = &CaptureJsonRejection;
+		JsonRequest request{ raw };
+		CHECK(request.IsValid());
+		const auto formId = request.Get<int>("formId");
+		CHECK(formId && *formId == 42);
+		CHECK(request.Respond("acme.mymod.weight", Json{ { "weight", 12.5 } }));
+		CHECK(g_jsonToken == 91 && g_jsonType == "acme.mymod.weight");
+		CHECK(Json::parse(g_jsonPayload).at("weight") == 12.5);
+
+		g_jsonCode.clear();
+		raw.payloadJson = "[1,2]";
+		JsonRequest badRequest{ raw };
+		CHECK(!badRequest.IsValid());
+		CHECK(g_jsonCode == "invalid-payload");
+
+		g_jsonCode.clear();
+		raw.payloadJson = R"({"formId":"wrong"})";
+		JsonRequest wrongField{ raw };
+		CHECK(!wrongField.Get<int>("formId"));
+		CHECK(g_jsonCode == "invalid-payload");
+	}
 	// --- teardown: bridge going away must not dangle --------------------------
 	api.OnBridgeReady(nullptr);
 	api.PumpMainThread();

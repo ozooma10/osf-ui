@@ -215,6 +215,21 @@ namespace OSFUI
 		using LoadHandler = std::function<void(const LoadEvent& a_event)>;
 		virtual void SetLoadHandler(LoadHandler) {}
 
+		// A terminal backend failure that leaves no drawable frontend. Unlike a
+		// per-view LoadEvent, this invalidates the renderer for the rest of the
+		// session. The runtime must immediately release any modal menu policy;
+		// otherwise an invisible overlay can keep gameplay input and pause state.
+		// Fired on the game thread from Update(); set once before LoadView.
+		struct FailureEvent
+		{
+			std::string_view stage;
+			std::string_view viewId;
+			std::string_view description;
+			std::uint32_t    errorCode{ 0 };
+		};
+		using FailureHandler = std::function<void(const FailureEvent& a_event)>;
+		virtual void SetFailureHandler(FailureHandler) {}
+
 		// Backend health worth surfacing in the Mods surface's System Health pane
 		// (bridge protocol 1.4). Only DEGRADED-BUT-ALIVE conditions belong here —
 		// a reduced shared-texture ring, focus stranded in the backend's own

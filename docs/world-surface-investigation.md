@@ -316,8 +316,18 @@ very few — a stream of them means the signature is colliding again.
 
 `worldSurfaceTargetWidth`/`Height` must always track the generated file.
 
-The shipping vanilla footprint is now zero: the two experimental overrides and
-placeholder remain in source for analysis but are excluded from deployment.
+The shipping vanilla footprint is zero: the two experimental overrides and
+placeholder remain in source for analysis but are outside `data/` and excluded
+from deployment.
+
+## Release gating
+
+Normal builds compile `ScaleformToTextureProbe.cpp`, `WorldTextureProbe.cpp`,
+and `WorldSurface.cpp` out of the plugin. The runtime call sites, state, and
+configuration keys are guarded by `OSFUI_WITH_WORLD_SURFACES`, which xmake
+only defines after an explicit `xmake f --with_world_surfaces=y`. Research
+assets are never installed, even in that build; testing them requires a
+deliberate manual deployment.
 
 ## Next engineering steps
 
