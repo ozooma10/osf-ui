@@ -214,7 +214,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
   const filterInput = useRef<HTMLInputElement | null>(null);
 
   const sendCommand = (command: string, fields?: Record<string, unknown>) => {
-    if (bridge.available()) bridge.send(command, fields);
+    if (bridge.available()) bridge.emit(command, fields);
   };
 
   /**
@@ -228,7 +228,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     // The ack resolves with the authoritative post-clamp value; a refusal
     // rejects with the machine code (unknown-setting / read-only /
     // invalid-value).
-    bridge.request('settings.set', { mod: modId, key, value }).catch((err: unknown) => {
+    bridge.call('settings.set', { mod: modId, key, value }).catch((err: unknown) => {
       const code = codeOf(err);
       toast(
         tr('writeRejected', 'Rejected {setting}{code}', {
@@ -250,7 +250,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     // Resolves with the fresh settings.data (rendered by the subscription —
     // request replies dispatch there too).
     bridge
-      .request('settings.reset', key ? { mod: modId, key } : { mod: modId })
+      .call('settings.reset', key ? { mod: modId, key } : { mod: modId })
       .catch((err: unknown) => {
         const code = codeOf(err);
         toast(tr('resetFailed', 'Reset failed{code}', { code: code ? ` (${code})` : '' }), 'danger');
@@ -370,7 +370,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     tr,
   });
 
-  // Bridge subscriptions, registered once. Replies that resolve a request()
+  // Bridge subscriptions, registered once. Replies that resolve a call()
   // also land here — one render path regardless of who asked.
 
   useEffect(() => {
@@ -671,9 +671,8 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     // plugin's handler; richer replies are the plugin's own message types).
     // Timeout / unknown-command / no-bridge all reject.
     bridge
-      .request(command, { mod: modId, key }, { timeoutMs: ACTION_TIMEOUT_MS })
-      .then((msg) => {
-        const payload = msg.payload as { message?: unknown } | undefined;
+      .call<{ message?: unknown }>(command, { mod: modId, key }, { timeoutMs: ACTION_TIMEOUT_MS })
+      .then((payload) => {
         return payload && typeof payload.message === 'string' ? payload.message : null;
       });
 

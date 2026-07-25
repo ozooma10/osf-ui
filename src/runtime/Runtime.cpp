@@ -2426,7 +2426,7 @@ namespace OSFUI
 		// Catalog of discovered surfaces (bridge 0.2), loaded or not. Replies with
 		// `views.data` and subscribes the caller: any later open/close/focus/load-state change
 		// re-sends the catalog, so it stays current without polling.
-		a_bridge.RegisterCommand("views.get", [this](const nlohmann::json&, MessageBridge& a_b) {
+		a_bridge.RegisterRequest("views.get", [this](const nlohmann::json&, MessageBridge& a_b) {
 			const auto payload = BuildViewsData();
 			_viewsSubscribers.insert(std::string(a_b.CurrentSource()));
 			_lastViewsData = payload.dump();
@@ -2435,7 +2435,7 @@ namespace OSFUI
 		// A custom view supplies inline English to osfui.t(address, english); this
 		// returns only active-locale overrides for its mod domain. The caller
 		// subscribes so a live language change replaces the catalog.
-		a_bridge.RegisterCommand("i18n.get", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
+		a_bridge.RegisterRequest("i18n.get", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
 			const std::string source(a_b.CurrentSource());
 			const std::string ownMod{ Ids::ModOf(source) };
 			std::string mod = Json::GetString(a_p, "mod", ownMod);
@@ -2453,7 +2453,7 @@ namespace OSFUI
 		// reported back via `settings.captured`. Any schema-declared `type:"key"`
 		// setting is rebindable — the schema gates the capture, not an allowlist.
 		// Main thread; OnHostKey (window thread) reads the armed flag.
-		a_bridge.RegisterCommand("settings.captureKey", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
+		a_bridge.RegisterRequest("settings.captureKey", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
 			const std::string mod = Json::GetString(a_p, "mod", "");
 			const std::string key = Json::GetString(a_p, "key", "");
 			// One capture at a time: a second arm while one is live is refused
@@ -2528,7 +2528,7 @@ namespace OSFUI
 		// Correlated JS -> owning-Papyrus request (protocol 1.6). Unlike ui.action,
 		// this always requires requestId and suppresses the automatic delivery ack;
 		// the eventual ReplyView*/RejectViewRequest settles it explicitly.
-		a_bridge.RegisterCommand("ui.papyrusRequest", [](const nlohmann::json& a_p, MessageBridge& a_b) {
+		a_bridge.RegisterRequest("ui.papyrusRequest", [](const nlohmann::json& a_p, MessageBridge& a_b) {
 			const std::string source(a_b.CurrentSource());
 			const std::string mod{ Ids::ModOf(source) };
 			const std::string request = Json::GetString(a_p, "request", "");
@@ -2560,7 +2560,7 @@ namespace OSFUI
 			// Untrusted content: bound the length so JS cannot flood the log.
 			REX::DEBUG("MessageBridge: [web] {}", Json::GetString(a_p, "text", "").substr(0, 512));
 		});
-		a_bridge.RegisterCommand("ping", [](const nlohmann::json&, MessageBridge& a_b) {
+		a_bridge.RegisterRequest("ping", [](const nlohmann::json&, MessageBridge& a_b) {
 			a_b.SendToWeb("runtime.pong", nlohmann::json::object());
 		});
 		a_bridge.RegisterCommand("osfui.gamepadRaw", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
@@ -2645,7 +2645,7 @@ namespace OSFUI
 
 		// Read-only game data: bridge handlers dispatch from main-thread Tick, so
 		// the in-game Calendar fields are read on their owning thread.
-		a_bridge.RegisterCommand("game.get", [](const nlohmann::json&, MessageBridge& a_b) {
+		a_bridge.RegisterRequest("game.get", [](const nlohmann::json&, MessageBridge& a_b) {
 			nlohmann::json calendar = nlohmann::json::object();
 			if (const auto* cal = RE::Calendar::GetSingleton()) {
 				calendar["available"] = true;

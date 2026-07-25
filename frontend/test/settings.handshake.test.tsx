@@ -34,8 +34,8 @@ describe('a runtime.ready that never arrives', () => {
     const el = await mount(bridge);
 
     // The runtime answers the gets; that path never involves `ready`.
-    bridge.emit('settings.data', WIDGETS);
-    bridge.emit('views.data', VIEWS);
+    bridge.deliver('settings.data', WIDGETS);
+    bridge.deliver('views.data', VIEWS);
     await flush();
 
     expect(el.querySelectorAll('.rail-item').length).toBeGreaterThan(0);
@@ -45,8 +45,8 @@ describe('a runtime.ready that never arrives', () => {
   it('leaves only the version badge blank', async () => {
     const bridge = makeBridge({ readyNeverResolves: true });
     const el = await mount(bridge);
-    bridge.emit('settings.data', WIDGETS);
-    bridge.emit('views.data', VIEWS);
+    bridge.deliver('settings.data', WIDGETS);
+    bridge.deliver('views.data', VIEWS);
     await flush();
 
     // The badge suppresses itself before the handshake rather than claiming a

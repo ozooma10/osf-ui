@@ -134,8 +134,8 @@ export function useCapture(opts: CaptureOptions): CaptureApi {
 
     if (bridge.available()) {
       bridge
-        .request('settings.captureKey', { mod: modId, key }, { timeoutMs: 0 })
-        .then((msg) => finish(msg.payload as CapturePayload))
+        .call<CapturePayload>('settings.captureKey', { mod: modId, key }, { timeoutMs: 0 })
+        .then(finish)
         .catch((err: unknown) => {
           // Only if our arm is still live: a rejection arriving after the
           // capture was settled some other way must not toast.

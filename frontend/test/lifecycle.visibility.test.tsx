@@ -27,8 +27,8 @@ describe('ui.visibility open edge', () => {
   it('clears the filter and returns the selection to Home', async () => {
     const bridge = makeBridge();
     const el = await mount(bridge);
-    bridge.emit('settings.data', WIDGETS);
-    bridge.emit('views.data', VIEWS);
+    bridge.deliver('settings.data', WIDGETS);
+    bridge.deliver('views.data', VIEWS);
     await flush();
 
     // Move off Home and set a filter.
@@ -36,7 +36,7 @@ describe('ui.visibility open edge', () => {
     await typeFilter(el, 'slider');
     expect(el.querySelector('.search-results')).not.toBeNull();
 
-    bridge.emit('ui.visibility', { visible: true });
+    bridge.deliver('ui.visibility', { visible: true });
     await flush();
 
     expect(el.querySelector<HTMLInputElement>('#filter')!.value).toBe('');
@@ -47,8 +47,8 @@ describe('ui.visibility open edge', () => {
   it('drops the undo baseline so the chip disappears', async () => {
     const bridge = makeBridge();
     const el = await mount(bridge);
-    bridge.emit('settings.data', WIDGETS);
-    bridge.emit('views.data', VIEWS);
+    bridge.deliver('settings.data', WIDGETS);
+    bridge.deliver('views.data', VIEWS);
     await flush();
 
     selectRail(el, 'Acme Kit');
@@ -58,7 +58,7 @@ describe('ui.visibility open edge', () => {
     const chip = el.querySelector<HTMLButtonElement>('#session-chip')!;
     expect(chip.style.display).not.toBe('none'); // visible after a change
 
-    bridge.emit('ui.visibility', { visible: true });
+    bridge.deliver('ui.visibility', { visible: true });
     await flush();
     // Baseline gone -> zero changes -> chip hidden.
     expect(el.querySelector<HTMLButtonElement>('#session-chip')!.style.display).toBe('none');
@@ -69,12 +69,12 @@ describe('ui.visibility open edge', () => {
     (window as { padnav?: unknown }).padnav = { reset };
     const bridge = makeBridge();
     const el = await mount(bridge);
-    bridge.emit('settings.data', WIDGETS);
+    bridge.deliver('settings.data', WIDGETS);
     await flush();
     // Already on Home with an empty filter: the reselect is a no-op.
     expect(el.querySelector('.rail-item--home.selected')).not.toBeNull();
 
-    bridge.emit('ui.visibility', { visible: true });
+    bridge.deliver('ui.visibility', { visible: true });
     await flush();
     // padnav.reset still fires.
     expect(reset).toHaveBeenCalled();
@@ -85,8 +85,8 @@ describe('ui.visibility open edge', () => {
     (window as { padnav?: unknown }).padnav = { reset };
     const bridge = makeBridge();
     const el = await mount(bridge);
-    bridge.emit('settings.data', WIDGETS);
-    bridge.emit('views.data', VIEWS);
+    bridge.deliver('settings.data', WIDGETS);
+    bridge.deliver('views.data', VIEWS);
     await flush();
 
     selectRail(el, 'Acme Kit');
@@ -95,8 +95,8 @@ describe('ui.visibility open edge', () => {
     await flush();
     expect(el.querySelector<HTMLButtonElement>('#session-chip')!.style.display).not.toBe('none');
 
-    bridge.emit('ui.visibility', { visible: false, reason: 'focus' });
-    bridge.emit('ui.visibility', { visible: true, reason: 'focus' });
+    bridge.deliver('ui.visibility', { visible: false, reason: 'focus' });
+    bridge.deliver('ui.visibility', { visible: true, reason: 'focus' });
     await flush();
 
     expect(el.querySelector('.detail-head h2')!.textContent).toBe('Acme Kit');
@@ -109,15 +109,15 @@ describe('ui.visibility open edge', () => {
     (window as { padnav?: unknown }).padnav = { reset };
     const bridge = makeBridge();
     const el = await mount(bridge);
-    bridge.emit('settings.data', WIDGETS);
-    bridge.emit('views.data', VIEWS);
+    bridge.deliver('settings.data', WIDGETS);
+    bridge.deliver('views.data', VIEWS);
     await flush();
 
     selectRail(el, 'Acme Kit');
     await flush();
     expect(el.querySelector('.detail-head h2')!.textContent).toBe('Acme Kit');
 
-    bridge.emit('ui.visibility', { visible: false });
+    bridge.deliver('ui.visibility', { visible: false });
     await flush();
     // Selection retained, padnav untouched.
     expect(el.querySelector('.detail-head h2')!.textContent).toBe('Acme Kit');

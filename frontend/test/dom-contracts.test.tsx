@@ -33,7 +33,7 @@ type Listener = (payload: unknown) => void;
 
 interface FakeBridge extends Bridge {
   /** Deliver a native->web push to whatever the view subscribed. */
-  emit(type: string, payload: unknown): void;
+  deliver(type: string, payload: unknown): void;
   sent: Array<{ command: string; fields?: Record<string, unknown> }>;
   requests: Array<{ command: string; fields?: Record<string, unknown> }>;
   /** Settle the Nth pending request. */
@@ -49,11 +49,11 @@ function makeBridge(): FakeBridge {
     available: () => true,
     sent: [],
     requests: [],
-    send(command, fields) {
+    emit(command, fields) {
       bridge.sent.push(fields === undefined ? { command } : { command, fields });
       return true;
     },
-    request(command: string, fields?: Record<string, unknown>) {
+    call(command: string, fields?: Record<string, unknown>) {
       bridge.requests.push(fields === undefined ? { command } : { command, fields });
       return new Promise((resolve, reject) => {
         pending.push({ resolve: resolve as (v: unknown) => void, reject });
@@ -71,7 +71,7 @@ function makeBridge(): FakeBridge {
         if (s) s.delete(fn as Listener);
       };
     },
-    emit(type, payload) {
+    deliver(type, payload) {
       const set = listeners.get(type);
       if (set) for (const fn of [...set]) fn(payload);
     },
@@ -260,7 +260,7 @@ describe('padnav DOM contracts', () => {
     // to it without an explicit tabindex.
     const bridge = makeBridge();
     const el = await mount(bridge);
-    bridge.emit('settings.data', DATA);
+    bridge.deliver('settings.data', DATA);
     await flush();
 
     const rows = el.querySelectorAll<HTMLElement>('#bindlist .kb-holder--list');
@@ -295,7 +295,7 @@ describe('padnav DOM contracts', () => {
     // rather than a count.
     const bridge = makeBridge();
     const el = await mount(bridge);
-    bridge.emit('settings.data', DATA);
+    bridge.deliver('settings.data', DATA);
     await flush();
 
     const dead = el.querySelectorAll<HTMLButtonElement>('#keyboard button.is-dead');
@@ -330,7 +330,7 @@ describe('padnav DOM contracts', () => {
     // the capture.
     const bridge = makeBridge();
     const el = await mount(bridge);
-    bridge.emit('settings.data', DATA);
+    bridge.deliver('settings.data', DATA);
     await flush();
 
     expect(document.querySelector('.listening')).toBeNull();
@@ -360,7 +360,7 @@ describe('padnav DOM contracts', () => {
   it('only the clicked instance listens when a binding is on screen twice', async () => {
     const bridge = makeBridge();
     const el = await mount(bridge);
-    bridge.emit('settings.data', DATA);
+    bridge.deliver('settings.data', DATA);
     await flush();
 
     // Select F10 so the mod binding renders in both the detail panel and the list.

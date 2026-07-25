@@ -27,9 +27,9 @@ const ISSUE = (o: Record<string, unknown>) => ({
 async function mountHealth(issues: unknown[], system: Record<string, unknown> = {}) {
   const bridge = makeBridge();
   const el = await mount(bridge);
-  bridge.emit('settings.data', WIDGETS);
-  bridge.emit('views.data', VIEWS);
-  bridge.emit('diagnostics.data', { system, issues });
+  bridge.deliver('settings.data', WIDGETS);
+  bridge.deliver('views.data', VIEWS);
+  bridge.deliver('diagnostics.data', { system, issues });
   await flush();
   return { bridge, el };
 }
@@ -42,7 +42,7 @@ describe('subscription + rail', () => {
   it('sends diagnostics.get on mount', async () => {
     const bridge = makeBridge();
     const el = await mount(bridge);
-    bridge.emit('settings.data', WIDGETS);
+    bridge.deliver('settings.data', WIDGETS);
     await flush();
     expect(bridge.sent.some((s) => s.command === 'diagnostics.get')).toBe(true);
     expect(el.querySelector('.rail-item--health')).not.toBeNull();
@@ -226,9 +226,9 @@ describe('deep links', () => {
   it('a failed launcher card navigates to its issue with the card expanded', async () => {
     const bridge = makeBridge();
     const el = await mount(bridge);
-    bridge.emit('settings.data', WIDGETS);
+    bridge.deliver('settings.data', WIDGETS);
     // A failed view in the launcher, and the matching issue.
-    bridge.emit('views.data', {
+    bridge.deliver('views.data', {
       views: [
         {
           id: 'broken/panel',
@@ -245,7 +245,7 @@ describe('deep links', () => {
         },
       ],
     });
-    bridge.emit('diagnostics.data', {
+    bridge.deliver('diagnostics.data', {
       system: {},
       issues: [
         ISSUE({ id: 'view.load-failed:broken/panel', severity: 'error', code: 'view.load-failed', subject: 'broken/panel' }),
@@ -273,8 +273,8 @@ describe('mod severity marker', () => {
     const bridge = makeBridge();
     const el = await mount(bridge);
     // A widget mod with a modified value so the count badge shows.
-    bridge.emit('settings.data', WIDGETS);
-    bridge.emit('diagnostics.data', {
+    bridge.deliver('settings.data', WIDGETS);
+    bridge.deliver('diagnostics.data', {
       system: {},
       issues: [ISSUE({ id: 'x', severity: 'warning', code: 'settings.values-parse', subject: 'acme.kit' })],
     });

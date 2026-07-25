@@ -12,8 +12,8 @@ afterEach(unmount);
 async function mountWith(data: unknown, views?: unknown) {
   const bridge = makeBridge();
   const el = await mount(bridge);
-  bridge.emit('settings.data', data);
-  if (views) bridge.emit('views.data', views);
+  bridge.deliver('settings.data', data);
+  if (views) bridge.deliver('views.data', views);
   await flush();
   return { bridge, el };
 }
@@ -131,7 +131,7 @@ describe('rail cycling (LB/RB)', () => {
     const { bridge, el } = await mountWith(WIDGETS, VIEWS);
     // Painted order: Home, framework (osfui), then title-sorted mods.
     expect(el.querySelector('.rail-item--home.selected')).not.toBeNull();
-    bridge.emit('ui.gamepad', { kind: 'button', button: { id: 0x0200, down: true } });
+    bridge.deliver('ui.gamepad', { kind: 'button', button: { id: 0x0200, down: true } });
     await flush();
     const selected = el.querySelector('.rail-item.selected')!;
     expect(selected.textContent).toContain('OSF UI');
@@ -149,7 +149,7 @@ describe('rail cycling (LB/RB)', () => {
     expect(el.querySelector('.session-overlay')).not.toBeNull();
 
     const before = el.querySelector('.rail-item.selected')!.textContent;
-    bridge.emit('ui.gamepad', { kind: 'button', button: { id: 0x0200, down: true } });
+    bridge.deliver('ui.gamepad', { kind: 'button', button: { id: 0x0200, down: true } });
     await flush();
     expect(el.querySelector('.rail-item.selected')!.textContent).toBe(before);
   });
@@ -166,7 +166,7 @@ describe('System Health rail entry', () => {
 
   it('reflects diagnostics severity in its badge and clears search when selected', async () => {
     const { bridge, el } = await mountWith(WIDGETS, VIEWS);
-    bridge.emit('diagnostics.data', {
+    bridge.deliver('diagnostics.data', {
       system: {},
       issues: [
         {

@@ -9,7 +9,7 @@ import { App } from '@views/osfui/settings/App';
 type Listener = (payload: unknown, message: unknown) => void;
 
 export interface FakeBridge extends Bridge {
-  emit(type: string, payload: unknown, message?: unknown): void;
+  deliver(type: string, payload: unknown, message?: unknown): void;
   sent: Array<{ command: string; fields?: Record<string, unknown> }>;
   requests: Array<{ command: string; fields?: Record<string, unknown>; opts?: unknown }>;
   settle(index: number, value: unknown): void;
@@ -47,11 +47,11 @@ export function makeBridge(opts: MakeBridgeOptions = {}): FakeBridge {
         ? (new Promise(() => {}) as never)
         : (Promise.resolve({ version }) as never);
     },
-    send(command, fields) {
+    emit(command, fields) {
       bridge.sent.push(fields === undefined ? { command } : { command, fields });
       return available;
     },
-    request(command: string, fields?: Record<string, unknown>, o?: unknown) {
+    call(command: string, fields?: Record<string, unknown>, o?: unknown) {
       bridge.requests.push(
         fields === undefined ? { command, opts: o } : { command, fields, opts: o },
       );
@@ -74,7 +74,7 @@ export function makeBridge(opts: MakeBridgeOptions = {}): FakeBridge {
     applyAccent() {
       // DOM side-effect is not under test.
     },
-    emit(type, payload, message) {
+    deliver(type, payload, message) {
       const set = listeners.get(type);
       if (set) for (const fn of [...set]) fn(payload, message);
     },

@@ -110,7 +110,7 @@ export function App({ bridge = windowBridge }: AppProps) {
 
   // With no bridge these are silent no-ops rather than rejected promises.
   const sendCommand = (command: string, fields?: Record<string, unknown>) => {
-    if (bridge.available()) bridge.send(command, fields);
+    if (bridge.available()) bridge.emit(command, fields);
   };
 
   /**
@@ -121,7 +121,7 @@ export function App({ bridge = windowBridge }: AppProps) {
   const goBack = () => {
     if (!bridge.available()) return;
     bridge
-      .request('menu.open', { view: HUB_VIEW })
+      .call('menu.open', { view: HUB_VIEW })
       .catch(() => sendCommand('close'));
   };
 
@@ -162,7 +162,7 @@ export function App({ bridge = windowBridge }: AppProps) {
     if (bridge.available()) {
       // A refusal rejects the request: fall back to the store's truth instead
       // of keeping the optimistic value.
-      bridge.request('settings.set', { mod, key, value: name }).catch((err: unknown) => {
+      bridge.call('settings.set', { mod, key, value: name }).catch((err: unknown) => {
         const code = codeOf(err);
         toastRef.current.push(
           tr('rebindRejected', 'Rebind rejected{code}', { code: code ? ` (${code})` : '' }),
@@ -189,8 +189,8 @@ export function App({ bridge = windowBridge }: AppProps) {
       // a key (timeoutMs 0 — the reply itself settles it; Escape/refusal comes
       // back `cancelled`). A second arm anywhere rejects with "capture-busy".
       bridge
-        .request('settings.captureKey', { mod, key }, { timeoutMs: 0 })
-        .then((msg) => finishCapture(msg.payload as CapturePayload))
+        .call<CapturePayload>('settings.captureKey', { mod, key }, { timeoutMs: 0 })
+        .then(finishCapture)
         .catch((err: unknown) => {
           // Only if our arm is still the live one: a rejection that arrives
           // after the capture settled some other way must not toast.
@@ -225,7 +225,7 @@ export function App({ bridge = windowBridge }: AppProps) {
     setSelectedKey((current) => (name === current ? '' : name));
   };
 
-  // Registered once; replies that resolve a request() land here too.
+  // Registered once; replies that resolve a call() land here too.
   useEffect(() => {
     const offData = bridge.on('settings.data', (p) => {
       setMods(Array.isArray(p.mods) ? p.mods : []);

@@ -15,7 +15,7 @@ import type { SettingsDataPayload } from '@sdk';
 type Listener = (payload: unknown) => void;
 
 interface FakeBridge extends Bridge {
-  emit(type: string, payload: unknown): void;
+  deliver(type: string, payload: unknown): void;
   sent: Array<{ command: string; fields?: Record<string, unknown> }>;
   requests: Array<{ command: string; fields?: Record<string, unknown> }>;
   settle(index: number, value: unknown): void;
@@ -30,11 +30,11 @@ function makeBridge(): FakeBridge {
     available: () => true,
     sent: [],
     requests: [],
-    send(command, fields) {
+    emit(command, fields) {
       bridge.sent.push(fields === undefined ? { command } : { command, fields });
       return true;
     },
-    request(command: string, fields?: Record<string, unknown>) {
+    call(command: string, fields?: Record<string, unknown>) {
       bridge.requests.push(fields === undefined ? { command } : { command, fields });
       return new Promise((resolve, reject) => {
         pending.push({ resolve: resolve as (v: unknown) => void, reject });
@@ -52,7 +52,7 @@ function makeBridge(): FakeBridge {
         if (s) s.delete(fn as Listener);
       };
     },
-    emit(type, payload) {
+    deliver(type, payload) {
       const set = listeners.get(type);
       if (set) for (const fn of [...set]) fn(payload);
     },
@@ -154,7 +154,7 @@ describe('keybinds — selection', () => {
     // Toggling is the only way to clear the panel — there is no close affordance.
     const bridge = makeBridge();
     const el = await mount(bridge);
-    bridge.emit('settings.data', DATA);
+    bridge.deliver('settings.data', DATA);
     await flush();
 
     const title = () => el.querySelector('#detail-title')!.textContent;
@@ -190,7 +190,7 @@ describe('keybinds — search scope', () => {
     // key vanish while you type its name.
     const bridge = makeBridge();
     const el = await mount(bridge);
-    bridge.emit('settings.data', DATA);
+    bridge.deliver('settings.data', DATA);
     await flush();
 
     // Select F5 — a mod binding plus the vanilla Quicksave, i.e. a conflict.
@@ -224,7 +224,7 @@ describe('keybinds — search scope', () => {
     // though nothing is bound to it.
     const bridge = makeBridge();
     const el = await mount(bridge);
-    bridge.emit('settings.data', DATA);
+    bridge.deliver('settings.data', DATA);
     await flush();
 
     await typeSearch(el, 'f11'); // nothing is bound to F11
@@ -239,7 +239,7 @@ describe('keybinds — list row activation', () => {
     // change the selection out from under the user.
     const bridge = makeBridge();
     const el = await mount(bridge);
-    bridge.emit('settings.data', DATA);
+    bridge.deliver('settings.data', DATA);
     await flush();
 
     expect(el.querySelector('#detail-title')!.textContent).toBe('Select a key');
@@ -269,7 +269,7 @@ describe('keybinds — goBack', () => {
     // the user in a menu they cannot leave.
     const bridge = makeBridge();
     const el = await mount(bridge);
-    bridge.emit('settings.data', DATA);
+    bridge.deliver('settings.data', DATA);
     await flush();
 
     el.querySelector<HTMLButtonElement>('#back')!.click();
@@ -290,7 +290,7 @@ describe('keybinds — goBack', () => {
   it('Escape reaches goBack, and is SWALLOWED while a capture is armed', async () => {
     const bridge = makeBridge();
     const el = await mount(bridge);
-    bridge.emit('settings.data', DATA);
+    bridge.deliver('settings.data', DATA);
     await flush();
 
     const escape = () =>

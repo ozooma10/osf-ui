@@ -150,14 +150,14 @@ namespace OSFUI
 		_bridge = &a_bridge;
 		_subscribers.clear();
 
-		a_bridge.RegisterCommand("settings.get", [this](const nlohmann::json&, MessageBridge& a_b) {
+		a_bridge.RegisterRequest("settings.get", [this](const nlohmann::json&, MessageBridge& a_b) {
 			// Subscribe-on-read (the views.get pattern): the caller now also
 			// receives settings.changed pushes and settings.data re-broadcasts.
 			_subscribers.insert(std::string(a_b.CurrentSource()));
 			a_b.SendToWeb("settings.data", _store.DataView());
 		});
 
-		a_bridge.RegisterCommand("settings.set", [this](const nlohmann::json& a_payload, MessageBridge& a_b) {
+		a_bridge.RegisterRequest("settings.set", [this](const nlohmann::json& a_payload, MessageBridge& a_b) {
 			const auto mod = Json::GetString(a_payload, "mod", "");
 			const auto key = Json::GetString(a_payload, "key", "");
 			const auto valueIt = a_payload.find("value");
@@ -184,7 +184,7 @@ namespace OSFUI
 			a_b.SendToWeb("settings.ack", ack);
 		});
 
-		a_bridge.RegisterCommand("settings.reset", [this](const nlohmann::json& a_payload, MessageBridge& a_b) {
+		a_bridge.RegisterRequest("settings.reset", [this](const nlohmann::json& a_payload, MessageBridge& a_b) {
 			const auto mod = Json::GetString(a_payload, "mod", "");
 			const auto key = Json::GetString(a_payload, "key", "");
 			// Suppress the per-key settings.changed fan-out for the web: the
