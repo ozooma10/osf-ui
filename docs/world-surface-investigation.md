@@ -222,12 +222,55 @@ The capture log now also records the resource format, mip count, view format,
 and whether a ring slot was substituted. A *second* capture line for the same
 material is direct evidence of engine-side descriptor re-creation.
 
+## Owned placeholder: material override instead of texture override
+
+The proof identified its target by shipping a loose
+`textures/ships/interior/cockpitscreens/ShipScreen_Avionics01_color.dds`. That
+is a vanilla asset, and it was a hand-placed file no build step produced.
+
+Starfield materials turn out to be **plain JSON** with an `Import` inheritance
+chain, loose in `Data/Materials`, so the target can be moved onto an OSF UI-owned
+texture without touching a vanilla texture at all. `ShipScreen_Avionics01_A.mat`
+binds the screen texture twice — index 0 (`Albedo`) and index 7 (`Emissive`),
+with `EmissiveSettingsComponent.ExposureOffset = 6`. That emissive binding is
+why the screen glows, and it is what makes browser content read as a lit display
+rather than a dark decal.
+
+Exactly two materials reference that texture: `ShipScreen_Avionics01.mat` and
+`ShipScreen_Avionics01_A.mat`. The Deimos/HopeTech/Stroud/Taiyo variants each
+have their own `<Maker>_ShipScreen_Avionics01_color.dds` and are untouched — a
+filename-substring search wrongly suggests they share the base texture.
+
+Two reproducible generators replace the hand-placed artifact:
+
+| Tool | Output |
+| --- | --- |
+| `tools/make_world_surface_placeholder.py` | `data/assets/textures/OSFUI/worldsurface_placeholder01.dds` — 1600x900 BGRA8, one mip |
+| `tools/make_world_surface_materials.py` | `data/assets/materials/.../ShipScreen_Avionics01{,_A}.mat` |
+
+The material generator copies each vanilla file verbatim and rewrites only the
+texture filename strings (8 changed lines per file), so every `res:`
+content-database ID, edge, and parent link stays as Bethesda authored it.
+
+**Do not hand-author a material at a new path by copying one of these.** The
+`res:` IDs (`res:B64FF631:0005DB77:A64340C8` and friends) would be duplicated
+into the material database, and the allocation scheme is not understood. A
+genuinely OSF UI-owned material at an OSF UI-owned path needs the Creation Kit
+to mint fresh IDs. This is the gating unknown for step 4 below.
+
+The placeholder is now 1600x900 — equal to the default browser size, which keeps
+the match signature unusual and makes a future custom mesh a 1:1 UV mapping.
+`worldSurfaceTargetWidth`/`Height` must always track this file.
+
+Remaining vanilla footprint: two material overrides instead of one shared
+texture override. Reaching *zero* requires the custom mesh below.
+
 ## Next engineering steps
 
 1. ~~Give world surfaces a dedicated view and shared ring instead of borrowing the overlay ring.~~ Done.
 2. ~~Track the current fully produced slot and signal its consume fence while the surface is visible.~~ Done (one-frame-late CPU signal).
 3. ~~Refresh the targeted descriptor safely when the current slot changes or the ring is recreated.~~ Done (unconditional per-tick re-assert).
-4. Match browser resolution/aspect, UV crop, color space, alpha, and emissive treatment to the mesh.
+4. Custom mesh + Creation Kit-authored material at OSF UI-owned paths (needs fresh `res:` IDs — see above), removing the last two vanilla overrides and fixing the atlas UV crop. Match color space, alpha, and emissive treatment to the mesh.
 5. Add per-instance lifecycle, visibility throttling, and raycast-to-UV input mapping.
 
 A custom screen mesh/material with an OSF UI-owned placeholder texture is the
