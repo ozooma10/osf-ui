@@ -258,9 +258,30 @@ into the material database, and the allocation scheme is not understood. A
 genuinely OSF UI-owned material at an OSF UI-owned path needs the Creation Kit
 to mint fresh IDs. This is the gating unknown for step 4 below.
 
-The placeholder is now 1600x900 — equal to the default browser size, which keeps
-the match signature unusual and makes a future custom mesh a 1:1 UV mapping.
-`worldSurfaceTargetWidth`/`Height` must always track this file.
+### The placeholder size is safety-critical
+
+The placeholder was briefly set to 1600x900 to match the browser size. That
+broke rendering across the entire frame: the engine allocates its own render
+targets at ordinary screen-shaped sizes, the binding matched one, and rewriting
+a descriptor the frame depends on took out most of the world. Only the sky and
+a couple of unaffected quads still drew.
+
+Two independent rules now prevent it:
+
+1. **The placeholder must be an implausible render-target size.** Back to
+   1000x1000 — square, NPOT, never a screen or post-buffer shape. Never set it
+   to 16:9, to a power of two, or to the browser size.
+2. **Dimensions are not sufficient on their own.** `IsTarget` additionally
+   requires `D3D12_RESOURCE_FLAG_NONE`, one array slice, one mip, and one
+   sample. A streamed material texture is a plain sampled 2D texture; every
+   engine render target carries `ALLOW_RENDER_TARGET`, `ALLOW_DEPTH_STENCIL`,
+   or `ALLOW_UNORDERED_ACCESS`, so the flag test excludes all of them at any
+   size. This is the durable guard; the size rule is defence in depth.
+
+A bounded warning fires after 8 captures, since one material should produce
+very few — a stream of them means the signature is colliding again.
+
+`worldSurfaceTargetWidth`/`Height` must always track the generated file.
 
 Remaining vanilla footprint: two material overrides instead of one shared
 texture override. Reaching *zero* requires the custom mesh below.

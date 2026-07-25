@@ -25,8 +25,14 @@ import pathlib
 import struct
 import sys
 
-WIDTH = 1600
-HEIGHT = 900
+# DELIBERATELY NOT a plausible render-target size. The binding matches on
+# dimensions, so anything the engine might allocate internally — the backbuffer,
+# a half/quarter-res post buffer, a shadow atlas — must never collide. A square
+# NPOT size satisfies that; 1600x900 did NOT, and hijacking the engine's own
+# render targets broke rendering across the whole frame. Never set this to a
+# 16:9 or power-of-two size, and never to the browser size.
+WIDTH = 1000
+HEIGHT = 1000
 CELL = 50
 
 DDSD_CAPS = 0x1

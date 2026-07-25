@@ -40,6 +40,7 @@ namespace OSFUI::WorldSurface
 		bool          g_loggedWrite{ false };
 		bool          g_loggedConsume{ false };
 		std::uint32_t g_fenceStalls{ 0 };
+		std::uint32_t g_captures{ 0 };
 		std::uint64_t g_refreshWrites{ 0 };
 		std::uint64_t g_nextRefreshLog{ 1 };
 
@@ -91,8 +92,19 @@ namespace OSFUI::WorldSurface
 			if (!a_resource) {
 				return false;
 			}
-			const auto desc = a_resource->GetDesc();
+		const auto desc = a_resource->GetDesc();
+			// Dimensions alone are NOT a safe signature. The engine allocates its
+			// own render targets, and matching one of those rewrites a descriptor
+			// the frame depends on — which breaks rendering globally, not just the
+			// surface. A streamed material texture is a plain sampled 2D texture:
+			// no render-target/depth/UAV capability, single slice, single mip (our
+			// placeholder ships unmipped). Requiring FLAG_NONE excludes every
+			// engine-owned target regardless of what size it happens to be.
 			return desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
+				desc.Flags == D3D12_RESOURCE_FLAG_NONE &&
+				desc.DepthOrArraySize == 1 &&
+				desc.MipLevels == 1 &&
+				desc.SampleDesc.Count == 1 &&
 				desc.Width == g_targetWidth.load(std::memory_order_relaxed) &&
 				desc.Height == g_targetHeight.load(std::memory_order_relaxed);
 		}
@@ -149,8 +161,17 @@ namespace OSFUI::WorldSurface
 			REX::INFO("[WorldSurface] captured placeholder {}x{} at srvCpu=0x{:X} "
 				"(resFormat {}, mips {}, viewFormat {}, replaced={})",
 				g_targetWidth.load(), g_targetHeight.load(), a_destination.ptr,
-				static_cast<int>(resource.Format), resource.MipLevels,
+			static_cast<int>(resource.Format), resource.MipLevels,
 				a_desc ? static_cast<int>(a_desc->Format) : -1, replaced);
+			// One material owns the placeholder, so captures should be rare. A
+			// stream of them means the signature is colliding with something the
+			// engine allocates — the failure mode that breaks the whole frame.
+			if (++g_captures == 8) {
+				REX::WARN("[WorldSurface] {} placeholder captures — the {}x{} "
+					"signature is probably colliding with engine-owned textures; "
+					"change the placeholder to an implausible size",
+					g_captures, g_targetWidth.load(), g_targetHeight.load());
+			}
 		}
 
 		bool AdoptPending()
