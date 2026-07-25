@@ -80,14 +80,14 @@ namespace OSFUI
 		// harmless for users.
 		std::string devReloadKey{ "F11" };
 
-		// Optional in-world WebView output. A second renderer process keeps this
-		// view alive independently of the fullscreen overlay. The target size is
-		// the unique placeholder DDS signature used by the material binding.
+#if defined(OSFUI_WITH_WORLD_SURFACES)
+		// Research-only in-world WebView output. Excluded from release builds.
 		std::string worldSurfaceView;
 		std::uint32_t worldSurfaceWidth{ 1600 };
 		std::uint32_t worldSurfaceHeight{ 900 };
 		std::uint32_t worldSurfaceTargetWidth{ 1000 };
 		std::uint32_t worldSurfaceTargetHeight{ 1000 };
+#endif
 
 		// Loads from a_path; returns defaults (and logs why) on any failure.
 		static Config Load(const std::filesystem::path& a_path);

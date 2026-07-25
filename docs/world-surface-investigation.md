@@ -245,8 +245,8 @@ Two reproducible generators replace the hand-placed artifact:
 
 | Tool | Output |
 | --- | --- |
-| `tools/make_world_surface_placeholder.py` | `data/assets/textures/OSFUI/worldsurface_placeholder01.dds` — 1600x900 BGRA8, one mip |
-| `tools/make_world_surface_materials.py` | `data/assets/materials/.../ShipScreen_Avionics01{,_A}.mat` |
+| `tools/make_world_surface_placeholder.py` | `research-world-surface-assets/textures/OSFUI/worldsurface_placeholder01.dds` — research-only BGRA8 placeholder |
+| `tools/make_world_surface_materials.py` | `research-world-surface-assets/materials/.../ShipScreen_Avionics01{,_A}.mat` — unsafe research overrides, never package |
 
 The material generator copies each vanilla file verbatim and rewrites only the
 texture filename strings (8 changed lines per file), so every `res:`
@@ -310,8 +310,18 @@ very few — a stream of them means the signature is colliding again.
 
 `worldSurfaceTargetWidth`/`Height` must always track the generated file.
 
-Remaining vanilla footprint: two material overrides instead of one shared
-texture override. Reaching *zero* requires the custom mesh below.
+The shipping vanilla footprint is zero: the two experimental overrides and
+placeholder remain in source for analysis but are outside `data/` and excluded
+from deployment.
+
+## Release gating
+
+Normal builds compile `ScaleformToTextureProbe.cpp`, `WorldTextureProbe.cpp`,
+and `WorldSurface.cpp` out of the plugin. The runtime call sites, state, and
+configuration keys are
+guarded by `OSFUI_WITH_WORLD_SURFACES`, which xmake defines only after an
+explicit `xmake f --with_world_surfaces=y`. Research assets are never installed,
+even in that build; testing them requires a deliberate manual deployment.
 
 ## Next engineering steps
 

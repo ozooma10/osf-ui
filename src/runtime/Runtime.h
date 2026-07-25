@@ -330,9 +330,11 @@ namespace OSFUI
 		LocalizationService           _localization;
 		ViewManager                   _views;
 		std::unique_ptr<IWebRenderer> _renderer;
+#if defined(OSFUI_WITH_WORLD_SURFACES)
 		// Dedicated browser process/ring for the optional material-backed surface.
 		std::unique_ptr<IWebRenderer> _worldRenderer;
 		std::string                   _worldViewId;
+#endif
 		std::unique_ptr<ICompositor>  _compositor;
 		std::unique_ptr<MessageBridge>          _bridge;
 		std::vector<std::unique_ptr<IUiModule>> _modules;

@@ -23,6 +23,15 @@ option("with_webview2", function()
     set_description("Build the WebView2 renderer and out-of-process host")
 end)
 
+-- Research-only render-to-texture experiments. Release builds leave this off:
+-- it excludes both the observational Scaleform probe and the material-backed
+-- world-surface runtime from the DLL.
+option("with_world_surfaces", function()
+    set_default(false)
+    set_showmenu(true)
+    set_description("Build experimental in-world Web UI surface runtime")
+end)
+
 -- JSON for config, view manifests, and the message bridge
 add_requires("nlohmann_json")
 
@@ -98,6 +107,14 @@ target("OSF UI")
     add_files("src/**.cpp")
     add_headerfiles("src/**.h")
     add_includedirs("src")
+    if has_config("with_world_surfaces") then
+        add_defines("OSFUI_WITH_WORLD_SURFACES=1")
+    else
+        remove_files(
+            "src/composite/ScaleformToTextureProbe.cpp",
+            "src/composite/WorldTextureProbe.cpp",
+            "src/composite/WorldSurface.cpp")
+    end
     -- sdk/ holds the public single-header native API (OSFUI_API.h); 
     -- src/api includes it directly so the impl and the consumer copy share one ABI def.
     add_headerfiles("sdk/OSFUI_API.h")
@@ -110,13 +127,6 @@ target("OSF UI")
     -- the Papyrus surface (authoring-settings.md "From Papyrus"): loose scripts
     -- at the Data root -- <install>/Scripts/OSFUI.pex (+ Source/OSFUI.psc)
     add_installfiles("data/(Scripts/**)")
-    -- world-surface game assets (experimental): loose materials + the owned
-    -- placeholder texture, at the Data root -- <install>/Materials/...,
-    -- <install>/Textures/... Regenerate with tools/make_world_surface_*.py;
-    -- inert unless config.json sets worldSurfaceView.
-    add_installfiles("data/assets/(materials/**)")
-    add_installfiles("data/assets/(textures/**)")
-
     -- Redeploy data/ (views + config) to the mod folder on every build where a data file changed. 
     -- The commonlib rule's after_build only runs "xmake install" when the DLL binary itself changed, so pure HTML/JS/JSON edits would otherwise never reach XSE_SF_MODS_PATH.
     after_build(function(target)
@@ -126,21 +136,13 @@ target("OSF UI")
         import("core.project.depend")
         local datadir = path.join(os.projectdir(), "data", "OSFUI")
         local scriptsdir = path.join(os.projectdir(), "data", "Scripts")
-        local assetsdir = path.join(os.projectdir(), "data", "assets")
         local files = os.files(path.join(os.projectdir(), "data", "**"))
         depend.on_changed(function()
             local dstdir = path.join(target:installdir(), "SFSE", "Plugins")
             os.cp(datadir, dstdir)
             -- Papyrus surface: loose scripts at the Data root (mod folder root)
             os.cp(scriptsdir, target:installdir())
-            -- world-surface materials/textures land at the Data root too
-            for _, sub in ipairs({ "materials", "textures" }) do
-                local src = path.join(assetsdir, sub)
-                if os.isdir(src) then
-                    os.cp(src, target:installdir())
-                end
-            end
-            cprint("${dim}deploying data/OSFUI + data/Scripts + data/assets to %s ..", target:installdir())
+            cprint("${dim}deploying data/OSFUI + data/Scripts to %s ..", target:installdir())
         end, { files = files, values = files,
                dependfile = target:dependfile("osfui_data_deploy") })
         -- Out-of-process WebView2 host: ship the exe inside the plugin data

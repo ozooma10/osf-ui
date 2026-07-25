@@ -8,9 +8,11 @@
 #include "api/PapyrusApi.h"
 #include "composite/D3D12Compositor.h"
 #include "composite/NullCompositor.h"
+#if defined(OSFUI_WITH_WORLD_SURFACES)
 #include "composite/ScaleformToTextureProbe.h"
-#include "composite/UiPassSeam.h"
 #include "composite/WorldSurface.h"
+#endif
+#include "composite/UiPassSeam.h"
 #include "core/Log.h"
 #include "core/Version.h"
 #include "input/ControlLayer.h"
@@ -134,11 +136,13 @@ namespace OSFUI
 			});
 		}
 
+#if defined(OSFUI_WITH_WORLD_SURFACES)
 		// Arm material discovery before the engine device's one hook opportunity.
 		if (!_config.worldSurfaceView.empty()) {
 			WorldSurface::Configure(_config.worldSurfaceTargetWidth,
 				_config.worldSurfaceTargetHeight);
 		}
+#endif
 
 		_compositor = CreateCompositor();
 		if (!_compositor->Initialize()) {
@@ -170,12 +174,14 @@ namespace OSFUI
 					   "Scaleform vtable slots first, or the game build is not one the seam has "
 					   "been proven on. See the [UiPassSeam] lines above.");
 		}
+#if defined(OSFUI_WITH_WORLD_SURFACES)
 		if (_config.devMode) {
 			// Investigation-only: characterize Starfield's native
 			// Scaleform-to-texture path without putting any additional hook on a
 			// normal player's render path. Failure does not affect the overlay.
 			ScaleformToTextureProbe::Install();
 		}
+#endif
 		REX::INFO("Runtime: compositor = {}", _compositor->Name());
 
 		_captureInput.store(_config.captureInput);
@@ -196,9 +202,11 @@ namespace OSFUI
 			if (_renderer) {
 				_renderer->SendMessageToWeb(a_viewId, a_json);
 			}
+#if defined(OSFUI_WITH_WORLD_SURFACES)
 			if (_worldRenderer && a_viewId == _worldViewId) {
 				_worldRenderer->SendMessageToWeb(a_viewId, a_json);
 			}
+#endif
 		});
 		RegisterPlatformCommands(*_bridge);
 		for (const auto& module : _modules) {
@@ -211,6 +219,7 @@ namespace OSFUI
 		});
 
 
+#if defined(OSFUI_WITH_WORLD_SURFACES)
 		// A material-backed surface gets its own host process and capture ring, so
 		// opening/closing the fullscreen overlay cannot hide, resize, or replace it.
 		if (!_config.worldSurfaceView.empty()) {
@@ -264,6 +273,7 @@ namespace OSFUI
 				}
 			}
 		}
+#endif
 
 		// The first-load handoff is useful only on a renderer that can keep it
 		// warm beside a target view. It is a hidden platform surface, loaded
@@ -375,12 +385,14 @@ namespace OSFUI
 		if (!_initialized) {
 			return;
 		}
+#if defined(OSFUI_WITH_WORLD_SURFACES)
 		if (_worldRenderer) {
 			_worldRenderer->Shutdown();
 			_worldRenderer.reset();
 		}
 		WorldSurface::Shutdown();
 		_worldViewId.clear();
+#endif
 		if (_compositor) {
 			_compositor->Shutdown();
 			_compositor.reset();
@@ -563,6 +575,7 @@ namespace OSFUI
 			SubmitFrameIfVisible();
 			UpdateRenderDiagnostics();
 		}
+#if defined(OSFUI_WITH_WORLD_SURFACES)
 		if (_worldRenderer) {
 			_worldRenderer->Update(a_deltaSeconds);
 			if (const auto worldFrame = _worldRenderer->Render()) {
@@ -572,6 +585,7 @@ namespace OSFUI
 			// restore the placeholder descriptor at any time.
 			WorldSurface::Refresh();
 		}
+#endif
 		// After Update(), so health edges raised by either renderer this tick are
 		// in the registry before the snapshot goes out.
 		PumpDiagnostics();
