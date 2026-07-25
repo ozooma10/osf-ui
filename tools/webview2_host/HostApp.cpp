@@ -2876,13 +2876,18 @@ namespace osfui::wv2
 		wchar_t exePath[MAX_PATH]{};
 		::GetModuleFileNameW(nullptr, exePath, MAX_PATH);
 		app.log.Info(std::format(
-			"osfui_webview2_host starting (pid {}, game pid {}, pipe '{}', elevated={}, exe '{}')",
+			"osfui_webview2_host starting (pid {}, game pid {}, pipe '{}', instance '{}', elevated={}, exe '{}')",
 			::GetCurrentProcessId(), a_options.gamePid, ToUtf8(a_options.pipeName),
-			elevated ? "yes" : "no", ToUtf8(exePath)));
+			ToUtf8(a_options.instance), elevated ? "yes" : "no", ToUtf8(exePath)));
 
-		// One host per game process: a relaunch while a previous host is alive must
-		// not fight over the pipe/windows.
-		const auto mutexName = std::format(L"Local\\osfui-wv2-host-{}", a_options.gamePid);
+		// One host per game process AND instance: a relaunch while a previous
+		// host is alive must not fight over the pipe/windows, but an
+		// independent second host (world surface) must coexist with the
+		// overlay's.
+		const auto mutexName = a_options.instance.empty() ?
+			std::format(L"Local\\osfui-wv2-host-{}", a_options.gamePid) :
+			std::format(L"Local\\osfui-wv2-host-{}-{}", a_options.gamePid,
+				a_options.instance);
 		const HANDLE instanceMutex = ::CreateMutexW(nullptr, TRUE, mutexName.c_str());
 		if (!instanceMutex || ::GetLastError() == ERROR_ALREADY_EXISTS) {
 			app.log.Error("another host instance is already running for this game pid");

@@ -993,8 +993,8 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				outputSizeKnown.store(true, std::memory_order_release);
 			}
 
-			// Adopt the ring as soon as the host has published a frame, so the
-			// seam has SRVs the moment the overlay opens.
+			// Adopt the overlay ring as soon as the host has published a frame.
+			// In-world surfaces own an independent renderer and ring.
 			bool ready = false;
 			{
 				std::scoped_lock lk(frameMutex);

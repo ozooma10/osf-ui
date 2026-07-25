@@ -8,7 +8,9 @@
 #include "api/PapyrusApi.h"
 #include "composite/D3D12Compositor.h"
 #include "composite/NullCompositor.h"
+#include "composite/ScaleformToTextureProbe.h"
 #include "composite/UiPassSeam.h"
+#include "composite/WorldSurface.h"
 #include "core/Log.h"
 #include "core/Version.h"
 #include "input/ControlLayer.h"
@@ -132,6 +134,12 @@ namespace OSFUI
 			});
 		}
 
+		// Arm material discovery before the engine device's one hook opportunity.
+		if (!_config.worldSurfaceView.empty()) {
+			WorldSurface::Configure(_config.worldSurfaceTargetWidth,
+				_config.worldSurfaceTargetHeight);
+		}
+
 		_compositor = CreateCompositor();
 		if (!_compositor->Initialize()) {
 			REX::WARN("Runtime: compositor '{}' failed to initialize; falling back to null compositor", _compositor->Name());
@@ -162,6 +170,12 @@ namespace OSFUI
 					   "Scaleform vtable slots first, or the game build is not one the seam has "
 					   "been proven on. See the [UiPassSeam] lines above.");
 		}
+		if (_config.devMode) {
+			// Investigation-only: characterize Starfield's native
+			// Scaleform-to-texture path without putting any additional hook on a
+			// normal player's render path. Failure does not affect the overlay.
+			ScaleformToTextureProbe::Install();
+		}
 		REX::INFO("Runtime: compositor = {}", _compositor->Name());
 
 		_captureInput.store(_config.captureInput);
@@ -182,6 +196,9 @@ namespace OSFUI
 			if (_renderer) {
 				_renderer->SendMessageToWeb(a_viewId, a_json);
 			}
+			if (_worldRenderer && a_viewId == _worldViewId) {
+				_worldRenderer->SendMessageToWeb(a_viewId, a_json);
+			}
 		});
 		RegisterPlatformCommands(*_bridge);
 		for (const auto& module : _modules) {
@@ -192,6 +209,61 @@ namespace OSFUI
 				_bridge->HandleWebMessage(a_viewId, a_json);
 			}
 		});
+
+
+		// A material-backed surface gets its own host process and capture ring, so
+		// opening/closing the fullscreen overlay cannot hide, resize, or replace it.
+		if (!_config.worldSurfaceView.empty()) {
+			const auto* worldView = _views.Find(_config.worldSurfaceView);
+			if (!worldView) {
+				REX::WARN("Runtime: worldSurfaceView '{}' was not found; in-world output disabled",
+					_config.worldSurfaceView);
+			} else if (_config.renderer != "webview2" || _config.compositor != "d3d12") {
+				REX::WARN("Runtime: world surfaces require renderer='webview2' and compositor='d3d12'; disabled");
+			} else {
+				_worldRenderer = CreateRenderer();
+				RendererConfig worldConfig{
+					.width = _config.worldSurfaceWidth,
+					.height = _config.worldSurfaceHeight,
+					.devMode = _config.devMode,
+					.dataDir = Paths::DataDir(),
+					// Own host process, pipe, browser profile, and views mirror
+					// — nothing here may collide with the overlay's host.
+					.instanceName = "world",
+				};
+				if (!_worldRenderer->Initialize(worldConfig)) {
+					REX::ERROR("Runtime: dedicated world-surface renderer failed to initialize");
+					_worldRenderer.reset();
+				} else {
+					_worldViewId = worldView->id;
+					_worldRenderer->SetSharedRingHandler([](const SharedRingDesc& a_desc) {
+						WorldSurface::SetSharedRing(a_desc);
+					});
+					_worldRenderer->SetWebMessageHandler([this](std::string_view a_viewId,
+						std::string_view a_json) {
+						if (_bridge) {
+							_bridge->HandleWebMessage(a_viewId, a_json);
+						}
+					});
+					_worldRenderer->SetLoadHandler([](const IWebRenderer::LoadEvent& a_e) {
+						if (a_e.failed) {
+							REX::ERROR("Runtime: world surface '{}' failed to load: {} ({})",
+								a_e.viewId, a_e.description, a_e.errorCode);
+						}
+					});
+					auto manifest = *worldView;
+					manifest.transparent = false;
+					manifest.width = _config.worldSurfaceWidth;
+					manifest.height = _config.worldSurfaceHeight;
+					_worldRenderer->LoadView(manifest);
+					_worldRenderer->SetActiveView(manifest.id);
+					_worldRenderer->SetViewHidden(manifest.id, false);
+					REX::INFO("Runtime: world surface '{}' started at {}x{} (placeholder {}x{})",
+						manifest.id, manifest.width, manifest.height,
+						_config.worldSurfaceTargetWidth, _config.worldSurfaceTargetHeight);
+				}
+			}
+		}
 
 		// The first-load handoff is useful only on a renderer that can keep it
 		// warm beside a target view. It is a hidden platform surface, loaded
@@ -303,6 +375,12 @@ namespace OSFUI
 		if (!_initialized) {
 			return;
 		}
+		if (_worldRenderer) {
+			_worldRenderer->Shutdown();
+			_worldRenderer.reset();
+		}
+		WorldSurface::Shutdown();
+		_worldViewId.clear();
 		if (_compositor) {
 			_compositor->Shutdown();
 			_compositor.reset();
@@ -485,8 +563,14 @@ namespace OSFUI
 			SubmitFrameIfVisible();
 			UpdateRenderDiagnostics();
 		}
-		// After Update(), so a health edge the renderer raised this tick is in
-		// the registry before the snapshot goes out.
+		if (_worldRenderer) {
+			_worldRenderer->Update(a_deltaSeconds);
+			if (const auto worldFrame = _worldRenderer->Render()) {
+				WorldSurface::Submit(*worldFrame);
+			}
+		}
+		// After Update(), so health edges raised by either renderer this tick are
+		// in the registry before the snapshot goes out.
 		PumpDiagnostics();
 	}
 

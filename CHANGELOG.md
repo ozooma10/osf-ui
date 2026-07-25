@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+### Highlights
+
+- Added the first opt-in in-world Web UI surface: a configured view now runs in its own WebView2 host and shared-texture ring, remains alive while the fullscreen overlay is closed, and follows completed ring slots instead of freezing on the proof's first texture. A uniquely sized placeholder texture identifies the intended material without replacing every texture of the same format. This initial slice is rendering-only and supports one surface; custom mesh/material packaging, consume-fence integration, interaction, and multiple instances remain follow-up work.
+
+### Added
+
+- **System Health is now the whole game's health pane, not just OSF UI's.** Any mod built on the native API can report a problem into it — a pack that failed to parse, a missing asset, a feature it had to switch off — so you look in one place when something is wrong instead of having to know which mod noticed first. Reports name the mod that made them, clear themselves when the condition goes away, and appear in **Copy diagnostic report** alongside everything else.
+
+### For plugin authors
+
+- Native ABI **1.7** (`Feature::kDiagnostics`) adds `ReportIssue`, `ClearIssue` and `ClearIssuesExcept` to `IOSFUIBridge`/`Client`: raise a durable condition into System Health, withdraw it when it clears, or reconcile a recomputed set in one sweep. Issues are identity-keyed (a repeat bumps an occurrence count rather than stacking a card), and the `source`, id and code are namespaced to the calling mod **by the host**, so no mod can file a report against another or resolve a platform issue. `context` is a flat JSON object, bounded and path-sanitized. A code OSF UI does not recognise renders as a card naming your mod with your details attached — never a blank one. On a host older than 1.7 all three are no-ops returning false. See §5d of [native-plugin-api.md](docs/native-plugin-api.md), including what does *not* belong in the pane.
+
+### Fixed
+
+- The in-world surface's browser host could never actually start alongside the overlay's: both hosts drew the same random pipe name (a same-millisecond seed collision), and the host's one-per-game-process instance lock then refused the second launch outright — so the cockpit screen kept showing its placeholder instead of Web content. Second hosts now get their own pipe name, instance lock, WebView2 profile, views mirror, and log file, and the overlay's focus watchdog only reclaims focus from its own host's windows, never from the world surface's.
+
+### For view authors
+
+- The developer config accepts `worldSurfaceView`, `worldSurfaceWidth`, `worldSurfaceHeight`, `worldSurfaceTargetWidth`, and `worldSurfaceTargetHeight`. Leaving `worldSurfaceView` empty disables the extra renderer. The target dimensions must identify an OSF UI-owned placeholder DDS used only by the intended material.
+
 ## 1.4.0 — 2026-07-24
 
 Mod Settings gains a **System Health** destination that turns silent, log-only failures into plain-language warnings with a clear next step. Underneath, OSF UI's per-frame runtime now runs on Starfield's main thread, and the Scaleform seam compositor is back on its known-good implementation.

@@ -12,7 +12,9 @@ namespace OSFUI
 			"configVersion", "enabled", "renderer", "compositor",
 			"inputSource", "captureInput", "hardwareCursor", "focusMenu",
 			"engineInput", "pauseMenuEntry", "pauseMenuEntryLabel", "pauseMenuEntryView",
-			"view", "views", "devMode", "devReloadKey",
+			"view", "views", "devMode", "devReloadKey", "worldSurfaceView",
+			"worldSurfaceWidth", "worldSurfaceHeight",
+			"worldSurfaceTargetWidth", "worldSurfaceTargetHeight",
 		};
 	}
 
@@ -50,6 +52,17 @@ namespace OSFUI
 		config.pauseMenuEntryView = Json::GetString(*json, "pauseMenuEntryView", config.pauseMenuEntryView);
 		config.view = Json::GetString(*json, "view", config.view);
 		config.views = Json::GetStringArray(*json, "views");
+		config.worldSurfaceView = Json::GetString(*json, "worldSurfaceView", config.worldSurfaceView);
+		const auto boundedUInt = [&json](std::string_view a_key, std::uint32_t a_default,
+			std::uint32_t a_min, std::uint32_t a_max) {
+			const auto value = Json::GetInt(*json, a_key, a_default);
+			return static_cast<std::uint32_t>((std::clamp)(value,
+				static_cast<std::int64_t>(a_min), static_cast<std::int64_t>(a_max)));
+		};
+		config.worldSurfaceWidth = boundedUInt("worldSurfaceWidth", config.worldSurfaceWidth, 64, 4096);
+		config.worldSurfaceHeight = boundedUInt("worldSurfaceHeight", config.worldSurfaceHeight, 64, 4096);
+		config.worldSurfaceTargetWidth = boundedUInt("worldSurfaceTargetWidth", config.worldSurfaceTargetWidth, 1, 16384);
+		config.worldSurfaceTargetHeight = boundedUInt("worldSurfaceTargetHeight", config.worldSurfaceTargetHeight, 1, 16384);
 		config.devMode = Json::GetBool(*json, "devMode", config.devMode);
 		config.devReloadKey = Json::GetString(*json, "devReloadKey", config.devReloadKey);
 

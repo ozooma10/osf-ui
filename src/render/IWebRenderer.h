@@ -14,6 +14,13 @@ namespace OSFUI
 		// such as bin/osfui_webview2_host.exe under here, keeping render/
 		// decoupled from core/Paths.
 		std::filesystem::path dataDir;
+
+		// Identity of this renderer's out-of-process browser host. Empty is the
+		// primary overlay instance; a non-empty tag (e.g. "world") runs a fully
+		// independent second host with its own pipe, single-instance lock,
+		// WebView2 user-data folder, views mirror, and host log file. Keep it a
+		// short lowercase file-name-safe tag.
+		std::string instanceName;
 	};
 
 	enum class PixelFormat
