@@ -12,6 +12,7 @@
 #include "composite/EngineD3D12.h"
 #include "core/Log.h"
 #include "core/Version.h"
+#include "runtime/DevViewFiles.h"
 #include "input/OverlayInputHook.h"
 
 #define WIN32_LEAN_AND_MEAN
@@ -304,6 +305,10 @@ namespace OSFUI
 
 		RendererConfig        config;
 		std::filesystem::path viewsRoot, mappedViewsRoot, userData;
+        // Initial MO2 mirroring and later dev refreshes can run on different
+        // threads; serialize the live real-path tree and its activation flag.
+        std::mutex            viewsMirrorMutex;
+        bool                  usesViewsMirror{ false };
 		std::filesystem::path hostExeSource, hostExeMirror;
 		std::filesystem::path hostLog;  // set in Initialize; read by worker + notify drain
 		std::uint32_t adapterLuidLow{ 0 }, adapterLuidHigh{ 0 };
@@ -498,7 +503,9 @@ namespace OSFUI
 		// anything outside the game can use them.
 		void ResolveMappedViewsRoot()
 		{
+            std::scoped_lock mirrorLock(viewsMirrorMutex);
 			mappedViewsRoot = viewsRoot;
+            usesViewsMirror = false;
 			if (!::GetModuleHandleW(L"usvfs_x64.dll")) return;
 			std::error_code ec;
 			// Per-instance mirror: this function deletes and recreates the tree,
@@ -519,9 +526,29 @@ namespace OSFUI
 				return;
 			}
 			mappedViewsRoot = mirror;
+            usesViewsMirror = true;
 			REX::INFO("WebView2HostWebRenderer: USVFS detected — views mirrored to {}",
 				ToUtf8(mirror.native()));
 		}
+
+        // The unhooked browser cannot see MO2's VFS. Refresh exactly one live
+        // real-path view on the dev worker before Runtime navigates it.
+        bool RefreshViewFiles(std::string_view a_viewId)
+        {
+            if (!config.devMode) return true;
+            std::scoped_lock mirrorLock(viewsMirrorMutex);
+            if (!usesViewsMirror) return true;
+
+            const auto source = viewsRoot / std::filesystem::path(std::string(a_viewId));
+            const auto destination = mappedViewsRoot / std::filesystem::path(std::string(a_viewId));
+            std::string error;
+            if (!DevViewFiles::SyncTree(source, destination, error)) {
+                REX::WARN("WebView2HostWebRenderer: dev reload could not mirror '{}' ({})",
+                    a_viewId, error);
+                return false;
+            }
+            return true;
+        }
 
 		// The host exe ships inside the mod folder (VFS-only under MO2) but is
 		// launched by Explorer/the task scheduler, which cannot see the VFS.
@@ -1202,6 +1229,11 @@ namespace OSFUI
 		_impl->Send(NavigateMsg(a_manifest.id, a_manifest.entry,
 			a_manifest.permissions.nativeBridge, logicalHeight));
 	}
+
+    bool WebView2HostWebRenderer::RefreshViewFiles(std::string_view a_viewId)
+    {
+        return _impl && _impl->RefreshViewFiles(a_viewId);
+    }
 
 	void WebView2HostWebRenderer::SetActiveView(std::string_view a_id)
 	{

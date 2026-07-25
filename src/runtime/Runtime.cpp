@@ -359,6 +359,20 @@ namespace OSFUI
 			});
 		REX::INFO("Runtime: input capture {} (config captureInput)", _config.captureInput ? "enabled" : "disabled");
 
+        if (_config.devMode) {
+            _devViewReload = std::make_unique<DevViewReloadWorker>(
+                Paths::ViewsDir(), [this](const DevViewReloadWorker::Target& a_target) {
+                    bool refreshed = true;
+                    if (a_target.overlay) {
+                        refreshed = _renderer && _renderer->RefreshViewFiles(a_target.id);
+                    }
+                    if (refreshed && a_target.world) {
+                        refreshed = _worldRenderer && _worldRenderer->RefreshViewFiles(a_target.id);
+                    }
+                    return refreshed;
+                });
+        }
+
 		_initialized = true;
 		// Push the initial policy derived from whatever is open (incl. nothing).
 		ApplyMenuPolicy();
@@ -375,6 +389,9 @@ namespace OSFUI
 		if (!_initialized) {
 			return;
 		}
+        // Its callback holds non-owning renderer pointers: join the worker
+        // before either renderer begins teardown.
+        _devViewReload.reset();
 		if (_worldRenderer) {
 			_worldRenderer->Shutdown();
 			_worldRenderer.reset();
@@ -533,6 +550,7 @@ namespace OSFUI
 		// Fire any due crash-recovery reloads before Update pumps the renderer.
 		DriveRecovery();
 		DriveDevReload();
+		PumpDevViewReload();
 		// Flush the coalesced mouse move (QueueMouseMove): one injected move
 		// per frame carrying the latest position, however many raw packets the
 		// window thread recorded since the last tick.
@@ -1223,8 +1241,11 @@ namespace OSFUI
 										a_state == ViewLoadState::Finished;
 	}
 
-	void Runtime::ReloadViewInPlace(const std::string& a_id, const ViewManifest& a_manifest)
+	void Runtime::ReloadViewInPlace(const std::string& a_id, const ViewManifest& a_manifest, bool a_refreshFiles)
 	{
+		if (a_refreshFiles && _config.devMode && !_renderer->RefreshViewFiles(a_id)) {
+			REX::WARN("Runtime: dev reload of '{}' is using the previous mirrored files; save again to retry", a_id);
+		}
 		_viewLoadState[a_id] = ViewLoadState::Loading;
 		_readyViews.erase(a_id);
 		_renderer->LoadView(a_manifest);
@@ -1270,7 +1291,7 @@ namespace OSFUI
 			return;
 		}
 		REX::DEBUG("Runtime: dev-reloading view '{}' (devReloadKey)", *active);
-		ReloadViewInPlace(*active, *manifest);
+		ReloadViewInPlace(*active, *manifest, true);
 		// Identical payload at the OLD and NEW call sites. The pre-extraction code
 		// broadcast from INSIDE what is now ReloadViewInPlace — after the Loading
 		// store, before LoadView/Resize — and neither LoadView nor Resize touches
@@ -1284,6 +1305,45 @@ namespace OSFUI
 		// sent at all and the web would never see the loading state.
 		BroadcastViewsData();
 	}
+
+    void Runtime::PumpDevViewReload()
+    {
+        if (!_devViewReload) return;
+
+        std::vector<DevViewReloadWorker::Target> targets;
+        for (const auto& manifest : _views.All()) {
+            const bool overlay = _menus.IsRegistered(manifest.id);
+            const bool world = _worldRenderer && manifest.id == _worldViewId;
+            if (overlay || world) {
+                targets.push_back({ manifest.id, overlay, world });
+            }
+        }
+        _devViewReload->SetTargets(std::move(targets));
+
+        bool overlayReloaded = false;
+        for (const auto& ready : _devViewReload->DrainReady()) {
+            const auto* manifest = _views.Find(ready.id);
+            if (!manifest) continue;
+            const bool overlay = ready.overlay && _menus.IsRegistered(ready.id);
+            const bool world = ready.world && _worldRenderer &&
+                ready.id == _worldViewId;
+            if (overlay) {
+                ReloadViewInPlace(ready.id, *manifest);
+                overlayReloaded = true;
+            }
+            if (world) {
+                auto worldManifest = *manifest;
+                worldManifest.transparent = false;
+                worldManifest.width = _config.worldSurfaceWidth;
+                worldManifest.height = _config.worldSurfaceHeight;
+                _worldRenderer->LoadView(worldManifest);
+            }
+            if (overlay || world) {
+                REX::INFO("Runtime: dev reloaded loose view '{}'", ready.id);
+            }
+        }
+        if (overlayReloaded) BroadcastViewsData();
+    }
 
 	nlohmann::json Runtime::BuildViewsData() const
 	{

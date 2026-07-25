@@ -682,13 +682,16 @@ With `devMode: true` the in-game loop is fast too:
   its `aliases`), an open settings view repaints itself, and deleting the
   file drops the mod. A runtime-registered (DLL) schema is never touched by
   files.
+- **Loose view auto-reload**: save HTML, JavaScript, CSS, or a local asset in
+  a loaded view and OSF UI reloads it after the file settles (normally within
+  half a second). Polling and MO2 mirror synchronization happen in the
+  background; removed or renamed files disappear from the mirror too. It
+  deliberately ignores `manifest.json` changes and new view folders, which
+  require a game restart.
 - **View reload key** (`devReloadKey`, default `F11`): reloads the top open
-  menu's URL in place, so HTML/JS/CSS edits show up without relaunching. The
-  key is consumed by the framework while devMode is on. It reloads whatever is
-  **on disk** — for your own hand-authored view that is the file you just
-  edited, but for a built-in view that is generated output, so run
-  `npm --prefix frontend run build` first or F11 will faithfully reload the
-  previous bundle.
+  menu immediately and refreshes MO2's browser mirror first. Use it to re-run
+  page startup without changing a file. Built-in views still require
+  `npm --prefix frontend run build` because their shipped files are generated.
 
 ---
 

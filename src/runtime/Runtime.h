@@ -8,6 +8,7 @@
 #include "input/InputRouter.h"
 #include "render/IWebRenderer.h"
 #include "runtime/DiagnosticsModule.h"
+#include "runtime/DevViewReloadWorker.h"
 #include "runtime/HotkeyService.h"
 #include "runtime/LocalizationService.h"
 #include "runtime/MenuController.h"
@@ -270,7 +271,8 @@ namespace OSFUI
 		// LoadView, then restore the output-matched size. The shared core of
 		// crash-recovery, dev-reload, and pending-open retry. The renderer must
 		// exist — every caller guards _renderer first.
-		void ReloadViewInPlace(const std::string& a_id, const ViewManifest& a_manifest);
+		void ReloadViewInPlace(const std::string& a_id, const ViewManifest& a_manifest,
+			bool a_refreshFiles = false);
 
 		// Fire due reload attempts scheduled by OnViewLoad. Called from Tick on
 		// the game thread.
@@ -281,6 +283,10 @@ namespace OSFUI
 		// crash-recovery. Called from Tick on the game thread.
 		void DriveDevReload();
 
+
+		// Publish loaded views to the worker and drain completed mirror refreshes.
+		// Navigation remains on the game thread.
+		void PumpDevViewReload();
 		// The `views.data` catalog (bridge 0.2): one entry per registered surface
 		// with its manifest metadata + live open/focus/load state. Read-only
 		// snapshot; a view torn down by crash-recovery drops out (unregistered).
@@ -351,6 +357,8 @@ namespace OSFUI
 		// main-thread).
 		KeyCode                       _devReloadKey{ kInvalidKeyCode };
 		std::atomic_bool              _devReloadRequested{ false };
+
+		std::unique_ptr<DevViewReloadWorker> _devViewReload;
 
 		// Registered surfaces (menus/HUDs) + open state. Mutated only on the main
 		// thread (Tick / bridge handlers).

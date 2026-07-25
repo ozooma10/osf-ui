@@ -160,6 +160,12 @@ namespace OSFUI
 		// view becomes active by default. Use SetActiveView to change that.
 		virtual void LoadView(const ViewManifest& a_manifest) = 0;
 
+        // Development-only loose-file support. This may run on the dev worker,
+        // so implementations must synchronize any mutable filesystem state.
+        // Direct-path and non-browser backends need no work. False asks the
+        // caller to retry after an editor or antivirus releases a file.
+        virtual bool RefreshViewFiles(std::string_view /*a_viewId*/) { return true; }
+
 		// Selects which loaded view receives input (and, today, the bridge).
 		// No-op if the id is not loaded, or for single-view backends.
 		virtual void SetActiveView(std::string_view /*a_id*/) {}

@@ -6,6 +6,8 @@
 
 - Added the first opt-in in-world Web UI surface: a configured view now runs in its own WebView2 host and shared-texture ring, remains alive while the fullscreen overlay is closed, and follows completed ring slots instead of freezing on the proof's first texture. Each displayed slot is released back to the browser host through the consume fence one engine frame later, so the host reuses older slots without stalling on its bounded overwrite guard. A uniquely sized placeholder texture identifies the intended material without replacing every texture of the same format. This initial slice is rendering-only and supports one surface; custom mesh/material packaging, interaction, and multiple instances remain follow-up work.
 
+- In **devMode**, loose view edits now appear in game without rebuilding or restarting: save HTML, JavaScript, CSS, or a local asset and OSF UI refreshes the loaded view after the file settles. Polling and Mod Organizer 2 mirror synchronization run in the background so large view folders do not stall the game; removed or renamed files are deleted from the browser mirror instead of lingering, and failed copies retry with backoff. F11 refreshes the mirror too. `manifest.json` changes and newly added views still require a restart.
+
 ### Added
 
 - **System Health is now the whole game's health pane, not just OSF UI's.** Any mod built on the native API can report a problem into it — a pack that failed to parse, a missing asset, a feature it had to switch off — so you look in one place when something is wrong instead of having to know which mod noticed first. Reports name the mod that made them, clear themselves when the condition goes away, and appear in **Copy diagnostic report** alongside everything else.
