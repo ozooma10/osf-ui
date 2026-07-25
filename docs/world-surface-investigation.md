@@ -258,6 +258,33 @@ into the material database, and the allocation scheme is not understood. A
 genuinely OSF UI-owned material at an OSF UI-owned path needs the Creation Kit
 to mint fresh IDs. This is the gating unknown for step 4 below.
 
+### The placeholder DDS header must match the reference exactly
+
+The generated placeholder initially carried `DDSD_LINEARSIZE` (0x80000) in its
+header flags — that flag is for block-compressed data — while still writing a
+pitch value, and declared 1 mip where the reference declares 0. Every other
+header field was already correct.
+
+The symptom was not a blank screen. World rendering broke: only the skybox and
+a couple of quads drew. A texture the streamer cannot parse appears to take
+more with it than the material that referenced it, so **an invalid placeholder
+is a whole-frame hazard, not a cosmetic one.**
+
+`tools/make_world_surface_placeholder.py` now asserts `flags == 0x100F` and
+`mips == 0` before writing, and the generated header is byte-identical to the
+first 128 bytes of the original proof texture (kept at
+`C:\tmp\OSFUI_ShipScreen_Avionics01_probe.dds`). That reference is the ground
+truth for what this game build's loader accepts; diff against it first whenever
+the placeholder is regenerated.
+
+Ruled out while diagnosing this, both worth not re-testing:
+
+- **The SRV hook.** The log showed exactly one `captured placeholder` per
+  session with `replaced=true` — identical to the known-good run.
+- **The material overrides.** They differ from vanilla by exactly the four
+  texture-path lines each, and nothing else in `Data/Materials` imports
+  `ShipScreen_Avionics01.mat`.
+
 ### The placeholder size is safety-critical
 
 The placeholder was briefly set to 1600x900 to match the browser size. That

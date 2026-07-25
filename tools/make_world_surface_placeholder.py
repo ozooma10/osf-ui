@@ -39,7 +39,11 @@ DDSD_CAPS = 0x1
 DDSD_HEIGHT = 0x2
 DDSD_WIDTH = 0x4
 DDSD_PIXELFORMAT = 0x1000
-DDSD_LINEARSIZE = 0x80000
+# DDSD_PITCH, not DDSD_LINEARSIZE: linear-size is for block-compressed data.
+# Getting this wrong produces a header the game's texture loader rejects. The
+# reference is the original proof texture — the first 128 bytes of the output
+# must match its header exactly (see the header assertion in main()).
+DDSD_PITCH = 0x8
 DDPF_ALPHAPIXELS = 0x1
 DDPF_RGB = 0x40
 DDSCAPS_TEXTURE = 0x1000
@@ -51,12 +55,12 @@ def _header(width: int, height: int) -> bytes:
         "<4sIIIIIII44xIIIIIIIIIIII4x",
         b"DDS ",
         124,
-        DDSD_CAPS | DDSD_HEIGHT | DDSD_WIDTH | DDSD_PIXELFORMAT | DDSD_LINEARSIZE,
+        DDSD_CAPS | DDSD_HEIGHT | DDSD_WIDTH | DDSD_PIXELFORMAT | DDSD_PITCH,
         height,
         width,
         pitch,
         0,  # depth
-        1,  # mip count
+        0,  # mip count: 0, matching the reference (no DDSD_MIPMAPCOUNT flag)
         32,  # pixel format size
         DDPF_RGB | DDPF_ALPHAPIXELS,
         0,  # four CC
@@ -71,6 +75,16 @@ def _header(width: int, height: int) -> bytes:
         0,
     )
     assert len(header) == 128, len(header)
+    # Byte-exact header of the original proof texture, which the game's loader
+    # is known to accept at these dimensions. Any drift here is a bug: a header
+    # the streamer rejects does not merely leave the surface blank, it can take
+    # world rendering down with it.
+    flags, mips = struct.unpack("<I", header[8:12])[0], struct.unpack("<I", header[28:32])[0]
+    if flags != 0x100F or mips != 0:
+        raise SystemExit(
+            f"DDS header drifted from the reference: flags=0x{flags:X} (want 0x100F), "
+            f"mips={mips} (want 0)"
+        )
     return header
 
 
