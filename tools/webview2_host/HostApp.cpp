@@ -156,6 +156,37 @@ namespace osfui::wv2
 			}).detach();
 		}
 
+		// Controller creation can fail after the runtime version probe and the
+		// environment callback have both succeeded. That leaves no browser surface
+		// in which to explain the problem, so use the same out-of-process native
+		// prompt as the missing-runtime path.
+		void PromptRepairWebView2Runtime(Logger& a_log, HRESULT a_hr)
+		{
+			static std::atomic_bool prompted{ false };
+			if (prompted.exchange(true)) return;
+			const auto code = static_cast<unsigned>(a_hr);
+			a_log.Error(std::format(
+				"WebView2 could not create its composition controller (0x{:08X}) - "
+				"showing the repair dialog", code));
+			std::thread([code] {
+				const auto message = std::format(
+					L"OSF UI could not start the Microsoft Edge WebView2 renderer "
+					L"(error 0x{:08X}).\n\n"
+					L"The overlay has been closed so the game remains usable. Restart "
+					L"Windows, then repair or reinstall the WebView2 Runtime. If the "
+					L"problem remains, repair the Microsoft Visual C++ x64 Runtime.\n\n"
+					L"Open Microsoft's WebView2 installer download now?",
+					code);
+				const auto choice = ::MessageBoxW(nullptr, message.c_str(),
+					L"OSF UI - WebView2 renderer failed",
+					MB_YESNO | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND);
+				if (choice == IDYES) {
+					::ShellExecuteW(nullptr, L"open", kRuntimeDownloadUrl,
+						nullptr, nullptr, SW_SHOWNORMAL);
+				}
+			}).detach();
+		}
+
 		struct App
 		{
 			HostOptions options;
@@ -165,6 +196,7 @@ namespace osfui::wv2
 			HANDLE      wakeEvent{ nullptr };
 			std::thread reader;
 			std::atomic_bool quit{ false };
+			bool             rendererFatal{ false };  // STA thread only; first failure wins
 			std::string      byeReason;  // overrides the default bye reason (STA thread only)
 
 			std::mutex       commandMutex;
@@ -1193,13 +1225,34 @@ namespace osfui::wv2
 				}
 			}
 
+			void ReportControllerFailure(View& a_view, HRESULT a_hr,
+				std::string_view a_description)
+			{
+				if (rendererFatal) return;
+				rendererFatal = true;
+				const auto code = static_cast<unsigned>(a_hr);
+				log.Error(std::format("view '{}': {} (0x{:08X})",
+					a_view.id, a_description, code));
+				Send(json{
+					{ "type", "fatal" },
+					{ "stage", "composition-controller" },
+					{ "view", a_view.id },
+					{ "description", std::string(a_description) },
+					{ "code", code },
+				});
+				PromptRepairWebView2Runtime(log, a_hr);
+			}
+
 			HRESULT OnController(View& a_view, HRESULT a_hr,
 				ICoreWebView2CompositionController* a_composition)
 			{
 				if (quit.load()) return S_OK;
 				if (FAILED(a_hr) || !a_composition) {
-					log.Error(std::format("view '{}': composition controller callback failed (0x{:08X})",
-						a_view.id, static_cast<unsigned>(a_hr)));
+					const auto failureHr = FAILED(a_hr) ? a_hr : E_POINTER;
+					ReportControllerFailure(a_view, failureHr,
+						failureHr == static_cast<HRESULT>(0x800736B1u) ?
+						"composition controller failed: Windows side-by-side activation is broken" :
+						"composition controller callback failed");
 					return S_OK;
 				}
 				a_view.compositionController = a_composition;
@@ -1207,7 +1260,8 @@ namespace osfui::wv2
 
 				if (FAILED(a_view.compositionController.As(&a_view.controller)) ||
 					FAILED(a_view.controller->get_CoreWebView2(&a_view.webView)) || !a_view.webView) {
-					log.Error(std::format("view '{}': failed to acquire CoreWebView2", a_view.id));
+					ReportControllerFailure(a_view, E_NOINTERFACE,
+						"composition controller created but CoreWebView2 was unavailable");
 					return S_OK;
 				}
 				// The Edge context menu is a real HWND-backed popup outside our

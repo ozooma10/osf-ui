@@ -10,14 +10,17 @@ everything here is hand-written and copied into a view project as needed.
   `window.osfui`, the message envelope, the `ui.command` whitelist, and the
   native→web message + settings-schema shapes (for **view authors**).
 - [`OSFUI_API.h`](OSFUI_API.h) — the copyable C++ header for **SFSE plugin
-  authors** (native bridge, C ABI 1.6). Consume it through the
+  authors** (native bridge, C ABI 1.8). Consume it through the
   `OSFUI::API::Client` wrapper — it version-gates every call so a too-old
-  host degrades to false/no-op instead of undefined behavior. See
+  host degrades to false/no-op instead of undefined behavior.
+- [`OSFUI_JSON.h`](OSFUI_JSON.h) — optional header-only `nlohmann::json`
+  parsing, response, and outbound-message conveniences. It compiles into the
+  consuming plugin and does not change the dependency-free DLL ABI. See
   [docs/native-plugin-api.md](../docs/native-plugin-api.md).
 
 ## Bridge protocol version
 
-**1.4 — stable.** Additive changes bump the minor; breaking changes bump the
+**1.6 — stable.** Additive changes bump the minor; breaking changes bump the
 major. Compatibility is advisory, not gated: declare the OSF UI version you
 authored against as `targetVersion` (in your view manifest and/or settings
 schema) and the Mods surface shows a "needs update" badge when the running

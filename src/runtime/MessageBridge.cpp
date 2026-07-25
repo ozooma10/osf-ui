@@ -34,12 +34,33 @@ namespace OSFUI
 
 	void MessageBridge::RegisterCommand(std::string a_command, CommandHandler a_handler)
 	{
+		if (_requests.contains(a_command)) {
+			REX::WARN("MessageBridge: refused command '{}' — already registered as a request", a_command);
+			return;
+		}
 		_commands[std::move(a_command)] = std::move(a_handler);
+	}
+
+	bool MessageBridge::RegisterRequest(std::string a_command, RequestHandler a_handler)
+	{
+		if (_commands.contains(a_command)) {
+			REX::WARN("MessageBridge: refused request '{}' — name already registered as a command", a_command);
+			return false;
+		}
+		// BridgeApi owns public first-wins policy. Re-application here replaces
+		// the internal trampoline after an explicit unregister/re-register.
+		_requests[std::move(a_command)] = std::move(a_handler);
+		return true;
 	}
 
 	void MessageBridge::UnregisterCommand(std::string_view a_command)
 	{
 		_commands.erase(std::string(a_command));
+	}
+
+	void MessageBridge::UnregisterRequest(std::string_view a_command)
+	{
+		_requests.erase(std::string(a_command));
 	}
 
 	void MessageBridge::HandleWebMessage(std::string_view a_viewId, std::string_view a_json)
@@ -91,6 +112,10 @@ namespace OSFUI
 			if (!_currentRequestId.empty() && !_replied) {
 				SendToWeb("ui.result", { { "ok", true }, { "command", _currentCommand } });
 			}
+		} else if (const auto requestIt = _requests.find(command); requestIt != _requests.end()) {
+			// Request handlers own settlement; callback return is not an answer.
+			requestIt->second(a_payload, *this);
+			_replied = true;
 		} else {
 			// Pages retry unregistered commands (polling), so warn once per
 			// command name to avoid flooding the log. The ui.error reply still

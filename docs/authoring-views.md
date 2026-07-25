@@ -14,7 +14,7 @@ a reference for the two data-driven extension points that work today:
 
 > **Status / scope.** Pure content, no recompile: a
 > `views/<modId>/<viewName>/` folder and a `settings/<modId>.json` schema. The
-> bridge protocol is at version **1.4 — stable**; additive changes bump the
+> bridge protocol is at version **1.6 — stable**; additive changes bump the
 > minor version, breaking changes bump the major. Compatibility is advisory:
 > declare the OSF UI version you authored against as `targetVersion` (manifest
 > and/or settings schema, §7), and the Mods surface shows a "needs update"
@@ -312,17 +312,22 @@ stylesheet, before your own script:
 // The helper's full surface (deliberately thin — it is part of the contract):
 osfui.available()                 // bridge present? false = plain browser
 const info = await osfui.ready;   // the runtime.ready payload (info.version = the running OSF UI)
-osfui.send("close");              // fire-and-forget ui.command
-const reply = await osfui.request("settings.get");   // correlated request
+osfui.send("close");              // low-level fire-and-forget ui.command
+osfui.emit("acme.mod.refresh");   // author-friendly fire-and-forget spelling
+const reply = await osfui.request("settings.get");   // complete reply envelope
+const data = await osfui.call("acme.mod.getData");   // reply payload directly
+osfui.action("equip", formId);    // one-way action to owning Papyrus mod
+osfui.data.on("inventory", render); // cached typed Papyrus state
+const price = await osfui.papyrus.request("price", formId); // owning Papyrus result
 osfui.viewReady();                 // meaningful first paint is ready (readySignal:true)
-const off = osfui.on("settings.changed", (payload) => { ... });  // subscribe
+const off = osfui.on("settings.changed", (payload) => { ... });  // raw message type
 ```
 
 `osfui.request()` generates a `requestId` and resolves with the reply message
 (`{ type, requestId, payload }`), or rejects with an `Error` carrying a
 stable `.code`: on `ui.error`, on `ui.result { ok:false }`, on timeout
 (default 10 s; pass `{ timeoutMs: 0 }` to disable, e.g. for a key capture
-that waits on the user), and immediately when no bridge is present. With the
+that waits on the user), and immediately when no bridge is present. For a qualified native-plugin request (`<author>.<modname>.<name>`), protocol 1.5 ignores a successful `ui.result { ok:true }` delivery ack and waits for the plugin's own typed response; "handler was called" can no longer masquerade as the requested value. With the
 helper loaded it owns `osfui.onMessage`; subscribe with `osfui.on()` and
 never assign `onMessage` yourself.
 
@@ -398,7 +403,8 @@ Whitelisted commands (anything else is rejected, logged, and answered with
 | `osfui.textFocus` | `focused: bool` | *(legacy experimental compatibility command)* accepted as a no-op. Interactive menus now hold native focus for their entire visible session, so views no longer need to request or release a separate text-entry grant |
 | `osfui.openModPage` | — | *(protocol 1.1)* open OSF UI's own Nexus Mods page in the user's **system browser** (the overlay itself never navigates — it has no chrome to come back through). The URL is hardcoded in the host; the payload carries nothing, so page content cannot steer the shell. For "update OSF UI" affordances in views. Behind a fullscreen game the browser opens unfocused (alt-tab); failures answer `ui.result { ok:false, code:"shell-failed" }` |
 | `osfui.openLogFolder` | — | *(protocol 1.4)* open the SFSE log folder in the system file browser. Fixed-target twin of `osfui.openModPage`: payload-free, the directory is derived natively, and the host opens only an existing directory, so page content can neither choose the target nor make this run anything. Failures answer `ui.result { ok:false, code:"no-log-folder" \| "shell-failed" }` |
-| `ui.action` | `action: string`, `arg?: string`, `args?: (string\|number\|boolean)[]` | *(protocol 1.1; `args` added 1.3)* fire an action at the OWNING mod's Papyrus scripts (`OSFUI.RegisterForViewActions`). The target mod id is derived from the calling view's id — the payload cannot spoof it. Send `arg` for a single string (delivered as `OnUIAction(action, arg)`) or `args` for a LIST (delivered as `OnUIAction(action, string[])` to a `RegisterForViewActionsArgs` callback) — the latter replaces packing several ints into one string. Non-string `args` elements are coerced to strings. A form reference (protocol 1.3) is just another `args` element: echo a pushed form's `formId` and the script resolves it with `OSFUI.GetFormById`. Fire-and-forget: no reply payload (a `requestId` still gets the auto `ui.result`, meaning "queued to the VM", not "handled"); the script answers by pushing state back as `data.push`. Convention: fire `{ action: "ready" }` on page load so the script (re)pushes current state — see [authoring-dynamic-data.md](authoring-dynamic-data.md) |
+| `ui.action` | `action: string`, `arg?: string`, `args?: (string\|number\|boolean)[]` | *(protocol 1.1; `args` added 1.3)* fire an action at the OWNING mod's Papyrus scripts (`OSFUI.RegisterForViewActions`). The target mod id is derived from the calling view's id — the payload cannot spoof it. Send `arg` for a single string (delivered as `OnUIAction(action, arg)`) or `args` for a LIST (delivered as `OnUIAction(action, string[])` to a `RegisterForViewActionsArgs` callback) — the latter replaces packing several ints into one string. Non-string `args` elements are coerced to strings. A form reference (protocol 1.3) is just another `args` element: echo a pushed form's `formId` and the script resolves it with `OSFUI.GetFormById`. Fire-and-forget: no reply payload (a `requestId` still gets the auto `ui.result`, meaning "queued to the VM", not "handled"); the script normally publishes updated typed state with `SetView*`. Only legacy transient `PushToView` flows need a page-level `ready` action — see [authoring-dynamic-data.md](authoring-dynamic-data.md) |
+| `ui.papyrusRequest` | `request: string`, `args?: (string\|number\|boolean)[]` | *(protocol 1.6; normally call `osfui.papyrus.request()`)* ask the OWNING mod's single Papyrus request listener for a typed value. The host derives ownership, supplies a one-shot reply token, enforces a ten-second deadline, and correlates `papyrus.result` or `ui.error`; the page never handles a token or requestId. |
 
 > There is intentionally no "call any native function" escape hatch. New
 > commands come from native code only: either a handler in the OSF UI
@@ -426,8 +432,10 @@ serves both:
 | `settings.ack` | `{ mod, key, ok, value?, code?, message? }` | result of a `settings.set`. `ok:true` carries `value`, the authoritative post-clamp committed value (compare with what you sent to detect clamping — no re-fetch needed); `ok:false` carries a stable `code`: `unknown-setting`, `read-only` (a setting type this host doesn't know), or `invalid-value` |
 | `settings.captured` | `{ mod, key, name, cancelled, conflicts? }` | reply to `settings.captureKey`: the captured key `name` (an OSF UI key name), or `cancelled:true` (Escape / unbindable — keep the old binding). When the captured key is already bound elsewhere, `conflicts: [{mod, key, title}]` lists actionable collisions this bind would create; expected `@game` reuse from a `blocksGameplay` context is omitted. Warn live, never block. The view then sends a normal `settings.set` with `name` |
 | `ui.hotkey` | `{ mod, key }` | the physical key currently bound to that `key`-typed setting was pressed in-game (protocol 1.0). Pushed to every `settings.get` subscriber — filter on `mod`. Suppressed while the overlay captures input or a rebind is armed; rebinds re-route automatically |
+| `data.state` | `{ mod, key, value }` | *(protocol 1.6; normally consume with `osfui.data.on(key, fn)`)* typed complete state published by Papyrus `SetView*`. The runtime caches the latest value per mod/key and replays it when an owning view opens or reloads; the helper also caches it for late subscribers. Keys are case-insensitive. |
+| `papyrus.result` | `{ value }` | *(protocol 1.6)* successful correlated `osfui.papyrus.request()` reply. The helper resolves directly to `value`; rejected and timed-out requests arrive as correlated `ui.error`. |
 | `data.push` | `{ mod, key, values, forms? }` | *(protocol 1.1; `forms` added 1.3)* dynamic data pushed by the owning mod's Papyrus script (`OSFUI.PushToView`), delivered to every loaded view of that mod. `values` is the WHOLE current string list for that `key` (state replacement, not a delta); nothing is cached natively — fire a `ready` `ui.action` on page load to get the initial state. Compare `key` case-insensitively (Papyrus interning does not preserve casing) and ignore keys you don't know. `forms` is present when the script used `OSFUI.PushFormsToView`: real game forms as `{ formId, formType, name?, editorId? }` objects (`null` elements keep their slot so a parallel `values` push stays index-aligned); echo `formId` back in an action's `args` to reference the form — see [authoring-dynamic-data.md](authoring-dynamic-data.md) |
-| `ui.result` | `{ ok, command?, code?, message? }` | the uniform outcome (protocol 1.0), sent only when your `ui.command` carried a `requestId`: verb commands (`close`, `menu.open`, …) answer `ok:true` on success; failures carry a stable `code` (`unknown-view`, `capture-busy`, `unknown-setting`, …). For a plugin-registered command, `ok:true` means delivered to the plugin's handler. `osfui.request()` consumes this for you |
+| `ui.result` | `{ ok, command?, code?, message? }` | the uniform outcome (protocol 1.0), sent only when your `ui.command` carried a `requestId`: verb commands (`close`, `menu.open`, …) answer `ok:true` on success; failures carry a stable `code`. For `RegisterCommand`, `ok:true` means only delivered to the handler; protocol 1.5 `osfui.request()` does not settle a qualified plugin request on that ack. A `RegisterRequest` reply instead keeps the plugin-owned `type` and payload |
 | `ui.gamepad` | `{ kind:"button", button:{id, down} }` \| `{ kind:"stick", axes:{lx, ly, rx, ry} }` | *(experimental — gamepad navigation is being refined; exempt from the 1.0 stability guarantee until stabilized)* raw gamepad events to the ACTIVE view while the overlay captures input (per-kind nesting, protocol 1.0). The default nav mapping (D-pad and left stick→arrows, A→Enter, B→back — a synthetic Escape to the page under `osfui.handleBack`, otherwise close, right stick→scroll) also applies unless you asserted `osfui.gamepadRaw` |
 | `ui.visibility` | `{ visible, reason? }` | the receiving view was shown/hidden as the overlay's focused menu (edge-triggered). Fires on overlay open/close AND on a `menu.open` view switch while the overlay stays up: the outgoing view gets `visible:false`, the incoming one `visible:true`. `reason` says why: `"overlay"` = the overlay itself opened/closed, `"focus"` = only the focused menu changed (hub → panel); absent on older runtimes — treat as `"overlay"`. Scope per-visit resets to `"overlay"` shows; treat any `visible:false` as a real hide. The reference views do exactly this |
 | `ui.error` | `{ code, message, type?, command? }` | the runtime rejected something you sent. `code` is a stable machine string — `malformed-message`, `unknown-message-type`, `unknown-command`; `message` is the human sentence. Echoes your `requestId` when it could be read, so `osfui.request()` rejects with it. The same WARN is in `OSF UI.log` |
@@ -738,7 +746,7 @@ const info = await osfui.ready;
 console.log(`running OSF UI ${info.version}`);
 ```
 
-The protocol version is **1.4**, emitted as `bridgeVersion` — informational
+The protocol version is **1.6**, emitted as `bridgeVersion` — informational
 (logs, bug reports), distinct from the plugin `version`. From 1.0 the
 contract is stable: additive changes bump the minor version; anything that
 would break a shipped view bumps the major. The constant lives in

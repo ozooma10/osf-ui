@@ -16,6 +16,7 @@
 #pragma once
 
 #include <cstdint>
+#include <type_traits>
 
 // Loader dependency. In a CommonLibSF plugin the REX Win32 wrappers are used; a plain-Win32 consumer falls back to <Windows.h>. 
 // Define OSFUI_API_NO_REX to force the fallback even with REX on the include path.
@@ -44,7 +45,7 @@ static_assert(sizeof(std::uint32_t) == 4, "OSFUI_API: fixed-width ABI types requ
 namespace OSFUI::API
 {
 	// Packed (MAJOR << 16) | MINOR. 
-	inline constexpr std::uint32_t kBridgeAPIVersion = (1u << 16) | 7u;
+	inline constexpr std::uint32_t kBridgeAPIVersion = (1u << 16) | 8u;
 	inline constexpr std::uint32_t kBridgeAPIMajor   = kBridgeAPIVersion >> 16;
 	inline constexpr std::uint32_t kBridgeAPIMinor   = kBridgeAPIVersion & 0xFFFFu;
 
@@ -62,6 +63,41 @@ namespace OSFUI::API
 	                           const char* a_sourceViewId,
 	                           void*       a_user) noexcept;
 
+	// Copyable, deferred reply token for a registered request (ABI 1.8).
+	// Copies remain safe after response, timeout, or view closure: the opaque id
+	// is resolved in host-owned storage and a stale id is simply ignored.
+	struct Request
+	{
+		using RespondFn = void (*)(std::uint64_t, const char*, const char*) noexcept;
+		using RejectFn = void (*)(std::uint64_t, const char*, const char*) noexcept;
+
+		const char* command{ nullptr };
+		const char* payloadJson{ nullptr };
+		const char* sourceViewId{ nullptr };
+
+		void Respond(const char* a_payloadJson) const noexcept
+		{
+			if (_respond) _respond(_token, nullptr, a_payloadJson);
+		}
+		void Respond(const char* a_type, const char* a_payloadJson) const noexcept
+		{
+			if (_respond) _respond(_token, a_type, a_payloadJson);
+		}
+		void Reject(const char* a_code, const char* a_message = "") const noexcept
+		{
+			if (_reject) _reject(_token, a_code, a_message);
+		}
+
+		// Host-initialized ABI payload. Treat as opaque; copying it is supported.
+		std::uint64_t _token{ 0 };
+		RespondFn     _respond{ nullptr };
+		RejectFn      _reject{ nullptr };
+	};
+
+	// Main-thread handler. The Request may be copied and answered once later
+	// from any thread. Its const char* fields are valid only during this call.
+	using RequestFn = void (*)(const Request& a_request, void* a_user) noexcept;
+	static_assert(std::is_standard_layout_v<Request> && std::is_trivially_copyable_v<Request>);
 	// Fired when the bridge becomes ready (a nativeBridge view is live), and again after any re-creation. Main thread.
 	using ReadyFn = void (*)(void* a_user) noexcept;
 
@@ -257,6 +293,10 @@ namespace OSFUI::API
 		// mod id or a payload that is not a JSON array of strings.
 		virtual bool ClearIssuesExcept(const char* a_modId, const char* a_keepIdsJson) = 0;
 
+		// ABI 1.8 tail methods: same name grammar and first-wins namespace as commands.
+		virtual void RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user) = 0;
+		virtual void UnregisterRequest(const char* a_name) = 0;
+
 	protected:
 		~IOSFUIBridge() = default;  // OSF UI owns the singleton; consumers never delete it.
 	};
@@ -311,6 +351,7 @@ namespace OSFUI::API
 		kRegisterView = 5,
 		kCommandShape = 6,       // "<author>.<modname>.<name>" enforcement + first-wins duplicates
 		kDiagnostics = 7,        // ReportIssue/ClearIssue/ClearIssuesExcept -> System Health
+		kRequests = 8,           // RegisterRequest + deferred Request::Respond/Reject
 	};
 
 	class Client
@@ -477,6 +518,15 @@ namespace OSFUI::API
 			return Has(Feature::kDiagnostics) && _bridge->ClearIssuesExcept(a_modId, a_keepIdsJson);
 		}
 
+		// --- 1.8 request/response ---
+		void RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user) const noexcept
+		{
+			if (Has(Feature::kRequests)) _bridge->RegisterRequest(a_name, a_handler, a_user);
+		}
+		void UnregisterRequest(const char* a_name) const noexcept
+		{
+			if (Has(Feature::kRequests)) _bridge->UnregisterRequest(a_name);
+		}
 	private:
 		IOSFUIBridge* _bridge{ nullptr };
 		std::uint32_t _minor{ 0 };

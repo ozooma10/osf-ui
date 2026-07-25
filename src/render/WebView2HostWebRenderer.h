@@ -40,6 +40,7 @@ namespace OSFUI
 		void SetWebMessageHandler(WebMessageHandler a_handler) override;
 		void SetDomReadyHandler(DomReadyHandler a_handler) override;
 		void SetLoadHandler(LoadHandler a_handler) override;
+		void SetFailureHandler(FailureHandler a_handler) override;
 		void SetCursorChangeHandler(CursorChangeHandler a_handler) override;
 		void SetNativeAcceleratorHandler(NativeAcceleratorHandler a_handler) override;
 		void SetNativeFocus(bool a_focused) override;

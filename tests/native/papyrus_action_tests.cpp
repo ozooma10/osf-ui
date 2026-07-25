@@ -65,6 +65,11 @@ int main()
 	// Install binds the natives on the stub VM and hooks the load-game source.
 	API::Papyrus::Install();
 	CHECK(vm->natives.contains("PushToView"));
+	CHECK(vm->natives.contains("SetViewInt"));
+	CHECK(vm->natives.contains("SetViewStrings"));
+	CHECK(vm->natives.contains("ListenForViewActions"));
+	CHECK(vm->natives.contains("ListenForViewRequests"));
+	CHECK(vm->natives.contains("ReplyViewInt"));
 	CHECK(vm->natives.contains("RegisterForViewActions"));
 	CHECK(vm->natives.contains("RegisterForViewActionsStatic"));
 	CHECK(vm->natives.contains("RegisterForViewActionsArgs"));
@@ -85,6 +90,18 @@ int main()
 		vm->GetNative<bool (*)(IVM&, std::uint32_t, std::monostate, std::int32_t)>("Unregister");
 	const auto pushToView =
 		vm->GetNative<void (*)(IVM&, std::uint32_t, std::monostate, Str, Str, std::vector<Str>)>("PushToView");
+	const auto setViewInt =
+		vm->GetNative<void (*)(IVM&, std::uint32_t, std::monostate, Str, Str, std::int32_t)>("SetViewInt");
+	const auto setViewStrings =
+		vm->GetNative<void (*)(IVM&, std::uint32_t, std::monostate, Str, Str, std::vector<Str>)>("SetViewStrings");
+	const auto listenActions =
+		vm->GetNative<std::int32_t (*)(IVM&, std::uint32_t, std::monostate, ObjPtr, Str)>("ListenForViewActions");
+	const auto listenRequests =
+		vm->GetNative<std::int32_t (*)(IVM&, std::uint32_t, std::monostate, ObjPtr, Str)>("ListenForViewRequests");
+	const auto replyViewInt =
+		vm->GetNative<bool (*)(IVM&, std::uint32_t, std::monostate, Str, std::int32_t)>("ReplyViewInt");
+	const auto rejectViewRequest =
+		vm->GetNative<bool (*)(IVM&, std::uint32_t, std::monostate, Str, Str, Str)>("RejectViewRequest");
 	const auto openMenu =
 		vm->GetNative<bool (*)(IVM&, std::uint32_t, std::monostate, Str)>("OpenMenu");
 	const auto closeMenu =
@@ -184,6 +201,60 @@ int main()
 	API::Papyrus::OnViewAction("t.alpha", "x", { "" });
 	CHECK(vm->calls.size() == 1);  // only the static registration remains
 
+	// --- fixed-name common listener ------------------------------------------------
+	const auto simpleReceiver = std::make_shared<RE::BSScript::Object>();
+	const auto simpleToken = listenActions(*vm, 0, {}, ObjPtr{ simpleReceiver }, "t.simple");
+	CHECK(simpleToken != 0);
+	vm->calls.clear();
+	API::Papyrus::OnViewAction("t.simple", "equip", { "42", "2" });
+	CHECK(vm->calls.size() == 1);
+	if (!vm->calls.empty()) {
+		CHECK(vm->calls[0].fn == "OnOSFUIViewAction");
+		CHECK((vm->calls[0].args == std::vector<std::string>{ "equip", "42", "2" }));
+	}
+	CHECK(unregister(*vm, 0, {}, simpleToken));
+	// --- correlated owning-Papyrus requests ---------------------------------------
+	const auto requestReceiver = std::make_shared<RE::BSScript::Object>();
+	const auto requestToken = listenRequests(*vm, 0, {}, ObjPtr{ requestReceiver }, "t.requests");
+	CHECK(requestToken != 0);
+	CHECK(listenRequests(*vm, 0, {}, ObjPtr{ requestReceiver }, "T.REQUESTS") == 0);  // first wins
+	vm->calls.clear();
+	CHECK(API::Papyrus::OnViewRequest("t.requests", "calculate", { "4", "true" },
+		"t.requests/view", "q1"));
+	CHECK(vm->calls.size() == 1);
+	std::string replyToken;
+	if (!vm->calls.empty()) {
+		CHECK(vm->calls[0].fn == "OnOSFUIViewRequest");
+		CHECK(vm->calls[0].args.size() == 4);
+		CHECK(vm->calls[0].args[0] == "calculate");
+		replyToken = vm->calls[0].args.back();
+	}
+	CHECK(!replyToken.empty());
+	CHECK(replyViewInt(*vm, 0, {}, replyToken.c_str(), 77));
+	CHECK(!replyViewInt(*vm, 0, {}, replyToken.c_str(), 88));  // one-shot
+	std::vector<API::Papyrus::ViewReply> replies;
+	API::Papyrus::DrainViewReplies([&](const auto& reply) { replies.push_back(reply); });
+	CHECK(replies.size() == 1);
+	if (!replies.empty()) {
+		CHECK(replies[0].view == "t.requests/view" && replies[0].requestId == "q1");
+		CHECK(!replies[0].rejected && replies[0].value == 77);
+	}
+
+	vm->calls.clear();
+	CHECK(API::Papyrus::OnViewRequest("t.requests", "fail", {}, "t.requests/view", "q2"));
+	replyToken = vm->calls[0].args.back();
+	CHECK(rejectViewRequest(*vm, 0, {}, replyToken.c_str(), "not-allowed", "No"));
+	replies.clear();
+	API::Papyrus::DrainViewReplies([&](const auto& reply) { replies.push_back(reply); });
+	CHECK(replies.size() == 1 && replies[0].rejected && replies[0].code == "not-allowed");
+
+	vm->calls.clear();
+	CHECK(API::Papyrus::OnViewRequest("t.requests", "slow", {}, "t.requests/view", "q3"));
+	replies.clear();
+	API::Papyrus::DrainViewReplies([&](const auto& reply) { replies.push_back(reply); },
+		std::chrono::steady_clock::now() + std::chrono::seconds(11));
+	CHECK(replies.size() == 1 && replies[0].rejected && replies[0].code == "papyrus-timeout");
+	CHECK(!API::Papyrus::OnViewRequest("other.mod", "x", {}, "other.mod/view", "q4"));
 	// --- push queue / drain --------------------------------------------------------
 	std::vector<API::Papyrus::ViewPush> drained;
 	const auto drain = [&] {
@@ -212,6 +283,34 @@ int main()
 		CHECK(drained[0].values.empty());
 	}
 
+	// Retained typed state uses data.state's single JSON value and replays the
+	// latest value without asking Papyrus to handle a page-level ready action.
+	drained.clear();
+	setViewInt(*vm, 0, {}, "T.Alpha", "Count", 42);
+	setViewStrings(*vm, 0, {}, "t.alpha", "Names", { Str{ "ore" }, Str{ "aid" } });
+	drain();
+	CHECK(drained.size() == 2);
+	CHECK(drained[0].stateValue && *drained[0].stateValue == 42);
+	CHECK(drained[1].stateValue && *drained[1].stateValue == nlohmann::json({ "ore", "aid" }));
+
+	std::vector<API::Papyrus::ViewPush> replayed;
+	API::Papyrus::ReplayViewState("t.alpha", [&](const auto& state) { replayed.push_back(state); });
+	CHECK(replayed.size() == 2);
+	// The same key with different interned casing replaces, rather than forks,
+	// the retained cache entry.
+	setViewInt(*vm, 0, {}, "t.alpha", "COUNT", 99);
+	drained.clear();
+	drain();
+	replayed.clear();
+	API::Papyrus::ReplayViewState("T.ALPHA", [&](const auto& state) { replayed.push_back(state); });
+	CHECK(replayed.size() == 2);
+	bool saw99 = false;
+	for (const auto& state : replayed) {
+		if (state.key == "COUNT") {
+			saw99 = state.stateValue && *state.stateValue == 99;
+		}
+	}
+	CHECK(saw99);
 	// Invalid mod id / empty key are refused with a WARN, nothing queued.
 	drained.clear();
 	pushToView(*vm, 0, {}, "notdotted", "slots", { Str{ "x" } });
@@ -239,6 +338,9 @@ int main()
 	API::Papyrus::OnViewAction("t.alpha", "sort", { "1" });
 	CHECK(vm->calls.empty());                    // registrations gone
 	CHECK(!unregister(*vm, 0, {}, tokenStatic));  // pre-load token never validates again
+	replayed.clear();
+	API::Papyrus::ReplayViewState("t.alpha", [&](const auto& state) { replayed.push_back(state); });
+	CHECK(replayed.empty());  // session-scoped state (including form ids) is gone
 
 	// A fresh post-load registration works (generations stayed monotonic).
 	const auto tokenAfterLoad = registerStatic(*vm, 0, {}, "MyLib", "OnUIAction", "t.alpha");

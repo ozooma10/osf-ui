@@ -33,6 +33,7 @@ namespace OSFUI::API::Papyrus
 			kSettings,
 			kHotkey,
 			kAction,  // view-fired ui.action relay: modId required, key unused
+			kRequest, // correlated view request: fixed (string, string[], string) callback
 		};
 
 		struct Entry
@@ -70,15 +71,33 @@ namespace OSFUI::API::Papyrus
 			std::string                                key;
 			std::vector<std::string>                   values;
 			std::optional<std::vector<std::uint32_t>>  formIds;
+			std::optional<nlohmann::json>               stateValue;
+			bool                                        retained{ false };
 		};
 
+		struct PendingViewRequest
+		{
+			std::string                               token;
+			std::string                               view;
+			std::string                               requestId;
+			std::chrono::steady_clock::time_point     deadline;
+			bool                                      answered{ false };
+			bool                                      rejected{ false };
+			std::string                               code;
+			std::string                               message;
+			nlohmann::json                            value;
+			std::optional<std::vector<std::uint32_t>> formIds;
+		};
 		// Guards the slot table and the op/push queues: natives fill them from
 		// VM threads, the main thread drains.
 		std::mutex               s_lock;
 		std::vector<Entry>       s_slots;
 		std::uint16_t            s_nextGen = 1;
-		std::vector<QueuedOp>    s_ops;
-		std::vector<QueuedPush>  s_pushes;
+		std::vector<QueuedOp>                    s_ops;
+		std::vector<QueuedPush>                    s_pushes;
+		std::unordered_map<std::string, ViewPush>   s_viewState;
+		std::unordered_map<std::string, PendingViewRequest> s_viewRequests;
+		std::uint64_t                               s_nextViewRequest = 1;
 
 		// Fold to the id grammar's lowercase before validating/matching: the
 		// string arrived through BSFixedString interning, which hands back the
@@ -127,12 +146,15 @@ namespace OSFUI::API::Papyrus
 			e.wantsArgs = a_wantsArgs;
 
 			const auto token = MakeToken(gen, slot);
+			const char* signature = a_kind == Kind::kRequest ? "string, string[], string" :
+				(a_wantsArgs ? "string, string[]" : "string, string");
 			REX::DEBUG("PapyrusApi: registered token {:#010x} -> {}{}({}) ({} filter '{}'{}{})",
 				token, e.scriptName.empty() ? "" : std::string(e.scriptName.c_str()) + ".", e.fn.c_str(),
-				a_wantsArgs ? "string, string[]" : "string, string",
+				signature,
 				a_kind == Kind::kHotkey ? "hotkey" :
 				a_kind == Kind::kAction ? "action" :
-				                          "settings",
+				a_kind == Kind::kRequest ? "request" :
+				                           "settings",
 				e.modId, e.key.empty() ? "" : ".", e.key);
 			return token;
 		}
@@ -166,6 +188,21 @@ namespace OSFUI::API::Papyrus
 			};
 		}
 
+		// Correlated request callback shape:
+		// OnOSFUIViewRequest(string request, string[] args, string replyToken).
+		auto MakeRequestArgs(RE::BSFixedString a_request, std::vector<RE::BSFixedString> a_args,
+			RE::BSFixedString a_replyToken)
+		{
+			return [request = std::move(a_request), args = std::move(a_args), replyToken = std::move(a_replyToken)]
+				(RE::BSScrapArray<RE::BSScript::Variable>& a_out) -> bool {
+				a_out.resize(3);
+				a_out[0] = request;
+				std::vector<RE::BSFixedString> values = args;
+				RE::BSScript::PackVariable(a_out[1], values);
+				a_out[2] = replyToken;
+				return true;
+			};
+		}
 		struct Target
 		{
 			RE::BSTSmartPointer<RE::BSScript::Object> receiver;
@@ -275,6 +312,72 @@ namespace OSFUI::API::Papyrus
 			}
 		}
 
+		bool DispatchViewRequest(std::string_view a_modId, std::string_view a_request,
+			const std::vector<std::string>& a_args, std::string_view a_viewId, std::string_view a_requestId)
+		{
+			const auto targets = CollectTargets(Kind::kRequest, a_modId, {});
+			if (targets.empty()) return false;
+			auto* vm = VM::GetSingleton();
+			if (!vm) {
+				REX::WARN("PapyrusApi: view request dispatch with no VM");
+				return false;
+			}
+
+			std::string token;
+			{
+				std::lock_guard l{ s_lock };
+				constexpr std::size_t kMaxInflightViewRequests = 256;
+				constexpr std::size_t kMaxInflightPerView = 32;
+				const auto perView = std::ranges::count_if(s_viewRequests, [&](const auto& item) {
+					return item.second.view == a_viewId;
+				});
+				if (s_viewRequests.size() >= kMaxInflightViewRequests || perView >= kMaxInflightPerView) {
+					REX::WARN("PapyrusApi: too many view requests in flight for '{}'", a_viewId);
+					return false;
+				}
+				token = "p" + std::to_string(s_nextViewRequest++);
+				PendingViewRequest pending;
+				pending.token = token;
+				pending.view = a_viewId;
+				pending.requestId = a_requestId;
+				pending.deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+				s_viewRequests.emplace(token, std::move(pending));
+			}
+
+			std::vector<RE::BSFixedString> argv;
+			argv.reserve(a_args.size());
+			for (const auto& value : a_args) argv.emplace_back(value.c_str());
+			DispatchOne(vm, targets.front(), MakeRequestArgs(
+				RE::BSFixedString(std::string(a_request).c_str()), std::move(argv), RE::BSFixedString(token.c_str())));
+			return true;
+		}
+
+		bool CompleteViewRequest(const RE::BSFixedString& a_token, nlohmann::json a_value,
+			std::optional<std::vector<std::uint32_t>> a_formIds = std::nullopt)
+		{
+			const auto token = ToLowerAscii(a_token.c_str() ? a_token.c_str() : "");
+			std::lock_guard l{ s_lock };
+			const auto it = s_viewRequests.find(token);
+			if (it == s_viewRequests.end() || it->second.answered) return false;
+			it->second.answered = true;
+			it->second.value = std::move(a_value);
+			it->second.formIds = std::move(a_formIds);
+			return true;
+		}
+
+		bool RejectPendingViewRequest(const RE::BSFixedString& a_token,
+			const RE::BSFixedString& a_code, const RE::BSFixedString& a_message)
+		{
+			const auto token = ToLowerAscii(a_token.c_str() ? a_token.c_str() : "");
+			std::lock_guard l{ s_lock };
+			const auto it = s_viewRequests.find(token);
+			if (it == s_viewRequests.end() || it->second.answered) return false;
+			it->second.answered = true;
+			it->second.rejected = true;
+			it->second.code = (a_code.c_str() && *a_code.c_str()) ? a_code.c_str() : "papyrus-error";
+			it->second.message = a_message.c_str() ? a_message.c_str() : "";
+			return true;
+		}
 		void QueueOp(RE::BSFixedString& a_mod, RE::BSFixedString& a_key, nlohmann::json a_value, bool a_reset)
 		{
 			const char* mod = a_mod.c_str();
@@ -327,6 +430,26 @@ namespace OSFUI::API::Papyrus
 			s_pushes.push_back(std::move(a_push));
 		}
 
+		// SetView* is retained state, not a transient push. Values are already
+		// JSON-safe on the VM thread; forms take the FormID path below because
+		// their identity fields may only be read on the main thread.
+		void EnqueueState(const RE::BSFixedString& a_mod, const RE::BSFixedString& a_key,
+			nlohmann::json a_value, std::string_view a_native)
+		{
+			auto mod = FoldPushTarget(a_mod, a_key, a_native);
+			if (!mod) return;
+			EnqueuePush({ std::move(*mod), a_key.c_str(), {}, std::nullopt, std::move(a_value), true });
+		}
+
+		std::string StateCacheKey(std::string_view a_mod, std::string_view a_key)
+		{
+			std::string out;
+			out.reserve(a_mod.size() + a_key.size() + 1);
+			out.append(a_mod);
+			out.push_back('\n');
+			out.append(ToLowerAscii(a_key));
+			return out;
+		}
 		// FormType -> 4-char record signature ("KYWD", "WEAP", ...) via the
 		// game's own table. Main thread (the table is relocated game data).
 		// Unknown types fall back to the numeric enum value so the field is
@@ -589,6 +712,54 @@ namespace OSFUI::API::Papyrus
 			return RegisterActionStatic(a_script, a_fn, a_modId, true, "RegisterForViewActionsArgsStatic");
 		}
 
+		// Common-case registration: fixed callback name and the modern args-list
+		// shape, so a script author chooses only receiver + owning mod id.
+		std::int32_t ListenForViewActions(PapVM&, std::uint32_t, std::monostate,
+			RE::BSTSmartPointer<RE::BSScript::Object> a_receiver, RE::BSFixedString a_modId)
+		{
+			return RegisterActionInstance(a_receiver, RE::BSFixedString("OnOSFUIViewAction"), a_modId,
+				true, "ListenForViewActions");
+		}
+
+		std::int32_t ListenForViewActionsStatic(PapVM&, std::uint32_t, std::monostate,
+			RE::BSFixedString a_script, RE::BSFixedString a_modId)
+		{
+			return RegisterActionStatic(a_script, RE::BSFixedString("OnOSFUIViewAction"), a_modId,
+				true, "ListenForViewActionsStatic");
+		}
+
+		std::int32_t ListenForViewRequests(PapVM&, std::uint32_t, std::monostate,
+			RE::BSTSmartPointer<RE::BSScript::Object> a_receiver, RE::BSFixedString a_modId)
+		{
+			const auto modId = ValidateActionModId(a_modId);
+			if (!a_receiver.get() || !modId) return 0;
+			std::lock_guard l{ s_lock };
+			for (const auto& entry : s_slots) {
+				if (entry.generation && entry.kind == Kind::kRequest &&
+					Ids::EqualsCaseInsensitiveAscii(entry.modId, *modId)) {
+					REX::WARN("PapyrusApi: ListenForViewRequests('{}') refused — first listener wins", *modId);
+					return 0;
+				}
+			}
+			return AddEntry(Kind::kRequest, a_receiver, {}, "OnOSFUIViewRequest", *modId, {});
+		}
+
+		std::int32_t ListenForViewRequestsStatic(PapVM&, std::uint32_t, std::monostate,
+			RE::BSFixedString a_script, RE::BSFixedString a_modId)
+		{
+			const auto modId = ValidateActionModId(a_modId);
+			if (a_script.empty() || !modId) return 0;
+			std::lock_guard l{ s_lock };
+			for (const auto& entry : s_slots) {
+				if (entry.generation && entry.kind == Kind::kRequest &&
+					Ids::EqualsCaseInsensitiveAscii(entry.modId, *modId)) {
+					REX::WARN("PapyrusApi: ListenForViewRequestsStatic('{}') refused — first listener wins", *modId);
+					return 0;
+				}
+			}
+			return AddEntry(Kind::kRequest, {}, a_script, "OnOSFUIViewRequest", *modId, {});
+		}
+
 		void PushToView(PapVM&, std::uint32_t, std::monostate,
 			RE::BSFixedString a_mod, RE::BSFixedString a_key, std::vector<RE::BSFixedString> a_values)
 		{
@@ -623,6 +794,119 @@ namespace OSFUI::API::Papyrus
 			EnqueuePush({ std::move(*mod), a_key.c_str(), {}, std::move(ids) });
 		}
 
+		void SetViewBool(PapVM&, std::uint32_t, std::monostate,
+			RE::BSFixedString a_mod, RE::BSFixedString a_key, bool a_value)
+		{
+			EnqueueState(a_mod, a_key, a_value, "SetViewBool");
+		}
+
+		void SetViewInt(PapVM&, std::uint32_t, std::monostate,
+			RE::BSFixedString a_mod, RE::BSFixedString a_key, std::int32_t a_value)
+		{
+			EnqueueState(a_mod, a_key, a_value, "SetViewInt");
+		}
+
+		void SetViewFloat(PapVM&, std::uint32_t, std::monostate,
+			RE::BSFixedString a_mod, RE::BSFixedString a_key, float a_value)
+		{
+			EnqueueState(a_mod, a_key, a_value, "SetViewFloat");
+		}
+
+		void SetViewString(PapVM&, std::uint32_t, std::monostate,
+			RE::BSFixedString a_mod, RE::BSFixedString a_key, RE::BSFixedString a_value)
+		{
+			EnqueueState(a_mod, a_key, a_value.c_str() ? a_value.c_str() : "", "SetViewString");
+		}
+
+		void SetViewBools(PapVM&, std::uint32_t, std::monostate,
+			RE::BSFixedString a_mod, RE::BSFixedString a_key, std::vector<bool> a_values)
+		{
+			auto value = nlohmann::json::array();
+			for (const bool item : a_values) value.push_back(item);
+			EnqueueState(a_mod, a_key, std::move(value), "SetViewBools");
+		}
+
+		void SetViewInts(PapVM&, std::uint32_t, std::monostate,
+			RE::BSFixedString a_mod, RE::BSFixedString a_key, std::vector<std::int32_t> a_values)
+		{
+			EnqueueState(a_mod, a_key, std::move(a_values), "SetViewInts");
+		}
+
+		void SetViewFloats(PapVM&, std::uint32_t, std::monostate,
+			RE::BSFixedString a_mod, RE::BSFixedString a_key, std::vector<float> a_values)
+		{
+			EnqueueState(a_mod, a_key, std::move(a_values), "SetViewFloats");
+		}
+
+		void SetViewStrings(PapVM&, std::uint32_t, std::monostate,
+			RE::BSFixedString a_mod, RE::BSFixedString a_key, std::vector<RE::BSFixedString> a_values)
+		{
+			auto value = nlohmann::json::array();
+			for (const auto& item : a_values) value.push_back(item.c_str() ? item.c_str() : "");
+			EnqueueState(a_mod, a_key, std::move(value), "SetViewStrings");
+		}
+
+		void SetViewForms(PapVM&, std::uint32_t, std::monostate,
+			RE::BSFixedString a_mod, RE::BSFixedString a_key, std::vector<RE::TESForm*> a_forms)
+		{
+			auto target = FoldPushTarget(a_mod, a_key, "SetViewForms");
+			if (!target) return;
+			std::vector<std::uint32_t> ids;
+			ids.reserve(a_forms.size());
+			for (const auto* form : a_forms) {
+				ids.push_back(form ? static_cast<std::uint32_t>(form->GetFormID()) : 0);
+			}
+			EnqueuePush({ std::move(*target), a_key.c_str(), {}, std::move(ids), std::nullopt, true });
+		}
+
+		bool ReplyViewBool(PapVM&, std::uint32_t, std::monostate, RE::BSFixedString a_token, bool a_value)
+		{
+			return CompleteViewRequest(a_token, a_value);
+		}
+		bool ReplyViewInt(PapVM&, std::uint32_t, std::monostate, RE::BSFixedString a_token, std::int32_t a_value)
+		{
+			return CompleteViewRequest(a_token, a_value);
+		}
+		bool ReplyViewFloat(PapVM&, std::uint32_t, std::monostate, RE::BSFixedString a_token, float a_value)
+		{
+			return CompleteViewRequest(a_token, a_value);
+		}
+		bool ReplyViewString(PapVM&, std::uint32_t, std::monostate, RE::BSFixedString a_token, RE::BSFixedString a_value)
+		{
+			return CompleteViewRequest(a_token, a_value.c_str() ? a_value.c_str() : "");
+		}
+		bool ReplyViewBools(PapVM&, std::uint32_t, std::monostate, RE::BSFixedString a_token, std::vector<bool> a_values)
+		{
+			auto value = nlohmann::json::array();
+			for (const bool item : a_values) value.push_back(item);
+			return CompleteViewRequest(a_token, std::move(value));
+		}
+		bool ReplyViewInts(PapVM&, std::uint32_t, std::monostate, RE::BSFixedString a_token, std::vector<std::int32_t> a_values)
+		{
+			return CompleteViewRequest(a_token, std::move(a_values));
+		}
+		bool ReplyViewFloats(PapVM&, std::uint32_t, std::monostate, RE::BSFixedString a_token, std::vector<float> a_values)
+		{
+			return CompleteViewRequest(a_token, std::move(a_values));
+		}
+		bool ReplyViewStrings(PapVM&, std::uint32_t, std::monostate, RE::BSFixedString a_token, std::vector<RE::BSFixedString> a_values)
+		{
+			auto value = nlohmann::json::array();
+			for (const auto& item : a_values) value.push_back(item.c_str() ? item.c_str() : "");
+			return CompleteViewRequest(a_token, std::move(value));
+		}
+		bool ReplyViewForms(PapVM&, std::uint32_t, std::monostate, RE::BSFixedString a_token, std::vector<RE::TESForm*> a_forms)
+		{
+			std::vector<std::uint32_t> ids;
+			ids.reserve(a_forms.size());
+			for (const auto* form : a_forms) ids.push_back(form ? static_cast<std::uint32_t>(form->GetFormID()) : 0);
+			return CompleteViewRequest(a_token, nullptr, std::move(ids));
+		}
+		bool RejectViewRequest(PapVM&, std::uint32_t, std::monostate, RE::BSFixedString a_token,
+			RE::BSFixedString a_code, RE::BSFixedString a_message)
+		{
+			return RejectPendingViewRequest(a_token, a_code, a_message);
+		}
 		RE::TESForm* GetFormById(PapVM&, std::uint32_t, std::monostate, RE::BSFixedString a_formId)
 		{
 			return ResolveFormId(a_formId.c_str() ? a_formId.c_str() : "");
@@ -691,10 +975,33 @@ namespace OSFUI::API::Papyrus
 			a_vm->BindNativeMethod(kScriptName, "RegisterForViewActionsStatic", &RegisterForViewActionsStatic, true, false);
 			a_vm->BindNativeMethod(kScriptName, "RegisterForViewActionsArgs", &RegisterForViewActionsArgs, true, false);
 			a_vm->BindNativeMethod(kScriptName, "RegisterForViewActionsArgsStatic", &RegisterForViewActionsArgsStatic, true, false);
+			a_vm->BindNativeMethod(kScriptName, "ListenForViewActions", &ListenForViewActions, true, false);
+			a_vm->BindNativeMethod(kScriptName, "ListenForViewActionsStatic", &ListenForViewActionsStatic, true, false);
+			a_vm->BindNativeMethod(kScriptName, "ListenForViewRequests", &ListenForViewRequests, true, false);
+			a_vm->BindNativeMethod(kScriptName, "ListenForViewRequestsStatic", &ListenForViewRequestsStatic, true, false);
+			a_vm->BindNativeMethod(kScriptName, "ReplyViewBool", &ReplyViewBool, true, false);
+			a_vm->BindNativeMethod(kScriptName, "ReplyViewInt", &ReplyViewInt, true, false);
+			a_vm->BindNativeMethod(kScriptName, "ReplyViewFloat", &ReplyViewFloat, true, false);
+			a_vm->BindNativeMethod(kScriptName, "ReplyViewString", &ReplyViewString, true, false);
+			a_vm->BindNativeMethod(kScriptName, "ReplyViewBools", &ReplyViewBools, true, false);
+			a_vm->BindNativeMethod(kScriptName, "ReplyViewInts", &ReplyViewInts, true, false);
+			a_vm->BindNativeMethod(kScriptName, "ReplyViewFloats", &ReplyViewFloats, true, false);
+			a_vm->BindNativeMethod(kScriptName, "ReplyViewStrings", &ReplyViewStrings, true, false);
+			a_vm->BindNativeMethod(kScriptName, "ReplyViewForms", &ReplyViewForms, true, false);
+			a_vm->BindNativeMethod(kScriptName, "RejectViewRequest", &RejectViewRequest, true, false);
 			a_vm->BindNativeMethod(kScriptName, "Unregister", &Unregister, true, false);
 
 			a_vm->BindNativeMethod(kScriptName, "PushToView", &PushToView, true, false);
 			a_vm->BindNativeMethod(kScriptName, "PushFormsToView", &PushFormsToView, true, false);
+			a_vm->BindNativeMethod(kScriptName, "SetViewBool", &SetViewBool, true, false);
+			a_vm->BindNativeMethod(kScriptName, "SetViewInt", &SetViewInt, true, false);
+			a_vm->BindNativeMethod(kScriptName, "SetViewFloat", &SetViewFloat, true, false);
+			a_vm->BindNativeMethod(kScriptName, "SetViewString", &SetViewString, true, false);
+			a_vm->BindNativeMethod(kScriptName, "SetViewBools", &SetViewBools, true, false);
+			a_vm->BindNativeMethod(kScriptName, "SetViewInts", &SetViewInts, true, false);
+			a_vm->BindNativeMethod(kScriptName, "SetViewFloats", &SetViewFloats, true, false);
+			a_vm->BindNativeMethod(kScriptName, "SetViewStrings", &SetViewStrings, true, false);
+			a_vm->BindNativeMethod(kScriptName, "SetViewForms", &SetViewForms, true, false);
 			a_vm->BindNativeMethod(kScriptName, "GetFormById", &GetFormById, true, false);
 			a_vm->BindNativeMethod(kScriptName, "GetFormsById", &GetFormsById, true, false);
 
@@ -726,6 +1033,11 @@ namespace OSFUI::API::Papyrus
 				std::construct_at(std::addressof(e.receiver));  // overwrite ptr = null, skip Release
 			}
 			s_slots.clear();
+			// Retained view state and queued pushes contain session-scoped form
+			// identities and must never cross a game load.
+			s_viewState.clear();
+			s_viewRequests.clear();
+			s_pushes.clear();
 			if (dropped) {
 				REX::INFO("PapyrusApi: cleared {} script registration(s) on game load (session-scoped; scripts re-register)", dropped);
 			}
@@ -786,6 +1098,49 @@ namespace OSFUI::API::Papyrus
 		DispatchAction(a_modId, a_action, a_args);
 	}
 
+	bool OnViewRequest(std::string_view a_modId, std::string_view a_request,
+		const std::vector<std::string>& a_args, std::string_view a_viewId, std::string_view a_requestId)
+	{
+		return DispatchViewRequest(a_modId, a_request, a_args, a_viewId, a_requestId);
+	}
+
+	void DrainViewReplies(const std::function<void(const ViewReply&)>& a_deliver,
+		std::chrono::steady_clock::time_point a_now)
+	{
+		std::vector<PendingViewRequest> ready;
+		{
+			std::lock_guard l{ s_lock };
+			for (auto it = s_viewRequests.begin(); it != s_viewRequests.end();) {
+				if (!it->second.answered && a_now < it->second.deadline) {
+					++it;
+					continue;
+				}
+				ready.push_back(std::move(it->second));
+				it = s_viewRequests.erase(it);
+			}
+		}
+		for (auto& pending : ready) {
+			ViewReply reply;
+			reply.view = std::move(pending.view);
+			reply.requestId = std::move(pending.requestId);
+			if (!pending.answered) {
+				reply.rejected = true;
+				reply.code = "papyrus-timeout";
+				reply.message = "Papyrus did not answer the view request";
+			} else if (pending.rejected) {
+				reply.rejected = true;
+				reply.code = std::move(pending.code);
+				reply.message = std::move(pending.message);
+			} else if (pending.formIds) {
+				reply.value = nlohmann::json::array();
+				for (const auto id : *pending.formIds) reply.value.push_back(SerializeForm(id));
+			} else {
+				reply.value = std::move(pending.value);
+			}
+			a_deliver(reply);
+		}
+	}
+
 	void DrainViewPushes(const std::function<void(const ViewPush&)>& a_deliver)
 	{
 		std::vector<QueuedPush> pushes;
@@ -794,7 +1149,7 @@ namespace OSFUI::API::Papyrus
 			pushes.swap(s_pushes);
 		}
 		for (auto& p : pushes) {
-			ViewPush out{ std::move(p.mod), std::move(p.key), std::move(p.values), std::nullopt };
+			ViewPush out{ std::move(p.mod), std::move(p.key), std::move(p.values), std::nullopt, std::move(p.stateValue) };
 			if (p.formIds) {
 				// Serialize here, on the main thread: the queue held FormIDs,
 				// and a form that vanished since keeps its slot as null.
@@ -802,10 +1157,33 @@ namespace OSFUI::API::Papyrus
 				for (const auto id : *p.formIds) {
 					forms.push_back(SerializeForm(id));
 				}
-				out.forms = std::move(forms);
+				out.forms = forms;
+				if (p.retained) out.stateValue = std::move(forms);
+			}
+			if (p.retained) {
+				std::lock_guard l{ s_lock };
+				const auto key = StateCacheKey(out.mod, out.key);
+				constexpr std::size_t kMaxViewStateEntries = 1024;
+				if (s_viewState.contains(key) || s_viewState.size() < kMaxViewStateEntries) {
+					s_viewState[key] = out;
+				} else {
+					REX::WARN("PapyrusApi: retained view-state cache full; delivering but not retaining {}.{}", out.mod, out.key);
+				}
 			}
 			a_deliver(out);
 		}
+	}
+
+	void ReplayViewState(std::string_view a_modId, const std::function<void(const ViewPush&)>& a_deliver)
+	{
+		std::vector<ViewPush> snapshot;
+		{
+			std::lock_guard l{ s_lock };
+			for (const auto& [_, state] : s_viewState) {
+				if (Ids::EqualsCaseInsensitiveAscii(state.mod, a_modId)) snapshot.push_back(state);
+			}
+		}
+		for (const auto& state : snapshot) a_deliver(state);
 	}
 
 	void DrainSettingsOps(SettingsStore& a_store)

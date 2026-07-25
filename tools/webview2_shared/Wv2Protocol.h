@@ -100,6 +100,7 @@ namespace osfui::wv2
 	// frame         { slot:u32, serial:u64, width:u32, height:u32 }
 	// domReady      { view:str }
 	// loadEvent     { view:str, failed:bool, url:str, description:str, code:i32 }
+	// fatal         { stage:str, view:str, description:str, code:u32 }
 	// webMessage    { view:str, json:str }
 	// console       { view:str, json:str }       (raw Runtime.consoleAPICalled params)
 	// cursor        { id:u32 }                   (active view only; Win32 cursor id, 0 = hidden)

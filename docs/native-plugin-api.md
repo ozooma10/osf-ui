@@ -3,7 +3,7 @@
 Lets your DLL communicate with OSF UI. 
 Handle commands from a view, push data to a view, read settings and hotkeys, and open views.
 
-The whole API is one header: [`sdk/OSFUI_API.h`](../sdk/OSFUI_API.h) (C ABI **1.6**). 
+The stable, dependency-free ABI is [`sdk/OSFUI_API.h`](../sdk/OSFUI_API.h) (C ABI **1.8**). If your plugin uses `nlohmann::json`, include the optional [`sdk/OSFUI_JSON.h`](../sdk/OSFUI_JSON.h) authoring facade as well; it remains entirely on your side of the DLL boundary.
 
 Writing a view (HTML/JS) instead? See [authoring-views.md](authoring-views.md) - that's the `window.osfui` side. Your `SendToWeb` lands at a view's `osfui.onMessage`; a view's `osfui.send` lands at your command handler.
 
@@ -12,7 +12,8 @@ Writing a view (HTML/JS) instead? See [authoring-views.md](authoring-views.md) -
 - [0. When you need this](#0-when-you-need-this)
 - [1. Get the bridge](#1-get-the-bridge)
 - [2. Versioning](#2-versioning)
-- [3. Commands (web → native)](#3-commands-web--native)
+- [3. Commands and requests (web → native)](#3-commands-web--native)
+  - [3a. Request/response](#3a-requestresponse)
 - [4. Status & readiness](#4-status--readiness)
 - [5. Settings, hotkeys, views, and health](#5-settings-hotkeys-views-and-health)
   - [5a. Settings](#5a-settings)
@@ -37,7 +38,7 @@ Most mods need no native code:
 - A view reads/writes its own settings and reacts to hotkeys from JS.
 
 Use this API when your logic is in a native DLL and needs to:
-s
+
 - handle commands a view sends,
 - push game state into a view,
 - read settings, or react to them changing, from C++,
@@ -82,7 +83,7 @@ Three separate version numbers.
 
 | Version | Read it with | Gates |
 |---|---|---|
-| **C ABI** (`1.7`) | `GetInterfaceVersion()` | which native methods exist. Gate on this. |
+| **C ABI** (`1.8`) | `GetInterfaceVersion()` | which native methods exist. Gate on this. |
 | **Plugin** (OSF UI release) | `GetPluginVersion()` | nothing - log it for support. |
 | **Web protocol** (e.g. `"1.0"`) | `GetBridgeProtocolVersion()` | the JS handshake. Native code: don't parse it. |
 
@@ -121,6 +122,78 @@ There's no return value — send real results back with `SendToWeb`, echoing the
 
 Register once at `kPostLoad`.
 
+### 3a. Request/response
+
+ABI 1.8 (`Feature::kRequests`) adds a first-class value-returning path. Use it
+when the view needs an answer; keep `RegisterCommand` for fire-and-forget work.
+
+The preferred authoring form uses the optional JSON facade:
+
+```cpp
+#include "OSFUI_API.h"
+#include "OSFUI_JSON.h"
+
+static void OnGetWeight(const OSFUI::API::Request& raw, void*) noexcept
+{
+    OSFUI::API::JsonRequest request{ raw };
+    if (!request) return; // malformed input was already rejected
+
+    const auto formId = request.Get<std::uint32_t>("formId");
+    if (!formId) return; // missing/wrong type was rejected as invalid-payload
+    request.Respond("acme.mymod.weight", {
+        { "weight", ReadWeight(*formId) }
+    });
+}
+
+g_ui.RegisterRequest("acme.mymod.getWeight", &OnGetWeight, nullptr);
+```
+
+```js
+const { weight } = await osfui.call("acme.mymod.getWeight", { formId });
+```
+
+`JsonRequest::Get<T>(key)` reads a required field without throwing and rejects
+a missing or wrongly typed field as `invalid-payload`. `Value<T>(key,
+fallback)` and `TryGet()` handle optional fields. `Require<T>()` and `As<T>()`
+retain normal `nlohmann::json` exceptions for code that deliberately wants
+them. Malformed or non-object payloads are also rejected as
+`invalid-payload`; response serialization failures reject as
+`serialization-error`. Use `Raw()` when an advanced path needs the copyable
+deferred token directly.
+
+For a fire-and-forget `RegisterCommand` callback, `JsonCommand` provides the
+same typed payload access plus `Command()` and `SourceViewId()`:
+
+```cpp
+void OnEquip(const char* command, const char* json, const char* source, void*) noexcept
+{
+    OSFUI::API::JsonCommand event{ command, json, source };
+    if (!event) return;
+    std::uint32_t formId{};
+    if (event.TryGet("formId", formId)) Equip(formId);
+}
+```
+
+The host owns correlation: `RequestFn` receives no `requestId`. Copy the
+`Request` value if you answer later; `Respond` and `Reject` are safe from any
+thread and settle once. A second answer is ignored and logged. The `command`,
+`payloadJson`, and `sourceViewId` pointers are valid only during the callback.
+
+The token is a copyable C-ABI value containing an opaque 64-bit id and host
+function pointers, rather than a host-owned object pointer. A saved copy cannot
+dereference freed host memory: after response, timeout, or view closure its id
+is stale and a late answer is a logged no-op.
+
+Requests use the same qualified grammar and first-wins namespace as commands.
+A name cannot be both. Each view may hold at most 64 requests in flight;
+overflow rejects immediately with `request-capacity`. The fixed host timeout is
+30 seconds with no opt-out, after which the view receives
+`ui.error { code:"no-response" }`. For genuinely long work, acknowledge a
+command and push progress/results as events instead of retaining a request.
+
+Report a plugin failure with `req.Reject("stable-code", "human detail")`. It
+becomes correlated `ui.error`, so `osfui.request()` rejects with that
+`error.code`. Invalid response JSON rejects as `invalid-response`.
 ---
 
 ## 4. Status & readiness
@@ -329,10 +402,26 @@ health unconditionally is safe — you just have nowhere to report to.
 Sends `{ "type": type, "payload": payloadJson }` to one view. `payloadJson` must
 be valid JSON. It arrives at that view's `osfui.onMessage`.
 
+With the optional facade, pass JSON or any `nlohmann`-convertible struct:
+
+```cpp
+OSFUI::API::JsonClient jsonUi{ g_ui };
+jsonUi.SendToWeb("acme.mymod/dashboard", "acme.mymod.state", {
+    { "hp", 42 },
+    { "credits", 1000 }
+});
+```
+
+The dependency-free low-level call remains available:
+
 ```cpp
 g_ui.SendToWeb("acme.mymod/dashboard", "acme.mymod.state",
                "{\"hp\":42,\"credits\":1000}");
 ```
+
+`JsonClient` also accepts JSON directly for `RegisterSettingsSchema`,
+`ReportIssue`, and `ClearIssuesExcept`, removing every manual `dump()` lifetime
+from the public API's JSON-bearing calls.
 
 **Delivery guarantee (ABI 1.3).** A message to a loaded view is queued, never
 dropped, while the view can't yet receive it (bridge not live, page loading,
@@ -363,7 +452,7 @@ view. True doesn't promise the page renders.
 - Any thread, synchronous: all status reads and the typed setting getters.
 - Any thread, applied next tick: every mutating call (register, send, subscribe,
   request menu, etc.).
-- Always the main thread: every callback (`CommandFn`, `ReadyFn`,
+- Always the main thread: every callback (`CommandFn`, `RequestFn`, `ReadyFn`,
   `SettingChangedFn`, `HotkeyFn`). Keep them cheap.
 
 **Lifetime**
@@ -407,6 +496,8 @@ All on `IOSFUIBridge`, mirrored on `Client` (which adds the version gate).
 | `ReportIssue(mod,id,code,sev,subj,ctx)` | 1.7 | any | false on bad mod id / empty id or code / non-object context |
 | `ClearIssue(mod,id)` | 1.7 | any | true = queued, not "was active" |
 | `ClearIssuesExcept(mod,keepJson)` | 1.7 | any | keep list is a JSON array of ids |
+| RegisterRequest(name,fn,user) | 1.8 | any | first-wins across commands and requests; callback on main |
+| UnregisterRequest(name) | 1.8 | any | in-flight tokens remain valid until answer/timeout/close |
 
 ---
 

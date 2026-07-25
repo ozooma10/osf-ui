@@ -46,6 +46,30 @@ namespace OSFUI
 		// every tick. Slow enough to be free, fast enough that a player who just
 		// toggled Frame Generation sees the pane agree with the screen.
 		constexpr double           kDiagnosticsPollSeconds{ 2.0 };
+
+		std::pair<std::string_view, nlohmann::json> EncodePapyrusViewData(const API::Papyrus::ViewPush& a_push)
+		{
+			if (a_push.stateValue) {
+				return { "data.state", {
+					{ "mod", a_push.mod }, { "key", a_push.key }, { "value", *a_push.stateValue }
+				} };
+			}
+			nlohmann::json payload{
+				{ "mod", a_push.mod }, { "key", a_push.key }, { "values", a_push.values }
+			};
+			if (a_push.forms) payload["forms"] = *a_push.forms;
+			return { "data.push", std::move(payload) };
+		}
+
+		void ReplayPapyrusViewState(MessageBridge& a_bridge, std::string_view a_viewId)
+		{
+			const auto slash = a_viewId.find('/');
+			if (slash == std::string_view::npos) return;
+			API::Papyrus::ReplayViewState(a_viewId.substr(0, slash), [&](const API::Papyrus::ViewPush& state) {
+				auto [type, payload] = EncodePapyrusViewData(state);
+				a_bridge.SendToWeb(a_viewId, type, payload);
+			});
+		}
 	}
 
 	Runtime& Runtime::Get()
@@ -59,6 +83,7 @@ namespace OSFUI
 		if (_initialized) {
 			return true;
 		}
+		_rendererFailed = false;
 
 		if (!Paths::Initialize()) {
 			return false;
@@ -117,6 +142,9 @@ namespace OSFUI
 		// didn't come up. Drives crash-recovery.
 		_renderer->SetLoadHandler([this](const IWebRenderer::LoadEvent& a_e) {
 			OnViewLoad(a_e.viewId, a_e.failed, a_e.url, a_e.description, a_e.errorCode);
+		});
+		_renderer->SetFailureHandler([this](const IWebRenderer::FailureEvent& a_e) {
+			OnRendererFailure(a_e);
 		});
 
 		// Degraded-but-alive backend conditions, into System Health (protocol
@@ -483,15 +511,17 @@ namespace OSFUI
 						a_push.mod, a_push.key, a_push.mod);
 					return;
 				}
-				nlohmann::json payload{
-					{ "mod", a_push.mod }, { "key", a_push.key }, { "values", a_push.values }
-				};
-				if (a_push.forms) {
-					// PushFormsToView (protocol 1.3): serialized form identity
-					// objects ride the same data.push as an additive field.
-					payload["forms"] = *a_push.forms;
+				auto [type, payload] = EncodePapyrusViewData(a_push);
+				_bridge->SendToWeb(targets, type, payload);
+			});
+			API::Papyrus::DrainViewReplies([this](const API::Papyrus::ViewReply& reply) {
+				if (reply.rejected) {
+					_bridge->SendToWeb(reply.view, "ui.error", {
+						{ "code", reply.code }, { "message", reply.message }
+					}, reply.requestId);
+				} else {
+					_bridge->SendToWeb(reply.view, "papyrus.result", { { "value", reply.value } }, reply.requestId);
 				}
-				_bridge->SendToWeb(targets, "data.push", std::move(payload));
 			});
 		}
 		// Apply the native plugin API's queued ops (command (re)registration +
@@ -661,6 +691,7 @@ namespace OSFUI
 			// created renderer view.
 			API::BridgeApi::Get().OnBridgeReady(_bridge.get());
 			_bridge->SendRuntimeReady(id);
+			ReplayPapyrusViewState(*_bridge, id);
 		}
 		return true;
 	}
@@ -779,6 +810,10 @@ namespace OSFUI
 
 	bool Runtime::BeginSurfaceOpen(std::string_view a_id)
 	{
+		if (_rendererFailed) {
+			REX::WARN("Runtime: cannot open '{}' - the Web renderer failed earlier this session", a_id);
+			return false;
+		}
 		if (!_menus.IsRegistered(a_id)) {
 			return false;
 		}
@@ -1242,6 +1277,9 @@ namespace OSFUI
 		_viewLoadState[a_id] = ViewLoadState::Loading;
 		_readyViews.erase(a_id);
 		_renderer->LoadView(a_manifest);
+		if (a_manifest.permissions.nativeBridge && _bridge) {
+			ReplayPapyrusViewState(*_bridge, a_id);
+		}
 		// A recreated view starts at manifest dimensions; restore the
 		// output-matched size so it composites 1:1 again.
 		_renderer->Resize(_viewWidth.load(), _viewHeight.load());
@@ -1569,6 +1607,31 @@ namespace OSFUI
 			{ "locale", _localization.Locale() },
 			{ "debugMode", _config.debugMode },
 		});
+	}
+
+	void Runtime::OnRendererFailure(const IWebRenderer::FailureEvent& a_event)
+	{
+		if (_rendererFailed) {
+			return;
+		}
+		_rendererFailed = true;
+		REX::ERROR("Runtime: renderer failed at '{}' for view '{}' (0x{:08X}): {} - "
+			"closing the overlay and disabling it for this session",
+			a_event.stage, a_event.viewId, a_event.errorCode, a_event.description);
+
+		CancelPendingOpen();
+		_menus.CloseAll();
+		ApplyMenuPolicy();
+
+		// The fatal callback arrives from renderer Update(), after Tick's normal
+		// policy reconciliation. Release every engine-side effect now instead of
+		// leaving actors, controls, pause, or the cursor stranded for another frame.
+		if (_config.focusMenu) {
+			ReconcileFocusMenu();
+		}
+		ReconcileControlLayer();
+		ReconcileSimPause();
+		FreeCursor::Apply(false);
 	}
 
 	void Runtime::OnRendererHealth(const IWebRenderer::HealthEvent& a_event)
@@ -2390,7 +2453,38 @@ namespace OSFUI
 			}
 			API::Papyrus::OnViewAction(mod, action, args);
 		});
-		a_bridge.RegisterCommand("log", [](const nlohmann::json& a_p, MessageBridge&) {
+		// Correlated JS -> owning-Papyrus request (protocol 1.6). Unlike ui.action,
+		// this always requires requestId and suppresses the automatic delivery ack;
+		// the eventual ReplyView*/RejectViewRequest settles it explicitly.
+		a_bridge.RegisterCommand("ui.papyrusRequest", [](const nlohmann::json& a_p, MessageBridge& a_b) {
+			const std::string source(a_b.CurrentSource());
+			const std::string mod{ Ids::ModOf(source) };
+			const std::string request = Json::GetString(a_p, "request", "");
+			if (a_b.CurrentRequestId().empty()) {
+				a_b.SendResult(false, "request-id-required", "Papyrus requests require a requestId");
+				return;
+			}
+			if (mod.empty() || request.empty() || request.size() > 64) {
+				a_b.SendResult(false, "invalid-request", "request must be a non-empty string of at most 64 characters");
+				return;
+			}
+			std::vector<std::string> args;
+			if (const auto it = a_p.find("args"); it != a_p.end() && it->is_array()) {
+				args.reserve(it->size());
+				for (const auto& value : *it) {
+					if (value.is_string()) args.push_back(value.get<std::string>());
+					else if (value.is_number_integer()) args.push_back(std::to_string(value.get<std::int64_t>()));
+					else if (value.is_number()) args.push_back(std::to_string(value.get<double>()));
+					else if (value.is_boolean()) args.emplace_back(value.get<bool>() ? "true" : "false");
+					else args.emplace_back();
+				}
+			}
+			if (!API::Papyrus::OnViewRequest(mod, request, args, source, a_b.CurrentRequestId())) {
+				a_b.SendResult(false, "papyrus-unavailable", "no Papyrus request listener is available");
+				return;
+			}
+			a_b.DeferResult();
+		});		a_bridge.RegisterCommand("log", [](const nlohmann::json& a_p, MessageBridge&) {
 			// Untrusted content: bound the length so JS cannot flood the log.
 			REX::DEBUG("MessageBridge: [web] {}", Json::GetString(a_p, "text", "").substr(0, 512));
 		});

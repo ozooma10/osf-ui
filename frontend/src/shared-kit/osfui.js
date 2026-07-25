@@ -1,4 +1,4 @@
-// osfui.js — OSF UI bridge helper (bridge protocol 1.2, api-freeze item 5).
+// osfui.js — OSF UI bridge helper (bridge protocol 1.6 (introduced in 1.2), api-freeze item 5).
 //
 // Load it like the shared stylesheet, BEFORE your view's own script:
 //   <script src="../../shared/osfui.js"></script>
@@ -11,6 +11,7 @@
 //                                   (payload.version = the running OSF UI)
 //   osfui.send(command, fields)  -> fire-and-forget ui.command; returns false
 //                                   when no bridge is present
+//   osfui.emit(command, fields)  -> author-friendly alias for send()
 //   osfui.action(name, ...args)  -> fire a view ui.action (the JS half of
 //                                   Papyrus RegisterForViewActionsArgs); extra
 //                                   values ride as an args list. Returns false
@@ -22,11 +23,19 @@
 //                                   (default 10000 ms; 0 disables — e.g. a
 //                                   key capture that waits on the user), and
 //                                   immediately when no bridge is present.
+//   osfui.call(command, fields, opts) -> request(), resolving directly with
+//                                   the reply payload rather than its envelope.
 //   osfui.viewReady()            -> declare meaningful first-paint readiness
 //                                   for a manifest with readySignal:true;
 //                                   returns false when no bridge is present
 //   osfui.on(type, fn)           -> subscribe to a native->web message type;
 //                                   fn(payload, message); returns unsubscribe.
+//   osfui.data.on(key, fn)        -> subscribe to typed, cached Papyrus state;
+//                                   fn(value, payload, message). Replays the
+//                                   latest value immediately when available.
+//   osfui.data.get(key)           -> latest cached value, or undefined.
+//   osfui.papyrus.request(name, ...args) -> correlated request to the owning
+//                                   mod's Papyrus listener; resolves to value.
 //   osfui.applyAccent(el, hex)   -> apply a mod's `accent` hex to a subtree
 //                                   (derives the kit's linked --osf-accent-*
 //                                   set; invalid/missing hex clears it).
@@ -39,14 +48,15 @@
 // yourself; use osfui.on(). Replies that resolve a request() also dispatch to
 // on() subscribers, so one render path can consume settings.data no matter who
 // asked. Commands with no reply type of their own resolve with
-// `ui.result { ok, command, code?, message? }`.
+// `ui.result { ok, command, code?, message? }`; qualified plugin requests ignore a successful delivery ack and await a typed reply.
 
 "use strict";
 
 (function () {
   const g = (window.osfui = window.osfui || {});
   const listeners = new Map();  // type -> Set<fn>
-  const pending = new Map();    // requestId -> { resolve, reject, timer }
+  const pending = new Map();    // requestId -> { resolve, reject, timer, pluginRequest }
+  const dataState = new Map();  // lower-case key -> { value, payload, message }
   let seq = 0;
 
 	let strings = Object.create(null);
@@ -93,6 +103,7 @@
     g.postMessage(JSON.stringify({ type: "ui.command", payload: Object.assign({ command }, fields || {}) }));
     return true;
   };
+  g.emit = (command, fields) => g.send(command, fields);
 
   // Fire a view ui.action: the JS counterpart to Papyrus
   // RegisterForViewActionsArgs / OnUIAction(asAction, asArgs). Extra values ride
@@ -122,9 +133,17 @@
           reject(err);
         }, timeoutMs);
       }
-      pending.set(requestId, { resolve, reject, timer });
+      pending.set(requestId, { resolve, reject, timer, pluginRequest: /^[a-z0-9-]+\.[a-z0-9-]+\..+/.test(command) });
       g.postMessage(JSON.stringify({ type: "ui.command", requestId, payload: Object.assign({ command }, fields || {}) }));
     });
+  };
+  g.call = (command, fields, opts) =>
+    g.request(command, fields, opts).then((message) => message.payload);
+  g.papyrus = {
+    action: (name, ...args) => g.action(name, ...args),
+    request: (name, ...args) =>
+      g.call("ui.papyrusRequest", { request: name, args }, { timeoutMs: 15000 })
+        .then((payload) => payload.value),
   };
 
   g.on = (type, fn) => {
@@ -132,6 +151,35 @@
     if (!set) listeners.set(type, (set = new Set()));
     set.add(fn);
     return () => set.delete(fn);
+  };
+
+  const dataKey = (key) => String(key).toLowerCase();
+  const stateValue = (payload) => {
+    if (payload && Object.prototype.hasOwnProperty.call(payload, "value")) return payload.value;
+    if (payload && Object.prototype.hasOwnProperty.call(payload, "forms")) return payload.forms;
+    return payload ? payload.values : undefined;
+  };
+  g.data = {
+    get(key) {
+      const current = dataState.get(dataKey(key));
+      return current ? current.value : undefined;
+    },
+    on(key, fn) {
+      if (typeof fn !== "function") throw new TypeError("osfui.data.on requires a handler");
+      const wanted = dataKey(key);
+      const deliver = (payload, message) => {
+        if (!payload || dataKey(payload.key) !== wanted) return;
+        fn(stateValue(payload), payload, message);
+      };
+      const offState = g.on("data.state", deliver);
+      const offLegacy = g.on("data.push", deliver);
+      const current = dataState.get(wanted);
+      if (current) fn(current.value, current.payload, current.message);
+      return () => {
+        offState();
+        offLegacy();
+      };
+    },
   };
 
   // Per-mod theming (api-freeze item 9): a schema/manifest `accent` is one hex,
@@ -177,20 +225,35 @@
 			g.localize(document);
 			resolveI18n(payload);
 		}
+    if (message.type === "data.state" || message.type === "data.push") {
+      const payload = message.payload || {};
+      if (typeof payload.key === "string" && payload.key) {
+        dataState.set(dataKey(payload.key), {
+          value: stateValue(payload),
+          payload,
+          message,
+        });
+      }
+    }
     // Correlated reply: settle the request() promise.
     const rid = typeof message.requestId === "string" ? message.requestId : "";
     const req = rid && pending.get(rid);
     if (req) {
-      pending.delete(rid);
-      if (req.timer) clearTimeout(req.timer);
       const p = message.payload || {};
-      if (message.type === "ui.error" || (message.type === "ui.result" && p.ok === false)) {
-        const err = new Error(p.message || p.code || "request failed");
-        err.code = p.code || "";
-        err.reply = message;
-        req.reject(err);
-      } else {
-        req.resolve(message);
+      // A RegisterCommand auto-ack means only "handler was called". Qualified
+      // plugin requests keep waiting for the plugin's typed response.
+      const deliveryAck = req.pluginRequest && message.type === "ui.result" && p.ok === true;
+      if (!deliveryAck) {
+        pending.delete(rid);
+        if (req.timer) clearTimeout(req.timer);
+        if (message.type === "ui.error" || (message.type === "ui.result" && p.ok === false)) {
+          const err = new Error(p.message || p.code || "request failed");
+          err.code = p.code || "";
+          err.reply = message;
+          req.reject(err);
+        } else {
+          req.resolve(message);
+        }
       }
     }
     // Dispatch to type subscribers unconditionally, resolved request or not.

@@ -292,12 +292,13 @@ namespace OSFUI
 	{
 		struct Notify
 		{
-			enum class Kind { Web, Dom, Load, Eval, Console, Ring, Log, Dead };
+			enum class Kind { Web, Dom, Load, Fatal, Eval, Console, Ring, Log, Dead };
 			Kind           kind{ Kind::Web };
 			std::string    view;
 			std::string    text, detail;
 			bool           failed{};
 			int            code{};
+			std::uint32_t  unsignedCode{};
 			std::uint64_t  id{};
 			SharedRingDesc ring{};
 		};
@@ -312,6 +313,7 @@ namespace OSFUI
 		WebMessageHandler       onWebMessage;
 		DomReadyHandler         onDomReady;
 		LoadHandler             onLoad;
+		FailureHandler          onFailure;
 		CursorChangeHandler     onCursorChange;
 		NativeAcceleratorHandler onAccelerator;
 		SharedRingHandler       onSharedRing;
@@ -867,6 +869,12 @@ namespace OSFUI
 							.detail = msg.value("description", ""),
 							.failed = msg.value("failed", false),
 							.code = msg.value("code", 0) });
+					} else if (type == "fatal") {
+						Push(Notify{ .kind = Notify::Kind::Fatal,
+							.view = msg.value("view", ""),
+							.text = msg.value("stage", "renderer"),
+							.detail = msg.value("description", "terminal renderer failure"),
+							.unsignedCode = msg.value("code", 0u) });
 					} else if (type == "console") {
 						Push(Notify{ .kind = Notify::Kind::Console,
 							.view = msg.value("view", ""),
@@ -1037,6 +1045,16 @@ namespace OSFUI
 							.errorCode = value.code
 						};
 						onLoad(event);
+					}
+					break;
+				case Notify::Kind::Fatal:
+					if (onFailure) {
+						onFailure(FailureEvent{
+							.stage = value.text,
+							.viewId = value.view,
+							.description = value.detail,
+							.errorCode = value.unsignedCode
+						});
 					}
 					break;
 				case Notify::Kind::Eval: {
@@ -1364,6 +1382,10 @@ namespace OSFUI
 	void WebView2HostWebRenderer::SetLoadHandler(LoadHandler a_handler)
 	{
 		_impl->onLoad = std::move(a_handler);
+	}
+	void WebView2HostWebRenderer::SetFailureHandler(FailureHandler a_handler)
+	{
+		_impl->onFailure = std::move(a_handler);
 	}
 	void WebView2HostWebRenderer::SetCursorChangeHandler(CursorChangeHandler a_handler)
 	{

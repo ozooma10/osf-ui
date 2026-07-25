@@ -312,6 +312,9 @@ namespace OSFUI
 		// The System Health "System information" block: versions, bridge
 		// protocol, renderer/compositor path, host and locale state.
 		void UpdateDiagnosticSystemInfo();
+		// A terminal renderer failure closes every surface and immediately releases
+		// all menu-owned engine policy. Game thread.
+		void OnRendererFailure(const IWebRenderer::FailureEvent& a_event);
 		// Renderer health edges (IWebRenderer::HealthHandler) translated into
 		// issue upserts/resolves. Game thread.
 		void OnRendererHealth(const IWebRenderer::HealthEvent& a_event);
@@ -445,6 +448,7 @@ namespace OSFUI
 		std::atomic<KeyCode>          _captureUpVk{ kInvalidKeyCode };
 
 		std::atomic_bool              _visible{ false };
+		bool                          _rendererFailed{ false };  // terminal; opens fail closed until restart
 		bool                          _initialized{ false };
 
 		// Deferred compositor reveal (main thread only). The present-hook

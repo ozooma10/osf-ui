@@ -43,6 +43,8 @@ namespace OSFUI::API
 		// overflow is refused (false) rather than evicting, because dropping an
 		// older op could drop a report while keeping the clear that cancels it.
 		constexpr std::size_t kMaxPendingDiagnosticOps = 256;
+		constexpr std::size_t kMaxInflightRequestsPerView = 64;
+		constexpr auto kRequestTimeout = std::chrono::seconds(30);
 
 		// Shared front half of every ABI 1.7 diagnostics call: the source of an
 		// issue is the CALLER's mod id, never a payload field, so a mod cannot
@@ -109,7 +111,7 @@ namespace OSFUI::API
 		// last-writer-wins, so an already-claimed command cannot be hijacked.
 		// Replacing your own handler means UnregisterCommand then re-register;
 		// the pair works back-to-back within one tick.
-		if (_commands.contains(cmd)) {
+		if (_commands.contains(cmd) || _requests.contains(cmd)) {
 			REX::WARN("BridgeApi: refused RegisterCommand('{}') — already registered (first wins; "
 					  "UnregisterCommand first to replace your own handler)",
 				cmd);
@@ -133,6 +135,34 @@ namespace OSFUI::API
 		}
 	}
 
+	void BridgeApi::RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user)
+	{
+		if (!a_name || !a_handler) return;
+		const std::string name(a_name);
+		if (!IsValidPluginCommand(name)) {
+			REX::WARN("BridgeApi: refused RegisterRequest('{}') — requests are '<author>.<modname>.<name>'", name.substr(0, 128));
+			return;
+		}
+		std::lock_guard lock(_mutex);
+		if (_commands.contains(name) || _requests.contains(name)) {
+			REX::WARN("BridgeApi: refused RegisterRequest('{}') — already registered (first wins across commands and requests)", name);
+			return;
+		}
+		_requests[name] = { a_handler, a_user };
+		std::erase(_pendingRequestUnregister, name);
+		_dirty = true;
+	}
+
+	void BridgeApi::UnregisterRequest(const char* a_name)
+	{
+		if (!a_name) return;
+		const std::string name(a_name);
+		std::lock_guard lock(_mutex);
+		if (_requests.erase(name) > 0) {
+			_pendingRequestUnregister.push_back(name);
+			_dirty = true;
+		}
+	}
 	bool BridgeApi::SendToWeb(const char* a_viewId, const char* a_type, const char* a_payloadJson)
 	{
 		if (!a_viewId || !a_type || !a_payloadJson) {
@@ -211,6 +241,7 @@ namespace OSFUI::API
 			_loadedViews.emplace(a_viewId);
 		} else {
 			_loadedViews.erase(std::string(a_viewId));
+			std::erase_if(_inflightRequests, [&](const auto& entry) { return entry.second.view == a_viewId; });
 		}
 	}
 
@@ -444,97 +475,120 @@ namespace OSFUI::API
 		return out;
 	}
 
+	void BridgeApi::RespondThunk(std::uint64_t token, const char* type, const char* json) noexcept { Get().RespondRequest(token, type, json); }
+	void BridgeApi::RejectThunk(std::uint64_t token, const char* code, const char* message) noexcept { Get().RejectRequest(token, code, message); }
+
+	void BridgeApi::RespondRequest(std::uint64_t token, const char* type, const char* json) noexcept
+	{
+		const auto parsed = json ? nlohmann::json::parse(json, nullptr, false) : nlohmann::json{};
+		std::lock_guard lock(_mutex);
+		const auto it = _inflightRequests.find(token);
+		if (it == _inflightRequests.end()) { REX::WARN("BridgeApi: ignored late response for stale token {}", token); return; }
+		if (it->second.answered) { REX::WARN("BridgeApi: ignored second response for request '{}'", it->second.name); return; }
+		it->second.answered = true;
+		if (!json || parsed.is_discarded()) {
+			it->second.rejected = true; it->second.code = "invalid-response"; it->second.message = "plugin returned invalid JSON"; return;
+		}
+		it->second.type = (type && type[0]) ? type : it->second.name;
+		it->second.payloadJson = parsed.dump();
+	}
+
+	void BridgeApi::RejectRequest(std::uint64_t token, const char* code, const char* message) noexcept
+	{
+		std::lock_guard lock(_mutex);
+		const auto it = _inflightRequests.find(token);
+		if (it == _inflightRequests.end()) { REX::WARN("BridgeApi: ignored late rejection for stale token {}", token); return; }
+		if (it->second.answered) { REX::WARN("BridgeApi: ignored second response for request '{}'", it->second.name); return; }
+		it->second.answered = true; it->second.rejected = true;
+		it->second.code = (code && code[0]) ? code : "plugin-error";
+		it->second.message = message ? message : "";
+	}
+
+	void BridgeApi::DispatchRequest(const std::string& name, const RequestRegistration& reg,
+		const nlohmann::json& payload, MessageBridge& bridge)
+	{
+		const std::string view(bridge.CurrentSource());
+		const std::string requestId(bridge.CurrentRequestId());
+		if (requestId.empty()) {
+			bridge.SendToWeb("ui.error", { { "code", "request-id-required" }, { "message", "request requires a requestId" } }); return;
+		}
+		Request request;
+		std::string payloadJson;
+		{
+			std::lock_guard lock(_mutex);
+			const auto count = static_cast<std::size_t>(std::ranges::count_if(
+				_inflightRequests, [&](const auto& e) { return e.second.view == view; }));
+			if (count >= kMaxInflightRequestsPerView) {
+				bridge.SendToWeb("ui.error", { { "code", "request-capacity" }, { "message", "too many requests are already in flight" } }); return;
+			}
+			auto body = payload; body.erase("command"); payloadJson = body.dump();
+			const auto token = _nextRequestToken++;
+			InflightRequest inflight;
+			inflight.token = token;
+			inflight.view = view;
+			inflight.requestId = requestId;
+			inflight.name = name;
+			inflight.deadline = std::chrono::steady_clock::now() + kRequestTimeout;
+			_inflightRequests.emplace(token, std::move(inflight));
+			request.command = name.c_str(); request.payloadJson = payloadJson.c_str(); request.sourceViewId = view.c_str();
+			request._token = token; request._respond = &RespondThunk; request._reject = &RejectThunk;
+		}
+		reg.fn(request, reg.user);
+	}
 	void BridgeApi::OnBridgeReady(MessageBridge* a_bridge)
 	{
 		std::lock_guard lock(_mutex);
 		_bridge = a_bridge;  // a change (incl. null<->ptr) is detected in Pump and forces a re-apply
+		if (!a_bridge) _inflightRequests.clear();
 	}
 
-	void BridgeApi::PumpMainThread()
+	void BridgeApi::PumpMainThread(std::chrono::steady_clock::time_point now)
 	{
-		// Snapshot the work under the lock, then act unlocked: MessageBridge and
-		// the ready callback must not run while holding _mutex — the callback may
-		// re-enter our API.
 		MessageBridge* bridge = nullptr;
-		std::vector<std::string>                      toUnregister;
-		std::vector<std::pair<std::string, Registration>> toRegister;
-		std::vector<PendingSend>                      sends;
-		bool                                          fireReady = false;
-		ReadyFn                                       readyCb = nullptr;
-		void*                                         readyUser = nullptr;
+		std::vector<std::string> commandRemovals, requestRemovals;
+		std::vector<std::pair<std::string, Registration>> commands;
+		std::vector<std::pair<std::string, RequestRegistration>> requests;
+		std::vector<PendingSend> sends;
+		std::vector<PendingReply> replies;
+		bool fireReady = false; ReadyFn readyCb = nullptr; void* readyUser = nullptr;
 		{
-			std::lock_guard lock(_mutex);
-			bridge = _bridge;
+			std::lock_guard lock(_mutex); bridge = _bridge;
 			if (bridge) {
-				const bool bridgeChanged = (bridge != _appliedBridge);
-				if (bridgeChanged || _dirty) {
-					if (!bridgeChanged) {
-						toUnregister.swap(_pendingUnregister);
-					} else {
-						_pendingUnregister.clear();  // fresh bridge starts empty — nothing to remove
-					}
-					toRegister.reserve(_commands.size());
-					for (const auto& [cmd, reg] : _commands) {
-						toRegister.emplace_back(cmd, reg);
-					}
-					_appliedBridge = bridge;
-					_dirty = false;
+				const bool changed = bridge != _appliedBridge;
+				if (changed || _dirty) {
+					if (changed) { _pendingUnregister.clear(); _pendingRequestUnregister.clear(); }
+					else { commandRemovals.swap(_pendingUnregister); requestRemovals.swap(_pendingRequestUnregister); }
+					for (const auto& pair : _commands) commands.push_back(pair);
+					for (const auto& pair : _requests) requests.push_back(pair);
+					_appliedBridge = bridge; _dirty = false;
 				}
-				if (!_pendingSends.empty()) {
-					sends.swap(_pendingSends);
-				}
-				if (!_readyFired) {
-					_readyFired = true;
-					fireReady = true;
-					readyCb = _readyCb;
-					readyUser = _readyUser;
+				sends.swap(_pendingSends);
+				if (!_readyFired) { _readyFired = true; fireReady = true; readyCb = _readyCb; readyUser = _readyUser; }
+				for (auto it = _inflightRequests.begin(); it != _inflightRequests.end();) {
+					auto& req = it->second;
+					if (!req.answered && now < req.deadline) { ++it; continue; }
+					PendingReply reply;
+					reply.view = req.view;
+					reply.requestId = req.requestId;
+					if (!req.answered) { reply.type = "ui.error"; reply.payloadJson = nlohmann::json{ { "code", "no-response" }, { "message", "plugin did not answer the request" } }.dump(); }
+					else if (req.rejected) { reply.type = "ui.error"; reply.payloadJson = nlohmann::json{ { "code", req.code }, { "message", req.message } }.dump(); }
+					else { reply.type = req.type; reply.payloadJson = req.payloadJson; }
+					replies.push_back(std::move(reply)); it = _inflightRequests.erase(it);
 				}
 			}
 		}
-
 		if (bridge) {
-			for (const auto& cmd : toUnregister) {
-				bridge->UnregisterCommand(cmd);
-			}
-			for (const auto& [cmd, reg] : toRegister) {
-				// Trampoline: adapt the ABI-safe CommandFn to the internal handler.
-				bridge->RegisterCommand(cmd, [cmd, reg](const nlohmann::json& a_payload, MessageBridge& a_b) {
-					// Item-5 envelope: the caller's requestId rides inside the
-					// payload JSON (additive — plugins that ignore it lose
-					// nothing). After this handler returns the bridge
-					// auto-answers `ui.result { ok:true }`, meaning
-					// delivered-and-handled. Richer results go out as the
-					// plugin's own SendToWeb message, echoing the payload's
-					// requestId for correlation.
-					std::string dump;
-					if (const auto rid = a_b.CurrentRequestId(); !rid.empty()) {
-						nlohmann::json withId = a_payload;
-						withId["requestId"] = rid;
-						dump = withId.dump();
-					} else {
-						dump = a_payload.dump();
-					}
-					const std::string src(a_b.CurrentSource());
-					reg.fn(cmd.c_str(), dump.c_str(), src.c_str(), reg.user);
-				});
-			}
-			for (const auto& s : sends) {
-				bridge->SendJsonToWeb(s.view, s.type, s.payloadJson);
-			}
+			for (const auto& name : commandRemovals) bridge->UnregisterCommand(name);
+			for (const auto& name : requestRemovals) bridge->UnregisterRequest(name);
+			for (const auto& [name, reg] : commands) bridge->RegisterCommand(name, [name, reg](const nlohmann::json& payload, MessageBridge& b) {
+				std::string dump; if (const auto rid = b.CurrentRequestId(); !rid.empty()) { auto withId = payload; withId["requestId"] = rid; dump = withId.dump(); } else dump = payload.dump();
+				const std::string src(b.CurrentSource()); reg.fn(name.c_str(), dump.c_str(), src.c_str(), reg.user);
+			});
+			for (const auto& [name, reg] : requests) bridge->RegisterRequest(name, [this, name, reg](const nlohmann::json& payload, MessageBridge& b) { DispatchRequest(name, reg, payload, b); });
+			for (const auto& send : sends) bridge->SendJsonToWeb(send.view, send.type, send.payloadJson);
+			for (const auto& reply : replies) bridge->SendToWeb(reply.view, reply.type, nlohmann::json::parse(reply.payloadJson, nullptr, false), reply.requestId);
 		}
-
-		_ready.store(bridge != nullptr);
-		if (fireReady && readyCb) {
-			readyCb(readyUser);
-		}
-
-		// Settings subscriptions last, so a SubscribeSettings issued from the ready
-		// callback above gets its replay this tick, not the next. _subscriptions
-		// locks itself and invokes consumer callbacks unlocked; _mutex is not held
-		// here.
-		_subscriptions.Pump(_mirror);
-		// Hotkey fires queued by Runtime::DrainHotkeys earlier this tick; same
-		// locking discipline as the settings pump above.
-		_hotkeys.Pump();
+		_ready.store(bridge != nullptr); if (fireReady && readyCb) readyCb(readyUser);
+		_subscriptions.Pump(_mirror); _hotkeys.Pump();
 	}
 }

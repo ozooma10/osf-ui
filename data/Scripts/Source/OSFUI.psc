@@ -72,8 +72,10 @@ int Function RegisterForHotkeyStatic(string asScript, string asFn, string asModI
 ; --- dynamic data <-> views ---------------------------------------------------
 ; Move DYNAMIC state (live lists, tables, arbitrary strings) between your script and your mod's OSF UI views (see docs/authoring-dynamic-data.md for a worked example).
 ;
-; The flow is one-directional: your script OWNS the data and pushes it; the view only renders and fires actions back. 
-; OSF UI caches nothing - when a view (re)opens or resyncs after a game load it fires a `ready` action, and your OnUIAction handler answers by pushing current state again.
+; Your script OWNS game state. Prefer typed SetView* state (cached/replayed),
+; ListenForViewActions for one-way mutations, and ListenForViewRequests only
+; when JavaScript genuinely needs a returned value. PushToView is the legacy
+; transient path and still requires a page-level ready action.
 
 ; Push a list of strings to every live view owned by asModId (view ids "<asModId>/..."), delivered to the page as `data.push { mod, key, values }`.
 ; Fire-and-forget: queued on the calling thread, delivered on OSF UI's next frame; nothing is stored natively. 
@@ -86,6 +88,22 @@ Function PushToView(string asModId, string asKey, string[] asValues) Global Nati
 ; A FormList is serialized as ONE form (formType "FLST"); push its members as a Form[] (GetSize/GetAt loop) when the view should see them.
 Function PushFormsToView(string asModId, string asKey, Form[] akForms) Global Native
 
+; Preferred state API (protocol 1.6). Each call replaces and caches
+; the complete value for (mod, key), sends it to every live owning view as
+; `data.state { mod, key, value }`, and automatically replays it when a view
+; opens or reloads. The cache is session-scoped; publish again after game load.
+; In JS consume it with `osfui.data.on(key, handler)` — no ready action or
+; data.push filtering is needed. Use the typed function matching your value.
+Function SetViewBool(string asModId, string asKey, bool abValue) Global Native
+Function SetViewInt(string asModId, string asKey, int aiValue) Global Native
+Function SetViewFloat(string asModId, string asKey, float afValue) Global Native
+Function SetViewString(string asModId, string asKey, string asValue) Global Native
+Function SetViewBools(string asModId, string asKey, bool[] abValues) Global Native
+Function SetViewInts(string asModId, string asKey, int[] aiValues) Global Native
+Function SetViewFloats(string asModId, string asKey, float[] afValues) Global Native
+Function SetViewStrings(string asModId, string asKey, string[] asValues) Global Native
+Function SetViewForms(string asModId, string asKey, Form[] akForms) Global Native
+
 ; Resolve a form reference a view echoed back (the `formId` of a pushed form, sent as an args element).
 ; Accepts decimal ("1370322" - what a JS number arrives as) and hex ("0x0014E8D2"). Unlike Game.GetForm, the full 32-bit range and hex both work.
 ; Returns None for garbage or a form that no longer exists - CHECK before acting, and cast to the expected type (`GetFormById(asArgs[0]) as Keyword`).
@@ -95,7 +113,7 @@ Form Function GetFormById(string asFormId) Global Native
 Form[] Function GetFormsById(string[] asFormIds) Global Native
 
 ; Calls akReceiver.asFn(string asAction, string asArg) when a view owned by asModId fires an action (`osfui.send('ui.action', ...)` on the JS side).
-; Returns a token (0 = failed). Actions are fire-and-forget - there is no return value; respond by pushing state back with PushToView.
+; Returns a token (0 = failed). Actions are fire-and-forget; publish changed state with SetView* (or legacy PushToView).
 ;
 ;   Function OnUIAction(string asAction, string asArg)   ; on akReceiver
 ;
@@ -119,6 +137,31 @@ int Function RegisterForViewActionsStatic(string asScript, string asFn, string a
 int Function RegisterForViewActionsArgs(ScriptObject akReceiver, string asFn, string asModId) Global Native
 ; Instance-free variant for script LIBRARIES: GLOBAL function asScript.asFn(string, string[]).
 int Function RegisterForViewActionsArgsStatic(string asScript, string asFn, string asModId) Global Native
+
+; Preferred common-case listener. Dispatches to the fixed callback
+; OnOSFUIViewAction(string action, string[] args), so no function-name or
+; scalar-vs-list choice is required. The static variant calls the GLOBAL
+; function with that name on asScript. Session-scoped; release with Unregister.
+int Function ListenForViewActions(ScriptObject akReceiver, string asModId) Global Native
+int Function ListenForViewActionsStatic(string asScript, string asModId) Global Native
+
+; Correlated view requests (protocol 1.6). One listener per mod (first wins).
+; JS calls `await osfui.papyrus.request(name, ...args)`; the listener receives:
+;   Function OnOSFUIViewRequest(string request, string[] args, string replyToken)
+; Answer exactly once with the matching typed ReplyView* function, or reject.
+; Tokens expire after 10 seconds and are session-scoped; never save them.
+int Function ListenForViewRequests(ScriptObject akReceiver, string asModId) Global Native
+int Function ListenForViewRequestsStatic(string asScript, string asModId) Global Native
+bool Function ReplyViewBool(string asReplyToken, bool abValue) Global Native
+bool Function ReplyViewInt(string asReplyToken, int aiValue) Global Native
+bool Function ReplyViewFloat(string asReplyToken, float afValue) Global Native
+bool Function ReplyViewString(string asReplyToken, string asValue) Global Native
+bool Function ReplyViewBools(string asReplyToken, bool[] abValues) Global Native
+bool Function ReplyViewInts(string asReplyToken, int[] aiValues) Global Native
+bool Function ReplyViewFloats(string asReplyToken, float[] afValues) Global Native
+bool Function ReplyViewStrings(string asReplyToken, string[] asValues) Global Native
+bool Function ReplyViewForms(string asReplyToken, Form[] akForms) Global Native
+bool Function RejectViewRequest(string asReplyToken, string asCode, string asMessage = "") Global Native
 
 ; Release a RegisterFor* token. False on a stale/invalid token.
 bool Function Unregister(int aiToken) Global Native

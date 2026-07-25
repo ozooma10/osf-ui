@@ -6,13 +6,24 @@
 
 - **System Health is now the whole game's health pane, not just OSF UI's.** Any mod built on the native API can report a problem into it — a pack that failed to parse, a missing asset, a feature it had to switch off — so you look in one place when something is wrong instead of having to know which mod noticed first. Reports name the mod that made them, clear themselves when the condition goes away, and appear in **Copy diagnostic report** alongside everything else.
 
+### Fixed
+
+- If WebView2 fails while creating its composition controller, OSF UI now closes the invisible loading overlay immediately and releases focus, pause, cursor, and control capture instead of leaving actors frozen behind a hidden menu. A native dialog identifies the renderer error and offers Microsoft's WebView2 repair download; further menu opens fail closed until the game is restarted.
+
 ### For plugin authors
+
+- Native plugins that already use `nlohmann::json` can include the new optional `OSFUI_JSON.h` facade instead of hand-authoring and parsing JSON strings. `JsonCommand` and `JsonRequest` provide typed field/struct access, malformed requests reject automatically, replies serialize safely, and `JsonClient` accepts JSON values for outbound messages, runtime schemas and diagnostics. The dependency-free `OSFUI_API.h` ABI remains unchanged at 1.8; the facade compiles entirely into the consuming plugin.
+- Native ABI **1.8** (`Feature::kRequests`) adds first-class request/response beside fire-and-forget commands. A plugin registers a qualified request name, receives a copyable respond-once token, and may answer later from any thread without seeing or echoing a `requestId`; the host routes the plugin-owned reply type and payload to the calling view. Tokens time out after 30 seconds with `no-response`, are reaped when the view closes, and become safe no-ops after settlement. Requests share commands' first-wins namespace and are capped at 64 in flight per view. Plugins can reject with their own stable error code through correlated `ui.error`; older hosts safely no-op the new `Client` methods.
 
 - Native ABI **1.7** (`Feature::kDiagnostics`) adds `ReportIssue`, `ClearIssue` and `ClearIssuesExcept` to `IOSFUIBridge`/`Client`: raise a durable condition into System Health, withdraw it when it clears, or reconcile a recomputed set in one sweep. Issues are identity-keyed (a repeat bumps an occurrence count rather than stacking a card), and the `source`, id and code are namespaced to the calling mod **by the host**, so no mod can file a report against another or resolve a platform issue. `context` is a flat JSON object, bounded and path-sanitized. A code OSF UI does not recognise renders as a card naming your mod with your details attached — never a blank one. On a host older than 1.7 all three are no-ops returning false. See §5d of [native-plugin-api.md](docs/native-plugin-api.md), including what does *not* belong in the pane.
 
 ### Other changes
 
 - The in-world render-to-texture prototype is excluded from normal builds and releases. Its descriptor hook, development probe, second browser host, configuration keys, and runtime state compile only with the default-off `with_world_surfaces` research flag. The unsafe loose cockpit materials and placeholder texture are retained outside `data/` for investigation and are never packaged.
+
+### For view authors
+
+- Bridge protocol **1.6** adds a simpler event/state/request authoring layer without removing the raw bridge: `osfui.emit()` names one-way native commands, `osfui.call()` returns a correlated reply payload directly, and generic `osfui.on<T>()` improves custom message typing. Papyrus mods can publish naturally typed, session-cached `SetView*` state that automatically replays when a view opens or reloads and is consumed with `osfui.data.on()`—no `ready` action, key filtering or number-as-string conversion. `osfui.action()` plus `ListenForViewActions()` provide the concise one-way path, while `osfui.papyrus.request()` and the typed `ReplyView*`/`RejectViewRequest` natives add bounded, one-shot request/reply with host-owned correlation and timeout handling. Legacy `send`/`request`, `PushToView`, and custom callback registrations remain compatible. Protocol 1.5's qualified native-plugin requests also continue to ignore the old successful delivery ack and wait for the plugin's typed response.
 
 ## 1.4.0 — 2026-07-24
 
