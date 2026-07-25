@@ -11,6 +11,11 @@
   "engineInput": true,
   "view": "osfui/settings",
   "views": ["osfui/settings", "osfui/keybinds"],
+  "worldSurfaceView": "",
+  "worldSurfaceWidth": 1600,
+  "worldSurfaceHeight": 900,
+  "worldSurfaceTargetWidth": 1000,
+  "worldSurfaceTargetHeight": 1000,
   "devMode": false,
   "devReloadKey": "F11"
 }

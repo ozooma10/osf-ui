@@ -245,8 +245,8 @@ Two reproducible generators replace the hand-placed artifact:
 
 | Tool | Output |
 | --- | --- |
-| `tools/make_world_surface_placeholder.py` | `data/assets/textures/OSFUI/worldsurface_placeholder01.dds` — 1600x900 BGRA8, one mip |
-| `tools/make_world_surface_materials.py` | `data/assets/materials/.../ShipScreen_Avionics01{,_A}.mat` |
+| `tools/make_world_surface_placeholder.py` | `research-world-surface-assets/textures/OSFUI/worldsurface_placeholder01.dds` — research-only BGRA8 placeholder |
+| `tools/make_world_surface_materials.py` | `research-world-surface-assets/materials/.../ShipScreen_Avionics01{,_A}.mat` — unsafe research overrides, never package |
 
 The material generator copies each vanilla file verbatim and rewrites only the
 texture filename strings (8 changed lines per file), so every `res:`
@@ -265,10 +265,9 @@ header flags — that flag is for block-compressed data — while still writing 
 pitch value, and declared 1 mip where the reference declares 0. Every other
 header field was already correct.
 
-The symptom was not a blank screen. World rendering broke: only the skybox and
-a couple of quads drew. A texture the streamer cannot parse appears to take
-more with it than the material that referenced it, so **an invalid placeholder
-is a whole-frame hazard, not a cosmetic one.**
+The malformed header was corrected because it was independently wrong, but it
+was not the root cause of the missing cockpit/world geometry. The same failure
+remained after the corrected DDS was deployed.
 
 `tools/make_world_surface_placeholder.py` now asserts `flags == 0x100F` and
 `mips == 0` before writing, and the generated header is byte-identical to the
@@ -277,21 +276,28 @@ first 128 bytes of the original proof texture (kept at
 truth for what this game build's loader accepts; diff against it first whenever
 the placeholder is regenerated.
 
-Ruled out while diagnosing this, both worth not re-testing:
+### Loose material retargeting is not safe
 
-- **The SRV hook.** The log showed exactly one `captured placeholder` per
-  session with `replaced=true` — identical to the known-good run.
-- **The material overrides.** They differ from vanilla by exactly the four
-  texture-path lines each, and nothing else in `Data/Materials` imports
-  `ShipScreen_Avionics01.mat`.
+A controlled bisection disabled `worldSurfaceView` while leaving both loose
+material overrides and the corrected placeholder deployed. Most world/cockpit
+geometry still failed to render. This proves the deployed asset package was
+responsible independently of the SRV hook and dedicated browser runtime.
+
+The overrides differed from vanilla by only four filename strings and had a
+small import footprint, but that did not make them valid. Starfield materials
+carry embedded Bethesda `res:` identities; rewriting filenames while retaining
+that resource graph can leave the material internally inconsistent. The two
+loose materials and placeholder are retained only as investigation artifacts
+and are no longer packaged or auto-deployed. A world surface now requires a
+properly Creation Kit-authored custom mesh/material.
 
 ### The placeholder size is safety-critical
 
-The placeholder was briefly set to 1600x900 to match the browser size. That
-broke rendering across the entire frame: the engine allocates its own render
-targets at ordinary screen-shaped sizes, the binding matched one, and rewriting
-a descriptor the frame depends on took out most of the world. Only the sky and
-a couple of unaffected quads still drew.
+The placeholder was briefly set to 1600x900 during the broken loose-material
+experiment. That run did not prove a render-target collision: the later log
+showed only one qualifying capture, and the asset-only bisection reproduced the
+failure with the runtime disabled. Dimension-only matching would nevertheless
+be unsafe, so both guards below remain required for any future authored asset.
 
 Two independent rules now prevent it:
 
@@ -310,8 +316,8 @@ very few — a stream of them means the signature is colliding again.
 
 `worldSurfaceTargetWidth`/`Height` must always track the generated file.
 
-Remaining vanilla footprint: two material overrides instead of one shared
-texture override. Reaching *zero* requires the custom mesh below.
+The shipping vanilla footprint is now zero: the two experimental overrides and
+placeholder remain in source for analysis but are excluded from deployment.
 
 ## Next engineering steps
 

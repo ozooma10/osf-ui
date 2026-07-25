@@ -20,5 +20,5 @@ data/OSFUI/views/osfui/padnav.js text eol=lf linguist-generated=true
 # material generator copies vanilla JSON verbatim (LF) and rewrites only texture
 # paths, so eol=lf keeps a regeneration from showing up as a whole-file diff on
 # a core.autocrlf=true checkout. The placeholder DDS is binary.
-data/assets/materials/** text eol=lf linguist-generated=true
-data/assets/textures/**  binary
+research-world-surface-assets/materials/** text eol=lf linguist-generated=true
+research-world-surface-assets/textures/**  binary

@@ -110,13 +110,6 @@ target("OSF UI")
     -- the Papyrus surface (authoring-settings.md "From Papyrus"): loose scripts
     -- at the Data root -- <install>/Scripts/OSFUI.pex (+ Source/OSFUI.psc)
     add_installfiles("data/(Scripts/**)")
-    -- world-surface game assets (experimental): loose materials + the owned
-    -- placeholder texture, at the Data root -- <install>/Materials/...,
-    -- <install>/Textures/... Regenerate with tools/make_world_surface_*.py;
-    -- inert unless config.json sets worldSurfaceView.
-    add_installfiles("data/assets/(materials/**)")
-    add_installfiles("data/assets/(textures/**)")
-
     -- Redeploy data/ (views + config) to the mod folder on every build where a data file changed. 
     -- The commonlib rule's after_build only runs "xmake install" when the DLL binary itself changed, so pure HTML/JS/JSON edits would otherwise never reach XSE_SF_MODS_PATH.
     after_build(function(target)
@@ -126,21 +119,13 @@ target("OSF UI")
         import("core.project.depend")
         local datadir = path.join(os.projectdir(), "data", "OSFUI")
         local scriptsdir = path.join(os.projectdir(), "data", "Scripts")
-        local assetsdir = path.join(os.projectdir(), "data", "assets")
         local files = os.files(path.join(os.projectdir(), "data", "**"))
         depend.on_changed(function()
             local dstdir = path.join(target:installdir(), "SFSE", "Plugins")
             os.cp(datadir, dstdir)
             -- Papyrus surface: loose scripts at the Data root (mod folder root)
             os.cp(scriptsdir, target:installdir())
-            -- world-surface materials/textures land at the Data root too
-            for _, sub in ipairs({ "materials", "textures" }) do
-                local src = path.join(assetsdir, sub)
-                if os.isdir(src) then
-                    os.cp(src, target:installdir())
-                end
-            end
-            cprint("${dim}deploying data/OSFUI + data/Scripts + data/assets to %s ..", target:installdir())
+            cprint("${dim}deploying data/OSFUI + data/Scripts to %s ..", target:installdir())
         end, { files = files, values = files,
                dependfile = target:dependfile("osfui_data_deploy") })
         -- Out-of-process WebView2 host: ship the exe inside the plugin data

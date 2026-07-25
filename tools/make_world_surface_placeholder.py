@@ -128,8 +128,7 @@ def _pixels(width: int, height: int) -> bytearray:
 def main() -> int:
     default = (
         pathlib.Path(__file__).resolve().parents[1]
-        / "data"
-        / "assets"
+        / "research-world-surface-assets"
         / "textures"
         / "OSFUI"
         / "worldsurface_placeholder01.dds"

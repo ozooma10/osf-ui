@@ -86,7 +86,7 @@ def main() -> int:
         return 1
 
     repo = pathlib.Path(__file__).resolve().parents[1]
-    dest_root = repo / "data" / "assets" / "materials" / MATERIAL_DIR.relative_to("Materials")
+    dest_root = repo / "research-world-surface-assets" / "materials" / MATERIAL_DIR.relative_to("Materials")
     total = 0
     for rel in MATERIALS:
         src = args.game / MATERIAL_DIR / rel
