@@ -12,8 +12,8 @@ afterEach(unmount);
 async function mountKit() {
   const bridge = makeBridge();
   const el = await mount(bridge);
-  bridge.emit('settings.data', WIDGETS);
-  bridge.emit('views.data', VIEWS);
+  bridge.deliver('settings.data', WIDGETS);
+  bridge.deliver('views.data', VIEWS);
   await flush();
   [...el.querySelectorAll<HTMLButtonElement>('.rail-item')]
     .find((b) => b.textContent!.includes('Acme Kit'))!

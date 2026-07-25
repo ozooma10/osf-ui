@@ -14,8 +14,8 @@ afterEach(unmount);
 async function mountKit() {
   const bridge = makeBridge();
   const el = await mount(bridge);
-  bridge.emit('settings.data', WIDGETS);
-  bridge.emit('views.data', VIEWS);
+  bridge.deliver('settings.data', WIDGETS);
+  bridge.deliver('views.data', VIEWS);
   await flush();
   // Land on Home by default; click the Acme Kit rail entry.
   const railItem = [...el.querySelectorAll<HTMLButtonElement>('.rail-item')].find((b) =>
@@ -231,7 +231,7 @@ describe('settings widget rendering', () => {
     // Uses a fresh mod so the gate is unambiguous.
     const bridge = makeBridge();
     const el = await mount(bridge);
-    bridge.emit('settings.data', {
+    bridge.deliver('settings.data', {
       mods: [
         {
           id: 'g.mod',

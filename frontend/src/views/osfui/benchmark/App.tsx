@@ -362,7 +362,7 @@ export function App({ bridge = windowBridge }: AppProps) {
           <p>Repeatable rendering workloads for comparing browser, capture and in-game delivery.</p>
         </div>
         <div class="header-actions">
-          <button type="button" onClick={() => bridge.send('menu.open', { view: 'osfui/settings' })}>
+          <button type="button" onClick={() => bridge.emit('menu.open', { view: 'osfui/settings' })}>
             Back to Mods
           </button>
         </div>

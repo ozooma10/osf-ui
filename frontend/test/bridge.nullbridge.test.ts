@@ -18,7 +18,7 @@ async function caught(promise: Promise<unknown>): Promise<CaughtError> {
   } catch (e) {
     return e as CaughtError;
   }
-  throw new Error('expected the request to reject');
+  throw new Error('expected the call to reject');
 }
 
 describe('nullBridge — presence', () => {
@@ -34,18 +34,18 @@ describe('nullBridge — presence', () => {
   });
 });
 
-describe('nullBridge — send', () => {
+describe('nullBridge — emit', () => {
   it('returns false instead of throwing', () => {
     // Views check the boolean to show an offline notice; throwing would take
     // the whole render down in standalone preview.
-    expect(nullBridge.send('close')).toBe(false);
-    expect(nullBridge.send('settings.set', { mod: 'm', key: 'k', value: 1 })).toBe(false);
+    expect(nullBridge.emit('close')).toBe(false);
+    expect(nullBridge.emit('settings.set', { mod: 'm', key: 'k', value: 1 })).toBe(false);
   });
 });
 
-describe('nullBridge — request', () => {
+describe('nullBridge — call', () => {
   it('rejects with code "no-bridge" and the standalone-preview message', async () => {
-    const err = await caught(nullBridge.request('ping'));
+    const err = await caught(nullBridge.call('ping'));
 
     expect(err).toBeInstanceOf(Error);
     expect(err.code).toBe('no-bridge');
@@ -57,17 +57,17 @@ describe('nullBridge — request', () => {
     // Same contract as the shipped helper's local rejections (timeout,
     // no-bridge): `"reply" in err` distinguishes "the host refused" from
     // "we gave up / there is no host".
-    expect('reply' in (await caught(nullBridge.request('ping')))).toBe(false);
+    expect('reply' in (await caught(nullBridge.call('ping')))).toBe(false);
   });
 
   it('rejects immediately rather than waiting out a timeout', async () => {
     // No deadline is honoured; even the "timeout disabled" option rejects at once.
-    await expect(nullBridge.request('settings.captureKey', {}, { timeoutMs: 0 })).rejects.toThrow();
+    await expect(nullBridge.call('settings.captureKey', {}, { timeoutMs: 0 })).rejects.toThrow();
   });
 
   it('makes a FRESH error per call, so a caller may annotate it safely', async () => {
-    const a = await caught(nullBridge.request('ping'));
-    const b = await caught(nullBridge.request('ping'));
+    const a = await caught(nullBridge.call('ping'));
+    const b = await caught(nullBridge.call('ping'));
     expect(a).not.toBe(b);
   });
 });

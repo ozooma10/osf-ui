@@ -275,7 +275,7 @@ namespace OSFUI
 		// Subscribe-on-read, the `views.get` / `settings.get` pattern: the reply
 		// is the current snapshot and the caller keeps receiving `diagnostics.data`
 		// for every later change.
-		a_bridge.RegisterCommand("diagnostics.get", [this](const nlohmann::json&, MessageBridge& a_b) {
+		a_bridge.RegisterRequest("diagnostics.get", [this](const nlohmann::json&, MessageBridge& a_b) {
 			const auto source = std::string(a_b.CurrentSource());
 			if (!source.empty()) {
 				_subscribers.insert(source);

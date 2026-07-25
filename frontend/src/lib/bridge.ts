@@ -6,13 +6,13 @@
 // bundle runs. Forking any of that would fork the contract third-party views use.
 //
 // The global is `Partial<OSFUIHelper>` (it may be a bare injected bridge), so
-// every member guards. Standalone, `available()` is false and `request()`
+// every member guards. Standalone, `available()` is false and `call()`
 // rejects with code "no-bridge".
 
 import type { NativeMessageType, PayloadOf, BridgeError } from './protocol';
 import type { NativeToWebMessage, RuntimeReadyPayload } from '@sdk';
 
-export interface RequestOptions {
+export interface CallOptions {
   /**
    * Milliseconds before the request rejects with code "timeout". Default 10000.
    * Pass 0 to disable — required for `settings.captureKey`, which waits on a
@@ -24,16 +24,16 @@ export interface RequestOptions {
 export interface Bridge {
   /** True when a native bridge (or the harness mock) is present. */
   available(): boolean;
-  /** Fire-and-forget. Returns false when no bridge is present. */
-  send(command: string, fields?: Record<string, unknown>): boolean;
+  /** Fire-and-forget command. Returns false when no bridge is present. */
+  emit(command: string, fields?: Record<string, unknown>): boolean;
   /** Declare meaningful readiness for a manifest with readySignal:true. */
   viewReady(): boolean;
-  /** Correlated request. Rejects with a {@link BridgeError}. */
-  request<T extends NativeToWebMessage = NativeToWebMessage>(
+  /** Correlated request returning its payload directly. Rejects with a {@link BridgeError}. */
+  call<TPayload = unknown>(
     command: string,
     fields?: Record<string, unknown>,
-    opts?: RequestOptions,
-  ): Promise<T>;
+    opts?: CallOptions,
+  ): Promise<TPayload>;
   /** Subscribe to a native->web message type. Returns the unsubscribe fn. */
   on<T extends NativeMessageType>(
     type: T,
@@ -76,18 +76,18 @@ function interpolateEnglish(english: string, vars?: Record<string, string | numb
 export const windowBridge: Bridge = {
   available: () => !!window.osfui?.available?.(),
 
-  send: (command, fields) => window.osfui?.send?.(command, fields) ?? false,
+  emit: (command, fields) => window.osfui?.emit?.(command, fields) ?? false,
 
   viewReady: () => window.osfui?.viewReady?.() ?? false,
 
-  request: <T extends NativeToWebMessage = NativeToWebMessage>(
+  call: <TPayload = unknown>(
     command: string,
     fields?: Record<string, unknown>,
-    opts?: RequestOptions,
-  ): Promise<T> => {
-    const req = window.osfui?.request;
-    if (!req) return Promise.reject(noBridgeError());
-    return req.call(window.osfui, command, fields, opts) as Promise<T>;
+    opts?: CallOptions,
+  ): Promise<TPayload> => {
+    const call = window.osfui?.call;
+    if (!call) return Promise.reject(noBridgeError());
+    return call.call(window.osfui, command, fields, opts) as Promise<TPayload>;
   },
 
   on: <T extends NativeMessageType>(
@@ -127,9 +127,9 @@ export const windowBridge: Bridge = {
  */
 export const nullBridge: Bridge = {
   available: () => false,
-  send: () => false,
+  emit: () => false,
   viewReady: () => false,
-  request: () => Promise.reject(noBridgeError()),
+  call: () => Promise.reject(noBridgeError()),
   on: () => () => {},
   ready: () => new Promise(() => {}),
   i18nReady: () => Promise.resolve({ locale: 'en', strings: {} }),

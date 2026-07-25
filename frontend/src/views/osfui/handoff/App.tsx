@@ -81,7 +81,7 @@ export function App({ bridge = windowBridge }: AppProps) {
   // Escape closes from anywhere on the page, including when nothing is focused.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') bridge.send('close');
+      if (event.key === 'Escape') bridge.emit('close');
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -146,7 +146,7 @@ export function App({ bridge = windowBridge }: AppProps) {
             id="retry"
             type="button"
             ref={retryRef}
-            onClick={() => bridge.send('osfui.handoffRetry')}
+            onClick={() => bridge.emit('osfui.handoffRetry')}
           >
             RETRY LINK
           </button>
@@ -154,7 +154,7 @@ export function App({ bridge = windowBridge }: AppProps) {
             class="osf-btn osf-btn--ghost"
             id="close"
             type="button"
-            onClick={() => bridge.send('close')}
+            onClick={() => bridge.emit('close')}
           >
             CANCEL
           </button>
