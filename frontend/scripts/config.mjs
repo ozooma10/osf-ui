@@ -10,13 +10,9 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 export const FRONTEND = resolve(HERE, '..');
 export const REPO = resolve(FRONTEND, '..');
 
-// `check:dist` builds into a scratch directory and byte-compares, so the
-// staleness gate works whether or not the output has been committed yet.
 export const OUT = process.env.OSFUI_VIEWS_OUT
   ? resolve(process.env.OSFUI_VIEWS_OUT)
-  : join(REPO, 'data', 'OSFUI', 'views');
-
-export const COMMITTED_OUT = join(REPO, 'data', 'OSFUI', 'views');
+  : join(REPO, 'build', 'frontend', 'views');
 
 // Per-view emit mode: 'verbatim' copies a hand-written main.js untouched,
 // 'bundle' builds main.tsx through Vite.

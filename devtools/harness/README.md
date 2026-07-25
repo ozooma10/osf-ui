@@ -14,8 +14,8 @@ deep-link URLs and query parameters.
 
 ## Why it replaced these pages
 
-These pages loaded the **shipped** assets from `data/OSFUI/views/`, which is
-now generated build output — so they can only ever show you the last thing you
+These pages loaded the generated assets from `build/frontend/views/`, so they
+can only ever show you the last thing you
 built, never what you are editing.
 
 They also carried the structural flaw noted below: each page hand-copied its

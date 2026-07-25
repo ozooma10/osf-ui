@@ -1,13 +1,12 @@
 # OSF UI frontend
 
 Source for the built-in OSF UI views. This directory builds to
-**`../data/OSFUI/views/`**, which the plugin ships.
+the ignored **`../build/frontend/views/`** artifact, which xmake ships.
 
-> ## Never hand-edit `data/OSFUI/views/`
+> ## Never hand-edit `build/frontend/views/`
 >
-> Everything under it is generated. Edits there are silently destroyed by the
-> next `npm run build`, and CI fails the moment the two disagree. Edit
-> `frontend/src/` instead.
+> Everything under it is disposable and replaced by the next build. Edit
+> `frontend/src/`; generated bundles are not source-controlled.
 
 ---
 
@@ -19,22 +18,20 @@ npm ci
 ```
 
 Node 20+ is required to *build the frontend*. It is **not** a runtime dependency
-— players never need it, and neither does `xmake build`, the native test suite,
-or `xmake install`. Only `npm run build` and the CI frontend job use it.
+— players never need it. `npm run build`, `xmake build`, `xmake install`, and
+release packaging use it; the native test suite does not.
 
 ## Commands
 
 | Command | Does |
 |---|---|
 | `npm run dev` | Vite dev server with the mock bridge. Develop any view without launching Starfield. |
-| `npm run build` | Generate `../data/OSFUI/views/`, then run the output gates. |
+| `npm run build` | Generate `../build/frontend/views/`, then run the output gates. |
 | `npm test` | Vitest: pure logic, protocol, components, and build-output gates. |
 | `npm run typecheck` | `tsc --noEmit`. |
-| `npm run check:dist` | Rebuild into a scratch dir and byte-compare against the committed output. Fails if stale. |
 | `npm run verify` | `typecheck` → `build` → `test`. What to run before pushing. |
 
-`npm run build` must be run and its output **committed** whenever anything under
-`frontend/src/` changes. `check:dist` is the CI gate that enforces this.
+Commit source changes only; CI builds and validates a fresh ignored artifact.
 
 ## Layout
 
@@ -151,7 +148,7 @@ deliberately conservative, stable bundle shape enforced by
 `scripts/verify-output.mjs` and `test/build.*`:
 
 - **One classic IIFE bundle per view.** Stable `main.js` filenames and no code
-  splitting keep the committed output and public asset paths deterministic.
+  splitting keep installed output and public asset paths deterministic.
 - **ES2020 target.** This remains the project's chosen compatibility target.
 - **No remote dependencies in built-ins.** No
   webfonts (all three `--osf-font-*` stacks resolve to Windows system faces), no
@@ -169,7 +166,7 @@ deliberately conservative, stable bundle shape enforced by
    mismatch — and `entry` must stay at the view root so `../../shared/` resolves.
 4. Register it in `scripts/config.mjs`'s `VIEWS` array with `mode: 'bundle'`.
    `expectedOutputs()` picks up its four files automatically.
-5. `npm run build && npm test`, then commit the generated output.
+5. `npm run build && npm test`, then commit the source changes.
 
 Set `mode: 'verbatim'` instead if you are migrating an existing hand-written
 view — it ships `main.legacy.js` untouched, letting you prove the pipeline
@@ -184,15 +181,14 @@ padnav must be able to navigate it, reproduce the relevant DOM contract from
 
 ## Packaging
 
-Nothing in packaging is frontend-aware, by design:
+Build and packaging share one generated artifact:
 
-- `xmake.lua` installs `data/(OSFUI/**)` recursively.
-- The after_build rule redeploys `data/**` to the MO2 mod folder.
-- `tools/package.ps1` mirrors `data/OSFUI/*` into the archive staging dir.
+- `xmake build` generates `build/frontend/views/` and redeploys it to MO2.
+- `xmake install` regenerates and stages the same tree.
+- `tools/package.ps1` runs `npm ci`, then uses that install path.
 
-All three are glob-based, so new chunks, fonts, or files are picked up with no
-packaging change. What they require in exchange is **stable filenames** — the
-build emits no content hashes, because the MO2 redeploy overlays without pruning
-and would accumulate orphans.
+The generated tree is copied recursively, so new chunks, fonts, or files need no
+packaging change. It retains **stable filenames** and emits no content hashes,
+keeping installed paths deterministic.
 
 See `../docs/PACKAGING.md`.

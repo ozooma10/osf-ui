@@ -2,7 +2,7 @@
   "name": "osfui-frontend",
   "version": "0.0.0",
   "private": true,
-  "description": "Source for the OSF UI built-in views. Builds to ../data/OSFUI/views (generated - never hand-edit).",
+  "description": "Source for the OSF UI built-in views. Builds to ../build/frontend/views.",
   "license": "GPL-3.0-or-later",
   "type": "module",
   "engines": {
@@ -12,7 +12,6 @@
     "dev": "vite",
     "build": "node scripts/build.mjs",
     "verify": "npm run typecheck && npm run build && npm test",
-    "check:dist": "node scripts/check-dist.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

@@ -19,12 +19,11 @@ native bridge rules below. Chromium lives in a separate
 `osfui_webview2_host.exe` process; that boundary reduces renderer failure impact
 but is not a substitute for validating bridge messages.
 
-One structural mitigation is new and applies to the built-in views only:
-`data/OSFUI/views/` is **generated build output that is committed to git**, and
-CI rebuilds it and byte-compares on every push. Shipped view code therefore
-shows up in review diffs and cannot be quietly altered in the tree without
-either failing the staleness gate or appearing as a reviewable change to
-`frontend/src/`. It says nothing about third-party views.
+One structural mitigation applies to the built-in views only: their only tracked
+implementation is `frontend/src/`. CI builds that source and runs the output
+security/shape gates on every push; generated bundles are ignored and cannot be
+edited into a release independently of source. This says nothing about
+third-party views.
 
 ## Rules
 

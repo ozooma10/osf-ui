@@ -121,13 +121,22 @@ target("OSF UI")
     add_includedirs("sdk")
     set_pcxxheader("src/pch.h")
 
-    -- ship the plugin data folder (config + views) next to the DLL:
+    -- Ship authored plugin data next to the DLL. Built-in views are generated
+    -- separately under build/frontend/views and copied by the hooks below.
     -- <install>/SFSE/Plugins/OSFUI/...
     add_installfiles("data/(OSFUI/**)", { prefixdir = "SFSE/Plugins" })
     -- the Papyrus surface (authoring-settings.md "From Papyrus"): loose scripts
     -- at the Data root -- <install>/Scripts/OSFUI.pex (+ Source/OSFUI.psc)
     add_installfiles("data/(Scripts/**)")
-    -- Redeploy data/ (views + config) to the mod folder on every build where a data file changed. 
+    -- Build the ignored frontend artifact before native deployment. Node is a
+    -- developer/build dependency; it is never required on a player's machine.
+    before_build(function(target)
+        local frontend = path.join(os.projectdir(), "frontend")
+        cprint("${dim}building built-in views ..")
+        local npm = is_host("windows") and "npm.cmd" or "npm"
+        os.vrunv(npm, { "--prefix", frontend, "run", "build" })
+    end)
+    -- Redeploy authored data + generated views to the mod folder on every build.
     -- The commonlib rule's after_build only runs "xmake install" when the DLL binary itself changed, so pure HTML/JS/JSON edits would otherwise never reach XSE_SF_MODS_PATH.
     after_build(function(target)
         if not (os.getenv("XSE_SF_MODS_PATH") or os.getenv("XSE_SF_GAME_PATH")) then
@@ -136,13 +145,19 @@ target("OSF UI")
         import("core.project.depend")
         local datadir = path.join(os.projectdir(), "data", "OSFUI")
         local scriptsdir = path.join(os.projectdir(), "data", "Scripts")
+        local viewsdir = path.join(os.projectdir(), "build", "frontend", "views")
         local files = os.files(path.join(os.projectdir(), "data", "**"))
+        table.join2(files, os.files(path.join(viewsdir, "**")))
         depend.on_changed(function()
             local dstdir = path.join(target:installdir(), "SFSE", "Plugins")
             os.cp(datadir, dstdir)
+            local deployed = path.join(dstdir, "OSFUI", "views")
+            os.rm(path.join(deployed, "shared"))
+            os.rm(path.join(deployed, "osfui"))
+            os.cp(viewsdir, path.join(dstdir, "OSFUI"))
             -- Papyrus surface: loose scripts at the Data root (mod folder root)
             os.cp(scriptsdir, target:installdir())
-            cprint("${dim}deploying data/OSFUI + data/Scripts to %s ..", target:installdir())
+            cprint("${dim}deploying data/OSFUI + generated views + data/Scripts to %s ..", target:installdir())
         end, { files = files, values = files,
                dependfile = target:dependfile("osfui_data_deploy") })
         -- Out-of-process WebView2 host: ship the exe inside the plugin data
@@ -164,8 +179,18 @@ target("OSF UI")
     -- xmake install is also used by the release packager. Install the
     -- production host explicitly; unlike the MO2 auto-deploy above, this path
     -- runs with XSE_SF_* unset and must not depend on an after-build side effect.
+    before_install(function(target)
+        local frontend = path.join(os.projectdir(), "frontend")
+        cprint("${dim}building built-in views ..")
+        local npm = is_host("windows") and "npm.cmd" or "npm"
+        os.vrunv(npm, { "--prefix", frontend, "run", "build" })
+    end)
     after_install(function(target)
         import("core.project.config")
+        local viewsdir = path.join(os.projectdir(), "build", "frontend", "views")
+        local datadir = path.join(target:installdir(), "SFSE", "Plugins", "OSFUI")
+        os.rm(path.join(datadir, "views"))
+        os.cp(viewsdir, datadir)
         if config.get("with_webview2") then
             import("core.project.project")
             local host = project.target("osfui-webview2-host")

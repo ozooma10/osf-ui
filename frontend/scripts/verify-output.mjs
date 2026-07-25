@@ -1,4 +1,4 @@
-// Post-build gates on data/OSFUI/views. Run from `npm run build` so a bad build
+// Post-build gates on build/frontend/views. Run from `npm run build` so a bad build
 // never reaches the tree, and again from frontend/test/build.*.test.ts so CI
 // reports them as tests. Each gate catches a constraint that would otherwise
 // only fail in game, as a blank overlay plus a console error nobody reads.

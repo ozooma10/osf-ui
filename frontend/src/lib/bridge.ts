@@ -1,6 +1,6 @@
 // Typed façade over the shipped `window.osfui` helper.
 //
-// Wraps the frozen helper (data/OSFUI/views/shared/osfui.js), never reimplements
+// Wraps the frozen helper (shipped as views/shared/osfui.js), never reimplements
 // it: the helper owns onMessage, request/reply correlation, the i18n catalog and
 // the ready handshake, and is loaded by a classic <script> tag before this
 // bundle runs. Forking any of that would fork the contract third-party views use.

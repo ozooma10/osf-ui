@@ -27,11 +27,12 @@ Without this, `xmake build` fails with `OSFUI WebView2 host: unpack
 Microsoft.Web.WebView2 into external/webview2 ...` because `external/` is
 gitignored. The script is idempotent; pass `-Force` to re-fetch. It does **not**
 install xmake, the Edge WebView2 Evergreen runtime, or Node — those are listed
-under Requirements above (and Node only for [building the frontend](#building-the-frontend)).
+under Requirements above. Node is required because xmake builds the built-in views.
 
 ## Build
 
 ```bat
+npm --prefix frontend ci # once per fresh clone / lockfile update
 xmake build
 ```
 
@@ -47,23 +48,22 @@ The install includes the DLL, PDB, and the `OSFUI/` data folder (config + views)
 
 The built-in views are **not** hand-edited. Their source is a Vite + TypeScript +
 Preact project in [`frontend/`](frontend/README.md), which generates
-`data/OSFUI/views/`:
+the ignored `build/frontend/views/` artifact:
 
 ```bat
 npm --prefix frontend ci        # once
-npm --prefix frontend run build # regenerate data/OSFUI/views/
+npm --prefix frontend run build # regenerate build/frontend/views/
 ```
 
-> **`data/OSFUI/views/` is generated build output.** Edit `frontend/src/`, never
-> the files under `data/`. Hand edits there are destroyed by the next build and
-> CI fails the moment the two disagree.
+> **`build/frontend/views/` is disposable build output.** Edit `frontend/src/`;
+> the generated tree is replaced on every build and is never committed.
 
-The generated tree is **committed** on purpose: `xmake install`, the MO2
-after-build redeploy and `tools/package.ps1` all read it directly, and none of
-them can run Node. Node is therefore a *frontend build* dependency only — never
-a runtime one, and not needed for `xmake build`, the native tests, or
-`xmake install`. `npm --prefix frontend run dev` serves the views in a browser
-with a mock bridge; `npm --prefix frontend run verify` is the pre-push gate.
+`xmake build` and `xmake install` generate this artifact before deploying or
+staging it; `tools/package.ps1` installs locked frontend dependencies first.
+Node is therefore a developer/build dependency, never a player runtime
+dependency. The native test suite remains Node-free. `npm --prefix frontend run
+dev` serves the views in a browser with a mock bridge; `npm --prefix frontend
+run verify` is the pre-push gate.
 
 See [frontend/README.md](frontend/README.md) for the full command set and
 [frontend/COMPATIBILITY.md](frontend/COMPATIBILITY.md) for the artifacts that
@@ -73,7 +73,7 @@ are deliberately shipped verbatim.
 
 - [docs/authoring-settings.md](docs/authoring-settings.md) - **start here to add settings to your mod**: one JSON file, no code — quickstart, widgets, hotkeys, presets, localization, testing
 - [docs/authoring-views.md](docs/authoring-views.md) - **start here to build a view**: package layout, manifest fields, the bridge protocol, and the settings schema format
-- [frontend/README.md](frontend/README.md) - **start here to change a built-in view**: the Vite/TS/Preact source that generates `data/OSFUI/views/`
+- [frontend/README.md](frontend/README.md) - **start here to change a built-in view**: the Vite/TS/Preact source that generates `build/frontend/views/`
 - [docs/architecture.md](docs/architecture.md) - layers and data flow
 - [docs/security-model.md](docs/security-model.md)
 - [docs/troubleshooting.md](docs/troubleshooting.md) - requirements, install, troubleshooting, uninstall, and known limitations

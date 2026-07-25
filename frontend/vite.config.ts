@@ -25,7 +25,7 @@ export default defineConfig({
     // Vite 8 is rolldown-based: 'esbuild' is deprecated there and needs a
     // separate esbuild install. `true` selects the built-in Oxc minifier,
     // whose output is pinned by the locked vite version — which is what the
-    // byte-compare staleness gate (check:dist) requires.
+    // deterministic build-output gates require.
     minify: true,
     // One CSS file per view, in source order. keybinds/style.css in particular
     // has load-order-dependent cascade (its "Input Map overhaul" block

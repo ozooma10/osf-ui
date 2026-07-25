@@ -1,8 +1,8 @@
 // OSF UI frontend build orchestrator.
 //
-// Output path is fixed at `data/OSFUI/views/**`: three pipelines treat it as
-// authoritative (xmake `add_installfiles("data/(OSFUI/**)")`, the after_build MO2
-// redeploy, tools/package.ps1's staging copy).
+// Output defaults to the ignored `build/frontend/views/**` tree. Source is the
+// only frontend content tracked in git; xmake deployment/install and the release
+// packager consume this generated tree.
 //
 // One build per view, not one `vite build`: Rollup refuses IIFE with multiple
 // inputs ("UMD and IIFE output formats are not supported for code-splitting
@@ -27,9 +27,9 @@ function copy(from, to) {
 export async function runBuild({ quiet = false } = {}) {
   const log = quiet ? () => {} : (m) => console.log(m);
 
-  // 1. Clean only the paths we own — never wipe the whole views root, or a
-  //    third-party mod installed into data/ for local testing goes with it.
-  for (const rel of expectedOutputs()) rmSync(join(OUT, rel), { force: true });
+  // 1. This directory is build-owned and ignored, so remove it wholesale. That
+  //    guarantees renamed/removed outputs cannot leak into installs.
+  rmSync(OUT, { recursive: true, force: true });
 
   // 2. Verbatim copies.
   //    - shared/osfui.{js,css} are the frozen public contract (bridge protocol
@@ -87,9 +87,9 @@ export async function runBuild({ quiet = false } = {}) {
   }
 }
 
-// Run directly (`node scripts/build.mjs`), not when imported by check-dist.
+// Run directly (`node scripts/build.mjs`), not when imported by another tool.
 if (process.argv[1] && process.argv[1].endsWith('build.mjs')) {
-  console.log('OSF UI frontend -> data/OSFUI/views');
+  console.log('OSF UI frontend -> build/frontend/views');
   await runBuild();
   const { verifyOutput } = await import('./verify-output.mjs');
   const problems = verifyOutput();

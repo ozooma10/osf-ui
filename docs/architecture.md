@@ -63,16 +63,16 @@ A `ViewManifest` declares id, entry page, size, transparency, and a permission b
 
 ### Frontend build
 
-The built-in views are generated, not hand-written. `frontend/` is a Vite + TypeScript + Preact project whose build output *is* `data/OSFUI/views/`:
+The built-in views are generated, not hand-written. `frontend/` is a Vite + TypeScript + Preact project whose ignored build artifact is `build/frontend/views/`:
 
 ```
-frontend/src/  ──(npm run build)──►  data/OSFUI/views/  ──► xmake install / MO2 redeploy / package.ps1
+frontend/src/  ──(npm run build)──►  build/frontend/views/  ──► xmake install / MO2 redeploy / package.ps1
 ```
 
 - Per view the build emits `main.js` and `style.css`, and copies `index.html` + `manifest.json` through unprocessed — Vite's HTML pipeline would inject `type="module"` and `crossorigin` and hash asset names, all three of which break the shipped contract.
 - `views/shared/osfui.{js,css}` and `views/osfui/padnav.js` are copied **verbatim** from source and asserted byte-identical on every build; they are compatibility boundaries, not unfinished work (`frontend/COMPATIBILITY.md`).
-- Output filenames are stable — no content hashes. The MO2 after-build redeploy overlays without pruning, so hashed names would accumulate orphans, and the staleness gate byte-compares.
-- The generated tree is **committed**. The three consumers above read `data/` directly and none of them can run Node, so Node is a frontend-build dependency only — not a runtime one, and not required by `xmake build`, the native tests, or `xmake install`. CI rebuilds and byte-compares (`npm run check:dist`) to keep the committed output honest.
+- Output filenames are stable — no content hashes — so public asset paths and installed layouts remain deterministic.
+- The generated tree is ignored. `xmake build` and `xmake install` run the frontend builder before consuming it, while release packaging installs the locked npm dependencies first. Node is a developer/build dependency, never a player runtime dependency.
 
 Nothing in the native runtime is frontend-aware: it discovers whatever manifests are on disk, exactly as it does for a third-party mod's hand-authored view.
 

@@ -21,7 +21,7 @@ export default defineConfig({
     // `// @vitest-environment jsdom` pragma. Keeps the pure-logic suite fast.
     environment: 'node',
     include: ['test/**/*.test.{ts,tsx}'],
-    // Build-output gates read data/OSFUI/views, which `npm run build` must have
+    // Build-output gates read build/frontend/views, which `npm run build` must have
     // produced first. `npm run verify` sequences them correctly.
     testTimeout: 15000,
   },

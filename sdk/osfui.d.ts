@@ -11,7 +11,7 @@
  *   - docs/schema/*.schema.json        (manifest + settings-schema validation)
  *   - src/core/Version.h               (kBridgeProtocolVersion)
  *   - src/runtime/MessageBridge.cpp    (envelope + dispatch)
- *   - data/OSFUI/views/shared/osfui.js (the shipped JS helper)
+ *   - SFSE/Plugins/OSFUI/views/shared/osfui.js (the shipped JS helper)
  *
  * Usage: this is an ambient declaration file — drop it into your view project
  * (or reference it via tsconfig "types"/"include") and `window.osfui` is
@@ -709,7 +709,7 @@ export interface OSFUIBridge {
 }
 
 /**
- * The surface added by the shipped helper, data/OSFUI/views/shared/osfui.js
+ * The surface added by the shipped helper, SFSE/Plugins/OSFUI/views/shared/osfui.js
  * (protocol 1.2) — load it before your own script:
  *   <script src="../../shared/osfui.js"></script>
  * It decorates the same window.osfui object (creating a stub when no native

@@ -64,7 +64,7 @@ jobs:
           done
 
   frontend:
-    name: Frontend (typecheck, build, stale-check, tests)
+    name: Frontend (typecheck, build, tests)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -72,8 +72,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          # Pinned major, not 'latest': the staleness check below byte-compares
-          # generated output, so the toolchain must not drift under us.
+          # Keep local and CI frontend builds on the same Node major.
           node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
@@ -88,15 +87,6 @@ jobs:
 
       - name: Build generated views
         run: npm run build
-        working-directory: frontend
-
-      # data/OSFUI/views is generated AND committed - packaging, the MO2 redeploy
-      # and xmake install all read it directly, and none of them can run Node.
-      # Rebuilding here and asserting nothing changed is what keeps the committed
-      # output honest. Runs before the test suite because the build-output gates
-      # in test/build.*.test.ts read that tree.
-      - name: Generated view output is up to date
-        run: npm run check:dist
         working-directory: frontend
 
       - name: Tests
@@ -121,6 +111,16 @@ jobs:
         with:
           # lib/commonlibsf, which nests lib/commonlib-shared
           submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies (locked)
+        run: npm ci
+        working-directory: frontend
 
       - uses: xmake-io/github-action-setup-xmake@v1
         with:

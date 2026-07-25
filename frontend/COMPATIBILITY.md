@@ -11,7 +11,7 @@ exists because the failure mode is invisible until the game is running.
 
 ---
 
-## 1. `src/shared-kit/osfui.js` → `data/OSFUI/views/shared/osfui.js`
+## 1. `src/shared-kit/osfui.js` → `build/frontend/views/shared/osfui.js`
 
 **Status: frozen. Default position is to never generate this.**
 
@@ -35,7 +35,7 @@ directly as hand-written JavaScript, bump the bridge protocol version in
 release. Compiling it is a separate, deliberate decision requiring a byte-diff
 gate against the previous output.
 
-## 2. `src/shared-kit/osfui.css` → `data/OSFUI/views/shared/osfui.css`
+## 2. `src/shared-kit/osfui.css` → `build/frontend/views/shared/osfui.css`
 
 **Status: frozen, same contract as above.**
 
@@ -48,7 +48,7 @@ against.
 **Exit criterion:** as above. Note that `--osf-*` tokens are still consumed from
 TypeScript — but generated *from* this file, never the reverse.
 
-## 3. `src/legacy/padnav.js` → `data/OSFUI/views/osfui/padnav.js`
+## 3. `src/legacy/padnav.js` → `build/frontend/views/osfui/padnav.js`
 
 **Status: private, unfrozen, but retained — this is the one with a real path forward.**
 

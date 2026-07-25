@@ -468,8 +468,8 @@ async function openAlmanac() {
 
 See [`frontend/src/views/osfui/settings/`](../frontend/src/views/osfui/settings/)
 for a complete, commented example — that is the *source* of the built-in Mods
-surface. The copy under `data/OSFUI/views/osfui/settings/` is generated build
-output; read it if you want the exact shipped bytes, but never edit it.
+surface. The copy under `build/frontend/views/osfui/settings/` is disposable
+build output; inspect it if you want the exact shipped bytes, but never edit it.
 
 ---
 

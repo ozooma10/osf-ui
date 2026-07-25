@@ -56,9 +56,6 @@ param(
     [switch]$NoPdb,
     [string]$Mode = 'releasedbg',
     [switch]$SkipBuild,
-    # Regenerate data/OSFUI/views from frontend/ and hard-fail if the committed
-    # output was stale. Requires npm; off by default so packaging stays Node-free.
-    [switch]$RebuildFrontend,
     [string]$WebView2SdkDir,
     [string]$OutDir
 )
@@ -114,33 +111,12 @@ $env:XSE_SF_GAME_PATH  = $null
 
 Push-Location $RepoRoot
 try {
-    # --- generated view output must be current -----------------------------
-    # data/OSFUI/views is BUILD OUTPUT of frontend/ (Vite + TypeScript +
-    # Preact) that is committed so packaging, xmake install and the MO2
-    # redeploy can all consume it without Node. Shipping a stale bundle is
-    # invisible until someone opens the overlay in game, so check it here.
-    #
-    # Deliberately advisory-by-default and Node-free: packaging must keep
-    # working on a machine that has never run npm. Pass -RebuildFrontend to
-    # regenerate and hard-fail on drift (what release builds should use).
-    if ($RebuildFrontend) {
-        Step "Rebuilding frontend (npm run build) and checking for drift"
-        if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { Die "-RebuildFrontend requires npm on PATH." }
-        npm --prefix frontend ci
-        if ($LASTEXITCODE -ne 0) { Die "npm ci failed." }
-        npm --prefix frontend run build
-        if ($LASTEXITCODE -ne 0) { Die "Frontend build failed." }
-        npm --prefix frontend run check:dist
-        if ($LASTEXITCODE -ne 0) { Die "Generated views under data/OSFUI/views are stale. Commit the rebuilt output." }
-    } else {
-        # Cheap Node-free approximation: if the generated tree is dirty in git,
-        # someone edited output by hand or forgot to rebuild.
-        $dirty = & git status --porcelain -- data/OSFUI/views 2>$null
-        if ($LASTEXITCODE -eq 0 -and $dirty) {
-            Warn ("data/OSFUI/views has uncommitted changes -- it is GENERATED from frontend/src." +
-                  "`n    Run 'npm --prefix frontend run build' and commit, or re-run with -RebuildFrontend to verify.")
-        }
-    }
+    # The built-in views are generated into ignored build/frontend/views.
+    # Install locked dependencies here; xmake build/install invokes the build.
+    Step "Installing frontend dependencies (locked)"
+    if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { Die "Packaging requires npm on PATH." }
+    npm --prefix frontend ci
+    if ($LASTEXITCODE -ne 0) { Die "npm ci failed." }
 
     # --- configure + build -------------------------------------------------
     if (-not $SkipBuild) {
@@ -164,18 +140,14 @@ try {
     if ($LASTEXITCODE -ne 0) { Die "xmake install failed." }
 
     # --- deterministic data sync ------------------------------------------
-    # xmake's add_installfiles("data/(OSFUI/**)") glob is CACHED and can go
-    # stale: a view added/removed after the last clean reconfigure silently
-    # won't match what's on disk (this is the deploy-race trap in docs). So we
-    # do not trust install for the data folder -- mirror the authoritative
-    # data/OSFUI/ over the staged tree while preserving the host executable
-    # installed into bin/.
+    # xmake's authored-data glob is cached, so mirror data/OSFUI explicitly.
+    # Preserve generated views and the host executable installed by xmake.
     $stagedData = Join-Path $Staging 'SFSE\Plugins\OSFUI'
     $srcData    = Join-Path $RepoRoot 'data\OSFUI'
     if (-not (Test-Path $srcData)) { Die "Source data folder not found: $srcData" }
-    Step "Syncing data folder from data/OSFUI (authoritative; bypasses install-glob cache)"
+    Step "Syncing authored data from data/OSFUI (bypasses install-glob cache)"
     Get-ChildItem $stagedData -Force -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -ne 'bin' } |
+        Where-Object { $_.Name -notin @('bin', 'views') } |
         Remove-Item -Recurse -Force
     Copy-Item (Join-Path $srcData '*') $stagedData -Recurse -Force
 
