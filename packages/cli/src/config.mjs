@@ -1,5 +1,5 @@
 import { access } from 'node:fs/promises';
-import { isAbsolute, resolve } from 'node:path';
+import { extname, isAbsolute, resolve, sep } from 'node:path';
 import { loadConfigFromFile, normalizePath } from 'vite';
 
 import {
@@ -9,6 +9,53 @@ import {
 } from './constants.mjs';
 
 const exists = (path) => access(path).then(() => true, () => false);
+
+/**
+ * Candidate mock files probed, in priority order, when the config does not
+ * name one. `.json` last: a module can express everything a fixture can, so
+ * a project that has both meant the module.
+ */
+const MOCK_CANDIDATES = [
+  'osfui.mock.ts',
+  'osfui.mock.mts',
+  'osfui.mock.js',
+  'osfui.mock.mjs',
+  'osfui.mock.json',
+];
+
+/** 'module' | 'json' from a mock file's extension. */
+function mockKindFor(path) {
+  return extname(path).toLowerCase() === '.json' ? 'json' : 'module';
+}
+
+/**
+ * Resolve the project's dev mock. Explicit `mock:` must exist (a typo would
+ * otherwise silently disable the mock — the historical default pointed at a
+ * file the scaffolder never wrote, and nobody noticed). Without `mock:`, the
+ * first existing candidate wins; a project without any mock is fine.
+ */
+async function resolveMock(root, viewsRoot, raw) {
+  let mockPath = null;
+  if (raw !== undefined) {
+    validateRelative(raw, 'mock');
+    mockPath = resolve(root, raw);
+    if (!await exists(mockPath)) {
+      throw new Error(`Mock file not found: ${mockPath}`);
+    }
+  } else {
+    for (const candidate of MOCK_CANDIDATES) {
+      const path = resolve(root, candidate);
+      if (await exists(path)) { mockPath = path; break; }
+    }
+  }
+  if (mockPath === null) return { mockPath: null, mockKind: 'none' };
+  if (mockPath.startsWith(viewsRoot + sep)) {
+    throw new Error(
+      'The mock must live at the project root, outside src/views, so it can never ship with the views.',
+    );
+  }
+  return { mockPath, mockKind: mockKindFor(mockPath) };
+}
 
 function integer(value, fallback) {
   return Number.isInteger(value) ? Math.max(1, Math.min(16384, value)) : fallback;
@@ -92,6 +139,7 @@ export async function loadProject(cwd, command = 'serve') {
     });
   }
   const viewsRoot = resolve(root, 'src/views');
+  const { mockPath, mockKind } = await resolveMock(root, viewsRoot, raw.mock);
   return {
     root,
     configPath,
@@ -100,7 +148,8 @@ export async function loadProject(cwd, command = 'serve') {
     viewsRoot,
     outDir: resolve(root, raw.outDir || 'dist'),
     outputViewsRoot: resolve(root, raw.outDir || 'dist', 'SFSE/Plugins/OSFUI/views'),
-    mockPath: resolve(root, raw.mock || 'osfui.mock.ts'),
+    mockPath,
+    mockKind,
   };
 }
 

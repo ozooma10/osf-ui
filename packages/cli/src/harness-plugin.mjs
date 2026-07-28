@@ -80,10 +80,12 @@ export function harnessPlugin(project, selectedView) {
       },
     },
     configureServer(server) {
-      server.watcher.add(project.mockPath);
-      server.watcher.on('change', (path) => {
-        if (path === project.mockPath) server.ws.send({ type: 'full-reload' });
-      });
+      if (project.mockPath) {
+        server.watcher.add(project.mockPath);
+        server.watcher.on('change', (path) => {
+          if (path === project.mockPath) server.ws.send({ type: 'full-reload' });
+        });
+      }
       server.middlewares.use(async (request, response, next) => {
         const url = new URL(request.url || '/', 'http://osfui.local');
         if (url.pathname === '/shared/osfui.js') {
@@ -114,8 +116,12 @@ export function harnessPlugin(project, selectedView) {
         } else if (url.pathname === '/__osfui/meta.json') {
           send(response, JSON.stringify(meta), 'application/json; charset=utf-8');
         } else if (url.pathname === '/__osfui/fixture.json') {
+          // Module mocks are loaded through Vite, not this endpoint; only a
+          // JSON fixture is served raw.
           let fixture = '{"state":{},"requests":{},"locales":{}}';
-          try { fixture = await readFile(project.mockPath, 'utf8'); } catch {}
+          if (project.mockKind === 'json') {
+            try { fixture = await readFile(project.mockPath, 'utf8'); } catch {}
+          }
           send(response, fixture, 'application/json; charset=utf-8');
         } else {
           next();

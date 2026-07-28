@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
@@ -14,7 +14,9 @@ import { harnessPlugin } from '../src/harness-plugin.mjs';
 import { writeZip } from '../src/zip.mjs';
 
 async function projectFixture(t) {
-  const root = await mkdtemp(resolve(tmpdir(), 'osfui-cli-'));
+  // realpath expands Windows 8.3 short names (NICKLE~1): watching a file under
+  // a short-path root trips a libuv fs-event assertion and aborts the process.
+  const root = await mkdtemp(resolve(await realpath(tmpdir()), 'osfui-cli-'));
   t.after(async () => {
     const { rm } = await import('node:fs/promises');
     await rm(root, { recursive: true, force: true });
