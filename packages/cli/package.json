@@ -17,6 +17,12 @@
     },
     "./view": {
       "types": "./types/osfui.d.ts"
+    },
+    "./config": {
+      "import": "./src/config.mjs"
+    },
+    "./dev": {
+      "import": "./src/dev.mjs"
     }
   },
   "files": [

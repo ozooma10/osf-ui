@@ -13,12 +13,14 @@
     "build": "node scripts/build.mjs",
     "verify": "npm run typecheck && npm run build && npm test",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "dev:cli": "osfui dev"
   },
   "dependencies": {
     "preact": "10.29.7"
   },
   "devDependencies": {
+    "@osfui/cli": "file:../packages/cli",
     "@preact/preset-vite": "2.10.6",
     "@types/node": "26.1.1",
     "acorn": "8.17.0",
