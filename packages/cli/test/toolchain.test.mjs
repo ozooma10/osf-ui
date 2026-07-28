@@ -90,6 +90,13 @@ test('development server exposes the harness and injects the bridge before view 
   const moduleSource = await moduleResponse.text();
   assert.match(harness, /OSF UI View Harness/);
   assert.match(view, /__osfui\/bootstrap\.js/);
+  // The browser JS is served from real files in src/browser/, with the
+  // per-view meta prelude prepended to the bootstrap.
+  const bootstrap = await fetch(`${origin}/__osfui/bootstrap.js`).then((response) => response.text());
+  const shell = await fetch(`${origin}/__osfui/harness.js`).then((response) => response.text());
+  assert.match(bootstrap, /^const __OSFUI_HARNESS_META__=\{/);
+  assert.match(bootstrap, /osfui-harness/);
+  assert.match(shell, /loadMeta/);
   assert.equal(moduleResponse.status, 200);
   assert.match(moduleSource, /osfui-shared/);
 });

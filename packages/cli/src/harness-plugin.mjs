@@ -2,12 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import {
-  BOOTSTRAP_JS,
-  HARNESS_CSS,
-  HARNESS_HTML,
-  HARNESS_JS,
-} from './harness-assets.mjs';
+import { HARNESS_CSS, HARNESS_HTML } from './harness-assets.mjs';
 import { BRIDGE_VERSION, HOST_VERSION } from './constants.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -30,6 +25,11 @@ function send(response, body, type) {
   response.setHeader('Content-Type', type);
   response.setHeader('Cache-Control', 'no-store');
   response.end(body);
+}
+
+/** A file from src/browser/, shipped with the package. */
+function browserAsset(name) {
+  return readFile(resolve(HERE, 'browser', name), 'utf8');
 }
 
 async function sharedAsset(name) {
@@ -106,11 +106,11 @@ export function harnessPlugin(project, selectedView) {
         } else if (url.pathname === '/__osfui/harness.css') {
           send(response, HARNESS_CSS, 'text/css; charset=utf-8');
         } else if (url.pathname === '/__osfui/harness.js') {
-          send(response, HARNESS_JS, 'text/javascript; charset=utf-8');
+          send(response, await browserAsset('shell.js'), 'text/javascript; charset=utf-8');
         } else if (url.pathname === '/__osfui/bootstrap.js') {
           send(
             response,
-            `const __OSFUI_HARNESS_META__=${JSON.stringify(meta)};\n${BOOTSTRAP_JS}`,
+            `const __OSFUI_HARNESS_META__=${JSON.stringify(meta)};\n${await browserAsset('bootstrap.js')}`,
             'text/javascript; charset=utf-8',
           );
         } else if (url.pathname === '/__osfui/meta.json') {
