@@ -83,6 +83,31 @@ export type CommandHandler = (
   requestId: string,
 ) => boolean | void | Promise<boolean | void>;
 
+export type ToolKind = 'button' | 'toggle' | 'cycle' | 'select';
+
+export interface ToolOption {
+  value: string;
+  label?: string;
+}
+
+/** A dev control rendered into the harness shell's toolbar. */
+export interface ToolSpec {
+  /** Unique per mock; lowercase letters, digits, hyphens. */
+  id: string;
+  kind: ToolKind;
+  label: string;
+  /** Tooltip. */
+  title?: string;
+  /** toggle: boolean; cycle/select: an option value. */
+  value?: string | boolean;
+  /** Required for cycle/select. */
+  options?: (ToolOption | string)[];
+  /** Highlight the control. */
+  active?: boolean;
+}
+
+export type ToolPatch = Partial<Pick<ToolSpec, 'label' | 'title' | 'value' | 'options' | 'active'>>;
+
 /**
  * Handed to a mock module's `install(ctx)` export, which runs inside the view
  * page before the view boots. `install` may layer handlers over the scenario
@@ -102,6 +127,14 @@ export interface MockContext {
   send(message: Envelope): void;
   /** Register a command handler ahead of the scenario engine. */
   onCommand(handler: CommandHandler): void;
+  /**
+   * Register dev controls in the shell toolbar (replaces any previous
+   * registration). `onInvoke` receives the tool id and, for toggles,
+   * cycles and selects, the new value.
+   */
+  registerTools(tools: ToolSpec[], onInvoke?: (id: string, value?: string | boolean) => void): void;
+  /** Update one registered tool in place (label, value, active, ...). */
+  updateTool(id: string, patch: ToolPatch): void;
   /** Transient toast for mocked effects that happen outside the browser. */
   notify(text: string): void;
   /** A line in the shell traffic panel. */

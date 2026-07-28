@@ -128,7 +128,9 @@ export function harnessPlugin(project, selectedView) {
         } else if (url.pathname === '/__osfui/harness.js') {
           send(response, await browserAsset('shell.js'), 'text/javascript; charset=utf-8');
         } else if (url.pathname === '/__osfui/stage-fit.js') {
-          send(response, await browserAsset('stage-fit.mjs'), 'text/javascript; charset=utf-8');
+          send(response, await browserAsset('stage-fit.js'), 'text/javascript; charset=utf-8');
+        } else if (url.pathname === '/__osfui/tools-model.js') {
+          send(response, await browserAsset('tools-model.js'), 'text/javascript; charset=utf-8');
         } else if (url.pathname === '/__osfui/mock-loader.js') {
           send(response, await browserAsset('mock-loader.js'), 'text/javascript; charset=utf-8');
         } else if (url.pathname === '/__osfui/mock-runtime.js') {

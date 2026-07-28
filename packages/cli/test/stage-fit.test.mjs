@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { STAGE_MODES, computeFit, nextStageMode } from '../src/browser/stage-fit.mjs';
+import { STAGE_MODES, computeFit, nextStageMode } from '../src/browser/stage-fit.js';
 
 test('fixed letterboxes: height binds in a wide pane', () => {
   const fit = computeFit(2400, 900, 1600, 900, 'fixed');

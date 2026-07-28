@@ -27,6 +27,9 @@ input[type="number"] { width: 76px; }
   background: #101b22; border-bottom: 1px solid #31434d; white-space: nowrap;
 }
 .brand { font-weight: 700; letter-spacing: .08em; margin-right: 6px; }
+/* Mock-registered dev controls render inline with the fixed toolbar items. */
+#tools { display: contents; }
+.toolbar .on { border-color: #8fc8dc; background: #19303b; }
 .view-id { color: #8fc8dc; overflow: hidden; text-overflow: ellipsis; }
 .spacer { flex: 1; }
 .status { color: #9fb1b9; }
@@ -89,6 +92,7 @@ export const HARNESS_HTML = String.raw`<!doctype html>
       <label>Height <input id="height" type="number" min="1" max="16384"></label>
       <button id="apply-size" type="button">Apply</button>
       <button id="stage-mode" type="button">Stage</button>
+      <span id="tools"></span>
       <label>Locale <input id="locale" value="en" size="8"></label>
       <button id="send-locale" type="button">Set</button>
       <button id="visibility" type="button">Hide</button>

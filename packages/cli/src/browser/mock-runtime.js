@@ -13,6 +13,8 @@
 // The pure pieces (scenario resolution, the command engine) take no DOM so
 // they are unit-tested under node --test.
 
+import { applyPatch, normalizeTools } from './tools-model.js';
+
 /** Shallow-overlay a named scenario onto the base mock fields. */
 export function resolveScenario(mock, name) {
   const base = mock && typeof mock === 'object' ? mock : {};
@@ -183,11 +185,71 @@ export async function installMock(harness, mod, loadError) {
     }
   };
 
+  // Tool strip: dev controls rendered by the shell toolbar. The scenario
+  // select is built in; mocks add their own via ctx.registerTools. Both ride
+  // postMessage kinds 'tools' / 'tool-state' / 'tool-invoke' — dev plumbing,
+  // never gated on nativeBridge.
+  let builtinTools = [];
+  let userTools = [];
+  let userInvoke = null;
+  const postTools = () => {
+    parent.postMessage(
+      { source: harness.source, kind: 'tools', tools: [...builtinTools, ...userTools] },
+      location.origin,
+    );
+  };
+  if (scenario.scenarioNames.length) {
+    builtinTools = normalizeTools([{
+      id: 'scenario',
+      kind: 'select',
+      label: 'Scenario',
+      title: 'Overlay a named scenario from the mock onto its base fields (?scenario=<name>)',
+      options: [{ value: '', label: '(base)' }, ...scenario.scenarioNames],
+      value: scenario.scenario,
+    }]).tools;
+  }
+  window.addEventListener('message', (event) => {
+    if (event.origin !== location.origin || !event.data || event.data.source !== harness.source) return;
+    if (event.data.kind !== 'tool-invoke') return;
+    const { id, value } = event.data;
+    if (id === 'scenario' && builtinTools.some((tool) => tool.id === 'scenario')) {
+      const url = new URL(location.href);
+      if (value) url.searchParams.set('scenario', String(value));
+      else url.searchParams.delete('scenario');
+      location.href = url;
+      return;
+    }
+    if (userInvoke) {
+      try {
+        userInvoke(id, value);
+      } catch (cause) {
+        harness.report('in', 'Tool "' + id + '" handler threw: ' + (cause && cause.stack || cause), 'warn');
+      }
+    }
+  });
+
   const ctx = {
     meta,
     params,
     storage: safeStorage(),
     scenario: mod?.default ?? null,
+    registerTools(list, onInvoke) {
+      const { tools, dropped } = normalizeTools(list);
+      if (dropped.length) {
+        harness.report('in', 'Dropped invalid tool spec(s): ' + dropped.join(', '), 'warn');
+      }
+      userTools = tools;
+      userInvoke = typeof onInvoke === 'function' ? onInvoke : null;
+      postTools();
+    },
+    updateTool(id, patch) {
+      userTools = applyPatch(userTools, id, patch);
+      builtinTools = applyPatch(builtinTools, id, patch);
+      parent.postMessage(
+        { source: harness.source, kind: 'tool-state', id, patch },
+        location.origin,
+      );
+    },
     send(message) {
       if (!meta.nativeBridge) {
         harness.report('in', 'Bridge disabled by manifest.permissions.nativeBridge', 'warn');
@@ -219,11 +281,14 @@ export async function installMock(harness, mod, loadError) {
     // greeting and replies from here on; drain the backlog into it and stop.
     const current = window.osfui && window.osfui.postMessage;
     if (meta.nativeBridge && typeof current === 'function' && current !== harness.bridgeEntry) {
+      postTools();
       harness.setHandler(current);
       harness.ready();
       return;
     }
   }
+  // Always post (even empty): a reloaded iframe must clear a stale strip.
+  postTools();
 
   await domReady();
   if (!meta.nativeBridge) {

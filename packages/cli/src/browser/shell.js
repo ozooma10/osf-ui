@@ -3,6 +3,7 @@
 // envelopes tagged source:'osfui-harness'.
 
 import { STAGE_MODES, computeFit, nextStageMode } from './stage-fit.js';
+import { applyPatch, nextCycleValue } from './tools-model.js';
 
 const $ = (id) => document.getElementById(id);
 const frame = $('view');
@@ -94,6 +95,70 @@ function scaleStage() {
     ' at ' + Math.round(fit.scale * 100) + '%';
 }
 
+// Mock-registered dev controls (postMessage kinds tools/tool-state/tool-invoke).
+let tools = [];
+
+function invokeTool(id, value) {
+  frame.contentWindow?.postMessage(
+    { source: 'osfui-harness', kind: 'tool-invoke', id, value },
+    location.origin,
+  );
+}
+
+function renderTools() {
+  const strip = $('tools');
+  strip.replaceChildren();
+  for (const tool of tools) {
+    if (tool.kind === 'select') {
+      const label = document.createElement('label');
+      label.append(tool.label + ' ');
+      const select = document.createElement('select');
+      for (const option of tool.options) {
+        const element = document.createElement('option');
+        element.value = option.value;
+        element.textContent = option.label;
+        if (option.value === tool.value) element.selected = true;
+        select.append(element);
+      }
+      select.title = tool.title;
+      select.addEventListener('change', () => {
+        tools = applyPatch(tools, tool.id, { value: select.value });
+        invokeTool(tool.id, select.value);
+      });
+      label.append(select);
+      strip.append(label);
+      continue;
+    }
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.title = tool.title;
+    button.classList.toggle('on', tool.active || tool.value === true);
+    if (tool.kind === 'toggle') {
+      button.textContent = tool.label + ': ' + (tool.value ? 'on' : 'off');
+      button.addEventListener('click', () => {
+        const next = !tools.find((entry) => entry.id === tool.id)?.value;
+        tools = applyPatch(tools, tool.id, { value: next });
+        renderTools();
+        invokeTool(tool.id, next);
+      });
+    } else if (tool.kind === 'cycle') {
+      const current = tool.options.find((option) => option.value === tool.value);
+      button.textContent = tool.label + ': ' + (current ? current.label : tool.value);
+      button.addEventListener('click', () => {
+        const live = tools.find((entry) => entry.id === tool.id) || tool;
+        const next = nextCycleValue(live);
+        tools = applyPatch(tools, tool.id, { value: next });
+        renderTools();
+        invokeTool(tool.id, next);
+      });
+    } else {
+      button.textContent = tool.label;
+      button.addEventListener('click', () => invokeTool(tool.id));
+    }
+    strip.append(button);
+  }
+}
+
 async function loadMeta(navigate = true) {
   meta = await fetch('/__osfui/meta.json', { cache: 'no-store' }).then((r) => r.json());
   $('view-id').textContent = meta.qualifiedId + ' — ' + (meta.title || meta.qualifiedId);
@@ -106,6 +171,14 @@ window.addEventListener('message', (event) => {
   if (event.data.kind === 'traffic') log(event.data.direction, event.data.message, event.data.level);
   if (event.data.kind === 'mock-status') {
     log('in', (event.data.ok ? 'Mock: ' : 'Mock failed: ') + event.data.message, event.data.ok ? '' : 'warn');
+  }
+  if (event.data.kind === 'tools') {
+    tools = Array.isArray(event.data.tools) ? event.data.tools : [];
+    renderTools();
+  }
+  if (event.data.kind === 'tool-state') {
+    tools = applyPatch(tools, event.data.id, event.data.patch);
+    renderTools();
   }
   if (event.data.kind === 'ready') {
     $('status').textContent = meta.nativeBridge ? 'Bridge ready' : 'Bridge disabled by manifest';
