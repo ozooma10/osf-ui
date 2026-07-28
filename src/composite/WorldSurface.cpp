@@ -3,6 +3,7 @@
 #include "composite/D3D12Prologue.h"
 #include "platform/WindowsPlatform.h"
 
+#include <array>
 #include <atomic>
 #include <mutex>
 
@@ -17,32 +18,54 @@ namespace OSFUI::WorldSurface
 			const D3D12_SHADER_RESOURCE_VIEW_DESC*,
 			D3D12_CPU_DESCRIPTOR_HANDLE);
 
+		// Per-surface state. The signature fields are immutable after
+		// Configure and read lock-free by the SRV thunk (published by the
+		// release store of g_surfaceCount); everything else is under g_mutex.
+		struct Surface
+		{
+			std::uint32_t placeholderWidth{ 0 };
+			std::uint32_t placeholderHeight{ 0 };
+			std::string   label;
+
+			// The authored material may bind the placeholder more than once
+			// (Albedo + Emissive), so one surface owns a small SET of captured
+			// descriptors, deduped by CPU handle.
+			static constexpr std::uint32_t kMaxCapturedSrvs = 4;
+			std::array<D3D12_CPU_DESCRIPTOR_HANDLE, kMaxCapturedSrvs> capturedSrvs{};
+			std::uint32_t capturedCount{ 0 };
+			bool          capturedOverflowWarned{ false };
+
+			ID3D12Resource* slots[SharedRingDesc::kMaxSlots]{};
+			std::uint32_t   slotCount{ 0 };
+			ID3D12Fence*    produceFence{ nullptr };
+			ID3D12Fence*    consumeFence{ nullptr };
+			SharedRingDesc  pending{};
+			bool            pendingDirty{ false };
+			std::uint64_t   generation{ 0 };
+			std::uint64_t   lastSerial{ 0 };
+			std::uint32_t   lastSlot{ 0 };
+			std::uint64_t   pendingConsumeSerial{ 0 };
+			bool            loggedWrite{ false };
+			bool            loggedConsume{ false };
+			std::uint32_t   fenceStalls{ 0 };
+			std::uint32_t   captures{ 0 };
+			std::uint64_t   refreshWrites{ 0 };
+			std::uint64_t   nextRefreshLog{ 1 };
+		};
+
 		std::atomic_bool g_enabled{ false };
 		std::atomic_bool g_installTried{ false };
 		std::atomic_bool g_installed{ false };
 		std::atomic<CreateSrvFn> g_original{ nullptr };
-		std::atomic<std::uint32_t> g_targetWidth{ 0 };
-		std::atomic<std::uint32_t> g_targetHeight{ 0 };
+		std::array<Surface, kMaxSurfaces> g_surfaces;
+		std::atomic<std::uint32_t> g_surfaceCount{ 0 };
 
+		// One lock for all surfaces: N <= 4, the SRV thunk only takes it on a
+		// signature hit, and the only expensive section under it —
+		// OpenSharedHandle in AdoptPending — runs once per ring generation,
+		// not per frame.
 		std::mutex g_mutex;
 		ID3D12Device* g_device{ nullptr };
-		D3D12_CPU_DESCRIPTOR_HANDLE g_targetSrv{};
-		ID3D12Resource* g_slots[SharedRingDesc::kMaxSlots]{};
-		std::uint32_t g_slotCount{ 0 };
-		ID3D12Fence* g_produceFence{ nullptr };
-		ID3D12Fence* g_consumeFence{ nullptr };
-		SharedRingDesc g_pending{};
-		bool g_pendingDirty{ false };
-		std::uint64_t g_generation{ 0 };
-		std::uint64_t g_lastSerial{ 0 };
-		std::uint32_t g_lastSlot{ 0 };
-		std::uint64_t g_pendingConsumeSerial{ 0 };
-		bool          g_loggedWrite{ false };
-		bool          g_loggedConsume{ false };
-		std::uint32_t g_fenceStalls{ 0 };
-		std::uint32_t g_captures{ 0 };
-		std::uint64_t g_refreshWrites{ 0 };
-		std::uint64_t g_nextRefreshLog{ 1 };
 
 		template <class T>
 		void SafeRelease(T*& a_value)
@@ -71,50 +94,63 @@ namespace OSFUI::WorldSurface
 			}
 		}
 
-		void ReleaseRing()
+		// Ring-side reset only: captured descriptors identify the MATERIAL and
+		// stay valid across ring generations, so they survive here.
+		void ReleaseRing(Surface& a_surface)
 		{
-			for (auto*& slot : g_slots) {
+			for (auto*& slot : a_surface.slots) {
 				SafeRelease(slot);
 			}
-			SafeRelease(g_produceFence);
-			SafeRelease(g_consumeFence);
-			g_slotCount = 0;
-			g_lastSerial = 0;
-			g_lastSlot = 0;
-			g_pendingConsumeSerial = 0;
-			g_fenceStalls = 0;
-			g_loggedWrite = false;
-			g_loggedConsume = false;
+			SafeRelease(a_surface.produceFence);
+			SafeRelease(a_surface.consumeFence);
+			a_surface.slotCount = 0;
+			a_surface.lastSerial = 0;
+			a_surface.lastSlot = 0;
+			a_surface.pendingConsumeSerial = 0;
+			a_surface.fenceStalls = 0;
+			a_surface.loggedWrite = false;
+			a_surface.loggedConsume = false;
 		}
 
-		[[nodiscard]] bool IsTarget(ID3D12Resource* a_resource)
+		// Dimensions alone are NOT a safe signature. The engine allocates its
+		// own render targets, and matching one of those rewrites a descriptor
+		// the frame depends on — which breaks rendering globally, not just the
+		// surface. A streamed material texture is a plain sampled 2D texture:
+		// no render-target/depth/UAV capability, single slice, single mip (our
+		// placeholders ship unmipped). Requiring FLAG_NONE excludes every
+		// engine-owned target regardless of what size it happens to be; the
+		// per-surface size match then only disambiguates between our own
+		// placeholders.
+		[[nodiscard]] Surface* FindTarget(ID3D12Resource* a_resource)
 		{
 			if (!a_resource) {
-				return false;
+				return nullptr;
 			}
-		const auto desc = a_resource->GetDesc();
-			// Dimensions alone are NOT a safe signature. The engine allocates its
-			// own render targets, and matching one of those rewrites a descriptor
-			// the frame depends on — which breaks rendering globally, not just the
-			// surface. A streamed material texture is a plain sampled 2D texture:
-			// no render-target/depth/UAV capability, single slice, single mip (our
-			// placeholder ships unmipped). Requiring FLAG_NONE excludes every
-			// engine-owned target regardless of what size it happens to be.
-			return desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
-				desc.Flags == D3D12_RESOURCE_FLAG_NONE &&
-				desc.DepthOrArraySize == 1 &&
-				desc.MipLevels == 1 &&
-				desc.SampleDesc.Count == 1 &&
-				desc.Width == g_targetWidth.load(std::memory_order_relaxed) &&
-				desc.Height == g_targetHeight.load(std::memory_order_relaxed);
+			const auto desc = a_resource->GetDesc();
+			if (desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+				desc.Flags != D3D12_RESOURCE_FLAG_NONE ||
+				desc.DepthOrArraySize != 1 ||
+				desc.MipLevels != 1 ||
+				desc.SampleDesc.Count != 1) {
+				return nullptr;
+			}
+			const auto count = g_surfaceCount.load(std::memory_order_acquire);
+			for (std::uint32_t i = 0; i < count; ++i) {
+				auto& surface = g_surfaces[i];
+				if (desc.Width == surface.placeholderWidth &&
+					desc.Height == surface.placeholderHeight) {
+					return &surface;
+				}
+			}
+			return nullptr;
 		}
 
-		// Returns false when the material descriptor has not been captured yet, so
+		// Returns false when no material descriptor has been captured yet, so
 		// callers never latch "displayed" state for a write that did not land.
-		bool WriteReplacement(ID3D12Resource* a_resource)
+		bool WriteReplacement(Surface& a_surface, ID3D12Resource* a_resource)
 		{
 			const auto original = g_original.load(std::memory_order_acquire);
-			if (!original || !g_device || !a_resource || g_targetSrv.ptr == 0) {
+			if (!original || !g_device || !a_resource || a_surface.capturedCount == 0) {
 				return false;
 			}
 			D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
@@ -122,7 +158,9 @@ namespace OSFUI::WorldSurface
 			srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
 			srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 			srv.Texture2D.MipLevels = 1;
-			original(g_device, a_resource, &srv, g_targetSrv);
+			for (std::uint32_t i = 0; i < a_surface.capturedCount; ++i) {
+				original(g_device, a_resource, &srv, a_surface.capturedSrvs[i]);
+			}
 			return true;
 		}
 
@@ -136,53 +174,82 @@ namespace OSFUI::WorldSurface
 			if (!original) {
 				return;
 			}
-			if (!IsTarget(a_resource)) {
+			auto* target = FindTarget(a_resource);
+			if (!target) {
 				original(a_device, a_resource, a_desc, a_destination);
 				return;
 			}
+			auto& surface = *target;
 
 			std::scoped_lock lock(g_mutex);
-			g_targetSrv = a_destination;
-			const bool replaced = g_slotCount != 0 && g_slots[g_lastSlot] != nullptr;
+			// Dedupe by CPU handle: a repeat of a known handle is the engine
+			// re-creating that descriptor (streaming/heap rebuild) — logged
+			// below, because it is the prime suspect whenever a landed write
+			// stops being visible. A new handle is another binding of the same
+			// material (Albedo + Emissive) or a second descriptor heap.
+			bool known = false;
+			for (std::uint32_t i = 0; i < surface.capturedCount; ++i) {
+				if (surface.capturedSrvs[i].ptr == a_destination.ptr) {
+					known = true;
+					break;
+				}
+			}
+			if (!known) {
+				if (surface.capturedCount < Surface::kMaxCapturedSrvs) {
+					surface.capturedSrvs[surface.capturedCount++] = a_destination;
+				} else {
+					surface.capturedSrvs[Surface::kMaxCapturedSrvs - 1] = a_destination;
+					if (!surface.capturedOverflowWarned) {
+						surface.capturedOverflowWarned = true;
+						REX::WARN("[WorldSurface] surface '{}' exceeded {} captured "
+							"descriptors; keeping the newest — expect flicker if the "
+							"evicted binding is still sampled",
+							surface.label, Surface::kMaxCapturedSrvs);
+					}
+				}
+			}
+			const bool replaced = surface.slotCount != 0 &&
+				surface.slots[surface.lastSlot] != nullptr;
 			if (replaced) {
 				D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
 				srv.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
 				srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
 				srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 				srv.Texture2D.MipLevels = 1;
-				original(a_device, g_slots[g_lastSlot], &srv, a_destination);
+				original(a_device, surface.slots[surface.lastSlot], &srv, a_destination);
 			} else {
 				original(a_device, a_resource, a_desc, a_destination);
 			}
-			// Every capture is logged: a second line for the same material means the
-			// engine re-created the descriptor (streaming/heap rebuild), which is the
-			// prime suspect whenever a landed write stops being visible.
 			const auto resource = a_resource->GetDesc();
-			REX::INFO("[WorldSurface] captured placeholder {}x{} at srvCpu=0x{:X} "
-				"(resFormat {}, mips {}, viewFormat {}, replaced={})",
-				g_targetWidth.load(), g_targetHeight.load(), a_destination.ptr,
-			static_cast<int>(resource.Format), resource.MipLevels,
+			REX::INFO("[WorldSurface] surface '{}' captured placeholder {}x{} at "
+				"srvCpu=0x{:X} ({} descriptors, known={}, resFormat {}, mips {}, "
+				"viewFormat {}, replaced={})",
+				surface.label, surface.placeholderWidth, surface.placeholderHeight,
+				a_destination.ptr, surface.capturedCount, known,
+				static_cast<int>(resource.Format), resource.MipLevels,
 				a_desc ? static_cast<int>(a_desc->Format) : -1, replaced);
-			// One material owns the placeholder, so captures should be rare. A
-			// stream of them means the signature is colliding with something the
-			// engine allocates — the failure mode that breaks the whole frame.
-			if (++g_captures == 8) {
-				REX::WARN("[WorldSurface] {} placeholder captures — the {}x{} "
+			// One material owns each placeholder, so captures should be rare.
+			// A stream of them means that signature is colliding with something
+			// the engine allocates — the failure mode that breaks the whole
+			// frame.
+			if (++surface.captures == 8) {
+				REX::WARN("[WorldSurface] {} captures for surface '{}' — the {}x{} "
 					"signature is probably colliding with engine-owned textures; "
 					"change the placeholder to an implausible size",
-					g_captures, g_targetWidth.load(), g_targetHeight.load());
+					surface.captures, surface.label,
+					surface.placeholderWidth, surface.placeholderHeight);
 			}
 		}
 
-		bool AdoptPending()
+		bool AdoptPending(Surface& a_surface)
 		{
-			if (!g_pendingDirty || !g_device) {
-				return g_slotCount != 0;
+			if (!a_surface.pendingDirty || !g_device) {
+				return a_surface.slotCount != 0;
 			}
-			auto pending = g_pending;
-			g_pending = {};
-			g_pendingDirty = false;
-			ReleaseRing();
+			auto pending = a_surface.pending;
+			a_surface.pending = {};
+			a_surface.pendingDirty = false;
+			ReleaseRing(a_surface);
 
 			bool ok = pending.slotCount > 0 &&
 				pending.slotCount <= SharedRingDesc::kMaxSlots;
@@ -190,41 +257,62 @@ namespace OSFUI::WorldSurface
 				ok = pending.slotHandles[i] &&
 					SUCCEEDED(g_device->OpenSharedHandle(
 						pending.slotHandles[i], __uuidof(ID3D12Resource),
-						reinterpret_cast<void**>(&g_slots[i])));
+						reinterpret_cast<void**>(&a_surface.slots[i])));
 			}
 			if (ok) {
 				ok = pending.produceFence &&
 					SUCCEEDED(g_device->OpenSharedHandle(
 						pending.produceFence, __uuidof(ID3D12Fence),
-						reinterpret_cast<void**>(&g_produceFence)));
+						reinterpret_cast<void**>(&a_surface.produceFence)));
 			}
 			if (ok) {
 				ok = pending.consumeFence &&
 					SUCCEEDED(g_device->OpenSharedHandle(
 						pending.consumeFence, __uuidof(ID3D12Fence),
-						reinterpret_cast<void**>(&g_consumeFence)));
+						reinterpret_cast<void**>(&a_surface.consumeFence)));
 			}
 			CloseHandles(pending);
 			if (!ok) {
-				ReleaseRing();
-				REX::ERROR("[WorldSurface] could not open the browser shared ring");
+				ReleaseRing(a_surface);
+				REX::ERROR("[WorldSurface] surface '{}' could not open its browser "
+					"shared ring", a_surface.label);
 				return false;
 			}
-			g_slotCount = pending.slotCount;
-			g_generation = pending.generation;
-			REX::INFO("[WorldSurface] adopted dedicated {}x{} browser ring "
-				"({} slots, generation {})",
-				pending.width, pending.height, g_slotCount, g_generation);
+			a_surface.slotCount = pending.slotCount;
+			a_surface.generation = pending.generation;
+			REX::INFO("[WorldSurface] surface '{}' adopted dedicated {}x{} browser "
+				"ring ({} slots, generation {})",
+				a_surface.label, pending.width, pending.height,
+				a_surface.slotCount, a_surface.generation);
 			return true;
 		}
 	}
 
-	void Configure(std::uint32_t a_targetWidth, std::uint32_t a_targetHeight)
+	std::uint32_t Configure(std::span<const SurfaceDesc> a_surfaces)
 	{
-		g_targetWidth.store(a_targetWidth, std::memory_order_relaxed);
-		g_targetHeight.store(a_targetHeight, std::memory_order_relaxed);
-		g_enabled.store(a_targetWidth != 0 && a_targetHeight != 0,
-			std::memory_order_release);
+		std::uint32_t accepted = 0;
+		for (const auto& desc : a_surfaces) {
+			if (accepted >= kMaxSurfaces) {
+				REX::WARN("[WorldSurface] surface '{}' dropped: {}-surface cap",
+					desc.label, kMaxSurfaces);
+				continue;
+			}
+			if (desc.placeholderWidth == 0 || desc.placeholderHeight == 0) {
+				REX::WARN("[WorldSurface] surface '{}' dropped: zero placeholder size",
+					desc.label);
+				continue;
+			}
+			auto& surface = g_surfaces[accepted];
+			surface.placeholderWidth = desc.placeholderWidth;
+			surface.placeholderHeight = desc.placeholderHeight;
+			surface.label = desc.label;
+			++accepted;
+		}
+		// Release-published so the SRV thunk's acquire load sees fully written
+		// signature fields.
+		g_surfaceCount.store(accepted, std::memory_order_release);
+		g_enabled.store(accepted != 0, std::memory_order_release);
+		return accepted;
 	}
 
 	bool IsEnabled()
@@ -268,30 +356,50 @@ namespace OSFUI::WorldSurface
 			g_device = a_device;
 		}
 		g_installed.store(true, std::memory_order_release);
-		REX::INFO("[WorldSurface] material binding armed for unique {}x{} "
-			"placeholder textures",
-			g_targetWidth.load(), g_targetHeight.load());
+		std::string sizes;
+		const auto count = g_surfaceCount.load(std::memory_order_acquire);
+		for (std::uint32_t i = 0; i < count; ++i) {
+			sizes += std::format("{}{}x{} ('{}')", sizes.empty() ? "" : ", ",
+				g_surfaces[i].placeholderWidth, g_surfaces[i].placeholderHeight,
+				g_surfaces[i].label);
+		}
+		REX::INFO("[WorldSurface] material binding armed for {} unique placeholder "
+			"signature(s): {}", count, sizes);
 		return true;
 	}
 
-	void SetSharedRing(const SharedRingDesc& a_desc)
+	void SetSharedRing(std::uint32_t a_surface, const SharedRingDesc& a_desc)
 	{
 		std::scoped_lock lock(g_mutex);
-		if (g_pendingDirty) {
-			CloseHandles(g_pending);
+		if (a_surface >= g_surfaceCount.load(std::memory_order_acquire)) {
+			// This call owns the duplicated handles even when the index is
+			// nonsense — closing them here is what keeps a wiring bug a log
+			// line instead of a handle leak.
+			REX::ERROR("[WorldSurface] SetSharedRing for unknown surface {}", a_surface);
+			auto desc = a_desc;
+			CloseHandles(desc);
+			return;
 		}
-		g_pending = a_desc;
-		g_pendingDirty = true;
-		AdoptPending();
+		auto& surface = g_surfaces[a_surface];
+		if (surface.pendingDirty) {
+			CloseHandles(surface.pending);
+		}
+		surface.pending = a_desc;
+		surface.pendingDirty = true;
+		AdoptPending(surface);
 	}
 
-	void Submit(const FrameBufferView& a_frame)
+	void Submit(std::uint32_t a_surface, const FrameBufferView& a_frame)
 	{
 		if (a_frame.sharedSlot < 0 || a_frame.frameIndex == 0) {
 			return;
 		}
 		std::scoped_lock lock(g_mutex);
-		if (!AdoptPending()) {
+		if (a_surface >= g_surfaceCount.load(std::memory_order_acquire)) {
+			return;
+		}
+		auto& surface = g_surfaces[a_surface];
+		if (!AdoptPending(surface)) {
 			return;
 		}
 		// Consume pacing: the serial written into the descriptor LAST tick has
@@ -300,81 +408,94 @@ namespace OSFUI::WorldSurface
 		// ring depth covers residual GPU lag — but signaling the previously
 		// displayed serial rather than the one being written right now keeps
 		// the overwrite-vs-sample window empty in practice.
-		if (g_pendingConsumeSerial != 0 && g_consumeFence) {
-			g_consumeFence->Signal(g_pendingConsumeSerial);
-			if (!g_loggedConsume) {
-				g_loggedConsume = true;
-				REX::INFO("[WorldSurface] consume signaling live (serial {})",
-					g_pendingConsumeSerial);
+		if (surface.pendingConsumeSerial != 0 && surface.consumeFence) {
+			surface.consumeFence->Signal(surface.pendingConsumeSerial);
+			if (!surface.loggedConsume) {
+				surface.loggedConsume = true;
+				REX::INFO("[WorldSurface] surface '{}' consume signaling live (serial {})",
+					surface.label, surface.pendingConsumeSerial);
 			}
-			g_pendingConsumeSerial = 0;
+			surface.pendingConsumeSerial = 0;
 		}
 		const auto slot = static_cast<std::uint32_t>(a_frame.sharedSlot);
-		if (slot >= g_slotCount || !g_slots[slot] ||
-			a_frame.frameIndex <= g_lastSerial) {
+		if (slot >= surface.slotCount || !surface.slots[slot] ||
+			a_frame.frameIndex <= surface.lastSerial) {
 			return;
 		}
-		if (g_produceFence->GetCompletedValue() < a_frame.frameIndex) {
+		if (surface.produceFence->GetCompletedValue() < a_frame.frameIndex) {
 			// Bounded stall log: distinguishes "browser ring never completes a
 			// frame" from "descriptor rewritten but visually wrong" in one log.
-			++g_fenceStalls;
-			if (g_fenceStalls == 60 || g_fenceStalls % 600 == 0) {
-				REX::WARN("[WorldSurface] produce fence has not completed serial {} "
-					"({} consecutive stalled submits)",
-					a_frame.frameIndex, g_fenceStalls);
+			++surface.fenceStalls;
+			if (surface.fenceStalls == 60 || surface.fenceStalls % 600 == 0) {
+				REX::WARN("[WorldSurface] surface '{}' produce fence has not completed "
+					"serial {} ({} consecutive stalled submits)",
+					surface.label, a_frame.frameIndex, surface.fenceStalls);
 			}
 			return;
 		}
-		g_lastSlot = slot;
-		g_lastSerial = a_frame.frameIndex;
-		// A frame can complete long before the cockpit material exists. Latch
-			// the newest slot regardless (Refresh and the capture thunk both use
-			// it), but only claim a descriptor write when one actually landed.
-			const bool wrote = WriteReplacement(g_slots[slot]);
+		surface.lastSlot = slot;
+		surface.lastSerial = a_frame.frameIndex;
+		// A frame can complete long before the world material exists. Latch
+		// the newest slot regardless (Refresh and the capture thunk both use
+		// it), but only claim a descriptor write when one actually landed.
+		const bool wrote = WriteReplacement(surface, surface.slots[slot]);
 		// Signaled at the next Submit, once the engine frame sampling this
 		// slot has been submitted (see the consume-pacing note above).
-		g_pendingConsumeSerial = a_frame.frameIndex;
-		if (wrote && !g_loggedWrite) {
-			g_loggedWrite = true;
-			REX::INFO("[WorldSurface] placeholder descriptor now samples browser "
-				"ring slot {} (serial {})", slot, a_frame.frameIndex);
+		surface.pendingConsumeSerial = a_frame.frameIndex;
+		if (wrote && !surface.loggedWrite) {
+			surface.loggedWrite = true;
+			REX::INFO("[WorldSurface] surface '{}' placeholder descriptor now samples "
+				"browser ring slot {} (serial {})",
+				surface.label, slot, a_frame.frameIndex);
 		}
-		g_fenceStalls = 0;
+		surface.fenceStalls = 0;
 	}
 
 	void Refresh()
 	{
 		std::scoped_lock lock(g_mutex);
-		if (g_targetSrv.ptr == 0 || g_slotCount == 0 || !g_slots[g_lastSlot]) {
-			return;
-		}
-		// The browser publishes only on repaint, so a static page would leave the
-		// descriptor written exactly once — and anything the engine does to that
-		// descriptor afterwards (streaming residency, descriptor-heap rebuild)
-		// would silently restore the placeholder with no second capture logged.
-		// Rewriting every tick is one free-threaded CreateShaderResourceView call
-		// and makes the binding self-healing. World surface only; the fullscreen
-		// overlay never goes through this path.
-		if (!WriteReplacement(g_slots[g_lastSlot])) {
-			return;
-		}
-		if (++g_refreshWrites == g_nextRefreshLog) {
-			g_nextRefreshLog *= 8;
-			REX::INFO("[WorldSurface] descriptor refresh #{} -> slot {} "
-				"(serial {}, srvCpu=0x{:X})",
-				g_refreshWrites, g_lastSlot, g_lastSerial, g_targetSrv.ptr);
+		const auto count = g_surfaceCount.load(std::memory_order_acquire);
+		for (std::uint32_t i = 0; i < count; ++i) {
+			auto& surface = g_surfaces[i];
+			if (surface.capturedCount == 0 || surface.slotCount == 0 ||
+				!surface.slots[surface.lastSlot]) {
+				continue;
+			}
+			// The browser publishes only on repaint, so a static page would
+			// leave each descriptor written exactly once — and anything the
+			// engine does to that descriptor afterwards (streaming residency,
+			// descriptor-heap rebuild) would silently restore the placeholder
+			// with no second capture logged. Rewriting every tick is a few
+			// free-threaded CreateShaderResourceView calls and makes the
+			// binding self-healing. World surfaces only; the fullscreen
+			// overlay never goes through this path.
+			if (!WriteReplacement(surface, surface.slots[surface.lastSlot])) {
+				continue;
+			}
+			if (++surface.refreshWrites == surface.nextRefreshLog) {
+				surface.nextRefreshLog *= 8;
+				REX::INFO("[WorldSurface] surface '{}' descriptor refresh #{} -> "
+					"slot {} (serial {}, {} descriptors)",
+					surface.label, surface.refreshWrites, surface.lastSlot,
+					surface.lastSerial, surface.capturedCount);
+			}
 		}
 	}
 
 	void Shutdown()
 	{
 		std::scoped_lock lock(g_mutex);
-		if (g_pendingDirty) {
-			CloseHandles(g_pending);
-			g_pendingDirty = false;
+		const auto count = g_surfaceCount.load(std::memory_order_acquire);
+		for (std::uint32_t i = 0; i < count; ++i) {
+			auto& surface = g_surfaces[i];
+			if (surface.pendingDirty) {
+				CloseHandles(surface.pending);
+				surface.pendingDirty = false;
+			}
+			ReleaseRing(surface);
+			surface.capturedSrvs = {};
+			surface.capturedCount = 0;
 		}
-		ReleaseRing();
 		SafeRelease(g_device);
-		g_targetSrv = {};
 	}
 }
