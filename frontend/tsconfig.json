@@ -35,7 +35,7 @@
     "noEmit": true,
     "types": ["vite/client"]
   },
-  "include": ["src", "harness", "devmock", "test", "scripts", "vite.config.ts", "osfui.config.ts", "osfui.mock.ts"],
+  "include": ["src", "devmock", "test", "scripts", "vite.config.ts", "osfui.config.ts", "osfui.mock.ts"],
   "exclude": [
     "node_modules",
     // Frozen public contract, shipped verbatim - described by osfui-global.d.ts,

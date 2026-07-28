@@ -8,8 +8,9 @@
 // Load order is load-bearing: src/shared-kit/osfui.js defines `available()` as
 // `typeof g.postMessage === "function"` and owns `onMessage`. So: this module first
 // (postMessage), the kit second (onMessage + request correlation), the view last.
-// harness/install-mock.ts exists to make that order an import-statement order in
-// main.tsx.
+// Under `osfui dev`, the harness bootstrap installs a queuing postMessage stub
+// before any page script and osfui.mock.ts's install() hands this module the
+// takeover, so that order holds for the classic-script pages too.
 //
 // Validation is not re-implemented here: `normalizeValue`/`isSetting` come from
 // @lib/settings/normalize and `resolveInputContext` from @lib/settings/inputContext,
@@ -128,9 +129,9 @@ type MockHost = Window & typeof globalThis;
 export const LOCALE_EVENT = 'osfui-mock-locale';
 
 // Repo sources. Glob paths are relative to this file (frontend/devmock/): `../..`
-// is the repo root, `../../..` the parent directory holding sibling repos.
-// vite.config.ts `server.fs.allow` covers both. Globs resolve at transform time,
-// so no dev-server root ceremony; a missing file yields an empty map.
+// is the repo root, `../../..` the parent directory holding sibling repos. The
+// `osfui dev` server serves both (fs.strict is off). Globs resolve at transform
+// time, so no dev-server root ceremony; a missing file yields an empty map.
 
 /** Shipped settings documents — data/OSFUI/settings/*.json. */
 const SHIPPED_SCHEMAS = import.meta.glob<SettingsSchema>('../../data/OSFUI/settings/*.json', {

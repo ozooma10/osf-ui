@@ -6,11 +6,11 @@ import { fileURLToPath } from 'node:url';
 // This config is ESM ("type": "module"), so __dirname does not exist.
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// Shared defaults. Production output shape (IIFE, stable filenames, per-view
-// outDir) is driven by scripts/build.mjs, which overrides `build.rollupOptions`
-// per view - Rollup cannot emit IIFE for a multi-input build.
+// Production build config, consumed by scripts/build.mjs as its `configFile`
+// (which overrides `build.rollupOptions` per view - Rollup cannot emit IIFE
+// for a multi-input build). The dev loop does not run through this file:
+// `osfui dev` assembles its own server config from osfui.config.ts.
 export default defineConfig({
-  root: resolve(__dirname, 'harness'),
   plugins: [preact()],
   resolve: {
     alias: {
@@ -38,14 +38,5 @@ export default defineConfig({
     modulePreload: false,
     assetsInlineLimit: 0,
     reportCompressedSize: false,
-  },
-  server: {
-    port: 8080,
-    fs: {
-      // The harness reads two sibling-repo files (OSF Animation's UISettings.cpp
-      // and this repo's src/core/Version.h) exactly as the old python-rooted
-      // server did.
-      allow: [resolve(__dirname, '..'), resolve(__dirname, '../..')],
-    },
   },
 });

@@ -169,8 +169,10 @@ export const MOCK_VIEWS: MockView[] = [
  * loads the sibling repo's real view in an iframe and installs no mock bridge,
  * since that view self-mocks.
  */
+// The mock runs inside the view iframe under `osfui dev`, so a real
+// `menu.open` navigates the iframe to the target view's own page.
 export const HARNESS_PAGES: Record<string, string> = {
-  'osfui/settings': '?view=osfui%2Fsettings',
-  'osfui/keybinds': '?view=osfui%2Fkeybinds',
-  'osf.animation/browser': 'osf.html',
+  'osfui/settings': '/osfui/settings/index.html',
+  'osfui/keybinds': '/osfui/keybinds/index.html',
+  'osf.animation/browser': '/osf.html',
 };

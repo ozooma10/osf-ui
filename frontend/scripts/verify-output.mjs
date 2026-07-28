@@ -7,10 +7,10 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { OUT, FRONTEND, VIEWS, expectedOutputs, walk } from './config.mjs';
 
-// Identifiers that exist only in the dev harness. Any of them in a shipped
-// bundle means the DEV-branch dead-code elimination silently stopped working.
+// Identifiers that exist only in the dev mock (frontend/devmock/). Any of
+// them in a shipped bundle means the DEV-branch dead-code elimination
+// silently stopped working.
 const DEV_SENTINELS = [
-  'OSFUI_MOCK_BRIDGE',
   'OSFUI_MOD_ASSET_ROOTS',
   'acme.shipworks',
   '1.0.0-mock',
@@ -83,7 +83,7 @@ export function verifyOutput() {
 
     // No dev-only code survived into the bundle. Scoped to `mode: 'bundle'`
     // views: a verbatim copy has no DEV elimination to verify, and hand-written
-    // views do ship harness code (sampleMods()/sampleViews() fixtures, a
+    // views do ship mock-flavored code (sampleMods()/sampleViews() fixtures, a
     // window.OSFUI_MOD_ASSET_ROOTS read in the asset-path sanitiser), so the
     // gate would only block them.
     if (existsSync(js)) {
