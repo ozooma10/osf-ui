@@ -9,12 +9,11 @@
     "node": ">=20"
   },
   "scripts": {
-    "dev": "vite",
+    "dev": "osfui dev",
     "build": "node scripts/build.mjs",
     "verify": "npm run typecheck && npm run build && npm test",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "dev:cli": "osfui dev"
+    "test": "vitest run"
   },
   "dependencies": {
     "preact": "10.29.7"

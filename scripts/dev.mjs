@@ -1,5 +1,6 @@
-// Root `npm run dev` launcher: ensures the frontend deps exist, then starts the
-// Vite dev harness (frontend/harness) with the browser opened automatically.
+// Root `npm run dev` launcher: ensures the frontend deps exist, then starts
+// the authoring harness (`osfui dev` on the frontend project) — the same one
+// third-party mods use — which opens the browser itself.
 // Kept as a Node script so it works the same in PowerShell, cmd, and bash.
 import { existsSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
@@ -19,6 +20,5 @@ if (!existsSync(resolve(frontend, 'node_modules'))) {
   if (install.status !== 0) process.exit(install.status ?? 1);
 }
 
-// `-- --open` forwards to `vite`, which opens the harness in the default browser.
-const dev = spawn('npm run dev -- --open', opts);
+const dev = spawn('npm run dev', opts);
 dev.on('exit', (code) => process.exit(code ?? 0));

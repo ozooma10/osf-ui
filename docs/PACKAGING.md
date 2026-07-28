@@ -59,5 +59,5 @@ The archive root holds `SFSE/` and `Scripts/`, which map onto the game's `Data` 
 ## What OSF UI does **not** package
 
 - The Microsoft.Web.WebView2 SDK headers and static loader library (build-time only).
-- Development/test surfaces stay out of the archive: only `build/frontend/views/` from `frontend/` is installed, while its source, `node_modules`, harness, `tests/`, `examples/`, and `packaging/` are excluded. Staging is driven by xmake install plus the authored `data/` sync.
+- Development/test surfaces stay out of the archive: only `build/frontend/views/` from `frontend/` is installed, while its source, `node_modules`, the dev mock (`devmock/`, `osfui.mock.ts`, `devpages/`), `tests/`, `examples/`, and `packaging/` are excluded. Staging is driven by xmake install plus the authored `data/` sync.
 - Source maps. The frontend build emits none, and its output gate fails on a stray `.map` — nothing in this script or CI excludes by extension, so one would otherwise ship in every archive.

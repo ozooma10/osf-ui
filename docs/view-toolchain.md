@@ -23,8 +23,15 @@ updates the view through Vite HMR. The harness provides the production shared
 kit, injects the native bridge before application code, and offers resolution,
 visibility, locale, transparency, event injection, and bridge-traffic controls.
 
-Edit `osfui.mock.json` to provide cached state, localized strings, and
-deterministic native/Papyrus responses. The browser reloads when it changes.
+Edit `osfui.mock.ts` to provide cached state, localized strings, and
+deterministic native/Papyrus responses — request values may also be (async)
+functions of the command payload, and named `scenarios` overlay the base
+fields (`?scenario=<name>`, or the toolbar's Scenario select). For full
+control, export `install(ctx)`: register command handlers ahead of the
+scenario engine, push native events, and add your own toolbar controls with
+`ctx.registerTools`. The browser reloads when the mock changes. A plain
+`osfui.mock.json` fixture keeps working. The mock lives at the project root
+so it can never ship with the views.
 Use `npm run check` to detect remote URLs and browser transports that the
 in-game host does not support.
 

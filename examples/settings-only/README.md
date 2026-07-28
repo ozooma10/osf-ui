@@ -16,8 +16,9 @@ and it renders a full settings card with typed, validated, persisted controls.
 
 That's the whole loop. To iterate without launching Starfield, use the browser
 harness in [`../../frontend/`](../../frontend/README.md) — run
-`npm --prefix frontend run dev`, open `http://localhost:8080/?view=osfui/settings`,
-and drag this file onto the page.
+`npm --prefix frontend run dev`, open
+`http://127.0.0.1:5173/__osfui/?view=osfui%2Fsettings`, and drag this file
+onto the page.
 
 ## What this file shows
 

@@ -766,10 +766,10 @@ mapping.
 ### Built-in OSF UI views
 
 The built-in views (`osfui/settings`, `osfui/keybinds`) are no longer
-openable this way: their shipped `index.html` is generated output, and the
-dev-time mock bridge lives in the frontend project. Use the Vite harness
-instead, which mounts them against a mock bridge that speaks the real
-protocol:
+openable this way: their shipped `index.html` is generated output. They are
+developed through the **same `osfui dev` authoring harness this guide
+describes** — the frontend directory is itself an `@osfui/cli` project whose
+mock module (`frontend/osfui.mock.ts`) speaks the real protocol:
 
 ```bat
 npm --prefix frontend run dev
