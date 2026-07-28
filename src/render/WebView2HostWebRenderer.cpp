@@ -510,12 +510,25 @@ namespace OSFUI
             usesViewsMirror = false;
 			if (!::GetModuleHandleW(L"usvfs_x64.dll")) return;
 			std::error_code ec;
-			// Per-instance mirror: this function deletes and recreates the tree,
-			// so two instances sharing one folder would race each other's copy.
-			const auto mirror = LocalOsfuiDir() / (config.instanceName.empty() ?
-				std::string("views-mirror") :
-				std::format("views-mirror-{}", config.instanceName));
+			// A fresh path per game process is deliberate. Reusing the stable
+			// `views-mirror` folder allowed a stale browser/helper process (or a
+			// failed recursive delete) to leave old shared-kit files in place.
+			// The view bundles could then be current while shared/osfui.js was
+			// old enough to lack APIs they call, making every native request a
+			// silent no-op. Separate renderer instances still need distinct
+			// names within the same game process.
+			auto mirrorName = std::format("views-mirror-{}", ::GetCurrentProcessId());
+			if (!config.instanceName.empty()) {
+				mirrorName += std::format("-{}", config.instanceName);
+			}
+			const auto mirror = LocalOsfuiDir() / mirrorName;
 			std::filesystem::remove_all(mirror, ec);
+			if (ec) {
+				REX::WARN("WebView2HostWebRenderer: could not clear per-run views mirror '{}' "
+						  "({}); the browser host will not start with potentially stale files",
+					ToUtf8(mirror.native()), ec.message());
+				return;
+			}
 			ec.clear();
 			std::filesystem::create_directories(mirror.parent_path(), ec);
 			ec.clear();
@@ -1181,6 +1194,21 @@ namespace OSFUI
 			pipe.Close();
 			if (worker.joinable()) worker.join();
 			started.store(false);
+			// The host and browser are gone, so their per-run real-path view tree
+			// is no longer needed. A crash may strand one, but the next process
+			// uses a different path and cannot consume it.
+			{
+				std::scoped_lock mirrorLock(viewsMirrorMutex);
+				if (usesViewsMirror && mappedViewsRoot != viewsRoot) {
+					std::error_code ec;
+					std::filesystem::remove_all(mappedViewsRoot, ec);
+					if (ec) {
+						REX::DEBUG("WebView2HostWebRenderer: per-run views mirror cleanup "
+								   "deferred to the OS ({})", ec.message());
+					}
+					usesViewsMirror = false;
+				}
+			}
 		}
 	};
 

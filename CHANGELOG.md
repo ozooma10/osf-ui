@@ -10,6 +10,8 @@
 
 - View authors can press **F12** in `devMode` to open Edge DevTools for the top open menu, making its live DOM, styles, blocked requests, and JavaScript state inspectable without leaving the in-game iteration loop. The browser DevTools capability remains disabled outside `devMode`.
 
+- Third-party view authors now have a generic browser harness: point one command at any packaged `views/<modId>/<viewName>` folder to run its real entry HTML with production-shaped asset URLs, the public shared kit, a mock native bridge, manifest resolution, lifecycle/locale controls, bridge traffic inspection, arbitrary event injection, and save-to-reload. An optional `osfui.mock.json` supplies cached state, localization and custom native/Papyrus request responses; browser policies also flag remote resources and transports that the in-game host blocks.
+
 ### Added
 
 - Maintainers can now open the reporting service's private `/admin` dashboard, unlock it with the existing admin token, browse submitted reports, and inspect each player's consented diagnostics and log artifacts without retrieving report IDs one at a time. Listing and detail requests remain authenticated, reporter content is rendered only as text, and the token is retained only for the browser tab.
@@ -20,7 +22,7 @@
 
 ### Fixed
 
-- The Mods surface now retries its settings and view catalog reads when the browser transport becomes ready. Reloading the page during WebView2 startup can no longer show a version badge above an empty **All systems** screen because its first availability check happened a moment too early.
+- The Mods surface no longer opens with an empty **All systems** screen when MO2's browser mirror retains an older shared bridge helper. Each game process now builds views into a fresh real-path mirror and removes it after the browser exits, so current view bundles cannot accidentally run against stale `osfui.emit()` / `osfui.call()` support. Catalog reads are also retried when the browser transport becomes ready.
 
 - Fixed the reproducible DXGI crash when OSF UI, OptiScaler/Streamline, and the Steam overlay were active together. The compositor now stays entirely in Starfield's Scaleform UI seam and never hooks the swap-chain Present path, so frame generation and external overlays can remain enabled without load-order or configuration workarounds; the same isolation also avoids probe/hook conflicts with BetterConsole, RTSS, ReShade, and similar tools.
 

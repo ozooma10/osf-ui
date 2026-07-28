@@ -69,6 +69,22 @@ See [frontend/README.md](frontend/README.md) for the full command set and
 [frontend/COMPATIBILITY.md](frontend/COMPATIBILITY.md) for the artifacts that
 are deliberately shipped verbatim.
 
+## Developing a third-party view
+
+Run an arbitrary packaged view in the generic browser harness without moving it
+into OSF UI's frontend workspace:
+
+```bat
+npm run dev:view -- C:\path\to\views\yourname.mymod\panel
+```
+
+The harness loads the view's real entry HTML, supplies the public shared kit at
+its production paths, mocks the native bridge, blocks browser features that are
+blocked in game, and reloads after a save. Its toolbar controls resolution,
+visibility and locale; the side panel shows bridge traffic and can inject any
+native-to-web event. See [the authoring guide](docs/authoring-views.md#generic-browser-harness)
+for custom state and request fixtures.
+
 ## Documentation
 
 - [docs/authoring-settings.md](docs/authoring-settings.md) - **start here to add settings to your mod**: one JSON file, no code — quickstart, widgets, hotkeys, presets, localization, testing

@@ -81,6 +81,9 @@ jobs:
         run: npm ci
         working-directory: frontend
 
+      - name: Generic third-party view harness tests
+        run: node --test scripts/view-harness.test.mjs
+
       - name: Typecheck
         run: npm run typecheck
         working-directory: frontend

@@ -655,9 +655,92 @@ overlay's open/close key).
 
 ## 5. Testing locally
 
-**Your own view:** open its `index.html` directly in a normal browser and
-iterate on layout and logic without launching the game. Detect the missing
-bridge and fall back to a standalone mode:
+### Generic browser harness
+
+From an OSF UI source checkout, point the generic harness at any packaged
+third-party view:
+
+```bat
+npm run dev:view -- C:\path\to\views\yourname.mymod\panel
+```
+
+It validates `manifest.json`, serves the real two-level `views/` tree at the
+same `/<modId>/<viewName>/<entry>` URL shape used in game, injects its mock
+before the view's existing scripts, and falls back to OSF UI's public
+`shared/osfui.js` and `shared/osfui.css` when the supplied tree does not carry
+them. The page is not reconstructed or imported into OSF UI's Preact project:
+its actual entry HTML, script order, bundle, relative imports and assets run
+unchanged.
+
+The toolbar provides:
+
+- manifest and custom resolutions, scaled down without changing page layout;
+- visible/hidden lifecycle edges, locale changes, page reload and a
+  transparency checkerboard;
+- a bridge traffic inspector; and
+- a JSON editor that can inject any native-to-web envelope, such as
+  `data.state`, `data.push`, `ui.hotkey` or a plugin-owned reply.
+
+Saving anything in the selected view reloads it after a short debounce.
+Development responses use `Cache-Control: no-store`. A document CSP blocks
+remote resources, and the bootstrap removes WebSocket, WebRTC, WebTransport
+and worker constructors to catch the same unsupported dependencies as the
+in-game WebView2 host.
+
+For repeatable native data, place an optional `osfui.mock.json` beside the
+view's `manifest.json`:
+
+```json
+{
+  "locale": "en",
+  "locales": {
+    "de": {
+      "panel.title": "Inventar"
+    }
+  },
+  "state": {
+    "player": {
+      "name": "Morgan",
+      "credits": 12500
+    }
+  },
+  "requests": {
+    "yourname.mymod.inventory.get": {
+      "items": [
+        { "name": "Med Pack", "count": 4 }
+      ]
+    },
+    "yourname.mymod.inventory.typed": {
+      "$type": "inventory.data",
+      "payload": {
+        "items": []
+      }
+    },
+    "papyrus.catalog": [
+      "one",
+      "two"
+    ]
+  }
+}
+```
+
+Each `state` key is delivered as cached `data.state` after `runtime.ready`.
+A request entry normally replies as `mock.result`; use `$type` plus `payload`
+when view code expects a particular native message type. Prefix a fixture key
+with `papyrus.` to answer `osfui.papyrus.request("…")`. Unconfigured commands
+produce a visible `mock-unhandled` error instead of pretending the native
+operation succeeded. Keep `osfui.mock.json` in development source or exclude it
+from the mod's release package. Malformed fixture JSON is reported in the
+traffic inspector rather than silently replaced with empty data.
+
+Options:
+
+```text
+--port <number>  local port (8081 by default; 0 chooses a free port)
+--no-open        start the harness without opening a browser
+```
+
+For a minimal standalone fallback, a view can still detect a missing bridge:
 
 ```js
 if (!osfui.available()) {
@@ -669,10 +752,13 @@ if (!osfui.available()) {
 / `osfui.on()` are always safe to call; `osfui.ready` simply never resolves and
 `osfui.request()` rejects with code `"no-bridge"`.)
 
-Serve it over `http://` rather than opening it from `file://` so local testing
-uses a normal origin like the in-game `https://osfui.local` mapping.
+Serve that fallback over `http://` rather than opening it from `file://` so
+local testing uses a normal origin like the in-game `https://osfui.local`
+mapping.
 
-**The built-in views** (`osfui/settings`, `osfui/keybinds`) are no longer
+### Built-in OSF UI views
+
+The built-in views (`osfui/settings`, `osfui/keybinds`) are no longer
 openable this way: their shipped `index.html` is generated output, and the
 dev-time mock bridge lives in the frontend project. Use the Vite harness
 instead, which mounts them against a mock bridge that speaks the real
