@@ -82,9 +82,19 @@ export function harnessPlugin(project, selectedView) {
     resolveId(source) {
       if (source === '/shared/osfui.js') return `${SHARED_PREFIX}osfui.js`;
       if (source === '/shared/osfui.css') return `${SHARED_PREFIX}osfui.css`;
+      const bare = source.split('?')[0];
       // The project's mock, wherever it lives, importable at a stable URL and
       // transformed by Vite (TypeScript, aliases, JSON default export).
-      if (source.split('?')[0] === MOCK_ENTRY && project.mockPath) return normalizePath(project.mockPath);
+      if (bare === MOCK_ENTRY && project.mockPath) return normalizePath(project.mockPath);
+      // The loader is injected into view pages as a module script, so Vite's
+      // import analysis must be able to resolve it (the middleware alone
+      // covers the request but not the warmup, which logs a pre-transform
+      // error). Resolving to the real file also routes its ./mock-runtime.js
+      // (and transitively ./tools-model.js, ./pseudo.js) imports through
+      // Vite's graph.
+      if (bare === '/__osfui/mock-loader.js') {
+        return normalizePath(resolve(HERE, 'browser', 'mock-loader.js'));
+      }
     },
     async load(id) {
       if (!id.startsWith(SHARED_PREFIX)) return null;
