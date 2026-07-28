@@ -127,6 +127,13 @@ target("OSF UI")
     -- the Papyrus surface (authoring-settings.md "From Papyrus"): loose scripts
     -- at the Data root -- <install>/Scripts/OSFUI.pex (+ Source/OSFUI.psc)
     add_installfiles("data/(Scripts/**)")
+    -- World-surface assets are REAL Starfield loose assets and belong at the
+    -- mod/Data root, not under SFSE/Plugins: generated placeholder textures,
+    -- the user's CK-authored materials, and the placeable's plugin. All three
+    -- globs are harmless no-ops while the folders are empty or absent.
+    add_installfiles("data/(Textures/**)")
+    add_installfiles("data/(Materials/**)")
+    add_installfiles("data/(*.esm)")
     -- Build the ignored frontend artifact before native deployment. Node is a
     -- developer/build dependency; it is never required on a player's machine.
     before_build(function(target)
@@ -134,6 +141,13 @@ target("OSF UI")
         cprint("${dim}building built-in views ..")
         local npm = is_host("windows") and "npm.cmd" or "npm"
         os.vrunv(npm, { "--prefix", frontend, "run", "build" })
+        -- The 4 MB placeholder DDS files are generated, never committed; the
+        -- generator refuses unsafe (render-target-shaped) sizes by design.
+        import("core.project.config")
+        if config.get("with_world_surfaces") then
+            cprint("${dim}generating world-surface placeholder textures ..")
+            os.vrunv("python", { path.join(os.projectdir(), "tools", "make_world_surface_placeholder.py"), "--all" })
+        end
     end)
     -- Redeploy authored data + generated views to the mod folder on every build.
     -- The commonlib rule's after_build only runs "xmake install" when the DLL binary itself changed, so pure HTML/JS/JSON edits would otherwise never reach XSE_SF_MODS_PATH.
@@ -156,6 +170,17 @@ target("OSF UI")
             os.cp(viewsdir, path.join(dstdir, "OSFUI"))
             -- Papyrus surface: loose scripts at the Data root (mod folder root)
             os.cp(scriptsdir, target:installdir())
+            -- World-surface loose assets: also mod-root, present only when the
+            -- flagged build generated/authored them.
+            for _, worldDir in ipairs({ "Textures", "Materials" }) do
+                local src = path.join(os.projectdir(), "data", worldDir)
+                if os.isdir(src) then
+                    os.cp(src, target:installdir())
+                end
+            end
+            for _, esm in ipairs(os.files(path.join(os.projectdir(), "data", "*.esm"))) do
+                os.cp(esm, target:installdir())
+            end
             cprint("${dim}deploying data/OSFUI + generated views + data/Scripts to %s ..", target:installdir())
         end, { files = files, values = files,
                dependfile = target:dependfile("osfui_data_deploy") })
@@ -183,6 +208,11 @@ target("OSF UI")
         cprint("${dim}building built-in views ..")
         local npm = is_host("windows") and "npm.cmd" or "npm"
         os.vrunv(npm, { "--prefix", frontend, "run", "build" })
+        import("core.project.config")
+        if config.get("with_world_surfaces") then
+            cprint("${dim}generating world-surface placeholder textures ..")
+            os.vrunv("python", { path.join(os.projectdir(), "tools", "make_world_surface_placeholder.py"), "--all" })
+        end
     end)
     after_install(function(target)
         import("core.project.config")
