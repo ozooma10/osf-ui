@@ -114,12 +114,26 @@ test('development server exposes the harness and injects the bridge before view 
   // shell.js is a module importing ./stage-fit.js and ./tools-model.js.
   const stageFit = await fetch(`${origin}/__osfui/stage-fit.js`).then((response) => response.text());
   assert.match(stageFit, /computeFit/);
-  const toolsModel = await fetch(`${origin}/__osfui/tools-model.js`).then((response) => response.text());
-  assert.match(toolsModel, /normalizeTools/);
-  const loader = await fetch(`${origin}/__osfui/mock-loader.js`).then((response) => response.text());
-  assert.match(loader, /installMock/);
-  const runtime = await fetch(`${origin}/__osfui/mock-runtime.js`).then((response) => response.text());
-  assert.match(runtime, /createScenarioHandler/);
+  // Walk the import closure of every /__osfui/ module (shell + mock loader):
+  // a src/browser import without a matching served route must fail HERE, not
+  // as a silent 404 in the page (which kills the whole mock).
+  const pending = ['/__osfui/harness.js', '/__osfui/mock-loader.js'];
+  const walked = new Set();
+  while (pending.length) {
+    const path = pending.pop();
+    if (walked.has(path)) continue;
+    walked.add(path);
+    const response = await fetch(origin + path);
+    assert.equal(response.status, 200, `${path} must be served`);
+    const source = await response.text();
+    for (const [, spec] of source.matchAll(/from\s*['"]([^'"]+)['"]/g)) {
+      pending.push(new URL(spec, `http://x${path}`).pathname);
+    }
+  }
+  assert.ok(walked.has('/__osfui/mock-runtime.js'));
+  assert.ok(walked.has('/__osfui/pseudo.js'));
+  assert.ok(walked.has('/__osfui/tools-model.js'));
+  assert.ok(walked.has('/__osfui/stage-fit.js'));
   // meta.json lists every project view for the shell's switcher.
   const listing = await fetch(`${origin}/__osfui/meta.json`).then((response) => response.json());
   assert.equal(listing.initial, 'acme.widgets/panel');

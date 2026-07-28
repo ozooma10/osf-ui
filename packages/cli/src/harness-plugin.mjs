@@ -11,6 +11,14 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const SHARED_PREFIX = '\0osfui-shared:';
 /** URL the mock module is importable at; resolveId maps it to the real file. */
 const MOCK_ENTRY = '/__osfui/mock-entry.js';
+/** src/browser modules served verbatim at /__osfui/<name>. */
+const BROWSER_MODULES = new Set([
+  '/__osfui/stage-fit.js',
+  '/__osfui/tools-model.js',
+  '/__osfui/pseudo.js',
+  '/__osfui/mock-loader.js',
+  '/__osfui/mock-runtime.js',
+]);
 const CSP = [
   "default-src 'self' data: blob:",
   "script-src 'self' 'unsafe-inline'",
@@ -156,14 +164,15 @@ export function harnessPlugin(project, selectedView) {
           send(response, HARNESS_CSS, 'text/css; charset=utf-8');
         } else if (url.pathname === '/__osfui/harness.js') {
           send(response, await browserAsset('shell.js'), 'text/javascript; charset=utf-8');
-        } else if (url.pathname === '/__osfui/stage-fit.js') {
-          send(response, await browserAsset('stage-fit.js'), 'text/javascript; charset=utf-8');
-        } else if (url.pathname === '/__osfui/tools-model.js') {
-          send(response, await browserAsset('tools-model.js'), 'text/javascript; charset=utf-8');
-        } else if (url.pathname === '/__osfui/mock-loader.js') {
-          send(response, await browserAsset('mock-loader.js'), 'text/javascript; charset=utf-8');
-        } else if (url.pathname === '/__osfui/mock-runtime.js') {
-          send(response, await browserAsset('mock-runtime.js'), 'text/javascript; charset=utf-8');
+        } else if (BROWSER_MODULES.has(url.pathname)) {
+          // Every module under src/browser/ that the shell or the mock
+          // runtime imports by /__osfui/ URL. One set, so a new import can't
+          // silently 404 (the toolchain test walks the import closure).
+          send(
+            response,
+            await browserAsset(url.pathname.slice('/__osfui/'.length)),
+            'text/javascript; charset=utf-8',
+          );
         } else if (url.pathname === '/__osfui/bootstrap.js') {
           send(response, await browserAsset('bootstrap.js'), 'text/javascript; charset=utf-8');
         } else if (url.pathname === '/__osfui/meta.json') {
