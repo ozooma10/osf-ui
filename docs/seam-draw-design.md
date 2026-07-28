@@ -52,9 +52,12 @@ The accepted rule is:
 - FG on: skip the opaque pixel-SRV candidate and draw only at the transparent
   RT-to-COPY_SOURCE handoff consumed by FFX.
 
-Present discovery publishes a short-lived FG-active signal to render workers.
-Seeing the COPY_SOURCE handoff also latches the signal immediately, limiting a
-late present classification to the activation boundary.
+The seam classifies its own frame graph. At the start of each render region it
+uses whether the preceding region exposed the transparent COPY_SOURCE handoff;
+seeing that handoff also latches FG immediately for the remainder of the current
+region. The first region is observed before an ordinary target is used, avoiding
+an initial double blend. An FG on/off transition can affect one boundary frame
+because the normal candidate precedes the evidence that distinguishes the graph.
 
 ## Runtime contract
 
@@ -78,15 +81,13 @@ The shared WebView texture ring uses the newest produce-fence-complete slot; if
 the newest publication is incomplete, the seam reuses the last ready slot rather
 than dropping the overlay for one frame.
 
-The Present hook performs plumbing only:
+No swapchain probe or Present hook is installed. The remaining plumbing is split
+between existing safe paths:
 
-- output-size discovery;
-- WebView shared-ring adoption;
-- present liveness; and
-- FG caller classification.
-
-It records no draw of any kind, and holds no backbuffer, RTV, PSO, or command
-allocator.
+- `Submit()` adopts newly announced WebView shared rings on the tick thread;
+- the seam target descriptor supplies output dimensions;
+- seam handoff shape supplies FG classification; and
+- Present-hook liveness monitoring is unnecessary because no Present dependency remains.
 
 ## Diagnostics
 
@@ -100,9 +101,9 @@ Two consequences of dropping the backbuffer draw are worth noting:
 - HDR and `_SRGB` backbuffers no longer suppress the overlay. The seam renders
   through a typed `R8G8B8A8_UNORM` view onto the engine's UI buffer, so the
   swapchain's own format is no longer inspected.
-- Frame Generation no longer suspends drawing. `FrameGenActive()` and its
-  swapchain-format gating are gone; FG classification survives only to pick the
-  correct UI hand-off.
+- Frame Generation no longer suspends drawing. The seam infers FG directly from
+  the transparent COPY_SOURCE handoff and selects that target without inspecting
+  the swapchain or its presenting caller.
 
 `CompositorStats::busyWaits` and `droppedBusy` counted the retired draw ring and
 now stay zero. The fields remain on the wire so the host diagnostics page needs
@@ -130,16 +131,11 @@ The final FSR3-FG run showed:
 
 ## Retirement of the present-time renderer
 
-Done. The backbuffer command allocators, upload ring, CPU staging buffer, RTV
-heap, per-format draw PSOs, and `FrameGenActive()` draw suspension were removed;
-Present discovery was retained for output sizing, shared-ring adoption, liveness,
-and FG target selection, as planned. `D3D12Compositor.cpp` went from 2128 to
-~1470 lines.
+Done. The backbuffer renderer, probe swapchain, slot-8 Present hook, swapchain
+discovery table, FG caller classifier, and hook-liveness watchdog have all been
+removed. Output sizing and FG target selection come from `UiPassSeam`, while
+shared-ring adoption runs from `Submit()` on the tick thread.
 
-Remaining step: migrate those four discovery duties onto the seam itself and drop
-the Present hook entirely. Each is reachable from there —
-`a_buffer->GetDesc()` carries the UI buffer dimensions, `LocateEngineD3D12()`
-gives a device for ring adoption without a present, and the seam already latches
-FG from the COPY_SOURCE hand-off. The hook should stay until the seam-only build
-has real in-game time, because losing present discovery also loses the only
-signal that classifies an FG pacer *before* the first hand-off of a frame.
+The universal seam-only build still requires the full in-game compatibility
+matrix: vanilla FG off, native FSR3 FG, OptiScaler/Nukem FG, OptiScaler plus the
+Steam overlay, and display-mode or resolution changes.

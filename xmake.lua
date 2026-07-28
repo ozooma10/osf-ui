@@ -98,7 +98,7 @@ target("OSF UI")
     -- add packages
     add_packages("nlohmann_json")
 
-    -- D3D12 overlay compositor (composite/): the device/queue are the game's, but we still need these for our own root signature, pipeline state, shader compile, and the swapchain present hook. 
+    -- D3D12 overlay compositor (composite/): the device/queue are the game's, but we still need these for our own root signature, pipeline state, and runtime shader compilation.
     -- d3dcompiler is used to build the overlay shaders at runtime
     -- shell32/ole32: SHGetKnownFolderPath for the writable settings path.
     add_syslinks("d3d12", "dxgi", "dxguid", "d3dcompiler", "shell32", "ole32")

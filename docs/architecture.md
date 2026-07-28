@@ -85,9 +85,9 @@ avoids MO2/USVFS injection into `msedgewebview2.exe`.
 
 ## How the D3D12 compositor works
 
-`D3D12Compositor` implements `ICompositor` on the game's own D3D12 device. Frames are sampled directly from the WebView2 host's shared texture ring — no CPU readback or upload (CPU frames from the mock backend are not supported on this device path). The overlay quad is drawn *inside the engine's Scaleform UI pass* (`composite/UiPassSeam`, hooked at ScaleformEnd) so frame generation (FSR3 / DLSS-G) paces the overlay like native UI. The `IDXGISwapChain::Present` slot-8 vtable hook itself no longer draws; it is retained for swapchain discovery, frame-generation classification, shared-ring adoption, and hook-liveness.
+`D3D12Compositor` implements `ICompositor` on the game's own D3D12 device. Frames are sampled directly from the WebView2 host's shared texture ring — no CPU readback or upload (CPU frames from the mock backend are not supported on this device path). The overlay quad is drawn *inside the engine's Scaleform UI pass* (`composite/UiPassSeam`, hooked at ScaleformEnd) so frame generation (FSR3 / DLSS-G) paces the overlay like native UI. The compositor does not hook `IDXGISwapChain::Present`: Submit adopts shared rings on the tick thread, while the seam reports output dimensions and identifies the transparent `COPY_SOURCE` UI hand-off used when frame generation is active. This keeps OSF UI outside Present chains owned by OptiScaler, Streamline, Steam, RTSS, ReShade, and similar tools.
 
-Remaining open areas: HDR/10-bit backbuffers, frame-gen swapchain selection, and coexistence with other overlay hooks
+Remaining open areas: alternate UI-target formats and broader in-game validation across frame-generation and external-overlay combinations.
 
 ## Lifetime
 

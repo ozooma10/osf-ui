@@ -101,11 +101,11 @@ Chromium async `MoveFocus` race that is **independent** of where Tick runs → *
 **admitted-state watchdog** (`Runtime::ReconcileFocusMenu:1707-1740`) was created in the wrong-thread
 era; plausibly idle after `7ab68ad` but **unproven** → **instrument, don't yet remove** (Phase 2).
 
-### 2.6 Present-hook — **not a retirement target**
-The slot-8 Present hook now *draws nothing* (drawing moved to `UiPassSeam` at ScaleformEnd) but
-retains load-bearing jobs: swapchain discovery, FG-pacer classification, shared-ring adoption,
-hook-liveness. **Keep it.** The only action is fixing `architecture.md`, which still falsely says the
-Present hook draws. → Phase 1 doc fix.
+### 2.6 Present-hook — **retired after three-way compatibility reproduction**
+The slot-8 Present hook was removed on 2026-07-27 after reproducing a crash in the wrapped
+OptiScaler/Streamline + Steam overlay chain. Output sizing and FG classification now come from
+`UiPassSeam`, and shared-ring adoption runs on `Submit()`. Do not reintroduce swapchain probing or
+Present chaining without a new design and the external-overlay compatibility matrix.
 
 ---
 
@@ -198,7 +198,7 @@ indirection, or the render/FG thread. Each: isolated reviewed commit + character
 in-game verification.
 **Gate:** native + frontend green; pause-menu/seam/FG-thread changes additionally need the FSR3-FG-ON
 smoke; `ViewCollection` needs host characterization tests (reveal/hide/prewarm/timeout) + in-game
-multi-view smoke; verify the Present hook still draws nothing and its discovery/FG/liveness are intact.
+multi-view smoke; verify the seam-only compositor across FG off, native FSR3 FG, and external frame-generation/overlay chains.
 
 | Item | Files | Source |
 |---|---|---|
@@ -217,10 +217,9 @@ multi-view smoke; verify the Present hook still draws nothing and its discovery/
 - **`ReconcileList` liveness/count gates** — `LivePauseMenu()` teardown barrier, `count<=0`
   wait-for-engine-push, `count==expectedCount` steady-state skip. Separable from and independent of
   the debounce.
-- **FrameGen / FSR3 / DLSS-G global draw suspension** (CTD reports #2/#4).
-- **BetterConsole swapchain-hook workaround** (windowless probe on a private queue).
-- **`UiPassSeam` under-Scaleform draw at ScaleformEnd**; the slot-8 **Present hook is KEPT** for
-  swapchain discovery / FG classification / ring adoption / liveness even though it now draws nothing.
+- **FrameGen / FSR3 / DLSS-G seam target selection** — ordinary UI target with FG off, transparent COPY_SOURCE handoff with FG on.
+- **Universal `UiPassSeam` composition** — no probe swapchain and no slot-8 Present hook. Sizing, FG
+  target selection, and ring adoption must remain independent of external DXGI hook chains.
 - **IWebRenderer's ~28 no-op default virtuals** — keep the branch-free game-thread path; do NOT convert
   any optional method into a queried-capability + call-site branch. `SupportsMultipleViews()`/
   `UsesNativeKeyboardFocus()` are the only two intentional capability queries. `InjectPhysicalMouseWheel`'s
@@ -354,32 +353,10 @@ signature cannot compile there. Two checks worth repeating on any future edit:
 `#if defined(OSFUI_WITH_WEBVIEW2)` (option defaults on, `xmake.lua`). Confirm the compile output
 actually names `WebView2HostWebRenderer.cpp`. `tests/native/run.sh` never compiles it.
 
-### §4c.6 — `PatchVtableSlot` — DEFERRED to Phase 5 (in-game gated)
-Designed and adversarially reviewed; **not implemented**, because it cannot be validated headlessly
-and its value is marginal:
-- It touches `IDXGISwapChain::Present` **slot 8** — the hook implicated in CTD reports #2/#4 — plus
-  the two UiPassSeam sites. Verification requires an in-game F10 overlay open, confirming
-  `[UiPassSeam] seam draw hooks armed` and `D3D12Compositor: hooked IDXGISwapChain::Present slot 8`
-  appear and `seam draw hook self-test FAILED` does **not**.
-- LOC is roughly neutral once the helper's doc comment is counted. The real payoff is deleting the
-  local `PatchSlot`, whose `[[nodiscard]] void*` return *looks* like a chain source but is only ever
-  a success boolean — exactly the shape the guardrail forbids.
-
-When executed, the verified constraints are:
-- Signature `bool PatchVtableSlot(void** slot, void* value, std::uint32_t protect)` in
-  `platform/WindowsPlatform.{h,cpp}`. It must **never** read the slot before writing and must
-  **never** return the old value.
-- Page protection stays **parameterized, not unified**: `PAGE_EXECUTE_READWRITE` on Present slot 8,
-  `PAGE_READWRITE` on both seam sites.
-- Every caller keeps publishing the original pointer **before** the slot write (store-before-write);
-  where the release-store currently sits inside the protect window it moves *earlier*, never later.
-  Keep the compensating `a_orig.store(0, release)` rollback on failure.
-- Read-back diagnostics and all logging stay in the callers; no `FlushInstructionCache`.
-- Do **not** add an include to `platform/WindowsPlatform.h` — it deliberately has none and relies on
-  the project PCH; that is what keeps the Win32-free-facade contract.
-- Current line anchors (verified against this tree): `UiPassSeam.cpp` local `PatchSlot` 136–146,
-  install block 176–187, rollback 210–219, `HookExecuteSlot` mechanics 327–335;
-  `D3D12Compositor.cpp` Present block 868–916, mechanics 900–903, read-back 904–910.
+### §4c.6 — `PatchVtableSlot` — CANCELLED for the compositor
+The compositor no longer patches `IDXGISwapChain::Present`, so the proposed shared helper has no
+compositor caller or in-game benefit. `UiPassSeam` keeps its own fail-closed slot patching and
+original-pointer publication rules; do not generalize them as part of the retired Present work.
 
 ### Phase 3 — §5 frontend consolidation: all but the two race-sensitive items
 | Commit | Item(s) |
