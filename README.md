@@ -97,6 +97,7 @@ See [the view toolchain guide](docs/view-toolchain.md) for the complete workflow
 - [docs/architecture.md](docs/architecture.md) - layers and data flow
 - [docs/security-model.md](docs/security-model.md)
 - [docs/troubleshooting.md](docs/troubleshooting.md) - requirements, install, troubleshooting, uninstall, and known limitations
+- [OSF Web Services](https://github.com/ozooma10/osf-web-services) - independently deployed reporting service and future OSF websites/APIs
 
 ## Install / paths
 
