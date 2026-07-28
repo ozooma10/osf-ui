@@ -286,6 +286,9 @@ namespace OSFUI
 		// crash-recovery. Called from Tick on the game thread.
 		void DriveDevReload();
 
+		// DevTools request raised by F12 on the window/host thread. Resolve the
+		// top open menu and talk to the renderer from Tick on the game thread.
+		void DriveDevTools();
 
 		// Publish loaded views to the worker and drain completed mirror refreshes.
 		// Navigation remains on the game thread.
@@ -379,6 +382,7 @@ namespace OSFUI
 		// main-thread).
 		KeyCode                       _devReloadKey{ kInvalidKeyCode };
 		std::atomic_bool              _devReloadRequested{ false };
+		std::atomic_bool              _devToolsRequested{ false };
 
 		std::unique_ptr<DevViewReloadWorker> _devViewReload;
 

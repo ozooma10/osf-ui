@@ -706,6 +706,9 @@ With `devMode: true` the in-game loop is fast too:
   menu immediately and refreshes MO2's browser mirror first. Use it to re-run
   page startup without changing a file. Built-in views still require
   `npm --prefix frontend run build` because their shipped files are generated.
+- **DevTools** (`F12`): opens Edge DevTools for the top open menu. It is
+  available only in `devMode`; outside authoring sessions the browser capability
+  is disabled.
 
 ---
 

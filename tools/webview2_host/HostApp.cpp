@@ -1641,6 +1641,7 @@ namespace osfui::wv2
 				ComPtr<ICoreWebView2Settings> settings;
 				if (SUCCEEDED(a_view.webView->get_Settings(&settings)) && settings) {
 					settings->put_AreDefaultContextMenusEnabled(FALSE);
+					settings->put_AreDevToolsEnabled(devMode ? TRUE : FALSE);
 				} else {
 					log.Warn(std::format("view '{}': settings unavailable — the browser "
 						"context menu stays enabled", a_view.id));
@@ -2233,6 +2234,7 @@ namespace osfui::wv2
 								(captureUpVk != 0 && key == captureUpVk) ||
 								key == toggleVk ||
 								(devReloadVk != 0 && key == devReloadVk) ||
+								(devMode && key == VK_F12) ||
 								(key == 0x1B && captured);
 							const bool alreadyHandled = handledKeys.contains(key);
 							// Opening a menu transfers keyboard focus from Starfield
@@ -3115,6 +3117,23 @@ namespace osfui::wv2
 						view->queuedEvals.push_back(
 							{ a_msg.value("id", 0ull), a_msg.value("script", "") });
 						DrainQueuedViewWork(*view);
+					}
+				} else if (type == "openDevTools") {
+					if (!devMode) {
+						log.Warn("openDevTools ignored outside devMode");
+						return;
+					}
+					// The DevTools top-level window may take focus before the
+					// originating F12 key-up reaches this controller. Do not leave
+					// the framework accelerator latched for the rest of the session.
+					handledKeys.erase(VK_F12);
+					if (auto* view = ResolveView(a_msg); view && view->webView) {
+						const auto hr = view->webView->OpenDevToolsWindow();
+						if (FAILED(hr)) {
+							log.Warn(std::format(
+								"view '{}': OpenDevToolsWindow failed (0x{:08X})",
+								view->id, static_cast<unsigned>(hr)));
+						}
 					}
 				} else if (type == "accelState") {
 					const bool wasCaptured = captured;

@@ -80,6 +80,7 @@ namespace osfui::wv2
 	// key           { vk:u32, down:bool }        (synthetic tap into the active view's widget)
 	// postWeb       { view:str, json:str }
 	// eval          { view:str, id:u64, script:str }
+	// openDevTools  { view:str }                 (devMode only)
 	// accelState    { toggleVk:u32, devReloadVk:u32, captured:bool,
 	//                 captureArmed:bool, captureUpVk:u32 }
 	// destroyView   { view:str }

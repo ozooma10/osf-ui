@@ -8,6 +8,8 @@
 
 - In **devMode**, loose view edits now appear in game without rebuilding or restarting: save HTML, JavaScript, CSS, or a local asset and OSF UI refreshes the loaded view after the file settles. Polling and Mod Organizer 2 mirror synchronization run in the background so large view folders do not stall the game; removed or renamed files are deleted from the browser mirror instead of lingering, and failed copies retry with backoff. F11 refreshes the mirror too. `manifest.json` changes and newly added views still require a restart.
 
+- View authors can press **F12** in `devMode` to open Edge DevTools for the top open menu, making its live DOM, styles, blocked requests, and JavaScript state inspectable without leaving the in-game iteration loop. The browser DevTools capability remains disabled outside `devMode`.
+
 ### Added
 
 - Maintainers can now open the reporting service's private `/admin` dashboard, unlock it with the existing admin token, browse submitted reports, and inspect each player's consented diagnostics and log artifacts without retrieving report IDs one at a time. Listing and detail requests remain authenticated, reporter content is rendered only as text, and the token is retained only for the browser tab.

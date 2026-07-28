@@ -124,6 +124,9 @@ The keys you might actually edit:
 | `devMode` | `false` | verbose per-call logging + first-frame PNG dump - turn on when developing views or attaching logs to a bug report |
 | `devReloadKey` | `"F11"` | with `devMode` on, reloads the top open menu's URL in place (the fast view-iteration loop); ignored otherwise |
 
+With `devMode` enabled, press **F12** while a menu is open to inspect that
+view in WebView2's native Edge DevTools.
+
 The remaining keys (`renderer`, `compositor`, `inputSource`, `captureInput`,
 `hardwareCursor`, `focusMenu`, `engineInput`, `pauseMenuEntryLabel`/`View`,
 `configVersion`) select backends and serve as diagnostic escape hatches - the

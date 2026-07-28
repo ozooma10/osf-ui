@@ -1534,6 +1534,11 @@ namespace OSFUI
 			{ "id", id }, { "script", std::string(a_js) } });
 	}
 
+	void WebView2HostWebRenderer::OpenDevTools(std::string_view a_viewId)
+	{
+		_impl->Send(ViewMsg("openDevTools", a_viewId));
+	}
+
 	void WebView2HostWebRenderer::CallJsFunction(
 		std::string_view a_viewId, std::string_view a_fnName, std::string_view a_arg)
 	{

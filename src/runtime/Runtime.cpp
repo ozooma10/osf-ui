@@ -42,6 +42,7 @@ namespace OSFUI
 		constexpr std::string_view kHandoffViewId{ "osfui/handoff" };
 		constexpr double           kHandoffDelaySeconds{ 0.15 };
 		constexpr double           kReadySignalTimeoutSeconds{ 15.0 };
+		constexpr KeyCode          kVkF12{ 0x7B };
 		// System Health producers without a cheap change signal (the render path,
 		// the system-information block) are sampled on this cadence instead of
 		// every tick. Slow enough to be free, fast enough that a player who just
@@ -600,6 +601,7 @@ namespace OSFUI
 		// Fire any due crash-recovery reloads before Update pumps the renderer.
 		DriveRecovery();
 		DriveDevReload();
+		DriveDevTools();
 		PumpDevViewReload();
 		// Flush the coalesced mouse move (QueueMouseMove): one injected move
 		// per frame carrying the latest position, however many raw packets the
@@ -1366,6 +1368,20 @@ namespace OSFUI
 		BroadcastViewsData();
 	}
 
+	void Runtime::DriveDevTools()
+	{
+		if (!_devToolsRequested.exchange(false) || !_renderer || !_config.devMode) {
+			return;
+		}
+		const auto active = _menus.ActiveMenu();
+		if (!active) {
+			REX::DEBUG("Runtime: F12 DevTools — no open menu to inspect");
+			return;
+		}
+		REX::INFO("Runtime: opening DevTools for view '{}'", *active);
+		_renderer->OpenDevTools(*active);
+	}
+
     void Runtime::PumpDevViewReload()
     {
         if (!_devViewReload) return;
@@ -1838,6 +1854,16 @@ namespace OSFUI
 			return true;
 		}
 
+		// F12 opens WebView2 DevTools for the top open menu in devMode. Like
+		// reload, only raise a flag here: renderer IPC belongs on the main tick.
+		// A configured devReloadKey of F12 wins because its branch is above.
+		if (_config.devMode && a_vkCode == kVkF12) {
+			if (a_down) {
+				_devToolsRequested.store(true);
+			}
+			return true;
+		}
+
 		// Hotkey dispatch (mcm-design.md §9): a key-down edge may fire mods'
 		// key-typed bindings. The service self-suppresses while the overlay
 		// captures input or a rebind is armed (belt and braces — the armed path
@@ -1868,6 +1894,7 @@ namespace OSFUI
 			(_captureUpVk.load() != kInvalidKeyCode && a_vkCode == _captureUpVk.load()) ||
 			a_vkCode == _toggleKey ||
 			(_devReloadKey != kInvalidKeyCode && a_vkCode == _devReloadKey) ||
+			(_config.devMode && a_vkCode == kVkF12) ||
 			(a_vkCode == 0x1B && IsInputCaptured());
 		return frameworkOwned && OnHostKey(a_vkCode, a_down);
 	}

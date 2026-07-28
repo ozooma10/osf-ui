@@ -335,6 +335,10 @@ namespace OSFUI
 		virtual void EvaluateScript(std::string_view /*a_viewId*/, std::string_view /*a_js*/,
 			ScriptResultHandler /*a_onResult*/ = nullptr) {}
 
+		// Open the browser's native developer tools for one view. Production
+		// backends may ignore this; the runtime exposes it only in devMode.
+		virtual void OpenDevTools(std::string_view /*a_viewId*/) {}
+
 		// Call window.<a_fnName>(a_arg) directly, no eval.
 		virtual void CallJsFunction(std::string_view /*a_viewId*/, std::string_view /*a_fnName*/,
 			std::string_view /*a_arg*/) {}
