@@ -281,11 +281,6 @@ namespace OSFUI
 		// the game thread.
 		void DriveRecovery();
 
-		// Dev view-reload: reload the top open menu's URL in place when
-		// _devReloadRequested was raised. Same LoadView + Resize pair as
-		// crash-recovery. Called from Tick on the game thread.
-		void DriveDevReload();
-
 		// DevTools request raised by F12 on the window/host thread. Resolve the
 		// top open menu and talk to the renderer from Tick on the game thread.
 		void DriveDevTools();
@@ -376,12 +371,6 @@ namespace OSFUI
 		HotkeyService                           _hotkeys;
 		KeyCode                       _toggleKey{ kInvalidKeyCode };
 		bool                          _vanillaKeysApplied{ false };  // main-thread; ApplyVanillaKeyConflicts edge detector
-		// Dev view-reload: resolved from config devReloadKey only when devMode,
-		// so kInvalid doubles as the gate. The window thread raises the flag
-		// (OnHostKey), Tick drains it (DriveDevReload — renderer calls are
-		// main-thread).
-		KeyCode                       _devReloadKey{ kInvalidKeyCode };
-		std::atomic_bool              _devReloadRequested{ false };
 		std::atomic_bool              _devToolsRequested{ false };
 
 		std::unique_ptr<DevViewReloadWorker> _devViewReload;

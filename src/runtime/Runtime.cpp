@@ -367,16 +367,6 @@ namespace OSFUI
 		if (_toggleKey != kInvalidKeyCode) {
 			REX::INFO("Runtime: toggleKey '{}' resolved to VK code {:#x}", _config.toggleKey, _toggleKey);
 		}
-		// Dev view-reload key (mcm-design.md §12.1): resolved only in devMode —
-		// kInvalid is the whole gate in OnHostKey, so a user config with the
-		// shipped devReloadKey but devMode off never loses the key to us.
-		if (_config.devMode && !_config.devReloadKey.empty()) {
-			_devReloadKey = ResolveKeyName(_config.devReloadKey);
-			if (_devReloadKey != kInvalidKeyCode) {
-				REX::DEBUG("Runtime: devReloadKey '{}' resolved to VK code {:#x} (reloads the top open menu)", _config.devReloadKey, _devReloadKey);
-			}
-		}
-
 		EngineInput::SetEnabled(_config.engineInput);
 		if (_config.engineInput) {
 			REX::DEBUG("Runtime: engineInput enabled — engine per-menu input (gamepad) routed into the focused view; keyboard/mouse stay on the WndProc path");
@@ -600,7 +590,6 @@ namespace OSFUI
 		}
 		// Fire any due crash-recovery reloads before Update pumps the renderer.
 		DriveRecovery();
-		DriveDevReload();
 		DriveDevTools();
 		PumpDevViewReload();
 		// Flush the coalesced mouse move (QueueMouseMove): one injected move
@@ -626,7 +615,7 @@ namespace OSFUI
 			// Out-of-process backends mirror the accelerator state so their host
 			// process can decide `handled` synchronously; pushed every tick,
 			// backends diff and forward only changes (default no-op).
-			_renderer->SetAcceleratorKeys(_toggleKey, _devReloadKey,
+			_renderer->SetAcceleratorKeys(_toggleKey,
 				IsInputCaptured(), _captureArmed.load(), _captureUpVk.load());
 			_renderer->Update(a_deltaSeconds);
 			DrivePendingOpen();
@@ -1336,38 +1325,6 @@ namespace OSFUI
 		}
 	}
 
-	void Runtime::DriveDevReload()
-	{
-		if (!_devReloadRequested.exchange(false) || !_renderer) {
-			return;
-		}
-		// HUD-only setups have no reload target: dev iteration on HUDs goes
-		// through the browser harness (mcm-design.md §12.2).
-		const auto active = _menus.ActiveMenu();
-		if (!active) {
-			REX::DEBUG("Runtime: dev reload — no open menu to reload");
-			return;
-		}
-		const auto* manifest = _views.Find(*active);
-		if (!manifest) {
-			return;
-		}
-		REX::DEBUG("Runtime: dev-reloading view '{}' (devReloadKey)", *active);
-		ReloadViewInPlace(*active, *manifest, true);
-		// Identical payload at the OLD and NEW call sites. The pre-extraction code
-		// broadcast from INSIDE what is now ReloadViewInPlace — after the Loading
-		// store, before LoadView/Resize — and neither LoadView nor Resize touches
-		// _viewLoadState/_readyViews (both just queue a host-pipe message), so the
-		// views.data content is the same. Only wire ORDER changed: the push now
-		// follows the navigate/resize instead of preceding them.
-		//
-		// Do NOT "simplify" this by hoisting it above ReloadViewInPlace. There the
-		// view is still Finished, so BuildViewsData produces the previous payload —
-		// and BroadcastViewsData dedupes against _lastViewsData, so nothing would be
-		// sent at all and the web would never see the loading state.
-		BroadcastViewsData();
-	}
-
 	void Runtime::DriveDevTools()
 	{
 		if (!_devToolsRequested.exchange(false) || !_renderer || !_config.devMode) {
@@ -1841,22 +1798,8 @@ namespace OSFUI
 			return true;
 		}
 
-		// Dev view-reload key (mcm-design.md §12.1; _devReloadKey only resolves in
-		// devMode). Window thread: only raise the flag — the reload runs from Tick
-		// (DriveDevReload; renderer calls are main-thread). Consumed on both edges
-		// like the toggle key, and before hotkey dispatch so a mod binding the same
-		// key doesn't also fire. Capture (above) still wins: mid-rebind this key is
-		// a binding like any other.
-		if (_devReloadKey != kInvalidKeyCode && a_vkCode == _devReloadKey) {
-			if (a_down) {
-				_devReloadRequested.store(true);
-			}
-			return true;
-		}
-
-		// F12 opens WebView2 DevTools for the top open menu in devMode. Like
-		// reload, only raise a flag here: renderer IPC belongs on the main tick.
-		// A configured devReloadKey of F12 wins because its branch is above.
+		// F12 opens WebView2 DevTools for the top open menu in devMode. Only raise
+		// a flag here: renderer IPC belongs on the main tick.
 		if (_config.devMode && a_vkCode == kVkF12) {
 			if (a_down) {
 				_devToolsRequested.store(true);
@@ -1893,7 +1836,6 @@ namespace OSFUI
 			_captureArmed.load() ||
 			(_captureUpVk.load() != kInvalidKeyCode && a_vkCode == _captureUpVk.load()) ||
 			a_vkCode == _toggleKey ||
-			(_devReloadKey != kInvalidKeyCode && a_vkCode == _devReloadKey) ||
 			(_config.devMode && a_vkCode == kVkF12) ||
 			(a_vkCode == 0x1B && IsInputCaptured());
 		return frameworkOwned && OnHostKey(a_vkCode, a_down);

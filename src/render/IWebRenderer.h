@@ -282,7 +282,7 @@ namespace OSFUI
 		// No-op for in-process backends, which call the accelerator handler
 		// directly instead.
 		virtual void SetAcceleratorKeys(std::uint32_t /*a_toggleVk*/,
-			std::uint32_t /*a_devReloadVk*/, bool /*a_captured*/,
+			bool /*a_captured*/,
 			bool /*a_captureArmed*/, std::uint32_t /*a_captureUpVk*/) {}
 
 		// Announces (or replaces) the renderer's GPU shared-texture ring, on the

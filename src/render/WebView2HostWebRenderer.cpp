@@ -272,12 +272,12 @@ namespace OSFUI
 		// Argument ORDER is the hazard here: captured then captureArmed. The
 		// snapshot's locals are named accCaptured/accArmed while the wire key is
 		// "captureArmed", so a swap would compile clean and change the wire.
-		json AccelStateMsg(std::uint32_t a_toggleVk, std::uint32_t a_devReloadVk,
+		json AccelStateMsg(std::uint32_t a_toggleVk,
 			bool a_captured, bool a_captureArmed, std::uint32_t a_captureUpVk)
 		{
 			return json{
 				{ "type", "accelState" },
-				{ "toggleVk", a_toggleVk }, { "devReloadVk", a_devReloadVk },
+				{ "toggleVk", a_toggleVk },
 				{ "captured", a_captured }, { "captureArmed", a_captureArmed },
 				{ "captureUpVk", a_captureUpVk } };
 		}
@@ -350,7 +350,7 @@ namespace OSFUI
 		bool                 allHidden{ true };  // no visible view => Render() is never called
 		std::uint32_t        width{ 1 }, height{ 1 };
 		// accelState mirror (SetAcceleratorKeys diffs against this)
-		std::uint32_t accToggle{ 0 }, accDevReload{ 0 }, accCaptureUp{ 0 };
+		std::uint32_t accToggle{ 0 }, accCaptureUp{ 0 };
 		bool          accCaptured{ false }, accArmed{ false }, accSent{ false };
 
 		osfui::wv2::Pipe pipe;
@@ -846,7 +846,7 @@ namespace OSFUI
 					{ "adapterLuidLow", adapterLuidLow },
 					{ "adapterLuidHigh", adapterLuidHigh },
 				}.dump());
-				pipe.WriteMessage(AccelStateMsg(accToggle, accDevReload,
+				pipe.WriteMessage(AccelStateMsg(accToggle,
 					accCaptured, accArmed, accCaptureUp).dump());
 				accSent = true;
 				// Replay views registered before the host existed with their
@@ -1483,26 +1483,24 @@ namespace OSFUI
 	}
 
 	void WebView2HostWebRenderer::SetAcceleratorKeys(std::uint32_t a_toggleVk,
-		std::uint32_t a_devReloadVk, bool a_captured, bool a_captureArmed,
+		bool a_captured, bool a_captureArmed,
 		std::uint32_t a_captureUpVk)
 	{
 		bool changed = false;
 		{
 			std::scoped_lock lock(_impl->stateMutex);
 			changed = !_impl->accSent || _impl->accToggle != a_toggleVk ||
-				_impl->accDevReload != a_devReloadVk ||
 				_impl->accCaptured != a_captured ||
 				_impl->accArmed != a_captureArmed ||
 				_impl->accCaptureUp != a_captureUpVk;
 			_impl->accToggle = a_toggleVk;
-			_impl->accDevReload = a_devReloadVk;
 			_impl->accCaptured = a_captured;
 			_impl->accArmed = a_captureArmed;
 			_impl->accCaptureUp = a_captureUpVk;
 			if (changed && _impl->connected.load()) _impl->accSent = true;
 		}
 		if (changed) {
-			_impl->Send(AccelStateMsg(a_toggleVk, a_devReloadVk, a_captured,
+			_impl->Send(AccelStateMsg(a_toggleVk, a_captured,
 				a_captureArmed, a_captureUpVk));
 		}
 	}

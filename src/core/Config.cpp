@@ -14,7 +14,7 @@ namespace OSFUI
 			"configVersion", "enabled", "renderer", "compositor",
 			"inputSource", "captureInput", "hardwareCursor", "focusMenu",
 			"engineInput", "pauseMenuEntry", "pauseMenuEntryLabel", "pauseMenuEntryView",
-			"view", "views", "devMode", "devReloadKey", "bugReportEndpoint",
+			"view", "views", "devMode", "bugReportEndpoint",
 #if defined(OSFUI_WITH_WORLD_SURFACES)
 			"worldSurfaceView",
 			"worldSurfaceWidth", "worldSurfaceHeight",
@@ -98,7 +98,6 @@ namespace OSFUI
 #endif
 		config.devMode = Json::GetBool(*json, "devMode", config.devMode);
 		ApplyAuthorModeMarker(config, a_path);
-		config.devReloadKey = Json::GetString(*json, "devReloadKey", config.devReloadKey);
 		config.bugReportEndpoint = Json::GetString(*json, "bugReportEndpoint", config.bugReportEndpoint);
 		if (!config.bugReportEndpoint.empty() &&
 			(!config.bugReportEndpoint.starts_with("https://") ||

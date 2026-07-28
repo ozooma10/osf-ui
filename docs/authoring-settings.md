@@ -416,8 +416,8 @@ npx ajv-cli validate --spec=draft2020 -s docs/schema/settings-schema.schema.json
 
 **In-game hot reload.** With `"devMode": true` in OSF UI's `config.json`,
 saved changes to `settings\*.json` are picked up within ~1 s while the game
-runs — values survive, the open menu repaints. F11 (configurable
-`devReloadKey`) reloads the open view.
+runs — values survive, the open menu repaints. Saved changes to a loaded
+view's own files (HTML/JS/CSS) reload the same way.
 
 **Broken files are loud, not silent.** A bad filename or unparseable JSON is
 skipped and reported (with line/column) in an alert pinned atop the Mods

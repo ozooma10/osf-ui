@@ -800,11 +800,10 @@ With `devMode: true` the in-game loop is fast too:
   half a second). Polling and MO2 mirror synchronization happen in the
   background; removed or renamed files disappear from the mirror too. It
   deliberately ignores `manifest.json` changes and new view folders, which
-  require a game restart.
-- **View reload key** (`devReloadKey`, default `F11`): reloads the top open
-  menu immediately and refreshes MO2's browser mirror first. Use it to re-run
-  page startup without changing a file. Built-in views still require
-  `npm --prefix frontend run build` because their shipped files are generated.
+  require a game restart. Built-in views still require
+  `npm --prefix frontend run build` because their shipped files are generated;
+  to re-run page startup without editing a file, re-save it (or use DevTools'
+  reload).
 - **DevTools** (`F12`): opens Edge DevTools for the top open menu. It is
   available only in `devMode`; outside authoring sessions the browser capability
   is disabled.

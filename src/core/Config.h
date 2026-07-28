@@ -74,11 +74,6 @@ namespace OSFUI
 		// skipped.
 		std::vector<std::string> views;
 		bool        devMode{ false };  // release-safe default; the shipped config / a dev override turns on verbose logging
-		// With devMode on, reloads the top open menu's URL in place (schema
-		// edits hot-reload on their own). Consumed like the toggle key; empty
-		// disables. Ignored without devMode, so shipping it in config.json is
-		// harmless for users.
-		std::string devReloadKey{ "F11" };
 		// HTTPS endpoint for the consented diagnostic reporter. Empty disables
 		// submission while keeping the rest of System Health available.
 		std::string bugReportEndpoint;

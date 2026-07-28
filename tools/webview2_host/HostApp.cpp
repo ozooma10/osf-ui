@@ -633,7 +633,7 @@ namespace osfui::wv2
 			bool  captureStarted{ false };
 
 			// accel state pushed by the game (touched only on the STA thread)
-			std::uint32_t toggleVk{ 0x79 /*F10*/ }, devReloadVk{ 0 }, captureUpVk{ 0 };
+			std::uint32_t toggleVk{ 0x79 /*F10*/ }, captureUpVk{ 0 };
 			bool          captured{ false }, captureArmed{ false };
 			// Whether an input-capturing menu owns real OS focus. HUD-only views
 			// leave this false so Starfield stays foreground. During a grant the
@@ -2233,7 +2233,6 @@ namespace osfui::wv2
 								captureArmed ||
 								(captureUpVk != 0 && key == captureUpVk) ||
 								key == toggleVk ||
-								(devReloadVk != 0 && key == devReloadVk) ||
 								(devMode && key == VK_F12) ||
 								(key == 0x1B && captured);
 							const bool alreadyHandled = handledKeys.contains(key);
@@ -3138,7 +3137,6 @@ namespace osfui::wv2
 				} else if (type == "accelState") {
 					const bool wasCaptured = captured;
 					toggleVk = a_msg.value("toggleVk", 0u);
-					devReloadVk = a_msg.value("devReloadVk", 0u);
 					captured = a_msg.value("captured", false);
 					captureArmed = a_msg.value("captureArmed", false);
 					captureUpVk = a_msg.value("captureUpVk", 0u);

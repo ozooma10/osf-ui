@@ -81,7 +81,7 @@ namespace osfui::wv2
 	// postWeb       { view:str, json:str }
 	// eval          { view:str, id:u64, script:str }
 	// openDevTools  { view:str }                 (devMode only)
-	// accelState    { toggleVk:u32, devReloadVk:u32, captured:bool,
+	// accelState    { toggleVk:u32, captured:bool,
 	//                 captureArmed:bool, captureUpVk:u32 }
 	// destroyView   { view:str }
 	// shutdown      { }
