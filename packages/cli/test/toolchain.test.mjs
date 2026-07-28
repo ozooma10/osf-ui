@@ -26,7 +26,14 @@ async function projectFixture(t) {
     views: [{ id: 'panel', title: 'Panel', width: 800, height: 600 }]
   };`);
   await writeFile(resolve(root, 'osfui.mock.json'), '{"state":{}}');
-  await writeFile(resolve(view, 'index.html'), '<main>Hello</main>');
+  await writeFile(
+    resolve(view, 'index.html'),
+    '<main>Hello</main><script type="module" src="./main.ts"></script>',
+  );
+  await writeFile(
+    resolve(view, 'main.ts'),
+    "import '/shared/osfui.css';\nimport '/shared/osfui.js';\n",
+  );
   return root;
 }
 
@@ -77,6 +84,10 @@ test('development server exposes the harness and injects the bridge before view 
   const origin = `http://127.0.0.1:${address.port}`;
   const harness = await fetch(`${origin}/__osfui/`).then((response) => response.text());
   const view = await fetch(`${origin}/acme.widgets/panel/index.html`).then((response) => response.text());
+  const moduleResponse = await fetch(`${origin}/acme.widgets/panel/main.ts`);
+  const moduleSource = await moduleResponse.text();
   assert.match(harness, /OSF UI View Harness/);
   assert.match(view, /__osfui\/bootstrap\.js/);
+  assert.equal(moduleResponse.status, 200);
+  assert.match(moduleSource, /osfui-shared/);
 });

@@ -11,6 +11,7 @@ import {
 import { BRIDGE_VERSION, HOST_VERSION } from './constants.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+const SHARED_PREFIX = '\0osfui-shared:';
 const CSP = [
   "default-src 'self' data: blob:",
   "script-src 'self' 'unsafe-inline'",
@@ -59,6 +60,14 @@ export function harnessPlugin(project, selectedView) {
   return {
     name: 'osfui-author-harness',
     enforce: 'pre',
+    resolveId(source) {
+      if (source === '/shared/osfui.js') return `${SHARED_PREFIX}osfui.js`;
+      if (source === '/shared/osfui.css') return `${SHARED_PREFIX}osfui.css`;
+    },
+    async load(id) {
+      if (!id.startsWith(SHARED_PREFIX)) return null;
+      return sharedAsset(id.slice(SHARED_PREFIX.length));
+    },
     transformIndexHtml: {
       order: 'pre',
       handler(html, context) {
