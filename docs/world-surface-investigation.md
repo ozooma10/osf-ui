@@ -5,6 +5,15 @@ now through a dedicated renderer and shared ring that run independently of the
 fullscreen overlay. WebView content reaches a vanilla cockpit mesh through a
 targeted D3D12 SRV, verified in-game 2026-07-25.
 
+Productionization (2026-07-28): the runtime now supports up to four
+config-driven surfaces (`worldSurfaces` in config.json), each with its own
+host process (`world1..world4`), ring, failure/health wiring, and per-surface
+capture-descriptor sets; the placeholder generator emits four canonical sizes
+into `data/Textures/OSFUI`. The asset side — a CK-authored material/mesh/
+placeable — is documented in
+[world-surface-authoring.md](world-surface-authoring.md), and its in-game
+verification is what gates enabling `with_world_surfaces` by default.
+
 ## What the engine already has
 
 Starfield contains a concrete
@@ -338,8 +347,8 @@ deliberate manual deployment.
 1. ~~Give world surfaces a dedicated view and shared ring instead of borrowing the overlay ring.~~ Done.
 2. ~~Track the current fully produced slot and signal its consume fence while the surface is visible.~~ Done (one-frame-late CPU signal).
 3. ~~Refresh the targeted descriptor safely when the current slot changes or the ring is recreated.~~ Done (unconditional per-tick re-assert).
-4. Custom mesh + Creation Kit-authored material at OSF UI-owned paths (needs fresh `res:` IDs — see above), removing the last two vanilla overrides and fixing the atlas UV crop. Match color space, alpha, and emissive treatment to the mesh.
-5. Add per-instance lifecycle, visibility throttling, and raycast-to-UV input mapping.
+4. Custom mesh + Creation Kit-authored material at OSF UI-owned paths (needs fresh `res:` IDs — see above). Runtime + packaging side done 2026-07-28; the CK asset itself follows [world-surface-authoring.md](world-surface-authoring.md) and its in-game pass is the flag-default gate.
+5. ~~Per-instance lifecycle~~ (N config-driven surfaces with isolated hosts, failure/health wiring, 2026-07-28). Still open: visibility throttling / cell-lifecycle host suspension, raycast-to-UV input mapping, activate-to-open-menu interactivity, and a mod-facing `RegisterWorldSurface` C ABI.
 
 A custom screen mesh/material with an OSF UI-owned placeholder texture is the
 safer production target. It gives stable identity and dimensions without
