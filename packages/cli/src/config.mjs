@@ -150,6 +150,9 @@ export async function loadProject(cwd, command = 'serve') {
     outputViewsRoot: resolve(root, raw.outDir || 'dist', 'SFSE/Plugins/OSFUI/views'),
     mockPath,
     mockKind,
+    // Dev-server-only Vite extension (aliases, extra plugins); build/check
+    // never read it, so it cannot change shipped output.
+    vite: raw.vite,
   };
 }
 

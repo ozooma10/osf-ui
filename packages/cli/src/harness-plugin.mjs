@@ -23,6 +23,17 @@ const CSP = [
   "object-src 'none'",
   "base-uri 'self'",
 ].join('; ');
+/** The shell page has no inline scripts, so it can be locked down harder. */
+const SHELL_CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data:",
+  "connect-src 'self' ws: wss:",
+  "frame-src 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+].join('; ');
 
 function send(response, body, type) {
   response.statusCode = 200;
@@ -47,8 +58,7 @@ async function sharedAsset(name) {
 }
 
 export function harnessPlugin(project, selectedView) {
-  const view = selectedView;
-  const meta = {
+  const metaFor = (view) => ({
     modId: project.modId,
     viewName: view.id,
     qualifiedId: view.qualifiedId,
@@ -62,7 +72,10 @@ export function harnessPlugin(project, selectedView) {
     bridgeVersion: BRIDGE_VERSION,
     // Absent when the project has no mock; mock-loader.js skips the import.
     ...(project.mockPath ? { mockUrl: MOCK_ENTRY, mockName: basename(project.mockPath) } : {}),
-  };
+  });
+  /** Which project view a served page belongs to, by URL prefix. */
+  const viewForPath = (path) =>
+    project.views.find((view) => path.startsWith(`/${project.modId}/${view.id}/`)) || selectedView;
   return {
     name: 'osfui-author-harness',
     enforce: 'pre',
@@ -81,11 +94,16 @@ export function harnessPlugin(project, selectedView) {
       order: 'pre',
       handler(html, context) {
         if (context.path.startsWith('/__osfui/')) return html;
-        // Order matters: the classic bootstrap installs the queuing bridge
-        // stub at parse time; the module loader then brings up the mock
-        // before any module view entry runs (module scripts execute in
-        // order and honor top-level await).
+        // Order matters: the inline meta names the page's view, the classic
+        // bootstrap installs the queuing bridge stub at parse time, and the
+        // module loader then brings up the mock before any module view entry
+        // runs (module scripts execute in order and honor top-level await).
         return [
+          {
+            tag: 'script',
+            children: `window.__OSFUI_HARNESS_META__=${JSON.stringify(metaFor(viewForPath(context.path)))};`,
+            injectTo: 'head-prepend',
+          },
           {
             tag: 'script',
             attrs: { src: '/__osfui/bootstrap.js' },
@@ -121,6 +139,7 @@ export function harnessPlugin(project, selectedView) {
           next();
           return;
         }
+        response.setHeader('Content-Security-Policy', SHELL_CSP);
         if (url.pathname === '/__osfui/' || url.pathname === '/__osfui/index.html') {
           send(response, HARNESS_HTML, 'text/html; charset=utf-8');
         } else if (url.pathname === '/__osfui/harness.css') {
@@ -136,13 +155,16 @@ export function harnessPlugin(project, selectedView) {
         } else if (url.pathname === '/__osfui/mock-runtime.js') {
           send(response, await browserAsset('mock-runtime.js'), 'text/javascript; charset=utf-8');
         } else if (url.pathname === '/__osfui/bootstrap.js') {
+          send(response, await browserAsset('bootstrap.js'), 'text/javascript; charset=utf-8');
+        } else if (url.pathname === '/__osfui/meta.json') {
           send(
             response,
-            `const __OSFUI_HARNESS_META__=${JSON.stringify(meta)};\n${await browserAsset('bootstrap.js')}`,
-            'text/javascript; charset=utf-8',
+            JSON.stringify({
+              views: project.views.map(metaFor),
+              initial: selectedView.qualifiedId,
+            }),
+            'application/json; charset=utf-8',
           );
-        } else if (url.pathname === '/__osfui/meta.json') {
-          send(response, JSON.stringify(meta), 'application/json; charset=utf-8');
         } else {
           next();
         }

@@ -86,6 +86,7 @@ export const HARNESS_HTML = String.raw`<!doctype html>
   <main class="app">
     <header class="toolbar">
       <span class="brand">OSF UI HARNESS</span>
+      <select id="view-select" title="Switch the previewed view (no server restart)"></select>
       <span id="view-id" class="view-id"></span>
       <span class="spacer"></span>
       <label>Width <input id="width" type="number" min="1" max="16384"></label>
@@ -93,8 +94,17 @@ export const HARNESS_HTML = String.raw`<!doctype html>
       <button id="apply-size" type="button">Apply</button>
       <button id="stage-mode" type="button">Stage</button>
       <span id="tools"></span>
-      <label>Locale <input id="locale" value="en" size="8"></label>
+      <label>Locale <input id="locale" value="en" size="8" list="locale-list"
+        title="Push an i18n.data locale switch. 'pseudo' pseudo-localizes every localized string ([åççéñŧš] + padding) so hardcoded text and tight layouts stand out."></label>
+      <datalist id="locale-list">
+        <option value="en"></option><option value="pseudo"></option><option value="de"></option>
+        <option value="fr"></option><option value="es"></option><option value="ja"></option>
+      </datalist>
       <button id="send-locale" type="button">Set</button>
+      <input id="hotkey-key" size="9" placeholder="hotkey key" title="Setting key for the ui.hotkey injector (mod is the project's modId)">
+      <button id="inject-hotkey" type="button" title="Inject a ui.hotkey message">Hotkey</button>
+      <button id="inject-lb" type="button" title="Inject a ui.gamepad LB press (down edge + release)">LB</button>
+      <button id="inject-rb" type="button" title="Inject a ui.gamepad RB press (down edge + release)">RB</button>
       <button id="visibility" type="button">Hide</button>
       <button id="checker" type="button">Checker</button>
       <button id="reload" type="button">Reload</button>

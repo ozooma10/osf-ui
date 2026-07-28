@@ -10,6 +10,7 @@ import { createServer } from 'vite';
 import { buildProject } from '../src/build.mjs';
 import { checkProject } from '../src/check.mjs';
 import { loadProject, manifestFor } from '../src/config.mjs';
+import { devServerConfig } from '../src/dev.mjs';
 import { harnessPlugin } from '../src/harness-plugin.mjs';
 import { writeZip } from '../src/zip.mjs';
 
@@ -94,30 +95,41 @@ test('development server exposes the harness and injects the bridge before view 
   assert.match(moduleSource, /osfui-shared/);
   assert.match(harness, /OSF UI View Harness/);
   assert.match(view, /__osfui\/bootstrap\.js/);
-  // Injection order is the mock's correctness contract: classic bootstrap
-  // (queuing bridge stub) first, then the module mock loader, both ahead of
-  // the view's own scripts.
+  // Injection order is the mock's correctness contract: inline per-view meta,
+  // then the classic bootstrap (queuing bridge stub), then the module mock
+  // loader, all ahead of the view's own scripts.
+  const metaAt = view.indexOf('window.__OSFUI_HARNESS_META__=');
   const bootstrapAt = view.indexOf('/__osfui/bootstrap.js');
   const loaderAt = view.indexOf('/__osfui/mock-loader.js');
   const entryAt = view.indexOf('./main.ts');
-  assert.ok(bootstrapAt >= 0 && loaderAt >= 0 && entryAt >= 0);
-  assert.ok(bootstrapAt < loaderAt && loaderAt < entryAt);
-  // The browser JS is served from real files in src/browser/, with the
-  // per-view meta prelude prepended to the bootstrap.
+  assert.ok(metaAt >= 0 && bootstrapAt >= 0 && loaderAt >= 0 && entryAt >= 0);
+  assert.ok(metaAt < bootstrapAt && bootstrapAt < loaderAt && loaderAt < entryAt);
+  // The inline meta advertises the mock for this page.
+  assert.match(view, /"mockUrl":"\/__osfui\/mock-entry\.js"/);
+  // The browser JS is served from real static files in src/browser/.
   const bootstrap = await fetch(`${origin}/__osfui/bootstrap.js`).then((response) => response.text());
   const shell = await fetch(`${origin}/__osfui/harness.js`).then((response) => response.text());
-  assert.match(bootstrap, /^const __OSFUI_HARNESS_META__=\{/);
   assert.match(bootstrap, /osfui-harness/);
   assert.match(shell, /loadMeta/);
-  // shell.js is a module importing ./stage-fit.js — the route must exist.
+  // shell.js is a module importing ./stage-fit.js and ./tools-model.js.
   const stageFit = await fetch(`${origin}/__osfui/stage-fit.js`).then((response) => response.text());
   assert.match(stageFit, /computeFit/);
-  // The meta advertises the mock and the loader/runtime modules are served.
-  assert.match(bootstrap, /"mockUrl":"\/__osfui\/mock-entry\.js"/);
+  const toolsModel = await fetch(`${origin}/__osfui/tools-model.js`).then((response) => response.text());
+  assert.match(toolsModel, /normalizeTools/);
   const loader = await fetch(`${origin}/__osfui/mock-loader.js`).then((response) => response.text());
   assert.match(loader, /installMock/);
   const runtime = await fetch(`${origin}/__osfui/mock-runtime.js`).then((response) => response.text());
   assert.match(runtime, /createScenarioHandler/);
+  // meta.json lists every project view for the shell's switcher.
+  const listing = await fetch(`${origin}/__osfui/meta.json`).then((response) => response.json());
+  assert.equal(listing.initial, 'acme.widgets/panel');
+  assert.equal(listing.views.length, 1);
+  assert.equal(listing.views[0].qualifiedId, 'acme.widgets/panel');
+  // CSP: locked-down shell, view pages keep the authoring CSP.
+  const shellPage = await fetch(`${origin}/__osfui/`);
+  assert.match(shellPage.headers.get('content-security-policy'), /script-src 'self'(;|$)/);
+  const viewPage = await fetch(`${origin}/acme.widgets/panel/index.html`);
+  assert.match(viewPage.headers.get('content-security-policy'), /worker-src 'none'/);
 });
 
 test('the mock module is importable through Vite at /__osfui/mock-entry.js', async (t) => {
@@ -148,6 +160,44 @@ test('the mock module is importable through Vite at /__osfui/mock-entry.js', asy
   assert.doesNotMatch(source, /: string/);
   assert.match(source, /install/);
   assert.match(source, /greeting/);
+});
+
+test('the config vite: extension reaches the dev server and stays dev-only', async (t) => {
+  const root = await projectFixture(t);
+  const { writeFile: write } = await import('node:fs/promises');
+  await write(resolve(root, 'osfui.config.ts'), `export default {
+    modId: 'acme.widgets',
+    views: [{ id: 'panel', title: 'Panel', width: 800, height: 600 }],
+    vite: {
+      resolve: { alias: { '@dep': '${resolve(root, 'dep').replaceAll('\\', '/')}' } },
+      plugins: [{ name: 'project-extra' }],
+    },
+  };`);
+  const { mkdir: makeDir } = await import('node:fs/promises');
+  await makeDir(resolve(root, 'dep'), { recursive: true });
+  await write(resolve(root, 'dep/answer.ts'), 'export const answer = 42;\n');
+  await write(
+    resolve(root, 'src/views/acme.widgets/panel/main.ts'),
+    "import { answer } from '@dep/answer';\nconsole.log(answer);\n",
+  );
+  const project = await loadProject(root);
+  const config = await devServerConfig(project, project.views[0], { open: 'false', port: 0 });
+  // Project plugins land after the harness plugin, which keeps /__osfui/*.
+  assert.equal(config.plugins[0].name, 'osfui-author-harness');
+  assert.ok(config.plugins.flat().some((plugin) => plugin?.name === 'project-extra'));
+  const server = await createServer({ ...config, logLevel: 'silent' });
+  await server.listen();
+  t.after(() => server.close());
+  const { port } = server.httpServer.address();
+  const source = await fetch(`http://127.0.0.1:${port}/acme.widgets/panel/main.ts`)
+    .then((response) => response.text());
+  // The alias resolved: the transformed module references the dep, untouched
+  // imports would have 404'd at transform time instead.
+  assert.match(source, /answer/);
+  assert.doesNotMatch(source, /@dep\/answer/);
+  // Build ignores vite: — the project still checks and builds identically.
+  const buildProjectShape = await loadProject(root, 'build');
+  assert.equal(await checkProject(buildProjectShape), 1);
 });
 
 test('a JSON mock flows through the same module entry', async (t) => {

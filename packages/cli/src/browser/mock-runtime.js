@@ -13,7 +13,14 @@
 // The pure pieces (scenario resolution, the command engine) take no DOM so
 // they are unit-tested under node --test.
 
+import { pseudoize, pseudoizeStrings } from './pseudo.js';
 import { applyPatch, normalizeTools } from './tools-model.js';
+
+/** The active-locale catalog; 'pseudo' pseudo-localizes the authored English. */
+export function catalogFor(scenario, locale) {
+  if (locale === 'pseudo') return pseudoizeStrings(scenario.locales.en || {});
+  return scenario.locales[locale] || {};
+}
 
 /** Shallow-overlay a named scenario onto the base mock fields. */
 export function resolveScenario(mock, name) {
@@ -62,7 +69,7 @@ export function createScenarioHandler(scenario, meta) {
       io.reply('i18n.data', {
         mod: payload.mod || meta.modId,
         locale,
-        strings: scenario.locales[locale] || {},
+        strings: catalogFor(scenario, locale),
       });
       return true;
     }
@@ -145,6 +152,9 @@ export async function installMock(harness, mod, loadError) {
   const meta = harness.meta;
   const params = new URLSearchParams(location.search);
   const scenario = resolveScenario(mod?.default, params.get('scenario'));
+  // ?locale= (forwarded by the shell) overrides the scenario's locale;
+  // 'pseudo' is always valid — it derives from the authored English.
+  if (params.get('locale')) scenario.locale = params.get('locale');
   const chain = [];
 
   const reply = (requestId) => (type, payload) => {
@@ -210,6 +220,10 @@ export async function installMock(harness, mod, loadError) {
   }
   window.addEventListener('message', (event) => {
     if (event.origin !== location.origin || !event.data || event.data.source !== harness.source) return;
+    if (event.data.kind === 'drop' && Array.isArray(event.data.files)) {
+      takeDrop(event.data.files);
+      return;
+    }
     if (event.data.kind !== 'tool-invoke') return;
     const { id, value } = event.data;
     if (id === 'scenario' && builtinTools.some((tool) => tool.id === 'scenario')) {
@@ -228,11 +242,83 @@ export async function installMock(harness, mod, loadError) {
     }
   });
 
+  // osfui.t wrapping. Wraps compose in registration order over the kit's
+  // original t; pseudo mode is itself a wrap (pseudoize every resolution, so
+  // inline t()/data-i18n strings pseudoize too, not just catalog lookups).
+  // The kit loads after this module but decorates the same window.osfui, so
+  // wraps apply lazily once t exists.
+  const wraps = [];
+  let baseT = null;
+  const pseudoWrap = (t) => (address, english, vars) => String(pseudoize(t(address, english, vars)));
+  const applyWraps = () => {
+    const helper = window.osfui;
+    if (!helper || typeof helper.t !== 'function') return;
+    if (baseT === null) baseT = helper.t.bind(helper);
+    let t = baseT;
+    for (const wrap of wraps) t = wrap(t);
+    helper.t = t;
+  };
+  const setPseudoWrap = (on) => {
+    const index = wraps.indexOf(pseudoWrap);
+    if (on && index < 0) wraps.push(pseudoWrap);
+    if (!on && index >= 0) wraps.splice(index, 1);
+    applyWraps();
+  };
+
+  // Dropped files forwarded by the shell (kind 'drop'). <modId>_<locale>.json
+  // catalogs merge into the scenario; everything else goes to ctx.onDrop.
+  const dropHandlers = [];
+  const CATALOG_NAME = /^(.+)_([A-Za-z][A-Za-z0-9-]{0,15})\.json$/;
+  const takeDrop = (files) => {
+    const rest = [];
+    for (const file of files) {
+      const match = CATALOG_NAME.exec(file.name || '');
+      let merged = false;
+      if (match) {
+        try {
+          const catalog = JSON.parse(file.text);
+          if (catalog && typeof catalog === 'object' && !Array.isArray(catalog)) {
+            const locale = match[2];
+            scenario.locales[locale] = { ...(scenario.locales[locale] || {}), ...catalog };
+            harness.report('in', 'Merged l10n catalog ' + file.name + ' (' + locale + ')');
+            if ((scenario.locale || 'en') === locale) {
+              ctx.send({
+                type: 'i18n.data',
+                payload: { mod: meta.modId, locale, strings: catalogFor(scenario, locale) },
+              });
+            }
+            merged = true;
+          }
+        } catch {}
+      }
+      if (!merged) rest.push(file);
+    }
+    if (!rest.length) return;
+    if (!dropHandlers.length) {
+      harness.report('in', 'Dropped file(s) not recognized as l10n catalogs and no ctx.onDrop handler: ' +
+        rest.map((file) => file.name).join(', '), 'warn');
+      return;
+    }
+    for (const handler of dropHandlers) {
+      try { handler(rest); } catch (cause) {
+        harness.report('in', 'Drop handler threw: ' + (cause && cause.stack || cause), 'warn');
+      }
+    }
+  };
+
   const ctx = {
     meta,
     params,
     storage: safeStorage(),
     scenario: mod?.default ?? null,
+    onDrop(handler) {
+      if (typeof handler === 'function') dropHandlers.push(handler);
+    },
+    wrapT(wrap) {
+      if (typeof wrap !== 'function') return;
+      wraps.push(wrap);
+      applyWraps();
+    },
     registerTools(list, onInvoke) {
       const { tools, dropped } = normalizeTools(list);
       if (dropped.length) {
@@ -299,6 +385,8 @@ export async function installMock(harness, mod, loadError) {
   if (!kit) {
     harness.report('in', 'The shared kit never installed window.osfui.onMessage — is shared/osfui.js loaded?', 'warn');
   }
+  // The kit exists now (or never will): apply t-wraps and the initial pseudo state.
+  setPseudoWrap((scenario.locale || 'en') === 'pseudo');
   const greeting = {
     type: 'runtime.ready',
     payload: {
@@ -319,9 +407,10 @@ export async function installMock(harness, mod, loadError) {
     if (event.data.kind !== 'control' || event.data.action !== 'locale') return;
     const locale = String(event.data.locale || 'en');
     scenario.locale = locale;
+    setPseudoWrap(locale === 'pseudo');
     const message = {
       type: 'i18n.data',
-      payload: { mod: meta.modId, locale, strings: scenario.locales[locale] || {} },
+      payload: { mod: meta.modId, locale, strings: catalogFor(scenario, locale) },
     };
     harness.report('in', message);
     harness.deliver(message);

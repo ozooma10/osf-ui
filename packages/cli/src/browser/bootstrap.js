@@ -1,7 +1,8 @@
 // Injected head-first into every served view page as a CLASSIC script, so
 // window.osfui.postMessage exists before the shared kit (also classic) decides
-// whether a bridge is present. The server prepends
-// `const __OSFUI_HARNESS_META__ = {...}` when serving this file.
+// whether a bridge is present. The page's own meta rides an inline script
+// (window.__OSFUI_HARNESS_META__) injected just above this tag, so this file
+// is fully static and one server route serves every view page.
 //
 // This file owns only the plumbing: the queues in both directions and the
 // primitives the mock runtime needs. The runtime itself is an ES module
@@ -13,6 +14,7 @@
 (() => {
   'use strict';
   const SOURCE = 'osfui-harness';
+  const META = window.__OSFUI_HARNESS_META__ || {};
   const inbound = [];   // native -> web, waiting for the kit's onMessage
   const outbound = [];  // web -> native, waiting for the mock to settle
   let handler = null;   // (text) => void, installed by the mock runtime
@@ -40,7 +42,7 @@
     else outbound.push(String(text));
   };
 
-  if (__OSFUI_HARNESS_META__.nativeBridge) {
+  if (META.nativeBridge) {
     window.osfui = window.osfui || {};
     window.osfui.postMessage = postMessage;
   }
@@ -59,7 +61,7 @@
 
   // The contract with mock-loader.js / mock-runtime.js.
   window.__osfuiHarness = {
-    meta: __OSFUI_HARNESS_META__,
+    meta: META,
     source: SOURCE,
     report,
     deliver,

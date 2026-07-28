@@ -31,6 +31,12 @@ export interface OsfuiConfig {
   views?: ViewConfig[];
   outDir?: string;
   mock?: string;
+  /**
+   * Extra Vite config merged into the `osfui dev` server (vite mergeConfig).
+   * Dev only — `osfui build`/`check` never read it, so nothing here can
+   * change shipped output. Typical use: resolve.alias, extra dev plugins.
+   */
+  vite?: Record<string, unknown> | ((env: { command: 'serve' }) => Record<string, unknown> | Promise<Record<string, unknown>>);
 }
 
 export type MockResponse =
@@ -135,6 +141,18 @@ export interface MockContext {
   registerTools(tools: ToolSpec[], onInvoke?: (id: string, value?: string | boolean) => void): void;
   /** Update one registered tool in place (label, value, active, ...). */
   updateTool(id: string, patch: ToolPatch): void;
+  /**
+   * Receive files dropped onto the harness (already read as text).
+   * `<modId>_<locale>.json` catalogs are merged into the scenario before
+   * this fires; handlers only see everything else.
+   */
+  onDrop(handler: (files: { name: string; text: string }[]) => void): void;
+  /**
+   * Wrap the shared kit's `osfui.t` (applied lazily once the kit exists;
+   * wraps compose in registration order). The pseudo locale is itself a wrap.
+   */
+  wrapT(wrap: (t: (address: string, english: string, vars?: unknown) => string)
+           => (address: string, english: string, vars?: unknown) => string): void;
   /** Transient toast for mocked effects that happen outside the browser. */
   notify(text: string): void;
   /** A line in the shell traffic panel. */

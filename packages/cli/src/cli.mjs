@@ -2,14 +2,13 @@
 import { mkdir } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
 
-import preact from '@preact/preset-vite';
 import { createServer } from 'vite';
 
 import { buildProject } from './build.mjs';
 import { checkProject } from './check.mjs';
 import { loadProject } from './config.mjs';
+import { devServerConfig } from './dev.mjs';
 import { startGameSync } from './game.mjs';
-import { harnessPlugin } from './harness-plugin.mjs';
 import { writeZip } from './zip.mjs';
 
 function parse(argv) {
@@ -47,20 +46,7 @@ async function main() {
       ? project.views.find((candidate) => candidate.id === options.view)
       : project.views[0];
     if (!view) throw new Error(`Unknown view "${options.view}".`);
-    const server = await createServer({
-      root: project.viewsRoot,
-      base: '/',
-      plugins: [harnessPlugin(project, view), preact()],
-      server: {
-        host: options.host || '127.0.0.1',
-        port: Number(options.port) || 5173,
-        open: options.open === 'false' ? false : '/__osfui/',
-        // Vite can canonicalize Windows temp/project paths through their 8.3
-        // aliases and then reject its own root. The author server binds to
-        // loopback by default, so disable that redundant filesystem check.
-        fs: { strict: false },
-      },
-    });
+    const server = await createServer(await devServerConfig(project, view, options));
     await server.listen();
     server.printUrls();
     console.log(`[osfui] Previewing ${view.qualifiedId}; edits hot-reload automatically.`);

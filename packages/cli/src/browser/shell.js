@@ -159,11 +159,42 @@ function renderTools() {
   }
 }
 
-async function loadMeta(navigate = true) {
-  meta = await fetch('/__osfui/meta.json', { cache: 'no-store' }).then((r) => r.json());
-  $('view-id').textContent = meta.qualifiedId + ' — ' + (meta.title || meta.qualifiedId);
+let views = [];
+
+/**
+ * The iframe URL: the view entry plus every shell query param that is not
+ * shell-owned, and the hash. That is how ?locale=, ?scenario=, ?health= and
+ * #mod= deep links documented for a mock reach it.
+ */
+function viewSrc(target) {
+  const forwarded = new URLSearchParams(location.search);
+  for (const own of ['view', 'res', 'checker']) forwarded.delete(own);
+  const query = forwarded.toString();
+  return target.viewUrl + (query ? '?' + query : '') + location.hash;
+}
+
+function selectView(qualifiedId, navigate = true) {
+  meta = views.find((entry) => entry.qualifiedId === qualifiedId) || views[0];
+  if (!meta) return;
+  $('view-select').value = meta.qualifiedId;
+  $('view-id').textContent = meta.title && meta.title !== meta.qualifiedId ? meta.title : '';
   setSize(meta.width, meta.height);
-  if (navigate) frame.src = meta.viewUrl;
+  if (navigate) frame.src = viewSrc(meta);
+}
+
+async function loadMeta() {
+  const listing = await fetch('/__osfui/meta.json', { cache: 'no-store' }).then((r) => r.json());
+  views = listing.views;
+  const picker = $('view-select');
+  picker.replaceChildren();
+  for (const entry of views) {
+    const option = document.createElement('option');
+    option.value = entry.qualifiedId;
+    option.textContent = entry.qualifiedId;
+    picker.append(option);
+  }
+  picker.addEventListener('change', () => selectView(picker.value));
+  selectView(new URLSearchParams(location.search).get('view') || listing.initial);
 }
 
 window.addEventListener('message', (event) => {
@@ -216,6 +247,36 @@ $('send-locale').addEventListener('click', () => {
     location.origin,
   );
 });
+// Message injectors for pushes the runtime sends in game. The release edge
+// after a gamepad press matters: the kit's button-edge detection reports a
+// down edge once per press and needs the up to re-arm.
+const PAD_BUTTONS = { LB: 0x0100, RB: 0x0200 };
+function injectGamepad(name) {
+  const id = PAD_BUTTONS[name];
+  send({ type: 'ui.gamepad', payload: { kind: 'button', button: { id, down: true } } });
+  setTimeout(() => send({ type: 'ui.gamepad', payload: { kind: 'button', button: { id, down: false } } }), 0);
+}
+$('inject-hotkey').addEventListener('click', () => {
+  const key = $('hotkey-key').value.trim() || 'toggleKey';
+  send({ type: 'ui.hotkey', payload: { mod: meta.modId, key } });
+});
+$('inject-lb').addEventListener('click', () => injectGamepad('LB'));
+$('inject-rb').addEventListener('click', () => injectGamepad('RB'));
+
+// Drag-drop: forward .json files into the iframe; the mock decides what they
+// are (<modId>_<locale>.json catalogs merge automatically, the rest goes to
+// ctx.onDrop).
+window.addEventListener('dragover', (event) => event.preventDefault());
+window.addEventListener('drop', async (event) => {
+  event.preventDefault();
+  const files = [...(event.dataTransfer?.files || [])].filter((file) => file.name.endsWith('.json'));
+  if (!files.length) return;
+  const payload = [];
+  for (const file of files) payload.push({ name: file.name, text: await file.text() });
+  frame.contentWindow?.postMessage({ source: 'osfui-harness', kind: 'drop', files: payload }, location.origin);
+  log('in', 'Dropped: ' + payload.map((file) => file.name).join(', '));
+});
+
 $('send-event').addEventListener('click', () => {
   try {
     const message = JSON.parse($('event-json').value);
