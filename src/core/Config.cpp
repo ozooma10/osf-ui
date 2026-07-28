@@ -2,6 +2,8 @@
 
 #include "runtime/Json.h"
 
+#include <chrono>
+
 namespace OSFUI
 {
 	namespace
@@ -19,6 +21,30 @@ namespace OSFUI
 			"worldSurfaceTargetWidth", "worldSurfaceTargetHeight",
 #endif
 		};
+
+		void ApplyAuthorModeMarker(Config& a_config, const std::filesystem::path& a_configPath)
+		{
+			const auto markerPath = a_configPath.parent_path() / ".author-mode.json";
+			std::error_code ec;
+			if (!std::filesystem::exists(markerPath, ec)) {
+				return;
+			}
+			const auto marker = Json::ParseFile(markerPath);
+			if (!marker || !marker->is_object() ||
+				!Json::GetBool(*marker, "enabled", false)) {
+				return;
+			}
+			const auto expiresAt = Json::GetInt(*marker, "expiresAt", 0);
+			const auto now = std::chrono::duration_cast<std::chrono::seconds>(
+				std::chrono::system_clock::now().time_since_epoch()).count();
+			if (expiresAt <= now) {
+				REX::WARN("Config: ignored expired author-mode marker {}", markerPath.string());
+				return;
+			}
+			a_config.devMode = true;
+			REX::INFO("Config: temporary author mode enabled by {} (expires in {} seconds)",
+				markerPath.string(), expiresAt - now);
+		}
 	}
 
 	Config Config::Load(const std::filesystem::path& a_path)
@@ -28,12 +54,14 @@ namespace OSFUI
 		std::error_code ec;
 		if (!std::filesystem::exists(a_path, ec)) {
 			REX::WARN("Config: {} not found; using built-in defaults", a_path.string());
+			ApplyAuthorModeMarker(config, a_path);
 			return config;
 		}
 
 		const auto json = Json::ParseFile(a_path);
 		if (!json || !json->is_object()) {
 			REX::ERROR("Config: {} is not a valid JSON object; using built-in defaults", a_path.string());
+			ApplyAuthorModeMarker(config, a_path);
 			return config;
 		}
 
@@ -69,6 +97,7 @@ namespace OSFUI
 		config.worldSurfaceTargetHeight = boundedUInt("worldSurfaceTargetHeight", config.worldSurfaceTargetHeight, 1, 16384);
 #endif
 		config.devMode = Json::GetBool(*json, "devMode", config.devMode);
+		ApplyAuthorModeMarker(config, a_path);
 		config.devReloadKey = Json::GetString(*json, "devReloadKey", config.devReloadKey);
 		config.bugReportEndpoint = Json::GetString(*json, "bugReportEndpoint", config.bugReportEndpoint);
 		if (!config.bugReportEndpoint.empty() &&

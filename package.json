@@ -2,17 +2,22 @@
   "name": "osfui",
   "version": "0.0.0",
   "private": true,
-  "description": "Root convenience scripts. The actual frontend lives in frontend/.",
+  "description": "OSF UI runtime, built-in views, and view-authoring toolchain.",
   "license": "GPL-3.0-or-later",
   "engines": {
-    "node": ">=20"
+    "node": ">=20.19"
   },
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "dev:view": "node scripts/view-harness.mjs",
     "test:view-harness": "node --test scripts/view-harness.test.mjs",
     "build": "npm --prefix frontend run build",
-    "test": "npm run test:view-harness && npm --prefix frontend test",
-    "verify": "npm run test:view-harness && npm --prefix frontend run verify"
+    "test:toolchain": "npm test --workspace @osfui/cli",
+    "test:scaffolder": "npm test --workspace create-osfui",
+    "test": "npm run test:view-harness && npm run test:toolchain && npm run test:scaffolder && npm --prefix frontend test",
+    "verify": "npm run test:view-harness && npm run test:toolchain && npm run test:scaffolder && npm --prefix frontend run verify"
   }
 }

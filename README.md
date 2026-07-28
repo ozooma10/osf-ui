@@ -71,24 +71,30 @@ are deliberately shipped verbatim.
 
 ## Developing a third-party view
 
-Run an arbitrary packaged view in the generic browser harness without moving it
-into OSF UI's frontend workspace:
+Create a complete project and open its browser harness:
 
 ```bat
-npm run dev:view -- C:\path\to\views\yourname.mymod\panel
+npm create osfui@latest my-view
+cd my-view
+npm run dev
 ```
 
-The harness loads the view's real entry HTML, supplies the public shared kit at
-its production paths, mocks the native bridge, blocks browser features that are
-blocked in game, and reloads after a save. Its toolbar controls resolution,
-visibility and locale; the side panel shows bridge traffic and can inject any
-native-to-web event. See [the authoring guide](docs/authoring-views.md#generic-browser-harness)
-for custom state and request fixtures.
+The generator offers Preact or vanilla TypeScript, menu or HUD surfaces, and
+Papyrus/native/settings/static starting points. The harness opens automatically,
+hot-reloads edits, supplies the shared kit and mock bridge, and exposes bridge
+traffic and lifecycle controls. `npm run dev:game -- --deploy "path-to-your-mod"`
+also syncs changes into the game and enables temporary author mode, including F11
+reload and F12 DevTools. `npm run package` makes the release zip.
+
+See [the view toolchain guide](docs/view-toolchain.md) for the complete workflow.
+The older `npm run dev:view -- <packaged-view-folder>` command remains available
+for diagnosing an already-built view from an OSF UI checkout.
 
 ## Documentation
 
 - [docs/authoring-settings.md](docs/authoring-settings.md) - **start here to add settings to your mod**: one JSON file, no code — quickstart, widgets, hotkeys, presets, localization, testing
-- [docs/authoring-views.md](docs/authoring-views.md) - **start here to build a view**: package layout, manifest fields, the bridge protocol, and the settings schema format
+- [docs/view-toolchain.md](docs/view-toolchain.md) - **start here to build a view**: scaffold, browser HMR, in-game sync, checks, and packaging
+- [docs/authoring-views.md](docs/authoring-views.md) - view manifest and bridge protocol reference
 - [frontend/README.md](frontend/README.md) - **start here to change a built-in view**: the Vite/TS/Preact source that generates `build/frontend/views/`
 - [docs/architecture.md](docs/architecture.md) - layers and data flow
 - [docs/security-model.md](docs/security-model.md)

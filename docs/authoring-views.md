@@ -655,10 +655,22 @@ overlay's open/close key).
 
 ## 5. Testing locally
 
+For a new view, use the one-command npm workflow described in
+[view-toolchain.md](view-toolchain.md):
+
+```bat
+npm create osfui@latest my-view
+cd my-view
+npm run dev
+```
+
+It includes the harness below plus source presets, Vite HMR, generated
+manifests, in-game sync, temporary author mode, validation, and packaging.
+
 ### Generic browser harness
 
-From an OSF UI source checkout, point the generic harness at any packaged
-third-party view:
+From an OSF UI source checkout, the lower-level compatibility command can still
+inspect any already-packaged third-party view:
 
 ```bat
 npm run dev:view -- C:\path\to\views\yourname.mymod\panel
@@ -683,9 +695,10 @@ The toolbar provides:
 
 Saving anything in the selected view reloads it after a short debounce.
 Development responses use `Cache-Control: no-store`. A document CSP blocks
-remote resources, and the bootstrap removes WebSocket, WebRTC, WebTransport
-and worker constructors to catch the same unsupported dependencies as the
-in-game WebView2 host.
+remote resources, and the bootstrap removes WebRTC, WebTransport and worker
+constructors to catch unsupported dependencies. The npm source-project harness
+keeps WebSocket available only for Vite's loopback HMR connection; the
+`osfui check` command rejects authored uses of unsupported transports.
 
 For repeatable native data, place an optional `osfui.mock.json` beside the
 view's `manifest.json`:

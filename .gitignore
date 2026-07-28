@@ -1,6 +1,7 @@
 # dot folders
 .audit/
 .cache/
+.tmp/
 .idea/
 .vs/
 .vscode/
@@ -12,12 +13,15 @@ vs*/
 dist/
 out/
 node_modules/
+packages/cli/assets/
+packages/cli/types/
 
 # local SDK/package drops (use WEBVIEW2_SDK_DIR for an external location)
 external/
 
 # files
 *.zip
+*.tgz
 compile_commands.json
 
 # MSVC compiler droppings from host-test builds run outside .build

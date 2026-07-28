@@ -1,0 +1,24 @@
+{
+  "name": "create-osfui",
+  "version": "0.1.0",
+  "description": "Create an OSF UI view project",
+  "keywords": [
+    "starfield",
+    "sfse",
+    "osfui"
+  ],
+  "type": "module",
+  "bin": {
+    "create-osfui": "src/cli.mjs"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=20.19"
+  },
+  "license": "GPL-3.0-or-later"
+}

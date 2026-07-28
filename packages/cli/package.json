@@ -1,0 +1,40 @@
+{
+  "name": "@osfui/cli",
+  "version": "0.1.0",
+  "description": "Create, develop, validate, build, and package OSF UI views.",
+  "license": "GPL-3.0-or-later",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "bin": {
+    "osfui": "./src/cli.mjs"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "import": "./src/index.mjs"
+    },
+    "./view": {
+      "types": "./types/osfui.d.ts"
+    }
+  },
+  "files": [
+    "assets",
+    "src",
+    "types"
+  ],
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "prepare": "node scripts/sync-public-assets.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@preact/preset-vite": "2.10.6",
+    "preact": "10.29.7",
+    "typescript": "7.0.2",
+    "vite": "8.1.5"
+  }
+}

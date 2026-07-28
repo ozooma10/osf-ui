@@ -10,7 +10,7 @@
 
 - View authors can press **F12** in `devMode` to open Edge DevTools for the top open menu, making its live DOM, styles, blocked requests, and JavaScript state inspectable without leaving the in-game iteration loop. The browser DevTools capability remains disabled outside `devMode`.
 
-- Third-party view authors now have a generic browser harness: point one command at any packaged `views/<modId>/<viewName>` folder to run its real entry HTML with production-shaped asset URLs, the public shared kit, a mock native bridge, manifest resolution, lifecycle/locale controls, bridge traffic inspection, arbitrary event injection, and save-to-reload. An optional `osfui.mock.json` supplies cached state, localization and custom native/Papyrus request responses; browser policies also flag remote resources and transports that the in-game host blocks.
+- View authoring is now a standalone npm workflow instead of a repository-only harness: `npm create osfui@latest` scaffolds Preact or vanilla TypeScript projects with menu/HUD and Papyrus/native/settings/static starting points, and `npm run dev` opens a production-shaped Vite harness with HMR, shared UI assets, mock state/requests, lifecycle controls and bridge inspection. `dev:game` builds and syncs the view into an author-selected MO2 mod while enabling an expiring, session-local author mode—so F11 reload and F12 DevTools require no permanent player configuration—and `check`, `build`, `doctor` and `package` cover validation through a release-ready zip. The lower-level packaged-view harness remains available for diagnostics.
 
 ### Added
 

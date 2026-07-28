@@ -26,6 +26,16 @@ import {
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, '..');
 const DEFAULT_FIXTURE = Object.freeze({ state: {}, requests: {}, locales: {} });
+const LEGACY_RELOAD_JS = String.raw`
+const changes = new EventSource('/__osfui/events');
+changes.addEventListener('reload', async () => {
+  const oldUrl = meta?.viewUrl;
+  await loadMeta(false);
+  if (meta.viewUrl === oldUrl) frame.contentWindow?.location.reload();
+  else frame.src = meta.viewUrl;
+});
+changes.onerror = () => { $('status').textContent = 'Watcher reconnecting…'; };
+`;
 const MOD_ID = /^(?:osfui|[a-z0-9-]+\.[a-z0-9-]+)$/;
 const VIEW_NAME = /^[a-z0-9-]+$/;
 
@@ -253,7 +263,7 @@ export async function createViewHarness(inputPath, options = {}) {
         return;
       }
       if (path === '/__osfui/harness.js') {
-        textResponse(response, HARNESS_JS, 'text/javascript; charset=utf-8');
+        textResponse(response, `${HARNESS_JS}\n${LEGACY_RELOAD_JS}`, 'text/javascript; charset=utf-8');
         return;
       }
       if (path === '/__osfui/bootstrap.js') {

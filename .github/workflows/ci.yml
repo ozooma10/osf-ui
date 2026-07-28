@@ -75,7 +75,12 @@ jobs:
           # Keep local and CI frontend builds on the same Node major.
           node-version: '22'
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+
+      - name: Install authoring toolchain (locked)
+        run: npm ci
 
       - name: Install (locked)
         run: npm ci
@@ -83,6 +88,9 @@ jobs:
 
       - name: Generic third-party view harness tests
         run: node --test scripts/view-harness.test.mjs
+
+      - name: View authoring toolchain tests
+        run: npm run test:toolchain && npm run test:scaffolder
 
       - name: Typecheck
         run: npm run typecheck
