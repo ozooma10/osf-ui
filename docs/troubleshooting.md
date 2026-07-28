@@ -171,9 +171,16 @@ days; after server-side abuse checks, a public GitHub issue may be created with
 only your title, description, reproduction steps, and an opaque report
 reference. Acceptance returns a private reference immediately even while issue
 publication is queued or temporarily paused. If Starfield exits with a
-non-zero process status, the surviving primary WebView2 helper offers the same
-upload in a Windows Yes/No dialog and does not claim that OSF UI caused the
-exit.
+non-zero process status while OSF UI is active or opening, the surviving primary
+WebView2 helper offers the same upload in a Windows Yes/No dialog and does not
+claim that OSF UI caused the exit. It does not inspect external crash logs before
+consent. After **Yes**, it checks only the standard `SFSE/Crashlogs` folder for
+the newest Trainwreck/Crash Logger report created during that game session; if
+present, it is uploaded privately with a path-free attachment name, local
+redaction, and a bounded tail. When an OSF Animation surface was active, the
+dialog instead names the OSF Animation repository and exact `OSF Animation.log`
+attachment; after consent that session log is included privately and the public
+issue is routed to `ozooma10/osf-animation`.
 
 If automatic reporting is disabled or fails, use **Copy diagnostic report** and
 **Open log folder**, then attach the result manually at

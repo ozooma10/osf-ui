@@ -1,3 +1,5 @@
+import { adminPage } from './admin';
+
 const MAX_BODY_BYTES = 1024 * 1024;
 const MAX_LOG_BYTES = 400 * 1024;
 const MAX_TOTAL_LOG_BYTES = 900 * 1024;
@@ -18,6 +20,7 @@ export interface Env {
   TICKET_LIMITER: RateLimit;
   GITHUB_OWNER: string;
   GITHUB_REPO: string;
+  GITHUB_OSF_ANIMATION_REPO?: string;
   GITHUB_TOKEN: string;
   ADMIN_TOKEN: string;
   TICKET_SIGNING_SECRET: string;
@@ -26,11 +29,13 @@ export interface Env {
 }
 
 interface SubmittedLog { name: string; content: string; truncated?: boolean }
+type ReportTarget = 'osf-ui' | 'osf-animation';
 interface SubmittedReport {
   schemaVersion: 1;
   clientId: string;
   installationToken: string;
   kind: 'manual' | 'crash';
+  target: ReportTarget;
   title: string;
   description: string;
   reproduction?: string;
@@ -76,6 +81,8 @@ export function validateReport(value: unknown): SubmittedReport | null {
   const input = value as Record<string, unknown>;
   if (input.schemaVersion !== 1 || !CLIENT_ID.test(String(input.clientId || ''))) return null;
   if (input.kind !== 'manual' && input.kind !== 'crash') return null;
+  const target = input.target === undefined ? 'osf-ui' : input.target;
+  if (target !== 'osf-ui' && target !== 'osf-animation') return null;
   const installationToken = boundedString(input.installationToken, 512, true);
   const title = boundedString(input.title, 120, true);
   const description = boundedString(input.description, 6000, true);
@@ -101,7 +108,7 @@ export function validateReport(value: unknown): SubmittedReport | null {
   }
   const report: SubmittedReport = {
     schemaVersion: 1, clientId: String(input.clientId), installationToken,
-    kind: input.kind, title, description, pluginVersion,
+    kind: input.kind, target, title, description, pluginVersion,
     diagnostics: input.diagnostics ?? {}, logs,
   };
   if (reproduction) report.reproduction = reproduction;
@@ -177,6 +184,7 @@ function issueBody(report: StoredReport): string {
   return [
     'This issue was submitted through OSF UI’s consented diagnostic reporter.', '',
     `**Report ID:** \`${report.id}\``, `**Kind:** ${report.kind}`,
+    `**Target:** ${report.target || 'osf-ui'}`,
     `**OSF UI:** ${publicText(report.pluginVersion)}`, '', '### Description',
     publicText(report.description), '', '### Reproduction',
     publicText(report.reproduction || '(not provided)'), '',
@@ -184,7 +192,9 @@ function issueBody(report: StoredReport): string {
   ].join('\n');
 }
 async function createIssue(env: Env, report: StoredReport): Promise<{ url: string; number: number }> {
-  const response = await fetch(`https://api.github.com/repos/${encodeURIComponent(env.GITHUB_OWNER)}/${encodeURIComponent(env.GITHUB_REPO)}/issues`, {
+  const repository = report.target === 'osf-animation' ?
+    (env.GITHUB_OSF_ANIMATION_REPO || 'osf-animation') : env.GITHUB_REPO;
+  const response = await fetch(`https://api.github.com/repos/${encodeURIComponent(env.GITHUB_OWNER)}/${encodeURIComponent(repository)}/issues`, {
     method: 'POST', headers: { accept: 'application/vnd.github+json',
       authorization: `Bearer ${env.GITHUB_TOKEN}`, 'content-type': 'application/json',
       'user-agent': 'osfui-reporting-service', 'x-github-api-version': '2022-11-28' },
@@ -239,14 +249,14 @@ async function submit(request: Request, env: Env): Promise<Response> {
   delete (stored as Partial<StoredReport>).installationToken;
   const key = `reports/${id}.json`;
   await env.REPORTS.put(key, JSON.stringify(stored), { httpMetadata: { contentType: 'application/json' },
-    customMetadata: { kind: report.kind, pluginVersion: report.pluginVersion, status: 'queued' } });
+    customMetadata: { kind: report.kind, target: report.target, pluginVersion: report.pluginVersion, status: 'queued' } });
   try { await env.REPORT_QUEUE.send({ id }); }
   catch (error) {
     await env.REPORTS.delete(key);
     console.error(JSON.stringify({ event: 'report-queue-failed', id, error: String(error) }));
     return json({ ok: false, code: 'queue-failed' }, 503);
   }
-  console.log(JSON.stringify({ event: 'report-accepted', id, kind: report.kind }));
+  console.log(JSON.stringify({ event: 'report-accepted', id, kind: report.kind, target: report.target }));
   return json({ ok: true, reportId: id, publication: 'queued' }, 202);
 }
 
@@ -270,10 +280,40 @@ async function adminReport(request: Request, env: Env, id: string): Promise<Resp
     'cache-control': 'no-store', 'x-content-type-options': 'nosniff' } });
 }
 
+async function adminReports(request: Request, env: Env, url: URL): Promise<Response> {
+  const authorization = request.headers.get('authorization') || '';
+  if (!env.ADMIN_TOKEN || authorization !== `Bearer ${env.ADMIN_TOKEN}`) {
+    return json({ ok: false, code: 'unauthorized' }, 401);
+  }
+  const rawCursor = url.searchParams.get('cursor') || '';
+  if (rawCursor.length > 1024) return json({ ok: false, code: 'invalid-cursor' }, 400);
+  const options: R2ListOptions = { prefix: 'reports/', limit: 50 };
+  if (rawCursor) options.cursor = rawCursor;
+  const page = await env.REPORTS.list(options);
+  const reports = (await Promise.all(page.objects.map(async (listed) => {
+    const object = await env.REPORTS.get(listed.key);
+    if (!object) return null;
+    try {
+      const report = await object.json<StoredReport>();
+      if (!REPORT_ID.test(report.id)) return null;
+      return {
+        id: report.id, receivedAt: report.receivedAt, kind: report.kind,
+        target: report.target || 'osf-ui',
+        title: report.title,
+        pluginVersion: report.pluginVersion, status: report.status,
+      };
+    } catch { return null; }
+  }))).filter((report) => report !== null)
+    .sort((left, right) => right.receivedAt.localeCompare(left.receivedAt));
+  return json({ ok: true, reports, cursor: page.truncated ? page.cursor : null });
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    if (request.method === 'GET' && (url.pathname === '/admin' || url.pathname === '/admin/')) return adminPage();
     if (request.method === 'GET' && url.pathname === '/healthz') return json({ ok: true, reporting: enabled(env.REPORTING_ENABLED), publishing: enabled(env.ISSUE_CREATION_ENABLED) });
+    if (request.method === 'GET' && url.pathname === '/v1/reports') return adminReports(request, env, url);
     if (request.method === 'POST' && (url.pathname === '/v1/installations' || url.pathname === '/v1/reports')) {
       if (!request.headers.get('content-type')?.toLowerCase().startsWith('application/json')) return json({ ok: false, code: 'unsupported-media-type' }, 415);
       return url.pathname === '/v1/installations' ? installations(request, env) : submit(request, env);
@@ -293,6 +333,7 @@ export default {
       const object = await env.REPORTS.get(key);
       if (!object) { message.ack(); continue; }
       const report = await object.json<StoredReport>();
+      report.target = report.target === 'osf-animation' ? 'osf-animation' : 'osf-ui';
       if (report.status === 'published') { message.ack(); continue; }
       if (!enabled(env.ISSUE_CREATION_ENABLED)) {
         report.status = 'paused';
@@ -305,7 +346,7 @@ export default {
         const issue = await createIssue(env, report);
         report.status = 'published'; report.issueNumber = issue.number; report.issueUrl = issue.url;
         await env.REPORTS.put(key, JSON.stringify(report), { httpMetadata: { contentType: 'application/json' },
-          customMetadata: { kind: report.kind, pluginVersion: report.pluginVersion, status: 'published' } });
+          customMetadata: { kind: report.kind, target: report.target, pluginVersion: report.pluginVersion, status: 'published' } });
         console.log(JSON.stringify({ event: 'report-published', id: report.id, issueNumber: issue.number }));
         message.ack();
       } catch (error) {

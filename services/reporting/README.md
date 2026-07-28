@@ -15,9 +15,12 @@ neutralized before publication.
    depth; the bucket lifecycle remains the independent backstop.
 3. Create queues named `osfui-report-issues` and
    `osfui-report-issues-dlq`.
-4. Create the GitHub label `automatic-report` (and ensure `bug` exists).
-5. Create a fine-grained GitHub token limited to `ozooma10/osf-ui` with
-   **Issues: write**.
+4. Create the GitHub label `automatic-report` (and ensure `bug` exists) in both
+   `ozooma10/osf-ui` and `ozooma10/osf-animation`.
+5. Create a fine-grained GitHub token limited to those two repositories with
+   **Issues: write**. Client payloads contain only the closed target ids
+   `osf-ui` and `osf-animation`; the Worker maps them to these configured
+   repositories and rejects arbitrary repository names.
 6. From this directory, install dependencies and set all three secrets:
 
    ```powershell
@@ -41,6 +44,12 @@ Invoke-RestMethod `
 
 The endpoint also accepts authenticated `DELETE` for early removal. Do not make
 the R2 bucket public.
+
+For day-to-day inspection, open `/admin` on the deployed Worker. Enter the same
+`ADMIN_TOKEN` to browse report summaries and inspect each report's private
+diagnostics and log artifacts. The token is kept only in the browser tab's
+session storage. The dashboard fetches report contents through the same
+authenticated endpoints; it does not make the R2 bucket public.
 
 ## Abuse controls
 

@@ -7,6 +7,7 @@
   "vars": {
     "GITHUB_OWNER": "ozooma10",
     "GITHUB_REPO": "osf-ui",
+    "GITHUB_OSF_ANIMATION_REPO": "osf-animation",
     "REPORTING_ENABLED": "true",
     "ISSUE_CREATION_ENABLED": "true"
   },

@@ -167,6 +167,7 @@ namespace OSFUI::Reporting
 			return nlohmann::json{
 				{ "schemaVersion", 1 }, { "clientId", clientId },
 				{ "installationToken", installationToken }, { "kind", "manual" },
+				{ "target", "osf-ui" },
 				{ "title", std::string(a_title).substr(0, 120) },
 				{ "description", std::string(a_description).substr(0, 6000) },
 				{ "reproduction", std::string(a_reproduction).substr(0, 4000) },

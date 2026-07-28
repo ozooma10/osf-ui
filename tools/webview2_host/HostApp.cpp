@@ -9,12 +9,13 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cwctype>
 #include <format>
 #include <fstream>
 #include <memory>
+#include <optional>
 #include <random>
 #include <regex>
-#include <unordered_map>
 #include <vector>
 
 #include <DispatcherQueue.h>
@@ -147,15 +148,14 @@ namespace osfui::wv2
 		}
 
 		std::string ReadReportLog(const std::filesystem::path& a_path, bool& a_truncated,
-			std::string_view a_pluginRoot)
+			std::string_view a_pluginRoot, std::size_t a_maxBytes)
 		{
-			constexpr std::size_t kMaxBytes = 384 * 1024;
 			std::ifstream file(a_path, std::ios::binary | std::ios::ate);
 			if (!file) return {};
 			const auto end = file.tellg();
 			if (end <= 0) return {};
 			const auto size = static_cast<std::size_t>(end);
-			const auto keep = (std::min)(size, kMaxBytes);
+			const auto keep = (std::min)(size, a_maxBytes);
 			a_truncated = keep < size;
 			file.seekg(static_cast<std::streamoff>(size - keep));
 			std::string text(keep, '\0');
@@ -286,20 +286,126 @@ namespace osfui::wv2
 			return parsed.value("installationToken", "");
 		}
 
-		void PromptCrashReport(const HostOptions& a_options, DWORD a_gameExitCode, Logger& a_log)
+		bool IsCrashLogCandidate(const std::filesystem::path& a_path)
+		{
+			auto extension = a_path.extension().wstring();
+			std::ranges::transform(extension, extension.begin(),
+				[](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
+			return extension == L".log" || extension == L".txt";
+		}
+
+		struct CrashReportTarget
+		{
+			std::string id{ "osf-ui" };
+			std::wstring repositoryLabel{ L"OSF UI" };
+			std::optional<std::filesystem::path> pluginLog;
+		};
+
+		CrashReportTarget TargetForView(std::string_view a_viewId,
+			const std::filesystem::path& a_hostLog)
+		{
+			if (a_viewId.starts_with("osf.animation/")) {
+				return {
+					.id = "osf-animation",
+					.repositoryLabel = L"OSF Animation",
+					.pluginLog = a_hostLog.parent_path() / "OSF Animation.log",
+				};
+			}
+			return {};
+		}
+
+		std::optional<std::filesystem::path> FindSessionPluginLog(
+			const std::optional<std::filesystem::path>& a_path,
+			std::filesystem::file_time_type a_sessionStarted)
+		{
+			if (!a_path) return std::nullopt;
+			std::error_code ec;
+			if (!std::filesystem::is_regular_file(*a_path, ec) || ec) return std::nullopt;
+			const auto size = std::filesystem::file_size(*a_path, ec);
+			if (ec || size == 0) return std::nullopt;
+			const auto modified = std::filesystem::last_write_time(*a_path, ec);
+			return !ec && modified >= a_sessionStarted ? a_path : std::nullopt;
+		}
+
+		bool IsRecognizedCrashLog(const std::filesystem::path& a_path)
+		{
+			constexpr std::size_t kProbeBytes = 16 * 1024;
+			std::ifstream file(a_path, std::ios::binary);
+			if (!file) return false;
+			std::string probe(kProbeBytes, '\0');
+			file.read(probe.data(), static_cast<std::streamsize>(probe.size()));
+			probe.resize(static_cast<std::size_t>(file.gcount()));
+			std::ranges::transform(probe, probe.begin(),
+				[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			const bool hasException = probe.contains("unhandled exception");
+			const bool supportedLogger = probe.contains("trainwreck") ||
+				probe.contains("crashlogger") || probe.contains("crash logger");
+			return hasException && supportedLogger;
+		}
+
+		std::optional<std::filesystem::path> FindSessionCrashLog(
+			const std::filesystem::path& a_hostLog,
+			std::filesystem::file_time_type a_sessionStarted)
+		{
+			if (a_hostLog.empty()) return std::nullopt;
+			const auto directory = a_hostLog.parent_path().parent_path() / "Crashlogs";
+			std::optional<std::filesystem::path> newest;
+			std::filesystem::file_time_type newestTime{};
+			std::error_code ec;
+			for (std::filesystem::directory_iterator it(directory, ec), end; !ec && it != end;
+				it.increment(ec)) {
+				if (!it->is_regular_file(ec) || ec || !IsCrashLogCandidate(it->path())) {
+					ec.clear();
+					continue;
+				}
+				const auto size = it->file_size(ec);
+				if (ec) { ec.clear(); continue; }
+				const auto modified = it->last_write_time(ec);
+				if (ec) { ec.clear(); continue; }
+				if (size != 0 && modified >= a_sessionStarted &&
+					IsRecognizedCrashLog(it->path()) && (!newest || modified > newestTime)) {
+					newest = it->path();
+					newestTime = modified;
+				}
+			}
+			return newest;
+		}
+
+		void PromptCrashReport(const HostOptions& a_options, DWORD a_gameExitCode, Logger& a_log,
+			std::filesystem::file_time_type a_sessionStarted, std::string_view a_activeViewId)
 		{
 			if (!a_options.instance.empty() || a_options.reportEndpoint.empty()) return;
-			const auto choice = ::MessageBoxW(nullptr,
+			const auto target = TargetForView(a_activeViewId, a_options.logFile);
+			std::wstring disclosure =
 				L"Starfield closed unexpectedly. OSF UI may not have caused the crash, "
 				L"but its diagnostic logs could help find the problem.\n\n"
-				L"Submit a bug report now? The recent OSF UI and WebView2-host logs "
-				L"will be redacted locally, uploaded privately, and deleted after 30 days. "
-				L"A public GitHub issue will contain only a generic crash description.",
+				L"Submit a bug report to the " + target.repositoryLabel +
+				L" repository now? The recent OSF UI and WebView2-host logs";
+			if (target.pluginLog) {
+				disclosure += L", " + target.pluginLog->filename().wstring();
+			}
+			disclosure += L", plus "
+				L"the newest Trainwreck or Crash Logger report created during this game session "
+				L"if one is present";
+			disclosure +=
+				L", will be redacted locally, uploaded privately, and deleted after 30 days. "
+				L"A public GitHub issue will contain only a generic crash description.";
+			const auto choice = ::MessageBoxW(nullptr, disclosure.c_str(),
 				L"OSF UI - Starfield closed unexpectedly",
 				MB_YESNO | MB_ICONWARNING | MB_TOPMOST | MB_SETFOREGROUND);
 			if (choice != IDYES) {
 				a_log.Info("crash report declined by the player");
 				return;
+			}
+			const auto crashLog = FindSessionCrashLog(a_options.logFile, a_sessionStarted);
+			const auto pluginLog = FindSessionPluginLog(target.pluginLog, a_sessionStarted);
+			if (pluginLog) {
+				a_log.Info(std::format("consented crash report includes target log: {}",
+					ToUtf8(pluginLog->filename().wstring())));
+			}
+			if (crashLog) {
+				a_log.Info(std::format("consented crash report includes supported session log: {}",
+					ToUtf8(crashLog->filename().wstring())));
 			}
 			a_log.Info("crash report consented; collecting bounded redacted logs");
 			a_log.Flush();
@@ -310,14 +416,21 @@ namespace osfui::wv2
 				ToUtf8(std::filesystem::path(executable).parent_path().parent_path().wstring()) :
 				std::string{};
 			json logs = json::array();
-			const auto addLog = [&logs, &pluginRoot](const std::filesystem::path& path, std::string_view name) {
+			const auto addLog = [&logs, &pluginRoot](const std::filesystem::path& path,
+				std::string_view name, std::size_t maxBytes) {
 				bool truncated = false;
-				auto content = ReadReportLog(path, truncated, pluginRoot);
+				auto content = ReadReportLog(path, truncated, pluginRoot, maxBytes);
 				if (!content.empty()) logs.push_back({
 					{ "name", name }, { "content", std::move(content) }, { "truncated", truncated } });
 			};
-			addLog(a_options.logFile.parent_path() / "OSF UI.log", "OSF UI.log");
-			addLog(a_options.logFile, "OSF UI.webview2-host.log");
+			addLog(a_options.logFile.parent_path() / "OSF UI.log", "OSF UI.log", 160 * 1024);
+			addLog(a_options.logFile, "OSF UI.webview2-host.log", 128 * 1024);
+			if (pluginLog) {
+				addLog(*pluginLog, ToUtf8(pluginLog->filename().wstring()), 224 * 1024);
+			}
+			if (crashLog) {
+				addLog(*crashLog, "Starfield crash log (Trainwreck or Crash Logger)", 256 * 1024);
+			}
 			const auto clientId = ReporterClientId();
 			const auto installationToken = RequestInstallationToken(a_options.reportEndpoint, clientId);
 			if (installationToken.empty()) {
@@ -331,11 +444,18 @@ namespace osfui::wv2
 			const json payload{
 				{ "schemaVersion", 1 }, { "clientId", clientId },
 				{ "installationToken", installationToken }, { "kind", "crash" },
+				{ "target", target.id },
 				{ "title", "Starfield closed unexpectedly" },
-				{ "description", "Starfield exited with a non-zero process status while OSF UI was active." },
+				{ "description", crashLog ?
+					"Starfield exited with a non-zero process status and produced a supported crash report." :
+					"Starfield exited with a non-zero process status while OSF UI was active." },
 				{ "reproduction", "Not provided; submitted from the post-crash consent prompt." },
 				{ "pluginVersion", OSFUI::kPluginVersion },
-				{ "diagnostics", { { "system", { { "gameExitCode", a_gameExitCode } } },
+				{ "diagnostics", { { "system", { { "gameExitCode", a_gameExitCode },
+					{ "crashLogDetected", crashLog.has_value() },
+					{ "crashLogFile", crashLog ? ToUtf8(crashLog->filename().wstring()) : "" },
+					{ "activeView", std::string(a_activeViewId) },
+					{ "targetPluginLogAttached", pluginLog.has_value() } } },
 					{ "issues", json::array() } } },
 				{ "logs", std::move(logs) },
 			};
@@ -444,6 +564,9 @@ namespace osfui::wv2
 			std::string      byeReason;  // overrides the default bye reason (STA thread only)
 			bool             gameExitedUnexpectedly{ false };
 			DWORD            gameExitCode{ 0 };
+			std::filesystem::file_time_type sessionStarted{
+				std::filesystem::file_time_type::clock::now() };
+			std::string crashActiveViewId;
 
 			std::mutex       commandMutex;
 			std::deque<json> commands;
@@ -3100,9 +3223,21 @@ namespace osfui::wv2
 							return false;
 						}
 						gameExitCode = code;
-						gameExitedUnexpectedly = code != 0;
+						// Some intentional game exits (notably the `qqq` console
+						// command) use a non-zero process status. The helper exists to
+						// catch the common crash-while-opening-OSF-UI failure, so require
+						// evidence that the interactive overlay was active or mid-reveal.
+						// HUD-only rendering and an inactive/closed overlay do not qualify.
+						const bool uiCrashRelevant = focusGranted || captured || AnyRevealPending();
+						gameExitedUnexpectedly = code != 0 && uiCrashRelevant;
+						if (gameExitedUnexpectedly && active) {
+							crashActiveViewId = active->id;
+						}
 						log.Info(std::format(
 							"game process exited (code 0x{:08X}) — shutting down", gameExitCode));
+						if (code != 0 && !uiCrashRelevant) {
+							log.Info("non-zero game exit occurred while OSF UI was inactive — crash prompt suppressed");
+						}
 						return true;
 					};
 					while (!quit.load()) {
@@ -3171,7 +3306,7 @@ namespace osfui::wv2
 				if (reader.joinable()) reader.join();
 				log.Info(std::format("host exiting (code {})", exitCode));
 				if (gameExitedUnexpectedly) {
-					PromptCrashReport(options, gameExitCode, log);
+					PromptCrashReport(options, gameExitCode, log, sessionStarted, crashActiveViewId);
 				}
 				return exitCode;
 			}
