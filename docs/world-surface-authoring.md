@@ -76,21 +76,36 @@ material retargeting is not safe"). Creating or duplicating a material
 **inside the Material Editor** is fine — the editor mints fresh identities;
 it is copying at the file level that breaks.
 
-In the Material Editor, create a new material under `Materials\OSFUI\` that:
+**Recommended tool: the standalone *Material Editor Lite*** (Nexus mod
+14659). It authored a correct material on the first attempt (2026-07-28):
 
-- binds `Textures\OSFUI\worldsurface_placeholder01.dds` (or your slot's file)
-  as **Albedo** and as **Emissive**;
-- sets `EmissiveSettingsComponent.ExposureOffset = 6`.
+1. New material, shader model **ColorEmissive**
+   (`Materials\Layered\ShaderModels\ColorEmissive.mat` parent).
+2. Bind `Textures\OSFUI\worldsurface_placeholder01.dds` as **Albedo** and
+   **Emissive** (MEL populates both for this shader).
+3. Set **ExposureOffset = 6**; save as
+   `Data\Materials\OSFUI\OSFUI_WorldScreen01.mat`.
+4. Do NOT run its texture converter on the placeholder (step-1 hard rule) —
+   reference the existing file.
+5. Verify the saved JSON: the material's own `res:` IDs must not appear in
+   any vanilla material (MEL mints a fresh sequential block), and both
+   `MRTextureFile` entries (Index 0 and 7) must name the placeholder.
+
+MEL also writes `AdaptiveEmittance = true` and
+`EmissiveClipThreshold = 0.275`. Both are acceptable defaults; if dark web
+content ever renders oddly in-game, zeroing `EmissiveClipThreshold` is the
+first tuning knob.
 
 The emissive binding is what makes the vanilla cockpit screens glow
 (`ShipScreen_Avionics01_A.mat` precedent) — without it, browser content reads
 as a dark decal instead of a lit display.
 
-Alternative tooling: the standalone *Material Editor Lite* (Nexus mod 14659)
-creates materials with an emissive-capable shader model without opening CK.
-If you use it, verify the output the same way — a material that ships
-duplicated `res:` IDs fails exactly like a file copy. Its built-in texture
-conversion must NOT be pointed at the placeholder (step-1 hard rule).
+The CK Material Tool route (bUseCompiledDB=0 + Starfield Material Exporter
+for vanilla references) proved a dead end in practice for this task: the
+property panel exposes shader/global-layer settings but no discoverable
+texture-slot editing, cloning produces an empty derived material, and
+Copy/Paste Textures stayed disabled. Keep CK for the forms (steps 5-6); author
+the material in MEL.
 
 ## 4. Mesh
 
