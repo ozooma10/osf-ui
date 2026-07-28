@@ -602,6 +602,7 @@ namespace osfui::wv2
 				ComPtr<ICoreWebView2CompositionController> compositionController;
 				ComPtr<ICoreWebView2>                      webView;
 				ComPtr<ICoreWebView2DevToolsProtocolEventReceiver> consoleReceiver;
+				ComPtr<ICoreWebView2DevToolsProtocolEventReceiver> exceptionReceiver;
 				bool controllerRequested{ false };
 				bool hidden{ true };
 				// One-shot hidden paint requested by the game. Unlike leaving the
@@ -1444,6 +1445,7 @@ namespace osfui::wv2
 					a_view.visual = nullptr;
 				}
 				a_view.consoleReceiver.Reset();
+				a_view.exceptionReceiver.Reset();
 				a_view.webView.Reset();
 				a_view.compositionController.Reset();
 				a_view.controller.Reset();
@@ -2439,6 +2441,51 @@ namespace osfui::wv2
 								}
 								return S_OK;
 							}).Get(), &token);
+					// Uncaught exceptions are NOT console calls: a view whose boot code
+					// throws logs nothing through consoleAPICalled, so the game side
+					// used to see a perfectly healthy load event over a blank page.
+					// Forward them through the same console channel, pre-shaped as a
+					// console.error so the game-side parser needs no special case.
+					if (SUCCEEDED(a_view.webView->GetDevToolsProtocolEventReceiver(
+							L"Runtime.exceptionThrown", &a_view.exceptionReceiver)) &&
+						a_view.exceptionReceiver) {
+						a_view.exceptionReceiver->add_DevToolsProtocolEventReceived(
+							Callback<ICoreWebView2DevToolsProtocolEventReceivedEventHandler>(
+								[this, view](ICoreWebView2*,
+									ICoreWebView2DevToolsProtocolEventReceivedEventArgs* a_args) -> HRESULT {
+									LPWSTR value = nullptr;
+									if (FAILED(a_args->get_ParameterObjectAsJson(&value)) || !value) {
+										return S_OK;
+									}
+									const auto raw = ToUtf8(value);
+									::CoTaskMemFree(value);
+									std::string text = raw;
+									try {
+										const auto details =
+											json::parse(raw).value("exceptionDetails", json::object());
+										// `description` carries the stack; fall back to the
+										// bare text ("Uncaught") plus location when a
+										// non-Error value was thrown.
+										const auto exception =
+											details.value("exception", json::object());
+										text = exception.value("description",
+											details.value("text", std::string("uncaught exception")));
+										const auto url = details.value("url", std::string{});
+										if (!url.empty()) {
+											text += std::format(" ({}:{}:{})", url,
+												details.value("lineNumber", 0) + 1,
+												details.value("columnNumber", 0) + 1);
+										}
+									} catch (const std::exception&) {
+									}
+									Send(json{ { "type", "console" }, { "view", view->id },
+										{ "json", json{ { "type", "error" },
+											{ "args", json::array({ json{ { "value",
+												"uncaught: " + text } } }) } }
+													  .dump() } });
+									return S_OK;
+								}).Get(), &token);
+					}
 					a_view.webView->CallDevToolsProtocolMethod(L"Runtime.enable", L"{}",
 						Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
 							[](HRESULT, LPCWSTR) -> HRESULT { return S_OK; }).Get());

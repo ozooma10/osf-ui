@@ -26,6 +26,15 @@ namespace OSFUI
 			}
 			return id;
 		}
+
+		// Outbound trace allowlist: the boot handshake plus errors. Deliberately
+		// not every type — ui.gamepad and friends push far too often to log.
+		bool IsTracedOutbound(std::string_view a_type)
+		{
+			return a_type == "runtime.ready" || a_type == "settings.data" ||
+				a_type == "views.data" || a_type == "diagnostics.data" ||
+				a_type == "i18n.data" || a_type == "ui.error";
+		}
 	}
 
 	MessageBridge::MessageBridge(SendFn a_send) :
@@ -102,6 +111,10 @@ namespace OSFUI
 	{
 		const auto command = Json::GetString(a_payload, "command", "");
 		_currentCommand = command.substr(0, 128);
+		// Both bridge legs are traced at DEBUG (see SendToWeb): a view that renders
+		// its chrome but no data is either not asking or not being answered, and
+		// nothing else in the log distinguishes those two.
+		REX::DEBUG("MessageBridge: web->native '{}' from view '{}'", _currentCommand, _currentSource);
 		// Explicit registry — no generic "call native function" escape hatch.
 		if (const auto it = _commands.find(command); it != _commands.end()) {
 			it->second(a_payload, *this);
@@ -186,6 +199,9 @@ namespace OSFUI
 		if (!_send || a_viewId.empty()) {
 			return;
 		}
+		if (IsTracedOutbound(a_type)) {
+			REX::DEBUG("MessageBridge: native->web '{}' to view '{}'", a_type, a_viewId);
+		}
 		_send(a_viewId, EncodeMessage(a_type, a_payload, a_requestId));
 	}
 
@@ -193,6 +209,9 @@ namespace OSFUI
 	{
 		if (!_send || a_viewId.empty()) {
 			return;
+		}
+		if (IsTracedOutbound(a_type)) {
+			REX::DEBUG("MessageBridge: native->web '{}' to view '{}'", a_type, a_viewId);
 		}
 		_send(a_viewId, EncodeJsonMessage(a_type, a_payloadJson, {}));
 	}
@@ -203,8 +222,12 @@ namespace OSFUI
 			return;
 		}
 		const auto message = EncodeJsonMessage(a_type, a_payloadJson, {});
+		const bool trace = IsTracedOutbound(a_type);
 		for (const auto& id : a_viewIds) {
 			if (!id.empty()) {
+				if (trace) {
+					REX::DEBUG("MessageBridge: native->web '{}' to view '{}'", a_type, id);
+				}
 				_send(id, message);
 			}
 		}
