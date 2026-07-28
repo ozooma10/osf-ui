@@ -494,10 +494,12 @@ function Item(props: ItemProps) {
 }
 
 /**
- * Host-level discovery inventory. Unlike the launcher and per-mod surface
- * sections this intentionally includes `hub:false`, debug-only and unloaded
- * entries: its purpose is to let a user prove that a view registered and drive
- * the exact same open path without first making it visible in normal menus.
+ * Host-level discovery inventory for mod-provided views. Unlike the launcher
+ * and per-mod surface sections this intentionally includes `hub:false`,
+ * debug-only and unloaded entries: its purpose is to let a user prove that a
+ * mod view registered and drive the exact same open path without first making
+ * it visible in normal menus. Framework-owned views are implementation detail,
+ * so they do not crowd this list.
  */
 function RegisteredViews({
   views,
@@ -508,9 +510,9 @@ function RegisteredViews({
   tr: Translator;
   onTrigger: (id: string) => void;
 }) {
-  const ordered = [...views].sort((a, b) =>
-    a.id.localeCompare(b.id, undefined, { sensitivity: 'base' }),
-  );
+  const ordered = views
+    .filter((view) => view.mod !== FRAMEWORK_ID)
+    .sort((a, b) => a.id.localeCompare(b.id, undefined, { sensitivity: 'base' }));
 
   return (
     <div class="registered-views">
@@ -519,7 +521,7 @@ function RegisteredViews({
         <div class="row-hint">
           {tr(
             'registeredViewsHint',
-            'Every view discovered this session, including hidden and unloaded views.',
+            'Mod-provided views discovered this session, including hidden and unloaded views.',
           )}
         </div>
       </div>

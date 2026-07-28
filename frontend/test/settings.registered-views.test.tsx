@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// The framework diagnostics group is the escape hatch for every discovered
+// The framework diagnostics group is the escape hatch for every mod-provided
 // view, including entries deliberately omitted from normal navigation.
 
 import { afterEach, describe, expect, it } from 'vitest';
@@ -9,7 +9,7 @@ import { flush, makeBridge, mount, unmount } from './helpers/settingsHarness';
 afterEach(unmount);
 
 describe('registered views diagnostics', () => {
-  it('lists the unfiltered discovery catalog and triggers the normal open path', async () => {
+  it('lists mod-provided discovery entries and triggers the normal open path', async () => {
     const bridge = makeBridge();
     const el = await mount(bridge);
     bridge.deliver('settings.data', {
@@ -23,6 +23,7 @@ describe('registered views diagnostics', () => {
               {
                 id: 'diagnostics',
                 label: 'Diagnostics',
+                collapsed: true,
                 settings: [
                   {
                     key: 'renderStats',
@@ -43,6 +44,7 @@ describe('registered views diagnostics', () => {
           id: 'osfui/settings',
           title: 'Mod Settings',
           kind: 'menu',
+          mod: 'osfui',
           hub: true,
           loadState: 'loaded',
         },
@@ -50,6 +52,7 @@ describe('registered views diagnostics', () => {
           id: 'tools/hidden-lab',
           title: 'Hidden Lab',
           kind: 'menu',
+          mod: 'example.tools',
           hub: false,
           loadState: 'unloaded',
         },
@@ -57,6 +60,7 @@ describe('registered views diagnostics', () => {
           id: 'tools/passive-hud',
           title: 'Passive HUD',
           kind: 'hud',
+          mod: 'example.tools',
           hub: false,
           loadState: 'loaded',
         },
@@ -69,15 +73,21 @@ describe('registered views diagnostics', () => {
       .click();
     await flush();
 
+    const diagnostics = [...el.querySelectorAll<HTMLElement>('.group')].find((group) =>
+      group.querySelector('.group-label')?.textContent?.includes('Diagnostics'),
+    )!;
+    expect(diagnostics.classList.contains('collapsed')).toBe(true);
+    diagnostics.querySelector<HTMLButtonElement>('.group-label')!.click();
+    await flush();
+
     const rows = [...el.querySelectorAll<HTMLElement>('.registered-view')];
     expect(rows.map((row) => row.querySelector('.registered-view-id')!.textContent)).toEqual([
-      'osfui/settings',
       'tools/hidden-lab',
       'tools/passive-hud',
     ]);
     expect(el.querySelector('.detail')!.textContent).toContain('unloaded');
 
-    rows[1]!.querySelector<HTMLButtonElement>('button')!.click();
+    rows[0]!.querySelector<HTMLButtonElement>('button')!.click();
     expect(bridge.sent[bridge.sent.length - 1]).toEqual({
       command: 'menu.open',
       fields: { view: 'tools/hidden-lab' },
