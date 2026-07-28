@@ -14,24 +14,20 @@ let meta;
 let visible = true;
 let checker = true;
 
-// ?res=fixed|fill|off preselects the stage mode, mirroring the in-page cycle
-// button. 'fixed' is the authoring baseline.
+// ?res=fill|off preselects the stage mode, mirroring the in-page cycle button.
+// 'fill' is the authoring baseline.
 const params = new URLSearchParams(location.search);
-let stageMode = STAGE_MODES.includes(params.get('res')) ? params.get('res') : 'fixed';
+let stageMode = STAGE_MODES.includes(params.get('res')) ? params.get('res') : 'fill';
 
 /** Button face and tooltip per stage mode, in cycle order. */
 const STAGE_LABELS = {
-  fixed: {
-    label: () => $('width').value + '×' + $('height').value,
-    title: 'Stage: the declared reference frame, letterboxed and scaled to the pane. Click to fill the pane instead.',
-  },
   fill: {
     label: () => 'Fill pane',
-    title: 'Stage: the reference row height, widened to the pane aspect — how the game resizes the view to the output. Click for fluid (unscaled) mode.',
+    title: 'Stage: the reference row height, widened to the pane aspect — how the game resizes the view to the output. Click to drop the stage and render unscaled.',
   },
   off: {
-    label: () => 'Fluid',
-    title: 'No stage: the view reflows to the raw pane, unscaled. Click to return to the reference frame.',
+    label: () => 'Unscaled',
+    title: 'No stage: the view reflows to the raw pane at 1:1 CSS pixels, no scale transform. For inspecting overflow and measuring in DevTools — not a preview of the game. Click to return to the staged frame.',
   },
 };
 
@@ -66,24 +62,25 @@ function setSize(width, height) {
 
 function scaleStage() {
   if (!meta) return;
-  const mode = STAGE_LABELS[stageMode] ? stageMode : 'fixed';
+  const mode = STAGE_LABELS[stageMode] ? stageMode : 'fill';
   $('stage-mode').textContent = STAGE_LABELS[mode].label();
   $('stage-mode').title = STAGE_LABELS[mode].title;
   if (mode === 'off') {
-    // Fluid: the iframe reflows to the raw pane, no transform. For inspecting
-    // overflow, not for authoring layout.
+    // Unscaled: the iframe reflows to the raw pane, no transform. For
+    // inspecting overflow, not for authoring layout.
     stage.style.width = '100%';
     stage.style.height = '100%';
     stage.style.transform = 'none';
     stage.style.margin = '0';
-    $('status').textContent = 'fluid';
+    $('status').textContent = 'unscaled';
     return;
   }
-  const width = Number($('width').value);
+  // Only the declared height enters the fit: it pins the scale, and the stage
+  // width follows the pane the way the game widens the page to the output.
   const height = Number($('height').value);
   const availableWidth = Math.max(1, shell.clientWidth - 48);
   const availableHeight = Math.max(1, shell.clientHeight - 48);
-  const fit = computeFit(availableWidth, availableHeight, width, height, mode);
+  const fit = computeFit(availableWidth, availableHeight, height);
   stage.style.width = fit.width + 'px';
   stage.style.height = fit.height + 'px';
   stage.style.transform = 'scale(' + fit.scale + ')';

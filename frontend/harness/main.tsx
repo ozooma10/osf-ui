@@ -72,12 +72,12 @@ if (activeView !== requested) {
   console.warn(`[harness] no App at src/views/${requested}/App.tsx — showing ${activeView}.`);
 }
 
-// The fixed reference stage is the default: a view that only looks right when it
-// can reflow to the browser window will be wrong in game. `?res=fill` keeps the
-// game-true scale but widens the stage to the window aspect (what the runtime
-// does once it knows the swapchain); `?res=off` drops the stage entirely and
-// renders fluid.
-const STAGE_DEFAULT: StageMode = STAGE_MODES.find((m) => m === params.get('res')) ?? 'fixed';
+// The stage is on by default: a view that only looks right when it can reflow
+// to the browser window will be wrong in game. `?res=fill` pins the scale to the
+// 900-row reference height and widens the stage to the window aspect, which is
+// what the runtime does once it knows the swapchain; `?res=off` drops the stage
+// entirely and renders unscaled.
+const STAGE_DEFAULT: StageMode = STAGE_MODES.find((m) => m === params.get('res')) ?? 'fill';
 
 // `?schema=`, `?fixtures=1` and `?locale=` are read (and persisted to
 // localStorage) by the mock itself, as is the drag-drop loader for schemas and
@@ -122,7 +122,7 @@ function Harness() {
     };
   }, []);
 
-  // Stage mode drives a body class: the fluid-mode margins that clear the
+  // Stage mode drives a body class: the unscaled-mode margins that clear the
   // toolbar are a body-level rule in harness.css, and the view's own root must
   // stay untouched in either staged mode.
   useEffect(() => {

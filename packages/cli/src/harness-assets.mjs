@@ -89,8 +89,10 @@ export const HARNESS_HTML = String.raw`<!doctype html>
       <select id="view-select" title="Switch the previewed view (no server restart)"></select>
       <span id="view-id" class="view-id"></span>
       <span class="spacer"></span>
-      <label>Width <input id="width" type="number" min="1" max="16384"></label>
-      <label>Height <input id="height" type="number" min="1" max="16384"></label>
+      <label>Width <input id="width" type="number" min="1" max="16384"
+        title="The view's declared width. Informational: the staged width follows the pane, as the game widens the page to the output aspect."></label>
+      <label>Height <input id="height" type="number" min="1" max="16384"
+        title="The view's declared reference row height — this is what pins the stage scale."></label>
       <button id="apply-size" type="button">Apply</button>
       <button id="stage-mode" type="button">Stage</button>
       <span id="tools"></span>

@@ -2,7 +2,7 @@
  *
  * Ported from the <style> blocks that were duplicated across
  * devtools/harness/index.html and keybinds.html. Only the harness's OWN chrome
- * lives here: the toolbar, the page backdrop, and the fluid-mode margins that
+ * lives here: the toolbar, the page backdrop, and the unscaled-mode margins that
  * keep a view clear of the toolbar. Nothing here may restyle a view — the
  * views must look here exactly as they look in game.
  *
@@ -17,7 +17,7 @@ body {
 
 /* The views are transparent overlays; without a backdrop they are invisible in
    a normal browser tab. In stage mode the backdrop moves onto the stage box
-   itself (Stage.tsx paints it) so the area outside the 1600x900 frame reads as
+   itself (Stage.tsx paints it) so the area outside the staged frame reads as
    "off screen". */
 body {
   background: radial-gradient(120% 100% at 50% 30%, #10161f 0%, #05070b 100%) fixed;
@@ -28,7 +28,7 @@ body.res900 {
 }
 
 /* The bar's 30px is load-bearing: Stage.tsx's BAR_H reserves exactly that much
-   when it scales the 1600x900 frame. So it must never grow — which means the
+   when it scales the staged frame. So it must never grow — which means the
    controls must never wrap. Left to itself, flex shrinks each item below its
    text width and the labels wrap mid-phrase and spill out of the bar. Every
    child is therefore pinned to its natural width (`.harness-bar > *` below) and
@@ -128,7 +128,7 @@ body.res900 {
   background: #0b0e12;
 }
 
-/* The single Preact root. Full height so the fluid-mode `#stage { height:100% }`
+/* The single Preact root. Full height so the unscaled-mode `#stage { height:100% }`
    below resolves against something. */
 #harness-mount {
   height: 100%;

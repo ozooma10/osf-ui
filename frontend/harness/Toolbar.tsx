@@ -5,18 +5,15 @@ import { LOCALES, type MockApi } from '../devmock/mockbridge';
 
 /** Button face and tooltip per stage mode, in cycle order. */
 const STAGE_LABELS: Record<StageMode, { label: string; title: string }> = {
-  fixed: {
-    label: '1600×900',
-    title: 'Stage: the game-true 1600×900 reference frame, letterboxed and scaled to the window. Click to fill the window instead.',
-  },
   fill: {
     label: 'Fill window',
     title:
-      'Stage: 900 reference rows tall, widened to the window aspect — how the game resizes the view to the output. Click for fluid (unscaled) mode.',
+      'Stage: 900 reference rows tall, widened to the window aspect — how the game resizes the view to the output. Click to drop the stage and render unscaled.',
   },
   off: {
-    label: 'Fluid',
-    title: 'No stage: the view reflows to the raw browser window, unscaled. Click to return to the 1600×900 frame.',
+    label: 'Unscaled',
+    title:
+      'No stage: the view reflows to the raw browser window at 1:1 CSS pixels, no scale transform. For inspecting overflow and measuring in DevTools — not a preview of the game. Click to return to the staged frame.',
   },
 };
 

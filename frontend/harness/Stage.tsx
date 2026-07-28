@@ -2,17 +2,21 @@
 //
 // Every built-in view manifest declares 1600x900 as its initial size; the game
 // then resizes the page to the output aspect, so this is the reference
-// composition, not the only in-game resolution. Two staged modes model that:
+// composition, not the only in-game resolution. Two modes:
 //
-//   'fixed' — the literal 1600x900 box, letterboxed in the window. The
-//             authoring baseline.
-//   'fill'  — 900 reference rows tall, as many CSS pixels wide as the window's
-//             aspect gives. This is what the game actually does: the UI scale
-//             stays pinned to the 900p row height and the page just gets wider
-//             or narrower. Use it to see a view at the window's aspect without
-//             the text size drifting the way fluid mode lets it.
+//   'fill' — 900 reference rows tall, as many CSS pixels wide as the window's
+//            aspect gives. This is what the game actually does: the UI scale
+//            stays pinned to the 900p row height and the page just gets wider
+//            or narrower. The authoring baseline.
+//   'off'  — no stage at all; the view reflows to the raw browser window,
+//            unscaled. For inspecting overflow and measuring in DevTools
+//            without a transform in the way, not for authoring layout.
 //
-// Both are uniformly scaled with no upscale cap — filling a 1080p window at
+// There was also a letterboxed 'fixed' mode that rendered the literal 1600x900
+// box. It was dropped: at a 16:9 window it is 'fill' with bars, and at any
+// other aspect it shows a composition the game never produces.
+//
+// 'fill' is uniformly scaled with no upscale cap — filling a 1080p window at
 // 1.2x is the in-game text size, and capping at 1:1 would render everything
 // smaller here than in game. The scale transform also makes the stage the
 // containing block for the view's `position: fixed` scrim and toast stack,
@@ -21,18 +25,18 @@
 import type { ComponentChildren } from 'preact';
 import { useLayoutEffect, useState } from 'preact/hooks';
 
-export const STAGE_W = 1600;
+/** The reference row height every built-in manifest declares; pins the scale. */
 export const STAGE_H = 900;
 /** Height of the harness toolbar; the stage is offset below it. */
 export const BAR_H = 30;
 
 /** `?res=` values, in the order the toolbar button cycles them. */
-export const STAGE_MODES = ['fixed', 'fill', 'off'] as const;
+export const STAGE_MODES = ['fill', 'off'] as const;
 export type StageMode = (typeof STAGE_MODES)[number];
 
 /** The mode the toolbar button switches to next. */
 export function nextStageMode(mode: StageMode): StageMode {
-  return STAGE_MODES[(STAGE_MODES.indexOf(mode) + 1) % STAGE_MODES.length] ?? 'fixed';
+  return STAGE_MODES[(STAGE_MODES.indexOf(mode) + 1) % STAGE_MODES.length] ?? 'fill';
 }
 
 export interface StageFit {
@@ -45,37 +49,27 @@ export interface StageFit {
 }
 
 /** Pure, so the fit maths is testable without a DOM. */
-export function computeFit(winW: number, winH: number, mode: StageMode = 'fixed', barH = BAR_H): StageFit {
+export function computeFit(winW: number, winH: number, barH = BAR_H): StageFit {
+  // Height fixes the scale (900 reference rows, as in game); width is whatever
+  // is left over, so the stage covers the window exactly.
   const availH = Math.max(1, winH - barH);
-  if (mode === 'fill') {
-    // Height fixes the scale (900 reference rows, as in game); width is
-    // whatever is left over, so the stage covers the window exactly.
-    const scale = availH / STAGE_H;
-    return { scale, left: 0, top: barH, width: Math.max(1, winW) / scale, height: STAGE_H };
-  }
-  const scale = Math.min(winW / STAGE_W, availH / STAGE_H);
-  return {
-    scale,
-    left: Math.max(0, (winW - STAGE_W * scale) / 2),
-    top: barH + Math.max(0, (availH - STAGE_H * scale) / 2),
-    width: STAGE_W,
-    height: STAGE_H,
-  };
+  const scale = availH / STAGE_H;
+  return { scale, left: 0, top: barH, width: Math.max(1, winW) / scale, height: STAGE_H };
 }
 
 export function Stage({ mode, children }: { mode: StageMode; children: ComponentChildren }) {
-  const [fit, setFit] = useState<StageFit>(() => computeFit(window.innerWidth, window.innerHeight, mode));
+  const [fit, setFit] = useState<StageFit>(() => computeFit(window.innerWidth, window.innerHeight));
 
   useLayoutEffect(() => {
     if (mode === 'off') return;
-    const onResize = () => setFit(computeFit(window.innerWidth, window.innerHeight, mode));
+    const onResize = () => setFit(computeFit(window.innerWidth, window.innerHeight));
     onResize();
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, [mode]);
 
-  // Fluid mode (?res=off): no transform, no fixed size. For inspecting overflow,
-  // not for authoring layout.
+  // Unscaled mode (?res=off): no transform, no fixed size. For inspecting
+  // overflow, not for authoring layout.
   if (mode === 'off') return <div id="stage">{children}</div>;
 
   return (

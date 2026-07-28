@@ -78,7 +78,7 @@ Query parameters:
 | Param | Effect |
 |---|---|
 | `?view=<modId>/<viewName>` | which view to mount |
-| `?res=fixed\|fill\|off` | stage mode: the 1600×900 frame (default), the same scale widened to fill the window, or no stage at all |
+| `?res=fill\|off` | stage mode: the game-true 900-row frame widened to the window (default), or no stage at all |
 | `?fixtures=1` | load the richer demo dataset (also togglable in the toolbar) |
 | `?locale=<code>` | switch locale; `pseudo` expands strings to catch tight layouts and hardcoded text |
 | `?schema=<url>` | load a settings schema from a URL instead of the fixtures |
@@ -112,19 +112,24 @@ catalog onto the page.
 
 Views declare an initial 1600×900 size (`manifest.json`); the runtime resizes
 them to the game output aspect once the swapchain is known. The toolbar button
-cycles three ways of modelling that, also settable with `?res=`:
+cycles two ways of modelling that, also settable with `?res=`:
 
 | Mode | What it renders |
 |---|---|
-| `fixed` | the literal 1600×900 frame, letterboxed, scaled by `min(w/1600, (h-30)/900)` |
 | `fill` | 900 reference rows tall, widened to the window's aspect and scaled by `(h-30)/900`, so the stage fills the window at the in-game text size |
 | `off` | no stage: the view reflows to the raw browser window, unscaled |
 
-Neither staged mode caps the scale at 1:1 — filling a 1080p window at 1.2× *is*
-the in-game text size.
+`fill` does not cap the scale at 1:1 — filling a 1080p window at 1.2× *is* the
+in-game text size.
 
-**Develop in `fixed` for the baseline**, use `fill` to see the view at your
-window's aspect the way the game resizes it, and `off` to inspect raw overflow.
+**Develop in `fill`**: it is what the runtime actually does to a view, so a
+layout that holds up as you resize the window holds up at any game output
+aspect. Switch to `off` to inspect raw overflow or measure in DevTools without
+the scale transform in the way — it is a debugging mode, not a preview.
+
+A third mode used to letterbox the literal 1600×900 box (`?res=fixed`). It was
+removed: at a 16:9 window it is `fill` with bars, and at any other aspect it
+shows a composition the game never produces.
 
 ## Native bridge architecture
 
