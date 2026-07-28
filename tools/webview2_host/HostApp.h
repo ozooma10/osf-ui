@@ -39,6 +39,7 @@ namespace osfui::wv2
 		std::wstring          pipeName;      // without \\.\pipe\ prefix
 		std::uint32_t         gamePid{ 0 };
 		std::filesystem::path logFile;       // empty = no file log
+		std::wstring          reportEndpoint; // empty = abnormal-exit prompt disabled
 		// Empty = primary overlay instance. A non-empty tag scopes the
 		// single-instance lock so an independent second host (world surface)
 		// can run for the same game process.

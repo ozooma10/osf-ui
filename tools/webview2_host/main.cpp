@@ -4,7 +4,8 @@
 #include <string>
 #include <vector>
 
-// osfui_webview2_host.exe --pipe=<name> --game-pid=<pid> [--log=<file>] [--instance=<tag>]
+// osfui_webview2_host.exe --pipe=<name> --game-pid=<pid> [--log=<file>]
+//   [--instance=<tag>] [--report-endpoint=<https-url>]
 //
 // Launched by the OSF UI plugin via an out-of-tree broker (Wv2BrokerLaunch.h)
 // from a real filesystem mirror of the mod folder, never from inside the MO2
@@ -28,6 +29,8 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
 			options.logFile = std::filesystem::path(std::wstring(arg.substr(6)));
 		} else if (arg.starts_with(L"--instance=")) {
 			options.instance = std::wstring(arg.substr(11));
+		} else if (arg.starts_with(L"--report-endpoint=")) {
+			options.reportEndpoint = std::wstring(arg.substr(18));
 		}
 	}
 	::LocalFree(argv);

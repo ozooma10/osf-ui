@@ -60,7 +60,7 @@ if has_config("with_webview2") then
         add_syslinks(
             "d3d11", "dxgi", "windowsapp", "runtimeobject", "CoreMessaging",
             "ole32", "oleaut32", "uuid", "comsuppw", "taskschd", "advapi32",
-            "user32", "shell32")
+            "user32", "shell32", "winhttp")
         add_ldflags("/SUBSYSTEM:WINDOWS", { force = true })
         on_load(function(target)
             local sdk = os.getenv("WEBVIEW2_SDK_DIR")
@@ -101,7 +101,7 @@ target("OSF UI")
     -- D3D12 overlay compositor (composite/): the device/queue are the game's, but we still need these for our own root signature, pipeline state, and runtime shader compilation.
     -- d3dcompiler is used to build the overlay shaders at runtime
     -- shell32/ole32: SHGetKnownFolderPath for the writable settings path.
-    add_syslinks("d3d12", "dxgi", "dxguid", "d3dcompiler", "shell32", "ole32")
+    add_syslinks("d3d12", "dxgi", "dxguid", "d3dcompiler", "shell32", "ole32", "winhttp")
 
     -- add src files
     add_files("src/**.cpp")

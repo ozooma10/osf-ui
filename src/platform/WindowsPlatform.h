@@ -33,6 +33,19 @@ namespace OSFUI::Platform
 	// (docs/security-model.md).
 	bool OpenFolder(const std::filesystem::path& a_folder);
 
+	struct HttpResponse
+	{
+		bool          transportOk{ false };
+		std::uint32_t status{ 0 };
+		std::string   body;
+		std::string   error;
+	};
+
+	// Synchronous HTTPS POST used only from the reporting worker thread. TLS
+	// verification remains at WinHTTP defaults; redirects and non-HTTPS URLs
+	// are refused. Response bodies are capped.
+	[[nodiscard]] HttpResponse PostJson(std::string_view a_url, std::string_view a_body);
+
 	// True when [a_address, a_address + a_size) is committed, non-guard,
 	// readable memory (VirtualQuery walk). For probing engine pointers.
 	[[nodiscard]] bool IsReadableRange(std::uintptr_t a_address, std::size_t a_size);

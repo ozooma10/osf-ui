@@ -50,7 +50,30 @@ export interface HealthProps {
   onRetryView: (viewId: string) => void;
   /** Fire a payload-free shell command (osfui.openLogFolder, osfui.openModPage). */
   onShellCommand: (command: string) => void;
+  onGetReportStatus: () => Promise<ReportStatus>;
+  onSubmitReport: (report: ReportSubmission) => Promise<ReportResult>;
+  onOpenReportIssue: (issueNumber: number) => void;
   onToast: (message: string, kind?: 'warn' | 'danger') => void;
+}
+
+export interface ReportStatus {
+  enabled: boolean;
+  logs: string[];
+  retentionDays: number;
+}
+
+export interface ReportSubmission {
+  title: string;
+  description: string;
+  reproduction: string;
+}
+
+export interface ReportResult {
+  ok: boolean;
+  code?: string;
+  message?: string;
+  reportId?: string;
+  issueNumber?: number;
 }
 
 export function Health({
@@ -59,6 +82,9 @@ export function Health({
   focusIssueId,
   onRetryView,
   onShellCommand,
+  onGetReportStatus,
+  onSubmitReport,
+  onOpenReportIssue,
   onToast,
 }: HealthProps) {
   const active = activeIssues(health);
@@ -69,6 +95,56 @@ export function Health({
   const counts = countIssues(health.issues);
   const overall = overallSeverity(counts);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportChecking, setReportChecking] = useState(false);
+  const [reportStatus, setReportStatus] = useState<ReportStatus | null>(null);
+  const [reportTitle, setReportTitle] = useState('');
+  const [reportDescription, setReportDescription] = useState('');
+  const [reportReproduction, setReportReproduction] = useState('');
+  const [reportConsent, setReportConsent] = useState(false);
+  const [reportSubmitting, setReportSubmitting] = useState(false);
+  const [reportResult, setReportResult] = useState<ReportResult | null>(null);
+
+  const beginReport = async () => {
+    setReportChecking(true);
+    try {
+      const status = await onGetReportStatus();
+      if (!status.enabled) {
+        onToast(tr('reportingUnavailable', 'Automatic reporting is not configured in this build.'), 'warn');
+        return;
+      }
+      setReportStatus(status);
+      setReportResult(null);
+      setReportOpen(true);
+    } catch {
+      onToast(tr('reportStatusFailed', 'Could not start the bug reporter.'), 'danger');
+    } finally {
+      setReportChecking(false);
+    }
+  };
+
+  const submitReport = async () => {
+    if (!reportConsent || !reportTitle.trim() || !reportDescription.trim()) return;
+    setReportSubmitting(true);
+    try {
+      const result = await onSubmitReport({
+        title: reportTitle.trim(),
+        description: reportDescription.trim(),
+        reproduction: reportReproduction.trim(),
+      });
+      setReportResult(result);
+      if (result.ok) {
+        onToast(tr('bugReportSubmitted', 'Bug report submitted'));
+      } else {
+        onToast(tr('bugReportFailed', 'Could not submit the bug report.'), 'danger');
+      }
+    } catch {
+      setReportResult({ ok: false });
+      onToast(tr('bugReportFailed', 'Could not submit the bug report.'), 'danger');
+    } finally {
+      setReportSubmitting(false);
+    }
+  };
 
   // Clipboard failures must not look like nothing happened, and must not take
   // the technical details away from someone who now has to transcribe them by
@@ -104,6 +180,16 @@ export function Health({
         <div class="health-actions">
           <button
             type="button"
+            class="osf-btn osf-btn--sm"
+            disabled={reportChecking}
+            onClick={beginReport}
+          >
+            {reportChecking
+              ? tr('checkingReporter', 'Checking reporter…')
+              : tr('reportBug', 'Report a bug')}
+          </button>
+          <button
+            type="button"
             class="osf-btn osf-btn--sm osf-btn--ghost"
             onClick={() =>
               copyText(serializeReport(health), tr('reportCopied', 'Diagnostic report copied'))
@@ -127,6 +213,122 @@ export function Health({
             {tr('troubleshooting', 'Troubleshooting')}
           </a>
         </div>
+
+        {reportOpen && reportStatus ? (
+          <section class="health-report" aria-label={tr('reportBug', 'Report a bug')}>
+            <div class="health-report-head">
+              <div>
+                <div class="group-label">{tr('privateDiagnostics', 'Private diagnostics')}</div>
+                <h3>{tr('reportProblem', 'Tell us what went wrong')}</h3>
+              </div>
+              <button
+                type="button"
+                class="osf-btn osf-btn--sm osf-btn--ghost"
+                disabled={reportSubmitting}
+                onClick={() => setReportOpen(false)}
+              >
+                {tr('cancel', 'Cancel')}
+              </button>
+            </div>
+
+            {reportResult?.ok ? (
+              <div class="health-report-success" role="status">
+                <strong>{tr('reportReceived', 'Report received')}</strong>
+                <span>
+                  {tr('reportReference', 'Reference: {id}', {
+                    id: reportResult.reportId || '(unknown)',
+                  })}
+                </span>
+                {reportResult.issueNumber ? (
+                  <button
+                    type="button"
+                    class="osf-btn osf-btn--sm osf-btn--ghost"
+                    onClick={() => onOpenReportIssue(reportResult.issueNumber!)}
+                  >
+                    {tr('openGitHubIssue', 'Open GitHub issue')}
+                  </button>
+                ) : null}
+              </div>
+            ) : (
+              <>
+                <label class="health-report-field">
+                  <span>{tr('reportTitle', 'Short title')}</span>
+                  <input
+                    class="osf-input"
+                    maxLength={120}
+                    value={reportTitle}
+                    onInput={(e) => setReportTitle(e.currentTarget.value)}
+                  />
+                </label>
+                <label class="health-report-field">
+                  <span>{tr('reportDescription', 'What happened?')}</span>
+                  <textarea
+                    class="osf-input"
+                    maxLength={6000}
+                    rows={4}
+                    value={reportDescription}
+                    onInput={(e) => setReportDescription(e.currentTarget.value)}
+                  />
+                </label>
+                <label class="health-report-field">
+                  <span>{tr('reportReproduction', 'How can we reproduce it? (optional)')}</span>
+                  <textarea
+                    class="osf-input"
+                    maxLength={4000}
+                    rows={3}
+                    value={reportReproduction}
+                    onInput={(e) => setReportReproduction(e.currentTarget.value)}
+                  />
+                </label>
+
+                <div class="health-report-disclosure">
+                  <strong>{tr('reportIncludes', 'This upload includes:')}</strong>
+                  <ul>
+                    {reportStatus.logs.map((name) => <li key={name}>{name} (recent tail)</li>)}
+                    <li>{tr('healthSnapshotIncluded', 'System Health snapshot and version information')}</li>
+                  </ul>
+                  <p>
+                    {tr(
+                      'reportPrivacy',
+                      'Known account and install paths are redacted before upload. Logs can still name installed mods. Diagnostics are private and deleted after {days} days; the title, description, and reproduction steps above may become a public GitHub issue after server-side abuse checks.',
+                      { days: reportStatus.retentionDays },
+                    )}
+                  </p>
+                </div>
+
+                <label class="health-report-consent">
+                  <input
+                    type="checkbox"
+                    checked={reportConsent}
+                    onInput={(e) => setReportConsent(e.currentTarget.checked)}
+                  />
+                  <span>{tr('reportConsent', 'I reviewed what will be sent and consent to this upload.')}</span>
+                </label>
+
+                {reportResult && !reportResult.ok ? (
+                  <p class="health-report-error" role="alert">
+                    {tr('reportFailureCode', 'Submission failed{code}.', {
+                      code: reportResult.code ? ` (${reportResult.code})` : '',
+                    })}
+                  </p>
+                ) : null}
+
+                <button
+                  type="button"
+                  class="osf-btn osf-btn--sm"
+                  disabled={
+                    reportSubmitting || !reportConsent || !reportTitle.trim() || !reportDescription.trim()
+                  }
+                  onClick={submitReport}
+                >
+                  {reportSubmitting
+                    ? tr('submittingReport', 'Submitting…')
+                    : tr('submitReport', 'Submit report')}
+                </button>
+              </>
+            )}
+          </section>
+        ) : null}
 
         {active.length ? (
           <div class="health-list" id="health-active">

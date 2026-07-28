@@ -79,6 +79,9 @@ namespace OSFUI
 		// disables. Ignored without devMode, so shipping it in config.json is
 		// harmless for users.
 		std::string devReloadKey{ "F11" };
+		// HTTPS endpoint for the consented diagnostic reporter. Empty disables
+		// submission while keeping the rest of System Health available.
+		std::string bugReportEndpoint;
 
 #if defined(OSFUI_WITH_WORLD_SURFACES)
 		// Research-only in-world WebView output. Excluded from release builds.

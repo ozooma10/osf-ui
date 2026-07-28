@@ -713,6 +713,9 @@ namespace OSFUI
 					osfui::wv2::kPipePrefix, ::GetCurrentProcessId(), instance, nonce);
 			auto args = std::format(L"--pipe={} --game-pid={} --log=\"{}\"",
 				pipeName, ::GetCurrentProcessId(), hostLog.native());
+			if (!config.reportEndpoint.empty() && config.instanceName.empty()) {
+				args += std::format(L" --report-endpoint=\"{}\"", ToWide(config.reportEndpoint));
+			}
 			if (!instance.empty()) {
 				// Selects a per-pid single-instance lock on the host side, so a
 				// world-surface host no longer evicts/refuses the overlay host.

@@ -1,7 +1,7 @@
 /**
  * TypeScript definitions for the OSF UI native <-> web bridge.
  *
- * Bridge protocol version: 1.6 (STABLE — additive changes bump the minor;
+ * Bridge protocol version: 1.7 (STABLE — additive changes bump the minor;
  * breaking changes bump the major). Compatibility is advisory: declare the
  * OSF UI version you authored against as `targetVersion` (view manifest /
  * settings schema) and the Mods surface badges "needs update" when the
@@ -82,6 +82,12 @@ export type UiCommand =
   | { command: "osfui.openLogFolder" }
   /** (protocol 1.4) Read the session diagnostics snapshot; replies `diagnostics.data` and SUBSCRIBES the caller — every later change to the health registry is pushed to you. */
   | { command: "diagnostics.get" }
+  /** (protocol 1.7, platform-private) Read whether the consented OSF UI bug reporter is configured; restricted to the built-in settings view. */
+  | { command: "diagnostics.reportStatus" }
+  /** (protocol 1.7, platform-private) Submit a consented report with bounded player-authored fields; native attaches redacted diagnostic logs. Restricted to the built-in settings view. */
+  | { command: "diagnostics.submitReport"; title: string; description: string; reproduction?: string }
+  /** (protocol 1.7, platform-private) Open one server-created issue. Native accepts only a positive issue number and constructs the fixed OSF UI GitHub URL. */
+  | { command: "osfui.openReportIssue"; issueNumber: number }
   /**
    * Fire an action at the OWNING mod's Papyrus scripts
    * (OSFUI.RegisterForViewActions). The mod id is derived from the calling
@@ -497,6 +503,22 @@ export interface DiagnosticsDataPayload {
   issues: DiagnosticIssue[];
 }
 
+/** Platform-private reporting availability and disclosure (protocol 1.7). */
+export interface DiagnosticsReportStatusPayload {
+  enabled: boolean;
+  logs: string[];
+  retentionDays: number;
+}
+
+/** Result of one consented automatic report submission (protocol 1.7). */
+export interface DiagnosticsReportResultPayload {
+  ok: boolean;
+  code?: string;
+  message?: string;
+  reportId?: string;
+  issueNumber?: number;
+}
+
 /** Platform-private state for the always-warm first-load handoff surface. */
 export interface HandoffStatePayload {
   target: string;
@@ -516,6 +538,8 @@ export type NativeToWebMessage =
   | BridgeEnvelope<"game.data", GameDataPayload>
   | BridgeEnvelope<"views.data", ViewsDataPayload>
   | BridgeEnvelope<"diagnostics.data", DiagnosticsDataPayload>
+  | BridgeEnvelope<"diagnostics.reportStatus", DiagnosticsReportStatusPayload>
+  | BridgeEnvelope<"diagnostics.reportResult", DiagnosticsReportResultPayload>
   | BridgeEnvelope<"i18n.data", I18nDataPayload>
   | BridgeEnvelope<"settings.data", SettingsDataPayload>
   | BridgeEnvelope<"handoff.state", HandoffStatePayload>

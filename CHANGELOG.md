@@ -10,6 +10,8 @@
 
 ### Added
 
+- System Health now has a consented **Report a bug** flow that accepts a private report reference and queues public GitHub issue creation after server-side abuse checks. It attaches bounded, locally redacted tails of both OSF UI logs plus the current health snapshot; the disclosure names every included file, the potentially public title/description/reproduction fields, and the 30-day retention period. Known account and install roots are removed on the PC, logs never enter the public issue, and a failed or unconfigured service leaves the existing copy/open-log fallback intact. Installations use renewable signed tickets; the service combines edge throttles with globally consistent daily installation, network, and total budgets, neutralizes public mentions/HTML, serializes GitHub publication through a retrying queue, and provides independent intake/publication pause switches. When Starfield exits with a non-zero process status, the surviving primary WebView2 helper offers the same private upload in a Windows Yes/No dialog without claiming OSF UI caused the crash. It resolves the game's exit status even when a crash closes the IPC pipe first, so the common crash-while-opening-UI path cannot be mistaken for an ordinary renderer shutdown.
+
 - **System Health is now the whole game's health pane, not just OSF UI's.** Any mod built on the native API can report a problem into it — a pack that failed to parse, a missing asset, a feature it had to switch off — so you look in one place when something is wrong instead of having to know which mod noticed first. Reports name the mod that made them, clear themselves when the condition goes away, and appear in **Copy diagnostic report** alongside everything else.
 
 ### Fixed
@@ -31,6 +33,8 @@
 - OSF UI → Diagnostics now lists every view discovered during the session, including hidden and not-yet-loaded views, with a **Trigger** button that sends it through the normal open path. This makes it possible to confirm registration and manually launch diagnostic or utility views without exposing them in the regular mod menu.
 
 ### For view authors
+
+- Bridge protocol **1.7** declares the built-in reporter's correlated status/result messages and commands. They are platform-private: every caller except the exact `osfui/settings` view is rejected, endpoints remain host-owned HTTPS configuration, and third-party views still have no network access.
 
 - Bridge protocol **1.6** adds a simpler event/state/request authoring layer without removing the raw bridge: `osfui.emit()` names one-way native commands, `osfui.call()` returns a correlated reply payload directly, and generic `osfui.on<T>()` improves custom message typing. Papyrus mods can publish naturally typed, session-cached `SetView*` state that automatically replays when a view opens or reloads and is consumed with `osfui.data.on()`—no `ready` action, key filtering or number-as-string conversion. `osfui.action()` plus `ListenForViewActions()` provide the concise one-way path, while `osfui.papyrus.request()` and the typed `ReplyView*`/`RejectViewRequest` natives add bounded, one-shot request/reply with host-owned correlation and timeout handling. Legacy `send`/`request`, `PushToView`, and custom callback registrations remain compatible. Protocol 1.5's qualified native-plugin requests also continue to ignore the old successful delivery ack and wait for the plugin's typed response.
 

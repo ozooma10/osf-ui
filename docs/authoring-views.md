@@ -14,7 +14,7 @@ a reference for the two data-driven extension points that work today:
 
 > **Status / scope.** Pure content, no recompile: a
 > `views/<modId>/<viewName>/` folder and a `settings/<modId>.json` schema. The
-> bridge protocol is at version **1.6 — stable**; additive changes bump the
+> bridge protocol is at version **1.7 — stable**; additive changes bump the
 > minor version, breaking changes bump the major. Compatibility is advisory:
 > declare the OSF UI version you authored against as `targetVersion` (manifest
 > and/or settings schema, §7), and the Mods surface shows a "needs update"
@@ -88,9 +88,10 @@ Module scripts, dynamic `import()`, and same-origin `fetch()` work under the
 WebView2 origin. The built-in views still ship a single classic `main.js` bundle
 with stable filenames because those bytes and paths are part of their published
 artifact contract; third-party views are not required to copy that build shape.
-Remote requests are not currently blocked by the host despite
-`permissions.network` being force-disabled, so views must keep dependencies and
-assets local. See `security-model.md`.
+Remote requests are blocked by the host. Views must keep dependencies and assets
+local; `permissions.network` is force-disabled. The built-in bug reporter is a
+narrow native exception with a host-owned HTTPS endpoint and cannot be invoked
+by third-party views. See `security-model.md`.
 
 ### The shared UI kit
 
@@ -394,6 +395,8 @@ Whitelisted commands (anything else is rejected, logged, and answered with
 | `views.get` | — | runtime replies with `views.data` (catalog of discovered surfaces, including not-yet-loaded ones) and subscribes the caller: any later open/close/focus/load-state change pushes a fresh `views.data` unsolicited, so no polling is needed |
 | `i18n.get` | `mod?` | runtime replies with `i18n.data` for the requested mod (omitted `mod` = the calling view's owner) and subscribes the caller to live language/catalog changes |
 | `diagnostics.get` | — | *(protocol 1.4)* runtime replies with `diagnostics.data` (the session health snapshot) and subscribes the caller: any later change to the health registry pushes a fresh `diagnostics.data` unsolicited. Powers the Mods surface's System Health destination; a normal content view rarely needs it |
+| `diagnostics.reportStatus` | — | *(protocol 1.7, platform-private)* tells the exact built-in `osfui/settings` view whether automatic reporting is configured, which log files are included, and the retention period. Every other source is rejected |
+| `diagnostics.submitReport` | `title`, `description`, `reproduction?` | *(protocol 1.7, platform-private)* asks native code to collect bounded, locally redacted log tails and the current health snapshot, then upload them through the host-owned HTTPS endpoint. Only `osfui/settings` may call it, and only one submission may be in flight |
 | `settings.get` | — | runtime replies with `settings.data` |
 | `settings.set` | `mod, key, value` | set one schema-declared setting (validated) |
 | `settings.reset` | `mod`, `key?` | reset one key, or the whole mod if `key` omitted |
@@ -403,6 +406,7 @@ Whitelisted commands (anything else is rejected, logged, and answered with
 | `osfui.textFocus` | `focused: bool` | *(legacy experimental compatibility command)* accepted as a no-op. Interactive menus now hold native focus for their entire visible session, so views no longer need to request or release a separate text-entry grant |
 | `osfui.openModPage` | — | *(protocol 1.1)* open OSF UI's own Nexus Mods page in the user's **system browser** (the overlay itself never navigates — it has no chrome to come back through). The URL is hardcoded in the host; the payload carries nothing, so page content cannot steer the shell. For "update OSF UI" affordances in views. Behind a fullscreen game the browser opens unfocused (alt-tab); failures answer `ui.result { ok:false, code:"shell-failed" }` |
 | `osfui.openLogFolder` | — | *(protocol 1.4)* open the SFSE log folder in the system file browser. Fixed-target twin of `osfui.openModPage`: payload-free, the directory is derived natively, and the host opens only an existing directory, so page content can neither choose the target nor make this run anything. Failures answer `ui.result { ok:false, code:"no-log-folder" \| "shell-failed" }` |
+| `osfui.openReportIssue` | `issueNumber: number` | *(protocol 1.7, platform-private)* opens the issue created by a completed automatic report. Only `osfui/settings` may call it; native code accepts a bounded positive issue number and constructs the fixed GitHub repository URL, so page content never supplies a URL |
 | `ui.action` | `action: string`, `arg?: string`, `args?: (string\|number\|boolean)[]` | *(protocol 1.1; `args` added 1.3)* fire an action at the OWNING mod's Papyrus scripts (`OSFUI.RegisterForViewActions`). The target mod id is derived from the calling view's id — the payload cannot spoof it. Send `arg` for a single string (delivered as `OnUIAction(action, arg)`) or `args` for a LIST (delivered as `OnUIAction(action, string[])` to a `RegisterForViewActionsArgs` callback) — the latter replaces packing several ints into one string. Non-string `args` elements are coerced to strings. A form reference (protocol 1.3) is just another `args` element: echo a pushed form's `formId` and the script resolves it with `OSFUI.GetFormById`. Fire-and-forget: no reply payload (a `requestId` still gets the auto `ui.result`, meaning "queued to the VM", not "handled"); the script normally publishes updated typed state with `SetView*`. Only legacy transient `PushToView` flows need a page-level `ready` action — see [authoring-dynamic-data.md](authoring-dynamic-data.md) |
 | `ui.papyrusRequest` | `request: string`, `args?: (string\|number\|boolean)[]` | *(protocol 1.6; normally call `osfui.papyrus.request()`)* ask the OWNING mod's single Papyrus request listener for a typed value. The host derives ownership, supplies a one-shot reply token, enforces a ten-second deadline, and correlates `papyrus.result` or `ui.error`; the page never handles a token or requestId. |
 
@@ -428,6 +432,8 @@ serves both:
 | `views.data` | `{ views: [ { id, title, description, mod, kind, interactive, hub, targetVersion, open, focused, loadState } ] }` | reply to `views.get`, and re-pushed to every subscribed view when any entry changes. `id` is the qualified `<modId>/<viewName>`; `mod` = the owning mod id derived from the folder (a mod with no settings schema of that id just lists under its own title); `kind` = `"menu"`\|`"hud"`; `targetVersion` = the manifest's declared target (empty string when undeclared); `loadState` = `"unloaded"`\|`"loading"`\|`"loaded"`\|`"failed"` — `"unloaded"` means discovered on disk but never loaded (still listed so a launcher can offer it; opening it loads on demand), `"failed"` covers a crash-recovery give-up. Respect `hub:false` (don't list those) |
 | `i18n.data` | `{ mod, locale, strings }` | reply to `i18n.get`, then re-pushed to subscribed views after a language change or a dev-mode catalog reload; `strings` contains active-locale overrides keyed by stable structural address |
 | `diagnostics.data` | `{ system, issues: [ { id, code, severity, status, source, subject, context, occurrences, firstAt, lastAt, resolvedAt? } ] }` | *(protocol 1.4)* reply to `diagnostics.get`, and re-pushed to every subscriber whenever the session health registry changes. `system` is an informational key/value block; each issue carries a stable machine `code` (map it to your own copy — the payload never contains player-facing prose), a `severity` (`"warning"`\|`"error"`), a `status` (`"active"`\|`"resolved"`, resolved kept for the session only), and bounded, path-free `context`. Times are session-relative seconds |
+| `diagnostics.reportStatus` | `{ enabled, logs, retentionDays }` | *(protocol 1.7, platform-private)* correlated reply for the built-in consent disclosure; unavailable to third-party views |
+| `diagnostics.reportResult` | `{ ok, reportId?, issueNumber?, code?, message? }` | *(protocol 1.7, platform-private)* correlated completion of a report upload. The public issue number is safe to pass back to the fixed-target opener; the service never returns private log content to the page |
 | `settings.data` | `{ mods: [ { id, title, schema, values, shadowed?, targetVersion? } ], vanillaKeys?, loadErrors? }` | reply to `settings.get` / after a `settings.reset`. Per-mod `shadowed?` lists drop-in schema files that also claimed this id and lost first-wins (render a conflict badge); `targetVersion?` is the schema's advisory authored-against version (§7), omitted when undeclared. A `key`-typed setting whose binding collides with another mod's carries runtime-injected `conflicts: [{mod, key, title}]` in its schema object — informational; render a badge, never block. `mod` may be the reserved id `@game` (the game's own bindings; display `title`, e.g. "Starfield (Quicksave)"). Top-level `vanillaKeys: [{event, title, name}]` is the game's full binding table (read-only; the keybinds view renders it); absent when the runtime has none. Top-level `loadErrors: [{kind, file, mod?, message}]` names settings files that failed to load — `schema-name` / `schema-parse` (file skipped) or `values-parse` (values quarantined as `<file>.bad`, defaults served); absent when everything loaded clean. The Mods surface renders these as a rail alert |
 | `settings.ack` | `{ mod, key, ok, value?, code?, message? }` | result of a `settings.set`. `ok:true` carries `value`, the authoritative post-clamp committed value (compare with what you sent to detect clamping — no re-fetch needed); `ok:false` carries a stable `code`: `unknown-setting`, `read-only` (a setting type this host doesn't know), or `invalid-value` |
 | `settings.captured` | `{ mod, key, name, cancelled, conflicts? }` | reply to `settings.captureKey`: the captured key `name` (an OSF UI key name), or `cancelled:true` (Escape / unbindable — keep the old binding). When the captured key is already bound elsewhere, `conflicts: [{mod, key, title}]` lists actionable collisions this bind would create; expected `@game` reuse from a `blocksGameplay` context is omitted. Warn live, never block. The view then sends a normal `settings.set` with `name` |
@@ -749,7 +755,7 @@ const info = await osfui.ready;
 console.log(`running OSF UI ${info.version}`);
 ```
 
-The protocol version is **1.6**, emitted as `bridgeVersion` — informational
+The protocol version is **1.7**, emitted as `bridgeVersion` — informational
 (logs, bug reports), distinct from the plugin `version`. From 1.0 the
 contract is stable: additive changes bump the minor version; anything that
 would break a shipped view bumps the major. The constant lives in

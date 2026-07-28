@@ -162,6 +162,19 @@ To disable without uninstalling: set `"enabled": false` in
 
 ## Reporting issues
 
-Include your `OSF UI.log`, game build, SFSE version, and whether you run
-HDR, frame generation, ReShade, or other overlays.
-Issues: https://github.com/ozooma10/osf-ui
+Open **Mod Settings → System Health → Report a bug**. When automatic reporting
+is configured, OSF UI shows the exact files and retention period before upload,
+requires consent, redacts known account and installation roots locally, and
+uploads bounded tails of `OSF UI.log` and `OSF UI.webview2-host.log` with the
+current health snapshot. The service stores those attachments privately for 30
+days; after server-side abuse checks, a public GitHub issue may be created with
+only your title, description, reproduction steps, and an opaque report
+reference. Acceptance returns a private reference immediately even while issue
+publication is queued or temporarily paused. If Starfield exits with a
+non-zero process status, the surviving primary WebView2 helper offers the same
+upload in a Windows Yes/No dialog and does not claim that OSF UI caused the
+exit.
+
+If automatic reporting is disabled or fails, use **Copy diagnostic report** and
+**Open log folder**, then attach the result manually at
+https://github.com/ozooma10/osf-ui/issues.

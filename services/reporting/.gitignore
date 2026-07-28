@@ -1,0 +1,4 @@
+.wrangler/
+.wrangler-dry-run/
+.dev.vars
+.env*

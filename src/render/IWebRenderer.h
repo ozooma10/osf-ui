@@ -9,6 +9,9 @@ namespace OSFUI
 		std::uint32_t width{ kDefaultViewWidth };
 		std::uint32_t height{ kDefaultViewHeight };
 		bool          devMode{ false };
+		// Host-owned HTTPS destination for the consented crash prompt. Empty
+		// disables it. Only the primary overlay renderer receives this value.
+		std::string   reportEndpoint;
 
 		// Plugin data root (Paths::DataDir()). Backends resolve packaged assets
 		// such as bin/osfui_webview2_host.exe under here, keeping render/

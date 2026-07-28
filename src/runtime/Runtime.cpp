@@ -28,6 +28,7 @@
 #include "core/Paths.h"
 #include "platform/WindowsPlatform.h"
 #include "render/MockWebRenderer.h"
+#include "reporting/ReportClient.h"
 #include "runtime/Json.h"
 #include "runtime/Ids.h"
 #include "runtime/VanillaKeys.h"
@@ -129,6 +130,7 @@ namespace OSFUI
 			.width = initialWidth,
 			.height = initialHeight,
 			.devMode = _config.devMode,
+			.reportEndpoint = _config.bugReportEndpoint,
 			.dataDir = Paths::DataDir(),
 		};
 		if (!_renderer->Initialize(rendererConfig)) {
@@ -429,6 +431,9 @@ namespace OSFUI
 		if (!_initialized) {
 			return;
 		}
+		// The worker owns only value snapshots, but join before bridge teardown so
+		// a late completion cannot publish into state being destroyed.
+		_bugReportWorker = {};
         // Its callback holds non-owning renderer pointers: join the worker
         // before either renderer begins teardown.
         _devViewReload.reset();
@@ -474,6 +479,7 @@ namespace OSFUI
 			return;
 		}
 		_uptime += a_deltaSeconds;
+		DrainBugReportResult();
 		// The pause-menu entry (PauseMenuEntry::Reconcile) is NOT driven from
 		// here: although Tick runs on the game main thread, arbitrary Scaleform
 		// access must also avoid re-entering the AS3 VM. MainThreadMenuPump drives
@@ -2333,6 +2339,29 @@ namespace OSFUI
 		});
 	}
 
+	void Runtime::DrainBugReportResult()
+	{
+		std::optional<BugReportResult> result;
+		{
+			std::scoped_lock lock(_bugReportMutex);
+			if (_bugReportResult) {
+				result = std::move(_bugReportResult);
+				_bugReportResult.reset();
+			}
+		}
+		if (!result) return;
+		_bugReportInFlight.store(false, std::memory_order_release);
+		if (!_bridge) return;
+
+		nlohmann::json payload{ { "ok", result->ok } };
+		if (!result->code.empty()) payload["code"] = result->code;
+		if (!result->message.empty()) payload["message"] = result->message;
+		if (!result->reportId.empty()) payload["reportId"] = result->reportId;
+		if (result->issueNumber != 0) payload["issueNumber"] = result->issueNumber;
+		_bridge->SendToWeb(result->view, "diagnostics.reportResult", payload,
+			result->requestId);
+	}
+
 	void Runtime::RegisterPlatformCommands(MessageBridge& a_bridge)
 	{
 		// The platform owns only window/diagnostic commands. Features register
@@ -2622,6 +2651,85 @@ namespace OSFUI
 			} else {
 				REX::WARN("Runtime: osfui.openLogFolder — the shell refused to open {}", folder.string());
 				a_b.SendResult(false, "shell-failed", "could not open the log folder");
+			}
+		});
+		a_bridge.RegisterRequest("diagnostics.reportStatus", [this](const nlohmann::json&, MessageBridge& a_b) {
+			if (a_b.CurrentSource() != "osfui/settings") {
+				a_b.SendResult(false, "forbidden", "bug reporting is restricted to OSF UI's built-in settings view");
+				return;
+			}
+			a_b.SendToWeb("diagnostics.reportStatus", {
+				{ "enabled", !_config.bugReportEndpoint.empty() },
+				{ "logs", nlohmann::json::array({ "OSF UI.log", "OSF UI.webview2-host.log" }) },
+				{ "retentionDays", 30 },
+			});
+		});
+		a_bridge.RegisterRequest("diagnostics.submitReport", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
+			if (a_b.CurrentSource() != "osfui/settings") {
+				a_b.SendResult(false, "forbidden", "bug reporting is restricted to OSF UI's built-in settings view");
+				return;
+			}
+			if (_config.bugReportEndpoint.empty()) {
+				a_b.SendResult(false, "reporting-disabled", "automatic reporting is not configured in this build");
+				return;
+			}
+			const auto requestId = std::string(a_b.CurrentRequestId());
+			if (requestId.empty()) {
+				a_b.SendResult(false, "request-required", "report submission requires a correlated request");
+				return;
+			}
+			const auto title = Json::GetString(a_p, "title", "").substr(0, 120);
+			const auto description = Json::GetString(a_p, "description", "").substr(0, 6000);
+			const auto reproduction = Json::GetString(a_p, "reproduction", "").substr(0, 4000);
+			if (title.empty() || description.empty()) {
+				a_b.SendResult(false, "invalid-report", "title and description are required");
+				return;
+			}
+			if (_bugReportInFlight.exchange(true, std::memory_order_acq_rel)) {
+				a_b.SendResult(false, "report-busy", "another report is already being submitted");
+				return;
+			}
+			const auto endpoint = _config.bugReportEndpoint;
+			const auto diagnostics = _diagnostics ? _diagnostics->Snapshot() : nlohmann::json::object();
+			const auto view = std::string(a_b.CurrentSource());
+			try {
+				_bugReportWorker = std::jthread([this, endpoint, diagnostics, title,
+					description, reproduction, view, requestId] {
+					const auto submitted = Reporting::Submit(endpoint, diagnostics, title,
+						description, reproduction);
+					BugReportResult result{
+						.view = view,
+						.requestId = requestId,
+						.ok = submitted.ok,
+						.code = submitted.code,
+						.message = submitted.message,
+						.reportId = submitted.reportId,
+						.issueNumber = submitted.issueNumber,
+					};
+					std::scoped_lock lock(_bugReportMutex);
+					_bugReportResult = std::move(result);
+				});
+			} catch (const std::exception& e) {
+				_bugReportInFlight.store(false, std::memory_order_release);
+				REX::ERROR("Runtime: could not start bug-report worker: {}", e.what());
+				a_b.SendResult(false, "internal", "could not start the report upload");
+				return;
+			}
+			a_b.DeferResult();
+		});
+		a_bridge.RegisterCommand("osfui.openReportIssue", [](const nlohmann::json& a_p, MessageBridge& a_b) {
+			if (a_b.CurrentSource() != "osfui/settings") {
+				a_b.SendResult(false, "forbidden", "open report issue is a platform action");
+				return;
+			}
+			const auto number = Json::GetInt(a_p, "issueNumber", 0);
+			if (number <= 0 || number > 1000000000) {
+				a_b.SendResult(false, "invalid-issue", "invalid report issue number");
+				return;
+			}
+			const auto url = std::format(L"https://github.com/ozooma10/osf-ui/issues/{}", number);
+			if (!Platform::OpenSystemBrowser(url.c_str())) {
+				a_b.SendResult(false, "shell-failed", "could not open the system browser");
 			}
 		});
 		a_bridge.RegisterCommand("osfui.handleBack", [this](const nlohmann::json& a_p, MessageBridge& a_b) {

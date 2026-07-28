@@ -34,7 +34,7 @@ import type { Translator } from '@lib/i18n';
 import type { Setting, SettingsGroup, SettingsItem, SettingsSchema, SettingValue } from '@sdk';
 import { SettingRow } from './SettingRow';
 import { SearchResults } from './SearchResults';
-import { Health } from './Health';
+import { Health, type ReportResult, type ReportStatus, type ReportSubmission } from './Health';
 import { Home } from './Home';
 import { Presets, type PresetRecord } from './Presets';
 import type { CaptureTarget } from './useCapture';
@@ -74,6 +74,9 @@ export interface DetailProps {
   onOpenIssue: (issueId: string) => void;
   /** Fire a payload-free shell command from a health card. */
   onShellCommand: (command: string) => void;
+  onGetReportStatus: () => Promise<ReportStatus>;
+  onSubmitReport: (report: ReportSubmission) => Promise<ReportResult>;
+  onOpenReportIssue: (issueNumber: number) => void;
 
   /** User overrides on top of each group's schema `collapsed` default. */
   collapsed: Record<string, boolean>;
@@ -134,6 +137,9 @@ export function Detail(props: DetailProps) {
           focusIssueId={props.focusIssueId}
           onRetryView={props.onOpenView}
           onShellCommand={props.onShellCommand}
+          onGetReportStatus={props.onGetReportStatus}
+          onSubmitReport={props.onSubmitReport}
+          onOpenReportIssue={props.onOpenReportIssue}
           onToast={props.onToast}
         />
       ) : query ? (

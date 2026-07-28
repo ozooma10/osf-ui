@@ -135,6 +135,9 @@ namespace OSFUI
 		// named concretely at the ~38 sites that need module-specific facts.
 		void BuildModules();
 		void RegisterPlatformCommands(MessageBridge& a_bridge);
+		// Complete a consented report off-thread, then marshal the correlated
+		// result back through the bridge on the game thread.
+		void DrainBugReportResult();
 
 		// Create and register one discovered surface with exactly the same
 		// renderer/console/bridge/load-state wiring at boot, RegisterView time,
@@ -349,6 +352,20 @@ namespace OSFUI
 		std::vector<std::unique_ptr<IUiModule>> _modules;
 		SettingsModule*                         _settings{ nullptr };  // owned by _modules; core reads schema facts through it
 		DiagnosticsModule*                      _diagnostics{ nullptr };  // ditto; every producer reaches the registry through here
+		struct BugReportResult
+		{
+			std::string   view;
+			std::string   requestId;
+			bool          ok{ false };
+			std::string   code;
+			std::string   message;
+			std::string   reportId;
+			std::uint64_t issueNumber{ 0 };
+		};
+		std::mutex                    _bugReportMutex;
+		std::optional<BugReportResult> _bugReportResult;
+		std::jthread                   _bugReportWorker;
+		std::atomic_bool               _bugReportInFlight{ false };
 		InputRouter                             _input;
 		// Live key-typed bindings -> owner dispatch. Fed by OnHostKey (window
 		// thread), rebuilt from the store's listeners and drained in Tick (main

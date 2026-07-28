@@ -73,6 +73,7 @@ import { UndoPanel } from './UndoPanel';
 import { homeModCaption } from './Home';
 import { useCapture } from './useCapture';
 import type { PresetRecord } from './Presets';
+import type { ReportResult, ReportStatus, ReportSubmission } from './Health';
 
 /**
  * Filter debounce. Every keystroke would otherwise re-scan every mod's schema
@@ -810,6 +811,13 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
           focusIssueId={focusIssueId}
           onOpenIssue={openIssue}
           onShellCommand={(command) => sendCommand(command)}
+          onGetReportStatus={() => bridge.call<ReportStatus>('diagnostics.reportStatus')}
+          onSubmitReport={(report: ReportSubmission) =>
+            bridge.call<ReportResult>('diagnostics.submitReport', { ...report }, { timeoutMs: 60000 })
+          }
+          onOpenReportIssue={(issueNumber) =>
+            sendCommand('osfui.openReportIssue', { issueNumber })
+          }
           collapsed={collapsed}
           onToggleGroup={(key, next) => setCollapsed((c) => ({ ...c, [key]: next }))}
           capturing={capture.capturing}

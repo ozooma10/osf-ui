@@ -222,6 +222,82 @@ describe('copy diagnostic report', () => {
   });
 });
 
+describe('automatic bug reporting', () => {
+  it('shows the exact upload disclosure before enabling submission', async () => {
+    const { bridge, el } = await mountHealth([]);
+    openHealth(el);
+    await flush();
+    [...el.querySelectorAll<HTMLButtonElement>('.health-actions .osf-btn')]
+      .find((b) => b.textContent === 'Report a bug')!
+      .click();
+    await flush();
+
+    const status = bridge.indexOf('diagnostics.reportStatus');
+    expect(status).toBeGreaterThanOrEqual(0);
+    bridge.settle(status, {
+      enabled: true,
+      logs: ['OSF UI.log', 'OSF UI.webview2-host.log'],
+      retentionDays: 30,
+    });
+    await flush();
+
+    const disclosure = el.querySelector('.health-report-disclosure')!;
+    expect(disclosure.textContent).toContain('OSF UI.log');
+    expect(disclosure.textContent).toContain('private');
+    expect(disclosure.textContent).toContain('30 days');
+    expect(el.querySelector<HTMLButtonElement>('.health-report > .osf-btn')?.disabled).toBe(true);
+  });
+
+  it('submits only after consent and opens the fixed native issue action', async () => {
+    const { bridge, el } = await mountHealth([]);
+    openHealth(el);
+    await flush();
+    [...el.querySelectorAll<HTMLButtonElement>('.health-actions .osf-btn')]
+      .find((b) => b.textContent === 'Report a bug')!
+      .click();
+    await flush();
+    bridge.settle(bridge.indexOf('diagnostics.reportStatus'), {
+      enabled: true,
+      logs: ['OSF UI.log'],
+      retentionDays: 30,
+    });
+    await flush();
+
+    const inputs = el.querySelectorAll<HTMLInputElement>('.health-report input');
+    const title = el.querySelector<HTMLInputElement>('.health-report-field input')!;
+    const textareas = el.querySelectorAll<HTMLTextAreaElement>('.health-report textarea');
+    title.value = 'Blank overlay';
+    title.dispatchEvent(new Event('input', { bubbles: true }));
+    textareas[0]!.value = 'The Mods menu is empty.';
+    textareas[0]!.dispatchEvent(new Event('input', { bubbles: true }));
+    textareas[1]!.value = 'Press F10.';
+    textareas[1]!.dispatchEvent(new Event('input', { bubbles: true }));
+    const consent = [...inputs].find((input) => input.type === 'checkbox')!;
+    consent.checked = true;
+    consent.dispatchEvent(new Event('input', { bubbles: true }));
+    await flush();
+
+    [...el.querySelectorAll<HTMLButtonElement>('.health-report > .osf-btn')]
+      .find((b) => b.textContent === 'Submit report')!
+      .click();
+    await flush();
+    const submit = bridge.indexOf('diagnostics.submitReport');
+    expect(bridge.requests[submit]!.fields).toEqual({
+      title: 'Blank overlay',
+      description: 'The Mods menu is empty.',
+      reproduction: 'Press F10.',
+    });
+    bridge.settle(submit, { ok: true, reportId: 'report-123', issueNumber: 42 });
+    await flush();
+    expect(el.querySelector('.health-report-success')!.textContent).toContain('report-123');
+    el.querySelector<HTMLButtonElement>('.health-report-success .osf-btn')!.click();
+    expect(bridge.sent).toContainEqual({
+      command: 'osfui.openReportIssue',
+      fields: { issueNumber: 42 },
+    });
+  });
+});
+
 describe('deep links', () => {
   it('a failed launcher card navigates to its issue with the card expanded', async () => {
     const bridge = makeBridge();

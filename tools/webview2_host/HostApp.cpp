@@ -12,6 +12,8 @@
 #include <format>
 #include <fstream>
 #include <memory>
+#include <random>
+#include <regex>
 #include <unordered_map>
 #include <vector>
 
@@ -19,6 +21,8 @@
 #include <WebView2.h>
 #include <WebView2EnvironmentOptions.h>
 #include <shellapi.h>
+#include <shlobj.h>
+#include <winhttp.h>
 #include <wrl.h>
 #include <wrl/client.h>
 #include <d3d10_1.h>
@@ -80,6 +84,12 @@ namespace osfui::wv2
 				file.open(a_path, std::ios::out | std::ios::trunc);
 			}
 
+			void Flush()
+			{
+				std::scoped_lock lock(mutex);
+				if (file.is_open()) file.flush();
+			}
+
 			// level: 0 info, 1 warn, 2 error
 			void Log(int a_level, const std::string& a_text)
 			{
@@ -117,6 +127,240 @@ namespace osfui::wv2
 			void Warn(const std::string& a_text) { Log(1, a_text); }
 			void Error(const std::string& a_text) { Log(2, a_text); }
 		};
+
+		void ReplaceAllInsensitive(std::string& a_text, std::string_view a_needle,
+			std::string_view a_replacement)
+		{
+			if (a_needle.empty()) return;
+			std::string lowerText = a_text;
+			std::string lowerNeedle(a_needle);
+			std::ranges::transform(lowerText, lowerText.begin(),
+				[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			std::ranges::transform(lowerNeedle, lowerNeedle.begin(),
+				[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			std::size_t at = 0;
+			while ((at = lowerText.find(lowerNeedle, at)) != std::string::npos) {
+				a_text.replace(at, a_needle.size(), a_replacement);
+				lowerText.replace(at, a_needle.size(), a_replacement);
+				at += a_replacement.size();
+			}
+		}
+
+		std::string ReadReportLog(const std::filesystem::path& a_path, bool& a_truncated,
+			std::string_view a_pluginRoot)
+		{
+			constexpr std::size_t kMaxBytes = 384 * 1024;
+			std::ifstream file(a_path, std::ios::binary | std::ios::ate);
+			if (!file) return {};
+			const auto end = file.tellg();
+			if (end <= 0) return {};
+			const auto size = static_cast<std::size_t>(end);
+			const auto keep = (std::min)(size, kMaxBytes);
+			a_truncated = keep < size;
+			file.seekg(static_cast<std::streamoff>(size - keep));
+			std::string text(keep, '\0');
+			file.read(text.data(), static_cast<std::streamsize>(keep));
+			text.resize(static_cast<std::size_t>(file.gcount()));
+			ReplaceAllInsensitive(text, a_pluginRoot, "<PluginDir>");
+			static const std::regex profile(
+				R"(([A-Za-z]:[\\/](?:Users|Documents and Settings)[\\/])[^\\/\r\n"']+)",
+				std::regex::icase);
+			return std::regex_replace(text, profile, "$1<user>");
+		}
+
+		bool PostCrashReport(std::wstring_view a_endpoint, std::string_view a_body,
+			DWORD& a_status, std::string& a_response)
+		{
+			if (!a_endpoint.starts_with(L"https://") || a_body.size() > 1024 * 1024) return false;
+			std::wstring endpoint(a_endpoint);
+			URL_COMPONENTS parts{};
+			parts.dwStructSize = sizeof(parts);
+			parts.dwSchemeLength = static_cast<DWORD>(-1);
+			parts.dwHostNameLength = static_cast<DWORD>(-1);
+			parts.dwUrlPathLength = static_cast<DWORD>(-1);
+			parts.dwExtraInfoLength = static_cast<DWORD>(-1);
+			if (!::WinHttpCrackUrl(endpoint.c_str(), 0, 0, &parts) ||
+				parts.nScheme != INTERNET_SCHEME_HTTPS || parts.dwHostNameLength == 0) return false;
+			const std::wstring host(parts.lpszHostName, parts.dwHostNameLength);
+			std::wstring path(parts.lpszUrlPath, parts.dwUrlPathLength);
+			if (parts.dwExtraInfoLength) path.append(parts.lpszExtraInfo, parts.dwExtraInfoLength);
+			if (path.empty()) path = L"/";
+			const HINTERNET session = ::WinHttpOpen(L"OSFUI/crash-reporter",
+				WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
+				WINHTTP_NO_PROXY_BYPASS, 0);
+			if (!session) return false;
+			::WinHttpSetTimeouts(session, 10000, 10000, 15000, 30000);
+			const HINTERNET connection = ::WinHttpConnect(session, host.c_str(), parts.nPort, 0);
+			const HINTERNET request = connection ? ::WinHttpOpenRequest(connection, L"POST",
+				path.c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
+				WINHTTP_FLAG_SECURE) : nullptr;
+			bool ok = false;
+			if (request) {
+				DWORD disable = WINHTTP_DISABLE_REDIRECTS;
+				::WinHttpSetOption(request, WINHTTP_OPTION_DISABLE_FEATURE, &disable, sizeof(disable));
+				constexpr wchar_t headers[] = L"Content-Type: application/json\r\nAccept: application/json\r\n";
+				const auto size = static_cast<DWORD>(a_body.size());
+				ok = ::WinHttpSendRequest(request, headers, static_cast<DWORD>(-1),
+					const_cast<char*>(a_body.data()), size, size, 0) &&
+					::WinHttpReceiveResponse(request, nullptr);
+				if (ok) {
+					DWORD statusSize = sizeof(a_status);
+					::WinHttpQueryHeaders(request,
+						WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+						WINHTTP_HEADER_NAME_BY_INDEX, &a_status, &statusSize,
+						WINHTTP_NO_HEADER_INDEX);
+					for (;;) {
+						DWORD available = 0;
+						if (!::WinHttpQueryDataAvailable(request, &available) || available == 0) break;
+						if (a_response.size() + available > 64 * 1024) { ok = false; break; }
+						const auto old = a_response.size();
+						a_response.resize(old + available);
+						DWORD read = 0;
+						if (!::WinHttpReadData(request, a_response.data() + old, available, &read)) {
+							a_response.resize(old); ok = false; break;
+						}
+						a_response.resize(old + read);
+					}
+				}
+			}
+			if (request) ::WinHttpCloseHandle(request);
+			if (connection) ::WinHttpCloseHandle(connection);
+			::WinHttpCloseHandle(session);
+			return ok;
+		}
+
+		std::filesystem::path ReporterFolder()
+		{
+			PWSTR raw = nullptr;
+			std::filesystem::path folder;
+			if (SUCCEEDED(::SHGetKnownFolderPath(FOLDERID_Documents, KF_FLAG_DEFAULT, nullptr, &raw)) && raw) {
+				folder = std::filesystem::path(raw) / "My Games" / "Starfield" / "OSFUI";
+			}
+			if (raw) ::CoTaskMemFree(raw);
+			return folder;
+		}
+
+		std::string ReporterClientId()
+		{
+			const auto folder = ReporterFolder();
+			const auto path = folder / "reporter-id.txt";
+			std::string id;
+			std::ifstream existing(path);
+			if (existing >> id && id.size() >= 16 && id.size() <= 80 &&
+				std::ranges::all_of(id, [](unsigned char c) {
+					return std::isalnum(c) || c == '_' || c == '-';
+				})) return id;
+			std::random_device random;
+			static constexpr char hex[] = "0123456789abcdef";
+			id = "client_";
+			for (int i = 0; i < 32; ++i) id += hex[random() & 0xF];
+			if (!folder.empty()) {
+				std::error_code ec;
+				std::filesystem::create_directories(folder, ec);
+				std::ofstream out(path, std::ios::trunc);
+				if (out) out << id;
+			}
+			return id;
+		}
+
+		std::wstring InstallationEndpoint(std::wstring_view a_reportEndpoint)
+		{
+			std::wstring endpoint(a_reportEndpoint);
+			constexpr std::wstring_view suffix = L"/v1/reports";
+			if (!endpoint.ends_with(suffix)) return {};
+			endpoint.resize(endpoint.size() - suffix.size());
+			return endpoint + L"/v1/installations";
+		}
+
+		std::string RequestInstallationToken(std::wstring_view a_reportEndpoint,
+			std::string_view a_clientId)
+		{
+			const auto endpoint = InstallationEndpoint(a_reportEndpoint);
+			if (endpoint.empty()) return {};
+			DWORD status = 0;
+			std::string response;
+			if (!PostCrashReport(endpoint, json{ { "clientId", a_clientId } }.dump(), status, response) ||
+				status < 200 || status >= 300) return {};
+			const auto parsed = json::parse(response, nullptr, false);
+			if (parsed.is_discarded() || !parsed.is_object()) return {};
+			return parsed.value("installationToken", "");
+		}
+
+		void PromptCrashReport(const HostOptions& a_options, DWORD a_gameExitCode, Logger& a_log)
+		{
+			if (!a_options.instance.empty() || a_options.reportEndpoint.empty()) return;
+			const auto choice = ::MessageBoxW(nullptr,
+				L"Starfield closed unexpectedly. OSF UI may not have caused the crash, "
+				L"but its diagnostic logs could help find the problem.\n\n"
+				L"Submit a bug report now? The recent OSF UI and WebView2-host logs "
+				L"will be redacted locally, uploaded privately, and deleted after 30 days. "
+				L"A public GitHub issue will contain only a generic crash description.",
+				L"OSF UI - Starfield closed unexpectedly",
+				MB_YESNO | MB_ICONWARNING | MB_TOPMOST | MB_SETFOREGROUND);
+			if (choice != IDYES) {
+				a_log.Info("crash report declined by the player");
+				return;
+			}
+			a_log.Info("crash report consented; collecting bounded redacted logs");
+			a_log.Flush();
+			wchar_t executable[32768]{};
+			const auto executableLength = ::GetModuleFileNameW(nullptr, executable,
+				static_cast<DWORD>(std::size(executable)));
+			const auto pluginRoot = executableLength > 0 ?
+				ToUtf8(std::filesystem::path(executable).parent_path().parent_path().wstring()) :
+				std::string{};
+			json logs = json::array();
+			const auto addLog = [&logs, &pluginRoot](const std::filesystem::path& path, std::string_view name) {
+				bool truncated = false;
+				auto content = ReadReportLog(path, truncated, pluginRoot);
+				if (!content.empty()) logs.push_back({
+					{ "name", name }, { "content", std::move(content) }, { "truncated", truncated } });
+			};
+			addLog(a_options.logFile.parent_path() / "OSF UI.log", "OSF UI.log");
+			addLog(a_options.logFile, "OSF UI.webview2-host.log");
+			const auto clientId = ReporterClientId();
+			const auto installationToken = RequestInstallationToken(a_options.reportEndpoint, clientId);
+			if (installationToken.empty()) {
+				a_log.Error("crash report installation registration failed");
+				::MessageBoxW(nullptr,
+					L"The reporting service could not register this installation. Your logs remain "
+					L"in the Starfield SFSE Logs folder.", L"OSF UI - Report failed",
+					MB_OK | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND);
+				return;
+			}
+			const json payload{
+				{ "schemaVersion", 1 }, { "clientId", clientId },
+				{ "installationToken", installationToken }, { "kind", "crash" },
+				{ "title", "Starfield closed unexpectedly" },
+				{ "description", "Starfield exited with a non-zero process status while OSF UI was active." },
+				{ "reproduction", "Not provided; submitted from the post-crash consent prompt." },
+				{ "pluginVersion", OSFUI::kPluginVersion },
+				{ "diagnostics", { { "system", { { "gameExitCode", a_gameExitCode } } },
+					{ "issues", json::array() } } },
+				{ "logs", std::move(logs) },
+			};
+			DWORD status = 0;
+			std::string response;
+			const bool sent = PostCrashReport(a_options.reportEndpoint, payload.dump(), status, response);
+			const auto reply = json::parse(response, nullptr, false);
+			const bool accepted = sent && status >= 200 && status < 300 &&
+				!reply.is_discarded() && reply.value("ok", false);
+			if (accepted) {
+				const auto reportId = reply.value("reportId", "");
+				a_log.Info(std::format("crash report accepted (reference {})", reportId));
+				const auto message = std::format(
+					L"The diagnostic report was accepted for review.\n\nReference: {}", ToWide(reportId));
+				::MessageBoxW(nullptr, message.c_str(), L"OSF UI - Report submitted",
+					MB_OK | MB_ICONINFORMATION | MB_TOPMOST | MB_SETFOREGROUND);
+			} else {
+				a_log.Error(std::format("crash report submission failed (HTTP {})", status));
+				::MessageBoxW(nullptr,
+					L"The report could not be submitted. Your logs remain in the Starfield "
+					L"SFSE Logs folder and were not retained by OSF UI.",
+					L"OSF UI - Report failed",
+					MB_OK | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND);
+			}
+		}
 
 		// Microsoft's permanent link to the WebView2 Evergreen Bootstrapper
 		// (see /microsoft-edge/webview2/concepts/distribution, "online-only
@@ -198,6 +442,8 @@ namespace osfui::wv2
 			std::atomic_bool quit{ false };
 			bool             rendererFatal{ false };  // STA thread only; first failure wins
 			std::string      byeReason;  // overrides the default bye reason (STA thread only)
+			bool             gameExitedUnexpectedly{ false };
+			DWORD            gameExitCode{ 0 };
 
 			std::mutex       commandMutex;
 			std::deque<json> commands;
@@ -2845,6 +3091,20 @@ namespace osfui::wv2
 				int exitCode = 0;
 				if (CreateWindows() && InitializeComposition()) {
 					const HANDLE waits[2] = { wakeEvent, gameProcess };
+					const auto captureGameExit = [this](DWORD a_waitMs) {
+						if (::WaitForSingleObject(gameProcess, a_waitMs) != WAIT_OBJECT_0) {
+							return false;
+						}
+						DWORD code = 0;
+						if (!::GetExitCodeProcess(gameProcess, &code) || code == STILL_ACTIVE) {
+							return false;
+						}
+						gameExitCode = code;
+						gameExitedUnexpectedly = code != 0;
+						log.Info(std::format(
+							"game process exited (code 0x{:08X}) — shutting down", gameExitCode));
+						return true;
+					};
 					while (!quit.load()) {
 						// Short timeout only while a reveal awaits its paint sentinel,
 						// so the timeout fallback stays responsive.
@@ -2852,11 +3112,17 @@ namespace osfui::wv2
 							2, waits, AnyRevealPending() ? 50 : AnyVisibleRenderStats() ? 100 : 1000,
 							QS_ALLINPUT, MWMO_INPUTAVAILABLE);
 						if (wait == WAIT_OBJECT_0 + 1) {
-							log.Info("game process exited — shutting down");
+							captureGameExit(0);
 							break;
 						}
 						if (pipeDead.load()) {
-							log.Info("pipe closed — shutting down");
+							// A game crash can tear down the pipe a few milliseconds before
+							// Windows signals the process handle. Resolve that race before
+							// treating pipe loss as an ordinary renderer shutdown; otherwise
+							// the exact "game crashed while opening UI" case skips its prompt.
+							if (!captureGameExit(1000)) {
+								log.Info("pipe closed while game remained active — shutting down");
+							}
 							break;
 						}
 						DrainCommands();
@@ -2904,6 +3170,9 @@ namespace osfui::wv2
 				pipe.Close();
 				if (reader.joinable()) reader.join();
 				log.Info(std::format("host exiting (code {})", exitCode));
+				if (gameExitedUnexpectedly) {
+					PromptCrashReport(options, gameExitCode, log);
+				}
 				return exitCode;
 			}
 		};
@@ -2959,7 +3228,8 @@ namespace osfui::wv2
 		app.log.pipe = &app.pipe;
 
 		app.gameProcess = ::OpenProcess(
-			PROCESS_DUP_HANDLE | SYNCHRONIZE, FALSE, a_options.gamePid);
+			PROCESS_DUP_HANDLE | SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
+			FALSE, a_options.gamePid);
 		if (!app.gameProcess) {
 			const auto error = ::GetLastError();
 			auto message = std::format("OpenProcess(game pid {}) failed ({})",
