@@ -110,7 +110,7 @@ export function Health({
     try {
       const status = await onGetReportStatus();
       if (!status.enabled) {
-        onToast(tr('reportingUnavailable', 'Automatic reporting is not configured in this build.'), 'warn');
+        onToast(tr('reportingUnavailable', 'Bug reporting is turned off in OSF UI settings (Diagnostics).'), 'warn');
         return;
       }
       setReportStatus(status);

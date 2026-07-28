@@ -66,6 +66,12 @@ namespace OSFUI
 		// their manifest (e.g. the built-in Web Performance Lab) are listed in the
 		// mod menu; off keeps them loaded but hidden. Must equal the schema default.
 		bool        debugMode{ false };
+		// MCM-owned kill switch for the consented diagnostic reporter (manual
+		// System Health reports and the host's post-crash prompt — the latter
+		// applies on the next launch, since the host process reads it at spawn).
+		// The destination URL is compile-time (Version.h kBugReportEndpoint) and
+		// deliberately not configurable.
+		bool        bugReporting{ true };
 		std::string view{ "osfui/settings" };  // qualified "<mod>/<view>" id
 		// Optional multi-view set. When non-empty, every id is loaded and
 		// composited together (layer order set by the menu/HUD framework — HUDs
@@ -74,9 +80,6 @@ namespace OSFUI
 		// skipped.
 		std::vector<std::string> views;
 		bool        devMode{ false };  // release-safe default; the shipped config / a dev override turns on verbose logging
-		// HTTPS endpoint for the consented diagnostic reporter. Empty disables
-		// submission while keeping the rest of System Health available.
-		std::string bugReportEndpoint;
 
 #if defined(OSFUI_WITH_WORLD_SURFACES)
 		// Research-only in-world WebView output. Excluded from release builds.

@@ -14,7 +14,7 @@ namespace OSFUI
 			"configVersion", "enabled", "renderer", "compositor",
 			"inputSource", "captureInput", "hardwareCursor", "focusMenu",
 			"engineInput", "pauseMenuEntry", "pauseMenuEntryLabel", "pauseMenuEntryView",
-			"view", "views", "devMode", "bugReportEndpoint",
+			"view", "views", "devMode",
 #if defined(OSFUI_WITH_WORLD_SURFACES)
 			"worldSurfaceView",
 			"worldSurfaceWidth", "worldSurfaceHeight",
@@ -98,14 +98,6 @@ namespace OSFUI
 #endif
 		config.devMode = Json::GetBool(*json, "devMode", config.devMode);
 		ApplyAuthorModeMarker(config, a_path);
-		config.bugReportEndpoint = Json::GetString(*json, "bugReportEndpoint", config.bugReportEndpoint);
-		if (!config.bugReportEndpoint.empty() &&
-			(!config.bugReportEndpoint.starts_with("https://") ||
-			 config.bugReportEndpoint.size() > 512 ||
-			 config.bugReportEndpoint.find_first_of(" \t\r\n\"") != std::string::npos)) {
-			REX::WARN("Config: bugReportEndpoint must be a bounded HTTPS URL without whitespace; automatic reports disabled");
-			config.bugReportEndpoint.clear();
-		}
 
 		REX::INFO("Config: loaded {} (renderer={}, compositor={}, inputSource={}, captureInput={}, hardwareCursor={}, focusMenu={}, view={}, devMode={})",
 			a_path.string(), config.renderer, config.compositor, config.inputSource, config.captureInput, config.hardwareCursor, config.focusMenu, config.view, config.devMode);

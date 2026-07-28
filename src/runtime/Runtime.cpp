@@ -63,6 +63,25 @@ namespace OSFUI
 			return { "data.push", std::move(payload) };
 		}
 
+		// Reads one persisted settings value before the settings module exists.
+		// The renderer (and the host process it spawns) initializes earlier than
+		// the settings replay, so boot-time consumers peek the values file
+		// directly; the OnSettingChanged replay then drives the same Config
+		// field. Missing or corrupt file means the schema default.
+		bool PeekPersistedBool(const std::filesystem::path& a_valuesFile,
+			std::string_view a_key, bool a_default)
+		{
+			std::error_code ec;
+			if (!std::filesystem::exists(a_valuesFile, ec)) {
+				return a_default;
+			}
+			const auto json = Json::ParseFile(a_valuesFile);
+			if (!json || !json->is_object()) {
+				return a_default;
+			}
+			return Json::GetBool(*json, a_key, a_default);
+		}
+
 		void ReplayPapyrusViewState(MessageBridge& a_bridge, std::string_view a_viewId)
 		{
 			const auto slash = a_viewId.find('/');
@@ -127,11 +146,17 @@ namespace OSFUI
 		_viewHeight.store(initialHeight);
 		_cursorX = initialWidth * 0.5f;
 		_cursorY = initialHeight * 0.5f;
+		// The WebView2 host receives the report endpoint on its command line at
+		// spawn, before the settings module replays persisted values — so the
+		// user's bugReporting choice is peeked from the values file here.
+		_config.bugReporting = PeekPersistedBool(
+			Paths::DataDir() / "settings" / "values" / "osfui.json",
+			"bugReporting", _config.bugReporting);
 		RendererConfig rendererConfig{
 			.width = initialWidth,
 			.height = initialHeight,
 			.devMode = _config.devMode,
-			.reportEndpoint = _config.bugReportEndpoint,
+			.reportEndpoint = _config.bugReporting ? kBugReportEndpoint : "",
 			.dataDir = Paths::DataDir(),
 		};
 		if (!_renderer->Initialize(rendererConfig)) {
@@ -2628,7 +2653,7 @@ namespace OSFUI
 				return;
 			}
 			a_b.SendToWeb("diagnostics.reportStatus", {
-				{ "enabled", !_config.bugReportEndpoint.empty() },
+				{ "enabled", _config.bugReporting },
 				{ "logs", nlohmann::json::array({ "OSF UI.log", "OSF UI.webview2-host.log" }) },
 				{ "retentionDays", 30 },
 			});
@@ -2638,8 +2663,8 @@ namespace OSFUI
 				a_b.SendResult(false, "forbidden", "bug reporting is restricted to OSF UI's built-in settings view");
 				return;
 			}
-			if (_config.bugReportEndpoint.empty()) {
-				a_b.SendResult(false, "reporting-disabled", "automatic reporting is not configured in this build");
+			if (!_config.bugReporting) {
+				a_b.SendResult(false, "reporting-disabled", "bug reporting is turned off in OSF UI's settings");
 				return;
 			}
 			const auto requestId = std::string(a_b.CurrentRequestId());
@@ -2658,7 +2683,7 @@ namespace OSFUI
 				a_b.SendResult(false, "report-busy", "another report is already being submitted");
 				return;
 			}
-			const auto endpoint = _config.bugReportEndpoint;
+			const std::string endpoint = kBugReportEndpoint;
 			const auto diagnostics = _diagnostics ? _diagnostics->Snapshot() : nlohmann::json::object();
 			const auto view = std::string(a_b.CurrentSource());
 			try {
@@ -2795,6 +2820,14 @@ namespace OSFUI
 			BroadcastViewsData();  // debugOnly views appear/leave the mod menu live
 			REX::DEBUG("Runtime: setting osfui.debugMode -> {} (developer views {} in the mod menu)",
 				_config.debugMode, _config.debugMode ? "shown" : "hidden");
+		}
+		// Diagnostic-reporter kill switch. Gates manual System Health reports
+		// immediately; the host's post-crash prompt reads the endpoint from its
+		// spawn arguments, so that half applies on the next launch (Initialize
+		// peeks this persisted value before spawning the host).
+		else if (a_key == "bugReporting" && a_value.is_boolean()) {
+			_config.bugReporting = a_value.get<bool>();
+			REX::DEBUG("Runtime: setting osfui.bugReporting -> {}", _config.bugReporting);
 		}
 		else if (a_key == "language" && a_value.is_string()) {
 			const auto requested = a_value.get<std::string>();

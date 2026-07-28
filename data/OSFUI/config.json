@@ -4,6 +4,5 @@
   "enabled": true,
   "view": "osfui/settings",
   "views": ["osfui/settings", "osfui/keybinds"],
-  "devMode": false,
-  "bugReportEndpoint": "https://osfui-reporting.ozooma10.workers.dev/v1/reports"
+  "devMode": false
 }

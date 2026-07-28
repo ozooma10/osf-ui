@@ -31,8 +31,12 @@ neutralized before publication.
    npm run deploy
    ```
 
-7. Set `bugReportEndpoint` in the shipped `data/OSFUI/config.json` to the
-   resulting HTTPS endpoint plus `/v1/reports`.
+7. Set `kBugReportEndpoint` in `src/core/Version.h` to the resulting HTTPS
+   endpoint plus `/v1/reports` and rebuild. The endpoint is a compile-time
+   constant on purpose — it used to be a `config.json` key, but any mod in the
+   load order can override that file and silently redirect user reports. The
+   only user-facing knob is the `osfui.bugReporting` setting, which disables
+   submission entirely.
 
 Use a long random `ADMIN_TOKEN`. A maintainer retrieves a private report with:
 

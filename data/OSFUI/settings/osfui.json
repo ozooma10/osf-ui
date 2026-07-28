@@ -62,6 +62,13 @@
           "type": "bool",
           "default": false,
           "hint": "Show developer tools, such as the Web Performance Lab, in the mod menu list. Leave off for normal play."
+        },
+        {
+          "key": "bugReporting",
+          "label": "Bug reporting",
+          "type": "bool",
+          "default": true,
+          "hint": "Allow sending diagnostic reports to the OSF UI maintainer: manual reports from System Health and the prompt after a crash. Nothing is ever sent without your confirmation. Turning this off applies to the crash prompt on the next launch."
         }
       ]
     }
