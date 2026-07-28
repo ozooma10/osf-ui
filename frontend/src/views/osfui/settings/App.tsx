@@ -514,24 +514,32 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     // peel the undo panel first. Sticky per page load.
     if (bridge.available()) sendCommand('osfui.handleBack', { handle: true });
 
+    const requestCatalogs = () => {
+      if (!bridge.available()) return;
+      sendCommand('settings.get');
+      sendCommand('views.get');
+      // Same subscribe-on-read contract. A host that predates protocol 1.4
+      // answers ui.error and the pane simply stays nominal.
+      sendCommand('diagnostics.get');
+    };
+
     // The initial reads must not be gated on `ready`. `runtime.ready` is a
     // one-shot greeting emitted at runtime init, which can be long before this
     // page's transport can carry it (the WebView2 host is a separate process
     // that starts on the first game tick); gating on it left the Mods surface
     // permanently empty whenever the greeting was missed. The gets are
     // idempotent and also subscribe to the change pushes.
-    if (bridge.available()) {
-      sendCommand('settings.get');
-      sendCommand('views.get');
-      // Same subscribe-on-read contract. A host that predates protocol 1.4
-      // answers ui.error and the pane simply stays nominal.
-      sendCommand('diagnostics.get');
-    }
+    requestCatalogs();
 
-    // The version badge is the only consumer of the handshake; it stays blank
-    // until (and if) it lands.
+    // A page reload can also run before the injected transport reports itself
+    // available, then receive `runtime.ready` moments later. Reissue the
+    // idempotent reads on that edge so a populated version badge can never sit
+    // above an empty deck merely because the first availability check lost the
+    // race. A missed greeting remains safe because the immediate reads above
+    // do not depend on it.
     void bridge.ready().then((info) => {
       setHostVersion(info.version || '');
+      requestCatalogs();
     });
 
     return () => {

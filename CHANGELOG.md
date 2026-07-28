@@ -20,6 +20,8 @@
 
 ### Fixed
 
+- The Mods surface now retries its settings and view catalog reads when the browser transport becomes ready. Reloading the page during WebView2 startup can no longer show a version badge above an empty **All systems** screen because its first availability check happened a moment too early.
+
 - Fixed the reproducible DXGI crash when OSF UI, OptiScaler/Streamline, and the Steam overlay were active together. The compositor now stays entirely in Starfield's Scaleform UI seam and never hooks the swap-chain Present path, so frame generation and external overlays can remain enabled without load-order or configuration workarounds; the same isolation also avoids probe/hook conflicts with BetterConsole, RTSS, ReShade, and similar tools.
 
 - If WebView2 fails while creating its composition controller, OSF UI now closes the invisible loading overlay immediately and releases focus, pause, cursor, and control capture instead of leaving actors frozen behind a hidden menu. A native dialog identifies the renderer error and offers Microsoft's WebView2 repair download; further menu opens fail closed until the game is restarted.

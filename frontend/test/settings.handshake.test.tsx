@@ -54,3 +54,26 @@ describe('a runtime.ready that never arrives', () => {
     expect(el.textContent).not.toMatch(/\b1\.0\.0\b/);
   });
 });
+
+describe('a bridge that becomes available with runtime.ready', () => {
+  it('reissues the catalog reads after the initial availability check loses the race', async () => {
+    const bridge = makeBridge({ available: false });
+    bridge.ready = () => {
+      bridge.available = () => true;
+      return Promise.resolve({
+        game: 'Starfield',
+        plugin: 'OSF UI',
+        version: '1.4.0',
+        bridgeVersion: '1.7',
+      });
+    };
+
+    await mount(bridge);
+    await flush();
+
+    const commands = bridge.sent.map((s) => s.command);
+    expect(commands).toContain('settings.get');
+    expect(commands).toContain('views.get');
+    expect(commands).toContain('diagnostics.get');
+  });
+});
