@@ -15,8 +15,9 @@ and it renders a full settings card with typed, validated, persisted controls.
 3. Launch the game, open the OSF UI overlay, and your card is in the left rail.
 
 That's the whole loop. To iterate without launching Starfield, use the browser
-harness in [`../../devtools/harness/`](../../devtools/harness/) — drag this
-file onto the page (or load `?schema=../../examples/settings-only/yourname.mymod.json`).
+harness in [`../../frontend/`](../../frontend/README.md) — run
+`npm --prefix frontend run dev`, open `http://localhost:8080/?view=osfui/settings`,
+and drag this file onto the page.
 
 ## What this file shows
 

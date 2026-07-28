@@ -18,8 +18,7 @@ a reference for the two data-driven extension points that work today:
 > minor version, breaking changes bump the major. Compatibility is advisory:
 > declare the OSF UI version you authored against as `targetVersion` (manifest
 > and/or settings schema, §7), and the Mods surface shows a "needs update"
-> badge when the running host is older. `bridgeVersion` is informational. See
-> [ROADMAP.md](ROADMAP.md) for what is still planned.
+> badge when the running host is older. `bridgeVersion` is informational.
 
 ## 0. Identifiers
 
@@ -180,7 +179,13 @@ an optional English override, then the inline English.
   "title": "My HUD",        // optional, defaults to the qualified id
   "description": "",        // optional; one-line blurb shown in catalogs (views.data / the Mods surface)
   "accent": "#e6904a",      // optional; colors platform chrome such as the first-load handoff
+  "kind": "menu",           // optional, default "menu"; "menu" = modal overlay, "hud" = passive overlay over gameplay. Unknown values fall back to "menu"
+  "capturesInput": true,    // optional, default true; MENU-ONLY — freeze the game and route input into the page while this is the top open menu. Forced false for HUDs
+  "pausesGame": true,       // optional, default true; MENU-ONLY — pause the simulation while this is the top open menu. Forced false for HUDs
+  "openOnStart": false,     // optional, default false; menu: open at load, HUD: show at load
+  "order": 0,               // optional, default 0; HUD-ONLY paint order among HUDs (clamped 0..999, higher on top). Ignored for menus
   "hub": true,              // optional, default true; false = hidden utility view — loads and works, but isn't advertised in catalogs (name predates the Mods surface)
+  "debugOnly": false,       // optional, default false; keep out of the mod menu list unless the user enables Debug mode (OSF UI → Diagnostics). Still loads and openable by id; intended for built-in developer tools
   "readySignal": true,       // optional, default false; wait for osfui.viewReady() before first reveal (requires nativeBridge)
   "targetVersion": "1.2.0", // optional; the OSF UI version this view is authored against — advisory, never gates loading (see note below)
   "entry": "index.html",    // optional, default "index.html"; must stay inside the folder
@@ -221,6 +226,11 @@ Notes:
   display), so write width-responsive CSS. The versioned layout guarantee
   (protocol 1.0) is that your manifest's logical height is fixed; width is
   not.
+- `kind` picks the surface: a `"menu"` may capture input and become the
+  focused view; a `"hud"` is passive (see *Multiple views & layering* below).
+  `capturesInput` and `pausesGame` refine a menu only — set `pausesGame:false`
+  for a menu that wants the world running underneath — and are forced `false`
+  for HUDs whatever the manifest says.
 - `permissions.nativeBridge` must be `true` if your page talks to the
   runtime. When it is `false`, `window.osfui` is never injected and your page
   runs purely client-side.
@@ -435,6 +445,7 @@ serves both:
 | `diagnostics.reportStatus` | `{ enabled, logs, retentionDays }` | *(protocol 1.7, platform-private)* correlated reply for the built-in consent disclosure; unavailable to third-party views |
 | `diagnostics.reportResult` | `{ ok, reportId?, issueNumber?, code?, message? }` | *(protocol 1.7, platform-private)* correlated completion of a report upload. The public issue number is safe to pass back to the fixed-target opener; the service never returns private log content to the page |
 | `settings.data` | `{ mods: [ { id, title, schema, values, shadowed?, targetVersion? } ], vanillaKeys?, loadErrors? }` | reply to `settings.get` / after a `settings.reset`. Per-mod `shadowed?` lists drop-in schema files that also claimed this id and lost first-wins (render a conflict badge); `targetVersion?` is the schema's advisory authored-against version (§7), omitted when undeclared. A `key`-typed setting whose binding collides with another mod's carries runtime-injected `conflicts: [{mod, key, title}]` in its schema object — informational; render a badge, never block. `mod` may be the reserved id `@game` (the game's own bindings; display `title`, e.g. "Starfield (Quicksave)"). Top-level `vanillaKeys: [{event, title, name}]` is the game's full binding table (read-only; the keybinds view renders it); absent when the runtime has none. Top-level `loadErrors: [{kind, file, mod?, message}]` names settings files that failed to load — `schema-name` / `schema-parse` (file skipped) or `values-parse` (values quarantined as `<file>.bad`, defaults served); absent when everything loaded clean. The Mods surface renders these as a rail alert |
+| `settings.changed` | `{ mod, key, value, conflicts? }` | one committed value changed, pushed unsolicited to every `settings.get` subscriber whoever wrote it (settings menu, preset, reset, Papyrus, or a native write). `value` is post-validation and therefore authoritative. On a `key`-typed setting, `conflicts` is the recomputed collision list (always present for keys, `[]` = none) so badges update without re-fetching `settings.data`. You receive changes for all mods — filter on `mod` |
 | `settings.ack` | `{ mod, key, ok, value?, code?, message? }` | result of a `settings.set`. `ok:true` carries `value`, the authoritative post-clamp committed value (compare with what you sent to detect clamping — no re-fetch needed); `ok:false` carries a stable `code`: `unknown-setting`, `read-only` (a setting type this host doesn't know), or `invalid-value` |
 | `settings.captured` | `{ mod, key, name, cancelled, conflicts? }` | reply to `settings.captureKey`: the captured key `name` (an OSF UI key name), or `cancelled:true` (Escape / unbindable — keep the old binding). When the captured key is already bound elsewhere, `conflicts: [{mod, key, title}]` lists actionable collisions this bind would create; expected `@game` reuse from a `blocksGameplay` context is omitted. Warn live, never block. The view then sends a normal `settings.set` with `name` |
 | `ui.hotkey` | `{ mod, key }` | the physical key currently bound to that `key`-typed setting was pressed in-game (protocol 1.0). Pushed to every `settings.get` subscriber — filter on `mod`. Suppressed while the overlay captures input or a rebind is armed; rebinds re-route automatically |
@@ -621,7 +632,7 @@ You receive changes for all mods; filter on `p.mod`.
 
 ### Hotkeys (protocol 1.0)
 
-Every `type:"key"` setting is a live hotkey (mcm-design.md §9): when the user
+Every `type:"key"` setting is a live hotkey: when the user
 presses the bound key in-game, the runtime pushes `ui.hotkey { mod, key }` to
 every `settings.get` subscriber. The same single subscription above therefore
 also makes your HUD toggleable:
@@ -646,8 +657,8 @@ blocks them.
 Separate SFSE plugins subscribe over the native bridge, with no core edit
 needed: `SubscribeSettings` plus typed getters for values (C ABI 1.2), and
 `SubscribeHotkey` for key presses (C ABI 1.4). See
-[native-plugin-api.md](native-plugin-api.md) §5a/§5b and `docs/mcm-design.md`
-§8.2/§9. In-tree framework knobs still react through
+[native-plugin-api.md](native-plugin-api.md) §5a/§5b. In-tree framework knobs
+still react through
 `Runtime::OnSettingChanged` (e.g. `osfui.toggleKey` live-rebinds the
 overlay's open/close key).
 
@@ -664,25 +675,15 @@ cd my-view
 npm run dev
 ```
 
-It includes the harness below plus source presets, Vite HMR, generated
+It provides the browser harness below plus source presets, Vite HMR, generated
 manifests, in-game sync, temporary author mode, validation, and packaging.
 
-### Generic browser harness
+### Browser harness
 
-From an OSF UI source checkout, the lower-level compatibility command can still
-inspect any already-packaged third-party view:
-
-```bat
-npm run dev:view -- C:\path\to\views\yourname.mymod\panel
-```
-
-It validates `manifest.json`, serves the real two-level `views/` tree at the
-same `/<modId>/<viewName>/<entry>` URL shape used in game, injects its mock
-before the view's existing scripts, and falls back to OSF UI's public
-`shared/osfui.js` and `shared/osfui.css` when the supplied tree does not carry
-them. The page is not reconstructed or imported into OSF UI's Preact project:
-its actual entry HTML, script order, bundle, relative imports and assets run
-unchanged.
+`npm run dev` serves the view at the same `/<modId>/<viewName>/<entry>` URL
+shape used in game, generates and validates `manifest.json` from
+`osfui.config.ts`, supplies OSF UI's public `shared/osfui.js` and
+`shared/osfui.css`, and injects the mock bridge before your application code.
 
 The toolbar provides:
 
@@ -693,15 +694,15 @@ The toolbar provides:
 - a JSON editor that can inject any native-to-web envelope, such as
   `data.state`, `data.push`, `ui.hotkey` or a plugin-owned reply.
 
-Saving anything in the selected view reloads it after a short debounce.
-Development responses use `Cache-Control: no-store`. A document CSP blocks
-remote resources, and the bootstrap removes WebRTC, WebTransport and worker
-constructors to catch unsupported dependencies. The npm source-project harness
-keeps WebSocket available only for Vite's loopback HMR connection; the
-`osfui check` command rejects authored uses of unsupported transports.
+Saving view source updates the page through Vite HMR. Development responses use
+`Cache-Control: no-store`. A document CSP blocks remote resources, and the
+bootstrap removes WebRTC, WebTransport and worker constructors to catch
+unsupported dependencies. WebSocket stays available only for Vite's loopback HMR
+connection; the `osfui check` command rejects authored uses of unsupported
+transports.
 
-For repeatable native data, place an optional `osfui.mock.json` beside the
-view's `manifest.json`:
+For repeatable native data, edit the project's `osfui.mock.json` (beside
+`osfui.config.ts`); the browser reloads when it changes:
 
 ```json
 {
@@ -745,13 +746,6 @@ produce a visible `mock-unhandled` error instead of pretending the native
 operation succeeded. Keep `osfui.mock.json` in development source or exclude it
 from the mod's release package. Malformed fixture JSON is reported in the
 traffic inspector rather than silently replaced with empty data.
-
-Options:
-
-```text
---port <number>  local port (8081 by default; 0 chooses a free port)
---no-open        start the harness without opening a browser
-```
 
 For a minimal standalone fallback, a view can still detect a missing bridge:
 

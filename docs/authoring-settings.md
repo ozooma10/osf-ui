@@ -399,10 +399,10 @@ Papyrus — see [authoring-dynamic-data.md](authoring-dynamic-data.md)
 
 ## 10. Testing your schema
 
-**Browser harness — no game launch.** Open
-[`devtools/harness/index.html`](../devtools/harness/index.html) in a browser
-(or run `serve.cmd`) and drag your JSON onto the page (or pass
-`?schema=<path>`). It renders the *real* settings view
+**Browser harness — no game launch.** Start the dev server with
+`npm --prefix frontend run dev` (see [`frontend/README.md`](../frontend/README.md))
+and open `http://localhost:8080/?view=osfui/settings`, then drag your JSON onto
+the page (or pass `?schema=<url>`). It renders the *real* settings view
 with a mock bridge that mirrors native clamping and persists to
 localStorage, and logs the exact bridge traffic. Widgets, conditions,
 presets, actions, and rebinding all work there.
@@ -466,5 +466,3 @@ worked pair.
   [authoring-views.md](authoring-views.md), [`sdk/osfui.d.ts`](../sdk/osfui.d.ts)
 - **C ABI for SFSE plugins:** [native-plugin-api.md](native-plugin-api.md),
   [`sdk/OSFUI_API.h`](../sdk/OSFUI_API.h)
-- **Design rationale (internal RFC, not an author guide):**
-  [mcm-design.md](mcm-design.md)

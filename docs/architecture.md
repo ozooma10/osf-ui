@@ -10,6 +10,8 @@ The production path is `WebView2HostWebRenderer` + `D3D12Compositor`. The stand-
 
 Backends implement `IWebRenderer` / `ICompositor`; the rest of the runtime doesn't depend on which one is active.
 
+The shipped `data/OSFUI/config.json` no longer authors the `renderer` / `compositor` keys (or the other development switches) — `core/Config` still parses them and everything unlisted falls back to its built-in default, so selecting a stand-in backend means adding the key by hand.
+
 ## Layers
 
 ```
@@ -30,7 +32,26 @@ Backends implement `IWebRenderer` / `ICompositor`; the rest of the runtime doesn
                                 └──────────┘                   FocusMenu / ControlLayer
                                    │    ▲
                           runtime/MessageBridge    JSON, whitelisted commands
+                                   │
+                    ┌──────────────┼──────────────┐
+                 api/          api/            reporting/
+                 BridgeApi     PapyrusApi      ReportClient
+                 (C ABI for    (OSFUI.psc      (consented, bounded
+                  SFSE mods)    natives)        log upload)
 ```
+
+Two subsystems hang off the bridge rather than the render path:
+
+- `api/` is the public extension surface — `BridgeApi` backs the exported
+  `OSFUI_RequestBridge` C ABI ([native-plugin-api.md](native-plugin-api.md)),
+  `PapyrusApi` backs the shipped `OSFUI` script's natives
+  ([authoring-dynamic-data.md](authoring-dynamic-data.md)). Both marshal onto
+  the main thread and derive a caller's mod id from the trusted source rather
+  than the payload.
+- `reporting/` is the bug reporter: it is the one native egress path in the
+  process, is callable only by the built-in `osfui/settings` view, and never
+  sends without explicit consent (see [security-model.md](security-model.md)
+  rule 5).
 
 ### Data flow per frame
 

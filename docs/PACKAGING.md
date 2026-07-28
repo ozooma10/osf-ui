@@ -5,12 +5,12 @@
 ## Quick start
 
 ```powershell
-# Full release build (WebView2, releasedbg) -> dist/OSF-UI-v1.0.0-alpha.zip
+# Full release build (WebView2, releasedbg) -> dist/OSF-UI-v<kPluginVersion>-alpha.zip
 # (version comes from kPluginVersion in src/core/Version.h; tag defaults to "alpha")
 pwsh tools/package.ps1
 
 # Custom version / tag
-pwsh tools/package.ps1 -Version 1.0.0 -Tag beta
+pwsh tools/package.ps1 -Version 1.4.0 -Tag beta
 
 # Package the current build without rebuilding
 pwsh tools/package.ps1 -SkipBuild
@@ -36,7 +36,7 @@ The unpacked Microsoft.Web.WebView2 SDK package must be available: the script re
 ## Archive layout (drop-in for MO2 / Vortex)
 
 ```
-OSF-UI-v1.0.0-alpha.zip
+OSF-UI-v<version>-alpha.zip
 ├─ Scripts/
 │  ├─ OSFUI.pex                      (Papyrus API surface)
 │  └─ Source/OSFUI.psc               (source, for authors compiling against it)
@@ -59,5 +59,5 @@ The archive root holds `SFSE/` and `Scripts/`, which map onto the game's `Data` 
 ## What OSF UI does **not** package
 
 - The Microsoft.Web.WebView2 SDK headers and static loader library (build-time only).
-- Development/test surfaces stay out of the archive: only `build/frontend/views/` from `frontend/` is installed, while its source, `node_modules`, harness, `devtools/harness/`, `tests/`, `examples/`, and `packaging/` are excluded. Staging is driven by xmake install plus the authored `data/` sync.
+- Development/test surfaces stay out of the archive: only `build/frontend/views/` from `frontend/` is installed, while its source, `node_modules`, harness, `tests/`, `examples/`, and `packaging/` are excluded. Staging is driven by xmake install plus the authored `data/` sync.
 - Source maps. The frontend build emits none, and its output gate fails on a stray `.map` — nothing in this script or CI excludes by extension, so one would otherwise ship in every archive.

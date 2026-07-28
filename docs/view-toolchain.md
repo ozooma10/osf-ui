@@ -67,13 +67,3 @@ npm run package
 writes a ready-to-distribute zip under `release/`. `npm run doctor` reports the
 active Node version, project root, and discovered views.
 
-## Existing packaged views
-
-The repository retains its lower-level diagnostic harness:
-
-```bat
-npm run dev:view -- C:\path\to\views\author.mod-name\view-name
-```
-
-New work should use the project toolchain because it adds source templates,
-Vite HMR, validation, deterministic builds, game sync, and packaging.

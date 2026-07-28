@@ -63,7 +63,11 @@ D-pad and face buttons.
 ## Where are my settings?
 
 Everything user-facing is in the in-game menu (F10 → OSF UI): the open/close
-key, the pause-menu entry, and game-key collision warnings. Gameplay controls,
+key, language, the pause-menu entry, game-key collision warnings, and under
+*Diagnostics* the render-stats readout, Debug mode (surfaces developer tools
+such as the Web Performance Lab in the mod list), and **Bug reporting** — turn
+that off and neither the System Health reporter nor the post-crash prompt will
+offer to send anything. Gameplay controls,
 including gamepad, always freeze while a menu captures input; there is no
 setting for this. To use the game console, close the overlay first — the
 console key is swallowed while the overlay is open.
@@ -134,28 +138,24 @@ To disable without uninstalling: set `"enabled": false` in
 ## Known limitations
 
 - Steam only (SFSE limitation).
-- No HDR / 10-bit output yet. The overlay detects an HDR/10-bit backbuffer,
-  logs a warning naming the format, and doesn't draw on it (the colors would
-  be wrong). Symptom: the overlay never appears and `OSF UI.log` has a
-  `cannot render correctly into it yet` line. Workaround: run Starfield in
-  SDR. HDR output is planned.
-- Frame Generation (NVIDIA DLSS-FG and AMD FSR3-FG) is detected and the
-  overlay deliberately does not draw while FG paces the swapchain — drawing
-  there races the frame-gen presenter and can crash the game. Symptom: the
-  overlay never appears and `OSF UI.log` has a `Frame Generation is pacing
-  this swapchain` warning. Workaround: disable Frame Generation in
-  Starfield's display settings while using the overlay. Proper FG
-  compatibility is on the roadmap.
-- Untested overlay setups: overlay tools (ReShade, Steam overlay, RTSS)
-  haven't been validated. With those the overlay may not appear or may draw
-  on the wrong output. OSF UI chains after tools that hooked first and logs
-  diagnostics for the broken cases (see the table above). Reports welcome.
+- Frame Generation is supported. The overlay draws inside Starfield's own
+  Scaleform UI pass, so FSR3-FG and DLSS-G pace it like native UI instead of
+  suppressing it. Validated in-game against built-in FSR3 FG; the wider matrix
+  (OptiScaler/Nukem FG, OptiScaler plus the Steam overlay, display-mode and
+  resolution changes) is still being worked through — reports welcome.
+- HDR / 10-bit output is no longer blocked outright. The overlay renders
+  through the engine's own UI buffer and never inspects the swapchain format,
+  so an HDR backbuffer no longer suppresses it. Color handling on HDR output
+  has not been tuned, so treat the result as unvalidated rather than correct.
+- Other overlay tools (ReShade, Steam overlay, RTSS) are no longer a load-order
+  problem: OSF UI installs no `Present` hook and never joins the DXGI present
+  chain. Broken combinations still log the diagnostics in the table above.
 - Tied to a game build via the Address Library; a patch can require an
   update.
 - Input: text entry follows your OS keyboard layout (dead keys and AltGr
   work), but IME composition (e.g. CJK input) isn't supported yet. Gamepad
   navigation is basic (D-pad/sticks/A/B) and being refined.
-- For UI authors: the `window.osfui` bridge protocol is 1.0 and stable.
+- For UI authors: the `window.osfui` bridge protocol is 1.7 and stable.
   Additive changes bump the minor version, breaking changes the major.
   Declare the version you authored against with `targetVersion` — see
   [authoring-views.md](authoring-views.md).
@@ -181,6 +181,9 @@ redaction, and a bounded tail. When an OSF Animation surface was active, the
 dialog instead names the OSF Animation repository and exact `OSF Animation.log`
 attachment; after consent that session log is included privately and the public
 issue is routed to `ozooma10/osf-animation`.
+
+Reporting can be turned off entirely in **OSF UI → Diagnostics → Bug
+reporting**; the crash prompt honors that from the next launch.
 
 If automatic reporting is disabled or fails, use **Copy diagnostic report** and
 **Open log folder**, then attach the result manually at

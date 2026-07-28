@@ -87,8 +87,6 @@ also syncs changes into the game and enables temporary author mode, including F1
 reload and F12 DevTools. `npm run package` makes the release zip.
 
 See [the view toolchain guide](docs/view-toolchain.md) for the complete workflow.
-The older `npm run dev:view -- <packaged-view-folder>` command remains available
-for diagnosing an already-built view from an OSF UI checkout.
 
 ## Documentation
 
