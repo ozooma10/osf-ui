@@ -19,7 +19,7 @@ import { render } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import type { FunctionComponent } from 'preact';
 
-import { Stage } from './Stage';
+import { STAGE_MODES, Stage, type StageMode } from './Stage';
 import { Toolbar } from './Toolbar';
 import { mock } from './install-mock';
 import { LOCALE_EVENT } from './mockbridge';
@@ -73,9 +73,11 @@ if (activeView !== requested) {
 }
 
 // The fixed reference stage is the default: a view that only looks right when it
-// can reflow to the browser window will be wrong in game. `?res=off` opts into
-// the fluid fill-the-window mode.
-const STAGE_DEFAULT = params.get('res') !== 'off';
+// can reflow to the browser window will be wrong in game. `?res=fill` keeps the
+// game-true scale but widens the stage to the window aspect (what the runtime
+// does once it knows the swapchain); `?res=off` drops the stage entirely and
+// renders fluid.
+const STAGE_DEFAULT: StageMode = STAGE_MODES.find((m) => m === params.get('res')) ?? 'fixed';
 
 // `?schema=`, `?fixtures=1` and `?locale=` are read (and persisted to
 // localStorage) by the mock itself, as is the drag-drop loader for schemas and
@@ -85,7 +87,7 @@ const STAGE_DEFAULT = params.get('res') !== 'off';
 function Harness() {
   const [App, setApp] = useState<FunctionComponent | null>(null);
   const [failed, setFailed] = useState<string>('');
-  const [stageOn, setStageOn] = useState(STAGE_DEFAULT);
+  const [stageMode, setStageMode] = useState<StageMode>(STAGE_DEFAULT);
   const [fixturesOn, setFixturesOn] = useState(mock.fixturesOn());
   const [healthScenario, setHealthScenario] = useState(mock.healthScenario());
   const [locale, setLocale] = useState(mock.locale());
@@ -122,10 +124,10 @@ function Harness() {
 
   // Stage mode drives a body class: the fluid-mode margins that clear the
   // toolbar are a body-level rule in harness.css, and the view's own root must
-  // stay untouched in stage mode.
+  // stay untouched in either staged mode.
   useEffect(() => {
-    document.body.classList.toggle('res900', stageOn);
-  }, [stageOn]);
+    document.body.classList.toggle('res900', stageMode !== 'off');
+  }, [stageMode]);
 
   // A dropped catalog can auto-activate its locale (mockbridge applyLocale), so
   // the picker follows the mock, not the other way round.
@@ -150,8 +152,8 @@ function Harness() {
           // it is a plain link, not a ?view= target.
           { id: 'osf.animation/browser', title: 'OSF Animation', href: 'osf.html' },
         ]}
-        stageOn={stageOn}
-        onStage={setStageOn}
+        stageMode={stageMode}
+        onStage={setStageMode}
         fixturesOn={fixturesOn}
         onFixtures={(on) => setFixturesOn(mock.fixtures(on))}
         healthScenario={healthScenario}
@@ -162,7 +164,7 @@ function Harness() {
           void mock.locale(loc);
         }}
       />
-      <Stage enabled={stageOn}>
+      <Stage mode={stageMode}>
         {App ? renderView(App, activeView) : <p class="status osf-eyebrow">{failed || 'Loading view…'}</p>}
       </Stage>
     </>

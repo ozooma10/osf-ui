@@ -78,7 +78,7 @@ Query parameters:
 | Param | Effect |
 |---|---|
 | `?view=<modId>/<viewName>` | which view to mount |
-| `?res=off` | disable the fixed 1600×900 stage and render fluid |
+| `?res=fixed\|fill\|off` | stage mode: the 1600×900 frame (default), the same scale widened to fill the window, or no stage at all |
 | `?fixtures=1` | load the richer demo dataset (also togglable in the toolbar) |
 | `?locale=<code>` | switch locale; `pseudo` expands strings to catch tight layouts and hardcoded text |
 | `?schema=<url>` | load a settings schema from a URL instead of the fixtures |
@@ -108,13 +108,23 @@ has never been looked at.
 You can also drag-and-drop a settings schema JSON or a `<modId>_<locale>.json`
 catalog onto the page.
 
-### The fixed-resolution stage
+### The stage
 
 Views declare an initial 1600×900 size (`manifest.json`); the runtime resizes
-them to the game output aspect once the swapchain is known. The harness renders a
-1600×900 frame scaled by `min(w/1600, (h-30)/900)`, never upscaled beyond 1:1.
-**Develop with the stage on** for the baseline, then use `?res=off` to verify
-responsive behavior at other output sizes.
+them to the game output aspect once the swapchain is known. The toolbar button
+cycles three ways of modelling that, also settable with `?res=`:
+
+| Mode | What it renders |
+|---|---|
+| `fixed` | the literal 1600×900 frame, letterboxed, scaled by `min(w/1600, (h-30)/900)` |
+| `fill` | 900 reference rows tall, widened to the window's aspect and scaled by `(h-30)/900`, so the stage fills the window at the in-game text size |
+| `off` | no stage: the view reflows to the raw browser window, unscaled |
+
+Neither staged mode caps the scale at 1:1 — filling a 1080p window at 1.2× *is*
+the in-game text size.
+
+**Develop in `fixed` for the baseline**, use `fill` to see the view at your
+window's aspect the way the game resizes it, and `off` to inspect raw overflow.
 
 ## Native bridge architecture
 

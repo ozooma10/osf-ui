@@ -1,6 +1,24 @@
 // Dev harness control bar. Dev only, never shipped in a view.
 
+import { nextStageMode, type StageMode } from './Stage';
 import { LOCALES, type MockApi } from './mockbridge';
+
+/** Button face and tooltip per stage mode, in cycle order. */
+const STAGE_LABELS: Record<StageMode, { label: string; title: string }> = {
+  fixed: {
+    label: '1600×900',
+    title: 'Stage: the game-true 1600×900 reference frame, letterboxed and scaled to the window. Click to fill the window instead.',
+  },
+  fill: {
+    label: 'Fill window',
+    title:
+      'Stage: 900 reference rows tall, widened to the window aspect — how the game resizes the view to the output. Click for fluid (unscaled) mode.',
+  },
+  off: {
+    label: 'Fluid',
+    title: 'No stage: the view reflows to the raw browser window, unscaled. Click to return to the 1600×900 frame.',
+  },
+};
 
 /**
  * One entry in the view switcher. `href` overrides the default `?view=<id>`
@@ -18,8 +36,8 @@ export interface ToolbarProps {
   mock: MockApi;
   view: string;
   views: ToolbarView[];
-  stageOn: boolean;
-  onStage: (on: boolean) => void;
+  stageMode: StageMode;
+  onStage: (mode: StageMode) => void;
   fixturesOn: boolean;
   onFixtures: (on: boolean) => void;
   healthScenario: string;
@@ -29,8 +47,9 @@ export interface ToolbarProps {
 }
 
 export function Toolbar(props: ToolbarProps) {
-  const { mock, view, views, stageOn, onStage, fixturesOn, onFixtures, healthScenario, onHealth, locale, onLocale } =
+  const { mock, view, views, stageMode, onStage, fixturesOn, onFixtures, healthScenario, onHealth, locale, onLocale } =
     props;
+  const stage = STAGE_LABELS[stageMode];
 
   return (
     <div class="harness-bar">
@@ -70,11 +89,11 @@ export function Toolbar(props: ToolbarProps) {
 
       <button
         type="button"
-        class={stageOn ? 'on' : ''}
-        title="Render the view in the game-true 1600×900 reference stage, scaled to fill the window like the game scales it to screen"
-        onClick={() => onStage(!stageOn)}
+        class={stageMode !== 'off' ? 'on' : ''}
+        title={stage.title}
+        onClick={() => onStage(nextStageMode(stageMode))}
       >
-        1600×900
+        {stage.label}
       </button>
 
       <select
