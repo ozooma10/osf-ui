@@ -97,6 +97,9 @@ test('development server exposes the harness and injects the bridge before view 
   assert.match(bootstrap, /^const __OSFUI_HARNESS_META__=\{/);
   assert.match(bootstrap, /osfui-harness/);
   assert.match(shell, /loadMeta/);
+  // shell.js is a module importing ./stage-fit.js — the route must exist.
+  const stageFit = await fetch(`${origin}/__osfui/stage-fit.js`).then((response) => response.text());
+  assert.match(stageFit, /computeFit/);
   assert.equal(moduleResponse.status, 200);
   assert.match(moduleSource, /osfui-shared/);
 });

@@ -2,6 +2,8 @@
 // module script by HARNESS_HTML; talks to the view iframe over postMessage
 // envelopes tagged source:'osfui-harness'.
 
+import { STAGE_MODES, computeFit, nextStageMode } from './stage-fit.js';
+
 const $ = (id) => document.getElementById(id);
 const frame = $('view');
 const stage = $('stage');
@@ -10,6 +12,27 @@ const traffic = $('traffic');
 let meta;
 let visible = true;
 let checker = true;
+
+// ?res=fixed|fill|off preselects the stage mode, mirroring the in-page cycle
+// button. 'fixed' is the authoring baseline.
+const params = new URLSearchParams(location.search);
+let stageMode = STAGE_MODES.includes(params.get('res')) ? params.get('res') : 'fixed';
+
+/** Button face and tooltip per stage mode, in cycle order. */
+const STAGE_LABELS = {
+  fixed: {
+    label: () => $('width').value + '×' + $('height').value,
+    title: 'Stage: the declared reference frame, letterboxed and scaled to the pane. Click to fill the pane instead.',
+  },
+  fill: {
+    label: () => 'Fill pane',
+    title: 'Stage: the reference row height, widened to the pane aspect — how the game resizes the view to the output. Click for fluid (unscaled) mode.',
+  },
+  off: {
+    label: () => 'Fluid',
+    title: 'No stage: the view reflows to the raw pane, unscaled. Click to return to the reference frame.',
+  },
+};
 
 function log(direction, value, level = '') {
   const item = document.createElement('li');
@@ -37,22 +60,38 @@ function setSize(width, height) {
   height = Math.max(1, Math.min(16384, Number(height) || 900));
   $('width').value = String(width);
   $('height').value = String(height);
-  stage.style.width = width + 'px';
-  stage.style.height = height + 'px';
   requestAnimationFrame(scaleStage);
 }
 
 function scaleStage() {
   if (!meta) return;
+  const mode = STAGE_LABELS[stageMode] ? stageMode : 'fixed';
+  $('stage-mode').textContent = STAGE_LABELS[mode].label();
+  $('stage-mode').title = STAGE_LABELS[mode].title;
+  if (mode === 'off') {
+    // Fluid: the iframe reflows to the raw pane, no transform. For inspecting
+    // overflow, not for authoring layout.
+    stage.style.width = '100%';
+    stage.style.height = '100%';
+    stage.style.transform = 'none';
+    stage.style.margin = '0';
+    $('status').textContent = 'fluid';
+    return;
+  }
   const width = Number($('width').value);
   const height = Number($('height').value);
   const availableWidth = Math.max(1, shell.clientWidth - 48);
   const availableHeight = Math.max(1, shell.clientHeight - 48);
-  const scale = Math.min(1, availableWidth / width, availableHeight / height);
-  stage.style.transform = 'scale(' + scale + ')';
-  stage.style.margin = ((height * scale - height) / 2) + 'px ' +
-    ((width * scale - width) / 2) + 'px';
-  $('status').textContent = width + '×' + height + ' at ' + Math.round(scale * 100) + '%';
+  const fit = computeFit(availableWidth, availableHeight, width, height, mode);
+  stage.style.width = fit.width + 'px';
+  stage.style.height = fit.height + 'px';
+  stage.style.transform = 'scale(' + fit.scale + ')';
+  // The transform does not affect layout; margins re-centre the scaled box
+  // inside the pane (negative when scaled down, positive when scaled up).
+  stage.style.margin = ((fit.height * fit.scale - fit.height) / 2) + 'px ' +
+    ((fit.width * fit.scale - fit.width) / 2) + 'px';
+  $('status').textContent = Math.round(fit.width) + '×' + Math.round(fit.height) +
+    ' at ' + Math.round(fit.scale * 100) + '%';
 }
 
 async function loadMeta(navigate = true) {
@@ -75,6 +114,10 @@ window.addEventListener('message', (event) => {
 window.addEventListener('resize', scaleStage);
 
 $('apply-size').addEventListener('click', () => setSize($('width').value, $('height').value));
+$('stage-mode').addEventListener('click', () => {
+  stageMode = nextStageMode(stageMode);
+  scaleStage();
+});
 $('reload').addEventListener('click', () => frame.contentWindow?.location.reload());
 $('checker').addEventListener('click', () => {
   checker = !checker;

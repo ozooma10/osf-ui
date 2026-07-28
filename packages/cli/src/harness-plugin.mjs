@@ -107,6 +107,8 @@ export function harnessPlugin(project, selectedView) {
           send(response, HARNESS_CSS, 'text/css; charset=utf-8');
         } else if (url.pathname === '/__osfui/harness.js') {
           send(response, await browserAsset('shell.js'), 'text/javascript; charset=utf-8');
+        } else if (url.pathname === '/__osfui/stage-fit.js') {
+          send(response, await browserAsset('stage-fit.mjs'), 'text/javascript; charset=utf-8');
         } else if (url.pathname === '/__osfui/bootstrap.js') {
           send(
             response,

@@ -88,6 +88,7 @@ export const HARNESS_HTML = String.raw`<!doctype html>
       <label>Width <input id="width" type="number" min="1" max="16384"></label>
       <label>Height <input id="height" type="number" min="1" max="16384"></label>
       <button id="apply-size" type="button">Apply</button>
+      <button id="stage-mode" type="button">Stage</button>
       <label>Locale <input id="locale" value="en" size="8"></label>
       <button id="send-locale" type="button">Set</button>
       <button id="visibility" type="button">Hide</button>
