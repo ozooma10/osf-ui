@@ -15,6 +15,7 @@ const MOCK_ENTRY = '/__osfui/mock-entry.js';
 const BROWSER_MODULES = new Set([
   '/__osfui/stage-fit.js',
   '/__osfui/tools-model.js',
+  '/__osfui/traffic-model.js',
   '/__osfui/pseudo.js',
   '/__osfui/mock-loader.js',
   '/__osfui/mock-runtime.js',

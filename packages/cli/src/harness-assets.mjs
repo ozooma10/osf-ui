@@ -29,7 +29,7 @@ input[type="number"] { width: 76px; }
 .brand { font-weight: 700; letter-spacing: .08em; margin-right: 6px; }
 /* Mock-registered dev controls render inline with the fixed toolbar items. */
 #tools { display: contents; }
-.toolbar .on { border-color: #8fc8dc; background: #19303b; }
+.toolbar .on, .traffic-bar .on { border-color: #8fc8dc; background: #19303b; }
 .view-id { color: #8fc8dc; overflow: hidden; text-overflow: ellipsis; }
 .spacer { flex: 1; }
 .status { color: #9fb1b9; }
@@ -55,15 +55,42 @@ input[type="number"] { width: 76px; }
 }
 .stage iframe { display: block; width: 100%; height: 100%; border: 0; background: transparent; }
 .panel {
-  min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(120px, 1fr) auto 180px;
+  min-width: 0; min-height: 0; display: grid;
+  grid-template-rows: auto auto minmax(120px, 1fr) auto 180px;
   border-left: 1px solid #31434d; background: #0d171d;
 }
-.panel h2 { margin: 0; padding: 10px 12px; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; }
-.traffic { min-height: 0; overflow: auto; margin: 0; padding: 8px 12px; list-style: none; border-block: 1px solid #263943; }
-.traffic li { padding: 5px 0; border-bottom: 1px solid #1b2b33; overflow-wrap: anywhere; }
-.traffic .out { color: #efc46b; }
-.traffic .in { color: #78d0ad; }
-.traffic .warn { color: #ff8c78; }
+.panel h2 { margin: 0; padding: 10px 12px 6px; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; }
+.traffic-bar { display: flex; gap: 6px; padding: 0 12px 8px; }
+.traffic-bar input { flex: 1; min-width: 0; }
+.traffic { min-height: 0; overflow: auto; margin: 0; padding: 0; list-style: none; border-block: 1px solid #263943; }
+/* One exchange: a clickable headline row plus the raw envelope it expands to. */
+.row { border-bottom: 1px solid #16242b; }
+.row-head {
+  display: flex; align-items: baseline; gap: 7px; width: 100%; min-height: 0;
+  padding: 5px 12px; border: 0; background: none; text-align: left;
+}
+.row-head:hover { background: #14232b; border-color: transparent; }
+.row-head:disabled { cursor: default; opacity: 1; }
+.row .time { color: #63808c; font-variant-numeric: tabular-nums; flex: none; }
+.row .dir { flex: none; font-size: 10px; }
+.row .title { flex: none; font-weight: 600; }
+/* The distinguishing detail: it yields the width, the expanded body has it all. */
+.row .detail { flex: 1; min-width: 0; color: #9fb1b9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .tag, .row .count {
+  flex: none; margin-left: auto; padding: 0 5px; border-radius: 9px;
+  background: #1b2f39; color: #9fb1b9; font-size: 11px;
+}
+.row .count + .tag, .row .tag ~ .count { margin-left: 0; }
+.row-body {
+  margin: 0; padding: 2px 12px 10px 30px; overflow-x: auto;
+  color: #9fb1b9; font-family: Consolas, monospace; font-size: 12px;
+}
+.row.open { background: #101e26; }
+.row.out .dir, .row.out .title { color: #efc46b; }
+.row.in .dir, .row.in .title { color: #78d0ad; }
+.row.warn .title, .row.warn .detail { color: #ff8c78; }
+/* Harness notes are prose, not envelopes: let them wrap and take the row. */
+.row.note .title { flex: 1; min-width: 0; color: #9fb1b9; font-weight: 400; overflow-wrap: anywhere; }
 .event-editor { display: grid; grid-template-rows: auto 1fr auto; min-height: 0; padding: 8px 12px; gap: 6px; }
 .event-editor label { color: #9fb1b9; }
 .event-editor textarea { width: 100%; min-height: 80px; resize: none; padding: 7px; font-family: Consolas, monospace; }
@@ -118,6 +145,13 @@ export const HARNESS_HTML = String.raw`<!doctype html>
       </div>
       <aside class="panel">
         <h2>Bridge traffic</h2>
+        <div class="traffic-bar">
+          <input id="traffic-filter" type="search" placeholder="Filter rows"
+            title="Show only rows whose headline or JSON contains this text">
+          <button id="traffic-pause" type="button"
+            title="Hold new rows so you can read; held messages are added on resume">Pause</button>
+          <button id="traffic-clear" type="button" title="Empty the log">Clear</button>
+        </div>
         <ol id="traffic" class="traffic"></ol>
         <h2>Send native event</h2>
         <div class="event-editor">

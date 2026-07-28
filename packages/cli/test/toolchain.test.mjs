@@ -133,6 +133,7 @@ test('development server exposes the harness and injects the bridge before view 
   assert.ok(walked.has('/__osfui/mock-runtime.js'));
   assert.ok(walked.has('/__osfui/pseudo.js'));
   assert.ok(walked.has('/__osfui/tools-model.js'));
+  assert.ok(walked.has('/__osfui/traffic-model.js'));
   assert.ok(walked.has('/__osfui/stage-fit.js'));
   // meta.json lists every project view for the shell's switcher.
   const listing = await fetch(`${origin}/__osfui/meta.json`).then((response) => response.json());

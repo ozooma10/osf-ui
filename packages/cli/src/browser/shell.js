@@ -4,6 +4,7 @@
 
 import { STAGE_MODES, computeFit, nextStageMode } from './stage-fit.js';
 import { applyPatch, nextCycleValue } from './tools-model.js';
+import { summarize } from './traffic-model.js';
 
 const $ = (id) => document.getElementById(id);
 const frame = $('view');
@@ -31,15 +32,122 @@ const STAGE_LABELS = {
   },
 };
 
+// --- Bridge traffic panel -------------------------------------------------
+// A row is a scannable headline (see traffic-model.js) that expands to the
+// raw envelope on click. Identical consecutive rows collapse to a ×N counter,
+// requests are tagged and paired with their reply (with the round trip in ms),
+// and the filter box / pause button make a busy stream readable.
+
+const MAX_ROWS = 300;
+const DIRECTIONS = {
+  out: { glyph: '▲', title: 'view → native' },
+  in: { glyph: '▼', title: 'native → view' },
+};
+
+let paused = false;
+let held = [];          // entries that arrived while paused
+let filterText = '';
+let lastRow = null;     // { key, count, badge, time } of the row at the bottom
+const requests = new Map(); // requestId -> { tag, sent }
+let requestSeq = 0;
+
 function log(direction, value, level = '') {
-  const item = document.createElement('li');
-  item.className = level || direction;
-  const stamp = new Date().toLocaleTimeString();
-  item.textContent = stamp + ' ' + (direction === 'out' ? 'WEB → NATIVE ' : 'NATIVE → WEB ') +
-    (typeof value === 'string' ? value : JSON.stringify(value));
-  traffic.append(item);
-  while (traffic.children.length > 200) traffic.firstElementChild.remove();
-  traffic.scrollTop = traffic.scrollHeight;
+  const entry = { direction, value, level, at: new Date() };
+  if (paused) {
+    held.push(entry);
+    if (held.length > MAX_ROWS) held.shift();
+    renderPause();
+    return;
+  }
+  addRow(entry);
+}
+
+function chip(className, text, title = '') {
+  const span = document.createElement('span');
+  span.className = className;
+  span.textContent = text;
+  if (title) span.title = title;
+  return span;
+}
+
+function matchesFilter(row) {
+  return !filterText || row.dataset.search.includes(filterText);
+}
+
+function addRow({ direction, value, level, at }) {
+  const info = summarize(direction, value, level);
+  const stamp = at.toLocaleTimeString();
+
+  // Repeats (state pushes, gamepad spam) fold into the previous row. Anything
+  // carrying a requestId is a distinct exchange and always gets its own.
+  if (lastRow && lastRow.key === info.key && !info.requestId) {
+    lastRow.count += 1;
+    lastRow.badge.hidden = false;
+    lastRow.badge.textContent = '×' + lastRow.count;
+    lastRow.time.textContent = stamp;
+    return;
+  }
+
+  const atBottom = traffic.scrollHeight - traffic.scrollTop - traffic.clientHeight < 32;
+  const row = document.createElement('li');
+  row.className = 'row ' + info.tone;
+
+  const head = document.createElement('button');
+  head.type = 'button';
+  head.className = 'row-head';
+  const time = chip('time', stamp);
+  const arrow = DIRECTIONS[direction] || DIRECTIONS.in;
+  head.append(time, chip('dir', arrow.glyph, arrow.title), chip('title', info.title));
+  if (info.detail) head.append(chip('detail', info.detail, info.detail));
+
+  // Request tagging: the outbound command mints the tag, its reply reuses it
+  // and reports the round trip, so a slow or missing answer is visible.
+  if (info.requestId) {
+    const open = requests.get(info.requestId);
+    if (open && direction === 'in') {
+      requests.delete(info.requestId);
+      head.append(chip('tag', open.tag + ' ' + Math.round(performance.now() - open.sent) + 'ms',
+        'Reply to request ' + open.tag));
+    } else {
+      const tag = open ? open.tag : '#' + ++requestSeq;
+      requests.set(info.requestId, { tag, sent: performance.now() });
+      // Unanswered requests would otherwise accumulate for the session.
+      if (requests.size > MAX_ROWS) requests.delete(requests.keys().next().value);
+      head.append(chip('tag', tag, 'Request ' + tag + ' — awaiting a reply'));
+    }
+  }
+  const badge = chip('count', '');
+  badge.hidden = true;
+  head.append(badge);
+
+  row.append(head);
+  if (info.body) {
+    const body = document.createElement('pre');
+    body.className = 'row-body';
+    body.textContent = info.body;
+    body.hidden = true;
+    head.addEventListener('click', () => {
+      body.hidden = !body.hidden;
+      row.classList.toggle('open', !body.hidden);
+    });
+    row.append(body);
+  } else {
+    head.disabled = true;
+  }
+
+  row.dataset.search = (info.title + ' ' + info.detail + ' ' + info.body).toLowerCase();
+  row.hidden = !matchesFilter(row);
+  traffic.append(row);
+  lastRow = { key: info.key, count: 1, badge, time };
+  while (traffic.children.length > MAX_ROWS) traffic.firstElementChild.remove();
+  if (atBottom) traffic.scrollTop = traffic.scrollHeight;
+}
+
+function renderPause() {
+  $('traffic-pause').textContent = paused
+    ? 'Paused' + (held.length ? ' (' + held.length + ')' : '')
+    : 'Pause';
+  $('traffic-pause').classList.toggle('on', paused);
 }
 
 function send(message) {
@@ -272,6 +380,27 @@ window.addEventListener('drop', async (event) => {
   for (const file of files) payload.push({ name: file.name, text: await file.text() });
   frame.contentWindow?.postMessage({ source: 'osfui-harness', kind: 'drop', files: payload }, location.origin);
   log('in', 'Dropped: ' + payload.map((file) => file.name).join(', '));
+});
+
+$('traffic-filter').addEventListener('input', () => {
+  filterText = $('traffic-filter').value.trim().toLowerCase();
+  for (const row of traffic.children) row.hidden = !matchesFilter(row);
+});
+$('traffic-pause').addEventListener('click', () => {
+  paused = !paused;
+  if (!paused) {
+    const pending = held;
+    held = [];
+    for (const entry of pending) addRow(entry);
+  }
+  renderPause();
+});
+$('traffic-clear').addEventListener('click', () => {
+  traffic.replaceChildren();
+  held = [];
+  lastRow = null;
+  requests.clear();
+  renderPause();
 });
 
 $('send-event').addEventListener('click', () => {

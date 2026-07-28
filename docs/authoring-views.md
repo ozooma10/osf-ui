@@ -690,7 +690,10 @@ The toolbar provides:
 - manifest and custom resolutions, scaled down without changing page layout;
 - visible/hidden lifecycle edges, locale changes, page reload and a
   transparency checkerboard;
-- a bridge traffic inspector; and
+- a bridge traffic inspector — one scannable row per message (`command ·
+  settings.get`, `state · volume`, `error · mock-unhandled`) that expands to
+  the raw envelope on click, pairs each request with its reply and round-trip
+  time, folds repeats into a `×N` counter, and can be filtered or paused; and
 - a JSON editor that can inject any native-to-web envelope, such as
   `data.state`, `data.push`, `ui.hotkey` or a plugin-owned reply.
 
