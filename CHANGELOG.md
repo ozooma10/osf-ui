@@ -22,6 +22,8 @@
 
 ### Fixed
 
+- OSF UI now boots its real WebView2 renderer, D3D12 compositor, and UI input hook from compiled production defaults when the developer config omits backend selections. F10 therefore opens the UI again, and choosing **MOD MENUS** from the pause menu no longer pauses behind an invisible mock frame after an update replaces `config.json`.
+
 - The Mods surface no longer opens with an empty **All systems** screen when MO2's browser mirror retains an older shared bridge helper. Each game process now builds views into a fresh real-path mirror and removes it after the browser exits, so current view bundles cannot accidentally run against stale `osfui.emit()` / `osfui.call()` support. Catalog reads are also retried when the browser transport becomes ready.
 
 - Fixed the reproducible DXGI crash when OSF UI, OptiScaler/Streamline, and the Steam overlay were active together. The compositor now stays entirely in Starfield's Scaleform UI seam and never hooks the swap-chain Present path, so frame generation and external overlays can remain enabled without load-order or configuration workarounds; the same isolation also avoids probe/hook conflicts with BetterConsole, RTSS, ReShade, and similar tools.

@@ -15,14 +15,16 @@ namespace OSFUI
 		static constexpr std::int64_t kConfigVersion = 1;
 
 		bool        enabled{ true };
-		// MCM-owned knobs: not parsed from config.json — the `osfui` schema is
-		// the sole owner and Runtime::OnSettingChanged mutates these fields
-		// live. They double as pre-replay boot defaults, so they MUST equal the
-		// schema defaults.
+		// MCM-owned toggle: not parsed from config.json — the `osfui` schema is
+		// the sole owner and Runtime::OnSettingChanged mutates it live. It
+		// doubles as the pre-replay boot default, so it MUST equal the schema
+		// default.
 		std::string toggleKey{ "F10" };  // key name -> Windows VK code (ResolveKeyName); consumed by the WndProc hook
-		std::string renderer{ "mock" };    // "null" | "mock" | "webview2" (out-of-process host)
-		std::string compositor{ "null" };  // "null" | "d3d12" (d3d12 draws the overlay at present time)
-		std::string inputSource{ "none" }; // "none" | "ui" (WndProc subclass: toggle key + input capture; see input/OverlayInputHook)
+		// Production boot backends. The shipped config intentionally omits
+		// these keys; explicit values remain accepted as diagnostic overrides.
+		std::string renderer{ "webview2" };  // "null" | "mock" | "webview2" (out-of-process host)
+		std::string compositor{ "d3d12" };   // "null" | "d3d12" (d3d12 draws the overlay at present time)
+		std::string inputSource{ "ui" };     // "none" | "ui" (WndProc subclass: toggle key + input capture; see input/OverlayInputHook)
 		bool        captureInput{ true };  // when visible, route input to the web view and block the game from acting on it (needs inputSource="ui")
 		// Show the Windows hardware pointer while the overlay captures input,
 		// driven by absolute OS coordinates: zero-lag (composited on the

@@ -46,6 +46,7 @@ SUITES=(
 "vanilla_keys_tests vanilla_keys_tests.cpp ../../src/runtime/VanillaKeys.cpp ../../src/runtime/Json.cpp"
 "localization_service_tests localization_service_tests.cpp ../../src/runtime/LocalizationService.cpp ../../src/runtime/Json.cpp"
 "view_manifest_tests view_manifest_tests.cpp ../../src/runtime/ViewManifest.cpp ../../src/runtime/Json.cpp"
+"config_defaults_tests config_defaults_tests.cpp ../../src/core/Config.cpp ../../src/runtime/Json.cpp"
 "dev_view_files_tests dev_view_files_tests.cpp ../../src/runtime/DevViewFiles.cpp"
 "cursor_shape_tests cursor_shape_tests.cpp"
 "wndproc_chain_tests wndproc_chain_tests.cpp"
