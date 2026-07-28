@@ -46,29 +46,51 @@ through texconv, CK texture import/recompression, or any pipeline that
 capture log still reports `resFormat 90, mips 1`; if it does not, ship the
 texture loose.
 
-## 2. Texture set
+## 2. One-time CK setup for material editing
 
-In CK, create a TextureSet form pointing its color/albedo slot at
-`Textures\OSFUI\worldsurface_placeholder01.dds` (or the slot you're using).
-Use an OSF UI-owned editor ID, e.g. `OSFUI_WorldScreen01_TS`.
+Starfield has **no FO4-style TextureSet slot dialog**: materials reference
+`.dds` files directly by path, so there is no TextureSet form to create. What
+you need instead is to make the Material Editor writable. Create
+`CreationKitCustom.ini` next to `CreationKit.exe` (it does not exist by
+default) containing:
 
-## 3. Material — author fresh, never copy a vanilla .mat
+```ini
+[Materials]
+bUseCompiledDB=0
+```
 
-**Never copy or hand-edit a vanilla `.mat` file to a new path.** Starfield
-materials embed `res:` content-database identities; duplicating them corrupts
-the material graph and provably breaks world rendering globally (see
+Without this the CK reads the compiled material database and the editor
+cannot author new `.mat` files. Launch CK through MO2 (or place the
+placeholder DDS in the real `Data\Textures\OSFUI\` folder) so the texture
+path resolves.
+
+## 3. Material — author fresh, never copy a vanilla .mat file
+
+**Never file-copy or hand-edit a vanilla `.mat` to a new path** — including
+the "edit the JSON in VS Code" workflow some community guides suggest.
+Starfield materials embed `res:` content-database identities; a file-level
+copy duplicates them, which corrupts the material graph and provably breaks
+world rendering globally (see
 [world-surface-investigation.md](world-surface-investigation.md), "Loose
-material retargeting is not safe"). The Creation Kit mints fresh `res:` IDs —
-that is the entire reason this step must happen in CK.
+material retargeting is not safe"). Creating or duplicating a material
+**inside the Material Editor** is fine — the editor mints fresh identities;
+it is copying at the file level that breaks.
 
-Author a new material under `Materials\OSFUI\` that:
+In the Material Editor, create a new material under `Materials\OSFUI\` that:
 
-- binds the placeholder texture as **Albedo** and as **Emissive**;
+- binds `Textures\OSFUI\worldsurface_placeholder01.dds` (or your slot's file)
+  as **Albedo** and as **Emissive**;
 - sets `EmissiveSettingsComponent.ExposureOffset = 6`.
 
 The emissive binding is what makes the vanilla cockpit screens glow
 (`ShipScreen_Avionics01_A.mat` precedent) — without it, browser content reads
 as a dark decal instead of a lit display.
+
+Alternative tooling: the standalone *Material Editor Lite* (Nexus mod 14659)
+creates materials with an emissive-capable shader model without opening CK.
+If you use it, verify the output the same way — a material that ships
+duplicated `res:` IDs fails exactly like a file copy. Its built-in texture
+conversion must NOT be pointed at the placeholder (step-1 hard rule).
 
 ## 4. Mesh
 
@@ -86,6 +108,12 @@ The screen face of your mesh must:
 
 A flat quad inset into any terminal/monitor prop works; the screen face just
 needs its own material slot pointing at the step-3 material.
+
+Toolchain reality: mesh geometry is authored in Blender and exported to
+Starfield's `.mesh` format (community "Geo Bridge" exporter), the `.nif`
+wrapping it is assembled in a Starfield-capable NifSkope, and **the material
+is assigned in NifSkope** — the screen face's `BSGeometry` node carries the
+material path string; point it at your `Materials\OSFUI\...mat`.
 
 ## 5. Placeable form + plugin
 
