@@ -178,10 +178,12 @@ async function scaffold(options) {
       strict: true,
       jsx: 'react-jsx',
       jsxImportSource: 'preact',
+      // DOM: the mock module runs in the browser (osfui check type-checks it).
+      lib: ['ES2022', 'DOM', 'DOM.Iterable'],
       types: ['@osfui/cli/view'],
       noEmit: true,
     },
-    include: ['src', 'osfui.config.ts'],
+    include: ['src', 'osfui.config.ts', 'osfui.mock.ts'],
   }, null, 2)}\n`);
   await put(root, 'src/vite-env.d.ts', `declare module '*.css';
 declare module '*osfui.js';
@@ -201,15 +203,31 @@ export default defineConfig({
   }],
 });
 `);
-  await put(root, 'osfui.mock.json', `${JSON.stringify({
-    state: { example: { enabled: true } },
-    requests: {
-      'papyrus.example': { ok: true, message: 'Mock Papyrus response' },
-      [`${options.modId}.example`]: { ok: true, message: 'Mock native-plugin response' },
-      'settings.get': { mods: [{ id: options.modId, values: { example: true } }] },
-    },
-    locales: { en: { title: 'Example view' } },
-  }, null, 2)}\n`);
+  await put(root, 'osfui.mock.ts', `import { defineMock } from '@osfui/cli';
+
+// Browser-side mock served to \`osfui dev\`. Lives at the project root so it
+// can never ship with the views. Request values may be plain JSON,
+// { $type, payload } to control the reply type, or (async) functions of the
+// command payload.
+export default defineMock({
+  state: { example: { enabled: true } },
+  requests: {
+    'papyrus.example': { ok: true, message: 'Mock Papyrus response' },
+    '${options.modId}.example': { ok: true, message: 'Mock native-plugin response' },
+    'settings.get': (payload) => ({ mods: [{ id: '${options.modId}', values: { example: true } }] }),
+  },
+  locales: { en: { title: 'Example view' } },
+});
+
+// Need full control (stateful round-trips, custom pushes)? Export install():
+// export function install(ctx: MockContext) {
+//   ctx.onCommand((command, payload, reply) => {
+//     if (command !== '${options.modId}.ping') return;
+//     reply('ui.result', { ok: true, at: Date.now() });
+//     return true;
+//   });
+// }
+`);
   await put(root, `${viewRoot}/index.html`, `<!doctype html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${options.view}</title></head><body><div id="app"></div><script type="module" src="./main.${extension}"></script></body></html>

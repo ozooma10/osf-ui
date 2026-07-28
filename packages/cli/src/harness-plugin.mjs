@@ -1,12 +1,16 @@
 import { readFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { normalizePath } from 'vite';
 
 import { HARNESS_CSS, HARNESS_HTML } from './harness-assets.mjs';
 import { BRIDGE_VERSION, HOST_VERSION } from './constants.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SHARED_PREFIX = '\0osfui-shared:';
+/** URL the mock module is importable at; resolveId maps it to the real file. */
+const MOCK_ENTRY = '/__osfui/mock-entry.js';
 const CSP = [
   "default-src 'self' data: blob:",
   "script-src 'self' 'unsafe-inline'",
@@ -56,6 +60,8 @@ export function harnessPlugin(project, selectedView) {
     viewUrl: `/${project.modId}/${view.id}/${view.entry}`,
     version: HOST_VERSION,
     bridgeVersion: BRIDGE_VERSION,
+    // Absent when the project has no mock; mock-loader.js skips the import.
+    ...(project.mockPath ? { mockUrl: MOCK_ENTRY, mockName: basename(project.mockPath) } : {}),
   };
   return {
     name: 'osfui-author-harness',
@@ -63,6 +69,9 @@ export function harnessPlugin(project, selectedView) {
     resolveId(source) {
       if (source === '/shared/osfui.js') return `${SHARED_PREFIX}osfui.js`;
       if (source === '/shared/osfui.css') return `${SHARED_PREFIX}osfui.css`;
+      // The project's mock, wherever it lives, importable at a stable URL and
+      // transformed by Vite (TypeScript, aliases, JSON default export).
+      if (source.split('?')[0] === MOCK_ENTRY && project.mockPath) return normalizePath(project.mockPath);
     },
     async load(id) {
       if (!id.startsWith(SHARED_PREFIX)) return null;
@@ -72,11 +81,22 @@ export function harnessPlugin(project, selectedView) {
       order: 'pre',
       handler(html, context) {
         if (context.path.startsWith('/__osfui/')) return html;
-        return [{
-          tag: 'script',
-          attrs: { src: '/__osfui/bootstrap.js' },
-          injectTo: 'head-prepend',
-        }];
+        // Order matters: the classic bootstrap installs the queuing bridge
+        // stub at parse time; the module loader then brings up the mock
+        // before any module view entry runs (module scripts execute in
+        // order and honor top-level await).
+        return [
+          {
+            tag: 'script',
+            attrs: { src: '/__osfui/bootstrap.js' },
+            injectTo: 'head-prepend',
+          },
+          {
+            tag: 'script',
+            attrs: { type: 'module', src: '/__osfui/mock-loader.js' },
+            injectTo: 'head-prepend',
+          },
+        ];
       },
     },
     configureServer(server) {
@@ -109,6 +129,10 @@ export function harnessPlugin(project, selectedView) {
           send(response, await browserAsset('shell.js'), 'text/javascript; charset=utf-8');
         } else if (url.pathname === '/__osfui/stage-fit.js') {
           send(response, await browserAsset('stage-fit.mjs'), 'text/javascript; charset=utf-8');
+        } else if (url.pathname === '/__osfui/mock-loader.js') {
+          send(response, await browserAsset('mock-loader.js'), 'text/javascript; charset=utf-8');
+        } else if (url.pathname === '/__osfui/mock-runtime.js') {
+          send(response, await browserAsset('mock-runtime.js'), 'text/javascript; charset=utf-8');
         } else if (url.pathname === '/__osfui/bootstrap.js') {
           send(
             response,
@@ -117,14 +141,6 @@ export function harnessPlugin(project, selectedView) {
           );
         } else if (url.pathname === '/__osfui/meta.json') {
           send(response, JSON.stringify(meta), 'application/json; charset=utf-8');
-        } else if (url.pathname === '/__osfui/fixture.json') {
-          // Module mocks are loaded through Vite, not this endpoint; only a
-          // JSON fixture is served raw.
-          let fixture = '{"state":{},"requests":{},"locales":{}}';
-          if (project.mockKind === 'json') {
-            try { fixture = await readFile(project.mockPath, 'utf8'); } catch {}
-          }
-          send(response, fixture, 'application/json; charset=utf-8');
         } else {
           next();
         }

@@ -1,0 +1,266 @@
+// The mock runtime, loaded into the view iframe by mock-loader.js.
+//
+// Two tiers, matching @osfui/cli's declared surface:
+//   - simple: `export default defineMock({state, locale, locales, requests,
+//     scenarios})` — served by the scenario engine below. `requests` values
+//     may be plain JSON, {$type, payload}, or (async) functions of the
+//     command payload. `?scenario=<name>` (or ctx code) overlays a named
+//     scenario onto the base fields.
+//   - escape hatch: `export function install(ctx)` — gets the MockContext and
+//     may register command handlers, push messages, or take over
+//     window.osfui.postMessage wholesale (the repo's own mockbridge does).
+//
+// The pure pieces (scenario resolution, the command engine) take no DOM so
+// they are unit-tested under node --test.
+
+/** Shallow-overlay a named scenario onto the base mock fields. */
+export function resolveScenario(mock, name) {
+  const base = mock && typeof mock === 'object' ? mock : {};
+  const chosen = name && base.scenarios && typeof base.scenarios === 'object'
+    ? base.scenarios[name]
+    : null;
+  const overlay = chosen && typeof chosen === 'object' ? chosen : {};
+  return {
+    state: { ...(base.state || {}), ...(overlay.state || {}) },
+    locale: overlay.locale || base.locale || 'en',
+    locales: { ...(base.locales || {}), ...(overlay.locales || {}) },
+    requests: { ...(base.requests || {}), ...(overlay.requests || {}) },
+    scenarioNames: base.scenarios && typeof base.scenarios === 'object'
+      ? Object.keys(base.scenarios)
+      : [],
+    scenario: chosen ? name : '',
+    $error: base.$error,
+  };
+}
+
+/** Commands every host answers; a mock does not need to declare them. */
+const BUILT_IN = new Set([
+  'close', 'menu.open', 'hud.show', 'hud.hide', 'view.ready',
+  'ui.action', 'osfui.handleBack', 'osfui.gamepadRaw', 'log',
+]);
+
+/**
+ * The scenario engine: answers one ui.command against a resolved scenario.
+ * `io.reply(type, payload)` echoes the command's requestId; `io.report`
+ * mirrors the shell traffic log. Pure aside from what io provides.
+ */
+export function createScenarioHandler(scenario, meta) {
+  const respond = async (key, payload) => {
+    const value = scenario.requests[key];
+    if (value === undefined) return null;
+    const result = typeof value === 'function' ? await value(payload) : value;
+    if (result && typeof result === 'object' && typeof result.$type === 'string') {
+      return { type: result.$type, payload: result.payload ?? {} };
+    }
+    return { type: 'mock.result', payload: result };
+  };
+  return async (command, payload, requestId, io) => {
+    if (command === 'i18n.get') {
+      const locale = scenario.locale || 'en';
+      io.reply('i18n.data', {
+        mod: payload.mod || meta.modId,
+        locale,
+        strings: scenario.locales[locale] || {},
+      });
+      return true;
+    }
+    if (command === 'ui.papyrusRequest') {
+      const response = await respond('papyrus.' + String(payload.request || ''), payload);
+      if (response) {
+        io.reply('papyrus.result', { value: response.payload });
+      } else {
+        io.reply('ui.error', {
+          code: 'mock-unhandled', command,
+          message: 'No mock response for Papyrus request "' + payload.request + '".',
+        });
+      }
+      return true;
+    }
+    const response = await respond(command, payload);
+    if (response) {
+      io.reply(response.type, response.payload);
+      return true;
+    }
+    if (BUILT_IN.has(command)) {
+      io.reply('ui.result', { ok: true, command, message: 'Handled by browser harness' });
+      return true;
+    }
+    const error = {
+      code: 'mock-unhandled',
+      command,
+      message: 'No mock response is configured for "' + command + '".',
+    };
+    if (requestId) io.reply('ui.error', error);
+    else io.report('in', { type: 'ui.error', payload: error }, 'warn');
+    return true;
+  };
+}
+
+function safeStorage() {
+  try {
+    const probe = '__osfui_probe__';
+    window.localStorage.setItem(probe, '1');
+    window.localStorage.removeItem(probe);
+    return window.localStorage;
+  } catch {
+    return null; // private mode / quota — mocks fall back to memory-only
+  }
+}
+
+/** Transient toast inside the view page for mocked commands whose real effect
+ * is outside the browser. Inline-styled: the view page has no harness CSS. */
+function notify(text) {
+  const toast = document.createElement('div');
+  toast.textContent = String(text);
+  toast.style.cssText = 'position:fixed;right:14px;bottom:14px;z-index:2147483647;' +
+    'padding:8px 12px;font:13px/1.4 system-ui,sans-serif;color:#e8f2f6;' +
+    'background:#111d24;border:1px solid #37505c;pointer-events:none;';
+  document.body.append(toast);
+  setTimeout(() => toast.remove(), 2600);
+}
+
+const domReady = () => new Promise((settle) => {
+  if (document.readyState !== 'loading') settle();
+  else document.addEventListener('DOMContentLoaded', () => settle(), { once: true });
+});
+
+/** Poll until the shared kit's onMessage exists (or give up after 5s). */
+const kitReady = (harness) => new Promise((settle) => {
+  if (harness.flush()) { settle(true); return; }
+  const timer = setInterval(() => {
+    if (!harness.flush()) return;
+    clearInterval(timer);
+    clearTimeout(giveUp);
+    settle(true);
+  }, 0);
+  const giveUp = setTimeout(() => {
+    clearInterval(timer);
+    settle(false);
+  }, 5000);
+});
+
+export async function installMock(harness, mod, loadError) {
+  const meta = harness.meta;
+  const params = new URLSearchParams(location.search);
+  const scenario = resolveScenario(mod?.default, params.get('scenario'));
+  const chain = [];
+
+  const reply = (requestId) => (type, payload) => {
+    if (!requestId) return;
+    const message = { type, requestId, payload };
+    harness.report('in', message);
+    queueMicrotask(() => harness.deliver(message));
+  };
+  const io = { report: harness.report };
+  const engine = createScenarioHandler(scenario, meta);
+
+  const handler = async (text) => {
+    let message;
+    try { message = JSON.parse(text); } catch {
+      harness.report('out', text, 'warn');
+      return;
+    }
+    harness.report('out', message);
+    if (!message || message.type !== 'ui.command') return;
+    const payload = message.payload || {};
+    const command = String(payload.command || '');
+    const respond = reply(message.requestId);
+    for (const entry of chain) {
+      try {
+        if (await entry(command, payload, respond, message.requestId || '') === true) return;
+      } catch (cause) {
+        const detail = { code: 'mock-error', command, message: String(cause && cause.message || cause) };
+        harness.report('in', 'Mock handler threw for "' + command + '": ' + (cause && cause.stack || cause), 'warn');
+        respond('ui.error', detail);
+        return;
+      }
+    }
+    try {
+      await engine(command, payload, message.requestId || '', { ...io, reply: respond });
+    } catch (cause) {
+      harness.report('in', 'Mock request for "' + command + '" threw: ' + (cause && cause.stack || cause), 'warn');
+      respond('ui.error', { code: 'mock-error', command, message: String(cause && cause.message || cause) });
+    }
+  };
+
+  const ctx = {
+    meta,
+    params,
+    storage: safeStorage(),
+    scenario: mod?.default ?? null,
+    send(message) {
+      if (!meta.nativeBridge) {
+        harness.report('in', 'Bridge disabled by manifest.permissions.nativeBridge', 'warn');
+        return;
+      }
+      harness.report('in', message);
+      harness.deliver(message);
+    },
+    onCommand(entry) {
+      if (typeof entry === 'function') chain.push(entry);
+    },
+    notify,
+    log(message, level = 'info') {
+      harness.report('in', message, level === 'warn' ? 'warn' : '');
+    },
+  };
+
+  if (loadError) {
+    harness.status(false, 'Mock module failed: ' + String(loadError && loadError.message || loadError));
+    harness.report('in', 'Mock module failed: ' + String(loadError && loadError.stack || loadError), 'warn');
+  } else if (meta.mockUrl) {
+    harness.status(true, meta.mockName || 'mock loaded');
+  }
+  if (scenario.$error) harness.report('in', scenario.$error, 'warn');
+
+  if (typeof mod?.install === 'function') {
+    await mod.install(ctx);
+    // A full-takeover mock replaces window.osfui.postMessage itself and owns
+    // greeting and replies from here on; drain the backlog into it and stop.
+    const current = window.osfui && window.osfui.postMessage;
+    if (meta.nativeBridge && typeof current === 'function' && current !== harness.bridgeEntry) {
+      harness.setHandler(current);
+      harness.ready();
+      return;
+    }
+  }
+
+  await domReady();
+  if (!meta.nativeBridge) {
+    harness.ready();
+    return;
+  }
+  const kit = await kitReady(harness);
+  if (!kit) {
+    harness.report('in', 'The shared kit never installed window.osfui.onMessage — is shared/osfui.js loaded?', 'warn');
+  }
+  const greeting = {
+    type: 'runtime.ready',
+    payload: {
+      game: 'Starfield', plugin: 'OSF UI Harness',
+      version: meta.version, bridgeVersion: meta.bridgeVersion,
+    },
+  };
+  harness.report('in', greeting);
+  harness.deliver(greeting);
+  for (const [key, value] of Object.entries(scenario.state)) {
+    const message = { type: 'data.state', payload: { mod: meta.modId, key, value } };
+    harness.report('in', message);
+    harness.deliver(message);
+  }
+  // Locale switches pushed by the shell.
+  window.addEventListener('message', (event) => {
+    if (event.origin !== location.origin || !event.data || event.data.source !== harness.source) return;
+    if (event.data.kind !== 'control' || event.data.action !== 'locale') return;
+    const locale = String(event.data.locale || 'en');
+    scenario.locale = locale;
+    const message = {
+      type: 'i18n.data',
+      payload: { mod: meta.modId, locale, strings: scenario.locales[locale] || {} },
+    };
+    harness.report('in', message);
+    harness.deliver(message);
+  });
+  harness.ready();
+  harness.setHandler(handler);
+}

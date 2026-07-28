@@ -19,7 +19,9 @@ async function projectFixture(t) {
   const root = await mkdtemp(resolve(await realpath(tmpdir()), 'osfui-cli-'));
   t.after(async () => {
     const { rm } = await import('node:fs/promises');
-    await rm(root, { recursive: true, force: true });
+    // Retry: on Windows the dev server's watchers can release the directory a
+    // beat after server.close() resolves.
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
   const view = resolve(root, 'src/views/acme.widgets/panel');
   await mkdir(view, { recursive: true });
@@ -88,8 +90,18 @@ test('development server exposes the harness and injects the bridge before view 
   const view = await fetch(`${origin}/acme.widgets/panel/index.html`).then((response) => response.text());
   const moduleResponse = await fetch(`${origin}/acme.widgets/panel/main.ts`);
   const moduleSource = await moduleResponse.text();
+  assert.equal(moduleResponse.status, 200);
+  assert.match(moduleSource, /osfui-shared/);
   assert.match(harness, /OSF UI View Harness/);
   assert.match(view, /__osfui\/bootstrap\.js/);
+  // Injection order is the mock's correctness contract: classic bootstrap
+  // (queuing bridge stub) first, then the module mock loader, both ahead of
+  // the view's own scripts.
+  const bootstrapAt = view.indexOf('/__osfui/bootstrap.js');
+  const loaderAt = view.indexOf('/__osfui/mock-loader.js');
+  const entryAt = view.indexOf('./main.ts');
+  assert.ok(bootstrapAt >= 0 && loaderAt >= 0 && entryAt >= 0);
+  assert.ok(bootstrapAt < loaderAt && loaderAt < entryAt);
   // The browser JS is served from real files in src/browser/, with the
   // per-view meta prelude prepended to the bootstrap.
   const bootstrap = await fetch(`${origin}/__osfui/bootstrap.js`).then((response) => response.text());
@@ -100,6 +112,59 @@ test('development server exposes the harness and injects the bridge before view 
   // shell.js is a module importing ./stage-fit.js — the route must exist.
   const stageFit = await fetch(`${origin}/__osfui/stage-fit.js`).then((response) => response.text());
   assert.match(stageFit, /computeFit/);
-  assert.equal(moduleResponse.status, 200);
-  assert.match(moduleSource, /osfui-shared/);
+  // The meta advertises the mock and the loader/runtime modules are served.
+  assert.match(bootstrap, /"mockUrl":"\/__osfui\/mock-entry\.js"/);
+  const loader = await fetch(`${origin}/__osfui/mock-loader.js`).then((response) => response.text());
+  assert.match(loader, /installMock/);
+  const runtime = await fetch(`${origin}/__osfui/mock-runtime.js`).then((response) => response.text());
+  assert.match(runtime, /createScenarioHandler/);
+});
+
+test('the mock module is importable through Vite at /__osfui/mock-entry.js', async (t) => {
+  const root = await projectFixture(t);
+  // A TypeScript mock with a type annotation and an install export — the
+  // transform must strip the types and keep both exports.
+  const { rm, writeFile: write } = await import('node:fs/promises');
+  await rm(resolve(root, 'osfui.mock.json'));
+  await write(resolve(root, 'osfui.mock.ts'), [
+    "const greeting: string = 'hi';",
+    'export default { state: { greeting } };',
+    'export function install(ctx: unknown) {}',
+  ].join('\n'));
+  const project = await loadProject(root);
+  const server = await createServer({
+    root: project.viewsRoot,
+    plugins: [harnessPlugin(project, project.views[0]), preact()],
+    server: { host: '127.0.0.1', port: 0, open: false, fs: { strict: false } },
+    logLevel: 'silent',
+  });
+  await server.listen();
+  t.after(() => server.close());
+  const { port } = server.httpServer.address();
+  const origin = `http://127.0.0.1:${port}`;
+  const entry = await fetch(`${origin}/__osfui/mock-entry.js`);
+  const source = await entry.text();
+  assert.equal(entry.status, 200);
+  assert.doesNotMatch(source, /: string/);
+  assert.match(source, /install/);
+  assert.match(source, /greeting/);
+});
+
+test('a JSON mock flows through the same module entry', async (t) => {
+  const root = await projectFixture(t);
+  const project = await loadProject(root); // fixture writes osfui.mock.json
+  assert.equal(project.mockKind, 'json');
+  const server = await createServer({
+    root: project.viewsRoot,
+    plugins: [harnessPlugin(project, project.views[0]), preact()],
+    server: { host: '127.0.0.1', port: 0, open: false, fs: { strict: false } },
+    logLevel: 'silent',
+  });
+  await server.listen();
+  t.after(() => server.close());
+  const { port } = server.httpServer.address();
+  const source = await fetch(`http://127.0.0.1:${port}/__osfui/mock-entry.js`)
+    .then((response) => response.text());
+  // Vite turns JSON into a module with a default export.
+  assert.match(source, /export default/);
 });

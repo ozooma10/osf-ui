@@ -104,6 +104,9 @@ async function loadMeta(navigate = true) {
 window.addEventListener('message', (event) => {
   if (event.origin !== location.origin || !event.data || event.data.source !== 'osfui-harness') return;
   if (event.data.kind === 'traffic') log(event.data.direction, event.data.message, event.data.level);
+  if (event.data.kind === 'mock-status') {
+    log('in', (event.data.ok ? 'Mock: ' : 'Mock failed: ') + event.data.message, event.data.ok ? '' : 'warn');
+  }
   if (event.data.kind === 'ready') {
     $('status').textContent = meta.nativeBridge ? 'Bridge ready' : 'Bridge disabled by manifest';
     if (meta.nativeBridge) {
