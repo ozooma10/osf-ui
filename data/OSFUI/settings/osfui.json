@@ -48,7 +48,6 @@
     {
       "id": "diagnostics",
       "label": "Diagnostics",
-      "collapsed": true,
       "settings": [
         {
           "key": "renderStats",

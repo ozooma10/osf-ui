@@ -23,7 +23,6 @@ describe('registered views diagnostics', () => {
               {
                 id: 'diagnostics',
                 label: 'Diagnostics',
-                collapsed: true,
                 settings: [
                   {
                     key: 'renderStats',
@@ -76,9 +75,14 @@ describe('registered views diagnostics', () => {
     const diagnostics = [...el.querySelectorAll<HTMLElement>('.group')].find((group) =>
       group.querySelector('.group-label')?.textContent?.includes('Diagnostics'),
     )!;
-    expect(diagnostics.classList.contains('collapsed')).toBe(true);
-    diagnostics.querySelector<HTMLButtonElement>('.group-label')!.click();
+    expect(diagnostics.classList.contains('collapsed')).toBe(false);
+
+    const toggle = diagnostics.querySelector<HTMLButtonElement>('.registered-views-head')!;
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(diagnostics.querySelector('.registered-view')).toBeNull();
+    toggle.click();
     await flush();
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
 
     const rows = [...el.querySelectorAll<HTMLElement>('.registered-view')];
     expect(rows.map((row) => row.querySelector('.registered-view-id')!.textContent)).toEqual([

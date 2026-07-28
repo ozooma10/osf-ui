@@ -510,50 +510,62 @@ function RegisteredViews({
   tr: Translator;
   onTrigger: (id: string) => void;
 }) {
+  const [open, setOpen] = useState(false);
   const ordered = views
     .filter((view) => view.mod !== FRAMEWORK_ID)
     .sort((a, b) => a.id.localeCompare(b.id, undefined, { sensitivity: 'base' }));
 
   return (
     <div class="registered-views">
-      <div class="registered-views-head">
-        <div class="row-label">{tr('registeredViews', 'Registered views')}</div>
-        <div class="row-hint">
-          {tr(
-            'registeredViewsHint',
-            'Mod-provided views discovered this session, including hidden and unloaded views.',
+      <button
+        type="button"
+        class="registered-views-head"
+        aria-expanded={open ? 'true' : 'false'}
+        onClick={() => setOpen(!open)}
+      >
+        <div>
+          <div class="row-label">{tr('registeredViews', 'Registered views')}</div>
+          <div class="row-hint">
+            {tr(
+              'registeredViewsHint',
+              'Mod-provided views discovered this session, including hidden and unloaded views.',
+            )}
+          </div>
+        </div>
+      </button>
+      {open ? (
+        <div class="registered-views-body">
+          {ordered.length ? (
+            ordered.map((view) => (
+              <Row key={view.id} class="registered-view" dataKey="">
+                <div class="row-text">
+                  <div class="row-label">{view.title || view.id}</div>
+                  <div class="row-hint registered-view-meta">
+                    <span class="registered-view-id">{view.id}</span>
+                    <span aria-hidden="true"> · </span>
+                    <span>{view.kind || 'view'}</span>
+                    <span aria-hidden="true"> · </span>
+                    <span>{view.loadState || 'unloaded'}</span>
+                  </div>
+                </div>
+                <div class="control">
+                  <button
+                    type="button"
+                    class="osf-btn osf-btn--sm osf-btn--osf-accent"
+                    onClick={() => onTrigger(view.id)}
+                  >
+                    {tr('trigger', 'Trigger')}
+                  </button>
+                </div>
+              </Row>
+            ))
+          ) : (
+            <div class="registered-views-empty">
+              {tr('noRegisteredViews', 'No mod-provided views were discovered.')}
+            </div>
           )}
         </div>
-      </div>
-      {ordered.length ? (
-        ordered.map((view) => (
-          <Row key={view.id} class="registered-view" dataKey="">
-            <div class="row-text">
-              <div class="row-label">{view.title || view.id}</div>
-              <div class="row-hint registered-view-meta">
-                <span class="registered-view-id">{view.id}</span>
-                <span aria-hidden="true"> · </span>
-                <span>{view.kind || 'view'}</span>
-                <span aria-hidden="true"> · </span>
-                <span>{view.loadState || 'unloaded'}</span>
-              </div>
-            </div>
-            <div class="control">
-              <button
-                type="button"
-                class="osf-btn osf-btn--sm osf-btn--osf-accent"
-                onClick={() => onTrigger(view.id)}
-              >
-                {tr('trigger', 'Trigger')}
-              </button>
-            </div>
-          </Row>
-        ))
-      ) : (
-        <div class="registered-views-empty">
-          {tr('noRegisteredViews', 'No views were discovered.')}
-        </div>
-      )}
+      ) : null}
     </div>
   );
 }

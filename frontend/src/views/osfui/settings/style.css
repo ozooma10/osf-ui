@@ -618,9 +618,18 @@ html, body { height: 100%; overflow: hidden; }
 /* Complete discovery inventory embedded in OSF UI -> Diagnostics. */
 .registered-views { display: contents; }
 .registered-views-head {
-  padding: 15px 18px 10px;
-  border-top: 1px solid var(--osf-line);
+  display: flex; align-items: center; justify-content: space-between;
+  width: 100%; padding: 15px 18px;
+  color: inherit; text-align: left; cursor: pointer;
+  background: transparent; border: 0; border-top: 1px solid var(--osf-line);
 }
+.registered-views-head:hover { background: rgba(242, 239, 233, 0.025); }
+.registered-views-head::after {
+  content: "+"; flex: none; margin-left: 18px;
+  color: var(--osf-accent); font-family: var(--osf-font-mono); font-size: 13px;
+}
+.registered-views-head[aria-expanded="true"]::after { content: "−"; }
+.registered-views-body { display: contents; }
 .registered-view-meta { font-family: var(--osf-font-mono); }
 .registered-view-id { color: var(--osf-text-muted); }
 .registered-views-empty {

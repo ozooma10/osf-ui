@@ -32,7 +32,7 @@
 ### Other changes
 
 - The in-world render-to-texture prototype is excluded from normal builds and releases. Its descriptor hook, development probe, second browser host, configuration keys, and runtime state compile only with the default-off `with_world_surfaces` research flag. The unsafe loose cockpit materials and placeholder texture are retained outside `data/` for investigation and are never packaged.
-- OSF UI → Diagnostics now starts collapsed and lists every mod-provided view discovered during the session, including hidden and not-yet-loaded views, with a **Trigger** button that sends it through the normal open path. Built-in OSF UI surfaces stay out of the list, keeping it focused on confirming and manually launching mod diagnostic or utility views without exposing them in the regular mod menu.
+- OSF UI → Diagnostics now has a collapsed **Registered views** menu listing every mod-provided view discovered during the session, including hidden and not-yet-loaded views, with a **Trigger** button that sends it through the normal open path. Built-in OSF UI surfaces stay out of the list, keeping it focused on confirming and manually launching mod diagnostic or utility views without exposing them in the regular mod menu.
 
 ### For view authors
 
