@@ -85,9 +85,11 @@ materials. Static asset tracing identified this concrete probe target:
 | Texture archive | `Starfield - Textures10.ba2`, record 2221 |
 | Runtime signature | 1024x1024, 11 mips, BC1 sRGB |
 
-`WorldTextureProbe` now observes `ID3D12Device::CreateShaderResourceView` only
-in dev mode. It matches the temporary uniquely sized cockpit texture and can
-replace that one descriptor with a WebView shared-ring resource.
+`WorldTextureProbe` observed `ID3D12Device::CreateShaderResourceView` only
+in dev mode. It matched the temporary uniquely sized cockpit texture and could
+replace that one descriptor with a WebView shared-ring resource. It was the
+one-screen proof harness only: `WorldSurface` superseded it entirely, and the
+probe has since been deleted from the tree.
 
 A temporary 1000x1000 loose DDS made the target
 material/resource unambiguous during the proof:
@@ -241,16 +243,18 @@ Exactly two materials reference that texture: `ShipScreen_Avionics01.mat` and
 have their own `<Maker>_ShipScreen_Avionics01_color.dds` and are untouched — a
 filename-substring search wrongly suggests they share the base texture.
 
-Two reproducible generators replace the hand-placed artifact:
+One reproducible generator replaces the hand-placed artifact:
 
 | Tool | Output |
 | --- | --- |
-| `tools/make_world_surface_placeholder.py` | `research-world-surface-assets/textures/OSFUI/worldsurface_placeholder01.dds` — research-only BGRA8 placeholder |
-| `tools/make_world_surface_materials.py` | `research-world-surface-assets/materials/.../ShipScreen_Avionics01{,_A}.mat` — unsafe research overrides, never package |
+| `tools/make_world_surface_placeholder.py` | BGRA8 placeholder DDS whose unique size is the material binding key |
 
-The material generator copies each vanilla file verbatim and rewrites only the
-texture filename strings (8 changed lines per file), so every `res:`
-content-database ID, edge, and parent link stays as Bethesda authored it.
+A second generator (`tools/make_world_surface_materials.py`) copied the two
+vanilla cockpit materials verbatim and rewrote only the texture filename
+strings, keeping every `res:` content-database ID as Bethesda authored it.
+The bisection below proved even that minimal retarget unsafe, so the
+generator was deleted — a tool whose only output is a forbidden artifact is
+a trap.
 
 **Do not hand-author a material at a new path by copying one of these.** The
 `res:` IDs (`res:B64FF631:0005DB77:A64340C8` and friends) would be duplicated
@@ -322,8 +326,8 @@ from deployment.
 
 ## Release gating
 
-Normal builds compile `ScaleformToTextureProbe.cpp`, `WorldTextureProbe.cpp`,
-and `WorldSurface.cpp` out of the plugin. The runtime call sites, state, and
+Normal builds compile `ScaleformToTextureProbe.cpp` and `WorldSurface.cpp`
+out of the plugin. The runtime call sites, state, and
 configuration keys are guarded by `OSFUI_WITH_WORLD_SURFACES`, which xmake
 only defines after an explicit `xmake f --with_world_surfaces=y`. Research
 assets are never installed, even in that build; testing them requires a

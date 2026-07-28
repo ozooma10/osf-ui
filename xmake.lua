@@ -112,7 +112,6 @@ target("OSF UI")
     else
         remove_files(
             "src/composite/ScaleformToTextureProbe.cpp",
-            "src/composite/WorldTextureProbe.cpp",
             "src/composite/WorldSurface.cpp")
     end
     -- sdk/ holds the public single-header native API (OSFUI_API.h); 
