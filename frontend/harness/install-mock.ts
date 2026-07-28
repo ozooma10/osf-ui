@@ -14,7 +14,7 @@
 // import is evaluated before any of the module's own top-level statements, so
 // the kit would load first and conclude there is no bridge.
 
-import { installMock, type MockApi } from './mockbridge';
+import { installMock, type MockApi } from '../devmock/mockbridge';
 
 /** The installed mock. Also reachable as `window.osfui._mock` from a console. */
 export const mock: MockApi = installMock();

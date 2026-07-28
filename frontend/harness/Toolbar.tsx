@@ -1,7 +1,7 @@
 // Dev harness control bar. Dev only, never shipped in a view.
 
 import { nextStageMode, type StageMode } from './Stage';
-import { LOCALES, type MockApi } from './mockbridge';
+import { LOCALES, type MockApi } from '../devmock/mockbridge';
 
 /** Button face and tooltip per stage mode, in cycle order. */
 const STAGE_LABELS: Record<StageMode, { label: string; title: string }> = {

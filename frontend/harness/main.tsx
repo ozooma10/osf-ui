@@ -22,7 +22,7 @@ import type { FunctionComponent } from 'preact';
 import { STAGE_MODES, Stage, type StageMode } from './Stage';
 import { Toolbar } from './Toolbar';
 import { mock } from './install-mock';
-import { LOCALE_EVENT } from './mockbridge';
+import { LOCALE_EVENT } from '../devmock/mockbridge';
 
 // View registry. `import.meta.glob` rather than static imports: it builds even
 // while a view's App.tsx does not exist yet, and each view's App and style.css

@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Setting } from '@sdk';
 import { normalizeValue } from '@lib/settings/normalize';
-import { installMock, validModId, type MockApi, type StorageLike } from '@harness/mockbridge';
+import { installMock, validModId, type MockApi, type StorageLike } from '@devmock/mockbridge';
 
 interface Frame {
   type: string;

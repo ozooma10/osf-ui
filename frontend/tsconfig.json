@@ -27,7 +27,7 @@
       "@lib/*": ["./src/lib/*"],
       "@ui/*": ["./src/ui/*"],
       "@views/*": ["./src/views/*"],
-      "@harness/*": ["./harness/*"]
+      "@devmock/*": ["./devmock/*"]
     },
     "allowJs": true,
     "checkJs": false,
@@ -35,7 +35,7 @@
     "noEmit": true,
     "types": ["vite/client"]
   },
-  "include": ["src", "harness", "test", "scripts", "vite.config.ts"],
+  "include": ["src", "harness", "devmock", "test", "scripts", "vite.config.ts"],
   "exclude": [
     "node_modules",
     // Frozen public contract, shipped verbatim - described by osfui-global.d.ts,

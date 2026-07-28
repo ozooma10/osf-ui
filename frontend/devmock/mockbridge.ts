@@ -127,7 +127,7 @@ type MockHost = Window & typeof globalThis;
 /** The event the toolbar listens for when a dropped catalog auto-activates. */
 export const LOCALE_EVENT = 'osfui-mock-locale';
 
-// Repo sources. Glob paths are relative to this file (frontend/harness/): `../..`
+// Repo sources. Glob paths are relative to this file (frontend/devmock/): `../..`
 // is the repo root, `../../..` the parent directory holding sibling repos.
 // vite.config.ts `server.fs.allow` covers both. Globs resolve at transform time,
 // so no dev-server root ceremony; a missing file yields an empty map.

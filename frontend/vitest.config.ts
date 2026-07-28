@@ -13,7 +13,7 @@ export default defineConfig({
       '@lib': resolve(__dirname, 'src/lib'),
       '@ui': resolve(__dirname, 'src/ui'),
       '@views': resolve(__dirname, 'src/views'),
-      '@harness': resolve(__dirname, 'harness'),
+      '@devmock': resolve(__dirname, 'devmock'),
     },
   },
   test: {
