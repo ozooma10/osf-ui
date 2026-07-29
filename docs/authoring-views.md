@@ -682,7 +682,7 @@ manifests, in-game sync, temporary author mode, validation, and packaging.
 
 `npm run dev` serves the view at the same `/<modId>/<viewName>/<entry>` URL
 shape used in game, generates and validates `manifest.json` from
-`osfui.config.ts`, supplies OSF UI's public `shared/osfui.js` and
+`osfui.config.ts` or `osfui.config.js`, supplies OSF UI's public `shared/osfui.js` and
 `shared/osfui.css`, and injects the mock bridge before your application code.
 
 The toolbar provides:

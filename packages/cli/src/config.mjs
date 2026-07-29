@@ -3,7 +3,7 @@ import { extname, isAbsolute, resolve, sep } from 'node:path';
 import { loadConfigFromFile, normalizePath } from 'vite';
 
 import {
-  CONFIG_FILE,
+  CONFIG_FILES,
   MOD_ID_PATTERN,
   VIEW_ID_PATTERN,
 } from './constants.mjs';
@@ -71,10 +71,14 @@ function validateRelative(value, label) {
 
 export async function loadProject(cwd, command = 'serve') {
   const root = resolve(cwd);
-  const configPath = resolve(root, CONFIG_FILE);
-  if (!await exists(configPath)) {
-    throw new Error(`No ${CONFIG_FILE} found in ${root}.`);
+  let configName = null;
+  for (const candidate of CONFIG_FILES) {
+    if (await exists(resolve(root, candidate))) { configName = candidate; break; }
   }
+  if (configName === null) {
+    throw new Error(`No ${CONFIG_FILES.join(' or ')} found in ${root}.`);
+  }
+  const configPath = resolve(root, configName);
   const loaded = await loadConfigFromFile(
     { command, mode: command === 'serve' ? 'development' : 'production' },
     configPath,
@@ -88,7 +92,7 @@ export async function loadProject(cwd, command = 'serve') {
   }
   const authored = raw.views ?? (raw.view ? [raw.view] : []);
   if (!Array.isArray(authored) || authored.length === 0) {
-    throw new Error(`${CONFIG_FILE} must declare view or views.`);
+    throw new Error(`${configName} must declare view or views.`);
   }
   const seen = new Set();
   const views = [];
@@ -140,14 +144,20 @@ export async function loadProject(cwd, command = 'serve') {
   }
   const viewsRoot = resolve(root, 'src/views');
   const { mockPath, mockKind } = await resolveMock(root, viewsRoot, raw.mock);
+  const outDir = resolve(root, raw.outDir || 'dist');
+  const modRoot = resolve(root, validateRelative(raw.modRoot ?? 'mod', 'modRoot'));
+  if (modRoot === outDir || modRoot.startsWith(outDir + sep) || outDir.startsWith(modRoot + sep)) {
+    throw new Error('modRoot and outDir must be separate directories.');
+  }
   return {
     root,
     configPath,
     modId: raw.modId,
     views,
     viewsRoot,
-    outDir: resolve(root, raw.outDir || 'dist'),
-    outputViewsRoot: resolve(root, raw.outDir || 'dist', 'SFSE/Plugins/OSFUI/views'),
+    modRoot,
+    outDir,
+    outputViewsRoot: resolve(outDir, 'SFSE/Plugins/OSFUI/views'),
     mockPath,
     mockKind,
     // Dev-server-only Vite extension (aliases, extra plugins); build/check

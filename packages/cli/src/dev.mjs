@@ -1,10 +1,9 @@
-import preact from '@preact/preset-vite';
 import { mergeConfig } from 'vite';
 
 import { harnessPlugin } from './harness-plugin.mjs';
 
 /**
- * The `osfui dev` Vite config: harness plugin + preact, merged with the
+ * The `osfui dev` Vite config: harness plugin, merged with the
  * project's optional dev-only `vite:` extension (aliases, extra plugins).
  * mergeConfig appends project plugins after the harness plugin, so the
  * harness keeps ownership of /shared/* and /__osfui/*. Build and check never
@@ -17,7 +16,7 @@ export async function devServerConfig(project, view, options = {}) {
   return mergeConfig({
     root: project.viewsRoot,
     base: '/',
-    plugins: [harnessPlugin(project, view), preact()],
+    plugins: [harnessPlugin(project, view)],
     server: {
       host: options.host || '127.0.0.1',
       port: Number(options.port) || 5173,

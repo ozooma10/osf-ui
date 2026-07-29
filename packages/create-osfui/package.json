@@ -12,12 +12,14 @@
     "create-osfui": "src/cli.mjs"
   },
   "files": [
-    "src"
+    "src",
+    "templates"
   ],
   "dependencies": {
     "@clack/prompts": "^1.7.0"
   },
   "scripts": {
+    "prepack": "node scripts/sync-sdk.mjs",
     "test": "node --test test/*.test.mjs"
   },
   "engines": {

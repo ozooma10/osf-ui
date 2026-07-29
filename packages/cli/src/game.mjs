@@ -36,6 +36,11 @@ async function configuredDeployRoot(project, explicit) {
 }
 
 async function deployViews(project, deployRoot) {
+  try {
+    await cp(project.modRoot, deployRoot, { recursive: true, force: true });
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
   const targetRoot = resolve(deployRoot, 'SFSE/Plugins/OSFUI/views');
   for (const view of project.views) {
     const source = resolve(project.outputViewsRoot, project.modId, view.id);
@@ -74,6 +79,7 @@ export async function startGameSync(project, server, options = {}) {
     }
   };
   await sync();
+  server.watcher.add(project.modRoot);
   server.watcher.on('change', sync);
   server.watcher.on('add', sync);
   server.watcher.on('unlink', sync);

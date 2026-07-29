@@ -7,8 +7,8 @@ export const MOD_ID = /^(?:[a-z0-9-]+)\.(?:[a-z0-9-]+)$/;
 
 export const CHOICES = {
   template: [
-    { value: 'preact', label: 'Preact', hint: 'recommended for interactive views' },
-    { value: 'vanilla', label: 'Vanilla TypeScript', hint: 'no UI framework' },
+    { value: 'typescript', label: 'TypeScript', hint: 'strict types and editor checking' },
+    { value: 'javascript', label: 'JavaScript', hint: 'plain browser modules' },
   ],
   surface: [
     { value: 'menu', label: 'Menu', hint: 'a focused screen with user input' },
@@ -38,7 +38,7 @@ function fillDefaults(options) {
   const projectName = slug(basename(resolve(options.directory)));
   options.modId ||= `yourname.${projectName}`;
   options.view ||= 'main';
-  options.template ||= 'preact';
+  options.template ||= 'typescript';
   options.surface ||= 'menu';
   options.integration ||= 'papyrus';
 }
@@ -82,9 +82,9 @@ export async function promptMissing(
   }));
 
   options.template ||= answer(prompt, await prompt.select({
-    message: 'Choose a framework',
+    message: 'Choose a language',
     options: CHOICES.template,
-    initialValue: 'preact',
+    initialValue: 'typescript',
   }));
 
   options.surface ||= answer(prompt, await prompt.select({

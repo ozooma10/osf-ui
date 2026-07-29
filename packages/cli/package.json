@@ -38,8 +38,6 @@
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
-    "@preact/preset-vite": "2.10.6",
-    "preact": "10.29.7",
     "typescript": "7.0.2",
     "vite": "8.1.5"
   }

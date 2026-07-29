@@ -2,7 +2,6 @@ import { access, cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import preact from '@preact/preset-vite';
 import { build as viteBuild } from 'vite';
 
 import { manifestFor } from './config.mjs';
@@ -31,11 +30,14 @@ function sharedKitPlugin() {
 }
 
 export async function buildProject(project, { quiet = false } = {}) {
-  await rm(project.outputViewsRoot, { recursive: true, force: true });
+  await rm(project.outDir, { recursive: true, force: true });
+  if (await access(project.modRoot).then(() => true, () => false)) {
+    await cp(project.modRoot, project.outDir, { recursive: true });
+  }
   await viteBuild({
     root: project.viewsRoot,
     base: './',
-    plugins: [sharedKitPlugin(), preact()],
+    plugins: [sharedKitPlugin()],
     build: {
       outDir: project.outputViewsRoot,
       emptyOutDir: false,

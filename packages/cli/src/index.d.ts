@@ -29,6 +29,8 @@ export interface OsfuiConfig {
   modId: string;
   view?: ViewConfig;
   views?: ViewConfig[];
+  /** Data-root files copied into builds before generated OSF UI views. Defaults to "mod". */
+  modRoot?: string;
   outDir?: string;
   mock?: string;
   /**

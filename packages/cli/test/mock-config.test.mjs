@@ -35,6 +35,18 @@ test('a project without any mock loads with mockKind none', async (t) => {
   assert.equal(project.mockKind, 'none');
 });
 
+test('a JavaScript project config is discovered without a TypeScript config', async (t) => {
+  const root = await projectFixture(t);
+  await rm(resolve(root, 'osfui.config.ts'));
+  await writeFile(resolve(root, 'osfui.config.js'), `export default {
+    modId: 'acme.widgets',
+    views: [{ id: 'panel' }],
+  };`);
+
+  const project = await loadProject(root);
+  assert.equal(project.configPath, resolve(root, 'osfui.config.js'));
+});
+
 test('the scaffolded osfui.mock.json is found without a mock: setting', async (t) => {
   // The exact shape `npm create osfui` emits: a JSON fixture, no `mock:` key.
   const root = await projectFixture(t, { files: { 'osfui.mock.json': '{"state":{}}' } });

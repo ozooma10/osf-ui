@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
-import preact from '@preact/preset-vite';
 import { createServer } from 'vite';
 
 import { buildProject } from '../src/build.mjs';
@@ -25,7 +24,10 @@ async function projectFixture(t) {
     await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
   const view = resolve(root, 'src/views/acme.widgets/panel');
+  const modAsset = resolve(root, 'mod/Scripts/Example.pex');
   await mkdir(view, { recursive: true });
+  await mkdir(resolve(modAsset, '..'), { recursive: true });
+  await writeFile(modAsset, 'compiled-papyrus');
   await writeFile(resolve(root, 'osfui.config.ts'), `export default {
     modId: 'acme.widgets',
     views: [{ id: 'panel', title: 'Panel', width: 800, height: 600 }]
@@ -56,8 +58,10 @@ test('loads configuration and creates a production manifest', async (t) => {
 test('checks, builds, and packages a generated-shaped project', async (t) => {
   const root = await projectFixture(t);
   const project = await loadProject(root, 'build');
+  assert.equal(project.modRoot, resolve(root, 'mod'));
   assert.equal(await checkProject(project), 1);
   await buildProject(project, { quiet: true });
+  assert.equal(await readFile(resolve(root, 'dist/Scripts/Example.pex'), 'utf8'), 'compiled-papyrus');
   const manifest = JSON.parse(await readFile(
     resolve(root, 'dist/SFSE/Plugins/OSFUI/views/acme.widgets/panel/manifest.json'),
     'utf8',
@@ -65,7 +69,9 @@ test('checks, builds, and packages a generated-shaped project', async (t) => {
   assert.equal(manifest.id, 'panel');
   const zip = resolve(root, 'release/view.zip');
   await writeZip(project.outDir, zip);
-  assert.equal((await readFile(zip)).subarray(0, 4).toString('hex'), '504b0304');
+  const archive = await readFile(zip);
+  assert.equal(archive.subarray(0, 4).toString('hex'), '504b0304');
+  assert.ok(archive.includes(Buffer.from('Scripts/Example.pex')));
 });
 
 test('compatibility checks flag remote URLs', async (t) => {
@@ -79,7 +85,7 @@ test('development server exposes the harness and injects the bridge before view 
   const project = await loadProject(root);
   const server = await createServer({
     root: project.viewsRoot,
-    plugins: [harnessPlugin(project, project.views[0]), preact()],
+    plugins: [harnessPlugin(project, project.views[0])],
     server: { host: '127.0.0.1', port: 0, open: false, fs: { strict: false } },
     logLevel: 'silent',
   });
@@ -161,7 +167,7 @@ test('the mock module is importable through Vite at /__osfui/mock-entry.js', asy
   const project = await loadProject(root);
   const server = await createServer({
     root: project.viewsRoot,
-    plugins: [harnessPlugin(project, project.views[0]), preact()],
+    plugins: [harnessPlugin(project, project.views[0])],
     server: { host: '127.0.0.1', port: 0, open: false, fs: { strict: false } },
     logLevel: 'silent',
   });
@@ -221,7 +227,7 @@ test('a JSON mock flows through the same module entry', async (t) => {
   assert.equal(project.mockKind, 'json');
   const server = await createServer({
     root: project.viewsRoot,
-    plugins: [harnessPlugin(project, project.views[0]), preact()],
+    plugins: [harnessPlugin(project, project.views[0])],
     server: { host: '127.0.0.1', port: 0, open: false, fs: { strict: false } },
     logLevel: 'silent',
   });

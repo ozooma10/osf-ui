@@ -2,10 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { CHOICES, promptMissing } from '../src/prompts.mjs';
 
+test('offers only TypeScript and JavaScript', () => {
+  assert.deepEqual(CHOICES.template.map(({ value }) => value), ['typescript', 'javascript']);
+});
+
 test('walks through missing choices as visible select lists', async () => {
   const questions = [];
   const textAnswers = ['custom-view', 'acme.widgets', 'panel'];
-  const selectAnswers = ['vanilla', 'hud', 'static'];
+  const selectAnswers = ['javascript', 'hud', 'static'];
   const prompt = {
     intro: (title) => questions.push({ kind: 'intro', title }),
     isCancel: () => false,
@@ -31,7 +35,7 @@ test('walks through missing choices as visible select lists', async () => {
     directory: 'custom-view',
     modId: 'acme.widgets',
     view: 'panel',
-    template: 'vanilla',
+    template: 'javascript',
     surface: 'hud',
     integration: 'static',
   });
@@ -51,7 +55,7 @@ test('walks through missing choices as visible select lists', async () => {
       values: choices.map(({ value }) => value),
     })),
     [
-      { message: 'Choose a framework', values: CHOICES.template.map(({ value }) => value) },
+      { message: 'Choose a language', values: CHOICES.template.map(({ value }) => value) },
       { message: 'Choose a surface', values: CHOICES.surface.map(({ value }) => value) },
       { message: 'Choose a starting workflow', values: CHOICES.integration.map(({ value }) => value) },
     ],
@@ -61,7 +65,7 @@ test('walks through missing choices as visible select lists', async () => {
 test('keeps explicit flags and fills only missing values without a TTY', async () => {
   const options = {
     directory: 'widgets',
-    template: 'vanilla',
+    template: 'javascript',
     surface: 'hud',
     integration: 'native',
   };
@@ -77,7 +81,7 @@ test('keeps explicit flags and fills only missing values without a TTY', async (
     directory: 'widgets',
     modId: 'yourname.widgets',
     view: 'main',
-    template: 'vanilla',
+    template: 'javascript',
     surface: 'hud',
     integration: 'native',
   });
