@@ -281,8 +281,7 @@ namespace OSFUI
 		// LoadView, then restore the output-matched size. The shared core of
 		// crash-recovery, dev-reload, and pending-open retry. The renderer must
 		// exist — every caller guards _renderer first.
-		void ReloadViewInPlace(const std::string& a_id, const ViewManifest& a_manifest,
-			bool a_refreshFiles = false);
+		void ReloadViewInPlace(const std::string& a_id, const ViewManifest& a_manifest);
 
 		// Fire due reload attempts scheduled by OnViewLoad. Called from Tick on
 		// the game thread.

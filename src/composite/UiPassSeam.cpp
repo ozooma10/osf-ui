@@ -56,6 +56,11 @@ namespace OSFUI::UiPassSeam
 		thread_local ID3D12DescriptorHeap* tl_heaps[2] = {};
 		thread_local UINT tl_heapCount = 0;
 		std::atomic<int> g_hookInstallState{ 0 };
+		// Gates RecordSeamDrawAtHandoff. Set from Install() and cleared by
+		// EnsureDrawHooksInstalled on any failure path — declared up here (rather
+		// than beside its first reader) precisely so that lazy installer, which
+		// runs long after Install() returned true, can turn it back off.
+		std::atomic<bool> g_drawEnabled{ false };
 
 		thread_local int tl_handoffDrawsLeft = 0;
 		thread_local int tl_callsAfterFirstDraw = -1;
@@ -158,6 +163,7 @@ namespace OSFUI::UiPassSeam
 
 			const auto engine = LocateEngineD3D12();
 			if (!engine) {
+				g_drawEnabled.store(false, std::memory_order_release);
 				REX::ERROR("[UiPassSeam] draw hooks: engine D3D12 device not reachable; seam draw disabled");
 				return;
 			}
@@ -223,17 +229,28 @@ namespace OSFUI::UiPassSeam
 							vtbl, kSlotSetDescriptorHeaps,
 							reinterpret_cast<void*>(origHeaps));
 					}
-					g_origResourceBarrier.store(nullptr, std::memory_order_relaxed);
-					g_origSetDescriptorHeaps.store(nullptr, std::memory_order_relaxed);
+					// Deliberately NOT nulling g_origResourceBarrier /
+					// g_origSetDescriptorHeaps here. The vtable restore above
+					// already stops new entries; a thunk call that is already past
+					// its entry check still needs the original to forward to, and
+					// dropping a ResourceBarrier on the floor would leave a
+					// resource in the wrong state. Nothing treats these pointers
+					// as an "installed" flag — g_hookInstallState and
+					// g_drawEnabled do that.
 					g_selfTestList = nullptr;
-					REX::WARN("[UiPassSeam] seam draw hook self-test FAILED "
-							  "(patch b/h={}/{} seen b/h={}/{}); "
-							  "vtable restored, seam draw disabled",
+					// The log said "seam draw disabled" while leaving it enabled,
+					// so the compositor kept seam mode on with nothing able to
+					// draw: an invisible overlay reported as healthy.
+					g_drawEnabled.store(false, std::memory_order_release);
+					REX::ERROR("[UiPassSeam] seam draw hook self-test FAILED "
+							   "(patch b/h={}/{} seen b/h={}/{}); "
+							   "vtable restored, seam draw disabled",
 						patchedBarrier, patchedHeaps, barrierOk, heapsOk);
 				}
 				list->Close();
 			} else {
-				REX::WARN("[UiPassSeam] draw hooks: throwaway command list creation failed; seam draw disabled");
+				g_drawEnabled.store(false, std::memory_order_release);
+				REX::ERROR("[UiPassSeam] draw hooks: throwaway command list creation failed; seam draw disabled");
 			}
 
 			if (list) {
@@ -246,7 +263,6 @@ namespace OSFUI::UiPassSeam
 			engine.device->Release();
 		}
 
-		std::atomic<bool> g_drawEnabled{ false };
 
 		void RecordSeamDrawAtHandoff(
 			ID3D12GraphicsCommandList* a_list,

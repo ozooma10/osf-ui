@@ -14,6 +14,7 @@
 #endif
 #include "composite/UiPassSeam.h"
 #include "core/Log.h"
+#include "core/StringUtil.h"
 #include "core/Version.h"
 #include "input/ControlLayer.h"
 #include "input/EngineInput.h"
@@ -1051,10 +1052,9 @@ namespace OSFUI
 				}
 			} else {
 				_recovery.erase(pending.target);
+				// ReloadViewInPlace sends runtime.ready itself now, for every
+				// reload path rather than only this one.
 				ReloadViewInPlace(pending.target, *manifest);
-				if (manifest->permissions.nativeBridge && _bridge) {
-					_bridge->SendRuntimeReady(pending.target);
-				}
 			}
 			pending.startedAt = _uptime;
 			pending.loadedAt = -1.0;
@@ -1393,15 +1393,26 @@ namespace OSFUI
 										a_state == ViewLoadState::Finished;
 	}
 
-	void Runtime::ReloadViewInPlace(const std::string& a_id, const ViewManifest& a_manifest, bool a_refreshFiles)
+	void Runtime::ReloadViewInPlace(const std::string& a_id, const ViewManifest& a_manifest)
 	{
-		if (a_refreshFiles && _config.devMode && !_renderer->RefreshViewFiles(a_id)) {
-			REX::WARN("Runtime: dev reload of '{}' is using the previous mirrored files; save again to retry", a_id);
-		}
 		_viewLoadState[a_id] = ViewLoadState::Loading;
 		_readyViews.erase(a_id);
 		_renderer->LoadView(a_manifest);
 		if (a_manifest.permissions.nativeBridge && _bridge) {
+			// A reload is a fresh document: `await osfui.ready` on the new page
+			// resolves only on a runtime.ready it receives itself, and the host
+			// does not replay the one the first load consumed. Without this a
+			// dev hot-reload or a crash-recovery reload comes back blank and
+			// unlocalized — the boot code that issues i18n.get and re-asserts
+			// osfui.handleBack / gamepadRaw all lives behind the greeting, and
+			// OnViewLoad has just dropped those per-view grants expecting the
+			// page to re-assert them.
+			//
+			// Ordering is safe: LoadView's navigate and this send are ordered
+			// pipe commands, and the host resets domSeen while handling the
+			// navigate, so the greeting queues until the new DOM is ready
+			// instead of reaching the outgoing page.
+			_bridge->SendRuntimeReady(a_id);
 			ReplayPapyrusViewState(*_bridge, a_id);
 		}
 		// A recreated view starts at manifest dimensions; restore the
@@ -2606,7 +2617,18 @@ namespace OSFUI
 		// setting is rebindable — the schema gates the capture, not an allowlist.
 		// Main thread; OnHostKey (window thread) reads the armed flag.
 		a_bridge.RegisterRequest("settings.captureKey", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
-			const std::string mod = Json::GetString(a_p, "mod", "");
+			const auto requestedMod = Json::GetString(a_p, "mod", "");
+			// A capture ends in a settings write, so it carries the same authority
+			// requirement (Ids::ResolveWritableMod): only the built-in Mods surface
+			// and keybinds board may rebind another mod's keys.
+			const auto allowedMod = Ids::ResolveWritableMod(a_b.CurrentSource(), requestedMod);
+			if (!allowedMod) {
+				REX::WARN("Runtime: [content] view '{}' refused settings.captureKey for '{}' (not its own mod)",
+					a_b.CurrentSource(), requestedMod);
+				a_b.SendResult(false, "forbidden", "a view may only rebind its own mod's keys");
+				return;
+			}
+			const std::string mod(*allowedMod);
 			const std::string key = Json::GetString(a_p, "key", "");
 			// One capture at a time: a second arm while one is live is refused
 			// visibly rather than silently clobbering the first view's pending
@@ -2801,9 +2823,16 @@ namespace OSFUI
 				a_b.SendResult(false, "request-required", "report submission requires a correlated request");
 				return;
 			}
-			const auto title = Json::GetString(a_p, "title", "").substr(0, 120);
-			const auto description = Json::GetString(a_p, "description", "").substr(0, 6000);
-			const auto reproduction = Json::GetString(a_p, "reproduction", "").substr(0, 4000);
+			// Codepoint-boundary caps. A byte cut here would hand Submit() a string
+			// that is already exactly at the limit, so its own bound is a no-op and
+			// the split sequence reaches the payload dump.
+			const auto bounded = [](std::string a_text, std::size_t a_maxBytes) {
+				StringUtil::TruncateUtf8(a_text, a_maxBytes);
+				return a_text;
+			};
+			const auto title = bounded(Json::GetString(a_p, "title", ""), 120);
+			const auto description = bounded(Json::GetString(a_p, "description", ""), 6000);
+			const auto reproduction = bounded(Json::GetString(a_p, "reproduction", ""), 4000);
 			if (title.empty() || description.empty()) {
 				a_b.SendResult(false, "invalid-report", "title and description are required");
 				return;
@@ -2818,17 +2847,31 @@ namespace OSFUI
 			try {
 				_bugReportWorker = std::jthread([this, endpoint, diagnostics, title,
 					description, reproduction, view, requestId] {
-					const auto submitted = Reporting::Submit(endpoint, diagnostics, title,
-						description, reproduction);
-					BugReportResult result{
-						.view = view,
-						.requestId = requestId,
-						.ok = submitted.ok,
-						.code = submitted.code,
-						.message = submitted.message,
-						.reportId = submitted.reportId,
-						.issueNumber = submitted.issueNumber,
-					};
+					// The whole body is guarded: an escaping exception on a jthread
+					// is a std::terminate, and it would also leave
+					// _bugReportInFlight latched (only the result drain at
+					// PumpBugReport clears it), so the reporter would answer
+					// "report-busy" forever after. Publish a failure instead.
+					BugReportResult result{ .view = view, .requestId = requestId };
+					try {
+						const auto submitted = Reporting::Submit(endpoint, diagnostics,
+							title, description, reproduction);
+						result.ok = submitted.ok;
+						result.code = submitted.code;
+						result.message = submitted.message;
+						result.reportId = submitted.reportId;
+						result.issueNumber = submitted.issueNumber;
+					} catch (const std::exception& e) {
+						REX::ERROR("Runtime: bug-report upload threw: {}", e.what());
+						result.ok = false;
+						result.code = "internal";
+						result.message = "the report upload failed unexpectedly";
+					} catch (...) {
+						REX::ERROR("Runtime: bug-report upload threw a non-std exception");
+						result.ok = false;
+						result.code = "internal";
+						result.message = "the report upload failed unexpectedly";
+					}
 					std::scoped_lock lock(_bugReportMutex);
 					_bugReportResult = std::move(result);
 				});

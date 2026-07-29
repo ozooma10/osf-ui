@@ -136,7 +136,6 @@ target("OSF UI")
     else
         remove_files(
             "src/composite/ScaleformToTextureProbe.cpp",
-            "src/composite/WorldTextureProbe.cpp",
             "src/composite/WorldSurface.cpp",
             "src/input/WorldSurfaceActivateSink.cpp")
     end
