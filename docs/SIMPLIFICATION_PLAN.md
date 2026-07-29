@@ -164,7 +164,7 @@ still resolves `alsoBoundBy`). Protocol-name swap must keep emitted wire strings
 
 | Item | Source |
 |---|---|
-| `core/StringUtil.h`: `TrimAscii`/`ToLowerAscii`/`EqualsCaseInsensitiveAscii` (6 sites; `ModuleFileNameLower` may delegate its inner lowercasing loop ONLY — its basename extraction stays local) | A §4b.1 |
+| `core/StringUtil.h`: `TrimAscii`/`ToLowerAscii`/`EqualsCaseInsensitiveAscii` — **LANDED** in `d22943b`; ~21 `StringUtil::` sites at HEAD, and the header now also carries the UTF-8 group (`Utf8TruncateLen`/`TruncateUtf8`/`SkipLeadingUtf8Continuations`). The `ModuleFileNameLower` caveat is void — that function is gone (see §4). | A §4b.1 |
 | `Version.h` targetVersion helpers + `Json::CheckFormatVersion` + `Json::GetStringArray` (do NOT touch `Runtime.cpp:2250-2267`) | A §4b.2/4b.3/4b.4 |
 | `Ids::ModOf`/`ViewNameOf` (5 sites) + derive `KeyName` from `kNamedKeys` | A §4b.5/4b.6 |
 | Native copy-paste collapse §4c.1–4c.11, each with its guardrail (pipe builders take primitive args; `PatchVtableSlot` doesn't source the chain ptr; `D3D12Prologue.h` not folded into WindowsPlatform.h; etc.) | A §4c |
@@ -232,13 +232,14 @@ multi-view smoke; verify the seam-only compositor across FG off, native FSR3 FG,
 - **EngineInput routing reset (`:296-306`)** — behavioral, not diagnostic; keep as `ResetSessionRouting()`
   on the close edge.
 - **`MenuEventSink::s_consoleOpen`/`ConsoleOpen()`** + LoadingMenu/MainMenu force-hide — behavioral.
-- **`D3D12Compositor::ModuleFileNameLower`'s basename extraction** — must run BEFORE the `sl.dlss_g`
-  FrameGen prefix match, and stays local to the function. Lowercasing a full path would leave
-  `dlssFg` permanently false and silently regress the FrameGen draw-suspension mitigation (CTD
-  reports #2/#4). Delegating only the inner lowercasing loop to `StringUtil::ToLowerAscii` is fine
-  and is what landed in `d22943b` — matching audit §4b.1/§7.5. (Earlier revisions of this line read
-  "do NOT fold into shared `ToLowerAscii`", which dropped the audit's qualifier and made a compliant
-  tree look like a §4 violation.)
+- ~~**`D3D12Compositor::ModuleFileNameLower`'s basename extraction**~~ — **RETIRED 2026-07-29: the
+  code this protected no longer exists.** `c28ce3b` removed module-name Frame-Generation detection
+  outright along with the present-hook path; `grep -rnE 'ModuleFileNameLower|dlss_g|dlssFg|FrameGenActive'
+  src tools` returns **zero hits** at HEAD. That same commit added §2.6 above, so the plan was
+  contradicting itself. FG target selection now lives in `src/composite/D3D12Compositor.cpp:609-638`
+  (ordinary UI target with FG off, transparent COPY_SOURCE hand-off with FG on) and
+  `docs/seam-draw-design.md` carries the current statement — "Frame Generation no longer suspends
+  drawing". Do **not** reintroduce module-name sniffing to satisfy this bullet.
 - **`Runtime.cpp` args handling (~2250-2267)** — do NOT apply `GetStringArray` (coerces non-string args).
 - ~~**`ThreadAffinityProbe`/`NoteRuntimeTick`** — do NOT delete now; validates the just-landed `7ab68ad`
   fix; follow keep-then-remove cadence.~~ **RESOLVED 2026-07-29: cadence complete, probe deleted**

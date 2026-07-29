@@ -157,8 +157,9 @@ reader must re-verify at every call site and any rule change must be edited ever
 Add `TrimAscii` (trim the same whitespace set as `std::isspace`), `ToLowerAscii`, and promote Ids'
 `EqualsCaseInsensitiveAscii` into a shared header; migrate VanillaKeys/InputRouter/PapyrusApi/
 LocalizationService (all ASCII inputs). Keep sites that need an owning/mutable string constructing
-`std::string` from the view. **Do NOT delete** `D3D12Compositor::ModuleFileNameLower` — only
-delegate its inner lowercasing loop (see §7).
+`std::string` from the view. ~~**Do NOT delete** `D3D12Compositor::ModuleFileNameLower` — only
+delegate its inner lowercasing loop (see §7).~~ **VOID 2026-07-29: `c28ce3b` deleted that function
+along with all module-name FrameGen detection.**
 
 ### 4b.2 — `Version.h` targetVersion helpers — dedupe the newer-than-host check (3 sites) · **M / medium**
 `src/runtime/ViewManifest.cpp`, `src/runtime/SettingsStore.cpp`, `src/runtime/Runtime.cpp`, `src/core/Version.h`
@@ -521,7 +522,9 @@ naively "simplifying" them regresses known crashes or breaks wire contracts.
    suppression so the opening button can't leak as an activation, `EnqueueMenuRequest` marshalling,
    WndProc-thread cursor atomics). Only the **diagnostics** half of the Runtime split (§4a.1) is safe.
 
-5. **`D3D12Compositor::ModuleFileNameLower`** — do **NOT** fold into the shared `ToLowerAscii`. It
+5. ~~**`D3D12Compositor::ModuleFileNameLower`**~~ — **VOID as of 2026-07-29: `c28ce3b` deleted this
+   function and all module-name FrameGen detection with it (zero hits at HEAD). Retained below only
+   as provenance; see SIMPLIFICATION_PLAN.md §4.** The original note read: do **NOT** fold into the shared `ToLowerAscii`. It
    does basename extraction before the `sl.dlss_g` prefix match that drives DLSS-G FrameGen
    detection. Lowercasing a full path would leave `dlssFg` permanently false and silently regress the
    FrameGen CTD (reports #2/#4) draw-suspension mitigation. Only delegate its inner lowercasing loop.
