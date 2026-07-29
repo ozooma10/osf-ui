@@ -148,6 +148,22 @@ test('game deployment mirrors the completed build so removed mod files do not li
   );
 });
 
+test('loads a reproducible Spriggit Papyrus plugin configuration', async (t) => {
+  const root = await projectFixture(t);
+  const source = resolve(root, 'spriggit/AcmeWidgets.esm');
+  await mkdir(source, { recursive: true });
+  await writeFile(resolve(source, 'RecordData.yaml'), 'ModKey: AcmeWidgets.esm\n');
+  await writeFile(resolve(root, 'osfui.config.ts'), `export default {
+    modId: 'acme.widgets',
+    papyrus: { plugin: 'AcmeWidgets.esm', source: 'spriggit/AcmeWidgets.esm' },
+    views: [{ id: 'panel' }]
+  };`);
+  const project = await loadProject(root);
+  assert.equal(project.papyrus.plugin, 'AcmeWidgets.esm');
+  assert.equal(project.papyrus.sourceDir, source);
+  assert.equal(project.papyrus.outputPath, resolve(root, 'mod/AcmeWidgets.esm'));
+});
+
 test('papyrus check warns about missing and stale compiled scripts, never about extra .pex', async (t) => {
   const root = await projectFixture(t);
   const modRoot = resolve(root, 'mod');
@@ -170,6 +186,15 @@ test('papyrus check warns about missing and stale compiled scripts, never about 
   assert.match(warnings[0], /Backend\.pex is older than Scripts\/Source\/User\/Acme\/Backend\.psc/);
   await utimes(pex, now, now + 60);
   assert.deepEqual(await papyrusWarnings(modRoot), []);
+  const pluginSource = resolve(root, 'spriggit/AcmeWidgets.esm');
+  await mkdir(pluginSource, { recursive: true });
+  await writeFile(resolve(pluginSource, 'RecordData.yaml'), 'ModKey: AcmeWidgets.esm\n');
+  warnings = await papyrusWarnings(modRoot, {
+    plugin: 'AcmeWidgets.esm',
+    sourceDir: pluginSource,
+    outputPath: resolve(modRoot, 'AcmeWidgets.esm'),
+  });
+  assert.match(warnings.at(-1), /AcmeWidgets\.esm is missing - run npm run build/);
 });
 
 test('package output cannot be placed inside the directory being archived', async (t) => {

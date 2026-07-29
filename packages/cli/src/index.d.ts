@@ -33,6 +33,13 @@ export interface OsfuiConfig {
   modRoot?: string;
   /** Build output directory. May point to a separate monorepo build tree. Defaults to "dist". */
   outDir?: string;
+  /** Optional reproducible Papyrus backend built by Spriggit and the Creation Kit compiler. */
+  papyrus?: {
+    /** Plugin filename written at the mod root, for example "AcmeWidgets.esm". */
+    plugin: string;
+    /** Spriggit text-representation directory, relative to the project root. */
+    source: string;
+  };
   mock?: string;
   /**
    * Extra Vite config merged into the `osfui dev` server (vite mergeConfig).

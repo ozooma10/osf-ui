@@ -9,3 +9,9 @@ await mkdir(templateRoot, { recursive: true });
 for (const name of ['OSFUI_API.h', 'OSFUI_JSON.h']) {
   await copyFile(resolve(sdkRoot, name), resolve(templateRoot, name));
 }
+const papyrusTemplateRoot = resolve(here, '..', 'templates', 'papyrus');
+await mkdir(papyrusTemplateRoot, { recursive: true });
+await copyFile(
+  resolve(here, '..', '..', '..', 'data', 'Scripts', 'Source', 'OSFUI.psc'),
+  resolve(papyrusTemplateRoot, 'OSFUI.psc'),
+);

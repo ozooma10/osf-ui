@@ -6,6 +6,7 @@ import { stdin, stdout } from 'node:process';
 
 import { AUTHOR_MARKER, LOCAL_FILE } from './constants.mjs';
 import { buildProject } from './build.mjs';
+import { buildPapyrus } from './papyrus-build.mjs';
 import { reportPapyrus } from './papyrus.mjs';
 
 export function deploymentRoot(project, modsRoot) {
@@ -73,6 +74,7 @@ export async function startGameSync(project, server, options = {}) {
     if (building) { pending = true; return; }
     building = true;
     try {
+      await buildPapyrus(project);
       await buildProject(project, { quiet: true });
       await deployBuild(project, deployRoot);
       await enableAuthorMode();
@@ -89,6 +91,7 @@ export async function startGameSync(project, server, options = {}) {
   };
   await sync();
   server.watcher.add(project.modRoot);
+  if (project.papyrus) server.watcher.add(project.papyrus.sourceDir);
   server.watcher.on('change', sync);
   server.watcher.on('add', sync);
   server.watcher.on('unlink', sync);

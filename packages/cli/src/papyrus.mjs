@@ -1,7 +1,7 @@
 import { readdir, stat } from 'node:fs/promises';
 import { relative, resolve, sep } from 'node:path';
 
-async function pscFiles(root) {
+export async function pscFiles(root) {
   let entries;
   try {
     entries = await readdir(root, { withFileTypes: true });
@@ -17,17 +17,32 @@ async function pscFiles(root) {
   return result;
 }
 
+async function latestMtime(path) {
+  let info;
+  try {
+    info = await stat(path);
+  } catch {
+    return 0;
+  }
+  if (!info.isDirectory()) return info.mtimeMs;
+  let latest = info.mtimeMs;
+  for (const entry of await readdir(path, { withFileTypes: true })) {
+    latest = Math.max(latest, await latestMtime(resolve(path, entry.name)));
+  }
+  return latest;
+}
+
 /**
  * Missing/stale compiled Papyrus scripts under the project's Data root.
  *
  * `<modRoot>/Scripts/Source[/User]/<Namespace…>/<Name>.psc` compiles to
  * `<modRoot>/Scripts/<Namespace…>/<Name>.pex`, and the game only loads the
- * `.pex`. The compiler ships with the Creation Kit, so the CLI cannot run it —
- * these are advisory warnings, never build failures: a forgotten compile shows
- * up here instead of as a silently dead backend in game, but mtimes are only a
- * heuristic (a fresh checkout can write the source after its compiled file).
+ * `.pex`. These advisory warnings keep hand-authored projects useful; projects
+ * with a `papyrus` config also compile automatically before native builds.
+ * Mtimes remain only a heuristic (a fresh checkout can write the source after
+ * its compiled file).
  */
-export async function papyrusWarnings(modRoot) {
+export async function papyrusWarnings(modRoot, papyrus = null) {
   const sourceRoot = resolve(modRoot, 'Scripts', 'Source');
   const warnings = [];
   for (const psc of await pscFiles(sourceRoot)) {
@@ -47,11 +62,21 @@ export async function papyrusWarnings(modRoot) {
       }
     } catch {}
   }
+  if (papyrus) {
+    try {
+      const pluginStat = await stat(papyrus.outputPath);
+      if (await latestMtime(papyrus.sourceDir) > pluginStat.mtimeMs) {
+        warnings.push(`${papyrus.plugin} is older than its Spriggit source - run npm run build before testing in game.`);
+      }
+    } catch {
+      warnings.push(`${papyrus.plugin} is missing - run npm run build to generate the playable plugin with Spriggit.`);
+    }
+  }
   return warnings;
 }
 
 export async function reportPapyrus(project) {
-  for (const warning of await papyrusWarnings(project.modRoot)) {
+  for (const warning of await papyrusWarnings(project.modRoot, project.papyrus)) {
     console.warn(`[osfui] WARN: ${warning}`);
   }
 }

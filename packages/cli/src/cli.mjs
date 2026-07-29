@@ -11,6 +11,7 @@ import { loadProject } from './config.mjs';
 import { CLI_VERSION } from './constants.mjs';
 import { devServerConfig } from './dev.mjs';
 import { startGameSync } from './game.mjs';
+import { buildPapyrus, doctorPapyrus } from './papyrus-build.mjs';
 import { reportPapyrus } from './papyrus.mjs';
 import { writeZip } from './zip.mjs';
 
@@ -76,11 +77,16 @@ async function main() {
     console.log(`[osfui] Project ${project.root}`);
     console.log(`[osfui] ${project.views.length} configured view(s)`);
     await reportPapyrus(project);
+    const missing = await doctorPapyrus(project);
+    if (missing.length) {
+      throw new Error(`Papyrus toolchain is incomplete: ${missing.join(', ')}.`);
+    }
     console.log('[osfui] Project configuration is valid.');
     return;
   }
   if (command === 'build' || command === 'package') {
     await checkProject(project);
+    await buildPapyrus(project);
     await reportPapyrus(project);
     await buildProject(project);
     if (command === 'build') {

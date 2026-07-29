@@ -85,6 +85,29 @@ function resolveOutput(root, value) {
   return resolve(root, value);
 }
 
+async function resolvePapyrus(root, modRoot, raw) {
+  if (raw === undefined) return null;
+  if (!raw || typeof raw !== 'object') {
+    throw new Error('papyrus must be an object with plugin and source paths.');
+  }
+  const plugin = validateRelative(raw.plugin, 'papyrus.plugin');
+  if (!/^[^/\\]+\.(?:esm|esp|esl)$/i.test(plugin)) {
+    throw new Error('papyrus.plugin must be a plugin filename ending in .esm, .esp, or .esl.');
+  }
+  const source = validateRelative(raw.source, 'papyrus.source');
+  const sourceDir = resolve(root, source);
+  if (!await exists(resolve(sourceDir, 'RecordData.yaml')) &&
+      !await exists(resolve(sourceDir, 'RecordData.json'))) {
+    throw new Error(`Spriggit source is missing RecordData.yaml or RecordData.json: ${sourceDir}`);
+  }
+  return {
+    plugin,
+    source,
+    sourceDir,
+    outputPath: resolve(modRoot, plugin),
+  };
+}
+
 export async function loadProject(cwd, command = 'serve') {
   const root = resolve(cwd);
   let configName = null;
@@ -162,9 +185,11 @@ export async function loadProject(cwd, command = 'serve') {
   const { mockPath, mockKind } = await resolveMock(root, viewsRoot, raw.mock);
   const outDir = resolveOutput(root, raw.outDir ?? 'dist');
   const modRoot = resolve(root, validateRelative(raw.modRoot ?? 'mod', 'modRoot'));
+  const papyrus = await resolvePapyrus(root, modRoot, raw.papyrus);
   if (pathsOverlap(outDir, viewsRoot) ||
       pathsOverlap(outDir, modRoot) ||
       pathsOverlap(outDir, configPath) ||
+      (papyrus && pathsOverlap(outDir, papyrus.sourceDir)) ||
       (mockPath && pathsOverlap(outDir, mockPath))) {
     throw new Error('outDir must be a dedicated directory separate from project inputs.');
   }
@@ -179,6 +204,7 @@ export async function loadProject(cwd, command = 'serve') {
     outputViewsRoot: resolve(outDir, 'SFSE/Plugins/OSFUI/views'),
     mockPath,
     mockKind,
+    papyrus,
     // Dev-server-only Vite extension (aliases, extra plugins); build/check
     // never read it, so it cannot change shipped output.
     vite: raw.vite,

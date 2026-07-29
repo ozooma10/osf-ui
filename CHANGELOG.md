@@ -56,7 +56,11 @@
 
 ### For view authors
 
+- Papyrus projects from `npm create osfui@latest` are now complete, reproducible Starfield mods instead of loose scripts that silently do nothing without a plugin record. The scaffold includes Spriggit source for a Start Game Enabled quest and player alias, and ordinary `build`, `package`, and `dev:game` runs regenerate the ESM and compile fresh PEX files before copying the view. `doctor` now checks Spriggit CLI, Creation Kit's Papyrus compiler and source archive, and the pinned OSF UI compiler API, reports exact missing prerequisites, and supports nonstandard install paths through the ignored local project settings.
+
 - `@osfui/cli` builds now keep every generated JavaScript and CSS bundle under `views/<modId>/assets/` and no longer copy OSF UI's own `views/shared/` kit into dependent mods. Packages made by different view authors therefore stop competing for generic asset paths or overwriting the framework-matched shared helper and styles through mod-manager file priority.
+
+- The Papyrus and native HUD presets from `npm create osfui@latest` are now purpose-built passive overlays instead of menu demos with an unreachable button form. Generated HUDs load visibly, render event-driven typed telemetry in a transparent anchored panel, recover their state after save loads or bridge recreation, and ship live settings for enabled state, a rebindable toggle key, screen corner, margin, scale, opacity, and accent colour. Their browser harness controls exercise telemetry changes, warnings, every appearance option, and the hotkey without launching Starfield; menu presets keep the command/action/request examples intended for interactive surfaces.
 
 - The standalone authoring CLI now rejects output directories that overlap source or configuration inputs while continuing to support separate monorepo build trees, and package archives must be written outside the tree they contain, preventing mistyped paths from deleting source files or embedding an archive inside itself. In-game development sync now mirrors the complete build so removed scripts and assets do not linger in MO2, while temporary author mode is reliably removed when the dev server exits. Invalid or incomplete command-line options also fail immediately instead of being silently misread.
 

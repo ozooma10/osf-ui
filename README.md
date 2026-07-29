@@ -76,15 +76,19 @@ Create a complete project and open its browser harness:
 ```bat
 npm create osfui@latest my-view
 cd my-view
+npm run doctor
 npm run dev
 ```
 
-The generator offers Preact or vanilla TypeScript, menu or HUD surfaces, and
-Papyrus/native/settings/static starting points. The harness opens automatically,
+The generator offers menu or HUD surfaces with Papyrus or native-plugin
+backends. Papyrus projects include reproducible Spriggit quest records and
+compile their ESM and PEX files automatically; `doctor` checks Spriggit and
+Creation Kit before the first native build. The harness opens automatically,
 hot-reloads edits, supplies the shared kit and mock bridge, and exposes bridge
 traffic and lifecycle controls. `npm run dev:game -- --deploy "path-to-MO2-mods"`
-also syncs changes into the game and enables temporary author mode, including F11
-reload and F12 DevTools. `npm run package` makes the release zip.
+also builds the backend, syncs changes into the game, and enables temporary
+author mode, including F11 reload and F12 DevTools. `npm run package` makes the
+loadable release zip.
 
 See [the view toolchain guide](docs/view-toolchain.md) for the complete workflow.
 

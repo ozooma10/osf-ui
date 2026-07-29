@@ -8,6 +8,7 @@ source checkout, a hand-written manifest, or a custom Vite configuration.
 ```bat
 npm create osfui@latest my-view
 cd my-view
+npm run doctor
 npm run dev
 ```
 
@@ -16,7 +17,9 @@ Papyrus or native-plugin starting workflow. Projects are TypeScript with
 strict checking and no UI framework dependency; hand-written plain `.js`
 modules also build (`allowJs`). Generated source uses the production `src/views/<mod>/<view>/` shape and the
 selected workflow adds its matching backend starter: Papyrus source or a native
-SFSE/CommonLibSF plugin project.
+SFSE/CommonLibSF plugin project. The Papyrus preset also includes Spriggit text
+source for a Start Game Enabled quest and player alias, so it builds a real ESM
+instead of leaving record setup as a manual Creation Kit exercise.
 
 ## Iterate in the browser
 
@@ -46,9 +49,9 @@ npm run dev:game -- --deploy "C:\path\to\MO2\mods"
 The first run asks for MO2's `mods` directory and remembers it locally. It
 creates a child mod folder matching the project directory name, then places the
 generated `SFSE/` tree inside it. You can also supply `--deploy` as shown above.
-The command keeps the browser harness running, rebuilds and syncs only this
-project's views after saves, and writes an expiring author-mode marker beside
-OSF UI's `config.json`.
+The command keeps the browser harness running, rebuilds and syncs this
+project's views and backend after saves, and writes an expiring author-mode
+marker beside OSF UI's `config.json`.
 
 Start Starfield while the command is running. Author mode is active without
 editing player configuration: F11 reloads the open view and F12 opens WebView2
@@ -60,9 +63,15 @@ To remember the deployment directory, create the ignored local file
 
 ```json
 {
-  "modsRoot": "C:\\path\\to\\MO2\\mods"
+  "modsRoot": "C:\\path\\to\\MO2\\mods",
+  "starfieldRoot": "D:\\SteamLibrary\\steamapps\\common\\Starfield",
+  "spriggitCli": "D:\\Tools\\Spriggit\\Spriggit.CLI.exe"
 }
 ```
+
+Only `modsRoot` is normally needed. The extra paths are Papyrus overrides for
+portable or nonstandard installs; standard Steam/Creation Kit locations and
+Spriggit on `PATH` are found automatically.
 
 ## Build and release
 
@@ -72,20 +81,29 @@ npm run build
 npm run package
 ```
 
-`build` starts by copying the project's `mod/` Data-root tree into `dist/`,
+For a generated Papyrus project, `build` first regenerates its ESM from the
+checked-in `spriggit/` source and compiles every `mod/Scripts/Source/**/*.psc`.
+It then copies the project's `mod/` Data-root tree into `dist/`,
 then creates `dist/SFSE/Plugins/OSFUI/views/`, generates manifests from
-`osfui.config.ts` or `osfui.config.js`, and includes the public shared kit. Put compiled Papyrus
-scripts, native DLLs, settings schemas, and other normal mod files under
-`mod/`; they are included by `build`, `package`, and the initial `dev:game`
-sync. `package` rebuilds and writes a ready-to-distribute zip under `release/`.
-`npm run doctor` reports the active Node version, project root, and discovered
-views. Set `modRoot` in your `osfui.config.*` only when your Data-root source tree
-uses a different directory name.
+`osfui.config.ts` or `osfui.config.js`, and includes the public shared kit.
+Native DLLs, settings schemas, and other normal mod files under `mod/` are
+included too. `package` rebuilds and writes a ready-to-distribute zip under
+`release/`.
 
-`check`, `doctor`, `build`, `package`, and every `dev:game` sync also compare
-each `mod/Scripts/Source/User/**/*.psc` against its compiled
-`mod/Scripts/**/*.pex` and warn when the `.pex` is missing or older than its
-source — the game only loads compiled scripts, so a forgotten compile would
-otherwise fail silently in game. The warnings are advisory (the Papyrus
-compiler ships with the Creation Kit, so the CLI cannot run it for you) and
-never fail a build.
+Papyrus builds require:
+
+- [Spriggit CLI](https://github.com/Mutagen-Modding/Spriggit/releases), kept
+  anywhere on `PATH` or named by `spriggitCli`;
+- Starfield Creation Kit's Papyrus compiler; and
+- Creation Kit's `Tools/ContentResources.zip`, whose `Scripts/Source` folder
+  is extracted once into the ignored `.osfui/` cache.
+
+The scaffold pins its compatible Spriggit translation version in the text
+source and pins OSF UI's matching `OSFUI.psc` under `tools/papyrus/`.
+`npm run doctor` verifies all of these pieces and fails with the exact missing
+prerequisite. `check` and `doctor` still warn when an ESM or PEX is missing or
+stale; `build`, `package`, and `dev:game` now fix that state automatically
+instead of shipping a silently inert backend.
+
+Set `modRoot` in `osfui.config.*` only when your Data-root source tree uses a
+different directory name.
