@@ -1166,7 +1166,9 @@ export function installMock(opts: MockOptions = {}): MockApi {
 
       default:
         if (cmd === 'acme.shipworks.getWeight') {
-          setTimeout(() => send('ui.result', { ok: true, command: cmd }, rid), 0);
+          // RegisterRequest semantics: the typed reply settles the request. No
+          // auto-ack precedes it — native sends the ack only when the handler
+          // replied with nothing (any requestId-echoing reply suppresses it).
           setTimeout(() => send('acme.shipworks.weight', { weight: 42.5 }, rid), 10);
           break;
         }

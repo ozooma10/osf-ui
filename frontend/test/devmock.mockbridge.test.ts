@@ -291,7 +291,7 @@ describe('command coverage', () => {
     });
   });
 
-  it('request() waits past a plugin delivery ack for the typed payload', async () => {
+  it('request() resolves a value-returning plugin request with its typed payload', async () => {
     const source = readFileSync(resolve(process.cwd(), 'src/shared-kit/osfui.js'), 'utf8');
     window.eval(source);
     const helper = (window as unknown as {
@@ -299,11 +299,29 @@ describe('command coverage', () => {
     }).osfui;
 
     const waiting = helper.request('acme.shipworks.getWeight');
-    await settle(0); // delivery-only ui.result { ok:true }
-    await settle(10); // plugin-owned response
+    await settle(10); // plugin-owned response (no auto-ack precedes it)
     await expect(waiting).resolves.toMatchObject({
       type: 'acme.shipworks.weight',
       payload: { weight: 42.5 },
+    });
+  });
+
+  it('request() resolves a fire-and-forget plugin command on the delivery ack', async () => {
+    // The documented minimum handler (RegisterCommand, no reply of its own)
+    // yields exactly the auto-ack — "delivered, not succeeded". The helper must
+    // settle on it, or every schema `action` button hangs to its timeout and
+    // toasts a false "No response".
+    const source = readFileSync(resolve(process.cwd(), 'src/shared-kit/osfui.js'), 'utf8');
+    window.eval(source);
+    const helper = (window as unknown as {
+      osfui: { request(command: string): Promise<Frame> };
+    }).osfui;
+
+    const waiting = helper.request('acme.shipworks.doThing');
+    await settle(400); // the mock's delayed auto-ack
+    await expect(waiting).resolves.toMatchObject({
+      type: 'ui.result',
+      payload: { ok: true, command: 'acme.shipworks.doThing' },
     });
   });
   it('answers an unknown command with ui.error {unknown-command}', async () => {

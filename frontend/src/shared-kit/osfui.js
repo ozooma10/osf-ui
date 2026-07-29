@@ -48,14 +48,18 @@
 // yourself; use osfui.on(). Replies that resolve a request() also dispatch to
 // on() subscribers, so one render path can consume settings.data no matter who
 // asked. Commands with no reply type of their own resolve with
-// `ui.result { ok, command, code?, message? }`; qualified plugin requests ignore a successful delivery ack and await a typed reply.
+// `ui.result { ok, command, code?, message? }`. The host sends that ack only
+// when the handler replied with nothing at all, so it settles a qualified
+// plugin request too — "delivered, not succeeded" (docs/native-plugin-api.md);
+// a handler that answers with its own typed message suppresses the ack and the
+// typed reply settles the request instead.
 
 "use strict";
 
 (function () {
   const g = (window.osfui = window.osfui || {});
   const listeners = new Map();  // type -> Set<fn>
-  const pending = new Map();    // requestId -> { resolve, reject, timer, pluginRequest }
+  const pending = new Map();    // requestId -> { resolve, reject, timer, command, pluginRequest }
   const dataState = new Map();  // lower-case key -> { value, payload, message }
   let seq = 0;
 
@@ -133,7 +137,8 @@
           reject(err);
         }, timeoutMs);
       }
-      pending.set(requestId, { resolve, reject, timer, pluginRequest: /^[a-z0-9-]+\.[a-z0-9-]+\..+/.test(command) });
+      pending.set(requestId, { resolve, reject, timer, command,
+        pluginRequest: /^[a-z0-9-]+\.[a-z0-9-]+\..+/.test(command) });
       g.postMessage(JSON.stringify({ type: "ui.command", requestId, payload: Object.assign({ command }, fields || {}) }));
     });
   };
@@ -240,10 +245,15 @@
     const req = rid && pending.get(rid);
     if (req) {
       const p = message.payload || {};
-      // A RegisterCommand auto-ack means only "handler was called". Qualified
-      // plugin requests keep waiting for the plugin's typed response.
-      const deliveryAck = req.pluginRequest && message.type === "ui.result" && p.ok === true;
-      if (!deliveryAck) {
+      // The RegisterCommand auto-ack (`ui.result { ok:true, command }`) is sent
+      // only when the handler replied with nothing at all — any requestId-echoing
+      // reply suppresses it — so an ack naming this very command means nothing
+      // else is coming and must settle the request. Only an ack for some OTHER
+      // command keeps a qualified plugin request pending (defensive; the host
+      // always echoes the dispatched command today).
+      const foreignAck = req.pluginRequest && message.type === "ui.result" &&
+        p.ok === true && p.command !== req.command;
+      if (!foreignAck) {
         pending.delete(rid);
         if (req.timer) clearTimeout(req.timer);
         if (message.type === "ui.error" || (message.type === "ui.result" && p.ok === false)) {
