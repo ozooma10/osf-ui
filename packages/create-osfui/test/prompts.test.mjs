@@ -6,10 +6,14 @@ test('offers only TypeScript and JavaScript', () => {
   assert.deepEqual(CHOICES.template.map(({ value }) => value), ['typescript', 'javascript']);
 });
 
+test('offers only Papyrus and Native Plugin workflows', () => {
+  assert.deepEqual(CHOICES.integration.map(({ value }) => value), ['papyrus', 'native']);
+});
+
 test('walks through missing choices as visible select lists', async () => {
   const questions = [];
   const textAnswers = ['custom-view', 'acme.widgets', 'panel'];
-  const selectAnswers = ['javascript', 'hud', 'static'];
+  const selectAnswers = ['javascript', 'hud', 'native'];
   const prompt = {
     intro: (title) => questions.push({ kind: 'intro', title }),
     isCancel: () => false,
@@ -37,7 +41,7 @@ test('walks through missing choices as visible select lists', async () => {
     view: 'panel',
     template: 'javascript',
     surface: 'hud',
-    integration: 'static',
+    integration: 'native',
   });
   assert.deepEqual(
     questions.filter(({ kind }) => kind === 'text').map(({ message }) => message),

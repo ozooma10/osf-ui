@@ -17,8 +17,6 @@ export const CHOICES = {
   integration: [
     { value: 'papyrus', label: 'Papyrus', hint: 'send requests to Papyrus scripts' },
     { value: 'native', label: 'Native plugin', hint: 'call your SFSE plugin bridge' },
-    { value: 'settings', label: 'Mod Settings', hint: 'read values from OSF UI settings' },
-    { value: 'static', label: 'Static', hint: 'display-only, with no native bridge' },
   ],
 };
 

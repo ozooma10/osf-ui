@@ -12,13 +12,12 @@ npm run dev
 ```
 
 The generator asks for a stable mod/view id, TypeScript or JavaScript, a
-menu or HUD surface, and a Papyrus, native-plugin, settings, or static starting
+menu or HUD surface, and a Papyrus or native-plugin starting
 workflow. The default TypeScript/Papyrus preset adds strict checking; the
 JavaScript preset emits plain browser modules with no UI framework dependency.
 Generated source uses the production `src/views/<mod>/<view>/` shape and the
-selected workflow adds its matching backend starter: Papyrus source, a native
-SFSE/CommonLibSF plugin project, or a settings schema. Static views need no
-backend.
+selected workflow adds its matching backend starter: Papyrus source or a native
+SFSE/CommonLibSF plugin project.
 
 ## Iterate in the browser
 
@@ -83,4 +82,3 @@ sync. `package` rebuilds and writes a ready-to-distribute zip under `release/`.
 `npm run doctor` reports the active Node version, project root, and discovered
 views. Set `modRoot` in your `osfui.config.*` only when your Data-root source tree
 uses a different directory name.
-

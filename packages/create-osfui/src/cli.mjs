@@ -35,8 +35,8 @@ function validate(options) {
   if (!ID.test(options.view)) throw new Error('--view must use lowercase letters, digits, and hyphens.');
   if (!['typescript', 'javascript'].includes(options.template)) throw new Error('--template must be typescript or javascript.');
   if (!['menu', 'hud'].includes(options.surface)) throw new Error('--surface must be menu or hud.');
-  if (!['papyrus', 'native', 'settings', 'static'].includes(options.integration)) {
-    throw new Error('--integration must be papyrus, native, settings, or static.');
+  if (!['papyrus', 'native'].includes(options.integration)) {
+    throw new Error('--integration must be papyrus or native.');
   }
 }
 
@@ -242,7 +242,6 @@ export default defineMock({
   state: { example: { enabled: true } },
   requests: {
     'papyrus.example': { ok: true, message: 'Mock Papyrus response' },
-    'settings.get': () => ({ mods: [{ id: '${options.modId}', values: { example: true } }] }),
   },
   locales: { en: { title: 'Example view' } },
 });
@@ -260,19 +259,9 @@ export default defineMock({
 
 function appSource(options) {
   if (options.integration === 'native') return nativeAppSource(options);
-  const intro = {
-    papyrus: 'Papyrus request',
-    settings: 'Settings-backed view',
-    static: 'Static view',
-  }[options.integration];
-  const command = {
-    papyrus: 'ui.papyrusRequest',
-    settings: 'settings.get',
-    static: '',
-  }[options.integration];
-  const fields = options.integration === 'papyrus'
-    ? `{ mod: '${options.modId}', request: 'example', args: [] }`
-    : '{}';
+  const intro = 'Papyrus request';
+  const command = 'ui.papyrusRequest';
+  const fields = `{ mod: '${options.modId}', request: 'example', args: [] }`;
   const readyTypeArgument = options.template === 'typescript' ? '<{ version: string }>' : '';
   const requiredSignature = options.template === 'typescript'
     ? '<T extends Element>(selector: string, kind: { new(): T }): T'
@@ -300,7 +289,6 @@ window.osfui?.on?.${readyTypeArgument}('runtime.ready', (payload) => {
   status.textContent = 'Connected to OSF UI ' + payload.version;
 });
 action.addEventListener('click', async () => {
-  ${options.integration === 'static' ? "status.textContent = 'Static preset: no native bridge required'; return;" : ''}
   try {
     const request = window.osfui?.request;
     if (!request) throw new Error('OSF UI bridge is unavailable');
@@ -382,7 +370,7 @@ export default defineConfig({
     width: ${options.surface === 'hud' ? 1920 : 1200},
     height: ${options.surface === 'hud' ? 1080 : 720},
     transparent: true,
-    permissions: { nativeBridge: ${options.integration !== 'static'} },
+    permissions: { nativeBridge: true },
   }],
 });
 `);

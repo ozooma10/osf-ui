@@ -13,8 +13,6 @@ for (const [template, surface, integration, backendPath, backendPattern] of [
   ['typescript', 'menu', 'papyrus', 'mod/Scripts/Source/User/AcmeWidgetsOSFUI.psc', /ListenForViewRequests/],
   ['javascript', 'hud', 'native', 'native/src/main.cpp', /RegisterRequest\("acme\.widgets\.getState"/],
   ['typescript', 'menu', 'native', 'native/src/main.cpp', /OSFUI::API::JsonCommand/],
-  ['javascript', 'menu', 'settings', 'mod/SFSE/Plugins/OSFUI/settings/acme.widgets.json', /"id": "acme\.widgets"/],
-  ['typescript', 'hud', 'static', null, null],
 ]) {
   test(`creates the ${template}/${surface}/${integration} preset`, async (t) => {
     const parent = await mkdtemp(resolve(tmpdir(), 'create-osfui-'));
@@ -50,18 +48,11 @@ for (const [template, surface, integration, backendPath, backendPattern] of [
     const hasTsconfig = await access(resolve(root, 'tsconfig.json')).then(() => true, () => false);
     assert.equal(hasTsconfig, template === 'typescript');
 
-    const sourceMarker = {
-      papyrus: 'ui.papyrusRequest',
-      native: 'acme.widgets.getState',
-      settings: 'settings.get',
-      static: 'no native bridge',
-    }[integration];
+    const sourceMarker = integration === 'native'
+      ? 'acme.widgets.getState'
+      : 'ui.papyrusRequest';
     assert.match(source, new RegExp(sourceMarker.replaceAll('.', '\\.')));
-    if (backendPath) {
-      assert.match(await readFile(resolve(root, backendPath), 'utf8'), backendPattern);
-    } else {
-      assert.equal(await access(resolve(root, 'mod')).then(() => true, () => false), false);
-    }
+    assert.match(await readFile(resolve(root, backendPath), 'utf8'), backendPattern);
 
     if (integration === 'native') {
       assert.equal(packageJson.scripts['build:native'], 'node native/build.mjs');
@@ -86,5 +77,26 @@ for (const [template, surface, integration, backendPath, backendPattern] of [
       assert.match(await readFile(resolve(root, 'native/include/OSFUI_API.h'), 'utf8'), /struct IOSFUIBridge/);
       assert.match(await readFile(resolve(root, 'native/include/OSFUI_JSON.h'), 'utf8'), /class JsonClient/);
     }
+  });
+}
+
+for (const integration of ['settings', 'static']) {
+  test(`rejects the removed ${integration} workflow`, async (t) => {
+    const parent = await mkdtemp(resolve(tmpdir(), 'create-osfui-'));
+    t.after(() => rm(parent, { recursive: true, force: true }));
+    const result = spawnSync(process.execPath, [
+      CLI,
+      resolve(parent, 'project'),
+      '--yes',
+      '--no-install',
+      '--mod-id', 'acme.widgets',
+      '--view', 'panel',
+      '--template', 'typescript',
+      '--surface', 'menu',
+      '--integration', integration,
+    ], { encoding: 'utf8' });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /--integration must be papyrus or native/);
   });
 }
