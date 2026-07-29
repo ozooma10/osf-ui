@@ -244,11 +244,14 @@ jobs:
               Write-Host "import scan clean ($($bytes.Length) bytes)"
             }
           }
-          $host = "$root/SFSE/Plugins/OSFUI/bin/osfui_webview2_host.exe"
-          if (Test-Path $host) {
-            $hostBytes = Get-Content -LiteralPath $host -AsByteStream -ReadCount 0
+          # NOTE: not $host — that is an automatic read-only/constant variable in
+          # PowerShell, and assigning to it aborts the whole step under
+          # $ErrorActionPreference='stop', skipping every check below.
+          $hostExe = "$root/SFSE/Plugins/OSFUI/bin/osfui_webview2_host.exe"
+          if (Test-Path $hostExe) {
+            $hostBytes = Get-Content -LiteralPath $hostExe -AsByteStream -ReadCount 0
             if (-not $hostBytes -or $hostBytes.Length -eq 0) {
-              Write-Host "::error::could not read $host for the experimental runtime scan"
+              Write-Host "::error::could not read $hostExe for the experimental runtime scan"
               $failed = $true
             } else {
               $hostAscii = [System.Text.Encoding]::ASCII.GetString($hostBytes)
