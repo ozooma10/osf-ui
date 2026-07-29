@@ -11,6 +11,7 @@ import { loadProject } from './config.mjs';
 import { CLI_VERSION } from './constants.mjs';
 import { devServerConfig } from './dev.mjs';
 import { startGameSync } from './game.mjs';
+import { reportPapyrus } from './papyrus.mjs';
 import { writeZip } from './zip.mjs';
 
 function parse(argv) {
@@ -67,17 +68,20 @@ async function main() {
   if (command === 'check') {
     const count = await checkProject(project);
     console.log(`[osfui] ${count} view(s) passed compatibility checks.`);
+    await reportPapyrus(project);
     return;
   }
   if (command === 'doctor') {
     console.log(`[osfui] Node ${process.version}`);
     console.log(`[osfui] Project ${project.root}`);
     console.log(`[osfui] ${project.views.length} configured view(s)`);
+    await reportPapyrus(project);
     console.log('[osfui] Project configuration is valid.');
     return;
   }
   if (command === 'build' || command === 'package') {
     await checkProject(project);
+    await reportPapyrus(project);
     await buildProject(project);
     if (command === 'build') {
       console.log(`[osfui] Built ${project.views.length} view(s) in ${project.outDir}`);

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { access, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, realpath, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -13,6 +13,7 @@ import { loadProject, manifestFor } from '../src/config.mjs';
 import { devServerConfig } from '../src/dev.mjs';
 import { deployBuild, deploymentRoot } from '../src/game.mjs';
 import { harnessPlugin } from '../src/harness-plugin.mjs';
+import { papyrusWarnings } from '../src/papyrus.mjs';
 import { writeZip } from '../src/zip.mjs';
 
 async function projectFixture(t) {
@@ -120,6 +121,30 @@ test('game deployment mirrors the completed build so removed mod files do not li
       .then(() => true, () => false),
     true,
   );
+});
+
+test('papyrus check warns about missing and stale compiled scripts, never about extra .pex', async (t) => {
+  const root = await projectFixture(t);
+  const modRoot = resolve(root, 'mod');
+  // The fixture ships Scripts/Example.pex with no source: not a problem.
+  assert.deepEqual(await papyrusWarnings(modRoot), []);
+  const psc = resolve(modRoot, 'Scripts/Source/User/Acme/Backend.psc');
+  await mkdir(resolve(psc, '..'), { recursive: true });
+  await writeFile(psc, 'ScriptName Acme:Backend');
+  let warnings = await papyrusWarnings(modRoot);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /Scripts\/Acme\/Backend\.pex is missing - compile Scripts\/Source\/User\/Acme\/Backend\.psc/);
+  const pex = resolve(modRoot, 'Scripts/Acme/Backend.pex');
+  await mkdir(resolve(pex, '..'), { recursive: true });
+  await writeFile(pex, 'compiled');
+  const now = Date.now() / 1000;
+  await utimes(psc, now, now);
+  await utimes(pex, now, now - 60);
+  warnings = await papyrusWarnings(modRoot);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /Backend\.pex is older than Scripts\/Source\/User\/Acme\/Backend\.psc/);
+  await utimes(pex, now, now + 60);
+  assert.deepEqual(await papyrusWarnings(modRoot), []);
 });
 
 test('package output cannot be placed inside the directory being archived', async (t) => {

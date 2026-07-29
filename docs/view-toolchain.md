@@ -81,3 +81,11 @@ sync. `package` rebuilds and writes a ready-to-distribute zip under `release/`.
 `npm run doctor` reports the active Node version, project root, and discovered
 views. Set `modRoot` in your `osfui.config.*` only when your Data-root source tree
 uses a different directory name.
+
+`check`, `doctor`, `build`, `package`, and every `dev:game` sync also compare
+each `mod/Scripts/Source/User/**/*.psc` against its compiled
+`mod/Scripts/**/*.pex` and warn when the `.pex` is missing or older than its
+source — the game only loads compiled scripts, so a forgotten compile would
+otherwise fail silently in game. The warnings are advisory (the Papyrus
+compiler ships with the Creation Kit, so the CLI cannot run it for you) and
+never fail a build.

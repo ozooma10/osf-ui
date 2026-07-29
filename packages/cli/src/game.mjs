@@ -6,6 +6,7 @@ import { stdin, stdout } from 'node:process';
 
 import { AUTHOR_MARKER, LOCAL_FILE } from './constants.mjs';
 import { buildProject } from './build.mjs';
+import { reportPapyrus } from './papyrus.mjs';
 
 export function deploymentRoot(project, modsRoot) {
   return resolve(modsRoot, basename(project.root));
@@ -76,6 +77,9 @@ export async function startGameSync(project, server, options = {}) {
       await deployBuild(project, deployRoot);
       await enableAuthorMode();
       console.log(`[osfui] Synced ${project.views.length} view(s) to ${deployRoot}`);
+      // Re-warn on every sync: a .psc edit triggers this watcher, so the
+      // reminder to recompile lands right when the source changed.
+      await reportPapyrus(project);
     } catch (error) {
       console.error(`[osfui] Game sync failed: ${error.message}`);
     } finally {
