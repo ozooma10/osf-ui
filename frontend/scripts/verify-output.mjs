@@ -81,17 +81,13 @@ export function verifyOutput() {
       }
     }
 
-    // No dev-only code survived into the bundle. Scoped to `mode: 'bundle'`
-    // views: a verbatim copy has no DEV elimination to verify, and hand-written
-    // views do ship mock-flavored code (sampleMods()/sampleViews() fixtures, a
-    // window.OSFUI_MOD_ASSET_ROOTS read in the asset-path sanitiser), so the
-    // gate would only block them.
+    // No dev-only code survived into the bundle. Every view is Vite-built, so
+    // every view is subject to this — `import.meta.env.DEV` elimination failing
+    // is what would let a mock fixture or a devWarn reach a shipped archive.
     if (existsSync(js)) {
       const j = readFileSync(js, 'utf8');
-      if (v.mode === 'bundle') {
-        for (const s of DEV_SENTINELS) {
-          if (j.includes(s)) fail(`${v.name}/main.js contains dev-only identifier "${s}" (import.meta.env.DEV elimination failed)`);
-        }
+      for (const s of DEV_SENTINELS) {
+        if (j.includes(s)) fail(`${v.name}/main.js contains dev-only identifier "${s}" (import.meta.env.DEV elimination failed)`);
       }
       if (/url\(\s*["']?https?:|["']https?:\/\/(?!osfui\.local)/.test(j)) {
         fail(`${v.name}/main.js references a remote URL`);

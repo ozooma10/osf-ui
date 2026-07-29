@@ -15,6 +15,7 @@
 import { useRef, useState } from 'preact/hooks';
 import type { Bridge } from '@lib/bridge';
 import { domKeyName } from '@lib/keybinds/domKeyName';
+import { codeOf } from '@lib/protocol';
 import { titleOf, type ModRecord } from '@lib/settings/rail';
 
 export interface CaptureTarget {
@@ -142,8 +143,7 @@ export function useCapture(opts: CaptureOptions): CaptureApi {
           const live = capturingRef.current;
           if (!live || live.modId !== modId || live.key !== key) return;
           finish({ cancelled: true });
-          const e = err as { code?: unknown } | null;
-          const code = e && typeof e.code === 'string' ? e.code : '';
+          const code = codeOf(err);
           toast(
             code === 'capture-busy'
               ? tr('captureBusy', 'Another rebind is already listening.')

@@ -14,13 +14,13 @@ export const OUT = process.env.OSFUI_VIEWS_OUT
   ? resolve(process.env.OSFUI_VIEWS_OUT)
   : join(REPO, 'build', 'frontend', 'views');
 
-// Per-view emit mode: 'verbatim' copies a hand-written main.js untouched,
-// 'bundle' builds main.tsx through Vite.
+// Every built-in view. Each is built from its main.tsx through Vite as a
+// single-entry IIFE; there is no hand-written-main.js path any more.
 export const VIEWS = [
-  { mod: 'osfui', name: 'benchmark', mode: 'bundle' },
-  { mod: 'osfui', name: 'handoff', mode: 'bundle' },
-  { mod: 'osfui', name: 'keybinds', mode: 'bundle' },
-  { mod: 'osfui', name: 'settings', mode: 'bundle' },
+  { mod: 'osfui', name: 'benchmark' },
+  { mod: 'osfui', name: 'handoff' },
+  { mod: 'osfui', name: 'keybinds' },
+  { mod: 'osfui', name: 'settings' },
 ];
 
 // Every file this build owns. verify-output asserts the emitted set matches

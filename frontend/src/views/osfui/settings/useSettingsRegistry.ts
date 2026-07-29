@@ -61,9 +61,6 @@ export interface SettingsRegistry {
   hostVersion: string;
   baseline: Baseline;
   baselineRef: { current: Baseline };
-  /** Increments on every `i18n.data` push; read to repaint translated strings. */
-  i18nSeq: number;
-
   /**
    * Apply values to the local model optimistically and record the pre-change
    * values against the session baseline. Batched over several keys because a
@@ -104,7 +101,11 @@ export function useSettingsRegistry(opts: SettingsRegistryOptions): SettingsRegi
    */
   const [baseline, setBaseline, baselineRef] = useStateRef<Baseline>({});
 
-  const [i18nSeq, setI18nSeq] = useState(0);
+  // Bumped on every `i18n.data` push. Not exposed: this is the hook's own state,
+  // so setting it already re-renders the caller, and `tr` reads through to
+  // bridge.t per call rather than caching — there is nothing for a consumer to
+  // subscribe to.
+  const [, setI18nSeq] = useState(0);
 
   const applyLocal = (modId: string, entries: Array<[string, SettingValue]>) => {
     const mod = modsRef.current.find((m) => m.id === modId);
@@ -257,7 +258,6 @@ export function useSettingsRegistry(opts: SettingsRegistryOptions): SettingsRegi
     hostVersion,
     baseline,
     baselineRef,
-    i18nSeq,
     applyLocal,
     clearBaseline: () => setBaseline({}),
   };

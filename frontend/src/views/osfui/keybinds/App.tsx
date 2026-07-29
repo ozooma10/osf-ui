@@ -22,6 +22,7 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { windowBridge, type Bridge } from '@lib/bridge';
 import { makeTranslator } from '@lib/i18n';
+import { codeOf } from '@lib/protocol';
 import { canonicalName } from '@lib/keybinds/canonical';
 import { domKeyName } from '@lib/keybinds/domKeyName';
 import { buildModel, type ModEntry, type VanillaKey } from '@lib/keybinds/model';
@@ -57,11 +58,6 @@ interface CapturePayload {
   name?: string;
   cancelled?: boolean;
   conflicts?: Array<{ mod?: string; title?: string }>;
-}
-
-function codeOf(err: unknown): string {
-  const e = err as { code?: unknown } | null;
-  return e && typeof e.code === 'string' ? e.code : '';
 }
 
 export interface AppProps {

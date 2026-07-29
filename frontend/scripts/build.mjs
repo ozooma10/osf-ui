@@ -49,15 +49,10 @@ export async function runBuild({ quiet = false } = {}) {
     const dst = join(OUT, v.mod, v.name);
     copy(join(src, 'index.html'), join(dst, 'index.html'));
     copy(join(src, 'manifest.json'), join(dst, 'manifest.json'));
-    if (v.mode === 'verbatim') {
-      copy(join(src, 'main.legacy.js'), join(dst, 'main.js'));
-      copy(join(src, 'style.css'), join(dst, 'style.css'));
-      log(`  ${v.mod}/${v.name}: verbatim`);
-    }
   }
 
-  // 3. One single-entry IIFE build per bundled view.
-  for (const v of VIEWS.filter((x) => x.mode === 'bundle')) {
+  // 3. One single-entry IIFE build per view.
+  for (const v of VIEWS) {
     await build({
       configFile: join(FRONTEND, 'vite.config.ts'),
       root: FRONTEND,

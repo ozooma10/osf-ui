@@ -5,7 +5,6 @@ import { describe, it, expect } from 'vitest';
 import {
   activeIssues,
   canRetryView,
-  copyForCode,
   copyForIssue,
   countIssues,
   GENERIC_COPY,
@@ -132,16 +131,18 @@ describe('issueForSubject — deep-link target', () => {
   });
 });
 
-describe('copyForCode', () => {
+describe('copyForIssue', () => {
   it('maps known codes to copy with actions', () => {
-    const copy = copyForCode('view.load-failed');
+    const copy = copyForIssue(issue({ id: 'a', code: 'view.load-failed' }));
     expect(copy.actions).toContain('retry-view');
     expect(copy.title[1]).toMatch(/could not be loaded/i);
   });
 
-  it('falls back to generic copy for an unknown code', () => {
-    expect(copyForCode('future.unknown')).toBe(GENERIC_COPY);
-    expect(copyForCode(undefined)).toBe(GENERIC_COPY);
+  it('falls back to generic copy for an unknown or absent code', () => {
+    expect(copyForIssue(issue({ id: 'a', code: 'future.unknown', source: 'host' }))).toBe(
+      GENERIC_COPY,
+    );
+    expect(copyForIssue(issue({ id: 'a', code: '', source: 'host' }))).toBe(GENERIC_COPY);
   });
 
   it('separates a mod-reported code from an unknown platform one', () => {
@@ -159,7 +160,7 @@ describe('copyForCode', () => {
     expect(mod.next[1]).not.toMatch(/update osf ui/i);
     // A code this build DOES know still wins over the fallback, whoever sent it.
     expect(copyForIssue(issue({ id: 'c', code: 'view.load-failed', source: 'acme.kit' }))).toBe(
-      copyForCode('view.load-failed'),
+      copyForIssue(issue({ id: 'd', code: 'view.load-failed', source: 'host' })),
     );
   });
 

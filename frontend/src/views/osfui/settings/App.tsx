@@ -22,6 +22,7 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { windowBridge, type Bridge } from '@lib/bridge';
 import { makeTranslator } from '@lib/i18n';
+import { codeOf } from '@lib/protocol';
 import { BrandEmblem } from '@ui/BrandEmblem';
 import { useLatest, useStateRef } from '@ui/useStateRef';
 import { Scrim } from '@ui/Scrim';
@@ -74,11 +75,6 @@ const FILTER_DEBOUNCE_MS = 120;
 const FLASH_MS = 1200;
 /** Where the "needs update" tag sends the user to fetch a newer OSF UI. */
 const NEXUS_PAGE_URL = 'https://www.nexusmods.com/starfield/mods/17711';
-
-function codeOf(err: unknown): string {
-  const e = err as { code?: unknown } | null;
-  return e && typeof e.code === 'string' ? e.code : '';
-}
 
 export interface AppProps {
   /**
@@ -493,10 +489,6 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
         mods: needsUpdate.wanting.join(', '),
       })
     : tr('version', 'OSF UI version');
-
-  // The i18n generation has no other consumer; reading it here is what makes a
-  // locale change repaint every translated string.
-  void registry.i18nSeq;
 
   const hudOn = (v: ViewRecord): boolean => {
     const override = hudOverride[v.id];

@@ -322,14 +322,14 @@ export function modIdOf(issue: IssueRecord): string | null {
   return source.indexOf('.') > 0 ? source : null;
 }
 
-export function copyForCode(code: string | undefined): IssueCopy {
-  return (code && COPY[code]) || GENERIC_COPY;
-}
-
 /**
  * Copy for one issue: an exact code match wins, then the mod-reported fallback,
- * then the platform generic. Prefer this over {@link copyForCode} — it is the
- * one that can tell those two fallbacks apart.
+ * then the platform generic.
+ *
+ * This is the only entry point. A bare code->copy lookup used to sit beside it
+ * and could not distinguish "this build does not know that code" from "a mod
+ * reported it", which is the difference between telling the player to update
+ * OSF UI and telling them to contact the mod author.
  */
 export function copyForIssue(issue: IssueRecord): IssueCopy {
   const exact = issue.code ? COPY[issue.code] : undefined;

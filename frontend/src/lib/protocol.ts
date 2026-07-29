@@ -10,12 +10,7 @@
 
 export type * from '@sdk';
 
-import type {
-  BridgeEnvelope,
-  NativeToWebMessage,
-  UiCommand,
-  UiCommandAction,
-} from '@sdk';
+import type { BridgeEnvelope, NativeToWebMessage } from '@sdk';
 
 /** Every `type` the runtime can send us, derived from the SDK union. */
 export type NativeMessageType = NativeToWebMessage['type'];
@@ -25,9 +20,6 @@ export type MessageOf<T extends NativeMessageType> = Extract<NativeToWebMessage,
 
 /** Payload of a given message type. */
 export type PayloadOf<T extends NativeMessageType> = MessageOf<T>['payload'];
-
-/** Anything acceptable as an outbound command, including mod-registered actions. */
-export type AnyCommand = UiCommand | UiCommandAction;
 
 /**
  * The error shape `osfui.request()` rejects with. Two guarantees callers rely on:
@@ -42,6 +34,19 @@ export interface BridgeError extends Error {
 
 export function isBridgeError(e: unknown): e is BridgeError {
   return e instanceof Error && typeof (e as BridgeError).code === 'string';
+}
+
+/**
+ * The machine `code` off a rejected `osfui.request()`, or `""`.
+ *
+ * Deliberately structural rather than `isBridgeError`-gated: a reject value is
+ * not guaranteed to be an `Error` (a thrown handler, a non-Error reject), and
+ * every caller only wants to compare the code against a known string. Upholds
+ * {@link BridgeError}'s `""`-never-`undefined` guarantee for those comparisons.
+ */
+export function codeOf(err: unknown): string {
+  const e = err as { code?: unknown } | null;
+  return e && typeof e.code === 'string' ? e.code : '';
 }
 
 /**

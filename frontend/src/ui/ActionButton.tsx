@@ -23,6 +23,7 @@
 
 import { useState } from 'preact/hooks';
 import type { Translator } from '@lib/i18n';
+import { codeOf } from '@lib/protocol';
 import { cx } from './cx';
 
 /**
@@ -108,8 +109,8 @@ export function ActionButton({ modId, item, enabled, tr, onToast, onRun }: Actio
       },
       (err: unknown) => {
         setPending(false);
-        const e = err as { code?: unknown; message?: unknown } | null;
-        const code = e && typeof e.code === 'string' ? e.code : '';
+        const e = err as { message?: unknown } | null;
+        const code = codeOf(err);
         if (code === 'timeout') {
           onToast(tr('noResponseFrom', 'No response from {mod}', { mod: modId }), 'warn');
           return;
