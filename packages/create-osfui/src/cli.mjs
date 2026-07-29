@@ -864,7 +864,7 @@ ${options.surface === 'hud' ? `    openOnStart: true,
     ? ''
     : `Run \`npm run dev\` for instant browser HMR. Run \`npm run dev:game -- --deploy "path-to-MO2-mods"\`
 to create this mod's folder under MO2 and sync into Starfield with temporary
-author mode, F11 reload, and F12 DevTools.
+author mode, automatic view reload, and F12 DevTools.
 
 Use \`npm run package\` to create a release-ready zip. Files under \`mod/\`
 are copied into the mod archive beside the generated view.

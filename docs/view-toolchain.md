@@ -54,9 +54,9 @@ backend once at startup, and writes an expiring author-mode marker beside OSF
 UI's `config.json`.
 
 Start Starfield while the command is running. Author mode is active without
-editing player configuration: F11 reloads the open view and F12 opens WebView2
-DevTools. Stopping the command removes the marker; the runtime ignores markers
-older than twelve hours after an interrupted session.
+editing player configuration: loaded views reload automatically after a sync,
+and F12 opens WebView2 DevTools. Stopping the command removes the marker; the
+runtime ignores markers older than twelve hours after an interrupted session.
 
 After that first deployment, saves only re-sync the view assets. Starfield keeps
 the plugin, the compiled scripts, and the native files open for the whole

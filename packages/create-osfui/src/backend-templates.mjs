@@ -870,7 +870,7 @@ alerts, settings, and the hotkey in the browser harness.
 - Run \`npm run dev\` to test the view in a browser with hot reload. Edit
   \`osfui.mock.ts\` to provide test Papyrus data and responses.
 - Run \`npm run dev:game -- --deploy "path-to-MO2-mods"\` to test in Starfield.
-  Press F11 to reload the view and F12 to open DevTools.
+  Loaded views reload automatically; press F12 to open DevTools.
 
 The Papyrus backend is
 \`mod/Scripts/Source/User/${scriptName}.psc\`.

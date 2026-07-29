@@ -87,8 +87,8 @@ Creation Kit before the first native build. The harness opens automatically,
 hot-reloads edits, supplies the shared kit and mock bridge, and exposes bridge
 traffic and lifecycle controls. `npm run dev:game -- --deploy "path-to-MO2-mods"`
 also builds the backend, syncs changes into the game, and enables temporary
-author mode, including F11 reload and F12 DevTools. `npm run package` makes the
-loadable release zip.
+author mode, including automatic view reload and F12 DevTools. `npm run
+package` makes the loadable release zip.
 
 See [the view toolchain guide](docs/view-toolchain.md) for the complete workflow.
 

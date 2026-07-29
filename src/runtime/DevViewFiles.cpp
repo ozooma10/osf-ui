@@ -1,6 +1,7 @@
 #include "runtime/DevViewFiles.h"
 
 #include <algorithm>
+#include <unordered_set>
 #include <vector>
 
 namespace OSFUI::DevViewFiles
@@ -95,27 +96,88 @@ namespace OSFUI::DevViewFiles
 		if (ec)
 			return Fail(a_error, a_destination, ec);
 
-		// Remove stale paths and file/directory type conflicts deepest-first.
-		// Recursive copy cannot replace a directory with a file or the reverse.
+		struct SourceEntry
+		{
+			std::filesystem::path source;
+			std::filesystem::path relative;
+			bool                  directory{ false };
+		};
+		std::vector<SourceEntry> sourceEntries;
+		for (std::filesystem::recursive_directory_iterator
+				 it(a_source, std::filesystem::directory_options::skip_permission_denied, ec),
+			end;
+			!ec && it != end; it.increment(ec)) {
+			const bool directory = it->is_directory(ec);
+			if (ec)
+				break;
+			if (!directory && !it->is_regular_file(ec)) {
+				if (ec)
+					break;
+				continue;
+			}
+			sourceEntries.push_back({
+				.source = it->path(),
+				.relative = it->path().lexically_relative(a_source),
+				.directory = directory,
+			});
+		}
+		if (ec)
+			return Fail(a_error, a_source, ec);
+
+		// Deterministic order also puts the conventional assets/ sibling before
+		// each view's entry HTML. A rebuilt index can therefore never point at a
+		// hashed bundle that has not landed yet.
+		std::ranges::sort(sourceEntries, {}, [](const SourceEntry& a_entry) {
+			return a_entry.relative.generic_string();
+		});
+
+		std::unordered_set<std::string> sourcePaths;
+		sourcePaths.reserve(sourceEntries.size());
+		for (const auto& entry : sourceEntries) {
+			sourcePaths.insert(entry.relative.generic_string());
+			const auto destination = a_destination / entry.relative;
+			const bool destinationExists = std::filesystem::exists(destination, ec);
+			if (ec)
+				return Fail(a_error, destination, ec);
+			const bool destinationDirectory =
+				destinationExists && std::filesystem::is_directory(destination, ec);
+			if (ec)
+				return Fail(a_error, destination, ec);
+
+			// A file/directory rename needs its old shape removed first, but
+			// ordinary stale bundles remain available until every replacement
+			// has copied successfully.
+			if (destinationExists && destinationDirectory != entry.directory) {
+				std::filesystem::remove_all(destination, ec);
+				if (ec)
+					return Fail(a_error, destination, ec);
+			}
+			if (entry.directory) {
+				std::filesystem::create_directories(destination, ec);
+				if (ec)
+					return Fail(a_error, destination, ec);
+				continue;
+			}
+			std::filesystem::create_directories(destination.parent_path(), ec);
+			if (ec)
+				return Fail(a_error, destination.parent_path(), ec);
+			std::filesystem::copy_file(entry.source, destination,
+				std::filesystem::copy_options::overwrite_existing, ec);
+			if (ec)
+				return Fail(a_error, entry.source, ec);
+		}
+
+		// Only after all current files are safely present may removed/renamed
+		// paths disappear. The former stale-first order deleted the browser's
+		// working bundle and then left the view disconnected when USVFS rejected
+		// the following recursive copy.
 		std::vector<std::filesystem::path> stale;
 		for (std::filesystem::recursive_directory_iterator
 				 it(a_destination, std::filesystem::directory_options::skip_permission_denied, ec),
 			end;
 			!ec && it != end; it.increment(ec)) {
 			const auto relative = it->path().lexically_relative(a_destination);
-			const auto sourcePeer = a_source / relative;
-			const bool sourceExists = std::filesystem::exists(sourcePeer, ec);
-			if (ec)
-				break;
-			const bool destinationDir = it->is_directory(ec);
-			if (ec)
-				break;
-			const bool sourceDir = sourceExists && std::filesystem::is_directory(sourcePeer, ec);
-			if (ec)
-				break;
-			if (!sourceExists || destinationDir != sourceDir) {
-				if (ec)
-					break;
+			if (!sourcePaths.contains(relative.generic_string())) {
 				stale.push_back(it->path());
 			}
 		}
@@ -129,11 +191,6 @@ namespace OSFUI::DevViewFiles
 			if (ec)
 				return Fail(a_error, path, ec);
 		}
-		std::filesystem::copy(a_source, a_destination,
-			std::filesystem::copy_options::recursive | std::filesystem::copy_options::overwrite_existing,
-			ec);
-		if (ec)
-			return Fail(a_error, a_source, ec);
 		return true;
 	}
 }  // namespace OSFUI::DevViewFiles

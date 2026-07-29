@@ -1,6 +1,6 @@
 import { rmSync } from 'node:fs';
-import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { basename, isAbsolute, relative, resolve } from 'node:path';
+import { copyFile, cp, lstat, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { stdin, stdout } from 'node:process';
 
@@ -11,6 +11,79 @@ import { reportPapyrus } from './papyrus.mjs';
 
 export function deploymentRoot(project, modsRoot) {
   return resolve(modsRoot, basename(project.root));
+}
+
+async function treeEntries(root, at = '', entries = []) {
+  const children = await readdir(resolve(root, at), { withFileTypes: true });
+  children.sort((left, right) => left.name.localeCompare(right.name));
+  for (const child of children) {
+    const relativePath = join(at, child.name);
+    entries.push({ relativePath, directory: child.isDirectory(), symlink: child.isSymbolicLink() });
+    if (child.isDirectory()) await treeEntries(root, relativePath, entries);
+  }
+  return entries;
+}
+
+async function existingKind(path) {
+  try {
+    const value = await lstat(path);
+    return value.isDirectory() ? 'directory' : value.isSymbolicLink() ? 'symlink' : 'file';
+  } catch (error) {
+    if (error?.code === 'ENOENT') return undefined;
+    throw error;
+  }
+}
+
+/**
+ * Make `destination` an exact copy without replacing its root directory.
+ *
+ * MO2's USVFS can retain vanished directory entries when a running game has
+ * already enumerated them. Updating/adding first and pruning stale entries
+ * last keeps the live virtual directory continuously valid while preserving
+ * the exact-mirror behavior needed by full deployments.
+ */
+export async function mirrorTree(source, destination) {
+  const sourceEntries = await treeEntries(source);
+  const sourcePaths = new Set(sourceEntries.map(({ relativePath }) => relativePath));
+  await mkdir(destination, { recursive: true });
+
+  // Establish the directory shape before copying files.
+  for (const entry of sourceEntries) {
+    if (!entry.directory) continue;
+    const path = resolve(destination, entry.relativePath);
+    const kind = await existingKind(path);
+    if (kind && kind !== 'directory') await rm(path, { recursive: true, force: true });
+    await mkdir(path, { recursive: true });
+  }
+
+  // Copy complete build outputs over the live tree. New hashed bundles sort
+  // before view HTML, and old bundles remain until the prune below.
+  for (const entry of sourceEntries) {
+    if (entry.directory) continue;
+    const from = resolve(source, entry.relativePath);
+    const to = resolve(destination, entry.relativePath);
+    const kind = await existingKind(to);
+    if (kind === 'directory' || entry.symlink || kind === 'symlink') {
+      if (kind) await rm(to, { recursive: true, force: true });
+      await cp(from, to, { force: true });
+    } else {
+      await copyFile(from, to);
+    }
+  }
+
+  // Remove paths absent from the build deepest-first, without ever removing
+  // the destination root that the running USVFS process has enumerated.
+  const destinationEntries = await treeEntries(destination);
+  destinationEntries.sort((left, right) => {
+    const leftDepth = left.relativePath.split(/[\\/]/).length;
+    const rightDepth = right.relativePath.split(/[\\/]/).length;
+    return rightDepth - leftDepth;
+  });
+  for (const entry of destinationEntries) {
+    if (!sourcePaths.has(entry.relativePath)) {
+      await rm(resolve(destination, entry.relativePath), { recursive: true, force: true });
+    }
+  }
 }
 
 async function configuredDeployRoot(project, explicit) {
@@ -48,9 +121,8 @@ async function configuredDeployRoot(project, explicit) {
 }
 
 export async function deployBuild(project, deployRoot) {
-  await rm(deployRoot, { recursive: true, force: true });
   await mkdir(resolve(deployRoot, '..'), { recursive: true });
-  await cp(project.outDir, deployRoot, { recursive: true });
+  await mirrorTree(project.outDir, deployRoot);
 }
 
 /**
@@ -62,9 +134,8 @@ export async function deployViews(project, deployRoot) {
   const subpath = relative(project.outDir, project.outputViewsRoot);
   const from = resolve(project.outputViewsRoot, project.modId);
   const to = resolve(deployRoot, subpath, project.modId);
-  await rm(to, { recursive: true, force: true });
   await mkdir(resolve(to, '..'), { recursive: true });
-  await cp(from, to, { recursive: true });
+  await mirrorTree(from, to);
 }
 
 function within(root, path) {
@@ -165,6 +236,6 @@ export async function startGameSync(project, server, options = {}) {
   process.once('SIGTERM', async () => { await cleanup(); process.exit(143); });
   process.once('exit', cleanupSync);
   server.httpServer?.once('close', () => { void cleanup(); });
-  console.log('[osfui] Temporary author mode enabled for this session (F11 reload, F12 DevTools).');
+  console.log('[osfui] Temporary author mode enabled for this session (automatic view reload, F12 DevTools).');
   return { deployRoot, marker, cleanup };
 }

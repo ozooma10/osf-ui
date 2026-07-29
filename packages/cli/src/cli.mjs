@@ -45,7 +45,7 @@ Usage:
   osfui package [--output file]
   osfui doctor
 
-F11 reloads the active view and F12 opens WebView2 DevTools while dev --game is running.`);
+Loaded views reload automatically and F12 opens WebView2 DevTools while dev --game is running.`);
 }
 
 async function main() {

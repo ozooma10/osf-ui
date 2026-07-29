@@ -4,221 +4,174 @@
 
 ### Highlights
 
-- Added the native first slice for an opt-in in-world Web UI surface, now productionized to multiple screens: up to four `worldSurfaces` config entries each run their own view in an isolated WebView2 host and shared-texture ring, stay alive while the fullscreen overlay is closed, survive engine descriptor rebuilds, and report host failures and degradations into System Health without affecting the overlay or each other. Placeholder textures are build-generated with validated collision-safe sizes, and `docs/world-surface-authoring.md` documents the Creation Kit recipe (material, mesh, placeable) an in-world screen needs. No world material assets ship yet — a Creation Kit Material Swap on `DisplayScreen5` now passes in game with a readable matte donor, but that proof still overrides vanilla Lodge texture paths — so the feature stays behind the `with_world_surfaces` build flag until an isolated release material passes the same asset/runtime/combined gates. Binding a screen to its plugin filename and plugin-local FormID and pressing the default keyboard **E** now opens that surface's assigned view through the established fullscreen input path; the binding resolves through Starfield's loaded-file table so it survives load-order changes, while EditorID remains only a best-effort legacy fallback. Rebound/gamepad activation and direct pointing or typing on the projected texture remain follow-up work.
-
-- In **devMode**, loose view edits now appear in game without rebuilding or restarting: save HTML, JavaScript, CSS, or a local asset and OSF UI refreshes the loaded view after the file settles. Polling and Mod Organizer 2 mirror synchronization run in the background so large view folders do not stall the game; removed or renamed files are deleted from the browser mirror instead of lingering, and failed copies retry with backoff. F11 refreshes the mirror too. `manifest.json` changes and newly added views still require a restart.
-
-- View authors can press **F12** in `devMode` to open Edge DevTools for the top open menu, making its live DOM, styles, blocked requests, and JavaScript state inspectable without leaving the in-game iteration loop. The browser DevTools capability remains disabled outside `devMode`.
-
-- View authoring is now a standalone npm workflow instead of a repository-only harness: `npm create osfui@latest` scaffolds dependency-free TypeScript or JavaScript projects with menu/HUD and Papyrus/native starting points, and `npm run dev` opens a production-shaped Vite harness with HMR, shared UI assets, mock state/requests, lifecycle controls and bridge inspection. `dev:game` builds and syncs the view into an author-selected MO2 mod while enabling an expiring, session-local author mode—so F11 reload and F12 DevTools require no permanent player configuration—and `check`, `build`, `doctor` and `package` cover validation through a release-ready zip. The lower-level packaged-view harness remains available for diagnostics.
+- `devMode` now reloads saved view files in game and supports **F12** Edge DevTools. New views and `manifest.json` changes still require a restart.
+- `npm create osfui@latest` now scaffolds TypeScript menu/HUD projects with Papyrus or native backends, a Vite harness, validation, MO2 sync, and packaging.
 
 ### Added
 
-- Experimental in-world screens can bind a Creation Kit Activator base or placed reference by loaded plugin filename plus plugin-local hexadecimal FormID. On the initial default keyboard **E** press, OSF UI uses its existing window-input hook and the runtime-verified player crosshair target to open the matched screen's view through the fullscreen menu, focus, cursor, keyboard, and bridge path. The plugin-local identity is resolved through Starfield's full, medium, or small loaded-file tier so it survives load-order changes; runtime EditorIDs are usually absent and remain only a best-effort compatibility fallback. This avoids CommonLib's unusable activation-event wrapper, whose Address Library ID is unset on Starfield 1.16.244. The first surface owns a duplicated binding; rebound/gamepad activation and direct pointer-to-world-texture interaction remain separate milestones.
-
-- **Settings schemas can segment into pages.** A mod with many settings can declare top-level `pages` and tag each group with a `page` id; the Mods surface then renders a tab row and shows one page at a time instead of a single long column. Untagged groups collect on an implicit **General** tab painted first, unreferenced pages render no tab, and cross-mod search jumps raise the owning tab before flashing the row. Pages are display-only annotations on the flat `groups` list, so the same schema renders as the familiar one-column list on hosts that predate them — no native or ABI change involved. Group collapse state and section-index anchors now prefer a group's stable `id` over its array position and label, so schema reorderings and repeated labels across pages no longer confuse them. See `docs/authoring-settings.md` §3.
-
-- Maintainers can now open the reporting service's private `/admin` dashboard, unlock it with the existing admin token, browse submitted reports, and inspect each player's consented diagnostics and log artifacts without retrieving report IDs one at a time. Listing and detail requests remain authenticated, reporter content is rendered only as text, and the token is retained only for the browser tab.
-
-- System Health now has a consented **Report a bug** flow that accepts a private report reference and queues public GitHub issue creation after server-side abuse checks. It attaches bounded, locally redacted tails of both OSF UI logs plus the current health snapshot; the disclosure names every included file, the potentially public title/description/reproduction fields, and the 30-day retention period. Known account and install roots are removed on the PC, logs never enter the public issue, and a failed or unconfigured service leaves the existing copy/open-log fallback intact. Installations use renewable signed tickets; the service combines edge throttles with globally consistent daily installation, network, and total budgets, neutralizes public mentions/HTML, serializes GitHub publication through a retrying queue, and provides independent intake/publication pause switches. When Starfield exits with a non-zero process status while the interactive OSF UI is active or opening, the surviving primary WebView2 helper offers the same private upload in a Windows Yes/No dialog without claiming OSF UI caused the crash. If the active surface belongs to OSF Animation, the disclosure names that repository and, after consent, the helper attaches the session's exact `OSF Animation.log`; the service routes the public issue to `ozooma10/osf-animation` through a fixed server allowlist rather than accepting an arbitrary repository from the client. Only after consent does the helper also look in the standard `SFSE/Crashlogs` folder for the newest Trainwreck/Crash Logger report created during that session. All attachments use path-free names, local redaction and bounded tails. The helper resolves the game's exit status even when a crash closes the IPC pipe first, while suppressing intentional non-zero exits such as the `qqq` console command when OSF UI is inactive. Player-initiated closes — the taskbar's **Close window**, the title-bar X, Alt+F4, or logging off — are also suppressed: the in-game hook reports the close request to the helper the moment the game window receives it, because Starfield's forced teardown routinely ends with a non-zero (access-violation) status even though nothing went wrong.
-
-- **System Health is now the whole game's health pane, not just OSF UI's.** Any mod built on the native API can report a problem into it — a pack that failed to parse, a missing asset, a feature it had to switch off — so you look in one place when something is wrong instead of having to know which mod noticed first. Reports name the mod that made them, clear themselves when the condition goes away, and appear in **Copy diagnostic report** alongside everything else.
+- Settings schemas can define tabbed `pages`; unassigned groups appear under **General**.
+- Added a consent-based **Report a bug** flow with local redaction, bounded log attachments, abuse limits, and private 30-day storage.
+- Native plugins can publish self-clearing issues to the shared **System Health** pane.
 
 ### Fixed
 
 - Native WebView2 form popups - including settings dropdowns, datalists, and date, time, or colour pickers authored by third-party views — now temporarily receive physical pointer ownership while open. Their options can therefore be clicked in game instead of requiring keyboard selection, without view authors replacing standard HTML controls.
-
-- A **devMode** hot reload under Mod Organizer 2 no longer blanks the view with `ERR_FILE_NOT_FOUND` for a hashed bundle. The browser mirror MO2 installs require was refreshed one view folder at a time, but a view's bundles are emitted to a mod-level sibling (`views/<modId>/assets/`) that its HTML reaches through `../assets/…`. Each rebuild renames those bundles, so the mirror received a fresh `index.html` pointing at chunks that were never copied. The mirror and the change-detection fingerprint now both work at mod-folder scope, matching the unit `osfui dev` already deploys; this also stops a reload from firing while the sibling assets are still being written. `manifest.json` remains restart-only at every depth.
-
-- `osfui dev --game` no longer fails with `EBUSY` once Starfield is running. Every save used to redeploy the whole mod folder, including the plugin, the compiled scripts, and the native files the game holds open for its entire session. After the initial deployment, a save now re-syncs only the built view assets; a change to the Papyrus or backend sources is built locally and reported with a note that the game must be restarted to deploy it. Starting the command while the game already runs deploys the views and warns that the rest is locked, instead of aborting the sync.
-
-- Mouse-wheel scrolling in the interactive UI now scrolls whatever sits under the visible cursor and moves a consistent distance everywhere. Wheel input used to be injected at a cached pointer position that could go stale and park in a screen corner — leaving scrolling dead or seemingly tied to which element was hovered — and the embedded browser's percent-based scrolling additionally made the distance per notch depend on the height of the hovered scroll area. The wheel now samples the live cursor position at injection time, and percent-based scrolling is disabled while the smooth scroll animation is kept.
-
-- In-world Web UI surfaces now sample browser pixels as sRGB, matching Starfield's display textures instead of treating encoded colors as linear data. This restores contrast and prevents pages from looking severely washed out on emissive screens. Binding also requires the exact typeless BGRA resource format produced by the verified placeholder DDS path, so an unrelated plain texture that merely shares its unusual dimensions is no longer eligible for capture.
-
-- Normal builds and release packages no longer carry in-world screen research code or assets. A Material Editor Lite-authored `OSFUI_WorldScreen01.mat` could make every other world material disappear even with the OSF UI DLL absent, and switching the research flag off previously left that material and generated placeholder textures behind in an existing MO2 deployment. One retired descriptor probe and the browser helper's multi-instance path also remained compiled into normal runtimes, while release packaging could inherit a locally cached research flag. The unsafe material has been removed; production builds now compile those paths out, purge stale research copies when redeployed, force the flag off while packaging, and reject research config, binaries, or loose assets before creating an archive.
-
-- OSF UI now boots its real WebView2 renderer, D3D12 compositor, and UI input hook from compiled production defaults when the developer config omits backend selections. F10 therefore opens the UI again, and choosing **MOD MENUS** from the pause menu no longer pauses behind an invisible mock frame after an update replaces `config.json`.
-
-- The Mods surface no longer opens with an empty **All systems** screen when MO2's browser mirror retains an older shared bridge helper. Each game process now builds views into a fresh real-path mirror and removes it after the browser exits, so current view bundles cannot accidentally run against stale `osfui.emit()` / `osfui.call()` support. Catalog reads are also retried when the browser transport becomes ready.
-
-- Fixed the reproducible DXGI crash when OSF UI, OptiScaler/Streamline, and the Steam overlay were active together. The compositor now stays entirely in Starfield's Scaleform UI seam and never hooks the swap-chain Present path, so frame generation and external overlays can remain enabled without load-order or configuration workarounds; the same isolation also avoids probe/hook conflicts with BetterConsole, RTSS, ReShade, and similar tools.
-
-- If WebView2 fails while creating its composition controller, OSF UI now closes the invisible loading overlay immediately and releases focus, pause, cursor, and control capture instead of leaving actors frozen behind a hidden menu. A native dialog identifies the renderer error and offers Microsoft's WebView2 repair download; further menu opens fail closed until the game is restarted.
+- MO2 hot reload now updates each deployed mod view tree in place and copies every replacement into the browser mirror before pruning old bundles, preventing USVFS path failures from disconnecting the current page and avoiding `ERR_FILE_NOT_FOUND` for renamed shared bundles.
+- `osfui dev --game` now syncs view assets while Starfield holds native files open, without replacing a live directory that the game has already enumerated.
+- Mouse-wheel input now uses the live cursor position and a consistent scroll distance.
+- Removed swap-chain Present hooks that conflicted with OptiScaler, Steam Overlay, ReShade, RTSS, and similar tools.
+- WebView2 composition-controller failures now close the loading overlay, restore input, and show repair guidance.
 
 ### For plugin authors
 
-- Native plugins that already use `nlohmann::json` can include the new optional `OSFUI_JSON.h` facade instead of hand-authoring and parsing JSON strings. `JsonCommand` and `JsonRequest` provide typed field/struct access, malformed requests reject automatically, replies serialize safely, and `JsonClient` accepts JSON values for outbound messages, runtime schemas and diagnostics. The dependency-free `OSFUI_API.h` ABI remains unchanged at 1.7; the facade compiles entirely into the consuming plugin.
-- Native ABI **1.7** (`Feature::kRequests`) adds first-class request/response beside fire-and-forget commands. A plugin registers a qualified request name, receives a copyable respond-once token, and may answer later from any thread without seeing or echoing a `requestId`; the host routes the plugin-owned reply type and payload to the calling view. Tokens time out after 30 seconds with `no-response`, are reaped when the view closes, and become safe no-ops after settlement. Requests share commands' first-wins namespace and are capped at 64 in flight per view. Plugins can reject with their own stable error code through correlated `ui.error`; older hosts safely no-op the new `Client` methods.
-
-- Native ABI **1.7** (`Feature::kDiagnostics`) adds `ReportIssue`, `ClearIssue` and `ClearIssuesExcept` to `IOSFUIBridge`/`Client`: raise a durable condition into System Health, withdraw it when it clears, or reconcile a recomputed set in one sweep. Issues are identity-keyed (a repeat bumps an occurrence count rather than stacking a card), and the `source`, id and code are namespaced to the calling mod **by the host**, so no mod can file a report against another or resolve a platform issue. `context` is a flat JSON object, bounded and path-sanitized. A code OSF UI does not recognise renders as a card naming your mod with your details attached — never a blank one. On a host older than 1.7 all three are no-ops returning false. See §5d of [native-plugin-api.md](docs/native-plugin-api.md), including what does *not* belong in the pane.
+- Added optional `OSFUI_JSON.h` helpers for typed JSON commands, requests, replies, state, schemas, and diagnostics.
+- Native ABI **1.7** adds asynchronous request/reply support with 30-second timeouts and 64 in-flight requests per view, plus namespaced `ReportIssue`, `ClearIssue`, and `ClearIssuesExcept` diagnostics APIs.
 
 ### Other changes
 
-- Follow-up to the logging pass below: the retired thread-affinity probe is gone rather than merely quieted. It existed to prove which thread drains per-frame tasks, that question was answered and written up, and its backtraces had become actively misleading — every frame was printed as `Starfield.exe+<offset>` without checking the frame belonged to that module, so browser-helper and system frames appeared as nonsensical multi-gigabyte offsets. Bridge message tracing also stopped spending two lines on every healthy exchange: a command's replies to its caller now fold into that command's single completion line, which still names what came back, or `(no reply)` when nothing did.
-
-- The logs are now written for crash forensics instead of development narration. Both `OSF UI.log` and `OSF UI.webview2-host.log` keep the previous session's file (`OSF UI.1.log` / `*.old.log`) instead of destroying it on the next launch — so evidence from a crash survives the reflexive "relaunch and try again". Timestamps in both files now carry the date and correlate across the pair. What lands at each level was rebalanced: hook arming, renderer device discovery, and boot milestones that a crash report needs are always logged; per-call research-probe samples and page `console.log` chatter moved behind devMode. Errors caused by a third-party mod's own files or API calls (bad manifests, schemas, key overlays, malformed bridge calls) are now tagged `[content]`, so a reader can separate "a mod's content is wrong" from "OSF UI is broken" with one filter. The convention lives in `docs/logging.md`.
-
-- The world-surface placeholder tool can now verify a staged DDS byte-for-byte against its canonical slot, catching recompression, header drift, and copy mistakes before they reach Starfield's texture loader.
-
-- The in-world render-to-texture prototype is excluded from normal builds and releases. Its descriptor hooks, development probes, multi-instance browser-host support, configuration keys, runtime state, and generated placeholder textures compile only with the default-off `with_world_surfaces` research flag. Unsafe loose material experiments are not shipped, returning to a normal build purges research assets left in an existing deployment, and both CI and the release packager verify the production boundary.
-- OSF UI → Diagnostics now has a collapsed **Registered views** menu listing every mod-provided view discovered during the session, including hidden and not-yet-loaded views, with a **Trigger** button that sends it through the normal open path. Built-in OSF UI surfaces stay out of the list, keeping it focused on confirming and manually launching mod diagnostic or utility views without exposing them in the regular mod menu.
+- Logs now keep the previous session, use full dates, tag third-party content errors, and reduce routine trace noise.
+- Diagnostics now lists and can trigger every discovered third-party view.
 
 ### For view authors
 
-- Papyrus menu projects from `npm create osfui@latest` now get a concise README focused on building, packaging, browser debugging, and in-game F11/F12 debugging instead of a long walkthrough of the generated backend and toolchain internals.
-
-- Papyrus projects from `npm create osfui@latest` are now complete, reproducible Starfield mods instead of loose scripts that silently do nothing without a plugin record. The scaffold includes Spriggit source for a Start Game Enabled quest and player alias, and ordinary `build`, `package`, and `dev:game` runs regenerate the ESM and compile fresh PEX files before copying the view. `doctor` now checks Spriggit CLI, Creation Kit's Papyrus compiler and source archive, and the pinned OSF UI compiler API, reports exact missing prerequisites, and supports nonstandard install paths through the ignored local project settings.
-
-- `@osfui/cli` builds now keep every generated JavaScript and CSS bundle under `views/<modId>/assets/` and no longer copy OSF UI's own `views/shared/` kit into dependent mods. Packages made by different view authors therefore stop competing for generic asset paths or overwriting the framework-matched shared helper and styles through mod-manager file priority.
-
-- The Papyrus and native HUD presets from `npm create osfui@latest` are now purpose-built passive overlays instead of menu demos with an unreachable button form. Generated HUDs load visibly, render event-driven typed telemetry in a transparent anchored panel, recover their state after save loads or bridge recreation, and ship live settings for enabled state, a rebindable toggle key, screen corner, margin, scale, opacity, and accent colour. Their browser harness controls exercise telemetry changes, warnings, every appearance option, and the hotkey without launching Starfield; menu presets keep the command/action/request examples intended for interactive surfaces.
-
-- The standalone authoring CLI now rejects output directories that overlap source or configuration inputs while continuing to support separate monorepo build trees, and package archives must be written outside the tree they contain, preventing mistyped paths from deleting source files or embedding an archive inside itself. In-game development sync now mirrors the complete build so removed scripts and assets do not linger in MO2, while temporary author mode is reliably removed when the dev server exits. Invalid or incomplete command-line options also fail immediately instead of being silently misread.
-
-- `npm run dev:game -- --deploy` now accepts MO2's `mods` directory and creates a child mod folder named after the view project before writing `SFSE/`. Passing the `mods` directory no longer leaves a stray top-level `SFSE` folder that MO2 cannot treat as a mod; existing projects with the old saved final-mod path remain compatible.
-
-- The Papyrus and native-plugin choices in `npm create osfui@latest` now scaffold their matching backends: Papyrus projects include a request-listener script and Creation Kit steps, while native projects include a CommonLibSF/xmake plugin with both native API headers. The native preset is a paired C++/web showcase built on `OSFUI_JSON`: typed fire-and-forget commands, correlated requests and replies, C++ state pushes, ready/settings/hotkey callbacks, a runtime settings schema, and a stateful browser mock all work out of the box. Generated projects use `mod/` as their Starfield Data-root tree; `build`, `package`, and `dev:game` carry those scripts, DLLs, schemas, and other mod files alongside the compiled view.
-
-- `npm create osfui@latest` now walks through setup like Vite: language, menu/HUD surface, and starting workflow are shown as concise arrow-key selection lists instead of asking authors to type hidden option names. Directory name and view ID are short text steps with editable defaults, while mod ID shows the expected format but requires an explicit entry. This lets a command run from a populated folder create a safe child project instead of trying to overwrite that folder. Explicit flags and directory arguments continue to work for automation. When the creator itself runs from the OSF UI repository, generated projects now link the sibling `@osfui/cli` package instead of requesting its not-yet-published version from npm; Windows dependency installation also avoids Node's insecure-shell deprecation warning, and the generated TypeScript and JavaScript starters use the same framework-free DOM example, with strict checking enabled for the TypeScript choice.
-
-- Bridge protocol **1.5** declares the built-in reporter's correlated status/result messages and commands. They are platform-private: every caller except the exact `osfui/settings` view is rejected, endpoints remain host-owned HTTPS configuration, and third-party views still have no network access.
-
-- Bridge protocol **1.5** adds a simpler event/state/request authoring layer without removing the raw bridge: `osfui.emit()` names one-way native commands, `osfui.call()` returns a correlated reply payload directly, and generic `osfui.on<T>()` improves custom message typing. Papyrus mods can publish naturally typed, session-cached `SetView*` state that automatically replays when a view opens or reloads and is consumed with `osfui.data.on()`—no `ready` action, key filtering or number-as-string conversion. `osfui.action()` plus `ListenForViewActions()` provide the concise one-way path, while `osfui.papyrus.request()` and the typed `ReplyView*`/`RejectViewRequest` natives add bounded, one-shot request/reply with host-owned correlation and timeout handling. Legacy `send`/`request`, `PushToView`, and custom callback registrations remain compatible. Protocol 1.5's qualified native-plugin requests also continue to ignore the old successful delivery ack and wait for the plugin's typed response.
+- Generated Papyrus projects now include concise setup documentation, Spriggit source, ESM/PEX builds, and prerequisite checks.
+- Generated assets now stay under `views/<modId>/assets/`; dependent mods no longer copy OSF UI's shared kit.
+- Generated HUD projects now provide passive telemetry, persistence, settings, hotkeys, and browser mocks.
+- CLI output paths are checked for unsafe overlap, development sync removes stale files, and malformed options fail early.
+- `dev:game --deploy` now accepts an MO2 `mods` directory and creates the project mod folder.
+- Papyrus and native presets now include matching, buildable backends and package all mod files from `mod/`.
+- The project creator now uses guided prompts, safe defaults, local CLI linking, and matching JavaScript/TypeScript starters.
+- Bridge protocol **1.5** adds qualified native request/reply behavior, `emit`, `call`, typed events, cached Papyrus state, actions and request/reply helpers, plus built-in reporter messages kept private to `osfui/settings`.
 
 ## 1.4.0 — 2026-07-24
 
-Mod Settings gains a **System Health** destination that turns silent, log-only failures into plain-language warnings with a clear next step. Underneath, OSF UI's per-frame runtime now runs on Starfield's main thread, and the Scaleform seam compositor is back on its known-good implementation.
+Added System Health and restored stable main-thread and compositor behavior.
 
 ### Added
 
-- Mod Settings has a new **System Health** destination, pinned at the top of the rail. It shows durable, plain-language warnings and errors — a settings file that could not be read, a screen that failed to load, two OSF UI copies mixed together, or something installed that needs a newer OSF UI — each with what it means, what to do next, and safe actions like **Retry view**, **Open log folder** or **Update OSF UI**. A calm summary reads **All systems nominal**, **Warnings detected** or **Action required**; the rail badge and per-mod markers point you to what needs attention. Issues clear themselves when the underlying condition goes away and move to a **Resolved this session** list (cleared on exit) — nothing to dismiss by hand, and no log noise. A **Copy diagnostic report** button produces a paste-ready summary for bug reports. This replaces the old settings-load alert; failed launcher cards now read **FAILED — REVIEW ISSUE ▸** and link straight to the issue. Conditions that stop OSF UI from rendering at all still surface through the launch dialog and logs as before.
+- Added **System Health** with actionable issues, per-mod markers, resolved history, safe recovery actions, and copyable diagnostics.
 
 ### Fixed
 
-- The Scaleform seam compositor is restored to its known-good pre-`b8e3643` implementation. The attempted root-signature and pipeline-state interception for a rare black-HUD edge case could instead make Mod Settings disappear or crash the graphics driver, so those hooks and their fail-closed draw gating have been removed. Opening the menu while its toggle key is still held also ignores WebView2's cross-focus key repeat, so one press cannot immediately close the UI again.
-- OSF UI's per-frame runtime now runs on Starfield's main thread even though SFSE supplies its frame notifications from render workers. Pause, free-cursor and control-layer bookkeeping no longer races the engine, in-game calendar reads are synchronized, and native plugin callbacks once again honor their documented main-thread contract.
+- Restored the stable Scaleform compositor and prevented one key press from immediately reopening or closing the menu.
+- Moved per-frame runtime work and native plugin callbacks back to Starfield's main thread.
 
 ### For view authors
 
-- Bridge protocol 1.4 (additive, stable) adds the session-health channel behind System Health: `diagnostics.get` returns the current `{ system, issues }` snapshot and subscribes the caller to `diagnostics.data` change pushes. Each issue carries a stable machine `code`, `severity`, `status`, source/subject ids, bounded and path-free technical `context`, an occurrence count, and session-relative timings — player-facing wording is derived from the code in the built-in frontend, never sent on the wire. Also adds the payload-free, fixed-target `osfui.openLogFolder` command (the SFSE log directory) alongside the existing `osfui.openModPage`. A normal content view needs none of this; it powers the framework's own Mods surface. Declarations are in `sdk/osfui.d.ts` and `docs/authoring-views.md`.
+- Bridge protocol **1.4** adds `diagnostics.get`, `diagnostics.data`, and `osfui.openLogFolder`.
 
 ## 1.3.0 — 2026-07-22
 
-Papyrus scripts can now hand real game forms and multi-argument actions to their views across the bridge (protocol 1.3), interactive views get genuine keyboard/gamepad focus without backgrounding the game, and the pause-menu and render-seam paths are hardened against startup races and Scaleform faults. Adds a built-in Web Performance Lab and a Debug-mode switch for developer surfaces.
+Added richer Papyrus data, reliable interactive focus, and developer diagnostics.
 
 ### Added
 
-- Papyrus scripts can now push **real game forms** to their views (bridge protocol 1.3). `OSFUI.PushFormsToView(mod, key, Form[])` delivers each form to the page as a structured object — `{ formId, formType, name }` — inside the existing `data.push` message, so a view can render a dynamic list of keywords, items, or any other forms with zero FormID bookkeeping in JS. To act on one, the view simply echoes `formId` back as a normal action argument and the script resolves it with the new `OSFUI.GetFormById` / `GetFormsById` natives (which, unlike `Game.GetForm`, accept hex and the full 32-bit dynamic-FormID range). This replaces encoding forms as catalog indices and resolving them by position. `None` entries keep their slot as `null`, so a parallel `PushToView` of counts or labels stays index-aligned. References are session-scoped runtime FormIDs — resolve promptly, never persist them (see `docs/authoring-dynamic-data.md`, "Real forms across the bridge").
-- View actions can now carry a **list of arguments** (bridge protocol 1.3). A view sends `osfui.send('ui.action', { action, args: [...] })` and a script registered with the new `OSFUI.RegisterForViewActionsArgs` receives them as `OnUIAction(string asAction, string[] asArgs)`. This replaces the long-standing workaround of packing several small ints into one string (`kind*100+slot`) to squeeze through the single-string `arg` channel — Papyrus has neither a modulo operator nor substring parsing, which made unpacking awkward. The original scalar `arg` / `RegisterForViewActions` shape is unchanged, and both can be used by the same mod at once.
+- Bridge protocol **1.3** adds `PushFormsToView`, `GetFormById`, and `GetFormsById` for session-scoped game forms.
+- View actions can send argument arrays through `RegisterForViewActionsArgs`.
 
 ### Fixed
 
-- Mouse-wheel scrolling now works in interactive UI pages after browser focus moves into the WebView2 helper. The helper captures wheel packets on its own window instead of depending on subclassing Chromium's focused child window across a process boundary, while retaining the previous routes as fallbacks.
-- Fixed a crash when OSF UI and BetterConsole are enabled together. If BetterConsole re-hooks the game window after OSF UI, the two input hooks no longer chain back into each other until the process exhausts its stack; both overlays still receive input and Starfield's own window procedure remains at the end of the chain.
-- Starting Starfield with OSF UI enabled no longer lets the WebView2 helper's offscreen bootstrap window take foreground activation and leave the game backgrounded during launch.
-- Interactive menus now give their WebView genuine foreground focus for the whole session, matching the smooth behavior observed when Starfield loses focus without overriding either process's GPU priority. Keyboard and IME input route natively, mouse movement/buttons/wheel are captured by the host, and XInput gamepads keep the existing navigation/raw-event behavior even though Starfield's focus-gated controller feed pauses. HUD-only views keep Starfield focused and cap capture at 60 Hz to bound gameplay GPU/copy pressure; interactive capture can run up to 240 Hz on supported Windows builds. Chromium also no longer treats the tiny offscreen capture host as occluded background work, while explicitly hidden views still suspend normally.
-- Fixed CSS crosshair cursors appearing as the Windows loading spinner, most visibly over the Web Performance Lab's animation stage.
-- The first-load transition is now painted once during startup while it is still hidden, so invoking it no longer waits for a cold WebView renderer before it can appear.
-- Hardened the Pause-menu “MOD MENUS” entry against close/reopen races: periodic injection now runs only while the engine-admitted movie is advancing, and stale click callbacks are swallowed without opening the overlay or forwarding OSF UI's private action id into the game. Unexpected Scaleform faults are also left to the crash logger instead of being caught after the VM is already corrupted, which previously turned the crash into a hang.
-- Closed a startup race in the Scaleform UI-seam hooks: the overlay's D3D12 command-list hooks now publish the engine's original function *before* the hook becomes reachable, eliminating a narrow window where a render thread could route through a half-installed hook, drop a GPU call or skip a UI pass, and fault the game. The `uiPassProbe` render-target characterization diagnostic — its capture hook, capture windows, and per-pass logging — has now been removed entirely; only the seam's load-bearing hooks remain, so no diagnostic code sits on a hot engine code path.
-- Hardened settings persistence: if writing a settings file fails partway (disk full or I/O error), OSF UI now keeps your existing values instead of replacing them with a truncated file that would be quarantined and reset to defaults on the next load.
-- A malformed, truncated, or version-mismatched message from the WebView2 host is now dropped with a warning instead of throwing out of the host-reader thread, which previously crashed the whole game to desktop.
-- Fixed synthetic key presses (gamepad-driven typing, and the Space key) being silently dropped inside views: a leftover reference from the focus rework threw before the key was dispatched. Text fields also blur correctly again when a view is hidden.
+- Fixed mouse-wheel input after focus moves to WebView2.
+- Fixed a stack-overflow crash with BetterConsole.
+- The WebView2 helper no longer backgrounds Starfield during launch.
+- Interactive views now receive native keyboard/IME focus while gamepads continue through XInput.
+- Fixed crosshair cursors appearing as a loading spinner.
+- Prewarmed the first-load transition.
+- Fixed pause-menu close/reopen races and stale callbacks.
+- Fixed a startup race in Scaleform hooks and removed `uiPassProbe`.
+- Failed settings writes now preserve the previous file.
+- Invalid host messages are dropped instead of crashing the game.
+- Fixed synthetic key input and stale text-field focus.
 
 ### Other changes
 
-- Added a built-in **Web Performance Lab**: repeatable paint, transform, DOM layout, Canvas 2D, CSS effects and mixed-scene workloads run without pausing the game; it records RAF cadence, frame-time percentiles, JavaScript work, timer jitter and input-to-RAF delay, and can run or copy a complete reference suite for comparing machines and OSF UI builds. It is a developer tool, so it no longer appears in the mod menu during normal play — turn on **Debug mode** (below) to reveal it.
-- Mod Settings has a new **Debug mode** switch under OSF UI → Diagnostics (off by default). When on, developer views such as the Web Performance Lab are listed in the mod menu; off keeps them hidden. Normal play is unaffected.
-- Mod Settings now has one persistent **Show render stats** switch under OSF UI → Diagnostics. Its primary **Fresh view** rate measures new WebView textures that actually reach the game's compositor, rather than browser animation callbacks. The panel and periodic OSF UI logs also separate capture, transport, internal overlay-pass and present cadence; report capture-to-draw and compositor CPU time; count reused frames, stalls, waits and drops; and sample the actual animated document inside same-origin iframes instead of misreporting a static launcher. It applies to every view, including views loaded after it is enabled.
+- Added the **Web Performance Lab** developer view.
+- Added **Debug mode** for showing developer-only views.
+- Added persistent render statistics for capture, transport, compositor, and frame delivery.
 
 ### For view authors
 
-- A view manifest can set `"debugOnly": true` to keep the view out of the mod menu unless the player enables **Debug mode** (OSF UI → Diagnostics). The view still loads and can be opened by id — useful for a mod's own diagnostic/developer surfaces.
+- Manifests can set `"debugOnly": true`.
 
 ## 1.2.1 — 2026-07-22
 
-Frame Generation now carries the overlay on both real and generated frames, and first-time mod menus open cleanly without configuration edits or blank loading surfaces.
+Improved first-time loading and Frame Generation support.
 
 ### Fixed
 
-- Fixed the Mods menu opening as a paused, cursor-active but invisible overlay on hybrid-GPU systems. The WebView2 host now renders on Starfield's actual GPU instead of whichever adapter Windows assigns the helper process, so its shared frames can be composited; failures also report the exact HRESULT and both adapter identities.
-- Drop-in views can now be opened without editing the user's `config.json` or shipping a companion SFSE plugin: `menu.open`, Papyrus `OSFUI.OpenMenu`, and the native `RequestMenu` API load a discovered `views/<modId>/<viewName>/` folder on first use. Missing ids are rejected synchronously, so Papyrus and native callers can reliably fall back instead of receiving success for an open that the runtime later ignored; Papyrus view ids are also matched correctly when `BSFixedString` interning changes their letter casing.
-- Starfield's built-in AMD FSR3 Frame Generation is now fully usable with the overlay. OSF UI records into the game's transparent UI layer instead of drawing into FG-owned present chains, so opaque and translucent content stays stable across real and generated frames, through loading, rapid mouse repaint, FG toggles, and display-mode changes. The old present path also no longer retains swapchains and remains as a fail-closed fallback that suspends itself under FG if the UI seam cannot be installed.
+- WebView2 now uses Starfield's GPU, fixing invisible menus on hybrid-GPU systems.
+- Drop-in views can open on demand without config edits or a companion plugin.
+- AMD FSR3 Frame Generation now composites the overlay through Starfield's UI layer.
 
 ### Other changes
 
-- First-time menu opens now stay in-world while their WebView starts: quick loads appear directly, while slower ones use an always-warm local-link panel carrying the destination's title, accent, and input/pause behavior. Broken or never-ready views offer retry/cancel instead of exposing a blank input-capturing screen; subsequent opens remain immediate.
-- `uiPassProbe` remains an off-by-default compatibility diagnostic for the Scaleform seam. Normal seam rendering no longer runs its capture windows, object scans, or characterization logging.
+- First-time loads now show a themed loading panel with retry and cancel actions.
+- Disabled normal `uiPassProbe` capture work.
 
 ### For view authors
 
-- Bridge protocol 1.2 adds optional manifest `accent` and `readySignal` fields plus `osfui.viewReady()`: views that need initial async or Papyrus data can now choose their meaningful first-paint milestone, and OSF UI holds the diegetic handoff until they report it.
+- Bridge protocol **1.2** adds manifest `accent`, `readySignal`, and `osfui.viewReady()`.
 
 ## 1.2.0 — 2026-07-21
 
-Controller play works properly again, views are cut off from the network for real, and the overlay now survives renderer crashes and game stutters. (This release also includes everything from the unpublished 1.1.2.)
+Restored controller input, enforced network isolation, and improved renderer recovery.
 
 ### Fixed
 
-- Controller support works again. The WebView2 renderer kept Windows keyboard focus in the browser for the whole overlay session, and Windows only delivers gamepad input to the process whose window has focus — so the game engine (and the overlay with it) went controller-deaf. The overlay now leaves focus with the game and only moves it into the browser while you actually type in a text field (click a field or start typing); controller navigation resumes the moment text entry ends.
-- With a menu open, gamepad input no longer leaks into the game underneath: the thumbsticks walked the player around (and buttons could trigger game actions) behind the overlay, because the engine's control-disable flags don't gate thumbstick movement. Gamepad events are now consumed at the overlay's input receiver while a capturing menu is open, so the game never sees them; views still receive them normally (default navigation mapping and raw `ui.gamepad` alike).
-- A crashed or hung view no longer strands a blank overlay that still swallows input. When a view's browser render process exits or becomes unresponsive, the host now reports it and the runtime retries the load with backoff, then cleanly removes the view if it keeps failing; a total browser-process loss hides the overlay for the rest of the session (with the cause logged) instead of leaving a dead host the game still believes is alive.
-- Fixed a crash tied to the pause-menu entry while the menu list was rebuilding.
-- Likely fix for crashes with Frame Generation enabled: overlay drawing is now gated to real presents and skips FG-paced swapchains. If you crashed with FG on, please try again and report.
-- Keyboard and gamepad focus is visible again, and clicking inside a view no longer briefly makes the game go input-deaf. Because focus now stays with the game so controllers keep working, the browser itself was never focused — so focus outlines and `:focus`/`:focus-visible` styling didn't render (navigation was working, but looked like nothing was happening), and a click landing on a focusable element could strand Windows focus in the browser process, cutting keyboard, mouse, and gamepad until a watchdog recovered it. The overlay now emulates page focus for styling without taking OS focus, and hands focus straight back to the game if a click grabs it.
+- Controller navigation now resumes after text entry.
+- Menu gamepad input no longer reaches gameplay.
+- Crashed or hung views now recover or close without trapping input.
+- Fixed a pause-menu rebuild crash.
+- Reduced crashes with Frame Generation by skipping generated swap chains.
+- Restored visible focus styling without stealing game input.
 
 ### Security
 
-- Views can no longer reach the network. OSF UI's no-network policy was declared but not actually enforced; the WebView2 host now denies every http(s) request whose origin isn't the local `osfui.local` view root — answering with a local 403 before anything leaves the machine, page navigations included — and removes the transport and worker APIs that could otherwise slip past a request filter: `WebSocket`, `RTCPeerConnection`/WebRTC, `WebTransport`, `Worker`, and `SharedWorker`. Views must bundle their assets locally; remote fonts, images, scripts, or analytics are blocked. `target="_blank"` links still open in the system browser as before. See `docs/security-model.md` (rule 2).
+- Views can no longer access the network or use WebSocket, WebRTC, WebTransport, Worker, or SharedWorker. External links still open in the system browser.
 
 ### Other changes
 
-- If the Microsoft Edge WebView2 Runtime is not installed, a dialog now appears at game launch naming the problem and offering to open Microsoft's installer download — previously the overlay just never appeared, with the cause buried in `OSF UI.log`.
-- In `devMode`, a view's `console.log` / `console.warn` / `console.error` output is now mirrored into `OSF UI.log` (at INFO / WARN / ERROR), so a misbehaving view is diagnosable in game rather than only in the browser harness. Off in normal play.
-- The overlay rides out brief game stutters without dropping frames: the shared-texture ring between the WebView2 host and the game grew from 3 to 4 slots, so one slow game frame no longer stalls the host's capture thread (which showed up as skipped or late overlay frames under load). Costs one extra overlay-sized texture of VRAM (~8 MB at 1080p, ~33 MB at 4K).
-- Moving the mouse over the overlay is now much cheaper: a high-polling-rate mouse (500–1000 Hz) was sending one cursor-update message to the WebView2 host per raw input packet — hundreds per second of pure overhead, since the page only samples the pointer at display refresh. Cursor moves are now coalesced to a single message per game frame carrying the latest position; clicks and scrolling are unaffected and still fire immediately. In `devMode` the log periodically reports how many packets were folded into how many sends.
+- Missing WebView2 Runtime now shows an installer prompt.
+- `devMode` now mirrors browser console output to `OSF UI.log`.
+- Expanded the shared-texture ring to tolerate brief game stalls.
+- Coalesced high-frequency mouse movement to one host update per game frame.
 
 ## 1.1.1 — 2026-07-20
 
 ### Fixed
 
-- Running the game/MO2 as administrator no longer leaves the overlay invisible: an elevated game now launches the WebView2 host elevated via the Task Scheduler, so the host can connect (thanks to the user who reported this!).
+- Elevated game sessions now launch an elevated WebView2 host, fixing invisible overlays.
 
 ### Other changes
 
-- The WebView2 host now logs to `Documents\My Games\Starfield\SFSE\Logs\OSF UI.webview2-host.log`, next to `OSF UI.log` — sharing that one folder covers both.
-- When the host fails to start, `OSF UI.log` now explains why: host startup errors are forwarded into it, it embeds the host log's tail, and it reports whether the host exe survived (antivirus), carries Mark-of-the-Web (SmartScreen), or the game runs as administrator. Mark-of-the-Web is stripped from the mirrored host exe automatically.
+- Added a separate WebView2 host log beside `OSF UI.log`.
+- Host startup errors now include useful diagnostics and clear Mark-of-the-Web from the mirrored executable.
 
 ## 1.1.0 — 2026-07-20
 
-Views now render in Chromium, and Papyrus mods can drive them with live data.
+Moved rendering to WebView2 and added Papyrus-driven live data.
 
 ### Highlights
 
-- **New renderer: WebView2.** Views render in Microsoft Edge WebView2 inside a separate host process, replacing Ultralight.
-- **Dynamic data for Papyrus mods.** Scripts can drive a view with live data and react to its clicks.
-  `OSFUI.PushToView(modId, key, values)` delivers a string list to every loaded view of the mod as a `data.push` message; 
-  views fire actions back with `osfui.send('ui.action', { action, arg })`, dispatched to `OSFUI.RegisterForViewActions(receiver, fn, modId)` / `...Static` callbacks (session-scoped,  released with `Unregister`). 
-  Everything is fire-and-forget: Papyrus owns the data, views re-request state by firing a `ready` action on load, and OSF UI caches nothing. 
-  See the new `docs/authoring-dynamic-data.md` (worked example: porting a terminal menu).
+- Replaced Ultralight with an out-of-process Microsoft Edge WebView2 renderer.
+- Added `PushToView` data and `ui.action` callbacks for Papyrus mods.
 
 ### Fixed
 
 - Mod hotkeys no longer fire while typing in the game console.
-- The OEM punctuation keys (`- = [ ] \ ; ' , . /`) are now bindable
-- Input no longer dies after closing the Mods menu in rare cases 
+- OEM punctuation keys are now bindable.
+- Fixed rare input loss after closing the Mods menu.
 
 ### For view authors
 
-- New `osfui.openModPage` command: opens OSF UI's Nexus page in the user's system browser, for "update OSF UI" affordances in views.
+- Added `osfui.openModPage`.
 
 ### Other changes
 
-- The "Needs update" tag in the Mods menu now links to the OSF UI Nexus page; in game it opens in the default browser.
-- The Ultralight backend, its SDK build option, runtime payload, and renderer-specific packaging path are gone.
-- Release builds install and verify `OSFUI/bin/osfui_webview2_host.exe`.
-- Internal: built-in views are generated from a Vite + TypeScript + Preact workspace under `frontend/`
+- **Needs update** links now open the OSF UI Nexus page.
+- Removed the Ultralight backend and packaging path.
+- Release builds now install and verify the WebView2 host.
+- Built-in views now use Vite, TypeScript, and Preact.
 
 ## 1.0.0 — 2026-07-17
 
@@ -226,43 +179,25 @@ Initial release.
 
 ### Highlights
 
-- **HTML/CSS/JS views over Starfield** - an SFSE/CommonLibSF plugin that renders web UI in game via the Ultralight engine. Inspired by Prisma UI.
-- **Mods surface** - press **F10** (rebindable in game) to open the unified Mods menu, where OSF UI and content mods expose their settings.
-- **Keybinds view** - a visual keyboard map with inline rebinding and conflict badges.
-- **Controller support** - the Mods and Keybinds surfaces are fully navigable
-  with a gamepad: D-pad / left stick moves focus, A activates, B closes,
-  right stick scrolls, LB/RB switch mods. The same layer makes both surfaces
-  arrow-key navigable from the keyboard.
+- Added HTML/CSS/JavaScript views inside Starfield.
+- Added the **F10** Mods surface and visual keybinding editor.
+- Added keyboard and controller navigation.
 
 ### For view authors
 
-- View packages under `views/<modId>/<viewName>/` with a `manifest.json`;
-  multiple views can load and composite together (HUDs beneath open menus).
-- `targetVersion` (view manifests AND settings schemas) — declare the OSF UI
-  version a mod is authored against; when the installed OSF UI is older, the
-  Mods surface shows a "needs update" badge by the version number naming the
-  mod (advisory only — everything still loads best-effort).
-- JS bridge `window.osfui`, **protocol 1.0** (stable): request envelope with
-  `requestId` correlation, uniform `ui.result` outcomes, and raw gamepad
-  events (experimental).
-- Declarative **settings schemas** with persistence under
-  `Documents\My Games\Starfield\OSFUI\settings\`, versioning + migration,
-  input contexts, and unbound-key support.
-- Shared UI kit under the `--osf-*` CSS namespace, plus TypeScript
-  definitions (`sdk/osfui.d.ts`).
-- Developer loop: `devMode` verbose logging and first-frame PNG dump,
-  **F11** in-place view reload, schema hot-reload, and a browser dev harness.
+- Added manifest-based view packages with multi-view composition.
+- Added `targetVersion` compatibility notices.
+- Added JavaScript bridge protocol **1.0**.
+- Added persistent, versioned settings schemas.
+- Added shared CSS and TypeScript definitions.
+- Added `devMode`, **F11** reload, schema reload, and a browser harness.
 
 ### For plugin authors
 
-- Native C++ API (`sdk/OSFUI_API.h`): register shipped views at runtime and
-  handle commands from your views.
+- Added the native C++ API for registering views and handling commands.
 
 ### Engine integration
 
-- Views open as real engine menus: proper menu-stack admission, game pause
-  while the overlay is open, and a hardware cursor.
-- Shipped `OSFUI/config.json` is the developer/boot file; user-facing
-  settings live in the in-game menu and survive updates.
-- The default build has zero Ultralight footprint; the real renderer is an
-  opt-in build (`xmake f --with_ultralight=true`).
+- Views use the game menu stack, pause state, input controls, and hardware cursor.
+- User settings persist separately from the shipped developer config.
+- Ultralight rendering was an opt-in build.

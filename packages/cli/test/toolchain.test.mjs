@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { access, mkdir, mkdtemp, readFile, readdir, realpath, rm, utimes, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -155,6 +155,12 @@ test('hot reload deploys view assets without touching the deployed plugin or scr
   const deployedScript = resolve(deployRoot, 'Scripts/Example.pex');
   await buildProject(project, { quiet: true });
   await deployBuild(project, deployRoot);
+  const deployedViewRoot = resolve(
+    deployRoot,
+    'SFSE/Plugins/OSFUI/views/acme.widgets',
+  );
+  const originalDirectoryId = (await stat(deployedViewRoot)).ino;
+  const originalAssets = await readdir(resolve(deployedViewRoot, 'assets'));
   // Stand in for the game rewriting nothing: a hot reload must leave this
   // file byte-identical, because Starfield holds it open while it runs.
   await writeFile(deployedScript, 'loaded-by-the-game');
@@ -162,13 +168,23 @@ test('hot reload deploys view assets without touching the deployed plugin or scr
     resolve(root, 'src/views/acme.widgets/panel/index.html'),
     '<main>Reloaded</main><script type="module" src="./main.ts"></script>',
   );
+  await writeFile(
+    resolve(root, 'src/views/acme.widgets/panel/main.ts'),
+    "import '/shared/osfui.css';\nimport '/shared/osfui.js';\nconsole.log('reloaded');\n",
+  );
   await buildProject(project, { quiet: true });
   await deployViews(project, deployRoot);
   assert.equal(await readFile(deployedScript, 'utf8'), 'loaded-by-the-game');
+  // Keep the already-enumerated root alive for MO2/USVFS instead of deleting
+  // and recreating it. The directory's filesystem identity must not change.
+  assert.equal((await stat(deployedViewRoot)).ino, originalDirectoryId);
   assert.match(
     await readFile(resolve(deployRoot, 'SFSE/Plugins/OSFUI/views/acme.widgets/panel/index.html'), 'utf8'),
     /Reloaded/,
   );
+  const currentAssets = await readdir(resolve(deployedViewRoot, 'assets'));
+  assert.ok(currentAssets.some((name) => !originalAssets.includes(name)));
+  assert.ok(originalAssets.some((name) => !currentAssets.includes(name)));
 });
 
 test('loads a reproducible Spriggit Papyrus plugin configuration', async (t) => {

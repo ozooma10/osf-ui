@@ -105,7 +105,7 @@ for (const [surface, integration, backendPath, backendPattern] of [
       if (surface === 'menu') {
         assert.match(readme, /## Build/);
         assert.match(readme, /## Debug/);
-        assert.match(readme, /F11 to reload the view and F12 to open DevTools/);
+        assert.match(readme, /Loaded views reload automatically; press F12 to open DevTools/);
         assert.doesNotMatch(readme, /SpriggitCLI\.zip/);
         assert.doesNotMatch(readme, /Spriggit\.CLI\.exe serialize/);
         assert.equal(readme.match(/npm run dev`/g)?.length, 1);
