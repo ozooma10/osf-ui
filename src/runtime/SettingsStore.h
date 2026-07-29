@@ -13,7 +13,9 @@ namespace OSFUI
 	// Schema shape (bad fields fall back, never crash):
 	//   { "id": str, "title": str,
 	//     "targetVersion": "1.1.0"   (advisory authored-against OSF UI version)
-	//     "groups": [ { "label": str,
+	//     "pages": [ { "id": str, "label": str } ]   (display-only tabs; groups
+	//                 reference one via "page" — the store passes both through)
+	//     "groups": [ { "label": str, "page": str,
 	//                   "settings": [ { "key": str, "label": str,
 	//                                   "type": "bool"|"int"|"float"|"enum"|"string"|"key"|"flags",
 	//                                   "default": <typed>,

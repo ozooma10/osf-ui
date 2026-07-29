@@ -27,6 +27,7 @@ import { isModified } from '@lib/settings/modified';
 import { isSetting } from '@lib/settings/normalize';
 import { safeAssetSrc, type AssetRoots } from '@lib/settings/assets';
 import { findEntry, titleOf, FRAMEWORK_ID, HEALTH_ID, HOME_ID, type ModRecord, type ViewRecord } from '@lib/settings/rail';
+import { pageBuckets, GENERAL_PAGE_ID, type PageBucket } from '@lib/settings/pages';
 import { issueForSubject, type HealthModel } from '@lib/settings/diagnostics';
 import { versionLess } from '@lib/version';
 import type { SearchResult } from '@lib/settings/search';
@@ -41,20 +42,25 @@ import type { CaptureTarget } from './useCapture';
 import { devWarn } from './warn';
 import { OPEN_COOLDOWN_MS } from './openCooldown';
 
-// The three key/anchor builders below are private to this file. `groupKey`'s
-// FORMAT is not, though: App.tsx mints the same `<modId>::g<index>` string by
-// hand when a search jump has to expand the group it lands in, because it works
-// from the schema rather than from a rendered Group. Changing the shape here
-// means changing it there.
+// `groupSlug`/`groupKey` are exported because App.tsx needs the same strings
+// when a search jump has to expand (and page-select) the group it lands in —
+// it works from the schema rather than from a rendered Group. Both prefer the
+// group's stable `id`: the index-keyed collapse fallback goes stale when a
+// schema update reorders groups, and a label-derived anchor collides when two
+// pages reuse a heading.
 
-/** The anchor a section-index button jumps to. */
-function groupSlug(label: string): string {
-  return 'grp-' + label.toLowerCase().replace(/\s+/g, '-');
+/** The anchor a section-index button jumps to. Only called on labelled groups. */
+export function groupSlug(group: SettingsGroup): string {
+  const base = (typeof group.id === 'string' && group.id) || group.label || '';
+  return 'grp-' + base.toLowerCase().replace(/\s+/g, '-');
 }
 
-/** Stable identity for a group's collapse state. */
-function groupKey(ownerId: string, index: number): string {
-  return `${ownerId}::g${index}`;
+/** Stable identity for a group's collapse state. The `gi:`/`g` prefixes keep
+ * an id that looks like a number from aliasing another group's index key. */
+export function groupKey(ownerId: string, group: SettingsGroup, index: number): string {
+  return typeof group.id === 'string' && group.id
+    ? `${ownerId}::gi:${group.id}`
+    : `${ownerId}::g${index}`;
 }
 
 /** The surfaces section's collapse identity — never collides with a group's. */
@@ -89,6 +95,10 @@ export interface DetailProps {
   /** User overrides on top of each group's schema `collapsed` default. */
   collapsed: Record<string, boolean>;
   onToggleGroup: (key: string, next: boolean) => void;
+
+  /** Selected page tab per mod id, for mods whose schema declares `pages`. */
+  activePages: Record<string, string>;
+  onSelectPage: (modId: string, pageId: string) => void;
 
   capturing: CaptureTarget | null;
   /** The search-jump target to highlight, or null. */
@@ -215,12 +225,24 @@ function SettingsPage(props: SettingsPageProps) {
   const { mod, schema, tr, hostVersion } = props;
   const values = mod.values || {};
   const isFramework = mod.id === FRAMEWORK_ID;
-  const groups = schema.groups || [];
 
-  // The section index appears only above 4 labelled groups; below that it is
-  // longer than the content it indexes. Unlabelled groups do not count (no
-  // anchor to jump to) but still render.
-  const labelled = groups.filter((g) => g.label);
+  // A schema with usable `pages` renders a tab row and only the active tab's
+  // groups; without one, every group renders in one column as always. Either
+  // way `pageGroups` carries the original schema index — collapse identity
+  // and the search jump are keyed on it.
+  const buckets = pageBuckets(schema);
+  const wanted = buckets ? props.activePages[mod.id] : undefined;
+  const activePageId = buckets
+    ? (wanted && buckets.some((b) => b.id === wanted) ? wanted : buckets[0]!.id)
+    : null;
+  const pageGroups: Array<{ group: SettingsGroup; index: number }> = buckets
+    ? buckets.find((b) => b.id === activePageId)!.groups
+    : (schema.groups || []).map((group, index) => ({ group, index }));
+
+  // The section index appears only above 4 labelled groups (of the page in
+  // view, when paged); below that it is longer than the content it indexes.
+  // Unlabelled groups do not count (no anchor to jump to) but still render.
+  const labelled = pageGroups.filter(({ group }) => group.label);
   const autoIndex = labelled.length > 4;
 
   const restartCount = countRestartChanges(mod);
@@ -284,10 +306,25 @@ function SettingsPage(props: SettingsPageProps) {
           ) : null}
         </div>
 
-        {autoIndex ? <SectionIndex {...props} groups={groups} /> : null}
+        {buckets ? (
+          <PageTabs
+            buckets={buckets}
+            activeId={activePageId as string}
+            tr={tr}
+            onSelect={(pageId) => props.onSelectPage(mod.id, pageId)}
+          />
+        ) : null}
 
-        {groups.map((group, i) => (
-          <Group key={groupKey(mod.id, i)} {...props} group={group} index={i} values={values} />
+        {autoIndex ? <SectionIndex {...props} groups={pageGroups} /> : null}
+
+        {pageGroups.map(({ group, index }) => (
+          <Group
+            key={groupKey(mod.id, group, index)}
+            {...props}
+            group={group}
+            index={index}
+            values={values}
+          />
         ))}
       </div>
     </>
@@ -315,24 +352,58 @@ function countRestartChanges(mod: ModRecord): number {
   return n;
 }
 
+/**
+ * The tab row a paged schema renders in place of piling every group into one
+ * column. The implicit General bucket has no authored label; it translates
+ * here, at the last moment, like every other chrome string.
+ */
+function PageTabs({
+  buckets,
+  activeId,
+  tr,
+  onSelect,
+}: {
+  buckets: PageBucket[];
+  activeId: string;
+  tr: Translator;
+  onSelect: (pageId: string) => void;
+}) {
+  return (
+    <div class="page-tabs" role="tablist">
+      {buckets.map((b) => (
+        <button
+          key={b.id}
+          type="button"
+          role="tab"
+          aria-selected={b.id === activeId ? 'true' : 'false'}
+          class={b.id === activeId ? 'page-tab active' : 'page-tab'}
+          onClick={() => onSelect(b.id)}
+        >
+          {b.id === GENERAL_PAGE_ID ? tr('generalPage', 'General') : b.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 interface SectionIndexProps extends SettingsPageProps {
-  groups: SettingsGroup[];
+  groups: Array<{ group: SettingsGroup; index: number }>;
 }
 
 function SectionIndex({ groups, mod, collapsed, onToggleGroup }: SectionIndexProps) {
   return (
     <div class="section-index">
-      {groups.map((g, i) =>
+      {groups.map(({ group: g, index }) =>
         g.label ? (
           <button
-            key={groupKey(mod.id, i)}
+            key={groupKey(mod.id, g, index)}
             type="button"
             class="section-index-item"
             onClick={() => {
               // The target may be collapsed — expand it first, or the scroll
               // lands on a heading with nothing under it.
-              onToggleGroup(groupKey(mod.id, i), false);
-              const target = document.getElementById(groupSlug(g.label as string));
+              onToggleGroup(groupKey(mod.id, g, index), false);
+              const target = document.getElementById(groupSlug(g));
               if (target) target.scrollIntoView({ block: 'start' });
             }}
           >
@@ -352,7 +423,7 @@ interface GroupProps extends SettingsPageProps {
 
 function Group(props: GroupProps) {
   const { group, index, values, mod, collapsed, onToggleGroup } = props;
-  const key = groupKey(mod.id, index);
+  const key = groupKey(mod.id, group, index);
   // The schema's `collapsed` is only the default; a user toggle overrides it
   // and persists across re-renders, so applying a preset no longer snaps every
   // group back to its schema default.
@@ -366,7 +437,7 @@ function Group(props: GroupProps) {
     .join(' ');
 
   return (
-    <div class={classes} {...(group.label ? { id: groupSlug(group.label) } : {})}>
+    <div class={classes} {...(group.label ? { id: groupSlug(group) } : {})}>
       {group.label ? (
         <button type="button" class="group-label" onClick={() => onToggleGroup(key, !isCollapsed)}>
           {group.label}

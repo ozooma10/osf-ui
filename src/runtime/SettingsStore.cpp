@@ -128,6 +128,16 @@ namespace OSFUI
 				}
 			}
 
+			if (auto pages = a_schema.find("pages"); pages != a_schema.end() && pages->is_array()) {
+				for (std::size_t i = 0; i < pages->size(); ++i) {
+					auto& page = (*pages)[i];
+					if (page.is_object()) {
+						const auto id = StableId(page, "id", i);
+						ResolveField(page, "label", "pages." + id + ".label", a_modId, a_resolver);
+					}
+				}
+			}
+
 			if (auto presets = a_schema.find("presets"); presets != a_schema.end() && presets->is_array()) {
 				for (std::size_t i = 0; i < presets->size(); ++i) {
 					auto& preset = (*presets)[i];
@@ -329,7 +339,7 @@ namespace OSFUI
 		if (Log::DevMode()) {
 			Json::ReportUnknownKeys(a_schema,
 				{ "id", "title", "description", "version", "targetVersion", "accent",
-					"presets", "inputContexts", "groups" },
+					"presets", "inputContexts", "pages", "groups" },
 				"SettingsStore: schema '" + id + "'", /*a_warn=*/false);
 		}
 

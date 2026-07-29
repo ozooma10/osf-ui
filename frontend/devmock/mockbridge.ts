@@ -481,6 +481,13 @@ export function installMock(opts: MockOptions = {}): MockApi {
       }
     });
 
+    const pages = Array.isArray(schema.pages) ? schema.pages : [];
+    pages.forEach((p, i) => {
+      if (p && typeof p === 'object') {
+        resolveField(p as unknown as Record<string, unknown>, 'label', `pages.${p.id || i}.label`, resolve);
+      }
+    });
+
     const presets = Array.isArray(schema.presets) ? schema.presets : [];
     presets.forEach((pr, i) => {
       if (!pr || typeof pr !== 'object') return;

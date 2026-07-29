@@ -119,12 +119,44 @@ clean value:
 
 ---
 
-## 3. Groups and show/hide rules
+## 3. Pages, groups and show/hide rules
 
-Groups are ordered sections: `{ "id", "label", "collapsed", "visibleWhen",
-"settings": [...] }`. Give groups a stable `id` if you ever expect
-translations (it survives reordering). With many groups the host renders a
-section index automatically; `"collapsed": true` starts one folded.
+Groups are ordered sections: `{ "id", "label", "collapsed", "page",
+"visibleWhen", "settings": [...] }`. Give groups a stable `id` if you ever
+expect translations (it survives reordering). With many groups the host
+renders a section index automatically; `"collapsed": true` starts one folded.
+
+### Pages
+
+When one column of groups gets long, segment it into tabs. Declare the tabs
+at the top level and point each group at one:
+
+```jsonc
+{
+  "pages": [
+    { "id": "browser", "label": "Browser" },
+    { "id": "advanced", "label": "Advanced" }
+  ],
+  "groups": [
+    { "label": "Hotkeys",  "settings": [ /* ... */ ] },                      // no page
+    { "label": "Library",  "page": "browser",  "settings": [ /* ... */ ] },
+    { "label": "Logging",  "page": "advanced", "settings": [ /* ... */ ] }
+  ]
+}
+```
+
+Rules:
+
+- A group with no `page` (or an unknown id) lands on an implicit **General**
+  tab, painted first — so adding pages later never hides an untagged group.
+- A page no group references renders no tab; tabs only appear at all when
+  they split content across at least two non-empty pages.
+- Pages are display-only annotations on the flat `groups` list. A host that
+  predates them ignores both fields and renders the plain group column, so a
+  paged schema stays fully usable on older OSF UI versions (declare
+  `targetVersion` if you want those hosts to badge "needs update").
+- Tab labels localize at `pages.<id>.label`. The section index and searching
+  still work; a search jump raises the right tab automatically.
 
 **Conditions** show/hide (`visibleWhen`) rows and whole groups, or
 enable/disable (`enabledWhen`) individual rows, based on sibling settings of

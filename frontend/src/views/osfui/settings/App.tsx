@@ -55,7 +55,8 @@ import {
   type SaveTransition,
 } from '@lib/saveState';
 import type { SettingValue } from '@sdk';
-import { Detail } from './Detail';
+import { pageIdForGroup } from '@lib/settings/pages';
+import { Detail, groupKey } from './Detail';
 import { HealthItem, Rail } from './Rail';
 import { UndoPanel } from './UndoPanel';
 import { homeModCaption } from './Home';
@@ -147,6 +148,9 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
   const queryRef = useLatest(query);
 
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  // Selected page tab per mod (schemas with `pages`). Like `collapsed`, this
+  // is sticky per page load rather than reset on each visit.
+  const [activePages, setActivePages] = useState<Record<string, string>>({});
   const [undoOpen, setUndoOpen] = useState(false);
   const [flash, setFlash] = useState<{ modId: string; key: string } | null>(null);
 
@@ -676,6 +680,8 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
           }
           collapsed={collapsed}
           onToggleGroup={(key, next) => setCollapsed((c) => ({ ...c, [key]: next }))}
+          activePages={activePages}
+          onSelectPage={(modId, pageId) => setActivePages((a) => ({ ...a, [modId]: pageId }))}
           capturing={capture.capturing}
           flash={flash}
           hudOn={hudOn}
@@ -691,8 +697,8 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
           onApplyPreset={applyPreset}
           onJump={(r) => {
             // Clearing the filter is what switches the detail pane back to the
-            // settings page; then select the owner, expand the setting's group,
-            // and flash the row.
+            // settings page; then select the owner, raise the page tab the
+            // group lives on (paged mods), expand the group, and flash the row.
             setFilter('');
             setQuery('');
             setSelectedId(r.modId);
@@ -701,7 +707,11 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
             const index = groups.findIndex((g) =>
               (g.settings || []).some((s) => (s as { key?: unknown }).key === r.key),
             );
-            if (index >= 0) setCollapsed((c) => ({ ...c, [`${r.modId}::g${index}`]: false }));
+            if (index >= 0) {
+              setCollapsed((c) => ({ ...c, [groupKey(r.modId, groups[index]!, index)]: false }));
+              const pageId = pageIdForGroup(mod && mod.schema, index);
+              if (pageId) setActivePages((a) => ({ ...a, [r.modId]: pageId }));
+            }
             setFlash({ modId: r.modId, key: r.key });
           }}
           onToast={toast}

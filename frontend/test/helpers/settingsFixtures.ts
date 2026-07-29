@@ -178,6 +178,47 @@ export const MANY_GROUPS: SettingsDataPayload = {
   ],
 } as unknown as SettingsDataPayload;
 
+/**
+ * A paged mod: two declared pages, one untagged group (implicit General tab),
+ * one group naming an unknown page (also General), and one declared page no
+ * group references (renders no tab).
+ */
+export const PAGED: SettingsDataPayload = {
+  mods: [
+    {
+      id: 'acme.paged',
+      title: 'Paged Mod',
+      values: {},
+      schema: {
+        pages: [
+          { id: 'browser', label: 'Browser' },
+          { id: 'advanced', label: 'Advanced' },
+          { id: 'ghost', label: 'Ghost' },
+        ],
+        groups: [
+          { label: 'Hotkeys', settings: [{ key: 'hk', label: 'Hotkey Row', type: 'bool', default: false }] },
+          {
+            id: 'library',
+            label: 'Library',
+            page: 'browser',
+            settings: [{ key: 'lib', label: 'Library Row', type: 'bool', default: false }],
+          },
+          {
+            label: 'Logging',
+            page: 'advanced',
+            settings: [{ key: 'log', label: 'Logging Row', type: 'bool', default: false }],
+          },
+          {
+            label: 'Lost',
+            page: 'no-such-page',
+            settings: [{ key: 'lost', label: 'Lost Row', type: 'bool', default: false }],
+          },
+        ],
+      },
+    },
+  ],
+} as unknown as SettingsDataPayload;
+
 /** Four labelled groups — one under the section-index threshold. */
 export const FOUR_GROUPS: SettingsDataPayload = {
   mods: [

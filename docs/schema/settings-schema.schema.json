@@ -65,6 +65,27 @@
       "description": "Named key-binding contexts local to this mod. Referenced by key settings through inputContext. The implicit id gameplay is reserved and cannot be redefined.",
       "items": { "$ref": "#/$defs/inputContext" }
     },
+    "pages": {
+      "type": "array",
+      "description": "Optional tabs for the mod's settings pane. Groups opt in via their `page` field; groups naming no (or an unknown) page collect on an implicit General tab painted first, and an unreferenced page renders no tab. Tabs engage only when they split content across at least two non-empty pages. Display-only annotation on the flat groups list - hosts that predate pages render the plain group column unchanged.",
+      "items": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+            "description": "Page id referenced by groups' `page`. Also the localization identity: pages.<id>.label."
+          },
+          "label": {
+            "type": "string",
+            "description": "English tab label; defaults to id. Localized at pages.<id>.label."
+          }
+        }
+      }
+    },
     "groups": {
       "type": "array",
       "description": "Ordered sections of settings.",
@@ -86,6 +107,10 @@
           "collapsed": {
             "type": "boolean",
             "description": "Start this group collapsed (display-only)."
+          },
+          "page": {
+            "type": "string",
+            "description": "Id of a top-level pages[] entry this group renders under. Missing or unknown ids land the group on the implicit General tab."
           },
           "visibleWhen": {
             "$ref": "#/$defs/condition",

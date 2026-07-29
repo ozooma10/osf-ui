@@ -683,10 +683,23 @@ export interface ActionItem {
 /** A row in a group: a value-bearing setting, or a static/action item. */
 export type SettingsItem = Setting | NoteItem | ImageItem | ActionItem;
 
+/**
+ * A tab in the mod's settings pane. Groups opt in via their `page` field;
+ * groups naming no (or an unknown) page collect on an implicit "General" tab
+ * painted first. Pages are display-only annotations on the flat group list, so
+ * a host that predates them renders the plain group column unchanged.
+ */
+export interface SettingsPage {
+  id: string;     // referenced by groups' `page`; localized at pages.<id>.label
+  label?: string; // English tab label; defaults to id
+}
+
 export interface SettingsGroup {
 	id?: string;
   label?: string;
   collapsed?: boolean;
+  /** Id of a schema-level pages[] entry this group renders under. */
+  page?: string;
   visibleWhen?: Condition;
   settings: SettingsItem[];
 }
@@ -713,8 +726,10 @@ export interface SettingsSchema {
    */
   targetVersion?: string;
   accent?: string;       // per-mod accent "#rrggbb"/"#rrggbbaa"
+  icon?: string;         // badge image inside the mod's views namespace folder (see the JSON Schema)
   presets?: SettingsPreset[];
   inputContexts?: InputContext[];
+  pages?: SettingsPage[];
   groups?: SettingsGroup[];
 }
 
