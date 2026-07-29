@@ -1037,7 +1037,15 @@ namespace OSFUI
 		}
 		auto& pending = *_pendingSurfaceOpen;
 		const auto* manifest = _views.Find(pending.target);
-		if (!manifest || !_menus.IsRegistered(pending.target)) {
+		if (!manifest) {
+			ShowHandoff("error", true);
+			return;
+		}
+		// An unregistered target is exactly the state the retry exists to
+		// recover from (OnViewLoad's exhaustion path destroys the view and
+		// unregisters it), so only park on the error screen when no retry is
+		// pending.
+		if (!_menus.IsRegistered(pending.target) && !pending.retryRequested) {
 			ShowHandoff("error", true);
 			return;
 		}
