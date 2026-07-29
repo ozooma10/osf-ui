@@ -20,6 +20,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <unordered_set>
 
 #ifndef WIN32_LEAN_AND_MEAN

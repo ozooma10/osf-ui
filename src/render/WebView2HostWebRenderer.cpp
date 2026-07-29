@@ -400,6 +400,13 @@ namespace OSFUI
 
 		std::mutex         notifyMutex;
 		std::deque<Notify> notifications;
+		// Forwarded host log lines can be provoked by page content (e.g. egress
+		// denials) while the game thread's drain is paused — the game pauses on
+		// focus loss — so what waits here must be bounded. Only Kind::Log is
+		// capped; the other kinds are host-lifecycle events with natural rates.
+		static constexpr std::size_t kMaxPendingLogs = 256;
+		std::size_t pendingLogCount{ 0 };   // both guarded by notifyMutex
+		std::size_t droppedLogCount{ 0 };
 
 		// Latest shared-ring frame (reader thread writes, game thread reads).
 		std::mutex    frameMutex;
@@ -418,6 +425,13 @@ namespace OSFUI
 		void Push(Notify a_value)
 		{
 			std::scoped_lock lock(notifyMutex);
+			if (a_value.kind == Notify::Kind::Log) {
+				if (pendingLogCount >= kMaxPendingLogs) {
+					++droppedLogCount;
+					return;
+				}
+				++pendingLogCount;
+			}
 			notifications.push_back(std::move(a_value));
 		}
 
@@ -1073,9 +1087,16 @@ namespace OSFUI
 		void DrainNotifications()
 		{
 			std::deque<Notify> local;
+			std::size_t droppedLogs = 0;
 			{
 				std::scoped_lock lock(notifyMutex);
 				local.swap(notifications);
+				pendingLogCount = 0;
+				droppedLogs = std::exchange(droppedLogCount, 0);
+			}
+			if (droppedLogs) {
+				REX::WARN("WebView2HostWebRenderer: dropped {} host log line(s) over "
+						  "the {}-line pending cap", droppedLogs, kMaxPendingLogs);
 			}
 			for (auto& value : local) {
 				switch (value.kind) {

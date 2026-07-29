@@ -716,9 +716,15 @@ namespace osfui::wv2
 			bool          rawMouseRegistered{ false };
 			int           capturedMouseX{ 0 }, capturedMouseY{ 0 };
 			std::unordered_set<UINT> handledKeys;
-			// Warn-once dedupe for denied egress ("viewId|host"): a page that
-			// retries a blocked fetch in a loop must not spam the log.
-			std::unordered_set<std::string> egressWarned;
+			// Warn-once dedupe for denied egress, per view and origin. Hostnames
+			// are page-controlled (`fetch('https://' + Math.random() + '.x/')`),
+			// so the set AND the log lines it admits must both be bounded, or a
+			// hostile page grows the log, the pipe, and this process without
+			// limit (docs/logging.md: "Nothing may log unboundedly"). Past the
+			// cap one terminal line announces that further denials are silent.
+			// Entries are dropped with their view.
+			static constexpr std::size_t kMaxEgressWarnsPerView = 32;
+			std::unordered_map<std::string, std::unordered_set<std::string>> egressWarned;
 			std::uint64_t accelEvents{ 0 };  // every AcceleratorKeyPressed callback (diagnostic)
 			// NOTE: the "key" command used to PostMessage into the Chromium widget
 			// and mark each tap in a syntheticKeys map so AcceleratorKeyPressed
@@ -2270,12 +2276,19 @@ namespace osfui::wv2
 									nullptr, 403, L"Forbidden", L"", &response))) {
 								a_args->put_Response(response.Get());
 							}
-							const auto key = view->id + "|" + ToUtf8(UriHost(uri));
-							if (egressWarned.insert(key).second) {
+							auto& warned = egressWarned[view->id];
+							if (warned.size() < kMaxEgressWarnsPerView &&
+								warned.insert(ToUtf8(UriHost(uri))).second) {
 								log.Warn(std::format(
 									"view '{}': blocked network egress to {} (further "
 									"denials for this origin are silent)",
 									view->id, ToUtf8(uri)));
+								if (warned.size() == kMaxEgressWarnsPerView) {
+									log.Warn(std::format(
+										"view '{}': {} distinct blocked origins — further "
+										"egress denials for this view are silent",
+										view->id, kMaxEgressWarnsPerView));
+								}
 							}
 							return S_OK;
 						}).Get(), &token);
@@ -3353,6 +3366,7 @@ namespace osfui::wv2
 					auto* view = ResolveView(a_msg);
 					if (!view) return;
 					log.Info(std::format("destroying view '{}'", view->id));
+					egressWarned.erase(view->id);
 					DestroyOneView(*view);
 					const bool wasActive = view == active;
 					std::erase_if(views, [view](const std::unique_ptr<View>& a_v) {
