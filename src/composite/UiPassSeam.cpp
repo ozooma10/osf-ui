@@ -52,9 +52,25 @@ namespace OSFUI::UiPassSeam
 		std::atomic<ResourceBarrierFn> g_origResourceBarrier{ nullptr };
 		std::atomic<SetDescriptorHeapsFn> g_origSetDescriptorHeaps{ nullptr };
 
+		// The last SetDescriptorHeaps the ENGINE issued on this thread's command
+		// list, so the seam draw can put it back after binding its own heap.
+		// "Engine" is load-bearing: see tl_inSeamDraw.
 		thread_local ID3D12GraphicsCommandList* tl_heapList = nullptr;
 		thread_local ID3D12DescriptorHeap* tl_heaps[2] = {};
 		thread_local UINT tl_heapCount = 0;
+
+		// True while RecordSeamOverlayDraw is recording our overlay onto the
+		// engine's list. The compositor binds its own SRV heap through the
+		// *virtual* ID3D12GraphicsCommandList::SetDescriptorHeaps, and that vtable
+		// is the one patched below — so without this flag the tracker above would
+		// record OUR heap as if the engine had bound it. The restore that follows
+		// calls the original directly and therefore never corrects it, leaving
+		// {srvHeap}, count=1 latched. A second qualifying hand-off in the same
+		// ScaleformEnd region (tl_handoffDrawsLeft starts at 2) would then
+		// "restore" our 9-descriptor SRV heap onto the engine's list and drop its
+		// sampler heap, so the engine's next root-descriptor-table resolve reads
+		// our heap and any sampler table hits an unbound one.
+		thread_local bool tl_inSeamDraw = false;
 		std::atomic<int> g_hookInstallState{ 0 };
 		// Gates RecordSeamDrawAtHandoff. Set from Install() and cleared by
 		// EnsureDrawHooksInstalled on any failure path — declared up here (rather
@@ -77,7 +93,7 @@ namespace OSFUI::UiPassSeam
 		{
 			if (a_self == g_selfTestList) {
 				g_selfTestHeapsSeen.store(true, std::memory_order_relaxed);
-			} else {
+			} else if (!tl_inSeamDraw) {
 				tl_heapList = a_self;
 				tl_heapCount = a_num < 2u ? a_num : 2u;
 				for (UINT i = 0; i < tl_heapCount; ++i) {
@@ -280,8 +296,25 @@ namespace OSFUI::UiPassSeam
 			const bool heapKnown =
 				engineHeapCount > 0 && tl_heapList == a_list;
 
-			if (!RecordSeamOverlayDraw(
-					a_list, a_buffer, a_fgTarget, a_regionFirst)) {
+			// Suppress heap tracking for the duration of our own recording, so
+			// the snapshot above still describes the engine's binding when the
+			// next hand-off in this region reads it. Scoped rather than a bare
+			// pair of assignments because every exit from the draw has to clear
+			// it — a stuck flag would make the tracker miss the engine's next
+			// real bind, which is the same corruption one step removed.
+			struct SeamDrawScope
+			{
+				SeamDrawScope() { tl_inSeamDraw = true; }
+				~SeamDrawScope() { tl_inSeamDraw = false; }
+			};
+			const bool drew = [&] {
+				const SeamDrawScope scope;
+				return RecordSeamOverlayDraw(a_list, a_buffer, a_fgTarget, a_regionFirst);
+			}();
+			if (!drew) {
+				// Every early-out in RecordSeamOverlayDraw precedes its
+				// SetDescriptorHeaps, so nothing was rebound and there is
+				// nothing to put back.
 				return;
 			}
 			if (heapKnown) {
