@@ -24,6 +24,8 @@
 
 ### Fixed
 
+- Mouse-wheel scrolling in the interactive UI now scrolls whatever sits under the visible cursor and moves a consistent distance everywhere. Wheel input used to be injected at a cached pointer position that could go stale and park in a screen corner — leaving scrolling dead or seemingly tied to which element was hovered — and the embedded browser's percent-based scrolling additionally made the distance per notch depend on the height of the hovered scroll area. The wheel now samples the live cursor position at injection time, and percent-based scrolling is disabled while the smooth scroll animation is kept.
+
 - Normal builds and release packages no longer carry in-world screen research assets. A Material Editor Lite-authored `OSFUI_WorldScreen01.mat` could make every other world material disappear even with the OSF UI DLL absent, and switching the research flag off previously left that material and generated placeholder textures behind in an existing MO2 deployment. The unsafe material has been removed; production builds now exclude these assets and purge stale research copies when redeployed.
 
 - OSF UI now boots its real WebView2 renderer, D3D12 compositor, and UI input hook from compiled production defaults when the developer config omits backend selections. F10 therefore opens the UI again, and choosing **MOD MENUS** from the pause menu no longer pauses behind an invisible mock frame after an update replaces `config.json`.

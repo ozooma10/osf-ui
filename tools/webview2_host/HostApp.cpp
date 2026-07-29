@@ -1502,9 +1502,18 @@ namespace osfui::wv2
 					environmentRequested = false;
 					return false;
 				}
+				// Scrolling: Edge's "Windows scrolling personality" scales the wheel
+				// distance to a PERCENTAGE of the hovered scroller's height, so a
+				// short scroll container barely moves per notch while a tall one
+				// jumps — wheel feel then depends on which element the cursor is
+				// over. Disable it (under both names Chromium has shipped it —
+				// unknown feature names are ignored, so stale entries are harmless
+				// across runtime updates) while keeping the default smooth/impulse
+				// scroll ANIMATION, which is distance-neutral and reads well in-game.
 				constexpr wchar_t kCaptureBrowserArguments[] =
 					L"--disable-backgrounding-occluded-windows --disable-renderer-backgrounding "
-					L"--disable-features=CalculateNativeWinOcclusion,ApplyNativeOcclusionToCompositor";
+					L"--disable-features=CalculateNativeWinOcclusion,ApplyNativeOcclusionToCompositor,"
+					L"WindowsScrollingPersonality,PercentBasedScrolling";
 				const auto optionsHr = environmentOptions->put_AdditionalBrowserArguments(
 					kCaptureBrowserArguments);
 				if (FAILED(optionsHr)) {
@@ -2763,12 +2772,12 @@ namespace osfui::wv2
 
 				const auto delta = static_cast<SHORT>(HIWORD(a_wparam));
 				if (delta == 0) return false;
+				const POINT at = LiveWheelPoint();
 				active->compositionController->SendMouseInput(
 					COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL,
 					static_cast<COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS>(
 						static_cast<UINT32>(LOWORD(a_wparam))),
-					static_cast<UINT32>(delta),
-					POINT{ capturedMouseX, capturedMouseY });
+					static_cast<UINT32>(delta), at);
 				return true;
 			}
 
@@ -2853,6 +2862,35 @@ namespace osfui::wv2
 				rawMouseRegistered = a_enabled;
 			}
 
+			/// View-space position of the REAL pointer, sampled at call time.
+			/// The wheel must scroll whatever the page shows under the visible
+			/// cursor, and `capturedMouseX/Y` cannot be trusted for that: it has
+			/// two writers (the captured-HWND scaler and game-pipe moves carrying
+			/// the runtime's virtual cursor), and whichever wrote last wins — a
+			/// stale or drifted pipe move parks it at the clamp corner and every
+			/// wheel notch then targets a dead pixel. Same scaling math as
+			/// SendCapturedMouse; falls back to the cache only when the game
+			/// window cannot be resolved (minimized/teardown).
+			[[nodiscard]] POINT LiveWheelPoint() const
+			{
+				POINT point{};
+				RECT  client{};
+				if (gameTopLevel && ::GetCursorPos(&point) &&
+					::ScreenToClient(gameTopLevel, &point) &&
+					::GetClientRect(gameTopLevel, &client) &&
+					client.right > client.left && client.bottom > client.top) {
+					return POINT{
+						std::clamp(::MulDiv(point.x - client.left,
+							static_cast<int>(width), client.right - client.left),
+							0, static_cast<int>(width) - 1),
+						std::clamp(::MulDiv(point.y - client.top,
+							static_cast<int>(height), client.bottom - client.top),
+							0, static_cast<int>(height) - 1)
+					};
+				}
+				return POINT{ capturedMouseX, capturedMouseY };
+			}
+
 			void SendRawMouseWheel(LPARAM a_lparam)
 			{
 				if (!focusGranted || !rawMouseRegistered || !active ||
@@ -2874,11 +2912,11 @@ namespace osfui::wv2
 				}
 				const auto delta = static_cast<SHORT>(raw.data.mouse.usButtonData);
 				if (delta == 0) return;
+				const POINT at = LiveWheelPoint();
 				active->compositionController->SendMouseInput(
 					COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL,
 					COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE,
-					static_cast<UINT32>(delta),
-					POINT{ capturedMouseX, capturedMouseY });
+					static_cast<UINT32>(delta), at);
 			}
 
 			[[nodiscard]] bool SendCapturedMouse(
@@ -2984,11 +3022,13 @@ namespace osfui::wv2
 				int x = a_msg.value("x", 0);
 				int y = a_msg.value("y", 0);
 				// Right-stick scrolling still arrives over the pipe. Once the host
-				// owns physical mouse capture, target it at the last real pointer
-				// position rather than the game runtime's now-stale WM_INPUT position.
+				// owns physical mouse capture, target the real pointer sampled at
+				// send time rather than the game runtime's now-stale WM_INPUT
+				// position (see LiveWheelPoint for why the cache cannot be used).
 				if (focusGranted && (kind == "wheel" || physicalWheel)) {
-					x = capturedMouseX;
-					y = capturedMouseY;
+					const POINT at = LiveWheelPoint();
+					x = at.x;
+					y = at.y;
 				}
 				if (kind == "move") {
 					capturedMouseX = std::clamp(x, 0, static_cast<int>(width) - 1);
