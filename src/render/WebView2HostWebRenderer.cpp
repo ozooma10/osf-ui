@@ -566,8 +566,14 @@ namespace OSFUI
             std::scoped_lock mirrorLock(viewsMirrorMutex);
             if (!usesViewsMirror) return true;
 
-            const auto source = viewsRoot / std::filesystem::path(std::string(a_viewId));
-            const auto destination = mappedViewsRoot / std::filesystem::path(std::string(a_viewId));
+            // Mirror the whole mod folder. The view folder alone holds only the
+            // entry HTML: its hashed bundles are emitted to the sibling
+            // views/<modId>/assets/ and reached through "../assets/...", so a
+            // view-scoped sync copies a fresh index.html over a stale assets
+            // directory and the reload 404s on a chunk that was never mirrored.
+            const auto modFolder = std::filesystem::path(DevViewFiles::ModFolder(a_viewId));
+            const auto source = viewsRoot / modFolder;
+            const auto destination = mappedViewsRoot / modFolder;
             std::string error;
             if (!DevViewFiles::SyncTree(source, destination, error)) {
                 REX::WARN("WebView2HostWebRenderer: dev reload could not mirror '{}' ({})",

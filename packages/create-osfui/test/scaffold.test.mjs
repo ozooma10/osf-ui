@@ -102,7 +102,15 @@ for (const [surface, integration, backendPath, backendPattern] of [
       );
       const readme = await readFile(resolve(root, 'README.md'), 'utf8');
       assert.match(readme, /npm run doctor/);
-      assert.match(readme, /SpriggitCLI\.zip/);
+      if (surface === 'menu') {
+        assert.match(readme, /## Build/);
+        assert.match(readme, /## Debug/);
+        assert.match(readme, /F11 to reload the view and F12 to open DevTools/);
+        assert.doesNotMatch(readme, /SpriggitCLI\.zip/);
+        assert.doesNotMatch(readme, /Spriggit\.CLI\.exe serialize/);
+        assert.equal(readme.match(/npm run dev`/g)?.length, 1);
+        assert.equal(readme.match(/npm run package`/g)?.length, 1);
+      }
 
       if (surface === 'menu') {
         // Interactive menus demonstrate state, one-way actions, and requests.

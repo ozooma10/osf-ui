@@ -857,25 +857,23 @@ alerts, settings, and the hotkey in the browser harness.
 `;
   }
   const guides = {
-    papyrus: `## Papyrus backend
+    papyrus: `## Build
 
-\`mod/Scripts/Source/User/${scriptName}.psc\` covers all three ways a script
-talks to a view, and the generated page exercises each one:
+1. Run \`npm run doctor\` and install any missing Creation Kit or Spriggit
+   prerequisites it reports.
+2. Run \`npm run build\` to generate the plugin, compile Papyrus, and build the
+   view.
+3. Run \`npm run package\` to create the installable zip in \`release/\`.
 
-- **State** — \`OSFUI.SetView*\` publishes the counter and greeting; the page
-  reads them with \`osfui.data.on(key, fn)\`. Values are cached and replayed on
-  every view reload, so there is no handshake. Use this for anything rendered.
-- **Action** — the buttons fire \`osfui.action(name, ...args)\`, which arrives as
-  \`OnOSFUIViewAction\`. The script mutates state and publishes it again.
-- **Request** — the form awaits \`osfui.papyrus.request("greet", name)\`, which
-  arrives as \`OnOSFUIViewRequest\` and is answered once with \`ReplyViewString\`
-  (or \`RejectViewRequest\`, whose code becomes \`error.code\` in JavaScript).
-  Reserve requests for operations whose *result* is the point.
+## Debug
 
-\`osfui.mock.ts\` stands in for the script so all of it works in the
-browser harness before Starfield is involved.
+- Run \`npm run dev\` to test the view in a browser with hot reload. Edit
+  \`osfui.mock.ts\` to provide test Papyrus data and responses.
+- Run \`npm run dev:game -- --deploy "path-to-MO2-mods"\` to test in Starfield.
+  Press F11 to reload the view and F12 to open DevTools.
 
-${papyrusBuildGuide}
+The Papyrus backend is
+\`mod/Scripts/Source/User/${scriptName}.psc\`.
 `,
     native: `## Native SFSE backend
 

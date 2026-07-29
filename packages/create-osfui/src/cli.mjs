@@ -76,9 +76,9 @@ window.osfui?.data?.on<boolean>('alert', (value) => {
   panel.classList.toggle('is-alert', value);
 });`;
 
-  return `import './style.css';
-import '/shared/osfui.css';
+  return `import '/shared/osfui.css';
 import '/shared/osfui.js';
+import './style.css';
 import type {
   SettingValue,
   SettingsChangedPayload,
@@ -860,16 +860,19 @@ ${options.surface === 'hud' ? `    openOnStart: true,
 `);
   await put(root, `${viewRoot}/main.ts`, appSource(options));
   await put(root, `${viewRoot}/style.css`, styleSource(options));
-  await put(root, 'README.md', `# ${packageJson.name}
-
-Run \`npm run dev\` for instant browser HMR. Run \`npm run dev:game -- --deploy "path-to-MO2-mods"\`
+  const generalReadme = options.surface === 'menu' && options.integration === 'papyrus'
+    ? ''
+    : `Run \`npm run dev\` for instant browser HMR. Run \`npm run dev:game -- --deploy "path-to-MO2-mods"\`
 to create this mod's folder under MO2 and sync into Starfield with temporary
 author mode, F11 reload, and F12 DevTools.
 
 Use \`npm run package\` to create a release-ready zip. Files under \`mod/\`
 are copied into the mod archive beside the generated view.
 
-${backendGuide(options)}
+`;
+  await put(root, 'README.md', `# ${packageJson.name}
+
+${generalReadme}${backendGuide(options)}
 `);
   return root;
 }
