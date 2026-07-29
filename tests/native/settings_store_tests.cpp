@@ -21,6 +21,20 @@ namespace
 		}                                                                               \
 	} while (0)
 
+	// Does a STRICT dump of this value succeed? nlohmann's default handler throws
+	// type_error.316 on an incomplete UTF-8 sequence, and the store's own paths
+	// (settings.ack, the subscriber push, Persist) dump where nothing catches, so
+	// "strictly serializable" is the real invariant a stored value must hold.
+	[[nodiscard]] bool StrictDumpOk(const nlohmann::json& a_value)
+	{
+		try {
+			(void)a_value.dump();
+			return true;
+		} catch (const std::exception&) {
+			return false;
+		}
+	}
+
 	void WriteFile(const std::filesystem::path& a_path, std::string_view a_text)
 	{
 		std::filesystem::create_directories(a_path.parent_path());
@@ -873,6 +887,73 @@ int main()
 		CHECK(!s.CanonicalEnumValue("t.enum", "mode", "bogus").has_value());
 		CHECK(!s.CanonicalEnumValue("t.enum", "flag", "true").has_value());  // not enum-typed
 		CHECK(!s.CanonicalEnumValue("t.nope", "mode", "fast").has_value());  // unknown mod
+	}
+
+	// --- UTF-8 boundary safety on every byte-counted cap --------------------
+	// The caps count BYTES but the values are arbitrary player text (IME/CJK/
+	// emoji). A raw resize() at the cap left an incomplete UTF-8 sequence, and
+	// every later dump() of that value threw type_error.316 on a path with no
+	// handler — a std::terminate from typing CJK into any mod's text setting.
+	{
+		OSFUI::SettingsStore s;
+		s.LoadAll(root / "u8-schemas", root / "u8-values");
+		CHECK(s.RegisterSchema(nlohmann::json::parse(R"json({ "id": "t.utf8",
+			"groups": [ { "settings": [
+				{ "key": "name", "type": "string", "maxLength": 8, "default": "" },
+				{ "key": "long", "type": "string", "default": "" },
+				{ "key": "emoji", "type": "string", "maxLength": 6, "default": "" },
+				{ "key": "bind", "type": "key", "default": "F10" } ] } ] })json"),
+			OSFUI::SettingsStore::Source::kNative));
+
+		// Per-setting maxLength: 3 CJK chars = 9 bytes, cap 8 cuts inside the 3rd.
+		const std::string cjk = "\xE4\xB8\xAD\xE6\x96\x87\xE5\xAD\x97";
+		CHECK(cjk.size() == 9);
+		CHECK(s.SetValueWithResult("t.utf8", "name", nlohmann::json(cjk)).ok);
+		if (const auto* stored = s.GetValue("t.utf8", "name")) {
+			CHECK(StrictDumpOk(*stored));
+			CHECK(stored->get<std::string>().size() == 6);  // backed off onto the boundary
+			CHECK(stored->get<std::string>() == cjk.substr(0, 6));
+		} else {
+			CHECK(false);
+		}
+
+		// 4-byte sequence (emoji): cap 6 lands inside the 2nd of two.
+		const std::string emoji = "\xF0\x9F\x9A\x80\xF0\x9F\x9A\x80";  // two U+1F680
+		CHECK(s.SetValueWithResult("t.utf8", "emoji", nlohmann::json(emoji)).ok);
+		if (const auto* stored = s.GetValue("t.utf8", "emoji")) {
+			CHECK(StrictDumpOk(*stored));
+			CHECK(stored->get<std::string>().size() == 4);
+		} else {
+			CHECK(false);
+		}
+
+		// The store-wide 256-byte hard cap, with no maxLength at all: 86 CJK
+		// chars = 258 bytes, so byte 256 falls inside the 86th.
+		std::string wide;
+		for (int i = 0; i < 86; ++i) wide += "\xE4\xB8\xAD";
+		CHECK(wide.size() == 258);
+		CHECK(s.SetValueWithResult("t.utf8", "long", nlohmann::json(wide)).ok);
+		if (const auto* stored = s.GetValue("t.utf8", "long")) {
+			CHECK(StrictDumpOk(*stored));
+			CHECK(stored->get<std::string>().size() == 255);
+		} else {
+			CHECK(false);
+		}
+
+		// The 16-byte key-name cap takes the same treatment.
+		std::string longBind;
+		for (int i = 0; i < 8; ++i) longBind += "\xE4\xB8\xAD";  // 24 bytes
+		CHECK(s.SetValueWithResult("t.utf8", "bind", nlohmann::json(longBind)).ok);
+		if (const auto* stored = s.GetValue("t.utf8", "bind")) {
+			CHECK(StrictDumpOk(*stored));
+			CHECK(stored->get<std::string>().size() == 15);
+		} else {
+			CHECK(false);
+		}
+
+		// The aggregate projections the bridge and the persist path serialize.
+		CHECK(StrictDumpOk(s.DataView()));
+		CHECK(!s.DataJson().empty());
 	}
 
 	// ---------------------------------------------------------------------------

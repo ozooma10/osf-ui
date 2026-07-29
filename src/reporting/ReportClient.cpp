@@ -6,6 +6,7 @@
 #include <regex>
 
 #include "core/Paths.h"
+#include "core/StringUtil.h"
 #include "core/Version.h"
 #include "platform/WindowsPlatform.h"
 
@@ -14,6 +15,23 @@ namespace OSFUI::Reporting
 	namespace
 	{
 		constexpr std::size_t kMaxLogBytes = 384 * 1024;
+
+		// Cap free-typed text on a codepoint boundary. Kept local rather than
+		// reaching for runtime/Json.h: reporting deliberately depends only on
+		// core/ + platform/.
+		[[nodiscard]] std::string Bounded(std::string_view a_text, std::size_t a_maxBytes)
+		{
+			return std::string{ a_text.substr(0, StringUtil::Utf8TruncateLen(a_text, a_maxBytes)) };
+		}
+
+		// dump() that substitutes U+FFFD rather than throwing type_error.316 on a
+		// malformed sequence. Submit() runs on a detached jthread whose body has
+		// no handler, so a strict throw here is a std::terminate of the game.
+		[[nodiscard]] std::string DumpSafe(const nlohmann::json& a_value)
+		{
+			return a_value.dump(-1, ' ', /*ensure_ascii=*/false,
+				nlohmann::json::error_handler_t::replace);
+		}
 
 		std::filesystem::path ReporterFolder()
 		{
@@ -35,6 +53,16 @@ namespace OSFUI::Reporting
 			std::string text(keep, '\0');
 			file.read(text.data(), static_cast<std::streamsize>(keep));
 			text.resize(static_cast<std::size_t>(file.gcount()));
+			// A tail sliced at an arbitrary byte offset can open mid-codepoint —
+			// the log carries non-ASCII (em dashes in our own format strings, mod
+			// and player text). Drop the orphaned continuation bytes so the JSON
+			// dump of this payload stays well-formed.
+			if (a_truncated) {
+				const auto trimmed = StringUtil::SkipLeadingUtf8Continuations(text);
+				if (trimmed.size() != text.size()) {
+					text.erase(0, text.size() - trimmed.size());
+				}
+			}
 			return text;
 		}
 
@@ -119,7 +147,7 @@ namespace OSFUI::Reporting
 			const auto registration = InstallationEndpoint(a_endpoint);
 			if (registration.empty()) return {};
 			const auto response = Platform::PostJson(registration,
-				nlohmann::json{ { "clientId", a_clientId } }.dump());
+				DumpSafe(nlohmann::json{ { "clientId", a_clientId } }));
 			if (!response.transportOk || response.status < 200 || response.status >= 300) return {};
 			const auto parsed = nlohmann::json::parse(response.body, nullptr, false);
 			if (parsed.is_discarded() || !parsed.is_object()) return {};
@@ -168,14 +196,16 @@ namespace OSFUI::Reporting
 				{ "schemaVersion", 1 }, { "clientId", clientId },
 				{ "installationToken", installationToken }, { "kind", "manual" },
 				{ "target", "osf-ui" },
-				{ "title", std::string(a_title).substr(0, 120) },
-				{ "description", std::string(a_description).substr(0, 6000) },
-				{ "reproduction", std::string(a_reproduction).substr(0, 4000) },
+				// Codepoint-boundary caps: this is free-typed player text, so a
+				// byte cut can split a sequence and make the dump below throw.
+				{ "title", Bounded(a_title, 120) },
+				{ "description", Bounded(a_description, 6000) },
+				{ "reproduction", Bounded(a_reproduction, 4000) },
 				{ "pluginVersion", kPluginVersion }, { "diagnostics", a_diagnostics },
 				{ "logs", logs },
 			};
 		};
-		auto response = Platform::PostJson(a_endpoint, makePayload().dump());
+		auto response = Platform::PostJson(a_endpoint, DumpSafe(makePayload()));
 		if (!response.transportOk) {
 			return { .code = "network-failed", .message = response.error };
 		}
@@ -186,7 +216,7 @@ namespace OSFUI::Reporting
 			if (installationToken.empty()) {
 				return { .code = "registration-failed", .message = "could not renew this installation" };
 			}
-			response = Platform::PostJson(a_endpoint, makePayload().dump());
+			response = Platform::PostJson(a_endpoint, DumpSafe(makePayload()));
 			if (!response.transportOk) return { .code = "network-failed", .message = response.error };
 			parsed = nlohmann::json::parse(response.body, nullptr, false);
 		}

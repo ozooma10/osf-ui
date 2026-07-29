@@ -2,6 +2,8 @@
 
 #include <cmath>  // not in pch.h
 
+#include "core/StringUtil.h"
+#include "runtime/Json.h"
 #include "runtime/MessageBridge.h"
 
 namespace OSFUI
@@ -68,7 +70,11 @@ namespace OSFUI
 			if (value.is_string()) {
 				auto text = RedactPath(value.get<std::string>());
 				if (text.size() > kMaxContextValueChars) {
-					text.resize(kMaxContextValueChars);
+					// Codepoint-boundary cut: context values carry author- and
+					// player-supplied text (view load errors, native ReportIssue),
+					// and Broadcast() dumps this on the game thread with nothing
+					// catching above it, so a split sequence terminates the process.
+					StringUtil::TruncateUtf8(text, kMaxContextValueChars);
 					text += "…";
 				}
 				out[key] = std::move(text);
@@ -261,7 +267,7 @@ namespace OSFUI
 		if (!_bridge || _subscribers.empty()) {
 			return;
 		}
-		auto dumped = Snapshot().dump();
+		auto dumped = Json::Dump(Snapshot());
 		if (dumped == _lastSent) {
 			return;
 		}
@@ -283,7 +289,7 @@ namespace OSFUI
 			const auto payload = Snapshot();
 			// Seed the dedupe with what this caller just received, so the very
 			// next Broadcast() doesn't re-send an identical document.
-			_lastSent = payload.dump();
+			_lastSent = Json::Dump(payload);
 			a_b.SendToWeb("diagnostics.data", payload);
 		});
 	}

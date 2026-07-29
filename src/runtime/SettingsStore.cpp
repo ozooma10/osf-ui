@@ -5,6 +5,7 @@
 #include <unordered_set>
 
 #include "core/Log.h"
+#include "core/StringUtil.h"
 #include "core/Version.h"
 #include "runtime/Ids.h"
 #include "runtime/Json.h"
@@ -937,7 +938,7 @@ namespace OSFUI
 
 	std::string SettingsStore::DataJson() const
 	{
-		return DataView().dump();
+		return Json::Dump(DataView());
 	}
 
 	SettingsStore::Mod* SettingsStore::FindMod(std::string_view a_modId)
@@ -1048,9 +1049,11 @@ namespace OSFUI
 						cap = (std::min)(cap, static_cast<std::size_t>(v));
 					}
 				}
-				if (s.size() > cap) {
-					s.resize(cap);
-				}
+				// Codepoint-boundary truncation: `cap` counts bytes but the value is
+				// arbitrary player text (IME/CJK/emoji), and a split sequence makes
+				// every later dump() of this value throw — Persist, the settings.ack
+				// and the subscriber push all run where nothing catches.
+				StringUtil::TruncateUtf8(s, cap);
 				return nlohmann::json(std::move(s));
 			}
 		} else if (type == "key") {
@@ -1067,10 +1070,12 @@ namespace OSFUI
 						return nlohmann::json(std::move(s));
 					}
 				} else {
+					// A resolvable key name is ASCII, but nothing upstream enforces
+					// that, so bound it on a codepoint boundary all the same — an
+					// unresolvable name is the consumer's business, a split sequence
+					// would be a dump() throw on the persist path.
 					constexpr std::size_t kMaxKeyNameLen = 16;
-					if (s.size() > kMaxKeyNameLen) {
-						s.resize(kMaxKeyNameLen);
-					}
+					StringUtil::TruncateUtf8(s, kMaxKeyNameLen);
 					return nlohmann::json(std::move(s));
 				}
 			}
@@ -1125,7 +1130,9 @@ namespace OSFUI
 		MarkDirty(*mod);  // notification immediate; disk write coalesced (PumpPersistence)
 		Notify(mod->id, key, mod->values[key]);
 		if (Log::DevMode()) {
-			REX::DEBUG("SettingsStore: set '{}.{}' = {}", mod->id, key, mod->values[key].dump().substr(0, 128));
+			const auto shown = Json::Dump(mod->values[key]);
+			REX::DEBUG("SettingsStore: set '{}.{}' = {}", mod->id, key,
+				shown.substr(0, StringUtil::Utf8TruncateLen(shown, 128)));
 		}
 		return { true, {} };
 	}
@@ -1278,7 +1285,7 @@ namespace OSFUI
 				REX::ERROR("SettingsStore: cannot write {}", tmp.string());
 				return false;
 			}
-			out << SparseValues(a_mod).dump(2);
+			out << Json::Dump(SparseValues(a_mod), 2);
 			out.close();  // flush now so a disk-full / IO error surfaces before the rename
 			if (!out) {
 				REX::ERROR("SettingsStore: write to {} failed (disk full/IO?); keeping existing values", tmp.string());

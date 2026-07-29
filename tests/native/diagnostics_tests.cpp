@@ -220,6 +220,31 @@ int main()
 		CHECK(truncated.at("message").get<std::string>().size() <=
 			DiagnosticsModule::kMaxContextValueChars + 4);  // + the ellipsis' UTF-8 bytes
 
+		// A long value made of multi-byte codepoints must be cut on a boundary,
+		// not mid-sequence. kMaxContextValueChars counts BYTES, so a CJK message
+		// straddles it; a raw resize() left an incomplete sequence and every
+		// later dump() of the snapshot threw type_error.316 — on Broadcast(),
+		// which runs on the game thread with no handler above it.
+		{
+			std::string cjk;
+			while (cjk.size() <= DiagnosticsModule::kMaxContextValueChars + 8) {
+				cjk += "\xE4\xB8\xAD";  // U+4E2D, 3 bytes
+			}
+			const auto cut = DiagnosticsModule::Sanitize(
+				nlohmann::json{ { "message", cjk } });
+			const auto text = cut.at("message").get<std::string>();
+			CHECK(text.size() <= DiagnosticsModule::kMaxContextValueChars + 4);
+			// The head must survive intact and the whole payload must strictly dump.
+			CHECK(text.starts_with("\xE4\xB8\xAD"));
+			bool strictOk = true;
+			try {
+				(void)cut.dump();
+			} catch (const std::exception&) {
+				strictOk = false;
+			}
+			CHECK(strictOk);
+		}
+
 		// Key count is capped.
 		nlohmann::json wide = nlohmann::json::object();
 		for (int i = 0; i < 40; ++i) {

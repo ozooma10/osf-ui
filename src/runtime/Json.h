@@ -9,10 +9,23 @@
 // through typed Get*() accessors that fall back to defaults on missing keys or
 // wrong types. JSON here is mod-provided content: untrusted input, never a
 // reason to crash the game.
+//
+// Serialization has the same contract and needs Dump() to hold it:
+// nlohmann's dump() defaults to error_handler_t::strict, which THROWS
+// type_error.316 when a string holds an incomplete UTF-8 sequence. Most of our
+// dump sites sit on the game thread's tick or a pipe writer with no handler
+// above them, so a strict throw is a std::terminate. Producers bound text with
+// StringUtil::TruncateUtf8 (core/StringUtil.h) so a split sequence should never
+// reach here; Dump() is the backstop for the one that does.
 
 namespace OSFUI::Json
 {
 	using Value = nlohmann::json;
+
+	// dump() that substitutes U+FFFD for malformed UTF-8 instead of throwing.
+	// Use this everywhere a throw would be fatal — which is nearly everywhere.
+	// a_indent is forwarded verbatim (-1 = compact, as nlohmann's default).
+	[[nodiscard]] std::string Dump(const Value& a_value, int a_indent = -1);
 
 	// Parses text; returns std::nullopt (and logs `a_sourceName`) on failure.
 	[[nodiscard]] std::optional<Value> Parse(std::string_view a_text, std::string_view a_sourceName);

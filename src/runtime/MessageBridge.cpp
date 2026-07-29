@@ -1,5 +1,6 @@
 #include "runtime/MessageBridge.h"
 
+#include "core/StringUtil.h"
 #include "core/Version.h"
 #include "runtime/Json.h"
 
@@ -12,6 +13,18 @@ namespace OSFUI
 		// non-string ids are treated as absent (fire-and-forget) rather than
 		// truncated — a shortened id would never correlate.
 		constexpr std::size_t kMaxRequestIdLength = 64;
+
+		// Message type / command names are view-supplied and get echoed back inside
+		// ui.error and ui.result payloads. Bound them on a codepoint boundary: they
+		// are dumped by SendToWeb, and dump() throws type_error.316 on a split UTF-8
+		// sequence — the caller here is the web-message callback, which runs with no
+		// handler between it and std::terminate.
+		constexpr std::size_t kMaxEchoedNameLength = 128;
+
+		[[nodiscard]] std::string BoundedEcho(std::string_view a_s)
+		{
+			return std::string{ a_s.substr(0, StringUtil::Utf8TruncateLen(a_s, kMaxEchoedNameLength)) };
+		}
 
 		std::string ExtractRequestId(const nlohmann::json& a_msg)
 		{
@@ -102,7 +115,7 @@ namespace OSFUI
 			HandleUiCommand(payload);
 		} else {
 			REX::WARN("MessageBridge: [content] rejected unknown message type '{}' from view '{}'", type, a_viewId);
-			SendErrorToWeb("unknown-message-type", "unknown message type", { { "type", type.substr(0, 128) } });
+			SendErrorToWeb("unknown-message-type", "unknown message type", { { "type", BoundedEcho(type) } });
 		}
 		_currentRequestId.clear();
 		_currentCommand.clear();
@@ -112,7 +125,7 @@ namespace OSFUI
 	void MessageBridge::HandleUiCommand(const nlohmann::json& a_payload)
 	{
 		const auto command = Json::GetString(a_payload, "command", "");
-		_currentCommand = command.substr(0, 128);
+		_currentCommand = BoundedEcho(command);
 		// One DEBUG line per command, emitted on completion with what went back
 		// (see NoteTracedReply). A view that renders its chrome but no data is
 		// either not asking or not being answered, and nothing else in the log
@@ -142,12 +155,12 @@ namespace OSFUI
 			// Cap the dedupe set so a page spamming distinct bogus command names
 			// can't grow it without bound; key on the bounded (truncated) string.
 			constexpr std::size_t kMaxWarnedCommands = 512;
-			const std::string warnKey{ command.substr(0, 128) };
+			const std::string warnKey{ BoundedEcho(command) };
 			if (_warnedUnknownCommands.size() < kMaxWarnedCommands &&
 				_warnedUnknownCommands.insert(warnKey).second) {
 				REX::WARN("MessageBridge: [content] rejected unknown ui.command '{}' (further rejections of this command are not logged)", warnKey);
 			}
-			SendErrorToWeb("unknown-command", "unknown command", { { "command", command.substr(0, 128) } });
+			SendErrorToWeb("unknown-command", "unknown command", { { "command", BoundedEcho(command) } });
 		}
 
 		_inCommand = false;
@@ -271,7 +284,7 @@ namespace OSFUI
 
 	void MessageBridge::SendToWeb(const std::unordered_set<std::string>& a_viewIds, std::string_view a_type, const nlohmann::json& a_payload)
 	{
-		SendJsonToWeb(a_viewIds, a_type, a_payload.dump());
+		SendJsonToWeb(a_viewIds, a_type, Json::Dump(a_payload));
 	}
 
 	std::string MessageBridge::EncodeMessage(std::string_view a_type, const nlohmann::json& a_payload, std::string_view a_requestId)
@@ -279,15 +292,15 @@ namespace OSFUI
 		// Serialize the payload straight into the envelope rather than
 		// deep-copying it into a temporary json object. Key order stays
 		// nlohmann's (payload, requestId, type) for stable wire output.
-		return EncodeJsonMessage(a_type, a_payload.dump(), a_requestId);
+		return EncodeJsonMessage(a_type, Json::Dump(a_payload), a_requestId);
 	}
 
 	std::string MessageBridge::EncodeJsonMessage(std::string_view a_type, std::string_view a_payloadJson, std::string_view a_requestId)
 	{
-		const auto type = nlohmann::json(std::string(a_type)).dump();
+		const auto type = Json::Dump(nlohmann::json(std::string(a_type)));
 		const auto requestId = a_requestId.empty()
 		                           ? std::string{}
-		                           : nlohmann::json(std::string(a_requestId)).dump();
+		                           : Json::Dump(nlohmann::json(std::string(a_requestId)));
 
 		std::string message;
 		message.reserve(a_payloadJson.size() + type.size() + requestId.size() + 48);

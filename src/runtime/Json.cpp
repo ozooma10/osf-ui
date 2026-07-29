@@ -2,6 +2,12 @@
 
 namespace OSFUI::Json
 {
+	std::string Dump(const Value& a_value, int a_indent)
+	{
+		return a_value.dump(a_indent, ' ', /*ensure_ascii=*/false,
+			Value::error_handler_t::replace);
+	}
+
 	std::optional<Value> Parse(std::string_view a_text, std::string_view a_sourceName)
 	{
 		Value parsed = Value::parse(a_text, /*cb=*/nullptr, /*allow_exceptions=*/false, /*ignore_comments=*/true);

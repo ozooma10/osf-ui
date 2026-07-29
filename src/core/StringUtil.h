@@ -1,11 +1,23 @@
 #pragma once
 
-// ASCII-only string primitives shared across the plugin. ASCII is sufficient
-// AND correct for every input these serve — grammar-constrained ids
-// ([a-z0-9-]), key / enum identifiers, BCP-47 locale tags (alnum), and module
-// basenames — all ASCII by construction. Kept deliberately locale-independent:
-// the <cctype> equivalents depend on the active C locale, which nothing here
-// sets. Header-only (inline), so any translation unit can include it freely.
+// String primitives shared across the plugin. Two groups, deliberately kept
+// apart:
+//
+//  * The ASCII group (ToLowerAscii / TrimAscii / EqualsCaseInsensitiveAscii).
+//    ASCII is sufficient AND correct for every input these serve —
+//    grammar-constrained ids ([a-z0-9-]), key / enum identifiers, and BCP-47
+//    locale tags (alnum) — all ASCII by construction.
+//  * The UTF-8 group (Utf8TruncateLen / TruncateUtf8 / SkipLeadingUtf8Continuations).
+//    For *player- and author-supplied* text, which is arbitrary UTF-8. Use
+//    these instead of a bare resize()/substr() on any string that later reaches
+//    nlohmann::json::dump(): dump() defaults to error_handler_t::strict and
+//    throws type_error.316 on an incomplete sequence, and most of our dump
+//    sites sit on paths with no handler at all (the game thread's tick, the
+//    host's wWinMain), where the throw is a std::terminate.
+//
+// Both groups are locale-independent: the <cctype> equivalents depend on the
+// active C locale, which nothing here sets. Header-only (inline), so any
+// translation unit can include it freely.
 
 #include <cstddef>
 #include <string>
@@ -60,5 +72,50 @@ namespace OSFUI::StringUtil
 			}
 		}
 		return true;
+	}
+
+	namespace detail
+	{
+		// A UTF-8 continuation byte is 10xxxxxx. Lead bytes and ASCII are not.
+		[[nodiscard]] constexpr bool IsUtf8Continuation(char a_c) noexcept
+		{
+			return (static_cast<unsigned char>(a_c) & 0xC0) == 0x80;
+		}
+	}
+
+	// The largest length <= a_maxBytes that does not split a UTF-8 sequence.
+	// Byte-identical to a_maxBytes for pure ASCII, so ASCII callers pay nothing.
+	// Worst case backs off 3 bytes (the longest UTF-8 sequence is 4).
+	[[nodiscard]] inline std::size_t Utf8TruncateLen(std::string_view a_s, std::size_t a_maxBytes) noexcept
+	{
+		if (a_s.size() <= a_maxBytes) {
+			return a_s.size();
+		}
+		// a_s[n] is the first dropped byte. While it is a continuation byte the
+		// sequence it belongs to straddles the cut, so retreat onto its lead byte.
+		std::size_t n = a_maxBytes;
+		while (n > 0 && detail::IsUtf8Continuation(a_s[n])) {
+			--n;
+		}
+		return n;
+	}
+
+	// Shrink a_s to at most a_maxBytes bytes on a codepoint boundary. The drop-in
+	// replacement for `if (s.size() > cap) { s.resize(cap); }`.
+	inline void TruncateUtf8(std::string& a_s, std::size_t a_maxBytes)
+	{
+		a_s.resize(Utf8TruncateLen(a_s, a_maxBytes));
+	}
+
+	// Advance past leading continuation bytes. For a slice taken at an arbitrary
+	// byte offset (a log tail), whose first bytes may be the remainder of a
+	// sequence whose lead byte was cut away — the mirror of Utf8TruncateLen.
+	[[nodiscard]] inline std::string_view SkipLeadingUtf8Continuations(std::string_view a_s) noexcept
+	{
+		std::size_t i = 0;
+		while (i < a_s.size() && detail::IsUtf8Continuation(a_s[i])) {
+			++i;
+		}
+		return a_s.substr(i);
 	}
 }
