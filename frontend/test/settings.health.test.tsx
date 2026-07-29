@@ -296,6 +296,65 @@ describe('automatic bug reporting', () => {
       fields: { issueNumber: 42 },
     });
   });
+
+  it('re-opens empty with consent unticked, so one tick cannot authorize a second upload', async () => {
+    const { bridge, el } = await mountHealth([]);
+    // nth selects which diagnostics.reportStatus request to settle — each open
+    // issues a fresh one, and indexOf defaults to the first.
+    const openReporter = async (nth: number) => {
+      openHealth(el);
+      await flush();
+      [...el.querySelectorAll<HTMLButtonElement>('.health-actions .osf-btn')]
+        .find((b) => b.textContent === 'Report a bug')!
+        .click();
+      await flush();
+      bridge.settle(bridge.indexOf('diagnostics.reportStatus', nth), {
+        enabled: true,
+        logs: ['OSF UI.log'],
+        retentionDays: 30,
+      });
+      await flush();
+    };
+    const fields = () => ({
+      title: el.querySelector<HTMLInputElement>('.health-report-field input')!,
+      areas: el.querySelectorAll<HTMLTextAreaElement>('.health-report textarea'),
+      consent: [...el.querySelectorAll<HTMLInputElement>('.health-report input')]
+        .find((i) => i.type === 'checkbox')!,
+    });
+
+    await openReporter(0);
+    {
+      const f = fields();
+      f.title.value = 'First report';
+      f.title.dispatchEvent(new Event('input', { bubbles: true }));
+      f.areas[0]!.value = 'Something broke.';
+      f.areas[0]!.dispatchEvent(new Event('input', { bubbles: true }));
+      f.areas[1]!.value = 'Press F10.';
+      f.areas[1]!.dispatchEvent(new Event('input', { bubbles: true }));
+      f.consent.checked = true;
+      f.consent.dispatchEvent(new Event('input', { bubbles: true }));
+      await flush();
+      // Cancel — deliberately WITHOUT submitting, the path that used to leak.
+      // (Cancel sits in the section header, not as a direct child of .health-report.)
+      [...el.querySelectorAll<HTMLButtonElement>('.health-report .osf-btn')]
+        .find((b) => b.textContent === 'Cancel')!
+        .click();
+      await flush();
+    }
+
+    await openReporter(1);
+    {
+      const f = fields();
+      expect(f.title.value).toBe('');
+      expect(f.areas[0]!.value).toBe('');
+      expect(f.areas[1]!.value).toBe('');
+      expect(f.consent.checked).toBe(false);
+      // And Submit is therefore disabled again rather than armed on open.
+      const submit = [...el.querySelectorAll<HTMLButtonElement>('.health-report > .osf-btn')]
+        .find((b) => b.textContent === 'Submit report')!;
+      expect(submit.disabled).toBe(true);
+    }
+  });
 });
 
 describe('deep links', () => {

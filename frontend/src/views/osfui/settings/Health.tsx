@@ -157,6 +157,16 @@ export function Health({
       }
       setReportStatus(status);
       setReportResult(null);
+      // Every field starts empty and consent starts unticked on each open.
+      // Consent authorizes ONE upload of this free text, which the privacy copy
+      // below warns may become a public GitHub issue — a box left ticked from a
+      // previous report would silently pre-authorize the next one, and a
+      // pre-filled title/description already satisfies Submit's enable
+      // condition. Nothing else clears these: not the ok branch, not Cancel.
+      setReportTitle('');
+      setReportDescription('');
+      setReportReproduction('');
+      setReportConsent(false);
       setReportOpen(true);
     } catch {
       onToast(tr('reportStatusFailed', 'Could not start the bug reporter.'), 'danger');
