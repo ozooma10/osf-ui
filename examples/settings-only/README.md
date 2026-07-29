@@ -5,7 +5,7 @@ and it renders a full settings card with typed, validated, persisted controls.
 
 ## 5-minute quickstart
 
-1. Copy `yourname.mymod.json` to `Data/OSFUI/settings/<author>.<modname>.json`.
+1. Copy `yourname.mymod.json` to `Data/SFSE/Plugins/OSFUI/settings/<author>.<modname>.json`.
    The filename stem is your mod id — `"<author>.<modname>"`, lowercase
    `[a-z0-9-]` segments with exactly one dot, where `author` is your
    Nexus/GitHub handle (dotless ids are reserved for the platform). It must
@@ -58,7 +58,7 @@ inject markup. Keep that guarantee if you fork the renderer.
 ## Localization
 
 Authors keep writing English directly in the settings JSON. A community
-translator can add `Data/OSFUI/l10n/<id>_<locale>.json` without changing the
+translator can add `Data/SFSE/Plugins/OSFUI/l10n/<id>_<locale>.json` without changing the
 original mod. See `l10n/yourname.mymod_de.json`: stable setting keys produce
 addresses such as `settings.hud.enabled.label`; the authored English is used
 for every missing translation. Give groups, presets, notes, and images an

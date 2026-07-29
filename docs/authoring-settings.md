@@ -391,7 +391,8 @@ call your `RegisterAll()` from quest init *and* every game load (e.g.
 `OnPlayerLoadGame` on a player `ReferenceAlias`). `RegisterFor*` returns a
 token for `Unregister(token)`; `...Static` variants dispatch to global
 functions on a named script for library-style mods. `OpenMenu()` opens the
-Mods surface (same as F10) for a "configure" shortcut.
+Mods surface (same as F10) for a "configure" shortcut — view ids are qualified,
+so it defaults to `"osfui/settings"`.
 
 Settings cover pre-declared scalars. For **dynamic data** — pushing live
 lists/tables to a view of your own and reacting to its clicks, all from

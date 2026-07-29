@@ -3,7 +3,7 @@ ScriptName OSFUI Native Hidden
 ; OSF UI - Papyrus surface for the shared settings platform (MCM).
 ;
 ; Settings are declared in a drop-in schema file:
-;   Data/OSFUI/settings/<author>.<modname>.json
+;   Data/SFSE/Plugins/OSFUI/settings/<author>.<modname>.json
 ; (see docs/authoring-settings.md and examples/settings-only/). This script
 ; reads them back, writes them, and reacts to changes and hotkey presses.
 ;
@@ -168,8 +168,8 @@ bool Function RejectViewRequest(string asReplyToken, string asCode, string asMes
 bool Function Unregister(int aiToken) Global Native
 
 ; --- menus --------------------------------------------------------------------
-; Ask OSF UI to open/close an overlay view; "settings" is the Mods surface (same as F10), where your settings card lives. 
+; Ask OSF UI to open/close an overlay view; "osfui/settings" is the Mods surface (same as F10), where your settings card lives. View ids are always qualified "<modId>/<viewName>" — a bare name never resolves. 
 ; Honored on OSF UI's next frame through its normal menu policy. OpenMenu returns true when the qualified view id exists, false when no installed view has that id. 
 ; CloseMenu returns false for an unknown or discovered-but-never-loaded view.
-bool Function OpenMenu(string asViewId = "settings") Global Native
-bool Function CloseMenu(string asViewId = "settings") Global Native
+bool Function OpenMenu(string asViewId = "osfui/settings") Global Native
+bool Function CloseMenu(string asViewId = "osfui/settings") Global Native

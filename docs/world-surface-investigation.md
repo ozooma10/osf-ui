@@ -60,7 +60,7 @@ The probe is dormant while `devMode` is false. Search the SFSE log for
 
 ## Live capture procedure
 
-1. Set `devMode` to `true` in the deployed `Data/OSFUI/config.json`.
+1. Set `devMode` to `true` in the deployed `Data/SFSE/Plugins/OSFUI/config.json`.
 2. Launch through MO2/SFSE and confirm the log contains
    `[ScaleformToTextureProbe] armed`.
 3. Visit these cases, noting the time and location for each:
