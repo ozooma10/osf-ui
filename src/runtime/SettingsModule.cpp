@@ -1,5 +1,6 @@
 #include "runtime/SettingsModule.h"
 
+#include "runtime/Ids.h"
 #include "runtime/Json.h"
 #include "runtime/MessageBridge.h"
 
@@ -158,7 +159,23 @@ namespace OSFUI
 		});
 
 		a_bridge.RegisterRequest("settings.set", [this](const nlohmann::json& a_payload, MessageBridge& a_b) {
-			const auto mod = Json::GetString(a_payload, "mod", "");
+			const auto requested = Json::GetString(a_payload, "mod", "");
+			// Authority check before anything else: only the built-in Mods surface
+			// and keybinds board may write a mod other than their own
+			// (Ids::ResolveWritableMod). Without this, any bridged view could
+			// rewrite a neighbour's settings — or OSF UI's own toggleKey, which is
+			// the input layer's guaranteed way out of the overlay.
+			const auto allowed = Ids::ResolveWritableMod(a_b.CurrentSource(), requested);
+			if (!allowed) {
+				REX::WARN("SettingsModule: [content] view '{}' refused settings.set for '{}' (not its own mod)",
+					a_b.CurrentSource(), requested);
+				a_b.SendToWeb("settings.ack", nlohmann::json{ { "mod", requested },
+					{ "key", Json::GetString(a_payload, "key", "") }, { "ok", false },
+					{ "code", "forbidden" },
+					{ "message", "a view may only write its own mod's settings" } });
+				return;
+			}
+			const std::string mod(*allowed);
 			const auto key = Json::GetString(a_payload, "key", "");
 			const auto valueIt = a_payload.find("value");
 			// Ack shape (api-freeze-plan items 5 + 11): `value` is the
@@ -185,7 +202,16 @@ namespace OSFUI
 		});
 
 		a_bridge.RegisterRequest("settings.reset", [this](const nlohmann::json& a_payload, MessageBridge& a_b) {
-			const auto mod = Json::GetString(a_payload, "mod", "");
+			const auto requested = Json::GetString(a_payload, "mod", "");
+			// Same authority check as settings.set — a reset is a write.
+			const auto allowed = Ids::ResolveWritableMod(a_b.CurrentSource(), requested);
+			if (!allowed) {
+				REX::WARN("SettingsModule: [content] view '{}' refused settings.reset for '{}' (not its own mod)",
+					a_b.CurrentSource(), requested);
+				a_b.SendResult(false, "forbidden", "a view may only reset its own mod's settings");
+				return;
+			}
+			const std::string mod(*allowed);
 			const auto key = Json::GetString(a_payload, "key", "");
 			// Suppress the per-key settings.changed fan-out for the web: the
 			// settings.data below syncs every subscriber, and a whole-mod reset

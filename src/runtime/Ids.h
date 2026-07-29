@@ -1,5 +1,7 @@
 #pragma once
 
+#include <optional>
+
 #include "core/StringUtil.h"
 
 namespace OSFUI::Ids
@@ -97,5 +99,46 @@ namespace OSFUI::Ids
 	{
 		const auto slash = a_id.find('/');
 		return slash == std::string_view::npos ? a_id : a_id.substr(slash + 1);
+	}
+
+	// --- Settings-write authority (docs/security-model.md) -------------------
+	//
+	// A settings write names its target mod in the payload. Left unchecked that
+	// lets ANY view with the native bridge rewrite ANY installed mod's values —
+	// including OSF UI's own `toggleKey`, which is the escape hatch the input
+	// layer relies on to always be able to close the overlay.
+	//
+	// Only OSF UI's built-in Mods surface and keybinds board may name a foreign
+	// mod: editing other mods' settings is their entire purpose. Every other view
+	// is confined to its own mod, matching how `ui.action` derives the mod from
+	// the source view rather than the payload.
+	//
+	// Deliberately an exact qualified-id match rather than an `osfui/` prefix
+	// test — the `osfui` namespace is not yet structurally reserved, so a prefix
+	// test would admit a squatting third-party manifest. Same granularity the
+	// diagnostics.* gates already use.
+	[[nodiscard]] inline bool IsSettingsEditorView(std::string_view a_viewId)
+	{
+		return a_viewId == "osfui/settings" || a_viewId == "osfui/keybinds";
+	}
+
+	// The mod a settings write from a_sourceView is allowed to target, given the
+	// payload's a_requestedMod. Returns std::nullopt when the request must be
+	// refused (a non-editor view naming someone else's mod).
+	//
+	// An empty a_requestedMod from a non-editor view is resolved to its own mod
+	// rather than refused, so a view may omit the field entirely — the field
+	// carries no authority for them either way.
+	[[nodiscard]] inline std::optional<std::string_view> ResolveWritableMod(
+		std::string_view a_sourceView, std::string_view a_requestedMod)
+	{
+		if (IsSettingsEditorView(a_sourceView)) {
+			return a_requestedMod;
+		}
+		const auto own = ModOf(a_sourceView);
+		if (a_requestedMod.empty() || a_requestedMod == own) {
+			return own;
+		}
+		return std::nullopt;
 	}
 }

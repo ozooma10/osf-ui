@@ -117,34 +117,34 @@ int main()
 	module.RegisterCommands(bridge);
 
 	// --- subscribe-on-read -----------------------------------------------------
-	Command(bridge, "settingsview", { { "command", "settings.get" } });
-	Command(bridge, "hudview", { { "command", "settings.get" } });
-	CHECK(SentTo("settingsview", "settings.data").size() == 1);
-	CHECK(SentTo("hudview", "settings.data").size() == 1);
+	Command(bridge, "osfui/settings", { { "command", "settings.get" } });
+	Command(bridge, "t.alpha/hud", { { "command", "settings.get" } });
+	CHECK(SentTo("osfui/settings", "settings.data").size() == 1);
+	CHECK(SentTo("t.alpha/hud", "settings.data").size() == 1);
 
 	// --- settings.set: ack to caller, settings.changed to ALL subscribers ------
 	g_sent.clear();
-	Command(bridge, "settingsview", { { "command", "settings.set" }, { "mod", "t.alpha" }, { "key", "scale" }, { "value", 1.5 } });
+	Command(bridge, "osfui/settings", { { "command", "settings.set" }, { "mod", "t.alpha" }, { "key", "scale" }, { "value", 1.5 } });
 	{
-		const auto acks = SentTo("settingsview", "settings.ack");
+		const auto acks = SentTo("osfui/settings", "settings.ack");
 		CHECK(acks.size() == 1 && acks[0].payload["ok"] == true);
-		CHECK(SentTo("hudview", "settings.ack").empty());  // ack is caller-only
+		CHECK(SentTo("t.alpha/hud", "settings.ack").empty());  // ack is caller-only
 
-		const auto toSettings = SentTo("settingsview", "settings.changed");
-		const auto toHud = SentTo("hudview", "settings.changed");
+		const auto toSettings = SentTo("osfui/settings", "settings.changed");
+		const auto toHud = SentTo("t.alpha/hud", "settings.changed");
 		CHECK(toSettings.size() == 1);
 		CHECK(toHud.size() == 1);
 		CHECK(toHud[0].payload["mod"] == "t.alpha" && toHud[0].payload["key"] == "scale" && toHud[0].payload["value"] == 1.5);
 
 		// Write-behind: the commit pushed settings.changed immediately, but the
 		// disk write (and its settings.persisted confirmation) waits for the flush.
-		CHECK(SentTo("settingsview", "settings.persisted").empty());
+		CHECK(SentTo("osfui/settings", "settings.persisted").empty());
 	}
 
 	// --- write-behind flush lands: settings.persisted to ALL subscribers ---------
 	g_sent.clear();
 	module.Store().FlushPersistence();  // the set above left alpha dirty
-	for (const auto* view : { "settingsview", "hudview" }) {
+	for (const auto* view : { "osfui/settings", "t.alpha/hud" }) {
 		const auto persisted = SentTo(view, "settings.persisted");
 		CHECK(persisted.size() == 1 && persisted[0].payload["mod"] == "t.alpha");
 	}
@@ -154,33 +154,76 @@ int main()
 
 	// --- rejected set: ack ok:false, NO settings.changed ------------------------
 	g_sent.clear();
-	Command(bridge, "settingsview", { { "command", "settings.set" }, { "mod", "t.alpha" }, { "key", "scale" }, { "value", "huge" } });
+	Command(bridge, "osfui/settings", { { "command", "settings.set" }, { "mod", "t.alpha" }, { "key", "scale" }, { "value", "huge" } });
 	{
-		const auto acks = SentTo("settingsview", "settings.ack");
+		const auto acks = SentTo("osfui/settings", "settings.ack");
 		CHECK(acks.size() == 1 && acks[0].payload["ok"] == false);
-		CHECK(SentTo("hudview", "settings.changed").empty());
+		CHECK(SentTo("t.alpha/hud", "settings.changed").empty());
 	}
 
 	// --- a non-subscriber can set (it never called settings.get) ----------------
 	g_sent.clear();
-	Command(bridge, "otherview", { { "command", "settings.set" }, { "mod", "t.alpha" }, { "key", "enabled" }, { "value", false } });
-	CHECK(SentTo("otherview", "settings.ack").size() == 1);
-	CHECK(SentTo("otherview", "settings.changed").empty());  // not subscribed
-	CHECK(SentTo("hudview", "settings.changed").size() == 1);
+	Command(bridge, "t.alpha/other", { { "command", "settings.set" }, { "mod", "t.alpha" }, { "key", "enabled" }, { "value", false } });
+	CHECK(SentTo("t.alpha/other", "settings.ack").size() == 1);
+	CHECK(SentTo("t.alpha/other", "settings.changed").empty());  // not subscribed
+	CHECK(SentTo("t.alpha/hud", "settings.changed").size() == 1);
+
+	// --- write authority (Ids::ResolveWritableMod) -------------------------------
+	// A view may only write its OWN mod's settings; naming a foreign mod is
+	// refused with `forbidden` and commits nothing. Only the built-in Mods
+	// surface and keybinds board may write cross-mod (their entire purpose).
+	{
+		// t.keys/panel names t.alpha: refused, no settings.changed, value intact.
+		g_sent.clear();
+		const auto before = module.Store().GetValue("t.alpha", "scale");
+		CHECK(before != nullptr);
+		const auto keep = *before;
+		Command(bridge, "t.keys/panel", { { "command", "settings.set" }, { "mod", "t.alpha" }, { "key", "scale" }, { "value", 9.0 } });
+		{
+			const auto acks = SentTo("t.keys/panel", "settings.ack");
+			CHECK(acks.size() == 1 && acks[0].payload["ok"] == false);
+			CHECK(acks.size() == 1 && acks[0].payload["code"] == "forbidden");
+			CHECK(SentTo("t.alpha/hud", "settings.changed").empty());
+			CHECK(*module.Store().GetValue("t.alpha", "scale") == keep);
+		}
+
+		// A cross-mod reset is a write too.
+		g_sent.clear();
+		Command(bridge, "t.keys/panel", { { "command", "settings.reset" }, { "mod", "t.alpha" }, { "key", "" } }, "q-forbidden");
+		{
+			const auto results = SentTo("t.keys/panel", "ui.result");
+			CHECK(results.size() == 1 && results[0].payload["ok"] == false);
+			CHECK(results.size() == 1 && results[0].payload["code"] == "forbidden");
+			CHECK(SentTo("t.alpha/hud", "settings.data").empty());
+		}
+
+		// An omitted mod field resolves to the caller's own mod — the field
+		// carries no authority for a non-editor view either way.
+		g_sent.clear();
+		Command(bridge, "t.alpha/other", { { "command", "settings.set" }, { "key", "scale" }, { "value", 1.25 } });
+		{
+			const auto acks = SentTo("t.alpha/other", "settings.ack");
+			CHECK(acks.size() == 1 && acks[0].payload["ok"] == true);
+			CHECK(acks.size() == 1 && acks[0].payload["mod"] == "t.alpha");
+		}
+
+		// The built-in Mods surface stays cross-mod capable (asserted throughout
+		// this file: every osfui/settings write above targets t.alpha/t.keys).
+	}
 
 	// --- settings.reset: ONE settings.data to every subscriber, no per-key spam --
 	g_sent.clear();
-	Command(bridge, "settingsview", { { "command", "settings.reset" }, { "mod", "t.alpha" }, { "key", "" } });
-	CHECK(SentTo("settingsview", "settings.data").size() == 1);
-	CHECK(SentTo("hudview", "settings.data").size() == 1);
-	CHECK(SentTo("settingsview", "settings.changed").empty());  // superseded by the data re-send
-	CHECK(SentTo("hudview", "settings.changed").empty());
+	Command(bridge, "osfui/settings", { { "command", "settings.reset" }, { "mod", "t.alpha" }, { "key", "" } });
+	CHECK(SentTo("osfui/settings", "settings.data").size() == 1);
+	CHECK(SentTo("t.alpha/hud", "settings.data").size() == 1);
+	CHECK(SentTo("osfui/settings", "settings.changed").empty());  // superseded by the data re-send
+	CHECK(SentTo("t.alpha/hud", "settings.changed").empty());
 
 	// A caller that never subscribed still gets the authoritative re-send.
 	g_sent.clear();
-	Command(bridge, "otherview", { { "command", "settings.reset" }, { "mod", "t.alpha" }, { "key", "" } });
-	CHECK(SentTo("otherview", "settings.data").size() == 1);
-	CHECK(SentTo("hudview", "settings.data").size() == 1);
+	Command(bridge, "t.alpha/other", { { "command", "settings.reset" }, { "mod", "t.alpha" }, { "key", "" } });
+	CHECK(SentTo("t.alpha/other", "settings.data").size() == 1);
+	CHECK(SentTo("t.alpha/hud", "settings.data").size() == 1);
 
 	// --- runtime registration: replay + settings.data re-broadcast (§8.5) -------
 	g_sent.clear();
@@ -192,39 +235,39 @@ int main()
 	CHECK(module.Store().RegisterSchema(gamma, SettingsStore::Source::kNative));
 	{
 		// Value replay reaches subscribers as settings.changed...
-		const auto changed = SentTo("hudview", "settings.changed");
+		const auto changed = SentTo("t.alpha/hud", "settings.changed");
 		CHECK(changed.size() == 1 && changed[0].payload["mod"] == "t.gamma");
 		// ...and the shape change re-broadcasts the full registry to BOTH.
-		for (const auto* view : { "settingsview", "hudview" }) {
+		for (const auto* view : { "osfui/settings", "t.alpha/hud" }) {
 			const auto data = SentTo(view, "settings.data");
 			CHECK(data.size() == 1 && data[0].payload["mods"].size() == 2);
 		}
-		CHECK(SentTo("otherview", "settings.data").empty());  // never subscribed
+		CHECK(SentTo("t.alpha/other", "settings.data").empty());  // never subscribed
 	}
 
 	// --- removal re-broadcasts too ----------------------------------------------
 	g_sent.clear();
 	CHECK(module.Store().RemoveMod("t.gamma"));
 	{
-		const auto data = SentTo("hudview", "settings.data");
+		const auto data = SentTo("t.alpha/hud", "settings.data");
 		CHECK(data.size() == 1 && data[0].payload["mods"].size() == 1);
 	}
 
 	// --- PushHotkey: ui.hotkey to every subscriber (views filter on mod) ---------
 	g_sent.clear();
 	module.PushHotkey("t.alpha", "toggleHud");
-	for (const auto* view : { "settingsview", "hudview" }) {
+	for (const auto* view : { "osfui/settings", "t.alpha/hud" }) {
 		const auto hotkeys = SentTo(view, "ui.hotkey");
 		CHECK(hotkeys.size() == 1 && hotkeys[0].payload["mod"] == "t.alpha" && hotkeys[0].payload["key"] == "toggleHud");
 	}
-	CHECK(SentTo("otherview", "ui.hotkey").empty());  // never subscribed
+	CHECK(SentTo("t.alpha/other", "ui.hotkey").empty());  // never subscribed
 
 	// --- OnViewDestroyed: a torn-down view stops receiving pushes -----------------
 	g_sent.clear();
-	module.OnViewDestroyed("hudview");
+	module.OnViewDestroyed("t.alpha/hud");
 	CHECK(module.Store().Set("t.alpha", "scale", "0.75"));
-	CHECK(SentTo("hudview", "settings.changed").empty());
-	CHECK(SentTo("settingsview", "settings.changed").size() == 1);  // others unaffected
+	CHECK(SentTo("t.alpha/hud", "settings.changed").empty());
+	CHECK(SentTo("osfui/settings", "settings.changed").size() == 1);  // others unaffected
 
 	// --- OnBridgeDown: pushes stop, nothing dangles -------------------------------
 	g_sent.clear();
@@ -240,7 +283,7 @@ int main()
 
 	// --- schema hot-reload (mcm-design §12.1) --------------------------------------
 	{
-		Command(bridge, "settingsview", { { "command", "settings.get" } });  // re-subscribe
+		Command(bridge, "osfui/settings", { { "command", "settings.get" } });  // re-subscribe
 
 		// Baseline scan: seeds nothing new (the ctor snapshot already covers
 		// alpha.json) and starts the 1 s cadence clock.
@@ -267,7 +310,7 @@ int main()
 		// Past the window: reloaded — new schema pushed, values preserved.
 		module.PumpSchemaHotReload(11.0);
 		{
-			const auto data = SentTo("settingsview", "settings.data");
+			const auto data = SentTo("osfui/settings", "settings.data");
 			CHECK(data.size() == 1);
 			const auto& mods = data[0].payload["mods"];
 			CHECK(mods.size() == 1 && mods[0]["title"] == "Alpha Mod v2");
@@ -283,7 +326,7 @@ int main()
 		g_sent.clear();
 		module.PumpSchemaHotReload(12.0);
 		{
-			const auto data = SentTo("settingsview", "settings.data");
+			const auto data = SentTo("osfui/settings", "settings.data");
 			CHECK(!data.empty() && data.back().payload["mods"].size() == 2);
 		}
 
@@ -292,7 +335,7 @@ int main()
 		g_sent.clear();
 		module.PumpSchemaHotReload(13.0);
 		{
-			const auto data = SentTo("settingsview", "settings.data");
+			const auto data = SentTo("osfui/settings", "settings.data");
 			CHECK(data.size() == 1 && data[0].payload["mods"].size() == 1);
 		}
 
@@ -320,55 +363,55 @@ int main()
 	{
 		// settings.set ack carries the authoritative post-clamp value...
 		g_sent.clear();
-		Command(bridge, "settingsview", { { "command", "settings.set" }, { "mod", "t.alpha" }, { "key", "scale" }, { "value", 1.75 } }, "q1");
+		Command(bridge, "osfui/settings", { { "command", "settings.set" }, { "mod", "t.alpha" }, { "key", "scale" }, { "value", 1.75 } }, "q1");
 		{
-			const auto acks = SentTo("settingsview", "settings.ack");
+			const auto acks = SentTo("osfui/settings", "settings.ack");
 			CHECK(acks.size() == 1 && acks[0].payload["ok"] == true && acks[0].payload["value"] == 1.75);
 			CHECK(acks.size() == 1 && acks[0].requestId == "q1");  // top-level echo
 			CHECK(acks.size() == 1 && !acks[0].payload.contains("code"));
 		}
 		// ...including a CLAMPED commit (ok:true, the stored value, no code).
 		g_sent.clear();
-		Command(bridge, "settingsview", { { "command", "settings.set" }, { "mod", "t.alpha" }, { "key", "scale" }, { "value", 99.0 } });
+		Command(bridge, "osfui/settings", { { "command", "settings.set" }, { "mod", "t.alpha" }, { "key", "scale" }, { "value", 99.0 } });
 		{
-			const auto acks = SentTo("settingsview", "settings.ack");
+			const auto acks = SentTo("osfui/settings", "settings.ack");
 			CHECK(acks.size() == 1 && acks[0].payload["ok"] == true && acks[0].payload["value"] == 2.0);
 			CHECK(acks.size() == 1 && acks[0].requestId.empty());  // fire-and-forget: no echo
 		}
 		// Failures carry the machine code.
 		g_sent.clear();
-		Command(bridge, "settingsview", { { "command", "settings.set" }, { "mod", "t.alpha" }, { "key", "scale" }, { "value", "huge" } });
-		CHECK(SentTo("settingsview", "settings.ack").size() == 1 &&
-		      SentTo("settingsview", "settings.ack")[0].payload["code"] == "invalid-value");
+		Command(bridge, "osfui/settings", { { "command", "settings.set" }, { "mod", "t.alpha" }, { "key", "scale" }, { "value", "huge" } });
+		CHECK(SentTo("osfui/settings", "settings.ack").size() == 1 &&
+		      SentTo("osfui/settings", "settings.ack")[0].payload["code"] == "invalid-value");
 		g_sent.clear();
-		Command(bridge, "settingsview", { { "command", "settings.set" }, { "mod", "t.alpha" }, { "key", "nope" }, { "value", 1 } });
-		CHECK(SentTo("settingsview", "settings.ack").size() == 1 &&
-		      SentTo("settingsview", "settings.ack")[0].payload["code"] == "unknown-setting");
+		Command(bridge, "osfui/settings", { { "command", "settings.set" }, { "mod", "t.alpha" }, { "key", "nope" }, { "value", 1 } });
+		CHECK(SentTo("osfui/settings", "settings.ack").size() == 1 &&
+		      SentTo("osfui/settings", "settings.ack")[0].payload["code"] == "unknown-setting");
 		g_sent.clear();
-		Command(bridge, "settingsview", { { "command", "settings.set" }, { "mod", "t.alpha" }, { "key", "scale" } });  // no value field
-		CHECK(SentTo("settingsview", "settings.ack").size() == 1 &&
-		      SentTo("settingsview", "settings.ack")[0].payload["code"] == "invalid-value");
+		Command(bridge, "osfui/settings", { { "command", "settings.set" }, { "mod", "t.alpha" }, { "key", "scale" } });  // no value field
+		CHECK(SentTo("osfui/settings", "settings.ack").size() == 1 &&
+		      SentTo("osfui/settings", "settings.ack")[0].payload["code"] == "invalid-value");
 
 		// settings.reset with a requestId: the settings.data REPLY echoes it
 		// (that is what resolves osfui.request("settings.reset")).
 		g_sent.clear();
-		Command(bridge, "settingsview", { { "command", "settings.reset" }, { "mod", "t.alpha" }, { "key", "" } }, "q2");
+		Command(bridge, "osfui/settings", { { "command", "settings.reset" }, { "mod", "t.alpha" }, { "key", "" } }, "q2");
 		{
-			const auto data = SentTo("settingsview", "settings.data");
+			const auto data = SentTo("osfui/settings", "settings.data");
 			CHECK(data.size() == 1 && data[0].requestId == "q2");
 		}
 		// A failed reset is no longer silent for a correlated caller...
 		g_sent.clear();
-		Command(bridge, "settingsview", { { "command", "settings.reset" }, { "mod", "nope.mod" }, { "key", "" } }, "q3");
+		Command(bridge, "osfui/settings", { { "command", "settings.reset" }, { "mod", "nope.mod" }, { "key", "" } }, "q3");
 		{
-			const auto results = SentTo("settingsview", "ui.result");
+			const auto results = SentTo("osfui/settings", "ui.result");
 			CHECK(results.size() == 1 && results[0].payload["ok"] == false &&
 			      results[0].payload["code"] == "unknown-setting" && results[0].requestId == "q3");
-			CHECK(SentTo("settingsview", "settings.data").empty());
+			CHECK(SentTo("osfui/settings", "settings.data").empty());
 		}
 		// ...and stays silent fire-and-forget.
 		g_sent.clear();
-		Command(bridge, "settingsview", { { "command", "settings.reset" }, { "mod", "nope.mod" }, { "key", "" } });
+		Command(bridge, "osfui/settings", { { "command", "settings.reset" }, { "mod", "nope.mod" }, { "key", "" } });
 		CHECK(g_sent.empty());
 	}
 
@@ -389,9 +432,9 @@ int main()
 
 		// Rebind INTO a collision: the push names the partner.
 		g_sent.clear();
-		Command(bridge, "settingsview", { { "command", "settings.set" }, { "mod", "t.keys" }, { "key", "one" }, { "value", "F7" } });
+		Command(bridge, "osfui/settings", { { "command", "settings.set" }, { "mod", "t.keys" }, { "key", "one" }, { "value", "F7" } });
 		{
-			const auto changed = SentTo("settingsview", "settings.changed");
+			const auto changed = SentTo("osfui/settings", "settings.changed");
 			CHECK(changed.size() == 1 && changed[0].payload.contains("conflicts"));
 			CHECK(changed.size() == 1 && changed[0].payload["conflicts"].size() == 1 &&
 			      changed[0].payload["conflicts"][0]["mod"] == "t.keys" &&
@@ -399,17 +442,17 @@ int main()
 		}
 		// Rebind OUT again: conflicts present but EMPTY (the badge-clearing signal).
 		g_sent.clear();
-		Command(bridge, "settingsview", { { "command", "settings.set" }, { "mod", "t.keys" }, { "key", "one" }, { "value", "F6" } });
+		Command(bridge, "osfui/settings", { { "command", "settings.set" }, { "mod", "t.keys" }, { "key", "one" }, { "value", "F6" } });
 		{
-			const auto changed = SentTo("settingsview", "settings.changed");
+			const auto changed = SentTo("osfui/settings", "settings.changed");
 			CHECK(changed.size() == 1 && changed[0].payload.contains("conflicts"));
 			CHECK(changed.size() == 1 && changed[0].payload["conflicts"].empty());
 		}
 		// Non-key settings never carry the field.
 		g_sent.clear();
-		Command(bridge, "settingsview", { { "command", "settings.set" }, { "mod", "t.alpha" }, { "key", "enabled" }, { "value", true } });
+		Command(bridge, "osfui/settings", { { "command", "settings.set" }, { "mod", "t.alpha" }, { "key", "enabled" }, { "value", true } });
 		{
-			const auto changed = SentTo("settingsview", "settings.changed");
+			const auto changed = SentTo("osfui/settings", "settings.changed");
 			CHECK(changed.size() == 1 && !changed[0].payload.contains("conflicts"));
 		}
 	}
