@@ -50,7 +50,7 @@
 
 ### For view authors
 
-- `npm create osfui@latest` now walks through setup like Vite: framework, menu/HUD surface, and starting workflow are shown as concise arrow-key selection lists instead of asking authors to type hidden option names. It scaffolds directly into the current directory instead of asking where to put the project; mod and view IDs remain short text steps with concrete format examples, while explicit flags and directory arguments continue to work for automation.
+- `npm create osfui@latest` now walks through setup like Vite: framework, menu/HUD surface, and starting workflow are shown as concise arrow-key selection lists instead of asking authors to type hidden option names. Directory name and view ID are short text steps with editable defaults, while mod ID shows the expected format but requires an explicit entry. This lets a command run from a populated folder create a safe child project instead of trying to overwrite that folder. Explicit flags and directory arguments continue to work for automation. When the creator itself runs from the OSF UI repository, generated projects now link the sibling `@osfui/cli` package instead of requesting its not-yet-published version from npm; Windows dependency installation also avoids Node's insecure-shell deprecation warning, and the generated vanilla starter and mock pass their strict TypeScript check.
 
 - Bridge protocol **1.7** declares the built-in reporter's correlated status/result messages and commands. They are platform-private: every caller except the exact `osfui/settings` view is rejected, endpoints remain host-owned HTTPS configuration, and third-party views still have no network access.
 

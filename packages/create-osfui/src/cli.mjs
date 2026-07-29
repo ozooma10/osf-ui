@@ -10,6 +10,7 @@ import {
   PromptCancelledError,
   slug,
 } from './prompts.mjs';
+import { resolveCliSpec } from './cli-spec.mjs';
 
 function parse(argv) {
   const result = { _: [] };
@@ -71,8 +72,8 @@ const action = document.querySelector('#action');
 if (!(status instanceof HTMLOutputElement) || !(action instanceof HTMLButtonElement)) {
   throw new Error('Template controls are missing');
 }
-window.osfui?.on?.('runtime.ready', (message) => {
-  status.textContent = \`Connected to OSF UI \${message.payload.version}\`;
+window.osfui?.on?.<{ version: string }>('runtime.ready', (payload) => {
+  status.textContent = \`Connected to OSF UI \${payload.version}\`;
 });
 action.addEventListener('click', async () => {
   ${options.integration === 'static' ? "status.textContent = 'Static preset: no native bridge required'; return;" : ''}
@@ -126,7 +127,7 @@ async function scaffold(options) {
   if ((await readdir(root)).length) throw new Error(`Directory is not empty: ${root}`);
   const viewRoot = `src/views/${options.modId}/${options.view}`;
   const extension = options.template === 'preact' ? 'tsx' : 'ts';
-  const cliSpec = options.cliSpec || '^0.1.0';
+  const cliSpec = await resolveCliSpec(root, options.cliSpec);
   const packageJson = {
     name: slug(basename(root)),
     version: '0.1.0',
@@ -189,7 +190,7 @@ export default defineMock({
   requests: {
     'papyrus.example': { ok: true, message: 'Mock Papyrus response' },
     '${options.modId}.example': { ok: true, message: 'Mock native-plugin response' },
-    'settings.get': (payload) => ({ mods: [{ id: '${options.modId}', values: { example: true } }] }),
+    'settings.get': () => ({ mods: [{ id: '${options.modId}', values: { example: true } }] }),
   },
   locales: { en: { title: 'Example view' } },
 });
@@ -227,7 +228,9 @@ Use \`npm run package\` to create a release-ready zip.
 
 function install(root) {
   return new Promise((resolvePromise, reject) => {
-    const child = spawn('npm', ['install'], { cwd: root, stdio: 'inherit', shell: process.platform === 'win32' });
+    const executable = process.platform === 'win32' ? process.env.ComSpec || 'cmd.exe' : 'npm';
+    const args = process.platform === 'win32' ? ['/d', '/s', '/c', 'npm install'] : ['install'];
+    const child = spawn(executable, args, { cwd: root, stdio: 'inherit' });
     child.once('exit', (code) => code === 0 ? resolvePromise() : reject(new Error(`npm install exited with ${code}`)));
   });
 }

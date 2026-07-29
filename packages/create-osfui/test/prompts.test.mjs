@@ -4,7 +4,7 @@ import { CHOICES, promptMissing } from '../src/prompts.mjs';
 
 test('walks through missing choices as visible select lists', async () => {
   const questions = [];
-  const textAnswers = ['acme.widgets', 'panel'];
+  const textAnswers = ['custom-view', 'acme.widgets', 'panel'];
   const selectAnswers = ['vanilla', 'hud', 'static'];
   const prompt = {
     intro: (title) => questions.push({ kind: 'intro', title }),
@@ -28,7 +28,7 @@ test('walks through missing choices as visible select lists', async () => {
 
   assert.equal(interactive, true);
   assert.deepEqual(options, {
-    directory: process.cwd(),
+    directory: 'custom-view',
     modId: 'acme.widgets',
     view: 'panel',
     template: 'vanilla',
@@ -37,8 +37,14 @@ test('walks through missing choices as visible select lists', async () => {
   });
   assert.deepEqual(
     questions.filter(({ kind }) => kind === 'text').map(({ message }) => message),
-    ['Mod ID (for example, yourname.my-mod)', 'View ID (for example, main)'],
+    ['Directory name', 'Mod ID', 'View ID'],
   );
+  const textQuestions = questions.filter(({ kind }) => kind === 'text');
+  assert.equal(textQuestions[0].defaultValue, 'my-osfui-view');
+  assert.equal(textQuestions[1].defaultValue, undefined);
+  assert.equal(textQuestions[1].placeholder, 'yourname.custom-view');
+  assert.equal(textQuestions[1].validate(''), 'Use lowercase author.mod-name format.');
+  assert.equal(textQuestions[2].defaultValue, 'main');
   assert.deepEqual(
     questions.filter(({ kind }) => kind === 'select').map(({ message, options: choices }) => ({
       message,

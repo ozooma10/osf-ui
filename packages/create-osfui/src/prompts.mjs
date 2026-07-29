@@ -1,5 +1,5 @@
 import * as prompts from '@clack/prompts';
-import { cwd, stdin, stdout } from 'node:process';
+import { stdin, stdout } from 'node:process';
 import { basename, resolve } from 'node:path';
 
 export const ID = /^[a-z0-9-]+$/;
@@ -34,7 +34,7 @@ export const slug = (value) =>
   value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'my-view';
 
 function fillDefaults(options) {
-  options.directory ||= cwd();
+  options.directory ||= 'my-osfui-view';
   const projectName = slug(basename(resolve(options.directory)));
   options.modId ||= `yourname.${projectName}`;
   options.view ||= 'main';
@@ -55,19 +55,26 @@ export async function promptMissing(
   }
 
   prompt.intro('Create an OSF UI view');
-  options.directory ||= cwd();
+
+  options.directory ||= answer(prompt, await prompt.text({
+    message: 'Directory name',
+    defaultValue: 'my-osfui-view',
+    validate: (value) => value && value !== '.' && value !== '..' && !/[<>:"/\\|?*]/.test(value)
+      ? undefined
+      : 'Use a single folder name, such as my-osfui-view.',
+  }));
 
   const projectName = slug(basename(resolve(options.directory)));
   options.modId ||= answer(prompt, await prompt.text({
-    message: 'Mod ID (for example, yourname.my-mod)',
-    defaultValue: `yourname.${projectName}`,
+    message: 'Mod ID',
+    placeholder: `yourname.${projectName}`,
     validate: (value) => MOD_ID.test(value)
       ? undefined
       : 'Use lowercase author.mod-name format.',
   }));
 
   options.view ||= answer(prompt, await prompt.text({
-    message: 'View ID (for example, main)',
+    message: 'View ID',
     defaultValue: 'main',
     validate: (value) => ID.test(value)
       ? undefined

@@ -29,11 +29,13 @@ for (const [template, surface, integration] of [
       '--integration', integration,
     ], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
+    const packageJson = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'));
     const config = await readFile(resolve(root, 'osfui.config.ts'), 'utf8');
     const source = await readFile(
       resolve(root, `src/views/acme.widgets/panel/main.${template === 'preact' ? 'tsx' : 'ts'}`),
       'utf8',
     );
+    assert.match(packageJson.devDependencies['@osfui/cli'], /^file:/);
     assert.match(config, new RegExp(`kind: '${surface}'`));
     assert.match(source, new RegExp(integration === 'static' ? 'no native bridge' : 'papyrusRequest'));
   });
