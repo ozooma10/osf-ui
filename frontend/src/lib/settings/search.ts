@@ -54,8 +54,6 @@ export interface SearchResult {
   key: string;
   /** `label || key`, the text the row displays. */
   label: string;
-  /** "mod title › group label", or just the mod title for an unlabelled group. */
-  breadcrumb: string;
 }
 
 /**
@@ -78,15 +76,10 @@ export function searchResults(mods: ModRecord[], query: string): SearchResult[] 
         if (!isSetting(s) || typeof s.key !== 'string' || !s.key) continue;
         const label = s.label || s.key || '';
         if (!label.toLowerCase().includes(query) && !modMatches) continue;
-        const groupLabel = g.label || '';
-        out.push({
-          modId: mod.id,
-          modTitle,
-          groupLabel,
-          key: s.key,
-          label,
-          breadcrumb: groupLabel ? `${modTitle} › ${groupLabel}` : modTitle,
-        });
+        // `modTitle` and `groupLabel` travel apart, not pre-joined into one
+        // crumb string: SearchResults paints them as separate spans so the mod
+        // name can be styled and the "›" separator can be a node of its own.
+        out.push({ modId: mod.id, modTitle, groupLabel: g.label || '', key: s.key, label });
       }
     }
   }

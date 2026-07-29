@@ -37,20 +37,7 @@ import {
   type ModRecord,
   type ViewRecord,
 } from '@lib/settings/rail';
-import {
-  EMPTY_HEALTH,
-  readHealth,
-  type HealthModel,
-} from '@lib/settings/diagnostics';
-import { applyConflictUpdate } from '@lib/settings/conflicts';
-import {
-  findSettingInMod,
-  patchModValues,
-  sameValue,
-  seedBaseline,
-  sessionDiff,
-  type Baseline,
-} from '@lib/settings/modified';
+import { sessionDiff } from '@lib/settings/modified';
 import { deriveNeedsUpdate } from '@lib/version';
 import {
   initialPadButtonState,
@@ -61,6 +48,7 @@ import {
 import {
   initialSaveState,
   saveStateAbandon,
+  saveStateFaded,
   saveStatePending,
   saveStatePersisted,
   type SaveState,
@@ -72,6 +60,7 @@ import { HealthItem, Rail } from './Rail';
 import { UndoPanel } from './UndoPanel';
 import { homeModCaption } from './Home';
 import { useCapture } from './useCapture';
+import { useSettingsRegistry } from './useSettingsRegistry';
 import type { PresetRecord } from './Presets';
 import type { ReportResult, ReportStatus, ReportSubmission } from './Health';
 
@@ -109,27 +98,42 @@ export interface AppProps {
 export function App({ bridge = windowBridge, assetRoots }: AppProps) {
   const tr = useMemo(() => makeTranslator(bridge, 'chrome.settings'), [bridge]);
 
-  // Every piece of long-lived state is mirrored into a ref: the bridge
-  // subscriptions are registered once and their closures would otherwise read
-  // the first render's values.
-
-  const [mods, setMods, modsRef] = useStateRef<ModRecord[]>([]);
-  const [views, setViews, viewsRef] = useStateRef<ViewRecord[]>([]);
-
-  // The normal launcher/rail consumes only hub-visible views. Diagnostics
-  // deliberately keeps the complete discovery catalog so hidden utilities,
-  // debug-only entries and not-yet-loaded views remain inspectable/triggerable.
-  const [discoveredViews, setDiscoveredViews] = useState<ViewRecord[]>([]);
-  const [hostVersion, setHostVersion] = useState('');
+  /**
+   * Optimistic HUD switch positions, keyed by view id. `hud.show`/`hud.hide`
+   * are fire-and-forget, so the switch flips locally and the next `views.data`
+   * push (which the runtime sends on every open/focus change) is authoritative
+   * — that push clears the whole map.
+   *
+   * Declared before the registry because the registry's `views.data` callback
+   * clears it.
+   */
+  const [hudOverride, setHudOverride] = useState<Record<string, boolean>>({});
 
   /**
-   * The session health snapshot. Settings-file load failures used to be a rail
-   * banner fed by `settings.data`'s `loadErrors`; they are now health issues
-   * like everything else, so this is the single model behind the pinned
-   * destination, the rail badge, the per-mod severity markers and the failed
-   * card deep links.
+   * The registries the pane paints from, and the bridge subscriptions that keep
+   * them current. Everything below this line is instead about what the user is
+   * doing right now — where they are, what they typed, what is expanded — none
+   * of which survives a fresh visit.
    */
-  const [health, setHealth] = useState<HealthModel>(EMPTY_HEALTH);
+  const registry = useSettingsRegistry({
+    bridge,
+    // A `views.data` push is the authority on HUD open state; drop the
+    // optimistic switch positions when one lands.
+    onViewsData: () => setHudOverride({}),
+  });
+  const {
+    mods,
+    modsRef,
+    views,
+    viewsRef,
+    discoveredViews,
+    health,
+    hostVersion,
+    baseline,
+    baselineRef,
+    applyLocal,
+  } = registry;
+
   /** Issue the Health pane should expand and scroll to, from a deep link. */
   const [focusIssueId, setFocusIssueId] = useState<string | null>(null);
 
@@ -142,25 +146,9 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
   const [query, setQuery] = useState('');
   const queryRef = useLatest(query);
 
-  /**
-   * `baseline[modId][key]` — the value when this visit began. Drives the undo
-   * chip and the revert panel. Kept across data refreshes (so a reset or preset
-   * re-broadcast does not lose undo history) and cleared on every overlay open
-   * edge, so the scope is "since you opened settings", not the whole session.
-   */
-  const [baseline, setBaseline, baselineRef] = useStateRef<Baseline>({});
-
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-  /**
-   * Optimistic HUD switch positions, keyed by view id. `hud.show`/`hud.hide`
-   * are fire-and-forget, so the switch flips locally and the next `views.data`
-   * push (which the runtime sends on every open/focus change) is authoritative
-   * — that push clears the whole map.
-   */
-  const [hudOverride, setHudOverride] = useState<Record<string, boolean>>({});
   const [undoOpen, setUndoOpen] = useState(false);
   const [flash, setFlash] = useState<{ modId: string; key: string } | null>(null);
-  const [i18nSeq, setI18nSeq] = useState(0);
 
   const [save, setSave, saveRef] = useStateRef<SaveState>(initialSaveState);
   const fadeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -172,7 +160,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     }
     if (t.scheduleFadeMs !== null) {
       fadeTimer.current = setTimeout(() => {
-        setSave({ ...saveRef.current, classes: [] });
+        setSave(saveStateFaded(saveRef.current));
       }, t.scheduleFadeMs);
     }
   };
@@ -262,52 +250,10 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
       });
   };
 
-  /**
-   * Apply values optimistically so conditions and modified dots update on the
-   * same frame as the click, and record the pre-change value against the
-   * session baseline. Batched over several keys because a preset commits many
-   * at once and one state update per key would render the pane N times.
-   */
-  const applyLocal = (modId: string, entries: Array<[string, SettingValue]>) => {
-    const mod = modsRef.current.find((m) => m.id === modId);
-    if (!mod) return;
-    const values = mod.values || {};
-
-    const seeded = seedBaseline(baselineRef.current, modId, entries.map(([key]) => key), values);
-    if (seeded) setBaseline(seeded);
-
-    const patch: Record<string, SettingValue> = {};
-    for (const [key, value] of entries) patch[key] = value;
-    setMods(patchModValues(modsRef.current, modId, patch));
-  };
-
   /** A user commit: local model first, then the wire. */
   const commit = (modId: string, key: string, value: SettingValue) => {
     applyLocal(modId, [[key, value]]);
     setValue(modId, key, value);
-  };
-
-  /**
-   * Seed the baseline for every key of every mod that lacks one, on each data
-   * arrival — after a visibility reset that amounts to a full snapshot at the
-   * first arrival. Lazy per-key seeding on first change would instead make the
-   * undo list report only keys touched through this pane, missing external
-   * writers.
-   */
-  const captureBaseline = (list: ModRecord[]) => {
-    let next = baselineRef.current;
-    let changed = false;
-    for (const mod of list) {
-      const values = mod.values || {};
-      // ensureEntry: a mod with no values still gets an entry, marking it
-      // snapshotted. Only this whole-list capture wants that.
-      const seeded = seedBaseline(next, mod.id, Object.keys(values), values, true);
-      if (seeded) {
-        next = seeded;
-        changed = true;
-      }
-    }
-    if (changed) setBaseline(next);
   };
 
   /**
@@ -374,77 +320,12 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     tr,
   });
 
-  // Bridge subscriptions, registered once. Replies that resolve a call()
-  // also land here — one render path regardless of who asked.
+  // Bridge subscriptions for what the user is DOING. The registry hook owns the
+  // data pushes (settings.data / views.data / diagnostics.data / i18n.data /
+  // settings.changed) and the catalog reads; both blocks register once per
+  // bridge and read everything else through refs.
 
   useEffect(() => {
-    const offSettings = bridge.on('settings.data', (p) => {
-      const list = (p.mods || []) as ModRecord[];
-      setMods(list);
-      // `p.loadErrors` is deliberately ignored here: the same failures arrive
-      // as `diagnostics.data` issues, which carry severity, an occurrence
-      // count and actions. Reading both would double-report them.
-      captureBaseline(list);
-    });
-
-    const offDiagnostics = bridge.on('diagnostics.data', (p) => setHealth(readHealth(p)));
-
-    const offViews = bridge.on('views.data', (p) => {
-      const all = (p.views || []) as ViewRecord[];
-      setDiscoveredViews(all.filter((v) => v && v.id));
-      setViews(all.filter((v) => v && v.hub !== false));
-      // This push is the authority on HUD open state; drop the optimistic
-      // overrides.
-      setHudOverride({});
-    });
-
-    const offI18n = bridge.on('i18n.data', () => {
-      // A catalog arriving before any data must not force a paint of an empty
-      // surface.
-      if (modsRef.current.length || viewsRef.current.length) setI18nSeq((n) => n + 1);
-    });
-
-    const offChanged = bridge.on('settings.changed', (p) => {
-      // Native push for every committed value — our own commits echo back
-      // (possibly clamped), and other writers (a sibling DLL, a mod's panel, a
-      // preset applied in another view) stay in sync while the menu is open.
-      if (typeof p.mod !== 'string' || typeof p.key !== 'string') return;
-      const modId = p.mod;
-      const key = p.key;
-      const mod = modsRef.current.find((m) => m.id === modId);
-      if (!mod) return;
-
-      // Seed the baseline before overwriting, so an external writer's change is
-      // undoable too.
-      const seeded = seedBaseline(baselineRef.current, modId, [key], mod.values || {});
-      if (seeded) setBaseline(seeded);
-
-      const changedSetting = findSettingInMod(mod, key);
-      if (changedSetting && changedSetting.type === 'key') {
-        // Key-typed pushes carry the setting's recomputed `conflicts`
-        // (protocol 0.5): apply both sides of the collision to the local model
-        // instead of re-fetching the whole registry. Handled before the echo
-        // check so our own rebind — already applied optimistically — still
-        // updates the badges.
-        const withValue = patchModValues(modsRef.current, modId, {
-          [key]: p.value as SettingValue,
-        });
-        setMods(
-          applyConflictUpdate(withValue, modId, key, Array.isArray(p.conflicts) ? p.conflicts : []),
-        );
-        return;
-      }
-
-      if (sameValue((mod.values || {})[key], p.value)) {
-        // Echo of our own optimistic commit; the derived chip and rail counts
-        // already reflect it.
-        return;
-      }
-      // The store disagrees with the local model (a native clamp, or an
-      // external writer): adopt its value.
-      setMods(patchModValues(modsRef.current, modId, { [key]: p.value as SettingValue }));
-    });
-
     // Backstop alongside the useCapture promise: catches a reply that lost its
     // correlation (an older host that does not echo requestId). `finish` is
     // idempotent — a second delivery no-ops.
@@ -465,7 +346,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
       // Fresh visit: the undo scope is "since you opened settings". Without
       // this the view — which keeps running while hidden — accumulates every
       // change of the whole game session.
-      setBaseline({});
+      registry.clearBaseline();
       if (intent.reselect) {
         // "Open the deck", not "resume where a past visit left off".
         setFilter('');
@@ -514,40 +395,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     // peel the undo panel first. Sticky per page load.
     if (bridge.available()) sendCommand('osfui.handleBack', { handle: true });
 
-    const requestCatalogs = () => {
-      if (!bridge.available()) return;
-      sendCommand('settings.get');
-      sendCommand('views.get');
-      // Same subscribe-on-read contract. A host that predates protocol 1.4
-      // answers ui.error and the pane simply stays nominal.
-      sendCommand('diagnostics.get');
-    };
-
-    // The initial reads must not be gated on `ready`. `runtime.ready` is a
-    // one-shot greeting emitted at runtime init, which can be long before this
-    // page's transport can carry it (the WebView2 host is a separate process
-    // that starts on the first game tick); gating on it left the Mods surface
-    // permanently empty whenever the greeting was missed. The gets are
-    // idempotent and also subscribe to the change pushes.
-    requestCatalogs();
-
-    // A page reload can also run before the injected transport reports itself
-    // available, then receive `runtime.ready` moments later. Reissue the
-    // idempotent reads on that edge so a populated version badge can never sit
-    // above an empty deck merely because the first availability check lost the
-    // race. A missed greeting remains safe because the immediate reads above
-    // do not depend on it.
-    void bridge.ready().then((info) => {
-      setHostVersion(info.version || '');
-      requestCatalogs();
-    });
-
     return () => {
-      offSettings();
-      offDiagnostics();
-      offViews();
-      offI18n();
-      offChanged();
       offCaptured();
       offPersisted();
       offVisibility();
@@ -644,7 +492,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
 
   // The i18n generation has no other consumer; reading it here is what makes a
   // locale change repaint every translated string.
-  void i18nSeq;
+  void registry.i18nSeq;
 
   const hudOn = (v: ViewRecord): boolean => {
     const override = hudOverride[v.id];

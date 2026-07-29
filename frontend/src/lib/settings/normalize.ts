@@ -1,10 +1,23 @@
 // Renderer-side mirror of SettingsStore::Validate.
 //
-// The store is authoritative but answers asynchronously, while the pane commits
-// optimistically so conditions and modified dots update on the click frame. If
-// the local model held the raw pre-clamp value, `sameValue` would see the
-// store's echo as an external writer and tear the pane down mid-edit — so
-// normalise exactly as native does and the echo becomes a no-op.
+// The invariant this exists to serve: the store is authoritative but answers
+// asynchronously, while the pane commits optimistically so conditions and
+// modified dots update on the click frame. If the local model held a value the
+// store would go on to clamp, `sameValue` would read the store's echo as an
+// external writer and tear the pane down mid-edit.
+//
+// The settings pane does NOT reach that invariant through this module — no view
+// code calls `normalizeValue`. Each control is built so the value it commits is
+// already canonical: Slider parses by declared type, Stepper snaps and clamps
+// through @lib/settings/stepper, Flags rebuilds the array by filtering the
+// declared options, ColorField gates on HEX_RE, TextField caps at the same
+// maxLength. A NEW control has to uphold that itself; the rule is not enforced
+// centrally. What consumes this file is the dev harness's mock store
+// (devmock/mockbridge.ts), which needs the whole of Validate in one place in
+// order to stand in for native.
+//
+// The constants and `isSetting` below are shared much more widely — see their
+// own docs.
 //
 // Failure mode is refusal, not coercion: a wrong-typed value returns `undefined`
 // here just as `Validate` returns `std::nullopt`. The caller must not send it.

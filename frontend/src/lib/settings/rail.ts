@@ -11,7 +11,7 @@
 // / `ViewsDataPayload['views'][number]`: every field may be absent, since the
 // renderer also runs against harness mocks and older hosts.
 
-import type { SettingsSchema, SettingValue, ViewsDataPayload, SettingsDataPayload } from '@sdk';
+import type { SettingsSchema, SettingValue, ViewsDataPayload } from '@sdk';
 import { railMatches } from './search';
 import { HEALTH_ID } from './diagnostics';
 
@@ -27,13 +27,13 @@ export interface ModRecord {
 /** A `views.data` catalog entry, every field optional but `id`. */
 export type ViewRecord = Partial<ViewsDataPayload['views'][number]> & { id: string };
 
-/**
- * A `settings.data` load-failure record. No longer painted by the rail — the
- * same failures arrive as System Health issues, which can say what they mean
- * and offer actions. Still exported: the type describes a live wire field, and
- * the App maps these records to their health issues for the deep link.
- */
-export type LoadError = NonNullable<SettingsDataPayload['loadErrors']>[number];
+// NOTE: `settings.data` still carries `loadErrors`, and nothing in this view
+// reads it. Those same failures arrive as System Health issues, which carry
+// severity, an occurrence count and actions where a load-error record could only
+// ever state a filename; the App ignores the field deliberately rather than
+// double-reporting (see its `settings.data` handler). There was a `LoadError`
+// alias here for the wire shape — it had no callers once the rail stopped
+// painting the alert, so it went with them.
 
 /** Re-exported so rail consumers need only one import for the pinned ids. */
 export { HEALTH_ID } from './diagnostics';
@@ -100,8 +100,6 @@ export function findEntry(
 ): RailEntry | undefined {
   return railEntries(mods, views).find((e) => e.id === id);
 }
-
-export { railMatches } from './search';
 
 /**
  * One painted element of the rail, in order. Modelled as data so rendering and

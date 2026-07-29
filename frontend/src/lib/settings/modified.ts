@@ -128,7 +128,8 @@ export interface SessionChange {
 
 /**
  * Everything changed since the baseline was taken — feeds both the undo chip's
- * count and the revert panel's list.
+ * count (as `.length`; the App needs the list anyway to render the panel, so
+ * there is no count-only entry point) and the revert panel's list.
  *
  * A baseline entry whose mod is no longer loaded is skipped, not reported: a mod
  * that unregistered mid-visit has nothing to revert into.
@@ -147,9 +148,4 @@ export function sessionDiff(baseline: Baseline, mods: ModRecord[]): SessionChang
     }
   }
   return changes;
-}
-
-/** The undo chip's number. */
-export function sessionChangeCount(baseline: Baseline, mods: ModRecord[]): number {
-  return sessionDiff(baseline, mods).length;
 }

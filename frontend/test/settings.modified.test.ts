@@ -7,7 +7,6 @@ import {
   isModified,
   modifiedCount,
   sameValue,
-  sessionChangeCount,
   sessionDiff,
 } from '@lib/settings/modified';
 
@@ -129,14 +128,14 @@ describe('modifiedCount', () => {
   });
 });
 
-describe('sessionDiff / sessionChangeCount', () => {
+describe('sessionDiff', () => {
   it('reports only keys that actually differ from the baseline', () => {
     const mods = [mod({ values: { on: false, level: 5, tags: ['a'] } })];
     const baseline: Baseline = { 'acme.demo': { on: true, level: 5, tags: ['a'] } };
     const changes = sessionDiff(baseline, mods);
     expect(changes.map((c) => c.key)).toEqual(['on']);
     expect(changes[0]).toMatchObject({ modId: 'acme.demo', old: true, now: false });
-    expect(sessionChangeCount(baseline, mods)).toBe(1);
+    expect(changes).toHaveLength(1); // the undo chip's number is just .length
   });
 
   it('does NOT report a flags array that is structurally unchanged', () => {
@@ -155,7 +154,6 @@ describe('sessionDiff / sessionChangeCount', () => {
   it('SKIPS a baseline entry whose mod is no longer loaded', () => {
     const baseline: Baseline = { 'gone.mod': { k: 1 } };
     expect(sessionDiff(baseline, [mod()])).toEqual([]);
-    expect(sessionChangeCount(baseline, [mod()])).toBe(0);
   });
 
   it('carries the mod record for the revert panel caption', () => {

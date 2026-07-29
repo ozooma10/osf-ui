@@ -126,13 +126,16 @@ export function saveStateAbandon(state: SaveState, modId: string): SaveTransitio
   };
 }
 
-/** The fade timer firing: drop "visible" and "done" together. `label` is untouched. */
+/**
+ * The fade timer firing: drop "visible" and "done" together. `label` is
+ * untouched, so the hidden element still reads "Saved" underneath — same quirk
+ * as `saveStateAbandon`, and for the same reason: the label is only ever seen
+ * through the classes.
+ *
+ * Unlike the three transitions above this returns a bare state, because a timer
+ * firing can neither cancel nor arm another one.
+ */
 export function saveStateFaded(state: SaveState): SaveState {
   if (!state.classes.length) return state;
   return { ...state, classes: [] };
-}
-
-/** Is the indicator on screen? */
-export function isSaveStateVisible(state: SaveState): boolean {
-  return state.classes.includes('visible');
 }

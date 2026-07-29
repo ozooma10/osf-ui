@@ -41,16 +41,24 @@ import type { CaptureTarget } from './useCapture';
 import { devWarn } from './warn';
 import { OPEN_COOLDOWN_MS } from './openCooldown';
 
+// The three key/anchor builders below are private to this file. `groupKey`'s
+// FORMAT is not, though: App.tsx mints the same `<modId>::g<index>` string by
+// hand when a search jump has to expand the group it lands in, because it works
+// from the schema rather than from a rendered Group. Changing the shape here
+// means changing it there.
+
 /** The anchor a section-index button jumps to. */
-export function groupSlug(label: string): string {
+function groupSlug(label: string): string {
   return 'grp-' + label.toLowerCase().replace(/\s+/g, '-');
 }
 
 /** Stable identity for a group's collapse state. */
-export function groupKey(ownerId: string, index: number): string {
+function groupKey(ownerId: string, index: number): string {
   return `${ownerId}::g${index}`;
 }
-export function surfacesKey(ownerId: string): string {
+
+/** The surfaces section's collapse identity — never collides with a group's. */
+function surfacesKey(ownerId: string): string {
   return `${ownerId}::surfaces`;
 }
 
@@ -169,7 +177,7 @@ export function Detail(props: DetailProps) {
   );
 }
 
-// Mode 4: a mod that registered views but no settings schema.
+// Mode 5: a mod that registered views but no settings schema.
 function ViewOnly(props: DetailProps & { entry: NonNullable<ReturnType<typeof findEntry>> }) {
   const { entry, tr } = props;
   // Same lead-view rule as the rail title: prefer a menu, which reads like a
@@ -196,7 +204,7 @@ function ViewOnly(props: DetailProps & { entry: NonNullable<ReturnType<typeof fi
   );
 }
 
-// Mode 5: the settings page.
+// Mode 6: the settings page.
 interface SettingsPageProps extends DetailProps {
   mod: ModRecord;
   entryViews: ViewRecord[];

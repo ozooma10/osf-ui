@@ -89,21 +89,24 @@ describe('railMatches', () => {
 });
 
 describe('searchResults — cross-mod scan', () => {
-  it('matches a setting label and builds a "mod › group" breadcrumb', () => {
+  it('matches a setting label and carries the mod/group crumb parts', () => {
     const hits = searchResults([demo, other], 'afterburner');
     expect(hits).toHaveLength(1);
     expect(hits[0]).toMatchObject({
       modId: 'acme.demo',
+      modTitle: 'Ship Works',
       key: 'boost',
       label: 'Afterburner',
       groupLabel: 'Flight',
-      breadcrumb: 'Ship Works › Flight',
     });
   });
 
-  it('drops the separator for an unlabelled group', () => {
+  // The view paints the "›" separator only when there is a group label to put
+  // after it, so an unlabelled group has to be reported as "" rather than
+  // omitted or filled in.
+  it('reports an unlabelled group as an empty groupLabel', () => {
     const hits = searchResults([demo], 'fuel');
-    expect(hits[0]?.breadcrumb).toBe('Ship Works');
+    expect(hits[0]?.modTitle).toBe('Ship Works');
     expect(hits[0]?.groupLabel).toBe('');
   });
 

@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   SAVE_FADE_MS,
   initialSaveState,
-  isSaveStateVisible,
   saveStateAbandon,
   saveStateFaded,
   saveStatePending,
@@ -12,13 +11,21 @@ import {
 
 const pendingIds = (s: SaveState): string[] => [...s.pending].sort();
 
+/**
+ * Is the indicator on screen? A local helper rather than a lib export: "visible"
+ * is a class the stylesheet acts on, and the component asks that question by
+ * rendering `save.classes`, never by calling a predicate. Kept here because
+ * these cases read better for it.
+ */
+const isVisible = (s: SaveState): boolean => s.classes.includes('visible');
+
 describe('saveStatePending', () => {
   it('marks the mod and shows "Saving…"', () => {
     const out = saveStatePending(initialSaveState, 'acme.atlas');
     expect(pendingIds(out.state)).toEqual(['acme.atlas']);
     expect(out.state.label).toBe('saving');
     expect(out.state.classes).toEqual(['visible']);
-    expect(isSaveStateVisible(out.state)).toBe(true);
+    expect(isVisible(out.state)).toBe(true);
   });
 
   it('cancels an armed fade and drops "done"', () => {
@@ -65,7 +72,7 @@ describe('saveStatePersisted', () => {
     // fade (or an abandon) hides it.
     const s = saveStatePending(initialSaveState, 'a').state;
     const out = saveStatePersisted(s, 'a');
-    expect(isSaveStateVisible(out.state)).toBe(true);
+    expect(isVisible(out.state)).toBe(true);
     expect(out.state.classes).toContain('visible');
     expect(out.state.classes).toContain('done');
   });
@@ -92,7 +99,7 @@ describe('saveStatePersisted', () => {
     s = saveStatePersisted(s, 'a').state;
     s = saveStateFaded(s);
     expect(s.classes).toEqual([]);
-    expect(isSaveStateVisible(s)).toBe(false);
+    expect(isVisible(s)).toBe(false);
     // The label is not reset — the fade only clears classes.
     expect(s.label).toBe('saved');
   });
@@ -104,7 +111,7 @@ describe('saveStateAbandon', () => {
     const out = saveStateAbandon(s, 'a');
     expect(pendingIds(out.state)).toEqual([]);
     expect(out.state.classes).toEqual([]);
-    expect(isSaveStateVisible(out.state)).toBe(false);
+    expect(isVisible(out.state)).toBe(false);
   });
 
   it('leaves the stale "Saving…" label in place under the hidden element', () => {
@@ -125,7 +132,7 @@ describe('saveStateAbandon', () => {
     s = saveStatePending(s, 'b').state;
     const out = saveStateAbandon(s, 'a');
     expect(pendingIds(out.state)).toEqual(['b']);
-    expect(isSaveStateVisible(out.state)).toBe(true);
+    expect(isVisible(out.state)).toBe(true);
   });
 
   it('drops the entry so a later persisted push finds nothing', () => {
