@@ -27,6 +27,12 @@ namespace OSFUI::DevViewFiles
 		}
 	}  // namespace
 
+	std::string ModFolder(std::string_view a_viewId)
+	{
+		const auto slash = a_viewId.find('/');
+		return std::string(slash == std::string_view::npos ? a_viewId : a_viewId.substr(0, slash));
+	}
+
 	std::optional<std::uint64_t> Fingerprint(const std::filesystem::path& a_viewDir)
 	{
 		std::error_code ec;
@@ -45,7 +51,9 @@ namespace OSFUI::DevViewFiles
 				continue;
 			}
 			const auto relative = it->path().lexically_relative(a_viewDir).generic_string();
-			if (relative == "manifest.json")
+			// Any depth: the scope is the mod folder, so every view's manifest
+			// sits one level down. Manifest edits stay restart-only.
+			if (it->path().filename() == "manifest.json")
 				continue;
 			const auto size = it->file_size(ec);
 			if (ec)

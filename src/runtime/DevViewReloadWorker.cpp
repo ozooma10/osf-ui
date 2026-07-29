@@ -63,7 +63,12 @@ namespace OSFUI
 			std::unordered_set<std::string> watched;
 			for (const auto& target : targets) {
 				watched.insert(target.id);
-				const auto fingerprint = DevViewFiles::Fingerprint(_viewsRoot / target.id);
+				// Mod scope, not view scope: the hashed bundles the entry HTML
+				// points at live in views/<modId>/assets/, and settling on the
+				// view folder alone would fire the reload while that sibling
+				// was still being written.
+				const auto fingerprint =
+					DevViewFiles::Fingerprint(_viewsRoot / DevViewFiles::ModFolder(target.id));
 				if (!fingerprint)
 					continue;
 				auto& state = _states[target.id];

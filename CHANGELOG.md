@@ -64,6 +64,8 @@
 
 ### For view authors
 
+- Papyrus menu projects from `npm create osfui@latest` now get a concise README focused on building, packaging, browser debugging, and in-game F11/F12 debugging instead of a long walkthrough of the generated backend and toolchain internals.
+
 - Papyrus projects from `npm create osfui@latest` are now complete, reproducible Starfield mods instead of loose scripts that silently do nothing without a plugin record. The scaffold includes Spriggit source for a Start Game Enabled quest and player alias, and ordinary `build`, `package`, and `dev:game` runs regenerate the ESM and compile fresh PEX files before copying the view. `doctor` now checks Spriggit CLI, Creation Kit's Papyrus compiler and source archive, and the pinned OSF UI compiler API, reports exact missing prerequisites, and supports nonstandard install paths through the ignored local project settings.
 
 - `@osfui/cli` builds now keep every generated JavaScript and CSS bundle under `views/<modId>/assets/` and no longer copy OSF UI's own `views/shared/` kit into dependent mods. Packages made by different view authors therefore stop competing for generic asset paths or overwriting the framework-matched shared helper and styles through mod-manager file priority.
