@@ -1922,6 +1922,13 @@ namespace OSFUI
 			[this] { EnqueueMenuRequest(MenuReq::Back); });
 	}
 
+	void Runtime::NotifyPlayerCloseRequest()
+	{
+		if (_renderer) {
+			_renderer->NotifyPlayerCloseRequest();
+		}
+	}
+
 	bool Runtime::OnHostKey(std::uint32_t a_vkCode, bool a_down)
 	{
 		// Key-rebind capture (armed by settings.captureKey). Grab the next key

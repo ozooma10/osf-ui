@@ -285,6 +285,14 @@ namespace OSFUI
 			bool /*a_captured*/,
 			bool /*a_captureArmed*/, std::uint32_t /*a_captureUpVk*/) {}
 
+		// The game window received a player-initiated close (WM_CLOSE, an
+		// SC_CLOSE system command, or session end). Starfield's forced teardown
+		// routinely exits with a non-zero process status, so out-of-process
+		// backends forward this to their host, which then treats the exit that
+		// follows as intentional instead of offering its crash-report prompt.
+		// Called on the window-message thread; must be thread-safe.
+		virtual void NotifyPlayerCloseRequest() {}
+
 		// Announces (or replaces) the renderer's GPU shared-texture ring, on the
 		// game thread (drained from Update()). The runtime forwards it to the
 		// compositor, which owns the handles from then on — see SharedRingDesc.

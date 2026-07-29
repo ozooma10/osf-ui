@@ -564,6 +564,12 @@ namespace osfui::wv2
 			std::string      byeReason;  // overrides the default bye reason (STA thread only)
 			bool             gameExitedUnexpectedly{ false };
 			DWORD            gameExitCode{ 0 };
+			// Tick of the last player-initiated close the game-side WndProc hook
+			// reported (playerCloseRequest); 0 = never. Written by the reader
+			// thread, read on the STA thread when deciding whether a non-zero
+			// game exit deserves the crash prompt.
+			std::atomic<std::uint64_t> playerCloseRequestedAt{ 0 };
+			std::uint64_t    gameExitedAt{ 0 };  // STA thread; tick when the exit was observed
 			std::filesystem::file_time_type sessionStarted{
 				std::filesystem::file_time_type::clock::now() };
 			std::string crashActiveViewId;
@@ -748,6 +754,17 @@ namespace osfui::wv2
 					json parsed = json::parse(payload, nullptr, false);
 					if (parsed.is_discarded()) {
 						log.Warn("dropping unparseable pipe message");
+						continue;
+					}
+					if (parsed.value("type", "") == "playerCloseRequest") {
+						// Handled here rather than in DrainCommands: the STA loop
+						// stops draining the instant the game process handle
+						// signals, and this message exists precisely to explain
+						// that exit. GetTickCount64 could be 0 only in the first
+						// millisecond of system uptime; clamp so 0 stays "never".
+						playerCloseRequestedAt.store(
+							std::max<std::uint64_t>(::GetTickCount64(), 1));
+						log.Info("game window received a player close request");
 						continue;
 					}
 					{
@@ -3327,6 +3344,7 @@ namespace osfui::wv2
 							return false;
 						}
 						gameExitCode = code;
+						gameExitedAt = ::GetTickCount64();
 						// Some intentional game exits (notably the `qqq` console
 						// command) use a non-zero process status. The helper exists to
 						// catch the common crash-while-opening-OSF-UI failure, so require
@@ -3410,7 +3428,26 @@ namespace osfui::wv2
 				if (reader.joinable()) reader.join();
 				log.Info(std::format("host exiting (code {})", exitCode));
 				if (gameExitedUnexpectedly) {
-					PromptCrashReport(options, gameExitCode, log, sessionStarted, crashActiveViewId);
+					// A close the player asked for (taskbar "Close window",
+					// title-bar X, Alt+F4, log-off) routinely tears Starfield
+					// down through a path that dies with a non-zero status
+					// (0xC0000005 observed) — not a crash worth prompting over.
+					// Decided here, after the reader thread joined, so the
+					// game's playerCloseRequest pipe message cannot race the
+					// process-exit signal. The grace window keeps a real crash
+					// long after an aborted close from being swallowed, while
+					// still covering a slow teardown or a hung exit the player
+					// finishes off via Task Manager.
+					constexpr std::uint64_t kPlayerCloseGraceMs = 5 * 60 * 1000;
+					const auto closeRequestedAt = playerCloseRequestedAt.load();
+					if (closeRequestedAt != 0 &&
+						gameExitedAt <= closeRequestedAt + kPlayerCloseGraceMs) {
+						log.Info("non-zero game exit followed a player close request — "
+								 "crash prompt suppressed");
+					} else {
+						PromptCrashReport(options, gameExitCode, log, sessionStarted,
+							crashActiveViewId);
+					}
 				}
 				return exitCode;
 			}

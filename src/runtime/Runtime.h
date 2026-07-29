@@ -82,6 +82,13 @@ namespace OSFUI
 		// unhandled so Chromium receives real Win32 keyboard and IME input.
 		bool OnNativeAcceleratorKey(std::uint32_t a_vkCode, bool a_down);
 
+		// Called by the WndProc hook when the game window receives a
+		// player-initiated close (taskbar "Close window", title-bar X, Alt+F4,
+		// log-off). Forwarded to the renderer's host process so the non-zero
+		// exit status Starfield's forced teardown routinely produces is not
+		// offered as a crash report. Runs on the window-message thread.
+		void NotifyPlayerCloseRequest();
+
 		// WndProc hook, one OS text character (WM_CHAR/WM_UNICHAR) as a finished
 		// Unicode scalar value — layout-, dead-key- and AltGr-resolved, surrogate
 		// halves already combined. Routes into the active web view while

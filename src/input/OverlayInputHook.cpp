@@ -182,6 +182,22 @@ namespace OSFUI::OverlayInputHook
 			}
 
 			switch (a_msg) {
+			case WM_CLOSE:
+			case WM_QUERYENDSESSION:
+				// Player-initiated close (taskbar "Close window", title-bar X,
+				// Alt+F4, log-off). Starfield's forced teardown routinely dies
+				// with a non-zero exit status; tell the WebView2 host so it
+				// doesn't offer a crash report for an exit the player asked
+				// for. Never consumed — the game must still see it.
+				runtime.NotifyPlayerCloseRequest();
+				break;
+			case WM_SYSCOMMAND:
+				// The low four wparam bits are system-internal (per the
+				// WM_SYSCOMMAND docs); mask before comparing.
+				if ((a_wparam & 0xFFF0) == SC_CLOSE) {
+					runtime.NotifyPlayerCloseRequest();
+				}
+				break;
 			case kRefreshInputStateMessage:
 				// The capture/cursor edge was already reconciled above.
 				return 0;

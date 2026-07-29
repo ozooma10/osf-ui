@@ -1505,6 +1505,14 @@ namespace OSFUI
 		}
 	}
 
+	void WebView2HostWebRenderer::NotifyPlayerCloseRequest()
+	{
+		// No queueing: if the host is not connected yet there is no crash
+		// prompt to suppress, and replaying a stale close request at connect
+		// time could mask a later real crash.
+		_impl->Send(json{ { "type", "playerCloseRequest" } });
+	}
+
 	void WebView2HostWebRenderer::InjectKeyEvent(std::uint32_t a_vkCode, bool a_down)
 	{
 		// Dispatched into the active page as a DOM KeyboardEvent by the host shim.
