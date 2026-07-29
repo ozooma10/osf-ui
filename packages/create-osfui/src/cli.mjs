@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
-import { createInterface } from 'node:readline/promises';
-import { stdin, stdout } from 'node:process';
 import { spawn } from 'node:child_process';
-
-const ID = /^[a-z0-9-]+$/;
-const MOD_ID = /^(?:[a-z0-9-]+)\.(?:[a-z0-9-]+)$/;
+import {
+  finishPrompt,
+  ID,
+  MOD_ID,
+  promptMissing,
+  PromptCancelledError,
+  slug,
+} from './prompts.mjs';
 
 function parse(argv) {
   const result = { _: [] };
@@ -20,34 +23,6 @@ function parse(argv) {
     }
   }
   return result;
-}
-
-const slug = (value) => value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'my-view';
-
-async function promptMissing(options) {
-  const interactive = !options.yes && stdin.isTTY;
-  const rl = interactive ? createInterface({ input: stdin, output: stdout }) : null;
-  try {
-    options.directory ||= interactive
-      ? await rl.question('Project directory (my-osfui-view): ') || 'my-osfui-view'
-      : 'my-osfui-view';
-    const projectName = slug(basename(resolve(options.directory)));
-    options.modId ||= interactive
-      ? await rl.question(`Mod ID (yourname.${projectName}): `) || `yourname.${projectName}`
-      : `yourname.${projectName}`;
-    options.view ||= interactive ? await rl.question('View ID (main): ') || 'main' : 'main';
-    options.template ||= interactive
-      ? await rl.question('Template, preact or vanilla (preact): ') || 'preact'
-      : 'preact';
-    options.surface ||= interactive
-      ? await rl.question('Surface, menu or hud (menu): ') || 'menu'
-      : 'menu';
-    options.integration ||= interactive
-      ? await rl.question('Workflow, papyrus/native/settings/static (papyrus): ') || 'papyrus'
-      : 'papyrus';
-  } finally {
-    rl?.close();
-  }
 }
 
 function validate(options) {
@@ -264,15 +239,20 @@ async function main() {
     return;
   }
   options.directory = options._[0];
-  await promptMissing(options);
+  const interactive = await promptMissing(options);
   validate(options);
   const root = await scaffold(options);
-  console.log(`\nCreated ${root}`);
   if (!options.noInstall) await install(root);
-  console.log(`\nNext:\n  cd ${options.directory}\n  npm run dev`);
+  const next = root === process.cwd()
+    ? 'npm run dev'
+    : `cd ${options.directory}\n  npm run dev`;
+  const result = `Created ${root}\n\nNext:\n  ${next}`;
+  if (interactive) finishPrompt(result);
+  else console.log(`\n${result}`);
 }
 
 main().catch((error) => {
+  if (error instanceof PromptCancelledError) return;
   console.error(`create-osfui: ${error.message}`);
   process.exitCode = 1;
 });

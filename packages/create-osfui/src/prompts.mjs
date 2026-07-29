@@ -1,0 +1,100 @@
+import * as prompts from '@clack/prompts';
+import { cwd, stdin, stdout } from 'node:process';
+import { basename, resolve } from 'node:path';
+
+export const ID = /^[a-z0-9-]+$/;
+export const MOD_ID = /^(?:[a-z0-9-]+)\.(?:[a-z0-9-]+)$/;
+
+export const CHOICES = {
+  template: [
+    { value: 'preact', label: 'Preact', hint: 'recommended for interactive views' },
+    { value: 'vanilla', label: 'Vanilla TypeScript', hint: 'no UI framework' },
+  ],
+  surface: [
+    { value: 'menu', label: 'Menu', hint: 'a focused screen with user input' },
+    { value: 'hud', label: 'HUD', hint: 'an overlay shown during gameplay' },
+  ],
+  integration: [
+    { value: 'papyrus', label: 'Papyrus', hint: 'send requests to Papyrus scripts' },
+    { value: 'native', label: 'Native plugin', hint: 'call your SFSE plugin bridge' },
+    { value: 'settings', label: 'Mod Settings', hint: 'read values from OSF UI settings' },
+    { value: 'static', label: 'Static', hint: 'display-only, with no native bridge' },
+  ],
+};
+
+export class PromptCancelledError extends Error {}
+
+function answer(prompt, value) {
+  if (!prompt.isCancel(value)) return value;
+  prompt.cancel('Operation cancelled.');
+  throw new PromptCancelledError();
+}
+
+export const slug = (value) =>
+  value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'my-view';
+
+function fillDefaults(options) {
+  options.directory ||= cwd();
+  const projectName = slug(basename(resolve(options.directory)));
+  options.modId ||= `yourname.${projectName}`;
+  options.view ||= 'main';
+  options.template ||= 'preact';
+  options.surface ||= 'menu';
+  options.integration ||= 'papyrus';
+}
+
+export async function promptMissing(
+  options,
+  prompt = prompts,
+  terminal = { input: stdin, output: stdout },
+) {
+  const interactive = !options.yes && terminal.input.isTTY && terminal.output.isTTY;
+  if (!interactive) {
+    fillDefaults(options);
+    return false;
+  }
+
+  prompt.intro('Create an OSF UI view');
+  options.directory ||= cwd();
+
+  const projectName = slug(basename(resolve(options.directory)));
+  options.modId ||= answer(prompt, await prompt.text({
+    message: 'Mod ID (for example, yourname.my-mod)',
+    defaultValue: `yourname.${projectName}`,
+    validate: (value) => MOD_ID.test(value)
+      ? undefined
+      : 'Use lowercase author.mod-name format.',
+  }));
+
+  options.view ||= answer(prompt, await prompt.text({
+    message: 'View ID (for example, main)',
+    defaultValue: 'main',
+    validate: (value) => ID.test(value)
+      ? undefined
+      : 'Use lowercase letters, numbers, and hyphens.',
+  }));
+
+  options.template ||= answer(prompt, await prompt.select({
+    message: 'Choose a framework',
+    options: CHOICES.template,
+    initialValue: 'preact',
+  }));
+
+  options.surface ||= answer(prompt, await prompt.select({
+    message: 'Choose a surface',
+    options: CHOICES.surface,
+    initialValue: 'menu',
+  }));
+
+  options.integration ||= answer(prompt, await prompt.select({
+    message: 'Choose a starting workflow',
+    options: CHOICES.integration,
+    initialValue: 'papyrus',
+  }));
+
+  return true;
+}
+
+export function finishPrompt(message, prompt = prompts) {
+  prompt.outro(message);
+}
