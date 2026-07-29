@@ -1,6 +1,6 @@
 import { rmSync } from 'node:fs';
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { basename, resolve } from 'node:path';
+import { basename, isAbsolute, relative, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { stdin, stdout } from 'node:process';
 
@@ -53,6 +53,30 @@ export async function deployBuild(project, deployRoot) {
   await cp(project.outDir, deployRoot, { recursive: true });
 }
 
+/**
+ * Mirror only the built view assets (html/js/css and their manifests). A
+ * running Starfield holds the plugin, the compiled scripts, and the native
+ * DLLs open, so a hot reload must never delete or rewrite them.
+ */
+export async function deployViews(project, deployRoot) {
+  const subpath = relative(project.outDir, project.outputViewsRoot);
+  const from = resolve(project.outputViewsRoot, project.modId);
+  const to = resolve(deployRoot, subpath, project.modId);
+  await rm(to, { recursive: true, force: true });
+  await mkdir(resolve(to, '..'), { recursive: true });
+  await cp(from, to, { recursive: true });
+}
+
+function within(root, path) {
+  const child = relative(root, path);
+  return !isAbsolute(child) && !child.startsWith('..');
+}
+
+/** True when the error is the running game holding a deployed file open. */
+function isLocked(error) {
+  return error?.code === 'EBUSY' || error?.code === 'EPERM' || error?.code === 'EACCES';
+}
+
 export async function startGameSync(project, server, options = {}) {
   const deployRoot = await configuredDeployRoot(project, options.deploy);
   const osfuiRoot = resolve(deployRoot, 'SFSE/Plugins/OSFUI');
@@ -68,15 +92,45 @@ export async function startGameSync(project, server, options = {}) {
   };
   await enableAuthorMode();
 
+  const nativeInputs = [
+    project.modRoot,
+    ...(project.papyrus ? [project.papyrus.sourceDir] : []),
+  ];
   let building = false;
   let pending = false;
+  let fullDeploy = true;
+  let nativeChanged = false;
   const sync = async () => {
     if (building) { pending = true; return; }
     building = true;
+    const nativeDirty = nativeChanged;
+    nativeChanged = false;
     try {
       await buildPapyrus(project);
       await buildProject(project, { quiet: true });
-      await deployBuild(project, deployRoot);
+      if (fullDeploy) {
+        try {
+          await deployBuild(project, deployRoot);
+        } catch (error) {
+          if (!isLocked(error)) throw error;
+          await deployViews(project, deployRoot);
+          console.warn(
+            `[osfui] ${deployRoot} is locked by the running game; deployed view assets only. ` +
+            'Close Starfield and restart osfui dev to deploy the plugin and scripts.',
+          );
+        }
+        fullDeploy = false;
+      } else {
+        // Hot reload touches view assets only: the game keeps the plugin and
+        // the native files open, and rewriting them mid-session fails (EBUSY).
+        await deployViews(project, deployRoot);
+        if (nativeDirty) {
+          console.log(
+            '[osfui] Plugin and script sources changed. Hot reload only updates view assets — ' +
+            'close Starfield and restart osfui dev to deploy them.',
+          );
+        }
+      }
       await enableAuthorMode();
       console.log(`[osfui] Synced ${project.views.length} view(s) to ${deployRoot}`);
       // Re-warn on every sync: a .psc edit triggers this watcher, so the
@@ -92,9 +146,15 @@ export async function startGameSync(project, server, options = {}) {
   await sync();
   server.watcher.add(project.modRoot);
   if (project.papyrus) server.watcher.add(project.papyrus.sourceDir);
-  server.watcher.on('change', sync);
-  server.watcher.on('add', sync);
-  server.watcher.on('unlink', sync);
+  const onWatch = (path) => {
+    if (typeof path === 'string' && nativeInputs.some((root) => within(root, path))) {
+      nativeChanged = true;
+    }
+    void sync();
+  };
+  server.watcher.on('change', onWatch);
+  server.watcher.on('add', onWatch);
+  server.watcher.on('unlink', onWatch);
   const cleanup = async () => {
     try { await rm(marker, { force: true }); } catch {}
   };

@@ -232,9 +232,9 @@ function nativeAppSource(options) {
   const stateType = `${options.modId}.state`;
   const noticeType = `${options.modId}.notice`;
 
-  return `import './style.css';
-import '/shared/osfui.css';
+  return `import '/shared/osfui.css';
 import '/shared/osfui.js';
+import './style.css';
 
 type DemoState = {
   count: number;
@@ -251,14 +251,16 @@ type Greeting = {
 
 const app = document.querySelector('#app');
 if (!(app instanceof HTMLElement)) throw new Error('Missing #app element');
-app.innerHTML = '<main class="card"><p class="eyebrow">${options.surface.toUpperCase()} · NATIVE BRIDGE</p>' +
+// The osf-* classes come from /shared/osfui.css and carry the hover, press,
+// focus, and disabled states — plain <button>/<input> get none of them.
+app.innerHTML = '<main class="card osf-card"><p class="osf-eyebrow">${options.surface.toUpperCase()} · NATIVE BRIDGE</p>' +
   '<h1>C++ ↔ JavaScript</h1><p>One generated project showing commands, requests, pushes, settings, and callbacks.</p>' +
-  '<section class="state"><span>Native count</span><strong id="count">—</strong>' +
+  '<section class="state"><span class="osf-eyebrow">Native count</span><strong id="count">—</strong>' +
   '<small id="last-action">Waiting for C++ state…</small><small id="features"></small></section>' +
-  '<div class="actions"><button id="increment">Send command to C++</button></div>' +
-  '<form id="greeting"><input id="name" value="Explorer" aria-label="Name">' +
-  '<label><input id="excited" type="checkbox" checked> Enthusiastic</label>' +
-  '<button type="submit">Call C++ and await reply</button></form>' +
+  '<div class="actions"><button class="osf-btn osf-btn--osf-accent" id="increment">Send command to C++</button></div>' +
+  '<form id="greeting"><input class="osf-input" id="name" value="Explorer" aria-label="Name">' +
+  '<label><input class="osf-flag-box" id="excited" type="checkbox" checked> Enthusiastic</label>' +
+  '<button class="osf-btn" type="submit">Call C++ and await reply</button></form>' +
   '<output id="status">Waiting for OSF UI…</output></main>';
 
 function requiredElement<T extends Element>(selector: string, kind: { new(): T }): T {
@@ -585,20 +587,22 @@ function appSource(options) {
   if (options.surface === 'hud') return hudAppSource(options);
   if (options.integration === 'native') return nativeAppSource(options);
 
-  return `import './style.css';
-import '/shared/osfui.css';
+  return `import '/shared/osfui.css';
 import '/shared/osfui.js';
+import './style.css';
 
 const app = document.querySelector('#app');
 if (!(app instanceof HTMLElement)) throw new Error('Missing #app element');
-app.innerHTML = '<main class="card"><p class="eyebrow">${options.surface.toUpperCase()} · PAPYRUS BRIDGE</p>' +
+// The osf-* classes come from /shared/osfui.css and carry the hover, press,
+// focus, and disabled states — plain <button>/<input> get none of them.
+app.innerHTML = '<main class="card osf-card"><p class="osf-eyebrow">${options.surface.toUpperCase()} · PAPYRUS BRIDGE</p>' +
   '<h1>Papyrus ↔ JavaScript</h1><p>Published state, one-way actions, and awaited requests.</p>' +
-  '<section class="state"><span>Clicks</span><strong id="clicks">—</strong>' +
+  '<section class="state"><span class="osf-eyebrow">Clicks</span><strong id="clicks">—</strong>' +
   '<small id="greeting">Waiting for Papyrus state…</small></section>' +
-  '<div class="actions"><button id="bump">Send action to Papyrus</button>' +
-  '<button id="settings">Open Mod Settings</button></div>' +
-  '<form id="greet"><input id="name" value="Explorer" aria-label="Name">' +
-  '<button type="submit">Ask Papyrus and await the reply</button></form>' +
+  '<div class="actions"><button class="osf-btn osf-btn--osf-accent" id="bump">Send action to Papyrus</button>' +
+  '<button class="osf-btn" id="settings">Open Mod Settings</button></div>' +
+  '<form id="greet"><input class="osf-input" id="name" value="Explorer" aria-label="Name">' +
+  '<button class="osf-btn" type="submit">Ask Papyrus and await the reply</button></form>' +
   '<output id="status">Waiting for OSF UI…</output></main>';
 
 function requiredElement<T extends Element>(selector: string, kind: { new(): T }): T {
@@ -719,24 +723,42 @@ body { margin: 0; overflow: hidden; background: transparent; pointer-events: non
 `;
   }
 
-  return `:root { font-family: system-ui, sans-serif; color: #eef7fb; background: transparent; }
-* { box-sizing: border-box; }
-body { margin: 0; min-height: 100vh; display: grid; place-items: center; }
-.card { width: min(640px, 86vw); padding: 32px; background: rgba(8, 19, 27, .94); border: 1px solid #5aa8c7; }
-h1 { margin: 4px 0 8px; }
-p { color: #b8cbd4; }
-.eyebrow { margin: 0; color: #7bdcff; letter-spacing: .18em; }
-.state { display: grid; gap: 6px; margin: 22px 0; padding: 18px; background: rgba(90, 168, 199, .1); }
-.state span { color: #7bdcff; text-transform: uppercase; letter-spacing: .12em; }
-.state strong { font-size: 42px; }
-.state small { color: #a9dced; }
-.actions, form { display: flex; gap: 10px; margin-top: 12px; }
-form { align-items: center; flex-wrap: wrap; }
-input { padding: 10px; color: inherit; background: #101f27; border: 1px solid #426779; }
-label { display: flex; align-items: center; gap: 5px; }
-button { padding: 10px 16px; color: inherit; background: #173747; border: 1px solid #5aa8c7; cursor: pointer; }
-button:disabled { cursor: not-allowed; opacity: .45; }
-output { display: block; min-height: 24px; margin-top: 18px; color: #a9dced; overflow-wrap: anywhere; }
+  return `/* View-specific LAYOUT only. The look — palette, type, and every
+   interactive state (hover, press, focus, disabled) — comes from
+   /shared/osfui.css, which main.ts imports before this file. Reach for
+   the osf-* kit classes (osf-card, osf-btn, osf-input, osf-eyebrow)
+   instead of restyling bare elements: a local "button { background: ... }"
+   silently overrides the kit and leaves the control feeling dead. */
+body { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+.card { width: min(640px, 86vw); padding: 32px; }
+.card h1 { margin: 6px 0 8px; font-size: var(--osf-text-3xl); }
+.card > p { margin: 0; color: var(--osf-text-muted); }
+.state {
+  display: grid;
+  gap: 6px;
+  margin: 22px 0;
+  padding: 18px;
+  background: var(--osf-accent-quiet);
+  border: 1px solid var(--osf-line);
+}
+.state strong {
+  font-family: var(--osf-font-display);
+  font-size: 42px;
+  line-height: 1;
+  color: var(--osf-text-bright);
+}
+.state small { color: var(--osf-accent-hover); }
+.actions, form { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+label { display: flex; align-items: center; gap: 8px; color: var(--osf-text-muted); }
+output {
+  display: block;
+  min-height: 24px;
+  margin-top: 18px;
+  font-family: var(--osf-font-mono);
+  font-size: var(--osf-text-xs);
+  color: var(--osf-text-muted);
+  overflow-wrap: anywhere;
+}
 `;
 }
 

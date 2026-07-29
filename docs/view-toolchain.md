@@ -49,14 +49,21 @@ npm run dev:game -- --deploy "C:\path\to\MO2\mods"
 The first run asks for MO2's `mods` directory and remembers it locally. It
 creates a child mod folder matching the project directory name, then places the
 generated `SFSE/` tree inside it. You can also supply `--deploy` as shown above.
-The command keeps the browser harness running, rebuilds and syncs this
-project's views and backend after saves, and writes an expiring author-mode
-marker beside OSF UI's `config.json`.
+The command keeps the browser harness running, deploys this project's views and
+backend once at startup, and writes an expiring author-mode marker beside OSF
+UI's `config.json`.
 
 Start Starfield while the command is running. Author mode is active without
 editing player configuration: F11 reloads the open view and F12 opens WebView2
 DevTools. Stopping the command removes the marker; the runtime ignores markers
 older than twelve hours after an interrupted session.
+
+After that first deployment, saves only re-sync the view assets. Starfield keeps
+the plugin, the compiled scripts, and the native files open for the whole
+session, so rewriting them mid-session fails; the command says so and leaves the
+deployed copies alone. Close the game and restart the command to deploy a
+Papyrus or backend change. Starting the command while the game already runs
+works the same way: it deploys the views and warns that the rest is locked.
 
 To remember the deployment directory, create the ignored local file
 `.osfui/local.json`:

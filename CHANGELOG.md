@@ -26,6 +26,8 @@
 
 ### Fixed
 
+- `osfui dev --game` no longer fails with `EBUSY` once Starfield is running. Every save used to redeploy the whole mod folder, including the plugin, the compiled scripts, and the native files the game holds open for its entire session. After the initial deployment, a save now re-syncs only the built view assets; a change to the Papyrus or backend sources is built locally and reported with a note that the game must be restarted to deploy it. Starting the command while the game already runs deploys the views and warns that the rest is locked, instead of aborting the sync.
+
 - Mouse-wheel scrolling in the interactive UI now scrolls whatever sits under the visible cursor and moves a consistent distance everywhere. Wheel input used to be injected at a cached pointer position that could go stale and park in a screen corner — leaving scrolling dead or seemingly tied to which element was hovered — and the embedded browser's percent-based scrolling additionally made the distance per notch depend on the height of the hovered scroll area. The wheel now samples the live cursor position at injection time, and percent-based scrolling is disabled while the smooth scroll animation is kept.
 
 - In-world Web UI surfaces now sample browser pixels as sRGB, matching Starfield's display textures instead of treating encoded colors as linear data. This restores contrast and prevents pages from looking severely washed out on emissive screens. Binding also requires the exact typeless BGRA resource format produced by the verified placeholder DDS path, so an unrelated plain texture that merely shares its unusual dimensions is no longer eligible for capture.

@@ -243,7 +243,11 @@ code, pre, kbd, samp { font-family: var(--osf-font-mono); }
 }
 
 /* ------------------------------------------------------------
-   Buttons — uppercase; hover inverts to white like the game menus
+   Buttons — uppercase; hover inverts to white like the game menus,
+   and the press dims that inversion to steel so a click always
+   reads even when the pointer never moved (:hover is already on).
+   Interaction states are guarded with :not(:disabled) — a disabled
+   control must stay inert, not light up under the cursor.
    ------------------------------------------------------------ */
 .osf-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
@@ -254,17 +258,20 @@ code, pre, kbd, samp { font-family: var(--osf-font-mono); }
   border: 1px solid var(--osf-line-strong); cursor: pointer;
   transition: color var(--osf-dur-fast), background var(--osf-dur-fast), border-color var(--osf-dur-fast);
 }
-.osf-btn:hover { color: var(--osf-void-900); background: var(--osf-bone); border-color: var(--osf-bone); }
-.osf-btn:hover kbd { color: rgba(5, 7, 10, 0.72); border-color: rgba(5, 7, 10, 0.4); background: transparent; }
+.osf-btn:hover:not(:disabled) { color: var(--osf-void-900); background: var(--osf-bone); border-color: var(--osf-bone); }
+.osf-btn:hover:not(:disabled) kbd { color: rgba(5, 7, 10, 0.72); border-color: rgba(5, 7, 10, 0.4); background: transparent; }
+.osf-btn:active:not(:disabled) { color: var(--osf-void-900); background: var(--osf-steel-300); border-color: var(--osf-steel-300); }
 .osf-btn:focus-visible {
   outline: none; border-color: var(--osf-accent);
   box-shadow: 0 0 0 2px var(--osf-void-900), 0 0 0 3px var(--osf-accent);
 }
 .osf-btn--osf-accent { color: var(--osf-void-900); background: var(--osf-accent); border-color: var(--osf-accent); }
-.osf-btn--osf-accent:hover { color: var(--osf-void-900); background: var(--osf-accent-hover); border-color: var(--osf-accent-hover); }
+.osf-btn--osf-accent:hover:not(:disabled) { color: var(--osf-void-900); background: var(--osf-accent-hover); border-color: var(--osf-accent-hover); }
+.osf-btn--osf-accent:active:not(:disabled) { color: var(--osf-bone); background: var(--osf-accent-strong); border-color: var(--osf-accent-strong); }
 .osf-btn--ghost { background: transparent; border-color: var(--osf-line); }
 .osf-btn--danger { color: var(--osf-signal-stop); border-color: rgba(200, 80, 58, 0.5); background: transparent; }
-.osf-btn--danger:hover { color: var(--osf-bone); background: rgba(200, 80, 58, 0.24); border-color: var(--osf-signal-stop); }
+.osf-btn--danger:hover:not(:disabled) { color: var(--osf-bone); background: rgba(200, 80, 58, 0.24); border-color: var(--osf-signal-stop); }
+.osf-btn--danger:active:not(:disabled) { color: var(--osf-bone); background: rgba(200, 80, 58, 0.45); border-color: var(--osf-signal-stop); }
 .osf-btn--sm { height: var(--osf-control-h-sm); padding: 0 12px; font-size: var(--osf-text-2xs); }
 
 /* ------------------------------------------------------------
@@ -279,6 +286,8 @@ code, pre, kbd, samp { font-family: var(--osf-font-mono); }
   cursor: pointer;
   transition: background var(--osf-dur) var(--osf-ease-out), border-color var(--osf-dur);
 }
+.osf-switch:hover:not(:disabled) { border-color: var(--osf-line-bright); }
+.osf-switch:active:not(:disabled)::after { background: var(--osf-bone); }
 .osf-switch::after {
   content: ""; position: absolute; top: 2px; left: 2px;
   width: 16px; height: 16px;
@@ -374,7 +383,8 @@ code, pre, kbd, samp { font-family: var(--osf-font-mono); }
   transition: color var(--osf-dur-fast), background var(--osf-dur-fast);
 }
 .osf-segment:first-child { border-left: 0; }
-.osf-segment:hover { color: var(--osf-void-900); background: var(--osf-bone); }
+.osf-segment:hover:not(:disabled) { color: var(--osf-void-900); background: var(--osf-bone); }
+.osf-segment:active:not(:disabled) { color: var(--osf-void-900); background: var(--osf-steel-300); }
 .osf-segment[aria-pressed="true"] { color: var(--osf-void-900); background: var(--osf-accent); }
 .osf-segment:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--osf-accent); }
 
@@ -416,7 +426,8 @@ code, pre, kbd, samp { font-family: var(--osf-font-mono); }
   color: var(--osf-text-muted); background: transparent; border: 0; cursor: pointer;
   transition: color var(--osf-dur-fast), background var(--osf-dur-fast);
 }
-.osf-stepper-btn:hover { color: var(--osf-void-900); background: var(--osf-bone); }
+.osf-stepper-btn:hover:not(:disabled) { color: var(--osf-void-900); background: var(--osf-bone); }
+.osf-stepper-btn:active:not(:disabled) { color: var(--osf-void-900); background: var(--osf-steel-300); }
 .osf-stepper-btn:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--osf-accent); }
 .osf-stepper-val {
   min-width: 60px; display: flex; align-items: center; justify-content: center;
@@ -439,6 +450,7 @@ code, pre, kbd, samp { font-family: var(--osf-font-mono); }
   border: 1px solid var(--osf-line-strong); cursor: pointer;
 }
 .osf-color-preset:hover { border-color: var(--osf-bone); }
+.osf-color-preset:active { border-color: var(--osf-accent); }
 
 .osf-textarea { width: 260px; height: auto; min-height: 66px; padding: 8px 12px; resize: vertical; line-height: 1.45; }
 

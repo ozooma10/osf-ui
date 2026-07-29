@@ -11,7 +11,7 @@ import { buildProject } from '../src/build.mjs';
 import { checkProject } from '../src/check.mjs';
 import { loadProject, manifestFor } from '../src/config.mjs';
 import { devServerConfig } from '../src/dev.mjs';
-import { deployBuild, deploymentRoot } from '../src/game.mjs';
+import { deployBuild, deployViews, deploymentRoot } from '../src/game.mjs';
 import { harnessPlugin } from '../src/harness-plugin.mjs';
 import { papyrusWarnings } from '../src/papyrus.mjs';
 import { writeZip } from '../src/zip.mjs';
@@ -145,6 +145,29 @@ test('game deployment mirrors the completed build so removed mod files do not li
     await access(resolve(deployRoot, 'SFSE/Plugins/OSFUI/views/acme.widgets/assets'))
       .then(() => true, () => false),
     true,
+  );
+});
+
+test('hot reload deploys view assets without touching the deployed plugin or scripts', async (t) => {
+  const root = await projectFixture(t);
+  const project = await loadProject(root, 'build');
+  const deployRoot = resolve(root, 'deployed');
+  const deployedScript = resolve(deployRoot, 'Scripts/Example.pex');
+  await buildProject(project, { quiet: true });
+  await deployBuild(project, deployRoot);
+  // Stand in for the game rewriting nothing: a hot reload must leave this
+  // file byte-identical, because Starfield holds it open while it runs.
+  await writeFile(deployedScript, 'loaded-by-the-game');
+  await writeFile(
+    resolve(root, 'src/views/acme.widgets/panel/index.html'),
+    '<main>Reloaded</main><script type="module" src="./main.ts"></script>',
+  );
+  await buildProject(project, { quiet: true });
+  await deployViews(project, deployRoot);
+  assert.equal(await readFile(deployedScript, 'utf8'), 'loaded-by-the-game');
+  assert.match(
+    await readFile(resolve(deployRoot, 'SFSE/Plugins/OSFUI/views/acme.widgets/panel/index.html'), 'utf8'),
+    /Reloaded/,
   );
 });
 
