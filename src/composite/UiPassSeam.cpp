@@ -208,7 +208,7 @@ namespace OSFUI::UiPassSeam
 				if (patched && barrierOk && heapsOk) {
 					g_selfTestList = nullptr;
 					g_hookInstallState.store(1, std::memory_order_release);
-					REX::DEBUG("[UiPassSeam] seam draw hooks armed: "
+					REX::INFO("[UiPassSeam] seam draw hooks armed: "
 							   "ID3D12GraphicsCommandList vtable slots {} (barrier) / {} "
 							   "(SetDescriptorHeaps) hooked and self-tested",
 						kSlotResourceBarrier, kSlotSetDescriptorHeaps);
@@ -339,7 +339,7 @@ namespace OSFUI::UiPassSeam
 			a_orig.store(current, std::memory_order_release);
 			*slot = reinterpret_cast<void*>(a_thunk);
 			::VirtualProtect(slot, sizeof(void*), oldProtect, &oldProtect);
-			REX::DEBUG("[UiPassSeam] hooked {} slot 7 "
+			REX::INFO("[UiPassSeam] hooked {} slot 7 "
 					   "(vtbl 0x{:X}, original 0x{:X})",
 				a_label, vtbl.address(), current);
 			return current;
@@ -370,7 +370,7 @@ namespace OSFUI::UiPassSeam
 			REX::ERROR("[UiPassSeam] hook set incomplete — the overlay has no draw path this "
 					   "session. See the per-hook lines above for which slot declined.");
 		} else {
-			REX::DEBUG("[UiPassSeam] seam draw enabled: overlay records into "
+			REX::INFO("[UiPassSeam] seam draw enabled: overlay records into "
 					   "Starfield's transparent UI layer at the ScaleformEnd hand-off");
 		}
 		return ok;

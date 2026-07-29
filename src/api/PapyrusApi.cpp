@@ -383,7 +383,7 @@ namespace OSFUI::API::Papyrus
 			const char* mod = a_mod.c_str();
 			const char* key = a_key.c_str();
 			if (!mod || !*mod || (!a_reset && (!key || !*key))) {
-				REX::WARN("PapyrusApi: Set/Reset with empty mod id (or Set with empty key) ignored");
+				REX::WARN("PapyrusApi: [content] Set/Reset with empty mod id (or Set with empty key) ignored");
 				return;
 			}
 			std::lock_guard l{ s_lock };
@@ -408,7 +408,7 @@ namespace OSFUI::API::Papyrus
 			auto        mod = ToLowerAscii(a_mod.c_str() ? a_mod.c_str() : "");
 			const char* key = a_key.c_str();
 			if (!Ids::IsAcceptedModId(mod) || !key || !*key) {
-				REX::WARN("PapyrusApi: {}('{}', '{}') refused (invalid mod id or empty key)",
+				REX::WARN("PapyrusApi: [content] {}('{}', '{}') refused (invalid mod id or empty key)",
 					a_native, mod.substr(0, 64), key ? std::string_view(key).substr(0, 64) : "");
 				return std::nullopt;
 			}
@@ -509,7 +509,7 @@ namespace OSFUI::API::Papyrus
 			std::uint32_t id = 0;
 			const auto [ptr, ec] = std::from_chars(first, last, id, hex ? 16 : 10);
 			if (ec != std::errc{} || ptr != last || first == last) {
-				REX::WARN("PapyrusApi: GetFormById('{}') is not a form id", a_text.substr(0, 64));
+				REX::WARN("PapyrusApi: [content] GetFormById('{}') is not a form id", a_text.substr(0, 64));
 				return nullptr;
 			}
 			if (auto* form = RE::TESForm::LookupByID(id)) {
@@ -737,7 +737,7 @@ namespace OSFUI::API::Papyrus
 			for (const auto& entry : s_slots) {
 				if (entry.generation && entry.kind == Kind::kRequest &&
 					Ids::EqualsCaseInsensitiveAscii(entry.modId, *modId)) {
-					REX::WARN("PapyrusApi: ListenForViewRequests('{}') refused — first listener wins", *modId);
+					REX::WARN("PapyrusApi: [content] ListenForViewRequests('{}') refused — first listener wins", *modId);
 					return 0;
 				}
 			}
@@ -753,7 +753,7 @@ namespace OSFUI::API::Papyrus
 			for (const auto& entry : s_slots) {
 				if (entry.generation && entry.kind == Kind::kRequest &&
 					Ids::EqualsCaseInsensitiveAscii(entry.modId, *modId)) {
-					REX::WARN("PapyrusApi: ListenForViewRequestsStatic('{}') refused — first listener wins", *modId);
+					REX::WARN("PapyrusApi: [content] ListenForViewRequestsStatic('{}') refused — first listener wins", *modId);
 					return 0;
 				}
 			}
@@ -1215,10 +1215,10 @@ namespace OSFUI::API::Papyrus
 			}
 			if (op.reset) {
 				if (!a_store.Reset(op.mod, op.key)) {
-					REX::WARN("PapyrusApi: Reset {}.{} refused (unknown mod/key)", op.mod, op.key.empty() ? "*" : op.key);
+					REX::WARN("PapyrusApi: [content] Reset {}.{} refused (unknown mod/key)", op.mod, op.key.empty() ? "*" : op.key);
 				}
 			} else if (const auto r = a_store.SetValueWithResult(op.mod, op.key, op.value); !r.ok) {
-				REX::WARN("PapyrusApi: Set {}.{} refused ({})", op.mod, op.key, r.code);
+				REX::WARN("PapyrusApi: [content] Set {}.{} refused ({})", op.mod, op.key, r.code);
 			}
 		}
 	}

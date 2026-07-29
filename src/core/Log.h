@@ -3,6 +3,7 @@
 // Helpers over CommonLibSF's REX logging (initialized by SFSE::Init). Use
 // REX::INFO/WARN/ERROR/DEBUG directly for normal logging; these exist for
 // per-frame code that must warn exactly once instead of spamming.
+// Level/prefix/repetition rules: docs/logging.md.
 
 namespace OSFUI::Log
 {

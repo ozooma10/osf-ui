@@ -36,10 +36,10 @@ namespace OSFUI::ThreadProbe
 			void*     frames[32];
 			const auto n = ::RtlCaptureStackBackTrace(0, 32, frames, nullptr);
 			const auto base = reinterpret_cast<std::uintptr_t>(::GetModuleHandleW(nullptr));
-			REX::INFO("ThreadProbe[{}]: stack ({} frames, Starfield.exe-relative):", a_tag, n);
+			REX::DEBUG("ThreadProbe[{}]: stack ({} frames, Starfield.exe-relative):", a_tag, n);
 			for (unsigned short i = 0; i < n; ++i) {
 				const auto addr = reinterpret_cast<std::uintptr_t>(frames[i]);
-				REX::INFO("    #{:02} Starfield.exe+{:#x}", i, addr - base);
+				REX::DEBUG("    #{:02} Starfield.exe+{:#x}", i, addr - base);
 			}
 		}
 	}
@@ -58,7 +58,7 @@ namespace OSFUI::ThreadProbe
 		const auto    tid = static_cast<std::uint32_t>(::GetCurrentThreadId());
 		std::uint32_t expected = 0;
 		if (g_mainLoopTid.compare_exchange_strong(expected, tid, std::memory_order_acq_rel)) {
-			REX::INFO("ThreadProbe[main-loop]: UI_AdvanceActiveMenus runs on tid={} (Scaleform/AS3 owner)", tid);
+			REX::DEBUG("ThreadProbe[main-loop]: UI_AdvanceActiveMenus runs on tid={} (Scaleform/AS3 owner)", tid);
 		}
 	}
 
@@ -81,7 +81,7 @@ namespace OSFUI::ThreadProbe
 			return;
 		}
 		const auto mainTid = g_mainLoopTid.load(std::memory_order_acquire);
-		REX::INFO("ThreadProbe[sfse-task]: FrameTick runs on tid={} | mainLoopTid={} | same={}",
+		REX::DEBUG("ThreadProbe[sfse-task]: FrameTick runs on tid={} | mainLoopTid={} | same={}",
 			tid, mainTid, (mainTid != 0 && tid == mainTid) ? "YES" : "no");
 		LogBacktrace("sfse-task");
 	}
@@ -100,7 +100,7 @@ namespace OSFUI::ThreadProbe
 		}
 		const auto tickTid = static_cast<std::uint32_t>(::GetCurrentThreadId());
 		const auto sfseTid = g_sfseTaskTid.load(std::memory_order_relaxed);
-		REX::INFO("ThreadProbe[runtime-tick]: Runtime::Tick runs on tid={} | mainLoopTid={} same={} | "
+		REX::DEBUG("ThreadProbe[runtime-tick]: Runtime::Tick runs on tid={} | mainLoopTid={} same={} | "
 				  "sfseTaskTid={} same={}",
 			tickTid, mainTid, tickTid == mainTid ? "YES" : "no",
 			sfseTid, (sfseTid != 0 && tickTid == sfseTid) ? "YES" : "no");

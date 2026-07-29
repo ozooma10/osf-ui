@@ -27,7 +27,7 @@ namespace OSFUI
 	{
 		const auto json = Json::ParseFile(a_path);
 		if (!json || !json->is_object()) {
-			REX::ERROR("ViewManifest: {} is not a valid JSON object", a_path.string());
+			REX::ERROR("ViewManifest: [content] {} is not a valid JSON object", a_path.string());
 			return std::nullopt;
 		}
 
@@ -35,14 +35,14 @@ namespace OSFUI
 		// views/<mod>/<view>/ layout is itself the v2 discriminator. Unknown keys
 		// are the normal compatible case (a newer mod on an older host), so they
 		// surface as devMode INFO, never a warning.
-		Json::CheckFormatVersion(*json, "manifestVersion", 1, "ViewManifest: " + a_path.string());
+		Json::CheckFormatVersion(*json, "manifestVersion", 1, "ViewManifest: [content] " + a_path.string());
 		if (Log::DevMode()) {
 			Json::ReportUnknownKeys(*json,
 				{ "manifestVersion", "id", "title", "description", "accent", "hub", "debugOnly", "entry",
 					"width", "height", "transparent", "kind",
 					"capturesInput", "pausesGame", "openOnStart", "order", "readySignal", "permissions",
 					"targetVersion" },
-				"ViewManifest: " + a_path.string(), /*a_warn=*/false);
+				"ViewManifest: [content] " + a_path.string(), /*a_warn=*/false);
 		}
 
 		// The path is the identity: the manifest lives at
@@ -52,7 +52,7 @@ namespace OSFUI
 		const auto viewName = a_path.parent_path().filename().string();
 		const auto modId = a_path.parent_path().parent_path().filename().string();
 		if (!Ids::IsAcceptedModId(modId) || !Ids::IsValidViewName(viewName)) {
-			REX::ERROR("ViewManifest: {} — views live at views/<author>.<modname>/<view>/manifest.json "
+			REX::ERROR("ViewManifest: [content] {} — views live at views/<author>.<modname>/<view>/manifest.json "
 					   "(lowercase [a-z0-9-] segments; dotless mod folders are reserved for the platform)",
 				a_path.string());
 			return std::nullopt;
@@ -67,7 +67,7 @@ namespace OSFUI
 		// reject (a copied manifest that forgot the rename).
 		const auto declaredId = Json::GetString(*json, "id", "");
 		if (declaredId != viewName) {
-			REX::ERROR("ViewManifest: {} declares id '{}' but the view folder is '{}' — "
+			REX::ERROR("ViewManifest: [content] {} declares id '{}' but the view folder is '{}' — "
 					   "'id' must equal the folder name",
 				a_path.string(), declaredId, viewName);
 			return std::nullopt;
@@ -82,7 +82,7 @@ namespace OSFUI
 				});
 				manifest.accent = std::move(accent);
 			} else {
-				REX::WARN("ViewManifest: view '{}' accent '{}' is not #rrggbb — ignored", manifest.id, accent);
+				REX::WARN("ViewManifest: [content] view '{}' accent '{}' is not #rrggbb — ignored", manifest.id, accent);
 			}
 		}
 		manifest.entry = Json::GetString(*json, "entry", manifest.entry);
@@ -115,11 +115,11 @@ namespace OSFUI
 			if (ParseDottedVersion(target, targetParts)) {
 				manifest.targetVersion = std::move(target);
 				if (kPluginVersionParts < targetParts) {
-					REX::WARN("ViewManifest: view '{}' targets OSF UI {} but this is {} — update OSF UI",
+					REX::WARN("ViewManifest: [content] view '{}' targets OSF UI {} but this is {} — update OSF UI",
 						manifest.id, manifest.targetVersion, kPluginVersion);
 				}
 			} else {
-				REX::WARN("ViewManifest: {} targetVersion '{}' is not '<major>[.<minor>[.<patch>]]' — ignored",
+				REX::WARN("ViewManifest: [content] {} targetVersion '{}' is not '<major>[.<minor>[.<patch>]]' — ignored",
 					a_path.string(), target);
 			}
 		}
@@ -130,7 +130,7 @@ namespace OSFUI
 			manifest.permissions.network = Json::GetBool(*it, "network", false);
 		}
 		if (manifest.readySignal && !manifest.permissions.nativeBridge) {
-			REX::WARN("ViewManifest: view '{}' requests readySignal without nativeBridge; using load completion", manifest.id);
+			REX::WARN("ViewManifest: [content] view '{}' requests readySignal without nativeBridge; using load completion", manifest.id);
 			manifest.readySignal = false;
 		}
 
@@ -139,13 +139,13 @@ namespace OSFUI
 		const auto entryPath = std::filesystem::path(manifest.entry);
 		if (entryPath.is_absolute() ||
 			std::ranges::any_of(entryPath, [](const auto& part) { return part == ".."; })) {
-			REX::ERROR("ViewManifest: {} entry '{}' must be a relative path inside the view folder",
+			REX::ERROR("ViewManifest: [content] {} entry '{}' must be a relative path inside the view folder",
 				a_path.string(), manifest.entry);
 			return std::nullopt;
 		}
 
 		if (manifest.permissions.network) {
-			REX::WARN("ViewManifest: view '{}' requests network permission; not supported, forcing off", manifest.id);
+			REX::WARN("ViewManifest: [content] view '{}' requests network permission; not supported, forcing off", manifest.id);
 			manifest.permissions.network = false;
 		}
 
@@ -154,7 +154,7 @@ namespace OSFUI
 		// manifest can't create a HUD that steals input.
 		if (manifest.kind == SurfaceKind::Hud) {
 			if (manifest.capturesInput || manifest.pausesGame) {
-				REX::WARN("ViewManifest: HUD '{}' cannot capture input or pause; forcing both off", manifest.id);
+				REX::WARN("ViewManifest: [content] HUD '{}' cannot capture input or pause; forcing both off", manifest.id);
 			}
 			manifest.capturesInput = false;
 			manifest.pausesGame = false;

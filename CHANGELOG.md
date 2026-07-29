@@ -51,6 +51,8 @@
 
 ### Other changes
 
+- The logs are now written for crash forensics instead of development narration. Both `OSF UI.log` and `OSF UI.webview2-host.log` keep the previous session's file (`OSF UI.1.log` / `*.old.log`) instead of destroying it on the next launch — so evidence from a crash survives the reflexive "relaunch and try again". Timestamps in both files now carry the date and correlate across the pair. What lands at each level was rebalanced: hook arming, renderer device discovery, and boot milestones that a crash report needs are always logged; per-call research-probe samples and page `console.log` chatter moved behind devMode. Errors caused by a third-party mod's own files or API calls (bad manifests, schemas, key overlays, malformed bridge calls) are now tagged `[content]`, so a reader can separate "a mod's content is wrong" from "OSF UI is broken" with one filter. The convention lives in `docs/logging.md`.
+
 - The world-surface placeholder tool can now verify a staged DDS byte-for-byte against its canonical slot, catching recompression, header drift, and copy mistakes before they reach Starfield's texture loader.
 
 - The in-world render-to-texture prototype is excluded from normal builds and releases. Its descriptor hooks, development probes, multi-instance browser-host support, configuration keys, runtime state, and generated placeholder textures compile only with the default-off `with_world_surfaces` research flag. Unsafe loose material experiments are not shipped, returning to a normal build purges research assets left in an existing deployment, and both CI and the release packager verify the production boundary.

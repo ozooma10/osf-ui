@@ -233,7 +233,7 @@ namespace OSFUI
 			// Drop-in id == filename stem, so the stem must pass the id grammar.
 			// Rejected here, not in ValidateSchemaShape, so the log names the file.
 			if (const auto stem = path.stem().string(); !Ids::IsAcceptedModId(stem)) {
-				REX::ERROR("SettingsStore: skipping {} — settings files are named '<author>.<modname>.json' "
+				REX::ERROR("SettingsStore: [content] skipping {} — settings files are named '<author>.<modname>.json' "
 						   "(lowercase [a-z0-9-] segments, exactly one dot in the mod id); "
 						   "dotless ids are reserved for the platform",
 					path.string());
@@ -245,7 +245,7 @@ namespace OSFUI
 			auto schema = Json::ParseFile(path, parseError);
 			if (!schema || !schema->is_object()) {
 				const auto why = schema ? std::string("not a JSON object") : parseError;
-				REX::ERROR("SettingsStore: skipping {} — {}", path.string(), why);
+				REX::ERROR("SettingsStore: [content] skipping {} — {}", path.string(), why);
 				RecordLoadError("schema-parse", path.filename().string(), "", why);
 				continue;
 			}
@@ -262,7 +262,7 @@ namespace OSFUI
 			// Registrations arrive via the main-thread pump, which only runs
 			// after Runtime::Initialize → LoadAll. Reject rather than register
 			// with no values directory.
-			REX::WARN("SettingsStore: RegisterSchema before LoadAll — rejected");
+			REX::WARN("SettingsStore: [content] RegisterSchema before LoadAll — rejected");
 			return false;
 		}
 		return AddSchema(std::move(a_schema), a_source, /*a_idHint=*/"", /*a_notify=*/true);
@@ -271,19 +271,19 @@ namespace OSFUI
 	bool SettingsStore::ValidateSchemaShape(const nlohmann::json& a_schema)
 	{
 		if (!a_schema.is_object()) {
-			REX::WARN("SettingsStore: rejected schema — not a JSON object");
+			REX::WARN("SettingsStore: [content] rejected schema — not a JSON object");
 			return false;
 		}
 		const auto id = Json::GetString(a_schema, "id", "");
 		if (id.empty()) {
-			REX::WARN("SettingsStore: rejected schema with no id");
+			REX::WARN("SettingsStore: [content] rejected schema with no id");
 			return false;
 		}
 		// Id grammar: <author>.<modname>, lowercase [a-z0-9-] segments, exactly
 		// one dot. Dotless ids are platform-reserved ("osfui" is the only
 		// built-in), which subsumes the old reserved-word list (ui/menu/hud/...).
 		if (!Ids::IsAcceptedModId(id)) {
-			REX::ERROR("SettingsStore: rejected schema id '{}' — mod ids are '<author>.<modname>' "
+			REX::ERROR("SettingsStore: [content] rejected schema id '{}' — mod ids are '<author>.<modname>' "
 					   "(lowercase [a-z0-9-] segments, exactly one dot, max {} chars); "
 					   "dotless ids are reserved for the platform",
 				id.substr(0, kMaxModIdLen), kMaxModIdLen);
@@ -298,7 +298,7 @@ namespace OSFUI
 		auto schema = Json::ParseFile(a_path, parseError);
 		if (!schema || !schema->is_object()) {
 			const auto why = schema ? std::string("not a JSON object") : parseError;
-			REX::WARN("SettingsStore: hot-reload skipped — {}: {}", a_path.string(), why);
+			REX::WARN("SettingsStore: [content] hot-reload skipped — {}: {}", a_path.string(), why);
 			// Record (replace-or-add) and re-broadcast so an open Mods surface
 			// shows the parse error now, not on the next menu open. No generation
 			// bump: the registry shape is unchanged.
@@ -317,7 +317,7 @@ namespace OSFUI
 	bool SettingsStore::AddSchema(nlohmann::json a_schema, Source a_source, std::string a_idHint, bool a_notify, bool a_dropInReplace, std::filesystem::path a_sourcePath)
 	{
 		if (!a_schema.is_object()) {
-			REX::WARN("SettingsStore: rejected schema — not a JSON object");
+			REX::WARN("SettingsStore: [content] rejected schema — not a JSON object");
 			return false;
 		}
 		auto id = Json::GetString(a_schema, "id", a_idHint);
@@ -326,7 +326,7 @@ namespace OSFUI
 		// mod's id and MO2's per-file VFS priority stays the arbiter of who owns
 		// settings/<id>.json.
 		if (a_source == Source::kDropIn && !a_idHint.empty() && id != a_idHint) {
-			REX::WARN("SettingsStore: schema id '{}' must equal the filename stem — using '{}'",
+			REX::WARN("SettingsStore: [content] schema id '{}' must equal the filename stem — using '{}'",
 				id.substr(0, kMaxModIdLen), a_idHint);
 			id = a_idHint;
 		}
@@ -358,7 +358,7 @@ namespace OSFUI
 				                      ? std::string("the runtime registration")
 				                      : (existing->schemaPath.empty() ? std::string("the first-loaded schema")
 				                                                      : existing->schemaPath.string());
-				REX::ERROR("SettingsStore: duplicate schema id '{}' — keeping {}, ignoring {}",
+				REX::ERROR("SettingsStore: [content] duplicate schema id '{}' — keeping {}, ignoring {}",
 					id, kept, a_sourcePath.empty() ? std::string("the drop-in file") : a_sourcePath.string());
 				// File-vs-file collisions only; a native registration outranking
 				// its own drop-in file is the tier-upgrade path, not a conflict.
@@ -374,7 +374,7 @@ namespace OSFUI
 			if (a_source == Source::kDropIn) {
 				REX::DEBUG("SettingsStore: hot-reloading drop-in schema '{}'", id);
 			} else {
-				REX::WARN("SettingsStore: runtime registration replaces {} schema for id '{}'",
+				REX::WARN("SettingsStore: [content] runtime registration replaces {} schema for id '{}'",
 					existing->source == Source::kDropIn ? "drop-in" : "earlier runtime", id);
 			}
 			if (existing->dirty) {
@@ -407,11 +407,11 @@ namespace OSFUI
 			if (ParseDottedVersion(target, targetParts)) {
 				mod.targetVersion = std::move(target);
 				if (kPluginVersionParts < targetParts) {
-					REX::WARN("SettingsStore: '{}' targets OSF UI {} but this is {} — update OSF UI",
+					REX::WARN("SettingsStore: [content] '{}' targets OSF UI {} but this is {} — update OSF UI",
 						mod.id, mod.targetVersion, kPluginVersion);
 				}
 			} else {
-				REX::WARN("SettingsStore: '{}' targetVersion '{}' is not '<major>[.<minor>[.<patch>]]' — ignored",
+				REX::WARN("SettingsStore: [content] '{}' targetVersion '{}' is not '<major>[.<minor>[.<patch>]]' — ignored",
 					mod.id, target);
 			}
 		}
@@ -746,22 +746,22 @@ namespace OSFUI
 			return;
 		}
 		if (!contexts->is_array()) {
-			REX::WARN("SettingsStore: '{}.inputContexts' must be an array -- key contexts fall back to gameplay", a_modId);
+			REX::WARN("SettingsStore: [content] '{}.inputContexts' must be an array -- key contexts fall back to gameplay", a_modId);
 			return;
 		}
 		std::unordered_set<std::string> seen;
 		for (const auto& context : *contexts) {
 			const auto id = context.is_object() ? Json::GetString(context, "id", "") : std::string{};
 			if (id == "gameplay") {
-				REX::WARN("SettingsStore: '{}.inputContexts' cannot redefine reserved context 'gameplay' -- ignoring it", a_modId);
+				REX::WARN("SettingsStore: [content] '{}.inputContexts' cannot redefine reserved context 'gameplay' -- ignoring it", a_modId);
 				continue;
 			}
 			if (!IsValidInputContextId(id)) {
-				REX::WARN("SettingsStore: '{}' has an invalid input context id -- ignoring it", a_modId);
+				REX::WARN("SettingsStore: [content] '{}' has an invalid input context id -- ignoring it", a_modId);
 				continue;
 			}
 			if (!seen.insert(id).second) {
-				REX::WARN("SettingsStore: '{}' defines input context '{}' more than once -- keeping the first", a_modId, id);
+				REX::WARN("SettingsStore: [content] '{}' defines input context '{}' more than once -- keeping the first", a_modId, id);
 			}
 		}
 	}
@@ -1096,25 +1096,25 @@ namespace OSFUI
 	{
 		auto* mod = FindMod(a_modId);
 		if (!mod) {
-			REX::WARN("SettingsStore: rejected set for unknown mod '{}'", a_modId.substr(0, 64));
+			REX::WARN("SettingsStore: [content] rejected set for unknown mod '{}'", a_modId.substr(0, 64));
 			return { false, "unknown-setting" };
 		}
 		const auto* setting = FindSetting(*mod, a_key);
 		if (!setting) {
-			REX::WARN("SettingsStore: rejected unknown setting '{}.{}'", a_modId.substr(0, 64), a_key.substr(0, 64));
+			REX::WARN("SettingsStore: [content] rejected unknown setting '{}.{}'", a_modId.substr(0, 64), a_key.substr(0, 64));
 			return { false, "unknown-setting" };
 		}
 		// A type this host doesn't know serves its default read-only. Its own
 		// result code, so a view can say "needs a newer OSF UI" rather than
 		// "bad value".
 		if (!IsKnownType(Json::GetString(*setting, "type", ""))) {
-			REX::WARN("SettingsStore: rejected set for '{}.{}' — unknown type '{}' is served read-only",
+			REX::WARN("SettingsStore: [content] rejected set for '{}.{}' — unknown type '{}' is served read-only",
 				a_modId.substr(0, 64), a_key.substr(0, 64), Json::GetString(*setting, "type", "?").substr(0, 32));
 			return { false, "read-only" };
 		}
 		auto valid = Validate(*setting, a_value);
 		if (!valid) {
-			REX::WARN("SettingsStore: rejected invalid value for '{}.{}' (type {})",
+			REX::WARN("SettingsStore: [content] rejected invalid value for '{}.{}' (type {})",
 				a_modId.substr(0, 64), a_key.substr(0, 64), Json::GetString(*setting, "type", "?"));
 			return { false, "invalid-value" };
 		}

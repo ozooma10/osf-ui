@@ -44,7 +44,7 @@ namespace OSFUI
 	void MessageBridge::RegisterCommand(std::string a_command, CommandHandler a_handler)
 	{
 		if (_requests.contains(a_command)) {
-			REX::WARN("MessageBridge: refused command '{}' — already registered as a request", a_command);
+			REX::WARN("MessageBridge: [content] refused command '{}' — already registered as a request", a_command);
 			return;
 		}
 		_commands[std::move(a_command)] = std::move(a_handler);
@@ -53,7 +53,7 @@ namespace OSFUI
 	bool MessageBridge::RegisterRequest(std::string a_command, RequestHandler a_handler)
 	{
 		if (_commands.contains(a_command)) {
-			REX::WARN("MessageBridge: refused request '{}' — name already registered as a command", a_command);
+			REX::WARN("MessageBridge: [content] refused request '{}' — name already registered as a command", a_command);
 			return false;
 		}
 		// BridgeApi owns public first-wins policy. Re-application here replaces
@@ -82,7 +82,7 @@ namespace OSFUI
 
 		const auto msg = Json::Parse(a_json, "web->native message");
 		if (!msg || !msg->is_object()) {
-			REX::WARN("MessageBridge: rejected malformed message from view '{}'", a_viewId);
+			REX::WARN("MessageBridge: [content] rejected malformed message from view '{}'", a_viewId);
 			// Surface rejections as ui.error rather than dropping silently;
 			// existing views ignore unknown types, so this stays backward
 			// compatible. No requestId echo — an unparseable message has none.
@@ -99,7 +99,7 @@ namespace OSFUI
 			                         : Json::Value::object();
 			HandleUiCommand(payload);
 		} else {
-			REX::WARN("MessageBridge: rejected unknown message type '{}' from view '{}'", type, a_viewId);
+			REX::WARN("MessageBridge: [content] rejected unknown message type '{}' from view '{}'", type, a_viewId);
 			SendErrorToWeb("unknown-message-type", "unknown message type", { { "type", type.substr(0, 128) } });
 		}
 		_currentRequestId.clear();
@@ -139,7 +139,7 @@ namespace OSFUI
 			const std::string warnKey{ command.substr(0, 128) };
 			if (_warnedUnknownCommands.size() < kMaxWarnedCommands &&
 				_warnedUnknownCommands.insert(warnKey).second) {
-				REX::WARN("MessageBridge: rejected unknown ui.command '{}' (further rejections of this command are not logged)", warnKey);
+				REX::WARN("MessageBridge: [content] rejected unknown ui.command '{}' (further rejections of this command are not logged)", warnKey);
 			}
 			SendErrorToWeb("unknown-command", "unknown command", { { "command", command.substr(0, 128) } });
 		}

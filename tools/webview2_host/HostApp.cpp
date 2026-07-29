@@ -82,6 +82,14 @@ namespace osfui::wv2
 				if (a_path.empty()) return;
 				std::error_code ec;
 				std::filesystem::create_directories(a_path.parent_path(), ec);
+				// Keep the previous session's log (mirrors the plugin's logRotate=1):
+				// after a crash the file is all the forensics there is, and it must
+				// survive the next launch or the report prompt has nothing to attach.
+				if (std::filesystem::exists(a_path, ec)) {
+					auto old = a_path;
+					old.replace_extension(".old.log");
+					std::filesystem::rename(a_path, old, ec);
+				}
 				file.open(a_path, std::ios::out | std::ios::trunc);
 			}
 
@@ -97,8 +105,10 @@ namespace osfui::wv2
 				{
 					std::scoped_lock lock(mutex);
 					if (file.is_open()) {
+						// Date matches the plugin log's pattern so the two files
+						// correlate at a glance across sessions.
 						const auto now = std::chrono::system_clock::now();
-						file << std::format("[{:%H:%M:%S}] [{}] {}\n",
+						file << std::format("[{:%m-%d %H:%M:%S}] [{}] {}\n",
 							std::chrono::floor<std::chrono::milliseconds>(now),
 							a_level == 2 ? "ERROR" : a_level == 1 ? "WARN" : "info", a_text);
 						file.flush();

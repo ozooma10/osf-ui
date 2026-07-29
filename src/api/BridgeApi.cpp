@@ -52,11 +52,11 @@ namespace OSFUI::API
 		bool ValidateDiagnosticCaller(std::string_view a_fn, const char* a_modId)
 		{
 			if (!a_modId || !a_modId[0]) {
-				REX::WARN("BridgeApi: refused {} — no mod id", a_fn);
+				REX::WARN("BridgeApi: [content] refused {} — no mod id", a_fn);
 				return false;
 			}
 			if (!Ids::IsValidModId(a_modId)) {
-				REX::WARN("BridgeApi: refused {}('{}') — mod ids are '<author>.<modname>' "
+				REX::WARN("BridgeApi: [content] refused {}('{}') — mod ids are '<author>.<modname>' "
 						  "(lowercase [a-z0-9-] segments)",
 					a_fn, std::string_view(a_modId).substr(0, 128));
 				return false;
@@ -100,7 +100,7 @@ namespace OSFUI::API
 		}
 		const std::string cmd(a_command);
 		if (!IsValidPluginCommand(cmd)) {
-			REX::WARN("BridgeApi: refused RegisterCommand('{}') — commands are '<author>.<modname>.<name>' "
+			REX::WARN("BridgeApi: [content] refused RegisterCommand('{}') — commands are '<author>.<modname>.<name>' "
 					  "(two dots minimum; the leading mod id follows the item-1 grammar). "
 					  "Single-dot and dotless names are the platform's",
 				cmd.substr(0, 128));
@@ -112,7 +112,7 @@ namespace OSFUI::API
 		// Replacing your own handler means UnregisterCommand then re-register;
 		// the pair works back-to-back within one tick.
 		if (_commands.contains(cmd) || _requests.contains(cmd)) {
-			REX::WARN("BridgeApi: refused RegisterCommand('{}') — already registered (first wins; "
+			REX::WARN("BridgeApi: [content] refused RegisterCommand('{}') — already registered (first wins; "
 					  "UnregisterCommand first to replace your own handler)",
 				cmd);
 			return;
@@ -140,12 +140,12 @@ namespace OSFUI::API
 		if (!a_name || !a_handler) return;
 		const std::string name(a_name);
 		if (!IsValidPluginCommand(name)) {
-			REX::WARN("BridgeApi: refused RegisterRequest('{}') — requests are '<author>.<modname>.<name>'", name.substr(0, 128));
+			REX::WARN("BridgeApi: [content] refused RegisterRequest('{}') — requests are '<author>.<modname>.<name>'", name.substr(0, 128));
 			return;
 		}
 		std::lock_guard lock(_mutex);
 		if (_commands.contains(name) || _requests.contains(name)) {
-			REX::WARN("BridgeApi: refused RegisterRequest('{}') — already registered (first wins across commands and requests)", name);
+			REX::WARN("BridgeApi: [content] refused RegisterRequest('{}') — already registered (first wins across commands and requests)", name);
 			return;
 		}
 		_requests[name] = { a_handler, a_user };
@@ -295,7 +295,7 @@ namespace OSFUI::API
 		// precedence resolves with a log warning.
 		auto schema = nlohmann::json::parse(a_schemaJson, nullptr, /*allow_exceptions*/ false);
 		if (schema.is_discarded()) {
-			REX::WARN("BridgeApi: RegisterSettingsSchema rejected — malformed JSON");
+			REX::WARN("BridgeApi: [content] RegisterSettingsSchema rejected — malformed JSON");
 			return false;
 		}
 		if (!SettingsStore::ValidateSchemaShape(schema)) {
@@ -341,7 +341,7 @@ namespace OSFUI::API
 		// id can never match a discovered manifest, so refuse it here where the
 		// caller sees the false.
 		if (!Ids::IsValidQualifiedViewId(a_viewId)) {
-			REX::WARN("BridgeApi: refused RegisterView('{}') — view ids are qualified "
+			REX::WARN("BridgeApi: [content] refused RegisterView('{}') — view ids are qualified "
 					  "'<author>.<modname>/<view>' (lowercase [a-z0-9-] segments)",
 				std::string_view(a_viewId).substr(0, 128));
 			return false;
@@ -369,7 +369,7 @@ namespace OSFUI::API
 			return false;
 		}
 		if (!a_id || !a_id[0] || !a_code || !a_code[0]) {
-			REX::WARN("BridgeApi: refused ReportIssue from '{}' — both an id (the dedupe key) "
+			REX::WARN("BridgeApi: [content] refused ReportIssue from '{}' — both an id (the dedupe key) "
 					  "and a code (the kind of condition) are required",
 				a_modId);
 			return false;
@@ -381,7 +381,7 @@ namespace OSFUI::API
 		if (a_contextJson && a_contextJson[0]) {
 			context = nlohmann::json::parse(a_contextJson, nullptr, /*allow_exceptions*/ false);
 			if (context.is_discarded() || !context.is_object()) {
-				REX::WARN("BridgeApi: refused ReportIssue('{}', '{}') — context must be a JSON object",
+				REX::WARN("BridgeApi: [content] refused ReportIssue('{}', '{}') — context must be a JSON object",
 					a_modId, a_id);
 				return false;
 			}
@@ -390,13 +390,13 @@ namespace OSFUI::API
 		// host is treated as the worst tier we know, so a future "critical" cannot
 		// arrive looking milder than it is.
 		if (a_severity > 1u) {
-			REX::WARN("BridgeApi: ReportIssue('{}', '{}') — unknown severity {}, treating as error",
+			REX::WARN("BridgeApi: [content] ReportIssue('{}', '{}') — unknown severity {}, treating as error",
 				a_modId, a_id, a_severity);
 		}
 
 		std::lock_guard lock(_mutex);
 		if (_pendingDiagnostics.size() >= kMaxPendingDiagnosticOps) {
-			REX::WARN("BridgeApi: refused ReportIssue('{}', '{}') — {} health reports already queued "
+			REX::WARN("BridgeApi: [content] refused ReportIssue('{}', '{}') — {} health reports already queued "
 					  "for this tick; is a producer reporting in a loop?",
 				a_modId, a_id, kMaxPendingDiagnosticOps);
 			return false;
@@ -442,13 +442,13 @@ namespace OSFUI::API
 		if (a_keepIdsJson && a_keepIdsJson[0]) {
 			const auto parsed = nlohmann::json::parse(a_keepIdsJson, nullptr, /*allow_exceptions*/ false);
 			if (parsed.is_discarded() || !parsed.is_array()) {
-				REX::WARN("BridgeApi: refused ClearIssuesExcept('{}') — keep list must be a JSON array of ids",
+				REX::WARN("BridgeApi: [content] refused ClearIssuesExcept('{}') — keep list must be a JSON array of ids",
 					a_modId);
 				return false;
 			}
 			for (const auto& entry : parsed) {
 				if (!entry.is_string()) {
-					REX::WARN("BridgeApi: refused ClearIssuesExcept('{}') — keep list holds a non-string entry",
+					REX::WARN("BridgeApi: [content] refused ClearIssuesExcept('{}') — keep list holds a non-string entry",
 						a_modId);
 					return false;
 				}

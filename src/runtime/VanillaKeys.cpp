@@ -78,7 +78,7 @@ namespace OSFUI
 		}
 		std::ifstream file(a_path);
 		if (!file) {
-			REX::WARN("VanillaKeys: cannot open {}", a_path.string());
+			REX::WARN("VanillaKeys: [content] cannot open {}", a_path.string());
 			return 0;
 		}
 
@@ -158,10 +158,10 @@ namespace OSFUI
 		}
 		const auto json = Json::ParseFile(a_path);
 		if (!json || !json->is_object()) {
-			REX::WARN("VanillaKeys: {} is not a valid JSON object; user overlay skipped", a_path.string());
+			REX::WARN("VanillaKeys: [content] {} is not a valid JSON object; user overlay skipped", a_path.string());
 			return 0;
 		}
-		const auto source = "VanillaKeys: " + a_path.string();
+		const auto source = "VanillaKeys: [content] " + a_path.string();
 		Json::CheckFormatVersion(*json, "formatVersion", kFormatVersion, source);
 		Json::ReportUnknownKeys(*json, { "formatVersion", "add", "replace", "suppress" }, source, /*a_warn=*/true);
 

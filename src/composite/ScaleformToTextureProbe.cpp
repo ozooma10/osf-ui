@@ -66,7 +66,7 @@ namespace OSFUI::ScaleformToTextureProbe
 			}
 
 			if (sample) {
-				REX::INFO("[ScaleformToTextureProbe] call={} enter tid={} this=0x{:X} "
+				REX::DEBUG("[ScaleformToTextureProbe] call={} enter tid={} this=0x{:X} "
 						  "ctx=0x{:X} arg3=0x{:X} arg4=0x{:X} tailReadable={} "
 						  "renderItem=0x{:08X} colorBinding=0x{:08X} depthBinding=0x{:08X}",
 					call, static_cast<std::uint32_t>(::GetCurrentThreadId()),
@@ -83,7 +83,7 @@ namespace OSFUI::ScaleformToTextureProbe
 			if (sample) {
 				const auto elapsedUs = std::chrono::duration_cast<std::chrono::microseconds>(
 					std::chrono::steady_clock::now() - started).count();
-				REX::INFO("[ScaleformToTextureProbe] call={} exit result=0x{:X} cpu={} us",
+				REX::DEBUG("[ScaleformToTextureProbe] call={} exit result=0x{:X} cpu={} us",
 					call, reinterpret_cast<std::uintptr_t>(result), elapsedUs);
 			}
 			return result;

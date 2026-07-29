@@ -227,7 +227,7 @@ namespace OSFUI::WorldSurface
 				original(a_device, a_resource, a_desc, a_destination);
 			}
 			const auto resource = a_resource->GetDesc();
-			REX::INFO("[WorldSurface] surface '{}' captured placeholder {}x{} at "
+			REX::DEBUG("[WorldSurface] surface '{}' captured placeholder {}x{} at "
 				"srvCpu=0x{:X} ({} descriptors, known={}, resFormat {}, mips {}, "
 				"viewFormat {}, replaced={})",
 				surface.label, surface.placeholderWidth, surface.placeholderHeight,
@@ -480,7 +480,7 @@ namespace OSFUI::WorldSurface
 			}
 			if (++surface.refreshWrites == surface.nextRefreshLog) {
 				surface.nextRefreshLog *= 8;
-				REX::INFO("[WorldSurface] surface '{}' descriptor refresh #{} -> "
+				REX::DEBUG("[WorldSurface] surface '{}' descriptor refresh #{} -> "
 					"slot {} (serial {}, {} descriptors)",
 					surface.label, surface.refreshWrites, surface.lastSlot,
 					surface.lastSerial, surface.capturedCount);

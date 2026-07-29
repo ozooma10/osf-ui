@@ -7,7 +7,14 @@ SFSE_PLUGIN_PRELOAD(const SFSE::PreLoadInterface* a_sfse)
 	// dropped; Log::SetDevMode raises the floor to Info once config is read
 	// (Debug stays only when devMode is on). spdlog flushes at the active level,
 	// so what we keep survives a crash that never flushes.
-	SFSE::Init(a_sfse, { .logLevel = REX::ELogLevel::Debug });
+	// logRotate = 1 keeps the previous session as "OSF UI.1.log" — a crash log
+	// must survive the next launch or the report prompt has nothing to attach.
+	// The pattern adds the date so logs from different days aren't conflated.
+	SFSE::Init(a_sfse, {
+						   .logLevel = REX::ELogLevel::Debug,
+						   .logPattern = "[%m-%d %T.%e] [%=5t] [%L] %v",
+						   .logRotate = 1,
+					   });
 
 	return OSFUI::Plugin::OnPreLoad();
 }

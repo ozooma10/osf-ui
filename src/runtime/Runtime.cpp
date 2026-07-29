@@ -449,7 +449,7 @@ namespace OSFUI
 		}
 		EngineInput::SetEnabled(_config.engineInput);
 		if (_config.engineInput) {
-			REX::DEBUG("Runtime: engineInput enabled — engine per-menu input (gamepad) routed into the focused view; keyboard/mouse stay on the WndProc path");
+			REX::INFO("Runtime: engineInput enabled — engine per-menu input (gamepad) routed into the focused view; keyboard/mouse stay on the WndProc path");
 		}
 
 		// Toggle key opens/closes the default menu; Esc (while captured) is the back
@@ -781,7 +781,9 @@ namespace OSFUI
 				} else if (a_level == 1) {
 					REX::WARN("Runtime: view '{}' console: {}", id, a_message);
 				} else {
-					REX::INFO("Runtime: view '{}' console: {}", id, a_message);
+					// console.log/info/debug: page chatter, not a diagnosis signal —
+					// keep it out of the INFO band even in devMode.
+					REX::DEBUG("Runtime: view '{}' console: {}", id, a_message);
 				}
 			});
 		}
