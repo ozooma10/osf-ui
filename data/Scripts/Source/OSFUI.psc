@@ -139,7 +139,8 @@ int Function RegisterForViewActionsArgs(ScriptObject akReceiver, string asFn, st
 int Function RegisterForViewActionsArgsStatic(string asScript, string asFn, string asModId) Global Native
 
 ; Preferred common-case listener. Dispatches to the fixed callback
-; OnOSFUIViewAction(string action, string[] args), so no function-name or
+; OnOSFUIViewAction(string actionName, string[] args) - the parameter must not
+; be named "action" (that is the Action form type) - so no function-name or
 ; scalar-vs-list choice is required. The static variant calls the GLOBAL
 ; function with that name on asScript. Session-scoped; release with Unregister.
 int Function ListenForViewActions(ScriptObject akReceiver, string asModId) Global Native

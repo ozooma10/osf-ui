@@ -79,12 +79,14 @@ Function RegisterUI()
     actionToken = OSFUI.ListenForViewActions(self as ScriptObject, ModId)
 EndFunction
 
-Function OnOSFUIViewAction(string action, string[] args)
-    If action == "removeTag"
+; Note: the parameter must not be named "action" - that is the Action form
+; type in Papyrus, so the compiler rejects references to it as a variable.
+Function OnOSFUIViewAction(string actionName, string[] args)
+    If actionName == "removeTag"
         int slot = args[0] as int
         RemoveTag(slot, args[1])
         OSFUI.SetViewStrings(ModId, "tags." + slot, GetSlotTags(slot))
-    ElseIf action == "equip"
+    ElseIf actionName == "equip"
         Form item = OSFUI.GetFormById(args[0])
         If item != None
             EquipItem(item, args[1] as int)
