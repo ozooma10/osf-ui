@@ -2,7 +2,11 @@
 //
 //  1. A <button role="switch">, not a checkbox. osfui.css styles
 //     `.osf-switch[aria-pressed="true"]`, so aria-pressed carries the visual
-//     state, not just the accessible name. An <input> renders an unstyled box.
+//     state. An <input> renders an unstyled box.
+//     Both state attributes ship, and neither is redundant: `aria-checked` is
+//     the one ARIA defines for role="switch" — without it a screen reader
+//     announces the control as a switch with no on/off state at all — while
+//     `aria-pressed` is what the stylesheet selects on. Keep them in lockstep.
 //  2. State is `value === true` strictly: a missing value, or a truthy
 //     non-boolean that slipped past the store, renders off rather than guessing.
 //  3. Next state is derived from `on` rather than read back off the DOM
@@ -24,6 +28,7 @@ export function Switch({ id, on, disabled, onToggle }: SwitchProps) {
       type="button"
       class="osf-switch"
       role="switch"
+      aria-checked={on ? 'true' : 'false'}
       aria-pressed={on ? 'true' : 'false'}
       disabled={disabled}
       {...(id ? { id } : {})}

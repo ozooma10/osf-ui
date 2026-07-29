@@ -27,13 +27,50 @@ async function mountKit() {
 }
 
 describe('settings widget rendering', () => {
-  it('bool renders as a button[role=switch] with state in aria-pressed', async () => {
+  it('bool renders as a button[role=switch] carrying BOTH state attributes', async () => {
+    // Neither is redundant, and they must agree. `aria-checked` is the attribute
+    // ARIA defines for role="switch" — without it a screen reader announces the
+    // control as a switch with no on/off state — while `aria-pressed` is what
+    // osfui.css selects on to paint the knob.
     const { el } = await mountKit();
     const sw = el.querySelector<HTMLButtonElement>('#ctl-acme\\.kit-boolOn');
     expect(sw).not.toBeNull();
     expect(sw!.tagName).toBe('BUTTON');
     expect(sw!.getAttribute('role')).toBe('switch');
+    expect(sw!.getAttribute('aria-checked')).toBe('true');
     expect(sw!.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('bool keeps aria-checked and aria-pressed in lockstep across a toggle', async () => {
+    const { el } = await mountKit();
+    const sw = el.querySelector<HTMLButtonElement>('#ctl-acme\\.kit-boolOn')!;
+    sw.click();
+    await flush();
+    const now = el.querySelector<HTMLButtonElement>('#ctl-acme\\.kit-boolOn')!;
+    expect(now.getAttribute('aria-checked')).toBe('false');
+    expect(now.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it("Home's HUD card is itself the switch, and carries both state attributes", async () => {
+    // The card is the control; the `.osf-switch` span inside it is decoration
+    // with no role of its own, so two nested switches never become two tab stops
+    // for one toggle.
+    const bridge = makeBridge();
+    const el = await mount(bridge);
+    bridge.deliver('settings.data', WIDGETS);
+    bridge.deliver('views.data', VIEWS);
+    await flush(); // lands on Home
+
+    const card = el.querySelector<HTMLButtonElement>('.home-hud');
+    expect(card).not.toBeNull();
+    expect(card!.getAttribute('role')).toBe('switch');
+    expect(card!.getAttribute('aria-checked')).toBe(card!.getAttribute('aria-pressed'));
+    expect(card!.querySelector('.home-hud-switch')!.hasAttribute('role')).toBe(false);
+
+    card!.click();
+    await flush();
+    const now = el.querySelector<HTMLButtonElement>('.home-hud')!;
+    expect(now.getAttribute('aria-checked')).toBe(now.getAttribute('aria-pressed'));
   });
 
   it('bool initial state is value === true STRICTLY (truthy non-true is off)', async () => {

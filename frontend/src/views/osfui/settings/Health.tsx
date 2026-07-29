@@ -20,7 +20,7 @@
 // only under a card's collapsed technical disclosure, where it reads as
 // developer detail rather than as UI chrome.
 
-import { useState } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 import type { Translator } from '@lib/i18n';
 import {
   activeIssues,
@@ -104,6 +104,48 @@ export function Health({
   const [reportConsent, setReportConsent] = useState(false);
   const [reportSubmitting, setReportSubmitting] = useState(false);
   const [reportResult, setReportResult] = useState<ReportResult | null>(null);
+
+  /**
+   * A deep-linked issue that now sits in the history block. The card's own
+   * `defaultOpen` is not enough on its own — it would expand inside a container
+   * that is still collapsed, leaving the link pointing at a pane with nothing
+   * visibly different about it.
+   *
+   * This is reachable while the pane is open, not only at mount: you follow a
+   * failed view's card here, the condition clears, and the next
+   * `diagnostics.data` push moves that exact card from the active list into the
+   * history. Seeding the initial state would not have covered that, which is why
+   * it is an effect. Only the transition into `true` is forced, so closing the
+   * disclosure by hand afterwards sticks.
+   */
+  const resolvedTarget = !!focusIssueId && resolved.some((i) => i.id === focusIssueId);
+  useEffect(() => {
+    if (resolvedTarget) setHistoryOpen(true);
+  }, [resolvedTarget]);
+
+  // Bring a deep-linked issue on screen. Expanding it is not enough: the
+  // summary, the action bar, the error tier and the warning-tier header all sit
+  // above the list, so a linked warning routinely opens below the fold and the
+  // jump reads as "nothing happened". Same shape as the settings pane's
+  // search-jump scroll (App.tsx) — the card is found by walking
+  // `.health-card[data-issue]` and comparing the attribute rather than building
+  // a selector string, so an id carrying a quote or bracket needs no escaping,
+  // and `scrollIntoView` is guarded because jsdom omits it.
+  useEffect(() => {
+    if (!focusIssueId) return;
+    // `historyOpen` has no other use here; reading it is what re-runs the scroll
+    // once a resolved target is actually in the DOM. It is seeded open above, so
+    // this covers the toggle-it-open-afterwards case.
+    void historyOpen;
+    const cards = document.querySelectorAll('.health-card[data-issue]');
+    for (let i = 0; i < cards.length; i++) {
+      const card = cards[i];
+      if (card instanceof HTMLElement && card.getAttribute('data-issue') === focusIssueId) {
+        if (card.scrollIntoView) card.scrollIntoView({ block: 'center' });
+        return;
+      }
+    }
+  }, [focusIssueId, historyOpen]);
 
   const beginReport = async () => {
     setReportChecking(true);

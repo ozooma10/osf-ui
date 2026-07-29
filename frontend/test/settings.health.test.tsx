@@ -342,7 +342,115 @@ describe('deep links', () => {
     const card = el.querySelector('.health-card[data-issue="view.load-failed:broken/panel"]')!;
     expect(card.querySelector('.health-card-technical')).not.toBeNull();
   });
+
+  it('scrolls the linked card into view', async () => {
+    // The summary, the action bar and the warning-tier header all sit above the
+    // list, so expanding alone routinely leaves the target below the fold and
+    // the jump reads as "nothing happened". jsdom omits scrollIntoView (which is
+    // why the pane guards the call), so stub it to observe.
+    const scrolled: string[] = [];
+    const proto = window.HTMLElement.prototype as unknown as {
+      scrollIntoView?: (this: HTMLElement) => void;
+    };
+    const had = Object.prototype.hasOwnProperty.call(proto, 'scrollIntoView');
+    proto.scrollIntoView = function () {
+      scrolled.push(this.getAttribute('data-issue') || this.className);
+    };
+
+    try {
+      const { el } = await mountFailedPanel();
+
+      // Sitting on the launcher, nothing is deep-linked: no scroll yet.
+      expect(scrolled).toEqual([]);
+
+      failedTile(el).click();
+      await flush();
+
+      expect(scrolled).toContain('view.load-failed:broken/panel');
+    } finally {
+      if (!had) delete proto.scrollIntoView;
+    }
+  });
+
+  it('opens the history block when the linked issue RESOLVES while you are on it', async () => {
+    // Deep links only ever name an ACTIVE issue (issueForSubject skips resolved
+    // ones), so the reachable case is this one: you follow a failed view's card
+    // here and the condition then clears underneath you. The card moves into the
+    // history disclosure, which is collapsed — without opening it, the issue the
+    // link was pointing at simply vanishes off the pane.
+    const { bridge, el } = await mountFailedPanel();
+
+    failedTile(el).click();
+    await flush();
+    expect(el.querySelector('#health-resolved')).toBeNull(); // history still shut
+
+    bridge.deliver('diagnostics.data', {
+      system: {},
+      issues: [
+        ISSUE({
+          id: 'view.load-failed:broken/panel',
+          severity: 'error',
+          code: 'view.load-failed',
+          subject: 'broken/panel',
+          status: 'resolved',
+          resolvedAt: 12,
+        }),
+      ],
+    });
+    await flush();
+
+    const list = el.querySelector('#health-resolved');
+    expect(list).not.toBeNull();
+    const card = list!.querySelector('.health-card[data-issue="view.load-failed:broken/panel"]');
+    expect(card).not.toBeNull();
+    // Still expanded — the card followed the link, it did not reset.
+    expect(card!.querySelector('.health-card-technical')).not.toBeNull();
+  });
 });
+
+/** A launcher carrying one failed view, plus the issue that explains it. */
+async function mountFailedPanel(issueOver: Record<string, unknown> = {}) {
+  const bridge = makeBridge();
+  const el = await mount(bridge);
+  bridge.deliver('settings.data', WIDGETS);
+  bridge.deliver('views.data', {
+    views: [
+      {
+        id: 'broken/panel',
+        title: 'Broken Panel',
+        description: '',
+        mod: '',
+        kind: 'menu',
+        interactive: true,
+        hub: true,
+        targetVersion: '',
+        open: false,
+        focused: false,
+        loadState: 'failed',
+      },
+    ],
+  });
+  bridge.deliver('diagnostics.data', {
+    system: {},
+    issues: [
+      ISSUE({
+        id: 'view.load-failed:broken/panel',
+        severity: 'error',
+        code: 'view.load-failed',
+        subject: 'broken/panel',
+        ...issueOver,
+      }),
+    ],
+  });
+  await flush();
+  return { bridge, el };
+}
+
+function failedTile(el: HTMLElement): HTMLButtonElement {
+  return [...el.querySelectorAll<HTMLButtonElement>('.home-tile')].find((t) =>
+    t.textContent!.includes('Broken Panel'),
+  )!;
+}
 
 describe('mod severity marker', () => {
   it('coexists with the modified-setting count on the rail', async () => {

@@ -283,6 +283,10 @@ interface HudCardProps {
  * `.osf-switch` span as decoration keyed off the card's `aria-pressed` in CSS.
  * The span carries no role of its own — two nested switches would be two tab
  * stops for one control.
+ *
+ * Both state attributes ship, for the reason spelled out in @ui/Switch:
+ * `aria-checked` is the one role="switch" is defined in terms of, `aria-pressed`
+ * is the one style.css selects on.
  */
 function HudCard({ view: v, on, iconSrc, caption, onToggle }: HudCardProps) {
   return (
@@ -290,6 +294,7 @@ function HudCard({ view: v, on, iconSrc, caption, onToggle }: HudCardProps) {
       type="button"
       class="home-hud"
       role="switch"
+      aria-checked={on ? 'true' : 'false'}
       aria-pressed={on ? 'true' : 'false'}
       onClick={() => onToggle(v.id, !on)}
     >
