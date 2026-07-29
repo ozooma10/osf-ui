@@ -158,6 +158,7 @@ namespace OSFUI
 			.height = initialHeight,
 			.devMode = _config.devMode,
 			.reportEndpoint = _config.bugReporting ? kBugReportEndpoint : "",
+			.reportPluginRoot = Paths::PluginDir(),
 			.dataDir = Paths::DataDir(),
 		};
 		if (!_renderer->Initialize(rendererConfig)) {
@@ -2839,6 +2840,15 @@ namespace OSFUI
 			}
 			if (_bugReportInFlight.exchange(true, std::memory_order_acq_rel)) {
 				a_b.SendResult(false, "report-busy", "another report is already being submitted");
+				return;
+			}
+			// The source id authenticates which hosted document sent the command,
+			// but built-in view files are mod-managed assets and can be replaced.
+			// A native, default-No prompt is therefore the final authority for
+			// transmitting logs; page-side disclosure is helpful UX, not trust.
+			if (!Platform::ConfirmBugReportUpload(title)) {
+				_bugReportInFlight.store(false, std::memory_order_release);
+				a_b.SendResult(false, "consent-declined", "the diagnostic upload was cancelled");
 				return;
 			}
 			const std::string endpoint = kBugReportEndpoint;

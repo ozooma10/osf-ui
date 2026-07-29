@@ -40,6 +40,7 @@ namespace osfui::wv2
 		std::uint32_t         gamePid{ 0 };
 		std::filesystem::path logFile;       // empty = no file log
 		std::wstring          reportEndpoint; // empty = abnormal-exit prompt disabled
+		std::filesystem::path reportPluginRoot; // installed root to redact from logs
 #if defined(OSFUI_WITH_WORLD_SURFACES)
 		// Empty = primary overlay instance. A non-empty tag scopes the
 		// single-instance lock so an independent second host (world surface)

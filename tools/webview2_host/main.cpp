@@ -5,7 +5,7 @@
 #include <vector>
 
 // osfui_webview2_host.exe --pipe=<name> --game-pid=<pid> [--log=<file>]
-//   [--report-endpoint=<https-url>]
+//   [--report-endpoint=<https-url>] [--report-plugin-root=<folder>]
 #if defined(OSFUI_WITH_WORLD_SURFACES)
 //   [--instance=<tag>]  (experimental multi-host research builds only)
 #endif
@@ -36,6 +36,8 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
 #endif
 		} else if (arg.starts_with(L"--report-endpoint=")) {
 			options.reportEndpoint = std::wstring(arg.substr(18));
+		} else if (arg.starts_with(L"--report-plugin-root=")) {
+			options.reportPluginRoot = std::filesystem::path(std::wstring(arg.substr(21)));
 		}
 	}
 	::LocalFree(argv);

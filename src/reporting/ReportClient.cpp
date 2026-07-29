@@ -84,10 +84,20 @@ namespace OSFUI::Reporting
 			}
 		}
 
+		void ReplacePath(std::string& a_text, const std::filesystem::path& a_path,
+			std::string_view a_replacement)
+		{
+			if (a_path.empty()) return;
+			auto native = a_path.string();
+			ReplaceAllInsensitive(a_text, native, a_replacement);
+			std::ranges::replace(native, '\\', '/');
+			ReplaceAllInsensitive(a_text, native, a_replacement);
+		}
+
 		std::string Redact(std::string text)
 		{
-			ReplaceAllInsensitive(text, Platform::GetDocumentsPath().string(), "<Documents>");
-			ReplaceAllInsensitive(text, Paths::PluginDir().string(), "<PluginDir>");
+			ReplacePath(text, Platform::GetDocumentsPath(), "<Documents>");
+			ReplacePath(text, Paths::PluginDir(), "<PluginDir>");
 			// Backstop for profile references outside the Documents tree.
 			static const std::regex profile(
 				R"(([A-Za-z]:[\\/](?:Users|Documents and Settings)[\\/])[^\\/\r\n"']+)",

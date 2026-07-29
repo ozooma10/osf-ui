@@ -168,8 +168,18 @@ namespace osfui::wv2
 			}
 		}
 
+		void ReplacePath(std::string& a_text, std::string a_path,
+			std::string_view a_replacement)
+		{
+			if (a_path.empty()) return;
+			ReplaceAllInsensitive(a_text, a_path, a_replacement);
+			std::ranges::replace(a_path, '\\', '/');
+			ReplaceAllInsensitive(a_text, a_path, a_replacement);
+		}
+
 		std::string ReadReportLog(const std::filesystem::path& a_path, bool& a_truncated,
-			std::string_view a_pluginRoot, std::size_t a_maxBytes)
+			std::string_view a_pluginRoot, std::string_view a_documentsRoot,
+			std::string_view a_mirrorRoot, std::size_t a_maxBytes)
 		{
 			std::ifstream file(a_path, std::ios::binary | std::ios::ate);
 			if (!file) return {};
@@ -194,7 +204,9 @@ namespace osfui::wv2
 				}
 				text.erase(0, lead);
 			}
-			ReplaceAllInsensitive(text, a_pluginRoot, "<PluginDir>");
+			ReplacePath(text, std::string(a_pluginRoot), "<PluginDir>");
+			ReplacePath(text, std::string(a_documentsRoot), "<Documents>");
+			ReplacePath(text, std::string(a_mirrorRoot), "<HostMirror>");
 			static const std::regex profile(
 				R"(([A-Za-z]:[\\/](?:Users|Documents and Settings)[\\/])[^\\/\r\n"']+)",
 				std::regex::icase);
@@ -204,7 +216,10 @@ namespace osfui::wv2
 		bool PostCrashReport(std::wstring_view a_endpoint, std::string_view a_body,
 			DWORD& a_status, std::string& a_response)
 		{
-			if (!a_endpoint.starts_with(L"https://") || a_body.size() > 1024 * 1024) return false;
+			const auto hasWhitespace = std::ranges::any_of(a_endpoint,
+				[](wchar_t c) { return std::iswspace(c) != 0; });
+			if (a_endpoint.empty() || a_endpoint.size() > 2048 || hasWhitespace ||
+				!a_endpoint.starts_with(L"https://") || a_body.size() > 1024 * 1024) return false;
 			std::wstring endpoint(a_endpoint);
 			URL_COMPONENTS parts{};
 			parts.dwStructSize = sizeof(parts);
@@ -262,15 +277,22 @@ namespace osfui::wv2
 			return ok;
 		}
 
-		std::filesystem::path ReporterFolder()
+		std::filesystem::path DocumentsFolder()
 		{
 			PWSTR raw = nullptr;
 			std::filesystem::path folder;
 			if (SUCCEEDED(::SHGetKnownFolderPath(FOLDERID_Documents, KF_FLAG_DEFAULT, nullptr, &raw)) && raw) {
-				folder = std::filesystem::path(raw) / "My Games" / "Starfield" / "OSFUI";
+				folder = raw;
 			}
 			if (raw) ::CoTaskMemFree(raw);
 			return folder;
+		}
+
+		std::filesystem::path ReporterFolder()
+		{
+			const auto documents = DocumentsFolder();
+			return documents.empty() ? std::filesystem::path{} :
+				documents / "My Games" / "Starfield" / "OSFUI";
 		}
 
 		std::string ReporterClientId()
@@ -426,7 +448,7 @@ namespace osfui::wv2
 				L"if one is present";
 			disclosure +=
 				L", will be redacted locally, uploaded privately, and deleted after 30 days. "
-				L"A public GitHub issue will contain only a generic crash description.";
+				L"The report will be reviewed before any public GitHub issue is created.";
 			const auto choice = ::MessageBoxW(nullptr, disclosure.c_str(),
 				L"OSF UI - Starfield closed unexpectedly",
 				MB_YESNO | MB_ICONWARNING | MB_TOPMOST | MB_SETFOREGROUND);
@@ -449,14 +471,17 @@ namespace osfui::wv2
 			wchar_t executable[32768]{};
 			const auto executableLength = ::GetModuleFileNameW(nullptr, executable,
 				static_cast<DWORD>(std::size(executable)));
-			const auto pluginRoot = executableLength > 0 ?
+			const auto mirrorRoot = executableLength > 0 ?
 				ToUtf8(std::filesystem::path(executable).parent_path().parent_path().wstring()) :
 				std::string{};
+			const auto pluginRoot = ToUtf8(a_options.reportPluginRoot.wstring());
+			const auto documentsRoot = ToUtf8(DocumentsFolder().wstring());
 			json logs = json::array();
-			const auto addLog = [&logs, &pluginRoot](const std::filesystem::path& path,
-				std::string_view name, std::size_t maxBytes) {
+			const auto addLog = [&logs, &pluginRoot, &documentsRoot, &mirrorRoot](
+				const std::filesystem::path& path, std::string_view name, std::size_t maxBytes) {
 				bool truncated = false;
-				auto content = ReadReportLog(path, truncated, pluginRoot, maxBytes);
+				auto content = ReadReportLog(path, truncated, pluginRoot, documentsRoot,
+					mirrorRoot, maxBytes);
 				if (!content.empty()) logs.push_back({
 					{ "name", name }, { "content", std::move(content) }, { "truncated", truncated } });
 			};

@@ -22,6 +22,10 @@
 - Removed swap-chain Present hooks that conflicted with OptiScaler, Steam Overlay, ReShade, RTSS, and similar tools.
 - WebView2 composition-controller failures now close the loading overlay, restore input, and show repair guidance.
 
+### Security
+
+- Diagnostic uploads now require a default-deny native confirmation even if the packaged settings view is replaced, redact both slash forms of private roots, and keep accepted reports private until an administrator reviews them for publication.
+
 ### For plugin authors
 
 - Added optional `OSFUI_JSON.h` helpers for typed JSON commands, requests, replies, state, schemas, and diagnostics.

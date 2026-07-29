@@ -754,6 +754,10 @@ namespace OSFUI
 			if (!config.reportEndpoint.empty()) {
 #endif
 				args += std::format(L" --report-endpoint=\"{}\"", ToWide(config.reportEndpoint));
+				if (!config.reportPluginRoot.empty()) {
+					args += std::format(L" --report-plugin-root=\"{}\"",
+						config.reportPluginRoot.native());
+				}
 			}
 #if defined(OSFUI_WITH_WORLD_SURFACES)
 			if (!instance.empty()) {
