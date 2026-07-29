@@ -26,6 +26,8 @@
 
 ### Fixed
 
+- Native WebView2 form popups - including settings dropdowns, datalists, and date, time, or colour pickers authored by third-party views — now temporarily receive physical pointer ownership while open. Their options can therefore be clicked in game instead of requiring keyboard selection, without view authors replacing standard HTML controls.
+
 - A **devMode** hot reload under Mod Organizer 2 no longer blanks the view with `ERR_FILE_NOT_FOUND` for a hashed bundle. The browser mirror MO2 installs require was refreshed one view folder at a time, but a view's bundles are emitted to a mod-level sibling (`views/<modId>/assets/`) that its HTML reaches through `../assets/…`. Each rebuild renames those bundles, so the mirror received a fresh `index.html` pointing at chunks that were never copied. The mirror and the change-detection fingerprint now both work at mod-folder scope, matching the unit `osfui dev` already deploys; this also stops a reload from firing while the sibling assets are still being written. `manifest.json` remains restart-only at every depth.
 
 - `osfui dev --game` no longer fails with `EBUSY` once Starfield is running. Every save used to redeploy the whole mod folder, including the plugin, the compiled scripts, and the native files the game holds open for its entire session. After the initial deployment, a save now re-syncs only the built view assets; a change to the Papyrus or backend sources is built locally and reported with a note that the game must be restarted to deploy it. Starting the command while the game already runs deploys the views and warns that the rest is locked, instead of aborting the sync.

@@ -625,6 +625,11 @@ namespace osfui::wv2
 				ComPtr<ICoreWebView2DevToolsProtocolEventReceiver> exceptionReceiver;
 				bool controllerRequested{ false };
 				bool hidden{ true };
+				// A standard HTML control (select, datalist, date/color picker)
+				// has asked Chromium to show native popup UI. That popup owns the
+				// next physical click, so the session-wide host capture must stand
+				// down until the page reports that the picker closed.
+				bool nativePopupOpen{ false };
 				// One-shot hidden paint requested by the game. Unlike leaving the
 				// controller visible indefinitely, this primes Chromium without
 				// running closed-view animations for the rest of the session.
@@ -1789,6 +1794,60 @@ namespace osfui::wv2
 								__osfuiListener: String(name), argument: String(arg)
 							}));
 
+						// Chromium implements standard form pickers as native popup
+						// UI outside the composition visual. Tell the host to release
+						// its session-wide Win32 mouse capture while one is open, or
+						// the visible popup can never become the physical click target.
+						const nativePopupControl = (event) => {
+							const path = typeof event.composedPath === 'function' ?
+								event.composedPath() : [event.target];
+							for (const el of path) {
+								if (el instanceof HTMLSelectElement && !el.disabled) return el;
+								if (!(el instanceof HTMLInputElement) || el.disabled) continue;
+								if (el.list) return el;
+								if (['color', 'date', 'datetime-local', 'month', 'time', 'week']
+									.includes(el.type)) return el;
+							}
+							return null;
+						};
+						let nativePopup = null;
+						const reportNativePopup = (open) => {
+							if (!window.chrome || !chrome.webview) return;
+							chrome.webview.postMessage(open ?
+								'__osfuiNativePopup:1' : '__osfuiNativePopup:0');
+						};
+						const closeNativePopup = (event) => {
+							if (!nativePopup) return;
+							if (event && nativePopupControl(event) !== nativePopup) return;
+							nativePopup = null;
+							reportNativePopup(false);
+						};
+						document.addEventListener('pointerdown', (event) => {
+							const control = nativePopupControl(event);
+							if (control) {
+								nativePopup = control;
+								reportNativePopup(true);
+							} else {
+								closeNativePopup();
+							}
+						}, true);
+						document.addEventListener('keydown', (event) => {
+							const control = nativePopupControl(event);
+							if (control && (event.key === 'Enter' || event.key === ' ' ||
+								(event.altKey && event.key === 'ArrowDown'))) {
+								nativePopup = control;
+								reportNativePopup(true);
+							} else if (event.key === 'Escape') {
+								closeNativePopup();
+							}
+						}, true);
+						document.addEventListener('change', closeNativePopup, true);
+						document.addEventListener('input', (event) => {
+							if (nativePopup instanceof HTMLInputElement && nativePopup.list)
+								closeNativePopup(event);
+						}, true);
+						document.addEventListener('blur', closeNativePopup, true);
+
 						// --- synthetic key delivery (__osfuiKey web messages) ---
 						// Gamepad navigation reaches the page here as scripted
 						// KeyboardEvents. padnav and the views key off keyCode / e.key,
@@ -2317,6 +2376,15 @@ namespace osfui::wv2
 							if (text == kPrewarmSentinel) {
 								// Host-internal one-shot warmup; not forwarded.
 								CompletePrewarm(*view);
+								return S_OK;
+							}
+							static constexpr std::string_view kNativePopupPrefix = "__osfuiNativePopup:";
+							if (text.starts_with(kNativePopupPrefix)) {
+								// Host-internal input handshake; authored controls
+								// must be able to use Chromium's standard popup UI.
+								view->nativePopupOpen =
+									text.substr(kNativePopupPrefix.size()) == "1";
+								if (active == view) ApplyMouseCapture();
 								return S_OK;
 							}
 							static constexpr std::string_view kStatsPrefix = "__osfuiRenderStatsPage:";
@@ -2863,7 +2931,9 @@ namespace osfui::wv2
 
 			void ApplyMouseCapture()
 			{
-				if (focusGranted && hostWindow) {
+				const bool captureForPage =
+					focusGranted && (!active || !active->nativePopupOpen);
+				if (captureForPage && hostWindow) {
 					if (::GetCapture() != hostWindow) {
 						::SetCapture(hostWindow);
 					}
@@ -3180,12 +3250,14 @@ namespace osfui::wv2
 				} else if (type == "setActive") {
 					auto* view = ResolveView(a_msg);
 					if (view) {
+						if (active && active != view) active->nativePopupOpen = false;
 						active = view;
 						log.Info(std::format("active view -> '{}'", view->id));
 						if (focusGranted && view->controller && !view->hidden) {
 							view->controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
 						}
 						ReconcileInputWidgetSubclass();
+						ApplyMouseCapture();
 					}
 				} else if (type == "focus") {
 					// Session focus: true for an input-capturing menu, false for
@@ -3193,6 +3265,9 @@ namespace osfui::wv2
 					// game side restores its own focus on its window thread.
 					const bool focused = a_msg.value("focused", false);
 					focusGranted = focused;
+					if (!focused) {
+						for (auto& view : views) view->nativePopupOpen = false;
+					}
 					SetRawMouseInput(focused);
 					if (focused && active && active->controller && !active->hidden) {
 						active->controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
