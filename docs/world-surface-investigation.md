@@ -299,10 +299,25 @@ responsible independently of the SRV hook and dedicated browser runtime.
 The overrides differed from vanilla by only four filename strings and had a
 small import footprint, but that did not make them valid. Starfield materials
 carry embedded Bethesda `res:` identities; rewriting filenames while retaining
-that resource graph can leave the material internally inconsistent. The two
-loose materials and placeholder are retained only as investigation artifacts
-and are no longer packaged or auto-deployed. A world surface now requires a
-properly Creation Kit-authored custom mesh/material.
+that resource graph can leave the material internally inconsistent. The loose material experiments have been retired from the repository and are
+not packaged or auto-deployed. A world surface still requires a custom
+mesh/material, but no safe standalone-material authoring workflow has passed
+the acceptance gate yet.
+
+The later "fresh material" attempt did not solve this. Material Editor Lite
+authored `OSFUI_WorldScreen01.mat` at a new path with a new-looking sequential
+`res:` block, but a clean asset-only bisection proved the file unsafe:
+
+1. both OSF UI DLL copies were removed;
+2. no test mesh, plugin, cockpit override, or placeholder texture was active;
+3. leaving only `Materials\OSFUI\OSFUI_WorldScreen01.mat` made the world
+   invisible;
+4. removing only that material restored the world.
+
+That result supersedes the earlier conclusion that Material Editor Lite had
+minted a valid standalone material. The file has been deleted from `data/`.
+Neither file-copying, JSON editing, the CK Material Tool, nor Material Editor
+Lite is currently a verified path for creating a new Starfield material.
 
 ### The placeholder size is safety-critical
 
@@ -329,25 +344,29 @@ very few — a stream of them means the signature is colliding again.
 
 `worldSurfaceTargetWidth`/`Height` must always track the generated file.
 
-The shipping vanilla footprint is zero: the two experimental overrides and
-placeholder remain in source for analysis but are outside `data/` and excluded
-from deployment.
+The shipping vanilla footprint is zero. Loose experimental materials have been
+removed, and placeholder textures are generated only for an explicitly flagged
+research build.
 
 ## Release gating
 
 Normal builds compile `ScaleformToTextureProbe.cpp` and `WorldSurface.cpp`
-out of the plugin. The runtime call sites, state, and
-configuration keys are guarded by `OSFUI_WITH_WORLD_SURFACES`, which xmake
-only defines after an explicit `xmake f --with_world_surfaces=y`. Research
-assets are never installed, even in that build; testing them requires a
-deliberate manual deployment.
+out of the plugin. The runtime call sites, state, and configuration keys are
+guarded by `OSFUI_WITH_WORLD_SURFACES`, which xmake only defines after an
+explicit `xmake f --with_world_surfaces=y`. Generated placeholder textures are
+installed only by that flagged build. Returning to a normal build actively
+purges those textures, the rejected material name, and the research ESM from an
+existing deployment so a copied-over MO2 mod cannot retain them.
 
 ## Next engineering steps
 
 1. ~~Give world surfaces a dedicated view and shared ring instead of borrowing the overlay ring.~~ Done.
 2. ~~Track the current fully produced slot and signal its consume fence while the surface is visible.~~ Done (one-frame-late CPU signal).
 3. ~~Refresh the targeted descriptor safely when the current slot changes or the ring is recreated.~~ Done (unconditional per-tick re-assert).
-4. Custom mesh + Creation Kit-authored material at OSF UI-owned paths (needs fresh `res:` IDs — see above). Runtime + packaging side done 2026-07-28; the CK asset itself follows [world-surface-authoring.md](world-surface-authoring.md) and its in-game pass is the flag-default gate.
+4. Find a verified way to author a standalone Starfield material. File copies,
+   JSON edits, the CK Material Tool, and Material Editor Lite have all failed
+   in practice; the exact asset-only acceptance gate is documented in
+   [world-surface-authoring.md](world-surface-authoring.md).
 5. ~~Per-instance lifecycle~~ (N config-driven surfaces with isolated hosts, failure/health wiring, 2026-07-28). Still open: visibility throttling / cell-lifecycle host suspension, raycast-to-UV input mapping, activate-to-open-menu interactivity, and a mod-facing `RegisterWorldSurface` C ABI.
 
 A custom screen mesh/material with an OSF UI-owned placeholder texture is the

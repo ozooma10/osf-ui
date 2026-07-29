@@ -72,40 +72,32 @@ Starfield materials embed `res:` content-database identities; a file-level
 copy duplicates them, which corrupts the material graph and provably breaks
 world rendering globally (see
 [world-surface-investigation.md](world-surface-investigation.md), "Loose
-material retargeting is not safe"). Creating or duplicating a material
-**inside the Material Editor** is fine — the editor mints fresh identities;
-it is copying at the file level that breaks.
+material retargeting is not safe"). New-looking IDs are not sufficient proof:
+a material created in Material Editor Lite also broke world rendering, so every
+candidate must pass the asset-only gate below.
 
-**Recommended tool: the standalone *Material Editor Lite*** (Nexus mod
-14659). It authored a correct material on the first attempt (2026-07-28):
+**There is currently no verified tool for this step.** The CK Material Tool
+does not expose a usable texture-slot workflow here: cloning produces an empty
+derived material and Copy/Paste Textures remains disabled. Material Editor
+Lite can produce a plausible ColorEmissive graph with new-looking sequential
+`res:` IDs, but the resulting `OSFUI_WorldScreen01.mat` still made all other
+world materials disappear even with the OSF UI DLL and every other test asset
+absent. Removing that one file restored the world.
 
-1. New material, shader model **ColorEmissive**
-   (`Materials\Layered\ShaderModels\ColorEmissive.mat` parent).
-2. Bind `Textures\OSFUI\worldsurface_placeholder01.dds` as **Albedo** and
-   **Emissive** (MEL populates both for this shader).
-3. Set **ExposureOffset = 6**; save as
-   `Data\Materials\OSFUI\OSFUI_WorldScreen01.mat`.
-4. Do NOT run its texture converter on the placeholder (step-1 hard rule) —
-   reference the existing file.
-5. Verify the saved JSON: the material's own `res:` IDs must not appear in
-   any vanilla material (MEL mints a fresh sequential block), and both
-   `MRTextureFile` entries (Index 0 and 7) must name the placeholder.
+Do not ship a Material Editor Lite result on the strength of its JSON looking
+valid. Any future authoring route must pass this asset-only acceptance gate
+before a mesh or runtime is introduced:
 
-MEL also writes `AdaptiveEmittance = true` and
-`EmissiveClipThreshold = 0.275`. Both are acceptable defaults; if dark web
-content ever renders oddly in-game, zeroing `EmissiveClipThreshold` is the
-first tuning knob.
+1. Start from a profile where the world renders normally.
+2. Disable/remove the OSF UI DLL.
+3. Deploy only the candidate `.mat`; do not deploy its mesh, plugin, or
+   placeholder texture yet.
+4. Load the same save and confirm ordinary world materials still render.
+5. Remove the candidate and repeat once to prove the result follows the file.
 
-The emissive binding is what makes the vanilla cockpit screens glow
-(`ShipScreen_Avionics01_A.mat` precedent) — without it, browser content reads
-as a dark decal instead of a lit display.
-
-The CK Material Tool route (bUseCompiledDB=0 + Starfield Material Exporter
-for vanilla references) proved a dead end in practice for this task: the
-property panel exposes shader/global-layer settings but no discoverable
-texture-slot editing, cloning produces an empty derived material, and
-Copy/Paste Textures stayed disabled. Keep CK for the forms (steps 5-6); author
-the material in MEL.
+Until a material passes that gate, step 4 blocks the custom-placeable route.
+The known-good vanilla cockpit texture override remains the render-to-texture
+proof harness; it is not a shippable authoring model.
 
 ## 4. Mesh
 

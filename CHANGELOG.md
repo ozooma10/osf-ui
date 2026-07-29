@@ -22,6 +22,8 @@
 
 ### Fixed
 
+- Normal builds and release packages no longer carry in-world screen research assets. A Material Editor Lite-authored `OSFUI_WorldScreen01.mat` could make every other world material disappear even with the OSF UI DLL absent, and switching the research flag off previously left that material and generated placeholder textures behind in an existing MO2 deployment. The unsafe material has been removed; production builds now exclude these assets and purge stale research copies when redeployed.
+
 - OSF UI now boots its real WebView2 renderer, D3D12 compositor, and UI input hook from compiled production defaults when the developer config omits backend selections. F10 therefore opens the UI again, and choosing **MOD MENUS** from the pause menu no longer pauses behind an invisible mock frame after an update replaces `config.json`.
 
 - The Mods surface no longer opens with an empty **All systems** screen when MO2's browser mirror retains an older shared bridge helper. Each game process now builds views into a fresh real-path mirror and removes it after the browser exits, so current view bundles cannot accidentally run against stale `osfui.emit()` / `osfui.call()` support. Catalog reads are also retried when the browser transport becomes ready.
@@ -39,7 +41,7 @@
 
 ### Other changes
 
-- The in-world render-to-texture prototype is excluded from normal builds and releases. Its descriptor hook, development probe, second browser host, configuration keys, and runtime state compile only with the default-off `with_world_surfaces` research flag. The unsafe loose cockpit materials and placeholder texture are retained outside `data/` for investigation and are never packaged.
+- The in-world render-to-texture prototype is excluded from normal builds and releases. Its descriptor hook, development probe, second browser host, configuration keys, runtime state, and generated placeholder textures are enabled only with the default-off `with_world_surfaces` research flag. Unsafe loose material experiments are not shipped, and returning to a normal build purges research assets left in an existing deployment.
 - OSF UI → Diagnostics now has a collapsed **Registered views** menu listing every mod-provided view discovered during the session, including hidden and not-yet-loaded views, with a **Trigger** button that sends it through the normal open path. Built-in OSF UI surfaces stay out of the list, keeping it focused on confirming and manually launching mod diagnostic or utility views without exposing them in the regular mod menu.
 
 ### For view authors

@@ -32,6 +32,24 @@ option("with_world_surfaces", function()
     set_description("Build experimental in-world Web UI surface runtime")
 end)
 
+-- Research builds generate/deploy these files at the Starfield Data root.
+-- A later normal build must actively remove them: copying the production
+-- payload over an existing MO2 mod does not delete files from the prior build.
+local function remove_world_surface_research_assets(installDir, removeFile)
+    local textureDir = path.join(installDir, "Textures", "OSFUI")
+    for _, name in ipairs({
+        "worldsurface_placeholder01.dds",
+        "worldsurface_placeholder02.dds",
+        "worldsurface_placeholder03.dds",
+        "worldsurface_placeholder04.dds"
+    }) do
+        removeFile(path.join(textureDir, name))
+    end
+    removeFile(path.join(
+        installDir, "Materials", "OSFUI", "OSFUI_WorldScreen01.mat"))
+    removeFile(path.join(installDir, "OSFUI_WorldScreens.esm"))
+end
+
 -- JSON for config, view manifests, and the message bridge
 add_requires("nlohmann_json")
 
@@ -127,13 +145,14 @@ target("OSF UI")
     -- the Papyrus surface (authoring-settings.md "From Papyrus"): loose scripts
     -- at the Data root -- <install>/Scripts/OSFUI.pex (+ Source/OSFUI.psc)
     add_installfiles("data/(Scripts/**)")
-    -- World-surface assets are REAL Starfield loose assets and belong at the
-    -- mod/Data root, not under SFSE/Plugins: generated placeholder textures,
-    -- the user's CK-authored materials, and the placeable's plugin. All three
-    -- globs are harmless no-ops while the folders are empty or absent.
-    add_installfiles("data/(Textures/**)")
-    add_installfiles("data/(Materials/**)")
-    add_installfiles("data/(*.esm)")
+    -- World-surface research assets are REAL Starfield loose assets and belong
+    -- at the mod/Data root, not under SFSE/Plugins. Never include them in a
+    -- normal install or release package.
+    if has_config("with_world_surfaces") then
+        add_installfiles("data/(Textures/**)")
+        add_installfiles("data/(Materials/**)")
+        add_installfiles("data/(*.esm)")
+    end
     -- Build the ignored frontend artifact before native deployment. Node is a
     -- developer/build dependency; it is never required on a player's machine.
     before_build(function(target)
@@ -156,6 +175,7 @@ target("OSF UI")
             return
         end
         import("core.project.depend")
+        import("core.project.config")
         local datadir = path.join(os.projectdir(), "data", "OSFUI")
         local scriptsdir = path.join(os.projectdir(), "data", "Scripts")
         local viewsdir = path.join(os.projectdir(), "build", "frontend", "views")
@@ -170,24 +190,28 @@ target("OSF UI")
             os.cp(viewsdir, path.join(dstdir, "OSFUI"))
             -- Papyrus surface: loose scripts at the Data root (mod folder root)
             os.cp(scriptsdir, target:installdir())
-            -- World-surface loose assets: also mod-root, present only when the
-            -- flagged build generated/authored them.
-            for _, worldDir in ipairs({ "Textures", "Materials" }) do
-                local src = path.join(os.projectdir(), "data", worldDir)
-                if os.isdir(src) then
-                    os.cp(src, target:installdir())
+            -- World-surface loose assets: also mod-root, and only for an
+            -- explicitly flagged research build.
+            if config.get("with_world_surfaces") then
+                for _, worldDir in ipairs({ "Textures", "Materials" }) do
+                    local src = path.join(os.projectdir(), "data", worldDir)
+                    if os.isdir(src) then
+                        os.cp(src, target:installdir())
+                    end
                 end
-            end
-            for _, esm in ipairs(os.files(path.join(os.projectdir(), "data", "*.esm"))) do
-                os.cp(esm, target:installdir())
+                for _, esm in ipairs(os.files(path.join(os.projectdir(), "data", "*.esm"))) do
+                    os.cp(esm, target:installdir())
+                end
             end
             cprint("${dim}deploying data/OSFUI + generated views + data/Scripts to %s ..", target:installdir())
         end, { files = files, values = files,
                dependfile = target:dependfile("osfui_data_deploy") })
+        if not config.get("with_world_surfaces") then
+            remove_world_surface_research_assets(target:installdir(), os.rm)
+        end
         -- Out-of-process WebView2 host: ship the exe inside the plugin data
         -- dir (SFSE/Plugins/OSFUI/bin). The renderer mirrors it to a REAL
         -- path outside the MO2 VFS at runtime before broker-launching it.
-        import("core.project.config")
         if config.get("with_webview2") then
             import("core.project.project")
             local host = project.target("osfui-webview2-host")
@@ -229,6 +253,9 @@ target("OSF UI")
             local bindir = path.join(target:installdir(), "SFSE", "Plugins", "OSFUI", "bin")
             os.mkdir(bindir)
             os.cp(host:targetfile(), path.join(bindir, "osfui_webview2_host.exe"))
+        end
+        if not config.get("with_world_surfaces") then
+            remove_world_surface_research_assets(target:installdir(), os.rm)
         end
     end)
 
