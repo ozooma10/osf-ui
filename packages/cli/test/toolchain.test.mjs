@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { resolve } from 'node:path';
+import { basename, resolve } from 'node:path';
 import test from 'node:test';
 
 import { createServer } from 'vite';
@@ -10,6 +10,7 @@ import { buildProject } from '../src/build.mjs';
 import { checkProject } from '../src/check.mjs';
 import { loadProject, manifestFor } from '../src/config.mjs';
 import { devServerConfig } from '../src/dev.mjs';
+import { deploymentRoot } from '../src/game.mjs';
 import { harnessPlugin } from '../src/harness-plugin.mjs';
 import { writeZip } from '../src/zip.mjs';
 
@@ -53,6 +54,13 @@ test('loads configuration and creates a production manifest', async (t) => {
     filesystem: false,
     network: false,
   });
+});
+
+test('game deployment creates a project-named folder under the MO2 mods directory', async (t) => {
+  const root = await projectFixture(t);
+  const project = await loadProject(root);
+  const modsRoot = resolve(root, '..', 'MO2', 'mods');
+  assert.equal(deploymentRoot(project, modsRoot), resolve(modsRoot, basename(root)));
 });
 
 test('checks, builds, and packages a generated-shaped project', async (t) => {

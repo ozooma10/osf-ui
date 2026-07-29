@@ -1,37 +1,46 @@
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { basename, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { stdin, stdout } from 'node:process';
 
 import { AUTHOR_MARKER, LOCAL_FILE } from './constants.mjs';
 import { buildProject } from './build.mjs';
 
+export function deploymentRoot(project, modsRoot) {
+  return resolve(modsRoot, basename(project.root));
+}
+
 async function configuredDeployRoot(project, explicit) {
-  if (explicit) return resolve(explicit);
+  if (explicit) return deploymentRoot(project, explicit);
   try {
     const local = JSON.parse(await readFile(resolve(project.root, LOCAL_FILE), 'utf8'));
+    if (typeof local.modsRoot === 'string' && local.modsRoot) {
+      return deploymentRoot(project, local.modsRoot);
+    }
+    // Before 0.2, deployRoot named the final mod directory. Keep existing
+    // projects working while all newly saved paths use the MO2 mods directory.
     if (typeof local.deployRoot === 'string' && local.deployRoot) return resolve(local.deployRoot);
   } catch {}
   if (stdin.isTTY) {
     const prompt = createInterface({ input: stdin, output: stdout });
     try {
       const answer = (await prompt.question(
-        'MO2 mod directory to sync into (the folder containing SFSE): ',
+        'MO2 mods directory to sync into: ',
       )).trim();
       if (answer) {
-        const deployRoot = resolve(answer);
+        const modsRoot = resolve(answer);
         const localPath = resolve(project.root, LOCAL_FILE);
         await mkdir(resolve(localPath, '..'), { recursive: true });
-        await writeFile(localPath, `${JSON.stringify({ deployRoot }, null, 2)}\n`);
+        await writeFile(localPath, `${JSON.stringify({ modsRoot }, null, 2)}\n`);
         console.log(`[osfui] Saved this local path in ${LOCAL_FILE}.`);
-        return deployRoot;
+        return deploymentRoot(project, modsRoot);
       }
     } finally {
       prompt.close();
     }
   }
   throw new Error(
-    `Game deployment is not configured. Run with --deploy "C:\\path\\to\\your\\mod".`,
+    `Game deployment is not configured. Run with --deploy "C:\\path\\to\\MO2\\mods".`,
   );
 }
 

@@ -413,8 +413,9 @@ output { display: block; min-height: 24px; margin-top: 18px; color: #a9dced; ove
 `);
   await put(root, 'README.md', `# ${packageJson.name}
 
-Run \`npm run dev\` for instant browser HMR. Run \`npm run dev:game -- --deploy "path-to-your-mod"\`
-to sync into Starfield with temporary author mode, F11 reload, and F12 DevTools.
+Run \`npm run dev\` for instant browser HMR. Run \`npm run dev:game -- --deploy "path-to-MO2-mods"\`
+to create this mod's folder under MO2 and sync into Starfield with temporary
+author mode, F11 reload, and F12 DevTools.
 
 Use \`npm run package\` to create a release-ready zip. Files under \`mod/\`
 are copied into the mod archive beside the generated view.

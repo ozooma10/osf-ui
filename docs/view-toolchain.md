@@ -42,14 +42,15 @@ in-game host does not support.
 ## Iterate in Starfield
 
 ```bat
-npm run dev:game -- --deploy "C:\path\to\your\MO2\mod"
+npm run dev:game -- --deploy "C:\path\to\MO2\mods"
 ```
 
-The first run asks for the root of the mod being authored—the directory
-containing `SFSE/`—and remembers it locally. You can also supply `--deploy` as
-shown above. The command keeps the browser harness running, rebuilds and syncs
-only this project's views after saves, and writes an expiring author-mode
-marker beside OSF UI's `config.json`.
+The first run asks for MO2's `mods` directory and remembers it locally. It
+creates a child mod folder matching the project directory name, then places the
+generated `SFSE/` tree inside it. You can also supply `--deploy` as shown above.
+The command keeps the browser harness running, rebuilds and syncs only this
+project's views after saves, and writes an expiring author-mode marker beside
+OSF UI's `config.json`.
 
 Start Starfield while the command is running. Author mode is active without
 editing player configuration: F11 reloads the open view and F12 opens WebView2
@@ -61,7 +62,7 @@ To remember the deployment directory, create the ignored local file
 
 ```json
 {
-  "deployRoot": "C:\\path\\to\\your\\MO2\\mod"
+  "modsRoot": "C:\\path\\to\\MO2\\mods"
 }
 ```
 

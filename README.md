@@ -82,7 +82,7 @@ npm run dev
 The generator offers Preact or vanilla TypeScript, menu or HUD surfaces, and
 Papyrus/native/settings/static starting points. The harness opens automatically,
 hot-reloads edits, supplies the shared kit and mock bridge, and exposes bridge
-traffic and lifecycle controls. `npm run dev:game -- --deploy "path-to-your-mod"`
+traffic and lifecycle controls. `npm run dev:game -- --deploy "path-to-MO2-mods"`
 also syncs changes into the game and enables temporary author mode, including F11
 reload and F12 DevTools. `npm run package` makes the release zip.
 
