@@ -59,9 +59,14 @@ int main()
 	{
 		const auto config = Load(R"({ "worldSurfaces": [
 			{ "view": "mymod.screens/terminal", "width": 9000, "height": 32,
-			  "placeholderWidth": 1000, "placeholderHeight": 1000 } ] })");
+			  "placeholderWidth": 1000, "placeholderHeight": 1000,
+			  "activateEditorId": "OSFUI_WorldScreen_Settings",
+			  "activatePlugin": "OSFUI.esp", "activateFormId": "0x826" } ] })");
 		assert(config.worldSurfaces.size() == 1);
 		assert(config.worldSurfaces[0].view == "mymod.screens/terminal");
+		assert(config.worldSurfaces[0].activateEditorId == "OSFUI_WorldScreen_Settings");
+		assert(config.worldSurfaces[0].activatePlugin == "OSFUI.esp");
+		assert(config.worldSurfaces[0].activateFormId == 0x826);
 		assert(config.worldSurfaces[0].width == 4096);
 		assert(config.worldSurfaces[0].height == 64);
 		assert(config.worldSurfaces[0].placeholderWidth == 1000);
@@ -103,6 +108,40 @@ int main()
 			{ "view": "a.b/one", "placeholderWidth": 998, "placeholderHeight": 998 } ] })");
 		assert(config.worldSurfaces.size() == 1);
 		assert(config.worldSurfaces[0].placeholderWidth == 1000);
+	}
+
+	// Activation IDs are matched case-insensitively. The first configured
+	// surface owns a duplicate ID, but the later screen remains displayable.
+	{
+		const auto config = Load(R"({ "worldSurfaces": [
+			{ "view": "a.b/one", "activateEditorId": "OSFUI_Screen",
+			  "placeholderWidth": 1000, "placeholderHeight": 1000 },
+			{ "view": "a.b/two", "activateEditorId": "osfui_screen",
+			  "placeholderWidth": 998, "placeholderHeight": 998 } ] })");
+		assert(config.worldSurfaces.size() == 2);
+		assert(config.worldSurfaces[0].activateEditorId == "OSFUI_Screen");
+		assert(config.worldSurfaces[1].activateEditorId.empty());
+	}
+
+	// Plugin-local activation identity is case-insensitive and first-wins too.
+	// A malformed half-binding is ignored without dropping the visible surface.
+	{
+		const auto config = Load(R"({ "worldSurfaces": [
+			{ "view": "a.b/one", "activatePlugin": "OSFUI.esp",
+			  "activateFormId": "826", "placeholderWidth": 1000,
+			  "placeholderHeight": 1000 },
+			{ "view": "a.b/two", "activatePlugin": "osfui.ESP",
+			  "activateFormId": "0x826", "placeholderWidth": 998,
+			  "placeholderHeight": 998 },
+			{ "view": "a.b/three", "activatePlugin": "OSFUI.esp",
+			  "placeholderWidth": 996, "placeholderHeight": 996 } ] })");
+		assert(config.worldSurfaces.size() == 3);
+		assert(config.worldSurfaces[0].activatePlugin == "OSFUI.esp");
+		assert(config.worldSurfaces[0].activateFormId == 0x826);
+		assert(config.worldSurfaces[1].activatePlugin.empty());
+		assert(config.worldSurfaces[1].activateFormId == 0);
+		assert(config.worldSurfaces[2].activatePlugin.empty());
+		assert(config.worldSurfaces[2].activateFormId == 0);
 	}
 
 	// The per-surface host-process cost model caps the list.

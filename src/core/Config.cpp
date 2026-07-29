@@ -1,13 +1,36 @@
 #include "core/Config.h"
 
+#include "core/StringUtil.h"
 #include "runtime/Json.h"
 
+#include <charconv>
 #include <chrono>
 
 namespace OSFUI
 {
 	namespace
 	{
+#if defined(OSFUI_WITH_WORLD_SURFACES)
+		[[nodiscard]] std::optional<std::uint32_t> ParseLocalFormId(
+			std::string_view a_text)
+		{
+			if (a_text.starts_with("0x") || a_text.starts_with("0X")) {
+				a_text.remove_prefix(2);
+			}
+			if (a_text.empty() || a_text.size() > 6) {
+				return std::nullopt;
+			}
+			std::uint32_t value = 0;
+			const auto [ptr, ec] =
+				std::from_chars(a_text.data(), a_text.data() + a_text.size(), value, 16);
+			if (ec != std::errc{} || ptr != a_text.data() + a_text.size() ||
+				value == 0 || value > 0x00FFFFFF) {
+				return std::nullopt;
+			}
+			return value;
+		}
+#endif
+
 		// Every key the parser reads. config.json is host-owned, so an unknown
 		// key is a typo, never version skew. Keep in lockstep with the reads below.
 		constexpr std::initializer_list<std::string_view> kKnownKeys = {
@@ -48,6 +71,23 @@ namespace OSFUI
 				}
 				Config::WorldSurfaceEntry entry;
 				entry.view = Json::GetString(element, "view", "");
+				entry.activateEditorId = Json::GetString(element, "activateEditorId", "");
+				entry.activatePlugin = Json::GetString(element, "activatePlugin", "");
+				const auto activateFormIt = element.find("activateFormId");
+				const bool hasActivateFormId = activateFormIt != element.end();
+				const auto activateFormText = Json::GetString(element, "activateFormId", "");
+				if (!entry.activatePlugin.empty() || hasActivateFormId) {
+					const auto localFormId = ParseLocalFormId(activateFormText);
+					if (entry.activatePlugin.empty() || !localFormId) {
+						REX::WARN("Config: worldSurfaces[{}] ('{}') activation needs both "
+								  "activatePlugin and a nonzero hexadecimal activateFormId "
+								  "at or below 0xFFFFFF; plugin/FormID binding ignored",
+							entryIndex, entry.view);
+						entry.activatePlugin.clear();
+					} else {
+						entry.activateFormId = *localFormId;
+					}
+				}
 				if (entry.view.empty()) {
 					REX::WARN("Config: worldSurfaces[{}] has no view id; dropped", entryIndex);
 					continue;
@@ -78,6 +118,39 @@ namespace OSFUI
 							  "earlier entry's view id or placeholder size; dropped",
 						entryIndex, entry.view, entry.placeholderWidth, entry.placeholderHeight);
 					continue;
+				}
+				if (!entry.activatePlugin.empty()) {
+					const auto duplicateFormActivation = std::ranges::find_if(
+						a_config.worldSurfaces,
+						[&entry](const Config::WorldSurfaceEntry& a_kept) {
+							return !a_kept.activatePlugin.empty() &&
+								a_kept.activateFormId == entry.activateFormId &&
+								StringUtil::EqualsCaseInsensitiveAscii(
+									a_kept.activatePlugin, entry.activatePlugin);
+						});
+					if (duplicateFormActivation != a_config.worldSurfaces.end()) {
+						REX::WARN("Config: worldSurfaces[{}] ('{}') repeats activation form "
+								  "'{}':{:#x}; the surface remains displayable but that binding "
+								  "belongs to the earlier entry",
+							entryIndex, entry.view, entry.activatePlugin, entry.activateFormId);
+						entry.activatePlugin.clear();
+						entry.activateFormId = 0;
+					}
+				}
+				if (!entry.activateEditorId.empty()) {
+					const auto duplicateActivation = std::ranges::find_if(a_config.worldSurfaces,
+						[&entry](const Config::WorldSurfaceEntry& a_kept) {
+							return !a_kept.activateEditorId.empty() &&
+								StringUtil::EqualsCaseInsensitiveAscii(
+									a_kept.activateEditorId, entry.activateEditorId);
+						});
+					if (duplicateActivation != a_config.worldSurfaces.end()) {
+						REX::WARN("Config: worldSurfaces[{}] ('{}') repeats activation EditorID "
+								  "'{}'; the surface remains displayable but activation belongs "
+								  "to the earlier entry",
+							entryIndex, entry.view, entry.activateEditorId);
+						entry.activateEditorId.clear();
+					}
 				}
 				if (a_config.worldSurfaces.size() >= Config::kMaxWorldSurfaces) {
 					REX::WARN("Config: worldSurfaces[{}] ('{}') exceeds the {}-surface cap; dropped",

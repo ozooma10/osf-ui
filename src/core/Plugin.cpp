@@ -8,6 +8,9 @@
 #include "input/MenuEventSink.h"
 #include "input/OverlayInputHook.h"
 #include "input/UiLayoutGuard.h"
+#if defined(OSFUI_WITH_WORLD_SURFACES)
+#	include "input/WorldSurfaceActivateSink.h"
+#endif
 #include "runtime/Runtime.h"
 
 #include "RE/B/BSService.h"
@@ -162,7 +165,12 @@ namespace OSFUI::Plugin
 						// the toggle key and, while capturing, consumes
 						// keyboard/mouse and routes them into the overlay.
 						if (Runtime::Get().GetConfig().inputSource == "ui") {
-							OverlayInputHook::Install();
+							[[maybe_unused]] const bool inputInstalled = OverlayInputHook::Install();
+#if defined(OSFUI_WITH_WORLD_SURFACES)
+							if (inputInstalled) {
+								WorldSurfaceActivateSink::Install();
+							}
+#endif
 						} else {
 							REX::INFO("Plugin: inputSource=none; input hook not installed (toggle key inert)");
 						}

@@ -12,6 +12,12 @@ namespace OSFUI::WorldSurface
 	namespace
 	{
 		constexpr std::size_t kCreateSrvSlot = 18;
+		// WebView2 publishes BGRA bytes in sRGB display space. Vanilla display
+		// textures are also authored as sRGB resources (for example,
+		// DisplayScreenWhite1 is BC1_UNORM_SRGB), so sampling the shared ring
+		// through a linear UNORM view lifts midtones and washes out the page.
+		constexpr DXGI_FORMAT kBrowserSrvFormat =
+			DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
 
 		using CreateSrvFn = void(STDMETHODCALLTYPE*)(
 			ID3D12Device*, ID3D12Resource*,
@@ -115,12 +121,11 @@ namespace OSFUI::WorldSurface
 		// Dimensions alone are NOT a safe signature. The engine allocates its
 		// own render targets, and matching one of those rewrites a descriptor
 		// the frame depends on — which breaks rendering globally, not just the
-		// surface. A streamed material texture is a plain sampled 2D texture:
-		// no render-target/depth/UAV capability, single slice, single mip (our
-		// placeholders ship unmipped). Requiring FLAG_NONE excludes every
-		// engine-owned target regardless of what size it happens to be; the
-		// per-surface size match then only disambiguates between our own
-		// placeholders.
+		// surface. A verified OSF UI placeholder reaches CreateSRV as a plain
+		// typeless BGRA texture: no render-target/depth/UAV capability, single
+		// slice, single mip. Requiring that exact shape and resource format
+		// excludes engine-owned targets and unrelated same-sized textures; the
+		// per-surface size then disambiguates our canonical placeholders.
 		[[nodiscard]] Surface* FindTarget(ID3D12Resource* a_resource)
 		{
 			if (!a_resource) {
@@ -128,6 +133,7 @@ namespace OSFUI::WorldSurface
 			}
 			const auto desc = a_resource->GetDesc();
 			if (desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+				desc.Format != DXGI_FORMAT_B8G8R8A8_TYPELESS ||
 				desc.Flags != D3D12_RESOURCE_FLAG_NONE ||
 				desc.DepthOrArraySize != 1 ||
 				desc.MipLevels != 1 ||
@@ -154,7 +160,7 @@ namespace OSFUI::WorldSurface
 				return false;
 			}
 			D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
-			srv.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+			srv.Format = kBrowserSrvFormat;
 			srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
 			srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 			srv.Texture2D.MipLevels = 1;
@@ -212,7 +218,7 @@ namespace OSFUI::WorldSurface
 				surface.slots[surface.lastSlot] != nullptr;
 			if (replaced) {
 				D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
-				srv.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+				srv.Format = kBrowserSrvFormat;
 				srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
 				srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 				srv.Texture2D.MipLevels = 1;

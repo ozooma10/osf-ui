@@ -372,6 +372,52 @@ GPU transport and guarded descriptor replacement are independently sound on
 this game build. The unresolved problem is how authors bind a safe, intentional
 in-game asset without overriding a shared vanilla cockpit texture.
 
+### Creation Kit material-swap display proof (2026-07-29)
+
+The safe cockpit transport proof was reproduced on a placeable vanilla Static,
+`DisplayScreen5` (`SetDressing\DisplayScreens\DisplayScreen5.nif`), using a
+reference-level Creation Kit Material Swap. This establishes the author model:
+the plugin reference assigns a screen material, and that material's placeholder
+signature selects the configured OSF UI view.
+
+The clean reference contained exactly one `XLMS` entry:
+
+```text
+SetDressing\DisplayScreens\DisplayScreenWhite1.mat
+  -> Architecture\City\NewAtlantis\Lodge\BaseMaterials\NA_Lodge_Space01.mat
+```
+
+Two byte-identical 1000x1000 placeholders were placed at the Lodge material's
+color and emissive texture paths. The runtime captured both descriptors, drove
+them from one dedicated browser ring, displayed `osfui/settings`, and left the
+surrounding world rendering normally. A previous reference with Opi followed by
+Lodge did not select Lodge: material swaps are sequential, so after the first
+rule replaced `DisplayScreenWhite1`, the second rule no longer matched. A fresh
+reference with only the Lodge swap fixed the test deterministically.
+
+The presentation comparisons separated two independent problems:
+
+- browser pixels had been sampled as linear UNORM even though WebView2 and
+  vanilla display textures are sRGB; using an sRGB replacement view restored
+  contrast;
+- `DisplayScreenWhite1` uses a glass/grunge roughness map and Opi uses constant
+  roughness near 0.1, while `NA_Lodge_Space01` uses a flat normal, no grunge,
+  and constant roughness 1.0. The matte Lodge donor was visibly clearer.
+
+This is a proof harness, not the release asset. It overrides
+`NA_Lodge_Space01_color.DDS` and `_emissive.DDS`, so it would alter a vanilla
+Lodge material. The material database/mesh audit found a possible next donor,
+`materials\test\referenceassets\test_colorverificationgrid.mat`, with one
+direct test-mesh user and isolated-looking color/emissive paths, but its graph
+uses `1LayerStandard`, a separate roughness map, and disabled layered
+emissivity. It has not passed an in-game presentation or blast-radius gate and
+must not be treated as accepted merely because it is test content.
+
+The successful proof files were checkpointed outside the deployment at
+`C:\tmp\osfui-display-screen-proof-passed-20260729` before further experiments.
+The durable repository outcome is the CK recipe and acceptance checklist in
+[world-surface-authoring.md](world-surface-authoring.md), not those local test
+assets.
 ## Release gating
 
 Normal builds compile `ScaleformToTextureProbe.cpp` and `WorldSurface.cpp`
@@ -387,11 +433,14 @@ existing deployment so a copied-over MO2 mod cannot retain them.
 1. ~~Give world surfaces a dedicated view and shared ring instead of borrowing the overlay ring.~~ Done.
 2. ~~Track the current fully produced slot and signal its consume fence while the surface is visible.~~ Done (one-frame-late CPU signal).
 3. ~~Refresh the targeted descriptor safely when the current slot changes or the ring is recreated.~~ Done (unconditional per-tick re-assert).
-4. Find a verified way to author a standalone Starfield material. File copies,
-   JSON edits, the CK Material Tool, and Material Editor Lite have all failed
-   in practice; the exact asset-only acceptance gate is documented in
+4. Find a release-safe isolated target material. Reference-level Creation Kit
+   Material Swaps are now verified, but the readable Lodge donor still requires
+   vanilla texture overrides and is proof-only. File-copied/custom materials
+   remain rejected until they pass the asset-only gate documented in
    [world-surface-authoring.md](world-surface-authoring.md).
-5. ~~Per-instance lifecycle~~ (N config-driven surfaces with isolated hosts, failure/health wiring, 2026-07-28). Still open: visibility throttling / cell-lifecycle host suspension, raycast-to-UV input mapping, activate-to-open-menu interactivity, and a mod-facing `RegisterWorldSurface` C ABI.
+5. ~~Per-instance lifecycle~~ (N config-driven surfaces with isolated hosts, failure/health wiring, 2026-07-28).
+6. ~~Keyboard activation-to-fullscreen proof~~ Done: initial keyboard E uses the runtime-verified `PlayerCharacter::crosshairRef` and a load-order-safe plugin filename plus plugin-local FormID binding to match either the placed reference or its base Activator, then opens its assigned view through the established menu/input path. Starfield usually omits runtime EditorIDs, so EditorID matching is fallback-only. The tempting `TESActivateEvent::GetEventSource()` wrapper is unusable on 1.16.244 because CommonLib hardcodes Address Library ID 0; database ID 107136 resolves to a function with a different calling shape and must not be substituted.
+7. Still open: visibility throttling / cell-lifecycle host suspension, direct raycast-to-UV input mapping, and a mod-facing `RegisterWorldSurface` C ABI.
 
 A custom screen mesh/material with an OSF UI-owned placeholder texture is the
 safer production target. It gives stable identity and dimensions without

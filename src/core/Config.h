@@ -84,13 +84,16 @@ namespace OSFUI
 		bool        devMode{ false };  // release-safe default; the shipped config / a dev override turns on verbose logging
 
 #if defined(OSFUI_WITH_WORLD_SURFACES)
-		// In-world browser surfaces (display-only). Each entry runs a dedicated
+		// In-world browser surfaces. Each entry runs a dedicated
 		// host process and shared-texture ring; the placeholder texture's exact
 		// dimensions are the material binding signature, so they must be unique
 		// per entry and must never resemble an engine render target.
 		struct WorldSurfaceEntry
 		{
 			std::string   view;                   // qualified "<mod>/<view>" id
+			std::string   activateEditorId;       // legacy best-effort CK EditorID fallback
+			std::string   activatePlugin;         // loaded plugin filename for stable activation
+			std::uint32_t activateFormId{ 0 };     // plugin-local hex FormID (ref or base)
 			std::uint32_t width{ 1600 };          // browser output size
 			std::uint32_t height{ 900 };
 			std::uint32_t placeholderWidth{ 0 };  // == the placeholder DDS dimensions

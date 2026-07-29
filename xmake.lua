@@ -130,7 +130,8 @@ target("OSF UI")
     else
         remove_files(
             "src/composite/ScaleformToTextureProbe.cpp",
-            "src/composite/WorldSurface.cpp")
+            "src/composite/WorldSurface.cpp",
+            "src/input/WorldSurfaceActivateSink.cpp")
     end
     -- sdk/ holds the public single-header native API (OSFUI_API.h); 
     -- src/api includes it directly so the impl and the consumer copy share one ABI def.

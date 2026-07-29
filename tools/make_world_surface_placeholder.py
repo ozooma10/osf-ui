@@ -24,6 +24,7 @@ Usage:
   python tools/make_world_surface_placeholder.py --index 2
   python tools/make_world_surface_placeholder.py --index 1 --out custom.dds
   python tools/make_world_surface_placeholder.py --size 994x994 --out custom.dds
+  python tools/make_world_surface_placeholder.py --verify staged.dds
 """
 
 from __future__ import annotations
@@ -155,6 +156,43 @@ def _pixels(width: int, height: int, pips: int) -> bytearray:
     return data
 
 
+def _verify(path: pathlib.Path) -> None:
+    try:
+        data = path.read_bytes()
+    except OSError as exc:
+        raise SystemExit(f"could not read {path}: {exc}") from exc
+    if len(data) < 128:
+        raise SystemExit(f"{path} is only {len(data)} bytes; not a complete DDS")
+    magic, header_size, flags, height, width, pitch, depth, mips = struct.unpack(
+        "<4s7I", data[:32]
+    )
+    if magic != b"DDS " or header_size != 124:
+        raise SystemExit(f"{path} does not have a supported legacy DDS header")
+    try:
+        index = SIZES.index((width, height)) + 1
+    except ValueError as exc:
+        raise SystemExit(
+            f"{path} is {width}x{height}; expected one canonical size: "
+            + ", ".join(f"{w}x{h}" for w, h in SIZES)
+        ) from exc
+    expected = _header(width, height) + bytes(_pixels(width, height, index))
+    if data != expected:
+        mismatch = next(
+            (offset for offset, (actual, wanted) in enumerate(zip(data, expected))
+             if actual != wanted),
+            min(len(data), len(expected)),
+        )
+        raise SystemExit(
+            f"{path} is not the canonical slot {index} placeholder "
+            f"(first mismatch at byte {mismatch}, length {len(data)}; "
+            f"expected {len(expected)}). Regenerate it and copy byte-for-byte."
+        )
+    print(
+        f"verified {path} as canonical slot {index} "
+        f"({width}x{height} BGRA8, {len(data)} bytes, flags=0x{flags:X}, "
+        f"pitch={pitch}, depth={depth}, mips={mips})"
+    )
+
 def _default_out(index: int) -> pathlib.Path:
     return (
         pathlib.Path(__file__).resolve().parents[1]
@@ -183,11 +221,18 @@ def main() -> int:
         help="generate the canonical placeholder for surface slot N (1-based)")
     what.add_argument("--size", metavar="WxH",
         help="custom size; runs the same safety checks the config parser enforces")
+    what.add_argument("--verify", type=pathlib.Path, metavar="DDS",
+        help="verify that a staged DDS is byte-exactly one canonical placeholder")
     parser.add_argument("--out", type=pathlib.Path,
         help="output path (default data/Textures/OSFUI/worldsurface_placeholder0N.dds; "
              "required with --size)")
     args = parser.parse_args()
 
+    if args.verify is not None:
+        if args.out:
+            parser.error("--out cannot be combined with --verify")
+        _verify(args.verify)
+        return 0
     if args.all:
         if args.out:
             parser.error("--out cannot be combined with --all")
