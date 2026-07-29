@@ -64,7 +64,7 @@ describe('a bridge that becomes available with runtime.ready', () => {
         game: 'Starfield',
         plugin: 'OSF UI',
         version: '1.4.0',
-        bridgeVersion: '1.7',
+        bridgeVersion: '1.5',
       });
     };
 

@@ -155,7 +155,7 @@ To disable without uninstalling: set `"enabled": false` in
 - Input: text entry follows your OS keyboard layout (dead keys and AltGr
   work), but IME composition (e.g. CJK input) isn't supported yet. Gamepad
   navigation is basic (D-pad/sticks/A/B) and being refined.
-- For UI authors: the `window.osfui` bridge protocol is 1.7 and stable.
+- For UI authors: the `window.osfui` bridge protocol is 1.5 and stable.
   Additive changes bump the minor version, breaking changes the major.
   Declare the version you authored against with `targetVersion` — see
   [authoring-views.md](authoring-views.md).

@@ -1,7 +1,7 @@
 /**
  * TypeScript definitions for the OSF UI native <-> web bridge.
  *
- * Bridge protocol version: 1.7 (STABLE — additive changes bump the minor;
+ * Bridge protocol version: 1.5 (STABLE — additive changes bump the minor;
  * breaking changes bump the major). Compatibility is advisory: declare the
  * OSF UI version you authored against as `targetVersion` (view manifest /
  * settings schema) and the Mods surface badges "needs update" when the
@@ -82,11 +82,11 @@ export type UiCommand =
   | { command: "osfui.openLogFolder" }
   /** (protocol 1.4) Read the session diagnostics snapshot; replies `diagnostics.data` and SUBSCRIBES the caller — every later change to the health registry is pushed to you. */
   | { command: "diagnostics.get" }
-  /** (protocol 1.7, platform-private) Read whether the consented OSF UI bug reporter is configured; restricted to the built-in settings view. */
+  /** (protocol 1.5, platform-private) Read whether the consented OSF UI bug reporter is configured; restricted to the built-in settings view. */
   | { command: "diagnostics.reportStatus" }
-  /** (protocol 1.7, platform-private) Submit a consented report with bounded player-authored fields; native attaches redacted diagnostic logs. Restricted to the built-in settings view. */
+  /** (protocol 1.5, platform-private) Submit a consented report with bounded player-authored fields; native attaches redacted diagnostic logs. Restricted to the built-in settings view. */
   | { command: "diagnostics.submitReport"; title: string; description: string; reproduction?: string }
-  /** (protocol 1.7, platform-private) Open one server-created issue. Native accepts only a positive issue number and constructs the fixed OSF UI GitHub URL. */
+  /** (protocol 1.5, platform-private) Open one server-created issue. Native accepts only a positive issue number and constructs the fixed OSF UI GitHub URL. */
   | { command: "osfui.openReportIssue"; issueNumber: number }
   /**
    * Fire an action at the OWNING mod's Papyrus scripts
@@ -112,7 +112,7 @@ export type UiCommand =
    * `OSFUI.GetFormById(asArgs[i])`. See DataPushPayload.forms.
    */
   | { command: "ui.action"; action: string; arg?: string; args?: Array<string | number | boolean> }
-  /** (protocol 1.6) Correlated request to the owning mod's single Papyrus request listener. */
+  /** (protocol 1.5) Correlated request to the owning mod's single Papyrus request listener. */
   | { command: "ui.papyrusRequest"; request: string; args?: Array<string | number | boolean> };
 
 /**
@@ -406,7 +406,7 @@ export interface SerializedForm {
   editorId?: string; // best-effort: usually UNAVAILABLE at runtime in Starfield
 }
 
-/** Cached, typed state published by OSFUI.SetView* (protocol 1.6). */
+/** Cached, typed state published by OSFUI.SetView* (protocol 1.5). */
 export interface DataStatePayload<TValue = unknown> {
   mod: string;   // canonical lowercase owning-mod id
   key: string;   // mod-defined state slice; compare case-insensitively
@@ -437,7 +437,7 @@ export interface DataPushPayload {
   forms?: Array<SerializedForm | null>;
 }
 
-/** Successful correlated reply from an owning Papyrus listener (protocol 1.6). */
+/** Successful correlated reply from an owning Papyrus listener (protocol 1.5). */
 export interface PapyrusResultPayload<TValue = unknown> {
   value: TValue;
 }
@@ -503,14 +503,14 @@ export interface DiagnosticsDataPayload {
   issues: DiagnosticIssue[];
 }
 
-/** Platform-private reporting availability and disclosure (protocol 1.7). */
+/** Platform-private reporting availability and disclosure (protocol 1.5). */
 export interface DiagnosticsReportStatusPayload {
   enabled: boolean;
   logs: string[];
   retentionDays: number;
 }
 
-/** Result of one consented automatic report submission (protocol 1.7). */
+/** Result of one consented automatic report submission (protocol 1.5). */
 export interface DiagnosticsReportResultPayload {
   ok: boolean;
   code?: string;

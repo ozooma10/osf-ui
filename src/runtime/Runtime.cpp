@@ -2677,7 +2677,7 @@ namespace OSFUI
 			}
 			API::Papyrus::OnViewAction(mod, action, args);
 		});
-		// Correlated JS -> owning-Papyrus request (protocol 1.6). Unlike ui.action,
+		// Correlated JS -> owning-Papyrus request (protocol 1.5). Unlike ui.action,
 		// this always requires requestId and suppresses the automatic delivery ack;
 		// the eventual ReplyView*/RejectViewRequest settles it explicitly.
 		a_bridge.RegisterRequest("ui.papyrusRequest", [](const nlohmann::json& a_p, MessageBridge& a_b) {

@@ -3,7 +3,7 @@
 Lets your DLL communicate with OSF UI. 
 Handle commands from a view, push data to a view, read settings and hotkeys, and open views.
 
-The stable, dependency-free ABI is [`sdk/OSFUI_API.h`](../sdk/OSFUI_API.h) (C ABI **1.8**). If your plugin uses `nlohmann::json`, include the optional [`sdk/OSFUI_JSON.h`](../sdk/OSFUI_JSON.h) authoring facade as well; it remains entirely on your side of the DLL boundary.
+The stable, dependency-free ABI is [`sdk/OSFUI_API.h`](../sdk/OSFUI_API.h) (C ABI **1.7**). If your plugin uses `nlohmann::json`, include the optional [`sdk/OSFUI_JSON.h`](../sdk/OSFUI_JSON.h) authoring facade as well; it remains entirely on your side of the DLL boundary.
 
 Writing a view (HTML/JS) instead? See [authoring-views.md](authoring-views.md) - that's the `window.osfui` side. Your `SendToWeb` lands at a view's `osfui.onMessage`; a view's `osfui.send` lands at your command handler.
 
@@ -83,7 +83,7 @@ Three separate version numbers.
 
 | Version | Read it with | Gates |
 |---|---|---|
-| **C ABI** (`1.8`) | `GetInterfaceVersion()` | which native methods exist. Gate on this. |
+| **C ABI** (`1.7`) | `GetInterfaceVersion()` | which native methods exist. Gate on this. |
 | **Plugin** (OSF UI release) | `GetPluginVersion()` | nothing - log it for support. |
 | **Web protocol** (e.g. `"1.0"`) | `GetBridgeProtocolVersion()` | the JS handshake. Native code: don't parse it. |
 
@@ -124,7 +124,7 @@ Register once at `kPostLoad`.
 
 ### 3a. Request/response
 
-ABI 1.8 (`Feature::kRequests`) adds a first-class value-returning path. Use it
+ABI 1.7 (`Feature::kRequests`) adds a first-class value-returning path. Use it
 when the view needs an answer; keep `RegisterCommand` for fire-and-forget work.
 
 The preferred authoring form uses the optional JSON facade:
@@ -496,8 +496,8 @@ All on `IOSFUIBridge`, mirrored on `Client` (which adds the version gate).
 | `ReportIssue(mod,id,code,sev,subj,ctx)` | 1.7 | any | false on bad mod id / empty id or code / non-object context |
 | `ClearIssue(mod,id)` | 1.7 | any | true = queued, not "was active" |
 | `ClearIssuesExcept(mod,keepJson)` | 1.7 | any | keep list is a JSON array of ids |
-| RegisterRequest(name,fn,user) | 1.8 | any | first-wins across commands and requests; callback on main |
-| UnregisterRequest(name) | 1.8 | any | in-flight tokens remain valid until answer/timeout/close |
+| RegisterRequest(name,fn,user) | 1.7 | any | first-wins across commands and requests; callback on main |
+| UnregisterRequest(name) | 1.7 | any | in-flight tokens remain valid until answer/timeout/close |
 
 ---
 

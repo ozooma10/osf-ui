@@ -45,7 +45,7 @@ static_assert(sizeof(std::uint32_t) == 4, "OSFUI_API: fixed-width ABI types requ
 namespace OSFUI::API
 {
 	// Packed (MAJOR << 16) | MINOR.
-	inline constexpr std::uint32_t kBridgeAPIVersion = (1u << 16) | 8u;
+	inline constexpr std::uint32_t kBridgeAPIVersion = (1u << 16) | 7u;
 	inline constexpr std::uint32_t kBridgeAPIMajor   = kBridgeAPIVersion >> 16;
 	inline constexpr std::uint32_t kBridgeAPIMinor   = kBridgeAPIVersion & 0xFFFFu;
 
@@ -63,7 +63,7 @@ namespace OSFUI::API
 	                           const char* a_sourceViewId,
 	                           void*       a_user) noexcept;
 
-	// Copyable, deferred reply token for a registered request (ABI 1.8).
+	// Copyable, deferred reply token for a registered request (ABI 1.7).
 	// Copies remain safe after response, timeout, or view closure: the opaque id
 	// is resolved in host-owned storage and a stale id is simply ignored.
 	struct Request
@@ -293,7 +293,7 @@ namespace OSFUI::API
 		// mod id or a payload that is not a JSON array of strings.
 		virtual bool ClearIssuesExcept(const char* a_modId, const char* a_keepIdsJson) = 0;
 
-		// ABI 1.8 tail methods: same name grammar and first-wins namespace as commands.
+		// ABI 1.7 tail methods: same name grammar and first-wins namespace as commands.
 		virtual void RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user) = 0;
 		virtual void UnregisterRequest(const char* a_name) = 0;
 
@@ -351,7 +351,7 @@ namespace OSFUI::API
 		kRegisterView = 5,
 		kCommandShape = 6,       // "<author>.<modname>.<name>" enforcement + first-wins duplicates
 		kDiagnostics = 7,        // ReportIssue/ClearIssue/ClearIssuesExcept -> System Health
-		kRequests = 8,           // RegisterRequest + deferred Request::Respond/Reject
+		kRequests = 7,           // RegisterRequest + deferred Request::Respond/Reject
 	};
 
 	class Client
@@ -518,7 +518,7 @@ namespace OSFUI::API
 			return Has(Feature::kDiagnostics) && _bridge->ClearIssuesExcept(a_modId, a_keepIdsJson);
 		}
 
-		// --- 1.8 request/response ---
+		// --- 1.7 request/response ---
 		void RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user) const noexcept
 		{
 			if (Has(Feature::kRequests)) _bridge->RegisterRequest(a_name, a_handler, a_user);

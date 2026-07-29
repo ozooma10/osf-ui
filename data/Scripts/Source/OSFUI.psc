@@ -88,7 +88,7 @@ Function PushToView(string asModId, string asKey, string[] asValues) Global Nati
 ; A FormList is serialized as ONE form (formType "FLST"); push its members as a Form[] (GetSize/GetAt loop) when the view should see them.
 Function PushFormsToView(string asModId, string asKey, Form[] akForms) Global Native
 
-; Preferred state API (protocol 1.6). Each call replaces and caches
+; Preferred state API (protocol 1.5). Each call replaces and caches
 ; the complete value for (mod, key), sends it to every live owning view as
 ; `data.state { mod, key, value }`, and automatically replays it when a view
 ; opens or reloads. The cache is session-scoped; publish again after game load.
@@ -146,7 +146,7 @@ int Function RegisterForViewActionsArgsStatic(string asScript, string asFn, stri
 int Function ListenForViewActions(ScriptObject akReceiver, string asModId) Global Native
 int Function ListenForViewActionsStatic(string asScript, string asModId) Global Native
 
-; Correlated view requests (protocol 1.6). One listener per mod (first wins).
+; Correlated view requests (protocol 1.5). One listener per mod (first wins).
 ; JS calls `await osfui.papyrus.request(name, ...args)`; the listener receives:
 ;   Function OnOSFUIViewRequest(string request, string[] args, string replyToken)
 ; Answer exactly once with the matching typed ReplyView* function, or reject.

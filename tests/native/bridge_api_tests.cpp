@@ -80,7 +80,7 @@ namespace
 	struct OldHost final : OSFUI::API::IOSFUIBridge
 	{
 		int requestCalls{ 0 };
-		std::uint32_t GetInterfaceVersion() override { return (1u << 16) | 7u; }
+		std::uint32_t GetInterfaceVersion() override { return (1u << 16) | 6u; }
 		void GetPluginVersion(std::uint32_t& a, std::uint32_t& b, std::uint32_t& c) override { a=b=c=0; }
 		const char* GetBridgeProtocolVersion() override { return "1.4"; }
 		bool IsBridgeReady() override { return false; }
@@ -127,10 +127,13 @@ int main()
 	using OSFUI::MessageBridge;
 	auto& api = OSFUI::API::BridgeApi::Get();
 
-	// --- version constants: 1.7 (consumer health reporting) -------------------
+	// --- version constants: 1.7 (diagnostics and request/response) ------------
 	CHECK(OSFUI::API::kBridgeAPIMajor == 1);
-	CHECK(OSFUI::API::kBridgeAPIMinor == 8);
+	CHECK(OSFUI::API::kBridgeAPIMinor == 7);
+	CHECK(static_cast<std::uint32_t>(OSFUI::API::Feature::kDiagnostics) == 7);
+	CHECK(static_cast<std::uint32_t>(OSFUI::API::Feature::kRequests) == 7);
 	CHECK(api.GetInterfaceVersion() == OSFUI::API::kBridgeAPIVersion);
+	CHECK(std::string_view(OSFUI::kBridgeProtocolVersion) == "1.5");
 
 	// --- command shape (item 3): two dots minimum, item-1 mod-id grammar ------
 	// Every platform command is structurally unregisterable — dotless verbs,
@@ -322,7 +325,7 @@ int main()
 		CHECK(!toWeb.empty() && toWeb.back().second.find("\"capabilities\"") == std::string::npos);
 	}
 
-	// --- ABI 1.8 request/response ---------------------------------------------
+	// --- ABI 1.7 request/response ---------------------------------------------
 	api.RegisterRequest("acme.mymod.getWeight", &RequestHandler, nullptr);
 	api.RegisterRequest("acme.mymod.getWeight", &RequestHandler, nullptr); // duplicate refused
 	api.RegisterRequest("acme.mymod.ping", &RequestHandler, nullptr);      // command/request collision refused
@@ -445,6 +448,7 @@ int main()
 		Client c;
 		OldHost oldHost;
 		CHECK(c.Attach(&oldHost));
+		CHECK(!c.Has(Feature::kDiagnostics));
 		CHECK(!c.Has(Feature::kRequests));
 		c.RegisterRequest("acme.mymod.old", &RequestHandler, nullptr);
 		c.UnregisterRequest("acme.mymod.old");
@@ -459,7 +463,7 @@ int main()
 		CHECK(c.Attach(&api));
 		CHECK(c.IsConnected() && static_cast<bool>(c));
 		CHECK(c.GetInterfaceVersion() == OSFUI::API::kBridgeAPIVersion);
-		// Feature values are the introducing MINOR — a 1.6 host has them all.
+		// Feature values are the introducing MINOR — the current 1.7 host has them all.
 		CHECK(c.Has(Feature::kCommands) && c.Has(Feature::kRequestMenu) &&
 		      c.Has(Feature::kSettings) && c.Has(Feature::kDeliveryGuarantee) &&
 		      c.Has(Feature::kHotkeys) && c.Has(Feature::kRegisterView) &&

@@ -82,7 +82,7 @@ namespace OSFUI::API::Papyrus
 		// FormIDs). has_value() distinguishes an EMPTY forms push ("the list is
 		// now empty") from a plain PushToView, which omits the field entirely.
 		std::optional<nlohmann::json> forms;
-		// SetView* only (protocol 1.6): the typed complete value carried by
+		// SetView* only (protocol 1.5): the typed complete value carried by
 		// data.state. Its presence marks retained state rather than a transient
 		// legacy data.push; forms state is serialized into this field at drain.
 		std::optional<nlohmann::json> stateValue;
