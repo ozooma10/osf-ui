@@ -348,6 +348,30 @@ The shipping vanilla footprint is zero. Loose experimental materials have been
 removed, and placeholder textures are generated only for an explicitly flagged
 research build.
 
+### Clean three-gate cockpit proof (2026-07-28)
+
+After removing the rejected Material Editor Lite file, the cockpit path was
+retested from a known-good world-rendering baseline with one variable per run:
+
+1. **Asset only:** the production DLL (world-surface code compiled out) plus
+   the exact 1000x1000 cockpit probe showed its checkerboard while the world
+   rendered normally.
+2. **Runtime only:** the research DLL and one configured 1000x1000 surface,
+   with no matching DDS, material, mesh, or plugin active, left the world and
+   cockpit rendering normally. The log armed the binding, adopted the dedicated
+   browser ring, and reported no capture.
+3. **Combined:** adding only the same cockpit probe displayed the live
+   `osfui/settings` view while the surrounding world remained normal. The log
+   reported exactly one qualifying capture (`resFormat 90`, one mip,
+   `viewFormat 87`, `replaced=true`) followed by continuing descriptor refresh,
+   with no world-surface warnings.
+
+This supersedes the contaminated runtime-only run that originally implicated
+the SRV hook: that build had silently redeployed the bad loose material. The
+GPU transport and guarded descriptor replacement are independently sound on
+this game build. The unresolved problem is how authors bind a safe, intentional
+in-game asset without overriding a shared vanilla cockpit texture.
+
 ## Release gating
 
 Normal builds compile `ScaleformToTextureProbe.cpp` and `WorldSurface.cpp`
@@ -376,10 +400,11 @@ overriding a vanilla cockpit asset.
 ## Feasibility assessment
 
 The feature is proven feasible end to end: OSF UI browser pixels were sampled
-by a Starfield world mesh without CPU readback. Remaining work is
-productionization: dedicated surface rings, slot/fence lifecycle, stable custom
-material identity, correct presentation, UV hit-testing, and safe cell/device
-lifetime handling.
+by a Starfield world mesh without CPU readback, using an isolated browser ring
+and guarded descriptor replacement. Remaining work is a safe author-controlled
+target/material identity, the mod-facing binding model, correct presentation,
+UV hit-testing and focus, visibility throttling, and robust cell/device lifetime
+handling.
 
 A static or periodically refreshed display is a moderate prototype. A fully
 interactive terminal with focus, cursor mapping, persistence, multiple
