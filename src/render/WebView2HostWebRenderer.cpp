@@ -303,7 +303,7 @@ namespace OSFUI
 	{
 		struct Notify
 		{
-			enum class Kind { Web, Dom, Load, Fatal, Eval, Console, Ring, Log, Dead };
+			enum class Kind { Web, Load, Fatal, Console, Ring, Log, Dead };
 			Kind           kind{ Kind::Web };
 			std::string    view;
 			std::string    text, detail;
@@ -326,7 +326,6 @@ namespace OSFUI
 		bool          adapterLuidKnown{ false };
 
 		WebMessageHandler       onWebMessage;
-		DomReadyHandler         onDomReady;
 		LoadHandler             onLoad;
 		FailureHandler          onFailure;
 		CursorChangeHandler     onCursorChange;
@@ -334,7 +333,6 @@ namespace OSFUI
 		SharedRingHandler       onSharedRing;
 		HealthHandler           onHealth;
 		// Game-thread only (Drain/setters).
-		std::unordered_map<std::string, JsListenerHandler> listeners;        // "viewId\nname" -> cb
 		std::unordered_map<std::string, ConsoleHandler>    consoleHandlers;  // viewId -> cb
 
 		// State the worker snapshots at connect time; later changes are sent
@@ -416,9 +414,6 @@ namespace OSFUI
 		std::uint64_t ringGeneration{ 0 };       // reader-side counter
 		std::uint64_t announcedGeneration{ 0 };  // dispatched to the compositor
 
-		std::mutex nextEvalMutex;
-		std::uint64_t nextEvalId{ 0 };
-		std::unordered_map<std::uint64_t, ScriptResultHandler> evalCallbacks;
 
 		void Push(Notify a_value)
 		{
@@ -935,9 +930,6 @@ namespace OSFUI
 						Push(Notify{ .kind = Notify::Kind::Web,
 							.view = msg.value("view", ""),
 							.text = msg.value("json", "") });
-					} else if (type == "domReady") {
-						Push(Notify{ .kind = Notify::Kind::Dom,
-							.view = msg.value("view", "") });
 					} else if (type == "loadEvent") {
 						Push(Notify{ .kind = Notify::Kind::Load,
 							.view = msg.value("view", ""),
@@ -965,10 +957,6 @@ namespace OSFUI
 						if (onAccelerator) {
 							onAccelerator(msg.value("vk", 0u), msg.value("down", false));
 						}
-					} else if (type == "evalResult") {
-						Push(Notify{ .kind = Notify::Kind::Eval,
-							.text = msg.value("result", ""),
-							.id = msg.value("id", 0ull) });
 					} else if (type == "log") {
 						Push(Notify{ .kind = Notify::Kind::Log,
 							.text = msg.value("text", ""),
@@ -1088,27 +1076,27 @@ namespace OSFUI
 			for (auto& value : local) {
 				switch (value.kind) {
 				case Notify::Kind::Web:
-					try {
-						const auto parsed = json::parse(value.text);
-						if (parsed.contains("__osfuiListener")) {
-							const auto name = parsed.value("__osfuiListener", "");
-							const auto found = listeners.find(value.view + "\n" + name);
-							if (found != listeners.end() && found->second)
-								found->second(parsed.value("argument", ""));
-							break;
-						}
-					} catch (...) {}
 					{
 						bool bridge = false;
 						{
 							std::scoped_lock lock(stateMutex);
 							if (const auto* view = FindView(value.view)) bridge = view->bridge;
 						}
-						if (onWebMessage && bridge) onWebMessage(value.view, value.text);
+						// Guarded for the same reason the ReadLoop below is: this
+						// runs on the game thread's drain with no handler above it,
+						// so anything escaping the bridge — a json throw on
+						// view-supplied text, a handler bug — is a std::terminate.
+						// One bad message must not take the process with it.
+						try {
+							if (onWebMessage && bridge) onWebMessage(value.view, value.text);
+						} catch (const std::exception& e) {
+							REX::ERROR("WebView2HostWebRenderer: web message from '{}' threw: {}",
+								value.view, e.what());
+						} catch (...) {
+							REX::ERROR("WebView2HostWebRenderer: web message from '{}' threw a non-std exception",
+								value.view);
+						}
 					}
-					break;
-				case Notify::Kind::Dom:
-					if (onDomReady) onDomReady(value.view);
 					break;
 				case Notify::Kind::Load:
 					if (onLoad) {
@@ -1133,19 +1121,6 @@ namespace OSFUI
 						});
 					}
 					break;
-				case Notify::Kind::Eval: {
-					ScriptResultHandler callback;
-					{
-						std::scoped_lock lock(nextEvalMutex);
-						if (const auto it = evalCallbacks.find(value.id);
-							it != evalCallbacks.end()) {
-							callback = std::move(it->second);
-							evalCallbacks.erase(it);
-						}
-					}
-					if (callback) callback(std::move(value.text));
-					break;
-				}
 				case Notify::Kind::Console:
 					DeliverConsole(value.view, value.text);
 					break;
@@ -1477,10 +1452,6 @@ namespace OSFUI
 	{
 		_impl->onWebMessage = std::move(a_handler);
 	}
-	void WebView2HostWebRenderer::SetDomReadyHandler(DomReadyHandler a_handler)
-	{
-		_impl->onDomReady = std::move(a_handler);
-	}
 	void WebView2HostWebRenderer::SetLoadHandler(LoadHandler a_handler)
 	{
 		_impl->onLoad = std::move(a_handler);
@@ -1584,59 +1555,9 @@ namespace OSFUI
 			{ "x", a_x }, { "y", a_y }, { "wheel", a_wheelDelta } });
 	}
 
-	void WebView2HostWebRenderer::EvaluateScript(
-		std::string_view a_viewId, std::string_view a_js,
-		ScriptResultHandler a_onResult)
-	{
-		{
-			std::scoped_lock lock(_impl->stateMutex);
-			if (!_impl->FindView(a_viewId)) return;
-		}
-		std::uint64_t id = 0;
-		{
-			std::scoped_lock lock(_impl->nextEvalMutex);
-			id = ++_impl->nextEvalId;
-			if (a_onResult) {
-				_impl->evalCallbacks[id] = std::move(a_onResult);
-			}
-		}
-		// Queued like postWeb when the host is not up: an eval issued before
-		// connect has a caller waiting on its result callback.
-		_impl->SendOrQueue(json{
-			{ "type", "eval" }, { "view", std::string(a_viewId) },
-			{ "id", id }, { "script", std::string(a_js) } });
-	}
-
 	void WebView2HostWebRenderer::OpenDevTools(std::string_view a_viewId)
 	{
 		_impl->Send(ViewMsg("openDevTools", a_viewId));
-	}
-
-	void WebView2HostWebRenderer::CallJsFunction(
-		std::string_view a_viewId, std::string_view a_fnName, std::string_view a_arg)
-	{
-		const auto name = json(std::string(a_fnName)).dump();
-		const auto arg = json(std::string(a_arg)).dump();
-		EvaluateScript(a_viewId,
-			"typeof window[" + name + "]==='function' ? window[" +
-			name + "](" + arg + ") : undefined");
-	}
-
-	void WebView2HostWebRenderer::RegisterJsFunction(
-		std::string_view a_viewId, std::string_view a_name,
-		JsListenerHandler a_callback)
-	{
-		{
-			std::scoped_lock lock(_impl->stateMutex);
-			if (!_impl->FindView(a_viewId)) return;
-		}
-		_impl->listeners[std::string(a_viewId) + "\n" + std::string(a_name)] =
-			std::move(a_callback);
-		const auto name = json(std::string(a_name)).dump();
-		EvaluateScript(a_viewId,
-			"window[" + name + "]=function(a){if(window.osfui&&"
-			"window.osfui.__invokeListener)window.osfui.__invokeListener(" +
-			name + ",a===undefined?'':String(a));};");
 	}
 
 	void WebView2HostWebRenderer::SetConsoleHandler(
@@ -1727,13 +1648,7 @@ namespace OSFUI
 			}
 			_impl->RecomputeAllHidden();
 		}
-		// Game-thread maps; no lock.
-		std::erase_if(_impl->listeners, [&](const auto& a_entry) {
-			const auto& key = a_entry.first;
-			return key.size() > a_viewId.size() &&
-				key.compare(0, a_viewId.size(), a_viewId) == 0 &&
-				key[a_viewId.size()] == '\n';
-		});
+		// Game-thread map; no lock.
 		_impl->consoleHandlers.erase(std::string(a_viewId));
 		_impl->Send(json{ { "type", "destroyView" }, { "view", std::string(a_viewId) } });
 	}

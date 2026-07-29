@@ -39,7 +39,6 @@ namespace OSFUI
 		std::optional<FrameBufferView> Render() override;
 		void SendMessageToWeb(std::string_view a_viewId, std::string_view a_json) override;
 		void SetWebMessageHandler(WebMessageHandler a_handler) override;
-		void SetDomReadyHandler(DomReadyHandler a_handler) override;
 		void SetLoadHandler(LoadHandler a_handler) override;
 		void SetFailureHandler(FailureHandler a_handler) override;
 		void SetCursorChangeHandler(CursorChangeHandler a_handler) override;
@@ -56,13 +55,7 @@ namespace OSFUI
 		void InjectMouseButton(int a_x, int a_y, int a_button, bool a_down) override;
 		void InjectMouseWheel(int a_x, int a_y, int a_wheelDelta) override;
 		void InjectPhysicalMouseWheel(int a_x, int a_y, int a_wheelDelta) override;
-		void EvaluateScript(std::string_view a_viewId, std::string_view a_js,
-			ScriptResultHandler a_onResult = nullptr) override;
 		void OpenDevTools(std::string_view a_viewId) override;
-		void CallJsFunction(std::string_view a_viewId, std::string_view a_fnName,
-			std::string_view a_arg) override;
-		void RegisterJsFunction(std::string_view a_viewId, std::string_view a_name,
-			JsListenerHandler a_callback) override;
 		void SetConsoleHandler(std::string_view a_viewId, ConsoleHandler a_handler) override;
 		void SetViewHidden(std::string_view a_viewId, bool a_hidden) override;
 		void PrewarmView(std::string_view a_viewId) override;

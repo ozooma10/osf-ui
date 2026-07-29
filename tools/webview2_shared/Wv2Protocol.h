@@ -33,8 +33,8 @@ namespace osfui::wv2
 	// Chromium grabs focus outside an interactive-menu session.
 	inline constexpr std::uint32_t kRestoreGameFocusMessage = 0x8049;
 
-	// Hard cap on one framed message (a resize-storm of eval results should
-	// never approach this; protects both sides from a corrupt length prefix).
+	// Hard cap on one framed message (nothing legitimate approaches this;
+	// protects both sides from a corrupt length prefix).
 	inline constexpr std::uint32_t kMaxMessageBytes = 8u * 1024u * 1024u;
 
 	// Shared-texture ring depth. 4 slots: one being written, one in flight,
@@ -79,7 +79,6 @@ namespace osfui::wv2
 	//                 button:i32, down:bool, wheel:i32 }   (active view)
 	// key           { vk:u32, down:bool }        (synthetic tap into the active view's widget)
 	// postWeb       { view:str, json:str }
-	// eval          { view:str, id:u64, script:str }
 	// openDevTools  { view:str }                 (devMode only)
 	// accelState    { toggleVk:u32, captured:bool,
 	//                 captureArmed:bool, captureUpVk:u32 }
@@ -99,14 +98,12 @@ namespace osfui::wv2
 	//               (handles already duplicated into the game process; every
 	//                textures message invalidates all prior slots)
 	// frame         { slot:u32, serial:u64, width:u32, height:u32 }
-	// domReady      { view:str }
 	// loadEvent     { view:str, failed:bool, url:str, description:str, code:i32 }
 	// fatal         { stage:str, view:str, description:str, code:u32 }
 	// webMessage    { view:str, json:str }
 	// console       { view:str, json:str }       (raw Runtime.consoleAPICalled params)
 	// cursor        { id:u32 }                   (active view only; Win32 cursor id, 0 = hidden)
 	// accelerator   { vk:u32, down:bool }        (framework-owned key hit inside Chromium)
-	// evalResult    { id:u64, result:str }
 	// log           { level:i32, text:str }      (host diagnostics into the game log)
 	// bye           { reason:str }
 }

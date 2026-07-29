@@ -196,12 +196,6 @@ namespace OSFUI
 		using WebMessageHandler = std::function<void(std::string_view a_viewId, std::string_view a_json)>;
 		virtual void SetWebMessageHandler(WebMessageHandler) {}
 
-		// Fires once per view when its DOM becomes ready, on the game thread
-		// (drained from Update()). Backs the consumer API's CreateView DOM-ready
-		// callback. Set once before LoadView.
-		using DomReadyHandler = std::function<void(std::string_view a_viewId)>;
-		virtual void SetDomReadyHandler(DomReadyHandler) {}
-
 		// A main-frame load reaching a terminal state, on the game thread
 		// (drained from Update()). `failed` false means success and is followed
 		// by DOM-ready; true means failure, with description/errorDomain/
@@ -333,31 +327,17 @@ namespace OSFUI
 			InjectMouseWheel(a_x, a_y, a_wheelDelta);
 		}
 
-		// Per-view JS interaction primitives. Backends marshal the work onto
-		// their own worker thread and deliver callbacks on the game thread
-		// (drained from Update()), like SetWebMessageHandler. No-ops by default
-		// so non-JS backends (null/mock) still link. a_viewId is the
-		// manifest/internal view id.
-
-		// If a_onResult is set it receives the expression result as a string, on
-		// the game thread.
-		using ScriptResultHandler = std::function<void(std::string a_result)>;
-		virtual void EvaluateScript(std::string_view /*a_viewId*/, std::string_view /*a_js*/,
-			ScriptResultHandler /*a_onResult*/ = nullptr) {}
-
 		// Open the browser's native developer tools for one view. Production
 		// backends may ignore this; the runtime exposes it only in devMode.
 		virtual void OpenDevTools(std::string_view /*a_viewId*/) {}
 
-		// Call window.<a_fnName>(a_arg) directly, no eval.
-		virtual void CallJsFunction(std::string_view /*a_viewId*/, std::string_view /*a_fnName*/,
-			std::string_view /*a_arg*/) {}
-
-		// Bind window.<a_name>(str) in the view; a_callback fires on the game
-		// thread with the single string argument.
-		using JsListenerHandler = std::function<void(std::string a_argument)>;
-		virtual void RegisterJsFunction(std::string_view /*a_viewId*/, std::string_view /*a_name*/,
-			JsListenerHandler /*a_callback*/) {}
+		// NOTE: there is deliberately no "evaluate this script text" primitive.
+		// EvaluateScript / CallJsFunction / RegisterJsFunction existed here and
+		// were never called by anything; they were removed rather than left as a
+		// standing way to run caller-supplied script inside a privileged view.
+		// Native->page communication goes through the typed bridge
+		// (SetWebMessageHandler / PostWebMessage), whose payloads are JSON-encoded
+		// rather than concatenated into source text.
 
 		// Receive console.* from a view on the game thread; a_level is
 		// 0=log,1=warning,2=error,3=debug,4=info. nullptr unsubscribes.

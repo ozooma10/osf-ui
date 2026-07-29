@@ -71,6 +71,17 @@ namespace osfui::wv2
 			return out;
 		}
 
+		// dump() that substitutes U+FFFD for malformed UTF-8 instead of throwing
+		// type_error.316. Nothing between here and wWinMain catches, so a strict
+		// throw is a std::terminate of the host — which on the crash-report path
+		// would kill the very code whose job is to report a failure gracefully.
+		// Use this for every dump of text we did not ourselves construct.
+		[[nodiscard]] std::string DumpSafe(const json& a_value)
+		{
+			return a_value.dump(-1, ' ', /*ensure_ascii=*/false,
+				json::error_handler_t::replace);
+		}
+
 		struct Logger
 		{
 			std::ofstream file;
@@ -123,8 +134,8 @@ namespace osfui::wv2
 			void Forward(int a_level, const std::string& a_text)
 			{
 				if (pipe) {
-					pipe->WriteMessage(json{
-						{ "type", "log" }, { "level", a_level }, { "text", a_text } }.dump());
+					pipe->WriteMessage(DumpSafe(json{
+						{ "type", "log" }, { "level", a_level }, { "text", a_text } }));
 				}
 			}
 
@@ -171,6 +182,18 @@ namespace osfui::wv2
 			std::string text(keep, '\0');
 			file.read(text.data(), static_cast<std::streamsize>(keep));
 			text.resize(static_cast<std::size_t>(file.gcount()));
+			// A tail sliced at an arbitrary byte offset can open mid-codepoint.
+			// Drop the orphaned continuation bytes: this text is dumped into the
+			// crash-report payload, and nothing between here and wWinMain catches,
+			// so a strict-mode throw would kill the host on the consent path — the
+			// one path whose whole job is to report a failure gracefully.
+			if (a_truncated) {
+				std::size_t lead = 0;
+				while (lead < text.size() && (static_cast<unsigned char>(text[lead]) & 0xC0) == 0x80) {
+					++lead;
+				}
+				text.erase(0, lead);
+			}
 			ReplaceAllInsensitive(text, a_pluginRoot, "<PluginDir>");
 			static const std::regex profile(
 				R"(([A-Za-z]:[\\/](?:Users|Documents and Settings)[\\/])[^\\/\r\n"']+)",
@@ -475,7 +498,7 @@ namespace osfui::wv2
 			};
 			DWORD status = 0;
 			std::string response;
-			const bool sent = PostCrashReport(a_options.reportEndpoint, payload.dump(), status, response);
+			const bool sent = PostCrashReport(a_options.reportEndpoint, DumpSafe(payload), status, response);
 			const auto reply = json::parse(response, nullptr, false);
 			const bool accepted = sent && status >= 200 && status < 300 &&
 				!reply.is_discarded() && reply.value("ok", false);
@@ -647,12 +670,10 @@ namespace osfui::wv2
 				bool          hideDeferred{ false };
 				std::uint64_t revealDeadline{ 0 };
 				int  order{ 0 };
-				bool domSeen{ false }, navigationSucceeded{ false }, domNotified{ false };
+				bool domSeen{ false }, navigationSucceeded{ false };
 				std::wstring currentUrl;
 				std::optional<std::wstring> pendingNavigate;
 				std::deque<std::string> queuedPostWeb;
-				struct QueuedEval { std::uint64_t id; std::string script; };
-				std::deque<QueuedEval> queuedEvals;
 			};
 			std::vector<std::unique_ptr<View>> views;  // creation order (= z tie-break)
 			View* active{ nullptr };  // mouse/focus/synthetic-key target
@@ -741,7 +762,6 @@ namespace osfui::wv2
 			std::atomic<std::uint64_t> ackedSerial{ 0 };
 			std::uint64_t consumeWaitTimeouts{ 0 };
 			double        produceMsTotal{ 0.0 };
-			std::uint64_t produceCount{ 0 };
 
 			// Capture-cadence diagnostics (the benchmark's 48 fps ceiling): the
 			// interval between WGC FrameArrived callbacks is DWM's commit cadence
@@ -764,7 +784,7 @@ namespace osfui::wv2
 			ComPtr<ICoreWebView2Environment> environment;
 			bool environmentRequested{ false };
 
-			void Send(const json& a_msg) { pipe.WriteMessage(a_msg.dump()); }
+			void Send(const json& a_msg) { pipe.WriteMessage(DumpSafe(a_msg)); }
 
 			void ReaderMain()
 			{
@@ -1144,7 +1164,6 @@ namespace osfui::wv2
 
 				produceMsTotal += std::chrono::duration<double, std::milli>(
 					std::chrono::steady_clock::now() - start).count();
-				++produceCount;
 				if (serial == 1) {
 					log.InfoFwd(std::format("first frame published ({}x{})", a_width, a_height));
 				}
@@ -1441,7 +1460,7 @@ namespace osfui::wv2
 				};
 				values.update(compositorStats);
 				const json sample{ { "__osfuiRenderStats", values } };
-				const auto wide = ToWide(sample.dump());
+				const auto wide = ToWide(DumpSafe(sample));
 				for (const auto& view : views) {
 					if (view->renderStats && !view->hidden && view->webView) {
 						view->webView->PostWebMessageAsJson(wide.c_str());
@@ -1789,11 +1808,6 @@ namespace osfui::wv2
 							}
 						});
 						bridge.postMessage = (json) => chrome.webview.postMessage(String(json));
-						bridge.__invokeListener = (name, arg) =>
-							chrome.webview.postMessage(JSON.stringify({
-								__osfuiListener: String(name), argument: String(arg)
-							}));
-
 						// Chromium implements standard form pickers as native popup
 						// UI outside the composition visual. Tell the host to release
 						// its session-wide Win32 mouse capture while one is open, or
@@ -2463,10 +2477,6 @@ namespace osfui::wv2
 							if (!view->navigationSucceeded && view->prewarmPending) {
 								CompletePrewarm(*view);
 							}
-							if (view->navigationSucceeded && view->domSeen && !view->domNotified) {
-								view->domNotified = true;
-								Send(json{ { "type", "domReady" }, { "view", view->id } });
-							}
 							return S_OK;
 						}).Get(), &token);
 				ComPtr<ICoreWebView2_2> webView2;
@@ -2475,10 +2485,6 @@ namespace osfui::wv2
 						Callback<ICoreWebView2DOMContentLoadedEventHandler>(
 							[this, view](ICoreWebView2*, ICoreWebView2DOMContentLoadedEventArgs*) -> HRESULT {
 								view->domSeen = true;
-								if (view->navigationSucceeded && !view->domNotified) {
-									view->domNotified = true;
-									Send(json{ { "type", "domReady" }, { "view", view->id } });
-								}
 								DrainQueuedViewWork(*view);
 								ApplyRenderStats(*view);
 								BeginPrewarm(*view);
@@ -2512,7 +2518,6 @@ namespace osfui::wv2
 								// blank input-capturing shell.
 								view->navigationSucceeded = false;
 								view->domSeen = false;
-								view->domNotified = false;
 								Send(json{ { "type", "loadEvent" },
 									{ "view", view->id },
 									{ "failed", true },
@@ -2712,7 +2717,7 @@ namespace osfui::wv2
 			{
 				if (!a_view.webView) return;
 				if (a_view.pendingNavigate) {
-					a_view.domSeen = a_view.navigationSucceeded = a_view.domNotified = false;
+					a_view.domSeen = a_view.navigationSucceeded = false;
 					a_view.prewarmPending = false;
 					a_view.prewarmDeadline = 0;
 					a_view.currentUrl = *a_view.pendingNavigate;
@@ -2734,23 +2739,6 @@ namespace osfui::wv2
 					a_view.webView->PostWebMessageAsString(wide.c_str());
 				}
 				a_view.queuedPostWeb.clear();
-				for (auto& eval : a_view.queuedEvals) {
-					RunEval(a_view, eval.id, eval.script);
-				}
-				a_view.queuedEvals.clear();
-			}
-
-			void RunEval(View& a_view, std::uint64_t a_id, const std::string& a_script)
-			{
-				const auto wide = ToWide(a_script);
-				a_view.webView->ExecuteScript(wide.c_str(),
-					Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
-						[this, a_id](HRESULT a_hr, LPCWSTR a_json) -> HRESULT {
-							Send(json{ { "type", "evalResult" }, { "id", a_id },
-								{ "result", SUCCEEDED(a_hr) && a_json ?
-									ToUtf8(a_json) : std::string{} } });
-							return S_OK;
-						}).Get());
 			}
 
 			// Bounds are physical pixels (always the output size, so the composited
@@ -3302,12 +3290,6 @@ namespace osfui::wv2
 				} else if (type == "postWeb") {
 					if (auto* view = ResolveView(a_msg)) {
 						view->queuedPostWeb.push_back(a_msg.value("json", ""));
-						DrainQueuedViewWork(*view);
-					}
-				} else if (type == "eval") {
-					if (auto* view = ResolveView(a_msg)) {
-						view->queuedEvals.push_back(
-							{ a_msg.value("id", 0ull), a_msg.value("script", "") });
 						DrainQueuedViewWork(*view);
 					}
 				} else if (type == "openDevTools") {
