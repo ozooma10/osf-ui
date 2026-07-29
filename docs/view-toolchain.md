@@ -11,11 +11,10 @@ cd my-view
 npm run dev
 ```
 
-The generator asks for a stable mod/view id, TypeScript or JavaScript, a
-menu or HUD surface, and a Papyrus or native-plugin starting
-workflow. The default TypeScript/Papyrus preset adds strict checking; the
-JavaScript preset emits plain browser modules with no UI framework dependency.
-Generated source uses the production `src/views/<mod>/<view>/` shape and the
+The generator asks for a stable mod/view id, a menu or HUD surface, and a
+Papyrus or native-plugin starting workflow. Projects are TypeScript with
+strict checking and no UI framework dependency; hand-written plain `.js`
+modules also build (`allowJs`). Generated source uses the production `src/views/<mod>/<view>/` shape and the
 selected workflow adds its matching backend starter: Papyrus source or a native
 SFSE/CommonLibSF plugin project.
 

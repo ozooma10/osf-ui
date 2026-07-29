@@ -2,10 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { CHOICES, promptMissing } from '../src/prompts.mjs';
 
-test('offers only TypeScript and JavaScript', () => {
-  assert.deepEqual(CHOICES.template.map(({ value }) => value), ['typescript', 'javascript']);
-});
-
 test('offers only Papyrus and Native Plugin workflows', () => {
   assert.deepEqual(CHOICES.integration.map(({ value }) => value), ['papyrus', 'native']);
 });
@@ -13,7 +9,7 @@ test('offers only Papyrus and Native Plugin workflows', () => {
 test('walks through missing choices as visible select lists', async () => {
   const questions = [];
   const textAnswers = ['custom-view', 'acme.widgets', 'panel'];
-  const selectAnswers = ['javascript', 'hud', 'native'];
+  const selectAnswers = ['hud', 'native'];
   const prompt = {
     intro: (title) => questions.push({ kind: 'intro', title }),
     isCancel: () => false,
@@ -39,7 +35,6 @@ test('walks through missing choices as visible select lists', async () => {
     directory: 'custom-view',
     modId: 'acme.widgets',
     view: 'panel',
-    template: 'javascript',
     surface: 'hud',
     integration: 'native',
   });
@@ -49,17 +44,32 @@ test('walks through missing choices as visible select lists', async () => {
   );
   const textQuestions = questions.filter(({ kind }) => kind === 'text');
   assert.equal(textQuestions[0].defaultValue, 'my-osfui-view');
+  assert.equal(textQuestions[0].placeholder, 'my-osfui-view');
+  assert.equal(textQuestions[0].validate(''), undefined);
+  assert.equal(
+    textQuestions[0].validate('..'),
+    'Use a single folder name, such as my-osfui-view.',
+  );
+  assert.equal(
+    textQuestions[0].validate('nested/path'),
+    'Use a single folder name, such as my-osfui-view.',
+  );
   assert.equal(textQuestions[1].defaultValue, undefined);
   assert.equal(textQuestions[1].placeholder, 'yourname.custom-view');
   assert.equal(textQuestions[1].validate(''), 'Use lowercase author.mod-name format.');
   assert.equal(textQuestions[2].defaultValue, 'main');
+  assert.equal(textQuestions[2].placeholder, 'main');
+  assert.equal(textQuestions[2].validate(''), undefined);
+  assert.equal(
+    textQuestions[2].validate('Bad View'),
+    'Use lowercase letters, numbers, and hyphens.',
+  );
   assert.deepEqual(
     questions.filter(({ kind }) => kind === 'select').map(({ message, options: choices }) => ({
       message,
       values: choices.map(({ value }) => value),
     })),
     [
-      { message: 'Choose a language', values: CHOICES.template.map(({ value }) => value) },
       { message: 'Choose a surface', values: CHOICES.surface.map(({ value }) => value) },
       { message: 'Choose a starting workflow', values: CHOICES.integration.map(({ value }) => value) },
     ],
@@ -69,7 +79,6 @@ test('walks through missing choices as visible select lists', async () => {
 test('keeps explicit flags and fills only missing values without a TTY', async () => {
   const options = {
     directory: 'widgets',
-    template: 'javascript',
     surface: 'hud',
     integration: 'native',
   };
@@ -85,7 +94,6 @@ test('keeps explicit flags and fills only missing values without a TTY', async (
     directory: 'widgets',
     modId: 'yourname.widgets',
     view: 'main',
-    template: 'javascript',
     surface: 'hud',
     integration: 'native',
   });

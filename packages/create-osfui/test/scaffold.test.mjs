@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { access, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -9,12 +9,12 @@ import test from 'node:test';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CLI = resolve(HERE, '..', 'src', 'cli.mjs');
 
-for (const [template, surface, integration, backendPath, backendPattern] of [
-  ['typescript', 'menu', 'papyrus', 'mod/Scripts/Source/User/AcmeWidgetsOSFUI.psc', /ListenForViewRequests/],
-  ['javascript', 'hud', 'native', 'native/src/main.cpp', /RegisterRequest\("acme\.widgets\.getState"/],
-  ['typescript', 'menu', 'native', 'native/src/main.cpp', /OSFUI::API::JsonCommand/],
+for (const [surface, integration, backendPath, backendPattern] of [
+  ['menu', 'papyrus', 'mod/Scripts/Source/User/AcmeWidgetsOSFUI.psc', /ListenForViewRequests/],
+  ['hud', 'native', 'native/src/main.cpp', /RegisterRequest\("acme\.widgets\.getState"/],
+  ['menu', 'native', 'native/src/main.cpp', /OSFUI::API::JsonCommand/],
 ]) {
-  test(`creates the ${template}/${surface}/${integration} preset`, async (t) => {
+  test(`creates the ${surface}/${integration} preset`, async (t) => {
     const parent = await mkdtemp(resolve(tmpdir(), 'create-osfui-'));
     const root = resolve(parent, 'project');
     t.after(() => rm(parent, { recursive: true, force: true }));
@@ -25,34 +25,57 @@ for (const [template, surface, integration, backendPath, backendPattern] of [
       '--no-install',
       '--mod-id', 'acme.widgets',
       '--view', 'panel',
-      '--template', template,
       '--surface', surface,
       '--integration', integration,
     ], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
 
-    const extension = template === 'typescript' ? 'ts' : 'js';
     const packageJson = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'));
-    const config = await readFile(resolve(root, `osfui.config.${extension}`), 'utf8');
+    const config = await readFile(resolve(root, 'osfui.config.ts'), 'utf8');
     const source = await readFile(
-      resolve(root, `src/views/acme.widgets/panel/main.${extension}`),
+      resolve(root, 'src/views/acme.widgets/panel/main.ts'),
       'utf8',
     );
-    const mock = await readFile(resolve(root, `osfui.mock.${extension}`), 'utf8');
+    const mock = await readFile(resolve(root, 'osfui.mock.ts'), 'utf8');
 
     assert.match(packageJson.devDependencies['@osfui/cli'], /^file:/);
     assert.equal(packageJson.dependencies, undefined);
     assert.doesNotMatch(source, /preact/i);
     assert.match(config, new RegExp(`kind: '${surface}'`));
     assert.match(mock, /defineMock/);
-    const hasTsconfig = await access(resolve(root, 'tsconfig.json')).then(() => true, () => false);
-    assert.equal(hasTsconfig, template === 'typescript');
+    const tsconfig = JSON.parse(await readFile(resolve(root, 'tsconfig.json'), 'utf8'));
+    assert.equal(tsconfig.compilerOptions.strict, true);
+    // Hand-written .js view files stay a supported authoring path.
+    assert.equal(tsconfig.compilerOptions.allowJs, true);
 
     const sourceMarker = integration === 'native'
       ? 'acme.widgets.getState'
-      : 'ui.papyrusRequest';
+      : 'osfui.papyrus.request';
     assert.match(source, new RegExp(sourceMarker.replaceAll('.', '\\.')));
     assert.match(await readFile(resolve(root, backendPath), 'utf8'), backendPattern);
+
+    if (integration === 'papyrus') {
+      // All three concepts (state, action, request) plus the guards that keep
+      // the scaffold working after a save load.
+      const script = await readFile(resolve(root, backendPath), 'utf8');
+      assert.match(script, /OSFUI\.GetVersion\(\) == 0/);
+      assert.match(script, /ListenForViewActions/);
+      assert.match(script, /OnOSFUIViewAction/);
+      assert.match(script, /SetViewInt/);
+      assert.match(script, /RejectViewRequest/);
+      const alias = await readFile(
+        resolve(root, 'mod/Scripts/Source/User/AcmeWidgetsOSFUIPlayerAlias.psc'),
+        'utf8',
+      );
+      assert.match(alias, /Extends ReferenceAlias/);
+      assert.match(alias, /Event OnPlayerLoadGame\(\)/);
+      assert.match(alias, /owner\.RegisterOSFUI\(\)/);
+      assert.match(source, /osfui\?\.data\?\.on/);
+      assert.match(source, /osfui\?\.action\?\.\('bump', 1\)/);
+      assert.doesNotMatch(source, /ui\.papyrusRequest/);
+      assert.match(mock, /ctx\.onCommand/);
+      assert.match(mock, /papyrus\.result/);
+    }
 
     if (integration === 'native') {
       assert.equal(packageJson.scripts['build:native'], 'node native/build.mjs');
@@ -67,10 +90,9 @@ for (const [template, surface, integration, backendPath, backendPattern] of [
       assert.match(nativeSource, /OSFUI::API::JsonRequest/);
       assert.match(nativeSource, /SubscribeSettings/);
       assert.match(nativeSource, /SubscribeHotkey/);
-      assert.match(source, template === 'typescript' ? /osfui\.call<DemoState>/ : /osfui\.call\(/);
+      assert.match(source, /osfui\.call<DemoState>/);
       assert.match(source, /acme\.widgets\.increment/);
       assert.match(mock, /ctx\.onCommand/);
-      if (template === 'javascript') assert.doesNotMatch(mock, /MockContext|: string/);
       const nativeBuild = await readFile(resolve(root, 'native/build.mjs'), 'utf8');
       assert.match(nativeBuild, /delete env\.XSE_SF_MODS_PATH/);
       assert.match(nativeBuild, /\['build', '-P', projectRoot\]/);
@@ -79,6 +101,42 @@ for (const [template, surface, integration, backendPath, backendPattern] of [
     }
   });
 }
+
+test('accepts the legacy --template typescript flag', async (t) => {
+  const parent = await mkdtemp(resolve(tmpdir(), 'create-osfui-'));
+  t.after(() => rm(parent, { recursive: true, force: true }));
+  const result = spawnSync(process.execPath, [
+    CLI,
+    resolve(parent, 'project'),
+    '--yes',
+    '--no-install',
+    '--mod-id', 'acme.widgets',
+    '--view', 'panel',
+    '--template', 'typescript',
+    '--surface', 'menu',
+    '--integration', 'papyrus',
+  ], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test('rejects the removed javascript template', async (t) => {
+  const parent = await mkdtemp(resolve(tmpdir(), 'create-osfui-'));
+  t.after(() => rm(parent, { recursive: true, force: true }));
+  const result = spawnSync(process.execPath, [
+    CLI,
+    resolve(parent, 'project'),
+    '--yes',
+    '--no-install',
+    '--mod-id', 'acme.widgets',
+    '--view', 'panel',
+    '--template', 'javascript',
+    '--surface', 'menu',
+    '--integration', 'papyrus',
+  ], { encoding: 'utf8' });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /--template was removed/);
+});
 
 for (const integration of ['settings', 'static']) {
   test(`rejects the removed ${integration} workflow`, async (t) => {
@@ -91,7 +149,6 @@ for (const integration of ['settings', 'static']) {
       '--no-install',
       '--mod-id', 'acme.widgets',
       '--view', 'panel',
-      '--template', 'typescript',
       '--surface', 'menu',
       '--integration', integration,
     ], { encoding: 'utf8' });

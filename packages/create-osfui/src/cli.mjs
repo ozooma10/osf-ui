@@ -33,7 +33,9 @@ function parse(argv) {
 function validate(options) {
   if (!MOD_ID.test(options.modId)) throw new Error('--mod-id must be lowercase <author>.<modname>.');
   if (!ID.test(options.view)) throw new Error('--view must use lowercase letters, digits, and hyphens.');
-  if (!['typescript', 'javascript'].includes(options.template)) throw new Error('--template must be typescript or javascript.');
+  if (options.template !== undefined && options.template !== 'typescript') {
+    throw new Error('--template was removed; projects are TypeScript (plain .js files still build).');
+  }
   if (!['menu', 'hud'].includes(options.surface)) throw new Error('--surface must be menu or hud.');
   if (!['papyrus', 'native'].includes(options.integration)) {
     throw new Error('--integration must be papyrus or native.');
@@ -47,10 +49,14 @@ async function put(root, relative, content) {
 }
 
 function nativeAppSource(options) {
-  const typescript = options.template === 'typescript';
   const stateType = `${options.modId}.state`;
   const noticeType = `${options.modId}.notice`;
-  const declarations = typescript ? `type DemoState = {
+
+  return `import './style.css';
+import '/shared/osfui.css';
+import '/shared/osfui.js';
+
+type DemoState = {
   count: number;
   enabled: boolean;
   greeting: string;
@@ -62,20 +68,7 @@ type Greeting = {
   receivedFromJs: { name: string; excited: boolean };
   nativeCount: number;
 };
-` : '';
-  const requiredSignature = typescript
-    ? '<T extends Element>(selector: string, kind: { new(): T }): T'
-    : '(selector, kind)';
-  const showStateSignature = typescript ? '(state: DemoState)' : '(state)';
-  const stateTypeArgument = typescript ? '<DemoState>' : '';
-  const noticeTypeArgument = typescript ? '<{ message: string }>' : '';
-  const greetingTypeArgument = typescript ? '<Greeting>' : '';
 
-  return `import './style.css';
-import '/shared/osfui.css';
-import '/shared/osfui.js';
-
-${declarations}
 const app = document.querySelector('#app');
 if (!(app instanceof HTMLElement)) throw new Error('Missing #app element');
 app.innerHTML = '<main class="card"><p class="eyebrow">${options.surface.toUpperCase()} · NATIVE BRIDGE</p>' +
@@ -88,7 +81,7 @@ app.innerHTML = '<main class="card"><p class="eyebrow">${options.surface.toUpper
   '<button type="submit">Call C++ and await reply</button></form>' +
   '<output id="status">Waiting for OSF UI…</output></main>';
 
-function requiredElement${requiredSignature} {
+function requiredElement<T extends Element>(selector: string, kind: { new(): T }): T {
   const element = document.querySelector(selector);
   if (!(element instanceof kind)) throw new Error('Missing ' + selector);
   return element;
@@ -103,7 +96,7 @@ const name = requiredElement('#name', HTMLInputElement);
 const excited = requiredElement('#excited', HTMLInputElement);
 const status = requiredElement('#status', HTMLOutputElement);
 
-function showState${showStateSignature} {
+function showState(state: DemoState) {
   count.textContent = String(state.count);
   lastAction.textContent = state.lastAction;
   features.textContent = state.features.join(' · ');
@@ -111,8 +104,8 @@ function showState${showStateSignature} {
 }
 
 // C++ -> JS: subscribe before asking for current state so later pushes cannot race us.
-window.osfui?.on?.${stateTypeArgument}('${stateType}', showState);
-window.osfui?.on?.${noticeTypeArgument}('${noticeType}', (payload) => {
+window.osfui?.on?.<DemoState>('${stateType}', showState);
+window.osfui?.on?.<{ message: string }>('${noticeType}', (payload) => {
   status.textContent = payload.message;
 });
 
@@ -120,7 +113,7 @@ window.osfui?.ready?.then(async (info) => {
   status.textContent = 'Connected to OSF UI ' + info.version;
   try {
     if (!window.osfui?.call) throw new Error('Request API is unavailable');
-    showState(await window.osfui.call${stateTypeArgument}('${options.modId}.getState'));
+    showState(await window.osfui.call<DemoState>('${options.modId}.getState'));
   } catch (error) {
     status.textContent = error instanceof Error ? error.message : String(error);
   }
@@ -138,7 +131,7 @@ form.addEventListener('submit', async (event) => {
   event.preventDefault();
   try {
     if (!window.osfui?.call) throw new Error('Request API is unavailable');
-    const reply = await window.osfui.call${greetingTypeArgument}('${options.modId}.greet', {
+    const reply = await window.osfui.call<Greeting>('${options.modId}.greet', {
       name: name.value,
       excited: excited.checked,
     });
@@ -151,12 +144,7 @@ form.addEventListener('submit', async (event) => {
 }
 
 function mockSource(options) {
-  const typescript = options.template === 'typescript';
-  const mockImport = typescript
-    ? "import { defineMock, type MockContext } from '@osfui/cli';"
-    : "import { defineMock } from '@osfui/cli';";
-  const contextType = typescript ? ': MockContext' : '';
-  const messageType = typescript ? ': string' : '';
+  const mockImport = "import { defineMock, type MockContext } from '@osfui/cli';";
   if (options.integration === 'native') return `${mockImport}
 
 // The browser harness mirrors native/src/main.cpp so every round trip works
@@ -173,12 +161,12 @@ export default defineMock({
   locales: { en: { title: 'Native bridge example' } },
 });
 
-export function install(ctx${contextType}) {
+export function install(ctx: MockContext) {
   const pushState = () => ctx.send({
     type: '${options.modId}.state',
     payload: { ...state, features: [...state.features] },
   });
-  const notice = (message${messageType}) => ctx.send({
+  const notice = (message: string) => ctx.send({
     type: '${options.modId}.notice', payload: { message },
   });
 
@@ -232,40 +220,58 @@ export function install(ctx${contextType}) {
 }
 `;
 
-  return `import { defineMock } from '@osfui/cli';
+  return `${mockImport}
 
-// Browser-side mock served to \`osfui dev\`. Lives at the project root so it
-// can never ship with the views. Request values may be plain JSON,
-// { $type, payload } to control the reply type, or (async) functions of the
-// command payload.
+// Browser-side mock served to \`osfui dev\`: it stands in for the Papyrus
+// script so every round trip works without launching Starfield. Lives at the
+// project root so it can never ship with the views.
+const state = { greeting: 'Hello from the mocked Papyrus script', clicks: 0 };
+
 export default defineMock({
-  state: { example: { enabled: true } },
-  requests: {
-    'papyrus.example': { ok: true, message: 'Mock Papyrus response' },
-  },
-  locales: { en: { title: 'Example view' } },
+  // Mirrors the script's opening OSFUI.SetView* publish; the harness replays
+  // these as data.state on every reload, exactly like the real cache.
+  state,
+  locales: { en: { title: 'Papyrus example' } },
 });
 
-// Need full control (stateful round-trips, custom pushes)? Export install():
-// export function install(ctx) {
-//   ctx.onCommand((command, payload, reply) => {
-//     if (command !== '${options.modId}.ping') return;
-//     reply('ui.result', { ok: true, at: Date.now() });
-//     return true;
-//   });
-// }
+export function install(ctx: MockContext) {
+  const publish = () => ctx.send({
+    type: 'data.state',
+    payload: { mod: '${options.modId}', key: 'clicks', value: state.clicks },
+  });
+
+  ctx.onCommand((command, payload, reply) => {
+    // Papyrus OnOSFUIViewAction(action, args)
+    if (command === 'ui.action') {
+      const args = Array.isArray(payload.args) ? payload.args : [];
+      if (payload.action === 'bump') {
+        state.clicks += Number(args[0]) || 1;
+        publish();
+      } else if (payload.action === 'openSettings') {
+        ctx.notify('Papyrus would call OSFUI.OpenMenu()');
+      }
+      return true;
+    }
+    // Papyrus OnOSFUIViewRequest(request, args, replyToken)
+    if (command === 'ui.papyrusRequest' && payload.request === 'greet') {
+      const args = Array.isArray(payload.args) ? payload.args : [];
+      const who = String(args[0] ?? '');
+      if (!who) {
+        // OSFUI.RejectViewRequest(replyToken, code, message)
+        reply('ui.error', { code: 'invalid-name', message: 'Type a name first' });
+      } else {
+        // OSFUI.ReplyViewString(replyToken, value)
+        reply('papyrus.result', { value: 'Hello ' + who + ', from the mocked Papyrus script' });
+      }
+      return true;
+    }
+  });
+}
 `;
 }
 
 function appSource(options) {
   if (options.integration === 'native') return nativeAppSource(options);
-  const intro = 'Papyrus request';
-  const command = 'ui.papyrusRequest';
-  const fields = `{ mod: '${options.modId}', request: 'example', args: [] }`;
-  const readyTypeArgument = options.template === 'typescript' ? '<{ version: string }>' : '';
-  const requiredSignature = options.template === 'typescript'
-    ? '<T extends Element>(selector: string, kind: { new(): T }): T'
-    : '(selector, kind)';
 
   return `import './style.css';
 import '/shared/osfui.css';
@@ -273,29 +279,67 @@ import '/shared/osfui.js';
 
 const app = document.querySelector('#app');
 if (!(app instanceof HTMLElement)) throw new Error('Missing #app element');
-app.innerHTML = '<main class="card"><p class="eyebrow">${options.surface.toUpperCase()} VIEW</p>' +
-  '<h1>${intro}</h1><p>Edit and save to hot-reload.</p><button id="action">Test workflow</button>' +
+app.innerHTML = '<main class="card"><p class="eyebrow">${options.surface.toUpperCase()} · PAPYRUS BRIDGE</p>' +
+  '<h1>Papyrus ↔ JavaScript</h1><p>Published state, one-way actions, and awaited requests.</p>' +
+  '<section class="state"><span>Clicks</span><strong id="clicks">—</strong>' +
+  '<small id="greeting">Waiting for Papyrus state…</small></section>' +
+  '<div class="actions"><button id="bump">Send action to Papyrus</button>' +
+  '<button id="settings">Open Mod Settings</button></div>' +
+  '<form id="greet"><input id="name" value="Explorer" aria-label="Name">' +
+  '<button type="submit">Ask Papyrus and await the reply</button></form>' +
   '<output id="status">Waiting for OSF UI…</output></main>';
 
-function requiredElement${requiredSignature} {
+function requiredElement<T extends Element>(selector: string, kind: { new(): T }): T {
   const element = document.querySelector(selector);
   if (!(element instanceof kind)) throw new Error('Missing ' + selector);
   return element;
 }
 
+function describe(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  // RejectViewRequest(token, code, message) rejects with both halves.
+  return 'code' in error ? String(error.code) + ': ' + error.message : error.message;
+}
+
+const clicks = requiredElement('#clicks', HTMLElement);
+const greeting = requiredElement('#greeting', HTMLElement);
+const bump = requiredElement('#bump', HTMLButtonElement);
+const settings = requiredElement('#settings', HTMLButtonElement);
+const form = requiredElement('#greet', HTMLFormElement);
+const name = requiredElement('#name', HTMLInputElement);
 const status = requiredElement('#status', HTMLOutputElement);
-const action = requiredElement('#action', HTMLButtonElement);
-window.osfui?.on?.${readyTypeArgument}('runtime.ready', (payload) => {
-  status.textContent = 'Connected to OSF UI ' + payload.version;
+
+// Papyrus SetView* -> cached state, replayed whenever this page (re)loads, so
+// subscribing at any time still yields the latest value.
+window.osfui?.data?.on<number>('clicks', (value) => {
+  clicks.textContent = String(value);
 });
-action.addEventListener('click', async () => {
+window.osfui?.data?.on<string>('greeting', (value) => {
+  greeting.textContent = value;
+});
+
+window.osfui?.ready?.then((info) => {
+  status.textContent = 'Connected to OSF UI ' + info.version;
+});
+
+// JS -> Papyrus OnOSFUIViewAction: fire-and-forget. The script answers by
+// publishing new state, not by replying.
+bump.addEventListener('click', () => {
+  if (!window.osfui?.action?.('bump', 1)) status.textContent = 'OSF UI bridge is unavailable';
+});
+settings.addEventListener('click', () => {
+  window.osfui?.action?.('openSettings');
+});
+
+// JS -> Papyrus OnOSFUIViewRequest: use this only when the returned value is
+// the point. OSF UI owns correlation and the ten-second reply token.
+form.addEventListener('submit', async (event) => {
+  event.preventDefault();
   try {
-    const request = window.osfui?.request;
-    if (!request) throw new Error('OSF UI bridge is unavailable');
-    const result = await request('${command}', ${fields});
-    status.textContent = JSON.stringify(result.payload);
+    if (!window.osfui?.papyrus) throw new Error('OSF UI bridge is unavailable');
+    status.textContent = await window.osfui.papyrus.request<string>('greet', name.value);
   } catch (error) {
-    status.textContent = error instanceof Error ? error.message : String(error);
+    status.textContent = describe(error);
   }
 });
 `;
@@ -306,7 +350,6 @@ async function scaffold(options) {
   await mkdir(root, { recursive: true });
   if ((await readdir(root)).length) throw new Error(`Directory is not empty: ${root}`);
   const viewRoot = `src/views/${options.modId}/${options.view}`;
-  const extension = options.template === 'typescript' ? 'ts' : 'js';
   const cliSpec = await resolveCliSpec(root, options.cliSpec);
   const scripts = {
     dev: 'osfui dev',
@@ -331,24 +374,24 @@ async function scaffold(options) {
   };
   await put(root, 'package.json', `${JSON.stringify(packageJson, null, 2)}\n`);
   await put(root, '.gitignore', 'node_modules/\ndist/\nrelease/\n.osfui/\n');
-  if (options.template === 'typescript') {
-    await put(root, 'tsconfig.json', `${JSON.stringify({
-      compilerOptions: {
-        target: 'ES2022',
-        module: 'ESNext',
-        moduleResolution: 'Bundler',
-        strict: true,
-        // DOM: the mock module runs in the browser (osfui check type-checks it).
-        lib: ['ES2022', 'DOM', 'DOM.Iterable'],
-        types: ['@osfui/cli/view'],
-        noEmit: true,
-      },
-      include: ['src', 'osfui.config.ts', 'osfui.mock.ts'],
-    }, null, 2)}\n`);
-    await put(root, 'src/vite-env.d.ts', `declare module '*.css';
+  await put(root, 'tsconfig.json', `${JSON.stringify({
+    compilerOptions: {
+      target: 'ES2022',
+      module: 'ESNext',
+      moduleResolution: 'Bundler',
+      strict: true,
+      // Plain .js view modules build and type-check alongside the .ts ones.
+      allowJs: true,
+      // DOM: the mock module runs in the browser (osfui check type-checks it).
+      lib: ['ES2022', 'DOM', 'DOM.Iterable'],
+      types: ['@osfui/cli/view'],
+      noEmit: true,
+    },
+    include: ['src', 'osfui.config.ts', 'osfui.mock.ts'],
+  }, null, 2)}\n`);
+  await put(root, 'src/vite-env.d.ts', `declare module '*.css';
 declare module '*osfui.js';
 `);
-  }
   for (const file of backendFiles(options)) {
     await put(root, file.path, file.content);
   }
@@ -359,7 +402,7 @@ declare module '*osfui.js';
       await cp(resolve(HERE, '..', `templates/native/${name}`), resolve(includeRoot, name));
     }
   }
-  await put(root, `osfui.config.${extension}`, `import { defineConfig } from '@osfui/cli';
+  await put(root, `osfui.config.ts`, `import { defineConfig } from '@osfui/cli';
 
 export default defineConfig({
   modId: '${options.modId}',
@@ -374,12 +417,12 @@ export default defineConfig({
   }],
 });
 `);
-  await put(root, `osfui.mock.${extension}`, mockSource(options));
+  await put(root, `osfui.mock.ts`, mockSource(options));
   await put(root, `${viewRoot}/index.html`, `<!doctype html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${options.view}</title></head><body><div id="app"></div><script type="module" src="./main.${extension}"></script></body></html>
+<title>${options.view}</title></head><body><div id="app"></div><script type="module" src="./main.ts"></script></body></html>
 `);
-  await put(root, `${viewRoot}/main.${extension}`, appSource(options));
+  await put(root, `${viewRoot}/main.ts`, appSource(options));
   await put(root, `${viewRoot}/style.css`, `:root { font-family: system-ui, sans-serif; color: #eef7fb; background: transparent; }
 * { box-sizing: border-box; }
 body { margin: 0; min-height: 100vh; display: grid; place-items: center; }
@@ -425,7 +468,7 @@ function install(root) {
 async function main() {
   const options = parse(process.argv.slice(2));
   if (options.help) {
-    console.log('npm create osfui@latest [directory] [-- --mod-id author.mod --view main --template typescript --surface menu --integration papyrus]');
+    console.log('npm create osfui@latest [directory] [-- --mod-id author.mod --view main --surface menu --integration papyrus]');
     return;
   }
   options.directory = options._[0];

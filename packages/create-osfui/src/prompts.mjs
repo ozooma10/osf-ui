@@ -6,10 +6,6 @@ export const ID = /^[a-z0-9-]+$/;
 export const MOD_ID = /^(?:[a-z0-9-]+)\.(?:[a-z0-9-]+)$/;
 
 export const CHOICES = {
-  template: [
-    { value: 'typescript', label: 'TypeScript', hint: 'strict types and editor checking' },
-    { value: 'javascript', label: 'JavaScript', hint: 'plain browser modules' },
-  ],
   surface: [
     { value: 'menu', label: 'Menu', hint: 'a focused screen with user input' },
     { value: 'hud', label: 'HUD', hint: 'an overlay shown during gameplay' },
@@ -36,7 +32,6 @@ function fillDefaults(options) {
   const projectName = slug(basename(resolve(options.directory)));
   options.modId ||= `yourname.${projectName}`;
   options.view ||= 'main';
-  options.template ||= 'typescript';
   options.surface ||= 'menu';
   options.integration ||= 'papyrus';
 }
@@ -56,8 +51,9 @@ export async function promptMissing(
 
   options.directory ||= answer(prompt, await prompt.text({
     message: 'Directory name',
+    placeholder: 'my-osfui-view',
     defaultValue: 'my-osfui-view',
-    validate: (value) => value && value !== '.' && value !== '..' && !/[<>:"/\\|?*]/.test(value)
+    validate: (value) => !value || (value !== '.' && value !== '..' && !/[<>:"/\\|?*]/.test(value))
       ? undefined
       : 'Use a single folder name, such as my-osfui-view.',
   }));
@@ -73,16 +69,11 @@ export async function promptMissing(
 
   options.view ||= answer(prompt, await prompt.text({
     message: 'View ID',
+    placeholder: 'main',
     defaultValue: 'main',
-    validate: (value) => ID.test(value)
+    validate: (value) => !value || ID.test(value)
       ? undefined
       : 'Use lowercase letters, numbers, and hyphens.',
-  }));
-
-  options.template ||= answer(prompt, await prompt.select({
-    message: 'Choose a language',
-    options: CHOICES.template,
-    initialValue: 'typescript',
   }));
 
   options.surface ||= answer(prompt, await prompt.select({

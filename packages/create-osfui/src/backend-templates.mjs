@@ -7,35 +7,115 @@ const displayName = (modId) => words(modId.split('.')[1] || modId).join(' ') || 
 
 function papyrusFiles(options) {
   const scriptName = `${pascalIdentifier(options.modId)}OSFUI`;
-  return [{
-    path: `mod/Scripts/Source/User/${scriptName}.psc`,
-    content: `ScriptName ${scriptName} Extends Quest
+  const aliasName = `${scriptName}PlayerAlias`;
+  return [
+    {
+      path: `mod/Scripts/Source/User/${scriptName}.psc`,
+      content: `ScriptName ${scriptName} Extends Quest
+{OSF UI backend. Attach to a Start Game Enabled quest, and attach
+${aliasName} to a player reference alias on the same quest.}
 
 string ModId = "${options.modId}"
+int actionToken = 0
 int requestToken = 0
+int clicks = 0
 
 Event OnInit()
     RegisterOSFUI()
 EndEvent
 
-; Call this again from your existing game-load handler. OSF UI registrations
-; are session-scoped and must be renewed after loading a save.
+; Registrations AND published state are session-scoped: neither survives a save
+; load, so ${aliasName} calls this again from OnPlayerLoadGame.
 Function RegisterOSFUI()
-    If requestToken != 0
-        OSFUI.Unregister(requestToken)
+    ; GetVersion() is the installation check - 0 means OSF UI is not installed.
+    If OSFUI.GetVersion() == 0
+        Return
     EndIf
+
+    ; Drop last session's tokens (a no-op when they are already stale).
+    OSFUI.Unregister(actionToken)
+    OSFUI.Unregister(requestToken)
+
+    actionToken = OSFUI.ListenForViewActions(self as ScriptObject, ModId)
     requestToken = OSFUI.ListenForViewRequests(self as ScriptObject, ModId)
+    ; A 0 token means the registration was refused - usually because another
+    ; script already listens for this mod id (the first listener wins).
+    If actionToken == 0 || requestToken == 0
+        Debug.Trace("[" + ModId + "] OSF UI registration failed: actions=" + actionToken + " requests=" + requestToken, 2)
+    EndIf
+
+    PublishState()
 EndFunction
 
+; State drives the view. Each SetView* call replaces the cached value for
+; (ModId, key), reaches every live view of this mod, and is replayed whenever
+; one opens or reloads - no ready handshake. The cache is session-scoped, so
+; publish again after a game load.
+Function PublishState()
+    OSFUI.SetViewString(ModId, "greeting", "Hello from ${scriptName}")
+    OSFUI.SetViewInt(ModId, "clicks", clicks)
+EndFunction
+
+; One-way player actions: the view fires osfui.action("bump", 1). Change game
+; state here and publish the result - an action never sends a reply.
+Function OnOSFUIViewAction(string action, string[] args)
+    If action == "bump"
+        int amount = 1
+        If args.Length > 0
+            amount = args[0] as int
+        EndIf
+        clicks += amount
+        PublishState()
+    ElseIf action == "openSettings"
+        OSFUI.OpenMenu()    ; the Mods surface, same as F10
+    EndIf
+EndFunction
+
+; Value-returning operations: the view awaits osfui.papyrus.request("greet", name).
+; Answer EXACTLY ONCE with a ReplyView* or RejectViewRequest - the reply token
+; is one-shot and expires after ten seconds.
 Function OnOSFUIViewRequest(string request, string[] args, string replyToken)
-    If request == "example"
-        OSFUI.ReplyViewString(replyToken, "Hello from ${scriptName}")
+    If request == "greet"
+        string who = ""
+        If args.Length > 0
+            who = args[0]
+        EndIf
+        If who == ""
+            ; The code arrives in JavaScript as error.code on the rejection.
+            OSFUI.RejectViewRequest(replyToken, "invalid-name", "Type a name first")
+            Return
+        EndIf
+        OSFUI.ReplyViewString(replyToken, "Hello " + who + ", from ${scriptName}")
     Else
         OSFUI.RejectViewRequest(replyToken, "unknown-request", request)
     EndIf
 EndFunction
+
+; Next steps:
+;   - Real forms: OSFUI.SetViewForms publishes them as { formId, formType,
+;     name }, and OSFUI.GetFormById(args[0]) resolves one the view echoed back.
+;     Runtime FormIDs are session-scoped - check the result for None before
+;     acting on it, and never store one across a save.
+;   - Player-facing options belong in a settings schema (OSFUI.GetBool/GetInt/
+;     GetString plus RegisterForSettingChanges), not in view state.
 `,
-  }];
+    },
+    {
+      path: `mod/Scripts/Source/User/${aliasName}.psc`,
+      content: `ScriptName ${aliasName} Extends ReferenceAlias
+{Attach to a player reference alias on the same quest as ${scriptName}.
+OSF UI registrations and published state are session-scoped: without this the
+view stops responding once the player loads a save.}
+
+Event OnPlayerLoadGame()
+    ${scriptName} owner = GetOwningQuest() as ${scriptName}
+    If owner != None
+        owner.RegisterOSFUI()
+    EndIf
+EndEvent
+`,
+    },
+  ];
 }
 
 function nativeFiles(options) {
@@ -291,20 +371,34 @@ export function backendFiles(options) {
 
 export function backendGuide(options) {
   const scriptName = `${pascalIdentifier(options.modId)}OSFUI`;
-  const sourceExtension = options.template === 'typescript' ? 'ts' : 'js';
+  const aliasName = `${scriptName}PlayerAlias`;
   const guides = {
     papyrus: `## Papyrus backend
 
-The view's **Test workflow** button sends the \`example\` request to
-\`mod/Scripts/Source/User/${scriptName}.psc\`.
+\`mod/Scripts/Source/User/${scriptName}.psc\` covers all three ways a script
+talks to a view, and the generated page exercises each one:
+
+- **State** — \`OSFUI.SetView*\` publishes the counter and greeting; the page
+  reads them with \`osfui.data.on(key, fn)\`. Values are cached and replayed on
+  every view reload, so there is no handshake. Use this for anything rendered.
+- **Action** — the buttons fire \`osfui.action(name, ...args)\`, which arrives as
+  \`OnOSFUIViewAction\`. The script mutates state and publishes it again.
+- **Request** — the form awaits \`osfui.papyrus.request("greet", name)\`, which
+  arrives as \`OnOSFUIViewRequest\` and is answered once with \`ReplyViewString\`
+  (or \`RejectViewRequest\`, whose code becomes \`error.code\` in JavaScript).
+  Reserve requests for operations whose *result* is the point.
+
+\`osfui.mock.ts\` stands in for the script so all of it works in the
+browser harness before Starfield is involved.
 
 1. In the Creation Kit, create a Start Game Enabled quest and attach
    \`${scriptName}\` to it.
-2. Compile the script with Starfield's base sources and OSF UI's \`OSFUI.psc\`
-   available, placing \`${scriptName}.pex\` under \`mod/Scripts/\`.
-3. Call \`RegisterOSFUI()\` from your normal game-load handler as well as the
-   generated \`OnInit\`; registrations are session-scoped.
-4. Run \`npm run package\`. The compiled script, source, and view are included.
+2. Add a reference alias on that quest filled with the player, and attach
+   \`${aliasName}\`. Registrations and published state are
+   session-scoped — without this alias the view goes silent after a save load.
+3. Compile both scripts with Starfield's base sources and OSF UI's \`OSFUI.psc\`
+   available, placing the \`.pex\` files under \`mod/Scripts/\`.
+4. Run \`npm run package\`. The compiled scripts, sources, and view are included.
 `,
     native: `## Native SFSE backend
 
@@ -317,7 +411,7 @@ example built on the optional \`OSFUI_JSON.h\` facade:
   required \`name\`, replies with JSON, and lets OSF UI own correlation.
 - The plugin registers this view, a runtime settings schema, settings/ready
   callbacks, and an **F9** open-view hotkey. Edit the generated code down to
-  the pieces your mod needs. \`osfui.mock.${sourceExtension}\` mirrors the round trips in the
+  the pieces your mod needs. \`osfui.mock.ts\` mirrors the round trips in the
   browser harness and exposes settings/hotkey callback controls in its toolbar.
 
 1. Install xmake and Visual Studio's C++ workload.
