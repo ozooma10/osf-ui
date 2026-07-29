@@ -186,7 +186,7 @@ sequence after the JS-as-asset step** rather than moving thread-sensitive code b
 | Split HostApp `HandleCommand` 185-line chain (`:2539-2723`) into per-type methods / dispatch table | `tools/webview2_host/HostApp.cpp` | verify (new) |
 | Factor `AddDocumentScript` helper for the repeated AddScript boilerplate | `tools/webview2_host/HostApp.cpp` | verify (new) |
 | Move ~300 lines of injected JS into build-embedded `.js` assets (compiled-in bytes only; preserve install order) — **highest-value HostApp win** | `HostApp.cpp`, `xmake.lua` | verify (new) |
-| Extract `FrameTransport` (ring+fences+publish; carry `ringMutex` + capture/STA thread contract) | `tools/webview2_host/HostApp.cpp` | verify (new) |
+| Extract `FrameTransport` (ring+fences+publish; carry `ringMutex`, which covers ONLY the ring — the capture thread must never read `views`; it gets its one view-derived fact via the STA-refreshed `anyVisibleRenderStatsCache` atomic) | `tools/webview2_host/HostApp.cpp` | verify (new) |
 | Extract `HostInputSession` (capture subclass, raw mouse, host wndprocs; keep `s_app` singleton) | `tools/webview2_host/HostApp.cpp` | verify (new) |
 | Settings frontend → `useSettingsController` reducer + view; benchmark → `useBenchmark()` hook (after Phase 3 helpers) | `settings/App.tsx`, `benchmark/App.tsx` | Codex + A §4a.3 |
 | Extract IWebRenderer value types → `RenderTypes.h` (~46% shrink, zero polymorphism change) | `src/render/IWebRenderer.h`, `RenderTypes.h` | verify + Codex + A §6.1 |

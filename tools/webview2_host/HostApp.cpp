@@ -1429,13 +1429,27 @@ namespace osfui::wv2
 				}
 			}
 
+			// STA thread only: iterates `views`, which the STA mutates unlocked
+			// (push_back on createView, erase_if on destroyView). The capture
+			// thread must read the cached atomic below instead — refreshed here,
+			// and this runs at least once per STA message-loop iteration (the
+			// MsgWaitForMultipleObjectsEx timeout selection), so the cache is at
+			// most one iteration stale, which only affects stats-gap accounting.
 			bool AnyVisibleRenderStats() const
 			{
+				bool any = false;
 				for (const auto& view : views) {
-					if (view->renderStats && !view->hidden && view->webView) return true;
+					if (view->renderStats && !view->hidden && view->webView) {
+						any = true;
+						break;
+					}
 				}
-				return false;
+				anyVisibleRenderStatsCache.store(any, std::memory_order_relaxed);
+				return any;
 			}
+			// The one value OnFrameArrived (WGC free-threaded callback) may read
+			// about views; ringMutex covers only the ring, never `views`.
+			mutable std::atomic_bool anyVisibleRenderStatsCache{ false };
 
 			void ApplyRenderStats(View& a_view)
 			{
@@ -2710,7 +2724,10 @@ namespace osfui::wv2
 				if (quit.load() || captureClosing.load()) return;
 				try {
 					const auto arrival = std::chrono::steady_clock::now();
-					if (AnyVisibleRenderStats() && captureLastArrival.time_since_epoch().count() != 0) {
+					// Capture thread: never touch `views` here (STA mutates it
+					// unlocked); the STA-refreshed cache answers this cheaply.
+					if (anyVisibleRenderStatsCache.load(std::memory_order_relaxed) &&
+						captureLastArrival.time_since_epoch().count() != 0) {
 						const auto gapMs = std::chrono::duration<double, std::milli>(
 							arrival - captureLastArrival).count();
 						// Gaps over a second are idle pauses (nothing painted),
