@@ -97,6 +97,10 @@ namespace OSFUI
 		[[nodiscard]] static std::string EncodeJsonMessage(std::string_view a_type, std::string_view a_payloadJson, std::string_view a_requestId);
 		void HandleUiCommand(const nlohmann::json& a_payload);
 		void SendErrorToWeb(std::string_view a_code, std::string_view a_message, const nlohmann::json& a_extra);
+		// Folds a reply to the in-flight command's caller into that command's
+		// single completion trace instead of logging it as its own line. Returns
+		// true when the send was absorbed (caller must not log it).
+		bool NoteTracedReply(std::string_view a_viewId, std::string_view a_type);
 
 		SendFn                                          _send;
 		std::unordered_map<std::string, CommandHandler> _commands;
@@ -105,6 +109,8 @@ namespace OSFUI
 		std::string                                     _currentRequestId;  // requestId of the in-flight message ("" = none)
 		std::string                                     _currentCommand;    // command of the in-flight ui.command (ui.result echo)
 		bool                                            _replied{ false };  // a reply carried the requestId (suppresses auto ui.result)
+		bool                                            _inCommand{ false };  // inside HandleUiCommand (arms reply-trace folding)
+		std::string                                     _traceReplies;        // reply types sent to the caller while _inCommand
 		std::unordered_set<std::string>                 _warnedUnknownCommands;  // warn-once-per-command log dedupe
 	};
 }

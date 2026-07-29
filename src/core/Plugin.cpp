@@ -1,7 +1,6 @@
 #include "core/Plugin.h"
 
 #include "api/PapyrusApi.h"
-#include "core/ThreadAffinityProbe.h"
 #include "core/Version.h"
 #include "input/FocusMenu.h"
 #include "input/MainThreadMenuPump.h"
@@ -64,11 +63,6 @@ namespace OSFUI::Plugin
 					REX::INFO("FrameTick: first per-frame task received from SFSE TaskInterface");
 				}
 
-				// Thread-affinity probe (devMode only, self-gated & bounded):
-				// sample the SFSE producer here; the queued callback samples the
-				// actual Runtime tick against the main-loop anchor.
-				ThreadProbe::NoteSfseTask();
-
 				// At most one tick may be queued or running. If the main thread
 				// stalls, shed redundant worker notifications rather than build
 				// an unbounded queue of stale frames.
@@ -91,10 +85,6 @@ namespace OSFUI::Plugin
 		private:
 			void RunTickOnMain()
 			{
-				// Directly sample the code path we care about rather than posting
-				// a separate diagnostic delegate.
-				ThreadProbe::NoteRuntimeTick();
-
 				const auto now = std::chrono::steady_clock::now();
 				double dt = 0.0;
 				if (_lastMainTick) {

@@ -3,7 +3,6 @@
 #include "input/PauseMenuEntry.h"
 
 #include "core/Log.h"
-#include "core/ThreadAffinityProbe.h"
 
 #include "REL/Relocation.h"
 #include "REL/Trampoline.h"
@@ -43,10 +42,6 @@ namespace OSFUI::MainThreadMenuPump
 			// Post-advance, on the thread that owns the AS3 VM: every admitted
 			// movie has just finished its frame and nothing else is inside the
 			// VM. This is the safe window for all engine-UI work.
-			//
-			// Ground-truth anchor for the thread-affinity probe: whatever thread
-			// runs this thunk IS the main thread (devMode only; no-op otherwise).
-			ThreadProbe::NoteMainLoop();
 			PauseMenuEntry::Reconcile();
 			return result;
 		}

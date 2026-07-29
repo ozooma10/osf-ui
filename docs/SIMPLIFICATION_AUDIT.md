@@ -531,11 +531,15 @@ naively "simplifying" them regresses known crashes or breaks wire contracts.
    scalar `arg` key; the skip-non-strings helper would silently drop numeric/bool args and lose the
    fallback.
 
-7. **`ThreadAffinityProbe`** — do **NOT** delete now. `NoteRuntimeTick` validates the just-landed
-   (~1 day old) "Run Runtime tick on main thread" fix that is likely not yet in-game-confirmed, and
-   it guards the load-bearing thread-affinity / `MainThreadMenuPump` subsystem where IDs/threads
-   silently re-bind across game patches. Follow `uiPassProbe`'s keep-then-remove cadence (demote
-   after in-game confirmation, delete after a release of stability).
+7. **`ThreadAffinityProbe`** — ~~do **NOT** delete now~~ **RESOLVED 2026-07-29: deleted.**
+   `NoteRuntimeTick` validated the then-fresh "Run Runtime tick on main thread" fix, so the
+   keep-then-remove cadence below was correct at the time. That cadence has now run its course:
+   the findings are recorded (SFSE tasks drain on arbitrary job workers; `BSService::TaskQueue`
+   drains on the true main thread), the fix is in-game-confirmed, and the probe's backtrace was
+   additionally proven wrong — it printed every frame as `Starfield.exe+<offset>` without checking
+   the frame was in that module, so DLL/ntdll frames appeared as ~14 GB offsets. Original guidance:
+   follow `uiPassProbe`'s keep-then-remove cadence (demote after in-game confirmation, delete after
+   a release of stability).
 
 8. **Wire-facing strings `seamMode` (JSON key) and `drawPath` `'ui-seam'`/`'present'`** — in the
    `SetSeamDrawMode` cleanup (§6b.3), rename only the C++ symbols. These literals are bridge-protocol

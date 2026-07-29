@@ -27,8 +27,10 @@ namespace OSFUI
 			return id;
 		}
 
-		// Outbound trace allowlist: the boot handshake plus errors. Deliberately
-		// not every type — ui.gamepad and friends push far too often to log.
+		// Outbound trace allowlist for UNSOLICITED pushes only: the boot
+		// handshake plus errors. Replies to an in-flight command never reach
+		// this — they fold into that command's own trace line. Deliberately not
+		// every type: ui.gamepad and friends push far too often to log.
 		bool IsTracedOutbound(std::string_view a_type)
 		{
 			return a_type == "runtime.ready" || a_type == "settings.data" ||
@@ -111,10 +113,14 @@ namespace OSFUI
 	{
 		const auto command = Json::GetString(a_payload, "command", "");
 		_currentCommand = command.substr(0, 128);
-		// Both bridge legs are traced at DEBUG (see SendToWeb): a view that renders
-		// its chrome but no data is either not asking or not being answered, and
-		// nothing else in the log distinguishes those two.
-		REX::DEBUG("MessageBridge: web->native '{}' from view '{}'", _currentCommand, _currentSource);
+		// One DEBUG line per command, emitted on completion with what went back
+		// (see NoteTracedReply). A view that renders its chrome but no data is
+		// either not asking or not being answered, and nothing else in the log
+		// distinguishes those two — but tracing both legs separately spent two
+		// lines on every healthy request/response pair, which is the bulk of
+		// bridge traffic. The folded line answers the same question in one.
+		_inCommand = true;
+		_traceReplies.clear();
 		// Explicit registry — no generic "call native function" escape hatch.
 		if (const auto it = _commands.find(command); it != _commands.end()) {
 			it->second(a_payload, *this);
@@ -143,6 +149,34 @@ namespace OSFUI
 			}
 			SendErrorToWeb("unknown-command", "unknown command", { { "command", command.substr(0, 128) } });
 		}
+
+		_inCommand = false;
+		// "(no reply)" is not by itself a fault — fire-and-forget verb commands
+		// (close, menu.open, ...) legitimately answer nothing. It is the signal
+		// to look at when a data request came in and the view stayed empty.
+		REX::DEBUG("MessageBridge: '{}' from view '{}' -> {}", _currentCommand, _currentSource,
+			_traceReplies.empty() ? std::string_view{ "(no reply)" } : std::string_view{ _traceReplies });
+	}
+
+	bool MessageBridge::NoteTracedReply(std::string_view a_viewId, std::string_view a_type)
+	{
+		if (!_inCommand || a_viewId != _currentSource) {
+			return false;  // unsolicited push: the caller logs it as before
+		}
+		// Bounded: a handler answering in a loop must not grow this without
+		// limit. Past the cap the line ends in an ellipsis rather than growing.
+		constexpr std::size_t kMaxTraceLength = 160;
+		if (_traceReplies.size() >= kMaxTraceLength) {
+			if (!_traceReplies.ends_with("...")) {
+				_traceReplies += ", ...";
+			}
+			return true;
+		}
+		if (!_traceReplies.empty()) {
+			_traceReplies += ", ";
+		}
+		_traceReplies.append(a_type);
+		return true;
 	}
 
 	void MessageBridge::SendErrorToWeb(std::string_view a_code, std::string_view a_message, const nlohmann::json& a_extra)
@@ -199,7 +233,7 @@ namespace OSFUI
 		if (!_send || a_viewId.empty()) {
 			return;
 		}
-		if (IsTracedOutbound(a_type)) {
+		if (!NoteTracedReply(a_viewId, a_type) && IsTracedOutbound(a_type)) {
 			REX::DEBUG("MessageBridge: native->web '{}' to view '{}'", a_type, a_viewId);
 		}
 		_send(a_viewId, EncodeMessage(a_type, a_payload, a_requestId));
@@ -210,7 +244,7 @@ namespace OSFUI
 		if (!_send || a_viewId.empty()) {
 			return;
 		}
-		if (IsTracedOutbound(a_type)) {
+		if (!NoteTracedReply(a_viewId, a_type) && IsTracedOutbound(a_type)) {
 			REX::DEBUG("MessageBridge: native->web '{}' to view '{}'", a_type, a_viewId);
 		}
 		_send(a_viewId, EncodeJsonMessage(a_type, a_payloadJson, {}));
@@ -225,7 +259,9 @@ namespace OSFUI
 		const bool trace = IsTracedOutbound(a_type);
 		for (const auto& id : a_viewIds) {
 			if (!id.empty()) {
-				if (trace) {
+				// A fan-out triggered by a command still folds the caller's own
+				// copy into that command's line; the other views log normally.
+				if (!NoteTracedReply(id, a_type) && trace) {
 					REX::DEBUG("MessageBridge: native->web '{}' to view '{}'", a_type, id);
 				}
 				_send(id, message);

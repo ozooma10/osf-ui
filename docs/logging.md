@@ -67,9 +67,20 @@ Nothing may log unboundedly. Established tools, in preference order:
    not a duplicate to unify).
 4. Dedupe-by-key with a "further rejections not logged" note (`MessageBridge`).
 5. Bounded sampling: dense first-N then logarithmic (`ScaleformToTextureProbe`,
-   `WorldSurface` refresh), or fixed budgets (`ThreadAffinityProbe`).
+   `WorldSurface` refresh).
 6. Time-throttled periodics (render diagnostics, 2 s) — only behind an explicit
    opt-in setting (`renderStats`).
+7. Fold a matched exchange into one line rather than tracing both legs
+   (`MessageBridge::NoteTracedReply`: a command's replies to its caller are
+   collapsed into that command's completion line, so a healthy request/response
+   costs one line and an unanswered one still stands out as `(no reply)`).
+
+A probe that has answered its question is deleted, not left logging. Research
+instrumentation earns its keep only while the question is open; once the finding
+is written down, the probe is redundant, and a stale one drifts into being wrong
+(`ThreadAffinityProbe` printed every stack frame as `Starfield.exe+<offset>`
+without checking the frame was in that module, so DLL frames showed as ~14 GB
+offsets — deleted 2026-07-29).
 
 ## Host process specifics
 

@@ -240,8 +240,9 @@ multi-view smoke; verify the seam-only compositor across FG off, native FSR3 FG,
   "do NOT fold into shared `ToLowerAscii`", which dropped the audit's qualifier and made a compliant
   tree look like a §4 violation.)
 - **`Runtime.cpp` args handling (~2250-2267)** — do NOT apply `GetStringArray` (coerces non-string args).
-- **`ThreadAffinityProbe`/`NoteRuntimeTick`** — do NOT delete now; validates the just-landed `7ab68ad`
-  fix; follow keep-then-remove cadence.
+- ~~**`ThreadAffinityProbe`/`NoteRuntimeTick`** — do NOT delete now; validates the just-landed `7ab68ad`
+  fix; follow keep-then-remove cadence.~~ **RESOLVED 2026-07-29: cadence complete, probe deleted**
+  (findings recorded, fix confirmed, backtrace proven mislabeled). See audit §7.
 - **Wire-facing strings are a frozen contract, byte-identical** — bridge names + seam/present literals
   (`seamMode`, `'ui-seam'`, `'present'`). Centralize the *symbol*, never the *value*.
 - **`FocusMenu` `kFlag` constants** — if trimmed, relocate full RE provenance to the `.cpp`.
