@@ -27,11 +27,12 @@ export async function buildProject(project, { quiet = false } = {}) {
     await cp(project.modRoot, project.outDir, { recursive: true });
   }
   await viteBuild({
-    root: project.viewsRoot,
+    root: resolve(project.viewsRoot, project.modId),
     base: './',
     plugins: [sharedKitPlugin()],
     build: {
-      outDir: project.outputViewsRoot,
+      outDir: resolve(project.outputViewsRoot, project.modId),
+      assetsDir: 'assets',
       emptyOutDir: false,
       rollupOptions: { input: project.views.map((view) => view.entryPath) },
     },
@@ -41,11 +42,6 @@ export async function buildProject(project, { quiet = false } = {}) {
     const output = resolve(project.outputViewsRoot, project.modId, view.id);
     await mkdir(output, { recursive: true });
     await writeFile(resolve(output, 'manifest.json'), `${JSON.stringify(manifestFor(view), null, 2)}\n`);
-  }
-  const shared = resolve(project.outputViewsRoot, 'shared');
-  await mkdir(shared, { recursive: true });
-  for (const name of ['osfui.js', 'osfui.css']) {
-    await cp(await sharedAssetPath(name), resolve(shared, name));
   }
   return project.outDir;
 }

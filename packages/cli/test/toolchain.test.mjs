@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { access, mkdir, mkdtemp, readFile, realpath, rm, utimes, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, readdir, realpath, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -77,6 +77,21 @@ test('checks, builds, and packages a generated-shaped project', async (t) => {
     'utf8',
   ));
   assert.equal(manifest.id, 'panel');
+  const viewsOutput = resolve(root, 'dist/SFSE/Plugins/OSFUI/views');
+  assert.equal(
+    await access(resolve(viewsOutput, 'shared')).then(() => true, () => false),
+    false,
+  );
+  assert.equal(
+    await access(resolve(viewsOutput, 'assets')).then(() => true, () => false),
+    false,
+  );
+  const assets = await readdir(resolve(viewsOutput, 'acme.widgets/assets'));
+  assert.ok(assets.some((name) => name.endsWith('.js')));
+  assert.ok(assets.some((name) => name.endsWith('.css')));
+  const html = await readFile(resolve(viewsOutput, 'acme.widgets/panel/index.html'), 'utf8');
+  assert.match(html, /(?:src|href)="\.\.\/assets\//);
+  assert.doesNotMatch(html, /(?:src|href)="\.\.\/\.\.\/(?:shared|assets)\//);
   const zip = resolve(root, 'release/view.zip');
   await writeZip(project.outDir, zip);
   const archive = await readFile(zip);
@@ -118,6 +133,16 @@ test('game deployment mirrors the completed build so removed mod files do not li
   assert.equal(await access(deployedAsset).then(() => true, () => false), false);
   assert.equal(
     await access(resolve(deployRoot, 'SFSE/Plugins/OSFUI/views/shared/osfui.js'))
+      .then(() => true, () => false),
+    false,
+  );
+  assert.equal(
+    await access(resolve(deployRoot, 'SFSE/Plugins/OSFUI/views/assets'))
+      .then(() => true, () => false),
+    false,
+  );
+  assert.equal(
+    await access(resolve(deployRoot, 'SFSE/Plugins/OSFUI/views/acme.widgets/assets'))
       .then(() => true, () => false),
     true,
   );

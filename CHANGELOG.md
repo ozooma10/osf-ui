@@ -56,6 +56,8 @@
 
 ### For view authors
 
+- `@osfui/cli` builds now keep every generated JavaScript and CSS bundle under `views/<modId>/assets/` and no longer copy OSF UI's own `views/shared/` kit into dependent mods. Packages made by different view authors therefore stop competing for generic asset paths or overwriting the framework-matched shared helper and styles through mod-manager file priority.
+
 - The standalone authoring CLI now rejects output directories that overlap source or configuration inputs while continuing to support separate monorepo build trees, and package archives must be written outside the tree they contain, preventing mistyped paths from deleting source files or embedding an archive inside itself. In-game development sync now mirrors the complete build so removed scripts and assets do not linger in MO2, while temporary author mode is reliably removed when the dev server exits. Invalid or incomplete command-line options also fail immediately instead of being silently misread.
 
 - `npm run dev:game -- --deploy` now accepts MO2's `mods` directory and creates a child mod folder named after the view project before writing `SFSE/`. Passing the `mods` directory no longer leaves a stray top-level `SFSE` folder that MO2 cannot treat as a mod; existing projects with the old saved final-mod path remain compatible.
