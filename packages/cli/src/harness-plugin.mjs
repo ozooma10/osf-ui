@@ -6,6 +6,7 @@ import { normalizePath } from 'vite';
 
 import { HARNESS_CSS, HARNESS_HTML } from './harness-assets.mjs';
 import { BRIDGE_VERSION, HOST_VERSION } from './constants.mjs';
+import { readSharedAsset } from './shared-assets.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SHARED_PREFIX = '\0osfui-shared:';
@@ -56,16 +57,6 @@ function browserAsset(name) {
   return readFile(resolve(HERE, 'browser', name), 'utf8');
 }
 
-async function sharedAsset(name) {
-  for (const path of [
-    resolve(HERE, '..', 'assets', name),
-    resolve(HERE, '..', '..', '..', 'frontend', 'src', 'shared-kit', name),
-  ]) {
-    try { return await readFile(path, 'utf8'); } catch {}
-  }
-  throw new Error(`Missing packaged shared asset ${name}.`);
-}
-
 export function harnessPlugin(project, selectedView) {
   const metaFor = (view) => ({
     modId: project.modId,
@@ -107,7 +98,7 @@ export function harnessPlugin(project, selectedView) {
     },
     async load(id) {
       if (!id.startsWith(SHARED_PREFIX)) return null;
-      return sharedAsset(id.slice(SHARED_PREFIX.length));
+      return readSharedAsset(id.slice(SHARED_PREFIX.length));
     },
     transformIndexHtml: {
       order: 'pre',
@@ -146,11 +137,11 @@ export function harnessPlugin(project, selectedView) {
       server.middlewares.use(async (request, response, next) => {
         const url = new URL(request.url || '/', 'http://osfui.local');
         if (url.pathname === '/shared/osfui.js') {
-          send(response, await sharedAsset('osfui.js'), 'text/javascript; charset=utf-8');
+          send(response, await readSharedAsset('osfui.js'), 'text/javascript; charset=utf-8');
           return;
         }
         if (url.pathname === '/shared/osfui.css') {
-          send(response, await sharedAsset('osfui.css'), 'text/css; charset=utf-8');
+          send(response, await readSharedAsset('osfui.css'), 'text/css; charset=utf-8');
           return;
         }
         if (!url.pathname.startsWith('/__osfui/')) {

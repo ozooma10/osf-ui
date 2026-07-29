@@ -1,5 +1,5 @@
 import { mkdir, open, readdir, readFile } from 'node:fs/promises';
-import { dirname, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 
 let table;
 function crc32(buffer) {
@@ -30,6 +30,15 @@ function header(signature, size) {
 }
 
 export async function writeZip(sourceRoot, destination) {
+  sourceRoot = resolve(sourceRoot);
+  destination = resolve(destination);
+  const destinationRelative = relative(sourceRoot, destination);
+  if (destinationRelative === '' ||
+      (!isAbsolute(destinationRelative) &&
+       destinationRelative !== '..' &&
+       !destinationRelative.startsWith(`..${sep}`))) {
+    throw new Error('Package output must be outside the directory being archived.');
+  }
   await mkdir(dirname(destination), { recursive: true });
   const output = await open(destination, 'w');
   const central = [];

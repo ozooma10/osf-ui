@@ -31,6 +31,7 @@ export interface OsfuiConfig {
   views?: ViewConfig[];
   /** Data-root files copied into builds before generated OSF UI views. Defaults to "mod". */
   modRoot?: string;
+  /** Build output directory. May point to a separate monorepo build tree. Defaults to "dist". */
   outDir?: string;
   mock?: string;
   /**

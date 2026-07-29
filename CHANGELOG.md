@@ -56,6 +56,8 @@
 
 ### For view authors
 
+- The standalone authoring CLI now rejects output directories that overlap source or configuration inputs while continuing to support separate monorepo build trees, and package archives must be written outside the tree they contain, preventing mistyped paths from deleting source files or embedding an archive inside itself. In-game development sync now mirrors the complete build so removed scripts and assets do not linger in MO2, while temporary author mode is reliably removed when the dev server exits. Invalid or incomplete command-line options also fail immediately instead of being silently misread.
+
 - `npm run dev:game -- --deploy` now accepts MO2's `mods` directory and creates a child mod folder named after the view project before writing `SFSE/`. Passing the `mods` directory no longer leaves a stray top-level `SFSE` folder that MO2 cannot treat as a mod; existing projects with the old saved final-mod path remain compatible.
 
 - The Papyrus and native-plugin choices in `npm create osfui@latest` now scaffold their matching backends: Papyrus projects include a request-listener script and Creation Kit steps, while native projects include a CommonLibSF/xmake plugin with both native API headers. The native preset is a paired C++/web showcase built on `OSFUI_JSON`: typed fire-and-forget commands, correlated requests and replies, C++ state pushes, ready/settings/hotkey callbacks, a runtime settings schema, and a stateful browser mock all work out of the box. Generated projects use `mod/` as their Starfield Data-root tree; `build`, `package`, and `dev:game` carry those scripts, DLLs, schemas, and other mod files alongside the compiled view.

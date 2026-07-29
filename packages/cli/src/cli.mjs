@@ -1,25 +1,36 @@
 #!/usr/bin/env node
 import { mkdir } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
+import { parseArgs } from 'node:util';
 
 import { createServer } from 'vite';
 
 import { buildProject } from './build.mjs';
 import { checkProject } from './check.mjs';
 import { loadProject } from './config.mjs';
+import { CLI_VERSION } from './constants.mjs';
 import { devServerConfig } from './dev.mjs';
 import { startGameSync } from './game.mjs';
 import { writeZip } from './zip.mjs';
 
 function parse(argv) {
-  const options = { _: [] };
-  for (let index = 0; index < argv.length; index++) {
-    const value = argv[index];
-    if (!value.startsWith('--')) options._.push(value);
-    else if (value === '--game' || value === '--help' || value === '--version') options[value.slice(2)] = true;
-    else options[value.slice(2)] = argv[++index];
-  }
-  return options;
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    strict: true,
+    options: {
+      deploy: { type: 'string' },
+      game: { type: 'boolean' },
+      help: { type: 'boolean', short: 'h' },
+      host: { type: 'string' },
+      open: { type: 'string' },
+      output: { type: 'string' },
+      port: { type: 'string' },
+      version: { type: 'boolean', short: 'v' },
+      view: { type: 'string' },
+    },
+  });
+  return { ...values, _: positionals };
 }
 
 function help() {
@@ -39,7 +50,7 @@ async function main() {
   const options = parse(process.argv.slice(2));
   const command = options._[0] || 'dev';
   if (options.help) { help(); return; }
-  if (options.version) { console.log('0.1.0'); return; }
+  if (options.version) { console.log(CLI_VERSION); return; }
   const project = await loadProject(process.cwd(), command === 'dev' ? 'serve' : 'build');
   if (command === 'dev') {
     const view = options.view

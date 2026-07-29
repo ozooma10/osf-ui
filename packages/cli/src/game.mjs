@@ -1,3 +1,4 @@
+import { rmSync } from 'node:fs';
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
@@ -44,32 +45,26 @@ async function configuredDeployRoot(project, explicit) {
   );
 }
 
-async function deployViews(project, deployRoot) {
-  try {
-    await cp(project.modRoot, deployRoot, { recursive: true, force: true });
-  } catch (error) {
-    if (error?.code !== 'ENOENT') throw error;
-  }
-  const targetRoot = resolve(deployRoot, 'SFSE/Plugins/OSFUI/views');
-  for (const view of project.views) {
-    const source = resolve(project.outputViewsRoot, project.modId, view.id);
-    const target = resolve(targetRoot, project.modId, view.id);
-    await rm(target, { recursive: true, force: true });
-    await mkdir(target, { recursive: true });
-    await cp(source, target, { recursive: true });
-  }
+export async function deployBuild(project, deployRoot) {
+  await rm(deployRoot, { recursive: true, force: true });
+  await mkdir(resolve(deployRoot, '..'), { recursive: true });
+  await cp(project.outDir, deployRoot, { recursive: true });
 }
 
 export async function startGameSync(project, server, options = {}) {
   const deployRoot = await configuredDeployRoot(project, options.deploy);
   const osfuiRoot = resolve(deployRoot, 'SFSE/Plugins/OSFUI');
   const marker = resolve(osfuiRoot, AUTHOR_MARKER);
-  await mkdir(osfuiRoot, { recursive: true });
-  await writeFile(marker, `${JSON.stringify({
+  const markerContents = `${JSON.stringify({
     enabled: true,
     expiresAt: Math.floor(Date.now() / 1000) + (12 * 60 * 60),
     source: '@osfui/cli',
-  }, null, 2)}\n`);
+  }, null, 2)}\n`;
+  const enableAuthorMode = async () => {
+    await mkdir(osfuiRoot, { recursive: true });
+    await writeFile(marker, markerContents);
+  };
+  await enableAuthorMode();
 
   let building = false;
   let pending = false;
@@ -78,7 +73,8 @@ export async function startGameSync(project, server, options = {}) {
     building = true;
     try {
       await buildProject(project, { quiet: true });
-      await deployViews(project, deployRoot);
+      await deployBuild(project, deployRoot);
+      await enableAuthorMode();
       console.log(`[osfui] Synced ${project.views.length} view(s) to ${deployRoot}`);
     } catch (error) {
       console.error(`[osfui] Game sync failed: ${error.message}`);
@@ -95,9 +91,13 @@ export async function startGameSync(project, server, options = {}) {
   const cleanup = async () => {
     try { await rm(marker, { force: true }); } catch {}
   };
+  const cleanupSync = () => {
+    try { rmSync(marker, { force: true }); } catch {}
+  };
   process.once('SIGINT', async () => { await cleanup(); process.exit(130); });
   process.once('SIGTERM', async () => { await cleanup(); process.exit(143); });
-  process.once('exit', () => { void rm(marker, { force: true }); });
+  process.once('exit', cleanupSync);
+  server.httpServer?.once('close', () => { void cleanup(); });
   console.log('[osfui] Temporary author mode enabled for this session (F11 reload, F12 DevTools).');
   return { deployRoot, marker, cleanup };
 }

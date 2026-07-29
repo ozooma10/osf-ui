@@ -1,5 +1,5 @@
 import { access } from 'node:fs/promises';
-import { extname, isAbsolute, resolve, sep } from 'node:path';
+import { extname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { loadConfigFromFile, normalizePath } from 'vite';
 
 import {
@@ -67,6 +67,22 @@ function validateRelative(value, label) {
     throw new Error(`${label} must be a relative path that stays inside the project.`);
   }
   return normalizePath(value);
+}
+
+function containsPath(root, path) {
+  const child = relative(root, path);
+  return child === '' || (!isAbsolute(child) && child !== '..' && !child.startsWith(`..${sep}`));
+}
+
+function pathsOverlap(left, right) {
+  return containsPath(left, right) || containsPath(right, left);
+}
+
+function resolveOutput(root, value) {
+  if (typeof value !== 'string' || !value) {
+    throw new Error('outDir must be a non-empty path.');
+  }
+  return resolve(root, value);
 }
 
 export async function loadProject(cwd, command = 'serve') {
@@ -144,10 +160,13 @@ export async function loadProject(cwd, command = 'serve') {
   }
   const viewsRoot = resolve(root, 'src/views');
   const { mockPath, mockKind } = await resolveMock(root, viewsRoot, raw.mock);
-  const outDir = resolve(root, raw.outDir || 'dist');
+  const outDir = resolveOutput(root, raw.outDir ?? 'dist');
   const modRoot = resolve(root, validateRelative(raw.modRoot ?? 'mod', 'modRoot'));
-  if (modRoot === outDir || modRoot.startsWith(outDir + sep) || outDir.startsWith(modRoot + sep)) {
-    throw new Error('modRoot and outDir must be separate directories.');
+  if (pathsOverlap(outDir, viewsRoot) ||
+      pathsOverlap(outDir, modRoot) ||
+      pathsOverlap(outDir, configPath) ||
+      (mockPath && pathsOverlap(outDir, mockPath))) {
+    throw new Error('outDir must be a dedicated directory separate from project inputs.');
   }
   return {
     root,
@@ -166,7 +185,7 @@ export async function loadProject(cwd, command = 'serve') {
   };
 }
 
-export function manifestFor(project, view) {
+export function manifestFor(view) {
   return {
     id: view.id,
     title: view.title,

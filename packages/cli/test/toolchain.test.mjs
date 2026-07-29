@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
 import { createServer } from 'vite';
@@ -10,7 +11,7 @@ import { buildProject } from '../src/build.mjs';
 import { checkProject } from '../src/check.mjs';
 import { loadProject, manifestFor } from '../src/config.mjs';
 import { devServerConfig } from '../src/dev.mjs';
-import { deploymentRoot } from '../src/game.mjs';
+import { deployBuild, deploymentRoot } from '../src/game.mjs';
 import { harnessPlugin } from '../src/harness-plugin.mjs';
 import { writeZip } from '../src/zip.mjs';
 
@@ -49,7 +50,7 @@ test('loads configuration and creates a production manifest', async (t) => {
   const root = await projectFixture(t);
   const project = await loadProject(root);
   assert.equal(project.views[0].qualifiedId, 'acme.widgets/panel');
-  assert.deepEqual(manifestFor(project, project.views[0]).permissions, {
+  assert.deepEqual(manifestFor(project.views[0]).permissions, {
     nativeBridge: true,
     filesystem: false,
     network: false,
@@ -80,6 +81,68 @@ test('checks, builds, and packages a generated-shaped project', async (t) => {
   const archive = await readFile(zip);
   assert.equal(archive.subarray(0, 4).toString('hex'), '504b0304');
   assert.ok(archive.includes(Buffer.from('Scripts/Example.pex')));
+});
+
+test('allows a separate monorepo output directory but rejects overlap with project inputs', async (t) => {
+  const root = await projectFixture(t);
+  const configPath = resolve(root, 'osfui.config.ts');
+  const base = `export default {
+    modId: 'acme.widgets',
+    views: [{ id: 'panel' }],
+    outDir: OUT,
+  };`;
+  await writeFile(configPath, base.replace('OUT', JSON.stringify('../../build/osfui')));
+  assert.equal((await loadProject(root)).outDir, resolve(root, '../../build/osfui'));
+  for (const outDir of ['src', '..', 'osfui.config.ts', 'osfui.mock.json']) {
+    await writeFile(configPath, base.replace('OUT', JSON.stringify(outDir)));
+    await assert.rejects(
+      loadProject(root),
+      /outDir must be a dedicated directory/,
+      outDir,
+    );
+  }
+});
+
+test('game deployment mirrors the completed build so removed mod files do not linger', async (t) => {
+  const root = await projectFixture(t);
+  const project = await loadProject(root, 'build');
+  const deployRoot = resolve(root, 'deployed');
+  const deployedAsset = resolve(deployRoot, 'Scripts/Example.pex');
+  await buildProject(project, { quiet: true });
+  await deployBuild(project, deployRoot);
+  assert.equal(await readFile(deployedAsset, 'utf8'), 'compiled-papyrus');
+  await rm(resolve(root, 'mod/Scripts/Example.pex'));
+  await buildProject(project, { quiet: true });
+  await deployBuild(project, deployRoot);
+  assert.equal(await access(deployedAsset).then(() => true, () => false), false);
+  assert.equal(
+    await access(resolve(deployRoot, 'SFSE/Plugins/OSFUI/views/shared/osfui.js'))
+      .then(() => true, () => false),
+    true,
+  );
+});
+
+test('package output cannot be placed inside the directory being archived', async (t) => {
+  const root = await projectFixture(t);
+  const project = await loadProject(root, 'build');
+  await buildProject(project, { quiet: true });
+  await assert.rejects(
+    writeZip(project.outDir, resolve(project.outDir, 'view.zip')),
+    /must be outside/,
+  );
+});
+
+test('CLI rejects unknown options and missing option values', async (t) => {
+  const root = await projectFixture(t);
+  const cli = resolve(import.meta.dirname, '../src/cli.mjs');
+  for (const args of [['doctor', '--wat'], ['dev', '--view', '--game']]) {
+    const result = spawnSync(process.execPath, [cli, ...args], {
+      cwd: root,
+      encoding: 'utf8',
+    });
+    assert.notEqual(result.status, 0, args.join(' '));
+    assert.match(result.stderr, /Unknown option|argument (?:is ambiguous|missing)/);
+  }
 });
 
 test('compatibility checks flag remote URLs', async (t) => {
