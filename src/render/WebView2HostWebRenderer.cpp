@@ -39,11 +39,13 @@ namespace OSFUI
 {
 	namespace
 	{
+#if defined(OSFUI_WITH_WORLD_SURFACES)
 		// Pipe-name uniquifier: two renderers in this process (overlay + world
 		// surface) start their host workers in the same millisecond tick, so a
 		// tick^pid seed alone collides and the second CreateNamedPipe fails
 		// with ERROR_PIPE_BUSY.
 		std::atomic_uint32_t g_pipeSerial{ 0 };
+#endif
 
 		std::wstring ToWide(std::string_view a_text)
 		{
@@ -83,9 +85,8 @@ namespace OSFUI
 
 		// Next to "OSF UI.log": one folder to share covers plugin + host. The
 		// SFSE log dir is a real (never VFS-virtualized) path, so the unhooked
-		// host can write there. Each host instance gets its own file — the host
-		// truncates on open, so a shared name would clobber the overlay host's
-		// log whenever a second instance started.
+		// host can write there.
+#if defined(OSFUI_WITH_WORLD_SURFACES)
 		std::filesystem::path HostLogPath(std::string_view a_instance)
 		{
 			const auto fileName = a_instance.empty() ?
@@ -96,6 +97,15 @@ namespace OSFUI
 			}
 			return LocalOsfuiDir() / fileName;
 		}
+#else
+		std::filesystem::path HostLogPath()
+		{
+			if (const auto dir = SFSE::log::log_directory()) {
+				return *dir / "OSF UI.webview2-host.log";
+			}
+			return LocalOsfuiDir() / "webview2-host.log";
+		}
+#endif
 
 		bool IsThisProcessElevated()
 		{
@@ -518,9 +528,11 @@ namespace OSFUI
 			// silent no-op. Separate renderer instances still need distinct
 			// names within the same game process.
 			auto mirrorName = std::format("views-mirror-{}", ::GetCurrentProcessId());
+#if defined(OSFUI_WITH_WORLD_SURFACES)
 			if (!config.instanceName.empty()) {
 				mirrorName += std::format("-{}", config.instanceName);
 			}
+#endif
 			const auto mirror = LocalOsfuiDir() / mirrorName;
 			std::filesystem::remove_all(mirror, ec);
 			if (ec) {
@@ -713,27 +725,42 @@ namespace OSFUI
 			}
 			topLevel = FindTopLevelWindow();
 
-			std::mt19937_64 rng(::GetTickCount64() ^
-				(static_cast<std::uint64_t>(::GetCurrentProcessId()) << 17) ^
-				(static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(this)) << 1) ^
-				(static_cast<std::uint64_t>(++g_pipeSerial) << 33));
+			auto pipeSeed = ::GetTickCount64() ^
+				(static_cast<std::uint64_t>(::GetCurrentProcessId()) << 17);
+#if defined(OSFUI_WITH_WORLD_SURFACES)
+			pipeSeed ^= static_cast<std::uint64_t>(
+				reinterpret_cast<std::uintptr_t>(this)) << 1;
+			pipeSeed ^= static_cast<std::uint64_t>(++g_pipeSerial) << 33;
+#endif
+			std::mt19937_64 rng(pipeSeed);
 			const auto nonce = static_cast<std::uint32_t>(rng());
+#if defined(OSFUI_WITH_WORLD_SURFACES)
 			const auto instance = ToWide(config.instanceName);
 			const auto pipeName = instance.empty() ?
 				std::format(L"{}{}-{:08x}",
 					osfui::wv2::kPipePrefix, ::GetCurrentProcessId(), nonce) :
 				std::format(L"{}{}-{}-{:08x}",
 					osfui::wv2::kPipePrefix, ::GetCurrentProcessId(), instance, nonce);
+#else
+			const auto pipeName = std::format(L"{}{}-{:08x}",
+				osfui::wv2::kPipePrefix, ::GetCurrentProcessId(), nonce);
+#endif
 			auto args = std::format(L"--pipe={} --game-pid={} --log=\"{}\"",
 				pipeName, ::GetCurrentProcessId(), hostLog.native());
+#if defined(OSFUI_WITH_WORLD_SURFACES)
 			if (!config.reportEndpoint.empty() && config.instanceName.empty()) {
+#else
+			if (!config.reportEndpoint.empty()) {
+#endif
 				args += std::format(L" --report-endpoint=\"{}\"", ToWide(config.reportEndpoint));
 			}
+#if defined(OSFUI_WITH_WORLD_SURFACES)
 			if (!instance.empty()) {
 				// Selects a per-pid single-instance lock on the host side, so a
 				// world-surface host no longer evicts/refuses the overlay host.
 				args += std::format(L" --instance={}", instance);
 			}
+#endif
 
 			// Direct spawn is only safe without USVFS: MO2 injects into every
 			// child of this process and the injection crashes the WebView2
@@ -1226,14 +1253,18 @@ namespace OSFUI
 		// a missing runtime is diagnosed there.
 		_impl->config = a_config;
 		_impl->viewsRoot = a_config.dataDir / "views";
-		// Each instance owns a WebView2 user-data folder: one browser process
-		// tree locks it, so a second host sharing the overlay's folder fails
-		// environment creation outright.
 		_impl->userData = LocalOsfuiDir() / "WebView2";
+#if defined(OSFUI_WITH_WORLD_SURFACES)
+		// Each experimental instance owns a WebView2 user-data folder: one
+		// browser process tree locks it, so a second host sharing the overlay's
+		// folder fails environment creation outright.
 		if (!a_config.instanceName.empty()) {
 			_impl->userData /= a_config.instanceName;
 		}
 		_impl->hostLog = HostLogPath(a_config.instanceName);
+#else
+		_impl->hostLog = HostLogPath();
+#endif
 		_impl->hostExeSource = a_config.dataDir / "bin" / "osfui_webview2_host.exe";
 		_impl->width = (std::max)(1u, a_config.width);
 		_impl->height = (std::max)(1u, a_config.height);
@@ -1343,14 +1374,16 @@ namespace OSFUI
 					::GetWindowThreadProcessId(info.hwndFocus, &focusPid);
 					const bool inGameTree = info.hwndFocus == _impl->topLevel ||
 											::IsChild(_impl->topLevel, info.hwndFocus) != FALSE;
-					if (!_impl->focusRequested && inGameTree &&
-						_impl->hostPid != 0 && focusPid == _impl->hostPid) {
+#if defined(OSFUI_WITH_WORLD_SURFACES)
+					const bool focusInHost =
+						_impl->hostPid != 0 && focusPid == _impl->hostPid;
+#else
+					const bool focusInHost = focusPid != ::GetCurrentProcessId();
+#endif
+					if (!_impl->focusRequested && inGameTree && focusInHost) {
 						// No interactive-menu session is live, but focus is stranded in
 						// the host's Chromium child: keyboard, raw mouse AND gamepad
-						// (WGI) are all dead for the game. Compare against OUR host's
-						// pid only: a second instance (world surface) has its own
-						// host with its own children, and revoking focus those
-						// legitimately own would break the overlay's menu input.
+						// (WGI) are all dead for the game.
 						healthy = false;
 						if (!_impl->focusFixWarned) {
 							_impl->focusFixWarned = true;

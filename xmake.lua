@@ -74,6 +74,12 @@ if has_config("with_webview2") then
         add_files("tools/webview2_host/**.cpp", "tools/webview2_shared/**.cpp")
         add_headerfiles("tools/webview2_host/**.h", "tools/webview2_shared/**.h")
         add_includedirs("src", "tools/webview2_shared")
+        -- Multi-instance host support exists only for the experimental
+        -- world-surface renderers. Keep its CLI, mutex namespace, and runtime
+        -- branches out of the production helper as well as the plugin DLL.
+        if has_config("with_world_surfaces") then
+            add_defines("OSFUI_WITH_WORLD_SURFACES=1")
+        end
         add_packages("nlohmann_json")
         add_syslinks(
             "d3d11", "dxgi", "windowsapp", "runtimeobject", "CoreMessaging",
@@ -130,6 +136,7 @@ target("OSF UI")
     else
         remove_files(
             "src/composite/ScaleformToTextureProbe.cpp",
+            "src/composite/WorldTextureProbe.cpp",
             "src/composite/WorldSurface.cpp",
             "src/input/WorldSurfaceActivateSink.cpp")
     end

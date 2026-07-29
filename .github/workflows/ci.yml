@@ -169,7 +169,7 @@ jobs:
           Expand-Archive -Path $archive -DestinationPath external/webview2 -Force
 
       - name: Configure
-        run: xmake f -y -m ${{ matrix.mode }} --with_webview2=true
+        run: xmake f -y -m ${{ matrix.mode }} --with_webview2=true --with_world_surfaces=false
 
       - name: Build
         run: xmake build -y
@@ -194,6 +194,20 @@ jobs:
               $failed = $true
             }
           }
+          # Research assets are forbidden in production staging regardless of
+          # their current filenames.
+          foreach ($dir in @("$root/Textures", "$root/Materials")) {
+            if (Test-Path $dir) {
+              Write-Host "::error::world-surface research asset directory in install layout: $dir"
+              $failed = $true
+            }
+          }
+          Get-ChildItem $root -File -ErrorAction SilentlyContinue |
+            Where-Object Extension -in '.esm', '.esp', '.esl' |
+            ForEach-Object {
+              Write-Host "::error::research game plugin in install layout: $($_.FullName)"
+              $failed = $true
+            }
           # Regression gate: Ultralight was removed as a backend. Nothing
           # named after it may reappear in a shipped layout, and the plugin
           # must not import its DLLs.
@@ -220,7 +234,29 @@ jobs:
                   $failed = $true
                 }
               }
+              $utf16 = [System.Text.Encoding]::Unicode.GetString($bytes)
+              foreach ($needle in @('[WorldSurface]', 'worldSurfaces', 'ScaleformToTextureProbe', 'WorldTextureProbe', 'world-surface')) {
+                if ($ascii.Contains($needle) -or $utf16.Contains($needle)) {
+                  Write-Host "::error::OSFUI.dll contains experimental runtime marker: $needle"
+                  $failed = $true
+                }
+              }
               Write-Host "import scan clean ($($bytes.Length) bytes)"
+            }
+          }
+          $host = "$root/SFSE/Plugins/OSFUI/bin/osfui_webview2_host.exe"
+          if (Test-Path $host) {
+            $hostBytes = Get-Content -LiteralPath $host -AsByteStream -ReadCount 0
+            if (-not $hostBytes -or $hostBytes.Length -eq 0) {
+              Write-Host "::error::could not read $host for the experimental runtime scan"
+              $failed = $true
+            } else {
+              $hostAscii = [System.Text.Encoding]::ASCII.GetString($hostBytes)
+              $hostUtf16 = [System.Text.Encoding]::Unicode.GetString($hostBytes)
+              if ($hostAscii.Contains('--instance=') -or $hostUtf16.Contains('--instance=')) {
+                Write-Host "::error::WebView2 host contains experimental multi-instance CLI"
+                $failed = $true
+              }
             }
           }
 

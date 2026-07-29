@@ -5,7 +5,10 @@
 #include <vector>
 
 // osfui_webview2_host.exe --pipe=<name> --game-pid=<pid> [--log=<file>]
-//   [--instance=<tag>] [--report-endpoint=<https-url>]
+//   [--report-endpoint=<https-url>]
+#if defined(OSFUI_WITH_WORLD_SURFACES)
+//   [--instance=<tag>]  (experimental multi-host research builds only)
+#endif
 //
 // Launched by the OSF UI plugin via an out-of-tree broker (Wv2BrokerLaunch.h)
 // from a real filesystem mirror of the mod folder, never from inside the MO2
@@ -27,8 +30,10 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
 			options.gamePid = static_cast<std::uint32_t>(std::wcstoul(arg.substr(11).data(), nullptr, 10));
 		} else if (arg.starts_with(L"--log=")) {
 			options.logFile = std::filesystem::path(std::wstring(arg.substr(6)));
+#if defined(OSFUI_WITH_WORLD_SURFACES)
 		} else if (arg.starts_with(L"--instance=")) {
 			options.instance = std::wstring(arg.substr(11));
+#endif
 		} else if (arg.starts_with(L"--report-endpoint=")) {
 			options.reportEndpoint = std::wstring(arg.substr(18));
 		}

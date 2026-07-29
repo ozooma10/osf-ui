@@ -12,7 +12,8 @@ pwsh tools/package.ps1
 # Custom version / tag
 pwsh tools/package.ps1 -Version 1.4.0 -Tag beta
 
-# Package the current build without rebuilding
+# Package the current production build without rebuilding
+# (refuses a build configured with experimental world surfaces)
 pwsh tools/package.ps1 -SkipBuild
 
 # Smaller archive without the 18 MB PDB (keeps crash logs less useful)
@@ -25,11 +26,11 @@ The unpacked Microsoft.Web.WebView2 SDK package must be available: the script re
 ## What it does
 
 0. **Install frontend dependencies** with `npm ci` from the committed lockfile.
-1. **Configure + build** `releasedbg` with `--with_webview2=true` (optimized, with a PDB). The xmake hook generates built-in views from `frontend/src/` into ignored `build/frontend/views/`.
+1. **Configure + build** `releasedbg` with `--with_webview2=true --with_world_surfaces=false` (optimized, with a PDB). The explicit research flag prevents xmake's cached local configuration from leaking an experimental build into a release. `-SkipBuild` verifies the effective target defines and refuses a world-surface build instead. The xmake hook generates built-in views from `frontend/src/` into ignored `build/frontend/views/`.
 2. **`xmake install -o <staging>`** - rebuilds and stages the views alongside `SFSE/Plugins/OSFUI.dll` (+ PDB) and `OSFUI/bin/osfui_webview2_host.exe`.
 3. **Deterministic data sync** - authored data (`config.json`, `vanillakeys.json`, `settings/`) is copied straight from `data/OSFUI/`, and the Papyrus surface (`Scripts/OSFUI.pex` + `Scripts/Source/OSFUI.psc`) from `data/Scripts/`, over the staged tree while preserving generated views and the host executable. This bypasses xmake's cached authored-data glob without making generated files source-controlled.
 4. **License docs** - `LICENSE`, `EXCEPTIONS`, and `CREDITS.md` are placed inside `SFSE/Plugins/OSFUI/`, not at the archive root, so installing the archive does not clutter the game's `Data\` directory.
-5. **Verify** - fails loudly if the DLL, WebView2 host, `config.json`, `vanillakeys.json`, the `osfui.json` settings schema, `OSFUI.pex`, or any view manifest is missing. The shared kit (`views/shared/osfui.js`, `views/shared/osfui.css`) and `views/osfui/padnav.js` are required too. It also hard-fails if `config.json` references a view id with no matching manifest.
+5. **Verify** - fails loudly if the DLL, WebView2 host, `config.json`, `vanillakeys.json`, the `osfui.json` settings schema, `OSFUI.pex`, or any view manifest is missing. The shared kit (`views/shared/osfui.js`, `views/shared/osfui.css`) and `views/osfui/padnav.js` are required too. It also hard-fails if `config.json` references a view id with no matching manifest, if a world-surface config key or loose `Textures`/`Materials`/game-plugin payload is staged, or if the production binaries contain experimental runtime markers.
 6. **Sanity warnings** (non-blocking) - flags a `config.json` with `devMode` enabled.
 7. **Zip + report** - writes `dist/OSF-UI-v<version>[-tag].zip` and prints its size and SHA-256.
 
@@ -60,4 +61,5 @@ The archive root holds `SFSE/` and `Scripts/`, which map onto the game's `Data` 
 
 - The Microsoft.Web.WebView2 SDK headers and static loader library (build-time only).
 - Development/test surfaces stay out of the archive: only `build/frontend/views/` from `frontend/` is installed, while its source, `node_modules`, the dev mock (`devmock/`, `osfui.mock.ts`, `devpages/`), `tests/`, `examples/`, and `packaging/` are excluded. Staging is driven by xmake install plus the authored `data/` sync.
+- In-world surface research stays out of both runtime binaries and loose game data. It can be built only through the explicit `with_world_surfaces` developer flag; the release packager and CI force that flag off and verify the result.
 - Source maps. The frontend build emits none, and its output gate fails on a stray `.map` — nothing in this script or CI excludes by extension, so one would otherwise ship in every archive.

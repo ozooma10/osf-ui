@@ -30,7 +30,8 @@
 
 .PARAMETER SkipBuild
     Package the current build without reconfiguring/rebuilding. Use when you have
-    just built the exact variant you want to ship.
+    just built the exact production variant you want to ship. Research builds
+    with in-world surfaces enabled are rejected.
 
 .PARAMETER WebView2SdkDir
     Path to the unpacked Microsoft.Web.WebView2 NuGet package. Defaults to
@@ -120,15 +121,36 @@ try {
 
     # --- configure + build -------------------------------------------------
     if (-not $SkipBuild) {
-        Step "xmake f -m $Mode --with_webview2=true"
-        xmake f -m $Mode --with_webview2=true -y
+        # Spell the research switch out every time. xmake persists options in
+        # .xmake/, so relying on its default would silently retain a previous
+        # local world-surface build and turn it into a release archive.
+        Step "xmake f -m $Mode --with_webview2=true --with_world_surfaces=false"
+        xmake f -m $Mode --with_webview2=true --with_world_surfaces=false -y
         if ($LASTEXITCODE -ne 0) { Die "xmake config failed." }
 
         Step "xmake build"
         xmake build -y
         if ($LASTEXITCODE -ne 0) { Die "Build failed." }
     } else {
-        Warn "SkipBuild: packaging whatever is already built (mode/variant not verified)."
+        Warn "SkipBuild: packaging the existing build after verifying it is the production variant."
+    }
+
+    # This gate also covers -SkipBuild. Inspect the effective target defines,
+    # not only xmake.conf text, so a future option/target refactor cannot make
+    # an experimental DLL look safe to the packager.
+    Step "Verifying production build flags"
+    $targetJson = @(xmake show -t 'OSF UI' --format=json) -join "`n"
+    if ($LASTEXITCODE -ne 0 -or -not $targetJson) {
+        Die "Could not inspect the configured OSF UI target."
+    }
+    try {
+        $targetInfo = $targetJson | ConvertFrom-Json
+    } catch {
+        Die "Could not parse xmake target metadata: $($_.Exception.Message)"
+    }
+    $targetDefines = @($targetInfo.defines | ForEach-Object { $_.value })
+    if ($targetDefines -contains 'OSFUI_WITH_WORLD_SURFACES=1') {
+        Die "Refusing to package an experimental world-surface build. Re-run without -SkipBuild or configure --with_world_surfaces=false."
     }
 
     # --- stage via xmake install ------------------------------------------
@@ -208,6 +230,51 @@ try {
     if ($missing) {
         Die ("Staged archive is missing required files:`n    " + ($missing -join "`n    "))
     }
+
+    # Production archives own only SFSE/ and Scripts/ at the Data root.
+    # Reject whole asset classes instead of a list of today's research names,
+    # so a newly added placeholder/material/plugin cannot bypass this gate.
+    foreach ($forbiddenDir in 'Textures', 'Materials') {
+        $path = Join-Path $Staging $forbiddenDir
+        if (Test-Path $path) {
+            Die "Research asset directory must not ship in a release: $path"
+        }
+    }
+    $stagedPlugins = @(Get-ChildItem $Staging -File -Filter '*.esm' -ErrorAction SilentlyContinue) +
+        @(Get-ChildItem $Staging -File -Filter '*.esp' -ErrorAction SilentlyContinue) +
+        @(Get-ChildItem $Staging -File -Filter '*.esl' -ErrorAction SilentlyContinue)
+    if ($stagedPlugins.Count -gt 0) {
+        Die ("Research game plugin(s) must not ship in a release:`n    " +
+            (($stagedPlugins | ForEach-Object FullName) -join "`n    "))
+    }
+
+    # Compile-time regression gate: a production DLL/helper should contain no
+    # executable world-surface path, even when no loose assets are present.
+    $binaryScans = @(
+        @{
+            Path = Join-Path $Staging 'SFSE\Plugins\OSFUI.dll'
+            Markers = @('[WorldSurface]', 'worldSurfaces', 'ScaleformToTextureProbe',
+                'WorldTextureProbe', 'world-surface')
+        },
+        @{
+            Path = Join-Path $Staging 'SFSE\Plugins\OSFUI\bin\osfui_webview2_host.exe'
+            Markers = @('--instance=')
+        }
+    )
+    foreach ($scan in $binaryScans) {
+        $bytes = Get-Content -LiteralPath $scan.Path -AsByteStream -ReadCount 0
+        if (-not $bytes -or $bytes.Length -eq 0) {
+            Die "Could not read runtime binary for research-code scan: $($scan.Path)"
+        }
+        $ascii = [System.Text.Encoding]::ASCII.GetString($bytes)
+        $utf16 = [System.Text.Encoding]::Unicode.GetString($bytes)
+        foreach ($marker in $scan.Markers) {
+            if ($ascii.Contains($marker) -or $utf16.Contains($marker)) {
+                Die "Experimental world-surface runtime marker '$marker' found in $($scan.Path)."
+            }
+        }
+    }
+
     # At least one view manifest must be present or the runtime has nothing to
     # host. Views live at views/<modId>/<viewName>/manifest.json (Ids.h grammar;
     # views/shared/ is the asset kit, not a view).
@@ -233,6 +300,10 @@ try {
         # zip. Probe the property names first so a missing key means "empty",
         # not "silently unvalidated".
         $names = $cfg.PSObject.Properties.Name
+        if ($names -contains 'worldSurfaces' -or
+            @($names | Where-Object { $_ -like 'worldSurface*' }).Count -gt 0) {
+            Die "config.json contains experimental world-surface settings; refusing to package."
+        }
         $viewValue  = if ($names -contains 'view')  { $cfg.view }  else { $null }
         $viewsValue = if ($names -contains 'views') { $cfg.views } else { @() }
         $configuredViews = @(@($viewValue) + @($viewsValue) | Where-Object { $_ } | Select-Object -Unique)
