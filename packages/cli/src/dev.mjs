@@ -1,3 +1,5 @@
+import { realpath } from 'node:fs/promises';
+
 import { mergeConfig } from 'vite';
 
 import { harnessPlugin } from './harness-plugin.mjs';
@@ -13,6 +15,20 @@ export async function devServerConfig(project, view, options = {}) {
   const extra = typeof project.vite === 'function'
     ? await project.vite({ command: 'serve' })
     : (project.vite ?? {});
+  // Vite can canonicalize Windows temp/project paths through their 8.3
+  // aliases and then reject its own root — but `fs.strict: false` is not the
+  // answer: it disables isFileServingAllowed AND isFileLoadingAllowed,
+  // dropping both the allow root and the .env/*.pem/.git deny list, so any
+  // file on the machine becomes readable via /@fs/. Allow the project root
+  // under both spellings instead (covering `vite:` aliases like ./dep); the
+  // default deny list stays active inside it.
+  const allow = [project.root];
+  try {
+    const canonical = await realpath(project.root);
+    if (canonical !== project.root) allow.push(canonical);
+  } catch {
+    // loadProject just resolved this root; keep the raw spelling.
+  }
   return mergeConfig({
     root: project.viewsRoot,
     base: '/',
@@ -21,10 +37,7 @@ export async function devServerConfig(project, view, options = {}) {
       host: options.host || '127.0.0.1',
       port: Number(options.port) || 5173,
       open: options.open === 'false' ? false : '/__osfui/',
-      // Vite can canonicalize Windows temp/project paths through their 8.3
-      // aliases and then reject its own root. The author server binds to
-      // loopback by default, so disable that redundant filesystem check.
-      fs: { strict: false },
+      fs: { allow },
     },
   }, extra);
 }

@@ -1,7 +1,12 @@
 const words = (value) => value.split(/[^a-zA-Z0-9]+/).filter(Boolean);
 
-export const pascalIdentifier = (value) =>
-  words(value).map((word) => word[0].toUpperCase() + word.slice(1)).join('') || 'MyMod';
+export const pascalIdentifier = (value) => {
+  const joined = words(value).map((word) => word[0].toUpperCase() + word.slice(1)).join('');
+  if (!joined) return 'MyMod';
+  // This names a Papyrus ScriptName and a quest EditorID, which must start
+  // with a letter — a legal mod id ("3dscanner.hudpanel") does not have to.
+  return /^[A-Za-z]/.test(joined) ? joined : `Mod${joined}`;
+};
 
 const displayName = (modId) => words(modId.split('.')[1] || modId).join(' ') || 'My Mod';
 

@@ -18,7 +18,7 @@
 
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { dirname, extname, normalize, resolve } from 'node:path';
+import { dirname, extname, isAbsolute, normalize, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Plugin } from 'vite';
 
@@ -82,13 +82,17 @@ export function builtinDevPlugin(): Plugin {
         }
         if (path.startsWith('/osf.animation/')) {
           const rest = normalize(path.slice('/osf.animation/'.length));
-          // Containment: this middleware serves from outside the Vite root.
-          if (rest.split(/[\\/]/).includes('..')) {
+          const file = resolve(OSF_ANIMATION, rest);
+          // Containment: this middleware serves from outside the Vite root,
+          // and resolve() discards its base entirely for an absolute `rest`
+          // (/osf.animation/C:/Windows/win.ini), so the check must run on the
+          // RESOLVED path, never the input.
+          const inside = relative(OSF_ANIMATION, file);
+          if (!inside || inside === '..' || inside.startsWith('..' + sep) || isAbsolute(inside)) {
             response.statusCode = 403;
             response.end();
             return;
           }
-          const file = resolve(OSF_ANIMATION, rest);
           if (existsSync(file)) {
             await sendFile(file, TYPES[extname(file).toLowerCase()] || 'application/octet-stream');
             return;

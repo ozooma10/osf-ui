@@ -4,7 +4,7 @@ import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { stdin, stdout } from 'node:process';
 
-import { AUTHOR_MARKER, LOCAL_FILE } from './constants.mjs';
+import { AUTHOR_MARKER, BUILD_MARKER, LOCAL_FILE } from './constants.mjs';
 import { buildProject } from './build.mjs';
 import { buildPapyrus } from './papyrus-build.mjs';
 import { reportPapyrus } from './papyrus.mjs';
@@ -43,7 +43,10 @@ async function existingKind(path) {
  * the exact-mirror behavior needed by full deployments.
  */
 export async function mirrorTree(source, destination) {
-  const sourceEntries = await treeEntries(source);
+  // The build marker is outDir bookkeeping, not mod content; keep it out of
+  // the deployed MO2 folder (the prune below also removes stale copies).
+  const sourceEntries = (await treeEntries(source))
+    .filter((entry) => entry.relativePath !== BUILD_MARKER);
   const sourcePaths = new Set(sourceEntries.map(({ relativePath }) => relativePath));
   await mkdir(destination, { recursive: true });
 
@@ -86,17 +89,48 @@ export async function mirrorTree(source, destination) {
   }
 }
 
-async function configuredDeployRoot(project, explicit) {
-  if (explicit) return deploymentRoot(project, explicit);
+async function readLocalConfig(localPath) {
+  let raw;
   try {
-    const local = JSON.parse(await readFile(resolve(project.root, LOCAL_FILE), 'utf8'));
-    if (typeof local.modsRoot === 'string' && local.modsRoot) {
-      return deploymentRoot(project, local.modsRoot);
-    }
-    // Before 0.2, deployRoot named the final mod directory. Keep existing
-    // projects working while all newly saved paths use the MO2 mods directory.
-    if (typeof local.deployRoot === 'string' && local.deployRoot) return resolve(local.deployRoot);
-  } catch {}
+    raw = await readFile(localPath, 'utf8');
+  } catch (error) {
+    if (error?.code === 'ENOENT') return {};
+    throw error;
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    // A malformed file must fail loudly: swallowing it falls through to the
+    // interactive prompt, which then rewrites the file and destroys whatever
+    // the author had in it.
+    throw new Error(`${localPath} is not valid JSON: ${error.message}`);
+  }
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+}
+
+/**
+ * Persist the MO2 mods root without touching the file's other keys —
+ * local.json also carries the Papyrus toolchain overrides (starfieldRoot,
+ * spriggitCli, papyrusCompiler, papyrusImports; see papyrus-build.mjs), which
+ * a wholesale write would destroy.
+ */
+export async function saveLocalModsRoot(projectRoot, modsRoot) {
+  const localPath = resolve(projectRoot, LOCAL_FILE);
+  const local = await readLocalConfig(localPath);
+  await mkdir(resolve(localPath, '..'), { recursive: true });
+  await writeFile(localPath, `${JSON.stringify({ ...local, modsRoot }, null, 2)}\n`);
+}
+
+export async function configuredDeployRoot(project, explicit) {
+  if (explicit) return deploymentRoot(project, explicit);
+  const local = await readLocalConfig(resolve(project.root, LOCAL_FILE));
+  if (typeof local.modsRoot === 'string' && local.modsRoot) {
+    return deploymentRoot(project, local.modsRoot);
+  }
+  // Before 0.2, deployRoot named the final mod directory. Keep existing
+  // projects working while all newly saved paths use the MO2 mods directory.
+  if (typeof local.deployRoot === 'string' && local.deployRoot) return resolve(local.deployRoot);
   if (stdin.isTTY) {
     const prompt = createInterface({ input: stdin, output: stdout });
     try {
@@ -105,9 +139,7 @@ async function configuredDeployRoot(project, explicit) {
       )).trim();
       if (answer) {
         const modsRoot = resolve(answer);
-        const localPath = resolve(project.root, LOCAL_FILE);
-        await mkdir(resolve(localPath, '..'), { recursive: true });
-        await writeFile(localPath, `${JSON.stringify({ modsRoot }, null, 2)}\n`);
+        await saveLocalModsRoot(project.root, modsRoot);
         console.log(`[osfui] Saved this local path in ${LOCAL_FILE}.`);
         return deploymentRoot(project, modsRoot);
       }

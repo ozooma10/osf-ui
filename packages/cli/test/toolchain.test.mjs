@@ -11,7 +11,7 @@ import { buildProject } from '../src/build.mjs';
 import { checkProject } from '../src/check.mjs';
 import { loadProject, manifestFor } from '../src/config.mjs';
 import { devServerConfig } from '../src/dev.mjs';
-import { deployBuild, deployViews, deploymentRoot } from '../src/game.mjs';
+import { configuredDeployRoot, deployBuild, deployViews, deploymentRoot, saveLocalModsRoot } from '../src/game.mjs';
 import { harnessPlugin } from '../src/harness-plugin.mjs';
 import { papyrusWarnings } from '../src/papyrus.mjs';
 import { writeZip } from '../src/zip.mjs';
@@ -97,6 +97,31 @@ test('checks, builds, and packages a generated-shaped project', async (t) => {
   const archive = await readFile(zip);
   assert.equal(archive.subarray(0, 4).toString('hex'), '504b0304');
   assert.ok(archive.includes(Buffer.from('Scripts/Example.pex')));
+});
+
+test('build refuses to clobber an output directory it did not write', async (t) => {
+  const root = await projectFixture(t);
+  const project = await loadProject(root, 'build');
+  // A mispointed outDir (e.g. '../../build' in a monorepo) may hold every
+  // sibling's output; rm -rf there is unrecoverable. Only a directory carrying
+  // the osfui-written marker (or an empty one) may be cleaned.
+  await mkdir(project.outDir, { recursive: true });
+  await writeFile(resolve(project.outDir, 'somebody-elses-output.txt'), 'precious');
+  await assert.rejects(buildProject(project, { quiet: true }), /refusing to delete/i);
+  assert.equal(
+    await readFile(resolve(project.outDir, 'somebody-elses-output.txt'), 'utf8'),
+    'precious',
+  );
+});
+
+test('build cleans its own previous output, and packages omit the marker', async (t) => {
+  const root = await projectFixture(t);
+  const project = await loadProject(root, 'build');
+  await buildProject(project, { quiet: true });
+  await buildProject(project, { quiet: true }); // the marker admits the clean
+  const zip = await writeZip(project.outDir, resolve(root, 'out/view.zip'));
+  const bytes = await readFile(zip);
+  assert.ok(!bytes.includes('.osfui-build.json'), 'marker must not ship in packages');
 });
 
 test('allows a separate monorepo output directory but rejects overlap with project inputs', async (t) => {
@@ -246,6 +271,34 @@ test('package output cannot be placed inside the directory being archived', asyn
   );
 });
 
+test('saving the mods root preserves the Papyrus overrides in local.json', async (t) => {
+  const root = await projectFixture(t);
+  const localPath = resolve(root, '.osfui/local.json');
+  await mkdir(resolve(localPath, '..'), { recursive: true });
+  // A Papyrus-only override file, exactly what doctorPapyrus tells authors to
+  // hand-write; saving the deploy root must not destroy it.
+  await writeFile(localPath, JSON.stringify({
+    starfieldRoot: 'D:/Games/Starfield',
+    papyrusCompiler: 'D:/CK/PapyrusCompiler.exe',
+  }, null, 2));
+  await saveLocalModsRoot(root, resolve(root, '..', 'MO2', 'mods'));
+  const local = JSON.parse(await readFile(localPath, 'utf8'));
+  assert.equal(local.starfieldRoot, 'D:/Games/Starfield');
+  assert.equal(local.papyrusCompiler, 'D:/CK/PapyrusCompiler.exe');
+  assert.equal(local.modsRoot, resolve(root, '..', 'MO2', 'mods'));
+});
+
+test('a malformed local.json fails loudly instead of being silently rewritten', async (t) => {
+  const root = await projectFixture(t);
+  const localPath = resolve(root, '.osfui/local.json');
+  await mkdir(resolve(localPath, '..'), { recursive: true });
+  await writeFile(localPath, '{ "modsRoot": '); // truncated by a bad merge
+  const project = await loadProject(root);
+  // Falling through to the not-configured error (or worse, the interactive
+  // prompt that rewrites the file) would destroy the author's config.
+  await assert.rejects(configuredDeployRoot(project, undefined), /not valid JSON/);
+});
+
 test('CLI rejects unknown options and missing option values', async (t) => {
   const root = await projectFixture(t);
   const cli = resolve(import.meta.dirname, '../src/cli.mjs');
@@ -262,6 +315,29 @@ test('CLI rejects unknown options and missing option values', async (t) => {
 test('compatibility checks flag remote URLs', async (t) => {
   const root = await projectFixture(t);
   await writeFile(resolve(root, 'src/views/acme.widgets/panel/main.js'), 'fetch("https://example.com")');
+  await assert.rejects(checkProject(await loadProject(root)), /remote HTTP URL/);
+});
+
+test('compatibility checks allow inert URLs but flag remote loads', async (t) => {
+  const root = await projectFixture(t);
+  const view = resolve(root, 'src/views/acme.widgets/panel');
+  // The exact shapes OSF UI's own settings views ship: a URL string constant
+  // rendered as an external link (the host opens it in the player's browser)
+  // and an inline SVG namespace. Neither is network egress; the framework
+  // must pass its own gate.
+  await writeFile(resolve(view, 'main.js'), [
+    "const NEXUS_PAGE_URL = 'https://www.nexusmods.com/starfield/mods/17711';",
+    'document.body.innerHTML =',
+    '  \'<a href="\' + NEXUS_PAGE_URL + \'" target="_blank">Nexus</a>\' +',
+    '  \'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"></svg>\';',
+    '',
+  ].join('\n'));
+  assert.equal(await checkProject(await loadProject(root)), 1);
+  // A remote resource load is real egress and stays flagged.
+  await writeFile(
+    resolve(view, 'index.html'),
+    '<main><img src="https://tracker.example/p.gif"></main><script type="module" src="./main.js"></script>',
+  );
   await assert.rejects(checkProject(await loadProject(root)), /remote HTTP URL/);
 });
 
@@ -366,6 +442,35 @@ test('the mock module is importable through Vite at /__osfui/mock-entry.js', asy
   assert.doesNotMatch(source, /: string/);
   assert.match(source, /install/);
   assert.match(source, /greeting/);
+});
+
+test('the dev server refuses /@fs/ escapes and sensitive files', async (t) => {
+  const root = await projectFixture(t);
+  // A secret OUTSIDE the project — /@fs/ must not serve it.
+  const outside = resolve(root, '..', `osfui-secret-${basename(root)}.txt`);
+  await writeFile(outside, 'private key material');
+  t.after(() => rm(outside, { force: true }));
+  // Sensitive files INSIDE the served root — Vite's default deny list
+  // (.env, *.pem, .git) must stay active, which `fs.strict: false` disabled.
+  await writeFile(resolve(root, 'src/views/.env'), 'TOKEN=hunter2');
+  await writeFile(resolve(root, 'src/views/server.pem'), 'BEGIN PRIVATE KEY');
+  const project = await loadProject(root);
+  const config = await devServerConfig(project, project.views[0], { open: 'false', port: 0 });
+  const server = await createServer({ ...config, logLevel: 'silent' });
+  await server.listen();
+  t.after(() => server.close());
+  const { port } = server.httpServer.address();
+  const origin = `http://127.0.0.1:${port}`;
+  const escapePath = (await realpath(outside)).replaceAll('\\', '/');
+  const fsEscape = await fetch(`${origin}/@fs/${escapePath}`);
+  assert.equal(fsEscape.status, 403);
+  for (const path of ['/.env', '/server.pem']) {
+    const denied = await fetch(origin + path);
+    assert.notEqual(denied.status, 200, path);
+  }
+  // The strict config must not break authoring: the view page still serves.
+  const page = await fetch(`${origin}/acme.widgets/panel/index.html`);
+  assert.equal(page.status, 200);
 });
 
 test('the config vite: extension reaches the dev server and stays dev-only', async (t) => {

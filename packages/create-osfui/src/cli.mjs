@@ -16,22 +16,52 @@ import { backendConfig, backendFiles, backendGuide } from './backend-templates.m
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
+// Closed sets: a typo'd flag ("--surfce hud") must fail here, not scaffold
+// the default surface and exit 0.
+const VALUE_FLAGS = {
+  '--mod-id': 'modId',
+  '--view': 'view',
+  '--surface': 'surface',
+  '--integration': 'integration',
+  '--template': 'template', // removed; kept so validate() can explain
+  '--cli-spec': 'cliSpec',
+};
+const BOOLEAN_FLAGS = { '--yes': 'yes', '--no-install': 'noInstall', '--help': 'help' };
+
 function parse(argv) {
   const result = { _: [] };
   for (let index = 0; index < argv.length; index++) {
     const value = argv[index];
-    if (!value.startsWith('--')) result._.push(value);
-    else {
-      const key = value.slice(2).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
-      if (['--yes', '--no-install', '--help'].includes(value)) result[key] = true;
-      else result[key] = argv[++index];
+    if (!value.startsWith('--')) {
+      result._.push(value);
+      continue;
     }
+    if (BOOLEAN_FLAGS[value]) {
+      result[BOOLEAN_FLAGS[value]] = true;
+      continue;
+    }
+    const key = VALUE_FLAGS[value];
+    if (!key) {
+      throw new Error(`Unknown option "${value}". Known options: ` +
+        `${[...Object.keys(VALUE_FLAGS), ...Object.keys(BOOLEAN_FLAGS)].join(', ')}.`);
+    }
+    const next = argv[++index];
+    if (next === undefined || next.startsWith('--')) {
+      throw new Error(`Missing value for ${value}.`);
+    }
+    result[key] = next;
   }
   return result;
 }
 
+// Mirrors Ids.h kMaxModIdLen — the native store refuses longer ids at load.
+const MAX_MOD_ID_LENGTH = 64;
+
 function validate(options) {
   if (!MOD_ID.test(options.modId)) throw new Error('--mod-id must be lowercase <author>.<modname>.');
+  if (options.modId.length > MAX_MOD_ID_LENGTH) {
+    throw new Error(`--mod-id must be at most ${MAX_MOD_ID_LENGTH} characters (OSF UI refuses longer ids).`);
+  }
   if (!ID.test(options.view)) throw new Error('--view must use lowercase letters, digits, and hyphens.');
   if (options.template !== undefined && options.template !== 'typescript') {
     throw new Error('--template was removed; projects are TypeScript (plain .js files still build).');

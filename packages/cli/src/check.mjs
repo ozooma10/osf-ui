@@ -5,9 +5,19 @@ import { extname, resolve } from 'node:path';
 
 const TEXT = new Set(['.css', '.html', '.js', '.jsx', '.json', '.mjs', '.ts', '.tsx']);
 const require = createRequire(import.meta.url);
+// Egress constructs only. A URL as inert data — display text, an external
+// <a href> the host opens in the player's browser, an SVG xmlns — is allowed;
+// OSF UI's own settings views ship exactly those shapes, and this gate runs
+// on them via `osfui check`. The runtime independently 403s every network
+// fetch, so this is an early advisory, not the enforcement point.
 const RULES = [
-  [/\bhttps?:\/\//i, 'remote HTTP URL'],
-  [/\b(?:WebSocket|WebTransport|RTCPeerConnection|SharedWorker|Worker)\b/, 'unsupported network or worker API'],
+  [/\b(?:fetch|importScripts)\s*\([^)]*https?:\/\//i, 'remote HTTP URL'],
+  [/\bimport\s*\(\s*["'`]https?:\/\//i, 'remote HTTP URL'],
+  [/\bsendBeacon\s*\(/i, 'unsupported network or worker API'],
+  [/<(?:script|img|iframe|audio|video|source|link|embed|object)\b[^>]*\b(?:src|href|data)\s*=\s*["']https?:\/\//i, 'remote HTTP URL'],
+  [/\burl\(\s*["']?https?:\/\//i, 'remote HTTP URL'],
+  [/@import\s+(?:url\(\s*)?["']?https?:\/\//i, 'remote HTTP URL'],
+  [/\b(?:WebSocket|WebTransport|RTCPeerConnection|SharedWorker|Worker|XMLHttpRequest|EventSource)\b/, 'unsupported network or worker API'],
 ];
 
 async function files(root) {

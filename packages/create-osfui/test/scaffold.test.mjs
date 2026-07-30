@@ -239,3 +239,68 @@ for (const integration of ['settings', 'static']) {
     assert.match(result.stderr, /--integration must be papyrus or native/);
   });
 }
+
+test('rejects an unknown flag instead of silently scaffolding defaults', async (t) => {
+  const parent = await mkdtemp(resolve(tmpdir(), 'create-osfui-'));
+  t.after(() => rm(parent, { recursive: true, force: true }));
+  // "--surfce hud": with a camel-case-anything parser this scaffolded the
+  // default menu surface and exited 0 — the author finds out much later.
+  const result = spawnSync(process.execPath, [
+    CLI,
+    resolve(parent, 'project'),
+    '--yes',
+    '--no-install',
+    '--mod-id', 'acme.widgets',
+    '--view', 'panel',
+    '--surfce', 'hud',
+    '--integration', 'native',
+  ], { encoding: 'utf8' });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Unknown option "--surfce"/);
+});
+
+test('rejects a mod id over the native 64-character cap', async (t) => {
+  const parent = await mkdtemp(resolve(tmpdir(), 'create-osfui-'));
+  t.after(() => rm(parent, { recursive: true, force: true }));
+  const result = spawnSync(process.execPath, [
+    CLI,
+    resolve(parent, 'project'),
+    '--yes',
+    '--no-install',
+    '--mod-id', `acme.${'w'.repeat(64)}`,
+    '--view', 'panel',
+    '--surface', 'menu',
+    '--integration', 'papyrus',
+  ], { encoding: 'utf8' });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /64/);
+});
+
+test('a digit-leading mod id still yields a legal Papyrus ScriptName', async (t) => {
+  const parent = await mkdtemp(resolve(tmpdir(), 'create-osfui-'));
+  const root = resolve(parent, 'project');
+  t.after(() => rm(parent, { recursive: true, force: true }));
+  // "3dscanner.hudpanel" is legal per Ids.h, but a ScriptName and a quest
+  // EditorID must start with a letter or the CK compiler refuses the project.
+  const result = spawnSync(process.execPath, [
+    CLI,
+    root,
+    '--yes',
+    '--no-install',
+    '--mod-id', '3dscanner.hudpanel',
+    '--view', 'panel',
+    '--surface', 'menu',
+    '--integration', 'papyrus',
+  ], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  const { readdir } = await import('node:fs/promises');
+  const sources = await readdir(resolve(root, 'mod/Scripts/Source/User'));
+  assert.ok(sources.length > 0);
+  for (const source of sources) {
+    assert.match(source, /^[A-Za-z]/, source);
+    const script = await readFile(resolve(root, 'mod/Scripts/Source/User', source), 'utf8');
+    assert.match(script, /^ScriptName [A-Za-z]/m, source);
+  }
+});

@@ -1,6 +1,8 @@
 import { mkdir, open, readdir, readFile } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 
+import { BUILD_MARKER } from './constants.mjs';
+
 let table;
 function crc32(buffer) {
   table ||= Array.from({ length: 256 }, (_, value) => {
@@ -45,6 +47,8 @@ export async function writeZip(sourceRoot, destination) {
   let offset = 0;
   try {
     for (const path of await walk(sourceRoot)) {
+      // Build bookkeeping, not mod content.
+      if (relative(sourceRoot, path) === BUILD_MARKER) continue;
       const data = await readFile(path);
       const name = Buffer.from(relative(sourceRoot, path).replaceAll('\\', '/'));
       const crc = crc32(data);

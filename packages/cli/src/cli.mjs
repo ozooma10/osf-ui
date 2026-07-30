@@ -39,7 +39,7 @@ function help() {
   console.log(`OSF UI view authoring
 
 Usage:
-  osfui dev [--view id] [--game] [--deploy path]
+  osfui dev [--view id] [--game] [--deploy path] [--host address] [--port n] [--open false]
   osfui check
   osfui build
   osfui package [--output file]
