@@ -355,7 +355,7 @@ namespace OSFUI::API::Papyrus
 		bool CompleteViewRequest(const RE::BSFixedString& a_token, nlohmann::json a_value,
 			std::optional<std::vector<std::uint32_t>> a_formIds = std::nullopt)
 		{
-			const auto token = ToLowerAscii(a_token.c_str() ? a_token.c_str() : "");
+			const auto token = ToLowerAscii(a_token.c_str());
 			std::lock_guard l{ s_lock };
 			const auto it = s_viewRequests.find(token);
 			if (it == s_viewRequests.end() || it->second.answered) return false;
@@ -368,14 +368,14 @@ namespace OSFUI::API::Papyrus
 		bool RejectPendingViewRequest(const RE::BSFixedString& a_token,
 			const RE::BSFixedString& a_code, const RE::BSFixedString& a_message)
 		{
-			const auto token = ToLowerAscii(a_token.c_str() ? a_token.c_str() : "");
+			const auto token = ToLowerAscii(a_token.c_str());
 			std::lock_guard l{ s_lock };
 			const auto it = s_viewRequests.find(token);
 			if (it == s_viewRequests.end() || it->second.answered) return false;
 			it->second.answered = true;
 			it->second.rejected = true;
-			it->second.code = (a_code.c_str() && *a_code.c_str()) ? a_code.c_str() : "papyrus-error";
-			it->second.message = a_message.c_str() ? a_message.c_str() : "";
+			it->second.code = a_code.empty() ? "papyrus-error" : a_code.c_str();
+			it->second.message = a_message.c_str();
 			return true;
 		}
 		void QueueOp(RE::BSFixedString& a_mod, RE::BSFixedString& a_key, nlohmann::json a_value, bool a_reset)
@@ -405,7 +405,7 @@ namespace OSFUI::API::Papyrus
 		// the folded mod id, or nullopt after logging the refusal.
 		std::optional<std::string> FoldPushTarget(const RE::BSFixedString& a_mod, const RE::BSFixedString& a_key, std::string_view a_native)
 		{
-			auto        mod = ToLowerAscii(a_mod.c_str() ? a_mod.c_str() : "");
+			auto        mod = ToLowerAscii(a_mod.c_str());
 			const char* key = a_key.c_str();
 			if (!Ids::IsAcceptedModId(mod) || !key || !*key) {
 				REX::WARN("PapyrusApi: [content] {}('{}', '{}') refused (invalid mod id or empty key)",
@@ -591,7 +591,7 @@ namespace OSFUI::API::Papyrus
 
 		void SetString(PapVM&, std::uint32_t, std::monostate, RE::BSFixedString a_mod, RE::BSFixedString a_key, RE::BSFixedString a_value)
 		{
-			QueueOp(a_mod, a_key, a_value.c_str() ? a_value.c_str() : "", false);
+			QueueOp(a_mod, a_key, a_value.c_str(), false);
 		}
 
 		void Reset(PapVM&, std::uint32_t, std::monostate, RE::BSFixedString a_mod, RE::BSFixedString a_key)
@@ -607,7 +607,7 @@ namespace OSFUI::API::Papyrus
 				return 0;
 			}
 			std::lock_guard l{ s_lock };
-			return AddEntry(Kind::kSettings, a_receiver, {}, a_fn.c_str(), a_modId.c_str() ? a_modId.c_str() : "", {});
+			return AddEntry(Kind::kSettings, a_receiver, {}, a_fn.c_str(), a_modId.c_str(), {});
 		}
 
 		std::int32_t RegisterForSettingChangesStatic(PapVM&, std::uint32_t, std::monostate,
@@ -618,7 +618,7 @@ namespace OSFUI::API::Papyrus
 				return 0;
 			}
 			std::lock_guard l{ s_lock };
-			return AddEntry(Kind::kSettings, {}, a_script, a_fn.c_str(), a_modId.c_str() ? a_modId.c_str() : "", {});
+			return AddEntry(Kind::kSettings, {}, a_script, a_fn.c_str(), a_modId.c_str(), {});
 		}
 
 		std::int32_t RegisterForHotkey(PapVM&, std::uint32_t, std::monostate,
@@ -629,7 +629,7 @@ namespace OSFUI::API::Papyrus
 				return 0;
 			}
 			std::lock_guard l{ s_lock };
-			return AddEntry(Kind::kHotkey, a_receiver, {}, a_fn.c_str(), a_modId.c_str(), a_key.c_str() ? a_key.c_str() : "");
+			return AddEntry(Kind::kHotkey, a_receiver, {}, a_fn.c_str(), a_modId.c_str(), a_key.c_str());
 		}
 
 		std::int32_t RegisterForHotkeyStatic(PapVM&, std::uint32_t, std::monostate,
@@ -640,7 +640,7 @@ namespace OSFUI::API::Papyrus
 				return 0;
 			}
 			std::lock_guard l{ s_lock };
-			return AddEntry(Kind::kHotkey, {}, a_script, a_fn.c_str(), a_modId.c_str(), a_key.c_str() ? a_key.c_str() : "");
+			return AddEntry(Kind::kHotkey, {}, a_script, a_fn.c_str(), a_modId.c_str(), a_key.c_str());
 		}
 
 		// Fold a script-supplied action mod id to the id grammar's lowercase and
@@ -649,7 +649,7 @@ namespace OSFUI::API::Papyrus
 		// filter, kHotkey only requires it non-empty.
 		std::optional<std::string> ValidateActionModId(const RE::BSFixedString& a_modId)
 		{
-			auto modId = ToLowerAscii(a_modId.c_str() ? a_modId.c_str() : "");
+			auto modId = ToLowerAscii(a_modId.c_str());
 			if (!Ids::IsAcceptedModId(modId)) {
 				return std::nullopt;
 			}
@@ -770,7 +770,7 @@ namespace OSFUI::API::Papyrus
 			std::vector<std::string> values;
 			values.reserve(a_values.size());
 			for (const auto& v : a_values) {
-				values.emplace_back(v.c_str() ? v.c_str() : "");
+				values.emplace_back(v.c_str());
 			}
 			EnqueuePush({ std::move(*mod), a_key.c_str(), std::move(values), std::nullopt });
 		}
@@ -815,7 +815,7 @@ namespace OSFUI::API::Papyrus
 		void SetViewString(PapVM&, std::uint32_t, std::monostate,
 			RE::BSFixedString a_mod, RE::BSFixedString a_key, RE::BSFixedString a_value)
 		{
-			EnqueueState(a_mod, a_key, a_value.c_str() ? a_value.c_str() : "", "SetViewString");
+			EnqueueState(a_mod, a_key, a_value.c_str(), "SetViewString");
 		}
 
 		void SetViewBools(PapVM&, std::uint32_t, std::monostate,
@@ -842,7 +842,7 @@ namespace OSFUI::API::Papyrus
 			RE::BSFixedString a_mod, RE::BSFixedString a_key, std::vector<RE::BSFixedString> a_values)
 		{
 			auto value = nlohmann::json::array();
-			for (const auto& item : a_values) value.push_back(item.c_str() ? item.c_str() : "");
+			for (const auto& item : a_values) value.push_back(item.c_str());
 			EnqueueState(a_mod, a_key, std::move(value), "SetViewStrings");
 		}
 
@@ -873,7 +873,7 @@ namespace OSFUI::API::Papyrus
 		}
 		bool ReplyViewString(PapVM&, std::uint32_t, std::monostate, RE::BSFixedString a_token, RE::BSFixedString a_value)
 		{
-			return CompleteViewRequest(a_token, a_value.c_str() ? a_value.c_str() : "");
+			return CompleteViewRequest(a_token, a_value.c_str());
 		}
 		bool ReplyViewBools(PapVM&, std::uint32_t, std::monostate, RE::BSFixedString a_token, std::vector<bool> a_values)
 		{
@@ -892,7 +892,7 @@ namespace OSFUI::API::Papyrus
 		bool ReplyViewStrings(PapVM&, std::uint32_t, std::monostate, RE::BSFixedString a_token, std::vector<RE::BSFixedString> a_values)
 		{
 			auto value = nlohmann::json::array();
-			for (const auto& item : a_values) value.push_back(item.c_str() ? item.c_str() : "");
+			for (const auto& item : a_values) value.push_back(item.c_str());
 			return CompleteViewRequest(a_token, std::move(value));
 		}
 		bool ReplyViewForms(PapVM&, std::uint32_t, std::monostate, RE::BSFixedString a_token, std::vector<RE::TESForm*> a_forms)
@@ -909,7 +909,7 @@ namespace OSFUI::API::Papyrus
 		}
 		RE::TESForm* GetFormById(PapVM&, std::uint32_t, std::monostate, RE::BSFixedString a_formId)
 		{
-			return ResolveFormId(a_formId.c_str() ? a_formId.c_str() : "");
+			return ResolveFormId(a_formId.c_str());
 		}
 
 		std::vector<RE::TESForm*> GetFormsById(PapVM&, std::uint32_t, std::monostate, std::vector<RE::BSFixedString> a_formIds)
@@ -917,7 +917,7 @@ namespace OSFUI::API::Papyrus
 			std::vector<RE::TESForm*> out;
 			out.reserve(a_formIds.size());
 			for (const auto& id : a_formIds) {
-				out.push_back(ResolveFormId(id.c_str() ? id.c_str() : ""));
+				out.push_back(ResolveFormId(id.c_str()));
 			}
 			return out;
 		}
@@ -1157,8 +1157,15 @@ namespace OSFUI::API::Papyrus
 				for (const auto id : *p.formIds) {
 					forms.push_back(SerializeForm(id));
 				}
-				out.forms = forms;
-				if (p.retained) out.stateValue = std::move(forms);
+				// Mutually exclusive with stateValue: the encoder emits
+				// data.state and never reads `forms` when stateValue is set, so
+				// filling both would retain (and copy on every replay) a dead
+				// duplicate of the whole array.
+				if (p.retained) {
+					out.stateValue = std::move(forms);
+				} else {
+					out.forms = std::move(forms);
+				}
 			}
 			if (p.retained) {
 				std::lock_guard l{ s_lock };

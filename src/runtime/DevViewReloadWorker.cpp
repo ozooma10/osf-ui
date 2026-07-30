@@ -35,6 +35,10 @@ namespace OSFUI
 			if (_targets == a_targets)
 				return;
 			_targets = std::move(a_targets);
+			// Without this flag the notify below was a no-op: wait_for's
+			// predicate returned false, so a wake just re-waited to the same
+			// deadline and new targets waited out the full scan interval.
+			_targetsChanged = true;
 		}
 		_wake.notify_all();
 	}
@@ -53,9 +57,10 @@ namespace OSFUI
 			std::vector<Target> targets;
 			{
 				std::unique_lock lock(_mutex);
-				_wake.wait_for(lock, a_stop, kScanInterval, [this] { return false; });
+				_wake.wait_for(lock, a_stop, kScanInterval, [this] { return _targetsChanged; });
 				if (a_stop.stop_requested())
 					return;
+				_targetsChanged = false;
 				targets = _targets;
 			}
 

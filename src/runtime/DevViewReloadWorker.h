@@ -53,6 +53,7 @@ namespace OSFUI
 		std::mutex                             _mutex;
 		std::condition_variable_any            _wake;
 		std::vector<Target>                    _targets;
+		bool                                   _targetsChanged{ false };  // guarded by _mutex
 		std::vector<Target>                    _ready;
 		std::unordered_map<std::string, State> _states;
 		std::jthread                           _thread;

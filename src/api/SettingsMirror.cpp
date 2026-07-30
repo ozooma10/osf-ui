@@ -133,7 +133,10 @@ namespace OSFUI::API
 
 	const nlohmann::json* SettingsMirror::Find(const char* a_modId, const char* a_key) const
 	{
-		// Null-check before any string_view is built from these pointers.
+		// LOAD-BEARING null check: these are raw C-ABI pointers from third-party
+		// plugin code, unlike BSFixedString::c_str(), which can never be null
+		// (it falls back to an interned EMPTY). Check before any string_view is
+		// built from them.
 		if (!a_modId || !a_key) {
 			return nullptr;
 		}
