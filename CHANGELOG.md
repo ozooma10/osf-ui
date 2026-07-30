@@ -15,7 +15,7 @@
 
 ### Fixed
 
-- Native WebView2 form popups - including settings dropdowns, datalists, and date, time, or colour pickers authored by third-party views — now temporarily receive physical pointer ownership while open. Their options can therefore be clicked in game instead of requiring keyboard selection, without view authors replacing standard HTML controls.
+- Native WebView2 form popups - including settings dropdowns, datalists, and date, time, or colour pickers authored by third-party views — now temporarily receive physical pointer ownership while open, including when the control lives inside an embedded game or panel. Their options can therefore be clicked in game instead of requiring keyboard selection, without view authors replacing standard HTML controls.
 - MO2 hot reload now updates each deployed mod view tree in place and copies every replacement into the browser mirror before pruning old bundles, preventing USVFS path failures from disconnecting the current page and avoiding `ERR_FILE_NOT_FOUND` for renamed shared bundles.
 - `osfui dev --game` now syncs view assets while Starfield holds native files open, without replacing a live directory that the game has already enumerated.
 - Mouse-wheel input now uses the live cursor position and a consistent scroll distance.

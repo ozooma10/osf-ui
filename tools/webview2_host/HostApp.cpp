@@ -1883,11 +1883,28 @@ namespace osfui::wv2
 							}
 							return null;
 						};
+						const nativePopupMessage = '__osfuiNativePopup:';
+						// WebView2's CoreWebView2.WebMessageReceived event only
+						// receives chrome.webview messages from the top document.
+						// AddScriptToExecuteOnDocumentCreated also runs in frames,
+						// so relay frame-owned controls (Starcade's games are one
+						// real-world example) through the top document first.
+						if (window === window.top) {
+							window.addEventListener('message', (event) => {
+								if (event.data !== nativePopupMessage + '0' &&
+									event.data !== nativePopupMessage + '1') return;
+								if (window.chrome && chrome.webview)
+									chrome.webview.postMessage(event.data);
+							});
+						}
 						let nativePopup = null;
 						const reportNativePopup = (open) => {
-							if (!window.chrome || !chrome.webview) return;
-							chrome.webview.postMessage(open ?
-								'__osfuiNativePopup:1' : '__osfuiNativePopup:0');
+							const message = nativePopupMessage + (open ? '1' : '0');
+							if (window !== window.top) {
+								window.top.postMessage(message, '*');
+							} else if (window.chrome && chrome.webview) {
+								chrome.webview.postMessage(message);
+							}
 						};
 						const closeNativePopup = (event) => {
 							if (!nativePopup) return;
