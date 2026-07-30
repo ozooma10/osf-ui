@@ -163,9 +163,9 @@ export interface SettingsDataPayload {
     schema: SettingsSchema;
     values: Record<string, SettingValue>;
     /**
-     * Additive (api-freeze-plan item 1): drop-in schema files that also
-     * claimed this id and lost first-wins — render a conflict badge.
-     * Omitted in the (normal) no-conflict case.
+     * Additive: drop-in schema files that also claimed this id and lost
+     * first-wins — render a conflict badge. Omitted in the (normal)
+     * no-conflict case.
      */
     shadowed?: string[];
     /**
@@ -177,8 +177,8 @@ export interface SettingsDataPayload {
     targetVersion?: string;
   }>;
   /**
-   * The game's own key bindings (protocol 1.0, mcm-design §9 "vanilla
-   * hotkeys") — the FULL curated table, not just colliding entries (those
+   * The game's own key bindings (protocol 1.0, the "vanilla hotkeys"
+   * table) — the FULL curated table, not just colliding entries (those
    * also appear per-setting as `conflicts` with mod `"@game"`). `event` is
    * the engine controlmap event id, `title` reads like "Starfield
    * (Quicksave)", `name` is the bound OSF UI key name. Read-only — there is
@@ -254,7 +254,7 @@ export interface SettingsPersistedPayload {
 }
 
 /**
- * A hotkey fired (protocol 1.0, mcm-design.md §9): the physical key currently
+ * A hotkey fired (protocol 1.0): the physical key currently
  * bound to the identified `type:"key"` setting was pressed during gameplay.
  * Pushed to every subscriber (any view that has sent `settings.get`) — filter
  * on `mod` (and `key`) and ignore the rest. This is how a mod's own HUD
@@ -274,7 +274,7 @@ export interface SettingsCapturedPayload {
   name: string;       // OSF UI key name (e.g. "F9"); "" when cancelled
   cancelled: boolean; // true on Escape or an unbindable key — keep the old binding
   /**
-   * Live-warn during capture (protocol 1.0, mcm-design.md §9): the OTHER
+   * Live-warn during capture (protocol 1.0): the OTHER
    * key-typed settings (any mod) already bound to the captured key — the
    * collisions this bind WOULD create, delivered before the view commits it.
    * Informational only — the bind is never rejected; warn, don't block.
@@ -560,7 +560,7 @@ export type NativeToWebMessage =
 export type SettingValue = boolean | number | string | string[];
 
 /**
- * The FROZEN base type set (api-freeze-plan item 2). Colour is not a type —
+ * The FROZEN base type set (part of the 1.0 API freeze). Colour is not a type —
  * use `type:"string"` + `widget:"color"`. A host that predates a type renders
  * the setting read-only and serves the schema default; the user's saved value
  * is preserved on disk untouched. A genuinely new base type ships behind a

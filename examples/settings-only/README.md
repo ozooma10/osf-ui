@@ -39,8 +39,8 @@ onto the page.
 The card above stores values; making them *do something* is the mod's job:
 
 - **SFSE plugin (C++):** fetch the bridge (`sdk/OSFUI_API.h`) and subscribe to
-  your mod's changes / read typed getters. (Native slice — see
-  `docs/mcm-design.md` §8.)
+  your mod's changes / read typed getters — see `docs/native-plugin-api.md`
+  (settings mirror + change subscriptions).
 - **Papyrus:** `OSFUI.GetInt("yourname.mymod", "hud.scale")` etc., plus change
   callbacks and hotkey delivery via `OSFUI.RegisterForSettingChanges` /
   `OSFUI.RegisterForHotkey` — see `docs/authoring-settings.md` "From Papyrus"

@@ -12,7 +12,7 @@
 
        <link rel="stylesheet" href="../../shared/osfui.css">
 
-   THE KIT CONTRACT (api-freeze-plan item 9): every class and custom
+   THE KIT CONTRACT (frozen at 1.0): every class and custom
    property this sheet exports carries the `osf-` / `--osf-` prefix —
    nothing un-prefixed is contract. Element-level base styles (body,
    headings, a, kbd, ::selection, scrollbars, form elements) are global
