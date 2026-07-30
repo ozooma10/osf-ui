@@ -427,6 +427,79 @@ namespace osfui::wv2
 			return newest;
 		}
 
+		[[nodiscard]] std::string DescribeWindow(HWND a_window)
+		{
+			if (!a_window) return "none";
+			wchar_t className[64]{};
+			::GetClassNameW(a_window, className, static_cast<int>(std::size(className)));
+			DWORD pid = 0;
+			::GetWindowThreadProcessId(a_window, &pid);
+			std::wstring exe = L"?";
+			if (HANDLE process = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid)) {
+				wchar_t path[MAX_PATH]{};
+				DWORD length = static_cast<DWORD>(std::size(path));
+				if (::QueryFullProcessImageNameW(process, 0, path, &length)) {
+					exe = std::filesystem::path(path).filename().wstring();
+				}
+				::CloseHandle(process);
+			}
+			return std::format("hwnd=0x{:X} class='{}' pid={} exe='{}'",
+				reinterpret_cast<std::uintptr_t>(a_window), ToUtf8(className), pid, ToUtf8(exe));
+		}
+
+		// The crash-report dialogs compete with whatever owns the desktop right
+		// after a game exit — MO2's always-on-top lock overlay (the host itself
+		// keeps the MO2 session locked while the prompt is up), crash loggers,
+		// third-party overlays. A topmost window layered above the dialog
+		// swallows every click while keyboard input still reaches it (field
+		// report: "can't click the buttons, Enter works"). The watchdog names
+		// the offending window in the host log and re-raises the dialog so
+		// clicks land where the player sees them.
+		int GuardedMessageBox(const std::wstring& a_text, const wchar_t* a_title,
+			UINT a_flags, Logger& a_log)
+		{
+			std::atomic_bool done{ false };
+			std::thread watchdog([&done, a_title, &a_log] {
+				HWND lastCover = nullptr;
+				HWND lastForeground = nullptr;
+				while (!done.load()) {
+					::Sleep(250);
+					const HWND dialog = ::FindWindowW(L"#32770", a_title);
+					if (!dialog) continue;
+					RECT rect{};
+					if (!::GetWindowRect(dialog, &rect)) continue;
+					const POINT centre{ (rect.left + rect.right) / 2,
+						(rect.top + rect.bottom) / 2 };
+					const HWND atCentre = ::WindowFromPoint(centre);
+					const HWND cover = atCentre ? ::GetAncestor(atCentre, GA_ROOT) : nullptr;
+					const HWND foreground = ::GetForegroundWindow();
+					const bool covered = cover && cover != dialog;
+					const bool defocused = foreground && foreground != dialog;
+					if (covered && cover != lastCover) {
+						lastCover = cover;
+						a_log.Warn(std::format("dialog '{}' covered by {} — re-raising",
+							ToUtf8(a_title), DescribeWindow(cover)));
+					}
+					if (defocused && foreground != lastForeground) {
+						lastForeground = foreground;
+						a_log.Warn(std::format("dialog '{}' lost foreground to {}",
+							ToUtf8(a_title), DescribeWindow(foreground)));
+					}
+					if (covered) {
+						::SetWindowPos(dialog, HWND_TOPMOST, 0, 0, 0, 0,
+							SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+					}
+					if (defocused) {
+						::SetForegroundWindow(dialog);
+					}
+				}
+			});
+			const auto choice = ::MessageBoxW(nullptr, a_text.c_str(), a_title, a_flags);
+			done.store(true);
+			watchdog.join();
+			return choice;
+		}
+
 		void PromptCrashReport(const HostOptions& a_options, DWORD a_gameExitCode, Logger& a_log,
 			std::filesystem::file_time_type a_sessionStarted, std::string_view a_activeViewId)
 		{
@@ -450,9 +523,9 @@ namespace osfui::wv2
 			disclosure +=
 				L", will be redacted locally, uploaded privately, and deleted after 30 days. "
 				L"The report will be reviewed before any public GitHub issue is created.";
-			const auto choice = ::MessageBoxW(nullptr, disclosure.c_str(),
+			const auto choice = GuardedMessageBox(disclosure,
 				L"OSF UI - Starfield closed unexpectedly",
-				MB_YESNO | MB_ICONWARNING | MB_TOPMOST | MB_SETFOREGROUND);
+				MB_YESNO | MB_ICONWARNING | MB_TOPMOST | MB_SETFOREGROUND, a_log);
 			if (choice != IDYES) {
 				a_log.Info("crash report declined by the player");
 				return;
@@ -498,10 +571,10 @@ namespace osfui::wv2
 			const auto installationToken = RequestInstallationToken(a_options.reportEndpoint, clientId);
 			if (installationToken.empty()) {
 				a_log.Error("crash report installation registration failed");
-				::MessageBoxW(nullptr,
+				GuardedMessageBox(
 					L"The reporting service could not register this installation. Your logs remain "
 					L"in the Starfield SFSE Logs folder.", L"OSF UI - Report failed",
-					MB_OK | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND);
+					MB_OK | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND, a_log);
 				return;
 			}
 			const json payload{
@@ -533,15 +606,15 @@ namespace osfui::wv2
 				a_log.Info(std::format("crash report accepted (reference {})", reportId));
 				const auto message = std::format(
 					L"The diagnostic report was accepted for review.\n\nReference: {}", ToWide(reportId));
-				::MessageBoxW(nullptr, message.c_str(), L"OSF UI - Report submitted",
-					MB_OK | MB_ICONINFORMATION | MB_TOPMOST | MB_SETFOREGROUND);
+				GuardedMessageBox(message, L"OSF UI - Report submitted",
+					MB_OK | MB_ICONINFORMATION | MB_TOPMOST | MB_SETFOREGROUND, a_log);
 			} else {
 				a_log.Error(std::format("crash report submission failed (HTTP {})", status));
-				::MessageBoxW(nullptr,
+				GuardedMessageBox(
 					L"The report could not be submitted. Your logs remain in the Starfield "
 					L"SFSE Logs folder and were not retained by OSF UI.",
 					L"OSF UI - Report failed",
-					MB_OK | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND);
+					MB_OK | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND, a_log);
 			}
 		}
 
