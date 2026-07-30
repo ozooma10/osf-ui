@@ -43,6 +43,7 @@ namespace OSFUI
 		constexpr std::string_view kHandoffViewId{ "osfui/handoff" };
 		constexpr double           kHandoffDelaySeconds{ 0.15 };
 		constexpr double           kReadySignalTimeoutSeconds{ 15.0 };
+		constexpr double           kRevealTimeoutSeconds{ 3.0 };
 		constexpr KeyCode          kVkF12{ 0x7B };
 		// System Health producers without a cheap change signal (the render path,
 		// the system-information block) are sampled on this cadence instead of
@@ -1220,10 +1221,12 @@ namespace OSFUI
 				// hand over a post-open frame.
 				_revealPending = true;
 				_revealFrameReady = false;
+				_revealStartedAt = std::chrono::steady_clock::now();
 			} else {
 				if (!visible) {
 					_revealPending = false;  // closed while a reveal was still pending
 					_revealFrameReady = false;
+					_revealStartedAt = {};
 				}
 				if (!_revealPending) {
 					_compositor->SetVisible(visible);
@@ -3167,6 +3170,30 @@ namespace OSFUI
 		if (!_initialized || !IsVisible() || !_renderer || !_compositor) {
 			return;
 		}
+		if (_revealPending && _revealStartedAt !=
+				std::chrono::steady_clock::time_point{}) {
+			const auto elapsed = std::chrono::duration<double>(
+				std::chrono::steady_clock::now() - _revealStartedAt).count();
+			if (elapsed >= kRevealTimeoutSeconds) {
+				const auto active = _menus.ActiveMenu().value_or("<none>");
+				REX::ERROR("Runtime: overlay reveal for '{}' produced no presentable frame in {:.1f}s — "
+						   "closing it and releasing input/pause state",
+					active, elapsed);
+				CancelPendingOpen();
+				_menus.CloseAll();
+				ApplyMenuPolicy();
+				// The timeout fires after this tick's normal policy reconciliation.
+				// Release every engine-owned edge now instead of trapping input/pause
+				// until another main-thread task happens to run.
+				if (_config.focusMenu) {
+					ReconcileFocusMenu();
+				}
+				ReconcileControlLayer();
+				ReconcileSimPause();
+				FreeCursor::Apply(false);
+				return;
+			}
+		}
 		if (const auto frame = _renderer->Render()) {
 			if (_revealPending) {
 				if (frame->frameIndex != _lastSubmittedFrame) {
@@ -3175,9 +3202,9 @@ namespace OSFUI
 					_revealFrameReady = true;
 				}
 				if (!_revealFrameReady) {
-					// Still the frame from before the open; the renderer
-					// republishes under a new serial once the (re)shown view is
-					// presentable (messages delivered), so hold the reveal.
+					// No frame from this exact presentation has reached the game
+					// yet. The host stamps frames only after the (re)shown view is
+					// presentable, so keep the compositor hidden.
 					return;
 				}
 				if (!_compositor->IsOutputSizeKnown()) {
@@ -3192,6 +3219,7 @@ namespace OSFUI
 				}
 				_revealPending = false;
 				_revealFrameReady = false;
+				_revealStartedAt = {};
 				_compositor->SetVisible(true);  // the cached frame is fresh and output-sized
 				return;
 			}

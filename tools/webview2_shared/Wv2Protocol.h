@@ -23,7 +23,10 @@ namespace osfui::wv2
 	// avoid it).
 	// v2: multi-view — per-view `view` routing on game->host view messages and
 	// `view` tagging on host->game page events.
-	inline constexpr std::uint32_t kProtocolVersion = 2;
+	// v3: presentation epochs — every closed->open transition gets a new epoch;
+	// the host stamps captured frames only after the requested view is actually
+	// revealed. The game rejects frames from an earlier/hidden presentation.
+	inline constexpr std::uint32_t kProtocolVersion = 3;
 
 	// Pipe name pattern: \\.\pipe\osfui-wv2-<gamePid>-<nonce>
 	inline constexpr const wchar_t* kPipePrefix = L"osfui-wv2-";
@@ -73,7 +76,9 @@ namespace osfui::wv2
 	//                output pixels. Optional — omitted means kDefaultLogicalHeight.)
 	// resize        { width:u32, height:u32 }    (global: every view renders output-sized)
 	// prewarm       { view:str }                 (one hidden paint, then suspend again)
-	// setHidden     { view:str, hidden:bool }    (child-visual visibility + Chromium suspend)
+	// setHidden     { view:str, hidden:bool, presentationEpoch:u64 }
+	//                                               (child-visual visibility + Chromium suspend;
+	//                                                epoch advances on all-hidden -> visible)
 	// setOrder      { view:str, order:i32 }      (composite z: lower beneath, ties by creation)
 	// setActive     { view:str }                 (mouse/focus/synthetic-key target)
 	// focus         { focused:bool }             (moves real focus into the active view)
@@ -99,7 +104,8 @@ namespace osfui::wv2
 	//                 adapterLuidLow:u32, adapterLuidHigh:u32 }
 	//               (handles already duplicated into the game process; every
 	//                textures message invalidates all prior slots)
-	// frame         { slot:u32, serial:u64, width:u32, height:u32 }
+	// frame         { slot:u32, serial:u64, width:u32, height:u32,
+	//                 sourceTimeMs:u64, presentationEpoch:u64 }
 	// loadEvent     { view:str, failed:bool, url:str, description:str, code:i32 }
 	// fatal         { stage:str, view:str, description:str, code:u32 }
 	// webMessage    { view:str, json:str }

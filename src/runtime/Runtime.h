@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <unordered_set>  // not in pch.h
 
 #include "api/BridgeApi.h"
@@ -503,10 +504,13 @@ namespace OSFUI
 		// open, i.e. after every queued message was delivered (ABI 1.3
 		// message-before-first-paint). D3D12 additionally waits until Present has
 		// reported the output size and the renderer has painted at that size.
-		// Costs at most a couple of frames of open latency; prevents flashes of
-		// stale or manifest-resolution content.
+		// Normally costs only a couple of frames. A wall-clock deadline closes the
+		// menu and releases its pause/input policy if the renderer never produces
+		// a frame for this presentation, so a transparent or stalled host cannot
+		// trap the player in an invisible modal state.
 		bool          _revealPending{ false };
 		bool          _revealFrameReady{ false };
+		std::chrono::steady_clock::time_point _revealStartedAt{};
 		std::uint64_t _lastSubmittedFrame{ 0 };
 
 		// The view shown as the overlay's focused menu — the last one sent

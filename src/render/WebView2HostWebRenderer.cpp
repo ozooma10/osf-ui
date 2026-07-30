@@ -256,10 +256,12 @@ namespace OSFUI
 			return ViewMsg("setActive", a_viewId);
 		}
 
-		json SetHiddenMsg(std::string_view a_viewId, bool a_hidden)
+		json SetHiddenMsg(std::string_view a_viewId, bool a_hidden,
+			std::uint64_t a_presentationEpoch)
 		{
 			return json{ { "type", "setHidden" },
-				{ "view", std::string(a_viewId) }, { "hidden", a_hidden } };
+				{ "view", std::string(a_viewId) }, { "hidden", a_hidden },
+				{ "presentationEpoch", a_presentationEpoch } };
 		}
 
 		json SetOrderMsg(std::string_view a_viewId, int a_order)
@@ -356,6 +358,10 @@ namespace OSFUI
 		std::vector<ViewRec> views;
 		std::string          activeId;
 		bool                 allHidden{ true };  // no visible view => Render() is never called
+		// Every all-hidden -> visible transition starts a new presentation. Host
+		// frames from before its reveal completes must not satisfy Runtime's
+		// fresh-frame gate (closed capture frames are transparent).
+		std::uint64_t        presentationEpoch{ 0 };
 		std::uint32_t        width{ 1 }, height{ 1 };
 		// accelState mirror (SetAcceleratorKeys diffs against this)
 		std::uint32_t accToggle{ 0 }, accCaptureUp{ 0 };
@@ -906,7 +912,8 @@ namespace OSFUI
 					if (view.prewarm) {
 						pipe.WriteMessage(PrewarmMsg(view.id).dump());
 					}
-					pipe.WriteMessage(SetHiddenMsg(view.id, view.hidden).dump());
+					pipe.WriteMessage(SetHiddenMsg(
+						view.id, view.hidden, presentationEpoch).dump());
 					pipe.WriteMessage(SetOrderMsg(view.id, view.order).dump());
 					pipe.WriteMessage(SetRenderStatsMsg(view.id, view.renderStats).dump());
 				}
@@ -1045,6 +1052,7 @@ namespace OSFUI
 			const auto slot = a_msg.value("slot", 0u);
 			const auto serial = a_msg.value("serial", 0ull);
 			const auto sourceTimeMs = a_msg.value("sourceTimeMs", 0ull);
+			const auto presentation = a_msg.value("presentationEpoch", 0ull);
 			const auto w = a_msg.value("width", 0u);
 			const auto h = a_msg.value("height", 0u);
 			std::uint64_t ackSerial = 0;
@@ -1053,6 +1061,14 @@ namespace OSFUI
 				std::scoped_lock lock(frameMutex, stateMutex);
 				if (w != ringWidth || h != ringHeight) {
 					ackNew = true;  // stale ring — release the slot immediately
+				} else if (allHidden || presentation != presentationEpoch) {
+					// Frames captured while closed, before the host completed
+					// this reveal, or from an earlier open are not renderable.
+					// Invalidate the cached frame as well: otherwise the next
+					// open can mistake transparent closed-state pixels for its
+					// required post-open frame.
+					haveFrame = false;
+					ackNew = true;
 				} else {
 					if (haveFrame && frameSerial != submittedSerial) {
 						// The previous frame never reached the compositor, so
@@ -1066,12 +1082,6 @@ namespace OSFUI
 					frameHeight = h;
 					frameGeneration = ringGeneration;
 					haveFrame = true;
-					if (allHidden) {
-						// Render() is not called while every view is hidden and
-						// the host republishes on unhide, so this serial is
-						// disposable.
-						ackNew = true;
-					}
 				}
 			}
 			if (ackSerial) {
@@ -1175,8 +1185,16 @@ namespace OSFUI
 					if (!deadLogged) {
 						deadLogged = true;
 						REX::ERROR("WebView2HostWebRenderer: host connection lost — the "
-								   "overlay stays hidden for the rest of this session "
+								   "overlay is closing and stays disabled for the rest of this session "
 								   "(host log: {})", hostLog.string());
+						if (onFailure) {
+							onFailure(FailureEvent{
+								.stage = "host-connection",
+								.viewId = activeId,
+								.description = "WebView2 host connection lost",
+								.errorCode = 0
+							});
+						}
 					}
 					break;
 				}
@@ -1597,14 +1615,23 @@ namespace OSFUI
 
 	void WebView2HostWebRenderer::SetViewHidden(std::string_view a_viewId, bool a_hidden)
 	{
+		std::uint64_t presentation = 0;
 		{
-			std::scoped_lock lock(_impl->stateMutex);
+			std::scoped_lock lock(_impl->frameMutex, _impl->stateMutex);
 			auto* view = _impl->FindView(a_viewId);
 			if (!view) return;
+			const bool wasAllHidden = _impl->allHidden;
 			view->hidden = a_hidden;
 			_impl->RecomputeAllHidden();
+			if (wasAllHidden && !_impl->allHidden) {
+				++_impl->presentationEpoch;
+				_impl->haveFrame = false;
+			} else if (_impl->allHidden) {
+				_impl->haveFrame = false;
+			}
+			presentation = _impl->presentationEpoch;
 		}
-		_impl->Send(SetHiddenMsg(a_viewId, a_hidden));
+		_impl->Send(SetHiddenMsg(a_viewId, a_hidden, presentation));
 	}
 
 	void WebView2HostWebRenderer::PrewarmView(std::string_view a_viewId)

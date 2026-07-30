@@ -459,13 +459,34 @@ namespace osfui::wv2
 			UINT a_flags, Logger& a_log)
 		{
 			std::atomic_bool done{ false };
-			std::thread watchdog([&done, a_title, &a_log] {
+			static constexpr std::uint64_t kAutoDismissMs = 60 * 1000;
+			const auto started = ::GetTickCount64();
+			const int timeoutChoice = (a_flags & MB_TYPEMASK) == MB_YESNO ? IDNO : IDOK;
+			std::thread watchdog([&done, a_title, &a_log, started, timeoutChoice] {
 				HWND lastCover = nullptr;
 				HWND lastForeground = nullptr;
+				bool timeoutLogged = false;
+				std::uint64_t lastTimeoutPost = 0;
 				while (!done.load()) {
 					::Sleep(250);
 					const HWND dialog = ::FindWindowW(L"#32770", a_title);
 					if (!dialog) continue;
+					const auto now = ::GetTickCount64();
+					if (now - started >= kAutoDismissMs &&
+						(lastTimeoutPost == 0 || now - lastTimeoutPost >= 1000)) {
+						if (!timeoutLogged) {
+							timeoutLogged = true;
+							a_log.Warn(std::format(
+								"dialog '{}' unanswered for 60s — choosing {} so the host can exit",
+								ToUtf8(a_title), timeoutChoice == IDNO ? "No" : "OK"));
+						}
+						lastTimeoutPost = now;
+						const HWND button = ::GetDlgItem(dialog, timeoutChoice);
+						::PostMessageW(dialog, WM_COMMAND,
+							MAKEWPARAM(timeoutChoice, BN_CLICKED),
+							reinterpret_cast<LPARAM>(button));
+						continue;
+					}
 					RECT rect{};
 					if (!::GetWindowRect(dialog, &rect)) continue;
 					const POINT centre{ (rect.left + rect.right) / 2,
@@ -706,6 +727,7 @@ namespace osfui::wv2
 			// game exit deserves the crash prompt.
 			std::atomic<std::uint64_t> playerCloseRequestedAt{ 0 };
 			std::uint64_t    gameExitedAt{ 0 };  // STA thread; tick when the exit was observed
+			std::uint64_t    gameWindowMissingSince{ 0 };  // STA thread; 0 while HWND is valid
 			std::filesystem::file_time_type sessionStarted{
 				std::filesystem::file_time_type::clock::now() };
 			std::string crashActiveViewId;
@@ -776,6 +798,7 @@ namespace osfui::wv2
 				bool          revealPending{ false };
 				bool          hideDeferred{ false };
 				std::uint64_t revealDeadline{ 0 };
+				std::uint64_t pendingPresentationEpoch{ 0 };
 				int  order{ 0 };
 				bool domSeen{ false }, navigationSucceeded{ false };
 				std::wstring currentUrl;
@@ -866,9 +889,9 @@ namespace osfui::wv2
 			std::uint32_t ringWrite{ 0 };
 			bool          ringKeyedMutex{ false };
 			ComPtr<ID3D11Fence> produceFence, consumeFence;
-			std::uint64_t frameSerial{ 0 };
-			std::uint32_t lastSlot{ 0 };
-			bool          anyFramePublished{ false };
+			std::uint64_t              frameSerial{ 0 };
+			std::uint32_t              lastSlot{ 0 };
+			std::atomic<std::uint64_t> presentationEpoch{ 0 };
 			// Serials the game released without a GPU read (hidden overlay, stale
 			// ring): it has no device to CPU-signal the consume fence, so it acks
 			// over the pipe instead.
@@ -1210,7 +1233,8 @@ namespace osfui::wv2
 			}
 
 			// Capture thread: publish one captured surface through the ring.
-			void PublishFrame(ID3D11Texture2D* a_source, std::uint32_t a_width, std::uint32_t a_height)
+			void PublishFrame(ID3D11Texture2D* a_source, std::uint32_t a_width,
+				std::uint32_t a_height, std::uint64_t a_presentationEpoch)
 			{
 				const auto start = std::chrono::steady_clock::now();
 				const auto sourceTimeMs = ::GetTickCount64();
@@ -1269,11 +1293,11 @@ namespace osfui::wv2
 				// Flush so the copy + signal reach the GPU now: the consumer's wait
 				// must not depend on this context's next natural flush.
 				context->Flush();
-				anyFramePublished = true;
 				Send(json{
 					{ "type", "frame" }, { "slot", lastSlot }, { "serial", serial },
 					{ "width", a_width }, { "height", a_height },
-					{ "sourceTimeMs", sourceTimeMs } });
+					{ "sourceTimeMs", sourceTimeMs },
+					{ "presentationEpoch", a_presentationEpoch } });
 
 				produceMsTotal += std::chrono::duration<double, std::milli>(
 					std::chrono::steady_clock::now() - start).count();
@@ -1282,27 +1306,15 @@ namespace osfui::wv2
 				}
 			}
 
-			// STA thread, on unhide: the runtime's reveal gate needs a fresh serial,
-			// but a static page paints nothing new — resend the newest pixels under
-			// a new serial.
-			void RepublishLatest()
+			// Publish the requested epoch only after the STA has made its visual
+			// visible. The next real WGC capture then proves that the frame belongs
+			// to this open rather than to the transparent closed presentation.
+			void PromotePresentation(View& a_view)
 			{
-				std::scoped_lock lock(ringMutex);
-				// The last slot must actually hold pixels: after a resize recreated
-				// the ring, nothing is republishable until the first capture lands
-				// in the new ring.
-				if (!anyFramePublished || !ring[0].texture ||
-					ring[lastSlot].lastSerial == 0) {
-					return;
+				const auto requested = std::exchange(a_view.pendingPresentationEpoch, 0ull);
+				if (requested != 0) {
+					presentationEpoch.store(requested, std::memory_order_release);
 				}
-				const auto serial = ++frameSerial;
-				ring[lastSlot].lastSerial = serial;
-				context4->Signal(produceFence.Get(), serial);
-				context->Flush();
-				Send(json{
-					{ "type", "frame" }, { "slot", lastSlot }, { "serial", serial },
-					{ "width", ringWidth }, { "height", ringHeight },
-					{ "sourceTimeMs", ::GetTickCount64() } });
 			}
 
 			View* FindView(std::string_view a_id)
@@ -1433,6 +1445,7 @@ namespace osfui::wv2
 			{
 				if (a_view.hidden && !a_view.revealPending) return;
 				a_view.hidden = true;
+				a_view.pendingPresentationEpoch = 0;
 				a_view.revealPending = false;  // cancel an in-flight reveal
 				a_view.prewarmPending = false;
 				a_view.prewarmDeadline = 0;
@@ -1446,6 +1459,7 @@ namespace osfui::wv2
 					a_view.hideDeferred = false;
 					log.Info(std::format("view '{}': show — already visible (visual={})",
 						a_view.id, a_view.visual && a_view.visual.IsVisible()));
+					PromotePresentation(a_view);
 					return;
 				}
 				a_view.hidden = false;
@@ -1457,6 +1471,7 @@ namespace osfui::wv2
 				if (a_view.visual && a_view.visual.IsVisible()) {
 					log.Info(std::format(
 						"view '{}': show — hide was still deferred, never left the screen", a_view.id));
+					PromotePresentation(a_view);
 					return;
 				}
 				if (a_view.visual && a_view.webView && a_view.domSeen) {
@@ -1474,7 +1489,7 @@ namespace osfui::wv2
 						"view '{}': show — direct (visual={} webView={} domSeen={})", a_view.id,
 						a_view.visual != nullptr, a_view.webView != nullptr, a_view.domSeen));
 					if (a_view.visual) a_view.visual.IsVisible(true);
-					RepublishLatest();
+					PromotePresentation(a_view);
 				}
 			}
 
@@ -1490,9 +1505,7 @@ namespace osfui::wv2
 				}
 				if (a_view.visual && !a_view.hidden) a_view.visual.IsVisible(true);
 				if (!AnyRevealPending()) ApplyDeferredHides();
-				// Fresh serial for the runtime's reveal gate: an unchanged page may
-				// otherwise never produce a new captured frame.
-				RepublishLatest();
+				PromotePresentation(a_view);
 			}
 
 			void TickReveals()
@@ -2838,6 +2851,8 @@ namespace osfui::wv2
 				const winrt::Windows::Graphics::Capture::Direct3D11CaptureFramePool& a_pool)
 			{
 				if (quit.load() || captureClosing.load()) return;
+				const auto framePresentationEpoch =
+					presentationEpoch.load(std::memory_order_acquire);
 				try {
 					const auto arrival = std::chrono::steady_clock::now();
 					// Capture thread: never touch `views` here (STA mutates it
@@ -2876,7 +2891,8 @@ namespace osfui::wv2
 					source->GetDesc(&desc);
 					// No warmup drop: a static page may paint fewer than 3 times in
 					// total, so the first captured frame has to publish.
-					PublishFrame(source.Get(), desc.Width, desc.Height);
+					PublishFrame(source.Get(), desc.Width, desc.Height,
+						framePresentationEpoch);
 				} catch (const winrt::hresult_error& a_error) {
 					log.Warn(std::format("capture callback failed: {}", ToUtf8(a_error.message())));
 				}
@@ -3392,9 +3408,11 @@ namespace osfui::wv2
 				} else if (type == "setHidden") {
 					auto* view = ResolveView(a_msg);
 					if (!view) return;
+					const auto requested = a_msg.value("presentationEpoch", 0ull);
 					if (a_msg.value("hidden", true)) {
 						HideView(*view);
 					} else {
+						view->pendingPresentationEpoch = requested;
 						ShowView(*view);
 					}
 				} else if (type == "setOrder") {
@@ -3628,6 +3646,23 @@ namespace osfui::wv2
 								log.Info("pipe closed while game remained active — shutting down");
 							}
 							break;
+						}
+						if (gameTopLevel && !::IsWindow(gameTopLevel)) {
+							const auto now = ::GetTickCount64();
+							if (gameWindowMissingSince == 0) {
+								gameWindowMissingSince = now;
+								log.Warn("game window disappeared before the process/pipe watchers fired");
+							}
+							constexpr std::uint64_t kMissingWindowGraceMs = 3000;
+							if (now - gameWindowMissingSince >= kMissingWindowGraceMs) {
+								if (!captureGameExit(1000)) {
+									log.Info("game window remained absent for 3s while the process handle "
+											 "still appeared active — shutting down");
+								}
+								break;
+							}
+						} else {
+							gameWindowMissingSince = 0;
 						}
 						DrainCommands();
 						TickReveals();

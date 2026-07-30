@@ -9,9 +9,10 @@
 // process tree (Wv2BrokerLaunch) so MO2's USVFS can't inject into the browser
 // processes it spawns.
 //
-// Exits when the pipe breaks, on a shutdown message, or when the game process
-// handle signals — gamePid is required and waited on in the main pump so the
-// host can't be orphaned.
+// Exits when the pipe breaks, on a shutdown message, when the game process
+// handle signals, or when its top-level window remains absent. Post-exit dialogs
+// are time-bounded as well, so neither a missed watcher signal nor an unattended
+// prompt can orphan the host.
 
 #include <cstdint>
 #include <deque>

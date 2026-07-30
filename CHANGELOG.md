@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Repeatedly closing and reopening a menu can no longer let a transparent frame from the previous closed state satisfy the next reveal. OSF UI waits for a frame from that exact opening and closes the menu within three seconds if one never arrives, preventing an invisible overlay from trapping input and pause state.
+- Losing or stranding the WebView2 host now closes the overlay and releases input and pause. The helper also exits when the game window has disappeared even if its process or pipe watcher misses the exit, and unattended post-crash prompts safely default after 60 seconds instead of accumulating helper processes.
+
+### For plugin authors
+
+- The private game-to-WebView2-host protocol now tags frames with presentation epochs. The plugin and helper binaries must be updated together.
+
 ## 1.5.0 — 2026-07-29
 
 ### Highlights
