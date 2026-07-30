@@ -139,7 +139,10 @@ try {
     # not only xmake.conf text, so a future option/target refactor cannot make
     # an experimental DLL look safe to the packager.
     Step "Verifying production build flags"
-    $targetJson = @(xmake show -t 'OSF UI' --format=json) -join "`n"
+    # The flag is `--json`, not `--format=json`: xmake treats an unknown option
+    # as "no subcommand", prints its help banner and still exits 0, so a typo
+    # here reads as unparsable metadata rather than a bad invocation.
+    $targetJson = @(xmake show -t 'OSF UI' --json) -join "`n"
     if ($LASTEXITCODE -ne 0 -or -not $targetJson) {
         Die "Could not inspect the configured OSF UI target."
     }
