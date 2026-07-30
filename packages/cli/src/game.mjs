@@ -129,9 +129,6 @@ export async function configuredDeployRoot(project, explicit) {
   if (typeof local.modsRoot === 'string' && local.modsRoot) {
     return deploymentRoot(project, local.modsRoot);
   }
-  // Before 0.2, deployRoot named the final mod directory. Keep existing
-  // projects working while all newly saved paths use the MO2 mods directory.
-  if (typeof local.deployRoot === 'string' && local.deployRoot) return resolve(local.deployRoot);
   if (stdin.isTTY) {
     const prompt = createInterface({ input: stdin, output: stdout });
     try {

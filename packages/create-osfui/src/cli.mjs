@@ -23,7 +23,6 @@ const VALUE_FLAGS = {
   '--view': 'view',
   '--surface': 'surface',
   '--integration': 'integration',
-  '--template': 'template', // removed; kept so validate() can explain
   '--cli-spec': 'cliSpec',
 };
 const BOOLEAN_FLAGS = { '--yes': 'yes', '--no-install': 'noInstall', '--help': 'help' };
@@ -63,9 +62,6 @@ function validate(options) {
     throw new Error(`--mod-id must be at most ${MAX_MOD_ID_LENGTH} characters (OSF UI refuses longer ids).`);
   }
   if (!ID.test(options.view)) throw new Error('--view must use lowercase letters, digits, and hyphens.');
-  if (options.template !== undefined && options.template !== 'typescript') {
-    throw new Error('--template was removed; projects are TypeScript (plain .js files still build).');
-  }
   if (!['menu', 'hud'].includes(options.surface)) throw new Error('--surface must be menu or hud.');
   if (!['papyrus', 'native'].includes(options.integration)) {
     throw new Error('--integration must be papyrus or native.');
@@ -89,6 +85,15 @@ function hudAppSource(options) {
   alert: boolean;
 };
 
+function renderState(state: HudState) {
+  hudState.value = state.value;
+  hudState.maximum = state.maximum;
+  setText(label, state.label);
+  setText(status, state.status);
+  panel.classList.toggle('is-alert', state.alert);
+  renderMeter();
+}
+
 window.osfui?.on?.<HudState>('${options.modId}.hudState', renderState);`
     : `// Papyrus SetView* values are cached and replayed to late subscribers.
 window.osfui?.data?.on<string>('label', (value) => setText(label, value));
@@ -102,7 +107,6 @@ window.osfui?.data?.on<number>('maximum', (value) => {
 });
 window.osfui?.data?.on<string>('status', (value) => setText(status, value));
 window.osfui?.data?.on<boolean>('alert', (value) => {
-  hudState.alert = value;
   panel.classList.toggle('is-alert', value);
 });`;
 
@@ -151,7 +155,7 @@ const value = requiredElement('#value', HTMLElement);
 const maximum = requiredElement('#maximum', HTMLElement);
 const meterFill = requiredElement('#meter-fill', HTMLElement);
 
-const hudState = { value: 0, maximum: 0, alert: false };
+const hudState = { value: 0, maximum: 0 };
 const hudSettings: HudSettings = {
   hudEnabled: true,
   anchor: 'top-right',
@@ -173,22 +177,6 @@ function renderMeter() {
   setText(value, current);
   setText(maximum, '/ ' + max);
   meterFill.style.width = percent + '%';
-}
-
-function renderState(state: {
-  value: number;
-  maximum: number;
-  label: string;
-  status: string;
-  alert: boolean;
-}) {
-  hudState.value = state.value;
-  hudState.maximum = state.maximum;
-  hudState.alert = state.alert;
-  setText(label, state.label);
-  setText(status, state.status);
-  panel.classList.toggle('is-alert', state.alert);
-  renderMeter();
 }
 
 function numberSetting(value: SettingValue, fallback: number): number {

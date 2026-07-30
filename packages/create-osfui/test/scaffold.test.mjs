@@ -184,7 +184,7 @@ for (const [surface, integration, backendPath, backendPattern] of [
   });
 }
 
-test('accepts the legacy --template typescript flag', async (t) => {
+test('rejects --template as unknown (never shipped in a published release)', async (t) => {
   const parent = await mkdtemp(resolve(tmpdir(), 'create-osfui-'));
   t.after(() => rm(parent, { recursive: true, force: true }));
   const result = spawnSync(process.execPath, [
@@ -198,26 +198,9 @@ test('accepts the legacy --template typescript flag', async (t) => {
     '--surface', 'menu',
     '--integration', 'papyrus',
   ], { encoding: 'utf8' });
-  assert.equal(result.status, 0, result.stderr);
-});
-
-test('rejects the removed javascript template', async (t) => {
-  const parent = await mkdtemp(resolve(tmpdir(), 'create-osfui-'));
-  t.after(() => rm(parent, { recursive: true, force: true }));
-  const result = spawnSync(process.execPath, [
-    CLI,
-    resolve(parent, 'project'),
-    '--yes',
-    '--no-install',
-    '--mod-id', 'acme.widgets',
-    '--view', 'panel',
-    '--template', 'javascript',
-    '--surface', 'menu',
-    '--integration', 'papyrus',
-  ], { encoding: 'utf8' });
 
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /--template was removed/);
+  assert.match(result.stderr, /Unknown option "--template"/);
 });
 
 for (const integration of ['settings', 'static']) {

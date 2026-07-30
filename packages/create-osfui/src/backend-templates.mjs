@@ -320,7 +320,9 @@ EndEvent
   ];
 }
 
-function nativeHudFiles(options) {
+// The native build scaffolding shared by both surfaces — one copy, so the
+// spot-check test on one preset covers the other too.
+function nativeProjectFiles(options, description) {
   const pluginName = pascalIdentifier(options.modId);
   return [
     {
@@ -339,7 +341,7 @@ target("${pluginName}")
     add_rules("commonlibsf.plugin", {
         name = "${displayName(options.modId)}",
         author = "${options.modId.split('.')[0]}",
-        description = "OSF UI native HUD example"
+        description = "${description}"
     })
     add_files("native/src/**.cpp")
     add_headerfiles("native/include/**.h")
@@ -368,6 +370,12 @@ const code = await new Promise((resolve, reject) => {
 if (code !== 0) process.exit(code ?? 1);
 `,
     },
+  ];
+}
+
+function nativeHudFiles(options) {
+  return [
+    ...nativeProjectFiles(options, 'OSF UI native HUD example'),
     {
       path: 'native/src/main.cpp',
       content: `#include <SFSE/SFSE.h>
@@ -520,51 +528,7 @@ function nativeFiles(options) {
   if (options.surface === 'hud') return nativeHudFiles(options);
   const pluginName = pascalIdentifier(options.modId);
   return [
-    {
-      path: 'xmake.lua',
-      content: `set_project("${pluginName}")
-set_version("0.1.0")
-set_arch("x64")
-set_languages("c++23")
-add_requires("nlohmann_json")
-
-add_rules("mode.debug", "mode.releasedbg")
-
-includes("native/lib/commonlibsf")
-
-target("${pluginName}")
-    add_rules("commonlibsf.plugin", {
-        name = "${displayName(options.modId)}",
-        author = "${options.modId.split('.')[0]}",
-        description = "OSF UI native example"
-    })
-    add_files("native/src/**.cpp")
-    add_headerfiles("native/include/**.h")
-    add_includedirs("native/include")
-    set_installdir("mod")
-    add_packages("nlohmann_json")
-`,
-    },
-    {
-      path: 'native/build.mjs',
-      content: `import { spawn } from 'node:child_process';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-
-const env = { ...process.env };
-delete env.XSE_SF_MODS_PATH;
-delete env.XSE_SF_GAME_PATH;
-
-const code = await new Promise((resolve, reject) => {
-  const child = spawn('xmake', ['build', '-P', projectRoot], { env, stdio: 'inherit' });
-  child.once('error', reject);
-  child.once('exit', resolve);
-});
-if (code !== 0) process.exit(code ?? 1);
-`,
-    },
+    ...nativeProjectFiles(options, 'OSF UI native example'),
     {
       path: 'native/src/main.cpp',
       content: `#include <SFSE/SFSE.h>
