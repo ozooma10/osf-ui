@@ -160,20 +160,11 @@ target("OSF UI")
         add_installfiles("data/(Materials/**)")
         add_installfiles("data/(*.esm)")
     end
-    -- Build the ignored frontend artifact before native deployment. Node is a
-    -- developer/build dependency; it is never required on a player's machine.
+    -- Build the ignored frontend artifact before native deployment (shared
+    -- with before_install below — see tools/xmake/frontend_views.lua).
     before_build(function(target)
-        local frontend = path.join(os.projectdir(), "frontend")
-        cprint("${dim}building built-in views ..")
-        local npm = is_host("windows") and "npm.cmd" or "npm"
-        os.vrunv(npm, { "--prefix", frontend, "run", "build" })
-        -- The 4 MB placeholder DDS files are generated, never committed; the
-        -- generator refuses unsafe (render-target-shaped) sizes by design.
-        import("core.project.config")
-        if config.get("with_world_surfaces") then
-            cprint("${dim}generating world-surface placeholder textures ..")
-            os.vrunv("python", { path.join(os.projectdir(), "tools", "make_world_surface_placeholder.py"), "--all" })
-        end
+        import("frontend_views", { rootdir = path.join(os.projectdir(), "tools", "xmake") })
+        frontend_views.build()
     end)
     -- Redeploy authored data + generated views to the mod folder on every build.
     -- The commonlib rule's after_build only runs "xmake install" when the DLL binary itself changed, so pure HTML/JS/JSON edits would otherwise never reach XSE_SF_MODS_PATH.
@@ -233,17 +224,12 @@ target("OSF UI")
 
     -- xmake install is also used by the release packager. Install the
     -- production host explicitly; unlike the MO2 auto-deploy above, this path
-    -- runs with XSE_SF_* unset and must not depend on an after-build side effect.
+    -- runs with XSE_SF_* unset and must not depend on an after-build side
+    -- effect. ⚠ Do NOT fold this into before_build: `xmake install` does not
+    -- run the build phase, and package.ps1 -SkipBuild relies on this hook.
     before_install(function(target)
-        local frontend = path.join(os.projectdir(), "frontend")
-        cprint("${dim}building built-in views ..")
-        local npm = is_host("windows") and "npm.cmd" or "npm"
-        os.vrunv(npm, { "--prefix", frontend, "run", "build" })
-        import("core.project.config")
-        if config.get("with_world_surfaces") then
-            cprint("${dim}generating world-surface placeholder textures ..")
-            os.vrunv("python", { path.join(os.projectdir(), "tools", "make_world_surface_placeholder.py"), "--all" })
-        end
+        import("frontend_views", { rootdir = path.join(os.projectdir(), "tools", "xmake") })
+        frontend_views.build()
     end)
     after_install(function(target)
         import("core.project.config")

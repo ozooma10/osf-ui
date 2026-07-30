@@ -96,9 +96,10 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		// ring between Submit (adoption) and the seam render workers (sampling).
 		std::atomic<bool> seamMode{ false };
 		std::mutex        ringMutex;
-		static constexpr std::uint32_t kSeamRtvSlots = 8;
-		ID3D12DescriptorHeap*      seamRtvHeap{ nullptr };  // typed RTVs onto the engine's (typeless) UI buffers
-		std::atomic<std::uint32_t> seamRtvNext{ 0 };
+		// One descriptor is enough: the whole create-and-bind sequence runs
+		// under ringMutex, and OMSetRenderTargets snapshots the CPU descriptor
+		// at record time, so it is free for reuse the moment the call returns.
+		ID3D12DescriptorHeap* seamRtvHeap{ nullptr };  // typed RTV onto the engine's (typeless) UI buffers
 		std::uint64_t seamLastConsumeSignaled{ 0 };  // ringMutex
 		std::atomic<std::uint64_t> seamDraws{ 0 };
 		std::atomic<std::uint64_t> seamDrawsFgTarget{ 0 };  // diagnostics
@@ -150,7 +151,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		bool                  seamPsoFailed{ false };  // ringMutex; don't retry+spam
 		// shader-visible: slot 0 unused, 1..kMaxSlots = shared ring
 		ID3D12DescriptorHeap* srvHeap{ nullptr };
-		std::uint32_t         rtvStride{ 0 };
 		std::uint32_t         srvStride{ 0 };
 		ID3DBlob*             vsBlob{ nullptr };
 		ID3DBlob*             psBlob{ nullptr };
@@ -564,16 +564,15 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				return false;
 			}
 			srvStride = dev->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-			rtvStride = dev->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 
-			// Seam-draw RTV ring: typed views created per draw onto the
-			// engine's (typeless, churning) UI buffers. Descriptors are copied
-			// into the command list at OMSetRenderTargets time, so a small
-			// ring outlives concurrent worker frames.
+			// Seam-draw RTV: a typed view created per draw onto the engine's
+			// (typeless, churning) UI buffers. One descriptor suffices — the
+			// draw path is serialized under ringMutex and OMSetRenderTargets
+			// snapshots the descriptor at record time.
 			{
 				D3D12_DESCRIPTOR_HEAP_DESC heap{};
 				heap.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-				heap.NumDescriptors = kSeamRtvSlots;
+				heap.NumDescriptors = 1;
 				if (FAILED(dev->CreateDescriptorHeap(&heap,
 						__uuidof(ID3D12DescriptorHeap), reinterpret_cast<void**>(&seamRtvHeap)))) {
 					REX::ERROR("D3D12Compositor: seam RTV heap creation failed");
@@ -685,10 +684,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				return false;
 			}
 
-			const auto rtvSlot = seamRtvNext.fetch_add(1, std::memory_order_relaxed) % kSeamRtvSlots;
-			const D3D12_CPU_DESCRIPTOR_HANDLE rtv{
-				seamRtvHeap->GetCPUDescriptorHandleForHeapStart().ptr + static_cast<SIZE_T>(rtvSlot) * rtvStride
-			};
+			const D3D12_CPU_DESCRIPTOR_HANDLE rtv = seamRtvHeap->GetCPUDescriptorHandleForHeapStart();
 			D3D12_RENDER_TARGET_VIEW_DESC rtvDesc{};
 			rtvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;  // typed view on the typeless UI buffer
 			rtvDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
