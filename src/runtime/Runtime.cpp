@@ -2248,9 +2248,7 @@ namespace OSFUI
 
 		if (!captured) {
 			// Reset routing timers so the next overlay open starts fresh.
-			for (auto& t : _padNavNextRepeat) {
-				t = 0.0;
-			}
+			_padNavigation.Reset();
 			_padScrollAccum = 0.0f;
 			return;
 		}
@@ -2283,24 +2281,14 @@ namespace OSFUI
 			return;  // no default stick mapping in raw mode
 		}
 
-		// Left stick -> arrow-key nav, initial-delay + repeat, per direction
-		// (0=up,1=down,2=left,3=right; timer 0.0 == inactive/fresh sentinel).
-		constexpr double    kNavInitialDelay = 0.35;
-		constexpr double    kNavRepeat = 0.11;
-		const bool          dirActive[4] = { s.ly > kDeadzone, s.ly < -kDeadzone,
-            s.lx < -kDeadzone, s.lx > kDeadzone };
+		// Left stick -> one arrow direction. The state machine prevents a normal
+		// flick, release jitter, or diagonal input from skipping several controls;
+		// a deliberate hold still repeats after a longer initial pause.
+		const auto nav = _padNavigation.Update(s.lx, s.ly, _uptime);
 		const std::uint32_t dirVk[4] = { 0x26, 0x28, 0x25, 0x27 };
-		for (int i = 0; i < 4; ++i) {
-			if (!dirActive[i]) {
-				_padNavNextRepeat[i] = 0.0;
-				continue;
-			}
-			if (_padNavNextRepeat[i] == 0.0) {
+		for (std::uint8_t i = 0; i < 4; ++i) {
+			if ((nav & (1u << i)) != 0) {
 				tap(dirVk[i]);
-				_padNavNextRepeat[i] = _uptime + kNavInitialDelay;
-			} else if (_uptime >= _padNavNextRepeat[i]) {
-				tap(dirVk[i]);
-				_padNavNextRepeat[i] = _uptime + kNavRepeat;
 			}
 		}
 

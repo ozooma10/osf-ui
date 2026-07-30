@@ -5,6 +5,7 @@
 #include "api/BridgeApi.h"
 #include "composite/ICompositor.h"
 #include "core/Config.h"
+#include "input/GamepadNavigation.h"
 #include "input/InputRouter.h"
 #include "render/IWebRenderer.h"
 #include "runtime/DiagnosticsModule.h"
@@ -524,11 +525,10 @@ namespace OSFUI
 		double                        _focusMenuMismatchSince{ -1.0 };
 
 		// Gamepad routing state (main-thread only; DrainEngineInput). Left-stick
-		// nav uses per-direction repeat timers (0=up,1=down,2=left,3=right;
-		// value 0 = inactive/fresh sentinel, else next-fire time in _uptime
-		// seconds). Right-stick scroll accumulates fractional notches. Sticks
-		// send raw bridge events only when they change past an epsilon.
-		double                        _padNavNextRepeat[4]{};
+		// navigation is a single latched direction with release hysteresis and
+		// delayed hold-repeat. Right-stick scroll accumulates fractional notches.
+		// Sticks send raw bridge events only when they change past an epsilon.
+		GamepadNavigation             _padNavigation;
 		float                         _padScrollAccum{ 0.0f };
 		float                         _padLastSentSticks[4]{};  // lx,ly,rx,ry last sent as raw bridge event
 		// When the WebView owns foreground focus, Starfield's engine gamepad
