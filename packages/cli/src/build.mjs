@@ -1,9 +1,10 @@
-import { access, cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 import { build as viteBuild } from 'vite';
 
 import { BUILD_MARKER, CLI_VERSION } from './constants.mjs';
+import { exists } from './fsutil.mjs';
 import { manifestFor } from './config.mjs';
 import { sharedAssetPath } from './shared-assets.mjs';
 
@@ -52,7 +53,7 @@ export async function buildProject(project, { quiet = false } = {}) {
     resolve(project.outDir, BUILD_MARKER),
     `${JSON.stringify({ source: '@osfui/cli', version: CLI_VERSION }, null, 2)}\n`,
   );
-  if (await access(project.modRoot).then(() => true, () => false)) {
+  if (await exists(project.modRoot)) {
     await cp(project.modRoot, project.outDir, { recursive: true });
   }
   await viteBuild({

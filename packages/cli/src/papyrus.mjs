@@ -1,6 +1,8 @@
 import { readdir, stat } from 'node:fs/promises';
 import { relative, resolve, sep } from 'node:path';
 
+import { latestMtime, pexFor } from './fsutil.mjs';
+
 export async function pscFiles(root) {
   let entries;
   try {
@@ -17,21 +19,6 @@ export async function pscFiles(root) {
   return result;
 }
 
-async function latestMtime(path) {
-  let info;
-  try {
-    info = await stat(path);
-  } catch {
-    return 0;
-  }
-  if (!info.isDirectory()) return info.mtimeMs;
-  let latest = info.mtimeMs;
-  for (const entry of await readdir(path, { withFileTypes: true })) {
-    latest = Math.max(latest, await latestMtime(resolve(path, entry.name)));
-  }
-  return latest;
-}
-
 /**
  * Missing/stale compiled Papyrus scripts under the project's Data root.
  *
@@ -46,9 +33,7 @@ export async function papyrusWarnings(modRoot, papyrus = null) {
   const sourceRoot = resolve(modRoot, 'Scripts', 'Source');
   const warnings = [];
   for (const psc of await pscFiles(sourceRoot)) {
-    let rel = relative(sourceRoot, psc);
-    if (rel.toLowerCase().startsWith(`user${sep}`)) rel = rel.slice(`user${sep}`.length);
-    const pex = resolve(modRoot, 'Scripts', rel.replace(/\.psc$/i, '.pex'));
+    const pex = pexFor(modRoot, psc);
     const sourceName = relative(modRoot, psc).replaceAll(sep, '/');
     const compiledName = relative(modRoot, pex).replaceAll(sep, '/');
     try {

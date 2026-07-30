@@ -1,4 +1,3 @@
-import { access } from 'node:fs/promises';
 import { extname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { loadConfigFromFile, normalizePath } from 'vite';
 
@@ -7,8 +6,7 @@ import {
   MOD_ID_PATTERN,
   VIEW_ID_PATTERN,
 } from './constants.mjs';
-
-const exists = (path) => access(path).then(() => true, () => false);
+import { exists } from './fsutil.mjs';
 
 /**
  * Candidate mock files probed, in priority order, when the config does not

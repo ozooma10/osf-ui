@@ -1,10 +1,11 @@
 import { rmSync } from 'node:fs';
 import { copyFile, cp, lstat, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
-import { basename, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, join, relative, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { stdin, stdout } from 'node:process';
 
 import { AUTHOR_MARKER, BUILD_MARKER, LOCAL_FILE } from './constants.mjs';
+import { within } from './fsutil.mjs';
 import { buildProject } from './build.mjs';
 import { buildPapyrus } from './papyrus-build.mjs';
 import { reportPapyrus } from './papyrus.mjs';
@@ -168,11 +169,6 @@ export async function deployViews(project, deployRoot) {
   const to = resolve(deployRoot, subpath, project.modId);
   await mkdir(resolve(to, '..'), { recursive: true });
   await mirrorTree(from, to);
-}
-
-function within(root, path) {
-  const child = relative(root, path);
-  return !isAbsolute(child) && !child.startsWith('..');
 }
 
 /** True when the error is the running game holding a deployed file open. */

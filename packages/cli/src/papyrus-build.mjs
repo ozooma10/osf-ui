@@ -1,18 +1,10 @@
 import { spawn } from 'node:child_process';
-import {
-  access,
-  mkdir,
-  readFile,
-  readdir,
-  rm,
-  stat,
-} from 'node:fs/promises';
+import { mkdir, readFile, rm } from 'node:fs/promises';
 import { delimiter, dirname, relative, resolve, sep } from 'node:path';
 
 import { LOCAL_FILE } from './constants.mjs';
+import { exists, latestMtime, pexFor } from './fsutil.mjs';
 import { pscFiles } from './papyrus.mjs';
-
-const exists = (path) => path && access(path).then(() => true, () => false);
 
 async function localSettings(project) {
   try {
@@ -143,21 +135,6 @@ function run(executable, args, options = {}) {
   });
 }
 
-async function latestMtime(path) {
-  let info;
-  try {
-    info = await stat(path);
-  } catch {
-    return 0;
-  }
-  if (!info.isDirectory()) return info.mtimeMs;
-  let latest = info.mtimeMs;
-  for (const entry of await readdir(path, { withFileTypes: true })) {
-    latest = Math.max(latest, await latestMtime(resolve(path, entry.name)));
-  }
-  return latest;
-}
-
 async function ensureImports(project, tools) {
   if (tools.papyrusImports) return tools.papyrusImports;
   if (!tools.contentResources) {
@@ -179,13 +156,6 @@ async function ensureImports(project, tools) {
     throw new Error('Creation Kit ContentResources.zip did not contain Scripts/Source/Quest.psc.');
   }
   return source;
-}
-
-function pexFor(modRoot, psc) {
-  const sourceRoot = resolve(modRoot, 'Scripts/Source');
-  let rel = relative(sourceRoot, psc);
-  if (rel.toLowerCase().startsWith(`user${sep}`)) rel = rel.slice(`user${sep}`.length);
-  return resolve(modRoot, 'Scripts', rel.replace(/\.psc$/i, '.pex'));
 }
 
 function requiredTools(tools) {

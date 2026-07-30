@@ -1,4 +1,5 @@
-import { access, readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
+import { exists } from './fsutil.mjs';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { extname, resolve } from 'node:path';
@@ -42,7 +43,7 @@ export async function checkProject(project) {
   }
   if (problems.length) throw new Error(`OSF UI compatibility check failed:\n${problems.join('\n')}`);
   const tsconfig = resolve(project.root, 'tsconfig.json');
-  if (await access(tsconfig).then(() => true, () => false)) {
+  if (await exists(tsconfig)) {
     await runTypeScript(project.root, tsconfig);
   }
   return project.views.length;
