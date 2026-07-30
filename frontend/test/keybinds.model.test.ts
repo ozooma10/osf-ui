@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildModel, vanillaLabel, inputContextFor } from '@lib/keybinds/model';
+import { buildModel, vanillaLabel } from '@lib/keybinds/model';
 import type { ModEntry, VanillaKey } from '@lib/keybinds/model';
 
 /** Builds a mod entry holding only the fields buildModel reads. */
@@ -54,45 +54,42 @@ describe('vanillaLabel', () => {
   });
 });
 
-describe('inputContextFor', () => {
-  const schema = {
-    inputContexts: [
-      { id: 'menu', label: 'Menu', blocksGameplay: true },
-      { id: 'nolabel' },
-      { id: 'empty', label: '' },
-      { id: 'truthy', blocksGameplay: 1 },
-    ],
-  } as never;
+// Input-context resolution itself is @lib/settings/inputContext (covered in
+// settings.inputcontext.test.ts); these assert the keybinds model delegates to
+// it and localizes the implicit-context label.
+describe('buildModel input contexts', () => {
+  const contexts = [{ id: 'menu', label: 'Menu', blocksGameplay: true }];
 
-  it('falls back to gameplay for an absent, empty or literal-gameplay ref', () => {
-    const fallback = { id: 'gameplay', label: 'Gameplay', blocksGameplay: false };
-    expect(inputContextFor(schema, undefined)).toEqual(fallback);
-    expect(inputContextFor(schema, '')).toEqual(fallback);
-    expect(inputContextFor(schema, 'gameplay')).toEqual(fallback);
-  });
-
-  it('falls back for an unknown ref, or one that fails the id grammar', () => {
-    expect(inputContextFor(schema, 'nosuch').id).toBe('gameplay');
-    expect(inputContextFor(schema, '-leading-dash').id).toBe('gameplay');
-    expect(inputContextFor(schema, 'has space').id).toBe('gameplay');
-    expect(inputContextFor(undefined, 'menu').id).toBe('gameplay');
-  });
-
-  it('resolves a declared context', () => {
-    expect(inputContextFor(schema, 'menu')).toEqual({
-      id: 'menu',
-      label: 'Menu',
+  it('resolves a declared context through the shared resolver', () => {
+    const rows = buildModel([mod({
+      id: 'acme.widgets',
+      settings: [{ type: 'key', key: 'openMenu', inputContext: 'menu' }],
+      values: { openMenu: 'F7' },
+      inputContexts: contexts,
+    })], []);
+    expect(rows[0]).toMatchObject({
+      contextId: 'menu',
+      contextLabel: 'Menu',
       blocksGameplay: true,
     });
   });
 
-  it('defaults a missing or empty label to the id', () => {
-    expect(inputContextFor(schema, 'nolabel').label).toBe('nolabel');
-    expect(inputContextFor(schema, 'empty').label).toBe('empty');
-  });
-
-  it('requires blocksGameplay === true exactly (a truthy non-boolean does not count)', () => {
-    expect(inputContextFor(schema, 'truthy').blocksGameplay).toBe(false);
+  it('localizes the implicit gameplay label on mod rows like game rows', () => {
+    const translate = (address: string, english: string) =>
+      address === 'gameplay' ? 'Jugabilidad' : english;
+    const rows = buildModel(
+      [mod({
+        id: 'acme.widgets',
+        settings: [{ type: 'key', key: 'openMenu' }],
+        values: { openMenu: 'F7' },
+      })],
+      [{ event: 'QuickSaveHandler', title: 'Starfield (Quicksave)', name: 'F5' } as VanillaKey],
+      translate,
+    );
+    // Before the dedupe onto the shared resolver, the mod row hardcoded
+    // English "Gameplay" while the game row translated it.
+    expect(rows[0]!.contextLabel).toBe('Jugabilidad');
+    expect(rows[1]!.contextLabel).toBe('Jugabilidad');
   });
 });
 
