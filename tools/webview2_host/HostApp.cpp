@@ -2,6 +2,7 @@
 
 #include "core/Version.h"
 #include "Wv2BrokerLaunch.h"  // LaunchMethodName (logging only)
+#include "Wv2LocalUri.h"
 #include "Wv2Pipe.h"
 #include "Wv2Protocol.h"
 
@@ -2218,16 +2219,11 @@ namespace osfui::wv2
 			// The "/" (or end-of-string) right after the host is load-bearing:
 			// it rejects https://osfui.local.evil.com/ and userinfo tricks like
 			// https://osfui.local@evil.com/ without parsing the URI.
+			// The decision itself lives in Wv2LocalUri.h so tests/native can
+			// exercise it without a Windows host process.
 			[[nodiscard]] bool IsLocalViewUri(std::wstring a_uri) const
 			{
-				for (auto& ch : a_uri) {
-					if (ch >= L'A' && ch <= L'Z') ch += 32;  // scheme/host are ASCII
-				}
-				for (const auto* scheme : { L"https://", L"http://" }) {
-					const auto base = scheme + virtualHost;
-					if (a_uri == base || a_uri.starts_with(base + L"/")) return true;
-				}
-				return false;
+				return osfui::wv2::IsLocalViewUri(std::move(a_uri), virtualHost);
 			}
 
 			// security-model.md rule 2 (default-deny egress): everything a view may
