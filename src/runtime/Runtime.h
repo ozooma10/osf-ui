@@ -504,13 +504,17 @@ namespace OSFUI
 		// open, i.e. after every queued message was delivered (ABI 1.3
 		// message-before-first-paint). D3D12 additionally waits until Present has
 		// reported the output size and the renderer has painted at that size.
-		// Normally costs only a couple of frames. A wall-clock deadline closes the
-		// menu and releases its pause/input policy if the renderer never produces
-		// a frame for this presentation, so a transparent or stalled host cannot
-		// trap the player in an invisible modal state.
+		// Normally costs only a couple of frames. A deadline closes the menu and
+		// releases its pause/input policy if the renderer never produces a frame
+		// for this presentation, so a transparent or stalled host cannot trap the
+		// player in an invisible modal state. The deadline accumulates per-tick
+		// with a clamped delta rather than reading a wall clock: Tick stalls
+		// wholesale when the game loses focus (engine pause) or hitches, and that
+		// stalled time must not count against the reveal.
 		bool          _revealPending{ false };
 		bool          _revealFrameReady{ false };
-		std::chrono::steady_clock::time_point _revealStartedAt{};
+		double        _revealHeldSeconds{ 0.0 };
+		std::chrono::steady_clock::time_point _revealLastPolledAt{};
 		std::uint64_t _lastSubmittedFrame{ 0 };
 
 		// The view shown as the overlay's focused menu — the last one sent

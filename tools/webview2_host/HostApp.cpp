@@ -1309,12 +1309,46 @@ namespace osfui::wv2
 			// Publish the requested epoch only after the STA has made its visual
 			// visible. The next real WGC capture then proves that the frame belongs
 			// to this open rather than to the transparent closed presentation.
-			void PromotePresentation(View& a_view)
+			// Returns whether a new epoch was actually promoted (a redundant show
+			// of an already-current epoch is not a promotion).
+			bool PromotePresentation(View& a_view)
 			{
 				const auto requested = std::exchange(a_view.pendingPresentationEpoch, 0ull);
-				if (requested != 0) {
-					presentationEpoch.store(requested, std::memory_order_release);
+				if (requested == 0 ||
+					requested == presentationEpoch.load(std::memory_order_relaxed)) {
+					return false;
 				}
+				presentationEpoch.store(requested, std::memory_order_release);
+				return true;
+			}
+
+			// STA thread, for shows where the composition does not change (the
+			// visual never left the screen): WGC only captures on damage, so a
+			// static page would never emit a frame carrying the just-promoted
+			// epoch and the game's reveal gate would starve into its timeout.
+			// Re-send the newest ring pixels under a fresh serial stamped with the
+			// current epoch. Only safe on those no-change paths — after a real
+			// closed->open the last capture is the transparent closed state and
+			// must never be re-stamped (the bug epochs exist to prevent).
+			void RepublishLatest()
+			{
+				std::scoped_lock lock(ringMutex);
+				// The last slot must actually hold pixels: after a resize recreated
+				// the ring, nothing is republishable until the first capture lands
+				// in the new ring.
+				if (!ring[0].texture || ring[lastSlot].lastSerial == 0) {
+					return;
+				}
+				const auto serial = ++frameSerial;
+				ring[lastSlot].lastSerial = serial;
+				context4->Signal(produceFence.Get(), serial);
+				context->Flush();
+				Send(json{
+					{ "type", "frame" }, { "slot", lastSlot }, { "serial", serial },
+					{ "width", ringWidth }, { "height", ringHeight },
+					{ "sourceTimeMs", ::GetTickCount64() },
+					{ "presentationEpoch",
+						presentationEpoch.load(std::memory_order_relaxed) } });
 			}
 
 			View* FindView(std::string_view a_id)
@@ -1459,7 +1493,11 @@ namespace osfui::wv2
 					a_view.hideDeferred = false;
 					log.Info(std::format("view '{}': show — already visible (visual={})",
 						a_view.id, a_view.visual && a_view.visual.IsVisible()));
-					PromotePresentation(a_view);
+					// Nothing changes on screen, so WGC will not capture; republish
+					// the current (genuine, on-screen) pixels under the new epoch.
+					if (PromotePresentation(a_view)) {
+						RepublishLatest();
+					}
 					return;
 				}
 				a_view.hidden = false;
@@ -1471,7 +1509,11 @@ namespace osfui::wv2
 				if (a_view.visual && a_view.visual.IsVisible()) {
 					log.Info(std::format(
 						"view '{}': show — hide was still deferred, never left the screen", a_view.id));
-					PromotePresentation(a_view);
+					// Same as above: the composition is unchanged, so only a
+					// republish gets a frame with this epoch to the game.
+					if (PromotePresentation(a_view)) {
+						RepublishLatest();
+					}
 					return;
 				}
 				if (a_view.visual && a_view.webView && a_view.domSeen) {
@@ -2851,6 +2893,14 @@ namespace osfui::wv2
 				const winrt::Windows::Graphics::Capture::Direct3D11CaptureFramePool& a_pool)
 			{
 				if (quit.load() || captureClosing.load()) return;
+				// Known one-frame race: this epoch is read at callback entry, but
+				// the frame's pixels were captured when WGC queued it. A frame
+				// captured just before the STA made the visual visible whose
+				// callback runs just after PromotePresentation gets the new epoch
+				// while still holding pre-reveal pixels. The window is at most one
+				// composition frame and self-corrects on the next capture; closing
+				// it would require draining the frame pool inside the STA's
+				// show path, which is not worth the cross-thread coupling.
 				const auto framePresentationEpoch =
 					presentationEpoch.load(std::memory_order_acquire);
 				try {
@@ -3653,13 +3703,41 @@ namespace osfui::wv2
 								gameWindowMissingSince = now;
 								log.Warn("game window disappeared before the process/pipe watchers fired");
 							}
-							constexpr std::uint64_t kMissingWindowGraceMs = 3000;
-							if (now - gameWindowMissingSince >= kMissingWindowGraceMs) {
-								if (!captureGameExit(1000)) {
-									log.Info("game window remained absent for 3s while the process handle "
-											 "still appeared active — shutting down");
+							// The game may have recreated its top-level window
+							// (display-device change, fullscreen transition) rather
+							// than exited. Re-resolve by PID before concluding it is
+							// gone; visible-only, so the game's hidden helper windows
+							// (DXGI, IME) cannot satisfy the check forever.
+							struct FindCtx { DWORD pid; HWND found; } findCtx{
+								::GetProcessId(gameProcess), nullptr };
+							if (findCtx.pid != 0) {
+								::EnumWindows([](HWND a_hwnd, LPARAM a_param) -> BOOL {
+									auto& ctx = *reinterpret_cast<FindCtx*>(a_param);
+									DWORD pid = 0;
+									::GetWindowThreadProcessId(a_hwnd, &pid);
+									if (pid != ctx.pid || !::IsWindowVisible(a_hwnd) ||
+										::GetWindow(a_hwnd, GW_OWNER) != nullptr) {
+										return TRUE;
+									}
+									ctx.found = a_hwnd;
+									return FALSE;
+								}, reinterpret_cast<LPARAM>(&findCtx));
+							}
+							if (findCtx.found) {
+								log.Warn(std::format(
+									"game window was recreated — re-attached (hwnd={:#x})",
+									reinterpret_cast<std::uintptr_t>(findCtx.found)));
+								gameTopLevel = findCtx.found;
+								gameWindowMissingSince = 0;
+							} else {
+								constexpr std::uint64_t kMissingWindowGraceMs = 3000;
+								if (now - gameWindowMissingSince >= kMissingWindowGraceMs) {
+									if (!captureGameExit(1000)) {
+										log.Info("game window remained absent for 3s while the process "
+												 "handle still appeared active — shutting down");
+									}
+									break;
 								}
-								break;
 							}
 						} else {
 							gameWindowMissingSince = 0;

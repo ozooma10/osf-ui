@@ -1221,12 +1221,14 @@ namespace OSFUI
 				// hand over a post-open frame.
 				_revealPending = true;
 				_revealFrameReady = false;
-				_revealStartedAt = std::chrono::steady_clock::now();
+				_revealHeldSeconds = 0.0;
+				_revealLastPolledAt = {};
 			} else {
 				if (!visible) {
 					_revealPending = false;  // closed while a reveal was still pending
 					_revealFrameReady = false;
-					_revealStartedAt = {};
+					_revealHeldSeconds = 0.0;
+					_revealLastPolledAt = {};
 				}
 				if (!_revealPending) {
 					_compositor->SetVisible(visible);
@@ -3170,61 +3172,76 @@ namespace OSFUI
 		if (!_initialized || !IsVisible() || !_renderer || !_compositor) {
 			return;
 		}
-		if (_revealPending && _revealStartedAt !=
-				std::chrono::steady_clock::time_point{}) {
-			const auto elapsed = std::chrono::duration<double>(
-				std::chrono::steady_clock::now() - _revealStartedAt).count();
-			if (elapsed >= kRevealTimeoutSeconds) {
-				const auto active = _menus.ActiveMenu().value_or("<none>");
-				REX::ERROR("Runtime: overlay reveal for '{}' produced no presentable frame in {:.1f}s — "
-						   "closing it and releasing input/pause state",
-					active, elapsed);
-				CancelPendingOpen();
-				_menus.CloseAll();
-				ApplyMenuPolicy();
-				// The timeout fires after this tick's normal policy reconciliation.
-				// Release every engine-owned edge now instead of trapping input/pause
-				// until another main-thread task happens to run.
-				if (_config.focusMenu) {
-					ReconcileFocusMenu();
-				}
-				ReconcileControlLayer();
-				ReconcileSimPause();
-				FreeCursor::Apply(false);
+		if (const auto frame = _renderer->Render()) {
+			if (!_revealPending) {
+				_lastSubmittedFrame = frame->frameIndex;
+				_compositor->Submit(*frame);
 				return;
 			}
-		}
-		if (const auto frame = _renderer->Render()) {
-			if (_revealPending) {
-				if (frame->frameIndex != _lastSubmittedFrame) {
-					_lastSubmittedFrame = frame->frameIndex;
-					_compositor->Submit(*frame);  // also arms lazy present-hook setup
-					_revealFrameReady = true;
-				}
-				if (!_revealFrameReady) {
-					// No frame from this exact presentation has reached the game
-					// yet. The host stamps frames only after the (re)shown view is
-					// presentable, so keep the compositor hidden.
-					return;
-				}
-				if (!_compositor->IsOutputSizeKnown()) {
-					// D3D12 learns the swapchain size from Present. Keep the first
-					// manifest-sized texture hidden while that callback arrives.
-					return;
-				}
-				if (frame->width != _viewWidth.load() || frame->height != _viewHeight.load()) {
-					// The output callback requested a resize, but the host has not
-					// painted the correctly sized replacement yet.
-					return;
-				}
+			if (frame->frameIndex != _lastSubmittedFrame) {
+				_lastSubmittedFrame = frame->frameIndex;
+				_compositor->Submit(*frame);  // also arms lazy present-hook setup
+				_revealFrameReady = true;
+			}
+			// Hold reasons, checked in order; the reveal completes only when none
+			// applies. The deadline below runs only for a tick that is still
+			// holding, so a frame that becomes presentable after a long stall
+			// (alt-tab, load hitch) completes the reveal instead of tripping the
+			// timeout it already satisfied.
+			bool holding = false;
+			if (!_revealFrameReady) {
+				// No frame from this exact presentation has reached the game
+				// yet. The host stamps frames only after the (re)shown view is
+				// presentable, so keep the compositor hidden.
+				holding = true;
+			} else if (!_compositor->IsOutputSizeKnown()) {
+				// D3D12 learns the swapchain size from Present. Keep the first
+				// manifest-sized texture hidden while that callback arrives.
+				holding = true;
+			} else if (frame->width != _viewWidth.load() ||
+					   frame->height != _viewHeight.load()) {
+				// The output callback requested a resize, but the host has not
+				// painted the correctly sized replacement yet.
+				holding = true;
+			}
+			if (!holding) {
 				_revealPending = false;
 				_revealFrameReady = false;
-				_revealStartedAt = {};
+				_revealHeldSeconds = 0.0;
+				_revealLastPolledAt = {};
 				_compositor->SetVisible(true);  // the cached frame is fresh and output-sized
 				return;
 			}
-			_lastSubmittedFrame = frame->frameIndex;
-			_compositor->Submit(*frame);
+		} else if (!_revealPending) {
+			return;
+		}
+		// Reveal still held this tick: charge the held-time budget. The per-tick
+		// delta is clamped because Tick stalls entirely while the game is
+		// unfocused or hitching — wall-clock time spent stalled is not time the
+		// renderer failed to produce a frame in.
+		const auto now = std::chrono::steady_clock::now();
+		if (_revealLastPolledAt != std::chrono::steady_clock::time_point{}) {
+			_revealHeldSeconds += (std::min)(std::chrono::duration<double>(
+				now - _revealLastPolledAt).count(), 0.25);
+		}
+		_revealLastPolledAt = now;
+		if (_revealHeldSeconds >= kRevealTimeoutSeconds) {
+			const auto active = _menus.ActiveMenu().value_or("<none>");
+			REX::ERROR("Runtime: overlay reveal for '{}' produced no presentable frame in {:.1f}s "
+					   "of live run time — closing it and releasing input/pause state",
+				active, _revealHeldSeconds);
+			CancelPendingOpen();
+			_menus.CloseAll();
+			ApplyMenuPolicy();
+			// The timeout fires after this tick's normal policy reconciliation.
+			// Release every engine-owned edge now instead of trapping input/pause
+			// until another main-thread task happens to run.
+			if (_config.focusMenu) {
+				ReconcileFocusMenu();
+			}
+			ReconcileControlLayer();
+			ReconcileSimPause();
+			FreeCursor::Apply(false);
 		}
 	}
 
