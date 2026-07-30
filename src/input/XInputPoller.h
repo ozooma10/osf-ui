@@ -21,5 +21,11 @@ namespace OSFUI
 		};
 
 		[[nodiscard]] static State Poll();
+
+		// Forget which slot the current capturing interval latched onto (the
+		// slot showing real input wins and then keeps winning). Called when
+		// direct polling ends so the next overlay session re-picks the pad the
+		// player is actually holding.
+		static void ResetSlotLatch();
 	};
 }

@@ -218,9 +218,12 @@ function applySetting(key: string, settingValue: SettingValue) {
 }
 
 function syncVisibility() {
-  window.osfui?.send?.('setViewHidden', {
-    hidden: !hudSettings.hudEnabled || !hotkeyVisible,
-  });
+  // hud.show / hud.hide write the runtime's authoritative shown-set. Do NOT
+  // use setViewHidden here: the menu policy rewrites every layer's hidden
+  // flag from that set whenever any menu opens or closes, which would undo a
+  // raw setViewHidden the moment the player closes the Mods surface.
+  const visible = hudSettings.hudEnabled && hotkeyVisible;
+  window.osfui?.send?.(visible ? 'hud.show' : 'hud.hide');
 }
 
 // Subscribe before requesting the initial registry so no live edit can race us.
@@ -411,9 +414,10 @@ export function install(ctx: MockContext) {
       publishSettings();
       return true;
     }
-    if (command === 'setViewHidden') {
-      // The real host applies this to the WebView layer. The harness toolbar
-      // already owns preview visibility, so acknowledging is sufficient here.
+    if (command === 'hud.show' || command === 'hud.hide') {
+      // The real host applies these to the runtime's shown-set. The harness
+      // toolbar already owns preview visibility, so acknowledging is
+      // sufficient here.
       return true;
     }
   });

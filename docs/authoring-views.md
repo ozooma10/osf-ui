@@ -397,7 +397,7 @@ Whitelisted commands (anything else is rejected, logged, and answered with
 | `menu.open` | `view?: string` | open a discovered surface by id, loading it on demand (omitted ⇒ the calling view). Opening a menu also focuses it: under the single-menu policy it replaces the current menu and becomes the input target |
 | `menu.close` | `view?: string` | close a loaded surface by id (omitted ⇒ the calling view); never loads an unopened view |
 | `hud.show` / `hud.hide` | `view?: string` | aliases of `menu.open` / `menu.close`, including on-demand loading for show; a surface's kind (menu vs. HUD) is fixed by its manifest, not by which command you use |
-| `setViewHidden` | `view?: string`, `hidden: bool` | show/hide one *loaded* view, independent of the global overlay toggle (omitted `view` ⇒ self) |
+| `setViewHidden` | `view?: string`, `hidden: bool` | low-level: hide one *registered* view's layer (omitted `view` ⇒ self). The menu policy rewrites every layer's hidden flag whenever any menu opens or closes, undoing this — for a HUD that should stay hidden, use `hud.hide`, which writes the authoritative shown-set |
 | `view.ready` | — | *(protocol 1.2; normally call `osfui.viewReady()`)* declare that the calling page has meaningful content ready for its first reveal; used by manifests with `readySignal:true` |
 | `log` | `text: string` | write to `OSF UI.log` (truncated to 512 chars) |
 | `ping` | — | runtime replies with `runtime.pong` |
@@ -640,7 +640,7 @@ also makes your HUD toggleable:
 ```js
 osfui.on("ui.hotkey", (p) => {
   if (p.mod === "yourname.mymod" && p.key === "toggleHud") {
-    osfui.send("setViewHidden", { hidden: visible = !visible });  // or hud.show/hud.hide
+    osfui.send((visible = !visible) ? "hud.show" : "hud.hide");
   }
 });
 ```

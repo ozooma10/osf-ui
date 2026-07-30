@@ -171,12 +171,17 @@ for (const [surface, integration, backendPath, backendPattern] of [
       assert.doesNotMatch(source, /<button|<form|addEventListener\('click'/);
       assert.match(source, /settings\.changed/);
       assert.match(source, /ui\.hotkey/);
-      assert.match(source, /setViewHidden/);
+      // hud.show/hud.hide, never a setViewHidden call: the menu policy would
+      // clobber a raw hidden flag on the next menu close (see syncVisibility).
+      // The prose comment in the template may name the command; a quoted
+      // string is a call.
+      assert.match(source, /'hud\.show'/);
+      assert.doesNotMatch(source, /'setViewHidden'/);
       assert.match(style, /pointer-events: none/);
       assert.match(style, /data-anchor/);
       assert.match(mock, /Change telemetry/);
       assert.match(mock, /hud-hotkey/);
-      assert.match(mock, /command === 'setViewHidden'/);
+      assert.match(mock, /command === 'hud\.show'/);
     } else {
       assert.doesNotMatch(config, /openOnStart: true/);
       assert.match(source, /<button/);

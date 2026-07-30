@@ -679,6 +679,9 @@ namespace osfui::wv2
 				// next physical click, so the session-wide host capture must stand
 				// down until the page reports that the picker closed.
 				bool nativePopupOpen{ false };
+				// Warn-once latch for scripted (non-gesture) window.open attempts;
+				// they are dropped, and one log line per view is enough evidence.
+				bool nonGestureOpenWarned{ false };
 				// One-shot hidden paint requested by the game. Unlike leaving the
 				// controller visible indefinitely, this primes Chromium without
 				// running closed-view animations for the rest of the session.
@@ -2497,6 +2500,23 @@ namespace osfui::wv2
 							// "leave the game". Unhandled, WebView2 would spawn a popup
 							// window over the game instead.
 							a_args->put_Handled(TRUE);
+							// Only a real user gesture (a click on a link) may leave the
+							// game. A scripted window.open never issues a network request,
+							// so InstallNetworkGuard's default-deny cannot see it — without
+							// this gate it is an egress channel around security-model.md
+							// rule 2, carrying any payload in the query string.
+							BOOL userInitiated = FALSE;
+							if (FAILED(a_args->get_IsUserInitiated(&userInitiated)) ||
+								!userInitiated) {
+								if (!view->nonGestureOpenWarned) {
+									view->nonGestureOpenWarned = true;
+									log.Warn(std::format(
+										"view '{}': blocked scripted window.open (no user "
+										"gesture); further attempts for this view are silent",
+										view->id));
+								}
+								return S_OK;
+							}
 							LPWSTR raw = nullptr;
 							if (FAILED(a_args->get_Uri(&raw)) || !raw) return S_OK;
 							std::wstring uri(raw);

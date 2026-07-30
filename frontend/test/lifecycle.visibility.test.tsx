@@ -64,6 +64,34 @@ describe('ui.visibility open edge', () => {
     expect(el.querySelector<HTMLButtonElement>('#session-chip')!.style.display).toBe('none');
   });
 
+  it('closes an open undo panel so modalOpen cannot latch across visits', async () => {
+    const bridge = makeBridge();
+    const el = await mount(bridge);
+    bridge.deliver('settings.data', WIDGETS);
+    bridge.deliver('views.data', VIEWS);
+    await flush();
+
+    // Make a change, then open the undo panel via the session chip.
+    selectRail(el, 'Acme Kit');
+    await flush();
+    el.querySelector<HTMLButtonElement>('#ctl-acme\\.kit-boolOn')!.click();
+    await flush();
+    el.querySelector<HTMLButtonElement>('#session-chip')!.click();
+    await flush();
+    expect(el.querySelector('.session-overlay')).not.toBeNull();
+
+    // F10-close then reopen. The panel hides itself anyway once the baseline
+    // drop empties its change list, so the DOM alone cannot show the bug; the
+    // symptom is `modalOpen` staying latched, which swallows LB/RB. Prove the
+    // rail cycles again on the new visit.
+    bridge.deliver('ui.visibility', { visible: true });
+    await flush();
+    expect(el.querySelector('.session-overlay')).toBeNull();
+    bridge.deliver('ui.gamepad', { kind: 'button', button: { id: 0x0200, down: true } });
+    await flush();
+    expect(el.querySelector('.rail-item.selected')!.textContent).toContain('OSF UI');
+  });
+
   it('calls padnav.reset() even when already on Home (the unconditional path)', async () => {
     const reset = vi.fn();
     (window as { padnav?: unknown }).padnav = { reset };

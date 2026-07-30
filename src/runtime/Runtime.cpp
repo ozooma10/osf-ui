@@ -1195,6 +1195,12 @@ namespace OSFUI
 			// a menu-session focus transfer can otherwise happen before the next
 			// WM_INPUT packet and leave the OS pointer hidden for the whole session.
 			OverlayInputHook::RequestStateRefresh();
+			if (!desiredCapture) {
+				// Every menu-goes-away path funnels through this edge (mouse
+				// "Exit", pad-B, transition CloseAll). An armed rebind must die
+				// with the menu, or the next gameplay keypress is captured.
+				CancelArmedKeyCapture();
+			}
 		}
 
 		// Visibility side-effects live here rather than behind a change guard,
@@ -1306,11 +1312,11 @@ namespace OSFUI
 
 	bool Runtime::SetViewHidden(std::string_view a_id, bool a_hidden)
 	{
-		// The renderer would silently no-op an unknown id; reject for a clear log.
-		const auto& loaded = _config.views;
-		const bool known = std::ranges::find(loaded, a_id) != loaded.end() ||
-			(loaded.empty() && a_id == _config.view);
-		if (!known) {
+		// The renderer would silently no-op an unknown id; reject for a clear
+		// log. Validate against the live registry — every sibling surface
+		// command does — not the boot list, which a drop-in view opened via
+		// menu.open is never on.
+		if (!_menus.IsRegistered(a_id)) {
 			REX::WARN("Runtime: setViewHidden ignored — '{}' is not a loaded view", a_id);
 			return false;
 		}
@@ -2239,6 +2245,8 @@ namespace OSFUI
 		} else {
 			_directPadActive = false;
 			_directPadButtons = 0;
+			// Next session re-picks the pad the player is actually holding.
+			XInputPoller::ResetSlotLatch();
 			while (EngineInput::PollGamepadButton(e)) {
 				if (captured) {
 					routeButtonEdge(e);
@@ -2432,6 +2440,38 @@ namespace OSFUI
 		_bridge->SendToWeb(_captureView, "settings.captured", payload, _captureRequestId);
 		REX::DEBUG("Runtime: key capture -> {} (VK {:#04x}) ({}.{})",
 			cancelled ? "(cancelled)" : name, vk, _captureMod, _captureKey);
+		_captureView.clear();
+		_captureMod.clear();
+		_captureKey.clear();
+		_captureRequestId.clear();
+		// The capture is answered; stop swallowing the captured key's release.
+		// A letter/digit VK never reaches the accelerator hook on key-up, so
+		// without this the latch stays armed and eats that key's next release
+		// in gameplay. The dangerous ups (Esc, the toggle key) are still owned
+		// by their own conditions in OnNativeAcceleratorKey.
+		_captureUpVk = kInvalidKeyCode;
+	}
+
+	void Runtime::CancelArmedKeyCapture()
+	{
+		if (!_captureArmed.exchange(false)) {
+			return;
+		}
+		_captureUpVk = kInvalidKeyCode;
+		// Answer the arming request so the view's promise settles instead of
+		// hanging until its own timeout; same shape as the Esc path in
+		// DrainKeyCapture.
+		if (_bridge && !_captureView.empty()) {
+			nlohmann::json payload{
+				{ "mod", _captureMod },
+				{ "key", _captureKey },
+				{ "name", "" },
+				{ "cancelled", true },
+			};
+			_bridge->SendToWeb(_captureView, "settings.captured", payload, _captureRequestId);
+		}
+		REX::DEBUG("Runtime: armed key capture cancelled by menu close ({}.{})",
+			_captureMod, _captureKey);
 		_captureView.clear();
 		_captureMod.clear();
 		_captureKey.clear();

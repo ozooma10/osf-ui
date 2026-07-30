@@ -260,6 +260,11 @@ namespace OSFUI
 		// view answers with a normal settings.set, so persistence/validation/
 		// re-resolution reuse the existing path.
 		void DrainKeyCapture();
+		// Cancels a still-armed rebind capture (settings.captureKey answered with
+		// cancelled:true) when the menu goes away under it — the mouse "Exit"
+		// button, pad-B, or a transition CloseAll. Without this the next gameplay
+		// keypress is swallowed and silently committed as the new binding.
+		void CancelArmedKeyCapture();
 
 		// Deliver hotkey fires queued by OnHostKey (window thread) to both
 		// consumption channels on the main thread: the C ABI's SubscribeHotkey

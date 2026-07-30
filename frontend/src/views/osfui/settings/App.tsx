@@ -356,6 +356,9 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
       // Outside the guard, like the padnav reset below: a visit that happens to
       // land back on Health must not re-expand the issue a past visit opened.
       setFocusIssueId(null);
+      // Closing with the undo panel open would otherwise latch modalOpen and
+      // kill LB/RB rail cycling for the rest of the session.
+      setUndoOpen(false);
       // Outside the reselect guard: a visit that lands back on an
       // already-selected Home still forgets the gamepad resume point.
       const padnav = (window as { padnav?: { reset?: () => void } }).padnav;
