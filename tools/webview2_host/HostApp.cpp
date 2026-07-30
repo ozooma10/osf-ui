@@ -689,6 +689,11 @@ namespace osfui::wv2
 				// Manifest (authoring) height, set by `navigate`: the page lays out at
 				// this height and ApplyScale derives the rasterization scale from it.
 				std::uint32_t logicalHeight{ kDefaultLogicalHeight };
+				// Manifest nativeBridge permission, set by `navigate`. False skips
+				// the window.osfui shim injection entirely (security-model.md rule
+				// 6); the game side independently drops any message from a
+				// bridge-less view, so this is defence in depth, not the only gate.
+				bool bridge{ true };
 				// Deferred visibility: a reveal waits for the page's first painted
 				// frame after Chromium resume, and hides wait for pending reveals.
 				bool          revealPending{ false };
@@ -1796,7 +1801,12 @@ namespace osfui::wv2
 				}
 				InstallNetworkGuard(a_view);
 				InstallEvents(a_view);
-				InstallBridgeShim(a_view);
+				if (a_view.bridge) {
+					InstallBridgeShim(a_view);
+				} else {
+					log.Info(std::format(
+						"view '{}': nativeBridge=false — window.osfui not injected", a_view.id));
+				}
 				InstallRenderStats(a_view);
 				// HUD-only mode leaves the widget OS-unfocused, and an unfocused renderer stops matching
 				// :focus/:focus-visible/:focus-within and reports
@@ -3249,6 +3259,10 @@ namespace osfui::wv2
 					}
 					auto* view = FindView(id);
 					if (!view) view = &CreateView(id);
+					// The injected shim persists for the controller's lifetime, so
+					// a re-navigate cannot retract an earlier grant (a manifest
+					// flip needs a view destroy/recreate — dev reload does that).
+					view->bridge = a_msg.value("bridge", true);
 					view->logicalHeight = (std::max)(1u,
 						a_msg.value("logicalHeight", kDefaultLogicalHeight));
 					// A re-navigate may carry a different manifest height (dev

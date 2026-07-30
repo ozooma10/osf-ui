@@ -36,7 +36,13 @@ export interface PageBucket {
   groups: Array<{ group: SettingsGroup; index: number }>;
 }
 
-/** A declared page that can actually be referenced: an object with a non-empty string id. */
+/**
+ * A declared page that can actually be referenced: an object whose id matches
+ * the authored-id grammar (leading [A-Za-z0-9] — the same first-character rule
+ * every other authored id uses). Enforcing it here is what makes the
+ * GENERAL_PAGE_ID comment above true: an underscore-leading id like
+ * "__general" cannot be declared, so it can never alias the implicit bucket.
+ */
 function declaredPages(schema: SettingsSchema): Array<{ id: string; label: string }> {
   const raw = (schema as { pages?: unknown }).pages;
   if (!Array.isArray(raw)) return [];
@@ -45,7 +51,7 @@ function declaredPages(schema: SettingsSchema): Array<{ id: string; label: strin
   for (const p of raw) {
     const page = p as { id?: unknown; label?: unknown } | null;
     if (!page || typeof page !== 'object') continue;
-    if (typeof page.id !== 'string' || !page.id || seen.has(page.id)) continue;
+    if (typeof page.id !== 'string' || !/^[A-Za-z0-9]/.test(page.id) || seen.has(page.id)) continue;
     seen.add(page.id);
     out.push({ id: page.id, label: typeof page.label === 'string' && page.label ? page.label : page.id });
   }

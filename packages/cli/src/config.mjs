@@ -227,6 +227,8 @@ export function manifestFor(view) {
     debugOnly: view.debugOnly === true,
     readySignal: view.readySignal === true,
     ...(view.targetVersion ? { targetVersion: view.targetVersion } : {}),
+    // Optional per-mod theming; the handoff panel and settings chrome read it.
+    ...(typeof view.accent === 'string' && view.accent ? { accent: view.accent } : {}),
     permissions: view.permissions,
   };
 }

@@ -98,10 +98,12 @@ namespace OSFUI
 		// Raw passthrough mode: Runtime skips the default mapping
 		// (nav/activate/close/scroll) and forwards only raw `ui.gamepad` events,
 		// so a page can own the gamepad fully (e.g. stick-driven camera orbit).
-		// Toggled via the `osfui.gamepadRaw` bridge command. Per-session:
-		// Runtime resets it to off on every overlay close, so a page must
-		// re-assert it on each ui.visibility show; a stale grant would leave
-		// default nav dead for the next menu.
+		// Toggled via the `osfui.gamepadRaw` bridge command. Deliberately NOT
+		// reset on overlay close: the grant is a sticky per-view property
+		// (Runtime::_gamepadRawViews) that survives hide/show, and another menu
+		// cannot inherit it because DrainEngineInput re-derives this flag from
+		// the ACTIVE view each tick (see ApplyMenuPolicy's close path, which
+		// documents the same absence).
 		static void SetRawMode(bool a_raw);
 
 		// Consume gamepad events at the receiver while the overlay captures

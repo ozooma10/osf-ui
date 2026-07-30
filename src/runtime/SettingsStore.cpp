@@ -340,7 +340,7 @@ namespace OSFUI
 		if (Log::DevMode()) {
 			Json::ReportUnknownKeys(a_schema,
 				{ "id", "title", "description", "version", "targetVersion", "accent",
-					"presets", "inputContexts", "pages", "groups" },
+					"icon", "presets", "inputContexts", "pages", "groups" },
 				"SettingsStore: schema '" + id + "'", /*a_warn=*/false);
 		}
 

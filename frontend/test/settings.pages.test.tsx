@@ -56,6 +56,25 @@ describe('pageBuckets (model)', () => {
     ).toBeNull();
   });
 
+  it('a declared page whose id collides with the implicit General bucket is refused', () => {
+    // GENERAL_PAGE_ID's leading underscores keep it outside the authored-id
+    // grammar — but only if the grammar is actually applied. Unfiltered, a
+    // declared "__general" page produced a second bucket with the same id,
+    // aliasing tab selection between them.
+    const buckets = pageBuckets({
+      pages: [{ id: GENERAL_PAGE_ID, label: 'Impostor' }, { id: 'real' }],
+      groups: [
+        { settings: [] }, // untagged -> implicit General
+        { page: GENERAL_PAGE_ID, settings: [] }, // undeclarable ref -> General too
+        { page: 'real', settings: [] },
+      ],
+    } as SettingsSchema)!;
+    expect(buckets.filter((b) => b.id === GENERAL_PAGE_ID)).toHaveLength(1);
+    expect(buckets.map((b) => b.id)).toEqual([GENERAL_PAGE_ID, 'real']);
+    // Both the untagged group and the impostor ref land on the one General.
+    expect(buckets[0]!.groups.map((g) => g.index)).toEqual([0, 1]);
+  });
+
   it('pageIdForGroup names the owning bucket, or null when unpaged', () => {
     expect(pageIdForGroup(schema, 2)).toBe('advanced');
     expect(pageIdForGroup(schema, 3)).toBe(GENERAL_PAGE_ID);

@@ -58,6 +58,33 @@ test('loads configuration and creates a production manifest', async (t) => {
   });
 });
 
+test('manifestFor covers every manifest.schema.json property', async (t) => {
+  const root = await projectFixture(t);
+  // `accent` is fully live natively and documented as authorable; it was the
+  // one schema property manifestFor dropped, so a .ts/.mjs config silently
+  // lost it and the handoff panel rendered default teal.
+  await writeFile(resolve(root, 'osfui.config.ts'), `export default {
+    modId: 'acme.widgets',
+    views: [{ id: 'panel', title: 'Panel', accent: '#ffb86b', targetVersion: '1.4.0' }],
+  };`);
+  const project = await loadProject(root);
+  const manifest = manifestFor(project.views[0]);
+  assert.equal(manifest.accent, '#ffb86b');
+
+  // The class-killing assertion: every non-$ schema property must be a key
+  // manifestFor can emit, so the next added property cannot be silently
+  // stripped from author configs.
+  const schema = JSON.parse(await readFile(
+    resolve(import.meta.dirname, '../../../docs/schema/manifest.schema.json'),
+    'utf8',
+  ));
+  const schemaKeys = Object.keys(schema.properties).filter((key) => !key.startsWith('$'));
+  const emitted = new Set(Object.keys(manifest));
+  for (const key of schemaKeys) {
+    assert.ok(emitted.has(key), `manifestFor drops schema property "${key}"`);
+  }
+});
+
 test('game deployment creates a project-named folder under the MO2 mods directory', async (t) => {
   const root = await projectFixture(t);
   const project = await loadProject(root);

@@ -16,9 +16,11 @@
 
 namespace osfui::wv2
 {
-	// Bumped on any incompatible wire change. The host refuses a mismatched
-	// client hello and exits (both binaries ship together, so a mismatch means
-	// a stale mirrored exe — the launcher versions the mirror dir to avoid it).
+	// Bumped on any incompatible wire change. The host announces this in its
+	// hello; the GAME side (WebView2HostWebRenderer) is the only validator and
+	// abandons a mismatched host (both binaries ship together, so a mismatch
+	// means a stale mirrored exe — the launcher versions the mirror dir to
+	// avoid it).
 	// v2: multi-view — per-view `view` routing on game->host view messages and
 	// `view` tagging on host->game page events.
 	inline constexpr std::uint32_t kProtocolVersion = 2;

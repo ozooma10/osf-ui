@@ -26,10 +26,11 @@ namespace OSFUI
 	{
 		// Console edge for the hotkey gameplay gate (MenuMode). INFO on purpose:
 		// rare, and the decisive line when triaging "my hotkey fired / didn't
-		// fire while the console was up" from a default (non-dev) log.
+		// fire while the console was up" from a default (non-dev) log — DEBUG
+		// never reaches a user's bug report (docs/logging.md).
 		if (std::string_view{ a_event.menuName } == "Console") {
 			s_consoleOpen.store(a_event.opening, std::memory_order_relaxed);
-			REX::DEBUG("MenuEventSink: console {}", a_event.opening ? "opened" : "closed");
+			REX::INFO("MenuEventSink: console {}", a_event.opening ? "opened" : "closed");
 		}
 
 		if (a_event.opening) {
