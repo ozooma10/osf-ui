@@ -29,6 +29,7 @@
 ### For plugin authors
 
 - A user-rebindable `type: "key"` setting can now declare an immutable `onPress` GLOBAL Papyrus target. OSF UI queues it only after the normal gameplay hotkey gates, so a mod can start its quest or other script logic on demand without an always-running bootstrap quest or a load-order-dependent FormID in JSON; ordinary web, native, and registered Papyrus hotkey notifications still fire.
+- A deployable Papyrus-only example now demonstrates `onPress` with no `.esp`, startup quest, or callback registration, including rebinding, save-load, suppression, and failure-diagnostics checks.
 - The private game-to-WebView2-host protocol is now version 4, adding verified peers and heartbeat liveness on top of presentation epochs. The plugin and helper binaries must be updated together.
 - UnsubscribeSettings, UnsubscribeHotkey, and ready-callback replacement now wait for an already-running callback even when called off the main thread; once they return, the old user pointer is no longer in use. Self-unsubscribe remains supported.
 

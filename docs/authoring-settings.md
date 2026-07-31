@@ -311,13 +311,18 @@ The target must be a GLOBAL function with exactly two string parameters:
 ```papyrus
 ScriptName MyMod_Hotkeys Hidden
 
-Function OnHotkey(string modId, string key) Global
+Function OnHotkey(string asModId, string asKey) Global
     Quest target = Game.GetFormFromFile(0x000800, "MyMod.esm") as Quest
     If target != None
         target.Start()
     EndIf
 EndFunction
 ```
+
+For an installable notification-only test, see
+[`examples/declarative-hotkey-papyrus/`](../examples/declarative-hotkey-papyrus/).
+It compiles and deploys without an `.esp`, then exercises first press,
+rebinding, save-load persistence, menu suppression, and failure diagnostics.
 
 The number passed to `Game.GetFormFromFile` is the record's plugin-local FormID,
 not its load-order-dependent runtime FormID. OSF UI never resolves or stores the
@@ -422,11 +427,11 @@ Function RegisterAll()
     OSFUI.RegisterForHotkey(self as ScriptObject, "OnHotkey", "yourname.mymod", "toggleHud")
 EndFunction
 
-Function OnSettingChanged(string modId, string key)
+Function OnSettingChanged(string asModId, string asKey)
     ; fires after ANY writer commits (menu, native, Papyrus) — re-read via getters
 EndFunction
 
-Function OnHotkey(string modId, string key)
+Function OnHotkey(string asModId, string asKey)
     ; gameplay-only delivery: never fires while the user types in an overlay
     ; or rebinds a key, and never consumes the press
 EndFunction
