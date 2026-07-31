@@ -6,10 +6,19 @@
 
 - Repeatedly closing and reopening a menu can no longer let a transparent frame from the previous closed state satisfy the next reveal. OSF UI waits for a frame from that exact opening and closes the menu after three seconds of live game time if one never arrives, preventing an invisible overlay from trapping input and pause state. Time spent alt-tabbed or in a load hitch does not count against that deadline, and a reopen that changes nothing on screen re-sends the current pixels so a static page still reveals instantly.
 - Losing or stranding the WebView2 host now closes the overlay and releases input and pause. The helper also exits when the game window has disappeared even if its process or pipe watcher misses the exit — re-attaching first if the game merely recreated its window — and unattended post-crash prompts safely default after 60 seconds instead of accumulating helper processes.
+- Shared browser textures are no longer reused before Starfield's GPU has actually submitted the draw that reads them. A stalled consumer now drops a browser frame instead of overwriting live pixels, and ring changes remain deferred when GPU idleness cannot be proven.
+- Host shutdown now waits for blocked pipe reads before closing their handles, contains unexpected helper and runtime exceptions, and rolls back an incomplete Scaleform hook set instead of leaving half of the draw protocol installed.
+- Live key rebinding, virtual-cursor input, settings and hotkey unsubscription, settings persistence retries, and content-folder scans are hardened against cross-thread or filesystem failures that could previously lose a write, invoke released plugin state, or terminate the UI.
+- Reveal handshakes now drain pre-reveal captures while atomically changing presentation epochs and use a fresh token for every open, so a queued transparent frame or a copied old sentinel cannot reveal the overlay.
+
+### Security
+
+- WebView2 network isolation now fails closed when the required request filters or policy script cannot be installed. Untrusted page messages are capped at 64 KiB and 128 per second per view, and bridge-disabled views no longer forward arbitrary page traffic to the game process.
 
 ### For plugin authors
 
 - The private game-to-WebView2-host protocol now tags frames with presentation epochs. The plugin and helper binaries must be updated together.
+- UnsubscribeSettings, UnsubscribeHotkey, and ready-callback replacement now wait for an already-running callback even when called off the main thread; once they return, the old user pointer is no longer in use. Self-unsubscribe remains supported.
 
 ## 1.5.0 — 2026-07-29
 

@@ -31,6 +31,25 @@ namespace
 	{
 		static_cast<Trace*>(a_user)->push_back({ a_mod, a_key });
 	}
+
+	struct BlockingCall
+	{
+		std::mutex mutex;
+		std::condition_variable cv;
+		bool entered{ false };
+		bool release{ false };
+		std::atomic<int> calls{ 0 };
+	};
+
+	void BlockingRecorder(const char*, const char*, void* a_user) noexcept
+	{
+		auto& call = *static_cast<BlockingCall*>(a_user);
+		std::unique_lock lock(call.mutex);
+		++call.calls;
+		call.entered = true;
+		call.cv.notify_all();
+		call.cv.wait(lock, [&] { return call.release; });
+	}
 }
 
 int main()
@@ -137,6 +156,41 @@ int main()
 		subs.OnFired("alpha", "k");
 		subs.Pump();
 		CHECK(ctx.trace.size() == 1);  // second call skipped by the liveness re-check
+	}
+
+	// --- off-main unsubscribe waits for an already-running callback --------------
+	{
+		HotkeySubscriptions subs;
+		BlockingCall call;
+		const auto token = subs.Subscribe("alpha", "k", BlockingRecorder, &call);
+		CHECK(token != 0);
+		subs.OnFired("alpha", "k");
+
+		std::thread pump([&] { subs.Pump(); });
+		{
+			std::unique_lock lock(call.mutex);
+			call.cv.wait(lock, [&] { return call.entered; });
+		}
+		std::atomic_bool returned{ false };
+		std::thread remove([&] {
+			subs.Unsubscribe(token);
+			returned.store(true, std::memory_order_release);
+		});
+		std::this_thread::sleep_for(std::chrono::milliseconds(20));
+		CHECK(!returned.load(std::memory_order_acquire));
+		{
+			std::scoped_lock lock(call.mutex);
+			call.release = true;
+		}
+		call.cv.notify_all();
+		pump.join();
+		remove.join();
+		CHECK(returned.load(std::memory_order_acquire));
+		CHECK(call.calls.load() == 1);
+
+		subs.OnFired("alpha", "k");
+		subs.Pump();
+		CHECK(call.calls.load() == 1);
 	}
 
 	// --- re-entrant Subscribe from a callback: no deadlock, next-fire delivery ---

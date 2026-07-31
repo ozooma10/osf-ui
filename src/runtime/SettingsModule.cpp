@@ -65,9 +65,14 @@ namespace OSFUI
 	{
 		SchemaMtimes seen;
 		std::error_code ec;
-		for (const auto& entry : std::filesystem::directory_iterator(_schemaDir, ec)) {
-			if (entry.is_regular_file(ec) && entry.path().extension() == ".json") {
-				if (const auto t = entry.last_write_time(ec); !ec) {
+		std::filesystem::directory_iterator it(
+			_schemaDir, std::filesystem::directory_options::skip_permission_denied, ec);
+		const std::filesystem::directory_iterator end;
+		for (; it != end; it.increment(ec)) {
+			const auto entry = *it;
+			std::error_code entryEc;
+			if (entry.is_regular_file(entryEc) && entry.path().extension() == ".json") {
+				if (const auto t = entry.last_write_time(entryEc); !entryEc) {
 					seen.emplace(entry.path().stem().string(), t);
 				}
 			}

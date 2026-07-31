@@ -1,6 +1,8 @@
 #pragma once
 
 #include <chrono>
+#include <condition_variable>
+#include <thread>
 #include <unordered_set>
 
 #include "OSFUI_API.h"  // IOSFUIBridge, CommandFn, ReadyFn, version constants (sdk/, on the include path)
@@ -214,6 +216,9 @@ namespace OSFUI::API
 		bool                                          _dirty{ false };            // command set changed since apply
 		ReadyFn                                       _readyCb{ nullptr };
 		void*                                         _readyUser{ nullptr };
+		std::condition_variable                       _readyInvokeCv;
+		bool                                          _readyInvoking{ false };
+		std::thread::id                               _readyInvokingThread{};
 		bool                                          _readyFired{ false };
 		std::atomic_bool                              _ready{ false };            // IsBridgeReady() fast path
 	};

@@ -1,6 +1,7 @@
 #include "HostApp.h"
 
 #include <shellapi.h>
+#include <exception>
 #include <string>
 #include <vector>
 
@@ -45,5 +46,14 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
 	if (options.pipeName.empty() || options.gamePid == 0) {
 		return 1;
 	}
-	return osfui::wv2::RunHost(options);
+	try {
+		return osfui::wv2::RunHost(options);
+	} catch (const std::exception&) {
+		// RunHost logs recoverable failures. This final boundary prevents an
+		// unexpected library exception during early startup from becoming a
+		// Windows crash dialog.
+		return 10;
+	} catch (...) {
+		return 10;
+	}
 }

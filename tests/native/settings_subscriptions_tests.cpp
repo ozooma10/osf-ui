@@ -37,6 +37,25 @@ namespace
 		static_cast<Trace*>(a_user)->push_back({ a_mod, a_key, a_valueJson });
 	}
 
+	struct BlockingCall
+	{
+		std::mutex mutex;
+		std::condition_variable cv;
+		bool entered{ false };
+		bool release{ false };
+		std::atomic<int> calls{ 0 };
+	};
+
+	void BlockingRecorder(const char*, const char*, const char*, void* a_user) noexcept
+	{
+		auto& call = *static_cast<BlockingCall*>(a_user);
+		std::unique_lock lock(call.mutex);
+		++call.calls;
+		call.entered = true;
+		call.cv.notify_all();
+		call.cv.wait(lock, [&] { return call.release; });
+	}
+
 	// The (key -> valueJson) view of a trace slice, for order-insensitive
 	// replay assertions (mirror iteration order is unspecified).
 	std::unordered_map<std::string, std::string> ByKey(const Trace& a_trace, std::size_t a_first = 0, std::size_t a_count = SIZE_MAX)
@@ -248,6 +267,43 @@ int main()
 
 		subs.Pump(mirror);  // ...to the next Pump
 		CHECK(other.size() == 1 && other[0].key == "k" && other[0].valueJson == "7");
+	}
+
+	// --- off-main unsubscribe waits for an already-running callback --------------
+	{
+		SettingsSubscriptions subs;
+		SettingsMirror mirror;
+		BlockingCall call;
+		const auto token = subs.Subscribe("t.alpha", BlockingRecorder, &call);
+		CHECK(token != 0);
+		subs.Pump(mirror);  // consume the empty replay
+		subs.OnChanged("t.alpha", "k", 1);
+
+		std::thread pump([&] { subs.Pump(mirror); });
+		{
+			std::unique_lock lock(call.mutex);
+			call.cv.wait(lock, [&] { return call.entered; });
+		}
+		std::atomic_bool returned{ false };
+		std::thread remove([&] {
+			subs.Unsubscribe(token);
+			returned.store(true, std::memory_order_release);
+		});
+		std::this_thread::sleep_for(std::chrono::milliseconds(20));
+		CHECK(!returned.load(std::memory_order_acquire));
+		{
+			std::scoped_lock lock(call.mutex);
+			call.release = true;
+		}
+		call.cv.notify_all();
+		pump.join();
+		remove.join();
+		CHECK(returned.load(std::memory_order_acquire));
+		CHECK(call.calls.load() == 1);
+
+		subs.OnChanged("t.alpha", "k", 2);
+		subs.Pump(mirror);
+		CHECK(call.calls.load() == 1);
 	}
 
 	// --- integration: real SettingsStore + mirror, exact Runtime wiring -----------

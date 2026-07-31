@@ -18,15 +18,20 @@ namespace OSFUI
 		// is the namespace and its name must be a valid mod id
 		// ('<author>.<modname>'); dotless ids are reserved for built-ins like
 		// osfui/. Top-level dirs without view subfolders are skipped naturally.
-		for (const auto& modEntry : std::filesystem::directory_iterator(a_viewsDir, ec)) {
-			if (!modEntry.is_directory()) {
+		std::filesystem::directory_iterator modIt(
+			a_viewsDir, std::filesystem::directory_options::skip_permission_denied, ec);
+		const std::filesystem::directory_iterator end;
+		for (; modIt != end; modIt.increment(ec)) {
+			const auto modEntry = *modIt;
+			std::error_code entryEc;
+			if (!modEntry.is_directory(entryEc)) {
 				continue;
 			}
 			const auto modId = modEntry.path().filename().string();
 			if (modId == "shared") {
 				continue;  // the shared kit (views/shared/osfui.css), not a mod
 			}
-			if (std::filesystem::exists(modEntry.path() / "manifest.json", ec)) {
+			if (std::filesystem::exists(modEntry.path() / "manifest.json", entryEc)) {
 				REX::ERROR("ViewManager: {} uses the pre-1.0 flat layout — views live in "
 						   "views/<author>.<modname>/<view>/manifest.json now; skipping",
 					modEntry.path().string());
@@ -39,12 +44,17 @@ namespace OSFUI
 					modEntry.path().string());
 				continue;
 			}
-			for (const auto& viewEntry : std::filesystem::directory_iterator(modEntry.path(), ec)) {
-				if (!viewEntry.is_directory()) {
+			std::error_code viewEc;
+			std::filesystem::directory_iterator viewIt(
+				modEntry.path(), std::filesystem::directory_options::skip_permission_denied, viewEc);
+			for (; viewIt != end; viewIt.increment(viewEc)) {
+				const auto viewEntry = *viewIt;
+				std::error_code fileEc;
+				if (!viewEntry.is_directory(fileEc)) {
 					continue;
 				}
 				const auto manifestPath = viewEntry.path() / "manifest.json";
-				if (!std::filesystem::exists(manifestPath, ec)) {
+				if (!std::filesystem::exists(manifestPath, fileEc)) {
 					continue;  // asset folder, not a view
 				}
 				if (auto manifest = ViewManifest::Load(manifestPath)) {

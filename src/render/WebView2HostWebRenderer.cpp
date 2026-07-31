@@ -406,12 +406,17 @@ namespace OSFUI
 
 		std::mutex         notifyMutex;
 		std::deque<Notify> notifications;
-		// Forwarded host log lines can be provoked by page content (e.g. egress
-		// denials) while the game thread's drain is paused — the game pauses on
-		// focus loss — so what waits here must be bounded. Only Kind::Log is
-		// capped; the other kinds are host-lifecycle events with natural rates.
+		// Page traffic and forwarded logs can arrive while the game-thread drain is
+		// paused. Lifecycle notifications have natural rates; untrusted Web/Console
+		// and page-provokable Log entries do not, so cap them independently.
+		static constexpr std::size_t kMaxPendingWeb = 64;
+		static constexpr std::size_t kMaxPendingConsole = 64;
 		static constexpr std::size_t kMaxPendingLogs = 256;
-		std::size_t pendingLogCount{ 0 };   // both guarded by notifyMutex
+		std::size_t pendingWebCount{ 0 };      // all guarded by notifyMutex
+		std::size_t pendingConsoleCount{ 0 };
+		std::size_t pendingLogCount{ 0 };
+		std::size_t droppedWebCount{ 0 };
+		std::size_t droppedConsoleCount{ 0 };
 		std::size_t droppedLogCount{ 0 };
 
 		// Latest shared-ring frame (reader thread writes, game thread reads).
@@ -431,7 +436,19 @@ namespace OSFUI
 		void Push(Notify a_value)
 		{
 			std::scoped_lock lock(notifyMutex);
-			if (a_value.kind == Notify::Kind::Log) {
+			if (a_value.kind == Notify::Kind::Web) {
+				if (pendingWebCount >= kMaxPendingWeb) {
+					++droppedWebCount;
+					return;
+				}
+				++pendingWebCount;
+			} else if (a_value.kind == Notify::Kind::Console) {
+				if (pendingConsoleCount >= kMaxPendingConsole) {
+					++droppedConsoleCount;
+					return;
+				}
+				++pendingConsoleCount;
+			} else if (a_value.kind == Notify::Kind::Log) {
 				if (pendingLogCount >= kMaxPendingLogs) {
 					++droppedLogCount;
 					return;
@@ -1097,12 +1114,24 @@ namespace OSFUI
 		void DrainNotifications()
 		{
 			std::deque<Notify> local;
+			std::size_t droppedWeb = 0;
+			std::size_t droppedConsole = 0;
 			std::size_t droppedLogs = 0;
 			{
 				std::scoped_lock lock(notifyMutex);
 				local.swap(notifications);
+				pendingWebCount = 0;
+				pendingConsoleCount = 0;
 				pendingLogCount = 0;
+				droppedWeb = std::exchange(droppedWebCount, 0);
+				droppedConsole = std::exchange(droppedConsoleCount, 0);
 				droppedLogs = std::exchange(droppedLogCount, 0);
+			}
+			if (droppedWeb) {
+				REX::WARN("WebView2HostWebRenderer: dropped {} web message(s) over the {}-message pending cap", droppedWeb, kMaxPendingWeb);
+			}
+			if (droppedConsole) {
+				REX::WARN("WebView2HostWebRenderer: dropped {} console message(s) over the {}-message pending cap", droppedConsole, kMaxPendingConsole);
 			}
 			if (droppedLogs) {
 				REX::WARN("WebView2HostWebRenderer: dropped {} host log line(s) over "

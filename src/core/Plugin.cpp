@@ -55,6 +55,9 @@ namespace OSFUI::Plugin
 		public:
 			void Run() override
 			{
+				if (_faulted.load(std::memory_order_acquire)) {
+					return;
+				}
 				++_ticks;
 				if (_ticks == 1) {
 					// One-shot boot marker: proves the SFSE task pump reached
@@ -95,11 +98,23 @@ namespace OSFUI::Plugin
 				// it; don't feed a huge step on resume.
 				dt = std::clamp(dt, 0.0, 0.1);
 
-				Runtime::Get().Tick(dt);
+				try {
+					Runtime::Get().Tick(dt);
+				} catch (const std::exception& e) {
+					_faulted.store(true, std::memory_order_release);
+					REX::ERROR("FrameTick: Runtime::Tick threw '{}'; disabling further UI ticks "
+							   "to contain the failure",
+						e.what());
+				} catch (...) {
+					_faulted.store(true, std::memory_order_release);
+					REX::ERROR("FrameTick: Runtime::Tick threw an unknown exception; "
+							   "disabling further UI ticks to contain the failure");
+				}
 				_tickPending.store(false, std::memory_order_release);
 			}
 
 			std::atomic_bool                                      _tickPending{ false };
+			std::atomic_bool                                      _faulted{ false };
 			std::optional<std::chrono::steady_clock::time_point> _lastMainTick;
 			std::uint64_t                                        _ticks{ 0 };
 		};
@@ -191,8 +206,18 @@ namespace OSFUI::Plugin
 			}
 		}
 
-		if (!Runtime::Get().Initialize()) {
-			REX::ERROR("{}: Runtime initialization failed", kPluginName);
+		try {
+			if (!Runtime::Get().Initialize()) {
+				REX::ERROR("{}: Runtime initialization failed", kPluginName);
+				return false;
+			}
+		} catch (const std::exception& e) {
+			REX::ERROR("{}: Runtime initialization threw '{}'; plugin load aborted",
+				kPluginName, e.what());
+			return false;
+		} catch (...) {
+			REX::ERROR("{}: Runtime initialization threw an unknown exception; plugin load aborted",
+				kPluginName);
 			return false;
 		}
 

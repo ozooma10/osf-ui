@@ -112,9 +112,14 @@ namespace OSFUI
 	void InputRouter::Configure(KeyCode a_toggleKey, std::function<void()> a_onToggle,
 		std::function<void()> a_onBack)
 	{
-		_toggleKey = a_toggleKey;
+		_toggleKey.store(a_toggleKey, std::memory_order_release);
 		_onToggle = std::move(a_onToggle);
 		_onBack = std::move(a_onBack);
+	}
+
+	void InputRouter::SetToggleKey(KeyCode a_toggleKey)
+	{
+		_toggleKey.store(a_toggleKey, std::memory_order_release);
 	}
 
 	void InputRouter::SetWebRouting(std::function<bool()> a_isCaptured,
@@ -132,7 +137,8 @@ namespace OSFUI
 		// back-owning view via osfui.handleBack). Both are consumed here so the
 		// key never also routes into the view as a plain keystroke.
 		const bool captured = Captured();
-		if (_toggleKey != kInvalidKeyCode && a_key == _toggleKey) {
+		const auto toggleKey = _toggleKey.load(std::memory_order_acquire);
+		if (toggleKey != kInvalidKeyCode && a_key == toggleKey) {
 			if (_onToggle) {
 				_onToggle();
 			}

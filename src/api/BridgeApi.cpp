@@ -199,7 +199,10 @@ namespace OSFUI::API
 
 	void BridgeApi::SetReadyCallback(ReadyFn a_callback, void* a_user)
 	{
-		std::lock_guard lock(_mutex);
+		std::unique_lock lock(_mutex);
+		if (_readyInvoking && _readyInvokingThread != std::this_thread::get_id()) {
+			_readyInvokeCv.wait(lock, [this] { return !_readyInvoking; });
+		}
 		_readyCb = a_callback;
 		_readyUser = a_user;
 		// If the bridge is already live, re-arm so Pump fires the new callback on
@@ -563,7 +566,12 @@ namespace OSFUI::API
 					_appliedBridge = bridge; _dirty = false;
 				}
 				sends.swap(_pendingSends);
-				if (!_readyFired) { _readyFired = true; fireReady = true; readyCb = _readyCb; readyUser = _readyUser; }
+				if (!_readyFired) {
+					_readyFired = true;
+					fireReady = true;
+					readyCb = _readyCb;
+					readyUser = _readyUser;
+				}
 				for (auto it = _inflightRequests.begin(); it != _inflightRequests.end();) {
 					auto& req = it->second;
 					if (!req.answered && now < req.deadline) { ++it; continue; }
@@ -588,7 +596,28 @@ namespace OSFUI::API
 			for (const auto& send : sends) bridge->SendJsonToWeb(send.view, send.type, send.payloadJson);
 			for (const auto& reply : replies) bridge->SendToWeb(reply.view, reply.type, nlohmann::json::parse(reply.payloadJson, nullptr, false), reply.requestId);
 		}
-		_ready.store(bridge != nullptr); if (fireReady && readyCb) readyCb(readyUser);
+		_ready.store(bridge != nullptr);
+		bool invokeReady = false;
+		if (fireReady && readyCb) {
+			// Close the snapshot-to-call race under the same mutex used by
+			// SetReadyCallback. A replacement is deferred to the next pump;
+			// once armed here, an off-thread replacement waits for completion.
+			std::lock_guard lock(_mutex);
+			if (_readyCb == readyCb && _readyUser == readyUser) {
+				_readyInvoking = true;
+				_readyInvokingThread = std::this_thread::get_id();
+				invokeReady = true;
+			}
+		}
+		if (invokeReady) {
+			readyCb(readyUser);
+			{
+				std::lock_guard lock(_mutex);
+				_readyInvoking = false;
+				_readyInvokingThread = {};
+			}
+			_readyInvokeCv.notify_all();
+		}
 		_subscriptions.Pump(_mirror); _hotkeys.Pump();
 	}
 }

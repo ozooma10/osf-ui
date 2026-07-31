@@ -223,8 +223,13 @@ namespace OSFUI
 		// Sort by filename: directory_iterator order is unspecified, and
 		// duplicate-id resolution (first wins) must be deterministic.
 		std::vector<std::filesystem::path> files;
-		for (const auto& entry : std::filesystem::directory_iterator(a_schemaDir, ec)) {
-			if (entry.is_regular_file() && entry.path().extension() == ".json") {
+		std::filesystem::directory_iterator it(
+			a_schemaDir, std::filesystem::directory_options::skip_permission_denied, ec);
+		const std::filesystem::directory_iterator end;
+		for (; it != end; it.increment(ec)) {
+			const auto entry = *it;
+			std::error_code entryEc;
+			if (entry.is_regular_file(entryEc) && entry.path().extension() == ".json") {
 				files.push_back(entry.path());
 			}
 		}
@@ -1241,10 +1246,13 @@ namespace OSFUI
 
 	void SettingsStore::PersistNow(Mod& a_mod) const
 	{
-		a_mod.dirty = false;  // a write failure is logged in Persist; the next change retries
 		if (!Persist(a_mod)) {
+			// Keep the pending write alive, but back off so a read-only or full
+			// filesystem does not turn every frame into another write attempt.
+			a_mod.dueAt = _now + kPersistDelaySeconds;
 			return;
 		}
+		a_mod.dirty = false;
 		REX::DEBUG("SettingsStore: saved '{}' values", a_mod.id);
 		for (const auto& listener : _persistListeners) {
 			if (listener) {

@@ -384,8 +384,8 @@ namespace OSFUI
 		[[nodiscard]] static nlohmann::json SparseValues(const Mod& a_mod);
 		// Open (or join) the mod's write-behind window; PumpPersistence lands it.
 		void        MarkDirty(Mod& a_mod);
-		// The one flush path: clear dirty, write, log + fire persist listeners on
-		// success. Every site that lands a values file goes through here.
+		// The one flush path: write, then clear dirty and fire persist listeners
+		// only on success. Every site that lands a values file goes through here.
 		void        PersistNow(Mod& a_mod) const;
 		static bool Persist(const Mod& a_mod);
 		void        Notify(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value) const;

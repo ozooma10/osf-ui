@@ -383,6 +383,39 @@ int main()
 		CHECK(saved["level"] == 4);  // one write covered both steps
 	}
 
+	// --- failed persistence stays dirty and retries after a bounded backoff -------
+	{
+		const auto sd = root / "settings-retry";
+		const auto blockedValues = root / "values-retry";
+		WriteFile(sd / "t.retry.json", R"json({
+			"id": "t.retry", "groups": [ { "settings": [
+				{ "key": "n", "type": "int", "default": 1 }
+			] } ] })json");
+		// A regular file where the values directory belongs makes the first
+		// atomic write fail without relying on platform permissions.
+		WriteFile(blockedValues, "not a directory");
+
+		SettingsStore retry;
+		int persisted = 0;
+		retry.AddPersistListener([&](std::string_view) { ++persisted; });
+		retry.LoadAll(sd, blockedValues);
+		CHECK(retry.Set("t.retry", "n", "2"));
+		retry.PumpPersistence(SettingsStore::kPersistDelaySeconds);
+		CHECK(persisted == 0);
+		CHECK(!fs::exists(blockedValues / "t.retry.json"));
+
+		std::error_code ec;
+		fs::remove(blockedValues, ec);
+		CHECK(!ec);
+		fs::create_directories(blockedValues, ec);
+		CHECK(!ec);
+		retry.PumpPersistence(2.0 * SettingsStore::kPersistDelaySeconds);
+		CHECK(persisted == 1);
+		auto saved = nlohmann::json::parse(
+			std::ifstream(blockedValues / "t.retry.json"), nullptr, false);
+		CHECK(saved["n"] == 2);
+	}
+
 	// --- sparse persistence: only ≠ default on disk; reset = key removal ----------
 	CHECK(store.Set("t.gamma", "fancy", "true"));  // ≠ default (false)
 	store.FlushPersistence();

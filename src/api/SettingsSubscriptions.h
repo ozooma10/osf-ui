@@ -2,7 +2,9 @@
 
 #include "api/SettingsMirror.h"
 
+#include <condition_variable>
 #include <nlohmann/json.hpp>
+#include <thread>
 
 namespace OSFUI::API
 {
@@ -30,9 +32,8 @@ namespace OSFUI::API
 		// through the store's per-mod replay when it registers.
 		// Returns a nonzero token, or 0 on null/empty a_modId or null a_fn.
 		std::uint32_t Subscribe(const char* a_modId, SettingChangedFn a_fn, void* a_user);
-		// Any thread. Only when called FROM the main thread (including inside a
-		// callback) is it guaranteed that no further callbacks fire for the
-		// token once this returns.
+		// Any thread. Once this returns no callback for the token is still
+		// running or can start. Self-unsubscribe from inside a callback is safe.
 		void Unsubscribe(std::uint32_t a_token);
 
 		// Main thread. The store change feed: every committed value, wired in
@@ -65,6 +66,9 @@ namespace OSFUI::API
 		};
 
 		mutable std::mutex                              _mutex;
+		std::condition_variable                         _invokeCv;
+		std::uint32_t                                   _invokingToken{ 0 };
+		std::thread::id                                 _invokingThread{};
 		std::unordered_map<std::uint32_t, Subscription> _subs;
 		std::vector<Event>                              _events;    // committed values awaiting Pump
 		std::uint32_t                                   _nextToken{ 1 };

@@ -216,9 +216,14 @@ namespace OSFUI
 		if (!std::filesystem::is_directory(_dir, ec)) {
 			return out;
 		}
-		for (const auto& entry : std::filesystem::directory_iterator(_dir, ec)) {
-			if (entry.is_regular_file(ec) && entry.path().extension() == ".json") {
-				if (const auto mtime = entry.last_write_time(ec); !ec) {
+		std::filesystem::directory_iterator it(
+			_dir, std::filesystem::directory_options::skip_permission_denied, ec);
+		const std::filesystem::directory_iterator end;
+		for (; it != end; it.increment(ec)) {
+			const auto entry = *it;
+			std::error_code entryEc;
+			if (entry.is_regular_file(entryEc) && entry.path().extension() == ".json") {
+				if (const auto mtime = entry.last_write_time(entryEc); !entryEc) {
 					out.emplace(entry.path(), mtime);
 				}
 			}

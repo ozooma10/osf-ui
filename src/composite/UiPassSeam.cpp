@@ -393,6 +393,40 @@ namespace OSFUI::UiPassSeam
 				a_label, vtbl.address(), current);
 			return current;
 		}
+
+		void RestoreExecuteSlot(
+			const char* a_label,
+			const std::uint64_t a_vtblId,
+			const std::uintptr_t a_original,
+			ExecuteFn a_thunk)
+		{
+			if (a_original == 0) {
+				return;
+			}
+			const REL::Relocation<std::uintptr_t> vtbl{ REL::ID(a_vtblId) };
+			const auto slotAddress = vtbl.address() + kExecuteSlot * sizeof(std::uintptr_t);
+			std::uintptr_t current = 0;
+			if (!Platform::SafeReadPointer(slotAddress, current) ||
+				current != reinterpret_cast<std::uintptr_t>(a_thunk)) {
+				REX::ERROR("[UiPassSeam] {}: incomplete hook rollback could not verify slot 7; "
+						   "leaving the current owner untouched",
+					a_label);
+				return;
+			}
+			auto** slot = reinterpret_cast<void**>(slotAddress);
+			DWORD oldProtect = 0;
+			if (!::VirtualProtect(slot, sizeof(void*), PAGE_READWRITE, &oldProtect)) {
+				REX::ERROR("[UiPassSeam] {}: incomplete hook rollback could not make slot 7 writable",
+					a_label);
+				return;
+			}
+			*slot = reinterpret_cast<void*>(a_original);
+			DWORD ignored = 0;
+			if (!::VirtualProtect(slot, sizeof(void*), oldProtect, &ignored)) {
+				REX::WARN("[UiPassSeam] {}: slot 7 restored but its page protection was not", a_label);
+			}
+			REX::INFO("[UiPassSeam] restored {} slot 7 after incomplete hook installation", a_label);
+		}
 	}
 
 	bool Install()
@@ -416,6 +450,12 @@ namespace OSFUI::UiPassSeam
 		g_installOk.store(ok, std::memory_order_release);
 		g_drawEnabled.store(ok, std::memory_order_release);
 		if (!ok) {
+			// The three entrypoints form one protocol. Leaving only a subset
+			// patched lets their thread-local hand-off state drift indefinitely.
+			RestoreExecuteSlot("ScaleformBegin", kVtblScaleformBegin, origBegin, &BeginThunk);
+			RestoreExecuteSlot("ScaleformEnd", kVtblScaleformEnd, origEnd, &EndThunk);
+			RestoreExecuteSlot("ScaleformComposite", kVtblScaleformComposite,
+				origComposite, &CompositeThunk);
 			REX::ERROR("[UiPassSeam] hook set incomplete — the overlay has no draw path this "
 					   "session. See the per-hook lines above for which slot declined.");
 		} else {

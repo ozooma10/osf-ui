@@ -19,7 +19,20 @@ namespace osfui::wv2
 
 	void Pipe::SetError(const char* a_where, DWORD a_code)
 	{
+		std::scoped_lock lock(_errorMutex);
 		_lastError = std::string(a_where) + " failed (" + std::to_string(a_code) + ")";
+	}
+
+	bool Pipe::IsOpen() const
+	{
+		std::scoped_lock lock(_stateMutex);
+		return _pipe != INVALID_HANDLE_VALUE;
+	}
+
+	std::string Pipe::LastErrorText() const
+	{
+		std::scoped_lock lock(_errorMutex);
+		return _lastError;
 	}
 
 	bool Pipe::CreateServerAndWait(const std::wstring& a_name, std::uint32_t a_timeoutMs)
@@ -124,6 +137,7 @@ namespace osfui::wv2
 			}
 			OVERLAPPED ov{};
 			ov.hEvent = _readEvent;
+			::ResetEvent(_readEvent);
 			DWORD got = 0;
 			if (!::ReadFile(_pipe, a_buffer + done, a_bytes - done, &got, &ov)) {
 				const auto err = ::GetLastError();
@@ -147,18 +161,46 @@ namespace osfui::wv2
 
 	bool Pipe::ReadMessage(std::string& a_payload)
 	{
-		std::uint8_t header[4]{};
-		if (!ReadExact(header, sizeof(header))) {
-			return false;
+		{
+			std::scoped_lock lock(_stateMutex);
+			if (_readActive || _closing || _pipe == INVALID_HANDLE_VALUE) {
+				return false;
+			}
+			_readActive = true;
 		}
-		const std::uint32_t length = header[0] | (header[1] << 8) |
-			(header[2] << 16) | (static_cast<std::uint32_t>(header[3]) << 24);
-		if (length == 0 || length > kMaxMessageBytes) {
-			SetError("frame length", length);
-			return false;
+		try {
+			std::uint8_t header[4]{};
+			if (!ReadExact(header, sizeof(header))) {
+				FinishRead();
+				return false;
+			}
+			const std::uint32_t length = header[0] | (header[1] << 8) |
+				(header[2] << 16) | (static_cast<std::uint32_t>(header[3]) << 24);
+			if (length == 0 || length > kMaxMessageBytes) {
+				SetError("frame length", length);
+				FinishRead();
+				return false;
+			}
+			a_payload.resize(length);
+			const bool read = ReadExact(
+				reinterpret_cast<std::uint8_t*>(a_payload.data()), length);
+			FinishRead();
+			return read;
+		} catch (...) {
+			// Close must never wait forever because allocation/logging threw
+			// after this reader marked itself active.
+			FinishRead();
+			throw;
 		}
-		a_payload.resize(length);
-		return ReadExact(reinterpret_cast<std::uint8_t*>(a_payload.data()), length);
+	}
+
+	void Pipe::FinishRead()
+	{
+		{
+			std::scoped_lock lock(_stateMutex);
+			_readActive = false;
+		}
+		_readDone.notify_all();
 	}
 
 	bool Pipe::WriteMessage(const std::string& a_payload)
@@ -183,6 +225,7 @@ namespace osfui::wv2
 		while (done < buffer.size()) {
 			OVERLAPPED ov{};
 			ov.hEvent = _writeEvent;
+			::ResetEvent(_writeEvent);
 			DWORD wrote = 0;
 			if (!::WriteFile(_pipe, buffer.data() + done,
 					static_cast<DWORD>(buffer.size() - done), &wrote, &ov)) {
@@ -204,11 +247,19 @@ namespace osfui::wv2
 	void Pipe::Close()
 	{
 		_closing = true;
+		HANDLE pipe = INVALID_HANDLE_VALUE;
+		{
+			std::scoped_lock lock(_stateMutex);
+			pipe = _pipe;
+		}
+		if (pipe != INVALID_HANDLE_VALUE) {
+			// Wake both sides before waiting for their syscalls to leave.
+			::CancelIoEx(pipe, nullptr);
+		}
+		std::scoped_lock writeLock(_writeMutex);
+		std::unique_lock stateLock(_stateMutex);
+		_readDone.wait(stateLock, [this] { return !_readActive; });
 		if (_pipe != INVALID_HANDLE_VALUE) {
-			::CancelIoEx(_pipe, nullptr);  // unblock any parked reader/writer BEFORE taking the lock
-			// Serialize handle teardown against a concurrent WriteMessage so it
-			// cannot be mid-syscall on _pipe when we close it.
-			std::scoped_lock lock(_writeMutex);
 			::CloseHandle(_pipe);
 			_pipe = INVALID_HANDLE_VALUE;
 		}

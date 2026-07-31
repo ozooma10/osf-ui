@@ -87,7 +87,7 @@ namespace osfui::wv2
 		{
 			std::ofstream file;
 			std::mutex    mutex;
-			Pipe*         pipe{ nullptr };  // set once the pipe is up; nulled at teardown
+			std::atomic<Pipe*> pipe{ nullptr };  // set once the pipe is up; nulled at teardown
 
 			void Open(const std::filesystem::path& a_path)
 			{
@@ -134,8 +134,8 @@ namespace osfui::wv2
 
 			void Forward(int a_level, const std::string& a_text)
 			{
-				if (pipe) {
-					pipe->WriteMessage(DumpSafe(json{
+				if (auto* target = pipe.load(std::memory_order_acquire)) {
+					target->WriteMessage(DumpSafe(json{
 						{ "type", "log" }, { "level", a_level }, { "text", a_text } }));
 				}
 			}
@@ -768,6 +768,7 @@ namespace osfui::wv2
 				ComPtr<ICoreWebView2DevToolsProtocolEventReceiver> consoleReceiver;
 				ComPtr<ICoreWebView2DevToolsProtocolEventReceiver> exceptionReceiver;
 				bool controllerRequested{ false };
+				bool securityReady{ false };
 				bool hidden{ true };
 				// A standard HTML control (select, datalist, date/color picker)
 				// has asked Chromium to show native popup UI. That popup owns the
@@ -777,6 +778,14 @@ namespace osfui::wv2
 				// Warn-once latch for scripted (non-gesture) window.open attempts;
 				// they are dropped, and one log line per view is enough evidence.
 				bool nonGestureOpenWarned{ false };
+				// Page -> host traffic is untrusted even when nativeBridge=false:
+				// every document can call chrome.webview.postMessage directly.
+				// Bound both individual messages and accepted rate before they
+				// allocate pipe/game-side queue entries.
+				std::uint64_t pageMessageWindowStarted{ 0 };
+				std::uint32_t pageMessagesThisWindow{ 0 };
+				bool pageMessageTooLargeWarned{ false };
+				bool pageMessageFloodWarned{ false };
 				// One-shot hidden paint requested by the game. Unlike leaving the
 				// controller visible indefinitely, this primes Chromium without
 				// running closed-view animations for the rest of the session.
@@ -798,6 +807,7 @@ namespace osfui::wv2
 				bool          revealPending{ false };
 				bool          hideDeferred{ false };
 				std::uint64_t revealDeadline{ 0 };
+				std::string   revealToken;
 				std::uint64_t pendingPresentationEpoch{ 0 };
 				int  order{ 0 };
 				bool domSeen{ false }, navigationSucceeded{ false };
@@ -891,6 +901,7 @@ namespace osfui::wv2
 			ComPtr<ID3D11Fence> produceFence, consumeFence;
 			std::uint64_t              frameSerial{ 0 };
 			std::uint32_t              lastSlot{ 0 };
+			std::mutex                 captureEpochMutex;
 			std::atomic<std::uint64_t> presentationEpoch{ 0 };
 			// Serials the game released without a GPU read (hidden overlay, stale
 			// ring): it has no device to CPU-signal the consume fence, so it acks
@@ -1252,21 +1263,32 @@ namespace osfui::wv2
 				};
 				if (slot.lastSerial != 0 && consumed() < slot.lastSerial) {
 					const HANDLE evt = ::CreateEventW(nullptr, FALSE, FALSE, nullptr);
-					if (evt) {
-						consumeFence->SetEventOnCompletion(slot.lastSerial, evt);
-						const auto deadline = ::GetTickCount64() + 50;
-						while (consumed() < slot.lastSerial && ::GetTickCount64() < deadline) {
-							::WaitForSingleObject(evt, 10);
-						}
-						if (consumed() < slot.lastSerial) {
-							++consumeWaitTimeouts;
-							if (consumeWaitTimeouts == 1 || consumeWaitTimeouts % 300 == 0) {
-								log.Warn(std::format(
-									"consume lagging (slot serial {}, completed {}, {} timeouts) — overwriting",
-									slot.lastSerial, consumed(), consumeWaitTimeouts));
-							}
-						}
+					if (!evt) {
+						log.Warn("could not create the consume wait event; dropping captured frame");
+						return;
+					}
+					const auto waitHr = consumeFence->SetEventOnCompletion(slot.lastSerial, evt);
+					if (FAILED(waitHr)) {
 						::CloseHandle(evt);
+						log.Warn(std::format(
+							"consume wait registration failed (hr=0x{:08X}); dropping captured frame",
+							static_cast<std::uint32_t>(waitHr)));
+						return;
+					}
+					const auto deadline = ::GetTickCount64() + 50;
+					while (consumed() < slot.lastSerial && ::GetTickCount64() < deadline) {
+						::WaitForSingleObject(evt, 10);
+					}
+					const bool stillBusy = consumed() < slot.lastSerial;
+					::CloseHandle(evt);
+					if (stillBusy) {
+						++consumeWaitTimeouts;
+						if (consumeWaitTimeouts == 1 || consumeWaitTimeouts % 300 == 0) {
+							log.Warn(std::format(
+								"consume lagging (slot serial {}, completed {}, {} drops); captured frame dropped",
+								slot.lastSerial, consumed(), consumeWaitTimeouts));
+						}
+						return;
 					}
 				}
 
@@ -1320,6 +1342,29 @@ namespace osfui::wv2
 				}
 				presentationEpoch.store(requested, std::memory_order_release);
 				return true;
+			}
+
+			// A composition-changing reveal must discard every capture queued
+			// before visibility changed. The mutex also makes the frame callback
+			// acquire a frame and its epoch as one snapshot.
+			bool PromoteChangedPresentation(View& a_view)
+			{
+				std::scoped_lock epochLock(captureEpochMutex);
+				if (framePool) {
+					try {
+						framePool.Recreate(captureDevice,
+							winrt::Windows::Graphics::DirectX::DirectXPixelFormat::B8G8R8A8UIntNormalized,
+							3, winrt::Windows::Graphics::SizeInt32{
+								static_cast<std::int32_t>(width),
+								static_cast<std::int32_t>(height) });
+					} catch (const winrt::hresult_error& a_error) {
+						log.Error(std::format(
+							"view '{}': could not drain stale capture frames before reveal: {}",
+							a_view.id, ToUtf8(a_error.message())));
+						return false;
+					}
+				}
+				return PromotePresentation(a_view);
 			}
 
 			// STA thread, for shows where the composition does not change (the
@@ -1417,16 +1462,28 @@ namespace osfui::wv2
 			// hold the batch's hides until every pending reveal completes or times
 			// out — the old content stays up and the switch is one composition change.
 
-			static constexpr const wchar_t* kRevealSentinelScript =
-				L"requestAnimationFrame(function(){requestAnimationFrame(function(){"
-				L"chrome.webview.postMessage('__osfuiRevealReady');});});";
-			static constexpr std::string_view kRevealSentinel = "__osfuiRevealReady";
+			static constexpr std::string_view kRevealSentinelPrefix = "__osfuiRevealReady:";
 			static constexpr const wchar_t* kPrewarmSentinelScript =
 				L"requestAnimationFrame(function(){requestAnimationFrame(function(){"
 				L"setTimeout(function(){chrome.webview.postMessage('__osfuiPrewarmReady');},0);"
 				L"});});";
 			static constexpr std::string_view kPrewarmSentinel = "__osfuiPrewarmReady";
 			static constexpr std::uint64_t kRevealTimeoutMs = 300;
+
+			std::string NewRevealToken()
+			{
+				GUID guid{};
+				wchar_t guidText[40]{};
+				if (SUCCEEDED(::CoCreateGuid(&guid)) &&
+					::StringFromGUID2(guid, guidText, static_cast<int>(std::size(guidText))) > 0) {
+					return std::string(kRevealSentinelPrefix) + ToUtf8(guidText);
+				}
+				static std::atomic<std::uint64_t> fallback{ 0 };
+				return std::format("{}{}-{}",
+					kRevealSentinelPrefix,
+					::GetCurrentProcessId(),
+					fallback.fetch_add(1, std::memory_order_relaxed) + 1);
+			}
 
 			void BeginPrewarm(View& a_view)
 			{
@@ -1481,6 +1538,7 @@ namespace osfui::wv2
 				a_view.hidden = true;
 				a_view.pendingPresentationEpoch = 0;
 				a_view.revealPending = false;  // cancel an in-flight reveal
+				a_view.revealToken.clear();
 				a_view.prewarmPending = false;
 				a_view.prewarmDeadline = 0;
 				a_view.hideDeferred = true;    // applied at batch end / reveal end
@@ -1518,10 +1576,15 @@ namespace osfui::wv2
 				}
 				if (a_view.visual && a_view.webView && a_view.domSeen) {
 					a_view.revealPending = true;
+					a_view.revealToken = NewRevealToken();
 					a_view.revealDeadline = ::GetTickCount64() + kRevealTimeoutMs;
 					log.Info(std::format("view '{}': show — reveal pending ({} ms timeout)",
 						a_view.id, kRevealTimeoutMs));
-					a_view.webView->ExecuteScript(kRevealSentinelScript,
+					const auto revealScript = std::format(
+						L"requestAnimationFrame(function(){{requestAnimationFrame(function(){{"
+						L"chrome.webview.postMessage('{}');}});}});",
+						ToWide(a_view.revealToken));
+					a_view.webView->ExecuteScript(revealScript.c_str(),
 						Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
 							[](HRESULT, LPCWSTR) -> HRESULT { return S_OK; }).Get());
 				} else {
@@ -1531,7 +1594,7 @@ namespace osfui::wv2
 						"view '{}': show — direct (visual={} webView={} domSeen={})", a_view.id,
 						a_view.visual != nullptr, a_view.webView != nullptr, a_view.domSeen));
 					if (a_view.visual) a_view.visual.IsVisible(true);
-					PromotePresentation(a_view);
+					PromoteChangedPresentation(a_view);
 				}
 			}
 
@@ -1539,6 +1602,7 @@ namespace osfui::wv2
 			{
 				if (!a_view.revealPending) return;
 				a_view.revealPending = false;
+				a_view.revealToken.clear();
 				if (a_timedOut) {
 					log.Info(std::format(
 						"view '{}': reveal sentinel timed out — showing anyway", a_view.id));
@@ -1547,7 +1611,7 @@ namespace osfui::wv2
 				}
 				if (a_view.visual && !a_view.hidden) a_view.visual.IsVisible(true);
 				if (!AnyRevealPending()) ApplyDeferredHides();
-				PromotePresentation(a_view);
+				PromoteChangedPresentation(a_view);
 			}
 
 			void TickReveals()
@@ -1860,6 +1924,27 @@ namespace osfui::wv2
 				PromptRepairWebView2Runtime(log, a_hr);
 			}
 
+			void ReportSecurityFailure(View& a_view, HRESULT a_hr,
+				std::string_view a_description)
+			{
+				if (rendererFatal) return;
+				rendererFatal = true;
+				byeReason = "security-policy-failed";
+				const auto code = static_cast<unsigned>(a_hr);
+				log.Error(std::format("view '{}': {} (0x{:08X}); refusing to run "
+									 "untrusted content without the egress policy",
+					a_view.id, a_description, code));
+				Send(json{
+					{ "type", "fatal" },
+					{ "stage", "network-policy" },
+					{ "view", a_view.id },
+					{ "description", std::string(a_description) },
+					{ "code", code },
+				});
+				quit.store(true);
+				if (wakeEvent) ::SetEvent(wakeEvent);
+			}
+
 			HRESULT OnController(View& a_view, HRESULT a_hr,
 				ICoreWebView2CompositionController* a_composition)
 			{
@@ -1931,7 +2016,21 @@ namespace osfui::wv2
 						static_cast<unsigned>(result)));
 					return S_OK;
 				}
-				InstallNetworkGuard(a_view);
+				// Navigation and all authored page execution stay blocked until
+				// the asynchronous document-created egress script is confirmed.
+				// InstallNetworkGuard completes the rest of controller setup.
+				result = InstallNetworkGuard(a_view);
+				if (FAILED(result)) {
+					ReportSecurityFailure(a_view, result,
+						"network egress policy installation failed");
+				}
+				return S_OK;
+			}
+
+			void FinishControllerSetup(View& a_view)
+			{
+				if (quit.load() || a_view.securityReady || !a_view.webView) return;
+				a_view.securityReady = true;
 				InstallEvents(a_view);
 				if (a_view.bridge) {
 					InstallBridgeShim(a_view);
@@ -1961,7 +2060,7 @@ namespace osfui::wv2
 							return S_OK;
 						}).Get());
 				if (!captureStarted) {
-					if (!StartCapture()) return S_OK;
+					if (!StartCapture()) return;
 					captureStarted = true;
 					Send(json{ { "type", "ready" } });
 				}
@@ -1972,7 +2071,6 @@ namespace osfui::wv2
 					a_view.controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
 				}
 				ReconcileInputWidgetSubclass();
-				return S_OK;
 			}
 
 			void InstallBridgeShim(View& a_view)
@@ -2389,46 +2487,30 @@ namespace osfui::wv2
 			// in a desktop browser), and target=_blank links are unaffected — the
 			// NewWindowRequested handler hands those to the OS default browser
 			// without this WebView ever fetching them.
-			void InstallNetworkGuard(View& a_view)
+			HRESULT InstallNetworkGuard(View& a_view)
 			{
 				View* view = &a_view;
-				HRESULT filterHr = E_NOINTERFACE;
 				ComPtr<ICoreWebView2_22> webView22;
-				if (SUCCEEDED(a_view.webView.As(&webView22))) {
-					filterHr = S_OK;
-					for (const auto* pattern : { L"http://*", L"https://*" }) {
-						if (SUCCEEDED(filterHr)) {
-							filterHr = webView22->AddWebResourceRequestedFilterWithRequestSourceKinds(
-								pattern, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
-								COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_ALL);
-						}
-					}
-				}
-				if (FAILED(filterHr)) {
-					// Pre-source-kinds Evergreen runtime: documents/fetch/XHR are
-					// still filtered below; only requests initiated from service/
-					// shared workers escape the older registration.
-					log.Warn(std::format(
-						"view '{}': source-kind egress filter unavailable (0x{:08X}); "
-						"worker-initiated requests are not filtered on this WebView2 runtime",
+				auto filterHr = a_view.webView.As(&webView22);
+				if (FAILED(filterHr) || !webView22) {
+					log.Error(std::format(
+						"view '{}': source-kind egress filter is unavailable (0x{:08X})",
 						a_view.id, static_cast<unsigned>(filterHr)));
-					filterHr = S_OK;
-					for (const auto* pattern : { L"http://*", L"https://*" }) {
-						if (SUCCEEDED(filterHr)) {
-							filterHr = a_view.webView->AddWebResourceRequestedFilter(
-								pattern, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
-						}
-					}
+					return FAILED(filterHr) ? filterHr : E_NOINTERFACE;
+				}
+				for (const auto* pattern : { L"http://*", L"https://*" }) {
+					filterHr = webView22->AddWebResourceRequestedFilterWithRequestSourceKinds(
+						pattern, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
+						COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_ALL);
 					if (FAILED(filterHr)) {
 						log.Error(std::format(
-							"view '{}': AddWebResourceRequestedFilter failed (0x{:08X}); "
-							"network egress is NOT blocked",
+							"view '{}': source-kind egress filter registration failed (0x{:08X})",
 							a_view.id, static_cast<unsigned>(filterHr)));
-						return;
+						return filterHr;
 					}
 				}
 				EventRegistrationToken token{};
-				a_view.webView->add_WebResourceRequested(
+				const auto eventHr = a_view.webView->add_WebResourceRequested(
 					Callback<ICoreWebView2WebResourceRequestedEventHandler>(
 						[this, view](ICoreWebView2*,
 							ICoreWebView2WebResourceRequestedEventArgs* a_args) -> HRESULT {
@@ -2460,6 +2542,12 @@ namespace osfui::wv2
 							}
 							return S_OK;
 						}).Get(), &token);
+				if (FAILED(eventHr)) {
+					log.Error(std::format(
+						"view '{}': WebResourceRequested handler registration failed (0x{:08X})",
+						a_view.id, static_cast<unsigned>(eventHr)));
+					return eventHr;
+				}
 				// The channels the request filter can't see. Runs in every document
 				// (iframes included) before any page script; the non-configurable
 				// define means page code cannot restore the constructor, and
@@ -2487,15 +2575,29 @@ namespace osfui::wv2
 						} catch (_) {}
 					}
 				})();)JS";
-				a_view.webView->AddScriptToExecuteOnDocumentCreated(kNeuter,
+				const auto viewId = a_view.id;
+				const auto scriptHr = a_view.webView->AddScriptToExecuteOnDocumentCreated(kNeuter,
 					Callback<ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler>(
-						[this](HRESULT a_scriptHr, LPCWSTR) -> HRESULT {
+						[this, viewId](HRESULT a_scriptHr, LPCWSTR) -> HRESULT {
+							auto* current = FindView(viewId);
+							if (!current) return S_OK;
 							if (FAILED(a_scriptHr)) {
 								log.Error(std::format("egress neuter script install failed (0x{:08X})",
 									static_cast<unsigned>(a_scriptHr)));
+								ReportSecurityFailure(*current, a_scriptHr,
+									"egress transport policy installation failed");
+							} else {
+								FinishControllerSetup(*current);
 							}
 							return S_OK;
 						}).Get());
+				if (FAILED(scriptHr)) {
+					log.Error(std::format(
+						"view '{}': egress neuter script registration failed (0x{:08X})",
+						a_view.id, static_cast<unsigned>(scriptHr)));
+					return scriptHr;
+				}
+				return S_OK;
 			}
 
 			void InstallEvents(View& a_view)
@@ -2583,14 +2685,56 @@ namespace osfui::wv2
 					Callback<ICoreWebView2WebMessageReceivedEventHandler>(
 						[this, view](ICoreWebView2*,
 							ICoreWebView2WebMessageReceivedEventArgs* a_args) -> HRESULT {
+							constexpr std::size_t kMaxPageMessageChars = 64 * 1024;
+							constexpr std::size_t kMaxPageMessageBytes = 64 * 1024;
+							constexpr std::uint32_t kMaxPageMessagesPerSecond = 128;
 							LPWSTR value = nullptr;
 							if (FAILED(a_args->TryGetWebMessageAsString(&value)) || !value)
 								return S_OK;
+							std::size_t chars = 0;
+							while (chars <= kMaxPageMessageChars && value[chars] != L'\0') ++chars;
+							if (chars > kMaxPageMessageChars) {
+								::CoTaskMemFree(value);
+								if (!view->pageMessageTooLargeWarned) {
+									view->pageMessageTooLargeWarned = true;
+									log.Warn(std::format(
+										"view '{}': dropped page message over the 64 KiB limit",
+										view->id));
+								}
+								return S_OK;
+							}
 							auto text = ToUtf8(value);
 							::CoTaskMemFree(value);
-							if (text == kRevealSentinel) {
+							if (text.size() > kMaxPageMessageBytes) {
+								if (!view->pageMessageTooLargeWarned) {
+									view->pageMessageTooLargeWarned = true;
+									log.Warn(std::format(
+										"view '{}': dropped page message over the 64 KiB limit",
+										view->id));
+								}
+								return S_OK;
+							}
+							const auto now = ::GetTickCount64();
+							if (view->pageMessageWindowStarted == 0 ||
+								now - view->pageMessageWindowStarted >= 1000) {
+								view->pageMessageWindowStarted = now;
+								view->pageMessagesThisWindow = 0;
+							}
+							if (view->pageMessagesThisWindow >= kMaxPageMessagesPerSecond) {
+								if (!view->pageMessageFloodWarned) {
+									view->pageMessageFloodWarned = true;
+									log.Warn(std::format(
+										"view '{}': page-message rate exceeded 128/s; excess messages are dropped",
+										view->id));
+								}
+								return S_OK;
+							}
+							++view->pageMessagesThisWindow;
+							if (text.starts_with(kRevealSentinelPrefix)) {
 								// Host-internal paint handshake; not forwarded.
-								CompleteReveal(*view, /*a_timedOut=*/false);
+								if (view->revealPending && text == view->revealToken) {
+									CompleteReveal(*view, /*a_timedOut=*/false);
+								}
 								return S_OK;
 							}
 							if (text == kPrewarmSentinel) {
@@ -2609,13 +2753,13 @@ namespace osfui::wv2
 							}
 							static constexpr std::string_view kStatsPrefix = "__osfuiRenderStatsPage:";
 							if (text.starts_with(kStatsPrefix)) {
-								const auto now = ::GetTickCount64();
+								const auto sampleNow = ::GetTickCount64();
 								if (view->renderStats &&
-									(now - view->renderStatsLastPageLogMs >= 2000)) {
+									(sampleNow - view->renderStatsLastPageLogMs >= 2000)) {
 									const auto sample = json::parse(text.substr(kStatsPrefix.size()), nullptr, false);
 									if (!sample.is_discarded()) {
 										try {
-											view->renderStatsLastPageLogMs = now;
+											view->renderStatsLastPageLogMs = sampleNow;
 											log.InfoFwd(std::format(
 												"view '{}': page diagnostics for '{}': RAF {:.1f} fps, gap p95 {:.2f} ms, "
 												"max {:.2f} ms, long tasks {} / {:.1f} ms, DOM {} nodes, heap {:.1f} MB",
@@ -2632,6 +2776,7 @@ namespace osfui::wv2
 								}
 								return S_OK;  // host-internal diagnostics; never enter the public bridge
 							}
+							if (!view->bridge) return S_OK;
 							Send(json{ { "type", "webMessage" }, { "view", view->id },
 								{ "json", std::move(text) } });
 							return S_OK;
@@ -2893,17 +3038,19 @@ namespace osfui::wv2
 				const winrt::Windows::Graphics::Capture::Direct3D11CaptureFramePool& a_pool)
 			{
 				if (quit.load() || captureClosing.load()) return;
-				// Known one-frame race: this epoch is read at callback entry, but
-				// the frame's pixels were captured when WGC queued it. A frame
-				// captured just before the STA made the visual visible whose
-				// callback runs just after PromotePresentation gets the new epoch
-				// while still holding pre-reveal pixels. The window is at most one
-				// composition frame and self-corrects on the next capture; closing
-				// it would require draining the frame pool inside the STA's
-				// show path, which is not worth the cross-thread coupling.
-				const auto framePresentationEpoch =
-					presentationEpoch.load(std::memory_order_acquire);
 				try {
+					decltype(a_pool.TryGetNextFrame()) capturedFrame{ nullptr };
+					std::uint64_t framePresentationEpoch = 0;
+					{
+						// Recreate+promotion takes the same lock. A callback
+						// therefore either removes an old queued frame with the
+						// old epoch, or observes the newly drained pool and epoch.
+						std::scoped_lock epochLock(captureEpochMutex);
+						framePresentationEpoch =
+							presentationEpoch.load(std::memory_order_acquire);
+						capturedFrame = a_pool.TryGetNextFrame();
+					}
+					if (!capturedFrame) return;
 					const auto arrival = std::chrono::steady_clock::now();
 					// Capture thread: never touch `views` here (STA mutates it
 					// unlocked); the STA-refreshed cache answers this cheaply.
@@ -2930,8 +3077,6 @@ namespace osfui::wv2
 						}
 					}
 					captureLastArrival = arrival;
-					auto capturedFrame = a_pool.TryGetNextFrame();
-					if (!capturedFrame) return;
 					captureArrivalCount.fetch_add(1, std::memory_order_relaxed);
 					auto access = capturedFrame.Surface().as<
 						::Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess>();
@@ -3023,6 +3168,7 @@ namespace osfui::wv2
 					}
 				}
 				if (!framePool) return;
+				std::scoped_lock epochLock(captureEpochMutex);
 				try {
 					framePool.Recreate(captureDevice,
 						winrt::Windows::Graphics::DirectX::DirectXPixelFormat::B8G8R8A8UIntNormalized,
@@ -3622,12 +3768,21 @@ namespace osfui::wv2
 					try { framePool.FrameArrived(frameToken); } catch (...) {}
 				}
 				if (captureSession) {
-					captureSession.Close();
+					try { captureSession.Close(); }
+					catch (const winrt::hresult_error& e) {
+						log.Warn(std::format("capture-session close failed (hr=0x{:08X})",
+							static_cast<std::uint32_t>(e.code().value)));
+					}
 					captureSession = nullptr;
 				}
 				captureCadenceHz = 0;
 				if (framePool) {
-					framePool.Close();
+					std::scoped_lock epochLock(captureEpochMutex);
+					try { framePool.Close(); }
+					catch (const winrt::hresult_error& e) {
+						log.Warn(std::format("capture-pool close failed (hr=0x{:08X})",
+							static_cast<std::uint32_t>(e.code().value)));
+					}
 					framePool = nullptr;
 				}
 				captureItem = nullptr;
@@ -3759,7 +3914,7 @@ namespace osfui::wv2
 					{ "reason", !byeReason.empty() ? byeReason.c_str()
 							: exitCode == 0      ? "shutdown"
 												 : "init-failed" } });
-				log.pipe = nullptr;
+				log.pipe.store(nullptr, std::memory_order_release);
 				CloseWebResources();
 				if (dispatcher) {
 					try { dispatcher.ShutdownQueueAsync(); } catch (...) {}
@@ -3872,7 +4027,7 @@ namespace osfui::wv2
 			::CloseHandle(instanceMutex);
 			return 2;
 		}
-		app.log.pipe = &app.pipe;
+		app.log.pipe.store(&app.pipe, std::memory_order_release);
 
 		app.gameProcess = ::OpenProcess(
 			PROCESS_DUP_HANDLE | SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
@@ -3911,12 +4066,52 @@ namespace osfui::wv2
 		});
 		app.log.Info("hello sent (WebView2 runtime " + runtime + ")");
 
-		app.wakeEvent = ::CreateEventW(nullptr, FALSE, FALSE, nullptr);
-		app.reader = std::thread([&app] { app.ReaderMain(); });
-
-		const int code = app.Run();
-		::CloseHandle(app.gameProcess);
-		::CloseHandle(app.wakeEvent);
+		int code = 10;
+		try {
+			app.wakeEvent = ::CreateEventW(nullptr, FALSE, FALSE, nullptr);
+			if (!app.wakeEvent) {
+				throw std::runtime_error("CreateEvent(wake) failed");
+			}
+			app.reader = std::thread([&app] {
+				try {
+					app.ReaderMain();
+				} catch (const winrt::hresult_error& e) {
+					app.log.Error("pipe reader failed: " + ToUtf8(e.message()));
+					app.quit.store(true);
+					::SetEvent(app.wakeEvent);
+				} catch (const std::exception& e) {
+					app.log.Error(std::string("pipe reader failed: ") + e.what());
+					app.quit.store(true);
+					::SetEvent(app.wakeEvent);
+				} catch (...) {
+					app.log.Error("pipe reader failed with an unknown exception");
+					app.quit.store(true);
+					::SetEvent(app.wakeEvent);
+				}
+			});
+			code = app.Run();
+		} catch (const winrt::hresult_error& e) {
+			app.log.Error("unhandled host failure: " + ToUtf8(e.message()));
+		} catch (const std::exception& e) {
+			app.log.Error(std::string("unhandled host failure: ") + e.what());
+		} catch (...) {
+			app.log.Error("unhandled host failure: unknown exception");
+		}
+		app.quit.store(true);
+		if (app.wakeEvent) {
+			::SetEvent(app.wakeEvent);
+		}
+		app.log.pipe.store(nullptr, std::memory_order_release);
+		app.pipe.Close();
+		if (app.reader.joinable()) {
+			app.reader.join();
+		}
+		if (app.gameProcess) {
+			::CloseHandle(app.gameProcess);
+		}
+		if (app.wakeEvent) {
+			::CloseHandle(app.wakeEvent);
+		}
 		::CloseHandle(instanceMutex);
 		return code;
 	}

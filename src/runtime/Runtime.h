@@ -396,7 +396,8 @@ namespace OSFUI
 		// thread), rebuilt from the store's listeners and drained in Tick (main
 		// thread); wired in BuildModules.
 		HotkeyService                           _hotkeys;
-		KeyCode                       _toggleKey{ kInvalidKeyCode };
+		std::atomic<KeyCode>          _toggleKey{ kInvalidKeyCode };
+		bool                          _inputConfigured{ false };  // main thread
 		bool                          _vanillaKeysApplied{ false };  // main-thread; ApplyVanillaKeyConflicts edge detector
 		std::atomic_bool              _devToolsRequested{ false };
 
@@ -451,8 +452,8 @@ namespace OSFUI
 		// by the WndProc (input) thread (plus the main-thread recenter on the
 		// overlay-open edge); the view dims + cursor scale are written by the
 		// render thread on resize and read by input, hence atomic.
-		float                         _cursorX{ 0.0f };
-		float                         _cursorY{ 0.0f };
+		std::atomic<float>            _cursorX{ 0.0f };
+		std::atomic<float>            _cursorY{ 0.0f };
 		std::atomic<std::uint32_t>    _viewWidth{ kDefaultViewWidth };
 		std::atomic<std::uint32_t>    _viewHeight{ kDefaultViewHeight };
 		std::atomic<float>            _cursorScale{ 1.0f };   // resolution-based, set on resize

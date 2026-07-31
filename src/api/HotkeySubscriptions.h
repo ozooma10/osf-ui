@@ -1,5 +1,8 @@
 #pragma once
 
+#include <condition_variable>
+#include <thread>
+
 namespace OSFUI::API
 {
 	// Redeclares sdk/OSFUI_API.h's HotkeyFn (an identical alias is a legal
@@ -29,8 +32,8 @@ namespace OSFUI::API
 		// until such a binding dispatches. Returns a nonzero token, or 0 on
 		// null/empty a_modId or a_key, or null a_fn.
 		std::uint32_t Subscribe(const char* a_modId, const char* a_key, HotkeyFn a_fn, void* a_user);
-		// Any thread. From the main thread (including inside a callback) no
-		// further callbacks fire for the token once this returns.
+		// Any thread. Once this returns no callback for the token is still
+		// running or can start. Self-unsubscribe from inside a callback is safe.
 		void Unsubscribe(std::uint32_t a_token);
 
 		// Main thread: a dispatched hotkey (Runtime::DrainHotkeys). Queued for
@@ -59,6 +62,9 @@ namespace OSFUI::API
 		};
 
 		mutable std::mutex                              _mutex;
+		std::condition_variable                         _invokeCv;
+		std::uint32_t                                   _invokingToken{ 0 };
+		std::thread::id                                 _invokingThread{};
 		std::unordered_map<std::uint32_t, Subscription> _subs;
 		std::vector<Event>                              _events;  // fires awaiting Pump
 		std::uint32_t                                   _nextToken{ 1 };

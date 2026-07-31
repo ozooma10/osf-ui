@@ -9,6 +9,7 @@
 // Close() cancels pending I/O and unblocks the reader.
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <mutex>
 #include <string>
@@ -47,17 +48,22 @@ namespace osfui::wv2
 
 		void Close();
 
-		[[nodiscard]] bool IsOpen() const { return _pipe != INVALID_HANDLE_VALUE; }
-		[[nodiscard]] const std::string& LastErrorText() const { return _lastError; }
+		[[nodiscard]] bool IsOpen() const;
+		[[nodiscard]] std::string LastErrorText() const;
 
 	private:
 		bool ReadExact(std::uint8_t* a_buffer, std::uint32_t a_bytes);
+		void FinishRead();
 		void SetError(const char* a_where, DWORD a_code);
 
 		HANDLE      _pipe{ INVALID_HANDLE_VALUE };
 		HANDLE      _readEvent{ nullptr };   // overlapped read (cancellable)
 		HANDLE      _writeEvent{ nullptr };  // overlapped write
 		std::mutex  _writeMutex;
+		mutable std::mutex _stateMutex;
+		std::condition_variable _readDone;
+		bool _readActive{ false };
+		mutable std::mutex _errorMutex;
 		std::string _lastError;
 		std::atomic<bool> _closing{ false };
 	};

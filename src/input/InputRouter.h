@@ -2,6 +2,8 @@
 
 #include "input/InputTypes.h"
 
+#include <atomic>
+
 namespace OSFUI
 {
 	// Keyboard decision point, fed by the WndProc subclass (OverlayInputHook →
@@ -13,6 +15,7 @@ namespace OSFUI
 	{
 	public:
 		void Configure(KeyCode a_toggleKey, std::function<void()> a_onToggle, std::function<void()> a_onBack = {});
+		void SetToggleKey(KeyCode a_toggleKey);
 
 		// a_isCaptured: overlay currently owns input (visible + capture enabled).
 		// Both are optional — without them the router only drives the toggle path.
@@ -24,7 +27,7 @@ namespace OSFUI
 	private:
 		[[nodiscard]] bool Captured() const { return _isCaptured && _isCaptured(); }
 
-		KeyCode                            _toggleKey{ 0 };
+		std::atomic<KeyCode>               _toggleKey{ kInvalidKeyCode };
 		std::function<void()>              _onToggle;
 		std::function<void()>              _onBack;
 		std::function<bool()>              _isCaptured;

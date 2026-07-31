@@ -19,8 +19,14 @@ namespace OSFUI::API
 
 	void HotkeySubscriptions::Unsubscribe(std::uint32_t a_token)
 	{
-		std::lock_guard lock(_mutex);
+		std::unique_lock lock(_mutex);
 		_subs.erase(a_token);
+		if (a_token != 0 && _invokingToken == a_token &&
+			_invokingThread != std::this_thread::get_id()) {
+			_invokeCv.wait(lock, [&] {
+				return _invokingToken != a_token;
+			});
+		}
 	}
 
 	void HotkeySubscriptions::OnFired(std::string_view a_modId, std::string_view a_key)
@@ -70,8 +76,16 @@ namespace OSFUI::API
 				if (!_subs.contains(c.token)) {
 					continue;
 				}
+				_invokingToken = c.token;
+				_invokingThread = std::this_thread::get_id();
 			}
 			c.fn(c.modId.c_str(), c.key.c_str(), c.user);
+			{
+				std::lock_guard lock(_mutex);
+				_invokingToken = 0;
+				_invokingThread = {};
+			}
+			_invokeCv.notify_all();
 		}
 	}
 }

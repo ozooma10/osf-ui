@@ -10,6 +10,8 @@
 #include <chrono>
 #include <cstring>
 #include <mutex>
+#include <unordered_map>
+#include <vector>
 
 namespace OSFUI
 {
@@ -56,6 +58,29 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		using SeamDrawFn = bool (*)(ID3D12GraphicsCommandList*, ID3D12Resource*, bool, bool);
 		std::atomic<SeamDrawFn> g_seamDrawFn{ nullptr };
 
+		using ExecuteCommandListsFn = void (STDMETHODCALLTYPE*)(
+			ID3D12CommandQueue*, UINT, ID3D12CommandList* const*);
+		using QueueExecutedFn = void (*)(
+			ID3D12CommandQueue*, UINT, ID3D12CommandList* const*);
+		std::atomic<ExecuteCommandListsFn> g_origExecuteCommandLists{ nullptr };
+		std::atomic<QueueExecutedFn> g_queueExecutedFn{ nullptr };
+		constexpr std::size_t kExecuteCommandListsSlot = 10;
+
+		void STDMETHODCALLTYPE ExecuteCommandListsThunk(
+			ID3D12CommandQueue* a_queue,
+			const UINT a_count,
+			ID3D12CommandList* const* a_lists)
+		{
+			// Forward first. Consume fences must be queued after the command
+			// lists that actually sampled their shared texture.
+			if (const auto original = g_origExecuteCommandLists.load(std::memory_order_acquire)) {
+				original(a_queue, a_count, a_lists);
+			}
+			if (const auto notify = g_queueExecutedFn.load(std::memory_order_acquire)) {
+				notify(a_queue, a_count, a_lists);
+			}
+		}
+
 		[[nodiscard]] ID3DBlob* CompileShader(const char* a_src, const char* a_entry, const char* a_target)
 		{
 			ID3DBlob* code = nullptr;
@@ -100,7 +125,17 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		// under ringMutex, and OMSetRenderTargets snapshots the CPU descriptor
 		// at record time, so it is free for reuse the moment the call returns.
 		ID3D12DescriptorHeap* seamRtvHeap{ nullptr };  // typed RTV onto the engine's (typeless) UI buffers
-		std::uint64_t seamLastConsumeSignaled{ 0 };  // ringMutex
+		struct PendingConsume
+		{
+			ID3D12Fence* fence{ nullptr };
+			std::uint64_t serial{ 0 };
+		};
+		// A consume is acknowledged only by the queue hook, after the engine
+		// submits the command list containing our draw.
+		std::mutex pendingConsumeMutex;
+		std::unordered_map<ID3D12CommandList*, PendingConsume> pendingConsumes;
+		std::atomic_bool consumeSignalFailureLogged{ false };
+		bool gpuIdleFailureLogged{ false };
 		std::atomic<std::uint64_t> seamDraws{ 0 };
 		std::atomic<std::uint64_t> seamDrawsFgTarget{ 0 };  // diagnostics
 		bool          noSharedFrameLogged{ false };  // ringMutex
@@ -181,10 +216,18 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 		~Impl()
 		{
-			g_overlay.store(nullptr);
+			g_queueExecutedFn.store(nullptr, std::memory_order_release);
 			g_seamDrawFn.store(nullptr, std::memory_order_release);
-			WaitForGpuIdle();
-			ReleaseSharedRing();
+			g_overlay.store(nullptr, std::memory_order_release);
+			const bool gpuIdle = WaitForGpuIdle();
+			const bool hasUnsubmittedDraws = HasPendingConsumes();
+			if (gpuIdle && !hasUnsubmittedDraws) {
+				ReleaseSharedRing();
+			} else {
+				REX::ERROR("D3D12Compositor: retaining GPU objects during shutdown because "
+						   "recorded overlay work could not be proven idle");
+			}
+			ReleasePendingConsumes();
 			{
 				std::scoped_lock lk(sharedMutex);
 				if (sharedDirty) {
@@ -192,18 +235,20 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 					sharedDirty = false;
 				}
 			}
-			SafeRelease(seamPso);
-			SafeRelease(rootSig);
-			SafeRelease(srvHeap);
-			SafeRelease(seamRtvHeap);
-			SafeRelease(vsBlob);
-			SafeRelease(psBlob);
-			SafeRelease(fence);
-			if (fenceEvent) {
-				::CloseHandle(fenceEvent);
+			if (gpuIdle && !hasUnsubmittedDraws) {
+				SafeRelease(seamPso);
+				SafeRelease(rootSig);
+				SafeRelease(srvHeap);
+				SafeRelease(seamRtvHeap);
+				SafeRelease(vsBlob);
+				SafeRelease(psBlob);
+				SafeRelease(fence);
+				if (fenceEvent) {
+					::CloseHandle(fenceEvent);
+				}
+				SafeRelease(engine.directQueue);
+				SafeRelease(engine.device);
 			}
-			SafeRelease(engine.directQueue);
-			SafeRelease(engine.device);
 		}
 
 		void CountRenderStatsDraw(const std::uint64_t a_serial,
@@ -270,16 +315,28 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		// Drain the engine's DIRECT queue up to this point. We submit no work of
 		// our own any more, but seam draws ride ENGINE command lists on this
 		// queue, so this is what makes retiring a ring generation safe.
-		void WaitForGpuIdle()
+		[[nodiscard]] bool WaitForGpuIdle()
 		{
 			if (!fence || !fenceEvent || !engine.directQueue) {
-				return;
+				return true;
 			}
 			const auto value = nextFenceValue++;
-			if (SUCCEEDED(engine.directQueue->Signal(fence, value)) && fence->GetCompletedValue() < value) {
-				fence->SetEventOnCompletion(value, fenceEvent);
-				::WaitForSingleObject(fenceEvent, 2000);
+			HRESULT hr = engine.directQueue->Signal(fence, value);
+			if (SUCCEEDED(hr) && fence->GetCompletedValue() < value) {
+				hr = fence->SetEventOnCompletion(value, fenceEvent);
+				if (SUCCEEDED(hr) && ::WaitForSingleObject(fenceEvent, 2000) == WAIT_OBJECT_0) {
+					return fence->GetCompletedValue() >= value;
+				}
+			} else if (SUCCEEDED(hr)) {
+				return true;
 			}
+			if (!gpuIdleFailureLogged) {
+				gpuIdleFailureLogged = true;
+				REX::ERROR("D3D12Compositor: GPU idle wait failed or timed out (hr=0x{:08X}); "
+						   "ring retirement is deferred",
+					static_cast<std::uint32_t>(hr));
+			}
+			return false;
 		}
 
 		static void CloseRingHandles(SharedRingDesc& a_desc)
@@ -350,6 +407,120 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			sharedOpenFailed = false;
 		}
 
+		void TrackConsume(
+			ID3D12GraphicsCommandList* a_list,
+			ID3D12Fence* a_consumeFence,
+			const std::uint64_t a_serial)
+		{
+			if (!a_list || !a_consumeFence || a_serial == 0) {
+				return;
+			}
+			std::scoped_lock lk(pendingConsumeMutex);
+			auto [it, inserted] = pendingConsumes.try_emplace(a_list);
+			auto& pending = it->second;
+			if (inserted || pending.fence != a_consumeFence) {
+				a_consumeFence->AddRef();
+				SafeRelease(pending.fence);
+				pending.fence = a_consumeFence;
+			}
+			pending.serial = (std::max)(pending.serial, a_serial);
+		}
+
+		[[nodiscard]] bool HasPendingConsumes()
+		{
+			std::scoped_lock lk(pendingConsumeMutex);
+			return !pendingConsumes.empty();
+		}
+
+		void ReleasePendingConsumes()
+		{
+			std::scoped_lock lk(pendingConsumeMutex);
+			for (auto& [list, pending] : pendingConsumes) {
+				(void)list;
+				SafeRelease(pending.fence);
+			}
+			pendingConsumes.clear();
+		}
+
+		void OnCommandListsExecuted(
+			ID3D12CommandQueue* a_queue,
+			const UINT a_count,
+			ID3D12CommandList* const* a_lists)
+		{
+			if (!a_queue || !a_lists) {
+				return;
+			}
+			std::vector<PendingConsume> completed;
+			{
+				std::scoped_lock lk(pendingConsumeMutex);
+				for (UINT i = 0; i < a_count; ++i) {
+					const auto it = pendingConsumes.find(a_lists[i]);
+					if (it != pendingConsumes.end()) {
+						completed.push_back(it->second);
+						pendingConsumes.erase(it);
+					}
+				}
+			}
+			// One ExecuteCommandLists call completes the whole batch before
+			// these signals. Coalesce by fence so values never move backwards.
+			std::unordered_map<ID3D12Fence*, std::uint64_t> signals;
+			for (const auto& pending : completed) {
+				auto& value = signals[pending.fence];
+				value = (std::max)(value, pending.serial);
+			}
+			for (const auto& [consumeFence, serial] : signals) {
+				const auto hr = a_queue->Signal(consumeFence, serial);
+				if (FAILED(hr) &&
+					!consumeSignalFailureLogged.exchange(true, std::memory_order_relaxed)) {
+					REX::ERROR("D3D12Compositor: queue-ordered consume-fence signal failed "
+							   "(hr=0x{:08X}); the host will drop frames instead of reusing a busy slot",
+						static_cast<std::uint32_t>(hr));
+				}
+			}
+			for (auto& pending : completed) {
+				SafeRelease(pending.fence);
+			}
+		}
+
+		static void QueueExecutedThunk(
+			ID3D12CommandQueue* a_queue,
+			const UINT a_count,
+			ID3D12CommandList* const* a_lists)
+		{
+			auto* self = static_cast<Impl*>(g_overlay.load(std::memory_order_acquire));
+			if (self) {
+				self->OnCommandListsExecuted(a_queue, a_count, a_lists);
+			}
+		}
+
+		[[nodiscard]] bool InstallQueueHook()
+		{
+			auto** vtable = *reinterpret_cast<void***>(engine.directQueue);
+			auto** slot = &vtable[kExecuteCommandListsSlot];
+			const auto current = reinterpret_cast<ExecuteCommandListsFn>(*slot);
+			if (current == &ExecuteCommandListsThunk) {
+				return g_origExecuteCommandLists.load(std::memory_order_acquire) != nullptr;
+			}
+			if (g_origExecuteCommandLists.load(std::memory_order_acquire) != nullptr) {
+				REX::ERROR("D3D12Compositor: ExecuteCommandLists hook state conflicts with "
+						   "the engine queue; overlay disabled");
+				return false;
+			}
+			DWORD oldProtect = 0;
+			if (!::VirtualProtect(slot, sizeof(void*), PAGE_READWRITE, &oldProtect)) {
+				REX::ERROR("D3D12Compositor: could not make the command-queue vtable writable; "
+						   "overlay disabled");
+				return false;
+			}
+			g_origExecuteCommandLists.store(current, std::memory_order_release);
+			*slot = reinterpret_cast<void*>(&ExecuteCommandListsThunk);
+			DWORD ignored = 0;
+			if (!::VirtualProtect(slot, sizeof(void*), oldProtect, &ignored)) {
+				REX::WARN("D3D12Compositor: command-queue vtable protection could not be restored");
+			}
+			return true;
+		}
+
 		// Submit/tick thread: adopt the latest announced ring. Returns true when a
 		// usable ring is open.
 		[[nodiscard]] bool EnsureSharedRing()
@@ -365,12 +536,30 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				sharedPending = {};
 				sharedDirty = false;
 			}
-			// Old slots may still be referenced by in-flight ENGINE lists
-			// carrying seam draws; the queue drain plus one generation of
-			// retirement covers them. ringMutex: the seam worker must not
-			// sample mid-swap.
-			WaitForGpuIdle();
+			// Hold the draw lock across the pending-list check and queue drain.
+			// That closes the window where a render worker could record another
+			// old-ring draw after the idle fence had already been queued.
 			std::scoped_lock ring(ringMutex);
+			const auto deferAdoption = [&]() {
+				std::scoped_lock lk(sharedMutex);
+				if (sharedDirty) {
+					CloseRingHandles(pending);  // a newer announcement superseded this one
+				} else {
+					sharedPending = pending;
+					pending = {};
+					sharedDirty = true;
+				}
+				return sharedSlots[0] != nullptr && !sharedOpenFailed;
+			};
+			if (HasPendingConsumes()) {
+				return deferAdoption();
+			}
+			// Old slots may still be referenced by in-flight ENGINE lists
+			// carrying seam draws. A failed drain must keep this generation
+			// alive; it is never treated as a successful timeout.
+			if (!WaitForGpuIdle()) {
+				return deferAdoption();
+			}
 			RetireSharedRing();
 
 			auto* dev = engine.device;
@@ -457,7 +646,14 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				return;
 			}
 
-			g_overlay.store(this);
+			g_overlay.store(this, std::memory_order_release);
+			g_queueExecutedFn.store(&Impl::QueueExecutedThunk, std::memory_order_release);
+			if (!InstallQueueHook()) {
+				g_queueExecutedFn.store(nullptr, std::memory_order_release);
+				g_overlay.store(nullptr, std::memory_order_release);
+				REX::ERROR("D3D12Compositor: setup failed; overlay disabled this session");
+				return;
+			}
 			g_seamDrawFn.store(&Impl::SeamDrawThunk, std::memory_order_release);
 			setupOk = true;
 			REX::INFO("D3D12Compositor: seam-only overlay armed (no IDXGISwapChain::Present hook)");
@@ -587,9 +783,9 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		// hand-off): record the overlay quad onto the ENGINE's list into the
 		// engine's UI buffer — upstream of Frame Generation, so both real and
 		// generated frames carry it. v1 transport: the produce fence is checked
-		// on the CPU (we cannot wait on a queue we don't control) and the
-		// consume fence is signaled from the CPU; ring depth covers the gap, a
-		// lost race is a rare torn overlay frame, never a hazard.
+		// on the CPU (we cannot wait on a queue we don't control). The command
+		// queue hook signals consumption only after the exact engine command list
+		// containing this draw has been submitted.
 		[[nodiscard]] bool RecordSeamOverlay(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
 			const bool a_fgTarget, const bool a_regionFirst)
 		{
@@ -708,13 +904,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			a_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 			a_list->DrawInstanced(3, 1, 0, 0);
 
-			if (sharedConsume && serial > seamLastConsumeSignaled) {
-				// CPU-side pacing: lets the host reuse older slots. The GPU may
-				// not have sampled yet, but ring depth (4 slots) covers it.
-				sharedConsume->Signal(serial);
-				seamLastConsumeSignaled = serial;
-			}
-
+			TrackConsume(a_list, sharedConsume, serial);
 			const auto drawIndex = seamDraws.fetch_add(1, std::memory_order_relaxed) + 1;
 			const auto fgIndex = a_fgTarget
 				? seamDrawsFgTarget.fetch_add(1, std::memory_order_relaxed) + 1

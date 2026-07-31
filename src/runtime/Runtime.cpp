@@ -446,9 +446,10 @@ namespace OSFUI
 		// Key events reach the router from the WndProc subclass (OverlayInputHook
 		// → OnHostKey), installed when config inputSource="ui" (core/Plugin.cpp,
 		// kPostPostDataLoad).
-		_toggleKey = ResolveKeyName(_config.toggleKey);
-		if (_toggleKey != kInvalidKeyCode) {
-			REX::INFO("Runtime: toggleKey '{}' resolved to VK code {:#x}", _config.toggleKey, _toggleKey);
+		const auto toggleKey = ResolveKeyName(_config.toggleKey);
+		_toggleKey.store(toggleKey, std::memory_order_release);
+		if (toggleKey != kInvalidKeyCode) {
+			REX::INFO("Runtime: toggleKey '{}' resolved to VK code {:#x}", _config.toggleKey, toggleKey);
 		}
 		EngineInput::SetEnabled(_config.engineInput);
 		if (_config.engineInput) {
@@ -708,7 +709,7 @@ namespace OSFUI
 			// Out-of-process backends mirror the accelerator state so their host
 			// process can decide `handled` synchronously; pushed every tick,
 			// backends diff and forward only changes (default no-op).
-			_renderer->SetAcceleratorKeys(_toggleKey,
+			_renderer->SetAcceleratorKeys(_toggleKey.load(std::memory_order_acquire),
 				IsInputCaptured(), _captureArmed.load(), _captureUpVk.load());
 			_renderer->Update(a_deltaSeconds);
 			DrivePendingOpen();
@@ -1949,10 +1950,16 @@ namespace OSFUI
 
 	void Runtime::ApplyToggleKey()
 	{
-		_input.Configure(
-			_toggleKey,
-			[this] { EnqueueMenuRequest(MenuReq::ToggleDefault); },
-			[this] { EnqueueMenuRequest(MenuReq::Back); });
+		const auto toggleKey = _toggleKey.load(std::memory_order_acquire);
+		if (!_inputConfigured) {
+			_input.Configure(
+				toggleKey,
+				[this] { EnqueueMenuRequest(MenuReq::ToggleDefault); },
+				[this] { EnqueueMenuRequest(MenuReq::Back); });
+			_inputConfigured = true;
+		} else {
+			_input.SetToggleKey(toggleKey);
+		}
 	}
 
 	void Runtime::NotifyPlayerCloseRequest()
@@ -2005,7 +2012,8 @@ namespace OSFUI
 		// Decide consumption before routing: capturing or the toggle key must not
 		// reach the game (the toggle press itself is consumed so opening the
 		// overlay never also acts in-game).
-		const bool consume = IsInputCaptured() || a_vkCode == _toggleKey;
+		const auto toggleKey = _toggleKey.load(std::memory_order_acquire);
+		const bool consume = IsInputCaptured() || a_vkCode == toggleKey;
 		if (a_down) {
 			_input.OnKeyDown(a_vkCode);
 		} else {
@@ -2020,7 +2028,7 @@ namespace OSFUI
 		const bool frameworkOwned =
 			_captureArmed.load() ||
 			(_captureUpVk.load() != kInvalidKeyCode && a_vkCode == _captureUpVk.load()) ||
-			a_vkCode == _toggleKey ||
+			a_vkCode == _toggleKey.load(std::memory_order_acquire) ||
 			(_config.devMode && a_vkCode == kVkF12) ||
 			(a_vkCode == 0x1B && IsInputCaptured());
 		return frameworkOwned && OnHostKey(a_vkCode, a_down);
@@ -2045,8 +2053,10 @@ namespace OSFUI
 		// every resolution.
 		const auto viewW = static_cast<float>(_viewWidth.load(std::memory_order_relaxed));
 		const auto viewH = static_cast<float>(_viewHeight.load(std::memory_order_relaxed));
-		_cursorX = std::clamp(static_cast<float>(a_clientX) * viewW / static_cast<float>(a_clientW), 0.0f, viewW - 1.0f);
-		_cursorY = std::clamp(static_cast<float>(a_clientY) * viewH / static_cast<float>(a_clientH), 0.0f, viewH - 1.0f);
+		_cursorX.store(std::clamp(static_cast<float>(a_clientX) * viewW /
+			static_cast<float>(a_clientW), 0.0f, viewW - 1.0f), std::memory_order_relaxed);
+		_cursorY.store(std::clamp(static_cast<float>(a_clientY) * viewH /
+			static_cast<float>(a_clientH), 0.0f, viewH - 1.0f), std::memory_order_relaxed);
 		QueueMouseMove();
 	}
 
@@ -2060,8 +2070,18 @@ namespace OSFUI
 		const auto scale = _cursorScale.load(std::memory_order_relaxed);
 		const auto maxX = static_cast<float>(_viewWidth.load(std::memory_order_relaxed) - 1);
 		const auto maxY = static_cast<float>(_viewHeight.load(std::memory_order_relaxed) - 1);
-		_cursorX = std::clamp(_cursorX + static_cast<float>(a_dx) * scale, 0.0f, maxX);
-		_cursorY = std::clamp(_cursorY + static_cast<float>(a_dy) * scale, 0.0f, maxY);
+		const auto addClamped = [](std::atomic<float>& a_value, const float a_delta, const float a_max) {
+			auto current = a_value.load(std::memory_order_relaxed);
+			for (;;) {
+				const auto next = std::clamp(current + a_delta, 0.0f, a_max);
+				if (a_value.compare_exchange_weak(current, next,
+						std::memory_order_relaxed, std::memory_order_relaxed)) {
+					break;
+				}
+			}
+		};
+		addClamped(_cursorX, static_cast<float>(a_dx) * scale, maxX);
+		addClamped(_cursorY, static_cast<float>(a_dy) * scale, maxY);
 		QueueMouseMove();
 	}
 
@@ -2073,8 +2093,8 @@ namespace OSFUI
 		// matters — and Tick flushes at most one InjectMouseMove per frame.
 		// Coords are non-negative ints well under 2^31, so the packed value
 		// can never equal the all-bits-set no-pending sentinel.
-		const auto x = static_cast<std::uint32_t>(static_cast<int>(_cursorX));
-		const auto y = static_cast<std::uint32_t>(static_cast<int>(_cursorY));
+		const auto x = static_cast<std::uint32_t>(static_cast<int>(_cursorX.load(std::memory_order_relaxed)));
+		const auto y = static_cast<std::uint32_t>(static_cast<int>(_cursorY.load(std::memory_order_relaxed)));
 		_pendingMouseMove.store((static_cast<std::uint64_t>(x) << 32) | y);
 		_mouseMovePackets.fetch_add(1, std::memory_order_relaxed);
 	}
@@ -2084,7 +2104,9 @@ namespace OSFUI
 		if (!IsInputCaptured() || !_renderer) {
 			return;
 		}
-		_renderer->InjectMouseButton(static_cast<int>(_cursorX), static_cast<int>(_cursorY), a_button, a_down);
+		_renderer->InjectMouseButton(
+			static_cast<int>(_cursorX.load(std::memory_order_relaxed)),
+			static_cast<int>(_cursorY.load(std::memory_order_relaxed)), a_button, a_down);
 	}
 
 	void Runtime::OnHostMouseWheel(int a_wheelDelta)
@@ -2095,7 +2117,8 @@ namespace OSFUI
 		// Route at the current virtual cursor; the renderer forwards the raw
 		// delta to the host's WebView2 WHEEL input, which performs the scroll.
 		_renderer->InjectPhysicalMouseWheel(
-			static_cast<int>(_cursorX), static_cast<int>(_cursorY), a_wheelDelta);
+			static_cast<int>(_cursorX.load(std::memory_order_relaxed)),
+			static_cast<int>(_cursorY.load(std::memory_order_relaxed)), a_wheelDelta);
 	}
 
 	void Runtime::ReconcileFocusMenu()
@@ -2311,7 +2334,9 @@ namespace OSFUI
 			constexpr float kScrollNotchesPerSec = 8.0f;
 			_padScrollAccum += s.ry * kScrollNotchesPerSec * static_cast<float>(a_deltaSeconds);
 			if (const int notches = static_cast<int>(_padScrollAccum); notches != 0) {
-				_renderer->InjectMouseWheel(static_cast<int>(_cursorX), static_cast<int>(_cursorY), notches * 120);
+				_renderer->InjectMouseWheel(
+					static_cast<int>(_cursorX.load(std::memory_order_relaxed)),
+					static_cast<int>(_cursorY.load(std::memory_order_relaxed)), notches * 120);
 				_padScrollAccum -= static_cast<float>(notches);
 			}
 		} else {
@@ -3005,7 +3030,7 @@ namespace OSFUI
 				return;
 			}
 			_config.toggleKey = name;
-			_toggleKey = vk;
+			_toggleKey.store(vk, std::memory_order_release);
 			ApplyToggleKey();
 			REX::INFO("Runtime: setting osfui.toggleKey -> {} (VK {:#x})", name, vk);
 		}
