@@ -2,6 +2,8 @@
 
 #include "runtime/Ids.h"
 
+#include <algorithm>
+
 namespace OSFUI
 {
 	void ViewManager::LoadAll(const std::filesystem::path& a_viewsDir)
@@ -64,6 +66,10 @@ namespace OSFUI
 				}
 			}
 		}
+		// Directory iteration order is filesystem-dependent; sort by qualified id
+		// so discovery (and everything keyed to it: boot creation order, catalog
+		// listings, z tie-breaks between equal-`order` HUDs) is deterministic.
+		std::ranges::sort(_views, {}, &ViewManifest::id);
 		REX::INFO("ViewManager: {} view(s) loaded from {}", _views.size(), a_viewsDir.string());
 	}
 

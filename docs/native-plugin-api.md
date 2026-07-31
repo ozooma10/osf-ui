@@ -312,11 +312,10 @@ flags conflicts but never blocks them.
 
 ABI 1.5 (`Feature::kRegisterView`).
 
-Validates a discovered `views/<modId>/<viewName>/` folder your mod ships,
-without the user's `config.json` listing it. The view appears in the Mods
-surface and responds to `RequestMenu` and the web `menu.open`; its WebView2
-page is created only when first opened unless its manifest has
-`openOnStart:true`.
+Validates a discovered `views/<modId>/<viewName>/` folder your mod ships. The
+view appears in the Mods surface and responds to `RequestMenu` and the web
+`menu.open`; its WebView2 page is created only when first opened unless its
+manifest has `openOnStart:true`.
 
 ```cpp
 g_ui.RegisterView("acme.mymod/dashboard");                            // validate registration; page stays lazy
@@ -329,7 +328,10 @@ tick, and (§6a) the page sees the state message before its first paint.
 
 - Idempotent — an already-live view isn't reloaded.
 - A missing folder just warns (ship the folder with your mod).
-- `openOnStart` from the manifest creates and opens the view immediately.
+- `openOnStart` from the manifest creates and opens the view immediately —
+  including menus. An explicit `RegisterView` is plugin opt-in, unlike
+  discovery, where menus never auto-start and a HUD's `openOnStart` is only
+  the default under the player's per-HUD auto-start choice.
 - Returns false only on a null/invalid id.
 
 `RegisterView` is an optional declaration for a **plugin-shipped** folder. A

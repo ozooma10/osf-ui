@@ -57,6 +57,7 @@ SUITES=(
 "gamepad_navigation_tests gamepad_navigation_tests.cpp"
 "renderer_host_recovery_tests renderer_host_recovery_tests.cpp"
 "view_lifecycle_tests view_lifecycle_tests.cpp ../../src/runtime/ViewLifecycle.cpp"
+"view_policy_store_tests view_policy_store_tests.cpp ../../src/runtime/ViewPolicyStore.cpp ../../src/runtime/Json.cpp"
 "wv2_bounded_queue_tests wv2_bounded_queue_tests.cpp"
 "local_view_uri_tests local_view_uri_tests.cpp"
 "menu_controller_tests menu_controller_tests.cpp ../../src/runtime/MenuController.cpp"

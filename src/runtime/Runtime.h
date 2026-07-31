@@ -21,6 +21,7 @@
 #include "runtime/UiModule.h"
 #include "runtime/ViewManager.h"
 #include "runtime/ViewLifecycle.h"
+#include "runtime/ViewPolicyStore.h"
 
 namespace OSFUI
 {
@@ -271,9 +272,16 @@ namespace OSFUI
 		void DriveRecovery();
 
 		// Suspend hidden views after a short grace and reclaim non-warm views after
-		// a much longer idle period. The pure policy lives in ViewLifecycle; this
-		// method applies due actions to live Runtime/renderer state.
+		// a much longer idle period (or past the hidden-view cap). The pure policy
+		// lives in ViewLifecycle; this method applies due actions to live
+		// Runtime/renderer state.
 		void DriveViewLifecycle();
+
+		// Player-configurable automatic start is reserved for catalog-visible
+		// HUDs: hub:false surfaces cannot silently run in the background, and
+		// debugOnly surfaces qualify only while Debug mode is on. Pinned core
+		// views are resident anyway and never configurable.
+		[[nodiscard]] bool HudAutoStartEligible(const ViewManifest& a_manifest) const;
 		enum class SurfaceTeardownReason
 		{
 			LoadExhausted,
@@ -363,6 +371,7 @@ namespace OSFUI
 		// thread (Tick / bridge handlers).
 		MenuController                _menus;
 		ViewLifecycle                 _viewLifecycle;
+		ViewPolicyStore               _viewPolicy;  // player HUD auto-start choices; main thread
 		std::unordered_set<std::string> _warmViews;
 		struct PendingSurfaceOpen
 		{

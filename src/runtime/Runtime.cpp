@@ -40,6 +40,10 @@ namespace OSFUI
 	namespace
 	{
 		constexpr std::string_view kHandoffViewId{ "osfui/handoff" };
+		// The Mods surface: pinned warm alongside the handoff (the pause-menu
+		// entry and toggle key both land here) and the only source allowed to
+		// change player view policy.
+		constexpr std::string_view kSettingsViewId{ "osfui/settings" };
 		constexpr double           kHandoffDelaySeconds{ 0.15 };
 		constexpr double           kReadySignalTimeoutSeconds{ 15.0 };
 		constexpr double           kRevealTimeoutSeconds{ 3.0 };
@@ -133,6 +137,9 @@ namespace OSFUI
 		PauseMenuEntry::SetEnabled(_config.pauseMenuEntry);
 
 		_views.LoadAll(Paths::ViewsDir());
+		// Player startup choices live beside the settings values, never in the
+		// shipped mod files; loaded before the boot loads below consult it.
+		_viewPolicy.Load(Paths::DataDir() / "state" / "view-policy.json");
 		std::vector<std::string> discoveredViewIds;
 		discoveredViewIds.reserve(_views.All().size());
 		for (const auto& manifest : _views.All()) {
@@ -382,6 +389,11 @@ namespace OSFUI
 			renderer->SetActiveView(manifest.id);
 			renderer->SetViewHidden(manifest.id, false);
 			instance.renderer = std::move(renderer);
+			// The C ABI's SendToWeb holdback releases a target only once its page
+			// exists (SetSurfaceLoaded). World surfaces never pass through
+			// LoadSurface, so mark them here — the MessageBridge send callback
+			// above already fans deliveries out to this instance's renderer.
+			API::BridgeApi::Get().SetSurfaceLoaded(instance.viewId, true);
 			REX::INFO("Runtime: world surface '{}' ('{}') started at {}x{} — "
 					  "dedicated browser host process",
 				instance.viewId, worldConfig.instanceName,
@@ -389,18 +401,14 @@ namespace OSFUI
 		}
 #endif
 
-		// Establish warm membership before the first LoadSurface so lifecycle
-		// policy records the correct never-destroy bit. Handoff is platform-owned;
-		// configurable warm views retain config order for deterministic creation.
+		// The pinned core set: platform surfaces that must never pay a cold
+		// first paint. Established before the first LoadSurface so lifecycle
+		// policy records the correct never-destroy bit. Deliberately not
+		// configurable — everything else is discovered and loads on first open.
 		_warmViews.clear();
-		if (_views.Find(kHandoffViewId)) {
-			_warmViews.emplace(kHandoffViewId);
-		}
-		for (const auto& id : _config.warmViews) {
+		for (const auto id : { kHandoffViewId, kSettingsViewId }) {
 			if (_views.Find(id)) {
 				_warmViews.emplace(id);
-			} else {
-				REX::WARN("Runtime: warm view '{}' was not discovered; skipping", id);
 			}
 		}
 
@@ -420,40 +428,36 @@ namespace OSFUI
 			_renderer->PrewarmView(a_id);
 		};
 		loadWarm(kHandoffViewId, "as the warm first-load handoff");
-		for (const auto& id : _config.warmViews) {
-			if (id != kHandoffViewId && _warmViews.contains(id)) {
-				loadWarm(id, "as a configured warm view");
-			}
-		}
+		loadWarm(kSettingsViewId, "as the pinned Mods surface");
 
-		// config.views is now a startup-candidate list: warm entries are already
-		// live, openOnStart entries are created and shown, and every other entry
-		// remains discovered until its first explicit open.
-		std::vector<std::string> startup = _config.views;
-		if (startup.empty()) {
-			startup.push_back(_config.view);
-		}
-		for (const auto& id : startup) {
-			if (id == kHandoffViewId) {
+		// HUD automatic start: the manifest's openOnStart is only the author
+		// default — the player's per-HUD choice (ViewPolicyStore, set from the
+		// Mods surface) wins. Menus never auto-start from discovery; a plugin's
+		// explicit RegisterView still honors openOnStart (ABI 1.5), and every
+		// other view loads on its first open.
+		for (const auto& manifest : _views.All()) {
+			if (manifest.kind != SurfaceKind::Hud || _warmViews.contains(manifest.id)) {
 				continue;
 			}
-			const auto* manifest = _views.Find(id);
-			if (!manifest) {
-				REX::WARN("Runtime: configured view '{}' not found; skipping", id);
+			if (!HudAutoStartEligible(manifest)) {
+				if (_viewPolicy.HasHudOverride(manifest.id)) {
+					REX::DEBUG("Runtime: HUD '{}' has an auto-start override but is not "
+							   "eligible (hub:false or debugOnly without Debug mode); ignored",
+						manifest.id);
+				}
 				continue;
 			}
-			if (manifest->openOnStart && !_menus.IsRegistered(id)) {
-				if (LoadSurface(*manifest, "for config openOnStart")) {
-					++loaded;
+			if (!_viewPolicy.HudAutoStart(manifest.id, manifest.openOnStart)) {
+				continue;
+			}
+			if (LoadSurface(manifest, "for HUD auto-start")) {
+				++loaded;
+				if (_menus.IsRegistered(manifest.id)) {
+					_menus.Open(manifest.id);
 				}
 			}
-			if (manifest->openOnStart && _menus.IsRegistered(id)) {
-				_menus.Open(id);
-			} else if (!_menus.IsRegistered(id)) {
-				REX::DEBUG("Runtime: configured view '{}' left lazy until first open", id);
-			}
 		}
-		REX::INFO("Runtime: loaded {} warm/open-on-start view(s); default menu = '{}'",
+		REX::INFO("Runtime: loaded {} warm/auto-start view(s); default menu = '{}'",
 			loaded, _config.view);
 		if (!_views.Find(_config.view)) {
 			REX::WARN("Runtime: default view '{}' was not discovered; the toggle key will have nothing to open",
@@ -693,6 +697,12 @@ namespace OSFUI
 			if (worldSurface.failed) {
 				// Deferred from the failure callback, which fires inside the
 				// renderer's own Update(). The mesh keeps the placeholder.
+				// Release the holdback flag set at startup unless the same id is
+				// also a live overlay surface (LoadSurface owns that bit); later
+				// sends queue bounded instead of feeding a dead host.
+				if (!_menus.IsRegistered(worldSurface.viewId)) {
+					API::BridgeApi::Get().SetSurfaceLoaded(worldSurface.viewId, false);
+				}
 				worldSurface.renderer.reset();
 				continue;
 			}
@@ -1152,6 +1162,7 @@ namespace OSFUI
 		for (const auto& layer : _menus.DesiredLayers()) {
 			_renderer->SetViewHidden(layer.id, layer.hidden);
 			_viewLifecycle.NoteVisibility(layer.id, !layer.hidden, _uptime);
+			_viewLifecycle.NoteOpenState(layer.id, _menus.IsOpen(layer.id), _uptime);
 			_renderer->SetViewOrder(layer.id, layer.z);
 		}
 		// Focus follows the top menu; HUD-only => no active view to set.
@@ -1300,6 +1311,12 @@ namespace OSFUI
 		if (_renderer) {
 			_renderer->SetViewHidden(a_id, a_hidden);
 		}
+		// Keep lifecycle policy in step with this out-of-band visibility edge,
+		// exactly like ApplyMenuPolicy does for policy-driven layers. Without it
+		// a view revealed here still ages as hidden and idle reclaim would
+		// destroy it while it is on screen (and the suspend handshake desyncs:
+		// the host refuses a suspend for a visible page the game thinks hidden).
+		_viewLifecycle.NoteVisibility(a_id, !a_hidden, _uptime);
 		REX::DEBUG("Runtime: view '{}' hidden -> {}", a_id, a_hidden);
 		return true;
 	}
@@ -1556,6 +1573,13 @@ namespace OSFUI
         if (overlayReloaded) BroadcastViewsData();
     }
 
+	bool Runtime::HudAutoStartEligible(const ViewManifest& a_manifest) const
+	{
+		return a_manifest.kind == SurfaceKind::Hud &&
+		       !_warmViews.contains(a_manifest.id) &&
+		       a_manifest.hub && (!a_manifest.debugOnly || _config.debugMode);
+	}
+
 	nlohmann::json Runtime::BuildViewsData() const
 	{
 		nlohmann::json views = nlohmann::json::array();
@@ -1576,6 +1600,13 @@ namespace OSFUI
 				state == ViewLoadState::Finished ? "loaded" :
 				registered                       ? "loading" :
 				                                   "unloaded";
+			// Protocol 1.6 startup-policy fields. `autoStart` is the effective
+			// choice for the NEXT launch; pinned core views always run and are
+			// never player-configurable.
+			const bool pinned = _warmViews.contains(m.id);
+			const bool autoStartMutable = HudAutoStartEligible(m);
+			const bool autoStart = pinned ||
+				(autoStartMutable && _viewPolicy.HudAutoStart(m.id, m.openOnStart));
 			views.push_back(nlohmann::json{
 				{ "id", m.id },
 				{ "title", _localization.Resolve(m.mod,
@@ -1590,6 +1621,9 @@ namespace OSFUI
 				{ "open", _menus.IsOpen(m.id) },
 				{ "focused", active.has_value() && *active == m.id },
 				{ "loadState", loadState },
+				{ "autoStart", autoStart },
+				{ "autoStartMutable", autoStartMutable },
+				{ "pinned", pinned },
 			});
 		}
 		return nlohmann::json{ { "views", std::move(views) } };
@@ -2673,6 +2707,41 @@ namespace OSFUI
 				REX::WARN("Runtime: osfui.openLogFolder — the shell refused to open {}", folder.string());
 				a_b.SendResult(false, "shell-failed", "could not open the log folder");
 			}
+		});
+		a_bridge.RegisterRequest("osfui.setViewAutoStart", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
+			// Startup policy is player intent: only the built-in Mods surface may
+			// change it — the same exact-id gate the diagnostics.* requests use.
+			if (a_b.CurrentSource() != kSettingsViewId) {
+				a_b.SendResult(false, "forbidden", "view auto-start is set from OSF UI's built-in settings view");
+				return;
+			}
+			const auto view = Json::GetString(a_p, "view", "");
+			const auto enabled = a_p.find("enabled");
+			if (view.empty() || enabled == a_p.end() || !enabled->is_boolean()) {
+				a_b.SendResult(false, "invalid-payload", "expected { view: string, enabled: boolean }");
+				return;
+			}
+			const auto* manifest = _views.Find(view);
+			if (!manifest) {
+				a_b.SendResult(false, "unknown-view", "not a discovered view");
+				return;
+			}
+			if (!HudAutoStartEligible(*manifest)) {
+				a_b.SendResult(false, "not-configurable",
+					"auto-start is settable only for catalog-visible HUDs");
+				return;
+			}
+			if (!_viewPolicy.SetHudAutoStart(view, enabled->get<bool>())) {
+				a_b.SendResult(false, "persistence-failed",
+					"the choice could not be saved, so it was not applied");
+				return;
+			}
+			// Deliberately takes effect at the next launch only — no view is
+			// opened or torn down here. The rebroadcast carries the new effective
+			// policy to every subscriber; the bridge's auto ui.result acks us.
+			REX::INFO("Runtime: HUD '{}' auto-start set to {} (next launch)",
+				view, enabled->get<bool>());
+			BroadcastViewsData();
 		});
 		a_bridge.RegisterRequest("diagnostics.reportStatus", [this](const nlohmann::json&, MessageBridge& a_b) {
 			if (a_b.CurrentSource() != "osfui/settings") {

@@ -42,6 +42,9 @@ export const MOCK_VIEWS: MockView[] = [
     open: false,
     focused: false,
     loadState: 'loaded',
+    autoStart: true,
+    autoStartMutable: false,
+    pinned: true,
   },
   {
     id: 'osfui/keybinds',
@@ -55,6 +58,9 @@ export const MOCK_VIEWS: MockView[] = [
     open: false,
     focused: false,
     loadState: 'loaded',
+    autoStart: false,
+    autoStartMutable: false,
+    pinned: false,
   },
   // Real view from the sibling repo (VFS-merged in game). mod "osf.animation"
   // groups it onto the OSF Animation settings page (schema registered
@@ -71,6 +77,9 @@ export const MOCK_VIEWS: MockView[] = [
     open: false,
     focused: false,
     loadState: 'loaded',
+    autoStart: false,
+    autoStartMutable: false,
+    pinned: false,
   },
   {
     id: 'acme.shipworks/almanac',
@@ -84,6 +93,9 @@ export const MOCK_VIEWS: MockView[] = [
     open: false,
     focused: true,
     loadState: 'loaded',
+    autoStart: false,
+    autoStartMutable: false,
+    pinned: false,
     fixture: true,
   },
   {
@@ -98,6 +110,9 @@ export const MOCK_VIEWS: MockView[] = [
     open: true,
     focused: false,
     loadState: 'loaded',
+    autoStart: true,
+    autoStartMutable: true,
+    pinned: false,
     fixture: true,
   },
   // targetVersion newer than any real OSF UI — with fixtures on, the rail head
@@ -114,6 +129,9 @@ export const MOCK_VIEWS: MockView[] = [
     open: false,
     focused: false,
     loadState: 'loaded',
+    autoStart: false,
+    autoStartMutable: false,
+    pinned: false,
     fixture: true,
   },
   {
@@ -128,6 +146,9 @@ export const MOCK_VIEWS: MockView[] = [
     open: false,
     focused: false,
     loadState: 'failed',
+    autoStart: false,
+    autoStartMutable: false,
+    pinned: false,
     fixture: true,
   },
   {
@@ -142,6 +163,9 @@ export const MOCK_VIEWS: MockView[] = [
     open: false,
     focused: false,
     loadState: 'loaded',
+    autoStart: false,
+    autoStartMutable: true,
+    pinned: false,
     fixture: true,
   },
   // Discovered on disk but never loaded: a drop-in content view no schema, no
@@ -159,6 +183,9 @@ export const MOCK_VIEWS: MockView[] = [
     open: false,
     focused: false,
     loadState: 'unloaded',
+    autoStart: false,
+    autoStartMutable: false,
+    pinned: false,
     fixture: true,
   },
 ];

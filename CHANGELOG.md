@@ -19,7 +19,9 @@
 
 ### Other changes
 
-- Browser pages are now created on first use except for the warm set (the handoff and Mods surfaces by default) or views marked to open at startup. Hidden pages suspend after about 90 seconds of game time, and non-warm pages hidden for 25 minutes are reclaimed and recreated on their next open, so browser resource use follows views actually used during the session.
+- Which HUDs start with the game is now the player's choice: every eligible HUD row in Mod Settings gains a "Start automatically" switch (applies at the next launch). A HUD manifest's `openOnStart` is only the author default, choices persist outside shipped mod files (`OSFUI/state/view-policy.json`, kept even while a mod is temporarily uninstalled), hidden utility views (`hub:false`) can never auto-run in the background, and `debugOnly` views qualify only while Debug mode is on.
+- **Breaking (configVersion 2):** `config.json` no longer takes `views` or `warmViews` — old files still load and warn once per key. Every valid installed view is discovered automatically (in deterministic id order) and created on first use; the handoff and Mods surfaces are pinned warm internally. `view` remains the default menu for the toggle key.
+- Browser pages are created on first use. Hidden pages suspend after about 90 seconds of game time; non-pinned pages are reclaimed after 25 hidden minutes, or earlier past a cap of four hidden closed views (least recently used first — open or pinned surfaces never count), and are recreated on their next open. Browser resource use follows views actually used during the session.
 - Removed the unsupported CPU mock-renderer override. The null renderer and compositor remain available for fault isolation.
 
 ### Security
@@ -29,14 +31,15 @@
 
 ### For plugin authors
 
-- `RegisterView` now validates ordinary plugin-shipped views without eagerly creating their browser page; `openOnStart` remains immediate. `SendToWeb` keeps a bounded FIFO holdback for known lazy or reclaimed targets, so sending initial state immediately before opening a view retains the existing first-paint ordering guarantee. The per-view 64-message drop-oldest bound now applies to every target — including live views, which were previously unbounded between ticks — matching the renderer's own per-view queue bound; a state-like stream still converges on the newest pushed values.
+- `RegisterView` now validates ordinary plugin-shipped views without eagerly creating their browser page; an explicit `RegisterView` still honors manifest `openOnStart` immediately (menus included — that path is plugin opt-in, unlike discovery, which never auto-starts menus). `SendToWeb` keeps a bounded FIFO holdback for known lazy or reclaimed targets, so sending initial state immediately before opening a view retains the existing first-paint ordering guarantee. The per-view 64-message drop-oldest bound now applies to every target — including live views, which were previously unbounded between ticks — matching the renderer's own per-view queue bound; a state-like stream still converges on the newest pushed values.
 - A user-rebindable `type: "key"` setting can now declare an immutable `onPress` GLOBAL Papyrus target. OSF UI queues it only after the normal gameplay hotkey gates, so a mod can start its quest or other script logic on demand without an always-running bootstrap quest or a load-order-dependent FormID in JSON; ordinary web, native, and registered Papyrus hotkey notifications still fire.
 - The private game-to-WebView2-host protocol is now version 5, adding best-effort suspension for idle hidden views along with verified peers, heartbeat liveness, and presentation epochs. The plugin and helper binaries must be updated together.
 - UnsubscribeSettings, UnsubscribeHotkey, and ready-callback replacement now wait for an already-running callback even when called off the main thread; once they return, the old user pointer is no longer in use. Self-unsubscribe remains supported.
 
 ### For view authors
 
-- Hidden pages may stop JavaScript timers after about 90 seconds and non-warm pages may receive a fresh document after long idle periods. Use `ui.visibility` as the visit boundary and retained `SetView*` data for state that must survive recreation; transient pushes to an unloaded page still need to be sent again after it signals readiness.
+- Web bridge protocol 1.6: `views.data` entries gain `autoStart`, `autoStartMutable`, and `pinned`, and the platform-private `osfui.setViewAutoStart` request (built-in settings view only) persists a HUD's next-launch choice. Manifest `openOnStart` is now documented as the HUD author default; for discovered menus it is ignored.
+- Hidden pages may stop JavaScript timers after about 90 seconds and non-pinned pages may receive a fresh document after long idle periods or when more than four closed views sit hidden. Use `ui.visibility` as the visit boundary and retained `SetView*` data for state that must survive recreation; transient pushes to an unloaded page still need to be sent again after it signals readiness.
 
 ## 1.5.0 — 2026-07-29
 

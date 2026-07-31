@@ -202,7 +202,7 @@ OSFUI.SetViewFloats(ModId, "inventory.weights", weights)
   either side to run.
 - State is broadcast only to loaded views whose id begins with `<modId>/`.
   A hidden suspended view resumes to receive an update and becomes eligible to
-  suspend again after activity stops. If a non-warm view was idle-reclaimed,
+  suspend again after activity stops. If a non-pinned view was idle-reclaimed,
   its retained state is replayed automatically when the page is recreated.
   Unknown keys are harmless.
 - Invalid mod ids and empty keys are dropped and logged. Pending pushes and

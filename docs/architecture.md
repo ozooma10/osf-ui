@@ -81,12 +81,22 @@ Features are `IUiModule`s (`runtime/UiModule.h`). `IUiModule` is a uniform lifec
 
 A `ViewManifest` declares id, entry page, size, transparency, and a permission block that defaults to deny (`nativeBridge`, `filesystem`, `network`). Manifest entries may not point outside the view folder.
 
-Discovery does not create browser content. The runtime creates a view on its
-first open, except for `openOnStart` startup candidates and the warm core set
-(the handoff surface plus `config.warmViews`). A hidden live view becomes
-eligible for best-effort WebView2 suspension after 90 seconds of clamped game
-time. Non-warm views are destroyed after 25 hidden minutes and return to the
-discovered state; warm views may suspend but are never idle-reclaimed.
+Discovery does not create browser content, and there is no configured view
+list: every valid manifest is catalogued (sorted by qualified id, so creation
+order and z tie-breaks are deterministic) and created on first open. The two
+exceptions are the pinned core set (the handoff surface and `osfui/settings` —
+precreated, prepainted, never reclaimed) and HUDs whose effective auto-start
+is on. That policy is the player's: `ViewPolicyStore` persists per-HUD
+choices from the Mods surface (`state/view-policy.json`, temp-file replaced,
+quarantined to `.bad` when malformed, retained for uninstalled views); the
+manifest's `openOnStart` is only the author default, `hub:false` surfaces are
+never eligible, and menus never auto-start from discovery.
+
+A hidden live view becomes eligible for best-effort WebView2 suspension after
+90 seconds of clamped game time. Non-pinned views are destroyed after 25
+hidden minutes — or earlier once more than four closed views sit hidden
+(least recently hidden first; open or visible surfaces never count) — and
+return to the discovered state.
 
 ### Frontend build
 

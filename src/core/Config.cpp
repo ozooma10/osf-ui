@@ -37,6 +37,8 @@ namespace OSFUI
 			"configVersion", "enabled", "renderer", "compositor",
 			"inputSource", "captureInput", "hardwareCursor", "focusMenu",
 			"engineInput", "pauseMenuEntryLabel", "pauseMenuEntryView",
+			// 'views'/'warmViews' are recognized so a v1 file does not read as a
+			// typo, but they are deprecated no-ops (see the parse site).
 			"view", "views", "warmViews", "devMode",
 #if defined(OSFUI_WITH_WORLD_SURFACES)
 			"worldSurfaces",
@@ -245,11 +247,15 @@ namespace OSFUI
 		config.pauseMenuEntryLabel = Json::GetString(*json, "pauseMenuEntryLabel", config.pauseMenuEntryLabel);
 		config.pauseMenuEntryView = Json::GetString(*json, "pauseMenuEntryView", config.pauseMenuEntryView);
 		config.view = Json::GetString(*json, "view", config.view);
-		config.views = Json::GetStringArray(*json, "views");
-		// Missing preserves the compiled warm core; an explicit [] deliberately
-		// opts out of every configurable warm view (handoff remains unconditional).
-		if (json->contains("warmViews")) {
-			config.warmViews = Json::GetStringArray(*json, "warmViews");
+		// configVersion 2 removed the central view lists. HUD auto-start is the
+		// player's choice in Mod Settings (manifest openOnStart is the author
+		// default); every other view loads on first open.
+		for (const auto* legacy : { "views", "warmViews" }) {
+			if (json->contains(legacy)) {
+				REX::WARN("Config: '{}' is deprecated and ignored (configVersion 2) — "
+						  "HUD auto-start is set per HUD in Mod Settings; other views load on first open",
+					legacy);
+			}
 		}
 #if defined(OSFUI_WITH_WORLD_SURFACES)
 		ParseWorldSurfaces(*json, config);

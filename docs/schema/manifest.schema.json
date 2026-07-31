@@ -73,7 +73,7 @@
     "openOnStart": {
       "type": "boolean",
       "default": false,
-      "description": "Menu: open at load. HUD: show at load."
+      "description": "HUD: the author DEFAULT for automatic start at game launch — the player's per-HUD choice in Mod Settings overrides it. Menu: ignored for discovered views; honored only when a native plugin explicitly calls RegisterView (C ABI 1.5)."
     },
     "order": {
       "type": "integer",

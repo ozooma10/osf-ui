@@ -14,7 +14,7 @@ a reference for the two data-driven extension points that work today:
 
 > **Status / scope.** Pure content, no recompile: a
 > `views/<modId>/<viewName>/` folder and a `settings/<modId>.json` schema. The
-> bridge protocol is at version **1.5 — stable**; additive changes bump the
+> bridge protocol is at version **1.6 — stable**; additive changes bump the
 > minor version, breaking changes bump the major. Compatibility is advisory:
 > declare the OSF UI version you authored against as `targetVersion` (manifest
 > and/or settings schema, §7), and the Mods surface shows a "needs update"
@@ -73,8 +73,9 @@ hold several views, and subfolders without a `manifest.json` are ignored, so
 you can keep shared assets next to your views. The built-in views use the
 same layout: `views/osfui/settings/`, `views/osfui/keybinds/`. To open your
 view, use its qualified id `<modId>/<viewName>` as a `menu.open` target (it
-loads on demand). Use `openOnStart:true` plus a developer `config.json` `views`
-entry for boot loading. A native plugin may use `RegisterView` to validate its
+loads on demand). A HUD may declare `openOnStart: true` as its automatic-start
+DEFAULT — whether it actually starts with the game is the player's per-HUD
+choice in Mod Settings. A native plugin may use `RegisterView` to validate its
 shipped view explicitly; ordinary registered views still load on first open.
 
 Views load at `https://osfui.local/<modId>/<viewName>/<entry>`. WebView2 maps
@@ -254,41 +255,39 @@ Notes:
 
 ### Multiple views & layering
 
-Several views can be hosted and composited at once. The developer/boot
-`config.json` can nominate startup candidates and a small warm set:
-
-```jsonc
-{
-  "view": "osfui/settings",                          // default menu opened by the toggle key
-  "views": ["osfui/settings", "yourname.mymod/hud"], // startup candidates; openOnStart is honored
-  "warmViews": ["osfui/settings"]                    // precreated, prepainted, never idle-reclaimed
-}
-```
-
-Do not edit the user's `config.json` when shipping a view. Any valid drop-in
-folder under `views/<modId>/<viewName>/` is discovered at boot and loaded the
-first time it is opened through `menu.open`, Papyrus
+Several views can be hosted and composited at once, and there is no central
+list to maintain: any valid drop-in folder under `views/<modId>/<viewName>/`
+is discovered at boot (deterministically, in id order) and loaded the first
+time it is opened through `menu.open`, Papyrus
 `OSFUI.OpenMenu("<modId>/<viewName>")`, or the C ABI's
 `RequestMenu("<modId>/<viewName>", true)`. This is enough for a Papyrus-only
-mod: no companion SFSE plugin is required.
+mod: no companion SFSE plugin is required. Never edit the user's `config.json`
+when shipping a view — since `configVersion` 2 it carries no view lists at all.
 
-The `views` array is the boot composition: entries with
-`openOnStart:true` are created and shown at boot; the others remain lazy.
-`warmViews` is reserved for latency-sensitive core UI: those entries are
-created and prepainted at boot and never idle-reclaimed. The platform handoff
-view is always warm. Mods should not edit either array during installation.
-A native plugin may still call `RegisterView("<modId>/<viewName>")` (C ABI 1.5)
-to validate a plugin-shipped folder; ordinary registered views remain lazy,
-while `openOnStart` is honored. See [native-plugin-api.md](native-plugin-api.md)
-§5c.
+Whether a HUD starts with the game is player policy: each eligible HUD row in
+Mod Settings has a "Start automatically" switch (protocol 1.6), persisted
+outside shipped mod files and applied at the next launch. The HUD manifest's
+`openOnStart: true` only sets the default for players who have not chosen.
+Hidden utility views (`hub: false`) are not eligible — a surface the player
+cannot see in the catalog may not silently run in the background — and
+`debugOnly` views qualify only while Debug mode is on. Discovered menus never
+auto-start; a native plugin's explicit `RegisterView("<modId>/<viewName>")`
+(C ABI 1.5) still honors `openOnStart` as plugin opt-in. See
+[native-plugin-api.md](native-plugin-api.md) §5c.
+
+The platform pins its own core surfaces (the first-load handoff and the Mods
+surface) warm: precreated, prepainted, never reclaimed.
 
 A closed view keeps its document initially. After about 90 seconds of hidden
 game time, OSF UI asks WebView2 to suspend it, pausing JavaScript timers and
-animation until activity resumes it. A non-warm view hidden for about 25
-minutes is destroyed and returns to the discovered state; reopening it creates
-a fresh document through the normal loading handoff. Treat `ui.visibility` as
-the visit boundary and do not rely on hidden timers for required work. Retained
-Papyrus `SetView*` state is replayed to a recreated page automatically.
+animation until activity resumes it. A non-pinned view is destroyed and
+returned to the discovered state after about 25 hidden minutes — or earlier
+when more than four closed views sit hidden (least recently used first; open
+surfaces, e.g. a HUD beneath a pausing menu, never count). Reopening a
+reclaimed view creates a fresh document through the normal loading handoff.
+Treat `ui.visibility` as the visit boundary and do not rely on hidden timers
+for required work. Retained Papyrus `SetView*` state is replayed to a
+recreated page automatically.
 
 - Layering is set by the menu/HUD framework, not the array order: every HUD
   composites beneath every open menu. HUDs order among themselves by their
@@ -420,6 +419,7 @@ Whitelisted commands (anything else is rejected, logged, and answered with
 | `diagnostics.get` | — | *(protocol 1.4)* runtime replies with `diagnostics.data` (the session health snapshot) and subscribes the caller: any later change to the health registry pushes a fresh `diagnostics.data` unsolicited. Powers the Mods surface's System Health destination; a normal content view rarely needs it |
 | `diagnostics.reportStatus` | — | *(protocol 1.5, platform-private)* tells the exact built-in `osfui/settings` view whether automatic reporting is configured, which log files are included, and the retention period. Every other source is rejected |
 | `diagnostics.submitReport` | `title`, `description`, `reproduction?` | *(protocol 1.5, platform-private)* asks native code to collect bounded, locally redacted log tails and the current health snapshot, then upload them through the host-owned HTTPS endpoint. Only `osfui/settings` may call it, and only one submission may be in flight |
+| `osfui.setViewAutoStart` | `view`, `enabled` | *(protocol 1.6, platform-private)* persist a HUD's automatic start for the NEXT game launch; only `osfui/settings` may call it. Nothing opens or closes in the running session — the ack rebroadcasts `views.data` with the new effective `autoStart`. Failures: `ui.result { ok:false, code:"forbidden"\|"invalid-payload"\|"unknown-view"\|"not-configurable"\|"persistence-failed" }` |
 | `settings.get` | — | runtime replies with `settings.data` |
 | `settings.set` | `mod, key, value` | set one schema-declared setting (validated) |
 | `settings.reset` | `mod`, `key?` | reset one key, or the whole mod if `key` omitted |
@@ -452,7 +452,7 @@ serves both:
 | `runtime.ready` | `{ game, plugin, version, bridgeVersion }` | once, after your page loads (`osfui.ready` resolves with it) — your cue to request data. `version` is the running OSF UI (the reference point for `targetVersion`, §7); `bridgeVersion` is informational |
 | `runtime.pong` | `{}` | reply to your `ping` |
 | `game.data` | `{ calendar: { available, day, month, year, hour, daysPassed } }` | reply to `game.get`; each provider nests under its own object (future providers are siblings of `calendar`); `available:false` before a save is loaded |
-| `views.data` | `{ views: [ { id, title, description, mod, kind, interactive, hub, targetVersion, open, focused, loadState } ] }` | reply to `views.get`, and re-pushed to every subscribed view when any entry changes. `id` is the qualified `<modId>/<viewName>`; `mod` = the owning mod id derived from the folder (a mod with no settings schema of that id just lists under its own title); `kind` = `"menu"`\|`"hud"`; `targetVersion` = the manifest's declared target (empty string when undeclared); `loadState` = `"unloaded"`\|`"loading"`\|`"loaded"`\|`"failed"` — `"unloaded"` means discovered on disk but never loaded (still listed so a launcher can offer it; opening it loads on demand), `"failed"` covers a crash-recovery give-up. Respect `hub:false` (don't list those) |
+| `views.data` | `{ views: [ { id, title, description, mod, kind, interactive, hub, targetVersion, open, focused, loadState, autoStart, autoStartMutable, pinned } ] }` | reply to `views.get`, and re-pushed to every subscribed view when any entry changes. `id` is the qualified `<modId>/<viewName>`; `mod` = the owning mod id derived from the folder (a mod with no settings schema of that id just lists under its own title); `kind` = `"menu"`\|`"hud"`; `targetVersion` = the manifest's declared target (empty string when undeclared); `loadState` = `"unloaded"`\|`"loading"`\|`"loaded"`\|`"failed"` — `"unloaded"` means discovered on disk but never loaded (still listed so a launcher can offer it; opening it loads on demand), `"failed"` covers a crash-recovery give-up. *(protocol 1.6)* `autoStart` = the effective next-launch policy, `autoStartMutable` = the player may change it (`osfui.setViewAutoStart`), `pinned` = always-resident core surface. Respect `hub:false` (don't list those) |
 | `i18n.data` | `{ mod, locale, strings }` | reply to `i18n.get`, then re-pushed to subscribed views after a language change or a dev-mode catalog reload; `strings` contains active-locale overrides keyed by stable structural address |
 | `diagnostics.data` | `{ system, issues: [ { id, code, severity, status, source, subject, context, occurrences, firstAt, lastAt, resolvedAt? } ] }` | *(protocol 1.4)* reply to `diagnostics.get`, and re-pushed to every subscriber whenever the session health registry changes. `system` is an informational key/value block; each issue carries a stable machine `code` (map it to your own copy — the payload never contains player-facing prose), a `severity` (`"warning"`\|`"error"`), a `status` (`"active"`\|`"resolved"`, resolved kept for the session only), and bounded, path-free `context`. Times are session-relative seconds |
 | `diagnostics.reportStatus` | `{ enabled, logs, retentionDays }` | *(protocol 1.5, platform-private)* correlated reply for the built-in consent disclosure; unavailable to third-party views |

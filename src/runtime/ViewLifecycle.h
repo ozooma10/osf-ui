@@ -15,6 +15,10 @@ namespace OSFUI
 	public:
 		static constexpr double kSuspendAfterHiddenSeconds = 90.0;
 		static constexpr double kDestroyAfterHiddenSeconds = 1500.0;
+		// Besides the idle TTL, at most this many non-warm closed views may sit
+		// hidden at once; the least-recently-hidden extras are reclaimed early so
+		// a session that visits many menus doesn't accumulate their pages.
+		static constexpr std::size_t kMaxHiddenReclaimable = 4;
 
 		struct DueActions
 		{
@@ -26,6 +30,11 @@ namespace OSFUI
 		// the authoritative visibility and may immediately change it to visible.
 		void NoteLoaded(std::string_view a_id, bool a_warm, double a_now);
 		void NoteVisibility(std::string_view a_id, bool a_visible, double a_now);
+		// Open surfaces (menus in the open stack, shown HUDs) are exempt from
+		// reclamation even while policy hides them beneath other menus. Closing
+		// while hidden starts a fresh grace period — the close is a fresh player
+		// decision, not the tail of the old idle episode.
+		void NoteOpenState(std::string_view a_id, bool a_open, double a_now);
 		// A fresh document invalidates any host-side suspend latch. Hidden reloads
 		// therefore start a fresh grace period; visible reloads stay visible.
 		void NoteActivity(std::string_view a_id, double a_now);
@@ -42,6 +51,7 @@ namespace OSFUI
 		{
 			bool   warm{ false };
 			bool   visible{ false };
+			bool   open{ false };
 			bool   suspendRequested{ false };
 			double hiddenSince{ 0.0 };
 		};

@@ -135,7 +135,7 @@ int main()
 	CHECK(static_cast<std::uint32_t>(OSFUI::API::Feature::kDiagnostics) == 7);
 	CHECK(static_cast<std::uint32_t>(OSFUI::API::Feature::kRequests) == 7);
 	CHECK(api.GetInterfaceVersion() == OSFUI::API::kBridgeAPIVersion);
-	CHECK(std::string_view(OSFUI::kBridgeProtocolVersion) == "1.5");
+	CHECK(std::string_view(OSFUI::kBridgeProtocolVersion) == "1.6");
 
 	// --- command shape (item 3): two dots minimum, item-1 mod-id grammar ------
 	// Every platform command is structurally unregisterable — dotless verbs,
@@ -474,6 +474,20 @@ int main()
 	CHECK(api.SendToWeb("acme.mymod/missing", "acme.mymod.state", R"({"x":1})"));
 	api.PumpMainThread();
 	CHECK(toWeb.empty());
+	api.OnBridgeReady(nullptr);
+	api.PumpMainThread();
+
+	// World-surface pattern: Runtime::Initialize marks the instance's view
+	// loaded itself right after the catalog (those pages never pass through
+	// LoadSurface), so a send to it flushes on the next pump instead of sitting
+	// in the holdback forever.
+	api.SetViewCatalog({ "acme.mymod/dash", "osfui/settings", "acme.mymod/worldpanel" });
+	api.SetSurfaceLoaded("acme.mymod/worldpanel", true);
+	api.OnBridgeReady(&lazyBridge);
+	toWeb.clear();
+	CHECK(api.SendToWeb("acme.mymod/worldpanel", "acme.mymod.state", R"({"world":1})"));
+	api.PumpMainThread();
+	CHECK(toWeb.size() == 1 && toWeb[0].first == "acme.mymod/worldpanel");
 	api.OnBridgeReady(nullptr);
 	api.PumpMainThread();
 

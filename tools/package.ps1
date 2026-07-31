@@ -307,11 +307,17 @@ try {
             @($names | Where-Object { $_ -like 'worldSurface*' }).Count -gt 0) {
             Die "config.json contains experimental world-surface settings; refusing to package."
         }
-        $viewValue  = if ($names -contains 'view')  { $cfg.view }  else { $null }
-        $viewsValue = if ($names -contains 'views') { $cfg.views } else { @() }
-        $configuredViews = @(@($viewValue) + @($viewsValue) | Where-Object { $_ } | Select-Object -Unique)
+        # configVersion 2 removed the central view lists; a shipped config that
+        # still carries one is a stale file, not a working configuration.
+        foreach ($legacy in @('views', 'warmViews')) {
+            if ($names -contains $legacy) {
+                Die "config.json still declares '$legacy' -- configVersion 2 removed the central view lists (HUD auto-start is player policy; other views load on first open)."
+            }
+        }
+        $viewValue = if ($names -contains 'view') { $cfg.view } else { $null }
+        $configuredViews = @(@($viewValue) | Where-Object { $_ } | Select-Object -Unique)
         if ($configuredViews.Count -eq 0) {
-            Die "config.json declares no views ('view' and 'views' are both absent/empty) -- a standalone release would render nothing on F10."
+            Die "config.json declares no default 'view' -- a standalone release would render nothing on F10."
         }
         $missingViews = @($configuredViews | Where-Object {
             -not (Test-Path (Join-Path $viewsRoot ($_ -replace '/', '\') 'manifest.json'))

@@ -1114,6 +1114,30 @@ export function installMock(opts: MockOptions = {}): MockApi {
         break;
       }
 
+      case 'osfui.setViewAutoStart': {
+        // Mirror Runtime: validate, persist to the working copy, rebroadcast.
+        // The choice is next-launch policy, so open state never changes here.
+        const v = views.find((x) => x.id === str(p, 'view'));
+        if (!v || typeof p['enabled'] !== 'boolean') {
+          result(false, {
+            code: v ? 'invalid-payload' : 'unknown-view',
+            message: v ? 'expected { view, enabled }' : 'not a discovered view',
+          });
+          break;
+        }
+        if (!v.autoStartMutable) {
+          result(false, {
+            code: 'not-configurable',
+            message: 'auto-start is settable only for catalog-visible HUDs',
+          });
+          break;
+        }
+        v.autoStart = p['enabled'] === true;
+        result(true);
+        setTimeout(() => sendViews(), 150); // async rebroadcast, like native
+        break;
+      }
+
       case 'setVisible':
         // Native opens/closes the calling surface; the only thing a page can
         // observe is the visibility edge, so that is what the mock emits.

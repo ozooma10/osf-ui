@@ -143,6 +143,9 @@ export const VIEWS: ViewsDataPayload = {
       open: true,
       loadState: 'loaded',
       targetVersion: '',
+      autoStart: false,
+      autoStartMutable: true,
+      pinned: false,
     },
     {
       id: 'acme.viewonly/browser',

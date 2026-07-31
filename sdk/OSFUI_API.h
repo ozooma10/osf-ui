@@ -213,8 +213,10 @@ namespace OSFUI::API
 
 		// --- register a view your mod ships. Thread-safe; applied next main tick.
 		// a_viewId is the qualified "<modId>/<viewName>" id of a views/<modId>/<viewName>/ folder your mod installs.
-		// Validates it as an openable surface WITHOUT the user's config.json listing it.
-		// Ordinary views remain lazy until first open; manifest openOnStart loads immediately.
+		// Validates it as an openable surface (discovery already catalogs it).
+		// Ordinary views remain lazy until first open; manifest openOnStart loads
+		// and opens immediately — RegisterView is plugin opt-in, so that applies
+		// to menus too, unlike discovery-driven startup.
 		//
 		// Ship the folder, call once after fetching the bridge, then RequestMenu:
 		//     bridge->RegisterView("acme.mymod/dashboard");

@@ -143,6 +143,10 @@ html, body { height: 100%; overflow: hidden; }
 .row-label { font-size: var(--osf-text-md); color: var(--osf-text-body); }
 .row-hint { font-size: var(--osf-text-xs); color: var(--osf-text-faint); margin-top: 2px; max-width: 72ch; }
 .control { display: flex; align-items: center; gap: 12px; justify-content: flex-end; }
+
+/* The startup-policy row rides under its HUD's visibility row; the indent
+   binds the pair visually without a nested control (padnav keeps flat rows). */
+.row.autostart-row { padding-left: 20px; }
 .control .osf-range { width: 200px; }
 .control .osf-select { min-width: 150px; }
 .control .osf-input:not(.osf-color-hex) { width: 220px; }

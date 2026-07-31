@@ -136,7 +136,7 @@ Logs go to the standard SFSE log folder (`Documents/My Games/Starfield/SFSE/Logs
 **User-facing settings live in the in-game menu** (F10 → OSF UI): the open/close key. 
 They persist under `Documents\My Games\Starfield\OSFUI\settings\osfui.json` and survive updates.
 
-`OSFUI/config.json` is the **developer/boot file** - backends, input source, diagnostic escape hatches, the view set. 
+`OSFUI/config.json` is the **developer/boot file** - backends, input source, diagnostic escape hatches. 
 It ships with the mod and is overwritten on update; it holds no user-facing keys. 
 
 The keys you might actually edit:
@@ -145,9 +145,14 @@ The keys you might actually edit:
 |---|---|---|
 | `enabled` | `true` | master switch |
 | `view` | `"osfui/settings"` | the default menu the toggle key opens - a qualified `<modId>/<viewName>` id from `views/<modId>/<viewName>/manifest.json` (shipped config uses `osfui/settings`, the Mods surface) |
-| `views` | `[]` | optional startup candidates. Entries with `openOnStart:true` load and show at boot; other discovered entries stay lazy until opened. Empty uses `view` as the sole candidate. Missing ids are skipped with a log line. |
-| `warmViews` | `["osfui/settings"]` | latency-sensitive views to create and prepaint at boot. Warm views may suspend while hidden but are never idle-reclaimed; the handoff surface is always warm independently. |
 | `devMode` | `false` | verbose per-call logging + first-frame PNG dump - turn on when developing views or attaching logs to a bug report |
+
+Every valid view folder under `views/<modId>/<viewName>/` is discovered at boot
+and loads the first time it is opened — there is no list to maintain. Which
+HUDs start with the game is a per-HUD **player** setting ("Start automatically"
+on the HUD's row in Mod Settings); a HUD manifest's `openOnStart` only sets the
+default. (`configVersion` 1's `views`/`warmViews` keys are ignored with a
+warning.)
 
 With `devMode` enabled, saved changes to a loaded view's files (HTML/JS/CSS)
 auto-reload it in place within about half a second — the fast view-iteration

@@ -16,6 +16,7 @@
 // the launcher, onto System Health, or onto a mod that ships none. Modes 2 and 4
 // leave it untouched, so searching from a red mod keeps a red-tinted result list.
 
+import { Fragment } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Row } from '@ui/Row';
 import { Note } from '@ui/Note';
@@ -107,6 +108,11 @@ export interface DetailProps {
   hudOn: (view: ViewRecord) => boolean;
   onOpenView: (viewId: string) => void;
   onHudToggle: (viewId: string, next: boolean) => void;
+  /** Effective next-launch auto-start, optimistic while a save is in flight. */
+  autoStartOf: (view: ViewRecord) => boolean;
+  /** True while an `osfui.setViewAutoStart` for this view awaits its ack. */
+  autoStartBusy: (view: ViewRecord) => boolean;
+  onAutoStartToggle: (viewId: string, next: boolean) => void;
 
   onCommit: (modId: string, key: string, value: SettingValue) => void;
   onResetSetting: (modId: string, key: string) => void;
@@ -692,7 +698,18 @@ function Surfaces(props: SurfacesProps) {
           />
         ))}
         {huds.map((v) => (
-          <HudRow key={v.id} view={v} on={props.hudOn(v)} onToggle={props.onHudToggle} />
+          <Fragment key={v.id}>
+            <HudRow view={v} on={props.hudOn(v)} onToggle={props.onHudToggle} />
+            {v.autoStartMutable === true ? (
+              <AutoStartRow
+                view={v}
+                tr={tr}
+                on={props.autoStartOf(v)}
+                busy={props.autoStartBusy(v)}
+                onToggle={props.onAutoStartToggle}
+              />
+            ) : null}
+          </Fragment>
         ))}
       </div>
     </div>
@@ -788,6 +805,38 @@ function HudRow({
       <ViewRowText view={v} />
       <div class="control">
         <Switch id="" on={on} disabled={false} onToggle={(next) => onToggle(v.id, next)} />
+      </div>
+    </Row>
+  );
+}
+
+/**
+ * The per-HUD startup-policy switch (protocol 1.6), rendered as its own row
+ * under the HUD's visibility row so the two switches stay unambiguous. Only
+ * views the host marks `autoStartMutable` get one; the choice applies at the
+ * next game launch, so the row deliberately does not touch `hud.show`/`hide`.
+ */
+function AutoStartRow({
+  view: v,
+  tr,
+  on,
+  busy,
+  onToggle,
+}: {
+  view: ViewRecord;
+  tr: Translator;
+  on: boolean;
+  busy: boolean;
+  onToggle: (id: string, next: boolean) => void;
+}) {
+  return (
+    <Row class="autostart-row" dataKey="">
+      <div class="row-text">
+        <div class="row-label">{tr('startAutomatically', 'Start automatically')}</div>
+        <div class="row-hint">{tr('startAutomaticallyHint', 'Applies at the next game launch')}</div>
+      </div>
+      <div class="control">
+        <Switch id="" on={on} disabled={busy} onToggle={(next) => onToggle(v.id, next)} />
       </div>
     </Row>
   );

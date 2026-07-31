@@ -11,8 +11,10 @@ namespace OSFUI
 	struct Config
 	{
 		// Bumped only on a breaking config re-shape; a file written by a newer
-		// OSF UI logs INFO and parses leniently.
-		static constexpr std::int64_t kConfigVersion = 1;
+		// OSF UI logs INFO and parses leniently. v2 removed the central view
+		// lists ('views'/'warmViews'): startup now follows manifest openOnStart
+		// plus the player's per-HUD auto-start choices in Mod Settings.
+		static constexpr std::int64_t kConfigVersion = 2;
 
 		bool        enabled{ true };
 		// MCM-owned toggle: not parsed from config.json — the `osfui` schema is
@@ -74,16 +76,7 @@ namespace OSFUI
 		// The destination URL is compile-time (Version.h kBugReportEndpoint) and
 		// deliberately not configurable.
 		bool        bugReporting{ true };
-		std::string view{ "osfui/settings" };  // qualified "<mod>/<view>" id
-		// Optional startup-candidate set. Entries remain lazy unless their manifest
-		// has openOnStart or they also appear in warmViews. When empty, `view` is
-		// the sole startup candidate. Every discovered view remains openable on
-		// demand regardless of this list.
-		std::vector<std::string> views;
-		// Hidden views created and prepainted at boot for latency-sensitive core
-		// UI. They may suspend after the normal idle grace but are never destroyed.
-		// The handoff surface is always warm independently of this list.
-		std::vector<std::string> warmViews{ "osfui/settings" };
+		std::string view{ "osfui/settings" };  // qualified "<mod>/<view>" id; the default menu the toggle key opens
 		bool        devMode{ false };  // release-safe default; the shipped config / a dev override turns on verbose logging
 
 #if defined(OSFUI_WITH_WORLD_SURFACES)

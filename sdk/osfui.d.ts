@@ -1,7 +1,7 @@
 /**
  * TypeScript definitions for the OSF UI native <-> web bridge.
  *
- * Bridge protocol version: 1.5 (STABLE — additive changes bump the minor;
+ * Bridge protocol version: 1.6 (STABLE — additive changes bump the minor;
  * breaking changes bump the major). Compatibility is advisory: declare the
  * OSF UI version you authored against as `targetVersion` (view manifest /
  * settings schema) and the Mods surface badges "needs update" when the
@@ -88,6 +88,8 @@ export type UiCommand =
   | { command: "diagnostics.submitReport"; title: string; description: string; reproduction?: string }
   /** (protocol 1.5, platform-private) Open one server-created issue. Native accepts only a positive issue number and constructs the fixed OSF UI GitHub URL. */
   | { command: "osfui.openReportIssue"; issueNumber: number }
+  /** (protocol 1.6, platform-private) Set a HUD's automatic start for the NEXT game launch; restricted to the built-in settings view. Persists to the player's view policy — the running session's surfaces are untouched, and a `views.data` rebroadcast carries the new effective `autoStart`. Failures answer ui.result { ok:false, code:"forbidden" | "invalid-payload" | "unknown-view" | "not-configurable" | "persistence-failed" }. */
+  | { command: "osfui.setViewAutoStart"; view: string; enabled: boolean }
   /**
    * Fire an action at the OWNING mod's Papyrus scripts
    * (OSFUI.RegisterForViewActions). The mod id is derived from the calling
@@ -386,6 +388,13 @@ export interface ViewsDataPayload {
     // "unloaded" = discovered on disk but never loaded; opening it loads on demand.
     // "loading" = load in flight, "loaded" = ready, "failed" = load failed (recovery exhausted).
     loadState: "unloaded" | "loading" | "loaded" | "failed";
+    // (protocol 1.6) Startup policy. `autoStart` is the effective choice for
+    // the NEXT game launch (player override, else manifest openOnStart);
+    // `autoStartMutable` marks catalog-visible HUDs the player may change via
+    // `osfui.setViewAutoStart`; `pinned` marks always-resident core surfaces.
+    autoStart: boolean;
+    autoStartMutable: boolean;
+    pinned: boolean;
   }>;
 }
 

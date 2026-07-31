@@ -106,6 +106,14 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
   const [hudOverride, setHudOverride] = useState<Record<string, boolean>>({});
 
   /**
+   * In-flight `osfui.setViewAutoStart` choices, keyed by view id. Presence
+   * means "saving": the switch shows the requested position but is disabled. A
+   * success rebroadcasts `views.data` (which clears the map, authoritative); a
+   * rejection deletes the entry so the switch falls back to the server value.
+   */
+  const [autoStartPending, setAutoStartPending] = useState<Record<string, boolean>>({});
+
+  /**
    * The registries the pane paints from, and the bridge subscriptions that keep
    * them current. Everything below this line is instead about what the user is
    * doing right now — where they are, what they typed, what is expanded — none
@@ -113,9 +121,12 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
    */
   const registry = useSettingsRegistry({
     bridge,
-    // A `views.data` push is the authority on HUD open state; drop the
-    // optimistic switch positions when one lands.
-    onViewsData: () => setHudOverride({}),
+    // A `views.data` push is the authority on HUD open state and startup
+    // policy; drop the optimistic switch positions when one lands.
+    onViewsData: () => {
+      setHudOverride({});
+      setAutoStartPending({});
+    },
   });
   const {
     mods,
@@ -496,6 +507,36 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     return override === undefined ? v.open === true : override;
   };
 
+  const autoStartOf = (v: ViewRecord): boolean => {
+    const pending = autoStartPending[v.id];
+    return pending === undefined ? v.autoStart === true : pending;
+  };
+  const autoStartBusy = (v: ViewRecord): boolean => autoStartPending[v.id] !== undefined;
+
+  /**
+   * Persist a HUD's automatic start for the next launch. Availability is
+   * checked before marking pending for the same reason as `setValue`: a
+   * pending switch with no bridge would stay disabled forever.
+   */
+  const setViewAutoStart = (viewId: string, enabled: boolean) => {
+    if (!bridge.available()) return;
+    setAutoStartPending((p) => ({ ...p, [viewId]: enabled }));
+    bridge.call('osfui.setViewAutoStart', { view: viewId, enabled }).catch((err: unknown) => {
+      const code = codeOf(err);
+      setAutoStartPending((p) => {
+        const next = { ...p };
+        delete next[viewId];
+        return next;
+      });
+      toast(
+        tr('autoStartRejected', 'Start automatically was not saved{code}', {
+          code: code ? ` (${code})` : '',
+        }),
+        'danger',
+      );
+    });
+  };
+
   const applyPreset = (mod: ModRecord, preset: PresetRecord) => {
     const entries: Array<[string, SettingValue]> = [];
     for (const key in preset.values) entries.push([key, preset.values[key] as SettingValue]);
@@ -678,6 +719,9 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
           capturing={capture.capturing}
           flash={flash}
           hudOn={hudOn}
+          autoStartOf={autoStartOf}
+          autoStartBusy={autoStartBusy}
+          onAutoStartToggle={setViewAutoStart}
           onOpenView={(viewId) => sendCommand('menu.open', { view: viewId })}
           onHudToggle={(viewId, next) => {
             setHudOverride((o) => ({ ...o, [viewId]: next }));
