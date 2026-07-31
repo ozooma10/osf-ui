@@ -461,6 +461,7 @@ export interface DiagnosticIssue {
   /**
    * Stable machine code. v1 families:
    * `settings.schema-name` | `settings.schema-parse` | `settings.values-parse`
+   * | `settings.hotkey-target`
    * | `view.load-retrying` | `view.load-failed`
    * | `host.ring-truncated`
    * | `compat.needs-newer-osfui`
@@ -611,6 +612,14 @@ export interface InputContext {
   blocksGameplay?: boolean; // metadata assertion: omit @game conflicts only; dispatch is unchanged
 }
 
+/** Immutable schema-owned GLOBAL Papyrus callback for a key setting. */
+export interface PapyrusHotkeyTarget {
+  /** Script name without `.pex`; namespace separators (`:`) are allowed. */
+  script: string;
+  /** GLOBAL `Function name(string modId, string key)` callback. */
+  function: string;
+}
+
 export interface Setting {
   key: string;
   aliases?: string[]; // former persisted keys; on load the current key's value is adopted from the first still-valid alias, then rewritten under `key` (§11). Native-only; the renderer ignores it.
@@ -624,6 +633,7 @@ export interface Setting {
   maxLength?: number; // string length hint
   allowUnbound?: boolean; // key type only: "" is a legal, deliberate unbound state (no dispatch, no conflicts; the UI renders an unbind ×)
   inputContext?: string; // key type only: local InputContext id; absent/invalid/unknown => implicit gameplay
+  onPress?: PapyrusHotkeyTarget; // key type only: read-only schema metadata; never stored in the user's values file
   options?: string[]; // required when type === "enum" or "flags" (a flags value = array drawn from these, canonicalized to this order)
   optionLabels?: string[]; // display labels parallel to options; stored value stays the option
   widget?: WidgetHint;

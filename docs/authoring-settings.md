@@ -286,6 +286,52 @@ keys (Space, E, …) doesn't warn:
 bindings genuinely cannot fire while your context is active. It suppresses
 `@game` warnings only; mod-to-mod collisions still warn.
 
+### Start Papyrus lazily from a hotkey
+
+A key may name an immutable GLOBAL Papyrus callback in its schema. OSF UI
+queues it after the normal web, C ABI, and registered-Papyrus hotkey channels,
+so a mod can start its gameplay quest on demand without keeping a bootstrap
+quest running or registering a listener first:
+
+```jsonc
+{
+  "key": "startScene",
+  "label": "Start scene",
+  "type": "key",
+  "default": "F8",
+  "onPress": {
+    "script": "MyMod_Hotkeys",      // script name, without .pex
+    "function": "OnHotkey"
+  }
+}
+```
+
+The target must be a GLOBAL function with exactly two string parameters:
+
+```papyrus
+ScriptName MyMod_Hotkeys Hidden
+
+Function OnHotkey(string modId, string key) Global
+    Quest target = Game.GetFormFromFile(0x000800, "MyMod.esm") as Quest
+    If target != None
+        target.Start()
+    EndIf
+EndFunction
+```
+
+The number passed to `Game.GetFormFromFile` is the record's plugin-local FormID,
+not its load-order-dependent runtime FormID. OSF UI never resolves or stores the
+quest identity itself. `onPress` is read-only schema metadata: it is never
+copied into the user's values file and no settings write can change it.
+
+The normal gameplay/menu/rebind suppression rules above still apply, and the
+key is still delivered to ordinary hotkey subscribers. A script that also
+registers the same callback therefore receives a separate second delivery.
+Malformed or unavailable targets leave the ordinary hotkey working and appear
+in System Health with details for the mod author. Because older OSF UI builds
+ignore `onPress`, declare the `targetVersion` of the release where this feature
+first ships.
+
 ---
 
 ## 8. Reading your settings (consumption)

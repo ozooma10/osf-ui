@@ -34,6 +34,17 @@ namespace OSFUI::API::Papyrus
 	// matching registered script callbacks.
 	void OnHotkey(std::string_view a_modId, std::string_view a_key);
 
+	enum class StaticDispatchResult
+	{
+		kQueued,
+		kVmUnavailable,
+		kTargetRejected,
+	};
+	// Queue one schema-owned GLOBAL callback without adding it to the
+	// session-scoped registration table. The caller owns diagnostics/lifecycle.
+	StaticDispatchResult DispatchStaticHotkey(std::string_view a_script,
+		std::string_view a_function, std::string_view a_modId, std::string_view a_key);
+
 	// Main thread (Runtime's `ui.action` bridge command): fan a view-fired
 	// action out to the mod's RegisterForViewActions callbacks. a_modId is
 	// derived from the source view id by the caller, never the payload, and

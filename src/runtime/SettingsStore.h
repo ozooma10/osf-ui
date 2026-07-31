@@ -83,6 +83,24 @@ namespace OSFUI
 			std::string name;  // current value
 		};
 
+		// Optional immutable action authored on a `type:"key"` setting. It is
+		// schema metadata, never part of the writable values document.
+		struct PapyrusHotkeyTarget
+		{
+			std::string script;
+			std::string function;
+
+			bool operator==(const PapyrusHotkeyTarget&) const = default;
+		};
+
+		struct HotkeyTargetIssue
+		{
+			std::string mod;
+			std::string key;
+			std::string file;
+			std::string message;
+		};
+
 		// Fired after a mod's values file write lands (the write-behind flush,
 		// not the commit — Set/Reset notify through ChangeListener immediately).
 		// The web layer pushes `settings.persisted` off this for save feedback.
@@ -161,6 +179,11 @@ namespace OSFUI
 		// Every `type:"key"` setting across all mods, with its current value.
 		// Empty-key and non-string-valued entries are skipped.
 		[[nodiscard]] std::vector<KeySetting> KeySettings() const;
+		// Validated schema-owned static Papyrus target for one key. Invalid
+		// metadata is ignored here and surfaced through HotkeyTargetIssues().
+		[[nodiscard]] std::optional<PapyrusHotkeyTarget> GetHotkeyTarget(
+			std::string_view a_modId, std::string_view a_key) const;
+		[[nodiscard]] std::vector<HotkeyTargetIssue> HotkeyTargetIssues() const;
 
 		// Dev-mode schema hot-reload: re-parse one drop-in settings/<id>.json and
 		// replace the same-id registered schema in place. Values survive — a
@@ -333,6 +356,7 @@ namespace OSFUI
 			// (first wins). Surfaced additively in Data() so the Mods surface
 			// can badge the conflict.
 			std::vector<std::string> shadowed;
+			std::vector<HotkeyTargetIssue> hotkeyTargetIssues;
 			Source                source{ Source::kDropIn };
 			bool                  dirty{ false };  // has unflushed write-behind changes
 			double                dueAt{ 0.0 };    // when the open window flushes (store clock)

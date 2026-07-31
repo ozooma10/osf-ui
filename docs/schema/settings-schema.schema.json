@@ -148,6 +148,27 @@
         }
       }
     },
+    "papyrusHotkeyTarget": {
+      "type": "object",
+      "required": ["script", "function"],
+      "additionalProperties": false,
+      "properties": {
+        "script": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?::[A-Za-z_][A-Za-z0-9_]*)*$",
+          "description": "Papyrus script name (without .pex) containing the GLOBAL callback. Namespace separators are allowed."
+        },
+        "function": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "description": "GLOBAL function called as Function name(string modId, string key) Global."
+        }
+      }
+    },
     "item": {
       "description": "A row in a group: a value-bearing setting, or a static/action item (note/image/action).",
       "oneOf": [
@@ -194,6 +215,10 @@
         "inputContext": {
           "type": "string",
           "description": "key type only: local inputContexts id. Missing, invalid, or unknown ids fall back to implicit gameplay."
+        },
+        "onPress": {
+          "$ref": "#/$defs/papyrusHotkeyTarget",
+          "description": "key type only: immutable schema-owned GLOBAL Papyrus callback queued after the normal hotkey delivery channels. Never persisted in the user values file."
         },
         "options": {
           "type": "array",
@@ -242,6 +267,10 @@
         {
           "if": { "properties": { "type": { "const": "flags" } } },
           "then": { "required": ["options"] }
+        },
+        {
+          "if": { "required": ["onPress"] },
+          "then": { "properties": { "type": { "const": "key" } } }
         }
       ]
     },

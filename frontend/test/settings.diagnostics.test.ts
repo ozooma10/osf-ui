@@ -106,6 +106,20 @@ describe('severityForMod — rail marker attribution', () => {
     expect(severityForMod(solo, 'view:solo', ['solo/hud'])).toBe('warning');
   });
 
+  it('attributes a declarative hotkey target by its mod.key subject', () => {
+    const target = [
+      issue({
+        id: 'hk',
+        code: 'settings.hotkey-target',
+        source: 'settings',
+        subject: 'acme.kit.startScene',
+        severity: 'error',
+      }),
+    ];
+    expect(severityForMod(target, 'acme.kit')).toBe('error');
+    expect(severityForMod(target, 'acme.other')).toBeNull();
+  });
+
   it("attributes a mod's OWN reports by source, whatever their subject", () => {
     // An ABI 1.7 report names the thing the mod cares about — a pack, a file —
     // which is never the mod id, so source is the only link back to the rail.
@@ -136,6 +150,10 @@ describe('copyForIssue', () => {
     const copy = copyForIssue(issue({ id: 'a', code: 'view.load-failed' }));
     expect(copy.actions).toContain('retry-view');
     expect(copy.title[1]).toMatch(/could not be loaded/i);
+
+    const target = copyForIssue(issue({ id: 'b', code: 'settings.hotkey-target' }));
+    expect(target.actions).toContain('open-logs');
+    expect(target.title[1]).toMatch(/hotkey action/i);
   });
 
   it('falls back to generic copy for an unknown or absent code', () => {

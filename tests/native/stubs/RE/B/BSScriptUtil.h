@@ -155,6 +155,9 @@ namespace RE
 				bool DispatchStaticCall(const BSFixedString& a_script, const BSFixedString& a_fn, Fn&& a_makeArgs,
 					const BSTSmartPointer<IStackCallbackFunctor>&, int)
 				{
+					if (!staticDispatchSucceeds) {
+						return false;
+					}
 					calls.push_back({ true, a_script.c_str(), nullptr, a_fn.c_str(), Resolve(std::forward<Fn>(a_makeArgs)) });
 					return true;
 				}
@@ -168,6 +171,7 @@ namespace RE
 				}
 
 				std::vector<Call> calls;
+				bool              staticDispatchSucceeds{ true };
 
 			private:
 				template <class Fn>

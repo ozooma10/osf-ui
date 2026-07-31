@@ -565,7 +565,7 @@ definition wins.
 | `enum` | dropdown | must be one of `options` |
 | `flags` | checkbox group | array of `options` strings (multi-select). Unknown options and duplicates are filtered out, and the stored array is canonicalized to declared-option order |
 | `string` | text field | truncated to 256 chars |
-| `key` | press-to-bind button | key-name string (≤16 chars), non-empty unless the setting sets `"allowUnbound": true` — then `""` is the deliberate unbound state (no hotkey dispatch, no conflict badges, and the UI adds an unbind ×). Framework-managed: capture is armed via `settings.captureKey` and grabbed in the native input layer, so pressing the current toggle key rebinds instead of closing the overlay. Every `key`-typed setting of every mod is rebindable and dispatches via the HotkeyService (`ui.hotkey` / `SubscribeHotkey`) |
+| `key` | press-to-bind button | key-name string (≤16 chars), non-empty unless the setting sets `"allowUnbound": true` — then `""` is the deliberate unbound state (no hotkey dispatch, no conflict badges, and the UI adds an unbind ×). Framework-managed: capture is armed via `settings.captureKey` and grabbed in the native input layer, so pressing the current toggle key rebinds instead of closing the overlay. Every `key`-typed setting of every mod is rebindable and dispatches via the HotkeyService (`ui.hotkey` / `SubscribeHotkey`); optional immutable `onPress: {script,function}` metadata additionally queues that GLOBAL Papyrus callback after the normal channels |
 
 This is the frozen base type set. There is no `color` type; use
 `type:"string"` + `widget:"color"`. Post-1.0 evolution is a base type plus a

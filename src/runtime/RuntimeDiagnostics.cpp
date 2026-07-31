@@ -72,12 +72,71 @@ namespace OSFUI
 	{
 		auto& runtime = _runtime;
 		if (!runtime._settings || !runtime._diagnostics) return;
+		auto& store = runtime._settings->Store();
+		for (auto it = _hotkeyTargetFailures.begin(); it != _hotkeyTargetFailures.end();) {
+			const auto target = store.GetHotkeyTarget(it->second.mod, it->second.key);
+			if (!target || target->script != it->second.script || target->function != it->second.function) {
+				it = _hotkeyTargetFailures.erase(it);
+			} else {
+				++it;
+			}
+		}
 
 		std::vector<SettingsLoadIssue> errors;
-		for (const auto& error : runtime._settings->Store().LoadErrors()) {
+		for (const auto& error : store.LoadErrors()) {
 			errors.push_back({ error.kind, error.file, error.mod, error.message });
 		}
+		for (const auto& issue : store.HotkeyTargetIssues()) {
+			errors.push_back({ "hotkey-target", issue.file, issue.mod + "." + issue.key,
+				issue.message, nlohmann::json::object() });
+		}
+		for (const auto& [id, failure] : _hotkeyTargetFailures) {
+			(void)id;
+			errors.push_back({ "hotkey-target", "", failure.mod + "." + failure.key,
+				failure.message, nlohmann::json{
+					{ "script", failure.script },
+					{ "function", failure.function },
+				} });
+		}
 		_reconciler.SyncSettings(*runtime._diagnostics, errors, runtime._uptime);
+	}
+
+	std::string RuntimeDiagnostics::HotkeyTargetId(std::string_view a_mod, std::string_view a_key)
+	{
+		return "settings.hotkey-target:" + std::string(a_mod) + "." + std::string(a_key);
+	}
+
+	void RuntimeDiagnostics::ReportHotkeyTargetFailure(std::string_view a_mod, std::string_view a_key,
+		std::string_view a_script, std::string_view a_function, std::string_view a_message)
+	{
+		const auto id = HotkeyTargetId(a_mod, a_key);
+		HotkeyTargetFailure failure{
+			std::string(a_mod), std::string(a_key), std::string(a_script),
+			std::string(a_function), std::string(a_message)
+		};
+		if (const auto it = _hotkeyTargetFailures.find(id); it != _hotkeyTargetFailures.end() &&
+			it->second.script == failure.script && it->second.function == failure.function &&
+			it->second.message == failure.message) {
+			return;
+		}
+		_hotkeyTargetFailures.insert_or_assign(id, failure);
+		REX::ERROR("Runtime: [content] declarative hotkey {}.{} could not queue {}.{} — {}",
+			a_mod, a_key, a_script, a_function, a_message);
+		SyncSettings();
+		if (_runtime._diagnostics) {
+			_runtime._diagnostics->Broadcast();
+		}
+	}
+
+	void RuntimeDiagnostics::ResolveHotkeyTarget(std::string_view a_mod, std::string_view a_key)
+	{
+		if (_hotkeyTargetFailures.erase(HotkeyTargetId(a_mod, a_key)) == 0) {
+			return;
+		}
+		SyncSettings();
+		if (_runtime._diagnostics) {
+			_runtime._diagnostics->Broadcast();
+		}
 	}
 
 	void RuntimeDiagnostics::SyncCompatibility()

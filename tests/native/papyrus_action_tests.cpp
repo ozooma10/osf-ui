@@ -156,6 +156,24 @@ int main()
 	API::Papyrus::OnViewAction("t.beta", "sort", { "" });
 	CHECK(vm->calls.empty());
 
+	// Schema-owned hotkey callbacks queue directly and never enter the
+	// session-scoped registration table.
+	vm->calls.clear();
+	CHECK(API::Papyrus::DispatchStaticHotkey("MyMod_Hotkeys", "OnHotkey", "t.alpha", "startScene") ==
+		API::Papyrus::StaticDispatchResult::kQueued);
+	CHECK(vm->calls.size() == 1);
+	if (vm->calls.size() == 1) {
+		const auto& c = vm->calls[0];
+		CHECK(c.isStatic && c.scriptName == "MyMod_Hotkeys" && c.fn == "OnHotkey");
+		CHECK((c.args == std::vector<std::string>{ "t.alpha", "startScene" }));
+	}
+	vm->staticDispatchSucceeds = false;
+	vm->calls.clear();
+	CHECK(API::Papyrus::DispatchStaticHotkey("Missing", "OnHotkey", "t.alpha", "startScene") ==
+		API::Papyrus::StaticDispatchResult::kTargetRejected);
+	CHECK(vm->calls.empty());
+	vm->staticDispatchSucceeds = true;
+
 	// --- kind isolation: kAction vs kSettings ------------------------------------
 	const auto settingsToken = registerSettingsStatic(*vm, 0, {}, "MyLib", "OnSettingChanged", "t.alpha");
 	CHECK(settingsToken != 0);
@@ -338,6 +356,9 @@ int main()
 	API::Papyrus::OnViewAction("t.alpha", "sort", { "1" });
 	CHECK(vm->calls.empty());                    // registrations gone
 	CHECK(!unregister(*vm, 0, {}, tokenStatic));  // pre-load token never validates again
+	CHECK(API::Papyrus::DispatchStaticHotkey("MyMod_Hotkeys", "OnHotkey", "t.alpha", "startScene") ==
+		API::Papyrus::StaticDispatchResult::kQueued);
+	CHECK(vm->calls.size() == 1 && vm->calls[0].scriptName == "MyMod_Hotkeys");
 	replayed.clear();
 	API::Papyrus::ReplayViewState("t.alpha", [&](const auto& state) { replayed.push_back(state); });
 	CHECK(replayed.empty());  // session-scoped state (including form ids) is gone

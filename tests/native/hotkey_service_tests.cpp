@@ -119,7 +119,8 @@ int main()
 		"id": "t.alpha", "title": "Alpha Mod",
 		"groups": [ { "label": "Keys", "settings": [
 			{ "key": "toggleHud",  "type": "key",  "default": "F6" },
-			{ "key": "screenshot", "type": "key",  "default": "F7" },
+			{ "key": "screenshot", "type": "key",  "default": "F7",
+			  "onPress": { "script": "Alpha_Hotkeys", "function": "OnHotkey" } },
 			{ "key": "enabled",    "type": "bool", "default": true }
 		] } ] })json");
 	WriteFile(schemaDir / "t.beta.json", R"json({
@@ -166,6 +167,8 @@ int main()
 		svc.OnKeyDown(vkF7);
 		const auto f7 = DrainAll(svc);
 		CHECK(f7.size() == 1 && f7[0] == "t.alpha.screenshot");
+		const auto target = store.GetHotkeyTarget("t.alpha", "screenshot");
+		CHECK(target && target->script == "Alpha_Hotkeys");  // metadata does not replace ordinary delivery
 	}
 
 	// --- suppression: captured/armed presses never fire --------------------------

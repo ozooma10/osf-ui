@@ -94,7 +94,8 @@ int main()
 			{ "key": "mode",    "type": "enum",   "default": "compact", "options": ["compact", "full"] },
 			{ "key": "name",    "type": "string", "default": "hi", "maxLength": 4 },
 			{ "key": "tint",    "type": "string", "widget": "color", "default": "#5aa9b8" },
-			{ "key": "bind",    "type": "key",    "default": "F10" }
+			{ "key": "bind",    "type": "key",    "default": "F10",
+			  "onPress": { "script": "MyMod:Hotkeys", "function": "OnHotkey" } }
 		] } ] })json");
 	WriteFile(schemaDir / "t.beta.json", R"json({
 		"id": "t.beta", "title": "Beta Mod",
@@ -178,6 +179,11 @@ int main()
 	CHECK(store.GetSettingType("t.alpha", "scale") == "float");
 	CHECK(store.GetSettingType("t.alpha", "nope").empty());
 	CHECK(store.GetSettingType("nope", "bind").empty());
+	{
+		const auto target = store.GetHotkeyTarget("t.alpha", "bind");
+		CHECK(target && target->script == "MyMod:Hotkeys" && target->function == "OnHotkey");
+		CHECK(store.HotkeyTargetIssues().empty());
+	}
 
 	// --- multicast listeners --------------------------------------------------
 	std::vector<Fired> heard1, heard2;
@@ -237,6 +243,52 @@ int main()
 			}
 		}
 		store.RemoveMod("t.unbindy");
+	}
+
+	// --- declarative hotkey targets are validated schema metadata ------------
+	{
+		auto targetSchema = nlohmann::json::parse(R"json({
+			"id": "t.targets", "groups": [ { "settings": [
+				{ "key": "good", "type": "key", "default": "F6",
+				  "onPress": { "script": "Target_Lib", "function": "Fire" } },
+				{ "key": "shape", "type": "key", "default": "F7", "onPress": "bad" },
+				{ "key": "missing", "type": "key", "default": "F8",
+				  "onPress": { "script": "Target_Lib" } },
+				{ "key": "extra", "type": "key", "default": "F5",
+				  "onPress": { "script": "Target_Lib", "function": "Fire", "args": [] } },
+				{ "key": "wrongType", "type": "bool", "default": true,
+				  "onPress": { "script": "Target_Lib", "function": "Fire" } }
+			] } ]
+		})json");
+		targetSchema["groups"][0]["settings"].push_back({
+			{ "key", "tooLong" }, { "type", "key" }, { "default", "F9" },
+			{ "onPress", { { "script", std::string(129, 'A') }, { "function", "Fire" } } }
+		});
+		CHECK(store.RegisterSchema(targetSchema, SettingsStore::Source::kNative));
+		const auto target = store.GetHotkeyTarget("t.targets", "good");
+		CHECK(target && target->script == "Target_Lib" && target->function == "Fire");
+		CHECK(!store.GetHotkeyTarget("t.targets", "shape"));
+		CHECK(!store.GetHotkeyTarget("t.targets", "missing"));
+		CHECK(!store.GetHotkeyTarget("t.targets", "extra"));
+		CHECK(!store.GetHotkeyTarget("t.targets", "wrongType"));
+		CHECK(!store.GetHotkeyTarget("t.targets", "tooLong"));
+		CHECK(store.HotkeyTargetIssues().size() == 5);
+		CHECK(store.Set("t.targets", "good", "\"F10\""));
+		CHECK(!store.Set("t.targets", "onPress", R"({"script":"Evil","function":"Run"})"));
+		CHECK(store.GetHotkeyTarget("t.targets", "good") == target);  // values cannot alter schema metadata
+
+		targetSchema["groups"][0]["settings"] = nlohmann::json::array({
+			{
+				{ "key", "good" }, { "type", "key" }, { "default", "F6" },
+				{ "onPress", { { "script", "Target_Lib2" }, { "function", "Fire2" } } }
+			}
+		});
+		CHECK(store.RegisterSchema(targetSchema, SettingsStore::Source::kNative));
+		CHECK(store.HotkeyTargetIssues().empty());
+		const auto replacement = store.GetHotkeyTarget("t.targets", "good");
+		CHECK(replacement && replacement->script == "Target_Lib2" && replacement->function == "Fire2");
+		CHECK(store.RemoveMod("t.targets"));
+		CHECK(!store.GetHotkeyTarget("t.targets", "good"));
 	}
 
 	// --- Reset: one key, then whole mod ---------------------------------------
@@ -565,12 +617,16 @@ int main()
 		WriteFile(sd / "t.hot.json", R"json({
 			"id": "t.hot", "title": "Hot v1",
 			"groups": [ { "settings": [
-				{ "key": "speed", "type": "int", "default": 5, "min": 0, "max": 10 }
+				{ "key": "speed", "type": "int", "default": 5, "min": 0, "max": 10 },
+				{ "key": "hot", "type": "key", "default": "F6",
+				  "onPress": { "script": "HotV1", "function": "Fire" } }
 			] } ] })json");
 
 		SettingsStore s;
 		s.LoadAll(sd, vd);
 		CHECK(s.Set("t.hot", "speed", "8"));  // a live, unflushed (dirty) user value
+		const auto hotV1 = s.GetHotkeyTarget("t.hot", "hot");
+		CHECK(hotV1 && hotV1->script == "HotV1");
 
 		std::size_t registryFires = 0;
 		s.AddRegistryListener([&] { ++registryFires; });
@@ -583,13 +639,17 @@ int main()
 			"id": "t.hot", "title": "Hot v2",
 			"groups": [ { "settings": [
 				{ "key": "velocity", "type": "int", "default": 5, "min": 0, "max": 10, "aliases": ["speed"] },
-				{ "key": "brandNew", "type": "bool", "default": true }
+				{ "key": "brandNew", "type": "bool", "default": true },
+				{ "key": "hot", "type": "key", "default": "F6",
+				  "onPress": { "script": "HotV2", "function": "FireAgain" } }
 			] } ] })json");
 		CHECK(s.ReloadDropInFile(sd / "t.hot.json"));
 		CHECK(registryFires == 1);
 		CHECK(s.GetValue("t.hot", "velocity") && *s.GetValue("t.hot", "velocity") == 8);  // dirty value survived + renamed
 		CHECK(s.GetValue("t.hot", "brandNew") && *s.GetValue("t.hot", "brandNew") == true);
 		CHECK(s.GetValue("t.hot", "speed") == nullptr);  // the old key is gone
+		const auto hotV2 = s.GetHotkeyTarget("t.hot", "hot");
+		CHECK(hotV2 && hotV2->script == "HotV2");
 		{
 			const auto data = s.Data();
 			CHECK(data["mods"][0]["title"] == "Hot v2");

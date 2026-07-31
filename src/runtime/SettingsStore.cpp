@@ -17,6 +17,7 @@ namespace OSFUI
 		constexpr std::size_t kMaxStringLen = 256;
 		constexpr std::size_t kMaxModIdLen = Ids::kMaxModIdLen;
 		constexpr std::size_t kMaxInputContextIdLen = 64;
+		constexpr std::size_t kMaxPapyrusTargetLen = 128;
 
 		// Reserved meta key: the schema `version` the file was last written under
 		// (mcm-design.md §11). `$`-prefixed so it can never collide with a setting
@@ -44,6 +45,85 @@ namespace OSFUI
 			return std::all_of(a_id.begin() + 1, a_id.end(), [&](const char c) {
 				return isAlnum(c) || c == '.' || c == '_' || c == '-';
 			});
+		}
+
+		bool IsPapyrusIdentifier(std::string_view a_name)
+		{
+			if (a_name.empty() || a_name.size() > kMaxPapyrusTargetLen) {
+				return false;
+			}
+			const auto isAlpha = [](char c) {
+				return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+			};
+			const auto isAlnum = [&](char c) {
+				return isAlpha(c) || (c >= '0' && c <= '9');
+			};
+			return isAlpha(a_name.front()) &&
+			       std::all_of(a_name.begin() + 1, a_name.end(), isAlnum);
+		}
+
+		bool IsPapyrusScriptName(std::string_view a_name)
+		{
+			if (a_name.empty() || a_name.size() > kMaxPapyrusTargetLen) {
+				return false;
+			}
+			std::size_t start = 0;
+			while (start < a_name.size()) {
+				const auto end = a_name.find(':', start);
+				const auto part = a_name.substr(start,
+					end == std::string_view::npos ? a_name.size() - start : end - start);
+				if (!IsPapyrusIdentifier(part)) {
+					return false;
+				}
+				if (end == std::string_view::npos) {
+					return true;
+				}
+				start = end + 1;
+			}
+			return false;
+		}
+
+		struct ParsedHotkeyTarget
+		{
+			bool present{ false };
+			std::optional<SettingsStore::PapyrusHotkeyTarget> target;
+			std::string error;
+		};
+
+		ParsedHotkeyTarget ParseHotkeyTarget(const nlohmann::json& a_setting)
+		{
+			const auto it = a_setting.find("onPress");
+			if (it == a_setting.end()) {
+				return {};
+			}
+			ParsedHotkeyTarget out{ .present = true };
+			if (Json::GetString(a_setting, "type", "") != "key") {
+				out.error = "onPress is allowed only on type:\"key\" settings";
+				return out;
+			}
+			if (!it->is_object()) {
+				out.error = "onPress must be an object with string script and function fields";
+				return out;
+			}
+			for (const auto& [name, value] : it->items()) {
+				(void)value;
+				if (name != "script" && name != "function") {
+					out.error = "onPress accepts only script and function fields";
+					return out;
+				}
+			}
+			const auto script = Json::GetString(*it, "script", "");
+			const auto function = Json::GetString(*it, "function", "");
+			if (!IsPapyrusScriptName(script)) {
+				out.error = "onPress.script must be a Papyrus script name of at most 128 characters";
+				return out;
+			}
+			if (!IsPapyrusIdentifier(function)) {
+				out.error = "onPress.function must be a Papyrus function name of at most 128 characters";
+				return out;
+			}
+			out.target = SettingsStore::PapyrusHotkeyTarget{ script, function };
+			return out;
 		}
 
 		// The frozen base type set. A setting whose declared type is outside it is
@@ -400,6 +480,21 @@ namespace OSFUI
 		mod.source = a_source;
 		mod.values = nlohmann::json::object();
 		mod.preserved = nlohmann::json::object();
+		const auto schemaSource = mod.schemaPath.empty() ? std::string("<runtime>") :
+			mod.schemaPath.filename().string();
+		ForEachSetting(mod.schema, [&](const nlohmann::json& a_setting) {
+			const auto parsed = ParseHotkeyTarget(a_setting);
+			if (parsed.present && !parsed.target) {
+				auto key = Json::GetString(a_setting, "key", "");
+				if (key.empty()) {
+					key = "<unnamed>";
+				}
+				REX::ERROR("SettingsStore: [content] '{}.{}' {} — declarative hotkey dispatch disabled",
+					mod.id, key, parsed.error);
+				mod.hotkeyTargetIssues.push_back({ mod.id, std::move(key), schemaSource, parsed.error });
+			}
+			return false;
+		});
 		if (existing) {
 			mod.shadowed = std::move(existing->shadowed);  // conflicts outlive a replacement/hot-reload
 		}
@@ -706,6 +801,26 @@ namespace OSFUI
 				}
 				return false;
 			});
+		}
+		return out;
+	}
+
+	std::optional<SettingsStore::PapyrusHotkeyTarget> SettingsStore::GetHotkeyTarget(
+		std::string_view a_modId, std::string_view a_key) const
+	{
+		const auto* mod = FindMod(a_modId);
+		const auto* setting = mod ? FindSetting(*mod, a_key) : nullptr;
+		if (!setting) {
+			return std::nullopt;
+		}
+		return ParseHotkeyTarget(*setting).target;
+	}
+
+	std::vector<SettingsStore::HotkeyTargetIssue> SettingsStore::HotkeyTargetIssues() const
+	{
+		std::vector<HotkeyTargetIssue> out;
+		for (const auto& mod : _mods) {
+			out.insert(out.end(), mod.hotkeyTargetIssues.begin(), mod.hotkeyTargetIssues.end());
 		}
 		return out;
 	}

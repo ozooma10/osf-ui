@@ -3,6 +3,8 @@
 #include "render/IWebRenderer.h"
 #include "runtime/DiagnosticsReconciler.h"
 
+#include <unordered_map>
+
 namespace OSFUI
 {
 	class Runtime;
@@ -21,17 +23,31 @@ namespace OSFUI
 #endif
 		void ReportViewLoad(std::string_view a_viewId, bool a_failed,
 			std::string_view a_description, int a_errorCode, std::uint32_t a_attemptsLeft);
+		void ReportHotkeyTargetFailure(std::string_view a_mod, std::string_view a_key,
+			std::string_view a_script, std::string_view a_function, std::string_view a_message);
+		void ResolveHotkeyTarget(std::string_view a_mod, std::string_view a_key);
 
 	private:
 		void DrainPluginReports();
 		void SyncSettings();
 		void SyncCompatibility();
 		void UpdateSystemInfo();
+		static std::string HotkeyTargetId(std::string_view a_mod, std::string_view a_key);
+
+		struct HotkeyTargetFailure
+		{
+			std::string mod;
+			std::string key;
+			std::string script;
+			std::string function;
+			std::string message;
+		};
 
 		Runtime&      _runtime;
 		std::uint64_t _settingsGeneration{ 0 };
 		bool          _settingsSynced{ false };
 		DiagnosticsReconciler _reconciler;
+		std::unordered_map<std::string, HotkeyTargetFailure> _hotkeyTargetFailures;
 		double        _nextPoll{ 0.0 };
 	};
 }

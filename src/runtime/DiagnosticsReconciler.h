@@ -10,8 +10,9 @@ namespace OSFUI
 	{
 		std::string kind;
 		std::string file;
-		std::string mod;
+		std::string subject;
 		std::string message;
+		nlohmann::json context{ nlohmann::json::object() };
 	};
 
 	struct CompatibilityTarget
@@ -37,6 +38,7 @@ namespace OSFUI
 			std::uint32_t a_attemptsLeft, double a_now);
 
 	private:
+		std::string _settingsSignature;
 		std::string _compatSignature;
 	};
 }

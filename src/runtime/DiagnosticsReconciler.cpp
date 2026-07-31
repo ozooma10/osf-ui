@@ -9,11 +9,33 @@ namespace OSFUI
 	void DiagnosticsReconciler::SyncSettings(DiagnosticsModule& a_diagnostics,
 		std::span<const SettingsLoadIssue> a_errors, double a_now)
 	{
+		std::vector<std::string> signatureParts;
+		signatureParts.reserve(a_errors.size());
+		for (const auto& error : a_errors) {
+			signatureParts.push_back(error.kind + "\n" + error.file + "\n" + error.subject + "\n" +
+				error.message + "\n" + error.context.dump());
+		}
+		std::ranges::sort(signatureParts);
+		std::string signature;
+		for (const auto& part : signatureParts) {
+			signature += part;
+			signature.push_back('\0');
+		}
+		if (signature == _settingsSignature) {
+			return;
+		}
+		_settingsSignature = std::move(signature);
+
 		std::unordered_set<std::string> live;
 		for (const auto& error : a_errors) {
-			const auto subject = error.mod.empty() ? error.file : error.mod;
+			const auto subject = error.subject.empty() ? error.file : error.subject;
 			auto id = "settings." + error.kind + ':' + subject;
 			live.insert(id);
+			auto context = error.context.is_object() ? error.context : nlohmann::json::object();
+			if (!error.file.empty()) {
+				context["file"] = error.file;
+			}
+			context["message"] = error.message;
 			a_diagnostics.Upsert(DiagnosticsModule::IssueSpec{
 				.id = std::move(id),
 				.code = "settings." + error.kind,
@@ -21,10 +43,7 @@ namespace OSFUI
 					DiagnosticsModule::Severity::Warning : DiagnosticsModule::Severity::Error,
 				.source = "settings",
 				.subject = subject,
-				.context = nlohmann::json{
-					{ "file", error.file },
-					{ "message", error.message },
-				},
+				.context = std::move(context),
 			}, a_now);
 		}
 		a_diagnostics.ResolveMissing("settings", live, a_now);

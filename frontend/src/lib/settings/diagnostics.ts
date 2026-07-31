@@ -138,6 +138,7 @@ export function severityForMod(
       (!!subject &&
         (subject === modId ||
           subject.startsWith(modId + '/') ||
+          (issue.code === 'settings.hotkey-target' && subject.startsWith(modId + '.')) ||
           viewIds.indexOf(subject) >= 0));
     if (!mine) continue;
     if (severityOf(issue) === 'error') return 'error';
@@ -220,6 +221,18 @@ const COPY: Record<string, IssueCopy> = {
     next: [
       'issueValuesParseNext',
       'Set the options you want again — they will save normally from now on.',
+    ],
+    actions: ['copy-details', 'open-logs'],
+  },
+  'settings.hotkey-target': {
+    title: ['issueHotkeyTargetTitle', 'A mod hotkey action is unavailable'],
+    impact: [
+      'issueHotkeyTargetImpact',
+      'The key still fires its normal hotkey events, but the configured Papyrus function was not called.',
+    ],
+    next: [
+      'issueHotkeyTargetNext',
+      'Check that the PEX is installed and the named function exists, is GLOBAL, and accepts exactly two strings. A VM-unavailable detail can also mean the game is not ready for script dispatch.',
     ],
     actions: ['copy-details', 'open-logs'],
   },

@@ -65,3 +65,43 @@ describe('shipped settings-schema JSON files', () => {
     expect(doc.id).toBe(stem);
   });
 });
+
+describe('declarative Papyrus hotkey target schema', () => {
+  const document = (setting: Record<string, unknown>) => ({
+    id: 'test.hotkey',
+    groups: [{ settings: [setting] }],
+  });
+
+  it('accepts an explicit GLOBAL callback target, including a namespaced script', () => {
+    expect(
+      validate(
+        document({
+          key: 'start',
+          type: 'key',
+          default: 'F8',
+          onPress: { script: 'Acme:Hotkeys', function: 'OnHotkey' },
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it.each([
+    { key: 'start', type: 'bool', default: true, onPress: { script: 'A', function: 'B' } },
+    { key: 'start', type: 'key', default: 'F8', onPress: { script: 'A' } },
+    {
+      key: 'start',
+      type: 'key',
+      default: 'F8',
+      onPress: { script: 'A'.repeat(129), function: 'B' },
+    },
+    { key: 'start', type: 'key', default: 'F8', onPress: { script: 'A', function: 'bad-name' } },
+    {
+      key: 'start',
+      type: 'key',
+      default: 'F8',
+      onPress: { script: 'A', function: 'B', args: [] },
+    },
+  ])('rejects an invalid target %#', (setting) => {
+    expect(validate(document(setting))).toBe(false);
+  });
+});

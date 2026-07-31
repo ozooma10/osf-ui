@@ -2243,6 +2243,27 @@ namespace OSFUI
 			// Third channel (mcm-design.md §8.4): registered Papyrus callbacks,
 			// queued onto the VM's async call stack.
 			API::Papyrus::OnHotkey(a_mod, a_key);
+			// Optional schema-owned GLOBAL callback. It is looked up from the
+			// immutable schema at delivery instead of entering PapyrusApi's
+			// session-scoped registration table, so save loads need no re-register.
+			if (_settings) {
+				if (const auto target = _settings->Store().GetHotkeyTarget(a_mod, a_key)) {
+					const auto result = API::Papyrus::DispatchStaticHotkey(
+						target->script, target->function, a_mod, a_key);
+					if (result == API::Papyrus::StaticDispatchResult::kQueued) {
+						_runtimeDiagnostics.ResolveHotkeyTarget(a_mod, a_key);
+					} else {
+						const auto reason = result == API::Papyrus::StaticDispatchResult::kVmUnavailable ?
+							"the Papyrus VM is unavailable" :
+							"Papyrus rejected the call; the script may be missing, the function may be absent "
+							"or non-GLOBAL, or its signature may not be (string, string)";
+						_runtimeDiagnostics.ReportHotkeyTargetFailure(
+							a_mod, a_key, target->script, target->function, reason);
+					}
+				} else {
+					_runtimeDiagnostics.ResolveHotkeyTarget(a_mod, a_key);
+				}
+			}
 			REX::DEBUG("Runtime: hotkey fired for {}.{}", a_mod, a_key);
 		});
 	}

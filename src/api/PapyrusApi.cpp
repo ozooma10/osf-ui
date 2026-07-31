@@ -1105,6 +1105,25 @@ namespace OSFUI::API::Papyrus
 		Dispatch(Kind::kHotkey, a_modId, a_key);
 	}
 
+	StaticDispatchResult DispatchStaticHotkey(std::string_view a_script,
+		std::string_view a_function, std::string_view a_modId, std::string_view a_key)
+	{
+		if (a_script.empty() || a_function.empty()) {
+			return StaticDispatchResult::kTargetRejected;
+		}
+		auto* vm = VM::GetSingleton();
+		if (!vm) {
+			return StaticDispatchResult::kVmUnavailable;
+		}
+		const RE::BSFixedString script{ std::string(a_script).c_str() };
+		const RE::BSFixedString function{ std::string(a_function).c_str() };
+		const RE::BSFixedString mod{ std::string(a_modId).c_str() };
+		const RE::BSFixedString key{ std::string(a_key).c_str() };
+		const RE::BSTSmartPointer<RE::BSScript::IStackCallbackFunctor> noCallback{};
+		return vm->DispatchStaticCall(script, function, MakeArgs(mod, key), noCallback, 0) ?
+			StaticDispatchResult::kQueued : StaticDispatchResult::kTargetRejected;
+	}
+
 	void OnViewAction(std::string_view a_modId, std::string_view a_action, const std::vector<std::string>& a_args)
 	{
 		DispatchAction(a_modId, a_action, a_args);

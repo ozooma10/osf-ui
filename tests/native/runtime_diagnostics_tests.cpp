@@ -36,15 +36,24 @@ int main()
 	const std::array settingsErrors{
 		SettingsLoadIssue{ "values-parse", "values.json", "acme", "bad value" },
 		SettingsLoadIssue{ "schema-parse", "schema.json", "beta", "bad schema" },
+		SettingsLoadIssue{ "hotkey-target", "acme.mod.json", "acme.mod.startScene", "missing target",
+			nlohmann::json{ { "script", "Acme_Hotkeys" }, { "function", "OnHotkey" } } },
 	};
 	reconciler.SyncSettings(diagnostics, settingsErrors, 1.0);
 	assert(diagnostics.IsActive("settings.values-parse:acme"));
 	assert(diagnostics.IsActive("settings.schema-parse:beta"));
 	assert(IssueById(diagnostics, "settings.values-parse:acme").value("severity", "") == "warning");
 	assert(IssueById(diagnostics, "settings.schema-parse:beta").value("severity", "") == "error");
+	const auto hotkeyId = "settings.hotkey-target:acme.mod.startScene";
+	assert(diagnostics.IsActive(hotkeyId));
+	assert(IssueById(diagnostics, hotkeyId).at("context").value("script", "") == "Acme_Hotkeys");
+	const auto hotkeyOccurrences = IssueById(diagnostics, hotkeyId).value("occurrences", 0u);
+	reconciler.SyncSettings(diagnostics, settingsErrors, 1.5);
+	assert(IssueById(diagnostics, hotkeyId).value("occurrences", 0u) == hotkeyOccurrences);
 	reconciler.SyncSettings(diagnostics, {}, 2.0);
 	assert(!diagnostics.IsActive("settings.values-parse:acme"));
 	assert(!diagnostics.IsActive("settings.schema-parse:beta"));
+	assert(!diagnostics.IsActive(hotkeyId));
 
 	const std::array targets{
 		CompatibilityTarget{ "beta/mod", "mod", "2.0.0" },
