@@ -4,6 +4,7 @@
 
 #include "core/Version.h"
 #include "reporting/ReporterCore.h"
+#include "Wv2BoundedQueue.h"
 #include "Wv2BrokerLaunch.h"  // LaunchMethodName (logging only)
 #include "Wv2LocalUri.h"
 #include "Wv2Pipe.h"
@@ -551,9 +552,13 @@ namespace osfui::wv2
 				std::filesystem::file_time_type::clock::now() };
 			std::string crashActiveViewId;
 
-			std::mutex       commandMutex;
-			std::deque<json> commands;
+			static constexpr std::size_t kMaxCommands = 1024;
+			static constexpr std::size_t kCommandsPerDrain = 128;
+			BoundedQueue<json> commands{ kMaxCommands };
 			std::atomic_bool pipeDead{ false };
+			std::atomic_bool commandOverflow{ false };
+			std::atomic_bool shutdownRequested{ false };
+			std::uint64_t nextHeartbeatAt{ 0 };  // STA thread only
 
 			// Init state from the game.
 			bool                  initialized{ false };
@@ -750,7 +755,13 @@ namespace osfui::wv2
 			ComPtr<ICoreWebView2Environment> environment;
 			bool environmentRequested{ false };
 
-			void Send(const json& a_msg) { pipe.WriteMessage(DumpSafe(a_msg)); }
+			bool Send(const json& a_msg)
+			{
+				if (pipe.WriteMessage(DumpSafe(a_msg))) return true;
+				pipeDead.store(true, std::memory_order_release);
+				if (wakeEvent) ::SetEvent(wakeEvent);
+				return false;
+			}
 
 			void ReaderMain()
 			{
@@ -761,27 +772,41 @@ namespace osfui::wv2
 						log.Warn("dropping unparseable pipe message");
 						continue;
 					}
-					if (parsed.value("type", "") == "playerCloseRequest") {
-						// Handled here rather than in DrainCommands: the STA loop
-						// stops draining the instant the game process handle
-						// signals, and this message exists precisely to explain
-						// that exit. GetTickCount64 could be 0 only in the first
-						// millisecond of system uptime; clamp so 0 stays "never".
+					const auto type = parsed.value("type", std::string{});
+					if (type == "playerCloseRequest") {
 						playerCloseRequestedAt.store(
 							std::max<std::uint64_t>(::GetTickCount64(), 1));
 						log.Info("game window received a player close request");
 						continue;
 					}
-					{
-						std::scoped_lock lock(commandMutex);
-						commands.push_back(std::move(parsed));
+					if (type == "shutdown") {
+						shutdownRequested.store(true, std::memory_order_release);
+						quit.store(true, std::memory_order_release);
+						log.Info("shutdown request received from the game");
+						::SetEvent(wakeEvent);
+						break;
 					}
+
+					const auto coalesceKey = CommandCoalesceKey(type,
+						parsed.value("kind", std::string{}),
+						parsed.value("view", std::string{}));
+					const auto result =
+						commands.Push(std::move(parsed), coalesceKey);
+					if (result == decltype(commands)::PushResult::Full) {
+						commandOverflow.store(true, std::memory_order_release);
+						quit.store(true, std::memory_order_release);
+						log.Error(std::format(
+							"game command queue exceeded {} messages; closing the helper",
+							kMaxCommands));
+						::SetEvent(wakeEvent);
+						break;
+					}
+					if (result == decltype(commands)::PushResult::Closed) break;
 					::SetEvent(wakeEvent);
 				}
-				pipeDead.store(true);
+				pipeDead.store(true, std::memory_order_release);
 				::SetEvent(wakeEvent);
 			}
-
 			bool InitializeGraphics(const std::optional<LUID>& a_requestedLuid)
 			{
 				ComPtr<IDXGIAdapter1> selectedAdapter;
@@ -3253,16 +3278,13 @@ namespace osfui::wv2
 
 			void DrainCommands()
 			{
-				for (;;) {
-					json msg;
-					{
-						std::scoped_lock lock(commandMutex);
-						if (commands.empty()) break;
-						msg = std::move(commands.front());
-						commands.pop_front();
-					}
-					HandleCommand(msg);
+				decltype(commands)::Item item;
+				std::size_t drained = 0;
+				while (drained < kCommandsPerDrain && commands.TryPop(item)) {
+					HandleCommand(item.value);
+					++drained;
 				}
+				if (commands.Size() != 0) ::SetEvent(wakeEvent);
 				// Hides deferred within this batch apply now, unless a reveal is
 				// still waiting on its incoming view's first painted frame.
 				if (!AnyRevealPending()) ApplyDeferredHides();
@@ -3311,6 +3333,17 @@ namespace osfui::wv2
 				captureStarted = false;
 			}
 
+			bool SendHeartbeatIfDue()
+			{
+				const auto now = ::GetTickCount64();
+				if (nextHeartbeatAt != 0 && now < nextHeartbeatAt) return true;
+				if (!Send(json{ { "type", "heartbeat" }, { "tick", now } })) {
+					quit.store(true, std::memory_order_release);
+					return false;
+				}
+				nextHeartbeatAt = now + kHeartbeatIntervalMs;
+				return true;
+			}
 			int Run()
 			{
 				winrt::init_apartment(winrt::apartment_type::single_threaded);
@@ -3345,6 +3378,7 @@ namespace osfui::wv2
 						return true;
 					};
 					while (!quit.load()) {
+						if (!SendHeartbeatIfDue()) break;
 						// Short timeout only while a reveal awaits its paint sentinel,
 						// so the timeout fallback stays responsive.
 						const DWORD wait = ::MsgWaitForMultipleObjectsEx(
@@ -3534,11 +3568,22 @@ namespace osfui::wv2
 		// Pipe before OpenProcess: once log.pipe is set, every warning/error below
 		// is forwarded into the game's own log, so a startup death is diagnosable
 		// from "OSF UI.log" alone. The game tolerates log messages before hello.
+		app.pipe.PrepareForOpen();
 		if (!app.pipe.Connect(a_options.pipeName, 15000)) {
 			app.log.Error("pipe connect failed: " + app.pipe.LastErrorText());
 			::CloseHandle(instanceMutex);
 			return 2;
 		}
+		const auto serverPid = app.pipe.ServerProcessId();
+		if (!serverPid || *serverPid != a_options.gamePid) {
+			app.log.Error(std::format(
+				"rejected pipe server: expected game pid {}, kernel reported {}",
+				a_options.gamePid, serverPid.value_or(0)));
+			app.pipe.Close();
+			::CloseHandle(instanceMutex);
+			return 6;
+		}
+		app.log.Info(std::format("verified pipe server pid {}", *serverPid));
 		app.log.pipe.store(&app.pipe, std::memory_order_release);
 
 		app.gameProcess = ::OpenProcess(
@@ -3569,13 +3614,20 @@ namespace osfui::wv2
 		} else {
 			PromptInstallWebView2Runtime(app.log);
 		}
-		app.Send(json{
-			{ "type", "hello" },
-			{ "protocolVersion", kProtocolVersion },
-			{ "hostVersion", OSFUI::kPluginVersion },
-			{ "runtimeVersion", runtime },
-			{ "pid", ::GetCurrentProcessId() },
-		});
+		if (!app.Send(json{
+				{ "type", "hello" },
+				{ "protocolVersion", kProtocolVersion },
+				{ "hostVersion", OSFUI::kPluginVersion },
+				{ "runtimeVersion", runtime },
+				{ "pid", ::GetCurrentProcessId() },
+			})) {
+			app.log.Error("hello write failed: " + app.pipe.LastErrorText());
+			app.log.pipe.store(nullptr, std::memory_order_release);
+			app.pipe.Close();
+			::CloseHandle(app.gameProcess);
+			::CloseHandle(instanceMutex);
+			return 7;
+		}
 		app.log.Info("hello sent (WebView2 runtime " + runtime + ")");
 
 		int code = 10;

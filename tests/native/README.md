@@ -19,6 +19,16 @@ as separate CI jobs.
 
 Exit code is the failure count; `0` = all checks passed.
 
+The shared WebView2 pipe is Windows-specific and has its own regression target:
+
+```powershell
+xmake build wv2-pipe-tests
+xmake run wv2-pipe-tests
+```
+
+It stress-tests close during server accept, blocked reads, blocked writes, and
+reopening after close against the real named-pipe implementation.
+
 ## How it works
 
 The plugin build force-includes `src/pch.h` (CommonLibSF + REX). Here,
@@ -30,10 +40,12 @@ the test file itself — `src/core/Log.cpp` pulls game deps and is not compiled.
 
 ## Scope
 
-Only sources with no game/SFSE/browser-SDK includes can live here. Currently:
+The portable `run.sh` suites have no game/SFSE/browser-SDK dependencies. The
+Windows pipe suite is built separately through xmake. Currently:
 
 | Test | Covers |
 |---|---|
+| `wv2_pipe_tests.cpp` (Windows/xmake) | Real named-pipe lifecycle: close-during-accept, cancellation of blocked read/write I/O before handle release, and clean session reuse |
 | `settings_store_tests.cpp` | `SettingsStore` (mcm-design.md §8.3): load/overlay/clamp, deterministic duplicate-id resolution, multicast listeners, incremental `RegisterSchema` + Source precedence, per-mod replay, `RemoveMod`, `GetValue`/`GetSettingType`/`GetSource`, `ValidateSchemaShape` (the ABI's synchronous gate), generation counter, sparse write-behind persistence (debounce window, prune-to-default on load, teardown flush) |
 | `settings_module_tests.cpp` | `SettingsModule` + `MessageBridge` (§8.5): subscribe-on-read via real `ui.command` envelopes, `settings.changed` push to all subscribers, caller-only acks, `settings.persisted` on the write-behind flush, `settings.data` re-broadcast on registry shape change, `OnBridgeDown` teardown |
 | `runtime_diagnostics_tests.cpp` | `RuntimeDiagnostics` reconciliation policy: settings issue severity/lifecycle, order-stable compatibility dedupe and resolution, and view retry/failure/recovery transitions |
@@ -50,7 +62,7 @@ Only sources with no game/SFSE/browser-SDK includes can live here. Currently:
 | `view_manifest_tests.cpp` | `ViewManifest`: canonical manifest accents and the `readySignal` native-bridge requirement/fallback |
 
 Every suite is assert-style and exits with its own failure count; `run.sh` sums
-them. Adding a suite means adding one row to `SUITES` in `run.sh`; that single list drives
+the portable suites. Adding one means adding a row to `SUITES`; that list drives
 compilation, linking, and execution so a suite cannot be built but silently skipped.
 
 These suites verify runtime and API logic, not the plugin: renderer/compositor

@@ -17,8 +17,9 @@ namespace OSFUI
 		// Name the engine's pause-counter bookkeeping records for us.
 		const RE::BSFixedString& PauseSourceName()
 		{
-			static const RE::BSFixedString name{ "OSFUI_SimPause" };
-			return name;
+			// The engine string table may already be tearing down at DLL detach.
+			static auto* const name = new RE::BSFixedString("OSFUI_SimPause");
+			return *name;
 		}
 	}
 

@@ -26,7 +26,13 @@ namespace osfui::wv2
 	// v3: presentation epochs — every closed->open transition gets a new epoch;
 	// the host stamps captured frames only after the requested view is actually
 	// revealed. The game rejects frames from an earlier/hidden presentation.
-	inline constexpr std::uint32_t kProtocolVersion = 3;
+	// v4: verified named-pipe peers, bounded hello, and host heartbeats make a
+	// connected-but-stalled or impersonating helper a terminal recoverable failure.
+	inline constexpr std::uint32_t kProtocolVersion = 4;
+
+	inline constexpr std::uint32_t kHelloTimeoutMs = 10000;
+	inline constexpr std::uint32_t kHeartbeatIntervalMs = 1000;
+	inline constexpr std::uint32_t kHeartbeatTimeoutMs = 10000;
 
 	// Pipe name pattern: \\.\pipe\osfui-wv2-<gamePid>-<nonce>
 	inline constexpr const wchar_t* kPipePrefix = L"osfui-wv2-";
@@ -98,6 +104,7 @@ namespace osfui::wv2
 	//
 	// Message types, host -> game:
 	// hello         { protocolVersion:u32, hostVersion:str, runtimeVersion:str, pid:u32 }
+	// heartbeat     { tick:u64 }                   (sent at least every kHeartbeatIntervalMs)
 	// ready         { }                          (first controller + capture up)
 	// textures      { width:u32, height:u32, slots:[u64...],
 	//                 produceFence:u64, consumeFence:u64, keyedMutex:bool,

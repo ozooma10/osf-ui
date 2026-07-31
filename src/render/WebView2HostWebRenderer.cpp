@@ -24,6 +24,7 @@
 #include <d3d12.h>
 #include <nlohmann/json.hpp>
 
+#include "Wv2BoundedQueue.h"
 #include "Wv2BrokerLaunch.h"
 #include "Wv2Pipe.h"
 #include "Wv2Protocol.h"
@@ -367,14 +368,31 @@ namespace OSFUI
 		std::uint32_t accToggle{ 0 }, accCaptureUp{ 0 };
 		bool          accCaptured{ false }, accArmed{ false }, accSent{ false };
 
+		enum class Lifecycle : std::uint8_t
+		{
+			Stopped,
+			Starting,
+			Running,
+			Stopping,
+			Failed
+		};
+
 		osfui::wv2::Pipe pipe;
 		std::thread      worker;
-		std::atomic_bool started{ false }, stopRequested{ false };
+		std::thread      writer;
+		std::atomic<Lifecycle> lifecycle{ Lifecycle::Stopped };
+		std::atomic_bool stopRequested{ false };
 		std::atomic_bool connected{ false }, dead{ false };
 		bool             deadLogged{ false };
-		DWORD            hostPid{ 0 };
-		HANDLE           hostProcess{ nullptr };
-		HWND             topLevel{ nullptr };
+
+		struct HostSession
+		{
+			DWORD  pid{ 0 };
+			HANDLE process{ nullptr };
+			HWND   topLevel{ nullptr };
+		};
+		std::mutex sessionMutex;
+		HostSession session;
 
 		// Focus watchdog (game thread only — SetNativeFocus and Update
 		// both run there). Interactive menus grant real Win32 focus to a
@@ -458,66 +476,154 @@ namespace OSFUI
 			notifications.push_back(std::move(a_value));
 		}
 
-		void Send(const json& a_msg)
+		static constexpr std::size_t kMaxOutbound = 512;
+		osfui::wv2::BoundedQueue<std::string> outbound{ kMaxOutbound };
+		std::atomic<std::uint64_t> nextOutboundSequence{ 1 };
+		std::mutex writerGateMutex;
+		std::condition_variable writerGate;
+		bool writerReady{ false };
+		std::mutex writtenMutex;
+		std::condition_variable written;
+		std::uint64_t lastWrittenSequence{ 0 };
+		bool writerFailed{ false };
+		std::atomic_bool outboundOverflowed{ false };
+
+		[[nodiscard]] HostSession SessionSnapshot()
 		{
-			if (connected.load()) {
-				pipe.WriteMessage(a_msg.dump());
+			std::scoped_lock lock(sessionMutex);
+			return session;
+		}
+
+		void SetTopLevel(HWND a_topLevel)
+		{
+			std::scoped_lock lock(sessionMutex);
+			session.topLevel = a_topLevel;
+		}
+
+		void SetHostProcess(DWORD a_pid, HANDLE a_process)
+		{
+			std::scoped_lock lock(sessionMutex);
+			session.pid = a_pid;
+			session.process = a_process;
+		}
+
+		HANDLE TakeHostProcess()
+		{
+			std::scoped_lock lock(sessionMutex);
+			session.pid = 0;
+			session.topLevel = nullptr;
+			return std::exchange(session.process, nullptr);
+		}
+
+		void SignalDead(std::string_view a_reason)
+		{
+			connected.store(false, std::memory_order_release);
+			lifecycle.store(Lifecycle::Failed, std::memory_order_release);
+			if (!stopRequested.load(std::memory_order_acquire) &&
+				!dead.exchange(true, std::memory_order_acq_rel)) {
+				REX::ERROR("WebView2HostWebRenderer: {}", a_reason);
+				Push(Notify{ .kind = Notify::Kind::Dead });
+			}
+			outbound.Close();
+			pipe.Close();
+		}
+
+		std::string CoalesceKey(const json& a_msg)
+		{
+			const auto type = a_msg.value("type", std::string{});
+			return osfui::wv2::CommandCoalesceKey(type,
+				a_msg.value("kind", std::string{}),
+				a_msg.value("view", std::string{}));
+		}
+
+		bool Enqueue(const json& a_msg, bool a_queueBeforeConnect)
+		{
+			std::scoped_lock gateLock(writerGateMutex);
+			if (!a_queueBeforeConnect &&
+				!connected.load(std::memory_order_acquire)) {
+				return false;
+			}
+			const auto result = outbound.Push(a_msg.dump(), CoalesceKey(a_msg),
+				nextOutboundSequence.fetch_add(1, std::memory_order_relaxed));
+			if (result == decltype(outbound)::PushResult::Full) {
+				if (!outboundOverflowed.exchange(true)) {
+					SignalDead(std::format(
+						"outbound command queue exceeded {} messages", kMaxOutbound));
+				}
+				return false;
+			}
+			return result != decltype(outbound)::PushResult::Closed;
+		}
+
+		void Send(const json& a_msg) { Enqueue(a_msg, false); }
+
+		// Bridge events cannot be reconstructed from state. Keep them bounded
+		// before the lazy helper starts, then place the connection snapshot ahead
+		// of them atomically so no caller can overtake initialization.
+		void SendOrQueue(const json& a_msg) { Enqueue(a_msg, true); }
+
+		bool PublishConnected(std::vector<osfui::wv2::BoundedQueue<std::string>::Item> a_bootstrap)
+		{
+			{
+				// Publication and shutdown's connected exchange share this lock:
+				// Stop cannot miss a connection that races its startup.
+				std::scoped_lock lock(writerGateMutex);
+				if (stopRequested.load(std::memory_order_acquire) ||
+					!outbound.Prepend(std::move(a_bootstrap))) {
+					return false;
+				}
+				connected.store(true, std::memory_order_release);
+				lifecycle.store(Lifecycle::Running, std::memory_order_release);
+				writerReady = true;
+			}
+			writerGate.notify_all();
+			return true;
+		}
+
+		void WriterMain()
+		{
+			bool ready = false;
+			{
+				std::unique_lock lock(writerGateMutex);
+				writerGate.wait(lock, [this] {
+					return writerReady || stopRequested.load(std::memory_order_acquire);
+				});
+				ready = writerReady;
+			}
+			if (!ready) return;
+
+			decltype(outbound)::Item item;
+			while (outbound.WaitPop(item)) {
+				if (!pipe.WriteMessage(item.value)) {
+					{
+						std::scoped_lock lock(writtenMutex);
+						writerFailed = true;
+					}
+					written.notify_all();
+					if (!stopRequested.load(std::memory_order_acquire)) {
+						SignalDead("outbound pipe writer failed: " + pipe.LastErrorText());
+					}
+					return;
+				}
+				{
+					std::scoped_lock lock(writtenMutex);
+					lastWrittenSequence =
+						std::max(lastWrittenSequence, item.sequence);
+				}
+				written.notify_all();
 			}
 		}
 
-		// Outbound messages that cannot be reconstructed at connect time.
-		// The host starts lazily (first game tick), but the runtime greets every
-		// bridge-enabled view during Runtime::Initialize, seconds earlier. The
-		// connect snapshot replays view state (navigate/setHidden/setOrder/
-		// setActive); a bridge message is an event, not state. Dropping
-		// `runtime.ready` stalled the settings view forever (it gates its initial
-		// settings.get/views.get on that handshake), so F10 showed an empty Mods
-		// surface. Queue while disconnected, flush in order as the pipe opens.
-		static constexpr std::size_t kMaxPendingOut = 512;
-		std::mutex               pendingOutMutex;  // also guards the connected flip
-		std::vector<std::string> pendingOut;
-		std::size_t              pendingDropped{ 0 };
-
-		void SendOrQueue(const json& a_msg)
+		void WriterEntry() noexcept
 		{
-			std::scoped_lock lock(pendingOutMutex);
-			if (connected.load()) {
-				pipe.WriteMessage(a_msg.dump());
-				return;
+			try {
+				WriterMain();
+			} catch (const std::exception& e) {
+				SignalDead(std::string("outbound writer threw: ") + e.what());
+			} catch (...) {
+				SignalDead("outbound writer threw an unknown exception");
 			}
-			// A host that never comes up (launch failure) must not grow this
-			// without bound; the overlay just stays hidden.
-			if (pendingOut.size() >= kMaxPendingOut) {
-				++pendingDropped;
-				return;
-			}
-			pendingOut.push_back(a_msg.dump());
 		}
-
-		// Worker thread, at the end of the connect snapshot. Draining and
-		// flipping `connected` under one lock keeps ordering exact: a game-thread
-		// send either lands in the queue (flushed here, in order) or goes down
-		// the pipe after everything queued before it.
-		void FlushPendingOut()
-		{
-			std::scoped_lock lock(pendingOutMutex);
-			for (const auto& message : pendingOut) {
-				pipe.WriteMessage(message);
-			}
-			if (!pendingOut.empty()) {
-				REX::DEBUG("WebView2HostWebRenderer: flushed {} message(s) queued before the host connected",
-					pendingOut.size());
-			}
-			if (pendingDropped) {
-				REX::WARN("WebView2HostWebRenderer: dropped {} pre-connect message(s) over the {}-message cap",
-					pendingDropped, kMaxPendingOut);
-			}
-			pendingOut.clear();
-			pendingOut.shrink_to_fit();
-			pendingDropped = 0;
-			connected.store(true);
-		}
-
 		// stateMutex must be held.
 		ViewRec* FindView(std::string_view a_id)
 		{
@@ -673,15 +779,18 @@ namespace OSFUI
 
 		bool Start()
 		{
-			if (started.exchange(true)) return true;
+			auto expected = Lifecycle::Stopped;
+			if (!lifecycle.compare_exchange_strong(expected, Lifecycle::Starting,
+					std::memory_order_acq_rel)) {
+				return expected == Lifecycle::Starting || expected == Lifecycle::Running;
+			}
+
 			// The host must create its D3D11 capture textures on the same adapter
-			// as Starfield's D3D12 device. On hybrid-GPU systems the OS default for
-			// a newly brokered process is commonly the iGPU, while the game runs on
-			// the dGPU; those otherwise-valid shared handles cannot be opened.
+			// as Starfield's D3D12 device.
 			if (!adapterLuidKnown) {
 				auto engine = LocateEngineD3D12();
 				if (!engine) {
-					started.store(false);
+					lifecycle.store(Lifecycle::Stopped, std::memory_order_release);
 					return false;
 				}
 				const auto luid = engine.device->GetAdapterLuid();
@@ -696,11 +805,38 @@ namespace OSFUI
 				REX::DEBUG("WebView2HostWebRenderer: game adapter LUID 0x{:08X}:0x{:08X}",
 					adapterLuidHigh, adapterLuidLow);
 			}
-			worker = std::thread([this] { WorkerMain(); });
-			REX::DEBUG("WebView2HostWebRenderer: starting host connection worker");
+
+			stopRequested.store(false, std::memory_order_release);
+			connected.store(false, std::memory_order_release);
+			outboundOverflowed.store(false, std::memory_order_release);
+			{
+				std::scoped_lock lock(writerGateMutex);
+				writerReady = false;
+			}
+			{
+				std::scoped_lock lock(writtenMutex);
+				lastWrittenSequence = 0;
+				writerFailed = false;
+			}
+			pipe.PrepareForOpen();
+			try {
+				writer = std::thread([this] { WriterEntry(); });
+				worker = std::thread([this] { WorkerEntry(); });
+			} catch (const std::exception& e) {
+				REX::ERROR("WebView2HostWebRenderer: could not create transport thread: {}",
+					e.what());
+				stopRequested.store(true, std::memory_order_release);
+				outbound.Close();
+				writerGate.notify_all();
+				pipe.Close();
+				if (writer.joinable()) writer.join();
+				lifecycle.store(Lifecycle::Failed, std::memory_order_release);
+				if (!dead.exchange(true)) Push(Notify{ .kind = Notify::Kind::Dead });
+				return false;
+			}
+			REX::DEBUG("WebView2HostWebRenderer: starting host transport threads");
 			return true;
 		}
-
 		// Worker thread, after the host failed to launch/handshake: narrow "it
 		// never connected" down to which stage died, using only what this
 		// process can see, and embed the host's own log tail so one shared
@@ -753,15 +889,27 @@ namespace OSFUI
 			}
 		}
 
+		void WorkerEntry() noexcept
+		{
+			try {
+				WorkerMain();
+			} catch (const std::exception& e) {
+				SignalDead(std::string("connection worker threw: ") + e.what());
+			} catch (...) {
+				SignalDead("connection worker threw an unknown exception");
+			}
+		}
+
 		void WorkerMain()
 		{
 			ResolveMappedViewsRoot();
 			if (!MirrorHostExe()) {
-				dead.store(true);
-				Push(Notify{ .kind = Notify::Kind::Dead });
+				SignalDead("host executable preparation failed");
 				return;
 			}
-			topLevel = FindTopLevelWindow();
+
+			const HWND gameTopLevel = FindTopLevelWindow();
+			SetTopLevel(gameTopLevel);
 
 			auto pipeSeed = ::GetTickCount64() ^
 				(static_cast<std::uint64_t>(::GetCurrentProcessId()) << 17);
@@ -798,64 +946,70 @@ namespace OSFUI
 			}
 #if defined(OSFUI_WITH_WORLD_SURFACES)
 			if (!instance.empty()) {
-				// Selects a per-pid single-instance lock on the host side, so a
-				// world-surface host no longer evicts/refuses the overlay host.
 				args += std::format(L" --instance={}", instance);
 			}
 #endif
 
-			// Direct spawn is only safe without USVFS: MO2 injects into every
-			// child of this process and the injection crashes the WebView2
-			// broker. With USVFS present, only out-of-tree brokers work.
+			// Claim the first server instance before launching the helper. This
+			// removes the name-squatting window between launch and CreateNamedPipe.
+			if (!pipe.CreateServer(pipeName)) {
+				SignalDead("could not create the private host pipe: " + pipe.LastErrorText());
+				return;
+			}
+			if (stopRequested.load(std::memory_order_acquire)) return;
+
 			const bool usvfs = ::GetModuleHandleW(L"usvfs_x64.dll") != nullptr;
 			const bool elevated = IsThisProcessElevated();
 			if (elevated && usvfs) {
-				// Explorer's broker children are always unelevated and cannot
-				// open an elevated game process (host exit code 4); only the
-				// elevated task-scheduler route works from here.
-				REX::WARN("WebView2HostWebRenderer: the game is running elevated (as "
-						  "administrator) under MO2 — falling back to an elevated "
-						  "task-scheduler launch; if the overlay stays invisible, run "
-						  "the game/MO2 without administrator rights");
+				REX::WARN("WebView2HostWebRenderer: the game is running elevated under "
+						  "MO2; using the elevated broker fallback");
 			}
 			const auto launchTime = std::filesystem::file_time_type::clock::now();
 			const auto launch = osfui::wv2::LaunchDetached(
 				hostExeMirror.native(), args, /*a_preferBroker=*/usvfs);
 			if (!launch.ok) {
 				REX::ERROR("WebView2HostWebRenderer: host launch failed [{}]", launch.detail);
-				dead.store(true);
-				Push(Notify{ .kind = Notify::Kind::Dead });
+				SignalDead("host launch failed");
 				return;
 			}
 			REX::INFO("WebView2HostWebRenderer: host launched via {} (usvfs={}, elevated={}){}",
 				osfui::wv2::LaunchMethodName(launch.method), usvfs, elevated,
 				launch.detail.empty() ? "" : " detail=[" + launch.detail + "]");
 
-			if (!pipe.CreateServerAndWait(pipeName, 20000)) {
+			if (!pipe.WaitForClient(20000)) {
 				REX::ERROR("WebView2HostWebRenderer: host never connected: {} "
 						   "(host log: {})", pipe.LastErrorText(), hostLog.string());
 				LogHostStartFailureDiagnostics(launchTime);
-				dead.store(true);
-				Push(Notify{ .kind = Notify::Kind::Dead });
+				SignalDead("host did not connect");
+				return;
+			}
+			const auto peerPid = pipe.ClientProcessId();
+			if (!peerPid) {
+				SignalDead("could not identify the connected helper: " + pipe.LastErrorText());
 				return;
 			}
 
-			// The host forwards startup warnings/errors over the pipe before its
-			// hello (e.g. OpenProcess denied), so a pre-hello failure is
-			// explained in this log instead of a bare "no hello".
+			// Startup diagnostics may precede hello, but the entire handshake has
+			// one deadline. A connected helper can no longer hold this worker
+			// forever without identifying itself.
+			const auto helloDeadline = ::GetTickCount64() +
+				osfui::wv2::kHelloTimeoutMs;
 			std::string payload;
 			json hello;
 			for (int preHello = 0; ; ++preHello) {
-				if (!pipe.ReadMessage(payload)) {
-					REX::ERROR("WebView2HostWebRenderer: host connected but exited before "
-							   "its hello — its last log lines follow");
+				const auto now = ::GetTickCount64();
+				if (now >= helloDeadline ||
+					!pipe.ReadMessage(payload, static_cast<std::uint32_t>(
+						helloDeadline - now))) {
+					REX::ERROR("WebView2HostWebRenderer: helper connected but did not "
+							   "complete hello in {}ms: {}",
+						osfui::wv2::kHelloTimeoutMs, pipe.LastErrorText());
 					LogHostStartFailureDiagnostics(launchTime);
-					dead.store(true);
-					Push(Notify{ .kind = Notify::Kind::Dead });
+					SignalDead("helper hello timed out");
 					return;
 				}
 				hello = json::parse(payload, nullptr, false);
-				if (preHello < 32 && !hello.is_discarded() &&
+				if (preHello < 32 && hello.is_object() &&
 					hello.value("type", "") == "log") {
 					const auto level = hello.value("level", 0);
 					const auto text = hello.value("text", "");
@@ -870,41 +1024,51 @@ namespace OSFUI
 				}
 				break;
 			}
-			if (hello.is_discarded() || hello.value("type", "") != "hello" ||
-				hello.value("protocolVersion", 0u) != osfui::wv2::kProtocolVersion) {
-				REX::ERROR("WebView2HostWebRenderer: bad hello (protocol mismatch? host "
-						   "log: {})", hostLog.string());
-				dead.store(true);
-				Push(Notify{ .kind = Notify::Kind::Dead });
+
+			const auto claimedPid =
+				hello.is_object() ? hello.value("pid", 0u) : 0u;
+			const auto protocol =
+				hello.is_object() ? hello.value("protocolVersion", 0u) : 0u;
+			if (!hello.is_object() || hello.value("type", "") != "hello" ||
+				protocol != osfui::wv2::kProtocolVersion ||
+				claimedPid != *peerPid) {
+				REX::ERROR("WebView2HostWebRenderer: rejected helper hello "
+						   "(protocol={}, claimed pid={}, kernel pid={}, host log: {})",
+					protocol, claimedPid, *peerPid, hostLog.string());
+				SignalDead("helper identity or protocol mismatch");
 				return;
 			}
-			hostPid = hello.value("pid", 0u);
-			if (hostPid) {
-				hostProcess = ::OpenProcess(SYNCHRONIZE | PROCESS_TERMINATE, FALSE, hostPid);
+
+			const HANDLE hostProcess = ::OpenProcess(
+				SYNCHRONIZE | PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION,
+				FALSE, *peerPid);
+			if (!hostProcess) {
+				SignalDead(std::format("OpenProcess(helper pid {}) failed ({})",
+					*peerPid, ::GetLastError()));
+				return;
 			}
-			// The host reports "unknown" when GetAvailableCoreWebView2Browser-
-			// VersionString found no Evergreen runtime. Environment creation
-			// fails moments later, so log the cause here rather than the symptom.
+			SetHostProcess(*peerPid, hostProcess);
+
 			const auto runtimeVersion = hello.value("runtimeVersion", "?");
 			if (runtimeVersion == "unknown") {
 				REX::ERROR("WebView2HostWebRenderer: the WebView2 Evergreen runtime is not "
-						   "installed — the host has shown an install dialog; download "
-						   "https://go.microsoft.com/fwlink/p/?LinkId=2124703 , run it, "
-						   "then restart the game");
+						   "installed; install it and restart the game");
 			}
-			REX::INFO("WebView2HostWebRenderer: host pid {} up (WebView2 runtime {})",
-				hostPid, runtimeVersion);
+			REX::INFO("WebView2HostWebRenderer: verified host pid {} up "
+					  "(WebView2 runtime {})", *peerPid, runtimeVersion);
 
-			// Connect-time snapshot of everything the game set before the host
-			// existed. Game-thread diffs may interleave with this; both carry
-			// current values, so last-write-wins is fine. `connected` stays false
-			// until FlushPendingOut() below, so a concurrent bridge send queues
-			// instead of overtaking the snapshot.
+			using OutItem = osfui::wv2::BoundedQueue<std::string>::Item;
+			std::vector<OutItem> bootstrap;
+			const auto addBootstrap = [&](json a_message) {
+				bootstrap.push_back(OutItem{
+					a_message.dump(), {},
+					nextOutboundSequence.fetch_add(1, std::memory_order_relaxed) });
+			};
 			{
 				std::scoped_lock lock(stateMutex);
-				pipe.WriteMessage(json{
+				addBootstrap(json{
 					{ "type", "init" },
-					{ "topLevelHwnd", reinterpret_cast<std::uint64_t>(topLevel) },
+					{ "topLevelHwnd", reinterpret_cast<std::uint64_t>(gameTopLevel) },
 					{ "viewsPath", ToUtf8(mappedViewsRoot.native()) },
 					{ "virtualHost", "osfui.local" },
 					{ "width", width },
@@ -914,56 +1078,64 @@ namespace OSFUI
 					{ "hidden", allHidden },
 					{ "adapterLuidLow", adapterLuidLow },
 					{ "adapterLuidHigh", adapterLuidHigh },
-				}.dump());
-				pipe.WriteMessage(AccelStateMsg(accToggle,
-					accCaptured, accArmed, accCaptureUp).dump());
+				});
+				addBootstrap(AccelStateMsg(accToggle,
+					accCaptured, accArmed, accCaptureUp));
 				accSent = true;
-				// Replay views registered before the host existed with their
-				// current hidden/order state, then the active-view choice.
-				// The builders never see the record: bools/ints go by value and
-				// the strings go as string_views that are copied inside the
-				// call, all while stateMutex is still held.
 				for (const auto& view : views) {
-					pipe.WriteMessage(NavigateMsg(view.id, view.entry,
-						view.bridge, view.logicalHeight).dump());
-					if (view.prewarm) {
-						pipe.WriteMessage(PrewarmMsg(view.id).dump());
-					}
-					pipe.WriteMessage(SetHiddenMsg(
-						view.id, view.hidden, presentationEpoch).dump());
-					pipe.WriteMessage(SetOrderMsg(view.id, view.order).dump());
-					pipe.WriteMessage(SetRenderStatsMsg(view.id, view.renderStats).dump());
+					addBootstrap(NavigateMsg(view.id, view.entry,
+						view.bridge, view.logicalHeight));
+					if (view.prewarm) addBootstrap(PrewarmMsg(view.id));
+					addBootstrap(SetHiddenMsg(
+						view.id, view.hidden, presentationEpoch));
+					addBootstrap(SetOrderMsg(view.id, view.order));
+					addBootstrap(SetRenderStatsMsg(view.id, view.renderStats));
 				}
-				if (!activeId.empty()) {
-					pipe.WriteMessage(SetActiveMsg(activeId).dump());
-				}
-				pipe.WriteMessage(FocusMsg(focusRequested.load()).dump());
+				if (!activeId.empty()) addBootstrap(SetActiveMsg(activeId));
+				addBootstrap(FocusMsg(focusRequested.load()));
 			}
-
-			// Bridge messages sent before the pipe existed (notably runtime.ready)
-			// go out now, after the views they address have been navigated. Also
-			// opens the gate for direct sends.
-			FlushPendingOut();
+			if (!PublishConnected(std::move(bootstrap))) {
+				if (!stopRequested.load(std::memory_order_acquire)) {
+					SignalDead("connection snapshot exceeded the outbound queue limit");
+				}
+				return;
+			}
 
 			ReadLoop();
-
-			connected.store(false);
-			if (!stopRequested.load()) {
-				dead.store(true);
-				Push(Notify{ .kind = Notify::Kind::Dead });
+			connected.store(false, std::memory_order_release);
+			if (!stopRequested.load(std::memory_order_acquire) &&
+				!dead.load(std::memory_order_acquire)) {
+				SignalDead("helper connection ended unexpectedly: " +
+					pipe.LastErrorText());
 			}
 		}
-
 		// Inbound (worker thread)
 
 		void ReadLoop()
 		{
 			std::string payload;
-			while (!stopRequested.load() && pipe.ReadMessage(payload)) {
+			auto heartbeatDeadline = ::GetTickCount64() +
+				osfui::wv2::kHeartbeatTimeoutMs;
+			while (!stopRequested.load(std::memory_order_acquire)) {
+				const auto now = ::GetTickCount64();
+				if (now >= heartbeatDeadline) {
+					REX::ERROR("WebView2HostWebRenderer: helper heartbeat expired after {}ms",
+						osfui::wv2::kHeartbeatTimeoutMs);
+					return;
+				}
+				if (!pipe.ReadMessage(payload, static_cast<std::uint32_t>(
+						heartbeatDeadline - now))) {
+					return;
+				}
 				const json msg = json::parse(payload, nullptr, false);
 				if (msg.is_discarded()) continue;
 				try {
 					const std::string type = msg.value("type", "");
+					if (type == "heartbeat") {
+						heartbeatDeadline = ::GetTickCount64() +
+							osfui::wv2::kHeartbeatTimeoutMs;
+						continue;
+					}
 					if (type == "frame") {
 						OnFrameMessage(msg);
 					} else if (type == "textures") {
@@ -1252,33 +1424,67 @@ namespace OSFUI
 
 		// Teardown
 
+		bool RequestShutdown()
+		{
+			std::uint64_t sequence = 0;
+			{
+				std::scoped_lock gateLock(writerGateMutex);
+				if (!connected.exchange(false, std::memory_order_acq_rel)) return false;
+				outbound.Clear();
+				sequence =
+					nextOutboundSequence.fetch_add(1, std::memory_order_relaxed);
+				if (outbound.Push(json{ { "type", "shutdown" } }.dump(), {}, sequence) !=
+					decltype(outbound)::PushResult::Queued) {
+					return false;
+				}
+			}
+			std::unique_lock lock(writtenMutex);
+			return written.wait_for(lock, std::chrono::milliseconds(250), [this, sequence] {
+				return lastWrittenSequence >= sequence || writerFailed;
+			}) && lastWrittenSequence >= sequence;
+		}
+
 		void Stop(bool a_force = false)
 		{
-			if (!started.load()) return;
-			stopRequested.store(true);
-			if (connected.load()) {
-				pipe.WriteMessage(json{ { "type", "shutdown" } }.dump());
+			const auto prior = lifecycle.exchange(
+				Lifecycle::Stopping, std::memory_order_acq_rel);
+			if (prior == Lifecycle::Stopped) return;
+
+			stopRequested.store(true, std::memory_order_release);
+			const bool shutdownWritten = RequestShutdown();
+			if (!shutdownWritten && prior == Lifecycle::Running && !a_force) {
+				REX::WARN("WebView2HostWebRenderer: shutdown message was not written "
+						  "within 250ms; closing the transport");
 			}
-			// Bounded wait for a clean host exit. Runs on the SFSE main thread,
-			// not the game's window thread, so the host's teardown of its
-			// game-parented HWND cannot deadlock against us.
-			if (hostProcess) {
-				const auto graceMs = a_force ? 0u : 3000u;
-				if (::WaitForSingleObject(hostProcess, graceMs) != WAIT_OBJECT_0) {
-					REX::WARN("WebView2HostWebRenderer: host did not exit{} — terminating",
-						a_force ? " after its connection failed" : " in 3s");
-					::TerminateProcess(hostProcess, 9);
-					::WaitForSingleObject(hostProcess, a_force ? 250u : 1000u);
-				}
-				::CloseHandle(hostProcess);
-				hostProcess = nullptr;
-			}
+
+			outbound.Close();
+			writerGate.notify_all();
+			// Close cancels pending accept/read/write calls before either join.
+			// No game-thread pipe operation is allowed to wait indefinitely.
 			pipe.Close();
 			if (worker.joinable()) worker.join();
-			started.store(false);
+			if (writer.joinable()) writer.join();
+			connected.store(false, std::memory_order_release);
+			{
+				std::scoped_lock lock(writerGateMutex);
+				writerReady = false;
+			}
+
+			if (const HANDLE hostProcess = TakeHostProcess()) {
+				const auto graceMs = a_force ? 250u : 3000u;
+				if (::WaitForSingleObject(hostProcess, graceMs) != WAIT_OBJECT_0) {
+					REX::WARN("WebView2HostWebRenderer: verified host pid {} did not exit{}; terminating",
+						::GetProcessId(hostProcess),
+						a_force ? " after transport failure" : " in 3s");
+					::TerminateProcess(hostProcess, 9);
+					::WaitForSingleObject(hostProcess, 1000u);
+				}
+				::CloseHandle(hostProcess);
+			}
+
+			lifecycle.store(Lifecycle::Stopped, std::memory_order_release);
 			// The host and browser are gone, so their per-run real-path view tree
-			// is no longer needed. A crash may strand one, but the next process
-			// uses a different path and cannot consume it.
+			// is no longer needed.
 			{
 				std::scoped_lock mirrorLock(viewsMirrorMutex);
 				if (usesViewsMirror && mappedViewsRoot != viewsRoot) {
@@ -1292,7 +1498,6 @@ namespace OSFUI
 				}
 			}
 		}
-
 		void ResetAfterFailure()
 		{
 			// The failure notification is drained from Update after ReadLoop has
@@ -1305,14 +1510,18 @@ namespace OSFUI
 				ReportHealth("host.ring-truncated", false);
 			}
 
-			std::size_t discardedOut = 0;
+			const auto discardedOut = outbound.Size();
+			outbound.Reset();
 			{
-				std::scoped_lock lock(pendingOutMutex);
-				discardedOut = pendingOut.size();
-				pendingOut.clear();
-				pendingOut.shrink_to_fit();
-				pendingDropped = 0;
+				std::scoped_lock lock(writerGateMutex);
+				writerReady = false;
 			}
+			{
+				std::scoped_lock lock(writtenMutex);
+				lastWrittenSequence = 0;
+				writerFailed = false;
+			}
+			outboundOverflowed.store(false, std::memory_order_release);
 
 			{
 				std::scoped_lock lock(notifyMutex);
@@ -1351,11 +1560,9 @@ namespace OSFUI
 				accSent = false;
 			}
 
-			connected.store(false);
-			dead.store(false);
+			connected.store(false, std::memory_order_release);
+			dead.store(false, std::memory_order_release);
 			deadLogged = false;
-			hostPid = 0;
-			topLevel = nullptr;
 			focusRequested.store(false);
 			focusCheckAccum = 0.0;
 			focusFixWarned = false;
@@ -1484,7 +1691,8 @@ namespace OSFUI
 		// Warm start once a view is configured: mirror copies, broker launch,
 		// environment creation and navigation all happen while the overlay is
 		// still hidden.
-		if (!_impl->started.load() && !_impl->dead.load()) {
+		if (_impl->lifecycle.load(std::memory_order_acquire) ==
+			Impl::Lifecycle::Stopped && !_impl->dead.load()) {
 			bool wantsView = false;
 			{
 				std::scoped_lock lock(_impl->stateMutex);
@@ -1499,7 +1707,8 @@ namespace OSFUI
 		// the user is alt-tabbed away that window is outside the game window's
 		// tree, so both branches no-op and focus is never stolen from another
 		// application.
-		if (_impl->topLevel && _impl->connected.load()) {
+		const auto hostSession = _impl->SessionSnapshot();
+		if (hostSession.topLevel && _impl->connected.load(std::memory_order_acquire)) {
 			_impl->focusCheckAccum += a_deltaSeconds;
 			if (_impl->focusCheckAccum >= 0.5) {
 				_impl->focusCheckAccum = 0.0;
@@ -1509,11 +1718,11 @@ namespace OSFUI
 				if (::GetGUIThreadInfo(0, &info) && info.hwndFocus) {
 					DWORD focusPid = 0;
 					::GetWindowThreadProcessId(info.hwndFocus, &focusPid);
-					const bool inGameTree = info.hwndFocus == _impl->topLevel ||
-											::IsChild(_impl->topLevel, info.hwndFocus) != FALSE;
+					const bool inGameTree = info.hwndFocus == hostSession.topLevel ||
+											::IsChild(hostSession.topLevel, info.hwndFocus) != FALSE;
 #if defined(OSFUI_WITH_WORLD_SURFACES)
 					const bool focusInHost =
-						_impl->hostPid != 0 && focusPid == _impl->hostPid;
+						hostSession.pid != 0 && focusPid == hostSession.pid;
 #else
 					const bool focusInHost = focusPid != ::GetCurrentProcessId();
 #endif
@@ -1528,9 +1737,9 @@ namespace OSFUI
 									  "0x{:X} outside an interactive menu; re-asserting game focus (watchdog)",
 								reinterpret_cast<std::uintptr_t>(info.hwndFocus));
 						}
-						::PostMessageW(_impl->topLevel,
+						::PostMessageW(hostSession.topLevel,
 							OverlayInputHook::kRestoreGameFocusMessage, 0, 0);
-					} else if (_impl->focusRequested && info.hwndFocus == _impl->topLevel) {
+					} else if (_impl->focusRequested && info.hwndFocus == hostSession.topLevel) {
 						// Interactive-menu session live but Chromium never took
 						// focus (MoveFocus lost): input and foreground scheduling
 						// would remain on the wrong process.
@@ -1638,9 +1847,10 @@ namespace OSFUI
 		}
 		_impl->focusRequested = a_focused;
 		_impl->Send(FocusMsg(a_focused));
-		if (!a_focused && _impl->topLevel) {
+		const auto hostSession = _impl->SessionSnapshot();
+		if (!a_focused && hostSession.topLevel) {
 			// Restore game focus on the game's own window thread.
-			::PostMessageW(_impl->topLevel,
+			::PostMessageW(hostSession.topLevel,
 				OverlayInputHook::kRestoreGameFocusMessage, 0, 0);
 		}
 	}

@@ -79,7 +79,13 @@ namespace OSFUI
 		// (kAdvancesMovie + admitted + asMovieRoot) cannot see.
 		constexpr int kListStableTicks = 3;
 
-		SessionState g_session;
+		SessionState& Session()
+		{
+			// The held Scaleform movie is engine-owned. Releasing it from DLL
+			// detach can run after the UI heap has begun teardown.
+			static SessionState* const session = new SessionState;
+			return *session;
+		}
 
 		// The VM stores ints, uints or Numbers depending on origin; normalise to
 		// double for comparisons.
@@ -190,8 +196,8 @@ namespace OSFUI
 		// after that, so the per-tick reconcile can't flood the log.
 		void WarnOnce(const char* a_what)
 		{
-			if (!g_session.failWarned) {
-				g_session.failWarned = true;
+			if (!Session().failWarned) {
+				Session().failWarned = true;
 				REX::WARN("PauseMenuEntry: {} — injection skipped for this pause menu "
 						  "(replaced/renamed pausemenu.swf?)", a_what);
 			}
@@ -217,11 +223,11 @@ namespace OSFUI
 		{
 			const auto menu = LivePauseMenu();
 			if (!menu) {
-				g_session.Reset();
+				Session().Reset();
 				return;
 			}
-			if (g_session.movie.get() != menu->uiMovie.get()) {
-				g_session.Reset(menu->uiMovie);
+			if (Session().movie.get() != menu->uiMovie.get()) {
+				Session().Reset(menu->uiMovie);
 			}
 			auto& movieRoot = *menu->uiMovie->asMovieRoot;
 
@@ -256,11 +262,11 @@ namespace OSFUI
 			// entryCount change (the list is churning), otherwise accumulate
 			// toward kListStableTicks. Tracked before the guards below so a
 			// change is registered even on ticks that early-return.
-			if (count != g_session.lastSeenCount) {
-				g_session.lastSeenCount = count;
-				g_session.stableTicks = 0;
-			} else if (g_session.stableTicks < kListStableTicks) {
-				++g_session.stableTicks;
+			if (count != Session().lastSeenCount) {
+				Session().lastSeenCount = count;
+				Session().stableTicks = 0;
+			} else if (Session().stableTicks < kListStableTicks) {
+				++Session().stableTicks;
 			}
 
 			// Wait for the engine's PauseMenuListData push before injecting: an
@@ -279,7 +285,7 @@ namespace OSFUI
 			// which re-arms the scan below. (A re-push that happens to land on the
 			// same count goes unnoticed — worst case our entry stays missing for the
 			// rest of this pause session.)
-			if (count == g_session.expectedCount) {
+			if (count == Session().expectedCount) {
 				return;
 			}
 
@@ -298,14 +304,14 @@ namespace OSFUI
 			// (docs/SIMPLIFICATION_PLAN.md §2.1). The engine-level liveness gate
 			// (LivePauseMenu) proves the menu is admitted and advancing.
 			// Re-check next tick — this is cheap (one GetMember).
-			if (g_session.stableTicks < kListStableTicks) {
+			if (Session().stableTicks < kListStableTicks) {
 				return;
 			}
 
 			// Install the press listener once per session. It lives on the root
 			// (presses bubble up from MainPanel), so the engine re-pushing list
 			// data doesn't disturb it.
-			if (!g_session.listenerInstalled) {
+			if (!Session().listenerInstalled) {
 				RE::Scaleform::GFx::Value fn;
 				movieRoot.CreateFunction(&fn, Handler());
 				// Managed VM string for the event type too (same raw-kString
@@ -323,7 +329,7 @@ namespace OSFUI
 					WarnOnce("root.addEventListener(MainPanel_EntryPress) failed");
 					return;
 				}
-				g_session.listenerInstalled = true;
+				Session().listenerInstalled = true;
 			}
 
 			// Scan for our entry while copying the current entries into a fresh
@@ -352,7 +358,7 @@ namespace OSFUI
 				}
 			}
 			if (foundOurs) {
-				g_session.expectedCount = count;  // ours survived a shape change; settle on the new count
+				Session().expectedCount = count;  // ours survived a shape change; settle on the new count
 				return;
 			}
 
@@ -389,9 +395,9 @@ namespace OSFUI
 			}
 			// PopulateMainList is synchronous, so this is the count the next tick
 			// must observe unless the engine pushes another list.
-			g_session.expectedCount = count + 1;
-			if (!g_session.entryLogged) {
-				g_session.entryLogged = true;
+			Session().expectedCount = count + 1;
+			if (!Session().entryLogged) {
+				Session().entryLogged = true;
 				REX::DEBUG("PauseMenuEntry: '{}' injected into PauseMenu main list ({} vanilla entries)",
 					g_label, count);
 			}

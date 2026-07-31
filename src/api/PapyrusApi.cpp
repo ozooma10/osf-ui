@@ -88,16 +88,28 @@ namespace OSFUI::API::Papyrus
 			nlohmann::json                            value;
 			std::optional<std::vector<std::uint32_t>> formIds;
 		};
-		// Guards the slot table and the op/push queues: natives fill them from
-		// VM threads, the main thread drains.
-		std::mutex               s_lock;
-		std::vector<Entry>       s_slots;
-		std::uint16_t            s_nextGen = 1;
-		std::vector<QueuedOp>                    s_ops;
-		std::vector<QueuedPush>                    s_pushes;
-		std::unordered_map<std::string, ViewPush>   s_viewState;
-		std::unordered_map<std::string, PendingViewRequest> s_viewRequests;
-		std::uint64_t                               s_nextViewRequest = 1;
+		// This registry contains VM smart pointers and interned engine strings.
+		// Windows may tear the VM down before DLL static destruction, so releasing
+		// these objects from process detach is unsafe. The registry intentionally
+		// has process lifetime; game-load handling clears session-scoped entries
+		// while the process and its VM threads are still operational.
+		struct ProcessState
+		{
+			std::mutex                                          lock;
+			std::vector<Entry>                                  slots;
+			std::uint16_t                                       nextGen{ 1 };
+			std::vector<QueuedOp>                               ops;
+			std::vector<QueuedPush>                             pushes;
+			std::unordered_map<std::string, ViewPush>           viewState;
+			std::unordered_map<std::string, PendingViewRequest> viewRequests;
+			std::uint64_t                                       nextViewRequest{ 1 };
+		};
+
+		ProcessState& State()
+		{
+			static ProcessState* const state = new ProcessState;
+			return *state;
+		}
 
 		// Fold to the id grammar's lowercase before validating/matching: the
 		// string arrived through BSFixedString interning, which hands back the
@@ -111,31 +123,31 @@ namespace OSFUI::API::Papyrus
 		}
 
 		// Slot allocation + token mint. a_receiver XOR a_scriptName. Caller
-		// validated the inputs; requires s_lock held.
+		// validated the inputs; requires the process-state lock held.
 		std::int32_t AddEntry(Kind a_kind, const RE::BSTSmartPointer<RE::BSScript::Object>& a_receiver,
 			RE::BSFixedString a_scriptName, std::string_view a_fn, std::string_view a_modId, std::string_view a_key,
 			bool a_wantsArgs = false)
 		{
 			std::uint16_t slot = 0;
-			for (; slot < s_slots.size(); slot++) {
-				if (s_slots[slot].generation == 0) {
+			for (; slot < State().slots.size(); slot++) {
+				if (State().slots[slot].generation == 0) {
 					break;
 				}
 			}
-			if (slot == s_slots.size()) {
-				if (s_slots.size() >= 0xFFFF) {
+			if (slot == State().slots.size()) {
+				if (State().slots.size() >= 0xFFFF) {
 					REX::ERROR("PapyrusApi: callback table full");
 					return 0;
 				}
-				s_slots.emplace_back();
+				State().slots.emplace_back();
 			}
 
-			const std::uint16_t gen = s_nextGen++;
-			if (s_nextGen == 0) {
-				s_nextGen = 1;  // never mint generation 0 (the empty-slot marker)
+			const std::uint16_t gen = State().nextGen++;
+			if (State().nextGen == 0) {
+				State().nextGen = 1;  // never mint generation 0 (the empty-slot marker)
 			}
 
-			Entry& e = s_slots[slot];
+			Entry& e = State().slots[slot];
 			e.generation = gen;
 			e.kind = a_kind;
 			e.receiver = a_receiver;
@@ -217,8 +229,8 @@ namespace OSFUI::API::Papyrus
 		std::vector<Target> CollectTargets(Kind a_kind, std::string_view a_modId, std::string_view a_key)
 		{
 			std::vector<Target> targets;
-			std::lock_guard     l{ s_lock };
-			for (const auto& e : s_slots) {
+			std::lock_guard     l{ State().lock };
+			for (const auto& e : State().slots) {
 				if (e.generation == 0 || e.kind != a_kind) {
 					continue;
 				}
@@ -325,23 +337,23 @@ namespace OSFUI::API::Papyrus
 
 			std::string token;
 			{
-				std::lock_guard l{ s_lock };
+				std::lock_guard l{ State().lock };
 				constexpr std::size_t kMaxInflightViewRequests = 256;
 				constexpr std::size_t kMaxInflightPerView = 32;
-				const auto perView = std::ranges::count_if(s_viewRequests, [&](const auto& item) {
+				const auto perView = std::ranges::count_if(State().viewRequests, [&](const auto& item) {
 					return item.second.view == a_viewId;
 				});
-				if (s_viewRequests.size() >= kMaxInflightViewRequests || perView >= kMaxInflightPerView) {
+				if (State().viewRequests.size() >= kMaxInflightViewRequests || perView >= kMaxInflightPerView) {
 					REX::WARN("PapyrusApi: too many view requests in flight for '{}'", a_viewId);
 					return false;
 				}
-				token = "p" + std::to_string(s_nextViewRequest++);
+				token = "p" + std::to_string(State().nextViewRequest++);
 				PendingViewRequest pending;
 				pending.token = token;
 				pending.view = a_viewId;
 				pending.requestId = a_requestId;
 				pending.deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-				s_viewRequests.emplace(token, std::move(pending));
+				State().viewRequests.emplace(token, std::move(pending));
 			}
 
 			std::vector<RE::BSFixedString> argv;
@@ -356,9 +368,9 @@ namespace OSFUI::API::Papyrus
 			std::optional<std::vector<std::uint32_t>> a_formIds = std::nullopt)
 		{
 			const auto token = ToLowerAscii(a_token.c_str());
-			std::lock_guard l{ s_lock };
-			const auto it = s_viewRequests.find(token);
-			if (it == s_viewRequests.end() || it->second.answered) return false;
+			std::lock_guard l{ State().lock };
+			const auto it = State().viewRequests.find(token);
+			if (it == State().viewRequests.end() || it->second.answered) return false;
 			it->second.answered = true;
 			it->second.value = std::move(a_value);
 			it->second.formIds = std::move(a_formIds);
@@ -369,9 +381,9 @@ namespace OSFUI::API::Papyrus
 			const RE::BSFixedString& a_code, const RE::BSFixedString& a_message)
 		{
 			const auto token = ToLowerAscii(a_token.c_str());
-			std::lock_guard l{ s_lock };
-			const auto it = s_viewRequests.find(token);
-			if (it == s_viewRequests.end() || it->second.answered) return false;
+			std::lock_guard l{ State().lock };
+			const auto it = State().viewRequests.find(token);
+			if (it == State().viewRequests.end() || it->second.answered) return false;
 			it->second.answered = true;
 			it->second.rejected = true;
 			it->second.code = a_code.empty() ? "papyrus-error" : a_code.c_str();
@@ -386,16 +398,16 @@ namespace OSFUI::API::Papyrus
 				REX::WARN("PapyrusApi: [content] Set/Reset with empty mod id (or Set with empty key) ignored");
 				return;
 			}
-			std::lock_guard l{ s_lock };
+			std::lock_guard l{ State().lock };
 			// Drop-newest cap: with the runtime disabled via config the drain
 			// never runs, and a scripted Set loop must not grow memory forever.
 			// Far above any legitimate burst — the drain empties this per tick.
 			constexpr std::size_t kMaxPendingOps = 1024;
-			if (s_ops.size() >= kMaxPendingOps) {
+			if (State().ops.size() >= kMaxPendingOps) {
 				REX::WARN("PapyrusApi: pending settings-op queue full; dropping Set/Reset for {}.{}", mod, key ? key : "");
 				return;
 			}
-			s_ops.push_back({ mod, key ? key : "", std::move(a_value), a_reset });
+			State().ops.push_back({ mod, key ? key : "", std::move(a_value), a_reset });
 		}
 
 		// Shared PushToView/PushFormsToView target validation (VM tasklet
@@ -419,15 +431,15 @@ namespace OSFUI::API::Papyrus
 		// queue-on-VM-thread / drain-on-main-thread shape as QueueOp.
 		void EnqueuePush(QueuedPush a_push)
 		{
-			std::lock_guard l{ s_lock };
+			std::lock_guard l{ State().lock };
 			// Same drop-newest cap as the settings-op queue, for the same
 			// reason: with the runtime disabled the drain never runs.
 			constexpr std::size_t kMaxPendingPushes = 1024;
-			if (s_pushes.size() >= kMaxPendingPushes) {
+			if (State().pushes.size() >= kMaxPendingPushes) {
 				REX::WARN("PapyrusApi: pending view-push queue full; dropping push for {}.{}", a_push.mod, a_push.key);
 				return;
 			}
-			s_pushes.push_back(std::move(a_push));
+			State().pushes.push_back(std::move(a_push));
 		}
 
 		// SetView* is retained state, not a transient push. Values are already
@@ -606,7 +618,7 @@ namespace OSFUI::API::Papyrus
 				REX::DEBUG("PapyrusApi: RegisterForSettingChanges: null receiver or empty function name");
 				return 0;
 			}
-			std::lock_guard l{ s_lock };
+			std::lock_guard l{ State().lock };
 			return AddEntry(Kind::kSettings, a_receiver, {}, a_fn.c_str(), a_modId.c_str(), {});
 		}
 
@@ -617,7 +629,7 @@ namespace OSFUI::API::Papyrus
 				REX::DEBUG("PapyrusApi: RegisterForSettingChangesStatic: empty script or function name");
 				return 0;
 			}
-			std::lock_guard l{ s_lock };
+			std::lock_guard l{ State().lock };
 			return AddEntry(Kind::kSettings, {}, a_script, a_fn.c_str(), a_modId.c_str(), {});
 		}
 
@@ -628,7 +640,7 @@ namespace OSFUI::API::Papyrus
 				REX::DEBUG("PapyrusApi: RegisterForHotkey: null receiver, empty function name, or empty mod id");
 				return 0;
 			}
-			std::lock_guard l{ s_lock };
+			std::lock_guard l{ State().lock };
 			return AddEntry(Kind::kHotkey, a_receiver, {}, a_fn.c_str(), a_modId.c_str(), a_key.c_str());
 		}
 
@@ -639,7 +651,7 @@ namespace OSFUI::API::Papyrus
 				REX::DEBUG("PapyrusApi: RegisterForHotkeyStatic: empty script, function name, or mod id");
 				return 0;
 			}
-			std::lock_guard l{ s_lock };
+			std::lock_guard l{ State().lock };
 			return AddEntry(Kind::kHotkey, {}, a_script, a_fn.c_str(), a_modId.c_str(), a_key.c_str());
 		}
 
@@ -667,7 +679,7 @@ namespace OSFUI::API::Papyrus
 				REX::DEBUG("PapyrusApi: {}: null receiver, empty function name, or invalid mod id", a_native);
 				return 0;
 			}
-			std::lock_guard l{ s_lock };
+			std::lock_guard l{ State().lock };
 			return AddEntry(Kind::kAction, a_receiver, {}, a_fn.c_str(), *modId, {}, a_wantsArgs);
 		}
 
@@ -679,7 +691,7 @@ namespace OSFUI::API::Papyrus
 				REX::DEBUG("PapyrusApi: {}: empty script, empty function name, or invalid mod id", a_native);
 				return 0;
 			}
-			std::lock_guard l{ s_lock };
+			std::lock_guard l{ State().lock };
 			return AddEntry(Kind::kAction, {}, a_script, a_fn.c_str(), *modId, {}, a_wantsArgs);
 		}
 
@@ -733,8 +745,8 @@ namespace OSFUI::API::Papyrus
 		{
 			const auto modId = ValidateActionModId(a_modId);
 			if (!a_receiver.get() || !modId) return 0;
-			std::lock_guard l{ s_lock };
-			for (const auto& entry : s_slots) {
+			std::lock_guard l{ State().lock };
+			for (const auto& entry : State().slots) {
 				if (entry.generation && entry.kind == Kind::kRequest &&
 					Ids::EqualsCaseInsensitiveAscii(entry.modId, *modId)) {
 					REX::WARN("PapyrusApi: [content] ListenForViewRequests('{}') refused — first listener wins", *modId);
@@ -749,8 +761,8 @@ namespace OSFUI::API::Papyrus
 		{
 			const auto modId = ValidateActionModId(a_modId);
 			if (a_script.empty() || !modId) return 0;
-			std::lock_guard l{ s_lock };
-			for (const auto& entry : s_slots) {
+			std::lock_guard l{ State().lock };
+			for (const auto& entry : State().slots) {
 				if (entry.generation && entry.kind == Kind::kRequest &&
 					Ids::EqualsCaseInsensitiveAscii(entry.modId, *modId)) {
 					REX::WARN("PapyrusApi: [content] ListenForViewRequestsStatic('{}') refused — first listener wins", *modId);
@@ -930,11 +942,11 @@ namespace OSFUI::API::Papyrus
 			const auto slot = static_cast<std::uint16_t>(a_token & 0xFFFF);
 			const auto gen = static_cast<std::uint16_t>((a_token >> 16) & 0xFFFF);
 
-			std::lock_guard l{ s_lock };
-			if (slot >= s_slots.size() || s_slots[slot].generation != gen) {
+			std::lock_guard l{ State().lock };
+			if (slot >= State().slots.size() || State().slots[slot].generation != gen) {
 				return false;  // stale/invalid token
 			}
-			s_slots[slot] = Entry{};  // generation 0 -> empty; drops the receiver smart pointer
+			State().slots[slot] = Entry{};  // generation 0 -> empty; drops the receiver smart pointer
 			REX::DEBUG("PapyrusApi: unregistered token {:#010x}", a_token);
 			return true;
 		}
@@ -1022,22 +1034,22 @@ namespace OSFUI::API::Papyrus
 
 		// Forget every registration without releasing receiver refs: on a game
 		// load the VM tears down first, so cached Object pointers may already
-		// dangle. s_nextGen stays monotonic so a pre-load token cannot validate
+		// dangle. The generation stays monotonic so a pre-load token cannot validate
 		// against a slot reused after the load.
 		void ClearRegistrations()
 		{
-			std::lock_guard l{ s_lock };
+			std::lock_guard l{ State().lock };
 			std::size_t dropped = 0;
-			for (auto& e : s_slots) {
+			for (auto& e : State().slots) {
 				dropped += e.generation != 0;
 				std::construct_at(std::addressof(e.receiver));  // overwrite ptr = null, skip Release
 			}
-			s_slots.clear();
+			State().slots.clear();
 			// Retained view state and queued pushes contain session-scoped form
 			// identities and must never cross a game load.
-			s_viewState.clear();
-			s_viewRequests.clear();
-			s_pushes.clear();
+			State().viewState.clear();
+			State().viewRequests.clear();
+			State().pushes.clear();
 			if (dropped) {
 				REX::INFO("PapyrusApi: cleared {} script registration(s) on game load (session-scoped; scripts re-register)", dropped);
 			}
@@ -1051,8 +1063,8 @@ namespace OSFUI::API::Papyrus
 		public:
 			static LoadGameSink* GetSingleton()
 			{
-				static LoadGameSink instance;
-				return &instance;
+				static LoadGameSink* const instance = new LoadGameSink;
+				return instance;
 			}
 
 			RE::BSEventNotifyControl ProcessEvent(const RE::TESLoadGameEvent&, RE::BSTEventSource<RE::TESLoadGameEvent>*) override
@@ -1109,14 +1121,14 @@ namespace OSFUI::API::Papyrus
 	{
 		std::vector<PendingViewRequest> ready;
 		{
-			std::lock_guard l{ s_lock };
-			for (auto it = s_viewRequests.begin(); it != s_viewRequests.end();) {
+			std::lock_guard l{ State().lock };
+			for (auto it = State().viewRequests.begin(); it != State().viewRequests.end();) {
 				if (!it->second.answered && a_now < it->second.deadline) {
 					++it;
 					continue;
 				}
 				ready.push_back(std::move(it->second));
-				it = s_viewRequests.erase(it);
+				it = State().viewRequests.erase(it);
 			}
 		}
 		for (auto& pending : ready) {
@@ -1145,8 +1157,8 @@ namespace OSFUI::API::Papyrus
 	{
 		std::vector<QueuedPush> pushes;
 		{
-			std::lock_guard l{ s_lock };
-			pushes.swap(s_pushes);
+			std::lock_guard l{ State().lock };
+			pushes.swap(State().pushes);
 		}
 		for (auto& p : pushes) {
 			ViewPush out{ std::move(p.mod), std::move(p.key), std::move(p.values), std::nullopt, std::move(p.stateValue) };
@@ -1168,11 +1180,11 @@ namespace OSFUI::API::Papyrus
 				}
 			}
 			if (p.retained) {
-				std::lock_guard l{ s_lock };
+				std::lock_guard l{ State().lock };
 				const auto key = StateCacheKey(out.mod, out.key);
 				constexpr std::size_t kMaxViewStateEntries = 1024;
-				if (s_viewState.contains(key) || s_viewState.size() < kMaxViewStateEntries) {
-					s_viewState[key] = out;
+				if (State().viewState.contains(key) || State().viewState.size() < kMaxViewStateEntries) {
+					State().viewState[key] = out;
 				} else {
 					REX::WARN("PapyrusApi: retained view-state cache full; delivering but not retaining {}.{}", out.mod, out.key);
 				}
@@ -1185,8 +1197,8 @@ namespace OSFUI::API::Papyrus
 	{
 		std::vector<ViewPush> snapshot;
 		{
-			std::lock_guard l{ s_lock };
-			for (const auto& [_, state] : s_viewState) {
+			std::lock_guard l{ State().lock };
+			for (const auto& [_, state] : State().viewState) {
 				if (Ids::EqualsCaseInsensitiveAscii(state.mod, a_modId)) snapshot.push_back(state);
 			}
 		}
@@ -1197,8 +1209,8 @@ namespace OSFUI::API::Papyrus
 	{
 		std::vector<QueuedOp> ops;
 		{
-			std::lock_guard l{ s_lock };
-			ops.swap(s_ops);
+			std::lock_guard l{ State().lock };
+			ops.swap(State().ops);
 		}
 		for (auto& op : ops) {
 			// Canonicalize to the authored spelling before hitting the

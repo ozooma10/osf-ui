@@ -91,8 +91,12 @@ namespace OSFUI
 
 	Runtime& Runtime::Get()
 	{
-		static Runtime instance;
-		return instance;
+		// ExitProcess stops worker threads before DLL static destruction. The
+		// runtime owns those workers, so destroying it from process detach can
+		// never be made safe; the OS reclaims its in-process resources and the
+		// detached WebView2 helper independently watches the game process handle.
+		static Runtime* const instance = new Runtime;
+		return *instance;
 	}
 
 	bool Runtime::Initialize()

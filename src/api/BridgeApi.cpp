@@ -67,8 +67,11 @@ namespace OSFUI::API
 
 	BridgeApi& BridgeApi::Get()
 	{
-		static BridgeApi instance;
-		return instance;
+		// Process-lifetime API state can be in use by plugin threads when Windows
+		// begins DLL detach. Do not destruct its mutexes, callbacks, or mirrors
+		// after those threads have been stopped.
+		static BridgeApi* const instance = new BridgeApi;
+		return *instance;
 	}
 
 	std::uint32_t BridgeApi::GetInterfaceVersion()

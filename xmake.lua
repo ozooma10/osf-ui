@@ -104,6 +104,18 @@ if has_config("with_webview2") then
         end)
 
 end
+-- Windows-only transport regression suite. Kept separate from tests/native/run.sh,
+-- whose sources are intentionally portable and do not include Windows.h.
+target("wv2-pipe-tests")
+    set_kind("binary")
+    set_default(false)
+    set_languages("c++23")
+    set_warnings("allextra")
+    set_encodings("utf-8")
+    add_files("tests/native/wv2_pipe_tests.cpp", "tools/webview2_shared/Wv2Pipe.cpp")
+    add_includedirs("tools/webview2_shared")
+    add_syslinks("advapi32")
+
 -- define targets
 -- target name == repo folder == MO2 mod folder (deploy goes to XSE_SF_MODS_PATH\<target name>)
 target("OSF UI")

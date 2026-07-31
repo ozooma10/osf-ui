@@ -27,8 +27,9 @@ namespace OSFUI
 		// One interned BSFixedString for the menu name (AddMessage takes a ref).
 		const RE::BSFixedString& MenuName()
 		{
-			static const RE::BSFixedString name{ FocusMenu::MENU_NAME.data() };
-			return name;
+			// The engine string table may already be tearing down at DLL detach.
+			static auto* const name = new RE::BSFixedString(FocusMenu::MENU_NAME.data());
+			return *name;
 		}
 
 		// Construction constants, RE-verified on 1.16.244 (OSF RE ui.menu_flags).
