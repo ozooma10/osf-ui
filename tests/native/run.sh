@@ -53,6 +53,7 @@ SUITES=(
 "dev_view_files_tests dev_view_files_tests.cpp ../../src/runtime/DevViewFiles.cpp"
 "cursor_shape_tests cursor_shape_tests.cpp"
 "gamepad_navigation_tests gamepad_navigation_tests.cpp"
+"renderer_host_recovery_tests renderer_host_recovery_tests.cpp"
 "local_view_uri_tests local_view_uri_tests.cpp"
 "menu_controller_tests menu_controller_tests.cpp ../../src/runtime/MenuController.cpp"
 "wndproc_chain_tests wndproc_chain_tests.cpp"

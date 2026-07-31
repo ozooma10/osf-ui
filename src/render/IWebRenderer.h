@@ -163,6 +163,14 @@ namespace OSFUI
 		virtual bool Initialize(const RendererConfig& a_config) = 0;
 		virtual void Shutdown() = 0;
 
+		// Tear down a terminal backend connection while preserving registered
+		// views, callbacks, and reconstructible state for a fresh lazy start.
+		// Called on the game thread only, after the FailureHandler has returned.
+		// Transient queued bridge traffic may be discarded; the runtime must replay
+		// each new document's bootstrap state before the next Update().
+		// False means this backend cannot recover without replacing the object.
+		virtual bool RestartAfterFailure() { return false; }
+
 		// Loads (or replaces) a view by its manifest id. Multi-view backends keep
 		// previously-loaded views so several composite at once; the first loaded
 		// view becomes active by default. Use SetActiveView to change that.
@@ -217,11 +225,11 @@ namespace OSFUI
 		using LoadHandler = std::function<void(const LoadEvent& a_event)>;
 		virtual void SetLoadHandler(LoadHandler) {}
 
-		// A terminal backend failure that leaves no drawable frontend. Unlike a
-		// per-view LoadEvent, this invalidates the renderer for the rest of the
-		// session. The runtime must immediately release any modal menu policy;
-		// otherwise an invisible overlay can keep gameplay input and pause state.
-		// Fired on the game thread from Update(); set once before LoadView.
+		// A terminal backend-instance failure that leaves no drawable frontend.
+		// The runtime must immediately release any modal menu policy; otherwise an
+		// invisible overlay can keep gameplay input and pause state. A recoverable
+		// backend may later receive RestartAfterFailure, but only after this handler
+		// returns. Fired on the game thread from Update(); set once before LoadView.
 		struct FailureEvent
 		{
 			std::string_view stage;

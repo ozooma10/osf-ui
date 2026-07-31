@@ -107,6 +107,8 @@ namespace OSFUI
 			return true;
 		}
 		_rendererFailed = false;
+		_rendererFailureLatched = false;
+		_rendererHostRecovery.Reset();
 
 		if (!Paths::Initialize()) {
 			return false;
@@ -564,6 +566,9 @@ namespace OSFUI
 			return;
 		}
 		_uptime += a_deltaSeconds;
+		// A failure callback fires near the end of the prior Tick. Restart only now,
+		// after IWebRenderer::Update has returned and its notification drain is idle.
+		DriveRendererHostRecovery();
 		DrainBugReportResult();
 		// The pause-menu entry (PauseMenuEntry::Reconcile) is NOT driven from
 		// here: although Tick runs on the game main thread, arbitrary Scaleform
@@ -936,7 +941,18 @@ namespace OSFUI
 	bool Runtime::BeginSurfaceOpen(std::string_view a_id)
 	{
 		if (_rendererFailed) {
-			REX::WARN("Runtime: cannot open '{}' - the Web renderer failed earlier this session", a_id);
+			if (_rendererHostRecovery.RequestManualRetry(_uptime)) {
+				REX::INFO("Runtime: open of '{}' requested a fresh WebView2 helper recovery cycle; "
+					"the overlay remains closed until the replacement is ready", a_id);
+			} else if (_rendererHostRecovery.PhaseValue() ==
+				RendererHostRecovery::Phase::Waiting ||
+				_rendererHostRecovery.PhaseValue() ==
+				RendererHostRecovery::Phase::AwaitingResponse) {
+				REX::WARN("Runtime: cannot open '{}' yet - the WebView2 helper is recovering", a_id);
+			} else {
+				REX::WARN("Runtime: cannot open '{}' - the Web renderer needs a game restart or "
+					"the repair described in the log", a_id);
+			}
 			return false;
 		}
 		if (!_menus.IsRegistered(a_id)) {
@@ -1337,6 +1353,15 @@ namespace OSFUI
 		std::string_view a_description, int a_errorCode)
 	{
 		const std::string id(a_viewId);
+		if (_rendererFailed && _rendererHostRecovery.CanAcceptResponse()) {
+			const auto attempts = _rendererHostRecovery.Attempts();
+			_rendererHostRecovery.Reset();
+			_rendererFailed = false;
+			_rendererFailureLatched = false;
+			REX::INFO("Runtime: replacement WebView2 helper responded on attempt {}; "
+					  "the overlay remains closed until the player opens it",
+				attempts);
+		}
 		_viewLoadState[id] = a_failed ? ViewLoadState::Failed : ViewLoadState::Finished;
 		// The gamepad-raw and back-owner grants are sticky for a page's lifetime,
 		// so a (re)loaded page starts un-granted and re-asserts in its own boot code.
@@ -1443,7 +1468,7 @@ namespace OSFUI
 
 	void Runtime::DriveRecovery()
 	{
-		if (_recovery.empty() || !_renderer) {
+		if (_rendererFailed || _recovery.empty() || !_renderer) {
 			return;
 		}
 		for (auto& [id, rec] : _recovery) {
@@ -1805,15 +1830,111 @@ namespace OSFUI
 		});
 	}
 
-	void Runtime::OnRendererFailure(const IWebRenderer::FailureEvent& a_event)
+	void Runtime::DriveRendererHostRecovery()
 	{
-		if (_rendererFailed) {
+		if (_rendererHostRecovery.ExpireResponseWait(_uptime)) {
+			REX::ERROR("Runtime: replacement WebView2 helper produced no load response in {:.0f}s",
+				RendererHostRecovery::kResponseTimeoutSeconds);
+			if (_rendererHostRecovery.PhaseValue() ==
+				RendererHostRecovery::Phase::Exhausted) {
+				REX::ERROR("Runtime: automatic WebView2 helper recovery exhausted; "
+						   "the next explicit menu open will start a fresh retry cycle");
+			}
+		}
+
+		if (!_rendererHostRecovery.BeginDueAttempt(_uptime)) {
 			return;
 		}
+
+		const auto attempt = _rendererHostRecovery.Attempts();
+		REX::INFO("Runtime: restarting WebView2 helper (attempt {}/{})",
+			attempt, RendererHostRecovery::kMaxAttempts);
+		if (!_renderer || !_renderer->RestartAfterFailure()) {
+			REX::ERROR("Runtime: renderer could not reset its failed host connection");
+			_rendererHostRecovery.OnAttemptSetupFailed(_uptime);
+			if (_rendererHostRecovery.PhaseValue() ==
+				RendererHostRecovery::Phase::Exhausted) {
+				REX::ERROR("Runtime: automatic WebView2 helper recovery exhausted; "
+						   "the next explicit menu open will start a fresh retry cycle");
+			}
+			return;
+		}
+
+		_rendererFailureLatched = false;
+		RehydrateRendererAfterRestart();
+	}
+
+	void Runtime::RehydrateRendererAfterRestart()
+	{
+		if (!_renderer || !_bridge) {
+			return;
+		}
+
+		_recovery.clear();
+		_readyViews.clear();
+		_gamepadRawViews.clear();
+		_backOwnerViews.clear();
+		_pendingMouseMove.store(kNoPendingMouseMove);
+		_lastSubmittedFrame = 0;
+		_renderStatsHaveBaseline = false;
+		_nativeFocusGranted = false;
+
+		std::size_t reloaded = 0;
+		for (const auto& manifest : _views.All()) {
+			if (!_menus.IsRegistered(manifest.id)) {
+				continue;
+			}
+			_viewLoadState[manifest.id] = ViewLoadState::Loading;
+			_renderer->LoadView(manifest);
+			_renderer->SetRenderStats(manifest.id, _renderStatsEnabled);
+			if (manifest.permissions.nativeBridge) {
+				// RestartAfterFailure discarded messages addressed to the dead
+				// documents. Bootstrap each replacement first, then replay the
+				// retained native state it cannot request retroactively.
+				_bridge->SendRuntimeReady(manifest.id);
+				ReplayPapyrusViewState(*_bridge, manifest.id);
+			}
+			++reloaded;
+		}
+
+		if (_menus.IsRegistered(kHandoffViewId)) {
+			_renderer->PrewarmView(kHandoffViewId);
+		}
+		_renderer->Resize(_viewWidth.load(), _viewHeight.load());
+		_renderer->SetAcceleratorKeys(_toggleKey.load(std::memory_order_acquire),
+			false, _captureArmed.load(), _captureUpVk.load());
+		ApplyMenuPolicy();
+		BroadcastViewsData();
+		REX::INFO("Runtime: replayed {} registered view(s) to the replacement helper; "
+				  "overlay left closed", reloaded);
+	}
+
+	void Runtime::OnRendererFailure(const IWebRenderer::FailureEvent& a_event)
+	{
+		if (_rendererFailureLatched) {
+			return;
+		}
+		_rendererFailureLatched = true;
 		_rendererFailed = true;
-		REX::ERROR("Runtime: renderer failed at '{}' for view '{}' (0x{:08X}): {} - "
-			"closing the overlay and disabling it for this session",
-			a_event.stage, a_event.viewId, a_event.errorCode, a_event.description);
+		const bool retryableHostLoss =
+			a_event.stage == "host-connection" && _renderer && _renderer->Name() == "webview2";
+		if (retryableHostLoss) {
+			_rendererHostRecovery.OnRetryableFailure(_uptime);
+			REX::ERROR("Runtime: WebView2 helper connection failed for view '{}' (0x{:08X}): {} - "
+					   "closing the overlay; bounded helper recovery is scheduled",
+				a_event.viewId, a_event.errorCode, a_event.description);
+			if (_rendererHostRecovery.PhaseValue() ==
+				RendererHostRecovery::Phase::Exhausted) {
+				REX::ERROR("Runtime: automatic WebView2 helper recovery exhausted; "
+						   "the next explicit menu open will start a fresh retry cycle");
+			}
+		} else {
+			_rendererHostRecovery.Disable();
+			REX::ERROR("Runtime: renderer failed at '{}' for view '{}' (0x{:08X}): {} - "
+					   "closing the overlay and disabling it for this session",
+				a_event.stage, a_event.viewId, a_event.errorCode, a_event.description);
+		}
+		_recovery.clear();
 
 		CancelPendingOpen();
 		_menus.CloseAll();

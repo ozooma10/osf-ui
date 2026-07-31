@@ -30,6 +30,7 @@ namespace OSFUI
 
 		bool Initialize(const RendererConfig& a_config) override;
 		void Shutdown() override;
+		bool RestartAfterFailure() override;
 		void LoadView(const ViewManifest& a_manifest) override;
         bool RefreshViewFiles(std::string_view a_viewId) override;
 		void SetActiveView(std::string_view a_id) override;

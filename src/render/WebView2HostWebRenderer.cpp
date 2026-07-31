@@ -1214,7 +1214,7 @@ namespace OSFUI
 					if (!deadLogged) {
 						deadLogged = true;
 						REX::ERROR("WebView2HostWebRenderer: host connection lost — the "
-								   "overlay is closing and stays disabled for the rest of this session "
+								   "overlay is closing before bounded helper recovery begins "
 								   "(host log: {})", hostLog.string());
 						if (onFailure) {
 							onFailure(FailureEvent{
@@ -1252,7 +1252,7 @@ namespace OSFUI
 
 		// Teardown
 
-		void Stop()
+		void Stop(bool a_force = false)
 		{
 			if (!started.load()) return;
 			stopRequested.store(true);
@@ -1263,10 +1263,12 @@ namespace OSFUI
 			// not the game's window thread, so the host's teardown of its
 			// game-parented HWND cannot deadlock against us.
 			if (hostProcess) {
-				if (::WaitForSingleObject(hostProcess, 3000) != WAIT_OBJECT_0) {
-					REX::WARN("WebView2HostWebRenderer: host did not exit in 3s — terminating");
+				const auto graceMs = a_force ? 0u : 3000u;
+				if (::WaitForSingleObject(hostProcess, graceMs) != WAIT_OBJECT_0) {
+					REX::WARN("WebView2HostWebRenderer: host did not exit{} — terminating",
+						a_force ? " after its connection failed" : " in 3s");
 					::TerminateProcess(hostProcess, 9);
-					::WaitForSingleObject(hostProcess, 1000);
+					::WaitForSingleObject(hostProcess, a_force ? 250u : 1000u);
 				}
 				::CloseHandle(hostProcess);
 				hostProcess = nullptr;
@@ -1288,6 +1290,83 @@ namespace OSFUI
 					}
 					usesViewsMirror = false;
 				}
+			}
+		}
+
+		void ResetAfterFailure()
+		{
+			// The failure notification is drained from Update after ReadLoop has
+			// ended, so this forced stop normally joins an already-finished worker.
+			// If a stranded helper kept running after the pipe died, do not stall
+			// Starfield's main thread waiting for a graceful process exit.
+			Stop(true);
+
+			if (ringSlotsReported > SharedRingDesc::kMaxSlots) {
+				ReportHealth("host.ring-truncated", false);
+			}
+
+			std::size_t discardedOut = 0;
+			{
+				std::scoped_lock lock(pendingOutMutex);
+				discardedOut = pendingOut.size();
+				pendingOut.clear();
+				pendingOut.shrink_to_fit();
+				pendingDropped = 0;
+			}
+
+			{
+				std::scoped_lock lock(notifyMutex);
+				for (auto& value : notifications) {
+					if (value.kind != Notify::Kind::Ring) {
+						continue;
+					}
+					for (auto*& handle : value.ring.slotHandles) {
+						if (handle) ::CloseHandle(handle);
+					}
+					if (value.ring.produceFence) ::CloseHandle(value.ring.produceFence);
+					if (value.ring.consumeFence) ::CloseHandle(value.ring.consumeFence);
+				}
+				notifications.clear();
+				pendingWebCount = pendingConsoleCount = pendingLogCount = 0;
+				droppedWebCount = droppedConsoleCount = droppedLogCount = 0;
+			}
+
+			{
+				std::scoped_lock lock(frameMutex);
+				haveFrame = false;
+				frameSlot = 0;
+				frameSerial = 0;
+				frameSourceTimeMs = 0;
+				frameWidth = frameHeight = 0;
+				frameGeneration = 0;
+				submittedSerial = 0;
+				ringWidth = ringHeight = 0;
+				announcedGeneration = 0;
+				// Keep ringGeneration monotonic across helper processes so a new
+				// shared ring is unambiguously newer than the compositor's retired
+				// generation.
+			}
+			{
+				std::scoped_lock lock(stateMutex);
+				accSent = false;
+			}
+
+			connected.store(false);
+			dead.store(false);
+			deadLogged = false;
+			hostPid = 0;
+			topLevel = nullptr;
+			focusRequested.store(false);
+			focusCheckAccum = 0.0;
+			focusFixWarned = false;
+			ringSlotsAnnounced.store(0);
+			ringSlotsReported = 0;
+			stopRequested.store(false);
+
+			if (discardedOut) {
+				REX::WARN("WebView2HostWebRenderer: discarded {} transient message(s) from "
+						  "the dead document; runtime state will be replayed to its replacement",
+					discardedOut);
 			}
 		}
 	};
@@ -1334,6 +1413,13 @@ namespace OSFUI
 	void WebView2HostWebRenderer::Shutdown()
 	{
 		if (_impl) _impl->Stop();
+	}
+
+	bool WebView2HostWebRenderer::RestartAfterFailure()
+	{
+		if (!_impl) return false;
+		_impl->ResetAfterFailure();
+		return true;
 	}
 
 	void WebView2HostWebRenderer::LoadView(const ViewManifest& a_manifest)
