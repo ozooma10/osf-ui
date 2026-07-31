@@ -45,14 +45,13 @@ namespace OSFUI::API::Papyrus
 	StaticDispatchResult DispatchStaticHotkey(std::string_view a_script,
 		std::string_view a_function, std::string_view a_modId, std::string_view a_key);
 
-	// Main thread (Runtime's `ui.action` bridge command): fan a view-fired
-	// action out to the mod's RegisterForViewActions callbacks. a_modId is
-	// derived from the source view id by the caller, never the payload, and
-	// matched case-insensitively. a_args is the action's argument list (the
-	// legacy scalar `arg` arrives as a one-element vector): scalar-arg
-	// registrants get asFn(asAction, a_args[0]-or-""), args-list registrants
-	// (RegisterForViewActionsArgs) get asFn(asAction, string[]). Fire-and-
-	// forget: no return value, no callback functor, no RPC into the VM.
+	// Main thread (Runtime's `papyrus.send` endpoint): fan a view-fired message
+	// out to the mod's ListenForViewActions callbacks as
+	// OnOSFUIViewAction(string asName, string[] asArgs). a_modId is derived
+	// from the source view id by the caller, never the payload, and matched
+	// case-insensitively. Fire-and-forget: no return value, no callback
+	// functor, no RPC into the VM — a script that owes the view an answer
+	// registers through ListenForViewRequests instead.
 	void OnViewAction(std::string_view a_modId, std::string_view a_action, const std::vector<std::string>& a_args);
 
 	// Main thread: dispatch one correlated request from an owning view to its
@@ -77,39 +76,43 @@ namespace OSFUI::API::Papyrus
 	void DrainViewReplies(const std::function<void(const ViewReply&)>& a_deliver,
 		std::chrono::steady_clock::time_point a_now = std::chrono::steady_clock::now());
 
-	// One drained PushToView/PushFormsToView payload. mod is canonical
-	// lowercase (folded from the interned Papyrus string and validated against
-	// the id grammar), so delivery can prefix-match it against
-	// lowercase-by-grammar view ids.
-	struct ViewPush
+	// One drained SetView* value. mod is canonical lowercase (folded from the
+	// interned Papyrus string and validated against the id grammar), so
+	// delivery can match it against lowercase-by-grammar view ids. `value` is
+	// the COMPLETE current value for the key, never a delta — a forms value is
+	// serialized into it at drain time (identity objects with null slots
+	// preserved, docs/form-references-design.md), because form field reads are
+	// main-thread-only while the queue holds FormIDs.
+	struct ViewState
+	{
+		std::string    mod;
+		std::string    key;
+		nlohmann::json value;
+	};
+
+	// One drained SendViewEvent: a one-shot happening for the mod's live views.
+	// Never retained and never replayed — that is the whole distinction from
+	// ViewState, and encoding a happening as state is the bug it prevents.
+	struct ViewEvent
 	{
 		std::string              mod;
-		std::string              key;
-		std::vector<std::string> values;
-		// PushFormsToView only (protocol 1.3): the serialized `forms` array for
-		// the data.push payload — identity objects with null slots preserved
-		// (docs/form-references-design.md). Built at drain time on the main
-		// thread (form field reads are main-thread-only; the queue holds
-		// FormIDs). has_value() distinguishes an EMPTY forms push ("the list is
-		// now empty") from a plain PushToView, which omits the field entirely.
-		std::optional<nlohmann::json> forms;
-		// SetView* only (protocol 1.5): the typed complete value carried by
-		// data.state. Its presence marks retained state rather than a transient
-		// legacy data.push; forms state is serialized into this field at drain.
-		std::optional<nlohmann::json> stateValue;
+		std::string              name;
+		std::vector<std::string> args;
 	};
 
 	// Main thread (Runtime::Tick, next to DrainSettingsOps): hand each queued
-	// Papyrus PushToView payload to a_deliver, which fans it out to the mod's
-	// live views as `data.push`. Fire-and-forget end to end — nothing is cached
-	// natively; a view that (re)opens fires a `ready` action and the script
-	// re-pushes current state.
-	void DrainViewPushes(const std::function<void(const ViewPush&)>& a_deliver);
+	// SetView* value to a_deliver, which retains it in the runtime's shared
+	// ViewStateStore and publishes it to the mod's live views.
+	void DrainViewState(const std::function<void(const ViewState&)>& a_deliver);
 
-	// Replay every retained SetView* value for one canonical mod id. Called when
-	// an owning view is created/reloaded; values are copied under the queue lock
-	// and delivered outside it. The cache is session-scoped and cleared on load.
-	void ReplayViewState(std::string_view a_modId, const std::function<void(const ViewPush&)>& a_deliver);
+	// Main thread: hand each queued SendViewEvent to a_deliver for delivery to
+	// the mod's live views. Nothing is cached.
+	void DrainViewEvents(const std::function<void(const ViewEvent&)>& a_deliver);
+
+	// True once after a game load, so the caller can drop retained Papyrus
+	// state: it holds session-scoped form identities that do not survive a
+	// load. The retained cache lives in the runtime, not here.
+	[[nodiscard]] bool TakeSessionReset();
 
 	// Main thread (Runtime::Tick): apply queued Papyrus Set*/Reset ops through
 	// the store's validated/clamped path. Refusals are logged, never thrown —

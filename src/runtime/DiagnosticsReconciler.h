@@ -20,6 +20,11 @@ namespace OSFUI
 		std::string id;
 		std::string kind;
 		std::string targetVersion;
+		// Which compat condition this is. All `compat` producers must flow
+		// through ONE SyncCompatibility call: the sweep below resolves by
+		// SOURCE, so two independent producers would each resolve the other's
+		// issues on every pass.
+		std::string code{ "compat.needs-newer-osfui" };
 	};
 
 	// Testable state reconciliation behind RuntimeDiagnostics. Runtime gathers

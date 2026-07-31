@@ -1,0 +1,60 @@
+#include "runtime/ViewStateStore.h"
+
+#include "core/StringUtil.h"
+
+namespace OSFUI
+{
+	bool ViewStateStore::Set(std::string_view a_mod, std::string_view a_key, nlohmann::json a_value,
+		bool a_sessionScoped)
+	{
+		if (a_mod.empty() || a_key.empty()) {
+			return false;
+		}
+		auto& entries = _mods[StringUtil::ToLowerAscii(a_mod)];
+		const auto wanted = StringUtil::ToLowerAscii(a_key);
+		for (auto& entry : entries) {
+			if (StringUtil::EqualsCaseInsensitiveAscii(entry.key, wanted)) {
+				// Latest-wins, and the publisher's spelling is refreshed with
+				// it: a script that renamed only the casing should not keep
+				// delivering the first spelling forever.
+				entry.key = std::string(a_key);
+				entry.value = std::move(a_value);
+				entry.sessionScoped = a_sessionScoped;
+				return true;
+			}
+		}
+		if (entries.size() >= kMaxKeysPerMod) {
+			REX::WARN("ViewStateStore: '{}' holds the maximum {} retained keys — '{}' is delivered but not retained",
+				a_mod, kMaxKeysPerMod, a_key);
+			return false;
+		}
+		entries.push_back(Entry{ .key = std::string(a_key), .value = std::move(a_value),
+			.sessionScoped = a_sessionScoped });
+		return true;
+	}
+
+	const std::vector<ViewStateStore::Entry>* ViewStateStore::Find(std::string_view a_mod) const
+	{
+		const auto it = _mods.find(StringUtil::ToLowerAscii(a_mod));
+		return it == _mods.end() ? nullptr : &it->second;
+	}
+
+	void ViewStateStore::RemoveMod(std::string_view a_mod)
+	{
+		_mods.erase(StringUtil::ToLowerAscii(a_mod));
+	}
+
+	void ViewStateStore::ClearSessionScoped()
+	{
+		for (auto it = _mods.begin(); it != _mods.end();) {
+			auto& entries = it->second;
+			std::erase_if(entries, [](const Entry& a_entry) { return a_entry.sessionScoped; });
+			it = entries.empty() ? _mods.erase(it) : std::next(it);
+		}
+	}
+
+	void ViewStateStore::Clear()
+	{
+		_mods.clear();
+	}
+}

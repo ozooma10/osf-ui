@@ -2,13 +2,13 @@
 // and unit tests: inert, but never throws and never hangs an awaiting caller.
 // Runs in the node environment so a stray `window` access fails the test.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { nullBridge } from '@lib/bridge';
 
 
 interface CaughtError extends Error {
   code?: unknown;
-  reply?: unknown;
+  payload?: unknown;
 }
 
 /** Await a promise that must reject and hand back the error, typed. */
@@ -34,71 +34,102 @@ describe('nullBridge — presence', () => {
   });
 });
 
-describe('nullBridge — emit', () => {
-  it('returns false instead of throwing', () => {
+describe('nullBridge — one-way members', () => {
+  it('return false instead of throwing', () => {
     // Views check the boolean to show an offline notice; throwing would take
-    // the whole render down in standalone preview.
-    expect(nullBridge.emit('close')).toBe(false);
-    expect(nullBridge.emit('settings.set', { mod: 'm', key: 'k', value: 1 })).toBe(false);
+    // the whole render down in standalone preview. `send` returns "posted
+    // locally", so false here is the honest answer, not an error swallowed.
+    expect(nullBridge.send('close')).toBe(false);
+    expect(nullBridge.send('setVisible', { visible: false })).toBe(false);
+    expect(nullBridge.markReady()).toBe(false);
+    expect(nullBridge.papyrusSend('doorOpened', 'airlock', 3)).toBe(false);
   });
 });
 
-describe('nullBridge — call', () => {
+describe('nullBridge — request', () => {
   it('rejects with code "no-bridge" and the standalone-preview message', async () => {
-    const err = await caught(nullBridge.call('ping'));
+    const err = await caught(nullBridge.request('ping'));
 
     expect(err).toBeInstanceOf(Error);
     expect(err.code).toBe('no-bridge');
     expect(err.message).toBe('no bridge (standalone preview)');
   });
 
-  it('omits `reply` — the error is synthesised, not a message', async () => {
+  it('omits `payload` — the error is synthesised, not a message', async () => {
     // Same contract as the shipped helper's local rejections (timeout,
-    // no-bridge): `"reply" in err` distinguishes "the host refused" from
-    // "we gave up / there is no host".
-    expect('reply' in (await caught(nullBridge.call('ping')))).toBe(false);
+    // no-bridge): `"payload" in err` distinguishes "the host refused, and here
+    // is its code" from "we gave up / there is no host".
+    expect('payload' in (await caught(nullBridge.request('ping')))).toBe(false);
   });
 
   it('rejects immediately rather than waiting out a timeout', async () => {
-    // No deadline is honoured; even the "timeout disabled" option rejects at once.
-    await expect(nullBridge.call('settings.captureKey', {}, { timeoutMs: 0 })).rejects.toThrow();
+    // No deadline is honoured; even the "client timer disabled" option rejects
+    // at once, because there is nothing that could ever answer.
+    await expect(nullBridge.request('game.get', {}, { timeoutMs: 0 })).rejects.toThrow();
   });
 
   it('makes a FRESH error per call, so a caller may annotate it safely', async () => {
-    const a = await caught(nullBridge.call('ping'));
-    const b = await caught(nullBridge.call('ping'));
+    const a = await caught(nullBridge.request('ping'));
+    const b = await caught(nullBridge.request('ping'));
     expect(a).not.toBe(b);
+  });
+
+  it('rejects papyrusRequest the same way — sugar is not a second contract', async () => {
+    const err = await caught(nullBridge.papyrusRequest('calculatePrice', 42));
+    expect(err.code).toBe('no-bridge');
   });
 });
 
-describe('nullBridge — on', () => {
+describe('nullBridge — on / state', () => {
   it('returns a no-op unsubscribe that is safe to call twice', () => {
-    const off = nullBridge.on('settings.data', () => {
+    const never = () => {
       throw new Error('a null bridge must never deliver a message');
-    });
+    };
+    const off = nullBridge.on('settings.changed', never);
 
     expect(typeof off).toBe('function');
     expect(() => off()).not.toThrow();
     expect(() => off()).not.toThrow();
 
-    // Pinned divergence: nullBridge's unsubscribe returns undefined, while the
-    // shipped helper (shared-kit/osfui.js) returns `set.delete(fn)`, a boolean.
-    // Nothing reads the return value today; asserted so a caller who starts
-    // depending on the boolean hits this instead of a standalone-only bug.
+    // Unsubscribing answers nothing — matching the shipped helper, whose
+    // unsubscribe is a statement body. Pinned so a caller who starts branching
+    // on the return value hits this instead of a standalone-only bug.
     expect(off()).toBeUndefined();
+
+    // Mod-defined events (`<mod>.<name>`) go through the same inert path.
+    expect(() => nullBridge.onAny('acme.mod.looted', never)()).not.toThrow();
+  });
+
+  it('subscribes to state without replaying anything', () => {
+    // The real helper replays the current value SYNCHRONOUSLY on subscribe, so
+    // views put their first render in that handler. Standalone there is no
+    // value: the handler must simply never run, rather than run with undefined
+    // and make every view render an empty registry as if it were real.
+    const handler = vi.fn();
+    const off = nullBridge.state('osfui/settings', handler);
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(typeof off).toBe('function');
+    expect(() => off()).not.toThrow();
+  });
+
+  it('peeks undefined for every key', () => {
+    // Distinguishable from a delivered value: `undefined` is "nothing has
+    // arrived", which is exactly true standalone.
+    expect(nullBridge.peek('osfui/settings')).toBeUndefined();
+    expect(nullBridge.peek('osfui/views')).toBeUndefined();
   });
 });
 
 describe('nullBridge — ready / i18n', () => {
-  it('never resolves ready() — standalone has no runtime.ready', async () => {
-    // Views gate on ready() to learn the host version; resolving with a fake one
-    // would make a preview claim capabilities it lacks, so it stays pending.
-    const sentinel = Symbol('pending');
-    const settled = await Promise.race([
-      nullBridge.ready().then(() => 'resolved' as const),
-      Promise.resolve(sentinel),
-    ]);
-    expect(settled).toBe(sentinel);
+  it('REJECTS ready() with "no-bridge" rather than hanging', async () => {
+    // 1.x left this pending forever, so a view that awaited it before its first
+    // paint rendered nothing in a plain browser and gave the author no clue
+    // why. Rejecting fails fast with a code the view can branch on, and still
+    // never claims a runtime version the preview does not have.
+    const err = await caught(nullBridge.ready());
+    expect(err.code).toBe('no-bridge');
+    expect(err.message).toBe('no bridge (standalone preview)');
   });
 
   it('resolves i18nReady immediately with the empty English catalog', async () => {

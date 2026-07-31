@@ -45,7 +45,7 @@ export function install(ctx: MockContext): void {
         options: HEALTH,
         value: mock.healthScenario(),
         title:
-          'Cycle the System Health scenario pushed as diagnostics.data: clean → warnings → errors → mixed → resolved-only → catalog (every known code + one unknown)',
+          'Cycle the System Health scenario published as the osfui/diagnostics state key: clean → warnings → errors → mixed → resolved-only → catalog (every known code + one unknown)',
       },
       {
         id: 'hotkey',

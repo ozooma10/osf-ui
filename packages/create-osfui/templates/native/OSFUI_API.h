@@ -45,18 +45,27 @@ static_assert(sizeof(std::uint32_t) == 4, "OSFUI_API: fixed-width ABI types requ
 namespace OSFUI::API
 {
 	// Packed (MAJOR << 16) | MINOR.
-	inline constexpr std::uint32_t kBridgeAPIVersion = (1u << 16) | 7u;
+	//
+	// MAJOR 2 is a HARD BREAK from 1.x: RequestBridge returns nullptr for a
+	// major mismatch, so a plugin built against 1.x stops receiving a bridge
+	// until it is recompiled (OSF UI raises a `compat.legacy-api` health card
+	// naming it, so this is never a silent failure). The break is deliberate —
+	// 1.x commands were auto-acked and had the caller's `requestId` injected
+	// into their payload, and keeping that alive would mean re-implementing,
+	// inside 2.0, the exact bookkeeping 2.0 exists to delete.
+	inline constexpr std::uint32_t kBridgeAPIVersion = (2u << 16) | 0u;
 	inline constexpr std::uint32_t kBridgeAPIMajor   = kBridgeAPIVersion >> 16;
 	inline constexpr std::uint32_t kBridgeAPIMinor   = kBridgeAPIVersion & 0xFFFFu;
 
 	inline constexpr const wchar_t* kModuleName        = L"OSFUI.dll";
 	inline constexpr const char*    kRequestExportName = "OSFUI_RequestBridge";
 
-	// Handler for one registered ui.command. Main thread.
+	// Handler for one registered COMMAND — a send endpoint: one-way, nothing to
+	// settle, no reply expected or possible. Main thread.
+	// If the caller needs an outcome, register a REQUEST instead (RegisterRequest).
 	//   a_command      : the registered command string (one fn can serve many)
-	//   a_payloadJson  : serialized payload object, e.g. "{\"id\":\"x\"}". May carry a host-injected "requestId";
-	//                  : the host auto-acks the caller ui.result{ok:true} after you return. Publish richer replies via SendToWeb, echoing the requestId.
-	//   a_sourceViewId : the sending view (your reply target)
+	//   a_payloadJson  : the caller's payload object verbatim, e.g. "{\"id\":\"x\"}"
+	//   a_sourceViewId : the sending view
 	//   a_user         : the pointer you passed to RegisterCommand
 	using CommandFn = void (*)(const char* a_command,
 	                           const char* a_payloadJson,
@@ -136,19 +145,51 @@ namespace OSFUI::API
 		virtual bool          IsBridgeReady() = 0;             // a nativeBridge view is live
 
 		// --- command registration. Thread-safe; applied next main tick. ---
-		// Register a handler for an EXACT command string.
+		// Register a one-way handler for an EXACT command string. The web side
+		// reaches it with osfui.send(); an osfui.request() naming it is refused
+		// with `wrong-endpoint-kind`.
 		//
 		//   * Id: "<author>.<modname>.<name>" - the mod id is lowercase [a-z0-9-] segments with dots
 		//   * Duplicates: first-wins. To replace your OWN handler, UnregisterCommand then re-register (works within one tick).
 		virtual void RegisterCommand(const char* a_command, CommandFn a_handler, void* a_user) = 0;
 		virtual void UnregisterCommand(const char* a_command) = 0;
 
-		// --- native -> web. Thread-safe; queued to the target view. ---
-		// Delivers { "type": a_type, "payload": <a_payloadJson> } to a_viewId.
-		// a_payloadJson must be valid JSON.
+		// --- native -> web EVENTS. Thread-safe; queued to the target view. ---
+		// Delivers { kind:"event", name: a_type, payload: <a_payloadJson> } to
+		// a_viewId, where it arrives at osfui.on(a_type). a_payloadJson must be
+		// valid JSON. A known lazy or idle-reclaimed target retains a bounded
+		// FIFO until its page is created and greets the bridge.
+		//
+		// An event is a ONE-SHOT HAPPENING: delivered at most once, never
+		// replayed. Data that is true until it changes — a status, a list, a
+		// count — is STATE: publish it with SetViewState and the runtime replays
+		// it to every fresh document for you. Using an event for state is the
+		// blank-after-F5 bug.
 		//
 		// Returns false only on null args or an unparseable payload.
 		virtual bool SendToWeb(const char* a_viewId, const char* a_type, const char* a_payloadJson) = 0;
+
+		// --- native -> web STATE (ABI 2.0). Thread-safe; applied next main tick.
+		// Publishes a_payloadJson as the value of state key a_key for YOUR mod.
+		// Every live view of a_modId receives it as
+		// { kind:"state", mod: a_modId, key: a_key, value: ... }, reaching
+		// osfui.state.on("<a_modId>/<a_key>") — and so does every view of that
+		// mod that loads LATER, because the runtime replays every current value
+		// to each document when it greets the bridge.
+		//
+		// This is the fix for hand-rolled reload handling. A 1.x plugin had to
+		// listen for a view-defined "I reloaded" message and re-push; with state
+		// it sets the value once and the platform owns the replay.
+		//
+		//   * Latest-wins per key, and the value is COMPLETE — never a delta.
+		//   * a_payloadJson may be any JSON VALUE (object, array, number, ...).
+		//   * Keys are matched case-insensitively; at most 64 per mod.
+		//   * Not session-scoped: your state survives a game load. (Papyrus
+		//     SetView* state does not — it can hold form identities.)
+		//
+		// Returns false on a null/invalid mod id, an empty/over-long key, or a
+		// payload that is not valid JSON. Validation is synchronous.
+		virtual bool SetViewState(const char* a_modId, const char* a_key, const char* a_payloadJson) = 0;
 
 		// --- readiness notification. Callback on the main thread. ---
 		virtual void SetReadyCallback(ReadyFn a_callback, void* a_user) = 0;
@@ -212,16 +253,19 @@ namespace OSFUI::API
 
 		// --- register a view your mod ships. Thread-safe; applied next main tick.
 		// a_viewId is the qualified "<modId>/<viewName>" id of a views/<modId>/<viewName>/ folder your mod installs.
-		// Loads it and registers it as an openable surface WITHOUT the user's config.json listing it.
+		// Validates it as an openable surface (discovery already catalogs it).
+		// Ordinary views remain lazy until first open; manifest openOnStart loads
+		// and opens immediately — RegisterView is plugin opt-in, so that applies
+		// to menus too, unlike discovery-driven startup.
 		//
 		// Ship the folder, call once after fetching the bridge, then RequestMenu:
 		//     bridge->RegisterView("acme.mymod/dashboard");
 		//     bridge->SendToWeb("acme.mymod/dashboard", "acme.mymod.state", "{...}");  // optional
 		//     bridge->RequestMenu("acme.mymod/dashboard", true);
 		//
-		//   * Idempotent: an already-registered surface is left untouched (not reloaded).
+		//   * Idempotent: an already-live surface is left untouched (not reloaded).
 		//   * A missing view folder warns and does nothing.
-		//   * A view torn down by crash-recovery exhaustion can be revived by sssssssssssssscalling again (fresh retry budget).
+		//   * A view torn down by crash-recovery exhaustion gets a fresh retry budget on its next open.
 		//   * Manifest `openOnStart` is honored on registration.
 		//
 		// Returns false only on a null/empty/invalid id; true = queued.
@@ -340,18 +384,29 @@ namespace OSFUI::API
 	//
 	// ========================================================================
 
-	// Named features, valued as the ABI MINOR that introduced them.
+	// Named features, valued as the ABI MINOR that introduced them — so `Has()`
+	// is `hostMinor >= value`.
+	//
+	// EVERY 1.x-era feature is 0 here. The major break RESET the minor to 0, and
+	// a host that vends this bridge at all has already matched major 2, so it
+	// necessarily has all of them. Leaving them at their 1.x minors (1..7) would
+	// make `Has()` false against every 2.0 host, and since the Client wrapper —
+	// the one this header tells consumers to use — gates on `Has()`, RequestMenu,
+	// every settings getter, hotkeys, RegisterView, diagnostics and
+	// RegisterRequest would all silently no-op. A new gate becomes meaningful
+	// again only when 2.1 adds something.
 	enum class Feature : std::uint32_t
 	{
-		kCommands = 0,           // RegisterCommand/SendToWeb/SetReadyCallback (any 1.x)
-		kRequestMenu = 1,
-		kSettings = 2,           // SubscribeSettings + typed getters + RegisterSettingsSchema
-		kDeliveryGuarantee = 3,  // SendToWeb queue-until-deliverable + message-before-first-paint
-		kHotkeys = 4,
-		kRegisterView = 5,
-		kCommandShape = 6,       // "<author>.<modname>.<name>" enforcement + first-wins duplicates
-		kDiagnostics = 7,        // ReportIssue/ClearIssue/ClearIssuesExcept -> System Health
-		kRequests = 7,           // RegisterRequest + deferred Request::Respond/Reject
+		kCommands = 0,           // RegisterCommand/SendToWeb/SetReadyCallback
+		kRequestMenu = 0,
+		kSettings = 0,           // SubscribeSettings + typed getters + RegisterSettingsSchema
+		kDeliveryGuarantee = 0,  // SendToWeb queue-until-deliverable + message-before-first-paint
+		kHotkeys = 0,
+		kRegisterView = 0,
+		kCommandShape = 0,       // "<author>.<modname>.<name>" enforcement + first-wins duplicates
+		kDiagnostics = 0,        // ReportIssue/ClearIssue/ClearIssuesExcept -> System Health
+		kRequests = 0,           // RegisterRequest + deferred Request::Respond/Reject
+		kViewState = 0,          // SetViewState -> retained, replayed state
 	};
 
 	class Client
@@ -427,6 +482,10 @@ namespace OSFUI::API
 		bool SendToWeb(const char* a_viewId, const char* a_type, const char* a_payloadJson) const noexcept
 		{
 			return _bridge && _bridge->SendToWeb(a_viewId, a_type, a_payloadJson);
+		}
+		bool SetViewState(const char* a_modId, const char* a_key, const char* a_payloadJson) const noexcept
+		{
+			return _bridge && _bridge->SetViewState(a_modId, a_key, a_payloadJson);
 		}
 		void SetReadyCallback(ReadyFn a_callback, void* a_user) const noexcept
 		{

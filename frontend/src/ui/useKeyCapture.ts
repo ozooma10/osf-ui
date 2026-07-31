@@ -70,14 +70,23 @@ export function useKeyCapture<T>(options: KeyCaptureOptions<T>): KeyCaptureApi<T
 
     const opts = optionsRef.current;
     if (opts.bridge.available()) {
+      // Two steps, because they answer two different questions. The REQUEST
+      // settles in machine time — armed, or a typed refusal — and the captured
+      // key arrives whenever the player presses one, as an EVENT.
+      //
+      // 1.x made this one request with `timeoutMs: 0`, which meant the promise
+      // (and its entry in the helper's pending map) lived until a key was
+      // pressed or the page went away. A player who armed a rebind and wandered
+      // off leaked it for the session.
+      const off = opts.bridge.on('settings.captured', (payload) => {
+        if (capturingRef.current !== target) return;
+        off();
+        settle(target, payload);
+      });
       opts.bridge
-        .call<KeyCapturePayload>(
-          'settings.captureKey',
-          opts.requestFields(target),
-          { timeoutMs: 0 },
-        )
-        .then((payload) => settle(target, payload))
+        .request('settings.captureKey', opts.requestFields(target))
         .catch((error: unknown) => {
+          off();
           if (capturingRef.current !== target) return;
           settle(target, { cancelled: true });
           optionsRef.current.onError?.(error, target);

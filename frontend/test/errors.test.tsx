@@ -2,6 +2,12 @@
 //
 // Settings surface failure paths: rejected writes, action timeout, capture-busy,
 // and Escape peeling the undo overlay before it closes the surface.
+//
+// Every one of these is now a REJECTED request. Protocol 2.0 deleted the
+// `ui.result` document with its `ok:false` field, so a refusal can no longer be
+// mistaken for a success by a caller that forgot to inspect the reply — the
+// promise rejects with a machine `code` and the view's `.catch` is the only
+// path that can render it.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { makeBridge, mount, unmount, flush } from './helpers/settingsHarness';
@@ -10,10 +16,9 @@ import { WIDGETS, VIEWS } from './helpers/settingsFixtures';
 afterEach(unmount);
 
 async function mountKit() {
-  const bridge = makeBridge();
+  // The registry and catalog arrive as replayed state, before the first paint.
+  const bridge = makeBridge({ state: { 'osfui/settings': WIDGETS, 'osfui/views': VIEWS } });
   const el = await mount(bridge);
-  bridge.deliver('settings.data', WIDGETS);
-  bridge.deliver('views.data', VIEWS);
   await flush();
   [...el.querySelectorAll<HTMLButtonElement>('.rail-item')]
     .find((b) => b.textContent!.includes('Acme Kit'))!
@@ -23,7 +28,7 @@ async function mountKit() {
 }
 
 describe('settings.set rejection', () => {
-  it('toasts writeRejected, abandons the save state, and re-sends settings.get', async () => {
+  it('toasts writeRejected and abandons the save state', async () => {
     const { bridge, el } = await mountKit();
     el.querySelector<HTMLButtonElement>('#ctl-acme\\.kit-boolOn')!.click();
     await flush();
@@ -33,6 +38,7 @@ describe('settings.set rejection', () => {
     expect(saveEl.classList.contains('visible')).toBe(true);
 
     const setIdx = bridge.indexOf('settings.set');
+    // 2.0: a refusal REJECTS. There is no resolved `{ ok:false }` document.
     bridge.reject(setIdx, { code: 'invalid-value' });
     await flush();
 
@@ -43,7 +49,14 @@ describe('settings.set rejection', () => {
 
     expect(el.querySelector('#save-state')!.classList.contains('visible')).toBe(false);
 
-    expect(bridge.sent.some((s) => s.command === 'settings.get')).toBe(true);
+    // What used to follow — a `settings.get` to pull authoritative state back —
+    // is gone from the contract: the host republishes `osfui/settings` itself,
+    // and every open document gets it. Modelled here as that republish.
+    bridge.publish('osfui/settings', WIDGETS);
+    await flush();
+    expect(
+      el.querySelector<HTMLButtonElement>('#ctl-acme\\.kit-boolOn')!.getAttribute('aria-checked'),
+    ).toBe('true');
   });
 });
 
@@ -58,6 +71,7 @@ describe('action timeout', () => {
     expect(go.disabled).toBe(true);
     expect(go.classList.contains('pending')).toBe(true);
 
+    // A schema `action` addresses the mod's own REQUEST endpoint.
     const idx = bridge.indexOf('acme.kit.run');
     bridge.reject(idx, { code: 'timeout' });
     await flush();
@@ -82,6 +96,8 @@ describe('capture-busy', () => {
     // `.listening` is the class padnav suspends navigation on.
     expect(el.querySelector('.listening')).not.toBeNull();
 
+    // `settings.captureKey` settles in MACHINE time: it either arms, or refuses
+    // like this. The captured key would arrive separately, as an event.
     const idx = bridge.indexOf('settings.captureKey');
     bridge.reject(idx, { code: 'capture-busy' });
     await flush();
@@ -102,17 +118,17 @@ describe('Escape peels the undo overlay before closing', () => {
     await flush();
     expect(el.querySelector('.session-overlay')).not.toBeNull();
 
-    const closesBefore = bridge.sent.filter((s) => s.command === 'close').length;
+    const closesBefore = bridge.sent.filter((s) => s.name === 'close').length;
 
     // First Escape peels the overlay and must not close.
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27 }));
     await flush();
     expect(el.querySelector('.session-overlay')).toBeNull();
-    expect(bridge.sent.filter((s) => s.command === 'close').length).toBe(closesBefore);
+    expect(bridge.sent.filter((s) => s.name === 'close').length).toBe(closesBefore);
 
-    // Second Escape closes.
+    // Second Escape closes. `close` is a SEND: there is no outcome to await.
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27 }));
     await flush();
-    expect(bridge.sent.filter((s) => s.command === 'close').length).toBe(closesBefore + 1);
+    expect(bridge.sent.filter((s) => s.name === 'close').length).toBe(closesBefore + 1);
   });
 });

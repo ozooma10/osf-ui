@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/ozooma10/osf-ui/blob/main/docs/schema/settings-schema.schema.json",
   "title": "OSF UI Settings Schema",
-  "description": "Schema for settings/<author>.<modname>.json files. Bridge protocol 1.5.",
+  "description": "Schema for settings/<author>.<modname>.json files. Mod API 2.0. Bridge protocol 2.0. This file is declarative data, not code, so it survived the 2.0 API break unchanged — a schema written for 1.x still loads and renders. What changed is on the far side of it: the registry a view reads is now the `osfui/settings` state key rather than a settings.get request, committed values arrive as the `settings.changed` event, and an `action` row fires a REQUEST endpoint (see `command`).",
   "type": "object",
   "properties": {
     "$schema": {
@@ -31,7 +31,7 @@
     "targetVersion": {
       "type": "string",
       "pattern": "^[0-9]+(\\.[0-9]+){0,2}$",
-      "description": "The OSF UI version this schema was authored against (e.g. \"1.1.0\") - the same advisory field as a view manifest's."
+      "description": "The OSF UI version this schema was authored against (e.g. \"2.0.0\") - the same advisory field as a view manifest's, with one deliberate difference. A target NEWER than the running host badges 'needs update' on the Mods surface, exactly as it does for a view. A target BELOW 2.0 does NOT raise the `compat.legacy-view` card a view would get: a settings schema executes nothing, so it cannot be broken by the removal of helper members. Declare the release that first shipped whatever you rely on (tabbed `pages`, `onPress`, ...) so an older host tells the player to update instead of silently degrading — an unrecognized base type renders read-only at the schema default, and an unrecognized `pages` list collapses into the plain group column."
     },
     "accent": {
       "type": "string",
@@ -185,7 +185,7 @@
         "key": {
           "type": "string",
           "minLength": 1,
-          "description": "Stable identifier, unique within the mod. Used as the persisted key and in settings.set/settings.reset."
+          "description": "Stable identifier, unique within the mod. Used as the persisted key, in the settings.set / settings.reset requests, and as the `key` field of the settings.changed and ui.hotkey events. Renaming it orphans the stored value — use `aliases` instead."
         },
         "aliases": {
           "type": "array",
@@ -307,7 +307,7 @@
         "hint": { "type": "string", "description": "Optional English helper text; localized at actions.<key>.hint." },
         "command": {
           "type": "string",
-          "description": "Bridge command fired on click. MUST be namespaced with the mod id (\"<id>.something\"); the host refuses any other command. Handled by the mod's own SFSE plugin (RegisterCommand). It may reply with { type: \"<id>.ack\", payload: { key, ok, message? } } to resolve the button; otherwise the button times out after 5s."
+          "description": "Bridge REQUEST endpoint fired on click (mod API 2.0 — it was a fire-and-forget command with an ack convention in 1.x). MUST be namespaced with the mod id (\"<id>.something\"); the surface refuses any other name, and refuses a leading segment from a framework namespace (ui, menu, hud, settings, views, game, runtime) even if a schema claims one as its id. Register it in your SFSE plugin with RegisterRequest, NOT RegisterCommand — a button needs an outcome, and that is exactly what separates the two endpoint kinds; registering the name as a command instead makes the card's request come back `wrong-endpoint-kind` and the button report a failure. Settle it exactly once: Respond with an object — an optional string `message` is shown as a toast, `{}` is a silent success — or Reject with a code and sentence, which is shown as an error toast. The button sends { mod, key } and waits 5s; a handler that never settles rejects with `timeout`, which the surface renders as 'No response from <mod>'. Papyrus cannot serve an action row: it registers listeners for the fixed papyrus.send/papyrus.request endpoints, not for named endpoints of its own."
         },
         "style": { "enum": ["default", "accent", "danger"], "description": "Button tone (default 'default')." },
         "confirm": { "type": "string", "description": "English inline confirmation message; localized at actions.<key>.confirm." },

@@ -92,11 +92,63 @@ package` makes the loadable release zip.
 
 See [the view toolchain guide](docs/view-toolchain.md) for the complete workflow.
 
+## Mod API 2.0
+
+**2.0 is a hard break for views and native plugins.** Settings schemas are
+unaffected — they are declarative data and execute nothing.
+
+The whole web surface is four verbs, chosen by what you mean rather than by how
+the message travels:
+
+| Verb | Direction | Reach for it when |
+|---|---|---|
+| `osfui.send(name, payload)` | view → game | nothing has to come back |
+| `osfui.request(name, payload)` | view → game | you need exactly one answer: a payload, a typed error, or a timeout |
+| `osfui.on(event, fn)` | game → view | something happened once — never replayed |
+| `osfui.state.on(key, fn)` | game → view | a value that stays true until it changes — always replayed |
+
+The events/state split is the load-bearing one, and it is most of why 2.0
+exists. Replaying an event on reload re-fires its effect; *not* replaying state
+on reload is the blank HUD after F5 that 1.x authors worked around by hand. A
+correct 2.0 view has **zero lifecycle code**: the shipped helper greets the
+runtime itself on every document (`osfui.hello`), so first open, F5, dev
+hot-reload and crash recovery are one sequence — `ready`, then a full state
+replay, then events. If you catch yourself writing "on ready, re-request my
+data", the value you want is state.
+
+What the break costs:
+
+- A view whose manifest declares `targetVersion` below `2.0` still loads, but
+  every helper member it calls (`emit`, `call`, `action`, `viewReady`, `data.*`)
+  was removed, so it paints nothing. OSF UI raises a `compat.legacy-view` entry
+  in System Health naming the view — a blank page is the one failure a player
+  cannot diagnose.
+- A native plugin built against ABI 1.x gets `nullptr` from
+  `OSFUI_RequestBridge` (majors must match) and raises `compat.legacy-api`
+  naming its DLL. Recompile against `sdk/OSFUI_API.h`; ABI 2.0 also adds
+  `SetViewState`, which is what lets a plugin publish state instead of
+  hand-rolling reload handling.
+- Papyrus keeps its names. Only `PushToView`, `PushFormsToView` and the
+  `RegisterForViewActions*` family are gone, replaced by `SetView*` (state) and
+  the new `SendViewEvent` (events).
+
+Debugging is F12 Chromium DevTools, not a bespoke inspector: every failure an
+author can cause is printed to the view's own console with an `[osfui]` prefix,
+and `localStorage["osfui:trace"] = "1"` (then reload) logs every envelope in
+both directions.
+
+The rationale, including what each removed alias was papering over, is in
+[docs/mod-api-2.0-design.md](docs/mod-api-2.0-design.md); the typed reference is
+[`sdk/osfui.d.ts`](sdk/osfui.d.ts).
+
 ## Documentation
 
 - [docs/authoring-settings.md](docs/authoring-settings.md) - **start here to add settings to your mod**: one JSON file, no code — quickstart, widgets, hotkeys, presets, localization, testing
 - [docs/view-toolchain.md](docs/view-toolchain.md) - **start here to build a view**: scaffold, browser HMR, in-game sync, checks, and packaging
 - [docs/authoring-views.md](docs/authoring-views.md) - view manifest and bridge protocol reference
+- [docs/authoring-dynamic-data.md](docs/authoring-dynamic-data.md) - state vs. events: feeding a view live game data from Papyrus or a plugin, and surviving reload
+- [docs/native-plugin-api.md](docs/native-plugin-api.md) - the C ABI for SFSE plugins (`sdk/OSFUI_API.h`)
+- [docs/mod-api-2.0-design.md](docs/mod-api-2.0-design.md) - why the 2.0 API is shaped the way it is, and what each 1.x alias was hiding
 - [frontend/README.md](frontend/README.md) - **start here to change a built-in view**: the Vite/TS/Preact source that generates `build/frontend/views/`
 - [docs/architecture.md](docs/architecture.md) - layers and data flow
 - [docs/security-model.md](docs/security-model.md)

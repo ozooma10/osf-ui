@@ -45,10 +45,11 @@ namespace OSFUI::API::Papyrus
 			RE::BSFixedString                         fn;
 			std::string                               modId;  // settings: empty = every mod; hotkey: required
 			std::string                               key;    // hotkey only: empty = every key-typed setting of modId
-			// kAction only: false => callback is OnUIAction(string, string) (the
-			// scalar-arg shape); true => OnUIAction(string, string[]) (the
-			// args-list shape from RegisterForViewActionsArgs). Both shapes can
-			// coexist for one mod and each is dispatched in its declared form.
+			// kAction only, and always true in practice: 2.0 removed the
+			// scalar-arg registration shape, so every listener now takes
+			// OnOSFUIViewAction(string, string[]). Always assigned explicitly by
+			// AddEntry, and kept rather than folded away because the dispatch
+			// fork it drives is where a second callback shape would attach.
 			bool wantsArgs{ false };
 		};
 
@@ -60,19 +61,28 @@ namespace OSFUI::API::Papyrus
 			bool           reset{ false };
 		};
 
-		// One pending PushToView/PushFormsToView. Forms are captured as FormIDs
-		// (stable values) on the VM thread — never TESForm* — and serialized at
-		// drain time on the main thread, where form field reads are safe.
-		// has_value() on formIds marks a forms push even when the array is
-		// empty ("the list is now empty").
-		struct QueuedPush
+		// One pending SetView*. Forms are captured as FormIDs (stable values) on
+		// the VM thread — never TESForm* — and serialized at drain time on the
+		// main thread, where form field reads are safe. has_value() on formIds
+		// marks a forms value even when the array is empty ("the list is now
+		// empty").
+		struct QueuedState
 		{
-			std::string                                mod;
-			std::string                                key;
-			std::vector<std::string>                   values;
-			std::optional<std::vector<std::uint32_t>>  formIds;
-			std::optional<nlohmann::json>               stateValue;
-			bool                                        retained{ false };
+			std::string                               mod;
+			std::string                               key;
+			nlohmann::json                            value;
+			std::optional<std::vector<std::uint32_t>> formIds;
+		};
+
+		// One pending SendViewEvent. Deliberately carries no forms: a form
+		// identity is session-scoped and only readable on the main thread, and an
+		// event is never replayed, so the pairing buys nothing — publish a formId
+		// through a state key instead.
+		struct QueuedEvent
+		{
+			std::string              mod;
+			std::string              name;
+			std::vector<std::string> args;
 		};
 
 		struct PendingViewRequest
@@ -99,10 +109,15 @@ namespace OSFUI::API::Papyrus
 			std::vector<Entry>                                  slots;
 			std::uint16_t                                       nextGen{ 1 };
 			std::vector<QueuedOp>                               ops;
-			std::vector<QueuedPush>                             pushes;
-			std::unordered_map<std::string, ViewPush>           viewState;
+			std::vector<QueuedState>                            states;
+			std::vector<QueuedEvent>                            events;
 			std::unordered_map<std::string, PendingViewRequest> viewRequests;
 			std::uint64_t                                       nextViewRequest{ 1 };
+			// Set by the game-load sink, consumed by Runtime::Tick: Papyrus state
+			// holds session-scoped form identities and must not cross a load. The
+			// retained cache itself now lives in ViewStateStore, which the runtime
+			// owns, so the sink raises a flag instead of reaching across layers.
+			bool                                                sessionReset{ false };
 		};
 
 		ProcessState& State()
@@ -410,12 +425,12 @@ namespace OSFUI::API::Papyrus
 			State().ops.push_back({ mod, key ? key : "", std::move(a_value), a_reset });
 		}
 
-		// Shared PushToView/PushFormsToView target validation (VM tasklet
+		// Shared SetView*/SendViewEvent target validation (VM tasklet
 		// thread). Fold to the grammar's lowercase before validating: the
 		// interned casing is arbitrary, and the folded id is what delivery
 		// prefix-matches against the (lowercase-by-grammar) view ids. Returns
 		// the folded mod id, or nullopt after logging the refusal.
-		std::optional<std::string> FoldPushTarget(const RE::BSFixedString& a_mod, const RE::BSFixedString& a_key, std::string_view a_native)
+		std::optional<std::string> FoldTarget(const RE::BSFixedString& a_mod, const RE::BSFixedString& a_key, std::string_view a_native)
 		{
 			auto        mod = ToLowerAscii(a_mod.c_str());
 			const char* key = a_key.c_str();
@@ -427,41 +442,31 @@ namespace OSFUI::API::Papyrus
 			return mod;
 		}
 
-		// Queue a validated push for Runtime::Tick's DrainViewPushes — same
-		// queue-on-VM-thread / drain-on-main-thread shape as QueueOp.
-		void EnqueuePush(QueuedPush a_push)
+		// Queue a validated value for Runtime::Tick's DrainViewState — same
+		// queue-on-VM-thread / drain-on-main-thread shape as QueueOp. Values are
+		// already JSON-safe on the VM thread; forms take the FormID path because
+		// their identity fields may only be read on the main thread.
+		void EnqueueState(QueuedState a_state)
 		{
 			std::lock_guard l{ State().lock };
 			// Same drop-newest cap as the settings-op queue, for the same
 			// reason: with the runtime disabled the drain never runs.
-			constexpr std::size_t kMaxPendingPushes = 1024;
-			if (State().pushes.size() >= kMaxPendingPushes) {
-				REX::WARN("PapyrusApi: pending view-push queue full; dropping push for {}.{}", a_push.mod, a_push.key);
+			constexpr std::size_t kMaxPendingStates = 1024;
+			if (State().states.size() >= kMaxPendingStates) {
+				REX::WARN("PapyrusApi: pending view-state queue full; dropping {}.{}", a_state.mod, a_state.key);
 				return;
 			}
-			State().pushes.push_back(std::move(a_push));
+			State().states.push_back(std::move(a_state));
 		}
 
-		// SetView* is retained state, not a transient push. Values are already
-		// JSON-safe on the VM thread; forms take the FormID path below because
-		// their identity fields may only be read on the main thread.
 		void EnqueueState(const RE::BSFixedString& a_mod, const RE::BSFixedString& a_key,
 			nlohmann::json a_value, std::string_view a_native)
 		{
-			auto mod = FoldPushTarget(a_mod, a_key, a_native);
+			auto mod = FoldTarget(a_mod, a_key, a_native);
 			if (!mod) return;
-			EnqueuePush({ std::move(*mod), a_key.c_str(), {}, std::nullopt, std::move(a_value), true });
+			EnqueueState(QueuedState{ std::move(*mod), a_key.c_str(), std::move(a_value), std::nullopt });
 		}
 
-		std::string StateCacheKey(std::string_view a_mod, std::string_view a_key)
-		{
-			std::string out;
-			out.reserve(a_mod.size() + a_key.size() + 1);
-			out.append(a_mod);
-			out.push_back('\n');
-			out.append(ToLowerAscii(a_key));
-			return out;
-		}
 		// FormType -> 4-char record signature ("KYWD", "WEAP", ...) via the
 		// game's own table. Main thread (the table is relocated game data).
 		// Unknown types fall back to the numeric enum value so the field is
@@ -695,37 +700,9 @@ namespace OSFUI::API::Papyrus
 			return AddEntry(Kind::kAction, {}, a_script, a_fn.c_str(), *modId, {}, a_wantsArgs);
 		}
 
-		// The four action natives. The "Args" pair differs only in the callback
-		// shape: OnUIAction(string asAction, string[] asArgs) instead of a single
-		// scalar, so a view can send several values per action
-		// (osfui.send 'ui.action' { args: [...] }) instead of packing them into
-		// one string.
-		std::int32_t RegisterForViewActions(PapVM&, std::uint32_t, std::monostate,
-			RE::BSTSmartPointer<RE::BSScript::Object> a_receiver, RE::BSFixedString a_fn, RE::BSFixedString a_modId)
-		{
-			return RegisterActionInstance(a_receiver, a_fn, a_modId, false, "RegisterForViewActions");
-		}
-
-		std::int32_t RegisterForViewActionsStatic(PapVM&, std::uint32_t, std::monostate,
-			RE::BSFixedString a_script, RE::BSFixedString a_fn, RE::BSFixedString a_modId)
-		{
-			return RegisterActionStatic(a_script, a_fn, a_modId, false, "RegisterForViewActionsStatic");
-		}
-
-		std::int32_t RegisterForViewActionsArgs(PapVM&, std::uint32_t, std::monostate,
-			RE::BSTSmartPointer<RE::BSScript::Object> a_receiver, RE::BSFixedString a_fn, RE::BSFixedString a_modId)
-		{
-			return RegisterActionInstance(a_receiver, a_fn, a_modId, true, "RegisterForViewActionsArgs");
-		}
-
-		std::int32_t RegisterForViewActionsArgsStatic(PapVM&, std::uint32_t, std::monostate,
-			RE::BSFixedString a_script, RE::BSFixedString a_fn, RE::BSFixedString a_modId)
-		{
-			return RegisterActionStatic(a_script, a_fn, a_modId, true, "RegisterForViewActionsArgsStatic");
-		}
-
-		// Common-case registration: fixed callback name and the modern args-list
-		// shape, so a script author chooses only receiver + owning mod id.
+		// The only action registration. The `RegisterForViewActions*` family is
+		// gone: four registrations for one concept, two of whose shapes existed
+		// only because the args list arrived after the scalar one did.
 		std::int32_t ListenForViewActions(PapVM&, std::uint32_t, std::monostate,
 			RE::BSTSmartPointer<RE::BSScript::Object> a_receiver, RE::BSFixedString a_modId)
 		{
@@ -772,38 +749,31 @@ namespace OSFUI::API::Papyrus
 			return AddEntry(Kind::kRequest, {}, a_script, "OnOSFUIViewRequest", *modId, {});
 		}
 
-		void PushToView(PapVM&, std::uint32_t, std::monostate,
-			RE::BSFixedString a_mod, RE::BSFixedString a_key, std::vector<RE::BSFixedString> a_values)
+		// The Papyrus event channel: a one-shot happening delivered to the mod's
+		// live views as `on("<mod>.<name>")`. Never cached and never replayed —
+		// which is exactly why it has to exist. Without it, an author with
+		// something momentary to announce ("the scan finished", "the player took
+		// a hit") had only retained state to say it with, and state replays on
+		// every reload, so the "event" re-fired.
+		void SendViewEvent(PapVM&, std::uint32_t, std::monostate,
+			RE::BSFixedString a_mod, RE::BSFixedString a_name, std::vector<RE::BSFixedString> a_args)
 		{
-			auto mod = FoldPushTarget(a_mod, a_key, "PushToView");
+			auto mod = FoldTarget(a_mod, a_name, "SendViewEvent");
 			if (!mod) {
 				return;
 			}
-			std::vector<std::string> values;
-			values.reserve(a_values.size());
-			for (const auto& v : a_values) {
-				values.emplace_back(v.c_str());
+			std::vector<std::string> args;
+			args.reserve(a_args.size());
+			for (const auto& v : a_args) {
+				args.emplace_back(v.c_str());
 			}
-			EnqueuePush({ std::move(*mod), a_key.c_str(), std::move(values), std::nullopt });
-		}
-
-		// Protocol 1.3: serialize real forms into the mod's live views as the
-		// data.push `forms` field. Only FormIDs are captured here on the VM
-		// thread (a None element captures 0, keeping its slot); the identity
-		// fields are read at drain time on the main thread.
-		void PushFormsToView(PapVM&, std::uint32_t, std::monostate,
-			RE::BSFixedString a_mod, RE::BSFixedString a_key, std::vector<RE::TESForm*> a_forms)
-		{
-			auto mod = FoldPushTarget(a_mod, a_key, "PushFormsToView");
-			if (!mod) {
+			std::lock_guard l{ State().lock };
+			constexpr std::size_t kMaxPendingEvents = 1024;
+			if (State().events.size() >= kMaxPendingEvents) {
+				REX::WARN("PapyrusApi: pending view-event queue full; dropping {}.{}", *mod, a_name.c_str());
 				return;
 			}
-			std::vector<std::uint32_t> ids;
-			ids.reserve(a_forms.size());
-			for (const auto* form : a_forms) {
-				ids.push_back(form ? static_cast<std::uint32_t>(form->GetFormID()) : 0);
-			}
-			EnqueuePush({ std::move(*mod), a_key.c_str(), {}, std::move(ids) });
+			State().events.push_back(QueuedEvent{ std::move(*mod), a_name.c_str(), std::move(args) });
 		}
 
 		void SetViewBool(PapVM&, std::uint32_t, std::monostate,
@@ -861,14 +831,14 @@ namespace OSFUI::API::Papyrus
 		void SetViewForms(PapVM&, std::uint32_t, std::monostate,
 			RE::BSFixedString a_mod, RE::BSFixedString a_key, std::vector<RE::TESForm*> a_forms)
 		{
-			auto target = FoldPushTarget(a_mod, a_key, "SetViewForms");
+			auto target = FoldTarget(a_mod, a_key, "SetViewForms");
 			if (!target) return;
 			std::vector<std::uint32_t> ids;
 			ids.reserve(a_forms.size());
 			for (const auto* form : a_forms) {
 				ids.push_back(form ? static_cast<std::uint32_t>(form->GetFormID()) : 0);
 			}
-			EnqueuePush({ std::move(*target), a_key.c_str(), {}, std::move(ids), std::nullopt, true });
+			EnqueueState(QueuedState{ std::move(*target), a_key.c_str(), {}, std::move(ids) });
 		}
 
 		bool ReplyViewBool(PapVM&, std::uint32_t, std::monostate, RE::BSFixedString a_token, bool a_value)
@@ -983,10 +953,6 @@ namespace OSFUI::API::Papyrus
 			a_vm->BindNativeMethod(kScriptName, "RegisterForSettingChangesStatic", &RegisterForSettingChangesStatic, true, false);
 			a_vm->BindNativeMethod(kScriptName, "RegisterForHotkey", &RegisterForHotkey, true, false);
 			a_vm->BindNativeMethod(kScriptName, "RegisterForHotkeyStatic", &RegisterForHotkeyStatic, true, false);
-			a_vm->BindNativeMethod(kScriptName, "RegisterForViewActions", &RegisterForViewActions, true, false);
-			a_vm->BindNativeMethod(kScriptName, "RegisterForViewActionsStatic", &RegisterForViewActionsStatic, true, false);
-			a_vm->BindNativeMethod(kScriptName, "RegisterForViewActionsArgs", &RegisterForViewActionsArgs, true, false);
-			a_vm->BindNativeMethod(kScriptName, "RegisterForViewActionsArgsStatic", &RegisterForViewActionsArgsStatic, true, false);
 			a_vm->BindNativeMethod(kScriptName, "ListenForViewActions", &ListenForViewActions, true, false);
 			a_vm->BindNativeMethod(kScriptName, "ListenForViewActionsStatic", &ListenForViewActionsStatic, true, false);
 			a_vm->BindNativeMethod(kScriptName, "ListenForViewRequests", &ListenForViewRequests, true, false);
@@ -1003,8 +969,7 @@ namespace OSFUI::API::Papyrus
 			a_vm->BindNativeMethod(kScriptName, "RejectViewRequest", &RejectViewRequest, true, false);
 			a_vm->BindNativeMethod(kScriptName, "Unregister", &Unregister, true, false);
 
-			a_vm->BindNativeMethod(kScriptName, "PushToView", &PushToView, true, false);
-			a_vm->BindNativeMethod(kScriptName, "PushFormsToView", &PushFormsToView, true, false);
+			a_vm->BindNativeMethod(kScriptName, "SendViewEvent", &SendViewEvent, true, false);
 			a_vm->BindNativeMethod(kScriptName, "SetViewBool", &SetViewBool, true, false);
 			a_vm->BindNativeMethod(kScriptName, "SetViewInt", &SetViewInt, true, false);
 			a_vm->BindNativeMethod(kScriptName, "SetViewFloat", &SetViewFloat, true, false);
@@ -1045,11 +1010,14 @@ namespace OSFUI::API::Papyrus
 				std::construct_at(std::addressof(e.receiver));  // overwrite ptr = null, skip Release
 			}
 			State().slots.clear();
-			// Retained view state and queued pushes contain session-scoped form
-			// identities and must never cross a game load.
-			State().viewState.clear();
+			// Queued state/events carry session-scoped form identities and must
+			// never cross a game load. The retained copy lives in the runtime's
+			// ViewStateStore now, so raise a flag the next tick consumes rather
+			// than reaching across layers from a VM-thread event sink.
 			State().viewRequests.clear();
-			State().pushes.clear();
+			State().states.clear();
+			State().events.clear();
+			State().sessionReset = true;
 			if (dropped) {
 				REX::INFO("PapyrusApi: cleared {} script registration(s) on game load (session-scoped; scripts re-register)", dropped);
 			}
@@ -1172,56 +1140,47 @@ namespace OSFUI::API::Papyrus
 		}
 	}
 
-	void DrainViewPushes(const std::function<void(const ViewPush&)>& a_deliver)
+	void DrainViewState(const std::function<void(const ViewState&)>& a_deliver)
 	{
-		std::vector<QueuedPush> pushes;
+		std::vector<QueuedState> states;
 		{
 			std::lock_guard l{ State().lock };
-			pushes.swap(State().pushes);
+			states.swap(State().states);
 		}
-		for (auto& p : pushes) {
-			ViewPush out{ std::move(p.mod), std::move(p.key), std::move(p.values), std::nullopt, std::move(p.stateValue) };
-			if (p.formIds) {
-				// Serialize here, on the main thread: the queue held FormIDs,
-				// and a form that vanished since keeps its slot as null.
+		for (auto& queued : states) {
+			ViewState out{ std::move(queued.mod), std::move(queued.key), std::move(queued.value) };
+			if (queued.formIds) {
+				// Serialize here, on the main thread: the queue held FormIDs, and
+				// a form that vanished since keeps its slot as null so a parallel
+				// values key stays index-aligned.
 				auto forms = nlohmann::json::array();
-				for (const auto id : *p.formIds) {
+				for (const auto id : *queued.formIds) {
 					forms.push_back(SerializeForm(id));
 				}
-				// Mutually exclusive with stateValue: the encoder emits
-				// data.state and never reads `forms` when stateValue is set, so
-				// filling both would retain (and copy on every replay) a dead
-				// duplicate of the whole array.
-				if (p.retained) {
-					out.stateValue = std::move(forms);
-				} else {
-					out.forms = std::move(forms);
-				}
-			}
-			if (p.retained) {
-				std::lock_guard l{ State().lock };
-				const auto key = StateCacheKey(out.mod, out.key);
-				constexpr std::size_t kMaxViewStateEntries = 1024;
-				if (State().viewState.contains(key) || State().viewState.size() < kMaxViewStateEntries) {
-					State().viewState[key] = out;
-				} else {
-					REX::WARN("PapyrusApi: retained view-state cache full; delivering but not retaining {}.{}", out.mod, out.key);
-				}
+				out.value = std::move(forms);
 			}
 			a_deliver(out);
 		}
 	}
 
-	void ReplayViewState(std::string_view a_modId, const std::function<void(const ViewPush&)>& a_deliver)
+	void DrainViewEvents(const std::function<void(const ViewEvent&)>& a_deliver)
 	{
-		std::vector<ViewPush> snapshot;
+		std::vector<QueuedEvent> events;
 		{
 			std::lock_guard l{ State().lock };
-			for (const auto& [_, state] : State().viewState) {
-				if (Ids::EqualsCaseInsensitiveAscii(state.mod, a_modId)) snapshot.push_back(state);
-			}
+			events.swap(State().events);
 		}
-		for (const auto& state : snapshot) a_deliver(state);
+		for (auto& queued : events) {
+			a_deliver(ViewEvent{ std::move(queued.mod), std::move(queued.name), std::move(queued.args) });
+		}
+	}
+
+	bool TakeSessionReset()
+	{
+		std::lock_guard l{ State().lock };
+		const bool pending = State().sessionReset;
+		State().sessionReset = false;
+		return pending;
 	}
 
 	void DrainSettingsOps(SettingsStore& a_store)

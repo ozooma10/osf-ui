@@ -1,8 +1,11 @@
 # OSF UI 2.0 mod API: design
 
-Status: proposal (not yet scheduled). This document describes the target
-design; the migration mechanics (renames, test matrix, sequencing) live in the
-2.0 migration plan and are only referenced here.
+Status: IMPLEMENTED in 2.0.0 (this file is kept as the design record, not
+updated to describe the code). This document describes the target
+design; the migration mechanics (renames, test matrix, sequencing) live in
+[the 2.0 migration plan](mod-api-2.0-migration.md) and are only referenced here.
+That document is written against what was actually implemented, and records
+where the shipped code deviates from this one.
 
 ## What this system is
 
@@ -334,7 +337,8 @@ a view id. 2.0 keeps that split: F12 = focused menu, harness = any view.
 ## Relationship to the 1.x surface
 
 The migration table, endpoint reclassification list, ABI-major handling,
-sequencing, and test matrix live in the 2.0 migration plan. Design-level
+sequencing, and test matrix live in
+[the 2.0 migration plan](mod-api-2.0-migration.md). Design-level
 constraints that plan must honor:
 
 - Old views load the *new* shared helper (it ships with OSF UI). Removed
@@ -349,6 +353,10 @@ constraints that plan must honor:
   the plan, not a technical constraint.
 
 ## Open questions
+
+Kept as authored, for the record. Two of the three were settled during
+implementation and one was deliberately deferred — the reasoning is in
+[the 2.0 migration plan](mod-api-2.0-migration.md), "Resolved design questions".
 
 - Granularity of platform state keys: is `osfui/settings` one document, or
   per-mod (`osfui/settings/<mod>`) to keep push sizes bounded on large

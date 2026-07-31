@@ -56,7 +56,7 @@ for (const [surface, integration, backendPath, backendPattern] of [
     assert.equal(tsconfig.compilerOptions.allowJs, true);
 
     const sourceMarker = surface === 'hud'
-      ? 'settings.get'
+      ? 'osfui/settings'
       : integration === 'native'
         ? 'acme.widgets.getState'
         : 'osfui.papyrus.request';
@@ -117,10 +117,13 @@ for (const [surface, integration, backendPath, backendPattern] of [
         assert.match(script, /ListenForViewActions/);
         assert.match(script, /OnOSFUIViewAction/);
         assert.match(script, /RejectViewRequest/);
-        assert.match(source, /osfui\?\.data\?\.on/);
-        assert.match(source, /osfui\?\.action\?\.\('bump', 1\)/);
+        assert.match(source, /osfui\?\.state\?\.on\?\./);
+        assert.match(source, /osfui\?\.papyrus\?\.send\('bump', 1\)/);
+        // The 1.x endpoint and its reply type are gone, not renamed in place.
         assert.doesNotMatch(source, /ui\.papyrusRequest/);
-        assert.match(mock, /papyrus\.result/);
+        assert.doesNotMatch(mock, /papyrus\.result/);
+        assert.match(mock, /name === 'papyrus\.request'/);
+        assert.match(mock, /io\.resolve/);
       } else {
         const schema = JSON.parse(await readFile(
           resolve(root, 'mod/SFSE/Plugins/OSFUI/settings/acme.widgets.json'),
@@ -150,7 +153,8 @@ for (const [surface, integration, backendPath, backendPattern] of [
         assert.match(nativeSource, /OSFUI::API::JsonRequest/);
         assert.match(nativeSource, /SubscribeSettings/);
         assert.match(nativeSource, /SubscribeHotkey/);
-        assert.match(source, /osfui\.call<DemoState>/);
+        assert.match(source, /osfui!\.request<DemoState>/);
+        assert.match(source, /state\?\.on\?\.<DemoState>/);
         assert.match(source, /acme\.widgets\.increment/);
       } else {
         assert.match(nativeSource, /RegisterView\(kViewId\)/);
@@ -171,17 +175,17 @@ for (const [surface, integration, backendPath, backendPattern] of [
       assert.doesNotMatch(source, /<button|<form|addEventListener\('click'/);
       assert.match(source, /settings\.changed/);
       assert.match(source, /ui\.hotkey/);
-      // hud.show/hud.hide, never a setViewHidden call: the menu policy would
+      // menu.open/menu.close, never a setViewHidden call: the menu policy would
       // clobber a raw hidden flag on the next menu close (see syncVisibility).
-      // The prose comment in the template may name the command; a quoted
+      // The prose comment in the template may name the endpoint; a quoted
       // string is a call.
-      assert.match(source, /'hud\.show'/);
+      assert.match(source, /'menu\.open'/);
       assert.doesNotMatch(source, /'setViewHidden'/);
       assert.match(style, /pointer-events: none/);
       assert.match(style, /data-anchor/);
       assert.match(mock, /Change telemetry/);
       assert.match(mock, /hud-hotkey/);
-      assert.match(mock, /command === 'hud\.show'/);
+      assert.match(mock, /name === 'menu\.open'/);
     } else {
       assert.doesNotMatch(config, /openOnStart: true/);
       assert.match(source, /<button/);

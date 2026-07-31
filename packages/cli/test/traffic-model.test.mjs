@@ -1,4 +1,8 @@
 // The bridge-traffic row model: headlines, details, tones, dedupe keys.
+//
+// Protocol 2.0 envelopes put routing beside the payload, so every headline is
+// derived from `kind` plus the field that kind routes on — never from a field
+// inside the payload, which a mod could otherwise use to disguise a row.
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -13,46 +17,95 @@ test('preview flattens objects to key=value and counts nesting', () => {
   assert.equal(preview({ text: 'x'.repeat(200) }).length, 140);
 });
 
-test('commands read as the command, not the envelope', () => {
-  const row = summarize('out', {
-    type: 'ui.command',
-    requestId: 'r1',
-    payload: { command: 'settings.get', mod: 'acme' },
+test('sends and requests read as the endpoint, not the envelope', () => {
+  const send = summarize('out', { kind: 'send', name: 'close', payload: {} });
+  assert.equal(send.title, 'send · close');
+  assert.equal(send.requestId, '');
+  assert.equal(send.tone, 'out');
+
+  const request = summarize('out', {
+    kind: 'request',
+    name: 'settings.set',
+    id: 'q1',
+    payload: { mod: 'acme', key: 'volume', value: 3 },
   });
-  assert.equal(row.title, 'command · settings.get');
-  assert.equal(row.detail, 'mod=acme');
-  assert.equal(row.requestId, 'r1');
-  assert.equal(row.tone, 'out');
-  assert.match(row.body, /"command": "settings.get"/);
+  assert.equal(request.title, 'request · settings.set');
+  assert.equal(request.detail, 'mod=acme, key=volume, value=3');
+  // The correlation id is `id` on the wire; the row model still calls it
+  // requestId because that is what the panel column is named.
+  assert.equal(request.requestId, 'q1');
+  assert.match(request.body, /"name": "settings.set"/);
 });
 
-test('known push types get purpose-built headlines', () => {
-  assert.equal(summarize('in', { type: 'data.state', payload: { key: 'volume', value: 3 } }).title,
-    'state · volume');
-  assert.equal(summarize('in', { type: 'data.state', payload: { key: 'volume', value: 3 } }).detail, '3');
-  assert.equal(summarize('in', { type: 'i18n.data', payload: { locale: 'de', strings: { a: '1' } } }).detail,
-    '1 strings');
-  assert.equal(summarize('in', { type: 'ui.gamepad', payload: { kind: 'button', button: { id: 0x0100, down: true } } }).title,
+test('state rows name the mod and key, and read the value', () => {
+  const row = summarize('in', { kind: 'state', mod: 'acme.mymod', key: 'volume', value: 3 });
+  assert.equal(row.title, 'state · acme.mymod/volume');
+  assert.equal(row.detail, '3');
+
+  // The locale catalog is the one state value worth summarising rather than
+  // spelling out — a few hundred strings would fill the panel.
+  const locale = summarize('in', {
+    kind: 'state',
+    mod: 'osfui',
+    key: 'i18n',
+    value: { locale: 'de', strings: { a: '1' } },
+  });
+  assert.equal(locale.title, 'locale · de');
+  assert.equal(locale.detail, '1 strings');
+});
+
+test('known events get purpose-built headlines', () => {
+  assert.equal(
+    summarize('in', { kind: 'event', name: 'ui.gamepad', payload: { kind: 'button', button: { id: 0x0100, down: true } } }).title,
     'gamepad · LB');
-  assert.equal(summarize('in', { type: 'ui.visibility', payload: { visible: false, reason: 'overlay' } }).title,
+  assert.equal(
+    summarize('in', { kind: 'event', name: 'ui.visibility', payload: { visible: false, reason: 'overlay' } }).title,
     'visibility · hidden');
-  assert.equal(summarize('in', { type: 'ui.hotkey', payload: { mod: 'acme', key: 'toggleKey' } }).title,
+  assert.equal(
+    summarize('in', { kind: 'event', name: 'ui.hotkey', payload: { mod: 'acme', key: 'toggleKey' } }).title,
     'hotkey · toggleKey');
+  assert.equal(
+    summarize('in', { kind: 'event', name: 'settings.captured', payload: { mod: 'acme', key: 'k', name: 'F9', cancelled: false } }).title,
+    'captured · F9');
+});
+
+test('a mod event falls back to its own name', () => {
+  const row = summarize('in', { kind: 'event', name: 'acme.mymod.scanned', payload: { args: ['3'] } });
+  assert.equal(row.title, 'event · acme.mymod.scanned');
+  assert.equal(row.detail, 'args=[1]');
 });
 
 test('errors take the warn tone whatever the direction says', () => {
-  const row = summarize('in', { type: 'ui.error', payload: { code: 'mock-unhandled', message: 'No mock response.' } });
+  const row = summarize('in', {
+    kind: 'error',
+    id: 'q1',
+    payload: { code: 'mock-unhandled', message: 'No mock response.' },
+  });
   assert.equal(row.tone, 'warn');
   assert.equal(row.title, 'error · mock-unhandled');
   assert.equal(row.detail, 'No mock response.');
+  assert.equal(row.requestId, 'q1');
 });
 
-test('unknown types fall back to type plus a payload preview', () => {
+test('a dev-only protocol complaint reads as one', () => {
+  const row = summarize('in', {
+    kind: 'event',
+    name: 'osfui.debug.error',
+    payload: { code: 'wrong-endpoint-kind', message: "'settings.set' is a request endpoint" },
+  });
+  assert.equal(row.title, 'protocol · wrong-endpoint-kind');
+  assert.equal(row.detail, "'settings.set' is a request endpoint");
+});
+
+test('replies and the handshake are legible without a name', () => {
+  assert.equal(summarize('in', { kind: 'reply', id: 'q1', payload: { value: 7 } }).title, 'reply');
+  assert.equal(summarize('in', { kind: 'ready', payload: { game: 'Starfield', version: '2.0.0' } }).title, 'ready');
+});
+
+test('an envelope with no kind falls back to a payload preview', () => {
   const row = summarize('in', { payload: { a: 1 } });
-  assert.equal(row.title, '(untyped)');
-  const custom = summarize('in', { type: 'acme.thing', payload: { a: 1 } });
-  assert.equal(custom.title, 'acme.thing');
-  assert.equal(custom.detail, 'a=1');
+  assert.equal(row.title, '(no kind)');
+  assert.equal(row.detail, 'a=1');
 });
 
 test('harness notes are note-toned, bodyless rows', () => {
@@ -64,9 +117,9 @@ test('harness notes are note-toned, bodyless rows', () => {
 });
 
 test('the dedupe key folds repeats but separates directions and details', () => {
-  const push = (value) => summarize('in', { type: 'data.state', payload: { key: 'k', value } }).key;
+  const push = (value) => summarize('in', { kind: 'state', mod: 'acme', key: 'k', value }).key;
   assert.equal(push(1), push(1));
   assert.notEqual(push(1), push(2));
-  const command = { type: 'ui.command', payload: { command: 'close' } };
-  assert.notEqual(summarize('out', command).key, summarize('in', command).key);
+  const send = { kind: 'send', name: 'close', payload: {} };
+  assert.notEqual(summarize('out', send).key, summarize('in', send).key);
 });

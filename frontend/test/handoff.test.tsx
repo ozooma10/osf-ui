@@ -4,9 +4,13 @@
 //
 // This surface is the one the runtime shows while a target view's renderer is
 // still starting, so the thing worth pinning is the whole chain: a native
-// `handoff.state` frame -> shared-kit dispatch -> Preact render -> outbound
-// `ui.command` envelopes. A mocked bridge would pass even if the view stopped
-// speaking the shipped helper's protocol.
+// `state` frame for `osfui/handoff` -> shared-kit dispatch -> Preact render ->
+// outbound `send` envelopes. A mocked bridge would pass even if the view
+// stopped speaking the shipped helper's protocol.
+//
+// Protocol 2.0 moved this surface from a `handoff.state` PUSH to a state KEY,
+// which is the difference between "you had to be listening" and "it is replayed
+// to every document" — see the replay case below.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -18,39 +22,63 @@ import { App } from '@views/osfui/handoff/App';
 
 const HELPER = readFileSync(resolve(process.cwd(), 'src/shared-kit/osfui.js'), 'utf8');
 
+/** One web -> native envelope, as the helper posts it. */
 interface Frame {
-  type: string;
+  kind: string;
+  name: string;
   payload: Record<string, unknown>;
+  id?: string;
 }
 
 let host: HTMLElement;
 
-// `receive` takes a loose record, not HandoffStatePayload: these are wire
-// frames, and one case deliberately pushes an off-contract `phase`.
-function mount(): { frames: Frame[]; receive(payload: Record<string, unknown>): void } {
+/**
+ * Load the shipped helper over a bare injected bridge — a `postMessage` slot is
+ * exactly what the native runtime provides before any script of ours runs.
+ */
+function installHelper(): Frame[] {
   const frames: Frame[] = [];
-  // The helper decorates whatever `window.osfui` it finds; a bare object with
-  // postMessage is exactly what the native runtime injects before it runs.
   (window as unknown as { osfui: unknown }).osfui = {
     postMessage(json: string) {
       frames.push(JSON.parse(json) as Frame);
     },
   };
   new Function(HELPER)();
+  return frames;
+}
 
+/**
+ * Deliver `osfui/handoff`. `value` is a loose record, not HandoffState: these
+ * are wire frames, and one case deliberately pushes an off-contract `phase`.
+ */
+function publish(value: Record<string, unknown>): void {
+  act(() => {
+    window.osfui!.onMessage!(
+      JSON.stringify({ kind: 'state', mod: 'osfui', key: 'handoff', value }),
+    );
+  });
+}
+
+function renderApp(): void {
   host = document.createElement('div');
   document.body.appendChild(host);
   act(() => {
     render(<App bridge={windowBridge} />, host);
   });
+}
 
+function mount(): {
+  frames: Frame[];
+  /** Every outbound endpoint name in order, the boot greeting included. */
+  names(): string[];
+  receive(value: Record<string, unknown>): void;
+} {
+  const frames = installHelper();
+  renderApp();
   return {
     frames,
-    receive(payload) {
-      act(() => {
-        window.osfui!.onMessage!(JSON.stringify({ type: 'handoff.state', payload }));
-      });
-    },
+    names: () => frames.map((frame) => frame.name),
+    receive: publish,
   };
 }
 
@@ -66,6 +94,13 @@ afterEach(() => {
 });
 
 describe('first-load handoff surface', () => {
+  it('greets the host itself — the page-initiated handshake is the only boot path', () => {
+    const app = mount();
+    // Sent by the helper the moment it loads, before the view renders a thing.
+    // Nothing waits on a greeting that might already have been missed.
+    expect(app.frames[0]).toEqual({ kind: 'send', name: 'osfui.hello', payload: {} });
+  });
+
   it('renders the cold chrome before any state arrives', () => {
     mount();
 
@@ -100,6 +135,28 @@ describe('first-load handoff surface', () => {
     expect(document.documentElement.style.getPropertyValue('--osf-accent')).toBe('#e6904a');
   });
 
+  it('comes back live after a reload, because the state is REPLAYED', () => {
+    // The document is destroyed and rebuilt mid-handoff (F5, a renderer
+    // restart). The host replays `osfui/handoff` before the view mounts, so
+    // subscribing IS the read and the very first paint is already connected —
+    // where a 1.x one-shot push would have left the cold chrome up forever.
+    installHelper();
+    publish({
+      target: 'demo.mod/terminal',
+      mod: 'demo.mod',
+      title: 'Cargo terminal',
+      accent: '',
+      phase: 'retrying',
+      retry: false,
+    });
+    renderApp();
+
+    expect(document.body.dataset['live']).toBe('true');
+    expect(document.body.dataset['phase']).toBe('retrying');
+    expect(document.querySelector('#title')?.textContent).toBe('CARGO TERMINAL');
+    expect(document.querySelector('#status')?.textContent).toBe('SIGNAL INTERRUPTED // REACQUIRING');
+  });
+
   it('offers working retry and cancel controls after a failed link', () => {
     const app = mount();
     app.receive({
@@ -120,17 +177,19 @@ describe('first-load handoff surface', () => {
     (document.querySelector('#retry') as HTMLButtonElement).click();
     (document.querySelector('#close') as HTMLButtonElement).click();
 
-    expect(app.frames.map((frame) => frame.payload['command'])).toEqual([
-      'osfui.handoffRetry',
-      'close',
-    ]);
+    // Both are SENDs: neither has an outcome to await, so neither carries an id.
+    expect(app.names()).toEqual(['osfui.hello', 'osfui.handoffRetry', 'close']);
+    for (const frame of app.frames) {
+      expect(frame.kind).toBe('send');
+      expect(frame.id).toBeUndefined();
+    }
   });
 
   it('closes on Escape from anywhere on the page', () => {
     const app = mount();
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
 
-    expect(app.frames.map((frame) => frame.payload['command'])).toEqual(['close']);
+    expect(app.names()).toEqual(['osfui.hello', 'close']);
   });
 
   it('falls back to the linking copy for an unknown phase', () => {

@@ -95,7 +95,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
   const tr = useMemo(() => makeTranslator(bridge, 'chrome.settings'), [bridge]);
 
   /**
-   * Optimistic HUD switch positions, keyed by view id. `hud.show`/`hud.hide`
+   * Optimistic HUD switch positions, keyed by view id. `menu.open`/`menu.close`
    * are fire-and-forget, so the switch flips locally and the next `views.data`
    * push (which the runtime sends on every open/focus change) is authoritative
    * — that push clears the whole map.
@@ -214,8 +214,25 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
 
   const filterInput = useRef<HTMLInputElement | null>(null);
 
+  /** A one-way endpoint. Nothing settles; wanting an outcome means requestOp. */
   const sendCommand = (command: string, fields?: Record<string, unknown>) => {
-    if (bridge.available()) bridge.emit(command, fields);
+    if (bridge.available()) bridge.send(command, fields);
+  };
+
+  /**
+   * A request endpoint whose failure the player should see. The shell verbs and
+   * the view operations all report real failures ("shell-failed",
+   * "unknown-view", "forbidden"), and sending them one-way would silently
+   * swallow exactly the case worth reporting.
+   */
+  const requestOp = (name: string, payload?: Record<string, unknown>) => {
+    if (!bridge.available()) return;
+    void bridge.request(name, payload).catch((err: unknown) => {
+      const code = codeOf(err);
+      toast(tr('actionFailed', 'Could not complete that{code}', {
+        code: code ? ` (${code})` : '',
+      }), 'danger');
+    });
   };
 
   /**
@@ -229,7 +246,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     // The ack resolves with the authoritative post-clamp value; a refusal
     // rejects with the machine code (unknown-setting / read-only /
     // invalid-value).
-    bridge.call('settings.set', { mod: modId, key, value }).catch((err: unknown) => {
+    bridge.request('settings.set', { mod: modId, key, value }).catch((err: unknown) => {
       const code = codeOf(err);
       toast(
         tr('writeRejected', 'Rejected {setting}{code}', {
@@ -239,8 +256,10 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
         'danger',
       );
       applySave(saveStateAbandon(saveRef.current, modId));
-      // Native refused the value; pull authoritative state back.
-      sendCommand('settings.get');
+      // No re-read: the store publishes `osfui/settings` on every registry
+      // change and `settings.changed` on every commit, so the authoritative
+      // value is already on its way. 1.x had to re-fetch here precisely
+      // because a read was the only way to resubscribe.
     });
   };
 
@@ -248,10 +267,10 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
   const requestReset = (modId: string, key: string | null) => {
     if (!bridge.available()) return;
     applySave(saveStatePending(saveRef.current, modId));
-    // Resolves with the fresh settings.data (rendered by the subscription —
-    // request replies dispatch there too).
+    // Resolves empty: the refreshed registry reaches every view through the
+    // `osfui/settings` state key, so the reply says only "the reset happened".
     bridge
-      .call('settings.reset', key ? { mod: modId, key } : { mod: modId })
+      .request('settings.reset', key ? { mod: modId, key } : { mod: modId })
       .catch((err: unknown) => {
         const code = codeOf(err);
         toast(tr('resetFailed', 'Reset failed{code}', { code: code ? ` (${code})` : '' }), 'danger');
@@ -521,7 +540,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
   const setViewAutoStart = (viewId: string, enabled: boolean) => {
     if (!bridge.available()) return;
     setAutoStartPending((p) => ({ ...p, [viewId]: enabled }));
-    bridge.call('osfui.setViewAutoStart', { view: viewId, enabled }).catch((err: unknown) => {
+    bridge.request('osfui.setViewAutoStart', { view: viewId, enabled }).catch((err: unknown) => {
       const code = codeOf(err);
       setAutoStartPending((p) => {
         const next = { ...p };
@@ -565,11 +584,12 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
   };
 
   const runAction = (command: string, modId: string, key: string | undefined) =>
-    // The plugin command settles as ui.result (ok:true = delivered to the
-    // plugin's handler; richer replies are the plugin's own message types).
-    // Timeout / unknown-command / no-bridge all reject.
+    // A schema `action` targets the mod's own REQUEST endpoint, so the plugin
+    // answers with its own payload and any failure arrives as a typed rejection
+    // — there is no ok:false document to inspect. Timeout / unknown-endpoint /
+    // wrong-endpoint-kind / no-bridge all reject too.
     bridge
-      .call<{ message?: unknown }>(command, { mod: modId, key }, { timeoutMs: ACTION_TIMEOUT_MS })
+      .request<{ message?: unknown }>(command, { mod: modId, key }, { timeoutMs: ACTION_TIMEOUT_MS })
       .then((payload) => {
         return payload && typeof payload.message === 'string' ? payload.message : null;
       });
@@ -704,13 +724,19 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
           assetRoots={assetRoots}
           focusIssueId={focusIssueId}
           onOpenIssue={openIssue}
-          onShellCommand={(command) => sendCommand(command)}
-          onGetReportStatus={() => bridge.call<ReportStatus>('diagnostics.reportStatus')}
+          onShellCommand={(command) => requestOp(command)}
+          onGetReportStatus={() => bridge.request<ReportStatus>('diagnostics.reportStatus')}
           onSubmitReport={(report: ReportSubmission) =>
-            bridge.call<ReportResult>('diagnostics.submitReport', { ...report }, { timeoutMs: 60000 })
+            bridge
+              .request<ReportResult>('diagnostics.submitReport', { ...report }, { timeoutMs: 60000 })
+              .then((result) => ({ ...result, ok: true }) as ReportResult)
+              // The WIRE rejects; this pane's model is still an outcome object,
+              // so adapt here rather than pushing the transport's shape into
+              // every consumer of the reporting panel.
+              .catch((err: unknown) => ({ ok: false, code: codeOf(err) }) as ReportResult)
           }
           onOpenReportIssue={(issueNumber) =>
-            sendCommand('osfui.openReportIssue', { issueNumber })
+            requestOp('osfui.openReportIssue', { issueNumber })
           }
           collapsed={collapsed}
           onToggleGroup={(key, next) => setCollapsed((c) => ({ ...c, [key]: next }))}
@@ -722,10 +748,10 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
           autoStartOf={autoStartOf}
           autoStartBusy={autoStartBusy}
           onAutoStartToggle={setViewAutoStart}
-          onOpenView={(viewId) => sendCommand('menu.open', { view: viewId })}
+          onOpenView={(viewId) => requestOp('menu.open', { view: viewId })}
           onHudToggle={(viewId, next) => {
             setHudOverride((o) => ({ ...o, [viewId]: next }));
-            sendCommand(next ? 'hud.show' : 'hud.hide', { view: viewId });
+            requestOp(next ? 'menu.open' : 'menu.close', { view: viewId });
           }}
           onCommit={commit}
           onResetSetting={(modId, key) => requestReset(modId, key)}

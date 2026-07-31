@@ -1,412 +1,333 @@
 /**
  * TypeScript definitions for the OSF UI native <-> web bridge.
  *
- * Bridge protocol version: 1.6 (STABLE — additive changes bump the minor;
- * breaking changes bump the major). Compatibility is advisory: declare the
- * OSF UI version you authored against as `targetVersion` (view manifest /
- * settings schema) and the Mods surface badges "needs update" when the
- * running host (`runtime.ready`'s `version`) is older. `bridgeVersion` is
- * informational, not something to gate on. Keep in lockstep with:
+ * Bridge protocol version: 2.0. Compatibility is advisory: declare the OSF UI
+ * version you authored against as `targetVersion` (view manifest / settings
+ * schema). A target NEWER than the running host badges "needs update" on the
+ * Mods surface; a target older than 2.0 raises a `compat.legacy-view` card,
+ * because a 1.x view loads but cannot work — every helper member it calls was
+ * removed. `bridgeVersion` is informational, not something to gate on.
+ * Keep in lockstep with:
  *   - docs/authoring-views.md          (prose reference)
+ *   - docs/mod-api-2.0-migration.md    (what changed, and why)
  *   - docs/schema/*.schema.json        (manifest + settings-schema validation)
  *   - src/core/Version.h               (kBridgeProtocolVersion)
- *   - src/runtime/MessageBridge.cpp    (envelope + dispatch)
+ *   - src/runtime/MessageBridge.cpp    (envelopes + dispatch)
  *   - SFSE/Plugins/OSFUI/views/shared/osfui.js (the shipped JS helper)
  *
  * Usage: this is an ambient declaration file — drop it into your view project
  * (or reference it via tsconfig "types"/"include") and `window.osfui` is
  * typed globally. There is no runtime package to install.
- */
-
-/**
- * Every message in both directions is JSON text of this shape.
  *
- * `requestId` is the correlation envelope (protocol 1.0): any ui.command may carry a
- * caller-chosen id (string, 1-64 chars); every reply echoes it top-level, and
- * a command with no reply type of its own answers `ui.result` when (and only
- * when) an id was supplied. Omit it for fire-and-forget. The shared helper's
- * `osfui.request()` does all of this for you.
+ * THE WHOLE MODEL IN FOUR VERBS. Pick by semantics, not by transport:
+ *
+ *   send     web -> backend, one-way. No completion, ever.
+ *   request  web -> backend, settles exactly once: payload, typed error, timeout.
+ *   on       backend -> web, one-shot happenings. NEVER replayed.
+ *   state    backend -> web, named values, latest-wins. ALWAYS replayed.
+ *
+ * The events/state split is the load-bearing one. Replaying an event on reload
+ * re-fires its effect; not replaying state on reload is the blank HUD. A
+ * correctly written view therefore has ZERO lifecycle code — if you find
+ * yourself writing "on ready, re-request my data", the value you want is state.
  */
-export interface BridgeEnvelope<TType extends string = string, TPayload = unknown> {
-  type: TType;
-  requestId?: string;
-  payload: TPayload;
-}
 
 // ---------------------------------------------------------------------------
-// web -> native: exactly one envelope type, "ui.command".
-// The payload carries `command` plus that command's arguments.
+// Envelopes. Routing metadata (kind/name/id/mod/key) lives BESIDE an opaque
+// payload, never inside it, so a payload field can never override routing.
 // ---------------------------------------------------------------------------
 
-export type UiCommand =
-  /** Close the calling surface (last menu closing hides the overlay; a live HUD stays up). */
-  | { command: "close" }
-  /** Open/close the calling surface. */
-  | { command: "setVisible"; visible: boolean }
-  /** Open a discovered surface by id (loading on demand), or close a loaded one;
-   * `view` omitted targets the calling view. Closing never loads a surface.
-   */
-  | { command: "menu.open"; view?: string }
-  | { command: "menu.close"; view?: string }
-  /** Aliases of menu.open/menu.close — a surface's kind is fixed by its manifest. */
-  | { command: "hud.show"; view?: string }
-  | { command: "hud.hide"; view?: string }
-  /** (protocol 1.2) Declare that the calling page has meaningful content ready
-   * to paint. Used only when its manifest sets readySignal:true.
-   */
-  | { command: "view.ready" }
-  /** Show/hide one loaded view, independent of the overlay toggle; `view` omitted = self. */
-  | { command: "setViewHidden"; view?: string; hidden: boolean }
-  | { command: "log"; text: string }
-  | { command: "ping" }
-  | { command: "game.get" }
-  /** Catalog of loaded surfaces; replies `views.data` and subscribes the caller to change pushes. */
-  | { command: "views.get" }
-	/** Active-locale overrides for a mod (omitted mod = calling view's owner); replies and subscribes with i18n.data. */
-	| { command: "i18n.get"; mod?: string }
-  /** Read the settings registry; replies `settings.data` and SUBSCRIBES the caller: committed values arrive as `settings.changed`, registry shape changes re-send `settings.data`. */
-  | { command: "settings.get" }
-  | { command: "settings.set"; mod: string; key: string; value: SettingValue }
-  | { command: "settings.reset"; mod: string; key?: string }
-  /** Arm native key-rebind capture; the next key press returns as settings.captured (echoing the arming requestId, however much later). One capture at a time — a second arm answers ui.result code "capture-busy". Any type:"key" setting may be captured. */
-  | { command: "settings.captureKey"; mod: string; key: string }
-  /** EXPERIMENTAL (gamepad navigation is being refined; exempt from the 1.0 stability guarantee until stabilized). Take over gamepad handling: suppress the default nav/scroll mapping and consume raw ui.gamepad events. STICKY PER VIEW — survives overlay hide/show; cleared when your page (re)loads or the view is destroyed. */
-  | { command: "osfui.gamepadRaw"; raw: boolean }
-  /** Own the back action. While your menu is ACTIVE, Esc / gamepad B arrive as a synthetic Escape keydown/keyup instead of closing the top menu — your page decides: navigate (`menu.open`), dismiss an inner panel, or send `close`. STICKY PER VIEW — survives overlay hide/show; cleared when your page (re)loads or the view is destroyed. The overlay toggle key always closes natively regardless. */
-  | { command: "osfui.handleBack"; handle: boolean }
-  /** EXPERIMENTAL (exempt from the 1.0 stability guarantee until stabilized). Declare live text entry. While your ACTIVE view holds the grant, real OS keyboard focus sits in the browser so typing/IME work — and gamepad input is unavailable engine-wide (Windows only delivers it to the focused process). Standard editables (input/textarea/contenteditable) get this automatically from the platform's intent tracking; send it yourself only for a custom text surface (e.g. a canvas editor), and revoke it the moment text entry ends. Cleared on page (re)load, view destroy, and overlay close. */
-  | { command: "osfui.textFocus"; focused: boolean }
-  /** (protocol 1.1) Open OSF UI's own Nexus Mods page in the user's SYSTEM browser — the overlay itself never navigates. The URL is hardcoded in the host and the payload carries nothing, so page content cannot steer the shell. For "update OSF UI" affordances. Failures answer ui.result { ok:false, code:"shell-failed" }. */
-  | { command: "osfui.openModPage" }
-  /** (protocol 1.4) Open the SFSE log folder in the system file browser. Payload-free and fixed-target: the directory is derived natively (Documents/My Games/Starfield/SFSE/Logs) and the host refuses anything that is not an existing directory, so page content can neither choose the target nor make this run something. Failures answer ui.result { ok:false, code:"no-log-folder" | "shell-failed" }. */
-  | { command: "osfui.openLogFolder" }
-  /** (protocol 1.4) Read the session diagnostics snapshot; replies `diagnostics.data` and SUBSCRIBES the caller — every later change to the health registry is pushed to you. */
-  | { command: "diagnostics.get" }
-  /** (protocol 1.5, platform-private) Read whether the consented OSF UI bug reporter is configured; restricted to the built-in settings view. */
-  | { command: "diagnostics.reportStatus" }
-  /** (protocol 1.5, platform-private) Submit a consented report with bounded player-authored fields; native attaches redacted diagnostic logs. Restricted to the built-in settings view. */
-  | { command: "diagnostics.submitReport"; title: string; description: string; reproduction?: string }
-  /** (protocol 1.5, platform-private) Open one server-created issue. Native accepts only a positive issue number and constructs the fixed OSF UI GitHub URL. */
-  | { command: "osfui.openReportIssue"; issueNumber: number }
-  /** (protocol 1.6, platform-private) Set a HUD's automatic start for the NEXT game launch; restricted to the built-in settings view. Persists to the player's view policy — the running session's surfaces are untouched, and a `views.data` rebroadcast carries the new effective `autoStart`. Failures answer ui.result { ok:false, code:"forbidden" | "invalid-payload" | "unknown-view" | "not-configurable" | "persistence-failed" }. */
-  | { command: "osfui.setViewAutoStart"; view: string; enabled: boolean }
-  /**
-   * Fire an action at the OWNING mod's Papyrus scripts
-   * (OSFUI.RegisterForViewActions). The mod id is derived from the calling
-   * view's id — it cannot be spoofed via the payload. Fire-and-forget: there
-   * is no reply payload; the script answers by pushing state back as
-   * `data.push`. Convention: send `{ action: "ready" }` on load (and on
-   * `runtime.ready` re-handshakes) so the script knows to (re)push current
-   * state — OSF UI caches nothing (docs/authoring-dynamic-data.md).
-   *
-   * Argument passing has two forms. `arg` is the original single string,
-   * delivered to a RegisterForViewActions callback as OnUIAction(action, arg).
-   * `args` (protocol 1.3) is a LIST, delivered to a RegisterForViewActionsArgs
-   * callback as OnUIAction(action, string[]) — use it instead of packing
-   * several small ints into one string (kind*100+slot and the like), which
-   * Papyrus's lack of a modulo operator and string parsing made painful.
-   * Non-string elements are coerced to strings by the host, so `args: [1, 7]`
-   * is fine. Send at most one of the two; when both are present `args` wins for
-   * an args-list registrant and `arg` (or args[0]) for a scalar registrant.
-   *
-   * A FORM REFERENCE (protocol 1.3) is just another args element: echo a
-   * SerializedForm's `formId` back and the script resolves it with
-   * `OSFUI.GetFormById(asArgs[i])`. See DataPushPayload.forms.
-   */
-  | { command: "ui.action"; action: string; arg?: string; args?: Array<string | number | boolean> }
-  /** (protocol 1.5) Correlated request to the owning mod's single Papyrus request listener. */
-  | { command: "ui.papyrusRequest"; request: string; args?: Array<string | number | boolean> };
+/** web -> native. `id` is required on "request" and forbidden on "send". */
+export type WebToNativeMessage =
+  | { kind: "send"; name: string; payload: JsonObject }
+  | { kind: "request"; name: string; id: string; payload: JsonObject };
+
+/** native -> web. */
+export type NativeToWebMessage =
+  /** The handshake answer to `osfui.hello`, before any state for that document. */
+  | { kind: "ready"; payload: RuntimeInfo }
+  /** A named value. Complete per key, never a delta. */
+  | { kind: "state"; mod: string; key: string; value: unknown }
+  /** A one-shot happening. Delivered at most once; never replayed. */
+  | { kind: "event"; name: string; payload: unknown }
+  /** Settlement of the request carrying `id`. */
+  | { kind: "reply"; id: string; payload: unknown }
+  | { kind: "error"; id: string; payload: BridgeErrorPayload };
+
+export type JsonObject = Record<string, unknown>;
 
 /**
- * A mod-defined action command fired by a schema `action` item. The command
- * string MUST be namespaced with the mod id ("<id>.something"); the settings
- * view refuses to send anything else. Handled by the mod's own SFSE plugin
- * (IOSFUIBridge.RegisterCommand). Not part of the fixed UiCommand union — it is
- * an open extension point owned by the mod.
+ * Why a request failed. `code` is a stable machine string; the layers stay
+ * distinguishable on purpose:
+ *
+ *   "no-bridge"            local, immediate — a plain browser
+ *   "timeout"              the CLIENT timer gave up (default 10s; timeoutMs:0 disables it)
+ *   "no-response"          the BACKEND missed the host-side deadline (30s)
+ *   "wrong-endpoint-kind"  request() naming a send endpoint (or vice versa)
+ *   "unknown-endpoint"     no such endpoint
+ *   "invalid-request"      malformed envelope (bad kind/name/id/payload)
+ *   "request-capacity"     too many of this view's requests are already in flight
+ *   anything else          the handler's own rejection code
  */
-export interface UiCommandAction {
-  command: string; // "<modId>.<action>"
-  [field: string]: unknown;
+export interface BridgeErrorPayload {
+  code: string;
+  message: string;
 }
 
-export type WebToNativeMessage = BridgeEnvelope<"ui.command", UiCommand | UiCommandAction>;
-
-// ---------------------------------------------------------------------------
-// native -> web messages (assign window.osfui.onMessage and switch on type)
-// ---------------------------------------------------------------------------
-
-export interface RuntimeReadyPayload {
-  game: string;        // "Starfield"
-  plugin: string;      // plugin metadata name
-  /**
-   * The running OSF UI version (kPluginVersion) — the reference point for
-   * every advisory `targetVersion` declaration.
-   */
+/** The `ready` payload: who is running, and who this document is. */
+export interface RuntimeInfo {
+  game: string;          // "Starfield"
+  plugin: string;        // plugin metadata name
+  /** The running OSF UI version — the reference for every `targetVersion`. */
   version: string;
-  bridgeVersion: string; // protocol version (kBridgeProtocolVersion) — informational
+  bridgeVersion: string; // protocol version — informational
+  /** This document's own qualified view id, e.g. "acme.mymod/dashboard". */
+  view: string;
+  /** Its owning mod id — the default scope for an unqualified state key. */
+  mod: string;
 }
 
-export interface I18nDataPayload {
-	mod: string;
-	locale: string;
-	strings: Record<string, string>;
+// ---------------------------------------------------------------------------
+// Platform endpoints. Mod endpoints are "<author>.<modname>.<name>" and are
+// yours; everything here is undotted or single-dot, which is what makes the
+// two namespaces collision-proof without a registry.
+// ---------------------------------------------------------------------------
+
+/** `osfui.send(name, payload)` targets. */
+export type PlatformSend =
+  /** Greet the bridge. The helper does this for you on every document. */
+  | { name: "osfui.hello"; payload?: Record<string, never> }
+  /** Close the calling surface (last menu closing hides the overlay; a live HUD stays up). */
+  | { name: "close"; payload?: Record<string, never> }
+  /** Open/close the calling surface. */
+  | { name: "setVisible"; payload: { visible: boolean } }
+  /** Declare meaningful first paint. Only for a manifest with readySignal:true; helper sugar: markReady(). */
+  | { name: "view.ready"; payload?: Record<string, never> }
+  | { name: "log"; payload: { text: string } }
+  /**
+   * EXPERIMENTAL. Take over gamepad handling: suppress the default nav/scroll
+   * mapping and consume raw `ui.gamepad` events. Cleared when your document
+   * reloads — re-assert it from your normal setup code, not from a
+   * reload handler; there is no reload handler.
+   */
+  | { name: "osfui.gamepadRaw"; payload: { raw: boolean } }
+  /**
+   * Own the back action. While your menu is ACTIVE, Esc / gamepad B arrive as a
+   * synthetic Escape keydown/keyup instead of closing the top menu. Same
+   * per-document lifetime as osfui.gamepadRaw. The overlay toggle key always
+   * closes natively, so this cannot strand the player.
+   */
+  | { name: "osfui.handleBack"; payload: { handle: boolean } }
+  /** Fire a one-way message at the owning mod's Papyrus listener. Sugar: osfui.papyrus.send(). */
+  | { name: "papyrus.send"; payload: { name: string; args?: PapyrusArgument[] } };
+
+/** `osfui.request(name, payload)` targets. Each settles payload-or-error. */
+export type PlatformRequest =
+  /** Open a discovered surface by id (loading on demand); `view` omitted targets the caller. Rejects "unknown-view". */
+  | { name: "menu.open"; payload: { view?: string }; reply: Record<string, never> }
+  /** Close a loaded surface. Never loads one. Rejects "unknown-view". */
+  | { name: "menu.close"; payload: { view?: string }; reply: Record<string, never> }
+  /** Show/hide one loaded view, independent of the overlay toggle; `view` omitted = self. */
+  | { name: "setViewHidden"; payload: { view?: string; hidden: boolean }; reply: Record<string, never> }
+  | { name: "ping"; payload?: Record<string, never>; reply: Record<string, never> }
+  | { name: "game.get"; payload?: Record<string, never>; reply: GameData }
+  /**
+   * Write one setting. Resolves with the post-clamp COMMITTED value, so you can
+   * tell clamped from accepted without a re-fetch. REJECTS on failure
+   * ("forbidden" | "unknown-setting" | "read-only" | "invalid-value") — 1.x
+   * resolved an { ok:false } document you had to remember to inspect.
+   */
+  | { name: "settings.set"; payload: { mod: string; key: string; value: SettingValue };
+      reply: { mod: string; key: string; value?: SettingValue } }
+  /** Reset one key, or the whole mod when `key` is omitted. The refreshed registry arrives as `osfui/settings` state. */
+  | { name: "settings.reset"; payload: { mod: string; key?: string }; reply: Record<string, never> }
+  /**
+   * ARM native key-rebind capture. Settles in MACHINE time — resolves
+   * `{ armed:true }` or rejects "capture-busy" / "forbidden" /
+   * "not-rebindable" — and the captured key arrives later as the
+   * `settings.captured` EVENT, however long the player takes.
+   * Requests settle in machine time; human-time outcomes are events.
+   */
+  | { name: "settings.captureKey"; payload: { mod: string; key: string };
+      reply: { armed: true; mod: string; key: string } }
+  /** Open OSF UI's own Nexus page in the SYSTEM browser. Fixed target: the payload carries nothing, so page content cannot steer the shell. */
+  | { name: "osfui.openModPage"; payload?: Record<string, never>; reply: Record<string, never> }
+  /** Open the SFSE log folder. Fixed target, derived natively. Rejects "no-log-folder" | "shell-failed". */
+  | { name: "osfui.openLogFolder"; payload?: Record<string, never>; reply: Record<string, never> }
+  /** (platform-private) Set a HUD's auto-start for the NEXT launch. */
+  | { name: "osfui.setViewAutoStart"; payload: { view: string; enabled: boolean }; reply: Record<string, never> }
+  /** (platform-private) Open one server-created report issue. */
+  | { name: "osfui.openReportIssue"; payload: { issueNumber: number }; reply: Record<string, never> }
+  /** (platform-private) Is the consented reporter configured? */
+  | { name: "diagnostics.reportStatus"; payload?: Record<string, never>; reply: DiagnosticsReportStatus }
+  /** (platform-private) Submit a consented report. Rejects with the failure code. */
+  | { name: "diagnostics.submitReport";
+      payload: { title: string; description: string; reproduction?: string };
+      reply: { reportId?: string; issueNumber?: number } }
+  /** Correlated request to the owning mod's Papyrus listener. Sugar: osfui.papyrus.request(). */
+  | { name: "papyrus.request"; payload: { name: string; args?: PapyrusArgument[] };
+      reply: { value: unknown } };
+
+// ---------------------------------------------------------------------------
+// Platform STATE keys. Subscribe with osfui.state.on(key, fn): the handler runs
+// immediately with the current value and again on every change, on every
+// document, forever. There is nothing to request and nothing to re-request.
+// ---------------------------------------------------------------------------
+
+export interface PlatformState {
+  /** The whole settings registry. Re-sent when the registry SHAPE changes; individual commits are `settings.changed` events. */
+  "osfui/settings": SettingsData;
+  /** One entry per discovered surface, with live open/focus/load state. */
+  "osfui/views": ViewsData;
+  /** The session health snapshot behind the Mods surface. */
+  "osfui/diagnostics": DiagnosticsData;
+  /** Active-locale overrides for THIS document's owning mod. Consumed by the i18n namespace for you. */
+  "osfui/i18n": I18nCatalog;
+  /** (platform-private) The first-load handoff surface's current state. */
+  "osfui/handoff": HandoffState;
 }
 
-/**
- * Reply to `settings.get` (and to a successful `settings.reset`). Also pushed
- * unsolicited to every subscriber (any view that has sent `settings.get`)
- * whenever the registry SHAPE changes — a mod registering or unregistering a
- * schema at runtime over the native API. Re-render from it wholesale.
- */
-export interface SettingsDataPayload {
+// ---------------------------------------------------------------------------
+// Platform EVENTS. osfui.on(name, fn). Never replayed: a document that was not
+// open when one fired never learns about it, by design.
+// ---------------------------------------------------------------------------
+
+export interface PlatformEvents {
+  /**
+   * One committed setting value, post-validation (clamped) — authoritative, not
+   * the caller's raw input. This is how a mod's HUD reacts live to its settings
+   * with zero polling and zero native code.
+   */
+  "settings.changed": {
+    mod: string;
+    key: string;
+    value: SettingValue;
+    /** `type:"key"` settings only: the recomputed conflict list, [] when unique. */
+    conflicts?: SettingConflict[];
+  };
+  /** A mod's values FILE write landed (write-behind, ~500ms). Drives a "Saved" indicator. */
+  "settings.persisted": { mod: string };
+  /** The outcome of a `settings.captureKey`: the captured key, or cancelled. */
+  "settings.captured": {
+    mod: string;
+    key: string;
+    name: string;       // OSF UI key name (e.g. "F9"); "" when cancelled
+    cancelled: boolean; // Escape or an unbindable key — keep the old binding
+    /** Collisions this bind WOULD create, delivered before you commit it. Warn, never block. */
+    conflicts?: SettingConflict[];
+  };
+  /**
+   * The physical key bound to a `type:"key"` setting was pressed during
+   * gameplay. Filter on `mod` (and `key`) and ignore the rest. Suppressed while
+   * the overlay captures input or a rebind is armed.
+   */
+  "ui.hotkey": { mod: string; key: string };
+  /**
+   * This view was shown/hidden as the overlay's focused menu. `reason`
+   * distinguishes the overlay itself opening/closing from a menu switch while
+   * it stays up.
+   */
+  "ui.visibility": { visible: boolean; reason?: "overlay" | "focus" };
+  /** EXPERIMENTAL. Raw gamepad input, sent to the ACTIVE view while the overlay captures input. */
+  "ui.gamepad":
+    | { kind: "button"; button: { id: number; down: boolean } }
+    | { kind: "stick"; axes: { lx: number; ly: number; rx: number; ry: number } };
+  /**
+   * devMode ONLY: a protocol mistake the page would otherwise never hear about
+   * — a send that named a request endpoint, an unknown endpoint, a backend that
+   * missed its deadline. The helper prints these to the console for you, so
+   * they show up in F12 DevTools with full object inspection. Not emitted in
+   * release builds; repeated misuse raises a `view.protocol-misuse` health card
+   * there instead.
+   */
+  "osfui.debug.error": { code: string; message: string; detail?: unknown };
+}
+
+/** Convenience aliases for the two event payloads consumers name directly. */
+export type UiVisibilityPayload = PlatformEvents["ui.visibility"];
+export type UiGamepadPayload = PlatformEvents["ui.gamepad"];
+
+export interface SettingConflict {
+  /** May be the RESERVED id "@game": the game's own bindings participate too. Display `title`; do not resolve "@game" against the mod registry. */
+  mod: string;
+  key: string;
+  title: string;
+}
+
+export interface I18nCatalog {
+  mod: string;
+  locale: string;
+  strings: Record<string, string>;
+}
+
+/** Value of the `osfui/settings` state key. Re-render from it wholesale. */
+export interface SettingsData {
   mods: Array<{
     id: string;
     title: string;
     schema: SettingsSchema;
     values: Record<string, SettingValue>;
-    /**
-     * Additive: drop-in schema files that also claimed this id and lost
-     * first-wins — render a conflict badge. Omitted in the (normal)
-     * no-conflict case.
-     */
+    /** Drop-in schema files that also claimed this id and lost first-wins — render a conflict badge. */
     shadowed?: string[];
-    /**
-     * The OSF UI version this schema was authored against (same advisory
-     * contract as a view manifest's `targetVersion`). Never gates — the
-     * schema loads best-effort — but feeds the Mods surface "needs update"
-     * badge when newer than the running host. Omitted when undeclared.
-     */
+    /** The OSF UI version this schema was authored against. Advisory; feeds the "needs update" badge. */
     targetVersion?: string;
   }>;
   /**
-   * The game's own key bindings (protocol 1.0, the "vanilla hotkeys"
-   * table) — the FULL curated table, not just colliding entries (those
-   * also appear per-setting as `conflicts` with mod `"@game"`). `event` is
-   * the engine controlmap event id, `title` reads like "Starfield
-   * (Quicksave)", `name` is the bound OSF UI key name. Read-only — there is
-   * no settings.set for the game's bindings. Absent when the runtime has no
-   * vanilla data (feature off).
+   * The game's own key bindings (the "vanilla hotkeys" table) — the FULL
+   * curated table, not just colliding entries. `event` is the engine controlmap
+   * event id, `title` reads like "Starfield (Quicksave)". Read-only. Absent
+   * when the runtime has no vanilla data.
    */
   vanillaKeys?: Array<{ event: string; title: string; name: string }>;
   /**
-   * Additive: settings
-   * artifacts that FAILED to load, so a surface can tell the user instead of
-   * a mod silently vanishing. `kind` is a stable enum string:
-   * "schema-name" (file name fails the mod-id grammar; file skipped),
-   * "schema-parse" (schema file unreadable / not an object; file skipped),
-   * "values-parse" (a mod's values file was corrupt — quarantined on disk as
-   * `<file>.bad`, defaults served; `mod` is set and the mod still loads).
-   * `file` is a bare filename, `message` a human-readable reason (parse
-   * position etc.). Omitted in the (normal) clean case.
+   * Settings artifacts that FAILED to load, so a surface can say so instead of
+   * a mod silently vanishing. `kind`: "schema-name" | "schema-parse" |
+   * "values-parse". `file` is a bare filename.
    */
   loadErrors?: Array<{ kind: string; file: string; mod?: string; message: string }>;
 }
 
-export interface SettingsAckPayload {
-  mod: string;
-  key: string;
-  ok: boolean;
-  /**
-   * ok:true — the authoritative committed value, post-clamp (protocol 1.0).
-   * Compare against what you sent to detect clamping without a re-fetch.
-   */
-  value?: SettingValue;
-  /**
-   * ok:false — stable machine code (protocol 1.0): "unknown-setting" (mod or
-   * key not in any loaded schema), "read-only" (requires-gated stub, or a
-   * setting type this host doesn't know), "invalid-value" (validation
-   * refused). `message` is the human sentence when the host adds one.
-   */
-  code?: string;
-  message?: string;
+/** Value of the `osfui/views` state key. */
+export interface ViewsData {
+  views: Array<{
+    id: string;
+    title: string;
+    description: string;    // "" when absent
+    mod: string;            // owning settings mod id ("" = standalone)
+    kind: "menu" | "hud";
+    interactive: boolean;   // derived from kind: may hold focus
+    hub: boolean;           // false = hidden utility view, omit from catalogs
+    targetVersion: string;  // "" if undeclared
+    open: boolean;
+    focused: boolean;       // the top open menu (receives input)
+    /** "unloaded" = discovered on disk but never loaded; opening it loads on demand. */
+    loadState: "unloaded" | "loading" | "loaded" | "failed";
+    autoStart: boolean;        // effective choice for the NEXT launch
+    autoStartMutable: boolean; // catalog-visible HUDs the player may change
+    pinned: boolean;           // always-resident core surface
+  }>;
 }
 
-/**
- * One committed value, pushed to every subscriber (any view that has sent
- * `settings.get`) on each store commit — a settings.set from any view, a
- * reset, a preset application, or a native-side write. This is how a mod's
- * own HUD reacts live to its settings with zero polling and zero native code
- * (subscribe with a single `settings.get` at startup). The value is
- * post-validation (clamped) — authoritative, not the caller's raw input.
- */
-export interface SettingsChangedPayload {
-  mod: string;
-  key: string;
-  value: SettingValue;
-  /**
-   * On `type:"key"` settings only (protocol 1.0): the setting's recomputed
-   * conflict list — same shape and @game filtering as the `settings.data`
-   * annotation, [] when the new binding is unique. Update badges in place
-   * (collisions are symmetric — mirror the delta onto the named partners)
-   * instead of re-fetching the registry.
-   */
-  conflicts?: Array<{ mod: string; key: string; title: string }>;
-}
-
-/**
- * The mod's values FILE write landed. Persistence is write-behind: a commit
- * notifies immediately via `settings.changed`, while the disk write coalesces
- * (~500ms per mod, guaranteed on menu close and shutdown) and confirms here.
- * Pushed to `settings.get` subscribers; the settings view drives its "Saved"
- * indicator off this. Purely informational — values are already authoritative
- * from `settings.changed`.
- */
-export interface SettingsPersistedPayload {
-  mod: string;
-}
-
-/**
- * A hotkey fired (protocol 1.0): the physical key currently
- * bound to the identified `type:"key"` setting was pressed during gameplay.
- * Pushed to every subscriber (any view that has sent `settings.get`) — filter
- * on `mod` (and `key`) and ignore the rest. This is how a mod's own HUD
- * implements "toggle myself on my hotkey" with zero native code. Suppressed
- * while the overlay captures input (typing in a settings field) or a rebind
- * capture is armed; rebinds re-route automatically.
- */
-export interface UiHotkeyPayload {
-  mod: string;
-  key: string;
-}
-
-/** Result of a settings.captureKey: the captured key name, or cancelled (Esc / unbindable). */
-export interface SettingsCapturedPayload {
-  mod: string;
-  key: string;
-  name: string;       // OSF UI key name (e.g. "F9"); "" when cancelled
-  cancelled: boolean; // true on Escape or an unbindable key — keep the old binding
-  /**
-   * Live-warn during capture (protocol 1.0): the OTHER
-   * key-typed settings (any mod) already bound to the captured key — the
-   * collisions this bind WOULD create, delivered before the view commits it.
-   * Informational only — the bind is never rejected; warn, don't block.
-   * Absent when the captured key is unique (and always on cancelled:true).
-   */
-  conflicts?: Array<{ mod: string; key: string; title: string }>;
-}
-
-/**
- * The runtime rejected an inbound message (protocol 1.0 shape). When the
- * offending ui.command carried a requestId it is echoed top-level, so the
- * shared helper rejects the matching request() promise with `code`.
- */
-export interface UiErrorPayload {
-  /** Stable machine code: "malformed-message" | "unknown-message-type" | "unknown-command". */
-  code: string;
-  /** Human sentence. */
-  message: string;
-  type?: string;     // present for "unknown-message-type"
-  command?: string;  // present for "unknown-command"
-}
-
-/**
- * The uniform command outcome (protocol 1.0, api-freeze item 5). Sent ONLY
- * when the ui.command carried a requestId: verb commands with no reply type
- * of their own (close, menu.open, hud.show, ...) answer ok:true on success;
- * failures carry a stable `code` ("unknown-view", "capture-busy",
- * "unknown-setting", ...). A plugin-registered command acks ok:true =
- * delivered to the plugin's handler (richer replies are the plugin's own
- * message types). The shared helper resolves/rejects request() with this.
- */
-export interface UiResultPayload {
-  ok: boolean;
-  command?: string;  // echo of the ui.command
-  code?: string;     // ok:false — stable machine code
-  message?: string;  // human sentence
-}
-
-/**
- * Reply to `game.get`. Each data provider nests under its own object
- * (protocol 1.0) — future providers appear as SIBLINGS of `calendar`.
- */
-export interface GameDataPayload {
-  /** In-game date/time from RE::Calendar. `available` is false before a save loads. */
+/** Reply to `game.get`. Each provider nests under its own object; future ones are SIBLINGS of `calendar`. */
+export interface GameData {
   calendar: {
-    available: boolean;
+    available: boolean;  // false before a save loads
     day?: number;
     month?: number;
     year?: number;
-    hour?: number;        // 0..24 (fractional)
+    hour?: number;       // 0..24 (fractional)
     daysPassed?: number;
   };
 }
 
 /**
- * The receiving view was shown/hidden as the overlay's focused menu (pushed on
- * edges). Fires on overlay open/close AND on a `menu.open` view switch while
- * the overlay stays up (the outgoing view gets `visible:false`, the incoming
- * one `visible:true`). The reference views scope their "session undo" to a
- * visit off this.
- */
-export interface UiVisibilityPayload {
-  visible: boolean;
-  /**
-   * Why the edge fired: "overlay" = the overlay itself opened/closed;
-   * "focus" = the overlay stayed up and only the focused menu changed
-   * (hub -> panel navigation). Absent on runtimes older than this field —
-   * treat absent as "overlay". Scope per-visit resets to "overlay" shows;
-   * treat any `visible:false` as a real hide.
-   */
-  reason?: 'overlay' | 'focus';
-}
-
-/**
- * EXPERIMENTAL — gamepad navigation is explicitly "basic and being refined",
- * so this shape is exempt from the 1.0 stability guarantee until stabilized.
+ * One real game form, serialized by OSFUI.SetViewForms. Identity only — richer
+ * display data is published by the script under a parallel state key,
+ * index-aligned with this array.
  *
- * Raw gamepad events, sent to the ACTIVE (focused) view while the overlay
- * captures input. Per-kind nesting (protocol 1.0): buttons and axes extend
- * inside their objects (triggers will join as axes.lt/rt; a second controller
- * as a `pad` index). Unless `osfui.gamepadRaw` was asserted, the runtime ALSO
- * applies its default mapping (D-pad and left stick -> arrows, A -> Enter,
- * B -> close, right stick -> scroll); raw mode makes these events the page's
- * alone.
- */
-export type UiGamepadPayload =
-  | { kind: "button"; button: { id: number; down: boolean } }
-  | { kind: "stick"; axes: { lx: number; ly: number; rx: number; ry: number } };
-
-/**
- * One entry per discovered surface. Reply to `views.get`; also pushed
- * unsolicited to every view that has sent `views.get` whenever any entry's
- * open/focused/loadState changes. Includes surfaces that are only discovered
- * on disk and not yet loaded (`loadState: "unloaded"`) so a launcher can offer
- * them as click-to-load cards — opening one (`menu.open`) loads it on demand.
- */
-export interface ViewsDataPayload {
-  views: Array<{
-    id: string;
-    title: string;
-    description: string;    // manifest `description`, "" when absent
-    mod: string;            // manifest `mod` — owning settings mod id ("" = standalone); groups the view onto that mod's page on the Mods surface
-    kind: "menu" | "hud";
-    interactive: boolean;   // derived from kind (menu=true, hud=false): may hold focus
-    hub: boolean;           // manifest `hub` — false = hidden utility view, omit from catalogs
-    targetVersion: string;  // manifest `targetVersion` — OSF UI version the view was authored against; "" if undeclared
-    open: boolean;          // menu: on the stack; hud: shown
-    focused: boolean;       // the top open menu (receives input)
-    // "unloaded" = discovered on disk but never loaded; opening it loads on demand.
-    // "loading" = load in flight, "loaded" = ready, "failed" = load failed (recovery exhausted).
-    loadState: "unloaded" | "loading" | "loaded" | "failed";
-    // (protocol 1.6) Startup policy. `autoStart` is the effective choice for
-    // the NEXT game launch (player override, else manifest openOnStart);
-    // `autoStartMutable` marks catalog-visible HUDs the player may change via
-    // `osfui.setViewAutoStart`; `pinned` marks always-resident core surfaces.
-    autoStart: boolean;
-    autoStartMutable: boolean;
-    pinned: boolean;
-  }>;
-}
-
-/**
- * One real game form, serialized by OSFUI.PushFormsToView (protocol 1.3).
- * Identity only — richer display data (counts, stats) is pushed by the script
- * via a parallel PushToView, index-aligned with this array.
- *
- * To reference the form in an action, echo `formId` back in the `args` list
- * (`osfui.send('ui.action', { action, args: [form.formId] })`); the script
- * resolves it with `OSFUI.GetFormById`. Runtime FormIDs are SESSION-SCOPED —
- * never persist one; re-request state via the `ready` handshake as usual.
+ * To reference the form later, echo `formId` back in a papyrus.send/request arg
+ * list; the script resolves it with `OSFUI.GetFormById`. Runtime FormIDs are
+ * SESSION-scoped — never persist one.
  */
 export interface SerializedForm {
   formId: number;    // runtime FormID — also the echo token (send it back verbatim)
@@ -415,68 +336,28 @@ export interface SerializedForm {
   editorId?: string; // best-effort: usually UNAVAILABLE at runtime in Starfield
 }
 
-/** Cached, typed state published by OSFUI.SetView* (protocol 1.5). */
-export interface DataStatePayload<TValue = unknown> {
-  mod: string;   // canonical lowercase owning-mod id
-  key: string;   // mod-defined state slice; compare case-insensitively
-  value: TValue; // complete current value for this key, never a delta
-}
-
 /**
- * Dynamic data pushed from the owning mod's Papyrus script
- * (OSFUI.PushToView), delivered to every live view of that mod. `key` names
- * which piece of the mod's state this is — IGNORE keys you don't know
- * (additive contract), and compare `key` case-INSENSITIVELY: Papyrus string
- * interning means it can arrive cased differently than the script authored
- * it. The payload is the WHOLE current value for that key (state replacement,
- * not a delta); nothing is cached natively, so re-request state by firing a
- * `ready` ui.action whenever your page (re)loads.
- */
-export interface DataPushPayload {
-  mod: string;      // canonical lowercase pushing-mod id
-  key: string;      // which state slice; mod-defined
-  values: string[]; // the current value, as a list of strings ([] on a forms push)
-  /**
-   * Present when the push came from OSFUI.PushFormsToView (protocol 1.3):
-   * real game forms as identity objects. A `null` element is a `None` (or
-   * since-deleted) input KEEPING ITS SLOT, so a parallel values push stays
-   * index-aligned — filter nulls when you don't correlate by index. Give
-   * forms pushes their own keys rather than reusing a values key.
-   */
-  forms?: Array<SerializedForm | null>;
-}
-
-/** Successful correlated reply from an owning Papyrus listener (protocol 1.5). */
-export interface PapyrusResultPayload<TValue = unknown> {
-  value: TValue;
-}
-/**
- * One durable condition in the session health registry (protocol 1.4). Reply to
- * `diagnostics.get`; also pushed unsolicited to every subscriber whenever the
- * registry changes.
- *
- * This is a CURATED registry, not a log view: an entry appears only because a
- * subsystem explicitly raised it, and leaves `status: "active"` only because
- * that subsystem explicitly withdrew it. Entries are never dismissed by hand.
+ * One durable condition in the session health registry. This is a CURATED
+ * registry, not a log view: an entry appears only because a subsystem
+ * explicitly raised it, and leaves `status:"active"` only because that
+ * subsystem explicitly withdrew it.
  *
  * Player-facing copy is derived from `code` by the built-in Mods surface, so it
  * stays localizable and cannot be authored by a mod. `context` is bounded
- * technical detail for the collapsed disclosure only — it never contains
- * absolute paths, URLs, or shell targets (the host redacts them).
+ * technical detail — never absolute paths, URLs, or shell targets.
  */
 export interface DiagnosticIssue {
   /** Stable identity, the dedupe key. Recurrence reuses it and bumps `occurrences`. */
   id: string;
   /**
-   * Stable machine code. v1 families:
+   * Stable machine code. v2 families:
    * `settings.schema-name` | `settings.schema-parse` | `settings.values-parse`
    * | `settings.hotkey-target`
-   * | `view.load-retrying` | `view.load-failed`
+   * | `view.load-retrying` | `view.load-failed` | `view.protocol-misuse`
    * | `host.ring-truncated`
-   * | `compat.needs-newer-osfui`
-   * A report from another mod (native ABI 1.7) carries ITS code, prefixed with
-   * its mod id: `<author>.<modname>:<code>`. Treat an unknown code as generic
-   * and show its technical details.
+   * | `compat.needs-newer-osfui` | `compat.legacy-view` | `compat.legacy-api`
+   * A report from another mod carries ITS code, prefixed with its mod id:
+   * `<author>.<modname>:<code>`. Treat an unknown code as generic.
    */
   code: string;
   severity: "warning" | "error";
@@ -484,53 +365,36 @@ export interface DiagnosticIssue {
   status: "active" | "resolved";
   /**
    * Producing subsystem: "settings" | "views" | "host" | "render" | "compat" —
-   * or, for a report another mod raised through the native ABI (1.7), that
-   * mod's "<author>.<modname>" id. The host assigns this from the calling
-   * plugin, never from the payload, so it is a trustworthy attribution and the
+   * or, for a report another mod raised through the native ABI, that mod's
+   * "<author>.<modname>" id. The host assigns this, never the payload, so the
    * dot is a reliable tell for "came from a mod".
    */
   source: string;
-  /** Affected mod / view / component id, "" when the condition names none. */
   subject: string;
-  /** Bounded technical detail; keys are code-specific. */
   context: Record<string, string | number | boolean>;
-  /** How many times this identity has been raised this session (>= 1). */
   occurrences: number;
   /** Session-relative seconds since the runtime started. */
   firstAt: number;
   lastAt: number;
-  /** Present only while `status` is "resolved". */
   resolvedAt?: number;
 }
 
-/**
- * The session health snapshot (protocol 1.4). `system` is an informational
- * key/value block (OSF UI and bridge versions, renderer/compositor path, host
- * state) — informational facts live here rather than as noisy "info" issues.
- */
-export interface DiagnosticsDataPayload {
+/** Value of the `osfui/diagnostics` state key. */
+export interface DiagnosticsData {
+  /** Informational key/value block (versions, renderer path, host state) — facts live here rather than as noisy "info" issues. */
   system: Record<string, string | number | boolean>;
   issues: DiagnosticIssue[];
 }
 
-/** Platform-private reporting availability and disclosure (protocol 1.5). */
-export interface DiagnosticsReportStatusPayload {
+/** Platform-private reporting availability and disclosure. */
+export interface DiagnosticsReportStatus {
   enabled: boolean;
   logs: string[];
   retentionDays: number;
 }
 
-/** Result of one consented automatic report submission (protocol 1.5). */
-export interface DiagnosticsReportResultPayload {
-  ok: boolean;
-  code?: string;
-  message?: string;
-  reportId?: string;
-  issueNumber?: number;
-}
-
-/** Platform-private state for the always-warm first-load handoff surface. */
-export interface HandoffStatePayload {
+/** Value of the `osfui/handoff` state key (platform-private). */
+export interface HandoffState {
   target: string;
   mod: string;
   title: string;
@@ -539,29 +403,7 @@ export interface HandoffStatePayload {
   retry: boolean;
 }
 
-export type NativeToWebMessage =
-  | BridgeEnvelope<"runtime.ready", RuntimeReadyPayload>
-  | BridgeEnvelope<"data.push", DataPushPayload>
-  | BridgeEnvelope<"data.state", DataStatePayload>
-  | BridgeEnvelope<"papyrus.result", PapyrusResultPayload>
-  | BridgeEnvelope<"runtime.pong", Record<string, never>>
-  | BridgeEnvelope<"game.data", GameDataPayload>
-  | BridgeEnvelope<"views.data", ViewsDataPayload>
-  | BridgeEnvelope<"diagnostics.data", DiagnosticsDataPayload>
-  | BridgeEnvelope<"diagnostics.reportStatus", DiagnosticsReportStatusPayload>
-  | BridgeEnvelope<"diagnostics.reportResult", DiagnosticsReportResultPayload>
-  | BridgeEnvelope<"i18n.data", I18nDataPayload>
-  | BridgeEnvelope<"settings.data", SettingsDataPayload>
-  | BridgeEnvelope<"handoff.state", HandoffStatePayload>
-  | BridgeEnvelope<"settings.ack", SettingsAckPayload>
-  | BridgeEnvelope<"settings.changed", SettingsChangedPayload>
-  | BridgeEnvelope<"settings.persisted", SettingsPersistedPayload>
-  | BridgeEnvelope<"settings.captured", SettingsCapturedPayload>
-  | BridgeEnvelope<"ui.hotkey", UiHotkeyPayload>
-  | BridgeEnvelope<"ui.visibility", UiVisibilityPayload>
-  | BridgeEnvelope<"ui.gamepad", UiGamepadPayload>
-  | BridgeEnvelope<"ui.result", UiResultPayload>
-  | BridgeEnvelope<"ui.error", UiErrorPayload>;
+
 
 // ---------------------------------------------------------------------------
 // Settings schema shapes (mirror docs/schema/settings-schema.schema.json)
@@ -757,68 +599,86 @@ export interface SettingsSchema {
 // ---------------------------------------------------------------------------
 
 export interface OSFUIBridge {
-  /** web -> native. Pass a JSON string; prefer the helper's send()/request(). */
+  /** web -> native. Pass a JSON string; use the helper's send()/request() instead. */
   postMessage(json: string): void;
   /**
-   * native -> web, called with a JSON string. With the shared helper loaded
-   * the helper OWNS this slot — never assign it yourself; use osfui.on().
+   * native -> web, called with a JSON string. With the shared helper loaded the
+   * helper OWNS this slot — never assign it yourself; use osfui.on() and
+   * osfui.state.on().
    */
   onMessage?: (json: string) => void;
 }
 
+export type PapyrusArgument = string | number | boolean;
+
 /**
- * The surface added by the shipped helper, SFSE/Plugins/OSFUI/views/shared/osfui.js
- * (protocol 1.2) — load it before your own script:
+ * The surface added by the shipped helper,
+ * SFSE/Plugins/OSFUI/views/shared/osfui.js — load it before your own script:
  *   <script src="../../shared/osfui.js"></script>
  * It decorates the same window.osfui object (creating a stub when no native
  * bridge is present, so these members exist even in a plain browser).
  */
-export type PapyrusArgument = string | number | boolean;
-
 export interface OSFUIHelper {
-  /** True when a native bridge (or the harness mock) is present. */
-  available(): boolean;
-  /** Resolves with the runtime.ready payload. Never resolves standalone. */
-  ready: Promise<RuntimeReadyPayload>;
-  /** Fire-and-forget ui.command. Returns false when no bridge is present. */
-  send(command: string, fields?: object): boolean;
-  /** Author-friendly alias for send(). */
-  emit(command: string, fields?: object): boolean;
-  /** Fire-and-forget action to the owning mod's Papyrus listeners. */
-  action(name: string, ...args: PapyrusArgument[]): boolean;
-  /** Explicit owning-Papyrus event/request namespace. */
-  papyrus: {
-    action(name: string, ...args: PapyrusArgument[]): boolean;
-    request<TResult = unknown>(name: string, ...args: PapyrusArgument[]): Promise<TResult>;
-  };
-  /** Declare meaningful readiness for a manifest with readySignal:true. */
-  viewReady(): boolean;
+  /** True when a native bridge (or the harness mock) is present. A PROPERTY, not a call. */
+  readonly available: boolean;
+  /** Resolves with the runtime info. REJECTS with code "no-bridge" in a plain browser rather than hanging. */
+  readonly ready: Promise<RuntimeInfo>;
+
   /**
-   * ui.command with a generated requestId; resolves with the reply MESSAGE
-   * ({ type, requestId, payload }). Rejects (Error with .code) on ui.error,
-   * ui.result ok:false, timeout (default 10000 ms; 0 disables), or no bridge.
+   * One-way. Returns whether the message could be POSTED LOCALLY — never a
+   * remote outcome. Wanting one means it is a request.
    */
-  request(command: string, fields?: object, opts?: { timeoutMs?: number }): Promise<NativeToWebMessage & { requestId?: string }>;
-  /** Correlated request that resolves directly with the reply payload. */
-  call<TResult = unknown>(command: string, fields?: object, opts?: { timeoutMs?: number }): Promise<TResult>;
-  /** Subscribe to a native->web message type; returns the unsubscribe fn. */
-  on<TPayload = unknown>(type: string, fn: (payload: TPayload, message: NativeToWebMessage) => void): () => void;
-  /** Typed, cached Papyrus-owned state, matched case-insensitively by key. */
-  data: {
-    get<TValue = unknown>(key: string): TValue | undefined;
-    on<TValue = unknown>(
-      key: string,
-      fn: (value: TValue, payload: DataStatePayload<TValue> | DataPushPayload, message: NativeToWebMessage) => void,
-    ): () => void;
+  send(name: string, payload?: JsonObject): boolean;
+
+  /**
+   * Settles exactly once: the reply PAYLOAD, or a rejection whose `.code` is a
+   * stable machine string (see BridgeErrorPayload). Default client timeout
+   * 10000 ms; `timeoutMs: 0` disables only the client timer — the host-side
+   * 30 s deadline still answers "no-response".
+   */
+  request<T = unknown>(name: string, payload?: JsonObject, opts?: { timeoutMs?: number }): Promise<T>;
+
+  /**
+   * Subscribe to a one-shot happening. Request replies never reach here (1.x
+   * fired both). Returns the unsubscribe fn.
+   */
+  on<T = unknown>(event: string, fn: (payload: T) => void): () => void;
+
+  /**
+   * Named backend-owned values. `key` is "<mod>/<key>", or a bare key resolved
+   * against your own mod — so a platform key is unambiguous and your own stays
+   * short. Matched case-insensitively (Papyrus string interning).
+   */
+  state: {
+    get<T = unknown>(key: string): T | undefined;
+    /** Replays the current value SYNCHRONOUSLY on subscribe, then fires on every change. */
+    on<T = unknown>(key: string, fn: (value: T) => void): () => void;
   };
-	/** Current normalized locale ("en", "de", "pt-BR", ...). */
-	locale(): string;
-	/** Resolves after the first active-locale override catalog arrives. */
-	i18nReady: Promise<I18nDataPayload | { locale: string; strings: Record<string, string> }>;
-	/** Translate a stable structural address, falling back to inline English. */
-	t(address: string, english: string, variables?: Record<string, string | number>): string;
-	/** Apply data-i18n/data-i18n-* attributes below a DOM root. */
-	localize(root?: ParentNode): void;
+
+  /** Declare meaningful first paint; only for a manifest with readySignal:true. */
+  markReady(): boolean;
+
+  /** Sugar over the two fixed Papyrus endpoints. The mod is derived from your view id and cannot be spoofed. */
+  papyrus: {
+    send(name: string, ...args: PapyrusArgument[]): boolean;
+    request<T = unknown>(name: string, ...args: PapyrusArgument[]): Promise<T>;
+  };
+
+  /** Pure functions over the `osfui/i18n` state key. No bridge semantics. */
+  i18n: {
+    readonly ready: Promise<I18nCatalog | { locale: string; strings: Record<string, string> }>;
+    readonly locale: string;
+    /** Active-locale override for a stable structural address, falling back to your inline English. */
+    t(address: string, english: string, vars?: Record<string, string | number>): string;
+    /** Apply data-i18n / data-i18n-* attributes below a DOM root. */
+    localize(root?: ParentNode): void;
+  };
+
+  /** Never touches the wire. */
+  theme: {
+    /** Apply a mod accent hex to a subtree; a missing/invalid hex clears the whole derived set. */
+    applyAccent(element: HTMLElement, hex?: string | null): void;
+  };
 }
 
 declare global {

@@ -1,22 +1,23 @@
 // Typed façade over the shipped `window.osfui` helper.
 //
-// Wraps the frozen helper (shipped as views/shared/osfui.js), never reimplements
-// it: the helper owns onMessage, request/reply correlation, the i18n catalog and
-// the ready handshake, and is loaded by a classic <script> tag before this
-// bundle runs. Forking any of that would fork the contract third-party views use.
+// Wraps the shipped helper (views/shared/osfui.js), never reimplements it: the
+// helper owns onMessage, request correlation, the state cache, the i18n catalog
+// and the page-initiated handshake, and is loaded by a classic <script> tag
+// before this bundle runs. Forking any of that would fork the contract
+// third-party views use.
 //
 // The global is `Partial<OSFUIHelper>` (it may be a bare injected bridge), so
-// every member guards. Standalone, `available()` is false and `call()`
+// every member guards. Standalone, `available()` is false and `request()`
 // rejects with code "no-bridge".
 
-import type { NativeMessageType, PayloadOf, BridgeError } from './protocol';
-import type { NativeToWebMessage, RuntimeReadyPayload } from '@sdk';
+import type { EventName, EventPayload, StateKey, StateValue, BridgeError } from './protocol';
+import type { RuntimeInfo, JsonObject, I18nCatalog, PapyrusArgument } from '@sdk';
 
-export interface CallOptions {
+export interface RequestOptions {
   /**
    * Milliseconds before the request rejects with code "timeout". Default 10000.
-   * Pass 0 to disable — required for `settings.captureKey`, which waits on a
-   * keypress and has no deadline.
+   * `0` disables only the CLIENT timer; the host still answers "no-response"
+   * at its own 30 s deadline, so a request can no longer hang forever.
    */
   timeoutMs?: number;
 }
@@ -24,31 +25,53 @@ export interface CallOptions {
 export interface Bridge {
   /** True when a native bridge (or the harness mock) is present. */
   available(): boolean;
-  /** Fire-and-forget command. Returns false when no bridge is present. */
-  emit(command: string, fields?: Record<string, unknown>): boolean;
+
+  /** One-way. Returns "posted locally", never a remote outcome. */
+  send(name: string, payload?: JsonObject): boolean;
+
+  /** Settles exactly once with the reply PAYLOAD. Rejects with a {@link BridgeError}. */
+  request<T = unknown>(name: string, payload?: JsonObject, opts?: RequestOptions): Promise<T>;
+
+  /** Subscribe to a one-shot happening. Returns the unsubscribe fn. */
+  on<T extends EventName>(event: T, fn: (payload: EventPayload<T>) => void): () => void;
+
+  /** Subscribe to a mod-defined event (a `<mod>.<name>` the SDK cannot know about). */
+  onAny<T = unknown>(event: string, fn: (payload: T) => void): () => void;
+
+  /**
+   * Subscribe to a named backend value: the handler runs IMMEDIATELY with the
+   * current value if one has arrived, and again on every change — including
+   * after a reload, because state is replayed to every fresh document. This is
+   * why a correct view needs no lifecycle code.
+   */
+  state<T extends StateKey>(key: T, fn: (value: StateValue<T>) => void): () => void;
+
+  /** Latest value of a state key, or undefined. Imperative escape hatch; prefer state(). */
+  peek<T extends StateKey>(key: T): StateValue<T> | undefined;
+
   /** Declare meaningful readiness for a manifest with readySignal:true. */
-  viewReady(): boolean;
-  /** Correlated request returning its payload directly. Rejects with a {@link BridgeError}. */
-  call<TPayload = unknown>(
-    command: string,
-    fields?: Record<string, unknown>,
-    opts?: CallOptions,
-  ): Promise<TPayload>;
-  /** Subscribe to a native->web message type. Returns the unsubscribe fn. */
-  on<T extends NativeMessageType>(
-    type: T,
-    fn: (payload: PayloadOf<T>, message: Extract<NativeToWebMessage, { type: T }>) => void,
-  ): () => void;
-  /** Resolves with the runtime.ready payload. Never resolves standalone. */
-  ready(): Promise<RuntimeReadyPayload>;
+  markReady(): boolean;
+
+  /** Resolves with the runtime info. Rejects "no-bridge" standalone. */
+  ready(): Promise<RuntimeInfo>;
+
   /** Resolves once the first i18n catalog has arrived (or failed over to English). */
-  i18nReady(): Promise<unknown>;
+  i18nReady(): Promise<I18nCatalog | { locale: string; strings: Record<string, string> }>;
+
   /** Active normalised locale ("en", "de", "pt-BR", ...). */
   locale(): string;
+
   /** Translate a structural address, falling back to the inline English. */
   t(address: string, english: string, vars?: Record<string, string | number>): string;
+
   /** Apply a mod accent hex to a subtree; a missing/invalid hex clears it. */
   applyAccent(el: HTMLElement, hex: string | null | undefined): void;
+
+  /** One-way message to the owning mod's Papyrus listener. */
+  papyrusSend(name: string, ...args: PapyrusArgument[]): boolean;
+
+  /** Correlated request to the owning mod's Papyrus listener. */
+  papyrusRequest<T = unknown>(name: string, ...args: PapyrusArgument[]): Promise<T>;
 }
 
 function noBridgeError(): BridgeError {
@@ -74,49 +97,63 @@ function interpolateEnglish(english: string, vars?: Record<string, string | numb
  * installs, and by unit tests in plain node.
  */
 export const windowBridge: Bridge = {
-  available: () => !!window.osfui?.available?.(),
+  available: () => window.osfui?.available === true,
 
-  emit: (command, fields) => window.osfui?.emit?.(command, fields) ?? false,
+  send: (name, payload) => window.osfui?.send?.(name, payload) ?? false,
 
-  viewReady: () => window.osfui?.viewReady?.() ?? false,
-
-  call: <TPayload = unknown>(
-    command: string,
-    fields?: Record<string, unknown>,
-    opts?: CallOptions,
-  ): Promise<TPayload> => {
-    const call = window.osfui?.call;
-    if (!call) return Promise.reject(noBridgeError());
-    return call.call(window.osfui, command, fields, opts) as Promise<TPayload>;
+  request: <T = unknown>(name: string, payload?: JsonObject, opts?: RequestOptions): Promise<T> => {
+    const request = window.osfui?.request;
+    if (!request) return Promise.reject(noBridgeError());
+    return request.call(window.osfui, name, payload, opts) as Promise<T>;
   },
 
-  on: <T extends NativeMessageType>(
-    type: T,
-    fn: (payload: PayloadOf<T>, message: Extract<NativeToWebMessage, { type: T }>) => void,
-  ) => {
+  on: <T extends EventName>(event: T, fn: (payload: EventPayload<T>) => void) => {
     const on = window.osfui?.on;
     if (!on) return () => {};
-    return on.call(window.osfui, type, fn as (p: unknown, m: NativeToWebMessage) => void);
+    return on.call(window.osfui, event, fn as (p: unknown) => void);
   },
 
-  ready: () => window.osfui?.ready ?? new Promise<RuntimeReadyPayload>(() => {}),
+  onAny: <T = unknown>(event: string, fn: (payload: T) => void) => {
+    const on = window.osfui?.on;
+    if (!on) return () => {};
+    return on.call(window.osfui, event, fn as (p: unknown) => void);
+  },
 
-  i18nReady: () => window.osfui?.i18nReady ?? Promise.resolve({ locale: 'en', strings: {} }),
+  state: <T extends StateKey>(key: T, fn: (value: StateValue<T>) => void) => {
+    const on = window.osfui?.state?.on;
+    if (!on) return () => {};
+    return on.call(window.osfui!.state, key, fn as (v: unknown) => void);
+  },
 
-  locale: () => window.osfui?.locale?.() ?? 'en',
+  peek: <T extends StateKey>(key: T) =>
+    window.osfui?.state?.get?.call(window.osfui!.state, key) as StateValue<T> | undefined,
+
+  markReady: () => window.osfui?.markReady?.() ?? false,
+
+  ready: () => window.osfui?.ready ?? Promise.reject(noBridgeError()),
+
+  i18nReady: () => window.osfui?.i18n?.ready ?? Promise.resolve({ locale: 'en', strings: {} }),
+
+  locale: () => window.osfui?.i18n?.locale ?? 'en',
 
   // Without the helper, interpolate the authored English so a view still
   // renders readable text (plain-browser preview).
   t: (address, english, vars) => {
-    const t = window.osfui?.t;
-    if (t) return t.call(window.osfui, address, english, vars);
+    const t = window.osfui?.i18n?.t;
+    if (t) return t.call(window.osfui!.i18n, address, english, vars);
     return interpolateEnglish(english, vars);
   },
 
   applyAccent: (el, hex) => {
-    const apply = (window.osfui as { applyAccent?: (e: HTMLElement, h: unknown) => void } | undefined)
-      ?.applyAccent;
-    apply?.call(window.osfui, el, hex);
+    window.osfui?.theme?.applyAccent?.call(window.osfui!.theme, el, hex);
+  },
+
+  papyrusSend: (name, ...args) => window.osfui?.papyrus?.send?.(name, ...args) ?? false,
+
+  papyrusRequest: <T = unknown>(name: string, ...args: PapyrusArgument[]): Promise<T> => {
+    const request = window.osfui?.papyrus?.request;
+    if (!request) return Promise.reject(noBridgeError());
+    return request.call(window.osfui!.papyrus, name, ...args) as Promise<T>;
   },
 };
 
@@ -127,13 +164,18 @@ export const windowBridge: Bridge = {
  */
 export const nullBridge: Bridge = {
   available: () => false,
-  emit: () => false,
-  viewReady: () => false,
-  call: () => Promise.reject(noBridgeError()),
+  send: () => false,
+  request: () => Promise.reject(noBridgeError()),
   on: () => () => {},
-  ready: () => new Promise(() => {}),
+  onAny: () => () => {},
+  state: () => () => {},
+  peek: () => undefined,
+  markReady: () => false,
+  ready: () => Promise.reject(noBridgeError()),
   i18nReady: () => Promise.resolve({ locale: 'en', strings: {} }),
   locale: () => 'en',
   t: (_address, english, vars) => interpolateEnglish(english, vars),
   applyAccent: () => {},
+  papyrusSend: () => false,
+  papyrusRequest: () => Promise.reject(noBridgeError()),
 };

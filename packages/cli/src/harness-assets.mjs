@@ -124,7 +124,7 @@ export const HARNESS_HTML = String.raw`<!doctype html>
       <button id="stage-mode" type="button">Stage</button>
       <span id="tools"></span>
       <label>Locale <input id="locale" value="en" size="8" list="locale-list"
-        title="Push an i18n.data locale switch. 'pseudo' pseudo-localizes every localized string ([åççéñŧš] + padding) so hardcoded text and tight layouts stand out."></label>
+        title="Push an osfui/i18n locale switch. 'pseudo' pseudo-localizes every localized string ([åççéñŧš] + padding) so hardcoded text and tight layouts stand out."></label>
       <datalist id="locale-list">
         <option value="en"></option><option value="pseudo"></option><option value="de"></option>
         <option value="fr"></option><option value="es"></option><option value="ja"></option>
@@ -157,11 +157,10 @@ export const HARNESS_HTML = String.raw`<!doctype html>
         <div class="event-editor">
           <label for="event-json">Envelope JSON</label>
           <textarea id="event-json" spellcheck="false">{
-  "type": "data.state",
-  "payload": {
-    "key": "example",
-    "value": "Hello from the harness"
-  }
+  "kind": "state",
+  "mod": "acme.mymod",
+  "key": "example",
+  "value": "Hello from the harness"
 }</textarea>
           <button id="send-event" type="button">Send to view</button>
         </div>

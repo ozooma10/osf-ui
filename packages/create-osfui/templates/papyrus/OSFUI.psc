@@ -72,28 +72,43 @@ int Function RegisterForHotkeyStatic(string asScript, string asFn, string asModI
 ; --- dynamic data <-> views ---------------------------------------------------
 ; Move DYNAMIC state (live lists, tables, arbitrary strings) between your script and your mod's OSF UI views (see docs/authoring-dynamic-data.md for a worked example).
 ;
-; Your script OWNS game state. Prefer typed SetView* state (cached/replayed),
-; ListenForViewActions for one-way mutations, and ListenForViewRequests only
-; when JavaScript genuinely needs a returned value. PushToView is the legacy
-; transient path and still requires a page-level ready action.
+; Your script OWNS game state. It reaches the view through exactly two channels,
+; and picking the right one is the whole design:
+;
+;   SetView*        - STATE. What is true now. Cached and REPLAYED to every
+;                     fresh document, so a view survives F5 with no handshake.
+;   SendViewEvent   - EVENT. Something that just happened. Delivered at most
+;                     once and NEVER replayed.
+;
+; Encoding an event as state re-fires it on every reload; encoding state as an
+; event leaves the view blank after one. (protocol 2.0: `PushToView` and
+; `PushFormsToView` are gone - they were transient like an event but shaped like
+; state, so every view had to fire a `ready` action and every script had to
+; re-push behind it.)
 
-; Push a list of strings to every live view owned by asModId (view ids "<asModId>/..."), delivered to the page as `data.push { mod, key, values }`.
-; Fire-and-forget: queued on the calling thread, delivered on OSF UI's next frame; nothing is stored natively. 
-; Views ignore keys they don't know, so push freely. An empty asKey or an id that fails the mod-id grammar is logged and dropped.
-Function PushToView(string asModId, string asKey, string[] asValues) Global Native
+; --- form references ----------------------------------------------------------
+; Resolve a form reference a view echoed back (the `formId` of a form published
+; with SetViewForms, sent as an args element).
+; Accepts decimal ("1370322" - what a JS number arrives as) and hex ("0x0014E8D2"). Unlike Game.GetForm, the full 32-bit range and hex both work.
+; Returns None for garbage or a form that no longer exists - CHECK before acting, and cast to the expected type (`GetFormById(args[0]) as Keyword`).
+; Runtime FormIDs are SESSION-scoped: resolve promptly, never save one in a script var across saves.
+Form Function GetFormById(string asFormId) Global Native
+; Bulk variant: element i resolves asFormIds[i]; unresolved entries are None at the same index (length preserved).
+Form[] Function GetFormsById(string[] asFormIds) Global Native
 
-; --- real forms across the bridge (host 1.3+) ---------------------------------
-; Serialize REAL game forms into your views: each element of akForms is delivered to the page as an object { formId, formType, name } inside `data.push { mod, key, values: [], forms: [...] }`.
-; Same fire-and-forget model as PushToView. A None element keeps its slot as a JS null, so a parallel PushToView (counts, stats, ...) stays index-aligned with it - give forms pushes their own keys.
-; A FormList is serialized as ONE form (formType "FLST"); push its members as a Form[] (GetSize/GetAt loop) when the view should see them.
-Function PushFormsToView(string asModId, string asKey, Form[] akForms) Global Native
-
-; Preferred state API (protocol 1.5). Each call replaces and caches
-; the complete value for (mod, key), sends it to every live owning view as
-; `data.state { mod, key, value }`, and automatically replays it when a view
-; opens or reloads. The cache is session-scoped; publish again after game load.
-; In JS consume it with `osfui.data.on(key, handler)` — no ready action or
-; data.push filtering is needed. Use the typed function matching your value.
+; --- state --------------------------------------------------------------------
+; Each call replaces the complete value for (asModId, asKey), sends it to every
+; live owning view as `{ kind:"state", mod, key, value }`, and replays it
+; automatically whenever a view of that mod opens or reloads.
+; In JS: `osfui.state.on(asKey, handler)` - no ready action, no re-request, and
+; the handler fires immediately with the current value when it subscribes.
+; The cache is session-scoped (values may hold form identities): publish again
+; after a game load. At most 64 keys per mod; an empty asKey or an id that fails
+; the mod-id grammar is logged and dropped.
+; SetViewForms serializes REAL game forms: each element arrives as an object
+; { formId, formType, name }, and a None element keeps its slot as a JS null so
+; a parallel values key stays index-aligned. A FormList is ONE form (formType
+; "FLST"); publish its members as a Form[] when the view should see them.
 Function SetViewBool(string asModId, string asKey, bool abValue) Global Native
 Function SetViewInt(string asModId, string asKey, int aiValue) Global Native
 Function SetViewFloat(string asModId, string asKey, float afValue) Global Native
@@ -104,45 +119,38 @@ Function SetViewFloats(string asModId, string asKey, float[] afValues) Global Na
 Function SetViewStrings(string asModId, string asKey, string[] asValues) Global Native
 Function SetViewForms(string asModId, string asKey, Form[] akForms) Global Native
 
-; Resolve a form reference a view echoed back (the `formId` of a pushed form, sent as an args element).
-; Accepts decimal ("1370322" - what a JS number arrives as) and hex ("0x0014E8D2"). Unlike Game.GetForm, the full 32-bit range and hex both work.
-; Returns None for garbage or a form that no longer exists - CHECK before acting, and cast to the expected type (`GetFormById(asArgs[0]) as Keyword`).
-; Runtime FormIDs are SESSION-scoped: resolve promptly, never save one in a script var across saves.
-Form Function GetFormById(string asFormId) Global Native
-; Bulk variant: element i resolves asFormIds[i]; unresolved entries are None at the same index (length preserved).
-Form[] Function GetFormsById(string[] asFormIds) Global Native
+; --- events -------------------------------------------------------------------
+; Announce a one-shot happening to every live view owned by asModId. The page
+; receives it as `osfui.on("<asModId>.<asName>", handler)` with `payload.args`
+; = asArgs (never None; empty for an event sent with no args).
+; Fire-and-forget: queued on the calling thread, delivered on OSF UI's next
+; frame. NOTHING IS CACHED - a view that opens afterwards never sees it, which
+; is the point. If a late-opening view should still see it, it is state.
+; Forms are deliberately not accepted: publish a formId through SetView* and
+; announce the change with an event carrying its key.
+Function SendViewEvent(string asModId, string asName, string[] asArgs) Global Native
 
-; Calls akReceiver.asFn(string asAction, string asArg) when a view owned by asModId fires an action (`osfui.send('ui.action', ...)` on the JS side).
-; Returns a token (0 = failed). Actions are fire-and-forget; publish changed state with SetView* (or legacy PushToView).
-;
-;   Function OnUIAction(string asAction, string asArg)   ; on akReceiver
-;
-; The action/arg strings may arrive cased differently than the view sent them - compare them with Papyrus == (itself case-insensitive), and keep any case-SENSITIVE comparison out of your JS.
-; SESSION-scoped exactly like RegisterForSettingChanges - re-register every time your script handles a game load.
-int Function RegisterForViewActions(ScriptObject akReceiver, string asFn, string asModId) Global Native
-; Instance-free variant for script LIBRARIES: dispatches to the GLOBAL function asScript.asFn(string, string). Same semantics/token as above.
-int Function RegisterForViewActionsStatic(string asScript, string asFn, string asModId) Global Native
-
-; --- multi-argument view actions --------------------------------
-; Same as RegisterForViewActions, but delivers the action's argument LIST as a
-; Papyrus array instead of one string:
-;
-;   Function OnUIAction(string asAction, string[] asArgs); on akReceiver
-;
-; The view sends the list with `osfui.send('ui.action', { action, args: [...] })` (protocol 1.3);
-; each element arrives as asArgs[i] (read numbers with `asArgs[i] as int`).
-;
-; asArgs is never None; it is empty for an action sent with no args, and a view that still sends the scalar `arg` delivers it as a one-element list. 
-; A mod may mix both shapes (some scripts on RegisterForViewActions, others here) - each callback is invoked in the form it registered for. 
-int Function RegisterForViewActionsArgs(ScriptObject akReceiver, string asFn, string asModId) Global Native
-; Instance-free variant for script LIBRARIES: GLOBAL function asScript.asFn(string, string[]).
-int Function RegisterForViewActionsArgsStatic(string asScript, string asFn, string asModId) Global Native
-
-; Preferred common-case listener. Dispatches to the fixed callback
+; --- one-way messages FROM a view ---------------------------------------------
+; Dispatches to the fixed callback
 ; OnOSFUIViewAction(string actionName, string[] args) - the parameter must not
-; be named "action" (that is the Action form type) - so no function-name or
-; scalar-vs-list choice is required. The static variant calls the GLOBAL
-; function with that name on asScript. Session-scoped; release with Unregister.
+; be named "action" (that is the Action form type). The static variant calls the
+; GLOBAL function with that name on asScript.
+;
+; The view sends it with `osfui.papyrus.send(name, ...args)`. Fire-and-forget:
+; there is no return value - publish what changed with SetView*, and use
+; ListenForViewRequests only when JavaScript genuinely needs a value back.
+;
+; args is never None; it is empty for a message sent with no args, and numbers
+; arrive as strings (read them with `args[i] as int`).
+; The strings may arrive cased differently than the view sent them - compare
+; with Papyrus == (itself case-insensitive), and keep any case-SENSITIVE
+; comparison out of your JS.
+; SESSION-scoped exactly like RegisterForSettingChanges - re-register every time
+; your script handles a game load; release with Unregister.
+;
+; (protocol 2.0: the `RegisterForViewActions*` family is gone - four
+; registrations for this one concept, two of whose shapes existed only because
+; the args list arrived after the single-string one did.)
 int Function ListenForViewActions(ScriptObject akReceiver, string asModId) Global Native
 int Function ListenForViewActionsStatic(string asScript, string asModId) Global Native
 

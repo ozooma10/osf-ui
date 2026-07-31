@@ -13,7 +13,7 @@
 // the rail model is: this also runs against harness mocks and, in principle,
 // against a host newer than the frontend.
 
-import type { DiagnosticIssue, DiagnosticsDataPayload } from '@sdk';
+import type { DiagnosticIssue, DiagnosticsData } from '@sdk';
 
 /** A `diagnostics.data` issue as the renderer actually treats it. */
 export type IssueRecord = Partial<DiagnosticIssue> & { id: string };
@@ -21,7 +21,7 @@ export type IssueRecord = Partial<DiagnosticIssue> & { id: string };
 export type Severity = 'error' | 'warning';
 
 /** The `system` block, values rendered as text whatever their type. */
-export type SystemInfo = Partial<DiagnosticsDataPayload>['system'];
+export type SystemInfo = Partial<DiagnosticsData>['system'];
 
 export interface HealthModel {
   system: SystemInfo;
@@ -38,7 +38,7 @@ export const HEALTH_ID = '~health';
 
 /** Normalise an untrusted `diagnostics.data` payload into the model. */
 export function readHealth(payload: unknown): HealthModel {
-  const p = (payload || {}) as Partial<DiagnosticsDataPayload>;
+  const p = (payload || {}) as Partial<DiagnosticsData>;
   const issues = Array.isArray(p.issues) ? (p.issues as IssueRecord[]) : [];
   return {
     system: p.system && typeof p.system === 'object' ? p.system : {},

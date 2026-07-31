@@ -256,7 +256,7 @@ Function PublishState()
     OSFUI.SetViewInt(ModId, "clicks", clicks)
 EndFunction
 
-; One-way player actions: the view fires osfui.action("bump", 1). Change game
+; One-way player actions: the view fires osfui.papyrus.send("bump", 1). Change game
 ; state here and publish the result - an action never sends a reply.
 ; The parameter cannot be named "action" - that is the Action form type in
 ; Papyrus, and references to it resolve to the type, not the parameter.
@@ -570,11 +570,21 @@ namespace
 
     DemoState g_state;
 
-    void PushState(const char* viewId = kViewId) noexcept
+    // STATE, not a push: SetViewState retains the value and OSF UI replays it
+    // to every document of this mod — first open, F5, dev reload, crash
+    // recovery. The view subscribes once with osfui.state.on("state") and is
+    // never blank, and there is no "the view reloaded, re-send me everything"
+    // handshake on either side. The viewId parameter is gone: state is
+    // addressed by MOD, so every view of the mod gets it.
+    void PushState() noexcept
     {
-        (void)g_json.SendToWeb(viewId, kStateType, g_state);
+        (void)g_json.SetViewState(kModId, "state", g_state);
     }
 
+    // A notice is something that HAPPENED, so it is an event: delivered once,
+    // never replayed. Compare PushState below, which publishes STATE — the
+    // runtime replays that to every document, including after an F5, so the
+    // view never has to ask for it.
     void PushNotice(const char* viewId, const char* message) noexcept
     {
         try {
@@ -583,6 +593,7 @@ namespace
         } catch (...) {}
     }
 
+    // A registered COMMAND is a send endpoint: one-way, nothing to settle.
     // JavaScript: osfui.send("${options.modId}.increment", { amount: 1 })
     void OnIncrement(const char* command, const char* payloadJson,
         const char* sourceViewId, void*) noexcept
@@ -600,14 +611,15 @@ namespace
 
         g_state.count += std::clamp(event.Value("amount", 1), -10, 10);
         g_state.lastAction = "JavaScript sent a fire-and-forget command";
-        PushState(target);
+        PushState();
     }
 
-    // JavaScript: const state = await osfui.call("${options.modId}.getState")
+    // A registered REQUEST settles exactly once, with a payload or a code.
+    // JavaScript: const state = await osfui.request("${options.modId}.getState")
     void OnGetState(const OSFUI::API::Request& raw, void*) noexcept
     {
         OSFUI::API::JsonRequest request{ raw };
-        if (request) (void)request.Respond(kStateType, g_state);
+        if (request) (void)request.Respond(g_state);
     }
 
     // JsonRequest validates required fields and owns request correlation.

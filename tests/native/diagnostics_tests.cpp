@@ -1,9 +1,16 @@
-// Host-side unit tests for the session diagnostics registry (bridge protocol
-// 1.4): the REAL DiagnosticsModule + MessageBridge driven through actual
-// `ui.command` envelopes, with a capturing SendFn standing in for the renderer.
-// Covers dedupe/occurrence counting, resolve/reactivate history, the
-// subscribe-on-read snapshot and change pushes, wire ordering, and the payload
-// sanitizer (no absolute paths, no shell targets, bounded size).
+// Host-side unit tests for the session diagnostics registry (protocol 2.0,
+// docs/mod-api-2.0-design.md): the REAL DiagnosticsModule + MessageBridge
+// driven through actual 2.0 envelopes, with a capturing SendFn standing in for
+// the renderer. Covers dedupe/occurrence counting, resolve/reactivate history,
+// wire ordering, the payload sanitizer (no absolute paths, no shell targets,
+// bounded size), and the delivery path.
+//
+// Delivery is the part that changed: `diagnostics.get` is GONE — it was a read
+// whose real job was to subscribe the caller — and the registry is now the
+// `osfui/diagnostics` STATE key. PublishStateAll only reaches views that have
+// GREETED the bridge, so every test here boots its views the way the host does
+// (OnViewCreated, then a page-initiated `osfui.hello`), and the module's
+// `_subscribers` set is gone with the read that used to fill it.
 // Assert-style; process exit code is the failure count.
 
 #include "runtime/DiagnosticsModule.h"
@@ -25,30 +32,81 @@ namespace
 		}                                                                               \
 	} while (0)
 
+	// One captured native->web envelope, flattened. 2.0 keeps every routing
+	// field BESIDE the payload, so they are all top-level here too.
 	struct Sent
 	{
 		std::string    view;
-		std::string    type;
-		nlohmann::json payload;
+		std::string    kind;     // ready | state | event | reply | error
+		std::string    mod;      // state mod
+		std::string    key;      // state key
+		nlohmann::json payload;  // event/reply/error payload, or a state's VALUE
 	};
 
 	std::vector<Sent> g_sent;
 
-	std::vector<Sent> SentTo(std::string_view a_view, std::string_view a_type)
+	// Capturing transport, shared by both bridge fixtures below.
+	void Capture(std::string_view a_view, std::string_view a_json)
+	{
+		auto msg = nlohmann::json::parse(a_json, nullptr, false);
+		// Every envelope the bridge encodes must be valid JSON: the encoders
+		// splice pre-dumped text into hand-written wrappers, and a malformed one
+		// would reach the renderer, not an exception handler.
+		CHECK(!msg.is_discarded());
+		const auto kind = msg.value("kind", "");
+		g_sent.push_back(Sent{
+			.view = std::string(a_view),
+			.kind = kind,
+			.mod = msg.value("mod", ""),
+			.key = msg.value("key", ""),
+			.payload = kind == "state" ? msg.value("value", nlohmann::json()) :
+										 msg.value("payload", nlohmann::json()),
+		});
+	}
+
+	// State envelopes for one "<mod>/<key>" pair. Both halves are asserted: a
+	// value published under the wrong mod would reach a page's `<mod>/<key>`
+	// subscription and nowhere else.
+	std::vector<Sent> StateTo(std::string_view a_view, std::string_view a_mod, std::string_view a_key)
 	{
 		std::vector<Sent> out;
 		for (const auto& s : g_sent) {
-			if (s.view == a_view && s.type == a_type) {
+			if (s.view == a_view && s.kind == "state" && s.mod == a_mod && s.key == a_key) {
 				out.push_back(s);
 			}
 		}
 		return out;
 	}
 
-	void Command(OSFUI::MessageBridge& a_bridge, std::string_view a_view, nlohmann::json a_payload)
+	std::vector<Sent> KindTo(std::string_view a_view, std::string_view a_kind)
 	{
-		const nlohmann::json envelope = { { "type", "ui.command" }, { "payload", std::move(a_payload) } };
+		std::vector<Sent> out;
+		for (const auto& s : g_sent) {
+			if (s.view == a_view && s.kind == a_kind) {
+				out.push_back(s);
+			}
+		}
+		return out;
+	}
+
+	// web -> native, exactly as the page helper builds it. A `send` carries no
+	// id: it settles nothing.
+	void Send(OSFUI::MessageBridge& a_bridge, std::string_view a_view, std::string_view a_name)
+	{
+		const nlohmann::json envelope = {
+			{ "kind", "send" },
+			{ "name", std::string(a_name) },
+			{ "payload", nlohmann::json::object() },
+		};
 		a_bridge.HandleWebMessage(a_view, envelope.dump());
+	}
+
+	// Boot a view the way the host does: arm its (closed) event gate, then let
+	// the DOCUMENT greet. The page-initiated handshake is the only boot path.
+	void Greet(OSFUI::MessageBridge& a_bridge, std::string_view a_view)
+	{
+		a_bridge.OnViewCreated(a_view);
+		Send(a_bridge, a_view, "osfui.hello");
 	}
 
 	// The issue with this id in a snapshot, or a null json when absent.
@@ -271,66 +329,136 @@ int main()
 		CHECK(diag.Snapshot().at("issues").empty());
 	}
 
-	// --- Subscriber snapshot + change pushes over the real bridge ----------
+	// --- The registry as STATE: greeting replay + change pushes ------------
 	{
 		g_sent.clear();
-		MessageBridge bridge([](std::string_view a_view, std::string_view a_json) {
-			const auto parsed = nlohmann::json::parse(a_json);
-			g_sent.push_back(Sent{
-				std::string(a_view),
-				parsed.value("type", ""),
-				parsed.value("payload", nlohmann::json::object()),
-			});
+		MessageBridge      bridge(Capture);
+		DiagnosticsModule  diag;
+		diag.RegisterEndpoints(bridge);
+
+		// `diagnostics.get` is gone as a NAME, not merely unused: a stale 1.x
+		// view naming it must get `unknown-endpoint`, never a half-working read.
+		CHECK(!bridge.HasRequest("diagnostics.get") && !bridge.HasSend("diagnostics.get"));
+
+		// The host's whole hello obligation for this key
+		// (Runtime::OnViewGreeted): publish the CURRENT snapshot straight to the
+		// greeting document — deliberately NOT through Broadcast(), for the
+		// reason the regression block below pins down.
+		bridge.SetHelloHook([&](std::string_view a_view) {
+			bridge.PublishState(a_view, "osfui", "diagnostics", diag.Snapshot());
 		});
 
-		DiagnosticsModule diag;
-		diag.RegisterCommands(bridge);
-		diag.SetSystemInfo(nlohmann::json{ { "version", "1.4.0" } });
+		diag.SetSystemInfo(nlohmann::json{ { "version", "2.0.0" } });
 		diag.Upsert(spec("settings.values-parse:acme", "settings.values-parse", Severity::Warning, "settings", "acme"), 1.0);
 
-		// Nothing is pushed to a view that never asked.
+		// A view that exists but has not greeted receives nothing: state at an
+		// ungreeted document is DROPPED, because its greeting replays every
+		// current value anyway and a queued value could land after a newer one.
+		bridge.OnViewCreated("osfui/settings");
 		diag.Broadcast();
 		CHECK(g_sent.empty());
 
-		// diagnostics.get replies with the snapshot AND subscribes the caller.
-		Command(bridge, "osfui/settings", nlohmann::json{ { "command", "diagnostics.get" } });
-		auto replies = SentTo("osfui/settings", "diagnostics.data");
-		CHECK(replies.size() == 1);
-		CHECK(replies.back().payload.at("system").value("version", "") == "1.4.0");
-		CHECK(replies.back().payload.at("issues").size() == 1);
+		// The greeting is answered with `ready`, then the snapshot. That
+		// ordering is structural, not a convention the call site remembers.
+		Send(bridge, "osfui/settings", "osfui.hello");
+		{
+			const auto snapshots = StateTo("osfui/settings", "osfui", "diagnostics");
+			CHECK(snapshots.size() == 1);
+			CHECK(snapshots.back().payload.at("system").value("version", "") == "2.0.0");
+			CHECK(snapshots.back().payload.at("issues").size() == 1);
+			CHECK(g_sent.size() == 2 && g_sent[0].kind == "ready" && g_sent[1].kind == "state");
+		}
 
-		// An unchanged snapshot is not re-sent (the reply seeded the dedupe).
+		// An unchanged snapshot is not re-sent. Note the dedupe was armed by the
+		// Broadcast() above, which delivered nothing at all — the content check
+		// is on the SNAPSHOT, not on what any view received.
 		diag.Broadcast();
-		CHECK(SentTo("osfui/settings", "diagnostics.data").size() == 1);
+		CHECK(StateTo("osfui/settings", "osfui", "diagnostics").size() == 1);
 
-		// A change reaches every subscriber, and only subscribers.
-		Command(bridge, "acme/panel", nlohmann::json{ { "command", "diagnostics.get" } });
+		// A change reaches every greeted view, and only greeted views.
+		Greet(bridge, "acme/panel");
+		CHECK(StateTo("acme/panel", "osfui", "diagnostics").size() == 1);  // its own replay
 		diag.Upsert(spec("view.load-failed:acme/panel", "view.load-failed", Severity::Error, "views", "acme/panel"), 3.0);
 		diag.Broadcast();
-		CHECK(SentTo("osfui/settings", "diagnostics.data").size() == 2);
-		CHECK(SentTo("acme/panel", "diagnostics.data").size() == 2);
-		CHECK(SentTo("osfui/settings", "diagnostics.data").back().payload.at("issues").size() == 2);
+		CHECK(StateTo("osfui/settings", "osfui", "diagnostics").size() == 2);
+		CHECK(StateTo("acme/panel", "osfui", "diagnostics").size() == 2);
+		CHECK(StateTo("osfui/settings", "osfui", "diagnostics").back().payload.at("issues").size() == 2);
 
 		// Resolving is a change too — the card has to move to history live.
 		diag.Resolve("view.load-failed:acme/panel", 5.0);
 		diag.Broadcast();
-		auto latest = SentTo("osfui/settings", "diagnostics.data").back().payload;
+		auto latest = StateTo("osfui/settings", "osfui", "diagnostics").back().payload;
 		CHECK(IssueById(latest, "view.load-failed:acme/panel").value("status", "") == "resolved");
 
-		// A destroyed view stops receiving pushes; the survivor keeps them.
-		const auto before = SentTo("acme/panel", "diagnostics.data").size();
+		// A destroyed view stops receiving pushes; the survivor keeps them. The
+		// module prunes nothing of its own here (OnViewDestroyed is a no-op now):
+		// the gate the BRIDGE drops IS the subscription, so a view that goes away
+		// without the module hearing about it cannot keep receiving pushes.
+		const auto before = StateTo("acme/panel", "osfui", "diagnostics").size();
+		bridge.OnViewDestroyed("acme/panel");
 		diag.OnViewDestroyed("acme/panel");
 		diag.Upsert(spec("host.ring-truncated", "host.ring-truncated", Severity::Warning, "host"), 7.0);
 		diag.Broadcast();
-		CHECK(SentTo("acme/panel", "diagnostics.data").size() == before);
-		CHECK(SentTo("osfui/settings", "diagnostics.data").size() == 4);
+		CHECK(StateTo("acme/panel", "osfui", "diagnostics").size() == before);
+		CHECK(StateTo("osfui/settings", "osfui", "diagnostics").size() == 4);
 
-		// A bridge teardown drops every subscriber and the retained pointer.
+		// A bridge teardown drops the retained pointer; nothing dangles.
 		diag.OnBridgeDown();
 		const auto sealed = g_sent.size();
 		diag.Upsert(spec("settings.schema-parse:late.mod", "settings.schema-parse", Severity::Error, "settings"), 9.0);
 		diag.Broadcast();
 		CHECK(g_sent.size() == sealed);
+	}
+
+	// --- REGRESSION: the hello replay must BYPASS the content dedupe -------
+	// Broadcast() suppresses an unchanged snapshot, so producers can call it
+	// unconditionally after any potential change. A SECOND document that greets
+	// later has never been sent anything — and the registry it needs is, by
+	// definition, unchanged since the first one connected. Routing the replay
+	// through Broadcast() would therefore match _lastSent and hand that document
+	// an empty health pane for the rest of the session. Runtime::OnViewGreeted
+	// publishes Snapshot() directly for exactly this reason; this test fails if
+	// anyone ever "simplifies" it back into Broadcast().
+	{
+		g_sent.clear();
+		MessageBridge     bridge(Capture);
+		DiagnosticsModule diag;
+		diag.RegisterEndpoints(bridge);
+		bridge.SetHelloHook([&](std::string_view a_view) {
+			bridge.PublishState(a_view, "osfui", "diagnostics", diag.Snapshot());
+		});
+
+		diag.Upsert(spec("host.ring-truncated", "host.ring-truncated", Severity::Warning, "host"), 1.0);
+		// Arms _lastSent with the current snapshot while no view has greeted, so
+		// the dedupe is live for everything that follows.
+		diag.Broadcast();
+		CHECK(g_sent.empty());
+
+		Greet(bridge, "osfui/settings");
+		CHECK(StateTo("osfui/settings", "osfui", "diagnostics").size() == 1);
+
+		// The second document, with the registry byte-identical to what the
+		// dedupe holds.
+		Greet(bridge, "acme/panel");
+		{
+			const auto replay = StateTo("acme/panel", "osfui", "diagnostics");
+			CHECK(replay.size() == 1);
+			CHECK(replay.size() == 1 && replay[0].payload.at("issues").size() == 1);
+			CHECK(KindTo("acme/panel", "ready").size() == 1);
+		}
+
+		// The proof that the replay is a SEPARATE path and not a lucky
+		// Broadcast(): one right now still sends nothing to anybody.
+		const auto sealed = g_sent.size();
+		diag.Broadcast();
+		CHECK(g_sent.size() == sealed);
+
+		// And the replay left the dedupe's bookkeeping alone: a real change
+		// afterwards still fans out to both documents.
+		diag.Upsert(spec("view.load-failed:acme/panel", "view.load-failed", Severity::Error, "views", "acme/panel"), 4.0);
+		diag.Broadcast();
+		CHECK(StateTo("osfui/settings", "osfui", "diagnostics").size() == 2);
+		CHECK(StateTo("acme/panel", "osfui", "diagnostics").size() == 2);
 	}
 
 	std::fprintf(stderr, "diagnostics_tests: %d checks, %d failures\n", g_checks, g_failures);

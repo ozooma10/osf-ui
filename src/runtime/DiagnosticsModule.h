@@ -60,7 +60,7 @@ namespace OSFUI
 			nlohmann::json context;   // bounded technical detail (object), sanitized on entry
 		};
 
-		void RegisterCommands(MessageBridge& a_bridge) override;
+		void RegisterEndpoints(MessageBridge& a_bridge) override;
 		void OnBridgeDown() override;
 		void OnViewDestroyed(std::string_view a_viewId) override;
 		[[nodiscard]] std::string_view Name() const override { return "diagnostics"; }
@@ -144,7 +144,6 @@ namespace OSFUI
 		std::vector<Issue>              _issues;
 		nlohmann::json                  _system = nlohmann::json::object();
 		MessageBridge*                  _bridge{ nullptr };
-		std::unordered_set<std::string> _subscribers;
 		std::string                     _lastSent;  // dedupe: last payload dump
 	};
 }

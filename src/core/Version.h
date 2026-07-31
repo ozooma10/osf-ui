@@ -8,22 +8,23 @@
 namespace OSFUI
 {
 	inline constexpr const char* kPluginName = "OSF UI";
-	inline constexpr const char* kPluginVersion = "1.5.0";
+	inline constexpr const char* kPluginVersion = "2.0.0";
 	// Numeric form of kPluginVersion, for IOSFUIBridge::GetPluginVersion.
 	// Keep in lockstep with kPluginVersion.
-	inline constexpr std::uint32_t kPluginVersionMajor = 1;
-	inline constexpr std::uint32_t kPluginVersionMinor = 5;
+	inline constexpr std::uint32_t kPluginVersionMajor = 2;
+	inline constexpr std::uint32_t kPluginVersionMinor = 0;
 	inline constexpr std::uint32_t kPluginVersionPatch = 0;
 
 	// Native<->web bridge protocol version (message envelope, command whitelist,
 	// native->web message types). Distinct from kPluginVersion: views see this as
 	// the `bridgeVersion` field of the `runtime.ready` handshake. Keep in lockstep
 	// with docs/authoring-views.md, docs/schema/*, and sdk/*.d.ts (CI enforces the
-	// headline sites). Stable since 1.0: additive changes bump the minor, anything
-	// that breaks a shipped view bumps the major. Compat is advisory, not gated —
+	// headline sites). Additive changes bump the minor, anything that breaks a
+	// shipped view bumps the major — 2.0 is such a break (four verbs, envelopes
+	// carrying routing beside the payload, a page-initiated handshake). Compat is advisory, not gated —
 	// an artifact declares `targetVersion` and the Mods surface badges
 	// "needs update" against the host `version`.
-	inline constexpr const char* kBridgeProtocolVersion = "1.6";
+	inline constexpr const char* kBridgeProtocolVersion = "2.0";
 
 	// "<major>[.<minor>[.<patch>]]", digits only — missing parts are 0.
 	// Shared by every `targetVersion` site (view manifests, settings
@@ -61,6 +62,18 @@ namespace OSFUI
 	// "needs update" condition behind the Mods-surface compat badge. Empty or
 	// unparsable versions are not newer (they never badge). Same digits-only
 	// dotted format as ParseDottedVersion (missing parts = 0).
+	// True when a DECLARED `targetVersion` predates the 2.0 mod API — an
+	// artifact authored against the 1.x helper and wire protocol. It still
+	// loads; it just cannot work, because every member it calls was removed.
+	// An UNDECLARED targetVersion ("") is deliberately excluded: it is
+	// indistinguishable from "declared and unparsable" after parsing, and
+	// guessing would badge every undeclared artifact as broken.
+	[[nodiscard]] inline bool IsPre2Target(std::string_view a_target)
+	{
+		std::array<std::uint32_t, 3> parts{};
+		return !a_target.empty() && ParseDottedVersion(a_target, parts) && parts[0] < 2;
+	}
+
 	[[nodiscard]] inline bool IsTargetNewerThanHost(std::string_view a_target)
 	{
 		std::array<std::uint32_t, 3> parts{};

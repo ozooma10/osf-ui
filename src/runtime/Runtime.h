@@ -22,6 +22,7 @@
 #include "runtime/ViewManager.h"
 #include "runtime/ViewLifecycle.h"
 #include "runtime/ViewPolicyStore.h"
+#include "runtime/ViewStateStore.h"
 
 namespace OSFUI
 {
@@ -256,7 +257,7 @@ namespace OSFUI
 			std::string_view a_description, int a_errorCode);
 
 		// Is this view ready to be shown? A manifest that declares readySignal is
-		// ready only once the view signalled it (osfui.viewReady); everything else
+		// ready only once the view signalled it (osfui.markReady); everything else
 		// is ready when its load finished. a_state is the caller's already-resolved
 		// GetViewLoadState, so this does not re-look it up.
 		[[nodiscard]] bool IsViewReady(std::string_view a_id, const ViewManifest& a_manifest, ViewLoadState a_state) const;
@@ -309,11 +310,35 @@ namespace OSFUI
 		void DriveRendererHostRecovery();
 		void RehydrateRendererAfterRestart();
 
-		// Re-send `views.data` to every view that requested it (`views.get`
-		// subscribes the caller), but only when the catalog changed — callers
-		// invoke this unconditionally after any potential state change
-		// (ApplyMenuPolicy, OnViewLoad). Main thread only.
+		// Re-publish the `osfui/views` state key, but only when the catalog
+		// changed — callers invoke this unconditionally after any potential
+		// state change (ApplyMenuPolicy, OnViewLoad). Main thread only.
 		void BroadcastViewsData();
+
+		// Every live surface of one mod ("<mod>/..."), the delivery target set
+		// for that mod's state and events. Derived fresh each time, so nothing
+		// can go stale.
+		[[nodiscard]] std::unordered_set<std::string> LiveViewsOfMod(std::string_view a_mod) const;
+
+		// Publish one retained value to the mod's live views.
+		void PublishModState(std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value);
+
+		// Publish one platform state key ("settings" | "views" | "diagnostics" |
+		// "i18n") to one greeted view, or to every greeted view when a_viewId is
+		// empty. The i18n value is computed per view, since a view's catalog is
+		// its owning mod's.
+		void PublishPlatformState(std::string_view a_key, std::string_view a_viewId = {});
+
+		// MessageBridge hello hook: a document greeted the bridge, `ready` is
+		// already out, and its event gate is open. Replays every current state
+		// value it is entitled to — platform keys plus its owning mod's.
+		void OnViewGreeted(std::string_view a_viewId);
+
+		// MessageBridge surface hook: host-detected protocol misuse from a view.
+		// Routes to that view's own console in devMode and raises the
+		// `view.protocol-misuse` diagnostic once it repeats.
+		void OnProtocolMisuse(std::string_view a_viewId, std::string_view a_code,
+			std::string_view a_message, const nlohmann::json& a_detail);
 
 		Config                        _config;
 		LocalizationService           _localization;
@@ -457,7 +482,6 @@ namespace OSFUI
 		std::string                   _captureView;   // main-thread: view that armed capture
 		std::string                   _captureMod;    // main-thread: mod owning the setting being rebound
 		std::string                   _captureKey;    // main-thread: which setting (e.g. "toggleKey")
-		std::string                   _captureRequestId;  // main-thread: arming request's id, echoed on settings.captured
 		std::atomic<KeyCode>          _captureUpVk{ kInvalidKeyCode };
 
 		std::atomic_bool              _visible{ false };
@@ -537,13 +561,20 @@ namespace OSFUI
 		};
 		std::unordered_map<std::string, RecoveryState> _recovery;
 
-		// views.data change-push state (main-thread only): which views asked for
-		// the catalog (and so get updates), and the last payload sent (dedupe so
-		// every ApplyMenuPolicy doesn't re-send an unchanged catalog).
-		std::unordered_set<std::string> _viewsSubscribers;
-		// view id -> requested localization domain (normally its owning mod).
-		std::unordered_map<std::string, std::string> _i18nSubscribers;
+		// Retained backend state, shared by Papyrus SetView* and the native ABI's
+		// SetViewState. Replayed to every document that greets the bridge, which
+		// is what makes a backend-fed view survive F5 with no lifecycle code.
+		ViewStateStore                  _viewState;
+		// The last osfui/views value published (dedupe, so every ApplyMenuPolicy
+		// doesn't re-send an unchanged catalog). There is no subscriber set any
+		// more: platform state goes to every greeted view.
 		std::string                     _lastViewsData;
+		// Latest handoff surface state, republished on that view's greeting so an
+		// F5 mid-handoff does not strand it on its cold pre-state look.
+		nlohmann::json                  _handoffState;
+		// Per-view count of host-detected protocol misuse; crossing the threshold
+		// raises one `view.protocol-misuse` health card.
+		std::unordered_map<std::string, std::uint32_t> _protocolMisuse;
 		double                          _nextLocalizationScan{ 0.0 };
 		// Monotonic-ish plugin uptime accumulated from Tick's clamped dt; used
 		// only to schedule recovery backoff (stalls with the game, which is the

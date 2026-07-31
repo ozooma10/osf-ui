@@ -33,6 +33,11 @@ describe('osfui dev serves the built-in views', () => {
   });
 
   it('rewrites the classic entry to the module source, bootstrap + loader first', async () => {
+    // The order below is load-bearing, not cosmetic: under protocol 2.0 the
+    // shared kit is a classic script that sends `osfui.hello` from its own IIFE
+    // body, so the classic bootstrap — which installs the queuing
+    // window.osfui.postMessage stub — must be parsed before it, or the page
+    // decides it is standalone and never greets, and no state ever arrives.
     const html = await fetch(`${origin}/osfui/settings/index.html`).then((r) => r.text());
     expect(html).toContain('<script type="module" src="./main.tsx"></script>');
     expect(html).not.toContain('<script src="main.js"></script>');

@@ -1,12 +1,17 @@
 // @vitest-environment jsdom
 //
-// The overlay open-edge reset. A `ui.visibility` push with `visible: true`
+// The overlay open-edge reset. A `ui.visibility` event with `visible: true`
 // means a fresh visit began (see @lib/lifecycle):
 //   * the undo baseline is dropped (undo scopes to one visit);
 //   * the filter is cleared and the selection returns to Home, but only when it
 //     was not already there;
 //   * padnav.reset() fires even on that no-op path;
-//   * a `visible: false` push changes nothing.
+//   * a `visible: false` event changes nothing.
+//
+// Visibility stays an EVENT in protocol 2.0, and that is the point of this
+// file: it is a happening, not a value. Replaying it to a reloaded document
+// would re-fire the whole reset and throw away a visit's undo history for
+// nothing. The registries it resets against are state, and arrive replayed.
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { makeBridge, mount, unmount, flush, typeFilter } from './helpers/settingsHarness';
@@ -17,6 +22,9 @@ afterEach(() => {
   delete (window as { padnav?: unknown }).padnav;
 });
 
+/** A populated document: the registry and catalog were replayed before paint. */
+const REPLAY = { 'osfui/settings': WIDGETS, 'osfui/views': VIEWS };
+
 function selectRail(el: HTMLElement, label: string) {
   [...el.querySelectorAll<HTMLButtonElement>('.rail-item')]
     .find((b) => b.textContent!.includes(label))!
@@ -25,10 +33,8 @@ function selectRail(el: HTMLElement, label: string) {
 
 describe('ui.visibility open edge', () => {
   it('clears the filter and returns the selection to Home', async () => {
-    const bridge = makeBridge();
+    const bridge = makeBridge({ state: REPLAY });
     const el = await mount(bridge);
-    bridge.deliver('settings.data', WIDGETS);
-    bridge.deliver('views.data', VIEWS);
     await flush();
 
     // Move off Home and set a filter.
@@ -45,10 +51,8 @@ describe('ui.visibility open edge', () => {
   });
 
   it('drops the undo baseline so the chip disappears', async () => {
-    const bridge = makeBridge();
+    const bridge = makeBridge({ state: REPLAY });
     const el = await mount(bridge);
-    bridge.deliver('settings.data', WIDGETS);
-    bridge.deliver('views.data', VIEWS);
     await flush();
 
     selectRail(el, 'Acme Kit');
@@ -65,10 +69,8 @@ describe('ui.visibility open edge', () => {
   });
 
   it('closes an open undo panel so modalOpen cannot latch across visits', async () => {
-    const bridge = makeBridge();
+    const bridge = makeBridge({ state: REPLAY });
     const el = await mount(bridge);
-    bridge.deliver('settings.data', WIDGETS);
-    bridge.deliver('views.data', VIEWS);
     await flush();
 
     // Make a change, then open the undo panel via the session chip.
@@ -95,9 +97,8 @@ describe('ui.visibility open edge', () => {
   it('calls padnav.reset() even when already on Home (the unconditional path)', async () => {
     const reset = vi.fn();
     (window as { padnav?: unknown }).padnav = { reset };
-    const bridge = makeBridge();
+    const bridge = makeBridge({ state: { 'osfui/settings': WIDGETS } });
     const el = await mount(bridge);
-    bridge.deliver('settings.data', WIDGETS);
     await flush();
     // Already on Home with an empty filter: the reselect is a no-op.
     expect(el.querySelector('.rail-item--home.selected')).not.toBeNull();
@@ -111,10 +112,8 @@ describe('ui.visibility open edge', () => {
   it('a focus-switch show (reason:"focus") changes nothing — same visit', async () => {
     const reset = vi.fn();
     (window as { padnav?: unknown }).padnav = { reset };
-    const bridge = makeBridge();
+    const bridge = makeBridge({ state: REPLAY });
     const el = await mount(bridge);
-    bridge.deliver('settings.data', WIDGETS);
-    bridge.deliver('views.data', VIEWS);
     await flush();
 
     selectRail(el, 'Acme Kit');
@@ -135,10 +134,8 @@ describe('ui.visibility open edge', () => {
   it('a hide edge (visible:false) changes nothing', async () => {
     const reset = vi.fn();
     (window as { padnav?: unknown }).padnav = { reset };
-    const bridge = makeBridge();
+    const bridge = makeBridge({ state: REPLAY });
     const el = await mount(bridge);
-    bridge.deliver('settings.data', WIDGETS);
-    bridge.deliver('views.data', VIEWS);
     await flush();
 
     selectRail(el, 'Acme Kit');

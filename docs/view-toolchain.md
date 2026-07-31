@@ -28,15 +28,75 @@ updates the view through Vite HMR. The harness provides the production shared
 kit, injects the native bridge before application code, and offers resolution,
 visibility, locale, transparency, event injection, and bridge-traffic controls.
 
-Edit `osfui.mock.ts` or `osfui.mock.js` to provide cached state, localized strings, and
-deterministic native/Papyrus responses — request values may also be (async)
-functions of the command payload, and named `scenarios` overlay the base
-fields (`?scenario=<name>`, or the toolbar's Scenario select). For full
-control, export `install(ctx)`: register command handlers ahead of the
-scenario engine, push native events, and add your own toolbar controls with
-`ctx.registerTools`. The browser reloads when the mock changes. A plain
-`osfui.mock.json` fixture keeps working. The mock lives at the project root
-so it can never ship with the views.
+The harness speaks the same bridge protocol the game does, including the
+handshake: it answers your document's `osfui.hello` with `ready`, then the
+locale catalog, then every mock state key, then opens events. That is
+deliberate — an F5 in the browser exercises exactly the boot path a reload in
+Starfield does, so "works until you refresh" is a bug you find in the browser
+rather than in game.
+
+Edit `osfui.mock.ts` or `osfui.mock.js` to describe what your backend would do.
+The default export (`defineMock`) has four fields plus named `scenarios` that
+shallow-overlay them (`?scenario=<name>`, or the toolbar's Scenario select):
+
+```ts
+export default defineMock({
+  // Replayed to your document on every greeting, under YOUR mod id:
+  //   osfui.state.on('acme.mymod/telemetry', render)
+  state: { telemetry: { fuel: 42, status: 'NOMINAL' } },
+  locale: 'en',
+  locales: { en: { 'panel.title': 'Telemetry' } },
+  // Keyed by ENDPOINT NAME. A value may be plain JSON or an (async) function
+  // of the request payload, and is what request() resolves with. A
+  // 'papyrus.<name>' entry answers osfui.papyrus.request('<name>', …).
+  requests: {
+    'acme.mymod.getReadout': (payload) => ({ line: `sector ${payload.sector}` }),
+    'papyrus.price': 1200,
+  },
+});
+```
+
+The mock enforces endpoint **kinds**, because getting a kind wrong is a mistake
+that only shows up against the real runtime otherwise: a `request` naming a
+built-in send endpoint is rejected `wrong-endpoint-kind`, a `send` naming an
+endpoint nothing handles is surfaced as `unknown-endpoint`, and a scenario that
+answers a `send` warns that the view sent it one-way. Platform endpoints every
+host provides (`close`, `setVisible`, `view.ready`, `log`, `menu.open`,
+`ping`, `game.get`, …) are answered for you and need no mock entry.
+
+For full control, export `install(ctx)`. It runs inside the view page before
+your code and can layer handlers ahead of the scenario engine, push messages,
+and add toolbar controls:
+
+```ts
+export function install(ctx: MockContext) {
+  ctx.onCommand((kind, name, payload, io) => {
+    if (kind === 'request' && name === 'acme.mymod.commit') {
+      io.resolve({ ok: true });          // or io.reject('busy', 'try again')
+      return true;                       // handled; stop the chain
+    }
+  });
+  ctx.registerTools([{ id: 'ping', kind: 'button', label: 'Push telemetry' }], () => {
+    ctx.send({ kind: 'state', mod: 'acme.mymod', key: 'telemetry', value: { fuel: 7 } });
+    ctx.send({ kind: 'event', name: 'acme.mymod.arrived', payload: { args: ['Jemison'] } });
+  });
+}
+```
+
+`ctx.send` takes a native→web envelope verbatim, so it is also how you rehearse
+platform pushes your view reacts to (`{ kind: 'event', name: 'settings.changed', … }`,
+`{ kind: 'state', mod: 'osfui', key: 'settings', … }`). The toolbar's envelope
+injector takes the same shape. The browser reloads when the mock changes, and a
+plain `osfui.mock.json` fixture keeps working. The mock lives at the project
+root so it can never ship with the views.
+
+Debugging is the browser's own DevTools, and the shared kit is the production
+one, so the failures you see here are the failures the game reports: every
+rejection, timeout, missing bridge and dropped send prints to the console with
+an `[osfui]` prefix, and `localStorage["osfui:trace"] = "1"` plus a reload logs
+every envelope in both directions. Details in
+[troubleshooting.md](troubleshooting.md#debugging-your-own-view-for-authors).
+
 Use `npm run check` to detect remote URLs and browser transports that the
 in-game host does not support.
 
@@ -55,8 +115,12 @@ UI's `config.json`.
 
 Start Starfield while the command is running. Author mode is active without
 editing player configuration: loaded views reload automatically after a sync,
-and F12 opens WebView2 DevTools. Stopping the command removes the marker; the
-runtime ignores markers older than twelve hours after an interrupted session.
+and F12 opens WebView2 DevTools on the focused menu. Author mode is the same
+switch as `devMode`, so your view's console output is also forwarded into
+`SFSE\Logs\OSF UI.log` (errors at ERROR, warnings at WARN, everything else at
+DEBUG) — useful for a repro you cannot keep DevTools open through. Stopping the
+command removes the marker; the runtime ignores markers older than twelve hours
+after an interrupted session.
 
 After that first deployment, saves only re-sync the view assets. Starfield keeps
 the plugin, the compiled scripts, and the native files open for the whole
@@ -97,6 +161,12 @@ Native DLLs, settings schemas, and other normal mod files under `mod/` are
 included too. `package` rebuilds and writes a ready-to-distribute zip under
 `release/`.
 
+Declare `targetVersion` on your view in `osfui.config.*`. It is advisory — the
+runtime never gates on it — but it is what tells a player's Mods surface
+whether your view needs a newer OSF UI than they have, and a view still
+declaring a 1.x target is flagged as written for the removed API rather than
+loading into a blank page.
+
 Papyrus builds require:
 
 - [Spriggit CLI](https://github.com/Mutagen-Modding/Spriggit/releases), kept
@@ -114,3 +184,5 @@ instead of shipping a silently inert backend.
 
 Set `modRoot` in `osfui.config.*` only when your Data-root source tree uses a
 different directory name.
+</content>
+</invoke>

@@ -38,6 +38,7 @@ namespace OSFUI::API
 		void          RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user) override;
 		void          UnregisterRequest(const char* a_name) override;
 		bool          SendToWeb(const char* a_viewId, const char* a_type, const char* a_payloadJson) override;
+		bool          SetViewState(const char* a_modId, const char* a_key, const char* a_payloadJson) override;
 		void          SetReadyCallback(ReadyFn a_callback, void* a_user) override;
 		bool          RequestMenu(const char* a_viewId, bool a_open) override;
 		std::uint32_t SubscribeSettings(const char* a_modId, SettingChangedFn a_fn, void* a_user) override;
@@ -115,6 +116,33 @@ namespace OSFUI::API
 		// broadcast that follows carries them.
 		std::vector<DiagnosticOp> TakeDiagnosticOps();
 
+		// One queued SetViewState (ABI 2.0), already validated and parsed
+		// synchronously; the store write happens on the main tick.
+		struct ViewStateOp
+		{
+			std::string    mod;
+			std::string    key;
+			nlohmann::json value;
+		};
+		// Drain the queued state writes. Runtime retains each in the shared
+		// ViewStateStore (NOT session-scoped: unlike Papyrus values these hold
+		// no form identities) and publishes it to the mod's live views.
+		std::vector<ViewStateOp> TakeViewStateOps();
+
+		// A plugin built against a different ABI major asked for the bridge and
+		// was refused (src/api/Exports.cpp). Recorded — any thread, during
+		// SFSE load — so Runtime can raise one `compat.legacy-api` health card
+		// naming it, rather than the refusal living only in a log the player
+		// never opens.
+		void NoteLegacyApiCaller(std::string a_moduleName, std::uint32_t a_major, std::uint32_t a_minor);
+		struct LegacyCaller
+		{
+			std::string   module;  // bare DLL file name, "" when unresolvable
+			std::uint32_t major{ 0 };
+			std::uint32_t minor{ 0 };
+		};
+		std::vector<LegacyCaller> TakeLegacyApiCallers();
+
 		// Drain queued RegisterView ids. Runtime validates each before the menu
 		// request snapshot; openOnStart views load there, while ordinary views stay
 		// lazy. RegisterView -> SendToWeb -> RequestMenu issued back-to-back still
@@ -184,8 +212,11 @@ namespace OSFUI::API
 		{
 			std::string view;
 			std::string requestId;
-			std::string type;
+			std::string name;
 			std::string payloadJson;
+			bool        rejected{ false };
+			std::string code;
+			std::string message;
 		};
 
 		static void RespondThunk(std::uint64_t, const char*, const char*) noexcept;
@@ -210,6 +241,8 @@ namespace OSFUI::API
 		std::unordered_set<std::string>               _loadedViews;        // renderer surfaces with a live page (overlay + world)
 		bool                                          _viewCatalogReady{ false };
 		std::vector<SchemaOp>                         _pendingSchemaOps;   // schema (un)registrations, drained by Runtime
+		std::vector<ViewStateOp>                      _pendingStateOps;    // SetViewState writes, drained by Runtime
+		std::vector<LegacyCaller>                     _legacyCallers;      // ABI-major-mismatched RequestBridge callers
 		std::vector<std::string>                      _pendingViewRegs;    // RegisterView ids, drained by Runtime
 		std::vector<DiagnosticOp>                     _pendingDiagnostics; // health reports, drained by Runtime
 		MessageBridge*                                _bridge{ nullptr };         // non-owning; set on main thread

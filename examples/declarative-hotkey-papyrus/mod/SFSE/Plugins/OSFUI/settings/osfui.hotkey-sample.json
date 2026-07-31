@@ -4,6 +4,7 @@
   "title": "Declarative Hotkey Sample",
   "description": "Tests schema-owned GLOBAL Papyrus dispatch without a startup quest or callback registration.",
   "version": 1,
+  "targetVersion": "2.0.0",
   "groups": [
     {
       "id": "hotkeys",

@@ -49,20 +49,6 @@ namespace OSFUI
 		constexpr double           kRevealTimeoutSeconds{ 3.0 };
 		constexpr KeyCode          kVkF12{ 0x7B };
 
-		std::pair<std::string_view, nlohmann::json> EncodePapyrusViewData(const API::Papyrus::ViewPush& a_push)
-		{
-			if (a_push.stateValue) {
-				return { "data.state", {
-					{ "mod", a_push.mod }, { "key", a_push.key }, { "value", *a_push.stateValue }
-				} };
-			}
-			nlohmann::json payload{
-				{ "mod", a_push.mod }, { "key", a_push.key }, { "values", a_push.values }
-			};
-			if (a_push.forms) payload["forms"] = *a_push.forms;
-			return { "data.push", std::move(payload) };
-		}
-
 		// Reads one persisted settings value before the settings module exists.
 		// The renderer (and the host process it spawns) initializes earlier than
 		// the settings replay, so boot-time consumers peek the values file
@@ -82,15 +68,6 @@ namespace OSFUI
 			return Json::GetBool(*json, a_key, a_default);
 		}
 
-		void ReplayPapyrusViewState(MessageBridge& a_bridge, std::string_view a_viewId)
-		{
-			const auto slash = a_viewId.find('/');
-			if (slash == std::string_view::npos) return;
-			API::Papyrus::ReplayViewState(a_viewId.substr(0, slash), [&](const API::Papyrus::ViewPush& state) {
-				auto [type, payload] = EncodePapyrusViewData(state);
-				a_bridge.SendToWeb(a_viewId, type, payload);
-			});
-		}
 	}
 
 	Runtime& Runtime::Get()
@@ -305,9 +282,18 @@ namespace OSFUI
 			}
 #endif
 		});
+		// The whole host obligation under a page-initiated handshake: answer
+		// hellos, in order, with ready then state. Installing it here (rather
+		// than open-coding a greeting at each view-creation site) is what makes
+		// the ordering guarantee structural.
+		_bridge->SetHelloHook([this](std::string_view a_viewId) { OnViewGreeted(a_viewId); });
+		_bridge->SetSurfaceFn([this](std::string_view a_viewId, std::string_view a_code,
+									  std::string_view a_message, const nlohmann::json& a_detail) {
+			OnProtocolMisuse(a_viewId, a_code, a_message, a_detail);
+		});
 		RegisterPlatformCommands(*_bridge);
 		for (const auto& module : _modules) {
-			module->RegisterCommands(*_bridge);
+			module->RegisterEndpoints(*_bridge);
 		}
 		_renderer->SetWebMessageHandler([this](std::string_view a_viewId, std::string_view a_json) {
 			if (_bridge) {
@@ -572,42 +558,64 @@ namespace OSFUI
 		if (_settings) {
 			API::Papyrus::DrainSettingsOps(_settings->Store());
 		}
-		// Papyrus PushToView payloads fan out to the pushing mod's live views as
-		// `data.push` — before PumpMainThread/Update flush the per-view outbound
-		// queues, so a push lands in this tick's frame. No subscriber set: the
-		// target list is derived fresh from the live surfaces each time, so there
-		// is nothing to prune or go stale.
+		// Papyrus state and events reach the publishing mod's live views before
+		// PumpMainThread/Update flush the per-view outbound queues, so both land
+		// in this tick's frame. No subscriber set: the target list is derived
+		// fresh from the live surfaces each time, so there is nothing to prune
+		// or go stale.
 		if (_bridge) {
-			API::Papyrus::DrainViewPushes([this](const API::Papyrus::ViewPush& a_push) {
-				std::unordered_set<std::string> targets;
-				const std::string               prefix = a_push.mod + "/";
-				for (const auto& m : _views.All()) {
-					if (_menus.IsRegistered(m.id) && m.id.starts_with(prefix)) {
-						targets.insert(m.id);
-					}
-				}
+			// A game load reset the VM: drop retained PAPYRUS state, whose values
+			// can hold session-scoped form identities. Native plugin state is
+			// left alone — a plugin's HUD config has no such lifetime, and
+			// wiping it on every load would be the bug.
+			if (API::Papyrus::TakeSessionReset()) {
+				_viewState.ClearSessionScoped();
+			}
+			// SetView* is RETAINED: it goes into the shared store first, so a
+			// document that greets the bridge later is replayed the same value.
+			// This is why a Papyrus-backed HUD survives F5 with no re-push
+			// handshake in the script.
+			API::Papyrus::DrainViewState([this](const API::Papyrus::ViewState& a_state) {
+				_viewState.Set(a_state.mod, a_state.key, a_state.value, /*sessionScoped*/ true);
+				PublishModState(a_state.mod, a_state.key, a_state.value);
+			});
+			// The native ABI's half of the same grid (SetViewState). Same store,
+			// same replay — a plugin sets a value once and every fresh document
+			// of its mod is handed it, exactly like Papyrus state. NOT
+			// session-scoped: a plugin's state holds no form identities.
+			for (auto& op : API::BridgeApi::Get().TakeViewStateOps()) {
+				_viewState.Set(op.mod, op.key, op.value, /*sessionScoped*/ false);
+				PublishModState(op.mod, op.key, op.value);
+			}
+			// SendViewEvent is a one-shot happening: never retained, never
+			// replayed. Encoding one as state would re-fire its effect on every
+			// reload, which is exactly the bug the split exists to prevent.
+			API::Papyrus::DrainViewEvents([this](const API::Papyrus::ViewEvent& a_event) {
+				const auto targets = LiveViewsOfMod(a_event.mod);
 				if (targets.empty()) {
-					// A mod pushing with no view installed/live is not an error;
-					// leave a devMode trace.
-					REX::DEBUG("Runtime: PushToView {}.{} had no live '{}/...' view to deliver to",
-						a_push.mod, a_push.key, a_push.mod);
+					REX::DEBUG("Runtime: SendViewEvent {}.{} had no live '{}/...' view to deliver to",
+						a_event.mod, a_event.name, a_event.mod);
 					return;
 				}
-				auto [type, payload] = EncodePapyrusViewData(a_push);
-				_bridge->SendToWeb(targets, type, payload);
+				_bridge->Emit(targets, std::format("{}.{}", a_event.mod, a_event.name),
+					nlohmann::json{ { "args", a_event.args } });
 			});
 			API::Papyrus::DrainViewReplies([this](const API::Papyrus::ViewReply& reply) {
 				if (reply.rejected) {
-					_bridge->SendToWeb(reply.view, "ui.error", {
-						{ "code", reply.code }, { "message", reply.message }
-					}, reply.requestId);
+					_bridge->RejectTo(reply.requestId, reply.code, reply.message);
 				} else {
-					_bridge->SendToWeb(reply.view, "papyrus.result", { { "value", reply.value } }, reply.requestId);
+					_bridge->RespondTo(reply.requestId, nlohmann::json{ { "value", reply.value } });
 				}
 			});
 		}
-		// Apply the native plugin API's queued ops (command (re)registration +
-		// off-thread SendToWeb) on the main thread, before Update() flushes the
+		// Expire deferred requests past the host deadline with `no-response`,
+		// before the pump below, so a backend that stopped answering frees the
+		// caller's in-flight capacity this tick rather than next.
+		if (_bridge) {
+			_bridge->Tick();
+		}
+		// Apply the native plugin API's queued ops (endpoint (re)registration +
+		// off-thread sends) on the main thread, before Update() flushes the
 		// per-view outbound queues to the pages.
 		API::BridgeApi::Get().PumpMainThread();
 		// Apply the snapshot now, so the reconcilers below and the frame submitted
@@ -786,11 +794,15 @@ namespace OSFUI
 			a_manifest.capturesInput, a_manifest.pausesGame);
 		if (a_manifest.permissions.nativeBridge && _bridge) {
 			// This may be the first bridge-enabled surface. Publish the bridge before
-			// this tick's PumpMainThread so queued SendToWeb work reaches the newly
-			// created renderer view.
+			// this tick's PumpMainThread so queued sends reach the newly created
+			// renderer view.
 			API::BridgeApi::Get().OnBridgeReady(_bridge.get());
-			_bridge->SendRuntimeReady(id);
-			ReplayPapyrusViewState(*_bridge, id);
+			// Arm a closed event gate. The greeting is the PAGE's move now, so
+			// nothing is pushed here: events raised before the document says hello
+			// queue behind the gate, and every current state value is replayed when
+			// it does. That is the whole boot path, identically for a first open, an
+			// F5, a dev hot-reload and a crash-recovery reload.
+			_bridge->OnViewCreated(id);
 		}
 		return true;
 	}
@@ -986,14 +998,18 @@ namespace OSFUI
 			target->capturesInput, target->pausesGame, target->order });
 		const auto title = _localization.Resolve(target->mod,
 			"views." + std::string(Ids::ViewNameOf(target->id)) + ".title", target->title);
-		_bridge->SendToWeb(kHandoffViewId, "handoff.state", nlohmann::json{
+		// STATE, not an event: this is latest-wins data the handoff surface
+		// renders from. As a push it left the view showing its cold pre-state
+		// look forever after an F5, because nothing re-sent it.
+		_handoffState = nlohmann::json{
 			{ "target", target->id },
 			{ "mod", target->mod },
 			{ "title", title },
 			{ "accent", target->accent },
 			{ "phase", a_phase },
 			{ "retry", a_retry },
-		});
+		};
+		_bridge->PublishState(kHandoffViewId, "osfui", "handoff", _handoffState);
 		_menus.Open(kHandoffViewId);
 		pending.handoffVisible = true;
 		pending.phase = std::string(a_phase);
@@ -1254,11 +1270,11 @@ namespace OSFUI
 				// opened/closed this tick, "focus" = only the focused menu changed.
 				const char* reason = (visible == wasVisible) ? "focus" : "overlay";
 				if (!_lastShownView.empty()) {
-					_bridge->SendToWeb(_lastShownView, "ui.visibility",
+					_bridge->Emit(_lastShownView, "ui.visibility",
 						nlohmann::json{ { "visible", false }, { "reason", reason } });
 				}
 				if (!shown.empty()) {
-					_bridge->SendToWeb(shown, "ui.visibility",
+					_bridge->Emit(shown, "ui.visibility",
 						nlohmann::json{ { "visible", true }, { "reason", reason } });
 				}
 				_lastShownView = shown;
@@ -1393,21 +1409,12 @@ namespace OSFUI
 		_viewLifecycle.NoteActivity(a_id, _uptime);
 		_renderer->LoadView(a_manifest);
 		if (a_manifest.permissions.nativeBridge && _bridge) {
-			// A reload is a fresh document: `await osfui.ready` on the new page
-			// resolves only on a runtime.ready it receives itself, and the host
-			// does not replay the one the first load consumed. Without this a
-			// dev hot-reload or a crash-recovery reload comes back blank and
-			// unlocalized — the boot code that issues i18n.get and re-asserts
-			// osfui.handleBack / gamepadRaw all lives behind the greeting, and
-			// OnViewLoad has just dropped those per-view grants expecting the
-			// page to re-assert them.
-			//
-			// Ordering is safe: LoadView's navigate and this send are ordered
-			// pipe commands, and the host resets domSeen while handling the
-			// navigate, so the greeting queues until the new DOM is ready
-			// instead of reaching the outgoing page.
-			_bridge->SendRuntimeReady(a_id);
-			ReplayPapyrusViewState(*_bridge, a_id);
+			// Re-arm the gate: the replacement document greets the bridge itself and
+			// is replayed then. This is where 1.x had to race a host-initiated
+			// greeting against the navigate (and lean on the host's domSeen reset to
+			// keep it off the outgoing page) — a page-initiated handshake cannot
+			// reach the wrong document by construction.
+			_bridge->OnViewCreated(a_id);
 		}
 		// A recreated view starts at manifest dimensions; restore the
 		// output-matched size so it composites 1:1 again.
@@ -1486,8 +1493,10 @@ namespace OSFUI
 		if (!bridgeSurfaceRemains) {
 			API::BridgeApi::Get().OnBridgeReady(nullptr);
 		}
-		_viewsSubscribers.erase(a_id);
-		_i18nSubscribers.erase(a_id);
+		if (_bridge) {
+			// Drops the view's event gate and reaps every request it still owns.
+			_bridge->OnViewDestroyed(a_id);
+		}
 		_gamepadRawViews.erase(a_id);
 		_backOwnerViews.erase(a_id);
 		for (const auto& mod : _modules) {
@@ -1631,16 +1640,170 @@ namespace OSFUI
 
 	void Runtime::BroadcastViewsData()
 	{
-		if (!_bridge || _viewsSubscribers.empty()) {
+		if (!_bridge) {
 			return;
 		}
-		auto payload = BuildViewsData();
-		auto dumped = payload.dump();
+		// Content dedupe: callers invoke this unconditionally after any
+		// potentially-catalog-changing event. The hello replay deliberately does
+		// NOT come through here — it publishes _lastViewsData directly — because
+		// a dedupe against the last CHANGE would send the second view to connect
+		// nothing at all.
+		auto dumped = Json::Dump(BuildViewsData());
 		if (dumped == _lastViewsData) {
 			return;
 		}
 		_lastViewsData = std::move(dumped);
-		_bridge->SendJsonToWeb(_viewsSubscribers, "views.data", _lastViewsData);
+		PublishPlatformState("views");
+	}
+
+	std::unordered_set<std::string> Runtime::LiveViewsOfMod(std::string_view a_mod) const
+	{
+		std::unordered_set<std::string> targets;
+		for (const auto& manifest : _views.All()) {
+			if (!_menus.IsRegistered(manifest.id)) {
+				continue;
+			}
+			// Case-INSENSITIVE. A Papyrus mod id arrives through BSFixedString
+			// interning, which hands back the first casing the process saw,
+			// while a view id is lowercase by grammar. 1.x matched
+			// case-sensitively here and case-insensitively on replay, so a mod
+			// whose folder case differed from its script's spelling got its
+			// state on reload and never on a live push.
+			if (Ids::EqualsCaseInsensitiveAscii(Ids::ModOf(manifest.id), a_mod)) {
+				targets.insert(manifest.id);
+			}
+		}
+		return targets;
+	}
+
+	void Runtime::PublishModState(std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value)
+	{
+		if (!_bridge) {
+			return;
+		}
+		const auto targets = LiveViewsOfMod(a_mod);
+		if (targets.empty()) {
+			// Not an error, and not a lost write: the value is retained, so the
+			// mod's first view is replayed it the moment it greets the bridge.
+			REX::DEBUG("Runtime: state '{}/{}' has no live view yet — retained for the next greeting",
+				a_mod, a_key);
+			return;
+		}
+		_bridge->PublishState(targets, a_mod, a_key, a_value);
+	}
+
+	void Runtime::PublishPlatformState(std::string_view a_key, std::string_view a_viewId)
+	{
+		if (!_bridge) {
+			return;
+		}
+		const auto deliver = [&](const std::string& a_view) {
+			if (a_key == "views") {
+				if (_lastViewsData.empty()) {
+					_lastViewsData = Json::Dump(BuildViewsData());
+				}
+				_bridge->PublishJsonState(a_view, "osfui", "views", _lastViewsData);
+			} else if (a_key == "settings") {
+				if (_settings) {
+					_bridge->PublishState(a_view, "osfui", "settings", _settings->Store().DataView());
+				}
+			} else if (a_key == "diagnostics") {
+				if (_diagnostics) {
+					_bridge->PublishState(a_view, "osfui", "diagnostics", _diagnostics->Snapshot());
+				}
+			} else if (a_key == "i18n") {
+				// Computed per view: a view's catalog is its OWNING mod's, which
+				// is why this one key carries a different value to each document.
+				const std::string mod{ Ids::ModOf(a_view) };
+				_bridge->PublishState(a_view, "osfui", "i18n", nlohmann::json{
+					{ "mod", mod },
+					{ "locale", _localization.Locale() },
+					{ "strings", _localization.CatalogFor(mod) },
+				});
+			}
+		};
+		if (!a_viewId.empty()) {
+			deliver(std::string(a_viewId));
+			return;
+		}
+		// PublishState drops anything addressed to a view that has not greeted
+		// the bridge, so this needs no subscriber set to prune: an ungreeted
+		// document is replayed everything when it does greet.
+		for (const auto& manifest : _views.All()) {
+			if (manifest.permissions.nativeBridge && _menus.IsRegistered(manifest.id)) {
+				deliver(manifest.id);
+			}
+		}
+	}
+
+	void Runtime::OnViewGreeted(std::string_view a_viewId)
+	{
+		if (!_bridge) {
+			return;
+		}
+		// `ready` is already out and this view's event gate is open, so
+		// everything published here precedes the first event the document sees.
+		// Nothing below consults a change-dedupe: those exist so a repeated
+		// broadcast is cheap, and applying one here would send the second view
+		// to connect nothing at all.
+		for (const auto* key : { "settings", "views", "diagnostics", "i18n" }) {
+			PublishPlatformState(key, a_viewId);
+		}
+		if (a_viewId == kHandoffViewId && !_handoffState.is_null()) {
+			_bridge->PublishState(a_viewId, "osfui", "handoff", _handoffState);
+		}
+		// The document's own mod's retained state, from whichever backend
+		// published it — Papyrus SetView* or the native ABI's SetViewState.
+		const std::string mod{ Ids::ModOf(a_viewId) };
+		if (const auto* entries = _viewState.Find(mod)) {
+			for (const auto& entry : *entries) {
+				_bridge->PublishState(a_viewId, mod, entry.key, entry.value);
+			}
+		}
+		// A greeting means a FRESH document, which cannot still hold the input
+		// grants the previous one asserted. Dropping them here (rather than only
+		// in OnViewLoad) also covers an F5 the runtime never hears about.
+		_gamepadRawViews.erase(std::string(a_viewId));
+		_backOwnerViews.erase(std::string(a_viewId));
+	}
+
+	void Runtime::OnProtocolMisuse(std::string_view a_viewId, std::string_view a_code,
+		std::string_view a_message, const nlohmann::json& a_detail)
+	{
+		// devMode: hand it straight back to the offending document so it lands
+		// in that view's OWN console — and therefore in F12 DevTools with full
+		// object inspection, and in the SFSE log through the host's console
+		// forwarder. One mechanism, both surfaces, no second channel.
+		if (_config.devMode && _bridge) {
+			_bridge->Emit(a_viewId, "osfui.debug.error", nlohmann::json{
+				{ "code", std::string(a_code) },
+				{ "message", std::string(a_message) },
+				{ "detail", a_detail },
+			});
+		}
+		// A release build has no debug channel, so REPETITION is the signal: a
+		// view that keeps getting the protocol wrong earns a health card. A
+		// one-off (a stale view naming one dead endpoint at boot) stays out of
+		// the player's face.
+		constexpr std::uint32_t kMisuseThreshold = 10;
+		if (a_viewId.empty() || !_diagnostics) {
+			return;
+		}
+		const auto count = ++_protocolMisuse[std::string(a_viewId)];
+		if (count != kMisuseThreshold) {
+			return;
+		}
+		_diagnostics->Upsert({
+			.id = std::format("view.protocol-misuse:{}", a_viewId),
+			.code = "view.protocol-misuse",
+			.severity = DiagnosticsModule::Severity::Warning,
+			// Dotless: the Mods surface reads a dot in `source` as "a mod
+			// reported this", and this is the platform reporting about a view.
+			.source = "views",
+			.subject = std::string(a_viewId),
+			.context = nlohmann::json{ { "code", std::string(a_code) }, { "count", count } },
+		}, _uptime);
+		_diagnostics->Broadcast();
 	}
 
 	Runtime::ViewLoadState Runtime::GetViewLoadState(std::string_view a_id) const
@@ -1709,10 +1872,9 @@ namespace OSFUI
 			_renderer->SetRenderStats(manifest.id, _renderStatsEnabled);
 			if (manifest.permissions.nativeBridge) {
 				// RestartAfterFailure discarded messages addressed to the dead
-				// documents. Bootstrap each replacement first, then replay the
-				// retained native state it cannot request retroactively.
-				_bridge->SendRuntimeReady(manifest.id);
-				ReplayPapyrusViewState(*_bridge, manifest.id);
+				// documents. Each replacement greets the bridge on load and is
+				// replayed then; all this has to do is re-arm its gate.
+				_bridge->OnViewCreated(manifest.id);
 			}
 			++reloaded;
 		}
@@ -2043,7 +2205,7 @@ namespace OSFUI
 			// Raw event for every edge — a page may own gamepad handling. Per-kind
 			// nesting keeps extensions (e.g. a `pad` index) off the payload root.
 			if (_bridge && active) {
-				_bridge->SendToWeb(*active, "ui.gamepad",
+				_bridge->Emit(*active, "ui.gamepad",
 					nlohmann::json{ { "kind", "button" },
 						{ "button", { { "id", e.idCode }, { "down", e.down } } } });
 			}
@@ -2126,7 +2288,7 @@ namespace OSFUI
 			}
 			if (changed) {
 				// Nested like the button case; triggers extend as axes.lt/rt.
-				_bridge->SendToWeb(*active, "ui.gamepad",
+				_bridge->Emit(*active, "ui.gamepad",
 					nlohmann::json{ { "kind", "stick" },
 						{ "axes", { { "lx", s.lx }, { "ly", s.ly }, { "rx", s.rx }, { "ry", s.ry } } } });
 				for (int i = 0; i < 4; ++i) {
@@ -2287,15 +2449,16 @@ namespace OSFUI
 				payload["conflicts"] = std::move(conflicts);
 			}
 		}
-		// Deferred reply: echo the arming request's id so the view's
-		// osfui.request("settings.captureKey", ...) promise settles with this.
-		_bridge->SendToWeb(_captureView, "settings.captured", payload, _captureRequestId);
+		// A one-shot happening, so it is an EVENT, not the arming request's
+		// reply: `settings.captureKey` already settled in machine time with
+		// "armed". Requests settle in machine time; human-time outcomes are
+		// events (docs/mod-api-2.0-design.md, "User-paced flows settle fast").
+		_bridge->Emit(_captureView, "settings.captured", payload);
 		REX::DEBUG("Runtime: key capture -> {} (VK {:#04x}) ({}.{})",
 			cancelled ? "(cancelled)" : name, vk, _captureMod, _captureKey);
 		_captureView.clear();
 		_captureMod.clear();
 		_captureKey.clear();
-		_captureRequestId.clear();
 		// The capture is answered; stop swallowing the captured key's release.
 		// A letter/digit VK never reaches the accelerator hook on key-up, so
 		// without this the latch stays armed and eats that key's next release
@@ -2310,9 +2473,9 @@ namespace OSFUI
 			return;
 		}
 		_captureUpVk = kInvalidKeyCode;
-		// Answer the arming request so the view's promise settles instead of
-		// hanging until its own timeout; same shape as the Esc path in
-		// DrainKeyCapture.
+		// Close the capture out so the view's rebind affordance restores instead
+		// of waiting forever on a keypress that can no longer arrive; same shape
+		// as the Esc path in DrainKeyCapture.
 		if (_bridge && !_captureView.empty()) {
 			nlohmann::json payload{
 				{ "mod", _captureMod },
@@ -2320,14 +2483,13 @@ namespace OSFUI
 				{ "name", "" },
 				{ "cancelled", true },
 			};
-			_bridge->SendToWeb(_captureView, "settings.captured", payload, _captureRequestId);
+			_bridge->Emit(_captureView, "settings.captured", payload);
 		}
 		REX::DEBUG("Runtime: armed key capture cancelled by menu close ({}.{})",
 			_captureMod, _captureKey);
 		_captureView.clear();
 		_captureMod.clear();
 		_captureKey.clear();
-		_captureRequestId.clear();
 	}
 
 	void Runtime::DrainHotkeys()
@@ -2402,15 +2564,30 @@ namespace OSFUI
 		if (!result->message.empty()) payload["message"] = result->message;
 		if (!result->reportId.empty()) payload["reportId"] = result->reportId;
 		if (result->issueNumber != 0) payload["issueNumber"] = result->issueNumber;
-		_bridge->SendToWeb(result->view, "diagnostics.reportResult", payload,
-			result->requestId);
+		// Settles the request the submit deferred. A failed upload REJECTS with
+		// its code rather than resolving an { ok:false } document the caller has
+		// to remember to inspect.
+		if (result->ok) {
+			_bridge->RespondTo(result->requestId, payload);
+		} else {
+			_bridge->RejectTo(result->requestId,
+				result->code.empty() ? "report-failed" : result->code, result->message);
+		}
 	}
 
 	void Runtime::RegisterPlatformCommands(MessageBridge& a_bridge)
 	{
-		// The platform owns only window/diagnostic commands. Features register
+		// The platform owns only window/diagnostic endpoints. Features register
 		// their own; there is no generic "call native" escape hatch.
-		a_bridge.RegisterCommand("close", [this](const nlohmann::json&, MessageBridge& a_b) {
+		//
+		// The kind of each endpoint is chosen by ONE question: does the caller
+		// need a completion? A dismissal cannot meaningfully fail, so `close` is
+		// a send; opening a surface by id can name a view that does not exist,
+		// so `menu.open` is a request. Reads-with-replay are neither — the four
+		// registries a view used to `*.get` (settings, views, diagnostics, i18n)
+		// are published as state instead, which is what makes them survive F5
+		// with no lifecycle code in the view.
+		a_bridge.RegisterSend("close", [this](const nlohmann::json&, MessageBridge& a_b) {
 			if (a_b.CurrentSource() == kHandoffViewId && CancelPendingOpen()) {
 				ApplyMenuPolicy();
 				return;
@@ -2421,7 +2598,7 @@ namespace OSFUI
 				ApplyMenuPolicy();
 			}
 		});
-		a_bridge.RegisterCommand("setVisible", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
+		a_bridge.RegisterSend("setVisible", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
 			const std::string src(a_b.CurrentSource());
 			const bool changed = Json::GetBool(a_p, "visible", false) ? _menus.Open(src) : _menus.Close(src);
 			if (changed) {
@@ -2437,13 +2614,16 @@ namespace OSFUI
 				id = std::string(a_b.CurrentSource());
 			}
 			if (!_views.Find(id)) {
-				REX::WARN("Runtime: menu.open/hud.show refused — '{}' was not discovered", id);
-				a_b.SendResult(false, "unknown-view", "view was not discovered");
+				REX::WARN("Runtime: menu.open refused — '{}' was not discovered", id);
+				a_b.Reject("unknown-view", "view was not discovered");
 				return;
 			}
 			// Use the same snapshot/load/pump/open path as native RequestMenu so a
-			// discovered surface is created while hidden on the next tick.
+			// discovered surface is created while hidden on the next tick. The
+			// reply means "accepted and queued", which is all the caller can act
+			// on — the open itself lands on the next tick.
 			EnqueueOpenView(std::move(id));
+			a_b.Respond(nlohmann::json::object());
 		};
 		const auto surfaceClose = [this](const nlohmann::json& a_p, MessageBridge& a_b) {
 			std::string id = Json::GetString(a_p, "view", "");
@@ -2460,32 +2640,37 @@ namespace OSFUI
 			} else if (cancelled) {
 				ApplyMenuPolicy();
 			} else if (!_menus.IsRegistered(id)) {
-				a_b.SendResult(false, "unknown-view", "not a registered surface");
+				a_b.Reject("unknown-view", "not a registered surface");
+				return;
 			}
-			// Already closed = desired state reached: the auto ui.result acks it.
+			// Already closed = the desired state was reached.
+			a_b.Respond(nlohmann::json::object());
 		};
-		a_bridge.RegisterCommand("menu.open", surfaceOpen);
-		a_bridge.RegisterCommand("menu.close", surfaceClose);
-		a_bridge.RegisterCommand("hud.show", surfaceOpen);
-		a_bridge.RegisterCommand("hud.hide", surfaceClose);
-		a_bridge.RegisterCommand("view.ready", [this](const nlohmann::json&, MessageBridge& a_b) {
+		// `hud.show`/`hud.hide` are gone: they were bound to these very lambdas,
+		// so they were four names for two behaviors. A surface's kind is fixed by
+		// its manifest, not by the endpoint the page happened to pick.
+		a_bridge.RegisterRequest("menu.open", surfaceOpen);
+		a_bridge.RegisterRequest("menu.close", surfaceClose);
+		a_bridge.RegisterSend("view.ready", [this](const nlohmann::json&, MessageBridge& a_b) {
 			const std::string source(a_b.CurrentSource());
 			const auto* manifest = _views.Find(source);
 			if (!manifest || !manifest->permissions.nativeBridge) {
-				a_b.SendResult(false, "forbidden", "view.ready requires nativeBridge");
+				// Unreachable in practice — a view without nativeBridge has no
+				// bridge to send through — so surface it rather than answering.
+				a_b.Surface(source, "forbidden", "view.ready requires nativeBridge");
 				return;
 			}
 			_readyViews.insert(source);
 			REX::DEBUG("Runtime: view '{}' declared meaningful readiness", source);
 		});
-		a_bridge.RegisterCommand("osfui.handoffRetry", [this](const nlohmann::json&, MessageBridge& a_b) {
+		a_bridge.RegisterSend("osfui.handoffRetry", [this](const nlohmann::json&, MessageBridge& a_b) {
 			if (a_b.CurrentSource() != kHandoffViewId) {
-				a_b.SendResult(false, "forbidden", "platform handoff command");
+				a_b.Surface(a_b.CurrentSource(), "forbidden", "osfui.handoffRetry is a platform action");
 				return;
 			}
 			RetryPendingOpen();
 		});
-		a_bridge.RegisterCommand("setViewHidden", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
+		a_bridge.RegisterRequest("setViewHidden", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
 			// Show/hide one loaded view by id, independent of the overlay toggle.
 			// Omitting "view" targets the calling view (self-hide).
 			std::string id = Json::GetString(a_p, "view", "");
@@ -2493,38 +2678,26 @@ namespace OSFUI
 				id = std::string(a_b.CurrentSource());
 			}
 			if (!SetViewHidden(id, Json::GetBool(a_p, "hidden", false))) {
-				a_b.SendResult(false, "unknown-view", "not a loaded view");
-			}
-		});
-		// Catalog of discovered surfaces (bridge 0.2), loaded or not. Replies with
-		// `views.data` and subscribes the caller: any later open/close/focus/load-state change
-		// re-sends the catalog, so it stays current without polling.
-		a_bridge.RegisterRequest("views.get", [this](const nlohmann::json&, MessageBridge& a_b) {
-			const auto payload = BuildViewsData();
-			_viewsSubscribers.insert(std::string(a_b.CurrentSource()));
-			_lastViewsData = payload.dump();
-			a_b.SendToWeb("views.data", payload);
-		});
-		// A custom view supplies inline English to osfui.t(address, english); this
-		// returns only active-locale overrides for its mod domain. The caller
-		// subscribes so a live language change replaces the catalog.
-		a_bridge.RegisterRequest("i18n.get", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
-			const std::string source(a_b.CurrentSource());
-			const std::string ownMod{ Ids::ModOf(source) };
-			std::string mod = Json::GetString(a_p, "mod", ownMod);
-			if (!Ids::IsAcceptedModId(mod)) {
-				a_b.SendResult(false, "invalid-mod", "invalid localization mod id");
+				a_b.Reject("unknown-view", "not a loaded view");
 				return;
 			}
-			_i18nSubscribers[source] = mod;
-			a_b.SendToWeb("i18n.data", nlohmann::json{
-				{ "mod", mod }, { "locale", _localization.Locale() },
-				{ "strings", _localization.CatalogFor(mod) },
-			});
+			a_b.Respond(nlohmann::json::object());
 		});
-		// Arm key-rebind capture: the next key press is grabbed by OnHostKey and
-		// reported back via `settings.captured`. Any schema-declared `type:"key"`
-		// setting is rebindable — the schema gates the capture, not an allowlist.
+		// `views.get`, `i18n.get`, `settings.get` and `diagnostics.get` are GONE.
+		// Each was a request with an invisible side effect — it subscribed the
+		// caller to future pushes — which is the definition of state, not of a
+		// read. They are published as the platform state keys osfui/views,
+		// osfui/i18n, osfui/settings and osfui/diagnostics instead
+		// (PublishPlatformState below), so a view renders from
+		// `osfui.state.on(...)` with no read roundtrip and no re-request after a
+		// reload.
+		// Arm key-rebind capture. The REQUEST settles in machine time — "armed",
+		// or a typed refusal — and the human-time outcome arrives later as the
+		// `settings.captured` EVENT. A request left pending on a person pressing
+		// a key is the wrong shape: it fights the client's own timeout and makes
+		// "waiting for you" indistinguishable from "the backend died".
+		// Any schema-declared `type:"key"` setting is rebindable — the schema
+		// gates the capture, not an allowlist.
 		// Main thread; OnHostKey (window thread) reads the armed flag.
 		a_bridge.RegisterRequest("settings.captureKey", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
 			const auto requestedMod = Json::GetString(a_p, "mod", "");
@@ -2535,7 +2708,7 @@ namespace OSFUI
 			if (!allowedMod) {
 				REX::WARN("Runtime: [content] view '{}' refused settings.captureKey for '{}' (not its own mod)",
 					a_b.CurrentSource(), requestedMod);
-				a_b.SendResult(false, "forbidden", "a view may only rebind its own mod's keys");
+				a_b.Reject("forbidden", "a view may only rebind its own mod's keys");
 				return;
 			}
 			const std::string mod(*allowedMod);
@@ -2546,108 +2719,87 @@ namespace OSFUI
 			if (_captureArmed.load()) {
 				REX::WARN("Runtime: settings.captureKey rejected — a capture is already in progress ({}.{})",
 					_captureMod, _captureKey);
-				a_b.SendResult(false, "capture-busy", "a key capture is already in progress");
+				a_b.Reject("capture-busy", "a key capture is already in progress");
 				return;
 			}
 			if (!_settings || _settings->Store().GetSettingType(mod, key) != "key") {
 				REX::WARN("Runtime: settings.captureKey rejected — '{}.{}' is not a key-typed setting",
 					mod.substr(0, 64), key.substr(0, 64));
-				// Reply cancelled so the view's rebind button restores instead of
-				// dead-waiting into its timeout toast.
-				a_b.SendToWeb("settings.captured", nlohmann::json{
-					{ "mod", mod }, { "key", key }, { "name", "" }, { "cancelled", true } });
+				a_b.Reject("not-rebindable", "only a key-typed setting can be rebound");
 				return;
 			}
 			_captureView = std::string(a_b.CurrentSource());
 			_captureMod = mod;
 			_captureKey = key;
-			// Correlation across the async gap: the eventual settings.captured
-			// echoes the arming request's id. DeferResult suppresses the auto
-			// ui.result — arming is not the outcome.
-			_captureRequestId = std::string(a_b.CurrentRequestId());
-			a_b.DeferResult();
 			_captureArmed.store(true);
 			REX::DEBUG("Runtime: armed key capture for {}.{} (from view '{}')", mod, key, _captureView);
+			// Settled: capture is armed. The captured key (or the cancellation)
+			// follows as a `settings.captured` event, however much later.
+			a_b.Respond(nlohmann::json{ { "armed", true }, { "mod", mod }, { "key", key } });
 		});
-		// Fire an action at the owning mod's Papyrus scripts
-		// (OSFUI.RegisterForViewActions). The mod id comes from the source view id,
-		// never the payload, so a view cannot fire actions into another mod's
-		// callbacks. Fire-and-forget: no reply payload; a requestId still gets the
-		// auto ui.result ack, meaning "queued to the VM", not "handled".
-		a_bridge.RegisterCommand("ui.action", [](const nlohmann::json& a_p, MessageBridge& a_b) {
-			const std::string source(a_b.CurrentSource());
-			const std::string mod{ Ids::ModOf(source) };
-			const std::string action = Json::GetString(a_p, "action", "");
-			if (action.empty()) {
-				REX::WARN("Runtime: ui.action from '{}' ignored — empty 'action'", source);
-				a_b.SendResult(false, "invalid-action", "ui.action requires a non-empty 'action' string");
-				return;
-			}
-			// `args` (protocol 1.3): a string list delivered to args-list
-			// registrants as a Papyrus string[]. Non-string elements are coerced
-			// so a view can send `args: [1, 7]` without stringifying. When absent
-			// (or not an array) fall back to the legacy scalar `arg` as a single
-			// element, so an unmigrated view keeps working unchanged.
+		// The two fixed endpoints behind `osfui.papyrus.*`. The mod id comes from
+		// the source view id, never the payload, so a view cannot reach into
+		// another mod's listeners.
+		//
+		// Non-string arg elements are coerced here so a view can send
+		// `args: [1, 7]` without stringifying — Papyrus's lack of a modulo
+		// operator made packing several small ints into one string genuinely
+		// painful, which is why the list form exists at all.
+		const auto papyrusArgs = [](const nlohmann::json& a_p) {
 			std::vector<std::string> args;
-			if (const auto it = a_p.find("args"); it != a_p.end() && it->is_array()) {
-				args.reserve(it->size());
-				for (const auto& e : *it) {
-					if (e.is_string()) {
-						args.push_back(e.get<std::string>());
-					} else if (e.is_number_integer()) {
-						args.push_back(std::to_string(e.get<std::int64_t>()));
-					} else if (e.is_number()) {
-						args.push_back(std::to_string(e.get<double>()));
-					} else if (e.is_boolean()) {
-						args.emplace_back(e.get<bool>() ? "true" : "false");
-					} else {
-						args.emplace_back();  // null/object/array element -> ""
-					}
-				}
-			} else {
-				args.push_back(Json::GetString(a_p, "arg", ""));
+			const auto it = a_p.find("args");
+			if (it == a_p.end() || !it->is_array()) {
+				return args;
 			}
-			API::Papyrus::OnViewAction(mod, action, args);
-		});
-		// Correlated JS -> owning-Papyrus request (protocol 1.5). Unlike ui.action,
-		// this always requires requestId and suppresses the automatic delivery ack;
-		// the eventual ReplyView*/RejectViewRequest settles it explicitly.
-		a_bridge.RegisterRequest("ui.papyrusRequest", [](const nlohmann::json& a_p, MessageBridge& a_b) {
-			const std::string source(a_b.CurrentSource());
-			const std::string mod{ Ids::ModOf(source) };
-			const std::string request = Json::GetString(a_p, "request", "");
-			if (a_b.CurrentRequestId().empty()) {
-				a_b.SendResult(false, "request-id-required", "Papyrus requests require a requestId");
-				return;
-			}
-			if (mod.empty() || request.empty() || request.size() > 64) {
-				a_b.SendResult(false, "invalid-request", "request must be a non-empty string of at most 64 characters");
-				return;
-			}
-			std::vector<std::string> args;
-			if (const auto it = a_p.find("args"); it != a_p.end() && it->is_array()) {
-				args.reserve(it->size());
-				for (const auto& value : *it) {
-					if (value.is_string()) args.push_back(value.get<std::string>());
-					else if (value.is_number_integer()) args.push_back(std::to_string(value.get<std::int64_t>()));
-					else if (value.is_number()) args.push_back(std::to_string(value.get<double>()));
-					else if (value.is_boolean()) args.emplace_back(value.get<bool>() ? "true" : "false");
-					else args.emplace_back();
+			args.reserve(it->size());
+			for (const auto& e : *it) {
+				if (e.is_string()) {
+					args.push_back(e.get<std::string>());
+				} else if (e.is_number_integer()) {
+					args.push_back(std::to_string(e.get<std::int64_t>()));
+				} else if (e.is_number()) {
+					args.push_back(std::to_string(e.get<double>()));
+				} else if (e.is_boolean()) {
+					args.emplace_back(e.get<bool>() ? "true" : "false");
+				} else {
+					args.emplace_back();  // null/object/array element -> ""
 				}
 			}
-			if (!API::Papyrus::OnViewRequest(mod, request, args, source, a_b.CurrentRequestId())) {
-				a_b.SendResult(false, "papyrus-unavailable", "no Papyrus request listener is available");
+			return args;
+		};
+		a_bridge.RegisterSend("papyrus.send", [papyrusArgs](const nlohmann::json& a_p, MessageBridge& a_b) {
+			const std::string source(a_b.CurrentSource());
+			const std::string mod{ Ids::ModOf(source) };
+			const std::string name = Json::GetString(a_p, "name", "");
+			if (name.empty()) {
+				a_b.Surface(source, "invalid-request", "papyrus.send requires a non-empty 'name'");
 				return;
 			}
-			a_b.DeferResult();
-		});		a_bridge.RegisterCommand("log", [](const nlohmann::json& a_p, MessageBridge&) {
+			API::Papyrus::OnViewAction(mod, name, papyrusArgs(a_p));
+		});
+		a_bridge.RegisterRequest("papyrus.request", [papyrusArgs](const nlohmann::json& a_p, MessageBridge& a_b) {
+			const std::string source(a_b.CurrentSource());
+			const std::string mod{ Ids::ModOf(source) };
+			const std::string name = Json::GetString(a_p, "name", "");
+			if (mod.empty() || name.empty() || name.size() > 64) {
+				a_b.Reject("invalid-request", "name must be a non-empty string of at most 64 characters");
+				return;
+			}
+			if (!API::Papyrus::OnViewRequest(mod, name, papyrusArgs(a_p), source, a_b.CurrentRequestId())) {
+				a_b.Reject("papyrus-unavailable", "no Papyrus request listener is available");
+				return;
+			}
+			// The script settles it later through ReplyView*/RejectViewRequest.
+			a_b.Defer();
+		});
+		a_bridge.RegisterSend("log", [](const nlohmann::json& a_p, MessageBridge&) {
 			// Untrusted content: bound the length so JS cannot flood the log.
 			REX::DEBUG("MessageBridge: [web] {}", Json::GetString(a_p, "text", "").substr(0, 512));
 		});
 		a_bridge.RegisterRequest("ping", [](const nlohmann::json&, MessageBridge& a_b) {
-			a_b.SendToWeb("runtime.pong", nlohmann::json::object());
+			a_b.Respond(nlohmann::json::object());
 		});
-		a_bridge.RegisterCommand("osfui.gamepadRaw", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
+		a_bridge.RegisterSend("osfui.gamepadRaw", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
 			// A page that wants to own the gamepad (e.g. stick-driven camera orbit)
 			// sets this to suppress the default nav/scroll mapping and handle raw
 			// `ui.gamepad` events itself. Sticky per view: survives overlay
@@ -2655,7 +2807,6 @@ namespace OSFUI
 			// applies the active view's flag each tick.
 			const std::string src(a_b.CurrentSource());
 			if (src.empty()) {
-				a_b.SendResult(false, "unknown-view", "no source view");
 				return;
 			}
 			if (Json::GetBool(a_p, "raw", false)) {
@@ -2664,12 +2815,10 @@ namespace OSFUI
 				_gamepadRawViews.erase(src);
 			}
 		});
-		// Compatibility no-op: pre-session-focus views may still send this
-		// experimental command. Interactive menus already own focus throughout,
-		// so accepting it avoids an unknown-command break without changing policy.
-		a_bridge.RegisterCommand("osfui.textFocus",
-			[](const nlohmann::json&, MessageBridge&) {});
-		a_bridge.RegisterCommand("osfui.openModPage", [](const nlohmann::json&, MessageBridge& a_b) {
+		// `osfui.textFocus` is gone. It was registered as a no-op purely so a
+		// pre-session-focus view would not trip `unknown-command`; an unknown
+		// send is now a dev-only debug event, so the placeholder bought nothing.
+		a_bridge.RegisterRequest("osfui.openModPage", [](const nlohmann::json&, MessageBridge& a_b) {
 			// "Update OSF UI" affordances in views (e.g. OSF Animation's status-line
 			// UPDATE badge): open OSF UI's own Nexus page in the SYSTEM browser —
 			// the overlay itself must never navigate, and the URL is a compile-time
@@ -2679,12 +2828,13 @@ namespace OSFUI
 			if (Platform::OpenSystemBrowser(kNexusPageURLW)) {
 				// INFO for the same reason as osfui.openLogFolder below.
 				REX::INFO("Runtime: osfui.openModPage -> {}", kNexusPageURL);
+				a_b.Respond(nlohmann::json::object());
 			} else {
 				REX::WARN("Runtime: osfui.openModPage — the shell refused to open {}", kNexusPageURL);
-				a_b.SendResult(false, "shell-failed", "could not open the system browser");
+				a_b.Reject("shell-failed", "could not open the system browser");
 			}
 		});
-		a_bridge.RegisterCommand("osfui.openLogFolder", [](const nlohmann::json&, MessageBridge& a_b) {
+		a_bridge.RegisterRequest("osfui.openLogFolder", [](const nlohmann::json&, MessageBridge& a_b) {
 			// System Health's "Open log folder" action (protocol 1.4). The twin
 			// of osfui.openModPage and held to the same rule: the target is
 			// DERIVED NATIVELY (Paths::LogDir()) and the payload carries nothing,
@@ -2694,7 +2844,7 @@ namespace OSFUI
 			const auto folder = Paths::LogDir();
 			if (folder.empty()) {
 				REX::WARN("Runtime: osfui.openLogFolder — could not resolve the Documents folder");
-				a_b.SendResult(false, "no-log-folder", "could not resolve the log folder");
+				a_b.Reject("no-log-folder", "could not resolve the log folder");
 				return;
 			}
 			if (Platform::OpenFolder(folder)) {
@@ -2703,52 +2853,54 @@ namespace OSFUI
 				// the default log level this line is the only way to tell them
 				// apart — it cost a bug report once already.
 				REX::INFO("Runtime: osfui.openLogFolder -> {}", folder.string());
+				a_b.Respond(nlohmann::json::object());
 			} else {
 				REX::WARN("Runtime: osfui.openLogFolder — the shell refused to open {}", folder.string());
-				a_b.SendResult(false, "shell-failed", "could not open the log folder");
+				a_b.Reject("shell-failed", "could not open the log folder");
 			}
 		});
 		a_bridge.RegisterRequest("osfui.setViewAutoStart", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
 			// Startup policy is player intent: only the built-in Mods surface may
 			// change it — the same exact-id gate the diagnostics.* requests use.
 			if (a_b.CurrentSource() != kSettingsViewId) {
-				a_b.SendResult(false, "forbidden", "view auto-start is set from OSF UI's built-in settings view");
+				a_b.Reject("forbidden", "view auto-start is set from OSF UI's built-in settings view");
 				return;
 			}
 			const auto view = Json::GetString(a_p, "view", "");
 			const auto enabled = a_p.find("enabled");
 			if (view.empty() || enabled == a_p.end() || !enabled->is_boolean()) {
-				a_b.SendResult(false, "invalid-payload", "expected { view: string, enabled: boolean }");
+				a_b.Reject("invalid-payload", "expected { view: string, enabled: boolean }");
 				return;
 			}
 			const auto* manifest = _views.Find(view);
 			if (!manifest) {
-				a_b.SendResult(false, "unknown-view", "not a discovered view");
+				a_b.Reject("unknown-view", "not a discovered view");
 				return;
 			}
 			if (!HudAutoStartEligible(*manifest)) {
-				a_b.SendResult(false, "not-configurable",
+				a_b.Reject("not-configurable",
 					"auto-start is settable only for catalog-visible HUDs");
 				return;
 			}
 			if (!_viewPolicy.SetHudAutoStart(view, enabled->get<bool>())) {
-				a_b.SendResult(false, "persistence-failed",
+				a_b.Reject("persistence-failed",
 					"the choice could not be saved, so it was not applied");
 				return;
 			}
 			// Deliberately takes effect at the next launch only — no view is
 			// opened or torn down here. The rebroadcast carries the new effective
-			// policy to every subscriber; the bridge's auto ui.result acks us.
+			// policy in the osfui/views state key.
 			REX::INFO("Runtime: HUD '{}' auto-start set to {} (next launch)",
 				view, enabled->get<bool>());
 			BroadcastViewsData();
+			a_b.Respond(nlohmann::json::object());
 		});
 		a_bridge.RegisterRequest("diagnostics.reportStatus", [this](const nlohmann::json&, MessageBridge& a_b) {
 			if (a_b.CurrentSource() != "osfui/settings") {
-				a_b.SendResult(false, "forbidden", "bug reporting is restricted to OSF UI's built-in settings view");
+				a_b.Reject("forbidden", "bug reporting is restricted to OSF UI's built-in settings view");
 				return;
 			}
-			a_b.SendToWeb("diagnostics.reportStatus", {
+			a_b.Respond({
 				{ "enabled", _config.bugReporting },
 				{ "logs", nlohmann::json::array({ "OSF UI.log", "OSF UI.webview2-host.log" }) },
 				{ "retentionDays", 30 },
@@ -2756,18 +2908,17 @@ namespace OSFUI
 		});
 		a_bridge.RegisterRequest("diagnostics.submitReport", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
 			if (a_b.CurrentSource() != "osfui/settings") {
-				a_b.SendResult(false, "forbidden", "bug reporting is restricted to OSF UI's built-in settings view");
+				a_b.Reject("forbidden", "bug reporting is restricted to OSF UI's built-in settings view");
 				return;
 			}
 			if (!_config.bugReporting) {
-				a_b.SendResult(false, "reporting-disabled", "bug reporting is turned off in OSF UI's settings");
+				a_b.Reject("reporting-disabled", "bug reporting is turned off in OSF UI's settings");
 				return;
 			}
+			// The upload runs on a worker; this id settles the request whenever
+			// it finishes (PumpBugReport). A request always carries an id, so
+			// there is no "was this correlated?" case left to check.
 			const auto requestId = std::string(a_b.CurrentRequestId());
-			if (requestId.empty()) {
-				a_b.SendResult(false, "request-required", "report submission requires a correlated request");
-				return;
-			}
 			// Codepoint-boundary caps. A byte cut here would hand Submit() a string
 			// that is already exactly at the limit, so its own bound is a no-op and
 			// the split sequence reaches the payload dump.
@@ -2779,11 +2930,11 @@ namespace OSFUI
 			const auto description = bounded(Json::GetString(a_p, "description", ""), 6000);
 			const auto reproduction = bounded(Json::GetString(a_p, "reproduction", ""), 4000);
 			if (title.empty() || description.empty()) {
-				a_b.SendResult(false, "invalid-report", "title and description are required");
+				a_b.Reject("invalid-report", "title and description are required");
 				return;
 			}
 			if (_bugReportInFlight.exchange(true, std::memory_order_acq_rel)) {
-				a_b.SendResult(false, "report-busy", "another report is already being submitted");
+				a_b.Reject("report-busy", "another report is already being submitted");
 				return;
 			}
 			// The source id authenticates which hosted document sent the command,
@@ -2792,7 +2943,7 @@ namespace OSFUI
 			// transmitting logs; page-side disclosure is helpful UX, not trust.
 			if (!Platform::ConfirmBugReportUpload(title)) {
 				_bugReportInFlight.store(false, std::memory_order_release);
-				a_b.SendResult(false, "consent-declined", "the diagnostic upload was cancelled");
+				a_b.Reject("consent-declined", "the diagnostic upload was cancelled");
 				return;
 			}
 			const std::string endpoint = kBugReportEndpoint;
@@ -2832,27 +2983,29 @@ namespace OSFUI
 			} catch (const std::exception& e) {
 				_bugReportInFlight.store(false, std::memory_order_release);
 				REX::ERROR("Runtime: could not start bug-report worker: {}", e.what());
-				a_b.SendResult(false, "internal", "could not start the report upload");
+				a_b.Reject("internal", "could not start the report upload");
 				return;
 			}
-			a_b.DeferResult();
+			a_b.Defer();
 		});
-		a_bridge.RegisterCommand("osfui.openReportIssue", [](const nlohmann::json& a_p, MessageBridge& a_b) {
+		a_bridge.RegisterRequest("osfui.openReportIssue", [](const nlohmann::json& a_p, MessageBridge& a_b) {
 			if (a_b.CurrentSource() != "osfui/settings") {
-				a_b.SendResult(false, "forbidden", "open report issue is a platform action");
+				a_b.Reject("forbidden", "open report issue is a platform action");
 				return;
 			}
 			const auto number = Json::GetInt(a_p, "issueNumber", 0);
 			if (number <= 0 || number > 1000000000) {
-				a_b.SendResult(false, "invalid-issue", "invalid report issue number");
+				a_b.Reject("invalid-issue", "invalid report issue number");
 				return;
 			}
 			const auto url = std::format(L"https://github.com/ozooma10/osf-ui/issues/{}", number);
 			if (!Platform::OpenSystemBrowser(url.c_str())) {
-				a_b.SendResult(false, "shell-failed", "could not open the system browser");
+				a_b.Reject("shell-failed", "could not open the system browser");
+				return;
 			}
+			a_b.Respond(nlohmann::json::object());
 		});
-		a_bridge.RegisterCommand("osfui.handleBack", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
+		a_bridge.RegisterSend("osfui.handleBack", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
 			// A page that owns back navigation (e.g. a sub-menu whose Esc should
 			// return to the hub, not dismiss the overlay) sets this; while it is
 			// the active menu, Esc / pad-B arrive as a synthetic Escape
@@ -2861,7 +3014,6 @@ namespace OSFUI
 			// cannot strand the user.
 			const std::string src(a_b.CurrentSource());
 			if (src.empty()) {
-				a_b.SendResult(false, "unknown-view", "no source view");
 				return;
 			}
 			if (Json::GetBool(a_p, "handle", false)) {
@@ -2885,7 +3037,7 @@ namespace OSFUI
 			} else {
 				calendar["available"] = false;
 			}
-			a_b.SendToWeb("game.data", nlohmann::json{ { "calendar", std::move(calendar) } });
+			a_b.Respond(nlohmann::json{ { "calendar", std::move(calendar) } });
 		});
 	}
 
@@ -2983,14 +3135,7 @@ namespace OSFUI
 			}
 		}
 		BroadcastViewsData();
-		if (_bridge) {
-			for (const auto& [view, mod] : _i18nSubscribers) {
-				_bridge->SendToWeb(view, "i18n.data", nlohmann::json{
-					{ "mod", mod }, { "locale", _localization.Locale() },
-					{ "strings", _localization.CatalogFor(mod) },
-				});
-			}
-		}
+		PublishPlatformState("i18n");
 	}
 
 	void Runtime::ApplyVanillaKeyConflicts(bool a_enabled)

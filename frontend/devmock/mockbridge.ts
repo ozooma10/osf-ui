@@ -1,29 +1,49 @@
-// mockbridge.ts — browser stand-in for the OSF UI native bridge. Dev only.
+// mockbridge.ts — browser stand-in for the OSF UI native bridge (mod API 2.0,
+// bridge protocol 2.0). Dev only.
 //
 // Installs `window.osfui` with a `postMessage` before the shared kit loads, so the
 // kit decorates the same object and the view under test takes its normal bridge
-// path (settings.get/set/reset/captureKey, views.get, i18n.get, …). Values persist
-// to localStorage; every message is logged to the console.
+// path. Values persist to localStorage; every envelope is logged to the console.
 //
-// Load order is load-bearing: src/shared-kit/osfui.js defines `available()` as
-// `typeof g.postMessage === "function"` and owns `onMessage`. So: this module first
-// (postMessage), the kit second (onMessage + request correlation), the view last.
-// Under `osfui dev`, the harness bootstrap installs a queuing postMessage stub
-// before any page script and osfui.mock.ts's install() hands this module the
+// Load order is load-bearing: src/shared-kit/osfui.js decides `available` from
+// `typeof g.postMessage === "function"` and owns `onMessage`. So: this module
+// first (postMessage), the kit second (onMessage + request correlation), the view
+// last. Under `osfui dev`, the harness bootstrap installs a queuing postMessage
+// stub before any page script and osfui.mock.ts's install() hands this module the
 // takeover, so that order holds for the classic-script pages too.
+//
+// What it emulates, in protocol terms (docs/mod-api-2.0-design.md):
+//
+//   web -> here   { kind:"send", name, payload } | { kind:"request", name, id, payload }
+//   here -> web   ready | state | event | reply | error
+//
+// `osfui.hello` is the ONLY boot path: it answers `ready`, replays every state
+// key, then opens the event gate and flushes what was queued behind it. Nothing
+// is pushed on a timer, so an F5 in the harness takes exactly the path a fresh
+// document takes in game.
+//
+// Kind is enforced, because a mock that shrugs at it lets a view ship a `send`
+// to a request endpoint: a request naming a send endpoint gets
+// `wrong-endpoint-kind`; a send naming a request endpoint is dropped and
+// surfaced as an `osfui.debug.error` event, which the kit prints to the page
+// console.
 //
 // Validation is not re-implemented here: `normalizeValue`/`isSetting` come from
 // @lib/settings/normalize and `resolveInputContext` from @lib/settings/inputContext,
-// so the harness cannot drift into accepting a value the game refuses.
+// so the harness cannot drift into accepting a value the game refuses. The same
+// goes for write authority: `settings.set`/`settings.reset`/`settings.captureKey`
+// apply Ids::ResolveWritableMod's rule, so a third-party view that reaches into a
+// neighbour's settings fails here the way it fails in game.
 //
 // `data/OSFUI/l10n/` does not exist in this repo; that is the expected state and is
 // not warned about. Catalogs come from examples/settings-only/l10n/ and from files
 // dropped onto the page.
 
 import type {
+  HandoffState,
   SettingValue,
   Setting,
-  SettingsDataPayload,
+  SettingsData,
   SettingsSchema,
   UiGamepadPayload,
 } from '@sdk';
@@ -42,7 +62,7 @@ import {
 } from './fixtures';
 
 
-/** One registered mod, as `settings.data` carries it. */
+/** One registered mod, as the `osfui/settings` state key carries it. */
 export interface MockMod {
   id: string;
   title: string;
@@ -68,11 +88,12 @@ export interface MockOptions {
   /** Load the real schema sources at install. Default true. */
   autoLoad?: boolean;
   /**
-   * Push `runtime.ready` + `ui.visibility` a macrotask after install, as the
-   * runtime greets every view (SendRuntimeReady). Default true.
+   * Answer the document's `osfui.hello` with the ready/state-replay handshake.
+   * Default true. `false` leaves every document ungreeted, which is only useful
+   * for exercising the pre-greeting gate — there is no other boot path.
    */
   greet?: boolean;
-  /** Id of the view being hosted; resolves commands that omit `view`. */
+  /** Id of the view being hosted: names the document in `ready`, owns its i18n domain, and resolves requests that omit `view`. */
   selfView?: string;
 }
 
@@ -87,7 +108,7 @@ export interface MockApi {
   locale(next: string): Promise<string>;
   /** The live mod list — the same objects the mock serves, not copies. */
   mods(): MockMod[];
-  /** Fake an overlay show/hide edge. */
+  /** Fake an overlay show/hide edge (`ui.visibility`). */
   visibility(visible: boolean): void;
   /**
    * Fire a `ui.hotkey` for a `type:"key"` setting. With no arguments it picks the
@@ -97,15 +118,17 @@ export interface MockApi {
   /** Inject a shoulder-button down edge followed by its release. */
   gamepad(button: 'LB' | 'RB'): void;
   captureArmed(): boolean;
-  /** Disarm an armed capture, answering `cancelled: true`. False when none was armed. */
+  /** Disarm an armed capture, emitting `settings.captured { cancelled: true }`. False when none was armed. */
   cancelCapture(): boolean;
-  /** Point the omitted-`view` commands at the currently mounted view. */
+  /** Point the omitted-`view` requests (and the i18n domain) at the currently mounted view. */
   setSelfView(id: string): void;
   /** Switch the System Health scenario (no arg = advance the cycle). Returns the new name. */
   health(name?: string): string;
   /** The active System Health scenario name. */
   healthScenario(): string;
-  /** Resolves when the initial source load has settled (tests, mostly). */
+  /** True once the document has greeted: state is published and events flow. */
+  greeted(): boolean;
+  /** Resolves when the initial source load (and the version read) has settled. */
   loaded(): Promise<void>;
 }
 
@@ -154,12 +177,67 @@ const VERSION_HEADER = import.meta.glob<string>('../../src/core/Version.h', {
 /** Used when the real version cannot be read; the suffix marks it as not real. */
 const FALLBACK_VERSION = '1.0.0-mock';
 
+/** `bridgeVersion` in the `ready` payload — the protocol this file speaks. */
+const BRIDGE_VERSION = '2.0';
+
 const LS_PREFIX = 'osfui.mock.';
 const LOCALE_LS = LS_PREFIX + 'locale';
 const FIXTURES_LS = LS_PREFIX + 'fixtures';
 
+/** The platform's first-load handoff surface; the only view served `osfui/handoff`. */
+const HANDOFF_VIEW = 'osfui/handoff';
+
+/** OSF UI's own settings surfaces — the only views allowed to write a foreign mod (Ids::IsSettingsEditorView). */
+const SETTINGS_EDITOR_VIEWS = ['osfui/settings', 'osfui/keybinds'];
+
+/**
+ * Bridge bounds, mirrored from MessageBridge.cpp so the harness refuses exactly
+ * what the runtime refuses: request ids are 1..64 chars, echoed endpoint names
+ * are truncated, and events raised before a document greets are held (oldest
+ * dropped) rather than shouted at a page with no listeners.
+ */
+const MAX_REQUEST_ID_LENGTH = 64;
+const MAX_ECHOED_NAME_LENGTH = 128;
+const MAX_QUEUED_EVENTS = 64;
+
 /** XInput LB / RB, matching @lib/lifecycle's PAD_LSHOULDER / PAD_RSHOULDER. */
 const PAD_BUTTONS: Record<'LB' | 'RB', number> = { LB: 0x0100, RB: 0x0200 };
+
+/**
+ * Endpoints the platform registers, split by KIND — because the kind is what the
+ * caller dispatches on, and a mock that got it wrong would let a view ship a
+ * `send` to a request endpoint that only fails against the real runtime. Mirrors
+ * Runtime::RegisterEndpoints + SettingsModule::RegisterEndpoints.
+ */
+const SEND_ENDPOINTS = new Set([
+  'osfui.hello',
+  'close',
+  'setVisible',
+  'view.ready',
+  'log',
+  'osfui.gamepadRaw',
+  'osfui.handleBack',
+  'osfui.handoffRetry',
+  'papyrus.send',
+]);
+
+const REQUEST_ENDPOINTS = new Set([
+  'menu.open',
+  'menu.close',
+  'setViewHidden',
+  'ping',
+  'game.get',
+  'settings.set',
+  'settings.reset',
+  'settings.captureKey',
+  'osfui.openModPage',
+  'osfui.openLogFolder',
+  'osfui.setViewAutoStart',
+  'osfui.openReportIssue',
+  'diagnostics.reportStatus',
+  'diagnostics.submitReport',
+  'papyrus.request',
+]);
 
 /**
  * Mirror of SettingsStore id validation: mod ids are "<author>.<modname>" —
@@ -173,7 +251,22 @@ export function validModId(id: unknown): id is string {
   );
 }
 
-/** `settings.data`-shaped conflict entry. */
+/** The owning mod of a qualified view id ("<modId>/<viewName>"), like Ids::ModOf. */
+function modOf(viewId: string): string {
+  const slash = viewId.indexOf('/');
+  return slash < 0 ? viewId : viewId.slice(0, slash);
+}
+
+/**
+ * A mod-registered endpoint: "<author>.<modname>.<name>", so two dots minimum.
+ * One dot is a typo'd platform endpoint, not a plugin.
+ */
+function isPluginEndpoint(name: string): boolean {
+  const first = name.indexOf('.');
+  return first > 0 && name.indexOf('.', first + 1) > first + 1;
+}
+
+/** `osfui/settings`-shaped conflict entry. */
 interface ConflictRef {
   mod: string;
   key: string;
@@ -181,6 +274,14 @@ interface ConflictRef {
 }
 
 type CommandPayload = Record<string, unknown>;
+
+/** Native -> web envelopes, exactly as MessageBridge's encoders emit them. */
+type Envelope =
+  | { kind: 'ready'; payload: Record<string, unknown> }
+  | { kind: 'state'; mod: string; key: string; value: unknown }
+  | { kind: 'event'; name: string; payload: unknown }
+  | { kind: 'reply'; id: string; payload: unknown }
+  | { kind: 'error'; id: string; payload: { code: string; message: string } };
 
 function str(p: CommandPayload, field: string): string {
   const v = p[field];
@@ -222,7 +323,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
   const log = (dir: string, msg: string) => console.log(`%c[mock ${dir}]`, 'color:#5aa9b8', msg);
 
   /**
-   * Transient on-screen note for a command whose real effect is outside the
+   * Transient on-screen note for a request whose real effect is outside the
    * browser. The console line alone is not enough: a button like "Open log
    * folder" is a no-op here by nature, so without visible feedback there is no
    * way to tell a wired button from a dead one. Harness chrome, never a view.
@@ -324,8 +425,8 @@ export function installMock(opts: MockOptions = {}): MockApi {
       values[s.key] = resolved as SettingValue;
     });
     const mod: MockMod = { id, title: schema.title || id, schema, values };
-    // Advisory authored-against version (mirrors SettingsStore): carried in
-    // settings.data so the harness exercises the "needs update" badge.
+    // Advisory authored-against version (mirrors SettingsStore): carried in the
+    // settings state key so the harness exercises the "needs update" badge.
     if (typeof schema.targetVersion === 'string' && /^[0-9]+(\.[0-9]+){0,2}$/.test(schema.targetVersion)) {
       mod.targetVersion = schema.targetVersion;
     }
@@ -341,6 +442,19 @@ export function installMock(opts: MockOptions = {}): MockApi {
     const i = mods.findIndex((m) => m.id === mod.id);
     if (i >= 0) mods[i] = mod;
     else mods.push(mod);
+  }
+
+  /**
+   * Ids::ResolveWritableMod: the mod a settings write from this document may
+   * target. Only OSF UI's own Mods surface and keybinds board may name a foreign
+   * mod; every other view is confined to its own, and an omitted `mod` resolves
+   * to its own rather than being refused. `null` = refuse with "forbidden".
+   */
+  function writableMod(requested: string): string | null {
+    if (SETTINGS_EDITOR_VIEWS.includes(selfView)) return requested;
+    const own = modOf(selfView);
+    if (!requested || requested === own) return own;
+    return null;
   }
 
   // Localization
@@ -383,10 +497,10 @@ export function installMock(opts: MockOptions = {}): MockApi {
   }
 
   /**
-   * Catalog-affecting operations (locale switches, schema (re)loads, i18n.get)
-   * serialize through one queue: a locale switch overlapping the async schema load
-   * would build its catalog set from a stale mod list and push an unlocalized
-   * settings.data.
+   * Catalog-affecting operations (locale switches, schema (re)loads, the hello
+   * replay) serialize through one queue: a locale switch overlapping the async
+   * schema load would build its catalog set from a stale mod list and publish an
+   * unlocalized settings registry.
    */
   let i18nQueue: Promise<unknown> = Promise.resolve();
   function queued<T>(fn: () => Promise<T>): Promise<T> {
@@ -409,7 +523,9 @@ export function installMock(opts: MockOptions = {}): MockApi {
     if (locale !== 'en' && locale !== 'pseudo') {
       const base = locale.split('-')[0] || locale;
       const chain = [...new Set([base, locale])];
-      const ids = new Set(mods.map((m) => m.id).concat(views.map((v) => v.mod)));
+      const ids = new Set(
+        mods.map((m) => m.id).concat(views.map((v) => v.mod), [modOf(selfView)]),
+      );
       for (const id of ids) {
         const merged: Record<string, string> = Object.create(null);
         let any = false;
@@ -441,6 +557,9 @@ export function installMock(opts: MockOptions = {}): MockApi {
   }
 
   type Resolve = (address: string, english: string) => string;
+
+  /** The kit's i18n namespace, as far as the pseudo wrap needs to see it. */
+  type PseudoTarget = { t?: (address: string, english: string, vars?: unknown) => string };
 
   function resolveField(
     obj: Record<string, unknown> | undefined,
@@ -526,7 +645,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
   }
 
   /**
-   * Native DataView localizes a copy per send; the authored originals stay
+   * Native DataView localizes a copy per publish; the authored originals stay
    * untouched so repeated locale switches never compound.
    */
   function localizedMods(): MockMod[] {
@@ -540,16 +659,14 @@ export function installMock(opts: MockOptions = {}): MockApi {
 
   /**
    * Views cannot be told "pseudo" through a catalog (it is address->string and
-   * they supply inline English), so pseudo mode wraps the shared kit's `osfui.t`
-   * once and every t()/data-i18n resolution passes through it. The kit loads after
-   * this module but decorates the same window.osfui, so the wrap happens lazily
-   * (first i18n.get / locale change), once `t` exists.
+   * they supply inline English), so pseudo mode wraps the shared kit's
+   * `osfui.i18n.t` once and every t()/data-i18n resolution passes through it. The
+   * kit loads after this module but decorates the same window.osfui, so the wrap
+   * happens lazily (first greeting / locale change), once `t` exists.
    */
   let origT: ((address: string, english: string, vars?: unknown) => string) | null = null;
   function installPseudoT(): void {
-    const helper = host.osfui as
-      | { t?: (address: string, english: string, vars?: unknown) => string }
-      | undefined;
+    const helper = (host.osfui as unknown as { i18n?: PseudoTarget } | undefined)?.i18n;
     if (!helper) return;
     if (locale === 'pseudo') {
       if (!origT && typeof helper.t === 'function') {
@@ -562,21 +679,9 @@ export function installMock(opts: MockOptions = {}): MockApi {
     }
   }
 
-  // i18n.get subscribes the page (Runtime keeps _i18nSubscribers); the mock hosts
-  // one view per page, so one remembered mod domain suffices.
-  let i18nMod: string | null = null;
-  function sendI18nData(requestId?: string): void {
-    if (i18nMod === null) return;
-    send(
-      'i18n.data',
-      { mod: i18nMod, locale, strings: activeCatalogs[i18nMod] || {} },
-      requestId,
-    );
-  }
-
   /**
-   * Mirror of Runtime::RefreshLocalizedData: swap the locale, re-push the
-   * catalog to the subscriber, then re-send both localized registries.
+   * Mirror of Runtime::RefreshLocalizedData: swap the locale, then re-publish the
+   * catalog and both localized registries as state.
    */
   function applyLocale(next: unknown): Promise<string> {
     return queued(async () => {
@@ -589,10 +694,10 @@ export function installMock(opts: MockOptions = {}): MockApi {
         }
       }
       await refreshCatalogs();
-      installPseudoT(); // before the pushes below — their localize() runs use t
-      sendI18nData();
-      sendData();
-      sendViews();
+      installPseudoT(); // before the publishes below — their localize() runs use t
+      publishI18n();
+      publishSettings();
+      publishViews();
       // Keeps the toolbar picker in sync when the switch came from elsewhere, e.g.
       // a dropped catalog auto-activating its locale.
       host.dispatchEvent(new CustomEvent(LOCALE_EVENT, { detail: { locale } }));
@@ -603,16 +708,67 @@ export function installMock(opts: MockOptions = {}): MockApi {
 
   // Native -> web
 
-  function send(type: string, payload: unknown, requestId?: string): void {
-    log('→web', type + (requestId ? ` [${requestId}]` : ''));
-    const g = host.osfui as { onMessage?: (json: string) => void } | undefined;
-    if (g && typeof g.onMessage === 'function') {
-      // Replies echo the caller's requestId at the top level, like
-      // MessageBridge::SendToWeb.
-      const msg: { type: string; payload: unknown; requestId?: string } = { type, payload };
-      if (requestId) msg.requestId = requestId;
-      g.onMessage(JSON.stringify(msg));
+  function label(env: Envelope): string {
+    switch (env.kind) {
+      case 'ready':
+        return 'ready';
+      case 'state':
+        return `state ${env.mod}/${env.key}`;
+      case 'event':
+        return `event ${env.name}`;
+      case 'reply':
+        return `reply [${env.id}]`;
+      default:
+        return `error [${env.id}] ${env.payload.code}`;
     }
+  }
+
+  function deliver(env: Envelope): void {
+    log('→web', label(env));
+    const g = host.osfui as { onMessage?: (json: string) => void } | undefined;
+    if (g && typeof g.onMessage === 'function') g.onMessage(JSON.stringify(env));
+  }
+
+  // Greeting gate. Mirrors MessageBridge's per-view gate: state addressed to an
+  // ungreeted document is DROPPED (the hello replay carries every current value,
+  // and queueing would risk delivering a stale one after a newer), events are
+  // QUEUED oldest-dropped (they are one-shot happenings the page still wants).
+  let greeted = false;
+  let helloSeq = 0;
+  const queuedEvents: Envelope[] = [];
+
+  function raise(name: string, payload: unknown): void {
+    const env: Envelope = { kind: 'event', name, payload };
+    if (!greeted) {
+      if (queuedEvents.length >= MAX_QUEUED_EVENTS) queuedEvents.shift();
+      queuedEvents.push(env);
+      return;
+    }
+    deliver(env);
+  }
+
+  function publish(mod: string, key: string, value: unknown): void {
+    if (!greeted) return;
+    deliver({ kind: 'state', mod, key, value });
+  }
+
+  function respond(id: string, payload: unknown): void {
+    deliver({ kind: 'reply', id, payload: payload === undefined ? {} : payload });
+  }
+
+  function rejectRequest(id: string, code: string, message: string): void {
+    deliver({ kind: 'error', id, payload: { code, message } });
+  }
+
+  /**
+   * Host-detected protocol misuse, handed straight back to the offending document
+   * (Runtime::OnProtocolMisuse in devMode — and the harness is dev by
+   * definition). The shared kit prints it to this page's console, so a dropped
+   * `send` is never silent.
+   */
+  function surface(code: string, message: string, detail?: Record<string, unknown>): void {
+    log('info', `${code} — ${message}`);
+    raise('osfui.debug.error', { code, message, detail: { view: selfView, ...(detail || {}) } });
   }
 
   // Conflicts
@@ -620,8 +776,8 @@ export function installMock(opts: MockOptions = {}): MockApi {
   /**
    * Mirror SettingsStore::Data()'s key-conflict grouping: a key setting whose bound
    * value is also bound elsewhere gets conflicts:[{mod,key,title}]. Native groups
-   * by resolved vk; the mock groups by the value string. Recomputed on each send so
-   * a rebind that clears a conflict drops the badge.
+   * by resolved vk; the mock groups by the value string. Recomputed on each publish
+   * so a rebind that clears a conflict drops the badge.
    */
   function annotateConflicts(): void {
     const byVal = new Map<string, ConflictRef[]>();
@@ -679,20 +835,22 @@ export function installMock(opts: MockOptions = {}): MockApi {
     return others;
   }
 
-  function sendData(requestId?: string): void {
+  // Platform state keys
+
+  function publishSettings(): void {
     annotateConflicts();
-    const payload: SettingsDataPayload = {
+    const value: SettingsData = {
       mods: localizedMods(),
       // Mirror SettingsStore::Data()'s top-level vanillaKeys table: the game's own
       // bindings, full map, rendered by the keybinds view.
       vanillaKeys: VANILLA_KEYS.map((v) => ({ event: v.event, title: v.title, name: v.name })),
     };
-    send('settings.data', payload, requestId);
+    publish('osfui', 'settings', value);
   }
 
   // View catalog
 
-  // A working copy: menu.open / hud.show mutate open/focused, and the fixtures
+  // A working copy: menu.open / menu.close mutate open/focused, and the fixtures
   // module must stay an unmutated dataset — otherwise a test that installs twice
   // inherits the first install's state.
   const views: MockView[] = MOCK_VIEWS.map((v) => Object.assign({}, v));
@@ -716,16 +874,16 @@ export function installMock(opts: MockOptions = {}): MockApi {
         /* ignore */
       }
     }
-    sendViews();
+    publishViews();
     return fixturesOn;
   }
 
-  function sendViews(requestId?: string): void {
+  function publishViews(): void {
     const out = views
       .filter((v) => fixturesOn || !v.fixture)
       .map((v) => {
         // Strip the harness-only marker: not part of the protocol, and a view
-        // reading views.data must not see a field the runtime cannot produce.
+        // reading the catalog must not see a field the runtime cannot produce.
         const { fixture: _fixture, ...entry } = v;
         if (locale !== 'en') {
           // Manifest title/description localize natively at views.<name>.title /
@@ -737,20 +895,18 @@ export function installMock(opts: MockOptions = {}): MockApi {
         }
         return entry;
       });
-    send('views.data', { views: out }, requestId);
+    publish('osfui', 'views', { views: out });
   }
 
-  // System Health (protocol 1.4). Same subscribe-on-read contract as
-  // settings/views: `diagnostics.get` replies with the snapshot and every later
-  // scenario switch pushes to the subscriber.
+  // System Health. The `osfui/diagnostics` state key: replayed on greeting and
+  // re-published on every scenario switch.
   let healthScenario = (() => {
     const wanted = params.get('health') || '';
     return Object.prototype.hasOwnProperty.call(MOCK_HEALTH, wanted) ? wanted : 'clean';
   })();
-  let healthSubscribed = false;
 
-  function sendHealth(requestId?: string): void {
-    send('diagnostics.data', MOCK_HEALTH[healthScenario] ?? MOCK_HEALTH['clean'], requestId);
+  function publishHealth(): void {
+    publish('osfui', 'diagnostics', MOCK_HEALTH[healthScenario] ?? MOCK_HEALTH['clean']);
   }
 
   /** Switch scenario (no arg = advance the cycle). Returns the new name. */
@@ -761,34 +917,58 @@ export function installMock(opts: MockOptions = {}): MockApi {
       const at = HEALTH_SCENARIOS.indexOf(healthScenario);
       healthScenario = HEALTH_SCENARIOS[(at + 1) % HEALTH_SCENARIOS.length] as string;
     }
-    if (healthSubscribed) sendHealth();
+    publishHealth();
     return healthScenario;
   }
 
-  // Subscriptions
+  /**
+   * The i18n catalog is computed PER DOCUMENT: a view's catalog is its owning
+   * mod's, which is why this one key carries a different value to each view.
+   */
+  function publishI18n(): void {
+    const mod = modOf(selfView);
+    publish('osfui', 'i18n', { mod, locale, strings: activeCatalogs[mod] || {} });
+  }
 
-  // Mirrors SettingsModule subscribe-on-read (protocol 1.0): settings.get
-  // subscribes the page; committed values then push as settings.changed.
-  let subscribed = false;
+  // Handoff. Platform-private: only the built-in handoff surface is ever served
+  // this key, so the harness models it only while that view is the one hosted.
+  let handoffTimer: ReturnType<typeof setTimeout> | undefined;
+  let handoff: HandoffState = (() => {
+    const wanted = params.get('handoff') || '';
+    const phase: HandoffState['phase'] =
+      wanted === 'retrying' || wanted === 'error' ? wanted : 'linking';
+    return {
+      target: 'acme.shipworks/almanac',
+      mod: 'acme.shipworks',
+      title: 'Almanac',
+      accent: '#3aa9c0',
+      phase,
+      retry: phase === 'error',
+    };
+  })();
+
+  function publishHandoff(): void {
+    if (selfView !== HANDOFF_VIEW) return;
+    publish('osfui', 'handoff', handoff);
+  }
+
+  // Change / persist notifications
 
   function pushChanged(modId: string, key: string, value: SettingValue): void {
-    if (!subscribed) return;
-    setTimeout(() => {
-      const payload: { mod: string; key: string; value: SettingValue; conflicts?: ConflictRef[] } = {
-        mod: modId,
-        key,
-        value,
-      };
-      const m = mods.find((x) => x.id === modId);
-      const s = findSetting(m, key);
-      if (s && s.type === 'key') payload.conflicts = conflictsForSetting(modId, key);
-      send('settings.changed', payload);
-    }, 0);
+    const payload: { mod: string; key: string; value: SettingValue; conflicts?: ConflictRef[] } = {
+      mod: modId,
+      key,
+      value,
+    };
+    const m = mods.find((x) => x.id === modId);
+    const s = findSetting(m, key);
+    if (s && s.type === 'key') payload.conflicts = conflictsForSetting(modId, key);
+    raise('settings.changed', payload);
   }
 
   /**
    * Mirrors the native write-behind (SettingsStore::PumpPersistence, ~500ms per-mod
-   * window opened at the first unflushed change): one settings.persisted push per
+   * window opened at the first unflushed change): one settings.persisted event per
    * window confirms the disk write. persist() above is immediate — only the
    * notification is delayed, which is all the view can observe.
    */
@@ -799,7 +979,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
       modId,
       setTimeout(() => {
         persistTimers.delete(modId);
-        if (subscribed) send('settings.persisted', { mod: modId });
+        raise('settings.persisted', { mod: modId });
       }, 500),
     );
   }
@@ -809,7 +989,6 @@ export function installMock(opts: MockOptions = {}): MockApi {
   interface ArmedCapture {
     mod: string;
     key: string;
-    rid: string;
     disarm(): void;
   }
   let capture: ArmedCapture | null = null;
@@ -854,12 +1033,13 @@ export function installMock(opts: MockOptions = {}): MockApi {
       if (others.length) payload.conflicts = others;
     }
 
-    // Deferred reply: echoes the arming request's id, like
-    // Runtime::DrainKeyCapture.
-    send('settings.captured', payload, armed.rid);
+    // A one-shot happening, so an EVENT and not the arming request's reply:
+    // `settings.captureKey` already settled in machine time with `armed: true`
+    // (Runtime::DrainKeyCapture).
+    raise('settings.captured', payload);
   }
 
-  function armCapture(mod: string, key: string, rid: string): void {
+  function armCapture(mod: string, key: string): void {
     const onKey = (e: KeyboardEvent) => {
       e.preventDefault();
       const name = domKeyName(e);
@@ -883,7 +1063,6 @@ export function installMock(opts: MockOptions = {}): MockApi {
     capture = {
       mod,
       key,
-      rid,
       disarm() {
         clearTimeout(armPointer);
         host.removeEventListener('keydown', onKey, true);
@@ -893,185 +1072,300 @@ export function installMock(opts: MockOptions = {}): MockApi {
     };
   }
 
-  // Web -> native
+  // Handshake
 
   /**
-   * `rid` is the ui.command's requestId ("" = fire-and-forget). Every reply echoes
-   * it; verb commands with no reply type of their own answer
-   * `ui.result { ok, command }` when it was supplied, mirroring MessageBridge's
-   * auto-ack.
+   * Answer `osfui.hello`: ready, then every current state value, then events —
+   * MessageBridge::HandleHello. Running on the page's greeting rather than on a
+   * timer is what makes an F5 identical to a first open: the harness cannot push
+   * a greeting the document missed, because the document asks for it.
+   *
+   * Async because the version badge reads src/core/Version.h and the catalogs may
+   * still be loading; `helloSeq` drops a stale greeting whose document has already
+   * been replaced by a newer one.
    */
-  function handle(p: CommandPayload, rid: string): void {
-    const cmd = typeof p['command'] === 'string' ? (p['command'] as string) : '';
-    const result = (ok: boolean, extra?: Record<string, unknown>) => {
-      if (rid) {
-        setTimeout(() => send('ui.result', Object.assign({ ok, command: cmd }, extra || {}), rid), 0);
-      }
-    };
-    /** An omitted `view` targets the calling view. */
-    const targetView = () => str(p, 'view') || selfView;
+  function greet(): void {
+    const seq = ++helloSeq;
+    // A greeting means a NEW document: anything queued for the previous one is
+    // stale — an event is a one-shot happening this document was not present
+    // for — and state, which is what the page actually needs back, arrives
+    // through the replay below. Native discards here too (HandleHello, pinned
+    // by tests/native/bridge_api_tests.cpp); if it ever starts flushing the
+    // pre-greeting queue instead, this line is the one to drop.
+    greeted = false;
+    queuedEvents.length = 0;
+    void pluginVersion.then((version) =>
+      queued(async () => {
+        if (seq !== helloSeq) return;
+        await refreshCatalogs();
+        installPseudoT();
+        if (seq !== helloSeq) return;
 
-    switch (cmd) {
-      case 'settings.get':
-        subscribed = true;
-        setTimeout(() => sendData(rid), 0);
-        break;
-
-      case 'settings.set': {
-        const modId = str(p, 'mod');
-        const key = str(p, 'key');
-        const mod = mods.find((m) => m.id === modId);
-        // Ack shape: ok + the authoritative post-clamp `value`, or a machine `code`
-        // mirroring SettingsStore::SetWithResult.
-        const ack: { mod: string; key: string; ok: boolean; value?: SettingValue; code?: string } = {
-          mod: modId,
-          key,
-          ok: false,
-        };
-        const setting = mod ? findSetting(mod, key) : null;
-        if (!mod || !setting) {
-          ack.code = 'unknown-setting';
-        } else {
-          const v = normalizeValue(setting, p['value']);
-          if (v === undefined) {
-            ack.code = 'invalid-value';
-          } else {
-            mod.values[key] = v;
-            persist(mod);
-            ack.ok = true;
-            ack.value = v;
-            pushChanged(modId, key, v); // post-validation value, like native
-            pushPersisted(modId);
-          }
-        }
-        setTimeout(() => send('settings.ack', ack, rid), 0);
-        break;
-      }
-
-      case 'settings.reset': {
-        const modId = str(p, 'mod');
-        const key = str(p, 'key');
-        const mod = mods.find((m) => m.id === modId);
-        if (!mod) {
-          result(false, { code: 'unknown-setting', message: 'unknown mod or setting' });
-          break;
-        }
-        // Native parity: no per-key settings.changed fan-out — the single
-        // authoritative settings.data below re-syncs everything.
-        eachSetting(mod.schema, (s) => {
-          if (!key || s.key === key) mod.values[s.key] = defaultFor(s) as SettingValue;
+        deliver({
+          kind: 'ready',
+          payload: {
+            game: 'Starfield',
+            plugin: 'OSF UI',
+            version,
+            bridgeVersion: BRIDGE_VERSION,
+            view: selfView,
+            mod: modOf(selfView),
+          },
         });
-        persist(mod);
-        pushPersisted(modId);
-        setTimeout(() => sendData(rid), 0); // mirrors SettingsModule: re-send registry
-        break;
+        // The gate opens BEFORE the replay: an event raised by a replay listener
+        // must go straight out, after the state it followed.
+        greeted = true;
+        publishSettings();
+        publishViews();
+        publishHealth();
+        publishI18n();
+        publishHandoff();
+        for (const env of queuedEvents.splice(0)) deliver(env);
+        // The harness has no real overlay, so announce "shown" once per document —
+        // the edge a view arms its per-visit state off.
+        raise('ui.visibility', { visible: true, reason: 'overlay' });
+        log('info', `greeted ${selfView} — ready, state replay, events open`);
+      }),
+    );
+  }
+
+  // Web -> native
+
+  function dispatchSend(name: string, p: CommandPayload): void {
+    if (name === 'osfui.hello') {
+      if (opts.greet === false) {
+        log('info', 'osfui.hello ignored (greet:false)');
+        return;
       }
-
-      case 'settings.captureKey': {
-        // Captures any (mod,key), matching the in-game runtime: native arms capture
-        // for every setting a schema declares `type:"key"`. One at a time — a
-        // second arm refuses.
-        if (capture) {
-          result(false, { code: 'capture-busy', message: 'a key capture is already in progress' });
-          break;
-        }
-        armCapture(str(p, 'mod'), str(p, 'key'), rid);
-        break;
-      }
-
-      case 'views.get':
-        setTimeout(() => sendViews(rid), 0);
-        break;
-
-      case 'diagnostics.get':
-        healthSubscribed = true;
-        setTimeout(() => sendHealth(rid), 0);
-        break;
-
-      case 'osfui.openLogFolder':
-        // Payload-free and fixed-target in game; there is nothing to open from a
-        // browser, so the harness just proves the command was fired.
-        log('info', 'osfui.openLogFolder (no-op in harness)');
-        notify('osfui.openLogFolder — fired (opens the SFSE log folder in game)');
-        result(true);
-        break;
-
-      case 'osfui.openModPage':
-        log('info', 'osfui.openModPage (no-op in harness)');
-        notify('osfui.openModPage — fired (opens the mod page in game)');
-        result(true);
-        break;
-
-      case 'i18n.get': {
-        // Mirror Runtime's i18n.get: reply i18n.data with the merged active-locale
-        // catalog for the mod domain and subscribe the page so a locale change
-        // re-pushes. Native defaults `mod` to the calling view's owner — the
-        // harness chrome is "osfui".
-        const mod = str(p, 'mod') || 'osfui';
-        if (!validModId(mod)) {
-          result(false, { code: 'invalid-mod', message: 'invalid localization mod id' });
-          break;
-        }
-        i18nMod = mod;
-        void queued(async () => {
-          await refreshCatalogs();
-          installPseudoT();
-          sendI18nData(rid);
-        });
-        break;
-      }
-
-      case 'game.get':
-        // Nested per-provider: future providers are siblings of `calendar`. Fixed
-        // sample date, enough to render a HUD clock.
-        setTimeout(
-          () =>
-            send(
-              'game.data',
-              {
-                calendar: {
-                  available: true,
-                  day: 12,
-                  month: 7,
-                  year: 2330,
-                  hour: 14.52,
-                  daysPassed: 87.3,
-                },
-              },
-              rid,
-            ),
-          0,
+      greet();
+      return;
+    }
+    if (!SEND_ENDPOINTS.has(name)) {
+      if (REQUEST_ENDPOINTS.has(name)) {
+        // Kind enforcement: running a mutation whose kind the caller got wrong
+        // invites worse bugs, so the send is DROPPED — but never silently.
+        surface(
+          'wrong-endpoint-kind',
+          `'${name}' is a request endpoint — use request(), not send()`,
+          { name },
         );
+        return;
+      }
+      if (isPluginEndpoint(name)) {
+        // A mod's own RegisterSend endpoint. The mock plays the bridge's part:
+        // delivered to the plugin's handler, and a send has nothing to answer.
+        log('info', `${name} → delivered to the mod's send handler (mock)`);
+        return;
+      }
+      surface('unknown-endpoint', 'no such endpoint', { name });
+      return;
+    }
+
+    switch (name) {
+      case 'close':
+        log('info', 'close (no-op in harness)');
         break;
 
-      case 'ping':
-        // `runtime.pong` carries an empty payload and is itself the reply, so
-        // there is no additional ui.result auto-ack.
-        setTimeout(() => send('runtime.pong', {}, rid), 0);
+      case 'setVisible':
+        // Native opens/closes the calling surface; the only thing a page can
+        // observe is the visibility edge, so that is what the mock emits.
+        raise('ui.visibility', { visible: p['visible'] === true, reason: 'overlay' });
+        break;
+
+      case 'view.ready':
+        // Manifests with readySignal:true hold the handoff until this arrives.
+        log('info', `view.ready — ${selfView} declared meaningful readiness`);
         break;
 
       case 'log':
         // Native writes this to OSF UI.log; the console is the harness's log.
         console.log('%c[view log]', 'color:#8b95a1', str(p, 'text'));
-        result(true);
         break;
+
+      case 'osfui.gamepadRaw':
+        // The grant only suppresses the runtime's default pad mapping; the harness
+        // has no such mapping (padnav is view-side and unaffected), so it is a
+        // no-op here.
+        log('info', `osfui.gamepadRaw ${p['raw'] === true ? 'granted' : 'released'} (no-op in harness)`);
+        break;
+
+      case 'osfui.handleBack':
+        // In game this reroutes Esc/pad-B to the page instead of closing the
+        // overlay; the harness delivers DOM keys to the page anyway.
+        log('info', `osfui.handleBack ${p['handle'] ? 'granted' : 'released'} (no-op in harness)`);
+        break;
+
+      case 'osfui.handoffRetry': {
+        if (selfView !== HANDOFF_VIEW) {
+          surface('forbidden', 'osfui.handoffRetry is a platform action', { name });
+          break;
+        }
+        // Play the retry the runtime would: back to "retrying", then fail again so
+        // the surface's error affordance stays reachable.
+        handoff = { ...handoff, phase: 'retrying', retry: false };
+        publishHandoff();
+        clearTimeout(handoffTimer);
+        handoffTimer = setTimeout(() => {
+          handoff = { ...handoff, phase: 'error', retry: true };
+          publishHandoff();
+        }, 1200);
+        break;
+      }
+
+      case 'papyrus.send':
+        // The mod is derived from the source view, never the payload — a view
+        // cannot reach into another mod's listeners.
+        log(
+          'info',
+          `papyrus.send ${modOf(selfView)}."${str(p, 'name')}" (no Papyrus VM in the harness)`,
+        );
+        break;
+
+      default:
+        break;
+    }
+  }
+
+  function dispatchRequest(name: string, id: string, p: CommandPayload): void {
+    // A request settles EXACTLY once, like MessageBridge: a late or duplicate
+    // answer from a deferred handler is dropped rather than delivered twice.
+    let settled = false;
+    const ok = (payload?: unknown): void => {
+      if (settled) return;
+      settled = true;
+      respond(id, payload === undefined ? {} : payload);
+    };
+    const fail = (code: string, message: string): void => {
+      if (settled) return;
+      settled = true;
+      rejectRequest(id, code, message);
+    };
+    /** An omitted `view` targets the calling view. */
+    const targetView = () => str(p, 'view') || selfView;
+
+    if (!REQUEST_ENDPOINTS.has(name)) {
+      if (SEND_ENDPOINTS.has(name)) {
+        fail('wrong-endpoint-kind', `'${name}' is a send endpoint — use send(), not request()`);
+        return;
+      }
+      if (name === 'acme.shipworks.getWeight') {
+        // A value-returning plugin request: the typed reply payload is the whole
+        // answer — there is no envelope type to inspect any more.
+        setTimeout(() => ok({ weight: 42.5 }), 10);
+        return;
+      }
+      if (isPluginEndpoint(name)) {
+        // The documented minimum RegisterRequest handler behind a schema `action`
+        // button: a payload with a `message` the settings view toasts.
+        setTimeout(() => ok({ message: 'Done (mock)' }), 400);
+        return;
+      }
+      fail('unknown-endpoint', 'no such endpoint');
+      return;
+    }
+
+    switch (name) {
+      case 'settings.set': {
+        const allowed = writableMod(str(p, 'mod'));
+        if (allowed === null) {
+          fail('forbidden', "a view may only write its own mod's settings");
+          break;
+        }
+        const key = str(p, 'key');
+        const mod = mods.find((m) => m.id === allowed);
+        const setting = mod ? findSetting(mod, key) : null;
+        if (!('value' in p)) {
+          fail('invalid-value', 'missing value field');
+          break;
+        }
+        if (!mod || !setting) {
+          fail('unknown-setting', 'unknown mod or setting');
+          break;
+        }
+        const v = normalizeValue(setting, p['value']);
+        if (v === undefined) {
+          // A failed set REJECTS with its code. 1.x resolved an ack the caller had
+          // to remember to inspect, so forgetting read as success.
+          fail('invalid-value', 'the value was refused');
+          break;
+        }
+        mod.values[key] = v;
+        persist(mod);
+        // Native order: the store commits and fans out `settings.changed` before
+        // the request settles.
+        pushChanged(allowed, key, v);
+        pushPersisted(allowed);
+        // `value` is the post-clamp COMMITTED value, so the caller can tell
+        // clamped from accepted without a re-read.
+        ok({ mod: allowed, key, value: v });
+        break;
+      }
+
+      case 'settings.reset': {
+        const allowed = writableMod(str(p, 'mod'));
+        if (allowed === null) {
+          fail('forbidden', "a view may only reset its own mod's settings");
+          break;
+        }
+        const key = str(p, 'key');
+        const mod = mods.find((m) => m.id === allowed);
+        if (!mod) {
+          fail('unknown-setting', 'unknown mod or setting');
+          break;
+        }
+        // Native parity: no per-key settings.changed fan-out — the authoritative
+        // `osfui/settings` republish below re-syncs every view.
+        eachSetting(mod.schema, (s) => {
+          if (!key || s.key === key) mod.values[s.key] = defaultFor(s) as SettingValue;
+        });
+        persist(mod);
+        pushPersisted(allowed);
+        // The reply says only "the reset happened"; the registry arrives the same
+        // way it reaches everyone else.
+        ok({});
+        publishSettings();
+        break;
+      }
+
+      case 'settings.captureKey': {
+        // The REQUEST settles in machine time — armed, or a typed refusal — and
+        // the human-time outcome arrives later as the `settings.captured` event.
+        const allowed = writableMod(str(p, 'mod'));
+        if (allowed === null) {
+          fail('forbidden', "a view may only rebind its own mod's keys");
+          break;
+        }
+        if (capture) {
+          fail('capture-busy', 'a key capture is already in progress');
+          break;
+        }
+        const key = str(p, 'key');
+        const setting = findSetting(mods.find((m) => m.id === allowed), key);
+        if (!setting || setting.type !== 'key') {
+          fail('not-rebindable', 'only a key-typed setting can be rebound');
+          break;
+        }
+        armCapture(allowed, key);
+        ok({ armed: true, mod: allowed, key });
+        break;
+      }
 
       case 'menu.open': {
         const id = targetView();
         const page = HARNESS_PAGES[id];
         if (page) {
           // Real shipped view — hand off to its harness location, after a brief
-          // delay like the in-game single-menu swap.
+          // delay like the in-game single-menu swap. The reply means "accepted and
+          // queued", which is all the caller can act on.
           log('info', `menu.open ${id} → ${page}`);
-          result(true);
+          ok({});
           setTimeout(() => {
             location.href = page;
           }, 450);
         } else if (views.some((v) => v.id === id)) {
-          // Fictional view — mark it open/focused and push, which clears the launch
-          // overlay (mirrors the runtime's reconcile push); the verb itself acks
-          // via ui.result like native's auto-ack.
-          result(true);
+          // Fictional view — mark it open/focused and republish, which clears the
+          // launch overlay (mirrors the runtime's reconcile).
+          ok({});
           setTimeout(() => {
             for (const v of views) {
               if (v.kind === 'menu') {
@@ -1079,10 +1373,10 @@ export function installMock(opts: MockOptions = {}): MockApi {
                 v.open = v.open || v.id === id;
               }
             }
-            sendViews();
+            publishViews();
           }, 400);
         } else {
-          result(false, { code: 'unknown-view', message: 'not a registered surface' });
+          fail('unknown-view', 'view was not discovered');
         }
         break;
       }
@@ -1091,118 +1385,200 @@ export function installMock(opts: MockOptions = {}): MockApi {
         const id = targetView();
         const v = views.find((x) => x.id === id);
         if (!v) {
-          result(false, { code: 'unknown-view', message: 'not a registered surface' });
+          fail('unknown-view', 'not a registered surface');
           break;
         }
         v.open = false;
         v.focused = false;
-        result(true);
-        setTimeout(() => sendViews(), 150); // async reconcile, like native
+        ok({});
+        setTimeout(() => publishViews(), 150); // async reconcile, like native
         break;
       }
 
-      case 'hud.show':
-      case 'hud.hide': {
-        const v = views.find((x) => x.id === targetView());
-        if (!v) {
-          result(false, { code: 'unknown-view', message: 'not a registered surface' });
-          break;
-        }
-        v.open = cmd === 'hud.show';
-        result(true);
-        setTimeout(() => sendViews(), 150); // async reconcile, like native
+      case 'setViewHidden':
+        // Per-view hidden state has no field in the views catalog, so there is
+        // nothing to reconcile — the reply is the whole observable behaviour.
+        log('info', `setViewHidden ${targetView()} -> ${p['hidden'] === true}`);
+        ok({});
         break;
-      }
 
       case 'osfui.setViewAutoStart': {
-        // Mirror Runtime: validate, persist to the working copy, rebroadcast.
-        // The choice is next-launch policy, so open state never changes here.
+        // Startup policy is player intent: only the built-in Mods surface may
+        // change it — the same exact-id gate the diagnostics.* requests use.
+        if (selfView !== 'osfui/settings') {
+          fail('forbidden', "view auto-start is set from OSF UI's built-in settings view");
+          break;
+        }
         const v = views.find((x) => x.id === str(p, 'view'));
-        if (!v || typeof p['enabled'] !== 'boolean') {
-          result(false, {
-            code: v ? 'invalid-payload' : 'unknown-view',
-            message: v ? 'expected { view, enabled }' : 'not a discovered view',
-          });
+        if (typeof p['enabled'] !== 'boolean' || !str(p, 'view')) {
+          fail('invalid-payload', 'expected { view: string, enabled: boolean }');
+          break;
+        }
+        if (!v) {
+          fail('unknown-view', 'not a discovered view');
           break;
         }
         if (!v.autoStartMutable) {
-          result(false, {
-            code: 'not-configurable',
-            message: 'auto-start is settable only for catalog-visible HUDs',
-          });
+          fail('not-configurable', 'auto-start is settable only for catalog-visible HUDs');
           break;
         }
+        // The choice is next-launch policy, so open state never changes here.
         v.autoStart = p['enabled'] === true;
-        result(true);
-        setTimeout(() => sendViews(), 150); // async rebroadcast, like native
+        ok({});
+        setTimeout(() => publishViews(), 150); // async rebroadcast, like native
         break;
       }
 
-      case 'setVisible':
-        // Native opens/closes the calling surface; the only thing a page can
-        // observe is the visibility edge, so that is what the mock emits.
-        result(true);
-        setTimeout(() => send('ui.visibility', { visible: p['visible'] === true }), 0);
+      case 'ping':
+        ok({});
         break;
 
-      case 'setViewHidden':
-        // Per-view hidden state has no field in views.data, so there is nothing to
-        // reconcile — the ack is the whole observable behaviour.
-        log('info', `setViewHidden ${targetView()} -> ${p['hidden'] === true}`);
-        result(true);
+      case 'game.get':
+        // Nested per-provider: future providers are siblings of `calendar`. Fixed
+        // sample date, enough to render a HUD clock.
+        ok({
+          calendar: {
+            available: true,
+            day: 12,
+            month: 7,
+            year: 2330,
+            hour: 14.52,
+            daysPassed: 87.3,
+          },
+        });
         break;
 
-      case 'close':
-        log('info', 'close (no-op in harness)');
-        result(true);
+      case 'osfui.openLogFolder':
+        // Payload-free and fixed-target in game; there is nothing to open from a
+        // browser, so the harness just proves the request was fired.
+        notify('osfui.openLogFolder — fired (opens the SFSE log folder in game)');
+        ok({});
         break;
 
-      case 'osfui.gamepadRaw':
-        // The grant only suppresses the runtime's default pad mapping; the harness
-        // has no such mapping (padnav is view-side and unaffected), so it is a
-        // no-op here — but it must ack, or every view that asserts it starts up
-        // with a rejected request.
-        log('info', `osfui.gamepadRaw ${p['raw'] === true ? 'granted' : 'released'} (no-op in harness)`);
-        result(true);
+      case 'osfui.openModPage':
+        notify('osfui.openModPage — fired (opens the mod page in game)');
+        ok({});
         break;
 
-      case 'osfui.handleBack':
-        // In game this reroutes Esc/pad-B to the page instead of closing the
-        // overlay; the harness delivers DOM keys to the page anyway, so ack the
-        // grant to keep view boot code warning-free.
-        log('info', `osfui.handleBack ${p['handle'] ? 'granted' : 'released'} (no-op in harness)`);
-        result(true);
+      case 'osfui.openReportIssue': {
+        if (selfView !== 'osfui/settings') {
+          fail('forbidden', 'open report issue is a platform action');
+          break;
+        }
+        const number = typeof p['issueNumber'] === 'number' ? p['issueNumber'] : 0;
+        if (!(number > 0) || number > 1000000000) {
+          fail('invalid-issue', 'invalid report issue number');
+          break;
+        }
+        notify(`osfui.openReportIssue #${number} — fired (opens the issue in game)`);
+        ok({});
+        break;
+      }
+
+      case 'diagnostics.reportStatus':
+        if (selfView !== 'osfui/settings') {
+          fail('forbidden', "bug reporting is restricted to OSF UI's built-in settings view");
+          break;
+        }
+        ok({
+          enabled: true,
+          logs: ['OSF UI.log', 'OSF UI.webview2-host.log'],
+          retentionDays: 30,
+        });
+        break;
+
+      case 'diagnostics.submitReport': {
+        if (selfView !== 'osfui/settings') {
+          fail('forbidden', "bug reporting is restricted to OSF UI's built-in settings view");
+          break;
+        }
+        if (!str(p, 'title') || !str(p, 'description')) {
+          fail('invalid-report', 'title and description are required');
+          break;
+        }
+        // Native defers this onto an upload worker and settles whenever it lands;
+        // the delay is the only part of that a view can observe.
+        setTimeout(() => ok({ reportId: 'mock-report-1', issueNumber: 1234 }), 900);
+        break;
+      }
+
+      case 'papyrus.request':
+        // Native defers to the mod's script listener; a harness has no Papyrus VM,
+        // so it answers exactly as a game with no listener registered does.
+        fail('papyrus-unavailable', 'no Papyrus request listener is available (no VM in the harness)');
         break;
 
       default:
-        if (cmd === 'acme.shipworks.getWeight') {
-          // RegisterRequest semantics: the typed reply settles the request. No
-          // auto-ack precedes it — native sends the ack only when the handler
-          // replied with nothing (any requestId-echoing reply suppresses it).
-          setTimeout(() => send('acme.shipworks.weight', { weight: 42.5 }, rid), 10);
-          break;
-        }
-        // Plugin command shape: "<author>.<modname>.<name>" — two dots minimum. The
-        // mock plays the bridge's part: ui.result ok:true means delivered to the
-        // plugin's handler (native auto-ack). Anything else is an unknown command
-        // -> ui.error, like MessageBridge.
-        if (cmd.indexOf('.') > 0 && cmd.indexOf('.', cmd.indexOf('.') + 1) > 0) {
-          setTimeout(() => {
-            if (rid) send('ui.result', { ok: true, command: cmd, message: 'Done (mock)' }, rid);
-          }, 400);
-        } else {
-          send(
-            'ui.error',
-            {
-              code: 'unknown-command',
-              message: 'unknown command',
-              command: String(p['command']).slice(0, 128),
-            },
-            rid,
-          );
-        }
+        fail('unknown-endpoint', 'no such endpoint');
         break;
     }
+  }
+
+  /**
+   * The inbound envelope check, mirroring MessageBridge::HandleWebMessage: routing
+   * metadata sits BESIDE the payload, so no payload field can override it. Every
+   * refusal is surfaced rather than dropped — except unparseable text, which
+   * carries no id and no name to report against.
+   */
+  function receive(json: string): void {
+    let m: { kind?: unknown; name?: unknown; id?: unknown; payload?: unknown };
+    try {
+      m = JSON.parse(json) as typeof m;
+    } catch {
+      log('←web', 'malformed message — dropped');
+      return;
+    }
+    if (!m || typeof m !== 'object' || Array.isArray(m)) {
+      log('←web', 'malformed message — dropped');
+      return;
+    }
+
+    const kind = typeof m.kind === 'string' ? m.kind : '';
+    const name = typeof m.name === 'string' ? m.name.slice(0, MAX_ECHOED_NAME_LENGTH) : '';
+    log('←web', `${kind || '(no kind)'} ${name || '(no name)'}`);
+
+    if (kind !== 'send' && kind !== 'request') {
+      surface('invalid-request', 'kind must be "send" or "request"', {
+        kind: String(m.kind).slice(0, MAX_ECHOED_NAME_LENGTH),
+        name,
+      });
+      return;
+    }
+    if (!name) {
+      surface('invalid-request', 'a message needs a non-empty endpoint name', { kind });
+      return;
+    }
+    let payload: CommandPayload = {};
+    if (m.payload !== undefined && m.payload !== null) {
+      if (typeof m.payload !== 'object' || Array.isArray(m.payload)) {
+        surface('invalid-request', 'payload must be an object', { kind, name });
+        return;
+      }
+      payload = m.payload as CommandPayload;
+    }
+    const hasId = m.id !== undefined && m.id !== null;
+
+    if (kind === 'send') {
+      // `id` is forbidden on a send: a caller that supplied one expects a
+      // settlement it will never get.
+      if (hasId) {
+        surface('invalid-request', 'send messages carry no id — use a request', { name });
+        return;
+      }
+      dispatchSend(name, payload);
+      return;
+    }
+    if (!hasId || typeof m.id !== 'string' || !m.id || m.id.length > MAX_REQUEST_ID_LENGTH) {
+      // Not demoted to fire-and-forget the way 1.x demoted a bad requestId: silent
+      // demotion turns a client bug into a request that never settles.
+      surface(
+        'invalid-request',
+        `request id must be 1-${MAX_REQUEST_ID_LENGTH} characters`,
+        { name },
+      );
+      return;
+    }
+    dispatchRequest(name, m.id, payload);
   }
 
   // Schema sources
@@ -1245,7 +1621,9 @@ export function installMock(opts: MockOptions = {}): MockApi {
   /**
    * The real plugin version, read out of src/core/Version.h so the harness badge
    * shows what the DLL would report. Best-effort: an unreachable file keeps the
-   * "-mock" marker so a fake version is not mistaken for a real one.
+   * "-mock" marker so a fake version is not mistaken for a real one. The greeting
+   * waits on it, because `ready.version` is the reference point every advisory
+   * `targetVersion` is compared against.
    */
   const pluginVersion: Promise<string> = (async () => {
     const text = await loadOnly(VERSION_HEADER, 'src/core/Version.h');
@@ -1314,7 +1692,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
       mods = [];
       schemas.forEach(upsert);
       await refreshCatalogs(); // a persisted non-en locale localizes first paint
-      sendData();
+      publishSettings();
     });
     log('info', `loaded ${mods.length} schema(s): ${mods.map((m) => m.id).join(', ')}`);
   }
@@ -1376,9 +1754,9 @@ export function installMock(opts: MockOptions = {}): MockApi {
               log('info', `bad JSON in ${f.name}: ${String(err)}`);
             }
             if (--pending === 0) {
-              // applyLocale re-merges catalogs and re-sends both registries, which
-              // covers plain schema drops too. A dropped catalog activates its
-              // locale when none is selected.
+              // applyLocale re-merges catalogs and re-publishes both registries,
+              // which covers plain schema drops too. A dropped catalog activates
+              // its locale when none is selected.
               void applyLocale(droppedLoc && locale === 'en' ? droppedLoc : locale);
             }
           };
@@ -1421,7 +1799,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
     fixtures: setFixtures,
     fixturesOn: () => fixturesOn,
     visibility(v: boolean) {
-      send('ui.visibility', { visible: !!v });
+      raise('ui.visibility', { visible: !!v, reason: 'overlay' });
     },
     locale: localeApi,
     hotkey(mod?: string, key?: string) {
@@ -1430,20 +1808,18 @@ export function installMock(opts: MockOptions = {}): MockApi {
         console.warn('[mock] no type:"key" setting in the registry — nothing to fire a hotkey for.');
         return false;
       }
-      // Native pushes to every settings.get subscriber; the harness hosts one page,
-      // so "subscribed" is the whole audience.
-      send('ui.hotkey', { mod: target.mod, key: target.key });
+      raise('ui.hotkey', { mod: target.mod, key: target.key });
       return true;
     },
     gamepad(button: 'LB' | 'RB') {
       const id = PAD_BUTTONS[button];
       const down: UiGamepadPayload = { kind: 'button', button: { id, down: true } };
       const up: UiGamepadPayload = { kind: 'button', button: { id, down: false } };
-      send('ui.gamepad', down);
+      raise('ui.gamepad', down);
       // The release matters: @lib/lifecycle's padButtonEdge reports a down edge
       // once per press and needs the up to re-arm, so a down-only injector would
       // fire exactly once per page load.
-      setTimeout(() => send('ui.gamepad', up), 0);
+      setTimeout(() => raise('ui.gamepad', up), 0);
     },
     captureArmed: () => capture !== null,
     cancelCapture() {
@@ -1453,15 +1829,20 @@ export function installMock(opts: MockOptions = {}): MockApi {
     },
     setSelfView(id: string) {
       selfView = id;
+      // The i18n domain and the handoff key both key off the hosted view, so a
+      // greeted document re-reads them rather than keeping the old view's.
+      publishI18n();
+      publishHandoff();
     },
     health: setHealth,
     healthScenario: () => healthScenario,
+    greeted: () => greeted,
     loaded: () => initial,
   };
 
   // Install
 
-  // Must happen before the shared kit loads: it defines available() as
+  // Must happen before the shared kit loads: it decides `available` from
   // `typeof g.postMessage === "function"` and then takes ownership of onMessage.
   // Decorating rather than replacing keeps whatever the kit already put here if the
   // order ever gets swapped by accident.
@@ -1471,48 +1852,23 @@ export function installMock(opts: MockOptions = {}): MockApi {
   const w = host as unknown as { osfui?: Record<string, unknown> };
   if (!w.osfui) w.osfui = {};
   const g = w.osfui;
+  // Dispatch a macrotask late, so the mock crosses the same asynchronous boundary
+  // the real bridge does: a view that sends from inside a state handler can never
+  // re-enter its own delivery, and message order is still FIFO.
   g['postMessage'] = (json: string) => {
-    let m: { type?: unknown; payload?: unknown; requestId?: unknown };
-    try {
-      m = JSON.parse(json);
-    } catch {
-      return;
-    }
-    const payload =
-      m.payload && typeof m.payload === 'object' ? (m.payload as CommandPayload) : {};
-    log('←web', String(payload['command'] || m.type));
-    // requestId cap mirrors MessageBridge: string, 1..64 chars, else absent.
-    const rid =
-      typeof m.requestId === 'string' && m.requestId.length > 0 && m.requestId.length <= 64
-        ? m.requestId
-        : '';
-    if (m.type === 'ui.command') handle(payload, rid);
+    setTimeout(() => receive(String(json)), 0);
   };
   if (!('onMessage' in g)) g['onMessage'] = null;
   g['_mock'] = api;
 
-  // Seed immediately so an early settings.get is answerable, then upgrade
-  // asynchronously once real schemas resolve.
+  // Seed immediately so a greeting that lands before the async sources resolve
+  // still replays a registry, then upgrade once the real schemas arrive.
   FALLBACK_SCHEMAS.forEach(upsert);
   if (opts.drop !== false) wireDrop();
-  const initial: Promise<void> = opts.autoLoad === false ? Promise.resolve() : loadSources();
-
-  if (opts.greet !== false) {
-    // Native greets every view on load (SendRuntimeReady), so push runtime.ready
-    // rather than gating it behind views.get, which would diverge from in-game boot
-    // semantics. Deferred a macrotask so the shared kit (loaded after this module)
-    // has installed its onMessage. The runtime also pushes ui.visibility on
-    // show/hide edges; the harness has no real overlay, so announce "shown" once.
-    setTimeout(async () => {
-      send('runtime.ready', {
-        game: 'Starfield',
-        plugin: 'OSF UI',
-        version: await pluginVersion,
-        bridgeVersion: '1.0',
-      });
-      send('ui.visibility', { visible: true });
-    }, 0);
-  }
+  const initial: Promise<void> = Promise.all([
+    pluginVersion,
+    opts.autoLoad === false ? Promise.resolve() : loadSources(),
+  ]).then(() => undefined);
 
   return api;
 

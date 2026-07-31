@@ -5,18 +5,18 @@
 // (rebindable), and the top-level `vanillaKeys` table (the game's own bindings,
 // read-only).
 
-import type { SettingsDataPayload, SettingsItem } from '@sdk';
+import type { SettingsData, SettingsItem } from '@sdk';
 import { canonicalName } from './canonical';
 import { resolveInputContext } from '../settings/inputContext';
 
-export type ModEntry = SettingsDataPayload['mods'][number];
+export type ModEntry = SettingsData['mods'][number];
 
 /**
  * A row of `vanillaKeys`. The on-disk curation file (data/OSFUI/vanillakeys.json)
  * uses `label`/`key`; native renames them to `title`/`name` on the wire. This is
  * the wire shape.
  */
-export type VanillaKey = NonNullable<SettingsDataPayload['vanillaKeys']>[number];
+export type VanillaKey = NonNullable<SettingsData['vanillaKeys']>[number];
 
 /** One flattened binding. `mod` is present only on `kind:"mod"` rows. */
 export interface BindingRow {

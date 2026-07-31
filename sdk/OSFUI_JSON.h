@@ -224,6 +224,35 @@ namespace OSFUI::API
 			}
 		}
 
+		// Retained state (ABI 2.0). The C ABI takes JSON TEXT — a const char* is
+		// the only shape that survives the vtable contract — so the ergonomic
+		// overloads live here, exactly like the Respond ladder above, and
+		// nlohmann never crosses the DLL boundary.
+		//
+		// Reach for this instead of SendToWeb whenever the value is true until
+		// it changes: OSF UI replays state to every document that loads, so a
+		// view fed this way survives F5 with no re-push handshake on either
+		// side. SendToWeb stays for things that HAPPENED.
+		[[nodiscard]] bool SetViewState(const char* a_modId, const char* a_key, const Json& a_value) const noexcept
+		{
+			try {
+				const auto text = a_value.dump();
+				return _client.SetViewState(a_modId, a_key, text.c_str());
+			} catch (...) {
+				return false;
+			}
+		}
+
+		template <class T>
+		[[nodiscard]] bool SetViewState(const char* a_modId, const char* a_key, const T& a_value) const noexcept
+		{
+			try {
+				return SetViewState(a_modId, a_key, Json(a_value));
+			} catch (...) {
+				return false;
+			}
+		}
+
 		[[nodiscard]] bool RegisterSettingsSchema(const Json& a_schema) const noexcept
 		{
 			try {

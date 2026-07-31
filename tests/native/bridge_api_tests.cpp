@@ -1,15 +1,26 @@
-// Host-side unit tests for BridgeApi (api-freeze-plan items 1 + 3): the REAL
-// src/api/BridgeApi.cpp compiled against stubs/pch.h — command-shape
-// enforcement ("<author>.<modname>.<name>", ABI 1.6), first-wins duplicate
-// refusal, unregister-then-reregister replacement, qualified RegisterView ids,
-// and the registry-apply/dispatch round trip through a real MessageBridge.
-// NOTE: BridgeApi is a process singleton — sections share state, in order.
+// Host-side unit tests for BridgeApi + MessageBridge at protocol/ABI 2.0
+// (docs/mod-api-2.0-design.md): the REAL src/api/BridgeApi.cpp and
+// src/runtime/MessageBridge.cpp compiled against stubs/pch.h. Pins the endpoint
+// grammar ("<author>.<modname>.<name>", api-freeze item 3), first-wins duplicate
+// refusal, unregister-then-reregister replacement, qualified RegisterView ids
+// (item 1), and — end to end through a live bridge — the four-verb envelope, the
+// page-initiated handshake, kind enforcement, request settlement, the ABI 2.0
+// SetViewState queue and the legacy-ABI caller ledger.
+//
+// The 1.x wire is gone, so every inbound message here is a 2.0 envelope with the
+// routing metadata BESIDE the payload:
+//     { "kind":"send",    "name":..., "payload":{...} }
+//     { "kind":"request", "name":..., "id":..., "payload":{...} }
+// and every outbound one is ready / state / event / reply / error.
+//
+// NOTE: BridgeApi is a process singleton — the sections below share state and
+// MUST run in declaration order; each assumes what the one above it left behind.
 
 #include "api/BridgeApi.h"
 #include "OSFUI_JSON.h"
 
 #include "core/Log.h"
-#include "core/Version.h"  // kBridgeProtocolVersion (runtime.ready assertion)
+#include "core/Version.h"  // kPluginVersion / kBridgeProtocolVersion (the `ready` payload)
 #include "runtime/MessageBridge.h"
 
 namespace
@@ -36,6 +47,46 @@ namespace
 		return false;
 	}
 
+	// --- the 2.0 wire, written once ---------------------------------------
+	// Every inbound message in this suite goes through these two builders, so
+	// the envelope shape is asserted by construction rather than re-typed (and
+	// re-mistyped) at forty call sites.
+	constexpr const char* kHello = R"({"kind":"send","name":"osfui.hello"})";
+
+	std::string SendMsg(std::string_view a_name, std::string_view a_payloadJson = "{}")
+	{
+		return std::format(R"({{"kind":"send","name":"{}","payload":{}}})", a_name, a_payloadJson);
+	}
+	std::string RequestMsg(std::string_view a_name, std::string_view a_id,
+		std::string_view a_payloadJson = "{}")
+	{
+		return std::format(R"({{"kind":"request","name":"{}","id":"{}","payload":{}}})",
+			a_name, a_id, a_payloadJson);
+	}
+
+	// (viewId, raw json) pairs captured from the bridge's transport.
+	using Outbox = std::vector<std::pair<std::string, std::string>>;
+
+	// Accessors that never throw: a missing or malformed envelope yields an
+	// empty object, so a wrong shape fails its CHECK instead of taking the
+	// process down and hiding every check after it.
+	nlohmann::json Envelope(const Outbox& a_out, std::size_t a_index)
+	{
+		if (a_index >= a_out.size()) {
+			return nlohmann::json::object();
+		}
+		auto parsed = nlohmann::json::parse(a_out[a_index].second, nullptr, false);
+		return parsed.is_object() ? parsed : nlohmann::json::object();
+	}
+	nlohmann::json Last(const Outbox& a_out)
+	{
+		return a_out.empty() ? nlohmann::json::object() : Envelope(a_out, a_out.size() - 1);
+	}
+	nlohmann::json PayloadOf(const nlohmann::json& a_envelope)
+	{
+		return a_envelope.value("payload", nlohmann::json::object());
+	}
+
 	// Recorded command-handler firings.
 	struct Fired
 	{
@@ -54,6 +105,25 @@ namespace
 	{
 		g_firedB.push_back({ a_cmd, a_payload, a_src });
 	}
+
+	// Host-detected protocol misuse. In the plugin this reaches the offending
+	// view as a dev-only `osfui.debug.error` event and feeds the release-mode
+	// `view.protocol-misuse` card; here it is the assertion channel for every
+	// refusal that has no reply envelope to carry it (a send cannot be
+	// answered, and malformed input has no id to correlate to).
+	struct Surfaced
+	{
+		std::string    view;
+		std::string    code;
+		std::string    message;
+		nlohmann::json detail;
+	};
+	std::vector<Surfaced> g_surfaced;
+	std::string LastSurfacedCode()
+	{
+		return g_surfaced.empty() ? std::string{} : g_surfaced.back().code;
+	}
+
 	std::optional<OSFUI::API::Request> g_request;
 	std::vector<OSFUI::API::Request> g_requests;
 	std::uint64_t g_jsonToken = 0;
@@ -77,6 +147,13 @@ namespace
 		g_requests.push_back(a_request);
 		g_requestCommand = a_request.command; g_requestPayload = a_request.payloadJson; g_requestSource = a_request.sourceViewId;
 	}
+
+	// A host from the 1.x era, for the Client wrapper's version gating. ABI 2.0
+	// makes this configuration unreachable through RequestBridge (a MAJOR
+	// mismatch is refused outright and recorded — see the legacy-caller section
+	// below), but Attach() takes any pointer, which is what lets the gate math
+	// be tested at all. SetViewState is the 2.0 vtable addition: the double must
+	// implement it, and answering false is exactly what a 1.x host "does".
 	struct OldHost final : OSFUI::API::IOSFUIBridge
 	{
 		int requestCalls{ 0 };
@@ -87,6 +164,7 @@ namespace
 		void RegisterCommand(const char*, OSFUI::API::CommandFn, void*) override {}
 		void UnregisterCommand(const char*) override {}
 		bool SendToWeb(const char*, const char*, const char*) override { return false; }
+		bool SetViewState(const char*, const char*, const char*) override { return false; }
 		void SetReadyCallback(OSFUI::API::ReadyFn, void*) override {}
 		bool RequestMenu(const char*, bool) override { return false; }
 		std::uint32_t SubscribeSettings(const char*, OSFUI::API::SettingChangedFn, void*) override { return 0; }
@@ -129,26 +207,33 @@ int main()
 	api.SetViewCatalog({ "someview" });
 	api.SetSurfaceLoaded("someview", true);
 
-	// --- version constants: 1.7 (diagnostics and request/response) ------------
-	CHECK(OSFUI::API::kBridgeAPIMajor == 1);
-	CHECK(OSFUI::API::kBridgeAPIMinor == 7);
-	CHECK(static_cast<std::uint32_t>(OSFUI::API::Feature::kDiagnostics) == 7);
-	CHECK(static_cast<std::uint32_t>(OSFUI::API::Feature::kRequests) == 7);
+	// --- version constants: the 2.0 hard break --------------------------------
+	// MAJOR 2 is the whole compatibility story: OSFUI_RequestBridge hands a 1.x
+	// caller nullptr rather than emulating the auto-ack and the injected
+	// requestId that 2.0 deleted.
+	CHECK(OSFUI::API::kBridgeAPIMajor == 2);
+	CHECK(OSFUI::API::kBridgeAPIMinor == 0);
+	CHECK(OSFUI::API::kBridgeAPIVersion == ((2u << 16) | 0u));
+	CHECK(static_cast<std::uint32_t>(OSFUI::API::Feature::kViewState) == 0);  // 2.x baseline
 	CHECK(api.GetInterfaceVersion() == OSFUI::API::kBridgeAPIVersion);
-	CHECK(std::string_view(OSFUI::kBridgeProtocolVersion) == "1.6");
+	CHECK(std::string_view(OSFUI::kBridgeProtocolVersion) == "2.0");
+	CHECK(std::string_view(api.GetBridgeProtocolVersion()) == "2.0");
 
-	// --- command shape (item 3): two dots minimum, item-1 mod-id grammar ------
-	// Every platform command is structurally unregisterable — dotless verbs,
-	// single-dot names (including the osfui.* built-ins), bad mod ids.
-	for (const auto* bad : { "close", "ping", "menu.open", "game.get", "settings.set",
-	                         "views.get", "osfui.gamepadRaw", "ui.result",
+	// --- endpoint shape (item 3): two dots minimum, item-1 mod-id grammar -----
+	// Every platform endpoint is structurally unregisterable — dotless verbs,
+	// single-dot names (including the osfui.* built-ins), bad mod ids. The 2.0
+	// rename changed which names the platform owns, not the rule that owns them.
+	for (const auto* bad : { "close", "ping", "setVisible", "menu.open", "game.get",
+	                         "settings.set", "papyrus.send", "osfui.hello",
+	                         "osfui.gamepadRaw",
 	                         "Acme.Mod.x", "under_score.mod.x", "acme.mymod.",
 	                         ".leading.x", "a..b.x" }) {
 		api.RegisterCommand(bad, &HandlerA, nullptr);
 	}
 	CHECK(LoggedContaining("WARN", "refused RegisterCommand('close')"));
 	CHECK(LoggedContaining("WARN", "refused RegisterCommand('menu.open')"));
-	CHECK(LoggedContaining("WARN", "refused RegisterCommand('osfui.gamepadRaw')"));
+	CHECK(LoggedContaining("WARN", "refused RegisterCommand('osfui.hello')"));
+	CHECK(LoggedContaining("WARN", "refused RegisterCommand('papyrus.send')"));
 	CHECK(LoggedContaining("WARN", "refused RegisterCommand('Acme.Mod.x')"));
 
 	// Accepted: "<author>.<modname>.<name>", name may itself contain dots.
@@ -159,232 +244,466 @@ int main()
 	api.RegisterCommand("acme.mymod.ping", &HandlerB, nullptr);  // hijack attempt
 	CHECK(LoggedContaining("WARN", "refused RegisterCommand('acme.mymod.ping') — already registered"));
 
-	// --- apply to a live bridge + dispatch round trip -------------------------
-	std::vector<std::pair<std::string, std::string>> toWeb;  // (viewId, json)
+	// --- apply to a live bridge -----------------------------------------------
+	Outbox toWeb;
 	MessageBridge bridge([&](std::string_view a_viewId, std::string_view a_json) {
 		toWeb.emplace_back(std::string(a_viewId), std::string(a_json));
+	});
+	bridge.SetSurfaceFn([](std::string_view a_view, std::string_view a_code,
+						   std::string_view a_message, const nlohmann::json& a_detail) {
+		g_surfaced.push_back({ std::string(a_view), std::string(a_code), std::string(a_message), a_detail });
 	});
 	api.OnBridgeReady(&bridge);
 	api.PumpMainThread();
 
-	// ABI sends validate once, retain the parsed payload while queued, and
-	// produce the normal bridge envelope when the main-thread pump drains.
+	// --- the handshake is PAGE-INITIATED and is the only boot path ------------
+	// A fresh document says hello; the bridge answers `ready`, replays state
+	// through Runtime's hook (not installed here), then opens the event gate.
+	// First open, F5, dev hot reload and crash-recovery reload are all this same
+	// sequence, so nothing has to guess whether a greeting was consumed.
+	bridge.OnViewCreated("someview");
+	CHECK(!bridge.HasGreeted("someview"));
+	toWeb.clear();
+	bridge.HandleWebMessage("someview", kHello);
+	CHECK(bridge.HasGreeted("someview"));
+	CHECK(toWeb.size() == 1);
+	{
+		const auto ready = Last(toWeb);
+		const auto info = PayloadOf(ready);
+		CHECK(ready.value("kind", "") == "ready");
+		CHECK(info.value("game", "") == "Starfield");
+		CHECK(info.value("plugin", "") == OSFUI::kPluginName);
+		CHECK(info.value("version", "") == OSFUI::kPluginVersion);
+		// Built from the constant, not a literal — the version bumps on additive
+		// protocol changes and this check is about the FIELD being present.
+		CHECK(info.value("bridgeVersion", "") == OSFUI::kBridgeProtocolVersion);
+		// `view`/`mod` are what let a document address its own state keys
+		// without hardcoding its id. An unqualified id is its own mod.
+		CHECK(info.value("view", "") == "someview");
+		CHECK(info.value("mod", "") == "someview");
+		CHECK(!info.contains("capabilities"));  // removed pre-1.0, still gone
+	}
+
+	// --- ABI sends are EVENTS -------------------------------------------------
+	// SendToWeb validates once, retains the payload text while queued, and comes
+	// out of the main-thread pump as the 2.0 event envelope. `type` no longer
+	// exists: the name is routing metadata beside the payload.
 	toWeb.clear();
 	CHECK(api.SendToWeb("someview", "acme.mymod.data", R"({"x":1,"label":"ok"})"));
 	CHECK(!api.SendToWeb("someview", "acme.mymod.data", "{ bad json"));
 	api.PumpMainThread();
 	CHECK(toWeb.size() == 1);
-	if (!toWeb.empty()) {
-		const auto message = nlohmann::json::parse(toWeb.back().second, nullptr, false);
-		CHECK(message["type"] == "acme.mymod.data");
-		CHECK(message["payload"]["x"] == 1);
-		CHECK(message["payload"]["label"] == "ok");
+	{
+		const auto message = Last(toWeb);
+		CHECK(message.value("kind", "") == "event");
+		CHECK(message.value("name", "") == "acme.mymod.data");
+		CHECK(PayloadOf(message).value("x", 0) == 1);
+		CHECK(PayloadOf(message).value("label", "") == "ok");
+		CHECK(!message.contains("type"));
 	}
 
-	// Multi-target pushes encode one identical envelope and retain target ids.
+	// Multi-target emits encode one identical envelope and retain target ids.
+	// Both targets must have greeted: an event is a one-shot happening, so a
+	// document that has not asked for anything yet is not a delivery target.
+	for (const auto* id : { "view-a", "view-b" }) {
+		bridge.OnViewCreated(id);
+		bridge.HandleWebMessage(id, kHello);
+	}
 	toWeb.clear();
-	bridge.SendToWeb(std::unordered_set<std::string>{ "view-a", "view-b" },
+	bridge.Emit(std::unordered_set<std::string>{ "view-a", "view-b" },
 		"test.broadcast", nlohmann::json{ { "large", nlohmann::json::array({ 1, 2, 3 }) } });
 	CHECK(toWeb.size() == 2);
 	if (toWeb.size() == 2) {
 		CHECK(toWeb[0].second == toWeb[1].second);
 		CHECK(toWeb[0].first != toWeb[1].first);
-		const auto message = nlohmann::json::parse(toWeb[0].second, nullptr, false);
-		CHECK(message["type"] == "test.broadcast");
-		CHECK(message["payload"]["large"] == nlohmann::json::array({ 1, 2, 3 }));
+		const auto message = Envelope(toWeb, 0);
+		CHECK(message.value("kind", "") == "event");
+		CHECK(message.value("name", "") == "test.broadcast");
+		CHECK(PayloadOf(message).value("large", nlohmann::json{}) == nlohmann::json::array({ 1, 2, 3 }));
 	}
-	toWeb.clear();
 
-	bridge.HandleWebMessage("someview",
-		R"({ "type": "ui.command", "payload": { "command": "acme.mymod.ping", "x": 1 } })");
+	// --- a registered command is a SEND endpoint ------------------------------
+	// One-way: the payload arrives verbatim (no host-injected `requestId`), and
+	// nothing goes back. 1.x auto-acked every command after the handler
+	// returned, so a plugin could not tell "delivered" from "handled" and every
+	// command looked awaitable; wanting an outcome now means RegisterRequest.
+	toWeb.clear();
+	bridge.HandleWebMessage("someview", SendMsg("acme.mymod.ping", R"({"x":1})"));
 	CHECK(g_firedA.size() == 1);
 	CHECK(g_firedB.empty());  // the duplicate registration never took
 	if (!g_firedA.empty()) {
 		CHECK(g_firedA[0].command == "acme.mymod.ping");
 		CHECK(g_firedA[0].source == "someview");
-		CHECK(g_firedA[0].payload.find("\"x\"") != std::string::npos);
+		CHECK(g_firedA[0].payload == R"({"x":1})");
+		CHECK(g_firedA[0].payload.find("requestId") == std::string::npos);
 	}
-	bridge.HandleWebMessage("someview",
-		R"({ "type": "ui.command", "payload": { "command": "acme.mymod.catalog.get" } })");
-	CHECK(g_firedA.size() == 2);
+	CHECK(toWeb.empty());  // no auto-ack
 
-	// A refused (platform-shaped) registration must not exist on the bridge:
-	// the platform verb dispatches to... nothing here (no core handler in this
-	// harness), and crucially NOT to HandlerA.
-	bridge.HandleWebMessage("someview",
-		R"({ "type": "ui.command", "payload": { "command": "close" } })");
+	// An absent payload is an empty object, never null.
+	bridge.HandleWebMessage("someview", SendMsg("acme.mymod.catalog.get"));
 	CHECK(g_firedA.size() == 2);
+	CHECK(g_firedA.back().payload == "{}");
+	CHECK(toWeb.empty());
+
+	// A refused (platform-shaped) registration must not exist on the bridge: the
+	// platform verb resolves to nothing here (no core handler in this harness),
+	// and crucially NOT to HandlerA. The drop is SURFACED, which is the part 1.x
+	// got wrong — a silently swallowed message looks like a hang to the page.
+	g_surfaced.clear();
+	bridge.HandleWebMessage("someview", SendMsg("close"));
+	CHECK(g_firedA.size() == 2);
+	CHECK(toWeb.empty());
+	CHECK(LastSurfacedCode() == "unknown-endpoint");
+	CHECK(LoggedContaining("WARN", "dropped send to unknown endpoint 'close'"));
+
+	// --- envelope hygiene: routing metadata is structural, not advisory -------
+	{
+		// `id` on a send: the caller expects a settlement it will never get.
+		// Answering it would resurrect the auto-ack.
+		g_surfaced.clear();
+		bridge.HandleWebMessage("someview",
+			R"({"kind":"send","name":"acme.mymod.ping","id":"x","payload":{}})");
+		CHECK(g_firedA.size() == 2);
+		CHECK(toWeb.empty());
+		CHECK(LastSurfacedCode() == "invalid-request");
+
+		// A present-but-non-object payload is a client bug, not something to
+		// coerce — coercing is how a payload field ends up deciding routing.
+		bridge.HandleWebMessage("someview",
+			R"({"kind":"send","name":"acme.mymod.ping","payload":[1,2]})");
+		CHECK(g_firedA.size() == 2);
+		CHECK(LastSurfacedCode() == "invalid-request");
+
+		// The 1.x envelope itself routes nowhere: `kind` is closed to
+		// send/request, and `command` inside the payload carries no authority.
+		bridge.HandleWebMessage("someview",
+			R"({"type":"ui.command","payload":{"command":"acme.mymod.ping"}})");
+		CHECK(g_firedA.size() == 2);
+		CHECK(LastSurfacedCode() == "invalid-request");
+
+		bridge.HandleWebMessage("someview", R"({"kind":"send","name":""})");
+		CHECK(LastSurfacedCode() == "invalid-request");
+
+		// Malformed text has no id to correlate an error to, so the only honest
+		// channels are the log and the offending view's own console — never an
+		// uncorrelated error envelope that no caller is waiting on.
+		toWeb.clear();
+		bridge.HandleWebMessage("someview", "not json at all");
+		CHECK(toWeb.empty());
+		CHECK(LastSurfacedCode() == "invalid-request");
+	}
+
+	// --- kind enforcement -----------------------------------------------------
+	// A request naming a send endpoint is refused rather than executed: the
+	// caller got the kind wrong, and running the mutation anyway invites worse.
+	toWeb.clear();
+	bridge.HandleWebMessage("someview", RequestMsg("acme.mymod.ping", "q1"));
+	CHECK(g_firedA.size() == 2);
+	CHECK(toWeb.size() == 1);
+	{
+		const auto err = Last(toWeb);
+		CHECK(err.value("kind", "") == "error");
+		CHECK(err.value("id", "") == "q1");
+		CHECK(PayloadOf(err).value("code", "") == "wrong-endpoint-kind");
+		CHECK(PayloadOf(err).contains("message"));
+		CHECK(!PayloadOf(err).contains("reason"));  // the pre-1.0 duplicate, still gone
+	}
 
 	// --- replacement is explicit: unregister, then re-register ----------------
 	api.UnregisterCommand("acme.mymod.ping");
 	api.RegisterCommand("acme.mymod.ping", &HandlerB, nullptr);  // now legal (slot free)
 	api.PumpMainThread();
-	bridge.HandleWebMessage("someview",
-		R"({ "type": "ui.command", "payload": { "command": "acme.mymod.ping" } })");
+	toWeb.clear();
+	bridge.HandleWebMessage("someview", SendMsg("acme.mymod.ping"));
 	CHECK(g_firedA.size() == 2);
 	CHECK(g_firedB.size() == 1);
 
-	// --- item 5 (protocol 1.0): the request/result envelope -------------------
+	// --- request settlement ---------------------------------------------------
+	// A request handler MUST settle exactly once — Respond, Reject, or Defer and
+	// settle later by id. There is no third outcome and no auto-ack.
 	{
-		// A plugin command with a requestId: the payload handed to the plugin
-		// carries it, and the bridge auto-acks ui.result { ok:true }.
-		toWeb.clear();
-		bridge.HandleWebMessage("someview",
-			R"({ "type": "ui.command", "requestId": "r1", "payload": { "command": "acme.mymod.ping" } })");
-		CHECK(g_firedB.size() == 2);
-		CHECK(!g_firedB.empty() && g_firedB.back().payload.find("\"requestId\":\"r1\"") != std::string::npos);
-		CHECK(toWeb.size() == 1);
-		CHECK(!toWeb.empty() && toWeb.back().second.find("\"type\":\"ui.result\"") != std::string::npos);
-		CHECK(!toWeb.empty() && toWeb.back().second.find("\"requestId\":\"r1\"") != std::string::npos);
-		CHECK(!toWeb.empty() && toWeb.back().second.find("\"ok\":true") != std::string::npos);
-		CHECK(!toWeb.empty() && toWeb.back().second.find("\"command\":\"acme.mymod.ping\"") != std::string::npos);
-
-		// Fire-and-forget (no requestId): no ui.result.
-		toWeb.clear();
-		bridge.HandleWebMessage("someview",
-			R"({ "type": "ui.command", "payload": { "command": "acme.mymod.ping" } })");
-		CHECK(toWeb.empty());
-		CHECK(!g_firedB.empty() && g_firedB.back().payload.find("requestId") == std::string::npos);
-
-		// An over-long requestId (>64 chars) is ignored — treated fire-and-forget.
-		const std::string longId(65, 'x');
-		bridge.HandleWebMessage("someview",
-			std::string(R"({ "type": "ui.command", "requestId": ")") + longId +
-				R"(", "payload": { "command": "acme.mymod.ping" } })");
-		CHECK(toWeb.empty());
-
-		// A handler that replies through the no-target SendToWeb: the reply
-		// itself carries the requestId and suppresses the auto ui.result.
-		bridge.RegisterCommand("test.reply", [](const nlohmann::json&, MessageBridge& a_b) {
-			a_b.SendToWeb("test.data", nlohmann::json{ { "v", 7 } });
+		bridge.RegisterRequest("test.reply", [](const nlohmann::json&, MessageBridge& a_b) {
+			a_b.Respond(nlohmann::json{ { "v", 7 } });
 		});
 		toWeb.clear();
-		bridge.HandleWebMessage("someview",
-			R"({ "type": "ui.command", "requestId": "r2", "payload": { "command": "test.reply" } })");
+		bridge.HandleWebMessage("someview", RequestMsg("test.reply", "r2", R"({"in":1})"));
 		CHECK(toWeb.size() == 1);
-		CHECK(!toWeb.empty() && toWeb.back().second.find("\"type\":\"test.data\"") != std::string::npos);
-		CHECK(!toWeb.empty() && toWeb.back().second.find("\"requestId\":\"r2\"") != std::string::npos);
+		CHECK(Last(toWeb).value("kind", "") == "reply");
+		CHECK(Last(toWeb).value("id", "") == "r2");
+		CHECK(PayloadOf(Last(toWeb)).value("v", 0) == 7);
 
-		// SendResult(false, code): the explicit failure outcome...
-		bridge.RegisterCommand("test.fail", [](const nlohmann::json&, MessageBridge& a_b) {
-			a_b.SendResult(false, "unknown-view", "nope");
+		// Reject: a stable machine code plus a human sentence, correlated by id.
+		bridge.RegisterRequest("test.fail", [](const nlohmann::json&, MessageBridge& a_b) {
+			a_b.Reject("unknown-view", "nope");
 		});
 		toWeb.clear();
-		bridge.HandleWebMessage("someview",
-			R"({ "type": "ui.command", "requestId": "r3", "payload": { "command": "test.fail" } })");
+		bridge.HandleWebMessage("someview", RequestMsg("test.fail", "r3"));
 		CHECK(toWeb.size() == 1);
-		CHECK(!toWeb.empty() && toWeb.back().second.find("\"ok\":false") != std::string::npos);
-		CHECK(!toWeb.empty() && toWeb.back().second.find("\"code\":\"unknown-view\"") != std::string::npos);
-		CHECK(!toWeb.empty() && toWeb.back().second.find("\"requestId\":\"r3\"") != std::string::npos);
-		// ...which stays SILENT for a fire-and-forget caller.
-		toWeb.clear();
-		bridge.HandleWebMessage("someview",
-			R"({ "type": "ui.command", "payload": { "command": "test.fail" } })");
-		CHECK(toWeb.empty());
+		CHECK(Last(toWeb).value("kind", "") == "error");
+		CHECK(Last(toWeb).value("id", "") == "r3");
+		CHECK(PayloadOf(Last(toWeb)).value("code", "") == "unknown-view");
+		CHECK(PayloadOf(Last(toWeb)).value("message", "") == "nope");
 
-		// DeferResult: no auto-ack now; the deferred reply carries the id later
-		// (the settings.captureKey pattern).
+		// Settling twice answers once. (1.x tracked this with a `_replied` flag
+		// the call sites had to respect; here the bridge owns it.)
+		bridge.RegisterRequest("test.twice", [](const nlohmann::json&, MessageBridge& a_b) {
+			a_b.Respond(nlohmann::json::object());
+			a_b.Respond(nlohmann::json{ { "second", true } });
+		});
+		toWeb.clear();
+		bridge.HandleWebMessage("someview", RequestMsg("test.twice", "r3b"));
+		CHECK(toWeb.size() == 1);
+		CHECK(LoggedContaining("WARN", "settled twice"));
+
+		// Defer + RespondTo: the settings.captureKey pattern. Nothing goes out
+		// at handler time; the correlation id is the handler's to settle later.
 		std::string deferredId;
-		bridge.RegisterCommand("test.defer", [&deferredId](const nlohmann::json&, MessageBridge& a_b) {
+		bridge.RegisterRequest("test.defer", [&deferredId](const nlohmann::json&, MessageBridge& a_b) {
 			deferredId = std::string(a_b.CurrentRequestId());
-			a_b.DeferResult();
+			a_b.Defer();
 		});
 		toWeb.clear();
-		bridge.HandleWebMessage("someview",
-			R"({ "type": "ui.command", "requestId": "r4", "payload": { "command": "test.defer" } })");
+		bridge.HandleWebMessage("someview", RequestMsg("test.defer", "r4"));
 		CHECK(toWeb.empty());
 		CHECK(deferredId == "r4");
-		bridge.SendToWeb("someview", "test.done", nlohmann::json::object(), deferredId);
+		bridge.RespondTo("r4", nlohmann::json{ { "done", true } });
 		CHECK(toWeb.size() == 1);
-		CHECK(!toWeb.empty() && toWeb.back().second.find("\"requestId\":\"r4\"") != std::string::npos);
+		CHECK(Last(toWeb).value("kind", "") == "reply");
+		CHECK(Last(toWeb).value("id", "") == "r4");
+		// A late or duplicate settlement is never delivered twice, and settling
+		// an id nobody deferred is a silent no-op rather than a stray envelope.
+		bridge.RespondTo("r4", nlohmann::json{ { "done", false } });
+		bridge.RejectTo("no-such-id", "internal", "");
+		CHECK(toWeb.size() == 1);
 
-		// ui.error shape: machine code + message + id echo. The pre-1.0
-		// `reason` duplicate of message must NOT be emitted anymore.
+		// RejectTo settles a deferred request the same way.
 		toWeb.clear();
-		bridge.HandleWebMessage("someview",
-			R"({ "type": "ui.command", "requestId": "r5", "payload": { "command": "nope" } })");
+		bridge.HandleWebMessage("someview", RequestMsg("test.defer", "r5"));
+		bridge.RejectTo("r5", "capture-busy", "already capturing");
 		CHECK(toWeb.size() == 1);
-		CHECK(!toWeb.empty() && toWeb.back().second.find("\"type\":\"ui.error\"") != std::string::npos);
-		CHECK(!toWeb.empty() && toWeb.back().second.find("\"code\":\"unknown-command\"") != std::string::npos);
-		CHECK(!toWeb.empty() && toWeb.back().second.find("\"message\":") != std::string::npos);
-		CHECK(!toWeb.empty() && toWeb.back().second.find("\"reason\":") == std::string::npos);
-		CHECK(!toWeb.empty() && toWeb.back().second.find("\"requestId\":\"r5\"") != std::string::npos);
-		// Malformed input has no readable requestId — the error goes without one.
-		toWeb.clear();
-		bridge.HandleWebMessage("someview", "not json at all");
-		CHECK(toWeb.size() == 1);
-		CHECK(!toWeb.empty() && toWeb.back().second.find("\"code\":\"malformed-message\"") != std::string::npos);
-		CHECK(!toWeb.empty() && toWeb.back().second.find("requestId") == std::string::npos);
+		CHECK(PayloadOf(Last(toWeb)).value("code", "") == "capture-busy");
+		CHECK(Last(toWeb).value("id", "") == "r5");
 
-		// --- runtime.ready carries the host + protocol versions ---------------
+		// A handler that returns having settled nothing is a PLATFORM bug and
+		// the one failure the caller cannot tell from a hang. Answer `internal`
+		// and make it loud on both sides.
+		bridge.RegisterRequest("test.silent", [](const nlohmann::json&, MessageBridge&) {});
 		toWeb.clear();
-		bridge.SendRuntimeReady("someview");
+		bridge.HandleWebMessage("someview", RequestMsg("test.silent", "r6"));
 		CHECK(toWeb.size() == 1);
-		CHECK(!toWeb.empty() && toWeb.back().second.find("\"version\":") != std::string::npos);
-		// Built from the constant, not a literal — the version bumps on additive
-		// protocol changes and this check is about the FIELD being present.
-		CHECK(!toWeb.empty() && toWeb.back().second.find(std::format("\"bridgeVersion\":\"{}\"", OSFUI::kBridgeProtocolVersion)) != std::string::npos);
-		CHECK(!toWeb.empty() && toWeb.back().second.find("\"capabilities\"") == std::string::npos);
+		CHECK(PayloadOf(Last(toWeb)).value("code", "") == "internal");
+		CHECK(LoggedContaining("ERROR", "returned without settling"));
+
+		// An unknown endpoint is a correlated error, and warned once per name
+		// (pages poll, and a flooded log hides the first occurrence).
+		toWeb.clear();
+		bridge.HandleWebMessage("someview", RequestMsg("nope.no.such", "r7"));
+		CHECK(toWeb.size() == 1);
+		CHECK(PayloadOf(Last(toWeb)).value("code", "") == "unknown-endpoint");
+		CHECK(Last(toWeb).value("id", "") == "r7");
+
+		// The mirror image of the earlier wrong-endpoint-kind: a send naming a
+		// request endpoint is dropped (nothing to answer) and surfaced.
+		toWeb.clear();
+		g_surfaced.clear();
+		bridge.HandleWebMessage("someview", SendMsg("test.reply"));
+		CHECK(toWeb.empty());
+		CHECK(LastSurfacedCode() == "wrong-endpoint-kind");
+		CHECK(!g_surfaced.empty() && g_surfaced.back().detail.value("name", "") == "test.reply");
+
+		// The two registries are disjoint, enforced in both directions: the kind
+		// is what callers dispatch on, so one name cannot be both.
+		CHECK(!bridge.RegisterRequest("acme.mymod.ping", [](const nlohmann::json&, MessageBridge&) {}));
+		bridge.RegisterSend("test.reply", [](const nlohmann::json&, MessageBridge&) {});
+		CHECK(bridge.HasSend("acme.mymod.ping") && !bridge.HasRequest("acme.mymod.ping"));
+		CHECK(bridge.HasRequest("test.reply") && !bridge.HasSend("test.reply"));
+		CHECK(LoggedContaining("WARN", "already registered as a send"));
+		CHECK(LoggedContaining("WARN", "already registered as a request"));
+
+		// Correlation ids are bounded because the inbound payload is untrusted.
+		// An over-long one is a HARD invalid-request: 1.x demoted it to
+		// fire-and-forget, which turned a client bug into a request that never
+		// settles and a page that waits out its whole timeout.
+		toWeb.clear();
+		g_surfaced.clear();
+		bridge.HandleWebMessage("someview", RequestMsg("test.reply", std::string(65, 'x')));
+		CHECK(toWeb.empty());
+		CHECK(LastSurfacedCode() == "invalid-request");
+		// ...and the boundary value is still accepted.
+		bridge.HandleWebMessage("someview", RequestMsg("test.reply", std::string(64, 'x')));
+		CHECK(toWeb.size() == 1);
+		// A missing or non-string id never dispatches either.
+		bridge.HandleWebMessage("someview", R"({"kind":"request","name":"test.reply","payload":{}})");
+		bridge.HandleWebMessage("someview", R"({"kind":"request","name":"test.reply","id":7,"payload":{}})");
+		CHECK(toWeb.size() == 1);
+		CHECK(LastSurfacedCode() == "invalid-request");
 	}
 
-	// --- ABI 1.7 request/response ---------------------------------------------
+	// --- ABI request/response: the plugin side --------------------------------
 	api.RegisterRequest("acme.mymod.getWeight", &RequestHandler, nullptr);
 	api.RegisterRequest("acme.mymod.getWeight", &RequestHandler, nullptr); // duplicate refused
 	api.RegisterRequest("acme.mymod.ping", &RequestHandler, nullptr);      // command/request collision refused
 	api.RegisterCommand("acme.mymod.getWeight", &HandlerA, nullptr);       // reverse collision refused
 	api.PumpMainThread();
 	CHECK(LoggedContaining("WARN", "refused RegisterRequest('acme.mymod.getWeight')"));
+	CHECK(LoggedContaining("WARN", "refused RegisterRequest('acme.mymod.ping')"));
+	CHECK(LoggedContaining("WARN", "refused RegisterCommand('acme.mymod.getWeight')"));
+	CHECK(bridge.HasRequest("acme.mymod.getWeight"));
+	CHECK(!bridge.HasSend("acme.mymod.getWeight"));  // one name, one kind
 
-	// Deferred success carries the plugin's type and original requestId, never an ack.
+	// A plugin request is always deferred: the answer arrives whenever the
+	// plugin gets there, and PumpMainThread settles it by id.
 	toWeb.clear(); g_request.reset();
-	bridge.HandleWebMessage("request-view", R"({"type":"ui.command","requestId":"rq1","payload":{"command":"acme.mymod.getWeight","unit":"kg"}})");
+	bridge.HandleWebMessage("request-view", RequestMsg("acme.mymod.getWeight", "rq1", R"({"unit":"kg"})"));
 	CHECK(g_request.has_value()); CHECK(toWeb.empty());
 	if (g_request) {
 		CHECK(g_requestCommand == "acme.mymod.getWeight");
+		CHECK(g_requestSource == "request-view");
+		// Verbatim: routing metadata rides the envelope, so there is no
+		// injected requestId and no `command` field to strip out first.
+		CHECK(g_requestPayload == R"({"unit":"kg"})");
 		CHECK(g_requestPayload.find("requestId") == std::string::npos);
 		g_request->Respond("acme.mymod.weight", R"({"weight":42.5})");
 		g_request->Respond("acme.mymod.weight", R"({"weight":99})"); // ignored
 	}
 	api.PumpMainThread();
 	CHECK(toWeb.size() == 1);
-	CHECK(!toWeb.empty() && toWeb.back().second.find("\"type\":\"acme.mymod.weight\"") != std::string::npos);
-	CHECK(!toWeb.empty() && toWeb.back().second.find("\"requestId\":\"rq1\"") != std::string::npos);
+	CHECK(Last(toWeb).value("kind", "") == "reply");
+	CHECK(Last(toWeb).value("id", "") == "rq1");
+	CHECK(PayloadOf(Last(toWeb)).value("weight", 0.0) == 42.5);
+	// The 1.x per-reply `type` has no slot on the 2.0 wire — a reply is
+	// correlated by id, and the plugin's type would just be a second, weaker
+	// routing channel for the page to get wrong.
+	CHECK(!toWeb.empty() && toWeb.back().second.find("acme.mymod.weight") == std::string::npos);
 	CHECK(LoggedContaining("WARN", "ignored second response"));
 
-	// A dropped token times out as correlated ui.error { no-response }.
+	// A dropped token expires at the host deadline as a correlated error.
+	// `no-response` (the backend never answered) stays distinguishable from the
+	// helper's client-side `timeout` (the page gave up).
 	toWeb.clear(); g_request.reset();
-	bridge.HandleWebMessage("request-view", R"({"type":"ui.command","requestId":"rq2","payload":{"command":"acme.mymod.getWeight"}})");
+	bridge.HandleWebMessage("request-view", RequestMsg("acme.mymod.getWeight", "rq2"));
 	api.PumpMainThread(std::chrono::steady_clock::now() + std::chrono::seconds(31));
 	CHECK(toWeb.size() == 1);
-	CHECK(!toWeb.empty() && toWeb.back().second.find("\"code\":\"no-response\"") != std::string::npos);
+	CHECK(Last(toWeb).value("kind", "") == "error");
+	CHECK(Last(toWeb).value("id", "") == "rq2");
+	CHECK(PayloadOf(Last(toWeb)).value("code", "") == "no-response");
 
-	// Closing the source view reaps its token; a late response is a safe no-op.
+	// Closing the source view reaps its tokens on BOTH sides; a late plugin
+	// response is then a safe no-op rather than a write into a dead page.
 	toWeb.clear(); g_request.reset();
-	bridge.HandleWebMessage("closing-view", R"({"type":"ui.command","requestId":"rq3","payload":{"command":"acme.mymod.getWeight"}})");
+	bridge.HandleWebMessage("closing-view", RequestMsg("acme.mymod.getWeight", "rq3"));
 	api.SetSurfaceLoaded("closing-view", false);
+	bridge.OnViewDestroyed("closing-view");
 	if (g_request) g_request->Respond(R"({"weight":1})");
 	api.PumpMainThread();
 	CHECK(toWeb.empty());
 	CHECK(LoggedContaining("WARN", "ignored late response"));
+	CHECK(LoggedContaining("DEBUG", "reaped in-flight request"));
 
-	// Plugin failures become correlated ui.error with the plugin's stable code.
+	// Plugin failures become correlated errors with the plugin's stable code.
 	toWeb.clear(); g_request.reset();
-	bridge.HandleWebMessage("request-view", R"({"type":"ui.command","requestId":"rq4","payload":{"command":"acme.mymod.getWeight"}})");
+	bridge.HandleWebMessage("request-view", RequestMsg("acme.mymod.getWeight", "rq4"));
 	if (g_request) g_request->Reject("weight-unavailable", "no player");
 	api.PumpMainThread();
 	CHECK(toWeb.size() == 1);
-	CHECK(!toWeb.empty() && toWeb.back().second.find("\"code\":\"weight-unavailable\"") != std::string::npos);
+	CHECK(PayloadOf(Last(toWeb)).value("code", "") == "weight-unavailable");
 
-	// The 65th in-flight request from one view fails fast instead of growing.
+	// The 65th in-flight request from one view fails fast instead of growing
+	// host memory. Capacity is refused BEFORE dispatch, so a saturated view
+	// cannot make the host do the handler's work as well.
 	toWeb.clear(); g_requests.clear();
 	for (int i = 0; i < 65; ++i) {
-		bridge.HandleWebMessage("cap-view", std::format(
-			R"({{"type":"ui.command","requestId":"cap{}","payload":{{"command":"acme.mymod.getWeight"}}}})", i));
+		bridge.HandleWebMessage("cap-view", RequestMsg("acme.mymod.getWeight", std::format("cap{}", i)));
 	}
 	CHECK(g_requests.size() == 64);
 	CHECK(toWeb.size() == 1);
-	CHECK(!toWeb.empty() && toWeb.back().second.find("\"code\":\"request-capacity\"") != std::string::npos);
-	api.SetSurfaceLoaded("cap-view", false);	// --- RegisterView takes qualified ids only (item 1) -----------------------
+	CHECK(Last(toWeb).value("id", "") == "cap64");
+	CHECK(PayloadOf(Last(toWeb)).value("code", "") == "request-capacity");
+	CHECK(LoggedContaining("WARN", "requests in flight"));
+	api.SetSurfaceLoaded("cap-view", false);
+	bridge.OnViewDestroyed("cap-view");
+
+	// --- SetViewState (ABI 2.0): retained state, not a happening --------------
+	// The 1.x answer to "my page reloaded" was a view-defined "I reloaded"
+	// message plus a re-push per plugin. State replaces all of it: the plugin
+	// sets a value, Runtime retains it, and every fresh document is replayed.
+	{
+		api.TakeViewStateOps();  // start from an empty queue
+
+		// Validation is synchronous — the caller sees the false at the call.
+		CHECK(!api.SetViewState(nullptr, "roster", "{}"));
+		CHECK(!api.SetViewState("acme.mymod", nullptr, "{}"));
+		CHECK(!api.SetViewState("acme.mymod", "roster", nullptr));
+		CHECK(!api.SetViewState("acme.mymod", "", "{}"));
+		CHECK(!api.SetViewState("Acme.Mod", "roster", "{}"));
+		CHECK(LoggedContaining("WARN", "refused SetViewState('Acme.Mod')"));
+		// The key is echoed on the wire and used as a cache key, so it is
+		// bounded like every other content-supplied name.
+		CHECK(!api.SetViewState("acme.mymod", std::string(129, 'k').c_str(), "{}"));
+		CHECK(LoggedContaining("WARN", "key longer than 128 characters"));
+		CHECK(!api.SetViewState("acme.mymod", "roster", "{bad"));
+		CHECK(LoggedContaining("WARN", "payload is not valid JSON"));
+		CHECK(api.TakeViewStateOps().empty());  // nothing invalid was queued
+
+		// Accepted. Unlike a send, state needs no bridge, no loaded surface and
+		// no greeting: it is not addressed to a document at all.
+		CHECK(api.SetViewState("acme.mymod", "roster", R"({"crew":2})"));
+		CHECK(api.SetViewState("osfui", "count", "7"));       // built-in mod id; scalars are values too
+		CHECK(api.SetViewState("acme.mymod", "roster", "[1,2]"));
+		{
+			// FIFO, verbatim: latest-wins is the STORE's job on the main tick,
+			// so both writes to the same key must reach it in call order.
+			const auto ops = api.TakeViewStateOps();
+			CHECK(ops.size() == 3);
+			CHECK(ops.size() == 3 && ops[0].mod == "acme.mymod" && ops[0].key == "roster");
+			CHECK(ops.size() == 3 && ops[0].value.value("crew", 0) == 2);
+			CHECK(ops.size() == 3 && ops[1].mod == "osfui" && ops[1].key == "count" && ops[1].value == 7);
+			CHECK(ops.size() == 3 && ops[2].key == "roster" && ops[2].value.is_array());
+			CHECK(api.TakeViewStateOps().empty());  // drained
+		}
+
+		// The drain belongs to Runtime (which owns ViewStateStore and the
+		// replay), so the API pump must not eat these on its way past.
+		CHECK(api.SetViewState("acme.mymod", "kept", "{}"));
+		api.PumpMainThread();
+		CHECK(api.TakeViewStateOps().size() == 1);
+
+		// A producer looping off-thread hits the cap instead of growing memory;
+		// the refusal is the INCOMING write, so earlier state is kept.
+		for (int i = 0; i < 300; ++i) {
+			api.SetViewState("acme.mymod", ("k" + std::to_string(i)).c_str(), "{}");
+		}
+		const auto capped = api.TakeViewStateOps();
+		CHECK(capped.size() == 256);
+		CHECK(!capped.empty() && capped.front().key == "k0");  // oldest kept
+		CHECK(LoggedContaining("WARN", "pending SetViewState queue full"));
+	}
+
+	// --- legacy-ABI callers (the 2.0 hard break, made visible) ----------------
+	// OSFUI_RequestBridge hands a 1.x plugin nullptr. Recorded here so Runtime
+	// can raise ONE `compat.legacy-api` card naming the DLL the player has to
+	// update, instead of the refusal living only in a log nobody opens.
+	{
+		api.TakeLegacyApiCallers();  // start from an empty ledger
+		api.NoteLegacyApiCaller("OldMod.dll", 1, 7);
+		api.NoteLegacyApiCaller("OldMod.dll", 1, 7);  // a plugin retrying every load screen
+		api.NoteLegacyApiCaller("", 1, 5);            // unresolvable module: still one card
+		{
+			const auto callers = api.TakeLegacyApiCallers();
+			CHECK(callers.size() == 2);  // deduped by module
+			CHECK(callers.size() == 2 && callers[0].module == "OldMod.dll");
+			CHECK(callers.size() == 2 && callers[0].major == 1 && callers[0].minor == 7);
+			CHECK(callers.size() == 2 && callers[1].module.empty() && callers[1].minor == 5);
+		}
+		CHECK(api.TakeLegacyApiCallers().empty());  // drained
+		// Bounded: a load order full of stale plugins cannot grow this.
+		for (int i = 0; i < 40; ++i) {
+			api.NoteLegacyApiCaller(std::format("mod{}.dll", i), 1, 0);
+		}
+		CHECK(api.TakeLegacyApiCallers().size() == 32);
+	}
+
+	// --- RegisterView takes qualified ids only (item 1) -----------------------
 	CHECK(!api.RegisterView("osf"));              // unqualified: refused synchronously
 	CHECK(!api.RegisterView("osfui.settings"));   // dotted join, not slash
 	CHECK(!api.RegisterView("Acme.Mod/dash"));    // bad mod id
@@ -425,16 +744,40 @@ int main()
 	api.PumpMainThread();
 	CHECK(api.IsBridgeReady());
 	CHECK(toWeb.empty());  // a warm bridge alone does not make this target live
+
+	// Runtime's real order for a lazily loaded surface: the renderer view is
+	// created (SetSurfaceLoaded + OnViewCreated arm a CLOSED gate), the ABI
+	// holdback flushes on the next pump, and the document greets whenever it
+	// finishes loading.
+	lazyBridge.OnViewCreated("acme.mymod/dash");
 	api.SetSurfaceLoaded("acme.mymod/dash", true);
-	lazyBridge.SendRuntimeReady("acme.mymod/dash");
 	api.PumpMainThread();
+	CHECK(toWeb.empty());  // a loaded surface is not a greeted document
+	lazyBridge.HandleWebMessage("acme.mymod/dash", kHello);
+	// THE DELIVERY GUARANTEE, end to end. The plugin sent before this document
+	// existed; the gate held the event; the greeting replays `ready` and then
+	// hands it over. That is what Feature::kDeliveryGuarantee promises
+	// (RegisterView -> SendToWeb -> RequestMenu in one tick lands before first
+	// visible paint), and it is the reason the gate does not discard its
+	// backlog on a FIRST greeting — only OnViewCreated clears a queue.
 	CHECK(toWeb.size() == 2);
-	CHECK(toWeb.size() == 2 && toWeb[0].second.find("\"type\":\"runtime.ready\"") != std::string::npos);
-	CHECK(toWeb.size() == 2 && toWeb[1].first == "acme.mymod/dash");
-	CHECK(toWeb.size() == 2 && toWeb[1].second.find("\"lazy\":true") != std::string::npos);
-	lazyBridge.HandleWebMessage("acme.mymod/dash",
-		R"({ "type": "ui.command", "payload": { "command": "acme.mymod.catalog.get" } })");
-	CHECK(g_firedA.size() == 3);  // handler is wired on the first lazy bridge
+	CHECK(Envelope(toWeb, 0).value("kind", "") == "ready");
+	CHECK(Envelope(toWeb, 1).value("kind", "") == "event");
+	CHECK(Envelope(toWeb, 1).value("name", "") == "acme.mymod.data");
+	CHECK(lazyBridge.HasGreeted("acme.mymod/dash"));
+
+	// Once greeted, a send flushes to the wire on the next pump.
+	toWeb.clear();
+	CHECK(api.SendToWeb("acme.mymod/dash", "acme.mymod.data", R"({"lazy":true})"));
+	api.PumpMainThread();
+	CHECK(toWeb.size() == 1);
+	CHECK(!toWeb.empty() && toWeb[0].first == "acme.mymod/dash");
+	CHECK(Last(toWeb).value("kind", "") == "event");
+	CHECK(PayloadOf(Last(toWeb)).value("lazy", false));
+
+	// The command registry re-applies to a replacement bridge, handlers intact.
+	lazyBridge.HandleWebMessage("acme.mymod/dash", SendMsg("acme.mymod.catalog.get"));
+	CHECK(g_firedA.size() == 3);
 	api.OnBridgeReady(nullptr);
 	api.PumpMainThread();
 
@@ -450,6 +793,8 @@ int main()
 
 	// Holdback stays bounded even while another bridge is live: the 65th send
 	// drops the oldest, so a state-like stream converges on the newest 64.
+	// (State-LIKE: real retained state belongs in SetViewState above — this is
+	// what a plugin misusing events for state gets, bounded rather than fatal.)
 	api.SetSurfaceLoaded("acme.mymod/dash", false);
 	api.OnBridgeReady(&lazyBridge);
 	api.PumpMainThread();
@@ -463,12 +808,12 @@ int main()
 	CHECK(LoggedContaining("WARN", "SendToWeb holdback"));
 	api.SetSurfaceLoaded("acme.mymod/dash", true);
 	api.PumpMainThread();
-	CHECK(toWeb.size() == 64);
+	CHECK(toWeb.size() == 64);  // the view greeted earlier: the gate is open
 	if (toWeb.size() == 64) {
-		const auto first = nlohmann::json::parse(toWeb.front().second, nullptr, false);
-		const auto last = nlohmann::json::parse(toWeb.back().second, nullptr, false);
-		CHECK(first["payload"]["seq"] == 1);
-		CHECK(last["payload"]["seq"] == 64);
+		const auto first = Envelope(toWeb, 0);
+		const auto last = Last(toWeb);
+		CHECK(PayloadOf(first).value("seq", -1) == 1);
+		CHECK(PayloadOf(last).value("seq", -1) == 64);
 	}
 	toWeb.clear();
 	CHECK(api.SendToWeb("acme.mymod/missing", "acme.mymod.state", R"({"x":1})"));
@@ -484,10 +829,13 @@ int main()
 	api.SetViewCatalog({ "acme.mymod/dash", "osfui/settings", "acme.mymod/worldpanel" });
 	api.SetSurfaceLoaded("acme.mymod/worldpanel", true);
 	api.OnBridgeReady(&lazyBridge);
+	lazyBridge.OnViewCreated("acme.mymod/worldpanel");
+	lazyBridge.HandleWebMessage("acme.mymod/worldpanel", kHello);
 	toWeb.clear();
 	CHECK(api.SendToWeb("acme.mymod/worldpanel", "acme.mymod.state", R"({"world":1})"));
 	api.PumpMainThread();
 	CHECK(toWeb.size() == 1 && toWeb[0].first == "acme.mymod/worldpanel");
+	CHECK(Last(toWeb).value("kind", "") == "event");
 	api.OnBridgeReady(nullptr);
 	api.PumpMainThread();
 
@@ -498,33 +846,51 @@ int main()
 
 		Client c;
 		OldHost oldHost;
+		// A host reporting an older MINOR than this header was built against.
+		// Every 2.x feature is valued 0, so a same-major host always has them —
+		// which is the point: the gate exists for a FUTURE 2.1 capability, and
+		// a different MAJOR never gets a bridge at all.
 		CHECK(c.Attach(&oldHost));
-		CHECK(!c.Has(Feature::kDiagnostics));
-		CHECK(!c.Has(Feature::kRequests));
+		CHECK(c.Has(Feature::kDiagnostics));
+		CHECK(c.Has(Feature::kRequests));
 		c.RegisterRequest("acme.mymod.old", &RequestHandler, nullptr);
 		c.UnregisterRequest("acme.mymod.old");
-		CHECK(oldHost.requestCalls == 0);
+		CHECK(oldHost.requestCalls == 2);
 		c.Attach(nullptr);
 		CHECK(!c.IsConnected());
 		CHECK(!c.Has(Feature::kCommands));           // unattached: everything gates off
 		CHECK(!c.RequestMenu("osfui/settings", true));
+		CHECK(!c.SetViewState("acme.mymod", "k", "{}"));
 		CHECK(c.GetSettingString("a.b", "k", nullptr, 0) == 0);
 		CHECK(c.GetBridgeProtocolVersion() != nullptr);  // "" — never a null crash
 
 		CHECK(c.Attach(&api));
 		CHECK(c.IsConnected() && static_cast<bool>(c));
 		CHECK(c.GetInterfaceVersion() == OSFUI::API::kBridgeAPIVersion);
-		// Feature values are the introducing MINOR — the current 1.7 host has them all.
-		CHECK(c.Has(Feature::kCommands) && c.Has(Feature::kRequestMenu) &&
-		      c.Has(Feature::kSettings) && c.Has(Feature::kDeliveryGuarantee) &&
-		      c.Has(Feature::kHotkeys) && c.Has(Feature::kRegisterView) &&
-		      c.Has(Feature::kCommandShape) && c.Has(Feature::kDiagnostics) &&
-		      c.Has(Feature::kRequests));
 		CHECK(c.Raw() == &api);
+		CHECK(c.Has(Feature::kCommands));   // valued 0
+		CHECK(c.Has(Feature::kViewState));  // valued 0: 2.x baseline
 
-		// Gated pass-throughs reach the real implementation.
-		CHECK(c.RegisterView("acme.mymod/extra"));
-		CHECK(!c.RegisterView("unqualified"));
+		// Ungated pass-throughs reach the real implementation.
+		CHECK(c.SetViewState("acme.mymod", "wrapper", R"({"via":"client"})"));
+		{
+			const auto ops = api.TakeViewStateOps();
+			CHECK(ops.size() == 1 && ops[0].key == "wrapper");
+		}
+
+		// Every Feature is valued 0 for 2.0: the major break reset the MINOR, and
+		// a host that vended this bridge already matched major 2, so it has all
+		// of them. Were these left at their 1.x minors (1..7), `Has()` would be
+		// false against every 2.0 host and Client's gated wrappers — RequestMenu,
+		// the settings getters, hotkeys, RegisterView, diagnostics, requests —
+		// would silently no-op for every consumer using the wrapper this header
+		// tells them to use. That is worth one explicit test.
+		CHECK(c.Has(Feature::kRegisterView));
+		CHECK(c.Has(Feature::kRequestMenu));
+		CHECK(c.Has(Feature::kSettings));
+		CHECK(c.Has(Feature::kHotkeys));
+		CHECK(c.RegisterView("acme.mymod/extra"));   // reaches the host, not gated off
+		CHECK(!c.RegisterView("unqualified"));       // refused on its own merits
 		{
 			const auto regs = api.TakeViewRegistrations();
 			CHECK(regs.size() == 1 && regs[0] == "acme.mymod/extra");
@@ -533,7 +899,7 @@ int main()
 		CHECK(!c.IsConnected());
 	}
 
-	// --- health reporting (ABI 1.7) -------------------------------------------
+	// --- health reporting (System Health) -------------------------------------
 	// Validation is synchronous; the ops queue for the main tick, where Runtime
 	// namespaces them into the registry.
 	{

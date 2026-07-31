@@ -14,8 +14,8 @@ afterEach(unmount);
 async function mountKit() {
   const bridge = makeBridge();
   const el = await mount(bridge);
-  bridge.deliver('settings.data', WIDGETS);
-  bridge.deliver('views.data', VIEWS);
+  bridge.publish('osfui/settings', WIDGETS);
+  bridge.publish('osfui/views', VIEWS);
   await flush();
   // Land on Home by default; click the Acme Kit rail entry.
   const railItem = [...el.querySelectorAll<HTMLButtonElement>('.rail-item')].find((b) =>
@@ -57,8 +57,8 @@ describe('settings widget rendering', () => {
     // for one toggle.
     const bridge = makeBridge();
     const el = await mount(bridge);
-    bridge.deliver('settings.data', WIDGETS);
-    bridge.deliver('views.data', VIEWS);
+    bridge.publish('osfui/settings', WIDGETS);
+    bridge.publish('osfui/views', VIEWS);
     await flush(); // lands on Home
 
     const card = el.querySelector<HTMLButtonElement>('.home-hud');
@@ -85,7 +85,7 @@ describe('settings widget rendering', () => {
     el.querySelector<HTMLButtonElement>('#ctl-acme\\.kit-boolOn')!.click();
     await flush();
     const i = bridge.indexOf('settings.set');
-    expect(bridge.requests[i]!.fields).toEqual({ mod: 'acme.kit', key: 'boolOn', value: false });
+    expect(bridge.requests[i]!.payload).toEqual({ mod: 'acme.kit', key: 'boolOn', value: false });
   });
 
   it('slider commits on change, NOT on input; input only repaints the readout', async () => {
@@ -105,7 +105,7 @@ describe('settings widget rendering', () => {
     slider.value = '80';
     slider.dispatchEvent(new Event('change', { bubbles: true }));
     await flush();
-    expect(bridge.requests[bridge.requests.length - 1]!.fields).toEqual({
+    expect(bridge.requests[bridge.requests.length - 1]!.payload).toEqual({
       mod: 'acme.kit',
       key: 'slide',
       value: 80,
@@ -123,7 +123,7 @@ describe('settings widget rendering', () => {
     const buttons = stepper.querySelectorAll<HTMLButtonElement>('.osf-stepper-btn');
     buttons[1]!.click(); // the "+"
     await flush();
-    expect(bridge.requests[bridge.requests.length - 1]!.fields).toEqual({
+    expect(bridge.requests[bridge.requests.length - 1]!.payload).toEqual({
       mod: 'acme.kit',
       key: 'step',
       value: 6,
@@ -152,7 +152,7 @@ describe('settings widget rendering', () => {
     exec.checked = true;
     exec.dispatchEvent(new Event('change', { bubbles: true }));
     await flush();
-    expect(bridge.requests[bridge.requests.length - 1]!.fields).toEqual({
+    expect(bridge.requests[bridge.requests.length - 1]!.payload).toEqual({
       mod: 'acme.kit',
       key: 'flagSet',
       value: ['read', 'write', 'exec'],
@@ -165,7 +165,7 @@ describe('settings widget rendering', () => {
     hex.value = '#AABBCC';
     hex.dispatchEvent(new Event('change', { bubbles: true }));
     await flush();
-    expect(bridge.requests[bridge.requests.length - 1]!.fields).toEqual({
+    expect(bridge.requests[bridge.requests.length - 1]!.payload).toEqual({
       mod: 'acme.kit',
       key: 'colorHex',
       value: '#AABBCC',
@@ -222,7 +222,7 @@ describe('settings widget rendering', () => {
     )!;
     go.click();
     await flush();
-    expect(bridge.requests[bridge.requests.length - 1]!.command).toBe('acme.kit.run');
+    expect(bridge.requests[bridge.requests.length - 1]!.name).toBe('acme.kit.run');
     // In-flight buttons carry `pending` and are disabled.
     expect(go.classList.contains('pending')).toBe(true);
     expect(go.disabled).toBe(true);
@@ -267,7 +267,7 @@ describe('settings widget rendering', () => {
     // Uses a fresh mod so the gate is unambiguous.
     const bridge = makeBridge();
     const el = await mount(bridge);
-    bridge.deliver('settings.data', {
+    bridge.publish('osfui/settings', {
       mods: [
         {
           id: 'g.mod',

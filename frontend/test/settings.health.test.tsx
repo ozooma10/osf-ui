@@ -4,6 +4,11 @@
 // entry, the summary states, card rendering, contextual actions, technical
 // disclosure, copy-report, deep links from failed cards, and clipboard-failure
 // degradation.
+//
+// The snapshot is the `osfui/diagnostics` STATE key: replayed to every fresh
+// document and republished whole whenever a condition is raised, recurs or
+// clears. There is no `diagnostics.get`, and nothing here waits for a reply
+// before it can paint.
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { makeBridge, mount, unmount, flush } from './helpers/settingsHarness';
@@ -25,11 +30,14 @@ const ISSUE = (o: Record<string, unknown>) => ({
 });
 
 async function mountHealth(issues: unknown[], system: Record<string, unknown> = {}) {
-  const bridge = makeBridge();
+  const bridge = makeBridge({
+    state: {
+      'osfui/settings': WIDGETS,
+      'osfui/views': VIEWS,
+      'osfui/diagnostics': { system, issues },
+    },
+  });
   const el = await mount(bridge);
-  bridge.deliver('settings.data', WIDGETS);
-  bridge.deliver('views.data', VIEWS);
-  bridge.deliver('diagnostics.data', { system, issues });
   await flush();
   return { bridge, el };
 }
@@ -39,13 +47,24 @@ function openHealth(el: HTMLElement) {
 }
 
 describe('subscription + rail', () => {
-  it('sends diagnostics.get on mount', async () => {
-    const bridge = makeBridge();
+  it('subscribes rather than reading, and pins the rail entry before any snapshot', async () => {
+    // No diagnostics state at all: the destination is pinned regardless, because
+    // it is where load failures are explained and a player must be able to reach
+    // it even when the subsystem that would report them never spoke.
+    const bridge = makeBridge({ state: { 'osfui/settings': WIDGETS } });
     const el = await mount(bridge);
-    bridge.deliver('settings.data', WIDGETS);
     await flush();
-    expect(bridge.sent.some((s) => s.command === 'diagnostics.get')).toBe(true);
+    expect(bridge.outbound.map((m) => m.name)).not.toContain('diagnostics.get');
     expect(el.querySelector('.rail-item--health')).not.toBeNull();
+
+    // And the first snapshot to arrive lands without anything having asked.
+    bridge.publish('osfui/diagnostics', {
+      system: {},
+      issues: [ISSUE({ id: 'e', severity: 'error' })],
+    });
+    await flush();
+    expect(el.querySelector('.rail-item--health')!.classList.contains('rail-item--health-error'))
+      .toBe(true);
   });
 });
 
@@ -126,7 +145,7 @@ describe('cards', () => {
     expect(rows[1]!.querySelector('.health-card-impact')).toBeNull();
   });
 
-  it('offers Retry view and fires menu.open with the issue subject', async () => {
+  it('offers Retry view and addresses menu.open with the issue subject', async () => {
     const { bridge, el } = await mountHealth([
       ISSUE({ id: 'e', severity: 'error', code: 'view.load-failed', subject: 'broken/panel' }),
     ]);
@@ -137,8 +156,10 @@ describe('cards', () => {
     )!;
     retry.click();
     await flush();
-    const open = bridge.sent.find((s) => s.command === 'menu.open');
-    expect(open?.fields).toEqual({ view: 'broken/panel' });
+    // The payload is the issue's own subject — a view id the runtime already
+    // knows. Nothing free-text ever reaches an endpoint.
+    const open = bridge.outbound.find((m) => m.name === 'menu.open');
+    expect(open?.payload).toEqual({ view: 'broken/panel' });
   });
 
   it('fires osfui.openLogFolder from the global action and per-card action', async () => {
@@ -150,7 +171,11 @@ describe('cards', () => {
     [...el.querySelectorAll<HTMLButtonElement>('.health-actions .osf-btn')]
       .find((b) => b.textContent === 'Open log folder')!
       .click();
-    expect(bridge.sent.some((s) => s.command === 'osfui.openLogFolder')).toBe(true);
+    // Payload-free and fixed-target: the shell destination is derived natively,
+    // so the page cannot steer it.
+    const opened = bridge.outbound.find((m) => m.name === 'osfui.openLogFolder');
+    expect(opened).toBeDefined();
+    expect(opened!.payload).toBeUndefined();
   });
 
   it('discloses technical details on demand', async () => {
@@ -181,7 +206,7 @@ describe('copy diagnostic report', () => {
   it('writes a report to the clipboard and toasts success', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal('navigator', { clipboard: { writeText } });
-    const { el } = await mountHealth([ISSUE({ id: 'e', severity: 'error' })], { version: '1.4.0' });
+    const { el } = await mountHealth([ISSUE({ id: 'e', severity: 'error' })], { version: '2.0.0' });
     openHealth(el);
     await flush();
     [...el.querySelectorAll<HTMLButtonElement>('.health-actions .osf-btn')]
@@ -263,18 +288,7 @@ describe('automatic bug reporting', () => {
     });
     await flush();
 
-    const inputs = el.querySelectorAll<HTMLInputElement>('.health-report input');
-    const title = el.querySelector<HTMLInputElement>('.health-report-field input')!;
-    const textareas = el.querySelectorAll<HTMLTextAreaElement>('.health-report textarea');
-    title.value = 'Blank overlay';
-    title.dispatchEvent(new Event('input', { bubbles: true }));
-    textareas[0]!.value = 'The Mods menu is empty.';
-    textareas[0]!.dispatchEvent(new Event('input', { bubbles: true }));
-    textareas[1]!.value = 'Press F10.';
-    textareas[1]!.dispatchEvent(new Event('input', { bubbles: true }));
-    const consent = [...inputs].find((input) => input.type === 'checkbox')!;
-    consent.checked = true;
-    consent.dispatchEvent(new Event('input', { bubbles: true }));
+    fillReport(el, 'Blank overlay', 'The Mods menu is empty.', 'Press F10.');
     await flush();
 
     [...el.querySelectorAll<HTMLButtonElement>('.health-report > .osf-btn')]
@@ -282,19 +296,53 @@ describe('automatic bug reporting', () => {
       .click();
     await flush();
     const submit = bridge.indexOf('diagnostics.submitReport');
-    expect(bridge.requests[submit]!.fields).toEqual({
+    expect(bridge.requests[submit]!.payload).toEqual({
       title: 'Blank overlay',
       description: 'The Mods menu is empty.',
       reproduction: 'Press F10.',
     });
-    bridge.settle(submit, { ok: true, reportId: 'report-123', issueNumber: 42 });
+    // The 2.0 reply carries only the identifiers; success is the RESOLUTION
+    // itself, not an `ok` field the caller has to remember to inspect.
+    bridge.settle(submit, { reportId: 'report-123', issueNumber: 42 });
     await flush();
     expect(el.querySelector('.health-report-success')!.textContent).toContain('report-123');
     el.querySelector<HTMLButtonElement>('.health-report-success .osf-btn')!.click();
-    expect(bridge.sent).toContainEqual({
-      command: 'osfui.openReportIssue',
-      fields: { issueNumber: 42 },
+    expect(bridge.outbound).toContainEqual({
+      name: 'osfui.openReportIssue',
+      payload: { issueNumber: 42 },
     });
+  });
+
+  it('renders the failure code when the submission REJECTS', async () => {
+    const { bridge, el } = await mountHealth([]);
+    openHealth(el);
+    await flush();
+    [...el.querySelectorAll<HTMLButtonElement>('.health-actions .osf-btn')]
+      .find((b) => b.textContent === 'Report a bug')!
+      .click();
+    await flush();
+    bridge.settle(bridge.indexOf('diagnostics.reportStatus'), {
+      enabled: true,
+      logs: ['OSF UI.log'],
+      retentionDays: 30,
+    });
+    await flush();
+
+    fillReport(el, 'Blank overlay', 'The Mods menu is empty.', '');
+    await flush();
+    [...el.querySelectorAll<HTMLButtonElement>('.health-report > .osf-btn')]
+      .find((b) => b.textContent === 'Submit report')!
+      .click();
+    await flush();
+
+    // A refusal is a rejection now; the pane's outcome model is still an object,
+    // so the view adapts one to the other rather than pushing the transport's
+    // shape into the panel.
+    bridge.reject(bridge.indexOf('diagnostics.submitReport'), { code: 'upload-failed' });
+    await flush();
+    expect(el.querySelector('.health-report-error')!.textContent).toContain('upload-failed');
+    expect(el.querySelector('.toast--danger')).not.toBeNull();
+    expect(el.querySelector('.health-report-success')).toBeNull();
   });
 
   it('re-opens empty with consent unticked, so one tick cannot authorize a second upload', async () => {
@@ -315,24 +363,10 @@ describe('automatic bug reporting', () => {
       });
       await flush();
     };
-    const fields = () => ({
-      title: el.querySelector<HTMLInputElement>('.health-report-field input')!,
-      areas: el.querySelectorAll<HTMLTextAreaElement>('.health-report textarea'),
-      consent: [...el.querySelectorAll<HTMLInputElement>('.health-report input')]
-        .find((i) => i.type === 'checkbox')!,
-    });
 
     await openReporter(0);
     {
-      const f = fields();
-      f.title.value = 'First report';
-      f.title.dispatchEvent(new Event('input', { bubbles: true }));
-      f.areas[0]!.value = 'Something broke.';
-      f.areas[0]!.dispatchEvent(new Event('input', { bubbles: true }));
-      f.areas[1]!.value = 'Press F10.';
-      f.areas[1]!.dispatchEvent(new Event('input', { bubbles: true }));
-      f.consent.checked = true;
-      f.consent.dispatchEvent(new Event('input', { bubbles: true }));
+      fillReport(el, 'First report', 'Something broke.', 'Press F10.');
       await flush();
       // Cancel — deliberately WITHOUT submitting, the path that used to leak.
       // (Cancel sits in the section header, not as a direct child of .health-report.)
@@ -344,7 +378,7 @@ describe('automatic bug reporting', () => {
 
     await openReporter(1);
     {
-      const f = fields();
+      const f = reportFields(el);
       expect(f.title.value).toBe('');
       expect(f.areas[0]!.value).toBe('');
       expect(f.areas[1]!.value).toBe('');
@@ -357,41 +391,36 @@ describe('automatic bug reporting', () => {
   });
 });
 
+function reportFields(el: HTMLElement) {
+  return {
+    title: el.querySelector<HTMLInputElement>('.health-report-field input')!,
+    areas: el.querySelectorAll<HTMLTextAreaElement>('.health-report textarea'),
+    consent: [...el.querySelectorAll<HTMLInputElement>('.health-report input')].find(
+      (i) => i.type === 'checkbox',
+    )!,
+  };
+}
+
+/** Fill in the reporter and tick consent. */
+function fillReport(el: HTMLElement, title: string, description: string, reproduction: string) {
+  const f = reportFields(el);
+  const type = (input: HTMLInputElement | HTMLTextAreaElement, value: string) => {
+    input.value = value;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  type(f.title, title);
+  type(f.areas[0]!, description);
+  type(f.areas[1]!, reproduction);
+  f.consent.checked = true;
+  f.consent.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
 describe('deep links', () => {
   it('a failed launcher card navigates to its issue with the card expanded', async () => {
-    const bridge = makeBridge();
-    const el = await mount(bridge);
-    bridge.deliver('settings.data', WIDGETS);
-    // A failed view in the launcher, and the matching issue.
-    bridge.deliver('views.data', {
-      views: [
-        {
-          id: 'broken/panel',
-          title: 'Broken Panel',
-          description: '',
-          mod: '',
-          kind: 'menu',
-          interactive: true,
-          hub: true,
-          targetVersion: '',
-          open: false,
-          focused: false,
-          loadState: 'failed',
-        },
-      ],
-    });
-    bridge.deliver('diagnostics.data', {
-      system: {},
-      issues: [
-        ISSUE({ id: 'view.load-failed:broken/panel', severity: 'error', code: 'view.load-failed', subject: 'broken/panel' }),
-      ],
-    });
-    await flush();
+    const { el } = await mountFailedPanel();
 
     // The card foot reads the deep-link affordance, not "SEE LOG".
-    const tile = [...el.querySelectorAll<HTMLButtonElement>('.home-tile')].find((t) =>
-      t.textContent!.includes('Broken Panel'),
-    )!;
+    const tile = failedTile(el);
     expect(tile.textContent).toContain('FAILED — REVIEW ISSUE');
     tile.click();
     await flush();
@@ -443,7 +472,9 @@ describe('deep links', () => {
     await flush();
     expect(el.querySelector('#health-resolved')).toBeNull(); // history still shut
 
-    bridge.deliver('diagnostics.data', {
+    // A withdrawal republishes the whole snapshot with the record marked
+    // resolved; the record survives for the rest of the session.
+    bridge.publish('osfui/diagnostics', {
       system: {},
       issues: [
         ISSUE({
@@ -469,38 +500,41 @@ describe('deep links', () => {
 
 /** A launcher carrying one failed view, plus the issue that explains it. */
 async function mountFailedPanel(issueOver: Record<string, unknown> = {}) {
-  const bridge = makeBridge();
-  const el = await mount(bridge);
-  bridge.deliver('settings.data', WIDGETS);
-  bridge.deliver('views.data', {
-    views: [
-      {
-        id: 'broken/panel',
-        title: 'Broken Panel',
-        description: '',
-        mod: '',
-        kind: 'menu',
-        interactive: true,
-        hub: true,
-        targetVersion: '',
-        open: false,
-        focused: false,
-        loadState: 'failed',
+  const bridge = makeBridge({
+    state: {
+      'osfui/settings': WIDGETS,
+      'osfui/views': {
+        views: [
+          {
+            id: 'broken/panel',
+            title: 'Broken Panel',
+            description: '',
+            mod: '',
+            kind: 'menu',
+            interactive: true,
+            hub: true,
+            targetVersion: '',
+            open: false,
+            focused: false,
+            loadState: 'failed',
+          },
+        ],
       },
-    ],
+      'osfui/diagnostics': {
+        system: {},
+        issues: [
+          ISSUE({
+            id: 'view.load-failed:broken/panel',
+            severity: 'error',
+            code: 'view.load-failed',
+            subject: 'broken/panel',
+            ...issueOver,
+          }),
+        ],
+      },
+    },
   });
-  bridge.deliver('diagnostics.data', {
-    system: {},
-    issues: [
-      ISSUE({
-        id: 'view.load-failed:broken/panel',
-        severity: 'error',
-        code: 'view.load-failed',
-        subject: 'broken/panel',
-        ...issueOver,
-      }),
-    ],
-  });
+  const el = await mount(bridge);
   await flush();
   return { bridge, el };
 }
@@ -513,14 +547,24 @@ function failedTile(el: HTMLElement): HTMLButtonElement {
 
 describe('mod severity marker', () => {
   it('coexists with the modified-setting count on the rail', async () => {
-    const bridge = makeBridge();
-    const el = await mount(bridge);
     // A widget mod with a modified value so the count badge shows.
-    bridge.deliver('settings.data', WIDGETS);
-    bridge.deliver('diagnostics.data', {
-      system: {},
-      issues: [ISSUE({ id: 'x', severity: 'warning', code: 'settings.values-parse', subject: 'acme.kit' })],
+    const bridge = makeBridge({
+      state: {
+        'osfui/settings': WIDGETS,
+        'osfui/diagnostics': {
+          system: {},
+          issues: [
+            ISSUE({
+              id: 'x',
+              severity: 'warning',
+              code: 'settings.values-parse',
+              subject: 'acme.kit',
+            }),
+          ],
+        },
+      },
     });
+    const el = await mount(bridge);
     await flush();
     const railItem = [...el.querySelectorAll('.rail-item')].find((r) =>
       r.textContent!.includes('Acme Kit'),

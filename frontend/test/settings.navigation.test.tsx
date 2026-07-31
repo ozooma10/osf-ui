@@ -2,6 +2,11 @@
 //
 // The pane's five detail modes in dispatch order, the section index threshold,
 // search-jump, and rail cycling.
+//
+// The registries arrive as replayed STATE (`osfui/settings`, `osfui/views`), so
+// every case here starts from a document that was already populated at its
+// first paint; `ui.gamepad` stays an EVENT, because a rail step is a happening,
+// not a value.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { makeBridge, mount, unmount, flush, typeFilter } from './helpers/settingsHarness';
@@ -9,11 +14,11 @@ import { WIDGETS, VIEWS, MANY_GROUPS, FOUR_GROUPS } from './helpers/settingsFixt
 
 afterEach(unmount);
 
-async function mountWith(data: unknown, views?: unknown) {
-  const bridge = makeBridge();
+async function mountWith(settings: unknown, views?: unknown) {
+  const state: Record<string, unknown> = { 'osfui/settings': settings };
+  if (views) state['osfui/views'] = views;
+  const bridge = makeBridge({ state });
   const el = await mount(bridge);
-  bridge.deliver('settings.data', data);
-  if (views) bridge.deliver('views.data', views);
   await flush();
   return { bridge, el };
 }
@@ -85,23 +90,20 @@ describe('section index', () => {
   });
 
   it('group anchor slug is grp-<label lowercased, spaces to dashes>', async () => {
-    const { el } = await mountWith(
-      {
-        mods: [
-          {
-            id: 'g',
-            title: 'G',
-            values: {},
-            schema: {
-              groups: [
-                { label: 'Two Words', settings: [{ key: 'a', label: 'A', type: 'bool', default: false }] },
-              ],
-            },
+    const { el } = await mountWith({
+      mods: [
+        {
+          id: 'g',
+          title: 'G',
+          values: {},
+          schema: {
+            groups: [
+              { label: 'Two Words', settings: [{ key: 'a', label: 'A', type: 'bool', default: false }] },
+            ],
           },
-        ],
-      },
-      undefined,
-    );
+        },
+      ],
+    });
     selectRail(el, 'G');
     await flush();
     expect(el.querySelector('#grp-two-words')).not.toBeNull();
@@ -166,7 +168,9 @@ describe('System Health rail entry', () => {
 
   it('reflects diagnostics severity in its badge and clears search when selected', async () => {
     const { bridge, el } = await mountWith(WIDGETS, VIEWS);
-    bridge.deliver('diagnostics.data', {
+    // A health condition raised mid-session: `osfui/diagnostics` is republished
+    // whole, never as a delta.
+    bridge.publish('osfui/diagnostics', {
       system: {},
       issues: [
         {

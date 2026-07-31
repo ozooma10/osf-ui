@@ -115,15 +115,59 @@ Check `OSF UI.log` first.
 | A "WebView2 Runtime missing" dialog appears at game launch | The Microsoft Edge WebView2 Runtime isn't installed. Click Yes to download the installer (or get it from https://go.microsoft.com/fwlink/p/?LinkId=2124703), run it, then restart the game. No mod reinstall needed. |
 | Overlay never appears, renderer/compositor warnings in log | The WebView2 Runtime, host executable, or the game's device wasn't available, so the overlay disabled itself. Install the Evergreen WebView2 Runtime and re-install the archive intact. |
 | Overlay appears but is blank | Check the log for WebView2 host launch, pipe, navigation, or shared-texture errors; then verify `OSFUI/bin/osfui_webview2_host.exe` is present. |
+| One mod's page or HUD is blank (the rest of the overlay is fine), and System Health shows a compatibility warning naming that view | That view was written for the OSF UI 1.x mod API, which 2.0 removed. It loads, but every bridge call it makes fails, so it renders nothing. There is nothing to configure: the mod needs an update from its author. The card's details name the view and the OSF UI version it was authored against. |
+| A mod's OSF UI features vanished after updating OSF UI, and System Health names a `.dll` | That mod's SFSE plugin was built against the 1.x native API. OSF UI 2.0 hands it no bridge at all, deliberately — a half-working plugin is worse than an absent one — and reports which DLL so you can tell whose update you're waiting for. The rest of that mod (its gameplay side) usually keeps working. |
 | Overlay lingers oddly during a load | It should auto-hide on loading screens and the main menu. If it doesn't, hide it with F10 and report the log. |
 | Overlay never appears (or vanishes) while running ReShade / RTSS / Steam overlay / frame-gen tools | Current builds do not join the DXGI Present hook chain. Check the log for `seam-only overlay armed`, `shared ring adopted`, and `FIRST SEAM OVERLAY DRAW`; include the missing stage and your overlay stack in a report. No injection/load-order workaround should be required. |
 | Crash when first opening the overlay (F10) with BetterConsole installed | Fixed: current builds never create a probe swapchain or hook Present, so BetterConsole cannot mistake OSF UI setup for another game presenter. Update OSF UI and confirm the log contains `seam-only overlay armed`. |
 | Crash when first opening the overlay with OptiScaler and the Steam overlay enabled | Fixed: current builds always composite through the Scaleform seam and never extend the wrapped Present chain. OptiScaler frame generation, Steam's overlay, and OSF UI can remain enabled without per-user configuration; confirm the log contains `seam-only overlay armed`. |
 | No pointer while the overlay is open, or the pointer flickers/jumps to center | The engine or another overlay is fighting the hardware cursor. The log shows `HardwareCursor: activated/deactivated` pairs on F10. Report it. As a stopgap, `"hardwareCursor": false` in `config.json` restores the old input path, but that path has no visible pointer, so treat it as a diagnostic, not a fix. |
-| *(developers)* I edited a deployed built-in view's `main.js` / `style.css` and nothing changed | You edited disposable generated output. Built-in views are generated from `frontend/src/` into `build/frontend/views/` and redeployed by xmake. Edit `frontend/src/` and run `xmake build`; a loaded view then reloads automatically in `devMode`. See [../frontend/README.md](../frontend/README.md). Your *own* mod's view is unaffected: third-party views are hand-authored and load as-is. |
+| *(developers)* I edited a deployed built-in view's `main.js` / `style.css` and nothing changed | You edited disposable generated output. Built-in views are generated from `frontend/src/` into the ignored `build/frontend/views/` and redeployed by xmake — that tree is build output, not source, and is never committed. Edit `frontend/src/` and run `xmake build`; a loaded view then reloads automatically in `devMode`. See [../frontend/README.md](../frontend/README.md). Your *own* mod's view is unaffected: third-party views are hand-authored and load as-is. |
 
 To disable without uninstalling: set `"enabled": false` in
 `SFSE/Plugins/OSFUI/config.json`, or disable the mod in your manager.
+
+## Debugging your own view (for authors)
+
+Your view is a real Chromium document, so the debugger is the one you already
+know. OSF UI's contribution is that nothing fails quietly somewhere you cannot
+see it: **every failure you can cause is printed to that view's own console**,
+with an `[osfui]` prefix, and therefore shows up in DevTools with full object
+inspection.
+
+- **Open DevTools with F12** while your view is the focused menu. It needs
+  developer tooling active — either `"devMode": true` in `config.json`, or
+  (better, and temporary) `osfui dev --game` from your project, which writes an
+  expiring author-mode marker and turns the same switch on for that session.
+  F12 targets the focused menu; a background HUD is debugged from the browser
+  harness instead ([view-toolchain.md](view-toolchain.md)).
+- **Read the `[osfui]` errors.** A rejected request prints
+  `[osfui] request "<name>" failed: <code> — <message>` with the rejecting
+  payload attached as an object, before any `Uncaught (in promise)` noise. The
+  same prefix covers a missing bridge, a client timeout, and an exception your
+  own event or state handler threw.
+- **Mistakes the page could not otherwise hear about are delivered back to it.**
+  Sending to a request endpoint, naming an endpoint that does not exist, a
+  malformed envelope, a backend that never answered — each arrives as a
+  dev-only `osfui.debug.error` event and prints as
+  `[osfui] host rejected <code>: <message>`. This is why a one-way `send` that
+  silently did nothing is no longer a debugging dead end. These events exist
+  only while developer tooling is on; in a normal player's game, repeated
+  misuse from one view raises a System Health card instead.
+- **Turn on traffic tracing** when the question is "what actually crossed the
+  bridge": run `localStorage["osfui:trace"] = "1"` in the view's console and
+  reload. Every envelope in both directions is logged via `console.debug` with
+  the same prefix — kind, name, id, payload object, and the settlement latency
+  on replies. It answers the blank-HUD question directly: either your state key
+  arrives at boot (your view's bug) or it does not (your backend's).
+- **All of that also lands in `OSF UI.log`** while developer tooling is on,
+  because page console output is forwarded: `console.error` at ERROR,
+  `console.warn` at WARN, everything else at DEBUG, each line as
+  `Runtime: view '<id>' console: …`. Handy for a repro you cannot keep DevTools
+  open through — and a reason to keep the trace flag off when you are not
+  reading it, since it turns the log into a full bridge capture. The native
+  side of the same failures is in the log regardless, tagged `[content]`; see
+  [logging.md](logging.md).
 
 ## Uninstall
 
@@ -155,10 +199,14 @@ To disable without uninstalling: set `"enabled": false` in
 - Input: text entry follows your OS keyboard layout (dead keys and AltGr
   work), but IME composition (e.g. CJK input) isn't supported yet. Gamepad
   navigation is basic (D-pad/sticks/A/B) and being refined.
-- For UI authors: the `window.osfui` bridge protocol is 1.5 and stable.
-  Additive changes bump the minor version, breaking changes the major.
-  Declare the version you authored against with `targetVersion` — see
-  [authoring-views.md](authoring-views.md).
+- For UI authors: the `window.osfui` bridge protocol is **2.0**, and 2.0 is a
+  break — a view or SFSE plugin written for 1.x does not work on it and needs
+  an update from its author. That was a deliberate trade: the 1.x surface had
+  grown aliases and implicit behaviors that could not be fixed compatibly, and
+  the failure is at least legible (a compatibility card naming the view or DLL)
+  rather than a blank page. From here, additive changes bump the minor version
+  and breaking changes the major; declare the version you authored against with
+  `targetVersion` — see [authoring-views.md](authoring-views.md).
 
 ## Reporting issues
 
@@ -188,3 +236,5 @@ reporting**; the crash prompt honors that from the next launch.
 If automatic reporting is disabled or fails, use **Copy diagnostic report** and
 **Open log folder**, then attach the result manually at
 https://github.com/ozooma10/osf-ui/issues.
+</content>
+</invoke>

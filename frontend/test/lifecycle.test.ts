@@ -1,3 +1,12 @@
+// The pure reducers behind the Mods surface's lifecycle: the overlay open edge,
+// gamepad button edges, and rail cycling. No bridge stub anywhere — these are
+// functions over a payload, which is exactly why they are testable at all.
+//
+// `ui.visibility` and `ui.gamepad` are still EVENTS in protocol 2.0, and
+// deliberately so: both are happenings. Replaying a visibility edge to a
+// reloaded document would re-run the whole visit reset, and replaying a held
+// button would fire an edge that never physically happened.
+
 import { describe, it, expect } from 'vitest';
 import {
   HOME_ID,

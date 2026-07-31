@@ -11,10 +11,10 @@
 // View ids are qualified "<modId>/<viewName>" (api-freeze-plan item 1),
 // mirroring the nested views/<modId>/<viewName>/ layout.
 
-import type { ViewsDataPayload } from '@sdk';
+import type { ViewsData } from '@sdk';
 
 /** One catalog entry, plus the harness-only "is this fictional?" marker. */
-export type MockView = ViewsDataPayload['views'][number] & { fixture?: boolean };
+export type MockView = ViewsData['views'][number] & { fixture?: boolean };
 
 /**
  * Where a mod's real view folder lives, relative to the harness page. In game

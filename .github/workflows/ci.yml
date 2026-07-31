@@ -42,7 +42,7 @@ jobs:
           check docs/authoring-views.md  "protocol is at version \*\*$V — stable\*\*"
           check docs/authoring-views.md  "protocol version is \*\*$V\*\*"
           check sdk/osfui.d.ts           "Bridge protocol version: $V"
-          check docs/troubleshooting.md  "bridge protocol is $V and stable"
+          check docs/troubleshooting.md  "bridge protocol is \*\*$V\*\*"
           check docs/schema/manifest.schema.json        "Bridge protocol $V\."
           check docs/schema/settings-schema.schema.json "Bridge protocol $V\."
           exit $fail

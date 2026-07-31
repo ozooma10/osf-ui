@@ -20,7 +20,7 @@ namespace OSFUI
 		// runs before the payload is built; startup NotifyAll and every set with
 		// no view open would otherwise allocate json for nobody.
 		_store.AddChangeListener([this](std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value) {
-			if (_suppressChangedPush || !_bridge || _subscribers.empty()) {
+			if (_suppressChangedPush || !_bridge) {
 				return;
 			}
 			nlohmann::json payload = {
@@ -35,25 +35,24 @@ namespace OSFUI
 			if (_store.GetSettingType(a_mod, a_key) == "key") {
 				payload["conflicts"] = _store.ConflictsForSetting(a_mod, a_key);
 			}
-			PushToSubscribers("settings.changed", payload);
+			_bridge->EmitAll("settings.changed", payload);
 		});
-		// Registry shape changed (runtime registration/removal while views are
-		// live): re-send the full document. The settings view re-renders fully
-		// on settings.data, so late registration needs nothing else.
+		// Registry SHAPE changed (runtime registration/removal while views are
+		// live): republish the whole document. Individual value commits stay
+		// `settings.changed` events, so this large payload only moves when the
+		// set of mods or settings actually changes — which is rare.
 		_store.AddRegistryListener([this] {
-			if (!_bridge || _subscribers.empty()) {
-				return;
+			if (_bridge) {
+				_bridge->PublishStateAll("osfui", "settings", _store.DataView());
 			}
-			PushToSubscribers("settings.data", _store.DataView());
 		});
 		// A mod's values-file write landed (the write-behind flush, distinct
 		// from the immediate settings.changed commit): lets the settings UI
 		// show "Saved" feedback.
 		_store.AddPersistListener([this](std::string_view a_mod) {
-			if (!_bridge || _subscribers.empty()) {
-				return;
+			if (_bridge) {
+				_bridge->EmitAll("settings.persisted", { { "mod", std::string(a_mod) } });
 			}
-			PushToSubscribers("settings.persisted", { { "mod", std::string(a_mod) } });
 		});
 		_store.LoadAll(_schemaDir, _valuesDir);
 		// Seed the hot-reload snapshot from what LoadAll just consumed, so the
@@ -120,48 +119,45 @@ namespace OSFUI
 		_store.NotifyAll();
 	}
 
+	void SettingsModule::BroadcastData()
+	{
+		if (_bridge) {
+			_bridge->PublishStateAll("osfui", "settings", _store.DataView());
+		}
+	}
+
 	void SettingsModule::OnBridgeDown()
 	{
 		_bridge = nullptr;
-		_subscribers.clear();
 	}
 
-	void SettingsModule::OnViewDestroyed(std::string_view a_viewId)
+	void SettingsModule::OnViewDestroyed(std::string_view)
 	{
-		// Mirrors the runtime's _viewsSubscribers pruning: a view torn down by
-		// crash-recovery must not keep receiving pushes for the process lifetime.
-		_subscribers.erase(std::string(a_viewId));
+		// Nothing to prune. Delivery is scoped by the bridge's own greeted-view
+		// set, which a destroyed view leaves automatically — the 1.x subscriber
+		// set had to be swept here or a crash-recovered view kept receiving
+		// pushes for the process lifetime.
 	}
 
 	void SettingsModule::PushHotkey(std::string_view a_modId, std::string_view a_key) const
 	{
-		PushToSubscribers("ui.hotkey", {
-			{ "mod", std::string(a_modId) },
-			{ "key", std::string(a_key) },
-		});
-	}
-
-	void SettingsModule::PushToSubscribers(std::string_view a_type, const nlohmann::json& a_payload) const
-	{
-		if (!_bridge || _subscribers.empty()) {
-			return;
+		if (_bridge) {
+			_bridge->EmitAll("ui.hotkey", {
+				{ "mod", std::string(a_modId) },
+				{ "key", std::string(a_key) },
+			});
 		}
-		_bridge->SendToWeb(_subscribers, a_type, a_payload);
 	}
 
-	void SettingsModule::RegisterCommands(MessageBridge& a_bridge)
+	void SettingsModule::RegisterEndpoints(MessageBridge& a_bridge)
 	{
-		// A new bridge means the view layer was (re)built: pages reload and
-		// re-subscribe via settings.get, so drop the stale subscriber set.
 		_bridge = &a_bridge;
-		_subscribers.clear();
 
-		a_bridge.RegisterRequest("settings.get", [this](const nlohmann::json&, MessageBridge& a_b) {
-			// Subscribe-on-read (the views.get pattern): the caller now also
-			// receives settings.changed pushes and settings.data re-broadcasts.
-			_subscribers.insert(std::string(a_b.CurrentSource()));
-			a_b.SendToWeb("settings.data", _store.DataView());
-		});
+		// `settings.get` is gone. It was a request whose real job was to
+		// SUBSCRIBE the caller, which is what state is for: the registry is
+		// published as the `osfui/settings` state key and replayed to every
+		// fresh document, so a view renders from it with no read roundtrip and
+		// nothing to re-request after F5.
 
 		a_bridge.RegisterRequest("settings.set", [this](const nlohmann::json& a_payload, MessageBridge& a_b) {
 			const auto requested = Json::GetString(a_payload, "mod", "");
@@ -174,36 +170,31 @@ namespace OSFUI
 			if (!allowed) {
 				REX::WARN("SettingsModule: [content] view '{}' refused settings.set for '{}' (not its own mod)",
 					a_b.CurrentSource(), requested);
-				a_b.SendToWeb("settings.ack", nlohmann::json{ { "mod", requested },
-					{ "key", Json::GetString(a_payload, "key", "") }, { "ok", false },
-					{ "code", "forbidden" },
-					{ "message", "a view may only write its own mod's settings" } });
+				a_b.Reject("forbidden", "a view may only write its own mod's settings");
 				return;
 			}
 			const std::string mod(*allowed);
 			const auto key = Json::GetString(a_payload, "key", "");
 			const auto valueIt = a_payload.find("value");
-			// Ack shape (api-freeze-plan items 5 + 11): `value` is the
-			// post-clamp committed value, so an unsubscribed caller learns what
-			// was stored without a re-fetch and a subscribed one can tell
-			// clamped from accepted. Failures carry a machine `code`.
-			nlohmann::json ack = { { "mod", mod }, { "key", key } };
 			if (valueIt == a_payload.end()) {
-				ack["ok"] = false;
-				ack["code"] = "invalid-value";
-				ack["message"] = "missing value field";
-			} else {
-				const auto result = _store.SetValueWithResult(mod, key, *valueIt);
-				ack["ok"] = result.ok;
-				if (result.ok) {
-					if (const auto* committed = _store.GetValue(mod, key)) {
-						ack["value"] = *committed;
-					}
-				} else {
-					ack["code"] = result.code;
-				}
+				a_b.Reject("invalid-value", "missing value field");
+				return;
 			}
-			a_b.SendToWeb("settings.ack", ack);
+			// A failed set REJECTS with its code. 1.x resolved a
+			// `settings.ack { ok:false }` the caller had to remember to inspect,
+			// so forgetting read as success.
+			const auto result = _store.SetValueWithResult(mod, key, *valueIt);
+			if (!result.ok) {
+				a_b.Reject(result.code, "the value was refused");
+				return;
+			}
+			// `value` is the post-clamp COMMITTED value, so the caller can tell
+			// clamped from accepted without a re-fetch.
+			nlohmann::json reply = { { "mod", mod }, { "key", key } };
+			if (const auto* committed = _store.GetValue(mod, key)) {
+				reply["value"] = *committed;
+			}
+			a_b.Respond(reply);
 		});
 
 		a_bridge.RegisterRequest("settings.reset", [this](const nlohmann::json& a_payload, MessageBridge& a_b) {
@@ -213,35 +204,28 @@ namespace OSFUI
 			if (!allowed) {
 				REX::WARN("SettingsModule: [content] view '{}' refused settings.reset for '{}' (not its own mod)",
 					a_b.CurrentSource(), requested);
-				a_b.SendResult(false, "forbidden", "a view may only reset its own mod's settings");
+				a_b.Reject("forbidden", "a view may only reset its own mod's settings");
 				return;
 			}
 			const std::string mod(*allowed);
 			const auto key = Json::GetString(a_payload, "key", "");
 			// Suppress the per-key settings.changed fan-out for the web: the
-			// settings.data below syncs every subscriber, and a whole-mod reset
-			// would otherwise send N redundant messages first. The core change
-			// listener (native reactions) still fires per key.
+			// state republish below syncs every view, and a whole-mod reset would
+			// otherwise send N redundant events first. The core change listener
+			// (native reactions) still fires per key.
 			_suppressChangedPush = true;
 			const bool ok = _store.Reset(mod, key);
 			_suppressChangedPush = false;
 			if (!ok) {
-				// Item 5: a request-carrying caller gets ui.result;
-				// fire-and-forget stays silent.
-				a_b.SendResult(false, "unknown-setting", "unknown mod or setting (or a requires-gated stub)");
+				a_b.Reject("unknown-setting", "unknown mod or setting (or a requires-gated stub)");
 				return;
 			}
-			const auto& data = _store.DataView();
-			// The caller's copy goes through the reply path, which echoes the
-			// requestId so osfui.request("settings.reset") resolves with the
-			// document; other subscribers get the plain push.
-			const std::string caller(a_b.CurrentSource());
-			for (const auto& id : _subscribers) {
-				if (id != caller) {
-					_bridge->SendToWeb(id, "settings.data", data);
-				}
-			}
-			a_b.SendToWeb("settings.data", data);
+			// The refreshed registry reaches EVERY view — including the caller —
+			// as the `osfui/settings` state key. The reply says only "the reset
+			// happened"; carrying the document in it as well would make the
+			// caller's copy arrive by a different route than everyone else's.
+			a_b.Respond(nlohmann::json::object());
+			a_b.PublishStateAll("osfui", "settings", _store.DataView());
 		});
 	}
 }

@@ -264,45 +264,37 @@ namespace OSFUI
 
 	void DiagnosticsModule::Broadcast()
 	{
-		if (!_bridge || _subscribers.empty()) {
+		if (!_bridge) {
 			return;
 		}
+		// Content dedupe: callers Broadcast() unconditionally after any potential
+		// change. The hello REPLAY deliberately does not come through here (it
+		// publishes Snapshot() straight to the greeting view) — deduping against
+		// the last change would send the second view to connect nothing at all.
 		auto dumped = Json::Dump(Snapshot());
 		if (dumped == _lastSent) {
 			return;
 		}
 		_lastSent = std::move(dumped);
-		_bridge->SendJsonToWeb(_subscribers, "diagnostics.data", _lastSent);
+		_bridge->PublishStateAll("osfui", "diagnostics", Snapshot());
 	}
 
-	void DiagnosticsModule::RegisterCommands(MessageBridge& a_bridge)
+	void DiagnosticsModule::RegisterEndpoints(MessageBridge& a_bridge)
 	{
 		_bridge = &a_bridge;
-		// Subscribe-on-read, the `views.get` / `settings.get` pattern: the reply
-		// is the current snapshot and the caller keeps receiving `diagnostics.data`
-		// for every later change.
-		a_bridge.RegisterRequest("diagnostics.get", [this](const nlohmann::json&, MessageBridge& a_b) {
-			const auto source = std::string(a_b.CurrentSource());
-			if (!source.empty()) {
-				_subscribers.insert(source);
-			}
-			const auto payload = Snapshot();
-			// Seed the dedupe with what this caller just received, so the very
-			// next Broadcast() doesn't re-send an identical document.
-			_lastSent = Json::Dump(payload);
-			a_b.SendToWeb("diagnostics.data", payload);
-		});
+		// `diagnostics.get` is gone: it was a read whose real job was to
+		// subscribe. The registry is the `osfui/diagnostics` state key, replayed
+		// to every document that greets the bridge.
 	}
 
 	void DiagnosticsModule::OnBridgeDown()
 	{
 		_bridge = nullptr;
-		_subscribers.clear();
 		_lastSent.clear();
 	}
 
-	void DiagnosticsModule::OnViewDestroyed(std::string_view a_viewId)
+	void DiagnosticsModule::OnViewDestroyed(std::string_view)
 	{
-		_subscribers.erase(std::string(a_viewId));
+		// Nothing to prune: delivery is scoped by the bridge's greeted-view set.
 	}
 }

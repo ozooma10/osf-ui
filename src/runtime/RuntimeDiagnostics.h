@@ -1,6 +1,7 @@
 #pragma once
 
 #include "render/IWebRenderer.h"
+#include "api/BridgeApi.h"
 #include "runtime/DiagnosticsReconciler.h"
 
 #include <unordered_map>
@@ -47,6 +48,10 @@ namespace OSFUI
 		std::uint64_t _settingsGeneration{ 0 };
 		bool          _settingsSynced{ false };
 		DiagnosticsReconciler _reconciler;
+		// ABI-major-mismatched plugins, accumulated once at load and kept for
+		// the session: the refusal happens during SFSE load and the record is
+		// drained exactly once, so the card must outlive the drain.
+		std::vector<API::BridgeApi::LegacyCaller> _legacyApiCallers;
 		std::unordered_map<std::string, HotkeyTargetFailure> _hotkeyTargetFailures;
 		double        _nextPoll{ 0.0 };
 	};

@@ -95,18 +95,20 @@ function renderState(state: HudState) {
 }
 
 window.osfui?.on?.<HudState>('${options.modId}.hudState', renderState);`
-    : `// Papyrus SetView* values are cached and replayed to late subscribers.
-window.osfui?.data?.on<string>('label', (value) => setText(label, value));
-window.osfui?.data?.on<number>('value', (value) => {
+    : `// Papyrus SetView* publishes STATE: the handler runs immediately with the
+// current value and again on every change and every reload — nothing to
+// request, and no ready handshake for the script to answer.
+window.osfui?.state?.on?.<string>('label', (value) => setText(label, value));
+window.osfui?.state?.on?.<number>('value', (value) => {
   hudState.value = value;
   renderMeter();
 });
-window.osfui?.data?.on<number>('maximum', (value) => {
+window.osfui?.state?.on?.<number>('maximum', (value) => {
   hudState.maximum = value;
   renderMeter();
 });
-window.osfui?.data?.on<string>('status', (value) => setText(status, value));
-window.osfui?.data?.on<boolean>('alert', (value) => {
+window.osfui?.state?.on?.<string>('status', (value) => setText(status, value));
+window.osfui?.state?.on?.<boolean>('alert', (value) => {
   panel.classList.toggle('is-alert', value);
 });`;
 
@@ -115,9 +117,8 @@ import '/shared/osfui.js';
 import './style.css';
 import type {
   SettingValue,
-  SettingsChangedPayload,
-  SettingsDataPayload,
-  UiHotkeyPayload,
+  PlatformEvents,
+  SettingsData,
 } from '@osfui/cli/view';
 
 type Anchor = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
@@ -218,33 +219,35 @@ function applySetting(key: string, settingValue: SettingValue) {
 }
 
 function syncVisibility() {
-  // hud.show / hud.hide write the runtime's authoritative shown-set. Do NOT
+  // menu.open / menu.close write the runtime's authoritative shown-set. Do NOT
   // use setViewHidden here: the menu policy rewrites every layer's hidden
   // flag from that set whenever any menu opens or closes, which would undo a
   // raw setViewHidden the moment the player closes the Mods surface.
   const visible = hudSettings.hudEnabled && hotkeyVisible;
-  window.osfui?.send?.(visible ? 'hud.show' : 'hud.hide');
+  void window.osfui?.request?.(visible ? 'menu.open' : 'menu.close');
 }
 
-// Subscribe before requesting the initial registry so no live edit can race us.
-window.osfui?.on?.<SettingsDataPayload>('settings.data', (payload) => {
-  const own = payload.mods.find((mod) => mod.id === '${options.modId}');
+// The settings registry is STATE: this handler runs immediately with the
+// current registry and again on every registry change — including on a fresh
+// document, so there is no read to issue and no race to lose.
+window.osfui?.state?.on?.<SettingsData>('osfui/settings', (registry) => {
+  const own = registry?.mods.find((mod) => mod.id === '${options.modId}');
   if (!own) return;
   for (const [key, settingValue] of Object.entries(own.values)) {
     applySetting(key, settingValue);
   }
 });
-window.osfui?.on?.<SettingsChangedPayload>('settings.changed', (payload) => {
+// Individual commits are EVENTS: they say what just changed, so they are not
+// replayed (the state key above already carries the current value).
+window.osfui?.on?.<PlatformEvents['settings.changed']>('settings.changed', (payload) => {
   if (payload.mod === '${options.modId}') applySetting(payload.key, payload.value);
 });
-window.osfui?.on?.<UiHotkeyPayload>('ui.hotkey', (payload) => {
+window.osfui?.on?.<PlatformEvents['ui.hotkey']>('ui.hotkey', (payload) => {
   if (payload.mod === '${options.modId}' && payload.key === 'toggleHud') {
     hotkeyVisible = !hotkeyVisible;
     syncVisibility();
   }
 });
-window.osfui?.send?.('settings.get');
-
 ${stateSetup}
 `;
 }
@@ -312,11 +315,19 @@ window.osfui?.on?.<{ message: string }>('${noticeType}', (payload) => {
   status.textContent = payload.message;
 });
 
+// The plugin publishes its state with SetViewState, so this needs no read and
+// no reload handling: the handler runs with the current value now, and again on
+// every change and on every future document. This is the path you want for
+// anything the backend owns.
+window.osfui?.state?.on?.<DemoState>('state', showState);
+
 window.osfui?.ready?.then(async (info) => {
   status.textContent = 'Connected to OSF UI ' + info.version;
+  // A REQUEST is for the other case: a value only this view knows it needs,
+  // right now. Here it is redundant with the subscription above — kept as the
+  // smallest working example of the verb.
   try {
-    if (!window.osfui?.call) throw new Error('Request API is unavailable');
-    showState(await window.osfui.call<DemoState>('${options.modId}.getState'));
+    showState(await window.osfui!.request<DemoState>('${options.modId}.getState'));
   } catch (error) {
     status.textContent = error instanceof Error ? error.message : String(error);
   }
@@ -329,12 +340,13 @@ increment.addEventListener('click', () => {
   }
 });
 
-// JS -> C++ request/response; OSF UI owns the request id and timeout.
+// JS -> C++ request/response; OSF UI owns the correlation id and the timeout,
+// and a failure arrives as a rejection carrying a stable code.
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
   try {
-    if (!window.osfui?.call) throw new Error('Request API is unavailable');
-    const reply = await window.osfui.call<Greeting>('${options.modId}.greet', {
+    if (!window.osfui?.request) throw new Error('Request API is unavailable');
+    const reply = await window.osfui.request<Greeting>('${options.modId}.greet', {
       name: name.value,
       excited: excited.checked,
     });
@@ -350,14 +362,13 @@ function hudMockSource(options) {
   const native = options.integration === 'native';
   const publishBody = native
     ? `ctx.send({
-      type: '${options.modId}.hudState',
-      payload: { ...state },
+      kind: 'state',
+      mod: '${options.modId}',
+      key: 'state',
+      value: { ...state },
     });`
     : `for (const [key, value] of Object.entries(state)) {
-      ctx.send({
-        type: 'data.state',
-        payload: { mod: '${options.modId}', key, value },
-      });
+      ctx.send({ kind: 'state', mod: '${options.modId}', key, value });
     }`;
 
   return `import { defineMock, type MockContext } from '@osfui/cli';
@@ -391,8 +402,10 @@ export function install(ctx: MockContext) {
     ${publishBody}
   };
   const publishSettings = () => ctx.send({
-    type: 'settings.data',
-    payload: {
+    kind: 'state',
+    mod: 'osfui',
+    key: 'settings',
+    value: {
       mods: [{
         id: '${options.modId}',
         title: '${options.modId}',
@@ -404,17 +417,18 @@ export function install(ctx: MockContext) {
   const changeSetting = (key: keyof typeof settings, value: string | number | boolean) => {
     (settings[key] as string | number | boolean) = value;
     ctx.send({
-      type: 'settings.changed',
+      kind: 'event',
+      name: 'settings.changed',
       payload: { mod: '${options.modId}', key, value },
     });
   };
 
-  ctx.onCommand((command) => {
-    if (command === 'settings.get') {
+  ctx.onCommand((kind, name) => {
+    if (kind === 'send' && name === 'osfui.hello') {
       publishSettings();
-      return true;
+      return false;  // let the harness finish its own greeting
     }
-    if (command === 'hud.show' || command === 'hud.hide') {
+    if (name === 'menu.open' || name === 'menu.close') {
       // The real host applies these to the runtime's shown-set. The harness
       // toolbar already owns preview visibility, so acknowledging is
       // sufficient here.
@@ -498,19 +512,21 @@ export default defineMock({
 
 export function install(ctx: MockContext) {
   const pushState = () => ctx.send({
-    type: '${options.modId}.state',
-    payload: { ...state, features: [...state.features] },
+    kind: 'state',
+    mod: '${options.modId}',
+    key: 'state',
+    value: { ...state, features: [...state.features] },
   });
   const notice = (message: string) => ctx.send({
-    type: '${options.modId}.notice', payload: { message },
+    kind: 'event', name: '${options.modId}.notice', payload: { message },
   });
 
-  ctx.onCommand((command, payload, reply) => {
-    if (command === '${options.modId}.getState') {
-      reply('${options.modId}.state', { ...state, features: [...state.features] });
+  ctx.onCommand((kind, name, payload, io) => {
+    if (name === '${options.modId}.getState') {
+      io.resolve({ ...state, features: [...state.features] });
       return true;
     }
-    if (command === '${options.modId}.increment') {
+    if (name === '${options.modId}.increment') {
       const requested = Number(payload.amount);
       const amount = Number.isFinite(requested) ? Math.max(-10, Math.min(10, requested)) : 1;
       if (state.enabled) {
@@ -571,32 +587,34 @@ export default defineMock({
 
 export function install(ctx: MockContext) {
   const publish = () => ctx.send({
-    type: 'data.state',
-    payload: { mod: '${options.modId}', key: 'clicks', value: state.clicks },
+    kind: 'state',
+    mod: '${options.modId}',
+    key: 'clicks',
+    value: state.clicks,
   });
 
-  ctx.onCommand((command, payload, reply) => {
-    // Papyrus OnOSFUIViewAction(action, args)
-    if (command === 'ui.action') {
+  ctx.onCommand((kind, name, payload, io) => {
+    // Papyrus OnOSFUIViewAction(actionName, args)
+    if (name === 'papyrus.send') {
       const args = Array.isArray(payload.args) ? payload.args : [];
-      if (payload.action === 'bump') {
+      if (payload.name === 'bump') {
         state.clicks += Number(args[0]) || 1;
         publish();
-      } else if (payload.action === 'openSettings') {
+      } else if (payload.name === 'openSettings') {
         ctx.notify('Papyrus would call OSFUI.OpenMenu()');
       }
       return true;
     }
     // Papyrus OnOSFUIViewRequest(request, args, replyToken)
-    if (command === 'ui.papyrusRequest' && payload.request === 'greet') {
+    if (name === 'papyrus.request' && payload.name === 'greet') {
       const args = Array.isArray(payload.args) ? payload.args : [];
       const who = String(args[0] ?? '');
       if (!who) {
         // OSFUI.RejectViewRequest(replyToken, code, message)
-        reply('ui.error', { code: 'invalid-name', message: 'Type a name first' });
+        io.reject('invalid-name', 'Type a name first');
       } else {
         // OSFUI.ReplyViewString(replyToken, value)
-        reply('papyrus.result', { value: 'Hello ' + who + ', from the mocked Papyrus script' });
+        io.resolve({ value: 'Hello ' + who + ', from the mocked Papyrus script' });
       }
       return true;
     }
@@ -649,10 +667,10 @@ const status = requiredElement('#status', HTMLOutputElement);
 
 // Papyrus SetView* -> cached state, replayed whenever this page (re)loads, so
 // subscribing at any time still yields the latest value.
-window.osfui?.data?.on<number>('clicks', (value) => {
+window.osfui?.state?.on?.<number>('clicks', (value) => {
   clicks.textContent = String(value);
 });
-window.osfui?.data?.on<string>('greeting', (value) => {
+window.osfui?.state?.on?.<string>('greeting', (value) => {
   greeting.textContent = value;
 });
 
@@ -663,10 +681,10 @@ window.osfui?.ready?.then((info) => {
 // JS -> Papyrus OnOSFUIViewAction: fire-and-forget. The script answers by
 // publishing new state, not by replying.
 bump.addEventListener('click', () => {
-  if (!window.osfui?.action?.('bump', 1)) status.textContent = 'OSF UI bridge is unavailable';
+  if (!window.osfui?.papyrus?.send('bump', 1)) status.textContent = 'OSF UI bridge is unavailable';
 });
 settings.addEventListener('click', () => {
-  window.osfui?.action?.('openSettings');
+  window.osfui?.papyrus?.send('openSettings');
 });
 
 // JS -> Papyrus OnOSFUIViewRequest: use this only when the returned value is

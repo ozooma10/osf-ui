@@ -1,31 +1,40 @@
 # Native plugin API
 
-Lets your DLL communicate with OSF UI. 
-Handle commands from a view, push data to a view, read settings and hotkeys, and open views.
+Lets your DLL talk to OSF UI: handle messages a view sends, publish state and
+events back to it, read settings and hotkeys, open views, and report health.
 
-The stable, dependency-free ABI is [`sdk/OSFUI_API.h`](../sdk/OSFUI_API.h) (C ABI **1.7**). If your plugin uses `nlohmann::json`, include the optional [`sdk/OSFUI_JSON.h`](../sdk/OSFUI_JSON.h) authoring facade as well; it remains entirely on your side of the DLL boundary.
+The stable, dependency-free ABI is [`sdk/OSFUI_API.h`](../sdk/OSFUI_API.h)
+(C ABI **2.0**). If your plugin already uses `nlohmann::json`, include the
+optional [`sdk/OSFUI_JSON.h`](../sdk/OSFUI_JSON.h) authoring facade as well; it
+stays entirely on your side of the DLL boundary and never changes the ABI.
 
-Writing a view (HTML/JS) instead? See [authoring-views.md](authoring-views.md) - that's the `window.osfui` side. Your `SendToWeb` lands at a view's `osfui.onMessage`; a view's `osfui.send` lands at your command handler.
+Writing a view (HTML/JS) instead? See [authoring-views.md](authoring-views.md) —
+that is the `window.osfui` side. Your `SetViewState` arrives at the view's
+`osfui.state.on`, your `SendToWeb` at its `osfui.on`, and its `osfui.send` /
+`osfui.request` arrive at your handlers.
 
 **Contents**
 
 - [0. When you need this](#0-when-you-need-this)
-- [1. Get the bridge](#1-get-the-bridge)
-- [2. Versioning](#2-versioning)
-- [3. Commands and requests (web → native)](#3-commands-web--native)
-  - [3a. Request/response](#3a-requestresponse)
-- [4. Status & readiness](#4-status--readiness)
-- [5. Settings, hotkeys, views, and health](#5-settings-hotkeys-views-and-health)
-  - [5a. Settings](#5a-settings)
-  - [5b. Hotkeys](#5b-hotkeys)
-  - [5c. Views](#5c-views)
-  - [5d. Session health](#5d-session-health)
-- [6. Native → web messaging](#6-native--web-messaging)
-  - [6a. SendToWeb](#6a-sendtoweb)
-- [7. Threading & lifetime](#7-threading--lifetime)
-- [8. Method reference](#8-method-reference)
-- [9. Example plugin](#9-example-plugin)
-- [10. See also](#10-see-also)
+- [1. The 2.0 break](#1-the-20-break)
+- [2. Get the bridge](#2-get-the-bridge)
+- [3. Versioning](#3-versioning)
+- [4. Commands — web → native, one-way](#4-commands--web--native-one-way)
+- [5. Requests — web → native, settled once](#5-requests--web--native-settled-once)
+- [6. Native → web — state and events](#6-native--web--state-and-events)
+  - [6a. SetViewState — true until it changes](#6a-setviewstate--true-until-it-changes)
+  - [6b. SendToWeb — something happened](#6b-sendtoweb--something-happened)
+  - [6c. Opening a view](#6c-opening-a-view)
+- [7. Status & readiness](#7-status--readiness)
+- [8. Settings, hotkeys, views, and health](#8-settings-hotkeys-views-and-health)
+  - [8a. Settings](#8a-settings)
+  - [8b. Hotkeys](#8b-hotkeys)
+  - [8c. Views](#8c-views)
+  - [8d. Session health](#8d-session-health)
+- [9. Threading & lifetime](#9-threading--lifetime)
+- [10. Method reference](#10-method-reference)
+- [11. Example plugin](#11-example-plugin)
+- [12. See also](#12-see-also)
 
 ---
 
@@ -36,23 +45,72 @@ Most mods need no native code:
 - Ship a view: drop a folder in `views/<modId>/<viewName>/`. See [authoring-views.md](authoring-views.md).
 - Ship settings: drop a schema in `settings/<author>.<modname>.json`. See [authoring-settings.md](authoring-settings.md).
 - A view reads/writes its own settings and reacts to hotkeys from JS.
+- Papyrus can publish view state, send view events, and answer view requests
+  without a DLL at all. See [authoring-dynamic-data.md](authoring-dynamic-data.md).
 
 Use this API when your logic is in a native DLL and needs to:
 
-- handle commands a view sends,
-- push game state into a view,
+- handle messages a view sends, and answer the ones that need an answer,
+- publish game state into a view, or push a one-shot happening at it,
 - read settings, or react to them changing, from C++,
 - react to a hotkey from C++,
 - register a schema or view folder at runtime,
-- open or close a view.
+- open or close a view,
+- report a durable failure into System Health.
 
-If OSF UI is missing or a major version apart, calls no-op so you never have to special-case "OSF UI not installed."
+If OSF UI is missing, every call is a safe no-op, so you never have to
+special-case "OSF UI not installed." If you shipped against 1.x, read
+[§1](#1-the-20-break) first — the same no-op path is what a stale plugin gets,
+and the player is told why.
 
 ---
 
-## 1. Get the bridge
+## 1. The 2.0 break
 
-`OSFUI.dll` exports one C function, `OSFUI_RequestBridge`. Don't call it directly - use `OSFUI::API::Client`. It fetches the bridge, caches the host version once, and makes any call the host is too old for a safe no-op.
+`kBridgeAPIVersion` is `(2 << 16) | 0`, and **major must match**. A plugin
+compiled against a 1.x header gets `nullptr` from `OSFUI_RequestBridge`,
+`Client::Init()` returns false, and every subsequent call degrades to
+false/0/no-op. The mod keeps running; its UI simply never appears.
+
+That is not silent. The refusal is attributed to the calling module (the return
+address of the `GetProcAddress` call site is inside your DLL), and OSF UI raises
+one `compat.legacy-api` card in **System Health** naming the file the player has
+to update. A mod that does nothing with no explanation is the one failure mode
+worth spending a diagnostic on.
+
+**Why a hard break rather than a compatibility dispatcher.** 1.x commands were
+auto-acked, and the host injected the caller's `requestId` into the command
+payload so a plugin could correlate a reply it sent separately. Serving a 1.x
+caller means keeping exactly that bookkeeping alive inside the 2.0 host —
+forever — for plugins that have to be recompiled anyway, since the view helper
+members and the Papyrus registrations they depend on moved in the same release.
+Recompiling against the 2.0 header *is* the migration.
+
+What changes in your code:
+
+| 1.x | 2.0 |
+|---|---|
+| command payloads carried an injected `"requestId"` | nothing is injected — the payload is the caller's object, verbatim |
+| the host auto-acked `ui.result { ok:true }` when your handler returned | nothing is sent; a command is one-way |
+| a view could `await` a command and get a meaningless "ok" | a view that `request()`s a command endpoint gets `wrong-endpoint-kind` |
+| `SendToWeb` arrived at `osfui.onMessage` | it arrives at `osfui.on("<type>")` as an event |
+| re-push-on-reload was hand-rolled per mod | `SetViewState` — the runtime owns the replay |
+| `Feature` gates decided whether a call worked | every feature is baseline in 2.x (see [§3](#3-versioning)) |
+
+The auto-ack deserves its own line, because it is the thing the old docs said
+worst. `ui.result { ok:true }` meant *delivered*, not *succeeded*: the host sent
+it the moment your handler returned, whatever your handler had decided. A view
+could await a command, receive a truthy answer, and know nothing about whether
+the work happened. 2.0 deletes both the ack and the ambiguity — a command is a
+notification, a request settles, and the two are different registrations.
+
+---
+
+## 2. Get the bridge
+
+`OSFUI.dll` exports one C function, `OSFUI_RequestBridge`. Don't call it
+directly — use `OSFUI::API::Client`. It fetches the bridge, caches the host
+version once, and turns any call the host is too old for into a safe no-op.
 
 ```cpp
 #include "OSFUI_API.h"
@@ -63,69 +121,97 @@ static OSFUI::API::Client g_ui;
 void OnPostLoad()
 {
     if (g_ui.Init()) {            // false if OSF UI is absent or a major apart
-        g_ui.RegisterCommand("acme.mymod.ping", &OnPing, nullptr);
+        g_ui.RegisterCommand("acme.mymod.equip", &OnEquip, nullptr);
+        g_ui.RegisterRequest("acme.mymod.getWeight", &OnGetWeight, nullptr);
         g_ui.RegisterView("acme.mymod/dashboard");
     }
 }
 ```
 
-`Init()` returns false when OSF UI isn't installed, isn't loaded yet, or its major differs from your header. 
+`Init()` returns false when OSF UI isn't installed, isn't loaded yet, or its
+major differs from your header.
 
-Fetch after `kPostLoad`, once. The bridge lives for the whole process; the `static Client` above caches it. Don't resolve the export per-frame.
+Fetch after `kPostLoad`, once. The bridge lives for the whole process; the
+`static Client` above caches it. Don't resolve the export per-frame.
 
-`Client::Raw()` gives you the raw `IOSFUIBridge*` for advanced use
+`Client::Raw()` gives you the raw `IOSFUIBridge*` for advanced use. If you call
+tail vmethods through it, you own the version gating.
 
 ---
 
-## 2. Versioning
+## 3. Versioning
 
 Three separate version numbers.
 
 | Version | Read it with | Gates |
 |---|---|---|
-| **C ABI** (`1.7`) | `GetInterfaceVersion()` | which native methods exist. Gate on this. |
-| **Plugin** (OSF UI release) | `GetPluginVersion()` | nothing - log it for support. |
-| **Web protocol** (e.g. `"1.0"`) | `GetBridgeProtocolVersion()` | the JS handshake. Native code: don't parse it. |
+| **C ABI** (`2.0`) | `GetInterfaceVersion()` | which native methods exist. Packed `(major<<16)｜minor`. |
+| **Plugin** (OSF UI release) | `GetPluginVersion()` | nothing — log it for support. |
+| **Web protocol** (`"2.0"`) | `GetBridgeProtocolVersion()` | the JS handshake. Native code: don't parse it. |
 
+`Feature` still exists, and `Client::Has(Feature)` still compares against the
+host's ABI minor — but at 2.0 every named feature is at or below the baseline,
+including the new `Feature::kViewState`. There is no reachable host that lacks
+one, because a major mismatch is refused outright rather than served a partial
+vtable. Keep the `Has()` calls if you like what they document; do not write
+fallback paths for hosts that cannot exist. The gates start mattering again the
+first time 2.x grows a minor.
 
 ---
 
-## 3. Commands (web -> native)
+## 4. Commands — web → native, one-way
 
-A view calls `osfui.send("<command>", payload)`. Your handler runs on the game main thread.
+A view calls `osfui.send("<name>", payload)`. Your handler runs on the game main
+thread.
 
 ```cpp
-void OnPing(const char* command,
-            const char* payloadJson,   // e.g. "{\"id\":\"x\",\"requestId\":\"7\"}"
-            const char* sourceViewId,  // who sent it - your reply target
-            void* user) noexcept
+void OnEquip(const char* command,
+             const char* payloadJson,   // the caller's payload object, verbatim
+             const char* sourceViewId,  // who sent it
+             void* user) noexcept
 {
     // All const char* args are valid only during this call. Copy what you keep.
-    g_ui.SendToWeb(sourceViewId, "acme.mymod.pong", "{\"ok\":true}");
 }
 
-g_ui.RegisterCommand("acme.mymod.ping", &OnPing, nullptr);
+g_ui.RegisterCommand("acme.mymod.equip", &OnEquip, nullptr);
 ```
 
-**Command names (ABI 1.6):** must be `<author>.<modname>.<name>` - a mod id
-(lowercase `[a-z0-9-]`, exactly one dot) plus a name that may contain more dots.
-So two dots minimum. Bad shapes are refused with a log warning. Platform
-commands are dotless or single-dot, so you can't collide with them.
+A registered command is a **send endpoint**: one-way, nothing to settle, nothing
+echoed.
 
-**Duplicates are first-wins:** registering a name someone else owns is refused.
-To replace your own handler, `UnregisterCommand` then register again.
+- **Nothing is injected into the payload.** Routing metadata (`kind`, `name`,
+  `id`) travels beside the payload on the envelope now, so no payload field can
+  shadow routing and there is no `requestId` to strip out or echo back.
+- **Nothing is auto-acked.** Your handler returns and the exchange is over.
+- **The kinds are enforced.** A view that calls `osfui.request()` naming your
+  command is rejected with `wrong-endpoint-kind`; a view that calls
+  `osfui.send()` naming a *request* endpoint has the send dropped and the
+  mistake surfaced to that view's own console. Dropping is right — running a
+  mutation whose kind the caller got wrong invites worse bugs — but dropping
+  silently is what 1.x got wrong.
 
-**Replies:** the payload may carry a `requestId`. When your handler returns, the
-host acks the caller with `ui.result { ok:true }` (delivered, not succeeded).
-There's no return value — send real results back with `SendToWeb`, echoing the
-`requestId` if you want the view to correlate them.
+If the caller needs an outcome, that endpoint is a request. There is no way to
+answer a command, deliberately: "wanting a result" is the whole definition of
+the other verb.
+
+**Names:** `<author>.<modname>.<name>` — a mod id (lowercase `[a-z0-9-]`
+segments, exactly one dot) plus a name that may contain more dots. Two dots
+minimum. Bad shapes are refused with a log warning. Platform endpoints are
+dotless or single-dot, so you cannot collide with them.
+
+**Duplicates are first-wins, across both registries.** A name cannot be both a
+command and a request, and registering a name someone else owns is refused. To
+replace your own handler, `UnregisterCommand` then register again — the pair
+works back-to-back within one tick.
 
 Register once at `kPostLoad`.
 
-### 3a. Request/response
+---
 
-ABI 1.7 (`Feature::kRequests`) adds a first-class value-returning path. Use it
-when the view needs an answer; keep `RegisterCommand` for fire-and-forget work.
+## 5. Requests — web → native, settled once
+
+Use a request when the view needs an answer. It settles exactly once: a payload,
+a typed error, or the host deadline.
 
 The preferred authoring form uses the optional JSON facade:
 
@@ -136,33 +222,38 @@ The preferred authoring form uses the optional JSON facade:
 static void OnGetWeight(const OSFUI::API::Request& raw, void*) noexcept
 {
     OSFUI::API::JsonRequest request{ raw };
-    if (!request) return; // malformed input was already rejected
+    if (!request) return;  // malformed input was already rejected
 
     const auto formId = request.Get<std::uint32_t>("formId");
-    if (!formId) return; // missing/wrong type was rejected as invalid-payload
-    request.Respond("acme.mymod.weight", {
-        { "weight", ReadWeight(*formId) }
-    });
+    if (!formId) return;   // missing/wrong type was rejected as invalid-payload
+
+    request.Respond({ { "weight", ReadWeight(*formId) } });
 }
 
 g_ui.RegisterRequest("acme.mymod.getWeight", &OnGetWeight, nullptr);
 ```
 
 ```js
-const { weight } = await osfui.call("acme.mymod.getWeight", { formId });
+const { weight } = await osfui.request("acme.mymod.getWeight", { formId });
 ```
 
-`JsonRequest::Get<T>(key)` reads a required field without throwing and rejects
-a missing or wrongly typed field as `invalid-payload`. `Value<T>(key,
-fallback)` and `TryGet()` handle optional fields. `Require<T>()` and `As<T>()`
-retain normal `nlohmann::json` exceptions for code that deliberately wants
-them. Malformed or non-object payloads are also rejected as
-`invalid-payload`; response serialization failures reject as
-`serialization-error`. Use `Raw()` when an advanced path needs the copyable
-deferred token directly.
+`osfui.request()` resolves with the reply **payload** — correlation ids and
+envelopes are private to the bridge, so there is nothing for the view to unwrap.
 
-For a fire-and-forget `RegisterCommand` callback, `JsonCommand` provides the
-same typed payload access plus `Command()` and `SourceViewId()`:
+`JsonRequest::Get<T>(key)` reads a required field without throwing and rejects a
+missing or wrongly typed field as `invalid-payload`. `Value<T>(key, fallback)`
+and `TryGet()` handle optional fields. `Require<T>()` and `As<T>()` retain normal
+`nlohmann::json` exceptions for code that deliberately wants them. Malformed or
+non-object payloads are rejected as `invalid-payload`; response serialization
+failures reject as `serialization-error`. Use `Raw()` when an advanced path needs
+the copyable deferred token directly.
+
+`Request::Respond` also has a two-argument `(type, payload)` overload inherited
+from 1.7. It still compiles, but 2.0 correlates a reply by **id**, not by name,
+so the type is not transmitted anywhere — use the single-argument form.
+
+For a fire-and-forget `RegisterCommand` callback, `JsonCommand` provides the same
+typed payload access plus `Command()` and `SourceViewId()`:
 
 ```cpp
 void OnEquip(const char* command, const char* json, const char* source, void*) noexcept
@@ -174,36 +265,171 @@ void OnEquip(const char* command, const char* json, const char* source, void*) n
 }
 ```
 
-The host owns correlation: `RequestFn` receives no `requestId`. Copy the
-`Request` value if you answer later; `Respond` and `Reject` are safe from any
-thread and settle once. A second answer is ignored and logged. The `command`,
-`payloadJson`, and `sourceViewId` pointers are valid only during the callback.
+**Settling.** The host owns correlation: `RequestFn` receives no `requestId`.
+Copy the `Request` value if you answer later; `Respond` and `Reject` are safe
+from any thread and settle once. A second answer is ignored and logged. The
+`command`, `payloadJson`, and `sourceViewId` pointers are valid only during the
+callback.
 
-The token is a copyable C-ABI value containing an opaque 64-bit id and host
-function pointers, rather than a host-owned object pointer. A saved copy cannot
-dereference freed host memory: after response, timeout, or view closure its id
-is stale and a late answer is a logged no-op.
+The token is a copyable C-ABI value holding an opaque 64-bit id and host function
+pointers, not a host-owned object pointer. A saved copy cannot dereference freed
+host memory: after response, timeout, or view closure its id is stale and a late
+answer is a logged no-op.
 
-Requests use the same qualified grammar and first-wins namespace as commands.
-A name cannot be both. Each view may hold at most 64 requests in flight;
-overflow rejects immediately with `request-capacity`. The fixed host timeout is
-30 seconds with no opt-out, after which the view receives
-`ui.error { code:"no-response" }`. For genuinely long work, acknowledge a
-command and push progress/results as events instead of retaining a request.
+**Failure.** Report a plugin failure with `req.Reject("stable-code", "human
+detail")`. The view's `osfui.request()` rejects with an error carrying that
+`code`, and the shared helper prints it to that page's console with an
+`[osfui]` prefix — so your rejection reason lands in F12 DevTools with the
+payload attached, not only in `OSF UI.log`. Invalid response JSON rejects as
+`invalid-response`.
 
-Report a plugin failure with `req.Reject("stable-code", "human detail")`. It
-becomes correlated `ui.error`, so `osfui.request()` rejects with that
-`error.code`. Invalid response JSON rejects as `invalid-response`.
+**Limits.** Requests use the same qualified grammar and first-wins namespace as
+commands. Each view may hold at most 64 requests in flight; overflow rejects
+immediately with `request-capacity`. The fixed host deadline is 30 seconds with
+no opt-out, after which the view is answered `no-response`. For genuinely long
+work, take a *command*, publish progress and results with `SetViewState`, and
+never hold a request open across it.
+
+**Settings action buttons are requests.** A schema `action` row
+([authoring-settings.md §4](authoring-settings.md#4-notes-images-and-action-buttons))
+fires `osfui.request("<yourmod>.<name>", { mod, key })` with a 5 s client timeout,
+so it must be registered with `RegisterRequest`, not `RegisterCommand`.
+
 ---
 
-## 4. Status & readiness
+## 6. Native → web — state and events
+
+The most consequential choice in this API is which of these two you use, and it
+is decided by one question: **is this value true until it changes, or did it
+happen?**
+
+| | `SetViewState` | `SendToWeb` |
+|---|---|---|
+| Means | "this is what is true now" | "this just happened" |
+| Arrives at | `osfui.state.on("<mod>/<key>")` | `osfui.on("<type>")` |
+| On F5 / reload / crash recovery | replayed automatically | not replayed, ever |
+| Delivery | latest-wins, complete value per key | at most once |
+| Audience | every live view of your mod, plus every one that loads later | one view id |
+
+Getting it wrong in one direction is the blank-after-F5 bug (state pushed as an
+event; correct until the player reloads, empty forever after). Getting it wrong
+in the other direction re-fires a happening on every reload. Neither primitive
+can serve both, which is why there are two.
+
+### 6a. SetViewState — true until it changes
+
+```cpp
+g_ui.SetViewState("acme.mymod", "ship", R"({"hull":88,"grav":3})");
+```
+
+Every live view of `acme.mymod` receives `{ kind:"state", mod, key, value }`,
+reaching `osfui.state.on("acme.mymod/ship")` — **and so does every view of that
+mod that loads later**, because the runtime keeps the current value and replays
+it to each document when it greets the bridge.
+
+That replay is the whole point. In 1.x, native state did not exist: a plugin had
+to hand-roll reload handling, listening for some view-defined "I'm back" message
+and re-pushing. Every consumer invented its own version of that handshake, and
+the ones who forgot shipped a HUD that was correct until the first F5. With state
+there is nothing to remember on either side, and a correctly written view has no
+lifecycle code at all.
+
+Rules worth knowing before you design around it:
+
+- **Latest-wins per key, and the value is COMPLETE — never a delta.** A replay
+  and a live update are the same message, so they have to carry the same thing.
+- Any JSON *value* is legal, not just an object: a number, a string, or an array
+  is a perfectly good state key.
+- Keys are matched case-insensitively and capped at 128 characters. At most **64
+  retained keys per mod**; a 65th distinct key is still delivered to live views
+  but not retained (and logged), so it would survive until the next reload and
+  then vanish. Use a fixed key set — this cap exists to stop a mod generating
+  keys in a loop, not to ration them.
+- **Not session-scoped:** your state survives a save load. (Papyrus `SetView*`
+  state is dropped on load, because its values can hold form identities that a
+  new session invalidates. A plugin's HUD config has no such lifetime, and
+  wiping it every load would be the bug.)
+- Returns false **synchronously** on a null or malformed mod id, an empty or
+  over-long key, unparseable JSON, or a saturated queue. The store write lands on
+  the next main tick.
+- Publishing with no view of yours open is not a lost write: the value is
+  retained and replayed to your mod's first document.
+
+With the JSON facade, no manual `dump()` and no temporary to keep alive:
+
+```cpp
+OSFUI::API::JsonClient jsonUi{ g_ui };
+if (!jsonUi.SetViewState("acme.mymod", "ship", { { "hull", 88 }, { "grav", 3 } })) {
+    // Synchronous refusal only: bad mod id, empty/over-long key, saturated queue.
+    // (The JsonClient overloads are [[nodiscard]] — don't drop the result.)
+}
+```
+
+`JsonClient` accepts JSON (or any `nlohmann`-convertible struct) for
+`SetViewState`, `SendToWeb`, `RegisterSettingsSchema`, `ReportIssue`, and
+`ClearIssuesExcept` — every JSON-bearing call in the API — which removes the
+manual `dump()` and the temporary whose lifetime you would otherwise have to
+reason about. The dependency-free `const char*` forms stay available.
+
+### 6b. SendToWeb — something happened
+
+```cpp
+g_ui.SendToWeb("acme.mymod/dashboard", "acme.mymod.jumpComplete",
+               R"({"system":"Alpha Centauri"})");
+```
+
+Delivers `{ kind:"event", name: <type>, payload: <payloadJson> }` to one view,
+where it arrives at that view's `osfui.on("acme.mymod.jumpComplete")`.
+`payloadJson` must be valid JSON; the call returns false only on null args or a
+payload that will not parse.
+
+An event is a one-shot happening, delivered at most once and never replayed. A
+view that was not open when it fired never learns about it, by design. Good
+events are the ones whose meaning belongs to a moment: a jump completed, a scan
+finished, the player was hit.
+
+**Do not use an event to seed a view you are about to open.** Messages for a
+target that is not live are held in bounded per-view queues, but a document that
+greets the bridge is treated as a *new* document and the queue for it is
+discarded — replaying a happening into a fresh page would re-fire its effect.
+The consequence is blunt: an event emitted before the target document greets the
+bridge is not delivered. State is the guaranteed path for anything you want the
+page to have at first paint, and it is the right shape for that data anyway.
+
+Queues are bounded (drop-oldest, logged), so a view that never opens cannot leak
+memory. A message addressed to a view discovery never found is dropped once the
+catalog is known.
+
+### 6c. Opening a view
+
+`RequestMenu(view, open)` opens or closes a surface by qualified
+`"<modId>/<viewName>"` id.
+
+```cpp
+g_ui.RegisterView("acme.mymod/dashboard");                       // validate; page stays lazy
+g_ui.SetViewState("acme.mymod", "ship", R"({"hull":88})");       // seed it
+g_ui.RequestMenu("acme.mymod/dashboard", true);                  // open
+```
+
+Issue all three back-to-back from any thread — they apply in order on the same
+tick, and the state above reaches the page through its boot replay however much
+later that page finishes loading.
+
+Opening a discovered folder loads it on demand. Returns true if an open target
+exists and the request was queued; false if no such view was found. Closing works
+only on an already-loaded view and never loads one. True does not promise the
+page renders.
+
+---
+
+## 7. Status & readiness
 
 All callable from any thread, synchronous:
 
-- `GetInterfaceVersion()` - packed `(major << 16) | minor`.
-- `GetPluginVersion(major, minor, patch)` - OSF UI's release.
-- `GetBridgeProtocolVersion()` - the web protocol string. Informational.
-- `IsBridgeReady()` - true when a bridge-enabled view is live.
+- `GetInterfaceVersion()` — packed `(major << 16) | minor`.
+- `GetPluginVersion(major, minor, patch)` — OSF UI's release.
+- `GetBridgeProtocolVersion()` — the web protocol string. Informational.
+- `IsBridgeReady()` — true when a bridge-enabled view is live.
 
 To run code the moment the bridge goes live (and again after re-creation):
 
@@ -213,18 +439,18 @@ g_ui.SetReadyCallback([](void*) noexcept {
 }, nullptr);
 ```
 
-You rarely need this. You can `SendToWeb` before the bridge is ready and the message is queued, not dropped.
+You rarely need this. `SetViewState` before the bridge is ready is retained, not
+dropped, and `SendToWeb` is queued for a known target — so "wait until ready" is
+almost never a thing you have to express.
 
 ---
 
-## 5. Settings, hotkeys, views, and health
+## 8. Settings, hotkeys, views, and health
 
-Callable from any thread; callbacks fire on the game main thread. 
+Callable from any thread; callbacks fire on the game main thread.
 The JS side of these lives in [authoring-settings.md](authoring-settings.md).
 
-### 5a. Settings
-
-ABI 1.2 (`Feature::kSettings`).
+### 8a. Settings
 
 Typed getters — synchronous, any thread. They read a value mirror, not the
 store. Return false/0 on unknown key or wrong type.
@@ -270,10 +496,6 @@ std::uint32_t token = g_ui.SubscribeSettings("acme.mymod", &OnSetting, nullptr);
 g_ui.UnsubscribeSettings(token);   // 0 means the subscribe was rejected
 ```
 
-On a host older than one of your setting types, the getters and replay serve the
-schema default. The user's saved value stays on disk and comes back when they
-upgrade.
-
 Register a schema at runtime instead of shipping a file (same JSON):
 
 ```cpp
@@ -286,9 +508,7 @@ g_ui.UnregisterSettingsSchema("acme.mymod");   // keeps the user's saved values
 User values overlay from the same file as the drop-in tier, so you can migrate
 from a file to a runtime registration without losing settings.
 
-### 5b. Hotkeys
-
-ABI 1.4 (`Feature::kHotkeys`).
+### 8b. Hotkeys
 
 Fires when the key currently bound to a key-typed setting is pressed. You
 subscribe to the setting, not a key code — OSF UI re-resolves it on every
@@ -308,23 +528,12 @@ Doesn't fire while the overlay is capturing text or during a rebind, and key
 repeats don't fire. Conflicting bindings across mods all fire — the settings UI
 flags conflicts but never blocks them.
 
-### 5c. Views
-
-ABI 1.5 (`Feature::kRegisterView`).
+### 8c. Views
 
 Validates a discovered `views/<modId>/<viewName>/` folder your mod ships. The
 view appears in the Mods surface and responds to `RequestMenu` and the web
 `menu.open`; its WebView2 page is created only when first opened unless its
 manifest has `openOnStart:true`.
-
-```cpp
-g_ui.RegisterView("acme.mymod/dashboard");                            // validate registration; page stays lazy
-g_ui.SendToWeb("acme.mymod/dashboard", "acme.mymod.state", "{...}");  // optional pre-state
-g_ui.RequestMenu("acme.mymod/dashboard", true);                       // open
-```
-
-Issue all three back-to-back from any thread — they apply in order on the same
-tick, and (§6a) the page sees the state message before its first paint.
 
 - Idempotent — an already-live view isn't reloaded.
 - A missing folder just warns (ship the folder with your mod).
@@ -338,9 +547,7 @@ tick, and (§6a) the page sees the state message before its first paint.
 plain drop-in view is found at boot and loads on first open with no plugin at
 all.
 
-### 5d. Session health
-
-ABI 1.7 (`Feature::kDiagnostics`).
+### 8d. Session health
 
 Report a condition into OSF UI's **System Health** pane — the one place a player
 looks when something is wrong, whichever mod noticed it. Don't build a second
@@ -394,71 +601,20 @@ way in — anything path-, URL-, or command-shaped is cut to its trailing
 component, because an absolute path identifies the player's machine and account.
 Pass bare filenames and ids; don't rely on nested values surviving.
 
-On a host older than 1.7 all three are no-ops returning false. Reporting your
-health unconditionally is safe — you just have nowhere to report to.
-
 ---
 
-## 6. Native → web messaging
-
-### 6a. SendToWeb
-
-Sends `{ "type": type, "payload": payloadJson }` to one view. `payloadJson` must
-be valid JSON. It arrives at that view's `osfui.onMessage`.
-
-With the optional facade, pass JSON or any `nlohmann`-convertible struct:
-
-```cpp
-OSFUI::API::JsonClient jsonUi{ g_ui };
-jsonUi.SendToWeb("acme.mymod/dashboard", "acme.mymod.state", {
-    { "hp", 42 },
-    { "credits", 1000 }
-});
-```
-
-The dependency-free low-level call remains available:
-
-```cpp
-g_ui.SendToWeb("acme.mymod/dashboard", "acme.mymod.state",
-               "{\"hp\":42,\"credits\":1000}");
-```
-
-`JsonClient` also accepts JSON directly for `RegisterSettingsSchema`,
-`ReportIssue`, and `ClearIssuesExcept`, removing every manual `dump()` lifetime
-from the public API's JSON-bearing calls.
-
-**Delivery guarantee (ABI 1.3).** A message to a known view is held or queued
-until that target can receive it. Lazy or idle-reclaimed targets retain it on
-the game side; a loading page retains it in the renderer; a suspended page is
-resumed for delivery. The queue flushes FIFO before the view's first visible
-paint after `RequestMenu(view, true)`. So:
-
-```cpp
-g_ui.SendToWeb(v, "acme.mymod.state", "{...}");
-g_ui.RequestMenu(v, true);
-```
-
-opens the view already in the right state — no flash of default content.
-
-Queues are bounded (drops oldest, logs a warning), so a view that never opens
-can't leak memory. `SendToWeb` returns false only on null args or bad JSON.
-
-**Open/close a view:** `RequestMenu(view, open)` (ABI 1.1). Opening a discovered
-folder loads it on demand. Returns true if an open target exists and the request
-was queued; false if no such view was found. Closing works only on a loaded
-view. True doesn't promise the page renders.
-
----
-
-## 7. Threading & lifetime
+## 9. Threading & lifetime
 
 **Threading**
 
-- Any thread, synchronous: all status reads and the typed setting getters.
-- Any thread, applied next tick: every mutating call (register, send, subscribe,
-  request menu, etc.).
+- Any thread, synchronous: all status reads, the typed setting getters, and the
+  validation half of every mutating call.
+- Any thread, applied next tick: the *effect* of every mutating call (register,
+  send, publish state, subscribe, request menu, report issue).
 - Always the main thread: every callback (`CommandFn`, `RequestFn`, `ReadyFn`,
   `SettingChangedFn`, `HotkeyFn`). Keep them cheap.
+- `Request::Respond` / `Reject` are the exception on the answering side: safe
+  from any thread, at any later time.
 
 **Lifetime**
 
@@ -470,23 +626,29 @@ view. True doesn't promise the page renders.
 - Settings replay can deliver the same value twice. Make `SettingChangedFn`
   idempotent.
 - Strings returned by the API are static, valid for the process.
+- Retained view state outlives every document and every save load; it is dropped
+  only when the runtime shuts down. Don't put a session-scoped identity in it.
 - OSF UI owns the bridge; never delete it.
 
 ---
 
-## 8. Method reference
+## 10. Method reference
 
-All on `IOSFUIBridge`, mirrored on `Client` (which adds the version gate).
+All on `IOSFUIBridge`, mirrored on `Client` (which adds the version gate). The
+**Since** column is history: every one of these is present in every 2.x host.
 
-| Method | ABI | Thread | Notes |
+| Method | Since | Thread | Notes |
 |---|---|---|---|
 | `GetInterfaceVersion()` | 1.0 | any | packed `(major<<16)｜minor` |
 | `GetPluginVersion(maj,min,pat)` | 1.0 | any | OSF UI release |
 | `GetBridgeProtocolVersion()` | 1.0 | any | don't parse |
 | `IsBridgeReady()` | 1.0 | any | a view is live |
-| `RegisterCommand(cmd,fn,user)` | 1.0 | any | shape `<author>.<modname>.<name>` (1.6) |
+| `RegisterCommand(cmd,fn,user)` | 1.0 | any | SEND endpoint; shape `<author>.<modname>.<name>` |
 | `UnregisterCommand(cmd)` | 1.0 | any | |
-| `SendToWeb(view,type,json)` | 1.0 | any | queued; delivery guarantee at 1.3 |
+| `RegisterRequest(name,fn,user)` | 1.7 | any | first-wins across commands and requests; callback on main |
+| `UnregisterRequest(name)` | 1.7 | any | in-flight tokens stay valid until answer/timeout/close |
+| `SendToWeb(view,type,json)` | 1.0 | any | one-shot EVENT to one view; queued, never replayed |
+| `SetViewState(mod,key,json)` | 2.0 | any | retained STATE; replayed to every fresh document |
 | `SetReadyCallback(fn,user)` | 1.0 | any | fires on main thread |
 | `RequestMenu(view,open)` | 1.1 | any | open loads on demand; close needs a loaded view |
 | `SubscribeSettings(mod,fn,user)` | 1.2 | any | replayed on subscribe; returns token/0 |
@@ -501,25 +663,48 @@ All on `IOSFUIBridge`, mirrored on `Client` (which adds the version gate).
 | `ReportIssue(mod,id,code,sev,subj,ctx)` | 1.7 | any | false on bad mod id / empty id or code / non-object context |
 | `ClearIssue(mod,id)` | 1.7 | any | true = queued, not "was active" |
 | `ClearIssuesExcept(mod,keepJson)` | 1.7 | any | keep list is a JSON array of ids |
-| RegisterRequest(name,fn,user) | 1.7 | any | first-wins across commands and requests; callback on main |
-| UnregisterRequest(name) | 1.7 | any | in-flight tokens remain valid until answer/timeout/close |
 
 ---
 
-## 9. Example plugin
+## 11. Example plugin
 
-Surfaces its own view, seeds it with state, reacts to a setting, and answers a
-command. Never hard-fails when OSF UI is absent.
+Surfaces its own view, publishes state it can never be asked to re-send, answers
+one request, notes one command, and reacts to a setting. Never hard-fails when
+OSF UI is absent.
 
 ```cpp
 #include "OSFUI_API.h"
+#include "OSFUI_JSON.h"
 using namespace OSFUI::API;
 
-static Client g_ui;
+static Client     g_ui;
+static JsonClient g_json{ g_ui };
 
-static void OnRefresh(const char*, const char*, const char* srcView, void*) noexcept
+// STATE: true until it changes, so the runtime replays it to every document.
+static void PublishShip()
 {
-    g_ui.SendToWeb(srcView, "acme.mymod.state", "{\"credits\":1000}");
+    if (!g_json.SetViewState("acme.mymod", "ship", {
+            { "hull", CurrentHull() },
+            { "grav", CurrentGrav() },
+        })) {
+        LogRefusedStateWrite();   // a shape bug in this call, never a delivery failure
+    }
+}
+
+// A REQUEST: the view wants an answer.
+static void OnGetWeight(const Request& raw, void*) noexcept
+{
+    JsonRequest request{ raw };
+    if (!request) return;
+    const auto formId = request.Get<std::uint32_t>("formId");
+    if (!formId) return;
+    request.Respond({ { "weight", ReadWeight(*formId) } });
+}
+
+// A COMMAND: one-way. Nothing is sent back, and nothing needs to be.
+static void OnDock(const char*, const char*, const char*, void*) noexcept
+{
+    BeginDocking();
 }
 
 static void OnSetting(const char*, const char* key, const char* valueJson, void*) noexcept
@@ -532,28 +717,34 @@ static void OnSetting(const char*, const char* key, const char* valueJson, void*
 // Call once from SFSE kPostLoad.
 void InitOsfUi()
 {
-    if (!g_ui.Init()) return;   // OSF UI absent — degrade silently
+    if (!g_ui.Init()) return;   // OSF UI absent or 1.x-era — degrade silently
 
-    g_ui.RegisterCommand("acme.mymod.refresh", &OnRefresh, nullptr);
+    g_ui.RegisterRequest("acme.mymod.getWeight", &OnGetWeight, nullptr);
+    g_ui.RegisterCommand("acme.mymod.dock", &OnDock, nullptr);
+    g_ui.SubscribeSettings("acme.mymod", &OnSetting, nullptr);
 
-    if (g_ui.Has(Feature::kSettings)) {
-        g_ui.SubscribeSettings("acme.mymod", &OnSetting, nullptr);
-    }
-
-    if (g_ui.Has(Feature::kRegisterView)) {
-        g_ui.RegisterView("acme.mymod/dashboard");
-        g_ui.SendToWeb("acme.mymod/dashboard", "acme.mymod.state", "{\"credits\":1000}");
-        g_ui.RequestMenu("acme.mymod/dashboard", true);
-    }
+    g_ui.RegisterView("acme.mymod/dashboard");
+    PublishShip();                                     // seeds the page whenever it loads
+    g_ui.RequestMenu("acme.mymod/dashboard", true);
 }
+```
+
+The view's half is three lines and has no lifecycle code:
+
+```js
+osfui.state.on("acme.mymod/ship", (ship) => render(ship));
+document.querySelector("#dock").onclick = () => osfui.send("acme.mymod.dock");
+const { weight } = await osfui.request("acme.mymod.getWeight", { formId });
 ```
 
 ---
 
-## 10. See also
+## 12. See also
 
 - [`sdk/OSFUI_API.h`](../sdk/OSFUI_API.h) — the header (source of truth).
 - [`sdk/README.md`](../sdk/README.md) — SDK overview.
+- [mod-api-2.0-design.md](mod-api-2.0-design.md) — why the four verbs, and what 2.0 deleted.
 - [authoring-views.md](authoring-views.md) — the view (JS) side, `window.osfui`.
 - [authoring-settings.md](authoring-settings.md) — settings schemas and reading them.
-- [security-model.md](security-model.md) — where native command registration sits in the trust model.
+- [authoring-dynamic-data.md](authoring-dynamic-data.md) — the Papyrus half of the same grid.
+- [security-model.md](security-model.md) — where native endpoint registration sits in the trust model.

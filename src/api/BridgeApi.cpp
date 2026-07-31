@@ -3,16 +3,17 @@
 #include "core/Version.h"
 #include "runtime/Ids.h"            // qualified view id shape — the synchronous RegisterView gate
 #include "runtime/MessageBridge.h"  // also pulls nlohmann/json
+#include "runtime/Json.h"           // Dump — never a bare dump() on a tick path
 #include "runtime/SettingsStore.h"  // ValidateSchemaShape — the synchronous shape gate
 
 namespace OSFUI::API
 {
 	namespace
 	{
-		// Command shape (api-freeze item 3, ABI 1.6): a plugin command is
+		// Endpoint shape (api-freeze item 3): a plugin endpoint is
 		// "<modId>.<name>" with modId the item-1 "<author>.<modname>" grammar, so
-		// every registrable command carries two dots minimum. That makes platform
-		// commands structurally unregisterable (dotless verbs like "close",
+		// every registrable name carries two dots minimum. That makes platform
+		// endpoints structurally unregisterable (dotless verbs like "close",
 		// single-dot "menu.open"/"game.get"/"osfui.gamepadRaw") without a
 		// reserved-prefix list that could drift. The mod id must be pattern-valid
 		// but need not have a registered schema; the name after it is free-form
@@ -194,6 +195,74 @@ namespace OSFUI::API
 		}
 		_pendingSends.push_back({ std::string(a_viewId), std::string(a_type), std::string(a_payloadJson) });
 		return true;
+	}
+
+	bool BridgeApi::SetViewState(const char* a_modId, const char* a_key, const char* a_payloadJson)
+	{
+		if (!a_modId || !a_key || !a_payloadJson || !a_key[0]) {
+			return false;
+		}
+		if (!Ids::IsAcceptedModId(a_modId)) {
+			REX::WARN("BridgeApi: [content] refused SetViewState('{}') — mod ids are '<author>.<modname>'",
+				std::string_view(a_modId).substr(0, 128));
+			return false;
+		}
+		// Bound the key like every other content-supplied name: it is echoed on
+		// the wire and used as a cache key.
+		const std::string key(a_key);
+		if (key.size() > 128) {
+			REX::WARN("BridgeApi: [content] refused SetViewState — key longer than 128 characters");
+			return false;
+		}
+		// Validate and parse OUTSIDE the mutex (this is callable from any
+		// thread), then take it only to queue. Any JSON VALUE is legal, not just
+		// an object: a state key may perfectly well be a number or an array.
+		auto parsed = nlohmann::json::parse(a_payloadJson, nullptr, /*allow_exceptions*/ false);
+		if (parsed.is_discarded()) {
+			REX::WARN("BridgeApi: [content] refused SetViewState('{}.{}') — payload is not valid JSON", a_modId, key);
+			return false;
+		}
+		std::lock_guard lock(_mutex);
+		constexpr std::size_t kMaxPendingStateOps = 256;
+		if (_pendingStateOps.size() >= kMaxPendingStateOps) {
+			REX::WARN("BridgeApi: pending SetViewState queue full; dropping '{}.{}'", a_modId, key);
+			return false;
+		}
+		_pendingStateOps.push_back(ViewStateOp{ std::string(a_modId), key, std::move(parsed) });
+		return true;
+	}
+
+	void BridgeApi::NoteLegacyApiCaller(std::string a_moduleName, std::uint32_t a_major, std::uint32_t a_minor)
+	{
+		std::lock_guard lock(_mutex);
+		// Bounded, and deduped by module: a plugin that retries on every load
+		// screen must not grow this, and the player needs one card per mod.
+		constexpr std::size_t kMaxLegacyCallers = 32;
+		for (const auto& seen : _legacyCallers) {
+			if (seen.module == a_moduleName) {
+				return;
+			}
+		}
+		if (_legacyCallers.size() >= kMaxLegacyCallers) {
+			return;
+		}
+		_legacyCallers.push_back(LegacyCaller{ std::move(a_moduleName), a_major, a_minor });
+	}
+
+	std::vector<BridgeApi::LegacyCaller> BridgeApi::TakeLegacyApiCallers()
+	{
+		std::lock_guard lock(_mutex);
+		std::vector<LegacyCaller> out;
+		out.swap(_legacyCallers);
+		return out;
+	}
+
+	std::vector<BridgeApi::ViewStateOp> BridgeApi::TakeViewStateOps()
+	{
+		std::lock_guard lock(_mutex);
+		std::vector<ViewStateOp> out;
+		out.swap(_pendingStateOps);
+		return out;
 	}
 
 	void BridgeApi::SetReadyCallback(ReadyFn a_callback, void* a_user)
@@ -511,10 +580,10 @@ namespace OSFUI::API
 		const nlohmann::json& payload, MessageBridge& bridge)
 	{
 		const std::string view(bridge.CurrentSource());
+		// A request always carries an id in 2.0 — the bridge rejects one that
+		// does not before dispatch ever happens — so there is no
+		// "request-id-required" case left to answer.
 		const std::string requestId(bridge.CurrentRequestId());
-		if (requestId.empty()) {
-			bridge.SendToWeb("ui.error", { { "code", "request-id-required" }, { "message", "request requires a requestId" } }); return;
-		}
 		Request request;
 		std::string payloadJson;
 		{
@@ -522,9 +591,12 @@ namespace OSFUI::API
 			const auto count = static_cast<std::size_t>(std::ranges::count_if(
 				_inflightRequests, [&](const auto& e) { return e.second.view == view; }));
 			if (count >= kMaxInflightRequestsPerView) {
-				bridge.SendToWeb("ui.error", { { "code", "request-capacity" }, { "message", "too many requests are already in flight" } }); return;
+				bridge.Reject("request-capacity", "too many requests are already in flight"); return;
 			}
-			auto body = payload; body.erase("command"); payloadJson = body.dump();
+			// The payload is the caller's own object, verbatim: routing metadata
+			// lives beside it on the envelope now, so there is no `command` field
+			// to strip out of it first.
+			payloadJson = Json::Dump(payload);
 			const auto token = _nextRequestToken++;
 			InflightRequest inflight;
 			inflight.token = token;
@@ -536,6 +608,10 @@ namespace OSFUI::API
 			request.command = name.c_str(); request.payloadJson = payloadJson.c_str(); request.sourceViewId = view.c_str();
 			request._token = token; request._respond = &RespondThunk; request._reject = &RejectThunk;
 		}
+		// Take ownership of the correlation id: the plugin answers through
+		// Request::Respond/Reject, whenever it gets there, and PumpMainThread
+		// settles it (or expires it at the host deadline).
+		bridge.Defer();
 		reg.fn(request, reg.user);
 	}
 	void BridgeApi::OnBridgeReady(MessageBridge* a_bridge)
@@ -591,23 +667,40 @@ namespace OSFUI::API
 					PendingReply reply;
 					reply.view = req.view;
 					reply.requestId = req.requestId;
-					if (!req.answered) { reply.type = "ui.error"; reply.payloadJson = nlohmann::json{ { "code", "no-response" }, { "message", "plugin did not answer the request" } }.dump(); }
-					else if (req.rejected) { reply.type = "ui.error"; reply.payloadJson = nlohmann::json{ { "code", req.code }, { "message", req.message } }.dump(); }
-					else { reply.type = req.type; reply.payloadJson = req.payloadJson; }
+					reply.name = req.name;
+					if (!req.answered) { reply.rejected = true; reply.code = "no-response"; reply.message = "the plugin never answered"; }
+					else if (req.rejected) { reply.rejected = true; reply.code = req.code; reply.message = req.message; }
+					else { reply.payloadJson = req.payloadJson; }
 					replies.push_back(std::move(reply)); it = _inflightRequests.erase(it);
 				}
 			}
 		}
 		if (bridge) {
-			for (const auto& name : commandRemovals) bridge->UnregisterCommand(name);
+			for (const auto& name : commandRemovals) bridge->UnregisterSend(name);
 			for (const auto& name : requestRemovals) bridge->UnregisterRequest(name);
-			for (const auto& [name, reg] : commands) bridge->RegisterCommand(name, [name, reg](const nlohmann::json& payload, MessageBridge& b) {
-				std::string dump; if (const auto rid = b.CurrentRequestId(); !rid.empty()) { auto withId = payload; withId["requestId"] = rid; dump = withId.dump(); } else dump = payload.dump();
+			// A registered command is a SEND endpoint: one-way, no settlement.
+			// 1.x injected the caller's `requestId` into the payload and auto-acked
+			// after the handler returned, so a plugin could not tell "delivered"
+			// from "handled" and every command looked awaitable. A plugin that
+			// wants to answer registers a REQUEST.
+			for (const auto& [name, reg] : commands) bridge->RegisterSend(name, [name, reg](const nlohmann::json& payload, MessageBridge& b) {
+				const auto dump = Json::Dump(payload);
 				const std::string src(b.CurrentSource()); reg.fn(name.c_str(), dump.c_str(), src.c_str(), reg.user);
 			});
 			for (const auto& [name, reg] : requests) bridge->RegisterRequest(name, [this, name, reg](const nlohmann::json& payload, MessageBridge& b) { DispatchRequest(name, reg, payload, b); });
-			for (const auto& send : sends) bridge->SendJsonToWeb(send.view, send.type, send.payloadJson);
-			for (const auto& reply : replies) bridge->SendToWeb(reply.view, reply.type, nlohmann::json::parse(reply.payloadJson, nullptr, false), reply.requestId);
+			// A plugin push is an EVENT: unsolicited, one-shot, never replayed.
+			// Backend-owned data that changes over time belongs in SetViewState.
+			for (const auto& send : sends) bridge->EmitJson(send.view, send.type, send.payloadJson);
+			for (const auto& reply : replies) {
+				if (reply.rejected) {
+					REX::WARN("BridgeApi: request '{}' from view '{}' -> {}", reply.name, reply.view, reply.code);
+					bridge->RejectTo(reply.requestId, reply.code, reply.message);
+					// The page would otherwise only learn "no reply, eventually".
+					bridge->Surface(reply.view, reply.code, reply.message, { { "name", reply.name } });
+				} else {
+					bridge->RespondJsonTo(reply.requestId, reply.payloadJson);
+				}
+			}
 		}
 		_ready.store(bridge != nullptr);
 		bool invokeReady = false;

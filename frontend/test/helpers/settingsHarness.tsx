@@ -1,83 +1,169 @@
 // Fake bridge + mount helpers shared by the settings-view test suites.
 // Test only.
+//
+// Bridge protocol 2.0. The fake keeps the four verbs apart exactly as the real
+// bridge does, because that split is most of what these suites now pin:
+//
+//   send(name, payload)    one-way. Recorded in `sent`; never settles.
+//   request(name, payload) recorded in `requests`; settled BY INDEX through
+//                          settle() / reject().
+//   on(event, fn)          one-shot happenings, fired with deliver(). NEVER
+//                          replayed to a later subscriber.
+//   state(key, fn)         named values: the handler runs IMMEDIATELY with the
+//                          current value and again on every publish().
+//
+// Seeding `makeBridge({ state: { ... } })` models the host replaying state to a
+// fresh document — the reason a 2.0 view issues no reads and needs no
+// lifecycle code. Publishing afterwards models a later change push.
 
 import { render } from 'preact';
 import { act } from 'preact/test-utils';
 import { nullBridge, type Bridge } from '@lib/bridge';
 import { App } from '@views/osfui/settings/App';
+import type { RuntimeInfo } from '@sdk';
 
-type Listener = (payload: unknown, message: unknown) => void;
+type Handler = (value: unknown) => void;
+
+/** One outbound envelope, minus the verb that carried it. */
+export interface OutboundMessage {
+  name: string;
+  payload?: Record<string, unknown>;
+}
 
 export interface FakeBridge extends Bridge {
-  deliver(type: string, payload: unknown, message?: unknown): void;
-  sent: Array<{ command: string; fields?: Record<string, unknown> }>;
-  requests: Array<{ command: string; fields?: Record<string, unknown>; opts?: unknown }>;
+  /** Fire a one-shot EVENT at whatever subscribed through on(). Not replayed. */
+  deliver(event: string, payload: unknown): void;
+  /** Publish a STATE key. Replayed to every later subscriber, and to peek(). */
+  publish(key: string, value: unknown): void;
+  sent: OutboundMessage[];
+  requests: Array<OutboundMessage & { opts?: unknown }>;
+  /**
+   * Every outbound message in issue order, sends and requests alike.
+   *
+   * Several platform endpoints the settings view drives — `menu.open`,
+   * `osfui.openLogFolder`, `osfui.openModPage` — are REQUEST endpoints in 2.0
+   * while the view still posts them through its fire-and-forget `sendCommand`
+   * helper. What these suites are about is WHICH endpoint was addressed and
+   * with what payload, so they assert against this view and stay honest either
+   * side of that (frontend/src) fix.
+   */
+  outbound: OutboundMessage[];
   settle(index: number, value: unknown): void;
   reject(index: number, err: unknown): void;
-  countRequests(command: string): number;
-  /** Index of the Nth (0-based) request matching `command`, or -1. */
-  indexOf(command: string, nth?: number): number;
+  countRequests(name: string): number;
+  /** Index of the Nth (0-based) request matching `name`, or -1. */
+  indexOf(name: string, nth?: number): number;
 }
 
 export interface MakeBridgeOptions {
   version?: string;
   available?: boolean;
   /**
-   * Never resolve `ready()`. Models a transport that missed the one-shot
-   * `runtime.ready` greeting (the WebView2 host process starts long after the
-   * runtime emits it). The view must still work: nothing but the version badge
-   * may depend on that handshake.
+   * State the host has already replayed to this document, present before the
+   * first paint. Keys are absolute ("osfui/settings", "osfui/views", ...).
+   */
+  state?: Record<string, unknown>;
+  /**
+   * Never settle `ready()`. Nothing but the version badge may depend on the
+   * handshake — the data arrives as replayed state either way.
    */
   readyNeverResolves?: boolean;
+  /** Reject `ready()`, as the 2.0 helper does with no bridge underneath it. */
+  readyRejects?: boolean;
 }
 
 export function makeBridge(opts: MakeBridgeOptions = {}): FakeBridge {
-  const listeners = new Map<string, Set<Listener>>();
+  const eventListeners = new Map<string, Set<Handler>>();
+  const stateListeners = new Map<string, Set<Handler>>();
+  const values = new Map<string, unknown>(Object.entries(opts.state ?? {}));
   const pending: Array<{ resolve: (v: unknown) => void; reject: (e: unknown) => void }> = [];
-  const version = opts.version ?? '1.0.0';
   const available = opts.available ?? true;
+
+  const info: RuntimeInfo = {
+    game: 'Starfield',
+    plugin: 'OSF UI',
+    version: opts.version ?? '1.0.0',
+    bridgeVersion: '2.0',
+    view: 'osfui/settings',
+    mod: 'osfui',
+  };
+
+  const subscribe = (map: Map<string, Set<Handler>>, key: string, fn: Handler) => {
+    let set = map.get(key);
+    if (!set) {
+      set = new Set();
+      map.set(key, set);
+    }
+    set.add(fn);
+    return () => {
+      map.get(key)?.delete(fn);
+    };
+  };
 
   const bridge: FakeBridge = {
     ...nullBridge,
     available: () => available,
     sent: [],
     requests: [],
-    ready() {
-      return opts.readyNeverResolves
-        ? (new Promise(() => {}) as never)
-        : (Promise.resolve({ version }) as never);
-    },
-    emit(command, fields) {
-      bridge.sent.push(fields === undefined ? { command } : { command, fields });
+    outbound: [],
+
+    send(name: string, payload?: Record<string, unknown>) {
+      const message: OutboundMessage = payload === undefined ? { name } : { name, payload };
+      bridge.sent.push(message);
+      bridge.outbound.push(message);
       return available;
     },
-    call(command: string, fields?: Record<string, unknown>, o?: unknown) {
-      bridge.requests.push(
-        fields === undefined ? { command, opts: o } : { command, fields, opts: o },
-      );
+
+    request(name: string, payload?: Record<string, unknown>, o?: unknown) {
+      const message: OutboundMessage = payload === undefined ? { name } : { name, payload };
+      bridge.requests.push(o === undefined ? { ...message } : { ...message, opts: o });
+      bridge.outbound.push(message);
       return new Promise((resolve, reject) => {
         pending.push({ resolve: resolve as (v: unknown) => void, reject });
       }) as never;
     },
-    on(type: string, fn: unknown) {
-      let set = listeners.get(type);
-      if (!set) {
-        set = new Set();
-        listeners.set(type, set);
-      }
-      set.add(fn as Listener);
-      return () => {
-        const s = listeners.get(type);
-        if (s) s.delete(fn as Listener);
-      };
+
+    on(event: string, fn: unknown) {
+      return subscribe(eventListeners, event, fn as Handler);
     },
+    onAny(event: string, fn: unknown) {
+      return subscribe(eventListeners, event, fn as Handler);
+    },
+
+    state(key: string, fn: unknown) {
+      const off = subscribe(stateListeners, key, fn as Handler);
+      // The defining property: subscribing IS the read.
+      if (values.has(key)) (fn as Handler)(values.get(key));
+      return off;
+    },
+    peek(key: string) {
+      return values.get(key) as never;
+    },
+
+    ready() {
+      if (opts.readyNeverResolves) return new Promise(() => {}) as never;
+      if (opts.readyRejects) {
+        return Promise.reject(
+          Object.assign(new Error('no bridge (standalone preview)'), { code: 'no-bridge' }),
+        ) as never;
+      }
+      return Promise.resolve(info) as never;
+    },
+
     applyAccent() {
       // DOM side-effect is not under test.
     },
-    deliver(type, payload, message) {
-      const set = listeners.get(type);
-      if (set) for (const fn of [...set]) fn(payload, message);
+
+    deliver(event, payload) {
+      const set = eventListeners.get(event);
+      if (set) for (const fn of [...set]) fn(payload);
     },
+    publish(key, value) {
+      values.set(key, value);
+      const set = stateListeners.get(key);
+      if (set) for (const fn of [...set]) fn(value);
+    },
+
     settle(index, value) {
       const p = pending[index];
       if (p) p.resolve(value);
@@ -86,13 +172,13 @@ export function makeBridge(opts: MakeBridgeOptions = {}): FakeBridge {
       const p = pending[index];
       if (p) p.reject(err);
     },
-    countRequests(command) {
-      return bridge.requests.filter((r) => r.command === command).length;
+    countRequests(name) {
+      return bridge.requests.filter((r) => r.name === name).length;
     },
-    indexOf(command, nth = 0) {
+    indexOf(name, nth = 0) {
       let seen = 0;
       for (let i = 0; i < bridge.requests.length; i++) {
-        if (bridge.requests[i]!.command === command) {
+        if (bridge.requests[i]!.name === name) {
           if (seen === nth) return i;
           seen++;
         }

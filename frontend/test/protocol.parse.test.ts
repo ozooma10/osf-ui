@@ -1,37 +1,51 @@
 // @vitest-environment jsdom
 //
-// Inbound frame parsing, plus the shipped helper's dispatch semantics: replies
-// that resolve a request() also dispatch to on() subscribers, so one render path
-// can consume settings.data no matter who asked. The double-delivery is intended.
+// Inbound frame parsing and dispatch (bridge protocol 2.0). The helper routes
+// on `kind` alone, into four separate channels that never cross:
+//
+//   ready  -> the `ready` promise          (the answer to the page's hello)
+//   state  -> state.on / state.get         (latest-wins, replayed on subscribe)
+//   event  -> on()                         (one-shot, never replayed, never cached)
+//   reply/error -> the request that owns the id  (see protocol.pluginack)
+//
+// 1.x fanned a reply out to on() subscribers as well, which is what made
+// "settings.data" both a reply type and a push type. That is gone: this file
+// pins the separation, the state cache's synchronous replay (the reason a
+// correct 2.0 view needs no lifecycle code), and the two console surfaces —
+// host-detected misuse (`osfui.debug.error`) and the opt-in traffic trace.
 
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+
 // Read from disk rather than imported: osfui.js is a classic script, not a
 // module. Resolved against the vitest root (frontend/) because under jsdom
 // `import.meta.url` is an http: URL, not a file: one.
 const HELPER_SRC = readFileSync(resolve(process.cwd(), 'src/shared-kit/osfui.js'), 'utf8');
 
 interface Frame {
-  type: string;
-  requestId?: string;
-  payload: Record<string, unknown>;
+  kind: string;
+  name: string;
+  id?: string;
+  payload?: unknown;
 }
 
 interface Helper {
-  available(): boolean;
-  send(command: string, fields?: Record<string, unknown>): boolean;
-  request(
-    command: string,
-    fields?: Record<string, unknown>,
-    opts?: { timeoutMs?: number },
-  ): Promise<{ type: string; requestId?: string; payload: unknown }>;
-  on(type: string, fn: (payload: unknown, message: unknown) => void): () => void;
-  onMessage(json: string): void;
   ready: Promise<unknown>;
-  i18nReady: Promise<{ locale: string; strings: Record<string, string> }>;
-  locale(): string;
-  t(address: string, english: string, vars?: Record<string, string | number>): string;
+  send(name: string, payload?: Record<string, unknown>): boolean;
+  request(name: string, payload?: Record<string, unknown>): Promise<unknown>;
+  on(event: string, fn: (payload: unknown) => void): () => void;
+  state: {
+    get(key: string): unknown;
+    on(key: string, fn: (value: unknown) => void): () => void;
+  };
+  i18n: {
+    ready: Promise<{ locale: string; strings: Record<string, string> }>;
+    readonly locale: string;
+    t(address: string, english: string, vars?: Record<string, string | number>): string;
+    localize(root?: ParentNode): void;
+  };
+  onMessage(json: string): void;
 }
 
 /** See protocol.envelope.test.ts for why this is `new Function`, not an import. */
@@ -43,6 +57,7 @@ function loadHelper(): { helper: Helper; sent: Frame[] } {
     },
   };
   new Function(HELPER_SRC)();
+  // sent[0] is the helper's own `osfui.hello`.
   return { helper: window.osfui as unknown as Helper, sent };
 }
 
@@ -51,124 +66,303 @@ function deliver(helper: Helper, message: unknown): void {
   helper.onMessage(JSON.stringify(message));
 }
 
+/** True when `promise` has not settled by the next microtask drain. */
+async function stillPending(promise: Promise<unknown>): Promise<boolean> {
+  const sentinel = Symbol('pending');
+  return (await Promise.race([promise.then(() => 'settled' as const), Promise.resolve(sentinel)])) === sentinel;
+}
+
+let logged: unknown[][] = [];
+let debugged: unknown[][] = [];
+
+beforeEach(() => {
+  logged = [];
+  debugged = [];
+  vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => void logged.push(args));
+  vi.spyOn(console, 'debug').mockImplementation((...args: unknown[]) => void debugged.push(args));
+});
+
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
+  // jsdom shares one document across the file: the i18n cases write
+  // <html lang> and translate nodes, so both are reset between cases.
+  document.documentElement.lang = '';
+  document.body.innerHTML = '';
+  window.localStorage.clear();
 });
 
-describe('shipped helper — dispatch semantics', () => {
-  it('settles the request promise AND fans out to on() subscribers', async () => {
-    const { helper, sent } = loadHelper();
-    const seen: Array<[unknown, unknown]> = [];
-    helper.on('settings.data', (payload, message) => seen.push([payload, message]));
+describe('frame parsing', () => {
+  it('ignores malformed, typeless and unknown-kind frames without throwing', () => {
+    const { helper } = loadHelper();
+    let calls = 0;
+    helper.on('ui.visibility', () => calls++);
 
-    const promise = helper.request('settings.get');
-    const rid = sent[0]!.requestId!;
-
-    const reply = { type: 'settings.data', requestId: rid, payload: { mods: [] } };
-    deliver(helper, reply);
-
-    // request() resolves with the whole message, not just the payload — views
-    // read `msg.payload` themselves.
-    await expect(promise).resolves.toEqual(reply);
-
-    // ...and the subscriber fired for the same frame: the settings view renders
-    // from on("settings.data") regardless of who issued the settings.get.
-    expect(seen).toHaveLength(1);
-    expect(seen[0]![0]).toEqual({ mods: [] });
-    expect(seen[0]![1]).toEqual(reply);
+    expect(() => helper.onMessage('{')).not.toThrow();
+    expect(() => helper.onMessage('null')).not.toThrow();
+    expect(() => helper.onMessage('[]')).not.toThrow();
+    expect(() => helper.onMessage('{"payload":{}}')).not.toThrow();
+    expect(() => deliver(helper, { kind: 42 })).not.toThrow();
+    expect(() => deliver(helper, { kind: 'someday' })).not.toThrow();
+    expect(calls).toBe(0);
   });
 
-  it('fans out to subscribers even when the reply REJECTS the request', async () => {
-    const { helper, sent } = loadHelper();
-    const errors: unknown[] = [];
-    helper.on('ui.error', (payload) => errors.push(payload));
+  it('ignores a 1.x envelope entirely', async () => {
+    const { helper } = loadHelper();
+    const seen: unknown[] = [];
+    helper.on('ui.result', (p) => seen.push(p));
+    helper.on('settings.data', (p) => seen.push(p));
 
-    const promise = helper.request('nope');
-    const rid = sent[0]!.requestId!;
+    // A 1.x host (or a stale cached page talking to a 2.0 host) speaks `type` /
+    // `requestId`, not `kind`. Nothing routes off those, so a version mismatch
+    // is inert rather than half-working.
+    deliver(helper, { type: 'runtime.ready', payload: { version: '1.5.0' } });
+    deliver(helper, { type: 'settings.data', payload: { mods: [] } });
+    deliver(helper, { type: 'ui.result', requestId: 'q1', payload: { ok: true } });
+
+    expect(seen).toEqual([]);
+    expect(await stillPending(helper.ready)).toBe(true);
+  });
+});
+
+describe('kind:"ready" — the answer to the page hello', () => {
+  it('resolves the ready promise with the RuntimeInfo payload', async () => {
+    const { helper } = loadHelper();
+
     deliver(helper, {
-      type: 'ui.error',
-      requestId: rid,
-      payload: { code: 'unknown-command', message: 'no such command' },
+      kind: 'ready',
+      payload: {
+        game: 'Starfield',
+        plugin: 'OSF UI',
+        version: '2.0.0',
+        bridgeVersion: '2.0',
+        view: 'acme.mymod/dashboard',
+        mod: 'acme.mymod',
+      },
     });
 
-    await expect(promise).rejects.toMatchObject({ code: 'unknown-command' });
-    // Rejection and dispatch are sequential, not exclusive: the reject path
-    // falls through to the subscriber loop.
-    expect(errors).toEqual([{ code: 'unknown-command', message: 'no such command' }]);
+    await expect(helper.ready).resolves.toMatchObject({
+      version: '2.0.0',
+      bridgeVersion: '2.0',
+      view: 'acme.mymod/dashboard',
+      mod: 'acme.mymod',
+    });
   });
 
-  it('dispatches unsolicited pushes (no requestId) to subscribers', () => {
+  it('resolves with {} when the ready frame carries no payload', async () => {
+    const { helper } = loadHelper();
+    deliver(helper, { kind: 'ready' });
+    // `resolveReady(message.payload || {})` — callers read `payload.version`
+    // and would throw on undefined, so the coercion is load-bearing.
+    await expect(helper.ready).resolves.toEqual({});
+  });
+
+  it('triggers NO follow-up traffic — state arrives unasked', async () => {
+    const { helper, sent } = loadHelper();
+
+    deliver(helper, { kind: 'ready', payload: { version: '2.0.0' } });
+    await helper.ready;
+
+    // 1.x answered runtime.ready with an unconditional `i18n.get`, and every
+    // view added its own "on ready, re-request my data" block. In 2.0 the host
+    // replays every state key after `ready` on its own, so the page's entire
+    // outbound boot traffic is the greeting.
+    expect(sent).toEqual([{ kind: 'send', name: 'osfui.hello', payload: {} }]);
+  });
+
+  it('keeps the first value when a second ready arrives', async () => {
+    const { helper } = loadHelper();
+
+    // A re-attached view host can greet twice. A promise resolves once, so the
+    // duplicate is harmless — pinned because the alternative (throwing, or
+    // swapping the value under an already-awaited view) would not be.
+    deliver(helper, { kind: 'ready', payload: { version: '2.0.0' } });
+    deliver(helper, { kind: 'ready', payload: { version: '9.9.9' } });
+
+    await expect(helper.ready).resolves.toMatchObject({ version: '2.0.0' });
+  });
+});
+
+describe('kind:"state" — latest-wins values with replay', () => {
+  it('delivers to subscribers and caches for state.get', () => {
+    const { helper } = loadHelper();
+    const seen: unknown[] = [];
+    helper.state.on('osfui/views', (v) => seen.push(v));
+
+    deliver(helper, { kind: 'state', mod: 'osfui', key: 'views', value: { views: [] } });
+
+    expect(seen).toEqual([{ views: [] }]);
+    expect(helper.state.get('osfui/views')).toEqual({ views: [] });
+  });
+
+  it('replays the current value SYNCHRONOUSLY on subscribe', () => {
+    const { helper } = loadHelper();
+    deliver(helper, { kind: 'state', mod: 'osfui', key: 'settings', value: { mods: [] } });
+
+    let seen: unknown = 'never ran';
+    helper.state.on('osfui/settings', (v) => {
+      seen = v;
+    });
+
+    // No await, no tick: subscribing is a read. A view that has to ask "has it
+    // arrived yet?" is the bug this verb exists to remove — and after F5 the
+    // host replays every key into the fresh document, so the same code path
+    // covers first paint and reload.
+    expect(seen).toEqual({ mods: [] });
+  });
+
+  it('replays only the LATEST value', () => {
+    const { helper } = loadHelper();
+    const seen: unknown[] = [];
+
+    deliver(helper, { kind: 'state', mod: 'acme.mymod', key: 'fuel', value: 1 });
+    deliver(helper, { kind: 'state', mod: 'acme.mymod', key: 'fuel', value: 2 });
+    helper.state.on('acme.mymod/fuel', (v) => seen.push(v));
+    deliver(helper, { kind: 'state', mod: 'acme.mymod', key: 'fuel', value: 3 });
+
+    expect(seen).toEqual([2, 3]);
+    expect(helper.state.get('acme.mymod/fuel')).toBe(3);
+  });
+
+  it('matches keys case-insensitively in both directions', () => {
+    const { helper } = loadHelper();
+    const seen: unknown[] = [];
+    helper.state.on('ACME.MyMod/Ship', (v) => seen.push(v));
+
+    // Papyrus interns strings, so a key can arrive cased differently than the
+    // script authored it.
+    deliver(helper, { kind: 'state', mod: 'acme.mymod', key: 'ship', value: 'Frontier' });
+
+    expect(seen).toEqual(['Frontier']);
+    expect(helper.state.get('acme.mymod/SHIP')).toBe('Frontier');
+  });
+
+  it('delivers a null value as a value', () => {
+    const { helper } = loadHelper();
+    const seen: unknown[] = [];
+    helper.state.on('acme.mymod/target', (v) => seen.push(v));
+
+    // "the backend cleared it" is information; the encoder writes `null` for an
+    // empty value (MessageBridge::EncodeState), so null must not be swallowed.
+    deliver(helper, { kind: 'state', mod: 'acme.mymod', key: 'target', value: null });
+
+    expect(seen).toEqual([null]);
+  });
+
+  it('ignores a frame missing a string mod or key', () => {
+    const { helper } = loadHelper();
+    const seen: unknown[] = [];
+    helper.state.on('osfui/settings', (v) => seen.push(v));
+
+    deliver(helper, { kind: 'state', key: 'settings', value: { mods: [] } });
+    deliver(helper, { kind: 'state', mod: 'osfui', value: { mods: [] } });
+    deliver(helper, { kind: 'state', mod: 7, key: 'settings', value: { mods: [] } });
+
+    // A half-addressed value would cache under a key nothing can subscribe to.
+    expect(seen).toEqual([]);
+    expect(helper.state.get('osfui/settings')).toBeUndefined();
+  });
+
+  it('isolates a throwing state handler and prints it', () => {
+    const { helper } = loadHelper();
+    const seen: string[] = [];
+
+    helper.state.on('osfui/views', () => {
+      seen.push('first');
+      throw new Error('boom');
+    });
+    helper.state.on('osfui/views', () => seen.push('second'));
+
+    deliver(helper, { kind: 'state', mod: 'osfui', key: 'views', value: {} });
+
+    // A buggy view handler must not silence the rest of the page...
+    expect(seen).toEqual(['first', 'second']);
+    // ...and the author has to be able to find it.
+    expect(String(logged[0]![0])).toContain('[osfui] state handler for "osfui/views" threw');
+  });
+
+  it('unsubscribes, and a replay-time throw does not escape subscribe', () => {
+    const { helper } = loadHelper();
+    let calls = 0;
+    const off = helper.state.on('osfui/views', () => calls++);
+    deliver(helper, { kind: 'state', mod: 'osfui', key: 'views', value: 1 });
+    off();
+    deliver(helper, { kind: 'state', mod: 'osfui', key: 'views', value: 2 });
+    expect(calls).toBe(1);
+
+    // The synchronous replay runs inside state.on, so an author's throw would
+    // otherwise take out the caller's setup code.
+    expect(() =>
+      helper.state.on('osfui/views', () => {
+        throw new Error('boom');
+      }),
+    ).not.toThrow();
+  });
+
+  it('requires a function handler', () => {
+    const { helper } = loadHelper();
+    expect(() => helper.state.on('osfui/views', undefined as unknown as () => void)).toThrow(
+      TypeError,
+    );
+  });
+});
+
+describe('kind:"event" — one-shot happenings', () => {
+  it('dispatches to on() subscribers', () => {
     const { helper } = loadHelper();
     const seen: unknown[] = [];
     helper.on('settings.changed', (p) => seen.push(p));
 
-    deliver(helper, { type: 'settings.changed', payload: { mod: 'm', key: 'k', value: 2 } });
+    deliver(helper, {
+      kind: 'event',
+      name: 'settings.changed',
+      payload: { mod: 'm', key: 'k', value: 2 },
+    });
     expect(seen).toEqual([{ mod: 'm', key: 'k', value: 2 }]);
-  });
-
-  it('settles a pending request only ONCE; a repeat frame is subscriber-only', async () => {
-    const { helper, sent } = loadHelper();
-    let calls = 0;
-    helper.on('ui.result', () => calls++);
-
-    const promise = helper.request('close');
-    const rid = sent[0]!.requestId!;
-    const reply = { type: 'ui.result', requestId: rid, payload: { ok: true } };
-
-    deliver(helper, reply);
-    deliver(helper, reply);
-
-    await expect(promise).resolves.toEqual(reply);
-    // The pending entry is deleted on first settle, so the duplicate cannot
-    // re-settle — but it still reaches subscribers.
-    expect(calls).toBe(2);
-  });
-
-  it('treats a reply whose requestId matches NOTHING as an unsolicited push', () => {
-    const { helper, sent } = loadHelper();
-    const seen: unknown[] = [];
-    helper.on('ui.result', (p) => seen.push(p));
-
-    const promise = helper.request('close');
-    const rid = sent[0]!.requestId!;
-
-    // A stale id from a previous page, or a host echoing something we never
-    // asked for. `rid && pending.get(rid)` is falsy, so correlation is skipped
-    // and the frame falls through to the subscriber loop; it must not settle the
-    // unrelated request still in flight.
-    deliver(helper, { type: 'ui.result', requestId: 'q999', payload: { ok: true } });
-    expect(seen).toEqual([{ ok: true }]);
-
-    // The real reply still works afterwards; the stray frame consumed nothing.
-    deliver(helper, { type: 'ui.result', requestId: rid, payload: { ok: true, command: 'close' } });
-    return expect(promise).resolves.toMatchObject({ payload: { command: 'close' } });
-  });
-
-  it('does not correlate on an EMPTY requestId — it is treated as absent', () => {
-    const { helper } = loadHelper();
-    const seen: unknown[] = [];
-    helper.on('ui.result', (p) => seen.push(p));
-
-    // `rid && pending.get(rid)` short-circuits on "" before the map lookup,
-    // mirroring native, which refuses to echo an empty id at all
-    // (MessageBridge.cpp: `id.empty()` -> absent).
-    deliver(helper, { type: 'ui.result', requestId: '', payload: { ok: true } });
-    expect(seen).toEqual([{ ok: true }]);
   });
 
   it('coerces a missing payload to {} before handing it to subscribers', () => {
     const { helper } = loadHelper();
     const seen: unknown[] = [];
-    helper.on('runtime.pong', (p) => seen.push(p));
+    helper.on('settings.persisted', (p) => seen.push(p));
 
-    deliver(helper, { type: 'runtime.pong' });
+    deliver(helper, { kind: 'event', name: 'settings.persisted' });
     expect(seen).toEqual([{}]);
   });
 
-  it('isolates a throwing subscriber from the others', () => {
+  it('ignores an unnamed event', () => {
     const { helper } = loadHelper();
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    let calls = 0;
+    helper.on('', () => calls++);
+    expect(() => deliver(helper, { kind: 'event', payload: {} })).not.toThrow();
+    expect(calls).toBe(0);
+  });
+
+  it('is NEVER replayed — a late subscriber hears nothing', () => {
+    const { helper } = loadHelper();
+    deliver(helper, { kind: 'event', name: 'ui.hotkey', payload: { mod: 'm', key: 'k' } });
+
+    const seen: unknown[] = [];
+    helper.on('ui.hotkey', (p) => seen.push(p));
+
+    // The opposite of state, deliberately: replaying a happening on every fresh
+    // document would re-fire its effects on F5. Backend data that must survive
+    // a reload is state.
+    expect(seen).toEqual([]);
+  });
+
+  it('routes a mod event to its "<mod>.<name>" subscriber', () => {
+    const { helper } = loadHelper();
+    const seen: unknown[] = [];
+    helper.on('acme.mymod.docked', (p) => seen.push(p));
+
+    // Papyrus SendViewEvent / the C ABI's SendToWeb land here.
+    deliver(helper, { kind: 'event', name: 'acme.mymod.docked', payload: { args: [1, 'Neon'] } });
+    expect(seen).toEqual([{ args: [1, 'Neon'] }]);
+  });
+
+  it('isolates a throwing subscriber from the others and prints it', () => {
+    const { helper } = loadHelper();
     const seen: string[] = [];
 
     helper.on('ui.visibility', () => {
@@ -177,11 +371,10 @@ describe('shipped helper — dispatch semantics', () => {
     });
     helper.on('ui.visibility', () => seen.push('second'));
 
-    deliver(helper, { type: 'ui.visibility', payload: { visible: true } });
+    deliver(helper, { kind: 'event', name: 'ui.visibility', payload: { visible: true } });
 
-    // A buggy view handler must not silence the rest of the page.
     expect(seen).toEqual(['first', 'second']);
-    expect(spy).toHaveBeenCalled();
+    expect(String(logged[0]![0])).toContain('[osfui] event handler for "ui.visibility" threw');
   });
 
   it('snapshots the subscriber set, so unsubscribing mid-dispatch is not retroactive', () => {
@@ -195,157 +388,270 @@ describe('shipped helper — dispatch semantics', () => {
     });
     offSecond = helper.on('ui.visibility', () => seen.push('second'));
 
-    deliver(helper, { type: 'ui.visibility', payload: { visible: true } });
+    deliver(helper, { kind: 'event', name: 'ui.visibility', payload: { visible: true } });
 
-    // `for (const fn of [...set])` iterates a copy, so a handler removed during
-    // this dispatch still runs this time.
+    // `for (const fn of Array.from(set))` iterates a copy, so a handler removed
+    // during this dispatch still runs this time.
     expect(seen).toEqual(['first', 'second']);
 
     seen.length = 0;
-    deliver(helper, { type: 'ui.visibility', payload: { visible: false } });
+    deliver(helper, { kind: 'event', name: 'ui.visibility', payload: { visible: false } });
     expect(seen).toEqual(['first']);
   });
 
-  it('on() returns an unsubscribe that is idempotent', () => {
+  it('on() returns an unsubscribe that is idempotent, and requires a function', () => {
     const { helper } = loadHelper();
     let calls = 0;
-    const off = helper.on('runtime.pong', () => calls++);
+    const off = helper.on('ui.hotkey', () => calls++);
 
     off();
     off();
-    deliver(helper, { type: 'runtime.pong', payload: {} });
+    deliver(helper, { kind: 'event', name: 'ui.hotkey', payload: {} });
     expect(calls).toBe(0);
-  });
 
-  it('ignores malformed and typeless frames without throwing', () => {
-    const { helper } = loadHelper();
-    let calls = 0;
-    helper.on('ui.result', () => calls++);
-
-    expect(() => helper.onMessage('{')).not.toThrow();
-    expect(() => helper.onMessage('null')).not.toThrow();
-    expect(() => helper.onMessage('{"payload":{}}')).not.toThrow();
-    expect(calls).toBe(0);
+    expect(() => helper.on('ui.hotkey', undefined as unknown as () => void)).toThrow(TypeError);
   });
 });
 
-describe('shipped helper — the runtime.ready / i18n handshake', () => {
-  it('resolves ready() and sends i18n.get UNCONDITIONALLY on runtime.ready', async () => {
-    vi.useFakeTimers();
-    const { helper, sent } = loadHelper();
-
-    deliver(helper, {
-      type: 'runtime.ready',
-      payload: { game: 'Starfield', plugin: 'OSF UI', version: '1.0.0', bridgeVersion: '1.0' },
-    });
-
-    await expect(helper.ready).resolves.toMatchObject({ version: '1.0.0' });
-
-    // No feature check, no capability negotiation: every bridge-bearing host is
-    // expected to serve i18n.get, and hosts that do not refuse it fast.
-    expect(sent).toHaveLength(1);
-    expect(sent[0]!.payload.command).toBe('i18n.get');
-    expect(sent[0]!.requestId).toBe('q1');
-  });
-
-  it('re-requests the catalog on a REPEATED runtime.ready', async () => {
-    vi.useFakeTimers();
-    const { helper, sent } = loadHelper();
-
-    deliver(helper, { type: 'runtime.ready', payload: { version: '1.0.0' } });
-    deliver(helper, { type: 'runtime.ready', payload: { version: '1.0.0' } });
-
-    // No once-guard: the handler fires per frame, so a second ready sends a
-    // second i18n.get with a fresh id. `ready` is unaffected (a Promise resolves
-    // once) and the duplicate reply re-adopts the same catalog. Pinned because a
-    // reload/reattach of the view host is how a second ready realistically
-    // arrives, and the extra round trip is shipped behaviour, not a bug.
-    expect(sent).toHaveLength(2);
-    expect(sent[0]!.payload.command).toBe('i18n.get');
-    expect(sent[1]!.payload.command).toBe('i18n.get');
-    expect(sent[0]!.requestId).toBe('q1');
-    expect(sent[1]!.requestId).toBe('q2');
-
-    await expect(helper.ready).resolves.toMatchObject({ version: '1.0.0' });
-  });
-
-  it('resolves ready() with {} when runtime.ready carries no payload', async () => {
-    vi.useFakeTimers();
+describe('the event and state channels never cross', () => {
+  it('does not deliver state to an on() subscriber of the same name', () => {
     const { helper } = loadHelper();
-    deliver(helper, { type: 'runtime.ready' });
-    // `resolveReady(message.payload || {})` — callers read `payload.version`
-    // and would throw on undefined, so the coercion is load-bearing.
-    await expect(helper.ready).resolves.toEqual({});
+    const seen: unknown[] = [];
+    helper.on('osfui/settings', (p) => seen.push(p));
+    helper.on('settings', (p) => seen.push(p));
+
+    deliver(helper, { kind: 'state', mod: 'osfui', key: 'settings', value: { mods: [] } });
+    expect(seen).toEqual([]);
   });
 
-  it('resolves i18nReady even when the i18n.get request FAILS', async () => {
-    vi.useFakeTimers();
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const { helper, sent } = loadHelper();
+  it('does not deliver an event to a state.on() subscriber of the same name', () => {
+    const { helper } = loadHelper();
+    const seen: unknown[] = [];
+    helper.state.on('settings.changed', (v) => seen.push(v));
 
-    deliver(helper, { type: 'runtime.ready', payload: {} });
-    const rid = sent[0]!.requestId!;
-
-    deliver(helper, {
-      type: 'ui.error',
-      requestId: rid,
-      payload: { code: 'unknown-command', message: 'i18n.get is not supported' },
-    });
-
-    // Views await i18nReady before their first render; if a failure left it
-    // pending they would hang forever on a host without localization (the dev
-    // harness mock). It resolves with the current (English, empty) catalog.
-    const catalog = await helper.i18nReady;
-    expect(catalog.locale).toBe('en');
-    expect(Object.keys(catalog.strings)).toEqual([]);
-    expect(helper.locale()).toBe('en');
-
-    // "unknown-command" is the expected refusal, so it is not logged as an error.
-    expect(spy).not.toHaveBeenCalled();
+    deliver(helper, { kind: 'event', name: 'settings.changed', payload: { mod: 'm' } });
+    expect(seen).toEqual([]);
+    expect(helper.state.get('settings.changed')).toBeUndefined();
   });
+});
 
-  it('logs — but still resolves i18nReady — on an UNEXPECTED i18n.get failure', async () => {
-    vi.useFakeTimers();
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const { helper, sent } = loadHelper();
-
-    deliver(helper, { type: 'runtime.ready', payload: {} });
-    deliver(helper, {
-      type: 'ui.result',
-      requestId: sent[0]!.requestId!,
-      payload: { ok: false, code: 'internal', message: 'catalog read failed' },
-    });
-
-    await expect(helper.i18nReady).resolves.toMatchObject({ locale: 'en' });
-    expect(spy).toHaveBeenCalledWith('OSF UI localization load failed:', expect.any(Error));
-  });
-
-  it('adopts an i18n.data catalog: locale, strings, <html lang> and t()', async () => {
+describe('host-detected misuse arrives as osfui.debug.error and is PRINTED', () => {
+  it('prints a wrong-endpoint-kind surface with its detail object', () => {
     const { helper } = loadHelper();
 
+    // The page sent to a request endpoint; the host dropped the message (see
+    // MessageBridge::DispatchSend) and told this view why. In 1.x the drop was
+    // silent and the only record was the SFSE log.
     deliver(helper, {
-      type: 'i18n.data',
+      kind: 'event',
+      name: 'osfui.debug.error',
       payload: {
+        code: 'wrong-endpoint-kind',
+        message: "'menu.open' is a request endpoint — use request(), not send()",
+        detail: { name: 'menu.open' },
+      },
+    });
+
+    expect(logged).toHaveLength(1);
+    expect(String(logged[0]![0])).toBe(
+      "[osfui] host rejected wrong-endpoint-kind: 'menu.open' is a request endpoint — use request(), not send()",
+    );
+    expect(logged[0]![1]).toEqual({ name: 'menu.open' });
+  });
+
+  it('prints an unknown-endpoint surface, falling back to the payload as detail', () => {
+    const { helper } = loadHelper();
+
+    deliver(helper, {
+      kind: 'event',
+      name: 'osfui.debug.error',
+      payload: { code: 'unknown-endpoint', message: 'no such endpoint' },
+    });
+
+    expect(String(logged[0]![0])).toBe('[osfui] host rejected unknown-endpoint: no such endpoint');
+    // `p.detail || p`: with no detail, the payload itself is the inspectable
+    // object, so the code is never printed without context.
+    expect(logged[0]![1]).toEqual({ code: 'unknown-endpoint', message: 'no such endpoint' });
+  });
+
+  it('degrades to "a message" when the surface carries no code', () => {
+    const { helper } = loadHelper();
+    deliver(helper, { kind: 'event', name: 'osfui.debug.error', payload: {} });
+    expect(String(logged[0]![0])).toBe('[osfui] host rejected a message: ');
+  });
+
+  it('does NOT also dispatch it to on() subscribers', () => {
+    const { helper } = loadHelper();
+    const seen: unknown[] = [];
+    helper.on('osfui.debug.error', (p) => seen.push(p));
+
+    deliver(helper, {
+      kind: 'event',
+      name: 'osfui.debug.error',
+      payload: { code: 'invalid-request', message: 'malformed message' },
+    });
+
+    // One sink, the page console. A view that "handled" these would swallow
+    // exactly the mistakes the channel exists to make visible.
+    expect(seen).toEqual([]);
+    expect(logged).toHaveLength(1);
+  });
+});
+
+describe('i18n rides the osfui/i18n state key', () => {
+  it('adopts a catalog: locale, strings, <html lang>, t() and the DOM', async () => {
+    const { helper } = loadHelper();
+    document.body.innerHTML = '<span data-i18n="settings.title">Settings</span>';
+
+    deliver(helper, {
+      kind: 'state',
+      mod: 'osfui',
+      key: 'i18n',
+      value: {
         mod: 'osfui',
         locale: 'pt-BR',
         strings: { 'settings.title': 'Configurações', 'settings.hi': 'Olá, {name}' },
       },
     });
 
-    await expect(helper.i18nReady).resolves.toMatchObject({ locale: 'pt-BR' });
-    expect(helper.locale()).toBe('pt-BR');
+    await expect(helper.i18n.ready).resolves.toMatchObject({ locale: 'pt-BR' });
+    expect(helper.i18n.locale).toBe('pt-BR');
     expect(document.documentElement.lang).toBe('pt-BR');
-    expect(helper.t('settings.title', 'Settings')).toBe('Configurações');
-    expect(helper.t('settings.hi', 'Hello, {name}', { name: 'Sam' })).toBe('Olá, Sam');
+    expect(helper.i18n.t('settings.title', 'Settings')).toBe('Configurações');
+    expect(helper.i18n.t('settings.hi', 'Hello, {name}', { name: 'Sam' })).toBe('Olá, Sam');
     // Unknown address falls back to the authored English, still interpolated.
-    expect(helper.t('nope', 'Bye, {name}', { name: 'Sam' })).toBe('Bye, Sam');
+    expect(helper.i18n.t('nope', 'Bye, {name}', { name: 'Sam' })).toBe('Bye, Sam');
+    // Static markup is translated in place when the catalog lands, so a view
+    // that never calls localize() itself is still localized.
+    expect(document.body.textContent).toBe('Configurações');
   });
 
-  it('falls back to locale "en" and an empty catalog on a malformed i18n.data', () => {
+  it('exposes locale as a PROPERTY, not a call', () => {
     const { helper } = loadHelper();
-    deliver(helper, { type: 'i18n.data', payload: { locale: 42, strings: 'nope' } });
+    expect(typeof helper.i18n.locale).toBe('string');
+    expect(helper.i18n.locale).toBe('en');
+  });
 
-    expect(helper.locale()).toBe('en');
-    expect(helper.t('settings.title', 'Settings')).toBe('Settings');
+  it('falls back to locale "en" and an empty catalog on a malformed value', () => {
+    const { helper } = loadHelper();
+    deliver(helper, {
+      kind: 'state',
+      mod: 'osfui',
+      key: 'i18n',
+      value: { locale: 42, strings: 'nope' },
+    });
+
+    expect(helper.i18n.locale).toBe('en');
+    expect(helper.i18n.t('settings.title', 'Settings')).toBe('Settings');
+  });
+
+  it('resolves i18n.ready even on a malformed value, so first paint is never blocked', async () => {
+    const { helper } = loadHelper();
+    deliver(helper, { kind: 'state', mod: 'osfui', key: 'i18n', value: null });
+
+    // Views await this before rendering. There is no failure mode left that can
+    // leave it pending on a bridged host: the catalog is state, and state
+    // cannot fail — it either arrives or the key is absent.
+    await expect(helper.i18n.ready).resolves.toMatchObject({ locale: 'en' });
+  });
+
+  it('re-adopts a later catalog (a live locale change)', async () => {
+    const { helper } = loadHelper();
+
+    deliver(helper, {
+      kind: 'state',
+      mod: 'osfui',
+      key: 'i18n',
+      value: { locale: 'de', strings: { 'a.b': 'Hallo' } },
+    });
+    deliver(helper, {
+      kind: 'state',
+      mod: 'osfui',
+      key: 'i18n',
+      value: { locale: 'fr', strings: { 'a.b': 'Bonjour' } },
+    });
+
+    expect(helper.i18n.locale).toBe('fr');
+    expect(helper.i18n.t('a.b', 'Hello')).toBe('Bonjour');
+    // The promise keeps its first resolution; `locale` is the live value.
+    await expect(helper.i18n.ready).resolves.toMatchObject({ locale: 'de' });
+  });
+});
+
+describe('the osfui:trace flag', () => {
+  it('logs nothing when it is unset', () => {
+    const { helper } = loadHelper();
+    helper.send('close');
+    deliver(helper, { kind: 'event', name: 'ui.visibility', payload: { visible: true } });
+
+    // Zero cost when off: `trace` is a no-op function chosen once at load.
+    expect(debugged).toEqual([]);
+  });
+
+  it('logs every envelope in both directions when it is "1"', () => {
+    window.localStorage.setItem('osfui:trace', '1');
+    const { helper } = loadHelper();
+
+    // Read at load, so the greeting itself is traced.
+    expect(debugged[0]![0]).toBe('[osfui] ->');
+    expect(debugged[0]![1]).toEqual({ kind: 'send', name: 'osfui.hello', payload: {} });
+
+    helper.send('close');
+    expect(debugged[1]![1]).toEqual({ kind: 'send', name: 'close', payload: {} });
+
+    deliver(helper, { kind: 'state', mod: 'osfui', key: 'views', value: { views: [] } });
+    expect(debugged[2]![0]).toBe('[osfui] <-');
+    expect(debugged[2]![1]).toMatchObject({ kind: 'state', key: 'views' });
+
+    deliver(helper, { kind: 'event', name: 'ui.visibility', payload: { visible: true } });
+    expect(debugged[3]![1]).toMatchObject({ kind: 'event', name: 'ui.visibility' });
+  });
+
+  it('logs a settlement ONCE, with its latency', async () => {
+    window.localStorage.setItem('osfui:trace', '1');
+    const { helper, sent } = loadHelper();
+    debugged.length = 0;
+
+    const promise = helper.request('ping');
+    deliver(helper, { kind: 'reply', id: sent[1]!.id!, payload: { pong: true } });
+    await expect(promise).resolves.toEqual({ pong: true });
+
+    // The outbound request, then exactly one inbound line for its reply: the
+    // generic inbound trace skips reply/error so the settlement can carry the
+    // round-trip time instead of being logged twice.
+    expect(debugged).toHaveLength(2);
+    expect(debugged[0]![0]).toBe('[osfui] ->');
+    expect(debugged[1]![0]).toBe('[osfui] <-');
+    expect(debugged[1]![1]).toMatchObject({ kind: 'reply', payload: { pong: true } });
+    expect(String(debugged[1]![2])).toMatch(/^\d+ms$/);
+  });
+
+  it('treats any other value as off', () => {
+    window.localStorage.setItem('osfui:trace', 'true');
+    const { helper } = loadHelper();
+    helper.send('close');
+    expect(debugged).toEqual([]);
+  });
+
+  it('survives a storage-blocked host', () => {
+    const original = Object.getOwnPropertyDescriptor(window, 'localStorage');
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      get() {
+        throw new Error('storage is blocked');
+      },
+    });
+    try {
+      // A privacy setting or a file: origin can make localStorage throw on
+      // access. The helper must still load — tracing is a debug affordance, not
+      // a precondition.
+      const { helper, sent } = loadHelper();
+      expect(sent[0]).toEqual({ kind: 'send', name: 'osfui.hello', payload: {} });
+      helper.send('close');
+      expect(debugged).toEqual([]);
+    } finally {
+      if (original) Object.defineProperty(window, 'localStorage', original);
+      else delete (window as unknown as Record<string, unknown>).localStorage;
+    }
   });
 });

@@ -17,9 +17,9 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { windowBridge, type Bridge } from '@lib/bridge';
-import type { HandoffStatePayload } from '@lib/protocol';
+import type { HandoffState } from '@lib/protocol';
 
-type Phase = HandoffStatePayload['phase'];
+type Phase = HandoffState['phase'];
 
 interface PhaseCopy {
   status: string;
@@ -58,7 +58,7 @@ export function checksum(value: string): string {
  * `phase` crosses the bridge as untrusted JSON, so an unknown value falls back
  * to "linking" rather than indexing COPY to undefined and blanking the panel.
  */
-function phaseOf(state: HandoffStatePayload | null): Phase {
+function phaseOf(state: HandoffState | null): Phase {
   const p = state?.phase;
   return p !== undefined && Object.prototype.hasOwnProperty.call(COPY, p) ? p : 'linking';
 }
@@ -73,15 +73,17 @@ export interface AppProps {
 }
 
 export function App({ bridge = windowBridge }: AppProps) {
-  const [state, setState] = useState<HandoffStatePayload | null>(null);
+  const [state, setState] = useState<HandoffState | null>(null);
   const retryRef = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => bridge.on('handoff.state', (payload) => setState(payload)), [bridge]);
+  // State, not an event: replayed on every fresh document, so an F5 mid-handoff
+  // comes back showing the handoff rather than its cold pre-state look.
+  useEffect(() => bridge.state('osfui/handoff', (value) => setState(value)), [bridge]);
 
   // Escape closes from anywhere on the page, including when nothing is focused.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') bridge.emit('close');
+      if (event.key === 'Escape') bridge.send('close');
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -146,7 +148,7 @@ export function App({ bridge = windowBridge }: AppProps) {
             id="retry"
             type="button"
             ref={retryRef}
-            onClick={() => bridge.emit('osfui.handoffRetry')}
+            onClick={() => bridge.send('osfui.handoffRetry')}
           >
             RETRY LINK
           </button>
@@ -154,7 +156,7 @@ export function App({ bridge = windowBridge }: AppProps) {
             class="osf-btn osf-btn--ghost"
             id="close"
             type="button"
-            onClick={() => bridge.emit('close')}
+            onClick={() => bridge.send('close')}
           >
             CANCEL
           </button>

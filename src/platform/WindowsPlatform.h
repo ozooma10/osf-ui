@@ -40,6 +40,13 @@ namespace OSFUI::Platform
 
 	// True when [a_address, a_address + a_size) is committed, non-guard,
 	// readable memory (VirtualQuery walk). For probing engine pointers.
+	// File NAME (not path) of the loaded module that owns a_address, or "" when
+	// it cannot be resolved. Used to attribute an ABI-mismatched
+	// OSFUI_RequestBridge call to the plugin that made it, so the refusal names
+	// a DLL the player can go update. Never the full path — that identifies the
+	// player's machine (docs/security-model.md).
+	[[nodiscard]] std::string ModuleNameForAddress(const void* a_address);
+
 	[[nodiscard]] bool IsReadableRange(std::uintptr_t a_address, std::size_t a_size);
 
 	// Reads one pointer-sized value if the location is readable.

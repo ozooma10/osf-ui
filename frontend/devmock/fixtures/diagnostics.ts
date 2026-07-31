@@ -8,9 +8,9 @@
 //
 // Times are session-relative seconds, exactly as native emits them.
 
-import type { DiagnosticsDataPayload } from '@sdk';
+import type { DiagnosticsData } from '@sdk';
 
-export type MockHealth = DiagnosticsDataPayload;
+export type MockHealth = DiagnosticsData;
 
 const SYSTEM: MockHealth['system'] = {
   version: '1.4.0-mock',

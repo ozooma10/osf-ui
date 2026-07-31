@@ -12,7 +12,7 @@ describe('registered views diagnostics', () => {
   it('lists mod-provided discovery entries and triggers the normal open path', async () => {
     const bridge = makeBridge();
     const el = await mount(bridge);
-    bridge.deliver('settings.data', {
+    bridge.publish('osfui/settings', {
       mods: [
         {
           id: 'osfui',
@@ -37,7 +37,7 @@ describe('registered views diagnostics', () => {
         },
       ],
     });
-    bridge.deliver('views.data', {
+    bridge.publish('osfui/views', {
       views: [
         {
           id: 'osfui/settings',
@@ -92,14 +92,14 @@ describe('registered views diagnostics', () => {
     expect(el.querySelector('.detail')!.textContent).toContain('unloaded');
 
     rows[0]!.querySelector<HTMLButtonElement>('button')!.click();
-    expect(bridge.sent[bridge.sent.length - 1]).toEqual({
-      command: 'menu.open',
-      fields: { view: 'tools/hidden-lab' },
+    expect(bridge.outbound[bridge.outbound.length - 1]).toEqual({
+      name: 'menu.open',
+      payload: { view: 'tools/hidden-lab' },
     });
 
     // Idle reclaim is a live loaded -> unloaded catalog transition. The row
     // must stay present and openable rather than being treated as a removal.
-    bridge.deliver('views.data', {
+    bridge.publish('osfui/views', {
       views: [
         {
           id: 'osfui/settings',

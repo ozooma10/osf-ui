@@ -2,10 +2,10 @@
 // Cast through `unknown`: wire fixtures, not SDK-constructed values, so optional
 // fields are omitted.
 
-import type { SettingsDataPayload, ViewsDataPayload } from '@sdk';
+import type { SettingsData, ViewsData } from '@sdk';
 
 /** A mod with one of every widget the view renders, for the widget-quirk suite. */
-export const WIDGETS: SettingsDataPayload = {
+export const WIDGETS: SettingsData = {
   mods: [
     {
       id: 'osfui',
@@ -117,10 +117,10 @@ export const WIDGETS: SettingsDataPayload = {
       },
     },
   ],
-} as unknown as SettingsDataPayload;
+} as unknown as SettingsData;
 
 /** Views for the Home launcher, including a mod with no settings behind it. */
-export const VIEWS: ViewsDataPayload = {
+export const VIEWS: ViewsData = {
   views: [
     {
       id: 'acme.kit/panel',
@@ -159,10 +159,10 @@ export const VIEWS: ViewsDataPayload = {
       targetVersion: '',
     },
   ],
-} as unknown as ViewsDataPayload;
+} as unknown as ViewsData;
 
 /** A mod with more than four labelled groups, for the section-index test. */
-export const MANY_GROUPS: SettingsDataPayload = {
+export const MANY_GROUPS: SettingsData = {
   mods: [
     {
       id: 'acme.big',
@@ -179,14 +179,14 @@ export const MANY_GROUPS: SettingsDataPayload = {
       },
     },
   ],
-} as unknown as SettingsDataPayload;
+} as unknown as SettingsData;
 
 /**
  * A paged mod: two declared pages, one untagged group (implicit General tab),
  * one group naming an unknown page (also General), and one declared page no
  * group references (renders no tab).
  */
-export const PAGED: SettingsDataPayload = {
+export const PAGED: SettingsData = {
   mods: [
     {
       id: 'acme.paged',
@@ -220,10 +220,10 @@ export const PAGED: SettingsDataPayload = {
       },
     },
   ],
-} as unknown as SettingsDataPayload;
+} as unknown as SettingsData;
 
 /** Four labelled groups — one under the section-index threshold. */
-export const FOUR_GROUPS: SettingsDataPayload = {
+export const FOUR_GROUPS: SettingsData = {
   mods: [
     {
       id: 'acme.four',
@@ -239,5 +239,5 @@ export const FOUR_GROUPS: SettingsDataPayload = {
       },
     },
   ],
-} as unknown as SettingsDataPayload;
+} as unknown as SettingsData;
 

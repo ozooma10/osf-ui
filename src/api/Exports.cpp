@@ -1,5 +1,8 @@
+#include <intrin.h>  // _ReturnAddress — attributes a refusal to the calling plugin
+
 #include "OSFUI_API.h"       // IOSFUIBridge, kBridgeAPIMajor
 #include "api/BridgeApi.h"   // BridgeApi::Get()
+#include "platform/WindowsPlatform.h"
 
 // The single undecorated C export a sibling SFSE plugin fetches once, after SFSE
 // kPostLoad, via GetModuleHandleW("OSFUI.dll") + GetProcAddress (see
@@ -7,8 +10,13 @@
 //
 // Major must match: a caller built against another major gets nullptr and
 // degrades. Minor differences are backward-compatible (the vtable only grows at
-// the end) and are accepted. If a 2.0 ever exists, this export becomes a
-// per-major dispatcher that keeps vending the v1 interface to v1 callers.
+// the end) and are accepted.
+//
+// ABI 2.0 is a deliberate hard break, not a dispatcher: serving a 1.x caller
+// would mean re-implementing the auto-ack and the injected `requestId` that 2.0
+// deleted, purely for plugins that must be recompiled for the Papyrus and view
+// changes anyway. A refusal is recorded so it surfaces as a `compat.legacy-api`
+// health card instead of a mod that silently does nothing.
 extern "C" __declspec(dllexport) OSFUI::API::IOSFUIBridge* OSFUI_RequestBridge(std::uint32_t a_abiVersion) noexcept
 {
 	const auto major = a_abiVersion >> 16;
@@ -16,6 +24,11 @@ extern "C" __declspec(dllexport) OSFUI::API::IOSFUIBridge* OSFUI_RequestBridge(s
 	if (major != OSFUI::API::kBridgeAPIMajor) {
 		REX::WARN("BridgeApi: OSFUI_RequestBridge refused — caller built against ABI {}.{}, host is {}.{} (MAJOR mismatch)",
 			major, minor, OSFUI::API::kBridgeAPIMajor, OSFUI::API::kBridgeAPIMinor);
+		// The caller reached us through GetProcAddress from its own code, so the
+		// return address is inside its module: that names the DLL the player has
+		// to update, instead of a card that says only "some mod".
+		OSFUI::API::BridgeApi::Get().NoteLegacyApiCaller(
+			OSFUI::Platform::ModuleNameForAddress(_ReturnAddress()), major, minor);
 		return nullptr;
 	}
 	// Logs which header vintage each consumer was built against. A caller minor

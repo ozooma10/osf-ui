@@ -42,65 +42,74 @@ export function resolveScenario(mock, name) {
   };
 }
 
-/** Commands every host answers; a mock does not need to declare them. */
-const BUILT_IN = new Set([
-  'close', 'menu.open', 'hud.show', 'hud.hide', 'view.ready',
-  'ui.action', 'osfui.handleBack', 'osfui.gamepadRaw', 'log',
+/**
+ * Endpoints every host answers, split by KIND — because the kind is what a
+ * caller dispatches on, and a mock that got it wrong would let a view ship a
+ * `send` to a request endpoint that only fails against the real runtime.
+ * A mock does not need to declare any of these.
+ */
+const BUILT_IN_SENDS = new Set([
+  'osfui.hello', 'close', 'setVisible', 'view.ready', 'log',
+  'osfui.handleBack', 'osfui.gamepadRaw', 'papyrus.send',
+]);
+const BUILT_IN_REQUESTS = new Set([
+  'menu.open', 'menu.close', 'setViewHidden', 'ping', 'game.get',
+  'osfui.openModPage', 'osfui.openLogFolder',
 ]);
 
 /**
- * The scenario engine: answers one ui.command against a resolved scenario.
- * `io.reply(type, payload)` echoes the command's requestId; `io.report`
- * mirrors the shell traffic log. Pure aside from what io provides.
+ * The scenario engine: answers one inbound envelope against a resolved
+ * scenario. `io.resolve(payload)` / `io.reject(code, message)` settle a
+ * request; `io.report` mirrors the shell traffic log. Pure aside from io.
  */
 export function createScenarioHandler(scenario, meta) {
   const respond = async (key, payload) => {
     const value = scenario.requests[key];
     if (value === undefined) return null;
     const result = typeof value === 'function' ? await value(payload) : value;
-    if (result && typeof result === 'object' && typeof result.$type === 'string') {
-      return { type: result.$type, payload: result.payload ?? {} };
+    // `$type` was how a 1.x mock chose the reply's message type. There is no
+    // reply type any more — a reply is just a payload — so the wrapper only
+    // still exists to let a mock nest its payload.
+    if (result && typeof result === 'object' && typeof result.$payload !== 'undefined') {
+      return { payload: result.$payload };
     }
-    return { type: 'mock.result', payload: result };
+    return { payload: result };
   };
-  return async (command, payload, requestId, io) => {
-    if (command === 'i18n.get') {
-      const locale = scenario.locale || 'en';
-      io.reply('i18n.data', {
-        mod: payload.mod || meta.modId,
-        locale,
-        strings: catalogFor(scenario, locale),
-      });
-      return true;
-    }
-    if (command === 'ui.papyrusRequest') {
-      const response = await respond('papyrus.' + String(payload.request || ''), payload);
+  return async (kind, name, payload, io) => {
+    if (name === 'papyrus.request') {
+      const response = await respond('papyrus.' + String(payload.name || ''), payload);
       if (response) {
-        io.reply('papyrus.result', { value: response.payload });
+        io.resolve({ value: response.payload });
       } else {
-        io.reply('ui.error', {
-          code: 'mock-unhandled', command,
-          message: 'No mock response for Papyrus request "' + payload.request + '".',
-        });
+        io.reject('mock-unhandled',
+          'No mock response for Papyrus request "' + payload.name + '".');
       }
       return true;
     }
-    const response = await respond(command, payload);
+    const response = await respond(name, payload);
     if (response) {
-      io.reply(response.type, response.payload);
+      // A scenario answer to a `send` is a mock authoring mistake, not a
+      // reply: a send has nothing to settle.
+      if (kind === 'request') io.resolve(response.payload);
+      else io.report('in', 'Scenario answers "' + name + '", but the view sent it one-way.', 'warn');
       return true;
     }
-    if (BUILT_IN.has(command)) {
-      io.reply('ui.result', { ok: true, command, message: 'Handled by browser harness' });
+    if (kind === 'send') {
+      if (!BUILT_IN_SENDS.has(name)) {
+        // Surfaced, not silent — the whole point of the 2.0 error routing.
+        io.surface('unknown-endpoint', 'No mock handles the send "' + name + '".');
+      }
       return true;
     }
-    const error = {
-      code: 'mock-unhandled',
-      command,
-      message: 'No mock response is configured for "' + command + '".',
-    };
-    if (requestId) io.reply('ui.error', error);
-    else io.report('in', { type: 'ui.error', payload: error }, 'warn');
+    if (BUILT_IN_REQUESTS.has(name)) {
+      io.resolve({});
+      return true;
+    }
+    if (BUILT_IN_SENDS.has(name)) {
+      io.reject('wrong-endpoint-kind', '"' + name + '" is a send endpoint — use send(), not request().');
+      return true;
+    }
+    io.reject('mock-unhandled', 'No mock response is configured for "' + name + '".');
     return true;
   };
 }
@@ -157,13 +166,59 @@ export async function installMock(harness, mod, loadError) {
   if (params.get('locale')) scenario.locale = params.get('locale');
   const chain = [];
 
-  const reply = (requestId) => (type, payload) => {
-    if (!requestId) return;
-    const message = { type, requestId, payload };
+  const emit = (message) => {
     harness.report('in', message);
     queueMicrotask(() => harness.deliver(message));
   };
-  const io = { report: harness.report };
+
+  /** The locale catalog as its state envelope — replayed and pushed alike. */
+  const localeState = (locale) => ({
+    kind: 'state',
+    mod: 'osfui',
+    key: 'i18n',
+    value: { mod: meta.modId, locale, strings: catalogFor(scenario, locale) },
+  });
+
+  /**
+   * Answer a page's `osfui.hello`: ready, then every current state value, then
+   * events. Running on the page's greeting rather than on a timer is what
+   * makes an F5 identical to a first open — the harness cannot deliver a
+   * greeting the document missed, because the document asks for it.
+   */
+  const greet = () => {
+    emit({
+      kind: 'ready',
+      payload: {
+        game: 'Starfield',
+        plugin: 'OSF UI Harness',
+        version: meta.version,
+        bridgeVersion: meta.bridgeVersion,
+        view: meta.viewId || '',
+        mod: meta.modId || '',
+      },
+    });
+    emit(localeState(scenario.locale || 'en'));
+    for (const [key, value] of Object.entries(scenario.state)) {
+      emit({ kind: 'state', mod: meta.modId, key, value });
+    }
+  };
+  // Settlement is one-shot: a mock that answers twice must not deliver twice,
+  // exactly as the real bridge ignores a late or duplicate reply.
+  const settlers = (id) => {
+    let settled = false;
+    const once = (message) => {
+      if (settled || !id) return;
+      settled = true;
+      emit(message);
+    };
+    return {
+      resolve: (payload) => once({ kind: 'reply', id, payload: payload ?? {} }),
+      reject: (code, message) => once({ kind: 'error', id, payload: { code, message: message || '' } }),
+    };
+  };
+  // Host-detected misuse a `send` caller would otherwise never hear about.
+  const surface = (view) => (code, message) =>
+    emit({ kind: 'event', name: 'osfui.debug.error', payload: { code, message, detail: { view } } });
   const engine = createScenarioHandler(scenario, meta);
 
   const handler = async (text) => {
@@ -173,25 +228,36 @@ export async function installMock(harness, mod, loadError) {
       return;
     }
     harness.report('out', message);
-    if (!message || message.type !== 'ui.command') return;
+    if (!message || (message.kind !== 'send' && message.kind !== 'request')) return;
+    const kind = message.kind;
+    const name = String(message.name || '');
     const payload = message.payload || {};
-    const command = String(payload.command || '');
-    const respond = reply(message.requestId);
+    const id = typeof message.id === 'string' ? message.id : '';
+    if (kind === 'request' && !id) {
+      harness.report('in', 'Request "' + name + '" arrived without an id — dropping.', 'warn');
+      return;
+    }
+    // The handshake is page-initiated and is the only boot path.
+    if (kind === 'send' && name === 'osfui.hello') {
+      greet();
+      return;
+    }
+    const { resolve, reject } = settlers(id);
+    const io = { report: harness.report, resolve, reject, surface: surface(meta.viewId) };
     for (const entry of chain) {
       try {
-        if (await entry(command, payload, respond, message.requestId || '') === true) return;
+        if (await entry(kind, name, payload, io) === true) return;
       } catch (cause) {
-        const detail = { code: 'mock-error', command, message: String(cause && cause.message || cause) };
-        harness.report('in', 'Mock handler threw for "' + command + '": ' + (cause && cause.stack || cause), 'warn');
-        respond('ui.error', detail);
+        harness.report('in', 'Mock handler threw for "' + name + '": ' + (cause && cause.stack || cause), 'warn');
+        if (kind === 'request') reject('mock-error', String(cause && cause.message || cause));
         return;
       }
     }
     try {
-      await engine(command, payload, message.requestId || '', { ...io, reply: respond });
+      await engine(kind, name, payload, io);
     } catch (cause) {
-      harness.report('in', 'Mock request for "' + command + '" threw: ' + (cause && cause.stack || cause), 'warn');
-      respond('ui.error', { code: 'mock-error', command, message: String(cause && cause.message || cause) });
+      harness.report('in', 'Mock handler for "' + name + '" threw: ' + (cause && cause.stack || cause), 'warn');
+      if (kind === 'request') reject('mock-error', String(cause && cause.message || cause));
     }
   };
 
@@ -282,10 +348,7 @@ export async function installMock(harness, mod, loadError) {
             scenario.locales[locale] = { ...(scenario.locales[locale] || {}), ...catalog };
             harness.report('in', 'Merged l10n catalog ' + file.name + ' (' + locale + ')');
             if ((scenario.locale || 'en') === locale) {
-              ctx.send({
-                type: 'i18n.data',
-                payload: { mod: meta.modId, locale, strings: catalogFor(scenario, locale) },
-              });
+              ctx.send(localeState(locale));
             }
             merged = true;
           }
@@ -387,33 +450,16 @@ export async function installMock(harness, mod, loadError) {
   }
   // The kit exists now (or never will): apply t-wraps and the initial pseudo state.
   setPseudoWrap((scenario.locale || 'en') === 'pseudo');
-  const greeting = {
-    type: 'runtime.ready',
-    payload: {
-      game: 'Starfield', plugin: 'OSF UI Harness',
-      version: meta.version, bridgeVersion: meta.bridgeVersion,
-    },
-  };
-  harness.report('in', greeting);
-  harness.deliver(greeting);
-  for (const [key, value] of Object.entries(scenario.state)) {
-    const message = { type: 'data.state', payload: { mod: meta.modId, key, value } };
-    harness.report('in', message);
-    harness.deliver(message);
-  }
-  // Locale switches pushed by the shell.
+
+  // Locale switches pushed by the shell. The catalog is a STATE key, so this is
+  // the same message the greeting replays — one shape, one code path.
   window.addEventListener('message', (event) => {
     if (event.origin !== location.origin || !event.data || event.data.source !== harness.source) return;
     if (event.data.kind !== 'control' || event.data.action !== 'locale') return;
     const locale = String(event.data.locale || 'en');
     scenario.locale = locale;
     setPseudoWrap(locale === 'pseudo');
-    const message = {
-      type: 'i18n.data',
-      payload: { mod: meta.modId, locale, strings: catalogFor(scenario, locale) },
-    };
-    harness.report('in', message);
-    harness.deliver(message);
+    emit(localeState(locale));
   });
   harness.ready();
   harness.setHandler(handler);

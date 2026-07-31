@@ -7,11 +7,11 @@
 // groups into a synthetic "view-only" entry. A mod may ship settings with no
 // views, views with no settings, or both.
 //
-// The model records here are looser than `SettingsDataPayload['mods'][number]`
-// / `ViewsDataPayload['views'][number]`: every field may be absent, since the
+// The model records here are looser than `SettingsData['mods'][number]`
+// / `ViewsData['views'][number]`: every field may be absent, since the
 // renderer also runs against harness mocks and older hosts.
 
-import type { SettingsSchema, SettingValue, ViewsDataPayload } from '@sdk';
+import type { SettingsSchema, SettingValue, ViewsData } from '@sdk';
 import { railMatches } from './search';
 
 
@@ -25,7 +25,7 @@ export interface ModRecord {
 }
 
 /** A `views.data` catalog entry, every field optional but `id`. */
-export type ViewRecord = Partial<ViewsDataPayload['views'][number]> & { id: string };
+export type ViewRecord = Partial<ViewsData['views'][number]> & { id: string };
 
 // NOTE: `settings.data` still carries `loadErrors`, and nothing in this view
 // reads it. Those same failures arrive as System Health issues, which carry

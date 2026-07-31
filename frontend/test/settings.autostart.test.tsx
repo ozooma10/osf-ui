@@ -1,21 +1,25 @@
 // @vitest-environment jsdom
 //
-// Per-HUD "Start automatically" (protocol 1.6): rendered only for views the
-// host marks autoStartMutable, saved via osfui.setViewAutoStart, applied at
-// the next launch — the row never touches the immediate hud.show/hide path.
+// Per-HUD "Start automatically": rendered only for views the host marks
+// autoStartMutable, saved through the `osfui.setViewAutoStart` REQUEST, applied
+// at the next launch — the row never touches the immediate show/hide path.
+//
+// The catalog is the `osfui/views` state key, so a change of eligibility or of
+// the saved policy arrives as a whole republished value, never a delta.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { makeBridge, mount, unmount, flush } from './helpers/settingsHarness';
 import { WIDGETS, VIEWS } from './helpers/settingsFixtures';
-import type { ViewsDataPayload } from '@sdk';
+import type { ViewsData } from '@sdk';
 
 afterEach(unmount);
 
+/** Endpoints that would open or close the HUD now. None may come from this row. */
+const VISIBILITY_ENDPOINTS = ['menu.open', 'menu.close', 'setViewHidden', 'hud.show', 'hud.hide'];
+
 async function mountKit() {
-  const bridge = makeBridge();
+  const bridge = makeBridge({ state: { 'osfui/settings': WIDGETS, 'osfui/views': VIEWS } });
   const el = await mount(bridge);
-  bridge.deliver('settings.data', WIDGETS);
-  bridge.deliver('views.data', VIEWS);
   await flush();
   [...el.querySelectorAll<HTMLButtonElement>('.rail-item')]
     .find((b) => b.textContent!.includes('Acme Kit'))!
@@ -24,8 +28,8 @@ async function mountKit() {
   return { bridge, el };
 }
 
-function viewsWith(patch: Partial<ViewsDataPayload['views'][number]>): ViewsDataPayload {
-  const copy = JSON.parse(JSON.stringify(VIEWS)) as ViewsDataPayload;
+function viewsWith(patch: Partial<ViewsData['views'][number]>): ViewsData {
+  const copy = JSON.parse(JSON.stringify(VIEWS)) as ViewsData;
   const hud = copy.views.find((v) => v.id === 'acme.kit/hud')!;
   Object.assign(hud, patch);
   return copy;
@@ -45,23 +49,24 @@ describe('start automatically row', () => {
     expect(el.querySelectorAll('.autostart-row').length).toBe(1);
 
     // The host withdrawing eligibility (e.g. Debug mode turned off for a
-    // debugOnly HUD) removes the row on the next catalog push.
-    bridge.deliver('views.data', viewsWith({ autoStartMutable: false }));
+    // debugOnly HUD) removes the row on the next catalog publish.
+    bridge.publish('osfui/views', viewsWith({ autoStartMutable: false }));
     await flush();
     expect(el.querySelector('.autostart-row')).toBeNull();
   });
 
   it('saves through osfui.setViewAutoStart with an optimistic, disabled switch', async () => {
     const { bridge, el } = await mountKit();
-    const sentBefore = bridge.sent.length;
+    const outboundBefore = bridge.outbound.length;
     autoStartSwitch(el)!.click();
     await flush();
 
     const idx = bridge.indexOf('osfui.setViewAutoStart');
     expect(idx).toBeGreaterThanOrEqual(0);
-    expect(bridge.requests[idx]!.fields).toEqual({ view: 'acme.kit/hud', enabled: true });
-    // Next-launch policy only: no immediate hud.show/hide was fired.
-    expect(bridge.sent.slice(sentBefore).some((s) => s.command.startsWith('hud.'))).toBe(false);
+    expect(bridge.requests[idx]!.payload).toEqual({ view: 'acme.kit/hud', enabled: true });
+    // Next-launch policy only: nothing that shows or hides the HUD went out.
+    const after = bridge.outbound.slice(outboundBefore).map((m) => m.name);
+    for (const endpoint of VISIBILITY_ENDPOINTS) expect(after).not.toContain(endpoint);
 
     // While the save is in flight the switch shows the requested position but
     // cannot be flipped again.
@@ -69,9 +74,10 @@ describe('start automatically row', () => {
     expect(toggle.getAttribute('aria-checked')).toBe('true');
     expect(toggle.disabled).toBe(true);
 
-    // The ack's views.data rebroadcast is authoritative and re-enables it.
+    // The reply says only "it happened"; the republished catalog is what is
+    // authoritative, and it re-enables the switch.
     bridge.settle(idx, {});
-    bridge.deliver('views.data', viewsWith({ autoStart: true }));
+    bridge.publish('osfui/views', viewsWith({ autoStart: true }));
     await flush();
     const settled = autoStartSwitch(el)!;
     expect(settled.getAttribute('aria-checked')).toBe('true');

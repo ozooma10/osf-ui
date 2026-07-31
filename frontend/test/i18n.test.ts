@@ -1,11 +1,21 @@
+// The per-view translator: address resolution, interpolation and two-form
+// plurals, over the `t` capability alone.
+//
+// Layering, since 2.0 moved the mirror: the shipped helper now carries
+// translation in a namespace (`osfui.i18n.t`), fed by the `osfui/i18n` state
+// key rather than by an `i18n.get` request, and the typed façade forwards its
+// top-level `Bridge.t` to it. `makeTranslator` sits above that façade and takes
+// only `{ t }`, so it is unaffected by where the helper keeps the function —
+// which is exactly why these tests can stay pure.
+
 import { describe, it, expect } from 'vitest';
 import { makeTranslator, isAbsoluteAddress, type TranslatorHost } from '@lib/i18n';
 import { nullBridge } from '@lib/bridge';
 
 /**
- * Stand-in for the frozen `osfui.t` in shared-kit/osfui.js: catalog hit or
- * authored English, then `{name}` interpolation over the result. Records every
- * address it was asked for — that is what the prefixing assertions check.
+ * Stand-in for `osfui.i18n.t` in shared-kit/osfui.js: catalog hit or authored
+ * English, then `{name}` interpolation over the result. Records every address
+ * it was asked for — that is what the prefixing assertions check.
  */
 function catalogHost(strings: Record<string, string> = {}): TranslatorHost & {
   asked: string[];

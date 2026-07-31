@@ -25,55 +25,98 @@ import { KeyField } from '@ui/KeyField';
 import { ActionButton } from '@ui/ActionButton';
 import { App } from '@views/osfui/keybinds/App';
 import { nullBridge, type Bridge } from '@lib/bridge';
-import type { SettingsDataPayload } from '@sdk';
+import type { RuntimeInfo, SettingsData } from '@sdk';
 
 // Harness
 
-type Listener = (payload: unknown) => void;
+type Handler = (value: unknown) => void;
+
+interface OutboundMessage {
+  name: string;
+  payload?: Record<string, unknown>;
+}
 
 interface FakeBridge extends Bridge {
-  /** Deliver a native->web push to whatever the view subscribed. */
-  deliver(type: string, payload: unknown): void;
-  sent: Array<{ command: string; fields?: Record<string, unknown> }>;
-  requests: Array<{ command: string; fields?: Record<string, unknown> }>;
+  /** Fire a one-shot EVENT at whatever subscribed through on(). */
+  deliver(event: string, payload: unknown): void;
+  /** Publish a STATE key: replayed to every later subscriber. */
+  publish(key: string, value: unknown): void;
+  sent: OutboundMessage[];
+  requests: OutboundMessage[];
   /** Settle the Nth pending request. */
   settle(index: number, value: unknown): void;
   reject(index: number, err: unknown): void;
 }
 
-function makeBridge(): FakeBridge {
-  const listeners = new Map<string, Set<Listener>>();
+const RUNTIME: RuntimeInfo = {
+  game: 'Starfield',
+  plugin: 'OSF UI',
+  version: '2.0.0',
+  bridgeVersion: '2.0',
+  view: 'osfui/keybinds',
+  mod: 'osfui',
+};
+
+function makeBridge(state: Record<string, unknown> = {}): FakeBridge {
+  const eventListeners = new Map<string, Set<Handler>>();
+  const stateListeners = new Map<string, Set<Handler>>();
+  const values = new Map<string, unknown>(Object.entries(state));
   const pending: Array<{ resolve: (v: unknown) => void; reject: (e: unknown) => void }> = [];
+
+  const subscribe = (map: Map<string, Set<Handler>>, key: string, fn: Handler) => {
+    let set = map.get(key);
+    if (!set) {
+      set = new Set();
+      map.set(key, set);
+    }
+    set.add(fn);
+    return () => {
+      map.get(key)?.delete(fn);
+    };
+  };
+
   const bridge: FakeBridge = {
     ...nullBridge,
     available: () => true,
+    // A fake that reports itself available must complete the handshake too:
+    // nullBridge's `ready` rejects "no-bridge", which is the standalone case.
+    ready: () => Promise.resolve(RUNTIME),
     sent: [],
     requests: [],
-    emit(command, fields) {
-      bridge.sent.push(fields === undefined ? { command } : { command, fields });
+    send(name: string, payload?: Record<string, unknown>) {
+      bridge.sent.push(payload === undefined ? { name } : { name, payload });
       return true;
     },
-    call(command: string, fields?: Record<string, unknown>) {
-      bridge.requests.push(fields === undefined ? { command } : { command, fields });
+    request(name: string, payload?: Record<string, unknown>) {
+      bridge.requests.push(payload === undefined ? { name } : { name, payload });
       return new Promise((resolve, reject) => {
         pending.push({ resolve: resolve as (v: unknown) => void, reject });
       }) as never;
     },
-    on(type: string, fn: unknown) {
-      let set = listeners.get(type);
-      if (!set) {
-        set = new Set();
-        listeners.set(type, set);
-      }
-      set.add(fn as Listener);
-      return () => {
-        const s = listeners.get(type);
-        if (s) s.delete(fn as Listener);
-      };
+    on(event: string, fn: unknown) {
+      return subscribe(eventListeners, event, fn as Handler);
     },
-    deliver(type, payload) {
-      const set = listeners.get(type);
+    onAny(event: string, fn: unknown) {
+      return subscribe(eventListeners, event, fn as Handler);
+    },
+    state(key: string, fn: unknown) {
+      const off = subscribe(stateListeners, key, fn as Handler);
+      // Subscribing IS the read: the seeded value replays synchronously, so the
+      // board is painted on the first render with no lifecycle code at all.
+      if (values.has(key)) (fn as Handler)(values.get(key));
+      return off;
+    },
+    peek(key: string) {
+      return values.get(key) as never;
+    },
+    deliver(event, payload) {
+      const set = eventListeners.get(event);
       if (set) for (const fn of [...set]) fn(payload);
+    },
+    publish(key, value) {
+      values.set(key, value);
+      const set = stateListeners.get(key);
+      if (set) for (const fn of [...set]) fn(value);
     },
     settle(index, value) {
       const p = pending[index];
@@ -99,7 +142,7 @@ const flush = async () => {
   });
 };
 
-const DATA: SettingsDataPayload = {
+const DATA: SettingsData = {
   mods: [
     {
       id: 'osfui',
@@ -113,7 +156,10 @@ const DATA: SettingsDataPayload = {
     },
   ],
   vanillaKeys: [{ event: 'QuickSave', title: 'Starfield (Quicksave)', name: 'F5' }],
-} as unknown as SettingsDataPayload;
+} as unknown as SettingsData;
+
+/** A bridge whose document already received the `osfui/settings` replay. */
+const seeded = () => makeBridge({ 'osfui/settings': DATA });
 
 let host: HTMLElement | null = null;
 
@@ -258,10 +304,7 @@ describe('padnav DOM contracts', () => {
     // padnav enumerates `button, input, select, textarea, a[href], [tabindex]`
     // and skips anything with `tabIndex < 0`. A click-to-select div is invisible
     // to it without an explicit tabindex.
-    const bridge = makeBridge();
-    const el = await mount(bridge);
-    bridge.deliver('settings.data', DATA);
-    await flush();
+    const el = await mount(seeded());
 
     const rows = el.querySelectorAll<HTMLElement>('#bindlist .kb-holder--list');
     expect(rows.length).toBeGreaterThan(0);
@@ -293,10 +336,7 @@ describe('padnav DOM contracts', () => {
     // Esc is the only such cell now — the punctuation keys became bindable once
     // native learned their names — so this asserts the reserved-Esc contract
     // rather than a count.
-    const bridge = makeBridge();
-    const el = await mount(bridge);
-    bridge.deliver('settings.data', DATA);
-    await flush();
+    const el = await mount(seeded());
 
     const dead = el.querySelectorAll<HTMLButtonElement>('#keyboard button.is-dead');
     expect(dead.length).toBe(1);
@@ -328,10 +368,8 @@ describe('padnav DOM contracts', () => {
     // padnav bails on `document.querySelector(".listening")`: all navigation
     // suspends while a rebind is armed, because the next key press belongs to
     // the capture.
-    const bridge = makeBridge();
+    const bridge = seeded();
     const el = await mount(bridge);
-    bridge.deliver('settings.data', DATA);
-    await flush();
 
     expect(document.querySelector('.listening')).toBeNull();
 
@@ -350,18 +388,32 @@ describe('padnav DOM contracts', () => {
     // detail panel: the clicked button arms, not the binding.
     expect(document.querySelectorAll('.listening').length).toBe(1);
 
-    // The capture went out as one open-ended request.
+    // The capture went out as an ordinary request — not the 1.x open-ended one
+    // with `timeoutMs: 0`. It settles in machine time ("armed"), and the key the
+    // player eventually presses arrives separately as `settings.captured`.
     expect(bridge.requests[0]).toEqual({
-      command: 'settings.captureKey',
-      fields: { mod: 'osfui', key: 'toggleKey' },
+      name: 'settings.captureKey',
+      payload: { mod: 'osfui', key: 'toggleKey' },
     });
+
+    // Which is what takes `.listening` back out of the document, so padnav
+    // resumes: the reply alone never does.
+    bridge.settle(0, { armed: true, mod: 'osfui', key: 'toggleKey' });
+    await flush();
+    expect(document.querySelectorAll('.listening').length).toBe(1);
+
+    bridge.deliver('settings.captured', {
+      mod: 'osfui',
+      key: 'toggleKey',
+      name: 'F9',
+      cancelled: false,
+    });
+    await flush();
+    expect(document.querySelector('.listening')).toBeNull();
   });
 
   it('only the clicked instance listens when a binding is on screen twice', async () => {
-    const bridge = makeBridge();
-    const el = await mount(bridge);
-    bridge.deliver('settings.data', DATA);
-    await flush();
+    const el = await mount(seeded());
 
     // Select F10 so the mod binding renders in both the detail panel and the list.
     const f10 = [...el.querySelectorAll<HTMLButtonElement>('#keyboard button')].find(

@@ -95,7 +95,7 @@ export function App({ bridge = windowBridge }: AppProps) {
 
   // With no bridge these are silent no-ops rather than rejected promises.
   const sendCommand = (command: string, fields?: Record<string, unknown>) => {
-    if (bridge.available()) bridge.emit(command, fields);
+    if (bridge.available()) bridge.send(command, fields);
   };
 
   /**
@@ -106,7 +106,7 @@ export function App({ bridge = windowBridge }: AppProps) {
   const goBack = () => {
     if (!bridge.available()) return;
     bridge
-      .call('menu.open', { view: HUB_VIEW })
+      .request('menu.open', { view: HUB_VIEW })
       .catch(() => sendCommand('close'));
   };
   const capture = useKeyCapture<Capture>({
@@ -131,13 +131,14 @@ export function App({ bridge = windowBridge }: AppProps) {
       setMods(next);
 
       if (bridge.available()) {
-        bridge.call('settings.set', { mod, key, value: name }).catch((error: unknown) => {
+        bridge.request('settings.set', { mod, key, value: name }).catch((error: unknown) => {
           const code = codeOf(error);
           toastRef.current.push(
             tr('rebindRejected', 'Rebind rejected{code}', { code: code ? ` (${code})` : '' }),
             'danger',
           );
-          sendCommand('settings.get');
+          // No re-read: the refused value never committed, and the store
+          // republishes `osfui/settings` on any real change anyway.
         });
       }
 
@@ -162,15 +163,16 @@ export function App({ bridge = windowBridge }: AppProps) {
     setSelectedKey((current) => (name === current ? '' : name));
   };
 
-  // Registered once; replies that resolve a call() land here too.
+  // Registered once. Each state handler runs immediately with the current
+  // value, so there is no read to issue and nothing to re-issue after a reload.
   useEffect(() => {
-    const offData = bridge.on('settings.data', (p) => {
-      setMods(Array.isArray(p.mods) ? p.mods : []);
-      setVanilla(Array.isArray(p.vanillaKeys) ? p.vanillaKeys : []);
+    const offData = bridge.state('osfui/settings', (data) => {
+      setMods(Array.isArray(data?.mods) ? data.mods : []);
+      setVanilla(Array.isArray(data?.vanillaKeys) ? data.vanillaKeys : []);
       setLoaded(true);
     });
 
-    const offI18n = bridge.on('i18n.data', () => {
+    const offI18n = bridge.state('osfui/i18n', () => {
       // A catalog that arrives before any data must not hide the loading line.
       if (modsRef.current.length || vanillaRef.current.length) {
         setI18nSeq((n) => n + 1);
@@ -218,15 +220,11 @@ export function App({ bridge = windowBridge }: AppProps) {
     // The runtime delegates the back action (Esc / pad-B) as a synthetic
     // Escape instead of closing the overlay, so the keydown handler below can
     // return to the Mods hub. Sticky per page load — re-asserted on every boot.
-    void bridge.ready().then(() => {
-      sendCommand('osfui.handleBack', { handle: true });
-      sendCommand('settings.get');
-    });
-
-    // Sent again immediately: this early get serves a view that booted after
-    // the runtime was already up, and the store treats a duplicate as
-    // idempotent.
-    if (bridge.available()) sendCommand('settings.get');
+    // Asserted unconditionally rather than behind `ready`: the grant is
+    // per-document and the runtime drops it when this page reloads, so the
+    // right moment to re-assert it is "whenever this component mounts".
+    // Nothing here reads settings — the registry arrives as replayed state.
+    if (bridge.available()) sendCommand('osfui.handleBack', { handle: true });
 
     return () => {
       offData();

@@ -4,57 +4,104 @@
 // selecting the selected key deselects it; search re-scopes the board and list
 // but not the detail panel; a click inside a row's button is not a click on the
 // row; goBack opens the hub and only closes the overlay if that fails.
+//
+// The board's data is the `osfui/settings` STATE key, so the fake seeds it the
+// way the host replays it to a fresh document: there is no read to issue, and
+// the very first paint is populated.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { render } from 'preact';
 import { act } from 'preact/test-utils';
 import { App } from '@views/osfui/keybinds/App';
 import { nullBridge, type Bridge } from '@lib/bridge';
-import type { SettingsDataPayload } from '@sdk';
+import type { RuntimeInfo, SettingsData } from '@sdk';
 
-type Listener = (payload: unknown) => void;
+const RUNTIME: RuntimeInfo = {
+  game: 'Starfield',
+  plugin: 'OSF UI',
+  version: '2.0.0',
+  bridgeVersion: '2.0',
+  view: 'osfui/keybinds',
+  mod: 'osfui',
+};
+
+type Handler = (value: unknown) => void;
+
+interface OutboundMessage {
+  name: string;
+  payload?: Record<string, unknown>;
+}
 
 interface FakeBridge extends Bridge {
-  deliver(type: string, payload: unknown): void;
-  sent: Array<{ command: string; fields?: Record<string, unknown> }>;
-  requests: Array<{ command: string; fields?: Record<string, unknown> }>;
+  /** Fire a one-shot EVENT. Never replayed. */
+  deliver(event: string, payload: unknown): void;
+  /** Publish a STATE key: replayed to every later subscriber. */
+  publish(key: string, value: unknown): void;
+  sent: OutboundMessage[];
+  requests: OutboundMessage[];
   settle(index: number, value: unknown): void;
   reject(index: number, err: unknown): void;
 }
 
-function makeBridge(): FakeBridge {
-  const listeners = new Map<string, Set<Listener>>();
+function makeBridge(state: Record<string, unknown> = {}): FakeBridge {
+  const eventListeners = new Map<string, Set<Handler>>();
+  const stateListeners = new Map<string, Set<Handler>>();
+  const values = new Map<string, unknown>(Object.entries(state));
   const pending: Array<{ resolve: (v: unknown) => void; reject: (e: unknown) => void }> = [];
+
+  const subscribe = (map: Map<string, Set<Handler>>, key: string, fn: Handler) => {
+    let set = map.get(key);
+    if (!set) {
+      set = new Set();
+      map.set(key, set);
+    }
+    set.add(fn);
+    return () => {
+      map.get(key)?.delete(fn);
+    };
+  };
+
   const bridge: FakeBridge = {
     ...nullBridge,
     available: () => true,
+    // A fake that reports itself available must complete the handshake too:
+    // nullBridge's `ready` rejects "no-bridge", which is the standalone case.
+    ready: () => Promise.resolve(RUNTIME),
     sent: [],
     requests: [],
-    emit(command, fields) {
-      bridge.sent.push(fields === undefined ? { command } : { command, fields });
+    send(name: string, payload?: Record<string, unknown>) {
+      bridge.sent.push(payload === undefined ? { name } : { name, payload });
       return true;
     },
-    call(command: string, fields?: Record<string, unknown>) {
-      bridge.requests.push(fields === undefined ? { command } : { command, fields });
+    request(name: string, payload?: Record<string, unknown>) {
+      bridge.requests.push(payload === undefined ? { name } : { name, payload });
       return new Promise((resolve, reject) => {
         pending.push({ resolve: resolve as (v: unknown) => void, reject });
       }) as never;
     },
-    on(type: string, fn: unknown) {
-      let set = listeners.get(type);
-      if (!set) {
-        set = new Set();
-        listeners.set(type, set);
-      }
-      set.add(fn as Listener);
-      return () => {
-        const s = listeners.get(type);
-        if (s) s.delete(fn as Listener);
-      };
+    on(event: string, fn: unknown) {
+      return subscribe(eventListeners, event, fn as Handler);
     },
-    deliver(type, payload) {
-      const set = listeners.get(type);
+    onAny(event: string, fn: unknown) {
+      return subscribe(eventListeners, event, fn as Handler);
+    },
+    state(key: string, fn: unknown) {
+      const off = subscribe(stateListeners, key, fn as Handler);
+      // Subscribing IS the read.
+      if (values.has(key)) (fn as Handler)(values.get(key));
+      return off;
+    },
+    peek(key: string) {
+      return values.get(key) as never;
+    },
+    deliver(event, payload) {
+      const set = eventListeners.get(event);
       if (set) for (const fn of [...set]) fn(payload);
+    },
+    publish(key, value) {
+      values.set(key, value);
+      const set = stateListeners.get(key);
+      if (set) for (const fn of [...set]) fn(value);
     },
     settle(index, value) {
       const p = pending[index];
@@ -84,7 +131,7 @@ const flush = async () => {
  * Two mods and two vanilla rows. `demo.panelKey` (F5) collides with the vanilla
  * Quicksave, so the fixture covers the conflict paths as well as the plain ones.
  */
-const DATA: SettingsDataPayload = {
+const DATA: SettingsData = {
   mods: [
     {
       id: 'osfui',
@@ -107,7 +154,10 @@ const DATA: SettingsDataPayload = {
     { event: 'QuickSave', title: 'Starfield (Quicksave)', name: 'F5' },
     { event: 'Activate', title: 'Starfield (Interact)', name: 'E' },
   ],
-} as unknown as SettingsDataPayload;
+} as unknown as SettingsData;
+
+/** A bridge whose document already received the settings replay. */
+const seeded = () => makeBridge({ 'osfui/settings': DATA });
 
 let host: HTMLElement | null = null;
 
@@ -152,10 +202,7 @@ afterEach(() => {
 describe('keybinds — selection', () => {
   it('selectKey TOGGLES: clicking the selected key deselects it', async () => {
     // Toggling is the only way to clear the panel — there is no close affordance.
-    const bridge = makeBridge();
-    const el = await mount(bridge);
-    bridge.deliver('settings.data', DATA);
-    await flush();
+    const el = await mount(seeded());
 
     const title = () => el.querySelector('#detail-title')!.textContent;
     expect(title()).toBe('Select a key');
@@ -188,10 +235,7 @@ describe('keybinds — search scope', () => {
   it('repaints the board and the list but NOT the detail panel', async () => {
     // Re-scoping the detail panel on every keystroke would make the inspected
     // key vanish while you type its name.
-    const bridge = makeBridge();
-    const el = await mount(bridge);
-    bridge.deliver('settings.data', DATA);
-    await flush();
+    const el = await mount(seeded());
 
     // Select F5 — a mod binding plus the vanilla Quicksave, i.e. a conflict.
     cell(el, 'F5').click();
@@ -222,10 +266,7 @@ describe('keybinds — search scope', () => {
   it('dims a key only when neither its holders nor its own name match', async () => {
     // Matching the key's own name is why searching "f10" keeps F10 lit even
     // though nothing is bound to it.
-    const bridge = makeBridge();
-    const el = await mount(bridge);
-    bridge.deliver('settings.data', DATA);
-    await flush();
+    const el = await mount(seeded());
 
     await typeSearch(el, 'f11'); // nothing is bound to F11
     expect(cell(el, 'F11').classList.contains('is-dim')).toBe(false);
@@ -237,10 +278,8 @@ describe('keybinds — list row activation', () => {
   it('IGNORES a row click that landed inside a button', async () => {
     // A Rebind click must stay a rebind; otherwise arming a capture would also
     // change the selection out from under the user.
-    const bridge = makeBridge();
+    const bridge = seeded();
     const el = await mount(bridge);
-    bridge.deliver('settings.data', DATA);
-    await flush();
 
     expect(el.querySelector('#detail-title')!.textContent).toBe('Select a key');
 
@@ -251,7 +290,7 @@ describe('keybinds — list row activation', () => {
     // The capture armed, and the selection did not move.
     expect(document.querySelectorAll('.listening').length).toBe(1);
     expect(el.querySelector('#detail-title')!.textContent).toBe('Select a key');
-    expect(bridge.requests[0]!.command).toBe('settings.captureKey');
+    expect(bridge.requests[0]!.name).toBe('settings.captureKey');
 
     // Control case: a click elsewhere in the same row does select.
     const row = rebind.closest('.kb-holder--list') as HTMLElement;
@@ -262,36 +301,74 @@ describe('keybinds — list row activation', () => {
   });
 });
 
+describe('keybinds — capture settles in two steps', () => {
+  it('arms with a request and commits from the settings.captured EVENT', async () => {
+    // The request answers "am I armed?" in machine time; the key the player
+    // presses arrives later, as an event, however long they take. 1.x carried
+    // both on one open-ended request, which leaked a pending entry for the
+    // session whenever a player armed a rebind and wandered off.
+    const bridge = seeded();
+    const el = await mount(bridge);
+
+    // The first bind-list row is demo/panelKey (F5).
+    el.querySelector<HTMLButtonElement>('#bindlist .osf-key')!.click();
+    await flush();
+    const armed = bridge.requests.findIndex((r) => r.name === 'settings.captureKey');
+    expect(bridge.requests[armed]).toEqual({
+      name: 'settings.captureKey',
+      payload: { mod: 'demo', key: 'panelKey' },
+    });
+
+    bridge.settle(armed, { armed: true, mod: 'demo', key: 'panelKey' });
+    await flush();
+    // Armed is not captured: the button keeps listening.
+    expect(document.querySelectorAll('.listening').length).toBe(1);
+
+    bridge.deliver('settings.captured', {
+      mod: 'demo',
+      key: 'panelKey',
+      name: 'F9',
+      cancelled: false,
+    });
+    await flush();
+
+    expect(document.querySelector('.listening')).toBeNull();
+    // The commit is written back through the normal write endpoint.
+    expect(bridge.requests.find((r) => r.name === 'settings.set')).toEqual({
+      name: 'settings.set',
+      payload: { mod: 'demo', key: 'panelKey', value: 'F9' },
+    });
+  });
+});
+
 describe('keybinds — goBack', () => {
   it('opens the hub, and falls back to a bare close when that rejects', async () => {
     // Single-menu policy: opening the hub replaces this menu, so the happy path
     // needs no close. The fallback stops an unregistered hub view from stranding
     // the user in a menu they cannot leave.
-    const bridge = makeBridge();
+    const bridge = seeded();
     const el = await mount(bridge);
-    bridge.deliver('settings.data', DATA);
-    await flush();
 
     el.querySelector<HTMLButtonElement>('#back')!.click();
     await flush();
 
-    const open = bridge.requests.find((r) => r.command === 'menu.open');
-    expect(open).toEqual({ command: 'menu.open', fields: { view: 'osfui/settings' } });
+    // `menu.open` is a REQUEST: the fallback exists precisely because it can
+    // reject, which a send could never tell us.
+    const open = bridge.requests.find((r) => r.name === 'menu.open');
+    expect(open).toEqual({ name: 'menu.open', payload: { view: 'osfui/settings' } });
     // Nothing closed yet — the hub is expected to take over.
-    expect(bridge.sent.some((s) => s.command === 'close')).toBe(false);
+    expect(bridge.sent.some((s) => s.name === 'close')).toBe(false);
 
     const err = Object.assign(new Error('unknown view'), { code: 'unknown-view' });
     bridge.reject(bridge.requests.indexOf(open!), err);
     await flush();
 
-    expect(bridge.sent.some((s) => s.command === 'close')).toBe(true);
+    expect(bridge.sent.some((s) => s.name === 'close')).toBe(true);
   });
 
   it('Escape reaches goBack, and is SWALLOWED while a capture is armed', async () => {
-    const bridge = makeBridge();
+    const bridge = seeded();
     const el = await mount(bridge);
-    bridge.deliver('settings.data', DATA);
-    await flush();
 
     const escape = () =>
       document.dispatchEvent(
@@ -300,13 +377,13 @@ describe('keybinds — goBack', () => {
 
     escape();
     await flush();
-    expect(bridge.requests.filter((r) => r.command === 'menu.open').length).toBe(1);
+    expect(bridge.requests.filter((r) => r.name === 'menu.open').length).toBe(1);
 
     // Arm a rebind, then press Escape: it belongs to the capture, not to us.
     el.querySelector<HTMLButtonElement>('#bindlist .osf-key')!.click();
     await flush();
     escape();
     await flush();
-    expect(bridge.requests.filter((r) => r.command === 'menu.open').length).toBe(1);
+    expect(bridge.requests.filter((r) => r.name === 'menu.open').length).toBe(1);
   });
 });

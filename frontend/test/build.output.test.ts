@@ -34,11 +34,14 @@ describe('build output', () => {
     expect(walk(OUT).filter((f: string) => f.endsWith('.map'))).toEqual([]);
   });
 
-  // Frozen public contract: shared/osfui.{js,css} are bridge protocol 1.0
-  // (api-freeze item 5) and third-party mods link `../../shared/osfui.js` by that
-  // exact path; padnav.js is private-but-unfrozen, shipped as-is pending in-game
-  // controller verification (frontend/COMPATIBILITY.md). All three are copied,
-  // never regenerated, so byte-identical is the whole spec.
+  // Published public contract: shared/osfui.{js,css} are bridge protocol 2.0,
+  // and third-party mods link `../../shared/osfui.js` by that exact path;
+  // padnav.js is private-but-unfrozen, shipped as-is pending in-game controller
+  // verification (frontend/COMPATIBILITY.md). All three are copied, never
+  // regenerated, so byte-identical is the whole spec — and the helper being
+  // hand-written JavaScript with no compile step to fail loudly, this equality
+  // is what keeps an edit to src/shared-kit/osfui.js from shipping beside a
+  // stale copy of itself.
   const verbatim: Array<[string, string]> = [
     ['src/shared-kit/osfui.js', 'shared/osfui.js'],
     ['src/shared-kit/osfui.css', 'shared/osfui.css'],
@@ -57,9 +60,11 @@ describe('build output', () => {
     const html = () => readFileSync(join(OUT, v.mod, v.name, 'index.html'), 'utf8');
 
     it('does not use type="module"', () => {
-      // shared/osfui.js owns osfui.onMessage and must execute before main.js;
-      // modules are deferred, which silently inverts that order even if CORS
-      // passed.
+      // shared/osfui.js owns osfui.onMessage, defines on()/state.on(), and
+      // sends the page-initiated `osfui.hello` from its own IIFE body — all of
+      // it has to happen before main.js runs. Modules are deferred, which
+      // silently inverts that order even if CORS passed, leaving the view
+      // subscribing through members that do not exist yet.
       expect(html()).not.toMatch(/type\s*=\s*["']module["']/);
     });
 

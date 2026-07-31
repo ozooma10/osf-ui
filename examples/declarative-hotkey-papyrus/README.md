@@ -63,8 +63,24 @@ EndIf
 ```
 
 `0x000800` is the quest record's plugin-local FormID, not its load-order
-dependent runtime FormID. Set the schema's `targetVersion` to the OSF UI
-release that first ships `onPress` before distributing a real mod.
+dependent runtime FormID.
+
+The schema already declares `"targetVersion": "2.0.0"`, the release that first
+ships `onPress`. Keep that in a real mod: an older OSF UI still shows and
+rebinds the key, it just dispatches nothing when the key is pressed — the
+**needs update** badge is the only thing that tells the player why.
+
+## Why this needs no registration
+
+`onPress` is schema-owned and immutable, so the dispatch target survives a save
+load with no `OnPlayerLoadGame` re-registration — unlike
+`OSFUI.RegisterForHotkey`, whose token is session-scoped like every other
+Papyrus event registration. That is the whole point of the declarative form:
+there is nothing to keep alive, so there is nothing to lose.
+
+It is an extra channel, not a replacement. One press still notifies native
+subscribers and the `ui.hotkey` web event, then any registered Papyrus
+callback, and `onPress` last — a mod that does both gets both.
 
 ## Files
 

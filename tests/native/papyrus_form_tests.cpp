@@ -1,10 +1,17 @@
-// Host-side tests for form references across the bridge (protocol 1.3,
+// Host-side tests for form references across the bridge (protocol 2.0,
 // docs/form-references-design.md): the REAL api/PapyrusApi.cpp compiled
 // against stubs/RE (recording VM + a TESForm test registry), driven through
-// the same natives the game binds. Covers PushFormsToView's capture-ids/
+// the same natives the game binds. Covers SetViewForms' capture-ids/
 // serialize-at-drain split (identity fields, null-slot preservation, empty
-// pushes, shared validation and cap) and the GetFormById/GetFormsById
-// resolvers (decimal + hex parse matrix, stale references).
+// values, shared validation and cap), the GetFormById/GetFormsById resolvers
+// (decimal + hex parse matrix, stale references), and the session scope that
+// serialized form identities force on retained Papyrus state.
+//
+// 2.0 renamed the channel (`PushFormsToView` -> `SetViewForms`, a transient
+// push -> retained state) but NOT the threading rule that makes it work: the
+// native captures FormIDs on the VM tasklet thread and the identity fields are
+// read at drain time on the main thread, because a form field read is
+// main-thread-only while a FormID is just a number.
 // Assert-style; process exit code is the failure count.
 
 #include "api/BridgeApi.h"
@@ -95,48 +102,49 @@ int main()
 	auto* vm = RE::BSScript::Internal::VirtualMachine::GetSingleton();
 
 	API::Papyrus::Install();
-	CHECK(vm->natives.contains("PushFormsToView"));
+	CHECK(vm->natives.contains("SetViewForms"));
 	CHECK(vm->natives.contains("GetFormById"));
 	CHECK(vm->natives.contains("GetFormsById"));
+	CHECK(!vm->natives.contains("PushFormsToView"));  // the 1.x transient push is gone
 
-	const auto pushForms =
-		vm->GetNative<void (*)(IVM&, std::uint32_t, std::monostate, Str, Str, std::vector<RE::TESForm*>)>("PushFormsToView");
-	const auto pushToView =
-		vm->GetNative<void (*)(IVM&, std::uint32_t, std::monostate, Str, Str, std::vector<Str>)>("PushToView");
+	const auto setViewForms =
+		vm->GetNative<void (*)(IVM&, std::uint32_t, std::monostate, Str, Str, std::vector<RE::TESForm*>)>("SetViewForms");
+	const auto setViewStrings =
+		vm->GetNative<void (*)(IVM&, std::uint32_t, std::monostate, Str, Str, std::vector<Str>)>("SetViewStrings");
 	const auto getFormById =
 		vm->GetNative<RE::TESForm* (*)(IVM&, std::uint32_t, std::monostate, Str)>("GetFormById");
 	const auto getFormsById =
 		vm->GetNative<std::vector<RE::TESForm*> (*)(IVM&, std::uint32_t, std::monostate, std::vector<Str>)>("GetFormsById");
 
-	std::vector<API::Papyrus::ViewPush> drained;
-	const auto drain = [&] {
+	std::vector<API::Papyrus::ViewState> drained;
+	const auto                           drain = [&] {
 		drained.clear();
-		API::Papyrus::DrainViewPushes([&](const API::Papyrus::ViewPush& a_push) { drained.push_back(a_push); });
+		API::Papyrus::DrainViewState([&](const API::Papyrus::ViewState& a_state) { drained.push_back(a_state); });
 	};
 
 	NamedForm    keyword{ 0x0014E8D2, RE::FormType::kKYWD, "Melee Weapons" };
 	NamedForm    weapon{ 0x000000FA, RE::FormType::kWEAP, "Eon" };
 	EditorIdForm bare{ 0x00000010, RE::FormType::kNONE, "MyEditorId" };
 
-	// --- round-trip: push -> serialized identity -> echo -> same form -------------
-	pushForms(*vm, 0, {}, "T.Forms", "catalog", { &keyword, &weapon });
+	// --- round-trip: publish -> serialized identity -> echo -> same form ----------
+	setViewForms(*vm, 0, {}, "T.Forms", "catalog", { &keyword, &weapon });
 	drain();
 	CHECK(drained.size() == 1);
 	if (drained.size() == 1) {
-		const auto& p = drained[0];
-		CHECK(p.mod == "t.forms");  // folded to canonical lowercase, like PushToView
-		CHECK(p.key == "catalog");
-		CHECK(p.values.empty());
-		CHECK(p.forms.has_value());
-		if (p.forms) {
-			CHECK(p.forms->is_array());
-			CHECK(p.forms->size() == 2);
-			const auto& kw = (*p.forms)[0];
+		const auto& s = drained[0];
+		CHECK(s.mod == "t.forms");  // folded to canonical lowercase, like every SetView*
+		CHECK(s.key == "catalog");
+		// The forms ARE the key's complete value now — there is no second
+		// channel and no parallel `values` field to keep in step.
+		CHECK(s.value.is_array());
+		CHECK(s.value.size() == 2);
+		if (s.value.is_array() && s.value.size() == 2) {
+			const auto& kw = s.value[0];
 			CHECK(kw.at("formId").get<std::uint32_t>() == 0x0014E8D2u);
 			CHECK(kw.at("formType").get<std::string>() == "KYWD");
 			CHECK(kw.at("name").get<std::string>() == "Melee Weapons");
 			CHECK(!kw.contains("editorId"));  // default GetFormEditorID is empty
-			CHECK((*p.forms)[1].at("formType").get<std::string>() == "WEAP");
+			CHECK(s.value[1].at("formType").get<std::string>() == "WEAP");
 		}
 	}
 
@@ -149,55 +157,66 @@ int main()
 
 	// --- best-effort fields: editorId when present, numeric-fallback formType -----
 	NamedForm unmapped{ 0x00000020, static_cast<RE::FormType>(0xC8), "Oddity" };
-	pushForms(*vm, 0, {}, "t.forms", "misc", { &bare, &unmapped });
+	setViewForms(*vm, 0, {}, "t.forms", "misc", { &bare, &unmapped });
 	drain();
-	CHECK(drained.size() == 1 && drained[0].forms && drained[0].forms->size() == 2);
-	if (drained.size() == 1 && drained[0].forms && drained[0].forms->size() == 2) {
-		const auto& b = (*drained[0].forms)[0];
+	CHECK(drained.size() == 1 && drained[0].value.is_array() && drained[0].value.size() == 2);
+	if (drained.size() == 1 && drained[0].value.is_array() && drained[0].value.size() == 2) {
+		const auto& b = drained[0].value[0];
 		CHECK(b.at("editorId").get<std::string>() == "MyEditorId");
 		CHECK(!b.contains("name"));  // no TESFullName component
 		// A type with no FORM_ENUM_STRING row serializes its numeric value.
-		CHECK((*drained[0].forms)[1].at("formType").get<std::string>() == "200");
+		CHECK(drained[0].value[1].at("formType").get<std::string>() == "200");
 	}
 
 	// --- null slots: None inputs and forms deleted between queue and drain --------
-	pushForms(*vm, 0, {}, "t.forms", "inv", { &keyword, nullptr, &weapon });
+	// The queue holds FormIDs, so a form can vanish in between; its slot is kept
+	// as a JS null rather than collapsing the array, which is what keeps a
+	// parallel key (labels, counts) index-aligned with this one.
+	setViewForms(*vm, 0, {}, "t.forms", "inv", { &keyword, nullptr, &weapon });
 	RE::TESForm::Registry().erase(weapon.GetFormID());  // vanishes pre-drain
 	drain();
-	CHECK(drained.size() == 1 && drained[0].forms && drained[0].forms->size() == 3);
-	if (drained.size() == 1 && drained[0].forms && drained[0].forms->size() == 3) {
-		CHECK(!(*drained[0].forms)[0].is_null());
-		CHECK((*drained[0].forms)[1].is_null());  // None kept its slot
-		CHECK((*drained[0].forms)[2].is_null());  // deleted form kept its slot
+	CHECK(drained.size() == 1 && drained[0].value.is_array() && drained[0].value.size() == 3);
+	if (drained.size() == 1 && drained[0].value.is_array() && drained[0].value.size() == 3) {
+		CHECK(!drained[0].value[0].is_null());
+		CHECK(drained[0].value[1].is_null());  // None kept its slot
+		CHECK(drained[0].value[2].is_null());  // deleted form kept its slot
 	}
 	CHECK(LogCount("vanished before serialization") == 1);
 	RE::TESForm::Registry()[weapon.GetFormID()] = &weapon;  // restore for later sections
 
-	// --- empty forms push still delivers; a plain PushToView has no forms ---------
-	pushForms(*vm, 0, {}, "t.forms", "catalog", {});
+	// --- an empty forms value still delivers ---------------------------------------
+	// It is the complete value for the key and it means "the list is now empty",
+	// which a view must be able to render — the setter is not a no-op.
+	setViewForms(*vm, 0, {}, "t.forms", "catalog", {});
 	drain();
-	CHECK(drained.size() == 1 && drained[0].forms.has_value() && drained[0].forms->empty());
+	CHECK(drained.size() == 1 && drained[0].value.is_array() && drained[0].value.empty());
 
-	pushToView(*vm, 0, {}, "t.forms", "labels", { Str{ "a" } });
+	// Only SetViewForms serializes identities: every other setter's value
+	// travels verbatim, so a string that happens to look like a form id stays a
+	// string.
+	setViewStrings(*vm, 0, {}, "t.forms", "labels", { Str{ "a" } });
 	drain();
-	CHECK(drained.size() == 1 && !drained[0].forms.has_value());
+	CHECK(drained.size() == 1 && drained[0].value.is_array() && drained[0].value.size() == 1);
+	if (drained.size() == 1 && drained[0].value.is_array() && drained[0].value.size() == 1) {
+		CHECK(drained[0].value[0] == "a");
+	}
 
-	// --- shared validation and queue cap with PushToView ---------------------------
-	pushForms(*vm, 0, {}, "notdotted", "k", { &keyword });
-	pushForms(*vm, 0, {}, "t.forms", "", { &keyword });
+	// --- shared validation and queue cap with the other SetView* natives ------------
+	setViewForms(*vm, 0, {}, "notdotted", "k", { &keyword });
+	setViewForms(*vm, 0, {}, "t.forms", "", { &keyword });
 	drain();
 	CHECK(drained.empty());
-	CHECK(LogCount("PushFormsToView") >= 2);  // both refusals name the native
+	CHECK(LogCount("SetViewForms") >= 2);  // both refusals name the native
 
 	for (int i = 0; i < 1024; ++i) {
-		pushToView(*vm, 0, {}, "t.forms", "k", { Str{ "v" } });
+		setViewStrings(*vm, 0, {}, "t.forms", "k", { Str{ "v" } });
 	}
-	pushForms(*vm, 0, {}, "t.forms", "overflow", { &keyword });  // 1025th entry
-	CHECK(LogCount("view-push queue full") > 0);
+	setViewForms(*vm, 0, {}, "t.forms", "overflow", { &keyword });  // 1025th entry
+	CHECK(LogCount("view-state queue full") > 0);
 	drain();
 	CHECK(drained.size() == 1024);
-	for (const auto& p : drained) {
-		CHECK(p.key != "overflow");  // the forms push was the one dropped
+	for (const auto& s : drained) {
+		CHECK(s.key != "overflow");  // the forms value was the one dropped
 	}
 
 	// --- resolver parse matrix ------------------------------------------------------
@@ -225,6 +244,20 @@ int main()
 		CHECK(forms[1] == nullptr);
 		CHECK(forms[2] == &weapon);
 	}
+
+	// --- session scope: form identities must not cross a game load -------------------
+	// Runtime FormIDs are session-scoped, which is the whole reason retained
+	// PAPYRUS state is session-scoped while the native ABI's is not. The load
+	// drops what is still queued, and TakeSessionReset is the one-shot signal
+	// Runtime::Tick reads to drop what it already retained (ViewStateStore::
+	// ClearSessionScoped) before the new session's scripts publish again.
+	CHECK(!API::Papyrus::TakeSessionReset());  // nothing to report before a load
+	setViewForms(*vm, 0, {}, "t.forms", "catalog", { &keyword });
+	RE::TESLoadGameEvent::GetEventSource()->Notify(RE::TESLoadGameEvent{});
+	drain();
+	CHECK(drained.empty());                    // queued identities never reach the new session
+	CHECK(API::Papyrus::TakeSessionReset());   // raised once by the load...
+	CHECK(!API::Papyrus::TakeSessionReset());  // ...and consumed by the tick that saw it
 
 	std::fprintf(stderr, "papyrus_form_tests: %d checks, %d failures\n", g_checks, g_failures);
 	return g_failures;

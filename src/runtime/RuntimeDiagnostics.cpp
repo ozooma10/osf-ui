@@ -148,7 +148,27 @@ namespace OSFUI
 		for (const auto& manifest : runtime._views.All()) {
 			if (IsTargetNewerThanHost(manifest.targetVersion)) {
 				targets.push_back({ manifest.id, "view", manifest.targetVersion });
+			} else if (IsPre2Target(manifest.targetVersion)) {
+				// Authored for the 1.x mod API. It will load, greet nothing the
+				// helper understands, and render blank — a legible card beats a
+				// blank page, which is the one thing an unmigrated view must
+				// never silently become.
+				targets.push_back({ manifest.id, "view", manifest.targetVersion, "compat.legacy-view" });
 			}
+		}
+		// Plugins refused by OSFUI_RequestBridge for an ABI major mismatch. The
+		// refusal happens during SFSE load, long before this runs, so the record
+		// is drained here rather than reported at the refusal site.
+		for (const auto& caller : API::BridgeApi::Get().TakeLegacyApiCallers()) {
+			_legacyApiCallers.push_back(caller);
+		}
+		for (const auto& caller : _legacyApiCallers) {
+			targets.push_back({
+				caller.module.empty() ? std::string("(unidentified plugin)") : caller.module,
+				"plugin",
+				std::format("{}.{}", caller.major, caller.minor),
+				"compat.legacy-api",
+			});
 		}
 		if (runtime._settings) {
 			for (const auto& mod : runtime._settings->Store().DataView().value(

@@ -7,7 +7,7 @@ namespace OSFUI
 	// A feature module ("app") hosted by the runtime. Its purpose is a uniform
 	// lifecycle fan-out: the runtime owns a fixed, ordered list of concrete
 	// modules and drives each one through the same lifecycle points below —
-	// OnStart(), RegisterCommands(), OnBridgeDown(), OnViewDestroyed() — from a
+	// OnStart(), RegisterEndpoints(), OnBridgeDown(), OnViewDestroyed() — from a
 	// single loop instead of a per-module call at every site. It is NOT a
 	// decoupling seam and NOT a plugin ABI: the runtime still holds and reaches
 	// through the concrete module types (SettingsModule, DiagnosticsModule)
@@ -26,10 +26,10 @@ namespace OSFUI
 		// Register the module's web<->native `ui.command` handlers on the
 		// bridge. Called only when a bridge-enabled view is active. A module
 		// may keep the bridge pointer for unsolicited pushes until
-		// OnBridgeDown (or a later RegisterCommands replaces it).
-		virtual void RegisterCommands(MessageBridge& a_bridge) = 0;
+		// OnBridgeDown (or a later RegisterEndpoints replaces it).
+		virtual void RegisterEndpoints(MessageBridge& a_bridge) = 0;
 
-		// The bridge passed to RegisterCommands is about to be destroyed; drop
+		// The bridge passed to RegisterEndpoints is about to be destroyed; drop
 		// any retained pointer/subscriber state.
 		virtual void OnBridgeDown() {}
 

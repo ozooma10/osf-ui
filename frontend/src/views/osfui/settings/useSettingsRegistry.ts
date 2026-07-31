@@ -100,7 +100,7 @@ export function useSettingsRegistry(opts: SettingsRegistryOptions): SettingsRegi
    */
   const [baseline, setBaseline, baselineRef] = useStateRef<Baseline>({});
 
-  // Bumped on every `i18n.data` push. Not exposed: this is the hook's own state,
+  // Bumped whenever the locale catalog changes. Not exposed: this is the hook's own state,
   // so setting it already re-renders the caller, and `tr` reads through to
   // bridge.t per call rather than caching — there is nothing for a consumer to
   // subscribe to.
@@ -143,25 +143,31 @@ export function useSettingsRegistry(opts: SettingsRegistryOptions): SettingsRegi
   };
 
   useEffect(() => {
-    const offSettings = bridge.on('settings.data', (p) => {
-      const list = (p.mods || []) as ModRecord[];
+    // Subscribing IS the read. Each handler runs immediately with the current
+    // value and again on every change — on this document and on every later
+    // one, because the host replays state to each fresh page. Everything below
+    // used to be four `*.get` commands whose replies doubled as subscriptions,
+    // re-sent on the `runtime.ready` edge in case the first attempt lost a race
+    // with the transport coming up. None of that has anywhere left to live.
+    const offSettings = bridge.state('osfui/settings', (data) => {
+      const list = (data?.mods || []) as ModRecord[];
       setMods(list);
-      // `p.loadErrors` is deliberately ignored: the same failures arrive as
-      // `diagnostics.data` issues, which carry severity, an occurrence count and
-      // actions. Reading both would double-report them.
+      // `loadErrors` is deliberately ignored: the same failures arrive in
+      // `osfui/diagnostics` carrying severity, an occurrence count and actions.
+      // Reading both would double-report them.
       captureBaseline(list);
     });
 
-    const offDiagnostics = bridge.on('diagnostics.data', (p) => setHealth(readHealth(p)));
+    const offDiagnostics = bridge.state('osfui/diagnostics', (data) => setHealth(readHealth(data)));
 
-    const offViews = bridge.on('views.data', (p) => {
-      const all = (p.views || []) as ViewRecord[];
+    const offViews = bridge.state('osfui/views', (data) => {
+      const all = (data?.views || []) as ViewRecord[];
       setDiscoveredViews(all.filter((v) => v && v.id));
       setViews(all.filter((v) => v && v.hub !== false));
       onViewsDataRef.current();
     });
 
-    const offI18n = bridge.on('i18n.data', () => {
+    const offI18n = bridge.state('osfui/i18n', () => {
       // A catalog arriving before any data must not force a paint of an empty
       // surface.
       if (modsRef.current.length || viewsRef.current.length) setI18nSeq((n) => n + 1);
@@ -208,33 +214,14 @@ export function useSettingsRegistry(opts: SettingsRegistryOptions): SettingsRegi
       setMods(patchModValues(modsRef.current, modId, { [key]: p.value as SettingValue }));
     });
 
-    const requestCatalogs = () => {
-      if (!bridge.available()) return;
-      bridge.emit('settings.get');
-      bridge.emit('views.get');
-      // Same subscribe-on-read contract. A host that predates protocol 1.4
-      // answers ui.error and the pane simply stays nominal.
-      bridge.emit('diagnostics.get');
-    };
-
-    // The initial reads must not be gated on `ready`. `runtime.ready` is a
-    // one-shot greeting emitted at runtime init, which can be long before this
-    // page's transport can carry it (the WebView2 host is a separate process
-    // that starts on the first game tick); gating on it left the Mods surface
-    // permanently empty whenever the greeting was missed. The gets are
-    // idempotent and also subscribe to the change pushes.
-    requestCatalogs();
-
-    // A page reload can also run before the injected transport reports itself
-    // available, then receive `runtime.ready` moments later. Reissue the
-    // idempotent reads on that edge so a populated version badge can never sit
-    // above an empty deck merely because the first availability check lost the
-    // race. A missed greeting remains safe because the immediate reads above do
-    // not depend on it.
-    void bridge.ready().then((info) => {
-      setHostVersion(info.version || '');
-      requestCatalogs();
-    });
+    // The only thing still worth awaiting: the host's own version, for the
+    // badge. It cannot gate the data — and no longer needs to, since the
+    // handshake is page-initiated and the replay follows it unconditionally.
+    // Rejects standalone (no bridge), which is not an error worth surfacing.
+    void bridge
+      .ready()
+      .then((info) => setHostVersion(info.version || ''))
+      .catch(() => {});
 
     return () => {
       offSettings();

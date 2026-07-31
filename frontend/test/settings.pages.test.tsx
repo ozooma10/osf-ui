@@ -15,7 +15,7 @@ afterEach(unmount);
 async function mountPaged() {
   const bridge = makeBridge();
   const el = await mount(bridge);
-  bridge.deliver('settings.data', PAGED);
+  bridge.publish('osfui/settings', PAGED);
   await flush();
   [...el.querySelectorAll<HTMLButtonElement>('.rail-item')]
     .find((b) => b.textContent!.includes('Paged Mod'))!
@@ -118,7 +118,7 @@ describe('paged mod rendering', () => {
   it('an unpaged mod renders no tab row (degradation baseline)', async () => {
     const bridge = makeBridge();
     const el = await mount(bridge);
-    bridge.deliver('settings.data', WIDGETS);
+    bridge.publish('osfui/settings', WIDGETS);
     await flush();
     [...el.querySelectorAll<HTMLButtonElement>('.rail-item')]
       .find((b) => b.textContent!.includes('Acme Kit'))!

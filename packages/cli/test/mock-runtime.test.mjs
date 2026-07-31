@@ -1,6 +1,11 @@
 // The scenario engine and scenario overlay — the pure core of the
 // programmable mock. DOM-touching parts (installMock) are covered by the
 // server-level test in toolchain.test.mjs.
+//
+// Protocol 2.0: the engine is handed the envelope's KIND alongside its name, so
+// a send and a request naming the same endpoint are different events. Requests
+// settle through io.resolve / io.reject; a send has nothing to settle and gets
+// io.surface when the harness cannot place it.
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -10,93 +15,104 @@ import { createScenarioHandler, resolveScenario } from '../src/browser/mock-runt
 const META = { modId: 'acme.widgets' };
 
 function harness(scenario) {
-  const replies = [];
+  const settled = [];
+  const surfaced = [];
   const reports = [];
   const engine = createScenarioHandler(resolveScenario(scenario, null), META);
-  const run = (command, payload = {}, requestId = 'r1') =>
-    engine(command, payload, requestId, {
-      reply: (type, replyPayload) => replies.push({ type, payload: replyPayload }),
-      report: (direction, message, level) => reports.push({ direction, message, level }),
-    });
-  return { run, replies, reports };
+  const io = {
+    resolve: (payload) => settled.push({ ok: true, payload }),
+    reject: (code, message) => settled.push({ ok: false, code, message }),
+    surface: (code, message) => surfaced.push({ code, message }),
+    report: (direction, message, level) => reports.push({ direction, message, level }),
+  };
+  return {
+    request: (name, payload = {}) => engine('request', name, payload, io),
+    send: (name, payload = {}) => engine('send', name, payload, io),
+    settled,
+    surfaced,
+    reports,
+  };
 }
 
-test('a plain request value replies mock.result', async () => {
-  const { run, replies } = harness({ requests: { 'acme.widgets.getWeight': { weight: 42.5 } } });
-  await run('acme.widgets.getWeight');
-  assert.deepEqual(replies, [{ type: 'mock.result', payload: { weight: 42.5 } }]);
+test('a plain request value resolves as the reply payload', async () => {
+  const h = harness({ requests: { 'acme.widgets.getWeight': { weight: 42.5 } } });
+  await h.request('acme.widgets.getWeight');
+  assert.deepEqual(h.settled, [{ ok: true, payload: { weight: 42.5 } }]);
 });
 
-test('a $type request controls the reply type', async () => {
-  const { run, replies } = harness({
-    requests: { 'acme.widgets.scan': { $type: 'acme.widgets.scanned', payload: { hits: 3 } } },
+test('a $payload wrapper nests the reply without inventing a reply type', async () => {
+  // 1.x let a mock pick the reply MESSAGE TYPE with `$type`. A reply has no
+  // type any more — it is just a payload — so the wrapper only survives as a
+  // way to nest one.
+  const h = harness({
+    requests: { 'acme.widgets.scan': { $payload: { hits: 3 } } },
   });
-  await run('acme.widgets.scan');
-  assert.deepEqual(replies, [{ type: 'acme.widgets.scanned', payload: { hits: 3 } }]);
+  await h.request('acme.widgets.scan');
+  assert.deepEqual(h.settled, [{ ok: true, payload: { hits: 3 } }]);
 });
 
 test('a function request receives the payload and may be async', async () => {
-  const { run, replies } = harness({
-    requests: {
-      echo: async (payload) => ({ got: payload.value }),
-    },
+  const h = harness({
+    requests: { echo: async (payload) => ({ got: payload.value }) },
   });
-  await run('echo', { value: 7 });
-  assert.deepEqual(replies, [{ type: 'mock.result', payload: { got: 7 } }]);
-});
-
-test('a function request returning $type controls the reply type', async () => {
-  const { run, replies } = harness({
-    requests: { probe: () => ({ $type: 'probe.data', payload: { ok: true } }) },
-  });
-  await run('probe');
-  assert.deepEqual(replies, [{ type: 'probe.data', payload: { ok: true } }]);
+  await h.request('echo', { value: 7 });
+  assert.deepEqual(h.settled, [{ ok: true, payload: { got: 7 } }]);
 });
 
 test('papyrus requests are looked up under the papyrus. prefix', async () => {
-  const { run, replies } = harness({
-    requests: { 'papyrus.GetCount': { count: 2 } },
-  });
-  await run('ui.papyrusRequest', { request: 'GetCount' });
-  assert.deepEqual(replies, [{ type: 'papyrus.result', payload: { value: { count: 2 } } }]);
+  const h = harness({ requests: { 'papyrus.GetCount': { count: 2 } } });
+  await h.request('papyrus.request', { name: 'GetCount' });
+  assert.deepEqual(h.settled, [{ ok: true, payload: { value: { count: 2 } } }]);
 });
 
-test('an unknown papyrus request errors instead of hanging the caller', async () => {
-  const { run, replies } = harness({});
-  await run('ui.papyrusRequest', { request: 'Nope' });
-  assert.equal(replies[0].type, 'ui.error');
-  assert.equal(replies[0].payload.code, 'mock-unhandled');
+test('an unknown papyrus request rejects instead of hanging the caller', async () => {
+  const h = harness({});
+  await h.request('papyrus.request', { name: 'Nope' });
+  assert.equal(h.settled[0].ok, false);
+  assert.equal(h.settled[0].code, 'mock-unhandled');
 });
 
-test('i18n.get answers from the active locale catalog', async () => {
-  const { run, replies } = harness({
-    locale: 'de',
-    locales: { de: { title: 'Beispiel' } },
-  });
-  await run('i18n.get', {});
-  assert.deepEqual(replies, [{
-    type: 'i18n.data',
-    payload: { mod: 'acme.widgets', locale: 'de', strings: { title: 'Beispiel' } },
-  }]);
+test('built-in request endpoints resolve without configuration', async () => {
+  const h = harness({});
+  await h.request('menu.open', { view: 'acme.widgets/panel' });
+  assert.deepEqual(h.settled, [{ ok: true, payload: {} }]);
 });
 
-test('built-in verbs ack without configuration', async () => {
-  const { run, replies } = harness({});
-  await run('view.ready');
-  assert.equal(replies[0].type, 'ui.result');
-  assert.equal(replies[0].payload.ok, true);
+test('a built-in SEND is accepted silently — there is nothing to settle', async () => {
+  const h = harness({});
+  await h.send('view.ready');
+  assert.equal(h.settled.length, 0);
+  assert.equal(h.surfaced.length, 0);
 });
 
-test('anything else is mock-unhandled: reply with a requestId, warn without', async () => {
-  const { run, replies, reports } = harness({});
-  await run('acme.widgets.mystery');
-  assert.equal(replies[0].type, 'ui.error');
-  assert.equal(replies[0].payload.code, 'mock-unhandled');
-  const silent = harness({});
-  await silent.run('acme.widgets.mystery', {}, '');
-  assert.equal(silent.replies.length, 0);
-  assert.equal(silent.reports[0].level, 'warn');
-  assert.equal(reports.length, 0);
+test('requesting a send endpoint is a kind mismatch, not a missing mock', async () => {
+  const h = harness({});
+  await h.request('view.ready');
+  assert.equal(h.settled[0].ok, false);
+  assert.equal(h.settled[0].code, 'wrong-endpoint-kind');
+});
+
+test('an unhandled request rejects; an unhandled send is surfaced, never silent', async () => {
+  const h = harness({});
+  await h.request('acme.widgets.mystery');
+  assert.equal(h.settled[0].ok, false);
+  assert.equal(h.settled[0].code, 'mock-unhandled');
+
+  // The send has no promise to reject, so the only honest channel is the
+  // offending page's own console — which is exactly what osfui.debug.error is
+  // for. Dropping it silently is the 1.x behavior 2.0 set out to remove.
+  const send = harness({});
+  await send.send('acme.widgets.mystery');
+  assert.equal(send.settled.length, 0);
+  assert.equal(send.surfaced.length, 1);
+  assert.equal(send.surfaced[0].code, 'unknown-endpoint');
+});
+
+test('a scenario answer to a one-way send is reported as an authoring mistake', async () => {
+  const h = harness({ requests: { 'acme.widgets.doIt': { ok: true } } });
+  await h.send('acme.widgets.doIt');
+  assert.equal(h.settled.length, 0);
+  assert.equal(h.reports[0].level, 'warn');
 });
 
 test('scenarios overlay the base fields per key', () => {

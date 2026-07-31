@@ -209,12 +209,22 @@ Besides value settings, a group can contain static and interactive rows:
   `\n`. No HTML, no links — everything renders injection-safe.
 - **Image** `src` is relative to your `views/<id>/` folder (ship one even if
   it only holds assets); no `..`, absolute paths, or URL schemes.
-- **Actions** fire a bridge command that **must** be namespaced
-  `<your-id>.something` — the host refuses anything else. Handle it in your
-  SFSE plugin via `RegisterCommand` ([native-plugin-api.md](native-plugin-api.md))
-  and optionally reply `{ "type": "yourname.mymod.ack", "payload": { "key",
-  "ok", "message"? } }` to resolve the button (it times out after 5 s
-  otherwise).
+- **Actions** fire a bridge **request** whose name must be namespaced
+  `<your-id>.something` — the card refuses anything else, plus anything whose
+  leading segment is a framework namespace (`ui`, `menu`, `hud`, `settings`,
+  `views`, `game`, `runtime`). Register it with **`RegisterRequest`**, not
+  `RegisterCommand` ([native-plugin-api.md](native-plugin-api.md)): a button
+  needs an outcome, and in the 2.0 API that is exactly what separates the two
+  endpoint kinds. Register the same name as a *command* and the card's request
+  comes back `wrong-endpoint-kind`, so the button reports a failure. Actions
+  therefore need a native plugin; Papyrus has no equivalent registration.
+
+  The card sends `{ "mod": "<your-id>", "key": "<the action's key>" }` and waits
+  5 s. Resolve with `{}` for a silent success, or with `{ "message": "…" }` to
+  raise a toast. Reject with your own code and message and that message is
+  toasted as a failure; let it time out and the player reads `No response from
+  <your mod>`. There is no `ok:false` document to remember to inspect any more —
+  a failure is a rejection.
 
 ---
 
@@ -259,7 +269,7 @@ write input-hook code:
   the native input layer, so even the overlay toggle key itself is
   rebindable).
 - When the bound key is pressed in-game, OSF UI dispatches it to you — see
-  [§8](#8-reading-your-settings-consumption) for the web and C++ delivery.
+  [§8](#8-using-your-settings-consumption) for the web and C++ delivery.
   Dispatch happens **only during gameplay**: it is suppressed while any game
   menu is open (pause menu, inventory, dialogue, main menu, …) and while the
   overlay is capturing input, so you never double-handle typing or react to
@@ -339,50 +349,129 @@ first ships.
 
 ---
 
-## 8. Reading your settings (consumption)
+## 8. Using your settings (consumption)
 
 The schema stores values; making them *do* something is your mod's half.
 Pick the surface where your logic lives:
 
 ### From your own web view (zero native code)
 
-One call reads everything **and** subscribes you to live changes and hotkeys:
+The registry is a **state key**: subscribing replays the current value
+immediately, and again on every document your view ever loads. Individual
+commits arrive as **events**, because a commit is a thing that happened.
 
 ```js
+// What is TRUE NOW. Fires synchronously on subscribe, and on every reload.
+osfui.state.on("osfui/settings", (data) => {
+  const mine = data.mods.find((m) => m.id === "yourname.mymod");
+  if (mine) applyAll(mine.values);          // { "hud.opacity": 0.8, ... }
+});
+
+// What just HAPPENED: one committed value.
 osfui.on("settings.changed", (p) => {
   if (p.mod === "yourname.mymod") applySetting(p.key, p.value);
 });
+
+// A hotkey press is a happening too — see §7.
 osfui.on("ui.hotkey", (p) => {
   if (p.mod === "yourname.mymod" && p.key === "toggleHud") toggle();
 });
-osfui.send("settings.get");   // initial read + subscription in one call
 ```
 
-Values arrive post-validation (authoritative). Full protocol reference:
-[authoring-views.md §3–4](authoring-views.md).
+There is no initial read to issue and nothing to re-request after an F5. In
+1.x this was `osfui.send("settings.get")`, a call whose real job was to
+*subscribe* you — so every view had to remember to re-issue it on reload, and
+the ones that forgot painted defaults forever. State is what "read with replay"
+actually is.
+
+Values arrive post-validation: clamped and canonicalized by the same native path
+the settings menu writes through, never your raw input. The whole registry is
+re-sent only when its *shape* changes (a mod loads, a schema is registered at
+runtime, a reset lands) — that document is large and rarely different. Ordinary
+value commits ride the event instead, so wire up **both**: the state key hands
+you the truth at every boot, and the event keeps it true afterwards. Full
+protocol reference: [authoring-views.md](authoring-views.md) and
+[`sdk/osfui.d.ts`](../sdk/osfui.d.ts).
+
+### Writing settings from a view
+
+Writes are **requests** — they can fail, so they settle:
+
+```js
+try {
+  // Resolves the COMMITTED value, post-clamp: you can tell "clamped" from
+  // "accepted" without a re-fetch.
+  const { value } = await osfui.request("settings.set", {
+    mod: "yourname.mymod", key: "hud.opacity", value: 1.4,
+  });
+  // value === 1 when your schema caps max at 1
+} catch (err) {
+  // err.code: "forbidden" | "unknown-setting" | "read-only" | "invalid-value"
+}
+
+// One key, or the whole mod when `key` is omitted. Resolves {} — the refreshed
+// registry reaches every view (including yours) as `osfui/settings` state,
+// rather than arriving by a private route for the caller alone.
+await osfui.request("settings.reset", { mod: "yourname.mymod" });
+```
+
+A failed set **rejects**. 1.x resolved an `{ ok:false }` document you had to
+remember to inspect, so forgetting to inspect it read as success — the exact bug
+shape typed errors exist to remove.
+
+A view may only write **its own** mod (the built-in Mods surface and keybinds
+board are the two exceptions), so a neighbour cannot rewrite your settings —
+or OSF UI's own overlay toggle key, which is the player's guaranteed way out.
+Anything else rejects `forbidden`.
+
+Rebinding a key is the one flow that waits on a human, and it is split
+accordingly: the request settles in **machine** time, and the human-time outcome
+arrives as an event.
+
+```js
+osfui.on("settings.captured", (p) => {
+  if (p.cancelled) return;                  // Escape, or an unbindable key
+  osfui.request("settings.set", { mod: p.mod, key: p.key, value: p.name });
+  // p.conflicts (if present) lists binds this WOULD collide with — warn, never block
+});
+
+// Resolves { armed: true, mod, key } as soon as capture is armed; rejects
+// "capture-busy" | "forbidden" | "not-rebindable".
+await osfui.request("settings.captureKey", { mod: "yourname.mymod", key: "toggleHud" });
+```
+
+Nothing here needs a disabled client timeout: a request that stays pending until
+the player presses a key is a request that cannot be told apart from a backend
+that died.
 
 ### From an SFSE plugin (C++)
 
-Fetch the bridge from [`sdk/OSFUI_API.h`](../sdk/OSFUI_API.h) (settings
-getters and `SubscribeSettings` need ABI ≥ 1.2, `SubscribeHotkey` needs
-ABI ≥ 1.4; see [native-plugin-api.md](native-plugin-api.md)):
+Fetch the bridge from [`sdk/OSFUI_API.h`](../sdk/OSFUI_API.h) through the
+`Client` wrapper (C ABI 2.0 — every call below is baseline; see
+[native-plugin-api.md](native-plugin-api.md)):
 
 ```cpp
+static OSFUI::API::Client g_ui;   // g_ui.Init() once, after SFSE kPostLoad
+
 // Typed getters — synchronous, callable from any thread.
 bool enabled = false;
-g_bridge->GetSettingBool("yourname.mymod", "enabled", &enabled);
+g_ui.GetSettingBool("yourname.mymod", "enabled", &enabled);
 
 // Change subscription — fired on the game main thread, and REPLAYED once per
 // current value on subscribe, so you need no separate initial read.
-g_bridge->SubscribeSettings("yourname.mymod",
+g_ui.SubscribeSettings("yourname.mymod",
     [](const char* mod, const char* key, const char* valueJson, void* user) noexcept {
         // switch on key; valueJson is the JSON-encoded value
     }, nullptr);
 
 // Hotkeys — fired on the game main thread when the bound key is pressed.
-g_bridge->SubscribeHotkey("yourname.mymod", "toggleHud",
+g_ui.SubscribeHotkey("yourname.mymod", "toggleHud",
     [](const char* mod, const char* key, void* user) noexcept { /* toggle */ }, nullptr);
 ```
+
+A plugin built against the 1.x header gets no bridge at all — the ABI major is
+matched exactly — and the player is told which DLL to update. Recompiling
+against the 2.0 header is the whole migration for the code above.
 
 A DLL can also skip the drop-in file and register at runtime with
 `RegisterSettingsSchema(json)` — same JSON document, same values file, so a
@@ -471,11 +560,15 @@ Papyrus — see [authoring-dynamic-data.md](authoring-dynamic-data.md)
 - **Changing a type:** old saved values that no longer validate fall back to
   the new default. Prefer a new key with an alias when the meaning changes.
 - **Using features newer than the OSF UI you tested on:** declare
-  `"targetVersion": "1.1.0"` (the OSF UI version you authored against). The
+  `"targetVersion": "2.0.0"` (the OSF UI version you authored against). The
   schema still loads best-effort on older hosts; unknown decorations are
-  ignored, unknown types render read-only, and the Mods surface shows a
-  "needs update" badge naming your mod. Saved values for unknown types are
-  preserved untouched for newer hosts.
+  ignored, unknown types render read-only (a write to one rejects `read-only`
+  rather than `invalid-value`, so a view can say "needs a newer OSF UI"), and
+  the Mods surface shows a "needs update" badge naming your mod. Saved values
+  for unknown types are preserved untouched for newer hosts. A schema is data,
+  so an *older* `targetVersion` is only ever advisory — unlike a **view
+  manifest** targeting below 2.0, which raises a `compat.legacy-view` card
+  because a 1.x view's code cannot run on the 2.0 helper.
 - **Uninstall:** the values file is deliberately kept (MO2 profile switches
   look identical to uninstalls). Reinstalling restores the user's settings.
 
@@ -507,6 +600,13 @@ view's own files (HTML/JS/CSS) reload the same way.
 skipped and reported (with line/column) in an alert pinned atop the Mods
 rail; a corrupt values file is quarantined to `<id>.json.bad` and defaults
 served. If your card doesn't appear, look there first, then at `OSF UI.log`.
+
+**When a write doesn't stick.** Every failure the bridge can attribute to you is
+printed to the calling page's console with an `[osfui]` prefix, so F12 DevTools
+(harness or in-game devMode) shows the rejection code and payload with full
+object inspection. For the whole picture, set `localStorage["osfui:trace"] = "1"`
+in that console and reload: every envelope in both directions is logged, which
+answers "did my state key even arrive" without a native debugger.
 
 ---
 
