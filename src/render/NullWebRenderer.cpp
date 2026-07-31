@@ -11,13 +11,6 @@ namespace OSFUI
 		return true;
 	}
 
-	void NullWebRenderer::Shutdown()
-	{
-		if (_devMode) {
-			REX::DEBUG("NullWebRenderer: Shutdown");
-		}
-	}
-
 	void NullWebRenderer::LoadView(const ViewManifest& a_manifest)
 	{
 		if (_devMode) {

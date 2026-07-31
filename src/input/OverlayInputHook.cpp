@@ -25,10 +25,6 @@ namespace OSFUI::OverlayInputHook
 		std::atomic_bool g_chainCycleLogged{ false };
 		thread_local bool g_forwardingOriginal{ false };
 
-		// Pending UTF-16 high surrogate from WM_CHAR, awaiting its low half.
-		// Window-message thread only (where WndProc runs), so a plain value is safe.
-		std::uint16_t g_pendingHighSurrogate{ 0 };
-
 		// Whether the hardware (OS) pointer is engaged. Capture flips on the game
 		// main thread (ApplyMenuPolicy); WndProc only observes the edge.
 		// Window-message thread only.
@@ -233,50 +229,19 @@ namespace OSFUI::OverlayInputHook
 				break;
 			}
 			case WM_CHAR:
-			{
-				// wparam is one UTF-16 code unit (layout-, dead-key- and
-				// AltGr-resolved by Windows). Route text into the overlay and
-				// block it from the game while captured; navigation/editing keys
-				// (Enter, Tab, Backspace, Ctrl+letter -> control chars) come in
-				// via the VK/RawKeyDown path, so drop them here.
-				if (!runtime.IsInputCaptured()) {
-					break;
-				}
-				const auto unit = static_cast<std::uint16_t>(a_wparam);
-				std::uint32_t codepoint = 0;
-				if (unit >= 0xD800 && unit <= 0xDBFF) {
-					g_pendingHighSurrogate = unit;  // wait for the low half
-					return 0;
-				}
-				if (unit >= 0xDC00 && unit <= 0xDFFF) {
-					if (g_pendingHighSurrogate == 0) {
-						return 0;  // lone low surrogate; drop
-					}
-					codepoint = 0x10000u +
-						((static_cast<std::uint32_t>(g_pendingHighSurrogate) - 0xD800u) << 10) +
-						(static_cast<std::uint32_t>(unit) - 0xDC00u);
-					g_pendingHighSurrogate = 0;
-				} else {
-					g_pendingHighSurrogate = 0;  // any BMP unit cancels a dangling high
-					codepoint = unit;
-				}
-				if (codepoint >= 0x20 && codepoint != 0x7F) {
-					runtime.OnHostChar(codepoint);
-				}
-				return 0;
-			}
+				// Chromium receives text and IME through its focused native child
+				// window. Swallow the game's duplicate character stream while the
+				// overlay owns input.
+				if (runtime.IsInputCaptured()) return 0;
+				break;
 			case WM_UNICHAR:
-				// UTF-32 char protocol. Answer the capability probe, then route
-				// text — only while captured, so the game's own WM_UNICHAR
-				// handling is untouched when the overlay is closed.
+				// Answer the capability probe and swallow duplicate text only while
+				// the overlay owns input; Chromium receives the original stream.
 				if (!runtime.IsInputCaptured()) {
 					break;
 				}
 				if (a_wparam == UNICODE_NOCHAR) {
 					return TRUE;  // yes, we accept WM_UNICHAR
-				}
-				if (a_wparam >= 0x20 && a_wparam != 0x7F) {
-					runtime.OnHostChar(static_cast<std::uint32_t>(a_wparam));
 				}
 				return 0;
 			case WM_DEADCHAR:

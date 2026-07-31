@@ -1,7 +1,7 @@
 #include "EmbeddedScripts.h"
 
-#include "EmbeddedScripts.rc.h"
-
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
 #include <Windows.h>
 
 #include <limits>
@@ -10,19 +10,22 @@ namespace osfui::wv2
 {
 	namespace
 	{
-		[[nodiscard]] std::wstring LoadScript(const int a_resourceId)
+		const unsigned char kBridgeShim[] = {
+#include "bridge-shim.js.h"
+		};
+		const unsigned char kRenderStats[] = {
+#include "render-stats.js.h"
+		};
+		const unsigned char kNetworkGuard[] = {
+#include "network-guard.js.h"
+		};
+
+		template <std::size_t N>
+		[[nodiscard]] std::wstring LoadScript(const unsigned char (&a_data)[N])
 		{
-			const auto module = ::GetModuleHandleW(nullptr);
-			const auto resource = ::FindResourceW(
-				module, MAKEINTRESOURCEW(a_resourceId), MAKEINTRESOURCEW(10));
-			if (!resource) return {};
-			const auto bytes = ::SizeofResource(module, resource);
-			const auto loaded = ::LoadResource(module, resource);
-			const auto* data = static_cast<const char*>(::LockResource(loaded));
-			if (!data || bytes == 0 || bytes > static_cast<DWORD>((std::numeric_limits<int>::max)())) {
-				return {};
-			}
-			const auto size = static_cast<int>(bytes);
+			static_assert(N > 0 && N - 1 <= static_cast<std::size_t>((std::numeric_limits<int>::max)()));
+			const auto size = static_cast<int>(N - 1);  // bin2c appends a NUL terminator
+			const auto* data = reinterpret_cast<const char*>(a_data);
 			const auto chars = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
 				data, size, nullptr, 0);
 			if (chars <= 0) return {};
@@ -37,9 +40,9 @@ namespace osfui::wv2
 
 	const std::wstring& GetEmbeddedScript(const EmbeddedScript a_script)
 	{
-		static const auto bridge = LoadScript(IDR_OSFUI_BRIDGE_SHIM);
-		static const auto stats = LoadScript(IDR_OSFUI_RENDER_STATS);
-		static const auto network = LoadScript(IDR_OSFUI_NETWORK_GUARD);
+		static const auto bridge = LoadScript(kBridgeShim);
+		static const auto stats = LoadScript(kRenderStats);
+		static const auto network = LoadScript(kNetworkGuard);
 		switch (a_script) {
 		case EmbeddedScript::BridgeShim:   return bridge;
 		case EmbeddedScript::RenderStats:  return stats;

@@ -45,7 +45,6 @@ namespace OSFUI
 		{
 			ToggleDefault,  // F10: open the default menu, or close the top one
 			Back,           // Esc / pad-B: delegate to a back-owning view, else close the top menu
-			CloseTop,       // close the top menu unconditionally
 			CloseAll,       // transition/panic: clear every surface
 		};
 		void EnqueueMenuRequest(MenuReq a_req);
@@ -54,17 +53,6 @@ namespace OSFUI
 		// policy path as the plugin API's RequestMenu). Used by internal native
 		// triggers — e.g. the injected PauseMenu "mod settings" entry.
 		void EnqueueOpenView(std::string a_viewId);
-
-		// Show/hide one loaded declarative view by id, independent
-		// of the global overlay toggle. Returns false for an unknown/unloaded id.
-		// Drives the renderer's per-view hidden flag.
-		bool SetViewHidden(std::string_view a_id, bool a_hidden);
-
-		// Per-view load lifecycle. Loading until the main frame finishes or
-		// errors out. A failed load never reaches DOM-ready, so this is the
-		// authoritative "did the view come up" signal. Read on the game thread.
-		enum class ViewLoadState { Loading, Finished, Failed };
-		[[nodiscard]] ViewLoadState GetViewLoadState(std::string_view a_id) const;
 
 		// True when the overlay owns input: visible and config captureInput is
 		// on. Read by the WndProc hook (OverlayInputHook) to decide whether to
@@ -80,10 +68,6 @@ namespace OSFUI
 		// still opens while the overlay is up (the overlay is dismissed so it
 		// doesn't hide the console). Runs on the window-message thread.
 		bool OnHostKey(std::uint32_t a_vkCode, bool a_down);
-		// Called by WebView2's AcceleratorKeyPressed hook on its STA worker.
-		// Returns true only for framework-owned keys; ordinary typing remains
-		// unhandled so Chromium receives real Win32 keyboard and IME input.
-		bool OnNativeAcceleratorKey(std::uint32_t a_vkCode, bool a_down);
 
 		// Called by the WndProc hook when the game window receives a
 		// player-initiated close (taskbar "Close window", title-bar X, Alt+F4,
@@ -91,13 +75,6 @@ namespace OSFUI
 		// exit status Starfield's forced teardown routinely produces is not
 		// offered as a crash report. Runs on the window-message thread.
 		void NotifyPlayerCloseRequest();
-
-		// WndProc hook, one OS text character (WM_CHAR/WM_UNICHAR) as a finished
-		// Unicode scalar value — layout-, dead-key- and AltGr-resolved, surrogate
-		// halves already combined. Routes into the active web view while
-		// captured; ignored otherwise. The caller blocks the character from the
-		// game itself. Runs on the window-message thread.
-		void OnHostChar(std::uint32_t a_codepoint);
 
 		// WndProc hook, hardware-cursor path (config.hardwareCursor, default):
 		// window-client coordinates plus the current client size. Maps through
@@ -117,17 +94,6 @@ namespace OSFUI
 		// signed multiple of WHEEL_DELTA (120): positive = wheel forward/up.
 		void OnHostMouseWheel(int a_wheelDelta);
 
-		// Called by the compositor (render thread) when the output surface size
-		// is known/changes. Resizes the web view to match the screen
-		// (aspect-correct, height-capped) so the page renders undistorted, and
-		// rescales cursor sensitivity to the new view size.
-		void OnOutputResized(std::uint32_t a_width, std::uint32_t a_height);
-
-		// Split out from Tick so a present-side hook can drive submission at a
-		// different cadence than logic updates.
-		void SubmitFrameIfVisible();
-
-		[[nodiscard]] MessageBridge* Bridge() { return _bridge.get(); }
 		[[nodiscard]] const Config&  GetConfig() const { return _config; }
 
 	private:
@@ -136,6 +102,14 @@ namespace OSFUI
 
 		std::unique_ptr<IWebRenderer> CreateRenderer() const;
 		std::unique_ptr<ICompositor>  CreateCompositor() const;
+
+		// Internally owned renderer and load-state edges.
+		bool SetViewHidden(std::string_view a_id, bool a_hidden);
+		enum class ViewLoadState { Loading, Finished, Failed };
+		[[nodiscard]] ViewLoadState GetViewLoadState(std::string_view a_id) const;
+		bool OnNativeAcceleratorKey(std::uint32_t a_vkCode, bool a_down);
+		void OnOutputResized(std::uint32_t a_width, std::uint32_t a_height);
+		void SubmitFrameIfVisible();
 
 		// Composition root for feature modules (settings, diagnostics) and the
 		// platform's own bridge commands. Ownership is through the base type —
@@ -476,8 +450,8 @@ namespace OSFUI
 		// SetVisible(true): SubmitFrameIfVisible holds the reveal until the
 		// renderer hands over a frame with a new serial — one produced after the
 		// open, i.e. after every queued message was delivered (ABI 1.3
-		// message-before-first-paint). D3D12 additionally waits until Present has
-		// reported the output size and the renderer has painted at that size.
+		// message-before-first-paint). D3D12 additionally waits until the UI seam
+		// has reported the output size and the renderer has painted at that size.
 		// Normally costs only a couple of frames. A deadline closes the menu and
 		// releases its pause/input policy if the renderer never produces a frame
 		// for this presentation, so a transparent or stalled host cannot trap the

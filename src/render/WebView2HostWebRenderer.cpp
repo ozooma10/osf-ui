@@ -426,7 +426,7 @@ namespace OSFUI
 		std::uint64_t frameSerial{ 0 };
 		std::uint64_t frameSourceTimeMs{ 0 };
 		std::uint32_t frameWidth{ 0 }, frameHeight{ 0 };
-		std::uint64_t frameGeneration{ 0 };
+		std::uint64_t sharedRingGeneration{ 0 };
 		std::uint64_t submittedSerial{ 0 };
 		std::uint32_t ringWidth{ 0 }, ringHeight{ 0 };
 		std::uint64_t ringGeneration{ 0 };       // reader-side counter
@@ -1097,7 +1097,7 @@ namespace OSFUI
 					frameSourceTimeMs = sourceTimeMs;
 					frameWidth = w;
 					frameHeight = h;
-					frameGeneration = ringGeneration;
+					sharedRingGeneration = ringGeneration;
 					haveFrame = true;
 				}
 			}
@@ -1338,7 +1338,7 @@ namespace OSFUI
 				frameSerial = 0;
 				frameSourceTimeMs = 0;
 				frameWidth = frameHeight = 0;
-				frameGeneration = 0;
+				sharedRingGeneration = 0;
 				submittedSerial = 0;
 				ringWidth = ringHeight = 0;
 				announcedGeneration = 0;
@@ -1375,7 +1375,10 @@ namespace OSFUI
 		_impl(std::make_unique<Impl>())
 	{}
 
-	WebView2HostWebRenderer::~WebView2HostWebRenderer() { Shutdown(); }
+	WebView2HostWebRenderer::~WebView2HostWebRenderer()
+	{
+		if (_impl) _impl->Stop();
+	}
 
 	bool WebView2HostWebRenderer::Initialize(const RendererConfig& a_config)
 	{
@@ -1408,11 +1411,6 @@ namespace OSFUI
 			return false;
 		}
 		return true;
-	}
-
-	void WebView2HostWebRenderer::Shutdown()
-	{
-		if (_impl) _impl->Stop();
 	}
 
 	bool WebView2HostWebRenderer::RestartAfterFailure()
@@ -1576,7 +1574,7 @@ namespace OSFUI
 	{
 		std::scoped_lock lock(_impl->frameMutex);
 		if (!_impl->haveFrame ||
-			_impl->frameGeneration != _impl->announcedGeneration) {
+			_impl->sharedRingGeneration != _impl->announcedGeneration) {
 			// No frame, or its ring is not yet announced to the compositor
 			// (the Ring notification dispatches from Update()).
 			return std::nullopt;
@@ -1790,7 +1788,6 @@ namespace OSFUI
 			{ "sourceToDrawMs", a_sample.sourceToDrawMs },
 			{ "recordCpuMs", a_sample.recordCpuMs },
 			{ "reusedDraws", a_sample.reusedDraws },
-			{ "frameGeneration", a_sample.frameGeneration },
 		});
 	}
 

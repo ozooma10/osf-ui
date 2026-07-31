@@ -9,8 +9,8 @@ namespace OSFUI
 	// Keyboard decision point, fed by the WndProc subclass (OverlayInputHook →
 	// Runtime::OnHostKey) on the window-message thread. Per key transition,
 	// picks between toggle overlay, close top menu (Esc), route into the web
-	// view, or pass to the game. Mouse and text entry do not come through here
-	// — they route directly via Runtime::OnHostMouse* / OnHostChar.
+	// view, or pass to the game. Mouse does not come through here; text and IME
+	// go directly to WebView2 through its focused native child window.
 	class InputRouter
 	{
 	public:

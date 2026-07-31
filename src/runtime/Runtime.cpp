@@ -664,7 +664,6 @@ namespace OSFUI
 			if (worldSurface.failed) {
 				// Deferred from the failure callback, which fires inside the
 				// renderer's own Update(). The mesh keeps the placeholder.
-				worldSurface.renderer->Shutdown();
 				worldSurface.renderer.reset();
 				continue;
 			}
@@ -830,13 +829,6 @@ namespace OSFUI
 				}
 				break;
 			}
-			case MenuReq::CloseTop:
-				if (_pendingSurfaceOpen) {
-					CancelPendingOpen();
-				} else {
-					_menus.CloseTop();
-				}
-				break;
 			case MenuReq::CloseAll:
 				CancelPendingOpen();
 				_menus.CloseAll();
@@ -1128,10 +1120,9 @@ namespace OSFUI
 		if (active) {
 			_renderer->SetActiveView(*active);
 		}
-		// Capture is the top menu's policy (false for HUD-only => the game keeps
-		// input). The runtime writer of _captureInput; the boot-time default is
-		// stored from config during Initialize.
-		const bool desiredCapture = _menus.DesiredCapture();
+		// Capture requires both the global config gate and the top menu's policy
+		// (false for HUD-only => the game keeps input).
+		const bool desiredCapture = _config.captureInput && _menus.DesiredCapture();
 		const bool captureChanged = _captureInput.exchange(desiredCapture) != desiredCapture;
 		if (captureChanged) {
 			// Hardware cursor state belongs to the game window thread. Wake it now;
@@ -1752,14 +1743,6 @@ namespace OSFUI
 			(_config.devMode && a_vkCode == kVkF12) ||
 			(a_vkCode == 0x1B && IsInputCaptured());
 		return frameworkOwned && OnHostKey(a_vkCode, a_down);
-	}
-	void Runtime::OnHostChar(std::uint32_t a_codepoint)
-	{
-		if (!IsInputCaptured() || !_renderer) {
-			return;
-		}
-		// Pure text entry; the VK stream handles toggle/focus via OnHostKey.
-		_renderer->InjectCharEvent(a_codepoint);
 	}
 
 	void Runtime::OnHostMouseAbsolute(int a_clientX, int a_clientY, int a_clientW, int a_clientH)
@@ -2940,7 +2923,7 @@ namespace OSFUI
 				// presentable, so keep the compositor hidden.
 				holding = true;
 			} else if (!_compositor->IsOutputSizeKnown()) {
-				// D3D12 learns the swapchain size from Present. Keep the first
+				// The UI seam has not observed the output size yet. Keep the first
 				// manifest-sized texture hidden while that callback arrives.
 				holding = true;
 			} else if (frame->width != _viewWidth.load() ||
@@ -3032,7 +3015,6 @@ namespace OSFUI
 			.recordCpuMs = recordSamples ?
 				static_cast<double>(recordUs) / (1000.0 * static_cast<double>(recordSamples)) : 0.0,
 			.reusedDraws = reused,
-			.frameGeneration = current.frameGeneration,
 		};
 		_renderer->SetRenderStatsSample(sample);
 		REX::INFO(

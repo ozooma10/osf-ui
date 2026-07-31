@@ -10,7 +10,6 @@ namespace OSFUI
 	{
 	public:
 		bool Initialize(const RendererConfig& a_config) override;
-		void Shutdown() override;
 		void LoadView(const ViewManifest& a_manifest) override;
 		void Resize(std::uint32_t a_width, std::uint32_t a_height) override;
 		void Update(double a_deltaSeconds) override;

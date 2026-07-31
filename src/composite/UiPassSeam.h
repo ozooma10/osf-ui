@@ -9,7 +9,7 @@ namespace OSFUI::UiPassSeam
 	// puts it upstream of both real-frame composition and Frame Generation.
 	//
 	// With FG active, the first RT->pixel-SRV candidate is an opaque interpolation
-	// input, not the UI layer. Present discovery identifies that graph; the seam
+	// input, not the UI layer. The seam hand-off shape identifies that graph and
 	// skips the opaque candidate and writes only the transparent COPY_SOURCE
 	// hand-off consumed by FFX.
 	//

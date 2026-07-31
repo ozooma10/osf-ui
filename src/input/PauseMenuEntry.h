@@ -4,7 +4,7 @@
 
 namespace OSFUI
 {
-	// Config `pauseMenuEntry` (on by default). Injects a "MOD MENUS" entry into
+	// MCM setting `pauseMenuEntry` (on by default). Injects a "MOD MENUS" entry into
 	// PauseMenu and opens the configured overlay view when pressed.
 	//
 	// This is live Scaleform manipulation rather than a SWF replacement, so it
@@ -31,7 +31,7 @@ namespace OSFUI
 		// from Runtime::Initialize before the first Tick.
 		static void Configure(std::string a_label, std::string a_viewId);
 
-		// Config/MCM gate (osfui.pauseMenuEntry). Runtime syncs it at init and
+		// MCM gate (osfui.pauseMenuEntry). Runtime syncs it at init and
 		// on MCM change; Reconcile is a no-op while disabled.
 		static void SetEnabled(bool a_enabled);
 

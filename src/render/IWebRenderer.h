@@ -101,7 +101,6 @@ namespace OSFUI
 		double sourceToDrawMs{ 0.0 };
 		double recordCpuMs{ 0.0 };
 		std::uint64_t reusedDraws{ 0 };
-		bool frameGeneration{ false };
 	};
 
 	// Cross-process shared-texture ring produced by the out-of-process WebView2
@@ -140,7 +139,6 @@ namespace OSFUI
 		virtual ~IWebRenderer() = default;
 
 		virtual bool Initialize(const RendererConfig& a_config) = 0;
-		virtual void Shutdown() = 0;
 
 		// Tear down a terminal backend connection while preserving registered
 		// views, callbacks, and reconstructible state for a fresh lazy start.
@@ -248,7 +246,7 @@ namespace OSFUI
 		virtual void SetCursorChangeHandler(CursorChangeHandler) {}
 
 		// Backends such as WebView2 receive keyboard/IME through a real focused
-		// native child window rather than InjectCharEvent. The runtime uses this
+		// native child window. The runtime uses this
 		// seam for the whole interactive-menu session; HUD-only and closed states
 		// revoke it so the game remains the foreground owner. While the WebView
 		// holds focus, the backend's
@@ -290,12 +288,6 @@ namespace OSFUI
 		// Thread-safe to call from the input thread; backends dispatch onto
 		// their own thread.
 		virtual void InjectKeyEvent(std::uint32_t /*a_vkCode*/, bool /*a_down*/) {}
-
-		// Delivers one text character into the web view: a finished Unicode
-		// scalar from the OS char stream (WM_CHAR/WM_UNICHAR), already resolved
-		// for the active layout, dead keys, and AltGr. Queued after the matching
-		// key's RawKeyDown. Thread-safe.
-		virtual void InjectCharEvent(std::uint32_t /*a_codepoint*/) {}
 
 		// Mouse input in view pixel coordinates (0..width, 0..height). Move
 		// reports an absolute position — the caller maintains a virtual cursor,
@@ -344,7 +336,7 @@ namespace OSFUI
 		// Host-owned diagnostics drawn inside one view. The overlay must not
 		// require cooperation from (or changes to) the authored page.
 		virtual void SetRenderStats(std::string_view /*a_viewId*/, bool /*a_enabled*/) {}
-		// Game-side half of the diagnostics sample (present/compositor cadence).
+		// Game-side half of the diagnostics sample (compositor cadence).
 		// Backends without a host-owned panel ignore it.
 		virtual void SetRenderStatsSample(const RenderStatsSample& /*a_sample*/) {}
 
