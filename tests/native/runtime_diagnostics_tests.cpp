@@ -20,7 +20,11 @@ namespace
 	nlohmann::json IssueById(const OSFUI::DiagnosticsModule& a_diagnostics,
 		std::string_view a_id)
 	{
-		for (const auto& issue : a_diagnostics.Snapshot().at("issues")) {
+		// Bind the snapshot: at("issues") returns a reference into the returned
+		// temporary, and range-for lifetime extension (P2718) is not implemented
+		// by every supported C++23 toolchain.
+		const auto snapshot = a_diagnostics.Snapshot();
+		for (const auto& issue : snapshot.at("issues")) {
 			if (issue.value("id", "") == a_id) return issue;
 		}
 		return {};
