@@ -22,8 +22,8 @@ namespace OSFUI
 		std::string toggleKey{ "F10" };  // key name -> Windows VK code (ResolveKeyName); consumed by the WndProc hook
 		// Production boot backends. The shipped config intentionally omits
 		// these keys; explicit values remain accepted as diagnostic overrides.
-		std::string renderer{ "webview2" };  // "null" | "mock" | "webview2" (out-of-process host)
-		std::string compositor{ "d3d12" };   // "null" | "d3d12" (d3d12 draws the overlay at present time)
+		std::string renderer{ "webview2" };  // "null" | "webview2" (out-of-process host)
+		std::string compositor{ "d3d12" };   // "null" | "d3d12" (engine UI-pass seam)
 		std::string inputSource{ "ui" };     // "none" | "ui" (WndProc subclass: toggle key + input capture; see input/OverlayInputHook)
 		bool        captureInput{ true };  // when visible, route input to the web view and block the game from acting on it (needs inputSource="ui")
 		// Show the Windows hardware pointer while the overlay captures input,

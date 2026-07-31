@@ -15,6 +15,7 @@
 #include "runtime/LocalizationService.h"
 #include "runtime/MenuController.h"
 #include "runtime/RendererHostRecovery.h"
+#include "runtime/RuntimeDiagnostics.h"
 #include "runtime/MessageBridge.h"
 #include "runtime/SettingsModule.h"
 #include "runtime/UiModule.h"
@@ -31,7 +32,6 @@ namespace OSFUI
 		[[nodiscard]] static Runtime& Get();
 
 		bool Initialize();
-		void Shutdown();
 
 		// Advances the renderer and submits a frame when visible. Called on the
 		// game main thread through RE::BSService::TaskQueue; an SFSE permanent
@@ -131,6 +131,7 @@ namespace OSFUI
 		[[nodiscard]] const Config&  GetConfig() const { return _config; }
 
 	private:
+		friend class RuntimeDiagnostics;
 		Runtime() = default;
 
 		std::unique_ptr<IWebRenderer> CreateRenderer() const;
@@ -307,32 +308,6 @@ namespace OSFUI
 		// snapshot; a view torn down by crash-recovery drops out (unregistered).
 		[[nodiscard]] nlohmann::json BuildViewsData() const;
 
-		// System Health (bridge protocol 1.4). Reconcile the diagnostic registry
-		// against everything the runtime can observe, then push if anything
-		// moved. Called from Tick on the game thread; each producer is cheap and
-		// gated on its own change signal, so an idle tick does almost nothing.
-		void PumpDiagnostics();
-		// Settings schema/name/value-file load failures — recomputed when the
-		// store's registry generation moves.
-		void SyncSettingsDiagnostics();
-		// Health reports from sibling SFSE plugins (ABI 1.7), drained from
-		// BridgeApi at the top of PumpDiagnostics. Every id, code and source is
-		// namespaced to the reporting mod here, so a consumer can neither collide
-		// with a platform issue nor resolve one.
-		void DrainDiagnosticOps();
-		// Installed mods/views that declare a `targetVersion` newer than this
-		// host. Same trigger as above plus catalog changes.
-		void SyncCompatDiagnostics();
-		// NOTE: there is deliberately no renderer/compositor degradation report.
-		// The one that existed (`render.framegen-fallback`, Frame Generation on
-		// while the overlay sat on the present-time path) could never be read
-		// while it was active: that exact state is the one where the overlay
-		// suspends its draws, so System Health was invisible. The condition is
-		// still legible in the log and in the "System information" block below,
-		// via `drawPath` and `frameGeneration`.
-		// The System Health "System information" block: versions, bridge
-		// protocol, renderer/compositor path, host and locale state.
-		void UpdateDiagnosticSystemInfo();
 		// A terminal renderer-instance failure closes every surface and immediately
 		// releases all menu-owned engine policy. Host-connection failures schedule
 		// bounded recovery; security/runtime repair failures remain disabled.
@@ -340,13 +315,6 @@ namespace OSFUI
 		// Deferred until the failure callback has returned; replays every registered view.
 		void DriveRendererHostRecovery();
 		void RehydrateRendererAfterRestart();
-		// Renderer health edges (IWebRenderer::HealthHandler) translated into
-		// issue upserts/resolves. Game thread.
-		void OnRendererHealth(const IWebRenderer::HealthEvent& a_event);
-		// Per-view load diagnostics, raised from OnViewLoad: `a_state` is the
-		// terminal state, `a_attemptsLeft` how many reloads recovery still has.
-		void ReportViewLoadDiagnostic(std::string_view a_viewId, bool a_failed,
-			std::string_view a_description, int a_errorCode, std::uint32_t a_attemptsLeft);
 
 		// Re-send `views.data` to every view that requested it (`views.get`
 		// subscribes the caller), but only when the catalog changed — callers
@@ -373,15 +341,13 @@ namespace OSFUI
 			bool                          failed{ false };  // terminal; shut down next tick
 		};
 		std::vector<WorldSurfaceInstance> _worldSurfaces;
-		// World-host health edges reach the diagnostics pane under
-		// instance-prefixed ids so they never collide with overlay codes.
-		void OnWorldSurfaceHealth(std::size_t a_index, const IWebRenderer::HealthEvent& a_event);
 #endif
 		std::unique_ptr<ICompositor>  _compositor;
 		std::unique_ptr<MessageBridge>          _bridge;
 		std::vector<std::unique_ptr<IUiModule>> _modules;
 		SettingsModule*                         _settings{ nullptr };  // owned by _modules; core reads schema facts through it
-		DiagnosticsModule*                      _diagnostics{ nullptr };  // ditto; every producer reaches the registry through here
+		DiagnosticsModule*                      _diagnostics{ nullptr };  // owned by _modules
+		RuntimeDiagnostics                      _runtimeDiagnostics{ *this };
 		struct BugReportResult
 		{
 			std::string   view;
@@ -504,7 +470,7 @@ namespace OSFUI
 		RendererHostRecovery          _rendererHostRecovery;
 		bool                          _initialized{ false };
 
-		// Deferred compositor reveal (main thread only). The present-hook
+		// Deferred compositor reveal (main thread only). The UI-seam hook
 		// compositor keeps drawing its last cached texture while visible, so on
 		// the closed->open edge ApplyMenuPolicy arms this instead of calling
 		// SetVisible(true): SubmitFrameIfVisible holds the reveal until the
@@ -583,14 +549,6 @@ namespace OSFUI
 		std::unordered_map<std::string, std::string> _i18nSubscribers;
 		std::string                     _lastViewsData;
 		double                          _nextLocalizationScan{ 0.0 };
-		// Diagnostics change signals (main-thread only). The settings/compat
-		// reconciles are driven off the store's registry generation and the
-		// views-catalog dump; the render poll and system-info refresh run on a
-		// slow timer so an idle tick costs a comparison, not a rebuild.
-		std::uint64_t                   _diagSettingsGeneration{ 0 };
-		bool                            _diagSettingsSynced{ false };
-		std::string                     _diagCompatSignature;
-		double                          _nextDiagnosticsPoll{ 0.0 };
 		// Monotonic-ish plugin uptime accumulated from Tick's clamped dt; used
 		// only to schedule recovery backoff (stalls with the game, which is the
 		// cadence reloads should follow).

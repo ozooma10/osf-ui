@@ -2,9 +2,8 @@
 
 ## Backends
 
-The production path is `WebView2HostWebRenderer` + `D3D12Compositor`. The stand-in backends remain selectable from config for development and fault isolation:
+The production path is `WebView2HostWebRenderer` + `D3D12Compositor`. Null backends remain selectable from config for development and fault isolation:
 
-- `MockWebRenderer` produces a CPU RGBA buffer (an animated test pattern), exercising the renderer → compositor path without a browser;
 - `NullCompositor` receives frames and logs them instead of drawing;
 - `NullWebRenderer` is the fallback when a configured backend can't initialize (missing SDK/runtime files); initialization failures are logged, not fatal.
 
@@ -27,9 +26,9 @@ The shipped `data/OSFUI/config.json` no longer authors the `renderer` / `composi
                   ViewManifest     │              │              OverlayInputHook
                                 ┌────┴─────┐  ┌──┴─────────┐    (WndProc subclass)
                                 │ Null     │  │ Null       │   HardwareCursor
-                                │ Mock     │  │ D3D12      │   UiLayoutGuard
-                                │ WebView2 │  └────────────┘   MenuEventSink
-                                └──────────┘                   FocusMenu / ControlLayer
+                                │ WebView2 │  │ D3D12      │   UiLayoutGuard
+                                └──────────┘  └────────────┘   MenuEventSink
+                                                               FocusMenu / ControlLayer
                                    │    ▲
                           runtime/MessageBridge    JSON, whitelisted commands
                                    │
@@ -106,11 +105,11 @@ avoids MO2/USVFS injection into `msedgewebview2.exe`.
 
 ## How the D3D12 compositor works
 
-`D3D12Compositor` implements `ICompositor` on the game's own D3D12 device. Frames are sampled directly from the WebView2 host's shared texture ring — no CPU readback or upload (CPU frames from the mock backend are not supported on this device path). The overlay quad is drawn *inside the engine's Scaleform UI pass* (`composite/UiPassSeam`, hooked at ScaleformEnd) so frame generation (FSR3 / DLSS-G) paces the overlay like native UI. The compositor does not hook `IDXGISwapChain::Present`: Submit adopts shared rings on the tick thread, while the seam reports output dimensions and identifies the transparent `COPY_SOURCE` UI hand-off used when frame generation is active. This keeps OSF UI outside Present chains owned by OptiScaler, Streamline, Steam, RTSS, ReShade, and similar tools.
+`D3D12Compositor` implements `ICompositor` on the game's own D3D12 device. Frames are sampled directly from the WebView2 host's shared texture ring with no CPU readback or upload. The overlay quad is drawn *inside the engine's Scaleform UI pass* (`composite/UiPassSeam`, hooked at ScaleformEnd) so frame generation (FSR3 / DLSS-G) paces the overlay like native UI. The compositor does not hook `IDXGISwapChain::Present`: Submit adopts shared rings on the tick thread, while the seam reports output dimensions and identifies the transparent `COPY_SOURCE` UI hand-off used when frame generation is active. This keeps OSF UI outside Present chains owned by OptiScaler, Streamline, Steam, RTSS, ReShade, and similar tools.
 
 Remaining open areas: alternate UI-target formats and broader in-game validation across frame-generation and external-overlay combinations.
 
 ## Lifetime
 
 - `SFSE_PLUGIN_LOAD` → `Runtime::Get().Initialize()`: paths → config → views → renderer → compositor → bridge → input config.
-- SFSE has no shutdown callback; `Runtime::Shutdown()` exists but is currently unreachable. All state must tolerate being torn down by process exit instead.
+- SFSE has no shutdown callback; the process-owned runtime and helper connection end during process teardown.

@@ -1583,13 +1583,10 @@ namespace OSFUI
 		}
 		_impl->submittedSerial = _impl->frameSerial;
 		return FrameBufferView{
-			.pixels = {},
 			.width = _impl->frameWidth,
 			.height = _impl->frameHeight,
-			.strideBytes = 0,
-			.format = PixelFormat::kBGRA8,
 			.frameIndex = _impl->frameSerial,
-			.sharedSlot = static_cast<std::int32_t>(_impl->frameSlot),
+			.sharedSlot = _impl->frameSlot,
 			.sourceTimeMs = _impl->frameSourceTimeMs,
 		};
 	}
@@ -1787,17 +1784,12 @@ namespace OSFUI
 	{
 		_impl->Send(json{
 			{ "type", "renderStatsSample" },
-			{ "presentFps", a_sample.presentFps },
 			{ "drawFps", a_sample.drawFps },
 			{ "freshFps", a_sample.freshFps },
 			{ "submitFps", a_sample.submitFps },
 			{ "sourceToDrawMs", a_sample.sourceToDrawMs },
 			{ "recordCpuMs", a_sample.recordCpuMs },
 			{ "reusedDraws", a_sample.reusedDraws },
-			{ "busyWaits", a_sample.busyWaits },
-			{ "droppedBusy", a_sample.droppedBusy },
-			{ "skippedConcurrent", a_sample.skippedConcurrent },
-			{ "seamMode", a_sample.seamMode },
 			{ "frameGeneration", a_sample.frameGeneration },
 		});
 	}

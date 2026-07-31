@@ -10,7 +10,6 @@ namespace OSFUI
 	{
 	public:
 		bool Initialize() override;
-		void Shutdown() override;
 		void Submit(const FrameBufferView& a_frame) override;
 
 		[[nodiscard]] std::string_view Name() const override { return "null"; }

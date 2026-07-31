@@ -47,6 +47,4 @@ namespace OSFUI::WorldSurface
 	// a static browser page and heal themselves if the engine re-creates a
 	// descriptor. No-op for surfaces missing either a capture or a ring.
 	void Refresh();
-
-	void Shutdown();
 }

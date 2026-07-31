@@ -105,7 +105,6 @@ describe('settings widget rendering', () => {
     slider.value = '80';
     slider.dispatchEvent(new Event('change', { bubbles: true }));
     await flush();
-    const i = bridge.indexOf('settings.set', before === 0 ? 0 : before);
     expect(bridge.requests[bridge.requests.length - 1]!.fields).toEqual({
       mod: 'acme.kit',
       key: 'slide',

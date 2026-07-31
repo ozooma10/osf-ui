@@ -1,0 +1,5 @@
+#include "EmbeddedScripts.rc.h"
+
+IDR_OSFUI_BRIDGE_SHIM RCDATA "scripts\\bridge-shim.js"
+IDR_OSFUI_RENDER_STATS RCDATA "scripts\\render-stats.js"
+IDR_OSFUI_NETWORK_GUARD RCDATA "scripts\\network-guard.js"

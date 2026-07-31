@@ -93,7 +93,7 @@ namespace osfui::wv2
 	// shutdown      { }
 	// frameAck      { serial:u64 }             (consumer acked this frame serial; releases its ring slot)
 	// setRenderStats { view:str, enabled:bool } (toggle the render-stats overlay + sampling for a view)
-	// renderStatsSample { presentFps, drawFps, freshFps, submitFps, sourceToDrawMs, recordCpuMs, ... }
+	// renderStatsSample { drawFps, freshFps, submitFps, sourceToDrawMs, recordCpuMs, ... }
 	//               (periodic render-stats telemetry, forwarded to the views' overlay)
 	//
 	// Message types, host -> game:

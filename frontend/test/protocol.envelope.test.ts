@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { encodeCommand } from '@lib/protocol';
+
 
 // Read from disk, not imported: osfui.js is a classic script. Resolved against
 // the vitest root (frontend/) because under jsdom `import.meta.url` is an http:
@@ -54,88 +54,6 @@ function loadHelper(): { helper: Helper; raw: string[]; sent: Frame[] } {
   return { helper: window.osfui as unknown as Helper, raw, sent };
 }
 
-describe('encodeCommand — outbound envelope shape', () => {
-  it('nests the command name INSIDE the payload', () => {
-    const env = encodeCommand('settings.set', { mod: 'demo', key: 'x', value: 1 });
-
-    // Contract, not a bug: MessageBridge reads `payload.command`, and the
-    // shipped helper builds the payload as `Object.assign({ command }, fields)`.
-    // There is no top-level `command` key and native would not look at one.
-    expect(env).toEqual({
-      type: 'ui.command',
-      payload: { command: 'settings.set', mod: 'demo', key: 'x', value: 1 },
-    });
-    expect(env).not.toHaveProperty('command');
-    expect(env.payload.command).toBe('settings.set');
-  });
-
-  it('always uses type "ui.command" — the only web->native envelope type', () => {
-    expect(encodeCommand('ping').type).toBe('ui.command');
-  });
-
-  it('emits a payload carrying only `command` when no fields are given', () => {
-    expect(encodeCommand('ping').payload).toEqual({ command: 'ping' });
-  });
-
-  it('lets a caller-supplied `command` field WIN over the command argument', () => {
-    // Object.assign({ command }, fields) copies fields last, so a stray
-    // `command` in fields overwrites the argument. The shipped helper does the
-    // same, and a mod action's field bag is caller-controlled; changing the
-    // precedence would change which command native dispatches for existing views.
-    const env = encodeCommand('demo.doThing', { command: 'close' });
-    expect(env.payload.command).toBe('close');
-  });
-
-  it('omits requestId ENTIRELY when none is supplied', () => {
-    const env = encodeCommand('close');
-
-    // Absent, not present-and-undefined. Native treats an absent id as
-    // fire-and-forget and sends no ui.result, so a stray key changes the reply
-    // behaviour.
-    expect('requestId' in env).toBe(false);
-    expect(JSON.parse(JSON.stringify(env))).not.toHaveProperty('requestId');
-  });
-
-  it('attaches requestId when supplied, including the empty string', () => {
-    expect(encodeCommand('ping', undefined, 'q7').requestId).toBe('q7');
-
-    // Only `=== undefined` suppresses the key, so "" is attached — and native
-    // then rejects the empty id, degrading the call to fire-and-forget.
-    // Documented, not fixed.
-    const empty = encodeCommand('ping', undefined, '');
-    expect('requestId' in empty).toBe(true);
-    expect(empty.requestId).toBe('');
-  });
-
-  it('matches the shipped helper frame semantically (key ORDER differs)', () => {
-    const { helper, raw } = loadHelper();
-    helper.send('log', { text: 'hi' });
-
-    const shipped = raw[0]!;
-    const ours = JSON.stringify(encodeCommand('log', { text: 'hi' }));
-    expect(JSON.parse(ours)).toEqual(JSON.parse(shipped));
-    // For a fire-and-forget frame the serialisations are identical.
-    expect(ours).toBe(shipped);
-  });
-
-  it('serialises requestId LAST, unlike the shipped helper (comment is stale)', () => {
-    const { helper, raw } = loadHelper();
-    void helper.request('ping').catch(() => {});
-
-    const shipped = raw[0]!;
-    const ours = JSON.stringify(encodeCommand('ping', undefined, 'q1'));
-
-    // protocol.ts claims the emitted JSON is byte-identical to the helper's. It
-    // is not: the helper builds {type, requestId, payload} in one literal while
-    // encodeCommand appends requestId after payload. Harmless — both sides parse
-    // JSON — but assert the real bytes so nobody "verifies" the stale comment.
-    expect(ours).not.toBe(shipped);
-    expect(JSON.parse(ours)).toEqual(JSON.parse(shipped));
-    expect(Object.keys(JSON.parse(ours) as object)).toEqual(['type', 'payload', 'requestId']);
-    expect(Object.keys(JSON.parse(shipped) as object)).toEqual(['type', 'requestId', 'payload']);
-  });
-});
-
 describe('shipped helper — request id format', () => {
   it('generates "q" + a monotonic counter starting at 1', () => {
     const { helper, sent } = loadHelper();
@@ -177,12 +95,12 @@ function nativeExtractRequestId(msg: { requestId?: unknown }): string {
 describe('requestId length — native treats an over-long id as ABSENT', () => {
   it('accepts an id of exactly 64 chars', () => {
     const id = 'q'.repeat(64);
-    expect(nativeExtractRequestId(encodeCommand('ping', undefined, id))).toBe(id);
+    expect(nativeExtractRequestId({ requestId: id })).toBe(id);
   });
 
   it('DROPS a 65-char id rather than truncating it', () => {
     const id = 'q'.repeat(65);
-    const env = encodeCommand('ping', undefined, id);
+    const env = { requestId: id };
 
     // The JS side sends it; native ignores it and answers nothing, so the
     // caller's request() hangs until its timeout. A truncated id would be worse

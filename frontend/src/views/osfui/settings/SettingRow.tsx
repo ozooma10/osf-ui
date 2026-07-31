@@ -64,7 +64,7 @@ export interface SettingRowProps {
 }
 
 export function SettingRow(props: SettingRowProps) {
-  const { mod, setting, value, visible, enabled, listening, flashing, tr } = props;
+  const { mod, setting, value, visible, enabled, flashing, tr } = props;
 
   if (typeof setting.key !== 'string' || !setting.key) {
     devWarn(`skipping a "${setting.type}" setting with no key in "${mod.id}"`);

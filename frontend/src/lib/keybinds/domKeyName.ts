@@ -55,7 +55,7 @@ const NAMED: Readonly<Record<string, string>> = {
  *
  * The modifier keys the board draws (LShift/LCtrl/LAlt and their right twins)
  * are absent from every branch, so pressing Shift in the preview yields "" and
- * finishCapture treats it as a cancel. DOM cannot tell the two sides apart from
+ * the capture flow treats it as a cancel. DOM cannot tell the two sides apart from
  * `e.key` alone.
  */
 export function domKeyName(e: { key: string }): string {

@@ -24,11 +24,12 @@ import { windowBridge, type Bridge } from '@lib/bridge';
 import { makeTranslator } from '@lib/i18n';
 import { codeOf } from '@lib/protocol';
 import { canonicalName } from '@lib/keybinds/canonical';
-import { domKeyName } from '@lib/keybinds/domKeyName';
+
 import { buildModel, type ModEntry, type VanillaKey } from '@lib/keybinds/model';
 import type { BindingRow } from '@lib/keybinds/model';
 import { BrandEmblem } from '@ui/BrandEmblem';
 import { useLatest, useStateRef } from '@ui/useStateRef';
+import { useKeyCapture, type KeyCapturePayload } from '@ui/useKeyCapture';
 import { Scrim } from '@ui/Scrim';
 import { SearchBox } from '@ui/SearchBox';
 import { ToastStack, useToasts } from '@ui/Toast';
@@ -47,17 +48,6 @@ interface Capture {
   mod: string;
   key: string;
   instanceId: string;
-}
-
-/**
- * What `finishCapture` accepts: a real `settings.captured` payload, or the
- * synthetic cancel built locally on a rejected request. Every field is optional
- * because both shapes flow through one function.
- */
-interface CapturePayload {
-  name?: string;
-  cancelled?: boolean;
-  conflicts?: Array<{ mod?: string; title?: string }>;
 }
 
 export interface AppProps {
@@ -86,7 +76,6 @@ export function App({ bridge = windowBridge }: AppProps) {
   // repaint.
   const [i18nSeq, setI18nSeq] = useState(0);
   const [flash, setFlash] = useState<FlashState>({ name: '', seq: 0 });
-  const [capturing, setCapturing, capturingRef] = useStateRef<Capture | null>(null);
 
   const toasts = useToasts();
   // Same reason as mods/vanilla: `push` is called from long-lived closures.
@@ -120,24 +109,11 @@ export function App({ bridge = windowBridge }: AppProps) {
       .call('menu.open', { view: HUB_VIEW })
       .catch(() => sendCommand('close'));
   };
-
-  /**
-   * Settle a capture. Idempotent: both the awaited request and the
-   * belt-and-braces `settings.captured` subscription call this, and the second
-   * delivery no-ops because `capturing` is already cleared.
-   */
-  const finishCapture = (payload: CapturePayload | null | undefined) => {
-    const current = capturingRef.current;
-    if (!current) return;
-    const { mod, key } = current;
-    setCapturing(null);
-    if (!payload || payload.cancelled || !payload.name) return;
-    const name = payload.name;
-
-    // Live-warn (mcm-design §9): the runtime already checked the captured key
-    // against every other binding — surface it now, before the commit lands.
-    if (Array.isArray(payload.conflicts) && payload.conflicts.length) {
-      const others = [...new Set(payload.conflicts.map((c) => c.title || c.mod))];
+  const capture = useKeyCapture<Capture>({
+    bridge,
+    requestFields: ({ mod, key }) => ({ mod, key }),
+    onConflicts: (_target, name, conflicts) => {
+      const others = [...new Set(conflicts.map((conflict) => conflict.title || conflict.mod))];
       toastRef.current.push(
         tr('alsoBoundBy', '{key} is also bound by: {others}', {
           key: name,
@@ -145,77 +121,42 @@ export function App({ bridge = windowBridge }: AppProps) {
         }),
         'warn',
       );
-    }
+    },
+    onCommit: ({ mod, key }, name) => {
+      const next = modsRef.current.map((entry) =>
+        entry && entry.id === mod
+          ? { ...entry, values: { ...(entry.values || {}), [key]: name } }
+          : entry,
+      );
+      setMods(next);
 
-    // Optimistic local apply plus the authoritative echo (settings.set). The
-    // lookup uses the mod id we armed with, not `payload.mod`: a mis-correlated
-    // reply then cannot write into a different mod's values.
-    const next = modsRef.current.map((m) =>
-      m && m.id === mod ? { ...m, values: { ...(m.values || {}), [key]: name } } : m,
-    );
-    setMods(next);
+      if (bridge.available()) {
+        bridge.call('settings.set', { mod, key, value: name }).catch((error: unknown) => {
+          const code = codeOf(error);
+          toastRef.current.push(
+            tr('rebindRejected', 'Rebind rejected{code}', { code: code ? ` (${code})` : '' }),
+            'danger',
+          );
+          sendCommand('settings.get');
+        });
+      }
 
-    if (bridge.available()) {
-      // A refusal rejects the request: fall back to the store's truth instead
-      // of keeping the optimistic value.
-      bridge.call('settings.set', { mod, key, value: name }).catch((err: unknown) => {
-        const code = codeOf(err);
-        toastRef.current.push(
-          tr('rebindRejected', 'Rebind rejected{code}', { code: code ? ` (${code})` : '' }),
-          'danger',
-        );
-        sendCommand('settings.get');
-      });
-    }
-
-    setSelectedKey(canonicalName(name));
-    setLoaded(true);
-  };
+      setSelectedKey(canonicalName(name));
+      setLoaded(true);
+    },
+    onError: (error) => {
+      toastRef.current.push(
+        codeOf(error) === 'capture-busy'
+          ? tr('captureBusy', 'Another rebind is already listening.')
+          : tr('captureNoResponse', "Rebinding didn't get a response from the runtime."),
+        'warn',
+      );
+    },
+  });
 
   const beginCapture = (binding: BindingRow, instanceId: string) => {
-    if (capturingRef.current) return; // one at a time, view-wide
-    const mod = binding.mod;
-    if (!mod) return; // unreachable: only `kind:"mod"` rows render the button
-    const key = binding.key;
-    setCapturing({ mod, key, instanceId });
-
-    if (bridge.available()) {
-      // One awaited request for the whole rebind: the settings.captured reply
-      // echoes this request's id even though the user may take seconds to press
-      // a key (timeoutMs 0 — the reply itself settles it; Escape/refusal comes
-      // back `cancelled`). A second arm anywhere rejects with "capture-busy".
-      bridge
-        .call<CapturePayload>('settings.captureKey', { mod, key }, { timeoutMs: 0 })
-        .then(finishCapture)
-        .catch((err: unknown) => {
-          // Only if our arm is still the live one: a rejection that arrives
-          // after the capture settled some other way must not toast.
-          const current = capturingRef.current;
-          if (current && current.instanceId === instanceId) {
-            finishCapture({ cancelled: true });
-            toastRef.current.push(
-              codeOf(err) === 'capture-busy'
-                ? tr('captureBusy', 'Another rebind is already listening.')
-                : tr('captureNoResponse', "Rebinding didn't get a response from the runtime."),
-              'warn',
-            );
-          }
-        });
-      return;
-    }
-
-    // Standalone preview: no runtime to capture for us, so read the key from
-    // the DOM. Capture phase + preventDefault, so the press never reaches the
-    // document-level Escape handler below.
-    const onKey = (e: KeyboardEvent) => {
-      window.removeEventListener('keydown', onKey, true);
-      e.preventDefault();
-      const name = domKeyName(e);
-      finishCapture({ name, cancelled: e.key === 'Escape' || !name });
-    };
-    window.addEventListener('keydown', onKey, true);
+    if (binding.mod) capture.begin({ mod: binding.mod, key: binding.key, instanceId });
   };
-
   /** Toggles: clicking the already-selected key clears the panel. */
   const selectKey = (name: string) => {
     setSelectedKey((current) => (name === current ? '' : name));
@@ -260,9 +201,9 @@ export function App({ bridge = windowBridge }: AppProps) {
     });
 
     // Belt-and-braces alongside the beginCapture promise: catches a reply that
-    // lost its correlation (older host without requestId echo). finishCapture
+    // lost its correlation (older host without requestId echo). capture.finish
     // is idempotent.
-    const offCaptured = bridge.on('settings.captured', (p) => finishCapture(p as CapturePayload));
+    const offCaptured = bridge.on('settings.captured', (p) => capture.finish(p as KeyCapturePayload));
 
     const offHotkey = bridge.on('ui.hotkey', (p) => {
       const b = bindingsRef.current.find(
@@ -312,7 +253,7 @@ export function App({ bridge = windowBridge }: AppProps) {
       // reliably "Escape". Swallowed while a capture is armed: the press belongs
       // to the rebind. (The standalone capture path also preventDefaults it in
       // the capture phase, which `defaultPrevented` catches independently.)
-      if ((e.key === 'Escape' || e.keyCode === 27) && !e.defaultPrevented && !capturingRef.current) {
+      if ((e.key === 'Escape' || e.keyCode === 27) && !e.defaultPrevented && !capture.isCapturing()) {
         goBack();
       }
     };
@@ -355,7 +296,7 @@ export function App({ bridge = windowBridge }: AppProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- boot-time only.
   }, [bridge]);
 
-  const capturingId = capturing ? capturing.instanceId : null;
+  const capturingId = capture.capturing?.instanceId ?? null;
 
   return (
     <>

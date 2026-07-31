@@ -11,8 +11,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { isFailureReply, isBridgeError } from '@lib/protocol';
-import type { BridgeEnvelope } from '@sdk';
 
 // Read from disk rather than imported: osfui.js is a classic script, not a
 // module. Resolved against the vitest root (frontend/) because under jsdom
@@ -92,64 +90,6 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const env = (type: string, payload: unknown): BridgeEnvelope =>
-  ({ type, payload }) as BridgeEnvelope;
-
-describe('isFailureReply', () => {
-  it('is true for ui.error regardless of payload', () => {
-    expect(isFailureReply(env('ui.error', { code: 'unknown-command', message: 'x' }))).toBe(true);
-    expect(isFailureReply(env('ui.error', {}))).toBe(true);
-    expect(isFailureReply(env('ui.error', null))).toBe(true);
-  });
-
-  it('is true for ui.result with ok:false', () => {
-    expect(isFailureReply(env('ui.result', { ok: false, code: 'capture-busy' }))).toBe(true);
-  });
-
-  it('is false for ui.result with ok:true', () => {
-    expect(isFailureReply(env('ui.result', { ok: true, command: 'close' }))).toBe(false);
-  });
-
-  it('requires ok === false EXACTLY — a merely falsy ok is not a failure', () => {
-    // The helper compares `p.ok === false`, so a malformed 0/""/null/absent
-    // `ok` resolves. A host that shipped a sloppy ok would otherwise start
-    // throwing at existing views.
-    expect(isFailureReply(env('ui.result', { ok: 0 }))).toBe(false);
-    expect(isFailureReply(env('ui.result', { ok: null }))).toBe(false);
-    expect(isFailureReply(env('ui.result', { ok: 'false' }))).toBe(false);
-    expect(isFailureReply(env('ui.result', {}))).toBe(false);
-  });
-
-  it('is false for a null/undefined ui.result payload', () => {
-    expect(isFailureReply(env('ui.result', null))).toBe(false);
-    expect(isFailureReply(env('ui.result', undefined))).toBe(false);
-  });
-
-  it('is false for EVERY typed reply, including settings.ack { ok:false }', () => {
-    const typed: Array<[string, unknown]> = [
-      ['runtime.ready', { version: '1.0.0' }],
-      ['runtime.pong', {}],
-      ['game.data', { calendar: { available: false } }],
-      ['views.data', { views: [] }],
-      ['i18n.data', { mod: 'osfui', locale: 'en', strings: {} }],
-      ['settings.data', { mods: [] }],
-      // A rejected value, not a failed request: settings.set resolves and the
-      // caller reads ack.ok / ack.code to show "invalid value" inline.
-      ['settings.ack', { mod: 'm', key: 'k', ok: false, code: 'invalid-value' }],
-      ['settings.changed', { mod: 'm', key: 'k', value: 1 }],
-      ['settings.persisted', { mod: 'm' }],
-      // Likewise a cancelled capture: the request succeeded, the user pressed Esc.
-      ['settings.captured', { mod: 'm', key: 'k', name: '', cancelled: true }],
-      ['ui.hotkey', { mod: 'm', key: 'k' }],
-      ['ui.visibility', { visible: false }],
-      ['ui.gamepad', { kind: 'button', button: { id: 0, down: true } }],
-    ];
-    for (const [type, payload] of typed) {
-      expect(isFailureReply(env(type, payload)), type).toBe(false);
-    }
-  });
-});
-
 describe('BridgeError contract — code', () => {
   it('is "" (never undefined) when the reply carries no code', async () => {
     const err = await rejectionFor({ ok: false, message: 'it did not work' });
@@ -159,7 +99,6 @@ describe('BridgeError contract — code', () => {
     expect(err.code).toBe('');
     expect(err.code).not.toBeUndefined();
     expect(typeof err.code).toBe('string');
-    expect(isBridgeError(err)).toBe(true);
   });
 
   it('carries the reply code verbatim when present', async () => {

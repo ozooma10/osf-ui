@@ -1,5 +1,10 @@
 # OSF UI — Simplification Audit
 
+> **Status update (2026-07-31):** This remains the historical evidence catalog, not a
+> description of the current tree. The follow-up cleanup removed the CPU mock renderer,
+> single-view compatibility, retired Present telemetry, and duplicate frontend protocol helpers;
+> it also unified key capture and extracted runtime diagnostics and host scripts.
+
 > **Purpose:** identify *accidental* complexity that can be removed to make the codebase
 > more intuitive, while explicitly protecting *load-bearing* complexity (hard-won crash
 > fixes). This is a simplification/quality report, **not** a bug hunt.

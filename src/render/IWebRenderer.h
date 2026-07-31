@@ -31,12 +31,6 @@ namespace OSFUI
 #endif
 	};
 
-	enum class PixelFormat
-	{
-		kRGBA8,
-		kBGRA8,
-	};
-
 	// Cursor shape a page wants (CSS `cursor`), mirrored onto the OS pointer
 	// while the overlay captures input (input/HardwareCursor). Web cursors with
 	// no stock Win32 equivalent collapse to the nearest listed one (kArrow when
@@ -80,25 +74,15 @@ namespace OSFUI
 		}
 	}
 
-	// Non-owning view of one CPU-side frame produced by a renderer.
-	//
-	// The pixel data is owned by the renderer and valid only until the next
-	// Render(), Resize(), or Shutdown() on it. Consumers (compositors) must
-	// copy or upload before returning control; never store a FrameBufferView.
+	// One shared-texture frame produced by the out-of-process renderer.
 	struct FrameBufferView
 	{
-		std::span<const std::uint8_t> pixels;  // tightly packed rows unless strideBytes says otherwise
-		std::uint32_t                 width{ 0 };
-		std::uint32_t                 height{ 0 };
-		std::uint32_t                 strideBytes{ 0 };  // bytes per row
-		PixelFormat                   format{ PixelFormat::kRGBA8 };
-		std::uint64_t                 frameIndex{ 0 };
-		// GPU transport (out-of-process WebView2 host): when >= 0, `pixels` is
-		// empty and the frame lives in slot `sharedSlot` of the shared-texture
-		// ring the renderer announced via the SharedRingHandler. frameIndex
-		// doubles as the produce-fence value for that slot. CPU-only
-		// compositors must ignore such frames.
-		std::int32_t                  sharedSlot{ -1 };
+		std::uint32_t width{ 0 };
+		std::uint32_t height{ 0 };
+		std::uint64_t frameIndex{ 0 };
+		// Slot in the shared-texture ring announced through SharedRingHandler.
+		// frameIndex doubles as the produce-fence value for that slot.
+		std::uint32_t sharedSlot{ 0 };
 		// GetTickCount64 timestamp taken when the source frame entered the
 		// renderer transport. Windows uptime is system-wide, so the compositor
 		// can measure source-to-draw latency even when capture happens in the
@@ -111,17 +95,12 @@ namespace OSFUI
 	// may display it in its host-owned diagnostics UI.
 	struct RenderStatsSample
 	{
-		double presentFps{ 0.0 };
 		double drawFps{ 0.0 };
 		double freshFps{ 0.0 };
 		double submitFps{ 0.0 };
 		double sourceToDrawMs{ 0.0 };
 		double recordCpuMs{ 0.0 };
 		std::uint64_t reusedDraws{ 0 };
-		std::uint64_t busyWaits{ 0 };
-		std::uint64_t droppedBusy{ 0 };
-		std::uint64_t skippedConcurrent{ 0 };
-		bool seamMode{ false };
 		bool frameGeneration{ false };
 	};
 
@@ -153,8 +132,8 @@ namespace OSFUI
 		std::uint64_t generation{ 0 };
 	};
 
-	// Renderer backend interface. Backends render web (or fake) content into a
-	// CPU buffer; they know nothing about the game, D3D12, or hooks.
+	// Renderer backend interface. Backends know nothing about the game or its
+	// D3D12 render-pass hooks; frames cross the boundary as shared ring slots.
 	class IWebRenderer
 	{
 	public:
@@ -171,9 +150,9 @@ namespace OSFUI
 		// False means this backend cannot recover without replacing the object.
 		virtual bool RestartAfterFailure() { return false; }
 
-		// Loads (or replaces) a view by its manifest id. Multi-view backends keep
-		// previously-loaded views so several composite at once; the first loaded
-		// view becomes active by default. Use SetActiveView to change that.
+		// Loads (or replaces) a view by its manifest id. Previously-loaded views
+		// remain hosted so several can composite at once; the first loaded view
+		// becomes active by default. Use SetActiveView to change that.
 		virtual void LoadView(const ViewManifest& a_manifest) = 0;
 
         // Development-only loose-file support. This may run on the dev worker,
@@ -183,17 +162,16 @@ namespace OSFUI
         virtual bool RefreshViewFiles(std::string_view /*a_viewId*/) { return true; }
 
 		// Selects which loaded view receives input (and, today, the bridge).
-		// No-op if the id is not loaded, or for single-view backends.
+		// No-op if the id is not loaded.
 		virtual void SetActiveView(std::string_view /*a_id*/) {}
-		[[nodiscard]] virtual bool SupportsMultipleViews() const { return true; }
 
-		// Resizes the view surface(s). Multi-view backends resize every hosted
+		// Resizes the view surfaces. Backends resize every hosted
 		// view to the same output size so their frames composite 1:1.
 		virtual void Resize(std::uint32_t a_width, std::uint32_t a_height) = 0;
 		virtual void Update(double a_deltaSeconds) = 0;
 
 		// Returns the current frame, or std::nullopt if there is nothing to
-		// present. See FrameBufferView for the lifetime contract.
+		// present.
 		virtual std::optional<FrameBufferView> Render() = 0;
 
 		// Delivers a JSON message to one view (native -> web); a_viewId is the

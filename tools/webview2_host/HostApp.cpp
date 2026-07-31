@@ -1,5 +1,7 @@
 #include "HostApp.h"
 
+#include "EmbeddedScripts.h"
+
 #include "core/Version.h"
 #include "Wv2BrokerLaunch.h"  // LaunchMethodName (logging only)
 #include "Wv2LocalUri.h"
@@ -2027,6 +2029,19 @@ namespace osfui::wv2
 				return S_OK;
 			}
 
+			HRESULT AddDocumentScript(View& a_view, const EmbeddedScript a_script,
+				std::function<void(HRESULT)> a_completion)
+			{
+				const auto& source = GetEmbeddedScript(a_script);
+				if (!a_view.webView) return E_POINTER;
+				if (source.empty()) return HRESULT_FROM_WIN32(ERROR_RESOURCE_DATA_NOT_FOUND);
+				return a_view.webView->AddScriptToExecuteOnDocumentCreated(source.c_str(),
+					Callback<ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler>(
+						[completion = std::move(a_completion)](HRESULT a_hr, LPCWSTR) -> HRESULT {
+							completion(a_hr);
+							return S_OK;
+						}).Get());
+			}
 			void FinishControllerSetup(View& a_view)
 			{
 				if (quit.load() || a_view.securityReady || !a_view.webView) return;
@@ -2075,379 +2090,35 @@ namespace osfui::wv2
 
 			void InstallBridgeShim(View& a_view)
 			{
-				// Bridge contract: osfui.postMessage / osfui.onMessage, with
-				// buffering for messages that arrive before onMessage is installed.
-				static constexpr wchar_t shim[] = LR"JS(
-					(() => {
-						const bridge = window.osfui = window.osfui || {};
-						const pending = [];
-						let onMessage = typeof bridge.onMessage === 'function' ?
-							bridge.onMessage : null;
-						Object.defineProperty(bridge, 'onMessage', {
-							configurable: true,
-							get: () => onMessage,
-							set: (fn) => {
-								onMessage = fn;
-								if (typeof fn === 'function')
-									pending.splice(0).forEach((json) => fn(json));
-							}
-						});
-						bridge.postMessage = (json) => chrome.webview.postMessage(String(json));
-						// Chromium implements standard form pickers as native popup
-						// UI outside the composition visual. Tell the host to release
-						// its session-wide Win32 mouse capture while one is open, or
-						// the visible popup can never become the physical click target.
-						const nativePopupControl = (event) => {
-							const path = typeof event.composedPath === 'function' ?
-								event.composedPath() : [event.target];
-							for (const el of path) {
-								if (el instanceof HTMLSelectElement && !el.disabled) return el;
-								if (!(el instanceof HTMLInputElement) || el.disabled) continue;
-								if (el.list) return el;
-								if (['color', 'date', 'datetime-local', 'month', 'time', 'week']
-									.includes(el.type)) return el;
-							}
-							return null;
-						};
-						const nativePopupMessage = '__osfuiNativePopup:';
-						// WebView2's CoreWebView2.WebMessageReceived event only
-						// receives chrome.webview messages from the top document.
-						// AddScriptToExecuteOnDocumentCreated also runs in frames,
-						// so relay frame-owned controls (Starcade's games are one
-						// real-world example) through the top document first.
-						if (window === window.top) {
-							window.addEventListener('message', (event) => {
-								if (event.data !== nativePopupMessage + '0' &&
-									event.data !== nativePopupMessage + '1') return;
-								if (window.chrome && chrome.webview)
-									chrome.webview.postMessage(event.data);
-							});
+				const auto hr = AddDocumentScript(a_view, EmbeddedScript::BridgeShim,
+					[this](const HRESULT a_scriptHr) {
+						if (FAILED(a_scriptHr)) {
+							log.Error(std::format("bridge shim install failed (0x{:08X})",
+								static_cast<unsigned>(a_scriptHr)));
 						}
-						let nativePopup = null;
-						const reportNativePopup = (open) => {
-							const message = nativePopupMessage + (open ? '1' : '0');
-							if (window !== window.top) {
-								window.top.postMessage(message, '*');
-							} else if (window.chrome && chrome.webview) {
-								chrome.webview.postMessage(message);
-							}
-						};
-						const closeNativePopup = (event) => {
-							if (!nativePopup) return;
-							if (event && nativePopupControl(event) !== nativePopup) return;
-							nativePopup = null;
-							reportNativePopup(false);
-						};
-						document.addEventListener('pointerdown', (event) => {
-							const control = nativePopupControl(event);
-							if (control) {
-								nativePopup = control;
-								reportNativePopup(true);
-							} else {
-								closeNativePopup();
-							}
-						}, true);
-						document.addEventListener('keydown', (event) => {
-							const control = nativePopupControl(event);
-							if (control && (event.key === 'Enter' || event.key === ' ' ||
-								(event.altKey && event.key === 'ArrowDown'))) {
-								nativePopup = control;
-								reportNativePopup(true);
-							} else if (event.key === 'Escape') {
-								closeNativePopup();
-							}
-						}, true);
-						document.addEventListener('change', closeNativePopup, true);
-						document.addEventListener('input', (event) => {
-							if (nativePopup instanceof HTMLInputElement && nativePopup.list)
-								closeNativePopup(event);
-						}, true);
-						document.addEventListener('blur', closeNativePopup, true);
-
-						// --- synthetic key delivery (__osfuiKey web messages) ---
-						// Gamepad navigation reaches the page here as scripted
-						// KeyboardEvents. padnav and the views key off keyCode / e.key,
-						// not isTrusted, by contract.
-						const VK_KEYS = {
-							0x08: ['Backspace', 'Backspace'], 0x09: ['Tab', 'Tab'],
-							0x0D: ['Enter', 'Enter'], 0x1B: ['Escape', 'Escape'],
-							0x20: [' ', 'Space'],
-							0x21: ['PageUp', 'PageUp'], 0x22: ['PageDown', 'PageDown'],
-							0x23: ['End', 'End'], 0x24: ['Home', 'Home'],
-							0x25: ['ArrowLeft', 'ArrowLeft'], 0x26: ['ArrowUp', 'ArrowUp'],
-							0x27: ['ArrowRight', 'ArrowRight'], 0x28: ['ArrowDown', 'ArrowDown'],
-							0x2D: ['Insert', 'Insert'], 0x2E: ['Delete', 'Delete'],
-							0x10: ['Shift', 'ShiftLeft'], 0x11: ['Control', 'ControlLeft'],
-							0x12: ['Alt', 'AltLeft'],
-							0xA0: ['Shift', 'ShiftLeft'], 0xA1: ['Shift', 'ShiftRight'],
-							0xA2: ['Control', 'ControlLeft'], 0xA3: ['Control', 'ControlRight'],
-							0xA4: ['Alt', 'AltLeft'], 0xA5: ['Alt', 'AltRight']
-						};
-						const MOD_VKS = {
-							0x10: 'shift', 0xA0: 'shift', 0xA1: 'shift',
-							0x11: 'ctrl', 0xA2: 'ctrl', 0xA3: 'ctrl',
-							0x12: 'alt', 0xA4: 'alt', 0xA5: 'alt'
-						};
-						const heldMods = { shift: false, ctrl: false, alt: false };
-						const synthesizeKey = (vk, down) => {
-							const mod = MOD_VKS[vk];
-							if (mod) heldMods[mod] = down;
-							let key, code;
-							const named = VK_KEYS[vk];
-							if (named) {
-								key = named[0]; code = named[1];
-							} else if (vk >= 0x41 && vk <= 0x5A) {
-								const ch = String.fromCharCode(vk);
-								key = heldMods.shift ? ch : ch.toLowerCase();
-								code = 'Key' + ch;
-							} else if (vk >= 0x30 && vk <= 0x39) {
-								key = String.fromCharCode(vk);
-								code = 'Digit' + key;
-							} else if (vk >= 0x70 && vk <= 0x87) {
-								key = 'F' + (vk - 0x6F); code = key;
-							} else {
-								return;  // unmapped VK: nothing sensible to synthesize
-							}
-							// Scripted dispatch does not cross frame boundaries the
-							// way real (OS-focus) key routing does. If the focused
-							// element is an <iframe> (e.g. a content mod embedding
-							// its game in a frame), descend into same-origin frames
-							// to the innermost focused document; hand cross-origin
-							// frames the key via postMessage to the shim instance
-							// injected there.
-							let doc = document;
-							let target = doc.activeElement || doc.body;
-							while (target && target.tagName === 'IFRAME') {
-								let inner = null;
-								try { inner = target.contentDocument; } catch (_) {}
-								if (!inner) break;
-								doc = inner;
-								target = doc.activeElement || doc.body;
-							}
-							if (target && target.tagName === 'IFRAME') {
-								if (target.contentWindow)
-									target.contentWindow.postMessage(
-										{ __osfuiKeyRelay: { vk, down } }, '*');
-								return;
-							}
-							if (!target) target = document.body;
-							const ev = new KeyboardEvent(down ? 'keydown' : 'keyup', {
-								key, code, bubbles: true, cancelable: true, composed: true,
-								shiftKey: heldMods.shift, ctrlKey: heldMods.ctrl,
-								altKey: heldMods.alt
-							});
-							// The constructor ignores legacy fields; padnav keys off
-							// keyCode, so define them explicitly.
-							Object.defineProperty(ev, 'keyCode', { get: () => vk });
-							Object.defineProperty(ev, 'which', { get: () => vk });
-							target.dispatchEvent(ev);
-							// Scripted events run no native default actions. Emulate
-							// the one the views rely on: arrow keys adjusting a
-							// range slider (padnav deliberately leaves left/right
-							// on a focused slider to the browser).
-							if (down && !ev.defaultPrevented && target.tagName === 'INPUT' &&
-								target.type === 'range' && key.startsWith('Arrow')) {
-								const step = Number(target.step) || 1;
-								const dir = (key === 'ArrowRight' || key === 'ArrowUp') ? 1 : -1;
-								const min = target.min !== '' ? Number(target.min) : 0;
-								const max = target.max !== '' ? Number(target.max) : 100;
-								const cur = Number(target.value) || 0;
-								const next = Math.min(max, Math.max(min, cur + dir * step));
-								if (next !== cur) {
-									target.value = String(next);
-									target.dispatchEvent(new Event('input', { bubbles: true }));
-									target.dispatchEvent(new Event('change', { bubbles: true }));
-								}
-							}
-						};
-
-						// Relay receiver: keys handed across a cross-origin frame
-						// boundary by the parent's shim instance (synthesizeKey
-						// above). Same-origin frames are reached by direct
-						// dispatch and never see a relay.
-						window.addEventListener('message', (event) => {
-							if (event.source !== window.parent) return;
-							const k = event.data && typeof event.data === 'object' ?
-								event.data.__osfuiKeyRelay : null;
-							if (k) synthesizeKey(k.vk | 0, !!k.down);
-						});
-
-						// Child frames may lack chrome.webview entirely; their shim
-						// instance only serves the relay receiver above.
-						if (!window.chrome || !chrome.webview) return;
-						chrome.webview.addEventListener('message', (event) => {
-							// Key channel: object-typed (PostWebMessageAsJson), never
-							// forwarded to the page's onMessage.
-							if (event.data && typeof event.data === 'object' &&
-								event.data.__osfuiKey) {
-								const k = event.data.__osfuiKey;
-								synthesizeKey(k.vk | 0, !!k.down);
-								return;
-							}
-							if (event.data && typeof event.data === 'object' &&
-								event.data.__osfuiRenderStats) {
-								if (typeof window.__osfuiRenderStatsNative === 'function')
-									window.__osfuiRenderStatsNative(event.data.__osfuiRenderStats);
-								return;
-							}
-							const json = typeof event.data === 'string' ?
-								event.data : JSON.stringify(event.data);
-							// Session boundary: on hide, blur any editable so the
-							// runtime's cleared grant and the DOM agree — a field
-							// left DOM-focused would otherwise look focused on
-							// reopen but never re-grant (no new focusin).
-							try {
-								const m = JSON.parse(json);
-								if (m && m.type === 'ui.visibility' && m.payload &&
-									m.payload.visible === false) {
-									const el = document.activeElement;
-									if (el && el !== document.body && typeof el.blur === 'function') el.blur();
-								}
-							} catch (_) {}
-							if (typeof onMessage === 'function') onMessage(json);
-							else pending.push(json);
-						});
-					})();)JS";
-				a_view.webView->AddScriptToExecuteOnDocumentCreated(shim,
-					Callback<ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler>(
-						[this](HRESULT a_scriptHr, LPCWSTR) -> HRESULT {
-							if (FAILED(a_scriptHr)) {
-								log.Error(std::format("bridge shim install failed (0x{:08X})",
-									static_cast<unsigned>(a_scriptHr)));
-							}
-							return S_OK;
-						}).Get());
+					});
+				if (FAILED(hr)) {
+					log.Error(std::format("bridge shim registration failed (0x{:08X})",
+						static_cast<unsigned>(hr)));
+				}
 			}
 
 			void InstallRenderStats(View& a_view)
 			{
-				// Shadow DOM isolates the host panel from arbitrary authored CSS. The
-				// sampler is fully dormant while disabled and only writes twice a
-				// second while enabled, keeping its own diagnostic cost bounded.
-				static constexpr wchar_t script[] = LR"JS(
-					(() => {
-						let enabled=false, host=null, raf=0, lastFrame=0;
-						let windowStart=0, frames=0, gaps=[], longCount=0, longMs=0;
-						let observer=null, viewId='';
-						const isTop=window===window.top;
-						const safe=(n,d=1)=>Number.isFinite(Number(n))?Number(n).toFixed(d):'--';
-						const ensurePanel=()=>{
-							if(host&&host.isConnected)return host.shadowRoot;
-							host=document.createElement('div');
-							host.id='__osfui-render-stats';
-							host.style.cssText='all:initial;position:fixed;z-index:2147483647;top:12px;right:12px;pointer-events:none;contain:layout style paint;';
-							const root=host.attachShadow({mode:'open'});
-							root.innerHTML=`<style>
-								.panel{min-width:340px;padding:10px 12px;color:#e7f6ff;background:rgba(4,8,12,.92);border:1px solid rgba(118,199,239,.72);box-shadow:0 4px 20px rgba(0,0,0,.45);font:11px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.03em}
-								.head{color:#7ed2ff;font-weight:700;border-bottom:1px solid rgba(126,210,255,.3);padding-bottom:5px;margin-bottom:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:360px}
-								.row{display:grid;grid-template-columns:88px 1fr;gap:8px}.key{color:#8da0ad}.primary{color:#9ee6a8;font-weight:700}.bad{color:#ffb36b}
-							</style><div class="panel"><div class="head"></div><div class="rows"></div></div>`;
-							(document.documentElement||document).appendChild(host);
-							return root;
-						};
-						const percentile=(values,p)=>{
-							if(!values.length)return 0;
-							const sorted=values.slice().sort((a,b)=>a-b);
-							return sorted[Math.min(sorted.length-1,Math.floor(sorted.length*p))];
-						};
-						const frame=(now)=>{
-							if(!enabled)return;
-							if(!windowStart)windowStart=now;
-							if(lastFrame)gaps.push(now-lastFrame);
-							lastFrame=now;frames++;
-							raf=requestAnimationFrame(frame);
-						};
-						const localSample=()=>{
-							const now=performance.now(),elapsed=Math.max(1,now-windowStart);
-							const result={
-								pageFps:frames*1000/elapsed,p95:percentile(gaps,.95),
-								max:gaps.length?Math.max(...gaps):0,longCount,longMs,
-								nodes:document.getElementsByTagName('*').length,
-								heapMb:performance.memory&&performance.memory.usedJSHeapSize?
-									performance.memory.usedJSHeapSize/1048576:0,
-								frame:location.pathname||document.title||'document'
-							};
-							windowStart=now;frames=0;gaps=[];longCount=0;longMs=0;
-							return result;
-						};
-						const setChildStats=(next)=>{
-							for(const iframe of document.querySelectorAll('iframe')){
-								try{iframe.contentWindow?.__osfuiSetRenderStats?.(next,viewId);}catch(_){}
-							}
-						};
-						const takeSample=()=>{
-							let selected=localSample(),selectedArea=0;
-							for(const iframe of document.querySelectorAll('iframe')){
-								try{
-									const rect=iframe.getBoundingClientRect();
-									const area=Math.max(0,rect.width)*Math.max(0,rect.height);
-									if(area<1)continue;
-									const child=iframe.contentWindow;
-									child?.__osfuiSetRenderStats?.(true,viewId);
-									const sample=child?.__osfuiTakeRenderStatsSample?.();
-									if(sample&&area>selectedArea){selected=sample;selectedArea=area;}
-								}catch(_){}
-							}
-							return selected;
-						};
-						window.__osfuiTakeRenderStatsSample=takeSample;
-						window.__osfuiRenderStatsNative=(native)=>{
-							if(!enabled||!isTop)return;
-							const page=takeSample();
-							const {pageFps,p95,max,longCount,longMs}=page;
-							const fresh=Number.isFinite(Number(native.freshFps))?native.freshFps:native.transferFps;
-							const memory=page.heapMb?`${safe(page.heapMb,0)} MB`:'n/a';
-							const root=ensurePanel(),bad=p95>25||max>50;
-							root.querySelector('.head').textContent=`RENDER STATS · ${viewId}`;
-							root.querySelector('.rows').innerHTML=
-								`<div class="row primary"><span class="key">FRESH VIEW</span><span>${safe(fresh)} fps · new textures drawn in game</span></div>`+
-								`<div class="row"><span class="key">OVERLAY PASSES</span><span>${safe(native.drawFps)} /s · ${native.reusedDraws||0} reused</span></div>`+
-								`<div class="row"><span class="key">CAPTURE</span><span>${safe(native.captureFps)} fps WGC · publish ${safe(native.transferFps)}</span></div>`+
-								`<div class="row"><span class="key">TRANSPORT</span><span>submit ${safe(native.submitFps)} fps · copy ${safe(native.copyMs,2)} ms</span></div>`+
-								`<div class="row"><span class="key">LATENCY</span><span>capture→draw ${safe(native.sourceToDrawMs,2)} ms · CPU ${safe(native.recordCpuMs,3)} ms</span></div>`+
-								`<div class="row ${bad?'bad':''}"><span class="key">PAGE RAF</span><span>${safe(pageFps)} fps · p95 ${safe(p95)} ms · max ${safe(max)} ms</span></div>`+
-								`<div class="row ${longCount?'bad':''}"><span class="key">LONG TASKS</span><span>${longCount} · ${safe(longMs,0)} ms total</span></div>`+
-								`<div class="row"><span class="key">PAGE</span><span>${page.nodes} nodes · heap ${memory}</span></div>`+
-								`<div class="row ${native.backpressure||native.droppedBusy||native.skippedConcurrent?'bad':''}"><span class="key">DROPS/WAITS</span><span>ring ${native.backpressure||0} · GPU ${native.droppedBusy||0} · concurrent ${native.skippedConcurrent||0}</span></div>`;
-							try{
-								chrome.webview.postMessage('__osfuiRenderStatsPage:'+JSON.stringify({
-									pageFps,p95,max,longCount,longMs,
-									nodes:page.nodes,heapMb:page.heapMb,frame:page.frame
-								}));
-							}catch(_){}
-						};
-						window.__osfuiSetRenderStats=(next,id)=>{
-							viewId=String(id||'');
-							setChildStats(!!next);
-							if(!!next===enabled)return;
-							enabled=!!next;
-							if(!enabled){
-								if(raf)cancelAnimationFrame(raf);
-								raf=0;lastFrame=0;windowStart=0;frames=0;gaps=[];
-								if(observer)observer.disconnect();
-								observer=null;if(host)host.remove();host=null;return;
-							}
-							if(isTop)ensurePanel();
-							windowStart=performance.now();raf=requestAnimationFrame(frame);
-							try{
-								observer=new PerformanceObserver((list)=>{
-									for(const entry of list.getEntries()){longCount++;longMs+=entry.duration;}
-								});
-								observer.observe({type:'longtask',buffered:true});
-							}catch(_){}
-						};
-					})();
-				)JS";
-				a_view.webView->AddScriptToExecuteOnDocumentCreated(script,
-					Callback<ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler>(
-						[this, view = &a_view](HRESULT a_hr, LPCWSTR) -> HRESULT {
-							if (FAILED(a_hr)) {
-								log.Warn(std::format(
-									"view '{}': render-stats shim install failed (0x{:08X})",
-									view->id, static_cast<unsigned>(a_hr)));
-							}
-							return S_OK;
-						}).Get());
+				const auto viewId = a_view.id;
+				const auto hr = AddDocumentScript(a_view, EmbeddedScript::RenderStats,
+					[this, viewId](const HRESULT a_scriptHr) {
+						if (FAILED(a_scriptHr)) {
+							log.Warn(std::format(
+								"view '{}': render-stats shim install failed (0x{:08X})",
+								viewId, static_cast<unsigned>(a_scriptHr)));
+						}
+					});
+				if (FAILED(hr)) {
+					log.Warn(std::format(
+						"view '{}': render-stats shim registration failed (0x{:08X})",
+						viewId, static_cast<unsigned>(hr)));
+				}
 			}
 
 			// Host of a URI, for the deny log / warn-once key only (not a parser).
@@ -2565,32 +2236,20 @@ namespace osfui::wv2
 				//   entirely. Views are local, no-network mod UIs; none use workers.
 				//   (Service workers are unaffected here but have no WebSocket, and
 				//   their fetches are already caught by the request filter.)
-				static constexpr auto kNeuter = LR"JS((() => {
-					for (const name of ['WebSocket', 'RTCPeerConnection',
-							'webkitRTCPeerConnection', 'WebTransport',
-							'Worker', 'SharedWorker']) {
-						try {
-							Object.defineProperty(window, name,
-								{ value: undefined, writable: false, configurable: false });
-						} catch (_) {}
-					}
-				})();)JS";
 				const auto viewId = a_view.id;
-				const auto scriptHr = a_view.webView->AddScriptToExecuteOnDocumentCreated(kNeuter,
-					Callback<ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler>(
-						[this, viewId](HRESULT a_scriptHr, LPCWSTR) -> HRESULT {
-							auto* current = FindView(viewId);
-							if (!current) return S_OK;
-							if (FAILED(a_scriptHr)) {
-								log.Error(std::format("egress neuter script install failed (0x{:08X})",
-									static_cast<unsigned>(a_scriptHr)));
-								ReportSecurityFailure(*current, a_scriptHr,
-									"egress transport policy installation failed");
-							} else {
-								FinishControllerSetup(*current);
-							}
-							return S_OK;
-						}).Get());
+				const auto scriptHr = AddDocumentScript(a_view, EmbeddedScript::NetworkGuard,
+					[this, viewId](const HRESULT a_scriptHr) {
+						auto* current = FindView(viewId);
+						if (!current) return;
+						if (FAILED(a_scriptHr)) {
+							log.Error(std::format("egress neuter script install failed (0x{:08X})",
+								static_cast<unsigned>(a_scriptHr)));
+							ReportSecurityFailure(*current, a_scriptHr,
+								"egress transport policy installation failed");
+						} else {
+							FinishControllerSetup(*current);
+						}
+					});
 				if (FAILED(scriptHr)) {
 					log.Error(std::format(
 						"view '{}': egress neuter script registration failed (0x{:08X})",
@@ -3531,212 +3190,248 @@ namespace osfui::wv2
 					COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE, data, POINT{ x, y });
 			}
 
-			void HandleCommand(const json& a_msg)
+			void HandleInit(const json& a_msg)
 			{
-				const std::string type = a_msg.value("type", "");
-				if (type == "init") {
-					if (initialized) return;
-					initialized = true;
-					gameTopLevel = reinterpret_cast<HWND>(
-						static_cast<std::uintptr_t>(a_msg.value("topLevelHwnd", 0ull)));
-					viewsRoot = std::filesystem::path(ToWide(a_msg.value("viewsPath", "")));
-					virtualHost = ToWide(a_msg.value("virtualHost", "osfui.local"));
-					width = (std::max)(1u, a_msg.value("width", 1u));
-					height = (std::max)(1u, a_msg.value("height", 1u));
-					userData = std::filesystem::path(ToWide(a_msg.value("userDataDir", "")));
-					devMode = a_msg.value("devMode", false);
-					defaultHidden = a_msg.value("hidden", true);
-					if (userData.empty()) {
-						log.Error("init without userDataDir");
-						return;
-					}
-					std::optional<LUID> requestedAdapter;
-					if (a_msg.contains("adapterLuidLow") && a_msg.contains("adapterLuidHigh")) {
-						LUID luid{};
-						luid.LowPart = a_msg.value("adapterLuidLow", 0u);
-						luid.HighPart = static_cast<LONG>(a_msg.value("adapterLuidHigh", 0u));
-						requestedAdapter = luid;
-					}
-					if (!InitializeGraphics(requestedAdapter)) {
-						byeReason = "graphics-init-failed";
-						quit.store(true);
-						return;
-					}
-					rootVisual.Size({ static_cast<float>(width), static_cast<float>(height) });
-					log.Info(std::format("init: views='{}' {}x{} hidden={} topLevel=0x{:X}",
-						ToUtf8(viewsRoot.native()), width, height, defaultHidden,
-						reinterpret_cast<std::uintptr_t>(gameTopLevel)));
-					BeginEnvironment();
-				} else if (type == "navigate") {
-					// `id` is the view id; the first navigate for an unknown id
-					// creates that view.
-					const std::string id = a_msg.value("id", "");
-					if (id.empty()) {
-						log.Warn("navigate without id ignored");
-						return;
-					}
-					auto* view = FindView(id);
-					if (!view) view = &CreateView(id);
-					// The injected shim persists for the controller's lifetime, so
-					// a re-navigate cannot retract an earlier grant (a manifest
-					// flip needs a view destroy/recreate — dev reload does that).
-					view->bridge = a_msg.value("bridge", true);
-					view->logicalHeight = (std::max)(1u,
-						a_msg.value("logicalHeight", kDefaultLogicalHeight));
-					// A re-navigate may carry a different manifest height (dev
-					// reload) onto an existing controller, so re-apply.
-					ApplyScale(*view);
-					std::string path = id + "/" + a_msg.value("entry", "index.html");
-					std::ranges::replace(path, '\\', '/');
-					view->pendingNavigate = L"https://" + virtualHost + L"/" + ToWide(path);
-					if (view->webView) {
-						DrainQueuedViewWork(*view);
-					} else {
-						RequestController(*view);  // no-op until the environment is up
-					}
-				} else if (type == "resize") {
-					ApplyResize(a_msg.value("width", 1u), a_msg.value("height", 1u));
-				} else if (type == "prewarm") {
-					auto* view = ResolveView(a_msg);
-					if (!view) return;
+				if (initialized) return;
+				initialized = true;
+				gameTopLevel = reinterpret_cast<HWND>(
+					static_cast<std::uintptr_t>(a_msg.value("topLevelHwnd", 0ull)));
+				viewsRoot = std::filesystem::path(ToWide(a_msg.value("viewsPath", "")));
+				virtualHost = ToWide(a_msg.value("virtualHost", "osfui.local"));
+				width = (std::max)(1u, a_msg.value("width", 1u));
+				height = (std::max)(1u, a_msg.value("height", 1u));
+				userData = std::filesystem::path(ToWide(a_msg.value("userDataDir", "")));
+				devMode = a_msg.value("devMode", false);
+				defaultHidden = a_msg.value("hidden", true);
+				if (userData.empty()) {
+					log.Error("init without userDataDir");
+					return;
+				}
+				std::optional<LUID> requestedAdapter;
+				if (a_msg.contains("adapterLuidLow") && a_msg.contains("adapterLuidHigh")) {
+					LUID luid{};
+					luid.LowPart = a_msg.value("adapterLuidLow", 0u);
+					luid.HighPart = static_cast<LONG>(a_msg.value("adapterLuidHigh", 0u));
+					requestedAdapter = luid;
+				}
+				if (!InitializeGraphics(requestedAdapter)) {
+					byeReason = "graphics-init-failed";
+					quit.store(true);
+					return;
+				}
+				rootVisual.Size({ static_cast<float>(width), static_cast<float>(height) });
+				log.Info(std::format("init: views='{}' {}x{} hidden={} topLevel=0x{:X}",
+					ToUtf8(viewsRoot.native()), width, height, defaultHidden,
+					reinterpret_cast<std::uintptr_t>(gameTopLevel)));
+				BeginEnvironment();
+			}
+
+			void HandleNavigate(const json& a_msg)
+			{
+				const std::string id = a_msg.value("id", "");
+				if (id.empty()) {
+					log.Warn("navigate without id ignored");
+					return;
+				}
+				auto* view = FindView(id);
+				if (!view) view = &CreateView(id);
+				view->bridge = a_msg.value("bridge", true);
+				view->logicalHeight = (std::max)(1u,
+					a_msg.value("logicalHeight", kDefaultLogicalHeight));
+				ApplyScale(*view);
+				std::string path = id + "/" + a_msg.value("entry", "index.html");
+				std::ranges::replace(path, '\\', '/');
+				view->pendingNavigate = L"https://" + virtualHost + L"/" + ToWide(path);
+				if (view->webView) DrainQueuedViewWork(*view);
+				else RequestController(*view);
+			}
+
+			void HandleResize(const json& a_msg)
+			{
+				ApplyResize(a_msg.value("width", 1u), a_msg.value("height", 1u));
+			}
+
+			void HandlePrewarm(const json& a_msg)
+			{
+				if (auto* view = ResolveView(a_msg)) {
 					view->prewarm = true;
 					BeginPrewarm(*view);
-				} else if (type == "setHidden") {
-					auto* view = ResolveView(a_msg);
-					if (!view) return;
-					const auto requested = a_msg.value("presentationEpoch", 0ull);
-					if (a_msg.value("hidden", true)) {
-						HideView(*view);
-					} else {
-						view->pendingPresentationEpoch = requested;
-						ShowView(*view);
-					}
-				} else if (type == "setOrder") {
-					auto* view = ResolveView(a_msg);
-					if (!view) return;
+				}
+			}
+
+			void HandleSetHidden(const json& a_msg)
+			{
+				auto* view = ResolveView(a_msg);
+				if (!view) return;
+				if (a_msg.value("hidden", true)) {
+					HideView(*view);
+				} else {
+					view->pendingPresentationEpoch = a_msg.value("presentationEpoch", 0ull);
+					ShowView(*view);
+				}
+			}
+
+			void HandleSetOrder(const json& a_msg)
+			{
+				if (auto* view = ResolveView(a_msg)) {
 					view->order = a_msg.value("order", 0);
 					ReorderVisuals();
-				} else if (type == "setRenderStats") {
-					auto* view = ResolveView(a_msg);
-					if (!view) return;
+				}
+			}
+
+			void HandleSetRenderStats(const json& a_msg)
+			{
+				if (auto* view = ResolveView(a_msg)) {
 					view->renderStats = a_msg.value("enabled", false);
 					ApplyRenderStats(*view);
-				} else if (type == "renderStatsSample") {
-					compositorStats = a_msg;
-					compositorStats.erase("type");
-				} else if (type == "setActive") {
-					auto* view = ResolveView(a_msg);
-					if (view) {
-						if (active && active != view) active->nativePopupOpen = false;
-						active = view;
-						log.Info(std::format("active view -> '{}'", view->id));
-						if (focusGranted && view->controller && !view->hidden) {
-							view->controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
-						}
-						ReconcileInputWidgetSubclass();
-						ApplyMouseCapture();
+				}
+			}
+
+			void HandleRenderStatsSample(const json& a_msg)
+			{
+				compositorStats = a_msg;
+				compositorStats.erase("type");
+			}
+
+			void HandleSetActive(const json& a_msg)
+			{
+				auto* view = ResolveView(a_msg);
+				if (!view) return;
+				if (active && active != view) active->nativePopupOpen = false;
+				active = view;
+				log.Info(std::format("active view -> '{}'", view->id));
+				if (focusGranted && view->controller && !view->hidden) {
+					view->controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+				}
+				ReconcileInputWidgetSubclass();
+				ApplyMouseCapture();
+			}
+
+			void HandleFocus(const json& a_msg)
+			{
+				focusGranted = a_msg.value("focused", false);
+				if (!focusGranted) {
+					for (auto& view : views) view->nativePopupOpen = false;
+				}
+				SetRawMouseInput(focusGranted);
+				if (focusGranted && active && active->controller && !active->hidden) {
+					active->controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+				}
+				ReconcileInputWidgetSubclass();
+				ApplyMouseCapture();
+				ApplyCaptureCadence();
+			}
+
+			void HandleMouse(const json& a_msg) { SendMouse(a_msg); }
+
+			void HandleKey(const json& a_msg)
+			{
+				if (!active || !active->webView) return;
+				const auto payload = json{ { "__osfuiKey", {
+					{ "vk", a_msg.value("vk", 0u) },
+					{ "down", a_msg.value("down", false) },
+				} } }.dump();
+				active->webView->PostWebMessageAsJson(ToWide(payload).c_str());
+			}
+
+			void HandleFrameAck(const json& a_msg)
+			{
+				const auto serial = a_msg.value("serial", 0ull);
+				auto current = ackedSerial.load();
+				while (serial > current &&
+					!ackedSerial.compare_exchange_weak(current, serial)) {}
+			}
+
+			void HandlePostWeb(const json& a_msg)
+			{
+				if (auto* view = ResolveView(a_msg)) {
+					view->queuedPostWeb.push_back(a_msg.value("json", ""));
+					DrainQueuedViewWork(*view);
+				}
+			}
+
+			void HandleOpenDevTools(const json& a_msg)
+			{
+				if (!devMode) {
+					log.Warn("openDevTools ignored outside devMode");
+					return;
+				}
+				handledKeys.erase(VK_F12);
+				if (auto* view = ResolveView(a_msg); view && view->webView) {
+					const auto hr = view->webView->OpenDevToolsWindow();
+					if (FAILED(hr)) {
+						log.Warn(std::format(
+							"view '{}': OpenDevToolsWindow failed (0x{:08X})",
+							view->id, static_cast<unsigned>(hr)));
 					}
-				} else if (type == "focus") {
-					// Session focus: true for an input-capturing menu, false for
-					// HUD-only/closed states. Revoke releases mouse capture; the
-					// game side restores its own focus on its window thread.
-					const bool focused = a_msg.value("focused", false);
-					focusGranted = focused;
-					if (!focused) {
-						for (auto& view : views) view->nativePopupOpen = false;
-					}
-					SetRawMouseInput(focused);
-					if (focused && active && active->controller && !active->hidden) {
-						active->controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
-					}
-					ReconcileInputWidgetSubclass();
-					ApplyMouseCapture();
-					ApplyCaptureCadence();
-				} else if (type == "mouse") {
-					SendMouse(a_msg);
-				} else if (type == "key") {
-					// Synthetic keys (gamepad nav taps, Esc back-delegation, and
-					// keyboard keys the game WndProc swallows while the game owns
-					// focus). Delivered as DOM KeyboardEvents by the bridge shim
-					// (`__osfuiKey` web message), NOT as Win32 key messages:
-					// Chromium ignores WM_KEYDOWN posted to an unfocused widget.
-					// The object-typed message is
-					// distinguishable from runtime traffic, which arrives as
-					// strings (PostWebMessageAsString).
-					const auto vk = a_msg.value("vk", 0u);
-					const bool down = a_msg.value("down", false);
-					if (active && active->webView) {
-						const auto payload = json{ { "__osfuiKey",
-							{ { "vk", vk }, { "down", down } } } }.dump();
-						active->webView->PostWebMessageAsJson(ToWide(payload).c_str());
-					}
-				} else if (type == "frameAck") {
-					// Monotonic release marker for frames the game never read.
-					const auto serial = a_msg.value("serial", 0ull);
-					auto current = ackedSerial.load();
-					while (serial > current &&
-						   !ackedSerial.compare_exchange_weak(current, serial)) {}
-				} else if (type == "postWeb") {
-					if (auto* view = ResolveView(a_msg)) {
-						view->queuedPostWeb.push_back(a_msg.value("json", ""));
-						DrainQueuedViewWork(*view);
-					}
-				} else if (type == "openDevTools") {
-					if (!devMode) {
-						log.Warn("openDevTools ignored outside devMode");
+				}
+			}
+
+			void HandleAccelState(const json& a_msg)
+			{
+				const bool wasCaptured = captured;
+				toggleVk = a_msg.value("toggleVk", 0u);
+				captured = a_msg.value("captured", false);
+				captureArmed = a_msg.value("captureArmed", false);
+				captureUpVk = a_msg.value("captureUpVk", 0u);
+				ReconcileInputWidgetSubclass();
+				if (wasCaptured && !captured) handledKeys.clear();
+			}
+
+			void HandleDestroyView(const json& a_msg)
+			{
+				auto* view = ResolveView(a_msg);
+				if (!view) return;
+				log.Info(std::format("destroying view '{}'", view->id));
+				egressWarned.erase(view->id);
+				DestroyOneView(*view);
+				const bool wasActive = view == active;
+				std::erase_if(views, [view](const std::unique_ptr<View>& a_view) {
+					return a_view.get() == view;
+				});
+				if (wasActive) active = views.empty() ? nullptr : views.front().get();
+				if (!AnyRevealPending()) ApplyDeferredHides();
+			}
+
+			void HandleShutdown(const json&)
+			{
+				log.Info(std::format(
+					"shutdown requested by the game (accelEvents={}, frames={})",
+					accelEvents, frameSerial));
+				quit.store(true);
+			}
+
+			void HandleCommand(const json& a_msg)
+			{
+				using Handler = void (App::*)(const json&);
+				static constexpr std::pair<std::string_view, Handler> handlers[]{
+					{ "init", &App::HandleInit },
+					{ "navigate", &App::HandleNavigate },
+					{ "resize", &App::HandleResize },
+					{ "prewarm", &App::HandlePrewarm },
+					{ "setHidden", &App::HandleSetHidden },
+					{ "setOrder", &App::HandleSetOrder },
+					{ "setRenderStats", &App::HandleSetRenderStats },
+					{ "renderStatsSample", &App::HandleRenderStatsSample },
+					{ "setActive", &App::HandleSetActive },
+					{ "focus", &App::HandleFocus },
+					{ "mouse", &App::HandleMouse },
+					{ "key", &App::HandleKey },
+					{ "frameAck", &App::HandleFrameAck },
+					{ "postWeb", &App::HandlePostWeb },
+					{ "openDevTools", &App::HandleOpenDevTools },
+					{ "accelState", &App::HandleAccelState },
+					{ "destroyView", &App::HandleDestroyView },
+					{ "shutdown", &App::HandleShutdown },
+				};
+				const auto type = a_msg.value("type", std::string{});
+				for (const auto& [name, handler] : handlers) {
+					if (type == name) {
+						(this->*handler)(a_msg);
 						return;
 					}
-					// The DevTools top-level window may take focus before the
-					// originating F12 key-up reaches this controller. Do not leave
-					// the framework accelerator latched for the rest of the session.
-					handledKeys.erase(VK_F12);
-					if (auto* view = ResolveView(a_msg); view && view->webView) {
-						const auto hr = view->webView->OpenDevToolsWindow();
-						if (FAILED(hr)) {
-							log.Warn(std::format(
-								"view '{}': OpenDevToolsWindow failed (0x{:08X})",
-								view->id, static_cast<unsigned>(hr)));
-						}
-					}
-				} else if (type == "accelState") {
-					const bool wasCaptured = captured;
-					toggleVk = a_msg.value("toggleVk", 0u);
-					captured = a_msg.value("captured", false);
-					captureArmed = a_msg.value("captureArmed", false);
-					captureUpVk = a_msg.value("captureUpVk", 0u);
-					// Outside native menu focus, character keys need the subclass
-					// only while the user is picking a key.
-					ReconcileInputWidgetSubclass();
-					if (wasCaptured && !captured) {
-						// Overlay session over: an accelerator down without its up
-						// (session closed mid-press) would leave a stale entry that
-						// misclassifies a later real press.
-						handledKeys.clear();
-					}
-				} else if (type == "destroyView") {
-					auto* view = ResolveView(a_msg);
-					if (!view) return;
-					log.Info(std::format("destroying view '{}'", view->id));
-					egressWarned.erase(view->id);
-					DestroyOneView(*view);
-					const bool wasActive = view == active;
-					std::erase_if(views, [view](const std::unique_ptr<View>& a_v) {
-						return a_v.get() == view;
-					});
-					if (wasActive) {
-						active = views.empty() ? nullptr : views.front().get();
-					}
-					// The destroyed view may have been the reveal the batch's hides
-					// were waiting on.
-					if (!AnyRevealPending()) ApplyDeferredHides();
-				} else if (type == "shutdown") {
-					log.Info(std::format(
-						"shutdown requested by the game (accelEvents={}, frames={})",
-						accelEvents, frameSerial));
-					quit.store(true);
-				} else {
-					log.Warn("unknown message type '" + type + "' ignored");
 				}
+				log.Warn("unknown message type '" + type + "' ignored");
 			}
 
 			void DrainCommands()

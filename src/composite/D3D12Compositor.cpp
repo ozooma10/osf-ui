@@ -119,7 +119,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		//
 		// All GPU work happens at the engine seam. ringMutex guards the opened
 		// ring between Submit (adoption) and the seam render workers (sampling).
-		std::atomic<bool> seamMode{ false };
+		std::atomic<bool> seamActive{ false };
 		std::mutex        ringMutex;
 		// One descriptor is enough: the whole create-and-bind sequence runs
 		// under ringMutex, and OMSetRenderTargets snapshots the CPU descriptor
@@ -171,7 +171,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		std::uint32_t gpuSlot{ 0 };
 		std::uint64_t gpuSerial{ 0 };
 		std::uint64_t gpuSourceTimeMs{ 0 };
-		bool          cpuFrameWarned{ false };  // Submit thread only
 
 		// Shared GPU objects, created once.
 		ID3D12Fence*          fence{ nullptr };
@@ -203,7 +202,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		// atomic. Normal play leaves the gate false and pays only one relaxed load
 		// at each candidate event.
 		std::atomic_bool           renderStatsEnabled{ false };
-		std::atomic<std::uint64_t> statsPresents{ 0 };
 		std::atomic<std::uint64_t> statsDraws{ 0 };
 		std::atomic<std::uint64_t> statsFreshFrames{ 0 };
 		std::atomic<std::uint64_t> statsReusedDraws{ 0 };
@@ -278,7 +276,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		{
 			renderStatsEnabled.store(false, std::memory_order_relaxed);
 			if (!a_enabled) return;
-			statsPresents.store(0, std::memory_order_relaxed);
 			statsDraws.store(0, std::memory_order_relaxed);
 			statsFreshFrames.store(0, std::memory_order_relaxed);
 			statsReusedDraws.store(0, std::memory_order_relaxed);
@@ -291,23 +288,18 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			renderStatsEnabled.store(true, std::memory_order_release);
 		}
 
-		// busyWaits/droppedBusy belonged to the retired present-time draw ring
-		// and stay at their zero defaults; the wire format keeps the fields so
-		// the host's diagnostics page needs no version dance.
 		[[nodiscard]] CompositorStats GetRenderStats() const
 		{
 			return {
-				.presents = statsPresents.load(std::memory_order_relaxed),
 				.draws = statsDraws.load(std::memory_order_relaxed),
 				.freshFrames = statsFreshFrames.load(std::memory_order_relaxed),
 				.reusedDraws = statsReusedDraws.load(std::memory_order_relaxed),
 				.submits = statsSubmits.load(std::memory_order_relaxed),
-				.skippedConcurrent = 0,
 				.sourceToDrawMsTotal = statsSourceToDrawMsTotal.load(std::memory_order_relaxed),
 				.sourceToDrawSamples = statsSourceToDrawSamples.load(std::memory_order_relaxed),
 				.recordCpuUsTotal = statsRecordCpuUsTotal.load(std::memory_order_relaxed),
 				.recordCpuSamples = statsRecordCpuSamples.load(std::memory_order_relaxed),
-				.seamMode = seamMode.load(std::memory_order_relaxed),
+				.seamActive = seamActive.load(std::memory_order_relaxed),
 				.frameGeneration = frameGenActiveSignal.load(std::memory_order_relaxed),
 			};
 		}
@@ -803,9 +795,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 					seamRegionSawFgTarget.exchange(false, std::memory_order_acq_rel);
 				frameGenActiveSignal.store(previousRegionHadFgTarget, std::memory_order_release);
 				classificationKnown = seamClassificationKnown.exchange(true, std::memory_order_acq_rel);
-				if (renderStatsEnabled.load(std::memory_order_relaxed)) {
-					statsPresents.fetch_add(1, std::memory_order_relaxed);
-				}
 			}
 			if (a_fgTarget) {
 				seamRegionSawFgTarget.store(true, std::memory_order_release);
@@ -982,7 +971,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			lastSubmittedIndex = a_frame.frameIndex;
 			std::scoped_lock lk(frameMutex);
 			sharedFrameReady = true;
-			gpuSlot = static_cast<std::uint32_t>(a_frame.sharedSlot);
+			gpuSlot = a_frame.sharedSlot;
 			gpuSerial = a_frame.frameIndex;
 			gpuSourceTimeMs = a_frame.sourceTimeMs;
 			if (renderStatsEnabled.load(std::memory_order_relaxed)) {
@@ -990,19 +979,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			}
 		}
 
-		// The seam samples the host's shared texture on the engine's own command
-		// list; there is no path that uploads CPU pixels any more. The shipping
-		// renderer (WebView2 host) always publishes shared-slot frames, so this
-		// only fires for a renderer that has no GPU transport.
-		void WarnCpuFrameUnsupported()
-		{
-			if (cpuFrameWarned) {
-				return;
-			}
-			cpuFrameWarned = true;
-			REX::WARN("D3D12Compositor: the renderer submitted a CPU-staged frame, which the seam "
-					  "cannot draw — this compositor requires the shared-texture GPU transport");
-		}
 	};
 
 	D3D12Compositor::D3D12Compositor() = default;
@@ -1016,25 +992,13 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		return true;
 	}
 
-	void D3D12Compositor::Shutdown()
-	{
-		if (_impl) {
-			REX::INFO("D3D12Compositor: shutdown after {} seam overlay draw(s)",
-				_impl->seamDraws.load(std::memory_order_relaxed));
-			_impl.reset();
-		}
-	}
 
 	void D3D12Compositor::Submit(const FrameBufferView& a_frame)
 	{
 		if (!_impl) {
 			return;
 		}
-		if (a_frame.sharedSlot >= 0) {
-			_impl->CacheSharedFrame(a_frame);
-		} else {
-			_impl->WarnCpuFrameUnsupported();
-		}
+		_impl->CacheSharedFrame(a_frame);
 		_impl->EnsureSetup();
 		if (_impl->setupOk) {
 			(void)_impl->EnsureSharedRing();
@@ -1044,7 +1008,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 	void D3D12Compositor::SetSeamDrawMode(const bool a_enabled)
 	{
 		if (_impl) {
-			_impl->seamMode.store(a_enabled, std::memory_order_relaxed);
+			_impl->seamActive.store(a_enabled, std::memory_order_relaxed);
 		}
 	}
 

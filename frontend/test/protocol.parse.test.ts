@@ -7,8 +7,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { parseMessage } from '@lib/protocol';
-
 // Read from disk rather than imported: osfui.js is a classic script, not a
 // module. Resolved against the vitest root (frontend/) because under jsdom
 // `import.meta.url` is an http: URL, not a file: one.
@@ -56,79 +54,6 @@ function deliver(helper: Helper, message: unknown): void {
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
-});
-
-describe('parseMessage — tolerance', () => {
-  it('returns null for malformed JSON instead of throwing', () => {
-    // One corrupt frame must not kill the view, so the helper swallows parse
-    // failures (`catch { return; }`).
-    expect(parseMessage('{')).toBeNull();
-    expect(parseMessage('')).toBeNull();
-    expect(parseMessage('undefined')).toBeNull();
-  });
-
-  it('returns null for JSON that is not an object', () => {
-    expect(parseMessage('null')).toBeNull();
-    expect(parseMessage('123')).toBeNull();
-    expect(parseMessage('"settings.data"')).toBeNull();
-    expect(parseMessage('true')).toBeNull();
-  });
-
-  it('returns null when `type` is missing or not a string', () => {
-    expect(parseMessage('{}')).toBeNull();
-    expect(parseMessage('{"type":5,"payload":{}}')).toBeNull();
-    expect(parseMessage('{"type":null,"payload":{}}')).toBeNull();
-    expect(parseMessage('{"type":["ui.result"],"payload":{}}')).toBeNull();
-  });
-
-  it('rejects arrays — not because they are arrays, but for want of a `type`', () => {
-    // There is no array check: `typeof [] === "object"`, so an array survives
-    // the object guard and is rejected by `typeof m.type !== "string"`. Assert
-    // the reason, so a later `Array.isArray` guard reads as a change in shape.
-    expect(parseMessage('[]')).toBeNull();
-    expect(parseMessage('["ui.result"]')).toBeNull();
-    expect(parseMessage('[{"type":"ui.result"}]')).toBeNull();
-  });
-
-  it('coerces a missing payload to {}', () => {
-    // Subscribers assume payload is always an object; the helper guarantees it
-    // with `message.payload || {}`.
-    expect(parseMessage('{"type":"runtime.pong"}')).toEqual({
-      type: 'runtime.pong',
-      payload: {},
-    });
-  });
-
-  it('coerces a null payload to {} as well', () => {
-    // `?? {}` catches null too, matching the helper's `|| {}`.
-    expect(parseMessage('{"type":"runtime.pong","payload":null}')?.payload).toEqual({});
-  });
-
-  it('passes a falsy-but-present payload through only when it is not nullish', () => {
-    // `?? {}` (unlike the helper's `||`) keeps 0 / "" / false. No real runtime
-    // sends these, but the two implementations differ, so pin the frontend one.
-    expect(parseMessage('{"type":"x","payload":0}')?.payload).toBe(0);
-    expect(parseMessage('{"type":"x","payload":false}')?.payload).toBe(false);
-    expect(parseMessage('{"type":"x","payload":""}')?.payload).toBe('');
-  });
-
-  it('carries requestId only when it is a string', () => {
-    const withId = parseMessage('{"type":"ui.result","requestId":"q3","payload":{"ok":true}}');
-    expect(withId?.requestId).toBe('q3');
-
-    // Same rule the helper applies before correlating: a non-string id is
-    // treated as absent.
-    for (const bad of ['5', 'null', 'true', '["q3"]']) {
-      const m = parseMessage(`{"type":"ui.result","requestId":${bad},"payload":{}}`);
-      expect(m).not.toBeNull();
-      expect('requestId' in m!).toBe(false);
-    }
-  });
-
-  it('drops unknown top-level keys — only type/payload/requestId survive', () => {
-    const m = parseMessage('{"type":"ui.result","payload":{"ok":true},"extra":1,"seq":9}');
-    expect(Object.keys(m!).sort()).toEqual(['payload', 'type']);
-  });
 });
 
 describe('shipped helper — dispatch semantics', () => {

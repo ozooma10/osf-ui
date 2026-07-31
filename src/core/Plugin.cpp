@@ -232,10 +232,8 @@ namespace OSFUI::Plugin
 						   "(overlay stays dormant, plugin remains loaded)");
 			}
 		}
-
-		// NOTE: SFSE has no shutdown/unload callback. Runtime::Shutdown() is
-		// implemented but unreachable today; OS teardown at process exit is
-		// what actually ends us, so all state must be safe against that.
+		// SFSE has no shutdown/unload callback. OS teardown at process exit ends
+		// the process-owned runtime and helper connection.
 		return true;
 	}
 }

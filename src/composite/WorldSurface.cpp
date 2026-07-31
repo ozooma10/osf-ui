@@ -397,7 +397,7 @@ namespace OSFUI::WorldSurface
 
 	void Submit(std::uint32_t a_surface, const FrameBufferView& a_frame)
 	{
-		if (a_frame.sharedSlot < 0 || a_frame.frameIndex == 0) {
+		if (a_frame.frameIndex == 0) {
 			return;
 		}
 		std::scoped_lock lock(g_mutex);
@@ -423,7 +423,7 @@ namespace OSFUI::WorldSurface
 			}
 			surface.pendingConsumeSerial = 0;
 		}
-		const auto slot = static_cast<std::uint32_t>(a_frame.sharedSlot);
+		const auto slot = a_frame.sharedSlot;
 		if (slot >= surface.slotCount || !surface.slots[slot] ||
 			a_frame.frameIndex <= surface.lastSerial) {
 			return;
@@ -488,20 +488,4 @@ namespace OSFUI::WorldSurface
 		}
 	}
 
-	void Shutdown()
-	{
-		std::scoped_lock lock(g_mutex);
-		const auto count = g_surfaceCount.load(std::memory_order_acquire);
-		for (std::uint32_t i = 0; i < count; ++i) {
-			auto& surface = g_surfaces[i];
-			if (surface.pendingDirty) {
-				CloseHandles(surface.pending);
-				surface.pendingDirty = false;
-			}
-			ReleaseRing(surface);
-			surface.capturedSrvs = {};
-			surface.capturedCount = 0;
-		}
-		SafeRelease(g_device);
-	}
 }

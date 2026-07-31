@@ -1,0 +1,5 @@
+#pragma once
+
+#define IDR_OSFUI_BRIDGE_SHIM 101
+#define IDR_OSFUI_RENDER_STATS 102
+#define IDR_OSFUI_NETWORK_GUARD 103

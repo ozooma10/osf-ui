@@ -390,7 +390,7 @@ interface SectionIndexProps extends SettingsPageProps {
   groups: Array<{ group: SettingsGroup; index: number }>;
 }
 
-function SectionIndex({ groups, mod, collapsed, onToggleGroup }: SectionIndexProps) {
+function SectionIndex({ groups, mod, onToggleGroup }: SectionIndexProps) {
   return (
     <div class="section-index">
       {groups.map(({ group: g, index }) =>

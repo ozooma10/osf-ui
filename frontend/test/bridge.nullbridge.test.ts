@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { nullBridge } from '@lib/bridge';
-import { isBridgeError } from '@lib/protocol';
+
 
 interface CaughtError extends Error {
   code?: unknown;
@@ -50,7 +50,6 @@ describe('nullBridge — call', () => {
     expect(err).toBeInstanceOf(Error);
     expect(err.code).toBe('no-bridge');
     expect(err.message).toBe('no bridge (standalone preview)');
-    expect(isBridgeError(err)).toBe(true);
   });
 
   it('omits `reply` — the error is synthesised, not a message', async () => {

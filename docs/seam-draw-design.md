@@ -105,10 +105,6 @@ Two consequences of dropping the backbuffer draw are worth noting:
   the transparent COPY_SOURCE handoff and selects that target without inspecting
   the swapchain or its presenting caller.
 
-`CompositorStats::busyWaits` and `droppedBusy` counted the retired draw ring and
-now stay zero. The fields remain on the wire so the host diagnostics page needs
-no version dance.
-
 The `uiPassProbe` characterization diagnostic has been removed now that the
 frame graph, FG target selection, and hand-off decode are baked into the seam.
 Only the seam's own load-bearing hooks remain: the `ScaleformBegin`/`End`/

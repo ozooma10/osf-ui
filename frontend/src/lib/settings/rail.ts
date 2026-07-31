@@ -13,7 +13,7 @@
 
 import type { SettingsSchema, SettingValue, ViewsDataPayload } from '@sdk';
 import { railMatches } from './search';
-import { HEALTH_ID } from './diagnostics';
+
 
 /** A `settings.data` mod record as the renderer actually treats it. */
 export interface ModRecord {

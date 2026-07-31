@@ -60,7 +60,6 @@ export interface SettingsRegistry {
   /** From the `runtime.ready` handshake; "" until it arrives. */
   hostVersion: string;
   baseline: Baseline;
-  baselineRef: { current: Baseline };
   /**
    * Apply values to the local model optimistically and record the pre-change
    * values against the session baseline. Batched over several keys because a
@@ -257,7 +256,6 @@ export function useSettingsRegistry(opts: SettingsRegistryOptions): SettingsRegi
     health,
     hostVersion,
     baseline,
-    baselineRef,
     applyLocal,
     clearBaseline: () => setBaseline({}),
   };

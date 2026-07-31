@@ -42,7 +42,6 @@ namespace OSFUI
 		~D3D12Compositor() override;
 
 		bool Initialize() override;
-		void Shutdown() override;
 		void Submit(const FrameBufferView& a_frame) override;
 		void SetVisible(bool a_visible) override;
 		void SetOutputResizeCallback(OutputResizeCallback a_callback) override;

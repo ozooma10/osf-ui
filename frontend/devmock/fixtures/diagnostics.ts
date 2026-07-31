@@ -62,7 +62,7 @@ export const MOCK_HEALTH: Record<string, MockHealth> = {
   },
 
   errors: {
-    system: { ...SYSTEM, drawPath: 'present', frameGeneration: true },
+    system: { ...SYSTEM, drawPath: 'unavailable', frameGeneration: true },
     issues: [
       {
         id: 'settings.schema-parse:rogue.mod',
@@ -194,11 +194,11 @@ export const MOCK_HEALTH: Record<string, MockHealth> = {
    * has ever looked at.
    *
    * Severities and context keys match what native actually emits; see
-   * Runtime.cpp (settings/compat/render/views) and
+   * RuntimeDiagnostics.cpp (settings/compat/render/views) and
    * WebView2HostWebRenderer.cpp (host.*).
    */
   catalog: {
-    system: { ...SYSTEM, frameGeneration: true, drawPath: 'present', debugMode: true },
+    system: { ...SYSTEM, frameGeneration: true, drawPath: 'unavailable', debugMode: true },
     issues: [
       {
         id: 'settings.schema-name:Bad Name.json',

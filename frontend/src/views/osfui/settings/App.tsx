@@ -127,7 +127,6 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     health,
     hostVersion,
     baseline,
-    baselineRef,
     applyLocal,
   } = registry;
 
