@@ -45,7 +45,7 @@ Function SetString(string asModId, string asKey, string asValue) Global Native
 Function Reset(string asModId, string asKey = "") Global Native
 
 ; --- change events ------------------------------------------------------------
-; Calls akReceiver.asFn(string modId, string key) after any value of asModId commits (any writer: the settings menu, native code, Papyrus). 
+; Calls akReceiver.asFn(string asModId, string asKey) after any value of asModId commits (any writer: the settings menu, native code, Papyrus).
 ; asModId "" subscribes to every mod. Returns a token (0 = failed).
 ;
 ; Function OnSettingChanged(string asModId, string asKey)   ; on akReceiver

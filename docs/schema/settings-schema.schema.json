@@ -165,7 +165,7 @@
           "minLength": 1,
           "maxLength": 128,
           "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
-          "description": "GLOBAL function called as Function name(string modId, string key) Global."
+          "description": "GLOBAL function called as Function name(string asModId, string asKey) Global."
         }
       }
     },

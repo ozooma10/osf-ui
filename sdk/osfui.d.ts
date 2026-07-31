@@ -625,7 +625,7 @@ export interface InputContext {
 export interface PapyrusHotkeyTarget {
   /** Script name without `.pex`; namespace separators (`:`) are allowed. */
   script: string;
-  /** GLOBAL `Function name(string modId, string key)` callback. */
+  /** GLOBAL `Function name(string asModId, string asKey)` callback. */
   function: string;
 }
 

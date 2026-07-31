@@ -35,6 +35,18 @@ const files = [
   join(REPO, 'data', 'OSFUI', 'settings', 'osfui.json'),
   // Copy-me starter for third-party authors; exercises every v1 widget.
   join(REPO, 'examples', 'settings-only', 'yourname.mymod.json'),
+  // Installable Papyrus-only example for schema-owned hotkey dispatch.
+  join(
+    REPO,
+    'examples',
+    'declarative-hotkey-papyrus',
+    'mod',
+    'SFSE',
+    'Plugins',
+    'OSFUI',
+    'settings',
+    'osfui.hotkey-sample.json',
+  ),
   // Papyrus native-API test fixture: not shipped, but the runtime loads it
   // during testing, and a non-conforming fixture fails two layers away.
   join(REPO, 'tests', 'papyrus', 'osfui.paptest.json'),
