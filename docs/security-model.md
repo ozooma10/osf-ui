@@ -17,7 +17,11 @@ removed from every document.
 The controls that prevent a hostile view from executing native code are the
 native bridge rules below. Chromium lives in a separate
 `osfui_webview2_host.exe` process; that boundary reduces renderer failure impact
-but is not a substitute for validating bridge messages.
+but is not a substitute for validating bridge messages. The game creates the first
+owner-only named-pipe instance before launching the helper, then checks
+`GetNamedPipeClientProcessId` against the hello PID. The helper independently checks
+`GetNamedPipeServerProcessId` against `--game-pid`. A same-user process therefore cannot
+win a pipe-name race and impersonate either trusted peer.
 
 One structural mitigation applies to the built-in views only: their only tracked
 implementation is `frontend/src/`. CI builds that source and runs the output

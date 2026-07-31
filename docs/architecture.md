@@ -101,7 +101,11 @@ Nothing in the native runtime is frontend-aware: it discovers whatever manifests
 `WebView2HostWebRenderer` launches `osfui_webview2_host.exe` outside the
 game's process tree, communicates over a framed named pipe, and receives
 browser frames through shared D3D12 textures. Keeping Chromium out of process
-avoids MO2/USVFS injection into `msedgewebview2.exe`.
+avoids MO2/USVFS injection into `msedgewebview2.exe`. The game creates the
+owner-only server pipe before launch, and both ends compare the kernel-reported
+peer PID with the expected process before accepting the session. Starfield-side
+writes run only on a bounded transport worker; the reader applies a total hello
+deadline and a heartbeat deadline so an alive but stalled helper is recoverable.
 
 ## How the D3D12 compositor works
 
@@ -112,4 +116,6 @@ Remaining open areas: alternate UI-target formats and broader in-game validation
 ## Lifetime
 
 - `SFSE_PLUGIN_LOAD` → `Runtime::Get().Initialize()`: paths → config → views → renderer → compositor → bridge → input config.
-- SFSE has no shutdown callback; the process-owned runtime and helper connection end during process teardown.
+- SFSE has no shutdown callback, so engine-facing singletons intentionally have process lifetime and do not run destructors from DLL detach.
+- Normal in-session recovery and explicit renderer stops use a synchronized lifecycle: stop new sends, give the background writer 250 ms to deliver shutdown, cancel all overlapped pipe I/O, join transport workers, then wait a bounded interval for the verified helper and terminate it only if necessary.
+- During process exit the helper independently watches the Starfield process handle; correctness never depends on destructor ordering after Windows begins process teardown.
