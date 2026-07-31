@@ -1,10 +1,11 @@
 # OSF UI — Simplification Execution Plan (fused)
 
 > **Status update (2026-07-31):** The safe current-tree follow-up is complete: obsolete
-> renderer/Present contracts and duplicate protocol helpers were deleted, both built-in views now
-> share one key-capture hook, RuntimeDiagnostics owns health reconciliation, and the WebView2
-> host uses build-embedded JavaScript resources plus table-driven command dispatch. Later
-> in-game-gated experiments in this historical plan remain intentionally unexecuted.
+> renderer/Present/input/config contracts and duplicate protocol helpers were deleted; both
+> built-in views share key capture; runtime diagnostics has direct reconciliation tests; the DLL
+> and host share one authenticated reporting core; and build checks now catch embedded-script and
+> scaffolder-template drift. Later in-game-gated experiments in this historical plan remain
+> intentionally unexecuted.
 
 > **What this is:** the reconciled, sequenced execution plan that fuses **three** independent
 > audits into one, with every new/conflicting claim verified against this repo at HEAD.

@@ -3,7 +3,8 @@
 Compiles the **real** runtime and API sources under test — `SettingsStore`,
 `Json`, `SettingsModule`, `MessageBridge`, `SettingsMirror`,
 `SettingsSubscriptions`, `HotkeyService`, `InputRouter`, `HotkeySubscriptions`,
-`BridgeApi`, `VanillaKeys`, `LocalizationService`, `ViewManifest` — on the developer's desktop
+`BridgeApi`, `VanillaKeys`, `LocalizationService`, `ViewManifest`, `DiagnosticsModule`,
+`DiagnosticsReconciler`, and `ReporterCore` — on the developer's desktop
 toolchain (macOS/Linux clang or any C++23 compiler) and runs them without
 Windows, xmake, SFSE, or the game.
 
@@ -49,9 +50,8 @@ Only sources with no game/SFSE/browser-SDK includes can live here. Currently:
 | `view_manifest_tests.cpp` | `ViewManifest`: canonical manifest accents and the `readySignal` native-bridge requirement/fallback |
 
 Every suite is assert-style and exits with its own failure count; `run.sh` sums
-them. Adding a suite means adding a `compile` call **and** the binary name to
-the runner loop at the bottom of `run.sh` — a suite left out of that list
-compiles in CI and is never executed.
+them. Adding a suite means adding one row to `SUITES` in `run.sh`; that single list drives
+compilation, linking, and execution so a suite cannot be built but silently skipped.
 
 These suites verify runtime and API logic, not the plugin: renderer/compositor
 backends, ABI wiring into SFSE, threading (the main-thread pump), and in-game

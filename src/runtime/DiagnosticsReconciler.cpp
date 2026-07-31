@@ -34,25 +34,25 @@ namespace OSFUI
 		std::span<const CompatibilityTarget> a_targets,
 		std::string_view a_installedVersion, double a_now)
 	{
-		std::vector targets(a_targets.begin(), a_targets.end());
-		std::ranges::sort(targets, {}, [](const CompatibilityTarget& a_item) {
+		std::vector signatureTargets(a_targets.begin(), a_targets.end());
+		std::ranges::sort(signatureTargets, {}, [](const CompatibilityTarget& a_item) {
 			return std::tie(a_item.kind, a_item.id, a_item.targetVersion);
 		});
-		targets.erase(std::unique(targets.begin(), targets.end(),
+		signatureTargets.erase(std::unique(signatureTargets.begin(), signatureTargets.end(),
 			[](const auto& a_lhs, const auto& a_rhs) {
 				return std::tie(a_lhs.kind, a_lhs.id, a_lhs.targetVersion) ==
 					std::tie(a_rhs.kind, a_rhs.id, a_rhs.targetVersion);
-			}), targets.end());
+			}), signatureTargets.end());
 
 		std::string signature;
-		for (const auto& item : targets) {
+		for (const auto& item : signatureTargets) {
 			signature += item.kind + ':' + item.id + '@' + item.targetVersion + ';';
 		}
 		if (signature == _compatSignature) return;
 		_compatSignature = std::move(signature);
 
 		std::unordered_set<std::string> live;
-		for (const auto& item : targets) {
+		for (const auto& item : a_targets) {
 			auto id = "compat.needs-newer-osfui:" + item.kind + ':' + item.id;
 			live.insert(id);
 			a_diagnostics.Upsert(DiagnosticsModule::IssueSpec{

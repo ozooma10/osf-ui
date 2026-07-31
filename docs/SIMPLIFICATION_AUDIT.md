@@ -1,9 +1,11 @@
 # OSF UI — Simplification Audit
 
 > **Status update (2026-07-31):** This remains the historical evidence catalog, not a
-> description of the current tree. The follow-up cleanup removed the CPU mock renderer,
-> single-view compatibility, retired Present telemetry, and duplicate frontend protocol helpers;
-> it also unified key capture and extracted runtime diagnostics and host scripts.
+> description of the current tree. The safe follow-ups are complete: they removed the CPU mock
+> renderer, single-view compatibility, retired Present telemetry, and dead renderer/input/config
+> contracts; unified key capture, reporting, and host scripts; made runtime diagnostics directly
+> testable; and added incremental embedded-script and scaffolder-template drift guards. Native
+> focus/IME, post-crash reporting, and the overlay still require an in-game smoke test.
 
 > **Purpose:** identify *accidental* complexity that can be removed to make the codebase
 > more intuitive, while explicitly protecting *load-bearing* complexity (hard-won crash
