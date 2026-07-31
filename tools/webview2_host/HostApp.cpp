@@ -3,6 +3,7 @@
 #include "EmbeddedScripts.h"
 
 #include "core/Version.h"
+#include "reporting/ReporterCore.h"
 #include "Wv2BrokerLaunch.h"  // LaunchMethodName (logging only)
 #include "Wv2LocalUri.h"
 #include "Wv2Pipe.h"
@@ -17,8 +18,6 @@
 #include <fstream>
 #include <memory>
 #include <optional>
-#include <random>
-#include <regex>
 #include <vector>
 
 #include <DispatcherQueue.h>
@@ -26,7 +25,6 @@
 #include <WebView2EnvironmentOptions.h>
 #include <shellapi.h>
 #include <shlobj.h>
-#include <winhttp.h>
 #include <wrl.h>
 #include <wrl/client.h>
 #include <d3d10_1.h>
@@ -74,16 +72,7 @@ namespace osfui::wv2
 			return out;
 		}
 
-		// dump() that substitutes U+FFFD for malformed UTF-8 instead of throwing
-		// type_error.316. Nothing between here and wWinMain catches, so a strict
-		// throw is a std::terminate of the host — which on the crash-report path
-		// would kill the very code whose job is to report a failure gracefully.
-		// Use this for every dump of text we did not ourselves construct.
-		[[nodiscard]] std::string DumpSafe(const json& a_value)
-		{
-			return a_value.dump(-1, ' ', /*ensure_ascii=*/false,
-				json::error_handler_t::replace);
-		}
+		using OSFUI::Reporting::DumpSafe;
 
 		struct Logger
 		{
@@ -153,133 +142,6 @@ namespace osfui::wv2
 			void Error(const std::string& a_text) { Log(2, a_text); }
 		};
 
-		void ReplaceAllInsensitive(std::string& a_text, std::string_view a_needle,
-			std::string_view a_replacement)
-		{
-			if (a_needle.empty()) return;
-			std::string lowerText = a_text;
-			std::string lowerNeedle(a_needle);
-			std::ranges::transform(lowerText, lowerText.begin(),
-				[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-			std::ranges::transform(lowerNeedle, lowerNeedle.begin(),
-				[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-			std::size_t at = 0;
-			while ((at = lowerText.find(lowerNeedle, at)) != std::string::npos) {
-				a_text.replace(at, a_needle.size(), a_replacement);
-				lowerText.replace(at, a_needle.size(), a_replacement);
-				at += a_replacement.size();
-			}
-		}
-
-		void ReplacePath(std::string& a_text, std::string a_path,
-			std::string_view a_replacement)
-		{
-			if (a_path.empty()) return;
-			ReplaceAllInsensitive(a_text, a_path, a_replacement);
-			std::ranges::replace(a_path, '\\', '/');
-			ReplaceAllInsensitive(a_text, a_path, a_replacement);
-		}
-
-		std::string ReadReportLog(const std::filesystem::path& a_path, bool& a_truncated,
-			std::string_view a_pluginRoot, std::string_view a_documentsRoot,
-			std::string_view a_mirrorRoot, std::size_t a_maxBytes)
-		{
-			std::ifstream file(a_path, std::ios::binary | std::ios::ate);
-			if (!file) return {};
-			const auto end = file.tellg();
-			if (end <= 0) return {};
-			const auto size = static_cast<std::size_t>(end);
-			const auto keep = (std::min)(size, a_maxBytes);
-			a_truncated = keep < size;
-			file.seekg(static_cast<std::streamoff>(size - keep));
-			std::string text(keep, '\0');
-			file.read(text.data(), static_cast<std::streamsize>(keep));
-			text.resize(static_cast<std::size_t>(file.gcount()));
-			// A tail sliced at an arbitrary byte offset can open mid-codepoint.
-			// Drop the orphaned continuation bytes: this text is dumped into the
-			// crash-report payload, and nothing between here and wWinMain catches,
-			// so a strict-mode throw would kill the host on the consent path — the
-			// one path whose whole job is to report a failure gracefully.
-			if (a_truncated) {
-				std::size_t lead = 0;
-				while (lead < text.size() && (static_cast<unsigned char>(text[lead]) & 0xC0) == 0x80) {
-					++lead;
-				}
-				text.erase(0, lead);
-			}
-			ReplacePath(text, std::string(a_pluginRoot), "<PluginDir>");
-			ReplacePath(text, std::string(a_documentsRoot), "<Documents>");
-			ReplacePath(text, std::string(a_mirrorRoot), "<HostMirror>");
-			static const std::regex profile(
-				R"(([A-Za-z]:[\\/](?:Users|Documents and Settings)[\\/])[^\\/\r\n"']+)",
-				std::regex::icase);
-			return std::regex_replace(text, profile, "$1<user>");
-		}
-
-		bool PostCrashReport(std::wstring_view a_endpoint, std::string_view a_body,
-			DWORD& a_status, std::string& a_response)
-		{
-			const auto hasWhitespace = std::ranges::any_of(a_endpoint,
-				[](wchar_t c) { return std::iswspace(c) != 0; });
-			if (a_endpoint.empty() || a_endpoint.size() > 2048 || hasWhitespace ||
-				!a_endpoint.starts_with(L"https://") || a_body.size() > 1024 * 1024) return false;
-			std::wstring endpoint(a_endpoint);
-			URL_COMPONENTS parts{};
-			parts.dwStructSize = sizeof(parts);
-			parts.dwSchemeLength = static_cast<DWORD>(-1);
-			parts.dwHostNameLength = static_cast<DWORD>(-1);
-			parts.dwUrlPathLength = static_cast<DWORD>(-1);
-			parts.dwExtraInfoLength = static_cast<DWORD>(-1);
-			if (!::WinHttpCrackUrl(endpoint.c_str(), 0, 0, &parts) ||
-				parts.nScheme != INTERNET_SCHEME_HTTPS || parts.dwHostNameLength == 0) return false;
-			const std::wstring host(parts.lpszHostName, parts.dwHostNameLength);
-			std::wstring path(parts.lpszUrlPath, parts.dwUrlPathLength);
-			if (parts.dwExtraInfoLength) path.append(parts.lpszExtraInfo, parts.dwExtraInfoLength);
-			if (path.empty()) path = L"/";
-			const HINTERNET session = ::WinHttpOpen(L"OSFUI/crash-reporter",
-				WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
-				WINHTTP_NO_PROXY_BYPASS, 0);
-			if (!session) return false;
-			::WinHttpSetTimeouts(session, 10000, 10000, 15000, 30000);
-			const HINTERNET connection = ::WinHttpConnect(session, host.c_str(), parts.nPort, 0);
-			const HINTERNET request = connection ? ::WinHttpOpenRequest(connection, L"POST",
-				path.c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
-				WINHTTP_FLAG_SECURE) : nullptr;
-			bool ok = false;
-			if (request) {
-				DWORD disable = WINHTTP_DISABLE_REDIRECTS;
-				::WinHttpSetOption(request, WINHTTP_OPTION_DISABLE_FEATURE, &disable, sizeof(disable));
-				constexpr wchar_t headers[] = L"Content-Type: application/json\r\nAccept: application/json\r\n";
-				const auto size = static_cast<DWORD>(a_body.size());
-				ok = ::WinHttpSendRequest(request, headers, static_cast<DWORD>(-1),
-					const_cast<char*>(a_body.data()), size, size, 0) &&
-					::WinHttpReceiveResponse(request, nullptr);
-				if (ok) {
-					DWORD statusSize = sizeof(a_status);
-					::WinHttpQueryHeaders(request,
-						WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
-						WINHTTP_HEADER_NAME_BY_INDEX, &a_status, &statusSize,
-						WINHTTP_NO_HEADER_INDEX);
-					for (;;) {
-						DWORD available = 0;
-						if (!::WinHttpQueryDataAvailable(request, &available) || available == 0) break;
-						if (a_response.size() + available > 64 * 1024) { ok = false; break; }
-						const auto old = a_response.size();
-						a_response.resize(old + available);
-						DWORD read = 0;
-						if (!::WinHttpReadData(request, a_response.data() + old, available, &read)) {
-							a_response.resize(old); ok = false; break;
-						}
-						a_response.resize(old + read);
-					}
-				}
-			}
-			if (request) ::WinHttpCloseHandle(request);
-			if (connection) ::WinHttpCloseHandle(connection);
-			::WinHttpCloseHandle(session);
-			return ok;
-		}
-
 		std::filesystem::path DocumentsFolder()
 		{
 			PWSTR raw = nullptr;
@@ -289,59 +151,6 @@ namespace osfui::wv2
 			}
 			if (raw) ::CoTaskMemFree(raw);
 			return folder;
-		}
-
-		std::filesystem::path ReporterFolder()
-		{
-			const auto documents = DocumentsFolder();
-			return documents.empty() ? std::filesystem::path{} :
-				documents / "My Games" / "Starfield" / "OSFUI";
-		}
-
-		std::string ReporterClientId()
-		{
-			const auto folder = ReporterFolder();
-			const auto path = folder / "reporter-id.txt";
-			std::string id;
-			std::ifstream existing(path);
-			if (existing >> id && id.size() >= 16 && id.size() <= 80 &&
-				std::ranges::all_of(id, [](unsigned char c) {
-					return std::isalnum(c) || c == '_' || c == '-';
-				})) return id;
-			std::random_device random;
-			static constexpr char hex[] = "0123456789abcdef";
-			id = "client_";
-			for (int i = 0; i < 32; ++i) id += hex[random() & 0xF];
-			if (!folder.empty()) {
-				std::error_code ec;
-				std::filesystem::create_directories(folder, ec);
-				std::ofstream out(path, std::ios::trunc);
-				if (out) out << id;
-			}
-			return id;
-		}
-
-		std::wstring InstallationEndpoint(std::wstring_view a_reportEndpoint)
-		{
-			std::wstring endpoint(a_reportEndpoint);
-			constexpr std::wstring_view suffix = L"/v1/reports";
-			if (!endpoint.ends_with(suffix)) return {};
-			endpoint.resize(endpoint.size() - suffix.size());
-			return endpoint + L"/v1/installations";
-		}
-
-		std::string RequestInstallationToken(std::wstring_view a_reportEndpoint,
-			std::string_view a_clientId)
-		{
-			const auto endpoint = InstallationEndpoint(a_reportEndpoint);
-			if (endpoint.empty()) return {};
-			DWORD status = 0;
-			std::string response;
-			if (!PostCrashReport(endpoint, json{ { "clientId", a_clientId } }.dump(), status, response) ||
-				status < 200 || status >= 300) return {};
-			const auto parsed = json::parse(response, nullptr, false);
-			if (parsed.is_discarded() || !parsed.is_object()) return {};
-			return parsed.value("installationToken", "");
 		}
 
 		bool IsCrashLogCandidate(const std::filesystem::path& a_path)
@@ -574,12 +383,18 @@ namespace osfui::wv2
 			const auto pluginRoot = ToUtf8(a_options.reportPluginRoot.wstring());
 			const auto documentsRoot = ToUtf8(DocumentsFolder().wstring());
 			json logs = json::array();
-			const auto addLog = [&logs, &pluginRoot, &documentsRoot, &mirrorRoot](
-				const std::filesystem::path& path, std::string_view name, std::size_t maxBytes) {
+			const std::array redactions{
+				OSFUI::Reporting::Redaction{ pluginRoot, "<PluginDir>" },
+				OSFUI::Reporting::Redaction{ documentsRoot, "<Documents>" },
+				OSFUI::Reporting::Redaction{ mirrorRoot, "<HostMirror>" },
+			};
+			const auto addLog = [&logs, &redactions](const std::filesystem::path& path,
+				std::string_view name, std::size_t maxBytes) {
 				bool truncated = false;
-				auto content = ReadReportLog(path, truncated, pluginRoot, documentsRoot,
-					mirrorRoot, maxBytes);
-				if (!content.empty()) logs.push_back({
+				auto content = OSFUI::Reporting::ReadTail(path, maxBytes, truncated);
+				if (content.empty()) return;
+				content = OSFUI::Reporting::Redact(std::move(content), redactions);
+				logs.push_back({
 					{ "name", name }, { "content", std::move(content) }, { "truncated", truncated } });
 			};
 			addLog(a_options.logFile.parent_path() / "OSF UI.log", "OSF UI.log", 160 * 1024);
@@ -590,9 +405,31 @@ namespace osfui::wv2
 			if (crashLog) {
 				addLog(*crashLog, "Starfield crash log (Trainwreck or Crash Logger)", 256 * 1024);
 			}
-			const auto clientId = ReporterClientId();
-			const auto installationToken = RequestInstallationToken(a_options.reportEndpoint, clientId);
-			if (installationToken.empty()) {
+			const auto endpoint = ToUtf8(a_options.reportEndpoint);
+			const auto payload = [&](std::string_view clientId, std::string_view token) {
+				return json{
+					{ "schemaVersion", 1 }, { "clientId", clientId },
+					{ "installationToken", token }, { "kind", "crash" },
+					{ "target", target.id },
+					{ "title", "Starfield closed unexpectedly" },
+					{ "description", crashLog ?
+						"Starfield exited with a non-zero process status and produced a supported crash report." :
+						"Starfield exited with a non-zero process status while OSF UI was active." },
+					{ "reproduction", "Not provided; submitted from the post-crash consent prompt." },
+					{ "pluginVersion", OSFUI::kPluginVersion },
+					{ "diagnostics", { { "system", { { "gameExitCode", a_gameExitCode },
+						{ "crashLogDetected", crashLog.has_value() },
+						{ "crashLogFile", crashLog ? ToUtf8(crashLog->filename().wstring()) : "" },
+						{ "activeView", std::string(a_activeViewId) },
+						{ "targetPluginLogAttached", pluginLog.has_value() } } },
+						{ "issues", json::array() } } },
+					{ "logs", logs },
+				};
+			};
+			const auto submission = OSFUI::Reporting::SubmitAuthenticated(endpoint,
+				OSFUI::Reporting::ReporterFolder(DocumentsFolder()), payload,
+				OSFUI::Reporting::PostJson);
+			if (submission.errorCode == "registration-failed") {
 				a_log.Error("crash report installation registration failed");
 				GuardedMessageBox(
 					L"The reporting service could not register this installation. Your logs remain "
@@ -600,30 +437,10 @@ namespace osfui::wv2
 					MB_OK | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND, a_log);
 				return;
 			}
-			const json payload{
-				{ "schemaVersion", 1 }, { "clientId", clientId },
-				{ "installationToken", installationToken }, { "kind", "crash" },
-				{ "target", target.id },
-				{ "title", "Starfield closed unexpectedly" },
-				{ "description", crashLog ?
-					"Starfield exited with a non-zero process status and produced a supported crash report." :
-					"Starfield exited with a non-zero process status while OSF UI was active." },
-				{ "reproduction", "Not provided; submitted from the post-crash consent prompt." },
-				{ "pluginVersion", OSFUI::kPluginVersion },
-				{ "diagnostics", { { "system", { { "gameExitCode", a_gameExitCode },
-					{ "crashLogDetected", crashLog.has_value() },
-					{ "crashLogFile", crashLog ? ToUtf8(crashLog->filename().wstring()) : "" },
-					{ "activeView", std::string(a_activeViewId) },
-					{ "targetPluginLogAttached", pluginLog.has_value() } } },
-					{ "issues", json::array() } } },
-				{ "logs", std::move(logs) },
-			};
-			DWORD status = 0;
-			std::string response;
-			const bool sent = PostCrashReport(a_options.reportEndpoint, DumpSafe(payload), status, response);
-			const auto reply = json::parse(response, nullptr, false);
-			const bool accepted = sent && status >= 200 && status < 300 &&
-				!reply.is_discarded() && reply.value("ok", false);
+			const auto& reply = submission.body;
+			const bool accepted = submission.errorCode.empty() &&
+				submission.response.status >= 200 && submission.response.status < 300 &&
+				reply.value("ok", false);
 			if (accepted) {
 				const auto reportId = reply.value("reportId", "");
 				a_log.Info(std::format("crash report accepted (reference {})", reportId));
@@ -632,7 +449,9 @@ namespace osfui::wv2
 				GuardedMessageBox(message, L"OSF UI - Report submitted",
 					MB_OK | MB_ICONINFORMATION | MB_TOPMOST | MB_SETFOREGROUND, a_log);
 			} else {
-				a_log.Error(std::format("crash report submission failed (HTTP {})", status));
+				a_log.Error(std::format("crash report submission failed (HTTP {}, {})",
+					submission.response.status,
+					submission.errorCode.empty() ? "service-failed" : submission.errorCode));
 				GuardedMessageBox(
 					L"The report could not be submitted. Your logs remain in the Starfield "
 					L"SFSE Logs folder and were not retained by OSF UI.",

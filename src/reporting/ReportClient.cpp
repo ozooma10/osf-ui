@@ -1,14 +1,11 @@
 #include "reporting/ReportClient.h"
 
-#include <cctype>
-#include <fstream>
-#include <random>
-#include <regex>
-
 #include "core/Paths.h"
-#include "core/StringUtil.h"
 #include "core/Version.h"
 #include "platform/WindowsPlatform.h"
+#include "reporting/ReporterCore.h"
+
+#include <array>
 
 namespace OSFUI::Reporting
 {
@@ -16,171 +13,24 @@ namespace OSFUI::Reporting
 	{
 		constexpr std::size_t kMaxLogBytes = 384 * 1024;
 
-		// Cap free-typed text on a codepoint boundary. Kept local rather than
-		// reaching for runtime/Json.h: reporting deliberately depends only on
-		// core/ + platform/.
-		[[nodiscard]] std::string Bounded(std::string_view a_text, std::size_t a_maxBytes)
+		[[nodiscard]] std::string RedactLog(std::string a_text)
 		{
-			return std::string{ a_text.substr(0, StringUtil::Utf8TruncateLen(a_text, a_maxBytes)) };
-		}
-
-		// dump() that substitutes U+FFFD rather than throwing type_error.316 on a
-		// malformed sequence. Submit() runs on a detached jthread whose body has
-		// no handler, so a strict throw here is a std::terminate of the game.
-		[[nodiscard]] std::string DumpSafe(const nlohmann::json& a_value)
-		{
-			return a_value.dump(-1, ' ', /*ensure_ascii=*/false,
-				nlohmann::json::error_handler_t::replace);
-		}
-
-		std::filesystem::path ReporterFolder()
-		{
-			const auto documents = Platform::GetDocumentsPath();
-			return documents.empty() ? std::filesystem::path{} :
-				documents / "My Games" / "Starfield" / "OSFUI";
-		}
-
-		std::string ReadTail(const std::filesystem::path& a_path, bool& a_truncated)
-		{
-			std::ifstream file(a_path, std::ios::binary | std::ios::ate);
-			if (!file) return {};
-			const auto end = file.tellg();
-			if (end <= 0) return {};
-			const auto size = static_cast<std::size_t>(end);
-			const auto keep = (std::min)(size, kMaxLogBytes);
-			a_truncated = keep < size;
-			file.seekg(static_cast<std::streamoff>(size - keep));
-			std::string text(keep, '\0');
-			file.read(text.data(), static_cast<std::streamsize>(keep));
-			text.resize(static_cast<std::size_t>(file.gcount()));
-			// A tail sliced at an arbitrary byte offset can open mid-codepoint —
-			// the log carries non-ASCII (em dashes in our own format strings, mod
-			// and player text). Drop the orphaned continuation bytes so the JSON
-			// dump of this payload stays well-formed.
-			if (a_truncated) {
-				const auto trimmed = StringUtil::SkipLeadingUtf8Continuations(text);
-				if (trimmed.size() != text.size()) {
-					text.erase(0, text.size() - trimmed.size());
-				}
-			}
-			return text;
-		}
-
-		void ReplaceAllInsensitive(std::string& a_text, std::string_view a_needle,
-			std::string_view a_replacement)
-		{
-			if (a_needle.empty()) return;
-			std::string lowerText = a_text;
-			std::string lowerNeedle(a_needle);
-			std::ranges::transform(lowerText, lowerText.begin(),
-				[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-			std::ranges::transform(lowerNeedle, lowerNeedle.begin(),
-				[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-			std::size_t at = 0;
-			while ((at = lowerText.find(lowerNeedle, at)) != std::string::npos) {
-				a_text.replace(at, a_needle.size(), a_replacement);
-				lowerText.replace(at, a_needle.size(), a_replacement);
-				at += a_replacement.size();
-			}
-		}
-
-		void ReplacePath(std::string& a_text, const std::filesystem::path& a_path,
-			std::string_view a_replacement)
-		{
-			if (a_path.empty()) return;
-			auto native = a_path.string();
-			ReplaceAllInsensitive(a_text, native, a_replacement);
-			std::ranges::replace(native, '\\', '/');
-			ReplaceAllInsensitive(a_text, native, a_replacement);
-		}
-
-		std::string Redact(std::string text)
-		{
-			ReplacePath(text, Platform::GetDocumentsPath(), "<Documents>");
-			ReplacePath(text, Paths::PluginDir(), "<PluginDir>");
-			// Backstop for profile references outside the Documents tree.
-			static const std::regex profile(
-				R"(([A-Za-z]:[\\/](?:Users|Documents and Settings)[\\/])[^\\/\r\n"']+)",
-				std::regex::icase);
-			return std::regex_replace(text, profile, "$1<user>");
-		}
-
-		std::string ClientId()
-		{
-			const auto folder = ReporterFolder();
-			const auto path = folder / "reporter-id.txt";
-			std::ifstream existing(path);
-			std::string id;
-			if (existing >> id && id.size() >= 16 && id.size() <= 80 &&
-				std::ranges::all_of(id, [](unsigned char c) {
-					return std::isalnum(c) || c == '_' || c == '-';
-				})) {
-				return id;
-			}
-			std::random_device random;
-			static constexpr char hex[] = "0123456789abcdef";
-			id = "client_";
-			for (int i = 0; i < 32; ++i) id += hex[random() & 0xF];
-			if (!folder.empty()) {
-				std::error_code ec;
-				std::filesystem::create_directories(folder, ec);
-				std::ofstream out(path, std::ios::trunc);
-				if (out) out << id;
-			}
-			return id;
-		}
-
-		std::string InstallationEndpoint(std::string_view a_reportEndpoint)
-		{
-			std::string endpoint(a_reportEndpoint);
-			constexpr std::string_view suffix = "/v1/reports";
-			if (!endpoint.ends_with(suffix)) return {};
-			endpoint.resize(endpoint.size() - suffix.size());
-			return endpoint + "/v1/installations";
-		}
-
-		std::string InstallationToken(std::string_view a_endpoint,
-			std::string_view a_clientId, bool a_forceRenew)
-		{
-			const auto folder = ReporterFolder();
-			const auto path = folder / "reporter-ticket.txt";
-			std::string token;
-			if (!a_forceRenew) {
-				std::ifstream existing(path);
-				if (existing >> token && token.size() >= 40 && token.size() <= 512 &&
-					std::ranges::all_of(token, [](unsigned char c) {
-						return std::isalnum(c) || c == '_' || c == '-' || c == '.';
-					})) {
-					return token;
-				}
-			}
-			const auto registration = InstallationEndpoint(a_endpoint);
-			if (registration.empty()) return {};
-			const auto response = Platform::PostJson(registration,
-				DumpSafe(nlohmann::json{ { "clientId", a_clientId } }));
-			if (!response.transportOk || response.status < 200 || response.status >= 300) return {};
-			const auto parsed = nlohmann::json::parse(response.body, nullptr, false);
-			if (parsed.is_discarded() || !parsed.is_object()) return {};
-			token = parsed.value("installationToken", "");
-			if (token.size() < 40 || token.size() > 512) return {};
-			if (!folder.empty()) {
-				std::error_code ec;
-				std::filesystem::create_directories(folder, ec);
-				std::ofstream out(path, std::ios::trunc);
-				if (out) out << token;
-			}
-			return token;
+			const std::array redactions{
+				Redaction{ Platform::GetDocumentsPath().string(), "<Documents>" },
+				Redaction{ Paths::PluginDir().string(), "<PluginDir>" },
+			};
+			return Redact(std::move(a_text), redactions);
 		}
 
 		void AddLog(nlohmann::json& a_logs, const std::filesystem::path& a_path,
 			std::string_view a_name)
 		{
 			bool truncated = false;
-			auto content = ReadTail(a_path, truncated);
+			auto content = ReadTail(a_path, kMaxLogBytes, truncated);
 			if (content.empty()) return;
 			a_logs.push_back({
 				{ "name", a_name },
-				{ "content", Redact(std::move(content)) },
+				{ "content", RedactLog(std::move(content)) },
 				{ "truncated", truncated },
 			});
 		}
@@ -196,18 +46,11 @@ namespace OSFUI::Reporting
 			AddLog(logs, logDir / "OSF UI.log", "OSF UI.log");
 			AddLog(logs, logDir / "OSF UI.webview2-host.log", "OSF UI.webview2-host.log");
 		}
-		const auto clientId = ClientId();
-		auto installationToken = InstallationToken(a_endpoint, clientId, false);
-		if (installationToken.empty()) {
-			return { .code = "registration-failed", .message = "could not register this installation" };
-		}
-		const auto makePayload = [&] {
+		const auto payload = [&](std::string_view a_clientId, std::string_view a_token) {
 			return nlohmann::json{
-				{ "schemaVersion", 1 }, { "clientId", clientId },
-				{ "installationToken", installationToken }, { "kind", "manual" },
+				{ "schemaVersion", 1 }, { "clientId", a_clientId },
+				{ "installationToken", a_token }, { "kind", "manual" },
 				{ "target", "osf-ui" },
-				// Codepoint-boundary caps: this is free-typed player text, so a
-				// byte cut can split a sequence and make the dump below throw.
 				{ "title", Bounded(a_title, 120) },
 				{ "description", Bounded(a_description, 6000) },
 				{ "reproduction", Bounded(a_reproduction, 4000) },
@@ -215,35 +58,23 @@ namespace OSFUI::Reporting
 				{ "logs", logs },
 			};
 		};
-		auto response = Platform::PostJson(a_endpoint, DumpSafe(makePayload()));
-		if (!response.transportOk) {
-			return { .code = "network-failed", .message = response.error };
+		const auto submission = SubmitAuthenticated(a_endpoint,
+			ReporterFolder(Platform::GetDocumentsPath()), payload, PostJson);
+		if (!submission.errorCode.empty()) {
+			return { .code = submission.errorCode, .message = submission.errorMessage };
 		}
-		auto parsed = nlohmann::json::parse(response.body, nullptr, false);
-		if (response.status == 401 && parsed.is_object() &&
-			parsed.value("code", "") == "invalid-installation") {
-			installationToken = InstallationToken(a_endpoint, clientId, true);
-			if (installationToken.empty()) {
-				return { .code = "registration-failed", .message = "could not renew this installation" };
-			}
-			response = Platform::PostJson(a_endpoint, DumpSafe(makePayload()));
-			if (!response.transportOk) return { .code = "network-failed", .message = response.error };
-			parsed = nlohmann::json::parse(response.body, nullptr, false);
-		}
-		if (parsed.is_discarded() || !parsed.is_object()) {
-			return { .code = "invalid-response", .message = "report service returned an invalid response" };
-		}
-		if (response.status < 200 || response.status >= 300 || !parsed.value("ok", false)) {
+		if (submission.response.status < 200 || submission.response.status >= 300 ||
+			!submission.body.value("ok", false)) {
 			return {
-				.code = parsed.value("code", "service-failed"),
+				.code = submission.body.value("code", "service-failed"),
 				.message = "report service refused the submission",
 			};
 		}
 		return {
 			.ok = true,
-			.reportId = parsed.value("reportId", ""),
-			.issueUrl = parsed.value("issueUrl", ""),
-			.issueNumber = parsed.value("issueNumber", 0ull),
+			.reportId = submission.body.value("reportId", ""),
+			.issueUrl = submission.body.value("issueUrl", ""),
+			.issueNumber = submission.body.value("issueNumber", 0ull),
 		};
 	}
 }

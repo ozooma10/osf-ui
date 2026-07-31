@@ -70,7 +70,9 @@ if has_config("with_webview2") then
         set_encodings("utf-8")
         set_runtimes("MT")
         add_rules("mode.debug", "mode.releasedbg", "utils.bin2c")
-        add_files("tools/webview2_host/**.cpp", "tools/webview2_shared/**.cpp")
+        add_files(
+            "tools/webview2_host/**.cpp", "tools/webview2_shared/**.cpp",
+            "src/reporting/ReporterCore.cpp", "src/reporting/ReporterHttp.cpp")
         add_files("tools/webview2_host/scripts/**.js", { rule = "utils.bin2c" })
         add_headerfiles("tools/webview2_host/**.h", "tools/webview2_shared/**.h")
         add_includedirs("src", "tools/webview2_shared")

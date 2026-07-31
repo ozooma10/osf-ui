@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Post-crash reports now reuse the same cached installation ticket as in-game reports and renew it once when the service rejects a stale ticket, avoiding needless registrations and restoring submission after ticket rotation.
 - `captureInput: false` now works as documented: visible menus can remain display-only without taking keyboard, mouse, controller, or pause-menu focus from the game.
 - Repeatedly closing and reopening a menu can no longer let a transparent frame from the previous closed state satisfy the next reveal. OSF UI waits for a frame from that exact opening and closes the menu after three seconds of live game time if one never arrives, preventing an invisible overlay from trapping input and pause state. Time spent alt-tabbed or in a load hitch does not count against that deadline, and a reopen that changes nothing on screen re-sends the current pixels so a static page still reveals instantly.
 - Losing or stranding the WebView2 host now closes the overlay and releases input and pause, then starts a fresh helper with bounded retries and rebuilds every loaded view without restarting Starfield. Recovery leaves the overlay closed for the player to reopen; after the automatic budget is spent, the next menu-open request starts a fresh retry cycle. The helper also exits when the game window has disappeared even if its process or pipe watcher misses the exit — re-attaching first if the game merely recreated its window — and unattended post-crash prompts safely default after 60 seconds instead of accumulating helper processes.
