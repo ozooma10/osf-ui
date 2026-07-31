@@ -41,20 +41,6 @@ import {
   type MockView,
 } from './fixtures';
 
-/** The locale picker's list. */
-export const LOCALES: string[] = [
-  'en',
-  'pseudo',
-  'de',
-  'fr',
-  'es',
-  'it',
-  'ja',
-  'pl',
-  'pt-BR',
-  'ru',
-  'zh-Hans',
-];
 
 /** One registered mod, as `settings.data` carries it. */
 export interface MockMod {

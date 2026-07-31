@@ -73,25 +73,11 @@ namespace OSFUI
 		auto& runtime = _runtime;
 		if (!runtime._settings || !runtime._diagnostics) return;
 
-		std::unordered_set<std::string> live;
+		std::vector<SettingsLoadIssue> errors;
 		for (const auto& error : runtime._settings->Store().LoadErrors()) {
-			const auto subject = error.mod.empty() ? error.file : error.mod;
-			auto id = "settings." + error.kind + ":" + subject;
-			live.insert(id);
-			runtime._diagnostics->Upsert(DiagnosticsModule::IssueSpec{
-				.id = std::move(id),
-				.code = "settings." + error.kind,
-				.severity = error.kind == "values-parse" ?
-					DiagnosticsModule::Severity::Warning : DiagnosticsModule::Severity::Error,
-				.source = "settings",
-				.subject = subject,
-				.context = nlohmann::json{
-					{ "file", error.file },
-					{ "message", error.message },
-				},
-			}, runtime._uptime);
+			errors.push_back({ error.kind, error.file, error.mod, error.message });
 		}
-		runtime._diagnostics->ResolveMissing("settings", live, runtime._uptime);
+		_reconciler.SyncSettings(*runtime._diagnostics, errors, runtime._uptime);
 	}
 
 	void RuntimeDiagnostics::SyncCompatibility()
@@ -99,16 +85,10 @@ namespace OSFUI
 		auto& runtime = _runtime;
 		if (!runtime._diagnostics) return;
 
-		struct Wanting
-		{
-			std::string id;
-			std::string kind;
-			std::string target;
-		};
-		std::vector<Wanting> wanting;
+		std::vector<CompatibilityTarget> targets;
 		for (const auto& manifest : runtime._views.All()) {
 			if (IsTargetNewerThanHost(manifest.targetVersion)) {
-				wanting.push_back({ manifest.id, "view", manifest.targetVersion });
+				targets.push_back({ manifest.id, "view", manifest.targetVersion });
 			}
 		}
 		if (runtime._settings) {
@@ -116,36 +96,12 @@ namespace OSFUI
 					"mods", nlohmann::json::array())) {
 				const auto target = mod.value("targetVersion", std::string{});
 				if (IsTargetNewerThanHost(target)) {
-					wanting.push_back({ mod.value("id", std::string{}), "mod", target });
+					targets.push_back({ mod.value("id", std::string{}), "mod", target });
 				}
 			}
 		}
-
-		std::string signature;
-		for (const auto& item : wanting) {
-			signature += item.kind + ':' + item.id + '@' + item.target + ';';
-		}
-		if (signature == _compatSignature) return;
-		_compatSignature = std::move(signature);
-
-		std::unordered_set<std::string> live;
-		for (const auto& item : wanting) {
-			auto id = "compat.needs-newer-osfui:" + item.kind + ':' + item.id;
-			live.insert(id);
-			runtime._diagnostics->Upsert(DiagnosticsModule::IssueSpec{
-				.id = std::move(id),
-				.code = "compat.needs-newer-osfui",
-				.severity = DiagnosticsModule::Severity::Warning,
-				.source = "compat",
-				.subject = item.id,
-				.context = nlohmann::json{
-					{ "kind", item.kind },
-					{ "targetVersion", item.target },
-					{ "installedVersion", kPluginVersion },
-				},
-			}, runtime._uptime);
-		}
-		runtime._diagnostics->ResolveMissing("compat", live, runtime._uptime);
+		_reconciler.SyncCompatibility(
+			*runtime._diagnostics, targets, kPluginVersion, runtime._uptime);
 	}
 
 	void RuntimeDiagnostics::UpdateSystemInfo()
@@ -224,38 +180,7 @@ namespace OSFUI
 	{
 		auto& runtime = _runtime;
 		if (!runtime._diagnostics) return;
-		const std::string id(a_viewId);
-		const auto retrying = "view.load-retrying:" + id;
-		const auto failed = "view.load-failed:" + id;
-		if (!a_failed) {
-			runtime._diagnostics->Resolve(retrying, runtime._uptime);
-			runtime._diagnostics->Resolve(failed, runtime._uptime);
-			return;
-		}
-		nlohmann::json context{
-			{ "errorCode", a_errorCode },
-			{ "description", std::string(a_description) },
-			{ "attemptsLeft", a_attemptsLeft },
-		};
-		if (a_attemptsLeft > 0) {
-			runtime._diagnostics->Upsert(DiagnosticsModule::IssueSpec{
-				.id = retrying,
-				.code = "view.load-retrying",
-				.severity = DiagnosticsModule::Severity::Warning,
-				.source = "views",
-				.subject = id,
-				.context = std::move(context),
-			}, runtime._uptime);
-			return;
-		}
-		runtime._diagnostics->Resolve(retrying, runtime._uptime);
-		runtime._diagnostics->Upsert(DiagnosticsModule::IssueSpec{
-			.id = failed,
-			.code = "view.load-failed",
-			.severity = DiagnosticsModule::Severity::Error,
-			.source = "views",
-			.subject = id,
-			.context = std::move(context),
-		}, runtime._uptime);
+		_reconciler.ReportViewLoad(*runtime._diagnostics, a_viewId, a_failed,
+			a_description, a_errorCode, a_attemptsLeft, runtime._uptime);
 	}
 }

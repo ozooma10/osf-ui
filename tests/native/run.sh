@@ -40,6 +40,7 @@ SUITES=(
 "settings_mirror_tests settings_mirror_tests.cpp ../../src/api/SettingsMirror.cpp ../../src/runtime/SettingsStore.cpp ../../src/runtime/Json.cpp"
 "settings_subscriptions_tests settings_subscriptions_tests.cpp ../../src/api/SettingsSubscriptions.cpp ../../src/api/SettingsMirror.cpp ../../src/runtime/SettingsStore.cpp ../../src/runtime/Json.cpp"
 "diagnostics_tests diagnostics_tests.cpp ../../src/runtime/DiagnosticsModule.cpp ../../src/runtime/MessageBridge.cpp ../../src/runtime/Json.cpp"
+"runtime_diagnostics_tests runtime_diagnostics_tests.cpp ../../src/runtime/DiagnosticsReconciler.cpp ../../src/runtime/DiagnosticsModule.cpp ../../src/runtime/MessageBridge.cpp ../../src/runtime/Json.cpp"
 "reporting_core_tests reporting_core_tests.cpp ../../src/reporting/ReporterCore.cpp"
 "hotkey_service_tests hotkey_service_tests.cpp ../../src/runtime/HotkeyService.cpp ../../src/runtime/SettingsStore.cpp ../../src/runtime/Json.cpp ../../src/input/InputRouter.cpp"
 "hotkey_subscriptions_tests hotkey_subscriptions_tests.cpp ../../src/api/HotkeySubscriptions.cpp"

@@ -486,9 +486,7 @@ namespace osfui::wv2
 					L"appear without it.\n\n"
 					L"Open the download in your browser now? Run the downloaded "
 					L"\"MicrosoftEdgeWebview2Setup.exe\", then restart the game.",
-					// ASCII only: MSVC parses this file as ANSI, so non-ASCII
-					// in wide literals turns to mojibake (narrow literals pass
-					// through as raw UTF-8 and are fine).
+
 					L"OSF UI - WebView2 Runtime missing",
 					MB_YESNO | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND);
 				if (choice == IDYES) {

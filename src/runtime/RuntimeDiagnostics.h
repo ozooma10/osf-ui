@@ -1,6 +1,7 @@
 #pragma once
 
 #include "render/IWebRenderer.h"
+#include "runtime/DiagnosticsReconciler.h"
 
 namespace OSFUI
 {
@@ -30,7 +31,7 @@ namespace OSFUI
 		Runtime&      _runtime;
 		std::uint64_t _settingsGeneration{ 0 };
 		bool          _settingsSynced{ false };
-		std::string   _compatSignature;
+		DiagnosticsReconciler _reconciler;
 		double        _nextPoll{ 0.0 };
 	};
 }

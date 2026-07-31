@@ -22,6 +22,7 @@
 
 import { useEffect, useState } from 'preact/hooks';
 import type { Translator } from '@lib/i18n';
+import { NEXUS_PAGE_URL } from '@lib/links';
 import {
   activeIssues,
   canRetryView,
@@ -38,8 +39,6 @@ import {
   type Severity,
 } from '@lib/settings/diagnostics';
 
-/** Where "Troubleshooting" and "Update OSF UI" send the player. */
-const NEXUS_PAGE_URL = 'https://www.nexusmods.com/starfield/mods/17711';
 
 export interface HealthProps {
   health: HealthModel;

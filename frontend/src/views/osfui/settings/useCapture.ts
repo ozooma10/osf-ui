@@ -7,7 +7,6 @@ import {
   useKeyCapture,
   type KeyCaptureApi,
   type KeyCaptureConflict,
-  type KeyCapturePayload,
 } from '@ui/useKeyCapture';
 
 export interface CaptureTarget {
@@ -15,7 +14,6 @@ export interface CaptureTarget {
   key: string;
 }
 
-export type CapturePayload = KeyCapturePayload;
 
 export interface CaptureApi extends Omit<KeyCaptureApi<CaptureTarget>, 'begin'> {
   begin: (modId: string, key: string) => void;

@@ -20,7 +20,9 @@
   },
   "scripts": {
     "prepack": "node scripts/sync-sdk.mjs",
-    "test": "node --test test/*.test.mjs"
+    "sync:sdk": "node scripts/sync-sdk.mjs",
+    "check:sdk": "node scripts/sync-sdk.mjs --check",
+    "test": "npm run check:sdk && node --test test/*.test.mjs"
   },
   "engines": {
     "node": ">=20.19"

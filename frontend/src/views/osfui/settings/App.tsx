@@ -22,6 +22,7 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { windowBridge, type Bridge } from '@lib/bridge';
 import { makeTranslator } from '@lib/i18n';
+import { NEXUS_PAGE_URL } from '@lib/links';
 import { codeOf } from '@lib/protocol';
 import { BrandEmblem } from '@ui/BrandEmblem';
 import { useLatest, useStateRef } from '@ui/useStateRef';
@@ -73,8 +74,6 @@ import type { ReportResult, ReportStatus, ReportSubmission } from './Health';
 const FILTER_DEBOUNCE_MS = 120;
 /** How long a search-jump target stays highlighted. */
 const FLASH_MS = 1200;
-/** Where the "needs update" tag sends the user to fetch a newer OSF UI. */
-const NEXUS_PAGE_URL = 'https://www.nexusmods.com/starfield/mods/17711';
 
 export interface AppProps {
   /**
