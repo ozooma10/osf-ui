@@ -126,6 +126,8 @@ int main()
 {
 	using OSFUI::MessageBridge;
 	auto& api = OSFUI::API::BridgeApi::Get();
+	api.SetViewCatalog({ "someview" });
+	api.SetSurfaceLoaded("someview", true);
 
 	// --- version constants: 1.7 (diagnostics and request/response) ------------
 	CHECK(OSFUI::API::kBridgeAPIMajor == 1);
@@ -422,14 +424,20 @@ int main()
 	api.OnBridgeReady(&lazyBridge);
 	api.PumpMainThread();
 	CHECK(api.IsBridgeReady());
-	CHECK(toWeb.size() == 1 && toWeb[0].first == "acme.mymod/dash");
+	CHECK(toWeb.empty());  // a warm bridge alone does not make this target live
+	api.SetSurfaceLoaded("acme.mymod/dash", true);
+	lazyBridge.SendRuntimeReady("acme.mymod/dash");
+	api.PumpMainThread();
+	CHECK(toWeb.size() == 2);
+	CHECK(toWeb.size() == 2 && toWeb[0].second.find("\"type\":\"runtime.ready\"") != std::string::npos);
+	CHECK(toWeb.size() == 2 && toWeb[1].first == "acme.mymod/dash");
+	CHECK(toWeb.size() == 2 && toWeb[1].second.find("\"lazy\":true") != std::string::npos);
 	lazyBridge.HandleWebMessage("acme.mymod/dash",
 		R"({ "type": "ui.command", "payload": { "command": "acme.mymod.catalog.get" } })");
 	CHECK(g_firedA.size() == 3);  // handler is wired on the first lazy bridge
 	api.OnBridgeReady(nullptr);
 	api.PumpMainThread();
 
-	api.SetSurfaceLoaded("acme.mymod/dash", true);
 	CHECK(api.RequestMenu("acme.mymod/dash", false));
 	{
 		const auto requests = api.TakeMenuRequests();
@@ -439,6 +447,35 @@ int main()
 			CHECK(!requests[0].open);
 		}
 	}
+
+	// Holdback stays bounded even while another bridge is live: the 65th send
+	// drops the oldest, so a state-like stream converges on the newest 64.
+	api.SetSurfaceLoaded("acme.mymod/dash", false);
+	api.OnBridgeReady(&lazyBridge);
+	api.PumpMainThread();
+	toWeb.clear();
+	for (int i = 0; i < 65; ++i) {
+		CHECK(api.SendToWeb("acme.mymod/dash", "acme.mymod.state",
+			std::format(R"({{"seq":{}}})", i).c_str()));
+	}
+	api.PumpMainThread();
+	CHECK(toWeb.empty());
+	CHECK(LoggedContaining("WARN", "SendToWeb holdback"));
+	api.SetSurfaceLoaded("acme.mymod/dash", true);
+	api.PumpMainThread();
+	CHECK(toWeb.size() == 64);
+	if (toWeb.size() == 64) {
+		const auto first = nlohmann::json::parse(toWeb.front().second, nullptr, false);
+		const auto last = nlohmann::json::parse(toWeb.back().second, nullptr, false);
+		CHECK(first["payload"]["seq"] == 1);
+		CHECK(last["payload"]["seq"] == 64);
+	}
+	toWeb.clear();
+	CHECK(api.SendToWeb("acme.mymod/missing", "acme.mymod.state", R"({"x":1})"));
+	api.PumpMainThread();
+	CHECK(toWeb.empty());
+	api.OnBridgeReady(nullptr);
+	api.PumpMainThread();
 
 	// --- the Client wrapper (item 4): version-gated calls ---------------------
 	{

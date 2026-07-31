@@ -201,7 +201,10 @@ OSFUI.SetViewFloats(ModId, "inventory.weights", weights)
   tick. Actions and requests queue onto the Papyrus VM. Never block waiting for
   either side to run.
 - State is broadcast only to loaded views whose id begins with `<modId>/`.
-  Hidden views remain live and receive updates. Unknown keys are harmless.
+  A hidden suspended view resumes to receive an update and becomes eligible to
+  suspend again after activity stops. If a non-warm view was idle-reclaimed,
+  its retained state is replayed automatically when the page is recreated.
+  Unknown keys are harmless.
 - Invalid mod ids and empty keys are dropped and logged. Pending pushes and
   requests are capped so a runaway script cannot grow memory without bound.
 - If OSF UI is absent, natives fail soft. `OSFUI.GetVersion() == 0` is the
@@ -220,6 +223,8 @@ OSFUI.PushFormsToView(ModId, key, forms)
 
 These produce `data.push { mod, key, values, forms? }`, are not cached by the
 runtime, and therefore still require a view-fired `ready` action followed by a
-fresh push. `osfui.data.on(key, fn)` can consume them and normalizes `values` or
-`forms` to the handler's first argument, which makes gradual migration easy.
-For new code, prefer `SetView*`.
+fresh push. They resume a loaded suspended page, but a push made while every
+matching view is lazy or idle-reclaimed has no live target and is dropped (with
+a `devMode` log). `osfui.data.on(key, fn)` can consume them and normalizes
+`values` or `forms` to the handler's first argument, which makes gradual
+migration easy. For new code, prefer `SetView*`.

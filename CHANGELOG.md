@@ -19,6 +19,7 @@
 
 ### Other changes
 
+- Browser pages are now created on first use except for the warm set (the handoff and Mods surfaces by default) or views marked to open at startup. Hidden pages suspend after about 90 seconds of game time, and non-warm pages hidden for 25 minutes are reclaimed and recreated on their next open, so browser resource use follows views actually used during the session.
 - Removed the unsupported CPU mock-renderer override. The null renderer and compositor remain available for fault isolation.
 
 ### Security
@@ -28,9 +29,14 @@
 
 ### For plugin authors
 
+- `RegisterView` now validates ordinary plugin-shipped views without eagerly creating their browser page; `openOnStart` remains immediate. `SendToWeb` keeps a bounded FIFO holdback for known lazy or reclaimed targets, so sending initial state immediately before opening a view retains the existing first-paint ordering guarantee. The per-view 64-message drop-oldest bound now applies to every target — including live views, which were previously unbounded between ticks — matching the renderer's own per-view queue bound; a state-like stream still converges on the newest pushed values.
 - A user-rebindable `type: "key"` setting can now declare an immutable `onPress` GLOBAL Papyrus target. OSF UI queues it only after the normal gameplay hotkey gates, so a mod can start its quest or other script logic on demand without an always-running bootstrap quest or a load-order-dependent FormID in JSON; ordinary web, native, and registered Papyrus hotkey notifications still fire.
-- The private game-to-WebView2-host protocol is now version 4, adding verified peers and heartbeat liveness on top of presentation epochs. The plugin and helper binaries must be updated together.
+- The private game-to-WebView2-host protocol is now version 5, adding best-effort suspension for idle hidden views along with verified peers, heartbeat liveness, and presentation epochs. The plugin and helper binaries must be updated together.
 - UnsubscribeSettings, UnsubscribeHotkey, and ready-callback replacement now wait for an already-running callback even when called off the main thread; once they return, the old user pointer is no longer in use. Self-unsubscribe remains supported.
+
+### For view authors
+
+- Hidden pages may stop JavaScript timers after about 90 seconds and non-warm pages may receive a fresh document after long idle periods. Use `ui.visibility` as the visit boundary and retained `SetView*` data for state that must survive recreation; transient pushes to an unloaded page still need to be sent again after it signals readiness.
 
 ## 1.5.0 — 2026-07-29
 

@@ -115,10 +115,10 @@ namespace OSFUI::API
 		// broadcast that follows carries them.
 		std::vector<DiagnosticOp> TakeDiagnosticOps();
 
-		// Drain the queued RegisterView ids. Runtime loads + surface-registers each
-		// in DrainViewRegistrations, before the menu request snapshot, so
-		// RegisterView -> SendToWeb -> RequestMenu issued back-to-back land in one
-		// tick (ABI 1.5).
+		// Drain queued RegisterView ids. Runtime validates each before the menu
+		// request snapshot; openOnStart views load there, while ordinary views stay
+		// lazy. RegisterView -> SendToWeb -> RequestMenu issued back-to-back still
+		// lands in one tick (ABI 1.5).
 		std::vector<std::string> TakeViewRegistrations();
 
 		// The any-thread settings value mirror the ABI typed getters read
@@ -208,6 +208,7 @@ namespace OSFUI::API
 		std::vector<MenuRequest>                      _pendingMenuReqs;    // RequestMenu ops, drained by Runtime
 		std::unordered_set<std::string>               _knownViews;         // boot-discovered manifest ids
 		std::unordered_set<std::string>               _loadedViews;        // currently registered renderer surfaces
+		bool                                          _viewCatalogReady{ false };
 		std::vector<SchemaOp>                         _pendingSchemaOps;   // schema (un)registrations, drained by Runtime
 		std::vector<std::string>                      _pendingViewRegs;    // RegisterView ids, drained by Runtime
 		std::vector<DiagnosticOp>                     _pendingDiagnostics; // health reports, drained by Runtime

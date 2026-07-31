@@ -58,6 +58,7 @@ namespace OSFUI
 		void SetConsoleHandler(std::string_view a_viewId, ConsoleHandler a_handler) override;
 		void SetViewHidden(std::string_view a_viewId, bool a_hidden) override;
 		void PrewarmView(std::string_view a_viewId) override;
+		void SuspendView(std::string_view a_viewId) override;
 		void SetViewOrder(std::string_view a_viewId, int a_order) override;
 		void SetRenderStats(std::string_view a_viewId, bool a_enabled) override;
 		void SetRenderStatsSample(const RenderStatsSample& a_sample) override;

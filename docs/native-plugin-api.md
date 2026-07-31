@@ -312,12 +312,14 @@ flags conflicts but never blocks them.
 
 ABI 1.5 (`Feature::kRegisterView`).
 
-Loads and registers a `views/<modId>/<viewName>/` folder your mod ships, without
-the user's `config.json` listing it. The view then shows up in the Mods surface
-and responds to `RequestMenu` and the web `menu.open`.
+Validates a discovered `views/<modId>/<viewName>/` folder your mod ships,
+without the user's `config.json` listing it. The view appears in the Mods
+surface and responds to `RequestMenu` and the web `menu.open`; its WebView2
+page is created only when first opened unless its manifest has
+`openOnStart:true`.
 
 ```cpp
-g_ui.RegisterView("acme.mymod/dashboard");                            // load + register
+g_ui.RegisterView("acme.mymod/dashboard");                            // validate registration; page stays lazy
 g_ui.SendToWeb("acme.mymod/dashboard", "acme.mymod.state", "{...}");  // optional pre-state
 g_ui.RequestMenu("acme.mymod/dashboard", true);                       // open
 ```
@@ -325,14 +327,14 @@ g_ui.RequestMenu("acme.mymod/dashboard", true);                       // open
 Issue all three back-to-back from any thread — they apply in order on the same
 tick, and (§6a) the page sees the state message before its first paint.
 
-- Idempotent — an already-registered view isn't reloaded.
+- Idempotent — an already-live view isn't reloaded.
 - A missing folder just warns (ship the folder with your mod).
-- `openOnStart` from the manifest is honored.
+- `openOnStart` from the manifest creates and opens the view immediately.
 - Returns false only on a null/invalid id.
 
-`RegisterView` is for a **plugin-shipped** folder you want loaded before its
-first open. A plain drop-in view is found at boot and loads on first open with
-no plugin at all.
+`RegisterView` is an optional declaration for a **plugin-shipped** folder. A
+plain drop-in view is found at boot and loads on first open with no plugin at
+all.
 
 ### 5d. Session health
 
@@ -423,10 +425,11 @@ g_ui.SendToWeb("acme.mymod/dashboard", "acme.mymod.state",
 `ReportIssue`, and `ClearIssuesExcept`, removing every manual `dump()` lifetime
 from the public API's JSON-bearing calls.
 
-**Delivery guarantee (ABI 1.3).** A message to a loaded view is queued, never
-dropped, while the view can't yet receive it (bridge not live, page loading,
-`onMessage` not installed, or view hidden). The queue flushes FIFO before the
-view's first visible paint after `RequestMenu(view, true)`. So:
+**Delivery guarantee (ABI 1.3).** A message to a known view is held or queued
+until that target can receive it. Lazy or idle-reclaimed targets retain it on
+the game side; a loading page retains it in the renderer; a suspended page is
+resumed for delivery. The queue flushes FIFO before the view's first visible
+paint after `RequestMenu(view, true)`. So:
 
 ```cpp
 g_ui.SendToWeb(v, "acme.mymod.state", "{...}");

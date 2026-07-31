@@ -37,7 +37,7 @@ namespace OSFUI
 			"configVersion", "enabled", "renderer", "compositor",
 			"inputSource", "captureInput", "hardwareCursor", "focusMenu",
 			"engineInput", "pauseMenuEntryLabel", "pauseMenuEntryView",
-			"view", "views", "devMode",
+			"view", "views", "warmViews", "devMode",
 #if defined(OSFUI_WITH_WORLD_SURFACES)
 			"worldSurfaces",
 #endif
@@ -246,6 +246,11 @@ namespace OSFUI
 		config.pauseMenuEntryView = Json::GetString(*json, "pauseMenuEntryView", config.pauseMenuEntryView);
 		config.view = Json::GetString(*json, "view", config.view);
 		config.views = Json::GetStringArray(*json, "views");
+		// Missing preserves the compiled warm core; an explicit [] deliberately
+		// opts out of every configurable warm view (handoff remains unconditional).
+		if (json->contains("warmViews")) {
+			config.warmViews = Json::GetStringArray(*json, "warmViews");
+		}
 #if defined(OSFUI_WITH_WORLD_SURFACES)
 		ParseWorldSurfaces(*json, config);
 #endif

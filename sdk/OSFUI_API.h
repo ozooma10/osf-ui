@@ -145,7 +145,8 @@ namespace OSFUI::API
 
 		// --- native -> web. Thread-safe; queued to the target view. ---
 		// Delivers { "type": a_type, "payload": <a_payloadJson> } to a_viewId.
-		// a_payloadJson must be valid JSON.
+		// a_payloadJson must be valid JSON. A known lazy or idle-reclaimed target
+		// retains a bounded FIFO until its page is created.
 		//
 		// Returns false only on null args or an unparseable payload.
 		virtual bool SendToWeb(const char* a_viewId, const char* a_type, const char* a_payloadJson) = 0;
@@ -212,16 +213,17 @@ namespace OSFUI::API
 
 		// --- register a view your mod ships. Thread-safe; applied next main tick.
 		// a_viewId is the qualified "<modId>/<viewName>" id of a views/<modId>/<viewName>/ folder your mod installs.
-		// Loads it and registers it as an openable surface WITHOUT the user's config.json listing it.
+		// Validates it as an openable surface WITHOUT the user's config.json listing it.
+		// Ordinary views remain lazy until first open; manifest openOnStart loads immediately.
 		//
 		// Ship the folder, call once after fetching the bridge, then RequestMenu:
 		//     bridge->RegisterView("acme.mymod/dashboard");
 		//     bridge->SendToWeb("acme.mymod/dashboard", "acme.mymod.state", "{...}");  // optional
 		//     bridge->RequestMenu("acme.mymod/dashboard", true);
 		//
-		//   * Idempotent: an already-registered surface is left untouched (not reloaded).
+		//   * Idempotent: an already-live surface is left untouched (not reloaded).
 		//   * A missing view folder warns and does nothing.
-		//   * A view torn down by crash-recovery exhaustion can be revived by sssssssssssssscalling again (fresh retry budget).
+		//   * A view torn down by crash-recovery exhaustion gets a fresh retry budget on its next open.
 		//   * Manifest `openOnStart` is honored on registration.
 		//
 		// Returns false only on a null/empty/invalid id; true = queued.

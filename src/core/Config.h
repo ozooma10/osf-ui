@@ -58,7 +58,7 @@ namespace OSFUI
 		// strings below stay dev knobs.
 		bool        pauseMenuEntry{ true };  // MCM-owned live state; not parsed from config.json
 		std::string pauseMenuEntryLabel{ "MOD MENUS" };
-		std::string pauseMenuEntryView{ "osfui/settings" };  // must be a registered surface id (config.views), qualified "<mod>/<view>"
+		std::string pauseMenuEntryView{ "osfui/settings" };  // must be a discovered surface id, qualified "<mod>/<view>"
 		// Include the game's own key bindings in the key-conflict data: curated
 		// defaults from vanillakeys.json, overlaid by the controlmap text files
 		// the engine honors. Informational only — warn, never block. MCM-owned;
@@ -66,7 +66,7 @@ namespace OSFUI
 		bool        vanillaKeyConflicts{ true };
 		// MCM-owned dev toggle (default off): when on, views marked debugOnly in
 		// their manifest (e.g. the built-in Web Performance Lab) are listed in the
-		// mod menu; off keeps them loaded but hidden. Must equal the schema default.
+		// mod menu; off withholds them from that catalog. Must equal the schema default.
 		bool        debugMode{ false };
 		// MCM-owned kill switch for the consented diagnostic reporter (manual
 		// System Health reports and the host's post-crash prompt — the latter
@@ -75,12 +75,15 @@ namespace OSFUI
 		// deliberately not configurable.
 		bool        bugReporting{ true };
 		std::string view{ "osfui/settings" };  // qualified "<mod>/<view>" id
-		// Optional multi-view set. When non-empty, every id is loaded and
-		// composited together (layer order set by the menu/HUD framework — HUDs
-		// beneath open menus) and `view` is the active input view, which must be
-		// interactive. When empty, only `view` is loaded. Missing ids are
-		// skipped.
+		// Optional startup-candidate set. Entries remain lazy unless their manifest
+		// has openOnStart or they also appear in warmViews. When empty, `view` is
+		// the sole startup candidate. Every discovered view remains openable on
+		// demand regardless of this list.
 		std::vector<std::string> views;
+		// Hidden views created and prepainted at boot for latency-sensitive core
+		// UI. They may suspend after the normal idle grace but are never destroyed.
+		// The handoff surface is always warm independently of this list.
+		std::vector<std::string> warmViews{ "osfui/settings" };
 		bool        devMode{ false };  // release-safe default; the shipped config / a dev override turns on verbose logging
 
 #if defined(OSFUI_WITH_WORLD_SURFACES)

@@ -81,6 +81,13 @@ Features are `IUiModule`s (`runtime/UiModule.h`). `IUiModule` is a uniform lifec
 
 A `ViewManifest` declares id, entry page, size, transparency, and a permission block that defaults to deny (`nativeBridge`, `filesystem`, `network`). Manifest entries may not point outside the view folder.
 
+Discovery does not create browser content. The runtime creates a view on its
+first open, except for `openOnStart` startup candidates and the warm core set
+(the handoff surface plus `config.warmViews`). A hidden live view becomes
+eligible for best-effort WebView2 suspension after 90 seconds of clamped game
+time. Non-warm views are destroyed after 25 hidden minutes and return to the
+discovered state; warm views may suspend but are never idle-reclaimed.
+
 ### Frontend build
 
 The built-in views are generated, not hand-written. `frontend/` is a Vite + TypeScript + Preact project whose ignored build artifact is `build/frontend/views/`:
@@ -106,6 +113,12 @@ owner-only server pipe before launch, and both ends compare the kernel-reported
 peer PID with the expected process before accepting the session. Starfield-side
 writes run only on a bounded transport worker; the reader applies a total hello
 deadline and a heartbeat deadline so an alive but stalled helper is recoverable.
+
+The overlay host owns one WebView2 environment and one composition controller
+for each live view. These remain separate browsing instances for fault and DOM
+isolation; Chromium decides their renderer-process assignment. Because lazy or
+idle-reclaimed views have no controller, browser resource use generally tracks
+views used in the current session rather than every installed manifest.
 
 ## How the D3D12 compositor works
 

@@ -389,51 +389,75 @@ namespace OSFUI
 		}
 #endif
 
-		// The first-load handoff is useful only on a renderer that can keep it
-		// warm beside a target view. It is a hidden platform surface, loaded
-		// independently of config.views so drop-in menus inherit the behavior.
-		if (const auto* handoff = _views.Find(kHandoffViewId)) {
-			if (LoadSurface(*handoff, "as the warm first-load handoff")) {
-				// Hidden WebView2 controllers normally suspend before their first
-				// paint. Prime this one at boot so opening a cold target never also
-				// pays the handoff surface's renderer startup cost.
-				_renderer->PrewarmView(kHandoffViewId);
+		// Establish warm membership before the first LoadSurface so lifecycle
+		// policy records the correct never-destroy bit. Handoff is platform-owned;
+		// configurable warm views retain config order for deterministic creation.
+		_warmViews.clear();
+		if (_views.Find(kHandoffViewId)) {
+			_warmViews.emplace(kHandoffViewId);
+		}
+		for (const auto& id : _config.warmViews) {
+			if (_views.Find(id)) {
+				_warmViews.emplace(id);
+			} else {
+				REX::WARN("Runtime: warm view '{}' was not discovered; skipping", id);
 			}
 		}
 
-		// The bridge and web->native handler must be wired before LoadView so no
-		// early page message races past them; the renderer queues native->web
-		// messages per view until each page is ready.
-		if (view) {
-			std::vector<std::string> toLoad = _config.views;
-			if (toLoad.empty()) {
-				toLoad.push_back(_config.view);
+		std::size_t loaded = 0;
+		const auto loadWarm = [this, &loaded](std::string_view a_id,
+			std::string_view a_reason) {
+			const auto* manifest = _views.Find(a_id);
+			const bool wasRegistered = _menus.IsRegistered(a_id);
+			if (!manifest || !LoadSurface(*manifest, a_reason)) {
+				return;
 			}
+			if (!wasRegistered) {
+				++loaded;
+			}
+			// Prime one hidden paint so latency-sensitive surfaces do not pay both
+			// controller startup and page paint on their first reveal.
+			_renderer->PrewarmView(a_id);
+		};
+		loadWarm(kHandoffViewId, "as the warm first-load handoff");
+		for (const auto& id : _config.warmViews) {
+			if (id != kHandoffViewId && _warmViews.contains(id)) {
+				loadWarm(id, "as a configured warm view");
+			}
+		}
 
-			// Ordering, focus and visibility are owned by MenuController +
-			// ApplyMenuPolicy, not by manifest order or a single active view.
-			std::size_t loaded = 0;
-			for (const auto& id : toLoad) {
-				if (id == kHandoffViewId) {
-					continue;  // platform-owned and already loaded above
-				}
-				if (const auto* m = _views.Find(id)) {
-					if (LoadSurface(*m, "config")) {
-						++loaded;
-					}
-					if (m->openOnStart && _menus.IsRegistered(id)) {
-						_menus.Open(id);
-					}
-				} else {
-					REX::WARN("Runtime: configured view '{}' not found; skipping", id);
+		// config.views is now a startup-candidate list: warm entries are already
+		// live, openOnStart entries are created and shown, and every other entry
+		// remains discovered until its first explicit open.
+		std::vector<std::string> startup = _config.views;
+		if (startup.empty()) {
+			startup.push_back(_config.view);
+		}
+		for (const auto& id : startup) {
+			if (id == kHandoffViewId) {
+				continue;
+			}
+			const auto* manifest = _views.Find(id);
+			if (!manifest) {
+				REX::WARN("Runtime: configured view '{}' not found; skipping", id);
+				continue;
+			}
+			if (manifest->openOnStart && !_menus.IsRegistered(id)) {
+				if (LoadSurface(*manifest, "for config openOnStart")) {
+					++loaded;
 				}
 			}
-			REX::INFO("Runtime: loaded {} view(s); default menu = '{}'", loaded, _config.view);
-			if (!_menus.IsRegistered(_config.view)) {
-				REX::WARN("Runtime: default view '{}' is not among the loaded surfaces; the toggle key will have nothing to open (check config.view is listed in config.views)", _config.view);
+			if (manifest->openOnStart && _menus.IsRegistered(id)) {
+				_menus.Open(id);
+			} else if (!_menus.IsRegistered(id)) {
+				REX::DEBUG("Runtime: configured view '{}' left lazy until first open", id);
 			}
-		} else {
-			REX::WARN("Runtime: configured view '{}' was not found; overlay has no content", _config.view);
+		}
+		REX::INFO("Runtime: loaded {} warm/open-on-start view(s); default menu = '{}'",
+			loaded, _config.view);
+		if (!_views.Find(_config.view)) {
+			REX::WARN("Runtime: default view '{}' was not discovered; the toggle key will have nothing to open",
+				_config.view);
 		}
 
 		// Key events reach the router from the WndProc subclass (OverlayInputHook
@@ -514,9 +538,9 @@ namespace OSFUI
 		// access must also avoid re-entering the AS3 VM. MainThreadMenuPump drives
 		// it post-UI_AdvanceActiveMenus, when every admitted movie has finished
 		// its frame; a click's EnqueueOpenView lands below on the next tick.
-		// Register plugin-supplied views (ABI 1.5) before the menu-request snapshot
-		// below, so a RegisterView followed by RequestMenu in the same frame finds
-		// its surface registered when the request is applied.
+		// Validate plugin-supplied view registrations (ABI 1.5) before the menu-
+		// request snapshot below. Ordinary views remain lazy; openOnStart views are
+		// created here.
 		DrainViewRegistrations();
 		// Snapshot queued menu requests (toggle/Esc/transition + plugin
 		// RequestMenu) now, but apply them after the bridge pump below — the ABI
@@ -628,6 +652,7 @@ namespace OSFUI
 		}
 		// Fire any due crash-recovery reloads before Update pumps the renderer.
 		DriveRecovery();
+		DriveViewLifecycle();
 		DriveDevTools();
 		PumpDevViewReload();
 		// Flush the coalesced mouse move (QueueMouseMove): one injected move
@@ -743,6 +768,7 @@ namespace OSFUI
 		}
 		_menus.Register({ id, a_manifest.kind, a_manifest.capturesInput,
 			a_manifest.pausesGame, a_manifest.order });
+		_viewLifecycle.NoteLoaded(id, _warmViews.contains(id), _uptime);
 		API::BridgeApi::Get().SetSurfaceLoaded(id, true);
 
 		REX::INFO("Runtime: surface '{}' loaded {} ({}, capturesInput={}, pausesGame={})",
@@ -793,6 +819,10 @@ namespace OSFUI
 			if (request.open) {
 				prepare(request.view, "on demand");
 			}
+		}
+		if (!_pendingSurfaceOpen && !_menus.ActiveMenu() &&
+			std::ranges::find(a_work.local, MenuReq::ToggleDefault) != a_work.local.end()) {
+			prepare(_config.view, "for the default-menu toggle");
 		}
 	}
 
@@ -1094,13 +1124,17 @@ namespace OSFUI
 				REX::WARN("Runtime: plugin RegisterView('{}') ignored — no views/{}/manifest.json was discovered at boot (ids are qualified '<author>.<modname>/<view>'; is the view folder installed?)", id, id);
 				continue;
 			}
-			if (!LoadSurface(*m, "via plugin RegisterView")) {
-				continue;
-			}
 			if (m->openOnStart) {
+				if (!LoadSurface(*m, "via plugin RegisterView openOnStart")) {
+					continue;
+				}
 				_menus.Open(id);
+				catalogChanged = true;
+			} else {
+				// Discovery already made this id catalogued and RequestMenu-openable.
+				// RegisterView now validates intent while deferring page creation.
+				REX::DEBUG("Runtime: plugin RegisterView('{}') accepted; creation deferred until first open", id);
 			}
-			catalogChanged = true;
 		}
 		if (catalogChanged) {
 			ApplyMenuPolicy();     // openOnStart / z-band changes take effect now
@@ -1117,6 +1151,7 @@ namespace OSFUI
 		// beneath menus; HUDs by `order`, menus by open-stack position.
 		for (const auto& layer : _menus.DesiredLayers()) {
 			_renderer->SetViewHidden(layer.id, layer.hidden);
+			_viewLifecycle.NoteVisibility(layer.id, !layer.hidden, _uptime);
 			_renderer->SetViewOrder(layer.id, layer.z);
 		}
 		// Focus follows the top menu; HUD-only => no active view to set.
@@ -1314,34 +1349,9 @@ namespace OSFUI
 			REX::ERROR("Runtime: view '{}' still failing after {} reload attempts; giving up — "
 					   "destroying the view and removing its surface (fix the view's files and relaunch)",
 				a_viewId, rec.attempts);
-			_recovery.erase(id);
-			if (_renderer) {
-				_renderer->DestroyView(id);
-			}
-			if (_menus.Unregister(id)) {
-				ApplyMenuPolicy();  // it was open: release capture/visibility now
-			}
-			API::BridgeApi::Get().SetSurfaceLoaded(id, false);
-			bool bridgeSurfaceRemains = false;
-			for (const auto& manifest : _views.All()) {
-				if (manifest.permissions.nativeBridge && _menus.IsRegistered(manifest.id)) {
-					bridgeSurfaceRemains = true;
-					break;
-				}
-			}
-			if (!bridgeSurfaceRemains) {
-				API::BridgeApi::Get().OnBridgeReady(nullptr);
-			}
 			// The retry budget is spent: this is the error a player has to act on.
 			_runtimeDiagnostics.ReportViewLoad(a_viewId, true, a_description, a_errorCode, 0);
-			_viewsSubscribers.erase(id);  // a destroyed view can't receive pushes
-			_i18nSubscribers.erase(id);
-			_gamepadRawViews.erase(id);   // its sticky gamepad grant dies with it
-			_backOwnerViews.erase(id);    // ditto the back-owner grant
-			for (const auto& mod : _modules) {
-				mod->OnViewDestroyed(id);  // module-held subscriber sets too
-			}
-			BroadcastViewsData();  // it also drops out of the catalog
+			TearDownSurface(id, SurfaceTeardownReason::LoadExhausted);
 			return;
 		}
 		rec.pending = true;
@@ -1363,6 +1373,7 @@ namespace OSFUI
 	{
 		_viewLoadState[a_id] = ViewLoadState::Loading;
 		_readyViews.erase(a_id);
+		_viewLifecycle.NoteActivity(a_id, _uptime);
 		_renderer->LoadView(a_manifest);
 		if (a_manifest.permissions.nativeBridge && _bridge) {
 			// A reload is a fresh document: `await osfui.ready` on the new page
@@ -1404,6 +1415,73 @@ namespace OSFUI
 			REX::INFO("Runtime: crash-recovery reloading view '{}' (attempt {})", id, rec.attempts);
 			ReloadViewInPlace(id, *manifest);
 		}
+	}
+
+	void Runtime::DriveViewLifecycle()
+	{
+		if (_rendererFailed || !_renderer) {
+			return;
+		}
+		const auto actions = _viewLifecycle.CollectDueActions(_uptime);
+		const auto unavailable = [this](const std::string& a_id) {
+			return !_menus.IsRegistered(a_id) ||
+			       GetViewLoadState(a_id) == ViewLoadState::Loading ||
+			       _recovery.contains(a_id) ||
+			       (_pendingSurfaceOpen && _pendingSurfaceOpen->target == a_id);
+		};
+		for (const auto& id : actions.suspend) {
+			if (unavailable(id) ||
+				(id == kHandoffViewId && _pendingSurfaceOpen.has_value())) {
+				continue;
+			}
+			_renderer->SuspendView(id);
+			_viewLifecycle.NoteSuspendRequested(id);
+		}
+		for (const auto& id : actions.destroy) {
+			if (unavailable(id) || _menus.IsOpen(id)) {
+				continue;
+			}
+			TearDownSurface(id, SurfaceTeardownReason::IdleReclaim);
+		}
+	}
+
+	void Runtime::TearDownSurface(const std::string& a_id, SurfaceTeardownReason a_reason)
+	{
+		_recovery.erase(a_id);
+		_readyViews.erase(a_id);
+		if (a_reason == SurfaceTeardownReason::IdleReclaim) {
+			_viewLoadState.erase(a_id);
+		}
+		if (_renderer) {
+			_renderer->DestroyView(a_id);
+		}
+		if (_menus.Unregister(a_id)) {
+			ApplyMenuPolicy();  // crash teardown may need to release input/pause now
+		}
+		API::BridgeApi::Get().SetSurfaceLoaded(a_id, false);
+		bool bridgeSurfaceRemains = false;
+		for (const auto& manifest : _views.All()) {
+			if (manifest.permissions.nativeBridge && _menus.IsRegistered(manifest.id)) {
+				bridgeSurfaceRemains = true;
+				break;
+			}
+		}
+		if (!bridgeSurfaceRemains) {
+			API::BridgeApi::Get().OnBridgeReady(nullptr);
+		}
+		_viewsSubscribers.erase(a_id);
+		_i18nSubscribers.erase(a_id);
+		_gamepadRawViews.erase(a_id);
+		_backOwnerViews.erase(a_id);
+		for (const auto& mod : _modules) {
+			mod->OnViewDestroyed(a_id);
+		}
+		_viewLifecycle.NoteDestroyed(a_id);
+		if (a_reason == SurfaceTeardownReason::IdleReclaim) {
+			REX::INFO("Runtime: reclaimed idle view '{}' after {:.0f} minutes hidden; it will reload on next open",
+				a_id, ViewLifecycle::kDestroyAfterHiddenSeconds / 60.0);
+		}
+		BroadcastViewsData();
 	}
 
 	void Runtime::DriveDevTools()
@@ -1585,6 +1663,7 @@ namespace OSFUI
 		_lastSubmittedFrame = 0;
 		_renderStatsHaveBaseline = false;
 		_nativeFocusGranted = false;
+		_viewLifecycle.OnHostRestart(_uptime);
 
 		std::size_t reloaded = 0;
 		for (const auto& manifest : _views.All()) {
@@ -1604,8 +1683,10 @@ namespace OSFUI
 			++reloaded;
 		}
 
-		if (_menus.IsRegistered(kHandoffViewId)) {
-			_renderer->PrewarmView(kHandoffViewId);
+		for (const auto& id : _warmViews) {
+			if (_menus.IsRegistered(id)) {
+				_renderer->PrewarmView(id);
+			}
 		}
 		_renderer->Resize(_viewWidth.load(), _viewHeight.load());
 		_renderer->SetAcceleratorKeys(_toggleKey.load(std::memory_order_acquire),

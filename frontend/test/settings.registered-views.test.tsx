@@ -96,5 +96,41 @@ describe('registered views diagnostics', () => {
       command: 'menu.open',
       fields: { view: 'tools/hidden-lab' },
     });
+
+    // Idle reclaim is a live loaded -> unloaded catalog transition. The row
+    // must stay present and openable rather than being treated as a removal.
+    bridge.deliver('views.data', {
+      views: [
+        {
+          id: 'osfui/settings',
+          title: 'Mod Settings',
+          kind: 'menu',
+          mod: 'osfui',
+          hub: true,
+          loadState: 'loaded',
+        },
+        {
+          id: 'tools/hidden-lab',
+          title: 'Hidden Lab',
+          kind: 'menu',
+          mod: 'example.tools',
+          hub: false,
+          loadState: 'unloaded',
+        },
+        {
+          id: 'tools/passive-hud',
+          title: 'Passive HUD',
+          kind: 'hud',
+          mod: 'example.tools',
+          hub: false,
+          loadState: 'unloaded',
+        },
+      ],
+    });
+    await flush();
+    const reclaimed = [...el.querySelectorAll<HTMLElement>('.registered-view')]
+      .find((row) => row.textContent!.includes('tools/passive-hud'))!;
+    expect(reclaimed.textContent).toContain('unloaded');
+    expect(reclaimed.querySelector<HTMLButtonElement>('button')!.disabled).toBe(false);
   });
 });

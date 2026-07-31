@@ -616,6 +616,16 @@ namespace osfui::wv2
 				bool prewarm{ false };
 				bool prewarmPending{ false };
 				std::uint64_t prewarmDeadline{ 0 };
+				// Explicit idle suspension is latched by the game. Attempts are async;
+				// activityGeneration plus the host-unique attempt id prevent a late
+				// callback from re-suspending an active or newly recreated view.
+				bool suspendRequested{ false };
+				bool suspendInFlight{ false };
+				bool suspended{ false };
+				bool suspendFailureLogged{ false };
+				std::uint64_t suspendActivityGeneration{ 0 };
+				std::uint64_t suspendAttemptId{ 0 };
+				std::uint64_t nextSuspendAttemptMs{ 0 };
 				bool renderStats{ false };
 				std::uint64_t renderStatsLastPageLogMs{ 0 };
 				// Manifest (authoring) height, set by `navigate`: the page lays out at
@@ -642,6 +652,7 @@ namespace osfui::wv2
 			std::vector<std::unique_ptr<View>> views;  // creation order (= z tie-break)
 			View* active{ nullptr };  // mouse/focus/synthetic-key target
 			bool  captureStarted{ false };
+			std::uint64_t nextSuspendAttemptId{ 1 };
 
 			// accel state pushed by the game (touched only on the STA thread)
 			std::uint32_t toggleVk{ 0x79 /*F10*/ }, captureUpVk{ 0 };
@@ -1297,8 +1308,9 @@ namespace osfui::wv2
 			}
 
 			// Deferred visibility. A hidden view's controller gets
-			// put_IsVisible(FALSE), which suspends Chromium rendering, so on unhide
-			// it needs a few frames before it paints. A menu switch arrives as
+			// put_IsVisible(FALSE), which stops presentation and lets Chromium
+			// throttle rendering, so on unhide it needs a few frames before it paints.
+			// A menu switch arrives as
 			// hide-old + show-new in one policy batch, so applying it verbatim blanks
 			// the output for those frames. Instead: resume Chromium at once but keep
 			// the child visual hidden until the page confirms a painted frame
@@ -1313,6 +1325,7 @@ namespace osfui::wv2
 				L"});});";
 			static constexpr std::string_view kPrewarmSentinel = "__osfuiPrewarmReady";
 			static constexpr std::uint64_t kRevealTimeoutMs = 300;
+			static constexpr std::uint64_t kSuspendRetryMs = 5000;
 
 			std::string NewRevealToken()
 			{
@@ -1329,10 +1342,44 @@ namespace osfui::wv2
 					fallback.fetch_add(1, std::memory_order_relaxed) + 1);
 			}
 
+			void ResumeCore(View& a_view)
+			{
+				if (!a_view.webView) return;
+				ComPtr<ICoreWebView2_3> webView3;
+				if (FAILED(a_view.webView.As(&webView3)) || !webView3) return;
+				const auto hr = webView3->Resume();
+				if (FAILED(hr)) {
+					log.Warn(std::format("view '{}': Resume failed (0x{:08X})",
+						a_view.id, static_cast<unsigned>(hr)));
+				} else {
+					a_view.suspended = false;
+				}
+			}
+
+			void NoteViewActivity(View& a_view, bool a_clearSuspendRequest)
+			{
+				const bool mayNeedResume = a_view.suspendRequested ||
+					a_view.suspendInFlight || a_view.suspended;
+				++a_view.suspendActivityGeneration;
+				if (a_clearSuspendRequest) {
+					a_view.suspendRequested = false;
+					a_view.nextSuspendAttemptMs = 0;
+				} else if (a_view.suspendRequested) {
+					a_view.nextSuspendAttemptMs = ::GetTickCount64() + kSuspendRetryMs;
+				}
+				if (mayNeedResume) {
+					// Explicit even though visibility/navigation can also auto-resume:
+					// PostWebMessage has no such documented guarantee, and a suspend
+					// attempt may still be completing asynchronously.
+					ResumeCore(a_view);
+				}
+			}
+
 			void BeginPrewarm(View& a_view)
 			{
 				if (!a_view.prewarm || !a_view.hidden) return;
 				if (!a_view.prewarmPending) {
+					NoteViewActivity(a_view, /*a_clearSuspendRequest=*/false);
 					a_view.prewarmPending = true;
 					a_view.prewarmDeadline = 0;
 					if (a_view.controller) a_view.controller->put_IsVisible(TRUE);
@@ -1391,6 +1438,7 @@ namespace osfui::wv2
 
 			void ShowView(View& a_view)
 			{
+				NoteViewActivity(a_view, /*a_clearSuspendRequest=*/true);
 				if (!a_view.hidden) {
 					a_view.hideDeferred = false;
 					log.Info(std::format("view '{}': show — already visible (visual={})",
@@ -1406,7 +1454,8 @@ namespace osfui::wv2
 				a_view.hideDeferred = false;
 				a_view.prewarmPending = false;
 				a_view.prewarmDeadline = 0;
-				// Resume Chromium first — nothing paints while suspended.
+				// Visibility also auto-resumes, after the explicit Resume above; nothing
+				// paints while a successful TrySuspend remains in force.
 				if (a_view.controller) a_view.controller->put_IsVisible(TRUE);
 				if (a_view.visual && a_view.visual.IsVisible()) {
 					log.Info(std::format(
@@ -1474,6 +1523,92 @@ namespace osfui::wv2
 				}
 			}
 
+			void TickSuspends()
+			{
+				const auto now = ::GetTickCount64();
+				for (auto& owned : views) {
+					auto& view = *owned;
+					if (!view.suspendRequested || !view.hidden || view.hideDeferred ||
+						view.revealPending || view.prewarmPending || view.pendingNavigate ||
+						!view.domSeen || !view.controller || !view.webView ||
+						view.suspendInFlight || now < view.nextSuspendAttemptMs) {
+						continue;
+					}
+					BOOL controllerVisible = TRUE;
+					if (FAILED(view.controller->get_IsVisible(&controllerVisible)) ||
+						controllerVisible == TRUE) {
+						continue;
+					}
+					ComPtr<ICoreWebView2_3> webView3;
+					if (FAILED(view.webView.As(&webView3)) || !webView3) {
+						if (!view.suspendFailureLogged) {
+							view.suspendFailureLogged = true;
+							log.Warn(std::format("view '{}': TrySuspend API unavailable", view.id));
+						}
+						view.nextSuspendAttemptMs = now + kSuspendRetryMs;
+						continue;
+					}
+					BOOL actuallySuspended = FALSE;
+					if (SUCCEEDED(webView3->get_IsSuspended(&actuallySuspended)) &&
+						actuallySuspended == TRUE) {
+						view.suspended = true;
+						continue;
+					}
+					if (view.suspended) {
+						// An API resumed it outside the explicit activity paths. Observe
+						// reality and allow a short sync window before trying again.
+						view.suspended = false;
+						view.nextSuspendAttemptMs = now + kSuspendRetryMs;
+						continue;
+					}
+
+					const auto id = view.id;
+					const auto generation = view.suspendActivityGeneration;
+					const auto attemptId = nextSuspendAttemptId++;
+					view.suspendAttemptId = attemptId;
+					view.suspendInFlight = true;
+					view.nextSuspendAttemptMs = now + kSuspendRetryMs;
+					const auto hr = webView3->TrySuspend(
+						Callback<ICoreWebView2TrySuspendCompletedHandler>(
+							[this, id, generation, attemptId](HRESULT a_error, BOOL a_success) -> HRESULT {
+								auto* current = FindView(id);
+								if (!current || current->suspendAttemptId != attemptId) return S_OK;
+								current->suspendInFlight = false;
+								const bool stale = current->suspendActivityGeneration != generation ||
+									!current->suspendRequested || !current->hidden;
+								if (stale) {
+									if (SUCCEEDED(a_error) && a_success == TRUE) ResumeCore(*current);
+									return S_OK;
+								}
+								if (SUCCEEDED(a_error) && a_success == TRUE) {
+									current->suspended = true;
+									current->suspendFailureLogged = false;
+									log.Info(std::format("view '{}': idle suspend accepted", id));
+								} else {
+									current->suspended = false;
+									current->nextSuspendAttemptMs =
+										::GetTickCount64() + kSuspendRetryMs;
+									if (!current->suspendFailureLogged) {
+										current->suspendFailureLogged = true;
+										log.Warn(std::format(
+											"view '{}': TrySuspend declined (0x{:08X}); retrying while hidden",
+											id, static_cast<unsigned>(a_error)));
+									}
+								}
+								return S_OK;
+							}).Get());
+					if (FAILED(hr)) {
+						view.suspendInFlight = false;
+						if (!view.suspendFailureLogged) {
+							view.suspendFailureLogged = true;
+							log.Warn(std::format(
+								"view '{}': TrySuspend call failed (0x{:08X}); retrying while hidden",
+								view.id, static_cast<unsigned>(hr)));
+						}
+					}
+				}
+			}
+
 			// STA thread only: iterates `views`, which the STA mutates unlocked
 			// (push_back on createView, erase_if on destroyView). The capture
 			// thread must read the cached atomic below instead — refreshed here,
@@ -1499,6 +1634,9 @@ namespace osfui::wv2
 			void ApplyRenderStats(View& a_view)
 			{
 				if (!a_view.webView) return;
+				if (a_view.suspendRequested || a_view.suspendInFlight || a_view.suspended) {
+					NoteViewActivity(a_view, /*a_clearSuspendRequest=*/false);
+				}
 				const auto script = std::format(
 					"window.__osfuiSetRenderStats&&window.__osfuiSetRenderStats({},{});",
 					a_view.renderStats ? "true" : "false", json(a_view.id).dump());
@@ -2617,6 +2755,9 @@ namespace osfui::wv2
 					}
 				}
 				if (!a_view.domSeen) return;
+				if (!a_view.queuedPostWeb.empty()) {
+					NoteViewActivity(a_view, /*a_clearSuspendRequest=*/false);
+				}
 				for (auto& message : a_view.queuedPostWeb) {
 					const auto wide = ToWide(message);
 					a_view.webView->PostWebMessageAsString(wide.c_str());
@@ -3077,6 +3218,7 @@ namespace osfui::wv2
 				}
 				auto* view = FindView(id);
 				if (!view) view = &CreateView(id);
+				NoteViewActivity(*view, /*a_clearSuspendRequest=*/true);
 				view->bridge = a_msg.value("bridge", true);
 				view->logicalHeight = (std::max)(1u,
 					a_msg.value("logicalHeight", kDefaultLogicalHeight));
@@ -3098,6 +3240,14 @@ namespace osfui::wv2
 				if (auto* view = ResolveView(a_msg)) {
 					view->prewarm = true;
 					BeginPrewarm(*view);
+				}
+			}
+
+			void HandleSuspendView(const json& a_msg)
+			{
+				if (auto* view = ResolveView(a_msg); view && view->hidden) {
+					view->suspendRequested = true;
+					view->nextSuspendAttemptMs = ::GetTickCount64();
 				}
 			}
 
@@ -3200,6 +3350,7 @@ namespace osfui::wv2
 				}
 				handledKeys.erase(VK_F12);
 				if (auto* view = ResolveView(a_msg); view && view->webView) {
+					NoteViewActivity(*view, /*a_clearSuspendRequest=*/false);
 					const auto hr = view->webView->OpenDevToolsWindow();
 					if (FAILED(hr)) {
 						log.Warn(std::format(
@@ -3251,6 +3402,7 @@ namespace osfui::wv2
 					{ "navigate", &App::HandleNavigate },
 					{ "resize", &App::HandleResize },
 					{ "prewarm", &App::HandlePrewarm },
+					{ "suspendView", &App::HandleSuspendView },
 					{ "setHidden", &App::HandleSetHidden },
 					{ "setOrder", &App::HandleSetOrder },
 					{ "setRenderStats", &App::HandleSetRenderStats },
@@ -3445,6 +3597,7 @@ namespace osfui::wv2
 						}
 						DrainCommands();
 						TickReveals();
+						TickSuspends();
 						TickRenderStats();
 						MSG message{};
 						while (::PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {

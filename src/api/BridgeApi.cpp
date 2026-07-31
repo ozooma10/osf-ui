@@ -30,10 +30,10 @@ namespace OSFUI::API
 			return Ids::IsValidModId(a_cmd.substr(0, second));
 		}
 
-		// Cap on queued SendToWeb messages per target view while no bridge is live
-		// to flush them (ABI 1.3 queue-until-deliverable). Matches the renderer's
-		// per-view queue bound; overflow drops the oldest so the view still
-		// converges on the newest pushed state when it comes up.
+		// Cap on queued SendToWeb messages per target view while no target page is
+		// live to receive them (ABI 1.3 queue-until-deliverable). Matches the
+		// renderer's per-view queue bound; overflow drops the oldest so the view
+		// still converges on the newest pushed state when it comes up.
 		constexpr std::size_t kMaxPendingSendsPerView = 64;
 
 		// Cap on queued health reports awaiting the main tick (ABI 1.7). The
@@ -178,23 +178,19 @@ namespace OSFUI::API
 			return false;
 		}
 		std::lock_guard lock(_mutex);
-		// ABI 1.3: queue even before a bridge is live (older minors returned false
-		// here). The pump flushes FIFO once one appears and the renderer stashes
-		// per view until the page can receive, so a send issued at plugin load or
-		// right before a RequestMenu open is not dropped. Bounded per view so
-		// pushes to a view that never comes up can't grow memory unboundedly.
-		if (!_ready.load()) {
-			std::size_t sameView = 0;
-			for (const auto& s : _pendingSends) {
-				sameView += (s.view == a_viewId) ? 1u : 0u;
-			}
-			if (sameView >= kMaxPendingSendsPerView) {
-				const auto oldest = std::ranges::find_if(_pendingSends,
-					[&](const PendingSend& s) { return s.view == a_viewId; });
-				REX::WARN("BridgeApi: pre-ready SendToWeb queue for view '{}' is full ({}); dropping oldest queued '{}'",
-					a_viewId, kMaxPendingSendsPerView, oldest->type);
-				_pendingSends.erase(oldest);
-			}
+		// ABI 1.3 queues until the target page exists, not merely until any bridge
+		// is live. Lazy and idle-reclaimed views can therefore retain bounded
+		// first-open state while unrelated warm views are already running.
+		std::size_t sameView = 0;
+		for (const auto& s : _pendingSends) {
+			sameView += (s.view == a_viewId) ? 1u : 0u;
+		}
+		if (sameView >= kMaxPendingSendsPerView) {
+			const auto oldest = std::ranges::find_if(_pendingSends,
+				[&](const PendingSend& s) { return s.view == a_viewId; });
+			REX::WARN("BridgeApi: SendToWeb holdback for view '{}' is full ({}); dropping oldest queued '{}'",
+				a_viewId, kMaxPendingSendsPerView, oldest->type);
+			_pendingSends.erase(oldest);
 		}
 		_pendingSends.push_back({ std::string(a_viewId), std::string(a_type), std::string(a_payloadJson) });
 		return true;
@@ -238,6 +234,7 @@ namespace OSFUI::API
 		_knownViews.clear();
 		_knownViews.insert(a_viewIds.begin(), a_viewIds.end());
 		_loadedViews.clear();
+		_viewCatalogReady = true;
 	}
 
 	void BridgeApi::SetSurfaceLoaded(std::string_view a_viewId, bool a_loaded)
@@ -353,7 +350,7 @@ namespace OSFUI::API
 			return false;
 		}
 		// Runtime drains this on the main tick (DrainViewRegistrations), where the
-		// manifest lookup and surface registration happen; a not-found id warns
+		// manifest lookup happens and openOnStart is applied; a not-found id warns
 		// there, not here.
 		std::lock_guard lock(_mutex);
 		_pendingViewRegs.emplace_back(a_viewId);
@@ -568,7 +565,20 @@ namespace OSFUI::API
 					for (const auto& pair : _requests) requests.push_back(pair);
 					_appliedBridge = bridge; _dirty = false;
 				}
-				sends.swap(_pendingSends);
+				// Retain known lazy targets until Runtime marks their renderer surface
+				// loaded. Unknown ids keep the historical drop behavior once discovery
+				// has supplied an authoritative catalog.
+				for (auto it = _pendingSends.begin(); it != _pendingSends.end();) {
+					if (_loadedViews.contains(it->view)) {
+						sends.push_back(std::move(*it));
+						it = _pendingSends.erase(it);
+					} else if (_viewCatalogReady && !_knownViews.contains(it->view)) {
+						REX::DEBUG("BridgeApi: SendToWeb target '{}' was not discovered; dropped", it->view);
+						it = _pendingSends.erase(it);
+					} else {
+						++it;
+					}
+				}
 				if (!_readyFired) {
 					_readyFired = true;
 					fireReady = true;

@@ -73,8 +73,9 @@ hold several views, and subfolders without a `manifest.json` are ignored, so
 you can keep shared assets next to your views. The built-in views use the
 same layout: `views/osfui/settings/`, `views/osfui/keybinds/`. To open your
 view, use its qualified id `<modId>/<viewName>` as a `menu.open` target (it
-loads on demand). Use a `config.json` `views` entry for boot loading, or
-`RegisterView` when a native plugin wants to load its shipped view explicitly.
+loads on demand). Use `openOnStart:true` plus a developer `config.json` `views`
+entry for boot loading. A native plugin may use `RegisterView` to validate its
+shipped view explicitly; ordinary registered views still load on first open.
 
 Views load at `https://osfui.local/<modId>/<viewName>/<entry>`. WebView2 maps
 `osfui.local` to the shared views root with
@@ -253,13 +254,14 @@ Notes:
 
 ### Multiple views & layering
 
-Several views can be hosted and composited at once. `config.json` lists them
-by qualified id when the user wants them loaded at startup:
+Several views can be hosted and composited at once. The developer/boot
+`config.json` can nominate startup candidates and a small warm set:
 
 ```jsonc
 {
-  "view": "osfui/settings",                          // the ACTIVE view: receives input + the bridge
-  "views": ["osfui/settings", "yourname.mymod/hud"]  // views to load at boot
+  "view": "osfui/settings",                          // default menu opened by the toggle key
+  "views": ["osfui/settings", "yourname.mymod/hud"], // startup candidates; openOnStart is honored
+  "warmViews": ["osfui/settings"]                    // precreated, prepainted, never idle-reclaimed
 }
 ```
 
@@ -267,15 +269,26 @@ Do not edit the user's `config.json` when shipping a view. Any valid drop-in
 folder under `views/<modId>/<viewName>/` is discovered at boot and loaded the
 first time it is opened through `menu.open`, Papyrus
 `OSFUI.OpenMenu("<modId>/<viewName>")`, or the C ABI's
-`RequestMenu("<modId>/<viewName>", true)`. Closed views stay loaded and warm
-for later opens. This is enough for a Papyrus-only mod: no companion SFSE
-plugin is required.
+`RequestMenu("<modId>/<viewName>", true)`. This is enough for a Papyrus-only
+mod: no companion SFSE plugin is required.
 
-The `views` array remains the user's own composition and is useful for views
-that must load at boot, such as HUDs. A native plugin may still call
-`RegisterView("<modId>/<viewName>")` (C ABI 1.5) for a plugin-shipped folder;
-that explicitly loads it before its first open. See
-[native-plugin-api.md](native-plugin-api.md) §5c.
+The `views` array is the boot composition: entries with
+`openOnStart:true` are created and shown at boot; the others remain lazy.
+`warmViews` is reserved for latency-sensitive core UI: those entries are
+created and prepainted at boot and never idle-reclaimed. The platform handoff
+view is always warm. Mods should not edit either array during installation.
+A native plugin may still call `RegisterView("<modId>/<viewName>")` (C ABI 1.5)
+to validate a plugin-shipped folder; ordinary registered views remain lazy,
+while `openOnStart` is honored. See [native-plugin-api.md](native-plugin-api.md)
+§5c.
+
+A closed view keeps its document initially. After about 90 seconds of hidden
+game time, OSF UI asks WebView2 to suspend it, pausing JavaScript timers and
+animation until activity resumes it. A non-warm view hidden for about 25
+minutes is destroyed and returns to the discovered state; reopening it creates
+a fresh document through the normal loading handoff. Treat `ui.visibility` as
+the visit boundary and do not rely on hidden timers for required work. Retained
+Papyrus `SetView*` state is replayed to a recreated page automatically.
 
 - Layering is set by the menu/HUD framework, not the array order: every HUD
   composites beneath every open menu. HUDs order among themselves by their

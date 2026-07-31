@@ -252,6 +252,11 @@ namespace OSFUI
 			return ViewMsg("prewarm", a_viewId);
 		}
 
+		json SuspendMsg(std::string_view a_viewId)
+		{
+			return ViewMsg("suspendView", a_viewId);
+		}
+
 		json SetActiveMsg(std::string_view a_viewId)
 		{
 			return ViewMsg("setActive", a_viewId);
@@ -1963,6 +1968,15 @@ namespace OSFUI
 			view->prewarm = true;
 		}
 		_impl->Send(PrewarmMsg(a_viewId));
+	}
+
+	void WebView2HostWebRenderer::SuspendView(std::string_view a_viewId)
+	{
+		{
+			std::scoped_lock lock(_impl->stateMutex);
+			if (!_impl->FindView(a_viewId)) return;
+		}
+		_impl->Send(SuspendMsg(a_viewId));
 	}
 
 	void WebView2HostWebRenderer::SetViewOrder(std::string_view a_viewId, int a_order)

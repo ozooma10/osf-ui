@@ -28,7 +28,8 @@ namespace osfui::wv2
 	// revealed. The game rejects frames from an earlier/hidden presentation.
 	// v4: verified named-pipe peers, bounded hello, and host heartbeats make a
 	// connected-but-stalled or impersonating helper a terminal recoverable failure.
-	inline constexpr std::uint32_t kProtocolVersion = 4;
+	// v5: game-directed, best-effort suspension for idle hidden views.
+	inline constexpr std::uint32_t kProtocolVersion = 5;
 
 	inline constexpr std::uint32_t kHelloTimeoutMs = 10000;
 	inline constexpr std::uint32_t kHeartbeatIntervalMs = 1000;
@@ -81,9 +82,10 @@ namespace osfui::wv2
 	//                page lays out at logical size and CSS px scale up to
 	//                output pixels. Optional — omitted means kDefaultLogicalHeight.)
 	// resize        { width:u32, height:u32 }    (global: every view renders output-sized)
-	// prewarm       { view:str }                 (one hidden paint, then suspend again)
+	// prewarm       { view:str }                 (one hidden paint, then hide again)
+	// suspendView   { view:str }                 (latched TrySuspend request; hidden only)
 	// setHidden     { view:str, hidden:bool, presentationEpoch:u64 }
-	//                                               (child-visual visibility + Chromium suspend;
+	//                                               (child-visual visibility + Chromium throttling;
 	//                                                epoch advances on all-hidden -> visible)
 	// setOrder      { view:str, order:i32 }      (composite z: lower beneath, ties by creation)
 	// setActive     { view:str }                 (mouse/focus/synthetic-key target)

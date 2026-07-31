@@ -20,6 +20,7 @@
 #include "runtime/SettingsModule.h"
 #include "runtime/UiModule.h"
 #include "runtime/ViewManager.h"
+#include "runtime/ViewLifecycle.h"
 
 namespace OSFUI
 {
@@ -178,11 +179,10 @@ namespace OSFUI
 		// same tick.
 		void DrainSchemaOps();
 
-		// Apply the native plugin API's queued RegisterView ids (ABI 1.5): load
-		// a boot-discovered views/<id>/ manifest that config.views didn't list
-		// and register it as an openable surface. Called from Tick before the
-		// menu-request snapshot so RegisterView -> SendToWeb -> RequestMenu
-		// issued back-to-back all land in one tick. Main thread.
+		// Apply the native plugin API's queued RegisterView ids (ABI 1.5): validate
+		// each boot-discovered views/<id>/ manifest, loading only openOnStart views.
+		// Called before the menu-request snapshot so RegisterView -> SendToWeb ->
+		// RequestMenu issued back-to-back all land in one tick. Main thread.
 		void DrainViewRegistrations();
 
 		// config.focusMenu: open/close the engine focus menu to match the top
@@ -270,6 +270,17 @@ namespace OSFUI
 		// the game thread.
 		void DriveRecovery();
 
+		// Suspend hidden views after a short grace and reclaim non-warm views after
+		// a much longer idle period. The pure policy lives in ViewLifecycle; this
+		// method applies due actions to live Runtime/renderer state.
+		void DriveViewLifecycle();
+		enum class SurfaceTeardownReason
+		{
+			LoadExhausted,
+			IdleReclaim,
+		};
+		void TearDownSurface(const std::string& a_id, SurfaceTeardownReason a_reason);
+
 		// DevTools request raised by F12 on the window/host thread. Resolve the
 		// top open menu and talk to the renderer from Tick on the game thread.
 		void DriveDevTools();
@@ -351,6 +362,8 @@ namespace OSFUI
 		// Registered surfaces (menus/HUDs) + open state. Mutated only on the main
 		// thread (Tick / bridge handlers).
 		MenuController                _menus;
+		ViewLifecycle                 _viewLifecycle;
+		std::unordered_set<std::string> _warmViews;
 		struct PendingSurfaceOpen
 		{
 			std::string target;
