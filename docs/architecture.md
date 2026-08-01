@@ -101,12 +101,13 @@ and dispatches names through two registries that are disjoint by construction:
   ERROR, because "never settled" is the one failure a caller cannot tell
   apart from a hang.
 
-Registering one name as both kinds is refused and logged, because the kind is
-what callers dispatch on. Kind enforcement is then structural in both
-directions: a `request` naming a send endpoint is rejected `wrong-endpoint-kind`,
-and a `send` naming a request endpoint is **dropped** — executing a mutation
-whose kind the caller got wrong invites worse bugs — and *surfaced*, which is
-the part 1.x got wrong by dropping silently.
+Registering one name as both strict kinds is refused and logged, because the
+kind is what callers dispatch on. Kind enforcement is structural in both
+directions: a `request` naming a strict send endpoint is rejected
+`wrong-endpoint-kind`, and a `send` naming a request endpoint is **dropped** and
+surfaced. The deliberate exception is native ABI `RegisterCommand`: its 1.x
+compatibility endpoint accepts both verbs, injecting `requestId` and auto-acking
+only when reached as a request.
 
 Endpoints come from three places:
 
@@ -295,5 +296,3 @@ Remaining open areas: alternate UI-target formats and broader in-game validation
 - SFSE has no shutdown callback, so engine-facing singletons intentionally have process lifetime and do not run destructors from DLL detach.
 - Normal in-session recovery and explicit renderer stops use a synchronized lifecycle: stop new sends, give the background writer 250 ms to deliver shutdown, cancel all overlapped pipe I/O, join transport workers, then wait a bounded interval for the verified helper and terminate it only if necessary.
 - During process exit the helper independently watches the Starfield process handle; correctness never depends on destructor ordering after Windows begins process teardown.
-</content>
-</invoke>

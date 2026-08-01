@@ -1,47 +1,21 @@
 # Adding settings to your mod
 
-> **Disclaimer:** This document is AI-generated (written with Claude and
-> reviewed against the source code). If it ever disagrees with the code, the
-> JSON Schema ([§12](#12-reference)) or `sdk/osfui.d.ts`, those are
-> authoritative — and a bug report about the mismatch is welcome.
+One JSON file gives your mod a full settings page in the OSF UI Mods menu (F10): typed controls, validation, persistence, hotkey rebinding, presets and localization, **no code required**. This is the complete guide to that file.
 
-One JSON file gives your mod a full settings page in the OSF UI Mods menu
-(F10): typed controls, validation, persistence, hotkey rebinding, presets,
-and localization — **no code required**. This page is the complete author
-guide for that file.
+Want custom UI instead? Full web views are [authoring-views.md](authoring-views.md). Settings and views share the same mod id and compose freely — most mods ship settings first.
 
-> Looking for custom UI instead? Full web views are covered in
-> [authoring-views.md](authoring-views.md). Settings and views share the same
-> mod id and compose freely — most mods ship settings first.
+> Written with Claude and reviewed against the source. Where it disagrees with the code, the [JSON Schema](#12-reference) or `sdk/osfui.d.ts`, those win — and a bug report about the mismatch is welcome.
 
 ---
 
-## 1. Five-minute quickstart
+## 1. Quickstart
 
-1. Copy [`examples/settings-only/yourname.mymod.json`](../examples/settings-only/yourname.mymod.json)
-   into your mod as:
+1. Copy [`examples/settings-only/yourname.mymod.json`](../examples/settings-only/yourname.mymod.json) into your mod as `Data\SFSE\Plugins\OSFUI\settings\<author>.<modname>.json`.
+2. Rename it. The filename stem **is** your mod id and must equal the `"id"` inside: `"<author>.<modname>"` — lowercase `a-z 0-9 -` segments, exactly one dot, where `author` is your Nexus/GitHub handle (e.g. `astrogal.compass-tweaks`). Dotless ids are reserved for the platform.
+3. Edit `title` and `groups`.
+4. Launch, press F10 — your card is in the left rail. Values persist to `Data\SFSE\Plugins\OSFUI\settings\values\<id>.json` (VFS-captured, so per-profile under MO2) and survive relaunch.
 
-   ```
-   Data\SFSE\Plugins\OSFUI\settings\<author>.<modname>.json
-   ```
-
-2. Rename it. The filename stem **is** your mod id and must equal the `"id"`
-   field inside: `"<author>.<modname>"` — lowercase `a-z 0-9 -` segments,
-   exactly one dot, where `author` is your Nexus/GitHub handle
-   (e.g. `astrogal.compass-tweaks`). Dotless ids are reserved for the
-   platform.
-
-3. Edit `title` and the `groups` array to declare your settings.
-
-4. Launch the game, press F10 — your card is in the left rail. Values the
-   user changes persist to
-   `Data\SFSE\Plugins\OSFUI\settings\values\<id>.json` (VFS-captured, so
-   per-profile under MO2) and survive relaunch.
-
-You can iterate without launching Starfield at all — see
-[§10 Testing](#10-testing-your-schema).
-
-A minimal real schema:
+You can iterate without launching Starfield — see [§10](#10-testing-your-schema).
 
 ```jsonc
 {
@@ -63,43 +37,35 @@ A minimal real schema:
 }
 ```
 
-The `$schema` line gives you autocomplete and inline validation in VS Code
-and other editors. Use it.
+The `$schema` line gives autocomplete and inline validation in VS Code and friends. Use it.
 
 ---
 
 ## 2. Setting types
 
-Every setting is `{ "key", "type", "default", ... }` inside a group.
-Validation happens natively on every write — out-of-range values are clamped,
-wrong types rejected. This is the frozen 1.0 type set:
+Every setting is `{ "key", "type", "default", ... }` inside a group. Validation happens natively on every write: out-of-range clamped, wrong types rejected. This is the frozen 1.0 type set:
 
 | `type` | Control | Value & validation |
 |---|---|---|
 | `bool` | toggle switch | `true` / `false` |
-| `int` | slider (or stepper) | number, clamped to `[min, max]`, rounded; `step` is the UI granularity |
+| `int` | slider (or stepper) | number, clamped to `[min, max]`, rounded; `step` is UI granularity |
 | `float` | slider (or stepper) | number, clamped to `[min, max]` |
 | `enum` | dropdown (or segmented) | one of `options` (required) |
-| `flags` | checkbox group | array of `options` strings — multi-select; unknowns/duplicates filtered, order canonicalized |
+| `flags` | checkbox group | array of `options` strings; unknowns/duplicates filtered, order canonicalized |
 | `string` | text field (or textarea, or color swatch) | truncated to 256 chars (`maxLength` tightens the UI limit) |
-| `key` | press-to-rebind button | a key name like `"F8"`; see [§7 Hotkeys](#7-hotkeys) |
+| `key` | press-to-rebind button | a key name like `"F8"` — see [§7](#7-hotkeys) |
 
-There is **no `color` type** — use `"type": "string", "widget": "color"`
-(stored as `"#rrggbb"` / `"#rrggbbaa"`).
+There is **no `color` type** — use `"type": "string", "widget": "color"` (stored as `"#rrggbb"` / `"#rrggbbaa"`).
 
 Common per-setting fields:
 
 - `label` — control label (defaults to `key`); `hint` — helper text under it.
-- `default` — the initial value, also the reset target. The "modified" dot in
-  the UI compares against it, so pick real defaults.
-- `optionLabels` — display strings parallel to `options`, so stored values
-  stay machine-stable: `"options": ["off","min","full"], "optionLabels":
-  ["Off","Minimal","Full"]`. Stored values are never translated; labels are.
+- `default` — initial value and reset target. The UI's "modified" dot compares against it, so pick real defaults.
+- `optionLabels` — display strings parallel to `options`, keeping stored values machine-stable: `"options": ["off","min","full"], "optionLabels": ["Off","Minimal","Full"]`. Stored values are never translated; labels are.
 
 ### Widgets and number formatting
 
-`"widget"` picks an alternate control for the same type — older hosts ignore
-it safely:
+`"widget"` picks an alternate control for the same type; older hosts ignore it safely.
 
 | Type | Widgets |
 |---|---|
@@ -107,29 +73,22 @@ it safely:
 | `enum` | `dropdown` (default), `segmented` (best for 2–4 options) |
 | `string` | `text` (default), `textarea`, `color` |
 
-`"format"` turns raw numbers into friendly display strings while storing the
-clean value:
+`"format"` displays a friendly string while storing the clean value — `prefix` / `suffix` / `scale` (display multiplier) / `decimals`:
 
 ```jsonc
 { "key": "opacity", "type": "float", "min": 0, "max": 1, "default": 0.85,
   "format": { "scale": 100, "suffix": "%", "decimals": 0 } }   // shows "85%"
 ```
 
-`prefix` / `suffix` / `scale` (display multiplier) / `decimals`.
-
 ---
 
 ## 3. Pages, groups and show/hide rules
 
-Groups are ordered sections: `{ "id", "label", "collapsed", "page",
-"visibleWhen", "settings": [...] }`. Give groups a stable `id` if you ever
-expect translations (it survives reordering). With many groups the host
-renders a section index automatically; `"collapsed": true` starts one folded.
+Groups are ordered sections: `{ "id", "label", "collapsed", "page", "visibleWhen", "settings": [...] }`. Give groups a stable `id` if you expect translations (it survives reordering). With many groups the host renders a section index automatically; `"collapsed": true` starts one folded.
 
 ### Pages
 
-When one column of groups gets long, segment it into tabs. Declare the tabs
-at the top level and point each group at one:
+When one column gets long, segment it into tabs — declare them at the top level and point groups at one:
 
 ```jsonc
 {
@@ -145,22 +104,14 @@ at the top level and point each group at one:
 }
 ```
 
-Rules:
+- A group with no `page` (or an unknown id) lands on an implicit **General** tab, painted first — so adding pages later never hides an untagged group.
+- A page no group references renders no tab; tabs appear only when content splits across at least two non-empty pages.
+- Pages are display-only annotations on the flat `groups` list. A host predating them ignores both fields and renders the plain column, so a paged schema stays usable on older versions (declare `targetVersion` if you want those hosts to badge "needs update").
+- Tab labels localize at `pages.<id>.label`. Section index and search still work; a search jump raises the right tab.
 
-- A group with no `page` (or an unknown id) lands on an implicit **General**
-  tab, painted first — so adding pages later never hides an untagged group.
-- A page no group references renders no tab; tabs only appear at all when
-  they split content across at least two non-empty pages.
-- Pages are display-only annotations on the flat `groups` list. A host that
-  predates them ignores both fields and renders the plain group column, so a
-  paged schema stays fully usable on older OSF UI versions (declare
-  `targetVersion` if you want those hosts to badge "needs update").
-- Tab labels localize at `pages.<id>.label`. The section index and searching
-  still work; a search jump raises the right tab automatically.
+### Conditions
 
-**Conditions** show/hide (`visibleWhen`) rows and whole groups, or
-enable/disable (`enabledWhen`) individual rows, based on sibling settings of
-the *same mod*:
+`visibleWhen` shows/hides rows and whole groups; `enabledWhen` enables/disables individual rows. Both reference sibling settings of the *same mod*:
 
 ```jsonc
 { "key": "compass.size", "type": "float", "min": 0.5, "max": 2, "default": 1,
@@ -171,10 +122,7 @@ the *same mod*:
   ] } }
 ```
 
-Leaf operators: `eq ne in gt gte lt lte truthy`. Combinators: `all any not`.
-A reference to an unknown key evaluates false. Conditions are **display
-sugar only** — a hidden setting is still writable via the bridge and still
-natively validated, so never rely on hiding for correctness.
+Leaf operators `eq ne in gt gte lt lte truthy`; combinators `all any not`. An unknown key evaluates false. Conditions are **display sugar only** — a hidden setting is still writable via the bridge and still natively validated, so never rely on hiding for correctness.
 
 ### Restart badges
 
@@ -183,14 +131,13 @@ natively validated, so never rely on hiding for correctness.
   "default": "auto", "requires": "restart" }   // "restart" | "reload" | "newGame"
 ```
 
-The row gets a badge for any of the three values; for `"restart"` a banner
-additionally aggregates all pending restart-required changes.
+All three values badge the row; `"restart"` additionally feeds a banner aggregating pending restart-required changes.
 
 ---
 
 ## 4. Notes, images, and action buttons
 
-Besides value settings, a group can contain static and interactive rows:
+A group can also contain static and interactive rows:
 
 ```jsonc
 { "type": "note", "id": "dlc-note", "style": "info",
@@ -205,33 +152,17 @@ Besides value settings, a group can contain static and interactive rows:
   "enabledWhen": { "key": "enabled", "eq": true } }
 ```
 
-- **Notes** support micro-markdown only: `**bold**`, `*italic*`, `` `code` ``,
-  `\n`. No HTML, no links — everything renders injection-safe.
-- **Image** `src` is relative to your `views/<id>/` folder (ship one even if
-  it only holds assets); no `..`, absolute paths, or URL schemes.
-- **Actions** fire a bridge **request** whose name must be namespaced
-  `<your-id>.something` — the card refuses anything else, plus anything whose
-  leading segment is a framework namespace (`ui`, `menu`, `hud`, `settings`,
-  `views`, `game`, `runtime`). Register it with **`RegisterRequest`**, not
-  `RegisterCommand` ([native-plugin-api.md](native-plugin-api.md)): a button
-  needs an outcome, and in the 2.0 API that is exactly what separates the two
-  endpoint kinds. Register the same name as a *command* and the card's request
-  comes back `wrong-endpoint-kind`, so the button reports a failure. Actions
-  therefore need a native plugin; Papyrus has no equivalent registration.
+- **Notes** support micro-markdown only: `**bold**`, `*italic*`, `` `code` ``, `\n`. No HTML, no links — everything renders injection-safe.
+- **Image** `src` is relative to your `views/<id>/` folder (ship one even if it only holds assets); no `..`, absolute paths, or URL schemes.
+- **Actions** fire a bridge **request** whose name must be namespaced `<your-id>.something`; the card refuses anything else, and anything whose leading segment is a framework namespace (`ui`, `menu`, `hud`, `settings`, `views`, `game`, `runtime`). Register it with **`RegisterRequest`**, not `RegisterCommand` ([native-plugin-api.md](native-plugin-api.md)) — a button needs an outcome. An older ABI plugin may still serve the name with `RegisterCommand`, but its compatibility auto-ack is a silent success that can't express a result or failure. Actions therefore need a native plugin; Papyrus has no equivalent registration.
 
-  The card sends `{ "mod": "<your-id>", "key": "<the action's key>" }` and waits
-  5 s. Resolve with `{}` for a silent success, or with `{ "message": "…" }` to
-  raise a toast. Reject with your own code and message and that message is
-  toasted as a failure; let it time out and the player reads `No response from
-  <your mod>`. There is no `ok:false` document to remember to inspect any more —
-  a failure is a rejection.
+  The card sends `{ "mod": "<your-id>", "key": "<the action's key>" }` and waits 5 s. Resolve `{}` for a silent success or `{ "message": "…" }` to raise a toast; reject with your own code and message and that message toasts as a failure; time out and the player reads `No response from <your mod>`.
 
 ---
 
 ## 5. Presets
 
-Author-shipped value sets, applied as a batch of ordinary validated writes.
-Partial maps are fine — unlisted keys are untouched:
+Author-shipped value sets, applied as a batch of ordinary validated writes. Partial maps are fine — unlisted keys are untouched:
 
 ```jsonc
 "presets": [
@@ -242,46 +173,29 @@ Partial maps are fine — unlisted keys are untouched:
 ]
 ```
 
----
-
 ## 6. Branding the card
 
 Top-level, both optional:
 
-- `"accent": "#7a9a5e"` — tints your detail pane (otherwise the default
-  OSF UI accent is used).
-- `"icon": "badge.svg"` — path inside `views/<id>/`, shown in the rail and
-  launcher cards instead of the initials monogram. SVG or PNG, drawn at
-  ~30–52 px square.
+- `"accent": "#7a9a5e"` — tints your detail pane.
+- `"icon": "badge.svg"` — path inside `views/<id>/`, shown in the rail and launcher cards instead of the initials monogram. SVG or PNG, drawn at ~30–52 px square.
 
 ---
 
 ## 7. Hotkeys
 
-Every `"type": "key"` setting is a **live, rebindable hotkey** — you never
-write input-hook code:
+Every `"type": "key"` setting is a **live, rebindable hotkey** — you never write input-hook code:
 
 ```jsonc
 { "key": "toggleHud", "label": "Toggle HUD", "type": "key", "default": "F8" }
 ```
 
-- The user rebinds it by pressing the button in your card (capture happens in
-  the native input layer, so even the overlay toggle key itself is
-  rebindable).
-- When the bound key is pressed in-game, OSF UI dispatches it to you — see
-  [§8](#8-using-your-settings-consumption) for the web and C++ delivery.
-  Dispatch happens **only during gameplay**: it is suppressed while any game
-  menu is open (pause menu, inventory, dialogue, main menu, …) and while the
-  overlay is capturing input, so you never double-handle typing or react to
-  presses the player made inside a menu.
-- Conflicts with other mods or Starfield's own bindings show as
-  **informational warnings** — never blocked, both mods still fire.
-- `"allowUnbound": true` permits `""` as a deliberate unbound state (adds an
-  unbind × in the UI; unbound keys never dispatch and never warn).
+- The user rebinds by pressing the button in your card. Capture happens in the native input layer, so even the overlay toggle key itself is rebindable.
+- When the bound key is pressed in-game, OSF UI dispatches it to you — [§8](#8-using-your-settings-consumption) covers web and C++ delivery. Dispatch happens **only during gameplay**: suppressed while any game menu is open (pause, inventory, dialogue, main menu…) and while the overlay captures input, so you never double-handle typing or react to in-menu presses.
+- Conflicts with other mods or Starfield's own bindings are **informational warnings** — never blocked, both mods still fire.
+- `"allowUnbound": true` permits `""` as a deliberate unbound state (adds an unbind × in the UI; unbound keys never dispatch and never warn).
 
-If your mod suppresses normal gameplay controls during a modal state (a
-scene, a minigame), declare an input context so intentional reuse of gameplay
-keys (Space, E, …) doesn't warn:
+If your mod suppresses gameplay controls during a modal state (a scene, a minigame), declare an input context so intentional reuse of gameplay keys doesn't warn:
 
 ```jsonc
 "inputContexts": [
@@ -292,16 +206,11 @@ keys (Space, E, …) doesn't warn:
 ] }]
 ```
 
-`blocksGameplay` is an author assertion — only use it when the game's
-bindings genuinely cannot fire while your context is active. It suppresses
-`@game` warnings only; mod-to-mod collisions still warn.
+`blocksGameplay` is an author assertion — only use it when the game's bindings genuinely cannot fire while your context is active. It suppresses `@game` warnings only; mod-to-mod collisions still warn. Context ids are local to the mod, must match `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`, and can't be `gameplay`. Missing, invalid, duplicate or unknown definitions fall back to the implicit Gameplay context; for duplicate ids the first valid definition wins.
 
 ### Start Papyrus lazily from a hotkey
 
-A key may name an immutable GLOBAL Papyrus callback in its schema. OSF UI
-queues it after the normal web, C ABI, and registered-Papyrus hotkey channels,
-so a mod can start its gameplay quest on demand without keeping a bootstrap
-quest running or registering a listener first:
+A key may name an immutable GLOBAL Papyrus callback. OSF UI queues it after the normal web, C ABI and registered-Papyrus hotkey channels, so a mod can start its gameplay quest on demand without keeping a bootstrap quest running:
 
 ```jsonc
 {
@@ -329,36 +238,21 @@ Function OnHotkey(string asModId, string asKey) Global
 EndFunction
 ```
 
-For an installable notification-only test, see
-[`examples/declarative-hotkey-papyrus/`](../examples/declarative-hotkey-papyrus/).
-It compiles and deploys without an `.esp`, then exercises first press,
-rebinding, save-load persistence, menu suppression, and failure diagnostics.
+The number is the record's plugin-local FormID, not its load-order-dependent runtime FormID; OSF UI never resolves or stores the quest identity itself. `onPress` is read-only schema metadata — never copied into the user's values file, and no settings write can change it.
 
-The number passed to `Game.GetFormFromFile` is the record's plugin-local FormID,
-not its load-order-dependent runtime FormID. OSF UI never resolves or stores the
-quest identity itself. `onPress` is read-only schema metadata: it is never
-copied into the user's values file and no settings write can change it.
+The gameplay/menu/rebind suppression rules still apply, and the key is still delivered to ordinary subscribers, so a script that also registers the same callback gets a second delivery. Malformed or unavailable targets leave the ordinary hotkey working and appear in System Health with author details. Older OSF UI builds ignore `onPress`, so declare the `targetVersion` of the release where it ships.
 
-The normal gameplay/menu/rebind suppression rules above still apply, and the
-key is still delivered to ordinary hotkey subscribers. A script that also
-registers the same callback therefore receives a separate second delivery.
-Malformed or unavailable targets leave the ordinary hotkey working and appear
-in System Health with details for the mod author. Because older OSF UI builds
-ignore `onPress`, declare the `targetVersion` of the release where this feature
-first ships.
+For an installable notification-only test, see [`examples/declarative-hotkey-papyrus/`](../examples/declarative-hotkey-papyrus/) — it compiles and deploys without an `.esp` and exercises first press, rebinding, save-load persistence, menu suppression and failure diagnostics.
 
 ---
 
 ## 8. Using your settings (consumption)
 
-The schema stores values; making them *do* something is your mod's half.
-Pick the surface where your logic lives:
+The schema stores values; making them *do* something is your half. Pick the surface where your logic lives.
 
 ### From your own web view (zero native code)
 
-The registry is a **state key**: subscribing replays the current value
-immediately, and again on every document your view ever loads. Individual
-commits arrive as **events**, because a commit is a thing that happened.
+The registry is a **state key**: subscribing replays the current value immediately, and again on every document your view loads. Individual commits arrive as **events**.
 
 ```js
 // What is TRUE NOW. Fires synchronously on subscribe, and on every reload.
@@ -378,20 +272,9 @@ osfui.on("ui.hotkey", (p) => {
 });
 ```
 
-There is no initial read to issue and nothing to re-request after an F5. In
-1.x this was `osfui.send("settings.get")`, a call whose real job was to
-*subscribe* you — so every view had to remember to re-issue it on reload, and
-the ones that forgot painted defaults forever. State is what "read with replay"
-actually is.
+No initial read to issue, nothing to re-request after an F5.
 
-Values arrive post-validation: clamped and canonicalized by the same native path
-the settings menu writes through, never your raw input. The whole registry is
-re-sent only when its *shape* changes (a mod loads, a schema is registered at
-runtime, a reset lands) — that document is large and rarely different. Ordinary
-value commits ride the event instead, so wire up **both**: the state key hands
-you the truth at every boot, and the event keeps it true afterwards. Full
-protocol reference: [authoring-views.md](authoring-views.md) and
-[`sdk/osfui.d.ts`](../sdk/osfui.d.ts).
+Values arrive post-validation — clamped and canonicalized by the same native path the settings menu writes through. The whole registry is re-sent only when its *shape* changes (a mod loads, a schema registers at runtime, a reset lands); ordinary value commits ride the event. Wire up **both**: the state key hands you the truth at every boot, the event keeps it true afterwards. Full protocol reference: [authoring-views.md](authoring-views.md), [`sdk/osfui.d.ts`](../sdk/osfui.d.ts).
 
 ### Writing settings from a view
 
@@ -410,23 +293,13 @@ try {
 }
 
 // One key, or the whole mod when `key` is omitted. Resolves {} — the refreshed
-// registry reaches every view (including yours) as `osfui/settings` state,
-// rather than arriving by a private route for the caller alone.
+// registry reaches every view (including yours) as `osfui/settings` state.
 await osfui.request("settings.reset", { mod: "yourname.mymod" });
 ```
 
-A failed set **rejects**. 1.x resolved an `{ ok:false }` document you had to
-remember to inspect, so forgetting to inspect it read as success — the exact bug
-shape typed errors exist to remove.
+A view may only write **its own** mod (the built-in Mods surface and keybinds board are the two exceptions), so a neighbour can't rewrite your settings — or OSF UI's overlay toggle key, the player's guaranteed way out. Anything else rejects `forbidden`.
 
-A view may only write **its own** mod (the built-in Mods surface and keybinds
-board are the two exceptions), so a neighbour cannot rewrite your settings —
-or OSF UI's own overlay toggle key, which is the player's guaranteed way out.
-Anything else rejects `forbidden`.
-
-Rebinding a key is the one flow that waits on a human, and it is split
-accordingly: the request settles in **machine** time, and the human-time outcome
-arrives as an event.
+Rebinding a key is the one flow that waits on a human, and is split accordingly: the request settles in **machine** time, the human-time outcome arrives as an event.
 
 ```js
 osfui.on("settings.captured", (p) => {
@@ -440,15 +313,11 @@ osfui.on("settings.captured", (p) => {
 await osfui.request("settings.captureKey", { mod: "yourname.mymod", key: "toggleHud" });
 ```
 
-Nothing here needs a disabled client timeout: a request that stays pending until
-the player presses a key is a request that cannot be told apart from a backend
-that died.
+Nothing here needs a disabled client timeout: a request pending until the player presses a key can't be told apart from a backend that died.
 
 ### From an SFSE plugin (C++)
 
-Fetch the bridge from [`sdk/OSFUI_API.h`](../sdk/OSFUI_API.h) through the
-`Client` wrapper (C ABI 2.0 — every call below is baseline; see
-[native-plugin-api.md](native-plugin-api.md)):
+Fetch the bridge from [`sdk/OSFUI_API.h`](../sdk/OSFUI_API.h) through the `Client` wrapper (C ABI 1.8; the calls below predate 1.8 and remain compatible — see [native-plugin-api.md](native-plugin-api.md)):
 
 ```cpp
 static OSFUI::API::Client g_ui;   // g_ui.Init() once, after SFSE kPostLoad
@@ -457,56 +326,37 @@ static OSFUI::API::Client g_ui;   // g_ui.Init() once, after SFSE kPostLoad
 bool enabled = false;
 g_ui.GetSettingBool("yourname.mymod", "enabled", &enabled);
 
-// Change subscription — fired on the game main thread, and REPLAYED once per
+// Change subscription — fires on the game main thread, and REPLAYS once per
 // current value on subscribe, so you need no separate initial read.
 g_ui.SubscribeSettings("yourname.mymod",
     [](const char* mod, const char* key, const char* valueJson, void* user) noexcept {
         // switch on key; valueJson is the JSON-encoded value
     }, nullptr);
 
-// Hotkeys — fired on the game main thread when the bound key is pressed.
+// Hotkeys — fires on the game main thread when the bound key is pressed.
 g_ui.SubscribeHotkey("yourname.mymod", "toggleHud",
     [](const char* mod, const char* key, void* user) noexcept { /* toggle */ }, nullptr);
 ```
 
-A plugin built against the 1.x header gets no bridge at all — the ABI major is
-matched exactly — and the player is told which DLL to update. Recompiling
-against the 2.0 header is the whole migration for the code above.
+A plugin built against ABI 1.0–1.7 receives the 1.8 bridge normally; older vtable slots and feature numbers are unchanged. Recompile only to use the new retained-state method or newer header conveniences.
 
-A DLL can also skip the drop-in file and register at runtime with
-`RegisterSettingsSchema(json)` — same JSON document, same values file, so a
-mod can move between the two without users losing settings. If both exist,
-the DLL registration wins (with a logged warning).
+A DLL can skip the drop-in file and register at runtime with `RegisterSettingsSchema(json)` — same JSON, same values file, so a mod can move between the two without users losing settings. If both exist, the DLL registration wins (with a logged warning).
 
 ### From Papyrus
 
-An esm+scripts mod needs **no DLL and no registration call**: the drop-in
-schema file above *is* the registration, and the shipped `OSFUI` script
-(`Data/Scripts/OSFUI.pex`, source + full API docs in
-`Data/Scripts/Source/OSFUI.psc`) reads it back:
+An esm+scripts mod needs **no DLL and no registration call**: the drop-in schema file *is* the registration, and the shipped `OSFUI` script (`Data/Scripts/OSFUI.pex`, source + full API docs in `Data/Scripts/Source/OSFUI.psc`) reads it back:
 
 ```papyrus
-; Feature-detect: 0 => OSF UI absent (natives unbound; every call below then
-; yields the default you pass). Packed major*10000 + minor*100 + patch.
+; Feature-detect: 0 => OSF UI absent (natives unbound; every call then yields the
+; default you pass). Packed major*10000 + minor*100 + patch.
 If OSFUI.GetVersion() >= 10000   ; needs 1.0.0+
     Float scale = OSFUI.GetFloat("yourname.mymod", "hud.scale", 1.0)
 EndIf
 ```
 
-- **Getters** — `GetBool` / `GetInt` / `GetFloat` / `GetString(modId, key,
-  default)`: cheap, thread-safe reads of the live value store. Unknown
-  mod/key or a type mismatch yields the passed default. `GetString` covers
-  string-, enum-, and key-typed settings. Ids, keys, and enum option values
-  match your schema case-insensitively (Papyrus string interning can't
-  preserve casing, so OSF UI folds it); write them as authored anyway.
-- **Setters** — `SetBool` / `SetInt` / `SetFloat` / `SetString(modId, key,
-  value)` and `Reset(modId, key = "")`: fire-and-forget; the write is
-  validated/clamped against your schema and persisted through exactly the
-  same path as the settings menu (refusals are logged to `OSF UI.log`). An
-  open settings card updates live.
-- **Change events + hotkeys** — register a callback; hotkeys are just your
-  `"type": "key"` settings (§7), so the user sees and rebinds them in the
-  menu while OSF UI owns the input hook and dispatches presses to you:
+- **Getters** — `GetBool` / `GetInt` / `GetFloat` / `GetString(modId, key, default)`: cheap, thread-safe reads of the live value store. Unknown mod/key or a type mismatch yields the default. `GetString` covers string-, enum- and key-typed settings. Ids, keys and enum option values match case-insensitively (Papyrus string interning can't preserve casing); write them as authored anyway.
+- **Setters** — `SetBool` / `SetInt` / `SetFloat` / `SetString(modId, key, value)` and `Reset(modId, key = "")`: fire-and-forget; validated/clamped against your schema and persisted through the same path as the settings menu (refusals logged to `OSF UI.log`). An open settings card updates live.
+- **Change events + hotkeys** — register a callback; hotkeys are just your `"type": "key"` settings (§7), so the user sees and rebinds them while OSF UI owns the input hook:
 
 ```papyrus
 ScriptName MyModQuest Extends Quest
@@ -526,101 +376,55 @@ Function OnHotkey(string asModId, string asKey)
 EndFunction
 ```
 
-Registrations are **session-scoped** (they do not survive a save load) —
-call your `RegisterAll()` from quest init *and* every game load (e.g.
-`OnPlayerLoadGame` on a player `ReferenceAlias`). `RegisterFor*` returns a
-token for `Unregister(token)`; `...Static` variants dispatch to global
-functions on a named script for library-style mods. `OpenMenu()` opens the
-Mods surface (same as F10) for a "configure" shortcut — view ids are qualified,
-so it defaults to `"osfui/settings"`.
+Registrations are **session-scoped** (they don't survive a save load) — call `RegisterAll()` from quest init *and* every game load (e.g. `OnPlayerLoadGame` on a player `ReferenceAlias`). `RegisterFor*` returns a token for `Unregister(token)`; `...Static` variants dispatch to global functions on a named script. `OpenMenu()` opens the Mods surface (same as F10); view ids are qualified, so it defaults to `"osfui/settings"`.
 
-Settings cover pre-declared scalars. For **dynamic data** — pushing live
-lists/tables to a view of your own and reacting to its clicks, all from
-Papyrus — see [authoring-dynamic-data.md](authoring-dynamic-data.md)
-(`SetView*` / `ListenForViewActions`, with correlated requests when needed).
+Settings cover pre-declared scalars. For **dynamic data** — pushing live lists/tables to your own view and reacting to its clicks, all from Papyrus — see [authoring-dynamic-data.md](authoring-dynamic-data.md).
 
 ---
 
 ## 9. Updating your mod
 
-- **Declare `"version": 1`** from day one (a plain integer you bump on
-  meaningful schema changes; it's stamped into values files as
-  `$schemaVersion` for diagnostics). Never name a setting key with a leading
-  `$` — those are reserved host meta keys.
-- **Renaming a key:** keep the old name as an alias; saved values migrate on
-  the next load, no version arithmetic:
+- **Declare `"version": 1`** from day one (a plain integer you bump on meaningful schema changes; stamped into values files as `$schemaVersion` for diagnostics). Never name a setting key with a leading `$` — those are reserved host meta keys.
+- **Renaming a key:** keep the old name as an alias; saved values migrate on the next load, no version arithmetic:
 
   ```jsonc
   { "key": "hud.opacity", "aliases": ["opacity"], "type": "float", ... }
   ```
 
-- **Changing a default:** just change it. Persistence is sparse (only values
-  the user actually changed are written), so users who never touched the
-  knob get your new default automatically.
-- **Changing a type:** old saved values that no longer validate fall back to
-  the new default. Prefer a new key with an alias when the meaning changes.
-- **Using features newer than the OSF UI you tested on:** declare
-  `"targetVersion": "2.0.0"` (the OSF UI version you authored against). The
-  schema still loads best-effort on older hosts; unknown decorations are
-  ignored, unknown types render read-only (a write to one rejects `read-only`
-  rather than `invalid-value`, so a view can say "needs a newer OSF UI"), and
-  the Mods surface shows a "needs update" badge naming your mod. Saved values
-  for unknown types are preserved untouched for newer hosts. A schema is data,
-  so an *older* `targetVersion` is only ever advisory — unlike a **view
-  manifest** targeting below 2.0, which raises a `compat.legacy-view` card
-  because a 1.x view's code cannot run on the 2.0 helper.
-- **Uninstall:** the values file is deliberately kept (MO2 profile switches
-  look identical to uninstalls). Reinstalling restores the user's settings.
+- **Changing a default:** just change it. Persistence is sparse (only user-changed values are written), so users who never touched the knob get the new default.
+- **Changing a type:** old saved values that no longer validate fall back to the new default. Prefer a new key with an alias when the meaning changes.
+- **Using features newer than the OSF UI you tested on:** declare `"targetVersion": "2.0.0"`. The schema still loads best-effort on older hosts — unknown decorations ignored, unknown types rendered read-only (a write to one rejects `read-only`, not `invalid-value`, so a view can say "needs a newer OSF UI"), saved values for unknown types preserved untouched — and the Mods surface badges "needs update" naming your mod. A schema target remains advisory; a **view manifest** below 2.0 selects the 1.x compatibility helper so existing view code can continue running.
+- **Uninstall:** the values file is deliberately kept (MO2 profile switches look identical to uninstalls). Reinstalling restores the user's settings.
 
 ---
 
 ## 10. Testing your schema
 
-**Browser harness — no game launch.** Start the dev server with
-`npm --prefix frontend run dev` (see [`frontend/README.md`](../frontend/README.md))
-and open `http://localhost:8080/?view=osfui/settings`, then drag your JSON onto
-the page (or pass `?schema=<url>`). It renders the *real* settings view
-with a mock bridge that mirrors native clamping and persists to
-localStorage, and logs the exact bridge traffic. Widgets, conditions,
-presets, actions, and rebinding all work there.
+**Browser harness — no game launch.** `npm --prefix frontend run dev` (see [`frontend/README.md`](../frontend/README.md)), open `http://localhost:8080/?view=osfui/settings`, drag your JSON onto the page (or pass `?schema=<url>`). It renders the *real* settings view with a mock bridge that mirrors native clamping, persists to localStorage, and logs the exact bridge traffic. Widgets, conditions, presets, actions and rebinding all work.
 
-**Editor validation.** The `$schema` line covers most mistakes as you type.
-For CI or a final check:
+**Editor validation.** The `$schema` line catches most mistakes as you type. For CI:
 
 ```
 npx ajv-cli validate --spec=draft2020 -s docs/schema/settings-schema.schema.json -d yourname.mymod.json
 ```
 
-**In-game hot reload.** With `"devMode": true` in OSF UI's `config.json`,
-saved changes to `settings\*.json` are picked up within ~1 s while the game
-runs — values survive, the open menu repaints. Saved changes to a loaded
-view's own files (HTML/JS/CSS) reload the same way.
+**In-game hot reload.** With `"devMode": true` in OSF UI's `config.json`, saved changes to `settings\*.json` are picked up within ~1 s — values survive, the open menu repaints. A loaded view's own HTML/JS/CSS reloads the same way.
 
-**Broken files are loud, not silent.** A bad filename or unparseable JSON is
-skipped and reported (with line/column) in an alert pinned atop the Mods
-rail; a corrupt values file is quarantined to `<id>.json.bad` and defaults
-served. If your card doesn't appear, look there first, then at `OSF UI.log`.
+**Broken files are loud.** A bad filename or unparseable JSON is skipped and reported (with line/column) in an alert pinned atop the Mods rail; a corrupt values file is quarantined to `<id>.json.bad` and defaults served. If your card doesn't appear, look there first, then at `OSF UI.log`.
 
-**When a write doesn't stick.** Every failure the bridge can attribute to you is
-printed to the calling page's console with an `[osfui]` prefix, so F12 DevTools
-(harness or in-game devMode) shows the rejection code and payload with full
-object inspection. For the whole picture, set `localStorage["osfui:trace"] = "1"`
-in that console and reload: every envelope in both directions is logged, which
-answers "did my state key even arrive" without a native debugger.
+**When a write doesn't stick.** Every failure the bridge can attribute to you prints to the calling page's console with an `[osfui]` prefix, so F12 DevTools (harness or in-game devMode) shows the rejection code and payload. For the whole picture, `localStorage["osfui:trace"] = "1"` and reload.
 
 ---
 
 ## 11. Localization
 
-Write plain English in your schema — no string keys, nothing extra to
-maintain. Translators (you, or the community, as a separate data mod) ship:
+Write plain English in your schema — no string keys, nothing extra to maintain. Translators (you, or the community, as a separate data mod) ship:
 
 ```
 Data\SFSE\Plugins\OSFUI\l10n\<id>_<locale>.json     e.g. yourname.mymod_de.json
 ```
 
-A flat map from structural addresses to translated text; partial files are
-fine, and the authored English is the fallback for every missing entry:
+A flat map from structural addresses to translated text; partial files are fine, and the authored English is the fallback for every missing entry:
 
 ```json
 {
@@ -631,22 +435,13 @@ fine, and the authored English is the fallback for every missing entry:
 }
 ```
 
-Addresses derive from your stable identities — setting keys, stored option
-values, and the optional `id` on groups/presets/notes/images (give those an
-`id` so translations survive reordering; the array index is the fallback).
-Mod ids, setting keys, stored `options`, and commands are never localized.
-See [`examples/settings-only/l10n/`](../examples/settings-only/l10n/) for a
-worked pair.
+Addresses derive from your stable identities — setting keys, stored option values, and the optional `id` on groups/presets/notes/images (give those an `id` so translations survive reordering; the array index is the fallback). Mod ids, setting keys, stored `options` and commands are never localized. Worked pair: [`examples/settings-only/l10n/`](../examples/settings-only/l10n/).
 
 ---
 
 ## 12. Reference
 
-- **Formal schema (autocomplete + validation):**
-  [`docs/schema/settings-schema.schema.json`](schema/settings-schema.schema.json)
-- **Copy-me template exercising every widget:**
-  [`examples/settings-only/`](../examples/settings-only/)
-- **Bridge protocol (messages, payloads, TypeScript types):**
-  [authoring-views.md](authoring-views.md), [`sdk/osfui.d.ts`](../sdk/osfui.d.ts)
-- **C ABI for SFSE plugins:** [native-plugin-api.md](native-plugin-api.md),
-  [`sdk/OSFUI_API.h`](../sdk/OSFUI_API.h)
+- **Formal schema (autocomplete + validation):** [`docs/schema/settings-schema.schema.json`](schema/settings-schema.schema.json)
+- **Copy-me template exercising every widget:** [`examples/settings-only/`](../examples/settings-only/)
+- **Bridge protocol:** [authoring-views.md](authoring-views.md), [`sdk/osfui.d.ts`](../sdk/osfui.d.ts)
+- **C ABI for SFSE plugins:** [native-plugin-api.md](native-plugin-api.md), [`sdk/OSFUI_API.h`](../sdk/OSFUI_API.h)

@@ -196,5 +196,3 @@ never greeted the bridge" (nothing rendered, no state was ever replayed) from
 "it greeted and rendered nothing". That is the first question a blank-view
 report raises, and answering it currently costs a devMode repro. Promote it if
 blank-view reports keep arriving.
-</content>
-</invoke>

@@ -139,11 +139,13 @@ native → web:   { kind: "reply" | "error",   id: string,   payload: {} | { cod
   oversized/malformed id demotes the message to fire-and-forget is replaced by
   a hard `invalid-request` error — silent demotion hides bugs.
 - Endpoint-kind enforcement is structural: a `send` naming a request endpoint
-  and a `request` naming a command endpoint are both kind mismatches, rejected
-  uniformly (`wrong-endpoint-kind` for requests; dropped-and-surfaced for
-  sends — see "Failure semantics"). There are no auto-acks, no `_replied`
-  bookkeeping, no injected `requestId` in plugin payloads, and no foreign-ack
-  heuristic in the helper.
+  and a `request` naming a strict send endpoint are both kind mismatches,
+  rejected uniformly (`wrong-endpoint-kind` for requests;
+  dropped-and-surfaced for sends — see "Failure semantics"). The native ABI
+  `RegisterCommand` boundary is the compatibility exception: it accepts both
+  verbs and preserves the 1.x injected `requestId` plus auto-ack contract.
+  Explicit `RegisterRequest` and every platform endpoint remain strict, and
+  the helper has no foreign-ack heuristic.
 - Name grammar keeps today's structural partition
   (`src/api/BridgeApi.cpp` `IsValidPluginCommand`): platform endpoints are
   undotted or `osfui.*`; mod endpoints are `<author>.<modname>.<name>`.
@@ -347,10 +349,10 @@ constraints that plan must honor:
 - Unmigrated views get a *legible* failure, not a blank page: a load-time
   `compat.*` diagnostic keyed off manifest `targetVersion` (< 2.0), surfaced
   on the Mods surface.
-- The native ABI major moves to 2; `OSFUI_RequestBridge` already refuses
-  major mismatches safely (`src/api/Exports.cpp`). Whether 1.x plugins get a
-  compatibility dispatcher or a hard break is a product decision recorded in
-  the plan, not a technical constraint.
+- The native ABI remains additive at 1.8: `SetViewState` is appended at the
+  vtable tail and `RegisterCommand` retains the 1.x auto-ack compatibility
+  path. `OSFUI_RequestBridge` still refuses genuinely different majors safely
+  (`src/api/Exports.cpp`).
 
 ## Open questions
 

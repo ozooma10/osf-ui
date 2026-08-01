@@ -1,38 +1,31 @@
 # Packaging OSF UI for release
 
-`tools/package.ps1` builds OSF UI and produces a mod-manager-installable archive under `dist/`. It is driven by the **same xmake install step that auto-deploys to MO2**, so the archive layout can never drift from what the game actually loads.
+`tools/package.ps1` builds OSF UI and writes a mod-manager-installable archive to `dist/`. It stages through the **same xmake install step that auto-deploys to MO2**, so the archive can't drift from what the game loads.
 
 ## Quick start
 
 ```powershell
-# Full release build (WebView2, releasedbg) -> dist/OSF-UI-v<kPluginVersion>-alpha.zip
-# (version comes from kPluginVersion in src/core/Version.h; tag defaults to "alpha")
+# Release build (WebView2, releasedbg) -> dist/OSF-UI-v<kPluginVersion>-alpha.zip
+# Version comes from kPluginVersion in src/core/Version.h; tag defaults to "alpha".
 pwsh tools/package.ps1
 
-# Custom version / tag
-pwsh tools/package.ps1 -Version 1.4.0 -Tag beta
-
-# Package the current production build without rebuilding
-# (refuses a build configured with experimental world surfaces)
-pwsh tools/package.ps1 -SkipBuild
-
-# Smaller archive without the 18 MB PDB (keeps crash logs less useful)
-pwsh tools/package.ps1 -NoPdb
-
+pwsh tools/package.ps1 -Version 1.4.0 -Tag beta   # custom version/tag
+pwsh tools/package.ps1 -SkipBuild                 # package current build; refuses a world-surface build
+pwsh tools/package.ps1 -NoPdb                     # drop the 18 MB PDB (crash logs get less useful)
 ```
 
-The unpacked Microsoft.Web.WebView2 SDK package must be available: the script reads `-WebView2SdkDir`, else `$env:WEBVIEW2_SDK_DIR`, else `external/webview2`.
+Needs the unpacked Microsoft.Web.WebView2 SDK: `-WebView2SdkDir`, else `$env:WEBVIEW2_SDK_DIR`, else `external/webview2`.
 
-## What it does
+## Steps
 
-0. **Install frontend dependencies** with `npm ci` from the committed lockfile.
-1. **Configure + build** `releasedbg` with `--with_webview2=true --with_world_surfaces=false` (optimized, with a PDB). The explicit research flag prevents xmake's cached local configuration from leaking an experimental build into a release. `-SkipBuild` verifies the effective target defines and refuses a world-surface build instead. The xmake hook generates built-in views from `frontend/src/` into ignored `build/frontend/views/`.
-2. **`xmake install -o <staging>`** - rebuilds and stages the views alongside `SFSE/Plugins/OSFUI.dll` (+ PDB) and `OSFUI/bin/osfui_webview2_host.exe`.
-3. **Deterministic data sync** - authored data (`config.json`, `vanillakeys.json`, `settings/`) is copied straight from `data/OSFUI/`, and the Papyrus surface (`Scripts/OSFUI.pex` + `Scripts/Source/OSFUI.psc`) from `data/Scripts/`, over the staged tree while preserving generated views and the host executable. This bypasses xmake's cached authored-data glob without making generated files source-controlled.
-4. **License docs** - `LICENSE`, `EXCEPTIONS`, and `CREDITS.md` are placed inside `SFSE/Plugins/OSFUI/`, not at the archive root, so installing the archive does not clutter the game's `Data\` directory.
-5. **Verify** - fails loudly if the DLL, WebView2 host, `config.json`, `vanillakeys.json`, the `osfui.json` settings schema, `OSFUI.pex`, or any view manifest is missing. The shared kit (`views/shared/osfui.js`, `views/shared/osfui.css`) and `views/osfui/padnav.js` are required too. It also hard-fails if `config.json` references a view id with no matching manifest, if a world-surface config key or loose `Textures`/`Materials`/game-plugin payload is staged, or if the production binaries contain experimental runtime markers.
-6. **Sanity warnings** (non-blocking) - flags a `config.json` with `devMode` enabled.
-7. **Zip + report** - writes `dist/OSF-UI-v<version>[-tag].zip` and prints its size and SHA-256.
+0. `npm ci` from the committed lockfile.
+1. Configure + build `releasedbg` with `--with_webview2=true --with_world_surfaces=false`. The explicit research flag stops xmake's cached local config from leaking an experimental build into a release; `-SkipBuild` instead verifies the effective target defines and refuses a world-surface build. The xmake hook generates built-in views from `frontend/src/` into ignored `build/frontend/views/`.
+2. `xmake install -o <staging>` — stages views alongside `SFSE/Plugins/OSFUI.dll` (+ PDB) and `OSFUI/bin/osfui_webview2_host.exe`.
+3. Deterministic data sync — copies authored data (`config.json`, `vanillakeys.json`, `settings/`) from `data/OSFUI/` and the Papyrus surface (`Scripts/OSFUI.pex`, `Scripts/Source/OSFUI.psc`) from `data/Scripts/` over the staged tree, preserving generated views and the host exe. Bypasses xmake's cached authored-data glob without source-controlling generated files.
+4. License docs — `LICENSE`, `EXCEPTIONS`, `CREDITS.md` go inside `SFSE/Plugins/OSFUI/`, so installing doesn't clutter `Data\`.
+5. Verify — hard-fails on a missing DLL, WebView2 host, `config.json`, `vanillakeys.json`, `osfui.json` schema, `OSFUI.pex`, any view manifest, the shared kit (`views/shared/osfui.js|.css`) or `views/osfui/padnav.js`; on a `config.json` view id with no manifest; on a staged world-surface config key or loose `Textures`/`Materials`/game-plugin payload; and on experimental runtime markers in the production binaries.
+6. Sanity warnings (non-blocking) — flags `devMode` enabled in `config.json`.
+7. Zip + report — `dist/OSF-UI-v<version>[-tag].zip`, with size and SHA-256.
 
 ## Archive layout (drop-in for MO2 / Vortex)
 
@@ -45,21 +38,21 @@ OSF-UI-v<version>-alpha.zip
    ├─ OSFUI.dll
    ├─ OSFUI.pdb                       (omit with -NoPdb)
    └─ OSFUI/
-      ├─ LICENSE  EXCEPTIONS  CREDITS.md   (license docs; kept inside the plugin folder so Data root stays clean)
+      ├─ LICENSE  EXCEPTIONS  CREDITS.md
       ├─ config.json
       ├─ vanillakeys.json             (vanilla-keybinds defaults table)
-      ├─ views/                          (GENERATED from frontend/ during build)
-      │  ├─ osfui/{settings,keybinds}/   (built-in views: views/<modId>/<viewName>/; + padnav.js asset)
-      │  └─ shared/                      (shared view kit: osfui.css, osfui.js)
+      ├─ views/                       (GENERATED from frontend/ during build)
+      │  ├─ osfui/{settings,keybinds}/   (built-in views + padnav.js)
+      │  └─ shared/                      (shared kit: osfui.css, osfui.js)
       ├─ settings/osfui.json          (OSF UI's own Mod Settings schema)
       └─ bin/osfui_webview2_host.exe
 ```
 
-The archive root holds `SFSE/` and `Scripts/`, which map onto the game's `Data` folder - add the zip in a mod manager, or extract so they land in `<Starfield>/Data/`.
+`SFSE/` and `Scripts/` map onto the game's `Data` folder — add the zip in a mod manager, or extract into `<Starfield>/Data/`.
 
-## What OSF UI does **not** package
+## Not packaged
 
-- The Microsoft.Web.WebView2 SDK headers and static loader library (build-time only).
-- Development/test surfaces stay out of the archive: only `build/frontend/views/` from `frontend/` is installed, while its source, `node_modules`, the dev mock (`devmock/`, `osfui.mock.ts`, `devpages/`), `tests/`, `examples/`, and `packaging/` are excluded. Staging is driven by xmake install plus the authored `data/` sync.
-- In-world surface research stays out of both runtime binaries and loose game data. It can be built only through the explicit `with_world_surfaces` developer flag; the release packager and CI force that flag off and verify the result.
-- Source maps. The frontend build emits none, and its output gate fails on a stray `.map` — nothing in this script or CI excludes by extension, so one would otherwise ship in every archive.
+- The WebView2 SDK headers and static loader library (build-time only).
+- Dev/test surfaces: only `build/frontend/views/` is installed; `frontend/` source, `node_modules`, the dev mock (`devmock/`, `osfui.mock.ts`, `devpages/`), `tests/`, `examples/`, `packaging/` are excluded.
+- In-world surface research — buildable only via the `with_world_surfaces` developer flag, which the packager and CI force off and then verify.
+- Source maps. The frontend build emits none and its output gate fails on a stray `.map`; nothing here excludes by extension, so one would otherwise ship.
