@@ -128,6 +128,109 @@ function hudSettingsSchema(options) {
   };
 }
 
+function menuSettingsSchema(options) {
+  const settings = [
+    {
+      type: 'note', id: 'tour', style: 'info',
+      text: 'This generated schema demonstrates every settings value type. Edit it down to the controls your mod needs.',
+    },
+    { key: 'enabled', label: 'Enable backend actions', type: 'bool', default: true },
+    {
+      key: 'mode', label: 'Display mode', type: 'enum',
+      options: ['compact', 'detailed', 'diagnostic'],
+      optionLabels: ['Compact', 'Detailed', 'Diagnostic'],
+      widget: 'segmented', default: 'detailed',
+    },
+    {
+      key: 'features', label: 'Visible feature cards', type: 'flags',
+      options: ['bridge', 'platform', 'settings'],
+      optionLabels: ['Bridge', 'Platform', 'Settings'],
+      default: ['bridge', 'platform', 'settings'],
+    },
+    {
+      key: 'intensity', label: 'Example integer', type: 'int',
+      min: 0, max: 100, step: 5, default: 65, widget: 'stepper',
+      enabledWhen: { key: 'enabled', eq: true },
+    },
+    {
+      key: 'opacity', label: 'Panel opacity', type: 'float',
+      min: 0.25, max: 1, step: 0.05, default: 0.94,
+      format: { scale: 100, suffix: '%', decimals: 0 },
+    },
+    {
+      key: 'greeting', label: 'Backend greeting', type: 'string',
+      default: 'Hello from OSF UI', maxLength: 80,
+    },
+    {
+      key: 'notes', label: 'Author notes', type: 'string', widget: 'textarea',
+      default: '', maxLength: 256,
+    },
+    {
+      key: 'accent', label: 'Accent colour', type: 'string', widget: 'color',
+      default: '#7bdcff',
+    },
+    {
+      key: 'openKey', label: 'Open example view', type: 'key', default: 'F9',
+      allowUnbound: true,
+    },
+  ];
+  if (options.integration === 'native') {
+    settings.push({
+      type: 'action', key: 'recalibrate', label: 'Run native action',
+      command: `${options.modId}.recalibrate`, style: 'accent',
+      confirm: 'Run the generated native request example?',
+    });
+  }
+  return {
+    $schema: 'https://github.com/ozooma10/osf-ui/blob/main/docs/schema/settings-schema.schema.json',
+    id: options.modId,
+    title: displayName(options.modId),
+    description: `Comprehensive settings and bridge examples for ${options.view.replaceAll('-', ' ')}.`,
+    version: 1,
+    targetVersion: '2.0.0',
+    accent: '#7bdcff',
+    pages: [
+      { id: 'behavior', label: 'Behavior' },
+      { id: 'appearance', label: 'Appearance' },
+    ],
+    presets: [
+      {
+        id: 'quiet', label: 'Quiet', description: 'A subdued example preset.',
+        values: { mode: 'compact', intensity: 35, opacity: 0.72 },
+      },
+      {
+        id: 'showcase', label: 'Showcase',
+        values: { mode: 'detailed', intensity: 65, opacity: 0.94 },
+      },
+    ],
+    groups: [
+      { id: 'behavior', label: 'Behavior', page: 'behavior', settings: settings.slice(0, 6) },
+      { id: 'appearance', label: 'Appearance', page: 'appearance', settings: settings.slice(6) },
+    ],
+  };
+}
+
+export function settingsSchema(options) {
+  return options.surface === 'hud' ? hudSettingsSchema(options) : menuSettingsSchema(options);
+}
+
+function localizationFiles(options) {
+  const view = options.view;
+  return [{
+    path: `mod/SFSE/Plugins/OSFUI/l10n/${options.modId}_de.json`,
+    content: `${JSON.stringify({
+      [`views.${view}.title`]: 'OSF-UI-Funktionsbeispiel',
+      [`views.${view}.heading`]: 'OSF-UI-Funktionsübersicht',
+      [`views.${view}.subtitle`]: 'Beispiele für Zustände, Ereignisse, Anfragen und Plattformschnittstellen.',
+      [`views.${view}.connected`]: 'Verbunden mit OSF UI {version}',
+      'groups.behavior.label': 'Verhalten',
+      'groups.appearance.label': 'Darstellung',
+      'settings.enabled.label': 'Backend-Aktionen aktivieren',
+      'settings.accent.label': 'Akzentfarbe',
+    }, null, 2)}\n`,
+  }];
+}
+
 function papyrusHudFiles(options) {
   const scriptName = `${pascalIdentifier(options.modId)}OSFUI`;
   const aliasName = `${scriptName}PlayerAlias`;
@@ -173,6 +276,14 @@ Function UpdateHUD(int aiValue, int aiMaximum, string asStatus, bool abAlert)
     PublishHUD()
 EndFunction
 
+; EVENTS are transient. Use this for a moment the currently live HUD may show,
+; never for a value that must survive a page reload.
+Function AnnounceHUD(string asMessage)
+    string[] args = new string[1]
+    args[0] = asMessage
+    OSFUI.SendViewEvent(ModId, "notice", args)
+EndFunction
+
 ; Each value is cached by (ModId, key), pushed to every live owning view, and
 ; replayed automatically after a page reload. Publish again after a save load.
 Function PublishHUD()
@@ -198,10 +309,6 @@ Event OnPlayerLoadGame()
 EndEvent
 `,
     },
-    {
-      path: `mod/SFSE/Plugins/OSFUI/settings/${options.modId}.json`,
-      content: `${JSON.stringify(hudSettingsSchema(options), null, 2)}\n`,
-    },
   ];
 }
 
@@ -219,7 +326,11 @@ ${aliasName} to a player reference alias on the same quest.}
 string ModId = "${options.modId}"
 int actionToken = 0
 int requestToken = 0
+int settingToken = 0
+int hotkeyToken = 0
 int clicks = 0
+bool actionsEnabled = true
+string greeting = "Hello from ${scriptName}"
 
 Event OnInit()
     RegisterOSFUI()
@@ -236,9 +347,13 @@ Function RegisterOSFUI()
     ; Drop last session's tokens (a no-op when they are already stale).
     OSFUI.Unregister(actionToken)
     OSFUI.Unregister(requestToken)
+    OSFUI.Unregister(settingToken)
+    OSFUI.Unregister(hotkeyToken)
 
     actionToken = OSFUI.ListenForViewActions(self as ScriptObject, ModId)
     requestToken = OSFUI.ListenForViewRequests(self as ScriptObject, ModId)
+    settingToken = OSFUI.RegisterForSettingChanges(self as ScriptObject, "OnSettingChanged", ModId)
+    hotkeyToken = OSFUI.RegisterForHotkey(self as ScriptObject, "OnHotkey", ModId, "openKey")
     ; A 0 token means the registration was refused - usually because another
     ; script already listens for this mod id (the first listener wins).
     If actionToken == 0 || requestToken == 0
@@ -253,8 +368,11 @@ EndFunction
 ; one opens or reloads - no ready handshake. The cache is session-scoped, so
 ; publish again after a game load.
 Function PublishState()
-    OSFUI.SetViewString(ModId, "greeting", "Hello from ${scriptName}")
+    actionsEnabled = OSFUI.GetBool(ModId, "enabled", true)
+    greeting = OSFUI.GetString(ModId, "greeting", "Hello from ${scriptName}")
+    OSFUI.SetViewString(ModId, "greeting", greeting)
     OSFUI.SetViewInt(ModId, "clicks", clicks)
+    OSFUI.SetViewBool(ModId, "enabled", actionsEnabled)
 EndFunction
 
 ; One-way player actions: the view fires osfui.papyrus.send("bump", 1). Change game
@@ -263,12 +381,21 @@ EndFunction
 ; Papyrus, and references to it resolve to the type, not the parameter.
 Function OnOSFUIViewAction(string actionName, string[] args)
     If actionName == "bump"
+        If !actionsEnabled
+            string[] disabledArgs = new string[1]
+            disabledArgs[0] = "Backend actions are disabled in Mod Settings"
+            OSFUI.SendViewEvent(ModId, "notice", disabledArgs)
+            Return
+        EndIf
         int amount = 1
         If args.Length > 0
             amount = args[0] as int
         EndIf
         clicks += amount
         PublishState()
+        string[] noticeArgs = new string[1]
+        noticeArgs[0] = "Papyrus handled a one-way action"
+        OSFUI.SendViewEvent(ModId, "notice", noticeArgs)
     ElseIf actionName == "openSettings"
         OSFUI.OpenMenu()    ; the Mods surface, same as F10
     EndIf
@@ -288,9 +415,24 @@ Function OnOSFUIViewRequest(string request, string[] args, string replyToken)
             OSFUI.RejectViewRequest(replyToken, "invalid-name", "Type a name first")
             Return
         EndIf
-        OSFUI.ReplyViewString(replyToken, "Hello " + who + ", from ${scriptName}")
+        OSFUI.ReplyViewString(replyToken, greeting + ", " + who)
     Else
         OSFUI.RejectViewRequest(replyToken, "unknown-request", request)
+    EndIf
+EndFunction
+
+; Settings callbacks are session-scoped like bridge listeners. The generated
+; page also consumes the same values from osfui/settings state, demonstrating
+; that gameplay and web code can share one schema without polling.
+Function OnSettingChanged(string asModId, string asKey)
+    If asModId == ModId && (asKey == "enabled" || asKey == "greeting")
+        PublishState()
+    EndIf
+EndFunction
+
+Function OnHotkey(string asModId, string asKey)
+    If asModId == ModId && asKey == "openKey"
+        OSFUI.OpenMenu(ModId + "/${options.view}")
     EndIf
 EndFunction
 
@@ -419,6 +561,12 @@ namespace
         (void)g_json.SetViewState(kModId, "hud", g_state);
     }
 
+    void PushHudNotice(const char* message) noexcept
+    {
+        (void)g_json.SendToWeb(kViewId, "${options.modId}.notice",
+            OSFUI::API::Json{ { "message", message } });
+    }
+
     // Call this from your game-event handling when displayed data changes.
     // Prefer changed snapshots or a bounded cadence over sending every frame.
     void UpdateHudState(int value, int maximum, std::string status, bool alert)
@@ -428,6 +576,7 @@ namespace
         g_state.status = std::move(status);
         g_state.alert = alert;
         PushHudState();
+        if (alert) PushHudNotice("HUD entered its alert state");
     }
 
     void OnSFSEMessage(SFSE::MessagingInterface::Message* message)
@@ -441,67 +590,9 @@ namespace
         PushHudState();
 
         if (g_ui.Has(OSFUI::API::Feature::kSettings)) {
-            (void)g_json.RegisterSettingsSchema(OSFUI::API::Json{
-                { "id", kModId },
-                { "title", "${displayName(options.modId)}" },
-                { "description", "Controls for the ${options.view.replaceAll('-', ' ')} HUD." },
-                { "version", 1 },
-                { "targetVersion", "2.0.0" },
-                { "groups", OSFUI::API::Json::array({
-                    OSFUI::API::Json{
-                        { "id", "hud" },
-                        { "label", "HUD" },
-                        { "settings", OSFUI::API::Json::array({
-                            OSFUI::API::Json{
-                                { "key", "hudEnabled" }, { "label", "Show HUD" },
-                                { "type", "bool" }, { "default", true }
-                            },
-                            OSFUI::API::Json{
-                                { "key", "toggleHud" }, { "label", "Toggle HUD" },
-                                { "type", "key" }, { "default", "F8" },
-                                { "allowUnbound", true },
-                                { "hint", "Shows or hides the HUD during gameplay." }
-                            },
-                            OSFUI::API::Json{
-                                { "key", "anchor" }, { "label", "Screen position" },
-                                { "type", "enum" },
-                                { "options", OSFUI::API::Json::array({
-                                    "top-left", "top-right", "bottom-left", "bottom-right"
-                                }) },
-                                { "optionLabels", OSFUI::API::Json::array({
-                                    "Top left", "Top right", "Bottom left", "Bottom right"
-                                }) },
-                                { "default", "top-right" }
-                            },
-                            OSFUI::API::Json{
-                                { "key", "margin" }, { "label", "Screen margin" },
-                                { "type", "int" }, { "min", 0 }, { "max", 160 },
-                                { "step", 4 }, { "default", 32 },
-                                { "format", OSFUI::API::Json{ { "suffix", " px" } } }
-                            },
-                            OSFUI::API::Json{
-                                { "key", "scale" }, { "label", "Scale" },
-                                { "type", "int" }, { "min", 50 }, { "max", 200 },
-                                { "step", 5 }, { "default", 100 },
-                                { "format", OSFUI::API::Json{ { "suffix", "%" } } }
-                            },
-                            OSFUI::API::Json{
-                                { "key", "opacity" }, { "label", "Opacity" },
-                                { "type", "float" }, { "min", 0.1 }, { "max", 1.0 },
-                                { "step", 0.05 }, { "default", 0.9 },
-                                { "format", OSFUI::API::Json{
-                                    { "scale", 100 }, { "suffix", "%" }, { "decimals", 0 }
-                                } }
-                            },
-                            OSFUI::API::Json{
-                                { "key", "accent" }, { "label", "Accent colour" },
-                                { "type", "string" }, { "widget", "color" },
-                                { "default", "#7bdcff" }
-                            }
-                        }) }
-                    }
-                }) }
-            });
+            const auto schema = OSFUI::API::Json::parse(
+                R"osfui(${JSON.stringify(settingsSchema(options))})osfui", nullptr, false);
+            if (!schema.is_discarded()) (void)g_json.RegisterSettingsSchema(schema);
         }
     }
 }
@@ -640,6 +731,18 @@ namespace
         }
     }
 
+    // Settings action rows are requests too. The built-in Mods
+    // surface shows this reply message as a toast.
+    void OnRecalibrate(const OSFUI::API::Request& raw, void*) noexcept
+    {
+        OSFUI::API::JsonRequest request{ raw };
+        if (!request) return;
+        g_state.count = 0;
+        g_state.lastAction = "Native settings action completed";
+        PushState();
+        (void)request.Respond(OSFUI::API::Json{ { "message", "Example recalibration complete" } });
+    }
+
     // Main-thread callback fired when a bridge becomes live (and after recreation).
     void OnReady(void*) noexcept
     {
@@ -681,38 +784,14 @@ namespace
         g_ui.RegisterCommand("${options.modId}.increment", &OnIncrement, nullptr);
         g_ui.RegisterRequest("${options.modId}.getState", &OnGetState, nullptr);
         g_ui.RegisterRequest("${options.modId}.greet", &OnGreet, nullptr);
+        g_ui.RegisterRequest("${options.modId}.recalibrate", &OnRecalibrate, nullptr);
         (void)g_ui.RegisterView(kViewId);
         g_ui.SetReadyCallback(&OnReady, nullptr);
 
         if (g_ui.Has(OSFUI::API::Feature::kSettings)) {
-            (void)g_json.RegisterSettingsSchema(OSFUI::API::Json{
-                { "id", kModId },
-                { "title", "${displayName(options.modId)} native example" },
-                { "description", "Runtime schema registered from C++ with OSFUI_JSON." },
-                { "version", 1 },
-                { "targetVersion", "2.0.0" },
-                { "groups", OSFUI::API::Json::array({
-                    OSFUI::API::Json{
-                        { "id", "native-demo" },
-                        { "label", "Native bridge demo" },
-                        { "settings", OSFUI::API::Json::array({
-                            OSFUI::API::Json{
-                                { "key", "enabled" }, { "label", "Enable native counter" },
-                                { "type", "bool" }, { "default", true }
-                            },
-                            OSFUI::API::Json{
-                                { "key", "greeting" }, { "label", "Greeting prefix" },
-                                { "type", "string" }, { "default", g_state.greeting },
-                                { "maxLength", 80 }
-                            },
-                            OSFUI::API::Json{
-                                { "key", "openKey" }, { "label", "Open example view" },
-                                { "type", "key" }, { "default", "F9" }, { "allowUnbound", true }
-                            }
-                        }) }
-                    }
-                }) }
-            });
+            const auto schema = OSFUI::API::Json::parse(
+                R"osfui(${JSON.stringify(settingsSchema(options))})osfui", nullptr, false);
+            if (!schema.is_discarded()) (void)g_json.RegisterSettingsSchema(schema);
             (void)g_ui.SubscribeSettings(kModId, &OnSetting, nullptr);
         }
         if (g_ui.Has(OSFUI::API::Feature::kHotkeys)) {
@@ -735,10 +814,19 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* sfse)
 }
 
 export function backendFiles(options) {
+  const shared = localizationFiles(options);
   if (options.integration === 'papyrus') {
-    return [...papyrusFiles(options), ...papyrusPluginFiles(options)];
+    return [
+      ...papyrusFiles(options),
+      ...papyrusPluginFiles(options),
+      {
+        path: `mod/SFSE/Plugins/OSFUI/settings/${options.modId}.json`,
+        content: `${JSON.stringify(settingsSchema(options), null, 2)}\n`,
+      },
+      ...shared,
+    ];
   }
-  return nativeFiles(options);
+  return [...nativeFiles(options), ...shared];
 }
 
 export function backendConfig(options) {

@@ -11,7 +11,9 @@ npm run doctor
 npm run dev
 ```
 
-The generator asks for a mod/view id, a menu or HUD surface, and a Papyrus or native-plugin starter. Projects are TypeScript (strict, no UI framework); plain `.js` modules build too (`allowJs`). Source uses the production `src/views/<mod>/<view>/` shape, and the chosen workflow adds its backend starter — Papyrus source, or a native SFSE/CommonLibSF plugin project. The Papyrus preset also ships Spriggit text source for a Start Game Enabled quest and player alias, so it builds a real ESM instead of leaving record setup as a Creation Kit chore.
+The generator asks for a mod/view id, a menu or HUD surface, and a Papyrus or native-plugin starter. Projects are TypeScript (strict, no UI framework); plain `.js` modules build too (`allowJs`). Each project is a runnable feature tour rather than an empty skeleton: `FEATURES.md` maps the working state/event/send/request, settings, hotkey, localization, theming, lifecycle, platform-service, mock, and backend examples to their source files. Menu presets exercise the interactive API surface and every settings value type; HUD presets stay passive while demonstrating retained telemetry, live appearance settings, hotkey visibility, localization, and transient events.
+
+Source uses the production `src/views/<mod>/<view>/` shape, and the chosen workflow adds its backend starter — Papyrus source, or a native SFSE/CommonLibSF plugin project. The Papyrus preset also ships Spriggit text source for a Start Game Enabled quest and player alias, so it builds a real ESM instead of leaving record setup as a Creation Kit chore. Generated code explicitly leaves platform-private administration APIs and experimental raw-gamepad takeover out of the starter; the copied SDK remains the reference for advanced calls.
 
 ## Iterate in the browser
 

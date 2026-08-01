@@ -39,6 +39,7 @@ for (const [surface, integration, backendPath, backendPattern] of [
       'utf8',
     );
     const mock = await readFile(resolve(root, 'osfui.mock.ts'), 'utf8');
+    const featureGuide = await readFile(resolve(root, 'FEATURES.md'), 'utf8');
     const style = await readFile(
       resolve(root, 'src/views/acme.widgets/panel/style.css'),
       'utf8',
@@ -49,8 +50,19 @@ for (const [surface, integration, backendPath, backendPattern] of [
     assert.doesNotMatch(source, /preact/i);
     assert.match(config, new RegExp(`kind: '${surface}'`));
     assert.match(config, /targetVersion: '2\.0\.0'/);
+    assert.match(config, /description: 'Generated/);
+    assert.match(config, /accent: '#7bdcff'/);
+    assert.match(config, /hub: true/);
     assert.equal(config.match(/\bviews:/g)?.length, 1);
     assert.match(mock, /defineMock/);
+    assert.match(mock, surface === 'menu' ? /OSF-UI-Funktionsübersicht/ : /HUD-Beispiel/);
+    assert.match(featureGuide, /# Generated feature map/);
+    assert.match(featureGuide, /Retained backend state/);
+    assert.match(featureGuide, /Deliberate boundaries/);
+    assert.match(
+      await readFile(resolve(root, 'mod/SFSE/Plugins/OSFUI/l10n/acme.widgets_de.json'), 'utf8'),
+      /views\.panel\.heading/,
+    );
     assert.doesNotMatch(mock, /\btype: 'ui\./);
     const tsconfig = JSON.parse(await readFile(resolve(root, 'tsconfig.json'), 'utf8'));
     assert.equal(tsconfig.compilerOptions.strict, true);
@@ -119,9 +131,13 @@ for (const [surface, integration, backendPath, backendPattern] of [
         assert.match(script, /ListenForViewActions/);
         assert.match(script, /OnOSFUIViewAction/);
         assert.match(script, /RejectViewRequest/);
-        assert.match(source, /state\?\.on\?\.<number>\('acme\.widgets\/clicks'/);
-        assert.match(source, /state\?\.on\?\.<string>\('acme\.widgets\/greeting'/);
-        assert.match(source, /osfui\?\.papyrus\?\.send\('bump', 1\)/);
+        assert.match(source, /osfui\.state\.on<number>\('acme\.widgets\/clicks'/);
+        assert.match(source, /osfui\.state\.on<string>\('acme\.widgets\/greeting'/);
+        assert.match(source, /osfui\.papyrus\.send\('bump', 1\)/);
+        assert.match(source, /osfui\.on<\{ args: string\[\] \}>\('acme\.widgets\.notice'/);
+        assert.match(script, /OSFUI\.SendViewEvent\(ModId, "notice"/);
+        assert.match(script, /RegisterForSettingChanges/);
+        assert.match(script, /RegisterForHotkey/);
         // The 1.x endpoint and its reply type are gone, not renamed in place.
         assert.doesNotMatch(source, /ui\.papyrusRequest/);
         assert.doesNotMatch(mock, /papyrus\.result/);
@@ -160,11 +176,13 @@ for (const [surface, integration, backendPath, backendPattern] of [
         assert.match(nativeSource, /SubscribeSettings/);
         assert.match(nativeSource, /SubscribeHotkey/);
         assert.match(source, /request<DemoState>\('acme\.widgets\.getState'/);
-        assert.match(source, /state\?\.on\?\.<DemoState>\('acme\.widgets\/state'/);
+        assert.match(source, /osfui\.state\.on<DemoState>\('acme\.widgets\/state'/);
         assert.match(source, /acme\.widgets\.increment/);
         assert.doesNotMatch(source, /on\?\.<DemoState>\('acme\.widgets\.state'/);
         assert.doesNotMatch(mock, /\bcommand ===|\breply\(/);
         assert.match(mock, /io\.reject\('invalid-payload'/);
+        assert.match(nativeSource, /OnRecalibrate/);
+        assert.match(nativeSource, /\.recalibrate"/);
       } else {
         assert.match(nativeSource, /RegisterView\(kViewId\)/);
         assert.match(nativeSource, /RegisterSettingsSchema/);
@@ -194,11 +212,40 @@ for (const [surface, integration, backendPath, backendPattern] of [
       assert.match(style, /pointer-events: none/);
       assert.match(style, /data-anchor/);
       assert.match(mock, /Change telemetry/);
+      assert.match(mock, /hud-event/);
       assert.match(mock, /hud-hotkey/);
+      assert.match(source, /\.notice'/);
+      assert.match(featureGuide, /Passive HUD policy/);
+      const backend = await readFile(resolve(root, backendPath), 'utf8');
+      assert.match(backend, integration === 'native' ? /PushHudNotice/ : /AnnounceHUD/);
       assert.doesNotMatch(mock, /osfui\.hello/);
     } else {
       assert.doesNotMatch(config, /openOnStart: true/);
+      assert.match(config, /capturesInput: true/);
+      assert.match(config, /readySignal: true/);
       assert.match(source, /<button/);
+      assert.match(source, /osfui\.markReady\(\)/);
+      assert.match(source, /settings\.captureKey/);
+      assert.match(source, /osfui\.i18n\.localize/);
+      assert.match(source, /osfui\.theme\.applyAccent/);
+      assert.match(source, /osfui\.request<GameData>\('game\.get'/);
+      assert.match(source, /osfui\.send\('osfui\.handleBack'/);
+      assert.match(mock, /settings\.captured/);
+      const schema = integration === 'papyrus'
+        ? JSON.parse(await readFile(
+          resolve(root, 'mod/SFSE/Plugins/OSFUI/settings/acme.widgets.json'),
+          'utf8',
+        ))
+        : null;
+      if (schema) {
+        const rows = schema.groups.flatMap((group) => group.settings);
+        assert.deepEqual(
+          [...new Set(rows.filter((row) => row.key).map((row) => row.type))].sort(),
+          ['bool', 'enum', 'flags', 'float', 'int', 'key', 'string'],
+        );
+        assert.equal(schema.pages.length, 2);
+        assert.equal(schema.presets.length, 2);
+      }
     }
   });
 }
