@@ -24,8 +24,9 @@ Frame Interpolation -> Scaleform composite -> present.
 
 The UI subgraph ends at `ScaleformEnd`. Immediately after that pass, graph glue
 hands off transient `R8G8B8A8_TYPELESS` resources while they are still in
-`RENDER_TARGET` state. The seam records there, before the engine forwards the
-handoff barrier.
+`RENDER_TARGET` state. Luma upgrades the same resources to
+`R16G16B16A16_FLOAT`; the seam accepts both and records through a matching typed
+RTV and PSO before the engine forwards the handoff barrier.
 
 Starfield's embedded FSR3 UI-composition pixel shader uses premultiplied over:
 
@@ -62,11 +63,13 @@ because the normal candidate precedes the evidence that distinguishes the graph.
 ## Runtime contract
 
 `UiPassSeam` hooks slot 7 on `ScaleformBegin`, `ScaleformEnd`, and
-`ScaleformComposite`. Installation is fail-closed: every slot must still hold
-the expected game implementation. A partial or foreign hook disables seam
-drawing, and since the present-time renderer has been retired that means the
-overlay does not draw at all that session — so `Install()` failure is logged at
-error level by both `UiPassSeam` and `Runtime`.
+`ScaleformComposite` after SFSE has loaded every plugin. Installation is
+fail-closed except for Luma's proven `ScaleformComposite` call-through hook:
+OSF UI chains that owner after Luma has patched the vanilla implementation.
+Any other partial or foreign hook disables seam drawing. Since the present-time
+renderer has been retired, menu opens are then refused so an invisible overlay
+cannot capture input; the failure is logged at error level by both `UiPassSeam`
+and `Runtime`.
 
 Pass execution moves among render workers, so the implementation retains no
 engine resource or command list across calls. The transient target is validated
@@ -93,14 +96,14 @@ between existing safe paths:
 
 The seam is unconditional; there is no `uiPassDraw` switch and no present-time
 fallback to select. A knob whose off position renders no UI is not a useful
-compatibility control, and the seam's own fail-closed slot check already
-declines to hook when another mod owns the vtable.
+compatibility control, and the seam's fail-closed slot check declines every
+foreign owner except the explicitly supported Luma composite hook.
 
 Two consequences of dropping the backbuffer draw are worth noting:
 
 - HDR and `_SRGB` backbuffers no longer suppress the overlay. The seam renders
-  through a typed `R8G8B8A8_UNORM` view onto the engine's UI buffer, so the
-  swapchain's own format is no longer inspected.
+  through a typed view matching the stock `R8G8B8A8_UNORM` or Luma
+  `R16G16B16A16_FLOAT` UI buffer, so the swapchain's own format is not inspected.
 - Frame Generation no longer suspends drawing. The seam infers FG directly from
   the transparent COPY_SOURCE handoff and selects that target without inspecting
   the swapchain or its presenting caller.
@@ -112,7 +115,7 @@ Only the seam's own load-bearing hooks remain: the `ScaleformBegin`/`End`/
 command-list hooks the draw needs (hand-off match plus engine heap restore).
 
 The OSF RE sandbox UIPass experiment must remain disabled because it owns the
-same vtable slots.
+same vtable slots and has no proven call-through contract.
 
 ## Acceptance evidence
 

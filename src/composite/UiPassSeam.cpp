@@ -2,6 +2,8 @@
 
 #include "composite/D3D12Compositor.h"  // RecordSeamOverlayDraw (real-overlay seam draw)
 #include "composite/EngineD3D12.h"
+#include "composite/SeamTargetFormat.h"
+#include "composite/UiPassSeamPolicy.h"
 #if defined(OSFUI_WITH_WORLD_SURFACES)
 #include "composite/WorldSurface.h"
 #endif
@@ -127,7 +129,7 @@ namespace OSFUI::UiPassSeam
 						continue;
 					}
 					const auto desc = barrier.Transition.pResource->GetDesc();
-					if (desc.Format != DXGI_FORMAT_R8G8B8A8_TYPELESS ||
+					if (SeamTargetFormat::ResolveRtv(desc.Format) == DXGI_FORMAT_UNKNOWN ||
 						desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
 						desc.SampleDesc.Count != 1 ||
 						desc.Width < 256 || desc.Height < 256) {
@@ -356,6 +358,7 @@ namespace OSFUI::UiPassSeam
 
 		[[nodiscard]] std::uintptr_t HookExecuteSlot(
 			const char* a_label,
+			const detail::ExecuteSlotKind a_kind,
 			const std::uint64_t a_vtblId,
 			const std::uint64_t a_implId,
 			ExecuteFn a_thunk,
@@ -373,10 +376,17 @@ namespace OSFUI::UiPassSeam
 				return 0;
 			}
 			if (current != expected.address()) {
-				REX::WARN("[UiPassSeam] {}: slot 7 holds 0x{:X}, expected 0x{:X} "
-						  "(game patch or foreign hook); not hooking",
-					a_label, current, expected.address());
-				return 0;
+				const auto owner = Platform::ModuleNameForAddress(
+					reinterpret_cast<const void*>(current));
+				if (!detail::CanChainForeignExecute(a_kind, owner)) {
+					REX::WARN("[UiPassSeam] {}: slot 7 holds 0x{:X} from '{}', expected "
+							  "0x{:X} (game patch or unsupported foreign hook); not hooking",
+						a_label, current, owner.empty() ? "unknown module" : owner,
+						expected.address());
+					return 0;
+				}
+				REX::INFO("[UiPassSeam] {}: chaining compatible hook from '{}' at 0x{:X}",
+					a_label, owner, current);
 			}
 
 			auto** slot = reinterpret_cast<void**>(slotAddress);
@@ -436,13 +446,16 @@ namespace OSFUI::UiPassSeam
 		}
 
 		const auto origBegin = HookExecuteSlot(
-			"ScaleformBegin", kVtblScaleformBegin, kIdBeginExecute,
+			"ScaleformBegin", detail::ExecuteSlotKind::Begin,
+			kVtblScaleformBegin, kIdBeginExecute,
 			&BeginThunk, g_origBegin);
 		const auto origEnd = HookExecuteSlot(
-			"ScaleformEnd", kVtblScaleformEnd, kIdEndExecute,
+			"ScaleformEnd", detail::ExecuteSlotKind::End,
+			kVtblScaleformEnd, kIdEndExecute,
 			&EndThunk, g_origEnd);
 		const auto origComposite = HookExecuteSlot(
-			"ScaleformComposite", kVtblScaleformComposite, kIdCompositeExecute,
+			"ScaleformComposite", detail::ExecuteSlotKind::Composite,
+			kVtblScaleformComposite, kIdCompositeExecute,
 			&CompositeThunk, g_origComposite);
 
 		const bool ok =

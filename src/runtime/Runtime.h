@@ -35,6 +35,10 @@ namespace OSFUI
 		[[nodiscard]] static Runtime& Get();
 
 		bool Initialize();
+		// Install the render-pass seam after SFSE has loaded every peer plugin.
+		// Luma must patch the vanilla ScaleformComposite implementation before
+		// OSF UI chains it; calling this during our own Plugin_Load is too early.
+		bool InstallOverlayDrawPath();
 
 		// Advances the renderer and submits a frame when visible. Called on the
 		// game main thread through RE::BSService::TaskQueue; an SFSE permanent
@@ -485,6 +489,7 @@ namespace OSFUI
 		std::atomic<KeyCode>          _captureUpVk{ kInvalidKeyCode };
 
 		std::atomic_bool              _visible{ false };
+		std::atomic_bool              _overlayDrawAvailable{ false };
 		bool                          _rendererFailed{ false };  // opens fail closed while recovery is incomplete
 		bool                          _rendererFailureLatched{ false };  // first failure per helper wins
 		RendererHostRecovery          _rendererHostRecovery;

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- OSF UI can now run alongside Luma: it waits for peer SFSE render hooks before installing its own, safely chains Luma's Scaleform composite hook, and renders into Luma's upgraded HDR UI buffer. If the UI draw path is still unavailable, menu opens are refused immediately instead of briefly capturing input for an overlay that cannot appear.
+
 ## 2.0.0 — 2026-07-31
 
 Rebuilt the mod API around four verbs — `send`, `request`, `on`, `state` — and gave every backend a way to express all four. Views and native plugins written for 1.x must be updated; settings schemas, translation catalogs, and player settings carry over untouched.

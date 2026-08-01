@@ -230,19 +230,10 @@ namespace OSFUI
 		// Size the view to the real output so the page renders aspect-correct.
 		_compositor->SetOutputResizeCallback([this](std::uint32_t a_w, std::uint32_t a_h) { OnOutputResized(a_w, a_h); });
 
-		// The overlay records into Starfield's transparent Scaleform UI layer,
-		// upstream of both real-frame composition and Frame Generation. Vtables
-		// are static .rdata, so installation does not wait for the renderer root
-		// like the D3D12 compositor does. There is no present-time fallback: if
-		// the seam cannot be hooked, nothing draws, so fail loudly.
-		if (UiPassSeam::Install()) {
-			_compositor->SetSeamDrawMode(true);
-		} else {
-			REX::ERROR("Runtime: the Scaleform UI seam could not be hooked — OSF UI will not be "
-					   "visible this session. This usually means another mod hooked the same "
-					   "Scaleform vtable slots first, or the game build is not one the seam has "
-					   "been proven on. See the [UiPassSeam] lines above.");
-		}
+		// The Scaleform vtables are static, but hook installation is deliberately
+		// deferred to SFSE kPostLoad. Luma edits the vanilla Composite body and
+		// installs a call-through VMT hook during its Plugin_Load; chaining it is
+		// safe only after that work is complete.
 #if defined(OSFUI_WITH_WORLD_SURFACES)
 		if (_config.devMode) {
 			// Investigation-only: characterize Starfield's native
@@ -513,6 +504,23 @@ namespace OSFUI
 
 		return true;
 	}
+
+	bool Runtime::InstallOverlayDrawPath()
+	{
+		if (!_config.enabled || !_compositor) {
+			return false;
+		}
+		const bool installed = UiPassSeam::Install();
+		_overlayDrawAvailable.store(installed, std::memory_order_release);
+		_compositor->SetSeamDrawMode(installed);
+		if (!installed) {
+			REX::ERROR("Runtime: the Scaleform UI seam could not be hooked — menu opens will be "
+					   "refused this session so OSF UI cannot capture input without a draw path. "
+					   "See the [UiPassSeam] lines above.");
+		}
+		return installed;
+	}
+
 	void Runtime::Tick(double a_deltaSeconds)
 	{
 		if (!_initialized) {
@@ -918,6 +926,11 @@ namespace OSFUI
 
 	bool Runtime::BeginSurfaceOpen(std::string_view a_id)
 	{
+		if (!_overlayDrawAvailable.load(std::memory_order_acquire)) {
+			REX::WARN("Runtime: cannot open '{}' — the Scaleform UI draw path is unavailable",
+				a_id);
+			return false;
+		}
 		if (_rendererFailed) {
 			if (_rendererHostRecovery.RequestManualRetry(_uptime)) {
 				REX::INFO("Runtime: open of '{}' requested a fresh WebView2 helper recovery cycle; "
@@ -1172,6 +1185,14 @@ namespace OSFUI
 	{
 		if (!_renderer) {
 			return;
+		}
+		// All menu-opening paths converge here, including legacy RegisterView and
+		// a page asking to show itself. Keep HUD state, but never let an interactive
+		// menu claim focus/input when the compositor cannot put it on screen.
+		if (!_overlayDrawAvailable.load(std::memory_order_acquire) &&
+			_menus.ActiveMenu()) {
+			REX::WARN("Runtime: closing a requested menu because the Scaleform UI draw path is unavailable");
+			_menus.CloseTop();
 		}
 		// Per-surface hidden + composite z, derived from the band order: HUDs
 		// beneath menus; HUDs by `order`, menus by open-stack position.

@@ -1,14 +1,17 @@
 #include "composite/D3D12Compositor.h"
 
 #include "composite/EngineD3D12.h"
+#include "composite/SeamTargetFormat.h"
 #include "core/Log.h"
 
 #include "composite/D3D12Prologue.h"  // GDI-free <Windows.h> + <d3d12.h>
 
 #include <d3dcompiler.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <iterator>
 #include <mutex>
 #include <unordered_map>
 #include <vector>
@@ -177,12 +180,19 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		HANDLE                fenceEvent{ nullptr };
 		std::uint64_t         nextFenceValue{ 1 };
 		ID3D12RootSignature*  rootSig{ nullptr };
-		// One PSO. The seam always renders through a typed R8G8B8A8_UNORM view
-		// onto the engine's UI buffer, so unlike the retired backbuffer draw
-		// there is no per-swapchain format to match — and HDR or _SRGB
-		// backbuffers no longer suppress the overlay.
-		ID3D12PipelineState*  seamPso{ nullptr };
-		bool                  seamPsoFailed{ false };  // ringMutex; don't retry+spam
+		// Starfield uses RGBA8; Luma upgrades the same UI target to RGBA16F. PSO
+		// RTV formats are immutable, so keep one lazy pipeline for each supported
+		// target rather than attempting an invalid cross-format bind.
+		struct SeamPipeline
+		{
+			DXGI_FORMAT format{ DXGI_FORMAT_UNKNOWN };
+			ID3D12PipelineState* state{ nullptr };
+			bool failed{ false };
+		};
+		SeamPipeline seamPipelines[2]{
+			{ DXGI_FORMAT_R8G8B8A8_UNORM },
+			{ DXGI_FORMAT_R16G16B16A16_FLOAT },
+		};
 		// shader-visible: slot 0 unused, 1..kMaxSlots = shared ring
 		ID3D12DescriptorHeap* srvHeap{ nullptr };
 		std::uint32_t         srvStride{ 0 };
@@ -234,7 +244,9 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				}
 			}
 			if (gpuIdle && !hasUnsubmittedDraws) {
-				SafeRelease(seamPso);
+				for (auto& pipeline : seamPipelines) {
+					SafeRelease(pipeline.state);
+				}
 				SafeRelease(rootSig);
 				SafeRelease(srvHeap);
 				SafeRelease(seamRtvHeap);
@@ -864,14 +876,15 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			ringSlot = seamReadySlot;
 			serial = seamReadySerial;
 
-			auto* pso = EnsureSeamPipeline();
+			const auto rtvFormat = SeamTargetFormat::ResolveRtv(desc.Format);
+			auto* pso = EnsureSeamPipeline(rtvFormat);
 			if (!pso) {
 				return false;
 			}
 
 			const D3D12_CPU_DESCRIPTOR_HANDLE rtv = seamRtvHeap->GetCPUDescriptorHandleForHeapStart();
 			D3D12_RENDER_TARGET_VIEW_DESC rtvDesc{};
-			rtvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;  // typed view on the typeless UI buffer
+			rtvDesc.Format = rtvFormat;
 			rtvDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
 			engine.device->CreateRenderTargetView(a_buffer, &rtvDesc, rtv);
 
@@ -902,9 +915,10 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			// One-time log per target kind: if the FG line never appears, its
 			// hand-off is not being matched.
 			if (drawIndex == 1 || fgIndex == 1) {
-				REX::INFO("D3D12Compositor: FIRST SEAM OVERLAY DRAW [{}] (ring slot {} serial {} -> {}x{} UI buffer 0x{:X})",
+				REX::INFO("D3D12Compositor: FIRST SEAM OVERLAY DRAW [{}] (ring slot {} serial {} -> {}x{} {} UI buffer 0x{:X})",
 					a_fgTarget ? "premultiplied / FG UI input" : "premultiplied / composite input",
 					ringSlot, serial, static_cast<std::uint64_t>(desc.Width), desc.Height,
+					SeamTargetFormat::Name(rtvFormat),
 					reinterpret_cast<std::uintptr_t>(a_buffer));
 			}
 			return true;
@@ -917,13 +931,20 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			return self && self->RecordSeamOverlay(a_list, a_buffer, a_fgTarget, a_regionFirst);
 		}
 
-		// Get-or-create the one seam PSO. Called under ringMutex, so the cache
-		// needs no separate synchronization. `seamPsoFailed` stops a failed
-		// creation from retrying (and spamming the log) on every hand-off.
-		[[nodiscard]] ID3D12PipelineState* EnsureSeamPipeline()
+		// Get or create the PSO for the current UI target. Called under ringMutex,
+		// so the two-entry cache needs no separate synchronization.
+		[[nodiscard]] ID3D12PipelineState* EnsureSeamPipeline(
+			const DXGI_FORMAT a_rtvFormat)
 		{
-			if (seamPso || seamPsoFailed) {
-				return seamPso;
+			auto* cached = std::ranges::find_if(seamPipelines,
+				[a_rtvFormat](const SeamPipeline& a_pipeline) {
+					return a_pipeline.format == a_rtvFormat;
+				});
+			if (cached == std::end(seamPipelines)) {
+				return nullptr;
+			}
+			if (cached->state || cached->failed) {
+				return cached->state;
 			}
 
 			D3D12_GRAPHICS_PIPELINE_STATE_DESC desc{};
@@ -936,7 +957,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			desc.RasterizerState.DepthClipEnable = TRUE;
 			desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
 			desc.NumRenderTargets = 1;
-			desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+			desc.RTVFormats[0] = a_rtvFormat;
 			desc.SampleDesc.Count = 1;
 
 			// Premultiplied-alpha "over" blend for BGRA browser frames, matching
@@ -951,14 +972,17 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			rt.BlendOpAlpha = D3D12_BLEND_OP_ADD;
 			rt.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
 
-			if (FAILED(engine.device->CreateGraphicsPipelineState(&desc, __uuidof(ID3D12PipelineState), reinterpret_cast<void**>(&seamPso)))) {
-				REX::ERROR("D3D12Compositor: seam CreateGraphicsPipelineState failed");
-				seamPso = nullptr;
-				seamPsoFailed = true;
+			if (FAILED(engine.device->CreateGraphicsPipelineState(&desc,
+					__uuidof(ID3D12PipelineState), reinterpret_cast<void**>(&cached->state)))) {
+				REX::ERROR("D3D12Compositor: seam CreateGraphicsPipelineState failed for {}",
+					SeamTargetFormat::Name(a_rtvFormat));
+				cached->state = nullptr;
+				cached->failed = true;
 				return nullptr;
 			}
-			REX::INFO("D3D12Compositor: seam pipeline ready (premultiplied over, R8G8B8A8_UNORM)");
-			return seamPso;
+			REX::INFO("D3D12Compositor: seam pipeline ready (premultiplied over, {})",
+				SeamTargetFormat::Name(a_rtvFormat));
+			return cached->state;
 		}
 
 		// Submit: just remember which ring slot/serial the seam should draw.
