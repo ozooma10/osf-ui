@@ -116,7 +116,7 @@ namespace OSFUI::API
 		// broadcast that follows carries them.
 		std::vector<DiagnosticOp> TakeDiagnosticOps();
 
-		// One queued SetViewState (ABI 2.0), already validated and parsed
+		// One queued SetViewState (ABI 1.8), already validated and parsed
 		// synchronously; the store write happens on the main tick.
 		struct ViewStateOp
 		{

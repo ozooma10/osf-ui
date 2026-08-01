@@ -27,8 +27,10 @@
 // notifications, `RegisterRequest` for endpoints that settle exactly once.
 // Kind enforcement is structural: a request naming a send endpoint answers
 // `wrong-endpoint-kind`; a send naming a request endpoint is dropped and
-// surfaced (Surface(), below). There is no auto-ack, no `_replied`
-// bookkeeping, and no generic "call native function" escape hatch.
+// surfaced (Surface(), below). The only auto-ack is the deliberately narrow
+// native ABI 1.x RegisterCommand compatibility path; strict platform and
+// RegisterRequest endpoints never infer success. There is no generic "call
+// native function" escape hatch.
 // See docs/security-model.md.
 //
 // The handshake is PAGE-INITIATED and is the only boot path: a fresh document
@@ -74,19 +76,23 @@ namespace OSFUI
 		explicit MessageBridge(SendFn a_send);
 
 		// ---- endpoint registry -------------------------------------------
-		// Register (or replace) the handler for an exact endpoint name. The two
-		// namespaces are disjoint: registering a name as both kinds is refused
-		// and logged, because the kind is what callers dispatch on.
+		// Register (or replace) the handler for an exact endpoint name. Strict
+		// send/request names are disjoint. A compatibility command accepts both
+		// verbs so ABI 1.0-1.7 RegisterCommand callers keep their established
+		// injected-requestId + auto-ack behavior.
 		void RegisterSend(std::string a_name, SendHandler a_handler);
 		bool RegisterRequest(std::string a_name, RequestHandler a_handler);
+		void RegisterCompatCommand(std::string a_name, SendHandler a_handler);
 
 		// No-ops if absent. Used by the native plugin API (src/api) for hot
 		// cleanup / re-sync.
 		void UnregisterSend(std::string_view a_name);
 		void UnregisterRequest(std::string_view a_name);
+		void UnregisterCompatCommand(std::string_view a_name);
 
 		[[nodiscard]] bool HasSend(std::string_view a_name) const;
 		[[nodiscard]] bool HasRequest(std::string_view a_name) const;
+		[[nodiscard]] bool HasCompatCommand(std::string_view a_name) const;
 
 		// ---- inbound ------------------------------------------------------
 		// Entry point for web -> native messages (raw JSON text) from a given
@@ -211,6 +217,7 @@ namespace OSFUI
 		SendFn                                            _send;
 		std::unordered_map<std::string, SendHandler>      _sends;
 		std::unordered_map<std::string, RequestHandler>   _requests;
+		std::unordered_map<std::string, SendHandler>      _compatCommands;
 		std::unordered_map<std::string, Gate>             _gates;    // view id -> event gate
 		std::unordered_map<std::string, Pending>          _pending;  // request id -> deferred request
 		HelloHook                                         _onHello;

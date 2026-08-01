@@ -74,8 +74,8 @@ namespace OSFUI
 
 	void MessageBridge::RegisterSend(std::string a_name, SendHandler a_handler)
 	{
-		if (_requests.contains(a_name)) {
-			REX::WARN("MessageBridge: [content] refused send endpoint '{}' — already registered as a request", a_name);
+		if (_requests.contains(a_name) || _compatCommands.contains(a_name)) {
+			REX::WARN("MessageBridge: [content] refused send endpoint '{}' — name already registered", a_name);
 			return;
 		}
 		_sends[std::move(a_name)] = std::move(a_handler);
@@ -83,14 +83,23 @@ namespace OSFUI
 
 	bool MessageBridge::RegisterRequest(std::string a_name, RequestHandler a_handler)
 	{
-		if (_sends.contains(a_name)) {
-			REX::WARN("MessageBridge: [content] refused request endpoint '{}' — name already registered as a send", a_name);
+		if (_sends.contains(a_name) || _compatCommands.contains(a_name)) {
+			REX::WARN("MessageBridge: [content] refused request endpoint '{}' — name already registered", a_name);
 			return false;
 		}
 		// BridgeApi owns public first-wins policy. Re-application here replaces
 		// the internal trampoline after an explicit unregister/re-register.
 		_requests[std::move(a_name)] = std::move(a_handler);
 		return true;
+	}
+
+	void MessageBridge::RegisterCompatCommand(std::string a_name, SendHandler a_handler)
+	{
+		if (_sends.contains(a_name) || _requests.contains(a_name)) {
+			REX::WARN("MessageBridge: [content] refused compatibility command '{}' — name already registered", a_name);
+			return;
+		}
+		_compatCommands[std::move(a_name)] = std::move(a_handler);
 	}
 
 	void MessageBridge::UnregisterSend(std::string_view a_name)
@@ -103,6 +112,11 @@ namespace OSFUI
 		_requests.erase(std::string(a_name));
 	}
 
+	void MessageBridge::UnregisterCompatCommand(std::string_view a_name)
+	{
+		_compatCommands.erase(std::string(a_name));
+	}
+
 	bool MessageBridge::HasSend(std::string_view a_name) const
 	{
 		return _sends.contains(std::string(a_name));
@@ -111,6 +125,11 @@ namespace OSFUI
 	bool MessageBridge::HasRequest(std::string_view a_name) const
 	{
 		return _requests.contains(std::string(a_name));
+	}
+
+	bool MessageBridge::HasCompatCommand(std::string_view a_name) const
+	{
+		return _compatCommands.contains(std::string(a_name));
 	}
 
 	// -----------------------------------------------------------------------
@@ -232,6 +251,10 @@ namespace OSFUI
 			it->second(a_payload, *this);
 			return;
 		}
+		if (const auto it = _compatCommands.find(a_name); it != _compatCommands.end()) {
+			it->second(a_payload, *this);
+			return;
+		}
 		// Kind enforcement: executing a mutation whose kind the caller got
 		// wrong invites worse bugs, so the send is dropped. Dropping SILENTLY
 		// is the part 1.x got wrong — surface it.
@@ -261,6 +284,11 @@ namespace OSFUI
 
 		const auto it = _requests.find(a_name);
 		if (it == _requests.end()) {
+			if (const auto compat = _compatCommands.find(a_name); compat != _compatCommands.end()) {
+				compat->second(a_payload, *this);
+				Respond(nlohmann::json{ { "ok", true }, { "command", a_name } });
+				return;
+			}
 			if (_sends.contains(a_name)) {
 				Reject("wrong-endpoint-kind",
 					std::format("'{}' is a send endpoint — use send(), not request()", a_name));

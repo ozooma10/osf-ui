@@ -94,7 +94,7 @@ See [the view toolchain guide](docs/view-toolchain.md) for the complete workflow
 
 ## Mod API 2.0
 
-**2.0 is a hard break for views and native plugins.** Settings schemas are
+**2.0 is a hard break for views, while native ABI 1.8 remains additive.** Settings schemas are
 unaffected — they are declarative data and execute nothing.
 
 The whole web surface is four verbs, chosen by what you mean rather than by how
@@ -123,11 +123,10 @@ What the break costs:
   was removed, so it paints nothing. OSF UI raises a `compat.legacy-view` entry
   in System Health naming the view — a blank page is the one failure a player
   cannot diagnose.
-- A native plugin built against ABI 1.x gets `nullptr` from
-  `OSFUI_RequestBridge` (majors must match) and raises `compat.legacy-api`
-  naming its DLL. Recompile against `sdk/OSFUI_API.h`; ABI 2.0 also adds
-  `SetViewState`, which is what lets a plugin publish state instead of
-  hand-rolling reload handling.
+- Native plugins built against ABI 1.0–1.7 continue to connect. ABI 1.8 appends
+  `SetViewState` without shifting older vtable slots, letting newly compiled
+  plugins publish state instead of hand-rolling reload handling while old
+  binaries keep their established behavior.
 - Papyrus keeps its names. Only `PushToView`, `PushFormsToView` and the
   `RegisterForViewActions*` family are gone, replaced by `SetView*` (state) and
   the new `SendViewEvent` (events).

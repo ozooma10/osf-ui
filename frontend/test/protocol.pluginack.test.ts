@@ -9,9 +9,10 @@
 // command meant "nothing else is coming" — otherwise every schema `action`
 // button hung for the full timeout and toasted a false "No response from {mod}".
 //
-// 2.0 deletes the guess by deleting its cause. Kind decides everything:
-//   - a registered command is a SEND endpoint. It is never awaited, so it needs
-//     no ack — `send()` returns as soon as the message is posted.
+// 2.0 deletes the helper's guess. Kind decides strict endpoint behavior:
+//   - `send()` is never awaited and needs no ack; it returns as soon as the
+//     message is posted. Native ABI RegisterCommand keeps a host-side 1.x
+//     compatibility auto-ack when explicitly reached through request().
 //   - a request endpoint MUST settle exactly once (Respond / Reject / Defer),
 //     and the host answers `internal` if a handler returns without settling
 //     (MessageBridge::DispatchRequest), so "no answer" is a bug that reports
@@ -291,7 +292,7 @@ describe('correlation is by id alone — no payload heuristic survives', () => {
   });
 });
 
-describe('a command is a send — nothing to await, nothing to ack', () => {
+describe('send() is one-way — nothing to await, nothing to ack', () => {
   it('returns immediately and schedules no timer', () => {
     const { helper, sent } = loadHelper();
 

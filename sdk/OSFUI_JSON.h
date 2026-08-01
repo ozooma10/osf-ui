@@ -224,7 +224,7 @@ namespace OSFUI::API
 			}
 		}
 
-		// Retained state (ABI 2.0). The C ABI takes JSON TEXT — a const char* is
+		// Retained state (ABI 1.8). The C ABI takes JSON TEXT — a const char* is
 		// the only shape that survives the vtable contract — so the ergonomic
 		// overloads live here, exactly like the Respond ladder above, and
 		// nlohmann never crosses the DLL boundary.

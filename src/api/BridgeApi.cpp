@@ -676,15 +676,16 @@ namespace OSFUI::API
 			}
 		}
 		if (bridge) {
-			for (const auto& name : commandRemovals) bridge->UnregisterSend(name);
+			for (const auto& name : commandRemovals) bridge->UnregisterCompatCommand(name);
 			for (const auto& name : requestRemovals) bridge->UnregisterRequest(name);
-			// A registered command is a SEND endpoint: one-way, no settlement.
-			// 1.x injected the caller's `requestId` into the payload and auto-acked
-			// after the handler returned, so a plugin could not tell "delivered"
-			// from "handled" and every command looked awaitable. A plugin that
-			// wants to answer registers a REQUEST.
-			for (const auto& [name, reg] : commands) bridge->RegisterSend(name, [name, reg](const nlohmann::json& payload, MessageBridge& b) {
-				const auto dump = Json::Dump(payload);
+			// RegisterCommand is an ABI 1.x compatibility endpoint: send() is
+			// one-way, while request() injects its correlation id into the callback
+			// payload and MessageBridge auto-acks after return. New answer-bearing
+			// endpoints should use RegisterRequest.
+			for (const auto& [name, reg] : commands) bridge->RegisterCompatCommand(name, [name, reg](const nlohmann::json& payload, MessageBridge& b) {
+				auto body = payload;
+				if (!b.CurrentRequestId().empty()) body["requestId"] = b.CurrentRequestId();
+				const auto dump = Json::Dump(body);
 				const std::string src(b.CurrentSource()); reg.fn(name.c_str(), dump.c_str(), src.c_str(), reg.user);
 			});
 			for (const auto& [name, reg] : requests) bridge->RegisterRequest(name, [this, name, reg](const nlohmann::json& payload, MessageBridge& b) { DispatchRequest(name, reg, payload, b); });

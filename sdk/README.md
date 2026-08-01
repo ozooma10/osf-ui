@@ -12,7 +12,7 @@ needed.
   send/request endpoint unions, the platform state keys and events, and the
   settings-schema shapes.
 - [`OSFUI_API.h`](OSFUI_API.h) — the copyable C++ header for **SFSE plugin
-  authors** (native bridge, C ABI 2.0). Consume it through the
+  authors** (native bridge, C ABI 1.8). Consume it through the
   `OSFUI::API::Client` wrapper — it version-gates every call so a too-old
   host degrades to false/no-op instead of undefined behavior.
 - [`OSFUI_JSON.h`](OSFUI_JSON.h) — optional header-only `nlohmann::json`
@@ -28,18 +28,18 @@ authored against as `targetVersion` (in your view manifest and/or settings
 schema) and the Mods surface shows a "needs update" badge when the running host
 is older.
 
-2.0 is a breaking release in both directions, so the two ends fail differently:
+The web protocol is a breaking 2.0 release, while the native C++ ABI remains
+additive at 1.8:
 
 - **Views** still load on a 2.0 host whatever they target, because the shipped
   helper is the only one there is. A manifest targeting anything below 2.0
   raises a `compat.legacy-view` card in System Health, since a 1.x view will
   render blank — every helper member it calls (`emit`, `call`, `action`,
   `viewReady`, `data.*`) was removed, and removed members fail loudly.
-- **Plugins** do not load at all across the major. `OSFUI_RequestBridge` returns
-  `nullptr` for an ABI major mismatch, and the refusal raises a
-  `compat.legacy-api` card naming the offending DLL. See
-  [docs/native-plugin-api.md §1](../docs/native-plugin-api.md#1-the-20-break)
-  for why that is a hard break rather than a compatibility dispatcher.
+- **Plugins** compiled against ABI 1.0–1.7 continue to connect. ABI 1.8 appends
+  `SetViewState` at the vtable tail and preserves the established
+  `RegisterCommand` request-ID injection and automatic acknowledgement. See
+  [docs/native-plugin-api.md §1](../docs/native-plugin-api.md#1-compatibility-with-1x).
 
 The handshake is page-initiated: the document greets the bridge with
 `osfui.hello` and the host answers `ready`, then replays state. The shared helper

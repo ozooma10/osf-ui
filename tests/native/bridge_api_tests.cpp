@@ -1,10 +1,10 @@
-// Host-side unit tests for BridgeApi + MessageBridge at protocol/ABI 2.0
+// Host-side unit tests for BridgeApi ABI 1.8 + MessageBridge protocol 2.0
 // (docs/mod-api-2.0-design.md): the REAL src/api/BridgeApi.cpp and
 // src/runtime/MessageBridge.cpp compiled against stubs/pch.h. Pins the endpoint
 // grammar ("<author>.<modname>.<name>", api-freeze item 3), first-wins duplicate
 // refusal, unregister-then-reregister replacement, qualified RegisterView ids
 // (item 1), and — end to end through a live bridge — the four-verb envelope, the
-// page-initiated handshake, kind enforcement, request settlement, the ABI 2.0
+// page-initiated handshake, kind enforcement, request settlement, the ABI 1.8
 // SetViewState queue and the legacy-ABI caller ledger.
 //
 // The 1.x wire is gone, so every inbound message here is a 2.0 envelope with the
@@ -148,16 +148,13 @@ namespace
 		g_requestCommand = a_request.command; g_requestPayload = a_request.payloadJson; g_requestSource = a_request.sourceViewId;
 	}
 
-	// A host from the 1.x era, for the Client wrapper's version gating. ABI 2.0
-	// makes this configuration unreachable through RequestBridge (a MAJOR
-	// mismatch is refused outright and recorded — see the legacy-caller section
-	// below), but Attach() takes any pointer, which is what lets the gate math
-	// be tested at all. SetViewState is the 2.0 vtable addition: the double must
-	// implement it, and answering false is exactly what a 1.x host "does".
+	// A 1.7 host double for the additive 1.8 Client gate. SetViewState is the
+	// appended 1.8 vmethod: the double must implement today's interface for this
+	// source test, but the wrapper must never call it against a 1.7 host.
 	struct OldHost final : OSFUI::API::IOSFUIBridge
 	{
 		int requestCalls{ 0 };
-		std::uint32_t GetInterfaceVersion() override { return (1u << 16) | 6u; }
+		std::uint32_t GetInterfaceVersion() override { return (1u << 16) | 7u; }
 		void GetPluginVersion(std::uint32_t& a, std::uint32_t& b, std::uint32_t& c) override { a=b=c=0; }
 		const char* GetBridgeProtocolVersion() override { return "1.4"; }
 		bool IsBridgeReady() override { return false; }
@@ -207,14 +204,13 @@ int main()
 	api.SetViewCatalog({ "someview" });
 	api.SetSurfaceLoaded("someview", true);
 
-	// --- version constants: the 2.0 hard break --------------------------------
-	// MAJOR 2 is the whole compatibility story: OSFUI_RequestBridge hands a 1.x
-	// caller nullptr rather than emulating the auto-ack and the injected
-	// requestId that 2.0 deleted.
-	CHECK(OSFUI::API::kBridgeAPIMajor == 2);
-	CHECK(OSFUI::API::kBridgeAPIMinor == 0);
-	CHECK(OSFUI::API::kBridgeAPIVersion == ((2u << 16) | 0u));
-	CHECK(static_cast<std::uint32_t>(OSFUI::API::Feature::kViewState) == 0);  // 2.x baseline
+	// --- version constants: additive ABI 1.8 ----------------------------------
+	// Existing 1.x callers are accepted; SetViewState is a gated tail addition
+	// so every 1.0-1.7 vtable slot and Client feature number remains stable.
+	CHECK(OSFUI::API::kBridgeAPIMajor == 1);
+	CHECK(OSFUI::API::kBridgeAPIMinor == 8);
+	CHECK(OSFUI::API::kBridgeAPIVersion == ((1u << 16) | 8u));
+	CHECK(static_cast<std::uint32_t>(OSFUI::API::Feature::kViewState) == 8);
 	CHECK(api.GetInterfaceVersion() == OSFUI::API::kBridgeAPIVersion);
 	CHECK(std::string_view(OSFUI::kBridgeProtocolVersion) == "2.0");
 	CHECK(std::string_view(api.GetBridgeProtocolVersion()) == "2.0");
@@ -322,11 +318,8 @@ int main()
 		CHECK(PayloadOf(message).value("large", nlohmann::json{}) == nlohmann::json::array({ 1, 2, 3 }));
 	}
 
-	// --- a registered command is a SEND endpoint ------------------------------
-	// One-way: the payload arrives verbatim (no host-injected `requestId`), and
-	// nothing goes back. 1.x auto-acked every command after the handler
-	// returned, so a plugin could not tell "delivered" from "handled" and every
-	// command looked awaitable; wanting an outcome now means RegisterRequest.
+	// --- RegisterCommand preserves its ABI 1.x contract ------------------------
+	// send() remains one-way and carries the payload verbatim.
 	toWeb.clear();
 	bridge.HandleWebMessage("someview", SendMsg("acme.mymod.ping", R"({"x":1})"));
 	CHECK(g_firedA.size() == 1);
@@ -393,20 +386,19 @@ int main()
 		CHECK(LastSurfacedCode() == "invalid-request");
 	}
 
-	// --- kind enforcement -----------------------------------------------------
-	// A request naming a send endpoint is refused rather than executed: the
-	// caller got the kind wrong, and running the mutation anyway invites worse.
+	// request() also reaches a compatibility command: the callback receives the
+	// historical injected requestId and the bridge auto-acks after it returns.
 	toWeb.clear();
 	bridge.HandleWebMessage("someview", RequestMsg("acme.mymod.ping", "q1"));
-	CHECK(g_firedA.size() == 2);
+	CHECK(g_firedA.size() == 3);
 	CHECK(toWeb.size() == 1);
+	CHECK(g_firedA.back().payload == R"({"requestId":"q1"})");
 	{
-		const auto err = Last(toWeb);
-		CHECK(err.value("kind", "") == "error");
-		CHECK(err.value("id", "") == "q1");
-		CHECK(PayloadOf(err).value("code", "") == "wrong-endpoint-kind");
-		CHECK(PayloadOf(err).contains("message"));
-		CHECK(!PayloadOf(err).contains("reason"));  // the pre-1.0 duplicate, still gone
+		const auto reply = Last(toWeb);
+		CHECK(reply.value("kind", "") == "reply");
+		CHECK(reply.value("id", "") == "q1");
+		CHECK(PayloadOf(reply).value("ok", false));
+		CHECK(PayloadOf(reply).value("command", "") == "acme.mymod.ping");
 	}
 
 	// --- replacement is explicit: unregister, then re-register ----------------
@@ -415,7 +407,7 @@ int main()
 	api.PumpMainThread();
 	toWeb.clear();
 	bridge.HandleWebMessage("someview", SendMsg("acme.mymod.ping"));
-	CHECK(g_firedA.size() == 2);
+	CHECK(g_firedA.size() == 3);
 	CHECK(g_firedB.size() == 1);
 
 	// --- request settlement ---------------------------------------------------
@@ -511,14 +503,14 @@ int main()
 		CHECK(LastSurfacedCode() == "wrong-endpoint-kind");
 		CHECK(!g_surfaced.empty() && g_surfaced.back().detail.value("name", "") == "test.reply");
 
-		// The two registries are disjoint, enforced in both directions: the kind
-		// is what callers dispatch on, so one name cannot be both.
+		// Strict endpoints and compatibility commands remain one first-wins
+		// namespace even though compatibility commands accept both verbs.
 		CHECK(!bridge.RegisterRequest("acme.mymod.ping", [](const nlohmann::json&, MessageBridge&) {}));
 		bridge.RegisterSend("test.reply", [](const nlohmann::json&, MessageBridge&) {});
-		CHECK(bridge.HasSend("acme.mymod.ping") && !bridge.HasRequest("acme.mymod.ping"));
+		CHECK(bridge.HasCompatCommand("acme.mymod.ping"));
+		CHECK(!bridge.HasSend("acme.mymod.ping") && !bridge.HasRequest("acme.mymod.ping"));
 		CHECK(bridge.HasRequest("test.reply") && !bridge.HasSend("test.reply"));
-		CHECK(LoggedContaining("WARN", "already registered as a send"));
-		CHECK(LoggedContaining("WARN", "already registered as a request"));
+		CHECK(LoggedContaining("WARN", "name already registered"));
 
 		// Correlation ids are bounded because the inbound payload is untrusted.
 		// An over-long one is a HARD invalid-request: 1.x demoted it to
@@ -623,7 +615,7 @@ int main()
 	api.SetSurfaceLoaded("cap-view", false);
 	bridge.OnViewDestroyed("cap-view");
 
-	// --- SetViewState (ABI 2.0): retained state, not a happening --------------
+	// --- SetViewState (ABI 1.8): retained state, not a happening --------------
 	// The 1.x answer to "my page reloaded" was a view-defined "I reloaded"
 	// message plus a re-push per plugin. State replaces all of it: the plugin
 	// sets a value, Runtime retains it, and every fresh document is replayed.
@@ -679,26 +671,27 @@ int main()
 		CHECK(LoggedContaining("WARN", "pending SetViewState queue full"));
 	}
 
-	// --- legacy-ABI callers (the 2.0 hard break, made visible) ----------------
-	// OSFUI_RequestBridge hands a 1.x plugin nullptr. Recorded here so Runtime
+	// --- genuinely mismatched ABI-major callers, made visible -----------------
+	// OSFUI_RequestBridge accepts every 1.x minor. A different major is refused
+	// and recorded so Runtime
 	// can raise ONE `compat.legacy-api` card naming the DLL the player has to
 	// update, instead of the refusal living only in a log nobody opens.
 	{
 		api.TakeLegacyApiCallers();  // start from an empty ledger
-		api.NoteLegacyApiCaller("OldMod.dll", 1, 7);
-		api.NoteLegacyApiCaller("OldMod.dll", 1, 7);  // a plugin retrying every load screen
-		api.NoteLegacyApiCaller("", 1, 5);            // unresolvable module: still one card
+		api.NoteLegacyApiCaller("FutureMod.dll", 2, 0);
+		api.NoteLegacyApiCaller("FutureMod.dll", 2, 0);  // a plugin retrying every load screen
+		api.NoteLegacyApiCaller("", 3, 5);              // unresolvable module: still one card
 		{
 			const auto callers = api.TakeLegacyApiCallers();
 			CHECK(callers.size() == 2);  // deduped by module
-			CHECK(callers.size() == 2 && callers[0].module == "OldMod.dll");
-			CHECK(callers.size() == 2 && callers[0].major == 1 && callers[0].minor == 7);
-			CHECK(callers.size() == 2 && callers[1].module.empty() && callers[1].minor == 5);
+			CHECK(callers.size() == 2 && callers[0].module == "FutureMod.dll");
+			CHECK(callers.size() == 2 && callers[0].major == 2 && callers[0].minor == 0);
+			CHECK(callers.size() == 2 && callers[1].module.empty() && callers[1].major == 3);
 		}
 		CHECK(api.TakeLegacyApiCallers().empty());  // drained
 		// Bounded: a load order full of stale plugins cannot grow this.
 		for (int i = 0; i < 40; ++i) {
-			api.NoteLegacyApiCaller(std::format("mod{}.dll", i), 1, 0);
+			api.NoteLegacyApiCaller(std::format("mod{}.dll", i), 2, 0);
 		}
 		CHECK(api.TakeLegacyApiCallers().size() == 32);
 	}
@@ -777,7 +770,7 @@ int main()
 
 	// The command registry re-applies to a replacement bridge, handlers intact.
 	lazyBridge.HandleWebMessage("acme.mymod/dash", SendMsg("acme.mymod.catalog.get"));
-	CHECK(g_firedA.size() == 3);
+	CHECK(g_firedA.size() == 4);
 	api.OnBridgeReady(nullptr);
 	api.PumpMainThread();
 
@@ -846,13 +839,12 @@ int main()
 
 		Client c;
 		OldHost oldHost;
-		// A host reporting an older MINOR than this header was built against.
-		// Every 2.x feature is valued 0, so a same-major host always has them —
-		// which is the point: the gate exists for a FUTURE 2.1 capability, and
-		// a different MAJOR never gets a bridge at all.
+		// A 1.7 host has every established feature but not the 1.8 tail method.
 		CHECK(c.Attach(&oldHost));
 		CHECK(c.Has(Feature::kDiagnostics));
 		CHECK(c.Has(Feature::kRequests));
+		CHECK(!c.Has(Feature::kViewState));
+		CHECK(!c.SetViewState("acme.mymod", "k", "{}"));
 		c.RegisterRequest("acme.mymod.old", &RequestHandler, nullptr);
 		c.UnregisterRequest("acme.mymod.old");
 		CHECK(oldHost.requestCalls == 2);
@@ -868,8 +860,8 @@ int main()
 		CHECK(c.IsConnected() && static_cast<bool>(c));
 		CHECK(c.GetInterfaceVersion() == OSFUI::API::kBridgeAPIVersion);
 		CHECK(c.Raw() == &api);
-		CHECK(c.Has(Feature::kCommands));   // valued 0
-		CHECK(c.Has(Feature::kViewState));  // valued 0: 2.x baseline
+		CHECK(c.Has(Feature::kCommands));
+		CHECK(c.Has(Feature::kViewState));
 
 		// Ungated pass-throughs reach the real implementation.
 		CHECK(c.SetViewState("acme.mymod", "wrapper", R"({"via":"client"})"));
@@ -878,13 +870,7 @@ int main()
 			CHECK(ops.size() == 1 && ops[0].key == "wrapper");
 		}
 
-		// Every Feature is valued 0 for 2.0: the major break reset the MINOR, and
-		// a host that vended this bridge already matched major 2, so it has all
-		// of them. Were these left at their 1.x minors (1..7), `Has()` would be
-		// false against every 2.0 host and Client's gated wrappers — RequestMenu,
-		// the settings getters, hotkeys, RegisterView, diagnostics, requests —
-		// would silently no-op for every consumer using the wrapper this header
-		// tells them to use. That is worth one explicit test.
+		// Earlier additive gates still resolve against their original minors.
 		CHECK(c.Has(Feature::kRegisterView));
 		CHECK(c.Has(Feature::kRequestMenu));
 		CHECK(c.Has(Feature::kSettings));

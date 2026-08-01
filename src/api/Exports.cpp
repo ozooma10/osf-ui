@@ -12,11 +12,9 @@
 // degrades. Minor differences are backward-compatible (the vtable only grows at
 // the end) and are accepted.
 //
-// ABI 2.0 is a deliberate hard break, not a dispatcher: serving a 1.x caller
-// would mean re-implementing the auto-ack and the injected `requestId` that 2.0
-// deleted, purely for plugins that must be recompiled for the Papyrus and view
-// changes anyway. A refusal is recorded so it surfaces as a `compat.legacy-api`
-// health card instead of a mod that silently does nothing.
+// ABI 1.8 remains additive: callers built against every 1.x minor receive the
+// same object because new vmethods are appended and the Client gates them by
+// the host minor. A genuinely different major is still refused and surfaced.
 extern "C" __declspec(dllexport) OSFUI::API::IOSFUIBridge* OSFUI_RequestBridge(std::uint32_t a_abiVersion) noexcept
 {
 	const auto major = a_abiVersion >> 16;
