@@ -273,9 +273,10 @@ let views = [];
  */
 function viewSrc(target) {
   const forwarded = new URLSearchParams(location.search);
-  for (const own of ['view', 'res', 'checker']) forwarded.delete(own);
-  const query = forwarded.toString();
-  return target.viewUrl + (query ? '?' + query : '') + location.hash;
+  for (const own of ['view', 'res', 'checker', 'osfui-api']) forwarded.delete(own);
+  const url = new URL(target.viewUrl, location.origin);
+  for (const [name, value] of forwarded) url.searchParams.set(name, value);
+  return url.pathname + url.search + location.hash;
 }
 
 function selectView(qualifiedId, navigate = true) {
@@ -319,7 +320,7 @@ window.addEventListener('message', (event) => {
   if (event.data.kind === 'ready') {
     $('status').textContent = meta.nativeBridge ? 'Bridge ready' : 'Bridge disabled by manifest';
     if (meta.nativeBridge) {
-      send({ type: 'ui.visibility', payload: { visible, reason: 'overlay' } });
+      send({ kind: 'event', name: 'ui.visibility', payload: { visible, reason: 'overlay' } });
     }
   }
 });
@@ -338,7 +339,7 @@ $('checker').addEventListener('click', () => {
 });
 $('visibility').addEventListener('click', () => {
   visible = !visible;
-  send({ type: 'ui.visibility', payload: { visible, reason: 'overlay' } });
+  send({ kind: 'event', name: 'ui.visibility', payload: { visible, reason: 'overlay' } });
   $('visibility').textContent = visible ? 'Hide' : 'Show';
 });
 $('send-locale').addEventListener('click', () => {
@@ -358,12 +359,16 @@ $('send-locale').addEventListener('click', () => {
 const PAD_BUTTONS = { LB: 0x0100, RB: 0x0200 };
 function injectGamepad(name) {
   const id = PAD_BUTTONS[name];
-  send({ type: 'ui.gamepad', payload: { kind: 'button', button: { id, down: true } } });
-  setTimeout(() => send({ type: 'ui.gamepad', payload: { kind: 'button', button: { id, down: false } } }), 0);
+  send({ kind: 'event', name: 'ui.gamepad', payload: { kind: 'button', button: { id, down: true } } });
+  setTimeout(() => send({
+    kind: 'event',
+    name: 'ui.gamepad',
+    payload: { kind: 'button', button: { id, down: false } },
+  }), 0);
 }
 $('inject-hotkey').addEventListener('click', () => {
   const key = $('hotkey-key').value.trim() || 'toggleKey';
-  send({ type: 'ui.hotkey', payload: { mod: meta.modId, key } });
+  send({ kind: 'event', name: 'ui.hotkey', payload: { mod: meta.modId, key } });
 });
 $('inject-lb').addEventListener('click', () => injectGamepad('LB'));
 $('inject-rb').addEventListener('click', () => injectGamepad('RB'));

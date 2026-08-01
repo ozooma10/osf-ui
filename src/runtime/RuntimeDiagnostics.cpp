@@ -148,12 +148,6 @@ namespace OSFUI
 		for (const auto& manifest : runtime._views.All()) {
 			if (IsTargetNewerThanHost(manifest.targetVersion)) {
 				targets.push_back({ manifest.id, "view", manifest.targetVersion });
-			} else if (IsPre2Target(manifest.targetVersion)) {
-				// Authored for the 1.x mod API. It will load, greet nothing the
-				// helper understands, and render blank — a legible card beats a
-				// blank page, which is the one thing an unmigrated view must
-				// never silently become.
-				targets.push_back({ manifest.id, "view", manifest.targetVersion, "compat.legacy-view" });
 			}
 		}
 		// Plugins refused by OSFUI_RequestBridge for an ABI major mismatch. The

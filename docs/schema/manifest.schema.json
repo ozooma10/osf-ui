@@ -98,7 +98,7 @@
     "targetVersion": {
       "type": "string",
       "pattern": "^[0-9]+(\\.[0-9]+){0,2}$",
-      "description": "The OSF UI version this view was authored against (e.g. \"2.0.0\"). Advisory: it never gates loading, and it is not a dependency declaration. A target NEWER than the running host badges 'needs update' on the Mods surface. A target BELOW 2.0 additionally raises a `compat.legacy-view` entry in System Health naming this view, because 2.0 removed every helper member a 1.x view calls (emit, call, action, viewReady, data.*) — such a view loads, throws, and paints nothing, and a legible card beats a blank page. An UNDECLARED targetVersion is deliberately not treated as 1.x: after parsing it is indistinguishable from 'declared and unparsable', and guessing would badge every undeclared view."
+      "description": "The OSF UI version this view was authored against (e.g. \"2.0.0\"). Advisory: it never gates loading, and it is not a dependency declaration. A target NEWER than the running host badges 'needs update' on the Mods surface. A declared target BELOW 2.0 selects the callable 1.x helper facade over the current transport; raw 1.x postMessage/onMessage consumers must still migrate. An UNDECLARED targetVersion is deliberately treated as current rather than guessing which helper shape the page expects."
     },
     "permissions": {
       "type": "object",

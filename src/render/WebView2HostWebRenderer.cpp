@@ -237,13 +237,14 @@ namespace OSFUI
 		// NOTE: "navigate" keys the view id as "id", not "view" (wire protocol),
 		// so it is deliberately not a ViewMsg.
 		json NavigateMsg(std::string_view a_viewId, std::string_view a_entry,
-			bool a_bridge, std::uint32_t a_logicalHeight)
+			bool a_bridge, bool a_legacyApi, std::uint32_t a_logicalHeight)
 		{
 			return json{
 				{ "type", "navigate" },
 				{ "id", std::string(a_viewId) },
 				{ "entry", std::string(a_entry) },
 				{ "bridge", a_bridge },
+				{ "legacyApi", a_legacyApi },
 				{ "logicalHeight", a_logicalHeight } };
 		}
 
@@ -351,6 +352,7 @@ namespace OSFUI
 			std::string id;
 			std::string entry;
 			bool        bridge{ false };
+			bool        legacyApi{ false };
 			bool        hidden{ true };
 			bool        prewarm{ false };
 			bool        renderStats{ false };
@@ -1089,7 +1091,7 @@ namespace OSFUI
 				accSent = true;
 				for (const auto& view : views) {
 					addBootstrap(NavigateMsg(view.id, view.entry,
-						view.bridge, view.logicalHeight));
+						view.bridge, view.legacyApi, view.logicalHeight));
 					if (view.prewarm) addBootstrap(PrewarmMsg(view.id));
 					addBootstrap(SetHiddenMsg(
 						view.id, view.hidden, presentationEpoch));
@@ -1646,6 +1648,7 @@ namespace OSFUI
 			}
 			view->entry = a_manifest.entry;
 			view->bridge = a_manifest.permissions.nativeBridge;
+			view->legacyApi = IsPre2Target(a_manifest.targetVersion);
 			view->logicalHeight = logicalHeight;
 			// The first loaded view receives input until the runtime says
 			// otherwise.
@@ -1656,7 +1659,7 @@ namespace OSFUI
 		// A repeat LoadView for a live id re-navigates it (dev reload / crash
 		// recovery).
 		_impl->Send(NavigateMsg(a_manifest.id, a_manifest.entry,
-			a_manifest.permissions.nativeBridge, logicalHeight));
+			a_manifest.permissions.nativeBridge, IsPre2Target(a_manifest.targetVersion), logicalHeight));
 	}
 
     bool WebView2HostWebRenderer::RefreshViewFiles(std::string_view a_viewId)

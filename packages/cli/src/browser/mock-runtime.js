@@ -3,7 +3,7 @@
 // Two tiers, matching @osfui/cli's declared surface:
 //   - simple: `export default defineMock({state, locale, locales, requests,
 //     scenarios})` — served by the scenario engine below. `requests` values
-//     may be plain JSON, {$type, payload}, or (async) functions of the
+//     may be plain JSON, {$payload}, or (async) functions of the
 //     command payload. `?scenario=<name>` (or ctx code) overlays a named
 //     scenario onto the base fields.
 //   - escape hatch: `export function install(ctx)` — gets the MockContext and
@@ -308,7 +308,7 @@ export async function installMock(harness, mod, loadError) {
     }
   });
 
-  // osfui.t wrapping. Wraps compose in registration order over the kit's
+  // osfui.i18n.t wrapping. Wraps compose in registration order over the kit's
   // original t; pseudo mode is itself a wrap (pseudoize every resolution, so
   // inline t()/data-i18n strings pseudoize too, not just catalog lookups).
   // The kit loads after this module but decorates the same window.osfui, so
@@ -318,11 +318,11 @@ export async function installMock(harness, mod, loadError) {
   const pseudoWrap = (t) => (address, english, vars) => String(pseudoize(t(address, english, vars)));
   const applyWraps = () => {
     const helper = window.osfui;
-    if (!helper || typeof helper.t !== 'function') return;
-    if (baseT === null) baseT = helper.t.bind(helper);
+    if (!helper?.i18n || typeof helper.i18n.t !== 'function') return;
+    if (baseT === null) baseT = helper.i18n.t.bind(helper.i18n);
     let t = baseT;
     for (const wrap of wraps) t = wrap(t);
-    helper.t = t;
+    helper.i18n.t = t;
   };
   const setPseudoWrap = (on) => {
     const index = wraps.indexOf(pseudoWrap);

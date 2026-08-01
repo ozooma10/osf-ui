@@ -57,22 +57,36 @@ function browserAsset(name) {
   return readFile(resolve(HERE, 'browser', name), 'utf8');
 }
 
+/** Match the runtime's declared-target selection for the 1.x helper facade. */
+export function isPre2Target(targetVersion) {
+  const match = /^(\d+)(?:\.\d+)?(?:\.\d+)?$/.exec(targetVersion || '');
+  if (match === null) return false;
+  const parts = String(targetVersion).split('.').map((part) => BigInt(part));
+  return parts.every((part) => part <= 0xffffffffn) && parts[0] < 2n;
+}
+
 export function harnessPlugin(project, selectedView) {
-  const metaFor = (view) => ({
-    modId: project.modId,
-    viewName: view.id,
-    qualifiedId: view.qualifiedId,
-    title: view.title,
-    width: view.width,
-    height: view.height,
-    transparent: view.transparent,
-    nativeBridge: view.permissions.nativeBridge,
-    viewUrl: `/${project.modId}/${view.id}/${view.entry}`,
-    version: HOST_VERSION,
-    bridgeVersion: BRIDGE_VERSION,
-    // Absent when the project has no mock; mock-loader.js skips the import.
-    ...(project.mockPath ? { mockUrl: MOCK_ENTRY, mockName: basename(project.mockPath) } : {}),
-  });
+  const metaFor = (view) => {
+    const legacyApi = isPre2Target(view.targetVersion);
+    const path = `/${project.modId}/${view.id}/${view.entry}`;
+    return {
+      modId: project.modId,
+      viewName: view.id,
+      qualifiedId: view.qualifiedId,
+      title: view.title,
+      width: view.width,
+      height: view.height,
+      transparent: view.transparent,
+      nativeBridge: view.permissions.nativeBridge,
+      targetVersion: view.targetVersion || '',
+      legacyApi,
+      viewUrl: legacyApi ? `${path}?osfui-api=1` : path,
+      version: HOST_VERSION,
+      bridgeVersion: BRIDGE_VERSION,
+      // Absent when the project has no mock; mock-loader.js skips the import.
+      ...(project.mockPath ? { mockUrl: MOCK_ENTRY, mockName: basename(project.mockPath) } : {}),
+    };
+  };
   /** Which project view a served page belongs to, by URL prefix. */
   const viewForPath = (path) =>
     project.views.find((view) => path.startsWith(`/${project.modId}/${view.id}/`)) || selectedView;

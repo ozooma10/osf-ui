@@ -18,6 +18,7 @@ export interface ViewConfig {
   debugOnly?: boolean;
   readySignal?: boolean;
   targetVersion?: string;
+  accent?: string;
   permissions?: {
     nativeBridge?: boolean;
     filesystem?: boolean;
@@ -49,9 +50,10 @@ export interface OsfuiConfig {
   vite?: Record<string, unknown> | ((env: { command: 'serve' }) => Record<string, unknown> | Promise<Record<string, unknown>>);
 }
 
+/** A request payload, or a wrapper that deliberately nests it under `payload`. */
 export type MockResponse =
-  | unknown
-  | { $type: string; payload: unknown };
+  | undefined | null | boolean | number | string | unknown[] | Record<string, unknown>
+  | { $payload: unknown };
 
 export interface MockScenario {
   state?: Record<string, unknown>;
@@ -75,28 +77,41 @@ export interface HarnessViewMeta {
   height: number;
   transparent: boolean;
   nativeBridge: boolean;
+  targetVersion: string;
+  legacyApi: boolean;
   viewUrl: string;
   version: string;
   bridgeVersion: string;
 }
 
-/** A native->web bridge envelope. */
-export interface Envelope {
-  type: string;
-  payload?: unknown;
-  requestId?: string;
+/** A native->web bridge protocol 2.0 envelope accepted by `MockContext.send`. */
+export type Envelope =
+  | { kind: 'ready'; payload: Record<string, unknown> }
+  | { kind: 'state'; mod: string; key: string; value: unknown }
+  | { kind: 'event'; name: string; payload?: unknown }
+  | { kind: 'reply'; id: string; payload?: unknown }
+  | { kind: 'error'; id: string; payload: { code: string; message: string } };
+
+export type CommandKind = 'send' | 'request';
+
+/** Settlement and diagnostics for one mocked web->native command. */
+export interface CommandIo {
+  resolve(payload?: unknown): void;
+  reject(code: string, message: string): void;
+  surface(code: string, message: string): void;
+  report(direction: 'in' | 'out', message: unknown, level?: 'info' | 'warn'): void;
 }
 
 /**
  * A mock command handler. Return true to stop the chain (the command is
- * handled); anything else falls through to the scenario engine. `reply`
- * echoes the command's requestId.
+ * handled); anything else falls through to the scenario engine. Requests
+ * settle through `io.resolve()` or `io.reject()`; sends never settle.
  */
 export type CommandHandler = (
-  command: string,
+  kind: CommandKind,
+  name: string,
   payload: Record<string, unknown>,
-  reply: (type: string, payload?: unknown) => void,
-  requestId: string,
+  io: CommandIo,
 ) => boolean | void | Promise<boolean | void>;
 
 export type ToolKind = 'button' | 'toggle' | 'cycle' | 'select';
@@ -158,7 +173,7 @@ export interface MockContext {
    */
   onDrop(handler: (files: { name: string; text: string }[]) => void): void;
   /**
-   * Wrap the shared kit's `osfui.t` (applied lazily once the kit exists;
+   * Wrap the shared kit's `osfui.i18n.t` (applied lazily once the kit exists;
    * wraps compose in registration order). The pseudo locale is itself a wrap.
    */
   wrapT(wrap: (t: (address: string, english: string, vars?: unknown) => string)

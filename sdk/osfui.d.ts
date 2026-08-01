@@ -4,9 +4,10 @@
  * Bridge protocol version: 2.0. Compatibility is advisory: declare the OSF UI
  * version you authored against as `targetVersion` (view manifest / settings
  * schema). A target NEWER than the running host badges "needs update" on the
- * Mods surface; a target older than 2.0 raises a `compat.legacy-view` card,
- * because a 1.x view loads but cannot work — every helper member it calls was
- * removed. `bridgeVersion` is informational, not something to gate on.
+ * Mods surface. A declared target older than 2.0 selects the 1.x compatibility
+ * facade over the current transport; these declarations intentionally describe
+ * the strict 2.0 surface for new and migrated views. `bridgeVersion` is
+ * informational, not something to gate on.
  * Keep in lockstep with:
  *   - docs/authoring-views.md          (prose reference)
  *   - docs/mod-api-2.0-migration.md    (what changed, and why)
@@ -355,7 +356,7 @@ export interface DiagnosticIssue {
    * | `settings.hotkey-target`
    * | `view.load-retrying` | `view.load-failed` | `view.protocol-misuse`
    * | `host.ring-truncated`
-   * | `compat.needs-newer-osfui` | `compat.legacy-view` | `compat.legacy-api`
+   * | `compat.needs-newer-osfui` | `compat.legacy-api`
    * A report from another mod carries ITS code, prefixed with its mod id:
    * `<author>.<modname>:<code>`. Treat an unknown code as generic.
    */

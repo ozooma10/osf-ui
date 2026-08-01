@@ -31,11 +31,10 @@ is older.
 The web protocol is a breaking 2.0 release, while the native C++ ABI remains
 additive at 1.8:
 
-- **Views** still load on a 2.0 host whatever they target, because the shipped
-  helper is the only one there is. A manifest targeting anything below 2.0
-  raises a `compat.legacy-view` card in System Health, since a 1.x view will
-  render blank — every helper member it calls (`emit`, `call`, `action`,
-  `viewReady`, `data.*`) was removed, and removed members fail loudly.
+- **Views** using the shipped 1.x helper remain usable when their manifest
+  declares a target below 2.0; the host selects a compatibility facade over the
+  2.0 transport. Raw 1.x `postMessage`/`onMessage` consumers still need to
+  migrate, and an undeclared target deliberately receives the strict 2.0 shape.
 - **Plugins** compiled against ABI 1.0–1.7 continue to connect. ABI 1.8 appends
   `SetViewState` at the vtable tail and preserves the established
   `RegisterCommand` request-ID injection and automatic acknowledgement. See

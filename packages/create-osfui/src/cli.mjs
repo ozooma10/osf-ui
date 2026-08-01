@@ -94,21 +94,21 @@ function renderState(state: HudState) {
   renderMeter();
 }
 
-window.osfui?.on?.<HudState>('${options.modId}.hudState', renderState);`
+window.osfui?.state?.on?.<HudState>('${options.modId}/hud', renderState);`
     : `// Papyrus SetView* publishes STATE: the handler runs immediately with the
 // current value and again on every change and every reload — nothing to
 // request, and no ready handshake for the script to answer.
-window.osfui?.state?.on?.<string>('label', (value) => setText(label, value));
-window.osfui?.state?.on?.<number>('value', (value) => {
+window.osfui?.state?.on?.<string>('${options.modId}/label', (value) => setText(label, value));
+window.osfui?.state?.on?.<number>('${options.modId}/value', (value) => {
   hudState.value = value;
   renderMeter();
 });
-window.osfui?.state?.on?.<number>('maximum', (value) => {
+window.osfui?.state?.on?.<number>('${options.modId}/maximum', (value) => {
   hudState.maximum = value;
   renderMeter();
 });
-window.osfui?.state?.on?.<string>('status', (value) => setText(status, value));
-window.osfui?.state?.on?.<boolean>('alert', (value) => {
+window.osfui?.state?.on?.<string>('${options.modId}/status', (value) => setText(status, value));
+window.osfui?.state?.on?.<boolean>('${options.modId}/alert', (value) => {
   panel.classList.toggle('is-alert', value);
 });`;
 
@@ -253,7 +253,6 @@ ${stateSetup}
 }
 
 function nativeAppSource(options) {
-  const stateType = `${options.modId}.state`;
   const noticeType = `${options.modId}.notice`;
 
   return `import '/shared/osfui.css';
@@ -309,8 +308,7 @@ function showState(state: DemoState) {
   increment.disabled = !state.enabled;
 }
 
-// C++ -> JS: subscribe before asking for current state so later pushes cannot race us.
-window.osfui?.on?.<DemoState>('${stateType}', showState);
+// C++ -> JS event: a notice happened once, so it is not replayed after reload.
 window.osfui?.on?.<{ message: string }>('${noticeType}', (payload) => {
   status.textContent = payload.message;
 });
@@ -319,7 +317,7 @@ window.osfui?.on?.<{ message: string }>('${noticeType}', (payload) => {
 // no reload handling: the handler runs with the current value now, and again on
 // every change and on every future document. This is the path you want for
 // anything the backend owns.
-window.osfui?.state?.on?.<DemoState>('state', showState);
+window.osfui?.state?.on?.<DemoState>('${options.modId}/state', showState);
 
 window.osfui?.ready?.then(async (info) => {
   status.textContent = 'Connected to OSF UI ' + info.version;
@@ -327,13 +325,15 @@ window.osfui?.ready?.then(async (info) => {
   // right now. Here it is redundant with the subscription above — kept as the
   // smallest working example of the verb.
   try {
-    showState(await window.osfui!.request<DemoState>('${options.modId}.getState'));
+    const request = window.osfui?.request;
+    if (!request) throw new Error('Request API is unavailable');
+    showState(await request<DemoState>('${options.modId}.getState'));
   } catch (error) {
     status.textContent = error instanceof Error ? error.message : String(error);
   }
 });
 
-// JS -> C++ fire-and-forget; OnIncrement answers by pushing ${stateType}.
+// JS -> C++ fire-and-forget; OnIncrement answers by publishing retained state.
 increment.addEventListener('click', () => {
   if (!window.osfui?.send?.('${options.modId}.increment', { amount: 1 })) {
     status.textContent = 'OSF UI bridge is unavailable';
@@ -345,8 +345,9 @@ increment.addEventListener('click', () => {
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
   try {
-    if (!window.osfui?.request) throw new Error('Request API is unavailable');
-    const reply = await window.osfui.request<Greeting>('${options.modId}.greet', {
+    const request = window.osfui?.request;
+    if (!request) throw new Error('Request API is unavailable');
+    const reply = await request<Greeting>('${options.modId}.greet', {
       name: name.value,
       excited: excited.checked,
     });
@@ -364,7 +365,7 @@ function hudMockSource(options) {
     ? `ctx.send({
       kind: 'state',
       mod: '${options.modId}',
-      key: 'state',
+      key: 'hud',
       value: { ...state },
     });`
     : `for (const [key, value] of Object.entries(state)) {
@@ -401,19 +402,6 @@ export function install(ctx: MockContext) {
   const publishState = () => {
     ${publishBody}
   };
-  const publishSettings = () => ctx.send({
-    kind: 'state',
-    mod: 'osfui',
-    key: 'settings',
-    value: {
-      mods: [{
-        id: '${options.modId}',
-        title: '${options.modId}',
-        schema: { id: '${options.modId}', title: '${options.modId}', version: 1, groups: [] },
-        values: { ...settings },
-      }],
-    },
-  });
   const changeSetting = (key: keyof typeof settings, value: string | number | boolean) => {
     (settings[key] as string | number | boolean) = value;
     ctx.send({
@@ -422,19 +410,6 @@ export function install(ctx: MockContext) {
       payload: { mod: '${options.modId}', key, value },
     });
   };
-
-  ctx.onCommand((kind, name) => {
-    if (kind === 'send' && name === 'osfui.hello') {
-      publishSettings();
-      return false;  // let the harness finish its own greeting
-    }
-    if (name === 'menu.open' || name === 'menu.close') {
-      // The real host applies these to the runtime's shown-set. The harness
-      // toolbar already owns preview visibility, so acknowledging is
-      // sufficient here.
-      return true;
-    }
-  });
 
   ctx.registerTools([
     { id: 'hud-value', kind: 'button', label: 'Change telemetry' },
@@ -477,14 +452,15 @@ export function install(ctx: MockContext) {
       changeSetting('accent', toolValue);
     } else if (id === 'hud-hotkey') {
       ctx.send({
-        type: 'ui.hotkey',
+        kind: 'event',
+        name: 'ui.hotkey',
         payload: { mod: '${options.modId}', key: 'toggleHud' },
       });
     }
   });
 
   // install() runs before the view module; defer the native-style initial push
-  // so its osfui.on listener is in place. Papyrus state is also replayed by
+  // so its state subscription is in place. Papyrus state is also replayed by
   // defineMock, and this explicit publish mirrors a save-load republish.
   setTimeout(publishState, 0);
 }
@@ -522,11 +498,11 @@ export function install(ctx: MockContext) {
   });
 
   ctx.onCommand((kind, name, payload, io) => {
-    if (name === '${options.modId}.getState') {
+    if (kind === 'request' && name === '${options.modId}.getState') {
       io.resolve({ ...state, features: [...state.features] });
       return true;
     }
-    if (name === '${options.modId}.increment') {
+    if (kind === 'send' && name === '${options.modId}.increment') {
       const requested = Number(payload.amount);
       const amount = Number.isFinite(requested) ? Math.max(-10, Math.min(10, requested)) : 1;
       if (state.enabled) {
@@ -538,16 +514,16 @@ export function install(ctx: MockContext) {
       }
       return true;
     }
-    if (command === '${options.modId}.greet') {
-      const name = typeof payload.name === 'string' ? payload.name : '';
-      if (!name) {
-        reply('ui.error', { code: 'invalid-payload', message: 'name is required' });
+    if (kind === 'request' && name === '${options.modId}.greet') {
+      const who = typeof payload.name === 'string' ? payload.name : '';
+      if (!who) {
+        io.reject('invalid-payload', 'name is required');
         return true;
       }
       const excited = payload.excited === true;
-      reply('${options.modId}.greeting', {
-        message: state.greeting + ', ' + name + (excited ? '!!' : '!'),
-        receivedFromJs: { name, excited },
+      io.resolve({
+        message: state.greeting + ', ' + who + (excited ? '!!' : '!'),
+        receivedFromJs: { name: who, excited },
         nativeCount: state.count,
       });
       return true;
@@ -667,10 +643,10 @@ const status = requiredElement('#status', HTMLOutputElement);
 
 // Papyrus SetView* -> cached state, replayed whenever this page (re)loads, so
 // subscribing at any time still yields the latest value.
-window.osfui?.state?.on?.<number>('clicks', (value) => {
+window.osfui?.state?.on?.<number>('${options.modId}/clicks', (value) => {
   clicks.textContent = String(value);
 });
-window.osfui?.state?.on?.<string>('greeting', (value) => {
+window.osfui?.state?.on?.<string>('${options.modId}/greeting', (value) => {
   greeting.textContent = value;
 });
 
@@ -886,6 +862,7 @@ ${backendConfig(options)}  views: [{
     width: ${options.surface === 'hud' ? 1920 : 1200},
     height: ${options.surface === 'hud' ? 1080 : 720},
     transparent: true,
+    targetVersion: '2.0.0',
 ${options.surface === 'hud' ? `    openOnStart: true,
     order: 0,
 ` : ''}

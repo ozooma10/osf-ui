@@ -3225,6 +3225,9 @@ namespace osfui::wv2
 				ApplyScale(*view);
 				std::string path = id + "/" + a_msg.value("entry", "index.html");
 				std::ranges::replace(path, '\\', '/');
+				if (a_msg.value("legacyApi", false)) {
+					path += "?osfui-api=1";
+				}
 				view->pendingNavigate = L"https://" + virtualHost + L"/" + ToWide(path);
 				if (view->webView) DrainQueuedViewWork(*view);
 				else RequestController(*view);

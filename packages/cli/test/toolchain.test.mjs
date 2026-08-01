@@ -12,7 +12,7 @@ import { checkProject } from '../src/check.mjs';
 import { loadProject, manifestFor } from '../src/config.mjs';
 import { devServerConfig } from '../src/dev.mjs';
 import { configuredDeployRoot, deployBuild, deployViews, deploymentRoot, saveLocalModsRoot } from '../src/game.mjs';
-import { harnessPlugin } from '../src/harness-plugin.mjs';
+import { harnessPlugin, isPre2Target } from '../src/harness-plugin.mjs';
 import { papyrusWarnings } from '../src/papyrus.mjs';
 import { writeZip } from '../src/zip.mjs';
 
@@ -46,6 +46,40 @@ async function projectFixture(t) {
   );
   return root;
 }
+
+test('toolchain constants and packaged helper match the 2.0 runtime API', async () => {
+  const constants = await import('../src/constants.mjs');
+  assert.equal(constants.HOST_VERSION, '2.0.0');
+  assert.equal(constants.BRIDGE_VERSION, '2.0');
+  assert.equal(
+    await readFile(resolve(import.meta.dirname, '../assets/osfui.js'), 'utf8'),
+    await readFile(resolve(import.meta.dirname, '../../../frontend/src/shared-kit/osfui.js'), 'utf8'),
+  );
+});
+
+test('legacy preview selection matches declared pre-2.0 targets only', () => {
+  assert.equal(isPre2Target('1'), true);
+  assert.equal(isPre2Target('1.5.0'), true);
+  assert.equal(isPre2Target('2.0.0'), false);
+  assert.equal(isPre2Target(''), false);
+  assert.equal(isPre2Target('legacy'), false);
+  assert.equal(isPre2Target('1.4294967296'), false);
+});
+
+test('legacy manifests preview through the compatibility helper URL', async (t) => {
+  const root = await projectFixture(t);
+  await writeFile(resolve(root, 'osfui.config.ts'), `export default {
+    modId: 'acme.widgets',
+    views: [{ id: 'panel', targetVersion: '1.5.0' }],
+  };`);
+  const project = await loadProject(root);
+  const plugin = harnessPlugin(project, project.views[0]);
+  const injected = plugin.transformIndexHtml.handler('', {
+    path: '/acme.widgets/panel/index.html',
+  });
+  assert.match(injected[0].children, /"legacyApi":true/);
+  assert.match(injected[0].children, /"viewUrl":"\/acme\.widgets\/panel\/index\.html\?osfui-api=1"/);
+});
 
 test('loads configuration and creates a production manifest', async (t) => {
   const root = await projectFixture(t);
@@ -434,6 +468,8 @@ test('development server exposes the harness and injects the bridge before view 
   assert.equal(listing.initial, 'acme.widgets/panel');
   assert.equal(listing.views.length, 1);
   assert.equal(listing.views[0].qualifiedId, 'acme.widgets/panel');
+  assert.equal(listing.views[0].version, '2.0.0');
+  assert.equal(listing.views[0].bridgeVersion, '2.0');
   // CSP: locked-down shell, view pages keep the authoring CSP.
   const shellPage = await fetch(`${origin}/__osfui/`);
   assert.match(shellPage.headers.get('content-security-policy'), /script-src 'self'(;|$)/);

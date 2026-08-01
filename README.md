@@ -94,8 +94,9 @@ See [the view toolchain guide](docs/view-toolchain.md) for the complete workflow
 
 ## Mod API 2.0
 
-**2.0 is a hard break for views, while native ABI 1.8 remains additive.** Settings schemas are
-unaffected — they are declarative data and execute nothing.
+**The raw 2.0 web protocol is a hard break, while the shipped 1.x helper has a
+manifest-selected compatibility facade and native ABI 1.8 remains additive.**
+Settings schemas are unaffected — they are declarative data and execute nothing.
 
 The whole web surface is four verbs, chosen by what you mean rather than by how
 the message travels:
@@ -118,11 +119,10 @@ data", the value you want is state.
 
 What the break costs:
 
-- A view whose manifest declares `targetVersion` below `2.0` still loads, but
-  every helper member it calls (`emit`, `call`, `action`, `viewReady`, `data.*`)
-  was removed, so it paints nothing. OSF UI raises a `compat.legacy-view` entry
-  in System Health naming the view — a blank page is the one failure a player
-  cannot diagnose.
+- A view whose manifest declares `targetVersion` below `2.0` receives the
+  callable 1.x helper surface over the 2.0 transport. Views that bypassed the
+  helper and authored raw 1.x envelopes still need to migrate; undeclared views
+  receive the strict 2.0 shape rather than being guessed legacy.
 - Native plugins built against ABI 1.0–1.7 continue to connect. ABI 1.8 appends
   `SetViewState` without shifting older vtable slots, letting newly compiled
   plugins publish state instead of hand-rolling reload handling while old

@@ -67,6 +67,11 @@
   let seq = 0;
 
   const bridged = typeof g.postMessage === "function";
+  // The host appends this private navigation flag only for manifests whose
+  // declared targetVersion predates 2.0. It lets one shared helper preserve
+  // the callable 1.x surface without weakening the strict 2.0 shape for new
+  // views. It selects helper shape only and grants no additional capability.
+  const legacyApi = /(?:^|[?&])osfui-api=1(?:&|$)/.test(window.location.search);
 
   const TRACE = (function () {
     try { return window.localStorage.getItem("osfui:trace") === "1"; } catch (e) { return false; }
@@ -96,7 +101,8 @@
   // available / ready
   // ---------------------------------------------------------------------
 
-  Object.defineProperty(g, "available", { get: function () { return bridged; }, enumerable: true });
+  if (legacyApi) g.available = function () { return bridged; };
+  else Object.defineProperty(g, "available", { get: function () { return bridged; }, enumerable: true });
 
   let resolveReady, rejectReady;
   g.ready = new Promise(function (resolve, reject) { resolveReady = resolve; rejectReady = reject; });
@@ -365,6 +371,74 @@
         break;
     }
   };
+
+  // ---------------------------------------------------------------------
+  // 1.x helper façade — selected only by a pre-2.0 view manifest
+  // ---------------------------------------------------------------------
+
+  if (legacyApi) {
+    const send2 = g.send;
+    const request2 = g.request;
+    g.send = function (name, payload) {
+      if (name === "ui.action") {
+        const body = payload || {};
+        return send2("papyrus.send", { name: String(body.action || ""), args: Array.isArray(body.args) ? body.args : [] });
+      }
+      return send2(name, payload);
+    };
+    g.emit = function (name, payload) { return g.send(name, payload); };
+    g.action = function (name) {
+      const args = Array.prototype.slice.call(arguments, 1);
+      return g.papyrus.send.apply(g.papyrus, [name].concat(args));
+    };
+    g.viewReady = g.markReady;
+    // 1.x request returned the envelope; call returned its payload. The 2.0
+    // transport has already normalized replies, so reconstruct the old public
+    // shape only at this legacy boundary.
+    g.request = function (name, payload, opts) {
+      return request2(name, payload, opts).then(function (value) {
+        return { type: "ui.result", payload: value };
+      });
+    };
+    g.call = function (name, payload, opts) { return request2(name, payload, opts); };
+    g.papyrus.action = g.action;
+    g.papyrus.request = function (name) {
+      const args = Array.prototype.slice.call(arguments, 1);
+      return request2("papyrus.request", { name: String(name), args: args }, { timeoutMs: 15000 })
+        .then(function (payload) { return payload ? payload.value : undefined; });
+    };
+
+    // 1.x exposed these at the helper root. Keep them as live wrappers so
+    // locale changes and a replaced theme implementation stay observable.
+    g.i18nReady = g.i18n.ready;
+    g.locale = function () { return g.i18n.locale; };
+    g.t = function (address, english, vars) { return g.i18n.t(address, english, vars); };
+    g.localize = function (root) { return g.i18n.localize(root); };
+    g.applyAccent = function (el, hex) { return g.theme.applyAccent(el, hex); };
+
+    // Papyrus state moved from data.on("key") to state.on("<mod>/<key>").
+    // The owning mod arrives in ready before state replay, so delaying the
+    // subscription preserves immediate replay without another page handshake.
+    const legacyDataCache = new Map();
+    g.data = {
+      get: function (key) { return legacyDataCache.get(String(key).toLowerCase()); },
+      on: function (key, fn) {
+        if (typeof fn !== "function") throw new TypeError("osfui.data.on requires a handler");
+        const bare = String(key).toLowerCase();
+        let off = function () {};
+        let active = true;
+        g.ready.then(function (runtime) {
+          if (!active) return;
+          const scoped = String((runtime && runtime.mod) || "") + "/" + key;
+          off = g.state.on(scoped, function (value) {
+            legacyDataCache.set(bare, value);
+            fn(value, { key: String(key), value: value }, { type: "data.state", payload: { key: String(key), value: value } });
+          });
+        });
+        return function () { active = false; off(); };
+      },
+    };
+  }
 
   // ---------------------------------------------------------------------
   // handshake — page-initiated, and the only boot path

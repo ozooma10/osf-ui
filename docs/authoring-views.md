@@ -7,7 +7,7 @@ How to build a UI for OSF UI without touching the C++ runtime. Two data-driven e
 
 Both are pure content, no recompile: a `views/<modId>/<viewName>/` folder and a `settings/<modId>.json` schema.
 
-The bridge protocol is at version **2.0 — stable**. Additive changes bump the minor, breaking changes the major; 2.0 was such a break with 1.x (four verbs, routing beside the payload, page-initiated handshake). A 1.x view still loads, but every helper member it calls was removed — so declare `targetVersion` (§2, §7) and the Mods surface tells the player which mod needs updating instead of showing a blank panel. `bridgeVersion` is informational.
+The bridge protocol is at version **2.0 — stable**. Additive changes bump the minor, breaking changes the major; 2.0 was such a break with 1.x (four verbs, routing beside the payload, page-initiated handshake). A view using the shipped 1.x helper remains usable when its manifest declares `targetVersion` below 2.0; OSF UI selects the compatibility façade over the current transport. Raw 1.x envelope consumers must migrate. `bridgeVersion` is informational.
 
 > Written with Claude and reviewed against the source. Where it disagrees with the code, the JSON Schemas (§7) or `sdk/osfui.d.ts`, those win — and a bug report about the mismatch is welcome.
 
@@ -600,7 +600,7 @@ With `devMode: true` the in-game loop is fast too:
 - [ ] `views/<modId>/<viewName>/manifest.json` — folder names pass the id grammar (§0), manifest `id` equals the view folder name, `permissions.nativeBridge` set as needed.
 - [ ] Responsive CSS (no hardcoded 1280×720 assumptions; the view is resized to the screen).
 - [ ] All assets local and relative (no `..`, no absolute paths, no network) — plus the sanctioned `../../shared/osfui.css` / `osfui.js`.
-- [ ] Load `shared/osfui.js` before your script. Declare `targetVersion` (`"2.0.0"` or later) — a 1.x target is badged as legacy.
+- [ ] Load `shared/osfui.js` before your script. Declare the `targetVersion` you authored against; use `"2.0.0"` or later after migrating to the strict four-verb surface.
 - [ ] **No lifecycle code.** Everything the page renders comes from `osfui.state.on()`; nothing is re-requested on load, and nothing depends on `osfui.ready` having fired first.
 - [ ] Verbs chosen by semantics: `request()` (and its rejection `code`) where the outcome matters, `send()` where it can't fail, `on()` only for happenings.
 - [ ] (If configurable) a `settings/<modId>.json` schema with sane `default`/`min`/`max`.

@@ -90,6 +90,7 @@ function hudSettingsSchema(options) {
     title: displayName(options.modId),
     description: `Controls for the ${options.view.replaceAll('-', ' ')} HUD.`,
     version: 1,
+    targetVersion: '2.0.0',
     groups: [{
       id: 'hud',
       label: 'HUD',
@@ -390,8 +391,6 @@ namespace
 
     constexpr const char* kModId = "${options.modId}";
     constexpr const char* kViewId = "${options.modId}/${options.view}";
-    constexpr const char* kStateType = "${options.modId}.hudState";
-
     struct HudState
     {
         int value{ 72 };
@@ -416,7 +415,8 @@ namespace
 
     void PushHudState() noexcept
     {
-        (void)g_json.SendToWeb(kViewId, kStateType, g_state);
+        // Retained state is replayed after every page reload and host recovery.
+        (void)g_json.SetViewState(kModId, "hud", g_state);
     }
 
     // Call this from your game-event handling when displayed data changes.
@@ -430,12 +430,6 @@ namespace
         PushHudState();
     }
 
-    // Main-thread callback fired when a bridge becomes live and after recovery.
-    void OnReady(void*) noexcept
-    {
-        PushHudState();
-    }
-
     void OnSFSEMessage(SFSE::MessagingInterface::Message* message)
     {
         if (message->type != SFSE::MessagingInterface::kPostLoad) return;
@@ -444,7 +438,7 @@ namespace
         // RegisterView loads the shipped folder without editing player config.
         // The HUD manifest's openOnStart flag makes it visible immediately.
         (void)g_ui.RegisterView(kViewId);
-        g_ui.SetReadyCallback(&OnReady, nullptr);
+        PushHudState();
 
         if (g_ui.Has(OSFUI::API::Feature::kSettings)) {
             (void)g_json.RegisterSettingsSchema(OSFUI::API::Json{
@@ -452,6 +446,7 @@ namespace
                 { "title", "${displayName(options.modId)}" },
                 { "description", "Controls for the ${options.view.replaceAll('-', ' ')} HUD." },
                 { "version", 1 },
+                { "targetVersion", "2.0.0" },
                 { "groups", OSFUI::API::Json::array({
                     OSFUI::API::Json{
                         { "id", "hud" },
@@ -544,7 +539,6 @@ namespace
 
     constexpr const char* kModId = "${options.modId}";
     constexpr const char* kViewId = "${options.modId}/${options.view}";
-    constexpr const char* kStateType = "${options.modId}.state";
     constexpr const char* kNoticeType = "${options.modId}.notice";
 
     struct DemoState
@@ -572,7 +566,7 @@ namespace
 
     // STATE, not a push: SetViewState retains the value and OSF UI replays it
     // to every document of this mod — first open, F5, dev reload, crash
-    // recovery. The view subscribes once with osfui.state.on("state") and is
+    // recovery. The view subscribes once with osfui.state.on("<mod>/state") and is
     // never blank, and there is no "the view reloaded, re-send me everything"
     // handshake on either side. The viewId parameter is gone: state is
     // addressed by MOD, so every view of the mod gets it.
@@ -696,6 +690,7 @@ namespace
                 { "title", "${displayName(options.modId)} native example" },
                 { "description", "Runtime schema registered from C++ with OSFUI_JSON." },
                 { "version", 1 },
+                { "targetVersion", "2.0.0" },
                 { "groups", OSFUI::API::Json::array({
                     OSFUI::API::Json{
                         { "id", "native-demo" },

@@ -48,8 +48,10 @@ for (const [surface, integration, backendPath, backendPattern] of [
     assert.equal(packageJson.dependencies, undefined);
     assert.doesNotMatch(source, /preact/i);
     assert.match(config, new RegExp(`kind: '${surface}'`));
+    assert.match(config, /targetVersion: '2\.0\.0'/);
     assert.equal(config.match(/\bviews:/g)?.length, 1);
     assert.match(mock, /defineMock/);
+    assert.doesNotMatch(mock, /\btype: 'ui\./);
     const tsconfig = JSON.parse(await readFile(resolve(root, 'tsconfig.json'), 'utf8'));
     assert.equal(tsconfig.compilerOptions.strict, true);
     // Hand-written .js view files stay a supported authoring path.
@@ -117,7 +119,8 @@ for (const [surface, integration, backendPath, backendPattern] of [
         assert.match(script, /ListenForViewActions/);
         assert.match(script, /OnOSFUIViewAction/);
         assert.match(script, /RejectViewRequest/);
-        assert.match(source, /osfui\?\.state\?\.on\?\./);
+        assert.match(source, /state\?\.on\?\.<number>\('acme\.widgets\/clicks'/);
+        assert.match(source, /state\?\.on\?\.<string>\('acme\.widgets\/greeting'/);
         assert.match(source, /osfui\?\.papyrus\?\.send\('bump', 1\)/);
         // The 1.x endpoint and its reply type are gone, not renamed in place.
         assert.doesNotMatch(source, /ui\.papyrusRequest/);
@@ -130,12 +133,15 @@ for (const [surface, integration, backendPath, backendPattern] of [
           'utf8',
         ));
         assert.equal(schema.id, 'acme.widgets');
+        assert.equal(schema.targetVersion, '2.0.0');
         assert.deepEqual(
           schema.groups[0].settings.map(({ key }) => key),
           ['hudEnabled', 'toggleHud', 'anchor', 'margin', 'scale', 'opacity', 'accent'],
         );
         assert.match(script, /OSFUI\.OpenMenu\(ViewId\)/);
         assert.match(script, /OSFUI\.SetViewBool\(ModId, "alert"/);
+        assert.match(source, /state\?\.on\?\.<string>\('acme\.widgets\/label'/);
+        assert.match(source, /state\?\.on\?\.<boolean>\('acme\.widgets\/alert'/);
       }
     }
 
@@ -153,14 +159,18 @@ for (const [surface, integration, backendPath, backendPattern] of [
         assert.match(nativeSource, /OSFUI::API::JsonRequest/);
         assert.match(nativeSource, /SubscribeSettings/);
         assert.match(nativeSource, /SubscribeHotkey/);
-        assert.match(source, /osfui!\.request<DemoState>/);
-        assert.match(source, /state\?\.on\?\.<DemoState>/);
+        assert.match(source, /request<DemoState>\('acme\.widgets\.getState'/);
+        assert.match(source, /state\?\.on\?\.<DemoState>\('acme\.widgets\/state'/);
         assert.match(source, /acme\.widgets\.increment/);
+        assert.doesNotMatch(source, /on\?\.<DemoState>\('acme\.widgets\.state'/);
+        assert.doesNotMatch(mock, /\bcommand ===|\breply\(/);
+        assert.match(mock, /io\.reject\('invalid-payload'/);
       } else {
         assert.match(nativeSource, /RegisterView\(kViewId\)/);
         assert.match(nativeSource, /RegisterSettingsSchema/);
-        assert.match(nativeSource, /SendToWeb\(kViewId, kStateType/);
-        assert.match(source, /acme\.widgets\.hudState/);
+        assert.match(nativeSource, /SetViewState\(kModId, "hud"/);
+        assert.doesNotMatch(nativeSource, /SetReadyCallback/);
+        assert.match(source, /state\?\.on\?\.<HudState>\('acme\.widgets\/hud'/);
       }
       const nativeBuild = await readFile(resolve(root, 'native/build.mjs'), 'utf8');
       assert.match(nativeBuild, /delete env\.XSE_SF_MODS_PATH/);
@@ -185,7 +195,7 @@ for (const [surface, integration, backendPath, backendPattern] of [
       assert.match(style, /data-anchor/);
       assert.match(mock, /Change telemetry/);
       assert.match(mock, /hud-hotkey/);
-      assert.match(mock, /name === 'menu\.open'/);
+      assert.doesNotMatch(mock, /osfui\.hello/);
     } else {
       assert.doesNotMatch(config, /openOnStart: true/);
       assert.match(source, /<button/);

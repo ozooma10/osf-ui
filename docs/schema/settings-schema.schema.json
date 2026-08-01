@@ -31,7 +31,7 @@
     "targetVersion": {
       "type": "string",
       "pattern": "^[0-9]+(\\.[0-9]+){0,2}$",
-      "description": "The OSF UI version this schema was authored against (e.g. \"2.0.0\") - the same advisory field as a view manifest's, with one deliberate difference. A target NEWER than the running host badges 'needs update' on the Mods surface, exactly as it does for a view. A target BELOW 2.0 does NOT raise the `compat.legacy-view` card a view would get: a settings schema executes nothing, so it cannot be broken by the removal of helper members. Declare the release that first shipped whatever you rely on (tabbed `pages`, `onPress`, ...) so an older host tells the player to update instead of silently degrading — an unrecognized base type renders read-only at the schema default, and an unrecognized `pages` list collapses into the plain group column."
+      "description": "The OSF UI version this schema was authored against (e.g. \"2.0.0\") - the same advisory field as a view manifest's. A target NEWER than the running host badges 'needs update' on the Mods surface. A target BELOW 2.0 has no helper-shape effect because a settings schema executes nothing. Declare the release that first shipped whatever you rely on (tabbed `pages`, `onPress`, ...) so an older host tells the player to update instead of silently degrading — an unrecognized base type renders read-only at the schema default, and an unrecognized `pages` list collapses into the plain group column."
     },
     "accent": {
       "type": "string",
