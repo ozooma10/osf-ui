@@ -342,7 +342,7 @@ namespace OSFUI
 		// Routes to that view's own console in devMode and raises the
 		// `view.protocol-misuse` diagnostic once it repeats.
 		void OnProtocolMisuse(std::string_view a_viewId, std::string_view a_code,
-			std::string_view a_message, const nlohmann::json& a_detail);
+			std::string_view a_message, const nlohmann::json& a_detail, bool a_viewFault);
 
 		Config                        _config;
 		LocalizationService           _localization;
@@ -373,7 +373,7 @@ namespace OSFUI
 		struct BugReportResult
 		{
 			std::string   view;
-			std::string   requestId;
+			std::string   deferToken;
 			bool          ok{ false };
 			std::string   code;
 			std::string   message;
@@ -487,6 +487,14 @@ namespace OSFUI
 		std::string                   _captureMod;    // main-thread: mod owning the setting being rebound
 		std::string                   _captureKey;    // main-thread: which setting (e.g. "toggleKey")
 		std::atomic<KeyCode>          _captureUpVk{ kInvalidKeyCode };
+
+		// Can the overlay actually reach the screen? `_overlayDrawAvailable` is
+		// only the install-time half (the Scaleform vtable hooks); the seam's
+		// command-list hooks are taken lazily on a render worker and their
+		// self-test can disable drawing long afterwards. Every "may this open"
+		// gate must ask both, or it admits an invisible overlay that still
+		// captures focus and input.
+		[[nodiscard]] bool OverlayCanDraw() const;
 
 		std::atomic_bool              _visible{ false };
 		std::atomic_bool              _overlayDrawAvailable{ false };

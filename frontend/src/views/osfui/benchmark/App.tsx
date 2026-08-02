@@ -362,7 +362,17 @@ export function App({ bridge = windowBridge }: AppProps) {
           <p>Repeatable rendering workloads for comparing browser, capture and in-game delivery.</p>
         </div>
         <div class="header-actions">
-          <button type="button" onClick={() => bridge.send('menu.open', { view: 'osfui/settings' })}>
+          {/* `menu.open` is a REQUEST endpoint: a send naming it is refused as
+              wrong-endpoint-kind and the button does nothing. Fall back to
+              closing, as keybinds does, since the hub may not be discovered. */}
+          <button
+            type="button"
+            onClick={() => {
+              void bridge
+                .request('menu.open', { view: 'osfui/settings' })
+                .catch(() => bridge.send('close'));
+            }}
+          >
             Back to Mods
           </button>
         </div>

@@ -84,7 +84,7 @@ export interface RuntimeInfo {
   bridgeVersion: string; // protocol version — informational
   /** This document's own qualified view id, e.g. "acme.mymod/dashboard". */
   view: string;
-  /** Its owning mod id — the default scope for an unqualified state key. */
+  /** Its owning mod id — the prefix to build this view's own state keys with. */
   mod: string;
 }
 
@@ -650,9 +650,8 @@ export interface OSFUIHelper {
   on<T = unknown>(event: string, fn: (payload: T) => void): () => void;
 
   /**
-   * Named backend-owned values. `key` is "<mod>/<key>", or a bare key resolved
-   * against your own mod — so a platform key is unambiguous and your own stays
-   * short. Matched case-insensitively (Papyrus string interning).
+   * Named backend-owned values. `key` is always "<mod>/<key>" — your own mod's
+   * id included. Matched case-insensitively (Papyrus string interning).
    */
   state: {
     get<T = unknown>(key: string): T | undefined;

@@ -199,6 +199,23 @@ export async function doctorPapyrus(project) {
   return missing;
 }
 
+// The compiler's `-import=` list, in precedence order. `Scripts/Source/User`
+// is included ONLY when it exists: PapyrusCompiler hard-fails on a missing
+// import folder ("Cannot use import folder ... Could not find a part of the
+// path"), and scripts now generate straight into `Scripts/Source`. It cannot
+// simply be dropped either — for a legacy project that still keeps sources
+// under `User`, `compilerObject` strips that prefix, so the object name only
+// resolves when the User folder itself is on the list.
+export async function papyrusImportPaths(sourceRoot, papyrusApiDir, imports) {
+  const userRoot = resolve(sourceRoot, 'User');
+  return [
+    ...(await exists(userRoot) ? [userRoot] : []),
+    sourceRoot,
+    papyrusApiDir,
+    imports,
+  ];
+}
+
 export async function buildPapyrus(project, options = {}) {
   if (!project.papyrus) return { pluginBuilt: false, scriptsBuilt: 0 };
   const tools = await papyrusToolchain(project);
@@ -227,6 +244,7 @@ export async function buildPapyrus(project, options = {}) {
   const sourceRoot = resolve(project.modRoot, 'Scripts/Source');
   const sources = await pscFiles(sourceRoot);
   const apiMtime = await latestMtime(tools.papyrusApi);
+  const importPaths = await papyrusImportPaths(sourceRoot, dirname(tools.papyrusApi), imports);
   let scriptsBuilt = 0;
   for (const psc of sources) {
     const pex = pexFor(project.modRoot, psc);
@@ -238,12 +256,6 @@ export async function buildPapyrus(project, options = {}) {
     await mkdir(dirname(pex), { recursive: true });
     await rm(pex, { force: true });
     console.log(`[osfui] Compiling ${rel.replaceAll(sep, '/')}...`);
-    const importPaths = [
-      resolve(sourceRoot, 'User'),
-      sourceRoot,
-      dirname(tools.papyrusApi),
-      imports,
-    ];
     await run(tools.papyrusCompiler, [
       compilerObject,
       `-output=${resolve(project.modRoot, 'Scripts')}`,

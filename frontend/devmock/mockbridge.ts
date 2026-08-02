@@ -733,13 +733,17 @@ export function installMock(opts: MockOptions = {}): MockApi {
   // ungreeted document is DROPPED (the hello replay carries every current value,
   // and queueing would risk delivering a stale one after a newer), events are
   // QUEUED oldest-dropped (they are one-shot happenings the page still wants).
-  let greeted = false;
+  // Two flags, not one, exactly as native does it: state must flow DURING the
+  // replay while events stay shut until after it, so an event raised by a
+  // replay listener cannot overtake the backlog queued before the greeting.
+  let greeted = false;     // state may flow
+  let eventsOpen = false;  // events may flow
   let helloSeq = 0;
   const queuedEvents: Envelope[] = [];
 
   function raise(name: string, payload: unknown): void {
     const env: Envelope = { kind: 'event', name, payload };
-    if (!greeted) {
+    if (!eventsOpen) {
       if (queuedEvents.length >= MAX_QUEUED_EVENTS) queuedEvents.shift();
       queuedEvents.push(env);
       return;
@@ -1086,14 +1090,14 @@ export function installMock(opts: MockOptions = {}): MockApi {
    */
   function greet(): void {
     const seq = ++helloSeq;
-    // A greeting means a NEW document: anything queued for the previous one is
-    // stale — an event is a one-shot happening this document was not present
-    // for — and state, which is what the page actually needs back, arrives
-    // through the replay below. Native discards here too (HandleHello, pinned
-    // by tests/native/bridge_api_tests.cpp); if it ever starts flushing the
-    // pre-greeting queue instead, this line is the one to drop.
+    // The queue is NOT cleared. What it holds are the events raised between
+    // this view coming up and its document greeting us — the harness mirror of
+    // the native ABI's message-before-first-paint guarantee, which
+    // MessageBridge::HandleHello flushes rather than discards (pinned by
+    // tests/native/bridge_api_tests.cpp). A genuine re-greeting has no backlog
+    // anyway: its gate was open, so its events went straight out.
     greeted = false;
-    queuedEvents.length = 0;
+    eventsOpen = false;
     void pluginVersion.then((version) =>
       queued(async () => {
         if (seq !== helloSeq) return;
@@ -1112,14 +1116,18 @@ export function installMock(opts: MockOptions = {}): MockApi {
             mod: modOf(selfView),
           },
         });
-        // The gate opens BEFORE the replay: an event raised by a replay listener
-        // must go straight out, after the state it followed.
+        // State opens BEFORE the replay — that replay is the whole reason the
+        // gate exists — while events stay shut through it, so anything a replay
+        // listener raises lands BEHIND the pre-greeting backlog instead of
+        // overtaking it. The page sees ready, then all state, then every event
+        // in the order it actually happened.
         greeted = true;
         publishSettings();
         publishViews();
         publishHealth();
         publishI18n();
         publishHandoff();
+        eventsOpen = true;
         for (const env of queuedEvents.splice(0)) deliver(env);
         // The harness has no real overlay, so announce "shown" once per document —
         // the edge a view arms its per-visit state off.

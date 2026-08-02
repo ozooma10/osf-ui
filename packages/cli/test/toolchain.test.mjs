@@ -13,6 +13,7 @@ import { loadProject, manifestFor } from '../src/config.mjs';
 import { devServerConfig } from '../src/dev.mjs';
 import { configuredDeployRoot, deployBuild, deployViews, deploymentRoot, saveLocalModsRoot } from '../src/game.mjs';
 import { harnessPlugin, isPre2Target } from '../src/harness-plugin.mjs';
+import { papyrusImportPaths } from '../src/papyrus-build.mjs';
 import { papyrusWarnings } from '../src/papyrus.mjs';
 import { writeZip } from '../src/zip.mjs';
 
@@ -602,4 +603,62 @@ test('a JSON mock flows through the same module entry', async (t) => {
     .then((response) => response.text());
   // Vite turns JSON into a module with a default export.
   assert.match(source, /export default/);
+});
+
+test('the Papyrus import list only names directories that exist', async (t) => {
+  const root = await mkdtemp(resolve(await realpath(tmpdir()), 'osfui-papyrus-'));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
+  const sourceRoot = resolve(root, 'mod/Scripts/Source');
+  const apiDir = resolve(root, 'tools/papyrus');
+  const ckImports = resolve(root, 'ck/Source/Scripts');
+  await mkdir(sourceRoot, { recursive: true });
+  await mkdir(apiDir, { recursive: true });
+  await mkdir(ckImports, { recursive: true });
+
+  // The scaffolded layout: no Scripts/Source/User. Handing the compiler a
+  // nonexistent import folder makes it hard-fail ("Cannot use import folder"),
+  // so every scaffolded Papyrus project would fail to build.
+  const modern = await papyrusImportPaths(sourceRoot, apiDir, ckImports);
+  assert.deepEqual(modern, [sourceRoot, apiDir, ckImports]);
+  for (const dir of modern) await access(dir);
+
+  // The legacy layout still needs it: `compilerObject` strips the `User\`
+  // prefix, so the object name only resolves against the User folder itself.
+  const userRoot = resolve(sourceRoot, 'User');
+  await mkdir(userRoot, { recursive: true });
+  assert.deepEqual(
+    await papyrusImportPaths(sourceRoot, apiDir, ckImports),
+    [userRoot, sourceRoot, apiDir, ckImports],
+  );
+});
+
+test('the browser harness only reads meta fields the plugin actually emits', async (t) => {
+  // `mock-runtime.js` read `meta.viewId`, which has never existed — the plugin
+  // emits `qualifiedId` — so every harness greeting reported an empty view id.
+  // Nothing failed loudly, because reading a missing field just yields
+  // undefined. Compare the two sides structurally instead.
+  const root = await projectFixture(t);
+  const project = await loadProject(root);
+  const emitted = new Set();
+  harnessPlugin(project, project.views[0]).transformIndexHtml.handler('', { path: '/' })
+    .filter((tag) => typeof tag.children === 'string' && tag.children.includes('__OSFUI_HARNESS_META__'))
+    .forEach((tag) => {
+      const json = tag.children.slice(tag.children.indexOf('=') + 1).replace(/;$/, '');
+      Object.keys(JSON.parse(json)).forEach((key) => emitted.add(key));
+    });
+  assert.ok(emitted.has('qualifiedId'), 'the fixture should produce a meta object');
+
+  const browserDir = resolve(import.meta.dirname, '../src/browser');
+  const unknown = new Set();
+  for (const file of await readdir(browserDir)) {
+    if (!file.endsWith('.js')) continue;
+    const source = await readFile(resolve(browserDir, file), 'utf8');
+    for (const [, key] of source.matchAll(/(?<![\w/'"`])meta\.([A-Za-z_]\w*)/g)) {
+      // mockUrl/mockName are conditional on the project having a mock.
+      if (!emitted.has(key) && key !== 'mockUrl' && key !== 'mockName') {
+        unknown.add(`${file}: meta.${key}`);
+      }
+    }
+  }
+  assert.deepEqual([...unknown], []);
 });

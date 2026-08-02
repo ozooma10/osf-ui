@@ -409,52 +409,66 @@ namespace OSFUI
 		NoteTracedReply(std::string("error:") + std::string(a_code));
 	}
 
-	void MessageBridge::Defer()
+	std::string MessageBridge::Defer()
 	{
 		if (_currentRequestId.empty() || _settled) {
 			REX::WARN("MessageBridge: Defer() outside an unsettled request ('{}')", _currentName);
-			return;
+			return {};
 		}
 		_settled = true;
-		_pending[_currentRequestId] = Pending{
+		// Host-minted, never the page's id: see the header. Two documents both
+		// numbering their first request "q1" must not share a slot.
+		auto token = "d" + std::to_string(_nextDeferToken++);
+		_pending[token] = Pending{
 			.view = _currentSource,
+			.requestId = _currentRequestId,
 			.name = _currentName,
 			.deadline = std::chrono::steady_clock::now() + kRequestDeadline,
 		};
 		NoteTracedReply("deferred");
+		return token;
 	}
 
-	void MessageBridge::RespondTo(std::string_view a_requestId, const nlohmann::json& a_payload)
+	void MessageBridge::RespondTo(std::string_view a_token, const nlohmann::json& a_payload)
 	{
-		RespondJsonTo(a_requestId, Json::Dump(a_payload));
+		RespondJsonTo(a_token, Json::Dump(a_payload));
 	}
 
-	void MessageBridge::RespondJsonTo(std::string_view a_requestId, std::string_view a_payloadJson)
+	void MessageBridge::RespondJsonTo(std::string_view a_token, std::string_view a_payloadJson)
 	{
-		const auto it = _pending.find(std::string(a_requestId));
+		const auto it = _pending.find(std::string(a_token));
 		if (it == _pending.end()) {
 			// Late or duplicate: the request already settled, expired, or went
-			// away with its view. Never deliver twice.
+			// away with its view. Never deliver twice — but say so, because a
+			// backend answering just after the host deadline is otherwise
+			// invisible, and it looks identical to a backend that never
+			// answered at all.
+			REX::DEBUG("MessageBridge: dropped a reply for '{}' — already settled, expired, or its view is gone",
+				a_token);
 			return;
 		}
 		const auto view = it->second.view;
+		const auto requestId = it->second.requestId;
 		_pending.erase(it);
 		if (_send && !view.empty()) {
-			_send(view, EncodeReply(a_requestId, a_payloadJson));
+			_send(view, EncodeReply(requestId, a_payloadJson));
 		}
 		NoteTracedReply("reply");
 	}
 
-	void MessageBridge::RejectTo(std::string_view a_requestId, std::string_view a_code, std::string_view a_message)
+	void MessageBridge::RejectTo(std::string_view a_token, std::string_view a_code, std::string_view a_message)
 	{
-		const auto it = _pending.find(std::string(a_requestId));
+		const auto it = _pending.find(std::string(a_token));
 		if (it == _pending.end()) {
+			REX::DEBUG("MessageBridge: dropped a '{}' rejection for '{}' — already settled, expired, or its view is gone",
+				a_code, a_token);
 			return;
 		}
 		const auto view = it->second.view;
+		const auto requestId = it->second.requestId;
 		_pending.erase(it);
 		if (_send && !view.empty()) {
-			_send(view, EncodeError(a_requestId, a_code, a_message));
+			_send(view, EncodeError(requestId, a_code, a_message));
 		}
 		NoteTracedReply(std::string("error:") + std::string(a_code));
 	}
@@ -652,22 +666,27 @@ namespace OSFUI
 		if (_pending.empty()) {
 			return;
 		}
-		std::vector<std::pair<std::string, Pending>> expired;
+		std::vector<Pending> expired;
 		for (auto it = _pending.begin(); it != _pending.end();) {
 			if (a_now >= it->second.deadline) {
-				expired.emplace_back(it->first, it->second);
+				expired.emplace_back(it->second);
 				it = _pending.erase(it);
 			} else {
 				++it;
 			}
 		}
-		for (const auto& [id, req] : expired) {
+		for (const auto& req : expired) {
 			REX::WARN("MessageBridge: '{}' from view '{}' missed the {}s host deadline",
 				req.name, req.view, std::chrono::duration_cast<std::chrono::seconds>(kRequestDeadline).count());
+			// The PAGE's id, not the map key: a token the page never saw would
+			// settle nothing and the expiry would read as a hang.
 			if (_send && !req.view.empty()) {
-				_send(req.view, EncodeError(id, "no-response", "the backend never answered"));
+				_send(req.view, EncodeError(req.requestId, "no-response", "the backend never answered"));
 			}
-			Surface(req.view, "no-response", "the backend never answered", { { "name", req.name } });
+			// Not the view's fault: it asked correctly and the backend went
+			// quiet. Reported to the page, never counted against it.
+			Surface(req.view, "no-response", "the backend never answered", { { "name", req.name } },
+				/*a_viewFault*/ false);
 		}
 	}
 
@@ -676,11 +695,11 @@ namespace OSFUI
 	// -----------------------------------------------------------------------
 
 	void MessageBridge::Surface(std::string_view a_viewId, std::string_view a_code, std::string_view a_message,
-		const nlohmann::json& a_detail)
+		const nlohmann::json& a_detail, bool a_viewFault)
 	{
 		REX::WARN("MessageBridge: [content] view '{}': {} — {}", a_viewId, a_code, a_message);
 		if (_surface) {
-			_surface(a_viewId, a_code, a_message, a_detail);
+			_surface(a_viewId, a_code, a_message, a_detail, a_viewFault);
 		}
 	}
 

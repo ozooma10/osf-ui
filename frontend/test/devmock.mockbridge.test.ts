@@ -168,19 +168,30 @@ describe('handshake', () => {
     expect(frames).toHaveLength(0);
   });
 
-  it('discards what was queued for the document a greeting replaces', async () => {
-    // Events raised before the handshake are held (bounded, oldest dropped) so
-    // nothing is shouted at a page with no listeners — and then DISCARDED by the
-    // greeting, because a greeting means a new document and a one-shot happening
-    // it was not present for is not its to receive. MessageBridge::HandleHello,
-    // pinned by tests/native/bridge_api_tests.cpp.
+  it('flushes the pre-greeting backlog after the state replay', async () => {
+    // Events raised before the handshake are held (bounded at 64, oldest
+    // dropped) so nothing is shouted at a page with no listeners — and then
+    // DELIVERED by the greeting. That is the harness mirror of the native ABI's
+    // message-before-first-paint guarantee: MessageBridge::HandleHello flushes
+    // this queue rather than discarding it, pinned by
+    // tests/native/bridge_api_tests.cpp. Discarding here made the gate dead
+    // code and hid every regression in that guarantee.
     for (let i = 0; i < 70; i++) mock.hotkey();
     await settle();
     expect(frames).toHaveLength(0);
 
     await greet();
-    expect(eventsOf('ui.hotkey')).toHaveLength(0);
-    // …and the state the document actually needs arrives through the replay.
+    // Bounded to the newest 64 — an overflowing queue drops the OLDEST.
+    expect(eventsOf('ui.hotkey')).toHaveLength(64);
+    // …and they land BEHIND the replay, never ahead of it: a view's listener
+    // is registered off the state it just received.
+    const firstHotkey = frames.findIndex((f) => f.kind === 'event' && f.name === 'ui.hotkey');
+    const lastSettings = frames.reduce(
+      (last, f, i) => (f.kind === 'state' && f.key === 'settings' ? i : last),
+      -1,
+    );
+    expect(lastSettings).toBeGreaterThanOrEqual(0);
+    expect(firstHotkey).toBeGreaterThan(lastSettings);
     expect(lastState('settings')).toBeDefined();
   });
 

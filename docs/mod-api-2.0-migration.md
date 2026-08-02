@@ -111,7 +111,7 @@ Only relevant if you talk to `postMessage`/`onMessage` directly. Source of truth
 { kind: "error",  id, payload: { code, message } }
 ```
 
-`RuntimeInfo` = `{ game, plugin, version, bridgeVersion, view, mod }`. `view` is this document's qualified id and `mod` its owning mod — the default scope for an unqualified state key.
+`RuntimeInfo` = `{ game, plugin, version, bridgeVersion, view, mod }`. `view` is this document's qualified id and `mod` its owning mod — the prefix to build your own `"<mod>/<key>"` state keys with.
 
 Envelope rules that went from lenient to strict:
 

@@ -697,6 +697,12 @@ export function install(ctx: MockContext) {
     key: 'clicks',
     value: state.clicks,
   });
+  const publishGreeting = () => ctx.send({
+    kind: 'state', mod: '${options.modId}', key: 'greeting', value: state.greeting,
+  });
+  const notice = (text: string) => ctx.send({
+    kind: 'event', name: '${options.modId}.notice', payload: { args: [text] },
+  });
   const publishEnabled = () => ctx.send({
     kind: 'state', mod: '${options.modId}', key: 'enabled', value: settingValues.enabled,
   });
@@ -722,18 +728,30 @@ export function install(ctx: MockContext) {
     // JavaScript calls a named GLOBAL function on the loose PEX.
     if (name === 'papyrus.call' && payload.script === '${pascalIdentifier(options.modId)}OSFUI') {
       const args = Array.isArray(payload.args) ? payload.args : [];
-      if (payload.function === 'Bump') {
-        state.clicks += Number(args[0]) || 1;
+      // Each branch mirrors the matching function in the .psc — same guard,
+      // same published keys, same message. When they drift, the harness proves
+      // something the game will not do.
+      if (payload.function === 'Refresh') {
+        // The script republishes the SETTING value and resets the counter.
+        state.greeting = String(settingValues.greeting ?? state.greeting);
+        state.clicks = 0;
+        publishGreeting();
         publish();
-        ctx.send({
-          kind: 'event', name: '${options.modId}.notice',
-          payload: { args: ['Papyrus handled a one-way action'] },
-        });
+        publishEnabled();
+      } else if (payload.function === 'Bump') {
+        if (!settingValues.enabled) {
+          notice('Backend actions are disabled in Mod Settings');
+          return true;
+        }
+        // Assigns the view's total, exactly as SetViewInt does.
+        state.clicks = Number(args[0]) || 0;
+        publish();
+        notice('JavaScript called a GLOBAL Papyrus function');
       } else if (payload.function === 'OpenSettings') {
         ctx.notify('Papyrus would call OSFUI.OpenMenu()');
       } else if (payload.function === 'Greet') {
-        state.greeting = 'Hello ' + String(args[0] ?? '') + ', from the mocked Papyrus script';
-        publish();
+        state.greeting = String(settingValues.greeting ?? state.greeting) + ', ' + String(args[0] ?? '');
+        publishGreeting();
       }
       return true;
     }
@@ -851,8 +869,16 @@ osfui.ready.then(async (info) => {
 
 // JS -> arbitrary GLOBAL Papyrus functions. Calls are fire-and-forget; the
 // functions publish state or events when the view needs to observe an outcome.
+let clickTotal = 0;
+osfui.state.on<number>('${options.modId}/clicks', (value) => {
+  // Keep the local total in step with whatever the backend published, so a
+  // reload or a Refresh does not restart the count from zero.
+  clickTotal = Number(value) || 0;
+});
 bump.addEventListener('click', () => {
-  if (!osfui.papyrus.call('${pascalIdentifier(options.modId)}OSFUI', 'Bump', 1)) {
+  // The view carries the total: a recordless GLOBAL Papyrus script has nowhere
+  // to accumulate one.
+  if (!osfui.papyrus.call('${pascalIdentifier(options.modId)}OSFUI', 'Bump', clickTotal + 1)) {
     status.textContent = 'OSF UI bridge is unavailable';
   }
 });

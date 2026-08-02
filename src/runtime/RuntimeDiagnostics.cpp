@@ -153,8 +153,18 @@ namespace OSFUI
 		// Plugins refused by OSFUI_RequestBridge for an ABI major mismatch. The
 		// refusal happens during SFSE load, long before this runs, so the record
 		// is drained here rather than reported at the refusal site.
+		// Deduped and capped HERE, not just at the producer: the drain empties
+		// BridgeApi's dedupe set, so a plugin that retries on every load screen
+		// would otherwise add itself again on every poll for the whole session.
 		for (const auto& caller : API::BridgeApi::Get().TakeLegacyApiCallers()) {
-			_legacyApiCallers.push_back(caller);
+			if (_legacyApiCallers.size() >= API::BridgeApi::kMaxLegacyCallers) {
+				break;
+			}
+			const auto known = std::ranges::any_of(_legacyApiCallers,
+				[&](const auto& seen) { return seen.module == caller.module; });
+			if (!known) {
+				_legacyApiCallers.push_back(caller);
+			}
 		}
 		for (const auto& caller : _legacyApiCallers) {
 			targets.push_back({

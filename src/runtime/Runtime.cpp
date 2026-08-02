@@ -32,7 +32,7 @@
 #include "reporting/ReportClient.h"
 #include "runtime/Json.h"
 #include "runtime/Ids.h"
-#include "runtime/PapyrusNames.h"
+#include "runtime/PapyrusCall.h"
 #include "runtime/VanillaKeys.h"
 #include "render/NullWebRenderer.h"
 #include "render/WebView2HostWebRenderer.h"
@@ -281,8 +281,9 @@ namespace OSFUI
 		// the ordering guarantee structural.
 		_bridge->SetHelloHook([this](std::string_view a_viewId) { OnViewGreeted(a_viewId); });
 		_bridge->SetSurfaceFn([this](std::string_view a_viewId, std::string_view a_code,
-									  std::string_view a_message, const nlohmann::json& a_detail) {
-			OnProtocolMisuse(a_viewId, a_code, a_message, a_detail);
+									  std::string_view a_message, const nlohmann::json& a_detail,
+									  bool a_viewFault) {
+			OnProtocolMisuse(a_viewId, a_code, a_message, a_detail, a_viewFault);
 		});
 		RegisterPlatformCommands(*_bridge);
 		for (const auto& module : _modules) {
@@ -612,9 +613,9 @@ namespace OSFUI
 			});
 			API::Papyrus::DrainViewReplies([this](const API::Papyrus::ViewReply& reply) {
 				if (reply.rejected) {
-					_bridge->RejectTo(reply.requestId, reply.code, reply.message);
+					_bridge->RejectTo(reply.deferToken, reply.code, reply.message);
 				} else {
-					_bridge->RespondTo(reply.requestId, nlohmann::json{ { "value", reply.value } });
+					_bridge->RespondTo(reply.deferToken, nlohmann::json{ { "value", reply.value } });
 				}
 			});
 		}
@@ -926,9 +927,18 @@ namespace OSFUI
 		ApplyMenuPolicy();
 	}
 
+	bool Runtime::OverlayCanDraw() const
+	{
+		return _overlayDrawAvailable.load(std::memory_order_acquire) && UiPassSeam::DrawEnabled();
+	}
+
 	bool Runtime::BeginSurfaceOpen(std::string_view a_id)
 	{
-		if (!_overlayDrawAvailable.load(std::memory_order_acquire)) {
+		// Both halves: Install() only proves the vtable hooks were taken, while
+		// the command-list hooks are self-tested lazily on a render worker and
+		// can disable the seam afterwards. Gating on the install alone admits an
+		// invisible overlay that still holds focus and input.
+		if (!OverlayCanDraw()) {
 			REX::WARN("Runtime: cannot open '{}' — the Scaleform UI draw path is unavailable",
 				a_id);
 			return false;
@@ -1191,8 +1201,7 @@ namespace OSFUI
 		// All menu-opening paths converge here, including legacy RegisterView and
 		// a page asking to show itself. Keep HUD state, but never let an interactive
 		// menu claim focus/input when the compositor cannot put it on screen.
-		if (!_overlayDrawAvailable.load(std::memory_order_acquire) &&
-			_menus.ActiveMenu()) {
+		if (!OverlayCanDraw() && _menus.ActiveMenu()) {
 			REX::WARN("Runtime: closing a requested menu because the Scaleform UI draw path is unavailable");
 			_menus.CloseTop();
 		}
@@ -1791,7 +1800,7 @@ namespace OSFUI
 	}
 
 	void Runtime::OnProtocolMisuse(std::string_view a_viewId, std::string_view a_code,
-		std::string_view a_message, const nlohmann::json& a_detail)
+		std::string_view a_message, const nlohmann::json& a_detail, bool a_viewFault)
 	{
 		// devMode: hand it straight back to the offending document so it lands
 		// in that view's OWN console — and therefore in F12 DevTools with full
@@ -1809,7 +1818,10 @@ namespace OSFUI
 		// one-off (a stale view naming one dead endpoint at boot) stays out of
 		// the player's face.
 		constexpr std::uint32_t kMisuseThreshold = 10;
-		if (a_viewId.empty() || !_diagnostics) {
+		// Only faults the VIEW caused. A backend that missed its deadline is
+		// reported to the waiting page above, but naming the page in a
+		// `view.protocol-misuse` card would blame the wrong side.
+		if (!a_viewFault || a_viewId.empty() || !_diagnostics) {
 			return;
 		}
 		const auto count = ++_protocolMisuse[std::string(a_viewId)];
@@ -2591,9 +2603,9 @@ namespace OSFUI
 		// its code rather than resolving an { ok:false } document the caller has
 		// to remember to inspect.
 		if (result->ok) {
-			_bridge->RespondTo(result->requestId, payload);
+			_bridge->RespondTo(result->deferToken, payload);
 		} else {
-			_bridge->RejectTo(result->requestId,
+			_bridge->RejectTo(result->deferToken,
 				result->code.empty() ? "report-failed" : result->code, result->message);
 		}
 	}
@@ -2778,6 +2790,10 @@ namespace OSFUI
 			for (const auto& e : *it) {
 				if (e.is_string()) {
 					args.push_back(e.get<std::string>());
+				} else if (e.is_number_unsigned()) {
+					// Before is_number_integer(), which is true for unsigned too:
+					// as int64 a > INT64_MAX literal stringifies as negative.
+					args.push_back(std::to_string(e.get<std::uint64_t>()));
 				} else if (e.is_number_integer()) {
 					args.push_back(std::to_string(e.get<std::int64_t>()));
 				} else if (e.is_number()) {
@@ -2792,66 +2808,14 @@ namespace OSFUI
 		};
 		a_bridge.RegisterSend("papyrus.call", [](const nlohmann::json& a_p, MessageBridge& a_b) {
 			const std::string source(a_b.CurrentSource());
-			const std::string script = Json::GetString(a_p, "script", "");
-			const std::string function = Json::GetString(a_p, "function", "");
-			if (!PapyrusNames::IsScriptName(script) || !PapyrusNames::IsIdentifier(function)) {
-				a_b.Surface(source, "invalid-request", "papyrus.call requires valid 'script' and 'function' names");
+			// Validation and marshalling live in PapyrusCall so the host test suite
+			// can reach them; this endpoint owns only the transport half.
+			const auto call = PapyrusCall::Parse(a_p);
+			if (!call.ok) {
+				a_b.Surface(source, call.code, call.message);
 				return;
 			}
-			const auto it = a_p.find("args");
-			if (it != a_p.end() && !it->is_array()) {
-				a_b.Surface(source, "invalid-request", "papyrus.call 'args' must be an array");
-				return;
-			}
-			const auto& input = it == a_p.end() ? nlohmann::json::array() : *it;
-			if (input.size() > 32) {
-				a_b.Surface(source, "invalid-request", "papyrus.call accepts at most 32 arguments");
-				return;
-			}
-			std::vector<API::Papyrus::StaticCallArg> args;
-			args.reserve(input.size());
-			const auto appendFloat = [&](double number) {
-				if (!std::isfinite(number) || std::abs(number) > std::numeric_limits<float>::max()) {
-					return false;
-				}
-				args.emplace_back(static_cast<float>(number));
-				return true;
-			};
-			for (const auto& value : input) {
-				if (value.is_string()) {
-					args.emplace_back(value.get<std::string>());
-				} else if (value.is_boolean()) {
-					args.emplace_back(value.get<bool>());
-				} else if (value.is_number_integer()) {
-					const auto integer = value.get<std::int64_t>();
-					if (integer < std::numeric_limits<std::int32_t>::min() || integer > std::numeric_limits<std::int32_t>::max()) {
-						a_b.Surface(source, "invalid-request", "papyrus.call integer arguments must fit Papyrus int");
-						return;
-					}
-					args.emplace_back(static_cast<std::int32_t>(integer));
-				} else if (value.is_number_unsigned()) {
-					const auto integer = value.get<std::uint64_t>();
-					if (integer > static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max())) {
-						a_b.Surface(source, "invalid-request", "papyrus.call integer arguments must fit Papyrus int");
-						return;
-					}
-					args.emplace_back(static_cast<std::int32_t>(integer));
-				} else if (value.is_number_float()) {
-					if (!appendFloat(value.get<double>())) {
-						a_b.Surface(source, "invalid-request", "papyrus.call float arguments must be finite Papyrus floats");
-						return;
-					}
-				} else if (value.is_object() && value.size() == 2 &&
-					Json::GetString(value, "$papyrus", "") == "float" && value.contains("value") &&
-					value["value"].is_number() && appendFloat(value["value"].get<double>())) {
-					// JSON erases the difference between 3 and 3.0. The helper's tagged
-					// float keeps whole-valued Papyrus float parameters expressible.
-				} else {
-					a_b.Surface(source, "invalid-request", "papyrus.call arguments must be scalar values or osfui.papyrus.float(value)");
-					return;
-				}
-			}
-			if (API::Papyrus::DispatchStaticFunction(script, function, args) !=
+			if (API::Papyrus::DispatchStaticFunction(call.script, call.function, call.args) !=
 				API::Papyrus::StaticDispatchResult::kQueued) {
 				a_b.Surface(source, "papyrus-unavailable", "Papyrus could not queue the GLOBAL function");
 			}
@@ -2874,14 +2838,15 @@ namespace OSFUI
 				a_b.Reject("invalid-request", "name must be a non-empty string of at most 64 characters");
 				return;
 			}
-			const bool queued = API::Papyrus::OnViewRequest(
-				mod, name, papyrusArgs(a_p), source, a_b.CurrentRequestId());
-			if (!queued) {
-				a_b.Reject("papyrus-unavailable", "no Papyrus request listener is available");
+			// Defer first: the bridge's token is what settles this later, and
+			// the Papyrus side has to be handed it up front. The page's own
+			// request id would collide across documents.
+			const auto token = a_b.Defer();
+			if (!API::Papyrus::OnViewRequest(mod, name, papyrusArgs(a_p), source, token)) {
+				a_b.RejectTo(token, "papyrus-unavailable", "no Papyrus request listener is available");
 				return;
 			}
 			// The script settles it later through ReplyView*/RejectViewRequest.
-			a_b.Defer();
 		});
 		a_bridge.RegisterSend("log", [](const nlohmann::json& a_p, MessageBridge&) {
 			// Untrusted content: bound the length so JS cannot flood the log.
@@ -3006,10 +2971,9 @@ namespace OSFUI
 				a_b.Reject("reporting-disabled", "bug reporting is turned off in OSF UI's settings");
 				return;
 			}
-			// The upload runs on a worker; this id settles the request whenever
-			// it finishes (PumpBugReport). A request always carries an id, so
-			// there is no "was this correlated?" case left to check.
-			const auto requestId = std::string(a_b.CurrentRequestId());
+			// The upload runs on a worker; a bridge defer token settles the
+			// request whenever it finishes (PumpBugReport). Minted below, once
+			// the synchronous refusals are past.
 			// Codepoint-boundary caps. A byte cut here would hand Submit() a string
 			// that is already exactly at the limit, so its own bound is a no-op and
 			// the split sequence reaches the payload dump.
@@ -3040,15 +3004,19 @@ namespace OSFUI
 			const std::string endpoint = kBugReportEndpoint;
 			const auto diagnostics = _diagnostics ? _diagnostics->Snapshot() : nlohmann::json::object();
 			const auto view = std::string(a_b.CurrentSource());
+			// Before the worker starts, so a fast failure cannot publish its
+			// result to a token that does not exist yet. Every remaining exit
+			// from this handler settles through the token.
+			const auto deferToken = a_b.Defer();
 			try {
 				_bugReportWorker = std::jthread([this, endpoint, diagnostics, title,
-					description, reproduction, view, requestId] {
+					description, reproduction, view, deferToken] {
 					// The whole body is guarded: an escaping exception on a jthread
 					// is a std::terminate, and it would also leave
 					// _bugReportInFlight latched (only the result drain at
 					// PumpBugReport clears it), so the reporter would answer
 					// "report-busy" forever after. Publish a failure instead.
-					BugReportResult result{ .view = view, .requestId = requestId };
+					BugReportResult result{ .view = view, .deferToken = deferToken };
 					try {
 						const auto submitted = Reporting::Submit(endpoint, diagnostics,
 							title, description, reproduction);
@@ -3074,10 +3042,9 @@ namespace OSFUI
 			} catch (const std::exception& e) {
 				_bugReportInFlight.store(false, std::memory_order_release);
 				REX::ERROR("Runtime: could not start bug-report worker: {}", e.what());
-				a_b.Reject("internal", "could not start the report upload");
+				a_b.RejectTo(deferToken, "internal", "could not start the report upload");
 				return;
 			}
-			a_b.Defer();
 		});
 		a_bridge.RegisterRequest("osfui.openReportIssue", [](const nlohmann::json& a_p, MessageBridge& a_b) {
 			if (a_b.CurrentSource() != "osfui/settings") {

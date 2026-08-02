@@ -66,12 +66,15 @@ namespace OSFUI
 		// rather than a convention call sites have to remember.
 		using HelloHook = std::function<void(std::string_view a_viewId)>;
 
-		// Host-detected protocol misuse, routed back to the offending view as a
-		// dev-only `osfui.debug.error` event and counted for the release-mode
-		// `view.protocol-misuse` diagnostic. Runtime installs this; without it
-		// the bridge only logs.
+		// Host-detected faults, routed back to the view as a dev-only
+		// `osfui.debug.error` event. Runtime installs this; without it the
+		// bridge only logs. `a_viewFault` says whether the VIEW caused it: only
+		// those are counted for the release-mode `view.protocol-misuse`
+		// diagnostic. A backend that never answered is reported to the waiting
+		// page too, but it is not the page's fault and must not earn it a
+		// health card.
 		using SurfaceFn = std::function<void(std::string_view a_viewId, std::string_view a_code,
-			std::string_view a_message, const nlohmann::json& a_detail)>;
+			std::string_view a_message, const nlohmann::json& a_detail, bool a_viewFault)>;
 
 		explicit MessageBridge(SendFn a_send);
 
@@ -108,17 +111,25 @@ namespace OSFUI
 		// ("unknown-view", "capture-busy", ...) and a human sentence.
 		void Reject(std::string_view a_code, std::string_view a_message = {});
 		// Take ownership of the correlation id: nothing is sent now, and the
-		// handler settles later via RespondTo/RejectTo with CurrentRequestId().
+		// handler settles later via RespondTo/RejectTo with the returned token.
 		// Deferred requests are tracked, bounded, deadline-swept
 		// (`no-response`) and reaped when their view goes away.
-		void Defer();
+		//
+		// The token is minted HERE and is unique process-wide; it is not the
+		// page's correlation id. Pages number their own requests from a
+		// per-document counter, so every view's first request is "q1" — keying
+		// deferrals by that id alone let one document's reply settle another's
+		// promise. The page id survives on the Pending entry as the wire echo.
+		// Returns "" when called outside an unsettled request (nothing to
+		// settle later).
+		[[nodiscard]] std::string Defer();
 
-		// Settle a deferred request by id. A stale id (already settled, expired
-		// or reaped with its view) is ignored — late and duplicate replies are
-		// never delivered twice.
-		void RespondTo(std::string_view a_requestId, const nlohmann::json& a_payload);
-		void RespondJsonTo(std::string_view a_requestId, std::string_view a_payloadJson);
-		void RejectTo(std::string_view a_requestId, std::string_view a_code, std::string_view a_message = {});
+		// Settle a deferred request by the token Defer() returned. A stale
+		// token (already settled, expired or reaped with its view) is ignored —
+		// late and duplicate replies are never delivered twice.
+		void RespondTo(std::string_view a_token, const nlohmann::json& a_payload);
+		void RespondJsonTo(std::string_view a_token, std::string_view a_payloadJson);
+		void RejectTo(std::string_view a_token, std::string_view a_code, std::string_view a_message = {});
 
 		// ---- outbound pushes ----------------------------------------------
 		// One-shot happening, delivered at most once and never replayed. Held
@@ -176,16 +187,19 @@ namespace OSFUI
 		// Endpoint name of the in-flight message.
 		[[nodiscard]] std::string_view CurrentName() const { return _currentName; }
 
-		// Report host-detected misuse for a view (protocol errors the page
-		// would otherwise never hear about). Public so the API layer can route
-		// plugin-side faults through the same sink.
+		// Report a host-detected fault to a view (errors the page would
+		// otherwise never hear about). Public so the API layer can route
+		// plugin-side faults through the same sink. Pass a_viewFault = false
+		// when the view did nothing wrong (a backend missed its deadline), so
+		// the report reaches the page without counting against it.
 		void Surface(std::string_view a_viewId, std::string_view a_code, std::string_view a_message,
-			const nlohmann::json& a_detail = nlohmann::json::object());
+			const nlohmann::json& a_detail = nlohmann::json::object(), bool a_viewFault = true);
 
 	private:
 		struct Pending
 		{
 			std::string                           view;
+			std::string                           requestId;  // the PAGE's id, echoed on the wire
 			std::string                           name;
 			std::chrono::steady_clock::time_point deadline;
 		};
@@ -219,7 +233,8 @@ namespace OSFUI
 		std::unordered_map<std::string, RequestHandler>   _requests;
 		std::unordered_map<std::string, SendHandler>      _compatCommands;
 		std::unordered_map<std::string, Gate>             _gates;    // view id -> event gate
-		std::unordered_map<std::string, Pending>          _pending;  // request id -> deferred request
+		std::unordered_map<std::string, Pending>          _pending;  // host token -> deferred request
+		std::uint64_t                                     _nextDeferToken{ 1 };
 		HelloHook                                         _onHello;
 		SurfaceFn                                         _surface;
 

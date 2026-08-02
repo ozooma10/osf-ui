@@ -152,6 +152,10 @@
     });
   };
 
+  // The 2.0 transport, captured before any legacy facade can replace
+  // `g.request`. Internal callers that need a raw reply use this.
+  const strictRequest = g.request;
+
   // ---------------------------------------------------------------------
   // events
   // ---------------------------------------------------------------------
@@ -211,9 +215,13 @@
     },
     request: function (name) {
       const args = Array.prototype.slice.call(arguments, 1);
+      // `strictRequest`, never `g.request`: the 1.x facade reassigns g.request
+      // to re-wrap replies in the old envelope, and reading `.value` off THAT
+      // yields undefined. Binding the transport once keeps this correct under
+      // both manifests instead of needing a second copy in the facade.
       // Papyrus answers over the VM's async call queue, so it gets a longer
       // client timer than the platform default.
-      return g.request("papyrus.request", { name: String(name), args: args }, { timeoutMs: 15000 })
+      return strictRequest("papyrus.request", { name: String(name), args: args }, { timeoutMs: 15000 })
         .then(function (payload) { return payload ? payload.value : undefined; });
     },
   };
@@ -385,7 +393,6 @@
 
   if (legacyApi) {
     const send2 = g.send;
-    const request2 = g.request;
     g.send = function (name, payload) {
       if (name === "ui.action") {
         const body = payload || {};
@@ -403,17 +410,14 @@
     // transport has already normalized replies, so reconstruct the old public
     // shape only at this legacy boundary.
     g.request = function (name, payload, opts) {
-      return request2(name, payload, opts).then(function (value) {
+      return strictRequest(name, payload, opts).then(function (value) {
         return { type: "ui.result", payload: value };
       });
     };
-    g.call = function (name, payload, opts) { return request2(name, payload, opts); };
+    g.call = function (name, payload, opts) { return strictRequest(name, payload, opts); };
     g.papyrus.action = g.action;
-    g.papyrus.request = function (name) {
-      const args = Array.prototype.slice.call(arguments, 1);
-      return request2("papyrus.request", { name: String(name), args: args }, { timeoutMs: 15000 })
-        .then(function (payload) { return payload ? payload.value : undefined; });
-    };
+    // No papyrus.request override: the base one binds the strict transport
+    // directly, so it is already correct under this facade.
 
     // 1.x exposed these at the helper root. Keep them as live wrappers so
     // locale changes and a replaced theme implementation stay observable.

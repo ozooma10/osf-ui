@@ -10,7 +10,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const CLI = resolve(HERE, '..', 'src', 'cli.mjs');
 
 for (const [surface, integration, backendPath, backendPattern] of [
-  ['menu', 'papyrus', 'mod/Scripts/Source/AcmeWidgetsOSFUI.psc', /Function Bump\(int amount\) Global/],
+  ['menu', 'papyrus', 'mod/Scripts/Source/AcmeWidgetsOSFUI.psc', /Function Bump\(int total\) Global/],
   ['hud', 'papyrus', 'mod/Scripts/Source/AcmeWidgetsOSFUI.psc', /Function Refresh\(\) Global/],
   ['hud', 'native', 'native/src/main.cpp', /UpdateHudState/],
   ['menu', 'native', 'native/src/main.cpp', /OSFUI::API::JsonCommand/],
@@ -120,17 +120,38 @@ for (const [surface, integration, backendPath, backendPattern] of [
 
       if (surface === 'menu') {
         // Interactive menus demonstrate state, events, and typed GLOBAL calls.
-        assert.match(script, /Function Bump\(int amount\) Global/);
+        assert.match(script, /Function Bump\(int total\) Global/);
         assert.match(script, /Function Greet\(string who\) Global/);
         assert.match(source, /osfui\.state\.on<number>\('acme\.widgets\/clicks'/);
         assert.match(source, /osfui\.state\.on<string>\('acme\.widgets\/greeting'/);
-        assert.match(source, /osfui\.papyrus\.call\('AcmeWidgetsOSFUI', 'Bump', 1\)/);
+        // A recordless GLOBAL script has nowhere to accumulate, so the VIEW
+        // owns the running total and passes it in. Both backends then simply
+        // publish what they were handed.
+        assert.match(source, /osfui\.papyrus\.call\('AcmeWidgetsOSFUI', 'Bump', clickTotal \+ 1\)/);
         assert.match(source, /osfui\.on<\{ args: string\[\] \}>\('acme\.widgets\.notice'/);
         assert.match(script, /OSFUI\.SendViewEvent\("acme\.widgets", "notice"/);
         assert.doesNotMatch(script, /ListenForView|RegisterFor/);
         // The 1.x endpoint and its reply type are gone, not renamed in place.
         assert.doesNotMatch(source, /papyrus\.request|ui\.papyrusRequest/);
         assert.match(mock, /name === 'papyrus\.call'/);
+        // The browser mock is a SECOND implementation of the same demo backend.
+        // The two silently disagreeing is worse than having no mock: the
+        // harness then proves behavior the game will not reproduce. Pin the
+        // three places they diverged.
+        for (const fn of ['Refresh', 'Bump', 'OpenSettings', 'Greet']) {
+          assert.match(script, new RegExp(`Function ${fn}\\(`), `.psc implements ${fn}`);
+          assert.match(mock, new RegExp(`payload\\.function === '${fn}'`), `mock implements ${fn}`);
+        }
+        // Bump ASSIGNS the total on both sides (the mock used to accumulate,
+        // so the same clicks produced different numbers in game and harness).
+        assert.match(script, /OSFUI\.SetViewInt\("acme\.widgets", "clicks", total\)/);
+        assert.match(mock, /state\.clicks = Number\(args\[0\]\) \|\| 0;/);
+        // Bump honours the `enabled` gate on both sides.
+        assert.match(mock, /if \(!settingValues\.enabled\)/);
+        // Greet publishes the `greeting` key on both sides (the mock used to
+        // publish `clicks` here, so the greeting never updated in the harness).
+        assert.match(script, /OSFUI\.SetViewString\("acme\.widgets", "greeting", greeting \+ ", " \+ who\)/);
+        assert.match(mock, /publishGreeting\(\);/);
       } else {
         const schema = JSON.parse(await readFile(
           resolve(root, 'mod/SFSE/Plugins/OSFUI/settings/acme.widgets.json'),

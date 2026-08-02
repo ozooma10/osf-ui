@@ -62,6 +62,7 @@ SUITES=(
 "local_view_uri_tests local_view_uri_tests.cpp"
 "menu_controller_tests menu_controller_tests.cpp ../../src/runtime/MenuController.cpp"
 "wndproc_chain_tests wndproc_chain_tests.cpp"
+"papyrus_call_tests papyrus_call_tests.cpp"
 "ui_pass_seam_policy_tests ui_pass_seam_policy_tests.cpp"
 )
 

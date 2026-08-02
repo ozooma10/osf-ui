@@ -477,4 +477,9 @@ namespace OSFUI::UiPassSeam
 		}
 		return ok;
 	}
+
+	bool DrawEnabled()
+	{
+		return g_drawEnabled.load(std::memory_order_acquire);
+	}
 }

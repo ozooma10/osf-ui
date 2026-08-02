@@ -22,7 +22,7 @@ namespace OSFUI::API::Papyrus
 
 		// Script type the natives bind to — data/Scripts/OSFUI.pex, shipped with
 		// the mod. Keep in lockstep with data/Scripts/Source/OSFUI.psc.
-		constexpr std::string_view kScriptName = "OSFUI";
+		constexpr std::string_view kScriptName = kPlatformScriptName;
 
 		// Callback registry: generational slots, token = (generation << 16) |
 		// slot, token 0 = failure. One table for all kinds so Unregister needs
@@ -89,7 +89,7 @@ namespace OSFUI::API::Papyrus
 		{
 			std::string                               token;
 			std::string                               view;
-			std::string                               requestId;
+			std::string                               deferToken;
 			std::chrono::steady_clock::time_point     deadline;
 			bool                                      answered{ false };
 			bool                                      rejected{ false };
@@ -353,7 +353,7 @@ namespace OSFUI::API::Papyrus
 		}
 
 		StaticDispatchResult DispatchViewRequestTo(const Target& a_target, std::string_view a_request,
-			const std::vector<std::string>& a_args, std::string_view a_viewId, std::string_view a_requestId)
+			const std::vector<std::string>& a_args, std::string_view a_viewId, std::string_view a_deferToken)
 		{
 			auto* vm = VM::GetSingleton();
 			if (!vm) {
@@ -377,7 +377,7 @@ namespace OSFUI::API::Papyrus
 				PendingViewRequest pending;
 				pending.token = token;
 				pending.view = a_viewId;
-				pending.requestId = a_requestId;
+				pending.deferToken = a_deferToken;
 				pending.deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
 				State().viewRequests.emplace(token, std::move(pending));
 			}
@@ -395,11 +395,11 @@ namespace OSFUI::API::Papyrus
 		}
 
 		bool DispatchViewRequest(std::string_view a_modId, std::string_view a_request,
-			const std::vector<std::string>& a_args, std::string_view a_viewId, std::string_view a_requestId)
+			const std::vector<std::string>& a_args, std::string_view a_viewId, std::string_view a_deferToken)
 		{
 			const auto targets = CollectTargets(Kind::kRequest, a_modId, {});
 			return !targets.empty() && DispatchViewRequestTo(
-				targets.front(), a_request, a_args, a_viewId, a_requestId) == StaticDispatchResult::kQueued;
+				targets.front(), a_request, a_args, a_viewId, a_deferToken) == StaticDispatchResult::kQueued;
 		}
 
 		bool CompleteViewRequest(const RE::BSFixedString& a_token, nlohmann::json a_value,
@@ -1096,23 +1096,16 @@ namespace OSFUI::API::Papyrus
 		Dispatch(Kind::kHotkey, a_modId, a_key);
 	}
 
+	// A schema-owned hotkey callback is just a two-string GLOBAL call, so it
+	// forwards rather than repeating the dispatch: PackVariable routes every
+	// string type through BSFixedString, which makes the packed arguments
+	// identical either way. One dispatcher = one place for any future guard on
+	// VM entry.
 	StaticDispatchResult DispatchStaticHotkey(std::string_view a_script,
 		std::string_view a_function, std::string_view a_modId, std::string_view a_key)
 	{
-		if (a_script.empty() || a_function.empty()) {
-			return StaticDispatchResult::kTargetRejected;
-		}
-		auto* vm = VM::GetSingleton();
-		if (!vm) {
-			return StaticDispatchResult::kVmUnavailable;
-		}
-		const RE::BSFixedString script{ std::string(a_script).c_str() };
-		const RE::BSFixedString function{ std::string(a_function).c_str() };
-		const RE::BSFixedString mod{ std::string(a_modId).c_str() };
-		const RE::BSFixedString key{ std::string(a_key).c_str() };
-		const RE::BSTSmartPointer<RE::BSScript::IStackCallbackFunctor> noCallback{};
-		return vm->DispatchStaticCall(script, function, MakeArgs(mod, key), noCallback, 0) ?
-			StaticDispatchResult::kQueued : StaticDispatchResult::kTargetRejected;
+		return DispatchStaticFunction(a_script, a_function,
+			{ std::string(a_modId), std::string(a_key) });
 	}
 
 	StaticDispatchResult DispatchStaticFunction(std::string_view a_script,
@@ -1140,9 +1133,9 @@ namespace OSFUI::API::Papyrus
 	}
 
 	bool OnViewRequest(std::string_view a_modId, std::string_view a_request,
-		const std::vector<std::string>& a_args, std::string_view a_viewId, std::string_view a_requestId)
+		const std::vector<std::string>& a_args, std::string_view a_viewId, std::string_view a_deferToken)
 	{
-		return DispatchViewRequest(a_modId, a_request, a_args, a_viewId, a_requestId);
+		return DispatchViewRequest(a_modId, a_request, a_args, a_viewId, a_deferToken);
 	}
 
 	void DrainViewReplies(const std::function<void(const ViewReply&)>& a_deliver,
@@ -1163,7 +1156,7 @@ namespace OSFUI::API::Papyrus
 		for (auto& pending : ready) {
 			ViewReply reply;
 			reply.view = std::move(pending.view);
-			reply.requestId = std::move(pending.requestId);
+			reply.deferToken = std::move(pending.deferToken);
 			if (!pending.answered) {
 				reply.rejected = true;
 				reply.code = "papyrus-timeout";

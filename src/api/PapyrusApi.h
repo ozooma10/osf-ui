@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <variant>
 #include <vector>
 
@@ -25,6 +26,13 @@ namespace OSFUI
 // scripts re-register from their own load-game handling.
 namespace OSFUI::API::Papyrus
 {
+	// The Papyrus script OSF UI binds its own natives on. Those natives take
+	// the target mod id as a plain ARGUMENT and are trusted by construction —
+	// Papyrus is a mod's own code — so they carry no caller check. Anything
+	// that lets untrusted view content name a script has to refuse this one, or
+	// it hands a page a trusted alias for the endpoints it is refused.
+	inline constexpr std::string_view kPlatformScriptName = "OSFUI";
+
 	// Main thread, once GameVM exists (SFSE kPostDataLoad): bind the OSFUI
 	// script natives and install the TESLoadGameEvent sink that re-binds them
 	// and clears session registrations after a load. Idempotent.
@@ -70,12 +78,12 @@ namespace OSFUI::API::Papyrus
 	// registered Papyrus listener. The callback receives (request, string[] args,
 	// replyToken). False means no listener/capacity and nothing was dispatched.
 	bool OnViewRequest(std::string_view a_modId, std::string_view a_request,
-		const std::vector<std::string>& a_args, std::string_view a_viewId, std::string_view a_requestId);
+		const std::vector<std::string>& a_args, std::string_view a_viewId, std::string_view a_deferToken);
 
 	struct ViewReply
 	{
 		std::string    view;
-		std::string    requestId;
+		std::string    deferToken;
 		bool           rejected{ false };
 		std::string    code;
 		std::string    message;

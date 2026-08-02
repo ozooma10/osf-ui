@@ -23,4 +23,12 @@ namespace OSFUI::UiPassSeam
 	// the only path that puts the overlay on screen — the present-time renderer
 	// was retired — so a false return means OSF UI cannot draw this session.
 	bool Install();
+
+	// Whether the seam can actually draw RIGHT NOW. Install()'s return value is
+	// only the vtable-hook half; the command-list hooks are taken lazily on the
+	// first frame from a render worker, and their self-test can fail (or a
+	// later fault can disable the seam) long after Install() said yes. Callers
+	// that gate on "can we put this on screen" must consult BOTH, or they admit
+	// an invisible overlay that still captures input.
+	[[nodiscard]] bool DrawEnabled();
 }

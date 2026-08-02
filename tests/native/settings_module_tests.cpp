@@ -208,7 +208,7 @@ int main()
 		});
 	});
 	bridge.SetSurfaceFn([](std::string_view a_view, std::string_view a_code, std::string_view,
-							const nlohmann::json&) {
+							const nlohmann::json&, bool) {
 		g_misuse.push_back(Misuse{ std::string(a_view), std::string(a_code) });
 	});
 	// The host's whole hello obligation for this key (Runtime::OnViewGreeted):

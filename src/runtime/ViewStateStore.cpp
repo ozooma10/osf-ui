@@ -10,7 +10,21 @@ namespace OSFUI
 		if (a_mod.empty() || a_key.empty()) {
 			return false;
 		}
-		auto& entries = _mods[StringUtil::ToLowerAscii(a_mod)];
+		const auto folded = StringUtil::ToLowerAscii(a_mod);
+		auto       it = _mods.find(folded);
+		if (it == _mods.end()) {
+			// Look up before inserting: `_mods[...]` would create the bucket
+			// before the cap could refuse it, which is how a per-key cap ends up
+			// bounding nothing.
+			if (_mods.size() >= kMaxMods) {
+				REX::WARN("ViewStateStore: holding state for the maximum {} mods — "
+						  "'{}.{}' is delivered but not retained",
+					kMaxMods, a_mod, a_key);
+				return false;
+			}
+			it = _mods.emplace(folded, std::vector<Entry>{}).first;
+		}
+		auto&      entries = it->second;
 		const auto wanted = StringUtil::ToLowerAscii(a_key);
 		for (auto& entry : entries) {
 			if (StringUtil::EqualsCaseInsensitiveAscii(entry.key, wanted)) {

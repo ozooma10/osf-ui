@@ -65,7 +65,13 @@ namespace OSFUI::Reporting
 			out.error = "WinHttpOpen failed";
 			return out;
 		}
-		::WinHttpSetTimeouts(session, 10000, 10000, 15000, 30000);
+		// resolve/connect/send/receive, summing to a 25 s worst case. These
+		// three budgets have to nest: transport (25 s) < the page's client timer
+		// (28 s, settings/App.tsx) < MessageBridge's host deadline (30 s,
+		// kRequestDeadline). At the old 10/10/15/30 the transport alone could
+		// outlast the host deadline, so a slow-but-succeeding upload was
+		// reported to the player as a failure while it went through.
+		::WinHttpSetTimeouts(session, 5000, 5000, 5000, 10000);
 		const HINTERNET connection = ::WinHttpConnect(session, host.c_str(), parts.nPort, 0);
 		const HINTERNET request = connection ?
 			::WinHttpOpenRequest(connection, L"POST", path.c_str(), nullptr,

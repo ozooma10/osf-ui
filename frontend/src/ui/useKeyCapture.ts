@@ -40,17 +40,31 @@ export function useKeyCapture<T>(options: KeyCaptureOptions<T>): KeyCaptureApi<T
   const optionsRef = useLatest(options);
   const [capturing, setCapturing, capturingRef] = useStateRef<T | null>(null);
   const domCleanupRef = useRef<(() => void) | null>(null);
+  const offCapturedRef = useRef<(() => void) | null>(null);
 
   const clearDomCapture = () => {
     domCleanupRef.current?.();
     domCleanupRef.current = null;
   };
 
-  useEffect(() => clearDomCapture, []);
+  // Whoever settles first releases the per-capture subscription. Unsubscribing
+  // only inside the handler leaked one listener per armed rebind: both views
+  // also register their own `settings.captured` backstop, and that one settles
+  // first, so this hook's handler never ran to reach its own `off()`.
+  const clearCapturedSub = () => {
+    offCapturedRef.current?.();
+    offCapturedRef.current = null;
+  };
+
+  useEffect(() => () => {
+    clearDomCapture();
+    clearCapturedSub();
+  }, []);
 
   const settle = (target: T, payload: KeyCapturePayload | null | undefined) => {
     if (capturingRef.current !== target) return;
     clearDomCapture();
+    clearCapturedSub();
     setCapturing(null);
     if (!payload || payload.cancelled || !payload.name) return;
 
@@ -78,15 +92,14 @@ export function useKeyCapture<T>(options: KeyCaptureOptions<T>): KeyCaptureApi<T
       // (and its entry in the helper's pending map) lived until a key was
       // pressed or the page went away. A player who armed a rebind and wandered
       // off leaked it for the session.
-      const off = opts.bridge.on('settings.captured', (payload) => {
+      offCapturedRef.current = opts.bridge.on('settings.captured', (payload) => {
         if (capturingRef.current !== target) return;
-        off();
         settle(target, payload);
       });
       opts.bridge
         .request('settings.captureKey', opts.requestFields(target))
         .catch((error: unknown) => {
-          off();
+          clearCapturedSub();
           if (capturingRef.current !== target) return;
           settle(target, { cancelled: true });
           optionsRef.current.onError?.(error, target);

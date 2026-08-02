@@ -4,7 +4,8 @@ ScriptName OSFUI Native Hidden
 ;
 ; Settings are declared in a drop-in schema file:
 ;   Data/SFSE/Plugins/OSFUI/settings/<author>.<modname>.json
-; (see docs/authoring-settings.md and examples/settings-only/). This script
+; (see docs/authoring-settings.md, or scaffold one with
+; `npm create osfui@latest -- --surface settings`). This script
 ; reads them back, writes them, and reacts to changes and hotkey presses.
 ;
 ; If OSF UI is absent, every call fails soft: Papyrus logs a missing-native error and the call yields the declared default 

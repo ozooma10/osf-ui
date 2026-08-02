@@ -246,7 +246,7 @@ int main()
 		toWeb.emplace_back(std::string(a_viewId), std::string(a_json));
 	});
 	bridge.SetSurfaceFn([](std::string_view a_view, std::string_view a_code,
-						   std::string_view a_message, const nlohmann::json& a_detail) {
+						   std::string_view a_message, const nlohmann::json& a_detail, bool) {
 		g_surfaced.push_back({ std::string(a_view), std::string(a_code), std::string(a_message), a_detail });
 	});
 	api.OnBridgeReady(&bridge);
@@ -448,33 +448,59 @@ int main()
 		CHECK(LoggedContaining("WARN", "settled twice"));
 
 		// Defer + RespondTo: the settings.captureKey pattern. Nothing goes out
-		// at handler time; the correlation id is the handler's to settle later.
+		// at handler time; the token Defer() returns is the handler's to settle
+		// later, and the page's own id comes back on the wire.
+		std::string deferToken;
 		std::string deferredId;
-		bridge.RegisterRequest("test.defer", [&deferredId](const nlohmann::json&, MessageBridge& a_b) {
+		bridge.RegisterRequest("test.defer", [&](const nlohmann::json&, MessageBridge& a_b) {
 			deferredId = std::string(a_b.CurrentRequestId());
-			a_b.Defer();
+			deferToken = a_b.Defer();
 		});
 		toWeb.clear();
 		bridge.HandleWebMessage("someview", RequestMsg("test.defer", "r4"));
 		CHECK(toWeb.empty());
 		CHECK(deferredId == "r4");
-		bridge.RespondTo("r4", nlohmann::json{ { "done", true } });
+		// The token is the HOST's, never the page's id — that is what keeps two
+		// documents' "q1" apart.
+		CHECK(!deferToken.empty() && deferToken != "r4");
+		bridge.RespondTo(deferToken, nlohmann::json{ { "done", true } });
 		CHECK(toWeb.size() == 1);
 		CHECK(Last(toWeb).value("kind", "") == "reply");
 		CHECK(Last(toWeb).value("id", "") == "r4");
 		// A late or duplicate settlement is never delivered twice, and settling
-		// an id nobody deferred is a silent no-op rather than a stray envelope.
-		bridge.RespondTo("r4", nlohmann::json{ { "done", false } });
+		// a token nobody deferred is a silent no-op rather than a stray
+		// envelope. The page's raw id is not a settlement handle either.
+		bridge.RespondTo(deferToken, nlohmann::json{ { "done", false } });
 		bridge.RejectTo("no-such-id", "internal", "");
+		bridge.RespondTo("r4", nlohmann::json{ { "done", false } });
 		CHECK(toWeb.size() == 1);
 
 		// RejectTo settles a deferred request the same way.
 		toWeb.clear();
 		bridge.HandleWebMessage("someview", RequestMsg("test.defer", "r5"));
-		bridge.RejectTo("r5", "capture-busy", "already capturing");
+		bridge.RejectTo(deferToken, "capture-busy", "already capturing");
 		CHECK(toWeb.size() == 1);
 		CHECK(PayloadOf(Last(toWeb)).value("code", "") == "capture-busy");
 		CHECK(Last(toWeb).value("id", "") == "r5");
+
+		// Two documents both number their first request "q1". Keying deferrals
+		// by that id alone routed one page's reply into the other's promise.
+		toWeb.clear();
+		std::vector<std::string> tokens;
+		bridge.RegisterRequest("test.collide", [&tokens](const nlohmann::json&, MessageBridge& a_b) {
+			tokens.push_back(a_b.Defer());
+		});
+		bridge.HandleWebMessage("view.a/panel", RequestMsg("test.collide", "q1"));
+		bridge.HandleWebMessage("view.b/panel", RequestMsg("test.collide", "q1"));
+		CHECK(tokens.size() == 2 && tokens[0] != tokens[1]);
+		CHECK(toWeb.empty());
+		bridge.RespondTo(tokens[0], nlohmann::json{ { "who", "a" } });
+		bridge.RespondTo(tokens[1], nlohmann::json{ { "who", "b" } });
+		CHECK(toWeb.size() == 2);
+		// Each document gets its OWN answer, under the id it chose.
+		CHECK(toWeb[0].first == "view.a/panel" && PayloadOf(Envelope(toWeb, 0)).value("who", "") == "a");
+		CHECK(toWeb[1].first == "view.b/panel" && PayloadOf(Envelope(toWeb, 1)).value("who", "") == "b");
+		CHECK(Envelope(toWeb, 0).value("id", "") == "q1" && Envelope(toWeb, 1).value("id", "") == "q1");
 
 		// A handler that returns having settled nothing is a PLATFORM bug and
 		// the one failure the caller cannot tell from a hang. Answer `internal`

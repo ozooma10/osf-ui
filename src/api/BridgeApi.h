@@ -141,6 +141,11 @@ namespace OSFUI::API
 			std::uint32_t major{ 0 };
 			std::uint32_t minor{ 0 };
 		};
+		// One card per mod, bounded. The producer's own dedupe only covers the
+		// window between drains — TakeLegacyApiCallers empties the set — so the
+		// ACCUMULATING side has to re-apply both, or a plugin that retries on
+		// every load screen grows the list for the whole session.
+		static constexpr std::size_t kMaxLegacyCallers = 32;
 		std::vector<LegacyCaller> TakeLegacyApiCallers();
 
 		// Drain queued RegisterView ids. Runtime validates each before the menu
@@ -198,7 +203,7 @@ namespace OSFUI::API
 		{
 			std::uint64_t token{ 0 };
 			std::string view;
-			std::string requestId;
+			std::string deferToken;  // MessageBridge::Defer()'s token, not the page's request id
 			std::string name;
 			std::chrono::steady_clock::time_point deadline;
 			bool answered{ false };
@@ -211,7 +216,7 @@ namespace OSFUI::API
 		struct PendingReply
 		{
 			std::string view;
-			std::string requestId;
+			std::string deferToken;
 			std::string name;
 			std::string payloadJson;
 			bool        rejected{ false };

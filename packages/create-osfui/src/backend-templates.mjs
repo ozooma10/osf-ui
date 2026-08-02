@@ -417,15 +417,18 @@ Function Refresh() Global
     OSFUI.SetViewBool("${options.modId}", "enabled", actionsEnabled)
 EndFunction
 
-; JavaScript: osfui.papyrus.call("${scriptName}", "Bump", 1)
-Function Bump(int amount) Global
+; JavaScript: osfui.papyrus.call("${scriptName}", "Bump", total)
+; The VIEW owns the running total and passes it in. A recordless GLOBAL script
+; has nowhere to accumulate, and reading the last value back through
+; OSFUI.GetInt would race this function's own queued write.
+Function Bump(int total) Global
     If !OSFUI.GetBool("${options.modId}", "enabled", true)
         string[] disabledArgs = new string[1]
         disabledArgs[0] = "Backend actions are disabled in Mod Settings"
         OSFUI.SendViewEvent("${options.modId}", "notice", disabledArgs)
         Return
     EndIf
-    OSFUI.SetViewInt("${options.modId}", "clicks", amount)
+    OSFUI.SetViewInt("${options.modId}", "clicks", total)
     string[] noticeArgs = new string[1]
     noticeArgs[0] = "JavaScript called a GLOBAL Papyrus function"
     OSFUI.SendViewEvent("${options.modId}", "notice", noticeArgs)

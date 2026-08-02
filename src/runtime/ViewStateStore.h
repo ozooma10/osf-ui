@@ -49,6 +49,11 @@ namespace OSFUI
 		// never affected.
 		static constexpr std::size_t kMaxKeysPerMod = 64;
 
+		// Cap on distinct mods, for the same reason. The per-key cap alone
+		// bounds nothing on its own: mod ids come from Papyrus and native
+		// callers, so an unbounded number of buckets is an unbounded store.
+		static constexpr std::size_t kMaxMods = 256;
+
 		// Publish (or replace) one key's complete value. Returns false when the
 		// mod is at capacity with a key it does not already hold — the value is
 		// then delivered live but not retained, so it will not survive a reload.

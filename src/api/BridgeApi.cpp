@@ -237,7 +237,8 @@ namespace OSFUI::API
 		std::lock_guard lock(_mutex);
 		// Bounded, and deduped by module: a plugin that retries on every load
 		// screen must not grow this, and the player needs one card per mod.
-		constexpr std::size_t kMaxLegacyCallers = 32;
+		// This set is emptied by every drain, so RuntimeDiagnostics re-applies
+		// the same two rules on the side that keeps them for the session.
 		for (const auto& seen : _legacyCallers) {
 			if (seen.module == a_moduleName) {
 				return;
@@ -583,7 +584,6 @@ namespace OSFUI::API
 		// A request always carries an id in 2.0 — the bridge rejects one that
 		// does not before dispatch ever happens — so there is no
 		// "request-id-required" case left to answer.
-		const std::string requestId(bridge.CurrentRequestId());
 		Request request;
 		std::string payloadJson;
 		{
@@ -593,6 +593,15 @@ namespace OSFUI::API
 			if (count >= kMaxInflightRequestsPerView) {
 				bridge.Reject("request-capacity", "too many requests are already in flight"); return;
 			}
+		}
+		// Take ownership of the correlation id before the plugin can answer:
+		// it replies through Request::Respond/Reject, whenever it gets there,
+		// and PumpMainThread settles it (or expires it at the host deadline).
+		// The bridge's token — not the page's request id, which collides
+		// across documents — is what settles it.
+		const std::string deferToken = bridge.Defer();
+		{
+			std::lock_guard lock(_mutex);
 			// The payload is the caller's own object, verbatim: routing metadata
 			// lives beside it on the envelope now, so there is no `command` field
 			// to strip out of it first.
@@ -601,17 +610,13 @@ namespace OSFUI::API
 			InflightRequest inflight;
 			inflight.token = token;
 			inflight.view = view;
-			inflight.requestId = requestId;
+			inflight.deferToken = deferToken;
 			inflight.name = name;
 			inflight.deadline = std::chrono::steady_clock::now() + kRequestTimeout;
 			_inflightRequests.emplace(token, std::move(inflight));
 			request.command = name.c_str(); request.payloadJson = payloadJson.c_str(); request.sourceViewId = view.c_str();
 			request._token = token; request._respond = &RespondThunk; request._reject = &RejectThunk;
 		}
-		// Take ownership of the correlation id: the plugin answers through
-		// Request::Respond/Reject, whenever it gets there, and PumpMainThread
-		// settles it (or expires it at the host deadline).
-		bridge.Defer();
 		reg.fn(request, reg.user);
 	}
 	void BridgeApi::OnBridgeReady(MessageBridge* a_bridge)
@@ -666,7 +671,7 @@ namespace OSFUI::API
 					if (!req.answered && now < req.deadline) { ++it; continue; }
 					PendingReply reply;
 					reply.view = req.view;
-					reply.requestId = req.requestId;
+					reply.deferToken = req.deferToken;
 					reply.name = req.name;
 					if (!req.answered) { reply.rejected = true; reply.code = "no-response"; reply.message = "the plugin never answered"; }
 					else if (req.rejected) { reply.rejected = true; reply.code = req.code; reply.message = req.message; }
@@ -695,11 +700,16 @@ namespace OSFUI::API
 			for (const auto& reply : replies) {
 				if (reply.rejected) {
 					REX::WARN("BridgeApi: request '{}' from view '{}' -> {}", reply.name, reply.view, reply.code);
-					bridge->RejectTo(reply.requestId, reply.code, reply.message);
-					// The page would otherwise only learn "no reply, eventually".
-					bridge->Surface(reply.view, reply.code, reply.message, { { "name", reply.name } });
+					// No Surface(): a plugin answering `Reject` is the endpoint
+					// working as designed, and the code it chose is its own. The
+					// page already gets the typed error from RejectTo, and the
+					// helper prints it to the view's console — routing it through
+					// the misuse sink as well made ordinary application errors
+					// accumulate toward a `view.protocol-misuse` card blaming a
+					// view that did nothing wrong.
+					bridge->RejectTo(reply.deferToken, reply.code, reply.message);
 				} else {
-					bridge->RespondJsonTo(reply.requestId, reply.payloadJson);
+					bridge->RespondJsonTo(reply.deferToken, reply.payloadJson);
 				}
 			}
 		}

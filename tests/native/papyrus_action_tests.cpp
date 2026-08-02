@@ -292,7 +292,7 @@ int main()
 	API::Papyrus::DrainViewReplies([&](const auto& reply) { replies.push_back(reply); });
 	CHECK(replies.size() == 1);
 	if (!replies.empty()) {
-		CHECK(replies[0].view == "t.requests/view" && replies[0].requestId == "q1");
+		CHECK(replies[0].view == "t.requests/view" && replies[0].deferToken == "q1");
 		CHECK(!replies[0].rejected && replies[0].value == 77);
 	}
 

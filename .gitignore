@@ -29,5 +29,9 @@ data/Textures/OSFUI/worldsurface_placeholder*.dds
 
 # MSVC compiler droppings from host-test builds run outside .build
 tests/native/vc140.pdb
-examples/menu-papyrus
-examples
+
+# Local scratch mods. `npm create osfui@latest` generates the starters that
+# used to be committed here. Anchored and directory-scoped on purpose: a bare
+# `examples` also swallows any nested examples/ directory, which is how a
+# deleted-but-still-on-disk file can leave `git status` clean while CI fails.
+/examples/

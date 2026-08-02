@@ -240,7 +240,12 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
    * marking pending with no bridge leaves the standalone harness at "Saving…"
    * forever, with nothing that can clear it.
    */
-  const setValue = (modId: string, key: string, value: SettingValue) => {
+  const setValue = (
+    modId: string,
+    key: string,
+    value: SettingValue,
+    onRejected?: () => void,
+  ) => {
     if (!bridge.available()) return;
     applySave(saveStatePending(saveRef.current, modId));
     // The ack resolves with the authoritative post-clamp value; a refusal
@@ -256,11 +261,29 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
         'danger',
       );
       applySave(saveStateAbandon(saveRef.current, modId));
-      // No re-read: the store publishes `osfui/settings` on every registry
-      // change and `settings.changed` on every commit, so the authoritative
-      // value is already on its way. 1.x had to re-fetch here precisely
-      // because a read was the only way to resubscribe.
+      // No re-read, but DO undo the optimistic write. A commit republishes
+      // `osfui/settings` and fires `settings.changed`, so the authoritative
+      // value is already on its way — a REFUSAL does neither: the store is
+      // never touched, so nothing arrives to correct the pane and it would go
+      // on showing a value the store rejected.
+      onRejected?.();
     });
+  };
+
+  /**
+   * Local-first write: show the value immediately, then push it, and put the
+   * previous one back if the store refuses. Snapshotting has to happen before
+   * `applyLocal`, so the pairing lives here rather than at each call site.
+   */
+  const pushValues = (modId: string, entries: Array<[string, SettingValue]>) => {
+    const values = modsRef.current.find((m) => m.id === modId)?.values || {};
+    const previous = new Map(entries.map(([key]) => [key, values[key]]));
+    applyLocal(modId, entries);
+    for (const [key, value] of entries) {
+      setValue(modId, key, value, () => {
+        applyLocal(modId, [[key, previous.get(key) as SettingValue]]);
+      });
+    }
   };
 
   /** Reset one key, or the whole mod when `key` is null. Same ordering rule. */
@@ -280,8 +303,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
 
   /** A user commit: local model first, then the wire. */
   const commit = (modId: string, key: string, value: SettingValue) => {
-    applyLocal(modId, [[key, value]]);
-    setValue(modId, key, value);
+    pushValues(modId, [[key, value]]);
   };
 
   /**
@@ -559,8 +581,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
   const applyPreset = (mod: ModRecord, preset: PresetRecord) => {
     const entries: Array<[string, SettingValue]> = [];
     for (const key in preset.values) entries.push([key, preset.values[key] as SettingValue]);
-    applyLocal(mod.id, entries);
-    for (const [key, value] of entries) setValue(mod.id, key, value);
+    pushValues(mod.id, entries);
     // Native does not re-broadcast settings.data on a set; the controls repaint
     // from the local model change alone, and group collapse survives.
     toast(
@@ -579,8 +600,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     // visit began. It goes through to `settings.set` as-is: JSON.stringify
     // drops the field and native refuses the write. Inventing a value here
     // would write something the visit never had.
-    applyLocal(c.modId, [[c.key, c.old as SettingValue]]);
-    setValue(c.modId, c.key, c.old as SettingValue);
+    pushValues(c.modId, [[c.key, c.old as SettingValue]]);
   };
 
   const runAction = (command: string, modId: string, key: string | undefined) =>
@@ -728,7 +748,11 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
           onGetReportStatus={() => bridge.request<ReportStatus>('diagnostics.reportStatus')}
           onSubmitReport={(report: ReportSubmission) =>
             bridge
-              .request<ReportResult>('diagnostics.submitReport', { ...report }, { timeoutMs: 60000 })
+              // 28 s, under MessageBridge's 30 s host deadline and over the
+              // reporter's 25 s transport budget. Granting more than the host
+              // deadline is a promise the host will not keep: it expires the
+              // deferral at 30 s and answers `no-response`.
+              .request<ReportResult>('diagnostics.submitReport', { ...report }, { timeoutMs: 28000 })
               .then((result) => ({ ...result, ok: true }) as ReportResult)
               // The WIRE rejects; this pane's model is still an outcome object,
               // so adapt here rather than pushing the transport's shape into

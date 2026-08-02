@@ -193,7 +193,7 @@ export async function installMock(harness, mod, loadError) {
         plugin: 'OSF UI Harness',
         version: meta.version,
         bridgeVersion: meta.bridgeVersion,
-        view: meta.viewId || '',
+        view: meta.qualifiedId || '',
         mod: meta.modId || '',
       },
     });
@@ -243,7 +243,7 @@ export async function installMock(harness, mod, loadError) {
       return;
     }
     const { resolve, reject } = settlers(id);
-    const io = { report: harness.report, resolve, reject, surface: surface(meta.viewId) };
+    const io = { report: harness.report, resolve, reject, surface: surface(meta.qualifiedId) };
     for (const entry of chain) {
       try {
         if (await entry(kind, name, payload, io) === true) return;
