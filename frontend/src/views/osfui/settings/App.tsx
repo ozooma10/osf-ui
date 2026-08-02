@@ -655,6 +655,20 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
                 >
                   {tr('needsUpdate', 'Needs update')}
                 </a>
+                {/* devMode arrives in the diagnostics system block. A standing
+                    tag, not a toast: a dev-configured install should never be
+                    mistaken for normal play while reading logs or perf. */}
+                <span
+                  id="devmode-tag"
+                  class="devmode-tag"
+                  hidden={health.system?.devMode !== true}
+                  title={tr(
+                    'devModeHint',
+                    'devMode is on in config.json: verbose logging, hot reload, F12 DevTools, and developer views are enabled.',
+                  )}
+                >
+                  {tr('devMode', 'DEV MODE')}
+                </span>
               </div>
             </div>
 

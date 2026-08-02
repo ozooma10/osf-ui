@@ -422,7 +422,7 @@ namespace OSFUI
 			if (!HudAutoStartEligible(manifest)) {
 				if (_viewPolicy.HasHudOverride(manifest.id)) {
 					REX::DEBUG("Runtime: HUD '{}' has an auto-start override but is not "
-							   "eligible (hub:false or debugOnly without Debug mode); ignored",
+							   "eligible (hub:false or debugOnly without devMode); ignored",
 						manifest.id);
 				}
 				continue;
@@ -1618,7 +1618,7 @@ namespace OSFUI
 	{
 		return a_manifest.kind == SurfaceKind::Hud &&
 		       !_warmViews.contains(a_manifest.id) &&
-		       a_manifest.hub && (!a_manifest.debugOnly || _config.debugMode);
+		       a_manifest.hub && (!a_manifest.debugOnly || _config.devMode);
 	}
 
 	nlohmann::json Runtime::BuildViewsData() const
@@ -1657,7 +1657,7 @@ namespace OSFUI
 				{ "mod", m.mod },
 				{ "kind", m.kind == SurfaceKind::Hud ? "hud" : "menu" },
 				{ "interactive", m.interactive },
-				{ "hub", m.hub && (!m.debugOnly || _config.debugMode) },
+				{ "hub", m.hub && (!m.debugOnly || _config.devMode) },
 				{ "targetVersion", m.targetVersion },
 				{ "open", _menus.IsOpen(m.id) },
 				{ "focused", active.has_value() && *active == m.id },
@@ -3150,12 +3150,6 @@ namespace OSFUI
 			}
 			REX::DEBUG("Runtime: setting osfui.renderStats -> {} for all views",
 				_renderStatsEnabled);
-		}
-		else if (a_key == "debugMode" && a_value.is_boolean()) {
-			_config.debugMode = a_value.get<bool>();
-			BroadcastViewsData();  // debugOnly views appear/leave the mod menu live
-			REX::DEBUG("Runtime: setting osfui.debugMode -> {} (developer views {} in the mod menu)",
-				_config.debugMode, _config.debugMode ? "shown" : "hidden");
 		}
 		// Diagnostic-reporter kill switch. Gates manual System Health reports
 		// immediately; the host's post-crash prompt reads the endpoint from its

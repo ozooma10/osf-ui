@@ -66,10 +66,6 @@ namespace OSFUI
 		// the engine honors. Informational only — warn, never block. MCM-owned;
 		// toggles live (the table loads lazily on first enable).
 		bool        vanillaKeyConflicts{ true };
-		// MCM-owned dev toggle (default off): when on, views marked debugOnly in
-		// their manifest (e.g. the built-in Web Performance Lab) are listed in the
-		// mod menu; off withholds them from that catalog. Must equal the schema default.
-		bool        debugMode{ false };
 		// MCM-owned kill switch for the consented diagnostic reporter (manual
 		// System Health reports and the host's post-crash prompt — the latter
 		// applies on the next launch, since the host process reads it at spawn).
@@ -77,7 +73,10 @@ namespace OSFUI
 		// deliberately not configurable.
 		bool        bugReporting{ true };
 		std::string view{ "osfui/settings" };  // qualified "<mod>/<view>" id; the default menu the toggle key opens
-		bool        devMode{ false };  // release-safe default; the shipped config / a dev override turns on verbose logging
+		// Release-safe default; a dev override turns on verbose logging, view/schema
+		// hot-reload, F12 DevTools — and lists debugOnly views (e.g. the built-in
+		// Web Performance Lab) in the mod menu.
+		bool        devMode{ false };
 
 #if defined(OSFUI_WITH_WORLD_SURFACES)
 		// In-world browser surfaces. Each entry runs a dedicated

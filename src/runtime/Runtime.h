@@ -284,7 +284,7 @@ namespace OSFUI
 
 		// Player-configurable automatic start is reserved for catalog-visible
 		// HUDs: hub:false surfaces cannot silently run in the background, and
-		// debugOnly surfaces qualify only while Debug mode is on. Pinned core
+		// debugOnly surfaces qualify only while devMode is on. Pinned core
 		// views are resident anyway and never configurable.
 		[[nodiscard]] bool HudAutoStartEligible(const ViewManifest& a_manifest) const;
 		enum class SurfaceTeardownReason

@@ -376,6 +376,16 @@ html, body { height: 100%; overflow: hidden; }
 }
 .needs-update-tag:hover, .needs-update-tag:focus-visible { text-decoration: underline; }
 .needs-update-tag[hidden] { display: none; }
+/* config.json devMode, surfaced through the diagnostics system block: a
+   standing amber pill so a dev-configured install reads as such on sight. */
+.devmode-tag {
+  display: inline-flex; align-items: center;
+  padding: 4px 7px; font-family: var(--osf-font-mono); font-size: 8px;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--osf-signal-warn);
+  border: 1px solid rgba(223, 166, 61, 0.7); border-radius: var(--osf-radius-pill);
+  background: rgba(224, 162, 60, 0.08);
+}
+.devmode-tag[hidden] { display: none; }
 .filter { border-color: rgba(242, 239, 233, 0.18); }
 .rail-meta {
   display: flex; justify-content: space-between; align-items: center;

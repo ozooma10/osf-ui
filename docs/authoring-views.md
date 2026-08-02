@@ -101,7 +101,7 @@ Your catalog is a state key (`osfui/i18n`, §3) the helper consumes for you: it 
   "openOnStart": false,     // optional, default false; menu: open at load, HUD: show at load
   "order": 0,               // optional, default 0; HUD-ONLY paint order among HUDs (clamped 0..999, higher on top). Ignored for menus
   "hub": true,              // optional, default true; false = hidden utility view — loads and works, but isn't advertised in catalogs (name predates the Mods surface)
-  "debugOnly": false,       // optional, default false; keep out of the mod menu list unless the user enables Debug mode (OSF UI → Diagnostics). Still loads and openable by id; intended for built-in developer tools
+  "debugOnly": false,       // optional, default false; keep out of the mod menu list unless devMode is on in OSF UI's config.json. Still loads and openable by id; intended for built-in developer tools
   "readySignal": true,      // optional, default false; wait for osfui.markReady() before first reveal (requires nativeBridge)
   "targetVersion": "2.0.0", // optional; the OSF UI version this view is authored against — advisory, never gates loading
   "entry": "index.html",    // optional, default "index.html"; must stay inside the folder
@@ -129,7 +129,7 @@ Your catalog is a state key (`osfui/i18n`, §3) the helper consumes for you: it 
 
 Several views can be hosted and composited at once, with no central list to maintain: any valid drop-in folder under `views/<modId>/<viewName>/` is discovered at boot (deterministically, in id order) and loaded the first time it's opened through `menu.open`, Papyrus `OSFUI.OpenMenu("<modId>/<viewName>")`, or the C ABI's `RequestMenu("<modId>/<viewName>", true)`. That's enough for a Papyrus-only mod — no companion SFSE plugin required. Never edit the user's `config.json` when shipping a view; since `configVersion` 2 it carries no view lists at all.
 
-Whether a HUD starts with the game is player policy: each eligible HUD row in Mod Settings has a "Start automatically" switch, persisted outside shipped mod files and applied at the next launch. A HUD manifest's `openOnStart: true` only sets the default for players who haven't chosen. Hidden utility views (`hub: false`) aren't eligible — a surface the player can't see in the catalog may not silently run in the background — and `debugOnly` views qualify only while Debug mode is on. Discovered menus never auto-start; a plugin's explicit `RegisterView` still honors `openOnStart` as plugin opt-in ([native-plugin-api.md](native-plugin-api.md) §8c).
+Whether a HUD starts with the game is player policy: each eligible HUD row in Mod Settings has a "Start automatically" switch, persisted outside shipped mod files and applied at the next launch. A HUD manifest's `openOnStart: true` only sets the default for players who haven't chosen. Hidden utility views (`hub: false`) aren't eligible — a surface the player can't see in the catalog may not silently run in the background — and `debugOnly` views qualify only while devMode is on. Discovered menus never auto-start; a plugin's explicit `RegisterView` still honors `openOnStart` as plugin opt-in ([native-plugin-api.md](native-plugin-api.md) §8c).
 
 The platform pins its own core surfaces (the first-load handoff and the Mods surface) warm: precreated, prepainted, never reclaimed.
 

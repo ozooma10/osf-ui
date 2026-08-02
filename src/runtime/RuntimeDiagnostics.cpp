@@ -202,7 +202,7 @@ namespace OSFUI
 			{ "frameGeneration", stats.frameGeneration },
 			{ "nativeFocus", runtime._renderer && runtime._renderer->UsesNativeKeyboardFocus() },
 			{ "locale", runtime._localization.Locale() },
-			{ "debugMode", runtime._config.debugMode },
+			{ "devMode", runtime._config.devMode },
 		});
 	}
 

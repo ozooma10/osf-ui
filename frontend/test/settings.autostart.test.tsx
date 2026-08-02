@@ -48,8 +48,8 @@ describe('start automatically row', () => {
     // Exactly one: the menu row and the ineligible views get none.
     expect(el.querySelectorAll('.autostart-row').length).toBe(1);
 
-    // The host withdrawing eligibility (e.g. Debug mode turned off for a
-    // debugOnly HUD) removes the row on the next catalog publish.
+    // The host withdrawing eligibility (e.g. a devMode boot flag no longer set
+    // for a debugOnly HUD) removes the row on the next catalog publish.
     bridge.publish('osfui/views', viewsWith({ autoStartMutable: false }));
     await flush();
     expect(el.querySelector('.autostart-row')).toBeNull();

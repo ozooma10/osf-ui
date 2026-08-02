@@ -76,7 +76,7 @@ namespace OSFUI
 		// false = hidden utility view; still loads and works, just unadvertised.
 		// Field name predates the Mods surface, kept for compat.
 		bool hub{ true };
-		// Kept out of the mod menu unless the user enables Debug mode; still loads
+		// Kept out of the mod menu unless config.json devMode is on; still loads
 		// and can be opened by id. For built-in developer tools (Web Performance Lab).
 		bool debugOnly{ false };
 

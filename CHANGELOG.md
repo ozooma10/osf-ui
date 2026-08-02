@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- The **Debug mode** toggle is gone from Mod Settings; `debugOnly` developer views (such as the Web Performance Lab) now follow the `devMode` flag in `config.json`, the same switch that already governs verbose logging, hot reload and F12 DevTools. While it's on, the settings hub shows a standing amber **DEV MODE** tag next to the version badge, and System Health reports `devMode` in its system block (previously `debugMode`).
+
 ### Security
 
 - `osfui.papyrus.call` can no longer target OSF UI's own `OSFUI` script. Its Papyrus natives take the target mod id as an argument and trust their caller, so naming them from a view was a way to write another mod's settings, reset them, publish state under another mod's identity, or rebind OSF UI's own overlay key — all of which the equivalent `settings.*` endpoints refuse. The security model now also states plainly that the vanilla script library, including `Debug.ExecuteConsole`, is within reach of a bridge-enabled view.

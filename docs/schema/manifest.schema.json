@@ -88,7 +88,7 @@
     "debugOnly": {
       "type": "boolean",
       "default": false,
-      "description": "When true, this view is kept out of the mod menu list unless the user enables Debug mode (OSF UI → Diagnostics). It still loads and can be opened by id. Intended for built-in developer tools."
+      "description": "When true, this view is kept out of the mod menu list unless devMode is enabled in OSF UI's config.json. It still loads and can be opened by id. Intended for built-in developer tools."
     },
     "readySignal": {
       "type": "boolean",

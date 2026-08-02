@@ -21,7 +21,7 @@ const SYSTEM: MockHealth['system'] = {
   frameGeneration: false,
   nativeFocus: true,
   locale: 'en',
-  debugMode: false,
+  devMode: false,
 };
 
 /**
@@ -198,7 +198,7 @@ export const MOCK_HEALTH: Record<string, MockHealth> = {
    * WebView2HostWebRenderer.cpp (host.*).
    */
   catalog: {
-    system: { ...SYSTEM, frameGeneration: true, drawPath: 'unavailable', debugMode: true },
+    system: { ...SYSTEM, frameGeneration: true, drawPath: 'unavailable', devMode: true },
     issues: [
       {
         id: 'settings.schema-name:Bad Name.json',
