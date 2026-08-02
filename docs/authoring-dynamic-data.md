@@ -28,9 +28,9 @@ Every backend expresses the same four kinds. Gaps here are API bugs, which is wh
 |---|---|---|---|---|
 | **Papyrus** | `OSFUI.SetView*` | `OSFUI.SendViewEvent` *(new)* | `ListenForViewActions` → `OnOSFUIViewAction` | `ListenForViewRequests` → `OnOSFUIViewRequest` + `ReplyView*` |
 | **Native plugin (ABI 1.8)** | `SetViewState` *(new)* | `SendToWeb` | `RegisterCommand` | `RegisterRequest` |
-| **The view sees** | `osfui.state.on("<mod>/<key>", fn)` | `osfui.on("<mod>.<name>", fn)` | `osfui.papyrus.send(...)` / `osfui.send(...)` | `osfui.papyrus.request(...)` / `osfui.request(...)` |
+| **The view sees** | `osfui.state.on("<mod>/<key>", fn)` | `osfui.on("<mod>.<name>", fn)` | `osfui.papyrus.call(...)` / `send(...)` | `osfui.papyrus.request(...)` / `osfui.request(...)` |
 
-All routes are scoped to the calling view's **owning mod**, derived from its view id. A page cannot name another mod's script or state, and no payload field can change that.
+State, events, registered listeners, and native endpoints are scoped to the calling view's **owning mod**, derived from its view id. `papyrus.call` is the explicit exception: it names an arbitrary GLOBAL script/function and therefore carries the authority of installed local mod content.
 
 ---
 
@@ -162,48 +162,46 @@ If the target view is known but not live (lazy, or idle-reclaimed), the message 
 
 ---
 
-## One-way messages from the view
+## Call a GLOBAL Papyrus function
 
-A click that only mutates game state is a `send`, not a request. Register one listener per script; several scripts may listen for the same mod.
+A recordless view can call any GLOBAL function on any loose PEX directly. No manifest target, ESM, quest, alias, or registration is involved:
 
 ```papyrus
-; The parameter must NOT be named "action" — that is the Action form type, and
-; the compiler rejects references to it as a variable.
-Function OnOSFUIViewAction(string actionName, string[] args)
-    If actionName == "removeTag"
-        int slot = args[0] as int
-        RemoveTag(slot, args[1])
-        OSFUI.SetViewStrings(ModId, "tags." + slot, GetSlotTags(slot))   ; publish what changed
-    ElseIf actionName == "equip"
-        Form item = OSFUI.GetFormById(args[0])
-        If item != None
-            EquipItem(item, args[1] as int)
-        EndIf
+ScriptName AcmeScannerUI Hidden
+
+Function RemoveTag(int slot, string tag) Global
+    ; mutate game state, then publish what changed
+    OSFUI.SetViewStrings("acme.scanner", "tags." + slot, GetSlotTags(slot))
+EndFunction
+
+Function Equip(string formId, int quantity, bool silent) Global
+    Form item = OSFUI.GetFormById(formId)
+    If item != None
+        Game.GetPlayer().EquipItem(item, quantity, silent)
     EndIf
 EndFunction
 ```
 
 ```js
-removeButton.onclick = () => osfui.papyrus.send("removeTag", slotIndex, tag);
-equipButton.onclick  = () => osfui.papyrus.send("equip", item.formId, quantity);
+removeButton.onclick = () => osfui.papyrus.call("AcmeScannerUI", "RemoveTag", slotIndex, tag);
+equipButton.onclick  = () => osfui.papyrus.call("AcmeScannerUI", "Equip", item.formId, quantity, true);
 ```
 
-- Arguments may be strings, numbers or booleans in JavaScript; Papyrus always receives `string[]`. Read them with `args[i] as int` / `as float`. (The list form exists because Papyrus has no modulo operator, which made packing ints into one string painful.)
-- `args` is never `None` — empty when no arguments were sent.
-- Strings may arrive cased differently than sent (interning again). Papyrus `==` is case-insensitive, so plain compares work; keep case-*sensitive* comparisons out of your JavaScript.
-- Fire-and-forget both directions: no return value, no acknowledgement. Wanting one means it's a request. "How does the view learn what changed?" — the last line of the handler above: publish the new state.
-- `ListenForViewActionsStatic(script, modId)` calls the GLOBAL `OnOSFUIViewAction` on that script, for script libraries with no instance.
+- JavaScript integers map to Papyrus `int`; fractional numbers map to `float`; strings and booleans retain their types. JSON erases the distinction between `3` and `3.0`, so use `osfui.papyrus.float(3)` for a whole-valued `float` parameter. Other objects, `null`, arrays, out-of-range integers, and more than 32 arguments are refused.
+- The declared Papyrus signature must match exactly. Forms are not direct bridge arguments; pass a serialized `formId` string and resolve it with `OSFUI.GetFormById`.
+- The call is fire-and-forget: its Papyrus return value is not delivered to JavaScript. Publish observable results with `OSFUI.SetView*` or `SendViewEvent`.
+- The script and function come from JavaScript. Use this only in installed local views you trust; `permissions.nativeBridge:false` removes the capability with the rest of the bridge.
 
-Registrations are session-scoped. Register on init and after every game load, and release an obsolete token with `OSFUI.Unregister(token)`.
+Existing instance-backed mods can keep the narrower `osfui.papyrus.send(name, ...args)` listener path. `ListenForViewActions(self, modId)` or `ListenForViewActionsStatic(script, modId)` receives it as `OnOSFUIViewAction(string name, string[] args)`.
+
+Manual registrations are session-scoped. Register on init and after every game load, and release an obsolete token with `OSFUI.Unregister(token)`.
 
 ## Ask Papyrus for a value
 
 Use a request only when *returning a value is the operation* — a calculated price, a validation result. For an ordinary button, mutate and publish state; a request that only triggers a mutation is a round trip you pay for on every click.
 
 ```papyrus
-int requestToken = OSFUI.ListenForViewRequests(self as ScriptObject, ModId)
-
-Function OnOSFUIViewRequest(string request, string[] args, string replyToken)
+Function OnOSFUIViewRequest(string request, string[] args, string replyToken) Global
     If request == "calculatePrice"
         Form item = OSFUI.GetFormById(args[0])
         If item == None
@@ -226,9 +224,9 @@ try {
 }
 ```
 
-The helper resolves with the typed value the script replied and rejects with an `Error` carrying the script's own `code`. Replies: `ReplyViewBool`, `ReplyViewInt`, `ReplyViewFloat`, `ReplyViewString`, their plural array forms, and `ReplyViewForms`.
+The helper resolves with the typed value the script replied and rejects with an `Error` carrying the script's own `code`. Replies: `ReplyViewBool`, `ReplyViewInt`, `ReplyViewFloat`, `ReplyViewString`, their plural array forms, and `ReplyViewForms`. Register an instance with `ListenForViewRequests(self, modId)` or a GLOBAL library with `ListenForViewRequestsStatic(script, modId)` before requests can reach it.
 
-A reply token is host-owned, one-shot, valid for ten seconds; a duplicate, late, unknown or pre-load token returns `false`. Answer exactly once. Only one request listener may own a mod id (first registration wins), and in-flight requests are bounded (32 per view, 256 overall) — past that a request is refused, not queued. A listener that never answers produces a `papyrus-timeout` rejection at ten seconds; the JavaScript helper waits fifteen so the host's more specific error wins over its generic `timeout`.
+A reply token is host-owned, one-shot, valid for ten seconds; a duplicate, late, unknown or pre-load token returns `false`. Answer exactly once. Only one registered request listener may own a mod id (first registration wins). In-flight requests are bounded (32 per view, 256 overall) — past that a request is refused, not queued. A backend that never answers produces a `papyrus-timeout` rejection at ten seconds; the JavaScript helper waits fifteen so the host's more specific error wins over its generic `timeout`.
 
 ---
 
@@ -257,7 +255,7 @@ Runtime FormIDs are session-scoped. Never persist a `formId` in a save or `local
 
 ## Delivery and failure behavior
 
-- **Threading.** Papyrus setters and events queue from the VM tasklet and publish on the next main-frame tick; forms serialize at drain time on the main thread, because form field reads may only happen there. Actions and requests queue onto the Papyrus VM. Native `SetViewState` / `SendToWeb` are callable from any thread and applied next tick. Never block waiting for the other side.
+- **Threading.** Papyrus setters and events queue from the VM tasklet and publish on the next main-frame tick; forms serialize at drain time on the main thread, because form field reads may only happen there. Direct GLOBAL calls, actions, and requests queue onto the Papyrus VM. Native `SetViewState` / `SendToWeb` are callable from any thread and applied next tick. Never block waiting for the other side.
 - **Targets.** State and events reach loaded views whose id begins with `<modId>/`. A hidden suspended view resumes to receive an update. A publish with no live view is not a lost write *for state* (retained and replayed to the mod's first view) but **is** a dropped event, logged in `devMode`.
 - **Bounds.** At most 64 retained state keys per mod (updating an already-retained key always works, so a fixed key set is never affected); pending Papyrus state and event queues cap at 1024 each; a plugin's pending state ops cap at 256. Invalid mod ids and empty keys are dropped and logged. These stop a runaway script growing the process without bound.
 - **Absence.** If OSF UI isn't installed, every native fails soft; `OSFUI.GetVersion() == 0` is the feature check. Natively, `OSFUI_RequestBridge` returns `nullptr` and every `Client` method degrades to `false`/`0`/no-op.

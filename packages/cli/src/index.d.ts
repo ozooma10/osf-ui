@@ -34,8 +34,11 @@ export interface OsfuiConfig {
   modRoot?: string;
   /** Build output directory. May point to a separate monorepo build tree. Defaults to "dist". */
   outDir?: string;
-  /** Optional reproducible Papyrus backend built by Spriggit and the Creation Kit compiler. */
+  /** Optional Papyrus build: loose scripts only, or scripts plus a Spriggit plugin. */
   papyrus?: {
+    /** Compile loose PEX files without generating an ESM/ESP/ESL. */
+    scriptsOnly: true;
+  } | {
     /** Plugin filename written at the mod root, for example "AcmeWidgets.esm". */
     plugin: string;
     /** Spriggit text-representation directory, relative to the project root. */

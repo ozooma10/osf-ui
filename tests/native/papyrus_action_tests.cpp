@@ -202,6 +202,26 @@ int main()
 	CHECK(vm->calls.empty());
 	vm->staticDispatchSucceeds = true;
 
+	// A view can call any GLOBAL function on a loose PEX without a quest record
+	// or session registration. Scalar types remain native Papyrus types.
+	vm->calls.clear();
+	CHECK(API::Papyrus::DispatchStaticFunction("RecordlessBackend", "Equip",
+		{ std::string("ff012345"), std::int32_t(2), 1.5f, true }) ==
+		API::Papyrus::StaticDispatchResult::kQueued);
+	CHECK(vm->calls.size() == 1);
+	if (vm->calls.size() == 1) {
+		const auto& c = vm->calls[0];
+		CHECK(c.isStatic && c.scriptName == "RecordlessBackend" && c.fn == "Equip");
+		CHECK((c.args == std::vector<std::string>{ "ff012345", "2", "1.500000", "true" }));
+		CHECK((c.argTypes == std::vector<std::string>{ "string", "int", "float", "bool" }));
+	}
+	vm->staticDispatchSucceeds = false;
+	vm->calls.clear();
+	CHECK(API::Papyrus::DispatchStaticFunction("Missing", "Equip", {}) ==
+		API::Papyrus::StaticDispatchResult::kTargetRejected);
+	CHECK(vm->calls.empty());
+	vm->staticDispatchSucceeds = true;
+
 	// --- kind isolation: kAction vs kSettings ------------------------------------
 	const auto settingsToken = registerSettingsStatic(*vm, 0, {}, "MyLib", "OnSettingChanged", "t.alpha");
 	CHECK(settingsToken != 0);

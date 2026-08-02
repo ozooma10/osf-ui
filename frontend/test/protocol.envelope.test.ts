@@ -39,6 +39,8 @@ interface Helper {
   ): Promise<unknown>;
   markReady(): boolean;
   papyrus: {
+    float(value: number): { $papyrus: 'float'; value: number };
+    call(script: string, fn: string, ...args: unknown[]): boolean;
     send(name: string, ...args: unknown[]): boolean;
     request(name: string, ...args: unknown[]): Promise<unknown>;
   };
@@ -176,6 +178,23 @@ describe('send envelopes', () => {
       payload: { name: 'OnThing', args: [1, 'two', true] },
     });
   });
+
+  it('papyrus.call() names a GLOBAL target and preserves scalar arguments', () => {
+    const { helper, sent } = loadHelper();
+
+    helper.papyrus.call('Acme:Widgets', 'SetEnabled', true, 3, 1.5,
+      helper.papyrus.float(4), 'panel');
+
+    expect(sent[1]).toEqual({
+      kind: 'send',
+      name: 'papyrus.call',
+      payload: {
+        script: 'Acme:Widgets',
+        function: 'SetEnabled',
+        args: [true, 3, 1.5, { $papyrus: 'float', value: 4 }, 'panel'],
+      },
+    });
+  });
 });
 
 describe('request envelopes', () => {
@@ -304,12 +323,13 @@ describe('host envelope validation — 2.0 REJECTS where 1.x silently demoted', 
     helper.send('close');
     helper.send('log', { level: 'info', message: 'hi' });
     helper.markReady();
+    helper.papyrus.call('AcmeWidgets', 'Refresh');
     helper.papyrus.send('OnThing', 1);
     void helper.request('ping').catch(() => {});
     void helper.request('settings.set', { mod: 'm', key: 'k', value: 1 }).catch(() => {});
     void helper.papyrus.request('GetWeight', 0x14).catch(() => {});
 
-    expect(sent.length).toBe(8); // hello + the seven above
+    expect(sent.length).toBe(9); // hello + the eight above
     for (const frame of sent) {
       expect([frame.name, hostVerdict(frame as unknown as Record<string, unknown>)]).toEqual([
         frame.name,

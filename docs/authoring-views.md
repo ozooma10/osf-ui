@@ -236,6 +236,7 @@ const offState = osfui.state.on("osfui/settings", render);      // → unsubscri
 const now = osfui.state.get("yourname.mymod/credits");          // latest value, or undefined
 
 osfui.markReady();                                  // manifests with readySignal:true
+osfui.papyrus.call("MyModUI", "Equip", formId, 1); // arbitrary GLOBAL function; fire-and-forget
 osfui.papyrus.send("equip", formId, 1);             // one-way, to your own mod's script
 const price = await osfui.papyrus.request("price", formId);
 
@@ -276,6 +277,7 @@ Anything not listed is dropped and surfaced as `unknown-endpoint`.
 | `log` | `text: string` | write to `OSF UI.log` (truncated to 512 chars) |
 | `osfui.gamepadRaw` | `raw: bool` | *(experimental — exempt from the stability guarantee)* take over gamepad handling: suppress the default nav mapping and consume raw `ui.gamepad` events. Cleared whenever your document greets the bridge, i.e. on every (re)load — re-assert it from ordinary boot code, not a reload handler; there is no reload handler |
 | `osfui.handleBack` | `handle: bool` | own the back action. While your menu is ACTIVE, Esc / gamepad B are delivered to your page as a synthetic Escape keydown/keyup instead of closing the top menu — handle it and decide: navigate (`menu.open`), dismiss an inner panel, or `send("close")`. Same per-document lifetime as `osfui.gamepadRaw`. The overlay toggle key always closes natively, so a page that stops responding can't strand the player |
+| `papyrus.call` | `script: string`, `function: string`, scalar `args?` | queue an arbitrary GLOBAL Papyrus function. JavaScript integers become Papyrus `int`, fractional numbers become `float`, and strings/booleans retain their types; use `osfui.papyrus.float(3)` when a whole-valued number must be a `float`. Fire-and-forget: use `SetView*` or `SendViewEvent` for observable results. Sugar: `osfui.papyrus.call(script, function, ...args)` |
 | `papyrus.send` | `name: string`, `args?: (string\|number\|boolean)[]` | one-way message to the OWNING mod's Papyrus listener, delivered as `OnOSFUIViewAction(name, args)`. The target mod is derived from the calling view's id — the payload can't spoof it. Sugar: `osfui.papyrus.send(name, ...args)`. See [authoring-dynamic-data.md](authoring-dynamic-data.md) |
 | `osfui.handoffRetry` | — | *(platform-private)* retry a stalled first-load handoff |
 

@@ -3,85 +3,12 @@ const words = (value) => value.split(/[^a-zA-Z0-9]+/).filter(Boolean);
 export const pascalIdentifier = (value) => {
   const joined = words(value).map((word) => word[0].toUpperCase() + word.slice(1)).join('');
   if (!joined) return 'MyMod';
-  // This names a Papyrus ScriptName and a quest EditorID, which must start
-  // with a letter — a legal mod id ("3dscanner.hudpanel") does not have to.
+  // This names a Papyrus ScriptName, which must start with a letter — a legal
+  // mod id ("3dscanner.hudpanel") does not have to.
   return /^[A-Za-z]/.test(joined) ? joined : `Mod${joined}`;
 };
 
 const displayName = (modId) => words(modId.split('.')[1] || modId).join(' ') || 'My Mod';
-
-function papyrusPluginFiles(options) {
-  const pluginName = `${pascalIdentifier(options.modId)}.esm`;
-  const scriptName = `${pascalIdentifier(options.modId)}OSFUI`;
-  const aliasName = `${scriptName}PlayerAlias`;
-  const questName = `${scriptName}Quest`;
-  const sourceRoot = `spriggit/${pluginName}`;
-  const questRoot = `${sourceRoot}/Quests/${questName} - 000800_${pluginName}`;
-  return [
-    {
-      path: '.spriggit',
-      content: `${JSON.stringify({
-        KnownMasters: [{ ModKey: 'Starfield.esm', Style: 'Full' }],
-      }, null, 2)}\n`,
-    },
-    {
-      path: `${sourceRoot}/spriggit-meta.json`,
-      content: `${JSON.stringify({
-        PackageName: 'Spriggit.Yaml.Starfield',
-        Version: '0.35.1',
-        Release: 'Starfield',
-        ModKey: pluginName,
-      }, null, 2)}\n`,
-    },
-    {
-      path: `${sourceRoot}/RecordData.yaml`,
-      content: `SpriggitSource:
-  PackageName: Spriggit.Yaml.Starfield
-  Version: 0.35.1
-ModKey: ${pluginName}
-GameRelease: Starfield
-ModHeader:
-  Flags:
-  - Master
-  MasterReferences:
-  - Master: Starfield.esm
-`,
-    },
-    {
-      path: `${questRoot}/RecordData.yaml`,
-      content: `FormKey: 000800:${pluginName}
-EditorID: ${questName}
-VirtualMachineAdapter:
-  Scripts:
-  - Name: ${scriptName}
-  Script:
-    Name: ''
-  Aliases:
-  - Property:
-      Name: ''
-      Object: 000800:${pluginName}
-      Alias: 0
-    Scripts:
-    - Name: ${aliasName}
-Name:
-  TargetLanguage: English
-  Value: ${displayName(options.modId)} OSF UI backend
-Data:
-  Flags:
-  - StartGameEnabled
-  - RunOnce
-  Priority: 50
-  Unused: 0x000000
-Aliases:
-- MutagenObjectType: QuestReferenceAlias
-  Name: Player
-  Flags:
-  - AllowReserved
-  ForcedReference: 000014:Starfield.esm
-`,
-    },
-  ];
-}
 
 function hudSettingsSchema(options) {
   return {
@@ -107,21 +34,9 @@ function hudSettingsSchema(options) {
           default: 'top-right',
         },
         {
-          key: 'margin', label: 'Screen margin', type: 'int',
-          min: 0, max: 160, step: 4, default: 32, format: { suffix: ' px' },
-        },
-        {
-          key: 'scale', label: 'Scale', type: 'int',
-          min: 50, max: 200, step: 5, default: 100, format: { suffix: '%' },
-        },
-        {
           key: 'opacity', label: 'Opacity', type: 'float',
           min: 0.1, max: 1, step: 0.05, default: 0.9,
           format: { scale: 100, suffix: '%', decimals: 0 },
-        },
-        {
-          key: 'accent', label: 'Accent colour', type: 'string',
-          widget: 'color', default: '#7bdcff',
         },
       ],
     }],
@@ -130,40 +45,23 @@ function hudSettingsSchema(options) {
 
 function menuSettingsSchema(options) {
   const settings = [
-    {
-      type: 'note', id: 'tour', style: 'info',
-      text: 'This generated schema demonstrates every settings value type. Edit it down to the controls your mod needs.',
-    },
     { key: 'enabled', label: 'Enable backend actions', type: 'bool', default: true },
     {
       key: 'mode', label: 'Display mode', type: 'enum',
-      options: ['compact', 'detailed', 'diagnostic'],
-      optionLabels: ['Compact', 'Detailed', 'Diagnostic'],
-      widget: 'segmented', default: 'detailed',
-    },
-    {
-      key: 'features', label: 'Visible feature cards', type: 'flags',
-      options: ['bridge', 'platform', 'settings'],
-      optionLabels: ['Bridge', 'Platform', 'Settings'],
-      default: ['bridge', 'platform', 'settings'],
+      options: ['compact', 'detailed'],
+      optionLabels: ['Compact', 'Detailed'],
+      default: 'detailed',
     },
     {
       key: 'intensity', label: 'Example integer', type: 'int',
-      min: 0, max: 100, step: 5, default: 65, widget: 'stepper',
+      min: 0, max: 100, step: 5, default: 65,
+      // A display-only predicate: the row greys out, but the value stays
+      // writable and natively validated.
       enabledWhen: { key: 'enabled', eq: true },
-    },
-    {
-      key: 'opacity', label: 'Panel opacity', type: 'float',
-      min: 0.25, max: 1, step: 0.05, default: 0.94,
-      format: { scale: 100, suffix: '%', decimals: 0 },
     },
     {
       key: 'greeting', label: 'Backend greeting', type: 'string',
       default: 'Hello from OSF UI', maxLength: 80,
-    },
-    {
-      key: 'notes', label: 'Author notes', type: 'string', widget: 'textarea',
-      default: '', maxLength: 256,
     },
     {
       key: 'accent', label: 'Accent colour', type: 'string', widget: 'color',
@@ -175,6 +73,8 @@ function menuSettingsSchema(options) {
     },
   ];
   if (options.integration === 'native') {
+    // An action row dispatches a bridge REQUEST, so only a plugin that answers
+    // it with RegisterRequest can serve one — Papyrus cannot.
     settings.push({
       type: 'action', key: 'recalibrate', label: 'Run native action',
       command: `${options.modId}.recalibrate`, style: 'accent',
@@ -185,33 +85,279 @@ function menuSettingsSchema(options) {
     $schema: 'https://github.com/ozooma10/osf-ui/blob/main/docs/schema/settings-schema.schema.json',
     id: options.modId,
     title: displayName(options.modId),
-    description: `Comprehensive settings and bridge examples for ${options.view.replaceAll('-', ' ')}.`,
+    description: `Settings for ${options.view.replaceAll('-', ' ')}.`,
     version: 1,
     targetVersion: '2.0.0',
     accent: '#7bdcff',
-    pages: [
-      { id: 'behavior', label: 'Behavior' },
-      { id: 'appearance', label: 'Appearance' },
-    ],
-    presets: [
-      {
-        id: 'quiet', label: 'Quiet', description: 'A subdued example preset.',
-        values: { mode: 'compact', intensity: 35, opacity: 0.72 },
-      },
-      {
-        id: 'showcase', label: 'Showcase',
-        values: { mode: 'detailed', intensity: 65, opacity: 0.94 },
-      },
-    ],
-    groups: [
-      { id: 'behavior', label: 'Behavior', page: 'behavior', settings: settings.slice(0, 6) },
-      { id: 'appearance', label: 'Appearance', page: 'appearance', settings: settings.slice(6) },
-    ],
+    groups: [{ id: 'general', label: 'General', settings }],
+  };
+}
+
+// The settings surface ships no view, so its schema is the whole mod: a few
+// ordinary rows plus the onPress keybind the generated GLOBAL script answers.
+function settingsOnlySchema(options) {
+  return {
+    $schema: 'https://github.com/ozooma10/osf-ui/blob/main/docs/schema/settings-schema.schema.json',
+    id: options.modId,
+    title: displayName(options.modId),
+    description: `Settings and hotkeys for ${displayName(options.modId)}.`,
+    version: 1,
+    targetVersion: '2.0.0',
+    groups: [{
+      id: 'general',
+      label: 'General',
+      settings: [
+        { key: 'enabled', label: 'Enabled', type: 'bool', default: true },
+        {
+          key: 'strength', label: 'Strength', type: 'int',
+          min: 0, max: 100, step: 5, default: 50, format: { suffix: '%' },
+          // Display-only: the row greys out when disabled, but Papyrus can
+          // still read the value and the player's choice is preserved.
+          enabledWhen: { key: 'enabled', eq: true },
+        },
+        {
+          key: 'mode', label: 'Mode', type: 'enum',
+          options: ['quiet', 'normal', 'loud'],
+          optionLabels: ['Quiet', 'Normal', 'Loud'],
+          default: 'normal',
+        },
+        {
+          key: 'notifyKey', label: 'Show notification', type: 'key',
+          default: 'F8', allowUnbound: true,
+          hint: 'Rebindable in this menu; the binding is saved with your settings.',
+          // onPress is the whole point of this template. OSF UI reads the
+          // target from THIS schema at delivery time, so nothing is
+          // registered and nothing is lost across a save load.
+          onPress: {
+            script: `${pascalIdentifier(options.modId)}OSFUI`,
+            function: 'OnHotkey',
+          },
+        },
+      ],
+    }],
   };
 }
 
 export function settingsSchema(options) {
+  if (options.surface === 'settings') return settingsOnlySchema(options);
   return options.surface === 'hud' ? hudSettingsSchema(options) : menuSettingsSchema(options);
+}
+
+// Standalone: this project has no package.json, so it cannot lean on
+// `osfui build`. The script resolves the Creation Kit the same way
+// packages/cli/src/papyrus-build.mjs does, then compiles and deploys.
+const settingsBuildScript = (options) => {
+  const scriptName = `${pascalIdentifier(options.modId)}OSFUI`;
+  return `[CmdletBinding()]
+param(
+    [string]$StarfieldRoot,
+    [string]$PapyrusCompiler,
+    [string]$PapyrusSource,
+    [string]$Mo2Mods
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+$projectRoot = $PSScriptRoot
+$modRoot = Join-Path $projectRoot 'mod'
+$sourceRoot = Join-Path $modRoot 'Scripts/Source'
+$scriptOutput = Join-Path $modRoot 'Scripts'
+$osfuiApi = Join-Path $projectRoot 'tools/papyrus'
+
+function Resolve-StarfieldRoot {
+    $steam = \${env:ProgramFiles(x86)}
+    foreach ($candidate in @(
+        $StarfieldRoot,
+        $env:STARFIELD_ROOT,
+        $env:STARFIELD_PATH,
+        $(if ($steam) { Join-Path $steam 'Steam/steamapps/common/Starfield' }),
+        'C:/XboxGames/Starfield/Content'
+    )) {
+        if ($candidate -and (Test-Path -LiteralPath $candidate -PathType Container)) { return $candidate }
+    }
+    return $null
+}
+
+$root = Resolve-StarfieldRoot
+if (-not $PapyrusCompiler) {
+    if ($env:PAPYRUS_COMPILER) {
+        $PapyrusCompiler = $env:PAPYRUS_COMPILER
+    } elseif ($root) {
+        $PapyrusCompiler = Join-Path $root 'Tools/Papyrus Compiler/PapyrusCompiler.exe'
+    }
+}
+if (-not $PapyrusSource) {
+    if ($env:PAPYRUS_IMPORTS) {
+        $PapyrusSource = $env:PAPYRUS_IMPORTS
+    } elseif ($root) {
+        $PapyrusSource = Join-Path $root 'Data/Scripts/Source'
+    }
+}
+
+if (-not $PapyrusCompiler -or -not (Test-Path -LiteralPath $PapyrusCompiler -PathType Leaf)) {
+    throw 'PapyrusCompiler.exe not found. Install the Starfield Creation Kit (Steam > Library > Tools), or pass -PapyrusCompiler.'
+}
+# Both files come from the Creation Kit; either one missing means the imports
+# directory is not the CK script sources.
+$flagsFile = Join-Path $PapyrusSource 'Starfield_Papyrus_Flags.flg'
+if (-not $PapyrusSource -or
+    -not (Test-Path -LiteralPath (Join-Path $PapyrusSource 'Quest.psc') -PathType Leaf) -or
+    -not (Test-Path -LiteralPath $flagsFile -PathType Leaf)) {
+    throw "Creation Kit script sources not found at '$PapyrusSource'. Unpack Tools/ContentResources.zip, or pass -PapyrusSource."
+}
+
+New-Item -ItemType Directory -Force -Path $scriptOutput | Out-Null
+Push-Location $sourceRoot
+try {
+    # tools/papyrus holds the OSF UI compiler API; without it on -i the
+    # OSFUI.GetBool/GetInt/GetString calls below will not resolve.
+    & $PapyrusCompiler \`
+        '${scriptName}.psc' \`
+        "-i=$sourceRoot;$osfuiApi;$PapyrusSource" \`
+        "-o=$scriptOutput" \`
+        "-f=$flagsFile"
+    if ($LASTEXITCODE -ne 0) { throw "Papyrus compiler exited with code $LASTEXITCODE" }
+} finally {
+    Pop-Location
+}
+
+Write-Host "[osfui] Compiled ${scriptName}.pex"
+
+if (-not $Mo2Mods) {
+    Write-Host '[osfui] Pass -Mo2Mods "path-to-MO2-mods" to also deploy this mod.'
+    exit 0
+}
+$deployRoot = Join-Path $Mo2Mods '${displayName(options.modId)}'
+New-Item -ItemType Directory -Force -Path $deployRoot | Out-Null
+Copy-Item -Path (Join-Path $modRoot '*') -Destination $deployRoot -Recurse -Force
+Write-Host "[osfui] Deployed to $deployRoot"
+Write-Host '[osfui] Refresh MO2 (F5), enable the mod, load a save, close all menus, and press F8.'
+`;
+};
+
+export function settingsOnlyFiles(options) {
+  const scriptName = `${pascalIdentifier(options.modId)}OSFUI`;
+  return [
+    {
+      path: `mod/SFSE/Plugins/OSFUI/settings/${options.modId}.json`,
+      content: `${JSON.stringify(settingsSchema(options), null, 2)}\n`,
+    },
+    {
+      path: `mod/Scripts/Source/${scriptName}.psc`,
+      content: `ScriptName ${scriptName} Hidden
+{Recordless GLOBAL script. The settings schema's onPress target names this
+script and function, so OSF UI dispatches straight here — no quest, no plugin
+record, no registration, and nothing to re-arm after a save load.}
+
+; The signature must be exactly (string, string) and the function must be
+; GLOBAL. Anything else and the dispatch fails, and System Health reports it
+; under settings.hotkey-target:${options.modId}.notifyKey.
+Function OnHotkey(string asModId, string asKey) Global
+    ; Reads are cheap and always safe: an unknown key or a type mismatch
+    ; returns the default you pass, so this works before the player has ever
+    ; opened the menu.
+    If !OSFUI.GetBool(asModId, "enabled", true)
+        Return
+    EndIf
+
+    int strength = OSFUI.GetInt(asModId, "strength", 50)
+    string mode = OSFUI.GetString(asModId, "mode", "normal")
+    Debug.Notification("${displayName(options.modId)}: " + mode + " at " + strength + "%")
+EndFunction
+
+; Next steps:
+;   - Add rows to the schema and read them here with the same typed getters.
+;     OSFUI.SetBool/SetInt/SetFloat/SetString write back through the same
+;     validation the menu uses.
+;   - Add a second "type": "key" row with its own onPress to hand a different
+;     key to a different function.
+;   - To drive quest or actor state, resolve your quest lazily and start it:
+;       Quest target = Game.GetFormFromFile(0x000800, "YourMod.esm") as Quest
+;     0x000800 is the PLUGIN-LOCAL FormID. OSF UI never stores quest identity.
+`,
+    },
+    {
+      path: `mod/SFSE/Plugins/OSFUI/l10n/${options.modId}_de.json`,
+      content: `${JSON.stringify({
+        'settings.title': displayName(options.modId),
+        'groups.general.label': 'Allgemein',
+        'settings.enabled.label': 'Aktiviert',
+        'settings.strength.label': 'Stärke',
+        'settings.mode.label': 'Modus',
+        'settings.mode.options.quiet': 'Leise',
+        'settings.mode.options.normal': 'Normal',
+        'settings.mode.options.loud': 'Laut',
+        'settings.notifyKey.label': 'Benachrichtigung anzeigen',
+      }, null, 2)}\n`,
+    },
+    { path: 'build-deploy.ps1', content: settingsBuildScript(options) },
+    { path: '.gitignore', content: 'mod/Scripts/**/*.pex\n' },
+  ];
+}
+
+export function settingsOnlyReadme(options) {
+  const scriptName = `${pascalIdentifier(options.modId)}OSFUI`;
+  return `# ${displayName(options.modId)}
+
+A settings-only OSF UI mod: a settings page and a rebindable hotkey, with no
+view code and no build tooling. Everything here is either a JSON file the game
+reads directly or one Papyrus script.
+
+- \`mod/SFSE/Plugins/OSFUI/settings/${options.modId}.json\` — the settings page
+- \`mod/SFSE/Plugins/OSFUI/l10n/${options.modId}_de.json\` — a translation catalog
+- \`mod/Scripts/Source/${scriptName}.psc\` — the hotkey handler
+- \`tools/papyrus/OSFUI.psc\` — the OSF UI compiler API (not shipped)
+
+## Build and deploy
+
+Install the **Starfield Creation Kit** through Steam (Library > Tools), then:
+
+\`\`\`powershell
+./build-deploy.ps1 -Mo2Mods "C:\\path\\to\\MO2\\mods"
+\`\`\`
+
+Standard Steam and Xbox install paths are found automatically. For a portable
+or nonstandard install, pass \`-StarfieldRoot\`, \`-PapyrusCompiler\`, or
+\`-PapyrusSource\`. Without \`-Mo2Mods\` the script only compiles.
+
+## Verify in game
+
+1. Refresh MO2 (F5) and enable the mod.
+2. Load a save, then press **F10** and open **${displayName(options.modId)}**.
+3. Close every menu and press **F8**. A notification appears.
+
+Hotkeys are dropped while a game menu or the console is open, so the press only
+counts during gameplay. Rebind the key in the menu and the new key works
+immediately.
+
+Then **save, reload, and press it again**. This is what \`onPress\` buys you:
+the target is read from the schema at delivery time, so unlike
+\`OSFUI.RegisterForHotkey\` there is no registration to lose and no
+\`OnPlayerLoadGame\` hook to write.
+
+## Edit it
+
+- **Settings page** — edit the JSON. Rows support \`bool\`, \`int\`, \`float\`,
+  \`enum\`, \`flags\`, \`string\`, and \`key\` types, plus notes, images, presets,
+  pages, and \`visibleWhen\`/\`enabledWhen\` predicates. Read values back with
+  \`OSFUI.GetBool\` / \`GetInt\` / \`GetFloat\` / \`GetString\`. See
+  [authoring-settings.md](https://github.com/ozooma10/osf-ui/blob/main/docs/authoring-settings.md).
+- **Hotkey** — a \`"type": "key"\` row with an \`onPress\` target. Its
+  \`script\` must match the \`ScriptName\` exactly and the function must be
+  GLOBAL with an exact \`(string, string)\` signature.
+- **Preview without launching Starfield** — run the OSF UI dev harness, open
+  \`?view=osfui/settings\`, and drag the settings JSON onto the page.
+- **Add a view later** — run \`npm create osfui@latest\` and pick the menu or
+  HUD surface; the schema and script here move across unchanged.
+
+## Ship it
+
+Zip the contents of \`mod/\` (so \`SFSE\` and \`Scripts\` sit at the archive
+root) and upload. There is no plugin to enable and no master to require. OSF UI
+is the only dependency; if it is missing, every \`OSFUI.*\` call fails soft and
+returns the default you passed.
+`;
 }
 
 function localizationFiles(options) {
@@ -219,9 +365,9 @@ function localizationFiles(options) {
   return [{
     path: `mod/SFSE/Plugins/OSFUI/l10n/${options.modId}_de.json`,
     content: `${JSON.stringify({
-      [`views.${view}.title`]: 'OSF-UI-Funktionsbeispiel',
-      [`views.${view}.heading`]: 'OSF-UI-Funktionsübersicht',
-      [`views.${view}.subtitle`]: 'Beispiele für Zustände, Ereignisse, Anfragen und Plattformschnittstellen.',
+      [`views.${view}.title`]: 'OSF-UI-Starter',
+      [`views.${view}.heading`]: 'OSF-UI-Starter',
+      [`views.${view}.subtitle`]: 'Zustände, Ereignisse, Aktionen und Anfragen.',
       [`views.${view}.connected`]: 'Verbunden mit OSF UI {version}',
       'groups.behavior.label': 'Verhalten',
       'groups.appearance.label': 'Darstellung',
@@ -233,80 +379,21 @@ function localizationFiles(options) {
 
 function papyrusHudFiles(options) {
   const scriptName = `${pascalIdentifier(options.modId)}OSFUI`;
-  const aliasName = `${scriptName}PlayerAlias`;
-  const viewId = `${options.modId}/${options.view}`;
   return [
     {
-      path: `mod/Scripts/Source/User/${scriptName}.psc`,
-      content: `ScriptName ${scriptName} Extends Quest
-{Passive HUD backend. Attach to a Start Game Enabled quest, and attach
-${aliasName} to a player reference alias on the same quest.}
+      path: `mod/Scripts/Source/${scriptName}.psc`,
+      content: `ScriptName ${scriptName} Hidden
+{Recordless GLOBAL library called directly by JavaScript through OSF UI. This
+loose PEX needs no quest, plugin record, or registration.}
 
-string ModId = "${options.modId}"
-string ViewId = "${viewId}"
-
-int hudValue = 72
-int hudMaximum = 100
-string hudLabel = "SYSTEM INTEGRITY"
-string hudStatus = "NOMINAL"
-bool hudAlert = false
-
-Event OnInit()
-    RegisterOSFUI()
-EndEvent
-
-; Cached view state is session-scoped, so ${aliasName} calls this again after
-; every save load. OpenMenu also loads this discovered HUD on first use.
-Function RegisterOSFUI()
-    If OSFUI.GetVersion() == 0
-        Return
-    EndIf
-
-    PublishHUD()
-    OSFUI.OpenMenu(ViewId)
+; JavaScript: osfui.papyrus.call("${scriptName}", "Refresh")
+Function Refresh() Global
+    OSFUI.SetViewString("${options.modId}", "label", "SYSTEM INTEGRITY")
+    OSFUI.SetViewInt("${options.modId}", "value", 72)
+    OSFUI.SetViewInt("${options.modId}", "maximum", 100)
+    OSFUI.SetViewString("${options.modId}", "status", "NOMINAL")
+    OSFUI.SetViewBool("${options.modId}", "alert", false)
 EndFunction
-
-; Call this from your gameplay events when the displayed data changes. HUDs
-; should be event-driven; avoid publishing unchanged values every frame.
-Function UpdateHUD(int aiValue, int aiMaximum, string asStatus, bool abAlert)
-    hudValue = aiValue
-    hudMaximum = aiMaximum
-    hudStatus = asStatus
-    hudAlert = abAlert
-    PublishHUD()
-EndFunction
-
-; EVENTS are transient. Use this for a moment the currently live HUD may show,
-; never for a value that must survive a page reload.
-Function AnnounceHUD(string asMessage)
-    string[] args = new string[1]
-    args[0] = asMessage
-    OSFUI.SendViewEvent(ModId, "notice", args)
-EndFunction
-
-; Each value is cached by (ModId, key), pushed to every live owning view, and
-; replayed automatically after a page reload. Publish again after a save load.
-Function PublishHUD()
-    OSFUI.SetViewString(ModId, "label", hudLabel)
-    OSFUI.SetViewInt(ModId, "value", hudValue)
-    OSFUI.SetViewInt(ModId, "maximum", hudMaximum)
-    OSFUI.SetViewString(ModId, "status", hudStatus)
-    OSFUI.SetViewBool(ModId, "alert", hudAlert)
-EndFunction
-`,
-    },
-    {
-      path: `mod/Scripts/Source/User/${aliasName}.psc`,
-      content: `ScriptName ${aliasName} Extends ReferenceAlias
-{Attach to a player reference alias on the same quest as ${scriptName}.
-OSF UI view state is session-scoped, so the quest republishes after save loads.}
-
-Event OnPlayerLoadGame()
-    ${scriptName} owner = GetOwningQuest() as ${scriptName}
-    If owner != None
-        owner.RegisterOSFUI()
-    EndIf
-EndEvent
 `,
     },
   ];
@@ -315,149 +402,51 @@ EndEvent
 function papyrusFiles(options) {
   if (options.surface === 'hud') return papyrusHudFiles(options);
   const scriptName = `${pascalIdentifier(options.modId)}OSFUI`;
-  const aliasName = `${scriptName}PlayerAlias`;
   return [
     {
-      path: `mod/Scripts/Source/User/${scriptName}.psc`,
-      content: `ScriptName ${scriptName} Extends Quest
-{OSF UI backend. Attach to a Start Game Enabled quest, and attach
-${aliasName} to a player reference alias on the same quest.}
+      path: `mod/Scripts/Source/${scriptName}.psc`,
+      content: `ScriptName ${scriptName} Hidden
+{Recordless GLOBAL library called directly by JavaScript through OSF UI. This
+loose PEX needs no quest, plugin record, or registration.}
 
-string ModId = "${options.modId}"
-int actionToken = 0
-int requestToken = 0
-int settingToken = 0
-int hotkeyToken = 0
-int clicks = 0
-bool actionsEnabled = true
-string greeting = "Hello from ${scriptName}"
+Function Refresh() Global
+    bool actionsEnabled = OSFUI.GetBool("${options.modId}", "enabled", true)
+    string greeting = OSFUI.GetString("${options.modId}", "greeting", "Hello from ${scriptName}")
+    OSFUI.SetViewString("${options.modId}", "greeting", greeting)
+    OSFUI.SetViewInt("${options.modId}", "clicks", 0)
+    OSFUI.SetViewBool("${options.modId}", "enabled", actionsEnabled)
+EndFunction
 
-Event OnInit()
-    RegisterOSFUI()
-EndEvent
-
-; Registrations AND published state are session-scoped: neither survives a save
-; load, so ${aliasName} calls this again from OnPlayerLoadGame.
-Function RegisterOSFUI()
-    ; GetVersion() is the installation check - 0 means OSF UI is not installed.
-    If OSFUI.GetVersion() == 0
+; JavaScript: osfui.papyrus.call("${scriptName}", "Bump", 1)
+Function Bump(int amount) Global
+    If !OSFUI.GetBool("${options.modId}", "enabled", true)
+        string[] disabledArgs = new string[1]
+        disabledArgs[0] = "Backend actions are disabled in Mod Settings"
+        OSFUI.SendViewEvent("${options.modId}", "notice", disabledArgs)
         Return
     EndIf
-
-    ; Drop last session's tokens (a no-op when they are already stale).
-    OSFUI.Unregister(actionToken)
-    OSFUI.Unregister(requestToken)
-    OSFUI.Unregister(settingToken)
-    OSFUI.Unregister(hotkeyToken)
-
-    actionToken = OSFUI.ListenForViewActions(self as ScriptObject, ModId)
-    requestToken = OSFUI.ListenForViewRequests(self as ScriptObject, ModId)
-    settingToken = OSFUI.RegisterForSettingChanges(self as ScriptObject, "OnSettingChanged", ModId)
-    hotkeyToken = OSFUI.RegisterForHotkey(self as ScriptObject, "OnHotkey", ModId, "openKey")
-    ; A 0 token means the registration was refused - usually because another
-    ; script already listens for this mod id (the first listener wins).
-    If actionToken == 0 || requestToken == 0
-        Debug.Trace("[" + ModId + "] OSF UI registration failed: actions=" + actionToken + " requests=" + requestToken, 2)
-    EndIf
-
-    PublishState()
+    OSFUI.SetViewInt("${options.modId}", "clicks", amount)
+    string[] noticeArgs = new string[1]
+    noticeArgs[0] = "JavaScript called a GLOBAL Papyrus function"
+    OSFUI.SendViewEvent("${options.modId}", "notice", noticeArgs)
 EndFunction
 
-; State drives the view. Each SetView* call replaces the cached value for
-; (ModId, key), reaches every live view of this mod, and is replayed whenever
-; one opens or reloads - no ready handshake. The cache is session-scoped, so
-; publish again after a game load.
-Function PublishState()
-    actionsEnabled = OSFUI.GetBool(ModId, "enabled", true)
-    greeting = OSFUI.GetString(ModId, "greeting", "Hello from ${scriptName}")
-    OSFUI.SetViewString(ModId, "greeting", greeting)
-    OSFUI.SetViewInt(ModId, "clicks", clicks)
-    OSFUI.SetViewBool(ModId, "enabled", actionsEnabled)
+Function OpenSettings() Global
+    OSFUI.OpenMenu()
 EndFunction
 
-; One-way player actions: the view fires osfui.papyrus.send("bump", 1). Change game
-; state here and publish the result - an action never sends a reply.
-; The parameter cannot be named "action" - that is the Action form type in
-; Papyrus, and references to it resolve to the type, not the parameter.
-Function OnOSFUIViewAction(string actionName, string[] args)
-    If actionName == "bump"
-        If !actionsEnabled
-            string[] disabledArgs = new string[1]
-            disabledArgs[0] = "Backend actions are disabled in Mod Settings"
-            OSFUI.SendViewEvent(ModId, "notice", disabledArgs)
-            Return
-        EndIf
-        int amount = 1
-        If args.Length > 0
-            amount = args[0] as int
-        EndIf
-        clicks += amount
-        PublishState()
-        string[] noticeArgs = new string[1]
-        noticeArgs[0] = "Papyrus handled a one-way action"
-        OSFUI.SendViewEvent(ModId, "notice", noticeArgs)
-    ElseIf actionName == "openSettings"
-        OSFUI.OpenMenu()    ; the Mods surface, same as F10
-    EndIf
-EndFunction
-
-; Value-returning operations: the view awaits osfui.papyrus.request("greet", name).
-; Answer EXACTLY ONCE with a ReplyView* or RejectViewRequest - the reply token
-; is one-shot and expires after ten seconds.
-Function OnOSFUIViewRequest(string request, string[] args, string replyToken)
-    If request == "greet"
-        string who = ""
-        If args.Length > 0
-            who = args[0]
-        EndIf
-        If who == ""
-            ; The code arrives in JavaScript as error.code on the rejection.
-            OSFUI.RejectViewRequest(replyToken, "invalid-name", "Type a name first")
-            Return
-        EndIf
-        OSFUI.ReplyViewString(replyToken, greeting + ", " + who)
-    Else
-        OSFUI.RejectViewRequest(replyToken, "unknown-request", request)
-    EndIf
-EndFunction
-
-; Settings callbacks are session-scoped like bridge listeners. The generated
-; page also consumes the same values from osfui/settings state, demonstrating
-; that gameplay and web code can share one schema without polling.
-Function OnSettingChanged(string asModId, string asKey)
-    If asModId == ModId && (asKey == "enabled" || asKey == "greeting")
-        PublishState()
-    EndIf
-EndFunction
-
-Function OnHotkey(string asModId, string asKey)
-    If asModId == ModId && asKey == "openKey"
-        OSFUI.OpenMenu(ModId + "/${options.view}")
-    EndIf
+Function Greet(string who) Global
+    string greeting = OSFUI.GetString("${options.modId}", "greeting", "Hello from ${scriptName}")
+    OSFUI.SetViewString("${options.modId}", "greeting", greeting + ", " + who)
 EndFunction
 
 ; Next steps:
 ;   - Real forms: OSFUI.SetViewForms publishes them as { formId, formType,
-;     name }, and OSFUI.GetFormById(args[0]) resolves one the view echoed back.
+;     name }, and OSFUI.GetFormById(formId) resolves one the view echoed back.
 ;     Runtime FormIDs are session-scoped - check the result for None before
 ;     acting on it, and never store one across a save.
-;   - Player-facing options belong in a settings schema (OSFUI.GetBool/GetInt/
-;     GetString plus RegisterForSettingChanges), not in view state.
-`,
-    },
-    {
-      path: `mod/Scripts/Source/User/${aliasName}.psc`,
-      content: `ScriptName ${aliasName} Extends ReferenceAlias
-{Attach to a player reference alias on the same quest as ${scriptName}.
-OSF UI registrations and published state are session-scoped: without this the
-view stops responding once the player loads a save.}
-
-Event OnPlayerLoadGame()
-    ${scriptName} owner = GetOwningQuest() as ${scriptName}
-    If owner != None
-        owner.RegisterOSFUI()
-    EndIf
-EndEvent
+;   - Player-facing options belong in a settings schema and are available here
+;     through OSFUI.GetBool/GetInt/GetString.
 `,
     },
   ];
@@ -818,7 +807,6 @@ export function backendFiles(options) {
   if (options.integration === 'papyrus') {
     return [
       ...papyrusFiles(options),
-      ...papyrusPluginFiles(options),
       {
         path: `mod/SFSE/Plugins/OSFUI/settings/${options.modId}.json`,
         content: `${JSON.stringify(settingsSchema(options), null, 2)}\n`,
@@ -831,31 +819,22 @@ export function backendFiles(options) {
 
 export function backendConfig(options) {
   if (options.integration !== 'papyrus') return '';
-  const pluginName = `${pascalIdentifier(options.modId)}.esm`;
   return `  papyrus: {
-    plugin: '${pluginName}',
-    source: 'spriggit/${pluginName}',
+    scriptsOnly: true,
   },
 `;
 }
 
 export function backendGuide(options) {
   const scriptName = `${pascalIdentifier(options.modId)}OSFUI`;
-  const aliasName = `${scriptName}PlayerAlias`;
-  const pluginName = `${pascalIdentifier(options.modId)}.esm`;
-  const papyrusBuildGuide = `The project is a complete mod rather than loose
-example scripts. \`spriggit/${pluginName}/\` defines the Start Game Enabled
-quest, its backend script, and the player alias that restores registrations
-after a save load.
+  const papyrusBuildGuide = `The view calls GLOBAL functions on
+\`${scriptName}\` directly with \`osfui.papyrus.call(script, function, ...args)\`.
+The mod ships a loose PEX and needs no manifest target,
+no ESM, startup quest, alias, or registration.
 
-\`npm run build\`, \`npm run package\`, and every \`dev:game\` sync generate
-\`mod/${pluginName}\` with Spriggit and compile the scripts with Creation Kit.
-The release zip is loadable as-is once its ESM is enabled in the mod manager.
-
-Run \`npm run doctor\` first. It verifies every prerequisite and explains any
-missing install. Install **Starfield Creation Kit** through Steam (Library >
-Tools), and download **SpriggitCLI.zip** from
-https://github.com/Mutagen-Modding/Spriggit/releases.
+Run \`npm run doctor\` first. It verifies the Creation Kit compiler and source
+prerequisites. Install **Starfield Creation Kit** through Steam (Library >
+Tools).
 
 Standard Steam paths and tools on \`PATH\` are discovered automatically. For
 portable or nonstandard installs, add paths beside the saved \`modsRoot\` in
@@ -864,38 +843,25 @@ the ignored \`.osfui/local.json\`:
 \`\`\`json
 {
   "modsRoot": "D:\\\\Mod Organizer 2\\\\mods",
-  "starfieldRoot": "D:\\\\SteamLibrary\\\\steamapps\\\\common\\\\Starfield",
-  "spriggitCli": "D:\\\\Tools\\\\Spriggit\\\\Spriggit.CLI.exe"
+  "starfieldRoot": "D:\\\\SteamLibrary\\\\steamapps\\\\common\\\\Starfield"
 }
 \`\`\`
 
 The first build extracts Creation Kit's \`Scripts/Source\` from
 \`Tools/ContentResources.zip\` into the ignored \`.osfui/\` cache. The matching
 OSF UI compiler API is pinned at \`tools/papyrus/OSFUI.psc\`.
-
-If you edit the quest in Creation Kit, serialize it back before rebuilding:
-
-\`\`\`powershell
-Spriggit.CLI.exe serialize --InputPath "mod/${pluginName}" --OutputPath "spriggit/${pluginName}" --GameRelease Starfield --PackageName Spriggit.Yaml --PackageVersion 0.35.1 --DataFolder "path-to-Starfield/Data"
-\`\`\`
 `;
   if (options.surface === 'hud' && options.integration === 'papyrus') {
     return `## Papyrus HUD backend
 
-The generated quest script is an event-driven HUD producer. It publishes a
-typed snapshot with \`OSFUI.SetView*\`; OSF UI caches every field and replays it
-when the HUD page opens or reloads. Call \`UpdateHUD(...)\` from the gameplay
-events that change the display rather than polling or publishing every frame.
-
-The script opens the discovered \`${options.modId}/${options.view}\` surface at
-startup, and the player-alias companion republishes and reopens it after each
-save load. The page itself owns the standard HUD behavior: it subscribes to
-the generated settings schema, applies anchor/margin/scale/opacity/accent
-changes live, and handles the rebindable F8 toggle without capturing input.
-\`osfui.mock.ts\` provides telemetry, alert, appearance, and hotkey controls.
+The generated page calls the recordless GLOBAL library for a fresh demo
+snapshot whenever its document is created. Replace the \`Refresh\` function with
+the game operations and \`OSFUI.SetView*\` values your HUD needs. The page owns
+the standard HUD behavior: it subscribes to the generated settings schema,
+applies anchor and opacity changes live, and handles the rebindable F8 toggle
+without capturing input. \`osfui.mock.ts\` mirrors all of it in the browser.
 
 ${papyrusBuildGuide}
-Replace the demo fields in \`UpdateHUD\` with your real event data.
 `;
   }
   if (options.surface === 'hud' && options.integration === 'native') {
@@ -908,7 +874,7 @@ game-event handling when displayed values change; avoid per-frame bridge
 traffic when a changed snapshot or bounded cadence will do.
 
 The passive full-screen page has no controls and never captures gameplay
-input. It applies anchor/margin/scale/opacity/accent settings live and handles
+input. It applies anchor and opacity settings live and handles
 the rebindable F8 visibility toggle. \`osfui.mock.ts\` mirrors native state,
 alerts, settings, and the hotkey in the browser harness.
 
@@ -923,11 +889,10 @@ alerts, settings, and the hotkey in the browser harness.
   const guides = {
     papyrus: `## Build
 
-1. Run \`npm run doctor\` and install any missing Creation Kit or Spriggit
-   prerequisites it reports.
-2. Run \`npm run build\` to generate the plugin, compile Papyrus, and build the
-   view.
-3. Run \`npm run package\` to create the installable zip in \`release/\`.
+1. Run \`npm run doctor\` and install any missing Creation Kit prerequisites.
+2. Run \`npm run build\` to compile the loose PEX and build the view.
+3. Run \`npm run package\` to create the plugin-free installable zip in
+   \`release/\`.
 
 ## Debug
 
@@ -936,8 +901,10 @@ alerts, settings, and the hotkey in the browser harness.
 - Run \`npm run dev:game -- --deploy "path-to-MO2-mods"\` to test in Starfield.
   Loaded views reload automatically; press F12 to open DevTools.
 
-The Papyrus backend is
-\`mod/Scripts/Source/User/${scriptName}.psc\`.
+The Papyrus library is
+\`mod/Scripts/Source/${scriptName}.psc\`. Its compiled PEX is discovered
+on demand when JavaScript calls one of its GLOBAL functions; there is no plugin
+to enable and no ESM, startup quest, alias, or registration to maintain.
 `,
     native: `## Native SFSE backend
 
@@ -948,10 +915,9 @@ example built on the optional \`OSFUI_JSON.h\` facade:
   changes its state and pushes the serialized struct back to JavaScript.
 - **Call C++ and await reply** sends a \`JsonRequest\`; C++ validates the
   required \`name\`, replies with JSON, and lets OSF UI own correlation.
-- The plugin registers this view, a runtime settings schema, settings/ready
-  callbacks, and an **F9** open-view hotkey. Edit the generated code down to
-  the pieces your mod needs. \`osfui.mock.ts\` mirrors the round trips in the
-  browser harness and exposes settings/hotkey callback controls in its toolbar.
+- The plugin also registers this view, a runtime settings schema, settings and
+  ready callbacks, and an **F9** open-view hotkey. \`osfui.mock.ts\` mirrors
+  the round trips in the browser harness.
 
 1. Install xmake and Visual Studio's C++ workload.
 2. Add CommonLibSF: \`git submodule add https://github.com/ozooma10/commonlibsf.git native/lib/commonlibsf\`.
@@ -960,4 +926,27 @@ example built on the optional \`OSFUI_JSON.h\` facade:
 `,
   };
   return guides[options.integration];
+}
+
+// The generated project is a starter, not a catalogue — everything it does not
+// demonstrate is documented, so point at the documentation rather than growing
+// the template.
+export function docsGuide(options) {
+  const docs = 'https://github.com/ozooma10/osf-ui/blob/main/docs';
+  return `## Where to read more
+
+- [authoring-views.md](${docs}/authoring-views.md) — the full bridge protocol:
+  every platform endpoint, event, and lifecycle rule.
+- [authoring-settings.md](${docs}/authoring-settings.md) — every settings
+  control, widget, predicate, preset, and localization address.
+- [authoring-dynamic-data.md](${docs}/authoring-dynamic-data.md) — a worked
+  state-and-event example between a backend and a view.
+${options.integration === 'native'
+    ? `- [native-plugin-api.md](${docs}/native-plugin-api.md) and the copied
+  \`native/include/OSFUI_API.h\` — the complete C ABI.`
+    : `- The copied \`tools/papyrus/OSFUI.psc\` — every OSF UI Papyrus function
+  with its contract in the comments.`}
+- [view-toolchain.md](${docs}/view-toolchain.md) — the CLI, the browser
+  harness, deployment, and packaging.
+`;
 }

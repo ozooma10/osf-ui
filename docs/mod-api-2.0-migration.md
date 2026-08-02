@@ -165,7 +165,7 @@ The first six names are unchanged from 1.x. What changed: they are now *only* ev
 
 ### 3.3 Sends — `osfui.send(name, payload)`
 
-`osfui.hello`, `close`, `setVisible`, `view.ready`, `log`, `osfui.gamepadRaw`, `osfui.handleBack`, `osfui.handoffRetry` (platform-private), `papyrus.send`.
+`osfui.hello`, `close`, `setVisible`, `view.ready`, `log`, `osfui.gamepadRaw`, `osfui.handleBack`, `osfui.handoffRetry` (platform-private), `papyrus.call`, `papyrus.send`.
 
 ### 3.4 Requests — `osfui.request(name, payload)`
 

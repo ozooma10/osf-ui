@@ -86,7 +86,13 @@ function resolveOutput(root, value) {
 async function resolvePapyrus(root, modRoot, raw) {
   if (raw === undefined) return null;
   if (!raw || typeof raw !== 'object') {
-    throw new Error('papyrus must be an object with plugin and source paths.');
+    throw new Error('papyrus must select scriptsOnly or provide plugin and source paths.');
+  }
+  if (raw.scriptsOnly === true) {
+    if (raw.plugin !== undefined || raw.source !== undefined) {
+      throw new Error('papyrus.scriptsOnly cannot be combined with plugin or source.');
+    }
+    return { scriptsOnly: true };
   }
   const plugin = validateRelative(raw.plugin, 'papyrus.plugin');
   if (!/^[^/\\]+\.(?:esm|esp|esl)$/i.test(plugin)) {
@@ -99,6 +105,7 @@ async function resolvePapyrus(root, modRoot, raw) {
     throw new Error(`Spriggit source is missing RecordData.yaml or RecordData.json: ${sourceDir}`);
   }
   return {
+    scriptsOnly: false,
     plugin,
     source,
     sourceDir,
@@ -187,7 +194,7 @@ export async function loadProject(cwd, command = 'serve') {
   if (pathsOverlap(outDir, viewsRoot) ||
       pathsOverlap(outDir, modRoot) ||
       pathsOverlap(outDir, configPath) ||
-      (papyrus && pathsOverlap(outDir, papyrus.sourceDir)) ||
+      (papyrus?.sourceDir && pathsOverlap(outDir, papyrus.sourceDir)) ||
       (mockPath && pathsOverlap(outDir, mockPath))) {
     throw new Error('outDir must be a dedicated directory separate from project inputs.');
   }

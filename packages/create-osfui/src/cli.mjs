@@ -16,7 +16,10 @@ import {
   backendConfig,
   backendFiles,
   backendGuide,
+  docsGuide,
   pascalIdentifier,
+  settingsOnlyFiles,
+  settingsOnlyReadme,
   settingsSchema,
 } from './backend-templates.mjs';
 
@@ -68,9 +71,18 @@ function validate(options) {
     throw new Error(`--mod-id must be at most ${MAX_MOD_ID_LENGTH} characters (OSF UI refuses longer ids).`);
   }
   if (!ID.test(options.view)) throw new Error('--view must use lowercase letters, digits, and hyphens.');
-  if (!['menu', 'hud'].includes(options.surface)) throw new Error('--surface must be menu or hud.');
+  if (!['menu', 'hud', 'settings'].includes(options.surface)) {
+    throw new Error('--surface must be menu, hud, or settings.');
+  }
   if (!['papyrus', 'native'].includes(options.integration)) {
     throw new Error('--integration must be papyrus or native.');
+  }
+  // A settings row's only code path back into the game is Papyrus: onPress
+  // targets a GLOBAL function, and an action row needs a whole SFSE plugin to
+  // answer its request — that is the menu/native preset, not this one.
+  if (options.surface === 'settings' && options.integration !== 'papyrus') {
+    throw new Error('--surface settings is Papyrus-only; ' +
+      'use --surface menu --integration native for an SFSE-plugin project.');
   }
 }
 
@@ -148,10 +160,7 @@ type Anchor = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 type HudSettings = {
   hudEnabled: boolean;
   anchor: Anchor;
-  margin: number;
-  scale: number;
   opacity: number;
-  accent: string;
 };
 
 const app = document.querySelector('#app');
@@ -185,10 +194,7 @@ const hudState = { value: 0, maximum: 0 };
 const hudSettings: HudSettings = {
   hudEnabled: true,
   anchor: 'top-right',
-  margin: 32,
-  scale: 100,
   opacity: 0.9,
-  accent: '#7bdcff',
 };
 let hotkeyVisible = true;
 
@@ -222,24 +228,9 @@ function applySetting(key: string, settingValue: SettingValue) {
         hud.dataset.anchor = hudSettings.anchor;
       }
       break;
-    case 'margin':
-      hudSettings.margin = numberSetting(settingValue, hudSettings.margin);
-      hud.style.setProperty('--hud-margin', hudSettings.margin + 'px');
-      break;
-    case 'scale':
-      hudSettings.scale = numberSetting(settingValue, hudSettings.scale);
-      hud.style.setProperty('--hud-scale', String(hudSettings.scale / 100));
-      break;
     case 'opacity':
       hudSettings.opacity = numberSetting(settingValue, hudSettings.opacity);
       hud.style.setProperty('--hud-opacity', String(hudSettings.opacity));
-      break;
-    case 'accent':
-      if (typeof settingValue === 'string') {
-        hudSettings.accent = settingValue;
-        hud.style.setProperty('--hud-accent', settingValue);
-        window.osfui?.theme?.applyAccent?.(panel, settingValue);
-      }
       break;
   }
 }
@@ -276,6 +267,7 @@ window.osfui?.on?.<PlatformEvents['ui.hotkey']>('ui.hotkey', (payload) => {
 });
 ${stateSetup}
 ${eventSetup}
+${options.integration === 'papyrus' ? `window.osfui?.papyrus?.call?.('${pascalIdentifier(options.modId)}OSFUI', 'Refresh');` : ''}
 window.osfui?.i18n?.ready?.then(() => window.osfui?.i18n?.localize(document));
 `;
 }
@@ -286,14 +278,13 @@ function nativeAppSource(options) {
   return `import '/shared/osfui.css';
 import '/shared/osfui.js';
 import './style.css';
-import type { GameData, OSFUIHelper, PlatformEvents, SettingValue, SettingsData } from '@osfui/cli/view';
+import type { OSFUIHelper, PlatformEvents, SettingValue, SettingsData } from '@osfui/cli/view';
 
 type DemoState = {
   count: number;
   enabled: boolean;
   greeting: string;
   lastAction: string;
-  features: string[];
 };
 type Greeting = {
   message: string;
@@ -307,28 +298,17 @@ const app: HTMLElement = appNode;
 // The osf-* classes come from /shared/osfui.css and carry the hover, press,
 // focus, and disabled states — plain <button>/<input> get none of them.
 app.innerHTML = '<main class="card osf-card"><p class="osf-eyebrow">${options.surface.toUpperCase()} · NATIVE BRIDGE</p>' +
-  '<h1 data-i18n="views.${options.view}.heading">OSF UI feature tour</h1>' +
-  '<p data-i18n="views.${options.view}.subtitle">State, events, sends, requests, settings, localization, lifecycle, and platform services.</p>' +
+  '<h1 data-i18n="views.${options.view}.heading">OSF UI starter</h1>' +
+  '<p data-i18n="views.${options.view}.subtitle">Retained state, one-shot events, commands, and correlated requests.</p>' +
   '<p class="runtime" id="runtime">Bridge setup…</p>' +
   '<section class="state"><span class="osf-eyebrow">Native count</span><strong id="count">—</strong>' +
-  '<small id="last-action">Waiting for C++ state…</small><small id="features"></small></section>' +
-  '<section class="feature-grid">' +
-    '<article><h2>Backend bridge</h2><p><code>send</code> is one-way; <code>request</code> returns a value or typed error.</p>' +
-      '<div class="actions"><button class="osf-btn osf-btn--osf-accent" id="increment">Send command</button></div>' +
-      '<form id="greeting"><input class="osf-input" id="name" value="Explorer" aria-label="Name">' +
-      '<label><input class="osf-flag-box" id="excited" type="checkbox" checked> Enthusiastic</label>' +
-      '<button class="osf-btn" type="submit">Await C++ request</button></form></article>' +
-    '<article><h2>Platform services</h2><p>Ping the host, read safe game data, and forward a line to the OSF UI log.</p>' +
-      '<div class="actions"><button class="osf-btn" id="platform">Ping + game data</button>' +
-      '<button class="osf-btn" id="log">Write log</button></div><small id="game">No game snapshot requested.</small></article>' +
-    '<article><h2>Settings + hotkeys</h2><p>Schema state replays; commits and key capture arrive as events.</p>' +
-      '<div class="actions"><button class="osf-btn" id="accent">Cycle accent</button>' +
-      '<button class="osf-btn" id="capture">Rebind open key</button>' +
-      '<button class="osf-btn" id="reset">Reset settings</button></div><small id="setting">Waiting for settings state…</small></article>' +
-    '<article><h2>Lifecycle</h2><p>Visibility edges, localized text, first-paint readiness, back ownership, and close.</p>' +
-      '<div class="actions"><button class="osf-btn" id="close">Close view</button></div>' +
-      '<small id="visibility">Waiting for a visibility event…</small></article>' +
-  '</section>' +
+  '<small id="last-action">Waiting for C++ state…</small></section>' +
+  '<div class="actions"><button class="osf-btn osf-btn--osf-accent" id="increment">Send command</button>' +
+  '<button class="osf-btn" id="close">Close view</button></div>' +
+  '<form id="greeting"><input class="osf-input" id="name" value="Explorer" aria-label="Name">' +
+  '<label><input class="osf-flag-box" id="excited" type="checkbox" checked> Enthusiastic</label>' +
+  '<button class="osf-btn" type="submit">Await C++ request</button></form>' +
+  '<small id="setting">Waiting for settings state…</small>' +
   '<output id="status">Waiting for OSF UI…</output></main>';
 
 function requiredElement<T extends Element>(selector: string, kind: { new(): T }): T {
@@ -339,21 +319,13 @@ function requiredElement<T extends Element>(selector: string, kind: { new(): T }
 
 const count = requiredElement('#count', HTMLElement);
 const lastAction = requiredElement('#last-action', HTMLElement);
-const features = requiredElement('#features', HTMLElement);
 const runtime = requiredElement('#runtime', HTMLElement);
 const increment = requiredElement('#increment', HTMLButtonElement);
 const form = requiredElement('#greeting', HTMLFormElement);
 const name = requiredElement('#name', HTMLInputElement);
 const excited = requiredElement('#excited', HTMLInputElement);
-const platform = requiredElement('#platform', HTMLButtonElement);
-const log = requiredElement('#log', HTMLButtonElement);
-const game = requiredElement('#game', HTMLElement);
-const accent = requiredElement('#accent', HTMLButtonElement);
-const capture = requiredElement('#capture', HTMLButtonElement);
-const reset = requiredElement('#reset', HTMLButtonElement);
 const setting = requiredElement('#setting', HTMLElement);
 const close = requiredElement('#close', HTMLButtonElement);
-const visibility = requiredElement('#visibility', HTMLElement);
 const status = requiredElement('#status', HTMLOutputElement);
 const maybeOsfui = window.osfui as OSFUIHelper | undefined;
 if (!maybeOsfui) throw new Error('OSF UI helper is unavailable');
@@ -362,7 +334,6 @@ const osfui: OSFUIHelper = maybeOsfui;
 function showState(state: DemoState) {
   count.textContent = String(state.count);
   lastAction.textContent = state.lastAction;
-  features.textContent = state.features.join(' · ');
   increment.disabled = !state.enabled;
 }
 
@@ -424,26 +395,10 @@ form.addEventListener('submit', async (event) => {
   }
 });
 
-// Platform requests use the same typed request() primitive as plugin requests.
-platform.addEventListener('click', async () => {
-  const started = performance.now();
-  try {
-    await osfui.request('ping');
-    const snapshot = await osfui.request<GameData>('game.get');
-    const calendar = snapshot.calendar;
-    game.textContent = calendar?.available
-      ? 'UT ' + calendar.year + '-' + calendar.month + '-' + calendar.day + ' · ' + calendar.hour
-      : 'Host replied in ' + Math.round(performance.now() - started) + ' ms; load a save for calendar data.';
-  } catch (error) { game.textContent = describe(error); }
-});
-log.addEventListener('click', () => {
-  osfui.send('log', { text: '[${options.modId}] generated feature-tour log message' });
-  status.textContent = 'Sent a line to OSF UI.log';
-});
-
+// The settings registry is STATE, so this handler runs immediately with the
+// current values and again on every change — no read to issue, no race.
 function applySetting(key: string, value: SettingValue) {
   if (key === 'accent' && typeof value === 'string') osfui.theme.applyAccent(app, value);
-  if (key === 'opacity' && typeof value === 'number') app.style.setProperty('--demo-opacity', String(value));
   setting.textContent = key + ' = ' + JSON.stringify(value);
 }
 osfui.state.on<SettingsData>('osfui/settings', (registry) => {
@@ -451,45 +406,16 @@ osfui.state.on<SettingsData>('osfui/settings', (registry) => {
   if (!own) return;
   for (const [key, value] of Object.entries(own.values)) applySetting(key, value);
 });
+// An individual commit is an EVENT: it says what just changed, so it is never
+// replayed (the state key above already carries the current value).
 osfui.on<PlatformEvents['settings.changed']>('settings.changed', (payload) => {
   if (payload.mod === '${options.modId}') applySetting(payload.key, payload.value);
-});
-osfui.on<PlatformEvents['settings.captured']>('settings.captured', (payload) => {
-  if (payload.mod !== '${options.modId}' || payload.key !== 'openKey') return;
-  status.textContent = payload.cancelled ? 'Key capture cancelled' : 'Captured ' + payload.name;
-});
-osfui.on<PlatformEvents['settings.persisted']>('settings.persisted', (payload) => {
-  if (payload.mod === '${options.modId}') status.textContent = 'Settings persisted';
 });
 osfui.on<PlatformEvents['ui.hotkey']>('ui.hotkey', (payload) => {
   if (payload.mod === '${options.modId}') status.textContent = 'Hotkey fired: ' + payload.key;
 });
-osfui.on<PlatformEvents['ui.visibility']>('ui.visibility', (payload) => {
-  visibility.textContent = 'Visible: ' + payload.visible + (payload.reason ? ' (' + payload.reason + ')' : '');
-});
 
-const accents = ['#7bdcff', '#ffb86b', '#9cff8f'];
-let accentIndex = 0;
-accent.addEventListener('click', async () => {
-  accentIndex = (accentIndex + 1) % accents.length;
-  try {
-    await osfui.request('settings.set', {
-      mod: '${options.modId}', key: 'accent', value: accents[accentIndex],
-    });
-  } catch (error) { status.textContent = describe(error); }
-});
-capture.addEventListener('click', async () => {
-  try {
-    await osfui.request('settings.captureKey', { mod: '${options.modId}', key: 'openKey' });
-    status.textContent = 'Press a key in Starfield (the browser mock returns F10)';
-  } catch (error) { status.textContent = describe(error); }
-});
-reset.addEventListener('click', async () => {
-  try { await osfui.request('settings.reset', { mod: '${options.modId}' }); }
-  catch (error) { status.textContent = describe(error); }
-});
-
-// Own Esc/gamepad-B while active, then close explicitly. Remove these two lines
+// Own Esc/gamepad-B while active, then close explicitly. Drop these two lines
 // if your view wants the default native back behavior.
 osfui.send('osfui.handleBack', { handle: true });
 window.addEventListener('keydown', (event) => {
@@ -530,10 +456,7 @@ const settings = {
   hudEnabled: true,
   toggleHud: 'F8',
   anchor: 'top-right',
-  margin: 32,
-  scale: 100,
   opacity: 0.9,
-  accent: '#7bdcff',
 };
 const schema = ${JSON.stringify(settingsSchema(options))};
 
@@ -580,16 +503,8 @@ export function install(ctx: MockContext) {
       options: ['top-left', 'top-right', 'bottom-left', 'bottom-right'],
     },
     {
-      id: 'hud-scale', kind: 'cycle', label: 'Scale', value: '100',
-      options: ['75', '100', '125', '150'],
-    },
-    {
       id: 'hud-opacity', kind: 'cycle', label: 'Opacity', value: '0.9',
       options: ['0.4', '0.7', '0.9', '1'],
-    },
-    {
-      id: 'hud-accent', kind: 'cycle', label: 'Accent', value: '#7bdcff',
-      options: ['#7bdcff', '#ffb86b', '#ff637d', '#9cff8f'],
     },
     { id: 'hud-hotkey', kind: 'button', label: 'Press F8' },
   ], (id, toolValue) => {
@@ -608,12 +523,8 @@ export function install(ctx: MockContext) {
       changeSetting('hudEnabled', toolValue === true);
     } else if (id === 'hud-anchor' && typeof toolValue === 'string') {
       changeSetting('anchor', toolValue);
-    } else if (id === 'hud-scale' && typeof toolValue === 'string') {
-      changeSetting('scale', Number(toolValue));
     } else if (id === 'hud-opacity' && typeof toolValue === 'string') {
       changeSetting('opacity', Number(toolValue));
-    } else if (id === 'hud-accent' && typeof toolValue === 'string') {
-      changeSetting('accent', toolValue);
     } else if (id === 'hud-hotkey') {
       ctx.send({
         kind: 'event',
@@ -656,8 +567,8 @@ export default defineMock({
   locales: {
     en: {},
     de: {
-      'views.${options.view}.heading': 'OSF-UI-Funktionsübersicht',
-      'views.${options.view}.subtitle': 'Beispiele für Zustände, Ereignisse, Anfragen und Plattformschnittstellen.',
+      'views.${options.view}.heading': 'OSF-UI-Starter',
+      'views.${options.view}.subtitle': 'Zustände, Ereignisse, Aktionen und Anfragen.',
       'views.${options.view}.connected': 'Verbunden mit OSF UI {version}',
     },
   },
@@ -682,43 +593,17 @@ export function install(ctx: MockContext) {
       }],
     },
   });
-  const commitSetting = (key: string, value: unknown) => {
+  const changeSetting = (key: string, value: unknown) => {
     settingValues[key] = value;
     ctx.send({
       kind: 'event', name: 'settings.changed',
       payload: { mod: '${options.modId}', key, value },
     });
-    setTimeout(() => ctx.send({
-      kind: 'event', name: 'settings.persisted', payload: { mod: '${options.modId}' },
-    }), 50);
   };
 
   ctx.onCommand((kind, name, payload, io) => {
-    if (kind === 'request' && name === 'settings.set') {
-      if (payload.mod !== '${options.modId}' || typeof payload.key !== 'string') {
-        io.reject('forbidden', 'The mock only writes this generated mod.');
-      } else {
-        commitSetting(payload.key, payload.value);
-        io.resolve({ mod: payload.mod, key: payload.key, value: payload.value });
-      }
-      return true;
-    }
-    if (kind === 'request' && name === 'settings.reset') {
-      Object.assign(settingValues, defaults);
-      publishSettings();
-      io.resolve({});
-      return true;
-    }
-    if (kind === 'request' && name === 'settings.captureKey') {
-      io.resolve({ armed: true, mod: '${options.modId}', key: 'openKey' });
-      setTimeout(() => ctx.send({
-        kind: 'event', name: 'settings.captured',
-        payload: { mod: '${options.modId}', key: 'openKey', name: 'F10', cancelled: false, conflicts: [] },
-      }), 250);
-      return true;
-    }
     if (kind === 'request' && name === '${options.modId}.getState') {
-      io.resolve({ ...state, features: [...state.features] });
+      io.resolve({ ...state });
       return true;
     }
     if (kind === 'send' && name === '${options.modId}.increment') {
@@ -753,9 +638,11 @@ export function install(ctx: MockContext) {
     { id: 'native-enabled', kind: 'toggle', label: 'Native enabled', value: true },
     { id: 'native-event', kind: 'button', label: 'Push event' },
     { id: 'native-hotkey', kind: 'button', label: 'Fire hotkey callback' },
-    { id: 'visibility', kind: 'toggle', label: 'Visible', value: true },
   ], (id, value) => {
     if (id === 'native-enabled') {
+      // Stands in for the player flipping the row in the Mods surface: the
+      // settings.changed event and the plugin's own state both follow.
+      changeSetting('enabled', value === true);
       state.enabled = value === true;
       state.lastAction = 'Mocked C++ settings callback applied a value';
       pushState();
@@ -769,20 +656,12 @@ export function install(ctx: MockContext) {
         kind: 'event', name: 'ui.hotkey',
         payload: { mod: '${options.modId}', key: 'openKey' },
       });
-    } else if (id === 'visibility') {
-      ctx.send({
-        kind: 'event', name: 'ui.visibility',
-        payload: { visible: value === true, reason: 'overlay' },
-      });
     }
   });
 
   setTimeout(() => {
     pushState();
     publishSettings();
-    ctx.send({
-      kind: 'event', name: 'ui.visibility', payload: { visible: true, reason: 'overlay' },
-    });
   }, 0);
 }
 `;
@@ -804,8 +683,8 @@ export default defineMock({
   locales: {
     en: {},
     de: {
-      'views.${options.view}.heading': 'OSF-UI-Funktionsübersicht',
-      'views.${options.view}.subtitle': 'Beispiele für Zustände, Ereignisse, Anfragen und Plattformschnittstellen.',
+      'views.${options.view}.heading': 'OSF-UI-Starter',
+      'views.${options.view}.subtitle': 'Zustände, Ereignisse, Aktionen und Anfragen.',
       'views.${options.view}.connected': 'Verbunden mit OSF UI {version}',
     },
   },
@@ -830,79 +709,45 @@ export function install(ctx: MockContext) {
       }],
     },
   });
-  const commitSetting = (key: string, value: unknown) => {
+  const changeSetting = (key: string, value: unknown) => {
     settingValues[key] = value;
     ctx.send({
       kind: 'event', name: 'settings.changed',
       payload: { mod: '${options.modId}', key, value },
     });
     if (key === 'enabled') publishEnabled();
-    setTimeout(() => ctx.send({
-      kind: 'event', name: 'settings.persisted', payload: { mod: '${options.modId}' },
-    }), 50);
   };
 
   ctx.onCommand((kind, name, payload, io) => {
-    if (kind === 'request' && name === 'settings.set') {
-      if (payload.mod !== '${options.modId}' || typeof payload.key !== 'string') {
-        io.reject('forbidden', 'The mock only writes this generated mod.');
-      } else {
-        commitSetting(payload.key, payload.value);
-        io.resolve({ mod: payload.mod, key: payload.key, value: payload.value });
-      }
-      return true;
-    }
-    if (kind === 'request' && name === 'settings.reset') {
-      Object.assign(settingValues, defaults);
-      publishSettings();
-      publishEnabled();
-      io.resolve({});
-      return true;
-    }
-    if (kind === 'request' && name === 'settings.captureKey') {
-      io.resolve({ armed: true, mod: '${options.modId}', key: 'openKey' });
-      setTimeout(() => ctx.send({
-        kind: 'event', name: 'settings.captured',
-        payload: { mod: '${options.modId}', key: 'openKey', name: 'F10', cancelled: false, conflicts: [] },
-      }), 250);
-      return true;
-    }
-    // Papyrus OnOSFUIViewAction(actionName, args)
-    if (name === 'papyrus.send') {
+    // JavaScript calls a named GLOBAL function on the loose PEX.
+    if (name === 'papyrus.call' && payload.script === '${pascalIdentifier(options.modId)}OSFUI') {
       const args = Array.isArray(payload.args) ? payload.args : [];
-      if (payload.name === 'bump') {
+      if (payload.function === 'Bump') {
         state.clicks += Number(args[0]) || 1;
         publish();
         ctx.send({
           kind: 'event', name: '${options.modId}.notice',
           payload: { args: ['Papyrus handled a one-way action'] },
         });
-      } else if (payload.name === 'openSettings') {
+      } else if (payload.function === 'OpenSettings') {
         ctx.notify('Papyrus would call OSFUI.OpenMenu()');
-      }
-      return true;
-    }
-    // Papyrus OnOSFUIViewRequest(request, args, replyToken)
-    if (name === 'papyrus.request' && payload.name === 'greet') {
-      const args = Array.isArray(payload.args) ? payload.args : [];
-      const who = String(args[0] ?? '');
-      if (!who) {
-        // OSFUI.RejectViewRequest(replyToken, code, message)
-        io.reject('invalid-name', 'Type a name first');
-      } else {
-        // OSFUI.ReplyViewString(replyToken, value)
-        io.resolve({ value: 'Hello ' + who + ', from the mocked Papyrus script' });
+      } else if (payload.function === 'Greet') {
+        state.greeting = 'Hello ' + String(args[0] ?? '') + ', from the mocked Papyrus script';
+        publish();
       }
       return true;
     }
   });
 
   ctx.registerTools([
+    { id: 'papyrus-enabled', kind: 'toggle', label: 'Backend enabled', value: true },
     { id: 'papyrus-event', kind: 'button', label: 'Push event' },
     { id: 'papyrus-hotkey', kind: 'button', label: 'Fire hotkey' },
-    { id: 'visibility', kind: 'toggle', label: 'Visible', value: true },
   ], (id, value) => {
-    if (id === 'papyrus-event') {
+    if (id === 'papyrus-enabled') {
+      // Stands in for the player flipping the row in the Mods surface.
+      changeSetting('enabled', value === true);
+    } else if (id === 'papyrus-event') {
       ctx.send({
         kind: 'event', name: '${options.modId}.notice',
         payload: { args: ['One-shot Papyrus event from the browser mock'] },
@@ -912,11 +757,6 @@ export function install(ctx: MockContext) {
         kind: 'event', name: 'ui.hotkey',
         payload: { mod: '${options.modId}', key: 'openKey' },
       });
-    } else if (id === 'visibility') {
-      ctx.send({
-        kind: 'event', name: 'ui.visibility',
-        payload: { visible: value === true, reason: 'overlay' },
-      });
     }
   });
 
@@ -924,9 +764,6 @@ export function install(ctx: MockContext) {
     publish();
     publishEnabled();
     publishSettings();
-    ctx.send({
-      kind: 'event', name: 'ui.visibility', payload: { visible: true, reason: 'overlay' },
-    });
   }, 0);
 }
 `;
@@ -939,7 +776,7 @@ function appSource(options) {
   return `import '/shared/osfui.css';
 import '/shared/osfui.js';
 import './style.css';
-import type { GameData, OSFUIHelper, PlatformEvents, SettingValue, SettingsData } from '@osfui/cli/view';
+import type { OSFUIHelper, PlatformEvents, SettingValue, SettingsData } from '@osfui/cli/view';
 
 const appNode = document.querySelector<HTMLElement>('#app');
 if (!appNode) throw new Error('Missing #app element');
@@ -947,28 +784,17 @@ const app: HTMLElement = appNode;
 // The osf-* classes come from /shared/osfui.css and carry the hover, press,
 // focus, and disabled states — plain <button>/<input> get none of them.
 app.innerHTML = '<main class="card osf-card"><p class="osf-eyebrow">${options.surface.toUpperCase()} · PAPYRUS BRIDGE</p>' +
-  '<h1 data-i18n="views.${options.view}.heading">OSF UI feature tour</h1>' +
-  '<p data-i18n="views.${options.view}.subtitle">State, events, sends, requests, settings, localization, lifecycle, and platform services.</p>' +
+  '<h1 data-i18n="views.${options.view}.heading">OSF UI starter</h1>' +
+  '<p data-i18n="views.${options.view}.subtitle">Retained state, one-shot events, and direct GLOBAL Papyrus calls.</p>' +
   '<p class="runtime" id="runtime">Bridge setup…</p>' +
   '<section class="state"><span class="osf-eyebrow">Clicks</span><strong id="clicks">—</strong>' +
   '<small id="greeting">Waiting for Papyrus state…</small></section>' +
-  '<section class="feature-grid">' +
-    '<article><h2>Papyrus bridge</h2><p>Typed retained state, one-shot events, actions, and correlated requests.</p>' +
-      '<div class="actions"><button class="osf-btn osf-btn--osf-accent" id="bump">Send action</button>' +
-      '<button class="osf-btn" id="settings">Open Mod Settings</button></div>' +
-      '<form id="greet"><input class="osf-input" id="name" value="Explorer" aria-label="Name">' +
-      '<button class="osf-btn" type="submit">Await Papyrus request</button></form></article>' +
-    '<article><h2>Platform services</h2><p>Ping the host, read safe game data, and forward a line to the OSF UI log.</p>' +
-      '<div class="actions"><button class="osf-btn" id="platform">Ping + game data</button>' +
-      '<button class="osf-btn" id="log">Write log</button></div><small id="game">No game snapshot requested.</small></article>' +
-    '<article><h2>Settings + hotkeys</h2><p>Schema state replays; commits and key capture arrive as events.</p>' +
-      '<div class="actions"><button class="osf-btn" id="accent">Cycle accent</button>' +
-      '<button class="osf-btn" id="capture">Rebind open key</button>' +
-      '<button class="osf-btn" id="reset">Reset settings</button></div><small id="setting">Waiting for settings state…</small></article>' +
-    '<article><h2>Lifecycle</h2><p>Visibility edges, localized text, first-paint readiness, back ownership, and close.</p>' +
-      '<div class="actions"><button class="osf-btn" id="close">Close view</button></div>' +
-      '<small id="visibility">Waiting for a visibility event…</small></article>' +
-  '</section>' +
+  '<div class="actions"><button class="osf-btn osf-btn--osf-accent" id="bump">Call Papyrus function</button>' +
+  '<button class="osf-btn" id="settings">Open Mod Settings</button>' +
+  '<button class="osf-btn" id="close">Close view</button></div>' +
+  '<form id="greet"><input class="osf-input" id="name" value="Explorer" aria-label="Name">' +
+  '<button class="osf-btn" type="submit">Call with string argument</button></form>' +
+  '<small id="setting">Waiting for settings state…</small>' +
   '<output id="status">Waiting for OSF UI…</output></main>';
 
 function requiredElement<T extends Element>(selector: string, kind: { new(): T }): T {
@@ -990,15 +816,8 @@ const bump = requiredElement('#bump', HTMLButtonElement);
 const settings = requiredElement('#settings', HTMLButtonElement);
 const form = requiredElement('#greet', HTMLFormElement);
 const name = requiredElement('#name', HTMLInputElement);
-const platform = requiredElement('#platform', HTMLButtonElement);
-const log = requiredElement('#log', HTMLButtonElement);
-const game = requiredElement('#game', HTMLElement);
-const accent = requiredElement('#accent', HTMLButtonElement);
-const capture = requiredElement('#capture', HTMLButtonElement);
-const reset = requiredElement('#reset', HTMLButtonElement);
 const setting = requiredElement('#setting', HTMLElement);
 const close = requiredElement('#close', HTMLButtonElement);
-const visibility = requiredElement('#visibility', HTMLElement);
 const status = requiredElement('#status', HTMLOutputElement);
 const maybeOsfui = window.osfui as OSFUIHelper | undefined;
 if (!maybeOsfui) throw new Error('OSF UI helper is unavailable');
@@ -1018,6 +837,7 @@ osfui.state.on<boolean>('${options.modId}/enabled', (value) => {
 osfui.on<{ args: string[] }>('${options.modId}.notice', (payload) => {
   status.textContent = payload.args[0] || 'Papyrus event received';
 });
+osfui.papyrus.call('${pascalIdentifier(options.modId)}OSFUI', 'Refresh');
 
 osfui.ready.then(async (info) => {
   runtime.textContent = info.plugin + ' ' + info.version + ' · bridge ' + info.bridgeVersion +
@@ -1029,45 +849,26 @@ osfui.ready.then(async (info) => {
   ) + '; osfui.available = ' + osfui.available;
 }).catch((error) => { status.textContent = describe(error); });
 
-// JS -> Papyrus OnOSFUIViewAction: fire-and-forget. The script answers by
-// publishing new state, not by replying.
+// JS -> arbitrary GLOBAL Papyrus functions. Calls are fire-and-forget; the
+// functions publish state or events when the view needs to observe an outcome.
 bump.addEventListener('click', () => {
-  if (!osfui.papyrus.send('bump', 1)) status.textContent = 'OSF UI bridge is unavailable';
-});
-settings.addEventListener('click', () => {
-  osfui.papyrus.send('openSettings');
-});
-
-// JS -> Papyrus OnOSFUIViewRequest: use this only when the returned value is
-// the point. OSF UI owns correlation and the ten-second reply token.
-form.addEventListener('submit', async (event) => {
-  event.preventDefault();
-  try {
-    status.textContent = await osfui.papyrus.request<string>('greet', name.value);
-  } catch (error) {
-    status.textContent = describe(error);
+  if (!osfui.papyrus.call('${pascalIdentifier(options.modId)}OSFUI', 'Bump', 1)) {
+    status.textContent = 'OSF UI bridge is unavailable';
   }
 });
-
-platform.addEventListener('click', async () => {
-  const started = performance.now();
-  try {
-    await osfui.request('ping');
-    const snapshot = await osfui.request<GameData>('game.get');
-    const calendar = snapshot.calendar;
-    game.textContent = calendar?.available
-      ? 'UT ' + calendar.year + '-' + calendar.month + '-' + calendar.day + ' · ' + calendar.hour
-      : 'Host replied in ' + Math.round(performance.now() - started) + ' ms; load a save for calendar data.';
-  } catch (error) { game.textContent = describe(error); }
-});
-log.addEventListener('click', () => {
-  osfui.send('log', { text: '[${options.modId}] generated feature-tour log message' });
-  status.textContent = 'Sent a line to OSF UI.log';
+settings.addEventListener('click', () => {
+  osfui.papyrus.call('${pascalIdentifier(options.modId)}OSFUI', 'OpenSettings');
 });
 
+form.addEventListener('submit', (event) => {
+  event.preventDefault();
+  osfui.papyrus.call('${pascalIdentifier(options.modId)}OSFUI', 'Greet', name.value);
+});
+
+// The settings registry is STATE, so this handler runs immediately with the
+// current values and again on every change — no read to issue, no race.
 function applySetting(key: string, value: SettingValue) {
   if (key === 'accent' && typeof value === 'string') osfui.theme.applyAccent(app, value);
-  if (key === 'opacity' && typeof value === 'number') app.style.setProperty('--demo-opacity', String(value));
   setting.textContent = key + ' = ' + JSON.stringify(value);
 }
 osfui.state.on<SettingsData>('osfui/settings', (registry) => {
@@ -1075,44 +876,17 @@ osfui.state.on<SettingsData>('osfui/settings', (registry) => {
   if (!own) return;
   for (const [key, value] of Object.entries(own.values)) applySetting(key, value);
 });
+// An individual commit is an EVENT: it says what just changed, so it is never
+// replayed (the state key above already carries the current value).
 osfui.on<PlatformEvents['settings.changed']>('settings.changed', (payload) => {
   if (payload.mod === '${options.modId}') applySetting(payload.key, payload.value);
-});
-osfui.on<PlatformEvents['settings.captured']>('settings.captured', (payload) => {
-  if (payload.mod !== '${options.modId}' || payload.key !== 'openKey') return;
-  status.textContent = payload.cancelled ? 'Key capture cancelled' : 'Captured ' + payload.name;
-});
-osfui.on<PlatformEvents['settings.persisted']>('settings.persisted', (payload) => {
-  if (payload.mod === '${options.modId}') status.textContent = 'Settings persisted';
 });
 osfui.on<PlatformEvents['ui.hotkey']>('ui.hotkey', (payload) => {
   if (payload.mod === '${options.modId}') status.textContent = 'Hotkey fired: ' + payload.key;
 });
-osfui.on<PlatformEvents['ui.visibility']>('ui.visibility', (payload) => {
-  visibility.textContent = 'Visible: ' + payload.visible + (payload.reason ? ' (' + payload.reason + ')' : '');
-});
 
-const accents = ['#7bdcff', '#ffb86b', '#9cff8f'];
-let accentIndex = 0;
-accent.addEventListener('click', async () => {
-  accentIndex = (accentIndex + 1) % accents.length;
-  try {
-    await osfui.request('settings.set', {
-      mod: '${options.modId}', key: 'accent', value: accents[accentIndex],
-    });
-  } catch (error) { status.textContent = describe(error); }
-});
-capture.addEventListener('click', async () => {
-  try {
-    await osfui.request('settings.captureKey', { mod: '${options.modId}', key: 'openKey' });
-    status.textContent = 'Press a key in Starfield (the browser mock returns F10)';
-  } catch (error) { status.textContent = describe(error); }
-});
-reset.addEventListener('click', async () => {
-  try { await osfui.request('settings.reset', { mod: '${options.modId}' }); }
-  catch (error) { status.textContent = describe(error); }
-});
-
+// Own Esc/gamepad-B while active, then close explicitly. Drop these two lines
+// if your view wants the default native back behavior.
 osfui.send('osfui.handleBack', { handle: true });
 window.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') osfui.send('close');
@@ -1134,13 +908,11 @@ html, body, #app { width: 100%; height: 100%; }
 body { margin: 0; overflow: hidden; background: transparent; pointer-events: none; }
 .hud-shell {
   --hud-accent: #7bdcff;
-  --hud-margin: 32px;
   --hud-opacity: .9;
-  --hud-scale: 1;
   position: fixed;
   inset: 0;
   display: flex;
-  padding: var(--hud-margin);
+  padding: 32px;
   opacity: var(--hud-opacity);
 }
 .hud-shell[data-anchor="top-left"] { align-items: flex-start; justify-content: flex-start; }
@@ -1154,10 +926,7 @@ body { margin: 0; overflow: hidden; background: transparent; pointer-events: non
   border-left: 4px solid var(--hud-accent);
   background: linear-gradient(110deg, rgba(6, 16, 23, .94), rgba(6, 16, 23, .7));
   box-shadow: 0 10px 38px rgba(0, 0, 0, .35);
-  transform: scale(var(--hud-scale));
 }
-[data-anchor$="left"] .hud-panel { transform-origin: left center; }
-[data-anchor$="right"] .hud-panel { transform-origin: right center; }
 .hud-panel header { display: flex; justify-content: space-between; gap: 16px; }
 .hud-panel header span { color: var(--hud-accent); font-size: 13px; letter-spacing: .15em; }
 .hud-panel header b { font-size: 12px; letter-spacing: .12em; }
@@ -1192,7 +961,7 @@ body { margin: 0; overflow: hidden; background: transparent; pointer-events: non
    instead of restyling bare elements: a local "button { background: ... }"
    silently overrides the kit and leaves the control feeling dead. */
 body { min-height: 100vh; padding: 24px; }
-.card { width: min(1120px, 94vw); margin: 0 auto; padding: 32px; opacity: var(--demo-opacity, .94); }
+.card { width: min(760px, 94vw); margin: 0 auto; padding: 32px; }
 .card h1 { margin: 6px 0 8px; font-size: var(--osf-text-3xl); }
 .card > p { margin: 0; color: var(--osf-text-muted); }
 .runtime { margin-top: 8px !important; font-family: var(--osf-font-mono); font-size: var(--osf-text-xs); }
@@ -1211,124 +980,51 @@ body { min-height: 100vh; padding: 24px; }
   color: var(--osf-text-bright);
 }
 .state small { color: var(--osf-accent-hover); }
-.feature-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-.feature-grid article {
-  min-width: 0;
-  padding: 18px;
-  border: 1px solid var(--osf-line);
-  background: color-mix(in srgb, var(--osf-surface) 88%, transparent);
-}
-.feature-grid h2 { margin: 0 0 6px; font-size: var(--osf-text-lg); }
-.feature-grid p, .feature-grid small { color: var(--osf-text-muted); }
-.feature-grid code { color: var(--osf-accent-hover); }
 .actions, form { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
 label { display: flex; align-items: center; gap: 8px; color: var(--osf-text-muted); }
+.card > small {
+  display: block;
+  margin-top: 18px;
+  color: var(--osf-text-muted);
+}
 output {
   display: block;
   min-height: 24px;
-  margin-top: 18px;
+  margin-top: 10px;
   font-family: var(--osf-font-mono);
   font-size: var(--osf-text-xs);
   color: var(--osf-text-muted);
   overflow-wrap: anywhere;
 }
-@media (max-width: 760px) {
-  .feature-grid { grid-template-columns: 1fr; }
-}
 `;
 }
 
-function featureGuide(options) {
-  const backend = options.integration === 'native'
-    ? '`native/src/main.cpp`'
-    : `\`mod/Scripts/Source/User/${pascalIdentifier(options.modId)}OSFUI.psc\``;
-  const menuRows = options.surface === 'menu' ? `
-| Runtime identity and capability | \`osfui.available\`, \`osfui.ready\` | \`main.ts\` runtime line |
-| Safe platform services | \`ping\`, \`game.get\`, \`log\` | Platform services card |
-| Settings writes | \`settings.set\`, \`settings.reset\`, \`settings.captureKey\` | Settings card |
-| Settings and input events | \`settings.changed\`, \`settings.persisted\`, \`settings.captured\`, \`ui.hotkey\` | \`main.ts\` subscriptions |
-| View lifecycle | \`ui.visibility\`, \`osfui.handleBack\`, \`close\`, \`markReady\` | Lifecycle card and manifest |
-| One-off state reads | \`state.get\` | Initial backend snapshot fallback |
-` : `
-| Passive HUD policy | No controls or input capture; \`pointer-events:none\` | \`main.ts\` and \`style.css\` |
-| Live settings | Registry replay plus \`settings.changed\` | HUD placement, scale, opacity, accent |
-| Rebindable hotkey | \`ui.hotkey\` with a \`type:"key"\` schema row | F8 visibility toggle |
-| Runtime visibility | \`menu.open\` / \`menu.close\` preserve the authoritative shown-set | \`syncVisibility()\` |
-`;
-  const interactionRows = options.surface === 'menu' ? `
-| Web-to-backend send | \`osfui.send\` or \`osfui.papyrus.send\` | backend action |
-| Web-to-backend request | \`osfui.request\` or \`osfui.papyrus.request\` | awaited greeting |
-| Typed request errors | stable \`error.code\` | submit an empty greeting |
-` : '';
-  const backendRows = options.surface === 'hud' && options.integration === 'native' ? `
-| Native state/event | \`SetViewState\` + \`SendToWeb\` | ${backend} |
-| Runtime registration | view and settings schema registration | ${backend} |
-| Feature detection | \`Client::Has\` gates optional ABI surfaces | ${backend} |
-` : options.surface === 'hud' ? `
-| Papyrus state/event | \`SetView*\` + \`SendViewEvent\` | ${backend} |
-| Save-load lifecycle | player alias republishes and reopens the HUD | generated alias script |
-` : options.integration === 'native' ? `
-| Native command | \`RegisterCommand\` + \`JsonCommand\` | ${backend} |
-| Native request/reply/error | \`RegisterRequest\` + \`JsonRequest\` | ${backend} |
-| Native state/event | \`SetViewState\` + \`SendToWeb\` | ${backend} |
-| Runtime registration | view, settings schema, ready/settings/hotkey callbacks | ${backend} |
-| Feature detection | \`Client::Has\` gates optional ABI surfaces | ${backend} |
-` : `
-| Papyrus action | \`ListenForViewActions\` / \`OnOSFUIViewAction\` | ${backend} |
-| Papyrus request/reply/error | \`ListenForViewRequests\`, \`ReplyView*\`, \`RejectViewRequest\` | ${backend} |
-| Papyrus state/event | \`SetView*\` + \`SendViewEvent\` | ${backend} |
-| Settings and hotkeys | typed getters plus session-scoped callbacks | ${backend} |
-| Save-load lifecycle | player alias re-registers and republishes state | generated alias script |
-`;
-  return `# Generated feature map
+async function copyPapyrusApi(root) {
+  const papyrusRoot = resolve(root, 'tools/papyrus');
+  await mkdir(papyrusRoot, { recursive: true });
+  await cp(
+    resolve(HERE, '..', 'templates/papyrus/OSFUI.psc'),
+    resolve(papyrusRoot, 'OSFUI.psc'),
+  );
+}
 
-This project is intentionally a feature tour. Start with \`npm run dev\`, use
-the harness controls, switch Locale to \`de\` or \`pseudo\`, reload the page,
-and watch the bridge traffic panel. Delete the examples your finished mod does
-not need.
-
-| Feature | API or behavior | Working example |
-|---|---|---|
-| Retained backend state | \`osfui.state.on\` | main state/HUD display |
-| One-shot backend event | \`osfui.on\` | mock toolbar and backend notice |
-| Localization | ${options.surface === 'menu' ? '\`i18n.ready\`, \`i18n.t\`, \`i18n.localize\`' : '\`i18n.ready\`, \`i18n.localize\`'}, shipped German catalog | ${options.surface === 'menu' ? 'heading, subtitle, and status' : 'HUD event hint and catalog title'} |
-| Theme accent | \`theme.applyAccent\` | generated color setting |
-| Browser simulation | state/event injection, endpoint handlers, custom controls | \`osfui.mock.ts\` |
-${interactionRows}${menuRows}${backendRows}
-## Manifest and settings coverage
-
-\`osfui.config.ts\` spells out the selected ${options.surface} surface's size,
-transparency, catalog visibility, accent, target version, and bridge permission.
-${options.surface === 'menu'
-    ? 'It also demonstrates input capture, pause policy, and `readySignal`.'
-    : 'It also demonstrates automatic start and HUD paint order.'}
-
-${options.surface === 'menu'
-    ? `The generated settings schema demonstrates every base value type, plus pages, presets,
-conditions, a note row, and segmented/stepper/textarea/color widgets${options.integration === 'native' ? ', plus a native action row' : ''}.`
-    : 'The generated HUD schema demonstrates bool, key, enum, int, float, and color-backed string settings without adding menu-only controls to the passive surface.'}
-The German catalog under \`mod/SFSE/Plugins/OSFUI/l10n/\` shows the file naming
-and stable address format used by translation mods.
-
-## Deliberate boundaries
-
-- Platform-private diagnostics, reporting, handoff, and built-in-surface
-  administration endpoints are framework implementation details, not mod
-  templates.
-- Raw gamepad takeover is experimental and changes navigation semantics, so it
-  remains documented in the SDK instead of being enabled by generated code.
-- The copied ${options.integration === 'native' ? '`OSFUI_API.h` / `OSFUI_JSON.h`' : '`OSFUI.psc`'} is the complete API reference for advanced and less common calls.
-`;
+// The settings surface ships no view, so it needs none of the npm toolchain:
+// the schema is a drop-in JSON file and the script compiles with the Creation
+// Kit alone.
+async function scaffoldSettings(root, options) {
+  for (const file of settingsOnlyFiles(options)) {
+    await put(root, file.path, file.content);
+  }
+  await copyPapyrusApi(root);
+  await put(root, 'README.md', settingsOnlyReadme(options));
+  return root;
 }
 
 async function scaffold(options) {
   const root = resolve(options.directory);
   await mkdir(root, { recursive: true });
   if ((await readdir(root)).length) throw new Error(`Directory is not empty: ${root}`);
+  if (options.surface === 'settings') return scaffoldSettings(root, options);
   const viewRoot = `src/views/${options.modId}/${options.view}`;
   const cliSpec = await resolveCliSpec(root, options.cliSpec);
   const scripts = {
@@ -1359,7 +1055,7 @@ async function scaffold(options) {
     'release/',
     '.osfui/',
     ...(options.integration === 'papyrus'
-      ? ['mod/*.esm', 'mod/*.esp', 'mod/*.esl', 'mod/Scripts/**/*.pex', 'tools/Spriggit.CLI.exe']
+      ? ['mod/Scripts/**/*.pex']
       : []),
     '',
   ].join('\n'));
@@ -1391,12 +1087,7 @@ declare module '*osfui.js';
       await cp(resolve(HERE, '..', `templates/native/${name}`), resolve(includeRoot, name));
     }
   } else {
-    const papyrusRoot = resolve(root, 'tools/papyrus');
-    await mkdir(papyrusRoot, { recursive: true });
-    await cp(
-      resolve(HERE, '..', 'templates/papyrus/OSFUI.psc'),
-      resolve(papyrusRoot, 'OSFUI.psc'),
-    );
+    await copyPapyrusApi(root);
   }
   await put(root, `osfui.config.ts`, `import { defineConfig } from '@osfui/cli';
 
@@ -1405,22 +1096,16 @@ export default defineConfig({
 ${backendConfig(options)}  views: [{
     id: '${options.view}',
     title: '${options.view.replaceAll('-', ' ')}',
-    description: 'Generated ${options.surface} feature tour for ${options.modId}',
+    description: 'Generated ${options.surface} starter for ${options.modId}',
     kind: '${options.surface}',
     width: ${options.surface === 'hud' ? 1920 : 1200},
     height: ${options.surface === 'hud' ? 1080 : 720},
-    transparent: true,
     accent: '#7bdcff',
-    hub: true,
     targetVersion: '2.0.0',
 ${options.surface === 'hud' ? `    openOnStart: true,
-    order: 0,
-` : `    capturesInput: true,
-    pausesGame: false,
+` : `    pausesGame: false,
     readySignal: true,
-`}
-    permissions: { nativeBridge: true },
-  }],
+`}  }],
 });
 `);
   await put(root, `osfui.mock.ts`, mockSource(options));
@@ -1430,7 +1115,6 @@ ${options.surface === 'hud' ? `    openOnStart: true,
 `);
   await put(root, `${viewRoot}/main.ts`, appSource(options));
   await put(root, `${viewRoot}/style.css`, styleSource(options));
-  await put(root, 'FEATURES.md', featureGuide(options));
   const generalReadme = options.surface === 'menu' && options.integration === 'papyrus'
     ? ''
     : `Run \`npm run dev\` for instant browser HMR. Run \`npm run dev:game -- --deploy "path-to-MO2-mods"\`
@@ -1443,12 +1127,12 @@ are copied into the mod archive beside the generated view.
 `;
   await put(root, 'README.md', `# ${packageJson.name}
 
-This is a runnable OSF UI feature tour, not an empty skeleton. See
-[FEATURES.md](FEATURES.md) for the example-to-API map, then remove the pieces
-your mod does not need.
+A runnable OSF UI ${options.surface} starter: one worked example of each way a
+view and its backend talk to each other, plus a small settings schema. It is
+deliberately not a catalogue — the documentation linked below covers the rest.
 
 ${generalReadme}${backendGuide(options)}
-`);
+${docsGuide(options)}`);
   return root;
 }
 
@@ -1464,17 +1148,21 @@ function install(root) {
 async function main() {
   const options = parse(process.argv.slice(2));
   if (options.help) {
-    console.log('npm create osfui@latest [directory] [-- --mod-id author.mod --view main --surface menu --integration papyrus]');
+    console.log('npm create osfui@latest [directory] ' +
+      '[-- --mod-id author.mod --view main --surface menu|hud|settings --integration papyrus|native]');
     return;
   }
   options.directory = options._[0];
   const interactive = await promptMissing(options);
   validate(options);
   const root = await scaffold(options);
-  if (!options.noInstall) await install(root);
-  const firstCommands = options.integration === 'papyrus'
-    ? 'npm run doctor\n  npm run dev'
-    : 'npm run dev';
+  // The settings surface has no package.json to install into.
+  if (!options.noInstall && options.surface !== 'settings') await install(root);
+  const firstCommands = options.surface === 'settings'
+    ? './build-deploy.ps1 -Mo2Mods "path-to-MO2-mods"'
+    : options.integration === 'papyrus'
+      ? 'npm run doctor\n  npm run dev'
+      : 'npm run dev';
   const next = root === process.cwd()
     ? firstCommands
     : `cd ${options.directory}\n  ${firstCommands}`;

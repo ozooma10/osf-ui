@@ -6,6 +6,25 @@ test('offers only Papyrus and Native Plugin workflows', () => {
   assert.deepEqual(CHOICES.integration.map(({ value }) => value), ['papyrus', 'native']);
 });
 
+test('offers the settings surface beside the two view surfaces', () => {
+  assert.deepEqual(CHOICES.surface.map(({ value }) => value), ['menu', 'hud', 'settings']);
+});
+
+function recordingPrompt(textAnswers, selectAnswers, questions) {
+  return {
+    intro: (title) => questions.push({ kind: 'intro', title }),
+    isCancel: () => false,
+    text: async (question) => {
+      questions.push({ kind: 'text', ...question });
+      return textAnswers.shift();
+    },
+    select: async (question) => {
+      questions.push({ kind: 'select', ...question });
+      return selectAnswers.shift();
+    },
+  };
+}
+
 test('walks through missing choices as visible select lists', async () => {
   const questions = [];
   const textAnswers = ['custom-view', 'acme.widgets', 'panel'];
@@ -38,9 +57,10 @@ test('walks through missing choices as visible select lists', async () => {
     surface: 'hud',
     integration: 'native',
   });
+  // Surface is asked before View ID so the settings surface can skip it.
   assert.deepEqual(
-    questions.filter(({ kind }) => kind === 'text').map(({ message }) => message),
-    ['Directory name', 'Mod ID', 'View ID'],
+    questions.filter(({ kind }) => kind !== 'intro').map(({ message }) => message),
+    ['Directory name', 'Mod ID', 'Choose a surface', 'View ID', 'Choose a starting workflow'],
   );
   const textQuestions = questions.filter(({ kind }) => kind === 'text');
   assert.equal(textQuestions[0].defaultValue, 'my-osfui-view');
@@ -73,6 +93,31 @@ test('walks through missing choices as visible select lists', async () => {
       { message: 'Choose a surface', values: CHOICES.surface.map(({ value }) => value) },
       { message: 'Choose a starting workflow', values: CHOICES.integration.map(({ value }) => value) },
     ],
+  );
+});
+
+test('the settings surface skips the view and workflow prompts', async () => {
+  const questions = [];
+  const options = {};
+
+  const interactive = await promptMissing(
+    options,
+    recordingPrompt(['custom-view', 'acme.widgets'], ['settings'], questions),
+    { input: { isTTY: true }, output: { isTTY: true } },
+  );
+
+  assert.equal(interactive, true);
+  // view stays at its default and is never used by the settings scaffold.
+  assert.deepEqual(options, {
+    directory: 'custom-view',
+    modId: 'acme.widgets',
+    view: 'main',
+    surface: 'settings',
+    integration: 'papyrus',
+  });
+  assert.deepEqual(
+    questions.filter(({ kind }) => kind !== 'intro').map(({ message }) => message),
+    ['Directory name', 'Mod ID', 'Choose a surface'],
   );
 });
 

@@ -10,8 +10,10 @@ Want custom UI instead? Full web views are [authoring-views.md](authoring-views.
 
 ## 1. Quickstart
 
-1. Copy [`examples/settings-only/yourname.mymod.json`](../examples/settings-only/yourname.mymod.json) into your mod as `Data\SFSE\Plugins\OSFUI\settings\<author>.<modname>.json`.
-2. Rename it. The filename stem **is** your mod id and must equal the `"id"` inside: `"<author>.<modname>"` — lowercase `a-z 0-9 -` segments, exactly one dot, where `author` is your Nexus/GitHub handle (e.g. `astrogal.compass-tweaks`). Dotless ids are reserved for the platform.
+Run `npm create osfui@latest -- --surface settings` for a working mod folder — a schema, a hotkey wired to a GLOBAL Papyrus function ([§7](#7-hotkeys)), a translation catalog, and a compile-and-deploy script. Or start from the file below by hand:
+
+1. Save it into your mod as `Data\SFSE\Plugins\OSFUI\settings\<author>.<modname>.json`.
+2. The filename stem **is** your mod id and must equal the `"id"` inside: `"<author>.<modname>"` — lowercase `a-z 0-9 -` segments, exactly one dot, where `author` is your Nexus/GitHub handle (e.g. `astrogal.compass-tweaks`). Dotless ids are reserved for the platform.
 3. Edit `title` and `groups`.
 4. Launch, press F10 — your card is in the left rail. Values persist to `Data\SFSE\Plugins\OSFUI\settings\values\<id>.json` (VFS-captured, so per-profile under MO2) and survive relaunch.
 
@@ -242,7 +244,7 @@ The number is the record's plugin-local FormID, not its load-order-dependent run
 
 The gameplay/menu/rebind suppression rules still apply, and the key is still delivered to ordinary subscribers, so a script that also registers the same callback gets a second delivery. Malformed or unavailable targets leave the ordinary hotkey working and appear in System Health with author details. Older OSF UI builds ignore `onPress`, so declare the `targetVersion` of the release where it ships.
 
-For an installable notification-only test, see [`examples/declarative-hotkey-papyrus/`](../examples/declarative-hotkey-papyrus/) — it compiles and deploys without an `.esp` and exercises first press, rebinding, save-load persistence, menu suppression and failure diagnostics.
+`npm create osfui@latest -- --surface settings` scaffolds exactly this: a schema with an `onPress` keybind, the matching GLOBAL script, and a `build-deploy.ps1` that compiles and installs it — no `.esp`, no npm toolchain. Its README walks through first press, rebinding, save-load persistence, menu suppression and the System Health diagnostic.
 
 ---
 
@@ -435,13 +437,13 @@ A flat map from structural addresses to translated text; partial files are fine,
 }
 ```
 
-Addresses derive from your stable identities — setting keys, stored option values, and the optional `id` on groups/presets/notes/images (give those an `id` so translations survive reordering; the array index is the fallback). Mod ids, setting keys, stored `options` and commands are never localized. Worked pair: [`examples/settings-only/l10n/`](../examples/settings-only/l10n/).
+Addresses derive from your stable identities — setting keys, stored option values, and the optional `id` on groups/presets/notes/images (give those an `id` so translations survive reordering; the array index is the fallback). Mod ids, setting keys, stored `options` and commands are never localized. `npm create osfui@latest` ships a worked schema-and-catalog pair in every generated project.
 
 ---
 
 ## 12. Reference
 
 - **Formal schema (autocomplete + validation):** [`docs/schema/settings-schema.schema.json`](schema/settings-schema.schema.json)
-- **Copy-me template exercising every widget:** [`examples/settings-only/`](../examples/settings-only/)
+- **Runnable starter:** `npm create osfui@latest -- --surface settings`
 - **Bridge protocol:** [authoring-views.md](authoring-views.md), [`sdk/osfui.d.ts`](../sdk/osfui.d.ts)
 - **C ABI for SFSE plugins:** [native-plugin-api.md](native-plugin-api.md), [`sdk/OSFUI_API.h`](../sdk/OSFUI_API.h)

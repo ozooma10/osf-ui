@@ -13,6 +13,7 @@
 
 #include <any>
 #include <cassert>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <string>
@@ -74,22 +75,47 @@ namespace RE
 			Variable& operator=(const BSFixedString& a_str)
 			{
 				_str = a_str.c_str();
+				_type = "string";
+				_isList = false;
+				return *this;
+			}
+			Variable& operator=(std::int32_t a_value)
+			{
+				_str = std::to_string(a_value);
+				_type = "int";
+				_isList = false;
+				return *this;
+			}
+			Variable& operator=(float a_value)
+			{
+				_str = std::to_string(a_value);
+				_type = "float";
+				_isList = false;
+				return *this;
+			}
+			Variable& operator=(bool a_value)
+			{
+				_str = a_value ? "true" : "false";
+				_type = "bool";
 				_isList = false;
 				return *this;
 			}
 
 			[[nodiscard]] const std::string& String() const noexcept { return _str; }
+			[[nodiscard]] const std::string& Type() const noexcept { return _type; }
 
 			[[nodiscard]] bool                             IsList() const noexcept { return _isList; }
 			[[nodiscard]] const std::vector<std::string>&  List() const noexcept { return _list; }
 			void SetList(std::vector<std::string> a_list)
 			{
 				_list = std::move(a_list);
+				_type = "string[]";
 				_isList = true;
 			}
 
 		private:
 			std::string              _str;
+			std::string              _type{ "none" };
 			std::vector<std::string> _list;
 			bool                     _isList{ false };
 		};
@@ -105,6 +131,12 @@ namespace RE
 			}
 			a_var.SetList(std::move(out));
 		}
+
+		inline void PackVariable(Variable& a_var, const BSFixedString& a_value) { a_var = a_value; }
+		inline void PackVariable(Variable& a_var, const std::string& a_value) { a_var = BSFixedString(a_value); }
+		inline void PackVariable(Variable& a_var, std::int32_t a_value) { a_var = a_value; }
+		inline void PackVariable(Variable& a_var, float a_value) { a_var = a_value; }
+		inline void PackVariable(Variable& a_var, bool a_value) { a_var = a_value; }
 
 		class IVirtualMachine
 		{
@@ -143,6 +175,7 @@ namespace RE
 					const Object*            receiver{ nullptr };   // method calls
 					std::string              fn;
 					std::vector<std::string> args;
+					std::vector<std::string> argTypes;
 				};
 
 				static VirtualMachine* GetSingleton()
@@ -158,7 +191,8 @@ namespace RE
 					if (!staticDispatchSucceeds) {
 						return false;
 					}
-					calls.push_back({ true, a_script.c_str(), nullptr, a_fn.c_str(), Resolve(std::forward<Fn>(a_makeArgs)) });
+					auto packed = Resolve(std::forward<Fn>(a_makeArgs));
+					calls.push_back({ true, a_script.c_str(), nullptr, a_fn.c_str(), std::move(packed.args), std::move(packed.types) });
 					return true;
 				}
 
@@ -166,7 +200,8 @@ namespace RE
 				bool DispatchMethodCall(const BSTSmartPointer<Object>& a_receiver, const BSFixedString& a_fn, Fn&& a_makeArgs,
 					const BSTSmartPointer<IStackCallbackFunctor>&, int)
 				{
-					calls.push_back({ false, "", a_receiver.get(), a_fn.c_str(), Resolve(std::forward<Fn>(a_makeArgs)) });
+					auto packed = Resolve(std::forward<Fn>(a_makeArgs));
+					calls.push_back({ false, "", a_receiver.get(), a_fn.c_str(), std::move(packed.args), std::move(packed.types) });
 					return true;
 				}
 
@@ -174,24 +209,32 @@ namespace RE
 				bool              staticDispatchSucceeds{ true };
 
 			private:
+				struct Packed
+				{
+					std::vector<std::string> args;
+					std::vector<std::string> types;
+				};
+
 				template <class Fn>
-				static std::vector<std::string> Resolve(Fn&& a_makeArgs)
+				static Packed Resolve(Fn&& a_makeArgs)
 				{
 					BSScrapArray<Variable> packed;
 					a_makeArgs(packed);
-					std::vector<std::string> out;
-					out.reserve(packed.size());
+					Packed out;
+					out.args.reserve(packed.size());
+					out.types.reserve(packed.size());
 					// A string[] arg (the args-list action shape) flattens inline:
 					// its elements follow the leading action string, so a test can
 					// assert on the whole call as one flat vector.
 					for (const auto& v : packed) {
 						if (v.IsList()) {
 							for (const auto& s : v.List()) {
-								out.push_back(s);
+								out.args.push_back(s);
 							}
 						} else {
-							out.push_back(v.String());
+							out.args.push_back(v.String());
 						}
+						out.types.push_back(v.Type());
 					}
 					return out;
 				}

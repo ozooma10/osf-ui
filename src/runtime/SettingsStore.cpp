@@ -9,6 +9,7 @@
 #include "core/Version.h"
 #include "runtime/Ids.h"
 #include "runtime/Json.h"
+#include "runtime/PapyrusNames.h"
 
 namespace OSFUI
 {
@@ -17,7 +18,6 @@ namespace OSFUI
 		constexpr std::size_t kMaxStringLen = 256;
 		constexpr std::size_t kMaxModIdLen = Ids::kMaxModIdLen;
 		constexpr std::size_t kMaxInputContextIdLen = 64;
-		constexpr std::size_t kMaxPapyrusTargetLen = 128;
 
 		// Reserved meta key: the schema `version` the file was last written under
 		// (mcm-design.md §11). `$`-prefixed so it can never collide with a setting
@@ -45,42 +45,6 @@ namespace OSFUI
 			return std::all_of(a_id.begin() + 1, a_id.end(), [&](const char c) {
 				return isAlnum(c) || c == '.' || c == '_' || c == '-';
 			});
-		}
-
-		bool IsPapyrusIdentifier(std::string_view a_name)
-		{
-			if (a_name.empty() || a_name.size() > kMaxPapyrusTargetLen) {
-				return false;
-			}
-			const auto isAlpha = [](char c) {
-				return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
-			};
-			const auto isAlnum = [&](char c) {
-				return isAlpha(c) || (c >= '0' && c <= '9');
-			};
-			return isAlpha(a_name.front()) &&
-			       std::all_of(a_name.begin() + 1, a_name.end(), isAlnum);
-		}
-
-		bool IsPapyrusScriptName(std::string_view a_name)
-		{
-			if (a_name.empty() || a_name.size() > kMaxPapyrusTargetLen) {
-				return false;
-			}
-			std::size_t start = 0;
-			while (start < a_name.size()) {
-				const auto end = a_name.find(':', start);
-				const auto part = a_name.substr(start,
-					end == std::string_view::npos ? a_name.size() - start : end - start);
-				if (!IsPapyrusIdentifier(part)) {
-					return false;
-				}
-				if (end == std::string_view::npos) {
-					return true;
-				}
-				start = end + 1;
-			}
-			return false;
 		}
 
 		struct ParsedHotkeyTarget
@@ -114,11 +78,11 @@ namespace OSFUI
 			}
 			const auto script = Json::GetString(*it, "script", "");
 			const auto function = Json::GetString(*it, "function", "");
-			if (!IsPapyrusScriptName(script)) {
+			if (!PapyrusNames::IsScriptName(script)) {
 				out.error = "onPress.script must be a Papyrus script name of at most 128 characters";
 				return out;
 			}
-			if (!IsPapyrusIdentifier(function)) {
+			if (!PapyrusNames::IsIdentifier(function)) {
 				out.error = "onPress.function must be a Papyrus function name of at most 128 characters";
 				return out;
 			}

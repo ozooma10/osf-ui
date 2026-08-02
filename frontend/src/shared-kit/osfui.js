@@ -35,7 +35,7 @@
 //   osfui.markReady()                     -> sugar for send("view.ready"); used
 //                                            only when your manifest sets
 //                                            readySignal:true.
-//   osfui.papyrus.send / .request         -> sugar over two fixed endpoints
+//   osfui.papyrus.call / .send / .request -> GLOBAL call or listener messages
 //   osfui.i18n.ready / .locale / .t / .localize
 //   osfui.theme.applyAccent(el, hex)
 //
@@ -198,6 +198,13 @@
   g.markReady = function () { return g.send("view.ready"); };
 
   g.papyrus = {
+    float: function (value) {
+      return { $papyrus: "float", value: Number(value) };
+    },
+    call: function (script, fn) {
+      const args = Array.prototype.slice.call(arguments, 2);
+      return g.send("papyrus.call", { script: String(script), function: String(fn), args: args });
+    },
     send: function (name) {
       const args = Array.prototype.slice.call(arguments, 1);
       return g.send("papyrus.send", { name: String(name), args: args });

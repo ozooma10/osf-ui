@@ -11,7 +11,7 @@
 // rejects with code "no-bridge".
 
 import type { EventName, EventPayload, StateKey, StateValue, BridgeError } from './protocol';
-import type { RuntimeInfo, JsonObject, I18nCatalog, PapyrusArgument } from '@sdk';
+import type { RuntimeInfo, JsonObject, I18nCatalog, PapyrusArgument, PapyrusCallArgument } from '@sdk';
 
 export interface RequestOptions {
   /**
@@ -69,6 +69,9 @@ export interface Bridge {
 
   /** One-way message to the owning mod's Papyrus listener. */
   papyrusSend(name: string, ...args: PapyrusArgument[]): boolean;
+
+  /** Fire-and-forget call to an arbitrary GLOBAL Papyrus function. */
+  papyrusCall(script: string, fn: string, ...args: PapyrusCallArgument[]): boolean;
 
   /** Correlated request to the owning mod's Papyrus listener. */
   papyrusRequest<T = unknown>(name: string, ...args: PapyrusArgument[]): Promise<T>;
@@ -150,6 +153,8 @@ export const windowBridge: Bridge = {
 
   papyrusSend: (name, ...args) => window.osfui?.papyrus?.send?.(name, ...args) ?? false,
 
+  papyrusCall: (script, fn, ...args) => window.osfui?.papyrus?.call?.(script, fn, ...args) ?? false,
+
   papyrusRequest: <T = unknown>(name: string, ...args: PapyrusArgument[]): Promise<T> => {
     const request = window.osfui?.papyrus?.request;
     if (!request) return Promise.reject(noBridgeError());
@@ -177,5 +182,6 @@ export const nullBridge: Bridge = {
   t: (_address, english, vars) => interpolateEnglish(english, vars),
   applyAccent: () => {},
   papyrusSend: () => false,
+  papyrusCall: () => false,
   papyrusRequest: () => Promise.reject(noBridgeError()),
 };

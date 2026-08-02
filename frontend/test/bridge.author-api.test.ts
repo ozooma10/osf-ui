@@ -135,6 +135,16 @@ describe('author-friendly bridge helpers', () => {
     });
   });
 
+  it('papyrus.call() targets an arbitrary GLOBAL function', () => {
+    const { helper, sent } = loadHelper();
+    expect(helper.papyrus.call('AcmeWidgets', 'Bump', 1, true)).toBe(true);
+    expect(lastPosted(sent)).toEqual({
+      kind: 'send',
+      name: 'papyrus.call',
+      payload: { script: 'AcmeWidgets', function: 'Bump', args: [1, true] },
+    });
+  });
+
   it('state caches values and replays them by case-insensitive key', () => {
     const { helper } = loadHelper();
     // Papyrus string interning means a key can arrive cased differently than

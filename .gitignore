@@ -30,3 +30,4 @@ data/Textures/OSFUI/worldsurface_placeholder*.dds
 # MSVC compiler droppings from host-test builds run outside .build
 tests/native/vc140.pdb
 examples/menu-papyrus
+examples

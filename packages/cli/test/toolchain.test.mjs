@@ -289,6 +289,17 @@ test('loads a reproducible Spriggit Papyrus plugin configuration', async (t) => 
   assert.equal(project.papyrus.outputPath, resolve(root, 'mod/AcmeWidgets.esm'));
 });
 
+test('loads a recordless scripts-only Papyrus configuration', async (t) => {
+  const root = await projectFixture(t);
+  await writeFile(resolve(root, 'osfui.config.ts'), `export default {
+    modId: 'acme.widgets',
+    papyrus: { scriptsOnly: true },
+    views: [{ id: 'panel' }]
+  };`);
+  const project = await loadProject(root);
+  assert.deepEqual(project.papyrus, { scriptsOnly: true });
+});
+
 test('papyrus check warns about missing and stale compiled scripts, never about extra .pex', async (t) => {
   const root = await projectFixture(t);
   const modRoot = resolve(root, 'mod');

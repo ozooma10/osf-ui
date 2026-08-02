@@ -77,6 +77,7 @@ export async function papyrusToolchain(project) {
   const spriggitCli = await firstExisting([
     configuredPath(project, local.spriggitCli),
     configuredPath(project, process.env.SPRIGGIT_CLI),
+    resolve(project.root, 'tools/spriggit/Spriggit.CLI.exe'),
     resolve(project.root, 'tools/Spriggit.CLI.exe'),
   ]) || await commandOnPath(['Spriggit.CLI.exe', 'Spriggit.CLI', 'spriggit']);
 
@@ -158,9 +159,9 @@ async function ensureImports(project, tools) {
   return source;
 }
 
-function requiredTools(tools) {
+function requiredTools(tools, scriptsOnly = false) {
   const missing = [];
-  if (!tools.spriggitCli) missing.push('Spriggit CLI');
+  if (!scriptsOnly && !tools.spriggitCli) missing.push('Spriggit CLI');
   if (!tools.papyrusCompiler) missing.push('Creation Kit Papyrus compiler');
   if (!tools.papyrusImports && !tools.contentResources) missing.push('Creation Kit Papyrus script sources');
   if (!tools.papyrusImports && tools.contentResources && !tools.archiveTool) missing.push('tar archive extractor');
@@ -172,7 +173,7 @@ export async function doctorPapyrus(project) {
   if (!project.papyrus) return [];
   const tools = await papyrusToolchain(project);
   const rows = [
-    ['Spriggit CLI', tools.spriggitCli],
+    ...(!project.papyrus.scriptsOnly ? [['Spriggit CLI', tools.spriggitCli]] : []),
     ['Papyrus compiler', tools.papyrusCompiler],
     ['Creation Kit sources', tools.papyrusImports || tools.contentResources],
     ...(!tools.papyrusImports ? [['Source archive extractor', tools.archiveTool]] : []),
@@ -181,9 +182,13 @@ export async function doctorPapyrus(project) {
   for (const [label, path] of rows) {
     console.log(`[osfui] ${path ? 'OK' : 'MISSING'} ${label}${path ? `: ${path}` : ''}`);
   }
-  const missing = requiredTools(tools);
+  const missing = requiredTools(tools, project.papyrus.scriptsOnly);
   if (missing.includes('Spriggit CLI')) {
-    console.log('[osfui] Install Spriggit CLI from https://github.com/Mutagen-Modding/Spriggit/releases');
+    if (await exists(resolve(project.root, 'Setup.ps1'))) {
+      console.log('[osfui] Run "npm run setup" to install Spriggit CLI into this project.');
+    } else {
+      console.log('[osfui] Install Spriggit CLI from https://github.com/Mutagen-Modding/Spriggit/releases');
+    }
   }
   if (missing.some((item) => item.startsWith('Creation Kit'))) {
     console.log('[osfui] Install Starfield Creation Kit in Steam (Library > Tools).');
@@ -197,13 +202,14 @@ export async function doctorPapyrus(project) {
 export async function buildPapyrus(project, options = {}) {
   if (!project.papyrus) return { pluginBuilt: false, scriptsBuilt: 0 };
   const tools = await papyrusToolchain(project);
-  const missing = requiredTools(tools);
+  const missing = requiredTools(tools, project.papyrus.scriptsOnly);
   if (missing.length) {
     throw new Error(`Papyrus toolchain incomplete (${missing.join(', ')}). Run "npm run doctor" for setup help.`);
   }
 
   let pluginBuilt = false;
-  if (await latestMtime(project.papyrus.sourceDir) > await latestMtime(project.papyrus.outputPath)) {
+  if (!project.papyrus.scriptsOnly &&
+      await latestMtime(project.papyrus.sourceDir) > await latestMtime(project.papyrus.outputPath)) {
     await mkdir(dirname(project.papyrus.outputPath), { recursive: true });
     console.log(`[osfui] Generating ${project.papyrus.plugin} with Spriggit...`);
     await run(tools.spriggitCli, [

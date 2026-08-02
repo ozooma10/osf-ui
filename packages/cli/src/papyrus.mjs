@@ -47,7 +47,7 @@ export async function papyrusWarnings(modRoot, papyrus = null) {
       }
     } catch {}
   }
-  if (papyrus) {
+  if (papyrus && !papyrus.scriptsOnly) {
     try {
       const pluginStat = await stat(papyrus.outputPath);
       if (await latestMtime(papyrus.sourceDir) > pluginStat.mtimeMs) {

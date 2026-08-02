@@ -50,7 +50,7 @@ export function resolveScenario(mock, name) {
  */
 const BUILT_IN_SENDS = new Set([
   'osfui.hello', 'close', 'setVisible', 'view.ready', 'log',
-  'osfui.handleBack', 'osfui.gamepadRaw', 'papyrus.send',
+  'osfui.handleBack', 'osfui.gamepadRaw', 'papyrus.call', 'papyrus.send',
 ]);
 const BUILT_IN_REQUESTS = new Set([
   'menu.open', 'menu.close', 'setViewHidden', 'ping', 'game.get',

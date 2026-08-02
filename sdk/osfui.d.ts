@@ -119,6 +119,8 @@ export type PlatformSend =
    * closes natively, so this cannot strand the player.
    */
   | { name: "osfui.handleBack"; payload: { handle: boolean } }
+  /** Queue an arbitrary GLOBAL Papyrus function. Sugar: osfui.papyrus.call(). */
+  | { name: "papyrus.call"; payload: { script: string; function: string; args?: PapyrusCallArgument[] } }
   /** Fire a one-way message at the owning mod's Papyrus listener. Sugar: osfui.papyrus.send(). */
   | { name: "papyrus.send"; payload: { name: string; args?: PapyrusArgument[] } };
 
@@ -611,6 +613,8 @@ export interface OSFUIBridge {
 }
 
 export type PapyrusArgument = string | number | boolean;
+export interface PapyrusFloatArgument { $papyrus: "float"; value: number }
+export type PapyrusCallArgument = PapyrusArgument | PapyrusFloatArgument;
 
 /**
  * The surface added by the shipped helper,
@@ -659,8 +663,12 @@ export interface OSFUIHelper {
   /** Declare meaningful first paint; only for a manifest with readySignal:true. */
   markReady(): boolean;
 
-  /** Sugar over the two fixed Papyrus endpoints. The mod is derived from your view id and cannot be spoofed. */
+  /** Direct GLOBAL calls plus the owning-mod listener endpoints. */
   papyrus: {
+    /** Force a whole-valued JavaScript number to marshal as Papyrus float rather than int. */
+    float(value: number): PapyrusFloatArgument;
+    /** Fire-and-forget GLOBAL call. Integer/float/string/bool arguments retain their types. */
+    call(script: string, fn: string, ...args: PapyrusCallArgument[]): boolean;
     send(name: string, ...args: PapyrusArgument[]): boolean;
     request<T = unknown>(name: string, ...args: PapyrusArgument[]): Promise<T>;
   };

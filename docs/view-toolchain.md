@@ -11,9 +11,19 @@ npm run doctor
 npm run dev
 ```
 
-The generator asks for a mod/view id, a menu or HUD surface, and a Papyrus or native-plugin starter. Projects are TypeScript (strict, no UI framework); plain `.js` modules build too (`allowJs`). Each project is a runnable feature tour rather than an empty skeleton: `FEATURES.md` maps the working state/event/send/request, settings, hotkey, localization, theming, lifecycle, platform-service, mock, and backend examples to their source files. Menu presets exercise the interactive API surface and every settings value type; HUD presets stay passive while demonstrating retained telemetry, live appearance settings, hotkey visibility, localization, and transient events.
+The generator asks for a mod/view id, a surface, and — for the two view surfaces — a Papyrus or native-plugin starter:
 
-Source uses the production `src/views/<mod>/<view>/` shape, and the chosen workflow adds its backend starter — Papyrus source, or a native SFSE/CommonLibSF plugin project. The Papyrus preset also ships Spriggit text source for a Start Game Enabled quest and player alias, so it builds a real ESM instead of leaving record setup as a Creation Kit chore. Generated code explicitly leaves platform-private administration APIs and experimental raw-gamepad takeover out of the starter; the copied SDK remains the reference for advanced calls.
+| `--surface` | What you get |
+|---|---|
+| `menu` | A focused screen with user input. Retained state, a one-shot event, a one-way send, and a correlated request with its error path. |
+| `hud` | A passive gameplay overlay: retained telemetry, live placement and opacity settings, a rebindable visibility hotkey, no input capture. |
+| `settings` | No view and no npm project at all — a settings schema, a rebindable hotkey wired straight to a GLOBAL Papyrus function via `onPress`, a translation catalog, and a `build-deploy.ps1`. Papyrus-only. |
+
+Each project is a runnable **starter**, not a catalogue: one worked example of each way a view and its backend talk to each other, plus a small settings schema. Everything else — the full endpoint list, every settings control, platform services, key capture — is documented in [authoring-views.md](authoring-views.md) and [authoring-settings.md](authoring-settings.md), which each generated README links. Platform-private administration APIs and experimental raw-gamepad takeover are deliberately left out; the copied SDK is the reference for advanced calls.
+
+View projects are TypeScript (strict, no UI framework); plain `.js` modules build too (`allowJs`). Source uses the production `src/views/<mod>/<view>/` shape, and the chosen workflow adds its backend starter — a recordless GLOBAL Papyrus library, or a native SFSE/CommonLibSF plugin project. The Papyrus preset compiles a loose PEX whose functions JavaScript calls directly with `osfui.papyrus.call`, so it needs no manifest target, ESM, quest, alias, registration, or Spriggit.
+
+The `settings` surface skips all of that. It has no `package.json`, so none of the commands below apply to it; its README covers its one build step.
 
 ## Iterate in the browser
 
@@ -82,12 +92,11 @@ To remember paths, create the ignored `.osfui/local.json`:
 ```json
 {
   "modsRoot": "C:\\path\\to\\MO2\\mods",
-  "starfieldRoot": "D:\\SteamLibrary\\steamapps\\common\\Starfield",
-  "spriggitCli": "D:\\Tools\\Spriggit\\Spriggit.CLI.exe"
+  "starfieldRoot": "D:\\SteamLibrary\\steamapps\\common\\Starfield"
 }
 ```
 
-Only `modsRoot` is normally needed; the others are Papyrus overrides for portable or nonstandard installs (standard Steam/CK locations and Spriggit on `PATH` are found automatically).
+Only `modsRoot` is normally needed; the other path is a Papyrus override for portable or nonstandard installs. Standard Steam/Creation Kit locations are found automatically.
 
 ## Build and release
 
@@ -97,16 +106,15 @@ npm run build
 npm run package
 ```
 
-For a Papyrus project, `build` first regenerates the ESM from the checked-in `spriggit/` source and compiles every `mod/Scripts/Source/**/*.psc`. It then copies the project's `mod/` Data-root tree into `dist/`, creates `dist/SFSE/Plugins/OSFUI/views/`, generates manifests from `osfui.config.ts|js`, and includes the public shared kit. Native DLLs, settings schemas and other normal mod files under `mod/` are included too. `package` rebuilds and writes a distributable zip under `release/`.
+For a Papyrus project, `build` compiles every `mod/Scripts/Source/**/*.psc` into a loose PEX. It then copies the project's `mod/` Data-root tree into `dist/`, creates `dist/SFSE/Plugins/OSFUI/views/`, generates manifests from `osfui.config.ts|js`, and includes the public shared kit. Native DLLs, settings schemas and other normal mod files under `mod/` are included too. `package` rebuilds and writes a distributable zip under `release/`; there is no game plugin to enable.
 
 Declare `targetVersion` on your view in `osfui.config.*`. It's advisory — the runtime never gates on it — but it tells a player's Mods surface whether your view needs a newer OSF UI, and a view still declaring a 1.x target is flagged as written for the removed API rather than loading into a blank page.
 
 Papyrus builds require:
 
-- [Spriggit CLI](https://github.com/Mutagen-Modding/Spriggit/releases), on `PATH` or named by `spriggitCli`;
 - Starfield Creation Kit's Papyrus compiler;
 - CK's `Tools/ContentResources.zip`, whose `Scripts/Source` folder is extracted once into the ignored `.osfui/` cache.
 
-The scaffold pins its compatible Spriggit translation version in the text source and OSF UI's matching `OSFUI.psc` under `tools/papyrus/`. `npm run doctor` verifies all of this and names the exact missing prerequisite. `check` and `doctor` warn on a missing or stale ESM/PEX; `build`, `package` and `dev:game` regenerate it rather than shipping a silently inert backend.
+The scaffold pins OSF UI's matching `OSFUI.psc` compiler API under `tools/papyrus/`. `npm run doctor` verifies the compiler and sources and names the exact missing prerequisite. `check` and `doctor` warn on a missing or stale PEX; `build`, `package` and `dev:game` recompile it rather than shipping a silently inert backend.
 
 Set `modRoot` in `osfui.config.*` only if your Data-root source tree uses a different directory name.

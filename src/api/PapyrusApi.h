@@ -1,5 +1,10 @@
 #pragma once
 
+#include <cstdint>
+#include <string>
+#include <variant>
+#include <vector>
+
 #include <nlohmann/json.hpp>
 
 namespace OSFUI
@@ -39,11 +44,18 @@ namespace OSFUI::API::Papyrus
 		kQueued,
 		kVmUnavailable,
 		kTargetRejected,
+		kCapacityReached,
 	};
 	// Queue one schema-owned GLOBAL callback without adding it to the
 	// session-scoped registration table. The caller owns diagnostics/lifecycle.
 	StaticDispatchResult DispatchStaticHotkey(std::string_view a_script,
 		std::string_view a_function, std::string_view a_modId, std::string_view a_key);
+
+	// Runtime's `papyrus.call` endpoint: queue an arbitrary GLOBAL function on
+	// an arbitrary loose PEX. Values retain their JavaScript scalar types.
+	using StaticCallArg = std::variant<std::string, std::int32_t, float, bool>;
+	StaticDispatchResult DispatchStaticFunction(std::string_view a_script,
+		std::string_view a_function, const std::vector<StaticCallArg>& a_args);
 
 	// Main thread (Runtime's `papyrus.send` endpoint): fan a view-fired message
 	// out to the mod's ListenForViewActions callbacks as

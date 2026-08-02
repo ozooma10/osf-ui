@@ -19,7 +19,7 @@ npm run dev
 
 The generator offers menu or HUD surfaces with Papyrus or native-plugin backends.
 
-Papyrus projects include reproducible Spriggit quest records and compile their ESM and PEX files automatically; `doctor` checks Spriggit and Creation Kit before the first native build.
+Papyrus projects compile a recordless GLOBAL library into a loose PEX; JavaScript calls any of its GLOBAL functions with `osfui.papyrus.call(script, function, ...args)` without an ESM, quest, registration, or Spriggit. `doctor` checks the Creation Kit compiler before the first build.
 
 The harness opens automatically, hot-reloads edits, supplies the shared kit and mock bridge, and exposes bridge traffic and lifecycle controls.
 

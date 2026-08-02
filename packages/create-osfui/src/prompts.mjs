@@ -9,9 +9,10 @@ export const CHOICES = {
   surface: [
     { value: 'menu', label: 'Menu', hint: 'a focused screen with user input' },
     { value: 'hud', label: 'HUD', hint: 'an overlay shown during gameplay' },
+    { value: 'settings', label: 'Settings only', hint: 'a settings page and a hotkey, no view code' },
   ],
   integration: [
-    { value: 'papyrus', label: 'Papyrus', hint: 'send requests to Papyrus scripts' },
+    { value: 'papyrus', label: 'Papyrus', hint: 'call GLOBAL functions on loose scripts' },
     { value: 'native', label: 'Native plugin', hint: 'call your SFSE plugin bridge' },
   ],
 };
@@ -67,6 +68,20 @@ export async function promptMissing(
       : 'Use lowercase author.mod-name format.',
   }));
 
+  // Surface comes before View ID and workflow because "settings only" answers
+  // both of them: it ships no view, and Papyrus is its only backend.
+  options.surface ||= answer(prompt, await prompt.select({
+    message: 'Choose a surface',
+    options: CHOICES.surface,
+    initialValue: 'menu',
+  }));
+
+  if (options.surface === 'settings') {
+    fillDefaults(options);
+    options.integration = 'papyrus';
+    return true;
+  }
+
   options.view ||= answer(prompt, await prompt.text({
     message: 'View ID',
     placeholder: 'main',
@@ -74,12 +89,6 @@ export async function promptMissing(
     validate: (value) => !value || ID.test(value)
       ? undefined
       : 'Use lowercase letters, numbers, and hyphens.',
-  }));
-
-  options.surface ||= answer(prompt, await prompt.select({
-    message: 'Choose a surface',
-    options: CHOICES.surface,
-    initialValue: 'menu',
   }));
 
   options.integration ||= answer(prompt, await prompt.select({

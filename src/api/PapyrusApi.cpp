@@ -268,14 +268,27 @@ namespace OSFUI::API::Papyrus
 		// MakeArgs/MakeArgsArray) is built per call so it captures that dispatch's
 		// BSFixedStrings.
 		template <class Args>
-		void DispatchOne(VM* a_vm, const Target& a_target, Args&& a_args)
+		bool DispatchOne(VM* a_vm, const Target& a_target, Args&& a_args)
 		{
 			const RE::BSTSmartPointer<RE::BSScript::IStackCallbackFunctor> noCallback{};
 			if (!a_target.scriptName.empty()) {
-				a_vm->DispatchStaticCall(a_target.scriptName, a_target.fn, std::forward<Args>(a_args), noCallback, 0);
-			} else {
-				a_vm->DispatchMethodCall(a_target.receiver, a_target.fn, std::forward<Args>(a_args), noCallback, 0);
+				return a_vm->DispatchStaticCall(a_target.scriptName, a_target.fn, std::forward<Args>(a_args), noCallback, 0);
 			}
+			return a_vm->DispatchMethodCall(a_target.receiver, a_target.fn, std::forward<Args>(a_args), noCallback, 0);
+		}
+
+		auto MakeStaticCallArgs(std::vector<StaticCallArg> a_args)
+		{
+			return [args = std::move(a_args)](RE::BSScrapArray<RE::BSScript::Variable>& a_out) -> bool {
+				using Size = RE::BSScrapArray<RE::BSScript::Variable>::size_type;
+				const auto count = static_cast<Size>(args.size());
+				a_out.resize(count);
+				for (Size i = 0; i < count; ++i) {
+					std::visit([&](const auto& value) { RE::BSScript::PackVariable(a_out[i], value); },
+						args[static_cast<std::size_t>(i)]);
+				}
+				return true;
+			};
 		}
 
 		// Queue the two-string call (a_arg1, a_arg2) to every target.
@@ -339,15 +352,13 @@ namespace OSFUI::API::Papyrus
 			}
 		}
 
-		bool DispatchViewRequest(std::string_view a_modId, std::string_view a_request,
+		StaticDispatchResult DispatchViewRequestTo(const Target& a_target, std::string_view a_request,
 			const std::vector<std::string>& a_args, std::string_view a_viewId, std::string_view a_requestId)
 		{
-			const auto targets = CollectTargets(Kind::kRequest, a_modId, {});
-			if (targets.empty()) return false;
 			auto* vm = VM::GetSingleton();
 			if (!vm) {
 				REX::WARN("PapyrusApi: view request dispatch with no VM");
-				return false;
+				return StaticDispatchResult::kVmUnavailable;
 			}
 
 			std::string token;
@@ -360,7 +371,7 @@ namespace OSFUI::API::Papyrus
 				});
 				if (State().viewRequests.size() >= kMaxInflightViewRequests || perView >= kMaxInflightPerView) {
 					REX::WARN("PapyrusApi: too many view requests in flight for '{}'", a_viewId);
-					return false;
+					return StaticDispatchResult::kCapacityReached;
 				}
 				token = "p" + std::to_string(State().nextViewRequest++);
 				PendingViewRequest pending;
@@ -374,9 +385,21 @@ namespace OSFUI::API::Papyrus
 			std::vector<RE::BSFixedString> argv;
 			argv.reserve(a_args.size());
 			for (const auto& value : a_args) argv.emplace_back(value.c_str());
-			DispatchOne(vm, targets.front(), MakeRequestArgs(
-				RE::BSFixedString(std::string(a_request).c_str()), std::move(argv), RE::BSFixedString(token.c_str())));
-			return true;
+			if (!DispatchOne(vm, a_target, MakeRequestArgs(
+					RE::BSFixedString(std::string(a_request).c_str()), std::move(argv), RE::BSFixedString(token.c_str())))) {
+				std::lock_guard l{ State().lock };
+				State().viewRequests.erase(token);
+				return StaticDispatchResult::kTargetRejected;
+			}
+			return StaticDispatchResult::kQueued;
+		}
+
+		bool DispatchViewRequest(std::string_view a_modId, std::string_view a_request,
+			const std::vector<std::string>& a_args, std::string_view a_viewId, std::string_view a_requestId)
+		{
+			const auto targets = CollectTargets(Kind::kRequest, a_modId, {});
+			return !targets.empty() && DispatchViewRequestTo(
+				targets.front(), a_request, a_args, a_viewId, a_requestId) == StaticDispatchResult::kQueued;
 		}
 
 		bool CompleteViewRequest(const RE::BSFixedString& a_token, nlohmann::json a_value,
@@ -1089,6 +1112,25 @@ namespace OSFUI::API::Papyrus
 		const RE::BSFixedString key{ std::string(a_key).c_str() };
 		const RE::BSTSmartPointer<RE::BSScript::IStackCallbackFunctor> noCallback{};
 		return vm->DispatchStaticCall(script, function, MakeArgs(mod, key), noCallback, 0) ?
+			StaticDispatchResult::kQueued : StaticDispatchResult::kTargetRejected;
+	}
+
+	StaticDispatchResult DispatchStaticFunction(std::string_view a_script,
+		std::string_view a_function, const std::vector<StaticCallArg>& a_args)
+	{
+		if (a_script.empty() || a_function.empty()) {
+			return StaticDispatchResult::kTargetRejected;
+		}
+		auto* vm = VM::GetSingleton();
+		if (!vm) {
+			return StaticDispatchResult::kVmUnavailable;
+		}
+
+		const RE::BSTSmartPointer<RE::BSScript::IStackCallbackFunctor> noCallback{};
+		return vm->DispatchStaticCall(
+			RE::BSFixedString(std::string(a_script).c_str()),
+			RE::BSFixedString(std::string(a_function).c_str()),
+			MakeStaticCallArgs(a_args), noCallback, 0) ?
 			StaticDispatchResult::kQueued : StaticDispatchResult::kTargetRejected;
 	}
 

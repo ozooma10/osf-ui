@@ -1,6 +1,7 @@
 #include "runtime/Runtime.h"
 
 #include <cmath>
+#include <limits>
 
 #include "RE/C/Calendar.h"
 
@@ -31,6 +32,7 @@
 #include "reporting/ReportClient.h"
 #include "runtime/Json.h"
 #include "runtime/Ids.h"
+#include "runtime/PapyrusNames.h"
 #include "runtime/VanillaKeys.h"
 #include "render/NullWebRenderer.h"
 #include "render/WebView2HostWebRenderer.h"
@@ -2788,6 +2790,72 @@ namespace OSFUI
 			}
 			return args;
 		};
+		a_bridge.RegisterSend("papyrus.call", [](const nlohmann::json& a_p, MessageBridge& a_b) {
+			const std::string source(a_b.CurrentSource());
+			const std::string script = Json::GetString(a_p, "script", "");
+			const std::string function = Json::GetString(a_p, "function", "");
+			if (!PapyrusNames::IsScriptName(script) || !PapyrusNames::IsIdentifier(function)) {
+				a_b.Surface(source, "invalid-request", "papyrus.call requires valid 'script' and 'function' names");
+				return;
+			}
+			const auto it = a_p.find("args");
+			if (it != a_p.end() && !it->is_array()) {
+				a_b.Surface(source, "invalid-request", "papyrus.call 'args' must be an array");
+				return;
+			}
+			const auto& input = it == a_p.end() ? nlohmann::json::array() : *it;
+			if (input.size() > 32) {
+				a_b.Surface(source, "invalid-request", "papyrus.call accepts at most 32 arguments");
+				return;
+			}
+			std::vector<API::Papyrus::StaticCallArg> args;
+			args.reserve(input.size());
+			const auto appendFloat = [&](double number) {
+				if (!std::isfinite(number) || std::abs(number) > std::numeric_limits<float>::max()) {
+					return false;
+				}
+				args.emplace_back(static_cast<float>(number));
+				return true;
+			};
+			for (const auto& value : input) {
+				if (value.is_string()) {
+					args.emplace_back(value.get<std::string>());
+				} else if (value.is_boolean()) {
+					args.emplace_back(value.get<bool>());
+				} else if (value.is_number_integer()) {
+					const auto integer = value.get<std::int64_t>();
+					if (integer < std::numeric_limits<std::int32_t>::min() || integer > std::numeric_limits<std::int32_t>::max()) {
+						a_b.Surface(source, "invalid-request", "papyrus.call integer arguments must fit Papyrus int");
+						return;
+					}
+					args.emplace_back(static_cast<std::int32_t>(integer));
+				} else if (value.is_number_unsigned()) {
+					const auto integer = value.get<std::uint64_t>();
+					if (integer > static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max())) {
+						a_b.Surface(source, "invalid-request", "papyrus.call integer arguments must fit Papyrus int");
+						return;
+					}
+					args.emplace_back(static_cast<std::int32_t>(integer));
+				} else if (value.is_number_float()) {
+					if (!appendFloat(value.get<double>())) {
+						a_b.Surface(source, "invalid-request", "papyrus.call float arguments must be finite Papyrus floats");
+						return;
+					}
+				} else if (value.is_object() && value.size() == 2 &&
+					Json::GetString(value, "$papyrus", "") == "float" && value.contains("value") &&
+					value["value"].is_number() && appendFloat(value["value"].get<double>())) {
+					// JSON erases the difference between 3 and 3.0. The helper's tagged
+					// float keeps whole-valued Papyrus float parameters expressible.
+				} else {
+					a_b.Surface(source, "invalid-request", "papyrus.call arguments must be scalar values or osfui.papyrus.float(value)");
+					return;
+				}
+			}
+			if (API::Papyrus::DispatchStaticFunction(script, function, args) !=
+				API::Papyrus::StaticDispatchResult::kQueued) {
+				a_b.Surface(source, "papyrus-unavailable", "Papyrus could not queue the GLOBAL function");
+			}
+		});
 		a_bridge.RegisterSend("papyrus.send", [papyrusArgs](const nlohmann::json& a_p, MessageBridge& a_b) {
 			const std::string source(a_b.CurrentSource());
 			const std::string mod{ Ids::ModOf(source) };
@@ -2806,7 +2874,9 @@ namespace OSFUI
 				a_b.Reject("invalid-request", "name must be a non-empty string of at most 64 characters");
 				return;
 			}
-			if (!API::Papyrus::OnViewRequest(mod, name, papyrusArgs(a_p), source, a_b.CurrentRequestId())) {
+			const bool queued = API::Papyrus::OnViewRequest(
+				mod, name, papyrusArgs(a_p), source, a_b.CurrentRequestId());
+			if (!queued) {
 				a_b.Reject("papyrus-unavailable", "no Papyrus request listener is available");
 				return;
 			}

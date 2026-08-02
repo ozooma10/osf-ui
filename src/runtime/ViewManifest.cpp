@@ -41,7 +41,7 @@ namespace OSFUI
 				{ "manifestVersion", "id", "title", "description", "accent", "hub", "debugOnly", "entry",
 					"width", "height", "transparent", "kind",
 					"capturesInput", "pausesGame", "openOnStart", "order", "readySignal", "permissions",
-					"targetVersion" },
+					"targetVersion", "papyrus" },
 				"ViewManifest: [content] " + a_path.string(), /*a_warn=*/false);
 		}
 

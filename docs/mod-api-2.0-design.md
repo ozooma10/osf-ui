@@ -88,7 +88,9 @@ interface OSFUI {
 
   markReady(): boolean;                        // sugar: send('view.ready')
 
-  papyrus: {                                   // sugar over two fixed endpoints
+  papyrus: {                                   // direct GLOBAL call + listener endpoints
+    float(value: number): PapyrusFloatArgument;
+    call(script: string, fn: string, ...args: PapyrusCallArgument[]): boolean;
     send(name: string, ...args: PapyrusArgument[]): boolean;
     request<T>(name: string, ...args: PapyrusArgument[]): Promise<T>;
   };

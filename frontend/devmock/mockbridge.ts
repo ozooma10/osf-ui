@@ -218,7 +218,7 @@ const SEND_ENDPOINTS = new Set([
   'osfui.gamepadRaw',
   'osfui.handleBack',
   'osfui.handoffRetry',
-  'papyrus.send',
+  'papyrus.call', 'papyrus.send',
 ]);
 
 const REQUEST_ENDPOINTS = new Set([
@@ -1211,6 +1211,13 @@ export function installMock(opts: MockOptions = {}): MockApi {
         }, 1200);
         break;
       }
+
+      case 'papyrus.call':
+        log(
+          'info',
+          `papyrus.call ${str(p, 'script')}.${str(p, 'function')} (no Papyrus VM in the harness)`,
+        );
+        break;
 
       case 'papyrus.send':
         // The mod is derived from the source view, never the payload — a view
