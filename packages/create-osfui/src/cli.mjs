@@ -6,11 +6,12 @@ import { fileURLToPath } from 'node:url';
 import {
   finishPrompt,
   ID,
-  MOD_ID,
   promptMissing,
   PromptCancelledError,
   slug,
+  validModId,
 } from './prompts.mjs';
+import { MAX_MOD_ID_LENGTH } from '@osfui/cli/constants';
 import { resolveCliSpec } from './cli-spec.mjs';
 import {
   backendConfig,
@@ -62,13 +63,9 @@ function parse(argv) {
   return result;
 }
 
-// Mirrors Ids.h kMaxModIdLen — the native store refuses longer ids at load.
-const MAX_MOD_ID_LENGTH = 64;
-
 function validate(options) {
-  if (!MOD_ID.test(options.modId)) throw new Error('--mod-id must be lowercase <author>.<modname>.');
-  if (options.modId.length > MAX_MOD_ID_LENGTH) {
-    throw new Error(`--mod-id must be at most ${MAX_MOD_ID_LENGTH} characters (OSF UI refuses longer ids).`);
+  if (!validModId(options.modId)) {
+    throw new Error(`--mod-id must be lowercase <author>.<modname> and at most ${MAX_MOD_ID_LENGTH} characters.`);
   }
   if (!ID.test(options.view)) throw new Error('--view must use lowercase letters, digits, and hyphens.');
   if (!['menu', 'hud', 'settings'].includes(options.surface)) {

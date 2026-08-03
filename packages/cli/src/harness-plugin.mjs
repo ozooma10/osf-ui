@@ -197,5 +197,3 @@ export function harnessPlugin(project, selectedView) {
     },
   };
 }
-
-export { CSP as AUTHOR_CSP };

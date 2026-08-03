@@ -10,4 +10,5 @@ export const AUTHOR_MARKER = '.author-mode.json';
 export const BUILD_MARKER = '.osfui-build.json';
 
 export const MOD_ID_PATTERN = /^(?:osfui|[a-z0-9-]+\.[a-z0-9-]+)$/;
+export const MAX_MOD_ID_LENGTH = 64;
 export const VIEW_ID_PATTERN = /^[a-z0-9-]+$/;

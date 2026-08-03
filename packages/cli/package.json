@@ -23,6 +23,12 @@
     },
     "./dev": {
       "import": "./src/dev.mjs"
+    },
+    "./pseudo": {
+      "import": "./src/browser/pseudo.js"
+    },
+    "./constants": {
+      "import": "./src/constants.mjs"
     }
   },
   "files": [
@@ -35,7 +41,7 @@
   },
   "scripts": {
     "prepare": "node scripts/sync-public-assets.mjs",
-    "test": "node --test test/*.test.mjs"
+    "test": "node scripts/sync-public-assets.mjs --check && node scripts/run-tests.mjs"
   },
   "dependencies": {
     "typescript": "7.0.2",

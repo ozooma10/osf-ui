@@ -1,12 +1,13 @@
-import { extname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { extname, isAbsolute, resolve, sep } from 'node:path';
 import { loadConfigFromFile, normalizePath } from 'vite';
 
 import {
   CONFIG_FILES,
+  MAX_MOD_ID_LENGTH,
   MOD_ID_PATTERN,
   VIEW_ID_PATTERN,
 } from './constants.mjs';
-import { exists } from './fsutil.mjs';
+import { exists, within } from './fsutil.mjs';
 
 /**
  * Candidate mock files probed, in priority order, when the config does not
@@ -67,13 +68,8 @@ function validateRelative(value, label) {
   return normalizePath(value);
 }
 
-function containsPath(root, path) {
-  const child = relative(root, path);
-  return child === '' || (!isAbsolute(child) && child !== '..' && !child.startsWith(`..${sep}`));
-}
-
 function pathsOverlap(left, right) {
-  return containsPath(left, right) || containsPath(right, left);
+  return within(left, right) || within(right, left);
 }
 
 function resolveOutput(root, value) {
@@ -131,7 +127,7 @@ export async function loadProject(cwd, command = 'serve') {
   );
   if (!loaded?.config) throw new Error(`Could not load ${configPath}.`);
   const raw = loaded.config;
-  if (!MOD_ID_PATTERN.test(raw.modId || '') || raw.modId.length > 64) {
+  if (!MOD_ID_PATTERN.test(raw.modId || '') || raw.modId.length > MAX_MOD_ID_LENGTH) {
     throw new Error(`modId "${raw.modId || ''}" must be <author>.<modname> using lowercase letters, digits, and hyphens.`);
   }
   const authored = raw.views ?? (raw.view ? [raw.view] : []);

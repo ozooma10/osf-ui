@@ -1,9 +1,11 @@
 import * as prompts from '@clack/prompts';
 import { stdin, stdout } from 'node:process';
 import { basename, resolve } from 'node:path';
+import { MAX_MOD_ID_LENGTH, MOD_ID_PATTERN } from '@osfui/cli/constants';
 
 export const ID = /^[a-z0-9-]+$/;
-export const MOD_ID = /^(?:[a-z0-9-]+)\.(?:[a-z0-9-]+)$/;
+export const validModId = (value) =>
+  value !== 'osfui' && MOD_ID_PATTERN.test(value) && value.length <= MAX_MOD_ID_LENGTH;
 
 export const CHOICES = {
   surface: [
@@ -63,9 +65,9 @@ export async function promptMissing(
   options.modId ||= answer(prompt, await prompt.text({
     message: 'Mod ID',
     placeholder: `yourname.${projectName}`,
-    validate: (value) => MOD_ID.test(value)
+    validate: (value) => validModId(value)
       ? undefined
-      : 'Use lowercase author.mod-name format.',
+      : `Use lowercase author.mod-name format (at most ${MAX_MOD_ID_LENGTH} characters).`,
   }));
 
   // Surface comes before View ID and workflow because "settings only" answers

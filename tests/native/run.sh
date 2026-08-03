@@ -88,8 +88,9 @@ compile_one() {
 export -f compile_one
 export CXX BASEFLAGS BUILD
 
-echo "== compiling ${#UNIQUE[@]} translation units (-P $(nproc)) =="
-printf '%s\n' "${UNIQUE[@]}" | xargs -P "$(nproc 2>/dev/null || echo 4)" -n1 -I{} bash -c 'compile_one "$1"' _ {}
+JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+echo "== compiling ${#UNIQUE[@]} translation units (-P $JOBS) =="
+printf '%s\n' "${UNIQUE[@]}" | xargs -P "$JOBS" -n1 -I{} bash -c 'compile_one "$1"' _ {}
 
 # --- Link each suite from its (already built) objects.
 echo "== linking ${#SUITES[@]} suites =="

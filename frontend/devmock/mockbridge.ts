@@ -49,7 +49,7 @@ import type {
 } from '@sdk';
 import { isSetting, normalizeValue } from '@lib/settings/normalize';
 import { resolveInputContext } from '@lib/settings/inputContext';
-import { pseudoize } from './i18n-pseudo';
+import { pseudoize } from '@osfui/cli/pseudo';
 import {
   FALLBACK_SCHEMAS,
   HARNESS_PAGES,
