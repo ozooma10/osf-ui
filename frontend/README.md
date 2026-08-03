@@ -189,13 +189,8 @@ deliberately conservative, stable bundle shape enforced by
    stylesheet links, in that order, are asserted by the build gates.
 3. `manifest.json`'s `id` **must** equal the folder name — native rejects a
    mismatch — and `entry` must stay at the view root so `../../shared/` resolves.
-4. Register it in `scripts/config.mjs`'s `VIEWS` array with `mode: 'bundle'`.
-   `expectedOutputs()` picks up its four files automatically.
-5. `npm run build && npm test`, then commit the source changes.
-
-Set `mode: 'verbatim'` instead if you are migrating an existing hand-written
-view — it ships `main.legacy.js` untouched, letting you prove the pipeline
-round-trips byte-identically before changing any behaviour.
+4. `npm run build && npm test`, then commit the source changes. The build
+   discovers the manifest and expects the view's four output files automatically.
 
 ## Adding a shared component
 

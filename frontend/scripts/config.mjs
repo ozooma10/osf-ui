@@ -2,7 +2,7 @@
 // Separate so verification can import it without importing the builder: that
 // cycle would cross a top-level await and deadlock silently instead of erroring.
 
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -14,21 +14,39 @@ export const OUT = process.env.OSFUI_VIEWS_OUT
   ? resolve(process.env.OSFUI_VIEWS_OUT)
   : join(REPO, 'build', 'frontend', 'views');
 
-// Every built-in view. Each is built from its main.tsx through Vite as a
-// single-entry IIFE; there is no hand-written-main.js path any more.
-export const VIEWS = [
-  { mod: 'osfui', name: 'benchmark' },
-  { mod: 'osfui', name: 'handoff' },
-  { mod: 'osfui', name: 'keybinds' },
-  { mod: 'osfui', name: 'settings' },
-];
+// Discover built-ins from the same manifests copied into the release. A new
+// view becomes part of the build by adding its source directory; there is no
+// parallel list to update.
+const VIEWS_ROOT = join(FRONTEND, 'src', 'views');
+export const VIEWS = readdirSync(VIEWS_ROOT, { withFileTypes: true })
+  .filter((entry) => entry.isDirectory())
+  .flatMap((modEntry) => {
+    const modRoot = join(VIEWS_ROOT, modEntry.name);
+    return readdirSync(modRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((viewEntry) => {
+        const manifestPath = join(modRoot, viewEntry.name, 'manifest.json');
+        const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+        if (manifest.id !== viewEntry.name || manifest.mod !== modEntry.name) {
+          throw new Error(
+            `${relative(FRONTEND, manifestPath)} id/mod must match its source directory`,
+          );
+        }
+        return { mod: modEntry.name, name: viewEntry.name, manifest };
+      });
+  })
+  .sort((a, b) => `${a.mod}/${a.name}`.localeCompare(`${b.mod}/${b.name}`));
+
+// Debug-only tools stay available to `osfui dev` but are not built into the
+// install tree. Release packaging consumes this same generated artifact.
+export const BUILD_VIEWS = VIEWS.filter((view) => view.manifest.debugOnly !== true);
 
 // Every file this build owns. verify-output asserts the emitted set matches
 // exactly, so a stray .map/fixture/orphaned chunk fails the build instead of
 // shipping in the next archive.
 export function expectedOutputs() {
   const files = ['shared/osfui.js', 'shared/osfui.css', 'osfui/padnav.js'];
-  for (const v of VIEWS) {
+  for (const v of BUILD_VIEWS) {
     files.push(
       `${v.mod}/${v.name}/index.html`,
       `${v.mod}/${v.name}/manifest.json`,

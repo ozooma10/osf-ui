@@ -1,6 +1,6 @@
 # Retained compatibility boundaries
 
-Four artifacts are **copied verbatim** by `scripts/build.mjs` rather than being
+Three compatibility artifacts are **copied verbatim** by `scripts/build.mjs` rather than being
 compiled from TypeScript. Each is a deliberate boundary, not unfinished work.
 `scripts/verify-output.mjs` asserts each one is byte-identical to its source on
 every build, so a boundary cannot rot silently.
@@ -15,7 +15,7 @@ exists because the failure mode is invisible until the game is running.
 
 **Status: frozen. Default position is to never generate this.**
 
-This is the published bridge helper, protocol 1.0, api-freeze item 5. Its own
+This is the published bridge helper, protocol 2.0. Its own
 header calls it "part of the frozen contract". Third-party mods load it by
 exact path:
 
@@ -84,32 +84,9 @@ The Preact views therefore **reproduce padnav's DOM contracts**, and
 
 Until then `padnav.js` ships as-is and the views adapt to it, not the reverse.
 
-## 4. `src/views/osfui/*/manifest.json`
-
-**Status: hand-authored configuration, not code.**
-
-Copied unmodified. Qualified ids (`osfui/settings`, `osfui/keybinds`) are
-unchanged by this migration and must stay that way — `config.json`, the Papyrus
-API, and any third-party `menu.open` call reference them.
-
-One inconsistency is preserved on purpose: `keybinds/manifest.json` carries a
-`$schema` key pointing five levels up, and `settings/manifest.json` carries none.
-The path is relative to the *source* location and does not resolve from the
-deployed directory. That is pre-existing, harmless (native `ViewManifest`
-ignores unknown keys), and normalising it would change shipped bytes for an
-editor-only convenience.
-
----
-
 ## What is NOT a boundary
 
 `main.js` and `style.css` for **every** view are fully generated from
 `src/views/osfui/<view>/`. All four built-in views (`settings`, `keybinds`,
-`benchmark`, `handoff`) are Preact/TypeScript on `mode: 'bundle'`; the phased
-port is complete and the `main.legacy.js` references have been deleted.
-
-`mode: 'verbatim'` survives in `scripts/config.mjs` as the migration ramp for a
-*future* hand-written view — it ships a `main.legacy.js` untouched so the
-pipeline can be proven to round-trip byte-identically before any behaviour
-changes. No view uses it today. It is not a compatibility boundary: nothing
-outside this repo depends on a built-in view's `main.js` bytes.
+`benchmark`, `handoff`) are Preact/TypeScript bundles; the phased port is
+complete and no legacy bundle path remains.

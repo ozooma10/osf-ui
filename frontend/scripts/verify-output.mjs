@@ -5,7 +5,7 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { OUT, FRONTEND, VIEWS, expectedOutputs, walk } from './config.mjs';
+import { BUILD_VIEWS, OUT, FRONTEND, expectedOutputs, walk } from './config.mjs';
 
 // Identifiers that exist only in the dev mock (frontend/devmock/). Any of
 // them in a shipped bundle means the DEV-branch dead-code elimination
@@ -43,7 +43,7 @@ export function verifyOutput() {
     if (!readFileSync(a).equals(readFileSync(b))) fail(`verbatim artifact drifted: ${out} != ${src}`);
   }
 
-  for (const v of VIEWS) {
+  for (const v of BUILD_VIEWS) {
     const dir = join(OUT, v.mod, v.name);
     const html = join(dir, 'index.html');
     const css = join(dir, 'style.css');

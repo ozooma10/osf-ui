@@ -17,7 +17,7 @@
 import { build } from 'vite';
 import { copyFileSync, mkdirSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { FRONTEND, OUT, VIEWS, expectedOutputs } from './config.mjs';
+import { BUILD_VIEWS, FRONTEND, OUT, expectedOutputs } from './config.mjs';
 
 function copy(from, to) {
   mkdirSync(dirname(to), { recursive: true });
@@ -44,7 +44,7 @@ export async function runBuild({ quiet = false } = {}) {
   copy(join(FRONTEND, 'src/legacy/padnav.js'), join(OUT, 'osfui/padnav.js'));
   log('  copied shared kit + padnav');
 
-  for (const v of VIEWS) {
+  for (const v of BUILD_VIEWS) {
     const src = join(FRONTEND, 'src/views', v.mod, v.name);
     const dst = join(OUT, v.mod, v.name);
     copy(join(src, 'index.html'), join(dst, 'index.html'));
@@ -52,7 +52,7 @@ export async function runBuild({ quiet = false } = {}) {
   }
 
   // 3. One single-entry IIFE build per view.
-  for (const v of VIEWS) {
+  for (const v of BUILD_VIEWS) {
     await build({
       configFile: join(FRONTEND, 'vite.config.ts'),
       root: FRONTEND,

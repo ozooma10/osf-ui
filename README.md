@@ -73,6 +73,9 @@ Data/SFSE/Plugins/
         keybinds/                    the input map
           manifest.json
           index.html  style.css  main.js
+        handoff/                     private warm link surface
+          manifest.json
+          index.html  style.css  main.js
     settings/                  <- settings schemas (one JSON per mod) + values/
     bin/
       osfui_webview2_host.exe   <- out-of-process browser host

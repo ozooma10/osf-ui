@@ -216,6 +216,12 @@ try {
     if (-not (Get-ChildItem $viewsRoot -Recurse -Filter 'manifest.json' -ErrorAction SilentlyContinue)) {
         Die "No view manifests found under SFSE\Plugins\OSFUI\views\<modId>\<viewName>\ -- nothing to render."
     }
+    Get-ChildItem $viewsRoot -Recurse -Filter 'manifest.json' | ForEach-Object {
+        $manifest = Get-Content $_.FullName -Raw | ConvertFrom-Json
+        if ($manifest.PSObject.Properties.Name -contains 'debugOnly' -and $manifest.debugOnly) {
+            Die "Debug-only view must not ship in a release: $($_.FullName)"
+        }
+    }
 
     # --- content sanity checks ---------------------------------------------
     $cfgPath = Join-Path $Staging 'SFSE\Plugins\OSFUI\config.json'

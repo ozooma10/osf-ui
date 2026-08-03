@@ -1,4 +1,5 @@
 {
+  "$schema": "./../../../../../docs/schema/manifest.schema.json",
   "id": "settings",
   "title": "Mods",
   "description": "Installed mods - settings, terminals and HUD toggles.",
