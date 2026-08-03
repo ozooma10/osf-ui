@@ -78,34 +78,6 @@ namespace OSFUI
 		// Web Performance Lab) in the mod menu.
 		bool        devMode{ false };
 
-#if defined(OSFUI_WITH_WORLD_SURFACES)
-		// In-world browser surfaces. Each entry runs a dedicated
-		// host process and shared-texture ring; the placeholder texture's exact
-		// dimensions are the material binding signature, so they must be unique
-		// per entry and must never resemble an engine render target.
-		struct WorldSurfaceEntry
-		{
-			std::string   view;                   // qualified "<mod>/<view>" id
-			std::string   activateEditorId;       // legacy best-effort CK EditorID fallback
-			std::string   activatePlugin;         // loaded plugin filename for stable activation
-			std::uint32_t activateFormId{ 0 };     // plugin-local hex FormID (ref or base)
-			std::uint32_t width{ 1600 };          // browser output size
-			std::uint32_t height{ 900 };
-			std::uint32_t placeholderWidth{ 0 };  // == the placeholder DDS dimensions
-			std::uint32_t placeholderHeight{ 0 };
-		};
-		// One host process per surface is the cost model; keep the cap small.
-		static constexpr std::size_t kMaxWorldSurfaces = 4;
-		std::vector<WorldSurfaceEntry> worldSurfaces;  // post-validation survivors, in file order
-
-		// Empty on success, otherwise why this size is unsafe as a binding
-		// signature. The runtime resource-flag test is the durable guard; this
-		// rejects shapes that could ever look like a screen, post buffer, or
-		// mip-chained texture (see docs/world-surface-investigation.md,
-		// "The placeholder size is safety-critical").
-		[[nodiscard]] static std::string_view CheckPlaceholderSize(
-			std::uint32_t a_width, std::uint32_t a_height);
-#endif
 
 		// Loads from a_path; returns defaults (and logs why) on any failure.
 		static Config Load(const std::filesystem::path& a_path);

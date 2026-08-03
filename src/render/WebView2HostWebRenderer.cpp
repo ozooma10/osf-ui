@@ -87,18 +87,6 @@ namespace OSFUI
 		// Next to "OSF UI.log": one folder to share covers plugin + host. The
 		// SFSE log dir is a real (never VFS-virtualized) path, so the unhooked
 		// host can write there.
-#if defined(OSFUI_WITH_WORLD_SURFACES)
-		std::filesystem::path HostLogPath(std::string_view a_instance)
-		{
-			const auto fileName = a_instance.empty() ?
-				std::string("OSF UI.webview2-host.log") :
-				std::format("OSF UI.webview2-host.{}.log", a_instance);
-			if (const auto dir = SFSE::log::log_directory()) {
-				return *dir / fileName;
-			}
-			return LocalOsfuiDir() / fileName;
-		}
-#else
 		std::filesystem::path HostLogPath()
 		{
 			if (const auto dir = SFSE::log::log_directory()) {
@@ -673,11 +661,6 @@ namespace OSFUI
 			// silent no-op. Separate renderer instances still need distinct
 			// names within the same game process.
 			auto mirrorName = std::format("views-mirror-{}", ::GetCurrentProcessId());
-#if defined(OSFUI_WITH_WORLD_SURFACES)
-			if (!config.instanceName.empty()) {
-				mirrorName += std::format("-{}", config.instanceName);
-			}
-#endif
 			const auto mirror = LocalOsfuiDir() / mirrorName;
 			std::filesystem::remove_all(mirror, ec);
 			if (ec) {
@@ -920,42 +903,19 @@ namespace OSFUI
 
 			auto pipeSeed = ::GetTickCount64() ^
 				(static_cast<std::uint64_t>(::GetCurrentProcessId()) << 17);
-#if defined(OSFUI_WITH_WORLD_SURFACES)
-			pipeSeed ^= static_cast<std::uint64_t>(
-				reinterpret_cast<std::uintptr_t>(this)) << 1;
-			pipeSeed ^= static_cast<std::uint64_t>(++g_pipeSerial) << 33;
-#endif
 			std::mt19937_64 rng(pipeSeed);
 			const auto nonce = static_cast<std::uint32_t>(rng());
-#if defined(OSFUI_WITH_WORLD_SURFACES)
-			const auto instance = ToWide(config.instanceName);
-			const auto pipeName = instance.empty() ?
-				std::format(L"{}{}-{:08x}",
-					osfui::wv2::kPipePrefix, ::GetCurrentProcessId(), nonce) :
-				std::format(L"{}{}-{}-{:08x}",
-					osfui::wv2::kPipePrefix, ::GetCurrentProcessId(), instance, nonce);
-#else
 			const auto pipeName = std::format(L"{}{}-{:08x}",
 				osfui::wv2::kPipePrefix, ::GetCurrentProcessId(), nonce);
-#endif
 			auto args = std::format(L"--pipe={} --game-pid={} --log=\"{}\"",
 				pipeName, ::GetCurrentProcessId(), hostLog.native());
-#if defined(OSFUI_WITH_WORLD_SURFACES)
-			if (!config.reportEndpoint.empty() && config.instanceName.empty()) {
-#else
 			if (!config.reportEndpoint.empty()) {
-#endif
 				args += std::format(L" --report-endpoint=\"{}\"", ToWide(config.reportEndpoint));
 				if (!config.reportPluginRoot.empty()) {
 					args += std::format(L" --report-plugin-root=\"{}\"",
 						config.reportPluginRoot.native());
 				}
 			}
-#if defined(OSFUI_WITH_WORLD_SURFACES)
-			if (!instance.empty()) {
-				args += std::format(L" --instance={}", instance);
-			}
-#endif
 
 			// Claim the first server instance before launching the helper. This
 			// removes the name-squatting window between launch and CreateNamedPipe.
@@ -1603,17 +1563,7 @@ namespace OSFUI
 		_impl->config = a_config;
 		_impl->viewsRoot = a_config.dataDir / "views";
 		_impl->userData = LocalOsfuiDir() / "WebView2";
-#if defined(OSFUI_WITH_WORLD_SURFACES)
-		// Each experimental instance owns a WebView2 user-data folder: one
-		// browser process tree locks it, so a second host sharing the overlay's
-		// folder fails environment creation outright.
-		if (!a_config.instanceName.empty()) {
-			_impl->userData /= a_config.instanceName;
-		}
-		_impl->hostLog = HostLogPath(a_config.instanceName);
-#else
 		_impl->hostLog = HostLogPath();
-#endif
 		_impl->hostExeSource = a_config.dataDir / "bin" / "osfui_webview2_host.exe";
 		_impl->width = (std::max)(1u, a_config.width);
 		_impl->height = (std::max)(1u, a_config.height);
@@ -1728,12 +1678,7 @@ namespace OSFUI
 					::GetWindowThreadProcessId(info.hwndFocus, &focusPid);
 					const bool inGameTree = info.hwndFocus == hostSession.topLevel ||
 											::IsChild(hostSession.topLevel, info.hwndFocus) != FALSE;
-#if defined(OSFUI_WITH_WORLD_SURFACES)
-					const bool focusInHost =
-						hostSession.pid != 0 && focusPid == hostSession.pid;
-#else
 					const bool focusInHost = focusPid != ::GetCurrentProcessId();
-#endif
 					if (!_impl->focusRequested && inGameTree && focusInHost) {
 						// No interactive-menu session is live, but focus is stranded in
 						// the host's Chromium child: keyboard, raw mouse AND gamepad

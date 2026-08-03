@@ -48,7 +48,7 @@ report.** Choose accordingly:
 ## Prefixes and tags
 
 - Every line starts with its module: `Runtime:`, `SettingsStore:`, `BridgeApi:`, …
-  Probe/composite code uses `[BracketedTag]` (`[UiPassSeam]`, `[WorldSurface]`).
+  Composite code may use an established bracketed tag such as `[UiPassSeam]`.
   Pick one existing style; don't invent hybrids.
 - **`[content]`** — placed after the module prefix — marks *third-party content
   errors*: a mod's manifest/schema/overlay/API call is wrong, OSF UI itself is
@@ -79,8 +79,7 @@ Nothing may log unboundedly. Established tools, in preference order:
    (`MessageBridge`'s unknown-endpoint warning, keyed by endpoint name and
    capped at 512 distinct names, so a page polling a dead endpoint costs one
    line rather than one per attempt).
-5. Bounded sampling: dense first-N then logarithmic (`ScaleformToTextureProbe`,
-   `WorldSurface` refresh).
+5. Bounded sampling: dense first-N then logarithmic for high-frequency diagnostics.
 6. Time-throttled periodics (render diagnostics, 2 s) — only behind an explicit
    opt-in setting (`renderStats`).
 7. Fold a matched exchange into one line rather than tracing both legs

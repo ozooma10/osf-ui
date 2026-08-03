@@ -26,10 +26,7 @@ if [[ ! -f "$DEPS/nlohmann/json.hpp" ]]; then
 fi
 
 CXX="${CXX:-clang++}"
-# One flag set for every object compile and every link. The world-surface
-# define compiles the superset here (shared objects stay identical across
-# suites); release gating is exercised by the plugin build matrix, not by us.
-BASEFLAGS="-std=c++2b -Wall -Wextra -g -DOSFUI_WITH_WORLD_SURFACES=1 -I ../../src -I ../../sdk -I $DEPS -I stubs"
+BASEFLAGS="-std=c++2b -Wall -Wextra -g -I ../../src -I ../../sdk -I $DEPS -I stubs"
 
 # Each suite is "<name> <translation units...>". Keep the source lists in sync
 # with what each suite actually exercises; duplicates across suites are free
@@ -51,7 +48,6 @@ SUITES=(
 "localization_service_tests localization_service_tests.cpp ../../src/runtime/LocalizationService.cpp ../../src/runtime/Json.cpp"
 "view_manifest_tests view_manifest_tests.cpp ../../src/runtime/ViewManifest.cpp ../../src/runtime/Json.cpp"
 "config_defaults_tests config_defaults_tests.cpp ../../src/core/Config.cpp ../../src/runtime/Json.cpp"
-"world_surface_config_tests world_surface_config_tests.cpp ../../src/core/Config.cpp ../../src/runtime/Json.cpp"
 "dev_view_files_tests dev_view_files_tests.cpp ../../src/runtime/DevViewFiles.cpp"
 "cursor_shape_tests cursor_shape_tests.cpp"
 "gamepad_navigation_tests gamepad_navigation_tests.cpp"

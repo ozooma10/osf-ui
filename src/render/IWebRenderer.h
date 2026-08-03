@@ -21,14 +21,6 @@ namespace OSFUI
 		// decoupled from core/Paths.
 		std::filesystem::path dataDir;
 
-#if defined(OSFUI_WITH_WORLD_SURFACES)
-		// Identity of this renderer's out-of-process browser host. Empty is the
-		// primary overlay instance; a non-empty tag (e.g. "world") runs a fully
-		// independent second host with its own pipe, single-instance lock,
-		// WebView2 user-data folder, views mirror, and host log file. Keep it a
-		// short lowercase file-name-safe tag.
-		std::string instanceName;
-#endif
 	};
 
 	// Cursor shape a page wants (CSS `cursor`), mirrored onto the OS pointer

@@ -4,9 +4,6 @@
 #include "composite/EngineD3D12.h"
 #include "composite/SeamTargetFormat.h"
 #include "composite/UiPassSeamPolicy.h"
-#if defined(OSFUI_WITH_WORLD_SURFACES)
-#include "composite/WorldSurface.h"
-#endif
 #include "core/Log.h"
 #include "platform/WindowsPlatform.h"
 
@@ -189,9 +186,6 @@ namespace OSFUI::UiPassSeam
 			ID3D12CommandAllocator* allocator = nullptr;
 			ID3D12GraphicsCommandList* list = nullptr;
 			auto* device = reinterpret_cast<ID3D12Device*>(engine.device);
-#if defined(OSFUI_WITH_WORLD_SURFACES)
-			WorldSurface::TryInstall(device);
-#endif
 			const bool created =
 				SUCCEEDED(device->CreateCommandAllocator(
 					D3D12_COMMAND_LIST_TYPE_DIRECT, __uuidof(ID3D12CommandAllocator),

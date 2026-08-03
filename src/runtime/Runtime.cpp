@@ -8,11 +8,6 @@
 #include "api/BridgeApi.h"
 #include "api/PapyrusApi.h"
 #include "composite/D3D12Compositor.h"
-#include "composite/NullCompositor.h"
-#if defined(OSFUI_WITH_WORLD_SURFACES)
-#include "composite/ScaleformToTextureProbe.h"
-#include "composite/WorldSurface.h"
-#endif
 #include "composite/UiPassSeam.h"
 #include "core/Log.h"
 #include "core/StringUtil.h"
@@ -181,45 +176,11 @@ namespace OSFUI
 			});
 		}
 
-#if defined(OSFUI_WITH_WORLD_SURFACES)
-		// Arm material discovery before the engine device's one hook
-		// opportunity. Entries whose view does not exist are dropped HERE,
-		// before Configure, so the WorldSurface registry index of every
-		// survivor equals its _worldSurfaces position.
-		if (!_config.worldSurfaces.empty()) {
-			std::vector<WorldSurface::SurfaceDesc> surfaceDescs;
-			for (const auto& entry : _config.worldSurfaces) {
-				if (!_views.Find(entry.view)) {
-					REX::WARN("Runtime: worldSurfaces view '{}' was not found; "
-							  "that surface is disabled", entry.view);
-					continue;
-				}
-				const auto index = static_cast<std::uint32_t>(_worldSurfaces.size());
-				surfaceDescs.push_back({ .placeholderWidth = entry.placeholderWidth,
-					.placeholderHeight = entry.placeholderHeight,
-					.label = entry.view });
-				_worldSurfaces.push_back({ .renderer = nullptr,
-					.viewId = entry.view,
-					.surface = index,
-					.width = entry.width,
-					.height = entry.height });
-			}
-			const auto accepted = WorldSurface::Configure(surfaceDescs);
-			if (accepted != _worldSurfaces.size()) {
-				// Configure re-checks basics and never reorders, so a shorter
-				// registry can only mean trailing drops; trim to stay 1:1.
-				REX::WARN("Runtime: WorldSurface accepted {} of {} surfaces",
-					accepted, _worldSurfaces.size());
-				_worldSurfaces.resize(accepted);
-			}
-		}
-#endif
 
-		_compositor = CreateCompositor();
+		_compositor = std::make_unique<D3D12Compositor>();
 		if (!_compositor->Initialize()) {
-			REX::WARN("Runtime: compositor '{}' failed to initialize; falling back to null compositor", _compositor->Name());
-			_compositor = std::make_unique<NullCompositor>();
-			_compositor->Initialize();
+			REX::ERROR("Runtime: D3D12 compositor failed to initialize");
+			return false;
 		}
 		// GPU frame transport (out-of-process WebView2 host): the compositor owns
 		// the shared-texture ring handles once handed over. Fires on the game
@@ -236,14 +197,6 @@ namespace OSFUI
 		// deferred to SFSE kPostLoad. Luma edits the vanilla Composite body and
 		// installs a call-through VMT hook during its Plugin_Load; chaining it is
 		// safe only after that work is complete.
-#if defined(OSFUI_WITH_WORLD_SURFACES)
-		if (_config.devMode) {
-			// Investigation-only: characterize Starfield's native
-			// Scaleform-to-texture path without putting any additional hook on a
-			// normal player's render path. Failure does not affect the overlay.
-			ScaleformToTextureProbe::Install();
-		}
-#endif
 		REX::INFO("Runtime: compositor = {}", _compositor->Name());
 
 		_captureInput.store(_config.captureInput);
@@ -264,16 +217,6 @@ namespace OSFUI
 			if (_renderer) {
 				_renderer->SendMessageToWeb(a_viewId, a_json);
 			}
-#if defined(OSFUI_WITH_WORLD_SURFACES)
-			// View ids are unique across world surfaces (config validation),
-			// so at most one instance matches.
-			for (auto& worldSurface : _worldSurfaces) {
-				if (worldSurface.renderer && !worldSurface.failed &&
-					a_viewId == worldSurface.viewId) {
-					worldSurface.renderer->SendMessageToWeb(a_viewId, a_json);
-				}
-			}
-#endif
 		});
 		// The whole host obligation under a page-initiated handshake: answer
 		// hellos, in order, with ready then state. Installing it here (rather
@@ -296,90 +239,6 @@ namespace OSFUI
 		});
 
 
-#if defined(OSFUI_WITH_WORLD_SURFACES)
-		// Each material-backed surface gets its own host process and capture
-		// ring, so opening/closing the fullscreen overlay cannot hide, resize,
-		// or replace one, and one crashed surface cannot take down another.
-		if (!_worldSurfaces.empty() &&
-			(_config.renderer != "webview2" || _config.compositor != "d3d12")) {
-			REX::WARN("Runtime: world surfaces require renderer='webview2' and "
-					  "compositor='d3d12'; disabled");
-			_worldSurfaces.clear();
-		}
-		for (std::size_t i = 0; i < _worldSurfaces.size(); ++i) {
-			auto& instance = _worldSurfaces[i];
-			const auto* worldView = _views.Find(instance.viewId);
-			if (!worldView) {
-				continue;  // vanished since Configure; cannot happen in practice
-			}
-			auto renderer = CreateRenderer();
-			RendererConfig worldConfig{
-				.width = instance.width,
-				.height = instance.height,
-				.devMode = _config.devMode,
-				.dataDir = Paths::DataDir(),
-				// Own host process, pipe, browser profile, and views mirror per
-				// INSTANCE — colliding with the overlay host or a sibling
-				// surface host is the proven two-host failure mode.
-				.instanceName = std::format("world{}", i + 1),
-			};
-			if (!renderer->Initialize(worldConfig)) {
-				REX::ERROR("Runtime: world-surface renderer '{}' for '{}' failed to "
-						   "initialize; that surface stays dark",
-					worldConfig.instanceName, instance.viewId);
-				continue;  // slot stays null so registry indices keep their pairing
-			}
-			renderer->SetSharedRingHandler([surface = instance.surface](const SharedRingDesc& a_desc) {
-				WorldSurface::SetSharedRing(surface, a_desc);
-			});
-			renderer->SetWebMessageHandler([this](std::string_view a_viewId,
-				std::string_view a_json) {
-				if (_bridge) {
-					_bridge->HandleWebMessage(a_viewId, a_json);
-				}
-			});
-			renderer->SetLoadHandler([](const IWebRenderer::LoadEvent& a_e) {
-				if (a_e.failed) {
-					REX::ERROR("Runtime: world surface '{}' failed to load: {} ({})",
-						a_e.viewId, a_e.description, a_e.errorCode);
-				}
-			});
-			// Terminal host failure: log, flag, and let Tick shut the instance
-			// down NEXT tick — the callback fires from inside renderer Update().
-			// No session recovery and no menu/input side effects to release:
-			// unlike the overlay path (OnRendererFailure), a dead world surface
-			// just leaves its mesh on the placeholder pattern.
-			renderer->SetFailureHandler([this, i](const IWebRenderer::FailureEvent& a_e) {
-				REX::ERROR("Runtime: world surface host '{}' failed at '{}' "
-						   "(0x{:08X}): {} - disabling that surface for this session",
-					i < _worldSurfaces.size() ? _worldSurfaces[i].viewId : "?",
-					a_e.stage, a_e.errorCode, a_e.description);
-				if (i < _worldSurfaces.size()) {
-					_worldSurfaces[i].failed = true;
-				}
-			});
-			renderer->SetHealthHandler([this, i](const IWebRenderer::HealthEvent& a_e) {
-				_runtimeDiagnostics.OnWorldSurfaceHealth(i, a_e);
-			});
-			auto manifest = *worldView;
-			manifest.transparent = false;
-			manifest.width = instance.width;
-			manifest.height = instance.height;
-			renderer->LoadView(manifest);
-			renderer->SetActiveView(manifest.id);
-			renderer->SetViewHidden(manifest.id, false);
-			instance.renderer = std::move(renderer);
-			// The C ABI's SendToWeb holdback releases a target only once its page
-			// exists (SetSurfaceLoaded). World surfaces never pass through
-			// LoadSurface, so mark them here — the MessageBridge send callback
-			// above already fans deliveries out to this instance's renderer.
-			API::BridgeApi::Get().SetSurfaceLoaded(instance.viewId, true);
-			REX::INFO("Runtime: world surface '{}' ('{}') started at {}x{} — "
-					  "dedicated browser host process",
-				instance.viewId, worldConfig.instanceName,
-				instance.width, instance.height);
-		}
-#endif
 
 		// The pinned core set: platform surfaces that must never pay a cold
 		// first paint. Established before the first LoadSurface so lifecycle
@@ -482,20 +341,6 @@ namespace OSFUI
                     if (a_target.overlay) {
                         refreshed = _renderer && _renderer->RefreshViewFiles(a_target.id);
                     }
-#if defined(OSFUI_WITH_WORLD_SURFACES)
-                    if (refreshed && a_target.world) {
-                        bool anyWorld = false;
-                        for (auto& worldSurface : _worldSurfaces) {
-                            if (worldSurface.renderer && !worldSurface.failed &&
-                                worldSurface.viewId == a_target.id) {
-                                anyWorld = true;
-                                refreshed = refreshed &&
-                                    worldSurface.renderer->RefreshViewFiles(a_target.id);
-                            }
-                        }
-                        refreshed = refreshed && anyWorld;
-                    }
-#endif
                     return refreshed;
                 });
         }
@@ -708,34 +553,6 @@ namespace OSFUI
 			SubmitFrameIfVisible();
 			UpdateRenderDiagnostics();
 		}
-#if defined(OSFUI_WITH_WORLD_SURFACES)
-		for (auto& worldSurface : _worldSurfaces) {
-			if (!worldSurface.renderer) {
-				continue;
-			}
-			if (worldSurface.failed) {
-				// Deferred from the failure callback, which fires inside the
-				// renderer's own Update(). The mesh keeps the placeholder.
-				// Release the holdback flag set at startup unless the same id is
-				// also a live overlay surface (LoadSurface owns that bit); later
-				// sends queue bounded instead of feeding a dead host.
-				if (!_menus.IsRegistered(worldSurface.viewId)) {
-					API::BridgeApi::Get().SetSurfaceLoaded(worldSurface.viewId, false);
-				}
-				worldSurface.renderer.reset();
-				continue;
-			}
-			worldSurface.renderer->Update(a_deltaSeconds);
-			if (const auto worldFrame = worldSurface.renderer->Render()) {
-				WorldSurface::Submit(worldSurface.surface, *worldFrame);
-			}
-		}
-		if (!_worldSurfaces.empty()) {
-			// Unconditional: Render() only yields on repaint, and the engine may
-			// restore any placeholder descriptor at any time.
-			WorldSurface::Refresh();
-		}
-#endif
 		// After Update(), so health edges raised by either renderer this tick are
 		// in the registry before the snapshot goes out.
 		_runtimeDiagnostics.Pump();
@@ -1563,14 +1380,7 @@ namespace OSFUI
         std::vector<DevViewReloadWorker::Target> targets;
         for (const auto& manifest : _views.All()) {
             const bool overlay = _menus.IsRegistered(manifest.id);
-#if defined(OSFUI_WITH_WORLD_SURFACES)
-            const bool world = std::ranges::any_of(_worldSurfaces,
-                [&manifest](const WorldSurfaceInstance& a_ws) {
-                    return a_ws.renderer && !a_ws.failed && a_ws.viewId == manifest.id;
-                });
-#else
             const bool world = false;
-#endif
             if (overlay || world) {
                 targets.push_back({ manifest.id, overlay, world });
             }
@@ -1582,31 +1392,11 @@ namespace OSFUI
             const auto* manifest = _views.Find(ready.id);
             if (!manifest) continue;
             const bool overlay = ready.overlay && _menus.IsRegistered(ready.id);
-#if defined(OSFUI_WITH_WORLD_SURFACES)
-            bool world = false;
-#else
             const bool world = false;
-#endif
             if (overlay) {
                 ReloadViewInPlace(ready.id, *manifest);
                 overlayReloaded = true;
             }
-#if defined(OSFUI_WITH_WORLD_SURFACES)
-            if (ready.world) {
-                for (auto& worldSurface : _worldSurfaces) {
-                    if (!worldSurface.renderer || worldSurface.failed ||
-                        worldSurface.viewId != ready.id) {
-                        continue;
-                    }
-                    world = true;
-                    auto worldManifest = *manifest;
-                    worldManifest.transparent = false;
-                    worldManifest.width = worldSurface.width;
-                    worldManifest.height = worldSurface.height;
-                    worldSurface.renderer->LoadView(worldManifest);
-                }
-            }
-#endif
             if (overlay || world) {
                 REX::INFO("Runtime: dev reloaded loose view '{}'", ready.id);
             }

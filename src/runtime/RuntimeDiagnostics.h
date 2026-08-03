@@ -19,9 +19,6 @@ namespace OSFUI
 
 		void Pump();
 		void OnRendererHealth(const IWebRenderer::HealthEvent& a_event);
-#if defined(OSFUI_WITH_WORLD_SURFACES)
-		void OnWorldSurfaceHealth(std::size_t a_index, const IWebRenderer::HealthEvent& a_event);
-#endif
 		void ReportViewLoad(std::string_view a_viewId, bool a_failed,
 			std::string_view a_description, int a_errorCode, std::uint32_t a_attemptsLeft);
 		void ReportHotkeyTargetFailure(std::string_view a_mod, std::string_view a_key,

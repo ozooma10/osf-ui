@@ -348,22 +348,6 @@ namespace OSFUI
 		LocalizationService           _localization;
 		ViewManager                   _views;
 		std::unique_ptr<IWebRenderer> _renderer;
-#if defined(OSFUI_WITH_WORLD_SURFACES)
-		// One dedicated browser host + shared ring per in-world surface
-		// (display-only). Position == WorldSurface registry index; a null
-		// renderer means the instance failed to start and stays a skipped
-		// slot so later indices keep their registry pairing.
-		struct WorldSurfaceInstance
-		{
-			std::unique_ptr<IWebRenderer> renderer;
-			std::string                   viewId;
-			std::uint32_t                 surface{ 0 };  // WorldSurface registry index
-			std::uint32_t                 width{ 0 };
-			std::uint32_t                 height{ 0 };
-			bool                          failed{ false };  // terminal; shut down next tick
-		};
-		std::vector<WorldSurfaceInstance> _worldSurfaces;
-#endif
 		std::unique_ptr<ICompositor>  _compositor;
 		std::unique_ptr<MessageBridge>          _bridge;
 		std::vector<std::unique_ptr<IUiModule>> _modules;

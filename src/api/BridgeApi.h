@@ -243,7 +243,7 @@ namespace OSFUI::API
 		std::vector<PendingSend>                       _pendingSends;
 		std::vector<MenuRequest>                      _pendingMenuReqs;    // RequestMenu ops, drained by Runtime
 		std::unordered_set<std::string>               _knownViews;         // boot-discovered manifest ids
-		std::unordered_set<std::string>               _loadedViews;        // renderer surfaces with a live page (overlay + world)
+		std::unordered_set<std::string>               _loadedViews;        // renderer surfaces with a live page
 		bool                                          _viewCatalogReady{ false };
 		std::vector<SchemaOp>                         _pendingSchemaOps;   // schema (un)registrations, drained by Runtime
 		std::vector<ViewStateOp>                      _pendingStateOps;    // SetViewState writes, drained by Runtime

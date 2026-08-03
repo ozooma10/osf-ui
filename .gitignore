@@ -24,9 +24,6 @@ external/
 *.tgz
 compile_commands.json
 
-# generated world-surface placeholders (tools/make_world_surface_placeholder.py)
-data/Textures/OSFUI/worldsurface_placeholder*.dds
-
 # MSVC compiler droppings from host-test builds run outside .build
 tests/native/vc140.pdb
 

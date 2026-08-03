@@ -230,33 +230,6 @@ namespace OSFUI
 		runtime._diagnostics->Broadcast();
 	}
 
-#if defined(OSFUI_WITH_WORLD_SURFACES)
-	void RuntimeDiagnostics::OnWorldSurfaceHealth(
-		std::size_t a_index, const IWebRenderer::HealthEvent& a_event)
-	{
-		auto& runtime = _runtime;
-		if (!runtime._diagnostics || a_event.code.empty()) return;
-		const auto id = std::format("world{}:{}", a_index + 1, a_event.code);
-		if (!a_event.active) {
-			runtime._diagnostics->Resolve(id, runtime._uptime);
-			runtime._diagnostics->Broadcast();
-			return;
-		}
-		nlohmann::json context = nlohmann::json::object();
-		if (!a_event.detail.empty()) context["detail"] = std::string(a_event.detail);
-		context["surface"] = a_index < runtime._worldSurfaces.size() ?
-			runtime._worldSurfaces[a_index].viewId : std::string{};
-		runtime._diagnostics->Upsert(DiagnosticsModule::IssueSpec{
-			.id = id,
-			.code = std::string(a_event.code),
-			.severity = DiagnosticsModule::Severity::Warning,
-			.source = "host",
-			.subject = std::format("world{}", a_index + 1),
-			.context = std::move(context),
-		}, runtime._uptime);
-		runtime._diagnostics->Broadcast();
-	}
-#endif
 
 	void RuntimeDiagnostics::ReportViewLoad(std::string_view a_viewId, bool a_failed,
 		std::string_view a_description, int a_errorCode, std::uint32_t a_attemptsLeft)
