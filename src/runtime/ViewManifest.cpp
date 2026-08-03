@@ -3,26 +3,13 @@
 #include <array>
 
 #include "core/Log.h"
+#include "core/Color.h"
 #include "core/Version.h"
 #include "runtime/Ids.h"
 #include "runtime/Json.h"
 
 namespace OSFUI
 {
-	namespace
-	{
-		bool IsHexColor(std::string_view a_value)
-		{
-			if (a_value.size() != 7 || a_value.front() != '#') {
-				return false;
-			}
-			return std::ranges::all_of(a_value.substr(1), [](char c) {
-				return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
-				       (c >= 'A' && c <= 'F');
-			});
-		}
-	}
-
 	std::optional<ViewManifest> ViewManifest::Load(const std::filesystem::path& a_path)
 	{
 		const auto json = Json::ParseFile(a_path);
@@ -82,7 +69,7 @@ namespace OSFUI
 				});
 				manifest.accent = std::move(accent);
 			} else {
-				REX::WARN("ViewManifest: [content] view '{}' accent '{}' is not #rrggbb — ignored", manifest.id, accent);
+				REX::WARN("ViewManifest: [content] view '{}' accent '{}' is not #rrggbb or #rrggbbaa — ignored", manifest.id, accent);
 			}
 		}
 		manifest.entry = Json::GetString(*json, "entry", manifest.entry);

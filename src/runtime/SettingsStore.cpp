@@ -5,6 +5,7 @@
 #include <unordered_set>
 
 #include "core/Log.h"
+#include "core/Color.h"
 #include "core/StringUtil.h"
 #include "core/Version.h"
 #include "runtime/Ids.h"
@@ -101,16 +102,6 @@ namespace OSFUI
 				}
 			}
 			return false;
-		}
-
-		bool IsHexColor(std::string_view a_s)
-		{
-			if ((a_s.size() != 7 && a_s.size() != 9) || a_s.front() != '#') {
-				return false;
-			}
-			return std::all_of(a_s.begin() + 1, a_s.end(), [](unsigned char c) {
-				return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
-			});
 		}
 
 		// Iterate every setting object across all groups. `a_fn(setting)` may
