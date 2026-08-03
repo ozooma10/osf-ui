@@ -18,9 +18,8 @@ if (import.meta.env.DEV) {
   // Dev-only diagnostics, eliminated from the shipped IIFE by esbuild.
   //
   // The mock bridge is not imported here: the shared kit decides whether a
-  // bridge exists at module-evaluation time, so the mock must be installed by
-  // an earlier import declaration (harness/install-mock.ts). The harness page
-  // mounts <App> itself; this file is the production entry.
+  // bridge exists at module-evaluation time. The harness installs its mock
+  // before mounting <App>; this file is the production entry.
   //
   // Both paths mount against `windowBridge` — the mock decorates the same
   // `window.osfui` the native runtime injects. The other dev-only behaviour,

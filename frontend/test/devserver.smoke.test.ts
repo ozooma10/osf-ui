@@ -100,20 +100,4 @@ describe('osfui dev serves the built-in views', () => {
     }
   }, 30000);
 
-  it('serves the OSF Animation preview page at /osf.html', async () => {
-    const page = await fetch(`${origin}/osf.html`);
-    expect(page.status).toBe(200);
-    expect(await page.text()).toContain('OSF ANIMATION');
-  });
-
-  it('refuses escapes through the /osf.animation/ shim', async () => {
-    // resolve() discards its base entirely when the request path is absolute,
-    // so this middleware must check the RESOLVED path, not the input. This
-    // file provably exists, so a containment bug would serve it as 200.
-    const abs = resolve(FRONTEND, 'package.json').split('\\').join('/');
-    for (const path of [`/osf.animation/${abs}`, '/osf.animation/..%2F..%2Fpackage.json']) {
-      const response = await fetch(`${origin}${path}`);
-      expect(response.status, path).toBe(403);
-    }
-  });
 });

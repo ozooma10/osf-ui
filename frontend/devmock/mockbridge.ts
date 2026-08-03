@@ -157,17 +157,6 @@ const L10N_CATALOGS = import.meta.glob<Record<string, string>>(
   { import: 'default' },
 );
 
-/**
- * OSF Animation registers its schema natively (RegisterSettingsSchema) with the
- * JSON compiled into the DLL as an `R"json(...)json"` literal — there is no
- * settings/<id>.json on disk. Read the literal out of the plugin source so the
- * harness shows the exact document the DLL registers.
- */
-const NATIVE_SCHEMA_SOURCE = import.meta.glob<string>(
-  '../../../OSF Animation/src/API/UISettings.cpp',
-  { query: '?raw', import: 'default' },
-);
-
 /** src/core/Version.h — `kPluginVersion` feeds the harness version badge. */
 const VERSION_HEADER = import.meta.glob<string>('../../src/core/Version.h', {
   query: '?raw',
@@ -1651,23 +1640,6 @@ export function installMock(opts: MockOptions = {}): MockApi {
     return m[1];
   })();
 
-  /** Extract the `R"json(...)json"` literal a plugin compiles its schema into. */
-  async function nativeSchema(): Promise<SettingsSchema | null> {
-    const text = await loadOnly(NATIVE_SCHEMA_SOURCE, 'OSF Animation UISettings.cpp');
-    if (text === null) return null;
-    const m = /R"json\(([\s\S]*?)\)json"/.exec(text);
-    if (!m || !m[1]) {
-      console.warn('[mock] UISettings.cpp has no R"json(...)json" literal — skipping.');
-      return null;
-    }
-    try {
-      return JSON.parse(m[1]) as SettingsSchema;
-    } catch (err) {
-      console.warn('[mock] UISettings.cpp R"json(...)" literal is not valid JSON — skipping.', err);
-      return null;
-    }
-  }
-
   async function loadSources(): Promise<void> {
     const loaded: SettingsSchema[] = [];
 
@@ -1683,14 +1655,6 @@ export function installMock(opts: MockOptions = {}): MockApi {
     }
     if (!Object.keys(SHIPPED_SCHEMAS).length) {
       console.warn('[mock] no shipped schemas under data/OSFUI/settings/ — run `npm run build`?');
-    }
-
-    const osf = await nativeSchema();
-    if (hasGroups(osf)) {
-      // Stale-checkout shim: the store rejects the dotless "osf"; the sibling repo
-      // registers "osf.animation" since its api-freeze migration.
-      if (osf.id === 'osf') osf.id = 'osf.animation';
-      loaded.push(osf);
     }
 
     // ?schema=<url> override / addition. A real fetch: the URL is user-supplied at

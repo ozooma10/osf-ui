@@ -55,7 +55,6 @@ frontend/
       handoff/      the always-warm first-load link surface (platform-private)
       benchmark/    the renderer workload lab
   devmock/          DEV ONLY — the mock bridge + fixtures (installed by osfui.mock.ts)
-  devpages/         DEV ONLY — the OSF Animation sibling-repo preview page
   osfui.config.ts   the built-ins as an @osfui/cli project (what `osfui dev` serves)
   osfui.mock.ts     mock module: installs devmock/ + registers the toolbar tools
   scripts/          build orchestrator + output gates + builtin-dev-plugin (dev shims)
@@ -72,7 +71,7 @@ This is `osfui dev` on this directory's `osfui.config.ts` — the same authoring
 harness third-party mods get, serving the built-ins through their real
 `index.html` → shared-kit → padnav boot contract in an iframe. The rich mock
 (`devmock/`, installed by `osfui.mock.ts`) registers the extra toolbar tools:
-Reset values, Sample views, Health cycle, Hotkey/LB/RB, OSF Animation.
+Reset values, Sample views, Health cycle, and Hotkey/LB/RB.
 
 Pick a view from the toolbar's view select, or deep-link:
 

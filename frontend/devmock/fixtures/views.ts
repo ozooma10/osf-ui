@@ -16,16 +16,7 @@ import type { ViewsData } from '@sdk';
 /** One catalog entry, plus the harness-only "is this fictional?" marker. */
 export type MockView = ViewsData['views'][number] & { fixture?: boolean };
 
-/**
- * Where a mod's real view folder lives, relative to the harness page. In game
- * every view mounts under one views/ root, so the settings view resolves schema
- * `icon`/`image` assets at ../../<modId>/<file>; from the harness that lands
- * nowhere. The asset resolver consults this map (root + "/<modId>/<file>")
- * before falling back to "../..".
- */
-export const MOD_ASSET_ROOTS: Record<string, string> = {
-  'osf.animation': '../../../OSF Animation/views',
-};
+export const MOD_ASSET_ROOTS: Record<string, string> = {};
 
 // `targetVersion` is spelled on every entry ("" = undeclared) because the SDK
 // marks the field required, so the send path never has to patch the shape.
@@ -51,25 +42,6 @@ export const MOCK_VIEWS: MockView[] = [
     title: 'Keybinds',
     description: 'Full keyboard map of mod and game bindings.',
     mod: 'osfui',
-    kind: 'menu',
-    interactive: true,
-    hub: true,
-    targetVersion: '',
-    open: false,
-    focused: false,
-    loadState: 'loaded',
-    autoStart: false,
-    autoStartMutable: false,
-    pinned: false,
-  },
-  // Real view from the sibling repo (VFS-merged in game). mod "osf.animation"
-  // groups it onto the OSF Animation settings page (schema registered
-  // natively). Open lands on the standalone osf.html page.
-  {
-    id: 'osf.animation/browser',
-    title: 'OSF Animation Browser',
-    description: 'Scene browser and launcher — crew, furniture, launch.',
-    mod: 'osf.animation',
     kind: 'menu',
     interactive: true,
     hub: true,
@@ -190,16 +162,9 @@ export const MOCK_VIEWS: MockView[] = [
   },
 ];
 
-/**
- * Where `menu.open` on a real shipped view lands. The harness is a single page
- * that swaps the mounted App off `?view=`. OSF Animation has its own page: it
- * loads the sibling repo's real view in an iframe and installs no mock bridge,
- * since that view self-mocks.
- */
 // The mock runs inside the view iframe under `osfui dev`, so a real
 // `menu.open` navigates the iframe to the target view's own page.
 export const HARNESS_PAGES: Record<string, string> = {
   'osfui/settings': '/osfui/settings/index.html',
   'osfui/keybinds': '/osfui/keybinds/index.html',
-  'osf.animation/browser': '/osf.html',
 };

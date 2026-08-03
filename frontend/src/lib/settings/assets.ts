@@ -11,7 +11,7 @@
  * Optional mod-id -> asset-root overrides. A parameter, not a global: production
  * never passes one, so the shipped path cannot be redirected by anything that
  * sets a global. The dev harness passes its map at the call site because it
- * serves the page from devtools/harness/ where "../../<modId>" is false.
+ * serves the page from the development harness where "../../<modId>" is false.
  */
 export type AssetRoots = Record<string, string>;
 

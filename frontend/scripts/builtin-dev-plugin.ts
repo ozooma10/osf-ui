@@ -11,22 +11,14 @@
 //      <script type="module" src="./main.tsx">.
 //   2. /osfui/padnav.js: the pages reference ../padnav.js, which only exists
 //      at that path in the built output (copied from src/legacy/padnav.js).
-//   3. /osf.animation/*: maps to the sibling repo's real view directory, so
-//      the shipped '../..' asset root resolves sibling-mod icons exactly as
-//      it does in game, and devpages/osf.html can iframe the real view.
-//   4. /osf.html: the OSF Animation self-mock preview page (devpages/).
 
-import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { dirname, extname, isAbsolute, normalize, relative, resolve, sep } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Plugin } from 'vite';
 
 const FRONTEND = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PADNAV = resolve(FRONTEND, 'src/legacy/padnav.js');
-const OSF_PAGE = resolve(FRONTEND, 'devpages/osf.html');
-/** The sibling repo's view dir; absent checkouts just 404 (osf.html explains). */
-const OSF_ANIMATION = resolve(FRONTEND, '../..', 'OSF Animation/views/osf.animation');
 
 const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -75,28 +67,6 @@ export function builtinDevPlugin(): Plugin {
         if (path === '/osfui/padnav.js') {
           await sendFile(PADNAV, TYPES['.js']!);
           return;
-        }
-        if (path === '/osf.html') {
-          await sendFile(OSF_PAGE, TYPES['.html']!);
-          return;
-        }
-        if (path.startsWith('/osf.animation/')) {
-          const rest = normalize(path.slice('/osf.animation/'.length));
-          const file = resolve(OSF_ANIMATION, rest);
-          // Containment: this middleware serves from outside the Vite root,
-          // and resolve() discards its base entirely for an absolute `rest`
-          // (/osf.animation/C:/Windows/win.ini), so the check must run on the
-          // RESOLVED path, never the input.
-          const inside = relative(OSF_ANIMATION, file);
-          if (!inside || inside === '..' || inside.startsWith('..' + sep) || isAbsolute(inside)) {
-            response.statusCode = 403;
-            response.end();
-            return;
-          }
-          if (existsSync(file)) {
-            await sendFile(file, TYPES[extname(file).toLowerCase()] || 'application/octet-stream');
-            return;
-          }
         }
         next();
       });

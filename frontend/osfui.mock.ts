@@ -55,12 +55,6 @@ export function install(ctx: MockContext): void {
       },
       { id: 'pad-lb', kind: 'button', label: 'LB', title: 'Inject a ui.gamepad LB down-edge (cycles the rail)' },
       { id: 'pad-rb', kind: 'button', label: 'RB', title: 'Inject a ui.gamepad RB down-edge (cycles the rail)' },
-      {
-        id: 'osf-animation',
-        kind: 'button',
-        label: 'OSF Animation',
-        title: "Open the sibling repo's OSF Animation browser preview (self-mocked, no bridge) in a new tab",
-      },
     ],
     (id, value) => {
       if (id === 'reset') mock.reset();
@@ -69,7 +63,6 @@ export function install(ctx: MockContext): void {
       else if (id === 'hotkey') mock.hotkey();
       else if (id === 'pad-lb') mock.gamepad('LB');
       else if (id === 'pad-rb') mock.gamepad('RB');
-      else if (id === 'osf-animation') window.open('/osf.html', '_blank');
     },
   );
 }
