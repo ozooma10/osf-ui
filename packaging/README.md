@@ -19,7 +19,6 @@ focus node), so the two read as siblings.
 | `branding/osf-ui-emblem.{svg,png}` | 512×512 | Standalone mark, transparent — icons/avatars |
 | `section-headers/svg/*.svg` | 1300×130 | Section dividers used inside the description |
 | `section-headers/*.png` | 1300×130 | Rendered dividers to upload to the gallery |
-| `section-headers/_html/*.html` | — | Transparent render sources for the PNGs above |
 | `nexus-page.bbcode` | — | Paste-ready Nexus description (BBCode) |
 
 The **SVGs are the source of truth**; the PNGs are rendered from them. Nexus
@@ -41,12 +40,11 @@ render branding/osf-ui-patch-emblem.svg branding/osf-ui-patch-emblem.png 1024,10
 render branding/osf-ui-header.svg  branding/osf-ui-header.png  1600,520
 render branding/osf-ui-emblem.svg  branding/osf-ui-emblem.png  512,512
 for f in 01-overview 02-features 03-get-started 04-for-authors 05-credits; do
-  render "section-headers/_html/$f.html" "section-headers/$f.png" 1300,130
+  render "section-headers/svg/$f.svg" "section-headers/$f.png" 1300,130
 done
 ```
 
-Section headers render from `_html/` (SVG wrapped in a transparent-background
-HTML page); the branding pieces render straight from the `.svg`.
+Section headers and branding pieces render directly from their SVG sources.
 
 ## Palette
 
