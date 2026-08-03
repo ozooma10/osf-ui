@@ -89,7 +89,6 @@ namespace OSFUI
 
 		// No-ops if absent. Used by the native plugin API (src/api) for hot
 		// cleanup / re-sync.
-		void UnregisterSend(std::string_view a_name);
 		void UnregisterRequest(std::string_view a_name);
 		void UnregisterCompatCommand(std::string_view a_name);
 

@@ -102,11 +102,6 @@ namespace OSFUI
 		_compatCommands[std::move(a_name)] = std::move(a_handler);
 	}
 
-	void MessageBridge::UnregisterSend(std::string_view a_name)
-	{
-		_sends.erase(std::string(a_name));
-	}
-
 	void MessageBridge::UnregisterRequest(std::string_view a_name)
 	{
 		_requests.erase(std::string(a_name));
