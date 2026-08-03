@@ -1,4 +1,5 @@
 #include "Wv2BrokerLaunch.h"
+#include "Win32Util.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #	define WIN32_LEAN_AND_MEAN
@@ -132,20 +133,6 @@ namespace osfui::wv2
 				a_detail += "IShellDispatch2::ShellExecute=" + Hr(hr) + "; ";
 			}
 			return hr;
-		}
-
-		bool IsCallerElevated()
-		{
-			HANDLE token = nullptr;
-			if (!::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, &token)) {
-				return false;
-			}
-			TOKEN_ELEVATION elevation{};
-			DWORD size = 0;
-			const bool ok = ::GetTokenInformation(token, TokenElevation,
-				&elevation, sizeof(elevation), &size);
-			::CloseHandle(token);
-			return ok && elevation.TokenIsElevated;
 		}
 
 		// One-shot scheduled task, run immediately in the caller's interactive
@@ -282,7 +269,7 @@ namespace osfui::wv2
 			// Elevated caller: Explorer's children are always unelevated and
 			// cannot open this process afterwards — the elevated task-scheduler
 			// route goes first, Explorer stays as a (log-visible) last resort.
-			const bool elevated = IsCallerElevated();
+			const bool elevated = osfui::win32::IsProcessElevated();
 			if (elevated) {
 				result.detail += "caller elevated, task-scheduler(highest) first; ";
 			}

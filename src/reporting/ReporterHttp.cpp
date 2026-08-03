@@ -9,23 +9,10 @@
 #include <algorithm>
 #include <cctype>
 
+#include "Win32Util.h"
+
 namespace OSFUI::Reporting
 {
-	namespace
-	{
-		[[nodiscard]] std::wstring ToWide(std::string_view a_text)
-		{
-			if (a_text.empty()) return {};
-			const auto count = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
-				a_text.data(), static_cast<int>(a_text.size()), nullptr, 0);
-			if (count <= 0) return {};
-			std::wstring out(static_cast<std::size_t>(count), L'\0');
-			::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, a_text.data(),
-				static_cast<int>(a_text.size()), out.data(), count);
-			return out;
-		}
-	}
-
 	HttpResponse PostJson(std::string_view a_url, std::string_view a_body)
 	{
 		HttpResponse out;
@@ -36,7 +23,7 @@ namespace OSFUI::Reporting
 			out.error = "invalid HTTPS endpoint or request too large";
 			return out;
 		}
-		const auto wideUrl = ToWide(a_url);
+		const auto wideUrl = osfui::win32::ToWide(a_url);
 		if (wideUrl.empty()) {
 			out.error = "endpoint is not valid UTF-8";
 			return out;

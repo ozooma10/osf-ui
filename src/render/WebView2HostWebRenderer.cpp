@@ -26,6 +26,7 @@
 #include "Wv2BrokerLaunch.h"
 #include "Wv2Pipe.h"
 #include "Wv2Protocol.h"
+#include "Win32Util.h"
 
 using nlohmann::json;
 
@@ -38,37 +39,9 @@ namespace OSFUI
 {
 	namespace
 	{
-#if defined(OSFUI_WITH_WORLD_SURFACES)
-		// Pipe-name uniquifier: two renderers in this process (overlay + world
-		// surface) start their host workers in the same millisecond tick, so a
-		// tick^pid seed alone collides and the second CreateNamedPipe fails
-		// with ERROR_PIPE_BUSY.
-		std::atomic_uint32_t g_pipeSerial{ 0 };
-#endif
 
-		std::wstring ToWide(std::string_view a_text)
-		{
-			if (a_text.empty()) return {};
-			const auto size = ::MultiByteToWideChar(CP_UTF8, 0,
-				a_text.data(), static_cast<int>(a_text.size()), nullptr, 0);
-			if (size <= 0) return {};
-			std::wstring out(static_cast<std::size_t>(size), L'\0');
-			::MultiByteToWideChar(CP_UTF8, 0, a_text.data(),
-				static_cast<int>(a_text.size()), out.data(), size);
-			return out;
-		}
-
-		std::string ToUtf8(std::wstring_view a_text)
-		{
-			if (a_text.empty()) return {};
-			const auto size = ::WideCharToMultiByte(CP_UTF8, 0, a_text.data(),
-				static_cast<int>(a_text.size()), nullptr, 0, nullptr, nullptr);
-			if (size <= 0) return {};
-			std::string out(static_cast<std::size_t>(size), '\0');
-			::WideCharToMultiByte(CP_UTF8, 0, a_text.data(), static_cast<int>(a_text.size()),
-				out.data(), size, nullptr, nullptr);
-			return out;
-		}
+		using osfui::win32::ToUtf8;
+		using osfui::win32::ToWide;
 
 		std::filesystem::path LocalOsfuiDir()
 		{
@@ -91,21 +64,6 @@ namespace OSFUI
 				return *dir / "OSF UI.webview2-host.log";
 			}
 			return LocalOsfuiDir() / "webview2-host.log";
-		}
-#endif
-
-		bool IsThisProcessElevated()
-		{
-			HANDLE token = nullptr;
-			if (!::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, &token)) {
-				return false;
-			}
-			TOKEN_ELEVATION elevation{};
-			DWORD size = 0;
-			const bool ok = ::GetTokenInformation(token, TokenElevation,
-				&elevation, sizeof(elevation), &size);
-			::CloseHandle(token);
-			return ok && elevation.TokenIsElevated;
 		}
 
 		bool HasMarkOfTheWeb(const std::filesystem::path& a_file)
@@ -846,7 +804,7 @@ namespace OSFUI
 					exeSize);
 			}
 
-			if (IsThisProcessElevated()) {
+			if (osfui::win32::IsProcessElevated()) {
 				REX::ERROR("HostDiag: the game runs elevated (as administrator) — a "
 						   "brokered host launches unelevated and cannot open the game "
 						   "process; run the game/MO2 without administrator rights");
@@ -924,7 +882,7 @@ namespace OSFUI
 			if (stopRequested.load(std::memory_order_acquire)) return;
 
 			const bool usvfs = ::GetModuleHandleW(L"usvfs_x64.dll") != nullptr;
-			const bool elevated = IsThisProcessElevated();
+			const bool elevated = osfui::win32::IsProcessElevated();
 			if (elevated && usvfs) {
 				REX::WARN("WebView2HostWebRenderer: the game is running elevated under "
 						  "MO2; using the elevated broker fallback");

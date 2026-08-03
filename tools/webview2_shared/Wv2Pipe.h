@@ -71,6 +71,8 @@ namespace osfui::wv2
 		void CloseLocked();
 		[[nodiscard]] bool IsClosing() const;
 		bool ReadExact(std::uint8_t* a_buffer, std::uint32_t a_bytes, std::uint64_t a_deadline);
+		bool PublishOpenHandles(HANDLE a_pipe, HANDLE a_readEvent,
+			HANDLE a_writeEvent, bool a_connected);
 		void SetError(const char* a_where, DWORD a_code);
 
 		HANDLE      _pipe{ INVALID_HANDLE_VALUE };

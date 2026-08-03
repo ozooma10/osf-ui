@@ -11,22 +11,12 @@
 #include <ShlObj.h>
 #include <shellapi.h>  // ShellExecuteW (lean-and-mean excludes it)
 
+#include "Win32Util.h"
+
 namespace OSFUI::Platform
 {
 	namespace
 	{
-		std::wstring ToWide(std::string_view a_text)
-		{
-			if (a_text.empty()) return {};
-			const auto count = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
-				a_text.data(), static_cast<int>(a_text.size()), nullptr, 0);
-			if (count <= 0) return {};
-			std::wstring out(static_cast<std::size_t>(count), L'\0');
-			::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, a_text.data(),
-				static_cast<int>(a_text.size()), out.data(), count);
-			return out;
-		}
-
 		// Windows only lets the process that currently owns the foreground raise a
 		// window; anyone else is denied and their window merely flashes in the
 		// taskbar. That is precisely our situation: the game owns the foreground,
@@ -67,7 +57,7 @@ namespace OSFUI::Platform
 
 	bool ConfirmBugReportUpload(std::string_view a_title)
 	{
-		auto title = ToWide(a_title);
+		auto title = osfui::win32::ToWide(a_title);
 		if (title.empty()) title = L"(untitled report)";
 		for (auto& character : title) {
 			if (character < 0x20) character = L' ';

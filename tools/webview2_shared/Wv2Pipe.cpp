@@ -155,6 +155,25 @@ namespace osfui::wv2
 		return _lastError;
 	}
 
+	bool Pipe::PublishOpenHandles(HANDLE a_pipe, HANDLE a_readEvent,
+		HANDLE a_writeEvent, bool a_connected)
+	{
+		{
+			std::scoped_lock lock(_stateMutex);
+			if (!_closing) {
+				_pipe = a_pipe;
+				_readEvent = a_readEvent;
+				_writeEvent = a_writeEvent;
+				_connected = a_connected;
+				return true;
+			}
+		}
+		::CloseHandle(a_readEvent);
+		::CloseHandle(a_writeEvent);
+		::CloseHandle(a_pipe);
+		return false;
+	}
+
 	bool Pipe::CreateServer(const std::wstring& a_name)
 	{
 		if (!BeginCall(CallKind::Open)) return false;
@@ -194,22 +213,7 @@ namespace osfui::wv2
 			return fail();
 		}
 
-		bool published = false;
-		{
-			std::scoped_lock lock(_stateMutex);
-			if (!_closing) {
-				_pipe = pipe;
-				_readEvent = readEvent;
-				_writeEvent = writeEvent;
-				published = true;
-			}
-		}
-		if (!published) {
-			::CloseHandle(readEvent);
-			::CloseHandle(writeEvent);
-			::CloseHandle(pipe);
-			return fail();
-		}
+		if (!PublishOpenHandles(pipe, readEvent, writeEvent, false)) return fail();
 		return true;
 	}
 
@@ -325,23 +329,7 @@ namespace osfui::wv2
 			return fail();
 		}
 
-		bool published = false;
-		{
-			std::scoped_lock lock(_stateMutex);
-			if (!_closing) {
-				_pipe = pipe;
-				_readEvent = readEvent;
-				_writeEvent = writeEvent;
-				_connected = true;
-				published = true;
-			}
-		}
-		if (!published) {
-			::CloseHandle(readEvent);
-			::CloseHandle(writeEvent);
-			::CloseHandle(pipe);
-			return fail();
-		}
+		if (!PublishOpenHandles(pipe, readEvent, writeEvent, true)) return fail();
 		return true;
 	}
 

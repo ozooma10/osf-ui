@@ -16,19 +16,14 @@
 #include <unordered_map>
 #include <vector>
 
+#include "Win32Util.h"
+
 namespace OSFUI
 {
 	namespace
 	{
 
-		template <class T>
-		void SafeRelease(T*& a_ptr)
-		{
-			if (a_ptr) {
-				a_ptr->Release();
-				a_ptr = nullptr;
-			}
-		}
+		using osfui::win32::SafeRelease;
 
 		// Fullscreen triangle from SV_VertexID (no vertex buffer). UV (0,0) is
 		// the top-left so the texture's row 0 lands at the top of the screen.
