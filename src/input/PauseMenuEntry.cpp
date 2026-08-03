@@ -300,8 +300,8 @@ namespace OSFUI
 			// Its own commit (426146a) concluded "timing debounces could never fix
 			// it." This debounce was added in that same commit and has NOT been
 			// shown necessary under the corrected boundary, so it is a candidate
-			// for removal pending an in-game FSR3-Frame-Generation acceptance run
-			// (docs/SIMPLIFICATION_PLAN.md §2.1). The engine-level liveness gate
+			// for removal pending an in-game FSR3-Frame-Generation acceptance run.
+			// The engine-level liveness gate
 			// (LivePauseMenu) proves the menu is admitted and advancing.
 			// Re-check next tick — this is cheap (one GetMember).
 			if (Session().stableTicks < kListStableTicks) {

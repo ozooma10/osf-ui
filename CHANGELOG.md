@@ -26,6 +26,11 @@
 - OSF UI can now run alongside Luma: it waits for peer SFSE render hooks before installing its own, safely chains Luma's Scaleform composite hook, and renders into Luma's upgraded HDR UI buffer. If the UI draw path is still unavailable, menu opens are refused immediately instead of briefly capturing input for an overlay that cannot appear.
 - Native plugins built against ABI 1.0–1.7 connect normally again. The native ABI advances additively to 1.8, with `SetViewState` appended after the complete 1.7 interface, and the established `RegisterCommand` request-ID injection and automatic acknowledgement remain available for old binaries; new reply-bearing endpoints should still use `RegisterRequest`.
 
+### Other changes
+
+- Removed the unfinished in-world browser-surface experiment and its dormant configuration/build switches. It required assets that never shipped, was disabled in every release, and had accumulated runtime and packaging branches around an unsupported feature.
+- WebView2 and the D3D12 compositor are now the only runtime backends. Removed diagnostic null-backend configuration and build switches that could produce an apparently successful plugin with no way to render, and kept the Web Performance Lab available in the development harness without shipping it in release archives.
+
 ### For view authors
 
 - `osfui build` and `osfui package` work for scaffolded Papyrus projects again. The compiler was handed a `Scripts/Source/User` import folder that generated projects no longer create, and it hard-fails on a missing import folder — so no `.pex` was produced and the build stopped before the view step. Projects that still keep sources under `Scripts/Source/User` are unaffected.

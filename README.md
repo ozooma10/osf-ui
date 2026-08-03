@@ -45,12 +45,13 @@ the typed reference is [`sdk/osfui.d.ts`](sdk/osfui.d.ts).
 
 ## Documentation
 
-- [docs/authoring-settings.md](docs/authoring-settings.md) - **start here to add settings to your mod**: one JSON file, no code - quickstart, widgets, hotkeys, presets, localization, testing
-- [docs/view-toolchain.md](docs/view-toolchain.md) - **start here to build a view**: scaffold, browser HMR, in-game sync, checks, and packaging
-- [docs/authoring-views.md](docs/authoring-views.md) - view manifest and bridge protocol reference
-- [docs/authoring-dynamic-data.md](docs/authoring-dynamic-data.md) - state vs. events: feeding a view live game data from Papyrus or a plugin, and surviving reload
-- [docs/native-plugin-api.md](docs/native-plugin-api.md) - the C ABI for SFSE plugins (`sdk/OSFUI_API.h`)
-- [docs/troubleshooting.md](docs/troubleshooting.md) - requirements, install, troubleshooting, uninstall, and known limitations
+- [Authoring settings](docs/authoring-settings.md) — **start here to add settings to your mod**: schemas, widgets, hotkeys, localization, and testing.
+- [View toolchain](docs/view-toolchain.md) and [view authoring reference](docs/authoring-views.md) — scaffold, develop, package, and integrate a browser view.
+- [Dynamic data](docs/authoring-dynamic-data.md) and [native plugin API](docs/native-plugin-api.md) — state, events, requests, and the SFSE C ABI.
+- [Architecture](docs/architecture.md), [security model](docs/security-model.md), [logging](docs/logging.md), and [seam rendering design](docs/seam-draw-design.md) — runtime implementation and invariants.
+- [Mod API 2.0 design](docs/mod-api-2.0-design.md) and [migration record](docs/mod-api-2.0-migration.md) — rationale and compatibility history.
+- [Packaging](docs/PACKAGING.md), [troubleshooting](docs/troubleshooting.md), [design-history index](docs/design-history.md), and [simplification notes](docs/simplification.md) — maintainer and support references.
+- JSON Schemas: [view manifests](docs/schema/manifest.schema.json) and [settings schemas](docs/schema/settings-schema.schema.json).
 
 ## Install / paths
 
