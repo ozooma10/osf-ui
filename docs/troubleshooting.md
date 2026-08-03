@@ -44,7 +44,7 @@ Gameplay controls, gamepad included, always freeze while a menu captures input; 
 
 Choices persist to `Data\SFSE\Plugins\OSFUI\settings\values\` (one JSON file per mod) and survive updates. Under MO2 that write goes through the VFS, so look in Overwrite or whichever mod claims the path — which also makes settings per-profile and part of instance backups.
 
-`SFSE/Plugins/OSFUI/config.json` is a developer/boot file (renderer backends, diagnostic switches). It's overwritten on update, so don't keep personal edits there. Unknown keys are ignored with a log warning.
+`SFSE/Plugins/OSFUI/config.json` is a developer/boot file for diagnostic and input switches. It's overwritten on update, so don't keep personal edits there. Unknown keys are ignored with a log warning.
 
 **A mod is missing, or a warning sits atop the Mods rail:** a settings file that fails to load always produces a warning naming the file and reason (bad filename, JSON parse error with line/column, corrupt saved values). A corrupt values file is renamed `<mod>.json.bad` and defaults are used; if you were hand-editing, fix the `.bad` file and rename it back. Same details in `OSF UI.log`.
 

@@ -1,7 +1,5 @@
 #include "render/WebView2HostWebRenderer.h"
 
-#if defined(OSFUI_WITH_WEBVIEW2)
-
 #include <atomic>
 #include <deque>
 #include <random>
@@ -1981,5 +1979,3 @@ namespace OSFUI
 		_impl->Send(json{ { "type", "destroyView" }, { "view", std::string(a_viewId) } });
 	}
 }
-
-#endif

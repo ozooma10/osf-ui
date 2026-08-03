@@ -4,12 +4,12 @@
 
 The production path is `WebView2HostWebRenderer` + `D3D12Compositor`. Null backends remain selectable from config for development and fault isolation:
 
-- `NullCompositor` receives frames and logs them instead of drawing;
-- `NullWebRenderer` is the fallback when a configured backend can't initialize (missing SDK/runtime files); initialization failures are logged, not fatal.
+- `D3D12Compositor` draws the host's shared textures in Starfield's UI pass.
+- `WebView2HostWebRenderer` is the single browser backend; initialization failures stop runtime setup instead of leaving a loaded but invisible plugin.
 
 Backends implement `IWebRenderer` / `ICompositor`; the rest of the runtime doesn't depend on which one is active.
 
-The shipped `data/OSFUI/config.json` no longer authors the `renderer` / `compositor` keys (or the other development switches) — `core/Config` still parses them and everything unlisted falls back to its built-in default, so selecting a stand-in backend means adding the key by hand.
+The browser and compositor are fixed parts of the runtime rather than configurable backends.
 
 ## Layers
 

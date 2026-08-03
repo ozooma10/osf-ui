@@ -22,8 +22,6 @@ int main()
 
 	// The shipped config deliberately omits backend selections. Its compiled
 	// fallbacks must always describe a usable in-game production stack.
-	assert(config.renderer == "webview2");
-	assert(config.compositor == "d3d12");
 	assert(config.inputSource == "ui");
 	assert(config.view == "osfui/settings");
 	// v2 shipped config carries no central view lists, so their deprecation

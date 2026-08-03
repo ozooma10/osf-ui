@@ -4,7 +4,6 @@
 
 namespace OSFUI
 {
-#if defined(OSFUI_WITH_WEBVIEW2)
 	// Out-of-process WebView2 backend (renderer id "webview2"), and the only
 	// browser backend. The browser stack lives in osfui_webview2_host.exe,
 	// launched outside the game's process tree (Wv2BrokerLaunch) so MO2's
@@ -69,5 +68,4 @@ namespace OSFUI
 		struct Impl;
 		std::unique_ptr<Impl> _impl;
 	};
-#endif
 }

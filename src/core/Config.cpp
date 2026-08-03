@@ -73,8 +73,6 @@ namespace OSFUI
 		Json::ReportUnknownKeys(*json, kKnownKeys, "Config: " + a_path.string(), /*a_warn=*/true);
 
 		config.enabled = Json::GetBool(*json, "enabled", config.enabled);
-		config.renderer = Json::GetString(*json, "renderer", config.renderer);
-		config.compositor = Json::GetString(*json, "compositor", config.compositor);
 		config.inputSource = Json::GetString(*json, "inputSource", config.inputSource);
 		config.captureInput = Json::GetBool(*json, "captureInput", config.captureInput);
 		config.hardwareCursor = Json::GetBool(*json, "hardwareCursor", config.hardwareCursor);

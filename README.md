@@ -145,10 +145,9 @@ npm --prefix frontend run build # regenerate build/frontend/views/
 
 ## WebView2 backend
 
-WebView2 is the production renderer and is enabled by default:
+WebView2 is the renderer:
 
 ```bat
-xmake f --with_webview2=true
 xmake build
 ```
 

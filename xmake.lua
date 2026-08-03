@@ -12,53 +12,12 @@ set_warnings("allextra")
 add_rules("mode.debug", "mode.releasedbg")
 add_rules("plugin.vsxmake.autoupdate")
 
--- Production WebView2 renderer backend: the plugin-side renderer plus the
--- out-of-process host. Uses only the static loader from the
--- Microsoft.Web.WebView2 NuGet package; the evergreen runtime remains an OS
--- dependency. The package may be unpacked to external/webview2, or
--- WEBVIEW2_SDK_DIR may point at its package root.
-option("with_webview2", function()
-    set_default(true)
-    set_showmenu(true)
-    set_description("Build the WebView2 renderer and out-of-process host")
-end)
-
--- Research-only render-to-texture experiments. Release builds leave this off:
--- it excludes both the observational Scaleform probe and the material-backed
--- world-surface runtime from the DLL.
-option("with_world_surfaces", function()
-    set_default(false)
-    set_showmenu(true)
-    set_description("Build experimental in-world Web UI surface runtime")
-end)
-
--- Research builds generate/deploy these files at the Starfield Data root.
--- A later normal build must actively remove them: copying the production
--- payload over an existing MO2 mod does not delete files from the prior build.
-local function remove_world_surface_research_assets(installDir, removeFile)
-    local textureDir = path.join(installDir, "Textures", "OSFUI")
-    for _, name in ipairs({
-        "worldsurface_placeholder01.dds",
-        "worldsurface_placeholder02.dds",
-        "worldsurface_placeholder03.dds",
-        "worldsurface_placeholder04.dds"
-    }) do
-        removeFile(path.join(textureDir, name))
-    end
-    removeFile(path.join(
-        installDir, "Materials", "OSFUI", "OSFUI_WorldScreen01.mat"))
-    removeFile(path.join(installDir, "OSFUI_WorldScreens.esm"))
-end
-
 -- JSON for config, view manifests, and the message bridge
 add_requires("nlohmann_json")
 
--- The host exe is required by the plugin's "webview2" renderer.
-if has_config("with_webview2") then
-    -- Production host executable. Self-contained on purpose: static CRT +
-    -- static WebView2 loader, because it runs from a mirrored real path
-    -- (%LOCALAPPDATA%\OSFUI\bin\<version>) with no neighbours.
-    target("osfui-webview2-host")
+-- Production host executable. Self-contained on purpose: static CRT + static
+-- WebView2 loader, because it runs from a mirrored real path with no neighbours.
+target("osfui-webview2-host")
         set_kind("binary")
         set_basename("osfui_webview2_host")
         set_default(false)
@@ -76,12 +35,6 @@ if has_config("with_webview2") then
         add_files("tools/webview2_host/scripts/**.js", { rule = "utils.bin2c" })
         add_headerfiles("tools/webview2_host/**.h", "tools/webview2_shared/**.h")
         add_includedirs("src", "tools/webview2_shared")
-        -- Multi-instance host support exists only for the experimental
-        -- world-surface renderers. Keep its CLI, mutex namespace, and runtime
-        -- branches out of the production helper as well as the plugin DLL.
-        if has_config("with_world_surfaces") then
-            add_defines("OSFUI_WITH_WORLD_SURFACES=1")
-        end
         add_packages("nlohmann_json")
         add_syslinks(
             "d3d11", "dxgi", "windowsapp", "runtimeobject", "CoreMessaging",
@@ -103,7 +56,6 @@ if has_config("with_webview2") then
             target:add("links", "WebView2LoaderStatic")
         end)
 
-end
 -- Windows-only transport regression suite. Kept separate from tests/native/run.sh,
 -- whose sources are intentionally portable and do not include Windows.h.
 target("wv2-pipe-tests")
@@ -145,14 +97,7 @@ target("OSF UI")
     add_files("src/**.cpp")
     add_headerfiles("src/**.h")
     add_includedirs("src")
-    if has_config("with_world_surfaces") then
-        add_defines("OSFUI_WITH_WORLD_SURFACES=1")
-    else
-        remove_files(
-            "src/composite/ScaleformToTextureProbe.cpp",
-            "src/composite/WorldSurface.cpp",
-            "src/input/WorldSurfaceActivateSink.cpp")
-    end
+    add_includedirs("tools/webview2_shared")
     -- sdk/ holds the public single-header native API (OSFUI_API.h); 
     -- src/api includes it directly so the impl and the consumer copy share one ABI def.
     add_headerfiles("sdk/OSFUI_API.h", "sdk/OSFUI_JSON.h")
@@ -166,14 +111,6 @@ target("OSF UI")
     -- the Papyrus surface (authoring-settings.md "From Papyrus"): loose scripts
     -- at the Data root -- <install>/Scripts/OSFUI.pex (+ Source/OSFUI.psc)
     add_installfiles("data/(Scripts/**)")
-    -- World-surface research assets are REAL Starfield loose assets and belong
-    -- at the mod/Data root, not under SFSE/Plugins. Never include them in a
-    -- normal install or release package.
-    if has_config("with_world_surfaces") then
-        add_installfiles("data/(Textures/**)")
-        add_installfiles("data/(Materials/**)")
-        add_installfiles("data/(*.esm)")
-    end
     -- Build the ignored frontend artifact before native deployment (shared
     -- with before_install below — see tools/xmake/frontend_views.lua).
     before_build(function(target)
@@ -202,37 +139,19 @@ target("OSF UI")
             os.cp(viewsdir, path.join(dstdir, "OSFUI"))
             -- Papyrus surface: loose scripts at the Data root (mod folder root)
             os.cp(scriptsdir, target:installdir())
-            -- World-surface loose assets: also mod-root, and only for an
-            -- explicitly flagged research build.
-            if config.get("with_world_surfaces") then
-                for _, worldDir in ipairs({ "Textures", "Materials" }) do
-                    local src = path.join(os.projectdir(), "data", worldDir)
-                    if os.isdir(src) then
-                        os.cp(src, target:installdir())
-                    end
-                end
-                for _, esm in ipairs(os.files(path.join(os.projectdir(), "data", "*.esm"))) do
-                    os.cp(esm, target:installdir())
-                end
-            end
             cprint("${dim}deploying data/OSFUI + generated views + data/Scripts to %s ..", target:installdir())
         end, { files = files, values = files,
                dependfile = target:dependfile("osfui_data_deploy") })
-        if not config.get("with_world_surfaces") then
-            remove_world_surface_research_assets(target:installdir(), os.rm)
-        end
         -- Out-of-process WebView2 host: ship the exe inside the plugin data
         -- dir (SFSE/Plugins/OSFUI/bin). The renderer mirrors it to a REAL
         -- path outside the MO2 VFS at runtime before broker-launching it.
-        if config.get("with_webview2") then
-            import("core.project.project")
-            local host = project.target("osfui-webview2-host")
-            if host and os.isfile(host:targetfile()) then
-                local bindir = path.join(target:installdir(), "SFSE", "Plugins", "OSFUI", "bin")
-                os.mkdir(bindir)
-                os.cp(host:targetfile(), path.join(bindir, "osfui_webview2_host.exe"))
-                cprint("${dim}deploying osfui_webview2_host.exe to %s ..", bindir)
-            end
+        import("core.project.project")
+        local host = project.target("osfui-webview2-host")
+        if host and os.isfile(host:targetfile()) then
+            local bindir = path.join(target:installdir(), "SFSE", "Plugins", "OSFUI", "bin")
+            os.mkdir(bindir)
+            os.cp(host:targetfile(), path.join(bindir, "osfui_webview2_host.exe"))
+            cprint("${dim}deploying osfui_webview2_host.exe to %s ..", bindir)
         end
     end)
 
@@ -251,35 +170,24 @@ target("OSF UI")
         local datadir = path.join(target:installdir(), "SFSE", "Plugins", "OSFUI")
         os.rm(path.join(datadir, "views"))
         os.cp(viewsdir, datadir)
-        if config.get("with_webview2") then
-            import("core.project.project")
-            local host = project.target("osfui-webview2-host")
-            if not host or not os.isfile(host:targetfile()) then
-                raise("OSFUI WebView2 host was not built; cannot install a runnable plugin")
-            end
-            local bindir = path.join(target:installdir(), "SFSE", "Plugins", "OSFUI", "bin")
-            os.mkdir(bindir)
-            os.cp(host:targetfile(), path.join(bindir, "osfui_webview2_host.exe"))
+        import("core.project.project")
+        local host = project.target("osfui-webview2-host")
+        if not host or not os.isfile(host:targetfile()) then
+            raise("OSFUI WebView2 host was not built; cannot install a runnable plugin")
         end
-        if not config.get("with_world_surfaces") then
-            remove_world_surface_research_assets(target:installdir(), os.rm)
-        end
+        local bindir = path.join(target:installdir(), "SFSE", "Plugins", "OSFUI", "bin")
+        os.mkdir(bindir)
+        os.cp(host:targetfile(), path.join(bindir, "osfui_webview2_host.exe"))
     end)
 
-    if has_config("with_webview2") then
-        add_defines("OSFUI_WITH_WEBVIEW2=1")
-        add_syslinks(
-            "d3d11", "dcomp", "windowsapp", "runtimeobject", "CoreMessaging",
-            "shlwapi", "user32", "gdi32", "version",
-            -- out-of-process host client (pipe ACL + Explorer/TaskScheduler broker)
-            "oleaut32", "uuid", "comsuppw", "taskschd", "advapi32")
-        -- Wv2SharedCompat.cpp compiles tools/webview2_shared through the pch.
-        add_includedirs("tools/webview2_shared")
-        -- Host exe must exist before the data deploy below can package it.
-        add_deps("osfui-webview2-host")
-    else
-        remove_files("src/render/WebView2HostWebRenderer.cpp")
-    end
+    add_syslinks(
+        "d3d11", "dcomp", "windowsapp", "runtimeobject", "CoreMessaging",
+        "shlwapi", "user32", "gdi32", "version",
+        -- out-of-process host client (pipe ACL + Explorer/TaskScheduler broker)
+        "oleaut32", "uuid", "comsuppw", "taskschd", "advapi32")
+    -- Wv2SharedCompat.cpp compiles tools/webview2_shared through the pch.
+    -- Host exe must exist before the data deploy below can package it.
+    add_deps("osfui-webview2-host")
     -- NOTE: the plugin deliberately does NOT link the WebView2 SDK. Everything
     -- that touches the browser lives in osfui_webview2_host.exe; this DLL only
     -- speaks the pipe protocol. Keeping the proprietary loader out of the

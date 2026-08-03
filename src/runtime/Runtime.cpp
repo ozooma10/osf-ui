@@ -29,7 +29,6 @@
 #include "runtime/Ids.h"
 #include "runtime/PapyrusCall.h"
 #include "runtime/VanillaKeys.h"
-#include "render/NullWebRenderer.h"
 #include "render/WebView2HostWebRenderer.h"
 
 namespace OSFUI
@@ -121,7 +120,7 @@ namespace OSFUI
 		}
 		API::BridgeApi::Get().SetViewCatalog(discoveredViewIds);
 
-		_renderer = CreateRenderer();
+		_renderer = std::make_unique<WebView2HostWebRenderer>();
 		const auto* view = _views.Find(_config.view);
 		const auto initialWidth = view ? view->width : kDefaultViewWidth;
 		const auto initialHeight = view ? view->height : kDefaultViewHeight;
@@ -144,9 +143,8 @@ namespace OSFUI
 			.dataDir = Paths::DataDir(),
 		};
 		if (!_renderer->Initialize(rendererConfig)) {
-			REX::ERROR("Runtime: renderer '{}' failed to initialize; falling back to null renderer", _renderer->Name());
-			_renderer = std::make_unique<NullWebRenderer>();
-			_renderer->Initialize(rendererConfig);
+			REX::ERROR("Runtime: WebView2 renderer failed to initialize");
+			return false;
 		}
 		REX::INFO("Runtime: renderer = {}", _renderer->Name());
 
@@ -3189,42 +3187,6 @@ namespace OSFUI
 
 		_renderStatsBaseline = current;
 		_renderStatsLastSampleAt = _uptime;
-	}
-
-	std::unique_ptr<IWebRenderer> Runtime::CreateRenderer() const
-	{
-		if (_config.renderer == "null") {
-			return std::make_unique<NullWebRenderer>();
-		}
-		if (_config.renderer == "webview2") {
-#if defined(OSFUI_WITH_WEBVIEW2)
-			// Out-of-process host backend: the only WebView2 variant that works
-			// under Mod Organizer 2 without the manual executable-blacklist
-			// workaround (USVFS injection crashes in-process-spawned browsers).
-			// A missing Evergreen runtime is reported by the host over the hello
-			// handshake, not probed here — see WebView2HostWebRenderer.
-			return std::make_unique<WebView2HostWebRenderer>();
-#else
-			REX::WARN("Runtime: renderer 'webview2' requested but this build was compiled without "
-					  "with_webview2; using null renderer");
-			return std::make_unique<NullWebRenderer>();
-#endif
-		}
-		REX::WARN("Runtime: unknown renderer '{}'; using null renderer", _config.renderer);
-		return std::make_unique<NullWebRenderer>();
-	}
-
-	std::unique_ptr<ICompositor> Runtime::CreateCompositor() const
-	{
-		if (_config.compositor == "d3d12") {
-			// Samples the host's shared texture in the engine UI pass; device
-			// and queue discovery remain lazy (see composite/EngineD3D12.h).
-			return std::make_unique<D3D12Compositor>();
-		}
-		if (_config.compositor != "null") {
-			REX::WARN("Runtime: unknown compositor '{}'; using null compositor", _config.compositor);
-		}
-		return std::make_unique<NullCompositor>();
 	}
 
 }

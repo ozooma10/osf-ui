@@ -107,8 +107,6 @@ namespace OSFUI
 		friend class RuntimeDiagnostics;
 		Runtime() = default;
 
-		std::unique_ptr<IWebRenderer> CreateRenderer() const;
-		std::unique_ptr<ICompositor>  CreateCompositor() const;
 
 		// Internally owned renderer and load-state edges.
 		bool SetViewHidden(std::string_view a_id, bool a_hidden);
