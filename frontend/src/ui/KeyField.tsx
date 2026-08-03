@@ -27,6 +27,11 @@ export interface KeyFieldProps {
   id: string;
   /** The bound key name, or "" / undefined when unbound. */
   value: string | undefined;
+  /**
+   * Localized keycap for `value` ("Ö"), shown instead of the raw name when
+   * present. Display only — `value` stays the committed identity.
+   */
+  label?: string | undefined;
   allowUnbound: boolean;
   /** True while this field's capture is armed. */
   listening: boolean;
@@ -54,8 +59,9 @@ export function KeyField(props: KeyFieldProps) {
       onClick={props.onRebind}
     >
       {/* Em-dash placeholder for "unbound", so an empty-string value shows the
-          dash rather than an empty button. */}
-      {listening ? props.listeningLabel : value || '—'}
+          dash rather than an empty button. The localized keycap wins over the
+          raw name when the host published one. */}
+      {listening ? props.listeningLabel : props.label || value || '—'}
     </button>
   );
 

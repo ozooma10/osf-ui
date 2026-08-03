@@ -864,6 +864,140 @@ int main()
 		}
 	}
 
+	// --- values format v1 -> v2: one-time legacy key re-anchor ---------------------
+	// Pre-2.x key names were VK-anchored; v2 names denote physical keys. With a
+	// LegacyKeyMigrator wired (Runtime does: legacy VK resolve -> VK->scan ->
+	// KeyName), a v1 file's key-typed values are rewritten under the layout
+	// active at first load, stamped v2, and flushed EAGERLY — an unflushed
+	// migration re-running under a different layout would move keys twice.
+	// Without the migrator (this suite's default), v1 files defer untouched.
+	{
+		const auto sd = root / "settings-keymig";
+		const auto vd = root / "values-keymig";
+		WriteFile(sd / "t.mig.json", R"json({
+			"id": "t.mig", "groups": [ { "settings": [
+				{ "key": "hot", "type": "key", "default": "F8" },
+				{ "key": "alt", "type": "key", "default": "", "allowUnbound": true },
+				{ "key": "renamed", "type": "key", "default": "F7", "aliases": ["oldname"] },
+				{ "key": "n", "type": "int", "default": 3 }
+			] } ] })json");
+
+		// A fake German-flavoured migrator: the stored VK-era spellings move to
+		// the physical keys they sat on under that layout. Unknown = unchanged
+		// (mirrors the real chain, where any failed step keeps the spelling).
+		const auto qwertz = [](const std::string& a_name) -> std::string {
+			if (a_name == "Z") return "Y";
+			if (a_name == "Semicolon") return "Grave";
+			return a_name;
+		};
+
+		// v1 file (unstamped = v1; stamping and versioning are coeval): key
+		// values re-anchor — including one living under a declared alias — the
+		// unbound "" and the int stay untouched, and the rewrite lands eagerly
+		// (no Set, no explicit flush trigger beyond the pump).
+		WriteFile(vd / "t.mig.json", R"json({ "hot": "Z", "alt": "", "oldname": "Semicolon", "n": 5 })json");
+		{
+			SettingsStore s;
+			s.SetLegacyKeyMigrator(qwertz);
+			s.LoadAll(sd, vd);
+			CHECK(s.GetValue("t.mig", "hot") && *s.GetValue("t.mig", "hot") == "Y");
+			CHECK(s.GetValue("t.mig", "renamed") && *s.GetValue("t.mig", "renamed") == "Grave");
+			CHECK(s.GetValue("t.mig", "alt") && *s.GetValue("t.mig", "alt") == "");
+			CHECK(LoggedContaining("INFO", "re-anchored to 'Y'"));
+			s.PumpPersistence(SettingsStore::kPersistDelaySeconds);
+			auto saved = nlohmann::json::parse(std::ifstream(vd / "t.mig.json"), nullptr, false);
+			CHECK(saved["$formatVersion"] == 2);
+			CHECK(saved["hot"] == "Y");
+			CHECK(saved["renamed"] == "Grave");  // adopted under the NEW key
+			CHECK(saved["n"] == 5);
+		}
+		// Idempotency: the stamp is the guard. A second load under a DIFFERENT
+		// layout (a migrator that would move "Y" again) must not touch a v2 file.
+		{
+			SettingsStore s;
+			s.SetLegacyKeyMigrator([](const std::string& a_name) -> std::string {
+				return a_name == "Y" ? std::string("Q") : a_name;
+			});
+			s.LoadAll(sd, vd);
+			CHECK(s.GetValue("t.mig", "hot") && *s.GetValue("t.mig", "hot") == "Y");
+		}
+		// Eager stamp even when no key value changes: a v1 file holding only
+		// non-key values still moves to v2 so the migration never re-arms.
+		WriteFile(vd / "t.mig.json", R"json({ "n": 5 })json");
+		{
+			SettingsStore s;
+			s.SetLegacyKeyMigrator(qwertz);
+			s.LoadAll(sd, vd);
+			s.PumpPersistence(SettingsStore::kPersistDelaySeconds);
+			auto saved = nlohmann::json::parse(std::ifstream(vd / "t.mig.json"), nullptr, false);
+			CHECK(saved["$formatVersion"] == 2);
+			CHECK(saved["n"] == 5);
+		}
+		// No migrator: DEFERRED. The value loads untouched and even a real user
+		// change rewrites under the OLD stamp, so a later session still migrates.
+		WriteFile(vd / "t.mig.json", R"json({ "hot": "Z" })json");
+		{
+			SettingsStore s;
+			s.LoadAll(sd, vd);
+			CHECK(s.GetValue("t.mig", "hot") && *s.GetValue("t.mig", "hot") == "Z");
+			CHECK(s.Set("t.mig", "n", "9"));
+			s.FlushPersistence();
+			auto saved = nlohmann::json::parse(std::ifstream(vd / "t.mig.json"), nullptr, false);
+			CHECK(saved["$formatVersion"] == 1);
+			CHECK(saved["hot"] == "Z");
+		}
+		// US identity: a migrator that maps everything to itself stamps v2 and
+		// leaves every value byte-identical.
+		WriteFile(vd / "t.mig.json", R"json({ "hot": "F6" })json");
+		{
+			SettingsStore s;
+			s.SetLegacyKeyMigrator([](const std::string& a_name) { return a_name; });
+			s.LoadAll(sd, vd);
+			s.PumpPersistence(SettingsStore::kPersistDelaySeconds);
+			auto saved = nlohmann::json::parse(std::ifstream(vd / "t.mig.json"), nullptr, false);
+			CHECK((saved == nlohmann::json{ { "hot", "F6" }, { "$formatVersion", 2 } }));
+		}
+		// A fresh mod with NO values file gets no migration churn: nothing on
+		// disk until a real change, which then lands already stamped v2.
+		{
+			const auto vdFresh = root / "values-keymig-fresh";
+			SettingsStore s;
+			s.SetLegacyKeyMigrator(qwertz);
+			s.LoadAll(sd, vdFresh);
+			s.PumpPersistence(SettingsStore::kPersistDelaySeconds);
+			CHECK(!fs::exists(vdFresh / "t.mig.json"));
+			CHECK(s.Set("t.mig", "hot", "\"K\""));
+			s.FlushPersistence();
+			auto saved = nlohmann::json::parse(std::ifstream(vdFresh / "t.mig.json"), nullptr, false);
+			CHECK(saved["$formatVersion"] == 2);
+			CHECK(saved["hot"] == "K");
+		}
+	}
+
+	// --- keycap labels: the additive `keyboard` block ------------------------------
+	// SetKeyboardLabels publishes { layout, labels } at the document top level;
+	// empty = omitted (older hosts / preview fall back to raw names). Display
+	// only — nothing else in the store consumes it.
+	{
+		SettingsStore s;
+		CHECK(!s.DataView().contains("keyboard"));
+		s.SetKeyboardLabels("de-DE", { { "W", "W" }, { "Semicolon", "Ö" }, { "LShift", "Umsch" } });
+		{
+			const auto& data = s.DataView();
+			CHECK(data.contains("keyboard"));
+			CHECK(data["keyboard"]["layout"] == "de-DE");
+			CHECK(data["keyboard"]["labels"]["Semicolon"] == "Ö");
+			CHECK(data["keyboard"]["labels"]["LShift"] == "Umsch");
+		}
+		// Replacing the map invalidates the cached document (layout switch).
+		s.SetKeyboardLabels("en-US", { { "Semicolon", ";" } });
+		CHECK(s.DataView()["keyboard"]["layout"] == "en-US");
+		CHECK(s.DataView()["keyboard"]["labels"]["Semicolon"] == ";");
+		// Clearing removes the field entirely.
+		s.SetKeyboardLabels("", {});
+		CHECK(!s.DataView().contains("keyboard"));
+	}
+
 	// --- item 11: ConflictsForSetting (the settings.changed annotation) ---------------
 	{
 		const auto sd = root / "settings-cfs";

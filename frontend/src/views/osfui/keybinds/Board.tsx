@@ -3,7 +3,8 @@
 
 import { useLayoutEffect, useRef } from 'preact/hooks';
 import { holdersOf, keyState } from '@lib/keybinds/conflicts';
-import { isGap, KEYBOARD_MAIN, KEYBOARD_NAV, type LayoutItem } from '@lib/keybinds/layout';
+import { isGap, KEYBOARD_NAV, mainBlock, type LayoutItem } from '@lib/keybinds/layout';
+import type { KeyLabeler } from '@lib/keybinds/labels';
 import type { BindingRow } from '@lib/keybinds/model';
 import type { Translator } from '@lib/i18n';
 import { matchesQuery } from './search';
@@ -31,11 +32,17 @@ export interface BoardProps {
    * until `settings.data` arrives, then fills in. Sibling panels gate the same way.
    */
   loaded: boolean;
+  /**
+   * Localized keycap lookup (labels.ts). undefined per name = fall back to the
+   * cell's authored US glyph; the whole prop is optional for the preview.
+   */
+  labeler?: KeyLabeler;
   onSelect: (name: string) => void;
 }
 
 export function Board(props: BoardProps) {
   const { bindings, query, selectedKey, flash, loaded, tr, onSelect } = props;
+  const labeler: KeyLabeler = props.labeler ?? (() => undefined);
 
   // Canonical key name -> cell node. Only consumer is the flash restart below,
   // which can't be expressed declaratively.
@@ -88,6 +95,9 @@ export function Board(props: BoardProps) {
     const hasMod = holders.some((b) => b.kind === 'mod');
     const hasGame = holders.some((b) => b.kind === 'game');
     const state = keyState(bindings, name);
+    // The player's keycap when the runtime published a labels map; the
+    // authored US glyph otherwise (browser preview, older host).
+    const face = labeler(name) ?? item.d;
 
     // Toggle order is fixed: the emitted class attribute must match the shipped
     // one token for token.
@@ -101,9 +111,15 @@ export function Board(props: BoardProps) {
     if (state.shared && !state.conflict) className += ' is-shared';
     if (state.conflict) className += ' is-conflict';
     if (name === selectedKey) className += ' is-selected';
-    // Dimmed when a search is active and neither any holder nor the key's own
-    // name matches — searching "f5" keeps F5 lit even if nothing is bound.
-    if (query && !holders.some(matchesQuery(query)) && !name.toLowerCase().includes(query)) {
+    // Dimmed when a search is active and neither any holder, the key's own
+    // name, nor its localized keycap matches — searching "f5" keeps F5 lit
+    // even if nothing is bound, and a German player can search "ö".
+    if (
+      query &&
+      !holders.some(matchesQuery(query)) &&
+      !name.toLowerCase().includes(query) &&
+      !face.toLowerCase().includes(query)
+    ) {
       className += ' is-dim';
     }
     if (flash.seq && flash.name === name) className += ' is-flash';
@@ -120,14 +136,14 @@ export function Board(props: BoardProps) {
         // but it is part of the shipped DOM shape.
         data-name={name}
         style={{ flexGrow: item.w, flexBasis: 0 }}
-        title={who || name}
+        title={who || face}
         ref={(node) => {
           if (node) cells.current.set(name, node as HTMLButtonElement);
           else cells.current.delete(name);
         }}
         onClick={() => onSelect(name)}
       >
-        <span class="kb-key-label">{item.d}</span>
+        <span class="kb-key-label">{face}</span>
         <span class="kb-key-holders">
           {/* Capped at three: the cell is 36px tall and the dots are a
               density hint, not a count. */}
@@ -150,11 +166,13 @@ export function Board(props: BoardProps) {
   );
 
   // The container is always present; its contents appear only once data lands.
+  // The main block grows the ISO `<>` key exactly when the current layout
+  // labels it (labels map carries IntlBackslash) — ANSI boards are unchanged.
   return (
     <div id="keyboard" class="kb-board" aria-label="Keyboard map">
       {loaded ? (
         <>
-          {renderBlock(KEYBOARD_MAIN, 'main')}
+          {renderBlock(mainBlock(labeler('IntlBackslash') !== undefined), 'main')}
           {renderBlock(KEYBOARD_NAV, 'nav')}
         </>
       ) : null}

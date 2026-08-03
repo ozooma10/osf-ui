@@ -7,6 +7,7 @@
 
 import type { SettingsData, SettingsItem } from '@sdk';
 import { canonicalName } from './canonical';
+import type { KeyLabeler } from './labels';
 import { resolveInputContext } from '../settings/inputContext';
 
 export type ModEntry = SettingsData['mods'][number];
@@ -29,6 +30,11 @@ export interface BindingRow {
   owner: string;
   /** Canonical key name, already alias-folded by canonicalName(). */
   name: string;
+  /**
+   * The current layout's keycap for `name` ("Ö"), falling back to the name
+   * itself when no label map was supplied. Display only.
+   */
+  keyLabel: string;
   contextId: string;
   contextLabel: string;
   blocksGameplay: boolean;
@@ -86,6 +92,7 @@ export function buildModel(
   mods: readonly ModEntry[] | null | undefined,
   vanillaKeys: readonly VanillaKey[] | null | undefined,
   translate: Translate = defaultTranslate,
+  labeler: KeyLabeler = () => undefined,
 ): BindingRow[] {
   const rows: BindingRow[] = [];
 
@@ -108,6 +115,7 @@ export function buildModel(
         // and fallbacks as the settings view. The injected gameplay label keeps
         // the implicit-context badge localized like the game rows below.
         const context = resolveInputContext(mod.schema, s, translate('gameplay', 'Gameplay'));
+        const name = canonicalName(value);
         rows.push({
           kind: 'mod',
           mod: mod.id,
@@ -116,7 +124,8 @@ export function buildModel(
           // is never blank in the UI.
           label: s.label || s.key,
           owner: mod.title || mod.id,
-          name: canonicalName(value),
+          name,
+          keyLabel: labeler(name) ?? name,
           contextId: context.id,
           contextLabel: context.label,
           blocksGameplay: context.blocksGameplay,
@@ -127,13 +136,15 @@ export function buildModel(
 
   for (const v of vanillaKeys || []) {
     if (!v) continue;
+    const name = canonicalName(v.name);
     rows.push({
       kind: 'game',
       // Game rows carry the engine controlmap event id in `key` and no `mod`.
       key: v.event,
       label: vanillaLabel(v.title),
       owner: translate('gameOwner', 'Starfield'),
-      name: canonicalName(v.name),
+      name,
+      keyLabel: labeler(name) ?? name,
       // Vanilla bindings are always plain gameplay: the game has no input
       // contexts in this model, so they can never be the blocksGameplay side
       // of a shared pair. See pairIsShared() in conflicts.ts.

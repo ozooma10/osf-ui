@@ -61,8 +61,8 @@ namespace OSFUI
 			if (b.label.empty() || key.empty()) {
 				continue;  // curated table: a row without a label/key is noise
 			}
-			b.vk = a_names ? a_names(key) : 0;
-			if (b.vk != 0) {
+			b.code = a_names ? a_names(key) : 0;
+			if (b.code != 0) {
 				_bindings.push_back(std::move(b));
 			}
 		}
@@ -70,7 +70,7 @@ namespace OSFUI
 		return true;
 	}
 
-	std::size_t VanillaKeys::OverlayControlMap(const std::filesystem::path& a_path, const ScanResolver& a_scan)
+	std::size_t VanillaKeys::OverlayControlMap(const std::filesystem::path& a_path)
 	{
 		std::error_code ec;
 		if (!std::filesystem::exists(a_path, ec)) {
@@ -114,10 +114,13 @@ namespace OSFUI
 				}
 				applied.push_back(&binding);
 
-				// Comma-separated alternatives; the first that resolves wins.
-				// "0xff" = unbound; chords ("0x1d+0x2e") are out of scope —
-				// the conflict domain is single physical keys.
-				std::uint32_t vk = 0;
+				// Comma-separated alternatives; the first parseable single-key
+				// token wins. "0xff" = unbound; chords ("0x1d+0x2e") are out of
+				// scope — the conflict domain is single physical keys. The hex
+				// value IS the binding code (DIK convention), applied verbatim;
+				// anything outside the 8-bit make-code space is engine data we
+				// don't model and is skipped.
+				std::uint32_t code = 0;
 				bool          decided = false;
 				std::string_view spec = kbdSpec;
 				while (!spec.empty() && !decided) {
@@ -132,14 +135,14 @@ namespace OSFUI
 						continue;
 					}
 					if (const auto sc = ParseHex(token)) {
-						if (const auto mapped = a_scan ? a_scan(*sc) : 0; mapped != 0) {
-							vk = mapped;
+						if (*sc != 0 && *sc <= 0xFF) {
+							code = *sc;
 							decided = true;
 						}
 					}
 				}
-				if (decided && vk != binding.vk) {
-					binding.vk = vk;
+				if (decided && code != binding.code) {
+					binding.code = code;
 					++count;
 				}
 			}
@@ -196,12 +199,12 @@ namespace OSFUI
 					REX::WARN("{} replaces unknown event '{}' (typo? use \"add\" for new rows)", source, event.substr(0, 64));
 					continue;
 				}
-				const auto vk = (!key.empty() && a_names) ? a_names(key) : 0;
-				if (vk == 0) {
+				const auto code = (!key.empty() && a_names) ? a_names(key) : 0;
+				if (code == 0) {
 					REX::WARN("{} replace for '{}' names unresolvable key '{}'; row unchanged", source, event, key.substr(0, 32));
 					continue;
 				}
-				target->vk = vk;
+				target->code = code;
 				if (const auto label = Json::GetString(row, "label", ""); !label.empty()) {
 					target->label = label;
 				}
@@ -229,8 +232,8 @@ namespace OSFUI
 					REX::WARN("{} adds event '{}' which already exists (use \"replace\"); skipped", source, b.event.substr(0, 64));
 					continue;
 				}
-				b.vk = a_names ? a_names(key) : 0;
-				if (b.vk == 0) {
+				b.code = a_names ? a_names(key) : 0;
+				if (b.code == 0) {
 					REX::WARN("{} add row '{}' names unresolvable key '{}'; skipped", source, b.label.substr(0, 64), key.substr(0, 32));
 					continue;
 				}

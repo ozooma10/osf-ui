@@ -216,6 +216,18 @@ export interface PlatformEvents {
     key: string;
     name: string;       // OSF UI key name (e.g. "F9"); "" when cancelled
     cancelled: boolean; // Escape or an unbindable key — keep the old binding
+    /**
+     * The current keyboard layout's keycap for `name` ("Ö" for the key that
+     * stores "Semicolon" on German layouts). DISPLAY ONLY — commit `name`,
+     * never a label. Absent on cancels and on older hosts: fall back to `name`.
+     */
+    label?: string;
+    /**
+     * Why `cancelled` is true: "escape" (the player backed out), "reserved"
+     * (Esc/Win keys are never bindable), "unnameable" (the press carried no
+     * usable key identity). Absent on success and on older hosts.
+     */
+    reason?: string;
     /** Collisions this bind WOULD create, delivered before you commit it. Warn, never block. */
     conflicts?: SettingConflict[];
   };
@@ -282,6 +294,20 @@ export interface SettingsData {
    * when the runtime has no vanilla data.
    */
   vanillaKeys?: Array<{ event: string; title: string; name: string }>;
+  /**
+   * Localized keycap labels for the CURRENT OS keyboard layout. Keys are OSF UI
+   * key names — the same layout-independent vocabulary `type:"key"` values use;
+   * values are what the layout prints on that physical key ("Ö", "^", "Shift").
+   * Covers the whole bindable set, not just bound keys. DISPLAY ONLY — never
+   * store or send a label where a key name is expected. Absent on older hosts
+   * and when undetermined: fall back to showing the name. Republished when the
+   * player switches layouts.
+   */
+  keyboard?: {
+    /** Layout tag, e.g. "de-DE"; "" when unknown. */
+    layout: string;
+    labels: Record<string, string>;
+  };
   /**
    * Settings artifacts that FAILED to load, so a surface can say so instead of
    * a mod silently vanishing. `kind`: "schema-name" | "schema-parse" |

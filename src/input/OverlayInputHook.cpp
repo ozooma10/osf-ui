@@ -2,7 +2,12 @@
 
 #include "core/Log.h"
 #include "input/HardwareCursor.h"
+#include "input/ScanCode.h"
 #include "input/WndProcChain.h"
+#include "platform/WindowsPlatform.h"
+#if defined(OSFUI_WITH_WORLD_SURFACES)
+#	include "input/WorldSurfaceActivateSink.h"
+#endif
 #include "runtime/Runtime.h"
 
 // Keep <Windows.h> confined to this file. NOGDI stops wingdi's ERROR macro
@@ -20,6 +25,22 @@ namespace OSFUI::OverlayInputHook
 		WNDPROC g_gameProc{ nullptr };
 		HWND    g_hwnd{ nullptr };
 		std::atomic_bool g_chainCycleLogged{ false };
+
+		// Physical identity of a WM_(SYS)KEY* message: make code from lParam
+		// bits 16-23, extended flag from bit 24, composed into the DIK
+		// convention. SendInput-synthesized input can carry no scan code at
+		// all; fall back to the layout's VK->scan mapping so remapper-driven
+		// presses still bind.
+		ScanCode MessageScanCode(std::uint32_t a_vk, LPARAM a_lparam)
+		{
+			const auto rawScan = static_cast<std::uint8_t>((a_lparam >> 16) & 0xFF);
+			const bool extended = (a_lparam & 0x01000000) != 0;
+			const auto scan = ComposeScanCode(a_vk, rawScan, extended);
+			if (scan != kInvalidScanCode) {
+				return scan;
+			}
+			return static_cast<ScanCode>(Platform::VkToDirectInputScan(a_vk));
+		}
 		thread_local bool g_forwardingOriginal{ false };
 
 		// Whether the hardware (OS) pointer is engaged. Capture flips on the game
@@ -205,9 +226,13 @@ namespace OSFUI::OverlayInputHook
 			{
 				const auto vk = static_cast<std::uint32_t>(a_wparam);
 				const bool repeat = (a_lparam & 0x40000000) != 0;
+#if defined(OSFUI_WITH_WORLD_SURFACES)
+				WorldSurfaceActivateSink::OnKeyDown(vk, repeat);
+#endif
 				// Drive toggle/web-routing on the initial press only so key
 				// auto-repeat can't re-toggle the overlay.
-				const bool consume = repeat ? runtime.IsInputCaptured() : runtime.OnHostKey(vk, true);
+				const bool consume = repeat ? runtime.IsInputCaptured() :
+				                              runtime.OnHostKey(vk, MessageScanCode(vk, a_lparam), true);
 				if (consume) {
 					return 0;
 				}
@@ -217,11 +242,17 @@ namespace OSFUI::OverlayInputHook
 			case WM_SYSKEYUP:
 			{
 				const auto vk = static_cast<std::uint32_t>(a_wparam);
-				if (runtime.OnHostKey(vk, false)) {
+				if (runtime.OnHostKey(vk, MessageScanCode(vk, a_lparam), false)) {
 					return 0;
 				}
 				break;
 			}
+			case WM_INPUTLANGCHANGE:
+				// Keyboard layout switched (Alt+Shift / Win+Space) while the game
+				// window has focus: keycap labels must recompute. Flag only —
+				// the rebuild runs on the main thread's tick. Never consumed.
+				runtime.NotifyKeyboardLayoutChanged();
+				break;
 			case WM_CHAR:
 				// Chromium receives text and IME through its focused native child
 				// window. Swallow the game's duplicate character stream while the
@@ -332,5 +363,10 @@ namespace OSFUI::OverlayInputHook
 		if (g_hwnd) {
 			::PostMessageW(g_hwnd, kRefreshInputStateMessage, 0, 0);
 		}
+	}
+
+	void* GameWindowHandle()
+	{
+		return g_hwnd;
 	}
 }

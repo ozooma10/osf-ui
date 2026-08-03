@@ -191,10 +191,10 @@
 			void HandleAccelState(const json& a_msg)
 			{
 				const bool wasCaptured = captured;
-				toggleVk = a_msg.value("toggleVk", 0u);
+				toggleScan = a_msg.value("toggleScan", 0u);
 				captured = a_msg.value("captured", false);
 				captureArmed = a_msg.value("captureArmed", false);
-				captureUpVk = a_msg.value("captureUpVk", 0u);
+				captureUpScan = a_msg.value("captureUpScan", 0u);
 				ReconcileInputWidgetSubclass();
 				if (wasCaptured && !captured) handledKeys.clear();
 			}

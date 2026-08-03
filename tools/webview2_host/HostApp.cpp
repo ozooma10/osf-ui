@@ -3,6 +3,7 @@
 #include "EmbeddedScripts.h"
 
 #include "core/Version.h"
+#include "input/ScanCode.h"
 #include "reporting/ReporterCore.h"
 #include "Wv2BoundedQueue.h"
 #include "Wv2BrokerLaunch.h"  // LaunchMethodName (logging only)
@@ -52,6 +53,27 @@ namespace osfui::wv2
 	{
 		using osfui::win32::ToUtf8;
 		using osfui::win32::ToWide;
+
+		// Physical identity of an accelerator key (DIK convention), matching
+		// the game side's OverlayInputHook::MessageScanCode: compose from the
+		// message's scan fields, fall back to the layout's VK->scan mapping
+		// when a synthesized message carried none.
+		std::uint32_t ComposeAcceleratorScan(std::uint32_t a_vk,
+			std::uint32_t a_rawScan, bool a_extended)
+		{
+			const auto scan = OSFUI::ComposeScanCode(a_vk,
+				static_cast<std::uint8_t>(a_rawScan & 0xFF), a_extended);
+			if (scan != OSFUI::kInvalidScanCode) {
+				return scan;
+			}
+			const UINT composite = ::MapVirtualKeyW(a_vk, MAPVK_VK_TO_VSC_EX);
+			if (composite == 0) {
+				return 0;
+			}
+			const UINT prefix = composite >> 8;
+			const UINT base = composite & 0xFFu;
+			return (prefix == 0xE0u || prefix == 0xE1u) ? (0x80u | base) : base;
+		}
 
 		using OSFUI::Reporting::DumpSafe;
 
@@ -630,8 +652,10 @@ namespace osfui::wv2
 			bool  captureStarted{ false };
 			std::uint64_t nextSuspendAttemptId{ 1 };
 
-			// accel state pushed by the game (touched only on the STA thread)
-			std::uint32_t toggleVk{ 0x79 /*F10*/ }, captureUpVk{ 0 };
+			// accel state pushed by the game (touched only on the STA thread).
+			// Physical scan codes (DIK convention, input/ScanCode.h) since
+			// protocol 6.
+			std::uint32_t toggleScan{ 0x44 /*F10*/ }, captureUpScan{ 0 };
 			bool          captured{ false }, captureArmed{ false };
 			// Whether an input-capturing menu owns real OS focus. HUD-only views
 			// leave this false so Starfield stays foreground. During a grant the
@@ -1792,14 +1816,16 @@ namespace osfui::wv2
 							const bool down =
 								kind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN ||
 								kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN;
+							const auto scan = ComposeAcceleratorScan(key,
+								physical.ScanCode, physical.IsExtendedKey != FALSE);
 							// Only physical presses arrive here; synthetic gamepad keys
 							// are DOM events and never reach this hook.
 							// Synchronous stand-in for Runtime::OnNativeAcceleratorKey;
 							// the game keeps this state fresh over the pipe (accelState).
 							const bool frameworkOwned =
 								captureArmed ||
-								(captureUpVk != 0 && key == captureUpVk) ||
-								key == toggleVk ||
+								(captureUpScan != 0 && scan == captureUpScan) ||
+								(toggleScan != 0 && scan == toggleScan) ||
 								(devMode && key == VK_F12) ||
 								(key == 0x1B && captured);
 							const bool alreadyHandled = handledKeys.contains(key);
@@ -1816,7 +1842,7 @@ namespace osfui::wv2
 							if (!duplicateDown &&
 								(frameworkOwned || (!down && alreadyHandled))) {
 								Send(json{ { "type", "accelerator" },
-									{ "vk", key }, { "down", down } });
+									{ "vk", key }, { "scan", scan }, { "down", down } });
 							}
 							if (handled) {
 								a_args->put_Handled(TRUE);
@@ -2432,11 +2458,14 @@ namespace osfui::wv2
 					const auto vk = static_cast<std::uint32_t>(a_wparam);
 					const bool repeat = (a_lparam & 0x40000000) != 0;
 					if (!repeat) {
+						const auto scan = ComposeAcceleratorScan(vk,
+							static_cast<std::uint32_t>((a_lparam >> 16) & 0xFF),
+							(a_lparam & 0x01000000) != 0);
 						// Same envelope as the accelerator path, so the game side
 						// needs no new message type. Swallowed: mid-rebind the
 						// press is a binding, not text for the page.
 						self->Send(json{ { "type", "accelerator" },
-							{ "vk", vk }, { "down", true } });
+							{ "vk", vk }, { "scan", scan }, { "down", true } });
 						return 0;
 					}
 				}

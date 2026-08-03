@@ -235,14 +235,16 @@ namespace OSFUI
 		// Argument ORDER is the hazard here: captured then captureArmed. The
 		// snapshot's locals are named accCaptured/accArmed while the wire key is
 		// "captureArmed", so a swap would compile clean and change the wire.
-		json AccelStateMsg(std::uint32_t a_toggleVk,
-			bool a_captured, bool a_captureArmed, std::uint32_t a_captureUpVk)
+		// Toggle and capture-up are physical SCAN codes (DIK convention) since
+		// protocol 6 — the host matches framework-owned keys on them.
+		json AccelStateMsg(std::uint32_t a_toggleScan,
+			bool a_captured, bool a_captureArmed, std::uint32_t a_captureUpScan)
 		{
 			return json{
 				{ "type", "accelState" },
-				{ "toggleVk", a_toggleVk },
+				{ "toggleScan", a_toggleScan },
 				{ "captured", a_captured }, { "captureArmed", a_captureArmed },
-				{ "captureUpVk", a_captureUpVk } };
+				{ "captureUpScan", a_captureUpScan } };
 		}
 
 		json FrameAckMsg(std::uint64_t a_serial)
@@ -1092,7 +1094,8 @@ namespace OSFUI
 					} else if (type == "accelerator") {
 						// Invoked off the game thread; the handler must stay cheap.
 						if (onAccelerator) {
-							onAccelerator(msg.value("vk", 0u), msg.value("down", false));
+							onAccelerator(msg.value("vk", 0u), msg.value("scan", 0u),
+								msg.value("down", false));
 						}
 					} else if (type == "log") {
 						Push(Notify{ .kind = Notify::Kind::Log,
@@ -1764,26 +1767,26 @@ namespace OSFUI
 		}
 	}
 
-	void WebView2HostWebRenderer::SetAcceleratorKeys(std::uint32_t a_toggleVk,
+	void WebView2HostWebRenderer::SetAcceleratorKeys(std::uint32_t a_toggleScan,
 		bool a_captured, bool a_captureArmed,
-		std::uint32_t a_captureUpVk)
+		std::uint32_t a_captureUpScan)
 	{
 		bool changed = false;
 		{
 			std::scoped_lock lock(_impl->stateMutex);
-			changed = !_impl->accSent || _impl->accToggle != a_toggleVk ||
+			changed = !_impl->accSent || _impl->accToggle != a_toggleScan ||
 				_impl->accCaptured != a_captured ||
 				_impl->accArmed != a_captureArmed ||
-				_impl->accCaptureUp != a_captureUpVk;
-			_impl->accToggle = a_toggleVk;
+				_impl->accCaptureUp != a_captureUpScan;
+			_impl->accToggle = a_toggleScan;
 			_impl->accCaptured = a_captured;
 			_impl->accArmed = a_captureArmed;
-			_impl->accCaptureUp = a_captureUpVk;
+			_impl->accCaptureUp = a_captureUpScan;
 			if (changed && _impl->connected.load()) _impl->accSent = true;
 		}
 		if (changed) {
-			_impl->Send(AccelStateMsg(a_toggleVk, a_captured,
-				a_captureArmed, a_captureUpVk));
+			_impl->Send(AccelStateMsg(a_toggleScan, a_captured,
+				a_captureArmed, a_captureUpScan));
 		}
 	}
 

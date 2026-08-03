@@ -161,6 +161,21 @@ const DATA: SettingsData = {
 /** A bridge whose document already received the `osfui/settings` replay. */
 const seeded = () => makeBridge({ 'osfui/settings': DATA });
 
+/**
+ * The same document plus a German keycap-label map (the additive `keyboard`
+ * block a 2.x host publishes): the board must relabel cells — Ö on the
+ * Semicolon position, the ISO `<` key appearing — while every identity
+ * (data-name) and liveness stays exactly the no-map shape.
+ */
+const GERMAN_DATA: SettingsData = {
+  ...DATA,
+  keyboard: {
+    layout: 'de-DE',
+    labels: { Semicolon: 'Ö', Grave: '^', Y: 'Z', Z: 'Y', IntlBackslash: '<', Minus: 'ß' },
+  },
+} as unknown as SettingsData;
+const seededGerman = () => makeBridge({ 'osfui/settings': GERMAN_DATA });
+
 let host: HTMLElement | null = null;
 
 async function mount(bridge: Bridge) {
@@ -362,6 +377,43 @@ describe('padnav DOM contracts', () => {
     const live = el.querySelectorAll<HTMLButtonElement>('#keyboard button:not(.is-dead)');
     expect(live.length).toBeGreaterThan(0);
     for (const cell of live) expect(cell.disabled).toBe(false);
+  });
+
+  it('a keyboard-labels map relabels cells; identities and liveness are unchanged', async () => {
+    const plain = await mount(seeded());
+    const plainCount = plain.querySelectorAll('#keyboard button').length;
+    const plainNames = [...plain.querySelectorAll<HTMLButtonElement>('#keyboard button[data-name]')]
+      .map((c) => c.dataset.name);
+    render(null, plain);
+    plain.remove();
+    document.body.innerHTML = '';
+
+    const el = await mount(seededGerman());
+    const cellOf = (name: string) =>
+      el.querySelector<HTMLButtonElement>(`#keyboard button[data-name="${name}"]`);
+
+    // The labeled cells render the player's keycaps…
+    expect(cellOf('Semicolon')!.querySelector('.kb-key-label')!.textContent).toBe('Ö');
+    expect(cellOf('Grave')!.querySelector('.kb-key-label')!.textContent).toBe('^');
+    expect(cellOf('Y')!.querySelector('.kb-key-label')!.textContent).toBe('Z');
+    expect(cellOf('Minus')!.querySelector('.kb-key-label')!.textContent).toBe('ß');
+    // …while unlabeled cells keep their authored US glyphs…
+    expect(cellOf('Comma')!.querySelector('.kb-key-label')!.textContent).toBe(',');
+    // …and every identity stays the canonical name (never a label).
+    expect(cellOf('Semicolon')).not.toBeNull();
+    expect(el.querySelector('#keyboard button[data-name="Ö"]')).toBeNull();
+
+    // The ISO `<>` key exists exactly when the layout labels it: one extra
+    // live cell over the ANSI board, nothing else moved.
+    const iso = cellOf('IntlBackslash')!;
+    expect(iso).not.toBeNull();
+    expect(iso.disabled).toBe(false);
+    expect(iso.classList.contains('is-dead')).toBe(false);
+    expect(el.querySelectorAll('#keyboard button').length).toBe(plainCount + 1);
+    const germanNames = [...el.querySelectorAll<HTMLButtonElement>('#keyboard button[data-name]')]
+      .map((c) => c.dataset.name)
+      .filter((n) => n !== 'IntlBackslash');
+    expect(germanNames).toEqual(plainNames);
   });
 
   it('an armed capture puts class="listening" in the document', async () => {

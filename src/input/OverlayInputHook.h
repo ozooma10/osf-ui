@@ -38,5 +38,9 @@ namespace OSFUI
 		// chain on the same window).
 		bool Install();
 		void RequestStateRefresh();
+		// The subclassed game window, or nullptr before Install()/on failure.
+		// For platform facts keyed to the window's thread — notably the
+		// keyboard layout the label pipeline reads (Platform::MakeKeyLabelSource).
+		[[nodiscard]] void* GameWindowHandle();
 	}
 }

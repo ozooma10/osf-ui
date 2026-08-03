@@ -39,6 +39,7 @@ import {
   type ModRecord,
   type ViewRecord,
 } from '@lib/settings/rail';
+import { makeLabeler } from '@lib/keybinds/labels';
 import { sessionDiff } from '@lib/settings/modified';
 import { deriveNeedsUpdate } from '@lib/version';
 import {
@@ -131,6 +132,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
   const {
     mods,
     modsRef,
+    keyboard,
     views,
     viewsRef,
     discoveredViews,
@@ -361,6 +363,10 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     const t = setTimeout(() => setQuery(filter.trim().toLowerCase()), FILTER_DEBOUNCE_MS);
     return () => clearTimeout(t);
   }, [filter]);
+
+  // Localized keycap lookup for `type:"key"` rows (KeyField shows "Ö", commits
+  // "Semicolon"); the no-map labeler falls back to raw names everywhere.
+  const labeler = useMemo(() => makeLabeler(keyboard), [keyboard]);
 
   const capture = useCapture({
     bridge,
@@ -748,6 +754,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
 
         <Detail
           mods={mods}
+          labeler={labeler}
           views={views}
           discoveredViews={discoveredViews}
           health={health}

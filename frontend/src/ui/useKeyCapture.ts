@@ -16,6 +16,10 @@ export interface KeyCaptureConflict {
 export interface KeyCapturePayload {
   name?: string | undefined;
   cancelled?: boolean | undefined;
+  /** Localized keycap for `name` (additive, 2.x hosts). Display only. */
+  label?: string | undefined;
+  /** Why a cancel happened: "escape" | "reserved" | "unnameable" (additive). */
+  reason?: string | undefined;
   conflicts?: KeyCaptureConflict[] | undefined;
 }
 

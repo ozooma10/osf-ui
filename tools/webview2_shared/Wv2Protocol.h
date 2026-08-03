@@ -29,7 +29,10 @@ namespace osfui::wv2
 	// v4: verified named-pipe peers, bounded hello, and host heartbeats make a
 	// connected-but-stalled or impersonating helper a terminal recoverable failure.
 	// v5: game-directed, best-effort suspension for idle hidden views.
-	inline constexpr std::uint32_t kProtocolVersion = 5;
+	// v6: physical key identity — `accelerator` messages carry `scan` (DIK
+	// convention, input/ScanCode.h) alongside `vk`, and accelState's
+	// toggleVk/captureUpVk become toggleScan/captureUpScan.
+	inline constexpr std::uint32_t kProtocolVersion = 6;
 
 	inline constexpr std::uint32_t kHelloTimeoutMs = 10000;
 	inline constexpr std::uint32_t kHeartbeatIntervalMs = 1000;
@@ -95,8 +98,8 @@ namespace osfui::wv2
 	// key           { vk:u32, down:bool }        (synthetic tap into the active view's widget)
 	// postWeb       { view:str, json:str }
 	// openDevTools  { view:str }                 (devMode only)
-	// accelState    { toggleVk:u32, captured:bool,
-	//                 captureArmed:bool, captureUpVk:u32 }
+	// accelState    { toggleScan:u32, captured:bool,
+	//                 captureArmed:bool, captureUpScan:u32 }  (scan codes, DIK convention)
 	// destroyView   { view:str }
 	// shutdown      { }
 	// frameAck      { serial:u64 }             (consumer acked this frame serial; releases its ring slot)
@@ -120,7 +123,8 @@ namespace osfui::wv2
 	// webMessage    { view:str, json:str }
 	// console       { view:str, json:str }       (raw Runtime.consoleAPICalled params)
 	// cursor        { id:u32 }                   (active view only; Win32 cursor id, 0 = hidden)
-	// accelerator   { vk:u32, down:bool }        (framework-owned key hit inside Chromium)
+	// accelerator   { vk:u32, scan:u32, down:bool } (framework-owned key hit inside
+	//                Chromium; scan is the physical DIK-convention code)
 	// log           { level:i32, text:str }      (host diagnostics into the game log)
 	// bye           { reason:str }
 }

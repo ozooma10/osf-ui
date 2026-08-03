@@ -28,7 +28,7 @@ namespace OSFUI
 		// binding.
 		void SetSuppression(std::function<bool()> a_suppressed) { _suppressed = std::move(a_suppressed); }
 
-		// Main thread: rebuild the vk -> [(mod, key)] registry from every
+		// Main thread: rebuild the scan -> [(mod, key)] registry from every
 		// key-typed setting's current value (SettingsStore::KeySettings via
 		// ResolveKeyName). Called at composition, on any key-typed commit, and on
 		// registry shape change. An unresolvable name doesn't bind (ResolveKeyName
@@ -36,9 +36,10 @@ namespace OSFUI
 		void Rebuild(const SettingsStore& a_store);
 
 		// Window thread (Runtime::OnHostKey): key-down edge only — the WndProc
-		// hook filters repeats. Queues one fire per binding of a_vk unless the
-		// suppression gate holds; Drain delivers on the main thread.
-		void OnKeyDown(KeyCode a_vk);
+		// hook filters repeats. Queues one fire per binding of a_scan (physical
+		// key identity) unless the suppression gate holds; Drain delivers on
+		// the main thread.
+		void OnKeyDown(ScanCode a_scan);
 
 		// Main thread (Runtime::Tick): deliver queued fires FIFO. The queue is
 		// drained before invoking, so a_fire may re-enter the store or trigger a
@@ -63,8 +64,8 @@ namespace OSFUI
 		// Leaf lock: _bindings is rebuilt on the main thread and read on the
 		// window thread; _pending is written on the window thread and drained
 		// on the main thread. Snapshot under it, act unlocked.
-		mutable std::mutex                                _mutex;
-		std::unordered_map<KeyCode, std::vector<Binding>> _bindings;
-		std::vector<Binding>                              _pending;
+		mutable std::mutex                                 _mutex;
+		std::unordered_map<ScanCode, std::vector<Binding>> _bindings;
+		std::vector<Binding>                               _pending;
 	};
 }

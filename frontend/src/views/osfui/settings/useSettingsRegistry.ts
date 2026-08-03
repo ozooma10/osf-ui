@@ -32,7 +32,7 @@ import {
   seedBaseline,
   type Baseline,
 } from '@lib/settings/modified';
-import type { SettingValue } from '@sdk';
+import type { SettingsData, SettingValue } from '@sdk';
 
 export interface SettingsRegistryOptions {
   bridge: Bridge;
@@ -47,6 +47,12 @@ export interface SettingsRegistryOptions {
 export interface SettingsRegistry {
   mods: ModRecord[];
   modsRef: { current: ModRecord[] };
+  /**
+   * Localized keycap labels for the current OS keyboard layout (the additive
+   * `keyboard` block of `osfui/settings`), or undefined on older hosts and in
+   * the preview — consumers fall back to raw key names.
+   */
+  keyboard: SettingsData['keyboard'];
   /** Hub-visible views — the rail, Home and the per-mod surface sections. */
   views: ViewRecord[];
   viewsRef: { current: ViewRecord[] };
@@ -80,6 +86,7 @@ export function useSettingsRegistry(opts: SettingsRegistryOptions): SettingsRegi
   const onViewsDataRef = useLatest(opts.onViewsData);
 
   const [mods, setMods, modsRef] = useStateRef<ModRecord[]>([]);
+  const [keyboard, setKeyboard] = useState<SettingsData['keyboard']>(undefined);
   const [views, setViews, viewsRef] = useStateRef<ViewRecord[]>([]);
   const [discoveredViews, setDiscoveredViews] = useState<ViewRecord[]>([]);
   const [hostVersion, setHostVersion] = useState('');
@@ -152,6 +159,7 @@ export function useSettingsRegistry(opts: SettingsRegistryOptions): SettingsRegi
     const offSettings = bridge.state('osfui/settings', (data) => {
       const list = (data?.mods || []) as ModRecord[];
       setMods(list);
+      setKeyboard(data && typeof data.keyboard === 'object' ? data.keyboard : undefined);
       // `loadErrors` is deliberately ignored: the same failures arrive in
       // `osfui/diagnostics` carrying severity, an occurrence count and actions.
       // Reading both would double-report them.
@@ -237,6 +245,7 @@ export function useSettingsRegistry(opts: SettingsRegistryOptions): SettingsRegi
   return {
     mods,
     modsRef,
+    keyboard,
     views,
     viewsRef,
     discoveredViews,

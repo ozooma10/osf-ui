@@ -1,5 +1,5 @@
 {
-  "$comment": "The game's own keyboard bindings, for the informational key-conflict warnings. Starfield ships no controlmap data file, the defaults live in the executable, so this table is CURATED from the game's documented PC controls and is deliberately editable: fix drift after a game patch, or add/remove rows to taste. `key` is an OSF UI key name (F1-F24, letters/digits, Space/Tab/LShift/LCtrl/LAlt/Grave, ...). `event` is the engine controlmap event id",
+  "$comment": "The game's own keyboard bindings, for the informational key-conflict warnings. Starfield ships no controlmap data file, the defaults live in the executable, so this table is CURATED from the game's documented PC controls and is deliberately editable: fix drift after a game patch, or add/remove rows to taste. `key` is an OSF UI key name (F1-F24, letters/digits, Space/Tab/LShift/LCtrl/LAlt/Grave, Numpad0-9, IntlBackslash, ...) and denotes a PHYSICAL key position (US reference keyboard) — the same convention as the engine controlmap's scan codes, so these rows are correct on any keyboard layout. `event` is the engine controlmap event id",
   "formatVersion": 1,
   "bindings": [
     { "event": "Forward", "label": "Move forward", "key": "W" },

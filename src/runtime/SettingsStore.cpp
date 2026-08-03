@@ -29,7 +29,9 @@ namespace OSFUI
 		// Stamped on every rewrite; a newer host's higher stamp round-trips
 		// (Mod::formatVersion keeps the max).
 		constexpr const char*  kFormatVersionKey = "$formatVersion";
-		constexpr std::int64_t kValuesFormatVersion = 1;
+		// v2: key-typed values re-anchored from VK-based names to physical
+		// scan-code names (the LegacyKeyMigrator pass in LoadMod).
+		constexpr std::int64_t kValuesFormatVersion = 2;
 
 		bool IsValidInputContextId(std::string_view a_id)
 		{
@@ -480,12 +482,14 @@ namespace OSFUI
 		// the reason in Data()'s loadErrors.
 		EraseLoadErrorsForMod(mod.id);  // a clean overlay clears a stale record
 		nlohmann::json saved = nlohmann::json::object();
+		bool           valuesFileLoaded = false;
 		std::error_code fsEc;
 		if (std::filesystem::exists(mod.valuesPath, fsEc)) {
 			std::string parseError;
 			auto parsed = Json::ParseFile(mod.valuesPath, parseError);
 			if (parsed && parsed->is_object()) {
 				saved = std::move(*parsed);
+				valuesFileLoaded = true;
 			} else {
 				const auto why = parsed ? std::string("not a JSON object") : parseError;
 				auto quarantine = mod.valuesPath;
@@ -513,11 +517,61 @@ namespace OSFUI
 		}
 		// Encoding-format stamp, written on every rewrite. A file from a newer
 		// OSF UI keeps its higher stamp, so round-tripping through this host never
-		// downgrades it. Format migrations would run here; none exist yet.
-		if (const auto v = Json::GetInt(saved, kFormatVersionKey, kValuesFormatVersion); v > kValuesFormatVersion) {
+		// downgrades it.
+		//
+		// Format v1 -> v2 is the physical re-anchor of key names: pre-2.x names
+		// were VK-anchored, so on a non-US layout the same spelling now means a
+		// different physical key. A missing stamp reads as v1 — stamping and
+		// versioning are coeval, so any unstamped file predates v2. With the
+		// migrator wired, every key-typed saved value is re-anchored under the
+		// CURRENT layout and the file is rewritten eagerly below; without it
+		// (host tests, misconfigured composition) the file loads untouched and
+		// keeps its v1 stamp so a later session still migrates it.
+		// A missing (or quarantined) values file has nothing to migrate:
+		// fileFormat only means something for a file that actually loaded.
+		const auto fileFormat = valuesFileLoaded ? Json::GetInt(saved, kFormatVersionKey, 1) :
+		                                           kValuesFormatVersion;
+		bool migratedFormat = false;
+		if (fileFormat > kValuesFormatVersion) {
 			REX::INFO("SettingsStore: '{}' values file declares format v{} (this build writes v{}) — written by a newer OSF UI; unknown content rides in the preserved bag",
-				mod.id, v, kValuesFormatVersion);
-			mod.formatVersion = v;
+				mod.id, fileFormat, kValuesFormatVersion);
+			mod.formatVersion = fileFormat;
+		} else if (fileFormat < kValuesFormatVersion) {
+			if (_legacyKeyMigrator) {
+				ForEachSetting(mod.schema, [&](const nlohmann::json& a_setting) {
+					if (Json::GetString(a_setting, "type", "") != "key") {
+						return false;
+					}
+					const auto migrate = [&](const std::string& a_savedKey) {
+						if (a_savedKey.empty()) {
+							return;
+						}
+						const auto it = saved.find(a_savedKey);
+						if (it == saved.end() || !it->is_string()) {
+							return;
+						}
+						const auto& oldName = it->get_ref<const std::string&>();
+						if (oldName.empty()) {
+							return;  // deliberate unbound (allowUnbound)
+						}
+						if (auto renamed = _legacyKeyMigrator(oldName); renamed != oldName) {
+							REX::INFO("SettingsStore: '{}.{}' = '{}' re-anchored to '{}' (values format v{} -> v{})",
+								mod.id, a_savedKey, oldName, renamed, fileFormat, kValuesFormatVersion);
+							*it = std::move(renamed);
+						}
+					};
+					// The value may sit under the key or a declared alias (the
+					// adoption below reads both); re-anchor wherever it lives.
+					migrate(Json::GetString(a_setting, "key", ""));
+					for (const auto& alias : Json::GetStringArray(a_setting, "aliases")) {
+						migrate(alias);
+					}
+					return false;
+				});
+				migratedFormat = true;  // stamp v2 + eager rewrite, even value-unchanged
+			} else {
+				mod.formatVersion = fileFormat;  // defer: keep the old stamp
+			}
 		}
 
 		// Keys this schema accounts for: declared keys and, for known-typed
@@ -596,7 +650,12 @@ namespace OSFUI
 		// schedules a rewrite so those knobs track upstream defaults again.
 		// Preserved unknowns are part of the sparse form, and a missing
 		// `$formatVersion` alone is clean: stamping never triggers a rewrite.
-		if (const auto expected = SparseValues(mod); saved != expected) {
+		// EXCEPT across a format-version boundary: a completed v1 -> v2
+		// migration must land on disk eagerly, or an unflushed migration would
+		// re-run under a DIFFERENT layout next session and move keys twice.
+		if (migratedFormat) {
+			MarkDirty(mod);
+		} else if (const auto expected = SparseValues(mod); saved != expected) {
 			auto stampedOnly = saved;
 			stampedOnly[kFormatVersionKey] = mod.formatVersion;
 			if (stampedOnly != expected) {
@@ -847,7 +906,7 @@ namespace OSFUI
 		std::vector<BoundKey> bound;
 		if (_keyResolver) {
 			for (const auto& setting : KeySettings()) {
-				if (const auto vk = _keyResolver(setting.name); vk != 0) {
+				if (const auto code = _keyResolver(setting.name); code != 0) {
 					const auto* mod = FindMod(setting.modId);
 					bool blocksGameplay = false;
 					if (mod) {
@@ -857,27 +916,27 @@ namespace OSFUI
 					}
 					auto title = mod ? Json::GetString(mod->schema, "title", mod->id) : setting.modId;
 					if (mod && _textResolver) title = _textResolver(mod->id, "settings.title", title);
-					bound.push_back({ setting.modId, setting.key, std::move(title), vk, blocksGameplay });
+					bound.push_back({ setting.modId, setting.key, std::move(title), code, blocksGameplay });
 				}
 			}
 			// The game's own bindings (mcm-design.md §9): pseudo-entries under
 			// the reserved id "@game". Gated on the same resolver as mod
 			// settings — without one there is no conflict grouping at all.
 			for (const auto& vanilla : _vanillaKeys) {
-				if (vanilla.vk != 0) {
-					bound.push_back({ "@game", vanilla.event, vanilla.title, vanilla.vk, false });
+				if (vanilla.code != 0) {
+					bound.push_back({ "@game", vanilla.event, vanilla.title, vanilla.code, false });
 				}
 			}
 		}
 		return bound;
 	}
 
-	nlohmann::json SettingsStore::CollectConflicts(const std::vector<BoundKey>& a_bound, std::uint32_t a_vk,
+	nlohmann::json SettingsStore::CollectConflicts(const std::vector<BoundKey>& a_bound, std::uint32_t a_code,
 		std::string_view a_excludeMod, std::string_view a_excludeKey, bool a_selfBlocksGameplay)
 	{
 		nlohmann::json conflicts = nlohmann::json::array();
 		for (const auto& other : a_bound) {
-			if (other.vk == a_vk && (other.modId != a_excludeMod || other.key != a_excludeKey) &&
+			if (other.code == a_code && (other.modId != a_excludeMod || other.key != a_excludeKey) &&
 				!(a_selfBlocksGameplay && other.modId == "@game")) {
 				conflicts.push_back({
 					{ "mod", other.modId },
@@ -889,9 +948,9 @@ namespace OSFUI
 		return conflicts;
 	}
 
-	nlohmann::json SettingsStore::ConflictsFor(std::uint32_t a_vk, std::string_view a_excludeMod, std::string_view a_excludeKey) const
+	nlohmann::json SettingsStore::ConflictsFor(std::uint32_t a_code, std::string_view a_excludeMod, std::string_view a_excludeKey) const
 	{
-		if (a_vk == 0) {
+		if (a_code == 0) {
 			return nlohmann::json::array();  // unresolvable: never conflicts (mirrors Data())
 		}
 		bool blocksGameplay = false;
@@ -900,7 +959,7 @@ namespace OSFUI
 				blocksGameplay = ResolveInputContext(*mod, *setting).blocksGameplay;
 			}
 		}
-		return CollectConflicts(ResolveBoundKeys(), a_vk, a_excludeMod, a_excludeKey, blocksGameplay);
+		return CollectConflicts(ResolveBoundKeys(), a_code, a_excludeMod, a_excludeKey, blocksGameplay);
 	}
 
 	nlohmann::json SettingsStore::ConflictsForSetting(std::string_view a_modId, std::string_view a_key) const
@@ -941,7 +1000,7 @@ namespace OSFUI
 					if (self == bound.end()) {
 						return false;  // unresolvable/empty value: never conflicts
 					}
-					nlohmann::json conflicts = CollectConflicts(bound, self->vk, mod.id, key, self->blocksGameplay);
+					nlohmann::json conflicts = CollectConflicts(bound, self->code, mod.id, key, self->blocksGameplay);
 					if (!conflicts.empty()) {
 						a_setting["conflicts"] = std::move(conflicts);
 					}
@@ -973,7 +1032,7 @@ namespace OSFUI
 		if (!_vanillaKeys.empty()) {
 			nlohmann::json vanilla = nlohmann::json::array();
 			for (const auto& v : _vanillaKeys) {
-				if (v.vk != 0 && !v.name.empty()) {
+				if (v.code != 0 && !v.name.empty()) {
 					vanilla.push_back({
 						{ "event", v.event },
 						{ "title", v.title },
@@ -984,6 +1043,19 @@ namespace OSFUI
 			if (!vanilla.empty()) {
 				data["vanillaKeys"] = std::move(vanilla);
 			}
+		}
+		// Localized keycap labels for the current layout (additive, display
+		// only): `keyboard: { layout, labels: { name -> label } }`. Views fall
+		// back to raw names when absent, so an empty map is simply omitted.
+		if (!_keyboardLabels.empty()) {
+			nlohmann::json labels = nlohmann::json::object();
+			for (const auto& [name, label] : _keyboardLabels) {
+				labels[name] = label;
+			}
+			data["keyboard"] = nlohmann::json{
+				{ "layout", _keyboardLayout },
+				{ "labels", std::move(labels) },
+			};
 		}
 		// Additive field: artifacts that failed to load, so the Mods surface can
 		// say so instead of a mod silently vanishing (§14.2). Omitted when clean.

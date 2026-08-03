@@ -48,7 +48,9 @@ Choices persist to `Data\SFSE\Plugins\OSFUI\settings\values\` (one JSON file per
 
 **A mod is missing, or a warning sits atop the Mods rail:** a settings file that fails to load always produces a warning naming the file and reason (bad filename, JSON parse error with line/column, corrupt saved values). A corrupt values file is renamed `<mod>.json.bad` and defaults are used; if you were hand-editing, fix the `.bad` file and rename it back. Same details in `OSF UI.log`.
 
-**Fixing the game-key table:** the Keybinds view's "Starfield (…)" rows come from `OSFUI/vanillakeys.json` plus your in-game rebinds. If a row is wrong after a game patch, create `Documents\My Games\Starfield\OSFUI\vanillakeys.user.json`. It overlays the shipped table and survives updates:
+**Keys and keyboard layouts:** stored key names (`"F8"`, `"Semicolon"`) identify *physical positions* on the US reference keyboard — the same convention the game's own controlmap uses — so a binding means the same key on any layout, and the binding UI shows what your layout actually prints there (a German layout shows `Ö` on the semicolon-position key, and the ISO `<>` key is bindable). Bindings saved by pre-2.x versions are migrated once, using the layout active the first time this version loads; if you bound keys under a *different* layout than the one active then, re-check those bindings once. Don't downgrade to a pre-2.x version after the migration ran — a rebind made there won't re-migrate. Switching layouts while the overlay is open updates the displayed keycaps the next time the game window has focus.
+
+**Fixing the game-key table:** the Keybinds view's "Starfield (…)" rows come from `OSFUI/vanillakeys.json` plus your in-game rebinds. If a row is wrong after a game patch, create `Documents\My Games\Starfield\OSFUI\vanillakeys.user.json`. It overlays the shipped table and survives updates (`key` names are physical positions, like everywhere else):
 
 ```json
 {
@@ -103,7 +105,7 @@ Your view is a real Chromium document, so the debugger is the one you know. OSF 
 - HDR / 10-bit output is no longer blocked. The overlay renders through the engine's UI buffer and never inspects the swapchain format. Color handling on HDR output is untuned — treat the result as unvalidated, not correct.
 - Other overlay tools (ReShade, Steam overlay, RTSS) are no longer a load-order problem: OSF UI installs no `Present` hook. Broken combinations still log the diagnostics above.
 - Tied to a game build via the Address Library; a patch can require an update.
-- Text entry follows your OS keyboard layout (dead keys and AltGr work), but IME composition (e.g. CJK) isn't supported yet. Gamepad navigation is basic (D-pad/sticks/A/B) and being refined.
+- Text entry follows your OS keyboard layout (dead keys and AltGr work), but IME composition (e.g. CJK) isn't supported yet. Key *bindings* are physical and layout-independent, and the binding UI shows your layout's keycaps (see "Keys and keyboard layouts" above). Gamepad navigation is basic (D-pad/sticks/A/B) and being refined.
 - For UI authors: the `window.osfui` bridge protocol is **2.0**, and 2.0 is a break — a view written for 1.x needs an author update. (Native SFSE plugins are unaffected: their C ABI is versioned separately and stays additive at 1.8.) The 1.x surface had grown aliases and implicit behaviors that couldn't be fixed compatibly; the failure is at least legible (a card naming the view or DLL) rather than a blank page. From here, additive changes bump the minor and breaking changes the major — declare `targetVersion`, see [authoring-views.md](authoring-views.md).
 
 ## Reporting issues

@@ -30,6 +30,8 @@ import { Flags } from '@ui/Flags';
 import { ColorField } from '@ui/ColorField';
 import { TextField } from '@ui/TextField';
 import { KeyField } from '@ui/KeyField';
+import { canonicalName } from '@lib/keybinds/canonical';
+import type { KeyLabeler } from '@lib/keybinds/labels';
 import { requiresLabel } from '@lib/settings/format';
 import { hasInvalidStep, stepperFor } from '@lib/settings/stepper';
 import { resolveInputContext } from '@lib/settings/inputContext';
@@ -56,6 +58,8 @@ export interface SettingRowProps {
   /** Search-jump highlight (`.flash`, 1.2s). */
   flashing: boolean;
   tr: Translator;
+  /** Localized keycap lookup for the key control; undefined = show the name. */
+  labeler?: KeyLabeler | undefined;
   onCommit: (key: string, value: SettingValue) => void;
   onReset: (key: string) => void;
   onBeginCapture: (key: string) => void;
@@ -255,6 +259,13 @@ function renderControl(props: SettingRowProps, id: string) {
         <KeyField
           id={id}
           value={typeof value === 'string' ? value : undefined}
+          // The player's keycap for the stored name ("Ö" for "Semicolon");
+          // the commit path still writes the layout-independent name.
+          label={
+            typeof value === 'string' && value
+              ? props.labeler?.(canonicalName(value))
+              : undefined
+          }
           allowUnbound={setting.allowUnbound === true}
           listening={props.listening}
           disabled={disabled}

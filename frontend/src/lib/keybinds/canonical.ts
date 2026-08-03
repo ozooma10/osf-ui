@@ -12,10 +12,10 @@ export const NAME_ALIASES: Readonly<Record<string, string>> = {
   backtick: 'Grave',
   console: 'Grave',
   return: 'Enter',
-  // OEM punctuation aliases, mirroring kNamedKeys in InputRouter.cpp. A mod that
-  // declares "Quote" or "Dash" in its schema resolves to the same VK natively,
-  // so the board must fold them to the same cell or one binding appears twice
-  // under two names.
+  // OEM punctuation aliases, mirroring kNamedScans in InputRouter.cpp. A mod
+  // that declares "Quote" or "Dash" in its schema resolves to the same scan
+  // code natively, so the board must fold them to the same cell or one binding
+  // appears twice under two names.
   hyphen: 'Minus',
   dash: 'Minus',
   equal: 'Equals',
@@ -24,6 +24,25 @@ export const NAME_ALIASES: Readonly<Record<string, string>> = {
   rightbracket: 'RBracket',
   quote: 'Apostrophe',
   dot: 'Period',
+  // W3C KeyboardEvent.code spellings, accepted as authoring aliases natively.
+  backquote: 'Grave',
+  bracketleft: 'LBracket',
+  bracketright: 'RBracket',
+  arrowup: 'Up',
+  arrowdown: 'Down',
+  arrowleft: 'Left',
+  arrowright: 'Right',
+  shiftleft: 'LShift',
+  shiftright: 'RShift',
+  controlleft: 'LCtrl',
+  controlright: 'RCtrl',
+  altleft: 'LAlt',
+  altright: 'RAlt',
+  metaleft: 'LWin',
+  metaright: 'RWin',
+  contextmenu: 'Apps',
+  oem102: 'IntlBackslash',
+  prtscn: 'PrintScreen',
 };
 
 /**

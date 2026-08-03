@@ -41,6 +41,8 @@ SUITES=(
 "reporting_core_tests reporting_core_tests.cpp ../../src/reporting/ReporterCore.cpp"
 "hotkey_service_tests hotkey_service_tests.cpp ../../src/runtime/HotkeyService.cpp ../../src/runtime/SettingsStore.cpp ../../src/runtime/Json.cpp ../../src/input/InputRouter.cpp"
 "hotkey_subscriptions_tests hotkey_subscriptions_tests.cpp ../../src/api/HotkeySubscriptions.cpp"
+"scan_code_tests scan_code_tests.cpp ../../src/input/InputRouter.cpp ../../src/input/LegacyVkNames.cpp"
+"key_label_tests key_label_tests.cpp ../../src/input/KeyLabels.cpp ../../src/input/InputRouter.cpp"
 "bridge_api_tests bridge_api_tests.cpp ../../src/api/BridgeApi.cpp ../../src/api/SettingsMirror.cpp ../../src/api/SettingsSubscriptions.cpp ../../src/api/HotkeySubscriptions.cpp ../../src/runtime/MessageBridge.cpp ../../src/runtime/SettingsStore.cpp ../../src/runtime/Json.cpp"
 "papyrus_action_tests papyrus_action_tests.cpp ../../src/api/PapyrusApi.cpp ../../src/api/BridgeApi.cpp ../../src/api/SettingsMirror.cpp ../../src/api/SettingsSubscriptions.cpp ../../src/api/HotkeySubscriptions.cpp ../../src/runtime/MessageBridge.cpp ../../src/runtime/SettingsStore.cpp ../../src/runtime/ViewStateStore.cpp ../../src/runtime/Json.cpp"
 "papyrus_form_tests papyrus_form_tests.cpp ../../src/api/PapyrusApi.cpp ../../src/api/BridgeApi.cpp ../../src/api/SettingsMirror.cpp ../../src/api/SettingsSubscriptions.cpp ../../src/api/HotkeySubscriptions.cpp ../../src/runtime/MessageBridge.cpp ../../src/runtime/SettingsStore.cpp ../../src/runtime/Json.cpp"

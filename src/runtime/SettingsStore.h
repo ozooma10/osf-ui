@@ -65,6 +65,12 @@ namespace OSFUI
 		// without depending on the input layer. Unset: Data() emits no conflict
 		// data.
 		using KeyNameResolver = std::function<std::uint32_t(std::string_view a_name)>;
+		// One-time re-anchor of pre-2.x key-name values (values format 1 -> 2):
+		// old names were VK-anchored, new ones denote physical keys; the
+		// migrator maps one stored name to its physical equivalent under the
+		// layout active NOW (legacy VK resolve -> VK->scan -> KeyName). Returns
+		// the input unchanged when any step fails.
+		using LegacyKeyMigrator = std::function<std::string(const std::string& a_name)>;
 		// Authored English -> active-locale text at a stable structural address.
 		// Injected by Runtime so this host-testable store does not own locale or
 		// filesystem policy. Resolution only touches emitted schema copies;
@@ -200,6 +206,14 @@ namespace OSFUI
 			_keyResolver = std::move(a_resolver);
 			InvalidateData();
 		}
+		// Wire BEFORE LoadAll (SettingsModule's constructor does) — the
+		// migration runs while values files load. Absent migrator = deferred:
+		// v1 files load untouched and KEEP their v1 stamp, so a later session
+		// with the seam migrates them.
+		void SetLegacyKeyMigrator(LegacyKeyMigrator a_migrator)
+		{
+			_legacyKeyMigrator = std::move(a_migrator);
+		}
 		void SetTextResolver(TextResolver a_resolver)
 		{
 			_textResolver = std::move(a_resolver);
@@ -209,17 +223,18 @@ namespace OSFUI
 		// invalidate the resolved document cached for web/native readers.
 		void InvalidateLocalizedData() { InvalidateData(); }
 
-		// The game's own key bindings, already resolved to VKs by the composition
-		// root (VanillaKeys). They join the conflict grouping as pseudo-entries
-		// under the reserved mod id "@game"; they can never be a setting's self,
-		// so they only ever appear as the other side of a collision (Data()
-		// badges and ConflictsFor()). The HotkeyService registry is untouched —
-		// it reads KeySettings().
+		// The game's own key bindings, already resolved to physical scan codes
+		// by the composition root (VanillaKeys — the controlmap's own DIK
+		// space). They join the conflict grouping as pseudo-entries under the
+		// reserved mod id "@game"; they can never be a setting's self, so they
+		// only ever appear as the other side of a collision (Data() badges and
+		// ConflictsFor()). The HotkeyService registry is untouched — it reads
+		// KeySettings().
 		struct VanillaKey
 		{
 			std::string   event;  // conflict entry `key` ("QuickSave")
 			std::string   title;  // conflict entry `title` ("Starfield (Quicksave)")
-			std::uint32_t vk;
+			std::uint32_t code;   // physical scan code (DIK convention)
 			// Display key name ("F5", canonical KeyName spelling) — emitted in
 			// Data()'s top-level `vanillaKeys` so the keybinds view can render
 			// the game's full keyboard map, not just colliding entries.
@@ -228,6 +243,19 @@ namespace OSFUI
 		void SetVanillaKeys(std::vector<VanillaKey> a_keys)
 		{
 			_vanillaKeys = std::move(a_keys);
+			InvalidateData();
+		}
+
+		// Localized keycap labels for the current OS keyboard layout, built by
+		// the composition root (KeyLabels + Platform::MakeKeyLabelSource).
+		// Emitted as the additive top-level `keyboard: { layout, labels }` in
+		// Data() — the keybinds board and settings chips render labels; names
+		// stay the only identity. Empty = field omitted (older data, preview).
+		void SetKeyboardLabels(std::string a_layout,
+			std::vector<std::pair<std::string, std::string>> a_labels)
+		{
+			_keyboardLayout = std::move(a_layout);
+			_keyboardLabels = std::move(a_labels);
 			InvalidateData();
 		}
 
@@ -268,15 +296,15 @@ namespace OSFUI
 		[[nodiscard]] const nlohmann::json& DataView() const;
 		[[nodiscard]] std::string    DataJson() const;
 
-		// The other key-typed settings currently bound to physical key a_vk —
-		// `[{mod, key, title}]`, excluding a_excludeMod.a_excludeKey (the setting
-		// being rebound, whose stored value is still the old binding). Live-warn
-		// during capture: answers a mid-rebind key press with the collisions the
-		// bind would create, before the view commits it. Empty on a unique key,
-		// a_vk == 0, or no resolver; informational only, like the Data()
-		// annotation. The rebound setting's input context applies the same @game
-		// filtering as Data().
-		[[nodiscard]] nlohmann::json ConflictsFor(std::uint32_t a_vk, std::string_view a_excludeMod, std::string_view a_excludeKey) const;
+		// The other key-typed settings currently bound to physical key a_code
+		// (scan code) — `[{mod, key, title}]`, excluding
+		// a_excludeMod.a_excludeKey (the setting being rebound, whose stored
+		// value is still the old binding). Live-warn during capture: answers a
+		// mid-rebind key press with the collisions the bind would create,
+		// before the view commits it. Empty on a unique key, a_code == 0, or no
+		// resolver; informational only, like the Data() annotation. The rebound
+		// setting's input context applies the same @game filtering as Data().
+		[[nodiscard]] nlohmann::json ConflictsFor(std::uint32_t a_code, std::string_view a_excludeMod, std::string_view a_excludeKey) const;
 
 		// Validate + clamp + store + notify. a_valueJson is the raw JSON text
 		// of the value. Returns false on unknown mod/key or bad type (false =
@@ -348,8 +376,11 @@ namespace OSFUI
 			// or malformed.
 			std::string              targetVersion;
 			// Values-file encoding stamp: max(build's version, the loaded
-			// file's), so a newer host's stamp survives our rewrites.
-			std::int64_t             formatVersion{ 1 };
+			// file's), so a newer host's stamp survives our rewrites — EXCEPT
+			// that a v1 file loaded with no legacy-key migrator wired keeps its
+			// v1 stamp (migration deferred, see LoadMod). Default is this
+			// build's version (fresh mods have nothing to migrate).
+			std::int64_t             formatVersion{ 2 };
 			std::filesystem::path valuesPath;
 			std::filesystem::path schemaPath;  // drop-in source file; empty for runtime registrations
 			// Drop-in files that also claimed this id and were skipped
@@ -387,22 +418,24 @@ namespace OSFUI
 		};
 		[[nodiscard]] InputContext ResolveInputContext(const Mod& a_mod, const nlohmann::json& a_setting) const;
 		static void WarnInputContexts(const nlohmann::json& a_schema, std::string_view a_modId);
-		// One key-typed setting whose current value resolved to a physical key.
-		// Shared by the Data() conflict annotation and ConflictsFor().
+		// One key-typed setting whose current value resolved to a physical key
+		// (scan code). Shared by the Data() conflict annotation and
+		// ConflictsFor().
 		struct BoundKey
 		{
 			std::string   modId;
 			std::string   key;
 			std::string   title;
-			std::uint32_t vk;
+			std::uint32_t code;
 			bool          blocksGameplay{ false };
 		};
 		[[nodiscard]] std::vector<BoundKey> ResolveBoundKeys() const;
-		// Conflict rows for a_vk among a_bound: same VK, not the setting itself
-		// (a_excludeMod/a_excludeKey), and not the vanilla "@game" side when the
-		// setting blocks gameplay. Shared by DataView()'s annotation and
-		// ConflictsFor(); a_selfBlocksGameplay is derived differently by each.
-		[[nodiscard]] static nlohmann::json CollectConflicts(const std::vector<BoundKey>& a_bound, std::uint32_t a_vk,
+		// Conflict rows for a_code among a_bound: same physical key, not the
+		// setting itself (a_excludeMod/a_excludeKey), and not the vanilla
+		// "@game" side when the setting blocks gameplay. Shared by DataView()'s
+		// annotation and ConflictsFor(); a_selfBlocksGameplay is derived
+		// differently by each.
+		[[nodiscard]] static nlohmann::json CollectConflicts(const std::vector<BoundKey>& a_bound, std::uint32_t a_code,
 			std::string_view a_excludeMod, std::string_view a_excludeKey, bool a_selfBlocksGameplay);
 		// The values that go to disk: sparse — only those ≠ schema default.
 		[[nodiscard]] static nlohmann::json SparseValues(const Mod& a_mod);
@@ -426,6 +459,9 @@ namespace OSFUI
 
 		std::vector<Mod>              _mods;
 		KeyNameResolver               _keyResolver;
+		LegacyKeyMigrator             _legacyKeyMigrator;
+		std::string                   _keyboardLayout;
+		std::vector<std::pair<std::string, std::string>> _keyboardLabels;
 		TextResolver                  _textResolver;
 		std::vector<VanillaKey>       _vanillaKeys;
 		std::vector<ChangeListener>   _listeners;

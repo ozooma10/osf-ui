@@ -10,6 +10,7 @@ function row(name: string, owner: string): BindingRow {
     label: 'l',
     owner,
     name,
+    keyLabel: name,
     contextId: 'gameplay',
     contextLabel: 'Gameplay',
     blocksGameplay: false,

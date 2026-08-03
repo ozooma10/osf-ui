@@ -8,6 +8,7 @@
 #include "core/Config.h"
 #include "input/GamepadNavigation.h"
 #include "input/InputRouter.h"
+#include "input/KeyLabels.h"
 #include "render/IWebRenderer.h"
 #include "runtime/DiagnosticsModule.h"
 #include "runtime/DevViewReloadWorker.h"
@@ -67,14 +68,14 @@ namespace OSFUI
 		// keys into the web view. Thread-safe.
 		[[nodiscard]] bool IsInputCaptured() const;
 
-		// Called by the WndProc hook for each keyboard transition (Windows VK
-		// code). Drives the toggle key and, while captured, routes the key into
-		// the web view. Returns true if the caller should consume the key —
-		// while captured or for the toggle key. The configured console key is
-		// the exception: never consumed and never routed, so the game's console
-		// still opens while the overlay is up (the overlay is dismissed so it
-		// doesn't hide the console). Runs on the window-message thread.
-		bool OnHostKey(std::uint32_t a_vkCode, bool a_down);
+		// Called by the WndProc hook for each keyboard transition. a_vkCode is
+		// the message's Windows VK (what the web layer consumes); a_scanCode is
+		// the composed physical code (input/ScanCode.h) — binding identity:
+		// toggle match, hotkey dispatch, and rebind capture all key on it.
+		// Drives the toggle key and, while captured, routes the key into the
+		// web view. Returns true if the caller should consume the key — while
+		// captured or for the toggle key. Runs on the window-message thread.
+		bool OnHostKey(std::uint32_t a_vkCode, ScanCode a_scanCode, bool a_down);
 
 		// Called by the WndProc hook when the game window receives a
 		// player-initiated close (taskbar "Close window", title-bar X, Alt+F4,
@@ -82,6 +83,10 @@ namespace OSFUI
 		// exit status Starfield's forced teardown routinely produces is not
 		// offered as a crash report. Runs on the window-message thread.
 		void NotifyPlayerCloseRequest();
+
+		// Called by the WndProc hook on WM_INPUTLANGCHANGE (window-message
+		// thread): flags the keycap-label map for a main-thread rebuild.
+		void NotifyKeyboardLayoutChanged();
 
 		// WndProc hook, hardware-cursor path (config.hardwareCursor, default):
 		// window-client coordinates plus the current client size. Maps through
@@ -112,7 +117,7 @@ namespace OSFUI
 		bool SetViewHidden(std::string_view a_id, bool a_hidden);
 		enum class ViewLoadState { Loading, Finished, Failed };
 		[[nodiscard]] ViewLoadState GetViewLoadState(std::string_view a_id) const;
-		bool OnNativeAcceleratorKey(std::uint32_t a_vkCode, bool a_down);
+		bool OnNativeAcceleratorKey(std::uint32_t a_vkCode, std::uint32_t a_scanCode, bool a_down);
 		void OnOutputResized(std::uint32_t a_width, std::uint32_t a_height);
 		void SubmitFrameIfVisible();
 
@@ -234,9 +239,18 @@ namespace OSFUI
 		// text after a locale/catalog change.
 		void RefreshLocalizedData();
 
+		// Rebuild the localized keycap-label map (KeyLabels) for the game
+		// window thread's current layout and publish it into the settings doc
+		// when it changed. Main thread. Triggers: startup, WM_INPUTLANGCHANGE
+		// (via NotifyKeyboardLayoutChanged), locale change, capture arm.
+		void RefreshKeyboardLabels(const char* a_reason);
+		// The current layout's label for a canonical key name; the name itself
+		// when unknown. Main thread (reads the RefreshKeyboardLabels cache).
+		[[nodiscard]] std::string KeyLabelFor(std::string_view a_name) const;
+
 		// Key-rebind capture. `settings.captureKey` arms it; the next key press is
 		// grabbed in OnHostKey (window thread, consumed so it can't also toggle/
-		// close) into _capturedVk, and DrainKeyCapture (main thread, from Tick)
+		// close) into _capturedScan, and DrainKeyCapture (main thread, from Tick)
 		// maps it to a name and sends `settings.captured` back to the view. The
 		// view answers with a normal settings.set, so persistence/validation/
 		// re-resolution reuse the existing path.
@@ -371,7 +385,7 @@ namespace OSFUI
 		// thread), rebuilt from the store's listeners and drained in Tick (main
 		// thread); wired in BuildModules.
 		HotkeyService                           _hotkeys;
-		std::atomic<KeyCode>          _toggleKey{ kInvalidKeyCode };
+		std::atomic<ScanCode>         _toggleKey{ kInvalidScanCode };
 		bool                          _inputConfigured{ false };  // main thread
 		bool                          _vanillaKeysApplied{ false };  // main-thread; ApplyVanillaKeyConflicts edge detector
 		std::atomic_bool              _devToolsRequested{ false };
@@ -458,17 +472,23 @@ namespace OSFUI
 		std::atomic_bool              _captureInput{ true };
 
 		// _captureArmed is set on the main thread (the settings.captureKey
-		// command) and read on the window thread (OnHostKey); _capturedVk is
+		// command) and read on the window thread (OnHostKey); _capturedScan is
 		// written on the window thread and drained on the main thread
 		// (DrainKeyCapture) — both atomic. _captureView/_captureMod/_captureKey
-		// (which view + setting to answer) and _captureUpVk (swallow the captured
-		// key's release) are touched on a single thread each, so plain.
+		// (which view + setting to answer) and _captureUpScan (swallow the
+		// captured key's release) are touched on a single thread each, so plain.
+		// Localized keycap labels (RefreshKeyboardLabels): cache for the
+		// changed-compare and for KeyLabelFor; the flag is set on the
+		// window-message thread (WM_INPUTLANGCHANGE) and drained in Tick.
+		KeyLabels                     _keyLabels;
+		std::atomic_bool              _keyboardLayoutChanged{ false };
+
 		std::atomic_bool              _captureArmed{ false };
-		std::atomic<KeyCode>          _capturedVk{ kInvalidKeyCode };
+		std::atomic<ScanCode>         _capturedScan{ kInvalidScanCode };
 		std::string                   _captureView;   // main-thread: view that armed capture
 		std::string                   _captureMod;    // main-thread: mod owning the setting being rebound
 		std::string                   _captureKey;    // main-thread: which setting (e.g. "toggleKey")
-		std::atomic<KeyCode>          _captureUpVk{ kInvalidKeyCode };
+		std::atomic<ScanCode>         _captureUpScan{ kInvalidScanCode };
 
 		// Can the overlay actually reach the screen? `_overlayDrawAvailable` is
 		// only the install-time half (the Scaleform vtable hooks); the seam's

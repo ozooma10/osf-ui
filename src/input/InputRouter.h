@@ -14,20 +14,23 @@ namespace OSFUI
 	class InputRouter
 	{
 	public:
-		void Configure(KeyCode a_toggleKey, std::function<void()> a_onToggle, std::function<void()> a_onBack = {});
-		void SetToggleKey(KeyCode a_toggleKey);
+		void Configure(ScanCode a_toggleKey, std::function<void()> a_onToggle, std::function<void()> a_onBack = {});
+		void SetToggleKey(ScanCode a_toggleKey);
 
 		// a_isCaptured: overlay currently owns input (visible + capture enabled).
 		// Both are optional — without them the router only drives the toggle path.
 		void SetWebRouting(std::function<bool()> a_isCaptured, std::function<void(KeyCode, bool)> a_routeKey);
 
-		void OnKeyDown(KeyCode a_key);
-		void OnKeyUp(KeyCode a_key);
+		// a_vk is what routes into the web view (the space DOM synthesis
+		// consumes); a_scan is binding identity — toggle and Esc-back match on
+		// it, layout-independently.
+		void OnKeyDown(KeyCode a_vk, ScanCode a_scan);
+		void OnKeyUp(KeyCode a_vk, ScanCode a_scan);
 
 	private:
 		[[nodiscard]] bool Captured() const { return _isCaptured && _isCaptured(); }
 
-		std::atomic<KeyCode>               _toggleKey{ kInvalidKeyCode };
+		std::atomic<ScanCode>              _toggleKey{ kInvalidScanCode };
 		std::function<void()>              _onToggle;
 		std::function<void()>              _onBack;
 		std::function<bool()>              _isCaptured;

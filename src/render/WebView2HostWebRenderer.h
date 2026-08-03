@@ -43,8 +43,8 @@ namespace OSFUI
 		void SetNativeAcceleratorHandler(NativeAcceleratorHandler a_handler) override;
 		void SetNativeFocus(bool a_focused) override;
 		[[nodiscard]] bool UsesNativeKeyboardFocus() const override { return true; }
-		void SetAcceleratorKeys(std::uint32_t a_toggleVk,
-			bool a_captured, bool a_captureArmed, std::uint32_t a_captureUpVk) override;
+		void SetAcceleratorKeys(std::uint32_t a_toggleScan,
+			bool a_captured, bool a_captureArmed, std::uint32_t a_captureUpScan) override;
 		void NotifyPlayerCloseRequest() override;
 		void SetSharedRingHandler(SharedRingHandler a_handler) override;
 		void SetHealthHandler(HealthHandler a_handler) override;

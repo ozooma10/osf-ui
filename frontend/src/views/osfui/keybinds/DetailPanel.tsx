@@ -4,6 +4,7 @@
 // and the missing prop is what enforces that.
 
 import { holdersOf, keyState } from '@lib/keybinds/conflicts';
+import type { KeyLabeler } from '@lib/keybinds/labels';
 import type { BindingRow } from '@lib/keybinds/model';
 import type { Translator } from '@lib/i18n';
 import { HolderRow, holderInstanceId } from './HolderRow';
@@ -15,11 +16,14 @@ export interface DetailPanelProps {
   loaded: boolean;
   tr: Translator;
   capturingId: string | null;
+  /** Localized keycap lookup; undefined per name = show the name itself. */
+  labeler?: KeyLabeler;
   onRebind: (binding: BindingRow, instanceId: string) => void;
 }
 
 export function DetailPanel(props: DetailPanelProps) {
   const { bindings, selectedKey, loaded, tr, capturingId, onRebind } = props;
+  const chip = selectedKey ? (props.labeler?.(selectedKey) ?? selectedKey) : '';
 
   const holders = selectedKey ? holdersOf(bindings, selectedKey) : [];
   const state = selectedKey ? keyState(bindings, selectedKey) : { conflict: false, shared: false };
@@ -29,7 +33,7 @@ export function DetailPanel(props: DetailPanelProps) {
       <div class="osf-eyebrow kb-panel-title" id="detail-title">
         {selectedKey ? (
           <>
-            <span class="kb-chip kb-chip--lg">{selectedKey}</span>
+            <span class="kb-chip kb-chip--lg">{chip}</span>
             {/* The leading space is a text node, not CSS spacing. */}
             {holders.length
               ? ` ${tr.plural('bindingCount', holders.length, '{count} binding', '{count} bindings')}`

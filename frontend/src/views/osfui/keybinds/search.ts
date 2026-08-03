@@ -4,8 +4,9 @@
 import type { BindingRow } from '@lib/keybinds/model';
 
 /**
- * Filter over the three user-visible strings of a row: key name, action label,
- * owner.
+ * Filter over the user-visible strings of a row: key name, localized keycap,
+ * action label, owner — so a German player can find their Ö binding by typing
+ * either "ö" or "semicolon".
  *
  * `q` must already be trimmed and lowercased — the call sites do that once and
  * this does not repeat it, so a mixed-case query matches nothing.
@@ -21,6 +22,7 @@ export function matchesQuery(q: string): (b: BindingRow) => boolean {
   return (b) =>
     !q ||
     b.name.toLowerCase().includes(q) ||
+    b.keyLabel.toLowerCase().includes(q) ||
     b.label.toLowerCase().includes(q) ||
     b.owner.toLowerCase().includes(q);
 }

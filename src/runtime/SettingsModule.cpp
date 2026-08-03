@@ -8,10 +8,14 @@ namespace OSFUI
 {
 	SettingsModule::SettingsModule(std::filesystem::path a_schemaDir,
 		std::filesystem::path a_valuesDir,
-		SettingsStore::ChangeListener a_onChange) :
+		SettingsStore::ChangeListener a_onChange,
+		SettingsStore::LegacyKeyMigrator a_legacyKeyMigrator) :
 		_schemaDir(std::move(a_schemaDir)),
 		_valuesDir(std::move(a_valuesDir))
 	{
+		// Before LoadAll below — the v1 -> v2 key-value migration runs while
+		// values files load.
+		_store.SetLegacyKeyMigrator(std::move(a_legacyKeyMigrator));
 		// Subscriber #0: the runtime's core reaction (framework knobs). Later
 		// listeners multicast behind it.
 		_store.AddChangeListener(std::move(a_onChange));

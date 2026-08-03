@@ -35,6 +35,7 @@ import type { SearchResult } from '@lib/settings/search';
 import type { Translator } from '@lib/i18n';
 import type { Setting, SettingsGroup, SettingsItem, SettingsSchema, SettingValue } from '@sdk';
 import { SettingRow } from './SettingRow';
+import type { KeyLabeler } from '@lib/keybinds/labels';
 import { SearchResults } from './SearchResults';
 import { Health, type ReportResult, type ReportStatus, type ReportSubmission } from './Health';
 import { Home } from './Home';
@@ -71,6 +72,8 @@ function surfacesKey(ownerId: string): string {
 
 export interface DetailProps {
   mods: ModRecord[];
+  /** Localized keycap lookup for key rows; undefined per name = show the name. */
+  labeler?: KeyLabeler;
   /** Complete, unfiltered `views.data` catalog for OSF UI diagnostics. */
   discoveredViews: ViewRecord[];
   /** Hub-visible catalog used by normal navigation and per-mod surfaces. */
@@ -568,6 +571,7 @@ function Item(props: ItemProps) {
       listening={!!capturing && capturing.modId === mod.id && capturing.key === setting.key}
       flashing={!!flash && flash.modId === mod.id && flash.key === setting.key}
       tr={tr}
+      labeler={props.labeler}
       onCommit={(key, value) => props.onCommit(mod.id, key, value)}
       onReset={(key) => props.onResetSetting(mod.id, key)}
       onBeginCapture={(key) => props.onBeginCapture(mod.id, key)}

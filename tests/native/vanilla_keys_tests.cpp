@@ -1,8 +1,9 @@
 // Host-side tests for VanillaKeys (docs\mcm-design.md §9 "vanilla hotkeys",
 // v1): the curated defaults table (vanillakeys.json shape) + the engine
-// controlmap overlay parser, with fake resolvers standing in for the two
-// platform facts (key name -> VK, DIK scan -> VK). Assert-style; process exit
-// code is the failure count.
+// controlmap overlay parser. Bindings live in the controlmap's own code space
+// (DIK scan codes), so the overlay consumes hex tokens verbatim — only the
+// name resolver (key name -> scan) is injected, faked here. Assert-style;
+// process exit code is the failure count.
 
 #include "runtime/VanillaKeys.h"
 
@@ -29,33 +30,23 @@ namespace
 		out << a_text;
 	}
 
-	// Deterministic stand-ins for the injected platform resolvers.
+	// Deterministic stand-in for the injected name resolver (name -> scan
+	// code, DIK values — the same space the controlmap hex tokens use).
 	std::uint32_t FakeNames(std::string_view a_name)
 	{
-		if (a_name == "F5") return 0x74;
-		if (a_name == "F9") return 0x78;
-		if (a_name == "E") return 0x45;
-		if (a_name == "Grave") return 0xC0;
+		if (a_name == "F5") return 0x3F;
+		if (a_name == "F9") return 0x43;
+		if (a_name == "E") return 0x12;
+		if (a_name == "Grave") return 0x29;
 		return 0;  // "NotAKey" etc.
 	}
 
-	std::uint32_t FakeScan(std::uint32_t a_sc)
-	{
-		switch (a_sc) {
-		case 0x3F: return 0x74;  // DIK_F5
-		case 0x14: return 0x54;  // DIK_T
-		case 0x29: return 0xC0;  // DIK_GRAVE
-		case 0xC8: return 0x26;  // DIK_UP (extended)
-		default: return 0;
-		}
-	}
-
-	// The vk for an event in Bindings(), or 0 (also 0 when unbound).
-	std::uint32_t VkOf(const OSFUI::VanillaKeys& a_keys, std::string_view a_event)
+	// The scan code for an event in Bindings(), or 0 (also 0 when unbound).
+	std::uint32_t CodeOf(const OSFUI::VanillaKeys& a_keys, std::string_view a_event)
 	{
 		for (const auto& b : a_keys.Bindings()) {
 			if (b.event == a_event) {
-				return b.vk;
+				return b.code;
 			}
 		}
 		return 0;
@@ -103,8 +94,8 @@ int main()
 		VanillaKeys keys;
 		CHECK(keys.LoadDefaults(root / "vanillakeys.json", FakeNames));
 		CHECK(keys.Bindings().size() == 4);  // bad rows skipped, not fatal
-		CHECK(VkOf(keys, "QuickSave") == 0x74);
-		CHECK(VkOf(keys, "Console") == 0xC0);
+		CHECK(CodeOf(keys, "QuickSave") == 0x3F);
+		CHECK(CodeOf(keys, "Console") == 0x29);
 
 		// Missing / invalid files: false, and no stale data survives.
 		CHECK(!keys.LoadDefaults(root / "nope.json", FakeNames));
@@ -136,20 +127,20 @@ int main()
 			"// Menu Context\n"
 			"QuickSave\t0x29\t0xff\t0xff\n");                // later context: ignored
 
-		CHECK(keys.OverlayControlMap(root / "ControlMap_Custom.txt", FakeScan) == 3);
-		CHECK(VkOf(keys, "QuickSave") == 0x54);   // T, from the FIRST occurrence
-		CHECK(VkOf(keys, "Activate") == 0);       // unbound
-		CHECK(VkOf(keys, "QuickLoad") == 0x74);   // the resolvable alternate
-		CHECK(VkOf(keys, "Console") == 0xC0);     // untouched
+		CHECK(keys.OverlayControlMap(root / "ControlMap_Custom.txt") == 3);
+		CHECK(CodeOf(keys, "QuickSave") == 0x14);   // DIK_T, from the FIRST occurrence
+		CHECK(CodeOf(keys, "Activate") == 0);       // unbound
+		CHECK(CodeOf(keys, "QuickLoad") == 0x3F);   // the parseable alternate (DIK_F5)
+		CHECK(CodeOf(keys, "Console") == 0x29);     // untouched
 
 		// A second overlay (engine order: Data override, then user remaps)
 		// applies on top of the first.
 		WriteFile(root / "ControlMap.txt", "console\t0xC8\t0xff\t0xff\n");  // event match is case-insensitive
-		CHECK(keys.OverlayControlMap(root / "ControlMap.txt", FakeScan) == 1);
-		CHECK(VkOf(keys, "Console") == 0x26);     // Up (extended scan translated)
+		CHECK(keys.OverlayControlMap(root / "ControlMap.txt") == 1);
+		CHECK(CodeOf(keys, "Console") == 0xC8);     // DIK_UP applied verbatim (extended)
 
 		// Missing overlay file: silent no-op.
-		CHECK(keys.OverlayControlMap(root / "absent.txt", FakeScan) == 0);
+		CHECK(keys.OverlayControlMap(root / "absent.txt") == 0);
 	}
 
 	// --- OverlayUserFile: the additive user overlay (api-freeze item 7) -----------
@@ -185,10 +176,10 @@ int main()
 
 		CHECK(keys.OverlayUserFile(root / "vanillakeys.user.json", FakeNames) == 3);  // add + replace + suppress
 		CHECK(keys.Bindings().size() == 4);            // 4 - Console + PhotoMode
-		CHECK(VkOf(keys, "Console") == 0);             // suppressed = gone
-		CHECK(VkOf(keys, "PhotoMode") == 0x78);        // added
-		CHECK(VkOf(keys, "QuickSave") == 0x45);        // replaced (case-insensitive event match)
-		CHECK(VkOf(keys, "QuickLoad") == 0x78);        // unresolvable replace: unchanged
+		CHECK(CodeOf(keys, "Console") == 0);           // suppressed = gone
+		CHECK(CodeOf(keys, "PhotoMode") == 0x43);      // added (F9)
+		CHECK(CodeOf(keys, "QuickSave") == 0x12);      // replaced (case-insensitive event match)
+		CHECK(CodeOf(keys, "QuickLoad") == 0x43);      // unresolvable replace: unchanged
 		{
 			bool relabeled = false;
 			for (const auto& b : keys.Bindings()) {

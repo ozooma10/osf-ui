@@ -285,7 +285,7 @@ double scale = 0.0;
 g_ui.GetSettingFloat("acme.mymod", "scale", &scale);
 ```
 
-`GetSettingString` handles string, enum (the option) and key (the key name, e.g. `"F10"`). It returns the length including the NUL and always NUL-terminates; pass a null buffer to ask how big:
+`GetSettingString` handles string, enum (the option) and key (the key name, e.g. `"F10"` — a layout-independent physical position; see docs/authoring-settings.md §7). It returns the length including the NUL and always NUL-terminates; pass a null buffer to ask how big:
 
 ```cpp
 std::uint32_t need = g_ui.GetSettingString("acme.mymod", "mode", nullptr, 0);

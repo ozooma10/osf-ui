@@ -91,7 +91,9 @@ export function HolderRow(props: HolderRowProps) {
         </div>
         <div class="kb-holder-sub">{`${identity} · ${b.contextLabel}`}</div>
       </div>
-      <span class="kb-chip">{b.name}</span>
+      {/* The localized keycap (falls back to the canonical name when the host
+          published no labels map). Identity stays b.name everywhere else. */}
+      <span class="kb-chip">{b.keyLabel}</span>
       {b.kind === 'mod' ? (
         <button
           type="button"

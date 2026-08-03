@@ -20,6 +20,18 @@ describe('canonicalName', () => {
     expect(canonicalName('Return')).toBe('Enter');
   });
 
+  it('folds the W3C KeyboardEvent.code spellings (kNamedScans aliases)', () => {
+    expect(canonicalName('Backquote')).toBe('Grave');
+    expect(canonicalName('BracketLeft')).toBe('LBracket');
+    expect(canonicalName('BracketRight')).toBe('RBracket');
+    expect(canonicalName('ArrowUp')).toBe('Up');
+    expect(canonicalName('ShiftLeft')).toBe('LShift');
+    expect(canonicalName('ControlRight')).toBe('RCtrl');
+    expect(canonicalName('MetaLeft')).toBe('LWin');
+    expect(canonicalName('ContextMenu')).toBe('Apps');
+    expect(canonicalName('Oem102')).toBe('IntlBackslash');
+  });
+
   it('uppercases a single lowercase letter', () => {
     expect(canonicalName('a')).toBe('A');
     expect(canonicalName('z')).toBe('Z');

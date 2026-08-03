@@ -416,36 +416,43 @@ int main()
 	}
 
 	// ---- key-name round trip -------------------------------------------------
-	// KeyName (VK -> name) and ResolveKeyName (name -> VK) now read the SAME
-	// kNamedKeys table, so they cannot drift the way two hand-written tables
+	// KeyName (scan -> name) and ResolveKeyName (name -> scan) read the SAME
+	// kNamedScans table, so they cannot drift the way two hand-written tables
 	// could. What still needs guarding is the property that replaced that risk:
-	// KeyName returns the FIRST row matching a VK, so the canonical spelling is
-	// whichever row comes first. Moving an alias ahead of its canonical row
-	// (e.g. { "Return", 0x0D } before { "Enter", 0x0D }) would silently change
+	// KeyName returns the FIRST row matching a code, so the canonical spelling
+	// is whichever row comes first. Moving an alias ahead of its canonical row
+	// (e.g. { "Return", 0x1C } before { "Enter", 0x1C }) would silently change
 	// the name written into the values JSON on a rebind capture — which
-	// ResolveKeyName must still turn back into the same VK on the next load.
-	// The list below therefore holds the canonical spelling of every VK that has
-	// an alias. The OEM punctuation keys were unbindable precisely because they
-	// were missing from the table entirely.
+	// ResolveKeyName must still turn back into the same code on the next load.
+	// The list below therefore holds the canonical spelling of every code that
+	// has an alias, plus the families that used to be arithmetic branches
+	// (letters, digits, F-keys) and the once-missing keys (OEM punctuation was
+	// unbindable pre-1.1; numpad/IntlBackslash/PrintScreen pre-2.x). The
+	// exhaustive whole-table sweep lives in scan_code_tests.
 	{
 		using OSFUI::KeyName;
 		for (const char* name : { "Minus", "Equals", "LBracket", "RBracket",
 				 "Backslash", "Semicolon", "Apostrophe", "Comma", "Period",
-				 "Slash", "Grave", "Space", "Enter", "F10", "K", "7" }) {
-			const auto vk = ResolveKeyName(name);
-			CHECK(vk != OSFUI::kInvalidKeyCode);
+				 "Slash", "Grave", "Space", "Enter", "F10", "K", "7",
+				 "IntlBackslash", "NumpadEnter", "Numpad0", "PrintScreen" }) {
+			const auto scan = ResolveKeyName(name);
+			CHECK(scan != OSFUI::kInvalidScanCode);
 			// Canonical spelling round-trips exactly — this is the property a
 			// saved binding depends on.
-			CHECK(KeyName(vk) == std::string(name));
+			CHECK(KeyName(scan) == std::string(name));
 		}
-		// Aliases resolve to the same VK but fold to the canonical spelling.
+		// Aliases resolve to the same code but fold to the canonical spelling.
 		CHECK(ResolveKeyName("Quote") == ResolveKeyName("Apostrophe"));
 		CHECK(ResolveKeyName("Dash") == ResolveKeyName("Minus"));
 		CHECK(ResolveKeyName("Plus") == ResolveKeyName("Equals"));
 		CHECK(KeyName(ResolveKeyName("Dot")) == "Period");
+		// W3C KeyboardEvent.code spellings are input aliases too.
+		CHECK(ResolveKeyName("BracketLeft") == ResolveKeyName("LBracket"));
+		CHECK(KeyName(ResolveKeyName("Backquote")) == "Grave");
 		// Distinct physical keys must not collide.
 		CHECK(ResolveKeyName("Minus") != ResolveKeyName("Equals"));
 		CHECK(ResolveKeyName("Comma") != ResolveKeyName("Period"));
+		CHECK(ResolveKeyName("NumpadEnter") != ResolveKeyName("Enter"));
 	}
 
 	fs::remove_all(root);

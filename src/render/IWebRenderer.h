@@ -245,7 +245,11 @@ namespace OSFUI
 		// AcceleratorKeyPressed hook delegates framework-owned keys (toggle, Esc,
 		// key capture) back to the runtime; the callback returns true when
 		// Chromium must mark that accelerator handled.
-		using NativeAcceleratorHandler = std::function<bool(std::uint32_t a_vkCode, bool a_down)>;
+		// a_scanCode is the composed physical code (DIK convention, see
+		// input/ScanCode.h) — framework-owned matching keys on it; a_vkCode
+		// stays alongside for the fixed-VK checks (Esc, F12 devtools).
+		using NativeAcceleratorHandler =
+			std::function<bool(std::uint32_t a_vkCode, std::uint32_t a_scanCode, bool a_down)>;
 		virtual void SetNativeAcceleratorHandler(NativeAcceleratorHandler) {}
 		virtual void SetNativeFocus(bool /*a_focused*/) {}
 		[[nodiscard]] virtual bool UsesNativeKeyboardFocus() const { return false; }
@@ -254,11 +258,12 @@ namespace OSFUI
 		// whether a key is framework-owned and must be withheld from the page,
 		// so the host needs a mirror of the runtime's accelerator state. The
 		// runtime pushes it every tick; backends diff and forward on change.
-		// No-op for in-process backends, which call the accelerator handler
-		// directly instead.
-		virtual void SetAcceleratorKeys(std::uint32_t /*a_toggleVk*/,
+		// Toggle and capture-up are physical SCAN codes (DIK convention), the
+		// binding identity space. No-op for in-process backends, which call
+		// the accelerator handler directly instead.
+		virtual void SetAcceleratorKeys(std::uint32_t /*a_toggleScan*/,
 			bool /*a_captured*/,
-			bool /*a_captureArmed*/, std::uint32_t /*a_captureUpVk*/) {}
+			bool /*a_captureArmed*/, std::uint32_t /*a_captureUpScan*/) {}
 
 		// The game window received a player-initiated close (WM_CLOSE, an
 		// SC_CLOSE system command, or session end). Starfield's forced teardown

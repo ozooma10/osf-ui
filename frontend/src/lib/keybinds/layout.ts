@@ -1,15 +1,19 @@
-// On-screen keyboard layout: US ANSI, minus the numpad.
+// On-screen keyboard layout: US ANSI grid, minus the numpad.
 //
-// `d` is the printed label, `n` the OSF UI key name it maps to, `w` a width in
-// flex units (flex-grow with flex-basis 0, so widths are relative within a row).
+// `d` is the US-ANSI FALLBACK label, `n` the OSF UI key name (a physical
+// position — the same identity space as native kNamedScans and the engine
+// controlmap), `w` a width in flex units (flex-grow with flex-basis 0, so
+// widths are relative within a row).
+//
+// When the runtime publishes `keyboard.labels` (localized keycaps for the
+// player's layout), the Board renders those instead of `d`; `d` only shows in
+// the browser preview and against older hosts. The grid itself stays the ANSI
+// arrangement — cells ARE physical positions, so a German layout relabels
+// them (Ö on the Semicolon cell) rather than moving them.
 //
 // `n: null` marks a dead cell — drawn, but not bindable by mods. Esc is the only
 // one: it resolves fine, but is reserved because the capture flow reads a press
 // of it as "cancel", so binding it would make rebinds unescapable.
-//
-// Punctuation names (- = [ ] \ ; ' , . /) assume US ANSI meanings, the same
-// layout assumption `Grave` carries; native resolves them in InputRouter
-// KeyName/kNamedKeys.
 
 export interface KeyCell {
   /** Printed label. */
@@ -70,6 +74,19 @@ export const KEYBOARD_MAIN: readonly (readonly LayoutItem[])[] = [
  * GAP(3) opens vertical space between the clusters; the GAP(1) shoulders in rows
  * 4-5 centre the Up arrow.
  */
+/**
+ * The main block, optionally in ISO shape: when the current layout labels the
+ * extra `<>` key (IntlBackslash — the labels map carries an entry for it), the
+ * bottom letter row splits LShift to make room, exactly where the physical key
+ * sits. ANSI boards (US, no label) render unchanged.
+ */
+export function mainBlock(hasIntlBackslash: boolean): readonly (readonly LayoutItem[])[] {
+  if (!hasIntlBackslash) return KEYBOARD_MAIN;
+  return KEYBOARD_MAIN.map((row, index) =>
+    index === 4 ? [K('Shift', 'LShift', 1.2), K('\\', 'IntlBackslash', 1.05), ...row.slice(1)] : row,
+  );
+}
+
 export const KEYBOARD_NAV: readonly (readonly LayoutItem[])[] = [
   [K('Ins', 'Insert'), K('Home'), K('PgUp', 'PageUp')],
   [K('Del', 'Delete'), K('End'), K('PgDn', 'PageDown')],

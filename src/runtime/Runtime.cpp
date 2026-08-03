@@ -17,6 +17,7 @@
 #include "input/FocusMenu.h"
 #include "input/FreeCursor.h"
 #include "input/HardwareCursor.h"
+#include "input/LegacyVkNames.h"
 #include "input/MenuMode.h"
 #include "input/OverlayInputHook.h"
 #include "input/PauseMenuEntry.h"
@@ -44,6 +45,17 @@ namespace OSFUI
 		constexpr double           kReadySignalTimeoutSeconds{ 15.0 };
 		constexpr double           kRevealTimeoutSeconds{ 3.0 };
 		constexpr KeyCode          kVkF12{ 0x7B };
+		// Latched when an armed capture consumed a press whose scan code could
+		// not be recovered (SendInput-synthesized input with no scan and no
+		// platform mapping). Outside the 8-bit DIK range, so KeyName() returns
+		// "" and DrainKeyCapture answers with a cancel instead of staying armed.
+		constexpr ScanCode         kUnnameableScan{ 0xFFFF };
+		// Capture-reserved physical keys (DrainKeyCapture): Esc cancels a rebind
+		// by contract, and a Win keyup outside exclusive fullscreen opens the
+		// Start menu, so binding either would be a foot-gun.
+		constexpr ScanCode         kScanEscape{ 0x01 };
+		constexpr ScanCode         kScanLWin{ 0xDB };
+		constexpr ScanCode         kScanRWin{ 0xDC };
 
 		// Reads one persisted settings value before the settings module exists.
 		// The renderer (and the host process it spawns) initializes earlier than
@@ -306,8 +318,8 @@ namespace OSFUI
 		// kPostPostDataLoad).
 		const auto toggleKey = ResolveKeyName(_config.toggleKey);
 		_toggleKey.store(toggleKey, std::memory_order_release);
-		if (toggleKey != kInvalidKeyCode) {
-			REX::INFO("Runtime: toggleKey '{}' resolved to VK code {:#x}", _config.toggleKey, toggleKey);
+		if (toggleKey != kInvalidScanCode) {
+			REX::INFO("Runtime: toggleKey '{}' resolved to scan code {:#x}", _config.toggleKey, toggleKey);
 		}
 		EngineInput::SetEnabled(_config.engineInput);
 		if (_config.engineInput) {
@@ -319,8 +331,8 @@ namespace OSFUI
 		// (osfui.handleBack). Separate so a live rebind can re-apply it.
 		ApplyToggleKey();
 		_renderer->SetNativeAcceleratorHandler(
-			[this](std::uint32_t a_vkCode, bool a_down) {
-				return OnNativeAcceleratorKey(a_vkCode, a_down);
+			[this](std::uint32_t a_vkCode, std::uint32_t a_scanCode, bool a_down) {
+				return OnNativeAcceleratorKey(a_vkCode, a_scanCode, a_down);
 			});
 
 		_input.SetWebRouting(
@@ -396,6 +408,12 @@ namespace OSFUI
 		// Load discovered targets while they are still hidden, before queued sends
 		// are pumped. ApplyMenuRequests performs only the visibility transition.
 		PrepareMenuRequests(menuWork);
+		// Layout switch flagged by the window thread (WM_INPUTLANGCHANGE):
+		// republish keycap labels before any capture answer this tick reads
+		// them.
+		if (_keyboardLayoutChanged.exchange(false)) {
+			RefreshKeyboardLabels("input language change");
+		}
 		// Deliver a captured rebind key back to the settings view (main thread).
 		DrainKeyCapture();
 		// Deliver queued hotkey fires (window thread -> main, mcm-design.md §9)
@@ -545,7 +563,7 @@ namespace OSFUI
 			// process can decide `handled` synchronously; pushed every tick,
 			// backends diff and forward only changes (default no-op).
 			_renderer->SetAcceleratorKeys(_toggleKey.load(std::memory_order_acquire),
-				IsInputCaptured(), _captureArmed.load(), _captureUpVk.load());
+				IsInputCaptured(), _captureArmed.load(), _captureUpScan.load());
 			_renderer->Update(a_deltaSeconds);
 			DrivePendingOpen();
 			SubmitFrameIfVisible();
@@ -1709,7 +1727,7 @@ namespace OSFUI
 		}
 		_renderer->Resize(_viewWidth.load(), _viewHeight.load());
 		_renderer->SetAcceleratorKeys(_toggleKey.load(std::memory_order_acquire),
-			false, _captureArmed.load(), _captureUpVk.load());
+			false, _captureArmed.load(), _captureUpScan.load());
 		ApplyMenuPolicy();
 		BroadcastViewsData();
 		REX::INFO("Runtime: replayed {} registered view(s) to the replacement helper; "
@@ -1784,24 +1802,31 @@ namespace OSFUI
 		}
 	}
 
-	bool Runtime::OnHostKey(std::uint32_t a_vkCode, bool a_down)
+	bool Runtime::OnHostKey(std::uint32_t a_vkCode, ScanCode a_scanCode, bool a_down)
 	{
 		// Key-rebind capture (armed by settings.captureKey). Grab the next key
 		// press and consume it, so pressing the current toggle key (or Esc)
-		// rebinds instead of closing the overlay. Only stash the VK here; the
+		// rebinds instead of closing the overlay. Only stash the scan here; the
 		// apply happens on the main thread in DrainKeyCapture. The matching key-up
 		// is swallowed too so it can't leak/route.
 		if (_captureArmed.load()) {
-			if (a_down) {
-				_capturedVk.store(a_vkCode);
+			// PrintScreen never delivers a key-DOWN (Windows quirk): while a
+			// capture is armed, its release counts as the press.
+			constexpr ScanCode kScanPrintScreen = 0xB7;
+			if (a_down || a_scanCode == kScanPrintScreen) {
+				// A message with no recoverable scan code still consumed the
+				// press; latch the unnameable sentinel so the capture answers
+				// with a cancel instead of staying armed forever.
+				_capturedScan.store(
+					a_scanCode != kInvalidScanCode ? a_scanCode : kUnnameableScan);
 				_captureArmed.store(false);
-				_captureUpVk = a_vkCode;
+				_captureUpScan = a_scanCode;
 			}
 			return true;
 		}
-		const auto captureUpVk = _captureUpVk.load();
-		if (captureUpVk != kInvalidKeyCode && a_vkCode == captureUpVk && !a_down) {
-			_captureUpVk = kInvalidKeyCode;
+		const auto captureUpScan = _captureUpScan.load();
+		if (captureUpScan != kInvalidScanCode && a_scanCode == captureUpScan && !a_down) {
+			_captureUpScan = kInvalidScanCode;
 			return true;
 		}
 
@@ -1821,32 +1846,35 @@ namespace OSFUI
 		// deliver from Tick (DrainHotkeys). Does not consume: the game (and the
 		// toggle/router path below) still sees the key.
 		if (a_down) {
-			_hotkeys.OnKeyDown(a_vkCode);
+			_hotkeys.OnKeyDown(a_scanCode);
 		}
 
 		// Decide consumption before routing: capturing or the toggle key must not
 		// reach the game (the toggle press itself is consumed so opening the
 		// overlay never also acts in-game).
 		const auto toggleKey = _toggleKey.load(std::memory_order_acquire);
-		const bool consume = IsInputCaptured() || a_vkCode == toggleKey;
+		const bool consume = IsInputCaptured() ||
+		                     (toggleKey != kInvalidScanCode && a_scanCode == toggleKey);
 		if (a_down) {
-			_input.OnKeyDown(a_vkCode);
+			_input.OnKeyDown(a_vkCode, a_scanCode);
 		} else {
-			_input.OnKeyUp(a_vkCode);
+			_input.OnKeyUp(a_vkCode, a_scanCode);
 		}
 		return consume;
 	}
 
 
-	bool Runtime::OnNativeAcceleratorKey(std::uint32_t a_vkCode, bool a_down)
+	bool Runtime::OnNativeAcceleratorKey(std::uint32_t a_vkCode, std::uint32_t a_scanCode, bool a_down)
 	{
+		const auto scan = static_cast<ScanCode>(a_scanCode);
+		const auto toggleKey = _toggleKey.load(std::memory_order_acquire);
 		const bool frameworkOwned =
 			_captureArmed.load() ||
-			(_captureUpVk.load() != kInvalidKeyCode && a_vkCode == _captureUpVk.load()) ||
-			a_vkCode == _toggleKey.load(std::memory_order_acquire) ||
+			(_captureUpScan.load() != kInvalidScanCode && scan == _captureUpScan.load()) ||
+			(toggleKey != kInvalidScanCode && scan == toggleKey) ||
 			(_config.devMode && a_vkCode == kVkF12) ||
 			(a_vkCode == 0x1B && IsInputCaptured());
-		return frameworkOwned && OnHostKey(a_vkCode, a_down);
+		return frameworkOwned && OnHostKey(a_vkCode, scan, a_down);
 	}
 
 	void Runtime::OnHostMouseAbsolute(int a_clientX, int a_clientY, int a_clientW, int a_clientH)
@@ -2173,6 +2201,22 @@ namespace OSFUI
 		auto settings = std::make_unique<SettingsModule>(schemaDir, valuesDir,
 			[this](std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value) {
 				OnSettingChanged(a_mod, a_key, a_value);
+			},
+			// v1 -> v2 values migration: pre-2.x key names were VK-anchored;
+			// re-anchor each one to the physical key that VK sits on under the
+			// layout active right now. Every failed step keeps the spelling —
+			// on US layouts the whole chain is an identity.
+			[](const std::string& a_name) -> std::string {
+				const auto vk = Legacy::ResolveKeyNameVk(a_name);
+				if (vk == 0) {
+					return a_name;
+				}
+				const auto scan = Platform::VkToDirectInputScan(vk);
+				if (scan == 0) {
+					return a_name;
+				}
+				auto name = KeyName(static_cast<ScanCode>(scan));
+				return name.empty() ? a_name : name;
 			});
 		_settings = settings.get();  // core needs schema facts (e.g. key-capture gating)
 		_settings->Store().SetTextResolver([this](std::string_view a_mod, std::string_view a_address, std::string_view a_english) {
@@ -2229,6 +2273,10 @@ namespace OSFUI
 		});
 		_hotkeys.Rebuild(store);  // LoadAll already ran in the module's constructor
 
+		// First keycap-label build (localized display for the current layout);
+		// later switches re-derive via WM_INPUTLANGCHANGE / locale / capture-arm.
+		RefreshKeyboardLabels("startup");
+
 		_modules.push_back(std::move(settings));
 
 		// System Health (bridge protocol 1.4): a session-scoped registry every
@@ -2244,16 +2292,18 @@ namespace OSFUI
 
 	void Runtime::DrainKeyCapture()
 	{
-		const KeyCode vk = _capturedVk.exchange(kInvalidKeyCode);
-		if (vk == kInvalidKeyCode) {
+		const ScanCode scan = _capturedScan.exchange(kInvalidScanCode);
+		if (scan == kInvalidScanCode) {
 			return;  // nothing captured this tick
 		}
 		if (!_bridge || _captureView.empty()) {
 			return;  // nobody to answer
 		}
-		// Escape cancels the rebind; an unnameable VK can't be a binding.
-		constexpr KeyCode kVkEscape = 0x1B;
-		const std::string name = (vk == kVkEscape) ? std::string{} : KeyName(vk);
+		// Escape cancels the rebind by contract; the Win keys are reserved
+		// (Start-menu foot-gun); an unnameable scan can't be a binding.
+		const bool reserved = scan == kScanLWin || scan == kScanRWin;
+		const std::string name =
+			(scan == kScanEscape || reserved) ? std::string{} : KeyName(scan);
 		const bool cancelled = name.empty();
 		// Tell the view which setting + the captured name; it echoes back a normal
 		// settings.set, so the store persists and OnSettingChanged re-resolves.
@@ -2263,12 +2313,25 @@ namespace OSFUI
 			{ "name", name },
 			{ "cancelled", cancelled },
 		};
+		if (cancelled) {
+			// Additive diagnosis so the UI can say WHY instead of silently
+			// reverting: Esc = the player backed out; reserved = a key we
+			// refuse to bind; unnameable = no identity for what was pressed.
+			payload["reason"] = (scan == kScanEscape) ? "escape" :
+			                    reserved              ? "reserved" :
+			                                            "unnameable";
+		} else {
+			// Additive: the current layout's keycap for the captured key, so
+			// the view can show "Ö" while committing the layout-independent
+			// name. Display only — the echo (settings.set) carries `name`.
+			payload["label"] = KeyLabelFor(name);
+		}
 		// Live-warn during capture (mcm-design.md §9): which other key-typed
 		// settings already sit on this key, so the UI warns before the view
 		// commits. The store still holds this setting's old binding (the commit is
 		// the view's echo), so exclude self. Informational, never blocking.
 		if (!cancelled && _settings) {
-			if (auto conflicts = _settings->Store().ConflictsFor(vk, _captureMod, _captureKey); !conflicts.empty()) {
+			if (auto conflicts = _settings->Store().ConflictsFor(scan, _captureMod, _captureKey); !conflicts.empty()) {
 				payload["conflicts"] = std::move(conflicts);
 			}
 		}
@@ -2277,17 +2340,17 @@ namespace OSFUI
 		// "armed". Requests settle in machine time; human-time outcomes are
 		// events (docs/mod-api-2.0-design.md, "User-paced flows settle fast").
 		_bridge->Emit(_captureView, "settings.captured", payload);
-		REX::DEBUG("Runtime: key capture -> {} (VK {:#04x}) ({}.{})",
-			cancelled ? "(cancelled)" : name, vk, _captureMod, _captureKey);
+		REX::DEBUG("Runtime: key capture -> {} (scan {:#04x}) ({}.{})",
+			cancelled ? "(cancelled)" : name, scan, _captureMod, _captureKey);
 		_captureView.clear();
 		_captureMod.clear();
 		_captureKey.clear();
 		// The capture is answered; stop swallowing the captured key's release.
-		// A letter/digit VK never reaches the accelerator hook on key-up, so
+		// A letter/digit key never reaches the accelerator hook on key-up, so
 		// without this the latch stays armed and eats that key's next release
 		// in gameplay. The dangerous ups (Esc, the toggle key) are still owned
 		// by their own conditions in OnNativeAcceleratorKey.
-		_captureUpVk = kInvalidKeyCode;
+		_captureUpScan = kInvalidScanCode;
 	}
 
 	void Runtime::CancelArmedKeyCapture()
@@ -2295,7 +2358,7 @@ namespace OSFUI
 		if (!_captureArmed.exchange(false)) {
 			return;
 		}
-		_captureUpVk = kInvalidKeyCode;
+		_captureUpScan = kInvalidScanCode;
 		// Close the capture out so the view's rebind affordance restores instead
 		// of waiting forever on a keypress that can no longer arrive; same shape
 		// as the Esc path in DrainKeyCapture.
@@ -2551,6 +2614,11 @@ namespace OSFUI
 				a_b.Reject("not-rebindable", "only a key-typed setting can be rebound");
 				return;
 			}
+			// Freshen keycap labels before the press: the captured answer (and
+			// the view's live display) reads them, and this catches a layout
+			// switch made while the WebView held focus (WM_INPUTLANGCHANGE
+			// went to Chromium's window, not the game's).
+			RefreshKeyboardLabels("capture arm");
 			_captureView = std::string(a_b.CurrentSource());
 			_captureMod = mod;
 			_captureKey = key;
@@ -2900,15 +2968,15 @@ namespace OSFUI
 		// unresolvable name keeps the working key rather than disabling the toggle.
 		if (a_key == "toggleKey" && a_value.is_string()) {
 			const auto name = a_value.get<std::string>();
-			const auto vk = ResolveKeyName(name);
-			if (vk == kInvalidKeyCode) {
+			const auto scan = ResolveKeyName(name);
+			if (scan == kInvalidScanCode) {
 				REX::WARN("Runtime: setting osfui.toggleKey '{}' is not a resolvable key; keeping '{}'", name, _config.toggleKey);
 				return;
 			}
 			_config.toggleKey = name;
-			_toggleKey.store(vk, std::memory_order_release);
+			_toggleKey.store(scan, std::memory_order_release);
 			ApplyToggleKey();
-			REX::INFO("Runtime: setting osfui.toggleKey -> {} (VK {:#x})", name, vk);
+			REX::INFO("Runtime: setting osfui.toggleKey -> {} (scan {:#x})", name, scan);
 		}
 		// Pause-menu entry (MCM-owned). The Scaleform inject runs per pause-menu
 		// open (MainThreadMenuPump gates Reconcile on this flag), so the change
@@ -2959,8 +3027,46 @@ namespace OSFUI
 		}
 	}
 
+	void Runtime::NotifyKeyboardLayoutChanged()
+	{
+		_keyboardLayoutChanged.store(true);
+	}
+
+	void Runtime::RefreshKeyboardLabels(const char* a_reason)
+	{
+		if (!_settings) {
+			return;
+		}
+		auto labels = BuildKeyLabels(
+			Platform::MakeKeyLabelSource(OverlayInputHook::GameWindowHandle()),
+			[this](std::string_view a_address, std::string_view a_english) {
+				return _localization.Resolve("osfui", a_address, a_english);
+			});
+		if (labels == _keyLabels) {
+			return;  // same layout + locale: nothing to publish
+		}
+		_keyLabels = std::move(labels);
+		_settings->Store().SetKeyboardLabels(_keyLabels.layout, _keyLabels.labels);
+		_settings->BroadcastData();
+		REX::DEBUG("Runtime: keyboard labels rebuilt ({}; layout '{}', {} keys)",
+			a_reason, _keyLabels.layout, _keyLabels.labels.size());
+	}
+
+	std::string Runtime::KeyLabelFor(std::string_view a_name) const
+	{
+		for (const auto& [name, label] : _keyLabels.labels) {
+			if (name == a_name) {
+				return label;
+			}
+		}
+		return std::string(a_name);
+	}
+
 	void Runtime::RefreshLocalizedData()
 	{
+		// Non-printing key labels resolve through chrome.keys.* addresses, so
+		// a locale/catalog change re-derives them too.
+		RefreshKeyboardLabels("locale change");
 		PauseMenuEntry::Configure(
 			_localization.Resolve("osfui", "chrome.pauseMenuEntry", _config.pauseMenuEntryLabel),
 			_config.pauseMenuEntryView);
@@ -2999,24 +3105,27 @@ namespace OSFUI
 			// keep upstream corrections.
 			VanillaKeys vanilla;
 			if (vanilla.LoadDefaults(Paths::DataDir() / "vanillakeys.json", ResolveKeyName)) {
-				const auto scanToVk = [](std::uint32_t a_sc) { return Platform::DirectInputScanToVk(a_sc); };
+				// The controlmap files and OSF UI bindings share one code space
+				// (DIK scan codes), so the overlays apply verbatim — no layout-
+				// dependent translation anywhere on this path.
 				// DataDir = <Data>/SFSE/Plugins/OSFUI; under MO2 the module
 				// path is virtualized, so this resolves through the VFS too.
 				const auto gameData = Paths::DataDir().parent_path().parent_path().parent_path();
-				vanilla.OverlayControlMap(gameData / "Interface" / "Controls" / "PC" / "ControlMap.txt", scanToVk);
+				vanilla.OverlayControlMap(gameData / "Interface" / "Controls" / "PC" / "ControlMap.txt");
 				const auto docs = Platform::GetDocumentsPath();
 				if (!docs.empty()) {
-					vanilla.OverlayControlMap(docs / "My Games" / "Starfield" / "ControlMap_Custom.txt", scanToVk);
+					vanilla.OverlayControlMap(docs / "My Games" / "Starfield" / "ControlMap_Custom.txt");
 					vanilla.OverlayUserFile(docs / "My Games" / "Starfield" / "OSFUI" / "vanillakeys.user.json", ResolveKeyName);
 				}
 				std::vector<SettingsStore::VanillaKey> keys;
 				for (const auto& b : vanilla.Bindings()) {
-					if (b.vk != 0) {
+					if (b.code != 0) {
 						// Name resolved after the overlays: a rebound event
 						// displays its live key, not the curated default's.
 						const auto label = _localization.Resolve("osfui", "gameBindings." + b.event + ".label", b.label);
 						const auto owner = _localization.Resolve("osfui", "gameBindings.owner", "Starfield");
-						keys.push_back({ b.event, owner + " (" + label + ")", b.vk, KeyName(b.vk) });
+						keys.push_back({ b.event, owner + " (" + label + ")", b.code,
+							KeyName(static_cast<ScanCode>(b.code)) });
 					}
 				}
 				store.SetVanillaKeys(std::move(keys));

@@ -8,12 +8,12 @@ namespace OSFUI
 	void HotkeyService::Rebuild(const SettingsStore& a_store)
 	{
 		// Build outside the lock (ResolveKeyName may log), then swap in.
-		std::unordered_map<KeyCode, std::vector<Binding>> bindings;
+		std::unordered_map<ScanCode, std::vector<Binding>> bindings;
 		std::size_t count = 0;
 		for (const auto& setting : a_store.KeySettings()) {
-			const auto vk = ResolveKeyName(setting.name);
-			if (vk != kInvalidKeyCode) {
-				bindings[vk].push_back({ setting.modId, setting.key });
+			const auto scan = ResolveKeyName(setting.name);
+			if (scan != kInvalidScanCode) {
+				bindings[scan].push_back({ setting.modId, setting.key });
 				++count;
 			}
 		}
@@ -26,13 +26,13 @@ namespace OSFUI
 		}
 	}
 
-	void HotkeyService::OnKeyDown(KeyCode a_vk)
+	void HotkeyService::OnKeyDown(ScanCode a_scan)
 	{
 		if (_suppressed && _suppressed()) {
 			return;  // typing in a view / rebinding — never a hotkey
 		}
 		std::lock_guard lock(_mutex);
-		const auto it = _bindings.find(a_vk);
+		const auto it = _bindings.find(a_scan);
 		if (it == _bindings.end()) {
 			return;
 		}

@@ -49,6 +49,11 @@ import type {
 } from '@sdk';
 import { isSetting, normalizeValue } from '@lib/settings/normalize';
 import { resolveInputContext } from '@lib/settings/inputContext';
+// Plays the native side of the capture with the shipped view's mapper:
+// `e.code`-based (physical, layout-independent), exactly how the runtime now
+// names keys — so the harness capture agrees with in-game behavior on any
+// keyboard layout.
+import { domKeyName } from '@lib/keybinds/domKeyName';
 import { pseudoize } from '@osfui/cli/pseudo';
 import {
   FALLBACK_SCHEMAS,
@@ -277,27 +282,6 @@ function str(p: CommandPayload, field: string): string {
   return typeof v === 'string' ? v : '';
 }
 
-/**
- * Map an OS key event onto an OSF UI key name. Not the shipped view's
- * `domKeyName` (@lib/keybinds/domKeyName): this one plays the native side of the
- * capture and supports only the small set the mock can name.
- */
-function domKeyName(e: KeyboardEvent): string {
-  if (/^F([1-9]|1[0-9]|2[0-4])$/.test(e.key)) return e.key;
-  if (/^[a-z]$/i.test(e.key)) return e.key.toUpperCase();
-  if (/^[0-9]$/.test(e.key)) return e.key;
-  const named: Record<string, string> = {
-    ' ': 'Space',
-    Enter: 'Enter',
-    Tab: 'Tab',
-    ArrowUp: 'Up',
-    ArrowDown: 'Down',
-    ArrowLeft: 'Left',
-    ArrowRight: 'Right',
-    '`': 'Grave',
-  };
-  return named[e.key] || '';
-}
 
 export function installMock(opts: MockOptions = {}): MockApi {
   const host = window as MockHost;
@@ -830,6 +814,34 @@ export function installMock(opts: MockOptions = {}): MockApi {
 
   // Platform state keys
 
+  // Preview stand-in for native's keycap-label map: filled asynchronously from
+  // the browser's own layout (navigator.keyboard.getLayoutMap — Chromium,
+  // main frame, secure context) so the harness board shows the developer's
+  // real keycaps. Absent everywhere else; every consumer falls back.
+  let keyboardLabels: SettingsData['keyboard'];
+  {
+    const nav = navigator as Navigator & {
+      keyboard?: { getLayoutMap?: () => Promise<Map<string, string>> };
+    };
+    nav.keyboard?.getLayoutMap?.()
+      .then((map) => {
+        const labels: Record<string, string> = {};
+        for (const [code, value] of map) {
+          // The map keys are KeyboardEvent.code values; reuse the shipped
+          // code->name mapper so the vocabulary matches native exactly.
+          const name = domKeyName({ key: '', code });
+          if (!name || !value) continue;
+          const glyph = value.length === 1 ? value.toUpperCase() : value;
+          if (!(name in labels)) labels[name] = glyph;
+        }
+        if (Object.keys(labels).length) {
+          keyboardLabels = { layout: navigator.language || '', labels };
+          publishSettings();
+        }
+      })
+      .catch(() => undefined);
+  }
+
   function publishSettings(): void {
     annotateConflicts();
     const value: SettingsData = {
@@ -838,6 +850,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
       // bindings, full map, rendered by the keybinds view.
       vanillaKeys: VANILLA_KEYS.map((v) => ({ event: v.event, title: v.title, name: v.name })),
     };
+    if (keyboardLabels) value.keyboard = keyboardLabels;
     publish('osfui', 'settings', value);
   }
 

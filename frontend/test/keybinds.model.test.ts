@@ -114,6 +114,7 @@ describe('buildModel', () => {
         label: 'Open / close key',
         owner: 'OSF UI',
         name: 'F10',
+        keyLabel: 'F10',
         contextId: 'gameplay',
         contextLabel: 'Gameplay',
         blocksGameplay: false,
@@ -221,6 +222,7 @@ describe('buildModel', () => {
         label: 'Quicksave',
         owner: 'Starfield',
         name: 'F5',
+        keyLabel: 'F5',
         contextId: 'gameplay',
         contextLabel: 'Gameplay',
         blocksGameplay: false,
@@ -233,6 +235,7 @@ describe('buildModel', () => {
         // The vanilla name is alias-folded too, so it groups with a mod that
         // stored "Grave".
         name: 'Grave',
+        keyLabel: 'Grave',
         contextId: 'gameplay',
         contextLabel: 'Gameplay',
         blocksGameplay: false,

@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { domKeyName } from '@lib/keybinds/domKeyName';
 
+// No `code`: exercises the legacy e.key fallback branch (environments without
+// KeyboardEvent.code). Browsers always set `code`, taking the physical branch
+// tested in the `e.code` describe below.
 const k = (key: string) => domKeyName({ key });
+const c = (code: string) => domKeyName({ key: 'irrelevant', code });
 
 describe('domKeyName', () => {
   it('passes F1-F24 through verbatim', () => {
@@ -70,6 +74,65 @@ describe('domKeyName', () => {
     expect(k(',')).toBe('Comma');
     expect(k('.')).toBe('Period');
     expect(k('/')).toBe('Slash');
+  });
+});
+
+describe('domKeyName over e.code (physical, layout-independent)', () => {
+  it('wins over e.key whenever code is present', () => {
+    // German layout: the physical US-semicolon key produces "ö", but its code
+    // is still "Semicolon" — and that, not the character, is the binding.
+    expect(domKeyName({ key: 'ö', code: 'Semicolon' })).toBe('Semicolon');
+    expect(domKeyName({ key: 'z', code: 'KeyY' })).toBe('Y');
+  });
+
+  it('strips Key/Digit prefixes and passes F-keys and Numpad digits through', () => {
+    expect(c('KeyW')).toBe('W');
+    expect(c('Digit1')).toBe('1');
+    for (let i = 1; i <= 24; ++i) expect(c(`F${i}`)).toBe(`F${i}`);
+    expect(c('Numpad0')).toBe('Numpad0');
+    expect(c('Numpad9')).toBe('Numpad9');
+  });
+
+  it('maps punctuation, intl and numpad-operator codes to canonical names', () => {
+    expect(c('Backquote')).toBe('Grave');
+    expect(c('Minus')).toBe('Minus');
+    expect(c('Equal')).toBe('Equals');
+    expect(c('BracketLeft')).toBe('LBracket');
+    expect(c('BracketRight')).toBe('RBracket');
+    expect(c('Backslash')).toBe('Backslash');
+    expect(c('Semicolon')).toBe('Semicolon');
+    expect(c('Quote')).toBe('Apostrophe');
+    expect(c('Comma')).toBe('Comma');
+    expect(c('Period')).toBe('Period');
+    expect(c('Slash')).toBe('Slash');
+    expect(c('IntlBackslash')).toBe('IntlBackslash');
+    expect(c('NumpadEnter')).toBe('NumpadEnter');
+    expect(c('NumpadDivide')).toBe('NumpadDivide');
+    expect(c('ContextMenu')).toBe('Apps');
+    expect(c('PrintScreen')).toBe('PrintScreen');
+  });
+
+  it('resolves SIDED modifiers, which the e.key path never could', () => {
+    expect(c('ShiftLeft')).toBe('LShift');
+    expect(c('ShiftRight')).toBe('RShift');
+    expect(c('ControlLeft')).toBe('LCtrl');
+    expect(c('ControlRight')).toBe('RCtrl');
+    expect(c('AltLeft')).toBe('LAlt');
+    expect(c('AltRight')).toBe('RAlt');
+  });
+
+  it('keeps Escape and the Win keys unbindable (capture-reserved natively)', () => {
+    expect(c('Escape')).toBe('');
+    expect(c('MetaLeft')).toBe('');
+    expect(c('MetaRight')).toBe('');
+    expect(c('NotACode')).toBe('');
+    // Prototype members never leak through the code table.
+    expect(c('constructor')).toBe('');
+    expect(c('__proto__')).toBe('');
+  });
+
+  it('falls back to the e.key branch when code is empty', () => {
+    expect(domKeyName({ key: ';', code: '' })).toBe('Semicolon');
   });
 
   it('does not inherit Object.prototype members through the named table', () => {

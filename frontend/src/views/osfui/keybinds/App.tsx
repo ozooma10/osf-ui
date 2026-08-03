@@ -27,6 +27,8 @@ import { canonicalName } from '@lib/keybinds/canonical';
 
 import { buildModel, type ModEntry, type VanillaKey } from '@lib/keybinds/model';
 import type { BindingRow } from '@lib/keybinds/model';
+import { makeLabeler } from '@lib/keybinds/labels';
+import type { SettingsData } from '@sdk';
 import { BrandEmblem } from '@ui/BrandEmblem';
 import { useLatest, useStateRef } from '@ui/useStateRef';
 import { useKeyCapture, type KeyCapturePayload } from '@ui/useKeyCapture';
@@ -67,6 +69,9 @@ export function App({ bridge = windowBridge }: AppProps) {
   // values.
   const [mods, setMods, modsRef] = useStateRef<ModEntry[]>([]);
   const [vanilla, setVanilla, vanillaRef] = useStateRef<VanillaKey[]>([]);
+  // Localized keycap labels for the player's layout (additive; undefined on
+  // older hosts and in the preview — everything falls back to names/US glyphs).
+  const [keyboard, setKeyboard] = useState<SettingsData['keyboard']>(undefined);
 
   const [selectedKey, setSelectedKey] = useState('');
   const [search, setSearch] = useState('');
@@ -83,10 +88,11 @@ export function App({ bridge = windowBridge }: AppProps) {
 
   const searchRef = useRef<HTMLInputElement | null>(null);
 
+  const labeler = useMemo(() => makeLabeler(keyboard), [keyboard]);
   const bindings = useMemo(
-    () => buildModel(mods, vanilla, tr),
+    () => buildModel(mods, vanilla, tr, labeler),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- i18nSeq is the locale generation.
-    [mods, vanilla, tr, i18nSeq],
+    [mods, vanilla, tr, labeler, i18nSeq],
   );
   const bindingsRef = useLatest(bindings);
 
@@ -116,7 +122,9 @@ export function App({ bridge = windowBridge }: AppProps) {
       const others = [...new Set(conflicts.map((conflict) => conflict.title || conflict.mod))];
       toastRef.current.push(
         tr('alsoBoundBy', '{key} is also bound by: {others}', {
-          key: name,
+          // The localized keycap when known — the toast names what the player
+          // just pressed, and their keycap says "Ö", not "Semicolon".
+          key: labeler(canonicalName(name)) ?? name,
           others: others.join(', '),
         }),
         'warn',
@@ -169,6 +177,7 @@ export function App({ bridge = windowBridge }: AppProps) {
     const offData = bridge.state('osfui/settings', (data) => {
       setMods(Array.isArray(data?.mods) ? data.mods : []);
       setVanilla(Array.isArray(data?.vanillaKeys) ? data.vanillaKeys : []);
+      setKeyboard(data && typeof data.keyboard === 'object' ? data.keyboard : undefined);
       setLoaded(true);
     });
 
@@ -373,6 +382,7 @@ export function App({ bridge = windowBridge }: AppProps) {
             flash={flash}
             loaded={loaded}
             tr={tr}
+            labeler={labeler}
             onSelect={selectKey}
           />
         </section>
@@ -385,6 +395,7 @@ export function App({ bridge = windowBridge }: AppProps) {
             loaded={loaded}
             tr={tr}
             capturingId={capturingId}
+            labeler={labeler}
             onRebind={beginCapture}
           />
           <BindList

@@ -27,9 +27,13 @@ namespace OSFUI
 	class SettingsModule final : public IUiModule
 	{
 	public:
+		// a_legacyKeyMigrator (optional) must be handed in here rather than set
+		// on the store afterwards: LoadAll runs inside this constructor and the
+		// v1 -> v2 key-value migration happens while values files load.
 		SettingsModule(std::filesystem::path a_schemaDir,
 			std::filesystem::path a_valuesDir,
-			SettingsStore::ChangeListener a_onChange);
+			SettingsStore::ChangeListener a_onChange,
+			SettingsStore::LegacyKeyMigrator a_legacyKeyMigrator = {});
 
 		void OnStart() override;  // apply persisted values (fires reactions)
 		void RegisterEndpoints(MessageBridge& a_bridge) override;
