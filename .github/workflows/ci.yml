@@ -78,35 +78,16 @@ jobs:
           # Keep local and CI frontend builds on the same Node major.
           node-version: '22'
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            frontend/package-lock.json
+          cache-dependency-path: package-lock.json
 
-      - name: Install authoring toolchain (locked)
+      - name: Install dependencies (locked)
         run: npm ci
 
-      - name: Install (locked)
-        run: npm ci
-        working-directory: frontend
-
-      - name: View authoring toolchain tests
-        run: npm run test:toolchain && npm run test:scaffolder
-
-      - name: Typecheck
-        run: npm run typecheck
-        working-directory: frontend
-
-      - name: Build generated views
-        run: npm run build
-        working-directory: frontend
-
-      - name: Tests
-        run: npm test
-        working-directory: frontend
+      - name: Verify toolchain and frontend
+        run: npm run verify
 
       - name: Audit (production dependencies)
         run: npm audit --omit=dev --audit-level=high
-        working-directory: frontend
 
   build:
     name: Build WebView2 (${{ matrix.mode }})
@@ -127,11 +108,10 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: package-lock.json
 
-      - name: Install frontend dependencies (locked)
+      - name: Install dependencies (locked)
         run: npm ci
-        working-directory: frontend
 
       - uses: xmake-io/github-action-setup-xmake@v1
         with:

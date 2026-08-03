@@ -118,7 +118,7 @@ pwsh tools/setup.ps1
 ## Build
 
 ```bat
-npm --prefix frontend ci # once per fresh clone
+npm ci # once per fresh clone
 xmake build
 ```
 
@@ -134,7 +134,7 @@ The install includes the DLL, PDB, and the `OSFUI/` data folder (config + views)
 The built-in views are **not** hand-edited. Their source is a Vite + TypeScript + Preact project in [`frontend/`](frontend/README.md), which generates the ignored `build/frontend/views/` artifact:
 
 ```bat
-npm --prefix frontend ci        # once
+npm ci                          # once
 npm --prefix frontend run build # regenerate build/frontend/views/
 ```
 

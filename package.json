@@ -8,14 +8,15 @@
     "node": ">=20.19"
   },
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "frontend"
   ],
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "build": "npm --prefix frontend run build",
+    "build": "npm run build --workspace osfui-frontend",
     "test:toolchain": "npm test --workspace @osfui/cli",
     "test:scaffolder": "npm test --workspace create-osfui",
-    "test": "npm run test:toolchain && npm run test:scaffolder && npm --prefix frontend test",
-    "verify": "npm run test:toolchain && npm run test:scaffolder && npm --prefix frontend run verify"
+    "test": "npm run test:toolchain && npm run test:scaffolder && npm test --workspace osfui-frontend",
+    "verify": "npm run test:toolchain && npm run test:scaffolder && npm run verify --workspace osfui-frontend"
   }
 }

@@ -1,20 +1,11 @@
 import { defineConfig } from 'vitest/config';
 import preact from '@preact/preset-vite';
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
+import { aliases } from './aliases.mjs';
 
 export default defineConfig({
   plugins: [preact()],
   resolve: {
-    alias: {
-      '@sdk': resolve(__dirname, '../sdk/osfui.d.ts'),
-      '@lib': resolve(__dirname, 'src/lib'),
-      '@ui': resolve(__dirname, 'src/ui'),
-      '@views': resolve(__dirname, 'src/views'),
-      '@devmock': resolve(__dirname, 'devmock'),
-    },
+    alias: aliases,
   },
   test: {
     // Node by default; component tests opt into jsdom with a per-file

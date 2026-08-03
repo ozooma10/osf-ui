@@ -1,10 +1,6 @@
 import { defineConfig } from 'vite';
 import preact from '@preact/preset-vite';
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-// This config is ESM ("type": "module"), so __dirname does not exist.
-const __dirname = dirname(fileURLToPath(import.meta.url));
+import { aliases } from './aliases.mjs';
 
 // Production build config, consumed by scripts/build.mjs as its `configFile`
 // (which overrides `build.rollupOptions` per view - Rollup cannot emit IIFE
@@ -13,12 +9,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   plugins: [preact()],
   resolve: {
-    alias: {
-      '@lib': resolve(__dirname, 'src/lib'),
-      '@ui': resolve(__dirname, 'src/ui'),
-      '@views': resolve(__dirname, 'src/views'),
-      '@devmock': resolve(__dirname, 'devmock'),
-    },
+    alias: aliases,
   },
   build: {
     target: 'es2020',
@@ -27,10 +18,7 @@ export default defineConfig({
     // whose output is pinned by the locked vite version — which is what the
     // deterministic build-output gates require.
     minify: true,
-    // One CSS file per view, in source order. keybinds/style.css in particular
-    // has load-order-dependent cascade (its "Input Map overhaul" block
-    // deliberately overrides the earlier rules), so splitting or reordering
-    // would change appearance.
+    // One stable CSS file per view.
     cssCodeSplit: false,
     // A .map under data/ would ship in every archive - nothing in package.ps1
     // or CI excludes by extension. Dev source maps come from the dev server.
