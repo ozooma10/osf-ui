@@ -9,7 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { OUT, FRONTEND, VIEWS, expectedOutputs, walk } from '../scripts/config.mjs';
+import { BUILD_VIEWS, OUT, FRONTEND, expectedOutputs, walk } from '../scripts/config.mjs';
 import { verifyOutput } from '../scripts/verify-output.mjs';
 
 describe('build output', () => {
@@ -56,7 +56,7 @@ describe('build output', () => {
     expect(b.equals(a)).toBe(true);
   });
 
-  describe.each(VIEWS)('$mod/$name/index.html', (v) => {
+  describe.each(BUILD_VIEWS)('$mod/$name/index.html', (v) => {
     const html = () => readFileSync(join(OUT, v.mod, v.name, 'index.html'), 'utf8');
 
     it('does not use type="module"', () => {

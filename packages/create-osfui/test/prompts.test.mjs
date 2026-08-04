@@ -76,7 +76,10 @@ test('walks through missing choices as visible select lists', async () => {
   );
   assert.equal(textQuestions[1].defaultValue, undefined);
   assert.equal(textQuestions[1].placeholder, 'yourname.custom-view');
-  assert.equal(textQuestions[1].validate(''), 'Use lowercase author.mod-name format.');
+  assert.equal(
+    textQuestions[1].validate(''),
+    'Use lowercase author.mod-name format (at most 64 characters).',
+  );
   assert.equal(textQuestions[2].defaultValue, 'main');
   assert.equal(textQuestions[2].placeholder, 'main');
   assert.equal(textQuestions[2].validate(''), undefined);

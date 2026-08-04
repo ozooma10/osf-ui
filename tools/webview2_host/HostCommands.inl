@@ -255,4 +255,3 @@
 				}
 				log.Warn("unknown message type '" + type + "' ignored");
 			}
-

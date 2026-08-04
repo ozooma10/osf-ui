@@ -11,7 +11,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import Ajv2020 from 'ajv/dist/2020';
-import { OUT, REPO, VIEWS } from '../scripts/config.mjs';
+import { BUILD_VIEWS, OUT, REPO } from '../scripts/config.mjs';
 
 // manifest.schema.json declares draft 2020-12. Ajv's default export only
 // understands draft-07 and throws "no schema with key or ref .../2020-12/
@@ -26,7 +26,7 @@ const schema = JSON.parse(readFileSync(SCHEMA_PATH, 'utf8'));
 const ajv = new Ajv2020({ strict: false, allErrors: true });
 const validate = ajv.compile(schema);
 
-describe.each(VIEWS)('$mod/$name/manifest.json', (v) => {
+describe.each(BUILD_VIEWS)('$mod/$name/manifest.json', (v) => {
   const file = join(OUT, v.mod, v.name, 'manifest.json');
 
   // Keep the I/O inside the `it` callbacks. Hoisting the parse to the describe

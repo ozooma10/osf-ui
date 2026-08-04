@@ -4,14 +4,14 @@ ScriptName OSFUI Native Hidden
 ;
 ; Settings are declared in a drop-in schema file:
 ;   Data/SFSE/Plugins/OSFUI/settings/<author>.<modname>.json
-; (see docs/authoring-settings.md, or scaffold one with `npm create osfui@latest -- --surface settings`). 
+; (see docs/authoring-settings.md, or scaffold one with `npm create osfui@latest -- --surface settings`).
 ; This script reads them back, writes them, and reacts to changes and hotkey presses.
 ;
 ; If OSF UI is absent, every call fails soft: Papyrus logs a missing-native error and the call yields the declared default 
 ; (GetVersion() yields 0 - the feature-detect gate).
 ;
-; Ids, keys, and enum option values match the schema case-insensitively; 
-; write them as authored - mod ids are lowercase "<author>.<modname>" by grammar. 
+; Ids, keys, and enum option values match the schema case-insensitively;
+; write them as authored - mod ids are lowercase "<author>.<modname>" by grammar.
 ; The same interning means strings delivered to your callbacks may arrive cased differently than authored; 
 
 ; Packed host version: major*10000 + minor*100 + patch (1.0.0 -> 10000).
@@ -78,7 +78,7 @@ int Function RegisterForHotkeyStatic(string asScript, string asFn, string asModI
 
 ; --- form references ----------------------------------------------------------
 ; Resolve a form reference a view echoed back (the `formId` of a form published with SetViewForms, sent as an args element).
-; Accepts decimal ("1370322") and hex ("0x0014E8D2"). Returns None for garbage or a form that no longer exists 
+; Accepts decimal ("1370322") and hex ("0x0014E8D2"). Returns None for garbage or a form that no longer exists
 Form Function GetFormById(string asFormId) Global Native
 ; Bulk variant: element i resolves asFormIds[i]; unresolved entries are None at the same index (length preserved).
 Form[] Function GetFormsById(string[] asFormIds) Global Native
@@ -137,8 +137,8 @@ bool Function RejectViewRequest(string asReplyToken, string asCode, string asMes
 bool Function Unregister(int aiToken) Global Native
 
 ; --- menus --------------------------------------------------------------------
-; Ask OSF UI to open/close an overlay view; "osfui/settings" is the Mods surface (same as F10), where your settings card lives. 
-; View ids are always qualified "<modId>/<viewName>" — a bare name never resolves. returns true when the qualified view id exists, false when no installed view has that id. 
+; Ask OSF UI to open/close an overlay view; "osfui/settings" is the Mods surface (same as F10), where your settings card lives.
+; View ids are always qualified "<modId>/<viewName>" — a bare name never resolves. returns true when the qualified view id exists, false when no installed view has that id.
 ; CloseMenu returns false for an unknown or discovered-but-never-loaded view.
 bool Function OpenMenu(string asViewId = "osfui/settings") Global Native
 bool Function CloseMenu(string asViewId = "osfui/settings") Global Native
