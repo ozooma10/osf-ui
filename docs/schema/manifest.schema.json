@@ -2,24 +2,17 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/ozooma10/osf-ui/blob/main/docs/schema/manifest.schema.json",
   "title": "OSF UI View Manifest",
-  "description": "Schema for views/<modId>/<viewName>/manifest.json. Mod API 2.0. Bridge protocol 2.0. Mirrors src/runtime/ViewManifest.cpp. Unknown keys are ALLOWED — the runtime parses leniently, and a manifest written for a newer OSF UI carrying extra fields is the normal compatible case. (`manifestVersion` is one such key: the runtime accepts it, but the nested views/<modId>/<viewName>/ layout is itself the format discriminator, so nothing has to be declared twice and the toolchain does not emit it.) 2.0 changed no manifest FIELD; it changed what several of them mean, because the bridge a manifest opts into is a different one — four verbs, and a page-initiated handshake.",
+  "description": "Schema for views/<modId>/<viewName>/manifest.json. Mirrors src/runtime/ViewManifest.cpp. Unknown keys are allowed",
   "type": "object",
-  "required": ["id"],
   "additionalProperties": true,
   "properties": {
     "$schema": {
       "type": "string",
       "description": "Optional editor hint; ignored by the runtime."
     },
-    "id": {
-      "type": "string",
-      "pattern": "^[a-z0-9-]+$",
-      "maxLength": 64,
-      "description": "The view id. MUST equal the view folder name. The runtime's qualified view id is derived from the path: \"<modId>/<viewName>\" (e.g. \"ozooma10.almanac/planets\") - that qualified form is what the menu.open request, RegisterView, and OSFUI.OpenMenu use, and it is what the document is told it is in the `ready` payload's `view`/`mod` fields. Required."
-    },
     "title": {
       "type": "string",
-      "description": "Human-readable name. Defaults to the qualified id."
+      "description": "Friendly name for view. Defaults to the qualified id."
     },
     "description": {
       "type": "string",
@@ -63,7 +56,7 @@
     "capturesInput": {
       "type": "boolean",
       "default": true,
-      "description": "Menu-only: while this is the top open menu, freeze the game and route input into the page. Forced false for HUDs."
+      "description": "Menu-only: while this is the top open menu, route input into the page. Forced false for HUDs."
     },
     "pausesGame": {
       "type": "boolean",
@@ -73,7 +66,7 @@
     "openOnStart": {
       "type": "boolean",
       "default": false,
-      "description": "HUD: the author DEFAULT for automatic start at game launch — the player's per-HUD choice in Mod Settings overrides it. Menu: ignored for discovered views; honored only when a native plugin explicitly calls RegisterView, which is opt-in by the plugin rather than by the mere presence of a folder."
+      "description": "HUD: the author DEFAULT for automatic start at game launch — the player's per-HUD choice in Mod Settings overrides it."
     },
     "order": {
       "type": "integer",
@@ -83,7 +76,7 @@
     "hub": {
       "type": "boolean",
       "default": true,
-      "description": "List this view in catalogs (the `osfui/views` state key / the Mods surface). false = hidden utility view; it still loads and works, it just isn't advertised, and it can never be chosen for automatic start. (Field name predates the Mods surface.)"
+      "description": "List this view in catalogs (the `osfui/views` state key / the Mods surface). false = hidden utility view;"
     },
     "debugOnly": {
       "type": "boolean",

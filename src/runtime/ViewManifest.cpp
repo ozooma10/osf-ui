@@ -50,15 +50,9 @@ namespace OSFUI
 		manifest.id = modId + "/" + viewName;
 		manifest.mod = modId;
 
-		// Required `id` must equal the view folder name; a mismatch is a hard
-		// reject (a copied manifest that forgot the rename).
-		const auto declaredId = Json::GetString(*json, "id", "");
-		if (declaredId != viewName) {
-			REX::ERROR("ViewManifest: [content] {} declares id '{}' but the view folder is '{}' — "
-					   "'id' must equal the folder name",
-				a_path.string(), declaredId, viewName);
-			return std::nullopt;
-		}
+		// A declared `id` is ignored: the folder name already is the id.
+		// It stays in the accepted-keys list so pre-existing manifests
+		// don't report it as unknown.
 
 		manifest.title = Json::GetString(*json, "title", manifest.id);
 		manifest.description = Json::GetString(*json, "description", "");

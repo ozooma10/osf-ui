@@ -1,6 +1,5 @@
 {
   "$schema": "./../../../../../docs/schema/manifest.schema.json",
-  "id": "handoff",
   "title": "Local Interface Link",
   "description": "Warm platform surface for first-load view handoffs",
   "entry": "index.html",

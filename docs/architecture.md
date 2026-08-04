@@ -222,7 +222,7 @@ Features are `IUiModule`s (`runtime/UiModule.h`). `IUiModule` is a uniform lifec
 
 ### Views
 
-`ViewManager` does a **two-level** scan of `<data>/views/<modId>/<viewName>/manifest.json`. The first level is a mod namespace (its folder name must pass the mod-id grammar; `shared/` is skipped as the asset kit, and a manifest found at the first level is rejected as the pre-1.0 flat layout). The second level is the view. **The path is the identity**: the qualified view id is `<modId>/<viewName>`, derived from the folder, never from the file — the manifest's own `id` is only checked for consistency against the view folder name, so a manifest cannot claim another mod's namespace. Subfolders without a `manifest.json` are ignored, so a mod can keep shared assets beside its views.
+`ViewManager` does a **two-level** scan of `<data>/views/<modId>/<viewName>/manifest.json`. The first level is a mod namespace (its folder name must pass the mod-id grammar; `shared/` is skipped as the asset kit, and a manifest found at the first level is rejected as the pre-1.0 flat layout). The second level is the view. **The path is the identity**: the qualified view id is `<modId>/<viewName>`, derived from the folder, never from the file — a manifest declares no id at all (a legacy `id` field is ignored), so a manifest cannot claim another mod's namespace. Subfolders without a `manifest.json` are ignored, so a mod can keep shared assets beside its views.
 
 A `ViewManifest` declares id, entry page, size, transparency, and a permission block that defaults to deny (`nativeBridge`, `filesystem`, `network`). Manifest entries may not point outside the view folder.
 

@@ -1,6 +1,5 @@
 {
   "$schema": "./../../../../../docs/schema/manifest.schema.json",
-  "id": "benchmark",
   "title": "Web Performance Lab",
   "description": "Repeatable browser rendering workloads and frame-time reference measurements.",
   "entry": "index.html",

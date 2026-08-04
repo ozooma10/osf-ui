@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/ozooma10/osf-ui/blob/main/docs/schema/settings-schema.schema.json",
   "title": "OSF UI Settings Schema",
-  "description": "Schema for settings/<author>.<modname>.json files. Mod API 2.0. Bridge protocol 2.0. This file is declarative data, not code, so it survived the 2.0 API break unchanged — a schema written for 1.x still loads and renders. What changed is on the far side of it: the registry a view reads is now the `osfui/settings` state key rather than a settings.get request, committed values arrive as the `settings.changed` event, and an `action` row fires a REQUEST endpoint (see `command`).",
+  "description": "Schema for settings/<author>.<modname>.json files.",
   "type": "object",
   "properties": {
     "$schema": {

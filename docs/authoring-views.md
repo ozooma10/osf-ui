@@ -91,7 +91,6 @@ Your catalog is a state key (`osfui/i18n`, §3) the helper consumes for you: it 
 
 ```jsonc
 {
-  "id": "myhud",            // required; must equal the view folder name. The runtime id is the qualified "<modId>/myhud", derived from the path
   "title": "My HUD",        // optional, defaults to the qualified id
   "description": "",        // optional; one-line blurb shown in catalogs (the osfui/views state key, the Mods surface)
   "accent": "#e6904a",      // optional; colors platform chrome such as the first-load handoff
@@ -123,7 +122,7 @@ Your catalog is a state key (`osfui/i18n`, §3) the helper consumes for you: it 
 - **`permissions.nativeBridge`** must be `true` if your page talks to the runtime. When false, `window.osfui` is never injected and the page runs purely client-side.
 - On a menu's first open, OSF UI keeps the WebView hidden until its main frame loads. Loads over 150 ms show a small in-world local-link panel carrying the menu's title, accent, input-capture policy and pause policy; warm opens stay immediate. A failed load stays on that panel with retry/cancel controls rather than revealing a blank surface.
 - Set **`readySignal:true`** when DOM load is too early — e.g. the page needs its first state replay before it has anything meaningful to paint. After rendering that state, call `osfui.markReady()` once. Requires `permissions.nativeBridge:true`; without it the runtime warns and falls back to load completion. If a loaded page never signals, the handoff offers retry after 15 seconds so it can't strand the player.
-- A manifest failing validation (`id` not matching the folder name, an `entry` escaping the folder, a folder name violating the id grammar) is skipped with an error in `OSF UI.log`. The owning mod id comes from the `views/<modId>/` folder, so a view always groups onto its own mod's page.
+- A manifest failing validation (an `entry` escaping the folder, a folder name violating the id grammar) is skipped with an error in `OSF UI.log`. The owning mod id comes from the `views/<modId>/` folder, so a view always groups onto its own mod's page.
 
 ### Multiple views & layering
 
@@ -599,7 +598,7 @@ With `devMode: true` the in-game loop is fast too:
 
 ## 6. Checklist for shipping a view
 
-- [ ] `views/<modId>/<viewName>/manifest.json` — folder names pass the id grammar (§0), manifest `id` equals the view folder name, `permissions.nativeBridge` set as needed.
+- [ ] `views/<modId>/<viewName>/manifest.json` — folder names pass the id grammar (§0), `permissions.nativeBridge` set as needed. The folder name IS the view id — the manifest declares none.
 - [ ] Responsive CSS (no hardcoded 1280×720 assumptions; the view is resized to the screen).
 - [ ] All assets local and relative (no `..`, no absolute paths, no network) — plus the sanctioned `../../shared/osfui.css` / `osfui.js`.
 - [ ] Load `shared/osfui.js` before your script. Declare the `targetVersion` you authored against; use `"2.0.0"` or later after migrating to the strict four-verb surface.

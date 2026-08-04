@@ -3,9 +3,9 @@
 //
 // The runtime parses manifests leniently — unknown keys are allowed, since a
 // manifest written for a newer OSF UI carrying extra fields is the normal
-// compatible case (api-freeze-plan item 8) — but it hard-rejects two things,
-// and a rejected manifest means the view never registers: no menu entry, no
-// error the user can act on. Both are asserted below.
+// compatible case (api-freeze-plan item 8) — but it hard-rejects a bad
+// "entry", and a rejected manifest means the view never registers: no menu
+// entry, no error the user can act on. That is asserted below.
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -42,13 +42,13 @@ describe.each(VIEWS)('$mod/$name/manifest.json', (v) => {
     expect(() => JSON.parse(read())).not.toThrow();
   });
 
-  it('has an "id" equal to its containing folder name', () => {
+  it('declares no "id"', () => {
     const manifest = load();
-    // ViewManifest hard-rejects a mismatch. The qualified view id the runtime
-    // uses for menu.open / RegisterView is derived from the path
-    // ("<modId>/<viewName>"), so an id that disagrees with the folder would
-    // describe a view that cannot be addressed.
-    expect(manifest['id']).toBe(v.name);
+    // The folder name IS the view id: the runtime derives the qualified id
+    // ("<modId>/<viewName>") from the path and ignores a declared "id". The
+    // field is tolerated in third-party manifests for backward compatibility,
+    // but our own should model the canonical id-less form.
+    expect(manifest['id']).toBeUndefined();
   });
 
   it('has an "entry" that is relative, ".."-free, and at the view root', () => {

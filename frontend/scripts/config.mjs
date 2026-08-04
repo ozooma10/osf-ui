@@ -27,9 +27,9 @@ export const VIEWS = readdirSync(VIEWS_ROOT, { withFileTypes: true })
       .map((viewEntry) => {
         const manifestPath = join(modRoot, viewEntry.name, 'manifest.json');
         const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-        if (manifest.id !== viewEntry.name || manifest.mod !== modEntry.name) {
+        if (manifest.mod !== modEntry.name) {
           throw new Error(
-            `${relative(FRONTEND, manifestPath)} id/mod must match its source directory`,
+            `${relative(FRONTEND, manifestPath)} mod must match its source directory`,
           );
         }
         return { mod: modEntry.name, name: viewEntry.name, manifest };

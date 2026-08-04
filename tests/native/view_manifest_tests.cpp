@@ -39,8 +39,8 @@ int main()
 	const auto root = MakeRoot();
 	const auto path = root / "demo.mod" / "terminal" / "manifest.json";
 
+	// No "id" field: identity comes from the folder path alone.
 	Write(path, R"({
-		"id": "terminal",
 		"title": "Cargo terminal",
 		"accent": "#E6904A",
 		"readySignal": true,
@@ -54,14 +54,17 @@ int main()
 
 	// Explicit readiness cannot work without a bridge. The parser degrades to
 	// load completion, so a typo cannot leave the handoff waiting forever.
+	// The legacy "id" field — even a stale one from a copied manifest — is
+	// ignored, not rejected.
 	Write(path, R"({
-		"id": "terminal",
+		"id": "some-old-name",
 		"accent": "#nothex",
 		"readySignal": true,
 		"permissions": { "nativeBridge": false }
 	})");
 	manifest = OSFUI::ViewManifest::Load(path);
 	assert(manifest);
+	assert(manifest->id == "demo.mod/terminal");
 	assert(manifest->accent.empty());
 	assert(!manifest->readySignal);
 

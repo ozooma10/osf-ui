@@ -1,6 +1,5 @@
 {
   "$schema": "./../../../../../docs/schema/manifest.schema.json",
-  "id": "keybinds",
   "title": "Keybinds",
   "description": "Full keyboard map of mod and Game Bindings",
   "entry": "index.html",
