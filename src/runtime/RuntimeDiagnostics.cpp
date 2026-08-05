@@ -146,7 +146,10 @@ namespace OSFUI
 
 		std::vector<CompatibilityTarget> targets;
 		for (const auto& manifest : runtime._views.All()) {
-			if (IsTargetNewerThanHost(manifest.targetVersion)) {
+			if (IsPre2Target(manifest.targetVersion)) {
+				targets.push_back({ manifest.id, "view", manifest.targetVersion,
+					"compat.pre-2-view", DiagnosticsModule::Severity::Error });
+			} else if (IsTargetNewerThanHost(manifest.targetVersion)) {
 				targets.push_back({ manifest.id, "view", manifest.targetVersion });
 			}
 		}
@@ -172,6 +175,7 @@ namespace OSFUI
 				"plugin",
 				std::format("{}.{}", caller.major, caller.minor),
 				"compat.legacy-api",
+				DiagnosticsModule::Severity::Error,
 			});
 		}
 		if (runtime._settings) {

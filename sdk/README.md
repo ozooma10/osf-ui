@@ -12,7 +12,7 @@ needed.
   send/request endpoint unions, the platform state keys and events, and the
   settings-schema shapes.
 - [`OSFUI_API.h`](OSFUI_API.h) — the copyable C++ header for **SFSE plugin
-  authors** (native bridge, C ABI 1.8). Consume it through the
+  authors** (native bridge, C ABI 2.0). Consume it through the
   `OSFUI::API::Client` wrapper — it version-gates every call so a too-old
   host degrades to false/no-op instead of undefined behavior.
 - [`OSFUI_JSON.h`](OSFUI_JSON.h) — optional header-only `nlohmann::json`
@@ -23,22 +23,15 @@ needed.
 ## Bridge protocol version
 
 **2.0 — stable.** Additive changes bump the minor; breaking changes bump the
-major. Compatibility is advisory, not gated: declare the OSF UI version you
-authored against as `targetVersion` (in your view manifest and/or settings
-schema) and the Mods surface shows a "needs update" badge when the running host
-is older.
+major. Declare the OSF UI version you authored against as `targetVersion` in
+your manifest and settings schema. Newer targets receive a "needs update"
+badge; explicitly pre-2.0 views are refused and reported through System Health.
 
-The web protocol is a breaking 2.0 release, while the native C++ ABI remains
-additive at 1.8:
-
-- **Views** using the shipped 1.x helper remain usable when their manifest
-  declares a target below 2.0; the host selects a compatibility facade over the
-  2.0 transport. Raw 1.x `postMessage`/`onMessage` consumers still need to
-  migrate, and an undeclared target deliberately receives the strict 2.0 shape.
-- **Plugins** compiled against ABI 1.0–1.7 continue to connect. ABI 1.8 appends
-  `SetViewState` at the vtable tail and preserves the established
-  `RegisterCommand` request-ID injection and automatic acknowledgement. See
-  [docs/native-plugin-api.md §1](../docs/native-plugin-api.md#1-compatibility-with-1x).
+Both the web protocol and native C++ ABI make a breaking 2.0 cut. Native
+plugins must rebuild against ABI 2.0; ABI 1.x callers receive `nullptr` and a
+bounded local Health diagnostic naming the outdated DLL. Sends use strict
+`RegisterSend` handlers and requests use `RegisterRequest`; there is no payload
+injection or automatic acknowledgement.
 
 The handshake is page-initiated: the document greets the bridge with
 `osfui.hello` and the host answers `ready`, then replays state. The shared helper

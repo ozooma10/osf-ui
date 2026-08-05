@@ -2,17 +2,17 @@
 
 Lets your DLL talk to OSF UI: handle messages a view sends, publish state and events back, read settings and hotkeys, open views, report health.
 
-The stable, dependency-free ABI is [`sdk/OSFUI_API.h`](../sdk/OSFUI_API.h) (C ABI **1.8**). If your plugin already uses `nlohmann::json`, include the optional [`sdk/OSFUI_JSON.h`](../sdk/OSFUI_JSON.h) authoring facade too — it stays on your side of the DLL boundary and never changes the ABI.
+The stable, dependency-free ABI is [`sdk/OSFUI_API.h`](../sdk/OSFUI_API.h) (C ABI **2.0**). If your plugin already uses `nlohmann::json`, include the optional [`sdk/OSFUI_JSON.h`](../sdk/OSFUI_JSON.h) authoring facade too — it stays on your side of the DLL boundary and never changes the ABI.
 
 Writing a view (HTML/JS) instead? [authoring-views.md](authoring-views.md) is the `window.osfui` side. Your `SetViewState` arrives at the view's `osfui.state.on`, your `SendToWeb` at its `osfui.on`, and its `osfui.send` / `osfui.request` arrive at your handlers.
 
 **Contents**
 
 - [0. When you need this](#0-when-you-need-this)
-- [1. Compatibility with 1.x](#1-compatibility-with-1x)
+- [1. ABI 2.0 cutover](#1-abi-20-cutover)
 - [2. Get the bridge](#2-get-the-bridge)
 - [3. Versioning](#3-versioning)
-- [4. Commands — web → native](#4-commands--web--native)
+- [4. Sends — web → native](#4-sends--web--native)
 - [5. Requests — web → native, settled once](#5-requests--web--native-settled-once)
 - [6. Native → web — state and events](#6-native--web--state-and-events)
 - [7. Status & readiness](#7-status--readiness)
@@ -35,19 +35,17 @@ Most mods need no native code:
 
 Use this API when your logic is in a native DLL and needs to handle view messages (and answer the ones needing an answer), publish game state or push a one-shot happening, read settings or react to changes from C++, react to a hotkey, register a schema or view folder at runtime, open or close a view, or report a durable failure into System Health.
 
-If OSF UI is missing, every call is a safe no-op — you never special-case "not installed". Plugins compiled against any 1.x minor still connect to ABI 1.8.
+If OSF UI is missing, every call is a safe no-op — you never special-case "not installed". Plugins must be rebuilt against ABI 2.0.
 
 ---
 
-## 1. Compatibility with 1.x
+## 1. ABI 2.0 cutover
 
-`kBridgeAPIVersion` is `(1 << 16) | 8`. The ABI stays additive: every new virtual method is appended after the complete older interface, and `Client` checks the host minor before calling it. A plugin compiled against 1.0–1.7 receives the bridge and keeps the same vtable slots.
+`kBridgeAPIVersion` is `(2 << 16) | 0`. ABI 2.0 replaces the ambiguous command callback with strict `RegisterSend` / `SendFn`, retains `RegisterRequest`, and includes retained state in the baseline. A send receives exactly the caller's payload and never produces an acknowledgement; a request naming it is rejected `wrong-endpoint-kind`.
 
-ABI 1.8 adds one method, `SetViewState`, at the vtable tail. Code compiled with the 1.8 header detects it via `Feature::kViewState`; the `Client` wrapper does that automatically and returns `false` against a 1.0–1.7 host.
+OSF UI refuses every ABI 1.x caller with `nullptr`. The refusal is also recorded as a bounded local System Health error naming the outdated DLL when Windows can resolve the call site. Rebuild against the 2.0 header; there is no binary compatibility shim.
 
-`RegisterCommand` preserves its established behavior. A view may call it with `send()` for a one-way notification. If a view calls it with `request()`, the host injects `"requestId"` into the callback payload and returns an automatic `{ ok: true, command }` reply after the handler returns — that reply means only that the handler ran. New endpoints with a meaningful result should use `RegisterRequest` and answer with `Request::Respond` / `Request::Reject`.
-
-The web bridge protocol is independently versioned at 2.0. Native ABI compatibility does not restore removed 1.x JavaScript helper aliases or the old wire envelope; views still follow the [migration guide](mod-api-2.0-migration.md).
+Future ABI 2.x additions append methods at the vtable tail and bump the minor. The `Client` wrapper feature-gates those additions.
 
 ---
 
@@ -64,7 +62,7 @@ static OSFUI::API::Client g_ui;
 void OnPostLoad()
 {
     if (g_ui.Init()) {            // false if OSF UI is absent or a major apart
-        g_ui.RegisterCommand("acme.mymod.equip", &OnEquip, nullptr);
+        g_ui.RegisterSend("acme.mymod.equip", &OnEquip, nullptr);
         g_ui.RegisterRequest("acme.mymod.getWeight", &OnGetWeight, nullptr);
         g_ui.RegisterView("acme.mymod/dashboard");
     }
@@ -81,20 +79,20 @@ void OnPostLoad()
 
 | Version | Read it with | Gates |
 |---|---|---|
-| **C ABI** (`1.8`) | `GetInterfaceVersion()` | which native methods exist. Packed `(major<<16)｜minor`. |
+| **C ABI** (`2.0`) | `GetInterfaceVersion()` | which native methods exist. Packed `(major<<16)｜minor`. |
 | **Plugin** (OSF UI release) | `GetPluginVersion()` | nothing — log it for support. |
 | **Web protocol** (`"2.0"`) | `GetBridgeProtocolVersion()` | the JS handshake. Native code: don't parse it. |
 
-`Feature` values are their additive ABI minors. `Client::Has(Feature)` compares the running host minor before calling a tail method: requests and diagnostics need 1.7, retained native state needs 1.8. Major mismatches are refused.
+`Feature` values are their additive ABI minors. Every feature in the 2.0 header is baseline; `Client::Has(Feature)` remains the gate for future 2.x tail additions. Major mismatches are refused.
 
 ---
 
-## 4. Commands — web → native
+## 4. Sends — web → native
 
 A view calls `osfui.send("<name>", payload)`. Your handler runs on the game main thread.
 
 ```cpp
-void OnEquip(const char* command,
+void OnEquip(const char* name,
              const char* payloadJson,   // the caller's payload object, verbatim
              const char* sourceViewId,  // who sent it
              void* user) noexcept
@@ -102,14 +100,14 @@ void OnEquip(const char* command,
     // All const char* args are valid only during this call. Copy what you keep.
 }
 
-g_ui.RegisterCommand("acme.mymod.equip", &OnEquip, nullptr);
+g_ui.RegisterSend("acme.mymod.equip", &OnEquip, nullptr);
 ```
 
-A registered command is normally a one-way `send()` endpoint. For compatibility with ABI 1.x, `request()` may also name it: the callback payload then includes the injected `requestId` and the host returns `{ ok: true, command }` after the handler returns. That auto-reply confirms dispatch, not success — use `RegisterRequest` whenever the view needs a meaningful result or failure. A `send()` naming a strict request endpoint is still dropped and surfaced as `wrong-endpoint-kind`.
+A registered send is strictly one-way. A `request()` naming it is rejected `wrong-endpoint-kind`; no `requestId` or other routing field is injected into the payload and no acknowledgement is generated. Use `RegisterRequest` whenever the view needs a result or failure. A `send()` naming a request endpoint is dropped and surfaced as `wrong-endpoint-kind`.
 
 **Names:** `<author>.<modname>.<name>` — a mod id (lowercase `[a-z0-9-]` segments, exactly one dot) plus a name that may contain more dots. Two dots minimum; bad shapes are refused with a log warning. Platform endpoints are dotless or single-dot, so you can't collide with them.
 
-**Duplicates are first-wins across both registries.** A name can't be both a command and a request, and registering a name someone else owns is refused. To replace your own handler, `UnregisterCommand` then register again — the pair works back-to-back within one tick.
+**Duplicates are first-wins across both registries.** A name can't be both a send and a request, and registering a name someone else owns is refused. To replace your own handler, `UnregisterSend` then register again — the pair works back-to-back within one tick.
 
 Register once at `kPostLoad`.
 
@@ -149,12 +147,12 @@ const { weight } = await osfui.request("acme.mymod.getWeight", { formId });
 
 `Request::Respond` also has a two-argument `(type, payload)` overload inherited from 1.7. It still compiles, but 2.0 correlates a reply by **id**, not name, so the type is transmitted nowhere — use the single-argument form.
 
-For a fire-and-forget `RegisterCommand` callback, `JsonCommand` gives the same typed payload access plus `Command()` and `SourceViewId()`:
+For a fire-and-forget `RegisterSend` callback, `JsonSend` gives the same typed payload access plus `Name()` and `SourceViewId()`:
 
 ```cpp
-void OnEquip(const char* command, const char* json, const char* source, void*) noexcept
+void OnEquip(const char* name, const char* json, const char* source, void*) noexcept
 {
-    OSFUI::API::JsonCommand event{ command, json, source };
+    OSFUI::API::JsonSend event{ name, json, source };
     if (!event) return;
     std::uint32_t formId{};
     if (event.TryGet("formId", formId)) Equip(formId);
@@ -167,7 +165,7 @@ The token is a copyable C-ABI value holding an opaque 64-bit id and host functio
 
 **Failure.** `req.Reject("stable-code", "human detail")` — the view's `osfui.request()` rejects with an error carrying that `code`, and the shared helper prints it to that page's console with an `[osfui]` prefix, so your rejection reason lands in F12 DevTools with the payload attached, not only in `OSF UI.log`. Invalid response JSON rejects as `invalid-response`.
 
-**Limits.** Requests use the same qualified grammar and first-wins namespace as commands. Each view may hold at most 64 requests in flight; overflow rejects with `request-capacity`. The fixed host deadline is 30 seconds, no opt-out, after which the view is answered `no-response`. For genuinely long work, take a *command*, publish progress and results with `SetViewState`, and never hold a request open across it.
+**Limits.** Requests use the same qualified grammar and first-wins namespace as sends. Each view may hold at most 64 requests in flight; overflow rejects with `request-capacity`. The fixed host deadline is 30 seconds, no opt-out, after which the view is answered `no-response`. For genuinely long work, take a *send*, publish progress and results with `SetViewState`, and never hold a request open across it.
 
 **Settings action buttons are requests.** A schema `action` row ([authoring-settings.md §4](authoring-settings.md#4-notes-images-and-action-buttons)) fires `osfui.request("<yourmod>.<name>", { mod, key })` with a 5 s client timeout, so register it with `RegisterRequest`.
 
@@ -385,7 +383,7 @@ Everything is namespaced to the calling mod: the issue's `source` is **your mod 
 
 - Any thread, synchronous: all status reads, the typed setting getters, and the validation half of every mutating call.
 - Any thread, applied next tick: the *effect* of every mutating call (register, send, publish state, subscribe, request menu, report issue).
-- Always the main thread: every callback (`CommandFn`, `RequestFn`, `ReadyFn`, `SettingChangedFn`, `HotkeyFn`). Keep them cheap.
+- Always the main thread: every callback (`SendFn`, `RequestFn`, `ReadyFn`, `SettingChangedFn`, `HotkeyFn`). Keep them cheap.
 - `Request::Respond` / `Reject` are the exception: safe from any thread, at any later time.
 
 **Lifetime**
@@ -401,40 +399,40 @@ Everything is namespaced to the calling mod: the issue's `source` is **your mod 
 
 ## 10. Method reference
 
-All on `IOSFUIBridge`, mirrored on `Client` (which adds the version gate). **Since** is the additive ABI minor used by the `Client` feature gates.
+All on `IOSFUIBridge`, mirrored on `Client`. Every listed method is part of the ABI 2.0 baseline; future additive methods will name their 2.x minor.
 
 | Method | Since | Thread | Notes |
 |---|---|---|---|
-| `GetInterfaceVersion()` | 1.0 | any | packed `(major<<16)｜minor` |
-| `GetPluginVersion(maj,min,pat)` | 1.0 | any | OSF UI release |
-| `GetBridgeProtocolVersion()` | 1.0 | any | don't parse |
-| `IsBridgeReady()` | 1.0 | any | a view is live |
-| `RegisterCommand(cmd,fn,user)` | 1.0 | any | send + compatibility auto-ack request; shape `<author>.<modname>.<name>` |
-| `UnregisterCommand(cmd)` | 1.0 | any | |
-| `RegisterRequest(name,fn,user)` | 1.7 | any | first-wins across commands and requests; callback on main |
-| `UnregisterRequest(name)` | 1.7 | any | in-flight tokens stay valid until answer/timeout/close |
-| `SendToWeb(view,type,json)` | 1.0 | any | one-shot EVENT to one view; queued, never replayed |
-| `SetViewState(mod,key,json)` | 1.8 | any | retained STATE; replayed to every fresh document |
-| `SetReadyCallback(fn,user)` | 1.0 | any | fires on main thread |
-| `RequestMenu(view,open)` | 1.1 | any | open loads on demand; close needs a loaded view |
-| `SubscribeSettings(mod,fn,user)` | 1.2 | any | replayed on subscribe; returns token/0 |
-| `UnsubscribeSettings(token)` | 1.2 | any | |
-| `GetSettingBool/Int/Float(mod,key,out)` | 1.2 | any | false/0 on miss |
-| `GetSettingString(mod,key,buf,len)` | 1.2 | any | returns length incl. NUL; null buf = probe |
-| `RegisterSettingsSchema(json)` | 1.2 | any | false on bad JSON/shape |
-| `UnregisterSettingsSchema(mod)` | 1.2 | any | keeps saved values |
-| `SubscribeHotkey(mod,key,fn,user)` | 1.4 | any | no replay; returns token/0 |
-| `UnsubscribeHotkey(token)` | 1.4 | any | |
-| `RegisterView(view)` | 1.5 | any | `<modId>/<viewName>`; idempotent |
-| `ReportIssue(mod,id,code,sev,subj,ctx)` | 1.7 | any | false on bad mod id / empty id or code / non-object context |
-| `ClearIssue(mod,id)` | 1.7 | any | true = queued, not "was active" |
-| `ClearIssuesExcept(mod,keepJson)` | 1.7 | any | keep list is a JSON array of ids |
+| `GetInterfaceVersion()` | 2.0 | any | packed `(major<<16)｜minor` |
+| `GetPluginVersion(maj,min,pat)` | 2.0 | any | OSF UI release |
+| `GetBridgeProtocolVersion()` | 2.0 | any | don't parse |
+| `IsBridgeReady()` | 2.0 | any | a view is live |
+| `RegisterSend(name,fn,user)` | 2.0 | any | strict one-way send; shape `<author>.<modname>.<name>` |
+| `UnregisterSend(name)` | 2.0 | any | |
+| `RegisterRequest(name,fn,user)` | 2.0 | any | first-wins across sends and requests; callback on main |
+| `UnregisterRequest(name)` | 2.0 | any | in-flight tokens stay valid until answer/timeout/close |
+| `SendToWeb(view,type,json)` | 2.0 | any | one-shot EVENT to one view; queued, never replayed |
+| `SetViewState(mod,key,json)` | 2.0 | any | retained STATE; replayed to every fresh document |
+| `SetReadyCallback(fn,user)` | 2.0 | any | fires on main thread |
+| `RequestMenu(view,open)` | 2.0 | any | open loads on demand; close needs a loaded view |
+| `SubscribeSettings(mod,fn,user)` | 2.0 | any | replayed on subscribe; returns token/0 |
+| `UnsubscribeSettings(token)` | 2.0 | any | |
+| `GetSettingBool/Int/Float(mod,key,out)` | 2.0 | any | false/0 on miss |
+| `GetSettingString(mod,key,buf,len)` | 2.0 | any | returns length incl. NUL; null buf = probe |
+| `RegisterSettingsSchema(json)` | 2.0 | any | false on bad JSON/shape |
+| `UnregisterSettingsSchema(mod)` | 2.0 | any | keeps saved values |
+| `SubscribeHotkey(mod,key,fn,user)` | 2.0 | any | no replay; returns token/0 |
+| `UnsubscribeHotkey(token)` | 2.0 | any | |
+| `RegisterView(view)` | 2.0 | any | `<modId>/<viewName>`; idempotent |
+| `ReportIssue(mod,id,code,sev,subj,ctx)` | 2.0 | any | false on bad mod id / empty id or code / non-object context |
+| `ClearIssue(mod,id)` | 2.0 | any | true = queued, not "was active" |
+| `ClearIssuesExcept(mod,keepJson)` | 2.0 | any | keep list is a JSON array of ids |
 
 ---
 
 ## 11. Example plugin
 
-Surfaces its own view, publishes state it can never be asked to re-send, answers one request, takes one command, reacts to a setting, and never hard-fails when OSF UI is absent.
+Surfaces its own view, publishes state it can never be asked to re-send, answers one request, takes one send, reacts to a setting, and never hard-fails when OSF UI is absent.
 
 ```cpp
 #include "OSFUI_API.h"
@@ -465,7 +463,7 @@ static void OnGetWeight(const Request& raw, void*) noexcept
     request.Respond({ { "weight", ReadWeight(*formId) } });
 }
 
-// A COMMAND: one-way. Nothing is sent back, and nothing needs to be.
+// A SEND: one-way. Nothing is sent back, and nothing needs to be.
 static void OnDock(const char*, const char*, const char*, void*) noexcept
 {
     BeginDocking();
@@ -481,10 +479,10 @@ static void OnSetting(const char*, const char* key, const char* valueJson, void*
 // Call once from SFSE kPostLoad.
 void InitOsfUi()
 {
-    if (!g_ui.Init()) return;   // OSF UI absent or 1.x-era — degrade silently
+    if (!g_ui.Init()) return;   // OSF UI absent or ABI-mismatched — degrade silently
 
     g_ui.RegisterRequest("acme.mymod.getWeight", &OnGetWeight, nullptr);
-    g_ui.RegisterCommand("acme.mymod.dock", &OnDock, nullptr);
+    g_ui.RegisterSend("acme.mymod.dock", &OnDock, nullptr);
     g_ui.SubscribeSettings("acme.mymod", &OnSetting, nullptr);
 
     g_ui.RegisterView("acme.mymod/dashboard");

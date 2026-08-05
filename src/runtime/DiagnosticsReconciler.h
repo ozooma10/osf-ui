@@ -25,6 +25,7 @@ namespace OSFUI
 		// SOURCE, so two independent producers would each resolve the other's
 		// issues on every pass.
 		std::string code{ "compat.needs-newer-osfui" };
+		DiagnosticsModule::Severity severity{ DiagnosticsModule::Severity::Warning };
 	};
 
 	// Testable state reconciliation behind RuntimeDiagnostics. Runtime gathers

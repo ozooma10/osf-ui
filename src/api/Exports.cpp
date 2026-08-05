@@ -8,13 +8,8 @@
 // kPostLoad, via GetModuleHandleW("OSFUI.dll") + GetProcAddress (see
 // OSFUI::API::RequestBridge in sdk/OSFUI_API.h and docs/native-plugin-api.md).
 //
-// Major must match: a caller built against another major gets nullptr and
-// degrades. Minor differences are backward-compatible (the vtable only grows at
-// the end) and are accepted.
-//
-// ABI 1.8 remains additive: callers built against every 1.x minor receive the
-// same object because new vmethods are appended and the Client gates them by
-// the host minor. A genuinely different major is still refused and surfaced.
+// Major must match: ABI 1.x callers get nullptr and a bounded local Health
+// diagnostic naming the outdated DLL. Future ABI 2.x minors remain additive.
 extern "C" __declspec(dllexport) OSFUI::API::IOSFUIBridge* OSFUI_RequestBridge(std::uint32_t a_abiVersion) noexcept
 {
 	const auto major = a_abiVersion >> 16;
@@ -29,8 +24,7 @@ extern "C" __declspec(dllexport) OSFUI::API::IOSFUIBridge* OSFUI_RequestBridge(s
 			OSFUI::Platform::ModuleNameForAddress(_ReturnAddress()), major, minor);
 		return nullptr;
 	}
-	// Logs which header vintage each consumer was built against. A caller minor
-	// above the host's is legal: it must gate tail vmethods on
+	// A caller minor above the host's is legal: it must gate tail vmethods on
 	// GetInterfaceVersion, as the Client wrapper does.
 	REX::INFO("BridgeApi: bridge vended (caller ABI {}.{}, host {}.{})",
 		major, minor, OSFUI::API::kBridgeAPIMajor, OSFUI::API::kBridgeAPIMinor);

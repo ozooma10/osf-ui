@@ -97,44 +97,44 @@ namespace OSFUI::API
 		return _ready.load();
 	}
 
-	void BridgeApi::RegisterCommand(const char* a_command, CommandFn a_handler, void* a_user)
+	void BridgeApi::RegisterSend(const char* a_name, SendFn a_handler, void* a_user)
 	{
-		if (!a_command || !a_handler) {
+		if (!a_name || !a_handler) {
 			return;
 		}
-		const std::string cmd(a_command);
-		if (!IsValidPluginCommand(cmd)) {
-			REX::WARN("BridgeApi: [content] refused RegisterCommand('{}') — commands are '<author>.<modname>.<name>' "
+		const std::string name(a_name);
+		if (!IsValidPluginCommand(name)) {
+			REX::WARN("BridgeApi: [content] refused RegisterSend('{}') — sends are '<author>.<modname>.<name>' "
 					  "(two dots minimum; the leading mod id follows the item-1 grammar). "
 					  "Single-dot and dotless names are the platform's",
-				cmd.substr(0, 128));
+				name.substr(0, 128));
 			return;
 		}
 		std::lock_guard lock(_mutex);
-		// First-wins (ABI 1.6): a duplicate registration is refused, not
-		// last-writer-wins, so an already-claimed command cannot be hijacked.
-		// Replacing your own handler means UnregisterCommand then re-register;
+		// First-wins: a duplicate registration is refused, not last-writer-wins,
+		// so an already-claimed endpoint cannot be hijacked.
+		// Replacing your own handler means UnregisterSend then re-register;
 		// the pair works back-to-back within one tick.
-		if (_commands.contains(cmd) || _requests.contains(cmd)) {
-			REX::WARN("BridgeApi: [content] refused RegisterCommand('{}') — already registered (first wins; "
-					  "UnregisterCommand first to replace your own handler)",
-				cmd);
+		if (_sends.contains(name) || _requests.contains(name)) {
+			REX::WARN("BridgeApi: [content] refused RegisterSend('{}') — already registered (first wins; "
+					  "UnregisterSend first to replace your own handler)",
+				name);
 			return;
 		}
-		_commands[cmd] = { a_handler, a_user };
-		std::erase(_pendingUnregister, cmd);  // cancel a pending removal of the same id
+		_sends[name] = { a_handler, a_user };
+		std::erase(_pendingSendUnregister, name);  // cancel a pending removal of the same id
 		_dirty = true;
 	}
 
-	void BridgeApi::UnregisterCommand(const char* a_command)
+	void BridgeApi::UnregisterSend(const char* a_name)
 	{
-		if (!a_command) {
+		if (!a_name) {
 			return;
 		}
-		const std::string cmd(a_command);
+		const std::string name(a_name);
 		std::lock_guard lock(_mutex);
-		if (_commands.erase(cmd) > 0) {
-			_pendingUnregister.push_back(cmd);
+		if (_sends.erase(name) > 0) {
+			_pendingSendUnregister.push_back(name);
 			_dirty = true;
 		}
 	}
@@ -148,8 +148,8 @@ namespace OSFUI::API
 			return;
 		}
 		std::lock_guard lock(_mutex);
-		if (_commands.contains(name) || _requests.contains(name)) {
-			REX::WARN("BridgeApi: [content] refused RegisterRequest('{}') — already registered (first wins across commands and requests)", name);
+		if (_sends.contains(name) || _requests.contains(name)) {
+			REX::WARN("BridgeApi: [content] refused RegisterRequest('{}') — already registered (first wins across sends and requests)", name);
 			return;
 		}
 		_requests[name] = { a_handler, a_user };
@@ -640,9 +640,9 @@ namespace OSFUI::API
 			if (bridge) {
 				const bool changed = bridge != _appliedBridge;
 				if (changed || _dirty) {
-					if (changed) { _pendingUnregister.clear(); _pendingRequestUnregister.clear(); }
-					else { commandRemovals.swap(_pendingUnregister); requestRemovals.swap(_pendingRequestUnregister); }
-					for (const auto& pair : _commands) commands.push_back(pair);
+					if (changed) { _pendingSendUnregister.clear(); _pendingRequestUnregister.clear(); }
+					else { commandRemovals.swap(_pendingSendUnregister); requestRemovals.swap(_pendingRequestUnregister); }
+					for (const auto& pair : _sends) commands.push_back(pair);
 					for (const auto& pair : _requests) requests.push_back(pair);
 					_appliedBridge = bridge; _dirty = false;
 				}
@@ -681,16 +681,10 @@ namespace OSFUI::API
 			}
 		}
 		if (bridge) {
-			for (const auto& name : commandRemovals) bridge->UnregisterCompatCommand(name);
+			for (const auto& name : commandRemovals) bridge->UnregisterSend(name);
 			for (const auto& name : requestRemovals) bridge->UnregisterRequest(name);
-			// RegisterCommand is an ABI 1.x compatibility endpoint: send() is
-			// one-way, while request() injects its correlation id into the callback
-			// payload and MessageBridge auto-acks after return. New answer-bearing
-			// endpoints should use RegisterRequest.
-			for (const auto& [name, reg] : commands) bridge->RegisterCompatCommand(name, [name, reg](const nlohmann::json& payload, MessageBridge& b) {
-				auto body = payload;
-				if (!b.CurrentRequestId().empty()) body["requestId"] = b.CurrentRequestId();
-				const auto dump = Json::Dump(body);
+			for (const auto& [name, reg] : commands) bridge->RegisterSend(name, [name, reg](const nlohmann::json& payload, MessageBridge& b) {
+				const auto dump = Json::Dump(payload);
 				const std::string src(b.CurrentSource()); reg.fn(name.c_str(), dump.c_str(), src.c_str(), reg.user);
 			});
 			for (const auto& [name, reg] : requests) bridge->RegisterRequest(name, [this, name, reg](const nlohmann::json& payload, MessageBridge& b) { DispatchRequest(name, reg, payload, b); });

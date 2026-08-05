@@ -79,7 +79,7 @@ export function keyState(rows: readonly BindingRow[], name: string): ConflictSta
  *
  * Self is excluded by identity, not by value, because two rows can be
  * field-for-field identical (same mod registering a label twice, duplicated
- * vanillaKeys entry) and those must report as conflicting. Callers must pass a
+ * game-binding catalog entry) and those must report as conflicting. Callers must pass a
  * row from the same array they are querying; a structurally-equal clone would
  * compare against itself and self-report a conflict.
  */

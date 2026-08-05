@@ -3,7 +3,7 @@
 namespace OSFUI
 {
 	// Mirrors data/OSFUI/config.json, the developer/boot file: backends, input
-	// source, diagnostic escape hatches, view set, dev knobs. Mod-owned and
+	// source, view selection and developer knobs. Mod-owned and
 	// clobbered on update; holds no user-facing keys — those live in the `osfui`
 	// settings schema (data/OSFUI/settings/osfui.json) and persist under
 	// data/OSFUI/settings/values. Missing/invalid fields fall back to these
@@ -11,9 +11,8 @@ namespace OSFUI
 	struct Config
 	{
 		// Bumped only on a breaking config re-shape; a file written by a newer
-		// OSF UI logs INFO and parses leniently. v2 removed the central view
-		// lists ('views'/'warmViews'): startup now follows manifest openOnStart
-		// plus the player's per-HUD auto-start choices in Mod Settings.
+		// OSF UI logs INFO and parses leniently. Removed fields have no special
+		// compatibility handling; they are reported as unknown and ignored.
 		static constexpr std::int64_t kConfigVersion = 2;
 
 		bool        enabled{ true };

@@ -17,9 +17,7 @@ namespace OSFUI
 			"configVersion", "enabled",
 			"inputSource", "captureInput", "hardwareCursor", "focusMenu",
 			"engineInput", "pauseMenuEntryLabel", "pauseMenuEntryView",
-			// 'views'/'warmViews' are recognized so a v1 file does not read as a
-			// typo, but they are deprecated no-ops (see the parse site).
-			"view", "views", "warmViews", "devMode",
+			"view", "devMode",
 		};
 
 
@@ -67,8 +65,8 @@ namespace OSFUI
 			return config;
 		}
 
-		// Format stamp + migration hook. Newer file: parse leniently, ignoring
-		// unknown fields. Older file: where migrations would run (none yet).
+		// Newer and older files parse leniently. There is no config-v1
+		// compatibility layer: removed fields are ordinary unknown keys.
 		Json::CheckFormatVersion(*json, "configVersion", kConfigVersion, "Config: " + a_path.string());
 		Json::ReportUnknownKeys(*json, kKnownKeys, "Config: " + a_path.string(), /*a_warn=*/true);
 
@@ -81,16 +79,6 @@ namespace OSFUI
 		config.pauseMenuEntryLabel = Json::GetString(*json, "pauseMenuEntryLabel", config.pauseMenuEntryLabel);
 		config.pauseMenuEntryView = Json::GetString(*json, "pauseMenuEntryView", config.pauseMenuEntryView);
 		config.view = Json::GetString(*json, "view", config.view);
-		// configVersion 2 removed the central view lists. HUD auto-start is the
-		// player's choice in Mod Settings (manifest openOnStart is the author
-		// default); every other view loads on first open.
-		for (const auto* legacy : { "views", "warmViews" }) {
-			if (json->contains(legacy)) {
-				REX::WARN("Config: '{}' is deprecated and ignored (configVersion 2) — "
-						  "HUD auto-start is set per HUD in Mod Settings; other views load on first open",
-					legacy);
-			}
-		}
 		config.devMode = Json::GetBool(*json, "devMode", config.devMode);
 		ApplyAuthorModeMarker(config, a_path);
 

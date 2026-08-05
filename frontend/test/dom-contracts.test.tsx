@@ -25,7 +25,7 @@ import { KeyField } from '@ui/KeyField';
 import { ActionButton } from '@ui/ActionButton';
 import { App } from '@views/osfui/keybinds/App';
 import { nullBridge, type Bridge } from '@lib/bridge';
-import type { RuntimeInfo, SettingsData } from '@sdk';
+import type { KeybindingsData, RuntimeInfo, SettingsData } from '@sdk';
 
 // Harness
 
@@ -155,11 +155,25 @@ const DATA: SettingsData = {
       },
     },
   ],
-  vanillaKeys: [{ event: 'QuickSave', title: 'Starfield (Quicksave)', name: 'F5' }],
 } as unknown as SettingsData;
 
-/** A bridge whose document already received the `osfui/settings` replay. */
-const seeded = () => makeBridge({ 'osfui/settings': DATA });
+const LIVE_KEYBINDINGS: KeybindingsData = {
+  available: true,
+  revision: 1,
+  gameVersion: 'test',
+  actions: [{
+    event: 'QuickSave', label: 'Quicksave', category: 'MainGameplay',
+    context: { id: 0, name: 'MainGameplay', order: 0 }, classification: 'core',
+    modes: { definite: ['onFoot'], possible: [] }, sortIndex: 0, required: false,
+    bindings: [{ slot: 'main', key: 'F5', chord: ['F5'], unbound: false }],
+  }],
+};
+
+/** A bridge whose document already received both retained-state replays. */
+const seeded = () => makeBridge({
+  'osfui/settings': DATA,
+  'osfui/keybindings': LIVE_KEYBINDINGS,
+});
 
 /**
  * The same document plus a German keycap-label map (the additive `keyboard`
@@ -174,7 +188,10 @@ const GERMAN_DATA: SettingsData = {
     labels: { Semicolon: 'Ö', Grave: '^', Y: 'Z', Z: 'Y', IntlBackslash: '<', Minus: 'ß' },
   },
 } as unknown as SettingsData;
-const seededGerman = () => makeBridge({ 'osfui/settings': GERMAN_DATA });
+const seededGerman = () => makeBridge({
+  'osfui/settings': GERMAN_DATA,
+  'osfui/keybindings': LIVE_KEYBINDINGS,
+});
 
 let host: HTMLElement | null = null;
 

@@ -156,7 +156,7 @@ A group can also contain static and interactive rows:
 
 - **Notes** support micro-markdown only: `**bold**`, `*italic*`, `` `code` ``, `\n`. No HTML, no links — everything renders injection-safe.
 - **Image** `src` is relative to your `views/<id>/` folder (ship one even if it only holds assets); no `..`, absolute paths, or URL schemes.
-- **Actions** fire a bridge **request** whose name must be namespaced `<your-id>.something`; the card refuses anything else, and anything whose leading segment is a framework namespace (`ui`, `menu`, `hud`, `settings`, `views`, `game`, `runtime`). Register it with **`RegisterRequest`**, not `RegisterCommand` ([native-plugin-api.md](native-plugin-api.md)) — a button needs an outcome. An older ABI plugin may still serve the name with `RegisterCommand`, but its compatibility auto-ack is a silent success that can't express a result or failure. Actions therefore need a native plugin; Papyrus has no equivalent registration.
+- **Actions** fire a bridge **request** whose name must be namespaced `<your-id>.something`; the card refuses anything else, and anything whose leading segment is a framework namespace (`ui`, `menu`, `hud`, `settings`, `views`, `game`, `runtime`). Register it with **`RegisterRequest`**, not `RegisterSend` ([native-plugin-api.md](native-plugin-api.md)) — a button needs an outcome. Actions therefore need a native plugin; Papyrus has no equivalent registration.
 
   The card sends `{ "mod": "<your-id>", "key": "<the action's key>" }` and waits 5 s. Resolve `{}` for a silent success or `{ "message": "…" }` to raise a toast; reject with your own code and message and that message toasts as a failure; time out and the player reads `No response from <your mod>`.
 
@@ -324,7 +324,7 @@ Nothing here needs a disabled client timeout: a request pending until the player
 
 ### From an SFSE plugin (C++)
 
-Fetch the bridge from [`sdk/OSFUI_API.h`](../sdk/OSFUI_API.h) through the `Client` wrapper (C ABI 1.8; the calls below predate 1.8 and remain compatible — see [native-plugin-api.md](native-plugin-api.md)):
+Fetch the bridge from [`sdk/OSFUI_API.h`](../sdk/OSFUI_API.h) through the `Client` wrapper (C ABI 2.0 — see [native-plugin-api.md](native-plugin-api.md)):
 
 ```cpp
 static OSFUI::API::Client g_ui;   // g_ui.Init() once, after SFSE kPostLoad
@@ -400,7 +400,7 @@ Settings cover pre-declared scalars. For **dynamic data** — pushing live lists
 
 - **Changing a default:** just change it. Persistence is sparse (only user-changed values are written), so users who never touched the knob get the new default.
 - **Changing a type:** old saved values that no longer validate fall back to the new default. Prefer a new key with an alias when the meaning changes.
-- **Using features newer than the OSF UI you tested on:** declare `"targetVersion": "2.0.0"`. The schema still loads best-effort on older hosts — unknown decorations ignored, unknown types rendered read-only (a write to one rejects `read-only`, not `invalid-value`, so a view can say "needs a newer OSF UI"), saved values for unknown types preserved untouched — and the Mods surface badges "needs update" naming your mod. A schema target remains advisory; a **view manifest** below 2.0 selects the 1.x compatibility helper so existing view code can continue running.
+- **Using features newer than the OSF UI you tested on:** declare `"targetVersion": "2.0.0"`. The schema still loads best-effort on older hosts — unknown decorations ignored, unknown types rendered read-only (a write to one rejects `read-only`, not `invalid-value`, so a view can say "needs a newer OSF UI"), saved values for unknown types preserved untouched — and the Mods surface badges "needs update" naming your mod. A declared **view manifest** below 2.0 is refused rather than loaded against an incompatible helper.
 - **Uninstall:** the values file is deliberately kept (MO2 profile switches look identical to uninstalls). Reinstalling restores the user's settings.
 
 ---

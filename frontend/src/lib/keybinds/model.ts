@@ -1,9 +1,8 @@
 // model.ts — flatten a `settings.data` document into keybind rows.
 //
-// The keybinds view consumes the same document the settings view does. One row
-// per bound key, from two sources: every `type:"key"` setting of every mod
-// (rebindable), and the top-level `vanillaKeys` table (the game's own bindings,
-// read-only).
+// One row per bound key, from two retained-state documents: mod key settings
+// from `osfui/settings`, and the game's live bindings from
+// `osfui/keybindings`.
 
 import type {
   GameplayMode,
@@ -17,11 +16,6 @@ import type { KeyLabeler } from './labels';
 import { resolveInputContext } from '../settings/inputContext';
 
 export type ModEntry = SettingsData['mods'][number];
-
-/**
- * A row of the deprecated `SettingsData.vanillaKeys` compatibility projection.
- */
-export type VanillaKey = NonNullable<SettingsData['vanillaKeys']>[number];
 
 /** One flattened binding. `mod` is present only on `kind:"mod"` rows. */
 export interface BindingRow {
@@ -65,21 +59,6 @@ export type Translate = (address: string, english: string) => string;
 
 const defaultTranslate: Translate = (_address, english) => english;
 
-/**
- * "Starfield (Quicksave)" -> "Quicksave", for display inside a game-tagged row
- * where repeating "Starfield" on every line would be noise.
- *
- * The regex requires at least one char before " (" and at least one inside the
- * parens, and `[^(]+` forbids a nested open paren in the prefix. Anything that
- * does not match is passed through whole — intended for a title native did not
- * format that way, not a fallback for a broken parse.
- */
-export function vanillaLabel(title: unknown): string {
-  const s = String(title || '');
-  const m = /^[^(]+ \((.+)\)$/.exec(s);
-  return m?.[1] ?? s;
-}
-
 /** Narrow a group item to a key-typed Setting with a usable `key`. */
 function isKeySetting(item: SettingsItem | null | undefined): item is Extract<
   SettingsItem,
@@ -106,7 +85,7 @@ function isKeySetting(item: SettingsItem | null | undefined): item is Extract<
  */
 export function buildModel(
   mods: readonly ModEntry[] | null | undefined,
-  vanillaKeys: readonly (VanillaKey | KeybindingsData['actions'][number])[] | null | undefined,
+  gameActions: readonly KeybindingsData['actions'][number][] | null | undefined,
   translate: Translate = defaultTranslate,
   labeler: KeyLabeler = () => undefined,
 ): BindingRow[] {
@@ -157,9 +136,9 @@ export function buildModel(
     }
   }
 
-  for (const v of vanillaKeys || []) {
+  for (const v of gameActions || []) {
     if (!v) continue;
-    if ('bindings' in v && Array.isArray(v.bindings)) {
+    if (Array.isArray(v.bindings)) {
       for (let i = 0; i < v.bindings.length; ++i) {
         const binding = v.bindings[i];
         if (!binding) continue;
@@ -194,18 +173,6 @@ export function buildModel(
           rowId: `game:${v.context?.id ?? 'x'}:${v.event}:${binding.slot}:${i}`,
         });
       }
-    } else if ('name' in v) {
-      // Deprecated host compatibility projection.
-      const name = canonicalName(v.name);
-      rows.push({
-        kind: 'game', key: v.event, label: vanillaLabel(v.title),
-        owner: translate('gameOwner', 'Starfield'), name, keyLabel: labeler(name) ?? name,
-        contextId: 'MainGameplay', contextLabel: translate('gameplay', 'Gameplay'),
-        contextNumericId: 0, classification: 'core',
-        gameplayModes: ['onFoot', 'ship', 'vehicle', 'zeroG'], blocksGameplay: false,
-        chord: [name], unbound: false, vanillaWarnings,
-        rowId: `legacy-game:${v.event}:${name}`,
-      });
     }
   }
 

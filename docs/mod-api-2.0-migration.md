@@ -2,14 +2,14 @@
 
 Read this when your mod stopped working after updating OSF UI. It's the mechanics half of [mod-api-2.0-design.md](mod-api-2.0-design.md), which covers *why* the API is shaped this way.
 
-**The raw 2.0 web protocol is a hard break**, but views that used the shipped 1.x helper do not have to migrate immediately. A manifest declaring `targetVersion` below `2.0` receives a compatibility façade over the 2.0 transport; migrate to the four-verb surface to adopt new features and remove the shim on your own schedule. Views that bypassed the helper and wrote 1.x envelopes directly must migrate. The separately versioned native C++ ABI stays additive at 1.8, so already-compiled 1.x DLLs still connect.
+**The 2.0 web protocol and native C++ ABI are hard breaks.** Explicitly pre-2.0 views are refused before navigation, and ABI 1.x DLLs receive no bridge. System Health names the view or DLL that needs an author update.
 
 | Artifact | Breaks? | How you find out |
 |---|---|---|
-| View (`views/<modId>/<viewName>/`) | **Compatibility available** | A declared pre-2.0 target receives the established callable `available()` surface and helper aliases over protocol 2.0. Raw `postMessage`/`onMessage` consumers and undeclared legacy views must migrate. |
-| Native SFSE plugin (`sdk/OSFUI_API.h`) | **No** | ABI 1.8 appends `SetViewState`; binaries built against 1.0–1.7 keep their vtable and command behavior. |
+| View (`views/<modId>/<viewName>/`) | **Yes** | A declared pre-2.0 target is refused and reported as `compat.pre-2-view`. Migrate to the four-verb helper and declare `targetVersion: "2.0.0"`. |
+| Native SFSE plugin (`sdk/OSFUI_API.h`) | **Yes** | ABI 1.x callers receive `nullptr` and a local diagnostic naming the outdated DLL. Rebuild against ABI 2.0. |
 | Papyrus script | **Partly** | Six removed natives (`PushToView`, `PushFormsToView`, `RegisterForViewActions{,Static,Args,ArgsStatic}`). Calls fail to resolve in the VM and error in `Papyrus.0.log`. Everything else keeps its name. |
-| Settings schema (`settings/<modId>.json`) | **No** | Declarative data. An `action` row uses a request; an older `RegisterCommand` handler stays callable through its compatibility auto-ack path. |
+| Settings schema (`settings/<modId>.json`) | **No** | Declarative data. An `action` row uses a strict `RegisterRequest` endpoint. |
 | Player values, localization catalogs | **No** | Same files, same format. |
 
 ---
@@ -236,35 +236,27 @@ Papyrus keeps its 1.5 names on purpose: renaming `ListenForViewActions` / `OnOSF
 
 `sdk/OSFUI_API.h` (+ the optional `sdk/OSFUI_JSON.h` facade), host side in `src/api/BridgeApi.{h,cpp}` and `src/api/Exports.cpp`.
 
-### 5.1 Additive ABI 1.8
+### 5.1 Breaking ABI 2.0
 
 ```cpp
-inline constexpr std::uint32_t kBridgeAPIVersion = (1u << 16) | 8u;
+inline constexpr std::uint32_t kBridgeAPIVersion = (2u << 16) | 0u;
 ```
 
-`OSFUI_RequestBridge` compares the major, so every caller built against ABI 1.x receives the bridge. `SetViewState` is appended after the complete 1.7 virtual interface and exposed as `Feature::kViewState = 8`; no earlier slot moves. The 1.8 `Client` checks the running minor before using that tail method; an already-compiled older Client never knows or calls it.
+`OSFUI_RequestBridge` compares the major. ABI 1.x callers receive `nullptr`; the host records a bounded, deduplicated `compat.legacy-api` System Health error naming the caller DLL when Windows can resolve it. Every method in the 2.0 header is baseline, including `SetViewState`. Future 2.x additions append at the vtable tail and bump the minor.
 
-### 5.2 What a 1.x plugin experiences
+### 5.2 Strict send/request split
 
-It connects normally. Existing settings, hotkey, view, diagnostics, request, event and readiness calls keep their slots and feature minors. `RegisterCommand` keeps its behavioral contract: `send()` invokes it one-way; `request()` injects `requestId` into the callback payload and receives an automatic `{ ok: true, command }` reply after return. That only proves dispatch, so new result-bearing endpoints should use `RegisterRequest`.
-
-A genuinely different ABI major is still refused and may raise the bounded, deduplicated `compat.legacy-api` diagnostic — that path doesn't apply to any 1.x caller.
-
-A view whose manifest declares a `targetVersion` below `2.0` is navigated with the 1.x helper façade selected. It is not reported as unhealthy merely for using the supported compatibility path. An *undeclared* `targetVersion` is deliberately treated as current: after parsing it is indistinguishable from "declared and unparsable", and guessing would force the legacy helper shape onto every undeclared view.
-
-Both codes ride on `CompatibilityTarget`, which grew a `code` field defaulting to `"compat.needs-newer-osfui"` (`src/runtime/DiagnosticsReconciler.h`). Every compat producer **must** flow through the one `SyncCompatibility` call, because `ResolveMissing` sweeps by `source` — two producers writing `source: "compat"` would each resolve the other's issues on every pass.
+Replace `CommandFn` / `RegisterCommand` / `UnregisterCommand` with `SendFn` / `RegisterSend` / `UnregisterSend`. A send handler receives the caller's payload verbatim. A request naming it rejects `wrong-endpoint-kind`; the host never injects `requestId` and never fabricates an acknowledgement. Result-bearing endpoints use the retained `RegisterRequest` and settle through `Request::Respond` or `Reject`.
 
 ### 5.3 Source changes
 
-| 1.0–1.7 | 1.8 | Break |
+| ABI 1.x | ABI 2.0 | Break |
 |---|---|---|
-| command requests carried an injected `"requestId"` | unchanged | none |
-| the host auto-acked after a command request returned | unchanged; explicit `RegisterRequest` preferred for meaningful results | none |
-| a command that wanted to answer replied out-of-band with the injected id | `RegisterRequest` + `Request::Respond` / `Reject` (unchanged since ABI 1.7) | — |
-| `SendToWeb(viewId, type, payloadJson)` | unchanged signature; now encodes `{ kind:"event", name: type, payload }` | none — the view still reads it at `osfui.on(type)` |
-| — | **`SetViewState(modId, key, payloadJson)`** (new vtable tail) | additive |
-| `Feature` gates decide whether a call exists | unchanged; `Feature::kViewState = 8` | none |
-| — | `BridgeApi::TakeViewStateOps()` (new drain) | — |
+| `CommandFn`, `RegisterCommand`, `UnregisterCommand` | `SendFn`, `RegisterSend`, `UnregisterSend` | source + binary |
+| command requests carried injected `requestId` and auto-acked | request-to-send rejects `wrong-endpoint-kind` | behavioral |
+| result-bearing commands | `RegisterRequest` + `Request::Respond` / `Reject` | source |
+| `SetViewState` was an additive tail method | `SetViewState` is baseline | binary |
+| per-feature 1.x minor gates | all current features are ABI 2.0 baseline | binary |
 
 `SetViewState` is the systemic fix for the blank-after-F5 bug class on the native side. Publish once and the runtime replays it to every document of your mod:
 
@@ -275,7 +267,7 @@ Both codes ride on `CompatibilityTarget`, which grew a `code` field defaulting t
 
 ### 5.4 Settings-schema `action` rows should use `RegisterRequest`
 
-An `action` row's `command` was a fire-and-forget command with an ack convention in 1.x. In 2.0 the Mods surface fires it as a **request** (`frontend/src/views/osfui/settings/App.tsx`, `runAction`, 5 s timeout) and renders the settlement: `Respond` with an object — an optional string `message` becomes a toast, `{}` is a silent success — or `Reject` with a code and sentence, rendered as an error toast. An older `RegisterCommand` handler still runs through the ABI compatibility path and auto-acks as a silent success, but can't express a meaningful result. A `RegisterRequest` handler that never settles fails with `timeout`, shown as "No response from `<mod>`".
+An `action` row's `command` is a **request** (`frontend/src/views/osfui/settings/App.tsx`, `runAction`, 5 s timeout). `Respond` with an object — an optional string `message` becomes a toast, `{}` is a silent success — or `Reject` with a code and sentence, rendered as an error toast. Registering the name with `RegisterSend` produces `wrong-endpoint-kind`. A `RegisterRequest` handler that never settles fails with `timeout`, shown as "No response from `<mod>`".
 
 ---
 
@@ -300,7 +292,7 @@ The design doc left three open questions. What shipped:
 - **7.1 `osfui/debug.error` shipped as the `osfui.debug.error` EVENT.** A slash denotes a view id (`<mod>/<view>`) and the state `<mod>/<key>` separator, so a slashed name is ambiguous exactly where it matters. It shipped as a dotted event name in the platform (`osfui.*`) namespace, delivered by `MessageBridge::Surface` → `Runtime::OnProtocolMisuse` → `Emit(view, "osfui.debug.error", …)`, printed by the helper's `deliverEvent` special case with the usual `[osfui]` prefix. Naming it an event also settles what it is: one-shot, never replayed, never cached.
 - **7.2 The fixed-target shell verbs shipped as requests, not commands.** The doc grouped `osfui.openModPage` and `osfui.openLogFolder` with the commands; both can fail for reasons the page can't predict and the player can act on (`shell-failed`, `no-log-folder`), and the doc's own rule is that wanting a remote outcome makes it a request. The security property that motivated grouping them — the target is a compile-time constant or natively derived and the payload can't steer the shell — is unaffected by endpoint kind. `close`, `log`, `view.ready`, `osfui.gamepadRaw` and `osfui.handleBack` did ship as commands.
 - **7.4 `hud.show` / `hud.hide` and `osfui.textFocus` were deleted, not migrated.** The first two were registered to the *same handler lambdas* as `menu.open`/`menu.close`; "one dialect, no aliases" is a design principle. `osfui.textFocus` was a registered no-op kept only so a view asserting text focus before session focus wouldn't trip `unknown-command`; since an unknown send is now a dev-only debug event it bought nothing. (The WebView2 focus-on-demand mechanism it fronted is native and unaffected.)
-- **7.5 Smaller drifts.** The removed `ReplayViewState` machinery moved to `src/runtime/ViewStateStore.{h,cpp}` rather than staying in `PapyrusApi` (§6.3). The doc's symmetry grid labelled the C ABI row "`RegisterCommand` (command handler)"; that's still the spelling, but the shipped header documents it as a **send** endpoint — 2.0 renamed the *host* registry (`MessageBridge::RegisterSend` / `RegisterRequest`, `IUiModule::RegisterCommands` → `RegisterEndpoints`) while keeping the C ABI method names.
+- **7.5 Smaller drifts.** The removed `ReplayViewState` machinery moved to `src/runtime/ViewStateStore.{h,cpp}` rather than staying in `PapyrusApi` (§6.3). The native ABI now matches the host registry spelling: `RegisterSend` / `RegisterRequest`.
 
 ---
 
@@ -312,7 +304,7 @@ For a mod spanning all three backends:
 
 1. **Bump `targetVersion` to `"2.0.0"`** in every view manifest and settings schema first. Until you do, System Health tells the player your view is legacy — what you want while you work, and what you must clear before you ship.
 2. **Papyrus next**, because it's the slowest loop. Replace `PushToView` / `PushFormsToView` with `SetView*` (state) or `SendViewEvent` (happenings), collapse the `RegisterForViewActions*` family into `ListenForViewActions{,Static}` + `OnOSFUIViewAction(string, string[])`, and **delete** the page-`ready`-then-re-push handshake on both sides. Recompile against the shipped `data/Scripts/Source/OSFUI.psc` and redeploy the `.pex`.
-3. **Native plugin**: 1.x binaries keep working. Recompile against `sdk/OSFUI_API.h` only to adopt `SetViewState` or current conveniences. New answer-bearing endpoints and settings-schema actions should use `RegisterRequest`; convert re-push-on-reload code to `SetViewState`.
+3. **Native plugin**: rebuild against `sdk/OSFUI_API.h` ABI 2.0. Rename `CommandFn` / `RegisterCommand` to `SendFn` / `RegisterSend`; use `RegisterRequest` for answer-bearing endpoints and settings-schema actions; convert re-push-on-reload code to `SetViewState`.
 4. **Views last**, once the data they consume already arrives correctly. Do the renames from §1.1, then the `request()` payload sweep from §1.2 — that one is manual.
 5. **Verify with `localStorage["osfui:trace"] = "1"` and a reload.** Every replayed `state` envelope is visible at document boot, so a blank panel is answered immediately: the key arrives (view bug) or it doesn't (backend bug).
 
@@ -335,7 +327,7 @@ Run `bash tests/native/run.sh` (exit code = failing checks) and `npm --prefix fr
 | Every failure reaches the page console with `[osfui]` | `frontend/test/protocol.errors.test.ts` |
 | State: replay-on-subscribe, latest-wins, case-insensitive keys, `null` is a value, throwing handler isolated | `frontend/test/protocol.parse.test.ts` |
 | Events and replies never cross channels; a request settles exactly once; correlation by id alone | `frontend/test/protocol.pluginack.test.ts` |
-| `send()` is one-way; native `RegisterCommand` preserves ABI 1.x request-ID injection and auto-ack | `frontend/test/protocol.pluginack.test.ts`, `tests/native/bridge_api_tests.cpp` |
+| `send()` and native `RegisterSend` are one-way; a request-to-send is refused without injection or auto-ack | `frontend/test/protocol.pluginack.test.ts`, `tests/native/bridge_api_tests.cpp` |
 | A request endpoint that never settles answers `internal` | `frontend/test/protocol.pluginack.test.ts`, `tests/native/bridge_api_tests.cpp` |
 | 1.x envelopes are ignored rather than mis-parsed | `frontend/test/protocol.parse.test.ts` |
 | `osfui.debug.error` arrives as an event and is printed | `frontend/test/protocol.parse.test.ts` |
@@ -351,8 +343,8 @@ Run `bash tests/native/run.sh` (exit code = failing checks) and `npm --prefix fr
 | `SendViewEvent` is one-shot: never retained, never replayed | `tests/native/papyrus_action_tests.cpp` |
 | Papyrus state is session-scoped and dropped on game load; native state is not | `tests/native/papyrus_action_tests.cpp`, `tests/native/papyrus_form_tests.cpp` |
 | ABI `SetViewState` validation, queue cap, retained-not-session-scoped delivery | `tests/native/bridge_api_tests.cpp` |
-| ABI 1.8 constants, additive feature gate, command compatibility | `tests/native/bridge_api_tests.cpp` |
-| Different-major diagnostic ledger: dedupe by module, bounded, drained once | `tests/native/bridge_api_tests.cpp` |
+| ABI 2.0 constants, strict send/request routing, all current features baseline | `tests/native/bridge_api_tests.cpp` |
+| ABI 1.x refusal diagnostic ledger: dedupe by module, bounded, drained once | `tests/native/bridge_api_tests.cpp` |
 | Compat card lifecycle: one source, swept by `ResolveMissing`, no occurrence churn | `tests/native/runtime_diagnostics_tests.cpp`, `tests/native/diagnostics_tests.cpp` |
 | Diagnostics registry as state, including the greeting replay bypassing the content dedupe | `tests/native/diagnostics_tests.cpp` |
 | Harness mock speaks the same protocol as the shipped helper, end to end | `frontend/test/devmock.mockbridge.test.ts` |

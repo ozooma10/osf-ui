@@ -3,16 +3,9 @@
 // Settling rules for mod-backend requests ("<author>.<modname>.<name>", three
 // segments minimum) in the shipped helper (src/shared-kit/osfui.js).
 //
-// This file used to pin an auto-ack HEURISTIC. In 1.x a RegisterCommand handler
-// that replied with nothing produced a host `ui.result { ok:true, command }`,
-// and the helper had to guess whether an ack that named the request's own
-// command meant "nothing else is coming" — otherwise every schema `action`
-// button hung for the full timeout and toasted a false "No response from {mod}".
-//
-// 2.0 deletes the helper's guess. Kind decides strict endpoint behavior:
+// Kind decides strict endpoint behavior:
 //   - `send()` is never awaited and needs no ack; it returns as soon as the
-//     message is posted. Native ABI RegisterCommand keeps a host-side 1.x
-//     compatibility auto-ack when explicitly reached through request().
+//     message is posted. A request naming that send is refused.
 //   - a request endpoint MUST settle exactly once (Respond / Reject / Defer),
 //     and the host answers `internal` if a handler returns without settling
 //     (MessageBridge::DispatchRequest), so "no answer" is a bug that reports

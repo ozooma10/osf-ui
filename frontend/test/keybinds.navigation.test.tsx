@@ -128,7 +128,7 @@ const flush = async () => {
 };
 
 /**
- * Two mods and two vanilla rows. `demo.panelKey` (F5) collides with the vanilla
+ * Two mods. `demo.panelKey` (F5) collides with the live game
  * Quicksave, so the fixture covers the conflict paths as well as the plain ones.
  */
 const DATA: SettingsData = {
@@ -149,10 +149,6 @@ const DATA: SettingsData = {
         groups: [{ settings: [{ key: 'panelKey', label: 'Open panel', type: 'key' }] }],
       },
     },
-  ],
-  vanillaKeys: [
-    { event: 'QuickSave', title: 'Starfield (Quicksave)', name: 'F5' },
-    { event: 'Activate', title: 'Starfield (Interact)', name: 'E' },
   ],
 } as unknown as SettingsData;
 
@@ -177,11 +173,11 @@ const LIVE_KEYBINDINGS: KeybindingsData = {
 };
 
 /** A bridge whose document already received the settings replay. */
-const seeded = () => makeBridge({ 'osfui/settings': DATA });
-const seededWithLiveKeys = () => makeBridge({
+const seeded = () => makeBridge({
   'osfui/settings': DATA,
   'osfui/keybindings': LIVE_KEYBINDINGS,
 });
+const seededWithLiveKeys = seeded;
 
 let host: HTMLElement | null = null;
 

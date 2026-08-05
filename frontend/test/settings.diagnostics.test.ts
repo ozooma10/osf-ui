@@ -121,7 +121,7 @@ describe('severityForMod — rail marker attribution', () => {
   });
 
   it("attributes a mod's OWN reports by source, whatever their subject", () => {
-    // An ABI 1.7 report names the thing the mod cares about — a pack, a file —
+    // A native report names the thing the mod cares about — a pack, a file —
     // which is never the mod id, so source is the only link back to the rail.
     const own = [issue({ id: 'r', severity: 'error', source: 'acme.kit', subject: 'highlights' })];
     expect(severityForMod(own, 'acme.kit')).toBe('error');
@@ -154,6 +154,14 @@ describe('copyForIssue', () => {
     const target = copyForIssue(issue({ id: 'b', code: 'settings.hotkey-target' }));
     expect(target.actions).toContain('open-logs');
     expect(target.title[1]).toMatch(/hotkey action/i);
+
+    const pre2 = copyForIssue(issue({ id: 'c', code: 'compat.pre-2-view' }));
+    expect(pre2.title[1]).toMatch(/removed OSF UI 1\.x API/i);
+    expect(pre2.actions).toEqual(['copy-details', 'open-logs']);
+
+    const abi1 = copyForIssue(issue({ id: 'd', code: 'compat.legacy-api' }));
+    expect(abi1.next[1]).toMatch(/native ABI 2\.0/i);
+    expect(abi1.actions).toEqual(['copy-details', 'open-logs']);
   });
 
   it('falls back to generic copy for an unknown or absent code', () => {

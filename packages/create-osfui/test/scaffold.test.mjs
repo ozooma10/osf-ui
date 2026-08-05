@@ -15,7 +15,7 @@ for (const [surface, integration, backendPath, backendPattern] of [
   ['menu', 'papyrus', 'mod/Scripts/Source/AcmeWidgetsOSFUI.psc', /Function Bump\(int total\) Global/],
   ['hud', 'papyrus', 'mod/Scripts/Source/AcmeWidgetsOSFUI.psc', /Function Refresh\(\) Global/],
   ['hud', 'native', 'native/src/main.cpp', /UpdateHudState/],
-  ['menu', 'native', 'native/src/main.cpp', /OSFUI::API::JsonCommand/],
+  ['menu', 'native', 'native/src/main.cpp', /OSFUI::API::JsonSend/],
 ]) {
   test(`creates the ${surface}/${integration} preset`, async (t) => {
     const parent = await mkdtemp(resolve(tmpdir(), 'create-osfui-'));
@@ -182,7 +182,7 @@ for (const [surface, integration, backendPath, backendPattern] of [
       const nativeSource = await readFile(resolve(root, 'native/src/main.cpp'), 'utf8');
       assert.match(nativeSource, /#include "OSFUI_JSON\.h"/);
       if (surface === 'menu') {
-        assert.match(nativeSource, /OSFUI::API::JsonCommand/);
+        assert.match(nativeSource, /OSFUI::API::JsonSend/);
         assert.match(nativeSource, /OSFUI::API::JsonRequest/);
         assert.match(nativeSource, /SubscribeSettings/);
         assert.match(nativeSource, /SubscribeHotkey/);

@@ -1,11 +1,11 @@
-// Host-side unit tests for BridgeApi ABI 1.8 + MessageBridge protocol 2.0
+// Host-side unit tests for BridgeApi ABI 2.0 + MessageBridge protocol 2.0
 // (docs/mod-api-2.0-design.md): the REAL src/api/BridgeApi.cpp and
 // src/runtime/MessageBridge.cpp compiled against stubs/pch.h. Pins the endpoint
 // grammar ("<author>.<modname>.<name>", api-freeze item 3), first-wins duplicate
 // refusal, unregister-then-reregister replacement, qualified RegisterView ids
 // (item 1), and — end to end through a live bridge — the four-verb envelope, the
-// page-initiated handshake, kind enforcement, request settlement, the ABI 1.8
-// SetViewState queue and the legacy-ABI caller ledger.
+// page-initiated handshake, strict kind enforcement, request settlement,
+// retained state and the refused-ABI caller ledger.
 //
 // The 1.x wire is gone, so every inbound message here is a 2.0 envelope with the
 // routing metadata BESIDE the payload:
@@ -87,7 +87,7 @@ namespace
 		return a_envelope.value("payload", nlohmann::json::object());
 	}
 
-	// Recorded command-handler firings.
+	// Recorded send-handler firings.
 	struct Fired
 	{
 		std::string command;
@@ -148,18 +148,16 @@ namespace
 		g_requestCommand = a_request.command; g_requestPayload = a_request.payloadJson; g_requestSource = a_request.sourceViewId;
 	}
 
-	// A 1.7 host double for the additive 1.8 Client gate. SetViewState is the
-	// appended 1.8 vmethod: the double must implement today's interface for this
-	// source test, but the wrapper must never call it against a 1.7 host.
-	struct OldHost final : OSFUI::API::IOSFUIBridge
+	// Complete ABI 2.0 host double for Client pass-through checks.
+	struct TestHost final : OSFUI::API::IOSFUIBridge
 	{
 		int requestCalls{ 0 };
-		std::uint32_t GetInterfaceVersion() override { return (1u << 16) | 7u; }
+		std::uint32_t GetInterfaceVersion() override { return OSFUI::API::kBridgeAPIVersion; }
 		void GetPluginVersion(std::uint32_t& a, std::uint32_t& b, std::uint32_t& c) override { a=b=c=0; }
 		const char* GetBridgeProtocolVersion() override { return "1.4"; }
 		bool IsBridgeReady() override { return false; }
-		void RegisterCommand(const char*, OSFUI::API::CommandFn, void*) override {}
-		void UnregisterCommand(const char*) override {}
+		void RegisterSend(const char*, OSFUI::API::SendFn, void*) override {}
+		void UnregisterSend(const char*) override {}
 		bool SendToWeb(const char*, const char*, const char*) override { return false; }
 		bool SetViewState(const char*, const char*, const char*) override { return false; }
 		void SetReadyCallback(OSFUI::API::ReadyFn, void*) override {}
@@ -204,13 +202,11 @@ int main()
 	api.SetViewCatalog({ "someview" });
 	api.SetSurfaceLoaded("someview", true);
 
-	// --- version constants: additive ABI 1.8 ----------------------------------
-	// Existing 1.x callers are accepted; SetViewState is a gated tail addition
-	// so every 1.0-1.7 vtable slot and Client feature number remains stable.
-	CHECK(OSFUI::API::kBridgeAPIMajor == 1);
-	CHECK(OSFUI::API::kBridgeAPIMinor == 8);
-	CHECK(OSFUI::API::kBridgeAPIVersion == ((1u << 16) | 8u));
-	CHECK(static_cast<std::uint32_t>(OSFUI::API::Feature::kViewState) == 8);
+	// --- version constants: breaking ABI 2.0 ----------------------------------
+	CHECK(OSFUI::API::kBridgeAPIMajor == 2);
+	CHECK(OSFUI::API::kBridgeAPIMinor == 0);
+	CHECK(OSFUI::API::kBridgeAPIVersion == ((2u << 16) | 0u));
+	CHECK(static_cast<std::uint32_t>(OSFUI::API::Feature::kViewState) == 0);
 	CHECK(api.GetInterfaceVersion() == OSFUI::API::kBridgeAPIVersion);
 	CHECK(std::string_view(OSFUI::kBridgeProtocolVersion) == "2.0");
 	CHECK(std::string_view(api.GetBridgeProtocolVersion()) == "2.0");
@@ -224,21 +220,21 @@ int main()
 	                         "osfui.gamepadRaw",
 	                         "Acme.Mod.x", "under_score.mod.x", "acme.mymod.",
 	                         ".leading.x", "a..b.x" }) {
-		api.RegisterCommand(bad, &HandlerA, nullptr);
+		api.RegisterSend(bad, &HandlerA, nullptr);
 	}
-	CHECK(LoggedContaining("WARN", "refused RegisterCommand('close')"));
-	CHECK(LoggedContaining("WARN", "refused RegisterCommand('menu.open')"));
-	CHECK(LoggedContaining("WARN", "refused RegisterCommand('osfui.hello')"));
-	CHECK(LoggedContaining("WARN", "refused RegisterCommand('papyrus.send')"));
-	CHECK(LoggedContaining("WARN", "refused RegisterCommand('Acme.Mod.x')"));
+	CHECK(LoggedContaining("WARN", "refused RegisterSend('close')"));
+	CHECK(LoggedContaining("WARN", "refused RegisterSend('menu.open')"));
+	CHECK(LoggedContaining("WARN", "refused RegisterSend('osfui.hello')"));
+	CHECK(LoggedContaining("WARN", "refused RegisterSend('papyrus.send')"));
+	CHECK(LoggedContaining("WARN", "refused RegisterSend('Acme.Mod.x')"));
 
 	// Accepted: "<author>.<modname>.<name>", name may itself contain dots.
-	api.RegisterCommand("acme.mymod.ping", &HandlerA, nullptr);
-	api.RegisterCommand("acme.mymod.catalog.get", &HandlerA, nullptr);
+	api.RegisterSend("acme.mymod.ping", &HandlerA, nullptr);
+	api.RegisterSend("acme.mymod.catalog.get", &HandlerA, nullptr);
 
 	// --- duplicates: first-wins, refused (item 3) -----------------------------
-	api.RegisterCommand("acme.mymod.ping", &HandlerB, nullptr);  // hijack attempt
-	CHECK(LoggedContaining("WARN", "refused RegisterCommand('acme.mymod.ping') — already registered"));
+	api.RegisterSend("acme.mymod.ping", &HandlerB, nullptr);  // hijack attempt
+	CHECK(LoggedContaining("WARN", "refused RegisterSend('acme.mymod.ping') — already registered"));
 
 	// --- apply to a live bridge -----------------------------------------------
 	Outbox toWeb;
@@ -318,8 +314,8 @@ int main()
 		CHECK(PayloadOf(message).value("large", nlohmann::json{}) == nlohmann::json::array({ 1, 2, 3 }));
 	}
 
-	// --- RegisterCommand preserves its ABI 1.x contract ------------------------
-	// send() remains one-way and carries the payload verbatim.
+	// --- RegisterSend is strictly one-way --------------------------------------
+	// send() carries the payload verbatim.
 	toWeb.clear();
 	bridge.HandleWebMessage("someview", SendMsg("acme.mymod.ping", R"({"x":1})"));
 	CHECK(g_firedA.size() == 1);
@@ -386,28 +382,26 @@ int main()
 		CHECK(LastSurfacedCode() == "invalid-request");
 	}
 
-	// request() also reaches a compatibility command: the callback receives the
-	// historical injected requestId and the bridge auto-acks after it returns.
+	// A request naming a send is refused. It never invokes the callback, injects
+	// routing fields, or fabricates an acknowledgement.
 	toWeb.clear();
 	bridge.HandleWebMessage("someview", RequestMsg("acme.mymod.ping", "q1"));
-	CHECK(g_firedA.size() == 3);
+	CHECK(g_firedA.size() == 2);
 	CHECK(toWeb.size() == 1);
-	CHECK(g_firedA.back().payload == R"({"requestId":"q1"})");
 	{
-		const auto reply = Last(toWeb);
-		CHECK(reply.value("kind", "") == "reply");
-		CHECK(reply.value("id", "") == "q1");
-		CHECK(PayloadOf(reply).value("ok", false));
-		CHECK(PayloadOf(reply).value("command", "") == "acme.mymod.ping");
+		const auto error = Last(toWeb);
+		CHECK(error.value("kind", "") == "error");
+		CHECK(error.value("id", "") == "q1");
+		CHECK(PayloadOf(error).value("code", "") == "wrong-endpoint-kind");
 	}
 
 	// --- replacement is explicit: unregister, then re-register ----------------
-	api.UnregisterCommand("acme.mymod.ping");
-	api.RegisterCommand("acme.mymod.ping", &HandlerB, nullptr);  // now legal (slot free)
+	api.UnregisterSend("acme.mymod.ping");
+	api.RegisterSend("acme.mymod.ping", &HandlerB, nullptr);  // now legal (slot free)
 	api.PumpMainThread();
 	toWeb.clear();
 	bridge.HandleWebMessage("someview", SendMsg("acme.mymod.ping"));
-	CHECK(g_firedA.size() == 3);
+	CHECK(g_firedA.size() == 2);
 	CHECK(g_firedB.size() == 1);
 
 	// --- request settlement ---------------------------------------------------
@@ -529,12 +523,12 @@ int main()
 		CHECK(LastSurfacedCode() == "wrong-endpoint-kind");
 		CHECK(!g_surfaced.empty() && g_surfaced.back().detail.value("name", "") == "test.reply");
 
-		// Strict endpoints and compatibility commands remain one first-wins
-		// namespace even though compatibility commands accept both verbs.
+		// Sends and requests share one first-wins namespace while retaining
+		// strict, disjoint routing kinds.
 		CHECK(!bridge.RegisterRequest("acme.mymod.ping", [](const nlohmann::json&, MessageBridge&) {}));
 		bridge.RegisterSend("test.reply", [](const nlohmann::json&, MessageBridge&) {});
-		CHECK(bridge.HasCompatCommand("acme.mymod.ping"));
-		CHECK(!bridge.HasSend("acme.mymod.ping") && !bridge.HasRequest("acme.mymod.ping"));
+		CHECK(bridge.HasSend("acme.mymod.ping"));
+		CHECK(!bridge.HasRequest("acme.mymod.ping"));
 		CHECK(bridge.HasRequest("test.reply") && !bridge.HasSend("test.reply"));
 		CHECK(LoggedContaining("WARN", "name already registered"));
 
@@ -560,12 +554,12 @@ int main()
 	// --- ABI request/response: the plugin side --------------------------------
 	api.RegisterRequest("acme.mymod.getWeight", &RequestHandler, nullptr);
 	api.RegisterRequest("acme.mymod.getWeight", &RequestHandler, nullptr); // duplicate refused
-	api.RegisterRequest("acme.mymod.ping", &RequestHandler, nullptr);      // command/request collision refused
-	api.RegisterCommand("acme.mymod.getWeight", &HandlerA, nullptr);       // reverse collision refused
+	api.RegisterRequest("acme.mymod.ping", &RequestHandler, nullptr);      // send/request collision refused
+	api.RegisterSend("acme.mymod.getWeight", &HandlerA, nullptr);          // reverse collision refused
 	api.PumpMainThread();
 	CHECK(LoggedContaining("WARN", "refused RegisterRequest('acme.mymod.getWeight')"));
 	CHECK(LoggedContaining("WARN", "refused RegisterRequest('acme.mymod.ping')"));
-	CHECK(LoggedContaining("WARN", "refused RegisterCommand('acme.mymod.getWeight')"));
+	CHECK(LoggedContaining("WARN", "refused RegisterSend('acme.mymod.getWeight')"));
 	CHECK(bridge.HasRequest("acme.mymod.getWeight"));
 	CHECK(!bridge.HasSend("acme.mymod.getWeight"));  // one name, one kind
 
@@ -641,9 +635,9 @@ int main()
 	api.SetSurfaceLoaded("cap-view", false);
 	bridge.OnViewDestroyed("cap-view");
 
-	// --- SetViewState (ABI 1.8): retained state, not a happening --------------
-	// The 1.x answer to "my page reloaded" was a view-defined "I reloaded"
-	// message plus a re-push per plugin. State replaces all of it: the plugin
+	// --- SetViewState: retained state, not a happening -------------------------
+	// Retained state replaces view-defined reload messages and manual re-pushes:
+	// the plugin
 	// sets a value, Runtime retains it, and every fresh document is replayed.
 	{
 		api.TakeViewStateOps();  // start from an empty queue
@@ -697,27 +691,26 @@ int main()
 		CHECK(LoggedContaining("WARN", "pending SetViewState queue full"));
 	}
 
-	// --- genuinely mismatched ABI-major callers, made visible -----------------
-	// OSFUI_RequestBridge accepts every 1.x minor. A different major is refused
-	// and recorded so Runtime
+	// --- refused ABI-major callers, made visible -------------------------------
+	// OSFUI_RequestBridge refuses ABI 1.x and records the caller so Runtime
 	// can raise ONE `compat.legacy-api` card naming the DLL the player has to
 	// update, instead of the refusal living only in a log nobody opens.
 	{
 		api.TakeLegacyApiCallers();  // start from an empty ledger
-		api.NoteLegacyApiCaller("FutureMod.dll", 2, 0);
-		api.NoteLegacyApiCaller("FutureMod.dll", 2, 0);  // a plugin retrying every load screen
+		api.NoteLegacyApiCaller("OldMod.dll", 1, 8);
+		api.NoteLegacyApiCaller("OldMod.dll", 1, 8);  // a plugin retrying every load screen
 		api.NoteLegacyApiCaller("", 3, 5);              // unresolvable module: still one card
 		{
 			const auto callers = api.TakeLegacyApiCallers();
 			CHECK(callers.size() == 2);  // deduped by module
-			CHECK(callers.size() == 2 && callers[0].module == "FutureMod.dll");
-			CHECK(callers.size() == 2 && callers[0].major == 2 && callers[0].minor == 0);
+			CHECK(callers.size() == 2 && callers[0].module == "OldMod.dll");
+			CHECK(callers.size() == 2 && callers[0].major == 1 && callers[0].minor == 8);
 			CHECK(callers.size() == 2 && callers[1].module.empty() && callers[1].major == 3);
 		}
 		CHECK(api.TakeLegacyApiCallers().empty());  // drained
 		// Bounded: a load order full of stale plugins cannot grow this.
 		for (int i = 0; i < 40; ++i) {
-			api.NoteLegacyApiCaller(std::format("mod{}.dll", i), 2, 0);
+			api.NoteLegacyApiCaller(std::format("mod{}.dll", i), 1, 8);
 		}
 		CHECK(api.TakeLegacyApiCallers().size() == 32);
 	}
@@ -794,9 +787,9 @@ int main()
 	CHECK(Last(toWeb).value("kind", "") == "event");
 	CHECK(PayloadOf(Last(toWeb)).value("lazy", false));
 
-	// The command registry re-applies to a replacement bridge, handlers intact.
+	// The send registry re-applies to a replacement bridge, handlers intact.
 	lazyBridge.HandleWebMessage("acme.mymod/dash", SendMsg("acme.mymod.catalog.get"));
-	CHECK(g_firedA.size() == 4);
+	CHECK(g_firedA.size() == 3);
 	api.OnBridgeReady(nullptr);
 	api.PumpMainThread();
 
@@ -864,19 +857,18 @@ int main()
 		using OSFUI::API::Feature;
 
 		Client c;
-		OldHost oldHost;
-		// A 1.7 host has every established feature but not the 1.8 tail method.
-		CHECK(c.Attach(&oldHost));
+		TestHost testHost;
+		CHECK(c.Attach(&testHost));
 		CHECK(c.Has(Feature::kDiagnostics));
 		CHECK(c.Has(Feature::kRequests));
-		CHECK(!c.Has(Feature::kViewState));
-		CHECK(!c.SetViewState("acme.mymod", "k", "{}"));
+		CHECK(c.Has(Feature::kViewState));
+		CHECK(!c.SetViewState("acme.mymod", "k", "{}"));  // test double returns false
 		c.RegisterRequest("acme.mymod.old", &RequestHandler, nullptr);
 		c.UnregisterRequest("acme.mymod.old");
-		CHECK(oldHost.requestCalls == 2);
+		CHECK(testHost.requestCalls == 2);
 		c.Attach(nullptr);
 		CHECK(!c.IsConnected());
-		CHECK(!c.Has(Feature::kCommands));           // unattached: everything gates off
+		CHECK(!c.Has(Feature::kSends));              // unattached: everything gates off
 		CHECK(!c.RequestMenu("osfui/settings", true));
 		CHECK(!c.SetViewState("acme.mymod", "k", "{}"));
 		CHECK(c.GetSettingString("a.b", "k", nullptr, 0) == 0);
@@ -886,7 +878,7 @@ int main()
 		CHECK(c.IsConnected() && static_cast<bool>(c));
 		CHECK(c.GetInterfaceVersion() == OSFUI::API::kBridgeAPIVersion);
 		CHECK(c.Raw() == &api);
-		CHECK(c.Has(Feature::kCommands));
+		CHECK(c.Has(Feature::kSends));
 		CHECK(c.Has(Feature::kViewState));
 
 		// Ungated pass-throughs reach the real implementation.
@@ -896,7 +888,7 @@ int main()
 			CHECK(ops.size() == 1 && ops[0].key == "wrapper");
 		}
 
-		// Earlier additive gates still resolve against their original minors.
+		// Every currently shipped feature is part of the 2.0 baseline.
 		CHECK(c.Has(Feature::kRegisterView));
 		CHECK(c.Has(Feature::kRequestMenu));
 		CHECK(c.Has(Feature::kSettings));
@@ -986,20 +978,20 @@ int main()
 	// --- optional JSON authoring facade ---------------------------------------
 	{
 		using OSFUI::API::Json;
-		using OSFUI::API::JsonCommand;
+		using OSFUI::API::JsonSend;
 		using OSFUI::API::JsonRequest;
 
-		JsonCommand command{ "acme.mymod.set", R"({"weight":42.5,"name":"ore"})", "acme.mymod/view" };
-		CHECK(command.IsValid());
-		CHECK(command.Command() == "acme.mymod.set");
-		CHECK(command.SourceViewId() == "acme.mymod/view");
-		CHECK(command.Require<double>("weight") == 42.5);
-		CHECK(command.Value<std::string>("name", "") == "ore");
-		CHECK(command.Value<int>("missing", 7) == 7);
+		JsonSend send{ "acme.mymod.set", R"({"weight":42.5,"name":"ore"})", "acme.mymod/view" };
+		CHECK(send.IsValid());
+		CHECK(send.Name() == "acme.mymod.set");
+		CHECK(send.SourceViewId() == "acme.mymod/view");
+		CHECK(send.Require<double>("weight") == 42.5);
+		CHECK(send.Value<std::string>("name", "") == "ore");
+		CHECK(send.Value<int>("missing", 7) == 7);
 		int numeric = 0;
-		CHECK(!command.TryGet("name", numeric));  // wrong field type returns false
+		CHECK(!send.TryGet("name", numeric));  // wrong field type returns false
 
-		JsonCommand malformed{ "x", "{bad", "v" };
+		JsonSend malformed{ "x", "{bad", "v" };
 		CHECK(!malformed.IsValid());
 		CHECK(!malformed.Error().empty());
 

@@ -1,10 +1,8 @@
 // Semver-ish comparison and the "needs update" badge derivation.
 //
-// `targetVersion` (on a view manifest and on a settings schema) is advisory and
-// is the only compatibility mechanism left after capabilities/requires were
-// removed: nothing is gated on it. Everything renders best-effort — a setting of
-// a type this host predates comes up read-only with its own per-row hint — so
-// this drives a note and a badge, never a refusal.
+// This module owns only the newer-than-host advisory badge. Explicitly pre-2.0
+// view manifests are refused natively and reported through System Health;
+// settings schemas continue to load best-effort.
 
 /**
  * Dotted-version compare, numeric per component, missing parts are 0 — so

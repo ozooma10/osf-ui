@@ -141,13 +141,11 @@ native → web:   { kind: "reply" | "error",   id: string,   payload: {} | { cod
   oversized/malformed id demotes the message to fire-and-forget is replaced by
   a hard `invalid-request` error — silent demotion hides bugs.
 - Endpoint-kind enforcement is structural: a `send` naming a request endpoint
-  and a `request` naming a strict send endpoint are both kind mismatches,
+  and a `request` naming a send endpoint are both kind mismatches,
   rejected uniformly (`wrong-endpoint-kind` for requests;
-  dropped-and-surfaced for sends — see "Failure semantics"). The native ABI
-  `RegisterCommand` boundary is the compatibility exception: it accepts both
-  verbs and preserves the 1.x injected `requestId` plus auto-ack contract.
-  Explicit `RegisterRequest` and every platform endpoint remain strict, and
-  the helper has no foreign-ack heuristic.
+  dropped-and-surfaced for sends — see "Failure semantics"). Native ABI 2.0
+  uses the same strict `RegisterSend` / `RegisterRequest` split. Routing fields
+  are never injected into payloads and no acknowledgement is fabricated.
 - Name grammar keeps today's structural partition
   (`src/api/BridgeApi.cpp` `IsValidPluginCommand`): platform endpoints are
   undotted or `osfui.*`; mod endpoints are `<author>.<modname>.<name>`.
@@ -189,7 +187,7 @@ Every backend expresses the same four kinds:
 | | Command handler | Request handler | Emit event | Set state |
 |---|---|---|---|---|
 | **Platform** | internal registry | internal registry | internal | internal |
-| **Native plugin (C ABI)** | `RegisterCommand` | `RegisterRequest` | `SendToWeb` | `SetViewState` **(new)** |
+| **Native plugin (C ABI)** | `RegisterSend` | `RegisterRequest` | `SendToWeb` | `SetViewState` |
 | **Papyrus** | `ListenForViewActions` → `OnOSFUIViewAction` | `ListenForViewRequests` → `OnOSFUIViewRequest` | `SendViewEvent` **(new)** | `SetView*` |
 
 The two new entries close real gaps:
@@ -345,16 +343,12 @@ sequencing, and test matrix live in
 [the 2.0 migration plan](mod-api-2.0-migration.md). Design-level
 constraints that plan must honor:
 
-- Old views load the *new* shared helper (it ships with OSF UI). Removed
-  members fail loudly; the changed `request()` return shape does not — it is
-  the one silent break and is documented accordingly.
-- Unmigrated views get a *legible* failure, not a blank page: a load-time
-  `compat.*` diagnostic keyed off manifest `targetVersion` (< 2.0), surfaced
-  on the Mods surface.
-- The native ABI remains additive at 1.8: `SetViewState` is appended at the
-  vtable tail and `RegisterCommand` retains the 1.x auto-ack compatibility
-  path. `OSFUI_RequestBridge` still refuses genuinely different majors safely
-  (`src/api/Exports.cpp`).
+- Explicitly pre-2.0 views are refused before navigation and get a legible
+  `compat.*` System Health error keyed off manifest `targetVersion`.
+- The native ABI makes a deliberate 2.0 break: `RegisterSend` replaces
+  `RegisterCommand`, `SetViewState` is baseline, and ABI 1.x callers receive
+  `nullptr` plus a bounded local diagnostic naming the outdated DLL
+  (`src/api/Exports.cpp`). Future 2.x additions remain append-only.
 
 ## Open questions
 

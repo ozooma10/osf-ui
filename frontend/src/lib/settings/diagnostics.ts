@@ -300,6 +300,30 @@ const COPY: Record<string, IssueCopy> = {
     next: ['issueNeedsNewerNext', 'Update OSF UI to the version it asks for.'],
     actions: ['update-osfui', 'copy-details'],
   },
+  'compat.pre-2-view': {
+    title: ['issuePre2ViewTitle', 'A screen was built for the removed OSF UI 1.x API'],
+    impact: [
+      'issuePre2ViewImpact',
+      'OSF UI refused to open it because the old helper and message format are not part of 2.0.',
+    ],
+    next: [
+      'issuePre2ViewNext',
+      'Update the mod that provides this screen to a version made for OSF UI 2.0.',
+    ],
+    actions: ['copy-details', 'open-logs'],
+  },
+  'compat.legacy-api': {
+    title: ['issueLegacyAbiTitle', 'A native plugin uses the retired OSF UI 1.x ABI'],
+    impact: [
+      'issueLegacyAbiImpact',
+      'OSF UI refused its bridge request, so that plugin’s OSF UI integration is unavailable.',
+    ],
+    next: [
+      'issueLegacyAbiNext',
+      'Update the DLL named below to a version built for native ABI 2.0.',
+    ],
+    actions: ['copy-details', 'open-logs'],
+  },
 };
 
 /** Fallback for a code this build predates. */

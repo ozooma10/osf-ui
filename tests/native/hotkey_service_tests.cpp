@@ -367,9 +367,7 @@ int main()
 		}));
 
 		const auto data = s5.Data();
-		CHECK(data.contains("vanillaKeys") && data["vanillaKeys"].size() == 4);
-		CHECK(data["vanillaKeys"][0] == (nlohmann::json{
-			{ "event", "QuickSave" }, { "title", "Starfield (Quicksave)" }, { "name", "F5" } }));
+		CHECK(!data.contains("vanillaKeys"));
 
 		// Ordinary and fallback gameplay contexts still warn against @game.
 		CHECK(ConflictsOf(FindEmittedSetting(data, "t.zeta", "save")) ==
@@ -407,10 +405,10 @@ int main()
 		CHECK(ConflictsOf(&fallbackCapture) == std::vector<std::string>{ "@game.QuickLoad" });
 
 		// The player-facing warning toggle hides only game conflicts. The live
-		// compatibility catalog and mod-to-mod diagnosis stay intact.
+		// internal game catalog and mod-to-mod diagnosis stay intact.
 		CHECK(s5.SetVanillaWarningsEnabled(false));
 		const auto warningsOff = s5.Data();
-		CHECK(warningsOff.contains("vanillaKeys") && warningsOff["vanillaKeys"].size() == 4);
+		CHECK(!warningsOff.contains("vanillaKeys"));
 		CHECK(!FindEmittedSetting(warningsOff, "t.zeta", "save")->contains("conflicts"));
 		CHECK(!FindEmittedSetting(warningsOff, "t.zeta", "other")->contains("conflicts"));
 		CHECK(ConflictsOf(FindEmittedSetting(warningsOff, "t.zeta", "scene")) ==

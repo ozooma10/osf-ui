@@ -88,9 +88,9 @@ namespace OSFUI
 		manifest.debugOnly = Json::GetBool(*json, "debugOnly", manifest.debugOnly);
 		manifest.readySignal = Json::GetBool(*json, "readySignal", manifest.readySignal);
 
-		// Advisory host-version target; does not gate loading (a view authored for
-		// a newer OSF UI still loads and does what it can). The catalog carries it
-		// so the Mods surface can badge "needs update".
+		// A newer target remains advisory and badges "needs update". An explicitly
+		// pre-2.0 target is retained so Runtime can refuse it with a legible System
+		// Health condition instead of navigating into the removed helper API.
 		if (auto target = Json::GetString(*json, "targetVersion", ""); !target.empty()) {
 			std::array<std::uint32_t, 3> targetParts{};
 			if (ParseDottedVersion(target, targetParts)) {

@@ -52,7 +52,12 @@ describe('buildModel keyLabel plumbing', () => {
           },
         },
       ] as never,
-      [{ event: 'QuickSave', title: 'Starfield (Quicksave)', name: 'Semicolon' }],
+      [{
+        event: 'QuickSave', label: 'Quicksave', category: 'MainGameplay',
+        context: { id: 0, name: 'MainGameplay', order: 0 }, classification: 'core',
+        modes: { definite: ['onFoot'], possible: [] }, sortIndex: 0, required: false,
+        bindings: [{ slot: 'main', key: 'Semicolon', chord: ['Semicolon'], unbound: false }],
+      }],
       undefined,
       labeler,
     );

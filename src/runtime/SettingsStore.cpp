@@ -1098,24 +1098,6 @@ namespace OSFUI
 			mods.push_back(std::move(entry));
 		}
 		nlohmann::json data{ { "mods", std::move(mods) } };
-		// The game's own bindings as a top-level table (mcm-design.md §9 + the
-		// keybinds view): the full curated map, not just colliding entries.
-		// Additive field (protocol 1.0), omitted when off/empty.
-		if (!_vanillaKeys.empty()) {
-			nlohmann::json vanilla = nlohmann::json::array();
-			for (const auto& v : _vanillaKeys) {
-				if (v.code != 0 && !v.name.empty() && v.classification == ControlMapPolicy::Classification::Core) {
-					vanilla.push_back({
-						{ "event", v.event },
-						{ "title", v.title },
-						{ "name", v.name },
-					});
-				}
-			}
-			if (!vanilla.empty()) {
-				data["vanillaKeys"] = std::move(vanilla);
-			}
-		}
 		// Localized keycap labels for the current layout (additive, display
 		// only): `keyboard: { layout, labels: { name -> label } }`. Views fall
 		// back to raw names when absent, so an empty map is simply omitted.

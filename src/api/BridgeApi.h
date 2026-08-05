@@ -5,7 +5,7 @@
 #include <thread>
 #include <unordered_set>
 
-#include "OSFUI_API.h"  // IOSFUIBridge, CommandFn, ReadyFn, version constants (sdk/, on the include path)
+#include "OSFUI_API.h"  // IOSFUIBridge, SendFn, ReadyFn, version constants (sdk/, on the include path)
 
 #include "api/HotkeySubscriptions.h"
 #include "api/SettingsMirror.h"
@@ -22,7 +22,7 @@ namespace OSFUI::API
 	// SFSE plugin talks to via OSFUI_RequestBridge (src/api/Exports.cpp).
 	//
 	// All ABI methods are callable from any thread;
-	// Command/ready callbacks fire on the main thread. See docs/native-plugin-api.md.
+	// Send/request/ready callbacks fire on the main thread. See docs/native-plugin-api.md.
 	class BridgeApi final : public IOSFUIBridge
 	{
 	public:
@@ -33,8 +33,8 @@ namespace OSFUI::API
 		void          GetPluginVersion(std::uint32_t& a_major, std::uint32_t& a_minor, std::uint32_t& a_patch) override;
 		const char*   GetBridgeProtocolVersion() override;
 		bool          IsBridgeReady() override;
-		void          RegisterCommand(const char* a_command, CommandFn a_handler, void* a_user) override;
-		void          UnregisterCommand(const char* a_command) override;
+		void          RegisterSend(const char* a_name, SendFn a_handler, void* a_user) override;
+		void          UnregisterSend(const char* a_name) override;
 		void          RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user) override;
 		void          UnregisterRequest(const char* a_name) override;
 		bool          SendToWeb(const char* a_viewId, const char* a_type, const char* a_payloadJson) override;
@@ -116,7 +116,7 @@ namespace OSFUI::API
 		// broadcast that follows carries them.
 		std::vector<DiagnosticOp> TakeDiagnosticOps();
 
-		// One queued SetViewState (ABI 1.8), already validated and parsed
+		// One queued SetViewState, already validated and parsed
 		// synchronously; the store write happens on the main tick.
 		struct ViewStateOp
 		{
@@ -172,7 +172,7 @@ namespace OSFUI::API
 		// Hand the live MessageBridge (or nullptr when no nativeBridge view exists)
 		// to the API. A different pointer than last time triggers a full re-apply.
 		void OnBridgeReady(MessageBridge* a_bridge);
-		// Main thread; call each tick. (Re)applies the command registry to the live
+		// Main thread; call each tick. (Re)applies the endpoint registry to the live
 		// bridge, flushes queued sends, fires the ready callback once.
 		void PumpMainThread(std::chrono::steady_clock::time_point a_now = std::chrono::steady_clock::now());
 
@@ -184,7 +184,7 @@ namespace OSFUI::API
 
 		struct Registration
 		{
-			CommandFn fn{ nullptr };
+			SendFn fn{ nullptr };
 			void*     user{ nullptr };
 		};
 		struct PendingSend
@@ -234,9 +234,9 @@ namespace OSFUI::API
 		SettingsMirror                                _mirror;            // own locking; never touched under _mutex
 		SettingsSubscriptions                         _subscriptions;     // own locking; never touched under _mutex
 		HotkeySubscriptions                           _hotkeys;           // own locking; never touched under _mutex
-		std::unordered_map<std::string, Registration>        _commands;          // desired command set
+		std::unordered_map<std::string, Registration>        _sends;             // desired send set
 		std::unordered_map<std::string, RequestRegistration> _requests;          // desired request set
-		std::vector<std::string>                      _pendingUnregister;  // commands to remove
+		std::vector<std::string>                      _pendingSendUnregister;
 		std::vector<std::string>                      _pendingRequestUnregister;
 		std::unordered_map<std::uint64_t, InflightRequest> _inflightRequests;
 		std::uint64_t                                 _nextRequestToken{ 1 };
@@ -252,7 +252,7 @@ namespace OSFUI::API
 		std::vector<DiagnosticOp>                     _pendingDiagnostics; // health reports, drained by Runtime
 		MessageBridge*                                _bridge{ nullptr };         // non-owning; set on main thread
 		MessageBridge*                                _appliedBridge{ nullptr };  // bridge we last applied to
-		bool                                          _dirty{ false };            // command set changed since apply
+		bool                                          _dirty{ false };            // endpoint set changed since apply
 		ReadyFn                                       _readyCb{ nullptr };
 		void*                                         _readyUser{ nullptr };
 		std::condition_variable                       _readyInvokeCv;

@@ -1,9 +1,8 @@
 // The keybinds view: a keyboard map (mod-bound keys accent, game-bound steel,
 // collisions warn), a holders panel for the selected key, and a searchable list.
 //
-// Data is the same `settings.data` document the settings view consumes: every
-// `type:"key"` setting of every mod, plus the top-level `vanillaKeys` table
-// (the game's own bindings, read-only rows). Rebinds reuse the generic capture
+// Mod key settings come from `osfui/settings`; the game's read-only binding
+// catalog comes from `osfui/keybindings`. Rebinds reuse the generic capture
 // machinery (`settings.captureKey` -> `settings.captured` -> echoed
 // `settings.set`), including the capture-time conflict live-warn. `ui.hotkey`
 // pushes flash the pressed key on the board.
@@ -26,7 +25,7 @@ import { codeOf } from '@lib/protocol';
 import { canonicalName } from '@lib/keybinds/canonical';
 import { matchesBindingFilter } from '@lib/keybinds/filter';
 
-import { buildModel, type ModEntry, type VanillaKey } from '@lib/keybinds/model';
+import { buildModel, type ModEntry } from '@lib/keybinds/model';
 import type { BindingRow } from '@lib/keybinds/model';
 import { makeLabeler } from '@lib/keybinds/labels';
 import type { InputContextState, KeybindingsData, SettingsData } from '@sdk';
@@ -66,11 +65,9 @@ export interface AppProps {
 export function App({ bridge = windowBridge }: AppProps) {
   const tr = useMemo(() => makeTranslator(bridge, 'chrome.keybinds'), [bridge]);
 
-  // `mods`/`vanilla` are mirrored into refs because the bridge subscriptions are
-  // registered once and their closures would otherwise read the first render's
-  // values.
+  // `mods` is mirrored into a ref because bridge subscriptions are registered
+  // once and their closures would otherwise read the first render's values.
   const [mods, setMods, modsRef] = useStateRef<ModEntry[]>([]);
-  const [vanilla, setVanilla, vanillaRef] = useStateRef<VanillaKey[]>([]);
   const [liveKeys, setLiveKeys] = useState<KeybindingsData | null>(null);
   const [inputContext, setInputContext] = useState<InputContextState | null>(null);
   // Localized keycap labels for the player's layout (additive; undefined on
@@ -88,16 +85,16 @@ export function App({ bridge = windowBridge }: AppProps) {
   const [flash, setFlash] = useState<FlashState>({ name: '', seq: 0 });
 
   const toasts = useToasts();
-  // Same reason as mods/vanilla: `push` is called from long-lived closures.
+  // Same reason as mods: `push` is called from long-lived closures.
   const toastRef = useLatest(toasts);
 
   const searchRef = useRef<HTMLInputElement | null>(null);
 
   const labeler = useMemo(() => makeLabeler(keyboard), [keyboard]);
   const bindings = useMemo(
-    () => buildModel(mods, liveKeys ? liveKeys.actions : vanilla, tr, labeler),
+    () => buildModel(mods, liveKeys?.actions ?? [], tr, labeler),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- i18nSeq is the locale generation.
-    [mods, vanilla, liveKeys, tr, labeler, i18nSeq],
+    [mods, liveKeys, tr, labeler, i18nSeq],
   );
   const bindingsRef = useLatest(bindings);
 
@@ -199,7 +196,6 @@ export function App({ bridge = windowBridge }: AppProps) {
   useEffect(() => {
     const offData = bridge.state('osfui/settings', (data) => {
       setMods(Array.isArray(data?.mods) ? data.mods : []);
-      setVanilla(Array.isArray(data?.vanillaKeys) ? data.vanillaKeys : []);
       setKeyboard(data && typeof data.keyboard === 'object' ? data.keyboard : undefined);
       setLoaded(true);
     });
@@ -214,11 +210,8 @@ export function App({ bridge = windowBridge }: AppProps) {
     });
 
     const offI18n = bridge.state('osfui/i18n', () => {
-      // A catalog that arrives before any data must not hide the loading line.
-      if (modsRef.current.length || vanillaRef.current.length) {
-        setI18nSeq((n) => n + 1);
-        setLoaded(true);
-      }
+      // A catalog that arrives before data must not hide the loading line.
+      setI18nSeq((n) => n + 1);
     });
 
     const offChanged = bridge.on('settings.changed', (p) => {
@@ -326,13 +319,20 @@ export function App({ bridge = windowBridge }: AppProps) {
         },
       },
     ] as unknown as ModEntry[]);
-    setVanilla([
-      { event: 'QuickSave', title: 'Starfield (Quicksave)', name: 'F5' },
-      { event: 'QuickLoad', title: 'Starfield (Quickload)', name: 'F9' },
-      { event: 'Activate', title: 'Starfield (Interact)', name: 'E' },
-      { event: 'Jump', title: 'Starfield (Jump)', name: 'Space' },
-      { event: 'Console', title: 'Starfield (Console)', name: 'Grave' },
-    ]);
+    setLiveKeys({
+      available: true,
+      revision: 1,
+      gameVersion: 'preview',
+      actions: [
+        {
+          event: 'QuickSave', label: 'Quicksave', category: 'Gameplay',
+          context: { id: 0, name: 'MainGameplay', order: 0 }, classification: 'core',
+          modes: { definite: ['onFoot', 'ship', 'vehicle', 'zeroG'], possible: [] },
+          sortIndex: 0, required: false,
+          bindings: [{ slot: 'main', key: 'F5', chord: ['F5'], unbound: false }],
+        },
+      ],
+    });
     setLoaded(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- boot-time only.
   }, [bridge]);

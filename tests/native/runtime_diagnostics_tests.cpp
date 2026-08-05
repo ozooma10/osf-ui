@@ -62,13 +62,19 @@ int main()
 	const std::array targets{
 		CompatibilityTarget{ "beta/mod", "mod", "2.0.0" },
 		CompatibilityTarget{ "acme/view", "view", "2.0.0" },
+		CompatibilityTarget{ "legacy/panel", "view", "1.9.0", "compat.pre-2-view",
+			DiagnosticsModule::Severity::Error },
 	};
 	reconciler.SyncCompatibility(diagnostics, targets, "1.5.0", 3.0);
 	const auto compatId = "compat.needs-newer-osfui:view:acme/view";
 	assert(diagnostics.IsActive(compatId));
 	assert(IssueById(diagnostics, compatId).at("context").value("installedVersion", "") == "1.5.0");
+	const auto pre2Id = "compat.pre-2-view:view:legacy/panel";
+	assert(diagnostics.IsActive(pre2Id));
+	assert(IssueById(diagnostics, pre2Id).value("severity", "") == "error");
+	assert(IssueById(diagnostics, pre2Id).at("context").value("targetVersion", "") == "1.9.0");
 	const auto occurrences = IssueById(diagnostics, compatId).value("occurrences", 0u);
-	const std::array reordered{ targets[1], targets[0] };
+	const std::array reordered{ targets[2], targets[1], targets[0] };
 	reconciler.SyncCompatibility(diagnostics, reordered, "1.5.0", 4.0);
 	assert(IssueById(diagnostics, compatId).value("occurrences", 0u) == occurrences);
 	reconciler.SyncCompatibility(diagnostics,

@@ -673,15 +673,15 @@ namespace
         } catch (...) {}
     }
 
-    // A registered COMMAND is a send endpoint: one-way, nothing to settle.
+    // A registered SEND endpoint is one-way, with nothing to settle.
     // JavaScript: osfui.send("${options.modId}.increment", { amount: 1 })
-    void OnIncrement(const char* command, const char* payloadJson,
+    void OnIncrement(const char* name, const char* payloadJson,
         const char* sourceViewId, void*) noexcept
     {
-        OSFUI::API::JsonCommand event{ command, payloadJson, sourceViewId };
+        OSFUI::API::JsonSend event{ name, payloadJson, sourceViewId };
         const char* target = event.SourceViewId().empty() ? kViewId : event.SourceViewId().data();
         if (!event) {
-            PushNotice(target, "C++ ignored a malformed command payload");
+            PushNotice(target, "C++ ignored a malformed send payload");
             return;
         }
         if (!g_state.enabled) {
@@ -690,7 +690,7 @@ namespace
         }
 
         g_state.count += std::clamp(event.Value("amount", 1), -10, 10);
-        g_state.lastAction = "JavaScript sent a fire-and-forget command";
+        g_state.lastAction = "JavaScript sent a fire-and-forget message";
         PushState();
     }
 
@@ -776,7 +776,7 @@ namespace
         if (message->type != SFSE::MessagingInterface::kPostLoad) return;
         if (!g_ui.Init()) return;  // OSF UI is optional; degrade silently.
 
-        g_ui.RegisterCommand("${options.modId}.increment", &OnIncrement, nullptr);
+        g_ui.RegisterSend("${options.modId}.increment", &OnIncrement, nullptr);
         g_ui.RegisterRequest("${options.modId}.getState", &OnGetState, nullptr);
         g_ui.RegisterRequest("${options.modId}.greet", &OnGreet, nullptr);
         g_ui.RegisterRequest("${options.modId}.recalibrate", &OnRecalibrate, nullptr);
@@ -917,7 +917,7 @@ to enable and no ESM, startup quest, alias, or registration to maintain.
 The paired \`native/src/main.cpp\` and view source are an end-to-end bridge
 example built on the optional \`OSFUI_JSON.h\` facade:
 
-- **Send command to C++** sends a typed fire-and-forget \`JsonCommand\`; C++
+- **Send message to C++** sends a typed fire-and-forget \`JsonSend\`; C++
   changes its state and pushes the serialized struct back to JavaScript.
 - **Call C++ and await reply** sends a \`JsonRequest\`; C++ validates the
   required \`name\`, replies with JSON, and lets OSF UI own correlation.

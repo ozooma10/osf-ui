@@ -12,7 +12,7 @@ import { checkProject } from '../src/check.mjs';
 import { loadProject, manifestFor } from '../src/config.mjs';
 import { devServerConfig } from '../src/dev.mjs';
 import { configuredDeployRoot, deployBuild, deployViews, deploymentRoot, saveLocalModsRoot } from '../src/game.mjs';
-import { harnessPlugin, isPre2Target } from '../src/harness-plugin.mjs';
+import { harnessPlugin } from '../src/harness-plugin.mjs';
 import { papyrusImportPaths } from '../src/papyrus-build.mjs';
 import { papyrusWarnings } from '../src/papyrus.mjs';
 import { writeZip } from '../src/zip.mjs';
@@ -68,16 +68,7 @@ test('toolchain metadata and packaged helper match the runtime API', async () =>
   );
 });
 
-test('legacy preview selection matches declared pre-2.0 targets only', () => {
-  assert.equal(isPre2Target('1'), true);
-  assert.equal(isPre2Target('1.5.0'), true);
-  assert.equal(isPre2Target('2.0.0'), false);
-  assert.equal(isPre2Target(''), false);
-  assert.equal(isPre2Target('legacy'), false);
-  assert.equal(isPre2Target('1.4294967296'), false);
-});
-
-test('legacy manifests preview through the compatibility helper URL', async (t) => {
+test('targetVersion never changes the strict 2.0 harness helper', async (t) => {
   const root = await projectFixture(t);
   await writeFile(resolve(root, 'osfui.config.ts'), `export default {
     modId: 'acme.widgets',
@@ -88,8 +79,8 @@ test('legacy manifests preview through the compatibility helper URL', async (t) 
   const injected = plugin.transformIndexHtml.handler('', {
     path: '/acme.widgets/panel/index.html',
   });
-  assert.match(injected[0].children, /"legacyApi":true/);
-  assert.match(injected[0].children, /"viewUrl":"\/acme\.widgets\/panel\/index\.html\?osfui-api=1"/);
+  assert.doesNotMatch(injected[0].children, /legacyApi|osfui-api=1/);
+  assert.match(injected[0].children, /"viewUrl":"\/acme\.widgets\/panel\/index\.html"/);
 });
 
 test('loads configuration and creates a production manifest', async (t) => {

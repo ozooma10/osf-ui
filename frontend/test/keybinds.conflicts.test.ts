@@ -151,7 +151,7 @@ describe('holderState', () => {
 
   it('excludes self BY IDENTITY, not by value', () => {
     // Two structurally identical rows (a mod registering the same binding
-    // twice, or a duplicated vanillaKeys entry) do conflict with each other.
+    // twice, or a duplicated game action entry) do conflict with each other.
     const a = modRow('F5');
     const clone = modRow('F5');
     expect(a).toEqual(clone); // same value...

@@ -27,7 +27,7 @@ Every backend expresses the same four kinds. Gaps here are API bugs, which is wh
 | | publish **state** | announce an **event** | receive a one-way message | answer a **request** |
 |---|---|---|---|---|
 | **Papyrus** | `OSFUI.SetView*` | `OSFUI.SendViewEvent` *(new)* | `ListenForViewActions` → `OnOSFUIViewAction` | `ListenForViewRequests` → `OnOSFUIViewRequest` + `ReplyView*` |
-| **Native plugin (ABI 1.8)** | `SetViewState` *(new)* | `SendToWeb` | `RegisterCommand` | `RegisterRequest` |
+| **Native plugin (ABI 2.0)** | `SetViewState` | `SendToWeb` | `RegisterSend` | `RegisterRequest` |
 | **The view sees** | `osfui.state.on("<mod>/<key>", fn)` | `osfui.on("<mod>.<name>", fn)` | `osfui.papyrus.call(...)` / `send(...)` | `osfui.papyrus.request(...)` / `osfui.request(...)` |
 
 State, events, registered listeners, and native endpoints are scoped to the calling view's **owning mod**, derived from its view id. `papyrus.call` is the explicit exception: it names an arbitrary GLOBAL script/function and therefore carries the authority of installed local mod content.

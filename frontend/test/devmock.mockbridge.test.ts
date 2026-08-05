@@ -292,14 +292,15 @@ describe('settings', () => {
     frames = [];
   });
 
-  it('carries the seeded registry and the game bindings on the osfui/settings key', async () => {
+  it('publishes settings and game bindings on separate retained-state keys', async () => {
     send('osfui.hello');
     await settle();
     await settle();
-    const value = lastState('settings')?.value as { mods: Array<{ id: string }>; vanillaKeys: unknown };
+    const value = lastState('settings')?.value as { mods: Array<{ id: string }> };
     expect(value.mods.map((m) => m.id)).toContain('osfui');
-    // The game's own bindings ride along on the registry, not a separate read.
-    expect(value.vanillaKeys).toBeInstanceOf(Array);
+    expect(value).not.toHaveProperty('vanillaKeys');
+    const keybindings = lastState('keybindings')?.value as { actions: unknown[] };
+    expect(keybindings.actions).toBeInstanceOf(Array);
   });
 
   it('resolves settings.set with the post-clamp value and raises settings.changed', async () => {

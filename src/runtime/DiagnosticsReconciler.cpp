@@ -55,17 +55,18 @@ namespace OSFUI
 	{
 		std::vector signatureTargets(a_targets.begin(), a_targets.end());
 		std::ranges::sort(signatureTargets, {}, [](const CompatibilityTarget& a_item) {
-			return std::tie(a_item.code, a_item.kind, a_item.id, a_item.targetVersion);
+			return std::tie(a_item.code, a_item.kind, a_item.id, a_item.targetVersion, a_item.severity);
 		});
 		signatureTargets.erase(std::unique(signatureTargets.begin(), signatureTargets.end(),
 			[](const auto& a_lhs, const auto& a_rhs) {
-				return std::tie(a_lhs.code, a_lhs.kind, a_lhs.id, a_lhs.targetVersion) ==
-					std::tie(a_rhs.code, a_rhs.kind, a_rhs.id, a_rhs.targetVersion);
+				return std::tie(a_lhs.code, a_lhs.kind, a_lhs.id, a_lhs.targetVersion, a_lhs.severity) ==
+					std::tie(a_rhs.code, a_rhs.kind, a_rhs.id, a_rhs.targetVersion, a_rhs.severity);
 			}), signatureTargets.end());
 
 		std::string signature;
 		for (const auto& item : signatureTargets) {
-			signature += item.code + '|' + item.kind + ':' + item.id + '@' + item.targetVersion + ';';
+			signature += item.code + '|' + item.kind + ':' + item.id + '@' + item.targetVersion +
+				'#' + (item.severity == DiagnosticsModule::Severity::Error ? 'e' : 'w') + ';';
 		}
 		if (signature == _compatSignature) return;
 		_compatSignature = std::move(signature);
@@ -77,7 +78,7 @@ namespace OSFUI
 			a_diagnostics.Upsert(DiagnosticsModule::IssueSpec{
 				.id = std::move(id),
 				.code = item.code,
-				.severity = DiagnosticsModule::Severity::Warning,
+				.severity = item.severity,
 				.source = "compat",
 				.subject = item.id,
 				.context = nlohmann::json{

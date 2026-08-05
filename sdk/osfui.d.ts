@@ -331,11 +331,6 @@ export interface SettingsData {
     targetVersion?: string;
   }>;
   /**
-   * @deprecated Compatibility projection for older keybind views. Contains only
-   * bound, single-key rows from core contexts. New views use osfui/keybindings.
-   */
-  vanillaKeys?: Array<{ event: string; title: string; name: string }>;
-  /**
    * Localized keycap labels for the CURRENT OS keyboard layout. Keys are OSF UI
    * key names — the same layout-independent vocabulary `type:"key"` values use;
    * values are what the layout prints on that physical key ("Ö", "^", "Shift").

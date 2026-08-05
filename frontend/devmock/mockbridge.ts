@@ -844,9 +844,6 @@ export function installMock(opts: MockOptions = {}): MockApi {
     annotateConflicts();
     const value: SettingsData = {
       mods: localizedMods(),
-      // Mirror SettingsStore::Data()'s top-level vanillaKeys table: the game's own
-      // bindings, full map, rendered by the keybinds view.
-      vanillaKeys: VANILLA_KEYS.map((v) => ({ event: v.event, title: v.title, name: v.name })),
     };
     if (keyboardLabels) value.keyboard = keyboardLabels;
     publish('osfui', 'settings', value);

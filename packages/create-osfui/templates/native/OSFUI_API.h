@@ -1,15 +1,16 @@
 // ============================================================================
 // OSFUI_API.h - OSF UI native bridge API. Single copyable header; link nothing.
 //
-// Lets an SFSE plugin register bridge commands, push data to a web view, and
-// receive commands back - without compiling into OSFUI.dll. Full docs:
+// Lets an SFSE plugin register bridge endpoints, publish data to a web view,
+// and receive messages back - without compiling into OSFUI.dll. Full docs:
 // docs/native-plugin-api.md.
 //
-// USE OSFUI::API::Client: it fetches the bridge, caches the host version once, and turns a call the host is too old for into noop.
+// USE OSFUI::API::Client: it fetches the bridge, caches the host version once,
+// and turns a call the host is too old for into a no-op.
 //
 // THREADING: status reads and typed getters are synchronous, callable from ANY thread.
 // Mutating calls are thread-safe; their effect lands on the game main thread.
-// All callbacks (CommandFn/ReadyFn/SettingChangedFn/HotkeyFn) run on the game main thread - keep them cheap.
+// All callbacks (SendFn/RequestFn/ReadyFn/SettingChangedFn/HotkeyFn) run on the game main thread - keep them cheap.
 //
 // LIFETIME: const char* params into callbacks are valid only for the call - copy what you retain.
 // ============================================================================
@@ -46,30 +47,29 @@ namespace OSFUI::API
 {
 	// Packed (MAJOR << 16) | MINOR.
 	//
-	// ABI 1.x is additive: new virtual methods are appended at the tail and the
-	// Client wrapper gates them by MINOR, so already-compiled plugins keep their
-	// vtable layout and behavior. ABI 1.8 adds retained native view state.
-	inline constexpr std::uint32_t kBridgeAPIVersion = (1u << 16) | 8u;
+	// ABI 2.0 is the breaking native cleanup shipped with OSF UI 2.0. Future
+	// additive methods append at the vtable tail and bump MINOR; another vtable
+	// or behavioral break bumps MAJOR. OSF UI refuses every ABI 1.x caller.
+	inline constexpr std::uint32_t kBridgeAPIVersion = (2u << 16) | 0u;
 	inline constexpr std::uint32_t kBridgeAPIMajor   = kBridgeAPIVersion >> 16;
 	inline constexpr std::uint32_t kBridgeAPIMinor   = kBridgeAPIVersion & 0xFFFFu;
 
 	inline constexpr const wchar_t* kModuleName        = L"OSFUI.dll";
 	inline constexpr const char*    kRequestExportName = "OSFUI_RequestBridge";
 
-	// Handler for one registered command. Main thread. send() invokes it as a
-	// one-way endpoint. For ABI 1.x compatibility request() may also invoke it:
-	// the host injects `requestId` into the payload and auto-acks after return.
-	// New handlers that need to answer should use RegisterRequest instead.
-	//   a_command      : the registered command string (one fn can serve many)
-	//   a_payloadJson  : caller payload; a request additionally carries injected `requestId`
+	// Handler for one registered send. Main thread. It is strictly one-way: a
+	// request naming this endpoint is rejected `wrong-endpoint-kind`, no routing
+	// fields are injected into the payload, and no acknowledgement is generated.
+	//   a_name         : the registered endpoint name (one fn can serve many)
+	//   a_payloadJson  : caller payload, verbatim JSON object
 	//   a_sourceViewId : the sending view
-	//   a_user         : the pointer you passed to RegisterCommand
-	using CommandFn = void (*)(const char* a_command,
+	//   a_user         : the pointer you passed to RegisterSend
+	using SendFn = void (*)(const char* a_name,
 	                           const char* a_payloadJson,
 	                           const char* a_sourceViewId,
 	                           void*       a_user) noexcept;
 
-	// Copyable, deferred reply token for a registered request (ABI 1.7).
+	// Copyable, deferred reply token for a registered request.
 	// Copies remain safe after response, timeout, or view closure: the opaque id
 	// is resolved in host-owned storage and a stale id is simply ignored.
 	struct Request
@@ -120,7 +120,7 @@ namespace OSFUI::API
 	                          const char* a_key,
 	                          void*       a_user) noexcept;
 
-	// How bad a reported condition is (ABI 1.7). There is no "info" tier on
+	// How bad a reported condition is. There is no "info" tier on
 	// purpose: System Health only shows conditions worth acting on, and an
 	// informational card is a card a player learns to ignore.
 	enum class IssueSeverity : std::uint32_t
@@ -141,15 +141,14 @@ namespace OSFUI::API
 		virtual const char*   GetBridgeProtocolVersion() = 0;
 		virtual bool          IsBridgeReady() = 0;             // a nativeBridge view is live
 
-		// --- command registration. Thread-safe; applied next main tick. ---
-		// Register a handler for an EXACT command string. send() is one-way;
-		// request() retains the ABI 1.x injected-requestId + auto-ack contract.
-		// Prefer RegisterRequest for new endpoints that need to answer.
+		// --- send registration. Thread-safe; applied next main tick. ---
+		// Register a handler for an EXACT send endpoint. This endpoint is strictly
+		// one-way; use RegisterRequest when the page needs an outcome.
 		//
 		//   * Id: "<author>.<modname>.<name>" - the mod id is lowercase [a-z0-9-] segments with dots
-		//   * Duplicates: first-wins. To replace your OWN handler, UnregisterCommand then re-register (works within one tick).
-		virtual void RegisterCommand(const char* a_command, CommandFn a_handler, void* a_user) = 0;
-		virtual void UnregisterCommand(const char* a_command) = 0;
+		//   * Duplicates: first-wins. To replace your OWN handler, UnregisterSend then re-register (works within one tick).
+		virtual void RegisterSend(const char* a_name, SendFn a_handler, void* a_user) = 0;
+		virtual void UnregisterSend(const char* a_name) = 0;
 
 		// --- native -> web EVENTS. Thread-safe; queued to the target view. ---
 		// Delivers { kind:"event", name: a_type, payload: <a_payloadJson> } to
@@ -246,7 +245,7 @@ namespace OSFUI::API
 		// Returns false only on a null/empty/invalid id; true = queued.
 		virtual bool RegisterView(const char* a_viewId) = 0;
 
-		// ===== session health reporting (ABI 1.7) =====
+		// ===== session health reporting =====
 		//
 		// Raise a condition into OSF UI's System Health pane — the one place a
 		// player looks when something is wrong, whichever mod noticed it. This is
@@ -312,12 +311,11 @@ namespace OSFUI::API
 		// mod id or a payload that is not a JSON array of strings.
 		virtual bool ClearIssuesExcept(const char* a_modId, const char* a_keepIdsJson) = 0;
 
-		// ABI 1.7 tail methods: same name grammar and first-wins namespace as commands.
+		// Same name grammar and first-wins namespace as sends.
 		virtual void RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user) = 0;
 		virtual void UnregisterRequest(const char* a_name) = 0;
 
-		// --- native -> web STATE (ABI 1.8). Thread-safe; applied next main tick.
-		// Appended at the ABI tail so every 1.0-1.7 vtable slot stays unchanged.
+		// --- native -> web STATE. Thread-safe; applied next main tick.
 		// Publishes a_payloadJson as the retained value of a_key for YOUR mod;
 		// every current and future document of that mod receives it through
 		// osfui.state.on("<a_modId>/<a_key>"). Latest wins per case-insensitive
@@ -361,7 +359,7 @@ namespace OSFUI::API
 	//
 	//     static OSFUI::API::Client g_ui;      // static/leaked: handlers may fire for process life
 	//     if (g_ui.Init()) {                    // after SFSE kPostLoad
-	//         g_ui.RegisterCommand("acme.mymod.ping", &OnPing, nullptr);
+	//         g_ui.RegisterSend("acme.mymod.ping", &OnPing, nullptr);
 	//         if (g_ui.Has(OSFUI::API::Feature::kRegisterView)) {
 	//             g_ui.RegisterView("acme.mymod/dashboard");
 	//         }
@@ -369,19 +367,20 @@ namespace OSFUI::API
 	//
 	// ========================================================================
 
-	// Named features, valued as the additive ABI MINOR that introduced them.
+	// Named feature gates for future additive 2.x minors. Every feature present
+	// in this header is part of the ABI 2.0 baseline.
 	enum class Feature : std::uint32_t
 	{
-		kCommands = 0,           // RegisterCommand/SendToWeb/SetReadyCallback
-		kRequestMenu = 1,
-		kSettings = 2,           // SubscribeSettings + typed getters + RegisterSettingsSchema
-		kDeliveryGuarantee = 3,  // SendToWeb queue-until-deliverable + message-before-first-paint
-		kHotkeys = 4,
-		kRegisterView = 5,
-		kCommandShape = 6,       // "<author>.<modname>.<name>" enforcement + first-wins duplicates
-		kDiagnostics = 7,        // ReportIssue/ClearIssue/ClearIssuesExcept -> System Health
-		kRequests = 7,           // RegisterRequest + deferred Request::Respond/Reject
-		kViewState = 8,          // SetViewState -> retained, replayed state
+		kSends = 0,
+		kRequestMenu = 0,
+		kSettings = 0,
+		kDeliveryGuarantee = 0,
+		kHotkeys = 0,
+		kRegisterView = 0,
+		kEndpointShape = 0,
+		kDiagnostics = 0,
+		kRequests = 0,
+		kViewState = 0,
 	};
 
 	class Client
@@ -441,17 +440,17 @@ namespace OSFUI::API
 			return _bridge && _bridge->IsBridgeReady();
 		}
 
-		// --- 1.0 baseline ---
-		void RegisterCommand(const char* a_command, CommandFn a_handler, void* a_user) const noexcept
+		// --- 2.0 baseline ---
+		void RegisterSend(const char* a_name, SendFn a_handler, void* a_user) const noexcept
 		{
 			if (_bridge) {
-				_bridge->RegisterCommand(a_command, a_handler, a_user);
+				_bridge->RegisterSend(a_name, a_handler, a_user);
 			}
 		}
-		void UnregisterCommand(const char* a_command) const noexcept
+		void UnregisterSend(const char* a_name) const noexcept
 		{
 			if (_bridge) {
-				_bridge->UnregisterCommand(a_command);
+				_bridge->UnregisterSend(a_name);
 			}
 		}
 		bool SendToWeb(const char* a_viewId, const char* a_type, const char* a_payloadJson) const noexcept
@@ -469,13 +468,12 @@ namespace OSFUI::API
 			}
 		}
 
-		// --- 1.1 ---
 		bool RequestMenu(const char* a_viewId, bool a_open) const noexcept
 		{
 			return Has(Feature::kRequestMenu) && _bridge->RequestMenu(a_viewId, a_open);
 		}
 
-		// --- 1.2 settings ---
+		// --- settings ---
 		std::uint32_t SubscribeSettings(const char* a_modId, SettingChangedFn a_fn, void* a_user) const noexcept
 		{
 			return Has(Feature::kSettings) ? _bridge->SubscribeSettings(a_modId, a_fn, a_user) : 0u;
@@ -513,7 +511,7 @@ namespace OSFUI::API
 			}
 		}
 
-		// --- 1.4 hotkeys ---
+		// --- hotkeys ---
 		std::uint32_t SubscribeHotkey(const char* a_modId, const char* a_key, HotkeyFn a_fn, void* a_user) const noexcept
 		{
 			return Has(Feature::kHotkeys) ? _bridge->SubscribeHotkey(a_modId, a_key, a_fn, a_user) : 0u;
@@ -525,16 +523,13 @@ namespace OSFUI::API
 			}
 		}
 
-		// --- 1.5 views ---
+		// --- views ---
 		bool RegisterView(const char* a_viewId) const noexcept
 		{
 			return Has(Feature::kRegisterView) && _bridge->RegisterView(a_viewId);
 		}
 
-		// --- 1.7 session health ---
-		// On a host older than 1.7 these are no-ops returning false: a mod that
-		// reports its health unconditionally still runs, it just has nowhere to
-		// report to. Nothing here is required for correctness.
+		// --- session health ---
 		bool ReportIssue(const char* a_modId, const char* a_id, const char* a_code,
 			IssueSeverity a_severity, const char* a_subject = "",
 			const char* a_contextJson = nullptr) const noexcept
@@ -552,7 +547,7 @@ namespace OSFUI::API
 			return Has(Feature::kDiagnostics) && _bridge->ClearIssuesExcept(a_modId, a_keepIdsJson);
 		}
 
-		// --- 1.7 request/response ---
+		// --- request/response ---
 		void RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user) const noexcept
 		{
 			if (Has(Feature::kRequests)) _bridge->RegisterRequest(a_name, a_handler, a_user);

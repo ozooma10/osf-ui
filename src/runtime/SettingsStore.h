@@ -238,9 +238,8 @@ namespace OSFUI
 			std::string   event;    // conflict entry `key` ("QuickSave")
 			std::string   title;    // conflict entry `title` ("Starfield (Quicksave)")
 			std::uint32_t code;     // physical scan code (DIK convention)
-			// Display key name ("F5", canonical KeyName spelling) — emitted in
-			// Data()'s top-level `vanillaKeys` so the keybinds view can render
-			// the game's full keyboard map, not just colliding entries.
+			// Display key name ("F5", canonical KeyName spelling). The public
+			// keybinding view consumes the richer osfui/keybindings state.
 			std::string   name;
 			std::string   context;
 			std::string   slot;

@@ -81,7 +81,6 @@ export interface HarnessViewMeta {
   transparent: boolean;
   nativeBridge: boolean;
   targetVersion: string;
-  legacyApi: boolean;
   viewUrl: string;
   version: string;
   bridgeVersion: string;

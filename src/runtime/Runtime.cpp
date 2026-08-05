@@ -109,7 +109,9 @@ namespace OSFUI
 		std::vector<std::string> discoveredViewIds;
 		discoveredViewIds.reserve(_views.All().size());
 		for (const auto& manifest : _views.All()) {
-			discoveredViewIds.push_back(manifest.id);
+			if (!IsPre2Target(manifest.targetVersion)) {
+				discoveredViewIds.push_back(manifest.id);
+			}
 		}
 		API::BridgeApi::Get().SetViewCatalog(discoveredViewIds);
 
@@ -652,6 +654,11 @@ namespace OSFUI
 	bool Runtime::LoadSurface(const ViewManifest& a_manifest, std::string_view a_reason)
 	{
 		const auto& id = a_manifest.id;
+		if (IsPre2Target(a_manifest.targetVersion)) {
+			REX::WARN("Runtime: refused view '{}' — targetVersion {} predates the OSF UI 2.0 API; update that view",
+				id, a_manifest.targetVersion);
+			return false;
+		}
 		if (_menus.IsRegistered(id)) {
 			return true;
 		}
@@ -2533,9 +2540,15 @@ namespace OSFUI
 			if (id.empty()) {
 				id = std::string(a_b.CurrentSource());
 			}
-			if (!_views.Find(id)) {
+			const auto* manifest = _views.Find(id);
+			if (!manifest) {
 				REX::WARN("Runtime: menu.open refused — '{}' was not discovered", id);
 				a_b.Reject("unknown-view", "view was not discovered");
+				return;
+			}
+			if (IsPre2Target(manifest->targetVersion)) {
+				REX::WARN("Runtime: menu.open refused — '{}' targets the removed pre-2.0 API", id);
+				a_b.Reject("unsupported-version", "view targets the removed pre-2.0 API");
 				return;
 			}
 			// Use the same snapshot/load/pump/open path as native RequestMenu so a

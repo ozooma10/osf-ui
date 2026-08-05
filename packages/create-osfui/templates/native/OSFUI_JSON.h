@@ -21,7 +21,7 @@ namespace OSFUI::API
 {
 	using Json = nlohmann::json;
 
-	// Parsed callback payload shared by JsonCommand and JsonRequest. Incoming
+	// Parsed callback payload shared by JsonSend and JsonRequest. Incoming
 	// plugin payloads are required to be JSON objects; invalid input is exposed
 	// without throwing from construction. Require()/As() retain nlohmann's
 	// normal typed-conversion exceptions, while Value()/TryGet() are no-throw
@@ -87,21 +87,21 @@ namespace OSFUI::API
 		std::string _error;
 	};
 
-	// Drop-in parser for RegisterCommand callbacks.
-	class JsonCommand final : public JsonPayload
+	// Drop-in parser for RegisterSend callbacks.
+	class JsonSend final : public JsonPayload
 	{
 	public:
-		JsonCommand(const char* a_command, const char* a_payloadJson, const char* a_sourceViewId) noexcept :
+		JsonSend(const char* a_name, const char* a_payloadJson, const char* a_sourceViewId) noexcept :
 			JsonPayload(a_payloadJson),
-			_command(a_command ? a_command : ""),
+			_name(a_name ? a_name : ""),
 			_sourceViewId(a_sourceViewId ? a_sourceViewId : "")
 		{}
 
-		[[nodiscard]] std::string_view Command() const noexcept { return _command; }
+		[[nodiscard]] std::string_view Name() const noexcept { return _name; }
 		[[nodiscard]] std::string_view SourceViewId() const noexcept { return _sourceViewId; }
 
 	private:
-		std::string_view _command;
+		std::string_view _name;
 		std::string_view _sourceViewId;
 	};
 
@@ -224,7 +224,7 @@ namespace OSFUI::API
 			}
 		}
 
-		// Retained state (ABI 1.8). The C ABI takes JSON TEXT — a const char* is
+		// Retained state. The C ABI takes JSON TEXT — a const char* is
 		// the only shape that survives the vtable contract — so the ergonomic
 		// overloads live here, exactly like the Respond ladder above, and
 		// nlohmann never crosses the DLL boundary.

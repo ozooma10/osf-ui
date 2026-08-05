@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { buildModel, vanillaLabel } from '@lib/keybinds/model';
+import { buildModel } from '@lib/keybinds/model';
 import { holdersOf } from '@lib/keybinds/conflicts';
-import type { ModEntry, VanillaKey } from '@lib/keybinds/model';
+import type { ModEntry } from '@lib/keybinds/model';
+import type { KeybindingsData } from '@sdk';
 
 /** Builds a mod entry holding only the fields buildModel reads. */
 function mod(entry: {
@@ -22,38 +23,15 @@ function mod(entry: {
   } as unknown as ModEntry;
 }
 
-describe('vanillaLabel', () => {
-  it('strips the "Game (Label)" wrapper', () => {
-    expect(vanillaLabel('Starfield (Quicksave)')).toBe('Quicksave');
-    expect(vanillaLabel('Starfield (Toggle POV)')).toBe('Toggle POV');
-  });
-
-  it('keeps the innermost content when the label itself has parens', () => {
-    // `(.+)` is greedy and anchored on the trailing ")", so nested parens on
-    // the right are kept whole.
-    expect(vanillaLabel('Starfield (Scanner (flashlight))')).toBe('Scanner (flashlight)');
-  });
-
-  it('passes non-matching titles through unchanged', () => {
-    expect(vanillaLabel('Quicksave')).toBe('Quicksave');
-    // No space before the paren.
-    expect(vanillaLabel('Starfield(Quicksave)')).toBe('Starfield(Quicksave)');
-    // Empty parens: `(.+)` needs at least one char.
-    expect(vanillaLabel('Starfield ()')).toBe('Starfield ()');
-    // Trailing text after the close paren.
-    expect(vanillaLabel('Starfield (Quicksave) v2')).toBe('Starfield (Quicksave) v2');
-    // `[^(]+` forbids an open paren in the prefix.
-    expect(vanillaLabel('(Starfield) (Quicksave)')).toBe('(Starfield) (Quicksave)');
-    // Nothing before the space-paren.
-    expect(vanillaLabel(' (Quicksave)')).toBe(' (Quicksave)');
-  });
-
-  it('coerces falsy input to ""', () => {
-    expect(vanillaLabel(undefined)).toBe('');
-    expect(vanillaLabel(null)).toBe('');
-    expect(vanillaLabel('')).toBe('');
-  });
-});
+function gameAction(event: string, label: string, key: string): KeybindingsData['actions'][number] {
+  return {
+    event, label, category: 'Gameplay',
+    context: { id: 0, name: 'MainGameplay', order: 0 }, classification: 'core',
+    modes: { definite: ['onFoot', 'ship', 'vehicle', 'zeroG'], possible: [] },
+    sortIndex: 0, required: false,
+    bindings: [{ slot: 'main', key, chord: [key], unbound: false }],
+  };
+}
 
 // Input-context resolution itself is @lib/settings/inputContext (covered in
 // settings.inputcontext.test.ts); these assert the keybinds model delegates to
@@ -75,7 +53,7 @@ describe('buildModel input contexts', () => {
     });
   });
 
-  it('localizes the implicit gameplay label on mod rows like game rows', () => {
+  it('localizes implicit mod gameplay while preserving the engine context name', () => {
     const translate = (address: string, english: string) =>
       address === 'gameplay' ? 'Jugabilidad' : english;
     const rows = buildModel(
@@ -84,13 +62,11 @@ describe('buildModel input contexts', () => {
         settings: [{ type: 'key', key: 'openMenu' }],
         values: { openMenu: 'F7' },
       })],
-      [{ event: 'QuickSaveHandler', title: 'Starfield (Quicksave)', name: 'F5' } as VanillaKey],
+      [gameAction('QuickSaveHandler', 'Quicksave', 'F5')],
       translate,
     );
-    // Before the dedupe onto the shared resolver, the mod row hardcoded
-    // English "Gameplay" while the game row translated it.
     expect(rows[0]!.contextLabel).toBe('Jugabilidad');
-    expect(rows[1]!.contextLabel).toBe('Jugabilidad');
+    expect(rows[1]!.contextLabel).toBe('MainGameplay');
   });
 });
 
@@ -215,12 +191,12 @@ describe('buildModel', () => {
     });
   });
 
-  it('makes vanilla rows gameplay/non-blocking, always', () => {
-    const vanilla: VanillaKey[] = [
-      { event: 'QuickSave', title: 'Starfield (Quicksave)', name: 'F5' },
-      { event: 'Console', title: 'Starfield (Console)', name: 'Tilde' },
+  it('builds live game rows from osfui/keybindings', () => {
+    const actions: KeybindingsData['actions'] = [
+      gameAction('QuickSave', 'Quicksave', 'F5'),
+      gameAction('Console', 'Console', 'Tilde'),
     ];
-    const rows = buildModel([], vanilla);
+    const rows = buildModel([], actions);
     expect(rows).toEqual([
       {
         kind: 'game',
@@ -230,15 +206,17 @@ describe('buildModel', () => {
         name: 'F5',
         keyLabel: 'F5',
         contextId: 'MainGameplay',
-        contextLabel: 'Gameplay',
+        contextLabel: 'MainGameplay',
         contextNumericId: 0,
+        category: 'Gameplay',
         classification: 'core',
         gameplayModes: ['onFoot', 'ship', 'vehicle', 'zeroG'],
         blocksGameplay: false,
         chord: ['F5'],
         unbound: false,
         vanillaWarnings: true,
-        rowId: 'legacy-game:QuickSave:F5',
+        slot: 'main',
+        rowId: 'game:0:QuickSave:main:0',
       },
       {
         kind: 'game',
@@ -250,15 +228,17 @@ describe('buildModel', () => {
         name: 'Grave',
         keyLabel: 'Grave',
         contextId: 'MainGameplay',
-        contextLabel: 'Gameplay',
+        contextLabel: 'MainGameplay',
         contextNumericId: 0,
+        category: 'Gameplay',
         classification: 'core',
         gameplayModes: ['onFoot', 'ship', 'vehicle', 'zeroG'],
         blocksGameplay: false,
         chord: ['Grave'],
         unbound: false,
         vanillaWarnings: true,
-        rowId: 'legacy-game:Console:Grave',
+        slot: 'main',
+        rowId: 'game:0:Console:main:0',
       },
     ]);
   });
@@ -282,18 +262,18 @@ describe('buildModel', () => {
     expect(holdersOf(rows, '')).toEqual([]);
   });
 
-  it('routes the game owner and context label through the injected translator', () => {
-    const rows = buildModel([], [{ event: 'E', title: 'Starfield (X)', name: 'F1' }], (address) =>
+  it('routes the game owner through the translator and preserves engine context names', () => {
+    const rows = buildModel([], [gameAction('E', 'X', 'F1')], (address) =>
       address === 'gameOwner' ? 'Sternenfeld' : 'Spielablauf',
     );
     expect(rows[0]?.owner).toBe('Sternenfeld');
-    expect(rows[0]?.contextLabel).toBe('Spielablauf');
+    expect(rows[0]?.contextLabel).toBe('MainGameplay');
   });
 
   it('emits mod rows before game rows', () => {
     const rows = buildModel(
       [mod({ id: 'm', settings: [{ key: 'k', type: 'key' }], values: { k: 'F1' } })],
-      [{ event: 'E', title: 'Starfield (X)', name: 'F2' }],
+      [gameAction('E', 'X', 'F2')],
     );
     expect(rows.map((r) => r.kind)).toEqual(['mod', 'game']);
   });
@@ -315,12 +295,12 @@ describe('buildModel', () => {
     const rows = buildModel(
       [null, mod({ id: 'm', settings: [{ key: 'k', type: 'key' }], values: { k: 'F1' } })] as
         unknown as ModEntry[],
-      [null, { event: 'E', title: 'Starfield (X)', name: 'F2' }] as unknown as VanillaKey[],
+      [null, gameAction('E', 'X', 'F2')] as unknown as KeybindingsData['actions'],
     );
     expect(rows.map((r) => r.name)).toEqual(['F1', 'F2']);
   });
 
-  it('tolerates missing mods/vanillaKeys entirely', () => {
+  it('tolerates missing mods/game actions entirely', () => {
     expect(buildModel(undefined, undefined)).toEqual([]);
     expect(buildModel(null, null)).toEqual([]);
     expect(buildModel([mod({ id: 'm', settings: [] })], [])).toEqual([]);

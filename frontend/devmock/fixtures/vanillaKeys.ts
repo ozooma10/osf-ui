@@ -4,10 +4,14 @@
 // pseudo-entries. This sample exercises the
 // "Starfield (…)" side of conflict badges and of the live-warn during a capture.
 
-import type { KeybindingsData, SettingsData } from '@sdk';
+import type { KeybindingsData } from '@sdk';
 
-/** `vanillaKeys` as it appears in a `settings.data` payload. */
-export type VanillaKey = NonNullable<SettingsData['vanillaKeys']>[number];
+/** Compact internal rows used only by the mock conflict engine. */
+export interface VanillaKey {
+  name: string;
+  event: string;
+  title: string;
+}
 
 export const VANILLA_KEYS: VanillaKey[] = [
   { name: 'F5', event: 'QuickSave', title: 'Starfield (Quicksave)' },
