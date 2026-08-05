@@ -15,8 +15,7 @@ namespace OSFUI
 		// key is a typo, never version skew. Keep in lockstep with the reads below.
 		constexpr std::initializer_list<std::string_view> kKnownKeys = {
 			"configVersion", "enabled",
-			"inputSource", "captureInput", "hardwareCursor", "focusMenu",
-			"engineInput", "pauseMenuEntryLabel", "pauseMenuEntryView",
+			"pauseMenuEntryLabel", "pauseMenuEntryView",
 			"view", "devMode",
 		};
 
@@ -71,19 +70,14 @@ namespace OSFUI
 		Json::ReportUnknownKeys(*json, kKnownKeys, "Config: " + a_path.string(), /*a_warn=*/true);
 
 		config.enabled = Json::GetBool(*json, "enabled", config.enabled);
-		config.inputSource = Json::GetString(*json, "inputSource", config.inputSource);
-		config.captureInput = Json::GetBool(*json, "captureInput", config.captureInput);
-		config.hardwareCursor = Json::GetBool(*json, "hardwareCursor", config.hardwareCursor);
-		config.focusMenu = Json::GetBool(*json, "focusMenu", config.focusMenu);
-		config.engineInput = Json::GetBool(*json, "engineInput", config.engineInput);
 		config.pauseMenuEntryLabel = Json::GetString(*json, "pauseMenuEntryLabel", config.pauseMenuEntryLabel);
 		config.pauseMenuEntryView = Json::GetString(*json, "pauseMenuEntryView", config.pauseMenuEntryView);
 		config.view = Json::GetString(*json, "view", config.view);
 		config.devMode = Json::GetBool(*json, "devMode", config.devMode);
 		ApplyAuthorModeMarker(config, a_path);
 
-		REX::INFO("Config: loaded {} (inputSource={}, captureInput={}, hardwareCursor={}, focusMenu={}, view={}, devMode={})",
-			a_path.string(), config.inputSource, config.captureInput, config.hardwareCursor, config.focusMenu, config.view, config.devMode);
+		REX::INFO("Config: loaded {} (enabled={}, view={}, devMode={})",
+			a_path.string(), config.enabled, config.view, config.devMode);
 		return config;
 	}
 }

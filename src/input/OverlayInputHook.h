@@ -15,11 +15,10 @@ namespace OSFUI
 	//   - all mouse/raw-input messages are consumed so the game freezes,
 	//   - the mouse drives the view, always routed from raw WM_INPUT (the
 	//     game's raw-input registration suppresses the WM_MOUSE* stream, so
-	//     it is the only source). Default (config.hardwareCursor): the OS
-	//     pointer is shown (input/HardwareCursor — zero-lag,
+	//     it is the only source). The OS pointer is shown
+	//     (input/HardwareCursor — zero-lag,
 	//     hardware-composited) and its live position (GetCursorPos) is the
-	//     routed position. Fallback (hardwareCursor=false): raw deltas drive
-	//     the runtime's invisible virtual cursor instead.
+	//     routed position.
 	// When not capturing, every message passes through unchanged except the
 	// toggle key (consumed so it never reaches the game).
 	namespace OverlayInputHook

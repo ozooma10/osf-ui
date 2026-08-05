@@ -153,13 +153,10 @@ namespace OSFUI
 		// The active page's CSS `cursor` drives the real OS pointer. Unlike the
 		// other handlers this fires on the renderer's worker thread (IWebRenderer
 		// contract) — SetShape is one atomic store, applied by the WndProc hook on
-		// the next mouse message. hardwareCursor is a boot-time config knob, not a
-		// setting; the only alternative is an invisible software cursor.
-		if (_config.hardwareCursor) {
-			_renderer->SetCursorChangeHandler([](CursorShape a_shape) {
-				HardwareCursor::SetShape(a_shape);
-			});
-		}
+		// the next mouse message.
+		_renderer->SetCursorChangeHandler([](CursorShape a_shape) {
+			HardwareCursor::SetShape(a_shape);
+		});
 
 
 		_compositor = std::make_unique<D3D12Compositor>();
@@ -183,8 +180,6 @@ namespace OSFUI
 		// installs a call-through VMT hook during its Plugin_Load; chaining it is
 		// safe only after that work is complete.
 		REX::INFO("Runtime: compositor = {}", _compositor->Name());
-
-		_captureInput.store(_config.captureInput);
 
 		// Composition root for feature modules (hosted generically via IUiModule).
 		// OnStart() applies persisted state before the first frame.
@@ -289,17 +284,14 @@ namespace OSFUI
 		}
 
 		// Key events reach the router from the WndProc subclass (OverlayInputHook
-		// → OnHostKey), installed when config inputSource="ui" on the first
-		// main-thread tick after kPostPostDataLoad.
+		// → OnHostKey), installed on the first main-thread tick after
+		// kPostPostDataLoad.
 		const auto toggleKey = ResolveKeyName(_config.toggleKey);
 		_toggleKey.store(toggleKey, std::memory_order_release);
 		if (toggleKey != kInvalidScanCode) {
 			REX::INFO("Runtime: toggleKey '{}' resolved to scan code {:#x}", _config.toggleKey, toggleKey);
 		}
-		EngineInput::SetEnabled(_config.engineInput);
-		if (_config.engineInput) {
-			REX::INFO("Runtime: engineInput enabled — engine per-menu input (gamepad) routed into the focused view; keyboard/mouse stay on the WndProc path");
-		}
+		REX::INFO("Runtime: production input path selected — WndProc keyboard/mouse, hardware cursor, FocusMenu and engine-routed gamepad");
 
 		// Toggle key opens/closes the default menu; Esc (while captured) is the back
 		// action — close the top menu, or delegate to a back-owning view
@@ -317,8 +309,6 @@ namespace OSFUI
 					_renderer->InjectKeyEvent(a_key, a_down);
 				}
 			});
-		REX::INFO("Runtime: input capture {} (config captureInput)", _config.captureInput ? "enabled" : "disabled");
-
         if (_config.devMode) {
             _devViewReload = std::make_unique<DevViewReloadWorker>(
                 Paths::ViewsDir(), [this](const DevViewReloadWorker::Target& a_target) {
@@ -383,24 +373,21 @@ namespace OSFUI
 		REX::DEBUG("Runtime: consuming kPostPostDataLoad work on the main-thread tick");
 		if (!UiLayoutGuard::VerifyUiLayout()) {
 			REX::ERROR("Runtime: UI layout guard failed; skipping ALL UI integration "
-				"(MenuEventSink + FocusMenu stay uninstalled, overlay toggle inert)");
+				"(menu events, FocusMenu and the WndProc hook stay uninstalled; capturing menus are unavailable)");
 			return;
 		}
-		MenuEventSink::Install();
+		const bool menuEventsInstalled = MenuEventSink::Install();
 		// Hook the main-loop UI update so PauseMenuEntry's Scaleform access runs
 		// not only on the main thread, but specifically after active movies have
 		// advanced and nothing else is inside the AS3 VM.
 		MainThreadMenuPump::Install();
-		if (_config.focusMenu) {
-			REX::INFO("Runtime: focusMenu on — registering OSFUI_FocusMenu");
-			FocusMenu::Register();
-		}
+		const bool focusMenuRegistered = FocusMenu::Register();
 		// The WndProc subclass is the only input path: it drives the toggle key
 		// and consumes/routes keyboard and mouse while the overlay captures input.
-		if (_config.inputSource == "ui") {
-			[[maybe_unused]] const bool inputInstalled = OverlayInputHook::Install();
-		} else {
-			REX::INFO("Runtime: inputSource=none; input hook not installed (toggle key inert)");
+		const bool inputInstalled = OverlayInputHook::Install();
+		_captureIntegrationAvailable = menuEventsInstalled && focusMenuRegistered && inputInstalled;
+		if (!_captureIntegrationAvailable) {
+			REX::ERROR("Runtime: required input integration is unavailable; menus that capture input will be refused this session");
 		}
 	}
 
@@ -575,9 +562,7 @@ namespace OSFUI
 		}
 		// Reconcile engine menu-mode + control-disable toward the derived capture
 		// state (not visibility): a live HUD must not disable controls.
-		if (_config.focusMenu) {
-			ReconcileFocusMenu();
-		}
+		ReconcileFocusMenu();
 		// Unconditional, so losing capture releases any engaged lock (a gate here
 		// would stop reconciling and strand the player's controls).
 		ReconcileControlLayer();
@@ -590,9 +575,7 @@ namespace OSFUI
 		// releases the pointer (no engine arrow — the focus menu carries no
 		// ShowCursor bit). Edge-triggered inside Apply.
 		FreeCursor::Apply(_menus.DesiredCapture());
-		if (_config.engineInput) {
-			DrainEngineInput(a_deltaSeconds);
-		}
+		DrainEngineInput(a_deltaSeconds);
 		if (!_renderer) {
 			return;
 		}
@@ -860,6 +843,11 @@ namespace OSFUI
 			return false;
 		}
 		const auto* manifest = _views.Find(a_id);
+		if (manifest && manifest->kind == SurfaceKind::Menu && manifest->capturesInput &&
+			!_captureIntegrationAvailable) {
+			REX::WARN("Runtime: cannot open '{}' — required input integration is unavailable", a_id);
+			return false;
+		}
 		if (!manifest || manifest->kind == SurfaceKind::Hud ||
 			a_id == kHandoffViewId || !_menus.IsRegistered(kHandoffViewId)) {
 			CancelPendingOpen();
@@ -1096,11 +1084,19 @@ namespace OSFUI
 		if (!_renderer) {
 			return;
 		}
-		// All menu-opening paths converge here, including legacy RegisterView and
+		// All menu-opening paths converge here, including RegisterView and
 		// a page asking to show itself. Keep HUD state, but never let an interactive
 		// menu claim focus/input when the compositor cannot put it on screen.
 		if (!OverlayCanDraw() && _menus.ActiveMenu()) {
 			REX::WARN("Runtime: closing a requested menu because the Scaleform UI draw path is unavailable");
+			_menus.CloseTop();
+		}
+		// A capturing menu is safe only when the whole production input path is
+		// live. This central guard also covers plugin openOnStart and a view opening
+		// itself through setVisible, which do not pass through BeginSurfaceOpen.
+		if (_menus.DesiredCapture() && !_captureIntegrationAvailable) {
+			REX::WARN("Runtime: closing a requested menu because required input integration is unavailable");
+			CancelPendingOpen();
 			_menus.CloseTop();
 		}
 		// Per-surface hidden + composite z, derived from the band order: HUDs
@@ -1116,9 +1112,9 @@ namespace OSFUI
 		if (active) {
 			_renderer->SetActiveView(*active);
 		}
-		// Capture requires both the global config gate and the top menu's policy
-		// (false for HUD-only => the game keeps input).
-		const bool desiredCapture = _config.captureInput && _menus.DesiredCapture();
+		// Capture follows the top menu's policy (false for HUD-only => the game
+		// keeps input).
+		const bool desiredCapture = _menus.DesiredCapture();
 		const bool captureChanged = _captureInput.exchange(desiredCapture) != desiredCapture;
 		if (captureChanged) {
 			// Hardware cursor state belongs to the game window thread. Wake it now;
@@ -1835,9 +1831,7 @@ namespace OSFUI
 		// The fatal callback arrives from renderer Update(), after Tick's normal
 		// policy reconciliation. Release every engine-side effect now instead of
 		// leaving actors, controls, pause, or the cursor stranded for another frame.
-		if (_config.focusMenu) {
-			ReconcileFocusMenu();
-		}
+		ReconcileFocusMenu();
 		ReconcileControlLayer();
 		ReconcileSimPause();
 		FreeCursor::Apply(false);
@@ -1955,31 +1949,6 @@ namespace OSFUI
 		QueueMouseMove();
 	}
 
-	void Runtime::OnHostMouseDelta(int a_dx, int a_dy)
-	{
-		if (!IsInputCaptured() || !_renderer) {
-			return;
-		}
-		// Scale raw deltas so a view sweep costs the same physical travel at any
-		// resolution; the view tracks the screen, so 1:1 would feel slow when big.
-		const auto scale = _cursorScale.load(std::memory_order_relaxed);
-		const auto maxX = static_cast<float>(_viewWidth.load(std::memory_order_relaxed) - 1);
-		const auto maxY = static_cast<float>(_viewHeight.load(std::memory_order_relaxed) - 1);
-		const auto addClamped = [](std::atomic<float>& a_value, const float a_delta, const float a_max) {
-			auto current = a_value.load(std::memory_order_relaxed);
-			for (;;) {
-				const auto next = std::clamp(current + a_delta, 0.0f, a_max);
-				if (a_value.compare_exchange_weak(current, next,
-						std::memory_order_relaxed, std::memory_order_relaxed)) {
-					break;
-				}
-			}
-		};
-		addClamped(_cursorX, static_cast<float>(a_dx) * scale, maxX);
-		addClamped(_cursorY, static_cast<float>(a_dy) * scale, maxY);
-		QueueMouseMove();
-	}
-
 	void Runtime::QueueMouseMove()
 	{
 		// Raw-input packets arrive at the mouse's polling rate (500-1000 Hz);
@@ -2032,7 +2001,7 @@ namespace OSFUI
 				FocusMenu::Open();
 			} else {
 				FocusMenu::Close();
-				// Clear the gamepad routing queue/sticks (no-op unless engineInput).
+				// Clear the gamepad routing queue/sticks.
 				EngineInput::ResetSessionRouting();
 				// Gamepad raw-passthrough is not reset here: it is a sticky
 				// per-view property (_gamepadRawViews) that survives overlay
@@ -2081,9 +2050,9 @@ namespace OSFUI
 	void Runtime::ReconcileSimPause()
 	{
 		// Main thread (Runtime::Tick), unconditional: the sim pause needs no
-		// engine menu (UI::ModifyMenuPauseCounter; see input/SimPause), so it is
-		// not gated on config.focusMenu. Driven by the top menu's manifest
-		// pausesGame (default true for menus). Edge-triggered inside Apply.
+		// engine menu (UI::ModifyMenuPauseCounter; see input/SimPause). Driven by
+		// the top menu's pausesGame manifest policy (default true for menus).
+		// Edge-triggered inside Apply.
 		SimPause::Apply(_menus.DesiredPause());
 	}
 
@@ -2549,6 +2518,12 @@ namespace OSFUI
 			if (IsPre2Target(manifest->targetVersion)) {
 				REX::WARN("Runtime: menu.open refused — '{}' targets the removed pre-2.0 API", id);
 				a_b.Reject("unsupported-version", "view targets the removed pre-2.0 API");
+				return;
+			}
+			if (manifest->kind == SurfaceKind::Menu && manifest->capturesInput &&
+				!_captureIntegrationAvailable) {
+				REX::WARN("Runtime: menu.open refused — required input integration is unavailable");
+				a_b.Reject("input-unavailable", "required input integration is unavailable");
 				return;
 			}
 			// Use the same snapshot/load/pump/open path as native RequestMenu so a
@@ -3068,9 +3043,6 @@ namespace OSFUI
 
 		_viewWidth.store(viewWidth);
 		_viewHeight.store(viewHeight);
-		// Keep cursor speed consistent across resolutions: ~1920 counts sweep the
-		// view width regardless of view size.
-		_cursorScale.store((std::max)(1.0f, static_cast<float>(viewWidth) / 1920.0f));
 		_renderer->Resize(viewWidth, viewHeight);
 		REX::DEBUG("Runtime: output {}x{} -> view resized to {}x{} (aspect-correct)",
 			a_width, a_height, viewWidth, viewHeight);
@@ -3145,9 +3117,7 @@ namespace OSFUI
 			// The timeout fires after this tick's normal policy reconciliation.
 			// Release every engine-owned edge now instead of trapping input/pause
 			// until another main-thread task happens to run.
-			if (_config.focusMenu) {
-				ReconcileFocusMenu();
-			}
+			ReconcileFocusMenu();
 			ReconcileControlLayer();
 			ReconcileSimPause();
 			FreeCursor::Apply(false);

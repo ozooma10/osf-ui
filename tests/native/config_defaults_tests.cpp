@@ -20,23 +20,26 @@ int main()
 {
 	const auto config = OSFUI::Config::Load("../../data/OSFUI/config.json");
 
-	// The shipped config deliberately omits backend selections. Its compiled
-	// fallbacks must always describe a usable in-game production stack.
-	assert(config.inputSource == "ui");
+	// The shipped config contains only the supported production inputs.
 	assert(config.view == "osfui/settings");
 	assert(!LoggedContaining("WARN", "unknown key"));
 
-	// captureInput remains a boot-file gate, while pauseMenuEntry is owned by
-	// the live MCM store and must ignore a stale config.json override.
+	// Removed input switches are ordinary unknown keys. The production WndProc,
+	// capture, hardware-cursor, FocusMenu and engine-input path is not
+	// configurable; pauseMenuEntry is likewise owned by the live MCM store.
 	const std::filesystem::path overridePath = ".build/config-overrides.json";
 	std::filesystem::create_directories(overridePath.parent_path());
 	{
 		std::ofstream out(overridePath);
-		out << R"({"captureInput":false,"pauseMenuEntry":false})";
+		out << R"({"inputSource":"none","captureInput":false,"hardwareCursor":false,"focusMenu":false,"engineInput":false,"pauseMenuEntry":false})";
 	}
 	const auto overrides = OSFUI::Config::Load(overridePath);
-	assert(!overrides.captureInput);
 	assert(overrides.pauseMenuEntry);
+	assert(LoggedContaining("WARN", "unknown key 'inputSource'"));
+	assert(LoggedContaining("WARN", "unknown key 'captureInput'"));
+	assert(LoggedContaining("WARN", "unknown key 'hardwareCursor'"));
+	assert(LoggedContaining("WARN", "unknown key 'focusMenu'"));
+	assert(LoggedContaining("WARN", "unknown key 'engineInput'"));
 	std::filesystem::remove(overridePath);
 
 	// There is no config-v1 compatibility branch. Removed fields are ordinary

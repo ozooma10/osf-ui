@@ -24,8 +24,8 @@ namespace OSFUI
 		inline constexpr std::uint32_t kY = 0x8000;
 	}
 
-	// Engine-routed input (config `engineInput`, on by default): a tap on the
-	// engine's per-menu input dispatch, bringing gamepad input — which the
+	// Engine-routed input: a tap on the engine's per-menu input dispatch,
+	// bringing gamepad input — which the
 	// WndProc never sees — into the runtime.
 	//
 	// Contract (OSF RE module ui.menu_input, 1.16.244): menus in the active array
@@ -56,18 +56,14 @@ namespace OSFUI
 	class EngineInput
 	{
 	public:
-		// Master switch, set once at init from config.engineInput.
-		static void SetEnabled(bool a_enabled);
-		[[nodiscard]] static bool IsEnabled();
-
 		// Overwrite the +0x10 BSInputEventUser vptr of a freshly engine-built
 		// focus-menu object with the patched copy. Called from the FocusMenu
-		// creator; no-op unless enabled.
+		// creator.
 		static void InstallReceiver(void* a_menuObj);
 
 		// Clear the gamepad routing queue and zero the sticks so a released
 		// stick / unpopped edge can't leak into the next overlay session.
-		// Runtime calls this on the focus-menu close edge. No-op unless enabled.
+		// Runtime calls this on the focus-menu close edge.
 		static void ResetSessionRouting();
 
 		// Gamepad routing. Keyboard/mouse (text/IME + cursor position) stay on

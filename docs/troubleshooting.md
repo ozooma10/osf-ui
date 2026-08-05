@@ -44,7 +44,7 @@ Gameplay controls, gamepad included, always freeze while a menu captures input; 
 
 Choices persist to `Data\SFSE\Plugins\OSFUI\settings\values\` (one JSON file per mod) and survive updates. Under MO2 that write goes through the VFS, so look in Overwrite or whichever mod claims the path — which also makes settings per-profile and part of instance backups.
 
-`SFSE/Plugins/OSFUI/config.json` is a developer/boot file for diagnostic and input switches. It's overwritten on update, so don't keep personal edits there. Unknown keys are ignored with a log warning.
+`SFSE/Plugins/OSFUI/config.json` is a developer/boot file for enabling the framework, choosing its default view, and `devMode`. It's overwritten on update, so don't keep personal edits there. Input capture uses one production path and has no boot-file switches. Unknown keys are ignored with a log warning.
 
 **A mod is missing, or a warning sits atop the Mods rail:** a settings file that fails to load always produces a warning naming the file and reason (bad filename, JSON parse error with line/column, corrupt saved values). A corrupt values file is renamed `<mod>.json.bad` and defaults are used; if you were hand-editing, fix the `.bad` file and rename it back. Same details in `OSF UI.log`.
 
@@ -69,7 +69,7 @@ Check `OSF UI.log` first.
 | Overlay never appears (or vanishes) with ReShade / RTSS / Steam overlay / frame-gen tools | Current builds don't join the DXGI Present hook chain. Check the log for `seam-only overlay armed`, `shared ring adopted`, `FIRST SEAM OVERLAY DRAW`; report the missing stage and your overlay stack. No injection/load-order workaround should be needed. |
 | Crash opening the overlay with BetterConsole installed | Fixed: current builds never create a probe swapchain or hook Present. Update OSF UI and confirm the log has `seam-only overlay armed`. |
 | Crash opening the overlay with OptiScaler + Steam overlay | Fixed: current builds always composite through the Scaleform seam and never extend the wrapped Present chain. All three can stay enabled; confirm `seam-only overlay armed`. |
-| No pointer while the overlay is open, or it flickers/jumps to center | The engine or another overlay is fighting the hardware cursor; the log shows `HardwareCursor: activated/deactivated` pairs on F10. Report it. `"hardwareCursor": false` in `config.json` restores the old input path, but that path has no visible pointer — a diagnostic, not a fix. |
+| No pointer while the overlay is open, or it flickers/jumps to center | The engine or another overlay is fighting the hardware cursor; the log shows `HardwareCursor: activated/deactivated` pairs on F10. Report it. The removed invisible software-cursor path is no longer configurable. |
 | *(developers)* I edited a deployed built-in view's `main.js` / `style.css` and nothing changed | That's generated output. Built-in views are generated from `frontend/src/` into ignored `build/frontend/views/` and redeployed by xmake. Edit `frontend/src/` and run `xmake build`; a loaded view reloads automatically in `devMode`. See [../frontend/README.md](../frontend/README.md). Your own mod's view is unaffected — third-party views are hand-authored and load as-is. |
 
 To disable without uninstalling: `"enabled": false` in `SFSE/Plugins/OSFUI/config.json`, or disable the mod in your manager.

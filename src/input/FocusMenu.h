@@ -5,8 +5,8 @@
 
 namespace OSFUI
 {
-	// The "de-jank" path (config `focusMenu`, on by default; verified in-game on
-	// 1.16.244). A real Starfield IMenu registered onto the engine menu stack so
+	// A real Starfield IMenu registered onto the engine menu stack (verified
+	// in-game on 1.16.244) so
 	// the engine enters menu mode (cursor + modal input ownership + optional
 	// pause) instead of relying on the WndProc message-swallow: the world is then
 	// gated/paused by the engine and gamepad input no longer leaks past the window

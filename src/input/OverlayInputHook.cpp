@@ -97,14 +97,10 @@ namespace OSFUI::OverlayInputHook
 		// stream (verified in-game 2026-07-01 — clicks routed from legacy
 		// messages never arrived).
 		//
-		// Position source depends on cursor mode:
-		//  - hardware cursor (a_hardwareCursor): the visible OS pointer is
-		//    authoritative — read GetCursorPos and sync the runtime's view-space
-		//    cursor to it so buttons/hover land where the user sees it. Deltas
-		//    are ignored.
-		//  - fallback (config.hardwareCursor=false): the OS pointer stays
-		//    hidden/clipped, so accumulate raw deltas into the virtual cursor.
-		void RouteRawMouse(HWND a_hwnd, LPARAM a_lparam, bool a_hardwareCursor)
+		// The visible OS pointer is authoritative: read GetCursorPos and sync the
+		// runtime's view-space cursor to it so buttons/hover land where the user
+		// sees it. Raw deltas are intentionally ignored.
+		void RouteRawMouse(HWND a_hwnd, LPARAM a_lparam)
 		{
 			UINT size = 0;
 			if (::GetRawInputData(reinterpret_cast<HRAWINPUT>(a_lparam), RID_INPUT, nullptr, &size, sizeof(RAWINPUTHEADER)) != 0 ||
@@ -120,21 +116,16 @@ namespace OSFUI::OverlayInputHook
 			auto& runtime = Runtime::Get();
 			const auto& mouse = raw.data.mouse;
 
-			if (a_hardwareCursor) {
-				// The engine may re-hide/re-clip the pointer at any time; heal it
-				// on the packet the user would notice it on.
-				HardwareCursor::Reassert(a_hwnd);
-				// Sync from the live OS pointer on every packet, not just moves,
-				// so a click without a preceding move still lands correctly.
-				POINT pt{};
-				RECT  client{};
-				if (::GetCursorPos(&pt) && ::ScreenToClient(a_hwnd, &pt) &&
-					::GetClientRect(a_hwnd, &client) && client.right > 0 && client.bottom > 0) {
-					runtime.OnHostMouseAbsolute(pt.x, pt.y, client.right, client.bottom);
-				}
-			} else if ((mouse.usFlags & MOUSE_MOVE_ABSOLUTE) == 0 && (mouse.lLastX != 0 || mouse.lLastY != 0)) {
-				// Relative motion (absolute mode is for tablets/RDP — ignore it).
-				runtime.OnHostMouseDelta(mouse.lLastX, mouse.lLastY);
+			// The engine may re-hide/re-clip the pointer at any time; heal it on
+			// the packet the user would notice it on.
+			HardwareCursor::Reassert(a_hwnd);
+			// Sync from the live OS pointer on every packet, not just moves, so a
+			// click without a preceding move still lands correctly.
+			POINT pt{};
+			RECT  client{};
+			if (::GetCursorPos(&pt) && ::ScreenToClient(a_hwnd, &pt) &&
+				::GetClientRect(a_hwnd, &client) && client.right > 0 && client.bottom > 0) {
+				runtime.OnHostMouseAbsolute(pt.x, pt.y, client.right, client.bottom);
 			}
 
 			const auto buttons = mouse.usButtonFlags;
@@ -188,7 +179,7 @@ namespace OSFUI::OverlayInputHook
 
 			// Capture flips on the game main thread, so this is where the
 			// open/close edge becomes visible to the window thread.
-			const bool wantHwCursor = runtime.IsInputCaptured() && runtime.GetConfig().hardwareCursor;
+			const bool wantHwCursor = runtime.IsInputCaptured();
 			if (wantHwCursor != g_hwCursorActive) {
 				g_hwCursorActive = wantHwCursor;
 				if (wantHwCursor) {
@@ -276,7 +267,7 @@ namespace OSFUI::OverlayInputHook
 					// Route into the overlay, then skip the game's proc so its
 					// camera/movement gets nothing. WM_INPUT must still reach
 					// DefWindowProc to release the raw input buffer.
-					RouteRawMouse(a_hwnd, a_lparam, g_hwCursorActive);
+					RouteRawMouse(a_hwnd, a_lparam);
 					return ::DefWindowProcW(a_hwnd, a_msg, a_wparam, a_lparam);
 				}
 				break;

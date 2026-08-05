@@ -14,8 +14,6 @@ namespace OSFUI
 {
 	namespace
 	{
-		std::atomic_bool g_enabled{ false };
-
 		// Patched +0x10 receiver vtable (copy of engine 475517): 10 slots
 		// (0 dtor .. 9 Unk09) plus one leading slot for the engine's RTTI COL
 		// (vtable[-1]), without which dynamic_cast through the copy fails — the
@@ -183,19 +181,9 @@ namespace OSFUI
 		}
 	}
 
-	void EngineInput::SetEnabled(bool a_enabled)
-	{
-		g_enabled.store(a_enabled, std::memory_order_release);
-	}
-
-	bool EngineInput::IsEnabled()
-	{
-		return g_enabled.load(std::memory_order_acquire);
-	}
-
 	void EngineInput::InstallReceiver(void* a_menuObj)
 	{
-		if (!a_menuObj || !IsEnabled()) {
+		if (!a_menuObj) {
 			return;
 		}
 		BuildReceiverVtable();
@@ -209,9 +197,6 @@ namespace OSFUI
 
 	void EngineInput::ResetSessionRouting()
 	{
-		if (!IsEnabled()) {
-			return;
-		}
 		// Clear routing state so a released stick / unpopped edge can't leak into
 		// the next overlay session.
 		{

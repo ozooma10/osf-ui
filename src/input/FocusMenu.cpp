@@ -194,9 +194,9 @@ namespace OSFUI
 		// menu lives for the whole session, like every native menu.
 		*reinterpret_cast<std::uint32_t*>(bytes + kOffRefCount) = 0x10000000;
 
-		// Level-2 observer (config engineInput): replace the +0x10 BSInputEventUser
+		// Level-2 observer: replace the +0x10 BSInputEventUser
 		// vtable with the patched copy so the engine's per-menu input dispatch is
-		// visible to us. No-op unless enabled. Additive — base-init already
+		// visible to us. Additive — base-init already
 		// installed the real receiver vtable and the enabled byte (+0x38=1); we only
 		// redirect the six observed slots.
 		EngineInput::InstallReceiver(obj);

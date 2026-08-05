@@ -69,8 +69,8 @@ namespace OSFUI
 		// triggers — e.g. the injected PauseMenu "mod settings" entry.
 		void EnqueueOpenView(std::string a_viewId);
 
-		// True when the overlay owns input: visible and config captureInput is
-		// on. Read by the WndProc hook (OverlayInputHook) to decide whether to
+		// True when the overlay owns input. Read by the WndProc hook
+		// (OverlayInputHook) to decide whether to
 		// consume game input, and by the InputRouter to decide whether to route
 		// keys into the web view. Thread-safe.
 		[[nodiscard]] bool IsInputCaptured() const;
@@ -88,17 +88,13 @@ namespace OSFUI
 		// thread): flags the keycap-label map for a main-thread rebuild.
 		void NotifyKeyboardLayoutChanged();
 
-		// WndProc hook, hardware-cursor path (config.hardwareCursor, default):
+		// WndProc hook, hardware-cursor path:
 		// window-client coordinates plus the current client size. Maps through
 		// the client size to view space (aspect-matched but height-capped — a
 		// uniform scale), syncs the virtual cursor so buttons/wheel route at the
 		// same spot, and routes the move into the web view.
 		void OnHostMouseAbsolute(int a_clientX, int a_clientY, int a_clientW, int a_clientH);
 
-		// Fallback path (config.hardwareCursor=false): raw mouse deltas from the
-		// WndProc hook (the OS cursor stays hidden). Advances a virtual cursor in
-		// view space and, while captured, routes the move into the web view.
-		void OnHostMouseDelta(int a_dx, int a_dy);
 		// Mouse button transition; routed at the current virtual cursor.
 		// a_button uses MouseButton order (0=left, 1=right, 2=middle).
 		void OnHostMouseButton(int a_button, bool a_down);
@@ -191,10 +187,10 @@ namespace OSFUI
 		// RequestMenu issued back-to-back all land in one tick. Main thread.
 		void DrainViewRegistrations();
 
-		// config.focusMenu: open/close the engine focus menu to match the top
+		// Open/close the engine focus menu to match the top
 		// menu's capture policy. Called every tick from the main thread so the
-		// UIMessageQueue is never poked from the WndProc/input thread. No-op
-		// unless config.focusMenu is set. See input/FocusMenu.h.
+		// UIMessageQueue is never poked from the WndProc/input thread. See
+		// input/FocusMenu.h.
 		void ReconcileFocusMenu();
 
 		// Drive the sim pause (Main::isGameMenuPaused) toward the top menu's
@@ -202,11 +198,11 @@ namespace OSFUI
 		// engine menu), every tick, main thread. See input/SimPause.h.
 		void ReconcileSimPause();
 
-		// config.engineInput: drain the engine's per-menu gamepad input
+		// Drain the engine's per-menu gamepad input
 		// (marshalled by EngineInput from worker threads) on the main thread and
 		// route it into the active web view — default mapping (D-pad/left-stick
 		// -> arrows, A -> Enter, B -> close overlay, right-stick -> scroll) plus
-		// raw `ui.gamepad` bridge events. No-op unless engineInput is set.
+		// raw `ui.gamepad` bridge events.
 		// Keyboard/mouse stay on the WndProc path.
 		void DrainEngineInput(double a_deltaSeconds);
 
@@ -428,8 +424,6 @@ namespace OSFUI
 		std::atomic<float>            _cursorY{ 0.0f };
 		std::atomic<std::uint32_t>    _viewWidth{ kDefaultViewWidth };
 		std::atomic<std::uint32_t>    _viewHeight{ kDefaultViewHeight };
-		std::atomic<float>            _cursorScale{ 1.0f };   // resolution-based, set on resize
-
 		// Coalesced mouse-move handoff (QueueMouseMove -> Tick). OnHostMouse*
 		// fire per raw-input packet on the window thread; a pipe write per
 		// packet made a 500-1000 Hz mouse cost hundreds of JSON encode/parse/
@@ -447,9 +441,14 @@ namespace OSFUI
 		std::uint32_t                  _mouseMoveSends{ 0 };
 		double                         _nextMouseStatsLog{ 0.0 };
 
-		// Initialised from config. When false the overlay is a HUD: it draws but
-		// the game still gets input.
-		std::atomic_bool              _captureInput{ true };
+		// Derived from the active menu's manifest. A HUD or display-only menu
+		// draws while leaving game input alone.
+		std::atomic_bool              _captureInput{ false };
+		// Set only after the game-layout guard, menu-event sink, FocusMenu
+		// registration and game-window WndProc hook all succeed. Capturing menus
+		// fail closed until the complete production input path is available; HUDs
+		// remain usable.
+		bool                          _captureIntegrationAvailable{ false };
 
 		// _captureArmed is set on the main thread (the settings.captureKey
 		// command) and read on the window thread (OnHostKey); _capturedScan is
@@ -514,7 +513,7 @@ namespace OSFUI
 		std::string                   _lastShownView;
 
 		// Last focus-menu open state driven (main-thread only, reconciled in Tick
-		// against the menu policy). See config.focusMenu.
+		// against the menu policy).
 		bool                          _focusMenuOpen{ false };
 
 		// Watchdog for the above (main-thread only): _uptime when the engine's
