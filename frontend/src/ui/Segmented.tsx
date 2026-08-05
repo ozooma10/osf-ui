@@ -1,7 +1,7 @@
 // The `type:"enum"` control, in both of its forms.
 //
 // Segmented form requires `widget === "segmented"` and 1 <= options.length <= 5;
-// either half failing falls back to a <select>. The upper bound is layout (a
+// either half failing falls back to the shared DOM Dropdown. The upper bound is layout (a
 // single row of equal-width buttons; six overflow the control cell); the lower
 // bound catches `widget:"segmented"` with no options, which would render an
 // empty un-clickable frame instead of an empty dropdown.
@@ -11,6 +11,7 @@
 
 import { optionLabel } from '@lib/settings/format';
 import type { Setting } from '@sdk';
+import { Dropdown } from './Dropdown';
 
 /** Just the fields both forms read. */
 export type EnumSource = Pick<Setting, 'options' | 'optionLabels' | 'widget'>;
@@ -56,21 +57,15 @@ export function Segmented({ id, setting, value, disabled, onCommit }: SegmentedP
   }
 
   return (
-    <select
-      class="osf-select"
+    <Dropdown
       id={id}
-      // A value outside the options selects nothing, so the browser shows the
-      // first option. The store cannot hold such a value, but a mock or an
+      // A value outside the options displays the first option without
+      // committing it. The store cannot hold such a value, but a mock or an
       // older schema can.
-      value={value ?? ''}
+      value={value}
+      options={opts.map((opt) => ({ value: opt, label: optionLabel(setting, opt) }))}
       disabled={disabled}
-      onChange={(e) => onCommit((e.currentTarget as HTMLSelectElement).value)}
-    >
-      {opts.map((opt) => (
-        <option key={opt} value={opt}>
-          {optionLabel(setting, opt)}
-        </option>
-      ))}
-    </select>
+      onCommit={onCommit}
+    />
   );
 }

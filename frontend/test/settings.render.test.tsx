@@ -130,15 +130,18 @@ describe('settings widget rendering', () => {
     });
   });
 
-  it('enum is segmented only when widget=segmented AND 1..5 options, else <select>', async () => {
+  it('enum is segmented only when widget=segmented AND 1..5 options, else a DOM dropdown', async () => {
     const { el } = await mountKit();
     // 3 options + widget:segmented -> segmented.
     const seg = el.querySelector('#ctl-acme\\.kit-segMode')!;
     expect(seg.classList.contains('osf-segmented')).toBe(true);
     expect(seg.querySelectorAll('.osf-segment').length).toBe(3);
-    // 6 options -> select regardless of anything.
+    // 6 options -> shared DOM dropdown regardless of anything.
     const pick = el.querySelector('#ctl-acme\\.kit-pickMode')!;
-    expect(pick.tagName).toBe('SELECT');
+    expect(pick.tagName).toBe('BUTTON');
+    expect(pick.getAttribute('role')).toBe('combobox');
+    expect(pick.closest('.osf-dropdown')).not.toBeNull();
+    expect(el.querySelector('select')).toBeNull();
   });
 
   it('flags recommits the whole array in canonical declared order', async () => {

@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- First-party Settings dropdowns now stay inside the OSF UI surface and remain selectable instead of opening WebView2's separate native picker window, which could extend beyond the game window and lose clicks when Chromium focus crossed OSF UI's mouse-capture boundary.
 - Two views making requests at the same time could receive each other's replies. Pages number their own requests from a per-document counter, so every view's first request is `q1`; the host keyed deferred requests by that id alone, so a second view's request displaced the first, one page's promise settled with another's data, and the displaced request hung until its timeout. Deferrals are now tracked by a host-minted token and the page's id is only echoed back on the wire.
 - Submitting a bug report over a slow connection reported failure while the upload was still succeeding: the page waited 60 s, the host gave up at 30 s. The upload's own transport budget is now 25 s, under both.
 - A backend that rejects a request, or one that misses its deadline, no longer counts against the calling view's protocol-misuse budget — an ordinary application error could accumulate into a System Health warning naming a view that had done nothing wrong.
