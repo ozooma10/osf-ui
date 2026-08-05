@@ -21,9 +21,9 @@ SFSE_PLUGIN_PRELOAD(const SFSE::PreLoadInterface* a_sfse)
 
 SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 {
-	// Trampoline: MainThreadMenuPump patches the two UI_AdvanceActiveMenus
-	// call sites (write_call<5> stubs); 256 bytes is ample headroom.
-	SFSE::Init(a_sfse, { .trampoline = true, .trampolineSize = 256 });
+	// Trampoline: MainThreadMenuPump patches two UI call sites and the live
+	// ControlMap provider owns one verified prologue gateway/remap observer.
+	SFSE::Init(a_sfse, { .trampoline = true, .trampolineSize = 1024 });
 
 	return OSFUI::Plugin::OnLoad();
 }

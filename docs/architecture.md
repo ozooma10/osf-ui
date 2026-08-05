@@ -199,8 +199,9 @@ Mod state reaches only the live views of the publishing mod, resolved fresh
 from the loaded surfaces on each publish, so there is no subscriber set to
 prune or to go stale. The platform's own registries are state keys on the
 `osfui` mod: `osfui/settings`, `osfui/views`, `osfui/diagnostics`,
-`osfui/i18n` (computed per view — a document's catalog is its owning mod's)
-and the platform-private `osfui/handoff`. Those four replaced the 1.x
+`osfui/keybindings`, `osfui/input-context`, `osfui/i18n` (computed per view —
+a document's catalog is its owning mod's), and the platform-private
+`osfui/handoff`. The original registries replaced the 1.x
 `*.get` requests, each of which was a read with the invisible side effect of
 subscribing the caller — which is the definition of state, not of a read.
 

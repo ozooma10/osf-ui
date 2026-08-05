@@ -24,11 +24,12 @@ import { windowBridge, type Bridge } from '@lib/bridge';
 import { makeTranslator } from '@lib/i18n';
 import { codeOf } from '@lib/protocol';
 import { canonicalName } from '@lib/keybinds/canonical';
+import { matchesBindingFilter } from '@lib/keybinds/filter';
 
 import { buildModel, type ModEntry, type VanillaKey } from '@lib/keybinds/model';
 import type { BindingRow } from '@lib/keybinds/model';
 import { makeLabeler } from '@lib/keybinds/labels';
-import type { SettingsData } from '@sdk';
+import type { InputContextState, KeybindingsData, SettingsData } from '@sdk';
 import { BrandEmblem } from '@ui/BrandEmblem';
 import { useLatest, useStateRef } from '@ui/useStateRef';
 import { useKeyCapture, type KeyCapturePayload } from '@ui/useKeyCapture';
@@ -38,6 +39,7 @@ import { ToastStack, useToasts } from '@ui/Toast';
 import { BindList } from './BindList';
 import { Board, type FlashState } from './Board';
 import { DetailPanel } from './DetailPanel';
+import { matchesQuery } from './search';
 
 /**
  * Back to the Mods hub rather than dismissing the overlay: single-menu policy
@@ -69,12 +71,15 @@ export function App({ bridge = windowBridge }: AppProps) {
   // values.
   const [mods, setMods, modsRef] = useStateRef<ModEntry[]>([]);
   const [vanilla, setVanilla, vanillaRef] = useStateRef<VanillaKey[]>([]);
+  const [liveKeys, setLiveKeys] = useState<KeybindingsData | null>(null);
+  const [inputContext, setInputContext] = useState<InputContextState | null>(null);
   // Localized keycap labels for the player's layout (additive; undefined on
   // older hosts and in the preview — everything falls back to names/US glyphs).
   const [keyboard, setKeyboard] = useState<SettingsData['keyboard']>(undefined);
 
   const [selectedKey, setSelectedKey] = useState('');
   const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState('all');
   const [loaded, setLoaded] = useState(false);
   // Bumped on every `i18n.data` push so the memo below re-runs: the model
   // carries translated strings, so a locale change has to rebuild it, not just
@@ -90,14 +95,32 @@ export function App({ bridge = windowBridge }: AppProps) {
 
   const labeler = useMemo(() => makeLabeler(keyboard), [keyboard]);
   const bindings = useMemo(
-    () => buildModel(mods, vanilla, tr, labeler),
+    () => buildModel(mods, liveKeys ? liveKeys.actions : vanilla, tr, labeler),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- i18nSeq is the locale generation.
-    [mods, vanilla, tr, labeler, i18nSeq],
+    [mods, vanilla, liveKeys, tr, labeler, i18nSeq],
   );
   const bindingsRef = useLatest(bindings);
 
   // Both consumers take this pre-normalised — see matchesQuery().
   const query = search.trim().toLowerCase();
+  const shownBindingNames = useMemo<ReadonlySet<string> | null>(() => {
+    // With no list scope, the board's normal mod/game/conflict language already
+    // describes every occupied key. Search or a non-All filter turns the list
+    // into a subset, so publish that exact subset to the map as a visual layer.
+    if (!query && filter === 'all') return null;
+    const queryMatches = matchesQuery(query);
+    const names = new Set<string>();
+    for (const binding of bindings) {
+      if (
+        binding.name
+        && queryMatches(binding)
+        && matchesBindingFilter(binding, filter, inputContext)
+      ) {
+        names.add(binding.name);
+      }
+    }
+    return names;
+  }, [bindings, query, filter, inputContext]);
 
   // With no bridge these are silent no-ops rather than rejected promises.
   const sendCommand = (command: string, fields?: Record<string, unknown>) => {
@@ -181,6 +204,15 @@ export function App({ bridge = windowBridge }: AppProps) {
       setLoaded(true);
     });
 
+    const offLiveKeys = bridge.state('osfui/keybindings', (data) => {
+      setLiveKeys(data && Array.isArray(data.actions) ? data : { available: false, revision: 0, gameVersion: '', actions: [] });
+      setLoaded(true);
+    });
+
+    const offInputContext = bridge.state('osfui/input-context', (data) => {
+      setInputContext(data || null);
+    });
+
     const offI18n = bridge.state('osfui/i18n', () => {
       // A catalog that arrives before any data must not hide the loading line.
       if (modsRef.current.length || vanillaRef.current.length) {
@@ -237,6 +269,8 @@ export function App({ bridge = windowBridge }: AppProps) {
 
     return () => {
       offData();
+      offLiveKeys();
+      offInputContext();
       offI18n();
       offChanged();
       offCaptured();
@@ -373,11 +407,22 @@ export function App({ bridge = windowBridge }: AppProps) {
                 <i class="legend-swatch legend-conflict" />
                 <span>{tr('conflict', 'Conflict')}</span>
               </span>
+              <span class="legend-item">
+                <i class="legend-swatch legend-possible" />
+                <span>{tr('possible', 'Possible')}</span>
+              </span>
+              {shownBindingNames !== null ? (
+                <span class="legend-item">
+                  <i class="legend-swatch legend-prioritized" />
+                  <span>{tr('inList', 'In list')}</span>
+                </span>
+              ) : null}
             </div>
           </div>
           <Board
             bindings={bindings}
             query={query}
+            shownBindingNames={shownBindingNames}
             selectedKey={selectedKey}
             flash={flash}
             loaded={loaded}
@@ -392,6 +437,8 @@ export function App({ bridge = windowBridge }: AppProps) {
           <DetailPanel
             bindings={bindings}
             selectedKey={selectedKey}
+            filter={filter}
+            inputContext={inputContext}
             loaded={loaded}
             tr={tr}
             capturingId={capturingId}
@@ -406,6 +453,9 @@ export function App({ bridge = windowBridge }: AppProps) {
             capturingId={capturingId}
             onRebind={beginCapture}
             onSelect={selectKey}
+            filter={filter}
+            onFilter={setFilter}
+            inputContext={inputContext}
           />
         </div>
 

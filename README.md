@@ -62,7 +62,6 @@ Data/SFSE/Plugins/
   OSFUI.dll
   OSFUI/                 <- plugin data, resolved relative to the DLL
     config.json
-    vanillakeys.json
     views/                     <- GENERATED from frontend/ (see "Building the frontend")
       shared/                     the shared UI kit — third-party views link it by exact path
         osfui.css  osfui.js

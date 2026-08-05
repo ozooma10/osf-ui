@@ -21,9 +21,9 @@ Needs the unpacked Microsoft.Web.WebView2 SDK: `-WebView2SdkDir`, else `$env:WEB
 0. `npm ci` from the committed lockfile.
 1. Configure + build `releasedbg` with WebView2. The xmake hook generates built-in views from `frontend/src/` into ignored `build/frontend/views/`.
 2. `xmake install -o <staging>` — stages views alongside `SFSE/Plugins/OSFUI.dll` (+ PDB) and `OSFUI/bin/osfui_webview2_host.exe`.
-3. Deterministic data sync — copies authored data (`config.json`, `vanillakeys.json`, `settings/`) from `data/OSFUI/` and the Papyrus surface (`Scripts/OSFUI.pex`, `Scripts/Source/OSFUI.psc`) from `data/Scripts/` over the staged tree, preserving generated views and the host exe. Bypasses xmake's cached authored-data glob without source-controlling generated files.
+3. Deterministic data sync — copies authored data (`config.json`, `settings/`) from `data/OSFUI/` and the Papyrus surface (`Scripts/OSFUI.pex`, `Scripts/Source/OSFUI.psc`) from `data/Scripts/` over the staged tree, preserving generated views and the host exe. Bypasses xmake's cached authored-data glob without source-controlling generated files.
 4. License docs — `LICENSE`, `EXCEPTIONS`, `CREDITS.md` go inside `SFSE/Plugins/OSFUI/`, so installing doesn't clutter `Data\`.
-5. Verify — hard-fails on a missing DLL, WebView2 host, `config.json`, `vanillakeys.json`, `osfui.json` schema, `OSFUI.pex`, any view manifest, the shared kit (`views/shared/osfui.js|.css`) or `views/osfui/padnav.js`, or a `config.json` view id with no manifest.
+5. Verify — hard-fails on a missing DLL, WebView2 host, `config.json`, `osfui.json` schema, `OSFUI.pex`, any view manifest, the shared kit (`views/shared/osfui.js|.css`) or `views/osfui/padnav.js`, or a `config.json` view id with no manifest.
 6. Sanity warnings (non-blocking) — flags `devMode` enabled in `config.json`.
 7. Zip + report — `dist/OSF-UI-v<version>[-tag].zip`, with size and SHA-256.
 
@@ -40,7 +40,6 @@ OSF-UI-v<version>-alpha.zip
    └─ OSFUI/
       ├─ LICENSE  EXCEPTIONS  CREDITS.md
       ├─ config.json
-      ├─ vanillakeys.json             (vanilla-keybinds defaults table)
       ├─ views/                       (GENERATED from frontend/ during build)
       │  ├─ osfui/{settings,keybinds}/   (built-in views + padnav.js)
       │  └─ shared/                      (shared kit: osfui.css, osfui.js)

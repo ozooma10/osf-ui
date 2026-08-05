@@ -50,6 +50,21 @@ namespace OSFUI
 			});
 		}
 
+		std::optional<GameplayModeMask> ParseGameplayModes(const nlohmann::json& a_context)
+		{
+			const auto it = a_context.find("gameplayModes");
+			if (it == a_context.end()) return std::nullopt;  // legacy/unscoped
+			if (!it->is_array() || it->empty()) return std::nullopt;
+			GameplayModeMask modes = 0;
+			for (const auto& value : *it) {
+				if (!value.is_string()) return std::nullopt;
+				const auto mode = GameplayModeFromName(value.get_ref<const std::string&>());
+				if (!mode) return std::nullopt;
+				modes |= ModeBit(*mode);
+			}
+			return modes == 0 ? std::nullopt : std::optional{ modes };
+		}
+
 		struct ParsedHotkeyTarget
 		{
 			bool present{ false };
@@ -868,7 +883,15 @@ namespace OSFUI
 				if (_textResolver) {
 					label = _textResolver(a_mod.id, "inputContexts." + id + ".label", label);
 				}
-				return { id, std::move(label), Json::GetBool(context, "blocksGameplay", false) };
+				InputContext resolved;
+				resolved.id = id;
+				resolved.label = std::move(label);
+				resolved.blocksGameplay = Json::GetBool(context, "blocksGameplay", false);
+				if (const auto modes = ParseGameplayModes(context)) {
+					resolved.modeScoped = true;
+					resolved.modes = *modes;
+				}
+				return resolved;
 			}
 		}
 		return fallback;
@@ -897,8 +920,22 @@ namespace OSFUI
 			}
 			if (!seen.insert(id).second) {
 				REX::WARN("SettingsStore: [content] '{}' defines input context '{}' more than once -- keeping the first", a_modId, id);
+				continue;
+			}
+			if (context.contains("gameplayModes") && !ParseGameplayModes(context)) {
+				REX::WARN("SettingsStore: [content] '{}.inputContexts.{}.gameplayModes' must be a non-empty array containing only onFoot, ship, vehicle, or zeroG -- context keeps legacy unscoped dispatch",
+					a_modId, id);
 			}
 		}
+	}
+
+	SettingsStore::HotkeyScope SettingsStore::ScopeForHotkey(std::string_view a_modId, std::string_view a_key) const
+	{
+		const auto* mod = FindMod(a_modId);
+		const auto* setting = mod ? FindSetting(*mod, a_key) : nullptr;
+		if (!mod || !setting || Json::GetString(*setting, "type", "") != "key") return {};
+		const auto context = ResolveInputContext(*mod, *setting);
+		return { context.modeScoped, context.modes };
 	}
 
 	std::vector<SettingsStore::BoundKey> SettingsStore::ResolveBoundKeys() const
@@ -908,23 +945,42 @@ namespace OSFUI
 			for (const auto& setting : KeySettings()) {
 				if (const auto code = _keyResolver(setting.name); code != 0) {
 					const auto* mod = FindMod(setting.modId);
-					bool blocksGameplay = false;
+					InputContext context;
 					if (mod) {
 						if (const auto* authored = FindSetting(*mod, setting.key)) {
-							blocksGameplay = ResolveInputContext(*mod, *authored).blocksGameplay;
+							context = ResolveInputContext(*mod, *authored);
 						}
 					}
 					auto title = mod ? Json::GetString(mod->schema, "title", mod->id) : setting.modId;
 					if (mod && _textResolver) title = _textResolver(mod->id, "settings.title", title);
-					bound.push_back({ setting.modId, setting.key, std::move(title), code, blocksGameplay });
+					BoundKey entry;
+					entry.modId = setting.modId;
+					entry.key = setting.key;
+					entry.title = std::move(title);
+					entry.code = code;
+					entry.blocksGameplay = context.blocksGameplay;
+					entry.modeScoped = context.modeScoped;
+					entry.modes = context.modes;
+					bound.push_back(std::move(entry));
 				}
 			}
 			// The game's own bindings (mcm-design.md §9): pseudo-entries under
 			// the reserved id "@game". Gated on the same resolver as mod
 			// settings — without one there is no conflict grouping at all.
 			for (const auto& vanilla : _vanillaKeys) {
-				if (vanilla.code != 0) {
-					bound.push_back({ "@game", vanilla.event, vanilla.title, vanilla.code, false });
+				if (_vanillaWarningsEnabled && vanilla.code != 0) {
+					BoundKey entry;
+					entry.modId = "@game";
+					entry.key = vanilla.event;
+					entry.title = vanilla.title;
+					entry.code = vanilla.code;
+					entry.vanilla = true;
+					entry.vanillaContext = vanilla.context;
+					entry.slot = vanilla.slot;
+					entry.classification = vanilla.classification;
+					entry.modes = vanilla.definiteModes;
+					entry.possibleModes = vanilla.possibleModes;
+					bound.push_back(std::move(entry));
 				}
 			}
 		}
@@ -932,18 +988,30 @@ namespace OSFUI
 	}
 
 	nlohmann::json SettingsStore::CollectConflicts(const std::vector<BoundKey>& a_bound, std::uint32_t a_code,
-		std::string_view a_excludeMod, std::string_view a_excludeKey, bool a_selfBlocksGameplay)
+		std::string_view a_excludeMod, std::string_view a_excludeKey, const InputContext& a_selfContext)
 	{
 		nlohmann::json conflicts = nlohmann::json::array();
 		for (const auto& other : a_bound) {
-			if (other.code == a_code && (other.modId != a_excludeMod || other.key != a_excludeKey) &&
-				!(a_selfBlocksGameplay && other.modId == "@game")) {
+			if (other.code != a_code || (other.modId == a_excludeMod && other.key == a_excludeKey)) continue;
+			if (!other.vanilla) {
+				if (!ModesOverlap(a_selfContext.modes, other.modes)) continue;
 				conflicts.push_back({
 					{ "mod", other.modId },
 					{ "key", other.key },
 					{ "title", other.title },
 				});
+				continue;
 			}
+			if (a_selfContext.blocksGameplay) continue;
+			const auto vanillaModes = static_cast<GameplayModeMask>(other.modes | other.possibleModes);
+			if (!ModesOverlap(a_selfContext.modes, vanillaModes)) continue;
+			if (other.classification != ControlMapPolicy::Classification::Core &&
+				other.classification != ControlMapPolicy::Classification::Special) continue;
+			conflicts.push_back({
+				{ "mod", "@game" }, { "key", other.key }, { "title", other.title },
+				{ "severity", other.classification == ControlMapPolicy::Classification::Core ? "conflict" : "possible" },
+				{ "vanillaContext", other.vanillaContext }, { "slot", other.slot },
+			});
 		}
 		return conflicts;
 	}
@@ -953,13 +1021,13 @@ namespace OSFUI
 		if (a_code == 0) {
 			return nlohmann::json::array();  // unresolvable: never conflicts (mirrors Data())
 		}
-		bool blocksGameplay = false;
+		InputContext context;
 		if (const auto* mod = FindMod(a_excludeMod)) {
 			if (const auto* setting = FindSetting(*mod, a_excludeKey)) {
-				blocksGameplay = ResolveInputContext(*mod, *setting).blocksGameplay;
+				context = ResolveInputContext(*mod, *setting);
 			}
 		}
-		return CollectConflicts(ResolveBoundKeys(), a_code, a_excludeMod, a_excludeKey, blocksGameplay);
+		return CollectConflicts(ResolveBoundKeys(), a_code, a_excludeMod, a_excludeKey, context);
 	}
 
 	nlohmann::json SettingsStore::ConflictsForSetting(std::string_view a_modId, std::string_view a_key) const
@@ -1000,7 +1068,11 @@ namespace OSFUI
 					if (self == bound.end()) {
 						return false;  // unresolvable/empty value: never conflicts
 					}
-					nlohmann::json conflicts = CollectConflicts(bound, self->code, mod.id, key, self->blocksGameplay);
+					InputContext context;
+					context.blocksGameplay = self->blocksGameplay;
+					context.modeScoped = self->modeScoped;
+					context.modes = self->modes;
+					nlohmann::json conflicts = CollectConflicts(bound, self->code, mod.id, key, context);
 					if (!conflicts.empty()) {
 						a_setting["conflicts"] = std::move(conflicts);
 					}
@@ -1032,7 +1104,7 @@ namespace OSFUI
 		if (!_vanillaKeys.empty()) {
 			nlohmann::json vanilla = nlohmann::json::array();
 			for (const auto& v : _vanillaKeys) {
-				if (v.code != 0 && !v.name.empty()) {
+				if (v.code != 0 && !v.name.empty() && v.classification == ControlMapPolicy::Classification::Core) {
 					vanilla.push_back({
 						{ "event", v.event },
 						{ "title", v.title },

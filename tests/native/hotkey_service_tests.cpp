@@ -339,7 +339,7 @@ int main()
 		WriteFile(root3 / "settings" / "t.zeta.json", R"json({
 			"id": "t.zeta", "title": "Zeta Mod",
 			"inputContexts": [
-				{ "id": "scene", "label": "During scenes", "blocksGameplay": true },
+				{ "id": "scene", "label": "During scenes", "blocksGameplay": true, "gameplayModes": ["onFoot"] },
 				{ "id": "scene", "label": "Ignored duplicate", "blocksGameplay": false },
 				{ "id": "gameplay", "blocksGameplay": true },
 				{ "id": "bad id", "blocksGameplay": true }
@@ -356,12 +356,15 @@ int main()
 		HotkeyService svc5;
 		s5.SetKeyNameResolver(ResolveKeyName);
 		s5.LoadAll(root3 / "settings", root3 / "values");
-		s5.SetVanillaKeys({
+		CHECK(s5.SetVanillaKeys({
 			{ "QuickSave", "Starfield (Quicksave)", ResolveKeyName("F5"), "F5" },
 			{ "QuickLoad", "Starfield (Quickload)", ResolveKeyName("F9"), "F9" },
 			{ "Console", "Starfield (Console)", ResolveKeyName("Grave"), "Grave" },
 			{ "Jump", "Starfield (Jump)", ResolveKeyName("Space"), "Space" },
-		});
+			{ "WorkshopAction", "Starfield (Workshop action)", ResolveKeyName("F7"), "F7",
+				"Workshop", "alternate", OSFUI::ControlMapPolicy::Classification::Special,
+				0, OSFUI::ModeBit(OSFUI::GameplayMode::OnFoot) },
+		}));
 
 		const auto data = s5.Data();
 		CHECK(data.contains("vanillaKeys") && data["vanillaKeys"].size() == 4);
@@ -375,7 +378,18 @@ int main()
 			std::vector<std::string>{ "@game.QuickLoad" });
 		CHECK(ConflictsOf(FindEmittedSetting(data, "t.zeta", "invalid")) ==
 			std::vector<std::string>{ "@game.Console" });
-		CHECK(!FindEmittedSetting(data, "t.zeta", "other")->contains("conflicts"));
+		const auto* otherSetting = FindEmittedSetting(data, "t.zeta", "other");
+		CHECK(otherSetting && otherSetting->contains("conflicts") && otherSetting->at("conflicts").size() == 1);
+		if (otherSetting && otherSetting->contains("conflicts") && !otherSetting->at("conflicts").empty()) {
+			const auto& conflict = otherSetting->at("conflicts").front();
+			CHECK(conflict.value("severity", "") == "possible");
+			CHECK(conflict.value("vanillaContext", "") == "Workshop");
+			CHECK(conflict.value("slot", "") == "alternate");
+		}
+		const auto sceneScope = s5.ScopeForHotkey("t.zeta", "scene");
+		CHECK(sceneScope.scoped && sceneScope.modes == OSFUI::ModeBit(OSFUI::GameplayMode::OnFoot));
+		const auto legacyScope = s5.ScopeForHotkey("t.zeta", "save");
+		CHECK(!legacyScope.scoped && legacyScope.modes == OSFUI::kAllGameplayModes);
 
 		// The first valid duplicate context wins: scene omits @game.Jump but
 		// still reports the other mod on Space.
@@ -391,6 +405,18 @@ int main()
 		const nlohmann::json fallbackCapture{
 			{ "conflicts", s5.ConflictsFor(ResolveKeyName("F9"), "t.zeta", "unknown") } };
 		CHECK(ConflictsOf(&fallbackCapture) == std::vector<std::string>{ "@game.QuickLoad" });
+
+		// The player-facing warning toggle hides only game conflicts. The live
+		// compatibility catalog and mod-to-mod diagnosis stay intact.
+		CHECK(s5.SetVanillaWarningsEnabled(false));
+		const auto warningsOff = s5.Data();
+		CHECK(warningsOff.contains("vanillaKeys") && warningsOff["vanillaKeys"].size() == 4);
+		CHECK(!FindEmittedSetting(warningsOff, "t.zeta", "save")->contains("conflicts"));
+		CHECK(!FindEmittedSetting(warningsOff, "t.zeta", "other")->contains("conflicts"));
+		CHECK(ConflictsOf(FindEmittedSetting(warningsOff, "t.zeta", "scene")) ==
+			std::vector<std::string>{ "t.eta.globalSpace" });
+		CHECK(s5.SetVanillaWarningsEnabled(true));
+		CHECK(!s5.SetVanillaWarningsEnabled(true));
 
 		// Metadata does not change dispatch: both mod bindings still fan out.
 		svc5.Rebuild(s5);
@@ -410,9 +436,32 @@ int main()
 		SettingsStore s6;
 		s6.SetKeyNameResolver(ResolveKeyName);
 		s6.LoadAll(root4 / "settings", root4 / "values");
-		s6.SetVanillaKeys({ { "Jump", "Starfield (Jump)", ResolveKeyName("Space"), "Space" } });
+		CHECK(s6.SetVanillaKeys({ { "Jump", "Starfield (Jump)", ResolveKeyName("Space"), "Space" } }));
+		CHECK(!s6.SetVanillaKeys({ { "Jump", "Starfield (Jump)", ResolveKeyName("Space"), "Space" } }));
 		CHECK(ConflictsOf(FindEmittedSetting(s6.Data(), "t.theta", "scene")) ==
 			std::vector<std::string>{ "@game.Jump" });
+
+		// Proven-disjoint semantic modes can safely share one physical key.
+		const auto root5 = root / "mode-scopes";
+		WriteFile(root5 / "settings" / "t.iota.json", R"json({
+			"id": "t.iota",
+			"inputContexts": [
+				{ "id": "feet", "gameplayModes": ["onFoot"] },
+				{ "id": "cockpit", "gameplayModes": ["ship"] },
+				{ "id": "bad", "gameplayModes": ["future"] }
+			],
+			"groups": [ { "settings": [
+				{ "key": "feet", "type": "key", "default": "F8", "inputContext": "feet" },
+				{ "key": "cockpit", "type": "key", "default": "F8", "inputContext": "cockpit" },
+				{ "key": "bad", "type": "key", "default": "F9", "inputContext": "bad" }
+			] } ] })json");
+		SettingsStore s7;
+		s7.SetKeyNameResolver(ResolveKeyName);
+		s7.LoadAll(root5 / "settings", root5 / "values");
+		CHECK(!FindEmittedSetting(s7.Data(), "t.iota", "feet")->contains("conflicts"));
+		CHECK(!FindEmittedSetting(s7.Data(), "t.iota", "cockpit")->contains("conflicts"));
+		CHECK(s7.ScopeForHotkey("t.iota", "feet").scoped);
+		CHECK(!s7.ScopeForHotkey("t.iota", "bad").scoped);
 	}
 
 	// ---- key-name round trip -------------------------------------------------

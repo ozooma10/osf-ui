@@ -5,7 +5,13 @@
 // (rebindable), and the top-level `vanillaKeys` table (the game's own bindings,
 // read-only).
 
-import type { SettingsData, SettingsItem } from '@sdk';
+import type {
+  GameplayMode,
+  KeybindingsData,
+  SettingsData,
+  SettingsItem,
+  VanillaContextClassification,
+} from '@sdk';
 import { canonicalName } from './canonical';
 import type { KeyLabeler } from './labels';
 import { resolveInputContext } from '../settings/inputContext';
@@ -13,9 +19,7 @@ import { resolveInputContext } from '../settings/inputContext';
 export type ModEntry = SettingsData['mods'][number];
 
 /**
- * A row of `vanillaKeys`. The on-disk curation file (data/OSFUI/vanillakeys.json)
- * uses `label`/`key`; native renames them to `title`/`name` on the wire. This is
- * the wire shape.
+ * A row of the deprecated `SettingsData.vanillaKeys` compatibility projection.
  */
 export type VanillaKey = NonNullable<SettingsData['vanillaKeys']>[number];
 
@@ -38,6 +42,18 @@ export interface BindingRow {
   contextId: string;
   contextLabel: string;
   blocksGameplay: boolean;
+  /** null is legacy/unscoped and overlaps every semantic mode. */
+  gameplayModes?: GameplayMode[] | null;
+  classification?: VanillaContextClassification;
+  contextNumericId?: number;
+  category?: string;
+  slot?: 'main' | 'alternate';
+  chord?: string[];
+  unbound?: boolean;
+  /** False when the player's vanillaKeyConflicts setting hides game warnings. */
+  vanillaWarnings?: boolean;
+  /** Stable rendered identity; vanilla events may have main + alternate rows. */
+  rowId?: string;
 }
 
 /**
@@ -90,11 +106,13 @@ function isKeySetting(item: SettingsItem | null | undefined): item is Extract<
  */
 export function buildModel(
   mods: readonly ModEntry[] | null | undefined,
-  vanillaKeys: readonly VanillaKey[] | null | undefined,
+  vanillaKeys: readonly (VanillaKey | KeybindingsData['actions'][number])[] | null | undefined,
   translate: Translate = defaultTranslate,
   labeler: KeyLabeler = () => undefined,
 ): BindingRow[] {
   const rows: BindingRow[] = [];
+  const osfui = (mods || []).find((m) => m?.id === 'osfui');
+  const vanillaWarnings = osfui?.values?.vanillaKeyConflicts !== false;
 
   // `||` rather than `??` throughout: a schema whose `groups` is any falsy
   // non-nullish value (0, "", false — a hand-edited or hostile manifest)
@@ -129,6 +147,11 @@ export function buildModel(
           contextId: context.id,
           contextLabel: context.label,
           blocksGameplay: context.blocksGameplay,
+          gameplayModes: context.gameplayModes ?? null,
+          chord: [name],
+          unbound: false,
+          vanillaWarnings,
+          rowId: `mod:${mod.id}:${s.key}`,
         });
       }
     }
@@ -136,22 +159,54 @@ export function buildModel(
 
   for (const v of vanillaKeys || []) {
     if (!v) continue;
-    const name = canonicalName(v.name);
-    rows.push({
-      kind: 'game',
-      // Game rows carry the engine controlmap event id in `key` and no `mod`.
-      key: v.event,
-      label: vanillaLabel(v.title),
-      owner: translate('gameOwner', 'Starfield'),
-      name,
-      keyLabel: labeler(name) ?? name,
-      // Vanilla bindings are always plain gameplay: the game has no input
-      // contexts in this model, so they can never be the blocksGameplay side
-      // of a shared pair. See pairIsShared() in conflicts.ts.
-      contextId: 'gameplay',
-      contextLabel: translate('gameplay', 'Gameplay'),
-      blocksGameplay: false,
-    });
+    if ('bindings' in v && Array.isArray(v.bindings)) {
+      for (let i = 0; i < v.bindings.length; ++i) {
+        const binding = v.bindings[i];
+        if (!binding) continue;
+        const chord = Array.isArray(binding.chord)
+          ? binding.chord.filter((x): x is string => typeof x === 'string' && !!x).map(canonicalName)
+          : [];
+        // Chords and unbound actions deliberately live off the physical board:
+        // the board groups single-key identity only, while the list still shows
+        // the exact engine slot.
+        const name = !binding.unbound && chord.length === 1 ? chord[0] || '' : '';
+        const modes = [...(v.modes?.definite || []), ...(v.modes?.possible || [])];
+        rows.push({
+          kind: 'game',
+          key: v.event,
+          label: v.label || v.event,
+          owner: translate('gameOwner', 'Starfield'),
+          name,
+          keyLabel: binding.unbound
+            ? translate('unbound', 'Unbound')
+            : chord.map((part) => labeler(part) ?? part).join(' + '),
+          contextId: v.context?.name || 'unknown',
+          contextLabel: v.context?.name || translate('otherContext', 'Other'),
+          contextNumericId: v.context?.id,
+          category: v.category,
+          classification: v.classification,
+          gameplayModes: [...new Set(modes)],
+          blocksGameplay: false,
+          slot: binding.slot,
+          chord,
+          unbound: binding.unbound || chord.length === 0,
+          vanillaWarnings,
+          rowId: `game:${v.context?.id ?? 'x'}:${v.event}:${binding.slot}:${i}`,
+        });
+      }
+    } else if ('name' in v) {
+      // Deprecated host compatibility projection.
+      const name = canonicalName(v.name);
+      rows.push({
+        kind: 'game', key: v.event, label: vanillaLabel(v.title),
+        owner: translate('gameOwner', 'Starfield'), name, keyLabel: labeler(name) ?? name,
+        contextId: 'MainGameplay', contextLabel: translate('gameplay', 'Gameplay'),
+        contextNumericId: 0, classification: 'core',
+        gameplayModes: ['onFoot', 'ship', 'vehicle', 'zeroG'], blocksGameplay: false,
+        chord: [name], unbound: false, vanillaWarnings,
+        rowId: `legacy-game:${v.event}:${name}`,
+      });
+    }
   }
 
   return rows;

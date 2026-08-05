@@ -188,6 +188,18 @@ export interface IssueCopy {
  * card but never a broken one.
  */
 const COPY: Record<string, IssueCopy> = {
+  'input.control-map-unavailable': {
+    title: ['issueControlMapTitle', "Starfield's key map is unavailable"],
+    impact: [
+      'issueControlMapImpact',
+      'Vanilla key rows and warnings are disabled, and mode-scoped mod hotkeys will not fire.',
+    ],
+    next: [
+      'issueControlMapNext',
+      'Update OSF UI for this Starfield version, then restart the game.',
+    ],
+    actions: ['update-osfui', 'copy-details', 'open-logs'],
+  },
   'settings.schema-name': {
     title: ['issueSchemaNameTitle', 'A settings file has an unusable name'],
     impact: [

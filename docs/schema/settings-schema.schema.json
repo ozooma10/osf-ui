@@ -144,7 +144,14 @@
         "blocksGameplay": {
           "type": "boolean",
           "default": false,
-          "description": "Author assertion that Starfield gameplay bindings cannot fire while this context is active. Suppresses only @game conflict warnings; mod-to-mod collisions still warn and dispatch behavior is unchanged."
+          "description": "Author assertion that Starfield gameplay bindings cannot fire while this context is active. Vanilla collisions are shown as expected shares; mod-to-mod collisions are still evaluated by gameplayModes overlap."
+        },
+        "gameplayModes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["onFoot", "ship", "vehicle", "zeroG"] },
+          "description": "Stable semantic gameplay modes in which keys using this context dispatch. Missing, invalid, or empty arrays preserve legacy unscoped non-menu dispatch."
         }
       }
     },

@@ -62,6 +62,7 @@ import {
   MOCK_HEALTH,
   MOCK_VIEWS,
   MOD_ASSET_ROOTS,
+  LIVE_KEYBINDINGS,
   VANILLA_KEYS,
   type MockView,
 } from './fixtures';
@@ -854,6 +855,16 @@ export function installMock(opts: MockOptions = {}): MockApi {
     publish('osfui', 'settings', value);
   }
 
+  function publishInputMap(): void {
+    publish('osfui', 'keybindings', LIVE_KEYBINDINGS);
+    publish('osfui', 'input-context', {
+      available: true,
+      revision: 1,
+      mode: 'onFoot',
+      contexts: [{ id: 0, name: 'MainGameplay' }],
+    });
+  }
+
   // View catalog
 
   // A working copy: menu.open / menu.close mutate open/focused, and the fixtures
@@ -1125,6 +1136,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
         // in the order it actually happened.
         greeted = true;
         publishSettings();
+        publishInputMap();
         publishViews();
         publishHealth();
         publishI18n();

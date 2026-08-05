@@ -3,7 +3,7 @@
 Compiles the **real** runtime and API sources under test — `SettingsStore`,
 `Json`, `SettingsModule`, `MessageBridge`, `SettingsMirror`,
 `SettingsSubscriptions`, `HotkeyService`, `InputRouter`, `HotkeySubscriptions`,
-`BridgeApi`, `VanillaKeys`, `LocalizationService`, `ViewManifest`, `DiagnosticsModule`,
+`BridgeApi`, `ControlMapPolicy`, `LocalizationService`, `ViewManifest`, `DiagnosticsModule`,
 `DiagnosticsReconciler`, and `ReporterCore` — on the developer's desktop
 toolchain (macOS/Linux clang or any C++23 compiler) and runs them without
 Windows, xmake, SFSE, or the game.
@@ -59,7 +59,7 @@ Windows pipe suite is built separately through xmake. Currently:
 | `bridge_api_tests.cpp` | `BridgeApi`: additive ABI 1.8 gates and retained state, ABI 1.x `RegisterCommand` request-ID/auto-ack compatibility, plugin endpoint-shape enforcement, first-wins duplicate refusal, unregister-then-reregister replacement, qualified `RegisterView` ids, discovery-aware `RequestMenu` validation, pre-ready delivery to a first lazy bridge, and the registry-apply/dispatch round trip through a real `MessageBridge`. **Note:** `BridgeApi` is a process singleton, so its sections share state and run in order |
 | `papyrus_action_tests.cpp` | Papyrus events/state/requests plus menu-native behavior: legacy and fixed-name callback registration, typed retained state replacement/replay/teardown, one-shot correlated replies/rejection/timeout, bounded queues, open/close results, and `BSFixedString` case folding |
 | `papyrus_form_tests.cpp` | Form references across the bridge (protocol 1.3, `docs/form-references-design.md`): `PushFormsToView`'s capture-FormIDs/serialize-at-drain split against a stub `TESForm` registry (identity fields, `FORM_ENUM_STRING` signatures + numeric fallback, null-slot preservation for `None`/deleted forms, empty pushes, validation and cap shared with `PushToView`) and the `GetFormById`/`GetFormsById` resolvers (decimal + hex parse matrix, quiet stale references, bulk order/length) |
-| `vanilla_keys_tests.cpp` | `VanillaKeys` (§9 "vanilla hotkeys"): the curated `vanillakeys.json` defaults table and the engine controlmap overlay parser. Bindings live in the controlmap's own DIK scan-code space (hex tokens apply verbatim); only the name resolver (key name → scan) is faked |
+| `control_map_policy_tests.cpp` | Conservative live-ControlMap classification and the semantic active-context precedence used by scoped hotkey dispatch |
 | `scan_code_tests.cpp` | The physical key identity core: `ComposeScanCode`'s message-quirk normalization (Pause/NumLock/PrintScreen), the `kNamedScans` full-table name round-trip and ≤16-char constraint, W3C `KeyboardEvent.code` aliases, and the frozen legacy VK resolver the values migration reads |
 | `key_label_tests.cpp` | The localized keycap-label pipeline (`input/KeyLabels`): fixed short forms for non-printing keys (localizable via `chrome.keys.*`), layout glyphs for printable keys, the fallback chain, and US/German-QWERTZ layout fixtures (Z/Y swap, umlauts, dead keys, the ISO `<>` key) |
 | `localization_service_tests.cpp` | `LocalizationService`: the English-source catalog and the locale fallback rules (exact locale → base language → authored English) |

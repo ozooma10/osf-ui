@@ -47,9 +47,10 @@ export function dropdownPlacement(
   viewportWidth: number,
   viewportHeight: number,
   desiredHeight: number,
+  desiredWidth = anchor.width,
 ): DropdownPlacement {
   const safeWidth = Math.max(1, viewportWidth - VIEWPORT_MARGIN * 2);
-  const width = Math.max(1, Math.min(anchor.width, safeWidth));
+  const width = Math.max(1, Math.min(Math.max(anchor.width, desiredWidth), safeWidth));
   const maxLeft = Math.max(VIEWPORT_MARGIN, viewportWidth - VIEWPORT_MARGIN - width);
   const left = Math.min(Math.max(VIEWPORT_MARGIN, anchor.left), maxLeft);
   const below = Math.max(0, viewportHeight - VIEWPORT_MARGIN - anchor.bottom - MENU_GAP);
@@ -121,7 +122,7 @@ export function Dropdown(props: DropdownProps) {
   const current = selected >= 0 ? props.options[selected] : undefined;
   const inert = props.disabled || props.options.length === 0;
 
-  const measure = () => {
+  const measure = (desiredWidth?: number) => {
     const trigger = triggerRef.current;
     if (!trigger) return;
     const rect = trigger.getBoundingClientRect();
@@ -129,7 +130,13 @@ export function Dropdown(props: DropdownProps) {
       MAX_MENU_HEIGHT,
       props.options.length * OPTION_HEIGHT + 2,
     );
-    setPlacement(dropdownPlacement(rect, window.innerWidth, window.innerHeight, desiredHeight));
+    setPlacement(dropdownPlacement(
+      rect,
+      window.innerWidth,
+      window.innerHeight,
+      desiredHeight,
+      desiredWidth,
+    ));
   };
 
   const close = (restoreFocus = false) => {
@@ -282,23 +289,46 @@ export function Dropdown(props: DropdownProps) {
     // keeps the portal aligned when a dynamic option set changes.
   }, [open, props.options]);
 
-  // Upward placement starts from the shared row-height estimate so the first
-  // render is already bounded. A view may make its options more compact (the
-  // Keybinds filter does), so close the remaining gap against the painted menu
-  // height before the browser presents that frame.
+  // Initial placement uses the trigger width and shared row-height estimate so
+  // the first render is already bounded. Before paint, widen to the longest
+  // rendered option (including a vertical scrollbar) and close any upward gap
+  // left by views that use more compact option rows.
   useLayoutEffect(() => {
-    if (!open || !placement?.opensUp) return;
+    if (!open || !placement) return;
     const trigger = triggerRef.current;
     const menu = menuRef.current;
     if (!trigger || !menu) return;
-    const menuHeight = menu.getBoundingClientRect().height;
-    if (menuHeight <= 0) return; // jsdom/no-layout environments
-    const top = Math.max(
-      VIEWPORT_MARGIN,
-      trigger.getBoundingClientRect().top - MENU_GAP - menuHeight,
+
+    const rect = trigger.getBoundingClientRect();
+    const optionWidth = Array.from(
+      menu.querySelectorAll<HTMLElement>('.osf-dropdown__option'),
+    ).reduce((widest, option) => Math.max(widest, option.scrollWidth), 0);
+    // clientWidth includes padding but excludes borders and the scrollbar. The
+    // menu has one CSS pixel of padding on each side, so add those separately.
+    const chromeWidth = Math.max(4, menu.offsetWidth - menu.clientWidth + 2);
+    const desiredHeight = Math.min(
+      MAX_MENU_HEIGHT,
+      props.options.length * OPTION_HEIGHT + 2,
     );
-    if (Math.abs(top - placement.top) < 0.5) return;
-    setPlacement({ ...placement, top });
+    const next = dropdownPlacement(
+      rect,
+      window.innerWidth,
+      window.innerHeight,
+      desiredHeight,
+      Math.max(rect.width, optionWidth + chromeWidth),
+    );
+
+    const menuHeight = menu.getBoundingClientRect().height;
+    if (next.opensUp && menuHeight > 0) {
+      next.top = Math.max(VIEWPORT_MARGIN, rect.top - MENU_GAP - menuHeight);
+    }
+
+    const unchanged = next.opensUp === placement.opensUp
+      && Math.abs(next.left - placement.left) < 0.5
+      && Math.abs(next.top - placement.top) < 0.5
+      && Math.abs(next.width - placement.width) < 0.5
+      && Math.abs(next.maxHeight - placement.maxHeight) < 0.5;
+    if (!unchanged) setPlacement(next);
   }, [open, placement, props.options]);
 
   useEffect(() => {

@@ -184,6 +184,10 @@ export interface PlatformState {
   "osfui/views": ViewsData;
   /** The session health snapshot behind the Mods surface. */
   "osfui/diagnostics": DiagnosticsData;
+  /** Starfield's complete read-only keyboard map, copied from the live engine ControlMap. */
+  "osfui/keybindings": KeybindingsData;
+  /** The exact active engine input-context stack and OSF UI's derived semantic gameplay mode. */
+  "osfui/input-context": InputContextState;
   /** Active-locale overrides for THIS document's owning mod. Consumed by the i18n namespace for you. */
   "osfui/i18n": I18nCatalog;
   /** (platform-private) The first-load handoff surface's current state. */
@@ -267,6 +271,53 @@ export interface SettingConflict {
   mod: string;
   key: string;
   title: string;
+  /** Hard collision by default; "possible" is used for special vanilla contexts whose overlap is conservative. */
+  severity?: "conflict" | "possible";
+  /** Vanilla conflict only: exact engine context name. */
+  vanillaContext?: string;
+  /** Vanilla conflict only: main or alternate binding slot. */
+  slot?: "main" | "alternate";
+}
+
+export type GameplayMode = "onFoot" | "ship" | "vehicle" | "zeroG";
+export type VanillaContextClassification = "core" | "special" | "menu" | "unknown";
+
+export interface VanillaBindingSlot {
+  slot: "main" | "alternate";
+  /** OSF UI physical key name, or null when this slot is unbound. */
+  key: string | null;
+  /** Ordered display chord. A one-element array is an ordinary single-key binding. */
+  chord: string[];
+  unbound: boolean;
+}
+
+export interface VanillaKeyAction {
+  event: string;
+  label: string;
+  category: string;
+  context: { id: number; name: string; order: number };
+  classification: VanillaContextClassification;
+  modes: { definite: GameplayMode[]; possible: GameplayMode[] };
+  sortIndex: number;
+  required: boolean;
+  bindings: VanillaBindingSlot[];
+}
+
+export interface KeybindingsData {
+  available: boolean;
+  revision: number;
+  gameVersion: string;
+  error?: string;
+  /** Engine panel order. Includes unbound, alternate, and chorded rows. Read-only. */
+  actions: VanillaKeyAction[];
+}
+
+export interface InputContextState {
+  available: boolean;
+  revision: number;
+  /** null when the live stack does not prove one of the stable semantic modes. */
+  mode: GameplayMode | null;
+  contexts: Array<{ id: number; name: string }>;
 }
 
 export interface I18nCatalog {
@@ -288,10 +339,8 @@ export interface SettingsData {
     targetVersion?: string;
   }>;
   /**
-   * The game's own key bindings (the "vanilla hotkeys" table) — the FULL
-   * curated table, not just colliding entries. `event` is the engine controlmap
-   * event id, `title` reads like "Starfield (Quicksave)". Read-only. Absent
-   * when the runtime has no vanilla data.
+   * @deprecated Compatibility projection for older keybind views. Contains only
+   * bound, single-key rows from core contexts. New views use osfui/keybindings.
    */
   vanillaKeys?: Array<{ event: string; title: string; name: string }>;
   /**
@@ -489,7 +538,9 @@ export type Condition =
 export interface InputContext {
   id: string;               // local to this mod; "gameplay" is reserved for the implicit default
   label?: string;           // user-facing/localizable; defaults to id
-  blocksGameplay?: boolean; // metadata assertion: omit @game conflicts only; dispatch is unchanged
+  blocksGameplay?: boolean; // assertion that vanilla gameplay input is blocked; vanilla collisions are expected shares
+  /** Stable semantic modes in which keys using this context dispatch. Invalid/missing/empty lists keep legacy unscoped behavior. */
+  gameplayModes?: GameplayMode[];
 }
 
 /** Immutable schema-owned GLOBAL Papyrus callback for a key setting. */

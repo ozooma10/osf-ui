@@ -14,6 +14,7 @@
 #include "runtime/DevViewReloadWorker.h"
 #include "runtime/HotkeyService.h"
 #include "runtime/LocalizationService.h"
+#include "runtime/LiveControlMap.h"
 #include "runtime/MenuController.h"
 #include "runtime/RendererHostRecovery.h"
 #include "runtime/RuntimeDiagnostics.h"
@@ -40,6 +41,9 @@ namespace OSFUI
 		// Luma must patch the vanilla ScaleformComposite implementation before
 		// OSF UI chains it; calling this during our own Plugin_Load is too early.
 		bool InstallOverlayDrawPath();
+		// SFSE kPostDataLoad: initialize the version-gated live ControlMap provider
+		// after engine input data exists, then publish its first snapshot.
+		void OnDataLoaded();
 
 		// Advances the renderer and submits a frame when visible. Called on the
 		// game main thread through RE::BSService::TaskQueue; an SFSE permanent
@@ -229,12 +233,12 @@ namespace OSFUI
 		// toggle/close callbacks. Called at init and after a live rebind.
 		void ApplyToggleKey();
 
-		// Build (or clear) the vanilla-keys conflict table to match the
-		// osfui.vanillaKeyConflicts setting (MCM-owned, toggles live). Lazy: the
-		// table loads on the first enable, so a persisted "off" never pays the
-		// parse. Re-broadcasts settings.data (the conflict annotations live in
-		// the settings document). Main thread.
+		// Toggle vanilla conflict warnings without hiding or discarding the live
+		// read-only game catalog. Re-broadcasts settings.data because per-setting
+		// conflict annotations live there.
 		void ApplyVanillaKeyConflicts(bool a_enabled);
+		void SyncLiveControlMapBindings();
+		void SyncLiveControlMapHealth();
 		// Invalidate and re-broadcast every projection that contains localized
 		// text after a locale/catalog change.
 		void RefreshLocalizedData();
@@ -339,8 +343,8 @@ namespace OSFUI
 		// Publish one retained value to the mod's live views.
 		void PublishModState(std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value);
 
-		// Publish one platform state key ("settings" | "views" | "diagnostics" |
-		// "i18n") to one greeted view, or to every greeted view when a_viewId is
+		// Publish one platform state key (settings/views/diagnostics/i18n plus the
+		// live keybindings/input-context documents) to one greeted view, or to every greeted view when a_viewId is
 		// empty. The i18n value is computed per view, since a view's catalog is
 		// its owning mod's.
 		void PublishPlatformState(std::string_view a_key, std::string_view a_viewId = {});
@@ -385,9 +389,9 @@ namespace OSFUI
 		// thread), rebuilt from the store's listeners and drained in Tick (main
 		// thread); wired in BuildModules.
 		HotkeyService                           _hotkeys;
+		LiveControlMap                          _controlMap;
 		std::atomic<ScanCode>         _toggleKey{ kInvalidScanCode };
 		bool                          _inputConfigured{ false };  // main thread
-		bool                          _vanillaKeysApplied{ false };  // main-thread; ApplyVanillaKeyConflicts edge detector
 		std::atomic_bool              _devToolsRequested{ false };
 
 		std::unique_ptr<DevViewReloadWorker> _devViewReload;

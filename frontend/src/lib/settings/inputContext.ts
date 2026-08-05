@@ -6,7 +6,7 @@
 // display metadata (the badge next to a key row); runtime dispatch is
 // unaffected either way.
 
-import type { InputContext, Setting, SettingsSchema } from '@sdk';
+import type { GameplayMode, InputContext, Setting, SettingsSchema } from '@sdk';
 
 /**
  * Id grammar, mirrored from SettingsStore.cpp (`kMaxInputContextIdLen` = 64):
@@ -23,6 +23,7 @@ export interface ResolvedInputContext {
   id: string;
   label: string;
   blocksGameplay: boolean;
+  gameplayModes?: GameplayMode[];
 }
 
 /**
@@ -31,6 +32,18 @@ export interface ResolvedInputContext {
  */
 export function gameplayContext(label = 'Gameplay'): ResolvedInputContext {
   return { id: GAMEPLAY_ID, label, blocksGameplay: false };
+}
+
+const GAMEPLAY_MODES = new Set<GameplayMode>(['onFoot', 'ship', 'vehicle', 'zeroG']);
+
+function validModes(value: unknown): GameplayMode[] | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const out: GameplayMode[] = [];
+  for (const mode of value) {
+    if (typeof mode !== 'string' || !GAMEPLAY_MODES.has(mode as GameplayMode)) return null;
+    if (!out.includes(mode as GameplayMode)) out.push(mode as GameplayMode);
+  }
+  return out.length ? out : null;
 }
 
 /**
@@ -54,13 +67,16 @@ export function dedupeInputContexts(contexts: unknown): ResolvedInputContext[] {
     const id = typeof c.id === 'string' ? c.id : '';
     if (id === GAMEPLAY_ID || !INPUT_CONTEXT_ID_RE.test(id) || seen.has(id)) continue;
     seen.add(id);
-    out.push({
+    const resolved: ResolvedInputContext = {
       id,
       // An empty label falls back to the id, so a badge is never blank.
       label: typeof c.label === 'string' && c.label ? c.label : id,
       // Strict `=== true`: any other truthy value is not an assertion.
       blocksGameplay: c.blocksGameplay === true,
-    });
+    };
+    const modes = validModes(c.gameplayModes);
+    if (modes) resolved.gameplayModes = modes;
+    out.push(resolved);
   }
   return out;
 }

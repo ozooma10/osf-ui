@@ -2,6 +2,9 @@
 
 #include <nlohmann/json.hpp>
 
+#include "runtime/ControlMapPolicy.h"
+#include "runtime/InputModes.h"
+
 namespace OSFUI
 {
 	// Schema-driven settings registry (docs/mcm-design.md). Each mod ships a
@@ -223,28 +226,56 @@ namespace OSFUI
 		// invalidate the resolved document cached for web/native readers.
 		void InvalidateLocalizedData() { InvalidateData(); }
 
-		// The game's own key bindings, already resolved to physical scan codes
-		// by the composition root (VanillaKeys — the controlmap's own DIK
-		// space). They join the conflict grouping as pseudo-entries under the
+		// The game's own key bindings, projected from the validated live
+		// ControlMap into physical scan codes by the composition root. They join
+		// the conflict grouping as pseudo-entries under the
 		// reserved mod id "@game"; they can never be a setting's self, so they
 		// only ever appear as the other side of a collision (Data() badges and
 		// ConflictsFor()). The HotkeyService registry is untouched — it reads
 		// KeySettings().
 		struct VanillaKey
 		{
-			std::string   event;  // conflict entry `key` ("QuickSave")
-			std::string   title;  // conflict entry `title` ("Starfield (Quicksave)")
-			std::uint32_t code;   // physical scan code (DIK convention)
+			std::string   event;    // conflict entry `key` ("QuickSave")
+			std::string   title;    // conflict entry `title` ("Starfield (Quicksave)")
+			std::uint32_t code;     // physical scan code (DIK convention)
 			// Display key name ("F5", canonical KeyName spelling) — emitted in
 			// Data()'s top-level `vanillaKeys` so the keybinds view can render
 			// the game's full keyboard map, not just colliding entries.
 			std::string   name;
+			std::string   context;
+			std::string   slot;
+			ControlMapPolicy::Classification classification{ ControlMapPolicy::Classification::Core };
+			GameplayModeMask definiteModes{ kAllGameplayModes };
+			GameplayModeMask possibleModes{ 0 };
+
+			bool operator==(const VanillaKey&) const = default;
 		};
-		void SetVanillaKeys(std::vector<VanillaKey> a_keys)
+		[[nodiscard]] bool SetVanillaKeys(std::vector<VanillaKey> a_keys)
 		{
+			if (_vanillaKeys == a_keys) return false;
 			_vanillaKeys = std::move(a_keys);
 			InvalidateData();
+			return true;
 		}
+		[[nodiscard]] bool SetVanillaWarningsEnabled(bool a_enabled)
+		{
+			if (_vanillaWarningsEnabled != a_enabled) {
+				_vanillaWarningsEnabled = a_enabled;
+				InvalidateData();
+				return true;
+			}
+			return false;
+		}
+
+		struct HotkeyScope
+		{
+			bool scoped{ false };
+			GameplayModeMask modes{ kAllGameplayModes };
+		};
+		// The semantic gameplay scope for dispatch. Missing/malformed declarations
+		// retain legacy unscoped behavior; a valid gameplayModes array is scoped
+		// and therefore requires a known live engine mode.
+		[[nodiscard]] HotkeyScope ScopeForHotkey(std::string_view a_modId, std::string_view a_key) const;
 
 		// Localized keycap labels for the current OS keyboard layout, built by
 		// the composition root (KeyLabels + Platform::MakeKeyLabelSource).
@@ -287,9 +318,9 @@ namespace OSFUI
 		// With a KeyNameResolver set, every key-typed setting whose current value
 		// collides with another key-typed setting (same resolved physical key,
 		// any mod) carries `conflicts: [{mod, key, title}]` in its emitted schema
-		// object — informational only. A named input context with blocksGameplay
-		// omits @game entries as expected reuse; mod-to-mod collisions are never
-		// omitted.
+		// object — informational only. blocksGameplay and proven-disjoint mode
+		// scopes make reuse explicit; game conflicts are limited to core/special
+		// contexts, and mod-to-mod conflicts are limited to overlapping modes.
 		[[nodiscard]] nlohmann::json Data() const;
 		// Cached read-only form for internal consumers that serialize or inspect
 		// immediately. The reference is invalidated by the next store mutation.
@@ -407,14 +438,16 @@ namespace OSFUI
 		[[nodiscard]] static const nlohmann::json* FindSetting(const Mod& a_mod, std::string_view a_key);
 		[[nodiscard]] static std::optional<nlohmann::json> Validate(const nlohmann::json& a_setting, const nlohmann::json& a_value);
 		[[nodiscard]] static nlohmann::json DefaultFor(const nlohmann::json& a_setting);
-		// Authored key context (metadata-only v1). The "gameplay" context is
-		// implicit; named contexts are local to one mod and may declare that
-		// Starfield's curated gameplay bindings are unavailable.
+		// Authored key context. The "gameplay" context is implicit; named
+		// contexts are local to one mod and may declare engine-input blocking and
+		// the semantic gameplay modes in which their hotkeys are active.
 		struct InputContext
 		{
 			std::string id{ "gameplay" };
 			std::string label{ "Gameplay" };
 			bool        blocksGameplay{ false };
+			bool        modeScoped{ false };
+			GameplayModeMask modes{ kAllGameplayModes };
 		};
 		[[nodiscard]] InputContext ResolveInputContext(const Mod& a_mod, const nlohmann::json& a_setting) const;
 		static void WarnInputContexts(const nlohmann::json& a_schema, std::string_view a_modId);
@@ -428,6 +461,13 @@ namespace OSFUI
 			std::string   title;
 			std::uint32_t code;
 			bool          blocksGameplay{ false };
+			bool          modeScoped{ false };
+			GameplayModeMask modes{ kAllGameplayModes };
+			bool          vanilla{ false };
+			std::string   vanillaContext;
+			std::string   slot;
+			ControlMapPolicy::Classification classification{ ControlMapPolicy::Classification::Unknown };
+			GameplayModeMask possibleModes{ 0 };
 		};
 		[[nodiscard]] std::vector<BoundKey> ResolveBoundKeys() const;
 		// Conflict rows for a_code among a_bound: same physical key, not the
@@ -436,7 +476,7 @@ namespace OSFUI
 		// annotation and ConflictsFor(); a_selfBlocksGameplay is derived
 		// differently by each.
 		[[nodiscard]] static nlohmann::json CollectConflicts(const std::vector<BoundKey>& a_bound, std::uint32_t a_code,
-			std::string_view a_excludeMod, std::string_view a_excludeKey, bool a_selfBlocksGameplay);
+			std::string_view a_excludeMod, std::string_view a_excludeKey, const InputContext& a_selfContext);
 		// The values that go to disk: sparse — only those ≠ schema default.
 		[[nodiscard]] static nlohmann::json SparseValues(const Mod& a_mod);
 		// Open (or join) the mod's write-behind window; PumpPersistence lands it.
@@ -464,6 +504,7 @@ namespace OSFUI
 		std::vector<std::pair<std::string, std::string>> _keyboardLabels;
 		TextResolver                  _textResolver;
 		std::vector<VanillaKey>       _vanillaKeys;
+		bool                          _vanillaWarningsEnabled{ true };
 		std::vector<ChangeListener>   _listeners;
 		std::vector<RegistryListener> _registryListeners;
 		std::vector<PersistListener>  _persistListeners;

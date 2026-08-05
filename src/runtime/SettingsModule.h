@@ -65,9 +65,9 @@ namespace OSFUI
 		void PumpSchemaHotReload(double a_nowSeconds);
 
 		// Republish the whole settings document — for changes the store's own
-		// listeners can't see (e.g. the vanilla-keys table flipping,
-		// api-freeze-plan item 7: the conflict annotations live in Data() but
-		// SetVanillaKeys bumps no generation). No-op with no bridge. Main thread.
+		// listeners can't see (for example, a live ControlMap projection changing;
+		// conflict annotations live in Data() but do not alter registry shape).
+		// No-op with no bridge. Main thread.
 		void BroadcastData();
 
 	private:

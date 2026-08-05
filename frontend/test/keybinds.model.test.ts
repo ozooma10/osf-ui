@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildModel, vanillaLabel } from '@lib/keybinds/model';
+import { holdersOf } from '@lib/keybinds/conflicts';
 import type { ModEntry, VanillaKey } from '@lib/keybinds/model';
 
 /** Builds a mod entry holding only the fields buildModel reads. */
@@ -118,6 +119,11 @@ describe('buildModel', () => {
         contextId: 'gameplay',
         contextLabel: 'Gameplay',
         blocksGameplay: false,
+        gameplayModes: null,
+        chord: ['F10'],
+        unbound: false,
+        vanillaWarnings: true,
+        rowId: 'mod:osfui:toggleKey',
       },
     ]);
   });
@@ -223,9 +229,16 @@ describe('buildModel', () => {
         owner: 'Starfield',
         name: 'F5',
         keyLabel: 'F5',
-        contextId: 'gameplay',
+        contextId: 'MainGameplay',
         contextLabel: 'Gameplay',
+        contextNumericId: 0,
+        classification: 'core',
+        gameplayModes: ['onFoot', 'ship', 'vehicle', 'zeroG'],
         blocksGameplay: false,
+        chord: ['F5'],
+        unbound: false,
+        vanillaWarnings: true,
+        rowId: 'legacy-game:QuickSave:F5',
       },
       {
         kind: 'game',
@@ -236,11 +249,37 @@ describe('buildModel', () => {
         // stored "Grave".
         name: 'Grave',
         keyLabel: 'Grave',
-        contextId: 'gameplay',
+        contextId: 'MainGameplay',
         contextLabel: 'Gameplay',
+        contextNumericId: 0,
+        classification: 'core',
+        gameplayModes: ['onFoot', 'ship', 'vehicle', 'zeroG'],
         blocksGameplay: false,
+        chord: ['Grave'],
+        unbound: false,
+        vanillaWarnings: true,
+        rowId: 'legacy-game:Console:Grave',
       },
     ]);
+  });
+
+  it('keeps live main/alternate, chord, and unbound vanilla rows in the list model', () => {
+    const rows = buildModel([], [{
+      event: 'UseThing', label: 'Use thing', category: 'Ship',
+      context: { id: 0x21, name: 'ShipHUD', order: 1 }, classification: 'core',
+      modes: { definite: ['ship'], possible: [] }, sortIndex: 4, required: false,
+      bindings: [
+        { slot: 'main', key: 'F5', chord: ['F5'], unbound: false },
+        { slot: 'alternate', key: 'K', chord: ['LCtrl', 'K'], unbound: false },
+        { slot: 'alternate', key: null, chord: [], unbound: true },
+      ],
+    }]);
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toMatchObject({ name: 'F5', slot: 'main', contextId: 'ShipHUD', gameplayModes: ['ship'] });
+    expect(rows[1]).toMatchObject({ name: '', slot: 'alternate', chord: ['LCtrl', 'K'], keyLabel: 'LCtrl + K' });
+    expect(rows[2]).toMatchObject({ name: '', unbound: true, keyLabel: 'Unbound' });
+    expect(holdersOf(rows, 'F5')).toHaveLength(1);
+    expect(holdersOf(rows, '')).toEqual([]);
   });
 
   it('routes the game owner and context label through the injected translator', () => {

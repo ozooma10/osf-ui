@@ -189,7 +189,6 @@ try {
         'SFSE\Plugins\OSFUI.dll',
         'SFSE\Plugins\OSFUI\config.json',
         'SFSE\Plugins\OSFUI\bin\osfui_webview2_host.exe',
-        'SFSE\Plugins\OSFUI\vanillakeys.json',       # vanilla-keybinds defaults table (runtime loads it at boot)
         'SFSE\Plugins\OSFUI\settings\osfui.json',    # OSF UI's own Mod Settings schema
         'SFSE\Plugins\OSFUI\LICENSE',                # GPL-3.0 text (required to distribute)
         'SFSE\Plugins\OSFUI\EXCEPTIONS',             # GPL 7 modding/linking exception

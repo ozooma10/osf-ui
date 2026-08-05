@@ -57,10 +57,8 @@ namespace OSFUI
 		bool        pauseMenuEntry{ true };  // MCM-owned live state; not parsed from config.json
 		std::string pauseMenuEntryLabel{ "MOD MENUS" };
 		std::string pauseMenuEntryView{ "osfui/settings" };  // must be a discovered surface id, qualified "<mod>/<view>"
-		// Include the game's own key bindings in the key-conflict data: curated
-		// defaults from vanillakeys.json, overlaid by the controlmap text files
-		// the engine honors. Informational only — warn, never block. MCM-owned;
-		// toggles live (the table loads lazily on first enable).
+		// Show warnings against the live engine ControlMap catalog. The catalog is
+		// always published read-only; this MCM-owned switch hides only warnings.
 		bool        vanillaKeyConflicts{ true };
 		// MCM-owned kill switch for the consented diagnostic reporter (manual
 		// System Health reports and the host's post-crash prompt — the latter

@@ -203,14 +203,17 @@ If your mod suppresses gameplay controls during a modal state (a scene, a miniga
 
 ```jsonc
 "inputContexts": [
-  { "id": "scene", "label": "During scenes", "blocksGameplay": true }
+  { "id": "scene", "label": "During on-foot scenes", "blocksGameplay": true,
+    "gameplayModes": ["onFoot"] }
 ],
 "groups": [{ "settings": [
   { "key": "progressScene", "type": "key", "default": "Space", "inputContext": "scene" }
 ] }]
 ```
 
-`blocksGameplay` is an author assertion — only use it when the game's bindings genuinely cannot fire while your context is active. It suppresses `@game` warnings only; mod-to-mod collisions still warn. Context ids are local to the mod, must match `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`, and can't be `gameplay`. Missing, invalid, duplicate or unknown definitions fall back to the implicit Gameplay context; for duplicate ids the first valid definition wins.
+`gameplayModes` is the dispatch scope. Its stable values are `onFoot`, `ship`, `vehicle`, and `zeroG`; a scoped hotkey fires only while the live engine context stack proves one of its listed modes. If the live provider is unavailable or the mode is unknown, scoped keys fail closed. Existing schemas stay compatible: a missing, malformed, empty, or unknown mode list keeps legacy dispatch in any non-menu gameplay state and logs an author warning.
+
+`blocksGameplay` is a separate author assertion — use it only when the mod genuinely prevents Starfield gameplay input while this context is active. Vanilla collisions then display as expected shares. Mod-to-mod keys with overlapping modes still warn; proven-disjoint mode sets can safely share. Context ids are local to the mod, must match `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`, and can't be `gameplay`. Missing, invalid, duplicate or unknown definitions fall back to the implicit Gameplay context; for duplicate ids the first valid definition wins.
 
 ### Start Papyrus lazily from a hotkey
 

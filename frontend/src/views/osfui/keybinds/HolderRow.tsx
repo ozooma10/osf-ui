@@ -34,7 +34,7 @@ export interface HolderRowProps {
 
 /** The stable per-instance key described on `instanceId`. */
 export function holderInstanceId(scope: string, b: BindingRow): string {
-  return `${scope}:${b.kind}:${b.mod || ''}:${b.key}`;
+  return `${scope}:${b.rowId || `${b.kind}:${b.mod || ''}:${b.key}:${b.name}`}`;
 }
 
 export function HolderRow(props: HolderRowProps) {
@@ -51,7 +51,9 @@ export function HolderRow(props: HolderRowProps) {
 
   // Game rows are identified by the engine controlmap event; mod rows by
   // "<modId>.<settingKey>".
-  const identity = b.kind === 'game' ? `controlmap · ${b.key}` : `${b.mod}.${b.key}`;
+  const identity = b.kind === 'game'
+    ? `controlmap · ${b.contextId} · ${b.key}${b.slot ? ` · ${b.slot}` : ''}`
+    : `${b.mod}.${b.key}`;
 
   // One spread so the two list-only attributes cannot get out of step: a
   // focusable row with no activation, or an activating row nothing can focus,
@@ -88,8 +90,13 @@ export function HolderRow(props: HolderRowProps) {
           {b.kind === 'mod' && b.contextId !== 'gameplay' ? (
             <span class="osf-badge kb-context">{b.contextLabel}</span>
           ) : null}
+          {b.kind === 'game' && b.classification ? (
+            <span class={`osf-badge kb-classification kb-classification--${b.classification}`}>
+              {b.classification.toUpperCase()}
+            </span>
+          ) : null}
         </div>
-        <div class="kb-holder-sub">{`${identity} · ${b.contextLabel}`}</div>
+        <div class="kb-holder-sub">{`${identity} · ${b.category || b.contextLabel}`}</div>
       </div>
       {/* The localized keycap (falls back to the canonical name when the host
           published no labels map). Identity stays b.name everywhere else. */}

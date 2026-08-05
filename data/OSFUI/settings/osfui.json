@@ -41,7 +41,7 @@
           "label": "Warn about game-key collisions",
           "type": "bool",
           "default": true,
-          "hint": "Badge mod hotkeys that collide with Starfield's own bindings."
+          "hint": "Show hard and possible warnings when mod hotkeys overlap Starfield's live bindings. The read-only game catalog stays visible when this is off."
         }
       ]
     },

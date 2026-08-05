@@ -50,16 +50,7 @@ Choices persist to `Data\SFSE\Plugins\OSFUI\settings\values\` (one JSON file per
 
 **Keys and keyboard layouts:** stored key names (`"F8"`, `"Semicolon"`) identify *physical positions* on the US reference keyboard — the same convention the game's own controlmap uses — so a binding means the same key on any layout, and the binding UI shows what your layout actually prints there (a German layout shows `Ö` on the semicolon-position key, and the ISO `<>` key is bindable). Bindings saved by pre-2.x versions are migrated once, using the layout active the first time this version loads; if you bound keys under a *different* layout than the one active then, re-check those bindings once. Don't downgrade to a pre-2.x version after the migration ran — a rebind made there won't re-migrate. Switching layouts while the overlay is open updates the displayed keycaps the next time the game window has focus.
 
-**Fixing the game-key table:** the Keybinds view's "Starfield (…)" rows come from `OSFUI/vanillakeys.json` plus your in-game rebinds. If a row is wrong after a game patch, create `Documents\My Games\Starfield\OSFUI\vanillakeys.user.json`. It overlays the shipped table and survives updates (`key` names are physical positions, like everywhere else):
-
-```json
-{
-  "formatVersion": 1,
-  "add":      [ { "event": "NewEvent", "label": "New thing", "key": "K" } ],
-  "replace":  [ { "event": "QuickSave", "key": "F6" } ],
-  "suppress": [ "Powers" ]
-}
-```
+**The game-key table is unavailable:** OSF UI now reads Starfield's live `ControlMap`; it does not load `vanillakeys.json`, `ControlMap.txt`, or `vanillakeys.user.json`. On an unsupported game build or a failed layout safety gate, System Health reports **Starfield's key map is unavailable**, vanilla rows/warnings are disabled, and mode-scoped mod hotkeys fail closed. Update OSF UI for that exact Starfield version. Existing `Documents\My Games\Starfield\OSFUI\vanillakeys.user.json` files are left untouched but ignored and may be removed manually.
 
 ## Troubleshooting
 
@@ -96,7 +87,7 @@ Your view is a real Chromium document, so the debugger is the one you know. OSF 
 ## Uninstall
 
 - Disable or remove the mod in MO2/Vortex, or delete `OSFUI.dll` and the `OSFUI/` folder from `Data/SFSE/Plugins/`.
-- Saved settings live in `Data\SFSE\Plugins\OSFUI\settings\values\` (under MO2: Overwrite, or wherever you sorted that folder) and go with the mod's files. If you created `Documents\My Games\Starfield\OSFUI\vanillakeys.user.json`, delete that folder too. OSF UI writes nothing into your saves.
+- Saved settings live in `Data\SFSE\Plugins\OSFUI\settings\values\` (under MO2: Overwrite, or wherever you sorted that folder) and go with the mod's files. Legacy `Documents\My Games\Starfield\OSFUI\vanillakeys.user.json` files are no longer read. OSF UI writes nothing into your saves.
 
 ## Known limitations
 

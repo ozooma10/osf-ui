@@ -1,17 +1,23 @@
 // Everything bound to the selected key.
 //
 // Takes no `query` prop: typing in the search box must not re-scope this panel,
-// and the missing prop is what enforces that.
+// and the missing prop is what enforces that. Layer does reach the panel, but
+// only to prioritize its matches; holders from other layers remain visible.
 
 import { holdersOf, keyState } from '@lib/keybinds/conflicts';
+import { prioritizeBindingsForFilter } from '@lib/keybinds/filter';
 import type { KeyLabeler } from '@lib/keybinds/labels';
 import type { BindingRow } from '@lib/keybinds/model';
 import type { Translator } from '@lib/i18n';
+import type { InputContextState } from '@sdk';
 import { HolderRow, holderInstanceId } from './HolderRow';
 
 export interface DetailPanelProps {
   bindings: readonly BindingRow[];
   selectedKey: string;
+  /** Current Layer picker value; matching holders render first, never alone. */
+  filter: string;
+  inputContext: InputContextState | null;
   /** False until the first render that had data; until then only the title shows. */
   loaded: boolean;
   tr: Translator;
@@ -22,11 +28,13 @@ export interface DetailPanelProps {
 }
 
 export function DetailPanel(props: DetailPanelProps) {
-  const { bindings, selectedKey, loaded, tr, capturingId, onRebind } = props;
+  const { bindings, selectedKey, filter, inputContext, loaded, tr, capturingId, onRebind } = props;
   const chip = selectedKey ? (props.labeler?.(selectedKey) ?? selectedKey) : '';
 
-  const holders = selectedKey ? holdersOf(bindings, selectedKey) : [];
-  const state = selectedKey ? keyState(bindings, selectedKey) : { conflict: false, shared: false };
+  const holders = selectedKey
+    ? prioritizeBindingsForFilter(holdersOf(bindings, selectedKey), filter, inputContext)
+    : [];
+  const state = selectedKey ? keyState(bindings, selectedKey) : { conflict: false, possible: false, shared: false };
 
   return (
     <section class="kb-panel kb-detail-panel" aria-live="polite">
@@ -41,6 +49,9 @@ export function DetailPanel(props: DetailPanelProps) {
             {/* Both badges can show at once; keyState reports the flags independently. */}
             {state.conflict ? (
               <span class="osf-badge osf-badge--stop">{tr('keyConflict', 'Key conflict')}</span>
+            ) : null}
+            {state.possible ? (
+              <span class="osf-badge kb-possible-badge">{tr('possibleConflict', 'Possible conflict')}</span>
             ) : null}
             {state.shared ? (
               <span class="osf-badge kb-shared-badge">

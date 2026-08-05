@@ -314,6 +314,8 @@ Every one of these replays to every fresh document. Nothing here is requested or
 | key | value | when it changes |
 |---|---|---|
 | `osfui/settings` | `{ mods: [{ id, title, schema, values, shadowed?, targetVersion? }], vanillaKeys?, keyboard?, loadErrors? }` | the registry SHAPE changes (a schema registers, hot-reloads or goes away), a whole-mod reset lands, or the OS keyboard layout switches. Individual commits arrive as the `settings.changed` event. `mod` may be the reserved id `@game` (the game's own bindings — display `title`). `keyboard` is `{ layout, labels: { keyName -> keycap } }` — the player's localized keycaps (display only; fall back to the name when absent). `loadErrors` names settings files that failed to load, so a surface can say so instead of a mod silently vanishing |
+| `osfui/keybindings` | `{ available, revision, gameVersion, error?, actions: [{ event, label, category, context, classification, modes, sortIndex, required, bindings }] }` | the live engine ControlMap is first copied or remapped. Complete read-only panel order, including unbound, main/alternate, and chorded keyboard rows. `classification` is `core` \| `special` \| `menu` \| `unknown`; `bindings[].key` is an OSF UI physical name or `null`. `available:false` is fail-closed and carries no actions |
+| `osfui/input-context` | `{ available, revision, mode, contexts: [{ id, name }] }` | the exact active engine context stack or derived semantic mode changes. `mode` is `onFoot` \| `ship` \| `vehicle` \| `zeroG` \| `null` |
 | `osfui/views` | `{ views: [{ id, title, description, mod, kind, interactive, hub, targetVersion, open, focused, loadState, autoStart, autoStartMutable, pinned }] }` | any open/close/focus/load-state change. `loadState` is `"unloaded"` (discovered on disk, never loaded — still listed so a launcher can offer it) \| `"loading"` \| `"loaded"` \| `"failed"`. Respect `hub:false` — don't list those |
 | `osfui/diagnostics` | `{ system, issues: [{ id, code, severity, status, source, subject, context, occurrences, firstAt, lastAt, resolvedAt? }] }` | the session health registry changes. Each issue carries a stable machine `code` — map it to your own copy, the payload never contains player-facing prose. Powers the Mods surface's System Health destination; a normal content view rarely needs it |
 | `osfui/i18n` | `{ mod, locale, strings }` | language change or a devMode catalog reload. **Per view**: the value is your own mod's catalog. The helper consumes this for you — use `osfui.i18n.t()` |
@@ -435,7 +437,8 @@ A mod that disables Starfield gameplay controls during a modal state can declare
 ```json
 {
   "inputContexts": [
-    { "id": "scene", "label": "During OSF scenes", "blocksGameplay": true }
+    { "id": "scene", "label": "During on-foot scenes", "blocksGameplay": true,
+      "gameplayModes": ["onFoot"] }
   ],
   "groups": [{ "settings": [
     { "key": "progressScene", "type": "key", "default": "Space", "inputContext": "scene" }
@@ -443,7 +446,7 @@ A mod that disables Starfield gameplay controls during a modal state can declare
 }
 ```
 
-`blocksGameplay` is an author assertion: use it only when the mod really prevents the curated Starfield gameplay bindings from firing. It removes `@game` warnings for that key; collisions with other mods still warn and all duplicate mod bindings still dispatch. Context ids are local to the mod, must match `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`, and can't be `gameplay`. Missing, invalid, duplicate or unknown definitions fall back conservatively to the implicit Gameplay context; for duplicate ids the first valid definition wins.
+`gameplayModes` controls dispatch through stable semantic modes: `onFoot`, `ship`, `vehicle`, and `zeroG`. Scoped keys fire only when the live engine stack proves a listed mode; they fail closed if that provider or mode is unavailable. Missing, malformed, empty, or unknown lists preserve legacy unscoped non-menu dispatch and warn in the log. `blocksGameplay` separately marks vanilla collisions as expected shares. Mod keys with overlapping modes still conflict, while proven-disjoint mode sets may share. Context ids are local to the mod, must match `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`, and can't be `gameplay`.
 
 ### Type rules (enforced natively in `SettingsStore`)
 

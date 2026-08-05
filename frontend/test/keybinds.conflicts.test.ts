@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { holdersOf, pairIsShared, keyState, holderState } from '@lib/keybinds/conflicts';
+import { classifyPair, holdersOf, pairIsShared, keyState, holderState } from '@lib/keybinds/conflicts';
+import type { GameplayMode, VanillaContextClassification } from '@sdk';
 import type { BindingRow } from '@lib/keybinds/model';
 
-function modRow(name: string, opts?: { owner?: string; blocks?: boolean }): BindingRow {
+function modRow(name: string, opts?: { owner?: string; blocks?: boolean; modes?: GameplayMode[] }): BindingRow {
   return {
     kind: 'mod',
     mod: opts?.owner ?? 'm',
@@ -14,10 +15,11 @@ function modRow(name: string, opts?: { owner?: string; blocks?: boolean }): Bind
     contextId: opts?.blocks ? 'menu' : 'gameplay',
     contextLabel: opts?.blocks ? 'Menu' : 'Gameplay',
     blocksGameplay: opts?.blocks ?? false,
+    gameplayModes: opts?.modes ?? null,
   };
 }
 
-function gameRow(name: string, opts?: { blocks?: boolean }): BindingRow {
+function gameRow(name: string, opts?: { blocks?: boolean; classification?: VanillaContextClassification; modes?: GameplayMode[] }): BindingRow {
   return {
     kind: 'game',
     key: 'Event',
@@ -28,6 +30,8 @@ function gameRow(name: string, opts?: { blocks?: boolean }): BindingRow {
     contextId: 'gameplay',
     contextLabel: 'Gameplay',
     blocksGameplay: opts?.blocks ?? false,
+    gameplayModes: opts?.modes ?? ['onFoot', 'ship', 'vehicle', 'zeroG'],
+    ...(opts?.classification ? { classification: opts.classification } : {}),
   };
 }
 
@@ -41,6 +45,26 @@ describe('holdersOf', () => {
     expect(holdersOf([a, c, b], 'F1')).toEqual([]);
     // No folding here — rows are canonical already.
     expect(holdersOf([modRow('Grave')], 'Tilde')).toEqual([]);
+  });
+});
+
+describe('semantic conflict matrix', () => {
+  it('treats proven-disjoint mod modes as a safe share', () => {
+    expect(classifyPair(modRow('F5', { modes: ['onFoot'] }), modRow('F5', { owner: 'b', modes: ['ship'] }))).toBe('shared');
+  });
+
+  it('distinguishes special vanilla overlap from a hard core collision', () => {
+    const mod = modRow('F5', { modes: ['vehicle'] });
+    expect(classifyPair(mod, gameRow('F5', { classification: 'core', modes: ['vehicle'] }))).toBe('conflict');
+    expect(classifyPair(mod, gameRow('F5', { classification: 'special', modes: ['vehicle'] }))).toBe('possible');
+    expect(keyState([mod, gameRow('F5', { classification: 'special', modes: ['vehicle'] })], 'F5')).toEqual({ conflict: false, possible: true, shared: false });
+  });
+
+  it('keeps menu/unknown and game/game pairs neutral', () => {
+    const mod = modRow('F5');
+    expect(classifyPair(mod, gameRow('F5', { classification: 'menu' }))).toBe('neutral');
+    expect(classifyPair(mod, gameRow('F5', { classification: 'unknown' }))).toBe('neutral');
+    expect(classifyPair(gameRow('F5'), gameRow('F5'))).toBe('neutral');
   });
 });
 

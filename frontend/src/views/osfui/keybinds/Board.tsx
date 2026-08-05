@@ -24,6 +24,11 @@ export interface BoardProps {
   bindings: readonly BindingRow[];
   /** Already trimmed + lowercased by the caller, per matchesQuery(). */
   query: string;
+  /**
+   * Physical keys represented by the rows currently shown in the binding
+   * list. null means the list has no active search/filter scope.
+   */
+  shownBindingNames?: ReadonlySet<string> | null;
   selectedKey: string;
   flash: FlashState;
   tr: Translator;
@@ -41,7 +46,16 @@ export interface BoardProps {
 }
 
 export function Board(props: BoardProps) {
-  const { bindings, query, selectedKey, flash, loaded, tr, onSelect } = props;
+  const {
+    bindings,
+    query,
+    shownBindingNames = null,
+    selectedKey,
+    flash,
+    loaded,
+    tr,
+    onSelect,
+  } = props;
   const labeler: KeyLabeler = props.labeler ?? (() => undefined);
 
   // Canonical key name -> cell node. Only consumer is the flash restart below,
@@ -109,16 +123,24 @@ export function Board(props: BoardProps) {
     // `shared && !conflict`: a key that is both (three holders, one expected
     // share plus a real collision) paints as the louder conflict.
     if (state.shared && !state.conflict) className += ' is-shared';
+    if (state.possible && !state.conflict) className += ' is-possible';
     if (state.conflict) className += ' is-conflict';
+    const bareKeyMatchesQuery = !!query && (
+      name.toLowerCase().includes(query) || face.toLowerCase().includes(query)
+    );
+    if (shownBindingNames !== null) {
+      if (shownBindingNames.has(name)) className += ' is-prioritized';
+      // Preserve the existing physical-key search affordance: "f11" keeps an
+      // unbound F11 readable even though it cannot have a row in the list.
+      else if (!bareKeyMatchesQuery) className += ' is-dim';
+    }
     if (name === selectedKey) className += ' is-selected';
-    // Dimmed when a search is active and neither any holder, the key's own
-    // name, nor its localized keycap matches — searching "f5" keeps F5 lit
-    // even if nothing is bound, and a German player can search "ö".
-    if (
+    // Standalone Board consumers that do not provide the list subset retain
+    // the original search-only behavior.
+    if (shownBindingNames === null &&
       query &&
       !holders.some(matchesQuery(query)) &&
-      !name.toLowerCase().includes(query) &&
-      !face.toLowerCase().includes(query)
+      !bareKeyMatchesQuery
     ) {
       className += ' is-dim';
     }

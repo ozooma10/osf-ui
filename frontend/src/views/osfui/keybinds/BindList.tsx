@@ -1,9 +1,12 @@
 // The searchable "All bindings" list, plus its panel chrome.
 
 import { holderState } from '@lib/keybinds/conflicts';
+import { matchesBindingFilter } from '@lib/keybinds/filter';
 import { compareBindings } from '@lib/keybinds/sort';
 import type { BindingRow } from '@lib/keybinds/model';
 import type { Translator } from '@lib/i18n';
+import type { InputContextState } from '@sdk';
+import { Dropdown } from '@ui/Dropdown';
 import { HolderRow, holderInstanceId } from './HolderRow';
 import { matchesQuery } from './search';
 
@@ -17,14 +20,29 @@ export interface BindListProps {
   capturingId: string | null;
   onRebind: (binding: BindingRow, instanceId: string) => void;
   onSelect: (name: string) => void;
+  filter: string;
+  onFilter: (filter: string) => void;
+  inputContext: InputContextState | null;
 }
 
 export function BindList(props: BindListProps) {
-  const { bindings, query, loaded, tr, capturingId, onRebind, onSelect } = props;
+  const { bindings, query, loaded, tr, capturingId, onRebind, onSelect, filter, onFilter, inputContext } = props;
 
   // filter already returns a fresh array, so the in-place sort can't disturb
   // the model.
-  const rows = bindings.filter(matchesQuery(query)).sort(compareBindings);
+  const rows = bindings.filter(matchesQuery(query)).filter((row) => matchesBindingFilter(row, filter, inputContext)).sort(compareBindings);
+  const categories = [...new Set(bindings.filter((b) => b.kind === 'game' && b.category).map((b) => b.category as string))];
+  const filterOptions = [
+    { value: 'all', label: tr('filterAll', 'All') },
+    { value: 'active', label: tr('filterActive', 'Active now') },
+    { value: 'gameplay', label: tr('filterGameplay', 'Gameplay') },
+    { value: 'ship', label: tr('filterShip', 'Ship') },
+    { value: 'vehicle', label: tr('filterVehicle', 'Vehicle') },
+    { value: 'menu', label: tr('filterMenu', 'Menu') },
+    { value: 'other', label: tr('filterOther', 'Other') },
+    { value: 'unbound', label: tr('filterUnbound', 'Unbound') },
+    ...categories.map((category) => ({ value: `category:${category}`, label: category })),
+  ];
 
   return (
     <section class="kb-panel kb-list-panel">
@@ -33,6 +51,16 @@ export function BindList(props: BindListProps) {
           ? tr('allBindingsCount', 'All bindings ({count})', { count: rows.length })
           : tr('allBindings', 'All bindings')}
       </div>
+      <Dropdown
+        id="binding-filter"
+        class="kb-filter"
+        menuClass="kb-filter-menu"
+        ariaLabel={tr('filterBindings', 'Filter bindings')}
+        value={filter}
+        options={filterOptions}
+        disabled={false}
+        onCommit={onFilter}
+      />
       <div id="bindlist" class="kb-list">
         {!loaded
           ? null
@@ -44,6 +72,8 @@ export function BindList(props: BindListProps) {
                 const state = holderState(bindings, b);
                 const stateClass = state.conflict
                   ? 'kb-holder--conflict'
+                  : state.possible
+                    ? 'kb-holder--possible'
                   : state.shared
                     ? 'kb-holder--shared'
                     : '';

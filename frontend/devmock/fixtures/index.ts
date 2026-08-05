@@ -3,5 +3,5 @@
 
 export { FALLBACK_SCHEMAS } from './schemas';
 export { MOCK_VIEWS, MOD_ASSET_ROOTS, HARNESS_PAGES, type MockView } from './views';
-export { VANILLA_KEYS, type VanillaKey } from './vanillaKeys';
+export { LIVE_KEYBINDINGS, VANILLA_KEYS, type VanillaKey } from './vanillaKeys';
 export { MOCK_HEALTH, HEALTH_SCENARIOS, type MockHealth } from './diagnostics';

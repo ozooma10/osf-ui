@@ -64,6 +64,11 @@ body { background: transparent; }
 .legend-game { background: rgba(154, 163, 173, 0.18); }
 .legend-shared { background: rgba(159, 199, 220, 0.12); border-color: rgba(159, 199, 220, 0.55); }
 .legend-conflict { background: rgba(224, 162, 60, 0.25); border-color: rgba(224, 162, 60, 0.6); }
+.legend-possible { background: rgba(224, 162, 60, 0.1); border-color: rgba(224, 162, 60, 0.38); }
+.legend-prioritized {
+  background: rgba(242, 239, 233, 0.08); border-color: rgba(242, 239, 233, 0.46);
+  box-shadow: inset 0 -2px 0 rgba(242, 239, 233, 0.8);
+}
 
 /* ---- keyboard --------------------------------------------------------------- */
 
@@ -106,6 +111,9 @@ body { background: transparent; }
 .kb-key.is-conflict {
   background: rgba(224, 162, 60, 0.12); border-color: rgba(224, 162, 60, 0.55); color: var(--osf-text-body);
 }
+.kb-key.is-possible {
+  background: rgba(224, 162, 60, 0.06); border-color: rgba(224, 162, 60, 0.38); color: var(--osf-text-body);
+}
 .kb-key.is-selected {
   border-color: var(--osf-accent); box-shadow: 0 0 0 1px var(--osf-accent);
   color: var(--osf-text-bright);
@@ -143,6 +151,7 @@ body { background: transparent; }
 .kb-holder--list { cursor: pointer; }
 .kb-holder--list:hover { background: rgba(154, 163, 173, 0.05); }
 .kb-holder--conflict { border-left: 2px solid var(--osf-signal-warn); padding-left: 10px; }
+.kb-holder--possible { border-left: 2px dashed var(--osf-signal-warn); padding-left: 10px; }
 .kb-holder--shared { border-left: 2px solid var(--osf-accent); padding-left: 10px; }
 .kb-holder-text { flex: 1; min-width: 0; }
 .kb-holder-title {
@@ -164,6 +173,18 @@ body { background: transparent; }
 /* Badge variants this view adds on top of the shared kit. */
 .osf-badge--osf-accent { color: var(--osf-accent); border-color: var(--osf-line-hud); }
 .kb-context, .kb-shared-badge { color: var(--osf-accent); border-color: var(--osf-line-hud); }
+.kb-possible-badge { color: var(--osf-signal-warn); border-color: rgba(224, 162, 60, 0.45); }
+.kb-classification--menu, .kb-classification--unknown { opacity: 0.7; }
+.kb-filter {
+  margin-left: auto; min-width: 126px;
+}
+.kb-filter .osf-dropdown__trigger {
+  height: 24px; padding: 4px 8px;
+  color: var(--osf-text-body); background: var(--osf-void-700); border: 1px solid var(--osf-line);
+  font-family: var(--osf-font-mono); font-size: 11px;
+}
+.kb-filter-menu { font-family: var(--osf-font-mono); font-size: 11px; }
+.kb-filter-menu .osf-dropdown__option { min-height: 28px; padding-block: 4px; }
 .osf-badge--ghost { color: var(--osf-text-faint); border-color: var(--osf-line-strong); }
 
 .kb-hint { color: var(--osf-text-faint); font-size: var(--osf-text-sm); padding: 8px 4px; }
@@ -299,6 +320,10 @@ body { background: transparent; }
 }
 .kb-key.is-conflict {
   background: rgba(223, 166, 61, 0.15); border-color: rgba(223, 166, 61, 0.72);
+}
+.kb-key.is-prioritized {
+  opacity: 1; color: var(--osf-text-bright);
+  box-shadow: inset 0 -2px 0 rgba(242, 239, 233, 0.8);
 }
 /* Hover inverts to white over any state tint (the game's menu move);
    placed after the is-* tints so it wins, and before is-selected so a

@@ -65,6 +65,12 @@ describe('dedupeInputContexts', () => {
     expect(out.map((c) => c.blocksGameplay)).toEqual([false, true]);
   });
 
+  it('accepts only a non-empty set of stable gameplay modes', () => {
+    expect(dedupeInputContexts([{ id: 'ship', gameplayModes: ['ship', 'zeroG', 'ship'] }])[0]?.gameplayModes).toEqual(['ship', 'zeroG']);
+    expect(dedupeInputContexts([{ id: 'empty', gameplayModes: [] }])[0]?.gameplayModes).toBeUndefined();
+    expect(dedupeInputContexts([{ id: 'future', gameplayModes: ['spacewalk'] }])[0]?.gameplayModes).toBeUndefined();
+  });
+
   it('returns [] for a non-array', () => {
     expect(dedupeInputContexts(undefined)).toEqual([]);
     expect(dedupeInputContexts({ id: 'ship' })).toEqual([]);

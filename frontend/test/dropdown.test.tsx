@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'preact';
 import { act } from 'preact/test-utils';
 import { Dropdown, dropdownPlacement } from '@ui/Dropdown';
@@ -9,6 +9,7 @@ const OPTIONS = [
   { value: 'all', label: 'All' },
   { value: 'active', label: 'Active now' },
   { value: 'gameplay', label: 'Gameplay' },
+  { value: 'shipbuilder', label: 'SHIPBUILDER (FLIGHT CHECK CAMERA)' },
 ] as const;
 
 let host: HTMLElement | null = null;
@@ -51,6 +52,7 @@ function key(target: HTMLElement, name: string) {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
   if (host) {
     render(null, host);
     host.remove();
@@ -89,6 +91,22 @@ describe('Dropdown placement', () => {
       opensUp: false,
     });
   });
+
+  it('widens for content and shifts left rather than crossing the right edge', () => {
+    expect(dropdownPlacement(
+      { left: 700, right: 860, top: 300, bottom: 332, width: 160 },
+      900,
+      700,
+      200,
+      320,
+    )).toEqual({
+      left: 572,
+      top: 336,
+      width: 320,
+      maxHeight: 200,
+      opensUp: false,
+    });
+  });
 });
 
 describe('Dropdown interaction', () => {
@@ -107,6 +125,27 @@ describe('Dropdown interaction', () => {
     expect(menu.getAttribute('data-nav-modal')).toBe('1');
     expect(trigger.getAttribute('aria-expanded')).toBe('true');
     expect(trigger.getAttribute('aria-activedescendant')).toBe('filter-option-1');
+  });
+
+  it('measures long options and widens the painted menu before display', () => {
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(900);
+    vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockImplementation(function scrollWidth(this: HTMLElement) {
+      return this.textContent?.startsWith('SHIPBUILDER') ? 300 : 120;
+    });
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function offsetWidth(this: HTMLElement) {
+      return this.classList.contains('osf-dropdown__menu') ? 160 : 0;
+    });
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function clientWidth(this: HTMLElement) {
+      return this.classList.contains('osf-dropdown__menu') ? 143 : 0;
+    });
+
+    const trigger = mount();
+    act(() => trigger.click());
+
+    const menu = document.querySelector<HTMLElement>('#filter-listbox')!;
+    expect(menu.style.width).toBe('319px');
+    expect(menu.style.left).toBe('573px');
+    expect(parseFloat(menu.style.left) + parseFloat(menu.style.width)).toBeLessThanOrEqual(892);
   });
 
   it('moves with arrows, commits with Enter, and closes without leaving WebView focus', () => {

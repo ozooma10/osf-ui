@@ -29,7 +29,6 @@
 #include "runtime/Json.h"
 #include "runtime/Ids.h"
 #include "runtime/PapyrusCall.h"
-#include "runtime/VanillaKeys.h"
 #include "render/WebView2HostWebRenderer.h"
 
 namespace OSFUI
@@ -379,6 +378,15 @@ namespace OSFUI
 		return installed;
 	}
 
+	void Runtime::OnDataLoaded()
+	{
+		_controlMap.Initialize();
+		SyncLiveControlMapBindings();
+		SyncLiveControlMapHealth();
+		PublishPlatformState("keybindings");
+		PublishPlatformState("input-context");
+	}
+
 	void Runtime::Tick(double a_deltaSeconds)
 	{
 		if (!_initialized) {
@@ -413,6 +421,33 @@ namespace OSFUI
 		// them.
 		if (_keyboardLayoutChanged.exchange(false)) {
 			RefreshKeyboardLabels("input language change");
+			// Keyboard records are Win32 VKs; their physical scan-code projection
+			// must be re-derived under the new layout alongside display keycaps.
+			if (_controlMap.RefreshLabels(/*localizationChanged*/ false)) {
+				SyncLiveControlMapBindings();
+				PublishPlatformState("keybindings");
+			} else if (_controlMap.Initialized() && !_controlMap.Available()) {
+				// A rebuild can fail a layout safety gate after previously being
+				// available. Clear the old conflict projection and publish both
+				// unavailable states immediately; never leave stale claims behind.
+				SyncLiveControlMapBindings();
+				SyncLiveControlMapHealth();
+				PublishPlatformState("keybindings");
+				PublishPlatformState("input-context");
+			}
+		}
+		// Live ControlMap maintenance is game-thread-only. Repeated remap events
+		// coalesce behind the provider generation and rebuild once here; the much
+		// smaller active-context stack is sampled every tick for scoped dispatch.
+		const auto controlMapChanges = _controlMap.Pump();
+		if (controlMapChanges.keybindings) {
+			SyncLiveControlMapBindings();
+			SyncLiveControlMapHealth();
+			PublishPlatformState("keybindings");
+		}
+		if (controlMapChanges.inputContext) {
+			SyncLiveControlMapHealth();
+			PublishPlatformState("input-context");
 		}
 		// Deliver a captured rebind key back to the settings view (main thread).
 		DrainKeyCapture();
@@ -1549,6 +1584,10 @@ namespace OSFUI
 				if (_diagnostics) {
 					_bridge->PublishState(a_view, "osfui", "diagnostics", _diagnostics->Snapshot());
 				}
+			} else if (a_key == "keybindings") {
+				_bridge->PublishState(a_view, "osfui", "keybindings", _controlMap.KeybindingsState());
+			} else if (a_key == "input-context") {
+				_bridge->PublishState(a_view, "osfui", "input-context", _controlMap.InputContextState());
 			} else if (a_key == "i18n") {
 				// Computed per view: a view's catalog is its OWNING mod's, which
 				// is why this one key carries a different value to each document.
@@ -1584,7 +1623,7 @@ namespace OSFUI
 		// Nothing below consults a change-dedupe: those exist so a repeated
 		// broadcast is cheap, and applying one here would send the second view
 		// to connect nothing at all.
-		for (const auto* key : { "settings", "views", "diagnostics", "i18n" }) {
+		for (const auto* key : { "settings", "views", "diagnostics", "keybindings", "input-context", "i18n" }) {
 			PublishPlatformState(key, a_viewId);
 		}
 		if (a_viewId == kHandoffViewId && !_handoffState.is_null()) {
@@ -2396,6 +2435,17 @@ namespace OSFUI
 				REX::DEBUG("Runtime: hotkey {}.{} dropped (game menu open)", a_mod, a_key);
 				return;
 			}
+			if (_settings) {
+				const auto scope = _settings->Store().ScopeForHotkey(a_mod, a_key);
+				if (scope.scoped) {
+					const auto mode = _controlMap.CurrentMode();
+					if (!_controlMap.Available() || !mode || !ModesOverlap(scope.modes, ModeBit(*mode))) {
+						REX::DEBUG("Runtime: hotkey {}.{} dropped (scoped modes {:#x}, live mode {})",
+							a_mod, a_key, scope.modes, mode ? GameplayModeName(*mode) : "unavailable");
+						return;
+					}
+				}
+			}
 			// Delivery channels (mcm-design.md §9): C ABI subscribers (queued
 			// here, invoked unlocked by BridgeApi::PumpMainThread later this
 			// tick) and the web `ui.hotkey` push to settings subscribers.
@@ -3072,10 +3122,14 @@ namespace OSFUI
 			_config.pauseMenuEntryView);
 		if (_settings) {
 			_settings->Store().InvalidateLocalizedData();
-			// Rebuild authored game labels under the new locale.
-			if (_config.vanillaKeyConflicts) {
-				_vanillaKeysApplied = false;
-				ApplyVanillaKeyConflicts(true);
+			if (_controlMap.RefreshLabels(/*localizationChanged*/ true)) {
+				SyncLiveControlMapBindings();
+				PublishPlatformState("keybindings");
+			} else if (_controlMap.Initialized() && !_controlMap.Available()) {
+				SyncLiveControlMapBindings();
+				SyncLiveControlMapHealth();
+				PublishPlatformState("keybindings");
+				PublishPlatformState("input-context");
 			} else {
 				_settings->BroadcastData();
 			}
@@ -3086,54 +3140,51 @@ namespace OSFUI
 
 	void Runtime::ApplyVanillaKeyConflicts(bool a_enabled)
 	{
-		if (!_settings || a_enabled == _vanillaKeysApplied) {
-			return;  // no store, or already in the requested state
+		if (!_settings) return;
+		if (_settings->Store().SetVanillaWarningsEnabled(a_enabled)) {
+			_settings->BroadcastData();
 		}
-		_vanillaKeysApplied = a_enabled;
-		auto& store = _settings->Store();
-		if (!a_enabled) {
-			store.SetVanillaKeys({});
-			REX::DEBUG("Runtime: vanilla key-conflict data disabled");
-		} else {
-			// The game's own bindings join the conflict grouping as "@game"
-			// pseudo-entries (mcm-design.md §9; no engine RE). Defaults come from
-			// the curated shipped table — the engine bakes its defaults into the
-			// executable and no controlmap ships in the archives. The controlmap
-			// text files the engine honors overlay it (mod-provided Data override,
-			// then the user's in-game remaps), then the user's additive
-			// vanillakeys.user.json: fixes survive updates while untouched rows
-			// keep upstream corrections.
-			VanillaKeys vanilla;
-			if (vanilla.LoadDefaults(Paths::DataDir() / "vanillakeys.json", ResolveKeyName)) {
-				// The controlmap files and OSF UI bindings share one code space
-				// (DIK scan codes), so the overlays apply verbatim — no layout-
-				// dependent translation anywhere on this path.
-				// DataDir = <Data>/SFSE/Plugins/OSFUI; under MO2 the module
-				// path is virtualized, so this resolves through the VFS too.
-				const auto gameData = Paths::DataDir().parent_path().parent_path().parent_path();
-				vanilla.OverlayControlMap(gameData / "Interface" / "Controls" / "PC" / "ControlMap.txt");
-				const auto docs = Platform::GetDocumentsPath();
-				if (!docs.empty()) {
-					vanilla.OverlayControlMap(docs / "My Games" / "Starfield" / "ControlMap_Custom.txt");
-					vanilla.OverlayUserFile(docs / "My Games" / "Starfield" / "OSFUI" / "vanillakeys.user.json", ResolveKeyName);
-				}
-				std::vector<SettingsStore::VanillaKey> keys;
-				for (const auto& b : vanilla.Bindings()) {
-					if (b.code != 0) {
-						// Name resolved after the overlays: a rebound event
-						// displays its live key, not the curated default's.
-						const auto label = _localization.Resolve("osfui", "gameBindings." + b.event + ".label", b.label);
-						const auto owner = _localization.Resolve("osfui", "gameBindings.owner", "Starfield");
-						keys.push_back({ b.event, owner + " (" + label + ")", b.code,
-							KeyName(static_cast<ScanCode>(b.code)) });
-					}
-				}
-				store.SetVanillaKeys(std::move(keys));
+		REX::DEBUG("Runtime: vanilla conflict warnings {} (live catalog remains available)", a_enabled ? "enabled" : "disabled");
+	}
+
+	void Runtime::SyncLiveControlMapBindings()
+	{
+		if (!_settings) return;
+		std::vector<SettingsStore::VanillaKey> keys;
+		if (_controlMap.Available()) {
+			const auto owner = _localization.Resolve("osfui", "gameBindings.owner", "Starfield");
+			keys.reserve(_controlMap.ConflictBindings().size());
+			for (const auto& binding : _controlMap.ConflictBindings()) {
+				keys.push_back({
+					binding.event, owner + " (" + binding.title + ")", binding.code,
+					KeyName(static_cast<ScanCode>(binding.code)), binding.context, binding.slot,
+					binding.classification, binding.definiteModes, binding.possibleModes,
+				});
 			}
 		}
-		// The conflict annotations live inside the settings document, so re-sync
-		// any open view (no-op with no subscribers, e.g. at boot).
-		_settings->BroadcastData();
+		auto& store = _settings->Store();
+		const bool bindingsChanged = store.SetVanillaKeys(std::move(keys));
+		const bool warningChanged = store.SetVanillaWarningsEnabled(_config.vanillaKeyConflicts);
+		if (bindingsChanged || warningChanged) {
+			_settings->BroadcastData();
+		}
+	}
+
+	void Runtime::SyncLiveControlMapHealth()
+	{
+		if (!_diagnostics || !_controlMap.Initialized()) return;
+		constexpr std::string_view id{ "input.control-map-unavailable" };
+		if (_controlMap.Available()) {
+			_diagnostics->Resolve(id, _uptime);
+		} else {
+			_diagnostics->Upsert({
+				.id = std::string(id), .code = std::string(id),
+				.severity = DiagnosticsModule::Severity::Warning,
+				.source = "input", .subject = "Starfield ControlMap",
+				.context = { { "gameVersion", _controlMap.GameVersion() }, { "reason", _controlMap.FailureReason() } },
+			}, _uptime);
+		}
+		_diagnostics->Broadcast();
 	}
 
 	void Runtime::OnOutputResized(std::uint32_t a_width, std::uint32_t a_height)

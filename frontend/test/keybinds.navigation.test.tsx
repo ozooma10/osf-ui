@@ -14,7 +14,7 @@ import { render } from 'preact';
 import { act } from 'preact/test-utils';
 import { App } from '@views/osfui/keybinds/App';
 import { nullBridge, type Bridge } from '@lib/bridge';
-import type { RuntimeInfo, SettingsData } from '@sdk';
+import type { KeybindingsData, RuntimeInfo, SettingsData } from '@sdk';
 
 const RUNTIME: RuntimeInfo = {
   game: 'Starfield',
@@ -156,8 +156,32 @@ const DATA: SettingsData = {
   ],
 } as unknown as SettingsData;
 
+const LIVE_KEYBINDINGS: KeybindingsData = {
+  available: true,
+  revision: 1,
+  gameVersion: 'test',
+  actions: [
+    {
+      event: 'QuickSave', label: 'Quicksave', category: 'MainGameplay',
+      context: { id: 0, name: 'MainGameplay', order: 0 }, classification: 'core',
+      modes: { definite: ['ship'], possible: [] }, sortIndex: 0, required: false,
+      bindings: [{ slot: 'main', key: 'F5', chord: ['F5'], unbound: false }],
+    },
+    {
+      event: 'Activate', label: 'Interact', category: 'OnFoot',
+      context: { id: 1, name: 'OnFoot', order: 1 }, classification: 'core',
+      modes: { definite: ['onFoot'], possible: [] }, sortIndex: 1, required: false,
+      bindings: [{ slot: 'main', key: 'E', chord: ['E'], unbound: false }],
+    },
+  ],
+};
+
 /** A bridge whose document already received the settings replay. */
 const seeded = () => makeBridge({ 'osfui/settings': DATA });
+const seededWithLiveKeys = () => makeBridge({
+  'osfui/settings': DATA,
+  'osfui/keybindings': LIVE_KEYBINDINGS,
+});
 
 let host: HTMLElement | null = null;
 
@@ -187,6 +211,16 @@ async function typeSearch(el: HTMLElement, value: string) {
   const input = el.querySelector<HTMLInputElement>('#search')!;
   input.value = value;
   input.dispatchEvent(new Event('input', { bubbles: true }));
+  await flush();
+}
+
+async function chooseBindingFilter(el: HTMLElement, label: string) {
+  el.querySelector<HTMLButtonElement>('#binding-filter')!.click();
+  await flush();
+  const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')]
+    .find((candidate) => candidate.textContent === label);
+  if (!option) throw new Error(`no binding filter option labelled ${label}`);
+  option.click();
   await flush();
 }
 
@@ -256,6 +290,7 @@ describe('keybinds — search scope', () => {
     // ...the board dimmed the non-matching keys...
     expect(cell(el, 'F10').classList.contains('is-dim')).toBe(true);
     expect(cell(el, 'E').classList.contains('is-dim')).toBe(false);
+    expect(cell(el, 'E').classList.contains('is-prioritized')).toBe(true);
 
     // ...and the detail panel is byte-identical.
     expect(el.querySelector('#detail')!.innerHTML).toBe(detailBefore);
@@ -271,6 +306,38 @@ describe('keybinds — search scope', () => {
     await typeSearch(el, 'f11'); // nothing is bound to F11
     expect(cell(el, 'F11').classList.contains('is-dim')).toBe(false);
     expect(cell(el, 'F10').classList.contains('is-dim')).toBe(true);
+  });
+});
+
+describe('keybinds — list priority on the keyboard map', () => {
+  it('prioritizes occupied keys represented by the active list filter', async () => {
+    const el = await mount(seededWithLiveKeys());
+
+    await chooseBindingFilter(el, 'MainGameplay');
+
+    expect(el.querySelector('#list-title')!.textContent).toBe('All bindings (1)');
+    expect(cell(el, 'F5').classList.contains('is-prioritized')).toBe(true);
+    expect(cell(el, 'F10').classList.contains('is-dim')).toBe(true);
+    expect(cell(el, 'E').classList.contains('is-dim')).toBe(true);
+    expect(cell(el, 'F11').classList.contains('is-dim')).toBe(true);
+    expect(el.querySelector('.legend-prioritized')?.parentElement?.textContent).toContain('In list');
+  });
+
+  it('lists selected-key holders from the selected Layer first without hiding the rest', async () => {
+    const el = await mount(seededWithLiveKeys());
+
+    cell(el, 'F5').click();
+    await flush();
+    const titles = () => [...el.querySelectorAll<HTMLElement>('#detail .kb-holder-title')]
+      .map((row) => row.textContent);
+    expect(titles()[0]).toContain('Open panel');
+    expect(titles()[1]).toContain('Quicksave');
+
+    await chooseBindingFilter(el, 'MainGameplay');
+
+    expect(titles()).toHaveLength(2);
+    expect(titles()[0]).toContain('Quicksave');
+    expect(titles()[1]).toContain('Open panel');
   });
 });
 

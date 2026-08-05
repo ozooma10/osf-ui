@@ -139,6 +139,10 @@ namespace OSFUI::Plugin
 					// when the overlay is disabled — scripts then read schema
 					// defaults through the mirror instead of hard-failing.
 					API::Papyrus::Install();
+					// ControlMap is fully populated here, before the player ever opens
+					// the Controls panel. The provider copies its live rows and active
+					// context stack into OSF UI-owned snapshots.
+					Runtime::Get().OnDataLoaded();
 					break;
 				case SFSE::MessagingInterface::kPostPostDataLoad:
 					REX::INFO("Plugin: SFSE message kPostPostDataLoad");
