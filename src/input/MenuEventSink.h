@@ -10,8 +10,8 @@ namespace OSFUI
 	class MenuEventSink final : public RE::BSTEventSink<RE::MenuOpenCloseEvent>
 	{
 	public:
-		// Registers on RE::UI::GetSingleton(); call once the UI singleton exists
-		// (kPostPostDataLoad). Returns false (and logs) if it doesn't. Events
+		// Registers on RE::UI::GetSingleton(); call on the first main-thread tick
+		// after kPostPostDataLoad. Returns false (and logs) if it doesn't. Events
 		// fired before registration are missed.
 		static bool Install();
 

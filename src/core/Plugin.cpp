@@ -2,11 +2,6 @@
 
 #include "api/PapyrusApi.h"
 #include "core/Version.h"
-#include "input/FocusMenu.h"
-#include "input/MainThreadMenuPump.h"
-#include "input/MenuEventSink.h"
-#include "input/OverlayInputHook.h"
-#include "input/UiLayoutGuard.h"
 #include "runtime/Runtime.h"
 
 #include "RE/B/BSService.h"
@@ -135,50 +130,23 @@ namespace OSFUI::Plugin
 					break;
 				case SFSE::MessagingInterface::kPostDataLoad:
 					REX::INFO("Plugin: SFSE message kPostDataLoad");
-					// GameVM exists from here. Bind the Papyrus natives even
-					// when the overlay is disabled — scripts then read schema
-					// defaults through the mirror instead of hard-failing.
-					API::Papyrus::Install();
-					// ControlMap is fully populated here, before the player ever opens
-					// the Controls panel. Notify Runtime only; its next proven main-thread
-					// tick copies the live rows into OSF UI-owned snapshots.
-					Runtime::Get().OnDataLoaded();
+					// GameVM and ControlMap exist from here, but this callback need not
+					// share the owning thread. The enabled runtime binds Papyrus and copies
+					// ControlMap on its next main-thread tick. With the runtime disabled
+					// there is no permanent tick, so queue the promised Papyrus-only setup
+					// directly through the same BSService main-thread queue.
+					if (Runtime::Get().GetConfig().enabled) {
+						Runtime::Get().OnDataLoaded();
+					} else if (!TryQueueMainThread([] { API::Papyrus::Install(); })) {
+						REX::ERROR("Plugin: could not queue disabled-runtime Papyrus binding on the main thread; "
+							"OSFUI.* natives remain unavailable");
+					}
 					break;
 				case SFSE::MessagingInterface::kPostPostDataLoad:
 					REX::INFO("Plugin: SFSE message kPostPostDataLoad");
-					// Earliest point game singletons (the UI event source) are
-					// treated as safely constructed.
-					if (Runtime::Get().GetConfig().enabled) {
-						if (!UiLayoutGuard::VerifyUiLayout()) {
-							REX::ERROR("Plugin: UI layout guard failed; skipping ALL UI integration "
-									   "(MenuEventSink + FocusMenu stay uninstalled, overlay toggle inert)");
-							break;
-						}
-						MenuEventSink::Install();
-						// Engine-UI work station: hooks the main-loop UI update so
-						// PauseMenuEntry's Scaleform access runs not only on the
-						// main thread, but specifically after active movies have
-						// advanced and nothing else is inside the AS3 VM.
-						MainThreadMenuPump::Install();
-						// Register the engine-built IMenu so the engine enters
-						// menu mode with the overlay (registration, open and
-						// long-session survival verified on 1.16.244; see
-						// input/FocusMenu.h). It is only opened (UIMessageQueue
-						// kShow) when the overlay becomes visible, from
-						// Runtime's main-thread tick.
-						if (Runtime::Get().GetConfig().focusMenu) {
-							REX::INFO("Plugin: focusMenu on — registering OSFUI_FocusMenu");
-							FocusMenu::Register();
-						}
-						// The WndProc subclass is the only input path: it drives
-						// the toggle key and, while capturing, consumes
-						// keyboard/mouse and routes them into the overlay.
-						if (Runtime::Get().GetConfig().inputSource == "ui") {
-							[[maybe_unused]] const bool inputInstalled = OverlayInputHook::Install();
-						} else {
-							REX::INFO("Plugin: inputSource=none; input hook not installed (toggle key inert)");
-						}
-					}
+					// UI singletons now exist. Installation still belongs to the proven
+					// main-thread tick, not this lifecycle callback.
+					if (Runtime::Get().GetConfig().enabled) Runtime::Get().OnPostDataLoaded();
 					break;
 				default:
 					REX::DEBUG("Plugin: SFSE message type {}", a_msg->type);

@@ -73,9 +73,9 @@ namespace OSFUI
 
 		// Platform-facing API; call from the game main thread.
 
-		// Register the menu name + creator with RE::UI. Idempotent; call at
-		// kPostPostDataLoad (the UI singleton exists by then). Returns false (and
-		// logs) if the UI singleton is unavailable.
+		// Register the menu name + creator with RE::UI. Idempotent; call on the
+		// first main-thread tick after kPostPostDataLoad. Returns false (and logs)
+		// if the UI singleton is unavailable.
 		static bool Register();
 
 		// Open/close the menu via the UI message queue. Game main thread only —

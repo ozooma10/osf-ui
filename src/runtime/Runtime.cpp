@@ -18,10 +18,13 @@
 #include "input/FreeCursor.h"
 #include "input/HardwareCursor.h"
 #include "input/LegacyVkNames.h"
+#include "input/MainThreadMenuPump.h"
 #include "input/MenuMode.h"
+#include "input/MenuEventSink.h"
 #include "input/OverlayInputHook.h"
 #include "input/PauseMenuEntry.h"
 #include "input/SimPause.h"
+#include "input/UiLayoutGuard.h"
 #include "input/XInputPoller.h"
 #include "core/Paths.h"
 #include "platform/WindowsPlatform.h"
@@ -313,8 +316,8 @@ namespace OSFUI
 		}
 
 		// Key events reach the router from the WndProc subclass (OverlayInputHook
-		// → OnHostKey), installed when config inputSource="ui" (core/Plugin.cpp,
-		// kPostPostDataLoad).
+		// → OnHostKey), installed when config inputSource="ui" on the first
+		// main-thread tick after kPostPostDataLoad.
 		const auto toggleKey = ResolveKeyName(_config.toggleKey);
 		_toggleKey.store(toggleKey, std::memory_order_release);
 		if (toggleKey != kInvalidScanCode) {
@@ -386,13 +389,46 @@ namespace OSFUI
 		_controlMapInit.Request();
 	}
 
-	void Runtime::InitializeLiveControlMap()
+	void Runtime::OnPostDataLoaded()
 	{
+		_uiIntegrationInit.Request();
+	}
+
+	void Runtime::InitializeDataLoadedState()
+	{
+		REX::DEBUG("Runtime: consuming kPostDataLoad work on the main-thread tick");
+		API::Papyrus::Install();
 		_controlMap.Initialize();
 		SyncLiveControlMapBindings();
 		SyncLiveControlMapHealth();
 		PublishPlatformState("keybindings");
 		PublishPlatformState("input-context");
+	}
+
+	void Runtime::InitializePostDataLoadIntegration()
+	{
+		REX::DEBUG("Runtime: consuming kPostPostDataLoad work on the main-thread tick");
+		if (!UiLayoutGuard::VerifyUiLayout()) {
+			REX::ERROR("Runtime: UI layout guard failed; skipping ALL UI integration "
+				"(MenuEventSink + FocusMenu stay uninstalled, overlay toggle inert)");
+			return;
+		}
+		MenuEventSink::Install();
+		// Hook the main-loop UI update so PauseMenuEntry's Scaleform access runs
+		// not only on the main thread, but specifically after active movies have
+		// advanced and nothing else is inside the AS3 VM.
+		MainThreadMenuPump::Install();
+		if (_config.focusMenu) {
+			REX::INFO("Runtime: focusMenu on — registering OSFUI_FocusMenu");
+			FocusMenu::Register();
+		}
+		// The WndProc subclass is the only input path: it drives the toggle key
+		// and consumes/routes keyboard and mouse while the overlay captures input.
+		if (_config.inputSource == "ui") {
+			[[maybe_unused]] const bool inputInstalled = OverlayInputHook::Install();
+		} else {
+			REX::INFO("Runtime: inputSource=none; input hook not installed (toggle key inert)");
+		}
 	}
 
 	void Runtime::Tick(double a_deltaSeconds)
@@ -404,7 +440,13 @@ namespace OSFUI
 		// kPostDataLoad only signals this latch. Consume it here, on the same
 		// serialized main-thread path that owns every later ControlMap read.
 		if (_controlMapInit.Take()) {
-			InitializeLiveControlMap();
+			InitializeDataLoadedState();
+		}
+		// Keep all post-data-load UI object access and trampoline mutation on this
+		// same serialized path. If both lifecycle notifications arrived before a
+		// tick, data-loaded setup deliberately completes first.
+		if (_uiIntegrationInit.Take()) {
+			InitializePostDataLoadIntegration();
 		}
 		// A failure callback fires near the end of the prior Tick. Restart only now,
 		// after IWebRenderer::Update has returned and its notification drain is idle.

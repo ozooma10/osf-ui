@@ -45,6 +45,8 @@ namespace OSFUI
 		// SFSE kPostDataLoad may be dispatched from a job thread. Publish a
 		// notification only; Tick consumes it at its proven main-thread checkpoint.
 		void OnDataLoaded();
+		// Same handoff for UI integration that becomes legal at kPostPostDataLoad.
+		void OnPostDataLoaded();
 
 		// Advances the renderer and submits a frame when visible. Called on the
 		// game main thread through RE::BSService::TaskQueue; an SFSE permanent
@@ -238,7 +240,8 @@ namespace OSFUI
 		// read-only game catalog. Re-broadcasts settings.data because per-setting
 		// conflict annotations live there.
 		void ApplyVanillaKeyConflicts(bool a_enabled);
-		void InitializeLiveControlMap();
+		void InitializeDataLoadedState();
+		void InitializePostDataLoadIntegration();
 		void SyncLiveControlMapBindings();
 		void SyncLiveControlMapHealth();
 		// Invalidate and re-broadcast every projection that contains localized
@@ -393,6 +396,7 @@ namespace OSFUI
 		HotkeyService                           _hotkeys;
 		LiveControlMap                          _controlMap;
 		DeferredMainThreadWork                  _controlMapInit;
+		DeferredMainThreadWork                  _uiIntegrationInit;
 		std::atomic<ScanCode>         _toggleKey{ kInvalidScanCode };
 		bool                          _inputConfigured{ false };  // main thread
 		std::atomic_bool              _devToolsRequested{ false };

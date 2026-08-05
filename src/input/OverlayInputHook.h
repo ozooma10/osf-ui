@@ -32,10 +32,10 @@ namespace OSFUI
 		// if native focus moves to the WebView before another input packet arrives.
 		inline constexpr std::uint32_t kRefreshInputStateMessage = 0x804A;
 		// Finds the game's main top-level window for the current process and
-		// installs the WndProc subclass. Safe to call once game UI exists
-		// (kPostPostDataLoad). Returns false (and logs) if no window is found
-		// or the swap fails. One-way: never un-subclassed (other overlays may
-		// chain on the same window).
+		// installs the WndProc subclass. Call on the first main-thread tick after
+		// kPostPostDataLoad. Returns false (and logs) if no window is found or the
+		// swap fails. One-way: never un-subclassed (other overlays may chain on the
+		// same window).
 		bool Install();
 		void RequestStateRefresh();
 		// The subclassed game window, or nullptr before Install()/on failure.

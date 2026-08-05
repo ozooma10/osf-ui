@@ -33,9 +33,10 @@ namespace OSFUI::API::Papyrus
 	// it hands a page a trusted alias for the endpoints it is refused.
 	inline constexpr std::string_view kPlatformScriptName = "OSFUI";
 
-	// Main thread, once GameVM exists (SFSE kPostDataLoad): bind the OSFUI
-	// script natives and install the TESLoadGameEvent sink that re-binds them
-	// and clears session registrations after a load. Idempotent.
+	// Main thread, once GameVM exists: bind the OSFUI script natives and install
+	// the TESLoadGameEvent sink that re-binds them and clears session
+	// registrations after a load. Runtime hands kPostDataLoad off to its tick;
+	// the disabled-runtime path queues this operation directly. Idempotent.
 	void Install();
 
 	// Main thread (Runtime's store change listener): fan a committed settings

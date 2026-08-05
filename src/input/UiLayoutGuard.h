@@ -22,7 +22,8 @@ namespace OSFUI
 		// vs AddressLib vtable). Must pass before anything touches the UI
 		// object — including MenuEventSink's RegisterSink and FocusMenu's
 		// RegisterMenu, which silently corrupt UI state on stale base offsets.
-		// Logs on failure. Call once the UI singleton exists (kPostPostDataLoad).
+		// Logs on failure. Call on the first main-thread tick after
+		// kPostPostDataLoad, once the UI singleton exists.
 		static bool VerifyUiLayout();
 	};
 }

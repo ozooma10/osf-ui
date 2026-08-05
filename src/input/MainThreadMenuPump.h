@@ -20,8 +20,8 @@ namespace OSFUI::MainThreadMenuPump
 	// PauseMenuEntry::Reconcile() after each advance, when every admitted movie
 	// has finished its frame and nothing else is inside the AS3 VM.
 	//
-	// Install once from the kPostPostDataLoad handler (after UiLayoutGuard, so
-	// a game-patch layout drift disables this too). Requires the SFSE
-	// trampoline (main.cpp Init allocates it).
+	// Install once from Runtime's first main-thread tick after kPostPostDataLoad
+	// (after UiLayoutGuard, so a game-patch layout drift disables this too).
+	// Requires the SFSE trampoline (main.cpp Init allocates it).
 	bool Install();
 }
