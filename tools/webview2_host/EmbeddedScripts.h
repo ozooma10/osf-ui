@@ -7,7 +7,6 @@ namespace osfui::wv2
 	enum class EmbeddedScript
 	{
 		BridgeShim,
-		RenderStats,
 		NetworkGuard,
 	};
 

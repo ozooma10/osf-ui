@@ -4,7 +4,7 @@
 
 ### Changed
 
-- The **Debug mode** toggle is gone from Mod Settings; `debugOnly` developer views (such as the Web Performance Lab) now follow the `devMode` flag in `config.json`, the same switch that already governs verbose logging, hot reload and F12 DevTools. While it's on, the settings hub shows a standing amber **DEV MODE** tag next to the version badge, and System Health reports `devMode` in its system block (previously `debugMode`).
+- The **Debug mode** toggle is gone from Mod Settings; third-party `debugOnly` views now follow the `devMode` flag in `config.json`, the same switch that already governs verbose logging, hot reload and F12 DevTools. While it's on, the settings hub shows a standing amber **DEV MODE** tag next to the version badge, and System Health reports `devMode` in its system block (previously `debugMode`).
 - **Key bindings are physically anchored and layout-aware.** A key name (`"F8"`, `"Semicolon"`) now identifies a physical key position — the same convention Starfield's own controlmap uses — instead of a Windows virtual key whose position shifts with the OS keyboard layout. On US layouts nothing changes; on German, French and other layouts, rebinding, hotkey dispatch, the keybinds board and the game-binding rows now all agree on which key is which, keys that were previously uncapturable (the ISO `<>` key, the numpad, PrintScreen, sided modifiers pressed directly) are bindable, and configs mean the same physical keys on every machine. The binding UI shows the keycaps your layout actually prints (`Ö`, `ß`, `^`), searching by keycap works, and translation mods can localize non-printing key names via `chrome.keys.*` catalog addresses.
 - Saved key values are migrated **once**, when this version first loads them, using the keyboard layout active at that moment (a no-op on US layouts). If you bound keys under a different layout than the one active at first launch, re-check those bindings once. **Do not downgrade** to a pre-2.1 build afterwards: a rebind made there is written into an already-migrated file and will not re-migrate.
 - Additive API surface: the `osfui/settings` state doc gains `keyboard: { layout, labels }` (localized keycaps per key name, republished on layout switch), `settings.captured` gains `label` (the keycap for the captured name) and `reason` on cancels (`"escape"` | `"reserved"` | `"unnameable"`), and W3C `KeyboardEvent.code` spellings (`BracketLeft`, `Backquote`, `ShiftLeft`, …) are accepted as key-name aliases. Names remain the only stored identity — labels are display-only.
@@ -31,7 +31,6 @@
 - Rebinding a key repeatedly no longer leaks one `settings.captured` subscription per attempt.
 - Retained view state is capped by mod as well as by key, so the per-key cap actually bounds the store.
 - A plugin refused for an ABI-major mismatch is listed once in System Health, however many times it retries.
-- The Web Performance Lab's "Back to Mods" button works: it was sending to `menu.open`, which is a request endpoint, so the host dropped it.
 - `create-osfui` menu and HUD projects are runnable starters rather than bridge skeletons: retained state, one-shot events, sends, typed requests and errors, live settings, hotkeys, localization, theming and lifecycle all work in the browser harness and in game, with surface-appropriate manifests, schemas, backend callbacks, translation catalogs and mocks. They target the 2.0 authoring surface throughout, pass `npm run check`, retain HUD data across page recreation, and no longer wait on dead subscriptions or mock requests that never settle.
 - Views authored for OSF UI 1.x no longer need an immediate mod update just because the 2.0 runtime is installed. A manifest declaring `targetVersion` below 2.0 receives the callable `available()` API and the established helper aliases over the new transport, while 2.0 views retain the strict four-verb surface. Existing mods such as Starcade can therefore keep loading unchanged while authors migrate on their own schedule.
 - OSF UI can now run alongside Luma: it waits for peer SFSE render hooks before installing its own, safely chains Luma's Scaleform composite hook, and renders into Luma's upgraded HDR UI buffer. If the UI draw path is still unavailable, menu opens are refused immediately instead of briefly capturing input for an overlay that cannot appear.
@@ -40,7 +39,8 @@
 ### Other changes
 
 - Removed the unfinished in-world browser-surface experiment and its dormant configuration/build switches. It required assets that never shipped, was disabled in every release, and had accumulated runtime and packaging branches around an unsupported feature.
-- WebView2 and the D3D12 compositor are now the only runtime backends. Removed diagnostic null-backend configuration and build switches that could produce an apparently successful plugin with no way to render, and kept the Web Performance Lab available in the development harness without shipping it in release archives.
+- WebView2 and the D3D12 compositor are now the only runtime backends. Removed diagnostic null-backend configuration and build switches that could produce an apparently successful plugin with no way to render.
+- Removed the developer-only Web Performance Lab and the live render-stat overlay. System Health still reports whether the UI seam is active and whether Frame Generation is detected, without maintaining per-frame counters, sampling IPC, or injected page UI.
 
 ### For view authors
 
@@ -80,7 +80,7 @@ Rebuilt the mod API around four verbs — `send`, `request`, `on`, `state` — a
 - Unexpected helper and runtime exceptions are contained, and an incomplete Scaleform hook set is rolled back instead of leaving half of the draw protocol installed.
 - Live key rebinding, virtual-cursor input, settings and hotkey unsubscription, settings persistence retries, and content-folder scans are hardened against cross-thread or filesystem failures that could previously lose a write, invoke released plugin state, or terminate the UI.
 - Reveal handshakes now drain pre-reveal captures while atomically changing presentation epochs and use a fresh token for every open, so a queued transparent frame or a copied old sentinel cannot reveal the overlay.
-- System Health and the render-stats overlay no longer describe the retired Present-hook fallback or show GPU/concurrency counters that cannot change; a missing UI seam is reported as unavailable instead.
+- System Health no longer describes the retired Present-hook fallback; a missing UI seam is reported as unavailable instead.
 
 ### Other changes
 
@@ -225,9 +225,7 @@ Added richer Papyrus data, reliable interactive focus, and developer diagnostics
 
 ### Other changes
 
-- Added the **Web Performance Lab** developer view.
 - Added **Debug mode** for showing developer-only views.
-- Added persistent render statistics for capture, transport, compositor, and frame delivery.
 
 ### For view authors
 

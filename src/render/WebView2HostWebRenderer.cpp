@@ -221,12 +221,6 @@ namespace OSFUI
 				{ "view", std::string(a_viewId) }, { "order", a_order } };
 		}
 
-		json SetRenderStatsMsg(std::string_view a_viewId, bool a_enabled)
-		{
-			return json{ { "type", "setRenderStats" },
-				{ "view", std::string(a_viewId) }, { "enabled", a_enabled } };
-		}
-
 		json FocusMsg(bool a_focused)
 		{
 			return json{ { "type", "focus" }, { "focused", a_focused } };
@@ -301,7 +295,6 @@ namespace OSFUI
 			bool        legacyApi{ false };
 			bool        hidden{ true };
 			bool        prewarm{ false };
-			bool        renderStats{ false };
 			int         order{ 0 };
 			// Manifest (authoring) height. The host divides output height by this
 			// for the rasterization scale, so the page lays out at logical size
@@ -395,7 +388,6 @@ namespace OSFUI
 		bool          haveFrame{ false };
 		std::uint32_t frameSlot{ 0 };
 		std::uint64_t frameSerial{ 0 };
-		std::uint64_t frameSourceTimeMs{ 0 };
 		std::uint32_t frameWidth{ 0 }, frameHeight{ 0 };
 		std::uint64_t sharedRingGeneration{ 0 };
 		std::uint64_t submittedSerial{ 0 };
@@ -1014,7 +1006,6 @@ namespace OSFUI
 					addBootstrap(SetHiddenMsg(
 						view.id, view.hidden, presentationEpoch));
 					addBootstrap(SetOrderMsg(view.id, view.order));
-					addBootstrap(SetRenderStatsMsg(view.id, view.renderStats));
 				}
 				if (!activeId.empty()) addBootstrap(SetActiveMsg(activeId));
 				addBootstrap(FocusMsg(focusRequested.load()));
@@ -1166,7 +1157,6 @@ namespace OSFUI
 		{
 			const auto slot = a_msg.value("slot", 0u);
 			const auto serial = a_msg.value("serial", 0ull);
-			const auto sourceTimeMs = a_msg.value("sourceTimeMs", 0ull);
 			const auto presentation = a_msg.value("presentationEpoch", 0ull);
 			const auto w = a_msg.value("width", 0u);
 			const auto h = a_msg.value("height", 0u);
@@ -1192,7 +1182,6 @@ namespace OSFUI
 					}
 					frameSlot = slot;
 					frameSerial = serial;
-					frameSourceTimeMs = sourceTimeMs;
 					frameWidth = w;
 					frameHeight = h;
 					sharedRingGeneration = ringGeneration;
@@ -1471,7 +1460,6 @@ namespace OSFUI
 				haveFrame = false;
 				frameSlot = 0;
 				frameSerial = 0;
-				frameSourceTimeMs = 0;
 				frameWidth = frameHeight = 0;
 				sharedRingGeneration = 0;
 				submittedSerial = 0;
@@ -1706,7 +1694,6 @@ namespace OSFUI
 			.height = _impl->frameHeight,
 			.frameIndex = _impl->frameSerial,
 			.sharedSlot = _impl->frameSlot,
-			.sourceTimeMs = _impl->frameSourceTimeMs,
 		};
 	}
 
@@ -1896,30 +1883,6 @@ namespace OSFUI
 			view->order = a_order;
 		}
 		_impl->Send(SetOrderMsg(a_viewId, a_order));
-	}
-
-	void WebView2HostWebRenderer::SetRenderStats(std::string_view a_viewId, bool a_enabled)
-	{
-		{
-			std::scoped_lock lock(_impl->stateMutex);
-			auto* view = _impl->FindView(a_viewId);
-			if (!view || view->renderStats == a_enabled) return;
-			view->renderStats = a_enabled;
-		}
-		_impl->Send(SetRenderStatsMsg(a_viewId, a_enabled));
-	}
-
-	void WebView2HostWebRenderer::SetRenderStatsSample(const RenderStatsSample& a_sample)
-	{
-		_impl->Send(json{
-			{ "type", "renderStatsSample" },
-			{ "drawFps", a_sample.drawFps },
-			{ "freshFps", a_sample.freshFps },
-			{ "submitFps", a_sample.submitFps },
-			{ "sourceToDrawMs", a_sample.sourceToDrawMs },
-			{ "recordCpuMs", a_sample.recordCpuMs },
-			{ "reusedDraws", a_sample.reusedDraws },
-		});
 	}
 
 	void WebView2HostWebRenderer::DestroyView(std::string_view a_viewId)

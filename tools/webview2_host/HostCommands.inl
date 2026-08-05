@@ -99,20 +99,6 @@
 				}
 			}
 
-			void HandleSetRenderStats(const json& a_msg)
-			{
-				if (auto* view = ResolveView(a_msg)) {
-					view->renderStats = a_msg.value("enabled", false);
-					ApplyRenderStats(*view);
-				}
-			}
-
-			void HandleRenderStatsSample(const json& a_msg)
-			{
-				compositorStats = a_msg;
-				compositorStats.erase("type");
-			}
-
 			void HandleSetActive(const json& a_msg)
 			{
 				auto* view = ResolveView(a_msg);
@@ -233,8 +219,6 @@
 					{ "suspendView", &App::HandleSuspendView },
 					{ "setHidden", &App::HandleSetHidden },
 					{ "setOrder", &App::HandleSetOrder },
-					{ "setRenderStats", &App::HandleSetRenderStats },
-					{ "renderStatsSample", &App::HandleRenderStatsSample },
 					{ "setActive", &App::HandleSetActive },
 					{ "focus", &App::HandleFocus },
 					{ "mouse", &App::HandleMouse },

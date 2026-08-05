@@ -17,7 +17,7 @@ describe('registered views diagnostics', () => {
         {
           id: 'osfui',
           title: 'OSF UI',
-          values: { renderStats: false },
+          values: { bugReporting: true },
           schema: {
             groups: [
               {
@@ -25,8 +25,8 @@ describe('registered views diagnostics', () => {
                 label: 'Diagnostics',
                 settings: [
                   {
-                    key: 'renderStats',
-                    label: 'Show render stats',
+                    key: 'bugReporting',
+                    label: 'Bug reporting',
                     type: 'bool',
                     default: false,
                   },

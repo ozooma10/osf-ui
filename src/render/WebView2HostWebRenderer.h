@@ -59,8 +59,6 @@ namespace OSFUI
 		void PrewarmView(std::string_view a_viewId) override;
 		void SuspendView(std::string_view a_viewId) override;
 		void SetViewOrder(std::string_view a_viewId, int a_order) override;
-		void SetRenderStats(std::string_view a_viewId, bool a_enabled) override;
-		void SetRenderStatsSample(const RenderStatsSample& a_sample) override;
 		void DestroyView(std::string_view a_viewId) override;
 		[[nodiscard]] std::string_view Name() const override { return "webview2"; }
 

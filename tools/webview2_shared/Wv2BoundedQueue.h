@@ -18,12 +18,11 @@ namespace osfui::wv2
 	{
 		if (a_type == "mouse" && a_kind == "move") return "mouse.move";
 		if (a_type == "resize" || a_type == "focus" ||
-			a_type == "accelState" || a_type == "renderStatsSample" ||
+			a_type == "accelState" ||
 			a_type == "frameAck") {
 			return std::string(a_type);
 		}
-		if ((a_type == "setHidden" || a_type == "setOrder" ||
-				a_type == "setRenderStats") &&
+		if ((a_type == "setHidden" || a_type == "setOrder") &&
 			!a_identity.empty()) {
 			return std::string(a_type) + ":" + std::string(a_identity);
 		}

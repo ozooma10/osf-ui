@@ -103,9 +103,6 @@ namespace osfui::wv2
 	// destroyView   { view:str }
 	// shutdown      { }
 	// frameAck      { serial:u64 }             (consumer acked this frame serial; releases its ring slot)
-	// setRenderStats { view:str, enabled:bool } (toggle the render-stats overlay + sampling for a view)
-	// renderStatsSample { drawFps, freshFps, submitFps, sourceToDrawMs, recordCpuMs, ... }
-	//               (periodic render-stats telemetry, forwarded to the views' overlay)
 	//
 	// Message types, host -> game:
 	// hello         { protocolVersion:u32, hostVersion:str, runtimeVersion:str, pid:u32 }
@@ -117,7 +114,7 @@ namespace osfui::wv2
 	//               (handles already duplicated into the game process; every
 	//                textures message invalidates all prior slots)
 	// frame         { slot:u32, serial:u64, width:u32, height:u32,
-	//                 sourceTimeMs:u64, presentationEpoch:u64 }
+	//                 presentationEpoch:u64 }
 	// loadEvent     { view:str, failed:bool, url:str, description:str, code:i32 }
 	// fatal         { stage:str, view:str, description:str, code:u32 }
 	// webMessage    { view:str, json:str }

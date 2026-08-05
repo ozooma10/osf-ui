@@ -75,24 +75,6 @@ namespace OSFUI
 		// Slot in the shared-texture ring announced through SharedRingHandler.
 		// frameIndex doubles as the produce-fence value for that slot.
 		std::uint32_t sharedSlot{ 0 };
-		// GetTickCount64 timestamp taken when the source frame entered the
-		// renderer transport. Windows uptime is system-wide, so the compositor
-		// can measure source-to-draw latency even when capture happens in the
-		// out-of-process WebView2 host. Zero means unavailable.
-		std::uint64_t                 sourceTimeMs{ 0 };
-	};
-
-	// One interval of game-side render diagnostics. Cumulative compositor
-	// counters are reduced by Runtime before this reaches the renderer, which
-	// may display it in its host-owned diagnostics UI.
-	struct RenderStatsSample
-	{
-		double drawFps{ 0.0 };
-		double freshFps{ 0.0 };
-		double submitFps{ 0.0 };
-		double sourceToDrawMs{ 0.0 };
-		double recordCpuMs{ 0.0 };
-		std::uint64_t reusedDraws{ 0 };
 	};
 
 	// Cross-process shared-texture ring produced by the out-of-process WebView2
@@ -333,12 +315,6 @@ namespace OSFUI
 		// ignore it; visibility and destruction remain separate lifecycle edges.
 		virtual void SuspendView(std::string_view /*a_viewId*/) {}
 		virtual void SetViewOrder(std::string_view /*a_viewId*/, int /*a_order*/) {}
-		// Host-owned diagnostics drawn inside one view. The overlay must not
-		// require cooperation from (or changes to) the authored page.
-		virtual void SetRenderStats(std::string_view /*a_viewId*/, bool /*a_enabled*/) {}
-		// Game-side half of the diagnostics sample (compositor cadence).
-		// Backends without a host-owned panel ignore it.
-		virtual void SetRenderStatsSample(const RenderStatsSample& /*a_sample*/) {}
 
 		virtual void DestroyView(std::string_view /*a_viewId*/) {}
 

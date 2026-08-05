@@ -13,9 +13,6 @@ namespace osfui::wv2
 		const unsigned char kBridgeShim[] = {
 #include "bridge-shim.js.h"
 		};
-		const unsigned char kRenderStats[] = {
-#include "render-stats.js.h"
-		};
 		const unsigned char kNetworkGuard[] = {
 #include "network-guard.js.h"
 		};
@@ -41,11 +38,9 @@ namespace osfui::wv2
 	const std::wstring& GetEmbeddedScript(const EmbeddedScript a_script)
 	{
 		static const auto bridge = LoadScript(kBridgeShim);
-		static const auto stats = LoadScript(kRenderStats);
 		static const auto network = LoadScript(kNetworkGuard);
 		switch (a_script) {
 		case EmbeddedScript::BridgeShim:   return bridge;
-		case EmbeddedScript::RenderStats:  return stats;
 		case EmbeddedScript::NetworkGuard: return network;
 		}
 		return bridge;

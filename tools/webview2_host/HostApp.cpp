@@ -624,8 +624,6 @@ namespace osfui::wv2
 				std::uint64_t suspendActivityGeneration{ 0 };
 				std::uint64_t suspendAttemptId{ 0 };
 				std::uint64_t nextSuspendAttemptMs{ 0 };
-				bool renderStats{ false };
-				std::uint64_t renderStatsLastPageLogMs{ 0 };
 				// Manifest (authoring) height, set by `navigate`: the page lays out at
 				// this height and ApplyScale derives the rasterization scale from it.
 				std::uint32_t logicalHeight{ kDefaultLogicalHeight };
@@ -743,25 +741,6 @@ namespace osfui::wv2
 			// over the pipe instead.
 			std::atomic<std::uint64_t> ackedSerial{ 0 };
 			std::uint64_t consumeWaitTimeouts{ 0 };
-			double        produceMsTotal{ 0.0 };
-
-			// Capture-cadence diagnostics (the benchmark's 48 fps ceiling): the
-			// interval between WGC FrameArrived callbacks is DWM's commit cadence
-			// for the captured visual, i.e. the transport's input rate, upstream of
-			// anything the host controls. Touched only on the capture callback thread.
-			std::chrono::steady_clock::time_point captureLastArrival{};
-			double        captureGapMsTotal{ 0.0 };
-			double        captureGapMsMin{ 0.0 };
-			double        captureGapMsMax{ 0.0 };
-			std::uint64_t captureGapCount{ 0 };
-			std::atomic<std::uint64_t> captureArrivalCount{ 0 };
-			std::uint64_t statsLastMs{ 0 };
-			std::uint64_t statsLastCapture{ 0 };
-			std::uint64_t statsLastPublish{ 0 };
-			double        statsLastProduceMs{ 0.0 };
-			std::uint64_t statsLastTimeouts{ 0 };
-			std::uint64_t statsLastLogMs{ 0 };
-			json          compositorStats{ json::object() };
 
 			ComPtr<ICoreWebView2Environment> environment;
 			bool environmentRequested{ false };
@@ -1138,107 +1117,6 @@ namespace osfui::wv2
 				}
 			}
 
-			// STA thread only: iterates `views`, which the STA mutates unlocked
-			// (push_back on createView, erase_if on destroyView). The capture
-			// thread must read the cached atomic below instead — refreshed here,
-			// and this runs at least once per STA message-loop iteration (the
-			// MsgWaitForMultipleObjectsEx timeout selection), so the cache is at
-			// most one iteration stale, which only affects stats-gap accounting.
-			bool AnyVisibleRenderStats() const
-			{
-				bool any = false;
-				for (const auto& view : views) {
-					if (view->renderStats && !view->hidden && view->webView) {
-						any = true;
-						break;
-					}
-				}
-				anyVisibleRenderStatsCache.store(any, std::memory_order_relaxed);
-				return any;
-			}
-			// The one value OnFrameArrived (WGC free-threaded callback) may read
-			// about views; ringMutex covers only the ring, never `views`.
-			mutable std::atomic_bool anyVisibleRenderStatsCache{ false };
-
-			void ApplyRenderStats(View& a_view)
-			{
-				if (!a_view.webView) return;
-				if (a_view.suspendRequested || a_view.suspendInFlight || a_view.suspended) {
-					NoteViewActivity(a_view, /*a_clearSuspendRequest=*/false);
-				}
-				const auto script = std::format(
-					"window.__osfuiSetRenderStats&&window.__osfuiSetRenderStats({},{});",
-					a_view.renderStats ? "true" : "false", json(a_view.id).dump());
-				a_view.webView->ExecuteScript(ToWide(script).c_str(),
-					Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
-						[](HRESULT, LPCWSTR) -> HRESULT { return S_OK; }).Get());
-			}
-
-			void TickRenderStats()
-			{
-				if (!AnyVisibleRenderStats()) {
-					statsLastMs = 0;
-					statsLastLogMs = 0;
-					return;
-				}
-				const auto now = ::GetTickCount64();
-				if (statsLastMs == 0) {
-					statsLastMs = now;
-					statsLastCapture = captureArrivalCount.load(std::memory_order_relaxed);
-					std::scoped_lock lock(ringMutex);
-					statsLastPublish = frameSerial;
-					statsLastProduceMs = produceMsTotal;
-					statsLastTimeouts = consumeWaitTimeouts;
-					return;
-				}
-				const auto elapsed = now - statsLastMs;
-				if (elapsed < 500) return;
-
-				const auto capture = captureArrivalCount.load(std::memory_order_relaxed);
-				std::uint64_t publish = 0, timeouts = 0;
-				double produceMs = 0.0;
-				{
-					std::scoped_lock lock(ringMutex);
-					publish = frameSerial;
-					produceMs = produceMsTotal;
-					timeouts = consumeWaitTimeouts;
-				}
-				const auto captureDelta = capture - statsLastCapture;
-				const auto publishDelta = publish - statsLastPublish;
-				const auto timeoutDelta = timeouts - statsLastTimeouts;
-				const double seconds = static_cast<double>(elapsed) / 1000.0;
-				const double copyMs = publishDelta ?
-					(produceMs - statsLastProduceMs) / static_cast<double>(publishDelta) : 0.0;
-				json values{
-					{ "captureFps", static_cast<double>(captureDelta) / seconds },
-					{ "transferFps", static_cast<double>(publishDelta) / seconds },
-					{ "copyMs", copyMs },
-					{ "backpressure", timeoutDelta }
-				};
-				values.update(compositorStats);
-				const json sample{ { "__osfuiRenderStats", values } };
-				const auto wide = ToWide(DumpSafe(sample));
-				for (const auto& view : views) {
-					if (view->renderStats && !view->hidden && view->webView) {
-						view->webView->PostWebMessageAsJson(wide.c_str());
-					}
-				}
-				if (statsLastLogMs == 0 || now - statsLastLogMs >= 2000) {
-					statsLastLogMs = now;
-					log.InfoFwd(std::format(
-						"render diagnostics: WGC capture {:.1f} fps, shared-ring publish {:.1f} fps, "
-						"publish CPU {:.3f} ms, backpressure timeouts {}",
-						static_cast<double>(captureDelta) / seconds,
-						static_cast<double>(publishDelta) / seconds,
-						copyMs, timeoutDelta));
-				}
-				statsLastMs = now;
-				statsLastCapture = capture;
-				statsLastPublish = publish;
-				statsLastProduceMs = produceMs;
-				statsLastTimeouts = timeouts;
-			}
-
 			void DestroyOneView(View& a_view)
 			{
 				// The session-input subclass may be sitting on this view's widget: unhook
@@ -1562,7 +1440,6 @@ namespace osfui::wv2
 					log.Info(std::format(
 						"view '{}': nativeBridge=false — window.osfui not injected", a_view.id));
 				}
-				InstallRenderStats(a_view);
 				// HUD-only mode leaves the widget OS-unfocused, and an unfocused renderer stops matching
 				// :focus/:focus-visible/:focus-within and reports
 				// document.hasFocus()=false — so focus styling (padnav's ring,
@@ -1609,24 +1486,6 @@ namespace osfui::wv2
 				if (FAILED(hr)) {
 					log.Error(std::format("bridge shim registration failed (0x{:08X})",
 						static_cast<unsigned>(hr)));
-				}
-			}
-
-			void InstallRenderStats(View& a_view)
-			{
-				const auto viewId = a_view.id;
-				const auto hr = AddDocumentScript(a_view, EmbeddedScript::RenderStats,
-					[this, viewId](const HRESULT a_scriptHr) {
-						if (FAILED(a_scriptHr)) {
-							log.Warn(std::format(
-								"view '{}': render-stats shim install failed (0x{:08X})",
-								viewId, static_cast<unsigned>(a_scriptHr)));
-						}
-					});
-				if (FAILED(hr)) {
-					log.Warn(std::format(
-						"view '{}': render-stats shim registration failed (0x{:08X})",
-						viewId, static_cast<unsigned>(hr)));
 				}
 			}
 
@@ -1921,31 +1780,6 @@ namespace osfui::wv2
 								if (active == view) ApplyMouseCapture();
 								return S_OK;
 							}
-							static constexpr std::string_view kStatsPrefix = "__osfuiRenderStatsPage:";
-							if (text.starts_with(kStatsPrefix)) {
-								const auto sampleNow = ::GetTickCount64();
-								if (view->renderStats &&
-									(sampleNow - view->renderStatsLastPageLogMs >= 2000)) {
-									const auto sample = json::parse(text.substr(kStatsPrefix.size()), nullptr, false);
-									if (!sample.is_discarded()) {
-										try {
-											view->renderStatsLastPageLogMs = sampleNow;
-											log.InfoFwd(std::format(
-												"view '{}': page diagnostics for '{}': RAF {:.1f} fps, gap p95 {:.2f} ms, "
-												"max {:.2f} ms, long tasks {} / {:.1f} ms, DOM {} nodes, heap {:.1f} MB",
-												view->id, sample.value("frame", std::string{ "document" }),
-												sample.value("pageFps", 0.0), sample.value("p95", 0.0),
-												sample.value("max", 0.0), sample.value("longCount", 0ull),
-												sample.value("longMs", 0.0), sample.value("nodes", 0ull),
-												sample.value("heapMb", 0.0)));
-										} catch (...) {
-											// Authored content can post arbitrary strings; malformed
-											// lookalikes must not enter the public bridge or fault the host.
-										}
-									}
-								}
-								return S_OK;  // host-internal diagnostics; never enter the public bridge
-							}
 							if (!view->bridge) return S_OK;
 							Send(json{ { "type", "webMessage" }, { "view", view->id },
 								{ "json", std::move(text) } });
@@ -2024,7 +1858,6 @@ namespace osfui::wv2
 							[this, view](ICoreWebView2*, ICoreWebView2DOMContentLoadedEventArgs*) -> HRESULT {
 								view->domSeen = true;
 								DrainQueuedViewWork(*view);
-								ApplyRenderStats(*view);
 								BeginPrewarm(*view);
 								return S_OK;
 							}).Get(), &token);
@@ -2221,33 +2054,6 @@ namespace osfui::wv2
 						capturedFrame = a_pool.TryGetNextFrame();
 					}
 					if (!capturedFrame) return;
-					const auto arrival = std::chrono::steady_clock::now();
-					// Capture thread: never touch `views` here (STA mutates it
-					// unlocked); the STA-refreshed cache answers this cheaply.
-					if (anyVisibleRenderStatsCache.load(std::memory_order_relaxed) &&
-						captureLastArrival.time_since_epoch().count() != 0) {
-						const auto gapMs = std::chrono::duration<double, std::milli>(
-							arrival - captureLastArrival).count();
-						// Gaps over a second are idle pauses (nothing painted),
-						// not cadence, and would swamp the average.
-						if (gapMs < 1000.0) {
-							captureGapMsTotal += gapMs;
-							captureGapMsMin = captureGapCount == 0 ? gapMs : (std::min)(captureGapMsMin, gapMs);
-							captureGapMsMax = captureGapCount == 0 ? gapMs : (std::max)(captureGapMsMax, gapMs);
-							++captureGapCount;
-							if (captureGapCount % 600 == 0) {
-								log.Info(std::format(
-									"capture cadence: {} gaps, avg {:.2f} ms ({:.1f}/s), min {:.2f}, max {:.2f}",
-									captureGapCount, captureGapMsTotal / static_cast<double>(captureGapCount),
-									1000.0 * static_cast<double>(captureGapCount) / captureGapMsTotal,
-									captureGapMsMin, captureGapMsMax));
-								captureGapMsTotal = 0.0;
-								captureGapCount = 0;
-							}
-						}
-					}
-					captureLastArrival = arrival;
-					captureArrivalCount.fetch_add(1, std::memory_order_relaxed);
 					auto access = capturedFrame.Surface().as<
 						::Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess>();
 					ComPtr<ID3D11Texture2D> source;
@@ -2815,7 +2621,7 @@ namespace osfui::wv2
 						// Short timeout only while a reveal awaits its paint sentinel,
 						// so the timeout fallback stays responsive.
 						const DWORD wait = ::MsgWaitForMultipleObjectsEx(
-							2, waits, AnyRevealPending() ? 50 : AnyVisibleRenderStats() ? 100 : 1000,
+							2, waits, AnyRevealPending() ? 50 : 1000,
 							QS_ALLINPUT, MWMO_INPUTAVAILABLE);
 						if (wait == WAIT_OBJECT_0 + 1) {
 							captureGameExit(0);
@@ -2879,7 +2685,6 @@ namespace osfui::wv2
 						DrainCommands();
 						TickReveals();
 						TickSuspends();
-						TickRenderStats();
 						MSG message{};
 						while (::PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
 							::TranslateMessage(&message);

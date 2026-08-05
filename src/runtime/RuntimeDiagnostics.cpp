@@ -191,15 +191,15 @@ namespace OSFUI
 	{
 		auto& runtime = _runtime;
 		if (!runtime._diagnostics) return;
-		const auto stats = runtime._compositor ?
-			runtime._compositor->GetRenderStats() : CompositorStats{};
+		const auto status = runtime._compositor ?
+			runtime._compositor->GetStatus() : CompositorStatus{};
 		runtime._diagnostics->SetSystemInfo(nlohmann::json{
 			{ "version", kPluginVersion },
 			{ "bridgeVersion", kBridgeProtocolVersion },
 			{ "renderer", runtime._renderer ? std::string(runtime._renderer->Name()) : "none" },
 			{ "compositor", runtime._compositor ? std::string(runtime._compositor->Name()) : "none" },
-			{ "drawPath", stats.seamActive ? "ui-seam" : "unavailable" },
-			{ "frameGeneration", stats.frameGeneration },
+			{ "drawPath", status.seamActive ? "ui-seam" : "unavailable" },
+			{ "frameGeneration", status.frameGeneration },
 			{ "nativeFocus", runtime._renderer && runtime._renderer->UsesNativeKeyboardFocus() },
 			{ "locale", runtime._localization.Locale() },
 			{ "devMode", runtime._config.devMode },

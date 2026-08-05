@@ -168,7 +168,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		bool          sharedFrameReady{ false };
 		std::uint32_t gpuSlot{ 0 };
 		std::uint64_t gpuSerial{ 0 };
-		std::uint64_t gpuSourceTimeMs{ 0 };
 
 		// Shared GPU objects, created once.
 		ID3D12Fence*          fence{ nullptr };
@@ -201,21 +200,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		std::atomic_bool seamRegionSawFgTarget{ false };
 		std::atomic_bool seamClassificationKnown{ false };
 		std::atomic_bool seamFgLayerOnlyLogged{ false };
-
-		// Opt-in counters behind osfui.renderStats. These span the game tick,
-		// Submit/tick and UI-seam render threads, so every field read by Runtime is
-		// atomic. Normal play leaves the gate false and pays only one relaxed load
-		// at each candidate event.
-		std::atomic_bool           renderStatsEnabled{ false };
-		std::atomic<std::uint64_t> statsDraws{ 0 };
-		std::atomic<std::uint64_t> statsFreshFrames{ 0 };
-		std::atomic<std::uint64_t> statsReusedDraws{ 0 };
-		std::atomic<std::uint64_t> statsSubmits{ 0 };
-		std::atomic<std::uint64_t> statsLastSerial{ 0 };
-		std::atomic<std::uint64_t> statsSourceToDrawMsTotal{ 0 };
-		std::atomic<std::uint64_t> statsSourceToDrawSamples{ 0 };
-		std::atomic<std::uint64_t> statsRecordCpuUsTotal{ 0 };
-		std::atomic<std::uint64_t> statsRecordCpuSamples{ 0 };
 
 		~Impl()
 		{
@@ -256,56 +240,9 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			}
 		}
 
-		void CountRenderStatsDraw(const std::uint64_t a_serial,
-			const std::uint64_t a_sourceTimeMs,
-			const std::chrono::steady_clock::time_point a_started)
-		{
-			if (!renderStatsEnabled.load(std::memory_order_relaxed)) return;
-			statsDraws.fetch_add(1, std::memory_order_relaxed);
-			if (statsLastSerial.exchange(a_serial, std::memory_order_relaxed) != a_serial) {
-				statsFreshFrames.fetch_add(1, std::memory_order_relaxed);
-				const auto now = ::GetTickCount64();
-				if (a_sourceTimeMs != 0 && now >= a_sourceTimeMs) {
-					statsSourceToDrawMsTotal.fetch_add(now - a_sourceTimeMs, std::memory_order_relaxed);
-					statsSourceToDrawSamples.fetch_add(1, std::memory_order_relaxed);
-				}
-			} else {
-				statsReusedDraws.fetch_add(1, std::memory_order_relaxed);
-			}
-			const auto us = std::chrono::duration_cast<std::chrono::microseconds>(
-				std::chrono::steady_clock::now() - a_started).count();
-			statsRecordCpuUsTotal.fetch_add(static_cast<std::uint64_t>((std::max)(us, 0ll)),
-				std::memory_order_relaxed);
-			statsRecordCpuSamples.fetch_add(1, std::memory_order_relaxed);
-		}
-
-		void SetRenderStatsEnabled(const bool a_enabled)
-		{
-			renderStatsEnabled.store(false, std::memory_order_relaxed);
-			if (!a_enabled) return;
-			statsDraws.store(0, std::memory_order_relaxed);
-			statsFreshFrames.store(0, std::memory_order_relaxed);
-			statsReusedDraws.store(0, std::memory_order_relaxed);
-			statsSubmits.store(0, std::memory_order_relaxed);
-			statsLastSerial.store(0, std::memory_order_relaxed);
-			statsSourceToDrawMsTotal.store(0, std::memory_order_relaxed);
-			statsSourceToDrawSamples.store(0, std::memory_order_relaxed);
-			statsRecordCpuUsTotal.store(0, std::memory_order_relaxed);
-			statsRecordCpuSamples.store(0, std::memory_order_relaxed);
-			renderStatsEnabled.store(true, std::memory_order_release);
-		}
-
-		[[nodiscard]] CompositorStats GetRenderStats() const
+		[[nodiscard]] CompositorStatus GetStatus() const
 		{
 			return {
-				.draws = statsDraws.load(std::memory_order_relaxed),
-				.freshFrames = statsFreshFrames.load(std::memory_order_relaxed),
-				.reusedDraws = statsReusedDraws.load(std::memory_order_relaxed),
-				.submits = statsSubmits.load(std::memory_order_relaxed),
-				.sourceToDrawMsTotal = statsSourceToDrawMsTotal.load(std::memory_order_relaxed),
-				.sourceToDrawSamples = statsSourceToDrawSamples.load(std::memory_order_relaxed),
-				.recordCpuUsTotal = statsRecordCpuUsTotal.load(std::memory_order_relaxed),
-				.recordCpuSamples = statsRecordCpuSamples.load(std::memory_order_relaxed),
 				.seamActive = seamActive.load(std::memory_order_relaxed),
 				.frameGeneration = frameGenActiveSignal.load(std::memory_order_relaxed),
 			};
@@ -788,7 +725,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		[[nodiscard]] bool RecordSeamOverlay(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
 			const bool a_fgTarget, const bool a_regionFirst)
 		{
-			const auto statsStarted = std::chrono::steady_clock::now();
 			if (!setupOk || !seamRtvHeap || !a_buffer) {
 				return false;
 			}
@@ -833,13 +769,11 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			bool ready = false;
 			std::uint32_t ringSlot = 0;
 			std::uint64_t serial = 0;
-			std::uint64_t sourceTimeMs = 0;
 			{
 				std::scoped_lock lk(frameMutex);
 				ready = sharedFrameReady;
 				ringSlot = gpuSlot;
 				serial = gpuSerial;
-				sourceTimeMs = gpuSourceTimeMs;
 			}
 
 			std::scoped_lock ring(ringMutex);
@@ -906,7 +840,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			const auto fgIndex = a_fgTarget
 				? seamDrawsFgTarget.fetch_add(1, std::memory_order_relaxed) + 1
 				: 0;
-			CountRenderStatsDraw(serial, sourceTimeMs, statsStarted);
 			// One-time log per target kind: if the FG line never appears, its
 			// hand-off is not being matched.
 			if (drawIndex == 1 || fgIndex == 1) {
@@ -992,10 +925,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			sharedFrameReady = true;
 			gpuSlot = a_frame.sharedSlot;
 			gpuSerial = a_frame.frameIndex;
-			gpuSourceTimeMs = a_frame.sourceTimeMs;
-			if (renderStatsEnabled.load(std::memory_order_relaxed)) {
-				statsSubmits.fetch_add(1, std::memory_order_relaxed);
-			}
 		}
 
 	};
@@ -1031,16 +960,9 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		}
 	}
 
-	void D3D12Compositor::SetRenderStatsEnabled(const bool a_enabled)
+	CompositorStatus D3D12Compositor::GetStatus() const
 	{
-		if (_impl) {
-			_impl->SetRenderStatsEnabled(a_enabled);
-		}
-	}
-
-	CompositorStats D3D12Compositor::GetRenderStats() const
-	{
-		return _impl ? _impl->GetRenderStats() : CompositorStats{};
+		return _impl ? _impl->GetStatus() : CompositorStatus{};
 	}
 
 	bool RecordSeamOverlayDraw(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,

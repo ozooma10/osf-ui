@@ -50,13 +50,6 @@
       "label": "Diagnostics",
       "settings": [
         {
-          "key": "renderStats",
-          "label": "Show render stats",
-          "type": "bool",
-          "default": false,
-          "hint": "Show fresh view FPS and pipeline timings on every view, and write periodic diagnostics to the OSF UI logs. Sampling adds a small amount of work."
-        },
-        {
           "key": "bugReporting",
           "label": "Bug reporting",
           "type": "bool",

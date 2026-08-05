@@ -87,6 +87,6 @@ Until then `padnav.js` ships as-is and the views adapt to it, not the reverse.
 ## What is NOT a boundary
 
 `main.js` and `style.css` for **every** view are fully generated from
-`src/views/osfui/<view>/`. All four built-in views (`settings`, `keybinds`,
-`benchmark`, `handoff`) are Preact/TypeScript bundles; the phased port is
+`src/views/osfui/<view>/`. All three built-in views (`settings`, `keybinds`,
+`handoff`) are Preact/TypeScript bundles; the phased port is
 complete and no legacy bundle path remains.

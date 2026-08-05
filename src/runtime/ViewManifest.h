@@ -77,7 +77,7 @@ namespace OSFUI
 		// Field name predates the Mods surface, kept for compat.
 		bool hub{ true };
 		// Kept out of the mod menu unless config.json devMode is on; still loads
-		// and can be opened by id. For built-in developer tools (Web Performance Lab).
+		// and can be opened by id. Intended for developer-only tools.
 		bool debugOnly{ false };
 
 		// When true, a first on-demand open remains behind the handoff surface

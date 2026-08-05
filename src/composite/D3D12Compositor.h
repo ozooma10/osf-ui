@@ -50,11 +50,10 @@ namespace OSFUI
 		// sharedSlot frames submitted afterwards are sampled directly at the
 		// engine seam (produce/consume fence synchronized, no CPU upload).
 		void SetSharedRing(const SharedRingDesc& a_desc) override;
-		// Records that the engine seam is hooked and drawing. Reported in the
-		// render diagnostics.
+		// Records that the engine seam is hooked and drawing. Reported in System
+		// Health together with Frame Generation detection.
 		void SetSeamDrawMode(bool a_enabled) override;
-		void SetRenderStatsEnabled(bool a_enabled) override;
-		[[nodiscard]] CompositorStats GetRenderStats() const override;
+		[[nodiscard]] CompositorStatus GetStatus() const override;
 
 		[[nodiscard]] std::string_view Name() const override { return "d3d12"; }
 

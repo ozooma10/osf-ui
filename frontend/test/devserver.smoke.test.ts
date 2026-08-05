@@ -2,7 +2,7 @@
 // osfui.mock.ts + builtin-dev-plugin) and asserts the legacy-contract shims:
 // classic main.js tags become module main.tsx in dev, padnav is served at the
 // path the pages reference, the mock module transforms through Vite with its
-// aliases, and the harness lists all four views.
+// aliases, and the harness lists all three views.
 
 import { resolve } from 'node:path';
 import { createServer, type ViteDevServer } from 'vite';
@@ -77,11 +77,10 @@ describe('osfui dev serves the built-in views', () => {
     expect(source).toMatch(/from\s+"[^"]*mockbridge/);
   });
 
-  it('lists all four built-in views for the shell switcher', async () => {
+  it('lists all three built-in views for the shell switcher', async () => {
     const listing = await fetch(`${origin}/__osfui/meta.json`).then((r) => r.json());
     expect(listing.initial).toBe('osfui/settings');
     expect(listing.views.map((view: { qualifiedId: string }) => view.qualifiedId).sort()).toEqual([
-      'osfui/benchmark',
       'osfui/handoff',
       'osfui/keybinds',
       'osfui/settings',
@@ -93,7 +92,7 @@ describe('osfui dev serves the built-in views', () => {
   });
 
   it('transforms each view entry module without errors', async () => {
-    for (const view of ['settings', 'keybinds', 'benchmark', 'handoff']) {
+    for (const view of ['settings', 'keybinds', 'handoff']) {
       const response = await fetch(`${origin}/osfui/${view}/main.tsx`);
       expect(response.status, view).toBe(200);
       expect(await response.text(), view).toContain('render');

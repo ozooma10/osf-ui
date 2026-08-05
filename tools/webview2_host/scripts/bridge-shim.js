@@ -204,12 +204,6 @@
 								synthesizeKey(k.vk | 0, !!k.down);
 								return;
 							}
-							if (event.data && typeof event.data === 'object' &&
-								event.data.__osfuiRenderStats) {
-								if (typeof window.__osfuiRenderStatsNative === 'function')
-									window.__osfuiRenderStatsNative(event.data.__osfuiRenderStats);
-								return;
-							}
 							const json = typeof event.data === 'string' ?
 								event.data : JSON.stringify(event.data);
 							// Session boundary: on hide, blur any editable so the

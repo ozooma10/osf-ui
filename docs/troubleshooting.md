@@ -38,7 +38,7 @@ A "MOD MENUS" pause-menu entry opens the same overlay. Controllers navigate with
 
 ## Where are my settings?
 
-Everything user-facing is in the in-game menu (F10 → OSF UI): open/close key, language, the pause-menu entry, game-key collision warnings, and under *Diagnostics* the render-stats readout and **Bug reporting** — turn that off and neither the System Health reporter nor the post-crash prompt offers to send anything. Developer tools (such as the Web Performance Lab) appear in the mod menu only when `devMode` is on in `config.json`; the settings hub shows an amber **DEV MODE** tag while it is.
+Everything user-facing is in the in-game menu (F10 → OSF UI): open/close key, language, the pause-menu entry, game-key collision warnings, and under *Diagnostics* **Bug reporting** — turn that off and neither the System Health reporter nor the post-crash prompt offers to send anything. Third-party developer views appear in the mod menu only when `devMode` is on in `config.json`; the settings hub shows an amber **DEV MODE** tag while it is.
 
 Gameplay controls, gamepad included, always freeze while a menu captures input; there's no setting for it. To use the game console, close the overlay first — the console key is swallowed while it's open.
 

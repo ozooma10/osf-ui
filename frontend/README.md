@@ -53,7 +53,6 @@ frontend/
       settings/     the Mods surface
       keybinds/     the input map
       handoff/      the always-warm first-load link surface (platform-private)
-      benchmark/    the renderer workload lab
   devmock/          DEV ONLY — the mock bridge + fixtures (installed by osfui.mock.ts)
   osfui.config.ts   the built-ins as an @osfui/cli project (what `osfui dev` serves)
   osfui.mock.ts     mock module: installs devmock/ + registers the toolbar tools

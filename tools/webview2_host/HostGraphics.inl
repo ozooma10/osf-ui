@@ -282,8 +282,6 @@
 			void PublishFrame(ID3D11Texture2D* a_source, std::uint32_t a_width,
 				std::uint32_t a_height, std::uint64_t a_presentationEpoch)
 			{
-				const auto start = std::chrono::steady_clock::now();
-				const auto sourceTimeMs = ::GetTickCount64();
 				std::scoped_lock lock(ringMutex);
 				if (captureClosing.load()) return;
 				if (!EnsureRing(a_width, a_height)) return;
@@ -353,11 +351,7 @@
 				Send(json{
 					{ "type", "frame" }, { "slot", lastSlot }, { "serial", serial },
 					{ "width", a_width }, { "height", a_height },
-					{ "sourceTimeMs", sourceTimeMs },
 					{ "presentationEpoch", a_presentationEpoch } });
-
-				produceMsTotal += std::chrono::duration<double, std::milli>(
-					std::chrono::steady_clock::now() - start).count();
 				if (serial == 1) {
 					log.InfoFwd(std::format("first frame published ({}x{})", a_width, a_height));
 				}
@@ -426,7 +420,6 @@
 				Send(json{
 					{ "type", "frame" }, { "slot", lastSlot }, { "serial", serial },
 					{ "width", ringWidth }, { "height", ringHeight },
-					{ "sourceTimeMs", ::GetTickCount64() },
 					{ "presentationEpoch",
 						presentationEpoch.load(std::memory_order_relaxed) } });
 			}

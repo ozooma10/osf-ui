@@ -68,8 +68,8 @@ namespace OSFUI
 		bool        bugReporting{ true };
 		std::string view{ "osfui/settings" };  // qualified "<mod>/<view>" id; the default menu the toggle key opens
 		// Release-safe default; a dev override turns on verbose logging, view/schema
-		// hot-reload, F12 DevTools — and lists debugOnly views (e.g. the built-in
-		// Web Performance Lab) in the mod menu.
+		// hot-reload, F12 DevTools — and lists third-party debugOnly views in the
+		// mod menu.
 		bool        devMode{ false };
 
 

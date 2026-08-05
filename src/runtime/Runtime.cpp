@@ -657,7 +657,6 @@ namespace OSFUI
 			_renderer->Update(a_deltaSeconds);
 			DrivePendingOpen();
 			SubmitFrameIfVisible();
-			UpdateRenderDiagnostics();
 		}
 		// After Update(), so health edges raised by either renderer this tick are
 		// in the registry before the snapshot goes out.
@@ -711,7 +710,6 @@ namespace OSFUI
 		_viewLoadState[id] = ViewLoadState::Loading;
 		_readyViews.erase(id);
 		_renderer->LoadView(a_manifest);
-		_renderer->SetRenderStats(id, _renderStatsEnabled);
 		// A fresh view starts at manifest dimensions; restore the current
 		// output-matched size. Before first present these are the initialized
 		// logical dimensions and the normal output-resize path supersedes them.
@@ -1793,7 +1791,6 @@ namespace OSFUI
 		_backOwnerViews.clear();
 		_pendingMouseMove.store(kNoPendingMouseMove);
 		_lastSubmittedFrame = 0;
-		_renderStatsHaveBaseline = false;
 		_nativeFocusGranted = false;
 		_viewLifecycle.OnHostRestart(_uptime);
 
@@ -1804,7 +1801,6 @@ namespace OSFUI
 			}
 			_viewLoadState[manifest.id] = ViewLoadState::Loading;
 			_renderer->LoadView(manifest);
-			_renderer->SetRenderStats(manifest.id, _renderStatsEnabled);
 			if (manifest.permissions.nativeBridge) {
 				// RestartAfterFailure discarded messages addressed to the dead
 				// documents. Each replacement greets the bridge on load and is
@@ -3096,22 +3092,6 @@ namespace OSFUI
 			_config.vanillaKeyConflicts = a_value.get<bool>();
 			ApplyVanillaKeyConflicts(_config.vanillaKeyConflicts);
 		}
-		else if (a_key == "renderStats" && a_value.is_boolean()) {
-			_renderStatsEnabled = a_value.get<bool>();
-			_renderStatsHaveBaseline = false;
-			if (_compositor) {
-				_compositor->SetRenderStatsEnabled(_renderStatsEnabled);
-			}
-			if (_renderer) {
-				for (const auto& manifest : _views.All()) {
-					if (_menus.IsRegistered(manifest.id)) {
-						_renderer->SetRenderStats(manifest.id, _renderStatsEnabled);
-					}
-				}
-			}
-			REX::DEBUG("Runtime: setting osfui.renderStats -> {} for all views",
-				_renderStatsEnabled);
-		}
 		// Diagnostic-reporter kill switch. Gates manual System Health reports
 		// immediately; the host's post-crash prompt reads the endpoint from its
 		// spawn arguments, so that half applies on the next launch (Initialize
@@ -3346,62 +3326,6 @@ namespace OSFUI
 			ReconcileSimPause();
 			FreeCursor::Apply(false);
 		}
-	}
-
-	void Runtime::UpdateRenderDiagnostics()
-	{
-		if (!_renderStatsEnabled || !IsVisible() || !_renderer || !_compositor) {
-			_renderStatsHaveBaseline = false;
-			return;
-		}
-
-		const auto current = _compositor->GetRenderStats();
-		if (!_renderStatsHaveBaseline) {
-			_renderStatsBaseline = current;
-			_renderStatsLastSampleAt = _uptime;
-			_renderStatsHaveBaseline = true;
-			return;
-		}
-		const auto elapsed = _uptime - _renderStatsLastSampleAt;
-		if (elapsed < 2.0) return;
-
-		const auto delta = [](const std::uint64_t a_now, const std::uint64_t a_before) {
-			return a_now >= a_before ? a_now - a_before : a_now;
-		};
-		const auto draws = delta(current.draws, _renderStatsBaseline.draws);
-		const auto fresh = delta(current.freshFrames, _renderStatsBaseline.freshFrames);
-		const auto reused = delta(current.reusedDraws, _renderStatsBaseline.reusedDraws);
-		const auto submits = delta(current.submits, _renderStatsBaseline.submits);
-		const auto latencyMs = delta(current.sourceToDrawMsTotal,
-			_renderStatsBaseline.sourceToDrawMsTotal);
-		const auto latencySamples = delta(current.sourceToDrawSamples,
-			_renderStatsBaseline.sourceToDrawSamples);
-		const auto recordUs = delta(current.recordCpuUsTotal,
-			_renderStatsBaseline.recordCpuUsTotal);
-		const auto recordSamples = delta(current.recordCpuSamples,
-			_renderStatsBaseline.recordCpuSamples);
-
-		const RenderStatsSample sample{
-			.drawFps = static_cast<double>(draws) / elapsed,
-			.freshFps = static_cast<double>(fresh) / elapsed,
-			.submitFps = static_cast<double>(submits) / elapsed,
-			.sourceToDrawMs = latencySamples ?
-				static_cast<double>(latencyMs) / static_cast<double>(latencySamples) : 0.0,
-			.recordCpuMs = recordSamples ?
-				static_cast<double>(recordUs) / (1000.0 * static_cast<double>(recordSamples)) : 0.0,
-			.reusedDraws = reused,
-		};
-		_renderer->SetRenderStatsSample(sample);
-		REX::INFO(
-			"Render diagnostics ({:.2f}s): fresh view {:.1f} fps, overlay passes {:.1f}/s "
-			"({} reused), frame submit {:.1f} fps; source-to-draw {:.2f} ms, "
-			"record CPU {:.3f} ms; path={}, FG={}",
-			elapsed, sample.freshFps, sample.drawFps, reused, sample.submitFps,
-			sample.sourceToDrawMs, sample.recordCpuMs,
-			current.seamActive ? "UI seam" : "unavailable", current.frameGeneration ? "on" : "off");
-
-		_renderStatsBaseline = current;
-		_renderStatsLastSampleAt = _uptime;
 	}
 
 }

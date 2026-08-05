@@ -80,9 +80,7 @@ Nothing may log unboundedly. Established tools, in preference order:
    capped at 512 distinct names, so a page polling a dead endpoint costs one
    line rather than one per attempt).
 5. Bounded sampling: dense first-N then logarithmic for high-frequency diagnostics.
-6. Time-throttled periodics (render diagnostics, 2 s) — only behind an explicit
-   opt-in setting (`renderStats`).
-7. Fold a matched exchange into one line rather than tracing both legs
+6. Fold a matched exchange into one line rather than tracing both legs
    (`MessageBridge::NoteTracedReply`: everything sent back while one inbound
    message is being dispatched — the settlement, plus any event or state the
    handler triggered — is collapsed into that message's single completion line,
@@ -177,8 +175,8 @@ trace flag when you need to see those; that is what it is for.
 The host logger has three levels: `Info` (file-only), `Warn`/`Error`
 (auto-forwarded to the plugin log), and `InfoFwd` (explicit milestone opt-in
 that lands in both). Reserve `InfoFwd` for lines a plugin-log-only reader needs
-for the session timeline; everything periodic stays file-only or behind
-`renderStats`.
+for the session timeline; periodic diagnostics stay file-only and must remain
+bounded and time-throttled.
 
 ## What crash forensics needs at INFO (checklist)
 
