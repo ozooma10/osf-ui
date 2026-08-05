@@ -36,7 +36,7 @@ const CODES: Readonly<Record<string, string>> = {
   AltLeft: 'LAlt',
   AltRight: 'RAlt',
   // OEM punctuation by PHYSICAL position — matches kNamedScans in
-  // InputRouter.cpp on any layout.
+  // KeyNames.cpp on any layout.
   Backquote: 'Grave',
   Minus: 'Minus',
   Equal: 'Equals',

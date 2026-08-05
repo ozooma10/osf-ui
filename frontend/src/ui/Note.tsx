@@ -34,9 +34,11 @@ export interface NoteProps {
 }
 
 export function Note({ style, text, hiddenCond }: NoteProps) {
+  const tone = noteStyle(style);
   return (
     <div
-      class={cx('osf-note', `osf-note--${noteStyle(style)}`, hiddenCond && 'hidden-cond')}
+      class={cx('osf-note', tone === 'warn' && 'osf-note--warn', hiddenCond && 'hidden-cond')}
+      style={tone === 'danger' ? { borderLeftColor: 'var(--osf-signal-stop)' } : undefined}
     >
       {/* A note with no text renders as an empty callout, not "undefined". */}
       <Inline text={text == null ? '' : text} />

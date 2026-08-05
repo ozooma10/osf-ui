@@ -1,7 +1,7 @@
 #include "runtime/LiveControlMap.h"
 
 #include "core/Log.h"
-#include "input/InputTypes.h"
+#include "input/KeyNames.h"
 
 #include "RE/IDs_VTABLE.h"
 #include "REL/ASM.h"

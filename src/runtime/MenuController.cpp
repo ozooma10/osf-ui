@@ -25,7 +25,7 @@ namespace OSFUI
 	bool MenuController::IsOpen(std::string_view a_id) const
 	{
 		const std::string id(a_id);
-		return _hudShown.contains(id) || std::ranges::find(_menuStack, id) != _menuStack.end();
+		return _hudShown.contains(id) || (_activeMenu && *_activeMenu == id);
 	}
 
 	bool MenuController::IsRegistered(std::string_view a_id) const
@@ -45,12 +45,10 @@ namespace OSFUI
 			return _hudShown.insert(id).second;  // false if already shown
 		}
 
-		// Menu - single-menu policy: only one menu open at a time. If it is already the sole open menu, nothing changes; otherwise it replaces the stack.
-		if (_menuStack.size() == 1 && _menuStack.back() == id) {
+		if (_activeMenu && *_activeMenu == id) {
 			return false;
 		}
-		_menuStack.clear();
-		_menuStack.push_back(id);
+		_activeMenu = id;
 		return true;
 	}
 
@@ -60,8 +58,8 @@ namespace OSFUI
 		if (_hudShown.erase(id) > 0) {
 			return true;
 		}
-		if (const auto it = std::ranges::find(_menuStack, id); it != _menuStack.end()) {
-			_menuStack.erase(it);
+		if (_activeMenu && *_activeMenu == id) {
+			_activeMenu.reset();
 			return true;
 		}
 		return false;
@@ -69,49 +67,47 @@ namespace OSFUI
 
 	bool MenuController::CloseTop()
 	{
-		if (_menuStack.empty()) {
+		if (!_activeMenu) {
 			return false;
 		}
-		_menuStack.pop_back();
+		_activeMenu.reset();
 		return true;
 	}
 
 	void MenuController::CloseAll()
 	{
-		// Clears BOTH so DesiredVisible() goes false, a lingering shown HUD would otherwise keep the overlay up across a save/load or main-menu transition.
-		_menuStack.clear();
+		// Clears BOTH so DesiredVisible() goes false; a lingering shown HUD would
+		// otherwise keep the overlay up across a save/load or main-menu transition.
+		_activeMenu.reset();
 		_hudShown.clear();
 	}
 
 	bool MenuController::DesiredVisible() const
 	{
-		return !_hudShown.empty() || !_menuStack.empty();
+		return !_hudShown.empty() || _activeMenu.has_value();
 	}
 
 	bool MenuController::DesiredCapture() const
 	{
-		if (_menuStack.empty()) {
+		if (!_activeMenu) {
 			return false;
 		}
-		const auto* surface = Find(_menuStack.back());
+		const auto* surface = Find(*_activeMenu);
 		return surface && surface->capturesInput;
 	}
 
 	bool MenuController::DesiredPause() const
 	{
-		if (_menuStack.empty()) {
+		if (!_activeMenu) {
 			return false;
 		}
-		const auto* surface = Find(_menuStack.back());
+		const auto* surface = Find(*_activeMenu);
 		return surface && surface->pausesGame;
 	}
 
 	std::optional<std::string> MenuController::ActiveMenu() const
 	{
-		if (_menuStack.empty()) {
-			return std::nullopt;
-		}
-		return _menuStack.back();
+		return _activeMenu;
 	}
 
 	std::vector<MenuController::Layer> MenuController::DesiredLayers() const
@@ -124,9 +120,9 @@ namespace OSFUI
 			if (surface.kind == SurfaceKind::Hud) {
 				layer.hidden = !_hudShown.contains(id);
 				layer.z = std::clamp(surface.order, 0, 999);
-			} else if (const auto it = std::ranges::find(_menuStack, id); it != _menuStack.end()) {
+			} else if (_activeMenu && *_activeMenu == id) {
 				layer.hidden = false;
-				layer.z = 1000 + static_cast<int>(std::distance(_menuStack.begin(), it));
+				layer.z = 1000;
 			} else {
 				layer.hidden = true;
 				layer.z = 1000;  // menu band; hidden, so exact value is immaterial

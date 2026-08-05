@@ -22,7 +22,7 @@ The browser and compositor are fixed parts of the runtime rather than configurab
         ┌───────────────┬──────────┼──────────────┬──────────────────┐
         │               │          │              │                  │
    core/Config    runtime/      render/       composite/         input/
-   core/Paths     ViewManager   IWebRenderer  ICompositor        InputRouter
+   core/Paths     ViewManager   IWebRenderer  ICompositor        KeyNames
                   ViewManifest     │              │              OverlayInputHook
                   ViewStateStore ┌──┴───────┐  ┌──┴─────────┐    (WndProc subclass)
                                  │ Null     │  │ Null       │   HardwareCursor

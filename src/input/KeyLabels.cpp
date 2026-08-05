@@ -1,5 +1,7 @@
 #include "input/KeyLabels.h"
 
+#include "input/KeyNames.h"
+
 #include <cctype>
 
 namespace OSFUI

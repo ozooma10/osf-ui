@@ -199,9 +199,12 @@ describe('settings widget rendering', () => {
     const warn = [...notes].find((n) => n.textContent!.includes('bold'))!;
     expect(warn.classList.contains('osf-note--warn')).toBe(true);
     expect(warn.querySelector('strong')!.textContent).toBe('bold');
+    const danger = [...notes].find((n) => n.textContent === 'danger note') as HTMLElement;
+    expect(danger.classList.contains('osf-note--danger')).toBe(false);
+    expect(danger.style.borderLeftColor).toBe('var(--osf-signal-stop)');
     // The unknown style "evil" falls back to info.
     const evil = [...notes].find((n) => n.textContent === 'sneaky')!;
-    expect(evil.classList.contains('osf-note--info')).toBe(true);
+    expect(evil.classList.contains('osf-note--info')).toBe(false);
     expect(evil.classList.contains('osf-note--evil')).toBe(false);
   });
 

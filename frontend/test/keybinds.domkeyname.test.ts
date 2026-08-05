@@ -62,7 +62,7 @@ describe('domKeyName', () => {
   });
 
   it('names the OEM punctuation keys, which used to be unbindable', () => {
-    // InputRouter.cpp KeyName resolves these natively, so the board treats them
+    // KeyNames.cpp resolves these natively, so the board treats them
     // as ordinary bindable cells and this path must agree.
     expect(k('-')).toBe('Minus');
     expect(k('=')).toBe('Equals');

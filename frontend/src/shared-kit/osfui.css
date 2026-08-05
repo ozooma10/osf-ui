@@ -4,15 +4,14 @@
    The look every OSF UI view shares, tuned to sit next to
    Starfield's own menus: flat translucent blue-black panels,
    hairline rules, hard rectangular edges, white-forward
-   monochrome type with a quiet ice-blue HUD accent, and the
-   Constellation tricolor (red / gold / blue) as a micro-accent.
+   monochrome type with a quiet ice-blue HUD accent.
    Hover and selection invert to white, the way the game's own
    menu entries do. Link it from any view to inherit the tokens
    + a small component kit, then add only view-specific layout:
 
        <link rel="stylesheet" href="../../shared/osfui.css">
 
-   THE KIT CONTRACT (frozen at 1.0): every class and custom
+   THE KIT CONTRACT (2.0): every class and custom
    property this sheet exports carries the `osf-` / `--osf-` prefix —
    nothing un-prefixed is contract. Element-level base styles (body,
    headings, a, kbd, ::selection, scrollbars, form elements) are global
@@ -38,10 +37,8 @@
   --osf-void-700: #10141b;
   --osf-void-600: #161b23;
   --osf-void-500: #1d232d;
-  --osf-void-400: #272f3a;
 
   /* ---- Neutral steel --------------------------------------- */
-  --osf-steel-100: #eef1f4;
   --osf-steel-200: #c8ced5;
   --osf-steel-300: #9aa3ad;
   --osf-steel-400: #828a93;
@@ -68,10 +65,7 @@
   --osf-accent-quiet:  rgba(159, 199, 220, 0.12);
 
   /* ---- Surfaces / text ------------------------------------ */
-  --osf-bg-canvas:     var(--osf-void-800);
   --osf-surface-card:  var(--osf-void-600);
-  --osf-surface-panel: var(--osf-void-500);
-  --osf-surface-input: var(--osf-void-500);
   --osf-surface-overlay: rgba(5, 7, 10, 0.78);
 
   --osf-text-bright: var(--osf-bone);
@@ -89,24 +83,18 @@
   --osf-font-sans:    'Segoe UI', system-ui, sans-serif;
   --osf-font-mono:    'Cascadia Mono', 'Consolas', ui-monospace, monospace;
 
-  --osf-text-4xl: 32px;
   --osf-text-3xl: 26px;
-  --osf-text-2xl: 21px;
-  --osf-text-xl:  18px;
-  --osf-text-lg:  16px;
   --osf-text-md:  14px;
   --osf-text-sm:  13px;
   --osf-text-xs:  12px;
   --osf-text-2xs: 11px;
 
-  --osf-tracking-wide:  0.04em;
   --osf-tracking-label: 0.14em;
-  --osf-tracking-mega:  0.22em;
 
   /* ---- Spacing (8px technical grid) ----------------------- */
-  --osf-space-1: 2px;  --osf-space-2: 4px;  --osf-space-3: 8px;  --osf-space-4: 12px;
-  --osf-space-5: 16px; --osf-space-6: 20px; --osf-space-7: 24px; --osf-space-8: 32px;
-  --osf-space-9: 40px; --osf-space-10: 48px;
+  --osf-space-2: 4px;  --osf-space-3: 8px;  --osf-space-4: 12px;
+  --osf-space-6: 20px; --osf-space-7: 24px; --osf-space-8: 32px;
+  --osf-space-10: 48px;
 
   --osf-control-h-sm: 32px;
   --osf-control-h:    40px;
@@ -120,8 +108,6 @@
   --osf-radius-lg: 0;
   --osf-radius-pill: 0;
 
-  --osf-inset-lit: 0 0 0 transparent;   /* flat chassis: kept for compat, draws nothing */
-  --osf-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
   --osf-shadow:    0 14px 44px rgba(0, 0, 0, 0.5);
 
   --osf-ease-out:    cubic-bezier(0.2, 0.7, 0.2, 1);
@@ -196,42 +182,6 @@ code, pre, kbd, samp { font-family: var(--osf-font-mono); }
   letter-spacing: var(--osf-tracking-label);
   text-transform: uppercase;
   color: var(--osf-text-faint);
-}
-
-/* Constellation stripe: a short tricolor bar, the brand micro-accent.
-   Give it a width/placement at the use site. */
-.osf-tricolor {
-  height: 2px;
-  background: linear-gradient(90deg,
-    var(--osf-sf-red)  0,    var(--osf-sf-red)  33.4%,
-    var(--osf-sf-gold) 33.4%, var(--osf-sf-gold) 66.7%,
-    var(--osf-sf-blue) 66.7%, var(--osf-sf-blue) 100%);
-}
-
-/* Uppercase title + count + rule + trailing note (section header).
-   Leads with a small accent square, the way the game bullets its lists. */
-.osf-section-head { display: flex; align-items: center; gap: 14px; }
-.osf-section-head::before { content: ""; flex: none; width: 7px; height: 7px; background: var(--osf-accent); }
-.osf-section-head .title {
-  font-family: var(--osf-font-display); font-size: 15px; font-weight: 600;
-  letter-spacing: 0.2em; text-transform: uppercase; color: var(--osf-text-bright);
-}
-.osf-section-head .count {
-  font-family: var(--osf-font-mono); font-size: var(--osf-text-2xs); letter-spacing: 0.1em;
-  color: var(--osf-text-faint); padding: 1px 7px;
-  border: 1px solid var(--osf-line);
-}
-.osf-section-head .rule { flex: 1; height: 1px; background: var(--osf-line); }
-.osf-section-head .note {
-  font-family: var(--osf-font-mono); font-size: 10px; letter-spacing: 0.16em;
-  text-transform: uppercase; color: var(--osf-text-faint);
-}
-
-.osf-tag {
-  font-family: var(--osf-font-mono); font-size: 9.5px; font-weight: 500;
-  letter-spacing: 0.16em; text-transform: uppercase; color: var(--osf-steel-300);
-  padding: 2px 7px; background: rgba(242, 239, 233, 0.06);
-  border: 1px solid var(--osf-line-strong);
 }
 
 /* ------------------------------------------------------------
@@ -540,11 +490,9 @@ kbd {
 .osf-note {
   font-family: var(--osf-font-sans); font-size: var(--osf-text-sm); line-height: 1.5;
   color: var(--osf-text-body); padding: 10px 14px;
-  border: 1px solid var(--osf-line); border-left-width: 2px;
+  border: 1px solid var(--osf-line); border-left: 2px solid var(--osf-accent);
   background: rgba(13, 17, 23, 0.5);
 }
 .osf-note code { font-size: 12px; color: var(--osf-text-bright); }
 .osf-note strong { color: var(--osf-text-bright); }
-.osf-note--info   { border-left-color: var(--osf-accent); }
 .osf-note--warn   { border-left-color: var(--osf-signal-warn); }
-.osf-note--danger { border-left-color: var(--osf-signal-stop); }

@@ -2,7 +2,7 @@
 
 Compiles the **real** runtime and API sources under test — `SettingsStore`,
 `Json`, `SettingsModule`, `MessageBridge`, `SettingsMirror`,
-`SettingsSubscriptions`, `HotkeyService`, `InputRouter`, `HotkeySubscriptions`,
+`SettingsSubscriptions`, `HotkeyService`, `KeyNames`, `HotkeySubscriptions`,
 `BridgeApi`, `ControlMapPolicy`, `LocalizationService`, `ViewManifest`, `DiagnosticsModule`,
 and `DiagnosticsReconciler` — on the developer's desktop
 toolchain (macOS/Linux clang or any C++23 compiler) and runs them without

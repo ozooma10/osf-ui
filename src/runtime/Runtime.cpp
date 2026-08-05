@@ -16,7 +16,7 @@
 #include "input/FocusMenu.h"
 #include "input/FreeCursor.h"
 #include "input/HardwareCursor.h"
-#include "input/LegacyVkNames.h"
+#include "input/KeyNames.h"
 #include "input/MainThreadMenuPump.h"
 #include "input/MenuMode.h"
 #include "input/MenuEventSink.h"
@@ -283,8 +283,8 @@ namespace OSFUI
 				_config.view);
 		}
 
-		// Key events reach the router from the WndProc subclass (OverlayInputHook
-		// → OnHostKey), installed on the first main-thread tick after
+		// Key events reach OnHostKey from the WndProc subclass, installed on the
+		// first main-thread tick after
 		// kPostPostDataLoad.
 		const auto toggleKey = ResolveKeyName(_config.toggleKey);
 		_toggleKey.store(toggleKey, std::memory_order_release);
@@ -293,22 +293,11 @@ namespace OSFUI
 		}
 		REX::INFO("Runtime: production input path selected — WndProc keyboard/mouse, hardware cursor, FocusMenu and engine-routed gamepad");
 
-		// Toggle key opens/closes the default menu; Esc (while captured) is the back
-		// action — close the top menu, or delegate to a back-owning view
-		// (osfui.handleBack). Separate so a live rebind can re-apply it.
-		ApplyToggleKey();
 		_renderer->SetNativeAcceleratorHandler(
 			[this](std::uint32_t a_vkCode, std::uint32_t a_scanCode, bool a_down) {
 				return OnNativeAcceleratorKey(a_vkCode, a_scanCode, a_down);
 			});
 
-		_input.SetWebRouting(
-			[this] { return IsInputCaptured(); },
-			[this](KeyCode a_key, bool a_down) {
-				if (_renderer) {
-					_renderer->InjectKeyEvent(a_key, a_down);
-				}
-			});
         if (_config.devMode) {
             _devViewReload = std::make_unique<DevViewReloadWorker>(
                 Paths::ViewsDir(), [this](const DevViewReloadWorker::Target& a_target) {
@@ -1842,20 +1831,6 @@ namespace OSFUI
 		return _initialized && _captureInput.load() && _visible.load();
 	}
 
-	void Runtime::ApplyToggleKey()
-	{
-		const auto toggleKey = _toggleKey.load(std::memory_order_acquire);
-		if (!_inputConfigured) {
-			_input.Configure(
-				toggleKey,
-				[this] { EnqueueMenuRequest(MenuReq::ToggleDefault); },
-				[this] { EnqueueMenuRequest(MenuReq::Back); });
-			_inputConfigured = true;
-		} else {
-			_input.SetToggleKey(toggleKey);
-		}
-	}
-
 	bool Runtime::OnHostKey(std::uint32_t a_vkCode, ScanCode a_scanCode, bool a_down)
 	{
 		// Key-rebind capture (armed by settings.captureKey). Grab the next key
@@ -1898,23 +1873,39 @@ namespace OSFUI
 		// captures input or a rebind is armed (belt and braces — the armed path
 		// above already returned); fires queue here on the window thread and
 		// deliver from Tick (DrainHotkeys). Does not consume: the game (and the
-		// toggle/router path below) still sees the key.
+		// toggle/routing path below) still sees the key.
 		if (a_down) {
 			_hotkeys.OnKeyDown(a_scanCode);
 		}
 
-		// Decide consumption before routing: capturing or the toggle key must not
-		// reach the game (the toggle press itself is consumed so opening the
-		// overlay never also acts in-game).
+		// Toggle is handled before captured routing so it works in either state and
+		// never also arrives as a plain page key. Captured Esc is the back action:
+		// close the menu or delegate to a view that owns osfui.handleBack.
 		const auto toggleKey = _toggleKey.load(std::memory_order_acquire);
-		const bool consume = IsInputCaptured() ||
-		                     (toggleKey != kInvalidScanCode && a_scanCode == toggleKey);
+		const bool captured = IsInputCaptured();
+		const bool isToggle = toggleKey != kInvalidScanCode && a_scanCode == toggleKey;
 		if (a_down) {
-			_input.OnKeyDown(a_vkCode, a_scanCode);
+			if (isToggle) {
+				EnqueueMenuRequest(MenuReq::ToggleDefault);
+			} else if (captured && a_scanCode == kScanEscape) {
+				EnqueueMenuRequest(MenuReq::Back);
+			} else if (captured && _renderer) {
+				_renderer->InjectKeyEvent(a_vkCode, true);
+			} else if (Log::DevMode()) {
+				REX::DEBUG("Runtime: OnHostKey down (vk {}, scan {}) passed to the game", a_vkCode, a_scanCode);
+			}
 		} else {
-			_input.OnKeyUp(a_vkCode, a_scanCode);
+			// Preserve the old router's release behavior: a toggle/back key-down is
+			// framework-owned, but its release routes if the resulting menu is now
+			// capturing. Chromium tolerates a release without a corresponding press.
+			if (captured && _renderer) {
+				_renderer->InjectKeyEvent(a_vkCode, false);
+			} else if (Log::DevMode()) {
+				REX::DEBUG("Runtime: OnHostKey up (vk {}, scan {}) passed to the game", a_vkCode, a_scanCode);
+			}
 		}
-		return consume;
+		// Captured keys and both toggle transitions are swallowed before Starfield.
+		return captured || isToggle;
 	}
 
 
@@ -2874,7 +2865,7 @@ namespace OSFUI
 		if (a_modId != "osfui") {
 			return;
 		}
-		// Toggle key rebind: re-resolve and re-apply to the input router. An
+		// Toggle key rebind: re-resolve and publish it to the window thread. An
 		// unresolvable name keeps the working key rather than disabling the toggle.
 		if (a_key == "toggleKey" && a_value.is_string()) {
 			const auto name = a_value.get<std::string>();
@@ -2885,7 +2876,6 @@ namespace OSFUI
 			}
 			_config.toggleKey = name;
 			_toggleKey.store(scan, std::memory_order_release);
-			ApplyToggleKey();
 			REX::INFO("Runtime: setting osfui.toggleKey -> {} (scan {:#x})", name, scan);
 		}
 		// Pause-menu entry (MCM-owned). The Scaleform inject runs per pause-menu

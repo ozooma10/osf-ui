@@ -1,8 +1,5 @@
 #pragma once
 
-#include <string>       // KeyName return type
-#include <string_view>  // ResolveKeyName arg
-
 namespace OSFUI
 {
 	// Keyboard key codes as DELIVERED by the window layer are Windows
@@ -28,15 +25,4 @@ namespace OSFUI
 
 	inline constexpr ScanCode kInvalidScanCode = 0;
 
-	// Resolves a config key name ("F10", "A", "Delete", ...) to the physical
-	// scan code. Names denote positions on the US reference keyboard, exactly
-	// like the engine controlmap's DIK values; they are layout-independent.
-	// Returns kInvalidScanCode and logs if the name cannot be resolved.
-	[[nodiscard]] ScanCode ResolveKeyName(std::string_view a_name);
-
-	// Reverse of ResolveKeyName: a scan code -> its canonical config name
-	// ("F10", "A", "Delete", ...), for the settings key-rebind capture.
-	// Returns an empty string if the code has no canonical name (so the caller
-	// can reject an unbindable key). Round-trips: ResolveKeyName(KeyName(sc))==sc.
-	[[nodiscard]] std::string KeyName(ScanCode a_scan);
 }

@@ -1,5 +1,5 @@
 // Host-side tests for the HotkeyService core (docs/mcm-design.md §9): the
-// REAL src/runtime/HotkeyService.cpp + SettingsStore + input's ResolveKeyName,
+// REAL src/runtime/HotkeyService.cpp + SettingsStore + KeyNames,
 // wired exactly like Runtime::BuildModules — registry rebuild on rebind and
 // registry shape change, suppression while the overlay captures / a rebind is
 // armed, duplicate-binding fan-out, and the informational conflict data
@@ -10,6 +10,7 @@
 #include "runtime/SettingsStore.h"
 
 #include "core/Log.h"
+#include "input/KeyNames.h"
 
 namespace
 {

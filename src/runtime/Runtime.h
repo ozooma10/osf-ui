@@ -7,7 +7,6 @@
 #include "composite/ICompositor.h"
 #include "core/Config.h"
 #include "input/GamepadNavigation.h"
-#include "input/InputRouter.h"
 #include "input/KeyLabels.h"
 #include "render/IWebRenderer.h"
 #include "runtime/DiagnosticsModule.h"
@@ -71,8 +70,8 @@ namespace OSFUI
 
 		// True when the overlay owns input. Read by the WndProc hook
 		// (OverlayInputHook) to decide whether to
-		// consume game input, and by the InputRouter to decide whether to route
-		// keys into the web view. Thread-safe.
+		// consume game input and by OnHostKey to decide whether to route keys into
+		// the web view. Thread-safe.
 		[[nodiscard]] bool IsInputCaptured() const;
 
 		// Called by the WndProc hook for each keyboard transition. a_vkCode is
@@ -214,12 +213,6 @@ namespace OSFUI
 		// Injected into the settings module as its change listener; reacts only
 		// to the knobs core owns (e.g. cursor speed).
 		void OnSettingChanged(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value);
-		// Reduce compositor counters into a readable interval sample, forward it
-		// to the host overlay, and write the same evidence to the SFSE log.
-
-		// (Re)apply _toggleKey to the input router with the standard
-		// toggle/close callbacks. Called at init and after a live rebind.
-		void ApplyToggleKey();
 
 		// Toggle vanilla conflict warnings without hiding or discarding the live
 		// read-only game catalog. Re-broadcasts settings.data because per-setting
@@ -360,7 +353,6 @@ namespace OSFUI
 		SettingsModule*                         _settings{ nullptr };  // owned by _modules; core reads schema facts through it
 		DiagnosticsModule*                      _diagnostics{ nullptr };  // owned by _modules
 		RuntimeDiagnostics                      _runtimeDiagnostics{ *this };
-		InputRouter                             _input;
 		// Live key-typed bindings -> owner dispatch. Fed by OnHostKey (window
 		// thread), rebuilt from the store's listeners and drained in Tick (main
 		// thread); wired in BuildModules.
@@ -369,7 +361,6 @@ namespace OSFUI
 		DeferredMainThreadWork                  _controlMapInit;
 		DeferredMainThreadWork                  _uiIntegrationInit;
 		std::atomic<ScanCode>         _toggleKey{ kInvalidScanCode };
-		bool                          _inputConfigured{ false };  // main thread
 		std::atomic_bool              _devToolsRequested{ false };
 
 		std::unique_ptr<DevViewReloadWorker> _devViewReload;

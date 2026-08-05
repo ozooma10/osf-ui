@@ -6,6 +6,7 @@
 // (Platform::MakeKeyLabelSource). Assert-style; exit code = failure count.
 
 #include "input/KeyLabels.h"
+#include "input/KeyNames.h"
 
 #include <map>
 
@@ -97,7 +98,7 @@ namespace
 	}
 }
 
-// InputRouter.cpp (KeyName) references the Log seam; standard test stub.
+// KeyNames.cpp references the Log seam; standard test stub.
 namespace OSFUI::Log
 {
 	void WarnOnce(std::once_flag& a_flag, std::string_view a_message)

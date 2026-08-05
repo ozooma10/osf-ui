@@ -1,7 +1,10 @@
-#include "input/InputRouter.h"
+#include "input/KeyNames.h"
 
 #include "core/Log.h"
 #include "core/StringUtil.h"
+
+#include <cctype>
+#include <charconv>
 
 namespace OSFUI
 {
@@ -13,21 +16,16 @@ namespace OSFUI
 			ScanCode         code;
 		};
 
-		// The one source of truth for both directions (ResolveKeyName / KeyName).
-		// The FIRST spelling per code is canonical — KeyName returns it; the
-		// remaining same-code rows are input aliases so hand-edited configs,
-		// schema defaults, and W3C KeyboardEvent.code spellings resolve.
+		// The one source of truth for both directions. The first spelling per
+		// code is canonical; later rows are aliases accepted from hand-edited
+		// configs and W3C KeyboardEvent.code values.
 		//
 		// Codes are set-1 make codes in the DirectInput convention (0x80 | base
-		// for 0xE0-prefixed extended keys) — bit-identical to the engine
-		// controlmap's DIK tokens. A name denotes a PHYSICAL position on the US
-		// reference keyboard, so it means the same key on every machine and
-		// every layout; the keycap a layout prints there is display data
-		// (KeyLabels), never identity. Every name must stay ≤16 chars
-		// (docs/authoring-views.md key-value constraint).
+		// for 0xE0-prefixed extended keys), bit-identical to Starfield's
+		// controlmap DIK tokens. A name denotes a physical US-reference position;
+		// the keycap printed by the active layout is display data (KeyLabels).
+		// Every name stays <=16 chars (the authoring key-value constraint).
 		constexpr NamedScan kNamedScans[] = {
-			// Main block, digit row. Esc resolves but capture treats it as
-			// cancel, so it is reserved rather than bindable.
 			{ "Escape", 0x01 },
 			{ "1", 0x02 }, { "2", 0x03 }, { "3", 0x04 }, { "4", 0x05 }, { "5", 0x06 },
 			{ "6", 0x07 }, { "7", 0x08 }, { "8", 0x09 }, { "9", 0x0A }, { "0", 0x0B },
@@ -44,7 +42,6 @@ namespace OSFUI
 			{ "H", 0x23 }, { "J", 0x24 }, { "K", 0x25 }, { "L", 0x26 },
 			{ "Semicolon", 0x27 },
 			{ "Apostrophe", 0x28 }, { "Quote", 0x28 },
-			// Console/grave key (top-left on US ANSI).
 			{ "Grave", 0x29 }, { "Tilde", 0x29 }, { "Backtick", 0x29 },
 			{ "Backquote", 0x29 }, { "Console", 0x29 },
 			{ "LShift", 0x2A }, { "ShiftLeft", 0x2A },
@@ -69,8 +66,6 @@ namespace OSFUI
 			{ "NumpadAdd", 0x4E },
 			{ "Numpad1", 0x4F }, { "Numpad2", 0x50 }, { "Numpad3", 0x51 },
 			{ "Numpad0", 0x52 }, { "NumpadDecimal", 0x53 },
-			// The extra ISO key between LShift and Z (<> on German boards):
-			// previously unbindable because VK_OEM_102 had no name at all.
 			{ "IntlBackslash", 0x56 }, { "Oem102", 0x56 },
 			{ "F11", 0x57 }, { "F12", 0x58 },
 			{ "F13", 0x64 }, { "F14", 0x65 }, { "F15", 0x66 }, { "F16", 0x67 },
@@ -79,11 +74,9 @@ namespace OSFUI
 			{ "IntlRo", 0x73 },
 			{ "F24", 0x76 },
 			{ "IntlYen", 0x7D },
-			// Extended keys (0x80 | base).
 			{ "NumpadEnter", 0x9C },
 			{ "RCtrl", 0x9D }, { "ControlRight", 0x9D },
 			{ "NumpadDivide", 0xB5 },
-			// Delivered as key-up only; capture latches its release.
 			{ "PrintScreen", 0xB7 }, { "PrtScn", 0xB7 },
 			{ "RAlt", 0xB8 }, { "AltRight", 0xB8 },
 			{ "Pause", 0xC5 },
@@ -96,11 +89,37 @@ namespace OSFUI
 			{ "Down", 0xD0 }, { "ArrowDown", 0xD0 },
 			{ "PageDown", 0xD1 },
 			{ "Insert", 0xD2 }, { "Delete", 0xD3 },
-			// Nameable so hand-edited configs work, but capture-reserved: a Win
-			// keyup outside exclusive fullscreen opens the Start menu.
 			{ "LWin", 0xDB }, { "MetaLeft", 0xDB },
 			{ "RWin", 0xDC }, { "MetaRight", 0xDC },
 			{ "Apps", 0xDD }, { "ContextMenu", 0xDD },
+		};
+
+		struct LegacyNamedKey
+		{
+			std::string_view name;
+			std::uint32_t    vk;
+		};
+
+		// Verbatim pre-2.0 VK-anchored names. Frozen for saved-value migration.
+		constexpr LegacyNamedKey kLegacyNamedKeys[] = {
+			{ "Space", 0x20 }, { "Enter", 0x0D }, { "Return", 0x0D }, { "Tab", 0x09 },
+			{ "Escape", 0x1B }, { "Backspace", 0x08 }, { "Insert", 0x2D }, { "Delete", 0x2E },
+			{ "Home", 0x24 }, { "End", 0x23 }, { "PageUp", 0x21 }, { "PageDown", 0x22 },
+			{ "Up", 0x26 }, { "Down", 0x28 }, { "Left", 0x25 }, { "Right", 0x27 },
+			{ "CapsLock", 0x14 }, { "NumLock", 0x90 }, { "ScrollLock", 0x91 }, { "Pause", 0x13 },
+			{ "LShift", 0xA0 }, { "RShift", 0xA1 }, { "LCtrl", 0xA2 }, { "RCtrl", 0xA3 },
+			{ "LAlt", 0xA4 }, { "RAlt", 0xA5 },
+			{ "Grave", 0xC0 }, { "Tilde", 0xC0 }, { "Backtick", 0xC0 }, { "Console", 0xC0 },
+			{ "Minus", 0xBD }, { "Hyphen", 0xBD }, { "Dash", 0xBD },
+			{ "Equals", 0xBB }, { "Equal", 0xBB }, { "Plus", 0xBB },
+			{ "LBracket", 0xDB }, { "LeftBracket", 0xDB },
+			{ "RBracket", 0xDD }, { "RightBracket", 0xDD },
+			{ "Backslash", 0xDC },
+			{ "Semicolon", 0xBA },
+			{ "Apostrophe", 0xDE }, { "Quote", 0xDE },
+			{ "Comma", 0xBC },
+			{ "Period", 0xBE }, { "Dot", 0xBE },
+			{ "Slash", 0xBF },
 		};
 	}
 
@@ -109,27 +128,17 @@ namespace OSFUI
 		if (a_name.empty()) {
 			return kInvalidScanCode;
 		}
-
-		// Scan space is not contiguous for any name family (F11/F12 sit apart
-		// from F1-F10, letters follow the QWERTY rows), so everything —
-		// including letters, digits, and F-keys — is explicit table rows.
 		for (const auto& key : kNamedScans) {
 			if (StringUtil::EqualsCaseInsensitiveAscii(key.name, a_name)) {
 				return key.code;
 			}
 		}
-
-		// Callers vary (toggle key, hotkey bindings, conflict grouping): an
-		// unresolvable name simply does not bind.
-		REX::WARN("InputRouter: could not resolve key name '{}'", a_name);
+		REX::WARN("KeyNames: could not resolve key name '{}'", a_name);
 		return kInvalidScanCode;
 	}
 
 	std::string KeyName(ScanCode a_scan)
 	{
-		// Canonical (first) name per code; aliases like Return/Tilde resolve
-		// back to Enter/Grave. The first kNamedScans row per code is the
-		// canonical spelling, so the two directions cannot drift.
 		for (const auto& key : kNamedScans) {
 			if (key.code == a_scan) {
 				return std::string(key.name);
@@ -138,71 +147,29 @@ namespace OSFUI
 		return {};
 	}
 
-	namespace
+	namespace Legacy
 	{
-		constexpr ScanCode kScanEscape = 0x01;
-	}
-
-	void InputRouter::Configure(ScanCode a_toggleKey, std::function<void()> a_onToggle,
-		std::function<void()> a_onBack)
-	{
-		_toggleKey.store(a_toggleKey, std::memory_order_release);
-		_onToggle = std::move(a_onToggle);
-		_onBack = std::move(a_onBack);
-	}
-
-	void InputRouter::SetToggleKey(ScanCode a_toggleKey)
-	{
-		_toggleKey.store(a_toggleKey, std::memory_order_release);
-	}
-
-	void InputRouter::SetWebRouting(std::function<bool()> a_isCaptured,
-		std::function<void(KeyCode, bool)> a_routeKey)
-	{
-		_isCaptured = std::move(a_isCaptured);
-		_routeKey = std::move(a_routeKey);
-	}
-
-	void InputRouter::OnKeyDown(KeyCode a_vk, ScanCode a_scan)
-	{
-		// Fed by the WndProc hook. Toggle is handled before capture so it works
-		// even while the overlay owns input, and is a distinct intent from a
-		// captured Esc (Esc = back: close the top menu, or delegate to a
-		// back-owning view via osfui.handleBack). Both match on the physical
-		// scan code and are consumed here so the key never also routes into
-		// the view as a plain keystroke.
-		const bool captured = Captured();
-		const auto toggleKey = _toggleKey.load(std::memory_order_acquire);
-		if (toggleKey != kInvalidScanCode && a_scan == toggleKey) {
-			if (_onToggle) {
-				_onToggle();
+		std::uint32_t ResolveKeyNameVk(std::string_view a_name)
+		{
+			if (a_name.empty()) {
+				return 0;
 			}
-			return;
-		}
-		if (captured && a_scan == kScanEscape) {
-			if (_onBack) {
-				_onBack();
+			if (a_name.size() >= 2 && (a_name[0] == 'F' || a_name[0] == 'f')) {
+				int n = 0;
+				if (std::from_chars(a_name.data() + 1, a_name.data() + a_name.size(), n).ec == std::errc{} &&
+					n >= 1 && n <= 24) {
+					return 0x70 + static_cast<std::uint32_t>(n - 1);
+				}
 			}
-			return;
-		}
-
-		if (captured && _routeKey) {
-			_routeKey(a_vk, true);
-			return;
-		}
-		if (Log::DevMode()) {
-			REX::DEBUG("InputRouter: OnKeyDown(vk {}, scan {}) (overlay not capturing — passed to game)", a_vk, a_scan);
-		}
-	}
-
-	void InputRouter::OnKeyUp(KeyCode a_vk, ScanCode /*a_scan*/)
-	{
-		if (Captured() && _routeKey) {
-			_routeKey(a_vk, false);
-			return;
-		}
-		if (Log::DevMode()) {
-			REX::DEBUG("InputRouter: OnKeyUp({})", a_vk);
+			if (a_name.size() == 1 && std::isalnum(static_cast<unsigned char>(a_name[0]))) {
+				return static_cast<std::uint32_t>(std::toupper(static_cast<unsigned char>(a_name[0])));
+			}
+			for (const auto& key : kLegacyNamedKeys) {
+				if (StringUtil::EqualsCaseInsensitiveAscii(key.name, a_name)) {
+					return key.vk;
+				}
+			}
+			return 0;
 		}
 	}
 }

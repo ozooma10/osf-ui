@@ -1,9 +1,8 @@
-// MenuController: registered surfaces, single-menu stack policy, HUD shown
+// MenuController: registered surfaces, one optional active menu, HUD shown
 // set, and the derived policy/layers Runtime applies after every change.
 // Host-independent state machine; previously the largest untested runtime
-// module. The mid-vector _menuStack.erase in Close() is safe only while the
-// stack holds 0 or 1 entries (Open() clears before push) — asserted here so a
-// future multi-menu stack change trips a test, not a policy bug.
+// module. The tests assert the single-menu invariant so a future multi-menu
+// change trips a test, not a policy bug.
 
 #include "runtime/MenuController.h"
 

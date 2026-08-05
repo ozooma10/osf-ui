@@ -46,11 +46,6 @@ namespace OSFUI
 		{
 			RE::Scaleform::Ptr<RE::Scaleform::GFx::Movie> movie;
 			std::int32_t                                  expectedCount{ -1 };
-			// Stability debounce: entryCount seen last tick and how many
-			// consecutive ticks it has held that value. AS3 is only touched once
-			// the list has settled (see kListStableTicks).
-			std::int32_t                                  lastSeenCount{ -1 };
-			int                                           stableTicks{ 0 };
 			bool                                          listenerInstalled{ false };
 			bool                                          entryLogged{ false };
 			bool                                          failWarned{ false };
@@ -59,25 +54,11 @@ namespace OSFUI
 			{
 				movie = std::move(a_movie);
 				expectedCount = -1;
-				lastSeenCount = -1;
-				stableTicks = 0;
 				listenerInstalled = false;
 				entryLogged = false;
 				failWarned = false;
 			}
 		};
-
-		// The pause-menu list must hold the same entryCount for this many
-		// consecutive Runtime ticks before we invoke any AS3 on it. Invoking
-		// PopulateMainList into the Scaleform AS3 VM while the list is still
-		// churning — during the open transition, or when the engine re-pushes
-		// PauseMenuListData (save spinner, bDisabled flips) — faults inside the
-		// VM on a NaN-boxed atom (report #3; trainwreck 2026-07-23, crash under
-		// FSR3 Frame Generation). Waiting for the count to settle keeps every
-		// injection in a quiescent window. ~3 ticks is imperceptible (<~50 ms at
-		// 60 fps) yet skips the transient states the engine-level liveness gate
-		// (kAdvancesMovie + admitted + asMovieRoot) cannot see.
-		constexpr int kListStableTicks = 3;
 
 		SessionState& Session()
 		{
@@ -258,17 +239,6 @@ namespace OSFUI
 			}
 			const auto count = static_cast<std::int32_t>(countNum);
 
-			// Advance the stability debounce every tick: reset the run on any
-			// entryCount change (the list is churning), otherwise accumulate
-			// toward kListStableTicks. Tracked before the guards below so a
-			// change is registered even on ticks that early-return.
-			if (count != Session().lastSeenCount) {
-				Session().lastSeenCount = count;
-				Session().stableTicks = 0;
-			} else if (Session().stableTicks < kListStableTicks) {
-				++Session().stableTicks;
-			}
-
 			// Wait for the engine's PauseMenuListData push before injecting: an
 			// empty list means OnPauseListDataUpdate hasn't run yet, and anything
 			// we add now would be stomped (and briefly selected) a frame later.
@@ -289,24 +259,11 @@ namespace OSFUI
 				return;
 			}
 
-			// The list shape changed (first tick of an open, or an engine
-			// re-push). Defensive debounce: wait until entryCount has settled for
-			// kListStableTicks before invoking AS3 (PopulateMainList).
-			//
-			// NOTE (provenance): the report #3 pause-menu CTD was a CROSS-THREAD
-			// race — engine-UI work running off a rotating SFSE worker — fixed by
-			// running reconcile on the game main thread just after
-			// UI_AdvanceActiveMenus (MainThreadMenuPump), when the AS3 VM is idle.
-			// Its own commit (426146a) concluded "timing debounces could never fix
-			// it." This debounce was added in that same commit and has NOT been
-			// shown necessary under the corrected boundary, so it is a candidate
-			// for removal pending an in-game FSR3-Frame-Generation acceptance run.
-			// The engine-level liveness gate
-			// (LivePauseMenu) proves the menu is admitted and advancing.
-			// Re-check next tick — this is cheap (one GetMember).
-			if (Session().stableTicks < kListStableTicks) {
-				return;
-			}
+			// The list shape changed (first tick of an open, or an engine re-push).
+			// LivePauseMenu already proves the menu is admitted and advancing, and
+			// MainThreadMenuPump calls here just after UI_AdvanceActiveMenus when the
+			// AS3 VM is idle. The old three-tick count debounce was redundant with
+			// that corrected ownership boundary and only delayed the entry.
 
 			// Install the press listener once per session. It lives on the root
 			// (presses bubble up from MainPanel), so the engine re-pushing list

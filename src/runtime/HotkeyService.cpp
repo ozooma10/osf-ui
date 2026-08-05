@@ -1,6 +1,7 @@
 #include "runtime/HotkeyService.h"
 
 #include "core/Log.h"
+#include "input/KeyNames.h"
 #include "runtime/SettingsStore.h"
 
 namespace OSFUI

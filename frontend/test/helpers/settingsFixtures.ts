@@ -104,6 +104,7 @@ export const WIDGETS: SettingsData = {
               { key: 'text', label: 'Text', type: 'string', default: '' },
               { key: 'bindKey', label: 'Bind', type: 'key', allowUnbound: true, default: 'K' },
               { type: 'note', style: 'warn', text: 'A **bold** note' },
+              { type: 'note', style: 'danger', text: 'danger note' },
               { type: 'note', style: 'evil', text: 'sneaky' },
               { type: 'action', key: 'go', label: 'Run it', command: 'acme.kit.run' },
               { type: 'action', key: 'bad', label: 'Reserved', command: 'ui.doThing' },
@@ -240,4 +241,3 @@ export const FOUR_GROUPS: SettingsData = {
     },
   ],
 } as unknown as SettingsData;
-

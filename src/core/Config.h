@@ -20,7 +20,7 @@ namespace OSFUI
 		// the sole owner and Runtime::OnSettingChanged mutates it live. It
 		// doubles as the pre-replay boot default, so it MUST equal the schema
 		// default.
-		std::string toggleKey{ "F10" };  // key name -> Windows VK code (ResolveKeyName); consumed by the WndProc hook
+		std::string toggleKey{ "F10" };  // key name -> physical scan code (ResolveKeyName); consumed by the WndProc hook
 		// Inject a pauseMenuEntryLabel entry into the game's PauseMenu main list
 		// at runtime (live Scaleform GFx manipulation — no SWF edit, no conflict
 		// with UI-overhaul SWFs) and open pauseMenuEntryView when it is pressed.

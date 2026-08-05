@@ -1,12 +1,11 @@
 // Host-side tests for the physical key identity core: ComposeScanCode's
 // message-quirk normalization (input/ScanCode.h), the kNamedScans name table
-// (input/InputRouter.cpp — full-table round-trip and the ≤16-char name
+// (input/KeyNames.cpp — full-table round-trip and the ≤16-char name
 // constraint from docs/authoring-views.md), the W3C KeyboardEvent.code alias
 // vocabulary, and the frozen legacy VK resolver the values migration depends
 // on. Assert-style; process exit code is the failure count.
 
-#include "input/InputTypes.h"
-#include "input/LegacyVkNames.h"
+#include "input/KeyNames.h"
 #include "input/ScanCode.h"
 
 namespace
@@ -24,7 +23,7 @@ namespace
 	} while (0)
 }
 
-// InputRouter.cpp references the Log seam; provide the standard test stub
+// KeyNames.cpp references the Log seam; provide the standard test stub
 // (same shape as the other suites).
 namespace OSFUI::Log
 {

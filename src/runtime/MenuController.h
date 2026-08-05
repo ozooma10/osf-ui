@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <unordered_set>  // not in pch.h
 
 #include "runtime/ViewManifest.h"  // SurfaceKind
@@ -29,22 +30,22 @@ namespace OSFUI
 		bool Unregister(std::string_view a_id);
 
 		// State transitions; each returns true if the open-state changed. Unknown ids return false.
-		// Open: a menu is pushed (single-menu policy: it replaces the current menu); a HUD is added to the shown set.
+		// Open: a menu replaces the current menu; a HUD is added to the shown set.
 		bool Open(std::string_view a_id);
 		bool Close(std::string_view a_id);
-		bool CloseTop();                               // pop the top menu (HUDs untouched)
-		void CloseAll();                              // clear the stack and every shown HUD
+		bool CloseTop();                              // close the active menu (HUDs untouched)
+		void CloseAll();                              // close the menu and every shown HUD
 
 		// Derived desired state — read on the main thread after any change.
 		[[nodiscard]] bool DesiredVisible() const;  // any HUD shown || any menu open
 		[[nodiscard]] bool DesiredCapture() const;  // top menu && capturesInput
 		[[nodiscard]] bool DesiredPause() const;    // top menu && pausesGame
-		[[nodiscard]] std::optional<std::string> ActiveMenu() const;  // stack top = focus target
+		[[nodiscard]] std::optional<std::string> ActiveMenu() const;
 		[[nodiscard]] bool IsOpen(std::string_view a_id) const;
 		[[nodiscard]] bool IsRegistered(std::string_view a_id) const;
 
 		// One entry per registered surface with its hidden flag and composite z.
-		// HUD band [0..999] = clamp(order); menu band = 1000 + stack index, so any open menu sits above every HUD.
+		// HUD band [0..999] = clamp(order); the active menu sits at 1000 above every HUD.
 		struct Layer
 		{
 			std::string id;
@@ -57,7 +58,7 @@ namespace OSFUI
 		[[nodiscard]] const Surface* Find(std::string_view a_id) const;
 
 		std::unordered_map<std::string, Surface> _registry;
-		std::vector<std::string>                 _menuStack;  // top = back()
+		std::optional<std::string>               _activeMenu;
 		std::unordered_set<std::string>          _hudShown;
 	};
 }

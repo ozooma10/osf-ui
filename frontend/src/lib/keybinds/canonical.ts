@@ -12,7 +12,7 @@ export const NAME_ALIASES: Readonly<Record<string, string>> = {
   backtick: 'Grave',
   console: 'Grave',
   return: 'Enter',
-  // OEM punctuation aliases, mirroring kNamedScans in InputRouter.cpp. A mod
+  // OEM punctuation aliases, mirroring kNamedScans in KeyNames.cpp. A mod
   // that declares "Quote" or "Dash" in its schema resolves to the same scan
   // code natively, so the board must fold them to the same cell or one binding
   // appears twice under two names.
