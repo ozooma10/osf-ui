@@ -10,7 +10,6 @@
 #include "composite/D3D12Compositor.h"
 #include "composite/UiPassSeam.h"
 #include "core/Log.h"
-#include "core/StringUtil.h"
 #include "core/Version.h"
 #include "input/ControlLayer.h"
 #include "input/EngineInput.h"
@@ -28,7 +27,6 @@
 #include "input/XInputPoller.h"
 #include "core/Paths.h"
 #include "platform/WindowsPlatform.h"
-#include "reporting/ReportClient.h"
 #include "runtime/Json.h"
 #include "runtime/Ids.h"
 #include "runtime/PapyrusCall.h"
@@ -58,25 +56,6 @@ namespace OSFUI
 		constexpr ScanCode         kScanEscape{ 0x01 };
 		constexpr ScanCode         kScanLWin{ 0xDB };
 		constexpr ScanCode         kScanRWin{ 0xDC };
-
-		// Reads one persisted settings value before the settings module exists.
-		// The renderer (and the host process it spawns) initializes earlier than
-		// the settings replay, so boot-time consumers peek the values file
-		// directly; the OnSettingChanged replay then drives the same Config
-		// field. Missing or corrupt file means the schema default.
-		bool PeekPersistedBool(const std::filesystem::path& a_valuesFile,
-			std::string_view a_key, bool a_default)
-		{
-			std::error_code ec;
-			if (!std::filesystem::exists(a_valuesFile, ec)) {
-				return a_default;
-			}
-			const auto json = Json::ParseFile(a_valuesFile);
-			if (!json || !json->is_object()) {
-				return a_default;
-			}
-			return Json::GetBool(*json, a_key, a_default);
-		}
 
 	}
 
@@ -142,18 +121,10 @@ namespace OSFUI
 		_viewHeight.store(initialHeight);
 		_cursorX = initialWidth * 0.5f;
 		_cursorY = initialHeight * 0.5f;
-		// The WebView2 host receives the report endpoint on its command line at
-		// spawn, before the settings module replays persisted values — so the
-		// user's bugReporting choice is peeked from the values file here.
-		_config.bugReporting = PeekPersistedBool(
-			Paths::DataDir() / "settings" / "values" / "osfui.json",
-			"bugReporting", _config.bugReporting);
 		RendererConfig rendererConfig{
 			.width = initialWidth,
 			.height = initialHeight,
 			.devMode = _config.devMode,
-			.reportEndpoint = _config.bugReporting ? kBugReportEndpoint : "",
-			.reportPluginRoot = Paths::PluginDir(),
 			.dataDir = Paths::DataDir(),
 		};
 		if (!_renderer->Initialize(rendererConfig)) {
@@ -451,7 +422,6 @@ namespace OSFUI
 		// A failure callback fires near the end of the prior Tick. Restart only now,
 		// after IWebRenderer::Update has returned and its notification drain is idle.
 		DriveRendererHostRecovery();
-		DrainBugReportResult();
 		// The pause-menu entry (PauseMenuEntry::Reconcile) is NOT driven from
 		// here: although Tick runs on the game main thread, arbitrary Scaleform
 		// access must also avoid re-entering the AS3 VM. MainThreadMenuPump drives
@@ -1885,13 +1855,6 @@ namespace OSFUI
 		}
 	}
 
-	void Runtime::NotifyPlayerCloseRequest()
-	{
-		if (_renderer) {
-			_renderer->NotifyPlayerCloseRequest();
-		}
-	}
-
 	bool Runtime::OnHostKey(std::uint32_t a_vkCode, ScanCode a_scanCode, bool a_down)
 	{
 		// Key-rebind capture (armed by settings.captureKey). Grab the next key
@@ -2532,36 +2495,6 @@ namespace OSFUI
 		});
 	}
 
-	void Runtime::DrainBugReportResult()
-	{
-		std::optional<BugReportResult> result;
-		{
-			std::scoped_lock lock(_bugReportMutex);
-			if (_bugReportResult) {
-				result = std::move(_bugReportResult);
-				_bugReportResult.reset();
-			}
-		}
-		if (!result) return;
-		_bugReportInFlight.store(false, std::memory_order_release);
-		if (!_bridge) return;
-
-		nlohmann::json payload{ { "ok", result->ok } };
-		if (!result->code.empty()) payload["code"] = result->code;
-		if (!result->message.empty()) payload["message"] = result->message;
-		if (!result->reportId.empty()) payload["reportId"] = result->reportId;
-		if (result->issueNumber != 0) payload["issueNumber"] = result->issueNumber;
-		// Settles the request the submit deferred. A failed upload REJECTS with
-		// its code rather than resolving an { ok:false } document the caller has
-		// to remember to inspect.
-		if (result->ok) {
-			_bridge->RespondTo(result->deferToken, payload);
-		} else {
-			_bridge->RejectTo(result->deferToken,
-				result->code.empty() ? "report-failed" : result->code, result->message);
-		}
-	}
-
 	void Runtime::RegisterPlatformCommands(MessageBridge& a_bridge)
 	{
 		// The platform owns only window/diagnostic endpoints. Features register
@@ -2908,118 +2841,6 @@ namespace OSFUI
 			BroadcastViewsData();
 			a_b.Respond(nlohmann::json::object());
 		});
-		a_bridge.RegisterRequest("diagnostics.reportStatus", [this](const nlohmann::json&, MessageBridge& a_b) {
-			if (a_b.CurrentSource() != "osfui/settings") {
-				a_b.Reject("forbidden", "bug reporting is restricted to OSF UI's built-in settings view");
-				return;
-			}
-			a_b.Respond({
-				{ "enabled", _config.bugReporting },
-				{ "logs", nlohmann::json::array({ "OSF UI.log", "OSF UI.webview2-host.log" }) },
-				{ "retentionDays", 30 },
-			});
-		});
-		a_bridge.RegisterRequest("diagnostics.submitReport", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
-			if (a_b.CurrentSource() != "osfui/settings") {
-				a_b.Reject("forbidden", "bug reporting is restricted to OSF UI's built-in settings view");
-				return;
-			}
-			if (!_config.bugReporting) {
-				a_b.Reject("reporting-disabled", "bug reporting is turned off in OSF UI's settings");
-				return;
-			}
-			// The upload runs on a worker; a bridge defer token settles the
-			// request whenever it finishes (PumpBugReport). Minted below, once
-			// the synchronous refusals are past.
-			// Codepoint-boundary caps. A byte cut here would hand Submit() a string
-			// that is already exactly at the limit, so its own bound is a no-op and
-			// the split sequence reaches the payload dump.
-			const auto bounded = [](std::string a_text, std::size_t a_maxBytes) {
-				StringUtil::TruncateUtf8(a_text, a_maxBytes);
-				return a_text;
-			};
-			const auto title = bounded(Json::GetString(a_p, "title", ""), 120);
-			const auto description = bounded(Json::GetString(a_p, "description", ""), 6000);
-			const auto reproduction = bounded(Json::GetString(a_p, "reproduction", ""), 4000);
-			if (title.empty() || description.empty()) {
-				a_b.Reject("invalid-report", "title and description are required");
-				return;
-			}
-			if (_bugReportInFlight.exchange(true, std::memory_order_acq_rel)) {
-				a_b.Reject("report-busy", "another report is already being submitted");
-				return;
-			}
-			// The source id authenticates which hosted document sent the command,
-			// but built-in view files are mod-managed assets and can be replaced.
-			// A native, default-No prompt is therefore the final authority for
-			// transmitting logs; page-side disclosure is helpful UX, not trust.
-			if (!Platform::ConfirmBugReportUpload(title)) {
-				_bugReportInFlight.store(false, std::memory_order_release);
-				a_b.Reject("consent-declined", "the diagnostic upload was cancelled");
-				return;
-			}
-			const std::string endpoint = kBugReportEndpoint;
-			const auto diagnostics = _diagnostics ? _diagnostics->Snapshot() : nlohmann::json::object();
-			const auto view = std::string(a_b.CurrentSource());
-			// Before the worker starts, so a fast failure cannot publish its
-			// result to a token that does not exist yet. Every remaining exit
-			// from this handler settles through the token.
-			const auto deferToken = a_b.Defer();
-			try {
-				_bugReportWorker = std::jthread([this, endpoint, diagnostics, title,
-					description, reproduction, view, deferToken] {
-					// The whole body is guarded: an escaping exception on a jthread
-					// is a std::terminate, and it would also leave
-					// _bugReportInFlight latched (only the result drain at
-					// PumpBugReport clears it), so the reporter would answer
-					// "report-busy" forever after. Publish a failure instead.
-					BugReportResult result{ .view = view, .deferToken = deferToken };
-					try {
-						const auto submitted = Reporting::Submit(endpoint, diagnostics,
-							title, description, reproduction);
-						result.ok = submitted.ok;
-						result.code = submitted.code;
-						result.message = submitted.message;
-						result.reportId = submitted.reportId;
-						result.issueNumber = submitted.issueNumber;
-					} catch (const std::exception& e) {
-						REX::ERROR("Runtime: bug-report upload threw: {}", e.what());
-						result.ok = false;
-						result.code = "internal";
-						result.message = "the report upload failed unexpectedly";
-					} catch (...) {
-						REX::ERROR("Runtime: bug-report upload threw a non-std exception");
-						result.ok = false;
-						result.code = "internal";
-						result.message = "the report upload failed unexpectedly";
-					}
-					std::scoped_lock lock(_bugReportMutex);
-					_bugReportResult = std::move(result);
-				});
-			} catch (const std::exception& e) {
-				_bugReportInFlight.store(false, std::memory_order_release);
-				REX::ERROR("Runtime: could not start bug-report worker: {}", e.what());
-				a_b.RejectTo(deferToken, "internal", "could not start the report upload");
-				return;
-			}
-		});
-		a_bridge.RegisterRequest("osfui.openReportIssue", [](const nlohmann::json& a_p, MessageBridge& a_b) {
-			if (a_b.CurrentSource() != "osfui/settings") {
-				a_b.Reject("forbidden", "open report issue is a platform action");
-				return;
-			}
-			const auto number = Json::GetInt(a_p, "issueNumber", 0);
-			if (number <= 0 || number > 1000000000) {
-				a_b.Reject("invalid-issue", "invalid report issue number");
-				return;
-			}
-			const auto url = std::format(L"https://github.com/ozooma10/osf-ui/issues/{}", number);
-			if (!Platform::OpenSystemBrowser(url.c_str())) {
-				a_b.Reject("shell-failed", "could not open the system browser");
-				return;
-			}
-			a_b.Respond(nlohmann::json::object());
-		});
 		a_bridge.RegisterSend("osfui.handleBack", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
 			// A page that owns back navigation (e.g. a sub-menu whose Esc should
 			// return to the hub, not dismiss the overlay) sets this; while it is
@@ -3091,14 +2912,6 @@ namespace OSFUI
 		else if (a_key == "vanillaKeyConflicts" && a_value.is_boolean()) {
 			_config.vanillaKeyConflicts = a_value.get<bool>();
 			ApplyVanillaKeyConflicts(_config.vanillaKeyConflicts);
-		}
-		// Diagnostic-reporter kill switch. Gates manual System Health reports
-		// immediately; the host's post-crash prompt reads the endpoint from its
-		// spawn arguments, so that half applies on the next launch (Initialize
-		// peeks this persisted value before spawning the host).
-		else if (a_key == "bugReporting" && a_value.is_boolean()) {
-			_config.bugReporting = a_value.get<bool>();
-			REX::DEBUG("Runtime: setting osfui.bugReporting -> {}", _config.bugReporting);
 		}
 		else if (a_key == "language" && a_value.is_string()) {
 			const auto requested = a_value.get<std::string>();

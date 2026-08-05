@@ -44,19 +44,6 @@
           "hint": "Show hard and possible warnings when mod hotkeys overlap Starfield's live bindings. The read-only game catalog stays visible when this is off."
         }
       ]
-    },
-    {
-      "id": "diagnostics",
-      "label": "Diagnostics",
-      "settings": [
-        {
-          "key": "bugReporting",
-          "label": "Bug reporting",
-          "type": "bool",
-          "default": true,
-          "hint": "Allow sending diagnostic reports to the OSF UI maintainer: manual reports from System Health and the prompt after a crash. Nothing is ever sent without your confirmation. Turning this off applies to the crash prompt on the next launch."
-        }
-      ]
-    }
+	}
   ]
 }

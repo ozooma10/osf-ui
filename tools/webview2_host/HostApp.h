@@ -10,15 +10,12 @@
 // processes it spawns.
 //
 // Exits when the pipe breaks, on a shutdown message, when the game process
-// handle signals, or when its top-level window remains absent. Post-exit dialogs
-// are time-bounded as well, so neither a missed watcher signal nor an unattended
-// prompt can orphan the host.
+// handle signals, or when its top-level window remains absent.
 
 #include <cstdint>
 #include <deque>
 #include <filesystem>
 #include <mutex>
-#include <optional>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -41,8 +38,6 @@ namespace osfui::wv2
 		std::wstring          pipeName;      // without \\.\pipe\ prefix
 		std::uint32_t         gamePid{ 0 };
 		std::filesystem::path logFile;       // empty = no file log
-		std::wstring          reportEndpoint; // empty = abnormal-exit prompt disabled
-		std::filesystem::path reportPluginRoot; // installed root to redact from logs
 	};
 
 	// Returns the process exit code.

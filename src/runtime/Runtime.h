@@ -84,13 +84,6 @@ namespace OSFUI
 		// captured or for the toggle key. Runs on the window-message thread.
 		bool OnHostKey(std::uint32_t a_vkCode, ScanCode a_scanCode, bool a_down);
 
-		// Called by the WndProc hook when the game window receives a
-		// player-initiated close (taskbar "Close window", title-bar X, Alt+F4,
-		// log-off). Forwarded to the renderer's host process so the non-zero
-		// exit status Starfield's forced teardown routinely produces is not
-		// offered as a crash report. Runs on the window-message thread.
-		void NotifyPlayerCloseRequest();
-
 		// Called by the WndProc hook on WM_INPUTLANGCHANGE (window-message
 		// thread): flags the keycap-label map for a main-thread rebuild.
 		void NotifyKeyboardLayoutChanged();
@@ -137,9 +130,6 @@ namespace OSFUI
 		// named concretely at the ~38 sites that need module-specific facts.
 		void BuildModules();
 		void RegisterPlatformCommands(MessageBridge& a_bridge);
-		// Complete a consented report off-thread, then marshal the correlated
-		// result back through the bridge on the game thread.
-		void DrainBugReportResult();
 
 		// Create and register one discovered surface with exactly the same
 		// renderer/console/bridge/load-state wiring at boot, RegisterView time,
@@ -374,20 +364,6 @@ namespace OSFUI
 		SettingsModule*                         _settings{ nullptr };  // owned by _modules; core reads schema facts through it
 		DiagnosticsModule*                      _diagnostics{ nullptr };  // owned by _modules
 		RuntimeDiagnostics                      _runtimeDiagnostics{ *this };
-		struct BugReportResult
-		{
-			std::string   view;
-			std::string   deferToken;
-			bool          ok{ false };
-			std::string   code;
-			std::string   message;
-			std::string   reportId;
-			std::uint64_t issueNumber{ 0 };
-		};
-		std::mutex                    _bugReportMutex;
-		std::optional<BugReportResult> _bugReportResult;
-		std::jthread                   _bugReportWorker;
-		std::atomic_bool               _bugReportInFlight{ false };
 		InputRouter                             _input;
 		// Live key-typed bindings -> owner dispatch. Fed by OnHostKey (window
 		// thread), rebuilt from the store's listeners and drained in Tick (main

@@ -57,13 +57,11 @@ export const PLATFORM_REQUESTS = new Set([
   'menu.open', 'menu.close', 'setViewHidden', 'ping', 'game.get',
   'settings.set', 'settings.reset', 'settings.captureKey',
   'osfui.openModPage', 'osfui.openLogFolder', 'osfui.setViewAutoStart',
-  'osfui.openReportIssue', 'diagnostics.reportStatus',
-  'diagnostics.submitReport', 'papyrus.request',
+  'papyrus.request',
 ]);
 
 const PLATFORM_PRIVATE_REQUESTS = new Set([
-  'osfui.setViewAutoStart', 'osfui.openReportIssue',
-  'diagnostics.reportStatus', 'diagnostics.submitReport',
+  'osfui.setViewAutoStart',
 ]);
 
 function ownSettings(payload, meta, io, verb) {
@@ -118,12 +116,6 @@ function answerPlatformRequest(name, payload, meta, io) {
       io.resolve({ armed: true, ...target });
       return;
     }
-    case 'diagnostics.reportStatus':
-      io.resolve({ enabled: false, logs: [], retentionDays: 0 });
-      return;
-    case 'diagnostics.submitReport':
-      io.resolve({ reportId: 'mock-report' });
-      return;
     default:
       io.resolve({});
   }

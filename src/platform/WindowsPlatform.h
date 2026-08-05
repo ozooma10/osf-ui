@@ -52,11 +52,6 @@ namespace OSFUI::Platform
 	// (docs/security-model.md).
 	bool OpenFolder(const std::filesystem::path& a_folder);
 
-	// Authoritative consent gate for manual diagnostic uploads. This is native
-	// UI rather than page content because packaged views are mod-managed files
-	// and may be replaced independently of the signed plugin DLL.
-	[[nodiscard]] bool ConfirmBugReportUpload(std::string_view a_title);
-
 	// True when [a_address, a_address + a_size) is committed, non-guard,
 	// readable memory (VirtualQuery walk). For probing engine pointers.
 	// File NAME (not path) of the loaded module that owns a_address, or "" when

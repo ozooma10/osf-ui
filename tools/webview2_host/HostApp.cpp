@@ -4,7 +4,6 @@
 
 #include "core/Version.h"
 #include "input/ScanCode.h"
-#include "reporting/ReporterCore.h"
 #include "Wv2BoundedQueue.h"
 #include "Wv2BrokerLaunch.h"  // LaunchMethodName (logging only)
 #include "Wv2LocalUri.h"
@@ -16,7 +15,6 @@
 #include <array>
 #include <atomic>
 #include <chrono>
-#include <cwctype>
 #include <format>
 #include <fstream>
 #include <memory>
@@ -27,7 +25,6 @@
 #include <WebView2.h>
 #include <WebView2EnvironmentOptions.h>
 #include <shellapi.h>
-#include <shlobj.h>
 #include <wrl.h>
 #include <wrl/client.h>
 #include <d3d10_1.h>
@@ -75,7 +72,10 @@ namespace osfui::wv2
 			return (prefix == 0xE0u || prefix == 0xE1u) ? (0x80u | base) : base;
 		}
 
-		using OSFUI::Reporting::DumpSafe;
+		[[nodiscard]] std::string DumpSafe(const json& a_value)
+		{
+			return a_value.dump(-1, ' ', false, json::error_handler_t::replace);
+		}
 
 		struct Logger
 		{
@@ -97,12 +97,6 @@ namespace osfui::wv2
 					std::filesystem::rename(a_path, old, ec);
 				}
 				file.open(a_path, std::ios::out | std::ios::trunc);
-			}
-
-			void Flush()
-			{
-				std::scoped_lock lock(mutex);
-				if (file.is_open()) file.flush();
 			}
 
 			// level: 0 info, 1 warn, 2 error
@@ -144,320 +138,6 @@ namespace osfui::wv2
 			void Warn(const std::string& a_text) { Log(1, a_text); }
 			void Error(const std::string& a_text) { Log(2, a_text); }
 		};
-
-		std::filesystem::path DocumentsFolder()
-		{
-			PWSTR raw = nullptr;
-			std::filesystem::path folder;
-			if (SUCCEEDED(::SHGetKnownFolderPath(FOLDERID_Documents, KF_FLAG_DEFAULT, nullptr, &raw)) && raw) {
-				folder = raw;
-			}
-			if (raw) ::CoTaskMemFree(raw);
-			return folder;
-		}
-
-		bool IsCrashLogCandidate(const std::filesystem::path& a_path)
-		{
-			auto extension = a_path.extension().wstring();
-			std::ranges::transform(extension, extension.begin(),
-				[](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
-			return extension == L".log" || extension == L".txt";
-		}
-
-		struct CrashReportTarget
-		{
-			std::string id{ "osf-ui" };
-			std::wstring repositoryLabel{ L"OSF UI" };
-			std::optional<std::filesystem::path> pluginLog;
-		};
-
-		CrashReportTarget TargetForView(std::string_view a_viewId,
-			const std::filesystem::path& a_hostLog)
-		{
-			if (a_viewId.starts_with("osf.animation/")) {
-				return {
-					.id = "osf-animation",
-					.repositoryLabel = L"OSF Animation",
-					.pluginLog = a_hostLog.parent_path() / "OSF Animation.log",
-				};
-			}
-			return {};
-		}
-
-		std::optional<std::filesystem::path> FindSessionPluginLog(
-			const std::optional<std::filesystem::path>& a_path,
-			std::filesystem::file_time_type a_sessionStarted)
-		{
-			if (!a_path) return std::nullopt;
-			std::error_code ec;
-			if (!std::filesystem::is_regular_file(*a_path, ec) || ec) return std::nullopt;
-			const auto size = std::filesystem::file_size(*a_path, ec);
-			if (ec || size == 0) return std::nullopt;
-			const auto modified = std::filesystem::last_write_time(*a_path, ec);
-			return !ec && modified >= a_sessionStarted ? a_path : std::nullopt;
-		}
-
-		bool IsRecognizedCrashLog(const std::filesystem::path& a_path)
-		{
-			constexpr std::size_t kProbeBytes = 16 * 1024;
-			std::ifstream file(a_path, std::ios::binary);
-			if (!file) return false;
-			std::string probe(kProbeBytes, '\0');
-			file.read(probe.data(), static_cast<std::streamsize>(probe.size()));
-			probe.resize(static_cast<std::size_t>(file.gcount()));
-			std::ranges::transform(probe, probe.begin(),
-				[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-			const bool hasException = probe.contains("unhandled exception");
-			const bool supportedLogger = probe.contains("trainwreck") ||
-				probe.contains("crashlogger") || probe.contains("crash logger");
-			return hasException && supportedLogger;
-		}
-
-		std::optional<std::filesystem::path> FindSessionCrashLog(
-			const std::filesystem::path& a_hostLog,
-			std::filesystem::file_time_type a_sessionStarted)
-		{
-			if (a_hostLog.empty()) return std::nullopt;
-			const auto directory = a_hostLog.parent_path().parent_path() / "Crashlogs";
-			std::optional<std::filesystem::path> newest;
-			std::filesystem::file_time_type newestTime{};
-			std::error_code ec;
-			for (std::filesystem::directory_iterator it(directory, ec), end; !ec && it != end;
-				it.increment(ec)) {
-				if (!it->is_regular_file(ec) || ec || !IsCrashLogCandidate(it->path())) {
-					ec.clear();
-					continue;
-				}
-				const auto size = it->file_size(ec);
-				if (ec) { ec.clear(); continue; }
-				const auto modified = it->last_write_time(ec);
-				if (ec) { ec.clear(); continue; }
-				if (size != 0 && modified >= a_sessionStarted &&
-					IsRecognizedCrashLog(it->path()) && (!newest || modified > newestTime)) {
-					newest = it->path();
-					newestTime = modified;
-				}
-			}
-			return newest;
-		}
-
-		[[nodiscard]] std::string DescribeWindow(HWND a_window)
-		{
-			if (!a_window) return "none";
-			wchar_t className[64]{};
-			::GetClassNameW(a_window, className, static_cast<int>(std::size(className)));
-			DWORD pid = 0;
-			::GetWindowThreadProcessId(a_window, &pid);
-			std::wstring exe = L"?";
-			if (HANDLE process = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid)) {
-				wchar_t path[MAX_PATH]{};
-				DWORD length = static_cast<DWORD>(std::size(path));
-				if (::QueryFullProcessImageNameW(process, 0, path, &length)) {
-					exe = std::filesystem::path(path).filename().wstring();
-				}
-				::CloseHandle(process);
-			}
-			return std::format("hwnd=0x{:X} class='{}' pid={} exe='{}'",
-				reinterpret_cast<std::uintptr_t>(a_window), ToUtf8(className), pid, ToUtf8(exe));
-		}
-
-		// The crash-report dialogs compete with whatever owns the desktop right
-		// after a game exit — MO2's always-on-top lock overlay (the host itself
-		// keeps the MO2 session locked while the prompt is up), crash loggers,
-		// third-party overlays. A topmost window layered above the dialog
-		// swallows every click while keyboard input still reaches it (field
-		// report: "can't click the buttons, Enter works"). The watchdog names
-		// the offending window in the host log and re-raises the dialog so
-		// clicks land where the player sees them.
-		int GuardedMessageBox(const std::wstring& a_text, const wchar_t* a_title,
-			UINT a_flags, Logger& a_log)
-		{
-			std::atomic_bool done{ false };
-			static constexpr std::uint64_t kAutoDismissMs = 60 * 1000;
-			const auto started = ::GetTickCount64();
-			const int timeoutChoice = (a_flags & MB_TYPEMASK) == MB_YESNO ? IDNO : IDOK;
-			std::thread watchdog([&done, a_title, &a_log, started, timeoutChoice] {
-				HWND lastCover = nullptr;
-				HWND lastForeground = nullptr;
-				bool timeoutLogged = false;
-				std::uint64_t lastTimeoutPost = 0;
-				while (!done.load()) {
-					::Sleep(250);
-					const HWND dialog = ::FindWindowW(L"#32770", a_title);
-					if (!dialog) continue;
-					const auto now = ::GetTickCount64();
-					if (now - started >= kAutoDismissMs &&
-						(lastTimeoutPost == 0 || now - lastTimeoutPost >= 1000)) {
-						if (!timeoutLogged) {
-							timeoutLogged = true;
-							a_log.Warn(std::format(
-								"dialog '{}' unanswered for 60s — choosing {} so the host can exit",
-								ToUtf8(a_title), timeoutChoice == IDNO ? "No" : "OK"));
-						}
-						lastTimeoutPost = now;
-						const HWND button = ::GetDlgItem(dialog, timeoutChoice);
-						::PostMessageW(dialog, WM_COMMAND,
-							MAKEWPARAM(timeoutChoice, BN_CLICKED),
-							reinterpret_cast<LPARAM>(button));
-						continue;
-					}
-					RECT rect{};
-					if (!::GetWindowRect(dialog, &rect)) continue;
-					const POINT centre{ (rect.left + rect.right) / 2,
-						(rect.top + rect.bottom) / 2 };
-					const HWND atCentre = ::WindowFromPoint(centre);
-					const HWND cover = atCentre ? ::GetAncestor(atCentre, GA_ROOT) : nullptr;
-					const HWND foreground = ::GetForegroundWindow();
-					const bool covered = cover && cover != dialog;
-					const bool defocused = foreground && foreground != dialog;
-					if (covered && cover != lastCover) {
-						lastCover = cover;
-						a_log.Warn(std::format("dialog '{}' covered by {} — re-raising",
-							ToUtf8(a_title), DescribeWindow(cover)));
-					}
-					if (defocused && foreground != lastForeground) {
-						lastForeground = foreground;
-						a_log.Warn(std::format("dialog '{}' lost foreground to {}",
-							ToUtf8(a_title), DescribeWindow(foreground)));
-					}
-					if (covered) {
-						::SetWindowPos(dialog, HWND_TOPMOST, 0, 0, 0, 0,
-							SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-					}
-					if (defocused) {
-						::SetForegroundWindow(dialog);
-					}
-				}
-			});
-			const auto choice = ::MessageBoxW(nullptr, a_text.c_str(), a_title, a_flags);
-			done.store(true);
-			watchdog.join();
-			return choice;
-		}
-
-		void PromptCrashReport(const HostOptions& a_options, DWORD a_gameExitCode, Logger& a_log,
-			std::filesystem::file_time_type a_sessionStarted, std::string_view a_activeViewId)
-		{
-			if (a_options.reportEndpoint.empty()) return;
-			const auto target = TargetForView(a_activeViewId, a_options.logFile);
-			std::wstring disclosure =
-				L"Starfield closed unexpectedly. OSF UI may not have caused the crash, "
-				L"but its diagnostic logs could help find the problem.\n\n"
-				L"Submit a bug report to the " + target.repositoryLabel +
-				L" repository now? The recent OSF UI and WebView2-host logs";
-			if (target.pluginLog) {
-				disclosure += L", " + target.pluginLog->filename().wstring();
-			}
-			disclosure += L", plus "
-				L"the newest Trainwreck or Crash Logger report created during this game session "
-				L"if one is present";
-			disclosure +=
-				L", will be redacted locally, uploaded privately, and deleted after 30 days. "
-				L"The report will be reviewed before any public GitHub issue is created.";
-			const auto choice = GuardedMessageBox(disclosure,
-				L"OSF UI - Starfield closed unexpectedly",
-				MB_YESNO | MB_ICONWARNING | MB_TOPMOST | MB_SETFOREGROUND, a_log);
-			if (choice != IDYES) {
-				a_log.Info("crash report declined by the player");
-				return;
-			}
-			const auto crashLog = FindSessionCrashLog(a_options.logFile, a_sessionStarted);
-			const auto pluginLog = FindSessionPluginLog(target.pluginLog, a_sessionStarted);
-			if (pluginLog) {
-				a_log.Info(std::format("consented crash report includes target log: {}",
-					ToUtf8(pluginLog->filename().wstring())));
-			}
-			if (crashLog) {
-				a_log.Info(std::format("consented crash report includes supported session log: {}",
-					ToUtf8(crashLog->filename().wstring())));
-			}
-			a_log.Info("crash report consented; collecting bounded redacted logs");
-			a_log.Flush();
-			wchar_t executable[32768]{};
-			const auto executableLength = ::GetModuleFileNameW(nullptr, executable,
-				static_cast<DWORD>(std::size(executable)));
-			const auto mirrorRoot = executableLength > 0 ?
-				ToUtf8(std::filesystem::path(executable).parent_path().parent_path().wstring()) :
-				std::string{};
-			const auto pluginRoot = ToUtf8(a_options.reportPluginRoot.wstring());
-			const auto documentsRoot = ToUtf8(DocumentsFolder().wstring());
-			json logs = json::array();
-			const std::array redactions{
-				OSFUI::Reporting::Redaction{ pluginRoot, "<PluginDir>" },
-				OSFUI::Reporting::Redaction{ documentsRoot, "<Documents>" },
-				OSFUI::Reporting::Redaction{ mirrorRoot, "<HostMirror>" },
-			};
-			const auto addLog = [&logs, &redactions](const std::filesystem::path& path,
-				std::string_view name, std::size_t maxBytes) {
-				bool truncated = false;
-				auto content = OSFUI::Reporting::ReadTail(path, maxBytes, truncated);
-				if (content.empty()) return;
-				content = OSFUI::Reporting::Redact(std::move(content), redactions);
-				logs.push_back({
-					{ "name", name }, { "content", std::move(content) }, { "truncated", truncated } });
-			};
-			addLog(a_options.logFile.parent_path() / "OSF UI.log", "OSF UI.log", 160 * 1024);
-			addLog(a_options.logFile, "OSF UI.webview2-host.log", 128 * 1024);
-			if (pluginLog) {
-				addLog(*pluginLog, ToUtf8(pluginLog->filename().wstring()), 224 * 1024);
-			}
-			if (crashLog) {
-				addLog(*crashLog, "Starfield crash log (Trainwreck or Crash Logger)", 256 * 1024);
-			}
-			const auto endpoint = ToUtf8(a_options.reportEndpoint);
-			const auto payload = [&](std::string_view clientId, std::string_view token) {
-				return json{
-					{ "schemaVersion", 1 }, { "clientId", clientId },
-					{ "installationToken", token }, { "kind", "crash" },
-					{ "target", target.id },
-					{ "title", "Starfield closed unexpectedly" },
-					{ "description", crashLog ?
-						"Starfield exited with a non-zero process status and produced a supported crash report." :
-						"Starfield exited with a non-zero process status while OSF UI was active." },
-					{ "reproduction", "Not provided; submitted from the post-crash consent prompt." },
-					{ "pluginVersion", OSFUI::kPluginVersion },
-					{ "diagnostics", { { "system", { { "gameExitCode", a_gameExitCode },
-						{ "crashLogDetected", crashLog.has_value() },
-						{ "crashLogFile", crashLog ? ToUtf8(crashLog->filename().wstring()) : "" },
-						{ "activeView", std::string(a_activeViewId) },
-						{ "targetPluginLogAttached", pluginLog.has_value() } } },
-						{ "issues", json::array() } } },
-					{ "logs", logs },
-				};
-			};
-			const auto submission = OSFUI::Reporting::SubmitAuthenticated(endpoint,
-				OSFUI::Reporting::ReporterFolder(DocumentsFolder()), payload,
-				OSFUI::Reporting::PostJson);
-			if (submission.errorCode == "registration-failed") {
-				a_log.Error("crash report installation registration failed");
-				GuardedMessageBox(
-					L"The reporting service could not register this installation. Your logs remain "
-					L"in the Starfield SFSE Logs folder.", L"OSF UI - Report failed",
-					MB_OK | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND, a_log);
-				return;
-			}
-			const auto& reply = submission.body;
-			const bool accepted = submission.errorCode.empty() &&
-				submission.response.status >= 200 && submission.response.status < 300 &&
-				reply.value("ok", false);
-			if (accepted) {
-				const auto reportId = reply.value("reportId", "");
-				a_log.Info(std::format("crash report accepted (reference {})", reportId));
-				const auto message = std::format(
-					L"The diagnostic report was accepted for review.\n\nReference: {}", ToWide(reportId));
-				GuardedMessageBox(message, L"OSF UI - Report submitted",
-					MB_OK | MB_ICONINFORMATION | MB_TOPMOST | MB_SETFOREGROUND, a_log);
-			} else {
-				a_log.Error(std::format("crash report submission failed (HTTP {}, {})",
-					submission.response.status,
-					submission.errorCode.empty() ? "service-failed" : submission.errorCode));
-				GuardedMessageBox(
-					L"The report could not be submitted. Your logs remain in the Starfield "
-					L"SFSE Logs folder and were not retained by OSF UI.",
-					L"OSF UI - Report failed",
-					MB_OK | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND, a_log);
-			}
-		}
 
 		// Microsoft's permanent link to the WebView2 Evergreen Bootstrapper
 		// (see /microsoft-edge/webview2/concepts/distribution, "online-only
@@ -537,18 +217,7 @@ namespace osfui::wv2
 			std::atomic_bool quit{ false };
 			bool             rendererFatal{ false };  // STA thread only; first failure wins
 			std::string      byeReason;  // overrides the default bye reason (STA thread only)
-			bool             gameExitedUnexpectedly{ false };
-			DWORD            gameExitCode{ 0 };
-			// Tick of the last player-initiated close the game-side WndProc hook
-			// reported (playerCloseRequest); 0 = never. Written by the reader
-			// thread, read on the STA thread when deciding whether a non-zero
-			// game exit deserves the crash prompt.
-			std::atomic<std::uint64_t> playerCloseRequestedAt{ 0 };
-			std::uint64_t    gameExitedAt{ 0 };  // STA thread; tick when the exit was observed
 			std::uint64_t    gameWindowMissingSince{ 0 };  // STA thread; 0 while HWND is valid
-			std::filesystem::file_time_type sessionStarted{
-				std::filesystem::file_time_type::clock::now() };
-			std::string crashActiveViewId;
 
 			static constexpr std::size_t kMaxCommands = 1024;
 			static constexpr std::size_t kCommandsPerDrain = 128;
@@ -763,12 +432,6 @@ namespace osfui::wv2
 						continue;
 					}
 					const auto type = parsed.value("type", std::string{});
-					if (type == "playerCloseRequest") {
-						playerCloseRequestedAt.store(
-							std::max<std::uint64_t>(::GetTickCount64(), 1));
-						log.Info("game window received a player close request");
-						continue;
-					}
 					if (type == "shutdown") {
 						shutdownRequested.store(true, std::memory_order_release);
 						quit.store(true, std::memory_order_release);
@@ -2597,23 +2260,8 @@ namespace osfui::wv2
 						if (!::GetExitCodeProcess(gameProcess, &code) || code == STILL_ACTIVE) {
 							return false;
 						}
-						gameExitCode = code;
-						gameExitedAt = ::GetTickCount64();
-						// Some intentional game exits (notably the `qqq` console
-						// command) use a non-zero process status. The helper exists to
-						// catch the common crash-while-opening-OSF-UI failure, so require
-						// evidence that the interactive overlay was active or mid-reveal.
-						// HUD-only rendering and an inactive/closed overlay do not qualify.
-						const bool uiCrashRelevant = focusGranted || captured || AnyRevealPending();
-						gameExitedUnexpectedly = code != 0 && uiCrashRelevant;
-						if (gameExitedUnexpectedly && active) {
-							crashActiveViewId = active->id;
-						}
 						log.Info(std::format(
-							"game process exited (code 0x{:08X}) — shutting down", gameExitCode));
-						if (code != 0 && !uiCrashRelevant) {
-							log.Info("non-zero game exit occurred while OSF UI was inactive — crash prompt suppressed");
-						}
+							"game process exited (code 0x{:08X}) — shutting down", code));
 						return true;
 					};
 					while (!quit.load()) {
@@ -2628,10 +2276,9 @@ namespace osfui::wv2
 							break;
 						}
 						if (pipeDead.load()) {
-							// A game crash can tear down the pipe a few milliseconds before
+							// A game exit can tear down the pipe a few milliseconds before
 							// Windows signals the process handle. Resolve that race before
-							// treating pipe loss as an ordinary renderer shutdown; otherwise
-							// the exact "game crashed while opening UI" case skips its prompt.
+							// treating pipe loss as an ordinary renderer shutdown.
 							if (!captureGameExit(1000)) {
 								log.Info("pipe closed while game remained active — shutting down");
 							}
@@ -2727,28 +2374,6 @@ namespace osfui::wv2
 				pipe.Close();
 				if (reader.joinable()) reader.join();
 				log.Info(std::format("host exiting (code {})", exitCode));
-				if (gameExitedUnexpectedly) {
-					// A close the player asked for (taskbar "Close window",
-					// title-bar X, Alt+F4, log-off) routinely tears Starfield
-					// down through a path that dies with a non-zero status
-					// (0xC0000005 observed) — not a crash worth prompting over.
-					// Decided here, after the reader thread joined, so the
-					// game's playerCloseRequest pipe message cannot race the
-					// process-exit signal. The grace window keeps a real crash
-					// long after an aborted close from being swallowed, while
-					// still covering a slow teardown or a hung exit the player
-					// finishes off via Task Manager.
-					constexpr std::uint64_t kPlayerCloseGraceMs = 5 * 60 * 1000;
-					const auto closeRequestedAt = playerCloseRequestedAt.load();
-					if (closeRequestedAt != 0 &&
-						gameExitedAt <= closeRequestedAt + kPlayerCloseGraceMs) {
-						log.Info("non-zero game exit followed a player close request — "
-								 "crash prompt suppressed");
-					} else {
-						PromptCrashReport(options, gameExitCode, log, sessionStarted,
-							crashActiveViewId);
-					}
-				}
 				return exitCode;
 			}
 		};

@@ -859,13 +859,6 @@ namespace OSFUI
 				osfui::wv2::kPipePrefix, ::GetCurrentProcessId(), nonce);
 			auto args = std::format(L"--pipe={} --game-pid={} --log=\"{}\"",
 				pipeName, ::GetCurrentProcessId(), hostLog.native());
-			if (!config.reportEndpoint.empty()) {
-				args += std::format(L" --report-endpoint=\"{}\"", ToWide(config.reportEndpoint));
-				if (!config.reportPluginRoot.empty()) {
-					args += std::format(L" --report-plugin-root=\"{}\"",
-						config.reportPluginRoot.native());
-				}
-			}
 
 			// Claim the first server instance before launching the helper. This
 			// removes the name-squatting window between launch and CreateNamedPipe.
@@ -1775,14 +1768,6 @@ namespace OSFUI
 			_impl->Send(AccelStateMsg(a_toggleScan, a_captured,
 				a_captureArmed, a_captureUpScan));
 		}
-	}
-
-	void WebView2HostWebRenderer::NotifyPlayerCloseRequest()
-	{
-		// No queueing: if the host is not connected yet there is no crash
-		// prompt to suppress, and replaying a stale close request at connect
-		// time could mask a later real crash.
-		_impl->Send(json{ { "type", "playerCloseRequest" } });
 	}
 
 	void WebView2HostWebRenderer::InjectKeyEvent(std::uint32_t a_vkCode, bool a_down)

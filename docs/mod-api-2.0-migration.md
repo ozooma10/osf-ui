@@ -169,7 +169,7 @@ The first six names are unchanged from 1.x. What changed: they are now *only* ev
 
 ### 3.4 Requests — `osfui.request(name, payload)`
 
-`menu.open`, `menu.close`, `setViewHidden`, `ping`, `game.get`, `settings.set`, `settings.reset`, `settings.captureKey`, `osfui.openModPage`, `osfui.openLogFolder`, `osfui.setViewAutoStart`, `osfui.openReportIssue`, `diagnostics.reportStatus`, `diagnostics.submitReport`, `papyrus.request`.
+`menu.open`, `menu.close`, `setViewHidden`, `ping`, `game.get`, `settings.set`, `settings.reset`, `settings.captureKey`, `osfui.openModPage`, `osfui.openLogFolder`, `osfui.setViewAutoStart`, `papyrus.request`.
 
 **Kind changes to watch for** — these names survived but moved from command to request, so a 1.x `osfui.send('menu.open', …)` is now dropped and surfaced rather than executed:
 
@@ -179,7 +179,6 @@ The first six names are unchanged from 1.x. What changed: they are now *only* ev
 | `setViewHidden` | command | request, resolves `{}` |
 | `osfui.openModPage` | command | request, rejects `shell-failed` |
 | `osfui.openLogFolder` | command | request, rejects `no-log-folder` \| `shell-failed` |
-| `osfui.openReportIssue` | command | request, rejects `forbidden` \| `invalid-issue` \| `shell-failed` |
 | `ui.papyrusRequest` | request | renamed `papyrus.request` |
 | `ui.action` | command | renamed `papyrus.send` |
 
@@ -202,7 +201,7 @@ The first six names are unchanged from 1.x. What changed: they are now *only* ev
 
 ### 3.6 Deleted native → web message types
 
-The `kind` field replaces the whole `type` taxonomy: `runtime.ready` (now `kind:"ready"`), `ui.result`, `ui.error` (now `kind:"reply"` / `kind:"error"`), `settings.ack`, `settings.data`, `views.data`, `i18n.data`, `diagnostics.data`, `diagnostics.reportResult` (now the deferred reply to `diagnostics.submitReport`), `data.push`, `data.state` (now `kind:"state"`), `papyrus.result`, `runtime.pong`, `game.data`, `handoff.state`.
+The `kind` field replaces the whole `type` taxonomy: `runtime.ready` (now `kind:"ready"`), `ui.result`, `ui.error` (now `kind:"reply"` / `kind:"error"`), `settings.ack`, `settings.data`, `views.data`, `i18n.data`, `diagnostics.data`, `data.push`, `data.state` (now `kind:"state"`), `papyrus.result`, `runtime.pong`, `game.data`, `handoff.state`.
 
 ---
 
@@ -299,7 +298,7 @@ The design doc left three open questions. What shipped:
 ## 7. Deviations from the design doc as written
 
 - **7.1 `osfui/debug.error` shipped as the `osfui.debug.error` EVENT.** A slash denotes a view id (`<mod>/<view>`) and the state `<mod>/<key>` separator, so a slashed name is ambiguous exactly where it matters. It shipped as a dotted event name in the platform (`osfui.*`) namespace, delivered by `MessageBridge::Surface` → `Runtime::OnProtocolMisuse` → `Emit(view, "osfui.debug.error", …)`, printed by the helper's `deliverEvent` special case with the usual `[osfui]` prefix. Naming it an event also settles what it is: one-shot, never replayed, never cached.
-- **7.2 The fixed-target shell verbs shipped as requests, not commands.** The doc grouped `osfui.openModPage`, `osfui.openLogFolder` and `osfui.openReportIssue` with the commands; all three can fail for reasons the page can't predict and the player can act on (`shell-failed`, `no-log-folder`, `forbidden`, `invalid-issue`), and the doc's own rule is that wanting a remote outcome makes it a request. The security property that motivated grouping them — target is a compile-time constant or natively derived, payload can't steer the shell — is unaffected by endpoint kind. `close`, `log`, `view.ready`, `osfui.gamepadRaw` and `osfui.handleBack` did ship as commands.
+- **7.2 The fixed-target shell verbs shipped as requests, not commands.** The doc grouped `osfui.openModPage` and `osfui.openLogFolder` with the commands; both can fail for reasons the page can't predict and the player can act on (`shell-failed`, `no-log-folder`), and the doc's own rule is that wanting a remote outcome makes it a request. The security property that motivated grouping them — the target is a compile-time constant or natively derived and the payload can't steer the shell — is unaffected by endpoint kind. `close`, `log`, `view.ready`, `osfui.gamepadRaw` and `osfui.handleBack` did ship as commands.
 - **7.4 `hud.show` / `hud.hide` and `osfui.textFocus` were deleted, not migrated.** The first two were registered to the *same handler lambdas* as `menu.open`/`menu.close`; "one dialect, no aliases" is a design principle. `osfui.textFocus` was a registered no-op kept only so a view asserting text focus before session focus wouldn't trip `unknown-command`; since an unknown send is now a dev-only debug event it bought nothing. (The WebView2 focus-on-demand mechanism it fronted is native and unaffected.)
 - **7.5 Smaller drifts.** The removed `ReplayViewState` machinery moved to `src/runtime/ViewStateStore.{h,cpp}` rather than staying in `PapyrusApi` (§6.3). The doc's symmetry grid labelled the C ABI row "`RegisterCommand` (command handler)"; that's still the spelling, but the shipped header documents it as a **send** endpoint — 2.0 renamed the *host* registry (`MessageBridge::RegisterSend` / `RegisterRequest`, `IUiModule::RegisterCommands` → `RegisterEndpoints`) while keeping the C ABI method names.
 

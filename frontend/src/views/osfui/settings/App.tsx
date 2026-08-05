@@ -66,7 +66,6 @@ import { homeModCaption } from './Home';
 import { useCapture } from './useCapture';
 import { useSettingsRegistry } from './useSettingsRegistry';
 import type { PresetRecord } from './Presets';
-import type { ReportResult, ReportStatus, ReportSubmission } from './Health';
 
 /**
  * Filter debounce. Every keystroke would otherwise re-scan every mod's schema
@@ -766,23 +765,6 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
           focusIssueId={focusIssueId}
           onOpenIssue={openIssue}
           onShellCommand={(command) => requestOp(command)}
-          onGetReportStatus={() => bridge.request<ReportStatus>('diagnostics.reportStatus')}
-          onSubmitReport={(report: ReportSubmission) =>
-            bridge
-              // 28 s, under MessageBridge's 30 s host deadline and over the
-              // reporter's 25 s transport budget. Granting more than the host
-              // deadline is a promise the host will not keep: it expires the
-              // deferral at 30 s and answers `no-response`.
-              .request<ReportResult>('diagnostics.submitReport', { ...report }, { timeoutMs: 28000 })
-              .then((result) => ({ ...result, ok: true }) as ReportResult)
-              // The WIRE rejects; this pane's model is still an outcome object,
-              // so adapt here rather than pushing the transport's shape into
-              // every consumer of the reporting panel.
-              .catch((err: unknown) => ({ ok: false, code: codeOf(err) }) as ReportResult)
-          }
-          onOpenReportIssue={(issueNumber) =>
-            requestOp('osfui.openReportIssue', { issueNumber })
-          }
           collapsed={collapsed}
           onToggleGroup={(key, next) => setCollapsed((c) => ({ ...c, [key]: next }))}
           activePages={activePages}

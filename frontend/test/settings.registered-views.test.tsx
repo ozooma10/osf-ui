@@ -17,7 +17,7 @@ describe('registered views diagnostics', () => {
         {
           id: 'osfui',
           title: 'OSF UI',
-          values: { bugReporting: true },
+          values: { healthDetail: 'compact' },
           schema: {
             groups: [
               {
@@ -25,10 +25,10 @@ describe('registered views diagnostics', () => {
                 label: 'Diagnostics',
                 settings: [
                   {
-                    key: 'bugReporting',
-                    label: 'Bug reporting',
-                    type: 'bool',
-                    default: false,
+                    key: 'healthDetail',
+                    label: 'Health detail',
+                    type: 'string',
+                    default: 'compact',
                   },
                 ],
               },

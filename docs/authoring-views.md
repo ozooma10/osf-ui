@@ -44,7 +44,7 @@ The two-level layout is discovered automatically at load. A mod folder may hold 
 
 Views load at `https://osfui.local/<modId>/<viewName>/<entry>`. WebView2 maps `osfui.local` to the shared views root with `SetVirtualHostNameToFolderMapping` and exposes no other local path. Keep assets in your own folder; the one supported cross-folder contract is the shared UI kit at `views/shared/osfui.css` / `osfui.js`, linked as `../../shared/osfui.css`.
 
-Module scripts, dynamic `import()` and same-origin `fetch()` work under the WebView2 origin. (The built-in views still ship a single classic `main.js` bundle with stable filenames because those bytes and paths are part of their published artifact contract; third-party views needn't copy that build shape.) Remote requests are blocked by the host — keep dependencies and assets local, `permissions.network` is force-disabled. The built-in bug reporter is a narrow native exception with a host-owned HTTPS endpoint and can't be invoked by third-party views. See [security-model.md](security-model.md).
+Module scripts, dynamic `import()` and same-origin `fetch()` work under the WebView2 origin. (The built-in views still ship a single classic `main.js` bundle with stable filenames because those bytes and paths are part of their published artifact contract; third-party views needn't copy that build shape.) Remote requests are blocked by the host — keep dependencies and assets local, `permissions.network` is force-disabled. OSF UI has no native diagnostic-upload path. See [security-model.md](security-model.md).
 
 ### The shared UI kit
 
@@ -295,9 +295,6 @@ Anything not listed is dropped and surfaced as `unknown-endpoint`.
 | `osfui.openModPage` | — | `{}` | `shell-failed` |
 | `osfui.openLogFolder` | — | `{}` | `no-log-folder`, `shell-failed` |
 | `osfui.setViewAutoStart` | `view`, `enabled` | `{}` | *(platform-private)* `forbidden`, `invalid-payload`, `unknown-view`, `not-configurable`, `persistence-failed` |
-| `osfui.openReportIssue` | `issueNumber: number` | `{}` | *(platform-private)* `forbidden`, `invalid-issue`, `shell-failed` |
-| `diagnostics.reportStatus` | — | `{ enabled, logs, retentionDays }` | *(platform-private)* `forbidden` |
-| `diagnostics.submitReport` | `title`, `description`, `reproduction?` | `{ reportId?, issueNumber? }` | *(platform-private)* `forbidden`, `reporting-disabled`, `invalid-report`, `report-busy`, `consent-declined`, upload codes |
 | `papyrus.request` | `name`, `args?` | `{ value }` — the sugar unwraps it to `value` | `invalid-request`, `papyrus-unavailable`, `papyrus-timeout`, or the script's own `RejectViewRequest` code |
 
 Two that surprise people:

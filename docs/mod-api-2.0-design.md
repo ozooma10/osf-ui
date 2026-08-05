@@ -240,7 +240,7 @@ payload-or-error:
   (1.x resolved a `settings.ack { ok:false }` payload the caller had to
   inspect).
 - `game.get`, `ping`, `osfui.setViewAutoStart`, `menu.open`/`menu.close` and
-  the other view operations with failure outcomes, diagnostics reporting.
+  the other view operations with failure outcomes.
 
 Events keep the true one-shots: `ui.hotkey`, `ui.visibility`, `ui.gamepad`,
 `settings.changed` deltas, `settings.persisted`.

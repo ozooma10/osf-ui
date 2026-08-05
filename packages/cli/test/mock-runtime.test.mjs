@@ -140,10 +140,6 @@ test('platform request authority and papyrus.call security match the runtime', a
   await settings.request('settings.set', { mod: 'another.mod', key: 'toggleKey', value: 'F9' });
   assert.equal(settings.settled[0].code, 'forbidden');
 
-  const diagnostics = harness({});
-  await diagnostics.request('diagnostics.reportStatus');
-  assert.equal(diagnostics.settled[0].code, 'forbidden');
-
   const papyrus = harness({});
   await papyrus.send('papyrus.call', { script: 'OsFuI', function: 'SetString' });
   assert.equal(papyrus.surfaced[0].code, 'forbidden');

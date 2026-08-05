@@ -60,12 +60,6 @@ namespace OSFUI
 		// Show warnings against the live engine ControlMap catalog. The catalog is
 		// always published read-only; this MCM-owned switch hides only warnings.
 		bool        vanillaKeyConflicts{ true };
-		// MCM-owned kill switch for the consented diagnostic reporter (manual
-		// System Health reports and the host's post-crash prompt — the latter
-		// applies on the next launch, since the host process reads it at spawn).
-		// The destination URL is compile-time (Version.h kBugReportEndpoint) and
-		// deliberately not configurable.
-		bool        bugReporting{ true };
 		std::string view{ "osfui/settings" };  // qualified "<mod>/<view>" id; the default menu the toggle key opens
 		// Release-safe default; a dev override turns on verbose logging, view/schema
 		// hot-reload, F12 DevTools — and lists third-party debugOnly views in the

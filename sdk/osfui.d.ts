@@ -159,14 +159,6 @@ export type PlatformRequest =
   | { name: "osfui.openLogFolder"; payload?: Record<string, never>; reply: Record<string, never> }
   /** (platform-private) Set a HUD's auto-start for the NEXT launch. */
   | { name: "osfui.setViewAutoStart"; payload: { view: string; enabled: boolean }; reply: Record<string, never> }
-  /** (platform-private) Open one server-created report issue. */
-  | { name: "osfui.openReportIssue"; payload: { issueNumber: number }; reply: Record<string, never> }
-  /** (platform-private) Is the consented reporter configured? */
-  | { name: "diagnostics.reportStatus"; payload?: Record<string, never>; reply: DiagnosticsReportStatus }
-  /** (platform-private) Submit a consented report. Rejects with the failure code. */
-  | { name: "diagnostics.submitReport";
-      payload: { title: string; description: string; reproduction?: string };
-      reply: { reportId?: string; issueNumber?: number } }
   /** Correlated request to the owning mod's Papyrus listener. Sugar: osfui.papyrus.request(). */
   | { name: "papyrus.request"; payload: { name: string; args?: PapyrusArgument[] };
       reply: { value: unknown } };
@@ -462,13 +454,6 @@ export interface DiagnosticsData {
   /** Informational key/value block (versions, renderer path, host state) — facts live here rather than as noisy "info" issues. */
   system: Record<string, string | number | boolean>;
   issues: DiagnosticIssue[];
-}
-
-/** Platform-private reporting availability and disclosure. */
-export interface DiagnosticsReportStatus {
-  enabled: boolean;
-  logs: string[];
-  retentionDays: number;
 }
 
 /** Value of the `osfui/handoff` state key (platform-private). */

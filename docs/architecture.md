@@ -32,14 +32,14 @@ The browser and compositor are fixed parts of the runtime rather than configurab
                                    │    ▲
                           runtime/MessageBridge    JSON envelopes, two endpoint registries
                                    │
-                    ┌──────────────┼──────────────┐
-                 api/          api/            reporting/
-                 BridgeApi     PapyrusApi      ReportClient
-                 (C ABI for    (OSFUI.psc      (consented, bounded
-                  SFSE mods)    natives)        log upload)
+                           ┌───────┴────────┐
+                         api/             api/
+                         BridgeApi        PapyrusApi
+                         (C ABI for       (OSFUI.psc
+                          SFSE mods)       natives)
 ```
 
-Two subsystems hang off the bridge rather than the render path:
+The public extension surfaces hang off the bridge rather than the render path:
 
 - `api/` is the public extension surface — `BridgeApi` backs the exported
   `OSFUI_RequestBridge` C ABI ([native-plugin-api.md](native-plugin-api.md)),
@@ -47,10 +47,6 @@ Two subsystems hang off the bridge rather than the render path:
   ([authoring-dynamic-data.md](authoring-dynamic-data.md)). Both marshal onto
   the main thread and derive a caller's mod id from the trusted source rather
   than the payload.
-- `reporting/` is the bug reporter: it is the one native egress path in the
-  process, is callable only by the built-in `osfui/settings` view, and never
-  sends without explicit consent (see [security-model.md](security-model.md)
-  rule 5).
 
 ### Data flow per frame
 

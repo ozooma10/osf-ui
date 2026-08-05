@@ -57,24 +57,6 @@ namespace OSFUI::Platform
 		return rc > 32;
 	}
 
-	bool ConfirmBugReportUpload(std::string_view a_title)
-	{
-		auto title = osfui::win32::ToWide(a_title);
-		if (title.empty()) title = L"(untitled report)";
-		for (auto& character : title) {
-			if (character < 0x20) character = L' ';
-		}
-		const auto message =
-			L"Submit this diagnostic report?\n\n"
-			L"Title: " + title +
-			L"\n\nOSF UI.log and OSF UI.webview2-host.log will be redacted locally, "
-			L"uploaded to OSF UI's private reporting service, and retained for up to "
-			L"30 days. The report will be reviewed before any public GitHub issue is "
-			L"created.\n\nChoose Yes only if you consent to this upload.";
-		return ::MessageBoxW(nullptr, message.c_str(), L"OSF UI - Confirm diagnostic upload",
-			MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2 | MB_TOPMOST | MB_SETFOREGROUND) == IDYES;
-	}
-
 	std::filesystem::path GetDocumentsPath()
 	{
 		PWSTR raw = nullptr;

@@ -228,9 +228,6 @@ const REQUEST_ENDPOINTS = new Set([
   'osfui.openModPage',
   'osfui.openLogFolder',
   'osfui.setViewAutoStart',
-  'osfui.openReportIssue',
-  'diagnostics.reportStatus',
-  'diagnostics.submitReport',
   'papyrus.request',
 ]);
 
@@ -1488,48 +1485,6 @@ export function installMock(opts: MockOptions = {}): MockApi {
         notify('osfui.openModPage — fired (opens the mod page in game)');
         ok({});
         break;
-
-      case 'osfui.openReportIssue': {
-        if (selfView !== 'osfui/settings') {
-          fail('forbidden', 'open report issue is a platform action');
-          break;
-        }
-        const number = typeof p['issueNumber'] === 'number' ? p['issueNumber'] : 0;
-        if (!(number > 0) || number > 1000000000) {
-          fail('invalid-issue', 'invalid report issue number');
-          break;
-        }
-        notify(`osfui.openReportIssue #${number} — fired (opens the issue in game)`);
-        ok({});
-        break;
-      }
-
-      case 'diagnostics.reportStatus':
-        if (selfView !== 'osfui/settings') {
-          fail('forbidden', "bug reporting is restricted to OSF UI's built-in settings view");
-          break;
-        }
-        ok({
-          enabled: true,
-          logs: ['OSF UI.log', 'OSF UI.webview2-host.log'],
-          retentionDays: 30,
-        });
-        break;
-
-      case 'diagnostics.submitReport': {
-        if (selfView !== 'osfui/settings') {
-          fail('forbidden', "bug reporting is restricted to OSF UI's built-in settings view");
-          break;
-        }
-        if (!str(p, 'title') || !str(p, 'description')) {
-          fail('invalid-report', 'title and description are required');
-          break;
-        }
-        // Native defers this onto an upload worker and settles whenever it lands;
-        // the delay is the only part of that a view can observe.
-        setTimeout(() => ok({ reportId: 'mock-report-1', issueNumber: 1234 }), 900);
-        break;
-      }
 
       case 'papyrus.request':
         // Native defers to the mod's script listener; a harness has no Papyrus VM,

@@ -4,7 +4,7 @@ Compiles the **real** runtime and API sources under test — `SettingsStore`,
 `Json`, `SettingsModule`, `MessageBridge`, `SettingsMirror`,
 `SettingsSubscriptions`, `HotkeyService`, `InputRouter`, `HotkeySubscriptions`,
 `BridgeApi`, `ControlMapPolicy`, `LocalizationService`, `ViewManifest`, `DiagnosticsModule`,
-`DiagnosticsReconciler`, and `ReporterCore` — on the developer's desktop
+and `DiagnosticsReconciler` — on the developer's desktop
 toolchain (macOS/Linux clang or any C++23 compiler) and runs them without
 Windows, xmake, SFSE, or the game.
 
@@ -51,7 +51,6 @@ Windows pipe suite is built separately through xmake. Currently:
 | `settings_store_tests.cpp` | `SettingsStore` (mcm-design.md §8.3): load/overlay/clamp, deterministic duplicate-id resolution, multicast listeners, incremental `RegisterSchema` + Source precedence, per-mod replay, `RemoveMod`, `GetValue`/`GetSettingType`/`GetSource`, `ValidateSchemaShape` (the ABI's synchronous gate), generation counter, sparse write-behind persistence (debounce window, prune-to-default on load, teardown flush) |
 | `settings_module_tests.cpp` | `SettingsModule` + `MessageBridge` (§8.5): subscribe-on-read via real `ui.command` envelopes, `settings.changed` push to all subscribers, caller-only acks, `settings.persisted` on the write-behind flush, `settings.data` re-broadcast on registry shape change, `OnBridgeDown` teardown |
 | `runtime_diagnostics_tests.cpp` | `RuntimeDiagnostics` reconciliation policy: settings issue severity/lifecycle, order-stable compatibility dedupe and resolution, and view retry/failure/recovery transitions |
-| `reporting_core_tests.cpp` | Shared manual/crash reporting core: bounded UTF-8 text and log tails, slash-form path/profile redaction, installation endpoint and token validation, cached ticket reuse, and one-shot renewal/retry after `invalid-installation` |
 | `settings_mirror_tests.cpp` | `SettingsMirror` (§8.2): any-thread typed getters over the value mirror, value-shape mismatches, `GetString` buffer semantics, `Rebuild` from the store document, integration with the real store's change/registry listeners |
 | `settings_subscriptions_tests.cpp` | `SettingsSubscriptions` (§8.2): replay-on-subscribe (one-shot, mirror snapshot), queued change dispatch + per-mod routing, unsubscribe (incl. from inside a callback), re-entrant subscribe, subscribe-before-registration via the real store's per-mod replay |
 | `hotkey_service_tests.cpp` | `HotkeyService` (§9), wired exactly like `Runtime::BuildModules` over the real store + `ResolveKeyName`: registry rebuild on rebind and on registry shape change, suppression while the overlay captures input or a rebind is armed, duplicate-binding fan-out, and the informational conflict data embedded in `SettingsStore::Data()` |

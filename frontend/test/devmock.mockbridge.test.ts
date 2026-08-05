@@ -444,20 +444,12 @@ describe('platform requests', () => {
     expect(replyTo(game)?.payload?.['calendar']).toMatchObject({ available: true });
   });
 
-  it('answers the shell requests and the bug reporter', async () => {
+  it('answers the fixed-target shell requests', async () => {
     const folder = request('osfui.openLogFolder');
     const page = request('osfui.openModPage');
-    const status = request('diagnostics.reportStatus');
     await settle();
     expect(replyTo(folder)?.payload).toEqual({});
     expect(replyTo(page)?.payload).toEqual({});
-    expect(replyTo(status)?.payload).toMatchObject({ enabled: true, retentionDays: 30 });
-
-    const bad = request('diagnostics.submitReport', { title: '', description: '' });
-    const good = request('diagnostics.submitReport', { title: 'T', description: 'D' });
-    await settle(1000);
-    expect(errorTo(bad)?.payload).toMatchObject({ code: 'invalid-report' });
-    expect(replyTo(good)?.payload).toMatchObject({ issueNumber: expect.any(Number) });
   });
 
   it('answers the one-way sends without settling anything', async () => {

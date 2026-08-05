@@ -203,6 +203,20 @@ describe('cards', () => {
 });
 
 describe('copy diagnostic report', () => {
+  it('offers local-only health actions and never probes an upload service', async () => {
+    const { bridge, el } = await mountHealth([]);
+    openHealth(el);
+    await flush();
+
+    const actions = [...el.querySelectorAll<HTMLButtonElement>('.health-actions .osf-btn')]
+      .map((button) => button.textContent);
+    expect(actions).toContain('Copy diagnostic report');
+    expect(actions).toContain('Open log folder');
+    expect(actions).not.toContain('Report a bug');
+    expect(bridge.outbound.map((message) => message.name)).not.toContain('diagnostics.reportStatus');
+    expect(bridge.outbound.map((message) => message.name)).not.toContain('diagnostics.submitReport');
+  });
+
   it('writes a report to the clipboard and toasts success', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal('navigator', { clipboard: { writeText } });
@@ -246,174 +260,6 @@ describe('copy diagnostic report', () => {
     vi.unstubAllGlobals();
   });
 });
-
-describe('automatic bug reporting', () => {
-  it('shows the exact upload disclosure before enabling submission', async () => {
-    const { bridge, el } = await mountHealth([]);
-    openHealth(el);
-    await flush();
-    [...el.querySelectorAll<HTMLButtonElement>('.health-actions .osf-btn')]
-      .find((b) => b.textContent === 'Report a bug')!
-      .click();
-    await flush();
-
-    const status = bridge.indexOf('diagnostics.reportStatus');
-    expect(status).toBeGreaterThanOrEqual(0);
-    bridge.settle(status, {
-      enabled: true,
-      logs: ['OSF UI.log', 'OSF UI.webview2-host.log'],
-      retentionDays: 30,
-    });
-    await flush();
-
-    const disclosure = el.querySelector('.health-report-disclosure')!;
-    expect(disclosure.textContent).toContain('OSF UI.log');
-    expect(disclosure.textContent).toContain('private');
-    expect(disclosure.textContent).toContain('30 days');
-    expect(el.querySelector<HTMLButtonElement>('.health-report > .osf-btn')?.disabled).toBe(true);
-  });
-
-  it('submits only after consent and opens the fixed native issue action', async () => {
-    const { bridge, el } = await mountHealth([]);
-    openHealth(el);
-    await flush();
-    [...el.querySelectorAll<HTMLButtonElement>('.health-actions .osf-btn')]
-      .find((b) => b.textContent === 'Report a bug')!
-      .click();
-    await flush();
-    bridge.settle(bridge.indexOf('diagnostics.reportStatus'), {
-      enabled: true,
-      logs: ['OSF UI.log'],
-      retentionDays: 30,
-    });
-    await flush();
-
-    fillReport(el, 'Blank overlay', 'The Mods menu is empty.', 'Press F10.');
-    await flush();
-
-    [...el.querySelectorAll<HTMLButtonElement>('.health-report > .osf-btn')]
-      .find((b) => b.textContent === 'Submit report')!
-      .click();
-    await flush();
-    const submit = bridge.indexOf('diagnostics.submitReport');
-    expect(bridge.requests[submit]!.payload).toEqual({
-      title: 'Blank overlay',
-      description: 'The Mods menu is empty.',
-      reproduction: 'Press F10.',
-    });
-    // The 2.0 reply carries only the identifiers; success is the RESOLUTION
-    // itself, not an `ok` field the caller has to remember to inspect.
-    bridge.settle(submit, { reportId: 'report-123', issueNumber: 42 });
-    await flush();
-    expect(el.querySelector('.health-report-success')!.textContent).toContain('report-123');
-    el.querySelector<HTMLButtonElement>('.health-report-success .osf-btn')!.click();
-    expect(bridge.outbound).toContainEqual({
-      name: 'osfui.openReportIssue',
-      payload: { issueNumber: 42 },
-    });
-  });
-
-  it('renders the failure code when the submission REJECTS', async () => {
-    const { bridge, el } = await mountHealth([]);
-    openHealth(el);
-    await flush();
-    [...el.querySelectorAll<HTMLButtonElement>('.health-actions .osf-btn')]
-      .find((b) => b.textContent === 'Report a bug')!
-      .click();
-    await flush();
-    bridge.settle(bridge.indexOf('diagnostics.reportStatus'), {
-      enabled: true,
-      logs: ['OSF UI.log'],
-      retentionDays: 30,
-    });
-    await flush();
-
-    fillReport(el, 'Blank overlay', 'The Mods menu is empty.', '');
-    await flush();
-    [...el.querySelectorAll<HTMLButtonElement>('.health-report > .osf-btn')]
-      .find((b) => b.textContent === 'Submit report')!
-      .click();
-    await flush();
-
-    // A refusal is a rejection now; the pane's outcome model is still an object,
-    // so the view adapts one to the other rather than pushing the transport's
-    // shape into the panel.
-    bridge.reject(bridge.indexOf('diagnostics.submitReport'), { code: 'upload-failed' });
-    await flush();
-    expect(el.querySelector('.health-report-error')!.textContent).toContain('upload-failed');
-    expect(el.querySelector('.toast--danger')).not.toBeNull();
-    expect(el.querySelector('.health-report-success')).toBeNull();
-  });
-
-  it('re-opens empty with consent unticked, so one tick cannot authorize a second upload', async () => {
-    const { bridge, el } = await mountHealth([]);
-    // nth selects which diagnostics.reportStatus request to settle — each open
-    // issues a fresh one, and indexOf defaults to the first.
-    const openReporter = async (nth: number) => {
-      openHealth(el);
-      await flush();
-      [...el.querySelectorAll<HTMLButtonElement>('.health-actions .osf-btn')]
-        .find((b) => b.textContent === 'Report a bug')!
-        .click();
-      await flush();
-      bridge.settle(bridge.indexOf('diagnostics.reportStatus', nth), {
-        enabled: true,
-        logs: ['OSF UI.log'],
-        retentionDays: 30,
-      });
-      await flush();
-    };
-
-    await openReporter(0);
-    {
-      fillReport(el, 'First report', 'Something broke.', 'Press F10.');
-      await flush();
-      // Cancel — deliberately WITHOUT submitting, the path that used to leak.
-      // (Cancel sits in the section header, not as a direct child of .health-report.)
-      [...el.querySelectorAll<HTMLButtonElement>('.health-report .osf-btn')]
-        .find((b) => b.textContent === 'Cancel')!
-        .click();
-      await flush();
-    }
-
-    await openReporter(1);
-    {
-      const f = reportFields(el);
-      expect(f.title.value).toBe('');
-      expect(f.areas[0]!.value).toBe('');
-      expect(f.areas[1]!.value).toBe('');
-      expect(f.consent.checked).toBe(false);
-      // And Submit is therefore disabled again rather than armed on open.
-      const submit = [...el.querySelectorAll<HTMLButtonElement>('.health-report > .osf-btn')]
-        .find((b) => b.textContent === 'Submit report')!;
-      expect(submit.disabled).toBe(true);
-    }
-  });
-});
-
-function reportFields(el: HTMLElement) {
-  return {
-    title: el.querySelector<HTMLInputElement>('.health-report-field input')!,
-    areas: el.querySelectorAll<HTMLTextAreaElement>('.health-report textarea'),
-    consent: [...el.querySelectorAll<HTMLInputElement>('.health-report input')].find(
-      (i) => i.type === 'checkbox',
-    )!,
-  };
-}
-
-/** Fill in the reporter and tick consent. */
-function fillReport(el: HTMLElement, title: string, description: string, reproduction: string) {
-  const f = reportFields(el);
-  const type = (input: HTMLInputElement | HTMLTextAreaElement, value: string) => {
-    input.value = value;
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-  };
-  type(f.title, title);
-  type(f.areas[0]!, description);
-  type(f.areas[1]!, reproduction);
-  f.consent.checked = true;
-  f.consent.dispatchEvent(new Event('input', { bubbles: true }));
-}
 
 describe('deep links', () => {
   it('a failed launcher card navigates to its issue with the card expanded', async () => {

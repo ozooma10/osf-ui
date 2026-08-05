@@ -865,38 +865,6 @@ html, body { height: 100%; overflow: hidden; }
 .health-history { margin-top: 22px; }
 .health-history-toggle { width: 100%; }
 
-.health-report {
-  margin-top: 16px; padding: 16px;
-  background: var(--osf-void-700); border: 1px solid var(--osf-line-strong);
-  border-radius: var(--osf-radius);
-}
-.health-report-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-.health-report-head h3 {
-  margin: 3px 0 0; font-family: var(--osf-font-display); font-size: 17px;
-  color: var(--osf-text-bright);
-}
-.health-report-field { display: grid; gap: 6px; margin-top: 14px; }
-.health-report-field > span {
-  font-size: 11px; color: var(--osf-text-muted); letter-spacing: 0.04em;
-}
-.health-report-field textarea { resize: vertical; min-height: 64px; line-height: 1.45; }
-.health-report-disclosure {
-  margin: 16px 0 12px; padding: 12px;
-  font-size: 11px; line-height: 1.5; color: var(--osf-text-muted);
-  background: var(--osf-void-800); border: 1px solid var(--osf-line);
-  border-radius: var(--osf-radius-sm);
-}
-.health-report-disclosure strong { color: var(--osf-text-body); }
-.health-report-disclosure ul { margin: 7px 0; padding-left: 20px; }
-.health-report-disclosure p { margin: 7px 0 0; }
-.health-report-consent { display: flex; align-items: flex-start; gap: 9px; margin: 12px 0; }
-.health-report-consent input { flex: none; margin-top: 2px; }
-.health-report-consent span { font-size: 11px; line-height: 1.45; color: var(--osf-text-body); }
-.health-report-error { margin: 8px 0; color: var(--osf-signal-stop); font-size: 11px; }
-.health-report-success { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-top: 14px; }
-.health-report-success strong { color: var(--osf-signal-ok); }
-.health-report-success span { font-family: var(--osf-font-mono); font-size: 10px; color: var(--osf-text-muted); }
-
 .health-system { margin-top: 26px; }
 .health-system-list { margin: 10px 0 0; display: flex; flex-direction: column; gap: 0; }
 .health-system-row {

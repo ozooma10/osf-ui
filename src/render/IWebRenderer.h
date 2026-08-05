@@ -9,12 +9,6 @@ namespace OSFUI
 		std::uint32_t width{ kDefaultViewWidth };
 		std::uint32_t height{ kDefaultViewHeight };
 		bool          devMode{ false };
-		// Host-owned HTTPS destination for the consented crash prompt. Empty
-		// disables it. Only the primary overlay renderer receives this value.
-		std::string   reportEndpoint;
-		// Actual installed plugin root; the helper runs from a LocalAppData
-		// mirror, so it cannot derive this path for crash-log redaction.
-		std::filesystem::path reportPluginRoot;
 
 		// Plugin data root (Paths::DataDir()). Backends resolve packaged assets
 		// such as bin/osfui_webview2_host.exe under here, keeping render/
@@ -246,14 +240,6 @@ namespace OSFUI
 		virtual void SetAcceleratorKeys(std::uint32_t /*a_toggleScan*/,
 			bool /*a_captured*/,
 			bool /*a_captureArmed*/, std::uint32_t /*a_captureUpScan*/) {}
-
-		// The game window received a player-initiated close (WM_CLOSE, an
-		// SC_CLOSE system command, or session end). Starfield's forced teardown
-		// routinely exits with a non-zero process status, so out-of-process
-		// backends forward this to their host, which then treats the exit that
-		// follows as intentional instead of offering its crash-report prompt.
-		// Called on the window-message thread; must be thread-safe.
-		virtual void NotifyPlayerCloseRequest() {}
 
 		// Announces (or replaces) the renderer's GPU shared-texture ring, on the
 		// game thread (drained from Update()). The runtime forwards it to the

@@ -38,7 +38,7 @@ A "MOD MENUS" pause-menu entry opens the same overlay. Controllers navigate with
 
 ## Where are my settings?
 
-Everything user-facing is in the in-game menu (F10 → OSF UI): open/close key, language, the pause-menu entry, game-key collision warnings, and under *Diagnostics* **Bug reporting** — turn that off and neither the System Health reporter nor the post-crash prompt offers to send anything. Third-party developer views appear in the mod menu only when `devMode` is on in `config.json`; the settings hub shows an amber **DEV MODE** tag while it is.
+Everything user-facing is in the in-game menu (F10 → OSF UI): open/close key, language, the pause-menu entry, and game-key collision warnings. System Health is local-only: it can copy diagnostic text or open the log folder, but never uploads anything. Third-party developer views appear in the mod menu only when `devMode` is on in `config.json`; the settings hub shows an amber **DEV MODE** tag while it is.
 
 Gameplay controls, gamepad included, always freeze while a menu captures input; there's no setting for it. To use the game console, close the overlay first — the console key is swallowed while it's open.
 
@@ -101,10 +101,6 @@ Your view is a real Chromium document, so the debugger is the one you know. OSF 
 
 ## Reporting issues
 
-Open **Mod Settings → System Health → Report a bug**. When automatic reporting is configured, OSF UI shows the exact files and retention period before upload, requires consent, redacts known account and installation roots locally, and uploads bounded tails of `OSF UI.log` and `OSF UI.webview2-host.log` with the current health snapshot. Attachments are stored privately for 30 days; after server-side abuse checks a public GitHub issue may be created carrying only your title, description, reproduction steps and an opaque report reference. Acceptance returns a private reference immediately, even while issue publication is queued or paused.
+Open **Mod Settings → System Health** and use **Copy diagnostic report**. For a specific health card, **Copy details** adds its focused context; **Open log folder** locates `OSF UI.log` and `OSF UI.webview2-host.log`. Attach the useful text and logs to a new [OSF UI issue](https://github.com/ozooma10/osf-ui/issues).
 
-If Starfield exits non-zero while OSF UI is active or opening, the surviving primary WebView2 helper offers the same upload in a Windows Yes/No dialog, without claiming OSF UI caused the exit. It inspects no external crash logs before consent. After **Yes**, it checks only the standard `SFSE/Crashlogs` folder for the newest Trainwreck/Crash Logger report from that session; if present it's uploaded privately with a path-free attachment name, local redaction and a bounded tail. When an OSF Animation surface was active, the dialog instead names the OSF Animation repository and its `OSF Animation.log`, and the public issue routes to `ozooma10/osf-animation`.
-
-Reporting can be turned off entirely in **OSF UI → Diagnostics → Bug reporting**; the crash prompt honors that from the next launch.
-
-If reporting is disabled or fails, use **Copy diagnostic report** and **Open log folder**, then attach the result at https://github.com/ozooma10/osf-ui/issues.
+OSF UI never uploads diagnostics and no longer shows a post-crash reporting prompt. You decide what to share when filing an issue.

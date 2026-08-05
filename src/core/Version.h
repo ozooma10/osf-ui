@@ -87,15 +87,6 @@ namespace OSFUI
 	inline constexpr const wchar_t* kNexusPageURLW = L"https://www.nexusmods.com/starfield/mods/17711";
 	inline constexpr const char*    kNexusPageURL = "https://www.nexusmods.com/starfield/mods/17711";
 
-	// HTTPS destination for the consented diagnostic reporter (manual reports
-	// from System Health, plus the host's post-crash prompt). Compile-time on
-	// purpose: this used to be a config.json key, but any mod in the load order
-	// can override that file, which would let an asset mod silently redirect
-	// user bug reports. The osfui.bugReporting setting is the only user knob —
-	// it disables submission entirely; the destination is never configurable.
-	inline constexpr const char* kBugReportEndpoint =
-		"https://osfui-reporting.ozooma10.workers.dev/v1/reports";
-
 	// Name of the plugin data folder, resolved relative to the plugin DLL:
 	//   Data/SFSE/Plugins/OSFUI/
 	inline constexpr const char* kDataFolderName = "OSFUI";
