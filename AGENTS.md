@@ -23,6 +23,18 @@ change that isn't in the changelog is a change that will be forgotten at release
 - If a change spans multiple commits (e.g. a fix plus its follow-ups), one consolidated entry
   describing the final behavior is better than one per commit.
 
+## Commits — checkpoint completed work
+
+- Commit completed, verified changes at logical boundaries as work progresses; do not leave a
+  growing set of finished changes for the user to repeatedly ask you to commit.
+- Keep commits cohesive. Finish the relevant build/tests, commit that unit, then begin a distinct
+  follow-up in a new commit.
+- Stage only files owned by the current task. Preserve unrelated user edits and untracked files,
+  and never sweep them into a commit for convenience.
+- Do not commit broken or knowingly incomplete work just to create a checkpoint. If a safe logical
+  commit is not yet possible, keep working or clearly state why it remains uncommitted.
+- An explicit user request not to commit overrides this default.
+
 ## Build / deploy / test
 
 - `xmake build` builds the plugin **and** the `osfui-webview2-host` exe and auto-deploys both to
