@@ -115,9 +115,9 @@ namespace OSFUI::Plugin
 			std::optional<std::chrono::steady_clock::time_point> _lastMainTick;
 			std::uint64_t                                        _ticks{ 0 };
 		};
-		// SFSE broadcast messages. kPostPostDataLoad is the earliest point
-		// where game data is fully available, so anything needing loaded forms
-		// belongs there.
+		// SFSE broadcast messages. These callbacks are not guaranteed to share the
+		// BSService-backed Runtime::Tick thread; thread-bound work must be handed
+		// off rather than performed inline.
 		void OnSFSEMessage(SFSE::MessagingInterface::Message* a_msg)
 		{
 			if (!a_msg) {
@@ -140,8 +140,8 @@ namespace OSFUI::Plugin
 					// defaults through the mirror instead of hard-failing.
 					API::Papyrus::Install();
 					// ControlMap is fully populated here, before the player ever opens
-					// the Controls panel. The provider copies its live rows and active
-					// context stack into OSF UI-owned snapshots.
+					// the Controls panel. Notify Runtime only; its next proven main-thread
+					// tick copies the live rows into OSF UI-owned snapshots.
 					Runtime::Get().OnDataLoaded();
 					break;
 				case SFSE::MessagingInterface::kPostPostDataLoad:

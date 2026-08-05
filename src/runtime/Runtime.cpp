@@ -380,6 +380,14 @@ namespace OSFUI
 
 	void Runtime::OnDataLoaded()
 	{
+		// Messaging callbacks are not serialized with the BSService-backed main-
+		// thread tick. Never expose a partially initialized ControlMap snapshot to
+		// an already-running tick; only publish a coalesced work notification here.
+		_controlMapInit.Request();
+	}
+
+	void Runtime::InitializeLiveControlMap()
+	{
 		_controlMap.Initialize();
 		SyncLiveControlMapBindings();
 		SyncLiveControlMapHealth();
@@ -393,6 +401,11 @@ namespace OSFUI
 			return;
 		}
 		_uptime += a_deltaSeconds;
+		// kPostDataLoad only signals this latch. Consume it here, on the same
+		// serialized main-thread path that owns every later ControlMap read.
+		if (_controlMapInit.Take()) {
+			InitializeLiveControlMap();
+		}
 		// A failure callback fires near the end of the prior Tick. Restart only now,
 		// after IWebRenderer::Update has returned and its notification drain is idle.
 		DriveRendererHostRecovery();

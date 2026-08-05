@@ -39,8 +39,9 @@ namespace OSFUI
 			bool inputContext{ false };
 		};
 
-		// kPostDataLoad, game main thread. A failure is durable and fail-closed:
-		// state remains available:false and no vanilla conflict claims are made.
+		// First main-thread Tick after kPostDataLoad. A failure is durable and
+		// fail-closed: state remains available:false and no vanilla conflict claims
+		// are made. Initialized() becomes true only after the snapshot is complete.
 		void Initialize();
 		// Per main-thread tick. Coalesces repeated remap events into one rebuild and
 		// samples the small active-context stack without re-enumerating bindings.

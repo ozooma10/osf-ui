@@ -11,6 +11,7 @@
 #include "input/KeyLabels.h"
 #include "render/IWebRenderer.h"
 #include "runtime/DiagnosticsModule.h"
+#include "runtime/DeferredMainThreadWork.h"
 #include "runtime/DevViewReloadWorker.h"
 #include "runtime/HotkeyService.h"
 #include "runtime/LocalizationService.h"
@@ -41,8 +42,8 @@ namespace OSFUI
 		// Luma must patch the vanilla ScaleformComposite implementation before
 		// OSF UI chains it; calling this during our own Plugin_Load is too early.
 		bool InstallOverlayDrawPath();
-		// SFSE kPostDataLoad: initialize the version-gated live ControlMap provider
-		// after engine input data exists, then publish its first snapshot.
+		// SFSE kPostDataLoad may be dispatched from a job thread. Publish a
+		// notification only; Tick consumes it at its proven main-thread checkpoint.
 		void OnDataLoaded();
 
 		// Advances the renderer and submits a frame when visible. Called on the
@@ -237,6 +238,7 @@ namespace OSFUI
 		// read-only game catalog. Re-broadcasts settings.data because per-setting
 		// conflict annotations live there.
 		void ApplyVanillaKeyConflicts(bool a_enabled);
+		void InitializeLiveControlMap();
 		void SyncLiveControlMapBindings();
 		void SyncLiveControlMapHealth();
 		// Invalidate and re-broadcast every projection that contains localized
@@ -390,6 +392,7 @@ namespace OSFUI
 		// thread); wired in BuildModules.
 		HotkeyService                           _hotkeys;
 		LiveControlMap                          _controlMap;
+		DeferredMainThreadWork                  _controlMapInit;
 		std::atomic<ScanCode>         _toggleKey{ kInvalidScanCode };
 		bool                          _inputConfigured{ false };  // main thread
 		std::atomic_bool              _devToolsRequested{ false };

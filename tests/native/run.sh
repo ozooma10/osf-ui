@@ -54,6 +54,7 @@ SUITES=(
 "cursor_shape_tests cursor_shape_tests.cpp"
 "gamepad_navigation_tests gamepad_navigation_tests.cpp"
 "renderer_host_recovery_tests renderer_host_recovery_tests.cpp"
+"deferred_main_thread_work_tests deferred_main_thread_work_tests.cpp"
 "view_lifecycle_tests view_lifecycle_tests.cpp ../../src/runtime/ViewLifecycle.cpp"
 "view_policy_store_tests view_policy_store_tests.cpp ../../src/runtime/ViewPolicyStore.cpp ../../src/runtime/Json.cpp"
 "wv2_bounded_queue_tests wv2_bounded_queue_tests.cpp"

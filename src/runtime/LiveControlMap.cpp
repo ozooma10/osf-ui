@@ -389,20 +389,25 @@ namespace OSFUI
 	void LiveControlMap::Initialize()
 	{
 		if (_initialized) return;
-		_initialized = true;
 		const auto game = REX::FModule::GetLoadedModule("Starfield.exe");
 		const auto version = game.GetFileVersion();
 		_gameVersion = version.string();
 		if (version != kSupportedRuntime) {
 			Fail(std::format("unsupported executable; live control-map layout is proven only for {}", kSupportedRuntime));
+			_initialized = true;
 			return;
 		}
-		if (RebuildBindings(/*forceProjection*/ true) == RebuildResult::Failed || !RefreshActiveContexts()) return;
+		if (RebuildBindings(/*forceProjection*/ true) == RebuildResult::Failed || !RefreshActiveContexts()) {
+			_initialized = true;
+			return;
+		}
 		if (!InstallRemapObserver()) {
 			Fail("ControlsRemappedEvent observer failed its hook-site safety gate");
+			_initialized = true;
 			return;
 		}
 		_seenRemapGeneration = g_remapGeneration.load(std::memory_order_acquire);
+		_initialized = true;
 		REX::INFO("LiveControlMap: ready -- {} visible actions, revision {}, mode {}", _keybindingsState["actions"].size(),
 			_revision, _mode ? GameplayModeName(*_mode) : "unknown");
 	}
