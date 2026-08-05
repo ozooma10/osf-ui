@@ -48,14 +48,86 @@ export function resolveScenario(mock, name) {
  * `send` to a request endpoint that only fails against the real runtime.
  * A mock does not need to declare any of these.
  */
-const BUILT_IN_SENDS = new Set([
+export const PLATFORM_SENDS = new Set([
   'osfui.hello', 'close', 'setVisible', 'view.ready', 'log',
-  'osfui.handleBack', 'osfui.gamepadRaw', 'papyrus.call', 'papyrus.send',
+  'osfui.handleBack', 'osfui.gamepadRaw', 'osfui.handoffRetry',
+  'papyrus.call', 'papyrus.send',
 ]);
-const BUILT_IN_REQUESTS = new Set([
+export const PLATFORM_REQUESTS = new Set([
   'menu.open', 'menu.close', 'setViewHidden', 'ping', 'game.get',
-  'osfui.openModPage', 'osfui.openLogFolder',
+  'settings.set', 'settings.reset', 'settings.captureKey',
+  'osfui.openModPage', 'osfui.openLogFolder', 'osfui.setViewAutoStart',
+  'osfui.openReportIssue', 'diagnostics.reportStatus',
+  'diagnostics.submitReport', 'papyrus.request',
 ]);
+
+const PLATFORM_PRIVATE_REQUESTS = new Set([
+  'osfui.setViewAutoStart', 'osfui.openReportIssue',
+  'diagnostics.reportStatus', 'diagnostics.submitReport',
+]);
+
+function ownSettings(payload, meta, io, verb) {
+  const mod = typeof payload.mod === 'string' ? payload.mod : '';
+  const key = typeof payload.key === 'string' ? payload.key : '';
+  if (mod !== meta.modId && meta.qualifiedId !== 'osfui/settings') {
+    io.reject('forbidden', `a view may only ${verb} its own mod's settings`);
+    return null;
+  }
+  if (!mod || !key) {
+    io.reject('invalid-request', `${verb} requires non-empty 'mod' and 'key' fields`);
+    return null;
+  }
+  return { mod, key };
+}
+
+function answerPlatformRequest(name, payload, meta, io) {
+  if (PLATFORM_PRIVATE_REQUESTS.has(name) && meta.qualifiedId !== 'osfui/settings') {
+    io.reject('forbidden', `${name} is a platform action`);
+    return;
+  }
+  switch (name) {
+    case 'game.get':
+      io.resolve({ calendar: { available: false } });
+      return;
+    case 'settings.set': {
+      const target = ownSettings(payload, meta, io, 'write');
+      if (!target) return;
+      if (!Object.hasOwn(payload, 'value')) {
+        io.reject('invalid-value', 'settings.set requires a value');
+        return;
+      }
+      io.resolve({ ...target, value: payload.value });
+      return;
+    }
+    case 'settings.reset': {
+      const mod = typeof payload.mod === 'string' ? payload.mod : '';
+      if (mod !== meta.modId && meta.qualifiedId !== 'osfui/settings') {
+        io.reject('forbidden', "a view may only reset its own mod's settings");
+        return;
+      }
+      if (!mod) {
+        io.reject('invalid-request', "settings.reset requires a non-empty 'mod' field");
+        return;
+      }
+      io.resolve({});
+      return;
+    }
+    case 'settings.captureKey': {
+      const target = ownSettings(payload, meta, io, 'rebind');
+      if (!target) return;
+      io.resolve({ armed: true, ...target });
+      return;
+    }
+    case 'diagnostics.reportStatus':
+      io.resolve({ enabled: false, logs: [], retentionDays: 0 });
+      return;
+    case 'diagnostics.submitReport':
+      io.resolve({ reportId: 'mock-report' });
+      return;
+    default:
+      io.resolve({});
+  }
+}
 
 /**
  * The scenario engine: answers one inbound envelope against a resolved
@@ -76,7 +148,7 @@ export function createScenarioHandler(scenario, meta) {
     return { payload: result };
   };
   return async (kind, name, payload, io) => {
-    if (name === 'papyrus.request') {
+    if (kind === 'request' && name === 'papyrus.request') {
       const response = await respond('papyrus.' + String(payload.name || ''), payload);
       if (response) {
         io.resolve({ value: response.payload });
@@ -84,6 +156,17 @@ export function createScenarioHandler(scenario, meta) {
         io.reject('mock-unhandled',
           'No mock response for Papyrus request "' + payload.name + '".');
       }
+      return true;
+    }
+    if (kind === 'send' && name === 'papyrus.call' &&
+        String(payload.script || '').toLowerCase() === 'osfui') {
+      io.surface('forbidden',
+        "papyrus.call cannot target OSF UI's own script — use the osfui.* endpoints");
+      return true;
+    }
+    if (kind === 'send' && name === 'osfui.handoffRetry' &&
+        meta.qualifiedId !== 'osfui/handoff') {
+      io.surface('forbidden', 'osfui.handoffRetry is a platform action');
       return true;
     }
     const response = await respond(name, payload);
@@ -95,17 +178,17 @@ export function createScenarioHandler(scenario, meta) {
       return true;
     }
     if (kind === 'send') {
-      if (!BUILT_IN_SENDS.has(name)) {
+      if (!PLATFORM_SENDS.has(name)) {
         // Surfaced, not silent — the whole point of the 2.0 error routing.
         io.surface('unknown-endpoint', 'No mock handles the send "' + name + '".');
       }
       return true;
     }
-    if (BUILT_IN_REQUESTS.has(name)) {
-      io.resolve({});
+    if (PLATFORM_REQUESTS.has(name)) {
+      answerPlatformRequest(name, payload, meta, io);
       return true;
     }
-    if (BUILT_IN_SENDS.has(name)) {
+    if (PLATFORM_SENDS.has(name)) {
       io.reject('wrong-endpoint-kind', '"' + name + '" is a send endpoint — use send(), not request().');
       return true;
     }

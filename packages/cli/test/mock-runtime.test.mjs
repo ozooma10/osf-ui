@@ -8,11 +8,18 @@
 // io.surface when the harness cannot place it.
 
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import test from 'node:test';
 
-import { createScenarioHandler, resolveScenario } from '../src/browser/mock-runtime.js';
+import {
+  createScenarioHandler,
+  PLATFORM_REQUESTS,
+  PLATFORM_SENDS,
+  resolveScenario,
+} from '../src/browser/mock-runtime.js';
 
-const META = { modId: 'acme.widgets' };
+const META = { modId: 'acme.widgets', qualifiedId: 'acme.widgets/panel' };
 
 function harness(scenario) {
   const settled = [];
@@ -72,10 +79,78 @@ test('an unknown papyrus request rejects instead of hanging the caller', async (
   assert.equal(h.settled[0].code, 'mock-unhandled');
 });
 
+test('sending to papyrus.request is surfaced as a wrong-kind endpoint', async () => {
+  const h = harness({ requests: { 'papyrus.GetCount': 2 } });
+  await h.send('papyrus.request', { name: 'GetCount' });
+  assert.equal(h.settled.length, 0);
+  assert.equal(h.surfaced[0].code, 'unknown-endpoint');
+});
+
 test('built-in request endpoints resolve without configuration', async () => {
   const h = harness({});
   await h.request('menu.open', { view: 'acme.widgets/panel' });
   assert.deepEqual(h.settled, [{ ok: true, payload: {} }]);
+});
+
+test('the endpoint registry mirrors the current native runtime', async () => {
+  const [runtime, settings] = await Promise.all([
+    readFile(resolve(import.meta.dirname, '../../../src/runtime/Runtime.cpp'), 'utf8'),
+    readFile(resolve(import.meta.dirname, '../../../src/runtime/SettingsModule.cpp'), 'utf8'),
+  ]);
+  const names = (source, kind) => [
+    ...source.matchAll(new RegExp(`Register${kind}\\("([^"]+)"`, 'g')),
+  ].map((match) => match[1]);
+  assert.deepEqual(
+    [...PLATFORM_SENDS].sort(),
+    ['osfui.hello', ...names(runtime, 'Send')].sort(),
+  );
+  assert.deepEqual(
+    [...PLATFORM_REQUESTS].sort(),
+    [...names(runtime, 'Request'), ...names(settings, 'Request')].sort(),
+  );
+});
+
+test('platform requests return protocol-shaped stand-ins', async () => {
+  const settings = harness({});
+  await settings.request('settings.set', {
+    mod: 'acme.widgets', key: 'toggleKey', value: 'F9',
+  });
+  assert.deepEqual(settings.settled, [{
+    ok: true,
+    payload: { mod: 'acme.widgets', key: 'toggleKey', value: 'F9' },
+  }]);
+
+  const capture = harness({});
+  await capture.request('settings.captureKey', { mod: 'acme.widgets', key: 'toggleKey' });
+  assert.deepEqual(capture.settled[0], {
+    ok: true,
+    payload: { armed: true, mod: 'acme.widgets', key: 'toggleKey' },
+  });
+
+  const game = harness({});
+  await game.request('game.get');
+  assert.deepEqual(game.settled[0], {
+    ok: true,
+    payload: { calendar: { available: false } },
+  });
+});
+
+test('platform request authority and papyrus.call security match the runtime', async () => {
+  const settings = harness({});
+  await settings.request('settings.set', { mod: 'another.mod', key: 'toggleKey', value: 'F9' });
+  assert.equal(settings.settled[0].code, 'forbidden');
+
+  const diagnostics = harness({});
+  await diagnostics.request('diagnostics.reportStatus');
+  assert.equal(diagnostics.settled[0].code, 'forbidden');
+
+  const papyrus = harness({});
+  await papyrus.send('papyrus.call', { script: 'OsFuI', function: 'SetString' });
+  assert.equal(papyrus.surfaced[0].code, 'forbidden');
+
+  const handoff = harness({});
+  await handoff.send('osfui.handoffRetry');
+  assert.equal(handoff.surfaced[0].code, 'forbidden');
 });
 
 test('a built-in SEND is accepted silently — there is nothing to settle', async () => {

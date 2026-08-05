@@ -6,6 +6,8 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
+import { HOST_VERSION } from '@osfui/cli/constants';
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CLI = resolve(HERE, '..', 'src', 'cli.mjs');
 
@@ -48,7 +50,7 @@ for (const [surface, integration, backendPath, backendPattern] of [
     assert.equal(packageJson.dependencies, undefined);
     assert.doesNotMatch(source, /preact/i);
     assert.match(config, new RegExp(`kind: '${surface}'`));
-    assert.match(config, /targetVersion: '2\.0\.0'/);
+    assert.match(config, new RegExp(`targetVersion: '${HOST_VERSION.replaceAll('.', '\\.')}`));
     assert.match(config, /description: 'Generated/);
     assert.match(config, /accent: '#7bdcff'/);
     // Only fields that differ from the CLI defaults are scaffolded.
@@ -158,7 +160,7 @@ for (const [surface, integration, backendPath, backendPattern] of [
           'utf8',
         ));
         assert.equal(schema.id, 'acme.widgets');
-        assert.equal(schema.targetVersion, '2.0.0');
+        assert.equal(schema.targetVersion, HOST_VERSION);
         assert.deepEqual(
           schema.groups[0].settings.map(({ key }) => key),
           ['hudEnabled', 'toggleHud', 'anchor', 'opacity'],
@@ -235,6 +237,9 @@ for (const [surface, integration, backendPath, backendPattern] of [
       assert.match(source, /osfui\.markReady\(\)/);
       assert.match(source, /osfui\.i18n\.localize/);
       assert.match(source, /osfui\.theme\.applyAccent/);
+      assert.match(source, /registry\.keyboard\?\.labels/);
+      assert.match(source, /never store the label/);
+      assert.match(mock, /keyboard: \{ layout: 'en-US', labels:/);
       assert.match(source, /osfui\.send\('osfui\.handleBack'/);
       // Settings WRITES, key capture, and the platform-service endpoints are
       // documented, not scaffolded — the starter only reads its own settings.
@@ -283,7 +288,7 @@ test('creates the settings/papyrus preset', async (t) => {
     resolve(root, 'mod/SFSE/Plugins/OSFUI/settings/acme.widgets.json'), 'utf8',
   ));
   assert.equal(schema.id, 'acme.widgets');
-  assert.equal(schema.targetVersion, '2.0.0');
+  assert.equal(schema.targetVersion, HOST_VERSION);
   const rows = schema.groups[0].settings;
   assert.deepEqual(rows.map(({ key }) => key), ['enabled', 'strength', 'mode', 'notifyKey']);
   // Papyrus cannot serve an action row's request, so the template must not
@@ -323,6 +328,7 @@ test('creates the settings/papyrus preset', async (t) => {
   const readme = await readFile(resolve(root, 'README.md'), 'utf8');
   assert.match(readme, /build-deploy\.ps1/);
   assert.match(readme, /save, reload, and press it again/);
+  assert.match(readme, /physical positions/);
   assert.doesNotMatch(readme, /npm run/);
 });
 

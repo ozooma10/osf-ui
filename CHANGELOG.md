@@ -42,6 +42,7 @@
 
 ### For view authors
 
+- `@osfui/cli` and `create-osfui` now follow the current API from one version source. Built manifests no longer write the removed `id` field (the folder owns identity), the harness envelope editor accepts 2.0 `kind` messages instead of refusing them for lacking a 1.x `type`, and its built-in mock recognizes the complete current platform endpoint set with protocol-shaped replies plus the current own-mod, platform-private and OSF UI Papyrus-script gates. Generated menu examples also render key settings through the player's current keyboard-layout labels instead of presenting a raw physical key name.
 - `osfui build` and `osfui package` work for scaffolded Papyrus projects again. The compiler was handed a `Scripts/Source/User` import folder that generated projects no longer create, and it hard-fails on a missing import folder — so no `.pex` was produced and the build stopped before the view step. Projects that still keep sources under `Scripts/Source/User` are unaffected.
 - The generated browser mock now behaves like the generated Papyrus script: the click counter counts the same way in the harness and in game, the "Backend enabled" setting is honoured in both, `Greet` updates the greeting in the harness, and `Refresh` is implemented on both sides.
 - The dev harness delivers events raised before a view's page greets the bridge, matching the runtime. The mock discarded them, which quietly hid the message-before-first-paint guarantee from every harness test.

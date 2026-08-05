@@ -5,6 +5,7 @@
 import { STAGE_MODES, computeFit, nextStageMode } from './stage-fit.js';
 import { applyPatch, nextCycleValue } from './tools-model.js';
 import { summarize } from './traffic-model.js';
+import { parseNativeEnvelope } from './envelope.js';
 
 const $ = (id) => document.getElementById(id);
 const frame = $('view');
@@ -410,9 +411,7 @@ $('traffic-clear').addEventListener('click', () => {
 
 $('send-event').addEventListener('click', () => {
   try {
-    const message = JSON.parse($('event-json').value);
-    if (!message || typeof message.type !== 'string') throw new Error('message.type is required');
-    send(message);
+    send(parseNativeEnvelope($('event-json').value));
   } catch (error) {
     log('in', String(error), 'warn');
   }

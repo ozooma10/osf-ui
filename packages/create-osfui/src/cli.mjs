@@ -11,7 +11,7 @@ import {
   slug,
   validModId,
 } from './prompts.mjs';
-import { MAX_MOD_ID_LENGTH } from '@osfui/cli/constants';
+import { HOST_VERSION, MAX_MOD_ID_LENGTH } from '@osfui/cli/constants';
 import { resolveCliSpec } from './cli-spec.mjs';
 import {
   backendConfig,
@@ -396,9 +396,16 @@ form.addEventListener('submit', async (event) => {
 // current values and again on every change — no read to issue, no race.
 function applySetting(key: string, value: SettingValue) {
   if (key === 'accent' && typeof value === 'string') osfui.theme.applyAccent(app, value);
-  setting.textContent = key + ' = ' + JSON.stringify(value);
+  const shown = key === 'openKey' && typeof value === 'string'
+    ? (value ? keyboardLabels[value] ?? value : 'Unbound')
+    : JSON.stringify(value);
+  setting.textContent = key + ' = ' + shown;
 }
+let keyboardLabels: Record<string, string> = {};
 osfui.state.on<SettingsData>('osfui/settings', (registry) => {
+  // Key values are layout-independent physical names. Show the player's
+  // current keycap when the host publishes one; never store the label.
+  keyboardLabels = registry.keyboard?.labels ?? {};
   const own = registry.mods.find((mod) => mod.id === '${options.modId}');
   if (!own) return;
   for (const [key, value] of Object.entries(own.values)) applySetting(key, value);
@@ -487,6 +494,7 @@ export function install(ctx: MockContext) {
         id: '${options.modId}', title: schema.title, schema,
         values: { ...settings }, targetVersion: schema.targetVersion,
       }],
+      keyboard: { layout: 'en-US', labels: { F8: 'F8', F9: 'F9' } },
     },
   });
 
@@ -588,6 +596,7 @@ export function install(ctx: MockContext) {
         id: '${options.modId}', title: schema.title, schema,
         values: { ...settingValues }, targetVersion: schema.targetVersion,
       }],
+      keyboard: { layout: 'en-US', labels: { F8: 'F8', F9: 'F9' } },
     },
   });
   const changeSetting = (key: string, value: unknown) => {
@@ -710,6 +719,7 @@ export function install(ctx: MockContext) {
         id: '${options.modId}', title: schema.title, schema,
         values: { ...settingValues }, targetVersion: schema.targetVersion,
       }],
+      keyboard: { layout: 'en-US', labels: { F8: 'F8', F9: 'F9' } },
     },
   });
   const changeSetting = (key: string, value: unknown) => {
@@ -892,9 +902,16 @@ form.addEventListener('submit', (event) => {
 // current values and again on every change — no read to issue, no race.
 function applySetting(key: string, value: SettingValue) {
   if (key === 'accent' && typeof value === 'string') osfui.theme.applyAccent(app, value);
-  setting.textContent = key + ' = ' + JSON.stringify(value);
+  const shown = key === 'openKey' && typeof value === 'string'
+    ? (value ? keyboardLabels[value] ?? value : 'Unbound')
+    : JSON.stringify(value);
+  setting.textContent = key + ' = ' + shown;
 }
+let keyboardLabels: Record<string, string> = {};
 osfui.state.on<SettingsData>('osfui/settings', (registry) => {
+  // Key values are layout-independent physical names. Show the player's
+  // current keycap when the host publishes one; never store the label.
+  keyboardLabels = registry.keyboard?.labels ?? {};
   const own = registry.mods.find((mod) => mod.id === '${options.modId}');
   if (!own) return;
   for (const [key, value] of Object.entries(own.values)) applySetting(key, value);
@@ -1124,7 +1141,7 @@ ${backendConfig(options)}  views: [{
     width: ${options.surface === 'hud' ? 1920 : 1200},
     height: ${options.surface === 'hud' ? 1080 : 720},
     accent: '#7bdcff',
-    targetVersion: '2.0.0',
+    targetVersion: '${HOST_VERSION}',
 ${options.surface === 'hud' ? `    openOnStart: true,
 ` : `    pausesGame: false,
     readySignal: true,

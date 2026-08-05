@@ -14,6 +14,7 @@ const SHARED_PREFIX = '\0osfui-shared:';
 const MOCK_ENTRY = '/__osfui/mock-entry.js';
 /** src/browser modules served verbatim at /__osfui/<name>. */
 const BROWSER_MODULES = new Set([
+  '/__osfui/envelope.js',
   '/__osfui/stage-fit.js',
   '/__osfui/tools-model.js',
   '/__osfui/traffic-model.js',

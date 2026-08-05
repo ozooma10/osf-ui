@@ -48,10 +48,20 @@ async function projectFixture(t) {
   return root;
 }
 
-test('toolchain constants and packaged helper match the 2.0 runtime API', async () => {
+test('toolchain metadata and packaged helper match the runtime API', async () => {
   const constants = await import('../src/constants.mjs');
-  assert.equal(constants.HOST_VERSION, '2.0.0');
-  assert.equal(constants.BRIDGE_VERSION, '2.0');
+  const runtimeVersion = await readFile(
+    resolve(import.meta.dirname, '../../../src/core/Version.h'),
+    'utf8',
+  );
+  assert.equal(
+    constants.HOST_VERSION,
+    /kPluginVersion\s*=\s*"([^"]+)"/.exec(runtimeVersion)?.[1],
+  );
+  assert.equal(
+    constants.BRIDGE_VERSION,
+    /kBridgeProtocolVersion\s*=\s*"([^"]+)"/.exec(runtimeVersion)?.[1],
+  );
   assert.equal(
     await readFile(resolve(import.meta.dirname, '../assets/osfui.js'), 'utf8'),
     await readFile(resolve(import.meta.dirname, '../../../frontend/src/shared-kit/osfui.js'), 'utf8'),
@@ -138,7 +148,7 @@ test('checks, builds, and packages a generated-shaped project', async (t) => {
     resolve(root, 'dist/SFSE/Plugins/OSFUI/views/acme.widgets/panel/manifest.json'),
     'utf8',
   ));
-  assert.equal(manifest.id, 'panel');
+  assert.equal(manifest.id, undefined);
   const viewsOutput = resolve(root, 'dist/SFSE/Plugins/OSFUI/views');
   assert.equal(
     await access(resolve(viewsOutput, 'shared')).then(() => true, () => false),
@@ -471,6 +481,7 @@ test('development server exposes the harness and injects the bridge before view 
     }
   }
   assert.ok(walked.has('/__osfui/mock-runtime.js'));
+  assert.ok(walked.has('/__osfui/envelope.js'));
   assert.ok(walked.has('/__osfui/pseudo.js'));
   assert.ok(walked.has('/__osfui/tools-model.js'));
   assert.ok(walked.has('/__osfui/traffic-model.js'));

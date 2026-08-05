@@ -1,3 +1,5 @@
+import { HOST_VERSION } from '@osfui/cli/constants';
+
 const words = (value) => value.split(/[^a-zA-Z0-9]+/).filter(Boolean);
 
 export const pascalIdentifier = (value) => {
@@ -17,7 +19,7 @@ function hudSettingsSchema(options) {
     title: displayName(options.modId),
     description: `Controls for the ${options.view.replaceAll('-', ' ')} HUD.`,
     version: 1,
-    targetVersion: '2.0.0',
+    targetVersion: HOST_VERSION,
     groups: [{
       id: 'hud',
       label: 'HUD',
@@ -87,7 +89,7 @@ function menuSettingsSchema(options) {
     title: displayName(options.modId),
     description: `Settings for ${options.view.replaceAll('-', ' ')}.`,
     version: 1,
-    targetVersion: '2.0.0',
+    targetVersion: HOST_VERSION,
     accent: '#7bdcff',
     groups: [{ id: 'general', label: 'General', settings }],
   };
@@ -102,7 +104,7 @@ function settingsOnlySchema(options) {
     title: displayName(options.modId),
     description: `Settings and hotkeys for ${displayName(options.modId)}.`,
     version: 1,
-    targetVersion: '2.0.0',
+    targetVersion: HOST_VERSION,
     groups: [{
       id: 'general',
       label: 'General',
@@ -345,7 +347,8 @@ the target is read from the schema at delivery time, so unlike
   [authoring-settings.md](https://github.com/ozooma10/osf-ui/blob/main/docs/authoring-settings.md).
 - **Hotkey** — a \`"type": "key"\` row with an \`onPress\` target. Its
   \`script\` must match the \`ScriptName\` exactly and the function must be
-  GLOBAL with an exact \`(string, string)\` signature.
+  GLOBAL with an exact \`(string, string)\` signature. Stored key names identify
+  physical positions; OSF UI shows the player's current keyboard-layout label.
 - **Preview without launching Starfield** — run the OSF UI dev harness, open
   \`?view=osfui/settings\`, and drag the settings JSON onto the page.
 - **Add a view later** — run \`npm create osfui@latest\` and pick the menu or

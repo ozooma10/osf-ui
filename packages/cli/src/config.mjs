@@ -214,7 +214,6 @@ export async function loadProject(cwd, command = 'serve') {
 
 export function manifestFor(view) {
   return {
-    id: view.id,
     title: view.title,
     description: view.description,
     entry: view.entry,
