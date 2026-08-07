@@ -68,7 +68,7 @@ async function main() {
   }
   if (command === 'check') {
     const count = await checkProject(project);
-    console.log(`[osfui] ${count} view(s) passed compatibility checks.`);
+    console.log(`[osfui] ${count} view(s) passed authoring checks.`);
     await reportPapyrus(project);
     return;
   }

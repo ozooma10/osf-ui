@@ -68,19 +68,22 @@ test('toolchain metadata and packaged helper match the runtime API', async () =>
   );
 });
 
-test('targetVersion never changes the strict 2.0 harness helper', async (t) => {
+test('pre-2.0 targetVersion is refused instead of previewed against the wrong helper', async (t) => {
   const root = await projectFixture(t);
   await writeFile(resolve(root, 'osfui.config.ts'), `export default {
     modId: 'acme.widgets',
     views: [{ id: 'panel', targetVersion: '1.5.0' }],
   };`);
-  const project = await loadProject(root);
-  const plugin = harnessPlugin(project, project.views[0]);
-  const injected = plugin.transformIndexHtml.handler('', {
-    path: '/acme.widgets/panel/index.html',
-  });
-  assert.doesNotMatch(injected[0].children, /legacyApi|osfui-api=1/);
-  assert.match(injected[0].children, /"viewUrl":"\/acme\.widgets\/panel\/index\.html"/);
+  await assert.rejects(loadProject(root), /helper API was removed/);
+});
+
+test('malformed targetVersion fails before dev or build can misrepresent it', async (t) => {
+  const root = await projectFixture(t);
+  await writeFile(resolve(root, 'osfui.config.ts'), `export default {
+    modId: 'acme.widgets',
+    views: [{ id: 'panel', targetVersion: '2.x' }],
+  };`);
+  await assert.rejects(loadProject(root), /targetVersion must be/);
 });
 
 test('loads configuration and creates a production manifest', async (t) => {
@@ -101,7 +104,7 @@ test('manifestFor covers every manifest.schema.json property', async (t) => {
   // lost it and the handoff panel rendered default teal.
   await writeFile(resolve(root, 'osfui.config.ts'), `export default {
     modId: 'acme.widgets',
-    views: [{ id: 'panel', title: 'Panel', accent: '#ffb86b', targetVersion: '1.4.0' }],
+    views: [{ id: 'panel', title: 'Panel', accent: '#ffb86b', targetVersion: '2.0.0' }],
   };`);
   const project = await loadProject(root);
   const manifest = manifestFor(project.views[0]);
@@ -160,6 +163,32 @@ test('checks, builds, and packages a generated-shaped project', async (t) => {
   const archive = await readFile(zip);
   assert.equal(archive.subarray(0, 4).toString('hex'), '504b0304');
   assert.ok(archive.includes(Buffer.from('Scripts/Example.pex')));
+});
+
+test('check validates generated manifests and drop-in settings schemas', async (t) => {
+  const root = await projectFixture(t);
+  const settingsRoot = resolve(root, 'mod/SFSE/Plugins/OSFUI/settings');
+  await mkdir(settingsRoot, { recursive: true });
+  const schemaPath = resolve(settingsRoot, 'acme.widgets.json');
+  await writeFile(schemaPath, JSON.stringify({
+    id: 'acme.widgets',
+    version: 1,
+    targetVersion: '2.0.0',
+    groups: [{ settings: [{ key: 'enabled', type: 'bool', default: true }] }],
+  }));
+  assert.equal(await checkProject(await loadProject(root)), 1);
+
+  await writeFile(schemaPath, JSON.stringify({
+    id: 'acme.widgets',
+    groups: [{ settings: [{ type: 'bool', default: true }] }],
+  }));
+  await assert.rejects(
+    checkProject(await loadProject(root)),
+    /settings-schema.*required property 'key'|settings\\acme\.widgets\.json.*required property 'key'/i,
+  );
+
+  await writeFile(schemaPath, JSON.stringify({ id: 'somebody.else', groups: [] }));
+  await assert.rejects(checkProject(await loadProject(root)), /filename owns id "acme\.widgets"/);
 });
 
 test('build refuses to clobber an output directory it did not write', async (t) => {

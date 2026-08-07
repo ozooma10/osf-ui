@@ -310,13 +310,13 @@ For a mod spanning all three backends:
 
 Carried over untouched: settings schema files, saved player values, localization catalogs, view manifests (no field changed — several changed *meaning*, because the bridge a manifest opts into is a different one), and your view's HTML/CSS.
 
-Repository note: `data/OSFUI/views/` is **generated build output** that is committed. Edit `frontend/src/` and rebuild; never hand-edit the generated copy.
+Repository note: built-in views are generated from `frontend/src/` into ignored `build/frontend/views/`. Edit the source and run the root verifier or frontend build; never hand-edit generated output.
 
 ---
 
 ## 9. Test matrix
 
-Run `bash tests/native/run.sh` (exit code = failing checks) and `npm --prefix frontend run verify` (typecheck + build + vitest). The CLI packages have their own `npm test`.
+Run `bash tests/native/run.sh` (exit code = failing checks) and root `npm run verify` (CLI, scaffolder, frontend typecheck/build/tests).
 
 | Guarantee | Suite |
 |---|---|
@@ -351,9 +351,8 @@ Run `bash tests/native/run.sh` (exit code = failing checks) and `npm --prefix fr
 | Built views load the shipped helper and pass the output gates | `frontend/test/build.output.test.ts` |
 | `targetVersion` comparison feeding the "needs update" badge | `frontend/test/version.test.ts` |
 | The dev harness's traffic inspector reads 2.0 envelopes by endpoint rather than by envelope | `packages/cli/test/traffic-model.test.mjs` |
-| Scaffolding refuses malformed input and yields legal ids (it does **not** compile the emitted templates) | `packages/create-osfui/test/scaffold.test.mjs` |
-
-**Known gap.** `packages/cli/test/mock-runtime.test.mjs` wasn't migrated with `packages/cli/src/browser/mock-runtime.js`. The scenario engine's signature changed from `(command, payload, requestId, { reply, report })` to `(kind, name, payload, io)` with `io.resolve` / `io.reject` / `io.surface`, and the suite still drives the 1.x shape (including an `i18n.get` case for an endpoint that no longer exists). Fix it before trusting the CLI mock's coverage.
+| Scaffolding refuses malformed input and yields legal ids; the CLI suite separately checks, builds, and packages a generated-shaped project | `packages/create-osfui/test/scaffold.test.mjs`, `packages/cli/test/toolchain.test.mjs` |
+| The scenario engine and built-in mock enforce the 2.0 `(kind, name, payload, io)` contract | `packages/cli/test/mock-runtime.test.mjs` |
 
 ---
 

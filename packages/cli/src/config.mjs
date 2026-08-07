@@ -60,6 +60,20 @@ function integer(value, fallback) {
   return Number.isInteger(value) ? Math.max(1, Math.min(16384, value)) : fallback;
 }
 
+function targetVersion(value, label) {
+  if (value === undefined || value === '') return undefined;
+  if (typeof value !== 'string' || !/^[0-9]+(?:\.[0-9]+){0,2}$/.test(value)) {
+    throw new Error(`${label} targetVersion must be '<major>[.<minor>[.<patch>]]'.`);
+  }
+  if (Number.parseInt(value.split('.')[0], 10) < 2) {
+    throw new Error(
+      `${label} targets OSF UI ${value}, whose helper API was removed. ` +
+      `Migrate the view and set targetVersion to '2.0.0' or later.`,
+    );
+  }
+  return value;
+}
+
 function validateRelative(value, label) {
   if (typeof value !== 'string' || !value || isAbsolute(value) ||
       value.replaceAll('\\', '/').split('/').includes('..')) {
@@ -159,6 +173,7 @@ export async function loadProject(cwd, command = 'serve') {
     const entryPath = resolve(sourceDir, entry);
     if (!await exists(entryPath)) throw new Error(`View entry not found: ${entryPath}`);
     const nativeBridge = item.permissions?.nativeBridge !== false;
+    const authoredTarget = targetVersion(item.targetVersion, `view "${item.id}"`);
     views.push({
       ...item,
       id: item.id,
@@ -180,6 +195,7 @@ export async function loadProject(cwd, command = 'serve') {
         filesystem: false,
         network: false,
       },
+      targetVersion: authoredTarget,
     });
   }
   const viewsRoot = resolve(root, 'src/views');

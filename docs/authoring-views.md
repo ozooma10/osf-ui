@@ -102,7 +102,7 @@ Your catalog is a state key (`osfui/i18n`, §3) the helper consumes for you: it 
   "hub": true,              // optional, default true; false = hidden utility view — loads and works, but isn't advertised in catalogs (name predates the Mods surface)
   "debugOnly": false,       // optional, default false; keep out of the mod menu list unless devMode is on in OSF UI's config.json. Still loads and openable by id; intended for built-in developer tools
   "readySignal": true,      // optional, default false; wait for osfui.markReady() before first reveal (requires nativeBridge)
-  "targetVersion": "2.0.0", // optional; the OSF UI version this view is authored against — advisory, never gates loading
+  "targetVersion": "2.0.0", // optional; newer targets are advisory; an explicit pre-2.0 target is refused
   "entry": "index.html",    // optional, default "index.html"; must stay inside the folder
   "width": 1600,            // optional, default 1600; clamped to 1..16384 — logical (authoring) size
   "height": 900,            // optional, default 900;  clamped to 1..16384 — logical (authoring) size

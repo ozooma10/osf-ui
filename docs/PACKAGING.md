@@ -9,7 +9,7 @@
 # Version comes from kPluginVersion in src/core/Version.h; tag defaults to "alpha".
 pwsh tools/package.ps1
 
-pwsh tools/package.ps1 -Version 1.4.0 -Tag beta   # custom version/tag
+pwsh tools/package.ps1 -Version 2.0.0 -Tag beta   # custom version/tag
 pwsh tools/package.ps1 -SkipBuild                 # package the current build
 pwsh tools/package.ps1 -NoPdb                     # drop the 18 MB PDB (crash logs get less useful)
 ```

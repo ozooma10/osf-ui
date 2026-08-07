@@ -9,6 +9,8 @@ const repoRoot = resolve(packageRoot, '..', '..');
 const copies = [
   ['frontend/src/shared-kit/osfui.js', 'assets/osfui.js'],
   ['frontend/src/shared-kit/osfui.css', 'assets/osfui.css'],
+  ['docs/schema/manifest.schema.json', 'assets/manifest.schema.json'],
+  ['docs/schema/settings-schema.schema.json', 'assets/settings-schema.schema.json'],
   ['sdk/osfui.d.ts', 'types/osfui.d.ts'],
 ];
 

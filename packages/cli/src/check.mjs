@@ -1,8 +1,10 @@
+import Ajv2020 from 'ajv/dist/2020.js';
 import { readdir, readFile } from 'node:fs/promises';
 import { exists } from './fsutil.mjs';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { extname, resolve } from 'node:path';
+import { basename, extname, resolve } from 'node:path';
+import { manifestFor } from './config.mjs';
 
 const TEXT = new Set(['.css', '.html', '.js', '.jsx', '.json', '.mjs', '.ts', '.tsx']);
 const require = createRequire(import.meta.url);
@@ -21,6 +23,62 @@ const RULES = [
   [/\b(?:WebSocket|WebTransport|RTCPeerConnection|SharedWorker|Worker|XMLHttpRequest|EventSource)\b/, 'unsupported network or worker API'],
 ];
 
+let validatorsPromise;
+
+async function schemaValidators() {
+  if (!validatorsPromise) {
+    validatorsPromise = Promise.all([
+      readFile(new URL('../assets/manifest.schema.json', import.meta.url), 'utf8'),
+      readFile(new URL('../assets/settings-schema.schema.json', import.meta.url), 'utf8'),
+    ]).then(([manifestSource, settingsSource]) => {
+      const ajv = new Ajv2020({ allErrors: true, strict: false });
+      return {
+        manifest: ajv.compile(JSON.parse(manifestSource)),
+        settings: ajv.compile(JSON.parse(settingsSource)),
+      };
+    });
+  }
+  return validatorsPromise;
+}
+
+function schemaErrors(validate) {
+  return (validate.errors ?? []).map((error) => {
+    const at = error.instancePath || '/';
+    return `${at} ${error.message}`;
+  }).join('; ');
+}
+
+function validateDocument(validate, document, label) {
+  if (!validate(document)) {
+    throw new Error(`${label} does not match the OSF UI 2.0 schema: ${schemaErrors(validate)}`);
+  }
+}
+
+async function validateAuthorContent(project) {
+  const validators = await schemaValidators();
+  for (const view of project.views) {
+    validateDocument(validators.manifest, manifestFor(view), `view "${view.qualifiedId}"`);
+  }
+
+  const settingsRoot = resolve(project.modRoot, 'SFSE/Plugins/OSFUI/settings');
+  if (!await exists(settingsRoot)) return;
+  for (const entry of await readdir(settingsRoot, { withFileTypes: true })) {
+    if (!entry.isFile() || extname(entry.name).toLowerCase() !== '.json') continue;
+    const path = resolve(settingsRoot, entry.name);
+    let document;
+    try {
+      document = JSON.parse(await readFile(path, 'utf8'));
+    } catch (error) {
+      throw new Error(`${path} is not valid JSON: ${error.message}`);
+    }
+    validateDocument(validators.settings, document, path);
+    const stem = basename(entry.name, extname(entry.name));
+    if (document.id !== undefined && document.id !== stem) {
+      throw new Error(`${path} declares id "${document.id}" but its filename owns id "${stem}".`);
+    }
+  }
+}
+
 async function files(root) {
   const result = [];
   for (const entry of await readdir(root, { withFileTypes: true })) {
@@ -32,6 +90,7 @@ async function files(root) {
 }
 
 export async function checkProject(project) {
+  await validateAuthorContent(project);
   const problems = [];
   for (const view of project.views) {
     for (const path of await files(view.sourceDir)) {

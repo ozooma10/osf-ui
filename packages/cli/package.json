@@ -44,6 +44,7 @@
     "test": "node scripts/sync-public-assets.mjs --check && node scripts/run-tests.mjs"
   },
   "dependencies": {
+    "ajv": "8.20.0",
     "typescript": "7.0.2",
     "vite": "8.1.5"
   }

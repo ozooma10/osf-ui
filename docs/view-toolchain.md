@@ -73,7 +73,7 @@ export function install(ctx: MockContext) {
 
 Debug with the browser's own DevTools — the shared kit is the production one, so the failures you see are the failures the game reports. Every rejection, timeout, missing bridge and dropped send prints with an `[osfui]` prefix; `localStorage["osfui:trace"] = "1"` plus a reload logs every envelope both directions. Details: [troubleshooting.md](troubleshooting.md#debugging-your-own-view-for-authors).
 
-`npm run check` flags remote URLs and browser transports the in-game host doesn't support.
+`npm run check` validates the manifest the config will emit and every drop-in settings JSON file against the packaged OSF UI 2.0 schemas, then type-checks the project and flags remote URLs and browser transports the in-game host doesn't support. A malformed or explicitly pre-2.0 `targetVersion` fails here rather than producing a preview the game will refuse.
 
 ## Iterate in Starfield
 
@@ -106,9 +106,9 @@ npm run build
 npm run package
 ```
 
-For a Papyrus project, `build` compiles every `mod/Scripts/Source/**/*.psc` into a loose PEX. It then copies the project's `mod/` Data-root tree into `dist/`, creates `dist/SFSE/Plugins/OSFUI/views/`, generates manifests from `osfui.config.ts|js`, and includes the public shared kit. Native DLLs, settings schemas and other normal mod files under `mod/` are included too. `package` rebuilds and writes a distributable zip under `release/`; there is no game plugin to enable.
+For a Papyrus project, `build` compiles every `mod/Scripts/Source/**/*.psc` into a loose PEX. It then copies the project's `mod/` Data-root tree into `dist/`, creates `dist/SFSE/Plugins/OSFUI/views/`, and generates manifests from `osfui.config.ts|js`. The installed OSF UI framework supplies the shared kit; a third-party package does not duplicate it. Native DLLs, settings schemas and other normal mod files under `mod/` are included too. `package` rebuilds and writes a distributable zip under `release/`; there is no game plugin to enable.
 
-Declare `targetVersion` on your view in `osfui.config.*`. It's advisory — the runtime never gates on it — but it tells a player's Mods surface whether your view needs a newer OSF UI, and a view still declaring a 1.x target is flagged as written for the removed API rather than loading into a blank page.
+Declare `targetVersion` on your view in `osfui.config.*`. A target newer than the installed host is advisory and tells the player's Mods surface that OSF UI needs an update. A target below 2.0 is different: both the authoring toolchain and runtime refuse it because the 1.x helper API no longer exists.
 
 Papyrus builds require:
 

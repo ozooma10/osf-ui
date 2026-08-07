@@ -7,7 +7,6 @@ decision rather than more mechanical cleanup:
 - Decide whether the unused public shared-kit tokens and classes may be removed.
 - Revisit the two intentionally different key-conflict models only with a shared
   product definition for their behavior.
-- Keep the 1.x native compatibility-command registry until ABI major 2.
 - Consider unifying the browser mock layers only if their ownership model changes;
   the current runtime mock and built-in-view mock serve different harnesses.
 - Treat marketing SVG/PNG generation as a separate asset-pipeline project.
