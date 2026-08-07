@@ -18,6 +18,7 @@
 
 ### Fixed
 
+- Settings sliders now update their readout while dragging but commit only when the drag ends, and text and colour fields commit on their native change boundary instead of on every keystroke. Preact's compatibility transform had collapsed the deliberately separate `input` and `change` handlers onto the same event, causing slider write spam and inconsistent text-field commits.
 - The injected pause-menu entry no longer waits three extra menu-pump ticks after Starfield's list becomes live. Injection still runs only from the main-thread post-Scaleform pump and retains every movie-liveness, list-presence, and count guard that prevents stale AS3 access.
 - Post-data-load GameVM and UI setup now runs on OSF UI's serialized main-thread checkpoint instead of directly inside SFSE lifecycle callbacks, which can arrive on a job thread. This covers Papyrus binding, UI layout validation, menu-event registration, the post-Scaleform pump hook, focus-menu registration, and the game-window input hook, removing the same false-main-thread assumption behind earlier startup and Scaleform instability.
 - Starfield no longer intermittently crashes with `bad allocation` while the live keybinding catalog starts. SFSE can deliver `kPostDataLoad` from a job thread while OSF UI's main-thread tick is already running; catalog initialization is now handed off wholesale to that serialized tick instead of exposing partially built strings, vectors, and JSON across both threads.

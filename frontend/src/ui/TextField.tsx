@@ -46,7 +46,9 @@ export function TextField({ id, setting, value, disabled, onCommit }: TextFieldP
         value={text}
         disabled={disabled}
         onInput={(e) => setText((e.currentTarget as HTMLTextAreaElement).value)}
-        onChange={(e) => onCommit((e.currentTarget as HTMLTextAreaElement).value)}
+        // Capture spelling binds native `change`; Preact compat otherwise
+        // rewrites `onChange` on text controls to a per-keystroke input event.
+        onChangeCapture={(e) => onCommit((e.currentTarget as HTMLTextAreaElement).value)}
       />
     );
   }
@@ -60,7 +62,9 @@ export function TextField({ id, setting, value, disabled, onCommit }: TextFieldP
       value={text}
       disabled={disabled}
       onInput={(e) => setText((e.currentTarget as HTMLInputElement).value)}
-      onChange={(e) => onCommit((e.currentTarget as HTMLInputElement).value)}
+      // Capture spelling binds native `change`; Preact compat otherwise
+      // rewrites `onChange` on text controls to a per-keystroke input event.
+      onChangeCapture={(e) => onCommit((e.currentTarget as HTMLInputElement).value)}
     />
   );
 }

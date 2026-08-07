@@ -77,7 +77,10 @@ export function ColorField({ id, value, disabled, onCommit, onInvalid }: ColorFi
         maxLength={9}
         disabled={disabled}
         onInput={(e) => setText((e.currentTarget as HTMLInputElement).value)}
-        onChange={(e) => apply((e.currentTarget as HTMLInputElement).value)}
+        // Keep this as the native `change` event. The Preact compat transform
+        // maps plain `onChange` on text inputs to `input`, which would commit
+        // every keystroke; the capture spelling bypasses that normalization.
+        onChangeCapture={(e) => apply((e.currentTarget as HTMLInputElement).value)}
       />
       <div class="osf-color-presets">
         {COLOR_PRESETS.map((p) => (

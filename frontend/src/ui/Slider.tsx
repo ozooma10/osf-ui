@@ -52,7 +52,10 @@ export function Slider({ id, spec, setting, value, disabled, onCommit }: SliderP
         value={shown}
         disabled={disabled}
         onInput={(e) => setDragging((e.currentTarget as HTMLInputElement).value)}
-        onChange={(e) => {
+        // The Preact compat transform rewrites `onChange` on inputs to
+        // `onInput`. Capture spelling bypasses that React-style normalization
+        // and binds the native, end-of-drag `change` event we require.
+        onChangeCapture={(e) => {
           const raw = (e.currentTarget as HTMLInputElement).value;
           setDragging(null);
           // parseInt/parseFloat by declared type, not by whether the string
