@@ -25,11 +25,13 @@ needed.
 **2.0 — stable.** Additive changes bump the minor; breaking changes bump the
 major. Declare the OSF UI version you authored against as `targetVersion` in
 your manifest and settings schema. Newer targets receive a "needs update"
-badge; explicitly pre-2.0 views are refused and reported through System Health.
+badge; during 2.0.x explicitly pre-2.0 views use a guarded 1.x façade and get a
+persistent warning that it is removed in 2.1.0.
 
 Both the web protocol and native C++ ABI make a breaking 2.0 cut. Native
-plugins must rebuild against ABI 2.0; ABI 1.x callers receive `nullptr` and a
-bounded local Health diagnostic naming the outdated DLL. Sends use strict
+plugins should rebuild against ABI 2.0; during 2.0.x ABI 1.x callers receive a
+frozen 1.8 adapter and a bounded local Health warning naming the outdated DLL.
+The adapter is removed in 2.1.0. ABI 2 sends use strict
 `RegisterSend` handlers and requests use `RegisterRequest`; there is no payload
 injection or automatic acknowledgement.
 

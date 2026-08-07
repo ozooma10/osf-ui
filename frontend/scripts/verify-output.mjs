@@ -6,6 +6,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { BUILD_VIEWS, OUT, FRONTEND, expectedOutputs, walk } from './config.mjs';
+import { composeHelper } from './compose-helper.mjs';
 
 // Identifiers that exist only in the dev mock (frontend/devmock/). Any of
 // them in a shipped bundle means the DEV-branch dead-code elimination
@@ -31,9 +32,14 @@ export function verifyOutput() {
   // ship in every archive.
   for (const f of actual) if (f.endsWith('.map')) fail(`source map in shipped output: ${f}`);
 
-  // Verbatim artifacts must stay byte-identical to their sources.
+  const helper = join(OUT, 'shared/osfui.js');
+  if (!existsSync(helper)) fail('composed helper missing: shared/osfui.js');
+  else if (readFileSync(helper, 'utf8') !== composeHelper()) {
+    fail('composed helper drifted from the 2.0 core + guarded v1 facade');
+  }
+
+  // Remaining verbatim artifacts must stay byte-identical to their sources.
   const verbatim = [
-    ['src/shared-kit/osfui.js', 'shared/osfui.js'],
     ['src/shared-kit/osfui.css', 'shared/osfui.css'],
     ['src/legacy/padnav.js', 'osfui/padnav.js'],
   ];

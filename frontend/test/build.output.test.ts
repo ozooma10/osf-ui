@@ -11,6 +11,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { BUILD_VIEWS, OUT, FRONTEND, expectedOutputs, walk } from '../scripts/config.mjs';
 import { verifyOutput } from '../scripts/verify-output.mjs';
+import { composeHelper } from '../scripts/compose-helper.mjs';
 
 describe('build output', () => {
   it('passes every gate in verify-output.mjs', () => {
@@ -34,7 +35,11 @@ describe('build output', () => {
     expect(walk(OUT).filter((f: string) => f.endsWith('.map'))).toEqual([]);
   });
 
-  // Published public contract: shared/osfui.{js,css} are bridge protocol 2.0,
+  it('deterministically composes the strict 2.0 helper and guarded v1 facade', () => {
+    expect(readFileSync(join(OUT, 'shared/osfui.js'), 'utf8')).toBe(composeHelper());
+  });
+
+  // Published public contract: shared/osfui.css is copied verbatim,
   // and third-party mods link `../../shared/osfui.js` by that exact path;
   // padnav.js is private-but-unfrozen, shipped as-is pending in-game controller
   // verification (frontend/COMPATIBILITY.md). All three are copied, never
@@ -43,7 +48,6 @@ describe('build output', () => {
   // is what keeps an edit to src/shared-kit/osfui.js from shipping beside a
   // stale copy of itself.
   const verbatim: Array<[string, string]> = [
-    ['src/shared-kit/osfui.js', 'shared/osfui.js'],
     ['src/shared-kit/osfui.css', 'shared/osfui.css'],
     ['src/legacy/padnav.js', 'osfui/padnav.js'],
   ];

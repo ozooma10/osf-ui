@@ -15,9 +15,10 @@
 // authors.
 
 import { build } from 'vite';
-import { copyFileSync, mkdirSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { BUILD_VIEWS, FRONTEND, OUT, expectedOutputs } from './config.mjs';
+import { composeHelper } from './compose-helper.mjs';
 
 function copy(from, to) {
   mkdirSync(dirname(to), { recursive: true });
@@ -31,18 +32,18 @@ export async function runBuild({ quiet = false } = {}) {
   //    guarantees renamed/removed outputs cannot leak into installs.
   rmSync(OUT, { recursive: true, force: true });
 
-  // 2. Verbatim copies.
-  //    - shared/osfui.{js,css} are the frozen public contract (bridge protocol
-  //      1.0, api-freeze item 5). Third-party mods link `../../shared/osfui.js`
-  //      by exact path, so regenerating risks byte-level behaviour change
-  //      against unknown consumers.
+  // 2. Public/shared assets.
+  //    - shared/osfui.js is the untouched authored 2.0 helper followed by the
+  //      guarded temporary v1 facade. The composition hook is removed with
+  //      frontend/src/compat/v1 in 2.1.0.
   //    - padnav.js is private but unfrozen. It reads concrete DOM geometry and
   //      its in-game controller verification is still pending, so it ships
   //      as-is. Exit criteria in frontend/COMPATIBILITY.md.
-  copy(join(FRONTEND, 'src/shared-kit/osfui.js'), join(OUT, 'shared/osfui.js'));
+  mkdirSync(join(OUT, 'shared'), { recursive: true });
+  writeFileSync(join(OUT, 'shared/osfui.js'), composeHelper(), 'utf8');
   copy(join(FRONTEND, 'src/shared-kit/osfui.css'), join(OUT, 'shared/osfui.css'));
   copy(join(FRONTEND, 'src/legacy/padnav.js'), join(OUT, 'osfui/padnav.js'));
-  log('  copied shared kit + padnav');
+  log('  composed shared helper; copied stylesheet + padnav');
 
   for (const v of BUILD_VIEWS) {
     const src = join(FRONTEND, 'src/views', v.mod, v.name);

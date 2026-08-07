@@ -301,10 +301,10 @@ const COPY: Record<string, IssueCopy> = {
     actions: ['update-osfui', 'copy-details'],
   },
   'compat.pre-2-view': {
-    title: ['issuePre2ViewTitle', 'A screen was built for the removed OSF UI 1.x API'],
+    title: ['issuePre2ViewTitle', 'A screen still uses the OSF UI 1.x API'],
     impact: [
       'issuePre2ViewImpact',
-      'OSF UI refused to open it because the old helper and message format are not part of 2.0.',
+      'Temporary compatibility kept it running, but that bridge will be removed in OSF UI 2.1.0.',
     ],
     next: [
       'issuePre2ViewNext',
@@ -313,13 +313,37 @@ const COPY: Record<string, IssueCopy> = {
     actions: ['copy-details', 'open-logs'],
   },
   'compat.legacy-api': {
-    title: ['issueLegacyAbiTitle', 'A native plugin uses the retired OSF UI 1.x ABI'],
+    title: ['issueLegacyAbiTitle', 'A native plugin still uses the OSF UI 1.x ABI'],
     impact: [
       'issueLegacyAbiImpact',
-      'OSF UI refused its bridge request, so that plugin’s OSF UI integration is unavailable.',
+      'Temporary compatibility kept it connected, but that bridge will be removed in OSF UI 2.1.0.',
     ],
     next: [
       'issueLegacyAbiNext',
+      'Update the DLL named below to a version built for native ABI 2.0.',
+    ],
+    actions: ['copy-details', 'open-logs'],
+  },
+  'compat.legacy-papyrus': {
+    title: ['issueLegacyPapyrusTitle', 'A mod still uses the OSF UI 1.x Papyrus API'],
+    impact: [
+      'issueLegacyPapyrusImpact',
+      'Temporary compatibility kept its calls working, but those natives will be removed in OSF UI 2.1.0.',
+    ],
+    next: [
+      'issueLegacyPapyrusNext',
+      'Update the mod named below to use SetView*, ListenForViewActions, or ListenForViewActionsStatic.',
+    ],
+    actions: ['copy-details', 'open-logs'],
+  },
+  'compat.unsupported-api': {
+    title: ['issueUnsupportedAbiTitle', 'A native plugin requested an unsupported OSF UI ABI'],
+    impact: [
+      'issueUnsupportedAbiImpact',
+      'OSF UI refused the bridge request because that ABI major is neither 1.x nor 2.x.',
+    ],
+    next: [
+      'issueUnsupportedAbiNext',
       'Update the DLL named below to a version built for native ABI 2.0.',
     ],
     actions: ['copy-details', 'open-logs'],

@@ -7,8 +7,8 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 /** Locate one shared-kit asset in the published package or source checkout. */
 export async function sharedAssetPath(name) {
   const candidates = [
-    resolve(HERE, '..', '..', '..', 'frontend', 'src', 'shared-kit', name),
     resolve(HERE, '..', 'assets', name),
+    resolve(HERE, '..', '..', '..', 'frontend', 'src', 'shared-kit', name),
   ];
   for (const path of candidates) {
     try {

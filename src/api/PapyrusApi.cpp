@@ -12,6 +12,7 @@
 #include "RE/RTTI.h"                 // starfield_cast (TESForm -> TESFullName)
 #include "RE/T/TESForm.h"            // LookupByID + form identity reads
 #include "RE/T/TESFullName.h"        // display-name component
+#include "compat/v1/Papyrus.h"
 
 namespace OSFUI::API::Papyrus
 {
@@ -723,9 +724,8 @@ namespace OSFUI::API::Papyrus
 			return AddEntry(Kind::kAction, {}, a_script, a_fn.c_str(), *modId, {}, a_wantsArgs);
 		}
 
-		// The only action registration. The `RegisterForViewActions*` family is
-		// gone: four registrations for one concept, two of whose shapes existed
-		// only because the args list arrived after the scalar one did.
+		// The strict 2.0 action registration. The temporary v1 adapter binds the
+		// old four-shape `RegisterForViewActions*` family separately below.
 		std::int32_t ListenForViewActions(PapVM&, std::uint32_t, std::monostate,
 			RE::BSTSmartPointer<RE::BSScript::Object> a_receiver, RE::BSFixedString a_modId)
 		{
@@ -1007,6 +1007,7 @@ namespace OSFUI::API::Papyrus
 
 			a_vm->BindNativeMethod(kScriptName, "OpenMenu", &OpenMenu, true, false);
 			a_vm->BindNativeMethod(kScriptName, "CloseMenu", &CloseMenu, true, false);
+			Compat::V1::Papyrus::BindNatives(a_vm);
 
 			REX::INFO("PapyrusApi: natives bound on script '{}'", kScriptName);
 		}
@@ -1068,6 +1069,26 @@ namespace OSFUI::API::Papyrus
 				return RE::BSEventNotifyControl::kContinue;
 			}
 		};
+	}
+
+	std::int32_t RegisterLegacyActionInstance(
+		const RE::BSTSmartPointer<RE::BSScript::Object>& a_receiver,
+		const RE::BSFixedString& a_fn, const RE::BSFixedString& a_mod,
+		bool a_wantsArgs, const char* a_native)
+	{
+		return RegisterActionInstance(a_receiver, a_fn, a_mod, a_wantsArgs, a_native);
+	}
+
+	std::int32_t RegisterLegacyActionStatic(const RE::BSFixedString& a_script,
+		const RE::BSFixedString& a_fn, const RE::BSFixedString& a_mod,
+		bool a_wantsArgs, const char* a_native)
+	{
+		return RegisterActionStatic(a_script, a_fn, a_mod, a_wantsArgs, a_native);
+	}
+
+	nlohmann::json SerializeFormForLegacyPush(std::uint32_t a_formId)
+	{
+		return SerializeForm(a_formId);
 	}
 
 	void Install()

@@ -3,6 +3,7 @@
 #include <cmath>  // not in pch.h
 
 #include "core/StringUtil.h"
+#include "runtime/Ids.h"
 #include "runtime/Json.h"
 #include "runtime/MessageBridge.h"
 
@@ -68,7 +69,15 @@ namespace OSFUI
 				break;
 			}
 			if (value.is_string()) {
-				auto text = RedactPath(value.get<std::string>());
+				auto text = value.get<std::string>();
+				// Compatibility cards must carry the concrete consumer identity in
+				// context. A qualified view id contains '/', which the general path
+				// redactor would otherwise reduce to only its final segment. Preserve
+				// it only after the public view-id grammar proves it is an id rather
+				// than an arbitrary filesystem path supplied by a producer.
+				if (key != "consumer" || !Ids::IsValidQualifiedViewId(text)) {
+					text = RedactPath(text);
+				}
 				if (text.size() > kMaxContextValueChars) {
 					// Codepoint-boundary cut: context values carry author- and
 					// player-supplied text (view load errors, native ReportIssue),

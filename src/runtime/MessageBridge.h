@@ -82,11 +82,15 @@ namespace OSFUI
 		// request names are disjoint.
 		void RegisterSend(std::string a_name, SendHandler a_handler);
 		bool RegisterRequest(std::string a_name, RequestHandler a_handler);
+		// Temporary 1.x command kind: accepts send and request. A request gets its
+		// page id injected into payload.requestId and an automatic success reply.
+		bool RegisterLegacyCommand(std::string a_name, SendHandler a_handler);
 
 		// No-ops if absent. Used by the native plugin API (src/api) for hot
 		// cleanup / re-sync.
 		void UnregisterSend(std::string_view a_name);
 		void UnregisterRequest(std::string_view a_name);
+		void UnregisterLegacyCommand(std::string_view a_name);
 
 		[[nodiscard]] bool HasSend(std::string_view a_name) const;
 		[[nodiscard]] bool HasRequest(std::string_view a_name) const;
@@ -156,12 +160,13 @@ namespace OSFUI
 		// ---- view lifecycle ------------------------------------------------
 		// Arm a closed event gate for a freshly created (or reloaded) view.
 		// Events emitted between here and that document's hello are queued.
-		void OnViewCreated(std::string_view a_viewId);
+		void OnViewCreated(std::string_view a_viewId, bool a_legacyApi = false);
 		// Drop the gate, its queued events, and every deferred request the view
 		// still owns.
 		void OnViewDestroyed(std::string_view a_viewId);
 		// True once the view's document has greeted the bridge.
 		[[nodiscard]] bool HasGreeted(std::string_view a_viewId) const;
+		[[nodiscard]] bool IsLegacyApiView(std::string_view a_viewId) const;
 
 		void SetHelloHook(HelloHook a_hook) { _onHello = std::move(a_hook); }
 		void SetSurfaceFn(SurfaceFn a_fn) { _surface = std::move(a_fn); }
@@ -205,6 +210,7 @@ namespace OSFUI
 			// backlog queued before the document greeted us.
 			bool                    greeted{ false };     // state may flow
 			bool                    eventsOpen{ false };  // events may flow
+			bool                    legacyApi{ false };   // temporary 1.x reply envelope adaptation
 			std::deque<std::string> queued;               // encoded event envelopes
 		};
 
@@ -225,6 +231,7 @@ namespace OSFUI
 		SendFn                                            _send;
 		std::unordered_map<std::string, SendHandler>      _sends;
 		std::unordered_map<std::string, RequestHandler>   _requests;
+		std::unordered_map<std::string, SendHandler>      _legacyCommands;
 		std::unordered_map<std::string, Gate>             _gates;    // view id -> event gate
 		std::unordered_map<std::string, Pending>          _pending;  // host token -> deferred request
 		std::uint64_t                                     _nextDeferToken{ 1 };

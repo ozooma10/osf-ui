@@ -2,13 +2,13 @@
 
 Read this when your mod stopped working after updating OSF UI. It's the mechanics half of [mod-api-2.0-design.md](mod-api-2.0-design.md), which covers *why* the API is shaped this way.
 
-**The 2.0 web protocol and native C++ ABI are hard breaks.** Explicitly pre-2.0 views are refused before navigation, and ABI 1.x DLLs receive no bridge. System Health names the view or DLL that needs an author update.
+**The 2.0 web protocol and native C++ ABI are hard breaks for current consumers.** OSF UI 2.0.x temporarily adapts the final public 1.x view, native ABI 1.8, and Papyrus surfaces so existing mods keep running while their authors migrate. Every concrete legacy consumer gets a persistent warning naming **2.1.0** as the removal release. A view or DLL declaring 2.0 stays on the strict path and receives no legacy aliases.
 
 | Artifact | Breaks? | How you find out |
 |---|---|---|
-| View (`views/<modId>/<viewName>/`) | **Yes** | A declared pre-2.0 target is refused and reported as `compat.pre-2-view`. Migrate to the four-verb helper and declare `targetVersion: "2.0.0"`. |
-| Native SFSE plugin (`sdk/OSFUI_API.h`) | **Yes** | ABI 1.x callers receive `nullptr` and a local diagnostic naming the outdated DLL. Rebuild against ABI 2.0. |
-| Papyrus script | **Partly** | Six removed natives (`PushToView`, `PushFormsToView`, `RegisterForViewActions{,Static,Args,ArgsStatic}`). Calls fail to resolve in the VM and error in `Papyrus.0.log`. Everything else keeps its name. |
+| View (`views/<modId>/<viewName>/`) | **Yes** | A declared pre-2.0 target selects the guarded 1.x façade during 2.0.x and is reported as `compat.pre-2-view` warning. Migrate to the four-verb helper and declare `targetVersion: "2.0.0"` before 2.1.0. |
+| Native SFSE plugin (`sdk/OSFUI_API.h`) | **Yes** | ABI 1.0–1.8 callers receive the frozen 1.8 adapter and a `compat.legacy-api` warning during 2.0.x. Rebuild against ABI 2.0 before 2.1.0. Unrelated majors are still refused. |
+| Papyrus script | **Partly** | Six deprecated natives (`PushToView`, `PushFormsToView`, `RegisterForViewActions{,Static,Args,ArgsStatic}`) remain bound through 2.0.x and produce `compat.legacy-papyrus`; everything else keeps its name. |
 | Settings schema (`settings/<modId>.json`) | **No** | Declarative data. An `action` row uses a strict `RegisterRequest` endpoint. |
 | Player values, localization catalogs | **No** | Same files, same format. |
 
@@ -199,9 +199,9 @@ The first six names are unchanged from 1.x. What changed: they are now *only* ev
 | `ui.action` | Renamed `papyrus.send`. |
 | `ui.papyrusRequest` | Renamed `papyrus.request`. |
 
-### 3.6 Deleted native → web message types
+### 3.6 Deleted native → web message types for 2.0 views
 
-The `kind` field replaces the whole `type` taxonomy: `runtime.ready` (now `kind:"ready"`), `ui.result`, `ui.error` (now `kind:"reply"` / `kind:"error"`), `settings.ack`, `settings.data`, `views.data`, `i18n.data`, `diagnostics.data`, `data.push`, `data.state` (now `kind:"state"`), `papyrus.result`, `runtime.pong`, `game.data`, `handoff.state`.
+The `kind` field replaces the whole `type` taxonomy: `runtime.ready` (now `kind:"ready"`), `ui.result`, `ui.error` (now `kind:"reply"` / `kind:"error"`), `settings.ack`, `settings.data`, `views.data`, `i18n.data`, `diagnostics.data`, `data.push`, `data.state` (now `kind:"state"`), `papyrus.result`, `runtime.pong`, `game.data`, `handoff.state`. The guarded 1.x façade reconstructs these public legacy shapes only for explicitly pre-2.0 navigation during 2.0.x.
 
 ---
 
@@ -213,19 +213,19 @@ Papyrus keeps its 1.5 names on purpose: renaming `ListenForViewActions` / `OnOSF
 
 | 1.x | 2.0 | Break |
 |---|---|---|
-| `PushToView(mod, key, values)` | `SetView*` for state, `SendViewEvent` for happenings | **LOUD** — the native no longer binds; the call fails to resolve and errors in `Papyrus.0.log`, unwinding that stack |
-| `PushFormsToView(mod, key, forms)` | `SetViewForms(mod, key, forms)` | **LOUD** |
-| `RegisterForViewActions(receiver, fn, mod)` | `ListenForViewActions(receiver, mod)` → `OnOSFUIViewAction(string, string[])` | **LOUD** |
-| `RegisterForViewActionsStatic(script, fn, mod)` | `ListenForViewActionsStatic(script, mod)` | **LOUD** |
-| `RegisterForViewActionsArgs(...)` | `ListenForViewActions(...)` | **LOUD** |
-| `RegisterForViewActionsArgsStatic(...)` | `ListenForViewActionsStatic(...)` | **LOUD** |
+| `PushToView(mod, key, values)` | `SetView*` for state, `SendViewEvent` for happenings | **DEPRECATED** — remains a transient `data.push` in 2.0.x; warns and is removed in 2.1.0 |
+| `PushFormsToView(mod, key, forms)` | `SetViewForms(mod, key, forms)` | **DEPRECATED** — same temporary adapter |
+| `RegisterForViewActions(receiver, fn, mod)` | `ListenForViewActions(receiver, mod)` → `OnOSFUIViewAction(string, string[])` | **DEPRECATED** — exact scalar callback shape retained through 2.0.x |
+| `RegisterForViewActionsStatic(script, fn, mod)` | `ListenForViewActionsStatic(script, mod)` | **DEPRECATED** |
+| `RegisterForViewActionsArgs(...)` | `ListenForViewActions(...)` | **DEPRECATED** — exact args-list callback shape retained through 2.0.x |
+| `RegisterForViewActionsArgsStatic(...)` | `ListenForViewActionsStatic(...)` | **DEPRECATED** |
 | — | **`SendViewEvent(mod, name, args)`** (new) | emits `"<mod>.<name>"` with payload `{ args }`; never cached, never replayed |
 | `SetViewBool/Int/Float/String/Bools/Ints/Floats/Strings/Forms` | unchanged | none — but the wire shape is now `kind:"state"` and the view consumes it with `osfui.state.on()` |
 | `ListenForViewRequests{,Static}`, `ReplyView*`, `RejectViewRequest` | unchanged | none |
 | `GetFormById`, `GetFormsById`, `Unregister`, `OpenMenu`, `CloseMenu` | unchanged | none |
 | `RegisterForSettingChanges{,Static}`, `RegisterForHotkey{,Static}`, `Get*`/`Set*`/`Reset` | unchanged | none |
 
-- `PushToView` was **transient like an event but shaped like state** — which is why every mod using it needed a page-level `ready` action and a matching re-push. Delete both halves.
+- `PushToView` is **transient like an event but shaped like state** — which is why every mod using it needs a page-level `ready` action and a matching re-push. The 2.0.x adapter preserves that behavior only long enough to delete both halves safely.
 - Papyrus `SetView*` state stays **session-scoped**: values can hold form identities, which don't survive a game load. `Papyrus::TakeSessionReset()` reports the load and the runtime drops those entries (`ViewStateStore::ClearSessionScoped`). Republish after a load, exactly as in 1.5. Native `SetViewState` is *not* session-scoped.
 - Retained-state mechanics carry over: latest-wins per `mod`+`key`; case-insensitive keys (Papyrus `BSFixedString` interning hands back the first-seen casing); at most **64 keys per mod**; `None` form slots preserved as JSON `null` so a parallel values key stays index-aligned.
 - C++-side names moved with the concept: `ViewPush` → `ViewState` (`{ mod, key, value }`) + `ViewEvent` (`{ mod, name, args }`); `DrainViewPushes` → `DrainViewState` + `DrainViewEvents`; `ReplayViewState` removed entirely because the runtime owns the cache now (§6.3).
@@ -242,11 +242,13 @@ Papyrus keeps its 1.5 names on purpose: renaming `ListenForViewActions` / `OnOSF
 inline constexpr std::uint32_t kBridgeAPIVersion = (2u << 16) | 0u;
 ```
 
-`OSFUI_RequestBridge` compares the major. ABI 1.x callers receive `nullptr`; the host records a bounded, deduplicated `compat.legacy-api` System Health error naming the caller DLL when Windows can resolve it. Every method in the 2.0 header is baseline, including `SetViewState`. Future 2.x additions append at the vtable tail and bump the minor.
+`OSFUI_RequestBridge` compares the major. During 2.0.x, ABI 1.x callers receive an isolated object with the exact final 1.8 vtable; a binary built against an earlier minor uses only its known prefix, and its existing feature gates see 1.8. The host records a bounded, deduplicated `compat.legacy-api` warning naming the caller DLL. ABI 2.x callers receive the strict current bridge. Any other major receives `nullptr` and a distinct `compat.unsupported-api` error. Every method in the 2.0 header is baseline, including `SetViewState`; future 2.x additions append at the vtable tail and bump the minor.
 
 ### 5.2 Strict send/request split
 
 Replace `CommandFn` / `RegisterCommand` / `UnregisterCommand` with `SendFn` / `RegisterSend` / `UnregisterSend`. A send handler receives the caller's payload verbatim. A request naming it rejects `wrong-endpoint-kind`; the host never injects `requestId` and never fabricates an acknowledgement. Result-bearing endpoints use the retained `RegisterRequest` and settle through `Request::Respond` or `Reject`.
+
+Those rules apply to ABI 2. The temporary ABI 1 adapter keeps `RegisterCommand` separate, injects the page request id into a request payload, and auto-acks after the callback exactly as 1.x documented.
 
 ### 5.3 Source changes
 
@@ -344,7 +346,7 @@ Run `bash tests/native/run.sh` (exit code = failing checks) and root `npm run ve
 | Papyrus state is session-scoped and dropped on game load; native state is not | `tests/native/papyrus_action_tests.cpp`, `tests/native/papyrus_form_tests.cpp` |
 | ABI `SetViewState` validation, queue cap, retained-not-session-scoped delivery | `tests/native/bridge_api_tests.cpp` |
 | ABI 2.0 constants, strict send/request routing, all current features baseline | `tests/native/bridge_api_tests.cpp` |
-| ABI 1.x refusal diagnostic ledger: dedupe by module, bounded, drained once | `tests/native/bridge_api_tests.cpp` |
+| ABI 1.0–1.8 adapter selection, frozen vtable behavior, settings/hotkeys, command auto-ack, typed requests, diagnostics and retained state | `tests/native/v1_native_bridge_tests.cpp`, `tests/native/bridge_api_tests.cpp` |
 | Compat card lifecycle: one source, swept by `ResolveMissing`, no occurrence churn | `tests/native/runtime_diagnostics_tests.cpp`, `tests/native/diagnostics_tests.cpp` |
 | Diagnostics registry as state, including the greeting replay bypassing the content dedupe | `tests/native/diagnostics_tests.cpp` |
 | Harness mock speaks the same protocol as the shipped helper, end to end | `frontend/test/devmock.mockbridge.test.ts` |

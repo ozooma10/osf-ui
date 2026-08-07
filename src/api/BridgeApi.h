@@ -57,6 +57,13 @@ namespace OSFUI::API
 		bool          ClearIssue(const char* a_modId, const char* a_id) override;
 		bool          ClearIssuesExcept(const char* a_modId, const char* a_keepIdsJson) override;
 
+		// Temporary ABI 1.x endpoint kind. Kept out of IOSFUIBridge 2.0 so modern
+		// consumers cannot opt back into request-id injection or auto-ack.
+		void RegisterLegacyCommand(const char* a_name, SendFn a_handler, void* a_user);
+		void UnregisterLegacyCommand(const char* a_name);
+		bool RegisterLegacyRequest(const char* a_name, RequestFn a_handler, void* a_user);
+		void UnregisterLegacyRequest(const char* a_name);
+
 		// Runtime wiring (main thread only).
 		// A menu open/close a sibling plugin requested via RequestMenu.
 		struct MenuRequest
@@ -129,17 +136,17 @@ namespace OSFUI::API
 		// no form identities) and publishes it to the mod's live views.
 		std::vector<ViewStateOp> TakeViewStateOps();
 
-		// A plugin built against a different ABI major asked for the bridge and
-		// was refused (src/api/Exports.cpp). Recorded — any thread, during
-		// SFSE load — so Runtime can raise one `compat.legacy-api` health card
-		// naming it, rather than the refusal living only in a log the player
-		// never opens.
-		void NoteLegacyApiCaller(std::string a_moduleName, std::uint32_t a_major, std::uint32_t a_minor);
+		// A plugin requested the bridge during SFSE load. ABI 1.x is temporarily
+		// adapted; unrelated majors are refused. Record either outcome so Runtime
+		// can raise one concrete, persistent compatibility card per DLL.
+		void NoteLegacyApiCaller(std::string a_moduleName, std::uint32_t a_major,
+			std::uint32_t a_minor, bool a_supported = false);
 		struct LegacyCaller
 		{
 			std::string   module;  // bare DLL file name, "" when unresolvable
 			std::uint32_t major{ 0 };
 			std::uint32_t minor{ 0 };
+			bool          supported{ false };
 		};
 		// One card per mod, bounded. The producer's own dedupe only covers the
 		// window between drains — TakeLegacyApiCallers empties the set — so the
@@ -198,6 +205,7 @@ namespace OSFUI::API
 		{
 			RequestFn fn{ nullptr };
 			void*     user{ nullptr };
+			bool      legacy{ false };
 		};
 		struct InflightRequest
 		{
@@ -208,6 +216,7 @@ namespace OSFUI::API
 			std::chrono::steady_clock::time_point deadline;
 			bool answered{ false };
 			bool rejected{ false };
+			bool legacyReply{ false };
 			std::string type;
 			std::string payloadJson;
 			std::string code;
@@ -219,7 +228,9 @@ namespace OSFUI::API
 			std::string deferToken;
 			std::string name;
 			std::string payloadJson;
+			std::string type;
 			bool        rejected{ false };
+			bool        legacyReply{ false };
 			std::string code;
 			std::string message;
 		};
@@ -235,9 +246,13 @@ namespace OSFUI::API
 		SettingsSubscriptions                         _subscriptions;     // own locking; never touched under _mutex
 		HotkeySubscriptions                           _hotkeys;           // own locking; never touched under _mutex
 		std::unordered_map<std::string, Registration>        _sends;             // desired send set
+		std::unordered_map<std::string, Registration>        _legacyCommands;    // temporary ABI 1.x command set
 		std::unordered_map<std::string, RequestRegistration> _requests;          // desired request set
+		std::unordered_map<std::string, RequestRegistration> _legacyRequests;    // temporary ABI 1.x request set
 		std::vector<std::string>                      _pendingSendUnregister;
 		std::vector<std::string>                      _pendingRequestUnregister;
+		std::vector<std::string>                      _pendingLegacyCommandUnregister;
+		std::vector<std::string>                      _pendingLegacyRequestUnregister;
 		std::unordered_map<std::uint64_t, InflightRequest> _inflightRequests;
 		std::uint64_t                                 _nextRequestToken{ 1 };
 		std::vector<PendingSend>                       _pendingSends;

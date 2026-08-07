@@ -45,10 +45,11 @@ namespace OSFUI
 		std::uint64_t _settingsGeneration{ 0 };
 		bool          _settingsSynced{ false };
 		DiagnosticsReconciler _reconciler;
-		// ABI-major-mismatched plugins, accumulated once at load and kept for
-		// the session: the refusal happens during SFSE load and the record is
-		// drained exactly once, so the card must outlive the drain.
+		// ABI compatibility callers, accumulated once at load and kept for the
+		// session: supported 1.x and refused unrelated majors are distinct cards.
 		std::vector<API::BridgeApi::LegacyCaller> _legacyApiCallers;
+		std::unordered_set<std::string> _loggedCompatibility;
+		std::unordered_set<std::string> _legacyPapyrusCallers;
 		std::unordered_map<std::string, HotkeyTargetFailure> _hotkeyTargetFailures;
 		double        _nextPoll{ 0.0 };
 	};

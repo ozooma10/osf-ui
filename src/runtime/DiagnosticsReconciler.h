@@ -26,6 +26,8 @@ namespace OSFUI
 		// issues on every pass.
 		std::string code{ "compat.needs-newer-osfui" };
 		DiagnosticsModule::Severity severity{ DiagnosticsModule::Severity::Warning };
+		std::string removalVersion;
+		std::string declaration{ "targetVersion" };
 	};
 
 	// Testable state reconciliation behind RuntimeDiagnostics. Runtime gathers

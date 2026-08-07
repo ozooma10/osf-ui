@@ -16,6 +16,7 @@
 
 #include "api/BridgeApi.h"
 #include "api/PapyrusApi.h"
+#include "compat/v1/Papyrus.h"
 
 #include "RE/B/BSScriptUtil.h"
 #include "RE/E/Events.h"
@@ -105,7 +106,7 @@ int main()
 	CHECK(vm->natives.contains("SetViewForms"));
 	CHECK(vm->natives.contains("GetFormById"));
 	CHECK(vm->natives.contains("GetFormsById"));
-	CHECK(!vm->natives.contains("PushFormsToView"));  // the 1.x transient push is gone
+	CHECK(vm->natives.contains("PushFormsToView"));
 
 	const auto setViewForms =
 		vm->GetNative<void (*)(IVM&, std::uint32_t, std::monostate, Str, Str, std::vector<RE::TESForm*>)>("SetViewForms");
@@ -115,6 +116,8 @@ int main()
 		vm->GetNative<RE::TESForm* (*)(IVM&, std::uint32_t, std::monostate, Str)>("GetFormById");
 	const auto getFormsById =
 		vm->GetNative<std::vector<RE::TESForm*> (*)(IVM&, std::uint32_t, std::monostate, std::vector<Str>)>("GetFormsById");
+	const auto pushForms =
+		vm->GetNative<void (*)(IVM&, std::uint32_t, std::monostate, Str, Str, std::vector<RE::TESForm*>)>("PushFormsToView");
 
 	std::vector<API::Papyrus::ViewState> drained;
 	const auto                           drain = [&] {
@@ -125,6 +128,18 @@ int main()
 	NamedForm    keyword{ 0x0014E8D2, RE::FormType::kKYWD, "Melee Weapons" };
 	NamedForm    weapon{ 0x000000FA, RE::FormType::kWEAP, "Eon" };
 	EditorIdForm bare{ 0x00000010, RE::FormType::kNONE, "MyEditorId" };
+
+	pushForms(*vm, 0, {}, "T.Forms", "legacy", { &keyword, nullptr, &weapon });
+	std::vector<Compat::V1::Papyrus::Push> legacyPushes;
+	Compat::V1::Papyrus::DrainPushes([&](const auto& push) { legacyPushes.push_back(push); });
+	CHECK(legacyPushes.size() == 1);
+	if (!legacyPushes.empty()) {
+		CHECK(legacyPushes[0].payload["values"].empty());
+		CHECK(legacyPushes[0].payload["forms"].size() == 3);
+		CHECK(legacyPushes[0].payload["forms"][0]["formType"] == "KYWD");
+		CHECK(legacyPushes[0].payload["forms"][1].is_null());
+		CHECK(legacyPushes[0].payload["forms"][2]["name"] == "Eon");
+	}
 
 	// --- round-trip: publish -> serialized identity -> echo -> same form ----------
 	setViewForms(*vm, 0, {}, "T.Forms", "catalog", { &keyword, &weapon });

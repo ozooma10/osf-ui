@@ -691,26 +691,25 @@ int main()
 		CHECK(LoggedContaining("WARN", "pending SetViewState queue full"));
 	}
 
-	// --- refused ABI-major callers, made visible -------------------------------
-	// OSFUI_RequestBridge refuses ABI 1.x and records the caller so Runtime
-	// can raise ONE `compat.legacy-api` card naming the DLL the player has to
-	// update, instead of the refusal living only in a log nobody opens.
+	// --- ABI compatibility callers, made visible -------------------------------
+	// ABI 1.x is adapted while unrelated majors are refused. Both are recorded
+	// so Runtime can raise one concrete card naming the DLL to update.
 	{
 		api.TakeLegacyApiCallers();  // start from an empty ledger
-		api.NoteLegacyApiCaller("OldMod.dll", 1, 8);
-		api.NoteLegacyApiCaller("OldMod.dll", 1, 8);  // a plugin retrying every load screen
-		api.NoteLegacyApiCaller("", 3, 5);              // unresolvable module: still one card
+		api.NoteLegacyApiCaller("OldMod.dll", 1, 7, true);
+		api.NoteLegacyApiCaller("OldMod.dll", 1, 8, true);  // same concrete DLL, different retry minor
+		api.NoteLegacyApiCaller("", 3, 5, false);           // unresolvable module: still one card
 		{
 			const auto callers = api.TakeLegacyApiCallers();
 			CHECK(callers.size() == 2);  // deduped by module
 			CHECK(callers.size() == 2 && callers[0].module == "OldMod.dll");
-			CHECK(callers.size() == 2 && callers[0].major == 1 && callers[0].minor == 8);
+			CHECK(callers.size() == 2 && callers[0].major == 1 && callers[0].minor == 7 && callers[0].supported);
 			CHECK(callers.size() == 2 && callers[1].module.empty() && callers[1].major == 3);
 		}
 		CHECK(api.TakeLegacyApiCallers().empty());  // drained
 		// Bounded: a load order full of stale plugins cannot grow this.
 		for (int i = 0; i < 40; ++i) {
-			api.NoteLegacyApiCaller(std::format("mod{}.dll", i), 1, 8);
+			api.NoteLegacyApiCaller(std::format("mod{}.dll", i), 1, 8, true);
 		}
 		CHECK(api.TakeLegacyApiCallers().size() == 32);
 	}

@@ -86,12 +86,12 @@
     "readySignal": {
       "type": "boolean",
       "default": false,
-      "description": "When true, first open waits for the page to call osfui.markReady() (which sends the `view.ready` send endpoint) rather than main-frame load completion. Use it when \"loaded\" and \"has something worth showing\" are different moments — a HUD that must fetch state first. Requires permissions.nativeBridge. A 15-second post-load timeout offers retry instead of trapping the player. (2.0 renamed the helper member: `osfui.viewReady()` is gone.)"
+      "description": "When true, first open waits for the page to call osfui.markReady() (which sends the `view.ready` send endpoint) rather than main-frame load completion. Use it when \"loaded\" and \"has something worth showing\" are different moments — a HUD that must fetch state first. Requires permissions.nativeBridge. A 15-second post-load timeout offers retry instead of trapping the player. (2.0 views use markReady; the temporary 1.x facade retains viewReady through 2.0.x.)"
     },
     "targetVersion": {
       "type": "string",
       "pattern": "^[0-9]+(\\.[0-9]+){0,2}$",
-      "description": "The OSF UI version this view was authored against (e.g. \"2.0.0\"). A target NEWER than the running host is advisory and badges 'needs update' on the Mods surface. A declared target BELOW 2.0 is refused because the 1.x helper API was removed. An UNDECLARED targetVersion is deliberately treated as current rather than guessing which helper shape the page expects."
+      "description": "The OSF UI version this view was authored against (e.g. \"2.0.0\"). A target NEWER than the running host is advisory and badges 'needs update' on the Mods surface. During 2.0.x, a declared target BELOW 2.0 selects the temporary 1.x facade and raises a persistent 2.1.0 removal warning. An UNDECLARED targetVersion is deliberately treated as current rather than guessing which helper shape the page expects."
     },
     "permissions": {
       "type": "object",

@@ -55,18 +55,22 @@ namespace OSFUI
 	{
 		std::vector signatureTargets(a_targets.begin(), a_targets.end());
 		std::ranges::sort(signatureTargets, {}, [](const CompatibilityTarget& a_item) {
-			return std::tie(a_item.code, a_item.kind, a_item.id, a_item.targetVersion, a_item.severity);
+			return std::tie(a_item.code, a_item.kind, a_item.id, a_item.targetVersion,
+				a_item.severity, a_item.removalVersion, a_item.declaration);
 		});
 		signatureTargets.erase(std::unique(signatureTargets.begin(), signatureTargets.end(),
 			[](const auto& a_lhs, const auto& a_rhs) {
-				return std::tie(a_lhs.code, a_lhs.kind, a_lhs.id, a_lhs.targetVersion, a_lhs.severity) ==
-					std::tie(a_rhs.code, a_rhs.kind, a_rhs.id, a_rhs.targetVersion, a_rhs.severity);
+				return std::tie(a_lhs.code, a_lhs.kind, a_lhs.id, a_lhs.targetVersion,
+					a_lhs.severity, a_lhs.removalVersion, a_lhs.declaration) ==
+					std::tie(a_rhs.code, a_rhs.kind, a_rhs.id, a_rhs.targetVersion,
+						a_rhs.severity, a_rhs.removalVersion, a_rhs.declaration);
 			}), signatureTargets.end());
 
 		std::string signature;
 		for (const auto& item : signatureTargets) {
 			signature += item.code + '|' + item.kind + ':' + item.id + '@' + item.targetVersion +
-				'#' + (item.severity == DiagnosticsModule::Severity::Error ? 'e' : 'w') + ';';
+				'#' + (item.severity == DiagnosticsModule::Severity::Error ? 'e' : 'w') +
+				'>' + item.removalVersion + '%' + item.declaration + ';';
 		}
 		if (signature == _compatSignature) return;
 		_compatSignature = std::move(signature);
@@ -75,17 +79,22 @@ namespace OSFUI
 		for (const auto& item : a_targets) {
 			auto id = item.code + ':' + item.kind + ':' + item.id;
 			live.insert(id);
+			nlohmann::json context{
+				{ "kind", item.kind },
+				{ "consumer", item.id },
+				{ "installedVersion", a_installedVersion },
+			};
+			context[item.declaration] = item.targetVersion;
+			if (!item.removalVersion.empty()) {
+				context["removalVersion"] = item.removalVersion;
+			}
 			a_diagnostics.Upsert(DiagnosticsModule::IssueSpec{
 				.id = std::move(id),
 				.code = item.code,
 				.severity = item.severity,
 				.source = "compat",
 				.subject = item.id,
-				.context = nlohmann::json{
-					{ "kind", item.kind },
-					{ "targetVersion", item.targetVersion },
-					{ "installedVersion", a_installedVersion },
-				},
+				.context = std::move(context),
 			}, a_now);
 		}
 		a_diagnostics.ResolveMissing("compat", live, a_now);

@@ -7,6 +7,7 @@
 
 #include "api/BridgeApi.h"
 #include "api/PapyrusApi.h"
+#include "compat/v1/Papyrus.h"
 #include "composite/D3D12Compositor.h"
 #include "composite/UiPassSeam.h"
 #include "core/Log.h"
@@ -109,9 +110,7 @@ namespace OSFUI
 		std::vector<std::string> discoveredViewIds;
 		discoveredViewIds.reserve(_views.All().size());
 		for (const auto& manifest : _views.All()) {
-			if (!IsPre2Target(manifest.targetVersion)) {
-				discoveredViewIds.push_back(manifest.id);
-			}
+			discoveredViewIds.push_back(manifest.id);
 		}
 		API::BridgeApi::Get().SetViewCatalog(discoveredViewIds);
 
@@ -480,6 +479,7 @@ namespace OSFUI
 			// wiping it on every load would be the bug.
 			if (API::Papyrus::TakeSessionReset()) {
 				_viewState.ClearSessionScoped();
+				Compat::V1::Papyrus::ClearPendingPushes();
 			}
 			// SetView* is RETAINED: it goes into the shared store first, so a
 			// document that greets the bridge later is replayed the same value.
@@ -488,6 +488,12 @@ namespace OSFUI
 			API::Papyrus::DrainViewState([this](const API::Papyrus::ViewState& a_state) {
 				_viewState.Set(a_state.mod, a_state.key, a_state.value, /*sessionScoped*/ true);
 				PublishModState(a_state.mod, a_state.key, a_state.value);
+			});
+			// Temporary 1.x PushToView/PushFormsToView adapter: transient by
+			// contract, so emit data.push and never retain/replay it.
+			Compat::V1::Papyrus::DrainPushes([this](const Compat::V1::Papyrus::Push& a_push) {
+				const auto targets = LiveViewsOfMod(a_push.mod);
+				if (!targets.empty()) _bridge->Emit(targets, "data.push", a_push.payload);
 			});
 			// The native ABI's half of the same grid (SetViewState). Same store,
 			// same replay — a plugin sets a value once and every fresh document
@@ -626,11 +632,6 @@ namespace OSFUI
 	bool Runtime::LoadSurface(const ViewManifest& a_manifest, std::string_view a_reason)
 	{
 		const auto& id = a_manifest.id;
-		if (IsPre2Target(a_manifest.targetVersion)) {
-			REX::WARN("Runtime: refused view '{}' — targetVersion {} predates the OSF UI 2.0 API; update that view",
-				id, a_manifest.targetVersion);
-			return false;
-		}
 		if (_menus.IsRegistered(id)) {
 			return true;
 		}
@@ -683,7 +684,7 @@ namespace OSFUI
 			// queue behind the gate, and every current state value is replayed when
 			// it does. That is the whole boot path, identically for a first open, an
 			// F5, a dev hot-reload and a crash-recovery reload.
-			_bridge->OnViewCreated(id);
+			_bridge->OnViewCreated(id, IsPre2Target(a_manifest.targetVersion));
 		}
 		return true;
 	}
@@ -1329,7 +1330,7 @@ namespace OSFUI
 			// greeting against the navigate (and lean on the host's domSeen reset to
 			// keep it off the outgoing page) — a page-initiated handshake cannot
 			// reach the wrong document by construction.
-			_bridge->OnViewCreated(a_id);
+			_bridge->OnViewCreated(a_id, IsPre2Target(a_manifest.targetVersion));
 		}
 		// A recreated view starts at manifest dimensions; restore the
 		// output-matched size so it composites 1:1 again.
@@ -1767,7 +1768,7 @@ namespace OSFUI
 				// RestartAfterFailure discarded messages addressed to the dead
 				// documents. Each replacement greets the bridge on load and is
 				// replayed then; all this has to do is re-arm its gate.
-				_bridge->OnViewCreated(manifest.id);
+				_bridge->OnViewCreated(manifest.id, IsPre2Target(manifest.targetVersion));
 			}
 			++reloaded;
 		}
@@ -2504,11 +2505,6 @@ namespace OSFUI
 			if (!manifest) {
 				REX::WARN("Runtime: menu.open refused — '{}' was not discovered", id);
 				a_b.Reject("unknown-view", "view was not discovered");
-				return;
-			}
-			if (IsPre2Target(manifest->targetVersion)) {
-				REX::WARN("Runtime: menu.open refused — '{}' targets the removed pre-2.0 API", id);
-				a_b.Reject("unsupported-version", "view targets the removed pre-2.0 API");
 				return;
 			}
 			if (manifest->kind == SurfaceKind::Menu && manifest->capturesInput &&

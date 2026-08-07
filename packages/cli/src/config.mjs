@@ -60,15 +60,19 @@ function integer(value, fallback) {
   return Number.isInteger(value) ? Math.max(1, Math.min(16384, value)) : fallback;
 }
 
+export function isPre2Target(value) {
+  return typeof value === 'string' && value !== '' && Number.parseInt(value.split('.')[0], 10) < 2;
+}
+
 function targetVersion(value, label) {
   if (value === undefined || value === '') return undefined;
   if (typeof value !== 'string' || !/^[0-9]+(?:\.[0-9]+){0,2}$/.test(value)) {
     throw new Error(`${label} targetVersion must be '<major>[.<minor>[.<patch>]]'.`);
   }
-  if (Number.parseInt(value.split('.')[0], 10) < 2) {
-    throw new Error(
-      `${label} targets OSF UI ${value}, whose helper API was removed. ` +
-      `Migrate the view and set targetVersion to '2.0.0' or later.`,
+  if (isPre2Target(value)) {
+    console.warn(
+      `[OSF UI] WARNING: ${label} targets OSF UI ${value}. The temporary 1.x compatibility ` +
+      `bridge will keep it running in 2.0.x, but will be removed in OSF UI 2.1.0. Migrate now.`,
     );
   }
   return value;
@@ -80,6 +84,19 @@ function validateRelative(value, label) {
     throw new Error(`${label} must be a relative path that stays inside the project.`);
   }
   return normalizePath(value);
+}
+
+function viewEntry(value, label) {
+  if (typeof value !== 'string' || !value) {
+    throw new Error(`${label} must be a relative path that stays inside the project.`);
+  }
+  const suffixAt = value.search(/[?#]/);
+  const authoredPath = suffixAt === -1 ? value : value.slice(0, suffixAt);
+  const suffix = suffixAt === -1 ? '' : value.slice(suffixAt);
+  // The query/fragment are navigation state, not part of the source filename.
+  // Validate and resolve only the path while preserving the authored URL tail.
+  const file = validateRelative(authoredPath, label);
+  return { entry: file + suffix, file };
 }
 
 function pathsOverlap(left, right) {
@@ -168,9 +185,11 @@ export async function loadProject(cwd, command = 'serve') {
         `view "${item.id}" source must be "${expectedSource}" so development and in-game URLs match.`,
       );
     }
-    const entry = validateRelative(item.entry ?? 'index.html', `view "${item.id}" entry`);
+    const { entry, file: entryFile } = viewEntry(
+      item.entry ?? 'index.html', `view "${item.id}" entry`,
+    );
     const sourceDir = resolve(root, source);
-    const entryPath = resolve(sourceDir, entry);
+    const entryPath = resolve(sourceDir, entryFile);
     if (!await exists(entryPath)) throw new Error(`View entry not found: ${entryPath}`);
     const nativeBridge = item.permissions?.nativeBridge !== false;
     const authoredTarget = targetVersion(item.targetVersion, `view "${item.id}"`);

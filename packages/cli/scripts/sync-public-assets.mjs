@@ -1,13 +1,15 @@
-import { cp, mkdir, readFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const packageRoot = resolve(here, '..');
 const repoRoot = resolve(packageRoot, '..', '..');
+const { composeHelper } = await import(pathToFileURL(
+  resolve(repoRoot, 'frontend/scripts/compose-helper.mjs'),
+).href);
 
 const copies = [
-  ['frontend/src/shared-kit/osfui.js', 'assets/osfui.js'],
   ['frontend/src/shared-kit/osfui.css', 'assets/osfui.css'],
   ['docs/schema/manifest.schema.json', 'assets/manifest.schema.json'],
   ['docs/schema/settings-schema.schema.json', 'assets/settings-schema.schema.json'],
@@ -16,6 +18,8 @@ const copies = [
 
 if (process.argv.includes('--check')) {
   const stale = [];
+  const helperBytes = await readFile(resolve(packageRoot, 'assets/osfui.js')).catch(() => null);
+  if (!helperBytes || helperBytes.toString('utf8') !== composeHelper()) stale.push('assets/osfui.js');
   for (const [source, target] of copies) {
     const [sourceBytes, targetBytes] = await Promise.all([
       readFile(resolve(repoRoot, source)),
@@ -29,6 +33,7 @@ if (process.argv.includes('--check')) {
 } else {
   await mkdir(resolve(packageRoot, 'assets'), { recursive: true });
   await mkdir(resolve(packageRoot, 'types'), { recursive: true });
+  await writeFile(resolve(packageRoot, 'assets/osfui.js'), composeHelper(), 'utf8');
   for (const [source, target] of copies) {
     await cp(resolve(repoRoot, source), resolve(packageRoot, target));
   }

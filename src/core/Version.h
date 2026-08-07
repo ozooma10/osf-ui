@@ -22,7 +22,8 @@ namespace OSFUI
 	// headline sites). Additive changes bump the minor, anything that breaks a
 	// shipped view bumps the major — 2.0 is such a break (four verbs, envelopes
 	// carrying routing beside the payload, a page-initiated handshake). Newer
-	// targets are advisory; explicitly pre-2.0 views are refused.
+	// targets are advisory; during 2.0.x explicitly pre-2.0 views are routed
+	// through the isolated temporary compatibility façade and warned.
 	inline constexpr const char* kBridgeProtocolVersion = "2.0";
 
 	// "<major>[.<minor>[.<patch>]]", digits only — missing parts are 0.
@@ -62,8 +63,9 @@ namespace OSFUI
 	// unparsable versions are not newer (they never badge). Same digits-only
 	// dotted format as ParseDottedVersion (missing parts = 0).
 	// True when a DECLARED `targetVersion` predates the 2.0 mod API — an
-	// artifact authored against the 1.x helper and wire protocol. Such a view is
-	// refused before navigation and reported through System Health.
+	// artifact authored against the 1.x helper and wire protocol. During 2.0.x
+	// such a view receives the temporary façade and is reported through System
+	// Health; the branch is removed in 2.1.0.
 	// An UNDECLARED targetVersion ("") is deliberately excluded: it is
 	// indistinguishable from "declared and unparsable" after parsing, and
 	// guessing would badge every undeclared artifact as broken.

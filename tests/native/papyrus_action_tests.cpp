@@ -4,7 +4,7 @@
 // driven through the same natives the game binds.
 //
 // 2.0 replaced the single transient `PushToView` channel with the state/event
-// pair, and that split is what most of this file pins. SetView* is RETAINED
+// pair; the temporary v1 adapter keeps that old channel through 2.0.x. SetView* is RETAINED
 // state: latest-wins, complete per key, held in the shared ViewStateStore and
 // replayed to every document that greets the bridge — which is why a view
 // survives F5 with no handshake. SendViewEvent is a one-shot happening:
@@ -21,6 +21,7 @@
 
 #include "api/BridgeApi.h"
 #include "api/PapyrusApi.h"
+#include "compat/v1/Papyrus.h"
 #include "core/StringUtil.h"
 #include "runtime/ViewStateStore.h"
 
@@ -87,15 +88,12 @@ int main()
 	CHECK(vm->natives.contains("ReplyViewInt"));
 	CHECK(vm->natives.contains("Unregister"));
 
-	// The 1.x transient-push surface is GONE, not merely unused. A native that
-	// still bound but did nothing would look to an author like a delivery bug;
-	// an unbound one makes the script's call fail loudly at the call site.
-	CHECK(!vm->natives.contains("PushToView"));
-	CHECK(!vm->natives.contains("PushFormsToView"));
-	CHECK(!vm->natives.contains("RegisterForViewActions"));
-	CHECK(!vm->natives.contains("RegisterForViewActionsStatic"));
-	CHECK(!vm->natives.contains("RegisterForViewActionsArgs"));
-	CHECK(!vm->natives.contains("RegisterForViewActionsArgsStatic"));
+	CHECK(vm->natives.contains("PushToView"));
+	CHECK(vm->natives.contains("PushFormsToView"));
+	CHECK(vm->natives.contains("RegisterForViewActions"));
+	CHECK(vm->natives.contains("RegisterForViewActionsStatic"));
+	CHECK(vm->natives.contains("RegisterForViewActionsArgs"));
+	CHECK(vm->natives.contains("RegisterForViewActionsArgsStatic"));
 
 	const auto listenStatic =
 		vm->GetNative<std::int32_t (*)(IVM&, std::uint32_t, std::monostate, Str, Str)>("ListenForViewActionsStatic");
@@ -121,6 +119,12 @@ int main()
 		vm->GetNative<bool (*)(IVM&, std::uint32_t, std::monostate, Str)>("OpenMenu");
 	const auto closeMenu =
 		vm->GetNative<bool (*)(IVM&, std::uint32_t, std::monostate, Str)>("CloseMenu");
+	const auto registerLegacyStatic =
+		vm->GetNative<std::int32_t (*)(IVM&, std::uint32_t, std::monostate, Str, Str, Str)>("RegisterForViewActionsStatic");
+	const auto registerLegacyArgsStatic =
+		vm->GetNative<std::int32_t (*)(IVM&, std::uint32_t, std::monostate, Str, Str, Str)>("RegisterForViewActionsArgsStatic");
+	const auto pushToView =
+		vm->GetNative<void (*)(IVM&, std::uint32_t, std::monostate, Str, Str, std::vector<Str>)>("PushToView");
 
 	// --- registration validation ------------------------------------------------
 	// The four RegisterForViewActions* shapes collapsed into one listener per
@@ -131,6 +135,36 @@ int main()
 	CHECK(listenStatic(*vm, 0, {}, "MyLib", "notdotted") == 0);       // dotless non-built-in
 	CHECK(listenStatic(*vm, 0, {}, "MyLib", "two..dots") == 0);       // grammar violation
 	CHECK(listenInstance(*vm, 0, {}, ObjPtr{}, "t.alpha") == 0);      // null receiver
+	const auto legacyScalar = registerLegacyStatic(*vm, 0, {}, "LegacyLib", "OnLegacy", "T.Legacy");
+	const auto legacyArgs = registerLegacyArgsStatic(*vm, 0, {}, "LegacyLib", "OnLegacyArgs", "T.Legacy");
+	CHECK(legacyScalar != 0 && legacyArgs != 0);
+	vm->calls.clear();
+	API::Papyrus::OnViewAction("t.legacy", "sort", { "aid", "ammo" });
+	CHECK(vm->calls.size() == 2);
+	for (const auto& call : vm->calls) {
+		if (call.fn == "OnLegacy") CHECK((call.args == std::vector<std::string>{ "sort", "aid" }));
+		if (call.fn == "OnLegacyArgs") CHECK((call.args == std::vector<std::string>{ "sort", "aid", "ammo" }));
+	}
+	CHECK(unregister(*vm, 0, {}, legacyScalar));
+	CHECK(unregister(*vm, 0, {}, legacyArgs));
+
+	pushToView(*vm, 0, {}, "T.Legacy", "Inventory", { "aid", "ammo" });
+	std::vector<Compat::V1::Papyrus::Push> pushes;
+	Compat::V1::Papyrus::DrainPushes([&](const auto& push) { pushes.push_back(push); });
+	CHECK(pushes.size() == 1);
+	if (!pushes.empty()) {
+		CHECK(pushes[0].mod == "t.legacy");
+		CHECK(pushes[0].payload["key"] == "Inventory");
+		CHECK(pushes[0].payload["values"] == (nlohmann::json::array({ "aid", "ammo" })));
+	}
+	pushToView(*vm, 0, {}, "T.Legacy", "Discarded", { "stale" });
+	Compat::V1::Papyrus::ClearPendingPushes();
+	pushes.clear();
+	Compat::V1::Papyrus::DrainPushes([&](const auto& push) { pushes.push_back(push); });
+	CHECK(pushes.empty());
+	const auto legacyCallers = Compat::V1::Papyrus::TakeCallers();
+	CHECK(legacyCallers.size() == 1);
+	if (!legacyCallers.empty()) CHECK(legacyCallers[0] == "t.legacy");
 
 	// Interned casing folds to the grammar's lowercase and is accepted.
 	const auto tokenStatic = listenStatic(*vm, 0, {}, "MyLib", "T.Alpha");

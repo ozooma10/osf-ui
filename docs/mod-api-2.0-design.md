@@ -7,6 +7,11 @@ design; the migration mechanics (renames, test matrix, sequencing) live in
 That document is written against what was actually implemented, and records
 where the shipped code deviates from this one.
 
+Temporary exception: OSF UI 2.0.x carries an isolated 1.x compatibility bridge
+so existing consumers run with persistent 2.1.0 removal warnings. See the
+migration plan and `compat-v1-removal.md`; the strict design below remains the
+2.1.0 end state.
+
 ## What this system is
 
 Strip away the helper and its aliases and OSF UI is one thing: a
@@ -343,12 +348,14 @@ sequencing, and test matrix live in
 [the 2.0 migration plan](mod-api-2.0-migration.md). Design-level
 constraints that plan must honor:
 
-- Explicitly pre-2.0 views are refused before navigation and get a legible
-  `compat.*` System Health error keyed off manifest `targetVersion`.
+- During 2.0.x, explicitly pre-2.0 views are navigated with the isolated v1
+  façade and get a persistent `compat.pre-2-view` warning keyed off manifest
+  `targetVersion`; both are deleted in 2.1.0.
 - The native ABI makes a deliberate 2.0 break: `RegisterSend` replaces
-  `RegisterCommand`, `SetViewState` is baseline, and ABI 1.x callers receive
-  `nullptr` plus a bounded local diagnostic naming the outdated DLL
-  (`src/api/Exports.cpp`). Future 2.x additions remain append-only.
+  `RegisterCommand`, `SetViewState` is baseline, and during 2.0.x ABI 1.x
+  callers receive the isolated frozen 1.8 adapter plus a bounded local warning
+  naming the outdated DLL (`src/api/Exports.cpp`). Future 2.x additions remain
+  append-only; unrelated ABI majors receive `nullptr`.
 
 ## Open questions
 

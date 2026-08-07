@@ -7,6 +7,8 @@ import { normalizePath } from 'vite';
 import { HARNESS_CSS, HARNESS_HTML } from './harness-assets.mjs';
 import { BRIDGE_VERSION, HOST_VERSION } from './constants.mjs';
 import { readSharedAsset } from './shared-assets.mjs';
+import { isPre2Target } from './config.mjs';
+import { appendLegacyApi } from './browser/legacy-navigation.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SHARED_PREFIX = '\0osfui-shared:';
@@ -21,6 +23,7 @@ const BROWSER_MODULES = new Set([
   '/__osfui/pseudo.js',
   '/__osfui/mock-loader.js',
   '/__osfui/mock-runtime.js',
+  '/__osfui/legacy-navigation.js',
 ]);
 const CSP = [
   "default-src 'self' data: blob:",
@@ -60,6 +63,7 @@ function browserAsset(name) {
 
 export function harnessPlugin(project, selectedView) {
   const metaFor = (view) => {
+    const legacyApi = isPre2Target(view.targetVersion);
     const path = `/${project.modId}/${view.id}/${view.entry}`;
     return {
       modId: project.modId,
@@ -71,7 +75,8 @@ export function harnessPlugin(project, selectedView) {
       transparent: view.transparent,
       nativeBridge: view.permissions.nativeBridge,
       targetVersion: view.targetVersion || '',
-      viewUrl: path,
+      legacyApi,
+      viewUrl: legacyApi ? appendLegacyApi(path) : path,
       version: HOST_VERSION,
       bridgeVersion: BRIDGE_VERSION,
       // Absent when the project has no mock; mock-loader.js skips the import.

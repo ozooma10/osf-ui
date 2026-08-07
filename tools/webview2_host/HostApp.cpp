@@ -1,4 +1,5 @@
 #include "HostApp.h"
+#include "compat/v1/Navigation.h"
 
 #include "EmbeddedScripts.h"
 

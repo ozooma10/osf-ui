@@ -68,6 +68,18 @@ int main()
 	assert(manifest->accent.empty());
 	assert(!manifest->readySignal);
 
+	// During 2.0.x a valid pre-2.0 declaration remains in the catalog and keeps
+	// its exact target so navigation and diagnostics can select the v1 adapter.
+	Write(path, R"({
+		"entry": "index.html?mode=compact#inventory",
+		"targetVersion": "1.8.0",
+		"permissions": { "nativeBridge": true }
+	})");
+	manifest = OSFUI::ViewManifest::Load(path);
+	assert(manifest);
+	assert(manifest->targetVersion == "1.8.0");
+	assert(manifest->entry == "index.html?mode=compact#inventory");
+
 	std::filesystem::remove_all(root);
 	std::cout << "view_manifest_tests: ok\n";
 	return 0;

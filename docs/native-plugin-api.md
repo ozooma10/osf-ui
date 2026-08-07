@@ -35,7 +35,7 @@ Most mods need no native code:
 
 Use this API when your logic is in a native DLL and needs to handle view messages (and answer the ones needing an answer), publish game state or push a one-shot happening, read settings or react to changes from C++, react to a hotkey, register a schema or view folder at runtime, open or close a view, or report a durable failure into System Health.
 
-If OSF UI is missing, every call is a safe no-op — you never special-case "not installed". Plugins must be rebuilt against ABI 2.0.
+If OSF UI is missing, every call is a safe no-op — you never special-case "not installed". Plugins should be rebuilt against ABI 2.0 before the temporary 1.x adapter is removed in OSF UI 2.1.0.
 
 ---
 
@@ -43,7 +43,7 @@ If OSF UI is missing, every call is a safe no-op — you never special-case "not
 
 `kBridgeAPIVersion` is `(2 << 16) | 0`. ABI 2.0 replaces the ambiguous command callback with strict `RegisterSend` / `SendFn`, retains `RegisterRequest`, and includes retained state in the baseline. A send receives exactly the caller's payload and never produces an acknowledgement; a request naming it is rejected `wrong-endpoint-kind`.
 
-OSF UI refuses every ABI 1.x caller with `nullptr`. The refusal is also recorded as a bounded local System Health error naming the outdated DLL when Windows can resolve the call site. Rebuild against the 2.0 header; there is no binary compatibility shim.
+During OSF UI 2.0.x, ABI 1.x callers receive an isolated adapter exposing the frozen final 1.8 vtable. Older 1.x binaries use the prefix they were compiled against; feature-minor gates, settings, hotkeys, view registration, diagnostics, retained state, registered requests, and `RegisterCommand` request-ID/auto-ack behavior remain available. System Health names the DLL and warns that the adapter is removed in 2.1.0. ABI 2.x callers still receive the strict bridge below, and unrelated majors receive `nullptr` plus a distinct unsupported-ABI error. Rebuild against the 2.0 header now.
 
 Future ABI 2.x additions append methods at the vtable tail and bump the minor. The `Client` wrapper feature-gates those additions.
 

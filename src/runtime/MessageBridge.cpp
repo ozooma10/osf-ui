@@ -75,7 +75,7 @@ namespace OSFUI
 
 	void MessageBridge::RegisterSend(std::string a_name, SendHandler a_handler)
 	{
-		if (_requests.contains(a_name)) {
+		if (_requests.contains(a_name) || _legacyCommands.contains(a_name)) {
 			REX::WARN("MessageBridge: [content] refused send endpoint '{}' — name already registered", a_name);
 			return;
 		}
@@ -84,13 +84,23 @@ namespace OSFUI
 
 	bool MessageBridge::RegisterRequest(std::string a_name, RequestHandler a_handler)
 	{
-		if (_sends.contains(a_name)) {
+		if (_sends.contains(a_name) || _legacyCommands.contains(a_name)) {
 			REX::WARN("MessageBridge: [content] refused request endpoint '{}' — name already registered", a_name);
 			return false;
 		}
 		// BridgeApi owns public first-wins policy. Re-application here replaces
 		// the internal trampoline after an explicit unregister/re-register.
 		_requests[std::move(a_name)] = std::move(a_handler);
+		return true;
+	}
+
+	bool MessageBridge::RegisterLegacyCommand(std::string a_name, SendHandler a_handler)
+	{
+		if (_sends.contains(a_name) || _requests.contains(a_name)) {
+			REX::WARN("MessageBridge: [content] refused legacy command '{}' — name already registered", a_name);
+			return false;
+		}
+		_legacyCommands[std::move(a_name)] = std::move(a_handler);
 		return true;
 	}
 
@@ -102,6 +112,11 @@ namespace OSFUI
 	void MessageBridge::UnregisterRequest(std::string_view a_name)
 	{
 		_requests.erase(std::string(a_name));
+	}
+
+	void MessageBridge::UnregisterLegacyCommand(std::string_view a_name)
+	{
+		_legacyCommands.erase(std::string(a_name));
 	}
 
 	bool MessageBridge::HasSend(std::string_view a_name) const
@@ -233,6 +248,10 @@ namespace OSFUI
 			it->second(a_payload, *this);
 			return;
 		}
+		if (const auto it = _legacyCommands.find(a_name); it != _legacyCommands.end()) {
+			it->second(a_payload, *this);
+			return;
+		}
 		// Kind enforcement: executing a mutation whose kind the caller got
 		// wrong invites worse bugs, so the send is dropped. Dropping SILENTLY
 		// is the part 1.x got wrong — surface it.
@@ -262,6 +281,29 @@ namespace OSFUI
 
 		const auto it = _requests.find(a_name);
 		if (it == _requests.end()) {
+			if (const auto legacy = _legacyCommands.find(a_name);
+				legacy != _legacyCommands.end()) {
+				auto payload = a_payload;
+				payload["requestId"] = a_id;
+				legacy->second(payload, *this);
+				if (!_settled) {
+					Respond(nlohmann::json{ { "ok", true }, { "command", a_name } });
+				}
+				return;
+			}
+			if (const auto send = _sends.find(a_name);
+				send != _sends.end() && IsLegacyApiView(_currentSource)) {
+				// A 1.x request could correlate any ui.command, including a
+				// command which is a strict send in 2.0. Keep that behavior only
+				// for explicitly legacy documents; the same handler and source
+				// authority checks still run, followed by the old uniform ack when
+				// the handler produced no reply of its own.
+				send->second(a_payload, *this);
+				if (!_settled) {
+					Respond(nlohmann::json{ { "ok", true }, { "command", a_name } });
+				}
+				return;
+			}
 			if (_sends.contains(a_name)) {
 				Reject("wrong-endpoint-kind",
 					std::format("'{}' is a send endpoint — use send(), not request()", a_name));
@@ -600,7 +642,7 @@ namespace OSFUI
 	// view lifecycle
 	// -----------------------------------------------------------------------
 
-	void MessageBridge::OnViewCreated(std::string_view a_viewId)
+	void MessageBridge::OnViewCreated(std::string_view a_viewId, bool a_legacyApi)
 	{
 		// Arm a CLOSED gate: everything emitted between here and the new
 		// document's hello is queued rather than shouted at a page that has no
@@ -608,6 +650,7 @@ namespace OSFUI
 		auto& gate = _gates[std::string(a_viewId)];
 		gate.greeted = false;
 		gate.eventsOpen = false;
+		gate.legacyApi = a_legacyApi;
 		gate.queued.clear();
 	}
 
@@ -632,6 +675,12 @@ namespace OSFUI
 	{
 		const auto it = _gates.find(std::string(a_viewId));
 		return it != _gates.end() && it->second.greeted;
+	}
+
+	bool MessageBridge::IsLegacyApiView(std::string_view a_viewId) const
+	{
+		const auto it = _gates.find(std::string(a_viewId));
+		return it != _gates.end() && it->second.legacyApi;
 	}
 
 	void MessageBridge::Tick(std::chrono::steady_clock::time_point a_now)

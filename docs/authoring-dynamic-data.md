@@ -16,7 +16,7 @@ Before you publish anything: **is this true right now, or did it just happen?**
 Backwards, you get one of two classic bugs:
 
 - **An event encoded as state re-fires** — replayed to every fresh document, so "you took a hit" plays its sound again on every reload.
-- **State encoded as an event leaves a blank HUD** — the push happened once, before the reload, and nothing replays it. This is the bug 1.x asked every author to work around by hand (the view fired a `ready` action, the script re-pushed). That convention is gone, along with the `data.push` channel that needed it.
+- **State encoded as an event leaves a blank HUD** — the push happened once, before the reload, and nothing replays it. This is the bug 1.x asked every author to work around by hand (the view fired a `ready` action, the script re-pushed). OSF UI 2.0 replaces that convention; its temporary 2.0.x adapter preserves `data.push` only for declared 1.x consumers and removes it in 2.1.0.
 
 The test: **if reloading the page mid-session leaves it correct, you chose right.** In `devMode`, F5 the view and look. A correctly fed view needs *zero* lifecycle code.
 
@@ -265,7 +265,7 @@ Runtime FormIDs are session-scoped. Never persist a `formId` in a save or `local
 
 | 1.x | 2.0 |
 |---|---|
-| `OSFUI.PushToView` / `PushFormsToView` | **removed.** `SetView*` for state, `SendViewEvent` for happenings |
+| `OSFUI.PushToView` / `PushFormsToView` | **deprecated; temporary in 2.0.x, removed in 2.1.0.** `SetView*` for state, `SendViewEvent` for happenings |
 | the view's `ready` action + the script's re-push | **removed.** State replays on every document; delete both halves |
 | `data.push` / `data.state` messages | one `state` envelope, consumed with `osfui.state.on()` |
 | `osfui.data.on(key, fn)` / `osfui.data.get(key)` | `osfui.state.on("<mod>/<key>", fn)` / `osfui.state.get(...)` |
@@ -273,6 +273,6 @@ Runtime FormIDs are session-scoped. Never persist a `formId` in a save or `local
 | `RegisterForViewActions{,Static,Args,ArgsStatic}` | `ListenForViewActions{,Static}` → `OnOSFUIViewAction(string, string[])` |
 | a plugin's hand-rolled "I reloaded" message | `SetViewState` — the platform owns the replay |
 
-`PushToView` was transient like an event but shaped like state, which is why every mod using it needed the `ready` handshake. Splitting the concepts is what let that convention — and the blank-after-F5 bug class — be deleted rather than documented.
+`PushToView` is transient like an event but shaped like state, which is why every mod using it needs the `ready` handshake. The 2.0.x adapter emits the old `data.push` shape without retaining it. Splitting the concepts is what lets a migrated mod delete that convention — and the blank-after-F5 bug class — before the adapter disappears in 2.1.0.
 
 Papyrus keeps its 1.5 names elsewhere on purpose: `ListenForViewActions`, `OnOSFUIViewAction`, `ListenForViewRequests` and the `ReplyView*` family are unchanged, because renaming them would churn exactly the mods that already migrated, in the one language where migrating means recompiling `.pex` files.

@@ -48,7 +48,11 @@
 				view->logicalHeight = (std::max)(1u,
 					a_msg.value("logicalHeight", kDefaultLogicalHeight));
 				ApplyScale(*view);
-				std::string path = id + "/" + a_msg.value("entry", "index.html");
+				std::string entry = a_msg.value("entry", "index.html");
+				if (a_msg.value("legacyApi", false)) {
+					entry = OSFUI::Compat::V1::WithLegacyApiQuery(entry);
+				}
+				std::string path = id + "/" + entry;
 				std::ranges::replace(path, '\\', '/');
 				view->pendingNavigate = L"https://" + virtualHost + L"/" + ToWide(path);
 				if (view->webView) DrainQueuedViewWork(*view);

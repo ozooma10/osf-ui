@@ -84,6 +84,11 @@ Form Function GetFormById(string asFormId) Global Native
 Form[] Function GetFormsById(string[] asFormIds) Global Native
 
 ; --- state --------------------------------------------------------------------
+; DEPRECATED 1.x compatibility (removed in OSF UI 2.1.0): transient pushes.
+; Prefer SetViewStrings/SetViewForms, which are retained and replayed.
+Function PushToView(string asModId, string asKey, string[] asValues) Global Native
+Function PushFormsToView(string asModId, string asKey, Form[] akForms) Global Native
+
 ; replaces the complete value for (asModId, asKey), sends it to view as `{ kind:"state", mod, key, value }`, replays it whenever a view opens or reloads.
 ; In JS: `osfui.state.on(asKey, handler)` - the handler fires immediately with the current value when it subscribes.
 ; The cache is session-scoped (values may hold form identities): publish again after a game load.
@@ -105,6 +110,13 @@ Function SetViewForms(string asModId, string asKey, Form[] akForms) Global Nativ
 Function SendViewEvent(string asModId, string asName, string[] asArgs) Global Native
 
 ; --- one-way messages FROM a view ---------------------------------------------
+; DEPRECATED 1.x compatibility (removed in OSF UI 2.1.0). Prefer the fixed
+; ListenForViewActions / ListenForViewActionsStatic callback below.
+int Function RegisterForViewActions(ScriptObject akReceiver, string asFn, string asModId) Global Native
+int Function RegisterForViewActionsStatic(string asScript, string asFn, string asModId) Global Native
+int Function RegisterForViewActionsArgs(ScriptObject akReceiver, string asFn, string asModId) Global Native
+int Function RegisterForViewActionsArgsStatic(string asScript, string asFn, string asModId) Global Native
+
 ; Dispatches to the fixed callback
 ; OnOSFUIViewAction(string actionName, string[] args) - the parameter must not be named "action"
 ;

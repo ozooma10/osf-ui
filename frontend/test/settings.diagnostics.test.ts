@@ -156,12 +156,19 @@ describe('copyForIssue', () => {
     expect(target.title[1]).toMatch(/hotkey action/i);
 
     const pre2 = copyForIssue(issue({ id: 'c', code: 'compat.pre-2-view' }));
-    expect(pre2.title[1]).toMatch(/removed OSF UI 1\.x API/i);
+    expect(pre2.impact[1]).toMatch(/kept it running.*removed.*2\.1\.0/i);
     expect(pre2.actions).toEqual(['copy-details', 'open-logs']);
 
     const abi1 = copyForIssue(issue({ id: 'd', code: 'compat.legacy-api' }));
+    expect(abi1.impact[1]).toMatch(/kept it connected.*removed.*2\.1\.0/i);
     expect(abi1.next[1]).toMatch(/native ABI 2\.0/i);
     expect(abi1.actions).toEqual(['copy-details', 'open-logs']);
+
+    const papyrus = copyForIssue(issue({ id: 'e', code: 'compat.legacy-papyrus' }));
+    expect(papyrus.impact[1]).toMatch(/kept its calls working.*removed.*2\.1\.0/i);
+
+    const unsupported = copyForIssue(issue({ id: 'f', code: 'compat.unsupported-api' }));
+    expect(unsupported.impact[1]).toMatch(/neither 1\.x nor 2\.x/i);
   });
 
   it('falls back to generic copy for an unknown or absent code', () => {

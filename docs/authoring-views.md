@@ -7,7 +7,7 @@ How to build a UI for OSF UI without touching the C++ runtime. Two data-driven e
 
 Both are pure content, no recompile: a `views/<modId>/<viewName>/` folder and a `settings/<modId>.json` schema.
 
-The bridge protocol is at version **2.0 — stable**. Additive changes bump the minor, breaking changes the major; 2.0 was such a break with 1.x (four verbs, routing beside the payload, page-initiated handshake). Explicitly pre-2.0 views are refused on open and reported through System Health; there is no compatibility façade. `bridgeVersion` is informational.
+The bridge protocol is at version **2.0 — stable**. Additive changes bump the minor, breaking changes the major; 2.0 was such a break with 1.x (four verbs, routing beside the payload, page-initiated handshake). During OSF UI 2.0.x, an explicitly pre-2.0 view is kept running by a guarded compatibility façade and gets a persistent System Health warning that the façade is removed in 2.1.0. A view targeting 2.0 never receives those aliases. `bridgeVersion` is informational.
 
 > Written with Claude and reviewed against the source. Where it disagrees with the code, the JSON Schemas (§7) or `sdk/osfui.d.ts`, those win — and a bug report about the mismatch is welcome.
 
@@ -102,8 +102,8 @@ Your catalog is a state key (`osfui/i18n`, §3) the helper consumes for you: it 
   "hub": true,              // optional, default true; false = hidden utility view — loads and works, but isn't advertised in catalogs (name predates the Mods surface)
   "debugOnly": false,       // optional, default false; keep out of the mod menu list unless devMode is on in OSF UI's config.json. Still loads and openable by id; intended for built-in developer tools
   "readySignal": true,      // optional, default false; wait for osfui.markReady() before first reveal (requires nativeBridge)
-  "targetVersion": "2.0.0", // optional; newer targets are advisory; an explicit pre-2.0 target is refused
-  "entry": "index.html",    // optional, default "index.html"; must stay inside the folder
+  "targetVersion": "2.0.0", // optional; newer targets are advisory; pre-2.0 temporarily selects the 1.x façade through 2.0.x
+  "entry": "index.html",    // optional, default "index.html"; its file must stay inside the folder; query/fragment are preserved
   "width": 1600,            // optional, default 1600; clamped to 1..16384 — logical (authoring) size
   "height": 900,            // optional, default 900;  clamped to 1..16384 — logical (authoring) size
   "transparent": true,      // optional, default true; lets the game show through
@@ -116,7 +116,7 @@ Your catalog is a state key (`osfui/i18n`, §3) the helper consumes for you: it 
 ```
 
 - Unknown keys are ignored, so a manifest written for a newer OSF UI parses leniently (devMode logs them at INFO). An optional `"manifestVersion"` integer is accepted but not required — the nested folder layout identifies the format.
-- **`targetVersion`** is `"<major>[.<minor>[.<patch>]]"`. When the running OSF UI is *older* than the target, a warning goes to `OSF UI.log` and the Mods surface shows a "needs update" badge next to the OSF UI version with your mod named in the tooltip. A declared target older than 2.0 is refused on open and shown as a System Health error. A malformed or undeclared value is treated as current rather than guessing.
+- **`targetVersion`** is `"<major>[.<minor>[.<patch>]]"`. When the running OSF UI is *older* than the target, a warning goes to `OSF UI.log` and the Mods surface shows a "needs update" badge next to the OSF UI version with your mod named in the tooltip. In 2.0.x, a declared target older than 2.0 selects the temporary 1.x façade and produces one persistent warning naming its removal in 2.1.0; migrate and declare `"2.0.0"` to clear it. A malformed or undeclared value is treated as current rather than guessing.
 - **`width`/`height`** set the page's logical size; author against it. Under the `d3d12` compositor the runtime resizes the view to the screen aspect (height capped at 1440) with a matching device scale (`outputHeight / height`), so the page always lays out at its logical height and CSS pixels scale up. At 1440p a 720-tall manifest gets a 2.0 device scale and a 720 px CSS viewport — type sized for 720p stays that size instead of shrinking. Width still varies with aspect ratio (~1720 CSS px on 21:9), so write width-responsive CSS. The versioned guarantee is that your logical height is fixed; width is not.
 - **`kind`** picks the surface: a `"menu"` may capture input and become focused; a `"hud"` is passive (see *Multiple views & layering*). `capturesInput` and `pausesGame` refine a menu only — set `pausesGame:false` for a menu that wants the world running — and are forced `false` for HUDs whatever the manifest says.
 - **`permissions.nativeBridge`** must be `true` if your page talks to the runtime. When false, `window.osfui` is never injected and the page runs purely client-side.
@@ -252,7 +252,7 @@ Two things about `request()`: it resolves the **reply payload**, not an envelope
 
 State keys are `"<modId>/<key>"` — the owning mod, then the name the backend published. Platform keys are `osfui/…`, yours are `yourname.mymod/…`. Keys match case-insensitively on both halves, because a Papyrus key arrives through `BSFixedString` interning, which hands back the first casing the process saw.
 
-> **Gone from 1.x**, and gone loudly (`not a function`): `osfui.emit`, `osfui.call`, `osfui.action`, `osfui.viewReady`, `osfui.data.*`, top-level `osfui.t` / `localize` / `locale()` / `i18nReady` / `applyAccent`, and `available()` as a *call*. The one break that fails **silently** is `request()`: it used to resolve the whole envelope and now resolves the payload, so `reply.payload.x` becomes `reply.x`.
+> **Gone from the strict 2.0 surface:** `osfui.emit`, `osfui.call`, `osfui.action`, `osfui.viewReady`, `osfui.data.*`, top-level `osfui.t` / `localize` / `locale()` / `i18nReady` / `applyAccent`, and `available()` as a *call*. During 2.0.x only, a view that still declares a pre-2.0 target receives those members from the isolated compatibility façade and a persistent 2.1.0 removal warning. A migrated 2.0 view receives none of them. The subtle migration break remains `request()`: 1.x resolves the whole envelope while strict 2.0 resolves its payload, so `reply.payload.x` becomes `reply.x`.
 
 Under the helper sit two primitives (all the helper itself uses):
 

@@ -60,19 +60,46 @@ int main()
 	assert(!diagnostics.IsActive(hotkeyId));
 
 	const std::array targets{
-		CompatibilityTarget{ "beta/mod", "mod", "2.0.0" },
-		CompatibilityTarget{ "acme/view", "view", "2.0.0" },
-		CompatibilityTarget{ "legacy/panel", "view", "1.9.0", "compat.pre-2-view",
-			DiagnosticsModule::Severity::Error },
+		CompatibilityTarget{ "beta/mod", "mod", "2.0.0", "compat.needs-newer-osfui",
+			DiagnosticsModule::Severity::Error, "", "targetVersion" },
+		CompatibilityTarget{ "acme/view", "view", "2.0.0", "compat.needs-newer-osfui",
+			DiagnosticsModule::Severity::Error, "", "targetVersion" },
+		CompatibilityTarget{ "legacy.mod/panel", "view", "1.9.0", "compat.pre-2-view",
+			DiagnosticsModule::Severity::Warning, "2.1.0" },
 	};
 	reconciler.SyncCompatibility(diagnostics, targets, "1.5.0", 3.0);
 	const auto compatId = "compat.needs-newer-osfui:view:acme/view";
 	assert(diagnostics.IsActive(compatId));
 	assert(IssueById(diagnostics, compatId).at("context").value("installedVersion", "") == "1.5.0");
-	const auto pre2Id = "compat.pre-2-view:view:legacy/panel";
+	const auto pre2Id = "compat.pre-2-view:view:legacy.mod/panel";
 	assert(diagnostics.IsActive(pre2Id));
-	assert(IssueById(diagnostics, pre2Id).value("severity", "") == "error");
+	assert(IssueById(diagnostics, pre2Id).value("severity", "") == "warning");
+	assert(IssueById(diagnostics, pre2Id).at("context").value("consumer", "") == "legacy.mod/panel");
 	assert(IssueById(diagnostics, pre2Id).at("context").value("targetVersion", "") == "1.9.0");
+	assert(IssueById(diagnostics, pre2Id).at("context").value("installedVersion", "") == "1.5.0");
+	assert(IssueById(diagnostics, pre2Id).at("context").value("removalVersion", "") == "2.1.0");
+
+	const std::array legacyConsumers{
+		CompatibilityTarget{ "SuitProtocol.dll", "plugin", "1.7", "compat.legacy-api",
+			DiagnosticsModule::Severity::Warning, "2.1.0", "abi" },
+		CompatibilityTarget{ "ak.autosort", "Papyrus mod", "1.x natives",
+			"compat.legacy-papyrus", DiagnosticsModule::Severity::Warning, "2.1.0", "api" },
+		CompatibilityTarget{ "FuturePlugin.dll", "plugin", "3.0", "compat.unsupported-api",
+			DiagnosticsModule::Severity::Error, "", "abi" },
+	};
+	reconciler.SyncCompatibility(diagnostics, legacyConsumers, "2.0.0", 3.5);
+	const auto abi = IssueById(diagnostics, "compat.legacy-api:plugin:SuitProtocol.dll");
+	assert(abi.value("severity", "") == "warning");
+	assert(abi.at("context").value("consumer", "") == "SuitProtocol.dll");
+	assert(abi.at("context").value("abi", "") == "1.7");
+	assert(abi.at("context").value("installedVersion", "") == "2.0.0");
+	assert(abi.at("context").value("removalVersion", "") == "2.1.0");
+	const auto papyrus = IssueById(diagnostics, "compat.legacy-papyrus:Papyrus mod:ak.autosort");
+	assert(papyrus.at("context").value("api", "") == "1.x natives");
+	const auto unsupported = IssueById(diagnostics, "compat.unsupported-api:plugin:FuturePlugin.dll");
+	assert(unsupported.value("severity", "") == "error");
+	assert(!unsupported.at("context").contains("removalVersion"));
+	reconciler.SyncCompatibility(diagnostics, targets, "1.5.0", 3.75);
 	const auto occurrences = IssueById(diagnostics, compatId).value("occurrences", 0u);
 	const std::array reordered{ targets[2], targets[1], targets[0] };
 	reconciler.SyncCompatibility(diagnostics, reordered, "1.5.0", 4.0);

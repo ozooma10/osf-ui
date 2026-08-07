@@ -1,6 +1,8 @@
 #include "runtime/RuntimeDiagnostics.h"
 
 #include "api/BridgeApi.h"
+#include "compat/v1/Navigation.h"
+#include "compat/v1/Papyrus.h"
 #include "core/Version.h"
 #include "runtime/Runtime.h"
 
@@ -148,14 +150,15 @@ namespace OSFUI
 		for (const auto& manifest : runtime._views.All()) {
 			if (IsPre2Target(manifest.targetVersion)) {
 				targets.push_back({ manifest.id, "view", manifest.targetVersion,
-					"compat.pre-2-view", DiagnosticsModule::Severity::Error });
+					"compat.pre-2-view", DiagnosticsModule::Severity::Warning,
+					std::string(Compat::V1::kRemovalVersion) });
 			} else if (IsTargetNewerThanHost(manifest.targetVersion)) {
 				targets.push_back({ manifest.id, "view", manifest.targetVersion });
 			}
 		}
-		// Plugins refused by OSFUI_RequestBridge for an ABI major mismatch. The
-		// refusal happens during SFSE load, long before this runs, so the record
-		// is drained here rather than reported at the refusal site.
+		// Plugins seen by OSFUI_RequestBridge during SFSE load. ABI 1.x is adapted;
+		// unrelated majors are refused. Either way, the record is drained here so
+		// System Health can name the concrete caller.
 		// Deduped and capped HERE, not just at the producer: the drain empties
 		// BridgeApi's dedupe set, so a plugin that retries on every load screen
 		// would otherwise add itself again on every poll for the whole session.
@@ -164,7 +167,9 @@ namespace OSFUI
 				break;
 			}
 			const auto known = std::ranges::any_of(_legacyApiCallers,
-				[&](const auto& seen) { return seen.module == caller.module; });
+				[&](const auto& seen) {
+					return seen.module == caller.module && seen.supported == caller.supported;
+				});
 			if (!known) {
 				_legacyApiCallers.push_back(caller);
 			}
@@ -174,9 +179,20 @@ namespace OSFUI
 				caller.module.empty() ? std::string("(unidentified plugin)") : caller.module,
 				"plugin",
 				std::format("{}.{}", caller.major, caller.minor),
-				"compat.legacy-api",
-				DiagnosticsModule::Severity::Error,
+				caller.supported ? "compat.legacy-api" : "compat.unsupported-api",
+				caller.supported ? DiagnosticsModule::Severity::Warning :
+					DiagnosticsModule::Severity::Error,
+				caller.supported ? std::string(Compat::V1::kRemovalVersion) : std::string{},
+				"abi",
 			});
+		}
+		for (auto& caller : Compat::V1::Papyrus::TakeCallers()) {
+			_legacyPapyrusCallers.insert(std::move(caller));
+		}
+		for (const auto& mod : _legacyPapyrusCallers) {
+			targets.push_back({ mod, "Papyrus mod", "1.x natives",
+				"compat.legacy-papyrus", DiagnosticsModule::Severity::Warning,
+				std::string(Compat::V1::kRemovalVersion), "api" });
 		}
 		if (runtime._settings) {
 			for (const auto& mod : runtime._settings->Store().DataView().value(
@@ -184,6 +200,20 @@ namespace OSFUI
 				const auto target = mod.value("targetVersion", std::string{});
 				if (IsTargetNewerThanHost(target)) {
 					targets.push_back({ mod.value("id", std::string{}), "mod", target });
+				}
+			}
+		}
+		for (const auto& target : targets) {
+			if (target.removalVersion.empty() && target.code != "compat.unsupported-api") continue;
+			const auto identity = target.code + ':' + target.kind + ':' + target.id;
+			if (_loggedCompatibility.insert(identity).second) {
+				if (target.code == "compat.unsupported-api") {
+					REX::WARN("Compatibility: {} '{}' requested unsupported ABI {}; OSF UI {} refused it",
+						target.kind, target.id, target.targetVersion, kPluginVersion);
+				} else {
+					REX::WARN("Compatibility: {} '{}' targets {}; OSF UI {} kept it running via the temporary 1.x bridge, which will be removed in {}",
+						target.kind, target.id, target.targetVersion, kPluginVersion,
+						target.removalVersion);
 				}
 			}
 		}

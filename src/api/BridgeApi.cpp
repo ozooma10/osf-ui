@@ -115,7 +115,8 @@ namespace OSFUI::API
 		// so an already-claimed endpoint cannot be hijacked.
 		// Replacing your own handler means UnregisterSend then re-register;
 		// the pair works back-to-back within one tick.
-		if (_sends.contains(name) || _requests.contains(name)) {
+		if (_sends.contains(name) || _requests.contains(name) || _legacyCommands.contains(name) ||
+			_legacyRequests.contains(name)) {
 			REX::WARN("BridgeApi: [content] refused RegisterSend('{}') — already registered (first wins; "
 					  "UnregisterSend first to replace your own handler)",
 				name);
@@ -148,13 +149,72 @@ namespace OSFUI::API
 			return;
 		}
 		std::lock_guard lock(_mutex);
-		if (_sends.contains(name) || _requests.contains(name)) {
+		if (_sends.contains(name) || _requests.contains(name) || _legacyCommands.contains(name) ||
+			_legacyRequests.contains(name)) {
 			REX::WARN("BridgeApi: [content] refused RegisterRequest('{}') — already registered (first wins across sends and requests)", name);
 			return;
 		}
 		_requests[name] = { a_handler, a_user };
 		std::erase(_pendingRequestUnregister, name);
 		_dirty = true;
+	}
+
+	void BridgeApi::RegisterLegacyCommand(const char* a_name, SendFn a_handler, void* a_user)
+	{
+		if (!a_name || !a_handler) return;
+		const std::string name(a_name);
+		if (!IsValidPluginCommand(name)) {
+			REX::WARN("BridgeApi: [content] refused legacy RegisterCommand('{}') — commands are '<author>.<modname>.<name>'",
+				name.substr(0, 128));
+			return;
+		}
+		std::lock_guard lock(_mutex);
+		if (_sends.contains(name) || _requests.contains(name) || _legacyCommands.contains(name) ||
+			_legacyRequests.contains(name)) {
+			REX::WARN("BridgeApi: [content] refused legacy RegisterCommand('{}') — already registered (first wins)", name);
+			return;
+		}
+		_legacyCommands[name] = { a_handler, a_user };
+		std::erase(_pendingLegacyCommandUnregister, name);
+		_dirty = true;
+	}
+
+	bool BridgeApi::RegisterLegacyRequest(const char* a_name, RequestFn a_handler, void* a_user)
+	{
+		if (!a_name || !a_handler) return false;
+		const std::string name(a_name);
+		if (!IsValidPluginCommand(name)) return false;
+		std::lock_guard lock(_mutex);
+		if (_sends.contains(name) || _requests.contains(name) || _legacyCommands.contains(name) ||
+			_legacyRequests.contains(name)) {
+			return false;
+		}
+		_legacyRequests[name] = { a_handler, a_user, true };
+		std::erase(_pendingLegacyRequestUnregister, name);
+		_dirty = true;
+		return true;
+	}
+
+	void BridgeApi::UnregisterLegacyRequest(const char* a_name)
+	{
+		if (!a_name) return;
+		const std::string name(a_name);
+		std::lock_guard lock(_mutex);
+		if (_legacyRequests.erase(name) > 0) {
+			_pendingLegacyRequestUnregister.push_back(name);
+			_dirty = true;
+		}
+	}
+
+	void BridgeApi::UnregisterLegacyCommand(const char* a_name)
+	{
+		if (!a_name) return;
+		const std::string name(a_name);
+		std::lock_guard lock(_mutex);
+		if (_legacyCommands.erase(name) > 0) {
+			_pendingLegacyCommandUnregister.push_back(name);
+			_dirty = true;
+		}
 	}
 
 	void BridgeApi::UnregisterRequest(const char* a_name)
@@ -232,7 +292,8 @@ namespace OSFUI::API
 		return true;
 	}
 
-	void BridgeApi::NoteLegacyApiCaller(std::string a_moduleName, std::uint32_t a_major, std::uint32_t a_minor)
+	void BridgeApi::NoteLegacyApiCaller(std::string a_moduleName, std::uint32_t a_major,
+		std::uint32_t a_minor, bool a_supported)
 	{
 		std::lock_guard lock(_mutex);
 		// Bounded, and deduped by module: a plugin that retries on every load
@@ -240,14 +301,14 @@ namespace OSFUI::API
 		// This set is emptied by every drain, so RuntimeDiagnostics re-applies
 		// the same two rules on the side that keeps them for the session.
 		for (const auto& seen : _legacyCallers) {
-			if (seen.module == a_moduleName) {
+			if (seen.module == a_moduleName && seen.supported == a_supported) {
 				return;
 			}
 		}
 		if (_legacyCallers.size() >= kMaxLegacyCallers) {
 			return;
 		}
-		_legacyCallers.push_back(LegacyCaller{ std::move(a_moduleName), a_major, a_minor });
+		_legacyCallers.push_back(LegacyCaller{ std::move(a_moduleName), a_major, a_minor, a_supported });
 	}
 
 	std::vector<BridgeApi::LegacyCaller> BridgeApi::TakeLegacyApiCallers()
@@ -612,6 +673,7 @@ namespace OSFUI::API
 			inflight.view = view;
 			inflight.deferToken = deferToken;
 			inflight.name = name;
+			inflight.legacyReply = reg.legacy && bridge.IsLegacyApiView(view);
 			inflight.deadline = std::chrono::steady_clock::now() + kRequestTimeout;
 			_inflightRequests.emplace(token, std::move(inflight));
 			request.command = name.c_str(); request.payloadJson = payloadJson.c_str(); request.sourceViewId = view.c_str();
@@ -629,9 +691,12 @@ namespace OSFUI::API
 	void BridgeApi::PumpMainThread(std::chrono::steady_clock::time_point now)
 	{
 		MessageBridge* bridge = nullptr;
-		std::vector<std::string> commandRemovals, requestRemovals;
+		std::vector<std::string> commandRemovals, requestRemovals,
+			legacyCommandRemovals, legacyRequestRemovals;
 		std::vector<std::pair<std::string, Registration>> commands;
+		std::vector<std::pair<std::string, Registration>> legacyCommands;
 		std::vector<std::pair<std::string, RequestRegistration>> requests;
+		std::vector<std::pair<std::string, RequestRegistration>> legacyRequests;
 		std::vector<PendingSend> sends;
 		std::vector<PendingReply> replies;
 		bool fireReady = false; ReadyFn readyCb = nullptr; void* readyUser = nullptr;
@@ -640,10 +705,21 @@ namespace OSFUI::API
 			if (bridge) {
 				const bool changed = bridge != _appliedBridge;
 				if (changed || _dirty) {
-					if (changed) { _pendingSendUnregister.clear(); _pendingRequestUnregister.clear(); }
-					else { commandRemovals.swap(_pendingSendUnregister); requestRemovals.swap(_pendingRequestUnregister); }
+					if (changed) {
+						_pendingSendUnregister.clear();
+						_pendingRequestUnregister.clear();
+						_pendingLegacyCommandUnregister.clear();
+						_pendingLegacyRequestUnregister.clear();
+					} else {
+						commandRemovals.swap(_pendingSendUnregister);
+						requestRemovals.swap(_pendingRequestUnregister);
+						legacyCommandRemovals.swap(_pendingLegacyCommandUnregister);
+						legacyRequestRemovals.swap(_pendingLegacyRequestUnregister);
+					}
 					for (const auto& pair : _sends) commands.push_back(pair);
+					for (const auto& pair : _legacyCommands) legacyCommands.push_back(pair);
 					for (const auto& pair : _requests) requests.push_back(pair);
+					for (const auto& pair : _legacyRequests) legacyRequests.push_back(pair);
 					_appliedBridge = bridge; _dirty = false;
 				}
 				// Retain known lazy targets until Runtime marks their renderer surface
@@ -673,6 +749,8 @@ namespace OSFUI::API
 					reply.view = req.view;
 					reply.deferToken = req.deferToken;
 					reply.name = req.name;
+					reply.type = req.type;
+					reply.legacyReply = req.legacyReply;
 					if (!req.answered) { reply.rejected = true; reply.code = "no-response"; reply.message = "the plugin never answered"; }
 					else if (req.rejected) { reply.rejected = true; reply.code = req.code; reply.message = req.message; }
 					else { reply.payloadJson = req.payloadJson; }
@@ -683,11 +761,24 @@ namespace OSFUI::API
 		if (bridge) {
 			for (const auto& name : commandRemovals) bridge->UnregisterSend(name);
 			for (const auto& name : requestRemovals) bridge->UnregisterRequest(name);
+			for (const auto& name : legacyCommandRemovals) bridge->UnregisterLegacyCommand(name);
+			for (const auto& name : legacyRequestRemovals) bridge->UnregisterRequest(name);
 			for (const auto& [name, reg] : commands) bridge->RegisterSend(name, [name, reg](const nlohmann::json& payload, MessageBridge& b) {
 				const auto dump = Json::Dump(payload);
 				const std::string src(b.CurrentSource()); reg.fn(name.c_str(), dump.c_str(), src.c_str(), reg.user);
 			});
+			for (const auto& [name, reg] : legacyCommands) {
+				bridge->RegisterLegacyCommand(name, [name, reg](const nlohmann::json& payload, MessageBridge& b) {
+					const auto dump = Json::Dump(payload);
+					const std::string src(b.CurrentSource());
+					reg.fn(name.c_str(), dump.c_str(), src.c_str(), reg.user);
+				});
+			}
 			for (const auto& [name, reg] : requests) bridge->RegisterRequest(name, [this, name, reg](const nlohmann::json& payload, MessageBridge& b) { DispatchRequest(name, reg, payload, b); });
+			for (const auto& [name, reg] : legacyRequests) bridge->RegisterRequest(name,
+				[this, name, reg](const nlohmann::json& payload, MessageBridge& b) {
+					DispatchRequest(name, reg, payload, b);
+				});
 			// A plugin push is an EVENT: unsolicited, one-shot, never replayed.
 			// Backend-owned data that changes over time belongs in SetViewState.
 			for (const auto& send : sends) bridge->EmitJson(send.view, send.type, send.payloadJson);
@@ -703,7 +794,18 @@ namespace OSFUI::API
 					// view that did nothing wrong.
 					bridge->RejectTo(reply.deferToken, reply.code, reply.message);
 				} else {
-					bridge->RespondJsonTo(reply.deferToken, reply.payloadJson);
+					if (reply.legacyReply) {
+						auto payload = nlohmann::json::parse(reply.payloadJson, nullptr, false);
+						if (payload.is_discarded()) payload = nlohmann::json::object();
+						bridge->RespondTo(reply.deferToken, {
+							{ "__osfuiV1Reply", {
+								{ "type", reply.type.empty() ? reply.name : reply.type },
+								{ "payload", std::move(payload) },
+							} },
+						});
+					} else {
+						bridge->RespondJsonTo(reply.deferToken, reply.payloadJson);
+					}
 				}
 			}
 		}

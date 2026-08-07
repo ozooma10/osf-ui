@@ -1,9 +1,11 @@
 # Retained compatibility boundaries
 
-Three compatibility artifacts are **copied verbatim** by `scripts/build.mjs` rather than being
-compiled from TypeScript. Each is a deliberate boundary, not unfinished work.
-`scripts/verify-output.mjs` asserts each one is byte-identical to its source on
-every build, so a boundary cannot rot silently.
+The authored 2.0 helper, stylesheet, and private pad navigation are hand-written
+compatibility boundaries rather than TypeScript output. The stylesheet and pad
+navigation are copied verbatim. During 2.0.x, the shipped helper is composed
+deterministically from the byte-unchanged 2.0 core plus the guarded
+`src/compat/v1/osfui-v1.js` façade; `scripts/verify-output.mjs` asserts that exact
+composition on every build.
 
 This file records *why* each boundary exists and *what has to be true* before it
 is dissolved. Do not convert one of these on a whim — each exit criterion below
@@ -13,7 +15,7 @@ exists because the failure mode is invisible until the game is running.
 
 ## 1. `src/shared-kit/osfui.js` → `build/frontend/views/shared/osfui.js`
 
-**Status: frozen. Default position is to never generate this.**
+**Status: frozen 2.0 core. Default position is to never transform this file.**
 
 This is the published bridge helper, protocol 2.0. Its own
 header calls it "part of the frozen contract". Third-party mods load it by
@@ -29,7 +31,11 @@ byte-level behaviour change — different `this` binding, different timer
 semantics under minification, a changed property enumeration order — against an
 unknown population of third-party consumers, for zero user-visible gain.
 
-**Exit criterion:** do not. If it ever must change, change `src/shared-kit/osfui.js`
+The temporary append step is not a rewrite of this file and activates only on
+navigation carrying `osfui-api=1`. Remove that append in 2.1.0 using
+[`docs/compat-v1-removal.md`](../docs/compat-v1-removal.md).
+
+**Exit criterion:** do not transform it. If it ever must change, change `src/shared-kit/osfui.js`
 directly as hand-written JavaScript, bump the bridge protocol version in
 `src/core/Version.h` and `sdk/osfui.d.ts` together, and treat it as a public API
 release. Compiling it is a separate, deliberate decision requiring a byte-diff

@@ -49,7 +49,9 @@ namespace OSFUI::API
 	//
 	// ABI 2.0 is the breaking native cleanup shipped with OSF UI 2.0. Future
 	// additive methods append at the vtable tail and bump MINOR; another vtable
-	// or behavioral break bumps MAJOR. OSF UI refuses every ABI 1.x caller.
+	// or behavioral break bumps MAJOR. During 2.0.x only, the export vends a
+	// separate frozen 1.8 adapter to ABI 1.x callers; this 2.0 header remains
+	// strict and that adapter is removed in 2.1.0.
 	inline constexpr std::uint32_t kBridgeAPIVersion = (2u << 16) | 0u;
 	inline constexpr std::uint32_t kBridgeAPIMajor   = kBridgeAPIVersion >> 16;
 	inline constexpr std::uint32_t kBridgeAPIMinor   = kBridgeAPIVersion & 0xFFFFu;

@@ -250,7 +250,7 @@ frontend/src/  ──(npm run build)──►  build/frontend/views/  ──► 
 ```
 
 - Per view the build emits `main.js` and `style.css`, and copies `index.html` + `manifest.json` through unprocessed — Vite's HTML pipeline would inject `type="module"` and `crossorigin` and hash asset names, all three of which break the shipped contract.
-- `views/shared/osfui.{js,css}` and `views/osfui/padnav.js` are copied **verbatim** from source and asserted byte-identical on every build; they are compatibility boundaries, not unfinished work (`frontend/COMPATIBILITY.md`).
+- `views/shared/osfui.css` and `views/osfui/padnav.js` are copied verbatim. The shipped `views/shared/osfui.js` is deterministically composed from the byte-unchanged 2.0 core and, during 2.0.x, an isolated guarded v1 façade; both shapes are asserted on every build (`frontend/COMPATIBILITY.md`).
 - Output filenames are stable — no content hashes — so public asset paths and installed layouts remain deterministic.
 - The generated tree is **build output and is not committed**: it is ignored, regenerated on every build, and never hand-edited. `xmake build` and `xmake install` run the frontend builder before consuming it, while release packaging installs the locked npm dependencies first. Node is a developer/build dependency, never a player runtime dependency.
 

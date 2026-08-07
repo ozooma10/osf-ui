@@ -6,6 +6,7 @@ import { STAGE_MODES, computeFit, nextStageMode } from './stage-fit.js';
 import { applyPatch, nextCycleValue } from './tools-model.js';
 import { summarize } from './traffic-model.js';
 import { parseNativeEnvelope } from './envelope.js';
+import { mergeHarnessViewUrl } from './legacy-navigation.js';
 
 const $ = (id) => document.getElementById(id);
 const frame = $('view');
@@ -273,11 +274,7 @@ let views = [];
  * #mod= deep links documented for a mock reach it.
  */
 function viewSrc(target) {
-  const forwarded = new URLSearchParams(location.search);
-  for (const own of ['view', 'res', 'checker', 'osfui-api']) forwarded.delete(own);
-  const url = new URL(target.viewUrl, location.origin);
-  for (const [name, value] of forwarded) url.searchParams.set(name, value);
-  return url.pathname + url.search + location.hash;
+  return mergeHarnessViewUrl(target.viewUrl, location.href);
 }
 
 function selectView(qualifiedId, navigate = true) {

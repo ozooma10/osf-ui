@@ -89,8 +89,8 @@ namespace OSFUI
 		manifest.readySignal = Json::GetBool(*json, "readySignal", manifest.readySignal);
 
 		// A newer target remains advisory and badges "needs update". An explicitly
-		// pre-2.0 target is retained so Runtime can refuse it with a legible System
-		// Health condition instead of navigating into the removed helper API.
+		// pre-2.0 target is retained so the temporary v1 navigation façade and its
+		// persistent 2.1.0 removal warning can be selected deterministically.
 		if (auto target = Json::GetString(*json, "targetVersion", ""); !target.empty()) {
 			std::array<std::uint32_t, 3> targetParts{};
 			if (ParseDottedVersion(target, targetParts)) {
