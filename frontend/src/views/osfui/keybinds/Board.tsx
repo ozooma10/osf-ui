@@ -34,7 +34,7 @@ export interface BoardProps {
   tr: Translator;
   /**
    * False until the first render that had data: the `#keyboard` div stays empty
-   * until `settings.data` arrives, then fills in. Sibling panels gate the same way.
+   * until `osfui/settings` arrives, then fills in. Sibling panels gate the same way.
    */
   loaded: boolean;
   /**
@@ -110,7 +110,7 @@ export function Board(props: BoardProps) {
     const hasGame = holders.some((b) => b.kind === 'game');
     const state = keyState(bindings, name);
     // The player's keycap when the runtime published a labels map; the
-    // authored US glyph otherwise (browser preview, older host).
+    // authored US glyph otherwise (browser preview, older OSF UI runtime).
     const face = labeler(name) ?? item.d;
 
     // Toggle order is fixed: the emitted class attribute must match the shipped

@@ -1,4 +1,4 @@
-// Host-side unit tests for SettingsStore (docs/mcm-design.md §8.3): the REAL
+// Native desktop unit tests for SettingsStore: the REAL
 // src/runtime/SettingsStore.cpp + Json.cpp compiled against stubs/pch.h, run
 // on the developer's desktop toolchain — the native mirror of the web
 // devtools/harness. Assert-style; process exit code is the failure count.
@@ -340,7 +340,7 @@ int main()
 	CHECK(!store.RegisterSchema(nlohmann::json{ { "id", "t.zeta" }, { "title", "Zeta Again" } }, SettingsStore::Source::kDropIn));
 	CHECK(LoggedContaining("ERROR", "duplicate schema id 't.zeta'"));
 
-	// Runtime-registered mods persist through the same per-mod file.
+	// Native-registered mods persist through the same per-mod file.
 	CHECK(store.Set("t.gamma", "level", "9"));
 	store.FlushPersistence();
 	{
@@ -358,7 +358,7 @@ int main()
 		] } ] })json");
 	const auto genBeforeReplace = store.Generation();
 	CHECK(store.RegisterSchema(alphaV2, SettingsStore::Source::kNative));
-	CHECK(LoggedContaining("WARN", "runtime registration replaces drop-in"));
+	CHECK(LoggedContaining("WARN", "native registration replaces drop-in"));
 	CHECK(store.Generation() > genBeforeReplace);
 	data = nlohmann::json::parse(store.DataJson());
 	CHECK(data["mods"].size() == 4);  // replaced, not duplicated
@@ -390,7 +390,7 @@ int main()
 	CHECK(store.Generation() > genBeforeRemove);
 	CHECK(!store.RemoveMod("t.beta"));
 	CHECK(store.GetValue("t.beta", "count") == nullptr);
-	CHECK(fs::exists(valuesDir / "t.beta.json"));  // uninstalled ≠ deleted (mcm-design.md §10)
+	CHECK(fs::exists(valuesDir / "t.beta.json"));  // uninstalled does not mean deleted
 	data = nlohmann::json::parse(store.DataJson());
 	CHECK(data["mods"].size() == 3);
 
@@ -415,7 +415,7 @@ int main()
 	CHECK(!store.GetSource("t.beta").has_value());  // removed above
 	CHECK(!store.GetSource("ghost").has_value());
 
-	// --- write-behind debounce (mcm-design.md §8.1): coalesced, due after window --
+	// --- write-behind debounce: coalesced, due after window -----------------
 	store.PumpPersistence(100.0);  // settle pending windows; store clock -> 100
 	CHECK(store.Set("t.gamma", "level", "3"));
 	CHECK(store.GetValue("t.gamma", "level")->get<std::int64_t>() == 3);  // committed in memory...
@@ -709,7 +709,7 @@ int main()
 	{
 		const auto sd = root / "settings-fwd";
 		const auto vd = root / "values-fwd";
-		// A NEWER mod's schema on this host: one setting of an unknown type
+		// A NEWER mod's schema on this OSF UI runtime: one setting of an unknown type
 		// (with an alias carrying a rename), one known setting.
 		WriteFile(sd / "t.future.json", R"json({
 			"id": "t.future", "title": "Future",
@@ -765,7 +765,7 @@ int main()
 	{
 		const auto sd = root / "settings-target";
 		const auto vd = root / "values-target";
-		// Newer than the host: loads best-effort anyway, values served; the
+		// Newer than the installed OSF UI release: loads best-effort anyway, values served; the
 		// declared target rides in Data() for the "needs update" badge.
 		WriteFile(sd / "t.future2.json", R"json({
 			"id": "t.future2", "title": "Future", "targetVersion": "99.0.0",
@@ -848,7 +848,7 @@ int main()
 			std::string   contents((std::istreambuf_iterator<char>(f)), {});
 			CHECK(contents == R"json({"$formatVersion":1,"n":5})json");
 		}
-		// A NEWER host's stamp round-trips (never downgraded by our rewrite),
+		// A NEWER OSF UI release's stamp round-trips (never downgraded by our rewrite),
 		// and a foreign $-meta key is preserved like any unknown.
 		WriteFile(vd / "t.fmt.json", R"json({ "$formatVersion": 7, "$futureMeta": "x", "n": 5 })json");
 		{
@@ -976,7 +976,7 @@ int main()
 
 	// --- keycap labels: the additive `keyboard` block ------------------------------
 	// SetKeyboardLabels publishes { layout, labels } at the document top level;
-	// empty = omitted (older hosts / preview fall back to raw names). Display
+	// empty = omitted (older OSF UI releases / preview fall back to raw names). Display
 	// only — nothing else in the store consumes it.
 	{
 		SettingsStore s;
@@ -1081,7 +1081,7 @@ int main()
 		CHECK(s.LoadErrors().size() == 2);
 		CHECK(s.DataView()["mods"].size() == 2);
 		// ...a re-broken file records again (replace-or-add: retries must not
-		// stack) and re-broadcasts so an open Mods surface shows it live.
+		// stack) and re-broadcasts so an open Mod Settings view shows it live.
 		int registryPings = 0;
 		s.AddRegistryListener([&] { ++registryPings; });
 		WriteFile(sd / "t.broken.json", R"json({ "id": )json");

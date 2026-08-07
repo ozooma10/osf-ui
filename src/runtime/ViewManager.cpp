@@ -6,7 +6,7 @@
 
 namespace OSFUI
 {
-	void ViewManager::LoadAll(const std::filesystem::path& a_viewsDir)
+	void ViewManager::DiscoverAll(const std::filesystem::path& a_viewsDir)
 	{
 		_views.clear();
 
@@ -60,7 +60,7 @@ namespace OSFUI
 					continue;  // asset folder, not a view
 				}
 				if (auto manifest = ViewManifest::Load(manifestPath)) {
-					REX::INFO("ViewManager: loaded view '{}' ({}, {}x{})",
+					REX::INFO("ViewManager: discovered view '{}' ({}, {}x{})",
 						manifest->id, manifest->title, manifest->width, manifest->height);
 					_views.push_back(std::move(*manifest));
 				}
@@ -70,7 +70,7 @@ namespace OSFUI
 		// so discovery (and everything keyed to it: boot creation order, catalog
 		// listings, z tie-breaks between equal-`order` HUDs) is deterministic.
 		std::ranges::sort(_views, {}, &ViewManifest::id);
-		REX::INFO("ViewManager: {} view(s) loaded from {}", _views.size(), a_viewsDir.string());
+		REX::INFO("ViewManager: {} view(s) discovered under {}", _views.size(), a_viewsDir.string());
 	}
 
 	const ViewManifest* ViewManager::Find(std::string_view a_id) const

@@ -6,7 +6,7 @@
 
 namespace OSFUI::API
 {
-	// Any-thread settings value mirror (mcm-design.md §8.2): the C ABI's typed
+	// Any-thread settings value mirror: the native ABI's typed
 	// getters and the Papyrus natives read here, never the main-thread-only
 	// SettingsStore. Fed on the main thread by a store change listener — every
 	// committed value, including the startup NotifyAll replay and the per-mod

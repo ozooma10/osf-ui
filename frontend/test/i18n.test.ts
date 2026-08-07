@@ -142,9 +142,11 @@ describe('two-form plural selection', () => {
   it('selects the Other form for any count that is not exactly 1', () => {
     const host = catalogHost();
     const tr = makeTranslator(host, 'chrome.settings.');
-    expect(tr.plural('terminal', 3, 'Terminal', '{count} terminals')).toBe('3 terminals');
+    // The catalog address remains `terminal*` for translation-pack compatibility;
+    // only the authored fallback vocabulary is canonicalized.
+    expect(tr.plural('terminal', 3, 'Menu', '{count} menus')).toBe('3 menus');
     // Zero and negatives take Other — English-shaped, not CLDR.
-    expect(tr.plural('terminal', 0, 'Terminal', '{count} terminals')).toBe('0 terminals');
+    expect(tr.plural('terminal', 0, 'Menu', '{count} menus')).toBe('0 menus');
     expect(host.asked).toEqual(['chrome.settings.terminalOther', 'chrome.settings.terminalOther']);
   });
 

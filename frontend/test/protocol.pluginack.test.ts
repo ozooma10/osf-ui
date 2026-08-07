@@ -7,7 +7,7 @@
 //   - `send()` is never awaited and needs no ack; it returns as soon as the
 //     message is posted. A request naming that send is refused.
 //   - a request endpoint MUST settle exactly once (Respond / Reject / Defer),
-//     and the host answers `internal` if a handler returns without settling
+//     and the OSF UI runtime answers `internal` if a handler returns without settling
 //     (MessageBridge::DispatchRequest), so "no answer" is a bug that reports
 //     itself instead of a hang.
 //   - correlation is by `id` alone. Nothing in a payload steers it, and a
@@ -85,7 +85,7 @@ async function flush(): Promise<void> {
 
 beforeEach(() => {
   // Fake timers so the default 10 s client timer never fires mid-case; the
-  // timer itself is pinned in protocol.errors.test.ts.
+  // timer itself is covered in protocol.errors.test.ts.
   vi.useFakeTimers();
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -140,7 +140,7 @@ describe('a settlement is not an event', () => {
     const p = probe(helper.request('acme.mymod.getWeight'));
     const id = sent[1]!.id!;
 
-    // A backend that emits an event instead of answering has a bug the host
+    // A mod backend that emits an event instead of answering has a bug the OSF UI runtime
     // catches (`internal` at the end of DispatchRequest). The helper must not
     // paper over it by settling on the event.
     deliver(helper, { kind: 'event', name: 'acme.mymod.weight', id, payload: { weight: 12.5 } });
@@ -198,7 +198,7 @@ describe('a request settles exactly once', () => {
     const p = probe(helper.request('acme.mymod.getWeight'));
     const id = sent[1]!.id!;
 
-    // A stale id from the previous document, or a host echoing something this
+    // A stale id from the previous document, or the OSF UI runtime echoing something this
     // page never asked for.
     expect(() => deliver(helper, { kind: 'reply', id: 'q999', payload: { weight: 1 } })).not.toThrow();
     await flush();
@@ -244,7 +244,7 @@ describe('correlation is by id alone — no payload heuristic survives', () => {
     const p = probe(helper.request('acme.mymod.ping'));
 
     // 1.x read `payload.command` to decide whether an ack was "mine". Nothing
-    // reads it now, so a backend that echoes the wrong name (or none) cannot
+    // reads it now, so a mod backend that echoes the wrong name (or none) cannot
     // strand its caller.
     deliver(helper, {
       kind: 'reply',
@@ -290,7 +290,7 @@ describe('send() is one-way — nothing to await, nothing to ack', () => {
     const { helper, sent } = loadHelper();
 
     // The case that motivated the deleted heuristic: a mod action button whose
-    // backend only needs to be told. It is a send now, so there is no pending
+    // mod backend only needs to be told. It is a send now, so there is no pending
     // entry, no client timer, and no false "No response from {mod}" toast to
     // suppress.
     expect(helper.send('acme.mymod.doThing', { id: 'x' })).toBe(true);
@@ -302,7 +302,7 @@ describe('send() is one-way — nothing to await, nothing to ack', () => {
     const { helper, sent } = loadHelper();
     const p = probe(helper.request('acme.mymod.getWeight'));
 
-    // The host's backstop for the same authoring mistake on the request side
+    // The OSF UI runtime's backstop for the same authoring mistake on the request side
     // (DispatchRequest: "the endpoint did not answer"). The page learns it as an
     // ordinary typed rejection rather than waiting out a timeout.
     deliver(helper, {

@@ -1,4 +1,4 @@
-#include "runtime/DiagnosticsModule.h"
+#include "runtime/HealthRegistry.h"
 
 #include <cmath>  // not in pch.h
 
@@ -20,21 +20,21 @@ namespace OSFUI
 			return std::round(clamped * 10.0) / 10.0;
 		}
 
-		[[nodiscard]] const char* SeverityName(DiagnosticsModule::Severity a_severity)
+		[[nodiscard]] const char* SeverityName(HealthRegistry::Severity a_severity)
 		{
-			return a_severity == DiagnosticsModule::Severity::Error ? "error" : "warning";
+			return a_severity == HealthRegistry::Severity::Error ? "error" : "warning";
 		}
 
 		// Rank for the wire ordering: errors before warnings, active before
 		// resolved. Lower sorts first.
-		[[nodiscard]] int OrderRank(bool a_resolved, DiagnosticsModule::Severity a_severity)
+		[[nodiscard]] int OrderRank(bool a_resolved, HealthRegistry::Severity a_severity)
 		{
-			const int severityRank = a_severity == DiagnosticsModule::Severity::Error ? 0 : 1;
+			const int severityRank = a_severity == HealthRegistry::Severity::Error ? 0 : 1;
 			return (a_resolved ? 2 : 0) + severityRank;
 		}
 	}
 
-	std::string DiagnosticsModule::RedactPath(std::string_view a_text)
+	std::string HealthRegistry::RedactPath(std::string_view a_text)
 	{
 		// Path-shaped: a drive letter ("C:\"), a UNC/POSIX root, a URL scheme, or
 		// simply any embedded separator. Producers are supposed to pass bare
@@ -57,7 +57,7 @@ namespace OSFUI
 		return std::string(tail);
 	}
 
-	nlohmann::json DiagnosticsModule::Sanitize(const nlohmann::json& a_context)
+	nlohmann::json HealthRegistry::Sanitize(const nlohmann::json& a_context)
 	{
 		nlohmann::json out = nlohmann::json::object();
 		if (!a_context.is_object()) {
@@ -70,7 +70,7 @@ namespace OSFUI
 			}
 			if (value.is_string()) {
 				auto text = value.get<std::string>();
-				// Compatibility cards must carry the concrete consumer identity in
+				// Compatibility health issues must carry the concrete consumer identity in
 				// context. A qualified view id contains '/', which the general path
 				// redactor would otherwise reduce to only its final segment. Preserve
 				// it only after the public view-id grammar proves it is an id rather
@@ -99,28 +99,28 @@ namespace OSFUI
 		return out;
 	}
 
-	DiagnosticsModule::Issue* DiagnosticsModule::Find(std::string_view a_id)
+	HealthRegistry::Issue* HealthRegistry::Find(std::string_view a_id)
 	{
 		const auto it = std::ranges::find(_issues, a_id, &Issue::id);
 		return it == _issues.end() ? nullptr : &*it;
 	}
 
-	const DiagnosticsModule::Issue* DiagnosticsModule::Find(std::string_view a_id) const
+	const HealthRegistry::Issue* HealthRegistry::Find(std::string_view a_id) const
 	{
 		const auto it = std::ranges::find(_issues, a_id, &Issue::id);
 		return it == _issues.end() ? nullptr : &*it;
 	}
 
-	bool DiagnosticsModule::IsActive(std::string_view a_id) const
+	bool HealthRegistry::IsActive(std::string_view a_id) const
 	{
 		const auto* issue = Find(a_id);
 		return issue && !issue->resolved;
 	}
 
-	bool DiagnosticsModule::Upsert(const IssueSpec& a_spec, double a_now)
+	bool HealthRegistry::Upsert(const IssueSpec& a_spec, double a_now)
 	{
 		if (a_spec.id.empty() || a_spec.code.empty()) {
-			REX::WARN("Diagnostics: ignoring an issue with no id/code (code '{}')", a_spec.code);
+			REX::WARN("HealthRegistry: ignoring an issue with no id/code (code '{}')", a_spec.code);
 			return false;
 		}
 		const double now = RoundSeconds(a_now);
@@ -159,7 +159,7 @@ namespace OSFUI
 		return true;
 	}
 
-	bool DiagnosticsModule::Resolve(std::string_view a_id, double a_now)
+	bool HealthRegistry::Resolve(std::string_view a_id, double a_now)
 	{
 		auto* issue = Find(a_id);
 		if (!issue || issue->resolved) {
@@ -171,7 +171,7 @@ namespace OSFUI
 		return true;
 	}
 
-	bool DiagnosticsModule::ResolveMissing(std::string_view a_source,
+	bool HealthRegistry::ResolveMissing(std::string_view a_source,
 		const std::unordered_set<std::string>& a_keep, double a_now)
 	{
 		bool changed = false;
@@ -189,7 +189,7 @@ namespace OSFUI
 		return changed;
 	}
 
-	void DiagnosticsModule::EnforceCaps()
+	void HealthRegistry::EnforceCaps()
 	{
 		const auto countOf = [this](bool a_resolved) {
 			return static_cast<std::size_t>(
@@ -200,7 +200,7 @@ namespace OSFUI
 		const auto evictOldest = [this](bool a_resolved) {
 			const auto it = std::ranges::find(_issues, a_resolved, &Issue::resolved);
 			if (it != _issues.end()) {
-				REX::WARN("Diagnostics: evicting {} issue '{}' — history cap reached",
+				REX::WARN("HealthRegistry: evicting {} issue '{}' — history cap reached",
 					a_resolved ? "resolved" : "active", it->id);
 				_issues.erase(it);
 			}
@@ -213,12 +213,12 @@ namespace OSFUI
 		}
 	}
 
-	void DiagnosticsModule::SetSystemInfo(nlohmann::json a_info)
+	void HealthRegistry::SetSystemInfo(nlohmann::json a_info)
 	{
 		_system = Sanitize(a_info);
 	}
 
-	nlohmann::json DiagnosticsModule::Encode(const Issue& a_issue)
+	nlohmann::json HealthRegistry::Encode(const Issue& a_issue)
 	{
 		nlohmann::json out{
 			{ "id", a_issue.id },
@@ -238,7 +238,7 @@ namespace OSFUI
 		return out;
 	}
 
-	nlohmann::json DiagnosticsModule::Snapshot() const
+	nlohmann::json HealthRegistry::Snapshot() const
 	{
 		// Index vector rather than copying records: ordering only needs the rank
 		// and the insertion position.
@@ -271,7 +271,7 @@ namespace OSFUI
 		return nlohmann::json{ { "system", _system }, { "issues", std::move(issues) } };
 	}
 
-	void DiagnosticsModule::Broadcast()
+	void HealthRegistry::Broadcast()
 	{
 		if (!_bridge) {
 			return;
@@ -288,7 +288,7 @@ namespace OSFUI
 		_bridge->PublishStateAll("osfui", "diagnostics", Snapshot());
 	}
 
-	void DiagnosticsModule::RegisterEndpoints(MessageBridge& a_bridge)
+	void HealthRegistry::RegisterEndpoints(MessageBridge& a_bridge)
 	{
 		_bridge = &a_bridge;
 		// `diagnostics.get` is gone: it was a read whose real job was to
@@ -296,13 +296,13 @@ namespace OSFUI
 		// to every document that greets the bridge.
 	}
 
-	void DiagnosticsModule::OnBridgeDown()
+	void HealthRegistry::OnBridgeDown()
 	{
 		_bridge = nullptr;
 		_lastSent.clear();
 	}
 
-	void DiagnosticsModule::OnViewDestroyed(std::string_view)
+	void HealthRegistry::OnViewDestroyed(std::string_view)
 	{
 		// Nothing to prune: delivery is scoped by the bridge's greeted-view set.
 	}

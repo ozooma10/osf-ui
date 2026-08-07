@@ -1,6 +1,6 @@
 // Key-name alias folding.
 //
-// The keybinds board groups bindings by key-name string, but native resolves
+// The Keybindings view groups bindings by key-name string, but native resolves
 // conflicts by virtual-key code, and several spellings share a VK
 // ("Tilde"/"Backtick"/"Console" are all Grave; "Return" is Enter). Folding here
 // makes the string grouping agree with the store's vk-resolved conflict data
@@ -72,7 +72,7 @@ export const NAME_ALIASES: Readonly<Record<string, string>> = {
  * Events `key` vocabulary, where the guard changes nothing.) The fix is
  * `Object.prototype.hasOwnProperty.call(NAME_ALIASES, k)` or a null-prototype
  * table, together with a native-side decision on what an unmappable name should
- * do. Pinned by a test so the quirk cannot vanish silently.
+ * do. Covered by a test so the quirk cannot vanish silently.
  */
 export function canonicalName(name: unknown): string {
   const s = String(name || '');

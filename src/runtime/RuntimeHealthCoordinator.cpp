@@ -1,4 +1,4 @@
-#include "runtime/RuntimeDiagnostics.h"
+#include "runtime/RuntimeHealthCoordinator.h"
 
 #include "api/BridgeApi.h"
 #include "compat/v1/Navigation.h"
@@ -13,12 +13,12 @@ namespace OSFUI
 		constexpr double kPollSeconds{ 2.0 };
 	}
 
-	void RuntimeDiagnostics::Pump()
+	void RuntimeHealthCoordinator::Pump()
 	{
 		auto& runtime = _runtime;
-		if (!runtime._diagnostics) return;
+		if (!runtime._healthRegistry) return;
 
-		DrainPluginReports();
+		DrainPluginHealthReports();
 		if (runtime._settings) {
 			const auto generation = runtime._settings->Store().Generation();
 			if (!_settingsSynced || generation != _settingsGeneration) {
@@ -32,48 +32,48 @@ namespace OSFUI
 			SyncCompatibility();
 			UpdateSystemInfo();
 		}
-		runtime._diagnostics->Broadcast();
+		runtime._healthRegistry->Broadcast();
 	}
 
-	void RuntimeDiagnostics::DrainPluginReports()
+	void RuntimeHealthCoordinator::DrainPluginHealthReports()
 	{
 		auto& runtime = _runtime;
-		const auto ops = API::BridgeApi::Get().TakeDiagnosticOps();
+		const auto ops = API::BridgeApi::Get().TakeHealthIssueOps();
 		const auto qualify = [](const std::string& a_modId, const std::string& a_local) {
 			return a_modId + ":" + a_local;
 		};
 		for (const auto& op : ops) {
 			switch (op.kind) {
-			case API::BridgeApi::DiagnosticOp::Kind::kReport:
-				runtime._diagnostics->Upsert(DiagnosticsModule::IssueSpec{
+			case API::BridgeApi::HealthIssueOp::Kind::kReport:
+				runtime._healthRegistry->Upsert(HealthRegistry::IssueSpec{
 					.id = qualify(op.modId, op.id),
 					.code = qualify(op.modId, op.code),
-					.severity = op.error ? DiagnosticsModule::Severity::Error :
-						DiagnosticsModule::Severity::Warning,
+					.severity = op.error ? HealthRegistry::Severity::Error :
+						HealthRegistry::Severity::Warning,
 					.source = op.modId,
 					.subject = op.subject,
 					.context = op.context,
 				}, runtime._uptime);
 				break;
-			case API::BridgeApi::DiagnosticOp::Kind::kClear:
-				runtime._diagnostics->Resolve(qualify(op.modId, op.id), runtime._uptime);
+			case API::BridgeApi::HealthIssueOp::Kind::kClear:
+				runtime._healthRegistry->Resolve(qualify(op.modId, op.id), runtime._uptime);
 				break;
-			case API::BridgeApi::DiagnosticOp::Kind::kClearExcept:
+			case API::BridgeApi::HealthIssueOp::Kind::kClearExcept:
 				{
 					std::unordered_set<std::string> keep;
 					keep.reserve(op.keep.size());
 					for (const auto& local : op.keep) keep.insert(qualify(op.modId, local));
-					runtime._diagnostics->ResolveMissing(op.modId, keep, runtime._uptime);
+					runtime._healthRegistry->ResolveMissing(op.modId, keep, runtime._uptime);
 				}
 				break;
 			}
 		}
 	}
 
-	void RuntimeDiagnostics::SyncSettings()
+	void RuntimeHealthCoordinator::SyncSettings()
 	{
 		auto& runtime = _runtime;
-		if (!runtime._settings || !runtime._diagnostics) return;
+		if (!runtime._settings || !runtime._healthRegistry) return;
 		auto& store = runtime._settings->Store();
 		for (auto it = _hotkeyTargetFailures.begin(); it != _hotkeyTargetFailures.end();) {
 			const auto target = store.GetHotkeyTarget(it->second.mod, it->second.key);
@@ -100,15 +100,15 @@ namespace OSFUI
 					{ "function", failure.function },
 				} });
 		}
-		_reconciler.SyncSettings(*runtime._diagnostics, errors, runtime._uptime);
+		_healthReconciler.SyncSettings(*runtime._healthRegistry, errors, runtime._uptime);
 	}
 
-	std::string RuntimeDiagnostics::HotkeyTargetId(std::string_view a_mod, std::string_view a_key)
+	std::string RuntimeHealthCoordinator::HotkeyTargetId(std::string_view a_mod, std::string_view a_key)
 	{
 		return "settings.hotkey-target:" + std::string(a_mod) + "." + std::string(a_key);
 	}
 
-	void RuntimeDiagnostics::ReportHotkeyTargetFailure(std::string_view a_mod, std::string_view a_key,
+	void RuntimeHealthCoordinator::ReportHotkeyTargetFailure(std::string_view a_mod, std::string_view a_key,
 		std::string_view a_script, std::string_view a_function, std::string_view a_message)
 	{
 		const auto id = HotkeyTargetId(a_mod, a_key);
@@ -125,34 +125,34 @@ namespace OSFUI
 		REX::ERROR("Runtime: [content] declarative hotkey {}.{} could not queue {}.{} — {}",
 			a_mod, a_key, a_script, a_function, a_message);
 		SyncSettings();
-		if (_runtime._diagnostics) {
-			_runtime._diagnostics->Broadcast();
+		if (_runtime._healthRegistry) {
+			_runtime._healthRegistry->Broadcast();
 		}
 	}
 
-	void RuntimeDiagnostics::ResolveHotkeyTarget(std::string_view a_mod, std::string_view a_key)
+	void RuntimeHealthCoordinator::ResolveHotkeyTarget(std::string_view a_mod, std::string_view a_key)
 	{
 		if (_hotkeyTargetFailures.erase(HotkeyTargetId(a_mod, a_key)) == 0) {
 			return;
 		}
 		SyncSettings();
-		if (_runtime._diagnostics) {
-			_runtime._diagnostics->Broadcast();
+		if (_runtime._healthRegistry) {
+			_runtime._healthRegistry->Broadcast();
 		}
 	}
 
-	void RuntimeDiagnostics::SyncCompatibility()
+	void RuntimeHealthCoordinator::SyncCompatibility()
 	{
 		auto& runtime = _runtime;
-		if (!runtime._diagnostics) return;
+		if (!runtime._healthRegistry) return;
 
 		std::vector<CompatibilityTarget> targets;
 		for (const auto& manifest : runtime._views.All()) {
 			if (IsPre2Target(manifest.targetVersion)) {
 				targets.push_back({ manifest.id, "view", manifest.targetVersion,
-					"compat.pre-2-view", DiagnosticsModule::Severity::Warning,
+					"compat.pre-2-view", HealthRegistry::Severity::Warning,
 					std::string(Compat::V1::kRemovalVersion) });
-			} else if (IsTargetNewerThanHost(manifest.targetVersion)) {
+			} else if (IsTargetNewerThanInstalledRelease(manifest.targetVersion)) {
 				targets.push_back({ manifest.id, "view", manifest.targetVersion });
 			}
 		}
@@ -180,8 +180,8 @@ namespace OSFUI
 				"plugin",
 				std::format("{}.{}", caller.major, caller.minor),
 				caller.supported ? "compat.legacy-api" : "compat.unsupported-api",
-				caller.supported ? DiagnosticsModule::Severity::Warning :
-					DiagnosticsModule::Severity::Error,
+				caller.supported ? HealthRegistry::Severity::Warning :
+					HealthRegistry::Severity::Error,
 				caller.supported ? std::string(Compat::V1::kRemovalVersion) : std::string{},
 				"abi",
 			});
@@ -191,14 +191,14 @@ namespace OSFUI
 		}
 		for (const auto& mod : _legacyPapyrusCallers) {
 			targets.push_back({ mod, "Papyrus mod", "1.x natives",
-				"compat.legacy-papyrus", DiagnosticsModule::Severity::Warning,
+				"compat.legacy-papyrus", HealthRegistry::Severity::Warning,
 				std::string(Compat::V1::kRemovalVersion), "api" });
 		}
 		if (runtime._settings) {
 			for (const auto& mod : runtime._settings->Store().DataView().value(
 					"mods", nlohmann::json::array())) {
 				const auto target = mod.value("targetVersion", std::string{});
-				if (IsTargetNewerThanHost(target)) {
+				if (IsTargetNewerThanInstalledRelease(target)) {
 					targets.push_back({ mod.value("id", std::string{}), "mod", target });
 				}
 			}
@@ -209,26 +209,26 @@ namespace OSFUI
 			if (_loggedCompatibility.insert(identity).second) {
 				if (target.code == "compat.unsupported-api") {
 					REX::WARN("Compatibility: {} '{}' requested unsupported ABI {}; OSF UI {} refused it",
-						target.kind, target.id, target.targetVersion, kPluginVersion);
+						target.kind, target.id, target.targetVersion, kOsfuiReleaseVersion);
 				} else {
 					REX::WARN("Compatibility: {} '{}' targets {}; OSF UI {} kept it running via the temporary 1.x bridge, which will be removed in {}",
-						target.kind, target.id, target.targetVersion, kPluginVersion,
+						target.kind, target.id, target.targetVersion, kOsfuiReleaseVersion,
 						target.removalVersion);
 				}
 			}
 		}
-		_reconciler.SyncCompatibility(
-			*runtime._diagnostics, targets, kPluginVersion, runtime._uptime);
+		_healthReconciler.SyncCompatibility(
+			*runtime._healthRegistry, targets, kOsfuiReleaseVersion, runtime._uptime);
 	}
 
-	void RuntimeDiagnostics::UpdateSystemInfo()
+	void RuntimeHealthCoordinator::UpdateSystemInfo()
 	{
 		auto& runtime = _runtime;
-		if (!runtime._diagnostics) return;
+		if (!runtime._healthRegistry) return;
 		const auto status = runtime._compositor ?
 			runtime._compositor->GetStatus() : CompositorStatus{};
-		runtime._diagnostics->SetSystemInfo(nlohmann::json{
-			{ "version", kPluginVersion },
+		runtime._healthRegistry->SetSystemInfo(nlohmann::json{
+			{ "version", kOsfuiReleaseVersion },
 			{ "bridgeVersion", kBridgeProtocolVersion },
 			{ "renderer", runtime._renderer ? std::string(runtime._renderer->Name()) : "none" },
 			{ "compositor", runtime._compositor ? std::string(runtime._compositor->Name()) : "none" },
@@ -240,37 +240,37 @@ namespace OSFUI
 		});
 	}
 
-	void RuntimeDiagnostics::OnRendererHealth(const IWebRenderer::HealthEvent& a_event)
+	void RuntimeHealthCoordinator::OnRendererHealth(const IWebRenderer::HealthEvent& a_event)
 	{
 		auto& runtime = _runtime;
-		if (!runtime._diagnostics || a_event.code.empty()) return;
+		if (!runtime._healthRegistry || a_event.code.empty()) return;
 		const std::string code(a_event.code);
 		if (!a_event.active) {
-			runtime._diagnostics->Resolve(code, runtime._uptime);
-			runtime._diagnostics->Broadcast();
+			runtime._healthRegistry->Resolve(code, runtime._uptime);
+			runtime._healthRegistry->Broadcast();
 			return;
 		}
 		nlohmann::json context = nlohmann::json::object();
 		if (!a_event.detail.empty()) context["detail"] = std::string(a_event.detail);
 		context["renderer"] = runtime._renderer ? std::string(runtime._renderer->Name()) : "none";
-		runtime._diagnostics->Upsert(DiagnosticsModule::IssueSpec{
+		runtime._healthRegistry->Upsert(HealthRegistry::IssueSpec{
 			.id = code,
 			.code = code,
-			.severity = DiagnosticsModule::Severity::Warning,
+			.severity = HealthRegistry::Severity::Warning,
 			.source = "host",
 			.subject = runtime._renderer ? std::string(runtime._renderer->Name()) : std::string{},
 			.context = std::move(context),
 		}, runtime._uptime);
-		runtime._diagnostics->Broadcast();
+		runtime._healthRegistry->Broadcast();
 	}
 
 
-	void RuntimeDiagnostics::ReportViewLoad(std::string_view a_viewId, bool a_failed,
+	void RuntimeHealthCoordinator::ReportViewLoad(std::string_view a_viewId, bool a_failed,
 		std::string_view a_description, int a_errorCode, std::uint32_t a_attemptsLeft)
 	{
 		auto& runtime = _runtime;
-		if (!runtime._diagnostics) return;
-		_reconciler.ReportViewLoad(*runtime._diagnostics, a_viewId, a_failed,
+		if (!runtime._healthRegistry) return;
+		_healthReconciler.ReportViewLoad(*runtime._healthRegistry, a_viewId, a_failed,
 			a_description, a_errorCode, a_attemptsLeft, runtime._uptime);
 	}
 }

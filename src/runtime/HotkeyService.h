@@ -6,15 +6,15 @@ namespace OSFUI
 {
 	class SettingsStore;
 
-	// Central hotkey dispatch (mcm-design.md §9): every `type:"key"` setting of
-	// every registered mod is a live binding; a gameplay key press routes to the
+	// Central mod-hotkey dispatch: every registered `type:"key"` mod-hotkey setting
+	// becomes a dispatchable binding; a gameplay key press routes to the
 	// setting's owner over the C ABI (SubscribeHotkey) and/or as a `ui.hotkey`
 	// web push. Centralized because only OSF UI has the policy context — a mod's
 	// own raw hook can't tell that the press landed in an overlay text field or
 	// mid-rebind, so per-mod hooks double-fire; web-only and Papyrus mods have no
 	// hook at all.
 	//
-	// Registry + queue only: Runtime feeds it (OnHostKey on the window thread,
+	// Registry + queue only: Runtime feeds it (OnGameWindowKey on the window thread,
 	// Rebuild/Drain on the main thread) and fans drained fires out to the
 	// delivery channels. Dispatch never consumes the key. The "during gameplay"
 	// half is enforced by Runtime at drain time (DrainHotkeys +
@@ -35,7 +35,7 @@ namespace OSFUI
 		// warns).
 		void Rebuild(const SettingsStore& a_store);
 
-		// Window thread (Runtime::OnHostKey): key-down edge only — the WndProc
+		// Window thread (Runtime::OnGameWindowKey): key-down edge only — the WndProc
 		// hook filters repeats. Queues one fire per binding of a_scan (physical
 		// key identity) unless the suppression gate holds; Drain delivers on
 		// the main thread.

@@ -14,7 +14,7 @@ const alpha: ModRecord = { id: 'acme.alpha', title: 'alpha works' };
 
 const view = (o: Partial<ViewRecord> & { id: string }): ViewRecord => o;
 
-const kb = view({ id: 'osfui/keybinds', title: 'Keybinds', mod: FRAMEWORK_ID, kind: 'menu' });
+const kb = view({ id: 'osfui/keybinds', title: 'Keybindings', mod: FRAMEWORK_ID, kind: 'menu' });
 const zetaHud = view({ id: 'acme.zeta/hud', title: 'Zeta HUD', mod: 'acme.zeta', kind: 'hud' });
 const orphanHud = view({ id: 'solo/hud', title: 'Solo HUD', mod: 'solo.mod', kind: 'hud' });
 const orphanMenu = view({ id: 'solo/menu', title: 'Solo Terminal', mod: 'solo.mod', kind: 'menu' });
@@ -115,7 +115,7 @@ describe('railNodes — paint order', () => {
     expect(ids(railNodes(model, 'zeta'))).toEqual(['health', 'section', 'acme.zeta']);
   });
 
-  it('keeps Health PINNED even when the filter matches nothing', () => {
+  it('keeps System Health as a fixed destination when the filter matches nothing', () => {
     // A user filtering for the mod that failed to load must still be able to
     // reach the reason, not be told "no mods match".
     expect(ids(railNodes({ mods: [], views: [] }, 'zzz'))).toEqual([
@@ -138,7 +138,7 @@ describe('railNodes — paint order', () => {
   });
 
   it('hides the framework entry when it does not match the filter', () => {
-    // Health stays pinned above the filtered list.
+    // Health stays fixed above the filtered list.
     expect(ids(railNodes(model, 'alpha'))).toEqual(['health', 'section', 'acme.alpha']);
   });
 });

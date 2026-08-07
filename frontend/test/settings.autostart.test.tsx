@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// Per-HUD "Start automatically": rendered only for views the host marks
+// Per-HUD "Start automatically": rendered only for views the OSF UI runtime marks
 // autoStartMutable, saved through the `osfui.setViewAutoStart` REQUEST, applied
 // at the next launch — the row never touches the immediate show/hide path.
 //
@@ -48,7 +48,7 @@ describe('start automatically row', () => {
     // Exactly one: the menu row and the ineligible views get none.
     expect(el.querySelectorAll('.autostart-row').length).toBe(1);
 
-    // The host withdrawing eligibility (e.g. a devMode boot flag no longer set
+    // The OSF UI runtime withdrawing eligibility (e.g. a devMode boot flag no longer set
     // for a debugOnly HUD) removes the row on the next catalog publish.
     bridge.publish('osfui/views', viewsWith({ autoStartMutable: false }));
     await flush();

@@ -5,8 +5,8 @@
 // and receive messages back - without compiling into OSFUI.dll. Full docs:
 // docs/native-plugin-api.md.
 //
-// USE OSFUI::API::Client: it fetches the bridge, caches the host version once,
-// and turns a call the host is too old for into a no-op.
+// USE OSFUI::API::Client: it fetches the bridge, caches the native ABI version once,
+// and turns a call the OSF UI runtime is too old for into a no-op.
 //
 // THREADING: status reads and typed getters are synchronous, callable from ANY thread.
 // Mutating calls are thread-safe; their effect lands on the game main thread.
@@ -73,12 +73,13 @@ namespace OSFUI::API
 
 	// Copyable, deferred reply token for a registered request.
 	// Copies remain safe after response, timeout, or view closure: the opaque id
-	// is resolved in host-owned storage and a stale id is simply ignored.
+	// is resolved in OSF UI runtime-owned storage and a stale id is simply ignored.
 	struct Request
 	{
 		using RespondFn = void (*)(std::uint64_t, const char*, const char*) noexcept;
 		using RejectFn = void (*)(std::uint64_t, const char*, const char*) noexcept;
 
+		// Compatibility field name: the registered request endpoint.
 		const char* command{ nullptr };
 		const char* payloadJson{ nullptr };
 		const char* sourceViewId{ nullptr };
@@ -96,7 +97,7 @@ namespace OSFUI::API
 			if (_reject) _reject(_token, a_code, a_message);
 		}
 
-		// Host-initialized ABI payload. Treat as opaque; copying it is supported.
+		// OSF UI runtime-initialized ABI payload. Treat as opaque; copying it is supported.
 		std::uint64_t _token{ 0 };
 		RespondFn     _respond{ nullptr };
 		RejectFn      _reject{ nullptr };
@@ -106,7 +107,7 @@ namespace OSFUI::API
 	// from any thread. Its const char* fields are valid only during this call.
 	using RequestFn = void (*)(const Request& a_request, void* a_user) noexcept;
 	static_assert(std::is_standard_layout_v<Request> && std::is_trivially_copyable_v<Request>);
-	// Fired when the bridge becomes ready (a nativeBridge view is live), and again after any re-creation. Main thread.
+	// Fired when the native bridge becomes available (a nativeBridge view is instantiated), and again after any re-creation. Main thread.
 	using ReadyFn = void (*)(void* a_user) noexcept;
 
 	// Fired for every committed value of a mod subscribed via SubscribeSettings.
@@ -124,7 +125,7 @@ namespace OSFUI::API
 
 	// How bad a reported condition is. There is no "info" tier on
 	// purpose: System Health only shows conditions worth acting on, and an
-	// informational card is a card a player learns to ignore.
+	// informational issue is an issue a player learns to ignore.
 	enum class IssueSeverity : std::uint32_t
 	{
 		kWarning = 0,  // degraded, still usable
@@ -135,13 +136,14 @@ namespace OSFUI::API
 	{
 		// --- versioning / status. ANY thread, synchronous. ---
 		virtual std::uint32_t GetInterfaceVersion() = 0;
+		// Compatibility name: returns the installed OSF UI release version.
 		virtual void          GetPluginVersion(std::uint32_t& a_major,
 		                                       std::uint32_t& a_minor,
 		                                       std::uint32_t& a_patch) = 0;
-		// Native<->web protocol version, e.g. "1.0". Informational (log it);
+		// Web bridge protocol version, e.g. "2.0". Informational (log it);
 		// gate on the ABI MINOR instead. Static string.
 		virtual const char*   GetBridgeProtocolVersion() = 0;
-		virtual bool          IsBridgeReady() = 0;             // a nativeBridge view is live
+		virtual bool          IsBridgeReady() = 0;  // compatibility name: at least one bridge-enabled document is instantiated
 
 		// --- send registration. Thread-safe; applied next main tick. ---
 		// Register a handler for an EXACT send endpoint. This endpoint is strictly
@@ -155,28 +157,30 @@ namespace OSFUI::API
 		// --- native -> web EVENTS. Thread-safe; queued to the target view. ---
 		// Delivers { kind:"event", name: a_type, payload: <a_payloadJson> } to
 		// a_viewId, where it arrives at osfui.on(a_type). a_payloadJson must be
-		// valid JSON. A known lazy or idle-reclaimed target retains a bounded
+		// valid JSON. A known discovered-but-uninstantiated or idle-reclaimed target retains a bounded
 		// FIFO until its page is created and greets the bridge.
 		//
 		// An event is a ONE-SHOT HAPPENING: delivered at most once, never
 		// replayed. Data that is true until it changes — a status, a list, a
-		// count — is STATE: publish it with SetViewState and the runtime replays
+		// count — is STATE: publish it with SetViewState and the OSF UI runtime replays
 		// it to every fresh document for you. Using an event for state is the
 		// blank-after-F5 bug.
 		//
 		// Returns false only on null args or an unparseable payload.
 		virtual bool SendToWeb(const char* a_viewId, const char* a_type, const char* a_payloadJson) = 0;
 
-		// --- readiness notification. Callback on the main thread. ---
+		// --- bridge-availability notification. Callback on the main thread. ---
+		// SetReadyCallback is the frozen compatibility name.
 		virtual void SetReadyCallback(ReadyFn a_callback, void* a_user) = 0;
 
-		// --- menu control. Thread-safe; applied next main tick. ---
-		// Open/close a surface by qualified "<modId>/<viewName>" id.
-		// Opening a valid folder under views/<modId>/<viewName>/ loads+registers it on demand
+		// --- view presentation. Thread-safe; applied next main tick. ---
+		// Open/close a view by qualified "<modId>/<viewName>" id. RequestMenu is
+		// the frozen ABI name and accepts both menu and HUD views.
+		// Opening a valid folder under views/<modId>/<viewName>/ instantiates it on demand.
 		//
 		// Returns:
 		//   * open  - true if a target exists and was queued; false if none was found.
-		//   * close - true only for an already-loaded surface; never loads one.
+		//   * close - true only for an already-instantiated view; never loads one.
 		virtual bool RequestMenu(const char* a_viewId, bool a_open) = 0;
 
 		// ===== settings consumption =====
@@ -206,9 +210,9 @@ namespace OSFUI::API
 		//
 		//   * Returns false on a parse/shape error (malformed JSON, non-object, missing/invalid "id"); true = queued.
 		//   * User values overlay from the same per-mod file as the drop-in tier, so a mod can migrate tiers without losing settings.
-		//   * Conflicts: this wins over a drop-in of the same id (warned); it replaces an earlier runtime registration of the same id.
+		//   * Conflicts: this wins over a drop-in of the same id (warned); it replaces an earlier native registration of the same id.
 		virtual bool RegisterSettingsSchema(const char* a_schemaJson) = 0;
-		// Drops a runtime-registered schema (user's values file kept). Ignored (warned) for ids owned by drop-in files.
+		// Drops a native-registered schema (user's values file kept). Ignored (warned) for ids owned by drop-in files.
 		virtual void UnregisterSettingsSchema(const char* a_modId) = 0;
 
 		// ===== hotkey dispatch =====
@@ -217,7 +221,7 @@ namespace OSFUI::API
 		// Fires when the physical key CURRENTLY bound to the key-typed setting (a_modId, a_key) is pressed.
 		// OSF UI re-resolves on rebind, so consumers never track VK codes.
 		//
-		//   * Gated on input context: no fire while typing into a text field; key repeats don't fire.
+		//   * Gated by UI input policy: no fire while typing into a text field; key repeats don't fire.
 		//   * Duplicate bindings across mods all fire.
 		//
 		// Returns a token; 0 on null/empty a_modId/a_key or null a_fn.
@@ -229,9 +233,9 @@ namespace OSFUI::API
 
 		// --- register a view your mod ships. Thread-safe; applied next main tick.
 		// a_viewId is the qualified "<modId>/<viewName>" id of a views/<modId>/<viewName>/ folder your mod installs.
-		// Validates it as an openable surface (discovery already catalogs it).
-		// Ordinary views remain lazy until first open; manifest openOnStart loads
-		// and opens immediately — RegisterView is plugin opt-in, so that applies
+		// Validates it as an openable view (discovery already catalogs it).
+		// Ordinary views remain uninstantiated until first open; manifest openOnStart
+		// instantiates and opens immediately — RegisterView is plugin opt-in, so that applies
 		// to menus too, unlike discovery-driven startup.
 		//
 		// Ship the folder, call once after fetching the bridge, then RequestMenu:
@@ -239,7 +243,7 @@ namespace OSFUI::API
 		//     bridge->SendToWeb("acme.mymod/dashboard", "acme.mymod.state", "{...}");  // optional
 		//     bridge->RequestMenu("acme.mymod/dashboard", true);
 		//
-		//   * Idempotent: an already-live surface is left untouched (not reloaded).
+		//   * Idempotent: an already-instantiated view is left untouched (not reloaded).
 		//   * A missing view folder warns and does nothing.
 		//   * A view torn down by crash-recovery exhaustion gets a fresh retry budget on its next open.
 		//   * Manifest `openOnStart` is honored on registration.
@@ -249,7 +253,7 @@ namespace OSFUI::API
 
 		// ===== session health reporting =====
 		//
-		// Raise a condition into OSF UI's System Health pane — the one place a
+		// Raise a condition into OSF UI's System Health destination — the one place a
 		// player looks when something is wrong, whichever mod noticed it. This is
 		// NOT a log channel and NOT a toast: report only durable conditions that
 		// are true right now, actionable, and worth a player's attention, and
@@ -259,13 +263,13 @@ namespace OSFUI::API
 		//                 and namespaces everything below, so two mods can use the
 		//                 same local id without colliding. An invalid id is refused.
 		//   * a_id      : YOUR stable dedupe key for this condition, e.g.
-		//                 "pack-parse:highlights". Re-reporting a live id bumps its
-		//                 occurrence count in place instead of stacking a card.
+		//                 "pack-parse:highlights". Re-reporting an active issue id bumps its
+		//                 occurrence count in place instead of stacking an issue.
 		//   * a_code    : YOUR stable machine code for the KIND of condition, e.g.
 		//                 "catalog.parse-failed". Never player-facing prose: OSF UI
 		//                 owns the copy (so it stays localizable and a mod cannot
 		//                 write the UI's words). An unrecognized code renders as a
-		//                 generic card naming your mod, with the context below shown
+		//                 generic issue naming your mod, with the context below shown
 		//                 as technical detail — degraded, never broken.
 		//   * a_subject : the affected thing (pack, view, file NAME, actor), or ""
 		//                 when the condition has no single subject.
@@ -305,7 +309,7 @@ namespace OSFUI::API
 		//
 		// The sweep is scoped to your MOD, not to one producer inside it: if your
 		// plugin raises issues from several places, the keep list must name every
-		// id you still want live, not just the ones the current producer
+		// issue id you still want active, not just the ones the current producer
 		// recomputed. Tracking what you have raised is the consumer's job.
 		//
 		// Ordering is FIFO with ReportIssue, so a report-then-sweep pair issued
@@ -317,8 +321,9 @@ namespace OSFUI::API
 		virtual void RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user) = 0;
 		virtual void UnregisterRequest(const char* a_name) = 0;
 
-		// --- native -> web STATE. Thread-safe; applied next main tick.
-		// Publishes a_payloadJson as the retained value of a_key for YOUR mod;
+		// --- native -> web retained MOD STATE. Thread-safe; applied next main tick.
+		// SetViewState is the frozen ABI name. It publishes a_payloadJson as the
+		// retained value of a_key for YOUR mod, not for one individual view;
 		// every current and future document of that mod receives it through
 		// osfui.state.on("<a_modId>/<a_key>"). Latest wins per case-insensitive
 		// key, at most 64 keys per mod, and any JSON value is accepted.
@@ -410,7 +415,7 @@ namespace OSFUI::API
 		[[nodiscard]] explicit operator bool() const noexcept { return _bridge != nullptr; }
 		[[nodiscard]] bool     IsConnected() const noexcept { return _bridge != nullptr; }
 
-		// Does the HOST support this feature? (It may be older than this header.)
+		// Does the OSF UI runtime support this native ABI feature? (It may be older than this header.)
 		[[nodiscard]] bool Has(Feature a_feature) const noexcept
 		{
 			return _bridge && _minor >= static_cast<std::uint32_t>(a_feature);

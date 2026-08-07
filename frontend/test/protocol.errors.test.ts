@@ -11,7 +11,7 @@
 //      call sites branch with `e.code === "capture-busy"` and friends
 //      (@lib/protocol `codeOf`).
 //   3. Every failure an author can cause is printed to THIS page's console with
-//      an `[osfui]` prefix — F12 DevTools is the debug surface, and a rejection
+//      an `[osfui]` prefix — F12 DevTools is the debug destination, and a rejection
 //      that only reached the SFSE log is a rejection the author never sees.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -39,7 +39,7 @@ interface Helper {
     payload?: Record<string, unknown>,
     // `number | undefined` rather than just optional: one case passes an
     // explicit undefined, which `exactOptionalPropertyTypes` would reject —
-    // and that call is the path being pinned.
+    // and that call is the path being asserted.
     opts?: { timeoutMs?: number | undefined },
   ): Promise<unknown>;
   papyrus: { request(name: string, ...args: unknown[]): Promise<unknown> };
@@ -176,7 +176,7 @@ describe('BridgeError contract — code', () => {
   });
 
   it('surfaces the protocol-enforcement codes unchanged', async () => {
-    // The codes the HOST can produce for a request, from MessageBridge.cpp.
+    // The codes the OSF UI runtime can produce for a request, from MessageBridge.cpp.
     // Views branch on these, so they must arrive as themselves.
     for (const code of [
       'wrong-endpoint-kind',
@@ -208,7 +208,7 @@ describe('BridgeError contract — message fallback chain', () => {
 });
 
 describe('BridgeError contract — payload', () => {
-  it('attaches the error PAYLOAD on a host rejection', async () => {
+  it('attaches the error PAYLOAD on an OSF UI runtime rejection', async () => {
     const { helper, sent } = loadHelper();
     const promise = helper.request('settings.captureKey', { mod: 'm', key: 'k' });
     deliver(helper, {
@@ -235,7 +235,7 @@ describe('BridgeError contract — payload', () => {
     expect(err.code).toBe('timeout');
     expect(err.message).toBe('"ping" got no reply within 10000ms');
     // Not "present and undefined": the key is never assigned, so consumers can
-    // use `"payload" in err` to tell a host refusal from a local give-up.
+    // use `"payload" in err` to tell an OSF UI runtime refusal from a local give-up.
     expect('payload' in err).toBe(false);
   });
 
@@ -350,14 +350,14 @@ describe('the client timer', () => {
     await vi.advanceTimersByTimeAsync(10000);
     expect((await pending).code).toBe('timeout');
 
-    // The host is still free to answer — it does not know the page gave up.
+    // The OSF UI runtime is still free to answer — it does not know the page gave up.
     // The frame must be inert rather than resolving an already-rejected promise.
     expect(() =>
       deliver(helper, { kind: 'reply', id: sent[1]!.id!, payload: { pong: true } }),
     ).not.toThrow();
   });
 
-  it('timeoutMs:0 disables only the CLIENT timer; the host still settles it', async () => {
+  it('timeoutMs:0 disables only the CLIENT timer; the OSF UI runtime still settles it', async () => {
     vi.useFakeTimers();
     const { helper, sent } = loadHelper();
 
@@ -375,13 +375,13 @@ describe('the client timer', () => {
     await Promise.resolve();
     expect(settled).toBe(false);
 
-    // This is no longer a hang: the host's own 30 s deadline (kRequestDeadline)
+    // This is no longer a hang: the OSF UI runtime's own 30 s deadline (kRequestDeadline)
     // answers `no-response`, which is a DISTINCT code from `timeout` on purpose
-    // — "the backend never answered" versus "the page gave up".
+    // — "the endpoint handler never answered" versus "the page gave up".
     deliver(helper, {
       kind: 'error',
       id: sent[1]!.id!,
-      payload: { code: 'no-response', message: 'the backend never answered' },
+      payload: { code: 'no-response', message: 'the endpoint handler never answered' },
     });
     expect((await pending).code).toBe('no-response');
   });
@@ -410,7 +410,7 @@ describe('the client timer', () => {
 });
 
 describe('every failure reaches the page console with an [osfui] prefix', () => {
-  it('prints a host rejection with the endpoint, the code, the message and the payload', async () => {
+  it('prints an OSF UI runtime rejection with the endpoint, the code, the message and the payload', async () => {
     await rejectionFor({ code: 'invalid-value', message: 'out of range' });
 
     expect(logged).toHaveLength(1);

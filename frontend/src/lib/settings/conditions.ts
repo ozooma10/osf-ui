@@ -3,7 +3,7 @@
 // Two invariants:
 //  1. Fail-closed on an unknown key: a condition naming a key the mod does not
 //     have evaluates false, so the gated row stays hidden/disabled rather than
-//     exposing a control an older host doesn't know about.
+//     exposing a control an older OSF UI runtime doesn't know about.
 //  2. Fail-open on a malformed condition: a non-object, or a leaf with no
 //     recognised operator, evaluates true so a schema typo can't erase a control.
 //

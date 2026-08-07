@@ -8,7 +8,7 @@ namespace OSFUI
 	// SFSE InputMap space — InputMap is a macro-recording key space, unrelated
 	// to what UI ButtonEvents carry. Mouse input never travels as a KeyCode:
 	// the WndProc parses WM_INPUT raw packets and routes buttons/wheel via
-	// Runtime::OnHostMouse* with a button index (0=left, 1=right, 2=middle).
+	// Runtime::OnGameWindowMouse* with a button index (0=left, 1=right, 2=middle).
 	using KeyCode = std::uint32_t;
 
 	inline constexpr KeyCode kInvalidKeyCode = 0;

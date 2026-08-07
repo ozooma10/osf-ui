@@ -11,7 +11,7 @@
 //    committed nor labelled. Dropped with a devWarn.
 //
 // 3. Control cell order is `[reset ↺][optional readout][control]`. Reset leads
-//    so the control stays flush with the row's right edge, in line with surface
+//    so the control stays flush with the row's right edge, in line with the form
 //    and action rows, which have no reset slot. Only the slider contributes a
 //    readout; the stepper carries its own (see Stepper.tsx).
 //
@@ -34,7 +34,7 @@ import { canonicalName } from '@lib/keybinds/canonical';
 import type { KeyLabeler } from '@lib/keybinds/labels';
 import { requiresLabel } from '@lib/settings/format';
 import { hasInvalidStep, stepperFor } from '@lib/settings/stepper';
-import { resolveInputContext } from '@lib/settings/inputContext';
+import { resolveHotkeyContext } from '@lib/settings/hotkeyContext';
 import { isModified } from '@lib/settings/modified';
 import type { ModRecord } from '@lib/settings/rail';
 import type { Translator } from '@lib/i18n';
@@ -107,7 +107,7 @@ export function SettingRow(props: SettingRowProps) {
     .join(' ');
 
   const context =
-    setting.type === 'key' ? resolveInputContext(mod.schema, setting, tr('gameplay', 'Gameplay')) : null;
+    setting.type === 'key' ? resolveHotkeyContext(mod.schema, setting, tr('gameplay', 'Gameplay')) : null;
   const conflicts = setting.type === 'key' && Array.isArray(setting.conflicts) ? setting.conflicts : [];
 
   return (
@@ -130,6 +130,7 @@ export function SettingRow(props: SettingRowProps) {
               unresolvable reference falls back to it and reads as "no special
               context" rather than as a broken badge. */}
           {context && context.id !== 'gameplay' ? (
+            /* `activeInputContext` is a compatibility catalog address. */
             <Badge
               modifier=""
               title={
@@ -138,13 +139,13 @@ export function SettingRow(props: SettingRowProps) {
                       'contextBlocksGameplay',
                       'Active in this context; Starfield gameplay bindings are unavailable.',
                     )
-                  : tr('activeInputContext', 'Active in this input context.')
+                  : tr('activeInputContext', 'Active in this hotkey context.')
               }
             >
               {context.label}
             </Badge>
           ) : null}
-          {/* Key collisions are informational (mcm-design §9): the runtime does
+          {/* Key collisions are informational: the OSF UI runtime does
               not refuse a colliding bind, it badges both sides. */}
           {conflicts.length ? (
             <Badge
@@ -177,7 +178,7 @@ export function SettingRow(props: SettingRowProps) {
 }
 
 /**
- * The typed control, or null when this host predates the type.
+ * The typed control, or null when this OSF UI runtime predates the type.
  *
  * `int` and `float` share one builder; the int/float split lives inside
  * `stepperFor`, not here.
@@ -282,7 +283,7 @@ function renderControl(props: SettingRowProps, id: string) {
       );
 
     default:
-      // Unknown to this host. `mod` is unused on this path but the parameter
+      // Unknown to this OSF UI runtime. `mod` is unused on this path but the parameter
       // keeps the signature uniform.
       void mod;
       return null;

@@ -1,10 +1,10 @@
-#include "runtime/ViewStateStore.h"
+#include "runtime/RetainedStateStore.h"
 
 #include "core/StringUtil.h"
 
 namespace OSFUI
 {
-	bool ViewStateStore::Set(std::string_view a_mod, std::string_view a_key, nlohmann::json a_value,
+	bool RetainedStateStore::Set(std::string_view a_mod, std::string_view a_key, nlohmann::json a_value,
 		bool a_sessionScoped)
 	{
 		if (a_mod.empty() || a_key.empty()) {
@@ -17,7 +17,7 @@ namespace OSFUI
 			// before the cap could refuse it, which is how a per-key cap ends up
 			// bounding nothing.
 			if (_mods.size() >= kMaxMods) {
-				REX::WARN("ViewStateStore: holding state for the maximum {} mods — "
+				REX::WARN("RetainedStateStore: holding state for the maximum {} mods — "
 						  "'{}.{}' is delivered but not retained",
 					kMaxMods, a_mod, a_key);
 				return false;
@@ -38,7 +38,7 @@ namespace OSFUI
 			}
 		}
 		if (entries.size() >= kMaxKeysPerMod) {
-			REX::WARN("ViewStateStore: '{}' holds the maximum {} retained keys — '{}' is delivered but not retained",
+			REX::WARN("RetainedStateStore: '{}' holds the maximum {} retained keys — '{}' is delivered but not retained",
 				a_mod, kMaxKeysPerMod, a_key);
 			return false;
 		}
@@ -47,18 +47,18 @@ namespace OSFUI
 		return true;
 	}
 
-	const std::vector<ViewStateStore::Entry>* ViewStateStore::Find(std::string_view a_mod) const
+	const std::vector<RetainedStateStore::Entry>* RetainedStateStore::Find(std::string_view a_mod) const
 	{
 		const auto it = _mods.find(StringUtil::ToLowerAscii(a_mod));
 		return it == _mods.end() ? nullptr : &it->second;
 	}
 
-	void ViewStateStore::RemoveMod(std::string_view a_mod)
+	void RetainedStateStore::RemoveMod(std::string_view a_mod)
 	{
 		_mods.erase(StringUtil::ToLowerAscii(a_mod));
 	}
 
-	void ViewStateStore::ClearSessionScoped()
+	void RetainedStateStore::ClearSessionScoped()
 	{
 		for (auto it = _mods.begin(); it != _mods.end();) {
 			auto& entries = it->second;
@@ -67,7 +67,7 @@ namespace OSFUI
 		}
 	}
 
-	void ViewStateStore::Clear()
+	void RetainedStateStore::Clear()
 	{
 		_mods.clear();
 	}

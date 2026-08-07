@@ -11,8 +11,8 @@
 
 // Validation and JS->Papyrus marshalling for the `papyrus.call` endpoint.
 //
-// Split out of the endpoint lambda so it is reachable from the host test
-// suite: this is the one surface that lets untrusted view content name an
+// Split out of the endpoint lambda so it is reachable from the native unit-test
+// suite: this is the one endpoint that lets untrusted view content name an
 // arbitrary script and GLOBAL function, and every guard on it (the platform
 // script refusal, the argument cap, the int range, the float finiteness) is
 // only as good as the test that pins it. The endpoint in Runtime keeps the
@@ -67,7 +67,7 @@ namespace OSFUI::PapyrusCall
 		if (!PapyrusNames::IsScriptName(out.script) || !PapyrusNames::IsIdentifier(out.function)) {
 			return detail::Fail("invalid-request", "papyrus.call requires valid 'script' and 'function' names");
 		}
-		// OSF UI's own natives are not a callable mod surface. They take the
+		// OSF UI's own natives are not a callable mod backend. They take the
 		// target mod id as an ARGUMENT and trust their caller (Papyrus is a
 		// mod's own code), so reaching them from a page would hand it a trusted
 		// alias for settings.set / settings.reset / state publishing WITHOUT the

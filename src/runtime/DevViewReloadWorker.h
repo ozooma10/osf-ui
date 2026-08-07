@@ -12,20 +12,18 @@ namespace OSFUI
 {
 	// Dev-only background worker: metadata polling, debounce and MO2 mirror
 	// synchronization stay off Starfield's main thread. Runtime supplies the
-	// current loaded targets and drains completed reloads on Tick.
+	// current instantiated targets and drains completed mirror refreshes on Tick.
 	class DevViewReloadWorker
 	{
 	public:
 		struct Target
 		{
 			std::string id;
-			bool        overlay{ false };
-			bool        world{ false };
 
 			bool operator==(const Target&) const = default;
 		};
 
-		using Refresh = std::function<bool(const Target&)>;
+		using Refresh = std::function<bool(std::string_view)>;
 
 		DevViewReloadWorker(std::filesystem::path a_viewsRoot, Refresh a_refresh);
 		~DevViewReloadWorker();
@@ -34,7 +32,7 @@ namespace OSFUI
 		DevViewReloadWorker& operator=(const DevViewReloadWorker&) = delete;
 
 		void                              SetTargets(std::vector<Target> a_targets);
-		[[nodiscard]] std::vector<Target> DrainReady();
+		[[nodiscard]] std::vector<Target> DrainCompleted();
 
 	private:
 		struct State
@@ -54,7 +52,7 @@ namespace OSFUI
 		std::condition_variable_any            _wake;
 		std::vector<Target>                    _targets;
 		bool                                   _targetsChanged{ false };  // guarded by _mutex
-		std::vector<Target>                    _ready;
+		std::vector<Target>                    _completed;
 		std::unordered_map<std::string, State> _states;
 		std::jthread                           _thread;
 	};

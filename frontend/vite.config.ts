@@ -15,7 +15,7 @@ export default defineConfig({
     target: 'es2020',
     // Vite 8 is rolldown-based: 'esbuild' is deprecated there and needs a
     // separate esbuild install. `true` selects the built-in Oxc minifier,
-    // whose output is pinned by the locked vite version — which is what the
+    // whose output is fixed by the locked vite version — which is what the
     // deterministic build-output gates require.
     minify: true,
     // One stable CSS file per view.

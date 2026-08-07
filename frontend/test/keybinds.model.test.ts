@@ -33,10 +33,10 @@ function gameAction(event: string, label: string, key: string): KeybindingsData[
   };
 }
 
-// Input-context resolution itself is @lib/settings/inputContext (covered in
-// settings.inputcontext.test.ts); these assert the keybinds model delegates to
+// Hotkey-context resolution itself is @lib/settings/hotkeyContext (covered in
+// settings.hotkey-context.test.ts); these assert the keybinds model delegates to
 // it and localizes the implicit-context label.
-describe('buildModel input contexts', () => {
+describe('buildModel hotkey contexts', () => {
   const contexts = [{ id: 'menu', label: 'Menu', blocksGameplay: true }];
 
   it('resolves a declared context through the shared resolver', () => {
@@ -47,13 +47,13 @@ describe('buildModel input contexts', () => {
       inputContexts: contexts,
     })], []);
     expect(rows[0]).toMatchObject({
-      contextId: 'menu',
-      contextLabel: 'Menu',
+      hotkeyContextId: 'menu',
+      hotkeyContextLabel: 'Menu',
       blocksGameplay: true,
     });
   });
 
-  it('localizes implicit mod gameplay while preserving the engine context name', () => {
+  it('localizes implicit mod gameplay while preserving the engine input-context name', () => {
     const translate = (address: string, english: string) =>
       address === 'gameplay' ? 'Jugabilidad' : english;
     const rows = buildModel(
@@ -65,8 +65,8 @@ describe('buildModel input contexts', () => {
       [gameAction('QuickSaveHandler', 'Quicksave', 'F5')],
       translate,
     );
-    expect(rows[0]!.contextLabel).toBe('Jugabilidad');
-    expect(rows[1]!.contextLabel).toBe('MainGameplay');
+    expect(rows[0]).toMatchObject({ kind: 'mod', hotkeyContextLabel: 'Jugabilidad' });
+    expect(rows[1]).toMatchObject({ kind: 'game', engineInputContextName: 'MainGameplay' });
   });
 });
 
@@ -92,13 +92,13 @@ describe('buildModel', () => {
         owner: 'OSF UI',
         name: 'F10',
         keyLabel: 'F10',
-        contextId: 'gameplay',
-        contextLabel: 'Gameplay',
+        hotkeyContextId: 'gameplay',
+        hotkeyContextLabel: 'Gameplay',
         blocksGameplay: false,
         gameplayModes: null,
         chord: ['F10'],
         unbound: false,
-        vanillaWarnings: true,
+        gameBindingWarnings: true,
         rowId: 'mod:osfui:toggleKey',
       },
     ]);
@@ -172,7 +172,7 @@ describe('buildModel', () => {
     expect(rows[0]?.owner).toBe('modid');
   });
 
-  it('carries a resolved input context onto the row', () => {
+  it('carries a resolved hotkey context onto the row', () => {
     const rows = buildModel(
       [
         mod({
@@ -185,8 +185,8 @@ describe('buildModel', () => {
       [],
     );
     expect(rows[0]).toMatchObject({
-      contextId: 'menu',
-      contextLabel: 'Menu',
+      hotkeyContextId: 'menu',
+      hotkeyContextLabel: 'Menu',
       blocksGameplay: true,
     });
   });
@@ -205,16 +205,15 @@ describe('buildModel', () => {
         owner: 'Starfield',
         name: 'F5',
         keyLabel: 'F5',
-        contextId: 'MainGameplay',
-        contextLabel: 'MainGameplay',
-        contextNumericId: 0,
+        engineInputContextName: 'MainGameplay',
+        engineInputContextLabel: 'MainGameplay',
+        engineInputContextId: 0,
         category: 'Gameplay',
         classification: 'core',
         gameplayModes: ['onFoot', 'ship', 'vehicle', 'zeroG'],
-        blocksGameplay: false,
         chord: ['F5'],
         unbound: false,
-        vanillaWarnings: true,
+        gameBindingWarnings: true,
         slot: 'main',
         rowId: 'game:0:QuickSave:main:0',
       },
@@ -223,27 +222,26 @@ describe('buildModel', () => {
         key: 'Console',
         label: 'Console',
         owner: 'Starfield',
-        // The vanilla name is alias-folded too, so it groups with a mod that
+        // The game binding's name is alias-folded too, so it groups with a mod that
         // stored "Grave".
         name: 'Grave',
         keyLabel: 'Grave',
-        contextId: 'MainGameplay',
-        contextLabel: 'MainGameplay',
-        contextNumericId: 0,
+        engineInputContextName: 'MainGameplay',
+        engineInputContextLabel: 'MainGameplay',
+        engineInputContextId: 0,
         category: 'Gameplay',
         classification: 'core',
         gameplayModes: ['onFoot', 'ship', 'vehicle', 'zeroG'],
-        blocksGameplay: false,
         chord: ['Grave'],
         unbound: false,
-        vanillaWarnings: true,
+        gameBindingWarnings: true,
         slot: 'main',
         rowId: 'game:0:Console:main:0',
       },
     ]);
   });
 
-  it('keeps live main/alternate, chord, and unbound vanilla rows in the list model', () => {
+  it('keeps live main/alternate, chord, and unbound game rows in the list model', () => {
     const rows = buildModel([], [{
       event: 'UseThing', label: 'Use thing', category: 'Ship',
       context: { id: 0x21, name: 'ShipHUD', order: 1 }, classification: 'core',
@@ -255,19 +253,24 @@ describe('buildModel', () => {
       ],
     }]);
     expect(rows).toHaveLength(3);
-    expect(rows[0]).toMatchObject({ name: 'F5', slot: 'main', contextId: 'ShipHUD', gameplayModes: ['ship'] });
+    expect(rows[0]).toMatchObject({
+      name: 'F5',
+      slot: 'main',
+      engineInputContextName: 'ShipHUD',
+      gameplayModes: ['ship'],
+    });
     expect(rows[1]).toMatchObject({ name: '', slot: 'alternate', chord: ['LCtrl', 'K'], keyLabel: 'LCtrl + K' });
     expect(rows[2]).toMatchObject({ name: '', unbound: true, keyLabel: 'Unbound' });
     expect(holdersOf(rows, 'F5')).toHaveLength(1);
     expect(holdersOf(rows, '')).toEqual([]);
   });
 
-  it('routes the game owner through the translator and preserves engine context names', () => {
+  it('routes the game owner through the translator and preserves engine input-context names', () => {
     const rows = buildModel([], [gameAction('E', 'X', 'F1')], (address) =>
       address === 'gameOwner' ? 'Sternenfeld' : 'Spielablauf',
     );
     expect(rows[0]?.owner).toBe('Sternenfeld');
-    expect(rows[0]?.contextLabel).toBe('MainGameplay');
+    expect(rows[0]).toMatchObject({ kind: 'game', engineInputContextName: 'MainGameplay' });
   });
 
   it('emits mod rows before game rows', () => {

@@ -1,5 +1,7 @@
 export const CLI_VERSION = '0.1.0';
-export const HOST_VERSION = '2.0.0';
+export const OSFUI_RELEASE_VERSION = '2.0.0';
+/** @deprecated Compatibility name. Use OSFUI_RELEASE_VERSION. */
+export const HOST_VERSION = OSFUI_RELEASE_VERSION;
 export const BRIDGE_VERSION = '2.0';
 export const CONFIG_FILES = ['osfui.config.ts', 'osfui.config.js', 'osfui.config.mjs'];
 export const LOCAL_FILE = '.osfui/local.json';

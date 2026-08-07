@@ -11,8 +11,8 @@ function row(name: string, owner: string): BindingRow {
     owner,
     name,
     keyLabel: name,
-    contextId: 'gameplay',
-    contextLabel: 'Gameplay',
+    hotkeyContextId: 'gameplay',
+    hotkeyContextLabel: 'Gameplay',
     blocksGameplay: false,
   };
 }

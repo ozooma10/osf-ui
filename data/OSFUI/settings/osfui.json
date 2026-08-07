@@ -1,7 +1,7 @@
 {
   "id": "osfui",
   "title": "OSF UI",
-  "description": "Runtime and overlay behavior for the OSF UI framework.",
+  "description": "OSF UI behavior and overlay presentation.",
   "version": 1,
   "groups": [
     {
@@ -34,11 +34,11 @@
           "label": "Pause-menu entry",
           "type": "bool",
           "default": true,
-          "hint": "Add a MOD MENUS entry to the game's pause menu."
+          "hint": "Add a MOD SETTINGS entry to the game's pause menu."
         },
         {
           "key": "vanillaKeyConflicts",
-          "label": "Warn about game-key collisions",
+          "label": "Warn about game-binding collisions",
           "type": "bool",
           "default": true,
           "hint": "Show hard and possible warnings when mod hotkeys overlap Starfield's live bindings. The read-only game catalog stays visible when this is off."

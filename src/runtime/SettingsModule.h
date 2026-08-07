@@ -8,7 +8,7 @@
 namespace OSFUI
 {
 	// The schema-driven settings feature as a self-contained module: owns the
-	// SettingsStore, registers the settings.* bridge commands, applies
+	// SettingsStore, registers the settings.* bridge endpoints, and applies
 	// persisted values at startup. The runtime holds it by `unique_ptr<IUiModule>`
 	// in `_modules` and keeps a non-owning `SettingsModule*` beside it, so it is
 	// both driven through the shared IUiModule lifecycle and reached through
@@ -18,12 +18,11 @@ namespace OSFUI
 	// validates/persists/notifies. Inject a ChangeListener and react to the
 	// keys you own (e.g. the runtime's cursor-speed knob).
 	//
-	// Web change delivery (mcm-design.md §8.5) is subscribe-on-read, the
-	// `views.get` pattern: `settings.get` subscribes the calling view — every
-	// later committed value is pushed to it as `settings.changed { mod, key,
-	// value }`, a registry shape change (runtime schema registration/removal)
-	// re-sends the full `settings.data`, and a landed write-behind disk write
-	// pushes `settings.persisted { mod }`.
+	// Web change delivery is explicit 2.0 state plus events: every greeted view
+	// receives the current `osfui/settings` document during state replay; later
+	// commits emit `settings.changed { mod, key, value }`, registry-shape changes
+	// republish the document, and a landed write-behind disk write emits
+	// `settings.persisted { mod }`.
 	class SettingsModule final : public IUiModule
 	{
 	public:
@@ -41,23 +40,22 @@ namespace OSFUI
 		void OnViewDestroyed(std::string_view a_viewId) override;
 		[[nodiscard]] std::string_view Name() const override { return "settings"; }
 
-		// The store is the single source of truth every other surface projects
+		// The store is the single source of truth every settings consumer projects
 		// over — the native plugin API (runtime schema registration, typed
 		// getters) reaches it through here.
 		[[nodiscard]] SettingsStore& Store() { return _store; }
 
-		// Web hotkey delivery (mcm-design.md §9): pushes `ui.hotkey {mod, key}`
-		// to every settings.get subscriber — the same set that gets
-		// settings.changed; a receiving view filters on payload.mod. Called by
+		// Web hotkey delivery: emits `ui.hotkey {mod, key}` to every greeted view;
+		// a receiving view filters on payload.mod. Called by
 		// Runtime::DrainHotkeys, main thread.
 		void PushHotkey(std::string_view a_modId, std::string_view a_key) const;
 
-		// Schema hot-reload (mcm-design.md §12.1, dev mode): mtime-polls
+		// Schema hot-reload (developer mode): mtime-polls
 		// settings/*.json on a ~1 s cadence — a changed or new file reloads/
 		// registers through the store (values preserved, §11 aliases honored,
-		// registry re-broadcast pushes fresh settings.data to subscribers); a
+		// registry re-broadcast pushes fresh `osfui/settings` state to greeted views); a
 		// deleted file removes its mod, but only a drop-in one (a runtime
-		// registration tracks no files). The caller gates on devMode and passes
+		// registration tracks no files). The caller gates on effective developer mode and passes
 		// its monotonic clock (Runtime::Tick uptime, like PumpPersistence). The
 		// mtime snapshot is seeded at construction, so the first pump reloads
 		// nothing.
@@ -83,7 +81,7 @@ namespace OSFUI
 		std::filesystem::path           _schemaDir;
 		std::filesystem::path           _valuesDir;
 		MessageBridge*                  _bridge{ nullptr };  // set by RegisterEndpoints, cleared by OnBridgeDown
-		bool                            _suppressChangedPush{ false };  // reset in flight: settings.data supersedes per-key pushes
+		bool                            _suppressChangedPush{ false };  // reset in flight: `osfui/settings` state supersedes per-key pushes
 		SchemaMtimes                    _schemaMtimes;       // hot-reload snapshot (seeded in the ctor)
 		double                          _nextSchemaScan{ 0.0 };
 	};

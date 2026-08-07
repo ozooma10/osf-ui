@@ -93,7 +93,7 @@ namespace OSFUI::API::Papyrus
 
 	// Main thread: emit answered requests and expire unanswered ones. Successful
 	// replies carry value; failures carry a stable code/message. Tokens are
-	// host-owned, one-shot, capped, and session-scoped.
+	// OSF UI runtime-owned, one-shot, capped, and session-scoped.
 	void DrainViewReplies(const std::function<void(const ViewReply&)>& a_deliver,
 		std::chrono::steady_clock::time_point a_now = std::chrono::steady_clock::now());
 
@@ -111,7 +111,7 @@ namespace OSFUI::API::Papyrus
 		nlohmann::json value;
 	};
 
-	// One drained SendViewEvent: a one-shot happening for the mod's live views.
+	// One drained SendViewEvent: a one-shot happening for the mod's instantiated views.
 	// Never retained and never replayed — that is the whole distinction from
 	// ViewState, and encoding a happening as state is the bug it prevents.
 	struct ViewEvent
@@ -123,11 +123,11 @@ namespace OSFUI::API::Papyrus
 
 	// Main thread (Runtime::Tick, next to DrainSettingsOps): hand each queued
 	// SetView* value to a_deliver, which retains it in the runtime's shared
-	// ViewStateStore and publishes it to the mod's live views.
+	// RetainedStateStore and publishes it to the mod's instantiated views.
 	void DrainViewState(const std::function<void(const ViewState&)>& a_deliver);
 
 	// Main thread: hand each queued SendViewEvent to a_deliver for delivery to
-	// the mod's live views. Nothing is cached.
+	// the mod's instantiated views. Nothing is cached.
 	void DrainViewEvents(const std::function<void(const ViewEvent&)>& a_deliver);
 
 	// True once after a game load, so the caller can drop retained Papyrus

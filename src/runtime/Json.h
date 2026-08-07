@@ -48,9 +48,9 @@ namespace OSFUI::Json
 	[[nodiscard]] std::vector<std::string> GetStringArray(const Value& a_obj, std::string_view a_key);
 
 	// Typo/format-skew diagnostics: logs every key of a_obj not in a_known.
-	// The caller picks the level via a_warn — true = WARN for host-owned files
-	// (config.json and other host-owned documents, where an unknown key can only be a typo);
-	// false = INFO for author-shipped files, where a newer mod on an older host
+	// The caller picks the level via a_warn — true = WARN for runtime-owned files
+	// (config.json and other OSF UI-owned documents, where an unknown key can only be a typo);
+	// false = INFO for author-shipped files, where a newer mod on an older OSF UI release
 	// makes unknown keys the normal compatible case (gate that call on devMode).
 	// Never rejects; lenient parsing is the contract.
 	void ReportUnknownKeys(const Value& a_obj, std::initializer_list<std::string_view> a_known, std::string_view a_sourceName, bool a_warn);

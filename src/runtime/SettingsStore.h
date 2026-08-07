@@ -7,7 +7,7 @@
 
 namespace OSFUI
 {
-	// Schema-driven settings registry (docs/mcm-design.md). Each mod ships a
+	// Schema-driven settings registry (docs/authoring-settings.md). Each mod ships a
 	// read-only JSON schema — a `settings/<id>.json` drop-in file or the same
 	// document registered at runtime over the native bridge. The runtime renders
 	// all of them via the built-in `settings` view, persists each mod's user
@@ -15,7 +15,7 @@ namespace OSFUI
 	//
 	// Schema shape (bad fields fall back, never crash):
 	//   { "id": str, "title": str,
-	//     "targetVersion": "1.1.0"   (advisory authored-against OSF UI version)
+	//     "targetVersion": "1.1.0"   (advisory authored-against OSF UI release version)
 	//     "pages": [ { "id": str, "label": str } ]   (display-only tabs; groups
 	//                 reference one via "page" — the store passes both through)
 	//     "groups": [ { "label": str, "page": str,
@@ -26,8 +26,8 @@ namespace OSFUI
 	//                                   "options": [str, ...]      (enum/flags) } ] } ] }
 	// The base type set is frozen pre-1.0: post-1.0 extension is a base type +
 	// `widget` + attributes, and a schema using a newer base type declares the
-	// matching `targetVersion` so older hosts badge "needs update". A setting
-	// whose type this host doesn't know serves its schema default read-only;
+	// matching `targetVersion` so older OSF UI releases badge "needs update". A setting
+	// whose type this OSF UI runtime doesn't know serves its schema default read-only;
 	// the user's saved value is preserved opaquely (never wiped, never served).
 	//
 	// Security: writes only ever touch a setting declared by some loaded schema,
@@ -57,7 +57,7 @@ namespace OSFUI
 
 		// Fired after the registry shape changes post-load (RegisterSchema commit
 		// or RemoveMod — whenever Generation() moves outside LoadAll). The web
-		// layer re-broadcasts `settings.data` off this so an open settings menu
+		// layer re-broadcasts `osfui/settings` state off this so open Mod Settings
 		// re-renders on late registration.
 		using RegistryListener = std::function<void()>;
 
@@ -75,7 +75,7 @@ namespace OSFUI
 		// the input unchanged when any step fails.
 		using LegacyKeyMigrator = std::function<std::string(const std::string& a_name)>;
 		// Authored English -> active-locale text at a stable structural address.
-		// Injected by Runtime so this host-testable store does not own locale or
+		// Injected by Runtime so this native-testable store does not own locale or
 		// filesystem policy. Resolution only touches emitted schema copies;
 		// validation and persistence always use the authored schema.
 		using TextResolver = std::function<std::string(std::string_view a_modId,
@@ -233,33 +233,33 @@ namespace OSFUI
 		// only ever appear as the other side of a collision (Data() badges and
 		// ConflictsFor()). The HotkeyService registry is untouched — it reads
 		// KeySettings().
-		struct VanillaKey
+		struct GameBinding
 		{
 			std::string   event;    // conflict entry `key` ("QuickSave")
 			std::string   title;    // conflict entry `title` ("Starfield (Quicksave)")
 			std::uint32_t code;     // physical scan code (DIK convention)
 			// Display key name ("F5", canonical KeyName spelling). The public
-			// keybinding view consumes the richer osfui/keybindings state.
+			// Keybindings view consumes the richer osfui/keybindings state.
 			std::string   name;
-			std::string   context;
+			std::string   engineInputContextName;  // Starfield ControlMap context name ("Workshop")
 			std::string   slot;
 			ControlMapPolicy::Classification classification{ ControlMapPolicy::Classification::Core };
 			GameplayModeMask definiteModes{ kAllGameplayModes };
 			GameplayModeMask possibleModes{ 0 };
 
-			bool operator==(const VanillaKey&) const = default;
+			bool operator==(const GameBinding&) const = default;
 		};
-		[[nodiscard]] bool SetVanillaKeys(std::vector<VanillaKey> a_keys)
+		[[nodiscard]] bool SetGameBindings(std::vector<GameBinding> a_bindings)
 		{
-			if (_vanillaKeys == a_keys) return false;
-			_vanillaKeys = std::move(a_keys);
+			if (_gameBindings == a_bindings) return false;
+			_gameBindings = std::move(a_bindings);
 			InvalidateData();
 			return true;
 		}
-		[[nodiscard]] bool SetVanillaWarningsEnabled(bool a_enabled)
+		[[nodiscard]] bool SetGameBindingWarningsEnabled(bool a_enabled)
 		{
-			if (_vanillaWarningsEnabled != a_enabled) {
-				_vanillaWarningsEnabled = a_enabled;
+			if (_gameBindingWarningsEnabled != a_enabled) {
+				_gameBindingWarningsEnabled = a_enabled;
 				InvalidateData();
 				return true;
 			}
@@ -279,7 +279,7 @@ namespace OSFUI
 		// Localized keycap labels for the current OS keyboard layout, built by
 		// the composition root (KeyLabels + Platform::MakeKeyLabelSource).
 		// Emitted as the additive top-level `keyboard: { layout, labels }` in
-		// Data() — the keybinds board and settings chips render labels; names
+		// Data() — the Keybindings view and settings chips render labels; names
 		// stay the only identity. Empty = field omitted (older data, preview).
 		void SetKeyboardLabels(std::string a_layout,
 			std::vector<std::pair<std::string, std::string>> a_labels)
@@ -290,13 +290,13 @@ namespace OSFUI
 		}
 
 		// Monotonic counter bumped on every registry shape change (LoadAll,
-		// RegisterSchema, RemoveMod). Consumers re-broadcast `settings.data`
+		// RegisterSchema, RemoveMod). Consumers re-broadcast `osfui/settings` state
 		// when it moves.
 		[[nodiscard]] std::uint64_t Generation() const { return _generation; }
 
 		// One settings artifact that failed to load — named rather than silently
 		// dropped. Surfaced additively in Data() as top-level `loadErrors` so
-		// the Mods surface can render a banner. `kind` is a stable enum string:
+		// Mod Settings can render a banner. `kind` is a stable enum string:
 		//   "schema-name"   filename stem fails the mod-id grammar; file skipped
 		//   "schema-parse"  schema file is unreadable/not an object; file skipped
 		//   "values-parse"  the mod's values file was corrupt — quarantined to
@@ -333,7 +333,7 @@ namespace OSFUI
 		// mid-rebind key press with the collisions the bind would create,
 		// before the view commits it. Empty on a unique key, a_code == 0, or no
 		// resolver; informational only, like the Data() annotation. The rebound
-		// setting's input context applies the same @game filtering as Data().
+		// setting's hotkey context applies the same @game filtering as Data().
 		[[nodiscard]] nlohmann::json ConflictsFor(std::uint32_t a_code, std::string_view a_excludeMod, std::string_view a_excludeKey) const;
 
 		// Validate + clamp + store + notify. a_valueJson is the raw JSON text
@@ -346,7 +346,7 @@ namespace OSFUI
 		// stable enum strings:
 		//   "unknown-setting"  mod or key not declared by any loaded schema
 		//   "read-only"        requires-gated stub, or a setting whose type
-		//                      this host doesn't know (served default)
+		//                      this OSF UI runtime doesn't know (served default)
 		//   "invalid-value"    unparseable JSON or validation refused
 		// ok == true ⇔ code empty ⇔ a value was committed (read the
 		// authoritative post-clamp value back via GetValue).
@@ -393,28 +393,28 @@ namespace OSFUI
 			std::string           id;
 			nlohmann::json        schema;  // read-only
 			nlohmann::json        values;  // { key: current value }
-			// Forward-compat: saved entries this host cannot understand —
+			// Forward-compat: saved entries this OSF UI runtime cannot understand —
 			// unknown-typed settings' values and keys no schema declares —
 			// round-trip verbatim through every rewrite. Never served;
-			// consumers only see store-validated `values`, and a newer host
+			// consumers only see store-validated `values`, and a newer OSF UI runtime
 			// re-adopts these.
 			nlohmann::json        preserved;  // { key: opaque saved value }
-			// OSF UI version this schema was authored against (same advisory
+			// OSF UI release version this schema was authored against (same advisory
 			// field as ViewManifest::targetVersion). Never gates — the schema
-			// loads best-effort — but the Mods surface badges "needs update"
+			// loads best-effort — but Mod Settings badges "needs update"
 			// when it is newer than the running OSF UI. Empty when undeclared
 			// or malformed.
 			std::string              targetVersion;
 			// Values-file encoding stamp: max(build's version, the loaded
-			// file's), so a newer host's stamp survives our rewrites — EXCEPT
+			// file's), so a newer OSF UI runtime's stamp survives our rewrites — EXCEPT
 			// that a v1 file loaded with no legacy-key migrator wired keeps its
 			// v1 stamp (migration deferred, see LoadMod). Default is this
 			// build's version (fresh mods have nothing to migrate).
 			std::int64_t             formatVersion{ 2 };
 			std::filesystem::path valuesPath;
-			std::filesystem::path schemaPath;  // drop-in source file; empty for runtime registrations
+			std::filesystem::path schemaPath;  // drop-in source file; empty for native registrations
 			// Drop-in files that also claimed this id and were skipped
-			// (first wins). Surfaced additively in Data() so the Mods surface
+			// (first wins). Reported additively in Data() so Mod Settings
 			// can badge the conflict.
 			std::vector<std::string> shadowed;
 			std::vector<HotkeyTargetIssue> hotkeyTargetIssues;
@@ -440,7 +440,7 @@ namespace OSFUI
 		// Authored key context. The "gameplay" context is implicit; named
 		// contexts are local to one mod and may declare engine-input blocking and
 		// the semantic gameplay modes in which their hotkeys are active.
-		struct InputContext
+		struct HotkeyContext
 		{
 			std::string id{ "gameplay" };
 			std::string label{ "Gameplay" };
@@ -448,8 +448,8 @@ namespace OSFUI
 			bool        modeScoped{ false };
 			GameplayModeMask modes{ kAllGameplayModes };
 		};
-		[[nodiscard]] InputContext ResolveInputContext(const Mod& a_mod, const nlohmann::json& a_setting) const;
-		static void WarnInputContexts(const nlohmann::json& a_schema, std::string_view a_modId);
+		[[nodiscard]] HotkeyContext ResolveHotkeyContext(const Mod& a_mod, const nlohmann::json& a_setting) const;
+		static void WarnHotkeyContexts(const nlohmann::json& a_schema, std::string_view a_modId);
 		// One key-typed setting whose current value resolved to a physical key
 		// (scan code). Shared by the Data() conflict annotation and
 		// ConflictsFor().
@@ -462,20 +462,20 @@ namespace OSFUI
 			bool          blocksGameplay{ false };
 			bool          modeScoped{ false };
 			GameplayModeMask modes{ kAllGameplayModes };
-			bool          vanilla{ false };
-			std::string   vanillaContext;
+			bool          gameBinding{ false };
+			std::string   engineInputContextName;  // populated only for @game pseudo-entries
 			std::string   slot;
 			ControlMapPolicy::Classification classification{ ControlMapPolicy::Classification::Unknown };
 			GameplayModeMask possibleModes{ 0 };
 		};
 		[[nodiscard]] std::vector<BoundKey> ResolveBoundKeys() const;
 		// Conflict rows for a_code among a_bound: same physical key, not the
-		// setting itself (a_excludeMod/a_excludeKey), and not the vanilla
+		// setting itself (a_excludeMod/a_excludeKey), and not the game-binding
 		// "@game" side when the setting blocks gameplay. Shared by DataView()'s
 		// annotation and ConflictsFor(); a_selfBlocksGameplay is derived
 		// differently by each.
 		[[nodiscard]] static nlohmann::json CollectConflicts(const std::vector<BoundKey>& a_bound, std::uint32_t a_code,
-			std::string_view a_excludeMod, std::string_view a_excludeKey, const InputContext& a_selfContext);
+			std::string_view a_excludeMod, std::string_view a_excludeKey, const HotkeyContext& a_selfContext);
 		// The values that go to disk: sparse — only those ≠ schema default.
 		[[nodiscard]] static nlohmann::json SparseValues(const Mod& a_mod);
 		// Open (or join) the mod's write-behind window; PumpPersistence lands it.
@@ -502,8 +502,8 @@ namespace OSFUI
 		std::string                   _keyboardLayout;
 		std::vector<std::pair<std::string, std::string>> _keyboardLabels;
 		TextResolver                  _textResolver;
-		std::vector<VanillaKey>       _vanillaKeys;
-		bool                          _vanillaWarningsEnabled{ true };
+		std::vector<GameBinding>      _gameBindings;
+		bool                          _gameBindingWarningsEnabled{ true };
 		std::vector<ChangeListener>   _listeners;
 		std::vector<RegistryListener> _registryListeners;
 		std::vector<PersistListener>  _persistListeners;

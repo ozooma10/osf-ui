@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// The framework diagnostics group is the escape hatch for every mod-provided
+// The OSF UI framework detail is the escape hatch for every mod-provided
 // view, including entries deliberately omitted from normal navigation.
 
 import { afterEach, describe, expect, it } from 'vitest';
@@ -8,7 +8,7 @@ import { flush, makeBridge, mount, unmount } from './helpers/settingsHarness';
 
 afterEach(unmount);
 
-describe('registered views diagnostics', () => {
+describe('discovered views inventory', () => {
   it('lists mod-provided discovery entries and triggers the normal open path', async () => {
     const bridge = makeBridge();
     const el = await mount(bridge);
@@ -21,8 +21,8 @@ describe('registered views diagnostics', () => {
           schema: {
             groups: [
               {
-                id: 'diagnostics',
-                label: 'Diagnostics',
+                id: 'interface',
+                label: 'Interface',
                 settings: [
                   {
                     key: 'healthDetail',
@@ -48,7 +48,7 @@ describe('registered views diagnostics', () => {
           loadState: 'loaded',
         },
         {
-          id: 'tools/hidden-lab',
+          id: 'example.tools/hidden-lab',
           title: 'Hidden Lab',
           kind: 'menu',
           mod: 'example.tools',
@@ -56,7 +56,7 @@ describe('registered views diagnostics', () => {
           loadState: 'unloaded',
         },
         {
-          id: 'tools/passive-hud',
+          id: 'example.tools/passive-hud',
           title: 'Passive HUD',
           kind: 'hud',
           mod: 'example.tools',
@@ -72,33 +72,38 @@ describe('registered views diagnostics', () => {
       .click();
     await flush();
 
-    const diagnostics = [...el.querySelectorAll<HTMLElement>('.group')].find((group) =>
-      group.querySelector('.group-label')?.textContent?.includes('Diagnostics'),
+    const interfaceGroup = [...el.querySelectorAll<HTMLElement>('.group')].find((group) =>
+      group.querySelector('.group-label')?.textContent?.includes('Interface'),
     )!;
-    expect(diagnostics.classList.contains('collapsed')).toBe(false);
+    expect(interfaceGroup.classList.contains('collapsed')).toBe(false);
 
-    const toggle = diagnostics.querySelector<HTMLButtonElement>('.registered-views-head')!;
+    const inventory = el.querySelector<HTMLElement>(
+      '.discovered-views-group .group-rows > .discovered-views',
+    )!;
+    expect(inventory).not.toBeNull();
+    const toggle = inventory.querySelector<HTMLButtonElement>('.discovered-views-head')!;
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
-    expect(diagnostics.querySelector('.registered-view')).toBeNull();
+    expect(el.querySelector('.discovered-view')).toBeNull();
     toggle.click();
     await flush();
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
 
-    const rows = [...el.querySelectorAll<HTMLElement>('.registered-view')];
-    expect(rows.map((row) => row.querySelector('.registered-view-id')!.textContent)).toEqual([
-      'tools/hidden-lab',
-      'tools/passive-hud',
+    const rows = [...el.querySelectorAll<HTMLElement>('.discovered-view')];
+    expect(rows.map((row) => row.querySelector('.discovered-view-id')!.textContent)).toEqual([
+      'example.tools/hidden-lab',
+      'example.tools/passive-hud',
     ]);
     expect(el.querySelector('.detail')!.textContent).toContain('unloaded');
 
     rows[0]!.querySelector<HTMLButtonElement>('button')!.click();
     expect(bridge.outbound[bridge.outbound.length - 1]).toEqual({
       name: 'menu.open',
-      payload: { view: 'tools/hidden-lab' },
+      payload: { view: 'example.tools/hidden-lab' },
     });
 
-    // Idle reclaim is a live loaded -> unloaded catalog transition. The row
-    // must stay present and openable rather than being treated as a removal.
+    // Idle reclaim is an instantiated -> reclaimed lifecycle transition,
+    // reported by the compatibility `loadState` values loaded -> unloaded. The
+    // row must stay present and openable rather than being treated as a removal.
     bridge.publish('osfui/views', {
       views: [
         {
@@ -110,7 +115,7 @@ describe('registered views diagnostics', () => {
           loadState: 'loaded',
         },
         {
-          id: 'tools/hidden-lab',
+          id: 'example.tools/hidden-lab',
           title: 'Hidden Lab',
           kind: 'menu',
           mod: 'example.tools',
@@ -118,7 +123,7 @@ describe('registered views diagnostics', () => {
           loadState: 'unloaded',
         },
         {
-          id: 'tools/passive-hud',
+          id: 'example.tools/passive-hud',
           title: 'Passive HUD',
           kind: 'hud',
           mod: 'example.tools',
@@ -128,8 +133,8 @@ describe('registered views diagnostics', () => {
       ],
     });
     await flush();
-    const reclaimed = [...el.querySelectorAll<HTMLElement>('.registered-view')]
-      .find((row) => row.textContent!.includes('tools/passive-hud'))!;
+    const reclaimed = [...el.querySelectorAll<HTMLElement>('.discovered-view')]
+      .find((row) => row.textContent!.includes('example.tools/passive-hud'))!;
     expect(reclaimed.textContent).toContain('unloaded');
     expect(reclaimed.querySelector<HTMLButtonElement>('button')!.disabled).toBe(false);
   });

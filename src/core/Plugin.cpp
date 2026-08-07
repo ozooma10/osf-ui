@@ -65,7 +65,7 @@ namespace OSFUI::Plugin
 					return;
 				}
 				if (!TryQueueMainThread([this]() { RunTickOnMain(); })) {
-					// Queueing can be disabled during early boot. The helper
+					// Queueing can be disabled during early boot. This wrapper
 					// deliberately refuses BSService's off-main inline fallback;
 					// retry on the next SFSE frame instead.
 					_tickPending.store(false, std::memory_order_release);
@@ -159,13 +159,13 @@ namespace OSFUI::Plugin
 	{
 		// Keep preload minimal: no filesystem, no game objects. Anything that
 		// can fail belongs in OnLoad, where failure is observable.
-		REX::INFO("{} v{}: preload entered", kPluginName, kPluginVersion);
+		REX::INFO("{} v{}: preload entered", kPluginName, kOsfuiReleaseVersion);
 		return true;
 	}
 
 	bool OnLoad()
 	{
-		REX::INFO("{} v{}: load entered", kPluginName, kPluginVersion);
+		REX::INFO("{} v{}: load entered", kPluginName, kOsfuiReleaseVersion);
 
 		if (const auto* messaging = SFSE::GetMessagingInterface()) {
 			if (!messaging->RegisterListener(OnSFSEMessage)) {
@@ -200,7 +200,7 @@ namespace OSFUI::Plugin
 			}
 		}
 		// SFSE has no shutdown/unload callback. OS teardown at process exit ends
-		// the process-owned runtime and helper connection.
+		// the process-owned runtime and browser-host connection.
 		return true;
 	}
 }

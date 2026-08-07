@@ -29,7 +29,7 @@
 // console.
 //
 // Validation is not re-implemented here: `normalizeValue`/`isSetting` come from
-// @lib/settings/normalize and `resolveInputContext` from @lib/settings/inputContext,
+// @lib/settings/normalize and `resolveHotkeyContext` from @lib/settings/hotkeyContext,
 // so the harness cannot drift into accepting a value the game refuses. The same
 // goes for write authority: `settings.set`/`settings.reset`/`settings.captureKey`
 // apply Ids::ResolveWritableMod's rule, so a third-party view that reaches into a
@@ -48,7 +48,7 @@ import type {
   UiGamepadPayload,
 } from '@sdk';
 import { isSetting, normalizeValue } from '@lib/settings/normalize';
-import { resolveInputContext } from '@lib/settings/inputContext';
+import { resolveHotkeyContext } from '@lib/settings/hotkeyContext';
 // Plays the native side of the capture with the shipped view's mapper:
 // `e.code`-based (physical, layout-independent), exactly how the runtime now
 // names keys — so the harness capture agrees with in-game behavior on any
@@ -62,8 +62,8 @@ import {
   MOCK_HEALTH,
   MOCK_VIEWS,
   MOD_ASSET_ROOTS,
+  GAME_BINDINGS,
   LIVE_KEYBINDINGS,
-  VANILLA_KEYS,
   type MockView,
 } from './fixtures';
 
@@ -138,7 +138,7 @@ export interface MockApi {
   loaded(): Promise<void>;
 }
 
-type MockHost = Window & typeof globalThis;
+type MockWindow = Window & typeof globalThis;
 
 /** The event the toolbar listens for when a dropped catalog auto-activates. */
 export const LOCALE_EVENT = 'osfui-mock-locale';
@@ -163,14 +163,14 @@ const L10N_CATALOGS = import.meta.glob<Record<string, string>>(
   { import: 'default' },
 );
 
-/** src/core/Version.h — `kPluginVersion` feeds the harness version badge. */
+/** src/core/Version.h — `kOsfuiReleaseVersion` feeds the harness OSF UI release-version badge. */
 const VERSION_HEADER = import.meta.glob<string>('../../src/core/Version.h', {
   query: '?raw',
   import: 'default',
 });
 
 /** Used when the real version cannot be read; the suffix marks it as not real. */
-const FALLBACK_VERSION = '1.0.0-mock';
+const FALLBACK_OSFUI_RELEASE_VERSION = '1.0.0-mock';
 
 /** `bridgeVersion` in the `ready` payload — the protocol this file speaks. */
 const BRIDGE_VERSION = '2.0';
@@ -179,10 +179,10 @@ const LS_PREFIX = 'osfui.mock.';
 const LOCALE_LS = LS_PREFIX + 'locale';
 const FIXTURES_LS = LS_PREFIX + 'fixtures';
 
-/** The platform's first-load handoff surface; the only view served `osfui/handoff`. */
+/** The platform's first-load handoff view; the only view served `osfui/handoff`. */
 const HANDOFF_VIEW = 'osfui/handoff';
 
-/** OSF UI's own settings surfaces — the only views allowed to write a foreign mod (Ids::IsSettingsEditorView). */
+/** OSF UI's own settings views — the only views allowed to write a foreign mod (Ids::IsSettingsEditorView). */
 const SETTINGS_EDITOR_VIEWS = ['osfui/settings', 'osfui/keybinds'];
 
 /**
@@ -282,7 +282,7 @@ function str(p: CommandPayload, field: string): string {
 
 
 export function installMock(opts: MockOptions = {}): MockApi {
-  const host = window as MockHost;
+  const browserWindow = window as MockWindow;
   const search = opts.search !== undefined ? opts.search : location.search;
   const storage: StorageLike | null =
     opts.storage !== undefined ? opts.storage : safeLocalStorage();
@@ -300,7 +300,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
    * way to tell a wired button from a dead one. Harness chrome, never a view.
    */
   function notify(msg: string): void {
-    const doc = (host as unknown as { document?: Document }).document;
+    const doc = (browserWindow as unknown as { document?: Document }).document;
     if (!doc || !doc.body) return;
     const el = doc.createElement('div');
     el.className = 'harness-toast';
@@ -311,7 +311,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
 
   // Asset roots for the settings view's icon/image resolution. Global because
   // @lib/settings/assets reads it off the window.
-  (host as unknown as { OSFUI_MOD_ASSET_ROOTS?: Record<string, string> }).OSFUI_MOD_ASSET_ROOTS =
+  (browserWindow as unknown as { OSFUI_MOD_ASSET_ROOTS?: Record<string, string> }).OSFUI_MOD_ASSET_ROOTS =
     MOD_ASSET_ROOTS;
 
   // Persistence
@@ -377,7 +377,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
    */
   function blocksGameplay(schema: SettingsSchema | undefined, setting: Setting | null): boolean {
     if (!setting) return false;
-    return resolveInputContext(schema, setting).blocksGameplay;
+    return resolveHotkeyContext(schema, setting).blocksGameplay;
   }
 
   function buildMod(schema: SettingsSchema): MockMod {
@@ -417,7 +417,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
 
   /**
    * Ids::ResolveWritableMod: the mod a settings write from this document may
-   * target. Only OSF UI's own Mods surface and keybinds board may name a foreign
+   * target. Only OSF UI's own Mod Settings and Keybindings views may name a foreign
    * mod; every other view is confined to its own, and an omitted `mod` resolves
    * to its own rather than being refused. `null` = refuse with "forbidden".
    */
@@ -637,7 +637,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
    */
   let origT: ((address: string, english: string, vars?: unknown) => string) | null = null;
   function installPseudoT(): void {
-    const helper = (host.osfui as unknown as { i18n?: PseudoTarget } | undefined)?.i18n;
+    const helper = (browserWindow.osfui as unknown as { i18n?: PseudoTarget } | undefined)?.i18n;
     if (!helper) return;
     if (locale === 'pseudo') {
       if (!origT && typeof helper.t === 'function') {
@@ -671,7 +671,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
       publishViews();
       // Keeps the toolbar picker in sync when the switch came from elsewhere, e.g.
       // a dropped catalog auto-activating its locale.
-      host.dispatchEvent(new CustomEvent(LOCALE_EVENT, { detail: { locale } }));
+      browserWindow.dispatchEvent(new CustomEvent(LOCALE_EVENT, { detail: { locale } }));
       log('info', `locale -> ${locale}`);
       return locale;
     });
@@ -696,7 +696,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
 
   function deliver(env: Envelope): void {
     log('→web', label(env));
-    const g = host.osfui as { onMessage?: (json: string) => void } | undefined;
+    const g = browserWindow.osfui as { onMessage?: (json: string) => void } | undefined;
     if (g && typeof g.onMessage === 'function') g.onMessage(JSON.stringify(env));
   }
 
@@ -736,12 +736,12 @@ export function installMock(opts: MockOptions = {}): MockApi {
   }
 
   /**
-   * Host-detected protocol misuse, handed straight back to the offending document
-   * (Runtime::OnProtocolMisuse in devMode — and the harness is dev by
-   * definition). The shared kit prints it to this page's console, so a dropped
+   * Runtime-detected protocol misuse, handed straight back to the offending document
+   * (Runtime::OnProtocolFault in developer mode — and the harness runs in
+   * developer mode by definition). The shared kit prints it to this page's console, so a dropped
    * `send` is never silent.
    */
-  function surface(code: string, message: string, detail?: Record<string, unknown>): void {
+  function reportProtocolFault(code: string, message: string, detail?: Record<string, unknown>): void {
     log('info', `${code} — ${message}`);
     raise('osfui.debug.error', { code, message, detail: { view: selfView, ...(detail || {}) } });
   }
@@ -761,7 +761,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
       if (list) list.push(ref);
       else byVal.set(v, [ref]);
     };
-    for (const v of VANILLA_KEYS) push(v.name, { mod: '@game', key: v.event, title: v.title });
+    for (const v of GAME_BINDINGS) push(v.name, { mod: '@game', key: v.event, title: v.title });
     for (const m of mods) {
       eachSetting(m.schema, (s) => {
         if (s.type === 'key') delete s.conflicts;
@@ -797,7 +797,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
     const v = m ? m.values[key] : undefined;
     if (!s || !v || typeof v !== 'string') return [];
     const expectedGameReuse = blocksGameplay(m && m.schema, s);
-    const others: ConflictRef[] = VANILLA_KEYS.filter(
+    const others: ConflictRef[] = GAME_BINDINGS.filter(
       (x) => x.name === v && !expectedGameReuse,
     ).map((x) => ({ mod: '@game', key: x.event, title: x.title }));
     for (const other of mods) {
@@ -941,7 +941,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
     publish('osfui', 'i18n', { mod, locale, strings: activeCatalogs[mod] || {} });
   }
 
-  // Handoff. Platform-private: only the built-in handoff surface is ever served
+  // Handoff. Platform-private: only the built-in handoff view is ever served
   // this key, so the harness models it only while that view is the one hosted.
   let handoffTimer: ReturnType<typeof setTimeout> | undefined;
   let handoff: HandoffState = (() => {
@@ -1031,7 +1031,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
       const targetMod = mods.find((m) => m.id === armed.mod);
       const targetSetting = findSetting(targetMod, armed.key);
       const expectedGameReuse = blocksGameplay(targetMod && targetMod.schema, targetSetting);
-      const others: ConflictRef[] = VANILLA_KEYS.filter(
+      const others: ConflictRef[] = GAME_BINDINGS.filter(
         (v) => v.name === name && !expectedGameReuse,
       ).map((v) => ({ mod: '@game', key: v.event, title: v.title }));
       for (const m of mods) {
@@ -1065,20 +1065,20 @@ export function installMock(opts: MockOptions = {}): MockApi {
     let pointerArmed = false;
     const armPointer = setTimeout(() => {
       pointerArmed = true;
-      host.addEventListener('pointerdown', onPointer, true);
+      browserWindow.addEventListener('pointerdown', onPointer, true);
     }, 0);
 
-    host.addEventListener('keydown', onKey, true);
-    host.addEventListener('blur', onBlur);
+    browserWindow.addEventListener('keydown', onKey, true);
+    browserWindow.addEventListener('blur', onBlur);
 
     capture = {
       mod,
       key,
       disarm() {
         clearTimeout(armPointer);
-        host.removeEventListener('keydown', onKey, true);
-        host.removeEventListener('blur', onBlur);
-        if (pointerArmed) host.removeEventListener('pointerdown', onPointer, true);
+        browserWindow.removeEventListener('keydown', onKey, true);
+        browserWindow.removeEventListener('blur', onBlur);
+        if (pointerArmed) browserWindow.removeEventListener('pointerdown', onPointer, true);
       },
     };
   }
@@ -1091,7 +1091,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
    * timer is what makes an F5 identical to a first open: the harness cannot push
    * a greeting the document missed, because the document asks for it.
    *
-   * Async because the version badge reads src/core/Version.h and the catalogs may
+   * Async because the OSF UI release-version badge reads src/core/Version.h and the catalogs may
    * still be loading; `helloSeq` drops a stale greeting whose document has already
    * been replaced by a newer one.
    */
@@ -1100,12 +1100,12 @@ export function installMock(opts: MockOptions = {}): MockApi {
     // The queue is NOT cleared. What it holds are the events raised between
     // this view coming up and its document greeting us — the harness mirror of
     // the native ABI's message-before-first-paint guarantee, which
-    // MessageBridge::HandleHello flushes rather than discards (pinned by
+    // MessageBridge::HandleHello flushes rather than discards (covered by
     // tests/native/bridge_api_tests.cpp). A genuine re-greeting has no backlog
     // anyway: its gate was open, so its events went straight out.
     greeted = false;
     eventsOpen = false;
-    void pluginVersion.then((version) =>
+    void osfuiReleaseVersion.then((releaseVersion) =>
       queued(async () => {
         if (seq !== helloSeq) return;
         await refreshCatalogs();
@@ -1117,7 +1117,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
           payload: {
             game: 'Starfield',
             plugin: 'OSF UI',
-            version,
+            version: releaseVersion,
             bridgeVersion: BRIDGE_VERSION,
             view: selfView,
             mod: modOf(selfView),
@@ -1160,7 +1160,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
       if (REQUEST_ENDPOINTS.has(name)) {
         // Kind enforcement: running a mutation whose kind the caller got wrong
         // invites worse bugs, so the send is DROPPED — but never silently.
-        surface(
+        reportProtocolFault(
           'wrong-endpoint-kind',
           `'${name}' is a request endpoint — use request(), not send()`,
           { name },
@@ -1173,7 +1173,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
         log('info', `${name} → delivered to the mod's send handler (mock)`);
         return;
       }
-      surface('unknown-endpoint', 'no such endpoint', { name });
+      reportProtocolFault('unknown-endpoint', 'no such endpoint', { name });
       return;
     }
 
@@ -1183,7 +1183,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
         break;
 
       case 'setVisible':
-        // Native opens/closes the calling surface; the only thing a page can
+        // Native opens/closes the calling view; the only thing a page can
         // observe is the visibility edge, so that is what the mock emits.
         raise('ui.visibility', { visible: p['visible'] === true, reason: 'overlay' });
         break;
@@ -1213,11 +1213,11 @@ export function installMock(opts: MockOptions = {}): MockApi {
 
       case 'osfui.handoffRetry': {
         if (selfView !== HANDOFF_VIEW) {
-          surface('forbidden', 'osfui.handoffRetry is a platform action', { name });
+          reportProtocolFault('forbidden', 'osfui.handoffRetry is a platform action', { name });
           break;
         }
         // Play the retry the runtime would: back to "retrying", then fail again so
-        // the surface's error affordance stays reachable.
+        // the view's error affordance stays reachable.
         handoff = { ...handoff, phase: 'retrying', retry: false };
         publishHandoff();
         clearTimeout(handoffTimer);
@@ -1408,7 +1408,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
         const id = targetView();
         const v = views.find((x) => x.id === id);
         if (!v) {
-          fail('unknown-view', 'not a registered surface');
+		  fail('unknown-view', 'not a discovered view');
           break;
         }
         v.open = false;
@@ -1426,8 +1426,9 @@ export function installMock(opts: MockOptions = {}): MockApi {
         break;
 
       case 'osfui.setViewAutoStart': {
-        // Startup policy is player intent: only the built-in Mods surface may
-        // change it — the same exact-id gate the diagnostics.* requests use.
+        // Startup policy is player intent: only the built-in Mod Settings view may
+        // change it — the same exact-id gate the Mod Settings-only platform
+        // requests use.
         if (selfView !== 'osfui/settings') {
           fail('forbidden', "view auto-start is set from OSF UI's built-in settings view");
           break;
@@ -1519,20 +1520,20 @@ export function installMock(opts: MockOptions = {}): MockApi {
     log('←web', `${kind || '(no kind)'} ${name || '(no name)'}`);
 
     if (kind !== 'send' && kind !== 'request') {
-      surface('invalid-request', 'kind must be "send" or "request"', {
+      reportProtocolFault('invalid-request', 'kind must be "send" or "request"', {
         kind: String(m.kind).slice(0, MAX_ECHOED_NAME_LENGTH),
         name,
       });
       return;
     }
     if (!name) {
-      surface('invalid-request', 'a message needs a non-empty endpoint name', { kind });
+      reportProtocolFault('invalid-request', 'a message needs a non-empty endpoint name', { kind });
       return;
     }
     let payload: CommandPayload = {};
     if (m.payload !== undefined && m.payload !== null) {
       if (typeof m.payload !== 'object' || Array.isArray(m.payload)) {
-        surface('invalid-request', 'payload must be an object', { kind, name });
+        reportProtocolFault('invalid-request', 'payload must be an object', { kind, name });
         return;
       }
       payload = m.payload as CommandPayload;
@@ -1543,7 +1544,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
       // `id` is forbidden on a send: a caller that supplied one expects a
       // settlement it will never get.
       if (hasId) {
-        surface('invalid-request', 'send messages carry no id — use a request', { name });
+        reportProtocolFault('invalid-request', 'send messages carry no id — use a request', { name });
         return;
       }
       dispatchSend(name, payload);
@@ -1552,7 +1553,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
     if (!hasId || typeof m.id !== 'string' || !m.id || m.id.length > MAX_REQUEST_ID_LENGTH) {
       // Not demoted to fire-and-forget the way 1.x demoted a bad requestId: silent
       // demotion turns a client bug into a request that never settles.
-      surface(
+      reportProtocolFault(
         'invalid-request',
         `request id must be 1-${MAX_REQUEST_ID_LENGTH} characters`,
         { name },
@@ -1600,19 +1601,22 @@ export function installMock(opts: MockOptions = {}): MockApi {
   }
 
   /**
-   * The real plugin version, read out of src/core/Version.h so the harness badge
-   * shows what the DLL would report. Best-effort: an unreachable file keeps the
+   * The OSF UI release version, read out of src/core/Version.h so the harness
+   * badge shows what the DLL would report. Best-effort: an unreachable file keeps the
    * "-mock" marker so a fake version is not mistaken for a real one. The greeting
    * waits on it, because `ready.version` is the reference point every advisory
    * `targetVersion` is compared against.
    */
-  const pluginVersion: Promise<string> = (async () => {
+  const osfuiReleaseVersion: Promise<string> = (async () => {
     const text = await loadOnly(VERSION_HEADER, 'src/core/Version.h');
-    if (text === null) return FALLBACK_VERSION;
-    const m = /kPluginVersion\s*=\s*"([^"]+)"/.exec(text);
+    if (text === null) return FALLBACK_OSFUI_RELEASE_VERSION;
+    const m = /kOsfuiReleaseVersion\s*=\s*"([^"]+)"/.exec(text);
     if (!m || !m[1]) {
-      console.warn('[mock] Version.h has no kPluginVersion literal — using ' + FALLBACK_VERSION);
-      return FALLBACK_VERSION;
+      console.warn(
+        '[mock] Version.h has no kOsfuiReleaseVersion literal — using '
+          + FALLBACK_OSFUI_RELEASE_VERSION,
+      );
+      return FALLBACK_OSFUI_RELEASE_VERSION;
     }
     return m[1];
   })();
@@ -1661,9 +1665,9 @@ export function installMock(opts: MockOptions = {}): MockApi {
       e.stopPropagation();
     };
     for (const ev of ['dragenter', 'dragover', 'dragleave', 'drop']) {
-      host.addEventListener(ev, stop, false);
+      browserWindow.addEventListener(ev, stop, false);
     }
-    host.addEventListener(
+    browserWindow.addEventListener(
       'drop',
       (e: Event) => {
         const dt = (e as DragEvent).dataTransfer;
@@ -1805,7 +1809,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
   // Cast: Window.osfui is typed as the full injected bridge (postMessage +
   // onMessage both required) because in game it only ever exists fully formed; the
   // mock is what makes it exist, so it starts empty.
-  const w = host as unknown as { osfui?: Record<string, unknown> };
+  const w = browserWindow as unknown as { osfui?: Record<string, unknown> };
   if (!w.osfui) w.osfui = {};
   const g = w.osfui;
   // Dispatch a macrotask late, so the mock crosses the same asynchronous boundary
@@ -1822,7 +1826,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
   FALLBACK_SCHEMAS.forEach(upsert);
   if (opts.drop !== false) wireDrop();
   const initial: Promise<void> = Promise.all([
-    pluginVersion,
+    osfuiReleaseVersion,
     opts.autoLoad === false ? Promise.resolve() : loadSources(),
   ]).then(() => undefined);
 

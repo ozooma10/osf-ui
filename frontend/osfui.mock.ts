@@ -1,17 +1,18 @@
-// The built-in views' dev mock for `osfui dev`: the full simulated backend
-// (devmock/mockbridge — settings round-trips, schemas, key capture, health
-// scenarios, locales, drag-drop) installed as an @osfui/cli mock module.
+// The built-in views' dev mock for `osfui dev`: a simulated OSF UI runtime and
+// bridge with fixture mod-backend behavior (devmock/mockbridge — settings
+// round-trips, schemas, key capture, health scenarios, locales, drag-drop),
+// installed as an @osfui/cli mock module.
 //
 // install() runs inside the view iframe before the view's module entry.
 // mockbridge takes over window.osfui.postMessage wholesale; the harness
-// detects that and drains any queued commands into it. The old harness
+// detects that and drains any queued bridge messages into it. The old harness
 // toolbar's controls become registered shell tools here.
 
 import type { MockContext } from '@osfui/cli';
 
 import { installMock, type MockApi } from './devmock/mockbridge';
 
-/** Health scenarios in toolbar cycle order (devmock/fixtures/diagnostics). */
+/** Health scenarios in toolbar cycle order (devmock/fixtures/health). */
 const HEALTH = ['clean', 'warnings', 'errors', 'mixed', 'resolved', 'catalog'];
 
 export function install(ctx: MockContext): void {

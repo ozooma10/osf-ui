@@ -1,12 +1,16 @@
-export type SurfaceKind = "menu" | "hud";
+export type ViewKind = "menu" | "hud";
+
+/** @deprecated Use `ViewKind`. Kept for source compatibility. */
+export type SurfaceKind = ViewKind;
 
 export interface ViewConfig {
+  /** Local view name within `modId`; the qualified view id is `<modId>/<viewName>`. */
   id: string;
   title?: string;
   description?: string;
   source?: string;
   entry?: string;
-  kind?: SurfaceKind;
+  kind?: ViewKind;
   width?: number;
   height?: number;
   transparent?: boolean;
@@ -14,6 +18,7 @@ export interface ViewConfig {
   pausesGame?: boolean;
   openOnStart?: boolean;
   order?: number;
+  /** Compatibility field for catalog visibility; false hides the view from catalogs. */
   hub?: boolean;
   debugOnly?: boolean;
   readySignal?: boolean;
@@ -94,26 +99,51 @@ export type Envelope =
   | { kind: 'reply'; id: string; payload?: unknown }
   | { kind: 'error'; id: string; payload: { code: string; message: string } };
 
-export type CommandKind = 'send' | 'request';
+export type EndpointKind = 'send' | 'request';
 
-/** Settlement and diagnostics for one mocked web->native command. */
+/** @deprecated Use `EndpointKind`. */
+export type CommandKind = EndpointKind;
+
+/** Settlement and diagnostics for one mocked web-to-native endpoint call. */
+export interface EndpointIo {
+  resolve(payload?: unknown): void;
+  reject(code: string, message: string): void;
+  reportProtocolFault(code: string, message: string): void;
+  /** @deprecated Compatibility alias for `reportProtocolFault`. */
+  surface?(code: string, message: string): void;
+  report(direction: 'in' | 'out', message: unknown, level?: 'info' | 'warn'): void;
+}
+
+/** @deprecated Use `EndpointIo`. This shape preserves older structural fixtures. */
 export interface CommandIo {
   resolve(payload?: unknown): void;
   reject(code: string, message: string): void;
+  /** Canonical name; the built-in mock runtime always supplies it. Optional so existing structural fixtures remain source-compatible. */
+  reportProtocolFault?(code: string, message: string): void;
+  /** @deprecated Use `reportProtocolFault`. */
   surface(code: string, message: string): void;
   report(direction: 'in' | 'out', message: unknown, level?: 'info' | 'warn'): void;
 }
 
 /**
- * A mock command handler. Return true to stop the chain (the command is
+ * A mock endpoint handler. Return true to stop the chain (the send/request is
  * handled); anything else falls through to the scenario engine. Requests
  * settle through `io.resolve()` or `io.reject()`; sends never settle.
+ * @deprecated Use `EndpointHandler`.
  */
 export type CommandHandler = (
   kind: CommandKind,
   name: string,
   payload: Record<string, unknown>,
   io: CommandIo,
+) => boolean | void | Promise<boolean | void>;
+
+/** A mock endpoint handler using the canonical endpoint vocabulary. */
+export type EndpointHandler = (
+  kind: EndpointKind,
+  name: string,
+  payload: Record<string, unknown>,
+  io: EndpointIo,
 ) => boolean | void | Promise<boolean | void>;
 
 export type ToolKind = 'button' | 'toggle' | 'cycle' | 'select';
@@ -145,7 +175,7 @@ export type ToolPatch = Partial<Pick<ToolSpec, 'label' | 'title' | 'value' | 'op
  * Handed to a mock module's `install(ctx)` export, which runs inside the view
  * page before the view boots. `install` may layer handlers over the scenario
  * from the default export, or take over `window.osfui.postMessage` wholesale
- * — the harness detects the takeover and only drains queued commands into it.
+ * — the harness detects the takeover and only drains queued sends/requests into it.
  * Workers are unavailable in mock code (the harness deletes those globals).
  */
 export interface MockContext {
@@ -158,7 +188,9 @@ export interface MockContext {
   scenario: OsfuiMock | null;
   /** Push a native->web envelope (logged to the shell traffic panel). */
   send(message: Envelope): void;
-  /** Register a command handler ahead of the scenario engine. */
+  /** Register an endpoint handler ahead of the scenario engine. Optional for compatibility with older harness contexts. */
+  onEndpoint?(handler: EndpointHandler): void;
+  /** @deprecated Use `onEndpoint`. */
   onCommand(handler: CommandHandler): void;
   /**
    * Register dev controls in the shell toolbar (replaces any previous

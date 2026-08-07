@@ -1,21 +1,21 @@
-// The left-hand mod rail: which entries exist, and in what order the pane
+// The left-hand mod rail: which entries exist, and in what order the destination
 // paints them.
 //
-// An entry is the union of two independent registries: settings schemas
-// (`settings.data`) and catalog views (`views.data`). A view attaches to a
+// An entry is the union of two independent state registries: settings schemas
+// (`osfui/settings`) and catalog views (`osfui/views`). A view attaches to a
 // settings mod when its manifest `mod` matches that mod's id; every other view
 // groups into a synthetic "view-only" entry. A mod may ship settings with no
 // views, views with no settings, or both.
 //
 // The model records here are looser than `SettingsData['mods'][number]`
 // / `ViewsData['views'][number]`: every field may be absent, since the
-// renderer also runs against harness mocks and older hosts.
+// renderer also runs against harness mocks and older OSF UI runtimes.
 
 import type { SettingsSchema, SettingValue, ViewsData } from '@sdk';
 import { railMatches } from './search';
 
 
-/** A `settings.data` mod record as the renderer actually treats it. */
+/** An `osfui/settings` mod record as the renderer actually treats it. */
 export interface ModRecord {
   id: string;
   title?: string;
@@ -24,23 +24,23 @@ export interface ModRecord {
   targetVersion?: string;
 }
 
-/** A `views.data` catalog entry, every field optional but `id`. */
+/** An `osfui/views` catalog entry, every field optional but `id`. */
 export type ViewRecord = Partial<ViewsData['views'][number]> & { id: string };
 
-// NOTE: `settings.data` still carries `loadErrors`, and nothing in this view
+// NOTE: `osfui/settings` still carries `loadErrors`, and nothing in this view
 // reads it. Those same failures arrive as System Health issues, which carry
 // severity, an occurrence count and actions where a load-error record could only
 // ever state a filename; the App ignores the field deliberately rather than
-// double-reporting (see its `settings.data` handler). There was a `LoadError`
+// double-reporting (see its `osfui/settings` handler). There was a `LoadError`
 // alias here for the wire shape — it had no callers once the rail stopped
 // painting the alert, so it went with them.
 
-/** Re-exported so rail consumers need only one import for the pinned ids. */
-export { HEALTH_ID } from './diagnostics';
+/** Re-exported so rail consumers need only one import for fixed destination ids. */
+export { HEALTH_ID } from './health';
 
-/** The framework's own settings mod id — pinned first. */
+/** The framework's own settings mod id — listed first. */
 export const FRAMEWORK_ID = 'osfui';
-/** Re-exported so rail consumers need only one import for the pinned ids. */
+/** Re-exported so rail consumers need only one import for fixed destination ids. */
 export { HOME_ID } from '../ids';
 
 export interface RailEntry {
@@ -121,14 +121,14 @@ export interface RailModel {
 /**
  * The rail in paint order:
  *
- *  1. System Health, pinned above everything and NEVER filtered — a user
+ *  1. System Health, fixed above everything and NEVER filtered — a user
  *     filtering for the mod that failed to load must still be able to reach the
- *     reason, not be shown "no mods match" (mcm-design.md §14.2, the SkyUI-MCM
- *     lesson). This is the same argument the old settings-load alert was pinned
+ *     reason, not be shown "no mods match". This is the same argument the old
+ *     settings-load alert was fixed
  *     on; health now carries those load failures as issues instead.
  *     NOTE: this node is NOT painted by the rail list — App renders it in the
- *     rail head, above the "Installed systems" label, because it is a pinned
- *     destination rather than an installed system. It stays first here because
+ *     rail head, above the "Installed mods" label, because it is a fixed
+ *     destination rather than an installed mod. It stays first here because
  *     LB/RB cycle order is derived from this same sequence;
  *  2. Home, only when no filter is active — while filtering the rail scopes to
  *     matching mods and the launcher steps aside, as the framework does. Home,
@@ -169,6 +169,6 @@ function sortedMods(entries: RailEntry[], query: string): RailEntry[] {
     .filter((e) => e.id !== FRAMEWORK_ID && railMatches(e, query))
     // sensitivity "base" is case- and accent-insensitive, so "acme" and "Acme"
     // sort adjacently rather than in two ASCII blocks. Undefined locale = the
-    // host's, which in game is whatever the WebView reports.
+    // browser document's, which in game is whatever WebView2 reports.
     .sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
 }

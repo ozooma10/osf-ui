@@ -7,13 +7,13 @@
 import type { KeybindingsData } from '@sdk';
 
 /** Compact internal rows used only by the mock conflict engine. */
-export interface VanillaKey {
+export interface GameBindingFixture {
   name: string;
   event: string;
   title: string;
 }
 
-export const VANILLA_KEYS: VanillaKey[] = [
+export const GAME_BINDINGS: GameBindingFixture[] = [
   { name: 'F5', event: 'QuickSave', title: 'Starfield (Quicksave)' },
   { name: 'F9', event: 'QuickLoad', title: 'Starfield (Quickload)' },
   { name: 'E', event: 'Activate', title: 'Starfield (Interact)' },
@@ -25,7 +25,7 @@ export const LIVE_KEYBINDINGS: KeybindingsData = {
   available: true,
   revision: 1,
   gameVersion: 'dev-harness',
-  actions: VANILLA_KEYS.map((row, index) => ({
+  actions: GAME_BINDINGS.map((row, index) => ({
     event: row.event,
     label: row.title.replace(/^Starfield \((.*)\)$/, '$1'),
     category: 'MainGameplay',

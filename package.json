@@ -14,9 +14,10 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "build": "npm run build --workspace osfui-frontend",
+    "check:terminology": "node scripts/check-terminology.mjs",
     "test:toolchain": "npm test --workspace @osfui/cli",
     "test:scaffolder": "npm test --workspace create-osfui",
     "test": "npm run test:toolchain && npm run test:scaffolder && npm test --workspace osfui-frontend",
-    "verify": "npm run test:toolchain && npm run test:scaffolder && npm run verify --workspace osfui-frontend"
+    "verify": "npm run check:terminology && npm run test:toolchain && npm run test:scaffolder && npm run verify --workspace osfui-frontend"
   }
 }

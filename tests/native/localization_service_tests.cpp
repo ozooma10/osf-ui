@@ -1,4 +1,4 @@
-// Host-side coverage for the English-source localization catalog and locale
+// Native desktop coverage for the English-source localization catalog and locale
 // fallback rules. Compiles the real service; no game/Windows dependency.
 
 #include "runtime/LocalizationService.h"

@@ -19,12 +19,12 @@
 					} else {
 						log.Warn(std::format(
 							"CreateDXGIFactory1 failed while matching the game adapter (0x{:08X}); "
-							"falling back to the host default GPU", static_cast<unsigned>(factoryHr)));
+							"falling back to the browser-host default GPU", static_cast<unsigned>(factoryHr)));
 					}
 					if (!selectedAdapter) {
 						log.Warn(std::format(
-							"game adapter LUID 0x{:08X}:0x{:08X} was not found in the host; "
-							"falling back to the host default GPU",
+							"game adapter LUID 0x{:08X}:0x{:08X} was not found in the browser host; "
+							"falling back to the browser-host default GPU",
 							static_cast<std::uint32_t>(a_requestedLuid->HighPart),
 							a_requestedLuid->LowPart));
 					}
@@ -100,21 +100,21 @@
 				// A visible 1x1 child beneath a visible (offscreen) top-level owned
 				// by this STA; the child is reparented beneath the game window once
 				// Chromium is up. The bootstrap must never activate: creating a
-				// visible top-level popup in the freshly launched host can otherwise
-				// make Windows foreground the helper and background Starfield.
+				// visible top-level popup in the freshly launched browser host can otherwise
+				// make Windows foreground the browser host and background Starfield.
 				bootstrapWindow = ::CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"STATIC",
-					L"OSFUI WebView2 Host Bootstrap", WS_POPUP,
+					L"OSFUI WebView2 Browser Host Bootstrap", WS_POPUP,
 					-32000, -32000, 1, 1, nullptr, nullptr, ::GetModuleHandleW(nullptr), nullptr);
 				if (!bootstrapWindow) {
 					log.Error(std::format("bootstrap HWND creation failed ({})", ::GetLastError()));
 					return false;
 				}
 				::ShowWindow(bootstrapWindow, SW_SHOWNOACTIVATE);
-				hostWindow = ::CreateWindowExW(0, L"STATIC", L"OSFUI WebView2 Host",
+				hostWindow = ::CreateWindowExW(0, L"STATIC", L"OSFUI WebView2 Browser Host",
 					WS_CHILD | WS_VISIBLE, 0, 0, 1, 1, bootstrapWindow, nullptr,
 					::GetModuleHandleW(nullptr), nullptr);
 				if (!hostWindow) {
-					log.Error(std::format("host child HWND creation failed ({})", ::GetLastError()));
+					log.Error(std::format("browser-host child HWND creation failed ({})", ::GetLastError()));
 					return false;
 				}
 				s_hostInputApp = this;
@@ -123,7 +123,7 @@
 					hostWindow, GWLP_WNDPROC,
 					reinterpret_cast<LONG_PTR>(&HostInputWndProc)));
 				if (!hostWindowProc && ::GetLastError() != ERROR_SUCCESS) {
-					log.Error(std::format("host child HWND subclass failed ({})", ::GetLastError()));
+					log.Error(std::format("browser-host child HWND subclass failed ({})", ::GetLastError()));
 					s_hostInputApp = nullptr;
 					return false;
 				}
@@ -433,13 +433,13 @@
 			}
 
 			// View-scoped messages carry `view`; absent or unknown falls back to the
-			// active view.
+			// input-target view for compatibility with the single-view POC client.
 			View* ResolveView(const json& a_msg)
 			{
 				if (const auto it = a_msg.find("view"); it != a_msg.end() && it->is_string()) {
 					if (auto* view = FindView(it->get<std::string>())) return view;
 				}
-				return active;
+				return inputTarget;
 			}
 
 			View& CreateView(const std::string& a_id)
@@ -456,7 +456,7 @@
 				}
 				views.push_back(std::move(owned));
 				auto& view = *views.back();
-				if (!active) active = &view;
+				if (!inputTarget) inputTarget = &view;
 				RequestController(view);
 				return view;
 			}

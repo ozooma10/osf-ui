@@ -12,7 +12,7 @@
 //   state(key, fn)         named values: the handler runs IMMEDIATELY with the
 //                          current value and again on every publish().
 //
-// Seeding `makeBridge({ state: { ... } })` models the host replaying state to a
+// Seeding `makeBridge({ state: { ... } })` models the OSF UI runtime replaying state to a
 // fresh document — the reason a 2.0 view issues no reads and needs no
 // lifecycle code. Publishing afterwards models a later change push.
 
@@ -40,12 +40,9 @@ export interface FakeBridge extends Bridge {
   /**
    * Every outbound message in issue order, sends and requests alike.
    *
-   * Several platform endpoints the settings view drives — `menu.open`,
-   * `osfui.openLogFolder`, `osfui.openModPage` — are REQUEST endpoints in 2.0
-   * while the view still posts them through its fire-and-forget `sendCommand`
-   * helper. What these suites are about is WHICH endpoint was addressed and
-   * with what payload, so they assert against this view and stay honest either
-   * side of that (frontend/src) fix.
+   * Mod Settings drives both send and request endpoints. These suites
+   * assert which endpoint was addressed and with what payload, while dedicated
+   * request assertions below also verify settlement behavior.
    */
   outbound: OutboundMessage[];
   settle(index: number, value: unknown): void;
@@ -59,12 +56,12 @@ export interface MakeBridgeOptions {
   version?: string;
   available?: boolean;
   /**
-   * State the host has already replayed to this document, present before the
+   * State the OSF UI runtime has already replayed to this document, present before the
    * first paint. Keys are absolute ("osfui/settings", "osfui/views", ...).
    */
   state?: Record<string, unknown>;
   /**
-   * Never settle `ready()`. Nothing but the version badge may depend on the
+   * Never settle `ready()`. Nothing but the OSF UI release-version badge may depend on the
    * handshake — the data arrives as replayed state either way.
    */
   readyNeverResolves?: boolean;

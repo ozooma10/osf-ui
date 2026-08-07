@@ -9,22 +9,22 @@
 #include "input/GamepadNavigation.h"
 #include "input/KeyLabels.h"
 #include "render/IWebRenderer.h"
-#include "runtime/DiagnosticsModule.h"
+#include "runtime/HealthRegistry.h"
 #include "runtime/DeferredMainThreadWork.h"
 #include "runtime/DevViewReloadWorker.h"
 #include "runtime/HotkeyService.h"
 #include "runtime/LocalizationService.h"
 #include "runtime/LiveControlMap.h"
-#include "runtime/MenuController.h"
-#include "runtime/RendererHostRecovery.h"
-#include "runtime/RuntimeDiagnostics.h"
+#include "runtime/ViewPresentationController.h"
+#include "runtime/BrowserHostRecovery.h"
+#include "runtime/RuntimeHealthCoordinator.h"
 #include "runtime/MessageBridge.h"
 #include "runtime/SettingsModule.h"
 #include "runtime/UiModule.h"
 #include "runtime/ViewManager.h"
 #include "runtime/ViewLifecycle.h"
 #include "runtime/ViewPolicyStore.h"
-#include "runtime/ViewStateStore.h"
+#include "runtime/RetainedStateStore.h"
 
 namespace OSFUI
 {
@@ -55,22 +55,22 @@ namespace OSFUI
 
 		[[nodiscard]] bool IsVisible() const;
 
-		enum class MenuReq
+		enum class PresentationRequest
 		{
 			ToggleDefault,  // F10: open the default menu, or close the top one
-			Back,           // Esc / pad-B: delegate to a back-owning view, else close the top menu
-			CloseAll,       // transition/panic: clear every surface
+			Back,           // Esc / pad-B: delegate to a back-owning view, else close the active menu
+			CloseAll,       // transition/panic: close every view
 		};
-		void EnqueueMenuRequest(MenuReq a_req);
+		void EnqueuePresentationRequest(PresentationRequest a_req);
 
-		// Open one discovered surface by id on the next tick (any thread; same
+		// Open one discovered view by id on the next tick (any thread; same
 		// policy path as the plugin API's RequestMenu). Used by internal native
 		// triggers — e.g. the injected PauseMenu "mod settings" entry.
 		void EnqueueOpenView(std::string a_viewId);
 
 		// True when the overlay owns input. Read by the WndProc hook
 		// (OverlayInputHook) to decide whether to
-		// consume game input and by OnHostKey to decide whether to route keys into
+		// consume game input and by OnGameWindowKey to decide whether to route keys into
 		// the web view. Thread-safe.
 		[[nodiscard]] bool IsInputCaptured() const;
 
@@ -81,7 +81,7 @@ namespace OSFUI
 		// Drives the toggle key and, while captured, routes the key into the
 		// web view. Returns true if the caller should consume the key — while
 		// captured or for the toggle key. Runs on the window-message thread.
-		bool OnHostKey(std::uint32_t a_vkCode, ScanCode a_scanCode, bool a_down);
+		bool OnGameWindowKey(std::uint32_t a_vkCode, ScanCode a_scanCode, bool a_down);
 
 		// Called by the WndProc hook on WM_INPUTLANGCHANGE (window-message
 		// thread): flags the keycap-label map for a main-thread rebuild.
@@ -92,19 +92,19 @@ namespace OSFUI
 		// the client size to view space (aspect-matched but height-capped — a
 		// uniform scale), syncs the virtual cursor so buttons/wheel route at the
 		// same spot, and routes the move into the web view.
-		void OnHostMouseAbsolute(int a_clientX, int a_clientY, int a_clientW, int a_clientH);
+		void OnGameWindowMouseAbsolute(int a_clientX, int a_clientY, int a_clientW, int a_clientH);
 
 		// Mouse button transition; routed at the current virtual cursor.
 		// a_button uses MouseButton order (0=left, 1=right, 2=middle).
-		void OnHostMouseButton(int a_button, bool a_down);
+		void OnGameWindowMouseButton(int a_button, bool a_down);
 		// Mouse wheel; routed at the current virtual cursor. a_wheelDelta is a
 		// signed multiple of WHEEL_DELTA (120): positive = wheel forward/up.
-		void OnHostMouseWheel(int a_wheelDelta);
+		void OnGameWindowMouseWheel(int a_wheelDelta);
 
 		[[nodiscard]] const Config&  GetConfig() const { return _config; }
 
 	private:
-		friend class RuntimeDiagnostics;
+		friend class RuntimeHealthCoordinator;
 		Runtime() = default;
 
 
@@ -116,27 +116,27 @@ namespace OSFUI
 		void OnOutputResized(std::uint32_t a_width, std::uint32_t a_height);
 		void SubmitFrameIfVisible();
 
-		// Composition root for feature modules (settings, diagnostics) and the
-		// platform's own bridge commands. Ownership is through the base type —
-		// `_modules` holds `unique_ptr<IUiModule>` — while `_settings`/`_diagnostics`
+		// Composition root for feature modules (settings, health) and the
+		// platform's own bridge endpoints. Ownership is through the base type —
+		// `_modules` holds `unique_ptr<IUiModule>` — while `_settings`/`_healthRegistry`
 		// keep non-owning concrete-typed pointers the core reaches through directly.
 		// Both are real: the modules are driven polymorphically through the shared
-		// IUiModule lifecycle loops in registration order (diagnostics last), AND
+		// IUiModule lifecycle loops in registration order (health last), AND
 		// named concretely at the ~38 sites that need module-specific facts.
 		void BuildModules();
-		void RegisterPlatformCommands(MessageBridge& a_bridge);
+		void RegisterPlatformEndpoints(MessageBridge& a_bridge);
 
-		// Create and register one discovered surface with exactly the same
+		// Instantiate and add one discovered view with exactly the same
 		// renderer/console/bridge/load-state wiring at boot, RegisterView time,
-		// and first open. Idempotent for an already-live surface.
-		bool LoadSurface(const ViewManifest& a_manifest, std::string_view a_reason);
+		// and first open. Idempotent for an already-instantiated view.
+		bool InstantiateView(const ViewManifest& a_manifest, std::string_view a_reason);
 
-		// Derive the desired UI state from the MenuController and apply it to the
-		// renderer/compositor/flags (hidden, order, active view, capture,
+		// Derive the desired UI state from ViewPresentationController and apply it to the
+		// renderer/compositor/flags (hidden, order, input target, capture,
 		// visibility).
-		void ApplyMenuPolicy();
+		void ApplyViewPresentationPolicy();
 
-		// Drive real OS focus toward the interactive-menu session. HUD-only and
+		// Drive real OS focus toward the active-menu input session. HUD-only and
 		// closed states keep Starfield focused. Edge-guarded; main thread only.
 		void ReconcileNativeFocus();
 
@@ -145,28 +145,28 @@ namespace OSFUI
 		// overlay-open placement). Tick flushes it as one InjectMouseMove.
 		void QueueMouseMove();
 
-		// Queued menu requests, snapshotted at the top of Tick (F10/Esc/
+		// Queued presentation requests, snapshotted at the top of Tick (F10/Esc/
 		// transition plus the native API's RequestMenu ops) and applied after
 		// BridgeApi::PumpMainThread. The snapshot-first/apply-after split is the
-		// host half of the ABI 1.3 delivery guarantee: any SendToWeb a consumer
+		// OSF UI runtime half of the ABI 1.3 delivery guarantee: any SendToWeb a consumer
 		// issued before a RequestMenu in this snapshot is flushed to the view's
 		// queue by the pump before the open unhides the view, so the page
 		// observes the message before its first visible paint.
-		struct PendingMenuWork
+		struct PendingPresentationWork
 		{
-			std::vector<MenuReq>                     local;
+			std::vector<PresentationRequest>         local;
 			std::vector<std::string>                 openViews;  // EnqueueOpenView (internal native triggers)
-			std::vector<API::BridgeApi::MenuRequest> plugin;
+			std::vector<API::BridgeApi::ViewPresentationRequest> plugin;
 		};
-		[[nodiscard]] PendingMenuWork TakeMenuRequests();
-		void                          PrepareMenuRequests(const PendingMenuWork& a_work);
-		void                          ApplyMenuRequests(const PendingMenuWork& a_work);
+		[[nodiscard]] PendingPresentationWork TakePresentationRequests();
+		void                          PreparePresentationRequests(const PendingPresentationWork& a_work);
+		void                          ApplyPresentationRequests(const PendingPresentationWork& a_work);
 
 		// First-open handoff: keep a newly-created menu hidden until its page is
 		// usable. Fast loads open directly; slower loads temporarily show the
-		// always-warm osfui/handoff surface with the target menu's input/pause
+		// pinned osfui/handoff view with the target menu's input/pause
 		// policy. Views may opt into an explicit `view.ready` milestone.
-		bool BeginSurfaceOpen(std::string_view a_id);
+		bool BeginViewOpen(std::string_view a_id);
 		bool CancelPendingOpen();
 		void RetryPendingOpen();
 		void DrivePendingOpen();
@@ -181,32 +181,33 @@ namespace OSFUI
 		void DrainSchemaOps();
 
 		// Apply the native plugin API's queued RegisterView ids (ABI 1.5): validate
-		// each boot-discovered views/<id>/ manifest, loading only openOnStart views.
+		// each boot-discovered views/<modId>/<viewName>/ manifest, instantiating only
+		// openOnStart views.
 		// Called before the menu-request snapshot so RegisterView -> SendToWeb ->
 		// RequestMenu issued back-to-back all land in one tick. Main thread.
 		void DrainViewRegistrations();
 
-		// Open/close the engine focus menu to match the top
-		// menu's capture policy. Called every tick from the main thread so the
+		// Open/close the engine focus menu to match the active menu's capture
+		// policy. Called every tick from the main thread so the
 		// UIMessageQueue is never poked from the WndProc/input thread. See
 		// input/FocusMenu.h.
 		void ReconcileFocusMenu();
 
-		// Drive the sim pause (Main::isGameMenuPaused) toward the top menu's
+		// Drive the sim pause (Main::isGameMenuPaused) toward the active menu's
 		// pausesGame manifest policy. Unconditional (no config gate — needs no
 		// engine menu), every tick, main thread. See input/SimPause.h.
 		void ReconcileSimPause();
 
 		// Drain the engine's per-menu gamepad input
 		// (marshalled by EngineInput from worker threads) on the main thread and
-		// route it into the active web view — default mapping (D-pad/left-stick
+		// route it into the active menu's document — default mapping (D-pad/left-stick
 		// -> arrows, A -> Enter, B -> close overlay, right-stick -> scroll) plus
 		// raw `ui.gamepad` bridge events.
 		// Keyboard/mouse stay on the WndProc path.
 		void DrainEngineInput(double a_deltaSeconds);
 
 		// Engage/release the engine input-enable layer (device-agnostic control
-		// disable, incl. gamepad) to match the top menu's capture policy. No
+		// disable, incl. gamepad) to match the active menu's capture policy. No
 		// config gate. Main-thread-only. See input/ControlLayer.h.
 		void ReconcileControlLayer();
 
@@ -214,10 +215,10 @@ namespace OSFUI
 		// to the knobs core owns (e.g. cursor speed).
 		void OnSettingChanged(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value);
 
-		// Toggle vanilla conflict warnings without hiding or discarding the live
-		// read-only game catalog. Re-broadcasts settings.data because per-setting
-		// conflict annotations live there.
-		void ApplyVanillaKeyConflicts(bool a_enabled);
+		// Toggle game-binding conflict warnings without hiding or discarding the current
+		// read-only game catalog. Re-broadcasts `osfui/settings` state because per-setting
+		// conflict annotations are carried there.
+		void ApplyGameBindingConflictWarnings(bool a_enabled);
 		void InitializeDataLoadedState();
 		void InitializePostDataLoadIntegration();
 		void SyncLiveControlMapBindings();
@@ -236,7 +237,7 @@ namespace OSFUI
 		[[nodiscard]] std::string KeyLabelFor(std::string_view a_name) const;
 
 		// Key-rebind capture. `settings.captureKey` arms it; the next key press is
-		// grabbed in OnHostKey (window thread, consumed so it can't also toggle/
+		// grabbed in OnGameWindowKey (window thread, consumed so it can't also toggle/
 		// close) into _capturedScan, and DrainKeyCapture (main thread, from Tick)
 		// maps it to a name and sends `settings.captured` back to the view. The
 		// view answers with a normal settings.set, so persistence/validation/
@@ -248,7 +249,7 @@ namespace OSFUI
 		// keypress is swallowed and silently committed as the new binding.
 		void CancelArmedKeyCapture();
 
-		// Deliver hotkey fires queued by OnHostKey (window thread) to both
+		// Deliver hotkey fires queued by OnGameWindowKey (window thread) to both
 		// consumption channels on the main thread: the C ABI's SubscribeHotkey
 		// queue (invoked by BridgeApi::PumpMainThread later the same tick) and
 		// the settings module's `ui.hotkey` web push.
@@ -259,15 +260,16 @@ namespace OSFUI
 		void OnViewLoad(std::string_view a_viewId, bool a_failed, std::string_view a_url,
 			std::string_view a_description, int a_errorCode);
 
-		// Is this view ready to be shown? A manifest that declares readySignal is
-		// ready only once the view signalled it (osfui.markReady); everything else
-		// is ready when its load finished. a_state is the caller's already-resolved
+		// Has this view reached its reveal gate? A manifest that declares readySignal
+		// reaches it only once the document signals content readiness (osfui.markReady);
+		// everything else reaches it when main-frame loading finishes. a_state is the caller's already-resolved
 		// GetViewLoadState, so this does not re-look it up.
-		[[nodiscard]] bool IsViewReady(std::string_view a_id, const ViewManifest& a_manifest, ViewLoadState a_state) const;
+		[[nodiscard]] bool IsViewRevealReady(std::string_view a_id, const ViewManifest& a_manifest, ViewLoadState a_state) const;
 
-		// Reload one view's URL in place: mark it Loading, drop its ready state,
-		// LoadView, then restore the output-matched size. The shared core of
-		// crash-recovery, dev-reload, and pending-open retry. The renderer must
+		// Reload one view's URL in place: mark it Loading, clear its content-ready state,
+		// IWebRenderer::CreateOrNavigateView, then restore the output-matched size.
+		// The shared core of crash-recovery, dev-reload, and pending-open retry.
+		// The renderer must
 		// exist — every caller guards _renderer first.
 		void ReloadViewInPlace(const std::string& a_id, const ViewManifest& a_manifest);
 
@@ -275,59 +277,59 @@ namespace OSFUI
 		// the game thread.
 		void DriveRecovery();
 
-		// Suspend hidden views after a short grace and reclaim non-warm views after
+		// Suspend hidden views after a short grace and reclaim non-pinned views after
 		// a much longer idle period (or past the hidden-view cap). The pure policy
-		// lives in ViewLifecycle; this method applies due actions to live
+		// lives in ViewLifecycle; this method applies due actions to instantiated
 		// Runtime/renderer state.
 		void DriveViewLifecycle();
 
 		// Player-configurable automatic start is reserved for catalog-visible
-		// HUDs: hub:false surfaces cannot silently run in the background, and
-		// debugOnly surfaces qualify only while devMode is on. Pinned core
+		// HUDs: catalog-hidden (`hub:false`) views cannot silently run in the background, and
+		// debugOnly views qualify only while developer mode is on. Pinned core
 		// views are resident anyway and never configurable.
 		[[nodiscard]] bool HudAutoStartEligible(const ViewManifest& a_manifest) const;
-		enum class SurfaceTeardownReason
+		enum class ViewTeardownReason
 		{
 			LoadExhausted,
 			IdleReclaim,
 		};
-		void TearDownSurface(const std::string& a_id, SurfaceTeardownReason a_reason);
+		void TearDownView(const std::string& a_id, ViewTeardownReason a_reason);
 
-		// DevTools request raised by F12 on the window/host thread. Resolve the
-		// top open menu and talk to the renderer from Tick on the game thread.
+		// DevTools request raised by F12 on the window/browser-host thread. Resolve the
+		// active menu and talk to the renderer from Tick on the game thread.
 		void DriveDevTools();
 
-		// Publish loaded views to the worker and drain completed mirror refreshes.
+		// Publish instantiated views to the worker and drain completed mirror refreshes.
 		// Navigation remains on the game thread.
 		void PumpDevViewReload();
-		// The `views.data` catalog (bridge 0.2): one entry per registered surface
-		// with its manifest metadata + live open/focus/load state. Read-only
-		// snapshot; a view torn down by crash-recovery drops out (unregistered).
+		// The `osfui/views` catalog state: one entry per discovered view
+		// with its manifest metadata + current open/active-menu/main-frame-load state. Read-only
+		// snapshot; a view torn down by crash recovery remains discovered but becomes uninstantiated.
 		[[nodiscard]] nlohmann::json BuildViewsData() const;
 
-		// A terminal renderer-instance failure closes every surface and immediately
-		// releases all menu-owned engine policy. Host-connection failures schedule
+		// A terminal renderer-instance failure closes every view and immediately
+		// releases all menu-owned engine policy. Browser-host connection failures schedule
 		// bounded recovery; security/runtime repair failures remain disabled.
 		void OnRendererFailure(const IWebRenderer::FailureEvent& a_event);
-		// Deferred until the failure callback has returned; replays every registered view.
-		void DriveRendererHostRecovery();
+		// Deferred until the failure callback has returned; recreates every instantiated view.
+		void DriveBrowserHostRecovery();
 		void RehydrateRendererAfterRestart();
 
 		// Re-publish the `osfui/views` state key, but only when the catalog
 		// changed — callers invoke this unconditionally after any potential
-		// state change (ApplyMenuPolicy, OnViewLoad). Main thread only.
+		// state change (ApplyViewPresentationPolicy, OnViewLoad). Main thread only.
 		void BroadcastViewsData();
 
-		// Every live surface of one mod ("<mod>/..."), the delivery target set
+		// Every instantiated view of one mod ("<modId>/..."), the delivery target set
 		// for that mod's state and events. Derived fresh each time, so nothing
 		// can go stale.
-		[[nodiscard]] std::unordered_set<std::string> LiveViewsOfMod(std::string_view a_mod) const;
+		[[nodiscard]] std::unordered_set<std::string> InstantiatedViewsOfMod(std::string_view a_mod) const;
 
-		// Publish one retained value to the mod's live views.
+		// Publish one retained value to the mod's instantiated views.
 		void PublishModState(std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value);
 
 		// Publish one platform state key (settings/views/diagnostics/i18n plus the
-		// live keybindings/input-context documents) to one greeted view, or to every greeted view when a_viewId is
+		// current keybindings/engine-input-context state documents) to one greeted view, or to every greeted view when a_viewId is
 		// empty. The i18n value is computed per view, since a view's catalog is
 		// its owning mod's.
 		void PublishPlatformState(std::string_view a_key, std::string_view a_viewId = {});
@@ -337,10 +339,10 @@ namespace OSFUI
 		// value it is entitled to — platform keys plus its owning mod's.
 		void OnViewGreeted(std::string_view a_viewId);
 
-		// MessageBridge surface hook: host-detected protocol misuse from a view.
-		// Routes to that view's own console in devMode and raises the
-		// `view.protocol-misuse` diagnostic once it repeats.
-		void OnProtocolMisuse(std::string_view a_viewId, std::string_view a_code,
+		// MessageBridge protocol-fault sink: bridge/API-detected faults for a view.
+		// Routes to that view's own console in developer mode and raises the
+		// `view.protocol-misuse` health issue once it repeats.
+		void OnProtocolFault(std::string_view a_viewId, std::string_view a_code,
 			std::string_view a_message, const nlohmann::json& a_detail, bool a_viewFault);
 
 		Config                        _config;
@@ -351,9 +353,9 @@ namespace OSFUI
 		std::unique_ptr<MessageBridge>          _bridge;
 		std::vector<std::unique_ptr<IUiModule>> _modules;
 		SettingsModule*                         _settings{ nullptr };  // owned by _modules; core reads schema facts through it
-		DiagnosticsModule*                      _diagnostics{ nullptr };  // owned by _modules
-		RuntimeDiagnostics                      _runtimeDiagnostics{ *this };
-		// Live key-typed bindings -> owner dispatch. Fed by OnHostKey (window
+		HealthRegistry*                      _healthRegistry{ nullptr };  // owned by _modules
+		RuntimeHealthCoordinator                      _runtimeHealth{ *this };
+		// Live key-typed bindings -> owner dispatch. Fed by OnGameWindowKey (window
 		// thread), rebuilt from the store's listeners and drained in Tick (main
 		// thread); wired in BuildModules.
 		HotkeyService                           _hotkeys;
@@ -365,13 +367,13 @@ namespace OSFUI
 
 		std::unique_ptr<DevViewReloadWorker> _devViewReload;
 
-		// Registered surfaces (menus/HUDs) + open state. Mutated only on the main
+		// Instantiated views (menus/HUDs) + open state. Mutated only on the main
 		// thread (Tick / bridge handlers).
-		MenuController                _menus;
+		ViewPresentationController    _presentation;
 		ViewLifecycle                 _viewLifecycle;
 		ViewPolicyStore               _viewPolicy;  // player HUD auto-start choices; main thread
-		std::unordered_set<std::string> _warmViews;
-		struct PendingSurfaceOpen
+		std::unordered_set<std::string> _pinnedViews;
+		struct PendingViewOpen
 		{
 			std::string target;
 			double      startedAt{ 0.0 };
@@ -381,29 +383,29 @@ namespace OSFUI
 			bool        error{ false };
 			bool        retryRequested{ false };
 		};
-		std::optional<PendingSurfaceOpen> _pendingSurfaceOpen;
+		std::optional<PendingViewOpen> _pendingViewOpen;
 		// Explicit readiness is page-lifetime state. Cleared before every
-		// navigation and set only by that page's `view.ready` command.
-		std::unordered_set<std::string> _readyViews;
+		// navigation and set only by that page's `view.ready` send endpoint.
+		std::unordered_set<std::string> _contentReadyViews;
 
 		// Views holding the gamepad raw-passthrough grant (osfui.gamepadRaw).
 		// Sticky per view: survives overlay hide/show, cleared on page (re)load
-		// and view destroy. DrainEngineInput applies the active view's flag each
+		// and view destroy. DrainEngineInput applies the active menu's flag each
 		// tick. Main thread only.
 		std::unordered_set<std::string> _gamepadRawViews;
 		// Views owning the back action (osfui.handleBack): while such a view is
 		// the active menu, Esc / pad-B are delegated to the page as a synthetic
-		// Escape instead of closing the top menu (the page navigates, peels an
+		// Escape instead of closing the active menu (the page navigates, peels an
 		// inner panel, or sends `close` itself). Same stickiness/cleanup rules
 		// as _gamepadRawViews. Main thread only.
 		std::unordered_set<std::string> _backOwnerViews;
 		// Last value pushed to IWebRenderer::SetNativeFocus; the false
 		// side posts a game-focus restore, so sends are edge-only. Main thread.
 		bool _nativeFocusGranted{ false };
-		// Menu requests raised off the main thread, drained in Tick. _reqMutex is
+		// Presentation requests raised off the main thread, drained in Tick. _reqMutex is
 		// a strict leaf lock: snapshot under it, release, then act.
 		std::mutex                    _reqMutex;
-		std::vector<MenuReq>          _reqs;
+		std::vector<PresentationRequest> _presentationRequests;
 		std::vector<std::string>      _openViewReqs;  // EnqueueOpenView, same lock/drain discipline
 
 		// Virtual cursor in view-pixel space (the OS cursor is hidden during
@@ -415,7 +417,7 @@ namespace OSFUI
 		std::atomic<float>            _cursorY{ 0.0f };
 		std::atomic<std::uint32_t>    _viewWidth{ kDefaultViewWidth };
 		std::atomic<std::uint32_t>    _viewHeight{ kDefaultViewHeight };
-		// Coalesced mouse-move handoff (QueueMouseMove -> Tick). OnHostMouse*
+		// Coalesced mouse-move handoff (QueueMouseMove -> Tick). OnGameWindowMouse*
 		// fire per raw-input packet on the window thread; a pipe write per
 		// packet made a 500-1000 Hz mouse cost hundreds of JSON encode/parse/
 		// SendMouseInput round-trips per second while the page only samples at
@@ -427,7 +429,7 @@ namespace OSFUI
 		static constexpr std::uint64_t kNoPendingMouseMove = ~0ull;
 		std::atomic<std::uint64_t>     _pendingMouseMove{ kNoPendingMouseMove };
 		// Coalescing telemetry: packets recorded (any thread) vs. moves sent
-		// (main thread); logged and reset every few seconds in devMode.
+		// (main thread); logged and reset every few seconds in developer mode.
 		std::atomic<std::uint32_t>     _mouseMovePackets{ 0 };
 		std::uint32_t                  _mouseMoveSends{ 0 };
 		double                         _nextMouseStatsLog{ 0.0 };
@@ -441,8 +443,8 @@ namespace OSFUI
 		// remain usable.
 		bool                          _captureIntegrationAvailable{ false };
 
-		// _captureArmed is set on the main thread (the settings.captureKey
-		// command) and read on the window thread (OnHostKey); _capturedScan is
+		// _captureArmed is set on the main thread (the settings.captureKey send
+		// endpoint) and read on the window thread (OnGameWindowKey); _capturedScan is
 		// written on the window thread and drained on the main thread
 		// (DrainKeyCapture) — both atomic. _captureView/_captureMod/_captureKey
 		// (which view + setting to answer) and _captureUpScan (swallow the
@@ -472,12 +474,12 @@ namespace OSFUI
 		std::atomic_bool              _overlayDrawAvailable{ false };
 		bool                          _rendererFailed{ false };  // opens fail closed while recovery is incomplete
 		bool                          _rendererFailureLatched{ false };  // first failure per helper wins
-		RendererHostRecovery          _rendererHostRecovery;
+		BrowserHostRecovery           _browserHostRecovery;
 		bool                          _initialized{ false };
 
 		// Deferred compositor reveal (main thread only). The UI-seam hook
 		// compositor keeps drawing its last cached texture while visible, so on
-		// the closed->open edge ApplyMenuPolicy arms this instead of calling
+		// the closed->open edge ApplyViewPresentationPolicy arms this instead of calling
 		// SetVisible(true): SubmitFrameIfVisible holds the reveal until the
 		// renderer hands over a frame with a new serial — one produced after the
 		// open, i.e. after every queued message was delivered (ABI 1.3
@@ -485,7 +487,7 @@ namespace OSFUI
 		// has reported the output size and the renderer has painted at that size.
 		// Normally costs only a couple of frames. A deadline closes the menu and
 		// releases its pause/input policy if the renderer never produces a frame
-		// for this presentation, so a transparent or stalled host cannot trap the
+		// for this presentation, so a transparent or stalled browser host cannot trap the
 		// player in an invisible modal state. The deadline accumulates per-tick
 		// with a clamped delta rather than reading a wall clock: Tick stalls
 		// wholesale when the game loses focus (engine pause) or hitches, and that
@@ -496,11 +498,11 @@ namespace OSFUI
 		std::chrono::steady_clock::time_point _revealLastPolledAt{};
 		std::uint64_t _lastSubmittedFrame{ 0 };
 
-		// The view shown as the overlay's focused menu — the last one sent
+		// The view shown as the overlay's active menu — the last one sent
 		// ui.visibility{visible:true}. Any change (overlay close, menu.open view
 		// switch) signals {visible:false} to this view first; by overlay close
 		// ActiveMenu() is already empty, so the name must be tracked. Main-thread
-		// only (ApplyMenuPolicy).
+		// only (ApplyViewPresentationPolicy).
 		std::string                   _lastShownView;
 
 		// Last focus-menu open state driven (main-thread only, reconciled in Tick
@@ -535,7 +537,7 @@ namespace OSFUI
 		std::unordered_map<std::string, ViewLoadState> _viewLoadState;
 
 		// URL crash-recovery. A failed main-frame load schedules bounded reloads
-		// with backoff; exhaustion destroys the view and unregisters its surface
+		// with backoff; exhaustion destroys and removes the instantiated view
 		// so nothing can reopen a dead view. attempts counts reloads already
 		// fired; a successful load clears the entry. Game-thread only.
 		struct RecoveryState
@@ -546,20 +548,20 @@ namespace OSFUI
 		};
 		std::unordered_map<std::string, RecoveryState> _recovery;
 
-		// Retained backend state, shared by Papyrus SetView* and the native ABI's
+		// Retained mod state, shared by Papyrus SetView* and the native ABI's
 		// SetViewState. Replayed to every document that greets the bridge, which
-		// is what makes a backend-fed view survive F5 with no lifecycle code.
-		ViewStateStore                  _viewState;
-		// The last osfui/views value published (dedupe, so every ApplyMenuPolicy
+		// is what makes a mod-backend-fed view survive F5 with no lifecycle code.
+		RetainedStateStore              _retainedState;
+		// The last osfui/views value published (dedupe, so every ApplyViewPresentationPolicy
 		// doesn't re-send an unchanged catalog). There is no subscriber set any
 		// more: platform state goes to every greeted view.
 		std::string                     _lastViewsData;
-		// Latest handoff surface state, republished on that view's greeting so an
+		// Latest handoff-view state, republished on that view's greeting so an
 		// F5 mid-handoff does not strand it on its cold pre-state look.
 		nlohmann::json                  _handoffState;
-		// Per-view count of host-detected protocol misuse; crossing the threshold
-		// raises one `view.protocol-misuse` health card.
-		std::unordered_map<std::string, std::uint32_t> _protocolMisuse;
+		// Per-view count of view-caused protocol faults; crossing the threshold
+		// raises one `view.protocol-misuse` health issue.
+		std::unordered_map<std::string, std::uint32_t> _viewProtocolFaultCounts;
 		double                          _nextLocalizationScan{ 0.0 };
 		// Monotonic-ish plugin uptime accumulated from Tick's clamped dt; used
 		// only to schedule recovery backoff (stalls with the game, which is the

@@ -18,24 +18,24 @@ namespace OSFUI
 	{
 		constexpr std::size_t kMaxStringLen = 256;
 		constexpr std::size_t kMaxModIdLen = Ids::kMaxModIdLen;
-		constexpr std::size_t kMaxInputContextIdLen = 64;
+		constexpr std::size_t kMaxHotkeyContextIdLength = 64;
 
 		// Reserved meta key: the schema `version` the file was last written under
-		// (mcm-design.md §11). `$`-prefixed so it can never collide with a setting
+		// `$`-prefixed so it can never collide with a setting
 		// key, and is ignored by builds that predate versioning.
 		constexpr const char* kSchemaVersionKey = "$schemaVersion";
 
 		// Values-file encoding version, distinct from the mod's schema `version`.
-		// Stamped on every rewrite; a newer host's higher stamp round-trips
+		// Stamped on every rewrite; a newer OSF UI runtime's higher stamp round-trips
 		// (Mod::formatVersion keeps the max).
 		constexpr const char*  kFormatVersionKey = "$formatVersion";
 		// v2: key-typed values re-anchored from VK-based names to physical
 		// scan-code names (the LegacyKeyMigrator pass in LoadMod).
 		constexpr std::int64_t kValuesFormatVersion = 2;
 
-		bool IsValidInputContextId(std::string_view a_id)
+		bool IsValidHotkeyContextId(std::string_view a_id)
 		{
-			if (a_id.empty() || a_id.size() > kMaxInputContextIdLen) {
+			if (a_id.empty() || a_id.size() > kMaxHotkeyContextIdLength) {
 				return false;
 			}
 			const auto isAlnum = [](const char c) {
@@ -357,7 +357,7 @@ namespace OSFUI
 		if (!schema || !schema->is_object()) {
 			const auto why = schema ? std::string("not a JSON object") : parseError;
 			REX::WARN("SettingsStore: [content] hot-reload skipped — {}: {}", a_path.string(), why);
-			// Record (replace-or-add) and re-broadcast so an open Mods surface
+			// Record (replace-or-add) and re-broadcast so an open Mod Settings view
 			// shows the parse error now, not on the next menu open. No generation
 			// bump: the registry shape is unchanged.
 			RecordLoadError("schema-parse", a_path.filename().string(), "", why);
@@ -365,7 +365,7 @@ namespace OSFUI
 			return false;
 		}
 		// A fixed file drops its banner entry: a successful AddSchema below
-		// re-broadcasts; if it is refused (a runtime registration outranks the
+		// re-broadcasts; if it is refused (a native registration outranks the
 		// file) the stale entry is still gone on the next fetch.
 		EraseLoadErrorsForFile(a_path.filename().string());
 		return AddSchema(std::move(*schema), Source::kDropIn, a_path.stem().string(),
@@ -380,7 +380,7 @@ namespace OSFUI
 		}
 		auto id = Json::GetString(a_schema, "id", a_idHint);
 		// Drop-ins: the id must equal the filename stem (documented contract,
-		// mcm-design.md §8.1) — warn and override, so a file can't hijack another
+		// precedence policy) — warn and override, so a file can't hijack another
 		// mod's id and MO2's per-file VFS priority stays the arbiter of who owns
 		// settings/<id>.json.
 		if (a_source == Source::kDropIn && !a_idHint.empty() && id != a_idHint) {
@@ -393,7 +393,7 @@ namespace OSFUI
 			return false;
 		}
 		// Unknown top-level keys are the normal compatible case (a newer schema on
-		// an older host), so devMode only.
+		// an older OSF UI runtime), so developer mode only.
 		if (Log::DevMode()) {
 			Json::ReportUnknownKeys(a_schema,
 				{ "id", "title", "description", "version", "targetVersion", "accent",
@@ -401,7 +401,7 @@ namespace OSFUI
 				"SettingsStore: schema '" + id + "'", /*a_warn=*/false);
 		}
 
-		// Source precedence on id collision (mcm-design.md §14.1): a runtime (DLL)
+		// Source precedence on id collision: a runtime (DLL)
 		// registration replaces a drop-in file (so upgrading tiers needs no
 		// hand-deleted JSON) and its own earlier registration (dev iteration).
 		// A drop-in replaces nothing; duplicate drop-in ids are first-wins, with
@@ -411,9 +411,9 @@ namespace OSFUI
 			if (a_source == Source::kDropIn &&
 				!(a_dropInReplace && existing->source == Source::kDropIn)) {
 				// First-wins: log both files and record the loser so Data() can
-				// surface the conflict.
+				// report the conflict.
 				const auto kept = existing->source == Source::kNative
-				                      ? std::string("the runtime registration")
+					                      ? std::string("the native registration")
 				                      : (existing->schemaPath.empty() ? std::string("the first-loaded schema")
 				                                                      : existing->schemaPath.string());
 				REX::ERROR("SettingsStore: [content] duplicate schema id '{}' — keeping {}, ignoring {}",
@@ -432,7 +432,7 @@ namespace OSFUI
 			if (a_source == Source::kDropIn) {
 				REX::DEBUG("SettingsStore: hot-reloading drop-in schema '{}'", id);
 			} else {
-				REX::WARN("SettingsStore: [content] runtime registration replaces {} schema for id '{}'",
+				REX::WARN("SettingsStore: [content] native registration replaces {} schema for id '{}'",
 					existing->source == Source::kDropIn ? "drop-in" : "earlier runtime", id);
 			}
 			if (existing->dirty) {
@@ -442,7 +442,7 @@ namespace OSFUI
 			}
 		}
 
-		WarnInputContexts(a_schema, id);
+		WarnHotkeyContexts(a_schema, id);
 
 		Mod mod;
 		mod.id = std::move(id);
@@ -471,17 +471,17 @@ namespace OSFUI
 			mod.shadowed = std::move(existing->shadowed);  // conflicts outlive a replacement/hot-reload
 		}
 
-		// Advisory host-version target, same field and semantics as a view
+		// Advisory OSF UI release target, same field and semantics as a view
 		// manifest's. Never gates loading: a schema authored for a newer OSF UI
 		// loads best-effort (unknown types serve read-only defaults, unknown keys
-		// are preserved). Carried in settings.data for the "needs update" badge.
+		// are preserved). Carried in `osfui/settings` state for the "needs update" badge.
 		if (auto target = Json::GetString(mod.schema, "targetVersion", ""); !target.empty()) {
 			std::array<std::uint32_t, 3> targetParts{};
 			if (ParseDottedVersion(target, targetParts)) {
 				mod.targetVersion = std::move(target);
-				if (kPluginVersionParts < targetParts) {
+				if (kOsfuiReleaseVersionParts < targetParts) {
 					REX::WARN("SettingsStore: [content] '{}' targets OSF UI {} but this is {} — update OSF UI",
-						mod.id, mod.targetVersion, kPluginVersion);
+						mod.id, mod.targetVersion, kOsfuiReleaseVersion);
 				}
 			} else {
 				REX::WARN("SettingsStore: [content] '{}' targetVersion '{}' is not '<major>[.<minor>[.<patch>]]' — ignored",
@@ -491,9 +491,9 @@ namespace OSFUI
 
 		// Persisted values over schema defaults; a replacement rebuilds from the
 		// same file, so added/removed/retyped keys resolve like a fresh load.
-		// A corrupt file is never silently discarded (mcm-design.md §14.2: under
+		// A corrupt file is never silently discarded: under
 		// sparse persistence that is indistinguishable from "user reset
-		// everything") — quarantine to <id>.json.bad, serve defaults, and surface
+		// everything") — quarantine to <id>.json.bad, serve defaults, and report
 		// the reason in Data()'s loadErrors.
 		EraseLoadErrorsForMod(mod.id);  // a clean overlay clears a stale record
 		nlohmann::json saved = nlohmann::json::object();
@@ -519,7 +519,7 @@ namespace OSFUI
 			}
 		}
 
-		// Version bookkeeping (mcm-design.md §11): the schema's `version`
+		// Version bookkeeping: the schema's `version`
 		// (default 0) is stamped as `$schemaVersion`. `$`-prefixed keys are
 		// invisible to the schema walk below (no setting may be named `$…`), so
 		// older builds ignore it. The log line is triage only; alias adoption
@@ -531,7 +531,7 @@ namespace OSFUI
 			}
 		}
 		// Encoding-format stamp, written on every rewrite. A file from a newer
-		// OSF UI keeps its higher stamp, so round-tripping through this host never
+		// OSF UI keeps its higher stamp, so round-tripping through this runtime never
 		// downgrades it.
 		//
 		// Format v1 -> v2 is the physical re-anchor of key names: pre-2.x names
@@ -540,7 +540,7 @@ namespace OSFUI
 		// versioning are coeval, so any unstamped file predates v2. With the
 		// migrator wired, every key-typed saved value is re-anchored under the
 		// CURRENT layout and the file is rewritten eagerly below; without it
-		// (host tests, misconfigured composition) the file loads untouched and
+		// (native tests, misconfigured composition) the file loads untouched and
 		// keeps its v1 stamp so a later session still migrates it.
 		// A missing (or quarantined) values file has nothing to migrate:
 		// fileFormat only means something for a file that actually loaded.
@@ -605,8 +605,8 @@ namespace OSFUI
 
 			// Unknown-typed setting: serve the schema default read-only; the
 			// saved value is preserved verbatim below, never served or wiped.
-			// Its aliases stay un-accounted on purpose — this host can't adopt
-			// them, and dropping them would strand a rename for the host that can.
+			// Its aliases stay un-accounted on purpose — this runtime can't adopt
+			// them, and dropping them would strand a rename for the runtime that can.
 			if (!IsKnownType(Json::GetString(a_setting, "type", ""))) {
 				if (const auto it = saved.find(key); it != saved.end()) {
 					mod.preserved[key] = *it;
@@ -624,7 +624,7 @@ namespace OSFUI
 					return false;
 				}
 			}
-			// Renamed key (mcm-design.md §11): the current key is absent or no
+			// Renamed key: the current key is absent or no
 			// longer validates, so adopt the first declared `alias` in the file
 			// that does. The old key is not schema-declared, so SparseValues drops
 			// it and the next write lands under the new name.
@@ -655,11 +655,11 @@ namespace OSFUI
 			mod.preserved[key] = value;
 		}
 		if (!mod.preserved.empty() && Log::DevMode()) {
-			REX::DEBUG("SettingsStore: '{}' preserving {} entr{} this host can't understand (kept verbatim, not served)",
+			REX::DEBUG("SettingsStore: '{}' preserving {} entr{} this OSF UI runtime can't understand (kept verbatim, not served)",
 				mod.id, mod.preserved.size(), mod.preserved.size() == 1 ? "y" : "ies");
 		}
 
-		// Prune-to-default on load (mcm-design.md §8.1 + §11): a file differing
+		// Prune-to-default on load: a file differing
 		// from its sparse form — full legacy file, saved value now equal to an
 		// updated default, adopted alias, clamping, stale `$schemaVersion` —
 		// schedules a rewrite so those knobs track upstream defaults again.
@@ -691,7 +691,7 @@ namespace OSFUI
 
 		if (a_notify) {
 			// Replay so consumers that subscribed before this mod registered
-			// sync without a separate read (mcm-design.md §10), then announce
+			// sync without a separate read, then announce
 			// the shape change so the web layer re-broadcasts the registry.
 			NotifyMod(existing ? existing->id : _mods.back().id);
 			NotifyRegistryChanged();
@@ -854,11 +854,11 @@ namespace OSFUI
 		return out;
 	}
 
-	SettingsStore::InputContext SettingsStore::ResolveInputContext(const Mod& a_mod, const nlohmann::json& a_setting) const
+	SettingsStore::HotkeyContext SettingsStore::ResolveHotkeyContext(const Mod& a_mod, const nlohmann::json& a_setting) const
 	{
-		InputContext fallback;
+		HotkeyContext fallback;
 		const auto ref = Json::GetString(a_setting, "inputContext", "");
-		if (ref.empty() || ref == "gameplay" || !IsValidInputContextId(ref)) {
+		if (ref.empty() || ref == "gameplay" || !IsValidHotkeyContextId(ref)) {
 			return fallback;
 		}
 
@@ -872,7 +872,7 @@ namespace OSFUI
 				continue;
 			}
 			const auto id = Json::GetString(context, "id", "");
-			if (id == "gameplay" || !IsValidInputContextId(id) || !seen.insert(id).second) {
+			if (id == "gameplay" || !IsValidHotkeyContextId(id) || !seen.insert(id).second) {
 				continue;
 			}
 			if (id == ref) {
@@ -883,7 +883,7 @@ namespace OSFUI
 				if (_textResolver) {
 					label = _textResolver(a_mod.id, "inputContexts." + id + ".label", label);
 				}
-				InputContext resolved;
+				HotkeyContext resolved;
 				resolved.id = id;
 				resolved.label = std::move(label);
 				resolved.blocksGameplay = Json::GetBool(context, "blocksGameplay", false);
@@ -897,14 +897,14 @@ namespace OSFUI
 		return fallback;
 	}
 
-	void SettingsStore::WarnInputContexts(const nlohmann::json& a_schema, std::string_view a_modId)
+	void SettingsStore::WarnHotkeyContexts(const nlohmann::json& a_schema, std::string_view a_modId)
 	{
 		const auto contexts = a_schema.find("inputContexts");
 		if (contexts == a_schema.end()) {
 			return;
 		}
 		if (!contexts->is_array()) {
-			REX::WARN("SettingsStore: [content] '{}.inputContexts' must be an array -- key contexts fall back to gameplay", a_modId);
+			REX::WARN("SettingsStore: [content] '{}.inputContexts' must be an array -- hotkey contexts fall back to gameplay", a_modId);
 			return;
 		}
 		std::unordered_set<std::string> seen;
@@ -914,12 +914,12 @@ namespace OSFUI
 				REX::WARN("SettingsStore: [content] '{}.inputContexts' cannot redefine reserved context 'gameplay' -- ignoring it", a_modId);
 				continue;
 			}
-			if (!IsValidInputContextId(id)) {
-				REX::WARN("SettingsStore: [content] '{}' has an invalid input context id -- ignoring it", a_modId);
+			if (!IsValidHotkeyContextId(id)) {
+				REX::WARN("SettingsStore: [content] '{}' has an invalid hotkey-context id -- ignoring it", a_modId);
 				continue;
 			}
 			if (!seen.insert(id).second) {
-				REX::WARN("SettingsStore: [content] '{}' defines input context '{}' more than once -- keeping the first", a_modId, id);
+				REX::WARN("SettingsStore: [content] '{}' defines hotkey context '{}' more than once -- keeping the first", a_modId, id);
 				continue;
 			}
 			if (context.contains("gameplayModes") && !ParseGameplayModes(context)) {
@@ -934,7 +934,7 @@ namespace OSFUI
 		const auto* mod = FindMod(a_modId);
 		const auto* setting = mod ? FindSetting(*mod, a_key) : nullptr;
 		if (!mod || !setting || Json::GetString(*setting, "type", "") != "key") return {};
-		const auto context = ResolveInputContext(*mod, *setting);
+		const auto context = ResolveHotkeyContext(*mod, *setting);
 		return { context.modeScoped, context.modes };
 	}
 
@@ -945,10 +945,10 @@ namespace OSFUI
 			for (const auto& setting : KeySettings()) {
 				if (const auto code = _keyResolver(setting.name); code != 0) {
 					const auto* mod = FindMod(setting.modId);
-					InputContext context;
+					HotkeyContext context;
 					if (mod) {
 						if (const auto* authored = FindSetting(*mod, setting.key)) {
-							context = ResolveInputContext(*mod, *authored);
+							context = ResolveHotkeyContext(*mod, *authored);
 						}
 					}
 					auto title = mod ? Json::GetString(mod->schema, "title", mod->id) : setting.modId;
@@ -964,22 +964,22 @@ namespace OSFUI
 					bound.push_back(std::move(entry));
 				}
 			}
-			// The game's own bindings (mcm-design.md §9): pseudo-entries under
+			// The game's own bindings: pseudo-entries under
 			// the reserved id "@game". Gated on the same resolver as mod
 			// settings — without one there is no conflict grouping at all.
-			for (const auto& vanilla : _vanillaKeys) {
-				if (_vanillaWarningsEnabled && vanilla.code != 0) {
+			for (const auto& gameBinding : _gameBindings) {
+				if (_gameBindingWarningsEnabled && gameBinding.code != 0) {
 					BoundKey entry;
 					entry.modId = "@game";
-					entry.key = vanilla.event;
-					entry.title = vanilla.title;
-					entry.code = vanilla.code;
-					entry.vanilla = true;
-					entry.vanillaContext = vanilla.context;
-					entry.slot = vanilla.slot;
-					entry.classification = vanilla.classification;
-					entry.modes = vanilla.definiteModes;
-					entry.possibleModes = vanilla.possibleModes;
+					entry.key = gameBinding.event;
+					entry.title = gameBinding.title;
+					entry.code = gameBinding.code;
+					entry.gameBinding = true;
+					entry.engineInputContextName = gameBinding.engineInputContextName;
+					entry.slot = gameBinding.slot;
+					entry.classification = gameBinding.classification;
+					entry.modes = gameBinding.definiteModes;
+					entry.possibleModes = gameBinding.possibleModes;
 					bound.push_back(std::move(entry));
 				}
 			}
@@ -988,12 +988,12 @@ namespace OSFUI
 	}
 
 	nlohmann::json SettingsStore::CollectConflicts(const std::vector<BoundKey>& a_bound, std::uint32_t a_code,
-		std::string_view a_excludeMod, std::string_view a_excludeKey, const InputContext& a_selfContext)
+		std::string_view a_excludeMod, std::string_view a_excludeKey, const HotkeyContext& a_selfContext)
 	{
 		nlohmann::json conflicts = nlohmann::json::array();
 		for (const auto& other : a_bound) {
 			if (other.code != a_code || (other.modId == a_excludeMod && other.key == a_excludeKey)) continue;
-			if (!other.vanilla) {
+			if (!other.gameBinding) {
 				if (!ModesOverlap(a_selfContext.modes, other.modes)) continue;
 				conflicts.push_back({
 					{ "mod", other.modId },
@@ -1003,14 +1003,16 @@ namespace OSFUI
 				continue;
 			}
 			if (a_selfContext.blocksGameplay) continue;
-			const auto vanillaModes = static_cast<GameplayModeMask>(other.modes | other.possibleModes);
-			if (!ModesOverlap(a_selfContext.modes, vanillaModes)) continue;
+			const auto gameBindingModes = static_cast<GameplayModeMask>(other.modes | other.possibleModes);
+			if (!ModesOverlap(a_selfContext.modes, gameBindingModes)) continue;
 			if (other.classification != ControlMapPolicy::Classification::Core &&
 				other.classification != ControlMapPolicy::Classification::Special) continue;
+			// `vanillaContext` is a frozen Settings data key. It carries the
+			// Starfield engine input-context name for this game binding.
 			conflicts.push_back({
 				{ "mod", "@game" }, { "key", other.key }, { "title", other.title },
 				{ "severity", other.classification == ControlMapPolicy::Classification::Core ? "conflict" : "possible" },
-				{ "vanillaContext", other.vanillaContext }, { "slot", other.slot },
+				{ "vanillaContext", other.engineInputContextName }, { "slot", other.slot },
 			});
 		}
 		return conflicts;
@@ -1021,10 +1023,10 @@ namespace OSFUI
 		if (a_code == 0) {
 			return nlohmann::json::array();  // unresolvable: never conflicts (mirrors Data())
 		}
-		InputContext context;
+		HotkeyContext context;
 		if (const auto* mod = FindMod(a_excludeMod)) {
 			if (const auto* setting = FindSetting(*mod, a_excludeKey)) {
-				context = ResolveInputContext(*mod, *setting);
+				context = ResolveHotkeyContext(*mod, *setting);
 			}
 		}
 		return CollectConflicts(ResolveBoundKeys(), a_code, a_excludeMod, a_excludeKey, context);
@@ -1047,7 +1049,7 @@ namespace OSFUI
 		if (_dataCache) {
 			return *_dataCache;
 		}
-		// Informational key-conflict grouping (mcm-design.md §9): resolve every
+		// Informational key-conflict grouping: resolve every
 		// key-typed setting's value once, so the annotation walk below is a lookup
 		// (a re-resolve would warn once per setting per pass on an unresolvable
 		// name). Non-blocking: the renderer badges both sides, the bind stands.
@@ -1068,7 +1070,7 @@ namespace OSFUI
 					if (self == bound.end()) {
 						return false;  // unresolvable/empty value: never conflicts
 					}
-					InputContext context;
+					HotkeyContext context;
 					context.blocksGameplay = self->blocksGameplay;
 					context.modeScoped = self->modeScoped;
 					context.modes = self->modes;
@@ -1086,7 +1088,7 @@ namespace OSFUI
 				{ "values", mod.values },
 			};
 			// Additive field: drop-in files that also claimed this id and lost
-			// first-wins; the Mods surface badges the conflict. Omitted if none.
+			// first-wins; Mod Settings badges the conflict. Omitted if none.
 			if (!mod.shadowed.empty()) {
 				entry["shadowed"] = mod.shadowed;
 			}
@@ -1111,7 +1113,7 @@ namespace OSFUI
 				{ "labels", std::move(labels) },
 			};
 		}
-		// Additive field: artifacts that failed to load, so the Mods surface can
+		// Additive field: artifacts that failed to load, so Mod Settings can
 		// say so instead of a mod silently vanishing (§14.2). Omitted when clean.
 		if (!_loadErrors.empty()) {
 			nlohmann::json errors = nlohmann::json::array();
@@ -1310,7 +1312,7 @@ namespace OSFUI
 			REX::WARN("SettingsStore: [content] rejected unknown setting '{}.{}'", a_modId.substr(0, 64), a_key.substr(0, 64));
 			return { false, "unknown-setting" };
 		}
-		// A type this host doesn't know serves its default read-only. Its own
+		// A type this OSF UI runtime doesn't know serves its default read-only. Its own
 		// result code, so a view can say "needs a newer OSF UI" rather than
 		// "bad value".
 		if (!IsKnownType(Json::GetString(*setting, "type", ""))) {
@@ -1393,7 +1395,7 @@ namespace OSFUI
 
 	nlohmann::json SettingsStore::SparseValues(const Mod& a_mod)
 	{
-		// Sparse persistence (mcm-design.md §8.1): only a value != the schema
+		// Sparse persistence: only a value != the schema
 		// default is the user's; anything equal to the default keeps tracking
 		// upstream default changes, and reset-to-default means key removal. Full
 		// legacy files shed their frozen defaults the first time through here.
@@ -1408,12 +1410,12 @@ namespace OSFUI
 			return false;
 		});
 		// Forward-compat opaques ride every rewrite verbatim, so a newer mod's
-		// settings survive this host. Unknown-typed declared keys never enter the
+		// settings survive this OSF UI runtime. Unknown-typed declared keys never enter the
 		// loop above (their served value is the default), so no collision here.
 		for (const auto& [key, value] : a_mod.preserved.items()) {
 			sparse[key] = value;
 		}
-		// Stamp the schema version (mcm-design.md §11) only when a mod uses
+		// Stamp the schema version only when a mod uses
 		// versioning: a v0 (unversioned) mod's file stays byte-for-byte as before,
 		// so no existing values file is dirtied by this feature. The schema's
 		// `version` is the source of truth; the stamp records "last written under
@@ -1422,7 +1424,7 @@ namespace OSFUI
 			sparse[kSchemaVersionKey] = v;
 		}
 		// Every rewrite carries the encoding version. a_mod.formatVersion is
-		// max(known, loaded), so a newer host's stamp survives this host's
+		// max(known, loaded), so a newer OSF UI runtime's stamp survives this runtime's
 		// rewrites. The load-time compare tolerates a missing stamp, so this alone
 		// never dirties an existing file.
 		sparse[kFormatVersionKey] = a_mod.formatVersion;

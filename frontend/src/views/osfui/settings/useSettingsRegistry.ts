@@ -1,8 +1,8 @@
-// useSettingsRegistry — everything the Mods surface KNOWS, separated from
+// useSettingsRegistry — everything the Mod Settings view KNOWS, separated from
 // everything it is currently DOING.
 //
-// What lives here: the two registries the pane paints from (`settings.data`
-// schemas and `views.data` catalog entries), the health snapshot, the host
+// What lives here: the two registries the pane paints from (`osfui/settings`
+// schemas and `osfui/views` catalog entries), the health snapshot, the runtime
 // version, the undo baseline, and the bridge subscriptions that keep all of them
 // current. What deliberately does not: selection, filter, collapse state, the
 // save indicator, key capture, gamepad and visibility handling. Those are about
@@ -23,7 +23,7 @@ import { useEffect, useState } from 'preact/hooks';
 import type { Bridge } from '@lib/bridge';
 import { useLatest, useStateRef } from '@ui/useStateRef';
 import type { ModRecord, ViewRecord } from '@lib/settings/rail';
-import { EMPTY_HEALTH, readHealth, type HealthModel } from '@lib/settings/diagnostics';
+import { EMPTY_HEALTH, readHealth, type HealthModel } from '@lib/settings/health';
 import { applyConflictUpdate } from '@lib/settings/conflicts';
 import {
   findSettingInMod,
@@ -37,7 +37,7 @@ import type { SettingsData, SettingValue } from '@sdk';
 export interface SettingsRegistryOptions {
   bridge: Bridge;
   /**
-   * A fresh `views.data` push landed. It is the authority on HUD open state, so
+   * A fresh `osfui/views` state update landed. It is the authority on HUD open state, so
    * the App drops its optimistic switch overrides here. Read through a latest-ref
    * rather than closed over, so the caller may pass a new function every render.
    */
@@ -49,22 +49,23 @@ export interface SettingsRegistry {
   modsRef: { current: ModRecord[] };
   /**
    * Localized keycap labels for the current OS keyboard layout (the additive
-   * `keyboard` block of `osfui/settings`), or undefined on older hosts and in
+   * `keyboard` block of `osfui/settings`), or undefined on older OSF UI runtimes and in
    * the preview — consumers fall back to raw key names.
    */
   keyboard: SettingsData['keyboard'];
-  /** Hub-visible views — the rail, Home and the per-mod surface sections. */
+  /** Catalog-visible views — the rail, Home and the per-mod view sections. */
   views: ViewRecord[];
   viewsRef: { current: ViewRecord[] };
   /**
    * The COMPLETE discovery catalog, including `hub:false`, debug-only and
-   * not-yet-loaded entries. Diagnostics keeps these so a mod author can prove a
-   * view registered without first making it visible in normal menus.
+   * not-yet-instantiated entries. The Discovered views inventory keeps these
+   * so an author can prove a view was discovered without first making it visible
+   * in normal menus.
    */
   discoveredViews: ViewRecord[];
   health: HealthModel;
-  /** From the `runtime.ready` handshake; "" until it arrives. */
-  hostVersion: string;
+  /** From the bridge `ready` handshake; "" until it arrives. */
+  osfuiReleaseVersion: string;
   baseline: Baseline;
   /**
    * Apply values to the local model optimistically and record the pre-change
@@ -89,12 +90,12 @@ export function useSettingsRegistry(opts: SettingsRegistryOptions): SettingsRegi
   const [keyboard, setKeyboard] = useState<SettingsData['keyboard']>(undefined);
   const [views, setViews, viewsRef] = useStateRef<ViewRecord[]>([]);
   const [discoveredViews, setDiscoveredViews] = useState<ViewRecord[]>([]);
-  const [hostVersion, setHostVersion] = useState('');
+  const [osfuiReleaseVersion, setOsfuiReleaseVersion] = useState('');
 
   /**
    * The session health snapshot. Settings-file load failures used to be a rail
-   * banner fed by `settings.data`'s `loadErrors`; they are health issues like
-   * everything else now, so this is the single model behind the pinned
+   * banner fed by `osfui/settings`'s `loadErrors`; they are health issues like
+   * everything else now, so this is the single model behind the fixed
    * destination, the rail badge, the per-mod severity markers and the failed
    * card deep links.
    */
@@ -152,9 +153,9 @@ export function useSettingsRegistry(opts: SettingsRegistryOptions): SettingsRegi
   useEffect(() => {
     // Subscribing IS the read. Each handler runs immediately with the current
     // value and again on every change — on this document and on every later
-    // one, because the host replays state to each fresh page. Everything below
-    // used to be four `*.get` commands whose replies doubled as subscriptions,
-    // re-sent on the `runtime.ready` edge in case the first attempt lost a race
+    // one, because the OSF UI runtime replays state to each fresh document. Everything below
+    // used to be four `*.get` request endpoints whose replies doubled as subscriptions,
+    // re-sent on the bridge-ready edge in case the first attempt lost a race
     // with the transport coming up. None of that has anywhere left to live.
     const offSettings = bridge.state('osfui/settings', (data) => {
       const list = (data?.mods || []) as ModRecord[];
@@ -166,7 +167,7 @@ export function useSettingsRegistry(opts: SettingsRegistryOptions): SettingsRegi
       captureBaseline(list);
     });
 
-    const offDiagnostics = bridge.state('osfui/diagnostics', (data) => setHealth(readHealth(data)));
+    const offHealth = bridge.state('osfui/diagnostics', (data) => setHealth(readHealth(data)));
 
     const offViews = bridge.state('osfui/views', (data) => {
       const all = (data?.views || []) as ViewRecord[];
@@ -177,13 +178,13 @@ export function useSettingsRegistry(opts: SettingsRegistryOptions): SettingsRegi
 
     const offI18n = bridge.state('osfui/i18n', () => {
       // A catalog arriving before any data must not force a paint of an empty
-      // surface.
+      // view.
       if (modsRef.current.length || viewsRef.current.length) setI18nSeq((n) => n + 1);
     });
 
     const offChanged = bridge.on('settings.changed', (p) => {
       // Native push for every committed value — our own commits echo back
-      // (possibly clamped), and other writers (a sibling DLL, a mod's panel, a
+      // (possibly clamped), and other writers (a sibling DLL, another mod view, a
       // preset applied in another view) stay in sync while the menu is open.
       if (typeof p.mod !== 'string' || typeof p.key !== 'string') return;
       const modId = p.mod;
@@ -222,18 +223,18 @@ export function useSettingsRegistry(opts: SettingsRegistryOptions): SettingsRegi
       setMods(patchModValues(modsRef.current, modId, { [key]: p.value as SettingValue }));
     });
 
-    // The only thing still worth awaiting: the host's own version, for the
+    // The only thing still worth awaiting: the OSF UI release version, for the
     // badge. It cannot gate the data — and no longer needs to, since the
     // handshake is page-initiated and the replay follows it unconditionally.
     // Rejects standalone (no bridge), which is not an error worth surfacing.
     void bridge
       .ready()
-      .then((info) => setHostVersion(info.version || ''))
+      .then((info) => setOsfuiReleaseVersion(info.version || ''))
       .catch(() => {});
 
     return () => {
       offSettings();
-      offDiagnostics();
+      offHealth();
       offViews();
       offI18n();
       offChanged();
@@ -250,7 +251,7 @@ export function useSettingsRegistry(opts: SettingsRegistryOptions): SettingsRegi
     viewsRef,
     discoveredViews,
     health,
-    hostVersion,
+    osfuiReleaseVersion,
     baseline,
     applyLocal,
     clearBaseline: () => setBaseline({}),

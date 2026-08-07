@@ -13,10 +13,10 @@ namespace OSFUI::Log
 	//   Log::WarnOnce(once, "ControlLayer: BSInputEnableManager not ready");
 	void WarnOnce(std::once_flag& a_flag, std::string_view a_message);
 
-	// True when config devMode is enabled; gates chatty per-call logging.
+	// True when developer mode is enabled; gates chatty per-call logging.
 	[[nodiscard]] bool DevMode();
-	// Records the devMode flag and sets the log floor: Info for normal play,
-	// Debug (the full firehose) when devMode is on. Call once, right after
+	// Records the effective developer-mode flag and sets the log floor: Info for normal play,
+	// Debug (the full firehose) when developer mode is on. Call once, right after
 	// config load.
 	void SetDevMode(bool a_enabled);
 }

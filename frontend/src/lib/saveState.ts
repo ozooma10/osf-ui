@@ -5,7 +5,7 @@
 // coalesced per mod and guaranteed on menu close. The indicator shows "Saving…"
 // from the moment a write is sent until every mod this view touched has
 // confirmed, then a fading "Saved". Persisted pushes for writes this view did not
-// make (a sibling DLL, another view's panel) are ignored — that is what the
+// make (a sibling DLL or another view) are ignored — that is what the
 // pending set is for.
 //
 // The three transitions are asymmetric on purpose; see each function.

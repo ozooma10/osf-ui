@@ -1,4 +1,4 @@
-// The keybinds view: a keyboard map (mod-bound keys accent, game-bound steel,
+// The Keybindings view: a keyboard map (mod-bound keys accent, game-bound steel,
 // collisions warn), a holders panel for the selected key, and a searchable list.
 //
 // Mod key settings come from `osfui/settings`; the game's read-only binding
@@ -28,7 +28,7 @@ import { matchesBindingFilter } from '@lib/keybinds/filter';
 import { buildModel, type ModEntry } from '@lib/keybinds/model';
 import type { BindingRow } from '@lib/keybinds/model';
 import { makeLabeler } from '@lib/keybinds/labels';
-import type { InputContextState, KeybindingsData, SettingsData } from '@sdk';
+import type { EngineInputContextState, KeybindingsData, SettingsData } from '@sdk';
 import { BrandEmblem } from '@ui/BrandEmblem';
 import { useLatest, useStateRef } from '@ui/useStateRef';
 import { useKeyCapture, type KeyCapturePayload } from '@ui/useKeyCapture';
@@ -41,10 +41,10 @@ import { DetailPanel } from './DetailPanel';
 import { matchesQuery } from './search';
 
 /**
- * Back to the Mods hub rather than dismissing the overlay: single-menu policy
- * means opening the hub replaces this menu, so no explicit close is needed.
+ * Back to Mod Settings rather than dismissing the overlay: single-menu policy
+ * means opening Mod Settings replaces this menu, so no explicit close is needed.
  */
-const HUB_VIEW = 'osfui/settings';
+const MOD_SETTINGS_VIEW = 'osfui/settings';
 
 /** The armed rebind. `instanceId` is the rendered row — see HolderRowProps. */
 interface Capture {
@@ -69,16 +69,16 @@ export function App({ bridge = windowBridge }: AppProps) {
   // once and their closures would otherwise read the first render's values.
   const [mods, setMods, modsRef] = useStateRef<ModEntry[]>([]);
   const [liveKeys, setLiveKeys] = useState<KeybindingsData | null>(null);
-  const [inputContext, setInputContext] = useState<InputContextState | null>(null);
+  const [engineInputContext, setEngineInputContext] = useState<EngineInputContextState | null>(null);
   // Localized keycap labels for the player's layout (additive; undefined on
-  // older hosts and in the preview — everything falls back to names/US glyphs).
+  // older OSF UI runtimes and in the preview — everything falls back to names/US glyphs).
   const [keyboard, setKeyboard] = useState<SettingsData['keyboard']>(undefined);
 
   const [selectedKey, setSelectedKey] = useState('');
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const [loaded, setLoaded] = useState(false);
-  // Bumped on every `i18n.data` push so the memo below re-runs: the model
+  // Bumped on every `osfui/i18n` state update so the memo below re-runs: the model
   // carries translated strings, so a locale change has to rebuild it, not just
   // repaint.
   const [i18nSeq, setI18nSeq] = useState(0);
@@ -111,29 +111,29 @@ export function App({ bridge = windowBridge }: AppProps) {
       if (
         binding.name
         && queryMatches(binding)
-        && matchesBindingFilter(binding, filter, inputContext)
+        && matchesBindingFilter(binding, filter, engineInputContext)
       ) {
         names.add(binding.name);
       }
     }
     return names;
-  }, [bindings, query, filter, inputContext]);
+  }, [bindings, query, filter, engineInputContext]);
 
   // With no bridge these are silent no-ops rather than rejected promises.
-  const sendCommand = (command: string, fields?: Record<string, unknown>) => {
-    if (bridge.available()) bridge.send(command, fields);
+  const sendEndpoint = (endpoint: string, fields?: Record<string, unknown>) => {
+    if (bridge.available()) bridge.send(endpoint, fields);
   };
 
   /**
-   * Esc / pad-B and the header button. If the hub view isn't registered
+   * Esc / pad-B and the header button. If the Mod Settings view was not discovered
    * (`unknown-view`) fall back to a plain close, so Esc can never strand the
    * user in a menu they cannot leave.
    */
   const goBack = () => {
     if (!bridge.available()) return;
     bridge
-      .request('menu.open', { view: HUB_VIEW })
-      .catch(() => sendCommand('close'));
+      .request('menu.open', { view: MOD_SETTINGS_VIEW })
+      .catch(() => sendEndpoint('close'));
   };
   const capture = useKeyCapture<Capture>({
     bridge,
@@ -177,14 +177,14 @@ export function App({ bridge = windowBridge }: AppProps) {
       toastRef.current.push(
         codeOf(error) === 'capture-busy'
           ? tr('captureBusy', 'Another rebind is already listening.')
-          : tr('captureNoResponse', "Rebinding didn't get a response from the runtime."),
+          : tr('captureNoResponse', "Rebinding didn't get a response from the OSF UI runtime."),
         'warn',
       );
     },
   });
 
   const beginCapture = (binding: BindingRow, instanceId: string) => {
-    if (binding.mod) capture.begin({ mod: binding.mod, key: binding.key, instanceId });
+    if (binding.kind === 'mod') capture.begin({ mod: binding.mod, key: binding.key, instanceId });
   };
   /** Toggles: clicking the already-selected key clears the panel. */
   const selectKey = (name: string) => {
@@ -205,8 +205,8 @@ export function App({ bridge = windowBridge }: AppProps) {
       setLoaded(true);
     });
 
-    const offInputContext = bridge.state('osfui/input-context', (data) => {
-      setInputContext(data || null);
+    const offEngineInputContext = bridge.state('osfui/input-context', (data) => {
+      setEngineInputContext(data || null);
     });
 
     const offI18n = bridge.state('osfui/i18n', () => {
@@ -237,7 +237,7 @@ export function App({ bridge = windowBridge }: AppProps) {
     });
 
     // Belt-and-braces alongside the beginCapture promise: catches a reply that
-    // lost its correlation (older host without requestId echo). capture.finish
+    // lost its correlation (older OSF UI runtime without requestId echo). capture.finish
     // is idempotent.
     const offCaptured = bridge.on('settings.captured', (p) => capture.finish(p as KeyCapturePayload));
 
@@ -251,19 +251,19 @@ export function App({ bridge = windowBridge }: AppProps) {
       setFlash((f) => ({ name: b.name, seq: f.seq + 1 }));
     });
 
-    // The runtime delegates the back action (Esc / pad-B) as a synthetic
+    // The OSF UI runtime delegates the back action (Esc / pad-B) as a synthetic
     // Escape instead of closing the overlay, so the keydown handler below can
-    // return to the Mods hub. Sticky per page load — re-asserted on every boot.
+    // return to Mod Settings. Sticky per page load — re-asserted on every boot.
     // Asserted unconditionally rather than behind `ready`: the grant is
-    // per-document and the runtime drops it when this page reloads, so the
+    // per-document and the OSF UI runtime drops it when this page reloads, so the
     // right moment to re-assert it is "whenever this component mounts".
     // Nothing here reads settings — the registry arrives as replayed state.
-    if (bridge.available()) sendCommand('osfui.handleBack', { handle: true });
+    if (bridge.available()) sendEndpoint('osfui.handleBack', { handle: true });
 
     return () => {
       offData();
       offLiveKeys();
-      offInputContext();
+      offEngineInputContext();
       offI18n();
       offChanged();
       offCaptured();
@@ -297,7 +297,7 @@ export function App({ bridge = windowBridge }: AppProps) {
   }, [bridge]);
 
   // Standalone preview: sample data so the view works in a plain browser. Dev-only,
-  // and the production host always injects a bridge, so this branch never ships.
+  // and the production OSF UI runtime always injects a bridge, so this branch never ships.
   useEffect(() => {
     if (!import.meta.env.DEV) return;
     if (bridge.available()) return;
@@ -352,7 +352,8 @@ export function App({ bridge = windowBridge }: AppProps) {
                 <span class="wordmark-osf">OSF</span>
                 <span class="wordmark-ui">UI</span>
               </div>
-              <div class="osf-eyebrow brand-sub">{tr('inputMap', 'INPUT MAP')}</div>
+              {/* `inputMap` is a frozen translation address; the default copy uses the canonical name. */}
+              <div class="osf-eyebrow brand-sub">{tr('inputMap', 'KEYBINDINGS')}</div>
             </div>
           </div>
 
@@ -375,7 +376,8 @@ export function App({ bridge = windowBridge }: AppProps) {
             aria-keyshortcuts="Escape"
             onClick={goBack}
           >
-            <span>{tr('backToMods', 'Back to Mods')}</span>
+            {/* Compatibility catalog address; fallback copy uses Mod Settings. */}
+            <span>{tr('backToMods', 'Back to Mod Settings')}</span>
             <kbd>Esc</kbd>
           </button>
         </header>
@@ -438,7 +440,7 @@ export function App({ bridge = windowBridge }: AppProps) {
             bindings={bindings}
             selectedKey={selectedKey}
             filter={filter}
-            inputContext={inputContext}
+            engineInputContext={engineInputContext}
             loaded={loaded}
             tr={tr}
             capturingId={capturingId}
@@ -455,7 +457,7 @@ export function App({ bridge = windowBridge }: AppProps) {
             onSelect={selectKey}
             filter={filter}
             onFilter={setFilter}
-            inputContext={inputContext}
+            engineInputContext={engineInputContext}
           />
         </div>
 

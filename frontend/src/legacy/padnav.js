@@ -7,7 +7,7 @@
 // arrow-key navigable — and keyboard-only users get the same fix. These pages
 // are mouse-first, so this layer supplies the missing focus model: spatial
 // arrow navigation, Enter to activate, B/Esc left native for the runtime to
-// close the top menu.
+// close the active menu.
 //
 // Private to the osfui views (loaded as ../padnav.js), not part of the shared
 // kit: osfui.js is frozen (api-freeze item 5) and gamepad is still

@@ -4,12 +4,12 @@
 //   <script src="../../shared/osfui.js"></script>
 //
 // Decorates the native-injected `window.osfui` (creating a stub when no bridge
-// is present, e.g. a plain browser). The whole surface is four verbs, chosen by
+// is present, e.g. a plain browser). The public API has four verbs, chosen by
 // semantics, plus three sugar namespaces that add ergonomics and never new
 // semantics:
 //
 //   osfui.available            -> bridge present (false = standalone preview)
-//   osfui.ready                -> Promise of the runtime info; REJECTS with
+//   osfui.ready                -> Promise of OSF UI runtime handshake info; REJECTS with
 //                                 code "no-bridge" in a plain browser rather
 //                                 than hanging forever
 //
@@ -39,7 +39,7 @@
 //   osfui.i18n.ready / .locale / .t / .localize
 //   osfui.theme.applyAccent(el, hex)
 //
-// Reload is the common case. This helper greets the host itself on every
+// Reload is the common case. This helper greets the OSF UI runtime itself on every
 // document (`osfui.hello`), so first open, F5, dev hot-reload and crash
 // recovery are one path: ready -> full state replay -> events. There is no
 // "on ready, re-request my data" convention to remember, and no member that
@@ -47,8 +47,8 @@
 //
 // Debugging is F12 Chromium DevTools. Every failure an author can cause is
 // printed to this page's console with an `[osfui]` prefix — client-detected
-// (rejections, timeouts, no-bridge) and host-detected alike (a send dropped for
-// naming a request endpoint, an unknown endpoint, a backend that never
+// (rejections, timeouts, no-bridge) and runtime-detected alike (a send dropped for
+// naming a request endpoint, an unknown endpoint, an endpoint handler that never
 // answered). Set localStorage["osfui:trace"] = "1" and reload to log every
 // envelope in both directions.
 //
@@ -310,11 +310,11 @@
   }
 
   function deliverEvent(name, payload) {
-    // Host-detected protocol misuse arrives as an ordinary event so it lands in
+    // Runtime-detected protocol misuse arrives as an ordinary event so it lands in
     // this page's console with the same prefix as client-detected failures.
     if (name === "osfui.debug.error") {
       const p = payload || {};
-      report("host rejected " + (p.code || "a message") + ": " + (p.message || ""), p.detail || p);
+      report("OSF UI runtime rejected " + (p.code || "a message") + ": " + (p.message || ""), p.detail || p);
       return;
     }
     const set = events.get(name);

@@ -7,7 +7,7 @@
 //
 // When the runtime publishes `keyboard.labels` (localized keycaps for the
 // player's layout), the Board renders those instead of `d`; `d` only shows in
-// the browser preview and against older hosts. The grid itself stays the ANSI
+// the browser preview and against older OSF UI runtimes. The grid itself stays the ANSI
 // arrangement — cells ARE physical positions, so a German layout relabels
 // them (Ö on the Semicolon cell) rather than moving them.
 //

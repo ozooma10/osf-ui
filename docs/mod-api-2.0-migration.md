@@ -6,7 +6,7 @@ Read this when your mod stopped working after updating OSF UI. It's the mechanic
 
 | Artifact | Breaks? | How you find out |
 |---|---|---|
-| View (`views/<modId>/<viewName>/`) | **Yes** | A declared pre-2.0 target selects the guarded 1.x façade during 2.0.x and is reported as `compat.pre-2-view` warning. Migrate to the four-verb helper and declare `targetVersion: "2.0.0"` before 2.1.0. |
+| View (`views/<modId>/<viewName>/`) | **Yes** | A declared pre-2.0 target selects the guarded 1.x façade during 2.0.x and is reported as `compat.pre-2-view` warning. Migrate to the four-verb shared bridge helper and declare `targetVersion: "2.0.0"` before 2.1.0. |
 | Native SFSE plugin (`sdk/OSFUI_API.h`) | **Yes** | ABI 1.0–1.8 callers receive the frozen 1.8 adapter and a `compat.legacy-api` warning during 2.0.x. Rebuild against ABI 2.0 before 2.1.0. Unrelated majors are still refused. |
 | Papyrus script | **Partly** | Six deprecated natives (`PushToView`, `PushFormsToView`, `RegisterForViewActions{,Static,Args,ArgsStatic}`) remain bound through 2.0.x and produce `compat.legacy-papyrus`; everything else keeps its name. |
 | Settings schema (`settings/<modId>.json`) | **No** | Declarative data. An `action` row uses a strict `RegisterRequest` endpoint. |
@@ -14,7 +14,7 @@ Read this when your mod stopped working after updating OSF UI. It's the mechanic
 
 ---
 
-## 1. View authors — the JS helper
+## 1. View authors — the shared bridge helper
 
 `frontend/src/shared-kit/osfui.js` (shipped to `SFSE/Plugins/OSFUI/views/shared/osfui.js`; typed in `sdk/osfui.d.ts`).
 
@@ -42,7 +42,7 @@ The whole surface is four verbs — `send`, `request`, `on`, `state` — plus th
 | `osfui.locale()` | `osfui.i18n.locale` — a **property** | **LOUD** |
 | `osfui.i18nReady` | `osfui.i18n.ready` | **LOUD** at `.then(...)`; see §1.3 |
 | `osfui.applyAccent(el, hex)` | `osfui.theme.applyAccent(el, hex)` | **LOUD** |
-| `osfui.onMessage` | still helper-owned; do not assign it | unchanged |
+| `osfui.onMessage` | still owned by the shared bridge helper; do not assign it | unchanged |
 | — | `osfui.state.on/get` (new fourth verb) | — |
 | — | `localStorage["osfui:trace"] = "1"` envelope tracing | — |
 
@@ -62,7 +62,7 @@ const data = await osfui.request("game.get");
 render(data.calendar);
 ```
 
-Everything else fails at the point of use: a removed member throws `TypeError`, a removed *request* endpoint rejects with a typed `code` that the helper prints to the page console with an `[osfui]` prefix, and a removed *send* endpoint is dropped by the host and surfaced — as an `osfui.debug.error` event in devMode, and as a `view.protocol-misuse` health card after 10 offences in release builds (`Runtime::OnProtocolMisuse`, `kMisuseThreshold = 10`, diagnostics source `"views"`).
+Everything else fails at the point of use: a removed member throws `TypeError`, a removed *request* endpoint rejects with a typed `code` that the shared bridge helper prints to the page console with an `[osfui]` prefix, and a removed *send* endpoint is dropped by the OSF UI runtime and reported — as an `osfui.debug.error` event in developer mode, and as a `view.protocol-misuse` health issue after 10 offences in release builds (`Runtime::OnProtocolFault`, `kProtocolFaultThreshold = 10`, issue source `"views"`).
 
 ### 1.3 Two quieter degradations worth grepping for
 
@@ -70,7 +70,7 @@ Both are reachable through names that still exist, but change what your handler 
 
 - **`on()` handlers get one argument now.** 1.x called `fn(message.payload || {}, message)`; 2.0 calls `fn(payload)`. If you destructured the second parameter it's `undefined`. Moot for platform events (the 1.x names are gone); it matters for mod-defined `<mod>.<name>` events fed by a plugin's `SendToWeb`.
 - **Request replies no longer fan out to `on()` subscribers.** 1.x dispatched a correlated reply to `on()` *and* settled the promise. 2.0 keeps the channels separate: a reply settles exactly one promise and reaches no event handler. The 1.x pattern is obsolete anyway — the registries it existed for are now state keys that replay unasked.
-- *Footnote on `osfui.i18nReady`:* the member is gone, so `osfui.i18nReady.then(…)` throws, but `await osfui.i18nReady` resolves `undefined` immediately. Nothing renders wrong: the helper localizes the document itself when the `osfui/i18n` state key arrives (`deliverState()` → `localize(document)`), so `data-i18n` markup still applies. Any *manual* `osfui.t(...)` in the same file throws.
+- *Footnote on `osfui.i18nReady`:* the member is gone, so `osfui.i18nReady.then(…)` throws, but `await osfui.i18nReady` resolves `undefined` immediately. Nothing renders wrong: the shared bridge helper localizes the document itself when the `osfui/i18n` state key arrives (`deliverState()` → `localize(document)`), so `data-i18n` markup still applies. Any *manual* `osfui.t(...)` in the same file throws.
 
 ### 1.4 Code you should delete, not port
 
@@ -124,7 +124,7 @@ Envelope rules that went from lenient to strict:
 
 ```
 document loads
-  └─ helper sends { kind:"send", name:"osfui.hello" }
+  └─ shared bridge helper sends { kind:"send", name:"osfui.hello" }
        └─ bridge sends `ready`
             └─ hello hook replays state (platform keys + this mod's retained state)
                  └─ the view's event gate opens and queued events flush
@@ -135,9 +135,9 @@ First open, F5, dev hot-reload and crash-recovery reload are literally the same 
 - `ready` precedes all state for that document; all replayed state precedes the first event.
 - Events emitted before a document greets are **queued** per view, bounded at **64, drop-oldest** (`kMaxQueuedEventsPerView`) — this preserves the native ABI's message-before-first-paint guarantee.
 - State published to a view that hasn't greeted is **dropped**: the replay covers it, so there's nothing to queue and no ordering to get wrong.
-- A second `hello` from the same view id means a new document: the queue is cleared (replaying one-shot events into a fresh page would re-fire their effects) and the full state replay runs again.
+- A second `hello` from the same view id means a new document and runs the full state replay again. A greeting does not clear pre-greeting events for the current document: a freshly instantiated view's gate preserves them and flushes them after `ready` and state. Creating or recreating the view arms a fresh gate and clears any queue left by the prior document; delivered events are never retained for later replay.
 
-Request rejection codes: `no-bridge` (local), `timeout` (client timer, default 10 s; `timeoutMs: 0` disables **only** the client timer), `no-response` (backend missed the host-side 30 s `kRequestDeadline`), `wrong-endpoint-kind`, `unknown-endpoint`, `invalid-request`, `request-capacity` (64 concurrent deferred requests per view), `internal` (a request endpoint returned without settling) — plus whatever the handler rejected with.
+Request rejection codes: `no-bridge` (local), `timeout` (client timer, default 10 s; `timeoutMs: 0` disables **only** the client timer), `no-response` (a mod backend or OSF UI runtime handler missed the OSF UI runtime's 30 s `kRequestDeadline`), `wrong-endpoint-kind`, `unknown-endpoint`, `invalid-request`, `request-capacity` (64 concurrent deferred requests per view), `internal` (a request endpoint returned without settling) — plus whatever the handler rejected with.
 
 ---
 
@@ -150,12 +150,12 @@ The four-verb model dissolves 1.x's subscribe-on-read wart: `settings.get`, `vie
 | Key | Replaces | Value |
 |---|---|---|
 | `osfui/settings` | `settings.get` → `settings.data` | the whole settings registry (`SettingsData`) |
-| `osfui/views` | `views.get` → `views.data` | every discovered surface with live open/focus/load state |
+| `osfui/views` | `views.get` → `views.data` | every discovered view with live open/focus/load state |
 | `osfui/diagnostics` | `diagnostics.get` → `diagnostics.data` | the System Health snapshot |
 | `osfui/i18n` | `i18n.get` → `i18n.data` | `{ mod, locale, strings }` — **computed per view**, the owning mod's catalog |
 | `osfui/handoff` | the `handoff.state` push | (platform-private) first-load handoff state |
 
-Plus every mod key a backend publishes: Papyrus `SetView*` and the ABI's `SetViewState` both land under `"<yourModId>/<key>"`.
+Plus every mod key a mod backend publishes: Papyrus `SetView*` and the ABI's `SetViewState` both land under `"<yourModId>/<key>"`.
 
 ### 3.2 Events — `osfui.on(name, fn)`
 
@@ -226,15 +226,15 @@ Papyrus keeps its 1.5 names on purpose: renaming `ListenForViewActions` / `OnOSF
 | `RegisterForSettingChanges{,Static}`, `RegisterForHotkey{,Static}`, `Get*`/`Set*`/`Reset` | unchanged | none |
 
 - `PushToView` is **transient like an event but shaped like state** — which is why every mod using it needs a page-level `ready` action and a matching re-push. The 2.0.x adapter preserves that behavior only long enough to delete both halves safely.
-- Papyrus `SetView*` state stays **session-scoped**: values can hold form identities, which don't survive a game load. `Papyrus::TakeSessionReset()` reports the load and the runtime drops those entries (`ViewStateStore::ClearSessionScoped`). Republish after a load, exactly as in 1.5. Native `SetViewState` is *not* session-scoped.
+- Papyrus `SetView*` state stays **session-scoped**: values can hold form identities, which don't survive a game load. `Papyrus::TakeSessionReset()` reports the load and the OSF UI runtime drops those entries (`RetainedStateStore::ClearSessionScoped`). Republish after a load, exactly as in 1.5. Native `SetViewState` is *not* session-scoped.
 - Retained-state mechanics carry over: latest-wins per `mod`+`key`; case-insensitive keys (Papyrus `BSFixedString` interning hands back the first-seen casing); at most **64 keys per mod**; `None` form slots preserved as JSON `null` so a parallel values key stays index-aligned.
-- C++-side names moved with the concept: `ViewPush` → `ViewState` (`{ mod, key, value }`) + `ViewEvent` (`{ mod, name, args }`); `DrainViewPushes` → `DrainViewState` + `DrainViewEvents`; `ReplayViewState` removed entirely because the runtime owns the cache now (§6.3).
+- C++-side names moved with the concept: `ViewPush` → `ViewState` (`{ mod, key, value }`) + `ViewEvent` (`{ mod, name, args }`); `DrainViewPushes` → `DrainViewState` + `DrainViewEvents`; `ReplayViewState` removed entirely because the OSF UI runtime owns the cache now (§6.3).
 
 ---
 
 ## 5. Native plugin authors
 
-`sdk/OSFUI_API.h` (+ the optional `sdk/OSFUI_JSON.h` facade), host side in `src/api/BridgeApi.{h,cpp}` and `src/api/Exports.cpp`.
+`sdk/OSFUI_API.h` (+ the optional `sdk/OSFUI_JSON.h` facade), with the OSF UI runtime implementation in `src/api/BridgeApi.{h,cpp}` and `src/api/Exports.cpp`.
 
 ### 5.1 Breaking ABI 2.0
 
@@ -242,11 +242,11 @@ Papyrus keeps its 1.5 names on purpose: renaming `ListenForViewActions` / `OnOSF
 inline constexpr std::uint32_t kBridgeAPIVersion = (2u << 16) | 0u;
 ```
 
-`OSFUI_RequestBridge` compares the major. During 2.0.x, ABI 1.x callers receive an isolated object with the exact final 1.8 vtable; a binary built against an earlier minor uses only its known prefix, and its existing feature gates see 1.8. The host records a bounded, deduplicated `compat.legacy-api` warning naming the caller DLL. ABI 2.x callers receive the strict current bridge. Any other major receives `nullptr` and a distinct `compat.unsupported-api` error. Every method in the 2.0 header is baseline, including `SetViewState`; future 2.x additions append at the vtable tail and bump the minor.
+`OSFUI_RequestBridge` compares the major. During 2.0.x, ABI 1.x callers receive an isolated object with the exact final 1.8 vtable; a binary built against an earlier minor uses only its known prefix, and its existing feature gates see 1.8. The OSF UI runtime records a bounded, deduplicated `compat.legacy-api` warning naming the caller DLL. ABI 2.x callers receive the strict current bridge. Any other major receives `nullptr` and a distinct `compat.unsupported-api` error. Every method in the 2.0 header is baseline, including `SetViewState`; future 2.x additions append at the vtable tail and bump the minor.
 
 ### 5.2 Strict send/request split
 
-Replace `CommandFn` / `RegisterCommand` / `UnregisterCommand` with `SendFn` / `RegisterSend` / `UnregisterSend`. A send handler receives the caller's payload verbatim. A request naming it rejects `wrong-endpoint-kind`; the host never injects `requestId` and never fabricates an acknowledgement. Result-bearing endpoints use the retained `RegisterRequest` and settle through `Request::Respond` or `Reject`.
+Replace `CommandFn` / `RegisterCommand` / `UnregisterCommand` with `SendFn` / `RegisterSend` / `UnregisterSend`. A send handler receives the caller's payload verbatim. A request naming it rejects `wrong-endpoint-kind`; the OSF UI runtime never injects `requestId` and never fabricates an acknowledgement. Result-bearing endpoints use the retained `RegisterRequest` and settle through `Request::Respond` or `Reject`.
 
 Those rules apply to ABI 2. The temporary ABI 1 adapter keeps `RegisterCommand` separate, injects the page request id into a request payload, and auto-acks after the callback exactly as 1.x documented.
 
@@ -260,7 +260,7 @@ Those rules apply to ABI 2. The temporary ABI 1 adapter keeps `RegisterCommand` 
 | `SetViewState` was an additive tail method | `SetViewState` is baseline | binary |
 | per-feature 1.x minor gates | all current features are ABI 2.0 baseline | binary |
 
-`SetViewState` is the systemic fix for the blank-after-F5 bug class on the native side. Publish once and the runtime replays it to every document of your mod:
+`SetViewState` is the systemic fix for the blank-after-F5 bug class on the native side. Publish once and the OSF UI runtime replays it to every document of your mod:
 
 - latest-wins per key, and the value is **complete** — never a delta;
 - any JSON *value*, validated synchronously;
@@ -277,24 +277,24 @@ An `action` row's `command` is a **request** (`frontend/src/views/osfui/settings
 
 The design doc left three open questions. What shipped:
 
-**6.1 Platform state granularity: ONE document per registry, not per-mod.** The doc leaned per-mod (`osfui/settings/<mod>`) to bound push sizes; `osfui/settings`, `osfui/views` and `osfui/diagnostics` each ship as one whole-registry document. Two reasons: (1) the state protocol has no key-discovery primitive — `state.on(key, fn)` subscribes to a key you already name, so per-mod keys would need either a discovery request (re-inventing the subscribe-on-read wart 2.0 deleted) or an index key kept consistent with N siblings; (2) the primary consumer, the Mods surface, needs the whole registry anyway (every card, search, the vanilla-key conflict table, load errors). The size worry didn't materialise: the registry republishes on *shape* changes, not value commits — an individual commit is a `settings.changed` event carrying one value.
+**6.1 Platform state granularity: ONE document per registry, not per-mod.** The doc leaned per-mod (`osfui/settings/<mod>`) to bound push sizes; `osfui/settings`, `osfui/views` and `osfui/diagnostics` each ship as one whole-registry document. Two reasons: (1) the state protocol has no key-discovery primitive — `state.on(key, fn)` subscribes to a key you already name, so per-mod keys would need either a discovery request (re-inventing the subscribe-on-read wart 2.0 deleted) or an index key kept consistent with N siblings; (2) the primary consumer, Mod Settings, needs the whole registry anyway (every health issue, search result, game-binding conflict, and load error). The size worry didn't materialise: the registry republishes on *shape* changes, not value commits — an individual commit is a `settings.changed` event carrying one value.
 
 `osfui/i18n` is the deliberate exception to one-document-per-registry: one key whose **value is computed per document** (a view's catalog is its owning mod's), built per view id in `Runtime::PublishPlatformState`. Still one key with one shape; just not a broadcast.
 
-**6.2 `SetViewState` takes JSON text at the C ABI; typed sugar lives in `OSFUI_JSON.h`.** The method is `bool SetViewState(const char*, const char*, const char*)` — text only, because `const char*` is the only shape that survives the vtable contract and no plugin should have to agree with the host on an `nlohmann` version. `sdk/OSFUI_JSON.h` adds a `SetViewState(modId, key, const Json&)` overload plus a `template <class T>` sugar, both `noexcept`, both returning `false` on a serialization throw. Header-only, opt-in, nothing but text crosses the DLL boundary.
+**6.2 `SetViewState` takes JSON text at the C ABI; typed sugar lives in `OSFUI_JSON.h`.** The method is `bool SetViewState(const char*, const char*, const char*)` — text only, because `const char*` is the only shape that survives the vtable contract and no plugin should have to agree with the OSF UI runtime on an `nlohmann` version. `sdk/OSFUI_JSON.h` adds a `SetViewState(modId, key, const Json&)` overload plus a `template <class T>` sugar, both `noexcept`, both returning `false` on a serialization throw. Header-only, opt-in, nothing but text crosses the DLL boundary.
 
-**6.3 The retained-state cache moved out of `PapyrusApi` into the runtime.** In 1.5 the `mod\nkey` cache lived in `src/api/PapyrusApi.cpp`, because Papyrus was the only backend with state. Once `SetViewState` gave the native ABI the same verb, keeping it there meant either the ABI writing into the Papyrus module or two caches with two replay rules. It's now `src/runtime/ViewStateStore.{h,cpp}`, owned by `Runtime` and shared by both backends, with a per-entry `sessionScoped` flag rather than one store-wide policy (Papyrus values must not cross a game load; native values must). Consequences: `Papyrus::ReplayViewState` **removed** (`Runtime::OnViewGreeted` replays for both backends from the one store); `Papyrus::TakeSessionReset()` **added** so the runtime learns a load happened and calls `ViewStateStore::ClearSessionScoped()`; `DrainViewPushes` split into `DrainViewState` and `DrainViewEvents`.
+**6.3 The retained-state cache moved out of `PapyrusApi` into the OSF UI runtime.** In 1.5 the `mod\nkey` cache lived in `src/api/PapyrusApi.cpp`, because Papyrus was the only mod backend with state. Once `SetViewState` gave the native ABI the same verb, keeping it there meant either the ABI writing into the Papyrus module or two caches with two replay rules. It's now `src/runtime/RetainedStateStore.{h,cpp}`, owned by `Runtime` and shared by both mod backend types, with a per-entry `sessionScoped` flag rather than one store-wide policy (Papyrus values must not cross a game load; native values must). Consequences: `Papyrus::ReplayViewState` **removed** (`Runtime::OnViewGreeted` replays for both mod backend types from the one store); `Papyrus::TakeSessionReset()` **added** so the OSF UI runtime learns a load happened and calls `RetainedStateStore::ClearSessionScoped()`; `DrainViewPushes` split into `DrainViewState` and `DrainViewEvents`.
 
-**6.4 Still open: `osfui:trace` from the dev harness.** Whether the trace flag should also be settable per-view from the harness, mirroring `openDevTools`, shipped **unimplemented**. The flag is `localStorage["osfui:trace"]`, read once at helper load (`frontend/src/shared-kit/osfui.js`); there's no pipe command for it. A second control path for a debug toggle is the aliasing 2.0 exists to remove. Revisit only if setting it on a view you can't open DevTools on turns out to matter.
+**6.4 Still open: `osfui:trace` from the dev harness.** Whether the trace flag should also be settable per-view from the harness, mirroring `openDevTools`, shipped **unimplemented**. The flag is `localStorage["osfui:trace"]`, read once when the shared bridge helper loads (`frontend/src/shared-kit/osfui.js`); there's no pipe command for it. A second control path for a debug toggle is the aliasing 2.0 exists to remove. Revisit only if setting it on a view you can't open DevTools on turns out to matter.
 
 ---
 
 ## 7. Deviations from the design doc as written
 
-- **7.1 `osfui/debug.error` shipped as the `osfui.debug.error` EVENT.** A slash denotes a view id (`<mod>/<view>`) and the state `<mod>/<key>` separator, so a slashed name is ambiguous exactly where it matters. It shipped as a dotted event name in the platform (`osfui.*`) namespace, delivered by `MessageBridge::Surface` → `Runtime::OnProtocolMisuse` → `Emit(view, "osfui.debug.error", …)`, printed by the helper's `deliverEvent` special case with the usual `[osfui]` prefix. Naming it an event also settles what it is: one-shot, never replayed, never cached.
+- **7.1 `osfui/debug.error` shipped as the `osfui.debug.error` EVENT.** A slash denotes a qualified view id (`<modId>/<viewName>`) and the state `<modId>/<key>` separator, so a slashed name is ambiguous exactly where it matters. It shipped as a dotted event name in the platform (`osfui.*`) namespace, delivered by `MessageBridge::ReportProtocolFault` → `Runtime::OnProtocolFault` → `Emit(view, "osfui.debug.error", …)`, printed by the shared bridge helper's `deliverEvent` special case with the usual `[osfui]` prefix. Naming it an event also settles what it is: one-shot, never replayed, never cached.
 - **7.2 The fixed-target shell verbs shipped as requests, not commands.** The doc grouped `osfui.openModPage` and `osfui.openLogFolder` with the commands; both can fail for reasons the page can't predict and the player can act on (`shell-failed`, `no-log-folder`), and the doc's own rule is that wanting a remote outcome makes it a request. The security property that motivated grouping them — the target is a compile-time constant or natively derived and the payload can't steer the shell — is unaffected by endpoint kind. `close`, `log`, `view.ready`, `osfui.gamepadRaw` and `osfui.handleBack` did ship as commands.
 - **7.4 `hud.show` / `hud.hide` and `osfui.textFocus` were deleted, not migrated.** The first two were registered to the *same handler lambdas* as `menu.open`/`menu.close`; "one dialect, no aliases" is a design principle. `osfui.textFocus` was a registered no-op kept only so a view asserting text focus before session focus wouldn't trip `unknown-command`; since an unknown send is now a dev-only debug event it bought nothing. (The WebView2 focus-on-demand mechanism it fronted is native and unaffected.)
-- **7.5 Smaller drifts.** The removed `ReplayViewState` machinery moved to `src/runtime/ViewStateStore.{h,cpp}` rather than staying in `PapyrusApi` (§6.3). The native ABI now matches the host registry spelling: `RegisterSend` / `RegisterRequest`.
+- **7.5 Smaller drifts.** The removed `ReplayViewState` machinery moved to `src/runtime/RetainedStateStore.{h,cpp}` rather than staying in `PapyrusApi` (§6.3). The native ABI now matches the OSF UI runtime registry spelling: `RegisterSend` / `RegisterRequest`.
 
 ---
 
@@ -302,13 +302,13 @@ The design doc left three open questions. What shipped:
 
 There is no partial migration. The plugin DLL, `OSFUI.pex`, the shipped `views/shared/osfui.js` and `sdk/*` move together in one release, and a mod's artifacts move with them.
 
-For a mod spanning all three backends:
+For a mod spanning a view, Papyrus, and a native plugin:
 
 1. **Bump `targetVersion` to `"2.0.0"`** in every view manifest and settings schema first. Until you do, System Health tells the player your view is legacy — what you want while you work, and what you must clear before you ship.
 2. **Papyrus next**, because it's the slowest loop. Replace `PushToView` / `PushFormsToView` with `SetView*` (state) or `SendViewEvent` (happenings), collapse the `RegisterForViewActions*` family into `ListenForViewActions{,Static}` + `OnOSFUIViewAction(string, string[])`, and **delete** the page-`ready`-then-re-push handshake on both sides. Recompile against the shipped `data/Scripts/Source/OSFUI.psc` and redeploy the `.pex`.
 3. **Native plugin**: rebuild against `sdk/OSFUI_API.h` ABI 2.0. Rename `CommandFn` / `RegisterCommand` to `SendFn` / `RegisterSend`; use `RegisterRequest` for answer-bearing endpoints and settings-schema actions; convert re-push-on-reload code to `SetViewState`.
 4. **Views last**, once the data they consume already arrives correctly. Do the renames from §1.1, then the `request()` payload sweep from §1.2 — that one is manual.
-5. **Verify with `localStorage["osfui:trace"] = "1"` and a reload.** Every replayed `state` envelope is visible at document boot, so a blank panel is answered immediately: the key arrives (view bug) or it doesn't (backend bug).
+5. **Verify with `localStorage["osfui:trace"] = "1"` and a reload.** Every replayed `state` envelope is visible at document boot, so a blank panel is answered immediately: the key arrives (view bug) or it doesn't (mod-backend bug).
 
 Carried over untouched: settings schema files, saved player values, localization catalogs, view manifests (no field changed — several changed *meaning*, because the bridge a manifest opts into is a different one), and your view's HTML/CSS.
 
@@ -336,7 +336,7 @@ Run `bash tests/native/run.sh` (exit code = failing checks) and root `npm run ve
 | `osfui:trace` logs both directions, only when the flag is exactly `"1"` | `frontend/test/protocol.parse.test.ts` |
 | The four verbs behave as documented from an author's seat | `frontend/test/bridge.author-api.test.ts` |
 | The null bridge degrades every member instead of throwing | `frontend/test/bridge.nullbridge.test.ts` |
-| Removed members cannot be *called* from first-party code | Not a runtime test — enforced at typecheck against `sdk/osfui.d.ts` + `frontend/src/lib/bridge.ts` during `npm --prefix frontend run verify`. Third-party views get the runtime `TypeError`. |
+| Removed members cannot be *called* from first-party code | Not an execution-time test — enforced at typecheck against `sdk/osfui.d.ts` + `frontend/src/lib/bridge.ts` during `npm --prefix frontend run verify`. Third-party views get a JavaScript `TypeError`. |
 | Registries arrive as state on a greeting, no read roundtrip; a late document boots from one greeting | `tests/native/settings_module_tests.cpp`, `frontend/test/settings.handshake.test.tsx` |
 | `settings.set` settlement shape; a mutation sent as a `send` executes nothing | `tests/native/settings_module_tests.cpp` |
 | `settings.reset` republishes state once, no per-key event spam | `tests/native/settings_module_tests.cpp` |
@@ -346,11 +346,11 @@ Run `bash tests/native/run.sh` (exit code = failing checks) and root `npm run ve
 | Papyrus state is session-scoped and dropped on game load; native state is not | `tests/native/papyrus_action_tests.cpp`, `tests/native/papyrus_form_tests.cpp` |
 | ABI `SetViewState` validation, queue cap, retained-not-session-scoped delivery | `tests/native/bridge_api_tests.cpp` |
 | ABI 2.0 constants, strict send/request routing, all current features baseline | `tests/native/bridge_api_tests.cpp` |
-| ABI 1.0–1.8 adapter selection, frozen vtable behavior, settings/hotkeys, command auto-ack, typed requests, diagnostics and retained state | `tests/native/v1_native_bridge_tests.cpp`, `tests/native/bridge_api_tests.cpp` |
-| Compat card lifecycle: one source, swept by `ResolveMissing`, no occurrence churn | `tests/native/runtime_diagnostics_tests.cpp`, `tests/native/diagnostics_tests.cpp` |
-| Diagnostics registry as state, including the greeting replay bypassing the content dedupe | `tests/native/diagnostics_tests.cpp` |
-| Harness mock speaks the same protocol as the shipped helper, end to end | `frontend/test/devmock.mockbridge.test.ts` |
-| Built views load the shipped helper and pass the output gates | `frontend/test/build.output.test.ts` |
+| ABI 1.0–1.8 adapter selection, frozen vtable behavior, settings/hotkeys, command auto-ack, typed requests, health reporting and retained state | `tests/native/v1_native_bridge_tests.cpp`, `tests/native/bridge_api_tests.cpp` |
+| Compatibility-health-issue lifecycle: one source, swept by `ResolveMissing`, no occurrence churn | `tests/native/runtime_health_tests.cpp`, `tests/native/health_registry_tests.cpp` |
+| Health registry carried by the compatibility `osfui/diagnostics` state key, including the greeting replay bypassing content dedupe | `tests/native/health_registry_tests.cpp` |
+| Harness mock speaks the same protocol as the shipped shared bridge helper, end to end | `frontend/test/devmock.mockbridge.test.ts` |
+| Built views load the shipped shared bridge helper and pass the output gates | `frontend/test/build.output.test.ts` |
 | `targetVersion` comparison feeding the "needs update" badge | `frontend/test/version.test.ts` |
 | The dev harness's traffic inspector reads 2.0 envelopes by endpoint rather than by envelope | `packages/cli/test/traffic-model.test.mjs` |
 | Scaffolding refuses malformed input and yields legal ids; the CLI suite separately checks, builds, and packages a generated-shaped project | `packages/create-osfui/test/scaffold.test.mjs`, `packages/cli/test/toolchain.test.mjs` |
@@ -362,9 +362,9 @@ Run `bash tests/native/run.sh` (exit code = failing checks) and root `npm run ve
 
 - [mod-api-2.0-design.md](mod-api-2.0-design.md) — why the API is shaped this way, and what each 1.x alias papered over.
 - [authoring-views.md](authoring-views.md) §3 — the full bridge reference.
-- [authoring-dynamic-data.md](authoring-dynamic-data.md) — state vs. events, worked examples for both backends.
+- [authoring-dynamic-data.md](authoring-dynamic-data.md) — state vs. events, worked examples for both mod backend types.
 - [native-plugin-api.md](native-plugin-api.md) §1 — the 2.0 break from the plugin author's side.
-- [authoring-settings.md](authoring-settings.md) §8 — consuming settings from each backend.
+- [authoring-settings.md](authoring-settings.md) §8 — consuming settings from each mod backend type.
 - `sdk/osfui.d.ts` — the typed contract (`PlatformSend`, `PlatformRequest`, `PlatformState`, `PlatformEvents`).
 - `sdk/OSFUI_API.h`, `sdk/OSFUI_JSON.h` — the C ABI and its optional JSON facade.
 - [logging.md](logging.md) — "Author-caused failures go to the page".

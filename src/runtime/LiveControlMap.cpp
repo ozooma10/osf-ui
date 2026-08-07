@@ -31,22 +31,22 @@ namespace OSFUI
 		constexpr REL::Version kSupportedRuntime{ 1, 16, 244, 0 };
 		constexpr REL::ID kControlMapSingletonPtr{ 938003 };
 		constexpr REL::ID kScaleformManagerPtr{ 938002 };
-		constexpr REL::ID kContextNameTable{ 360965 };
+		constexpr REL::ID kEngineInputContextNameTable{ 360965 };
 		constexpr REL::ID kTranslateWideString{ 130928 };
 		constexpr REL::ID kControlsRemappedDispatch{ 88944 };
 
 		constexpr std::size_t kControlMapSize = 0x3A0;
-		constexpr std::size_t kContextSlotsOffset = 0x10;
-		constexpr std::size_t kContextCount = 0x4E;
-		constexpr std::size_t kContextNameCount = 0x51;
-		constexpr std::size_t kActiveContextsOffset = 0x2A8;
-		constexpr std::size_t kActiveContextStride = 0x10;
+		constexpr std::size_t kEngineInputContextSlotsOffset = 0x10;
+		constexpr std::size_t kEngineInputContextCount = 0x4E;
+		constexpr std::size_t kEngineInputContextNameCount = 0x51;
+		constexpr std::size_t kActiveEngineInputContextsOffset = 0x2A8;
+		constexpr std::size_t kActiveEngineInputContextStride = 0x10;
 		constexpr std::size_t kMappingStride = 0x28;
 		constexpr std::size_t kMaxMappingsPerDevice = 4096;
 		constexpr auto kRemapQuietPeriod = std::chrono::milliseconds(150);
 		constexpr auto kRemapMaximumDelay = std::chrono::seconds(1);
 
-		constexpr std::array<std::uint8_t, 58> kPreferredContextOrder{
+		constexpr std::array<std::uint8_t, 58> kPreferredEngineInputContextOrder{
 			0x00,
 			0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x4D,
 			0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
@@ -98,7 +98,7 @@ namespace OSFUI
 
 		struct GroupedRow
 		{
-			std::uint8_t contextId{};
+			std::uint8_t engineInputContextId{};
 			std::uint8_t sortIndex{ 0xFF };
 			bool required{ false };
 			std::string event;
@@ -208,12 +208,12 @@ namespace OSFUI
 			return std::nullopt;
 		}
 
-		bool SnapshotContextNames(std::array<std::string, kContextNameCount>& a_names)
+		bool SnapshotEngineInputContextNames(std::array<std::string, kEngineInputContextNameCount>& a_names)
 		{
-			REL::Relocation<std::uintptr_t> table{ kContextNameTable };
-			if (!IsReadableRange(table.address(), kContextNameCount * sizeof(std::uintptr_t))) return false;
+			REL::Relocation<std::uintptr_t> table{ kEngineInputContextNameTable };
+			if (!IsReadableRange(table.address(), kEngineInputContextNameCount * sizeof(std::uintptr_t))) return false;
 			const auto* entries = reinterpret_cast<const std::uintptr_t*>(table.address());
-			for (std::size_t id = 0; id < kContextNameCount; ++id) {
+			for (std::size_t id = 0; id < kEngineInputContextNameCount; ++id) {
 				const auto text = entries[id];
 				if (!text) continue;
 				std::array<char, 128> chars{};
@@ -247,7 +247,7 @@ namespace OSFUI
 		{
 			std::uint64_t hash = 14695981039346656037ull;
 			for (const auto& row : a_rows) {
-				HashInteger(hash, row.contextId);
+				HashInteger(hash, row.engineInputContextId);
 				HashInteger(hash, row.sortIndex);
 				HashInteger(hash, static_cast<std::uint8_t>(row.required));
 				HashInteger(hash, static_cast<std::uint32_t>(row.event.size()));
@@ -262,21 +262,21 @@ namespace OSFUI
 			return hash;
 		}
 
-		std::uint32_t ContextOrder(std::uint8_t a_contextId)
+		std::uint32_t EngineInputContextOrder(std::uint8_t a_engineInputContextId)
 		{
-			const auto found = std::ranges::find(kPreferredContextOrder, a_contextId);
-			return found == kPreferredContextOrder.end() ?
-				static_cast<std::uint32_t>(kPreferredContextOrder.size()) + a_contextId :
-				static_cast<std::uint32_t>(std::distance(kPreferredContextOrder.begin(), found));
+			const auto found = std::ranges::find(kPreferredEngineInputContextOrder, a_engineInputContextId);
+			return found == kPreferredEngineInputContextOrder.end() ?
+				static_cast<std::uint32_t>(kPreferredEngineInputContextOrder.size()) + a_engineInputContextId :
+				static_cast<std::uint32_t>(std::distance(kPreferredEngineInputContextOrder.begin(), found));
 		}
 
-		std::uint8_t CategoryOwner(std::uint8_t a_contextId)
+		std::uint8_t EngineInputCategoryOwner(std::uint8_t a_engineInputContextId)
 		{
-			if (a_contextId >= 0x06 && a_contextId <= 0x0A) return 0x06;
-			if (a_contextId >= 0x02 && a_contextId <= 0x05) return 0x02;
-			if (a_contextId == 0x21 || a_contextId == 0x22) return 0x21;
-			if (a_contextId == 0x26 || a_contextId == 0x27) return 0x26;
-			return a_contextId;
+			if (a_engineInputContextId >= 0x06 && a_engineInputContextId <= 0x0A) return 0x06;
+			if (a_engineInputContextId >= 0x02 && a_engineInputContextId <= 0x05) return 0x02;
+			if (a_engineInputContextId == 0x21 || a_engineInputContextId == 0x22) return 0x21;
+			if (a_engineInputContextId == 0x26 || a_engineInputContextId == 0x27) return 0x26;
+			return a_engineInputContextId;
 		}
 
 		std::uint32_t VirtualKeyToScan(std::uint32_t a_code)
@@ -362,8 +362,8 @@ namespace OSFUI
 			{ "available", false }, { "revision", _revision }, { "gameVersion", _gameVersion },
 			{ "error", _failureReason }, { "actions", nlohmann::json::array() },
 		};
-		_inputContextState = {
-			{ "available", false }, { "revision", _contextRevision }, { "mode", nullptr },
+		_engineInputContextState = {
+			{ "available", false }, { "revision", _engineInputContextRevision }, { "mode", nullptr },
 			{ "contexts", nlohmann::json::array() },
 		};
 	}
@@ -378,10 +378,10 @@ namespace OSFUI
 		_validatedActiveBytes = 0;
 		_remapPending = false;
 		_pendingRemapEdges = 0;
-		_activeContexts.clear();
+		_activeEngineInputContexts.clear();
 		_mode.reset();
 		++_revision;
-		++_contextRevision;
+		++_engineInputContextRevision;
 		EncodeUnavailableStates();
 		REX::ERROR("LiveControlMap: unavailable -- {} (Starfield {})", _failureReason, _gameVersion);
 	}
@@ -397,7 +397,7 @@ namespace OSFUI
 			_initialized = true;
 			return;
 		}
-		if (RebuildBindings(/*forceProjection*/ true) == RebuildResult::Failed || !RefreshActiveContexts()) {
+		if (RebuildBindings(/*forceProjection*/ true) == RebuildResult::Failed || !RefreshActiveEngineInputContexts()) {
 			_initialized = true;
 			return;
 		}
@@ -408,7 +408,7 @@ namespace OSFUI
 		}
 		_seenRemapGeneration = g_remapGeneration.load(std::memory_order_acquire);
 		_initialized = true;
-		REX::INFO("LiveControlMap: ready -- {} visible actions, revision {}, mode {}", _keybindingsState["actions"].size(),
+		REX::INFO("LiveControlMap: game-binding catalog published -- {} visible actions, revision {}, mode {}", _keybindingsState["actions"].size(),
 			_revision, _mode ? GameplayModeName(*_mode) : "unknown");
 	}
 
@@ -446,21 +446,24 @@ namespace OSFUI
 			Fail("ControlMap singleton or vtable failed validation");
 			return RebuildResult::Failed;
 		}
-		std::array<std::string, kContextNameCount> contextNames;
-		if (!SnapshotContextNames(contextNames) || contextNames[0x00] != "MainGameplay" || contextNames[0x49] != "Vehicle") {
-			Fail("input-context name table failed validation");
+		std::array<std::string, kEngineInputContextNameCount> engineInputContextNames;
+		if (!SnapshotEngineInputContextNames(engineInputContextNames) ||
+			engineInputContextNames[0x00] != "MainGameplay" || engineInputContextNames[0x49] != "Vehicle") {
+			Fail("engine input-context name table failed validation");
 			return RebuildResult::Failed;
 		}
 		const auto validated = Clock::now();
 
 		std::map<std::pair<std::uint8_t, std::string>, GroupedRow> grouped;
 		std::unordered_map<std::uintptr_t, std::string> stringCache;
-		const auto* contextSlots = reinterpret_cast<const std::uintptr_t*>(controlMap + kContextSlotsOffset);
-		for (std::uint8_t contextId = 0; contextId < kContextCount; ++contextId) {
-			const auto context = contextSlots[contextId];
-			if (!context) continue;
+		const auto* engineInputContextSlots =
+			reinterpret_cast<const std::uintptr_t*>(controlMap + kEngineInputContextSlotsOffset);
+		for (std::uint8_t engineInputContextId = 0; engineInputContextId < kEngineInputContextCount;
+			 ++engineInputContextId) {
+			const auto engineInputContext = engineInputContextSlots[engineInputContextId];
+			if (!engineInputContext) continue;
 			std::array<ArrayHeader, 2> deviceHeaders{};
-			if (!GuardedCopy(context, deviceHeaders.data(), sizeof(deviceHeaders))) {
+			if (!GuardedCopy(engineInputContext, deviceHeaders.data(), sizeof(deviceHeaders))) {
 				Fail("ControlMap device mapping headers were unreadable");
 				return RebuildResult::Failed;
 			}
@@ -487,8 +490,8 @@ namespace OSFUI
 						}
 						found = stringCache.emplace(mapping.eventEntry, *event).first;
 					}
-					auto& row = grouped[{ contextId, found->second }];
-					row.contextId = contextId;
+					auto& row = grouped[{ engineInputContextId, found->second }];
+					row.engineInputContextId = engineInputContextId;
 					row.event = found->second;
 					row.sortIndex = (std::min)(row.sortIndex, mapping.sortIndex);
 					row.required = row.required || mapping.required != 0;
@@ -514,13 +517,13 @@ namespace OSFUI
 			rows.push_back(std::move(row));
 		}
 		std::ranges::sort(rows, [](const GroupedRow& a, const GroupedRow& b) {
-			return std::tuple{ ContextOrder(a.contextId), a.sortIndex, a.event } <
-			       std::tuple{ ContextOrder(b.contextId), b.sortIndex, b.event };
+			return std::tuple{ EngineInputContextOrder(a.engineInputContextId), a.sortIndex, a.event } <
+			       std::tuple{ EngineInputContextOrder(b.engineInputContextId), b.sortIndex, b.event };
 		});
 		const auto structuralHash = HashRows(rows);
 		const auto sorted = Clock::now();
 		if (!a_forceProjection && _available && structuralHash == _bindingHash) {
-			_contextNames = std::move(contextNames);
+			_engineInputContextNames = std::move(engineInputContextNames);
 			if (_controlMapAddress != controlMap) {
 				_controlMapAddress = controlMap;
 				_validatedActiveData = 0;
@@ -551,14 +554,14 @@ namespace OSFUI
 			return value;
 		};
 		for (const auto& row : rows) {
-			const auto& contextName = contextNames[row.contextId];
-			const auto& categoryName = contextNames[CategoryOwner(row.contextId)];
-			if (contextName.empty() || categoryName.empty()) {
-				Fail("context name became unreadable during projection");
+			const auto& engineInputContextName = engineInputContextNames[row.engineInputContextId];
+			const auto& categoryName = engineInputContextNames[EngineInputCategoryOwner(row.engineInputContextId)];
+			if (engineInputContextName.empty() || categoryName.empty()) {
+				Fail("engine input-context name became unreadable during projection");
 				return RebuildResult::Failed;
 			}
-			const auto policy = ControlMapPolicy::Classify(row.contextId, contextName);
-			const auto baseToken = std::format("${}_{}", contextName, row.event);
+			const auto policy = ControlMapPolicy::Classify(row.engineInputContextId, engineInputContextName);
+			const auto baseToken = std::format("${}_{}", engineInputContextName, row.event);
 			auto label = translate(baseToken + "_KBM");
 			if (label.empty() || label == baseToken + "_KBM") label = translate(baseToken);
 			if (label.empty() || label == baseToken) label = row.event;
@@ -581,17 +584,20 @@ namespace OSFUI
 					{ "slot", slot }, { "key", code ? nlohmann::json(KeyName(static_cast<ScanCode>(code))) : nlohmann::json(nullptr) },
 					{ "chord", std::move(chord) }, { "unbound", code == 0 },
 				});
-				// Vanilla chords are display-only. Single-key main and alternate
+				// ControlMap chords are display-only. Single-key main and alternate
 				// bindings both participate in conflict analysis.
 				if (code && !modifier) {
-					conflicts.push_back({ row.event, label, contextName, slot, code, policy.classification,
+					conflicts.push_back({ row.event, label, engineInputContextName, slot, code, policy.classification,
 						policy.definiteModes, policy.possibleModes });
 				}
 			}
 
+			// `context` is a frozen public state key. Its value is specifically an
+			// engine input context, despite the historical unqualified spelling.
 			actions.push_back({
 				{ "event", row.event }, { "label", label }, { "category", category },
-				{ "context", { { "id", row.contextId }, { "name", contextName }, { "order", ContextOrder(row.contextId) } } },
+				{ "context", { { "id", row.engineInputContextId }, { "name", engineInputContextName },
+								 { "order", EngineInputContextOrder(row.engineInputContextId) } } },
 				{ "classification", ControlMapPolicy::ClassificationName(policy.classification) },
 				{ "modes", { { "definite", EncodeModes(policy.definiteModes) }, { "possible", EncodeModes(policy.possibleModes) } } },
 				{ "sortIndex", row.sortIndex }, { "required", row.required }, { "bindings", std::move(bindings) },
@@ -601,7 +607,7 @@ namespace OSFUI
 		const auto actionCount = actions.size();
 		_conflicts = std::move(conflicts);
 		_bindingHash = structuralHash;
-		_contextNames = std::move(contextNames);
+		_engineInputContextNames = std::move(engineInputContextNames);
 		_controlMapAddress = controlMap;
 		_validatedActiveData = 0;
 		_validatedActiveBytes = 0;
@@ -621,7 +627,7 @@ namespace OSFUI
 		return RebuildResult::Changed;
 	}
 
-	bool LiveControlMap::RefreshActiveContexts()
+	bool LiveControlMap::RefreshActiveEngineInputContexts()
 	{
 		if (!_available) return false;
 		if (!_controlMapAddress) {
@@ -632,15 +638,16 @@ namespace OSFUI
 		// Read this small game-owned header directly on the game thread. Validate
 		// its backing allocation only when the pointer grows or changes, not on
 		// every frame.
-		const auto header = *reinterpret_cast<const ArrayHeader*>(_controlMapAddress + kActiveContextsOffset);
+		const auto header = *reinterpret_cast<const ArrayHeader*>(
+			_controlMapAddress + kActiveEngineInputContextsOffset);
 		if (header.size > header.capacity || header.size > 128 || (header.size && !header.data)) {
-			Fail("active input-context stack failed shape validation");
+			Fail("active engine input-context stack failed shape validation");
 			return false;
 		}
-		const auto activeBytes = static_cast<std::size_t>(header.size) * kActiveContextStride;
+		const auto activeBytes = static_cast<std::size_t>(header.size) * kActiveEngineInputContextStride;
 		if (header.size && (header.data != _validatedActiveData || activeBytes > _validatedActiveBytes)) {
 			if (!IsReadableRange(header.data, activeBytes)) {
-				Fail("active input-context storage was unreadable");
+				Fail("active engine input-context storage was unreadable");
 				return false;
 			}
 			_validatedActiveData = header.data;
@@ -649,33 +656,36 @@ namespace OSFUI
 		std::array<std::uint8_t, 128> active{};
 		for (std::uint32_t i = 0; i < header.size; ++i) {
 			const auto id = *reinterpret_cast<const std::uint8_t*>(
-				header.data + static_cast<std::size_t>(i) * kActiveContextStride);
-			if (id >= kContextNameCount) {
-				Fail("active input-context entry failed validation");
+				header.data + static_cast<std::size_t>(i) * kActiveEngineInputContextStride);
+			if (id >= kEngineInputContextNameCount) {
+				Fail("active engine input-context entry failed validation");
 				return false;
 			}
 			active[i] = id;
 		}
 		const std::span<const std::uint8_t> activeSpan{ active.data(), header.size };
 		const auto mode = ControlMapPolicy::DeriveMode(activeSpan);
-		if (_activeContexts.size() == header.size &&
-			std::ranges::equal(_activeContexts, activeSpan) && mode == _mode && !_inputContextState.empty()) return false;
-		_activeContexts.assign(activeSpan.begin(), activeSpan.end());
+		if (_activeEngineInputContexts.size() == header.size &&
+			std::ranges::equal(_activeEngineInputContexts, activeSpan) && mode == _mode &&
+			!_engineInputContextState.empty()) return false;
+		_activeEngineInputContexts.assign(activeSpan.begin(), activeSpan.end());
 		_mode = mode;
-		nlohmann::json contexts = nlohmann::json::array();
-		for (const auto id : _activeContexts) {
-			const auto& name = _contextNames[id];
+		nlohmann::json activeEngineInputContexts = nlohmann::json::array();
+		for (const auto id : _activeEngineInputContexts) {
+			const auto& name = _engineInputContextNames[id];
 			if (name.empty()) {
-				Fail("active input-context name failed validation");
+				Fail("active engine input-context name failed validation");
 				return false;
 			}
-			contexts.push_back({ { "id", id }, { "name", name } });
+			activeEngineInputContexts.push_back({ { "id", id }, { "name", name } });
 		}
-		++_contextRevision;
-		_inputContextState = {
-			{ "available", true }, { "revision", _contextRevision },
+		++_engineInputContextRevision;
+		// `contexts` is a frozen public state key in the osfui/input-context
+		// document; every entry is an active engine input context.
+		_engineInputContextState = {
+			{ "available", true }, { "revision", _engineInputContextRevision },
 			{ "mode", _mode ? nlohmann::json(GameplayModeName(*_mode)) : nlohmann::json(nullptr) },
-			{ "contexts", std::move(contexts) },
+			{ "contexts", std::move(activeEngineInputContexts) },
 		};
 		return true;
 	}
@@ -704,14 +714,14 @@ namespace OSFUI
 			changes.keybindings = rebuilt == RebuildResult::Changed;
 			if (rebuilt == RebuildResult::Failed) {
 				changes.keybindings = true;
-				changes.inputContext = true;
+				changes.engineInputContext = true;
 				return changes;
 			}
 			REX::INFO("LiveControlMap: coalesced {} remap notification edge(s); snapshot {}",
 				edges, rebuilt == RebuildResult::Changed ? "changed" : "unchanged");
 		}
-		changes.inputContext = RefreshActiveContexts();
-		if (!_available) changes.keybindings = changes.inputContext = true;
+		changes.engineInputContext = RefreshActiveEngineInputContexts();
+		if (!_available) changes.keybindings = changes.engineInputContext = true;
 		return changes;
 	}
 

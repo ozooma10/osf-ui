@@ -16,7 +16,7 @@ import type { RuntimeInfo, JsonObject, I18nCatalog, PapyrusArgument, PapyrusCall
 export interface RequestOptions {
   /**
    * Milliseconds before the request rejects with code "timeout". Default 10000.
-   * `0` disables only the CLIENT timer; the host still answers "no-response"
+   * `0` disables only the CLIENT timer; the OSF UI runtime still answers "no-response"
    * at its own 30 s deadline, so a request can no longer hang forever.
    */
   timeoutMs?: number;
@@ -39,7 +39,7 @@ export interface Bridge {
   onAny<T = unknown>(event: string, fn: (payload: T) => void): () => void;
 
   /**
-   * Subscribe to a named backend value: the handler runs IMMEDIATELY with the
+   * Subscribe to a named state value: the handler runs IMMEDIATELY with the
    * current value if one has arrived, and again on every change — including
    * after a reload, because state is replayed to every fresh document. This is
    * why a correct view needs no lifecycle code.
@@ -52,7 +52,7 @@ export interface Bridge {
   /** Declare meaningful readiness for a manifest with readySignal:true. */
   markReady(): boolean;
 
-  /** Resolves with the runtime info. Rejects "no-bridge" standalone. */
+  /** Resolves with OSF UI runtime handshake info. Rejects "no-bridge" standalone. */
   ready(): Promise<RuntimeInfo>;
 
   /** Resolves once the first i18n catalog has arrived (or failed over to English). */

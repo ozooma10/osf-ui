@@ -165,7 +165,7 @@ describe('Dropdown interaction', () => {
     expect(document.activeElement).toBe(trigger);
   });
 
-  it('uses Escape for the dropdown rather than allowing it to close the surface', () => {
+  it('uses Escape for the dropdown rather than allowing it to close the view', () => {
     const trigger = mount();
     trigger.focus();
     act(() => trigger.click());

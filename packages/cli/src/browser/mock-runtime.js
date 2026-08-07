@@ -1,16 +1,16 @@
 // The mock runtime, loaded into the view iframe by mock-loader.js.
 //
-// Two tiers, matching @osfui/cli's declared surface:
+// Two tiers, matching @osfui/cli's declared mock API:
 //   - simple: `export default defineMock({state, locale, locales, requests,
 //     scenarios})` — served by the scenario engine below. `requests` values
 //     may be plain JSON, {$payload}, or (async) functions of the
-//     command payload. `?scenario=<name>` (or ctx code) overlays a named
+//     endpoint payload. `?scenario=<name>` (or ctx code) overlays a named
 //     scenario onto the base fields.
 //   - escape hatch: `export function install(ctx)` — gets the MockContext and
-//     may register command handlers, push messages, or take over
+//     may register endpoint handlers, push messages, or take over
 //     window.osfui.postMessage wholesale (the repo's own mockbridge does).
 //
-// The pure pieces (scenario resolution, the command engine) take no DOM so
+// The pure pieces (scenario resolution, the endpoint engine) take no DOM so
 // they are unit-tested under node --test.
 
 import { pseudoize, pseudoizeStrings } from './pseudo.js';
@@ -42,8 +42,13 @@ export function resolveScenario(mock, name) {
   };
 }
 
+function reportIoProtocolFault(io, code, message) {
+  const report = io.reportProtocolFault || io.surface;
+  if (typeof report === 'function') report(code, message);
+}
+
 /**
- * Endpoints every host answers, split by KIND — because the kind is what a
+ * Endpoints the OSF UI runtime answers, split by KIND — because the kind is what a
  * caller dispatches on, and a mock that got it wrong would let a view ship a
  * `send` to a request endpoint that only fails against the real runtime.
  * A mock does not need to declare any of these.
@@ -152,13 +157,13 @@ export function createScenarioHandler(scenario, meta) {
     }
     if (kind === 'send' && name === 'papyrus.call' &&
         String(payload.script || '').toLowerCase() === 'osfui') {
-      io.surface('forbidden',
+      reportIoProtocolFault(io, 'forbidden',
         "papyrus.call cannot target OSF UI's own script — use the osfui.* endpoints");
       return true;
     }
     if (kind === 'send' && name === 'osfui.handoffRetry' &&
         meta.qualifiedId !== 'osfui/handoff') {
-      io.surface('forbidden', 'osfui.handoffRetry is a platform action');
+      reportIoProtocolFault(io, 'forbidden', 'osfui.handoffRetry is a platform action');
       return true;
     }
     const response = await respond(name, payload);
@@ -171,8 +176,8 @@ export function createScenarioHandler(scenario, meta) {
     }
     if (kind === 'send') {
       if (!PLATFORM_SENDS.has(name)) {
-        // Surfaced, not silent — the whole point of the 2.0 error routing.
-        io.surface('unknown-endpoint', 'No mock handles the send "' + name + '".');
+        // Reported, not silent — the whole point of the 2.0 error routing.
+        reportIoProtocolFault(io, 'unknown-endpoint', 'No mock handles the send "' + name + '".');
       }
       return true;
     }
@@ -200,7 +205,7 @@ function safeStorage() {
   }
 }
 
-/** Transient toast inside the view page for mocked commands whose real effect
+/** Transient toast inside the view page for mocked endpoint calls whose real effect
  * is outside the browser. Inline-styled: the view page has no harness CSS. */
 function notify(text) {
   const toast = document.createElement('div');
@@ -291,8 +296,8 @@ export async function installMock(harness, mod, loadError) {
       reject: (code, message) => once({ kind: 'error', id, payload: { code, message: message || '' } }),
     };
   };
-  // Host-detected misuse a `send` caller would otherwise never hear about.
-  const surface = (view) => (code, message) =>
+  // Runtime-detected misuse a `send` caller would otherwise never hear about.
+  const reportProtocolFault = (view) => (code, message) =>
     emit({ kind: 'event', name: 'osfui.debug.error', payload: { code, message, detail: { view } } });
   const engine = createScenarioHandler(scenario, meta);
 
@@ -318,7 +323,15 @@ export async function installMock(harness, mod, loadError) {
       return;
     }
     const { resolve, reject } = settlers(id);
-    const io = { report: harness.report, resolve, reject, surface: surface(meta.qualifiedId) };
+    const reportFault = reportProtocolFault(meta.qualifiedId);
+    const io = {
+      report: harness.report,
+      resolve,
+      reject,
+      reportProtocolFault: reportFault,
+      // Frozen compatibility spelling for existing mock handlers.
+      surface: reportFault,
+    };
     for (const entry of chain) {
       try {
         if (await entry(kind, name, payload, io) === true) return;
@@ -482,6 +495,10 @@ export async function installMock(harness, mod, loadError) {
       harness.report('in', message);
       harness.deliver(message);
     },
+    onEndpoint(entry) {
+      if (typeof entry === 'function') chain.push(entry);
+    },
+    // Compatibility alias for mock modules generated before endpoint naming.
     onCommand(entry) {
       if (typeof entry === 'function') chain.push(entry);
     },
@@ -507,7 +524,7 @@ export async function installMock(harness, mod, loadError) {
     if (meta.nativeBridge && typeof current === 'function' && current !== harness.bridgeEntry) {
       postTools();
       harness.setHandler(current);
-      harness.ready();
+      harness.previewInitialized();
       return;
     }
   }
@@ -516,7 +533,7 @@ export async function installMock(harness, mod, loadError) {
 
   await domReady();
   if (!meta.nativeBridge) {
-    harness.ready();
+    harness.previewInitialized();
     return;
   }
   const kit = await kitReady(harness);
@@ -536,6 +553,6 @@ export async function installMock(harness, mod, loadError) {
     setPseudoWrap(locale === 'pseudo');
     emit(localeState(locale));
   });
-  harness.ready();
+  harness.previewInitialized();
   harness.setHandler(handler);
 }

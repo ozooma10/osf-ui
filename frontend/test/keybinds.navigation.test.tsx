@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 //
-// Four shipped keybinds behaviours that look like bugs from the outside:
+// Four shipped Keybindings behaviours that look like bugs from the outside:
 // selecting the selected key deselects it; search re-scopes the board and list
 // but not the detail panel; a click inside a row's button is not a click on the
-// row; goBack opens the hub and only closes the overlay if that fails.
+// row; goBack opens Mod Settings and only closes the overlay if that fails.
 //
 // The board's data is the `osfui/settings` STATE key, so the fake seeds it the
-// way the host replays it to a fresh document: there is no read to issue, and
+// way the OSF UI runtime replays it to a fresh document: there is no read to issue, and
 // the very first paint is populated.
 
 import { describe, it, expect, afterEach } from 'vitest';
@@ -229,7 +229,7 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
-describe('keybinds — selection', () => {
+describe('Keybindings — selection', () => {
   it('selectKey TOGGLES: clicking the selected key deselects it', async () => {
     // Toggling is the only way to clear the panel — there is no close affordance.
     const el = await mount(seeded());
@@ -261,13 +261,13 @@ describe('keybinds — selection', () => {
   });
 });
 
-describe('keybinds — search scope', () => {
+describe('Keybindings — search scope', () => {
   it('repaints the board and the list but NOT the detail panel', async () => {
     // Re-scoping the detail panel on every keystroke would make the inspected
     // key vanish while you type its name.
     const el = await mount(seeded());
 
-    // Select F5 — a mod binding plus the vanilla Quicksave, i.e. a conflict.
+    // Select F5 — a mod binding plus Starfield's Quicksave binding, i.e. a conflict.
     cell(el, 'F5').click();
     await flush();
 
@@ -305,7 +305,7 @@ describe('keybinds — search scope', () => {
   });
 });
 
-describe('keybinds — list priority on the keyboard map', () => {
+describe('Keybindings — list priority on the keyboard map', () => {
   it('prioritizes occupied keys represented by the active list filter', async () => {
     const el = await mount(seededWithLiveKeys());
 
@@ -337,7 +337,7 @@ describe('keybinds — list priority on the keyboard map', () => {
   });
 });
 
-describe('keybinds — list row activation', () => {
+describe('Keybindings — list row activation', () => {
   it('IGNORES a row click that landed inside a button', async () => {
     // A Rebind click must stay a rebind; otherwise arming a capture would also
     // change the selection out from under the user.
@@ -364,7 +364,7 @@ describe('keybinds — list row activation', () => {
   });
 });
 
-describe('keybinds — capture settles in two steps', () => {
+describe('Keybindings — capture settles in two steps', () => {
   it('arms with a request and commits from the settings.captured EVENT', async () => {
     // The request answers "am I armed?" in machine time; the key the player
     // presses arrives later, as an event, however long they take. 1.x carried
@@ -404,10 +404,10 @@ describe('keybinds — capture settles in two steps', () => {
   });
 });
 
-describe('keybinds — goBack', () => {
-  it('opens the hub, and falls back to a bare close when that rejects', async () => {
-    // Single-menu policy: opening the hub replaces this menu, so the happy path
-    // needs no close. The fallback stops an unregistered hub view from stranding
+describe('Keybindings — goBack', () => {
+  it('opens Mod Settings, and falls back to a bare close when that rejects', async () => {
+    // Single-menu policy: opening Mod Settings replaces this menu, so the happy path
+    // needs no close. The fallback stops an unregistered Mod Settings view from stranding
     // the user in a menu they cannot leave.
     const bridge = seeded();
     const el = await mount(bridge);
@@ -419,7 +419,7 @@ describe('keybinds — goBack', () => {
     // reject, which a send could never tell us.
     const open = bridge.requests.find((r) => r.name === 'menu.open');
     expect(open).toEqual({ name: 'menu.open', payload: { view: 'osfui/settings' } });
-    // Nothing closed yet — the hub is expected to take over.
+    // Nothing closed yet — Mod Settings is expected to take over.
     expect(bridge.sent.some((s) => s.name === 'close')).toBe(false);
 
     const err = Object.assign(new Error('unknown view'), { code: 'unknown-view' });

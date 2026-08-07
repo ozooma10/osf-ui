@@ -5,7 +5,7 @@
 // Protocol 2.0: the engine is handed the envelope's KIND alongside its name, so
 // a send and a request naming the same endpoint are different events. Requests
 // settle through io.resolve / io.reject; a send has nothing to settle and gets
-// io.surface when the harness cannot place it.
+// io.reportProtocolFault when the harness cannot place it.
 
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -23,20 +23,22 @@ const META = { modId: 'acme.widgets', qualifiedId: 'acme.widgets/panel' };
 
 function harness(scenario) {
   const settled = [];
-  const surfaced = [];
+  const faults = [];
   const reports = [];
   const engine = createScenarioHandler(resolveScenario(scenario, null), META);
   const io = {
     resolve: (payload) => settled.push({ ok: true, payload }),
     reject: (code, message) => settled.push({ ok: false, code, message }),
-    surface: (code, message) => surfaced.push({ code, message }),
+    reportProtocolFault: (code, message) => faults.push({ code, message }),
+    // Exercise the frozen compatibility spelling alongside the canonical callback.
+    surface: (code, message) => faults.push({ code, message }),
     report: (direction, message, level) => reports.push({ direction, message, level }),
   };
   return {
     request: (name, payload = {}) => engine('request', name, payload, io),
     send: (name, payload = {}) => engine('send', name, payload, io),
     settled,
-    surfaced,
+    faults,
     reports,
   };
 }
@@ -79,11 +81,11 @@ test('an unknown papyrus request rejects instead of hanging the caller', async (
   assert.equal(h.settled[0].code, 'mock-unhandled');
 });
 
-test('sending to papyrus.request is surfaced as a wrong-kind endpoint', async () => {
+test('sending to papyrus.request reports a wrong-kind protocol fault', async () => {
   const h = harness({ requests: { 'papyrus.GetCount': 2 } });
   await h.send('papyrus.request', { name: 'GetCount' });
   assert.equal(h.settled.length, 0);
-  assert.equal(h.surfaced[0].code, 'unknown-endpoint');
+  assert.equal(h.faults[0].code, 'unknown-endpoint');
 });
 
 test('built-in request endpoints resolve without configuration', async () => {
@@ -142,18 +144,18 @@ test('platform request authority and papyrus.call security match the runtime', a
 
   const papyrus = harness({});
   await papyrus.send('papyrus.call', { script: 'OsFuI', function: 'SetString' });
-  assert.equal(papyrus.surfaced[0].code, 'forbidden');
+  assert.equal(papyrus.faults[0].code, 'forbidden');
 
   const handoff = harness({});
   await handoff.send('osfui.handoffRetry');
-  assert.equal(handoff.surfaced[0].code, 'forbidden');
+  assert.equal(handoff.faults[0].code, 'forbidden');
 });
 
 test('a built-in SEND is accepted silently — there is nothing to settle', async () => {
   const h = harness({});
   await h.send('view.ready');
   assert.equal(h.settled.length, 0);
-  assert.equal(h.surfaced.length, 0);
+  assert.equal(h.faults.length, 0);
 });
 
 test('requesting a send endpoint is a kind mismatch, not a missing mock', async () => {
@@ -163,7 +165,7 @@ test('requesting a send endpoint is a kind mismatch, not a missing mock', async 
   assert.equal(h.settled[0].code, 'wrong-endpoint-kind');
 });
 
-test('an unhandled request rejects; an unhandled send is surfaced, never silent', async () => {
+test('an unhandled request rejects; an unhandled send reports a protocol fault', async () => {
   const h = harness({});
   await h.request('acme.widgets.mystery');
   assert.equal(h.settled[0].ok, false);
@@ -175,8 +177,21 @@ test('an unhandled request rejects; an unhandled send is surfaced, never silent'
   const send = harness({});
   await send.send('acme.widgets.mystery');
   assert.equal(send.settled.length, 0);
-  assert.equal(send.surfaced.length, 1);
-  assert.equal(send.surfaced[0].code, 'unknown-endpoint');
+  assert.equal(send.faults.length, 1);
+  assert.equal(send.faults[0].code, 'unknown-endpoint');
+});
+
+test('the deprecated io.surface-only fixture shape remains compatible', async () => {
+  const faults = [];
+  const engine = createScenarioHandler(resolveScenario({}, null), META);
+  await engine('send', 'acme.widgets.mystery', {}, {
+    resolve() {},
+    reject() {},
+    surface: (code, message) => faults.push({ code, message }),
+    report() {},
+  });
+  assert.equal(faults.length, 1);
+  assert.equal(faults[0].code, 'unknown-endpoint');
 });
 
 test('a scenario answer to a one-way send is reported as an authoring mistake', async () => {

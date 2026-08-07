@@ -4,10 +4,10 @@
 
 namespace OSFUI
 {
-	void ViewLifecycle::NoteLoaded(std::string_view a_id, bool a_warm, double a_now)
+	void ViewLifecycle::NoteInstantiated(std::string_view a_id, bool a_pinned, double a_now)
 	{
 		_entries[std::string(a_id)] = Entry{
-			.warm = a_warm,
+			.pinned = a_pinned,
 			.visible = false,
 			.suspendRequested = false,
 			.hiddenSince = a_now,
@@ -68,7 +68,7 @@ namespace OSFUI
 		_entries.erase(std::string(a_id));
 	}
 
-	void ViewLifecycle::OnHostRestart(double a_now)
+	void ViewLifecycle::OnBrowserHostRestart(double a_now)
 	{
 		for (auto& [id, entry] : _entries) {
 			(void)id;
@@ -90,7 +90,7 @@ namespace OSFUI
 				continue;
 			}
 			const auto hiddenFor = (std::max)(0.0, a_now - entry.hiddenSince);
-			if (!entry.warm && !entry.open) {
+			if (!entry.pinned && !entry.open) {
 				if (hiddenFor >= kDestroyAfterHiddenSeconds) {
 					actions.destroy.push_back(id);
 					continue;

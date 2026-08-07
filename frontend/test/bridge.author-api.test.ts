@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// Pins the AUTHOR-facing surface of the shipped helper by loading the real
+// Covers the author-facing API of the shipped helper by loading the real
 // src/shared-kit/osfui.js: third-party views get this exact object, so the
 // spellings below are the published mod API 2.0 contract, not an internal.
 
@@ -19,7 +19,7 @@ interface Sent {
   payload: Record<string, unknown>;
 }
 
-/** The helper owns the `onMessage` slot the SDK declares as the host's. */
+/** The helper owns the bridge transport's `onMessage` slot declared by the SDK. */
 type Helper = OSFUIHelper & { onMessage(json: string): void };
 
 function loadHelper(): { helper: Helper; sent: Sent[] } {
@@ -45,9 +45,9 @@ function lastPosted(sent: Sent[]): Sent {
 }
 
 describe('author-friendly bridge helpers', () => {
-  it('greets the host itself, so first open and F5 are one boot path', () => {
+  it('greets the OSF UI runtime itself, so first open and F5 are one boot path', () => {
     // Page-initiated handshake: the helper sends osfui.hello the moment it
-    // loads, and the host answers `ready` + a full state replay. Nothing in a
+    // loads, and the OSF UI runtime answers `ready` + a full state replay. Nothing in a
     // view has to "re-request my data on reload" — which is why every other
     // test here reads the envelope AFTER this one.
     const { sent } = loadHelper();

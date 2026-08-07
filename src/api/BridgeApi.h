@@ -22,7 +22,7 @@ namespace OSFUI::API
 	// SFSE plugin talks to via OSFUI_RequestBridge (src/api/Exports.cpp).
 	//
 	// All ABI methods are callable from any thread;
-	// Send/request/ready callbacks fire on the main thread. See docs/native-plugin-api.md.
+	// Send/request/bridge-availability callbacks fire on the main thread. See docs/native-plugin-api.md.
 	class BridgeApi final : public IOSFUIBridge
 	{
 	public:
@@ -66,23 +66,23 @@ namespace OSFUI::API
 
 		// Runtime wiring (main thread only).
 		// A menu open/close a sibling plugin requested via RequestMenu.
-		struct MenuRequest
+		struct ViewPresentationRequest
 		{
 			std::string view;
 			bool        open{ true };
 		};
 		// Drain the queued menu requests. Runtime snapshots these at the top of
-		// Tick and applies each through its own menu policy (_menus.Open/Close +
-		// ApplyMenuPolicy) after PumpMainThread, which is what guarantees
+		// Tick and applies each through view-presentation policy (open/close +
+		// ApplyViewPresentationPolicy) after PumpMainThread, which is what guarantees
 		// SendToWeb lands before RequestMenu.
-		std::vector<MenuRequest> TakeMenuRequests();
+		std::vector<ViewPresentationRequest> TakeViewPresentationRequests();
 
 		// Install the boot discovery catalog used by RequestMenu's synchronous
-		// existence check, and mirror surface load/unload transitions for close
+		// existence check, and mirror view instantiation/teardown transitions for close
 		// validation. Runtime owns the catalog; these copies are protected by the
 		// API mutex because RequestMenu is callable from any thread.
 		void SetViewCatalog(const std::vector<std::string>& a_viewIds);
-		void SetSurfaceLoaded(std::string_view a_viewId, bool a_loaded);
+		void SetViewInstantiated(std::string_view a_viewId, bool a_instantiated);
 
 		// A queued RegisterSettingsSchema (schema is an object) or
 		// UnregisterSettingsSchema (schema is null, modId set) — already
@@ -101,7 +101,7 @@ namespace OSFUI::API
 		// validated synchronously; the registry write happens on the main tick.
 		// FIFO across all three kinds so a report-then-sweep pair from one
 		// producer lands in call order.
-		struct DiagnosticOp
+		struct HealthIssueOp
 		{
 			enum class Kind
 			{
@@ -119,9 +119,9 @@ namespace OSFUI::API
 			std::vector<std::string> keep;     // kClearExcept only: producer-local ids to keep
 		};
 		// Drain the queued health reports. Runtime applies them to the
-		// DiagnosticsModule in DrainDiagnosticOps, inside PumpDiagnostics, so the
+		// HealthRegistry in RuntimeHealthCoordinator, so the
 		// broadcast that follows carries them.
-		std::vector<DiagnosticOp> TakeDiagnosticOps();
+		std::vector<HealthIssueOp> TakeHealthIssueOps();
 
 		// One queued SetViewState, already validated and parsed
 		// synchronously; the store write happens on the main tick.
@@ -132,13 +132,13 @@ namespace OSFUI::API
 			nlohmann::json value;
 		};
 		// Drain the queued state writes. Runtime retains each in the shared
-		// ViewStateStore (NOT session-scoped: unlike Papyrus values these hold
-		// no form identities) and publishes it to the mod's live views.
+		// RetainedStateStore (NOT session-scoped: unlike Papyrus values these hold
+		// no form identities) and publishes it to the mod's instantiated views.
 		std::vector<ViewStateOp> TakeViewStateOps();
 
 		// A plugin requested the bridge during SFSE load. ABI 1.x is temporarily
 		// adapted; unrelated majors are refused. Record either outcome so Runtime
-		// can raise one concrete, persistent compatibility card per DLL.
+		// can raise one concrete, persistent compatibility issue per DLL.
 		void NoteLegacyApiCaller(std::string a_moduleName, std::uint32_t a_major,
 			std::uint32_t a_minor, bool a_supported = false);
 		struct LegacyCaller
@@ -148,7 +148,7 @@ namespace OSFUI::API
 			std::uint32_t minor{ 0 };
 			bool          supported{ false };
 		};
-		// One card per mod, bounded. The producer's own dedupe only covers the
+		// One issue per mod, bounded. The producer's own dedupe only covers the
 		// window between drains — TakeLegacyApiCallers empties the set — so the
 		// ACCUMULATING side has to re-apply both, or a plugin that retries on
 		// every load screen grows the list for the whole session.
@@ -156,31 +156,31 @@ namespace OSFUI::API
 		std::vector<LegacyCaller> TakeLegacyApiCallers();
 
 		// Drain queued RegisterView ids. Runtime validates each before the menu
-		// request snapshot; openOnStart views load there, while ordinary views stay
-		// lazy. RegisterView -> SendToWeb -> RequestMenu issued back-to-back still
+		// request snapshot; openOnStart views are instantiated there, while ordinary
+		// views stay uninstantiated. RegisterView -> SendToWeb -> RequestMenu issued back-to-back still
 		// lands in one tick (ABI 1.5).
 		std::vector<std::string> TakeViewRegistrations();
 
 		// The any-thread settings value mirror the ABI typed getters read
-		// (mcm-design.md §8.2). Runtime::BuildModules feeds it from the store's
+		// Runtime::BuildModules feeds it from the store's
 		// change/registry listeners on the main thread; the getters (and the
 		// Papyrus natives) read it from any thread.
 		[[nodiscard]] SettingsMirror& Mirror() { return _mirror; }
 
-		// SubscribeSettings bookkeeping (mcm-design.md §8.2). Runtime's store
+		// SubscribeSettings bookkeeping. The OSF UI runtime's store
 		// change listener feeds OnChanged (right after Mirror().Update, main
 		// thread); PumpMainThread drains replays + queued changes each tick.
 		[[nodiscard]] SettingsSubscriptions& Subscriptions() { return _subscriptions; }
 
-		// SubscribeHotkey bookkeeping (mcm-design.md §9). Runtime::DrainHotkeys
+		// SubscribeHotkey bookkeeping. Runtime::DrainHotkeys
 		// feeds OnFired (main thread); PumpMainThread drains the queue each tick.
 		[[nodiscard]] HotkeySubscriptions& Hotkeys() { return _hotkeys; }
 
-		// Hand the live MessageBridge (or nullptr when no nativeBridge view exists)
+		// Hand the available MessageBridge (or nullptr when no bridge-enabled view exists)
 		// to the API. A different pointer than last time triggers a full re-apply.
-		void OnBridgeReady(MessageBridge* a_bridge);
-		// Main thread; call each tick. (Re)applies the endpoint registry to the live
-		// bridge, flushes queued sends, fires the ready callback once.
+		void SetBridgeAvailability(MessageBridge* a_bridge);
+		// Main thread; call each tick. (Re)applies the endpoint registry to the available
+		// bridge, flushes queued sends, fires the compatibility availability callback once.
 		void PumpMainThread(std::chrono::steady_clock::time_point a_now = std::chrono::steady_clock::now());
 
 	private:
@@ -256,15 +256,15 @@ namespace OSFUI::API
 		std::unordered_map<std::uint64_t, InflightRequest> _inflightRequests;
 		std::uint64_t                                 _nextRequestToken{ 1 };
 		std::vector<PendingSend>                       _pendingSends;
-		std::vector<MenuRequest>                      _pendingMenuReqs;    // RequestMenu ops, drained by Runtime
-		std::unordered_set<std::string>               _knownViews;         // boot-discovered manifest ids
-		std::unordered_set<std::string>               _loadedViews;        // renderer surfaces with a live page
+		std::vector<ViewPresentationRequest>          _pendingViewPresentationRequests;  // RequestMenu compatibility ops, drained by Runtime
+		std::unordered_set<std::string>               _knownViews;         // boot-discovered qualified view ids
+		std::unordered_set<std::string>               _instantiatedViews;  // views with an instantiated document
 		bool                                          _viewCatalogReady{ false };
 		std::vector<SchemaOp>                         _pendingSchemaOps;   // schema (un)registrations, drained by Runtime
 		std::vector<ViewStateOp>                      _pendingStateOps;    // SetViewState writes, drained by Runtime
 		std::vector<LegacyCaller>                     _legacyCallers;      // ABI-major-mismatched RequestBridge callers
 		std::vector<std::string>                      _pendingViewRegs;    // RegisterView ids, drained by Runtime
-		std::vector<DiagnosticOp>                     _pendingDiagnostics; // health reports, drained by Runtime
+		std::vector<HealthIssueOp>                    _pendingHealthIssueOps;  // health reports, drained by Runtime
 		MessageBridge*                                _bridge{ nullptr };         // non-owning; set on main thread
 		MessageBridge*                                _appliedBridge{ nullptr };  // bridge we last applied to
 		bool                                          _dirty{ false };            // endpoint set changed since apply
@@ -274,6 +274,6 @@ namespace OSFUI::API
 		bool                                          _readyInvoking{ false };
 		std::thread::id                               _readyInvokingThread{};
 		bool                                          _readyFired{ false };
-		std::atomic_bool                              _ready{ false };            // IsBridgeReady() fast path
+		std::atomic_bool                              _bridgeAvailable{ false };  // IsBridgeReady() compatibility fast path
 	};
 }

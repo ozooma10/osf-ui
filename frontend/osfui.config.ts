@@ -15,7 +15,7 @@ import { VIEWS } from './scripts/config.mjs';
 
 export default defineConfig({
   modId: 'osfui',
-  // Order matters: views[0] is the surface `osfui dev` opens first.
+  // Order matters: views[0] is the view `osfui dev` opens first.
   views: VIEWS
     .map(({ name: id, manifest }) => ({
       id,

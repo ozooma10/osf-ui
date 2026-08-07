@@ -10,7 +10,7 @@ export const validModId = (value) =>
 export const CHOICES = {
   surface: [
     { value: 'menu', label: 'Menu', hint: 'a focused screen with user input' },
-    { value: 'hud', label: 'HUD', hint: 'an overlay shown during gameplay' },
+    { value: 'hud', label: 'HUD', hint: 'a persistent view shown during gameplay' },
     { value: 'settings', label: 'Settings only', hint: 'a settings page and a hotkey, no view code' },
   ],
   integration: [
@@ -50,7 +50,7 @@ export async function promptMissing(
     return false;
   }
 
-  prompt.intro('Create an OSF UI view');
+  prompt.intro('Create an OSF UI starter');
 
   options.directory ||= answer(prompt, await prompt.text({
     message: 'Directory name',
@@ -70,10 +70,11 @@ export async function promptMissing(
       : `Use lowercase author.mod-name format (at most ${MAX_MOD_ID_LENGTH} characters).`,
   }));
 
-  // Surface comes before View ID and workflow because "settings only" answers
-  // both of them: it ships no view, and Papyrus is its only backend.
+  // Starter type comes before View name and workflow because "settings only"
+  // answers both of them: it ships no view, and Papyrus is its only mod backend.
+  // `surface` remains the stable CLI/config option name for compatibility.
   options.surface ||= answer(prompt, await prompt.select({
-    message: 'Choose a surface',
+    message: 'Choose a starter type',
     options: CHOICES.surface,
     initialValue: 'menu',
   }));
@@ -85,7 +86,7 @@ export async function promptMissing(
   }
 
   options.view ||= answer(prompt, await prompt.text({
-    message: 'View ID',
+    message: 'View name',
     placeholder: 'main',
     defaultValue: 'main',
     validate: (value) => !value || ID.test(value)

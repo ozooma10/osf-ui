@@ -18,9 +18,9 @@ namespace OSFUI
 		bool network{ false };
 	};
 
-	// menu = modal overlay (can capture input, becomes the active view).
-	// hud = passive overlay drawn over gameplay; never captures input.
-	enum class SurfaceKind : std::uint8_t
+	// menu = view eligible for the active-menu slot and input/pause policy.
+	// hud = view presented over gameplay; never captures input.
+	enum class ViewKind : std::uint8_t
 	{
 		Menu,
 		Hud,
@@ -29,18 +29,17 @@ namespace OSFUI
 	// Mirrors views/<modId>/<viewName>/manifest.json (api-freeze-plan item 1).
 	struct ViewManifest
 	{
-		// Qualified view id "<modId>/<viewName>", derived from the folder path,
-		// not the file. The manifest's `id` field must equal the view folder
-		// name, but is only a consistency check.
+		// Qualified view id "<modId>/<viewName>", derived entirely from the folder
+		// path. A legacy manifest `id` field is accepted but ignored.
 		std::string           id;
 		std::string           title;
-		std::string           description;  // one-line blurb for catalogs (views.data / the Mods surface)
+		std::string           description;  // one-line blurb for catalogs (`osfui/views` state / Mod Settings)
 		// Optional UI accent used by platform chrome such as the first-load
 		// handoff. Canonical #rrggbb; empty means the OSF UI default.
 		std::string           accent;
 		// Owning mod id = the mod folder name under views/. Matches the settings
-		// mod id (settings/<modId>.json / RegisterSettingsSchema) so the Mods
-		// surface groups a mod's terminals/HUDs onto its settings page.
+		// mod id (settings/<modId>.json / RegisterSettingsSchema) so Mod Settings
+		// groups a mod's menu/HUD views onto its settings page.
 		std::string           mod;
 		std::string           entry{ "index.html" };
 		// Logical (authoring) size; the page always lays out at this size. The
@@ -49,15 +48,15 @@ namespace OSFUI
 		std::uint32_t         width{ kDefaultViewWidth };
 		std::uint32_t         height{ kDefaultViewHeight };
 		bool                  transparent{ true };
-		bool                  interactive{ true };  // may receive input and become the active (focused) view. Derived from kind (menu=true, hud=false); not a manifest field
+		bool                  menuInputEligible{ true };  // menu-kind capability summary; derived from kind and serialized as compatibility field `interactive`
 		ViewPermissions       permissions;
 		std::filesystem::path rootDir;  // directory containing the manifest
 
-		SurfaceKind kind{ SurfaceKind::Menu };  // "menu" | "hud"
+		ViewKind kind{ ViewKind::Menu };  // "menu" | "hud"
 
-		// Menu-only: while this is the top open menu, freeze the game and route input into the page. Forced false for HUDs.
+		// Menu-only: while this is the active menu, route input into the page. Forced false for HUDs.
 		bool capturesInput{ true };
-		// Menu-only: pause simulation while this is the top open menu (engine
+		// Menu-only: pause simulation while this is the active menu (engine
 		// pause-request counter via input/SimPause). Defaults true so menus pause
 		// like native ones; a menu that wants the world running sets
 		// "pausesGame": false. Forced false for HUDs.
@@ -66,28 +65,28 @@ namespace OSFUI
 		// Menu: open at load. HUD: show at load.
 		bool openOnStart{ false };
 
-		// HUD-only within-band paint order for the MenuController, clamped
+		// HUD-only within-band paint order for ViewPresentationController, clamped
 		// 0..999; higher draws on top. Ignored for menus, which composite above
-		// HUDs and stack by open order. The compositor's raw sort key comes from
+		// HUDs; only one menu is active at a time. The compositor's raw sort key comes from
 		// the framework band, not from the manifest.
 		std::int32_t order{ 0 };
 
-		// List this view in catalogs (views.data → the Mods surface rail).
+		// List this view in catalogs (`osfui/views` state → the Mod Settings rail).
 		// false = hidden utility view; still loads and works, just unadvertised.
-		// Field name predates the Mods surface, kept for compat.
-		bool hub{ true };
-		// Kept out of the mod menu unless config.json devMode is on; still loads
+		// Field name predates Mod Settings, kept for compatibility.
+		bool catalogVisible{ true };  // serialized compatibility key: `hub`
+		// Kept out of Mod Settings unless config.json devMode is on; still loads
 		// and can be opened by id. Intended for developer-only tools.
 		bool debugOnly{ false };
 
-		// When true, a first on-demand open remains behind the handoff surface
-		// until the page sends the protocol-1.2 `view.ready` command. Requires
+		// When true, a first on-demand open remains behind the handoff view
+		// until the page sends the `view.ready` endpoint. Requires
 		// nativeBridge; false falls back to successful main-frame load completion.
 		bool readySignal{ false };
 
-		// OSF UI version this view was authored against ("1.2.0"). Advisory only,
-		// never gates loading; when newer than the running OSF UI the Mods
-		// surface badges it "needs update". Empty when undeclared or malformed.
+		// OSF UI release version this view was authored against ("1.2.0"). Advisory only,
+		// never gates loading; when newer than the running OSF UI, Mod Settings
+		// badges it "needs update". Empty when undeclared or malformed.
 		std::string targetVersion;
 
 		[[nodiscard]] std::filesystem::path EntryPath() const { return rootDir / entry; }

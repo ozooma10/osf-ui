@@ -2,7 +2,7 @@
 //
 // Native <select> pickers are separate Chromium/Win32 popup windows. They are
 // not part of OSF UI's captured composition visual, so they can escape the game
-// window and fight the host's focus/mouse-capture handoff. This component keeps
+// window and fight the OSF UI runtime's focus/mouse-capture handoff. This component keeps
 // the trigger and list in DOM; the list is portalled to <body> only to escape
 // scrolling panel overflow, and is still painted into the same WebView texture.
 
@@ -269,8 +269,8 @@ export function Dropdown(props: DropdownProps) {
     const onEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' && event.keyCode !== 27) return;
       event.preventDefault();
-      // The built-in surfaces listen on document too. This Escape peels the
-      // dropdown; it must not continue and close the entire Mods surface.
+      // The built-in views listen on document too. This Escape peels the
+      // dropdown; it must not continue and close the entire Mod Settings view.
       event.stopImmediatePropagation();
       close(true);
     };

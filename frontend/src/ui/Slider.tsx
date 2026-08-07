@@ -7,7 +7,7 @@
 // A range input fires `input` continuously while the thumb is dragged. Committing
 // on `input` would send one `settings.set` per pixel of travel, each a bridge
 // round trip the native store validates, persists (write-behind) and echoes back
-// — the classic MCM slider spam. `change` fires once, when the drag ends. Do not
+// — the classic settings-slider write spam. `change` fires once, when the drag ends. Do not
 // merge these into one handler.
 //
 // Readout and input render as siblings because the control cell's order is

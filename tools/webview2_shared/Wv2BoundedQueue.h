@@ -13,7 +13,7 @@
 
 namespace osfui::wv2
 {
-	inline std::string CommandCoalesceKey(std::string_view a_type,
+	inline std::string GameMessageCoalesceKey(std::string_view a_type,
 		std::string_view a_kind = {}, std::string_view a_identity = {})
 	{
 		if (a_type == "mouse" && a_kind == "move") return "mouse.move";

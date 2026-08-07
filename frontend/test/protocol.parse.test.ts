@@ -11,8 +11,8 @@
 // 1.x fanned a reply out to on() subscribers as well, which is what made
 // "settings.data" both a reply type and a push type. That is gone: this file
 // pins the separation, the state cache's synchronous replay (the reason a
-// correct 2.0 view needs no lifecycle code), and the two console surfaces —
-// host-detected misuse (`osfui.debug.error`) and the opt-in traffic trace.
+// correct 2.0 view needs no lifecycle code), and the two console channels —
+// OSF UI runtime-detected misuse (`osfui.debug.error`) and the opt-in traffic trace.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -113,7 +113,7 @@ describe('frame parsing', () => {
     helper.on('ui.result', (p) => seen.push(p));
     helper.on('settings.data', (p) => seen.push(p));
 
-    // A 1.x host (or a stale cached page talking to a 2.0 host) speaks `type` /
+    // A 1.x OSF UI runtime (or a stale cached page talking to a 2.0 runtime) speaks `type` /
     // `requestId`, not `kind`. Nothing routes off those, so a version mismatch
     // is inert rather than half-working.
     deliver(helper, { type: 'runtime.ready', payload: { version: '1.5.0' } });
@@ -164,7 +164,7 @@ describe('kind:"ready" — the answer to the page hello', () => {
     await helper.ready;
 
     // 1.x answered runtime.ready with an unconditional `i18n.get`, and every
-    // view added its own "on ready, re-request my data" block. In 2.0 the host
+    // view added its own "on ready, re-request my data" block. In 2.0 the OSF UI runtime
     // replays every state key after `ready` on its own, so the page's entire
     // outbound boot traffic is the greeting.
     expect(sent).toEqual([{ kind: 'send', name: 'osfui.hello', payload: {} }]);
@@ -173,8 +173,8 @@ describe('kind:"ready" — the answer to the page hello', () => {
   it('keeps the first value when a second ready arrives', async () => {
     const { helper } = loadHelper();
 
-    // A re-attached view host can greet twice. A promise resolves once, so the
-    // duplicate is harmless — pinned because the alternative (throwing, or
+    // A re-attached document can receive `ready` twice. A promise resolves once, so the
+    // duplicate is harmless — covered because the alternative (throwing, or
     // swapping the value under an already-awaited view) would not be.
     deliver(helper, { kind: 'ready', payload: { version: '2.0.0' } });
     deliver(helper, { kind: 'ready', payload: { version: '9.9.9' } });
@@ -206,7 +206,7 @@ describe('kind:"state" — latest-wins values with replay', () => {
 
     // No await, no tick: subscribing is a read. A view that has to ask "has it
     // arrived yet?" is the bug this verb exists to remove — and after F5 the
-    // host replays every key into the fresh document, so the same code path
+    // OSF UI runtime replays every key into the fresh document, so the same code path
     // covers first paint and reload.
     expect(seen).toEqual({ mods: [] });
   });
@@ -242,7 +242,7 @@ describe('kind:"state" — latest-wins values with replay', () => {
     const seen: unknown[] = [];
     helper.state.on('acme.mymod/target', (v) => seen.push(v));
 
-    // "the backend cleared it" is information; the encoder writes `null` for an
+    // "the mod backend cleared it" is information; the encoder writes `null` for an
     // empty value (MessageBridge::EncodeState), so null must not be swallowed.
     deliver(helper, { kind: 'state', mod: 'acme.mymod', key: 'target', value: null });
 
@@ -346,7 +346,7 @@ describe('kind:"event" — one-shot happenings', () => {
     helper.on('ui.hotkey', (p) => seen.push(p));
 
     // The opposite of state, deliberately: replaying a happening on every fresh
-    // document would re-fire its effects on F5. Backend data that must survive
+	// document would re-fire its effects on F5. Mod-backend data that must survive
     // a reload is state.
     expect(seen).toEqual([]);
   });
@@ -435,11 +435,11 @@ describe('the event and state channels never cross', () => {
   });
 });
 
-describe('host-detected misuse arrives as osfui.debug.error and is PRINTED', () => {
-  it('prints a wrong-endpoint-kind surface with its detail object', () => {
+describe('OSF UI runtime-detected protocol faults arrive as osfui.debug.error and are PRINTED', () => {
+  it('prints a wrong-endpoint-kind protocol fault with its detail object', () => {
     const { helper } = loadHelper();
 
-    // The page sent to a request endpoint; the host dropped the message (see
+    // The page sent to a request endpoint; the OSF UI runtime dropped the message (see
     // MessageBridge::DispatchSend) and told this view why. In 1.x the drop was
     // silent and the only record was the SFSE log.
     deliver(helper, {
@@ -454,12 +454,12 @@ describe('host-detected misuse arrives as osfui.debug.error and is PRINTED', () 
 
     expect(logged).toHaveLength(1);
     expect(String(logged[0]![0])).toBe(
-      "[osfui] host rejected wrong-endpoint-kind: 'menu.open' is a request endpoint — use request(), not send()",
+      "[osfui] OSF UI runtime rejected wrong-endpoint-kind: 'menu.open' is a request endpoint — use request(), not send()",
     );
     expect(logged[0]![1]).toEqual({ name: 'menu.open' });
   });
 
-  it('prints an unknown-endpoint surface, falling back to the payload as detail', () => {
+  it('prints an unknown-endpoint protocol fault, falling back to the payload as detail', () => {
     const { helper } = loadHelper();
 
     deliver(helper, {
@@ -468,16 +468,16 @@ describe('host-detected misuse arrives as osfui.debug.error and is PRINTED', () 
       payload: { code: 'unknown-endpoint', message: 'no such endpoint' },
     });
 
-    expect(String(logged[0]![0])).toBe('[osfui] host rejected unknown-endpoint: no such endpoint');
+    expect(String(logged[0]![0])).toBe('[osfui] OSF UI runtime rejected unknown-endpoint: no such endpoint');
     // `p.detail || p`: with no detail, the payload itself is the inspectable
     // object, so the code is never printed without context.
     expect(logged[0]![1]).toEqual({ code: 'unknown-endpoint', message: 'no such endpoint' });
   });
 
-  it('degrades to "a message" when the surface carries no code', () => {
+  it('degrades to "a message" when the protocol fault carries no code', () => {
     const { helper } = loadHelper();
     deliver(helper, { kind: 'event', name: 'osfui.debug.error', payload: {} });
-    expect(String(logged[0]![0])).toBe('[osfui] host rejected a message: ');
+    expect(String(logged[0]![0])).toBe('[osfui] OSF UI runtime rejected a message: ');
   });
 
   it('does NOT also dispatch it to on() subscribers', () => {
@@ -550,7 +550,7 @@ describe('i18n rides the osfui/i18n state key', () => {
     deliver(helper, { kind: 'state', mod: 'osfui', key: 'i18n', value: null });
 
     // Views await this before rendering. There is no failure mode left that can
-    // leave it pending on a bridged host: the catalog is state, and state
+    // leave it pending when the bridge is available: the catalog is state, and state
     // cannot fail — it either arrives or the key is absent.
     await expect(helper.i18n.ready).resolves.toMatchObject({ locale: 'en' });
   });
@@ -633,7 +633,7 @@ describe('the osfui:trace flag', () => {
     expect(debugged).toEqual([]);
   });
 
-  it('survives a storage-blocked host', () => {
+  it('survives blocked browser storage', () => {
     const original = Object.getOwnPropertyDescriptor(window, 'localStorage');
     Object.defineProperty(window, 'localStorage', {
       configurable: true,

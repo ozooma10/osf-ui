@@ -1,26 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import type { BindingRow } from '@lib/keybinds/model';
+import type { GameBindingRow, ModBindingRow } from '@lib/keybinds/model';
 import { matchesBindingFilter, prioritizeBindingsForFilter } from '@lib/keybinds/filter';
 
-const game = (overrides: Partial<BindingRow> = {}): BindingRow => ({
+const game = (overrides: Partial<GameBindingRow> = {}): GameBindingRow => ({
   kind: 'game', key: 'Event', label: 'Action', owner: 'Starfield', name: 'F5', keyLabel: 'F5',
-  contextId: 'MainGameplay', contextLabel: 'MainGameplay', contextNumericId: 0,
-  classification: 'core', gameplayModes: ['onFoot', 'ship'], blocksGameplay: false,
+  engineInputContextName: 'MainGameplay', engineInputContextLabel: 'MainGameplay', engineInputContextId: 0,
+  classification: 'core', gameplayModes: ['onFoot', 'ship'],
   chord: ['F5'], unbound: false, rowId: 'g', ...overrides,
 });
 
-const mod = (overrides: Partial<BindingRow> = {}): BindingRow => ({
+const mod = (overrides: Partial<ModBindingRow> = {}): ModBindingRow => ({
   kind: 'mod', mod: 'a.mod', key: 'open', label: 'Open', owner: 'A', name: 'F5', keyLabel: 'F5',
-  contextId: 'ship', contextLabel: 'Ship', gameplayModes: ['ship'], blocksGameplay: false,
+  hotkeyContextId: 'ship', hotkeyContextLabel: 'Ship', gameplayModes: ['ship'], blocksGameplay: false,
   chord: ['F5'], unbound: false, rowId: 'm', ...overrides,
 });
 
 describe('keybind list filters', () => {
   const active = { available: true, revision: 1, mode: 'ship' as const, contexts: [{ id: 0, name: 'MainGameplay' }] };
 
-  it('filters active engine contexts and semantic mod modes', () => {
+  it('filters active engine input contexts and semantic mod modes', () => {
     expect(matchesBindingFilter(game(), 'active', active)).toBe(true);
-    expect(matchesBindingFilter(game({ contextNumericId: 0x18 }), 'active', active)).toBe(false);
+    expect(matchesBindingFilter(game({ engineInputContextId: 0x18 }), 'active', active)).toBe(false);
     expect(matchesBindingFilter(mod(), 'active', active)).toBe(true);
     expect(matchesBindingFilter(mod({ gameplayModes: ['onFoot'] }), 'active', active)).toBe(false);
   });

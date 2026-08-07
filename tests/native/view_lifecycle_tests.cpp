@@ -16,7 +16,7 @@ namespace
 int main()
 {
 	ViewLifecycle lifecycle;
-	lifecycle.NoteLoaded("acme.mod/panel", false, 10.0);
+	lifecycle.NoteInstantiated("acme.mod/panel", false, 10.0);
 	assert(lifecycle.CollectDueActions(99.999).suspend.empty());
 	assert(Contains(lifecycle.CollectDueActions(100.0).suspend, "acme.mod/panel"));
 	lifecycle.NoteSuspendRequested("acme.mod/panel");
@@ -34,36 +34,36 @@ int main()
 	assert(lifecycle.CollectDueActions(2089.999).suspend.empty());
 	assert(Contains(lifecycle.CollectDueActions(2090.0).suspend, "acme.mod/panel"));
 
-	// A hidden reload invalidates the host latch and gets a fresh grace period.
+	// A hidden reload invalidates the browser-host latch and gets a fresh grace period.
 	lifecycle.NoteSuspendRequested("acme.mod/panel");
 	lifecycle.NoteActivity("acme.mod/panel", 2100.0);
 	assert(lifecycle.CollectDueActions(2189.999).suspend.empty());
 	assert(Contains(lifecycle.CollectDueActions(2190.0).suspend, "acme.mod/panel"));
 
-	// Warm views suspend but are never reclaimed.
-	lifecycle.NoteLoaded("osfui/settings", true, 0.0);
+	// Pinned views suspend but are never reclaimed.
+	lifecycle.NoteInstantiated("osfui/settings", true, 0.0);
 	assert(Contains(lifecycle.CollectDueActions(90.0).suspend, "osfui/settings"));
 	lifecycle.NoteSuspendRequested("osfui/settings");
 	assert(!Contains(lifecycle.CollectDueActions(5000.0).destroy, "osfui/settings"));
 
-	// A host restart loses latches and restarts hidden grace periods.
-	lifecycle.OnHostRestart(6000.0);
+	// A browser-host restart loses latches and restarts hidden grace periods.
+	lifecycle.OnBrowserHostRestart(6000.0);
 	assert(lifecycle.CollectDueActions(6089.999).suspend.empty());
 	const auto restarted = lifecycle.CollectDueActions(6090.0);
 	assert(Contains(restarted.suspend, "acme.mod/panel"));
 	assert(Contains(restarted.suspend, "osfui/settings"));
 
 	// An out-of-band show (Runtime::SetViewHidden, the `setViewHidden` bridge
-	// command) reports through NoteVisibility exactly like a policy layer, so a
+	// operation) reports through NoteVisibility exactly like a policy layer, so a
 	// view revealed outside the menu framework is neither suspended nor idle-
 	// reclaimed while it is on screen.
-	lifecycle.NoteLoaded("acme.mod/overlay", false, 7000.0);
+	lifecycle.NoteInstantiated("acme.mod/overlay", false, 7000.0);
 	lifecycle.NoteSuspendRequested("acme.mod/overlay");  // latched while hidden
 	lifecycle.NoteVisibility("acme.mod/overlay", true, 7010.0);
 	assert(!Contains(lifecycle.CollectDueActions(9990.0).destroy, "acme.mod/overlay"));
 	assert(!Contains(lifecycle.CollectDueActions(9990.0).suspend, "acme.mod/overlay"));
 	// Re-hiding it starts a fresh grace period AND a fresh suspend handshake
-	// (the show cleared the stale latch the host had already refused).
+	// (the show cleared the stale latch the browser host had already refused).
 	lifecycle.NoteVisibility("acme.mod/overlay", false, 9990.0);
 	assert(!Contains(lifecycle.CollectDueActions(10079.999).suspend, "acme.mod/overlay"));
 	assert(Contains(lifecycle.CollectDueActions(10080.0).suspend, "acme.mod/overlay"));
@@ -73,15 +73,15 @@ int main()
 
 	// --- hidden non-core LRU cap ---------------------------------------------
 	ViewLifecycle lru;
-	lru.NoteLoaded("osfui/handoff", true, 0.0);  // warm: never counts, never reclaimed
-	lru.NoteLoaded("m.a/hud", false, 0.0);
-	lru.NoteLoaded("m.b/hud", false, 1.0);
-	lru.NoteLoaded("m.c/hud", false, 2.0);
-	lru.NoteLoaded("m.d/hud", false, 3.0);
+	lru.NoteInstantiated("osfui/handoff", true, 0.0);  // pinned: never counts, never reclaimed
+	lru.NoteInstantiated("m.a/hud", false, 0.0);
+	lru.NoteInstantiated("m.b/hud", false, 1.0);
+	lru.NoteInstantiated("m.c/hud", false, 2.0);
+	lru.NoteInstantiated("m.d/hud", false, 3.0);
 	// Exactly at the cap: nothing reclaimed.
 	assert(lru.CollectDueActions(10.0).destroy.empty());
 	// A fifth hidden view evicts the least recently hidden.
-	lru.NoteLoaded("m.e/hud", false, 4.0);
+	lru.NoteInstantiated("m.e/hud", false, 4.0);
 	{
 		const auto due = lru.CollectDueActions(10.0);
 		assert(due.destroy.size() == 1 && due.destroy[0] == "m.a/hud");
@@ -95,7 +95,7 @@ int main()
 		const auto due = lru.CollectDueActions(14.0);
 		assert(due.destroy.size() == 1 && due.destroy[0] == "m.b/hud");
 	}
-	// Open-but-hidden surfaces (a HUD beneath a pausing menu, a stacked menu)
+	// Open-but-hidden views (for example, a HUD beneath the active menu)
 	// are exempt from both the cap and the idle TTL, but still suspendable.
 	lru.NoteOpenState("m.b/hud", true, 14.0);
 	assert(lru.CollectDueActions(15.0).destroy.empty());
@@ -115,7 +115,7 @@ int main()
 	// a view picked for reclamation is dropped from that tick's suspend list.
 	ViewLifecycle tie;
 	for (const auto* id : { "m.z/hud", "m.y/hud", "m.x/hud", "m.w/hud", "m.v/hud" }) {
-		tie.NoteLoaded(id, false, 0.0);
+		tie.NoteInstantiated(id, false, 0.0);
 	}
 	{
 		const auto due = tie.CollectDueActions(95.0);  // suspend-due AND one over cap

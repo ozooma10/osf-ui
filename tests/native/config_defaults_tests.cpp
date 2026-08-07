@@ -26,7 +26,7 @@ int main()
 
 	// Removed input switches are ordinary unknown keys. The production WndProc,
 	// capture, hardware-cursor, FocusMenu and engine-input path is not
-	// configurable; pauseMenuEntry is likewise owned by the live MCM store.
+	// configurable; pauseMenuEntry is likewise owned by the live Mod Settings state.
 	const std::filesystem::path overridePath = ".build/config-overrides.json";
 	std::filesystem::create_directories(overridePath.parent_path());
 	{

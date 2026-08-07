@@ -2,7 +2,7 @@
 
 [center][size=5][b]Starfield Web Interface Framework[/b][/size][/center]
 
-[center][i]An Open Source SFSE-powered framework for building mod UIs in HTML, CSS and JavaScript - shipping with the tools Starfield always lacked: a unified Mod Settings Menu (MCM) and a mod Keybinds manager.[/i][/center]
+[center][i]An open-source SFSE-powered framework for building mod UIs in HTML, CSS and JavaScript - shipping with the tools Starfield always lacked: unified Mod Settings and a Keybindings view.[/i][/center]
 
 [line]
 
@@ -13,14 +13,14 @@ OSF UI is an SFSE plugin that lets mods build their interfaces in [b]HTML, CSS a
 Out of the box:
 
 [list]
-[*][b]The Mods surface[/b] - press [b]F10[/b] (or the [b]MOD MENUS[/b] entry in the pause menu): Opens an interface to manage every supporting mod in one place. No INI edits, no console commands, no alt-tabbing.[/*]
-[*][b]Settings (MCM)[/b] - every supporting mod gets its own page of live controls: toggles, sliders, dropdowns, text and key fields, with live search, per-setting reset, and presets. Changes validate, clamp, and save instantly.[/*]
-[*][b]Keybinds[/b] - a visual keyboard map of every registered mod's hotkeys. Click a key, press the new one, done - with conflict badges when two mods (or the game itself) want the same key.[/*]
+[*][b]Mod Settings[/b] - press [b]F10[/b] (or the [b]MOD SETTINGS[/b] entry in the pause menu) to manage every supporting mod in one place. No INI edits, no console commands, no alt-tabbing.[/*]
+[*][b]Schema-driven settings[/b] - every supporting mod gets its own page of live controls: toggles, sliders, dropdowns, text and key fields, with live search, per-setting reset, and presets. Changes validate, clamp, and save instantly.[/*]
+[*][b]Keybindings[/b] - a visual keyboard map of mod hotkeys and Starfield's live game bindings. Click a key, press the new one, done - with conflict badges when multiple bindings use the same physical key.[/*]
 [/list]
 
-The Mods surface is simply the first thing built on the framework - any mod can ship its own views, settings, and hotkeys through it. See it powering a full mod today: [url=https://www.nexusmods.com/starfield/mods/17457]OSF Animation[/url]'s scene browser, emote wheel, settings, and hotkeys all run on OSF UI.
+Mod Settings is simply the front door built on the framework - any mod can ship its own menu views, HUD views, settings, and hotkeys through it. See it powering a full mod today: [url=https://www.nexusmods.com/starfield/mods/17457]OSF Animation[/url]'s scene browser, emote wheel, settings, and hotkeys all run on OSF UI.
 
-[i][b]Status: early alpha.[/b] 1.2.1 renders through Microsoft Edge WebView2 - working and verified in-game on Starfield 1.16.244, but expect rough edges. Bug reports are very welcome, here or on [url=https://github.com/ozooma10/osf-ui]GitHub[/url] - please attach [font=Courier New]OSF UI.log[/font] and [font=Courier New]OSF UI.webview2-host.log[/font] from [font=Courier New]Documents\My Games\Starfield\SFSE\Logs[/font].[/i]
+[i][b]Status: early alpha.[/b] 2.0.0 renders through Microsoft Edge WebView2 - working and verified in-game on Starfield 1.16.244, but expect rough edges. Bug reports are very welcome, here or on [url=https://github.com/ozooma10/osf-ui]GitHub[/url] - please attach [font=Courier New]OSF UI.log[/font] and [font=Courier New]OSF UI.webview2-host.log[/font] from [font=Courier New]Documents\My Games\Starfield\SFSE\Logs[/font].[/i]
 
 [line]
 
@@ -28,12 +28,12 @@ The Mods surface is simply the first thing built on the framework - any mod can 
 
 [list]
 [*][b]Rich Web Page UI In-Game[/b] - HTML/CSS/JS views rendered by WebView2, composited on the game's own D3D12 device.[/*]
-[*][b]Fully interactive[/b] - While a view is open mods get full input control. And can optionally register hotkeys to callback into themselves[/*]
+[*][b]Input-capturing menus[/b] - the one active menu view can capture input and focus; HUD views remain passive over gameplay. Mods can also register rebindable hotkeys.[/*]
 [*][b]Gamepad navigable[/b] - D-pad/stick moves focus, A activates, B closes, right stick scrolls. (Mod support dependent)[/*]
 [*][b]Schema-driven settings[/b] - a mod drops one small JSON schema and gets a full settings page with persistence, migration, and hotkey delivery - no UI code at all[/*]
 [*][b]Live hotkey service[/b] - every key setting is a real, rebindable hotkey delivered to its mod, gated so keys never fire into the console or a text field[/*]
 [*][b]Localization built in[/b] - mod settings pages, custom views, and OSF UI's own interface all translate through simple drop-in JSON catalogs. The language follows the game's (or pick one in OSF UI's settings) and switches live, and partial translations fall back to English string by string.[/*]
-[*][b]Multi-view compositing[/b] - several views can layer over each other, with configurable z-order priority and cycling.[/*]
+[*][b]Multi-view compositing[/b] - one active menu view can render above multiple ordered HUD views.[/*]
 [*][b]Safe by construction[/b] - page JS is untrusted: each view's filesystem is sandboxed to its own folder and network access is disabled[/*]
 [/list]
 
@@ -51,19 +51,19 @@ The Mods surface is simply the first thing built on the framework - any mod can 
 Install with a mod manager (Mod Organizer 2 / Vortex) and enable it. Launch the game through SFSE.
 
 [size=4][b]Try it[/b][/size]
-Load a save and press [b]F10[/b]. The Mods surface opens over the game, and OSF UI's own settings and the Keybinds map are already there. Press [b]F10[/b] again (or [b]Esc[/b]) to close. Then install a mod that supports it - like [url=https://www.nexusmods.com/starfield/mods/17457]OSF Animation[/url] - and watch its card appear.
+Load a save and press [b]F10[/b]. Mod Settings opens over the game, and OSF UI's own settings and the Keybindings view are already there. Press [b]F10[/b] again (or [b]Esc[/b]) to close. Then install a mod that supports it - like [url=https://www.nexusmods.com/starfield/mods/17457]OSF Animation[/url] - and watch its entry appear.
 
 [line]
 
 [center][img]https://staticdelivery.nexusmods.com/mods/4187/images/17711/17711-1784306243-115352482.png[/img][/center]
 
 [list]
-[*][b]Settings + hotkeys:[/b] ship a [font=Courier New]settings/<id>.json[/font] schema and your mod gets a full settings page and rebindable hotkeys.[/*]
-[*][b]Full interfaces:[/b] ship a [font=Courier New]views/<id>/[/font] folder (manifest + [font=Courier New]index.html[/font] / [font=Courier New]style.css[/font] / [font=Courier New]main.js[/font]) and it appears on the Mods surface as your mod's own terminal.[/*]
-[*][b]Native path:[/b] a separate SFSE plugin can register bridge commands and drive views through the exported [font=Courier New]OSFUI_RequestBridge[/font] API.[/*]
+[*][b]Settings + hotkeys:[/b] ship a [font=Courier New]settings/<modId>.json[/font] schema and your mod gets a full settings page and rebindable mod hotkeys.[/*]
+[*][b]Full interfaces:[/b] ship a [font=Courier New]views/<modId>/<viewName>/[/font] folder (manifest + [font=Courier New]index.html[/font] / [font=Courier New]style.css[/font] / [font=Courier New]main.js[/font]) and it appears in Mod Settings as your mod's menu or HUD view.[/*]
+[*][b]Native path:[/b] a separate SFSE plugin can register bridge endpoints and drive views through the exported [font=Courier New]OSFUI_RequestBridge[/font] API.[/*]
 [*][b]Translations:[/b] write plain English - no string keys, no catalogs to maintain. Translators (you, or the community, as a separate data mod) ship one flat JSON file per language ([font=Courier New]l10n/<id>_<locale>.json[/font]); partial files are fine, every missing string falls back to your English.[/*]
 [/list]
-[i]Note: this is a young framework - the [font=Courier New]window.osfui[/font] web bridge is still changing; the native ABI is stable.[/i] Full docs - authoring views, the bridge protocol, and the settings schema - are on [url=https://github.com/ozooma10/osf-ui]GitHub[/url].
+[i]The [font=Courier New]window.osfui[/font] web bridge protocol and native ABI are both at strict 2.0. Declare the OSF UI release you authored against with [font=Courier New]targetVersion[/font].[/i] Full docs - authoring views, the bridge protocol, and the settings schema - are on [url=https://github.com/ozooma10/osf-ui]GitHub[/url].
 
 [line]
 

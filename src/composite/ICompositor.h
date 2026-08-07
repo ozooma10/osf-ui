@@ -4,7 +4,7 @@
 
 namespace OSFUI
 {
-	// Small, local-only status surface used by System Health.
+	// Small, local-only status snapshot used by System Health.
 	struct CompositorStatus
 	{
 		bool seamActive{ false };
@@ -29,7 +29,7 @@ namespace OSFUI
 		// Callback invoked on the present/render thread when the output surface
 		// size becomes known or changes. The runtime resizes the web view to
 		// match, so the page renders aspect-correct instead of stretched.
-		// Default no-op (a null compositor has no output).
+		// Default no-op for implementations that do not report output-size changes asynchronously.
 		using OutputResizeCallback = std::function<void(std::uint32_t a_width, std::uint32_t a_height)>;
 		virtual void SetOutputResizeCallback(OutputResizeCallback /*a_callback*/) {}
 
@@ -38,7 +38,7 @@ namespace OSFUI
 		// the real target, holding a deferred reveal off a manifest-sized frame.
 		[[nodiscard]] virtual bool IsOutputSizeKnown() const { return true; }
 
-		// GPU transport (out-of-process WebView2 host): adopt a shared-texture
+		// GPU transport (out-of-process browser host): adopt a shared-texture
 		// ring; later Submit() calls may carry sharedSlot frames living in it.
 		// The compositor takes ownership of the handles (see SharedRingDesc).
 		// Default no-op for compositors that draw nothing.

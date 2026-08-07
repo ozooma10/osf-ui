@@ -23,9 +23,10 @@ namespace OSFUI::ControlMapPolicy
 		}
 	}
 
-	ContextPolicy Classify(std::uint8_t a_contextId, std::string_view a_contextName)
+	EngineInputContextPolicy Classify(std::uint8_t a_engineInputContextId,
+		std::string_view a_engineInputContextName)
 	{
-		switch (a_contextId) {
+		switch (a_engineInputContextId) {
 			case 0x00: return { Classification::Core, kOnFoot | kShip, kVehicle | kZeroG };
 			case 0x21: return { Classification::Core, kShip, 0 };
 			case 0x16: // Workshop
@@ -40,7 +41,7 @@ namespace OSFUI::ControlMapPolicy
 			case 0x49: return { Classification::Special, 0, kVehicle };
 			default: break;
 		}
-		if (IsMenuFamily(a_contextId, a_contextName)) {
+		if (IsMenuFamily(a_engineInputContextId, a_engineInputContextName)) {
 			return { Classification::Menu, 0, 0 };
 		}
 		return {};
@@ -57,20 +58,23 @@ namespace OSFUI::ControlMapPolicy
 		return "unknown";
 	}
 
-	bool IsDefiniteShipContext(std::uint8_t a_contextId)
+	bool IsDefiniteShipEngineInputContext(std::uint8_t a_engineInputContextId)
 	{
-		return a_contextId == 0x21;  // ShipHUD is the only v1 context proved as ship-definite
+		// ShipHUD is the only v1 engine input context proved as ship-definite.
+		return a_engineInputContextId == 0x21;
 	}
 
-	std::optional<GameplayMode> DeriveMode(std::span<const std::uint8_t> a_activeContexts)
+	std::optional<GameplayMode> DeriveMode(std::span<const std::uint8_t> a_activeEngineInputContexts)
 	{
 		const auto has = [&](std::uint8_t a_id) {
-			return std::ranges::find(a_activeContexts, a_id) != a_activeContexts.end();
+			return std::ranges::find(a_activeEngineInputContexts, a_id) != a_activeEngineInputContexts.end();
 		};
 		// Proven semantic precedence: MainGameplay can remain active underneath
 		// each of these more specific modes.
 		if (has(0x49)) return GameplayMode::Vehicle;
-		if (std::ranges::any_of(a_activeContexts, IsDefiniteShipContext)) return GameplayMode::Ship;
+		if (std::ranges::any_of(a_activeEngineInputContexts, IsDefiniteShipEngineInputContext)) {
+			return GameplayMode::Ship;
+		}
 		if (has(0x20)) return GameplayMode::ZeroG;
 		if (has(0x00)) return GameplayMode::OnFoot;
 		return std::nullopt;

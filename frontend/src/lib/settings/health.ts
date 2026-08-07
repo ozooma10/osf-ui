@@ -1,4 +1,4 @@
-// The System Health model: what the `diagnostics.data` snapshot means, and how
+// The System Health model: what the `osfui/diagnostics` state snapshot means, and how
 // a stable machine code becomes something a player can act on.
 //
 // The split is deliberate. Native decides WHAT is wrong — it owns the stable
@@ -6,16 +6,16 @@
 // that READS and what buttons it offers, because copy has to be localizable and
 // because the set of actions the shell is willing to expose must be a closed
 // list here rather than anything a payload can name. A code this build has never
-// heard of still renders: it degrades to a generic card with its technical
+// heard of still renders: it degrades to a generic issue with its technical
 // details shown, never to a blank one.
 //
 // Records are typed loosely (every field optional but `id`) for the same reason
 // the rail model is: this also runs against harness mocks and, in principle,
-// against a host newer than the frontend.
+// against an OSF UI runtime newer than the frontend.
 
 import type { DiagnosticIssue, DiagnosticsData } from '@sdk';
 
-/** A `diagnostics.data` issue as the renderer actually treats it. */
+/** An `osfui/diagnostics` issue as the renderer actually treats it. */
 export type IssueRecord = Partial<DiagnosticIssue> & { id: string };
 
 export type Severity = 'error' | 'warning';
@@ -32,11 +32,11 @@ export const EMPTY_HEALTH: HealthModel = { system: {}, issues: [] };
 
 /**
  * The Health destination's rail id. Same "~" trick as HOME_ID: native mod ids
- * can never start with it, so no mod can shadow the pinned entry.
+ * can never start with it, so no mod can shadow the fixed destination.
  */
 export const HEALTH_ID = '~health';
 
-/** Normalise an untrusted `diagnostics.data` payload into the model. */
+/** Normalise an untrusted `osfui/diagnostics` state payload into the model. */
 export function readHealth(payload: unknown): HealthModel {
   const p = (payload || {}) as Partial<DiagnosticsData>;
   const issues = Array.isArray(p.issues) ? (p.issues as IssueRecord[]) : [];
@@ -92,7 +92,7 @@ export function overallSeverity(counts: HealthCounts): Severity | null {
 /**
  * Active issues in paint order: errors first, then warnings, newest first
  * within each. Mirrors the order native already emits, but the view must not
- * depend on that — a host is free to reorder an additive payload.
+ * depend on that — the OSF UI runtime is free to reorder an additive payload.
  */
 export function sortIssues(issues: readonly IssueRecord[]): IssueRecord[] {
   return issues.slice().sort((a, b) => {
@@ -119,7 +119,7 @@ export function resolvedIssues(model: HealthModel): IssueRecord[] {
 /**
  * The worst ACTIVE severity attributable to one mod, for the rail's severity
  * marker. An issue belongs to a mod when its `subject` is that mod id or a view
- * id owned by it ("<modId>/<viewName>", the manifest id grammar).
+ * id owned by it ("<modId>/<viewName>", the qualified-view-id grammar).
  */
 export function severityForMod(
   issues: readonly IssueRecord[],
@@ -162,7 +162,7 @@ export function issueForSubject(
 
 /**
  * Actions a card may offer. A CLOSED list on purpose: everything here maps to a
- * fixed, payload-free or self-derived shell operation, so no diagnostic payload
+ * fixed, payload-free or self-derived shell operation, so no health-issue payload
  * can name a target. `retry-view` is the one that takes an argument, and it
  * takes it from the issue's own `subject` (a view id the runtime already knows),
  * never from free text.
@@ -192,7 +192,7 @@ const COPY: Record<string, IssueCopy> = {
     title: ['issueControlMapTitle', "Starfield's key map is unavailable"],
     impact: [
       'issueControlMapImpact',
-      'Vanilla key rows and warnings are disabled, and mode-scoped mod hotkeys will not fire.',
+      'Game-binding rows and warnings are disabled, and mode-scoped mod hotkeys will not fire.',
     ],
     next: [
       'issueControlMapNext',
@@ -269,14 +269,26 @@ const COPY: Record<string, IssueCopy> = {
     ],
     actions: ['retry-view', 'copy-details', 'open-logs'],
   },
+  'view.protocol-misuse': {
+    title: ['issueProtocolMisuseTitle', 'A mod view sent invalid OSF UI messages'],
+    impact: [
+      'issueProtocolMisuseImpact',
+      'Some actions or updates from this view may not work because it repeatedly used the OSF UI API incorrectly.',
+    ],
+    next: [
+      'issueProtocolMisuseNext',
+      'Update the mod that provides this view, or report the details below to its author.',
+    ],
+    actions: ['copy-details', 'open-logs'],
+  },
   // NOTE: there is deliberately no `host.focus-stranded` entry. The renderer no
   // longer reports that condition — the focus watchdog corrects it within a tick
   // or two, so the card described an internal mechanism the player cannot act on
   // and which had usually already cleared by the time they read it. It stays a
-  // log-only WARN. A host older than this build that still emits the code falls
+  // log-only WARN. An OSF UI runtime older than this build that still emits the code falls
   // through to GENERIC_COPY, which is the intended degradation.
   'host.ring-truncated': {
-    title: ['issueRingTruncatedTitle', 'The browser helper does not match this OSF UI'],
+    title: ['issueRingTruncatedTitle', 'The browser host does not match this OSF UI'],
     impact: [
       'issueRingTruncatedImpact',
       'Frames may be dropped, which shows up as a choppy overlay. This usually means two OSF UI installs are mixed.',
@@ -368,7 +380,7 @@ export const GENERIC_COPY: IssueCopy = {
  * whereas an unknown MOD code means the report is simply not one OSF UI knows —
  * updating OSF UI would change nothing, and the mod's author is the right
  * destination. The mod is named rather than quoted: `{mod}` is substituted with
- * the id from `source`, which is host-assigned from the calling plugin, never a
+ * the id from `source`, which the OSF UI runtime assigns from the calling plugin, never a
  * payload field, so no mod can author the words on its own card.
  */
 export const MOD_COPY: IssueCopy = {
@@ -386,9 +398,10 @@ export const MOD_COPY: IssueCopy = {
 
 /**
  * The mod that reported this issue, or null when it came from OSF UI itself.
- * Platform sources are bare words ("settings", "views", "host", "render",
- * "compat"); a consumer's source is its "<author>.<modname>" id, which the host
- * validated before accepting the report — so the dot is a reliable tell.
+ * Platform sources are bare words ("input", "settings", "views", "host",
+ * "render", "compat"); a consumer's source is its "<author>.<modname>" id,
+ * which the OSF UI runtime validated before accepting the report — so the dot
+ * is a reliable tell.
  */
 export function modIdOf(issue: IssueRecord): string | null {
   const source = issue.source || '';
@@ -424,7 +437,7 @@ export function canRetryView(issue: IssueRecord): boolean {
  * The "Copy diagnostic report" text. Plain text rather than JSON: it is pasted
  * into a forum post or a bug report, and it has to stay readable there. Only
  * what the payload already carries goes in — the payload is pre-redacted
- * natively, so this cannot leak a path the pane does not already show.
+ * natively, so this cannot leak a path System Health does not already show.
  */
 export function serializeReport(model: HealthModel): string {
   const lines: string[] = ['OSF UI diagnostic report', ''];

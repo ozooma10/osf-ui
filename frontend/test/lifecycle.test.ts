@@ -1,4 +1,4 @@
-// The pure reducers behind the Mods surface's lifecycle: the overlay open edge,
+// The pure reducers behind the Mod Settings view's lifecycle: the overlay open edge,
 // gamepad button edges, and rail cycling. No bridge stub anywhere — these are
 // functions over a payload, which is exactly why they are testable at all.
 //

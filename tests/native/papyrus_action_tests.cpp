@@ -1,17 +1,17 @@
-// Host-side tests for the Papyrus dynamic-data surface (protocol 2.0,
+// Native desktop tests for the Papyrus dynamic-data API (protocol 2.0,
 // docs/mod-api-2.0-design.md): the REAL api/PapyrusApi.cpp and
-// runtime/ViewStateStore.cpp compiled against stubs/RE (a recording VM),
+// runtime/RetainedStateStore.cpp compiled against stubs/RE (a recording VM),
 // driven through the same natives the game binds.
 //
 // 2.0 replaced the single transient `PushToView` channel with the state/event
 // pair; the temporary v1 adapter keeps that old channel through 2.0.x. SetView* is RETAINED
-// state: latest-wins, complete per key, held in the shared ViewStateStore and
+// state: latest-wins, complete per key, held in the shared RetainedStateStore and
 // replayed to every document that greets the bridge — which is why a view
 // survives F5 with no handshake. SendViewEvent is a one-shot happening:
 // delivered at most once, never stored, never replayed. Encoding one as the
 // other is the blank-after-reload bug in one direction and the
 // event-refires-on-every-reload bug in the other, so both halves are asserted
-// against the same store the runtime replays from.
+// against the same store the OSF UI runtime replays from.
 //
 // Also covers the action-dispatch registry (case-insensitive mod filter,
 // static/instance targets, token release, kind isolation), correlated view
@@ -23,7 +23,7 @@
 #include "api/PapyrusApi.h"
 #include "compat/v1/Papyrus.h"
 #include "core/StringUtil.h"
-#include "runtime/ViewStateStore.h"
+#include "runtime/RetainedStateStore.h"
 
 #include "RE/B/BSScriptUtil.h"
 #include "RE/E/Events.h"
@@ -174,19 +174,19 @@ int main()
 	API::BridgeApi::Get().SetViewCatalog({ "mixed.case/view" });
 	CHECK(openMenu(*vm, 0, {}, "MiXeD.CaSe/View"));
 	CHECK(!openMenu(*vm, 0, {}, "MiXeD.CaSe/Missing"));
-	CHECK(!closeMenu(*vm, 0, {}, "MiXeD.CaSe/View"));  // discovered but not loaded
+	CHECK(!closeMenu(*vm, 0, {}, "MiXeD.CaSe/View"));  // discovered but not instantiated
 	{
-		const auto requests = API::BridgeApi::Get().TakeMenuRequests();
+		const auto requests = API::BridgeApi::Get().TakeViewPresentationRequests();
 		CHECK(requests.size() == 1);
 		if (requests.size() == 1) {
 			CHECK(requests[0].view == "mixed.case/view");
 			CHECK(requests[0].open);
 		}
 	}
-	API::BridgeApi::Get().SetSurfaceLoaded("mixed.case/view", true);
+	API::BridgeApi::Get().SetViewInstantiated("mixed.case/view", true);
 	CHECK(closeMenu(*vm, 0, {}, "MiXeD.CaSe/View"));
 	{
-		const auto requests = API::BridgeApi::Get().TakeMenuRequests();
+		const auto requests = API::BridgeApi::Get().TakeViewPresentationRequests();
 		CHECK(requests.size() == 1 && requests[0].view == "mixed.case/view" && !requests[0].open);
 	}
 
@@ -347,13 +347,13 @@ int main()
 	CHECK(!API::Papyrus::OnViewRequest("other.mod", "x", {}, "other.mod/view", "q4"));
 
 	// --- the runtime's tick, in miniature ------------------------------------------
-	// Runtime::Tick drains both queues into the SAME shared ViewStateStore
+	// Runtime::Tick drains both queues into the SAME shared RetainedStateStore
 	// decision: state is retained there and delivered; an event is only
 	// delivered. Every "will a fresh document see it?" assertion below reads the
 	// store, because the store is the only thing a greeting document is replayed
 	// from. TakeSessionReset is deliberately NOT consumed here — the load-game
 	// section asserts on it directly.
-	ViewStateStore                       store;
+	RetainedStateStore                   store;
 	std::vector<API::Papyrus::ViewState> states;
 	std::vector<API::Papyrus::ViewEvent> events;
 	const auto                           tick = [&] {
@@ -534,12 +534,12 @@ int main()
 	CHECK(vm->calls.size() == 1);
 	CHECK(unregister(*vm, 0, {}, tokenAfterLoad));
 
-	// --- ViewStateStore, directly -----------------------------------------------------
-	// The store both backends share (Papyrus SetView* and the native ABI's
+	// --- RetainedStateStore, directly -------------------------------------------------
+	// The store both mod backend types share (Papyrus SetView* and the native ABI's
 	// SetViewState land here and replay by the same rule), tested apart from the
 	// queues that feed it.
 	{
-		ViewStateStore s;
+		RetainedStateStore s;
 		CHECK(!s.Set("", "k", 1));         // an empty mod id is not a target
 		CHECK(!s.Set("t.store", "", 1));   // nor is an empty key
 		CHECK(s.ModCount() == 0);
@@ -569,7 +569,7 @@ int main()
 		// this instead of growing the process without bound, and a mod with a
 		// fixed key set is never affected — an ALREADY-retained key still
 		// updates at capacity.
-		for (std::size_t i = 0; i < ViewStateStore::kMaxKeysPerMod; ++i) {
+		for (std::size_t i = 0; i < RetainedStateStore::kMaxKeysPerMod; ++i) {
 			CHECK(s.Set("t.capped", "k" + std::to_string(i), static_cast<int>(i), true));
 		}
 		const auto warnsBefore = LogCount("holds the maximum");
@@ -578,7 +578,7 @@ int main()
 		CHECK(s.Set("t.capped", "K0", 999, true));  // an existing key always updates
 		{
 			const auto* capped = s.Find("t.capped");
-			CHECK(capped && capped->size() == ViewStateStore::kMaxKeysPerMod);
+			CHECK(capped && capped->size() == RetainedStateStore::kMaxKeysPerMod);
 			CHECK(capped && (*capped)[0].value == 999);
 		}
 

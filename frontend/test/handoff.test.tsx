@@ -2,13 +2,14 @@
 //
 // The handoff view against the *real* frozen helper, not a fake bridge.
 //
-// This surface is the one the runtime shows while a target view's renderer is
-// still starting, so the thing worth pinning is the whole chain: a native
+// This view is the one the runtime shows while a target view's renderer is
+// still starting, so the thing worth covering is the whole chain: a native
 // `state` frame for `osfui/handoff` -> shared-kit dispatch -> Preact render ->
 // outbound `send` envelopes. A mocked bridge would pass even if the view
 // stopped speaking the shipped helper's protocol.
 //
-// Protocol 2.0 moved this surface from a `handoff.state` PUSH to a state KEY,
+// Protocol 2.0 moved this view from the legacy `handoff.state` push to the
+// `osfui/handoff` state key,
 // which is the difference between "you had to be listening" and "it is replayed
 // to every document" — see the replay case below.
 
@@ -93,8 +94,8 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
-describe('first-load handoff surface', () => {
-  it('greets the host itself — the page-initiated handshake is the only boot path', () => {
+describe('first-load handoff view', () => {
+  it('greets the OSF UI runtime itself — the page-initiated handshake is the only boot path', () => {
     const app = mount();
     // Sent by the helper the moment it loads, before the view renders a thing.
     // Nothing waits on a greeting that might already have been missed.
@@ -105,7 +106,7 @@ describe('first-load handoff surface', () => {
     mount();
 
     // data-live is what style.css keys the "connected" look on: an unpushed
-    // surface must stay dark rather than claim a link it has not got.
+    // view must stay dark rather than claim a link it has not got.
     expect(document.body.dataset['live']).toBeUndefined();
     expect(document.querySelector('#title')?.textContent).toBe('INTERFACE');
     expect(document.querySelector('#owner')?.textContent).toBe('LOCAL SYSTEM');
@@ -137,7 +138,7 @@ describe('first-load handoff surface', () => {
 
   it('comes back live after a reload, because the state is REPLAYED', () => {
     // The document is destroyed and rebuilt mid-handoff (F5, a renderer
-    // restart). The host replays `osfui/handoff` before the view mounts, so
+    // restart). The OSF UI runtime replays `osfui/handoff` before the view mounts, so
     // subscribing IS the read and the very first paint is already connected —
     // where a 1.x one-shot push would have left the cold chrome up forever.
     installHelper();

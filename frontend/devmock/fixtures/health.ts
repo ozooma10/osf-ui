@@ -1,9 +1,9 @@
-// Mock session-health snapshots (System Health); dev only. Mirrors the
-// runtime's `diagnostics.data` push.
+// Mock health-registry snapshots (System Health); dev only. Mirrors the OSF UI
+// runtime's `osfui/diagnostics` state.
 //
-// One named scenario per state the pane has to render, so the browser harness
-// can walk clean -> warnings -> errors -> mixed -> resolved-only without
-// needing a broken game. Cycled with the toolbar "Health" button or pinned with
+// One named scenario per state the destination has to render, so the browser
+// harness can walk clean -> warnings -> errors -> mixed -> resolved-only without
+// needing a broken game. Cycled with the toolbar "Health" button or selected with
 // ?health=<name>.
 //
 // Times are session-relative seconds, exactly as native emits them.
@@ -13,8 +13,8 @@ import type { DiagnosticsData } from '@sdk';
 export type MockHealth = DiagnosticsData;
 
 const SYSTEM: MockHealth['system'] = {
-  version: '1.4.0-mock',
-  bridgeVersion: '1.4',
+  version: '2.0.0-mock',
+  bridgeVersion: '2.0',
   renderer: 'webview2',
   compositor: 'd3d12',
   drawPath: 'ui-seam',
@@ -53,7 +53,7 @@ export const MOCK_HEALTH: Record<string, MockHealth> = {
         status: 'active',
         source: 'compat',
         subject: 'future.mod/panel',
-        context: { kind: 'view', targetVersion: '9.9.0', installedVersion: '1.4.0-mock' },
+        context: { kind: 'view', targetVersion: '9.9.0', installedVersion: '2.0.0-mock' },
         occurrences: 1,
         firstAt: 0.6,
         lastAt: 0.6,
@@ -116,9 +116,9 @@ export const MOCK_HEALTH: Record<string, MockHealth> = {
         code: 'host.ring-truncated',
         severity: 'warning',
         status: 'active',
-        source: 'host',
+		source: 'host',
         subject: 'webview2',
-        context: { detail: 'host announced 12 slots, capacity 8', renderer: 'webview2' },
+		context: { detail: 'browser host announced 12 slots, capacity 8', renderer: 'webview2' },
         occurrences: 7,
         firstAt: 12.0,
         lastAt: 96.5,
@@ -160,9 +160,9 @@ export const MOCK_HEALTH: Record<string, MockHealth> = {
         code: 'host.ring-truncated',
         severity: 'warning',
         status: 'resolved',
-        source: 'host',
+		source: 'host',
         subject: 'webview2',
-        context: { detail: 'host announced 12 slots, capacity 8', renderer: 'webview2' },
+		context: { detail: 'browser host announced 12 slots, capacity 8', renderer: 'webview2' },
         occurrences: 1,
         firstAt: 1.2,
         lastAt: 1.2,
@@ -190,12 +190,12 @@ export const MOCK_HEALTH: Record<string, MockHealth> = {
    * the whole catalog of titles, impact/next copy and action rows can be read
    * side by side (and run through `?locale=pseudo`) without provoking nine
    * distinct failures in a live game. Keep it in sync with COPY in
-   * `src/lib/settings/diagnostics.ts` — a code missing here is a card nobody
+   * `src/lib/settings/health.ts` — a code missing here is an issue nobody
    * has ever looked at.
    *
    * Severities and context keys match what native actually emits; see
-   * RuntimeDiagnostics.cpp (settings/compat/render/views) and
-   * WebView2HostWebRenderer.cpp (host.*).
+   * HealthReconciler.cpp (settings/compat/document loading), Runtime.cpp
+   * (input/view protocol), and WebView2HostWebRenderer.cpp (`host.*` compatibility issue codes).
    */
   catalog: {
     system: { ...SYSTEM, frameGeneration: true, drawPath: 'unavailable', devMode: true },
@@ -225,6 +225,18 @@ export const MOCK_HEALTH: Record<string, MockHealth> = {
         lastAt: 0.3,
       },
       {
+        id: 'input.control-map-unavailable',
+        code: 'input.control-map-unavailable',
+        severity: 'warning',
+        status: 'active',
+        source: 'input',
+        subject: 'Starfield ControlMap',
+        context: { gameVersion: '1.15.222.0', reason: 'unsupported ControlMap layout' },
+        occurrences: 1,
+        firstAt: 0.4,
+        lastAt: 0.4,
+      },
+      {
         id: 'view.load-failed:broken.mod/panel',
         code: 'view.load-failed',
         severity: 'error',
@@ -249,6 +261,22 @@ export const MOCK_HEALTH: Record<string, MockHealth> = {
         lastAt: 2.4,
       },
       {
+        id: 'settings.hotkey-target:acme.kit.startScene',
+        code: 'settings.hotkey-target',
+        severity: 'error',
+        status: 'active',
+        source: 'settings',
+        subject: 'acme.kit.startScene',
+        context: {
+          script: 'Acme_Hotkeys',
+          function: 'StartScene',
+          message: 'Papyrus rejected the call',
+        },
+        occurrences: 1,
+        firstAt: 3.0,
+        lastAt: 3.0,
+      },
+      {
         id: 'view.load-retrying:slow.mod/panel',
         code: 'view.load-retrying',
         severity: 'warning',
@@ -261,13 +289,25 @@ export const MOCK_HEALTH: Record<string, MockHealth> = {
         lastAt: 88.0,
       },
       {
+        id: 'view.protocol-misuse:buggy.mod/panel',
+        code: 'view.protocol-misuse',
+        severity: 'warning',
+        status: 'active',
+        source: 'views',
+        subject: 'buggy.mod/panel',
+        context: { code: 'unknown-endpoint', count: 10 },
+        occurrences: 1,
+        firstAt: 42.0,
+        lastAt: 42.0,
+      },
+      {
         id: 'host.ring-truncated',
         code: 'host.ring-truncated',
         severity: 'warning',
         status: 'active',
-        source: 'host',
+		source: 'host',
         subject: 'webview2',
-        context: { detail: 'host announced 12 slots, capacity 8', renderer: 'webview2' },
+		context: { detail: 'browser host announced 12 slots, capacity 8', renderer: 'webview2' },
         occurrences: 1,
         firstAt: 1.2,
         lastAt: 1.2,
@@ -279,10 +319,81 @@ export const MOCK_HEALTH: Record<string, MockHealth> = {
         status: 'active',
         source: 'compat',
         subject: 'future.mod/panel',
-        context: { kind: 'view', targetVersion: '9.9.0', installedVersion: '1.4.0-mock' },
+        context: { kind: 'view', targetVersion: '9.9.0', installedVersion: '2.0.0-mock' },
         occurrences: 1,
         firstAt: 0.6,
         lastAt: 0.6,
+      },
+      {
+        id: 'compat.pre-2-view:view:legacy.mod/panel',
+        code: 'compat.pre-2-view',
+        severity: 'warning',
+        status: 'active',
+        source: 'compat',
+        subject: 'legacy.mod/panel',
+        context: {
+          kind: 'view',
+          consumer: 'legacy.mod/panel',
+          targetVersion: '1.9.0',
+          installedVersion: '2.0.0-mock',
+          removalVersion: '2.1.0',
+        },
+        occurrences: 1,
+        firstAt: 0.7,
+        lastAt: 0.7,
+      },
+      {
+        id: 'compat.legacy-api:plugin:SuitProtocol.dll',
+        code: 'compat.legacy-api',
+        severity: 'warning',
+        status: 'active',
+        source: 'compat',
+        subject: 'SuitProtocol.dll',
+        context: {
+          kind: 'plugin',
+          consumer: 'SuitProtocol.dll',
+          abi: '1.7',
+          installedVersion: '2.0.0-mock',
+          removalVersion: '2.1.0',
+        },
+        occurrences: 1,
+        firstAt: 0.8,
+        lastAt: 0.8,
+      },
+      {
+        id: 'compat.legacy-papyrus:Papyrus mod:ak.autosort',
+        code: 'compat.legacy-papyrus',
+        severity: 'warning',
+        status: 'active',
+        source: 'compat',
+        subject: 'ak.autosort',
+        context: {
+          kind: 'Papyrus mod',
+          consumer: 'ak.autosort',
+          api: '1.x natives',
+          installedVersion: '2.0.0-mock',
+          removalVersion: '2.1.0',
+        },
+        occurrences: 1,
+        firstAt: 0.9,
+        lastAt: 0.9,
+      },
+      {
+        id: 'compat.unsupported-api:plugin:FuturePlugin.dll',
+        code: 'compat.unsupported-api',
+        severity: 'error',
+        status: 'active',
+        source: 'compat',
+        subject: 'FuturePlugin.dll',
+        context: {
+          kind: 'plugin',
+          consumer: 'FuturePlugin.dll',
+          abi: '3.0',
+          installedVersion: '2.0.0-mock',
+        },
+        occurrences: 1,
+        firstAt: 1.0,
+        lastAt: 1.0,
       },
       // A code this build predates: must render through GENERIC_COPY with its
       // context visible, never as a blank card.
@@ -293,13 +404,13 @@ export const MOCK_HEALTH: Record<string, MockHealth> = {
         status: 'active',
         source: 'future',
         subject: 'something',
-        context: { detail: 'emitted by a newer host than this frontend' },
+        context: { detail: 'emitted by a newer OSF UI runtime than this frontend' },
         occurrences: 1,
         firstAt: 50.0,
         lastAt: 50.0,
       },
-      // A report another mod raised through the native ABI (1.7). The host
-      // namespaces its code and assigns the source, and MOD_COPY names that mod
+      // A report another mod raised through the native ABI (1.7). The OSF UI
+      // runtime namespaces its code and assigns the source, and MOD_COPY names that mod
       // rather than telling the player to update OSF UI — which would change
       // nothing here.
       {

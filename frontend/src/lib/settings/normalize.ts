@@ -48,7 +48,7 @@ export const HEX_RE = /^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
 
 /**
  * Is this schema item value-bearing (vs. a note/image/action block)?
- * Discriminates purely on `type`, so an item with a type this host predates
+ * Discriminates purely on `type`, so an item with a type this OSF UI runtime predates
  * reads as not-a-setting and is rendered read-only rather than committed.
  */
 export function isSetting(item: unknown): item is Setting {
@@ -89,7 +89,7 @@ export function normalizeValue(setting: Setting, value: unknown): SettingValue |
       return normalizeKey(setting, value);
 
     default:
-      // A type this host predates. The store serves it read-only and so do we.
+      // A type this OSF UI runtime predates. The store serves it read-only and so do we.
       return undefined;
   }
 }

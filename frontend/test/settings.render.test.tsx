@@ -208,7 +208,7 @@ describe('settings widget rendering', () => {
     expect(evil.classList.contains('osf-note--evil')).toBe(false);
   });
 
-  it('action refuses a reserved-namespace command with a danger toast, no send', async () => {
+  it('action refuses a reserved-namespace request endpoint with a danger toast, no request', async () => {
     const { bridge, el } = await mountKit();
     const before = bridge.requests.length;
     const reserved = [...el.querySelectorAll<HTMLButtonElement>('.row--action .osf-btn')].find(
@@ -221,7 +221,7 @@ describe('settings widget rendering', () => {
     expect(el.querySelector('.toast--danger')).not.toBeNull();
   });
 
-  it('a valid action fires the namespaced command', async () => {
+  it('a valid action calls the namespaced request endpoint', async () => {
     const { bridge, el } = await mountKit();
     const go = [...el.querySelectorAll<HTMLButtonElement>('.row--action .osf-btn')].find(
       (b) => b.textContent === 'Run it',

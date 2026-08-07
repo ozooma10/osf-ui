@@ -9,7 +9,7 @@ import { prioritizeBindingsForFilter } from '@lib/keybinds/filter';
 import type { KeyLabeler } from '@lib/keybinds/labels';
 import type { BindingRow } from '@lib/keybinds/model';
 import type { Translator } from '@lib/i18n';
-import type { InputContextState } from '@sdk';
+import type { EngineInputContextState } from '@sdk';
 import { HolderRow, holderInstanceId } from './HolderRow';
 
 export interface DetailPanelProps {
@@ -17,7 +17,7 @@ export interface DetailPanelProps {
   selectedKey: string;
   /** Current Layer picker value; matching holders render first, never alone. */
   filter: string;
-  inputContext: InputContextState | null;
+  engineInputContext: EngineInputContextState | null;
   /** False until the first render that had data; until then only the title shows. */
   loaded: boolean;
   tr: Translator;
@@ -28,11 +28,11 @@ export interface DetailPanelProps {
 }
 
 export function DetailPanel(props: DetailPanelProps) {
-  const { bindings, selectedKey, filter, inputContext, loaded, tr, capturingId, onRebind } = props;
+  const { bindings, selectedKey, filter, engineInputContext, loaded, tr, capturingId, onRebind } = props;
   const chip = selectedKey ? (props.labeler?.(selectedKey) ?? selectedKey) : '';
 
   const holders = selectedKey
-    ? prioritizeBindingsForFilter(holdersOf(bindings, selectedKey), filter, inputContext)
+    ? prioritizeBindingsForFilter(holdersOf(bindings, selectedKey), filter, engineInputContext)
     : [];
   const state = selectedKey ? keyState(bindings, selectedKey) : { conflict: false, possible: false, shared: false };
 

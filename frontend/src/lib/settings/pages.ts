@@ -2,7 +2,7 @@
 // group's `page` field).
 //
 // Pages are pure display structure, annotated onto the existing flat group
-// list rather than nesting it: a host that predates them ignores the unknown
+// list rather than nesting it: an OSF UI runtime that predates them ignores the unknown
 // fields and renders the plain group column, so a paged schema degrades to
 // exactly the pre-pages UI. That is why `page` lives ON the group instead of
 // groups living inside `pages[]`.

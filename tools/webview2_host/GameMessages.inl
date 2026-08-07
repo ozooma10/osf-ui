@@ -100,13 +100,13 @@
 				}
 			}
 
-			void HandleSetActive(const json& a_msg)
+			void HandleSetInputTarget(const json& a_msg)
 			{
 				auto* view = ResolveView(a_msg);
 				if (!view) return;
-				if (active && active != view) active->nativePopupOpen = false;
-				active = view;
-				log.Info(std::format("active view -> '{}'", view->id));
+				if (inputTarget && inputTarget != view) inputTarget->nativePopupOpen = false;
+				inputTarget = view;
+				log.Info(std::format("input-target view -> '{}'", view->id));
 				if (focusGranted && view->controller && !view->hidden) {
 					view->controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
 				}
@@ -121,8 +121,8 @@
 					for (auto& view : views) view->nativePopupOpen = false;
 				}
 				SetRawMouseInput(focusGranted);
-				if (focusGranted && active && active->controller && !active->hidden) {
-					active->controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+				if (focusGranted && inputTarget && inputTarget->controller && !inputTarget->hidden) {
+					inputTarget->controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
 				}
 				ReconcileInputWidgetSubclass();
 				ApplyMouseCapture();
@@ -133,12 +133,12 @@
 
 			void HandleKey(const json& a_msg)
 			{
-				if (!active || !active->webView) return;
+				if (!inputTarget || !inputTarget->webView) return;
 				const auto payload = json{ { "__osfuiKey", {
 					{ "vk", a_msg.value("vk", 0u) },
 					{ "down", a_msg.value("down", false) },
 				} } }.dump();
-				active->webView->PostWebMessageAsJson(ToWide(payload).c_str());
+				inputTarget->webView->PostWebMessageAsJson(ToWide(payload).c_str());
 			}
 
 			void HandleFrameAck(const json& a_msg)
@@ -193,11 +193,11 @@
 				log.Info(std::format("destroying view '{}'", view->id));
 				egressWarned.erase(view->id);
 				DestroyOneView(*view);
-				const bool wasActive = view == active;
+				const bool wasInputTarget = view == inputTarget;
 				std::erase_if(views, [view](const std::unique_ptr<View>& a_view) {
 					return a_view.get() == view;
 				});
-				if (wasActive) active = views.empty() ? nullptr : views.front().get();
+				if (wasInputTarget) inputTarget = views.empty() ? nullptr : views.front().get();
 				if (!AnyRevealPending()) ApplyDeferredHides();
 			}
 
@@ -209,7 +209,7 @@
 				quit.store(true);
 			}
 
-			void HandleCommand(const json& a_msg)
+			void HandleGameMessage(const json& a_msg)
 			{
 				using Handler = void (App::*)(const json&);
 				static constexpr std::pair<std::string_view, Handler> handlers[]{
@@ -220,7 +220,9 @@
 					{ "suspendView", &App::HandleSuspendView },
 					{ "setHidden", &App::HandleSetHidden },
 					{ "setOrder", &App::HandleSetOrder },
-					{ "setActive", &App::HandleSetActive },
+					// `setActive` is the compatibility wire spelling for selecting the
+					// browser host's input-target view.
+					{ "setActive", &App::HandleSetInputTarget },
 					{ "focus", &App::HandleFocus },
 					{ "mouse", &App::HandleMouse },
 					{ "key", &App::HandleKey },

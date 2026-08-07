@@ -7,11 +7,11 @@
 // right-aligned control beneath it read as vertically adjacent instead of as
 // two different columns.
 //
-// Used by the SETTINGS view only. Keybinds does not import this — its `HolderRow`
+// Used by the Mod Settings view only. Keybindings does not import this — its `HolderRow`
 // builds its own `kb-holder` band and satisfies the padnav contract separately
 // (see the dom-contracts test, which covers both). An earlier version of this
 // comment claimed the two shared it "so they cannot drift"; they never did, and
-// they can. Changing this file does not change keybinds.
+// they can. Changing this file does not change Keybindings.
 
 import type { ComponentChildren } from 'preact';
 import { cx } from './cx';

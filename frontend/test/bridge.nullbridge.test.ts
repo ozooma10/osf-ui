@@ -58,8 +58,8 @@ describe('nullBridge — request', () => {
 
   it('omits `payload` — the error is synthesised, not a message', async () => {
     // Same contract as the shipped helper's local rejections (timeout,
-    // no-bridge): `"payload" in err` distinguishes "the host refused, and here
-    // is its code" from "we gave up / there is no host".
+    // no-bridge): `"payload" in err` distinguishes "the OSF UI runtime refused,
+    // and here is its code" from "we gave up / there is no bridge".
     expect('payload' in (await caught(nullBridge.request('ping')))).toBe(false);
   });
 
@@ -93,7 +93,7 @@ describe('nullBridge — on / state', () => {
     expect(() => off()).not.toThrow();
 
     // Unsubscribing answers nothing — matching the shipped helper, whose
-    // unsubscribe is a statement body. Pinned so a caller who starts branching
+    // unsubscribe is a statement body. Covered so a caller who starts branching
     // on the return value hits this instead of a standalone-only bug.
     expect(off()).toBeUndefined();
 
@@ -127,7 +127,7 @@ describe('nullBridge — ready / i18n', () => {
     // 1.x left this pending forever, so a view that awaited it before its first
     // paint rendered nothing in a plain browser and gave the author no clue
     // why. Rejecting fails fast with a code the view can branch on, and still
-    // never claims a runtime version the preview does not have.
+    // never claims an OSF UI release version the preview does not have.
     const err = await caught(nullBridge.ready());
     expect(err.code).toBe('no-bridge');
     expect(err.message).toBe('no bridge (standalone preview)');

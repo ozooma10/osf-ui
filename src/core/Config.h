@@ -16,7 +16,7 @@ namespace OSFUI
 		static constexpr std::int64_t kConfigVersion = 2;
 
 		bool        enabled{ true };
-		// MCM-owned toggle: not parsed from config.json — the `osfui` schema is
+		// Mod Settings-owned toggle: not parsed from config.json — the `osfui` schema is
 		// the sole owner and Runtime::OnSettingChanged mutates it live. It
 		// doubles as the pre-replay boot default, so it MUST equal the schema
 		// default.
@@ -25,15 +25,16 @@ namespace OSFUI
 		// at runtime (live Scaleform GFx manipulation — no SWF edit, no conflict
 		// with UI-overhaul SWFs) and open pauseMenuEntryView when it is pressed.
 		// The AS3 structure is decoded from the decompiled 1.16.244
-		// pausemenu.swf. See input/PauseMenuEntry.h. MCM-owned; the label/view
+		// pausemenu.swf. See input/PauseMenuEntry.h. Mod Settings owns the toggle;
+		// the label/view
 		// strings below stay dev knobs.
-		bool        pauseMenuEntry{ true };  // MCM-owned live state; not parsed from config.json
-		std::string pauseMenuEntryLabel{ "MOD MENUS" };
-		std::string pauseMenuEntryView{ "osfui/settings" };  // must be a discovered surface id, qualified "<mod>/<view>"
+		bool        pauseMenuEntry{ true };  // Mod Settings-owned live state; not parsed from config.json
+		std::string pauseMenuEntryLabel{ "MOD SETTINGS" };
+		std::string pauseMenuEntryView{ "osfui/settings" };  // must be a discovered qualified view id, "<modId>/<viewName>"
 		// Show warnings against the live engine ControlMap catalog. The catalog is
-		// always published read-only; this MCM-owned switch hides only warnings.
-		bool        vanillaKeyConflicts{ true };
-		std::string view{ "osfui/settings" };  // qualified "<mod>/<view>" id; the default menu the toggle key opens
+		// always published read-only; this Mod Settings-owned switch hides only warnings.
+		bool        gameBindingWarnings{ true };  // persisted compatibility key: "vanillaKeyConflicts"
+		std::string view{ "osfui/settings" };  // qualified "<modId>/<viewName>" id; the default menu the toggle key opens
 		// Release-safe default; a dev override turns on verbose logging, view/schema
 		// hot-reload, F12 DevTools — and lists third-party debugOnly views in the
 		// mod menu.

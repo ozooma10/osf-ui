@@ -110,7 +110,7 @@ html, body { height: 100%; overflow: hidden; }
 .detail-head h2 { font-size: var(--osf-text-3xl); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; margin-top: 4px; }
 .detail-head .kicker { letter-spacing: 0.2em; }
 .detail-desc { font-family: var(--osf-font-sans); font-size: var(--osf-text-sm); color: var(--osf-text-faint); margin-top: 8px; max-width: 62ch; }
-/* View-only mod pages: the quiet "no settings" line under the surface rows. */
+/* View-only mod pages: the quiet "no settings" line under the view rows. */
 .detail-quiet { font-family: var(--osf-font-mono); font-size: var(--osf-text-xs); letter-spacing: 0.08em; color: var(--osf-text-faint); padding: 14px 0; }
 
 .group { padding: 16px 0; }
@@ -301,8 +301,8 @@ html, body { height: 100%; overflow: hidden; }
 }
 
 /* ============================================================
-   Control Deck overhaul
-   A single, calm command surface with stronger navigation and
+   Mod Settings layout
+   A single, calm action area with stronger navigation and
    card-based groups. Runtime-facing classes remain unchanged.
    ============================================================ */
 
@@ -331,7 +331,7 @@ html, body { height: 100%; overflow: hidden; }
   box-shadow: 0 26px 90px rgba(0, 0, 0, 0.56);
 }
 /* Accent stripe along the deck's top edge: a short accent bar running
-   out into a hairline. Picks up the active view's --osf-accent. */
+   out into a hairline. Picks up the selected mod's --osf-accent. */
 .settings::before {
   content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px; z-index: 8;
   background: linear-gradient(90deg,
@@ -352,12 +352,12 @@ html, body { height: 100%; overflow: hidden; }
 .wordmark-ui { color: var(--osf-accent); }
 .brand-sub { margin-top: 5px; font-size: 9px; letter-spacing: 0.19em; }
 /* Version + "needs update" tag, pushed to the far end of the brand row and
-   stacked so the tag sits directly under the version badge. */
+   stacked so the tag sits directly under the OSF UI release-version badge. */
 .version-stack {
   margin-left: auto;
   display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
 }
-/* Plugin version from the runtime.ready handshake; empty (hidden) until then. */
+/* OSF UI release version from the bridge ready handshake; empty (hidden) until then. */
 .version-badge {
   display: inline-flex; align-items: center;
   padding: 4px 7px; font-family: var(--osf-font-mono); font-size: 8px;
@@ -366,7 +366,7 @@ html, body { height: 100%; overflow: hidden; }
 }
 .version-badge:empty { display: none; }
 /* Outdated: an installed mod's manifest targets a newer OSF UI than this one
-   (views.data targetVersion vs the handshake version) — the badge goes yellow
+   (`osfui/views` targetVersion vs the handshake version) — the badge goes yellow
    and the tag below it appears, its tooltip naming the mods asking. */
 .version-badge.is-outdated { color: var(--osf-signal-warn); border-color: rgba(223, 166, 61, 0.7); }
 .needs-update-tag {
@@ -376,8 +376,8 @@ html, body { height: 100%; overflow: hidden; }
 }
 .needs-update-tag:hover, .needs-update-tag:focus-visible { text-decoration: underline; }
 .needs-update-tag[hidden] { display: none; }
-/* config.json devMode, surfaced through the diagnostics system block: a
-   standing amber pill so a dev-configured install reads as such on sight. */
+/* Effective developer mode, published as System Health information: a standing
+   amber pill whether config.json or the temporary author-mode marker enabled it. */
 .devmode-tag {
   display: inline-flex; align-items: center;
   padding: 4px 7px; font-family: var(--osf-font-mono); font-size: 8px;
@@ -501,10 +501,10 @@ html, body { height: 100%; overflow: hidden; }
 .session-panel { border-radius: var(--osf-radius-lg); box-shadow: var(--osf-shadow); }
 
 /* ---- Home (launcher) ---------------------------------------
-   The deck's landing page: registered panels as app-style launch
-   tiles, overlays as toggle cards. Tile aesthetics descend from
-   the retired hub launcher, recut on the deck's surfaces. No
-   infinite animations — a perpetually dirty browser surface
+   The deck's landing page: discovered views as app-style launch
+   tiles, HUDs as toggle cards. Tile aesthetics descend from
+   the retired catalog launcher, recut for the deck's layout. No
+   infinite animations — a perpetually dirty browser render target
    wastes work while the menu is idle. */
 
 .rail-item--home .rail-item-mark { font-size: 16px; }
@@ -634,7 +634,7 @@ html, body { height: 100%; overflow: hidden; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 /* The switch is a passive span; on-state follows the card's aria-pressed
-   (which refreshSurfaceStates reconciles from views.data pushes). */
+   (which view-state reconciliation updates from `osfui/views`). */
 .home-hud[aria-pressed="true"] .home-hud-switch { background: var(--osf-accent); border-color: var(--osf-accent); }
 .home-hud[aria-pressed="true"] .home-hud-switch::after { left: 22px; background: var(--osf-void-900); }
 
@@ -645,24 +645,24 @@ html, body { height: 100%; overflow: hidden; }
 }
 .home-empty p { max-width: 46ch; margin: 10px auto 0; font-size: var(--osf-text-sm); line-height: 1.6; }
 
-/* Complete discovery inventory embedded in OSF UI -> Diagnostics. */
-.registered-views { display: contents; }
-.registered-views-head {
+/* Complete discovery inventory embedded in OSF UI's Mod Settings detail. */
+.discovered-views { display: contents; }
+.discovered-views-head {
   display: flex; align-items: center; justify-content: space-between;
   width: 100%; padding: 15px 18px;
   color: inherit; text-align: left; cursor: pointer;
-  background: transparent; border: 0; border-top: 1px solid var(--osf-line);
+  background: transparent; border: 0;
 }
-.registered-views-head:hover { background: rgba(242, 239, 233, 0.025); }
-.registered-views-head::after {
+.discovered-views-head:hover { background: rgba(242, 239, 233, 0.025); }
+.discovered-views-head::after {
   content: "+"; flex: none; margin-left: 18px;
   color: var(--osf-accent); font-family: var(--osf-font-mono); font-size: 13px;
 }
-.registered-views-head[aria-expanded="true"]::after { content: "−"; }
-.registered-views-body { display: contents; }
-.registered-view-meta { font-family: var(--osf-font-mono); }
-.registered-view-id { color: var(--osf-text-muted); }
-.registered-views-empty {
+.discovered-views-head[aria-expanded="true"]::after { content: "−"; }
+.discovered-views-body { display: contents; }
+.discovered-view-meta { font-family: var(--osf-font-mono); }
+.discovered-view-id { color: var(--osf-text-muted); }
+.discovered-views-empty {
   padding: 12px 18px 15px;
   color: var(--osf-text-faint); font-size: var(--osf-text-sm);
 }
@@ -673,7 +673,7 @@ html, body { height: 100%; overflow: hidden; }
    the three to be added, never the only one. Cards stay quiet by
    default: instrument-panel calm, not a wall of red. */
 
-/* Pinned status row in the rail HEAD, above the "Installed systems" label.
+/* Fixed status row in the rail HEAD, above the "Installed mods" label.
    Standalone chrome on purpose — it must not read as one of the mod entries
    below it, and at nominal it should be the quietest thing in the head. */
 .rail-item--health {

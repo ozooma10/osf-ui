@@ -4,8 +4,8 @@
 
 namespace OSFUI
 {
-	// Out-of-process WebView2 backend (renderer id "webview2"), and the only
-	// browser backend. The browser stack lives in osfui_webview2_host.exe,
+	// Out-of-process WebView2 web renderer (renderer id "webview2"), and the only
+	// production implementation. The browser stack lives in osfui_webview2_host.exe,
 	// launched outside the game's process tree (Wv2BrokerLaunch) so MO2's
 	// USVFS never injects into msedgewebview2.exe — that injection is what
 	// made the removed in-process variant fail controller creation with
@@ -29,9 +29,9 @@ namespace OSFUI
 
 		bool Initialize(const RendererConfig& a_config) override;
 		bool RestartAfterFailure() override;
-		void LoadView(const ViewManifest& a_manifest) override;
+		void CreateOrNavigateView(const ViewManifest& a_manifest) override;
         bool RefreshViewFiles(std::string_view a_viewId) override;
-		void SetActiveView(std::string_view a_id) override;
+		void SetInputTargetView(std::string_view a_id) override;
 		void Resize(std::uint32_t a_width, std::uint32_t a_height) override;
 		void Update(double a_deltaSeconds) override;
 		std::optional<FrameBufferView> Render() override;

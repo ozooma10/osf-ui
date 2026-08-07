@@ -2,13 +2,13 @@
 
 #include <nlohmann/json.hpp>
 
-// Retained view state: the backend-owned values a fresh document is replayed
-// on every boot (docs/mod-api-2.0-design.md, "The four verbs").
+// Retained mod state: mod-backend-owned values replayed to each current and
+// future document owned by the publishing mod (docs/terminology.md).
 //
-// This is the systemic fix for the blank-after-F5 bug class. A backend that
-// knows when a value changes PUBLISHES it here once; the runtime replays every
+// This is the systemic fix for the blank-after-F5 bug class. A mod backend that
+// knows when a value changes PUBLISHES it here once; the OSF UI runtime replays every
 // current value to each document that greets the bridge. Nothing in a view has
-// to remember to re-request anything, and nothing in a backend has to listen
+// to remember to re-request anything, and nothing in a mod backend has to listen
 // for a view-defined hello.
 //
 // State is latest-wins and complete per key — never a delta — so a replay and a
@@ -16,14 +16,14 @@
 // deliberately do NOT live here: replaying a one-shot happening re-fires its
 // effect.
 //
-// Both backends share this store, which is what makes the backend-symmetry grid
+// Both mod backend types share this store, which makes their state semantics
 // square: Papyrus `SetView*` and the native ABI's `SetViewState` land in the
 // same place and replay by the same rule. Main thread only — Papyrus natives
 // and ABI callers queue their writes and Runtime drains them on the tick.
 
 namespace OSFUI
 {
-	class ViewStateStore
+	class RetainedStateStore
 	{
 	public:
 		// Keys are matched case-insensitively: a Papyrus key arrives through

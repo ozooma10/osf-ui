@@ -1,6 +1,9 @@
 # Adding settings to your mod
 
-One JSON file gives your mod a full settings page in the OSF UI Mods menu (F10): typed controls, validation, persistence, hotkey rebinding, presets and localization, **no code required**. This is the complete guide to that file.
+One JSON file gives your mod a full page in Mod Settings (F10): typed controls, validation, persistence, hotkey rebinding, presets and localization, **no code required**. This is the complete guide to that file.
+
+Input, hotkey, bridge, and version names follow the
+[terminology glossary](terminology.md).
 
 Want custom UI instead? Full web views are [authoring-views.md](authoring-views.md). Settings and views share the same mod id and compose freely — most mods ship settings first.
 
@@ -67,7 +70,7 @@ Common per-setting fields:
 
 ### Widgets and number formatting
 
-`"widget"` picks an alternate control for the same type; older hosts ignore it safely.
+`"widget"` picks an alternate control for the same type; older OSF UI releases ignore it safely.
 
 | Type | Widgets |
 |---|---|
@@ -86,7 +89,7 @@ Common per-setting fields:
 
 ## 3. Pages, groups and show/hide rules
 
-Groups are ordered sections: `{ "id", "label", "collapsed", "page", "visibleWhen", "settings": [...] }`. Give groups a stable `id` if you expect translations (it survives reordering). With many groups the host renders a section index automatically; `"collapsed": true` starts one folded.
+Groups are ordered sections: `{ "id", "label", "collapsed", "page", "visibleWhen", "settings": [...] }`. Give groups a stable `id` if you expect translations (it survives reordering). With many groups Mod Settings renders a section index automatically; `"collapsed": true` starts one folded.
 
 ### Pages
 
@@ -108,7 +111,7 @@ When one column gets long, segment it into tabs — declare them at the top leve
 
 - A group with no `page` (or an unknown id) lands on an implicit **General** tab, painted first — so adding pages later never hides an untagged group.
 - A page no group references renders no tab; tabs appear only when content splits across at least two non-empty pages.
-- Pages are display-only annotations on the flat `groups` list. A host predating them ignores both fields and renders the plain column, so a paged schema stays usable on older versions (declare `targetVersion` if you want those hosts to badge "needs update").
+- Pages are display-only annotations on the flat `groups` list. An older OSF UI release that predates them ignores both fields and renders the plain column, so a paged schema stays usable on older versions (declare `targetVersion` if you want those releases to badge "needs update").
 - Tab labels localize at `pages.<id>.label`. Section index and search still work; a search jump raises the right tab.
 
 ### Conditions
@@ -155,7 +158,7 @@ A group can also contain static and interactive rows:
 ```
 
 - **Notes** support micro-markdown only: `**bold**`, `*italic*`, `` `code` ``, `\n`. No HTML, no links — everything renders injection-safe.
-- **Image** `src` is relative to your `views/<id>/` folder (ship one even if it only holds assets); no `..`, absolute paths, or URL schemes.
+- **Image** `src` is relative to your mod namespace folder, `views/<modId>/` (ship one even if it only holds assets); no `..`, absolute paths, or URL schemes.
 - **Actions** fire a bridge **request** whose name must be namespaced `<your-id>.something`; the card refuses anything else, and anything whose leading segment is a framework namespace (`ui`, `menu`, `hud`, `settings`, `views`, `game`, `runtime`). Register it with **`RegisterRequest`**, not `RegisterSend` ([native-plugin-api.md](native-plugin-api.md)) — a button needs an outcome. Actions therefore need a native plugin; Papyrus has no equivalent registration.
 
   The card sends `{ "mod": "<your-id>", "key": "<the action's key>" }` and waits 5 s. Resolve `{}` for a silent success or `{ "message": "…" }` to raise a toast; reject with your own code and message and that message toasts as a failure; time out and the player reads `No response from <your mod>`.
@@ -180,7 +183,7 @@ Author-shipped value sets, applied as a batch of ordinary validated writes. Part
 Top-level, both optional:
 
 - `"accent": "#7a9a5e"` — tints your detail pane.
-- `"icon": "badge.svg"` — path inside `views/<id>/`, shown in the rail and launcher cards instead of the initials monogram. SVG or PNG, drawn at ~30–52 px square.
+- `"icon": "badge.svg"` — path inside the mod namespace folder `views/<modId>/`, shown in the rail and launcher cards instead of the initials monogram. SVG or PNG, drawn at ~30–52 px square.
 
 ---
 
@@ -197,9 +200,13 @@ Every `"type": "key"` setting is a **live, rebindable hotkey** — you never wri
 - Conflicts with other mods or Starfield's own bindings are **informational warnings** — never blocked, both mods still fire.
 - `"allowUnbound": true` permits `""` as a deliberate unbound state (adds an unbind × in the UI; unbound keys never dispatch and never warn).
 
-**Key names denote physical positions.** A name like `"F8"`, `"W"` or `"Semicolon"` identifies a key by where it sits on the US reference keyboard — the same convention Starfield's own controlmap uses — so a stored binding means the same physical key on every machine and every keyboard layout. The UI everywhere shows the *player's* keycap for it (a German layout renders the `Semicolon` position as `Ö`); never show a raw name yourself when a label is available (`keyboard.labels[name]`, or `label` on `settings.captured`), and never persist a label where a name is expected. The vocabulary: `F1`–`F24`, letters/digits, `Space` `Tab` `Enter` `Backspace` `CapsLock` `Escape` (reserved), nav (`Insert` `Delete` `Home` `End` `PageUp` `PageDown` `Up` `Down` `Left` `Right`), sided modifiers (`LShift`/`RShift`, `LCtrl`/`RCtrl`, `LAlt`/`RAlt`), punctuation by US position (`Grave` `Minus` `Equals` `LBracket` `RBracket` `Backslash` `Semicolon` `Apostrophe` `Comma` `Period` `Slash`), `IntlBackslash` (the ISO `<>` key), the numpad (`Numpad0`–`Numpad9`, `NumpadEnter`, `NumpadDivide/Multiply/Subtract/Add/Decimal`), `NumLock` `ScrollLock` `Pause` `PrintScreen` `Apps`. W3C `KeyboardEvent.code` spellings (`BracketLeft`, `Backquote`, `ShiftLeft`, …) are accepted as authoring aliases and fold to the canonical spellings above. Treat any name you did not author as opaque — newer hosts can emit names this list predates.
+**Key names denote physical positions.** A name like `"F8"`, `"W"` or `"Semicolon"` identifies a key by where it sits on the US reference keyboard — the same convention Starfield's own `ControlMap` uses — so a stored binding means the same physical key on every machine and every keyboard layout. The UI everywhere shows the *player's* keycap for it (a German layout renders the `Semicolon` position as `Ö`); never show a raw name yourself when a label is available (`keyboard.labels[name]`, or `label` on `settings.captured`), and never persist a label where a name is expected. The vocabulary: `F1`–`F24`, letters/digits, `Space` `Tab` `Enter` `Backspace` `CapsLock` `Escape` (reserved), nav (`Insert` `Delete` `Home` `End` `PageUp` `PageDown` `Up` `Down` `Left` `Right`), sided modifiers (`LShift`/`RShift`, `LCtrl`/`RCtrl`, `LAlt`/`RAlt`), punctuation by US position (`Grave` `Minus` `Equals` `LBracket` `RBracket` `Backslash` `Semicolon` `Apostrophe` `Comma` `Period` `Slash`), `IntlBackslash` (the ISO `<>` key), the numpad (`Numpad0`–`Numpad9`, `NumpadEnter`, `NumpadDivide/Multiply/Subtract/Add/Decimal`), `NumLock` `ScrollLock` `Pause` `PrintScreen` `Apps`. W3C `KeyboardEvent.code` spellings (`BracketLeft`, `Backquote`, `ShiftLeft`, …) are accepted as authoring aliases and fold to the canonical spellings above. Treat any name you did not author as opaque — newer OSF UI releases may emit names this list predates.
 
-If your mod suppresses gameplay controls during a modal state (a scene, a minigame), declare an input context so intentional reuse of gameplay keys doesn't warn:
+If your mod suppresses gameplay controls during a modal state (a scene, a
+minigame), declare a **hotkey context** so intentional reuse of gameplay keys
+doesn't warn. The schema key remains `inputContexts` for compatibility; these
+mod-local declarations are distinct from Starfield's live **engine input
+contexts** published in `osfui/input-context`:
 
 ```jsonc
 "inputContexts": [
@@ -211,9 +218,14 @@ If your mod suppresses gameplay controls during a modal state (a scene, a miniga
 ] }]
 ```
 
-`gameplayModes` is the dispatch scope. Its stable values are `onFoot`, `ship`, `vehicle`, and `zeroG`; a scoped hotkey fires only while the live engine context stack proves one of its listed modes. If the live provider is unavailable or the mode is unknown, scoped keys fail closed. Existing schemas stay compatible: a missing, malformed, empty, or unknown mode list keeps legacy dispatch in any non-menu gameplay state and logs an author warning.
+`gameplayModes` is the hotkey's dispatch scope. Its stable values are `onFoot`,
+`ship`, `vehicle`, and `zeroG`; a scoped hotkey fires only while the live engine
+input context stack proves one of its listed modes. If the live provider is
+unavailable or the mode is unknown, scoped keys fail closed. Existing schemas
+stay compatible: a missing, malformed, empty, or unknown mode list keeps legacy
+dispatch in any non-menu gameplay state and logs an author warning.
 
-`blocksGameplay` is a separate author assertion — use it only when the mod genuinely prevents Starfield gameplay input while this context is active. Vanilla collisions then display as expected shares. Mod-to-mod keys with overlapping modes still warn; proven-disjoint mode sets can safely share. Context ids are local to the mod, must match `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`, and can't be `gameplay`. Missing, invalid, duplicate or unknown definitions fall back to the implicit Gameplay context; for duplicate ids the first valid definition wins.
+`blocksGameplay` is a separate author assertion — use it only when the mod genuinely prevents Starfield gameplay input while this context is active. Game-binding collisions then display as expected shares. Mod-to-mod keys with overlapping modes still warn; proven-disjoint mode sets can safely share. Context ids are local to the mod, must match `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`, and can't be `gameplay`. Missing, invalid, duplicate or unknown definitions fall back to the implicit Gameplay context; for duplicate ids the first valid definition wins.
 
 ### Start Papyrus lazily from a hotkey
 
@@ -245,17 +257,17 @@ Function OnHotkey(string asModId, string asKey) Global
 EndFunction
 ```
 
-The number is the record's plugin-local FormID, not its load-order-dependent runtime FormID; OSF UI never resolves or stores the quest identity itself. `onPress` is read-only schema metadata — never copied into the user's values file, and no settings write can change it.
+The number is the record's plugin-local FormID, not its load-order-dependent Starfield runtime FormID; OSF UI never resolves or stores the quest identity itself. `onPress` is read-only schema metadata — never copied into the user's values file, and no settings write can change it.
 
 The gameplay/menu/rebind suppression rules still apply, and the key is still delivered to ordinary subscribers, so a script that also registers the same callback gets a second delivery. Malformed or unavailable targets leave the ordinary hotkey working and appear in System Health with author details. Older OSF UI builds ignore `onPress`, so declare the `targetVersion` of the release where it ships.
 
-`npm create osfui@latest -- --surface settings` scaffolds exactly this: a schema with an `onPress` keybind, the matching GLOBAL script, and a `build-deploy.ps1` that compiles and installs it — no `.esp`, no npm toolchain. Its README walks through first press, rebinding, save-load persistence, menu suppression and the System Health diagnostic.
+`npm create osfui@latest -- --surface settings` scaffolds exactly this: a schema with an `onPress` hotkey, the matching GLOBAL script, and a `build-deploy.ps1` that compiles and installs it — no `.esp`, no npm toolchain. Its README walks through first press, rebinding, save-load persistence, menu suppression and the resulting System Health issue when a target is unavailable.
 
 ---
 
 ## 8. Using your settings (consumption)
 
-The schema stores values; making them *do* something is your half. Pick the surface where your logic lives.
+The schema stores values; making them *do* something is your half. Pick the mod backend where your logic lives.
 
 ### From your own web view (zero native code)
 
@@ -281,7 +293,7 @@ osfui.on("ui.hotkey", (p) => {
 
 No initial read to issue, nothing to re-request after an F5.
 
-Values arrive post-validation — clamped and canonicalized by the same native path the settings menu writes through. The whole registry is re-sent only when its *shape* changes (a mod loads, a schema registers at runtime, a reset lands); ordinary value commits ride the event. Wire up **both**: the state key hands you the truth at every boot, the event keeps it true afterwards. Full protocol reference: [authoring-views.md](authoring-views.md), [`sdk/osfui.d.ts`](../sdk/osfui.d.ts).
+Values arrive post-validation — clamped and canonicalized by the same native path Mod Settings writes through. The whole registry is re-sent only when its *shape* changes (a mod loads, a schema registers dynamically, a reset lands); ordinary value commits ride the event. Wire up **both**: the state key hands you the truth at every boot, the event keeps it true afterwards. Full protocol reference: [authoring-views.md](authoring-views.md), [`sdk/osfui.d.ts`](../sdk/osfui.d.ts).
 
 ### Writing settings from a view
 
@@ -304,7 +316,7 @@ try {
 await osfui.request("settings.reset", { mod: "yourname.mymod" });
 ```
 
-A view may only write **its own** mod (the built-in Mods surface and keybinds board are the two exceptions), so a neighbour can't rewrite your settings — or OSF UI's overlay toggle key, the player's guaranteed way out. Anything else rejects `forbidden`.
+A view may only write **its own** mod (the built-in Mod Settings and Keybindings views are the two exceptions), so a neighbour can't rewrite your settings — or OSF UI's overlay toggle key, the player's guaranteed way out. Anything else rejects `forbidden`.
 
 Rebinding a key is the one flow that waits on a human, and is split accordingly: the request settles in **machine** time, the human-time outcome arrives as an event.
 
@@ -320,7 +332,7 @@ osfui.on("settings.captured", (p) => {
 await osfui.request("settings.captureKey", { mod: "yourname.mymod", key: "toggleHud" });
 ```
 
-Nothing here needs a disabled client timeout: a request pending until the player presses a key can't be told apart from a backend that died.
+Nothing here needs a disabled client timeout: a request pending until the player presses a key can't be told apart from a mod backend that died.
 
 ### From an SFSE plugin (C++)
 
@@ -347,7 +359,7 @@ g_ui.SubscribeHotkey("yourname.mymod", "toggleHud",
 
 A plugin built against ABI 1.0–1.7 receives the 1.8 bridge normally; older vtable slots and feature numbers are unchanged. Recompile only to use the new retained-state method or newer header conveniences.
 
-A DLL can skip the drop-in file and register at runtime with `RegisterSettingsSchema(json)` — same JSON, same values file, so a mod can move between the two without users losing settings. If both exist, the DLL registration wins (with a logged warning).
+A DLL can skip the drop-in file and register dynamically with `RegisterSettingsSchema(json)` — same JSON, same values file, so a mod can move between the two without users losing settings. If both exist, the DLL registration wins (with a logged warning).
 
 ### From Papyrus
 
@@ -362,7 +374,7 @@ EndIf
 ```
 
 - **Getters** — `GetBool` / `GetInt` / `GetFloat` / `GetString(modId, key, default)`: cheap, thread-safe reads of the live value store. Unknown mod/key or a type mismatch yields the default. `GetString` covers string-, enum- and key-typed settings. Ids, keys and enum option values match case-insensitively (Papyrus string interning can't preserve casing); write them as authored anyway.
-- **Setters** — `SetBool` / `SetInt` / `SetFloat` / `SetString(modId, key, value)` and `Reset(modId, key = "")`: fire-and-forget; validated/clamped against your schema and persisted through the same path as the settings menu (refusals logged to `OSF UI.log`). An open settings card updates live.
+- **Setters** — `SetBool` / `SetInt` / `SetFloat` / `SetString(modId, key, value)` and `Reset(modId, key = "")`: fire-and-forget; validated/clamped against your schema and persisted through the same path as Mod Settings (refusals logged to `OSF UI.log`). An open settings card updates live.
 - **Change events + hotkeys** — register a callback; hotkeys are just your `"type": "key"` settings (§7), so the user sees and rebinds them while OSF UI owns the input hook:
 
 ```papyrus
@@ -383,7 +395,7 @@ Function OnHotkey(string asModId, string asKey)
 EndFunction
 ```
 
-Registrations are **session-scoped** (they don't survive a save load) — call `RegisterAll()` from quest init *and* every game load (e.g. `OnPlayerLoadGame` on a player `ReferenceAlias`). `RegisterFor*` returns a token for `Unregister(token)`; `...Static` variants dispatch to global functions on a named script. `OpenMenu()` opens the Mods surface (same as F10); view ids are qualified, so it defaults to `"osfui/settings"`.
+Registrations are **session-scoped** (they don't survive a save load) — call `RegisterAll()` from quest init *and* every game load (e.g. `OnPlayerLoadGame` on a player `ReferenceAlias`). `RegisterFor*` returns a token for `Unregister(token)`; `...Static` variants dispatch to global functions on a named script. The compatibility-named `OpenMenu()` opens Mod Settings (same as F10); qualified view ids are used internally, so it defaults to `"osfui/settings"`.
 
 Settings cover pre-declared scalars. For **dynamic data** — pushing live lists/tables to your own view and reacting to its clicks, all from Papyrus — see [authoring-dynamic-data.md](authoring-dynamic-data.md).
 
@@ -391,7 +403,7 @@ Settings cover pre-declared scalars. For **dynamic data** — pushing live lists
 
 ## 9. Updating your mod
 
-- **Declare `"version": 1`** from day one (a plain integer you bump on meaningful schema changes; stamped into values files as `$schemaVersion` for diagnostics). Never name a setting key with a leading `$` — those are reserved host meta keys.
+- **Declare `"version": 1`** from day one (a plain integer you bump on meaningful schema changes; stamped into values files as `$schemaVersion` for diagnostics). Never name a setting key with a leading `$` — those are reserved OSF UI runtime metadata keys.
 - **Renaming a key:** keep the old name as an alias; saved values migrate on the next load, no version arithmetic:
 
   ```jsonc
@@ -400,14 +412,14 @@ Settings cover pre-declared scalars. For **dynamic data** — pushing live lists
 
 - **Changing a default:** just change it. Persistence is sparse (only user-changed values are written), so users who never touched the knob get the new default.
 - **Changing a type:** old saved values that no longer validate fall back to the new default. Prefer a new key with an alias when the meaning changes.
-- **Using features newer than the OSF UI you tested on:** declare `"targetVersion": "2.0.0"`. The schema still loads best-effort on older hosts — unknown decorations ignored, unknown types rendered read-only (a write to one rejects `read-only`, not `invalid-value`, so a view can say "needs a newer OSF UI"), saved values for unknown types preserved untouched — and the Mods surface badges "needs update" naming your mod. During OSF UI 2.0.x, a **view manifest** below 2.0 loads through the temporary 1.x façade with a persistent 2.1.0 removal warning.
+- **Using features newer than the OSF UI release you tested on:** declare `"targetVersion": "2.0.0"`. The schema still loads best-effort on older OSF UI releases — unknown decorations ignored, unknown types rendered read-only (a write to one rejects `read-only`, not `invalid-value`, so a view can say "needs a newer OSF UI"), saved values for unknown types preserved untouched — and Mod Settings badges "needs update" naming your mod. During OSF UI 2.0.x, a **view manifest** below 2.0 loads through the temporary 1.x façade with a persistent 2.1.0 removal warning.
 - **Uninstall:** the values file is deliberately kept (MO2 profile switches look identical to uninstalls). Reinstalling restores the user's settings.
 
 ---
 
 ## 10. Testing your schema
 
-**Browser harness — no game launch.** `npm --prefix frontend run dev` (see [`frontend/README.md`](../frontend/README.md)), open `http://localhost:8080/?view=osfui/settings`, drag your JSON onto the page (or pass `?schema=<url>`). It renders the *real* settings view with a mock bridge that mirrors native clamping, persists to localStorage, and logs the exact bridge traffic. Widgets, conditions, presets, actions and rebinding all work.
+**Browser harness — no game launch.** `npm --prefix frontend run dev` (see [`frontend/README.md`](../frontend/README.md)), open `http://localhost:8080/?view=osfui/settings`, drag your JSON onto the page (or pass `?schema=<url>`). It renders the *real* Mod Settings view with a mock bridge that mirrors native clamping, persists to localStorage, and logs the exact bridge traffic. Widgets, conditions, presets, actions and rebinding all work.
 
 **Editor validation.** The `$schema` line catches most mistakes as you type. For CI:
 
@@ -415,11 +427,11 @@ Settings cover pre-declared scalars. For **dynamic data** — pushing live lists
 npx ajv-cli validate --spec=draft2020 -s docs/schema/settings-schema.schema.json -d yourname.mymod.json
 ```
 
-**In-game hot reload.** With `"devMode": true` in OSF UI's `config.json`, saved changes to `settings\*.json` are picked up within ~1 s — values survive, the open menu repaints. A loaded view's own HTML/JS/CSS reloads the same way.
+**In-game hot reload.** With developer mode enabled (persistently by `"devMode": true` or temporarily by the author-mode marker), saved changes to `settings\*.json` are picked up within ~1 s — values survive, the open menu repaints. An instantiated view's own HTML/JS/CSS reloads the same way.
 
-**Broken files are loud.** A bad filename or unparseable JSON is skipped and reported (with line/column) in an alert pinned atop the Mods rail; a corrupt values file is quarantined to `<id>.json.bad` and defaults served. If your card doesn't appear, look there first, then at `OSF UI.log`.
+**Broken files are loud.** A bad filename or unparseable JSON is skipped and reported (with line/column) in a fixed alert atop the Mod Settings rail; a corrupt values file is quarantined to `<id>.json.bad` and defaults served. If your card doesn't appear, look there first, then at `OSF UI.log`.
 
-**When a write doesn't stick.** Every failure the bridge can attribute to you prints to the calling page's console with an `[osfui]` prefix, so F12 DevTools (harness or in-game devMode) shows the rejection code and payload. For the whole picture, `localStorage["osfui:trace"] = "1"` and reload.
+**When a write doesn't stick.** Every failure the bridge can attribute to you prints to the calling page's console with an `[osfui]` prefix, so F12 DevTools (harness or in-game developer mode) shows the rejection code and payload. For the whole picture, `localStorage["osfui:trace"] = "1"` and reload.
 
 ---
 
@@ -442,7 +454,7 @@ A flat map from structural addresses to translated text; partial files are fine,
 }
 ```
 
-Addresses derive from your stable identities — setting keys, stored option values, and the optional `id` on groups/presets/notes/images (give those an `id` so translations survive reordering; the array index is the fallback). Mod ids, setting keys, stored `options` and commands are never localized. `npm create osfui@latest` ships a worked schema-and-catalog pair in every generated project.
+Addresses derive from your stable identities — setting keys, stored option values, and the optional `id` on groups/presets/notes/images (give those an `id` so translations survive reordering; the array index is the fallback). Mod ids, setting keys, stored `options`, and settings-action endpoint names (the compatibility `command` field) are never localized. `npm create osfui@latest` ships a worked schema-and-catalog pair in every generated project.
 
 ---
 

@@ -1,7 +1,7 @@
 {
   "$schema": "./../../../../../docs/schema/manifest.schema.json",
-  "title": "Mods",
-  "description": "Installed mods - settings, terminals and HUD toggles.",
+  "title": "Mod Settings",
+  "description": "Installed mods - settings, menu views, and HUD toggles.",
   "entry": "index.html",
   "mod": "osfui",
   "hub": false,

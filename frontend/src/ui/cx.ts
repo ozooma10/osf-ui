@@ -12,9 +12,9 @@
  *
  * It is load-bearing for the DOM-contract tests, which compare `className`
  * verbatim to catch a component that silently stops emitting the shape padnav
- * queries — see `frontend/test/dom-contracts.test.tsx`, which pins Row plus
+ * queries — see `frontend/test/dom-contracts.test.tsx`, which covers Row plus
  * KeyField (`.listening`) and ActionButton (`.pending`). Note's `hidden-cond`
- * uses the same trailing-state-class idiom and is deliberately not pinned: no
+ * uses the same trailing-state-class idiom and is deliberately not asserted: no
  * padnav or test consumer reads it. Keeping one order across the kit is what
  * makes those assertions writable at all.
  *

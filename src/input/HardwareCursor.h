@@ -8,7 +8,7 @@ namespace OSFUI::HardwareCursor
 	// OS composites it on the display's cursor plane, outside the game's render
 	// loop, so it has no perceived lag at any framerate — unlike anything drawn
 	// in a view or at Present time (one game frame behind). The page reports the
-	// CSS cursor it wants; the host shows the matching OS pointer.
+	// CSS cursor it wants; the OSF UI runtime shows the matching OS pointer.
 	//
 	// Threading: everything except SetShape must run on the window-message
 	// thread (from the WndProc hook) — the game manages cursor state from there

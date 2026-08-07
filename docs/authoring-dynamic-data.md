@@ -2,7 +2,11 @@
 
 For mod authors whose view shows live game state or sends player actions back to a script or plugin. Schema-declared settings are [authoring-settings.md](authoring-settings.md); the view-side verbs are [authoring-views.md](authoring-views.md) §3.
 
-Your backend owns the game. The view is a **reload-prone document**: recreated on F5, on a dev hot-reload, after a crash-recovery reload, and when OSF UI reclaims an idle view the player then reopens. Every rule below follows from that.
+Your **mod backend** (Papyrus or native plugin) owns the game. A view's browser
+content is a **reload-prone document instance**: recreated on F5, on a
+developer-mode hot reload, after a crash-recovery reload, and when OSF UI
+reclaims an idle view the player then reopens. Every rule below follows from
+that. See [terminology.md](terminology.md) for the lifecycle and bridge names.
 
 ## One decision, and it is the whole design
 
@@ -10,19 +14,19 @@ Before you publish anything: **is this true right now, or did it just happen?**
 
 | | means | delivered to | on the next reload |
 |---|---|---|---|
-| **state** | what is TRUE NOW — a list, count, status, selection | every live view of your mod, and every one that loads later | **replayed automatically**, before the page's first event |
-| **event** | what JUST HAPPENED — a scan finished, the player took a hit | every live view of your mod, once | **never** |
+| **state** | what is TRUE NOW — a list, count, status, selection | every current and future document instance of your mod | **replayed automatically**, before the document's first event |
+| **event** | what JUST HAPPENED — a scan finished, the player took a hit | the current target document instance(s), once | **never** |
 
 Backwards, you get one of two classic bugs:
 
 - **An event encoded as state re-fires** — replayed to every fresh document, so "you took a hit" plays its sound again on every reload.
 - **State encoded as an event leaves a blank HUD** — the push happened once, before the reload, and nothing replays it. This is the bug 1.x asked every author to work around by hand (the view fired a `ready` action, the script re-pushed). OSF UI 2.0 replaces that convention; its temporary 2.0.x adapter preserves `data.push` only for declared 1.x consumers and removes it in 2.1.0.
 
-The test: **if reloading the page mid-session leaves it correct, you chose right.** In `devMode`, F5 the view and look. A correctly fed view needs *zero* lifecycle code.
+The test: **if reloading the document mid-session leaves it correct, you chose right.** In developer mode, press F5 in the view and look. A correctly fed view needs *zero* lifecycle code.
 
 ## The grid
 
-Every backend expresses the same four kinds. Gaps here are API bugs, which is why 2.0 added the two marked *new*:
+Every mod backend expresses the same four kinds. Gaps here are API bugs, which is why 2.0 added the two marked *new*:
 
 | | publish **state** | announce an **event** | receive a one-way message | answer a **request** |
 |---|---|---|---|---|
@@ -50,7 +54,7 @@ OSFUI.SetViewStrings(ModId, "slots", names)
 OSFUI.SetViewForms(ModId, "items", items)
 ```
 
-Each call replaces the **complete** value for `(modId, key)` — state is never a delta, so a replay and a live update are the same message. OSF UI retains the latest value, sends it to every live view owned by the mod, and replays it to any view of that mod that greets later.
+Each call replaces the **complete** value for `(modId, key)` — state is never a delta, so a replay and a current update are the same message. OSF UI retains the latest value, sends it to every current document instance owned by the mod, and replays it to every future document instance of that mod when it greets.
 
 ```papyrus
 ScriptName AutoSortUI Extends Quest
@@ -73,7 +77,7 @@ Function PublishAll()
 EndFunction
 ```
 
-The retained cache is **session-scoped for Papyrus**: dropped on a game load, because a Papyrus value may hold form identities and runtime FormIDs don't survive a load. Re-publish where you re-register.
+The retained cache is **session-scoped for Papyrus**: dropped on a game load, because a Papyrus value may hold form identities and Starfield runtime FormIDs don't survive a load. Re-publish where you re-register.
 
 ## Consume state in the view
 
@@ -111,8 +115,8 @@ void OnContactsChanged(const std::vector<Contact>& a_contacts)
     for (const auto& c : a_contacts) {
         value.push_back({ { "name", c.name }, { "distance", c.distance } });
     }
-    // Addressed to your MOD, not a view: every live view of acme.scanner gets it
-    // now, and every one that loads later gets it on its handshake.
+    // Addressed to your MOD, not a view: every current document instance gets
+    // it now, and every future one gets it during its handshake.
     (void)json.SetViewState("acme.scanner", "contacts", value);
 }
 ```
@@ -144,7 +148,7 @@ osfui.on(`${MOD}.scanComplete`, ({ args }) => {
 });
 ```
 
-`payload.args` is always an array of strings (empty when none). Nothing is cached: a view that opens afterwards never sees it. If a late-opening view *should* see it, what you have is state — and the two coexist happily ("publish the new count as state, announce the moment as an event").
+`payload.args` is always an array of strings (empty when none). Nothing is cached: a view that was not instantiated when a Papyrus event fired never sees it. If a future document *should* see the value, what you have is state — and the two coexist happily ("publish the new count as state, announce the moment as an event").
 
 `SendViewEvent` deliberately rejects forms. Publish the form through `SetViewForms` and announce the change with an event naming its key; an event carrying a form identity would be an identity nobody is allowed to keep.
 
@@ -158,7 +162,7 @@ OSFUI::API::JsonClient json{ g_ui };
 
 The asymmetry is deliberate: `SetViewState` addresses your **mod** (everyone now and later), `SendToWeb` addresses **one view id** — an event has a specific audience and moment. Name events `<yourModId>.<name>`, matching the Papyrus channel; the platform's own names are undotted or `osfui.*`, so staying inside your mod id keeps you from shadowing one.
 
-If the target view is known but not live (lazy, or idle-reclaimed), the message is held in a bounded per-view queue and flushed when that document greets — the ABI's message-before-first-paint guarantee, which is what lets a plugin open a view already in a specific state. The queue drops the *oldest* on overflow.
+If the target view is known but not instantiated (lazy, or reclaimed), the message is held in a bounded per-view queue. After instantiation, its event gate preserves the message until that document greets, then flushes it after `ready` and state — the ABI's message-before-first-paint guarantee. The queue drops the *oldest* on overflow. This holdback is not replay: after delivery, a later document does not receive the event again.
 
 ---
 
@@ -224,9 +228,9 @@ try {
 }
 ```
 
-The helper resolves with the typed value the script replied and rejects with an `Error` carrying the script's own `code`. Replies: `ReplyViewBool`, `ReplyViewInt`, `ReplyViewFloat`, `ReplyViewString`, their plural array forms, and `ReplyViewForms`. Register an instance with `ListenForViewRequests(self, modId)` or a GLOBAL library with `ListenForViewRequestsStatic(script, modId)` before requests can reach it.
+The shared bridge helper resolves with the typed value the script replied and rejects with an `Error` carrying the script's own `code`. Replies: `ReplyViewBool`, `ReplyViewInt`, `ReplyViewFloat`, `ReplyViewString`, their plural array forms, and `ReplyViewForms`. Register an instance with `ListenForViewRequests(self, modId)` or a GLOBAL library with `ListenForViewRequestsStatic(script, modId)` before requests can reach it.
 
-A reply token is host-owned, one-shot, valid for ten seconds; a duplicate, late, unknown or pre-load token returns `false`. Answer exactly once. Only one registered request listener may own a mod id (first registration wins). In-flight requests are bounded (32 per view, 256 overall) — past that a request is refused, not queued. A backend that never answers produces a `papyrus-timeout` rejection at ten seconds; the JavaScript helper waits fifteen so the host's more specific error wins over its generic `timeout`.
+A reply token is OSF UI runtime-owned, one-shot, valid for ten seconds; a duplicate, late, unknown or pre-load token returns `false`. Answer exactly once. Only one registered request listener may own a mod id (first registration wins). In-flight requests are bounded (32 per view, 256 overall) — past that a request is refused, not queued. A Papyrus mod backend that never answers produces a `papyrus-timeout` rejection at ten seconds; the shared bridge helper waits fifteen so the OSF UI runtime's more specific error wins over its generic `timeout`.
 
 ---
 
@@ -251,15 +255,15 @@ OSFUI.SetViewInts(ModId, "inventory.counts", counts)
 OSFUI.SetViewFloats(ModId, "inventory.weights", weights)
 ```
 
-Runtime FormIDs are session-scoped. Never persist a `formId` in a save or `localStorage`; echo it back promptly, check `OSFUI.GetFormById()` for `None`, and cast to the expected type before changing game state (`GetFormById(args[0]) as Keyword`). JavaScript never receives an object capable of operating on the game — the script stays the authority, and a stale id resolves to `None` rather than to somebody else's form.
+Starfield runtime FormIDs are session-scoped. Never persist a `formId` in a save or `localStorage`; echo it back promptly, check `OSFUI.GetFormById()` for `None`, and cast to the expected type before changing game state (`GetFormById(args[0]) as Keyword`). JavaScript never receives an object capable of operating on the game — the script stays the authority, and a stale id resolves to `None` rather than to somebody else's form.
 
 ## Delivery and failure behavior
 
 - **Threading.** Papyrus setters and events queue from the VM tasklet and publish on the next main-frame tick; forms serialize at drain time on the main thread, because form field reads may only happen there. Direct GLOBAL calls, actions, and requests queue onto the Papyrus VM. Native `SetViewState` / `SendToWeb` are callable from any thread and applied next tick. Never block waiting for the other side.
-- **Targets.** State and events reach loaded views whose id begins with `<modId>/`. A hidden suspended view resumes to receive an update. A publish with no live view is not a lost write *for state* (retained and replayed to the mod's first view) but **is** a dropped event, logged in `devMode`.
-- **Bounds.** At most 64 retained state keys per mod (updating an already-retained key always works, so a fixed key set is never affected); pending Papyrus state and event queues cap at 1024 each; a plugin's pending state ops cap at 256. Invalid mod ids and empty keys are dropped and logged. These stop a runaway script growing the process without bound.
+- **Targets.** Retained mod state reaches every instantiated view whose qualified id begins with `<modId>/`, and a publish with no current document is retained for that mod's next document. A Papyrus event reaches those instantiated views once and is dropped if there are none. Native `SendToWeb` instead targets one qualified view and has the bounded pre-instantiation holdback described above. A hidden suspended target resumes to receive an update.
+- **Bounds.** At most 64 retained mod-state keys per mod (updating an already-retained key always works, so a fixed key set is never affected); pending Papyrus state and event queues cap at 1024 each; a plugin's pending state ops cap at 256. Invalid mod ids and empty keys are dropped and logged. These stop a runaway script growing the process without bound.
 - **Absence.** If OSF UI isn't installed, every native fails soft; `OSFUI.GetVersion() == 0` is the feature check. Natively, `OSFUI_RequestBridge` returns `nullptr` and every `Client` method degrades to `false`/`0`/no-op.
-- **Debugging.** F12 DevTools on the view (devMode) plus `localStorage["osfui:trace"] = "1"` and a reload: every replayed `state` envelope is visible at document boot, which answers "why is my HUD blank" in one look — either the key arrives (view bug) or it doesn't (backend bug).
+- **Debugging.** F12 DevTools on the view (developer mode) plus `localStorage["osfui:trace"] = "1"` and a reload: every replayed `state` envelope is visible at document boot, which answers "why is my HUD blank" in one look — either the key arrives (view bug) or it doesn't (mod-backend bug).
 
 ## Coming from 1.x
 

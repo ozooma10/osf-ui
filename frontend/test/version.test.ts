@@ -52,7 +52,7 @@ describe('deriveNeedsUpdate', () => {
   const view = (label: string, targetVersion?: string): VersionTarget =>
     targetVersion === undefined ? { label } : { label, targetVersion };
 
-  it('is quiet when nothing wants a newer host', () => {
+  it('is quiet when nothing wants a newer OSF UI release', () => {
     const out = deriveNeedsUpdate('1.0.0', [view('Atlas', '1.0.0')], [view('OSF UI', '0.9.0')]);
     expect(out).toEqual({ outdated: false, wanting: [] });
   });
@@ -77,9 +77,9 @@ describe('deriveNeedsUpdate', () => {
     expect(out).toEqual({ outdated: false, wanting: [] });
   });
 
-  it('suppresses the badge entirely when the host version is unknown', () => {
+  it('suppresses the badge entirely when the OSF UI release version is unknown', () => {
     // Pre-handshake state shows no badge even though versionLess("", "1.2.0")
-    // is true. Re-derived once runtime.ready lands.
+    // is true. Re-derived once the bridge `ready` handshake lands.
     expect(versionLess('', '1.2.0')).toBe(true);
     expect(deriveNeedsUpdate('', [view('Star Atlas', '1.2.0')], [])).toEqual({
       outdated: false,

@@ -1,4 +1,4 @@
-// Host-side tests for form references across the bridge (protocol 2.0,
+// Native desktop tests for form references across the bridge (protocol 2.0,
 // docs/form-references-design.md): the REAL api/PapyrusApi.cpp compiled
 // against stubs/RE (recording VM + a TESForm test registry), driven through
 // the same natives the game binds. Covers SetViewForms' capture-ids/
@@ -164,7 +164,7 @@ int main()
 	}
 
 	// The echo path: what a view sends back resolves to the same form. Decimal
-	// is what the host's number->string arg coercion produces; both hex
+	// is what the OSF UI runtime's number-to-string argument coercion produces; both hex
 	// spellings are accepted for authors quoting a display id.
 	CHECK(getFormById(*vm, 0, {}, std::to_string(0x0014E8D2u).c_str()) == &keyword);
 	CHECK(getFormById(*vm, 0, {}, "0x0014E8D2") == &keyword);
@@ -264,7 +264,7 @@ int main()
 	// Runtime FormIDs are session-scoped, which is the whole reason retained
 	// PAPYRUS state is session-scoped while the native ABI's is not. The load
 	// drops what is still queued, and TakeSessionReset is the one-shot signal
-	// Runtime::Tick reads to drop what it already retained (ViewStateStore::
+	// Runtime::Tick reads to drop what it already retained (RetainedStateStore::
 	// ClearSessionScoped) before the new session's scripts publish again.
 	CHECK(!API::Papyrus::TakeSessionReset());  // nothing to report before a load
 	setViewForms(*vm, 0, {}, "t.forms", "catalog", { &keyword });

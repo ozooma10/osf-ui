@@ -49,7 +49,7 @@ namespace
 
 int main()
 {
-	// --- the platform's own script is not a callable mod surface -------------
+	// --- the platform's own script is not a callable mod backend -------------
 	// Its natives take the target mod id as an argument and trust their caller,
 	// so reaching them from a page would bypass the write-authority check that
 	// settings.set / settings.reset enforce.

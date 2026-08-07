@@ -8,7 +8,7 @@
   "properties": {
     "$schema": {
       "type": "string",
-      "description": "Optional editor hint; ignored by the runtime."
+      "description": "Optional editor hint; ignored by the OSF UI runtime."
     },
     "title": {
       "type": "string",
@@ -51,22 +51,22 @@
       "type": "string",
       "enum": ["menu", "hud"],
       "default": "menu",
-      "description": "Surface kind. menu = modal overlay (may capture input, single-menu stack); hud = passive overlay over gameplay (never captures input, pauses, or focuses). Unknown values fall back to menu."
+      "description": "View kind. menu = modal overlay that may capture input and occupies the single active-menu slot; hud = passive overlay over gameplay that never captures input, pauses, or focuses. Opening a menu replaces the previous active menu. Unknown values fall back to menu."
     },
     "capturesInput": {
       "type": "boolean",
       "default": true,
-      "description": "Menu-only: while this is the top open menu, route input into the page. Forced false for HUDs."
+      "description": "Menu-only: while this is the active menu, route input into the page. Forced false for HUDs."
     },
     "pausesGame": {
       "type": "boolean",
       "default": true,
-      "description": "Menu-only: pause the simulation while this is the top open menu. Forced false for HUDs."
+      "description": "Menu-only: pause the simulation while this is the active menu. Forced false for HUDs."
     },
     "openOnStart": {
       "type": "boolean",
       "default": false,
-      "description": "HUD: the author DEFAULT for automatic start at game launch — the player's per-HUD choice in Mod Settings overrides it."
+      "description": "Normal discovery: the author DEFAULT for a HUD's automatic start at game launch; the player's per-HUD choice in Mod Settings overrides it, and discovered menus never auto-start. Explicit native-plugin RegisterView is a separate opt-in path where true opens the registered view immediately, including a menu."
     },
     "order": {
       "type": "integer",
@@ -76,22 +76,22 @@
     "hub": {
       "type": "boolean",
       "default": true,
-      "description": "List this view in catalogs (the `osfui/views` state key / the Mods surface). false = hidden utility view;"
+      "description": "Compatibility spelling for catalog visibility. true marks the view for listing by Mod Settings and other `osfui/views` consumers; false makes it a hidden utility view and ineligible for discovered HUD auto-start."
     },
     "debugOnly": {
       "type": "boolean",
       "default": false,
-      "description": "When true, this view is kept out of the mod menu list unless devMode is enabled in OSF UI's config.json. It still loads and can be opened by id. Intended for built-in developer tools."
+      "description": "When true, this view is kept out of the catalog unless developer mode is enabled by devMode or the temporary author-mode marker. It is still discovered and can be opened by qualified view id. Intended for built-in developer tools."
     },
     "readySignal": {
       "type": "boolean",
       "default": false,
-      "description": "When true, first open waits for the page to call osfui.markReady() (which sends the `view.ready` send endpoint) rather than main-frame load completion. Use it when \"loaded\" and \"has something worth showing\" are different moments — a HUD that must fetch state first. Requires permissions.nativeBridge. A 15-second post-load timeout offers retry instead of trapping the player. (2.0 views use markReady; the temporary 1.x facade retains viewReady through 2.0.x.)"
+      "description": "When true, first reveal waits for the page to declare content readiness by calling osfui.markReady() (which sends the `view.ready` send endpoint), rather than using main-frame load completion as the reveal gate. Requires permissions.nativeBridge. A 15-second post-load timeout offers retry instead of trapping the player. (2.0 views use markReady; the temporary 1.x facade retains viewReady through 2.0.x.)"
     },
     "targetVersion": {
       "type": "string",
       "pattern": "^[0-9]+(\\.[0-9]+){0,2}$",
-      "description": "The OSF UI version this view was authored against (e.g. \"2.0.0\"). A target NEWER than the running host is advisory and badges 'needs update' on the Mods surface. During 2.0.x, a declared target BELOW 2.0 selects the temporary 1.x facade and raises a persistent 2.1.0 removal warning. An UNDECLARED targetVersion is deliberately treated as current rather than guessing which helper shape the page expects."
+      "description": "The OSF UI release version this view was authored against (e.g. \"2.0.0\"). A target NEWER than the running OSF UI release is advisory and badges 'needs update' in Mod Settings. During 2.0.x, a declared target BELOW 2.0 selects the temporary 1.x facade and raises a persistent 2.1.0 removal warning. An UNDECLARED targetVersion is deliberately treated as current rather than guessing which helper shape the page expects."
     },
     "permissions": {
       "type": "object",

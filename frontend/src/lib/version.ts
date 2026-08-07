@@ -1,8 +1,8 @@
 // Semver-ish comparison and the "needs update" badge derivation.
 //
-// This module owns only the newer-than-host advisory badge. Explicitly pre-2.0
-// view manifests are refused natively and reported through System Health;
-// settings schemas continue to load best-effort.
+// This module owns only the newer-than-installed-release advisory badge.
+// Explicitly pre-2.0 view manifests are refused natively and reported through
+// System Health; settings schemas continue to load best-effort.
 
 /**
  * Dotted-version compare, numeric per component, missing parts are 0 — so
@@ -49,29 +49,29 @@ export interface NeedsUpdate {
 }
 
 /**
- * Version badge state for the settings view's rail head. When anything's
- * `targetVersion` is newer than the running OSF UI the badge goes yellow, a tag
- * appears beneath it, and the tooltip names the askers — it is OSF UI itself
- * that needs updating, not the mod.
+ * OSF UI release-version badge state for the Mod Settings rail head. When anything's
+ * `targetVersion` is newer than the installed OSF UI release, the badge goes
+ * yellow, a tag appears beneath it, and the tooltip names the askers — it is
+ * OSF UI itself that needs updating, not the mod.
  *
- * An empty `hostVersion` yields no askers, overriding `versionLess("", "1.2")`
- * (which is true): the badge stays suppressed before the `runtime.ready`
- * handshake lands rather than flashing "needs update" against a zero host
- * version. The badge is re-derived on every settings.data / views.data /
- * i18n.data push, so it appears as soon as the version is known.
+ * An empty `osfuiReleaseVersion` yields no askers, overriding `versionLess("", "1.2")`
+ * (which is true): the badge stays suppressed before the bridge `ready`
+ * handshake lands rather than flashing "needs update" before a release
+ * version. The badge is re-derived on every `osfui/settings`, `osfui/views`,
+ * or `osfui/i18n` state update, so it appears as soon as the version is known.
  *
- * @param viewTargets catalog views from the unfiltered views.data — a
- *   `hub:false` utility view still gets to ask for a newer host.
+ * @param viewTargets catalog views from the unfiltered `osfui/views` state — a
+ *   `hub:false` utility view still gets to ask for a newer OSF UI release.
  */
 export function deriveNeedsUpdate(
-  hostVersion: string,
+  osfuiReleaseVersion: string,
   viewTargets: readonly VersionTarget[],
   modTargets: readonly VersionTarget[],
 ): NeedsUpdate {
-  if (!hostVersion) return { outdated: false, wanting: [] };
+  if (!osfuiReleaseVersion) return { outdated: false, wanting: [] };
 
   const asking = (t: VersionTarget): boolean =>
-    !!t.targetVersion && versionLess(hostVersion, t.targetVersion);
+    !!t.targetVersion && versionLess(osfuiReleaseVersion, t.targetVersion);
 
   // Views first, then mods, de-duplicated by first occurrence — the order the
   // tooltip reads in.

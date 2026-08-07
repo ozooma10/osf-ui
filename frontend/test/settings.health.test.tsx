@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// The System Health pane end to end through the settings App: the pinned rail
+// The System Health destination end to end through the settings App: the fixed rail
 // entry, the summary states, card rendering, contextual actions, technical
 // disclosure, copy-report, deep links from failed cards, and clipboard-failure
 // degradation.
@@ -47,8 +47,8 @@ function openHealth(el: HTMLElement) {
 }
 
 describe('subscription + rail', () => {
-  it('subscribes rather than reading, and pins the rail entry before any snapshot', async () => {
-    // No diagnostics state at all: the destination is pinned regardless, because
+  it('subscribes rather than reading, and keeps the fixed rail entry before any snapshot', async () => {
+    // No System Health state at all: the destination remains fixed, because
     // it is where load failures are explained and a player must be able to reach
     // it even when the subsystem that would report them never spoke.
     const bridge = makeBridge({ state: { 'osfui/settings': WIDGETS } });
@@ -74,7 +74,7 @@ describe('summary states', () => {
     openHealth(el);
     await flush();
     expect(el.querySelector('#health-summary')!.classList.contains('health-summary--ok')).toBe(true);
-    expect(el.querySelector('.health-summary-title')!.textContent).toBe('All systems nominal');
+    expect(el.querySelector('.health-summary-title')!.textContent).toBe('No active issues');
   });
 
   it('reads "Action required" with any active error, warnings notwithstanding', async () => {

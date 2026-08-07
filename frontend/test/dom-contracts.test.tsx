@@ -14,7 +14,7 @@
 // KeyField/ActionButton are not padnav contracts — they pin the kit's own cx()
 // argument-order convention, which is what keeps these strings stable enough to
 // assert at all. Kept in this file because it is where shipped class strings are
-// pinned.
+// asserted.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { render } from 'preact';
@@ -177,7 +177,7 @@ const seeded = () => makeBridge({
 
 /**
  * The same document plus a German keycap-label map (the additive `keyboard`
- * block a 2.x host publishes): the board must relabel cells — Ö on the
+ * block a 2.x OSF UI runtime publishes): the board must relabel cells — Ö on the
  * Semicolon position, the ISO `<` key appearing — while every identity
  * (data-name) and liveness stays exactly the no-map shape.
  */

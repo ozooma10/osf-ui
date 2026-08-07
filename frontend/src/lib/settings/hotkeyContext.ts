@@ -1,25 +1,27 @@
-// Resolves a `type:"key"` setting's input context.
+// Resolves a `type:"key"` setting's hotkey context.
 //
-// A key binding may declare that it is only live inside a mod-local "input
-// context". `gameplay` is the implicit default and is reserved: it can never be
+// A key setting may declare that it is only live inside a mod-local hotkey
+// context. This is distinct from the engine input-context stack.
+// `gameplay` is the implicit default and is reserved: it can never be
 // redeclared, so a schema cannot relabel or re-flag it. Everything here is
-// display metadata (the badge next to a key row); runtime dispatch is
-// unaffected either way.
+// a display projection for badges and conflict explanations. Runtime dispatch
+// independently resolves the same authored context and gameplay modes in the
+// native settings/hotkey path.
 
-import type { GameplayMode, InputContext, Setting, SettingsSchema } from '@sdk';
+import type { GameplayMode, HotkeyContext, Setting, SettingsSchema } from '@sdk';
 
 /**
- * Id grammar, mirrored from SettingsStore.cpp (`kMaxInputContextIdLen` = 64):
+ * Id grammar, mirrored from SettingsStore.cpp (`kMaxHotkeyContextIdLength` = 64):
  * alphanumeric first character, then up to 63 more of [A-Za-z0-9._-]. Anchored,
  * so a newline-bearing id cannot slip past.
  */
-export const INPUT_CONTEXT_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+export const HOTKEY_CONTEXT_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 /** Reserved id of the implicit default context. */
 export const GAMEPLAY_ID = 'gameplay';
 
 /** Always fully populated — no optional fields to defend. */
-export interface ResolvedInputContext {
+export interface ResolvedHotkeyContext {
   id: string;
   label: string;
   blocksGameplay: boolean;
@@ -30,7 +32,7 @@ export interface ResolvedInputContext {
  * Build the implicit gameplay fallback. `label` is injected so this module
  * stays free of the localiser.
  */
-export function gameplayContext(label = 'Gameplay'): ResolvedInputContext {
+export function gameplayContext(label = 'Gameplay'): ResolvedHotkeyContext {
   return { id: GAMEPLAY_ID, label, blocksGameplay: false };
 }
 
@@ -57,17 +59,17 @@ function validModes(value: unknown): GameplayMode[] | null {
  * The dedupe records an id as seen before the match test, so first-wins holds
  * even when a later duplicate is the one being searched for.
  */
-export function dedupeInputContexts(contexts: unknown): ResolvedInputContext[] {
+export function dedupeHotkeyContexts(contexts: unknown): ResolvedHotkeyContext[] {
   if (!Array.isArray(contexts)) return [];
   const seen = new Set<string>();
-  const out: ResolvedInputContext[] = [];
+  const out: ResolvedHotkeyContext[] = [];
   for (const raw of contexts) {
     if (!raw || typeof raw !== 'object') continue;
-    const c = raw as Partial<InputContext>;
+    const c = raw as Partial<HotkeyContext>;
     const id = typeof c.id === 'string' ? c.id : '';
-    if (id === GAMEPLAY_ID || !INPUT_CONTEXT_ID_RE.test(id) || seen.has(id)) continue;
+    if (id === GAMEPLAY_ID || !HOTKEY_CONTEXT_ID_RE.test(id) || seen.has(id)) continue;
     seen.add(id);
-    const resolved: ResolvedInputContext = {
+    const resolved: ResolvedHotkeyContext = {
       id,
       // An empty label falls back to the id, so a badge is never blank.
       label: typeof c.label === 'string' && c.label ? c.label : id,
@@ -88,7 +90,7 @@ export function dedupeInputContexts(contexts: unknown): ResolvedInputContext[] {
  *  2. an explicit `inputContext: "gameplay"` — the reserved id resolves to the
  *     implicit context without consulting the schema, so it can never pick up a
  *     rogue declaration's label or `blocksGameplay`;
- *  3. an `inputContext` that fails `INPUT_CONTEXT_ID_RE`;
+ *  3. an `inputContext` that fails `HOTKEY_CONTEXT_ID_RE`;
  *  4. a valid id that no surviving `schema.inputContexts` entry declares (a
  *     context removed from the schema, or shadowed out by the dedupe above).
  *     The setting still works; it just loses its badge.
@@ -97,16 +99,16 @@ export function dedupeInputContexts(contexts: unknown): ResolvedInputContext[] {
  * unresolvable reference must read as "no special context", not as a broken
  * badge.
  */
-export function resolveInputContext(
+export function resolveHotkeyContext(
   schema: SettingsSchema | undefined,
   setting: Pick<Setting, 'inputContext'> | undefined,
   gameplayLabel = 'Gameplay',
-): ResolvedInputContext {
+): ResolvedHotkeyContext {
   const fallback = gameplayContext(gameplayLabel);
   const ref = setting && typeof setting.inputContext === 'string' ? setting.inputContext : '';
   // Cases 1-3.
-  if (!ref || ref === GAMEPLAY_ID || !INPUT_CONTEXT_ID_RE.test(ref)) return fallback;
-  const declared = dedupeInputContexts(schema && schema.inputContexts);
+  if (!ref || ref === GAMEPLAY_ID || !HOTKEY_CONTEXT_ID_RE.test(ref)) return fallback;
+  const declared = dedupeHotkeyContexts(schema && schema.inputContexts);
   // Case 4 when nothing matches.
   return declared.find((c) => c.id === ref) || fallback;
 }

@@ -9,7 +9,8 @@ import { manifestFor } from './config.mjs';
 const TEXT = new Set(['.css', '.html', '.js', '.jsx', '.json', '.mjs', '.ts', '.tsx']);
 const require = createRequire(import.meta.url);
 // Egress constructs only. A URL as inert data — display text, an external
-// <a href> the host opens in the player's browser, an SVG xmlns — is allowed;
+// <a href> the browser host opens in the player's default browser, an SVG
+// xmlns — is allowed;
 // OSF UI's own settings views ship exactly those shapes, and this gate runs
 // on them via `osfui check`. The runtime independently 403s every network
 // fetch, so this is an early advisory, not the enforcement point.

@@ -1,5 +1,5 @@
-// Host-side unit tests for the SubscribeSettings bookkeeping (docs/
-// mcm-design.md §8.2): the REAL src/api/SettingsSubscriptions.cpp — replay on
+// Native desktop unit tests for the SubscribeSettings bookkeeping: the REAL
+// src/api/SettingsSubscriptions.cpp — replay on
 // subscribe, queued change dispatch, unsubscribe semantics, and its
 // integration with the real SettingsStore + SettingsMirror wired exactly like
 // Runtime::BuildModules does — compiled against stubs/pch.h on the desktop
@@ -325,7 +325,7 @@ int main()
 		});
 		store.AddRegistryListener([&] { mirror.Rebuild(store.Data()); });
 
-		store.LoadAll(schemaDir, valuesDir);  // empty dir — runtime registration follows
+		store.LoadAll(schemaDir, valuesDir);  // empty dir — native registration follows
 
 		// Subscribe BEFORE the mod exists: legal, silent until it registers.
 		Trace early;

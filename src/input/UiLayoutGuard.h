@@ -4,7 +4,7 @@
 // live object's vptr and compares it against the Address Library.
 //
 // Exists because of the 2026-06-12 incident (docs/reverse-engineering-notes.md):
-// a CommonLibSF pinned before upstream PR #26 had UI base offsets short by 0x10;
+// a CommonLibSF snapshot from before upstream PR #26 had UI base offsets short by 0x10;
 // RegisterSink then corrupted engine UI state and the process died on save load
 // with no plugin frames on the stack. The guard turns that into a loud refusal.
 //

@@ -173,7 +173,7 @@ describe('handshake', () => {
     // dropped) so nothing is shouted at a page with no listeners — and then
     // DELIVERED by the greeting. That is the harness mirror of the native ABI's
     // message-before-first-paint guarantee: MessageBridge::HandleHello flushes
-    // this queue rather than discarding it, pinned by
+    // this queue rather than discarding it, covered by
     // tests/native/bridge_api_tests.cpp. Discarding here made the gate dead
     // code and hid every regression in that guarantee.
     for (let i = 0; i < 70; i++) mock.hotkey();
@@ -232,7 +232,7 @@ describe('envelope grammar', () => {
     expect(errorTo(id)?.payload).toMatchObject({ code: 'wrong-endpoint-kind' });
   });
 
-  it('drops a send that names a REQUEST endpoint, and surfaces it', async () => {
+  it('drops a send that names a REQUEST endpoint and reports a protocol fault', async () => {
     send('menu.open', { view: 'osfui/keybinds' });
     await settle(600);
     expect(frames.some((f) => f.kind === 'reply')).toBe(false);
@@ -241,7 +241,7 @@ describe('envelope grammar', () => {
     });
   });
 
-  it('rejects an unknown request endpoint and surfaces an unknown send', async () => {
+  it('rejects an unknown request endpoint and reports an unknown send as a protocol fault', async () => {
     const id = request('totallyMadeUp');
     send('alsoMadeUp');
     await settle();
@@ -304,20 +304,20 @@ describe('settings', () => {
   });
 
   it('resolves settings.set with the post-clamp value and raises settings.changed', async () => {
-    const id = request('settings.set', { mod: 'osfui', key: 'allowPanels', value: false });
+    const id = request('settings.set', { mod: 'osfui', key: 'allowViews', value: false });
     await settle();
-    expect(replyTo(id)?.payload).toEqual({ mod: 'osfui', key: 'allowPanels', value: false });
+    expect(replyTo(id)?.payload).toEqual({ mod: 'osfui', key: 'allowViews', value: false });
     expect(lastEvent('settings.changed')?.payload).toMatchObject({
       mod: 'osfui',
-      key: 'allowPanels',
+      key: 'allowViews',
       value: false,
     });
   });
 
   it('REJECTS a refused settings.set instead of resolving an ok:false document', async () => {
-    const id = request('settings.set', { mod: 'osfui', key: 'allowPanels', value: 'yes' });
+    const id = request('settings.set', { mod: 'osfui', key: 'allowViews', value: 'yes' });
     const unknown = request('settings.set', { mod: 'osfui', key: 'nope', value: true });
-    const missing = request('settings.set', { mod: 'osfui', key: 'allowPanels' });
+    const missing = request('settings.set', { mod: 'osfui', key: 'allowViews' });
     await settle();
     expect(errorTo(id)?.payload).toMatchObject({ code: 'invalid-value' });
     expect(errorTo(unknown)?.payload).toMatchObject({ code: 'unknown-setting' });
@@ -325,7 +325,7 @@ describe('settings', () => {
   });
 
   it('confirms the write-behind with settings.persisted ~500ms later', async () => {
-    request('settings.set', { mod: 'osfui', key: 'allowPanels', value: false });
+    request('settings.set', { mod: 'osfui', key: 'allowViews', value: false });
     await settle();
     expect(lastEvent('settings.persisted')).toBeUndefined();
     await settle(500);
@@ -333,7 +333,7 @@ describe('settings', () => {
   });
 
   it('re-publishes the whole registry on settings.reset, with NO per-key fan-out', async () => {
-    request('settings.set', { mod: 'osfui', key: 'allowPanels', value: false });
+    request('settings.set', { mod: 'osfui', key: 'allowViews', value: false });
     await settle();
     frames = [];
 
@@ -343,7 +343,7 @@ describe('settings', () => {
     expect(eventsOf('settings.changed')).toHaveLength(0);
     expect(replyTo(id)?.payload).toEqual({});
     expect(lastState('settings')).toBeDefined();
-    expect(mock.mods()[0]?.values['allowPanels']).toBe(true);
+    expect(mock.mods()[0]?.values['allowViews']).toBe(true);
   });
 
   it('rejects settings.reset for an unknown mod instead of failing silently', async () => {
@@ -354,7 +354,7 @@ describe('settings', () => {
 
   it('refuses a foreign-mod write from a view that is not a settings editor', async () => {
     mock.setSelfView('acme.shipworks/almanac');
-    const id = request('settings.set', { mod: 'osfui', key: 'allowPanels', value: false });
+    const id = request('settings.set', { mod: 'osfui', key: 'allowViews', value: false });
     const reset = request('settings.reset', { mod: 'osfui' });
     await settle();
     expect(errorTo(id)?.payload).toMatchObject({ code: 'forbidden' });
@@ -398,7 +398,7 @@ describe('views', () => {
       )?.focused,
     ).toBe(true);
 
-    // No `view` field — the request targets the calling surface.
+    // No `view` field — the request targets the calling view.
     mock.setSelfView('acme.shipworks/almanac');
     const close = request('menu.close');
     await settle(200);
@@ -426,7 +426,7 @@ describe('views', () => {
 
     const bad = request('osfui.setViewAutoStart', { view: 'osfui/settings', enabled: true });
     await settle(200);
-    // A pinned core surface is not player-configurable.
+    // A pinned core view is not player-configurable.
     expect(errorTo(bad)?.payload).toMatchObject({ code: 'not-configurable' });
   });
 });
@@ -681,7 +681,7 @@ describe('key capture', () => {
   });
 
   it('refuses a setting the schema did not declare rebindable', async () => {
-    const id = request('settings.captureKey', { mod: 'osfui', key: 'allowPanels' });
+    const id = request('settings.captureKey', { mod: 'osfui', key: 'allowViews' });
     await settle();
     expect(errorTo(id)?.payload).toMatchObject({ code: 'not-rebindable' });
     expect(mock.captureArmed()).toBe(false);
@@ -781,10 +781,10 @@ describe('persisted values round-trip through normalize on load', () => {
     (window as unknown as { osfui: { onMessage: (j: string) => void } }).osfui.onMessage = (j) =>
       void frames.push(JSON.parse(j) as Frame);
 
-    request('settings.set', { mod: 'osfui', key: 'allowPanels', value: false });
+    request('settings.set', { mod: 'osfui', key: 'allowViews', value: false });
     await settle();
     expect(JSON.parse(store.getItem('osfui.mock.osfui') || '{}')).toMatchObject({
-      allowPanels: false,
+      allowViews: false,
     });
   });
 });

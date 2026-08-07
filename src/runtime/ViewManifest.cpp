@@ -19,9 +19,9 @@ namespace OSFUI
 		}
 
 		// `manifestVersion` is accepted but not required — the nested
-		// views/<mod>/<view>/ layout is itself the v2 discriminator. Unknown keys
-		// are the normal compatible case (a newer mod on an older host), so they
-		// surface as devMode INFO, never a warning.
+		// views/<modId>/<viewName>/ layout is itself the v2 discriminator. Unknown keys
+		// are the normal compatible case (a newer mod on an older OSF UI release), so they
+		// report as developer-mode INFO, never a warning.
 		Json::CheckFormatVersion(*json, "manifestVersion", 1, "ViewManifest: [content] " + a_path.string());
 		if (Log::DevMode()) {
 			Json::ReportUnknownKeys(*json,
@@ -75,16 +75,16 @@ namespace OSFUI
 
 		// Json has no enum helper, so `kind` is parsed manually; unknown values fall back to Menu.
 		const auto kindStr = Json::GetString(*json, "kind", "menu");
-		manifest.kind = (kindStr == "hud") ? SurfaceKind::Hud : SurfaceKind::Menu;
-		// `interactive` is derived, not author-facing: focus follows the top open
-		// menu (ApplyMenuPolicy), so menu => true, hud => false. Was a manifest
+		manifest.kind = (kindStr == "hud") ? ViewKind::Hud : ViewKind::Menu;
+		// `interactive` is derived, not author-facing: focus eligibility follows the active
+		// menu (ApplyViewPresentationPolicy), so menu => true, hud => false. Was a manifest
 		// field pre-1.0; now ignored.
-		manifest.interactive = manifest.kind == SurfaceKind::Menu;
+		manifest.menuInputEligible = manifest.kind == ViewKind::Menu;
 		manifest.capturesInput = Json::GetBool(*json, "capturesInput", manifest.capturesInput);
 		manifest.pausesGame = Json::GetBool(*json, "pausesGame", manifest.pausesGame);
 		manifest.openOnStart = Json::GetBool(*json, "openOnStart", manifest.openOnStart);
 		manifest.order = static_cast<std::int32_t>(Json::GetInt(*json, "order", manifest.order));
-		manifest.hub = Json::GetBool(*json, "hub", manifest.hub);
+		manifest.catalogVisible = Json::GetBool(*json, "hub", manifest.catalogVisible);
 		manifest.debugOnly = Json::GetBool(*json, "debugOnly", manifest.debugOnly);
 		manifest.readySignal = Json::GetBool(*json, "readySignal", manifest.readySignal);
 
@@ -95,9 +95,9 @@ namespace OSFUI
 			std::array<std::uint32_t, 3> targetParts{};
 			if (ParseDottedVersion(target, targetParts)) {
 				manifest.targetVersion = std::move(target);
-				if (kPluginVersionParts < targetParts) {
+				if (kOsfuiReleaseVersionParts < targetParts) {
 					REX::WARN("ViewManifest: [content] view '{}' targets OSF UI {} but this is {} — update OSF UI",
-						manifest.id, manifest.targetVersion, kPluginVersion);
+						manifest.id, manifest.targetVersion, kOsfuiReleaseVersion);
 				}
 			} else {
 				REX::WARN("ViewManifest: [content] {} targetVersion '{}' is not '<major>[.<minor>[.<patch>]]' — ignored",
@@ -133,7 +133,7 @@ namespace OSFUI
 		// A HUD is passive: it draws over live gameplay but never captures input,
 		// pauses, or becomes the focused view. Forced here so a mis-authored
 		// manifest can't create a HUD that steals input.
-		if (manifest.kind == SurfaceKind::Hud) {
+		if (manifest.kind == ViewKind::Hud) {
 			if (manifest.capturesInput || manifest.pausesGame) {
 				REX::WARN("ViewManifest: [content] HUD '{}' cannot capture input or pause; forcing both off", manifest.id);
 			}

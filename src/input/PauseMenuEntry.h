@@ -4,8 +4,8 @@
 
 namespace OSFUI
 {
-	// MCM setting `pauseMenuEntry` (on by default). Injects a "MOD MENUS" entry into
-	// PauseMenu and opens the configured overlay view when pressed.
+	// Mod Settings option `pauseMenuEntry` (on by default). Injects a
+	// "MOD SETTINGS" entry into PauseMenu and opens the configured view.
 	//
 	// This is live Scaleform manipulation rather than a SWF replacement, so it
 	// works with both normal and large-font PauseMenu movies. The implementation
@@ -20,19 +20,19 @@ namespace OSFUI
 	//     UI_AdvanceActiveMenus, where the engine owns the VM and it is idle.
 	//   * Action 100 is consumed in the callback's originating movie before the
 	//     current live movie is checked, so stale callbacks cannot leak the
-	//     private action into the engine or open a replacement menu's overlay.
+	//     private action into the engine or open the replacement view.
 	//
 	// The count gate keeps steady state to one entryCount read per pass. A native
 	// list re-push changes the count and re-arms the scan/re-injection path.
 	class PauseMenuEntry
 	{
 	public:
-		// Set the entry label + the overlay view id opened on press. Call once
+		// Set the entry label + the qualified view id opened on press. Call once
 		// from Runtime::Initialize before the first Tick.
 		static void Configure(std::string a_label, std::string a_viewId);
 
-		// MCM gate (osfui.pauseMenuEntry). Runtime syncs it at init and
-		// on MCM change; Reconcile is a no-op while disabled.
+		// Settings gate (osfui.pauseMenuEntry). Runtime syncs it at init and
+		// on setting change; Reconcile is a no-op while disabled.
 		static void SetEnabled(bool a_enabled);
 
 		// Game main thread only — called by MainThreadMenuPump after

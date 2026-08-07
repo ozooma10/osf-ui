@@ -18,21 +18,21 @@ namespace OSFUI::API
 		// reserved-prefix list that could drift. The mod id must be pattern-valid
 		// but need not have a registered schema; the name after it is free-form
 		// and may contain dots ("acme.mymod.catalog.get").
-		bool IsValidPluginCommand(std::string_view a_cmd)
+		bool IsValidPluginEndpointName(std::string_view a_name)
 		{
-			const auto first = a_cmd.find('.');
+			const auto first = a_name.find('.');
 			if (first == std::string_view::npos) {
 				return false;
 			}
-			const auto second = a_cmd.find('.', first + 1);
-			if (second == std::string_view::npos || second + 1 >= a_cmd.size()) {
+			const auto second = a_name.find('.', first + 1);
+			if (second == std::string_view::npos || second + 1 >= a_name.size()) {
 				return false;
 			}
-			return Ids::IsValidModId(a_cmd.substr(0, second));
+			return Ids::IsValidModId(a_name.substr(0, second));
 		}
 
 		// Cap on queued SendToWeb messages per target view while no target page is
-		// live to receive them (ABI 1.3 queue-until-deliverable). Matches the
+		// instantiated to receive them (ABI 1.3 queue-until-deliverable). Matches the
 		// renderer's per-view queue bound; overflow drops the oldest so the view
 		// still converges on the newest pushed state when it comes up.
 		constexpr std::size_t kMaxPendingSendsPerView = 64;
@@ -43,14 +43,14 @@ namespace OSFUI::API
 		// on ReportIssue off-thread hits this instead of growing memory; the
 		// overflow is refused (false) rather than evicting, because dropping an
 		// older op could drop a report while keeping the clear that cancels it.
-		constexpr std::size_t kMaxPendingDiagnosticOps = 256;
+		constexpr std::size_t kMaxPendingHealthIssueOps = 256;
 		constexpr std::size_t kMaxInflightRequestsPerView = 64;
 		constexpr auto kRequestTimeout = std::chrono::seconds(30);
 
-		// Shared front half of every ABI 1.7 diagnostics call: the source of an
+		// Shared front half of every ABI 1.7 health-reporting call: the source of an
 		// issue is the CALLER's mod id, never a payload field, so a mod cannot
 		// file a report against someone else or against a platform source.
-		bool ValidateDiagnosticCaller(std::string_view a_fn, const char* a_modId)
+		bool ValidateHealthReporter(std::string_view a_fn, const char* a_modId)
 		{
 			if (!a_modId || !a_modId[0]) {
 				REX::WARN("BridgeApi: [content] refused {} — no mod id", a_fn);
@@ -82,9 +82,9 @@ namespace OSFUI::API
 
 	void BridgeApi::GetPluginVersion(std::uint32_t& a_major, std::uint32_t& a_minor, std::uint32_t& a_patch)
 	{
-		a_major = kPluginVersionMajor;
-		a_minor = kPluginVersionMinor;
-		a_patch = kPluginVersionPatch;
+		a_major = kOsfuiReleaseVersionMajor;
+		a_minor = kOsfuiReleaseVersionMinor;
+		a_patch = kOsfuiReleaseVersionPatch;
 	}
 
 	const char* BridgeApi::GetBridgeProtocolVersion()
@@ -94,7 +94,7 @@ namespace OSFUI::API
 
 	bool BridgeApi::IsBridgeReady()
 	{
-		return _ready.load();
+		return _bridgeAvailable.load();
 	}
 
 	void BridgeApi::RegisterSend(const char* a_name, SendFn a_handler, void* a_user)
@@ -103,7 +103,7 @@ namespace OSFUI::API
 			return;
 		}
 		const std::string name(a_name);
-		if (!IsValidPluginCommand(name)) {
+		if (!IsValidPluginEndpointName(name)) {
 			REX::WARN("BridgeApi: [content] refused RegisterSend('{}') — sends are '<author>.<modname>.<name>' "
 					  "(two dots minimum; the leading mod id follows the item-1 grammar). "
 					  "Single-dot and dotless names are the platform's",
@@ -144,7 +144,7 @@ namespace OSFUI::API
 	{
 		if (!a_name || !a_handler) return;
 		const std::string name(a_name);
-		if (!IsValidPluginCommand(name)) {
+		if (!IsValidPluginEndpointName(name)) {
 			REX::WARN("BridgeApi: [content] refused RegisterRequest('{}') — requests are '<author>.<modname>.<name>'", name.substr(0, 128));
 			return;
 		}
@@ -163,7 +163,7 @@ namespace OSFUI::API
 	{
 		if (!a_name || !a_handler) return;
 		const std::string name(a_name);
-		if (!IsValidPluginCommand(name)) {
+		if (!IsValidPluginEndpointName(name)) {
 			REX::WARN("BridgeApi: [content] refused legacy RegisterCommand('{}') — commands are '<author>.<modname>.<name>'",
 				name.substr(0, 128));
 			return;
@@ -183,7 +183,7 @@ namespace OSFUI::API
 	{
 		if (!a_name || !a_handler) return false;
 		const std::string name(a_name);
-		if (!IsValidPluginCommand(name)) return false;
+		if (!IsValidPluginEndpointName(name)) return false;
 		std::lock_guard lock(_mutex);
 		if (_sends.contains(name) || _requests.contains(name) || _legacyCommands.contains(name) ||
 			_legacyRequests.contains(name)) {
@@ -240,8 +240,8 @@ namespace OSFUI::API
 		}
 		std::lock_guard lock(_mutex);
 		// ABI 1.3 queues until the target page exists, not merely until any bridge
-		// is live. Lazy and idle-reclaimed views can therefore retain bounded
-		// first-open state while unrelated warm views are already running.
+		// is available. Discovered-but-uninstantiated and idle-reclaimed views can therefore retain bounded
+		// first-open state while unrelated pinned views are already running.
 		std::size_t sameView = 0;
 		for (const auto& s : _pendingSends) {
 			sameView += (s.view == a_viewId) ? 1u : 0u;
@@ -297,8 +297,8 @@ namespace OSFUI::API
 	{
 		std::lock_guard lock(_mutex);
 		// Bounded, and deduped by module: a plugin that retries on every load
-		// screen must not grow this, and the player needs one card per mod.
-		// This set is emptied by every drain, so RuntimeDiagnostics re-applies
+		// screen must not grow this, and the player needs one issue per mod.
+		// This set is emptied by every drain, so RuntimeHealthCoordinator re-applies
 		// the same two rules on the side that keeps them for the session.
 		for (const auto& seen : _legacyCallers) {
 			if (seen.module == a_moduleName && seen.supported == a_supported) {
@@ -335,9 +335,9 @@ namespace OSFUI::API
 		}
 		_readyCb = a_callback;
 		_readyUser = a_user;
-		// If the bridge is already live, re-arm so Pump fires the new callback on
+		// If the bridge is already available, re-arm so Pump fires the new callback on
 		// the next (main-thread) tick rather than dropping it.
-		if (_ready.load()) {
+		if (_bridgeAvailable.load()) {
 			_readyFired = false;
 		}
 	}
@@ -350,12 +350,12 @@ namespace OSFUI::API
 		const std::string id(a_viewId);
 		std::lock_guard lock(_mutex);
 		// Truthful queue-time contract: opens accept anything discovered at boot
-		// (Runtime will load it on demand); closes accept only a live surface and
-		// never cause an unloaded view to be created.
-		if (a_open ? !_knownViews.contains(id) : !_loadedViews.contains(id)) {
+		// (Runtime will instantiate it on demand); closes accept only an instantiated view and
+		// never cause an uninstantiated view to be created.
+		if (a_open ? !_knownViews.contains(id) : !_instantiatedViews.contains(id)) {
 			return false;
 		}
-		_pendingMenuReqs.push_back({ id, a_open });
+		_pendingViewPresentationRequests.push_back({ id, a_open });
 		return true;
 	}
 
@@ -364,17 +364,17 @@ namespace OSFUI::API
 		std::lock_guard lock(_mutex);
 		_knownViews.clear();
 		_knownViews.insert(a_viewIds.begin(), a_viewIds.end());
-		_loadedViews.clear();
+		_instantiatedViews.clear();
 		_viewCatalogReady = true;
 	}
 
-	void BridgeApi::SetSurfaceLoaded(std::string_view a_viewId, bool a_loaded)
+	void BridgeApi::SetViewInstantiated(std::string_view a_viewId, bool a_instantiated)
 	{
 		std::lock_guard lock(_mutex);
-		if (a_loaded) {
-			_loadedViews.emplace(a_viewId);
+		if (a_instantiated) {
+			_instantiatedViews.emplace(a_viewId);
 		} else {
-			_loadedViews.erase(std::string(a_viewId));
+			_instantiatedViews.erase(std::string(a_viewId));
 			std::erase_if(_inflightRequests, [&](const auto& entry) { return entry.second.view == a_viewId; });
 		}
 	}
@@ -457,11 +457,11 @@ namespace OSFUI::API
 		return out;
 	}
 
-	std::vector<BridgeApi::MenuRequest> BridgeApi::TakeMenuRequests()
+	std::vector<BridgeApi::ViewPresentationRequest> BridgeApi::TakeViewPresentationRequests()
 	{
 		std::lock_guard lock(_mutex);
-		std::vector<MenuRequest> out;
-		out.swap(_pendingMenuReqs);
+		std::vector<ViewPresentationRequest> out;
+		out.swap(_pendingViewPresentationRequests);
 		return out;
 	}
 
@@ -499,7 +499,7 @@ namespace OSFUI::API
 	bool BridgeApi::ReportIssue(const char* a_modId, const char* a_id, const char* a_code,
 		std::uint32_t a_severity, const char* a_subject, const char* a_contextJson)
 	{
-		if (!ValidateDiagnosticCaller("ReportIssue", a_modId)) {
+		if (!ValidateHealthReporter("ReportIssue", a_modId)) {
 			return false;
 		}
 		if (!a_id || !a_id[0] || !a_code || !a_code[0]) {
@@ -509,7 +509,7 @@ namespace OSFUI::API
 			return false;
 		}
 		// Context is optional, but a non-object is a producer bug worth reporting
-		// synchronously: silently dropping it would leave a card with no detail
+		// synchronously: silently dropping it would leave an issue with no detail
 		// and no explanation of why.
 		nlohmann::json context = nlohmann::json::object();
 		if (a_contextJson && a_contextJson[0]) {
@@ -521,7 +521,7 @@ namespace OSFUI::API
 			}
 		}
 		// Severity is a closed two-value set; a value from a header newer than this
-		// host is treated as the worst tier we know, so a future "critical" cannot
+		// OSF UI runtime is treated as the worst tier we know, so a future "critical" cannot
 		// arrive looking milder than it is.
 		if (a_severity > 1u) {
 			REX::WARN("BridgeApi: [content] ReportIssue('{}', '{}') — unknown severity {}, treating as error",
@@ -529,14 +529,14 @@ namespace OSFUI::API
 		}
 
 		std::lock_guard lock(_mutex);
-		if (_pendingDiagnostics.size() >= kMaxPendingDiagnosticOps) {
+		if (_pendingHealthIssueOps.size() >= kMaxPendingHealthIssueOps) {
 			REX::WARN("BridgeApi: [content] refused ReportIssue('{}', '{}') — {} health reports already queued "
 					  "for this tick; is a producer reporting in a loop?",
-				a_modId, a_id, kMaxPendingDiagnosticOps);
+				a_modId, a_id, kMaxPendingHealthIssueOps);
 			return false;
 		}
-		_pendingDiagnostics.push_back(DiagnosticOp{
-			.kind = DiagnosticOp::Kind::kReport,
+		_pendingHealthIssueOps.push_back(HealthIssueOp{
+			.kind = HealthIssueOp::Kind::kReport,
 			.modId = a_modId,
 			.id = a_id,
 			.code = a_code,
@@ -549,18 +549,18 @@ namespace OSFUI::API
 
 	bool BridgeApi::ClearIssue(const char* a_modId, const char* a_id)
 	{
-		if (!ValidateDiagnosticCaller("ClearIssue", a_modId)) {
+		if (!ValidateHealthReporter("ClearIssue", a_modId)) {
 			return false;
 		}
 		if (!a_id || !a_id[0]) {
 			return false;
 		}
 		std::lock_guard lock(_mutex);
-		if (_pendingDiagnostics.size() >= kMaxPendingDiagnosticOps) {
+		if (_pendingHealthIssueOps.size() >= kMaxPendingHealthIssueOps) {
 			return false;  // warned by the report path; a clear storm implies one
 		}
-		_pendingDiagnostics.push_back(DiagnosticOp{
-			.kind = DiagnosticOp::Kind::kClear,
+		_pendingHealthIssueOps.push_back(HealthIssueOp{
+			.kind = HealthIssueOp::Kind::kClear,
 			.modId = a_modId,
 			.id = a_id,
 		});
@@ -569,7 +569,7 @@ namespace OSFUI::API
 
 	bool BridgeApi::ClearIssuesExcept(const char* a_modId, const char* a_keepIdsJson)
 	{
-		if (!ValidateDiagnosticCaller("ClearIssuesExcept", a_modId)) {
+		if (!ValidateHealthReporter("ClearIssuesExcept", a_modId)) {
 			return false;
 		}
 		std::vector<std::string> keep;
@@ -590,22 +590,22 @@ namespace OSFUI::API
 			}
 		}
 		std::lock_guard lock(_mutex);
-		if (_pendingDiagnostics.size() >= kMaxPendingDiagnosticOps) {
+		if (_pendingHealthIssueOps.size() >= kMaxPendingHealthIssueOps) {
 			return false;
 		}
-		_pendingDiagnostics.push_back(DiagnosticOp{
-			.kind = DiagnosticOp::Kind::kClearExcept,
+		_pendingHealthIssueOps.push_back(HealthIssueOp{
+			.kind = HealthIssueOp::Kind::kClearExcept,
 			.modId = a_modId,
 			.keep = std::move(keep),
 		});
 		return true;
 	}
 
-	std::vector<BridgeApi::DiagnosticOp> BridgeApi::TakeDiagnosticOps()
+	std::vector<BridgeApi::HealthIssueOp> BridgeApi::TakeHealthIssueOps()
 	{
 		std::lock_guard lock(_mutex);
-		std::vector<DiagnosticOp> out;
-		out.swap(_pendingDiagnostics);
+		std::vector<HealthIssueOp> out;
+		out.swap(_pendingHealthIssueOps);
 		return out;
 	}
 
@@ -657,7 +657,7 @@ namespace OSFUI::API
 		}
 		// Take ownership of the correlation id before the plugin can answer:
 		// it replies through Request::Respond/Reject, whenever it gets there,
-		// and PumpMainThread settles it (or expires it at the host deadline).
+		// and PumpMainThread settles it (or expires it at the OSF UI runtime deadline).
 		// The bridge's token — not the page's request id, which collides
 		// across documents — is what settles it.
 		const std::string deferToken = bridge.Defer();
@@ -681,7 +681,7 @@ namespace OSFUI::API
 		}
 		reg.fn(request, reg.user);
 	}
-	void BridgeApi::OnBridgeReady(MessageBridge* a_bridge)
+	void BridgeApi::SetBridgeAvailability(MessageBridge* a_bridge)
 	{
 		std::lock_guard lock(_mutex);
 		_bridge = a_bridge;  // a change (incl. null<->ptr) is detected in Pump and forces a re-apply
@@ -691,9 +691,9 @@ namespace OSFUI::API
 	void BridgeApi::PumpMainThread(std::chrono::steady_clock::time_point now)
 	{
 		MessageBridge* bridge = nullptr;
-		std::vector<std::string> commandRemovals, requestRemovals,
+		std::vector<std::string> sendRemovals, requestRemovals,
 			legacyCommandRemovals, legacyRequestRemovals;
-		std::vector<std::pair<std::string, Registration>> commands;
+		std::vector<std::pair<std::string, Registration>> sendRegistrations;
 		std::vector<std::pair<std::string, Registration>> legacyCommands;
 		std::vector<std::pair<std::string, RequestRegistration>> requests;
 		std::vector<std::pair<std::string, RequestRegistration>> legacyRequests;
@@ -711,22 +711,22 @@ namespace OSFUI::API
 						_pendingLegacyCommandUnregister.clear();
 						_pendingLegacyRequestUnregister.clear();
 					} else {
-						commandRemovals.swap(_pendingSendUnregister);
+						sendRemovals.swap(_pendingSendUnregister);
 						requestRemovals.swap(_pendingRequestUnregister);
 						legacyCommandRemovals.swap(_pendingLegacyCommandUnregister);
 						legacyRequestRemovals.swap(_pendingLegacyRequestUnregister);
 					}
-					for (const auto& pair : _sends) commands.push_back(pair);
+					for (const auto& pair : _sends) sendRegistrations.push_back(pair);
 					for (const auto& pair : _legacyCommands) legacyCommands.push_back(pair);
 					for (const auto& pair : _requests) requests.push_back(pair);
 					for (const auto& pair : _legacyRequests) legacyRequests.push_back(pair);
 					_appliedBridge = bridge; _dirty = false;
 				}
-				// Retain known lazy targets until Runtime marks their renderer surface
-				// loaded. Unknown ids keep the historical drop behavior once discovery
+				// Retain known discovered-but-uninstantiated targets until Runtime marks their view instance
+				// instantiated. Unknown ids keep the historical drop behavior once discovery
 				// has supplied an authoritative catalog.
 				for (auto it = _pendingSends.begin(); it != _pendingSends.end();) {
-					if (_loadedViews.contains(it->view)) {
+					if (_instantiatedViews.contains(it->view)) {
 						sends.push_back(std::move(*it));
 						it = _pendingSends.erase(it);
 					} else if (_viewCatalogReady && !_knownViews.contains(it->view)) {
@@ -759,11 +759,11 @@ namespace OSFUI::API
 			}
 		}
 		if (bridge) {
-			for (const auto& name : commandRemovals) bridge->UnregisterSend(name);
+			for (const auto& name : sendRemovals) bridge->UnregisterSend(name);
 			for (const auto& name : requestRemovals) bridge->UnregisterRequest(name);
 			for (const auto& name : legacyCommandRemovals) bridge->UnregisterLegacyCommand(name);
 			for (const auto& name : legacyRequestRemovals) bridge->UnregisterRequest(name);
-			for (const auto& [name, reg] : commands) bridge->RegisterSend(name, [name, reg](const nlohmann::json& payload, MessageBridge& b) {
+			for (const auto& [name, reg] : sendRegistrations) bridge->RegisterSend(name, [name, reg](const nlohmann::json& payload, MessageBridge& b) {
 				const auto dump = Json::Dump(payload);
 				const std::string src(b.CurrentSource()); reg.fn(name.c_str(), dump.c_str(), src.c_str(), reg.user);
 			});
@@ -780,17 +780,17 @@ namespace OSFUI::API
 					DispatchRequest(name, reg, payload, b);
 				});
 			// A plugin push is an EVENT: unsolicited, one-shot, never replayed.
-			// Backend-owned data that changes over time belongs in SetViewState.
+			// Mod-backend-owned data that changes over time belongs in SetViewState.
 			for (const auto& send : sends) bridge->EmitJson(send.view, send.type, send.payloadJson);
 			for (const auto& reply : replies) {
 				if (reply.rejected) {
 					REX::WARN("BridgeApi: request '{}' from view '{}' -> {}", reply.name, reply.view, reply.code);
-					// No Surface(): a plugin answering `Reject` is the endpoint
+					// No ReportProtocolFault(): a plugin answering `Reject` is the endpoint
 					// working as designed, and the code it chose is its own. The
 					// page already gets the typed error from RejectTo, and the
 					// helper prints it to the view's console — routing it through
 					// the misuse sink as well made ordinary application errors
-					// accumulate toward a `view.protocol-misuse` card blaming a
+					// accumulate toward a `view.protocol-misuse` issue blaming a
 					// view that did nothing wrong.
 					bridge->RejectTo(reply.deferToken, reply.code, reply.message);
 				} else {
@@ -809,7 +809,7 @@ namespace OSFUI::API
 				}
 			}
 		}
-		_ready.store(bridge != nullptr);
+		_bridgeAvailable.store(bridge != nullptr);
 		bool invokeReady = false;
 		if (fireReady && readyCb) {
 			// Close the snapshot-to-call race under the same mutex used by

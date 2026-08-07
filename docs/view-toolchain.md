@@ -11,7 +11,10 @@ npm run doctor
 npm run dev
 ```
 
-The generator asks for a mod/view id, a surface, and — for the two view surfaces — a Papyrus or native-plugin starter:
+The generator asks for a mod id, view name, and starter type. The CLI flag
+remains `--surface` for compatibility; `settings` is a starter type but does
+not create a view. Menu and HUD starters also ask for a Papyrus or native-plugin
+mod backend:
 
 | `--surface` | What you get |
 |---|---|
@@ -19,11 +22,11 @@ The generator asks for a mod/view id, a surface, and — for the two view surfac
 | `hud` | A passive gameplay overlay: retained telemetry, live placement and opacity settings, a rebindable visibility hotkey, no input capture. |
 | `settings` | No view and no npm project at all — a settings schema, a rebindable hotkey wired straight to a GLOBAL Papyrus function via `onPress`, a translation catalog, and a `build-deploy.ps1`. Papyrus-only. |
 
-Each project is a runnable **starter**, not a catalogue: one worked example of each way a view and its backend talk to each other, plus a small settings schema. Everything else — the full endpoint list, every settings control, platform services, key capture — is documented in [authoring-views.md](authoring-views.md) and [authoring-settings.md](authoring-settings.md), which each generated README links. Platform-private administration APIs and experimental raw-gamepad takeover are deliberately left out; the copied SDK is the reference for advanced calls.
+Each project is a runnable **starter**, not a catalogue: one worked example of each way a view and its mod backend talk to each other, plus a small settings schema. Everything else — the full endpoint list, every settings control, platform services, key capture — is documented in [authoring-views.md](authoring-views.md) and [authoring-settings.md](authoring-settings.md), which each generated README links. Platform-private administration APIs and experimental raw-gamepad takeover are deliberately left out; the copied SDK is the reference for advanced calls. See [terminology.md](terminology.md) for the canonical component, identity, and lifecycle names.
 
-View projects are TypeScript (strict, no UI framework); plain `.js` modules build too (`allowJs`). Source uses the production `src/views/<mod>/<view>/` shape, and the chosen workflow adds its backend starter — a recordless GLOBAL Papyrus library, or a native SFSE/CommonLibSF plugin project. The Papyrus preset compiles a loose PEX whose functions JavaScript calls directly with `osfui.papyrus.call`, so it needs no manifest target, ESM, quest, alias, registration, or Spriggit.
+View projects are TypeScript (strict, no UI framework); plain `.js` modules build too (`allowJs`). Source uses the production `src/views/<modId>/<viewName>/` shape, and the chosen workflow adds its mod-backend starter — a recordless GLOBAL Papyrus library, or a native SFSE/CommonLibSF plugin project. The Papyrus preset compiles a loose PEX whose functions JavaScript calls directly with `osfui.papyrus.call`, so it needs no manifest target, ESM, quest, alias, registration, or Spriggit.
 
-The `settings` surface skips all of that. It has no `package.json`, so none of the commands below apply to it; its README covers its one build step.
+The `settings` starter skips all of that. It has no `package.json`, so none of the commands below apply to it; its README covers its one build step.
 
 ## Iterate in the browser
 
@@ -31,7 +34,7 @@ The `settings` surface skips all of that. It has no `package.json`, so none of t
 
 The harness speaks the real bridge protocol, handshake included: it answers your document's `osfui.hello` with `ready`, then the locale catalog, then every mock state key, then opens events. So an F5 in the browser exercises exactly the boot path a reload in Starfield does — "works until you refresh" is a browser-side bug, not an in-game one.
 
-Describe what your backend would do in `osfui.mock.ts` (or `.js`). The `defineMock` default export has four fields plus named `scenarios` that shallow-overlay them (`?scenario=<name>`, or the toolbar's Scenario select):
+Describe what your mod backend would do in `osfui.mock.ts` (or `.js`). The `defineMock` default export has four fields plus named `scenarios` that shallow-overlay them (`?scenario=<name>`, or the toolbar's Scenario select):
 
 ```ts
 export default defineMock({
@@ -50,13 +53,13 @@ export default defineMock({
 });
 ```
 
-The mock enforces endpoint **kinds**, since a wrong kind otherwise only shows up against the real runtime: a `request` naming a built-in send endpoint is rejected `wrong-endpoint-kind`, a `send` naming an unhandled endpoint surfaces `unknown-endpoint`, and a scenario answering a `send` warns that the view sent it one-way. Current platform endpoints (`close`, `setVisible`, `view.ready`, `log`, `menu.open`, `ping`, `game.get`, `settings.set`, `settings.reset`, `settings.captureKey`, …) receive protocol-shaped stand-ins, including own-mod and platform-private authority checks. Use an `install(ctx)` handler when the preview also needs application-specific state fan-out or a later human-time event such as `settings.captured`.
+The mock enforces endpoint **kinds**, since a wrong kind otherwise only shows up against the real OSF UI runtime: a `request` naming a built-in send endpoint is rejected `wrong-endpoint-kind`, a `send` naming an unhandled endpoint surfaces `unknown-endpoint`, and a scenario answering a `send` warns that the view sent it one-way. Current platform endpoints (`close`, `setVisible`, `view.ready`, `log`, `menu.open`, `ping`, `game.get`, `settings.set`, `settings.reset`, `settings.captureKey`, …) receive protocol-shaped stand-ins, including own-mod and platform-private authority checks. Use an `install(ctx)` handler when the preview also needs application-specific state fan-out or a later human-time event such as `settings.captured`.
 
 For full control, export `install(ctx)`. It runs in the view page before your code and can layer handlers ahead of the scenario engine, push messages, and add toolbar controls:
 
 ```ts
 export function install(ctx: MockContext) {
-  ctx.onCommand((kind, name, payload, io) => {
+  ctx.onEndpoint((kind, name, payload, io) => {
     if (kind === 'request' && name === 'acme.mymod.commit') {
       io.resolve({ ok: true });          // or io.reject('busy', 'try again')
       return true;                       // handled; stop the chain
@@ -73,7 +76,7 @@ export function install(ctx: MockContext) {
 
 Debug with the browser's own DevTools — the shared kit is the production one, so the failures you see are the failures the game reports. Every rejection, timeout, missing bridge and dropped send prints with an `[osfui]` prefix; `localStorage["osfui:trace"] = "1"` plus a reload logs every envelope both directions. Details: [troubleshooting.md](troubleshooting.md#debugging-your-own-view-for-authors).
 
-`npm run check` validates the manifest the config will emit and every drop-in settings JSON file against the packaged OSF UI 2.0 schemas, then type-checks the project and flags remote URLs and browser transports the in-game host doesn't support. A malformed `targetVersion` fails. During 2.0.x, a pre-2.0 target previews through the temporary 1.x façade and every command prints the 2.1.0 removal warning.
+`npm run check` validates the manifest the config will emit and every drop-in settings JSON file against the packaged OSF UI 2.0 schemas, then type-checks the project and flags remote URLs and browser transports the in-game browser host doesn't support. A malformed `targetVersion` fails. During 2.0.x, a pre-2.0 target previews through the temporary 1.x façade and every legacy command prints the 2.1.0 removal warning.
 
 ## Iterate in Starfield
 
@@ -81,11 +84,18 @@ Debug with the browser's own DevTools — the shared kit is the production one, 
 npm run dev:game -- --deploy "C:\path\to\MO2\mods"
 ```
 
-The first run asks for MO2's `mods` directory and remembers it. It creates a child mod folder named after the project directory and places the generated `SFSE/` tree inside. The command keeps the browser harness running, deploys views and backend once at startup, and writes an expiring author-mode marker beside OSF UI's `config.json`.
+The first run asks for MO2's `mods` directory and remembers it. It creates a child mod folder named after the project directory and places the generated `SFSE/` tree inside. The command keeps the browser harness running, deploys views and the mod backend once at startup, and writes an expiring author-mode marker beside OSF UI's `config.json`.
 
-Start Starfield while it runs. Author mode needs no player-config edit: loaded views reload after a sync, and F12 opens WebView2 DevTools on the focused menu. Author mode is the same switch as `devMode`, so your view's console output is also forwarded to `SFSE\Logs\OSF UI.log` (errors ERROR, warnings WARN, rest DEBUG) — useful for a repro you can't keep DevTools open through. Stopping the command removes the marker; the runtime ignores markers older than twelve hours.
+Start Starfield while it runs. The temporary author-mode marker enables the
+same **developer mode** capabilities as persistent `devMode`, without a
+player-config edit: instantiated views reload after a sync, F12 opens WebView2
+DevTools on the active menu, and page console output is forwarded to
+`SFSE\Logs\OSF UI.log` (errors ERROR, warnings WARN, rest DEBUG). Stopping the
+command removes the marker; the OSF UI runtime ignores markers older than twelve
+hours. Author mode is an activation mechanism, not a separate permission
+level.
 
-After the first deployment, saves re-sync view assets only. Starfield holds the plugin, compiled scripts and native files open all session, so rewriting them mid-session fails — the command says so and leaves the deployed copies alone. Close the game and restart the command to deploy a Papyrus or backend change. Starting the command with the game already running behaves the same: views deploy, the rest is reported locked.
+After the first deployment, saves re-sync view assets only. Starfield holds native-plugin DLLs, compiled scripts and related native files open all session, so rewriting them mid-session fails — the command says so and leaves the deployed copies alone. Close the game and restart the command to deploy a Papyrus or native-plugin mod-backend change. Starting the command with the game already running behaves the same: views deploy, the rest is reported locked.
 
 To remember paths, create the ignored `.osfui/local.json`:
 
@@ -108,13 +118,18 @@ npm run package
 
 For a Papyrus project, `build` compiles every `mod/Scripts/Source/**/*.psc` into a loose PEX. It then copies the project's `mod/` Data-root tree into `dist/`, creates `dist/SFSE/Plugins/OSFUI/views/`, and generates manifests from `osfui.config.ts|js`. The installed OSF UI framework supplies the shared kit; a third-party package does not duplicate it. Native DLLs, settings schemas and other normal mod files under `mod/` are included too. `package` rebuilds and writes a distributable zip under `release/`; there is no game plugin to enable.
 
-Declare `targetVersion` on your view in `osfui.config.*`. A target newer than the installed host is advisory and tells the player's Mods surface that OSF UI needs an update. During 2.0.x, a target below 2.0 is accepted only as a migration aid: preview/build/package use the guarded 1.x façade and warn that it is removed in 2.1.0. New scaffolds and the published typings remain 2.0-only.
+Declare `targetVersion` on your view in `osfui.config.*`. It names the OSF UI
+release version. A target newer than the installed OSF UI release is advisory
+and tells Mod Settings that OSF UI needs an update. During 2.0.x, a target below
+2.0 is accepted only as a migration aid: preview/build/package use the guarded
+1.x façade and warn that it is removed in 2.1.0. New scaffolds and the published
+typings remain 2.0-only.
 
 Papyrus builds require:
 
 - Starfield Creation Kit's Papyrus compiler;
 - CK's `Tools/ContentResources.zip`, whose `Scripts/Source` folder is extracted once into the ignored `.osfui/` cache.
 
-The scaffold pins OSF UI's matching `OSFUI.psc` compiler API under `tools/papyrus/`. `npm run doctor` verifies the compiler and sources and names the exact missing prerequisite. `check` and `doctor` warn on a missing or stale PEX; `build`, `package` and `dev:game` recompile it rather than shipping a silently inert backend.
+The scaffold locks OSF UI's matching `OSFUI.psc` compiler API under `tools/papyrus/`. `npm run doctor` verifies the compiler and sources and names the exact missing prerequisite. `check` and `doctor` warn on a missing or stale PEX; `build`, `package` and `dev:game` recompile it rather than shipping a silently inert mod backend.
 
 Set `modRoot` in `osfui.config.*` only if your Data-root source tree uses a different directory name.

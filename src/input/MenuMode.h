@@ -2,8 +2,8 @@
 
 namespace OSFUI
 {
-	// Menu-mode query over the engine's active menu array (mcm-design.md §9,
-	// hotkey gameplay gate). kModal is the engine's own gameplay/menu
+	// Menu-mode query over the engine's active menu array (used by the mod-hotkey
+	// gameplay gate). kModal is the engine's own gameplay/menu
 	// discriminator (RE-proven, see FocusMenu.cpp): gameplay-context menus
 	// (HUDMenu, CursorMenu, FaderMenu, ...) have it clear; menus that take the
 	// player out of gameplay (PauseMenu, ContainerMenu, DataMenu, dialogue,

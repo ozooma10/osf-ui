@@ -34,7 +34,7 @@ describe('detail modes', () => {
     const { el } = await mountWith(WIDGETS, VIEWS);
     expect(el.querySelector('.detail-body--home')).not.toBeNull();
     expect(el.querySelector('.home-grid')).not.toBeNull();
-    expect(el.querySelector('.detail-head h2')!.textContent).toBe('All systems');
+    expect(el.querySelector('.detail-head h2')!.textContent).toBe('All views');
   });
 
   it('mode 1 (search) WINS over Home: a non-empty filter shows results, not cards', async () => {
@@ -45,8 +45,8 @@ describe('detail modes', () => {
     expect(el.querySelector('.detail-head h2')!.textContent).toContain('slider');
   });
 
-  it('mode 3 (not found): nothing installed still pins System Health', async () => {
-    // No mods and no views: the rail collapses to its pinned destinations, so
+  it('mode 3 (not found): nothing installed still keeps System Health fixed', async () => {
+    // No mods and no views: the rail collapses to its fixed destinations, so
     // System Health is always reachable — it is where load failures now live.
     const { el } = await mountWith({ mods: [] });
     expect(el.querySelector('.rail-item--health')).not.toBeNull();
@@ -57,7 +57,7 @@ describe('detail modes', () => {
     selectRail(el, 'Standalone Browser');
     await flush();
     expect(el.querySelector('.detail-quiet')!.textContent).toBe('This mod registers no settings.');
-    // Surfaces section, but no Reset all button.
+    // Views section, but no Reset all button.
     expect(el.querySelector('.group')).not.toBeNull();
     expect([...el.querySelectorAll('.osf-btn')].some((b) => b.textContent === 'Reset all')).toBe(false);
   });
@@ -158,7 +158,7 @@ describe('rail cycling (LB/RB)', () => {
 });
 
 describe('System Health rail entry', () => {
-  it('is pinned even while a filter matches nothing', async () => {
+  it('stays fixed even while a filter matches nothing', async () => {
     // The reason the old load-error alert was never filtered: a player typing
     // the name of a broken mod must still reach the explanation.
     const { el } = await mountWith({ mods: [] });
@@ -166,7 +166,7 @@ describe('System Health rail entry', () => {
     expect(el.querySelector('.rail-item--health')).not.toBeNull();
   });
 
-  it('reflects diagnostics severity in its badge and clears search when selected', async () => {
+  it('reflects health-issue severity in its badge and clears search when selected', async () => {
     const { bridge, el } = await mountWith(WIDGETS, VIEWS);
     // A health condition raised mid-session: `osfui/diagnostics` is republished
     // whole, never as a delta.

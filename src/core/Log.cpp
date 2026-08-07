@@ -24,9 +24,9 @@ namespace OSFUI::Log
 		g_devMode.store(a_enabled, std::memory_order_relaxed);
 
 		// SFSE::Init opens the log at Debug so nothing before config load is
-		// lost. Now that we know devMode, raise the floor for normal play: a
+		// lost. Now that we know the effective developer mode, raise the floor for normal play: a
 		// player's SFSE log should hold boot markers, config, warnings and
-		// errors — not the per-view / per-hook DEBUG chatter. devMode restores
+		// errors — not the per-view / per-hook DEBUG chatter. Developer mode restores
 		// the full firehose for development. flush_on tracks the level so
 		// whatever we keep still survives a crash that never flushes.
 		if (auto logger = spdlog::default_logger()) {

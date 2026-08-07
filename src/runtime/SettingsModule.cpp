@@ -19,8 +19,8 @@ namespace OSFUI
 		// Subscriber #0: the runtime's core reaction (framework knobs). Later
 		// listeners multicast behind it.
 		_store.AddChangeListener(std::move(a_onChange));
-		// Subscriber #1: web push — every committed value goes to every view
-		// that has read the registry (mcm-design.md §8.5). The no-listener guard
+		// Subscriber #1: web event — every committed value goes to every greeted
+		// view. The no-bridge guard
 		// runs before the payload is built; startup NotifyAll and every set with
 		// no view open would otherwise allocate json for nobody.
 		_store.AddChangeListener([this](std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value) {
@@ -41,7 +41,7 @@ namespace OSFUI
 			}
 			_bridge->EmitAll("settings.changed", payload);
 		});
-		// Registry SHAPE changed (runtime registration/removal while views are
+		// Registry SHAPE changed (native registration/removal while views are
 		// live): republish the whole document. Individual value commits stay
 		// `settings.changed` events, so this large payload only moves when the
 		// set of mods or settings actually changes — which is rare.
@@ -93,8 +93,8 @@ namespace OSFUI
 		auto seen = ScanSchemaDir();
 		// Changed or new files reload through the store; every consequence
 		// (value preservation via flush-then-overlay, §11 alias adoption,
-		// settings.data re-broadcast, HotkeyService rebuild via the registry
-		// listener) rides the same wiring as a runtime registration. The mtime
+		// `osfui/settings` state re-broadcast, HotkeyService rebuild via the registry
+		// listener) rides the same wiring as a native registration. The mtime
 		// is recorded even when the reload fails (mid-save torn file, invalid
 		// schema): the editor's final write bumps it again, and a broken file
 		// logs once per save instead of once per scan.
@@ -165,8 +165,8 @@ namespace OSFUI
 
 		a_bridge.RegisterRequest("settings.set", [this](const nlohmann::json& a_payload, MessageBridge& a_b) {
 			const auto requested = Json::GetString(a_payload, "mod", "");
-			// Authority check before anything else: only the built-in Mods surface
-			// and keybinds board may write a mod other than their own
+			// Authority check before anything else: only the built-in Mod Settings view
+			// and Keybindings view may write a mod other than their own
 			// (Ids::ResolveWritableMod). Without this, any bridged view could
 			// rewrite a neighbour's settings — or OSF UI's own toggleKey, which is
 			// the input layer's guaranteed way out of the overlay.

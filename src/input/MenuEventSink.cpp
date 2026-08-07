@@ -41,8 +41,8 @@ namespace OSFUI
 			// transition. The user re-opens with the toggle key.
 			const std::string_view name = a_event.menuName;
 			if ((name == "LoadingMenu" || name == "MainMenu") && Runtime::Get().IsVisible()) {
-				REX::DEBUG("MenuEventSink: '{}' opened -> closing all OSF UI surfaces", name);
-				Runtime::Get().EnqueueMenuRequest(Runtime::MenuReq::CloseAll);
+				REX::DEBUG("MenuEventSink: '{}' opened -> closing all OSF UI views", name);
+				Runtime::Get().EnqueuePresentationRequest(Runtime::PresentationRequest::CloseAll);
 			}
 		}
 

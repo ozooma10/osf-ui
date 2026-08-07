@@ -1,4 +1,4 @@
-// Host-side unit tests for the ABI settings mirror (docs/mcm-design.md §8.2):
+// Native desktop unit tests for the native ABI settings mirror:
 // the REAL src/api/SettingsMirror.cpp — plus its integration with the real
 // SettingsStore, wired exactly like Runtime::BuildModules does — compiled
 // against stubs/pch.h on the desktop toolchain. Assert-style; process exit
@@ -175,7 +175,7 @@ int main()
 		});
 		store.AddRegistryListener([&] { mirror.Rebuild(store.Data()); });
 
-		store.LoadAll(schemaDir, valuesDir);  // empty dir — runtime registration follows
+		store.LoadAll(schemaDir, valuesDir);  // empty dir — native registration follows
 		CHECK(store.RegisterSchema(nlohmann::json::parse(R"json({
 			"id": "t.beta", "title": "Beta",
 			"groups": [ { "label": "G", "settings": [
@@ -254,7 +254,7 @@ int main()
 		key = "SENTINEL";
 		CHECK(!mirror.ResolveNames("t.nope", "Speed", mod, key) && mod == "SENTINEL" && key == "SENTINEL");
 		// An unknown key fails even though the MOD resolved — and in that case
-		// a_outMod has legitimately been written, so only a_outKey is pinned.
+		// a_outMod has legitimately been written, so only a_outKey must remain unchanged.
 		key = "SENTINEL";
 		CHECK(!mirror.ResolveNames("t.gamma", "nosuchkey", mod, key) && key == "SENTINEL");
 

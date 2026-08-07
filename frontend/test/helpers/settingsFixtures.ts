@@ -1,4 +1,4 @@
-// Hand-written settings.data / views.data payloads for the settings-view suites.
+// Hand-written `osfui/settings` and `osfui/views` payloads for the Mod Settings suites.
 // Cast through `unknown`: wire fixtures, not SDK-constructed values, so optional
 // fields are omitted.
 
@@ -10,7 +10,7 @@ export const WIDGETS: SettingsData = {
     {
       id: 'osfui',
       title: 'OSF UI',
-      values: { toggleKey: 'F10', allowPanels: true },
+      values: { toggleKey: 'F10', allowViews: true },
       schema: {
         accent: '#5aa9b8',
         groups: [
@@ -110,7 +110,7 @@ export const WIDGETS: SettingsData = {
               { type: 'action', key: 'bad', label: 'Reserved', command: 'ui.doThing' },
               // A keyless setting: must be skipped, not rendered.
               { label: 'No key here', type: 'bool', default: false },
-              // A type this host predates: read-only row--unknown.
+              // A type this OSF UI release predates: read-only row--unknown.
               { key: 'future', label: 'Future', type: 'quantum', default: 0 },
             ],
           },

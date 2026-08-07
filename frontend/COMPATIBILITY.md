@@ -84,7 +84,7 @@ The Preact views therefore **reproduce padnav's DOM contracts**, and
 **Exit criterion — both must hold:**
 
 1. A manual controller pass over both views passes in game: rail → detail → each
-   widget type → undo modal → keybinds board → bind list.
+   widget type → undo modal → Keybindings view → binding list.
 2. The conversion is done in a change that touches **nothing else**, so a
    navigation regression cannot be confused with a rendering one.
 

@@ -1,4 +1,4 @@
-// model.ts — flatten a `settings.data` document into keybind rows.
+// model.ts — flatten the `osfui/settings` state into keybinding rows.
 //
 // One row per bound key, from two retained-state documents: mod key settings
 // from `osfui/settings`, and the game's live bindings from
@@ -6,22 +6,19 @@
 
 import type {
   GameplayMode,
+  GameInputContextClassification,
   KeybindingsData,
   SettingsData,
   SettingsItem,
-  VanillaContextClassification,
 } from '@sdk';
 import { canonicalName } from './canonical';
 import type { KeyLabeler } from './labels';
-import { resolveInputContext } from '../settings/inputContext';
+import { resolveHotkeyContext } from '../settings/hotkeyContext';
 
 export type ModEntry = SettingsData['mods'][number];
 
-/** One flattened binding. `mod` is present only on `kind:"mod"` rows. */
-export interface BindingRow {
-  kind: 'mod' | 'game';
-  /** Owning mod id. Absent on game rows. */
-  mod?: string;
+/** Fields shared by authored mod hotkeys and live Starfield bindings. */
+interface BindingRowBase {
   /** Mod rows: the setting key. Game rows: the engine controlmap event id. */
   key: string;
   label: string;
@@ -33,22 +30,41 @@ export interface BindingRow {
    * itself when no label map was supplied. Display only.
    */
   keyLabel: string;
-  contextId: string;
-  contextLabel: string;
-  blocksGameplay: boolean;
   /** null is legacy/unscoped and overlaps every semantic mode. */
   gameplayModes?: GameplayMode[] | null;
-  classification?: VanillaContextClassification;
-  contextNumericId?: number;
-  category?: string;
-  slot?: 'main' | 'alternate';
   chord?: string[];
   unbound?: boolean;
-  /** False when the player's vanillaKeyConflicts setting hides game warnings. */
-  vanillaWarnings?: boolean;
-  /** Stable rendered identity; vanilla events may have main + alternate rows. */
+  /** False when the compatibility setting `vanillaKeyConflicts` hides game-binding warnings. */
+  gameBindingWarnings?: boolean;
+  /** Stable rendered identity; game input actions may have main + alternate rows. */
   rowId?: string;
 }
+
+/** An authored `type:"key"` setting and its mod-local hotkey context. */
+export interface ModBindingRow extends BindingRowBase {
+  kind: 'mod';
+  /** Owning mod id. */
+  mod: string;
+  hotkeyContextId: string;
+  hotkeyContextLabel: string;
+  blocksGameplay: boolean;
+}
+
+/** A live Starfield ControlMap binding and its engine input context. */
+export interface GameBindingRow extends BindingRowBase {
+  kind: 'game';
+  /** Stable engine input-context name, or `unknown` when the game did not supply one. */
+  engineInputContextName: string;
+  /** Display label, localized only for the missing-context fallback. */
+  engineInputContextLabel: string;
+  engineInputContextId?: number;
+  classification?: GameInputContextClassification;
+  category?: string;
+  slot?: 'main' | 'alternate';
+}
+
+/** One flattened binding, discriminated by its domain owner. */
+export type BindingRow = ModBindingRow | GameBindingRow;
 
 /**
  * The view's `tr()` shape: a structural address (without the "chrome.keybinds."
@@ -91,7 +107,7 @@ export function buildModel(
 ): BindingRow[] {
   const rows: BindingRow[] = [];
   const osfui = (mods || []).find((m) => m?.id === 'osfui');
-  const vanillaWarnings = osfui?.values?.vanillaKeyConflicts !== false;
+  const gameBindingWarnings = osfui?.values?.vanillaKeyConflicts !== false;
 
   // `||` rather than `??` throughout: a schema whose `groups` is any falsy
   // non-nullish value (0, "", false — a hand-edited or hostile manifest)
@@ -108,10 +124,10 @@ export function buildModel(
         if (!isKeySetting(s)) continue;
         const value = (mod.values || {})[s.key];
         if (typeof value !== 'string' || !value) continue; // unbound => no row
-        // Shared resolver (@lib/settings/inputContext) — same grammar, dedupe
-        // and fallbacks as the settings view. The injected gameplay label keeps
+        // Shared resolver (@lib/settings/hotkeyContext) — same grammar, dedupe
+        // and fallbacks as Mod Settings. The injected gameplay label keeps
         // the implicit-context badge localized like the game rows below.
-        const context = resolveInputContext(mod.schema, s, translate('gameplay', 'Gameplay'));
+        const context = resolveHotkeyContext(mod.schema, s, translate('gameplay', 'Gameplay'));
         const name = canonicalName(value);
         rows.push({
           kind: 'mod',
@@ -123,13 +139,13 @@ export function buildModel(
           owner: mod.title || mod.id,
           name,
           keyLabel: labeler(name) ?? name,
-          contextId: context.id,
-          contextLabel: context.label,
+          hotkeyContextId: context.id,
+          hotkeyContextLabel: context.label,
           blocksGameplay: context.blocksGameplay,
           gameplayModes: context.gameplayModes ?? null,
           chord: [name],
           unbound: false,
-          vanillaWarnings,
+          gameBindingWarnings,
           rowId: `mod:${mod.id}:${s.key}`,
         });
       }
@@ -159,17 +175,16 @@ export function buildModel(
           keyLabel: binding.unbound
             ? translate('unbound', 'Unbound')
             : chord.map((part) => labeler(part) ?? part).join(' + '),
-          contextId: v.context?.name || 'unknown',
-          contextLabel: v.context?.name || translate('otherContext', 'Other'),
-          contextNumericId: v.context?.id,
+          engineInputContextName: v.context?.name || 'unknown',
+          engineInputContextLabel: v.context?.name || translate('otherContext', 'Other'),
+          engineInputContextId: v.context?.id,
           category: v.category,
           classification: v.classification,
           gameplayModes: [...new Set(modes)],
-          blocksGameplay: false,
           slot: binding.slot,
           chord,
           unbound: binding.unbound || chord.length === 0,
-          vanillaWarnings,
+          gameBindingWarnings,
           rowId: `game:${v.context?.id ?? 'x'}:${v.event}:${binding.slot}:${i}`,
         });
       }

@@ -1,17 +1,17 @@
-// The Mods surface: two-pane master/detail, and the overlay's front door (the
+// The Mod Settings view: two-pane master/detail, and the overlay's front door (the
 // toggle key opens this view directly).
 //
-// The rail is topped by Home, a card grid of every registered panel and overlay
-// across all mods. Below it, every installed mod — OSF UI pinned first, then the
-// union of settings schemas (`settings.data`) and catalog views (`views.data`).
-// The right pane renders the selected mod's surfaces, then its typed settings
+// The rail is topped by Home, a card grid of every catalog-visible menu and HUD view
+// across all mods. Below it, every installed mod — OSF UI listed first, then the
+// union of settings schemas (`osfui/settings`) and catalog views (`osfui/views`).
+// The right pane renders the selected mod's views, then its typed settings
 // controls on the shared kit.
 //
 // Everything the schema adds beyond bool/int/float/enum/flags/string/key is
 // presentation: widget hints, number formatting, visibleWhen/enabledWhen, note
 // and image blocks, action buttons, requires badges, presets, the rail icon. The
 // native SettingsStore trusts none of it — a hidden or disabled control is still
-// validated on write, and an action command is refused unless it is namespaced
+// validated on write, and a settings-action request endpoint is refused unless it is namespaced
 // to the owning mod. Untrusted schema text only reaches the DOM as a text child.
 //
 // No data-i18n in this view: `osfui.localize()` mutates text in place and caches
@@ -96,11 +96,11 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
 
   /**
    * Optimistic HUD switch positions, keyed by view id. `menu.open`/`menu.close`
-   * are fire-and-forget, so the switch flips locally and the next `views.data`
-   * push (which the runtime sends on every open/focus change) is authoritative
+   * are fire-and-forget, so the switch flips locally and the next `osfui/views`
+   * state update (which the runtime sends on every open/focus change) is authoritative
    * — that push clears the whole map.
    *
-   * Declared before the registry because the registry's `views.data` callback
+   * Declared before the registry because the registry's `osfui/views` callback
    * clears it.
    */
   const [hudOverride, setHudOverride] = useState<Record<string, boolean>>({});
@@ -108,7 +108,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
   /**
    * In-flight `osfui.setViewAutoStart` choices, keyed by view id. Presence
    * means "saving": the switch shows the requested position but is disabled. A
-   * success rebroadcasts `views.data` (which clears the map, authoritative); a
+   * success republishes `osfui/views` (which clears the map, authoritative); a
    * rejection deletes the entry so the switch falls back to the server value.
    */
   const [autoStartPending, setAutoStartPending] = useState<Record<string, boolean>>({});
@@ -121,7 +121,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
    */
   const registry = useSettingsRegistry({
     bridge,
-    // A `views.data` push is the authority on HUD open state and startup
+    // An `osfui/views` state update is the authority on HUD open state and startup
     // policy; drop the optimistic switch positions when one lands.
     onViewsData: () => {
       setHudOverride({});
@@ -136,12 +136,12 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     viewsRef,
     discoveredViews,
     health,
-    hostVersion,
+    osfuiReleaseVersion,
     baseline,
     applyLocal,
   } = registry;
 
-  /** Issue the Health pane should expand and scroll to, from a deep link. */
+  /** Issue System Health should expand and scroll to, from a deep link. */
   const [focusIssueId, setFocusIssueId] = useState<string | null>(null);
 
   const [selectedId, setSelectedId, selectedIdRef] = useStateRef<string | null>(null);
@@ -180,7 +180,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
   /**
    * `#mod=<entry id>` preselects a rail entry (harness deep links, headless
    * screenshots). In game the view loads without a fragment, so it is inert.
-   * Held pending until the entry exists: settings.data and views.data arrive in
+   * Held pending until the entry exists: `osfui/settings` and `osfui/views` arrive in
    * either order, and the default-selection fallback must not eat it.
    */
   const pendingHashSelect = useRef<string | null>(null);
@@ -216,8 +216,8 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
   const filterInput = useRef<HTMLInputElement | null>(null);
 
   /** A one-way endpoint. Nothing settles; wanting an outcome means requestOp. */
-  const sendCommand = (command: string, fields?: Record<string, unknown>) => {
-    if (bridge.available()) bridge.send(command, fields);
+  const sendEndpoint = (endpoint: string, fields?: Record<string, unknown>) => {
+    if (bridge.available()) bridge.send(endpoint, fields);
   };
 
   /**
@@ -226,9 +226,9 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
    * "unknown-view", "forbidden"), and sending them one-way would silently
    * swallow exactly the case worth reporting.
    */
-  const requestOp = (name: string, payload?: Record<string, unknown>) => {
+  const requestOp = (endpoint: string, payload?: Record<string, unknown>) => {
     if (!bridge.available()) return;
-    void bridge.request(name, payload).catch((err: unknown) => {
+    void bridge.request(endpoint, payload).catch((err: unknown) => {
       const code = codeOf(err);
       toast(tr('actionFailed', 'Could not complete that{code}', {
         code: code ? ` (${code})` : '',
@@ -311,7 +311,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
    * Rail selection. Choosing System Health CLEARS an active search: the pane is
    * dispatched on the selection, but a non-empty filter otherwise wins and would
    * show search results under a selected Health entry. Clearing here rather than
-   * refusing the selection keeps the pinned entry reachable from a filtered
+   * refusing the selection keeps the fixed entry reachable from a filtered
    * rail, which is the whole reason it is never filtered out.
    */
   const selectMod = (id: string) => {
@@ -325,7 +325,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     setSelectedId(id);
   };
 
-  /** Jump to System Health with one issue expanded (a failed view's card). */
+  /** Jump to System Health with one failed-view issue expanded. */
   const openIssue = (issueId: string) => {
     setFilter('');
     setQuery('');
@@ -334,14 +334,14 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
   };
 
   /**
-   * Default selection, re-run whenever the entry set changes: settings.data and
-   * views.data arrive in either order, and a mod that unregisters mid-visit must
+   * Default selection, re-run whenever the entry set changes: `osfui/settings` and
+   * `osfui/views` arrive in either order, and a mod that disappears mid-visit must
    * not leave the pane pointed at nothing.
    */
   useEffect(() => {
     const nodes = railNodes({ mods, views }, '');
     const ids = nodes.filter((n) => n.kind === 'entry').map((n) => (n as { entry: { id: string } }).entry.id);
-    if (!ids.length) return; // nothing registered
+    if (!ids.length) return; // no mod entries
 
     const pending = pendingHashSelect.current;
     if (pending && (pending === HOME_ID || pending === HEALTH_ID || ids.includes(pending))) {
@@ -350,7 +350,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
       return;
     }
     const current = selectedIdRef.current;
-    // Home stays the landing page. Health is pinned above it but is a place you
+    // Home stays the landing page. Health is fixed above it but is a place you
     // go, not a place you are put — landing there would make every launch read
     // as a problem report.
     if (current !== HOME_ID && current !== HEALTH_ID && (current === null || !ids.includes(current))) {
@@ -376,13 +376,13 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
   });
 
   // Bridge subscriptions for what the user is DOING. The registry hook owns the
-  // data pushes (settings.data / views.data / diagnostics.data / i18n.data /
+  // state updates (`osfui/settings` / `osfui/views` / `osfui/diagnostics` / `osfui/i18n` /
   // settings.changed) and the catalog reads; both blocks register once per
   // bridge and read everything else through refs.
 
   useEffect(() => {
     // Backstop alongside the useCapture promise: catches a reply that lost its
-    // correlation (an older host that does not echo requestId). `finish` is
+    // correlation (an older OSF UI runtime that does not echo requestId). `finish` is
     // idempotent — a second delivery no-ops.
     const offCaptured = bridge.on('settings.captured', (p) => capture.finish(p as never));
 
@@ -422,14 +422,14 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
 
     // LB / RB step the rail selection. Raw `ui.gamepad` events ride alongside
     // the runtime's default mapping: we do not assert `osfui.gamepadRaw`, so
-    // D-pad/A/B keep their native arrows/Enter/close behaviour. On hosts
+    // D-pad/A/B keep their native arrows/Enter/close behaviour. On OSF UI runtimes
     // without gamepad routing these never arrive.
     const offGamepad = bridge.on('ui.gamepad', (p) => {
       const nodes = railNodes(
         { mods: modsRef.current, views: viewsRef.current },
         queryRef.current,
       );
-      // LB/RB walk every focusable rail row, pinned destinations included.
+      // LB/RB walk every focusable rail row, fixed destinations included.
       const railIds = nodes
         .filter((n) => n.kind === 'health' || n.kind === 'home' || n.kind === 'entry')
         .map((n) =>
@@ -451,7 +451,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     // The runtime delegates the back action (Esc / pad-B) as a synthetic
     // Escape instead of closing the overlay, so the keydown handler below can
     // peel the undo panel first. Sticky per page load.
-    if (bridge.available()) sendCommand('osfui.handleBack', { handle: true });
+    if (bridge.available()) sendEndpoint('osfui.handleBack', { handle: true });
 
     return () => {
       offCaptured();
@@ -481,12 +481,12 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
       // reliably "Escape". Swallowed while a capture is armed — the press
       // belongs to the rebind.
       if ((e.key === 'Escape' || e.keyCode === 27) && !e.defaultPrevented && !capture.isCapturing()) {
-        // Peel the undo panel first; only a bare Escape closes the surface.
+        // Peel the undo panel first; only a bare Escape closes the view.
         if (undoOpenRef.current) {
           setUndoOpen(false);
           return;
         }
-        sendCommand('close');
+        sendEndpoint('close');
       }
     };
     document.addEventListener('keydown', onKeyDown);
@@ -531,7 +531,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
 
   const changes = sessionDiff(baseline, mods);
   const needsUpdate = deriveNeedsUpdate(
-    hostVersion,
+    osfuiReleaseVersion,
     discoveredViews
       .filter((v) => v.targetVersion)
       .map((v) => ({
@@ -546,7 +546,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     ? tr('newerExpectedBy', 'A newer OSF UI is expected by: {mods}', {
         mods: needsUpdate.wanting.join(', '),
       })
-    : tr('version', 'OSF UI version');
+    : tr('version', 'OSF UI release version');
 
   const hudOn = (v: ViewRecord): boolean => {
     const override = hudOverride[v.id];
@@ -587,7 +587,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     const entries: Array<[string, SettingValue]> = [];
     for (const key in preset.values) entries.push([key, preset.values[key] as SettingValue]);
     pushValues(mod.id, entries);
-    // Native does not re-broadcast settings.data on a set; the controls repaint
+    // Native does not republish `osfui/settings` on a set; the controls repaint
     // from the local model change alone, and group collapse survives.
     toast(
       tr.plural(
@@ -608,13 +608,13 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     pushValues(c.modId, [[c.key, c.old as SettingValue]]);
   };
 
-  const runAction = (command: string, modId: string, key: string | undefined) =>
+  const runAction = (requestEndpoint: string, modId: string, key: string | undefined) =>
     // A schema `action` targets the mod's own REQUEST endpoint, so the plugin
     // answers with its own payload and any failure arrives as a typed rejection
     // — there is no ok:false document to inspect. Timeout / unknown-endpoint /
     // wrong-endpoint-kind / no-bridge all reject too.
     bridge
-      .request<{ message?: unknown }>(command, { mod: modId, key }, { timeoutMs: ACTION_TIMEOUT_MS })
+      .request<{ message?: unknown }>(requestEndpoint, { mod: modId, key }, { timeoutMs: ACTION_TIMEOUT_MS })
       .then((payload) => {
         return payload && typeof payload.message === 'string' ? payload.message : null;
       });
@@ -633,13 +633,14 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
                   <span class="wordmark-osf">OSF</span>
                   <span class="wordmark-ui">UI</span>
                 </div>
-                <div class="osf-eyebrow brand-sub">{tr('controlDeck', 'CONTROL DECK')}</div>
+                {/* `controlDeck` is a frozen translation address; the default copy uses the canonical name. */}
+                <div class="osf-eyebrow brand-sub">{tr('controlDeck', 'MOD SETTINGS')}</div>
               </div>
-              {/* Version from the runtime.ready handshake (empty until it
+              {/* Version from the bridge `ready` handshake (empty until it
                   arrives). Badge turns yellow and the tag appears when an
                   installed mod or view targets a newer OSF UI than this one; the
                   tooltip names who is asking. The tag links to the Nexus page;
-                  in-game the host intercepts target="_blank" and opens the
+                  in-game the browser host intercepts target="_blank" and opens the
                   default browser. */}
               <div class="version-stack">
                 <span
@@ -647,7 +648,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
                   class={needsUpdate.outdated ? 'version-badge is-outdated' : 'version-badge'}
                   title={versionTitle}
                 >
-                  {hostVersion ? `v${hostVersion}` : ''}
+                  {osfuiReleaseVersion ? `v${osfuiReleaseVersion}` : ''}
                 </span>
                 <a
                   id="needs-update-tag"
@@ -660,19 +661,19 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
                 >
                   {tr('needsUpdate', 'Needs update')}
                 </a>
-                {/* devMode arrives in the diagnostics system block. A standing
-                    tag, not a toast: a dev-configured install should never be
-                    mistaken for normal play while reading logs or perf. */}
+                {/* The effective developer-mode capability may come from config.json
+                    or the toolchain's temporary author-mode marker. A standing tag,
+                    not a toast, keeps that distinction visible while reading logs. */}
                 <span
                   id="devmode-tag"
                   class="devmode-tag"
                   hidden={health.system?.devMode !== true}
                   title={tr(
                     'devModeHint',
-                    'devMode is on in config.json: verbose logging, hot reload, F12 DevTools, and developer views are enabled.',
+                    'Developer mode is active: verbose logging, hot reload, F12 DevTools, and developer views are available. It may come from config.json or a temporary toolchain author-mode marker.',
                   )}
                 >
-                  {tr('devMode', 'DEV MODE')}
+                  {tr('devMode', 'DEVELOPER MODE')}
                 </span>
               </div>
             </div>
@@ -689,8 +690,8 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
               inputRef={filterInput}
             />
 
-            {/* Above the "Installed systems" label on purpose: System Health is
-                a pinned destination, not an installed system. Living in the head
+            {/* Above the "Installed mods" label on purpose: System Health is
+                a fixed destination, not an installed mod. Living in the head
                 also means it never scrolls away with the list. */}
             <HealthItem
               health={health}
@@ -700,7 +701,8 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
             />
 
             <div class="rail-meta">
-              <span>{tr('installedSystems', 'Installed systems')}</span>
+              {/* Compatibility catalog address; fallback copy uses the canonical mod noun. */}
+              <span>{tr('installedSystems', 'Installed mods')}</span>
               <span>{tr('configure', 'Configure')}</span>
             </div>
           </div>
@@ -743,9 +745,9 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
               type="button"
               class="osf-btn osf-btn--ghost osf-btn--sm osf-close"
               aria-keyshortcuts="Escape"
-              onClick={() => sendCommand('close')}
+              onClick={() => sendEndpoint('close')}
             >
-              <span>{tr('exit', 'Exit control deck')}</span>
+              <span>{tr('exit', 'Exit Mod Settings')}</span>
               <kbd>Esc</kbd>
             </button>
           </div>
@@ -759,12 +761,12 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
           health={health}
           query={query}
           selectedId={selectedId}
-          hostVersion={hostVersion}
+          osfuiReleaseVersion={osfuiReleaseVersion}
           tr={tr}
           assetRoots={assetRoots}
           focusIssueId={focusIssueId}
           onOpenIssue={openIssue}
-          onShellCommand={(command) => requestOp(command)}
+          onShellRequest={(requestEndpoint) => requestOp(requestEndpoint)}
           collapsed={collapsed}
           onToggleGroup={(key, next) => setCollapsed((c) => ({ ...c, [key]: next }))}
           activePages={activePages}

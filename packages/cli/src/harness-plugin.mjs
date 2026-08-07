@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { normalizePath } from 'vite';
 
 import { HARNESS_CSS, HARNESS_HTML } from './harness-assets.mjs';
-import { BRIDGE_VERSION, HOST_VERSION } from './constants.mjs';
+import { BRIDGE_VERSION, OSFUI_RELEASE_VERSION } from './constants.mjs';
 import { readSharedAsset } from './shared-assets.mjs';
 import { isPre2Target } from './config.mjs';
 import { appendLegacyApi } from './browser/legacy-navigation.js';
@@ -77,7 +77,7 @@ export function harnessPlugin(project, selectedView) {
       targetVersion: view.targetVersion || '',
       legacyApi,
       viewUrl: legacyApi ? appendLegacyApi(path) : path,
-      version: HOST_VERSION,
+      version: OSFUI_RELEASE_VERSION,
       bridgeVersion: BRIDGE_VERSION,
       // Absent when the project has no mock; mock-loader.js skips the import.
       ...(project.mockPath ? { mockUrl: MOCK_ENTRY, mockName: basename(project.mockPath) } : {}),

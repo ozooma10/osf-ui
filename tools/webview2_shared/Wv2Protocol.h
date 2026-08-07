@@ -1,7 +1,7 @@
 #pragma once
 
 // Wire protocol between the OSF UI plugin (or the standalone POC client) and
-// osfui_webview2_host.exe. Both sides compile this header; the transport is one
+// the browser-host executable, osfui_webview2_host.exe. Both sides compile this header; the transport is one
 // message-framed named pipe (Wv2Pipe.h) carrying UTF-8 JSON.
 //
 // Framing: [u32 little-endian payload byte count][payload]. Each payload is one
@@ -9,30 +9,30 @@
 // ignored, for forward compatibility.
 //
 // The game side is the pipe server (owns the pipe name + ACL, launches the
-// host); the host is the client. The host exits when the pipe breaks or the
+// browser host); the browser host is the client. The browser host exits when the pipe breaks or the
 // game process handle signals.
 
 #include <cstdint>
 
 namespace osfui::wv2
 {
-	// Bumped on any incompatible wire change. The host announces this in its
+	// Bumped on any incompatible wire change. The browser host announces this in its
 	// hello; the GAME side (WebView2HostWebRenderer) is the only validator and
-	// abandons a mismatched host (both binaries ship together, so a mismatch
+	// abandons a mismatched browser host (both binaries ship together, so a mismatch
 	// means a stale mirrored exe — the launcher versions the mirror dir to
 	// avoid it).
-	// v2: multi-view — per-view `view` routing on game->host view messages and
-	// `view` tagging on host->game page events.
+	// v2: multi-view — per-view `view` routing on game->browser-host view messages and
+	// `view` tagging on browser-host->game page events.
 	// v3: presentation epochs — every closed->open transition gets a new epoch;
-	// the host stamps captured frames only after the requested view is actually
+	// the browser host stamps captured frames only after the requested view is actually
 	// revealed. The game rejects frames from an earlier/hidden presentation.
-	// v4: verified named-pipe peers, bounded hello, and host heartbeats make a
-	// connected-but-stalled or impersonating helper a terminal recoverable failure.
+	// v4: verified named-pipe peers, bounded hello, and browser-host heartbeats make a
+	// connected-but-stalled or impersonating browser host a terminal recoverable failure.
 	// v5: game-directed, best-effort suspension for idle hidden views.
 	// v6: physical key identity — `accelerator` messages carry `scan` (DIK
 	// convention, input/ScanCode.h) alongside `vk`, and accelState's
 	// toggleVk/captureUpVk become toggleScan/captureUpScan.
-	inline constexpr std::uint32_t kProtocolVersion = 6;
+	inline constexpr std::uint32_t kBrowserHostProtocolVersion = 6;
 
 	inline constexpr std::uint32_t kHelloTimeoutMs = 10000;
 	inline constexpr std::uint32_t kHeartbeatIntervalMs = 1000;
@@ -44,8 +44,8 @@ namespace osfui::wv2
 	// Window message posted to the game's top-level window to hand keyboard
 	// focus back to the game (its WndProc subclass answers with SetFocus).
 	// Game side: OverlayInputHook::kRestoreGameFocusMessage — the renderer
-	// static_asserts the two stay equal. The host posts it from GotFocus when
-	// Chromium grabs focus outside an interactive-menu session.
+	// static_asserts the two stay equal. The browser host posts it from GotFocus when
+	// Chromium grabs focus outside an input-capturing menu session.
 	inline constexpr std::uint32_t kRestoreGameFocusMessage = 0x8049;
 
 	// Hard cap on one framed message (nothing legitimate approaches this;
@@ -56,27 +56,27 @@ namespace osfui::wv2
 	// one being composited, plus one spare so a single slow game present does
 	// not stall the capture thread on the consume fence. The consumer sizes
 	// itself from the `textures` message's slots array (up to its capacity),
-	// so this is host-side tuning, not a wire-protocol change.
+	// so this is browser-host tuning, not a wire-protocol change.
 	inline constexpr std::uint32_t kRingSlots = 4;
 
 	// Fallback for `navigate.logicalHeight` (the view manifest's authoring
 	// height) when a client omits it. Mirrors kDefaultViewHeight plugin-side.
 	inline constexpr std::uint32_t kDefaultLogicalHeight = 900;
 
-	// Multi-view (v2): the host keeps one composition controller + child
+	// Multi-view (v2): the browser host keeps one composition controller + child
 	// ContainerVisual per OSF UI view under a single captured root visual, so
 	// one WGC capture / shared-texture ring carries the already-composited
 	// stack. `navigate`'s `id` is the view id — the first navigate for an
-	// unknown id creates that view. View-scoped game->host messages carry
-	// `view:str`; absent or unknown, they fall back to the active view (keeps
-	// the single-view POC client working). Page events host->game are tagged
+	// unknown id creates that view. View-scoped game->browser-host messages carry
+	// `view:str`; absent or unknown, they fall back to the input-target view (keeps
+	// the single-view POC client working). Page events browser-host->game are tagged
 	// with their source `view`.
 	//
-	// Message types, game -> host:
+	// Message types, game -> browser host:
 	// init          { topLevelHwnd:u64, viewsPath:str, virtualHost:str,
 	//                 width:u32, height:u32, userDataDir:str, devMode:bool,
 	//                 adapterLuidLow:u32, adapterLuidHigh:u32 }
-	//               (adapter LUID is the game's D3D12 device; the host creates
+	//               (adapter LUID is the game's D3D12 device; the browser host creates
 	//                its D3D11 capture device on the same physical adapter)
 	// navigate      { id:str, entry:str, bridge:bool, logicalHeight:u32 }
 	//               (creates view `id` on first sight; logicalHeight is the
@@ -91,11 +91,12 @@ namespace osfui::wv2
 	//                                               (child-visual visibility + Chromium throttling;
 	//                                                epoch advances on all-hidden -> visible)
 	// setOrder      { view:str, order:i32 }      (composite z: lower beneath, ties by creation)
-	// setActive     { view:str }                 (mouse/focus/synthetic-key target)
-	// focus         { focused:bool }             (moves real focus into the active view)
+	// setActive     { view:str }                 (compatibility wire spelling;
+	//                                               selects mouse/focus/synthetic-key target)
+	// focus         { focused:bool }             (moves real focus into the input-target view)
 	// mouse         { kind:"move"|"button"|"wheel"|"physicalWheel", x:i32, y:i32,
-	//                 button:i32, down:bool, wheel:i32 }   (active view)
-	// key           { vk:u32, down:bool }        (synthetic tap into the active view's widget)
+	//                 button:i32, down:bool, wheel:i32 }   (input-target view)
+	// key           { vk:u32, down:bool }        (synthetic tap into the input-target view's widget)
 	// postWeb       { view:str, json:str }
 	// openDevTools  { view:str }                 (devMode only)
 	// accelState    { toggleScan:u32, captured:bool,
@@ -104,8 +105,11 @@ namespace osfui::wv2
 	// shutdown      { }
 	// frameAck      { serial:u64 }             (consumer acked this frame serial; releases its ring slot)
 	//
-	// Message types, host -> game:
+	// Message types, browser host -> game:
 	// hello         { protocolVersion:u32, hostVersion:str, runtimeVersion:str, pid:u32 }
+	// Compatibility wire names: protocolVersion is the browser-host IPC version,
+	// hostVersion is the browser-host build's OSF UI release, and runtimeVersion
+	// is the installed Microsoft WebView2 Runtime version.
 	// heartbeat     { tick:u64 }                   (sent at least every kHeartbeatIntervalMs)
 	// ready         { }                          (first controller + capture up)
 	// textures      { width:u32, height:u32, slots:[u64...],
@@ -119,9 +123,9 @@ namespace osfui::wv2
 	// fatal         { stage:str, view:str, description:str, code:u32 }
 	// webMessage    { view:str, json:str }
 	// console       { view:str, json:str }       (raw Runtime.consoleAPICalled params)
-	// cursor        { id:u32 }                   (active view only; Win32 cursor id, 0 = hidden)
+	// cursor        { id:u32 }                   (input-target view only; Win32 cursor id, 0 = hidden)
 	// accelerator   { vk:u32, scan:u32, down:bool } (framework-owned key hit inside
 	//                Chromium; scan is the physical DIK-convention code)
-	// log           { level:i32, text:str }      (host diagnostics into the game log)
+	// log           { level:i32, text:str }      (browser-host diagnostics into the game log)
 	// bye           { reason:str }
 }

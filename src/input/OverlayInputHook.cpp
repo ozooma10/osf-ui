@@ -44,7 +44,7 @@ namespace OSFUI::OverlayInputHook
 		thread_local bool g_forwardingOriginal{ false };
 
 		// Whether the hardware (OS) pointer is engaged. Capture flips on the game
-		// main thread (ApplyMenuPolicy); WndProc only observes the edge.
+		// main thread (ApplyViewPresentationPolicy); WndProc only observes the edge.
 		// Window-message thread only.
 		bool g_hwCursorActive{ false };
 
@@ -125,27 +125,27 @@ namespace OSFUI::OverlayInputHook
 			RECT  client{};
 			if (::GetCursorPos(&pt) && ::ScreenToClient(a_hwnd, &pt) &&
 				::GetClientRect(a_hwnd, &client) && client.right > 0 && client.bottom > 0) {
-				runtime.OnHostMouseAbsolute(pt.x, pt.y, client.right, client.bottom);
+				runtime.OnGameWindowMouseAbsolute(pt.x, pt.y, client.right, client.bottom);
 			}
 
 			const auto buttons = mouse.usButtonFlags;
 			if (buttons & RI_MOUSE_LEFT_BUTTON_DOWN) {
-				runtime.OnHostMouseButton(0, true);
+				runtime.OnGameWindowMouseButton(0, true);
 			}
 			if (buttons & RI_MOUSE_LEFT_BUTTON_UP) {
-				runtime.OnHostMouseButton(0, false);
+				runtime.OnGameWindowMouseButton(0, false);
 			}
 			if (buttons & RI_MOUSE_RIGHT_BUTTON_DOWN) {
-				runtime.OnHostMouseButton(1, true);
+				runtime.OnGameWindowMouseButton(1, true);
 			}
 			if (buttons & RI_MOUSE_RIGHT_BUTTON_UP) {
-				runtime.OnHostMouseButton(1, false);
+				runtime.OnGameWindowMouseButton(1, false);
 			}
 			if (buttons & RI_MOUSE_MIDDLE_BUTTON_DOWN) {
-				runtime.OnHostMouseButton(2, true);
+				runtime.OnGameWindowMouseButton(2, true);
 			}
 			if (buttons & RI_MOUSE_MIDDLE_BUTTON_UP) {
-				runtime.OnHostMouseButton(2, false);
+				runtime.OnGameWindowMouseButton(2, false);
 			}
 
 			// usButtonData is a USHORT carrying a signed WHEEL_DELTA (120)
@@ -154,7 +154,7 @@ namespace OSFUI::OverlayInputHook
 			if (buttons & RI_MOUSE_WHEEL) {
 				const auto wheelDelta = static_cast<short>(mouse.usButtonData);
 				if (wheelDelta != 0) {
-					runtime.OnHostMouseWheel(static_cast<int>(wheelDelta));
+					runtime.OnGameWindowMouseWheel(static_cast<int>(wheelDelta));
 				}
 			}
 		}
@@ -207,7 +207,7 @@ namespace OSFUI::OverlayInputHook
 				// Drive toggle/web-routing on the initial press only so key
 				// auto-repeat can't re-toggle the overlay.
 				const bool consume = repeat ? runtime.IsInputCaptured() :
-				                              runtime.OnHostKey(vk, MessageScanCode(vk, a_lparam), true);
+					                              runtime.OnGameWindowKey(vk, MessageScanCode(vk, a_lparam), true);
 				if (consume) {
 					return 0;
 				}
@@ -217,7 +217,7 @@ namespace OSFUI::OverlayInputHook
 			case WM_SYSKEYUP:
 			{
 				const auto vk = static_cast<std::uint32_t>(a_wparam);
-				if (runtime.OnHostKey(vk, MessageScanCode(vk, a_lparam), false)) {
+				if (runtime.OnGameWindowKey(vk, MessageScanCode(vk, a_lparam), false)) {
 					return 0;
 				}
 				break;

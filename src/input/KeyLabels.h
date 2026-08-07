@@ -10,7 +10,7 @@
 namespace OSFUI
 {
 	// Platform facts for localized keycap labels, injected as resolvers so the
-	// builder stays host-testable (fakes in
+	// builder stays native-desktop-testable (fakes in
 	// tests/native/key_label_tests.cpp; the real thing is
 	// Platform::MakeKeyLabelSource).
 	struct KeyLabelSource

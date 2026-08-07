@@ -30,7 +30,7 @@ export interface CaptureOptions {
   tr: (address: string, english: string, vars?: Record<string, string | number>) => string;
 }
 
-/** Standalone approximation of the runtime's VK-resolved conflict lookup. */
+/** Standalone approximation of the OSF UI runtime's VK-resolved conflict lookup. */
 export function localKeyConflicts(
   mods: ModRecord[],
   name: string,
@@ -71,7 +71,7 @@ export function useCapture(options: CaptureOptions): CaptureApi {
       options.toast(
         codeOf(error) === 'capture-busy'
           ? options.tr('captureBusy', 'Another rebind is already listening.')
-          : options.tr('captureNoResponse', "Rebinding didn't get a response from the runtime."),
+          : options.tr('captureNoResponse', "Rebinding didn't get a response from the OSF UI runtime."),
         'warn',
       );
     },

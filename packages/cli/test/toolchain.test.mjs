@@ -51,17 +51,18 @@ async function projectFixture(t) {
 
 test('toolchain metadata and packaged helper match the runtime API', async () => {
   const constants = await import('../src/constants.mjs');
-  const runtimeVersion = await readFile(
+  const versionHeader = await readFile(
     resolve(import.meta.dirname, '../../../src/core/Version.h'),
     'utf8',
   );
   assert.equal(
-    constants.HOST_VERSION,
-    /kPluginVersion\s*=\s*"([^"]+)"/.exec(runtimeVersion)?.[1],
+    constants.OSFUI_RELEASE_VERSION,
+    /kOsfuiReleaseVersion\s*=\s*"([^"]+)"/.exec(versionHeader)?.[1],
   );
+  assert.equal(constants.HOST_VERSION, constants.OSFUI_RELEASE_VERSION);
   assert.equal(
     constants.BRIDGE_VERSION,
-    /kBridgeProtocolVersion\s*=\s*"([^"]+)"/.exec(runtimeVersion)?.[1],
+    /kBridgeProtocolVersion\s*=\s*"([^"]+)"/.exec(versionHeader)?.[1],
   );
   assert.equal(
     await readFile(resolve(import.meta.dirname, '../assets/osfui.js'), 'utf8'),
@@ -466,7 +467,7 @@ test('compatibility checks allow inert URLs but flag remote loads', async (t) =>
   const root = await projectFixture(t);
   const view = resolve(root, 'src/views/acme.widgets/panel');
   // The exact shapes OSF UI's own settings views ship: a URL string constant
-  // rendered as an external link (the host opens it in the player's browser)
+  // rendered as an external link (the browser host opens it in the player's browser)
   // and an inline SVG namespace. Neither is network egress; the framework
   // must pass its own gate.
   await writeFile(resolve(view, 'main.js'), [
@@ -521,7 +522,11 @@ test('development server exposes the harness and injects the bridge before view 
   const bootstrap = await fetch(`${origin}/__osfui/bootstrap.js`).then((response) => response.text());
   const shell = await fetch(`${origin}/__osfui/harness.js`).then((response) => response.text());
   assert.match(bootstrap, /osfui-harness/);
+  assert.match(bootstrap, /previewInitialized\(\)/);
+  assert.match(bootstrap, /kind: 'preview-initialized'/);
   assert.match(shell, /loadMeta/);
+  assert.match(shell, /event\.data\.kind === 'preview-initialized'/);
+  assert.match(shell, /Preview initialized/);
   // shell.js is a module importing ./stage-fit.js and ./tools-model.js.
   const stageFit = await fetch(`${origin}/__osfui/stage-fit.js`).then((response) => response.text());
   assert.match(stageFit, /computeFit/);

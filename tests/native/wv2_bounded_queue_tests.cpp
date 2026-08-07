@@ -8,7 +8,7 @@
 #include <vector>
 
 using osfui::wv2::BoundedQueue;
-using osfui::wv2::CommandCoalesceKey;
+using osfui::wv2::GameMessageCoalesceKey;
 using namespace std::chrono_literals;
 
 namespace
@@ -30,11 +30,11 @@ int main()
 	using Queue = BoundedQueue<int>;
 	using Result = Queue::PushResult;
 
-	CHECK(CommandCoalesceKey("mouse", "move") == "mouse.move");
-	CHECK(CommandCoalesceKey("mouse", "button").empty());
-	CHECK(CommandCoalesceKey("resize") == "resize");
-	CHECK(CommandCoalesceKey("setHidden", {}, "view-a") == "setHidden:view-a");
-	CHECK(CommandCoalesceKey("postWeb").empty());
+	CHECK(GameMessageCoalesceKey("mouse", "move") == "mouse.move");
+	CHECK(GameMessageCoalesceKey("mouse", "button").empty());
+	CHECK(GameMessageCoalesceKey("resize") == "resize");
+	CHECK(GameMessageCoalesceKey("setHidden", {}, "view-a") == "setHidden:view-a");
+	CHECK(GameMessageCoalesceKey("postWeb").empty());
 
 	Queue queue(3);
 	CHECK(queue.Push(1, "resize", 1) == Result::Queued);

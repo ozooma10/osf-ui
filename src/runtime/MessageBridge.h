@@ -26,10 +26,11 @@
 // The registry is explicit and split by kind: `RegisterSend` for pure
 // notifications, `RegisterRequest` for endpoints that settle exactly once.
 // Kind enforcement is structural: a request naming a send endpoint answers
-// `wrong-endpoint-kind`; a send naming a request endpoint is dropped and
-// surfaced (Surface(), below). No endpoint infers success: sends have nothing
-// to settle, while requests must respond, reject, or defer exactly once. There
-// is no generic "call native function" escape hatch.
+// `wrong-endpoint-kind`; a send naming a request endpoint is dropped and its
+// protocol fault is reported (ReportProtocolFault(), below). No endpoint
+// infers success: sends have nothing to settle, while requests must respond,
+// reject, or defer exactly once. There is no generic "call native function"
+// escape hatch.
 // See docs/security-model.md.
 //
 // The handshake is PAGE-INITIATED and is the only boot path: a fresh document
@@ -65,14 +66,14 @@ namespace OSFUI
 		// rather than a convention call sites have to remember.
 		using HelloHook = std::function<void(std::string_view a_viewId)>;
 
-		// Host-detected faults, routed back to the view as a dev-only
+		// OSF UI runtime-detected faults, routed back to the view as a developer-mode
 		// `osfui.debug.error` event. Runtime installs this; without it the
 		// bridge only logs. `a_viewFault` says whether the VIEW caused it: only
 		// those are counted for the release-mode `view.protocol-misuse`
-		// diagnostic. A backend that never answered is reported to the waiting
-		// page too, but it is not the page's fault and must not earn it a
-		// health card.
-		using SurfaceFn = std::function<void(std::string_view a_viewId, std::string_view a_code,
+		// health issue. An endpoint handler that never answered is reported to
+		// the waiting page too, but it is not the page's fault and must not earn
+		// it a health issue.
+		using ProtocolFaultSink = std::function<void(std::string_view a_viewId, std::string_view a_code,
 			std::string_view a_message, const nlohmann::json& a_detail, bool a_viewFault)>;
 
 		explicit MessageBridge(SendFn a_send);
@@ -98,7 +99,7 @@ namespace OSFUI
 		// ---- inbound ------------------------------------------------------
 		// Entry point for web -> native messages (raw JSON text) from a given
 		// source view. Malformed or non-whitelisted input is rejected, logged
-		// and surfaced, never fatal.
+		// and reported through the protocol-fault sink, never fatal.
 		void HandleWebMessage(std::string_view a_viewId, std::string_view a_json);
 
 		// ---- settlement (request handlers) --------------------------------
@@ -169,9 +170,9 @@ namespace OSFUI
 		[[nodiscard]] bool IsLegacyApiView(std::string_view a_viewId) const;
 
 		void SetHelloHook(HelloHook a_hook) { _onHello = std::move(a_hook); }
-		void SetSurfaceFn(SurfaceFn a_fn) { _surface = std::move(a_fn); }
+		void SetProtocolFaultSink(ProtocolFaultSink a_sink) { _protocolFaultSink = std::move(a_sink); }
 
-		// Main thread, once per tick: expire deferred requests past the host
+		// Main thread, once per tick: expire deferred requests past the OSF UI runtime
 		// deadline with `no-response`.
 		void Tick(std::chrono::steady_clock::time_point a_now = std::chrono::steady_clock::now());
 
@@ -186,12 +187,12 @@ namespace OSFUI
 		// Endpoint name of the in-flight message.
 		[[nodiscard]] std::string_view CurrentName() const { return _currentName; }
 
-		// Report a host-detected fault to a view (errors the page would
+		// Report an OSF UI runtime-detected fault to a view (errors the page would
 		// otherwise never hear about). Public so the API layer can route
 		// plugin-side faults through the same sink. Pass a_viewFault = false
-		// when the view did nothing wrong (a backend missed its deadline), so
+		// when the view did nothing wrong (an endpoint handler missed its deadline), so
 		// the report reaches the page without counting against it.
-		void Surface(std::string_view a_viewId, std::string_view a_code, std::string_view a_message,
+		void ReportProtocolFault(std::string_view a_viewId, std::string_view a_code, std::string_view a_message,
 			const nlohmann::json& a_detail = nlohmann::json::object(), bool a_viewFault = true);
 
 	private:
@@ -233,10 +234,10 @@ namespace OSFUI
 		std::unordered_map<std::string, RequestHandler>   _requests;
 		std::unordered_map<std::string, SendHandler>      _legacyCommands;
 		std::unordered_map<std::string, Gate>             _gates;    // view id -> event gate
-		std::unordered_map<std::string, Pending>          _pending;  // host token -> deferred request
+		std::unordered_map<std::string, Pending>          _pending;  // runtime token -> deferred request
 		std::uint64_t                                     _nextDeferToken{ 1 };
 		HelloHook                                         _onHello;
-		SurfaceFn                                         _surface;
+		ProtocolFaultSink                                  _protocolFaultSink;
 
 		std::string _currentSource;     // source view of the in-flight message (reply target)
 		std::string _currentRequestId;  // correlation id of the in-flight request ("" = none)

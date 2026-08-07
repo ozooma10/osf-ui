@@ -4,6 +4,9 @@ Lets your DLL talk to OSF UI: handle messages a view sends, publish state and ev
 
 The stable, dependency-free ABI is [`sdk/OSFUI_API.h`](../sdk/OSFUI_API.h) (C ABI **2.0**). If your plugin already uses `nlohmann::json`, include the optional [`sdk/OSFUI_JSON.h`](../sdk/OSFUI_JSON.h) authoring facade too — it stays on your side of the DLL boundary and never changes the ABI.
 
+Component, version, endpoint, lifecycle, and health names follow the
+[terminology glossary](terminology.md).
+
 Writing a view (HTML/JS) instead? [authoring-views.md](authoring-views.md) is the `window.osfui` side. Your `SetViewState` arrives at the view's `osfui.state.on`, your `SendToWeb` at its `osfui.on`, and its `osfui.send` / `osfui.request` arrive at your handlers.
 
 **Contents**
@@ -33,7 +36,7 @@ Most mods need no native code:
 - A view reads/writes its own settings and reacts to hotkeys from JS.
 - Papyrus can publish view state, send view events and answer view requests with no DLL ([authoring-dynamic-data.md](authoring-dynamic-data.md)).
 
-Use this API when your logic is in a native DLL and needs to handle view messages (and answer the ones needing an answer), publish game state or push a one-shot happening, read settings or react to changes from C++, react to a hotkey, register a schema or view folder at runtime, open or close a view, or report a durable failure into System Health.
+Use this API when your logic is in a native DLL and needs to handle view messages (and answer the ones needing an answer), publish game state or push a one-shot happening, read settings or react to changes from C++, react to a hotkey, register a schema or view folder dynamically, open or close a view, or report a durable failure into System Health.
 
 If OSF UI is missing, every call is a safe no-op — you never special-case "not installed". Plugins should be rebuilt against ABI 2.0 before the temporary 1.x adapter is removed in OSF UI 2.1.0.
 
@@ -43,7 +46,7 @@ If OSF UI is missing, every call is a safe no-op — you never special-case "not
 
 `kBridgeAPIVersion` is `(2 << 16) | 0`. ABI 2.0 replaces the ambiguous command callback with strict `RegisterSend` / `SendFn`, retains `RegisterRequest`, and includes retained state in the baseline. A send receives exactly the caller's payload and never produces an acknowledgement; a request naming it is rejected `wrong-endpoint-kind`.
 
-During OSF UI 2.0.x, ABI 1.x callers receive an isolated adapter exposing the frozen final 1.8 vtable. Older 1.x binaries use the prefix they were compiled against; feature-minor gates, settings, hotkeys, view registration, diagnostics, retained state, registered requests, and `RegisterCommand` request-ID/auto-ack behavior remain available. System Health names the DLL and warns that the adapter is removed in 2.1.0. ABI 2.x callers still receive the strict bridge below, and unrelated majors receive `nullptr` plus a distinct unsupported-ABI error. Rebuild against the 2.0 header now.
+During OSF UI 2.0.x, ABI 1.x callers receive an isolated adapter exposing the frozen final 1.8 vtable. Older 1.x binaries use the prefix they were compiled against; feature-minor gates, settings, hotkeys, view registration, health reporting, retained state, registered requests, and `RegisterCommand` request-ID/auto-ack behavior remain available. System Health names the DLL and warns that the adapter is removed in 2.1.0. ABI 2.x callers still receive the strict bridge below, and unrelated majors receive `nullptr` plus a distinct unsupported-ABI error. Rebuild against the 2.0 header now.
 
 Future ABI 2.x additions append methods at the vtable tail and bump the minor. The `Client` wrapper feature-gates those additions.
 
@@ -51,7 +54,7 @@ Future ABI 2.x additions append methods at the vtable tail and bump the minor. T
 
 ## 2. Get the bridge
 
-`OSFUI.dll` exports one C function, `OSFUI_RequestBridge`. Don't call it directly — use `OSFUI::API::Client`, which fetches the bridge, caches the host version once, and turns any call the host is too old for into a safe no-op.
+`OSFUI.dll` exports one C function, `OSFUI_RequestBridge`. Don't call it directly — use `OSFUI::API::Client`, which fetches the bridge, caches the running OSF UI release version once, and turns any call that release is too old for into a safe no-op.
 
 ```cpp
 #include "OSFUI_API.h"
@@ -115,7 +118,8 @@ Register once at `kPostLoad`.
 
 ## 5. Requests — web → native, settled once
 
-Use a request when the view needs an answer. It settles exactly once: a payload, a typed error, or the host deadline.
+Use a request when the view needs an answer. It settles exactly once: a payload,
+a typed error, or the OSF UI runtime's deadline.
 
 The preferred authoring form uses the optional JSON facade:
 
@@ -159,13 +163,21 @@ void OnEquip(const char* name, const char* json, const char* source, void*) noex
 }
 ```
 
-**Settling.** The host owns correlation: `RequestFn` receives no `requestId`. Copy the `Request` value if you answer later; `Respond` and `Reject` are safe from any thread and settle once — a second answer is ignored and logged. The `command`, `payloadJson` and `sourceViewId` pointers are valid only during the callback.
+**Settling.** The OSF UI runtime owns correlation: `RequestFn` receives no
+`requestId`. Copy the `Request` value if you answer later; `Respond` and
+`Reject` are safe from any thread and settle once — a second answer is ignored
+and logged. The compatibility field `command` contains the request endpoint
+name; its pointer, `payloadJson`, and `sourceViewId` are valid only during the
+callback.
 
-The token is a copyable C-ABI value holding an opaque 64-bit id and host function pointers, not a host-owned object pointer. A saved copy can't dereference freed host memory: after response, timeout or view closure its id is stale and a late answer is a logged no-op.
+The token is a copyable C-ABI value holding an opaque 64-bit id and OSF UI
+runtime function pointers, not an OSF UI runtime-owned object pointer. A saved copy
+can't dereference freed OSF UI runtime memory: after response, timeout or view closure
+its id is stale and a late answer is a logged no-op.
 
-**Failure.** `req.Reject("stable-code", "human detail")` — the view's `osfui.request()` rejects with an error carrying that `code`, and the shared helper prints it to that page's console with an `[osfui]` prefix, so your rejection reason lands in F12 DevTools with the payload attached, not only in `OSF UI.log`. Invalid response JSON rejects as `invalid-response`.
+**Failure.** `req.Reject("stable-code", "human detail")` — the view's `osfui.request()` rejects with an error carrying that `code`, and the shared bridge helper prints it to that page's console with an `[osfui]` prefix, so your rejection reason lands in F12 DevTools with the payload attached, not only in `OSF UI.log`. Invalid response JSON rejects as `invalid-response`.
 
-**Limits.** Requests use the same qualified grammar and first-wins namespace as sends. Each view may hold at most 64 requests in flight; overflow rejects with `request-capacity`. The fixed host deadline is 30 seconds, no opt-out, after which the view is answered `no-response`. For genuinely long work, take a *send*, publish progress and results with `SetViewState`, and never hold a request open across it.
+**Limits.** Requests use the same qualified grammar and first-wins namespace as sends. Each view may hold at most 64 requests in flight; overflow rejects with `request-capacity`. The fixed OSF UI runtime deadline is 30 seconds, no opt-out, after which the view is answered `no-response`. For genuinely long work, take a *send*, publish progress and results with `SetViewState`, and never hold a request open across it.
 
 **Settings action buttons are requests.** A schema `action` row ([authoring-settings.md §4](authoring-settings.md#4-notes-images-and-action-buttons)) fires `osfui.request("<yourmod>.<name>", { mod, key })` with a 5 s client timeout, so register it with `RegisterRequest`.
 
@@ -181,7 +193,7 @@ The most consequential choice in this API, decided by one question: **is this va
 | Arrives at | `osfui.state.on("<mod>/<key>")` | `osfui.on("<type>")` |
 | On F5 / reload / crash recovery | replayed automatically | never replayed |
 | Delivery | latest-wins, complete value per key | at most once |
-| Audience | every live view of your mod, plus every one that loads later | one view id |
+| Audience | every current and future document instance of your mod | one qualified view id |
 
 Wrong in one direction is the blank-after-F5 bug (state pushed as an event: correct until the player reloads, empty forever after). Wrong in the other re-fires a happening on every reload. Neither primitive can serve both, which is why there are two.
 
@@ -191,11 +203,11 @@ Wrong in one direction is the blank-after-F5 bug (state pushed as an event: corr
 g_ui.SetViewState("acme.mymod", "ship", R"({"hull":88,"grav":3})");
 ```
 
-Every live view of `acme.mymod` receives `{ kind:"state", mod, key, value }` at `osfui.state.on("acme.mymod/ship")` — **and so does every view of that mod that loads later**, because the runtime keeps the current value and replays it when each document greets the bridge. In 1.x, native state didn't exist: a plugin had to listen for some view-defined "I'm back" message and re-push, and whoever forgot shipped a HUD that was correct until the first F5.
+Every current document instance of `acme.mymod` receives `{ kind:"state", mod, key, value }` at `osfui.state.on("acme.mymod/ship")` — **and so does every future document instance of that mod**, because the OSF UI runtime keeps the current value and replays it when each document greets the bridge. In 1.x, native state didn't exist: a plugin had to listen for some view-defined "I'm back" message and re-push, and whoever forgot shipped a HUD that was correct until the first F5.
 
 - **Latest-wins per key, and the value is COMPLETE — never a delta.** A replay and a live update are the same message, so they carry the same thing.
 - Any JSON *value* is legal, not just an object.
-- Keys match case-insensitively and cap at 128 characters. At most **64 retained keys per mod**; a 65th distinct key is still delivered to live views but not retained (and logged), so it would survive until the next reload and then vanish. The cap exists to stop a mod generating keys in a loop.
+- Keys match case-insensitively and cap at 128 characters. At most **64 retained keys per mod**; a 65th distinct key is still delivered to current document instances but not retained (and logged), so it would survive until the next reload and then vanish. The cap exists to stop a mod generating keys in a loop.
 - **Not session-scoped:** your state survives a save load. (Papyrus `SetView*` state is dropped on load, because its values can hold form identities. A plugin's HUD config has no such lifetime, and wiping it every load would be the bug.)
 - Returns false **synchronously** on a null or malformed mod id, an empty or over-long key, unparseable JSON, or a saturated queue. The store write lands on the next main tick.
 - Publishing with no view of yours open is not a lost write: the value is retained and replayed to your mod's first document.
@@ -221,25 +233,38 @@ g_ui.SendToWeb("acme.mymod/dashboard", "acme.mymod.jumpComplete",
 
 Delivers `{ kind:"event", name: <type>, payload: <payloadJson> }` to one view, arriving at its `osfui.on("acme.mymod.jumpComplete")`. `payloadJson` must be valid JSON; the call returns false only on null args or an unparseable payload.
 
-An event is one-shot, delivered at most once, never replayed. A view that wasn't open when it fired never learns about it. Good events belong to a moment: a jump completed, a scan finished, the player was hit.
+An event is one-shot, delivered at most once, never replayed to a later document instance. Good events belong to a moment: a jump completed, a scan finished, the player was hit.
 
-**Don't use an event to seed a view you're about to open.** Messages for a target that isn't live are held in bounded per-view queues, but a document that greets the bridge is treated as a *new* document and its queue is discarded — replaying a happening into a fresh page would re-fire its effect. So an event emitted before the target document greets is not delivered. State is the guaranteed path for anything the page should have at first paint, and the right shape for that data anyway.
+`SendToWeb` has a bounded holdback for a known view that is not yet
+instantiated. When that view is instantiated, its fresh event gate queues the
+held messages until the document's first greeting, then flushes them after
+`ready` and state. This preserves the documented
+`RegisterView` → `SendToWeb` → `RequestMenu` ordering. Creating a replacement
+view clears any gate left by the prior document, and a delivered event is not
+retained for a later reload.
 
-Queues are bounded (drop-oldest, logged), so a view that never opens can't leak memory. A message addressed to a view discovery never found is dropped once the catalog is known.
+**Don't use an event to seed a view you're about to open.** The holdback is
+bounded and exists for ordering, not persistence. State is the guaranteed path
+for anything the page should have at first paint and after every later document
+recreation, and it is the right semantic shape for that data anyway.
+
+Queues are bounded (drop-oldest, logged), so a view that never opens can't leak memory. A message addressed to a view that discovery never found is dropped once the catalog is known.
 
 ### 6c. Opening a view
 
-`RequestMenu(view, open)` opens or closes a surface by qualified `"<modId>/<viewName>"` id.
+`RequestMenu(view, open)` opens or closes a view by qualified
+`"<modId>/<viewName>"` id. The API name is retained for compatibility and also
+accepts HUD views.
 
 ```cpp
-g_ui.RegisterView("acme.mymod/dashboard");                       // validate; page stays lazy
+g_ui.RegisterView("acme.mymod/dashboard");                       // validate; view stays uninstantiated
 g_ui.SetViewState("acme.mymod", "ship", R"({"hull":88})");       // seed it
 g_ui.RequestMenu("acme.mymod/dashboard", true);                  // open
 ```
 
 Issue all three back-to-back from any thread — they apply in order on the same tick, and the state reaches the page through its boot replay however much later it finishes loading.
 
-Opening a discovered folder loads it on demand. Returns true if an open target exists and the request was queued; false if no such view was found. Closing works only on an already-loaded view and never loads one. True doesn't promise the page renders.
+Opening a discovered view instantiates it on demand. Returns true if an open target exists and the request was queued; false if no such view was found. Closing works only on an already-instantiated view and never instantiates one. True doesn't promise the document renders.
 
 ---
 
@@ -249,10 +274,11 @@ All callable from any thread, synchronous:
 
 - `GetInterfaceVersion()` — packed `(major << 16) | minor`.
 - `GetPluginVersion(major, minor, patch)` — OSF UI's release.
-- `GetBridgeProtocolVersion()` — the web protocol string. Informational.
-- `IsBridgeReady()` — true when a bridge-enabled view is live.
+- `GetBridgeProtocolVersion()` — the web bridge protocol version string. Informational.
+- `IsBridgeReady()` — compatibility name for bridge availability; true when at least one bridge-enabled view is instantiated.
 
-To run code the moment the bridge goes live (and again after re-creation):
+To run code when bridge availability first becomes true (and again after
+browser-host recovery makes it available):
 
 ```cpp
 g_ui.SetReadyCallback([](void*) noexcept {
@@ -260,7 +286,7 @@ g_ui.SetReadyCallback([](void*) noexcept {
 }, nullptr);
 ```
 
-You rarely need this. `SetViewState` before the bridge is ready is retained, not dropped, and `SendToWeb` is queued for a known target.
+You rarely need this. `SetViewState` before the bridge is available is retained, not dropped, and `SendToWeb` is queued for a known target.
 
 ---
 
@@ -308,7 +334,7 @@ std::uint32_t token = g_ui.SubscribeSettings("acme.mymod", &OnSetting, nullptr);
 g_ui.UnsubscribeSettings(token);   // 0 means the subscribe was rejected
 ```
 
-Register a schema at runtime instead of shipping a file (same JSON):
+Register a schema dynamically instead of shipping a file (same JSON):
 
 ```cpp
 if (!g_ui.RegisterSettingsSchema(schemaJson)) {
@@ -317,7 +343,7 @@ if (!g_ui.RegisterSettingsSchema(schemaJson)) {
 g_ui.UnregisterSettingsSchema("acme.mymod");   // keeps the user's saved values
 ```
 
-User values overlay from the same file as the drop-in tier, so you can migrate from a file to a runtime registration without losing settings.
+User values overlay from the same file as the drop-in tier, so you can migrate from a file to native-plugin registration without losing settings.
 
 ### 8b. Hotkeys
 
@@ -337,18 +363,25 @@ Doesn't fire while the overlay captures text or during a rebind, and key repeats
 
 ### 8c. Views
 
-`RegisterView` validates a discovered `views/<modId>/<viewName>/` folder your mod ships. The view appears in the Mods surface and responds to `RequestMenu` and the web `menu.open`; its WebView2 page is created only when first opened unless its manifest has `openOnStart:true`.
+`RegisterView` validates a discovered `views/<modId>/<viewName>/` folder your mod ships. The path supplies the qualified view id; `manifest.json` declares no identity field. A catalog-visible view appears in Mod Settings and responds to `RequestMenu` and the web `menu.open`; the view is instantiated only when first opened unless its manifest has `openOnStart:true`, which explicitly opens it on registration.
 
-- Idempotent — an already-live view isn't reloaded.
+- Idempotent — an already-instantiated view isn't reloaded.
 - A missing folder just warns (ship the folder with your mod).
-- `openOnStart` from the manifest creates and opens the view immediately, menus included. An explicit `RegisterView` is plugin opt-in, unlike discovery, where menus never auto-start and a HUD's `openOnStart` is only the default under the player's per-HUD auto-start choice.
+- `openOnStart` creates and opens the explicitly registered view immediately,
+  menus included. This is **open on registration** and is plugin opt-in. It is
+  distinct from normal discovery, where menus never auto-start and a HUD's
+  `openOnStart` is only the author's auto-start default under the player's
+  per-HUD choice.
 - Returns false only on a null/invalid id.
 
 It's an optional declaration for a **plugin-shipped** folder. A plain drop-in view is found at boot and loads on first open with no plugin at all.
 
-### 8d. Session health
+### 8d. Reporting health issues
 
-Report a condition into OSF UI's **System Health** pane — the one place a player looks when something is wrong, whichever mod noticed it. Don't build a second health page in your own view.
+Report a durable, actionable **health issue** into OSF UI's health registry.
+The built-in **System Health** destination is the one place a player looks when
+something is wrong, whichever mod noticed it. Don't build a second health
+destination in your own view.
 
 ```cpp
 constexpr const char* kMod = "acme.mymod";
@@ -366,12 +399,17 @@ g_ui.ClearIssue(kMod, "pack-parse:highlights");
 
 Identity, not events:
 
-- `id` is **your** dedupe key. Re-reporting a live id bumps its occurrence count in place — that's what distinguishes "once at startup" from "every few seconds" — instead of stacking cards.
-- `code` is **your** stable machine code for the *kind* of condition. Never prose: OSF UI owns the wording so it stays localizable and no mod writes the words on its own card. An unknown code renders as a card naming your mod with your context as technical detail — degraded, never broken.
+- `id` is **your** dedupe key. Re-reporting a current issue id bumps its occurrence count in place — that's what distinguishes "once at startup" from "every few seconds" — instead of creating duplicate issues.
+- `code` is **your** stable machine code for the *kind* of condition. Never prose: OSF UI owns the wording so it stays localizable and no mod writes its own player-facing issue copy. An unknown code renders as a health issue naming your mod with your context as technical detail — degraded, never broken.
 - `ClearIssue` moves it to **Resolved this session**, which is what a player wants after a retry. Cheap to call unconditionally.
-- Recomputing a whole set? Report what's wrong now, then sweep: `ClearIssuesExcept(kMod, R"(["still-bad-1","still-bad-2"])")`. FIFO with `ReportIssue`, so the pair lands correctly in one tick. **The sweep is scoped to your mod, not to one producer inside it** — if your plugin reports from several places, the keep list must name every id you still want live, or the rest are withdrawn as collateral.
+- Recomputing a whole set? Report what's wrong now, then sweep: `ClearIssuesExcept(kMod, R"(["still-bad-1","still-bad-2"])")`. FIFO with `ReportIssue`, so the pair lands correctly in one tick. **The sweep is scoped to your mod, not to one producer inside it** — if your plugin reports from several places, the keep list must name every id you want to remain current, or the rest are withdrawn as collateral.
 
-Everything is namespaced to the calling mod: the issue's `source` is **your mod id, assigned by the host** — never a parameter — and your ids and codes are prefixed with it. Two mods can use the same local id without colliding, and no mod can resolve or overwrite a platform issue.
+Everything is namespaced to the calling mod: the issue's `source` is **your mod
+id, assigned by the OSF UI runtime** — never a parameter — and your ids and
+codes are prefixed with it. Two mods can use the same local id without
+colliding, and no mod can resolve or overwrite a platform issue. Platform
+health issues instead use the producing platform subsystem as their source;
+the public field is producer identity, not a type discriminator.
 
 `context` is optional bounded detail: a **flat JSON object** of string/number/bool values, capped at 8 entries and 240 chars per value. It's sanitized on the way in — anything path-, URL- or command-shaped is cut to its trailing component, because an absolute path identifies the player's machine and account. Pass bare filenames and ids; don't rely on nested values surviving.
 
@@ -392,7 +430,10 @@ Everything is namespaced to the calling mod: the issue's `source` is **your mod 
 - Callbacks can fire for the whole process — registrations survive bridge re-creation. Don't point one at something you might free; use static/leaked state, or unregister first.
 - Settings replay can deliver the same value twice. Make `SettingChangedFn` idempotent.
 - Strings returned by the API are static, valid for the process.
-- Retained view state outlives every document and every save load; it's dropped only at runtime shutdown. Don't put a session-scoped identity in it.
+- Retained mod state published through the compatibility-named `SetViewState`
+  outlives every document instance and every save load; it is scoped to the
+  publishing mod and dropped only at OSF UI runtime shutdown. Don't put a
+  session-scoped identity in it.
 - OSF UI owns the bridge; never delete it.
 
 ---
@@ -406,7 +447,7 @@ All on `IOSFUIBridge`, mirrored on `Client`. Every listed method is part of the 
 | `GetInterfaceVersion()` | 2.0 | any | packed `(major<<16)｜minor` |
 | `GetPluginVersion(maj,min,pat)` | 2.0 | any | OSF UI release |
 | `GetBridgeProtocolVersion()` | 2.0 | any | don't parse |
-| `IsBridgeReady()` | 2.0 | any | a view is live |
+| `IsBridgeReady()` | 2.0 | any | a bridge-enabled view is instantiated |
 | `RegisterSend(name,fn,user)` | 2.0 | any | strict one-way send; shape `<author>.<modname>.<name>` |
 | `UnregisterSend(name)` | 2.0 | any | |
 | `RegisterRequest(name,fn,user)` | 2.0 | any | first-wins across sends and requests; callback on main |
@@ -414,7 +455,7 @@ All on `IOSFUIBridge`, mirrored on `Client`. Every listed method is part of the 
 | `SendToWeb(view,type,json)` | 2.0 | any | one-shot EVENT to one view; queued, never replayed |
 | `SetViewState(mod,key,json)` | 2.0 | any | retained STATE; replayed to every fresh document |
 | `SetReadyCallback(fn,user)` | 2.0 | any | fires on main thread |
-| `RequestMenu(view,open)` | 2.0 | any | open loads on demand; close needs a loaded view |
+| `RequestMenu(view,open)` | 2.0 | any | open instantiates on demand; close needs an instantiated view |
 | `SubscribeSettings(mod,fn,user)` | 2.0 | any | replayed on subscribe; returns token/0 |
 | `UnsubscribeSettings(token)` | 2.0 | any | |
 | `GetSettingBool/Int/Float(mod,key,out)` | 2.0 | any | false/0 on miss |
@@ -432,7 +473,7 @@ All on `IOSFUIBridge`, mirrored on `Client`. Every listed method is part of the 
 
 ## 11. Example plugin
 
-Surfaces its own view, publishes state it can never be asked to re-send, answers one request, takes one send, reacts to a setting, and never hard-fails when OSF UI is absent.
+Provides its own view, publishes state it can never be asked to re-send, answers one request, takes one send, reacts to a setting, and never hard-fails when OSF UI is absent.
 
 ```cpp
 #include "OSFUI_API.h"
@@ -442,7 +483,7 @@ using namespace OSFUI::API;
 static Client     g_ui;
 static JsonClient g_json{ g_ui };
 
-// STATE: true until it changes, so the runtime replays it to every document.
+// STATE: true until it changes, so the OSF UI runtime replays it to every document.
 static void PublishShip()
 {
     if (!g_json.SetViewState("acme.mymod", "ship", {

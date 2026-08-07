@@ -1,5 +1,5 @@
 {
-  "$comment": "Developer/boot file. User-facing knobs live in Mod Settings (F10 -> OSF UI) and persist under Documents\\My Games\\Starfield\\OSFUI. Views are discovered from views/<modId>/<viewName>/ and load on first open; HUD auto-start is a per-HUD player setting in Mod Settings.",
+  "$comment": "Developer/boot file. User-facing knobs live in Mod Settings (F10 -> OSF UI) and persist under Documents\\My Games\\Starfield\\OSFUI. Views are discovered from views/<modId>/<viewName>/ and are instantiated on first open; HUD auto-start is a per-HUD player setting in Mod Settings.",
   "configVersion": 2,
   "enabled": true,
   "view": "osfui/settings",

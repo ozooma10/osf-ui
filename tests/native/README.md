@@ -1,10 +1,10 @@
-# Native host-side unit tests
+# Native desktop unit tests
 
 Compiles the **real** runtime and API sources under test — `SettingsStore`,
 `Json`, `SettingsModule`, `MessageBridge`, `SettingsMirror`,
 `SettingsSubscriptions`, `HotkeyService`, `KeyNames`, `HotkeySubscriptions`,
-`BridgeApi`, `ControlMapPolicy`, `LocalizationService`, `ViewManifest`, `DiagnosticsModule`,
-and `DiagnosticsReconciler` — on the developer's desktop
+`BridgeApi`, `ControlMapPolicy`, `LocalizationService`, `ViewManifest`, `HealthRegistry`,
+and `HealthReconciler` — on the developer's desktop
 toolchain (macOS/Linux clang or any C++23 compiler) and runs them without
 Windows, xmake, SFSE, or the game.
 
@@ -14,7 +14,7 @@ keybinds logic, and the generated-output gates); the two share no code and run
 as separate CI jobs.
 
 ```sh
-./run.sh          # fetches nlohmann/json (pinned) on first run, builds, runs
+./run.sh          # fetches the locked nlohmann/json version on first run, builds, runs
 ```
 
 Exit code is the failure count; `0` = all checks passed.
@@ -48,9 +48,9 @@ Windows pipe suite is built separately through xmake. Currently:
 |---|---|
 | `wv2_pipe_tests.cpp` (Windows/xmake) | Real named-pipe lifecycle: create-before-connect, kernel peer identity, total read deadlines, close-during-accept, cancellation of blocked read/write I/O before handle release, and clean session reuse |
 | `wv2_bounded_queue_tests.cpp` | Shared transport queue policy: hard capacity, order-safe tail coalescing, bootstrap prepend ordering, close wakeup, and reusable reset |
-| `settings_store_tests.cpp` | `SettingsStore` (mcm-design.md §8.3): load/overlay/clamp, deterministic duplicate-id resolution, multicast listeners, incremental `RegisterSchema` + Source precedence, per-mod replay, `RemoveMod`, `GetValue`/`GetSettingType`/`GetSource`, `ValidateSchemaShape` (the ABI's synchronous gate), generation counter, sparse write-behind persistence (debounce window, prune-to-default on load, teardown flush) |
-| `settings_module_tests.cpp` | `SettingsModule` + `MessageBridge` (§8.5): subscribe-on-read via real `ui.command` envelopes, `settings.changed` push to all subscribers, caller-only acks, `settings.persisted` on the write-behind flush, `settings.data` re-broadcast on registry shape change, `OnBridgeDown` teardown |
-| `runtime_diagnostics_tests.cpp` | `RuntimeDiagnostics` reconciliation policy: settings issue severity/lifecycle, order-stable compatibility dedupe and resolution, and view retry/failure/recovery transitions |
+| `settings_store_tests.cpp` | `SettingsStore`: load/overlay/clamp, deterministic duplicate-id resolution, multicast listeners, incremental `RegisterSchema` + source precedence, per-mod replay, `RemoveMod`, `GetValue`/`GetSettingType`/`GetSource`, `ValidateSchemaShape` (the ABI's synchronous gate), generation counter, sparse write-behind persistence (debounce window, prune-to-default on load, teardown flush) |
+| `settings_module_tests.cpp` | `SettingsModule` + `MessageBridge` (§8.5): page-initiated greeting with current `osfui/settings` state replay, strict `settings.set`/`settings.reset` request endpoints, `settings.changed` events to greeted views, caller-only replies/errors, `settings.persisted` after write-behind flush, registry-shape re-broadcast, and `OnBridgeDown` teardown |
+| `runtime_health_tests.cpp` | `RuntimeHealthCoordinator` reconciliation policy: settings issue severity/lifecycle, order-stable compatibility dedupe and resolution, and view retry/failure/recovery transitions |
 | `settings_mirror_tests.cpp` | `SettingsMirror` (§8.2): any-thread typed getters over the value mirror, value-shape mismatches, `GetString` buffer semantics, `Rebuild` from the store document, integration with the real store's change/registry listeners |
 | `settings_subscriptions_tests.cpp` | `SettingsSubscriptions` (§8.2): replay-on-subscribe (one-shot, mirror snapshot), queued change dispatch + per-mod routing, unsubscribe (incl. from inside a callback), re-entrant subscribe, subscribe-before-registration via the real store's per-mod replay |
 | `hotkey_service_tests.cpp` | `HotkeyService` (§9), wired exactly like `Runtime::BuildModules` over the real store + `ResolveKeyName`: registry rebuild on rebind and on registry shape change, suppression while the overlay captures input or a rebind is armed, duplicate-binding fan-out, and the informational conflict data embedded in `SettingsStore::Data()` |
@@ -71,5 +71,5 @@ the portable suites. Adding one means adding a row to `SUITES`; that list drives
 compilation, linking, and execution so a suite cannot be built but silently skipped.
 
 These suites verify runtime and API logic, not the plugin: renderer/compositor
-backends, ABI wiring into SFSE, threading (the main-thread pump), and in-game
+integration, ABI wiring into SFSE, threading (the main-thread pump), and in-game
 behavior still need the Windows build.

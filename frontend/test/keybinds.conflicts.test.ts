@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { classifyPair, holdersOf, pairIsShared, keyState, holderState } from '@lib/keybinds/conflicts';
-import type { GameplayMode, VanillaContextClassification } from '@sdk';
+import type { GameplayMode, GameInputContextClassification } from '@sdk';
 import type { BindingRow } from '@lib/keybinds/model';
 
 function modRow(name: string, opts?: { owner?: string; blocks?: boolean; modes?: GameplayMode[] }): BindingRow {
@@ -12,14 +12,14 @@ function modRow(name: string, opts?: { owner?: string; blocks?: boolean; modes?:
     owner: opts?.owner ?? 'm',
     name,
     keyLabel: name,
-    contextId: opts?.blocks ? 'menu' : 'gameplay',
-    contextLabel: opts?.blocks ? 'Menu' : 'Gameplay',
+    hotkeyContextId: opts?.blocks ? 'menu' : 'gameplay',
+    hotkeyContextLabel: opts?.blocks ? 'Menu' : 'Gameplay',
     blocksGameplay: opts?.blocks ?? false,
     gameplayModes: opts?.modes ?? null,
   };
 }
 
-function gameRow(name: string, opts?: { blocks?: boolean; classification?: VanillaContextClassification; modes?: GameplayMode[] }): BindingRow {
+function gameRow(name: string, opts?: { classification?: GameInputContextClassification; modes?: GameplayMode[] }): BindingRow {
   return {
     kind: 'game',
     key: 'Event',
@@ -27,9 +27,8 @@ function gameRow(name: string, opts?: { blocks?: boolean; classification?: Vanil
     owner: 'Starfield',
     name,
     keyLabel: name,
-    contextId: 'gameplay',
-    contextLabel: 'Gameplay',
-    blocksGameplay: opts?.blocks ?? false,
+    engineInputContextName: 'MainGameplay',
+    engineInputContextLabel: 'MainGameplay',
     gameplayModes: opts?.modes ?? ['onFoot', 'ship', 'vehicle', 'zeroG'],
     ...(opts?.classification ? { classification: opts.classification } : {}),
   };
@@ -53,7 +52,7 @@ describe('semantic conflict matrix', () => {
     expect(classifyPair(modRow('F5', { modes: ['onFoot'] }), modRow('F5', { owner: 'b', modes: ['ship'] }))).toBe('shared');
   });
 
-  it('distinguishes special vanilla overlap from a hard core collision', () => {
+  it('distinguishes special game-context overlap from a hard core collision', () => {
     const mod = modRow('F5', { modes: ['vehicle'] });
     expect(classifyPair(mod, gameRow('F5', { classification: 'core', modes: ['vehicle'] }))).toBe('conflict');
     expect(classifyPair(mod, gameRow('F5', { classification: 'special', modes: ['vehicle'] }))).toBe('possible');
@@ -88,19 +87,8 @@ describe('pairIsShared', () => {
     expect(pairIsShared(a, b)).toBe(false);
   });
 
-  it('ASYMMETRY: game-vs-game always conflicts, even with the flag set', () => {
-    // Unreachable via buildModel (vanilla rows hardcode false), but `mod`
-    // resolves to null so the flag is never read.
-    expect(pairIsShared(gameRow('F5', { blocks: true }), gameRow('F5', { blocks: true }))).toBe(
-      false,
-    );
-  });
-
-  it('ASYMMETRY: the flag is read off the MOD side, never the game side', () => {
-    const plainMod = modRow('F5');
-    const flaggedGame = gameRow('F5', { blocks: true });
-    expect(pairIsShared(plainMod, flaggedGame)).toBe(false);
-    expect(pairIsShared(flaggedGame, plainMod)).toBe(false);
+  it('ASYMMETRY: game-vs-game is never an intentional share', () => {
+    expect(pairIsShared(gameRow('F5'), gameRow('F5'))).toBe(false);
   });
 });
 
@@ -114,7 +102,7 @@ describe('keyState', () => {
     });
   });
 
-  it('reports shared for a blocking mod over a vanilla binding', () => {
+  it('reports shared for a blocking mod over a game binding', () => {
     const rows = [modRow('F5', { blocks: true }), gameRow('F5')];
     expect(keyState(rows, 'F5')).toEqual({ conflict: false, shared: true });
   });

@@ -11,23 +11,23 @@ import {
   slug,
   validModId,
 } from './prompts.mjs';
-import { HOST_VERSION, MAX_MOD_ID_LENGTH } from '@osfui/cli/constants';
+import { MAX_MOD_ID_LENGTH, OSFUI_RELEASE_VERSION } from '@osfui/cli/constants';
 import { resolveCliSpec } from './cli-spec.mjs';
 import {
-  backendConfig,
-  backendFiles,
-  backendGuide,
+  modBackendConfig,
+  modBackendFiles,
+  modBackendGuide,
   docsGuide,
   pascalIdentifier,
   settingsOnlyFiles,
   settingsOnlyReadme,
   settingsSchema,
-} from './backend-templates.mjs';
+} from './mod-backend-templates.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 // Closed sets: a typo'd flag ("--surfce hud") must fail here, not scaffold
-// the default surface and exit 0.
+// the default starter type and exit 0. `--surface` remains the stable flag name.
 const VALUE_FLAGS = {
   '--mod-id': 'modId',
   '--view': 'view',
@@ -168,7 +168,7 @@ app.innerHTML =
       '<header><span id="label">SYSTEM INTEGRITY</span><b id="status">WAITING</b></header>' +
       '<div class="reading"><strong id="value">—</strong><span id="maximum">/ —</span></div>' +
       '<div class="meter" aria-hidden="true"><i id="meter-fill"></i></div>' +
-      '<small id="notice" data-i18n="views.${options.view}.eventHint">Backend events appear here</small>' +
+      '<small id="notice" data-i18n="views.${options.view}.eventHint">Mod-backend events appear here</small>' +
     '</section>' +
   '</main>';
 
@@ -236,7 +236,7 @@ function syncVisibility() {
   // menu.open / menu.close write the runtime's authoritative shown-set. Do NOT
   // use setViewHidden here: the menu policy rewrites every layer's hidden
   // flag from that set whenever any menu opens or closes, which would undo a
-  // raw setViewHidden the moment the player closes the Mods surface.
+  // raw setViewHidden the moment the player closes Mod Settings.
   const visible = hudSettings.hudEnabled && hotkeyVisible;
   void window.osfui?.request?.(visible ? 'menu.open' : 'menu.close');
 }
@@ -296,11 +296,11 @@ const app: HTMLElement = appNode;
 // focus, and disabled states — plain <button>/<input> get none of them.
 app.innerHTML = '<main class="card osf-card"><p class="osf-eyebrow">${options.surface.toUpperCase()} · NATIVE BRIDGE</p>' +
   '<h1 data-i18n="views.${options.view}.heading">OSF UI starter</h1>' +
-  '<p data-i18n="views.${options.view}.subtitle">Retained state, one-shot events, commands, and correlated requests.</p>' +
+  '<p data-i18n="views.${options.view}.subtitle">Retained state, one-shot events, one-way sends, and correlated requests.</p>' +
   '<p class="runtime" id="runtime">Bridge setup…</p>' +
   '<section class="state"><span class="osf-eyebrow">Native count</span><strong id="count">—</strong>' +
   '<small id="last-action">Waiting for C++ state…</small></section>' +
-  '<div class="actions"><button class="osf-btn osf-btn--osf-accent" id="increment">Send command</button>' +
+  '<div class="actions"><button class="osf-btn osf-btn--osf-accent" id="increment">Send one-way message</button>' +
   '<button class="osf-btn" id="close">Close view</button></div>' +
   '<form id="greeting"><input class="osf-input" id="name" value="Explorer" aria-label="Name">' +
   '<label><input class="osf-flag-box" id="excited" type="checkbox" checked> Enthusiastic</label>' +
@@ -347,7 +347,7 @@ osfui.on<{ message: string }>('${noticeType}', (payload) => {
 // The plugin publishes its state with SetViewState, so this needs no read and
 // no reload handling: the handler runs with the current value now, and again on
 // every change and on every future document. This is the path you want for
-// anything the backend owns.
+// anything the mod backend owns.
 osfui.state.on<DemoState>('${options.modId}/state', showState);
 const initialState = osfui.state.get<DemoState>('${options.modId}/state');
 if (initialState) showState(initialState); // get() is useful for one-off snapshots; on() is the normal render path.
@@ -404,7 +404,7 @@ function applySetting(key: string, value: SettingValue) {
 let keyboardLabels: Record<string, string> = {};
 osfui.state.on<SettingsData>('osfui/settings', (registry) => {
   // Key values are layout-independent physical names. Show the player's
-  // current keycap when the host publishes one; never store the label.
+  // current keycap when the OSF UI runtime publishes one; never store the label.
   keyboardLabels = registry.keyboard?.labels ?? {};
   const own = registry.mods.find((mod) => mod.id === '${options.modId}');
   if (!own) return;
@@ -469,7 +469,7 @@ export default defineMock({
     en: {},
     de: {
       'views.${options.view}.title': 'HUD-Beispiel',
-      'views.${options.view}.eventHint': 'Backend-Ereignisse erscheinen hier',
+      'views.${options.view}.eventHint': 'Mod-Backend-Ereignisse erscheinen hier',
     },
   },
   ${native ? '' : 'state,'}
@@ -562,7 +562,7 @@ const state = {
   enabled: true,
   greeting: 'Hello from the mocked C++ plugin',
   lastAction: 'Browser mock initialized',
-  features: ['typed JSON', 'commands', 'requests', 'native pushes', 'settings', 'hotkeys'],
+  features: ['typed JSON', 'sends', 'requests', 'native pushes', 'settings', 'hotkeys'],
 };
 const schema = ${JSON.stringify(settingsSchema(options))};
 const defaults = ${JSON.stringify(settingsDefaults(options))};
@@ -607,7 +607,7 @@ export function install(ctx: MockContext) {
     });
   };
 
-  ctx.onCommand((kind, name, payload, io) => {
+  const handleEndpoint: Parameters<NonNullable<MockContext['onEndpoint']>>[0] = (kind, name, payload, io) => {
     if (kind === 'request' && name === '${options.modId}.getState') {
       io.resolve({ ...state });
       return true;
@@ -617,7 +617,7 @@ export function install(ctx: MockContext) {
       const amount = Number.isFinite(requested) ? Math.max(-10, Math.min(10, requested)) : 1;
       if (state.enabled) {
         state.count += amount;
-        state.lastAction = 'JavaScript sent a fire-and-forget command';
+        state.lastAction = 'JavaScript called a fire-and-forget send endpoint';
         pushState();
       } else {
         notice('The native counter is disabled in Mod Settings');
@@ -638,7 +638,9 @@ export function install(ctx: MockContext) {
       });
       return true;
     }
-  });
+  };
+  if (ctx.onEndpoint) ctx.onEndpoint(handleEndpoint);
+  else ctx.onCommand(handleEndpoint as Parameters<MockContext['onCommand']>[0]);
 
   ctx.registerTools([
     { id: 'native-enabled', kind: 'toggle', label: 'Native enabled', value: true },
@@ -646,7 +648,7 @@ export function install(ctx: MockContext) {
     { id: 'native-hotkey', kind: 'button', label: 'Fire hotkey callback' },
   ], (id, value) => {
     if (id === 'native-enabled') {
-      // Stands in for the player flipping the row in the Mods surface: the
+      // Stands in for the player flipping the row in Mod Settings: the
       // settings.changed event and the plugin's own state both follow.
       changeSetting('enabled', value === true);
       state.enabled = value === true;
@@ -731,7 +733,7 @@ export function install(ctx: MockContext) {
     if (key === 'enabled') publishEnabled();
   };
 
-  ctx.onCommand((kind, name, payload, io) => {
+  const handleEndpoint: Parameters<NonNullable<MockContext['onEndpoint']>>[0] = (kind, name, payload, io) => {
     // JavaScript calls a named GLOBAL function on the loose PEX.
     if (name === 'papyrus.call' && payload.script === '${pascalIdentifier(options.modId)}OSFUI') {
       const args = Array.isArray(payload.args) ? payload.args : [];
@@ -747,7 +749,7 @@ export function install(ctx: MockContext) {
         publishEnabled();
       } else if (payload.function === 'Bump') {
         if (!settingValues.enabled) {
-          notice('Backend actions are disabled in Mod Settings');
+          notice('Mod-backend actions are disabled in Mod Settings');
           return true;
         }
         // Assigns the view's total, exactly as SetViewInt does.
@@ -762,15 +764,17 @@ export function install(ctx: MockContext) {
       }
       return true;
     }
-  });
+  };
+  if (ctx.onEndpoint) ctx.onEndpoint(handleEndpoint);
+  else ctx.onCommand(handleEndpoint as Parameters<MockContext['onCommand']>[0]);
 
   ctx.registerTools([
-    { id: 'papyrus-enabled', kind: 'toggle', label: 'Backend enabled', value: true },
+    { id: 'papyrus-enabled', kind: 'toggle', label: 'Mod backend enabled', value: true },
     { id: 'papyrus-event', kind: 'button', label: 'Push event' },
     { id: 'papyrus-hotkey', kind: 'button', label: 'Fire hotkey' },
   ], (id, value) => {
     if (id === 'papyrus-enabled') {
-      // Stands in for the player flipping the row in the Mods surface.
+      // Stands in for the player flipping the row in Mod Settings.
       changeSetting('enabled', value === true);
     } else if (id === 'papyrus-event') {
       ctx.send({
@@ -878,7 +882,7 @@ osfui.ready.then(async (info) => {
 // functions publish state or events when the view needs to observe an outcome.
 let clickTotal = 0;
 osfui.state.on<number>('${options.modId}/clicks', (value) => {
-  // Keep the local total in step with whatever the backend published, so a
+  // Keep the local total in step with whatever the mod backend published, so a
   // reload or a Refresh does not restart the count from zero.
   clickTotal = Number(value) || 0;
 });
@@ -910,7 +914,7 @@ function applySetting(key: string, value: SettingValue) {
 let keyboardLabels: Record<string, string> = {};
 osfui.state.on<SettingsData>('osfui/settings', (registry) => {
   // Key values are layout-independent physical names. Show the player's
-  // current keycap when the host publishes one; never store the label.
+  // current keycap when the OSF UI runtime publishes one; never store the label.
   keyboardLabels = registry.keyboard?.labels ?? {};
   const own = registry.mods.find((mod) => mod.id === '${options.modId}');
   if (!own) return;
@@ -1048,7 +1052,7 @@ async function copyPapyrusApi(root) {
   );
 }
 
-// The settings surface ships no view, so it needs none of the npm toolchain:
+// The settings-only starter ships no view, so it needs none of the npm toolchain:
 // the schema is a drop-in JSON file and the script compiles with the Creation
 // Kit alone.
 async function scaffoldSettings(root, options) {
@@ -1117,7 +1121,7 @@ async function scaffold(options) {
   await put(root, 'src/vite-env.d.ts', `declare module '*.css';
 declare module '*osfui.js';
 `);
-  for (const file of backendFiles(options)) {
+  for (const file of modBackendFiles(options)) {
     await put(root, file.path, file.content);
   }
   if (options.integration === 'native') {
@@ -1133,7 +1137,7 @@ declare module '*osfui.js';
 
 export default defineConfig({
   modId: '${options.modId}',
-${backendConfig(options)}  views: [{
+${modBackendConfig(options)}  views: [{
     id: '${options.view}',
     title: '${options.view.replaceAll('-', ' ')}',
     description: 'Generated ${options.surface} starter for ${options.modId}',
@@ -1141,7 +1145,7 @@ ${backendConfig(options)}  views: [{
     width: ${options.surface === 'hud' ? 1920 : 1200},
     height: ${options.surface === 'hud' ? 1080 : 720},
     accent: '#7bdcff',
-    targetVersion: '${HOST_VERSION}',
+    targetVersion: '${OSFUI_RELEASE_VERSION}',
 ${options.surface === 'hud' ? `    openOnStart: true,
 ` : `    pausesGame: false,
     readySignal: true,
@@ -1159,7 +1163,7 @@ ${options.surface === 'hud' ? `    openOnStart: true,
     ? ''
     : `Run \`npm run dev\` for instant browser HMR. Run \`npm run dev:game -- --deploy "path-to-MO2-mods"\`
 to create this mod's folder under MO2 and sync into Starfield with temporary
-author mode, automatic view reload, and F12 DevTools.
+developer mode via an author-mode marker, automatic view reload, and F12 DevTools.
 
 Use \`npm run package\` to create a release-ready zip. Files under \`mod/\`
 are copied into the mod archive beside the generated view.
@@ -1168,10 +1172,10 @@ are copied into the mod archive beside the generated view.
   await put(root, 'README.md', `# ${packageJson.name}
 
 A runnable OSF UI ${options.surface} starter: one worked example of each way a
-view and its backend talk to each other, plus a small settings schema. It is
+view and its mod backend talk to each other, plus a small settings schema. It is
 deliberately not a catalogue — the documentation linked below covers the rest.
 
-${generalReadme}${backendGuide(options)}
+${generalReadme}${modBackendGuide(options)}
 ${docsGuide(options)}`);
   return root;
 }
@@ -1196,7 +1200,7 @@ async function main() {
   const interactive = await promptMissing(options);
   validate(options);
   const root = await scaffold(options);
-  // The settings surface has no package.json to install into.
+  // The settings-only starter has no package.json to install into.
   if (!options.noInstall && options.surface !== 'settings') await install(root);
   const firstCommands = options.surface === 'settings'
     ? './build-deploy.ps1 -Mo2Mods "path-to-MO2-mods"'

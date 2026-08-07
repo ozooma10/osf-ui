@@ -6,15 +6,15 @@
 namespace OSFUI::API
 {
 	// Redeclares sdk/OSFUI_API.h's HotkeyFn (an identical alias is a legal
-	// redeclaration) so this compiles host-side without the sdk header's REX/W32
+	// redeclaration) so this compiles in native tests without the SDK header's REX/W32
 	// dependency. BridgeApi.cpp sees both headers, so drift is a compile error
 	// there.
 	using HotkeyFn = void (*)(const char* a_modId,
 	                          const char* a_key,
 	                          void*       a_user) noexcept;
 
-	// SubscribeHotkey bookkeeping (mcm-design.md §9), factored out of BridgeApi
-	// so the host test suite can exercise it without MessageBridge's game
+	// SubscribeHotkey bookkeeping, factored out of BridgeApi
+	// so the native unit tests can exercise it without MessageBridge's game
 	// dependencies — same split as SettingsSubscriptions. Subscribe/Unsubscribe
 	// are any-thread; OnFired and Pump run on the main thread. Consumer
 	// callbacks are invoked only from Pump, never with the lock held (a callback

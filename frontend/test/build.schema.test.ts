@@ -1,7 +1,7 @@
 // Validate every settings-schema JSON in the repo against the published
 // docs/schema/settings-schema.schema.json. Nothing else does: the runtime
 // parses leniently and skips what it does not understand, so drift shows up
-// only as a setting silently missing from the Mods surface.
+// only as a setting silently missing from Mod Settings.
 //
 // Files are validated against the schema, so this fails when either side
 // moves. The two are a contract.

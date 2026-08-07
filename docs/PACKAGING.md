@@ -5,8 +5,8 @@
 ## Quick start
 
 ```powershell
-# Release build (WebView2, releasedbg) -> dist/OSF-UI-v<kPluginVersion>-alpha.zip
-# Version comes from kPluginVersion in src/core/Version.h; tag defaults to "alpha".
+# Release build (WebView2, releasedbg) -> dist/OSF-UI-v<releaseVersion>-alpha.zip
+# releaseVersion is the OSF UI release version from kOsfuiReleaseVersion in src/core/Version.h; tag defaults to "alpha".
 pwsh tools/package.ps1
 
 pwsh tools/package.ps1 -Version 2.0.0 -Tag beta   # custom version/tag
@@ -21,9 +21,9 @@ Needs the unpacked Microsoft.Web.WebView2 SDK: `-WebView2SdkDir`, else `$env:WEB
 0. `npm ci` from the committed lockfile.
 1. Configure + build `releasedbg` with WebView2. The xmake hook generates built-in views from `frontend/src/` into ignored `build/frontend/views/`.
 2. `xmake install -o <staging>` — stages views alongside `SFSE/Plugins/OSFUI.dll` (+ PDB) and `OSFUI/bin/osfui_webview2_host.exe`.
-3. Deterministic data sync — copies authored data (`config.json`, `settings/`) from `data/OSFUI/` and the Papyrus surface (`Scripts/OSFUI.pex`, `Scripts/Source/OSFUI.psc`) from `data/Scripts/` over the staged tree, preserving generated views and the host exe. Bypasses xmake's cached authored-data glob without source-controlling generated files.
+3. Deterministic data sync — copies authored data (`config.json`, `settings/`) from `data/OSFUI/` and the Papyrus API (`Scripts/OSFUI.pex`, `Scripts/Source/OSFUI.psc`) from `data/Scripts/` over the staged tree, preserving generated views and the browser-host executable. Bypasses xmake's cached authored-data glob without source-controlling generated files.
 4. License docs — `LICENSE`, `EXCEPTIONS`, `CREDITS.md` go inside `SFSE/Plugins/OSFUI/`, so installing doesn't clutter `Data\`.
-5. Verify — hard-fails on a missing DLL, WebView2 host, `config.json`, `osfui.json` schema, `OSFUI.pex`, any view manifest, the shared kit (`views/shared/osfui.js|.css`) or `views/osfui/padnav.js`, or a `config.json` view id with no manifest.
+5. Verify — hard-fails on a missing DLL, browser host, `config.json`, `osfui.json` schema, `OSFUI.pex`, any view manifest, the shared kit (`views/shared/osfui.js|.css`) or `views/osfui/padnav.js`, or a `config.json` view id with no manifest.
 6. Sanity warnings (non-blocking) — flags `devMode` enabled in `config.json`.
 7. Zip + report — `dist/OSF-UI-v<version>[-tag].zip`, with size and SHA-256.
 
@@ -32,7 +32,7 @@ Needs the unpacked Microsoft.Web.WebView2 SDK: `-WebView2SdkDir`, else `$env:WEB
 ```
 OSF-UI-v<version>-alpha.zip
 ├─ Scripts/
-│  ├─ OSFUI.pex                      (Papyrus API surface)
+│  ├─ OSFUI.pex                      (Papyrus API)
 │  └─ Source/OSFUI.psc               (source, for authors compiling against it)
 └─ SFSE/Plugins/
    ├─ OSFUI.dll
@@ -52,5 +52,5 @@ OSF-UI-v<version>-alpha.zip
 ## Not packaged
 
 - The WebView2 SDK headers and static loader library (build-time only).
-- Dev/test surfaces: only `build/frontend/views/` is installed; `frontend/` source, `node_modules`, the dev mock (`devmock/`, `osfui.mock.ts`), `tests/`, and `packaging/` are excluded.
+- Dev/test files: only `build/frontend/views/` is installed; `frontend/` source, `node_modules`, the dev mock (`devmock/`, `osfui.mock.ts`), `tests/`, and `packaging/` are excluded.
 - Source maps. The frontend build emits none and its output gate fails on a stray `.map`; nothing here excludes by extension, so one would otherwise ship.

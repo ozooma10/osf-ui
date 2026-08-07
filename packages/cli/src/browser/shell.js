@@ -102,7 +102,7 @@ function addRow({ direction, value, level, at }) {
   head.append(time, chip('dir', arrow.glyph, arrow.title), chip('title', info.title));
   if (info.detail) head.append(chip('detail', info.detail, info.detail));
 
-  // Request tagging: the outbound command mints the tag, its reply reuses it
+  // Request tagging: the outbound request mints the tag, its reply reuses it
   // and reports the round trip, so a slow or missing answer is visible.
   if (info.requestId) {
     const open = requests.get(info.requestId);
@@ -315,8 +315,10 @@ window.addEventListener('message', (event) => {
     tools = applyPatch(tools, event.data.id, event.data.patch);
     renderTools();
   }
-  if (event.data.kind === 'ready') {
-    $('status').textContent = meta.nativeBridge ? 'Bridge ready' : 'Bridge disabled by manifest';
+  if (event.data.kind === 'preview-initialized') {
+    $('status').textContent = meta.nativeBridge
+      ? 'Preview initialized'
+      : 'Preview initialized — bridge disabled by manifest';
     if (meta.nativeBridge) {
       send({ kind: 'event', name: 'ui.visibility', payload: { visible, reason: 'overlay' } });
     }

@@ -17,7 +17,7 @@ cd frontend
 npm ci
 ```
 
-Node 20+ is required to *build the frontend*. It is **not** a runtime dependency
+Node 20+ is required to *build the frontend*. It is **not** a player dependency
 — players never need it. `npm run build`, `xmake build`, `xmake install`, and
 release packaging use it; the native test suite does not.
 
@@ -50,9 +50,9 @@ frontend/
       keybinds/       canonical key names, model building, conflict detection
     ui/             shared Preact components (styled only with kit classes)
     views/osfui/
-      settings/     the Mods surface
-      keybinds/     the input map
-      handoff/      the always-warm first-load link surface (platform-private)
+      settings/     the Mod Settings view
+      keybinds/     the Keybindings view
+      handoff/      the pinned, prewarmed first-load handoff view (platform-private)
   devmock/          DEV ONLY — the mock bridge + fixtures (installed by osfui.mock.ts)
   osfui.config.ts   the built-ins as an @osfui/cli project (what `osfui dev` serves)
   osfui.mock.ts     mock module: installs devmock/ + registers the toolbar tools
@@ -77,8 +77,8 @@ Pick a view from the toolbar's view select, or deep-link:
 | View | URL |
 |---|---|
 | Harness | `http://127.0.0.1:5173/__osfui/` |
-| Mods (settings) | `http://127.0.0.1:5173/__osfui/?view=osfui%2Fsettings` |
-| Keybinds | `http://127.0.0.1:5173/__osfui/?view=osfui%2Fkeybinds` |
+| Mod Settings | `http://127.0.0.1:5173/__osfui/?view=osfui%2Fsettings` |
+| Keybindings | `http://127.0.0.1:5173/__osfui/?view=osfui%2Fkeybinds` |
 
 Query parameters (`view` and `res` are the harness page's own; everything else
 — and the `#hash` — is forwarded to the view, so mock params and `#mod=` deep
@@ -91,13 +91,13 @@ links keep working):
 | `?fixtures=1` | load the richer demo dataset (also the "Sample views" tool) |
 | `?locale=<code>` | switch locale; `pseudo` expands strings to catch tight layouts and hardcoded text |
 | `?schema=<url>` | load a settings schema from a URL instead of the fixtures |
-| `?health=<name>` | pin the System Health scenario pushed as `diagnostics.data` (also the "Health" cycle tool) |
+| `?health=<name>` | select the System Health scenario pushed as `osfui/diagnostics` state (also the "Health" cycle tool) |
 
 ### System Health scenarios
 
-The Health destination renders from a `diagnostics.data` snapshot, so it needs no
+The System Health destination renders from an `osfui/diagnostics` state snapshot, so it needs no
 broken game to exercise — the harness pushes a canned one. Scenarios live in
-`devmock/fixtures/diagnostics.ts`:
+`devmock/fixtures/health.ts`:
 
 | `?health=` | What it shows |
 |---|---|
@@ -108,10 +108,10 @@ broken game to exercise — the harness pushes a canned one. Scenarios live in
 | `resolved` | nominal summary but a non-empty history |
 | `catalog` | **one card per known code, plus an unrecognised one** — the whole copy table on one page |
 
-Use `catalog` to proof-read the diagnostic copy: every title, impact/next line and
+Use `catalog` to proof-read the health-issue copy: every title, impact/next line and
 action row the shell can emit, side by side. Add `&locale=pseudo` to check none of
 it is hardcoded or overflowing. Adding a code to `COPY` in
-`src/lib/settings/diagnostics.ts` without adding it to `catalog` means that card
+`src/lib/settings/health.ts` without adding it to `catalog` means that issue
 has never been looked at.
 
 You can also drag-and-drop a settings schema JSON or a `<modId>_<locale>.json`
@@ -119,7 +119,7 @@ catalog onto the page.
 
 ### The stage
 
-Views declare an initial 1600×900 size (`manifest.json`); the runtime resizes
+Views declare an initial 1600×900 size (`manifest.json`); the OSF UI runtime resizes
 them to the game output aspect once the swapchain is known. The toolbar button
 cycles two ways of modelling that, also settable with `?res=`:
 
@@ -131,7 +131,7 @@ cycles two ways of modelling that, also settable with `?res=`:
 `fill` does not cap the scale at 1:1 — filling a 1080p window at 1.2× *is* the
 in-game text size.
 
-**Develop in `fill`**: it is what the runtime actually does to a view, so a
+**Develop in `fill`**: it is what the OSF UI runtime actually does to a view, so a
 layout that holds up as you resize the window holds up at any game output
 aspect. Switch to `off` to inspect raw overflow or measure in DevTools without
 the scale transform in the way — it is a debugging mode, not a preview.
@@ -155,10 +155,16 @@ shows a composition the game never produces.
   osfui.on(type, fn) subscribers
 ```
 
-Every frame in both directions is `{ type, requestId?, payload }`. Web→native is
-always `type: "ui.command"` with the command name **inside** the payload. The
-authoritative type definitions are `sdk/osfui.d.ts`; `src/lib/protocol.ts`
-re-exports them rather than restating them, so the two cannot drift.
+Bridge protocol 2.0 keeps routing beside the payload. Web→native frames are
+`{ kind:"send", name, payload }` or
+`{ kind:"request", name, id, payload }`. Native→web frames use
+`kind:"ready"`, `"state"`, `"event"`, `"reply"`, or `"error"`; their routing
+fields likewise sit beside the payload. The legacy `type`, `ui.command`, and
+`requestId` envelope belongs only to the guarded 1.x compatibility façade.
+The authoritative type definitions are `sdk/osfui.d.ts`;
+`src/lib/protocol.ts` re-exports them rather than restating them, so the two
+cannot drift. See [the terminology glossary](../docs/terminology.md) for the
+readiness and component boundaries.
 
 Load order in a view's `index.html` is load-bearing and asserted by the build
 gates: `shared/osfui.js` → `padnav.js` → `main.js`. The helper must decorate
@@ -166,8 +172,8 @@ gates: `shared/osfui.js` → `padnav.js` → `main.js`. The helper must decorate
 
 ## Shipping bundle constraints
 
-The production WebView2 backend loads views at
-`https://osfui.local/<mod>/<view>/<entry>`. The built-in artifacts retain a
+The production web renderer asks the out-of-process browser host to navigate view documents to
+`https://osfui.local/<modId>/<viewName>/<entry>`. The built-in artifacts retain a
 deliberately conservative, stable bundle shape enforced by
 `scripts/verify-output.mjs` and `test/build.*`:
 
@@ -186,8 +192,10 @@ deliberately conservative, stable bundle shape enforced by
    `manifest.json`, `main.tsx`, `style.css`.
 2. Copy an existing `index.html` shell verbatim. The three script tags and two
    stylesheet links, in that order, are asserted by the build gates.
-3. `manifest.json`'s `id` **must** equal the folder name — native rejects a
-   mismatch — and `entry` must stay at the view root so `../../shared/` resolves.
+3. The path is the identity: `<modId>` and `<viewName>` come from the two folder
+   names and form `<modId>/<viewName>`. Do not add a manifest `id`; legacy `id`
+   fields are ignored. `entry` must stay at the view root so `../../shared/`
+   resolves.
 4. `npm run build && npm test`, then commit the source changes. The build
    discovers the manifest and expects the view's four output files automatically.
 

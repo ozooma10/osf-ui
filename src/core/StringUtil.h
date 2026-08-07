@@ -13,7 +13,7 @@
 //    nlohmann::json::dump(): dump() defaults to error_handler_t::strict and
 //    throws type_error.316 on an incomplete sequence, and most of our dump
 //    sites sit on paths with no handler at all (the game thread's tick, the
-//    host's wWinMain), where the throw is a std::terminate.
+//    browser host's wWinMain), where the throw is a std::terminate.
 //
 // Both groups are locale-independent: the <cctype> equivalents depend on the
 // active C locale, which nothing here sets. Header-only (inline), so any

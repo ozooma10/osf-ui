@@ -2,7 +2,7 @@
 
 #include "render/IWebRenderer.h"
 #include "api/BridgeApi.h"
-#include "runtime/DiagnosticsReconciler.h"
+#include "runtime/HealthReconciler.h"
 
 #include <unordered_map>
 
@@ -12,10 +12,10 @@ namespace OSFUI
 
 	// Owns System Health reconciliation and its slow-changing signatures. Runtime
 	// forwards only the tick, renderer-health, and view-load edges.
-	class RuntimeDiagnostics final
+	class RuntimeHealthCoordinator final
 	{
 	public:
-		explicit RuntimeDiagnostics(Runtime& a_runtime) : _runtime(a_runtime) {}
+		explicit RuntimeHealthCoordinator(Runtime& a_runtime) : _runtime(a_runtime) {}
 
 		void Pump();
 		void OnRendererHealth(const IWebRenderer::HealthEvent& a_event);
@@ -26,7 +26,7 @@ namespace OSFUI
 		void ResolveHotkeyTarget(std::string_view a_mod, std::string_view a_key);
 
 	private:
-		void DrainPluginReports();
+		void DrainPluginHealthReports();
 		void SyncSettings();
 		void SyncCompatibility();
 		void UpdateSystemInfo();
@@ -41,16 +41,16 @@ namespace OSFUI
 			std::string message;
 		};
 
-		Runtime&      _runtime;
-		std::uint64_t _settingsGeneration{ 0 };
-		bool          _settingsSynced{ false };
-		DiagnosticsReconciler _reconciler;
+		Runtime&         _runtime;
+		std::uint64_t    _settingsGeneration{ 0 };
+		bool             _settingsSynced{ false };
+		HealthReconciler _healthReconciler;
 		// ABI compatibility callers, accumulated once at load and kept for the
-		// session: supported 1.x and refused unrelated majors are distinct cards.
+		// session: supported 1.x and refused unrelated majors are distinct issues.
 		std::vector<API::BridgeApi::LegacyCaller> _legacyApiCallers;
 		std::unordered_set<std::string> _loggedCompatibility;
 		std::unordered_set<std::string> _legacyPapyrusCallers;
 		std::unordered_map<std::string, HotkeyTargetFailure> _hotkeyTargetFailures;
-		double        _nextPoll{ 0.0 };
+		double _nextPoll{ 0.0 };
 	};
 }

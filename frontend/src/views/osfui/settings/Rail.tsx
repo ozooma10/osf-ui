@@ -2,10 +2,10 @@
 // comes from @lib/settings/rail's `railNodes` so this file and the LB/RB
 // `cycleRail` walk cannot drift apart; the order itself is argued there.
 //
-// System Health is pinned above everything and never filtered, which looks like
+// System Health is fixed above everything and never filtered, which looks like
 // a bug but isn't: a user typing the name of the mod that failed to load must
 // still be able to reach the reason, not be told "No mods match the filter"
-// (mcm-design.md §14.2). It replaces the old expanded settings-load alert,
+// It replaces the old expanded settings-load alert,
 // which could only ever state a filename.
 //
 // The modified-count badge and the severity marker are both derived from the
@@ -28,7 +28,7 @@ import {
   severityForMod,
   type HealthModel,
   type Severity,
-} from '@lib/settings/diagnostics';
+} from '@lib/settings/health';
 import type { Translator } from '@lib/i18n';
 import { initials, Mark } from './marks';
 
@@ -55,8 +55,8 @@ export function Rail(props: RailProps) {
       {nodes.map((node, i) => {
         switch (node.kind) {
           case 'health':
-            // Painted by App in the rail HEAD, above the "Installed systems"
-            // label — it is a pinned destination, not an installed system, and
+            // Painted by App in the rail HEAD, above the "Installed mods"
+            // label — it is a fixed destination, not an installed mod, and
             // grouping it under that label was the whole complaint. The node
             // stays in the model because LB/RB cycle order still starts here.
             return null;
@@ -83,7 +83,7 @@ export function Rail(props: RailProps) {
                   ? tr('noModsMatch', 'No mods match the filter.')
                   : tr(
                       'noModsInstalled',
-                      'No mods installed yet. Mods that register settings, terminals or overlays appear here.',
+                      'No mods installed yet. Mods that provide settings, menu views, or HUD views appear here.',
                     )}
               </div>
             );
@@ -118,7 +118,7 @@ export function Rail(props: RailProps) {
 
 /**
  * Sub-line text: "Framework" for OSF UI itself, the mod id for a settings mod,
- * a surface census for a view-only entry (whose id is synthetic, so not worth
+ * a view-kind count for a view-only entry (whose id is synthetic, so not worth
  * showing).
  */
 function railSub(entry: RailEntry, tr: Translator): string {
@@ -127,8 +127,9 @@ function railSub(entry: RailEntry, tr: Translator): string {
   const menus = entry.views.filter((v) => v.kind === 'menu').length;
   const huds = entry.views.length - menus;
   const parts: string[] = [];
-  if (menus) parts.push(tr.plural('terminal', menus, 'Terminal', '{count} terminals'));
-  if (huds) parts.push(tr.plural('overlay', huds, 'Overlay', '{count} overlays'));
+  // Compatibility catalog addresses retain the former terminal/overlay nouns.
+  if (menus) parts.push(tr.plural('terminal', menus, 'Menu', '{count} menus'));
+  if (huds) parts.push(tr.plural('overlay', huds, 'HUD', '{count} HUDs'));
   // A view-only entry is built from views, so zero views is unreachable; the
   // fallback is defence only.
   return parts.join(' · ') || tr('mod', 'Mod');
@@ -178,8 +179,8 @@ function RailItem({ entry, selected, severity, tr, assetRoots, onSelect }: RailI
           class={`rail-item-severity rail-item-severity--${severity}`}
           title={
             severity === 'error'
-              ? tr('railSeverityError', 'An error affects this mod — see System health')
-              : tr('railSeverityWarning', 'A warning affects this mod — see System health')
+              ? tr('railSeverityError', 'An error affects this mod — see System Health')
+              : tr('railSeverityWarning', 'A warning affects this mod — see System Health')
           }
         >
           {severity === 'error' ? '✕' : '!'}
@@ -204,7 +205,7 @@ interface HomeItemProps {
   onSelect: (id: string) => void;
 }
 
-/** Pinned rail item — same chrome as a mod entry, selected the same way. */
+/** Fixed rail item — same chrome as a mod entry, selected the same way. */
 function HomeItem({ views, selected, tr, onSelect }: HomeItemProps) {
   const menus = views.filter((v) => v.kind === 'menu').length;
   const huds = views.length - menus;
@@ -216,10 +217,12 @@ function HomeItem({ views, selected, tr, onSelect }: HomeItemProps) {
     >
       <span class="rail-item-mark">◉</span>
       <span class="rail-item-text">
-        <span class="rail-item-title">{tr('systems', 'Systems')}</span>
+        {/* Compatibility catalog address; fallback copy uses the canonical view noun. */}
+        <span class="rail-item-title">{tr('systems', 'Views')}</span>
         <span class="rail-item-sub">
           {views.length
-            ? tr('surfaceCounts', '{menus} terminals · {huds} overlays', { menus, huds })
+            // Compatibility catalog address; fallback copy uses canonical view kinds.
+            ? tr('surfaceCounts', '{menus} menus · {huds} HUDs', { menus, huds })
             : tr('standby', 'Standby')}
         </span>
       </span>
@@ -235,15 +238,15 @@ export interface HealthItemProps {
 }
 
 /**
- * The pinned System Health destination, painted in the rail HEAD above the
- * "Installed systems" label.
+ * The fixed System Health destination, painted in the rail HEAD above the
+ * "Installed mods" label.
  *
  * It deliberately does NOT wear mod-entry chrome. It is not an installed
- * system, and dressing it as one both mis-grouped it and made it the heaviest
+ * mod, and dressing it as one both mis-grouped it and made it the heaviest
  * object in the rail even when nothing was wrong. One line: severity glyph,
  * name, and the state in words.
  *
- * It is still the persistent notification surface — whatever is wrong keeps a
+ * It is still the persistent notification destination — whatever is wrong keeps a
  * count here until it clears, where a toast would have scrolled away seconds
  * after the player missed it. The count is folded INTO the status phrase rather
  * than sitting beside it as a separate badge, because "Action required" next to
@@ -274,7 +277,7 @@ export function HealthItem({ health, selected, tr, onSelect }: HealthItemProps) 
       <span class="rail-health-mark" aria-hidden="true">
         {severity === 'error' ? '✕' : severity === 'warning' ? '!' : '✓'}
       </span>
-      <span class="rail-health-title">{tr('systemHealth', 'System health')}</span>
+      <span class="rail-health-title">{tr('systemHealth', 'System Health')}</span>
       {/* The state in words, so the glyph's colour is never the only carrier. */}
       <span class={`rail-health-status rail-health-status--${severity ?? 'ok'}`}>{status}</span>
       <span class="rail-health-chevron" aria-hidden="true">

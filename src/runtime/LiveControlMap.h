@@ -25,7 +25,7 @@ namespace OSFUI
 		{
 			std::string event;
 			std::string title;
-			std::string context;
+			std::string engineInputContextName;
 			std::string slot;
 			std::uint32_t code{ 0 };
 			ControlMapPolicy::Classification classification{ ControlMapPolicy::Classification::Unknown };
@@ -36,15 +36,16 @@ namespace OSFUI
 		struct Changes
 		{
 			bool keybindings{ false };
-			bool inputContext{ false };
+			bool engineInputContext{ false };
 		};
 
 		// First main-thread Tick after kPostDataLoad. A failure is durable and
-		// fail-closed: state remains available:false and no vanilla conflict claims
+		// fail-closed: state remains available:false and no game-binding conflict claims
 		// are made. Initialized() becomes true only after the snapshot is complete.
 		void Initialize();
 		// Per main-thread tick. Coalesces repeated remap events into one rebuild and
-		// samples the small active-context stack without re-enumerating bindings.
+		// samples the small active engine-input-context stack without
+		// re-enumerating bindings.
 		[[nodiscard]] Changes Pump();
 		// Layout/locale changed on the main thread: rebuild the physical projection.
 		// Locale changes explicitly clear the persistent engine-translation cache;
@@ -56,7 +57,7 @@ namespace OSFUI
 		[[nodiscard]] std::optional<GameplayMode> CurrentMode() const { return _mode; }
 		[[nodiscard]] const std::vector<ConflictBinding>& ConflictBindings() const { return _conflicts; }
 		[[nodiscard]] const nlohmann::json& KeybindingsState() const { return _keybindingsState; }
-		[[nodiscard]] const nlohmann::json& InputContextState() const { return _inputContextState; }
+		[[nodiscard]] const nlohmann::json& EngineInputContextState() const { return _engineInputContextState; }
 		[[nodiscard]] const std::string& FailureReason() const { return _failureReason; }
 		[[nodiscard]] const std::string& GameVersion() const { return _gameVersion; }
 
@@ -68,7 +69,7 @@ namespace OSFUI
 			Changed,
 		};
 		RebuildResult RebuildBindings(bool a_forceProjection);
-		bool RefreshActiveContexts();
+		bool RefreshActiveEngineInputContexts();
 		bool InstallRemapObserver();
 		void Fail(std::string a_reason);
 		void EncodeUnavailableStates();
@@ -76,7 +77,7 @@ namespace OSFUI
 		bool _initialized{ false };
 		bool _available{ false };
 		std::uint64_t _revision{ 0 };
-		std::uint64_t _contextRevision{ 0 };
+		std::uint64_t _engineInputContextRevision{ 0 };
 		std::uint64_t _seenRemapGeneration{ 0 };
 		std::uint64_t _bindingHash{ 0 };
 		std::uint64_t _pendingRemapEdges{ 0 };
@@ -87,13 +88,13 @@ namespace OSFUI
 		std::string _failureReason;
 		std::vector<ConflictBinding> _conflicts;
 		std::unordered_map<std::string, std::string> _translationCache;
-		std::array<std::string, 0x51> _contextNames;
+		std::array<std::string, 0x51> _engineInputContextNames;
 		std::uintptr_t _controlMapAddress{ 0 };
 		std::uintptr_t _validatedActiveData{ 0 };
 		std::size_t _validatedActiveBytes{ 0 };
-		std::vector<std::uint8_t> _activeContexts;
+		std::vector<std::uint8_t> _activeEngineInputContexts;
 		std::optional<GameplayMode> _mode;
 		nlohmann::json _keybindingsState{ nlohmann::json::object() };
-		nlohmann::json _inputContextState{ nlohmann::json::object() };
+		nlohmann::json _engineInputContextState{ nlohmann::json::object() };
 	};
 }

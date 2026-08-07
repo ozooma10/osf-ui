@@ -1,6 +1,6 @@
 #pragma once
 
-// Host-test replacement for src/pch.h: the std umbrella plus a minimal REX
+// Native-desktop-test replacement for src/pch.h: the std umbrella plus a minimal REX
 // logging stub, so runtime-layer sources that don't touch the game (e.g.
 // SettingsStore) compile and run on any desktop toolchain. Never used by the
 // real plugin build — xmake force-includes src/pch.h there.

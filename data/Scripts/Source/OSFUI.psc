@@ -1,6 +1,6 @@
 ScriptName OSFUI Native Hidden
 
-; OSF UI - Papyrus surface for the shared settings platform (MCM).
+; OSF UI - Papyrus API for the shared Mod Settings platform.
 ;
 ; Settings are declared in a drop-in schema file:
 ;   Data/SFSE/Plugins/OSFUI/settings/<author>.<modname>.json
@@ -14,10 +14,10 @@ ScriptName OSFUI Native Hidden
 ; write them as authored - mod ids are lowercase "<author>.<modname>" by grammar.
 ; The same interning means strings delivered to your callbacks may arrive cased differently than authored; 
 
-; Packed host version: major*10000 + minor*100 + patch (1.0.0 -> 10000).
+; Packed OSF UI release version: major*10000 + minor*100 + patch (1.0.0 -> 10000).
 ; 0 => OSF UI absent.
 int Function GetVersion() Global Native
-; Human-readable host version ("1.0.0").
+; Human-readable OSF UI release version ("1.0.0").
 string Function GetVersionString() Global Native
 
 ; ============== Reading settings ==============
@@ -32,7 +32,7 @@ string Function GetString(string asModId, string asKey, string asDefault = "") G
 ; Writing settings
 ; Fire-and-forget: the write is queued, then validated/clamped against the schema and persisted on OSF UI's next frame.
 ; A refused write (unknown key, wrong type) is logged to OSF UI's log and dropped.
-; An open settings menu updates live, and the registered change callback fires once the value commits.
+; Open Mod Settings updates live, and the registered change callback fires once the value commits.
 
 Function SetBool(string asModId, string asKey, bool abValue) Global Native
 Function SetInt(string asModId, string asKey, int aiValue) Global Native
@@ -42,7 +42,7 @@ Function SetString(string asModId, string asKey, string asValue) Global Native
 Function Reset(string asModId, string asKey = "") Global Native
 
 ; --- change events ------------------------------------------------------------
-; Calls akReceiver.asFn(string asModId, string asKey) after any value of asModId commits (any writer: the settings menu, native code, Papyrus).
+; Calls akReceiver.asFn(string asModId, string asKey) after any value of asModId commits (any writer: Mod Settings, native code, Papyrus).
 ; asModId "" subscribes to every mod. Returns a token (0 = failed).
 ;
 ; Function OnSettingChanged(string asModId, string asKey)   ; on akReceiver
@@ -54,13 +54,13 @@ int Function RegisterForSettingChanges(ScriptObject akReceiver, string asFn, str
 int Function RegisterForSettingChangesStatic(string asScript, string asFn, string asModId = "") Global Native
 
 ; --- hotkeys ------------------------------------------------------------------
-; A hotkey is a `"type": "key"` setting in your schema - the user sees and rebinds it in the settings menu like everything else, and OSF UI owns the input hook. 
+; A hotkey is a `"type": "key"` setting in your schema - the user sees and rebinds it in Mod Settings like everything else, and OSF UI owns the input hook.
 ; Registering delivers presses to your script:
 ;
 ;   Function OnHotkey(string asModId, string asKey)   ; on akReceiver
 ;
-; asKey "" subscribes to every key-typed setting of asModId. 
-; Presses are delivered during gameplay only - never while the user is typing into an overlay view or rebinding a key - and never consume the key. 
+; asKey "" subscribes to every key-typed setting of asModId.
+; Presses are delivered during gameplay only - never while the user is typing into an OSF UI view or rebinding a key - and never consume the key.
 ; Session-scoped, exactly like RegisterForSettingChanges.
 int Function RegisterForHotkey(ScriptObject akReceiver, string asFn, string asModId, string asKey = "") Global Native
 ; Instance-free variant: GLOBAL function asScript.asFn(string, string).
@@ -127,7 +127,7 @@ int Function RegisterForViewActionsArgsStatic(string asScript, string asFn, stri
 int Function ListenForViewActions(ScriptObject akReceiver, string asModId) Global Native
 int Function ListenForViewActionsStatic(string asScript, string asModId) Global Native
 
-; Correlated view requests (protocol 1.5). One listener per mod (first wins).
+; Correlated view requests (introduced with OSF UI 1.5). One listener per mod (first wins).
 ; JS calls `await osfui.papyrus.request(name, ...args)`; the listener receives:
 ;   Function OnOSFUIViewRequest(string request, string[] args, string replyToken)
 ; Answer exactly once with the matching typed ReplyView* function, or reject.
@@ -149,8 +149,9 @@ bool Function RejectViewRequest(string asReplyToken, string asCode, string asMes
 bool Function Unregister(int aiToken) Global Native
 
 ; --- menus --------------------------------------------------------------------
-; Ask OSF UI to open/close an overlay view; "osfui/settings" is the Mods surface (same as F10), where your settings card lives.
-; View ids are always qualified "<modId>/<viewName>" — a bare name never resolves. returns true when the qualified view id exists, false when no installed view has that id.
-; CloseMenu returns false for an unknown or discovered-but-never-loaded view.
+; Ask OSF UI to open/close a view; "osfui/settings" is Mod Settings (same as F10), where your settings card lives.
+; OpenMenu/CloseMenu are compatibility names and accept both menu and HUD views.
+; View ids are always qualified "<modId>/<viewName>" — a bare name never resolves. Returns true when the qualified view id exists, false when no installed view has that id.
+; CloseMenu returns false for an unknown or discovered-but-never-instantiated view.
 bool Function OpenMenu(string asViewId = "osfui/settings") Global Native
 bool Function CloseMenu(string asViewId = "osfui/settings") Global Native

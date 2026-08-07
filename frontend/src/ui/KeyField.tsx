@@ -11,7 +11,7 @@
 //    while any `.listening` element exists, since the next key press belongs
 //    to the capture. That is a PRESENCE test (padnav.js:184), so only the class
 //    itself is the padnav contract; its trailing POSITION is the kit's cx()
-//    convention, pinned verbatim by dom-contracts.test.tsx ("osf-btn
+//    convention, asserted verbatim by dom-contracts.test.tsx ("osf-btn
 //    osf-btn--sm osf-key listening"). An earlier version of this comment
 //    presented the ordering as a padnav requirement — it is not.
 //  * The ✕ is a real <button>, so padnav can reach it.
@@ -60,7 +60,7 @@ export function KeyField(props: KeyFieldProps) {
     >
       {/* Em-dash placeholder for "unbound", so an empty-string value shows the
           dash rather than an empty button. The localized keycap wins over the
-          raw name when the host published one. */}
+          raw name when the OSF UI runtime published one. */}
       {listening ? props.listeningLabel : props.label || value || '—'}
     </button>
   );

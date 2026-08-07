@@ -24,7 +24,7 @@ namespace OSFUI::Ids
 	inline constexpr std::size_t kMaxModIdLen = 64;
 	inline constexpr std::size_t kMaxViewNameLen = 64;
 
-	// ASCII-only case-insensitive equality, used by the Papyrus surface to match
+	// ASCII-only case-insensitive equality, used by the Papyrus API to match
 	// names and enum values (rationale in core/StringUtil.h). Re-exported here so
 	// the existing Ids::EqualsCaseInsensitiveAscii call sites read naturally.
 	using StringUtil::EqualsCaseInsensitiveAscii;
@@ -108,15 +108,15 @@ namespace OSFUI::Ids
 	// including OSF UI's own `toggleKey`, which is the escape hatch the input
 	// layer relies on to always be able to close the overlay.
 	//
-	// Only OSF UI's built-in Mods surface and keybinds board may name a foreign
+	// Only OSF UI's built-in Mod Settings and Keybindings views may name a foreign
 	// mod: editing other mods' settings is their entire purpose. Every other view
-	// is confined to its own mod, matching how `ui.action` derives the mod from
-	// the source view rather than the payload.
+	// is confined to its own mod, matching how current settings endpoints derive
+	// authority from the source view rather than trusting the payload.
 	//
 	// Deliberately an exact qualified-id match rather than an `osfui/` prefix
 	// test — the `osfui` namespace is not yet structurally reserved, so a prefix
-	// test would admit a squatting third-party manifest. Same granularity the
-	// diagnostics.* gates already use.
+	// test would admit a squatting third-party manifest. Mod Settings-only
+	// platform requests use the same exact-id granularity.
 	[[nodiscard]] inline bool IsSettingsEditorView(std::string_view a_viewId)
 	{
 		return a_viewId == "osfui/settings" || a_viewId == "osfui/keybinds";

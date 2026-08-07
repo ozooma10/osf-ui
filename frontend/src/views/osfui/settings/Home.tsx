@@ -1,6 +1,6 @@
 // The launcher, and the page every fresh visit lands on.
 //
-// A card grid rather than settings rows: a registered panel is a surface a mod
+// A card grid rather than settings rows: a discovered view is something a mod
 // ships, not a preference. Settings stay per-mod on the rail; anything you
 // launch lives here, across every mod.
 //
@@ -13,7 +13,7 @@ import { useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import { modIconSrc, type AssetRoots } from '@lib/settings/assets';
 import { titleOf, type ModRecord, type ViewRecord } from '@lib/settings/rail';
-import { issueForSubject, type HealthModel } from '@lib/settings/diagnostics';
+import { issueForSubject, type HealthModel } from '@lib/settings/health';
 import type { Translator } from '@lib/i18n';
 import { homeAccentFor, initials, Mark } from './marks';
 import { OPEN_COOLDOWN_MS } from './openCooldown';
@@ -61,18 +61,20 @@ export function Home({
     <>
       <div class="detail-head">
         <div>
-          <h2>{tr('allSystems', 'All systems')}</h2>
+          {/* Compatibility catalog address; fallback copy uses the canonical view noun. */}
+          <h2>{tr('allSystems', 'All views')}</h2>
         </div>
       </div>
 
       <div class="detail-body detail-body--home">
         {!views.length ? (
           <div class="home-empty">
-            <div class="osf-eyebrow">{tr('noSystems', 'No systems online')}</div>
+            {/* Compatibility catalog addresses retain the former system noun. */}
+            <div class="osf-eyebrow">{tr('noSystems', 'No views available')}</div>
             <p>
               {tr(
                 'noSystemsHint',
-                'Mods that put terminals or overlays on screen appear here as launch cards. Mods that only carry settings are listed on the left.',
+                'Mods that provide menu or HUD views appear here as launch cards. Mods that only provide settings are listed on the left.',
               )}
             </p>
           </div>
@@ -80,7 +82,8 @@ export function Home({
           <>
             {menus.length ? (
               <>
-                <SectionHead title={tr('terminals', 'Terminals')} count={menus.length} note="" />
+                {/* Compatibility catalog address; fallback copy uses the canonical menu kind. */}
+                <SectionHead title={tr('terminals', 'Menus')} count={menus.length} note="" />
                 <div class="home-grid">
                   {menus.map((v) => (
                     <MenuCard
@@ -100,8 +103,9 @@ export function Home({
 
             {huds.length ? (
               <>
+                {/* Compatibility catalog address; fallback copy uses the canonical HUD kind. */}
                 <SectionHead
-                  title={tr('overlays', 'Overlays')}
+                  title={tr('overlays', 'HUDs')}
                   count={huds.length}
                   note={tr('toggleStays', 'TOGGLE · STAYS ON SCREEN')}
                 />
@@ -208,11 +212,8 @@ interface MenuCardProps {
 
 function MenuCard({ view: v, tr, iconSrc, caption, issueId, onOpen, onOpenIssue }: MenuCardProps) {
   const failed = v.loadState === 'failed';
-  // Discovered on disk but not yet loaded: the card still opens (menu.open loads
-  // it on demand), but the foot says LOAD so a cold surface reads as such.
-  const notLoaded = v.loadState === 'unloaded';
   const accent = homeAccentFor(v.id);
-  // Single-menu policy: the opened panel replaces this surface, so there is no
+  // Single-menu policy: the opened menu replaces this view, so there is no
   // local state to reconcile afterwards. The cooldown only swallows a dead
   // double-click when the open never happens.
   const [cooling, setCooling] = useState(false);
@@ -221,7 +222,7 @@ function MenuCard({ view: v, tr, iconSrc, caption, issueId, onOpen, onOpenIssue 
 
   // A failed card is a live link to its issue, not a dead tile: the issue
   // explains the failure in words and owns the retry. Without an issue (an
-  // older host, or a failure nothing reported) it stays disabled as before.
+  // older OSF UI runtime, or a failure nothing reported) it stays disabled as before.
   const reviewable = failed && !!issueId;
 
   return (
@@ -262,9 +263,7 @@ function MenuCard({ view: v, tr, iconSrc, caption, issueId, onOpen, onOpenIssue 
           ? tr('failedReviewIssue', 'FAILED — REVIEW ISSUE ▸')
           : failed
             ? tr('failedSeeLog', 'FAILED — SEE OSF UI.LOG')
-            : notLoaded
-              ? tr('loadArrow', 'LOAD ▸')
-              : tr('openArrow', 'OPEN ▸')}
+            : tr('openArrow', 'OPEN ▸')}
       </span>
     </button>
   );

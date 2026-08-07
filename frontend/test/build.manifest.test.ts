@@ -44,8 +44,8 @@ describe.each(BUILD_VIEWS)('$mod/$name/manifest.json', (v) => {
 
   it('declares no "id"', () => {
     const manifest = load();
-    // The folder name IS the view id: the runtime derives the qualified id
-    // ("<modId>/<viewName>") from the path and ignores a declared "id". The
+    // The two folder segments define the qualified view id: the runtime derives
+    // "<modId>/<viewName>" from the path and ignores a declared "id". The
     // field is tolerated in third-party manifests for backward compatibility,
     // but our own should model the canonical id-less form.
     expect(manifest['id']).toBeUndefined();
@@ -67,9 +67,9 @@ describe.each(BUILD_VIEWS)('$mod/$name/manifest.json', (v) => {
 
     // The entry must stay at the view root, with no directory component.
     // index.html is authored relative to the document and `../../shared/
-    // osfui.js` is exactly two levels up from views/<mod>/<view>/. An entry in
+    // osfui.js` is exactly two levels up from views/<modId>/<viewName>/. An entry in
     // a subfolder (e.g. "html/index.html") resolves that to
-    // views/<mod>/shared/…, which does not exist: the shared kit never loads,
+    // views/<modId>/shared/…, which does not exist: the shared kit never loads,
     // window.osfui is never wired, the view is blank. The schema cannot
     // express this.
     expect(e.split(/[\\/]/).length).toBe(1);

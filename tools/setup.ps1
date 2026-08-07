@@ -5,11 +5,11 @@
 .DESCRIPTION
     Fetches the build-time dependencies that are NOT checked into the repo, so a
     fresh clone can build. Currently that is one thing: the Microsoft.Web.WebView2
-    SDK package, which the WebView2 renderer backend links its static loader from.
+    SDK package, which the WebView2 web renderer links its static loader from.
     `external/` is gitignored (a local SDK drop, not source), so every new clone
     starts without it and `xmake build` fails with:
 
-        OSFUI WebView2 host: unpack Microsoft.Web.WebView2 into external/webview2
+        OSFUI WebView2 browser host: unpack Microsoft.Web.WebView2 into external/webview2
         or set WEBVIEW2_SDK_DIR to the NuGet package root
 
     This script downloads that NuGet package (the SAME version CI pins) and

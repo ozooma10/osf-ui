@@ -32,14 +32,15 @@ namespace OSFUI
 		constexpr std::size_t kMaxQueuedEventsPerView = 64;
 
 		// Concurrent deferred requests one view may own. A page looping on
-		// request() against a slow backend hits `request-capacity` instead of
-		// growing host memory without bound.
+		// request() against a slow endpoint handler hits `request-capacity`
+		// instead of growing OSF UI runtime memory without bound.
 		constexpr std::size_t kMaxPendingRequestsPerView = 64;
 
-		// Host-side deadline for a deferred request. Longer than the helper's
+		// OSF UI runtime-side deadline for a deferred request. Longer than the helper's
 		// 10 s client timer on purpose: the two are distinguishable failures
-		// (`timeout` is "the page gave up", `no-response` is "the backend never
-		// answered"), and collapsing them would hide which side is broken.
+		// (`timeout` is "the page gave up", `no-response` is "the endpoint
+		// handler never answered"), and collapsing them would hide which side
+		// is broken.
 		constexpr auto kRequestDeadline = std::chrono::seconds(30);
 
 		[[nodiscard]] std::string BoundedEcho(std::string_view a_s)
@@ -158,7 +159,7 @@ namespace OSFUI
 		if (!msg || !msg->is_object()) {
 			// Unparseable: there is no id to correlate an error to, so the only
 			// honest channel is the log plus the offending view's own console.
-			Surface(a_viewId, "invalid-request", "malformed message", {});
+			ReportProtocolFault(a_viewId, "invalid-request", "malformed message", {});
 			NoteTracedReply("invalid-request");
 			finish();
 			return;
@@ -169,14 +170,14 @@ namespace OSFUI
 		_currentName = name;
 
 		if (kind != "send" && kind != "request") {
-			Surface(a_viewId, "invalid-request", "kind must be \"send\" or \"request\"",
+			ReportProtocolFault(a_viewId, "invalid-request", "kind must be \"send\" or \"request\"",
 				{ { "kind", BoundedEcho(kind) }, { "name", name } });
 			NoteTracedReply("invalid-request");
 			finish();
 			return;
 		}
 		if (name.empty()) {
-			Surface(a_viewId, "invalid-request", "a message needs a non-empty endpoint name",
+			ReportProtocolFault(a_viewId, "invalid-request", "a message needs a non-empty endpoint name",
 				{ { "kind", kind } });
 			NoteTracedReply("invalid-request");
 			finish();
@@ -189,7 +190,7 @@ namespace OSFUI
 		nlohmann::json payload = nlohmann::json::object();
 		if (const auto it = msg->find("payload"); it != msg->end() && !it->is_null()) {
 			if (!it->is_object()) {
-				Surface(a_viewId, "invalid-request", "payload must be an object",
+				ReportProtocolFault(a_viewId, "invalid-request", "payload must be an object",
 					{ { "kind", kind }, { "name", name } });
 				NoteTracedReply("invalid-request");
 				finish();
@@ -206,7 +207,7 @@ namespace OSFUI
 			// settlement it will never get, and answering one would resurrect
 			// the 1.x auto-ack.
 			if (hasId) {
-				Surface(a_viewId, "invalid-request", "send messages carry no id — use a request",
+				ReportProtocolFault(a_viewId, "invalid-request", "send messages carry no id — use a request",
 					{ { "name", name } });
 				NoteTracedReply("invalid-request");
 				finish();
@@ -218,7 +219,7 @@ namespace OSFUI
 		}
 
 		if (!hasId || !idIt->is_string()) {
-			Surface(a_viewId, "invalid-request", "requests carry a string id",
+			ReportProtocolFault(a_viewId, "invalid-request", "requests carry a string id",
 				{ { "name", name } });
 			NoteTracedReply("invalid-request");
 			finish();
@@ -226,7 +227,7 @@ namespace OSFUI
 		}
 		const auto& id = idIt->get_ref<const std::string&>();
 		if (id.empty() || id.size() > kMaxRequestIdLength) {
-			Surface(a_viewId, "invalid-request",
+			ReportProtocolFault(a_viewId, "invalid-request",
 				std::format("request id must be 1-{} characters", kMaxRequestIdLength),
 				{ { "name", name } });
 			NoteTracedReply("invalid-request");
@@ -254,16 +255,16 @@ namespace OSFUI
 		}
 		// Kind enforcement: executing a mutation whose kind the caller got
 		// wrong invites worse bugs, so the send is dropped. Dropping SILENTLY
-		// is the part 1.x got wrong — surface it.
+		// is the part 1.x got wrong — report it.
 		if (_requests.contains(a_name)) {
-			Surface(_currentSource, "wrong-endpoint-kind",
+			ReportProtocolFault(_currentSource, "wrong-endpoint-kind",
 				std::format("'{}' is a request endpoint — use request(), not send()", a_name),
 				{ { "name", a_name } });
 			NoteTracedReply("wrong-endpoint-kind");
 			return;
 		}
 		// Pages retry unregistered endpoints (polling), so warn once per name
-		// to avoid flooding the log. The page-side surface still fires every
+		// to avoid flooding the log. The page-side protocol-fault event still fires every
 		// time — the page needs it.
 		constexpr std::size_t kMaxWarnedEndpoints = 512;
 		if (_warnedUnknownEndpoints.size() < kMaxWarnedEndpoints &&
@@ -271,7 +272,7 @@ namespace OSFUI
 			REX::WARN("MessageBridge: [content] dropped send to unknown endpoint '{}' "
 					  "(further drops of this endpoint are not logged)", a_name);
 		}
-		Surface(_currentSource, "unknown-endpoint", "no such endpoint", { { "name", a_name } });
+		ReportProtocolFault(_currentSource, "unknown-endpoint", "no such endpoint", { { "name", a_name } });
 		NoteTracedReply("unknown-endpoint");
 	}
 
@@ -320,7 +321,7 @@ namespace OSFUI
 		}
 
 		// Capacity is checked before dispatch so a saturated view cannot make
-		// the host do the handler's work as well.
+		// the OSF UI runtime do the handler's work as well.
 		std::size_t owned = 0;
 		for (const auto& [_, req] : _pending) {
 			if (req.view == _currentSource) {
@@ -431,7 +432,7 @@ namespace OSFUI
 			return {};
 		}
 		_settled = true;
-		// Host-minted, never the page's id: see the header. Two documents both
+		// OSF UI runtime-minted, never the page's id: see the header. Two documents both
 		// numbering their first request "q1" must not share a slot.
 		auto token = "d" + std::to_string(_nextDeferToken++);
 		_pending[token] = Pending{
@@ -454,9 +455,9 @@ namespace OSFUI
 		const auto it = _pending.find(std::string(a_token));
 		if (it == _pending.end()) {
 			// Late or duplicate: the request already settled, expired, or went
-			// away with its view. Never deliver twice — but say so, because a
-			// backend answering just after the host deadline is otherwise
-			// invisible, and it looks identical to a backend that never
+			// away with its view. Never deliver twice — but say so, because an
+			// endpoint handler answering just after the OSF UI runtime deadline is otherwise
+			// invisible, and it looks identical to a handler that never
 			// answered at all.
 			REX::DEBUG("MessageBridge: dropped a reply for '{}' — already settled, expired, or its view is gone",
 				a_token);
@@ -614,16 +615,16 @@ namespace OSFUI
 		if (!_send || a_viewId.empty()) {
 			return;
 		}
-		// `version` is the running plugin version — the reference point every
+		// `version` is the running OSF UI release version — the reference point every
 		// advisory `targetVersion` (view manifests, settings schemas) and any
-		// view-side newer-host check compares against. `bridgeVersion` is the
+		// view-side newer-OSF-UI check compares against. `bridgeVersion` is the
 		// protocol version, informational. `view`/`mod` tell the document who
 		// it is, which is what makes a state key like "<mod>/<key>" writable
 		// without the page hardcoding its own id.
 		const nlohmann::json payload{
 			{ "game", "Starfield" },
 			{ "plugin", kPluginName },
-			{ "version", kPluginVersion },
+			{ "version", kOsfuiReleaseVersion },
 			{ "bridgeVersion", kBridgeProtocolVersion },
 			{ "view", std::string(a_viewId) },
 			{ "mod", std::string(Ids::ModOf(a_viewId)) },
@@ -698,30 +699,30 @@ namespace OSFUI
 			}
 		}
 		for (const auto& req : expired) {
-			REX::WARN("MessageBridge: '{}' from view '{}' missed the {}s host deadline",
+			REX::WARN("MessageBridge: '{}' from view '{}' missed the {}s OSF UI runtime deadline",
 				req.name, req.view, std::chrono::duration_cast<std::chrono::seconds>(kRequestDeadline).count());
 			// The PAGE's id, not the map key: a token the page never saw would
 			// settle nothing and the expiry would read as a hang.
 			if (_send && !req.view.empty()) {
-				_send(req.view, EncodeError(req.requestId, "no-response", "the backend never answered"));
+				_send(req.view, EncodeError(req.requestId, "no-response", "the endpoint handler never answered"));
 			}
-			// Not the view's fault: it asked correctly and the backend went
+			// Not the view's fault: it asked correctly and the endpoint handler went
 			// quiet. Reported to the page, never counted against it.
-			Surface(req.view, "no-response", "the backend never answered", { { "name", req.name } },
+			ReportProtocolFault(req.view, "no-response", "the endpoint handler never answered", { { "name", req.name } },
 				/*a_viewFault*/ false);
 		}
 	}
 
 	// -----------------------------------------------------------------------
-	// diagnostics
+	// protocol-fault reporting
 	// -----------------------------------------------------------------------
 
-	void MessageBridge::Surface(std::string_view a_viewId, std::string_view a_code, std::string_view a_message,
+	void MessageBridge::ReportProtocolFault(std::string_view a_viewId, std::string_view a_code, std::string_view a_message,
 		const nlohmann::json& a_detail, bool a_viewFault)
 	{
 		REX::WARN("MessageBridge: [content] view '{}': {} — {}", a_viewId, a_code, a_message);
-		if (_surface) {
-			_surface(a_viewId, a_code, a_message, a_detail, a_viewFault);
+		if (_protocolFaultSink) {
+			_protocolFaultSink(a_viewId, a_code, a_message, a_detail, a_viewFault);
 		}
 	}
 

@@ -6,7 +6,7 @@
 //
 // This file owns only the plumbing: the queues in both directions and the
 // primitives the mock runtime needs. The runtime itself is an ES module
-// (mock-runtime.js) pulled in by mock-loader.js — deferred, so any command
+// (mock-runtime.js) pulled in by mock-loader.js — deferred, so any outbound send or request
 // the view sends before the mock settles waits in `outbound` and is answered
 // once the runtime (or a full-takeover mock) is live. Nothing is dropped and
 // nothing races, whichever script flavor the view entry uses.
@@ -68,14 +68,14 @@
     flush,
     /** The queuing stub — runtimes compare against it to detect a takeover. */
     bridgeEntry: postMessage,
-    /** Install the command handler and drain everything the view already sent. */
+    /** Install the endpoint handler and drain every send/request the view already issued. */
     setHandler(next) {
       handler = next;
       while (outbound.length && handler) handler(outbound.shift());
     },
-    /** Tell the shell the page is up (drives its status line). */
-    ready() {
-      parent.postMessage({ source: SOURCE, kind: 'ready' }, location.origin);
+    /** Tell the shell preview-page setup has settled (drives its status line). */
+    previewInitialized() {
+      parent.postMessage({ source: SOURCE, kind: 'preview-initialized' }, location.origin);
     },
     /** Mock health for the shell status line / traffic panel. */
     status(ok, message) {

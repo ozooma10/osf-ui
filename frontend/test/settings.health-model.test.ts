@@ -18,7 +18,7 @@ import {
   severityForMod,
   sortIssues,
   type IssueRecord,
-} from '@lib/settings/diagnostics';
+} from '@lib/settings/health';
 
 const issue = (o: Partial<IssueRecord> & { id: string }): IssueRecord => ({
   code: 'view.load-failed',
@@ -155,6 +155,10 @@ describe('copyForIssue', () => {
     expect(target.actions).toContain('open-logs');
     expect(target.title[1]).toMatch(/hotkey action/i);
 
+    const protocol = copyForIssue(issue({ id: 'protocol', code: 'view.protocol-misuse' }));
+    expect(protocol.title[1]).toMatch(/view.*invalid OSF UI messages/i);
+    expect(protocol.actions).toEqual(['copy-details', 'open-logs']);
+
     const pre2 = copyForIssue(issue({ id: 'c', code: 'compat.pre-2-view' }));
     expect(pre2.impact[1]).toMatch(/kept it running.*removed.*2\.1\.0/i);
     expect(pre2.actions).toEqual(['copy-details', 'open-logs']);
@@ -199,7 +203,7 @@ describe('copyForIssue', () => {
 
   it('tells a mod source from a platform one by the mod-id dot', () => {
     expect(modIdOf(issue({ id: 'a', source: 'osf.animation' }))).toBe('osf.animation');
-    for (const platform of ['settings', 'views', 'host', 'render', 'compat', '']) {
+    for (const platform of ['input', 'settings', 'views', 'host', 'render', 'compat', '']) {
       expect(modIdOf(issue({ id: 'a', source: platform }))).toBeNull();
     }
   });

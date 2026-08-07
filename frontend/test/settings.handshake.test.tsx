@@ -1,20 +1,20 @@
 // @vitest-environment jsdom
 //
-// The Mods surface issues NO read, and depends on the handshake for nothing but
-// the version badge.
+// The Mod Settings view issues NO read, and depends on the handshake for nothing but
+// the OSF UI release-version badge.
 //
-// Regression history (2026-07-19, in-game "F10 opens an empty Mods surface"):
-// the greeting is a one-shot, and on the out-of-process WebView2 backend the
-// host that carries it may not exist yet, so it could be missed. The 1.x view
+// Regression history (2026-07-19, in-game "F10 opens an empty Mod Settings view"):
+// the greeting is a one-shot, and on the out-of-process browser-host rendering
+// path the browser host carrying it may not exist yet, so it could be missed. The 1.x view
 // gated its initial `settings.get` / `views.get` on that promise, so a missed
 // greeting meant the reads were never sent, the rail stayed empty, and nothing
 // anywhere reported an error. The 1.x fix was to re-issue the reads on the
-// `runtime.ready` edge, and this file pinned that re-issue.
+// legacy `runtime.ready` edge, and this file covered that re-issue.
 //
 // Protocol 2.0 deletes the failure mode instead of patching it: the four
 // catalogs are STATE keys replayed to every fresh document, and subscribing IS
 // the read. So this file now pins the opposite of what it used to — that no
-// read is issued on any path, and that the surface paints from the replay
+// read is issued on any path, and that the view paints from the replay
 // alone. `settings.get` / `views.get` / `diagnostics.get` / `i18n.get` are not
 // endpoints any more; a view that still called one would be answered
 // "unknown-endpoint".
@@ -25,7 +25,7 @@ import { WIDGETS, VIEWS } from './helpers/settingsFixtures';
 
 afterEach(unmount);
 
-/** What the host has already replayed to this document before the first paint. */
+/** What the OSF UI runtime has already replayed before this document's first paint. */
 const REPLAY = { 'osfui/settings': WIDGETS, 'osfui/views': VIEWS };
 
 /** The reads 2.0 deleted. None of these may ever leave the view again. */
@@ -39,7 +39,7 @@ describe('a handshake that never completes', () => {
 
     const names = bridge.outbound.map((m) => m.name);
     for (const read of DELETED_READS) expect(names).not.toContain(read);
-    // Positively: the only thing the surface says on mount is the back-action
+    // Positively: the only thing the view says on mount is the back-action
     // claim. Everything it KNOWS arrived without asking.
     expect(names).toEqual(['osfui.handleBack']);
   });
@@ -55,7 +55,7 @@ describe('a handshake that never completes', () => {
     expect(el.textContent).toContain('Acme Kit');
   });
 
-  it('leaves only the version badge blank', async () => {
+  it('leaves only the OSF UI release-version badge blank', async () => {
     const bridge = makeBridge({ state: REPLAY, readyNeverResolves: true });
     const el = await mount(bridge);
     await flush();
@@ -79,7 +79,7 @@ describe('a handshake that never completes', () => {
 });
 
 describe('a completed handshake', () => {
-  it('feeds the version badge, and nothing else', async () => {
+  it('feeds the OSF UI release-version badge, and nothing else', async () => {
     const bridge = makeBridge({ state: REPLAY, version: '2.0.0' });
     const el = await mount(bridge);
     await flush();
@@ -94,7 +94,7 @@ describe('a bridge that reports itself unavailable', () => {
   it('still paints the replayed state, and stays silent on the wire', async () => {
     // The 1.x version of this case was a race: the availability check ran before
     // the transport came up, so the reads were skipped and had to be re-issued
-    // on the `runtime.ready` edge. There is nothing to re-issue now, so the only
+    // on the legacy `runtime.ready` edge. There is nothing to re-issue now, so the only
     // remaining invariant is that rendering never depends on `available()`.
     const bridge = makeBridge({ state: REPLAY, available: false });
     const el = await mount(bridge);

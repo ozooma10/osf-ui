@@ -12,7 +12,7 @@ namespace OSFUI
 		// Scans a_viewsDir (two-level). Missing dir or bad manifests are
 		// logged, not fatal; folders violating the id grammar are hard-rejected
 		// with an ERROR.
-		void LoadAll(const std::filesystem::path& a_viewsDir);
+		void DiscoverAll(const std::filesystem::path& a_viewsDir);
 
 		// a_id is the qualified "<modId>/<viewName>" id.
 		[[nodiscard]] const ViewManifest* Find(std::string_view a_id) const;

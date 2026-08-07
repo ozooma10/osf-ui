@@ -110,7 +110,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		bool setupAttempted{ false };
 		bool setupOk{ false };
 
-		// GPU shared-ring transport (out-of-process WebView2 host). SetSharedRing
+		// GPU shared-ring transport (out-of-process browser host). SetSharedRing
 		// (game thread) parks the announced ring here; Submit adopts it once the
 		// engine device has been located. The compositor owns the handles from
 		// SetSharedRing on.
@@ -138,7 +138,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		std::atomic<std::uint64_t> seamDrawsFgTarget{ 0 };  // diagnostics
 		bool          noSharedFrameLogged{ false };  // ringMutex
 		// Newest slot whose produce fence is CPU-verified complete. The seam
-		// cannot queue-wait on the host's fence (not our queue), and skipping
+		// cannot queue-wait on the browser host's fence (not our queue), and skipping
 		// incomplete frames flickers under rapid production (mouse-move
 		// repaints, 2026-07-21) — so an incomplete newest frame falls back to
 		// this one instead: one frame stale, never absent.
@@ -162,7 +162,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		std::uint64_t   sharedGeneration{ 0 };
 		bool            sharedOpenFailed{ false };
 		// Latest published ring frame (guarded by frameMutex). sharedFrameReady
-		// stays false until the host has submitted its first shared-slot frame.
+		// stays false until the browser host has submitted its first shared-slot frame.
 		std::mutex    frameMutex;
 		std::uint64_t lastSubmittedIndex{ 0 };
 		bool          sharedFrameReady{ false };
@@ -409,7 +409,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				if (FAILED(hr) &&
 					!consumeSignalFailureLogged.exchange(true, std::memory_order_relaxed)) {
 					REX::ERROR("D3D12Compositor: queue-ordered consume-fence signal failed "
-							   "(hr=0x{:08X}); the host will drop frames instead of reusing a busy slot",
+							   "(hr=0x{:08X}); the browser host will drop frames instead of reusing a busy slot",
 						static_cast<std::uint32_t>(hr));
 				}
 			}
@@ -533,8 +533,8 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			if (!ok) {
 				const auto gameLuid = dev->GetAdapterLuid();
 				REX::ERROR("D3D12Compositor: OpenSharedHandle failed for {} (slot {}, hr=0x{:08X}); "
-					"game adapter LUID 0x{:08X}:0x{:08X}, host adapter LUID 0x{:08X}:0x{:08X} — "
-					"GPU frames from the WebView2 host cannot be composited",
+					"game adapter LUID 0x{:08X}:0x{:08X}, browser-host adapter LUID 0x{:08X}:0x{:08X} — "
+					"GPU frames from the browser host cannot be composited",
 					openObject, openSlot, static_cast<std::uint32_t>(openHr),
 					static_cast<std::uint32_t>(gameLuid.HighPart), gameLuid.LowPart,
 					pending.adapterLuidHigh, pending.adapterLuidLow);
@@ -779,10 +779,10 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			std::scoped_lock ring(ringMutex);
 			if (!ready) {
 				// Normally a brief startup transient: the overlay can be revealed
-				// on the frame the host publishes its first shared slot.
+				// on the frame the browser host publishes its first shared slot.
 				if (!noSharedFrameLogged) {
 					noSharedFrameLogged = true;
-					REX::DEBUG("D3D12Compositor: seam hand-off reached before the WebView2 host "
+					REX::DEBUG("D3D12Compositor: seam hand-off reached before the browser host "
 							   "published a shared-ring frame; nothing to draw yet");
 				}
 				return false;

@@ -261,6 +261,6 @@ export async function startGameSync(project, server, options = {}) {
   process.once('SIGTERM', async () => { await cleanup(); process.exit(143); });
   process.once('exit', cleanupSync);
   server.httpServer?.once('close', () => { void cleanup(); });
-  console.log('[osfui] Temporary author mode enabled for this session (automatic view reload, F12 DevTools).');
+  console.log('[osfui] Temporary developer mode enabled for this session via the author-mode marker (automatic view reload, F12 DevTools).');
   return { deployRoot, marker, cleanup };
 }

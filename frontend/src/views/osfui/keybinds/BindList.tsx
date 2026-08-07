@@ -5,7 +5,7 @@ import { matchesBindingFilter } from '@lib/keybinds/filter';
 import { compareBindings } from '@lib/keybinds/sort';
 import type { BindingRow } from '@lib/keybinds/model';
 import type { Translator } from '@lib/i18n';
-import type { InputContextState } from '@sdk';
+import type { EngineInputContextState } from '@sdk';
 import { Dropdown } from '@ui/Dropdown';
 import { HolderRow, holderInstanceId } from './HolderRow';
 import { matchesQuery } from './search';
@@ -22,16 +22,20 @@ export interface BindListProps {
   onSelect: (name: string) => void;
   filter: string;
   onFilter: (filter: string) => void;
-  inputContext: InputContextState | null;
+  engineInputContext: EngineInputContextState | null;
 }
 
 export function BindList(props: BindListProps) {
-  const { bindings, query, loaded, tr, capturingId, onRebind, onSelect, filter, onFilter, inputContext } = props;
+  const { bindings, query, loaded, tr, capturingId, onRebind, onSelect, filter, onFilter, engineInputContext } = props;
 
   // filter already returns a fresh array, so the in-place sort can't disturb
   // the model.
-  const rows = bindings.filter(matchesQuery(query)).filter((row) => matchesBindingFilter(row, filter, inputContext)).sort(compareBindings);
-  const categories = [...new Set(bindings.filter((b) => b.kind === 'game' && b.category).map((b) => b.category as string))];
+  const rows = bindings
+    .filter(matchesQuery(query))
+    .filter((row) => matchesBindingFilter(row, filter, engineInputContext))
+    .sort(compareBindings);
+  const categories = [...new Set(bindings.flatMap((binding) =>
+    binding.kind === 'game' && binding.category ? [binding.category] : []))];
   const filterOptions = [
     { value: 'all', label: tr('filterAll', 'All') },
     { value: 'active', label: tr('filterActive', 'Active now') },
@@ -96,7 +100,7 @@ export function BindList(props: BindListProps) {
               <p class="kb-hint">
                 {query
                   ? tr('noMatches', 'No bindings match.')
-                  : tr('noneRegistered', 'No key bindings registered.')}
+                  : tr('noneRegistered', 'No key bindings assigned.')}
               </p>
             )}
       </div>

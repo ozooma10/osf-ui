@@ -1,4 +1,4 @@
-// Host-side tests for the physical key identity core: ComposeScanCode's
+// Native desktop tests for the physical key identity core: ComposeScanCode's
 // message-quirk normalization (input/ScanCode.h), the kNamedScans name table
 // (input/KeyNames.cpp — full-table round-trip and the ≤16-char name
 // constraint from docs/authoring-views.md), the W3C KeyboardEvent.code alias

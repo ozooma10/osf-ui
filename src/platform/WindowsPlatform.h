@@ -8,7 +8,7 @@ namespace OSFUI::Platform
 {
 	// Localized keycap labels for the layout of a_gameWindow's thread — the
 	// thread whose WM_KEYDOWN stream capture and dispatch actually read (the
-	// host/Chromium process layout can drift independently; it is not the
+	// browser-host/Chromium process layout can drift independently; it is not the
 	// authority). nullptr falls back to this thread's layout. The HKL is
 	// re-read on every callable invocation, so a cached source stays correct
 	// across layout switches.
@@ -21,7 +21,7 @@ namespace OSFUI::Platform
 	// "don't care" bit clear. layoutTag: LCIDToLocaleName ("de-DE").
 	[[nodiscard]] KeyLabelSource MakeKeyLabelSource(void* a_gameWindow);
 
-	// Full path of the DLL this code is compiled into (not the host EXE).
+	// Full path of the DLL this code is compiled into (not the browser-host EXE).
 	// Returns an empty path on failure.
 	[[nodiscard]] std::filesystem::path GetThisModulePath();
 

@@ -7,7 +7,7 @@
   "properties": {
     "$schema": {
       "type": "string",
-      "description": "Optional editor hint; ignored by the runtime."
+      "description": "Optional editor hint; ignored by the OSF UI runtime."
     },
     "id": {
       "type": "string",
@@ -17,7 +17,7 @@
     },
     "title": {
       "type": "string",
-      "description": "English card header shown in the settings view. Defaults to id. Translation catalogs override it at settings.title; authors do not write localization keys."
+      "description": "English card header shown in Mod Settings. Defaults to id. Translation catalogs override it at settings.title; authors do not write localization keys."
     },
     "description": {
       "type": "string",
@@ -31,7 +31,7 @@
     "targetVersion": {
       "type": "string",
       "pattern": "^[0-9]+(\\.[0-9]+){0,2}$",
-      "description": "The OSF UI version this schema was authored against (e.g. \"2.0.0\") - the same advisory field as a view manifest's. A target NEWER than the running host badges 'needs update' on the Mods surface. A target BELOW 2.0 has no helper-shape effect because a settings schema executes nothing. Declare the release that first shipped whatever you rely on (tabbed `pages`, `onPress`, ...) so an older host tells the player to update instead of silently degrading — an unrecognized base type renders read-only at the schema default, and an unrecognized `pages` list collapses into the plain group column."
+      "description": "The OSF UI release version this schema was authored against (e.g. \"2.0.0\") - the same advisory field as a view manifest's. A target NEWER than the running OSF UI release badges 'needs update' in Mod Settings. A target BELOW 2.0 has no helper-shape effect because a settings schema executes nothing. Declare the release that first shipped whatever you rely on (tabbed `pages`, `onPress`, ...) so an older OSF UI release tells the player to update instead of silently degrading — an unrecognized base type renders read-only at the schema default, and an unrecognized `pages` list collapses into the plain group column."
     },
     "accent": {
       "type": "string",
@@ -40,7 +40,7 @@
     },
     "icon": {
       "type": "string",
-      "description": "Optional badge image, shown in the Mods surface rail and inside the Home launcher cards of this mod's views, in place of the title-initials monogram. A path inside the mod's own views namespace folder (views/<modId>/...), with the same sandbox rules as image rows' `src`: no '..', no absolute paths, no URL schemes, no percent-encoding. SVG or PNG; drawn at ~30-52px square (`object-fit: contain`)."
+      "description": "Optional badge image, shown in the Mod Settings rail and inside the Home launcher cards of this mod's views, in place of the title-initials monogram. A path inside the mod's own views namespace folder (views/<modId>/...), with the same sandbox rules as image rows' `src`: no '..', no absolute paths, no URL schemes, no percent-encoding. SVG or PNG; drawn at ~30-52px square (`object-fit: contain`)."
     },
     "presets": {
       "type": "array",
@@ -62,12 +62,12 @@
     },
     "inputContexts": {
       "type": "array",
-      "description": "Named key-binding contexts local to this mod. Referenced by key settings through inputContext. The implicit id gameplay is reserved and cannot be redefined.",
+      "description": "Authored hotkey contexts local to this mod. These are distinct from Starfield's live engine input contexts. Referenced by key settings through inputContext. The implicit id gameplay is reserved and cannot be redefined.",
       "items": { "$ref": "#/$defs/inputContext" }
     },
     "pages": {
       "type": "array",
-      "description": "Optional tabs for the mod's settings pane. Groups opt in via their `page` field; groups naming no (or an unknown) page collect on an implicit General tab painted first, and an unreferenced page renders no tab. Tabs engage only when they split content across at least two non-empty pages. Display-only annotation on the flat groups list - hosts that predate pages render the plain group column unchanged.",
+      "description": "Optional tabs for the mod's page in Mod Settings. Groups opt in via their `page` field; groups naming no (or an unknown) page collect on an implicit General tab painted first, and an unreferenced page renders no tab. Tabs engage only when they split content across at least two non-empty pages. Display-only annotation on the flat groups list - older OSF UI releases that predate pages render the plain group column unchanged.",
       "items": {
         "type": "object",
         "required": ["id"],
@@ -144,7 +144,7 @@
         "blocksGameplay": {
           "type": "boolean",
           "default": false,
-          "description": "Author assertion that Starfield gameplay bindings cannot fire while this context is active. Vanilla collisions are shown as expected shares; mod-to-mod collisions are still evaluated by gameplayModes overlap."
+          "description": "Author assertion that Starfield gameplay bindings cannot fire while this context is active. Game-binding collisions are shown as expected shares; mod-to-mod collisions are still evaluated by gameplayModes overlap."
         },
         "gameplayModes": {
           "type": "array",
@@ -209,7 +209,7 @@
         },
         "type": {
           "enum": ["bool", "int", "float", "enum", "string", "key", "flags"],
-          "description": "Control + validation kind. bool = toggle; int/float clamp to [min,max]; enum must be one of options; string truncates to maxLength; key = a rebindable key name captured by a press; flags = multi-select over options (value = array of option strings, filtered/deduped natively). Colour is NOT a type: use type:\"string\" + widget:\"color\". A schema using a newer base type should declare the matching schema-level targetVersion so older hosts show the 'needs update' badge."
+          "description": "Control + validation kind. bool = toggle; int/float clamp to [min,max]; enum must be one of options; string truncates to maxLength; key = a rebindable physical key name captured by a press; flags = multi-select over options (value = array of option strings, filtered/deduped natively). Colour is NOT a type: use type:\"string\" + widget:\"color\". A schema using a newer base type should declare the matching schema-level targetVersion so older OSF UI releases show the 'needs update' badge."
         },
         "default": {
           "description": "Initial value, used until the user changes it and on reset. Should match the type. The 'modified' indicator compares the live value against this."
@@ -298,7 +298,7 @@
       "properties": {
         "type": { "const": "image" },
         "id": { "type": "string", "minLength": 1, "description": "Optional stable localization identity; without it, the item index is used." },
-        "src": { "type": "string", "description": "Image path relative to the mod's own views/<id>/ folder. No '..', absolute paths, or URL schemes." },
+        "src": { "type": "string", "description": "Image path relative to the mod namespace folder views/<modId>/. No '..', absolute paths, or URL schemes." },
         "caption": { "type": "string", "description": "Optional English caption; localized at images.<id>.caption." },
         "height": { "type": "integer", "minimum": 1, "description": "Optional fixed display height in px." },
         "visibleWhen": { "$ref": "#/$defs/condition" }
@@ -314,7 +314,7 @@
         "hint": { "type": "string", "description": "Optional English helper text; localized at actions.<key>.hint." },
         "command": {
           "type": "string",
-          "description": "Bridge REQUEST endpoint fired on click. MUST be namespaced with the mod id (\"<id>.something\"); the surface refuses any other name, and refuses a leading segment from a framework namespace (ui, menu, hud, settings, views, game, runtime) even if a schema claims one as its id. Register it in your SFSE plugin with RegisterRequest, NOT RegisterSend — a button needs an outcome, and that is exactly what separates the two endpoint kinds; registering the name as a send instead makes the card's request come back `wrong-endpoint-kind` and the button report a failure. Settle it exactly once: Respond with an object — an optional string `message` is shown as a toast, `{}` is a silent success — or Reject with a code and sentence, which is shown as an error toast. The button sends { mod, key } and waits 5s; a handler that never settles rejects with `timeout`, which the surface renders as 'No response from <mod>'. Papyrus cannot serve an action row: it registers listeners for the fixed papyrus.send/papyrus.request endpoints, not for named endpoints of its own."
+          "description": "Compatibility field containing the bridge REQUEST endpoint name fired on click. It MUST be namespaced with the mod id (\"<id>.something\"); Mod Settings refuses any other name, and refuses a leading segment from a framework namespace (ui, menu, hud, settings, views, game, runtime) even if a schema claims one as its id. Register it in your SFSE plugin with RegisterRequest, NOT RegisterSend — a button needs an outcome, and that is exactly what separates the two endpoint kinds; registering the name as a send instead makes the card's request come back `wrong-endpoint-kind` and the button report a failure. Settle it exactly once: Respond with an object — an optional string `message` is shown as a toast, `{}` is a silent success — or Reject with a code and sentence, which is shown as an error toast. The button sends { mod, key } and waits 5s; a handler that never settles rejects with `timeout`, which Mod Settings renders as 'No response from <mod>'. Papyrus cannot serve an action row: it registers listeners for the fixed papyrus.send/papyrus.request endpoints, not for named endpoints of its own."
         },
         "style": { "enum": ["default", "accent", "danger"], "description": "Button tone (default 'default')." },
         "confirm": { "type": "string", "description": "English inline confirmation message; localized at actions.<key>.confirm." },

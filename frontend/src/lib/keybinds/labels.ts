@@ -3,7 +3,7 @@
 //
 // Names are the stable, layout-independent identity ("Semicolon" = a physical
 // position); labels are what the player's layout prints there ("Ö"). The map
-// is display-only and may be absent (older host, browser preview) — every
+// is display-only and may be absent (older OSF UI runtime, browser preview) — every
 // consumer falls back: chips fall back to the name, board cells to their
 // authored US glyph.
 

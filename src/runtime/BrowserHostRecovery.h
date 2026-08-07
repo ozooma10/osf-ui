@@ -5,10 +5,10 @@
 
 namespace OSFUI
 {
-	// Main-thread-only retry policy for a terminal out-of-process renderer
-	// failure. Transport teardown/restart stays in the renderer; this class owns
+	// Main-thread-only retry policy for a terminal browser-host connection
+	// failure. Transport teardown/restart stays in the web renderer; this class owns
 	// only bounded timing and the manual retry escape hatch.
-	class RendererHostRecovery
+	class BrowserHostRecovery
 	{
 	public:
 		enum class Phase

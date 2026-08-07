@@ -120,10 +120,12 @@ namespace OSFUI::API
 			}
 		}
 
-		[[nodiscard]] std::string_view Command() const noexcept
+		[[nodiscard]] std::string_view Name() const noexcept
 		{
 			return _request.command ? _request.command : "";
 		}
+		// Compatibility alias for the frozen Request::command field spelling.
+		[[nodiscard]] std::string_view Command() const noexcept { return Name(); }
 		[[nodiscard]] std::string_view SourceViewId() const noexcept
 		{
 			return _request.sourceViewId ? _request.sourceViewId : "";

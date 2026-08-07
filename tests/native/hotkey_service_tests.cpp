@@ -1,4 +1,4 @@
-// Host-side tests for the HotkeyService core (docs/mcm-design.md §9): the
+// Native desktop tests for the HotkeyService core: the
 // REAL src/runtime/HotkeyService.cpp + SettingsStore + KeyNames,
 // wired exactly like Runtime::BuildModules — registry rebuild on rebind and
 // registry shape change, suppression while the overlay captures / a rebind is
@@ -321,7 +321,7 @@ int main()
 		CHECK(s2.DataJson().find("\"conflicts\"") == std::string::npos);
 
 		// Without a resolver, Data() emits no conflict data and ConflictsFor
-		// finds none (host defensive default; the composition root always
+		// finds none (store defensive default; the composition root always
 		// wires one).
 		SettingsStore s3;
 		s3.LoadAll(schemaDir2, root2 / "values3");
@@ -329,9 +329,9 @@ int main()
 		CHECK(s3.ConflictsFor(vkF6, "t.delta", "unique").empty());
 	}
 
-	// --- vanilla hotkeys (§9 v1): "@game" pseudo-entries in the grouping ----------
+	// --- game bindings (§9 v1): "@game" pseudo-entries in the grouping ------------
 	{
-		const auto root3 = root / "vanilla";
+		const auto root3 = root / "game-bindings";
 		WriteFile(root3 / "settings" / "t.eta.json", R"json({
 			"id": "t.eta", "title": "Eta Mod",
 			"groups": [ { "settings": [
@@ -357,7 +357,7 @@ int main()
 		HotkeyService svc5;
 		s5.SetKeyNameResolver(ResolveKeyName);
 		s5.LoadAll(root3 / "settings", root3 / "values");
-		CHECK(s5.SetVanillaKeys({
+		CHECK(s5.SetGameBindings({
 			{ "QuickSave", "Starfield (Quicksave)", ResolveKeyName("F5"), "F5" },
 			{ "QuickLoad", "Starfield (Quickload)", ResolveKeyName("F9"), "F9" },
 			{ "Console", "Starfield (Console)", ResolveKeyName("Grave"), "Grave" },
@@ -407,15 +407,15 @@ int main()
 
 		// The player-facing warning toggle hides only game conflicts. The live
 		// internal game catalog and mod-to-mod diagnosis stay intact.
-		CHECK(s5.SetVanillaWarningsEnabled(false));
+		CHECK(s5.SetGameBindingWarningsEnabled(false));
 		const auto warningsOff = s5.Data();
 		CHECK(!warningsOff.contains("vanillaKeys"));
 		CHECK(!FindEmittedSetting(warningsOff, "t.zeta", "save")->contains("conflicts"));
 		CHECK(!FindEmittedSetting(warningsOff, "t.zeta", "other")->contains("conflicts"));
 		CHECK(ConflictsOf(FindEmittedSetting(warningsOff, "t.zeta", "scene")) ==
 			std::vector<std::string>{ "t.eta.globalSpace" });
-		CHECK(s5.SetVanillaWarningsEnabled(true));
-		CHECK(!s5.SetVanillaWarningsEnabled(true));
+		CHECK(s5.SetGameBindingWarningsEnabled(true));
+		CHECK(!s5.SetGameBindingWarningsEnabled(true));
 
 		// Metadata does not change dispatch: both mod bindings still fan out.
 		svc5.Rebuild(s5);
@@ -435,8 +435,8 @@ int main()
 		SettingsStore s6;
 		s6.SetKeyNameResolver(ResolveKeyName);
 		s6.LoadAll(root4 / "settings", root4 / "values");
-		CHECK(s6.SetVanillaKeys({ { "Jump", "Starfield (Jump)", ResolveKeyName("Space"), "Space" } }));
-		CHECK(!s6.SetVanillaKeys({ { "Jump", "Starfield (Jump)", ResolveKeyName("Space"), "Space" } }));
+		CHECK(s6.SetGameBindings({ { "Jump", "Starfield (Jump)", ResolveKeyName("Space"), "Space" } }));
+		CHECK(!s6.SetGameBindings({ { "Jump", "Starfield (Jump)", ResolveKeyName("Space"), "Space" } }));
 		CHECK(ConflictsOf(FindEmittedSetting(s6.Data(), "t.theta", "scene")) ==
 			std::vector<std::string>{ "@game.Jump" });
 

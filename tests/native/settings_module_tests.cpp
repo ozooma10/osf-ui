@@ -1,4 +1,4 @@
-// Host-side integration tests for the settings web path (protocol 2.0,
+// Native desktop integration tests for the settings web path (protocol 2.0,
 // docs/mod-api-2.0-design.md): the REAL SettingsModule + MessageBridge +
 // SettingsStore driven through actual 2.0 envelopes, with a capturing SendFn
 // standing in for the renderer.
@@ -7,8 +7,8 @@
 //   * `settings.get` is GONE. It was a read whose real job was to subscribe the
 //     caller, so the registry is now the `osfui/settings` STATE key — published
 //     to every view that has GREETED the bridge, and replayed to each fresh
-//     document by the host's hello hook (Runtime::OnViewGreeted). Every test
-//     below therefore boots its views the way the host does: OnViewCreated,
+//     document by the OSF UI runtime's hello hook (Runtime::OnViewGreeted). Every test
+//     below therefore boots its views the way the runtime does: OnViewCreated,
 //     then a page-initiated `osfui.hello`.
 //   * The module's `_subscribers` set is gone with it. Delivery scope is the
 //     bridge's greeted-view set, which is why an ungreeted view is the 2.0
@@ -60,15 +60,15 @@ namespace
 
 	std::vector<Sent> g_sent;
 
-	// Host-detected protocol misuse (MessageBridge::SetSurfaceFn). 2.0 routes it
+	// Bridge-detected protocol faults (MessageBridge::SetProtocolFaultSink). 2.0 routes them
 	// out of band instead of dropping the message silently the way 1.x did.
-	struct Misuse
+	struct ReportedProtocolFault
 	{
 		std::string view;
 		std::string code;
 	};
 
-	std::vector<Misuse> g_misuse;
+	std::vector<ReportedProtocolFault> g_protocolFaults;
 
 	std::vector<Sent> EventsTo(std::string_view a_view, std::string_view a_name)
 	{
@@ -137,7 +137,7 @@ namespace
 		a_bridge.HandleWebMessage(a_view, envelope.dump());
 	}
 
-	// Boot a view the way the host does: arm its (closed) event gate, then let
+	// Boot a view the way the OSF UI runtime does: arm its (closed) event gate, then let
 	// the DOCUMENT greet. The page-initiated handshake is the only boot path,
 	// so first open, F5 and crash-recovery reload are all this same sequence.
 	void Greet(OSFUI::MessageBridge& a_bridge, std::string_view a_view)
@@ -207,11 +207,11 @@ int main()
 										 msg.value("payload", nlohmann::json()),
 		});
 	});
-	bridge.SetSurfaceFn([](std::string_view a_view, std::string_view a_code, std::string_view,
+	bridge.SetProtocolFaultSink([](std::string_view a_view, std::string_view a_code, std::string_view,
 							const nlohmann::json&, bool) {
-		g_misuse.push_back(Misuse{ std::string(a_view), std::string(a_code) });
+		g_protocolFaults.push_back(ReportedProtocolFault{ std::string(a_view), std::string(a_code) });
 	});
-	// The host's whole hello obligation for this key (Runtime::OnViewGreeted):
+	// The OSF UI runtime's whole hello obligation for this key (Runtime::OnViewGreeted):
 	// publish the CURRENT registry straight to the greeting document. It does
 	// not route through any change-dedupe — a dedupe against the last change
 	// would send the second document to connect nothing at all.
@@ -313,8 +313,8 @@ int main()
 
 	// --- write authority (Ids::ResolveWritableMod) ---------------------------
 	// A view may only write its OWN mod's settings; naming a foreign mod is
-	// refused with `forbidden` and commits nothing. Only the built-in Mods
-	// surface and keybinds board may write cross-mod (their entire purpose).
+	// refused with `forbidden` and commits nothing. Only the built-in Mod Settings
+	// view and Keybindings view may write cross-mod (their entire purpose).
 	{
 		// t.keys/panel names t.alpha: refused, nothing pushed, value intact.
 		g_sent.clear();
@@ -352,22 +352,22 @@ int main()
 			CHECK(replies.size() == 1 && replies[0].payload["value"] == 1.25);
 		}
 
-		// The built-in Mods surface stays cross-mod capable (asserted throughout
+		// The built-in Mod Settings view stays cross-mod capable (asserted throughout
 		// this file: every osfui/settings write above targets t.alpha/t.keys).
 	}
 
 	// --- kind enforcement: a mutation sent as a `send` executes nothing -------
 	// The kind is what callers dispatch on, so a request endpoint reached with
-	// send() is dropped rather than run — and, unlike 1.x, the drop is SURFACED
+	// send() is dropped rather than run — and, unlike 1.x, the protocol fault is REPORTED
 	// to the offending view instead of vanishing.
 	{
 		g_sent.clear();
-		g_misuse.clear();
+		g_protocolFaults.clear();
 		const auto keep = *module.Store().GetValue("t.alpha", "scale");
 		Send(bridge, "osfui/settings", "settings.set",
 			{ { "mod", "t.alpha" }, { "key", "scale" }, { "value", 0.75 } });
-		CHECK(g_misuse.size() == 1 && g_misuse[0].code == "wrong-endpoint-kind");
-		CHECK(g_misuse.size() == 1 && g_misuse[0].view == "osfui/settings");
+		CHECK(g_protocolFaults.size() == 1 && g_protocolFaults[0].code == "wrong-endpoint-kind");
+		CHECK(g_protocolFaults.size() == 1 && g_protocolFaults[0].view == "osfui/settings");
 		CHECK(*module.Store().GetValue("t.alpha", "scale") == keep);  // not committed
 		CHECK(g_sent.empty());                                        // and nothing settled
 	}
@@ -398,7 +398,7 @@ int main()
 	CHECK(StateTo("t.alpha/other", "osfui", "settings").empty());
 	CHECK(StateTo("t.alpha/hud", "osfui", "settings").size() == 1);
 
-	// --- runtime registration: value replay + registry republish -------------
+	// --- native registration: value replay + registry republish --------------
 	g_sent.clear();
 	auto gamma = nlohmann::json::parse(R"json({
 		"id": "t.gamma", "title": "Gamma (runtime)",
@@ -461,7 +461,7 @@ int main()
 	CHECK(EventsTo("osfui/settings", "settings.changed").size() == 1);
 	CHECK(EventsTo("t.alpha/hud", "settings.changed").empty());  // destroyed above
 
-	// --- schema hot-reload (mcm-design §12.1) --------------------------------------
+	// --- schema hot-reload ---------------------------------------------------
 	{
 		// A reload (F5, dev hot reload, crash recovery) is just another greeting:
 		// the fresh document is replayed the current registry with nothing to

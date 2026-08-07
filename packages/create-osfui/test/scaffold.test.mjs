@@ -6,12 +6,12 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
-import { HOST_VERSION } from '@osfui/cli/constants';
+import { OSFUI_RELEASE_VERSION } from '@osfui/cli/constants';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CLI = resolve(HERE, '..', 'src', 'cli.mjs');
 
-for (const [surface, integration, backendPath, backendPattern] of [
+for (const [surface, integration, modBackendPath, modBackendPattern] of [
   ['menu', 'papyrus', 'mod/Scripts/Source/AcmeWidgetsOSFUI.psc', /Function Bump\(int total\) Global/],
   ['hud', 'papyrus', 'mod/Scripts/Source/AcmeWidgetsOSFUI.psc', /Function Refresh\(\) Global/],
   ['hud', 'native', 'native/src/main.cpp', /UpdateHudState/],
@@ -50,7 +50,7 @@ for (const [surface, integration, backendPath, backendPattern] of [
     assert.equal(packageJson.dependencies, undefined);
     assert.doesNotMatch(source, /preact/i);
     assert.match(config, new RegExp(`kind: '${surface}'`));
-    assert.match(config, new RegExp(`targetVersion: '${HOST_VERSION.replaceAll('.', '\\.')}`));
+    assert.match(config, new RegExp(`targetVersion: '${OSFUI_RELEASE_VERSION.replaceAll('.', '\\.')}`));
     assert.match(config, /description: 'Generated/);
     assert.match(config, /accent: '#7bdcff'/);
     // Only fields that differ from the CLI defaults are scaffolded.
@@ -81,7 +81,7 @@ for (const [surface, integration, backendPath, backendPattern] of [
         ? 'acme.widgets.getState'
         : 'osfui.papyrus.call';
     assert.match(source, new RegExp(sourceMarker.replaceAll('.', '\\.')));
-    assert.match(await readFile(resolve(root, backendPath), 'utf8'), backendPattern);
+    assert.match(await readFile(resolve(root, modBackendPath), 'utf8'), modBackendPattern);
 
     if (integration === 'papyrus') {
       const generatedPaths = await readdir(root, { recursive: true });
@@ -96,7 +96,7 @@ for (const [surface, integration, backendPath, backendPattern] of [
         'Papyrus presets must not generate a Spriggit project',
       );
       assert.equal(packageJson.scripts.setup, undefined);
-      const script = await readFile(resolve(root, backendPath), 'utf8');
+      const script = await readFile(resolve(root, modBackendPath), 'utf8');
       assert.match(script, /ScriptName AcmeWidgetsOSFUI Hidden/);
       assert.match(script, /Function Refresh\(\) Global/);
       assert.match(script, /SetViewInt/);
@@ -113,7 +113,7 @@ for (const [surface, integration, backendPath, backendPattern] of [
       if (surface === 'menu') {
         assert.match(readme, /## Build/);
         assert.match(readme, /## Debug/);
-        assert.match(readme, /Loaded views reload automatically; press F12 to open DevTools/);
+        assert.match(readme, /Instantiated views reload automatically; press F12 to open DevTools/);
         assert.doesNotMatch(readme, /SpriggitCLI\.zip/);
         assert.doesNotMatch(readme, /Spriggit\.CLI\.exe serialize/);
         assert.equal(readme.match(/npm run dev`/g)?.length, 1);
@@ -127,7 +127,7 @@ for (const [surface, integration, backendPath, backendPattern] of [
         assert.match(source, /osfui\.state\.on<number>\('acme\.widgets\/clicks'/);
         assert.match(source, /osfui\.state\.on<string>\('acme\.widgets\/greeting'/);
         // A recordless GLOBAL script has nowhere to accumulate, so the VIEW
-        // owns the running total and passes it in. Both backends then simply
+        // owns the running total and passes it in. Both mod backends then simply
         // publish what they were handed.
         assert.match(source, /osfui\.papyrus\.call\('AcmeWidgetsOSFUI', 'Bump', clickTotal \+ 1\)/);
         assert.match(source, /osfui\.on<\{ args: string\[\] \}>\('acme\.widgets\.notice'/);
@@ -136,7 +136,7 @@ for (const [surface, integration, backendPath, backendPattern] of [
         // The 1.x endpoint and its reply type are gone, not renamed in place.
         assert.doesNotMatch(source, /papyrus\.request|ui\.papyrusRequest/);
         assert.match(mock, /name === 'papyrus\.call'/);
-        // The browser mock is a SECOND implementation of the same demo backend.
+        // The browser mock is a SECOND implementation of the same demo mod backend.
         // The two silently disagreeing is worse than having no mock: the
         // harness then proves behavior the game will not reproduce. Pin the
         // three places they diverged.
@@ -160,7 +160,7 @@ for (const [surface, integration, backendPath, backendPattern] of [
           'utf8',
         ));
         assert.equal(schema.id, 'acme.widgets');
-        assert.equal(schema.targetVersion, HOST_VERSION);
+        assert.equal(schema.targetVersion, OSFUI_RELEASE_VERSION);
         assert.deepEqual(
           schema.groups[0].settings.map(({ key }) => key),
           ['hudEnabled', 'toggleHud', 'anchor', 'opacity'],
@@ -226,8 +226,8 @@ for (const [surface, integration, backendPath, backendPattern] of [
       assert.match(mock, /hud-event/);
       assert.match(mock, /hud-hotkey/);
       assert.match(source, /\.notice'/);
-      const backend = await readFile(resolve(root, backendPath), 'utf8');
-      assert.match(backend, integration === 'native' ? /PushHudNotice/ : /Function Refresh\(\) Global/);
+      const modBackend = await readFile(resolve(root, modBackendPath), 'utf8');
+      assert.match(modBackend, integration === 'native' ? /PushHudNotice/ : /Function Refresh\(\) Global/);
       assert.doesNotMatch(mock, /osfui\.hello/);
     } else {
       assert.doesNotMatch(config, /openOnStart: true/);
@@ -270,7 +270,7 @@ test('creates the settings/papyrus preset', async (t) => {
   const parent = await mkdtemp(resolve(tmpdir(), 'create-osfui-'));
   const root = resolve(parent, 'project');
   t.after(() => rm(parent, { recursive: true, force: true }));
-  // No --integration and no --view: the settings surface implies Papyrus and
+  // No --integration and no --view: the settings-only starter implies Papyrus and
   // ships no view at all.
   const result = spawnSync(process.execPath, [
     CLI, root, '--yes', '--no-install', '--mod-id', 'acme.widgets', '--surface', 'settings',
@@ -288,7 +288,7 @@ test('creates the settings/papyrus preset', async (t) => {
     resolve(root, 'mod/SFSE/Plugins/OSFUI/settings/acme.widgets.json'), 'utf8',
   ));
   assert.equal(schema.id, 'acme.widgets');
-  assert.equal(schema.targetVersion, HOST_VERSION);
+  assert.equal(schema.targetVersion, OSFUI_RELEASE_VERSION);
   const rows = schema.groups[0].settings;
   assert.deepEqual(rows.map(({ key }) => key), ['enabled', 'strength', 'mode', 'notifyKey']);
   // Papyrus cannot serve an action row's request, so the template must not
@@ -387,7 +387,7 @@ test('rejects an unknown flag instead of silently scaffolding defaults', async (
   const parent = await mkdtemp(resolve(tmpdir(), 'create-osfui-'));
   t.after(() => rm(parent, { recursive: true, force: true }));
   // "--surfce hud": with a camel-case-anything parser this scaffolded the
-  // default menu surface and exited 0 — the author finds out much later.
+  // default Menu starter and exited 0 — the author finds out much later.
   const result = spawnSync(process.execPath, [
     CLI,
     resolve(parent, 'project'),

@@ -452,7 +452,7 @@ code, pre, kbd, samp { font-family: var(--osf-font-mono); }
   color: var(--osf-text-faint); border: 1px solid var(--osf-line-strong);
 }
 
-/* Shared command-search and keyboard-hint patterns. */
+/* Shared search-field and keyboard-hint patterns. */
 .osf-search {
   position: relative; display: flex; align-items: center; min-width: 0;
   color: var(--osf-text-faint);

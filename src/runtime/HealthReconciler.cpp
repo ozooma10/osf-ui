@@ -1,4 +1,4 @@
-#include "runtime/DiagnosticsReconciler.h"
+#include "runtime/HealthReconciler.h"
 
 #include <algorithm>
 #include <tuple>
@@ -6,7 +6,7 @@
 
 namespace OSFUI
 {
-	void DiagnosticsReconciler::SyncSettings(DiagnosticsModule& a_diagnostics,
+	void HealthReconciler::SyncSettings(HealthRegistry& a_healthRegistry,
 		std::span<const SettingsLoadIssue> a_errors, double a_now)
 	{
 		std::vector<std::string> signatureParts;
@@ -36,20 +36,20 @@ namespace OSFUI
 				context["file"] = error.file;
 			}
 			context["message"] = error.message;
-			a_diagnostics.Upsert(DiagnosticsModule::IssueSpec{
+			a_healthRegistry.Upsert(HealthRegistry::IssueSpec{
 				.id = std::move(id),
 				.code = "settings." + error.kind,
 				.severity = error.kind == "values-parse" ?
-					DiagnosticsModule::Severity::Warning : DiagnosticsModule::Severity::Error,
+					HealthRegistry::Severity::Warning : HealthRegistry::Severity::Error,
 				.source = "settings",
 				.subject = subject,
 				.context = std::move(context),
 			}, a_now);
 		}
-		a_diagnostics.ResolveMissing("settings", live, a_now);
+		a_healthRegistry.ResolveMissing("settings", live, a_now);
 	}
 
-	void DiagnosticsReconciler::SyncCompatibility(DiagnosticsModule& a_diagnostics,
+	void HealthReconciler::SyncCompatibility(HealthRegistry& a_healthRegistry,
 		std::span<const CompatibilityTarget> a_targets,
 		std::string_view a_installedVersion, double a_now)
 	{
@@ -69,7 +69,7 @@ namespace OSFUI
 		std::string signature;
 		for (const auto& item : signatureTargets) {
 			signature += item.code + '|' + item.kind + ':' + item.id + '@' + item.targetVersion +
-				'#' + (item.severity == DiagnosticsModule::Severity::Error ? 'e' : 'w') +
+				'#' + (item.severity == HealthRegistry::Severity::Error ? 'e' : 'w') +
 				'>' + item.removalVersion + '%' + item.declaration + ';';
 		}
 		if (signature == _compatSignature) return;
@@ -88,7 +88,7 @@ namespace OSFUI
 			if (!item.removalVersion.empty()) {
 				context["removalVersion"] = item.removalVersion;
 			}
-			a_diagnostics.Upsert(DiagnosticsModule::IssueSpec{
+			a_healthRegistry.Upsert(HealthRegistry::IssueSpec{
 				.id = std::move(id),
 				.code = item.code,
 				.severity = item.severity,
@@ -97,10 +97,10 @@ namespace OSFUI
 				.context = std::move(context),
 			}, a_now);
 		}
-		a_diagnostics.ResolveMissing("compat", live, a_now);
+		a_healthRegistry.ResolveMissing("compat", live, a_now);
 	}
 
-	void DiagnosticsReconciler::ReportViewLoad(DiagnosticsModule& a_diagnostics,
+	void HealthReconciler::ReportViewLoad(HealthRegistry& a_healthRegistry,
 		std::string_view a_viewId, bool a_failed, std::string_view a_description,
 		int a_errorCode, std::uint32_t a_attemptsLeft, double a_now)
 	{
@@ -108,8 +108,8 @@ namespace OSFUI
 		const auto retrying = "view.load-retrying:" + id;
 		const auto failed = "view.load-failed:" + id;
 		if (!a_failed) {
-			a_diagnostics.Resolve(retrying, a_now);
-			a_diagnostics.Resolve(failed, a_now);
+			a_healthRegistry.Resolve(retrying, a_now);
+			a_healthRegistry.Resolve(failed, a_now);
 			return;
 		}
 		nlohmann::json context{
@@ -118,21 +118,21 @@ namespace OSFUI
 			{ "attemptsLeft", a_attemptsLeft },
 		};
 		if (a_attemptsLeft > 0) {
-			a_diagnostics.Upsert(DiagnosticsModule::IssueSpec{
+			a_healthRegistry.Upsert(HealthRegistry::IssueSpec{
 				.id = retrying,
 				.code = "view.load-retrying",
-				.severity = DiagnosticsModule::Severity::Warning,
+				.severity = HealthRegistry::Severity::Warning,
 				.source = "views",
 				.subject = id,
 				.context = std::move(context),
 			}, a_now);
 			return;
 		}
-		a_diagnostics.Resolve(retrying, a_now);
-		a_diagnostics.Upsert(DiagnosticsModule::IssueSpec{
+		a_healthRegistry.Resolve(retrying, a_now);
+		a_healthRegistry.Upsert(HealthRegistry::IssueSpec{
 			.id = failed,
 			.code = "view.load-failed",
-			.severity = DiagnosticsModule::Severity::Error,
+			.severity = HealthRegistry::Severity::Error,
 			.source = "views",
 			.subject = id,
 			.context = std::move(context),

@@ -205,7 +205,7 @@ namespace OSFUI::Platform
 		}
 		HMODULE module = nullptr;
 		// UNCHANGED_REFCOUNT: look the module up without taking a reference, so
-		// this can never keep a plugin pinned in the process.
+		// this can never keep a plugin loaded in the process.
 		if (!::GetModuleHandleExW(
 				GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
 				reinterpret_cast<LPCWSTR>(a_address),

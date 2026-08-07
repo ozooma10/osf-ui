@@ -11,7 +11,7 @@ namespace OSFUI
 	namespace
 	{
 
-		// Every key the parser reads. config.json is host-owned, so an unknown
+		// Every key the parser reads. config.json is OSF UI runtime-owned, so an unknown
 		// key is a typo, never version skew. Keep in lockstep with the reads below.
 		constexpr std::initializer_list<std::string_view> kKnownKeys = {
 			"configVersion", "enabled",
@@ -40,7 +40,7 @@ namespace OSFUI
 				return;
 			}
 			a_config.devMode = true;
-			REX::INFO("Config: temporary author mode enabled by {} (expires in {} seconds)",
+			REX::INFO("Config: temporary developer mode enabled by author-mode marker {} (expires in {} seconds)",
 				markerPath.string(), expiresAt - now);
 		}
 	}

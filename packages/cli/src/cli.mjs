@@ -39,13 +39,13 @@ function help() {
   console.log(`OSF UI view authoring
 
 Usage:
-  osfui dev [--view id] [--game] [--deploy path] [--host address] [--port n] [--open false]
+  osfui dev [--view name] [--game] [--deploy path] [--host address] [--port n] [--open false]
   osfui check
   osfui build
   osfui package [--output file]
   osfui doctor
 
-Loaded views reload automatically and F12 opens WebView2 DevTools while dev --game is running.`);
+Instantiated views reload automatically and F12 opens WebView2 DevTools while dev --game is running.`);
 }
 
 async function main() {

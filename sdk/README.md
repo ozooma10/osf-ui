@@ -14,13 +14,13 @@ needed.
 - [`OSFUI_API.h`](OSFUI_API.h) — the copyable C++ header for **SFSE plugin
   authors** (native bridge, C ABI 2.0). Consume it through the
   `OSFUI::API::Client` wrapper — it version-gates every call so a too-old
-  host degrades to false/no-op instead of undefined behavior.
+  OSF UI runtime degrades to false/no-op instead of undefined behavior.
 - [`OSFUI_JSON.h`](OSFUI_JSON.h) — optional header-only `nlohmann::json`
   parsing, response, state, and outbound-message conveniences. It compiles into
   the consuming plugin and does not change the dependency-free DLL ABI. See
   [docs/native-plugin-api.md](../docs/native-plugin-api.md).
 
-## Bridge protocol version
+## Web bridge protocol version
 
 **2.0 — stable.** Additive changes bump the minor; breaking changes bump the
 major. Declare the OSF UI version you authored against as `targetVersion` in
@@ -30,13 +30,13 @@ persistent warning that it is removed in 2.1.0.
 
 Both the web protocol and native C++ ABI make a breaking 2.0 cut. Native
 plugins should rebuild against ABI 2.0; during 2.0.x ABI 1.x callers receive a
-frozen 1.8 adapter and a bounded local Health warning naming the outdated DLL.
+frozen 1.8 adapter and a bounded System Health issue naming the outdated DLL.
 The adapter is removed in 2.1.0. ABI 2 sends use strict
 `RegisterSend` handlers and requests use `RegisterRequest`; there is no payload
 injection or automatic acknowledgement.
 
 The handshake is page-initiated: the document greets the bridge with
-`osfui.hello` and the host answers `ready`, then replays state. The shared helper
+`osfui.hello` and the OSF UI runtime answers `ready`, then replays state. The shared helper
 does the greeting for you on every document, so first open, F5, dev hot-reload
 and crash recovery are one path.
 
@@ -49,7 +49,7 @@ console.log("this document is", info.view, "of mod", info.mod);
 `bridgeVersion` is informational — gate on nothing, declare `targetVersion`.
 
 The version constants live in [`src/core/Version.h`](../src/core/Version.h)
-(`kPluginVersion`, `kBridgeProtocolVersion`); the envelopes and dispatch are in
+(`kOsfuiReleaseVersion`, `kBridgeProtocolVersion`); the envelopes and dispatch are in
 [`src/runtime/MessageBridge.cpp`](../src/runtime/MessageBridge.cpp). CI checks
 that the headline above still names the version the code claims — the "docs say
 0.1, code says 0.4" drift class is not allowed to recur.

@@ -146,23 +146,23 @@ namespace osfui::wv2
 		constexpr wchar_t kRuntimeDownloadUrl[] =
 			L"https://go.microsoft.com/fwlink/p/?LinkId=2124703";
 
-		// A missing Evergreen runtime leaves the overlay invisible, and players
+		// A missing WebView2 Evergreen Runtime leaves the overlay invisible, and players
 		// don't read logs — raise a real dialog. This process lives outside the
 		// game, so parking a throwaway thread in MessageBox is safe and topmost
-		// works over the (borderless) game window. At most one prompt per host.
+		// works over the (borderless) game window. At most one prompt per browser-host process.
 		void PromptInstallWebView2Runtime(Logger& a_log)
 		{
 			static std::atomic_bool prompted{ false };
 			if (prompted.exchange(true)) return;
 			a_log.Error(
-				"the WebView2 Evergreen runtime is not installed — showing the "
+				"the WebView2 Evergreen Runtime is not installed — showing the "
 				"install dialog (download: "
 				"https://go.microsoft.com/fwlink/p/?LinkId=2124703)");
 			std::thread([] {
 				const auto choice = ::MessageBoxW(nullptr,
 					L"OSF UI cannot start because the Microsoft Edge WebView2 "
 					L"Runtime is not installed on this PC.\n\n"
-					L"The in-game overlay (Mods menu / mod settings) will not "
+					L"The in-game overlay, including Mod Settings, will not "
 					L"appear without it.\n\n"
 					L"Open the download in your browser now? Run the downloaded "
 					L"\"MicrosoftEdgeWebview2Setup.exe\", then restart the game.",
@@ -176,10 +176,10 @@ namespace osfui::wv2
 			}).detach();
 		}
 
-		// Controller creation can fail after the runtime version probe and the
+		// Controller creation can fail after the WebView2 Runtime version probe and the
 		// environment callback have both succeeded. That leaves no browser surface
 		// in which to explain the problem, so use the same out-of-process native
-		// prompt as the missing-runtime path.
+		// prompt as the missing-WebView2-Runtime path.
 		void PromptRepairWebView2Runtime(Logger& a_log, HRESULT a_hr)
 		{
 			static std::atomic_bool prompted{ false };
@@ -220,11 +220,11 @@ namespace osfui::wv2
 			std::string      byeReason;  // overrides the default bye reason (STA thread only)
 			std::uint64_t    gameWindowMissingSince{ 0 };  // STA thread; 0 while HWND is valid
 
-			static constexpr std::size_t kMaxCommands = 1024;
-			static constexpr std::size_t kCommandsPerDrain = 128;
-			BoundedQueue<json> commands{ kMaxCommands };
+			static constexpr std::size_t kMaxGameMessages = 1024;
+			static constexpr std::size_t kGameMessagesPerDrain = 128;
+			BoundedQueue<json> gameMessages{ kMaxGameMessages };
 			std::atomic_bool pipeDead{ false };
-			std::atomic_bool commandOverflow{ false };
+			std::atomic_bool gameMessageOverflow{ false };
 			std::atomic_bool shutdownRequested{ false };
 			std::uint64_t nextHeartbeatAt{ 0 };  // STA thread only
 
@@ -240,7 +240,7 @@ namespace osfui::wv2
 			HWND bootstrapWindow{ nullptr };
 			HWND hostWindow{ nullptr };
 			WNDPROC hostWindowProc{ nullptr };
-			// A WNDPROC cannot carry state; one App exists per host process.
+			// A WNDPROC cannot carry state; one App exists per browser-host process.
 			static inline App* s_hostInputApp{ nullptr };
 			bool reparented{ false };
 
@@ -264,13 +264,13 @@ namespace osfui::wv2
 				bool hidden{ true };
 				// A standard HTML control (select, datalist, date/color picker)
 				// has asked Chromium to show native popup UI. That popup owns the
-				// next physical click, so the session-wide host capture must stand
+				// next physical click, so the session-wide browser-host capture must stand
 				// down until the page reports that the picker closed.
 				bool nativePopupOpen{ false };
 				// Warn-once latch for scripted (non-gesture) window.open attempts;
 				// they are dropped, and one log line per view is enough evidence.
 				bool nonGestureOpenWarned{ false };
-				// Page -> host traffic is untrusted even when nativeBridge=false:
+				// Page -> browser-host traffic is untrusted even when nativeBridge=false:
 				// every document can call chrome.webview.postMessage directly.
 				// Bound both individual messages and accepted rate before they
 				// allocate pipe/game-side queue entries.
@@ -285,7 +285,7 @@ namespace osfui::wv2
 				bool prewarmPending{ false };
 				std::uint64_t prewarmDeadline{ 0 };
 				// Explicit idle suspension is latched by the game. Attempts are async;
-				// activityGeneration plus the host-unique attempt id prevent a late
+				// activityGeneration plus the browser-host-unique attempt id prevent a late
 				// callback from re-suspending an active or newly recreated view.
 				bool suspendRequested{ false };
 				bool suspendInFlight{ false };
@@ -316,7 +316,7 @@ namespace osfui::wv2
 				std::deque<std::string> queuedPostWeb;
 			};
 			std::vector<std::unique_ptr<View>> views;  // creation order (= z tie-break)
-			View* active{ nullptr };  // mouse/focus/synthetic-key target
+			View* inputTarget{ nullptr };  // mouse/focus/synthetic-key target
 			bool  captureStarted{ false };
 			std::uint64_t nextSuspendAttemptId{ 1 };
 
@@ -327,7 +327,7 @@ namespace osfui::wv2
 			bool          captured{ false }, captureArmed{ false };
 			// Whether an input-capturing menu owns real OS focus. HUD-only views
 			// leave this false so Starfield stays foreground. During a grant the
-			// host HWND captures legacy mouse input; keyboard/IME route naturally
+			// browser-host HWND captures legacy mouse input; keyboard/IME route naturally
 			// to Chromium, and the game polls XInput independently of its suspended
 			// Windows.Gaming.Input stream.
 			bool          focusGranted{ false };
@@ -344,26 +344,26 @@ namespace osfui::wv2
 			static constexpr std::size_t kMaxEgressWarnsPerView = 32;
 			std::unordered_map<std::string, std::unordered_set<std::string>> egressWarned;
 			std::uint64_t accelEvents{ 0 };  // every AcceleratorKeyPressed callback (diagnostic)
-			// NOTE: the "key" command used to PostMessage into the Chromium widget
+			// NOTE: the "key" message used to PostMessage into the Chromium widget
 			// and mark each tap in a syntheticKeys map so AcceleratorKeyPressed
 			// would pass it to the page instead of round-tripping it to the game
 			// (a delegated Esc read as a fresh press caused an infinite ping-pong).
 			// Synthetic gamepad keys are delivered as DOM events by the bridge
 			// shim — no Win32 message or marker needed. Physical presses reach the
-			// accelerator path throughout an interactive-menu session.
+			// accelerator path throughout an input-capturing menu session.
 
-			// Rebind capture of character keys. AcceleratorKeyPressed, this host's
+			// Rebind capture of character keys. AcceleratorKeyPressed, this browser host's
 			// only key path, by design does not fire for keys that map to a character
 			// with neither Ctrl nor Alt held ("A key is considered an accelerator
 			// if ... the pressed key does not map to a character"), so F-keys, Esc
 			// and arrows rebind but letters and digits never reach the game. While a
 			// capture is armed, the Chromium focus widget's session subclass forwards
 			// WM_KEYDOWN over the same "accelerator" message. That subclass also
-			// catches focused WM_MOUSEWHEEL during interactive menus. It lives in the
-			// host rather than the game, so it cannot collide with SFSE WndProc hooks.
+			// catches focused WM_MOUSEWHEEL during input-capturing menus. It lives in the
+			// browser host rather than the game, so it cannot collide with SFSE WndProc hooks.
 			HWND    captureWidget{ nullptr };
 			WNDPROC captureWidgetProc{ nullptr };
-			// A WNDPROC cannot carry state and there is one App per host process.
+			// A WNDPROC cannot carry state and there is one App per browser-host process.
 			// Set only while the subclass is installed.
 			static inline App* s_app{ nullptr };
 
@@ -441,21 +441,21 @@ namespace osfui::wv2
 						break;
 					}
 
-					const auto coalesceKey = CommandCoalesceKey(type,
+					const auto coalesceKey = GameMessageCoalesceKey(type,
 						parsed.value("kind", std::string{}),
 						parsed.value("view", std::string{}));
 					const auto result =
-						commands.Push(std::move(parsed), coalesceKey);
-					if (result == decltype(commands)::PushResult::Full) {
-						commandOverflow.store(true, std::memory_order_release);
+						gameMessages.Push(std::move(parsed), coalesceKey);
+					if (result == decltype(gameMessages)::PushResult::Full) {
+						gameMessageOverflow.store(true, std::memory_order_release);
 						quit.store(true, std::memory_order_release);
 						log.Error(std::format(
-							"game command queue exceeded {} messages; closing the helper",
-							kMaxCommands));
+							"game-message queue exceeded {} messages; closing the browser host",
+							kMaxGameMessages));
 						::SetEvent(wakeEvent);
 						break;
 					}
-					if (result == decltype(commands)::PushResult::Closed) break;
+					if (result == decltype(gameMessages)::PushResult::Closed) break;
 					::SetEvent(wakeEvent);
 				}
 				pipeDead.store(true, std::memory_order_release);
@@ -486,7 +486,7 @@ namespace osfui::wv2
 			// hide-old + show-new in one policy batch, so applying it verbatim blanks
 			// the output for those frames. Instead: resume Chromium at once but keep
 			// the child visual hidden until the page confirms a painted frame
-			// (double-rAF sentinel posted as a web message the host intercepts), and
+			// (double-rAF sentinel posted as a web message the browser host intercepts), and
 			// hold the batch's hides until every pending reveal completes or times
 			// out — the old content stays up and the switch is one composition change.
 
@@ -654,7 +654,7 @@ namespace osfui::wv2
 							[](HRESULT, LPCWSTR) -> HRESULT { return S_OK; }).Get());
 				} else {
 					// No page to ask (still loading / no controller yet): show
-					// directly; the runtime's overlay reveal gate covers boot.
+					// directly; the OSF UI runtime's overlay reveal gate covers boot.
 					log.Info(std::format(
 						"view '{}': show — direct (visual={} webView={} domSeen={})", a_view.id,
 						a_view.visual != nullptr, a_view.webView != nullptr, a_view.domSeen));
@@ -835,7 +835,7 @@ namespace osfui::wv2
 							}
 							return S_OK;
 						});
-				// This host is intentionally windowless in practice: Chromium renders
+				// This browser host is intentionally windowless in practice: Chromium renders
 				// into a DirectComposition visual that WGC captures, while the native
 				// owner stays a visible 1x1 child so it cannot cover or intercept the
 				// game. Chromium's Windows occlusion tracker can classify that tiny
@@ -862,7 +862,7 @@ namespace osfui::wv2
 				// jumps — wheel feel then depends on which element the cursor is
 				// over. Disable it (under both names Chromium has shipped it —
 				// unknown feature names are ignored, so stale entries are harmless
-				// across runtime updates) while keeping the default smooth/impulse
+				// across WebView2 Runtime updates) while keeping the default smooth/impulse
 				// scroll ANIMATION, which is distance-neutral and reads well in-game.
 				constexpr wchar_t kCaptureBrowserArguments[] =
 					L"--disable-backgrounding-occluded-windows --disable-renderer-backgrounding "
@@ -878,13 +878,13 @@ namespace osfui::wv2
 					return false;
 				}
 				log.InfoFwd(
-					"WebView2 renderer and native-occlusion throttling disabled for the offscreen capture host");
+					"WebView2 renderer and native-occlusion throttling disabled for the offscreen capture browser host");
 				const auto hr = ::CreateCoreWebView2EnvironmentWithOptions(
 					nullptr, userData.c_str(), environmentOptions.Get(), callback.Get());
 				if (FAILED(hr)) {
 					log.Error(std::format("CreateCoreWebView2EnvironmentWithOptions failed (0x{:08X})",
 						static_cast<unsigned>(hr)));
-					// 0x80070002: the documented "runtime not found" result — a
+					// 0x80070002: the documented "WebView2 Runtime not found" result — a
 					// missing or broken Evergreen install that slipped past the
 					// startup version check.
 					if (hr == HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)) {
@@ -931,7 +931,7 @@ namespace osfui::wv2
 				}
 			}
 
-			// Window tree != process tree: parent this STA's host child under the
+			// Window tree != process tree: parent this STA's browser-host child under the
 			// game's top-level window so Win32 focus/IME routing works, while the
 			// browser processes stay outside the game's job/hooks. Runs once, on the
 			// first controller success.
@@ -952,7 +952,7 @@ namespace osfui::wv2
 				::SetWindowPos(hostWindow, nullptr, 0, 0, 1, 1,
 					SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOZORDER | SWP_FRAMECHANGED);
 				reparented = true;
-				log.InfoFwd("host window reparented beneath the game window (cross-process)");
+				log.InfoFwd("browser-host window reparented beneath the game window (cross-process)");
 				if (bootstrapWindow) {
 					::DestroyWindow(bootstrapWindow);
 					bootstrapWindow = nullptr;
@@ -1109,8 +1109,8 @@ namespace osfui::wv2
 				// document.hasFocus()=false — so focus styling (padnav's ring,
 				// any view's own focus affordances) silently doesn't render even
 				// though navigation works (2026-07-21 report: "arrows/gamepad
-				// don't move focus"; they did — invisibly). Emulate a focused,
-				// active page at the CDP layer. Interactive menus additionally get
+				// don't move focus"; they did — invisibly). Emulate document focus at
+				// the CDP layer. Input-capturing menus additionally get
 				// real focus for their full session.
 				a_view.webView->CallDevToolsProtocolMethod(
 					L"Emulation.setFocusEmulationEnabled", LR"({"enabled":true})",
@@ -1132,7 +1132,7 @@ namespace osfui::wv2
 				log.InfoFwd(std::format("view '{}': controller ready ({} view(s) hosted)",
 					a_view.id, views.size()));
 				DrainQueuedViewWork(a_view);
-				if (focusGranted && active == &a_view && !a_view.hidden) {
+				if (focusGranted && inputTarget == &a_view && !a_view.hidden) {
 					a_view.controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
 				}
 				ReconcileInputWidgetSubclass();
@@ -1169,7 +1169,7 @@ namespace osfui::wv2
 			// it rejects https://osfui.local.evil.com/ and userinfo tricks like
 			// https://osfui.local@evil.com/ without parsing the URI.
 			// The decision itself lives in Wv2LocalUri.h so tests/native can
-			// exercise it without a Windows host process.
+			// exercise it without a Windows browser-host process.
 			[[nodiscard]] bool IsLocalViewUri(std::wstring a_uri) const
 			{
 				return osfui::wv2::IsLocalViewUri(std::move(a_uri), virtualHost);
@@ -1301,8 +1301,8 @@ namespace osfui::wv2
 				a_view.compositionController->add_CursorChanged(
 					Callback<ICoreWebView2CursorChangedEventHandler>(
 						[this, view](ICoreWebView2CompositionController* a_sender, ::IUnknown*) -> HRESULT {
-							// Only the active view drives the real OS pointer.
-							if (view != active) return S_OK;
+							// Only the input-target view drives the real OS pointer.
+							if (view != inputTarget) return S_OK;
 							UINT32 id = 0;
 							if (SUCCEEDED(a_sender->get_SystemCursorId(&id))) {
 								Send(json{ { "type", "cursor" }, { "id", id } });
@@ -1424,24 +1424,24 @@ namespace osfui::wv2
 							}
 							++view->pageMessagesThisWindow;
 							if (text.starts_with(kRevealSentinelPrefix)) {
-								// Host-internal paint handshake; not forwarded.
+								// Browser-host-internal paint handshake; not forwarded.
 								if (view->revealPending && text == view->revealToken) {
 									CompleteReveal(*view, /*a_timedOut=*/false);
 								}
 								return S_OK;
 							}
 							if (text == kPrewarmSentinel) {
-								// Host-internal one-shot warmup; not forwarded.
+								// Browser-host-internal one-shot warmup; not forwarded.
 								CompletePrewarm(*view);
 								return S_OK;
 							}
 							static constexpr std::string_view kNativePopupPrefix = "__osfuiNativePopup:";
 							if (text.starts_with(kNativePopupPrefix)) {
-								// Host-internal input handshake; authored controls
+								// Browser-host-internal input handshake; authored controls
 								// must be able to use Chromium's standard popup UI.
 								view->nativePopupOpen =
 									text.substr(kNativePopupPrefix.size()) == "1";
-								if (active == view) ApplyMouseCapture();
+								if (inputTarget == view) ApplyMouseCapture();
 								return S_OK;
 							}
 							if (!view->bridge) return S_OK;
@@ -1454,7 +1454,7 @@ namespace osfui::wv2
 						[this, view](ICoreWebView2*,
 							ICoreWebView2NewWindowRequestedEventArgs* a_args) -> HRESULT {
 							// Views are local content; a target="_blank" link (e.g. the
-							// settings view's "needs update" tag pointing at Nexus) means
+							// Mod Settings "needs update" tag pointing at Nexus) means
 							// "leave the game". Unhandled, WebView2 would spawn a popup
 							// window over the game instead.
 							a_args->put_Handled(TRUE);
@@ -1538,8 +1538,8 @@ namespace osfui::wv2
 								// The whole environment died with the browser process;
 								// every controller is dead COM and a Navigate cannot
 								// revive anything. Exit so the pipe drop reaches the
-								// game's host-death path (overlay hidden, logged)
-								// instead of leaving a zombie host the game still
+								// OSF UI runtime's browser-host-loss path (overlay hidden, logged)
+								// instead of leaving a zombie browser host the game still
 								// believes in.
 								byeReason = "browser-process-exited";
 								quit.store(true);
@@ -1657,7 +1657,7 @@ namespace osfui::wv2
 						captureCadenceHz = desiredHz;
 						log.Info(std::format(
 							"WGC cadence -> {} mode, up to {} Hz ({:.3f} ms)",
-							focusGranted ? "interactive" : "HUD",
+							focusGranted ? "input-capturing menu" : "HUD",
 							desiredHz,
 							std::chrono::duration<double, std::milli>(applied).count()));
 					} else {
@@ -1688,7 +1688,7 @@ namespace osfui::wv2
 						});
 					captureSession = framePool.CreateCaptureSession(captureItem);
 					try { captureSession.IsCursorCaptureEnabled(false); } catch (...) {}
-					// Interactive menus get a permissive ceiling so capture can follow a
+					// Input-capturing menus get a permissive ceiling so capture can follow a
 					// high-refresh foreground WebView. HUD-only mode is deliberately capped
 					// at 60 Hz to bound capture/copy pressure while gameplay owns the GPU.
 					ApplyCaptureCadence();
@@ -1733,7 +1733,7 @@ namespace osfui::wv2
 				}
 			}
 
-			// Command handling; STA thread.
+			// Game-message handling; STA thread.
 
 			void DrainQueuedViewWork(View& a_view)
 			{
@@ -1779,11 +1779,11 @@ namespace osfui::wv2
 				if (!a_view.controller) return;
 				ComPtr<ICoreWebView2Controller4> controller4;
 				if (FAILED(a_view.controller.As(&controller4)) || !controller4) {
-					// Pre-1.0.1108 runtime: no rasterization scale to set, so the page
+					// Pre-1.0.1108 WebView2 Runtime: no rasterization scale to set, so the page
 					// renders unscaled. Logged once per view so an odd-looking overlay
 					// is traceable.
 					log.Warn(std::format("view '{}': ICoreWebView2Controller4 unavailable — "
-						"rasterization scale not applied (WebView2 runtime too old)", a_view.id));
+						"rasterization scale not applied (WebView2 Runtime too old)", a_view.id));
 					return;
 				}
 				controller4->put_ShouldDetectMonitorScaleChanges(FALSE);
@@ -1824,19 +1824,19 @@ namespace osfui::wv2
 				// (PublishFrame -> EnsureRing).
 			}
 
-			/// The active view's Chromium widget: the HWND that holds keyboard
-			/// focus during an interactive-menu session. The session input path
+			/// The input-target view's Chromium widget: the HWND that holds keyboard
+			/// focus during an input-capturing menu session. The session input path
 			/// subclasses it for wheel/rebind messages (synthetic keys are DOM events).
-			HWND FindActiveWidget() const
+			HWND FindInputTargetWidget() const
 			{
 				HWND widget = ::GetFocus();
-				if (active && active->window && widget &&
-					(widget == active->window || ::IsChild(active->window, widget))) {
+				if (inputTarget && inputTarget->window && widget &&
+					(widget == inputTarget->window || ::IsChild(inputTarget->window, widget))) {
 					return widget;
 				}
 				widget = nullptr;
-				if (active && active->window) {
-					::EnumChildWindows(active->window, [](HWND a_hwnd, LPARAM a_param) -> BOOL {
+				if (inputTarget && inputTarget->window) {
+					::EnumChildWindows(inputTarget->window, [](HWND a_hwnd, LPARAM a_param) -> BOOL {
 						wchar_t name[128]{};
 						::GetClassNameW(a_hwnd, name, static_cast<int>(std::size(name)));
 						if (std::wstring_view(name).starts_with(L"Chrome_WidgetWin_")) {
@@ -1855,9 +1855,9 @@ namespace osfui::wv2
 			void ReconcileInputWidgetSubclass()
 			{
 				if (captureArmed || focusGranted) {
-					HWND widget = FindActiveWidget();
+					HWND widget = FindInputTargetWidget();
 					if (!widget || widget == captureWidget) return;
-					RemoveCaptureSubclass();  // a different view is active now
+					RemoveCaptureSubclass();  // the input target changed
 					s_app = this;             // before install: the proc may run immediately
 					auto* previous = reinterpret_cast<WNDPROC>(::SetWindowLongPtrW(
 						widget, GWLP_WNDPROC,
@@ -1875,7 +1875,7 @@ namespace osfui::wv2
 
 			[[nodiscard]] bool SendFocusedMouseWheel(WPARAM a_wparam)
 			{
-				if (!focusGranted || !active || !active->compositionController) {
+				if (!focusGranted || !inputTarget || !inputTarget->compositionController) {
 					return false;
 				}
 				// Raw input is the authoritative physical-wheel source while native
@@ -1886,7 +1886,7 @@ namespace osfui::wv2
 				const auto delta = static_cast<SHORT>(HIWORD(a_wparam));
 				if (delta == 0) return false;
 				const POINT at = LiveWheelPoint();
-				active->compositionController->SendMouseInput(
+				inputTarget->compositionController->SendMouseInput(
 					COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL,
 					static_cast<COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS>(
 						static_cast<UINT32>(LOWORD(a_wparam))),
@@ -1910,7 +1910,7 @@ namespace osfui::wv2
 				s_app = nullptr;  // after the restore above, never before
 			}
 
-			/// Runs on the host's UI thread (the widget's own thread, same one as the
+			/// Runs on the browser host's UI thread (the widget's own thread, same one as the
 			/// message pump), so it touches app state directly.
 			static LRESULT CALLBACK CaptureWndProc(
 				HWND a_hwnd, UINT a_msg, WPARAM a_wparam, LPARAM a_lparam)
@@ -1949,7 +1949,7 @@ namespace osfui::wv2
 			void ApplyMouseCapture()
 			{
 				const bool captureForPage =
-					focusGranted && (!active || !active->nativePopupOpen);
+					focusGranted && (!inputTarget || !inputTarget->nativePopupOpen);
 				if (captureForPage && hostWindow) {
 					if (::GetCapture() != hostWindow) {
 						::SetCapture(hostWindow);
@@ -1972,7 +1972,7 @@ namespace osfui::wv2
 					.hwndTarget = a_enabled ? hostWindow : nullptr
 				};
 				if (!::RegisterRawInputDevices(&rawDevice, 1, sizeof(rawDevice))) {
-					log.Warn(std::format("{} host raw mouse input failed ({}) — "
+					log.Warn(std::format("{} browser-host raw mouse input failed ({}) — "
 						"mouse wheel will use the legacy/game fallback",
 						a_enabled ? "registering" : "removing", ::GetLastError()));
 					return;
@@ -1984,7 +1984,7 @@ namespace osfui::wv2
 			/// The wheel must scroll whatever the page shows under the visible
 			/// cursor, and `capturedMouseX/Y` cannot be trusted for that: it has
 			/// two writers (the captured-HWND scaler and game-pipe moves carrying
-			/// the runtime's virtual cursor), and whichever wrote last wins — a
+			/// the OSF UI runtime's virtual cursor), and whichever wrote last wins — a
 			/// stale or drifted pipe move parks it at the clamp corner and every
 			/// wheel notch then targets a dead pixel. Same scaling math as
 			/// SendCapturedMouse; falls back to the cache only when the game
@@ -2011,8 +2011,8 @@ namespace osfui::wv2
 
 			void SendRawMouseWheel(LPARAM a_lparam)
 			{
-				if (!focusGranted || !rawMouseRegistered || !active ||
-					!active->compositionController) {
+				if (!focusGranted || !rawMouseRegistered || !inputTarget ||
+					!inputTarget->compositionController) {
 					return;
 				}
 				UINT size = 0;
@@ -2031,7 +2031,7 @@ namespace osfui::wv2
 				const auto delta = static_cast<SHORT>(raw.data.mouse.usButtonData);
 				if (delta == 0) return;
 				const POINT at = LiveWheelPoint();
-				active->compositionController->SendMouseInput(
+				inputTarget->compositionController->SendMouseInput(
 					COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL,
 					COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE,
 					static_cast<UINT32>(delta), at);
@@ -2040,7 +2040,7 @@ namespace osfui::wv2
 			[[nodiscard]] bool SendCapturedMouse(
 				UINT a_msg, WPARAM a_wparam, LPARAM a_lparam)
 			{
-				if (!focusGranted || !active || !active->compositionController ||
+				if (!focusGranted || !inputTarget || !inputTarget->compositionController ||
 					!hostWindow || !gameTopLevel) {
 					return false;
 				}
@@ -2053,7 +2053,7 @@ namespace osfui::wv2
 					static_cast<SHORT>(HIWORD(a_lparam))
 				};
 				// Wheel messages carry screen coordinates; the other legacy mouse
-				// messages are relative to our captured 1x1 host HWND.
+				// messages are relative to our captured 1x1 browser-host HWND.
 				if (a_msg != WM_MOUSEWHEEL) {
 					::ClientToScreen(hostWindow, &point);
 				}
@@ -2088,7 +2088,7 @@ namespace osfui::wv2
 					static_cast<UINT32>(LOWORD(a_wparam)));
 				const auto data = a_msg == WM_MOUSEWHEEL ?
 					static_cast<UINT32>(static_cast<SHORT>(HIWORD(a_wparam))) : 0u;
-				active->compositionController->SendMouseInput(
+				inputTarget->compositionController->SendMouseInput(
 					eventKind, keys, data, POINT{ x, y });
 				return true;
 			}
@@ -2107,8 +2107,8 @@ namespace osfui::wv2
 						// mouse packets on which to apply CursorChanged. Apply the
 						// composition controller's current CSS system cursor here.
 						UINT32 id = 0;
-						if (self->active && self->active->compositionController &&
-							SUCCEEDED(self->active->compositionController->get_SystemCursorId(&id))) {
+						if (self->inputTarget && self->inputTarget->compositionController &&
+							SUCCEEDED(self->inputTarget->compositionController->get_SystemCursorId(&id))) {
 							HCURSOR cursor = id == 0 ? nullptr : ::LoadCursorW(
 								nullptr, MAKEINTRESOURCEW(id));
 							if (id != 0 && !cursor) {
@@ -2129,19 +2129,19 @@ namespace osfui::wv2
 
 			void SendMouse(const json& a_msg)
 			{
-				// Mouse always targets the active view: the runtime routes input to
-				// the top menu, so sibling views never see the pointer.
-				if (!active || !active->compositionController) return;
+				// Mouse always targets the input-target view. The OSF UI runtime selects the
+				// active menu, so sibling views never see the pointer.
+				if (!inputTarget || !inputTarget->compositionController) return;
 				const std::string kind = a_msg.value("kind", "move");
 				const bool physicalWheel = kind == "physicalWheel";
-				// Prefer direct host raw input and discard the later game-pipe
+				// Prefer direct browser-host raw input and discard the later game-pipe
 				// fallback so one physical notch scrolls exactly once.
 				if (physicalWheel && rawMouseRegistered) return;
 				int x = a_msg.value("x", 0);
 				int y = a_msg.value("y", 0);
-				// Right-stick scrolling still arrives over the pipe. Once the host
+				// Right-stick scrolling still arrives over the pipe. Once the browser host
 				// owns physical mouse capture, target the real pointer sampled at
-				// send time rather than the game runtime's now-stale WM_INPUT
+				// send time rather than the game-window path's now-stale WM_INPUT
 				// position (see LiveWheelPoint for why the cache cannot be used).
 				if (focusGranted && (kind == "wheel" || physicalWheel)) {
 					const POINT at = LiveWheelPoint();
@@ -2173,21 +2173,21 @@ namespace osfui::wv2
 							COREWEBVIEW2_MOUSE_EVENT_KIND_MIDDLE_BUTTON_UP;
 					}
 				}
-				active->compositionController->SendMouseInput(eventKind,
+				inputTarget->compositionController->SendMouseInput(eventKind,
 					COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE, data, POINT{ x, y });
 			}
 
-#include "HostCommands.inl"
+#include "GameMessages.inl"
 
-			void DrainCommands()
+			void DrainGameMessages()
 			{
-				decltype(commands)::Item item;
+				decltype(gameMessages)::Item item;
 				std::size_t drained = 0;
-				while (drained < kCommandsPerDrain && commands.TryPop(item)) {
-					HandleCommand(item.value);
+				while (drained < kGameMessagesPerDrain && gameMessages.TryPop(item)) {
+					HandleGameMessage(item.value);
 					++drained;
 				}
-				if (commands.Size() != 0) ::SetEvent(wakeEvent);
+				if (gameMessages.Size() != 0) ::SetEvent(wakeEvent);
 				// Hides deferred within this batch apply now, unless a reveal is
 				// still waiting on its incoming view's first painted frame.
 				if (!AnyRevealPending()) ApplyDeferredHides();
@@ -2231,7 +2231,7 @@ namespace osfui::wv2
 					DestroyOneView(*view);
 				}
 				views.clear();
-				active = nullptr;
+				inputTarget = nullptr;
 				environment.Reset();
 				captureStarted = false;
 			}
@@ -2294,7 +2294,7 @@ namespace osfui::wv2
 							// The game may have recreated its top-level window
 							// (display-device change, fullscreen transition) rather
 							// than exited. Re-resolve by PID before concluding it is
-							// gone; visible-only, so the game's hidden helper windows
+							// gone; visible-only, so the game's hidden utility windows
 							// (DXGI, IME) cannot satisfy the check forever.
 							struct FindCtx { DWORD pid; HWND found; } findCtx{
 								::GetProcessId(gameProcess), nullptr };
@@ -2330,7 +2330,7 @@ namespace osfui::wv2
 						} else {
 							gameWindowMissingSince = 0;
 						}
-						DrainCommands();
+						DrainGameMessages();
 						TickReveals();
 						TickSuspends();
 						MSG message{};
@@ -2374,7 +2374,7 @@ namespace osfui::wv2
 				}
 				pipe.Close();
 				if (reader.joinable()) reader.join();
-				log.Info(std::format("host exiting (code {})", exitCode));
+				log.Info(std::format("browser host exiting (code {})", exitCode));
 				return exitCode;
 			}
 		};
@@ -2405,12 +2405,12 @@ namespace osfui::wv2
 			::GetCurrentProcessId(), a_options.gamePid, ToUtf8(a_options.pipeName),
 			elevated ? "yes" : "no", ToUtf8(exePath)));
 
-		// Production permits exactly one host per game process.
+		// Production permits exactly one browser host per game process.
 		const auto mutexName =
 			std::format(L"Local\\osfui-wv2-host-{}", a_options.gamePid);
 		const HANDLE instanceMutex = ::CreateMutexW(nullptr, TRUE, mutexName.c_str());
 		if (!instanceMutex || ::GetLastError() == ERROR_ALREADY_EXISTS) {
-			app.log.Error("another host instance is already running for this game pid");
+			app.log.Error("another browser-host instance is already running for this game pid");
 			return 3;
 		}
 
@@ -2445,7 +2445,7 @@ namespace osfui::wv2
 			if (error == ERROR_ACCESS_DENIED) {
 				message += std::format(
 					" — access denied: the game is likely running elevated (as "
-					"administrator) while this host is not (elevated={}); run the "
+					"administrator) while this browser host is not (elevated={}); run the "
 					"game/MO2 without administrator rights",
 					elevated ? "yes" : "no");
 			}
@@ -2454,20 +2454,20 @@ namespace osfui::wv2
 			return 4;
 		}
 
-		LPWSTR runtimeVersion = nullptr;
-		std::string runtime = "unknown";
-		if (SUCCEEDED(::GetAvailableCoreWebView2BrowserVersionString(nullptr, &runtimeVersion)) &&
-			runtimeVersion) {
-			runtime = ToUtf8(runtimeVersion);
-			::CoTaskMemFree(runtimeVersion);
+		LPWSTR webView2RuntimeVersionRaw = nullptr;
+		std::string webView2RuntimeVersion = "unknown";
+		if (SUCCEEDED(::GetAvailableCoreWebView2BrowserVersionString(nullptr, &webView2RuntimeVersionRaw)) &&
+			webView2RuntimeVersionRaw) {
+			webView2RuntimeVersion = ToUtf8(webView2RuntimeVersionRaw);
+			::CoTaskMemFree(webView2RuntimeVersionRaw);
 		} else {
 			PromptInstallWebView2Runtime(app.log);
 		}
 		if (!app.Send(json{
 				{ "type", "hello" },
-				{ "protocolVersion", kProtocolVersion },
-				{ "hostVersion", OSFUI::kPluginVersion },
-				{ "runtimeVersion", runtime },
+				{ "protocolVersion", kBrowserHostProtocolVersion },
+				{ "hostVersion", OSFUI::kOsfuiReleaseVersion },
+				{ "runtimeVersion", webView2RuntimeVersion },
 				{ "pid", ::GetCurrentProcessId() },
 			})) {
 			app.log.Error("hello write failed: " + app.pipe.LastErrorText());
@@ -2477,7 +2477,7 @@ namespace osfui::wv2
 			::CloseHandle(instanceMutex);
 			return 7;
 		}
-		app.log.Info("hello sent (WebView2 runtime " + runtime + ")");
+		app.log.Info("hello sent (WebView2 Runtime " + webView2RuntimeVersion + ")");
 
 		int code = 10;
 		try {
@@ -2504,11 +2504,11 @@ namespace osfui::wv2
 			});
 			code = app.Run();
 		} catch (const winrt::hresult_error& e) {
-			app.log.Error("unhandled host failure: " + ToUtf8(e.message()));
+			app.log.Error("unhandled browser-host failure: " + ToUtf8(e.message()));
 		} catch (const std::exception& e) {
-			app.log.Error(std::string("unhandled host failure: ") + e.what());
+			app.log.Error(std::string("unhandled browser-host failure: ") + e.what());
 		} catch (...) {
-			app.log.Error("unhandled host failure: unknown exception");
+			app.log.Error("unhandled browser-host failure: unknown exception");
 		}
 		app.quit.store(true);
 		if (app.wakeEvent) {

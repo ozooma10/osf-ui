@@ -106,7 +106,7 @@ target("OSF UI")
     -- separately under build/frontend/views and copied by the hooks below.
     -- <install>/SFSE/Plugins/OSFUI/...
     add_installfiles("data/(OSFUI/**)", { prefixdir = "SFSE/Plugins" })
-    -- the Papyrus surface (authoring-settings.md "From Papyrus"): loose scripts
+    -- the Papyrus API (authoring-settings.md "From Papyrus"): loose scripts
     -- at the Data root -- <install>/Scripts/OSFUI.pex (+ Source/OSFUI.psc)
     add_installfiles("data/(Scripts/**)")
     -- Build the ignored frontend artifact before native deployment (shared
@@ -135,7 +135,7 @@ target("OSF UI")
             os.rm(path.join(deployed, "shared"))
             os.rm(path.join(deployed, "osfui"))
             os.cp(viewsdir, path.join(dstdir, "OSFUI"))
-            -- Papyrus surface: loose scripts at the Data root (mod folder root)
+            -- Papyrus API: loose scripts at the Data root (mod folder root)
             os.cp(scriptsdir, target:installdir())
             cprint("${dim}deploying data/OSFUI + generated views + data/Scripts to %s ..", target:installdir())
         end, { files = files, values = files,

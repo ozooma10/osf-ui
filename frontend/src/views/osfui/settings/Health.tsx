@@ -1,12 +1,12 @@
-// System Health — the pane behind the pinned rail destination.
+// System Health — the fixed rail destination.
 //
-// The promise this pane makes is that everything on it is true right now and
+// The promise this destination makes is that everything on it is true right now and
 // worth a player's attention. It is not a log viewer: nothing lands here that
 // a subsystem did not deliberately raise, and nothing stays here once that
-// subsystem withdraws it. That is why there is no dismiss button — a card you
-// could dismiss would be a card that could lie.
+// subsystem withdraws it. That is why there is no dismiss button — a health
+// issue the player could dismiss would be an issue that could lie.
 //
-// Space follows severity. An error keeps a full card — title, what it means for
+// Space follows severity. An error renders as a full card — title, what it means for
 // you, what to do, and its actions all visible. An active warning collapses to a
 // single row that expands in place, because a warning that is not worth acting
 // on should not cost the same vertical space as one that is. Both live in the
@@ -15,9 +15,9 @@
 //
 // Severity is carried three ways (word, colour, icon), never by colour alone.
 // Everything a native payload supplies is rendered as a text child; the only
-// prose in the pane comes from the code->copy table in @lib/settings/diagnostics,
+// prose in the destination comes from the code->copy table in @lib/settings/health,
 // so it is localizable and cannot be authored by a mod. Raw native text appears
-// only under a card's collapsed technical disclosure, where it reads as
+// only under an issue's collapsed technical disclosure, where it reads as
 // developer detail rather than as UI chrome.
 
 import { useEffect, useState } from 'preact/hooks';
@@ -37,7 +37,7 @@ import {
   type HealthModel,
   type IssueRecord,
   type Severity,
-} from '@lib/settings/diagnostics';
+} from '@lib/settings/health';
 
 
 export interface HealthProps {
@@ -47,8 +47,8 @@ export interface HealthProps {
   focusIssueId: string | null;
   /** menu.open on a view id — the only action that takes an argument. */
   onRetryView: (viewId: string) => void;
-  /** Fire a payload-free shell command (osfui.openLogFolder, osfui.openModPage). */
-  onShellCommand: (command: string) => void;
+  /** Call a payload-free shell request endpoint (osfui.openLogFolder, osfui.openModPage). */
+  onShellRequest: (requestEndpoint: string) => void;
   onToast: (message: string, kind?: 'warn' | 'danger') => void;
 }
 
@@ -57,7 +57,7 @@ export function Health({
   tr,
   focusIssueId,
   onRetryView,
-  onShellCommand,
+  onShellRequest,
   onToast,
 }: HealthProps) {
   const active = activeIssues(health);
@@ -77,7 +77,7 @@ export function Health({
    *
    * This is reachable while the pane is open, not only at mount: you follow a
    * failed view's card here, the condition clears, and the next
-   * `diagnostics.data` push moves that exact card from the active list into the
+   * `osfui/diagnostics` state update moves that exact card from the active list into the
    * history. Seeding the initial state would not have covered that, which is why
    * it is an effect. Only the transition into `true` is forced, so closing the
    * disclosure by hand afterwards sticks.
@@ -134,8 +134,9 @@ export function Health({
     <>
       <div class="detail-head">
         <div>
-          <div class="osf-eyebrow kicker">{tr('diagnostics', 'Diagnostics')}</div>
-          <h2>{tr('systemHealth', 'System health')}</h2>
+          {/* Compatibility catalog address; fallback copy uses the canonical view name. */}
+          <div class="osf-eyebrow kicker">{tr('diagnostics', 'Mod Settings')}</div>
+          <h2>{tr('systemHealth', 'System Health')}</h2>
         </div>
       </div>
 
@@ -155,7 +156,7 @@ export function Health({
           <button
             type="button"
             class="osf-btn osf-btn--sm osf-btn--ghost"
-            onClick={() => onShellCommand('osfui.openLogFolder')}
+            onClick={() => onShellRequest('osfui.openLogFolder')}
           >
             {tr('openLogFolder', 'Open log folder')}
           </button>
@@ -178,7 +179,7 @@ export function Health({
                 tr={tr}
                 defaultOpen={issue.id === focusIssueId}
                 onRetryView={onRetryView}
-                onShellCommand={onShellCommand}
+                onShellRequest={onShellRequest}
                 onCopyDetails={(text) =>
                   copyText(text, tr('detailsCopied', 'Details copied'))
                 }
@@ -204,7 +205,7 @@ export function Health({
                 compact
                 defaultOpen={issue.id === focusIssueId}
                 onRetryView={onRetryView}
-                onShellCommand={onShellCommand}
+                onShellRequest={onShellRequest}
                 onCopyDetails={(text) =>
                   copyText(text, tr('detailsCopied', 'Details copied'))
                 }
@@ -237,7 +238,7 @@ export function Health({
                     tr={tr}
                     defaultOpen={issue.id === focusIssueId}
                     onRetryView={onRetryView}
-                    onShellCommand={onShellCommand}
+                    onShellRequest={onShellRequest}
                     onCopyDetails={(text) =>
                       copyText(text, tr('detailsCopied', 'Details copied'))
                     }
@@ -264,7 +265,7 @@ function Summary({
   tr: Translator;
 }) {
   const title = !overall
-    ? tr('allNominal', 'All systems nominal')
+    ? tr('allNominal', 'No active issues')
     : overall === 'error'
       ? tr('actionRequired', 'Action required')
       : tr('warningsDetected', 'Warnings detected');
@@ -337,7 +338,7 @@ interface IssueCardProps {
   /** Render as a one-line row that expands in place (the warning tier). */
   compact?: boolean;
   onRetryView: (viewId: string) => void;
-  onShellCommand: (command: string) => void;
+  onShellRequest: (requestEndpoint: string) => void;
   onCopyDetails: (text: string) => void;
 }
 
@@ -347,7 +348,7 @@ function IssueCard({
   defaultOpen,
   compact,
   onRetryView,
-  onShellCommand,
+  onShellRequest,
   onCopyDetails,
 }: IssueCardProps) {
   const [open, setOpen] = useState(defaultOpen);
@@ -368,14 +369,14 @@ function IssueCard({
     switch (kind) {
       case 'retry-view':
         // The argument is the issue's own subject — a view id the runtime
-        // already knows. Nothing free-text ever reaches a command.
+        // already knows. Nothing free-text ever reaches an endpoint.
         if (issue.subject) onRetryView(issue.subject);
         return;
       case 'update-osfui':
-        onShellCommand('osfui.openModPage');
+        onShellRequest('osfui.openModPage');
         return;
       case 'open-logs':
-        onShellCommand('osfui.openLogFolder');
+        onShellRequest('osfui.openLogFolder');
         return;
       case 'copy-details':
         // Show what is about to be copied: if the clipboard refuses, the text

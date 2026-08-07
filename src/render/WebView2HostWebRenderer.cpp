@@ -30,7 +30,7 @@
 
 using nlohmann::json;
 
-// The host posts this on an unsolicited focus grab outside an interactive
+// The browser host posts this on an unsolicited focus grab outside an input-capturing
 // menu session; both sides must agree on the value.
 static_assert(OSFUI::OverlayInputHook::kRestoreGameFocusMessage ==
 	osfui::wv2::kRestoreGameFocusMessage);
@@ -55,10 +55,10 @@ namespace OSFUI
 			return out / "OSFUI";
 		}
 
-		// Next to "OSF UI.log": one folder to share covers plugin + host. The
+		// Next to "OSF UI.log": one folder covers the plugin and browser host. The
 		// SFSE log dir is a real (never VFS-virtualized) path, so the unhooked
-		// host can write there.
-		std::filesystem::path HostLogPath()
+		// browser host can write there.
+		std::filesystem::path BrowserHostLogPath()
 		{
 			if (const auto dir = SFSE::log::log_directory()) {
 				return *dir / "OSF UI.webview2-host.log";
@@ -72,7 +72,7 @@ namespace OSFUI
 			       INVALID_FILE_ATTRIBUTES;
 		}
 
-		bool HostProcessRunning()
+		bool BrowserHostProcessRunning()
 		{
 			const HANDLE snapshot = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
 			if (snapshot == INVALID_HANDLE_VALUE) {
@@ -92,8 +92,8 @@ namespace OSFUI
 			return found;
 		}
 
-		// Last lines of the host's own log, for embedding into this log when the
-		// host fails before/at the handshake — one shared file then tells the
+		// Last lines of the browser host's own log, for embedding into this log when it
+		// fails before/at the handshake — one shared file then tells the
 		// whole story.
 		std::vector<std::string> ReadLogTail(const std::filesystem::path& a_file,
 			std::size_t a_maxLines)
@@ -151,7 +151,7 @@ namespace OSFUI
 			return data.result;
 		}
 
-		// ---- Outbound host-message builders -------------------------------
+		// ---- Outbound browser-host-message builders -----------------------
 		//
 		// Each shape below is authored in two places: the connect-time snapshot
 		// in the worker (holding stateMutex, walking `views`) and the matching
@@ -202,8 +202,10 @@ namespace OSFUI
 			return ViewMsg("suspendView", a_viewId);
 		}
 
-		json SetActiveMsg(std::string_view a_viewId)
+		json SetInputTargetMsg(std::string_view a_viewId)
 		{
+			// `setActive` is the compatibility spelling on the private game-to-
+			// browser-host wire; in current code it selects only the input target.
 			return ViewMsg("setActive", a_viewId);
 		}
 
@@ -230,7 +232,7 @@ namespace OSFUI
 		// snapshot's locals are named accCaptured/accArmed while the wire key is
 		// "captureArmed", so a swap would compile clean and change the wire.
 		// Toggle and capture-up are physical SCAN codes (DIK convention) since
-		// protocol 6 — the host matches framework-owned keys on them.
+		// protocol 6 — the browser host matches framework-owned keys on them.
 		json AccelStateMsg(std::uint32_t a_toggleScan,
 			bool a_captured, bool a_captureArmed, std::uint32_t a_captureUpScan)
 		{
@@ -269,8 +271,8 @@ namespace OSFUI
         // threads; serialize the live real-path tree and its activation flag.
         std::mutex            viewsMirrorMutex;
         bool                  usesViewsMirror{ false };
-		std::filesystem::path hostExeSource, hostExeMirror;
-		std::filesystem::path hostLog;  // set in Initialize; read by worker + notify drain
+		std::filesystem::path browserHostExeSource, browserHostExeMirror;
+		std::filesystem::path browserHostLog;  // set in Initialize; read by worker + notify drain
 		std::uint32_t adapterLuidLow{ 0 }, adapterLuidHigh{ 0 };
 		bool          adapterLuidKnown{ false };
 
@@ -286,7 +288,7 @@ namespace OSFUI
 
 		// State the worker snapshots at connect time; later changes are sent
 		// as diffs from the calling thread (WriteMessage is thread-safe).
-		// Record order is creation order — the host's z tie-break.
+		// Record order is creation order — the browser host's z tie-break.
 		struct ViewRec
 		{
 			std::string id;
@@ -296,14 +298,14 @@ namespace OSFUI
 			bool        hidden{ true };
 			bool        prewarm{ false };
 			int         order{ 0 };
-			// Manifest (authoring) height. The host divides output height by this
+			// Manifest (authoring) height. The browser host divides output height by this
 			// for the rasterization scale, so the page lays out at logical size
 			// and CSS px scale up to output pixels.
 			std::uint32_t logicalHeight{ kDefaultViewHeight };
 		};
 		std::mutex           stateMutex;
 		std::vector<ViewRec> views;
-		std::string          activeId;
+		std::string          inputTargetId;
 		bool                 allHidden{ true };  // no visible view => Render() is never called
 		// Every all-hidden -> visible transition starts a new presentation. Host
 		// frames from before its reveal completes must not satisfy Runtime's
@@ -331,17 +333,17 @@ namespace OSFUI
 		std::atomic_bool connected{ false }, dead{ false };
 		bool             deadLogged{ false };
 
-		struct HostSession
+		struct BrowserHostSession
 		{
 			DWORD  pid{ 0 };
 			HANDLE process{ nullptr };
 			HWND   topLevel{ nullptr };
 		};
 		std::mutex sessionMutex;
-		HostSession session;
+		BrowserHostSession session;
 
 		// Focus watchdog (game thread only — SetNativeFocus and Update
-		// both run there). Interactive menus grant real Win32 focus to a
+		// both run there). Input-capturing menus grant real Win32 focus to a
 		// cross-process Chromium child; HUD-only/closed states keep Starfield
 		// focused. The revoke-time restore (posted kRestoreGameFocusMessage
 		// -> SetFocus) races Chromium's asynchronous MoveFocus: an in-flight
@@ -353,7 +355,7 @@ namespace OSFUI
 		double focusCheckAccum{ 0.0 };
 		bool   focusFixWarned{ false };  // one WARN per strand episode
 
-		// System Health reporting (protocol 1.4). The ring announcement is
+		// System Health reporting, introduced in web bridge protocol 1.4. The ring announcement is
 		// parsed on the reader thread, but onHealth is a game-thread contract —
 		// so the announced slot count is stashed here and Update() reports the
 		// edge. Zero means "no announcement seen since the last report".
@@ -433,7 +435,7 @@ namespace OSFUI
 		bool writerFailed{ false };
 		std::atomic_bool outboundOverflowed{ false };
 
-		[[nodiscard]] HostSession SessionSnapshot()
+		[[nodiscard]] BrowserHostSession BrowserHostSessionSnapshot()
 		{
 			std::scoped_lock lock(sessionMutex);
 			return session;
@@ -445,14 +447,14 @@ namespace OSFUI
 			session.topLevel = a_topLevel;
 		}
 
-		void SetHostProcess(DWORD a_pid, HANDLE a_process)
+		void SetBrowserHostProcess(DWORD a_pid, HANDLE a_process)
 		{
 			std::scoped_lock lock(sessionMutex);
 			session.pid = a_pid;
 			session.process = a_process;
 		}
 
-		HANDLE TakeHostProcess()
+		HANDLE TakeBrowserHostProcess()
 		{
 			std::scoped_lock lock(sessionMutex);
 			session.pid = 0;
@@ -476,7 +478,7 @@ namespace OSFUI
 		std::string CoalesceKey(const json& a_msg)
 		{
 			const auto type = a_msg.value("type", std::string{});
-			return osfui::wv2::CommandCoalesceKey(type,
+			return osfui::wv2::GameMessageCoalesceKey(type,
 				a_msg.value("kind", std::string{}),
 				a_msg.value("view", std::string{}));
 		}
@@ -493,7 +495,7 @@ namespace OSFUI
 			if (result == decltype(outbound)::PushResult::Full) {
 				if (!outboundOverflowed.exchange(true)) {
 					SignalDead(std::format(
-						"outbound command queue exceeded {} messages", kMaxOutbound));
+						"outbound IPC message queue exceeded {} messages", kMaxOutbound));
 				}
 				return false;
 			}
@@ -503,7 +505,7 @@ namespace OSFUI
 		void Send(const json& a_msg) { Enqueue(a_msg, false); }
 
 		// Bridge events cannot be reconstructed from state. Keep them bounded
-		// before the lazy helper starts, then place the connection snapshot ahead
+		// before the on-demand browser host starts, then place the connection snapshot ahead
 		// of them atomically so no caller can overtake initialization.
 		void SendOrQueue(const json& a_msg) { Enqueue(a_msg, true); }
 
@@ -527,15 +529,15 @@ namespace OSFUI
 
 		void WriterMain()
 		{
-			bool ready = false;
+			bool writerActivated = false;
 			{
 				std::unique_lock lock(writerGateMutex);
 				writerGate.wait(lock, [this] {
 					return writerReady || stopRequested.load(std::memory_order_acquire);
 				});
-				ready = writerReady;
+				writerActivated = writerReady;
 			}
-			if (!ready) return;
+			if (!writerActivated) return;
 
 			decltype(outbound)::Item item;
 			while (outbound.WaitPop(item)) {
@@ -593,8 +595,8 @@ namespace OSFUI
 		// Startup (worker thread)
 
 		// Mod Organizer 2 presents the mod folder only inside USVFS-hooked
-		// processes, and the host and its browser children are unhooked: both
-		// the views tree and the host exe must live at real paths before
+		// processes, and the browser host and its browser children are unhooked: both
+		// the views tree and the browser-host executable must live at real paths before
 		// anything outside the game can use them.
 		void ResolveMappedViewsRoot()
 		{
@@ -604,7 +606,7 @@ namespace OSFUI
 			if (!::GetModuleHandleW(L"usvfs_x64.dll")) return;
 			std::error_code ec;
 			// A fresh path per game process is deliberate. Reusing the stable
-			// `views-mirror` folder allowed a stale browser/helper process (or a
+			// `views-mirror` folder allowed a stale browser-host process (or a
 			// failed recursive delete) to leave old shared-kit files in place.
 			// The view bundles could then be current while shared/osfui.js was
 			// old enough to lack APIs they call, making every native request a
@@ -661,41 +663,41 @@ namespace OSFUI
             return true;
         }
 
-		// The host exe ships inside the mod folder (VFS-only under MO2) but is
+		// The browser-host executable ships inside the mod folder (VFS-only under MO2) but is
 		// launched by Explorer/the task scheduler, which cannot see the VFS.
 		// Mirror it to a real, version-stamped path first.
 		bool MirrorHostExe()
 		{
-			const auto mirrorDir = LocalOsfuiDir() / "bin" / kPluginVersion;
-			hostExeMirror = mirrorDir / "osfui_webview2_host.exe";
+			const auto mirrorDir = LocalOsfuiDir() / "bin" / kOsfuiReleaseVersion;
+			browserHostExeMirror = mirrorDir / "osfui_webview2_host.exe";
 			std::error_code ec;
 			std::filesystem::create_directories(mirrorDir, ec);
 			ec.clear();
-			const auto sourceSize = std::filesystem::file_size(hostExeSource, ec);
+			const auto sourceSize = std::filesystem::file_size(browserHostExeSource, ec);
 			if (ec) {
-				REX::ERROR("WebView2HostWebRenderer: host exe missing at {} ({})",
-					hostExeSource.string(), ec.message());
+				REX::ERROR("WebView2HostWebRenderer: browser-host executable missing at {} ({})",
+					browserHostExeSource.string(), ec.message());
 				return false;
 			}
 			ec.clear();
-			const auto mirrorSize = std::filesystem::file_size(hostExeMirror, ec);
+			const auto mirrorSize = std::filesystem::file_size(browserHostExeMirror, ec);
 			const bool haveMirror = !ec;
 			const bool sameSize = haveMirror && mirrorSize == sourceSize;
 			const bool sameTime = haveMirror &&
-				std::filesystem::last_write_time(hostExeSource, ec) <=
-					std::filesystem::last_write_time(hostExeMirror, ec);
+				std::filesystem::last_write_time(browserHostExeSource, ec) <=
+					std::filesystem::last_write_time(browserHostExeMirror, ec);
 			if (!(sameSize && sameTime)) {
 				ec.clear();
-				std::filesystem::copy_file(hostExeSource, hostExeMirror,
+				std::filesystem::copy_file(browserHostExeSource, browserHostExeMirror,
 					std::filesystem::copy_options::overwrite_existing, ec);
 				if (ec) {
 					if (sameSize) {
-						// In use by a previous session's host but content
+						// In use by a previous session's browser host but content
 						// matches the shipped binary — reuse it.
-						REX::WARN("WebView2HostWebRenderer: host exe mirror busy; "
+						REX::WARN("WebView2HostWebRenderer: browser-host executable mirror busy; "
 								  "reusing existing copy ({})", ec.message());
 					} else {
-						REX::ERROR("WebView2HostWebRenderer: host exe mirror copy "
+						REX::ERROR("WebView2HostWebRenderer: browser-host executable mirror copy "
 								   "failed ({})", ec.message());
 						return false;
 					}
@@ -704,14 +706,14 @@ namespace OSFUI
 			// CopyFileW carries the Zone.Identifier stream from a downloaded
 			// zip onto the mirror, and Explorer launching a Mark-of-the-Web exe
 			// can hit a SmartScreen block nobody sees behind a fullscreen game.
-			if (HasMarkOfTheWeb(hostExeMirror)) {
-				if (::DeleteFileW((hostExeMirror.native() + L":Zone.Identifier").c_str())) {
+			if (HasMarkOfTheWeb(browserHostExeMirror)) {
+				if (::DeleteFileW((browserHostExeMirror.native() + L":Zone.Identifier").c_str())) {
 					REX::INFO("WebView2HostWebRenderer: stripped Mark-of-the-Web from the "
-							  "host exe mirror");
+							  "browser-host executable mirror");
 				} else {
-					REX::WARN("WebView2HostWebRenderer: host exe mirror carries "
+					REX::WARN("WebView2HostWebRenderer: browser-host executable mirror carries "
 							  "Mark-of-the-Web and stripping it failed ({}) — SmartScreen "
-							  "may silently block the host launch", ::GetLastError());
+							  "may silently block browser-host launch", ::GetLastError());
 				}
 			}
 			return true;
@@ -725,7 +727,7 @@ namespace OSFUI
 				return expected == Lifecycle::Starting || expected == Lifecycle::Running;
 			}
 
-			// The host must create its D3D11 capture textures on the same adapter
+			// The browser host must create its D3D11 capture textures on the same adapter
 			// as Starfield's D3D12 device.
 			if (!adapterLuidKnown) {
 				auto engine = LocateEngineD3D12();
@@ -774,58 +776,58 @@ namespace OSFUI
 				if (!dead.exchange(true)) Push(Notify{ .kind = Notify::Kind::Dead });
 				return false;
 			}
-			REX::DEBUG("WebView2HostWebRenderer: starting host transport threads");
+			REX::DEBUG("WebView2HostWebRenderer: starting browser-host transport threads");
 			return true;
 		}
-		// Worker thread, after the host failed to launch/handshake: narrow "it
+		// Worker thread, after the browser host failed to launch/handshake: narrow "it
 		// never connected" down to which stage died, using only what this
-		// process can see, and embed the host's own log tail so one shared
+		// process can see, and embed the browser host's own log tail so one shared
 		// "OSF UI.log" carries the whole story.
-		void LogHostStartFailureDiagnostics(std::filesystem::file_time_type a_launchTime)
+		void LogBrowserHostStartFailureDiagnostics(std::filesystem::file_time_type a_launchTime)
 		{
 			std::error_code ec;
-			const auto exeSize = std::filesystem::file_size(hostExeMirror, ec);
+			const auto exeSize = std::filesystem::file_size(browserHostExeMirror, ec);
 			if (ec) {
-				REX::ERROR("HostDiag: host exe mirror is GONE from {} ({}) — an "
+				REX::ERROR("BrowserHostDiag: browser-host executable mirror is GONE from {} ({}) — an "
 						   "antivirus likely quarantined it; restore/exclude it and retry",
-					hostExeMirror.string(), ec.message());
-			} else if (HasMarkOfTheWeb(hostExeMirror)) {
-				REX::ERROR("HostDiag: host exe mirror still carries Mark-of-the-Web — "
+					browserHostExeMirror.string(), ec.message());
+			} else if (HasMarkOfTheWeb(browserHostExeMirror)) {
+				REX::ERROR("BrowserHostDiag: browser-host executable mirror still carries Mark-of-the-Web — "
 						   "SmartScreen has likely blocked the launch silently; unblock {} "
-						   "(file Properties -> Unblock)", hostExeMirror.string());
+						   "(file Properties -> Unblock)", browserHostExeMirror.string());
 			} else {
-				REX::INFO("HostDiag: host exe mirror present ({} bytes, no Mark-of-the-Web)",
+				REX::INFO("BrowserHostDiag: browser-host executable mirror present ({} bytes, no Mark-of-the-Web)",
 					exeSize);
 			}
 
 			if (osfui::win32::IsProcessElevated()) {
-				REX::ERROR("HostDiag: the game runs elevated (as administrator) — a "
-						   "brokered host launches unelevated and cannot open the game "
+				REX::ERROR("BrowserHostDiag: the game runs elevated (as administrator) — a "
+						   "brokered browser host launches unelevated and cannot open the game "
 						   "process; run the game/MO2 without administrator rights");
 			}
 
-			REX::INFO("HostDiag: a process named osfui_webview2_host.exe {} running",
-				HostProcessRunning() ? "IS still" : "is NOT");
+			REX::INFO("BrowserHostDiag: a browser-host process named osfui_webview2_host.exe {} running",
+				BrowserHostProcessRunning() ? "IS still" : "is NOT");
 
 			ec.clear();
-			const auto logTime = std::filesystem::last_write_time(hostLog, ec);
+			const auto logTime = std::filesystem::last_write_time(browserHostLog, ec);
 			if (ec) {
-				REX::ERROR("HostDiag: host log {} does not exist — the host process never "
+				REX::ERROR("BrowserHostDiag: browser-host log {} does not exist — the browser-host process never "
 						   "started (SmartScreen/antivirus block, or the exe failed to run)",
-					hostLog.string());
+					browserHostLog.string());
 				return;
 			}
 			if (logTime < a_launchTime) {
-				REX::ERROR("HostDiag: host log {} is STALE (predates this launch) — the "
-						   "host process never started this session (SmartScreen/antivirus "
-						   "block, or the exe failed to run)", hostLog.string());
+				REX::ERROR("BrowserHostDiag: browser-host log {} is STALE (predates this launch) — the "
+						   "browser-host process never started this session (SmartScreen/antivirus "
+						   "block, or the exe failed to run)", browserHostLog.string());
 				return;
 			}
-			const auto tail = ReadLogTail(hostLog, 20);
-			REX::INFO("HostDiag: host log tail ({} line(s) from {}):",
-				tail.size(), hostLog.string());
+			const auto tail = ReadLogTail(browserHostLog, 20);
+			REX::INFO("BrowserHostDiag: browser-host log tail ({} line(s) from {}):",
+				tail.size(), browserHostLog.string());
 			for (const auto& line : tail) {
-				REX::INFO("HostDiag: | {}", line);
+				REX::INFO("BrowserHostDiag: | {}", line);
 			}
 		}
 
@@ -844,7 +846,7 @@ namespace OSFUI
 		{
 			ResolveMappedViewsRoot();
 			if (!MirrorHostExe()) {
-				SignalDead("host executable preparation failed");
+				SignalDead("browser-host executable preparation failed");
 				return;
 			}
 
@@ -858,12 +860,12 @@ namespace OSFUI
 			const auto pipeName = std::format(L"{}{}-{:08x}",
 				osfui::wv2::kPipePrefix, ::GetCurrentProcessId(), nonce);
 			auto args = std::format(L"--pipe={} --game-pid={} --log=\"{}\"",
-				pipeName, ::GetCurrentProcessId(), hostLog.native());
+				pipeName, ::GetCurrentProcessId(), browserHostLog.native());
 
-			// Claim the first server instance before launching the helper. This
+			// Claim the first server instance before launching the browser host. This
 			// removes the name-squatting window between launch and CreateNamedPipe.
 			if (!pipe.CreateServer(pipeName)) {
-				SignalDead("could not create the private host pipe: " + pipe.LastErrorText());
+				SignalDead("could not create the private browser-host pipe: " + pipe.LastErrorText());
 				return;
 			}
 			if (stopRequested.load(std::memory_order_acquire)) return;
@@ -876,31 +878,31 @@ namespace OSFUI
 			}
 			const auto launchTime = std::filesystem::file_time_type::clock::now();
 			const auto launch = osfui::wv2::LaunchDetached(
-				hostExeMirror.native(), args, /*a_preferBroker=*/usvfs);
+				browserHostExeMirror.native(), args, /*a_preferBroker=*/usvfs);
 			if (!launch.ok) {
-				REX::ERROR("WebView2HostWebRenderer: host launch failed [{}]", launch.detail);
-				SignalDead("host launch failed");
+				REX::ERROR("WebView2HostWebRenderer: browser-host launch failed [{}]", launch.detail);
+				SignalDead("browser-host launch failed");
 				return;
 			}
-			REX::INFO("WebView2HostWebRenderer: host launched via {} (usvfs={}, elevated={}){}",
+			REX::INFO("WebView2HostWebRenderer: browser host launched via {} (usvfs={}, elevated={}){}",
 				osfui::wv2::LaunchMethodName(launch.method), usvfs, elevated,
 				launch.detail.empty() ? "" : " detail=[" + launch.detail + "]");
 
 			if (!pipe.WaitForClient(20000)) {
-				REX::ERROR("WebView2HostWebRenderer: host never connected: {} "
-						   "(host log: {})", pipe.LastErrorText(), hostLog.string());
-				LogHostStartFailureDiagnostics(launchTime);
-				SignalDead("host did not connect");
+				REX::ERROR("WebView2HostWebRenderer: browser host never connected: {} "
+						   "(browser-host log: {})", pipe.LastErrorText(), browserHostLog.string());
+				LogBrowserHostStartFailureDiagnostics(launchTime);
+				SignalDead("browser host did not connect");
 				return;
 			}
 			const auto peerPid = pipe.ClientProcessId();
 			if (!peerPid) {
-				SignalDead("could not identify the connected helper: " + pipe.LastErrorText());
+				SignalDead("could not identify the connected browser host: " + pipe.LastErrorText());
 				return;
 			}
 
 			// Startup diagnostics may precede hello, but the entire handshake has
-			// one deadline. A connected helper can no longer hold this worker
+			// one deadline. A connected browser host can no longer hold this worker
 			// forever without identifying itself.
 			const auto helloDeadline = ::GetTickCount64() +
 				osfui::wv2::kHelloTimeoutMs;
@@ -911,11 +913,11 @@ namespace OSFUI
 				if (now >= helloDeadline ||
 					!pipe.ReadMessage(payload, static_cast<std::uint32_t>(
 						helloDeadline - now))) {
-					REX::ERROR("WebView2HostWebRenderer: helper connected but did not "
+					REX::ERROR("WebView2HostWebRenderer: browser host connected but did not "
 							   "complete hello in {}ms: {}",
 						osfui::wv2::kHelloTimeoutMs, pipe.LastErrorText());
-					LogHostStartFailureDiagnostics(launchTime);
-					SignalDead("helper hello timed out");
+					LogBrowserHostStartFailureDiagnostics(launchTime);
+					SignalDead("browser-host hello timed out");
 					return;
 				}
 				hello = json::parse(payload, nullptr, false);
@@ -924,11 +926,11 @@ namespace OSFUI
 					const auto level = hello.value("level", 0);
 					const auto text = hello.value("text", "");
 					if (level >= 2) {
-						REX::ERROR("WebView2 host: {}", text);
+						REX::ERROR("WebView2 browser host: {}", text);
 					} else if (level == 1) {
-						REX::WARN("WebView2 host: {}", text);
+						REX::WARN("WebView2 browser host: {}", text);
 					} else {
-						REX::INFO("WebView2 host: {}", text);
+						REX::INFO("WebView2 browser host: {}", text);
 					}
 					continue;
 				}
@@ -940,32 +942,32 @@ namespace OSFUI
 			const auto protocol =
 				hello.is_object() ? hello.value("protocolVersion", 0u) : 0u;
 			if (!hello.is_object() || hello.value("type", "") != "hello" ||
-				protocol != osfui::wv2::kProtocolVersion ||
+				protocol != osfui::wv2::kBrowserHostProtocolVersion ||
 				claimedPid != *peerPid) {
-				REX::ERROR("WebView2HostWebRenderer: rejected helper hello "
-						   "(protocol={}, claimed pid={}, kernel pid={}, host log: {})",
-					protocol, claimedPid, *peerPid, hostLog.string());
-				SignalDead("helper identity or protocol mismatch");
+				REX::ERROR("WebView2HostWebRenderer: rejected browser-host hello "
+						   "(protocol={}, claimed pid={}, kernel pid={}, browser-host log: {})",
+					protocol, claimedPid, *peerPid, browserHostLog.string());
+				SignalDead("browser-host identity or protocol mismatch");
 				return;
 			}
 
-			const HANDLE hostProcess = ::OpenProcess(
+			const HANDLE browserHostProcess = ::OpenProcess(
 				SYNCHRONIZE | PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION,
 				FALSE, *peerPid);
-			if (!hostProcess) {
-				SignalDead(std::format("OpenProcess(helper pid {}) failed ({})",
+			if (!browserHostProcess) {
+				SignalDead(std::format("OpenProcess(browser-host pid {}) failed ({})",
 					*peerPid, ::GetLastError()));
 				return;
 			}
-			SetHostProcess(*peerPid, hostProcess);
+			SetBrowserHostProcess(*peerPid, browserHostProcess);
 
-			const auto runtimeVersion = hello.value("runtimeVersion", "?");
-			if (runtimeVersion == "unknown") {
+			const auto webView2RuntimeVersion = hello.value("runtimeVersion", "?");
+			if (webView2RuntimeVersion == "unknown") {
 				REX::ERROR("WebView2HostWebRenderer: the WebView2 Evergreen runtime is not "
 						   "installed; install it and restart the game");
 			}
-			REX::INFO("WebView2HostWebRenderer: verified host pid {} up "
-					  "(WebView2 runtime {})", *peerPid, runtimeVersion);
+			REX::INFO("WebView2HostWebRenderer: verified browser-host pid {} up "
+					  "(WebView2 Runtime {})", *peerPid, webView2RuntimeVersion);
 
 			using OutItem = osfui::wv2::BoundedQueue<std::string>::Item;
 			std::vector<OutItem> bootstrap;
@@ -1000,7 +1002,7 @@ namespace OSFUI
 						view.id, view.hidden, presentationEpoch));
 					addBootstrap(SetOrderMsg(view.id, view.order));
 				}
-				if (!activeId.empty()) addBootstrap(SetActiveMsg(activeId));
+				if (!inputTargetId.empty()) addBootstrap(SetInputTargetMsg(inputTargetId));
 				addBootstrap(FocusMsg(focusRequested.load()));
 			}
 			if (!PublishConnected(std::move(bootstrap))) {
@@ -1014,7 +1016,7 @@ namespace OSFUI
 			connected.store(false, std::memory_order_release);
 			if (!stopRequested.load(std::memory_order_acquire) &&
 				!dead.load(std::memory_order_acquire)) {
-				SignalDead("helper connection ended unexpectedly: " +
+				SignalDead("browser-host connection ended unexpectedly: " +
 					pipe.LastErrorText());
 			}
 		}
@@ -1028,7 +1030,7 @@ namespace OSFUI
 			while (!stopRequested.load(std::memory_order_acquire)) {
 				const auto now = ::GetTickCount64();
 				if (now >= heartbeatDeadline) {
-					REX::ERROR("WebView2HostWebRenderer: helper heartbeat expired after {}ms",
+					REX::ERROR("WebView2HostWebRenderer: browser-host heartbeat expired after {}ms",
 						osfui::wv2::kHeartbeatTimeoutMs);
 					return;
 				}
@@ -1088,13 +1090,13 @@ namespace OSFUI
 					} else if (type == "ready" || type == "hello") {
 						// informational
 					} else if (type == "bye") {
-						REX::INFO("WebView2HostWebRenderer: host bye ({})",
+						REX::INFO("WebView2HostWebRenderer: browser-host bye ({})",
 							msg.value("reason", ""));
 					}
 				} catch (const std::exception& e) {
-					// A malformed / partial / version-mismatched host message must not
+					// A malformed / partial / version-mismatched browser-host message must not
 					// unwind out of the worker thread (that calls std::terminate).
-					REX::WARN("WebView2HostWebRenderer: dropping malformed host message: {}", e.what());
+					REX::WARN("WebView2HostWebRenderer: dropping malformed browser-host message: {}", e.what());
 				}
 			}
 		}
@@ -1102,7 +1104,7 @@ namespace OSFUI
 		void OnTexturesMessage(const json& a_msg)
 		{
 			// Ring depth comes from the announcement, not a compiled constant —
-			// the host may retune it as long as it fits our capacity.
+			// the browser host may retune it as long as it fits our capacity.
 			static_assert(osfui::wv2::kRingSlots <= SharedRingDesc::kMaxSlots);
 			SharedRingDesc desc{};
 			const auto& slots = a_msg.at("slots");
@@ -1120,11 +1122,11 @@ namespace OSFUI
 					static_cast<std::uintptr_t>(slots[i].get<std::uint64_t>())));
 			}
 			if (slots.size() > SharedRingDesc::kMaxSlots) {
-				REX::WARN("WebView2HostWebRenderer: host announced {} ring slots, "
+				REX::WARN("WebView2HostWebRenderer: browser host announced {} ring slots, "
 						  "capacity is {} — excess slots ignored",
 					slots.size(), SharedRingDesc::kMaxSlots);
 			}
-			// Health edge for the System Health pane. Reported from Update() on
+			// Health edge for the System Health destination. Reported from Update() on
 			// the game thread, not from here (this runs on the reader thread).
 			ringSlotsAnnounced.store(static_cast<std::uint32_t>(slots.size()),
 				std::memory_order_relaxed);
@@ -1160,7 +1162,7 @@ namespace OSFUI
 				if (w != ringWidth || h != ringHeight) {
 					ackNew = true;  // stale ring — release the slot immediately
 				} else if (allHidden || presentation != presentationEpoch) {
-					// Frames captured while closed, before the host completed
+					// Frames captured while closed, before the browser host completed
 					// this reveal, or from an earlier open are not renderable.
 					// Invalidate the cached frame as well: otherwise the next
 					// open can mistake transparent closed-state pixels for its
@@ -1214,7 +1216,7 @@ namespace OSFUI
 				REX::WARN("WebView2HostWebRenderer: dropped {} console message(s) over the {}-message pending cap", droppedConsole, kMaxPendingConsole);
 			}
 			if (droppedLogs) {
-				REX::WARN("WebView2HostWebRenderer: dropped {} host log line(s) over "
+				REX::WARN("WebView2HostWebRenderer: dropped {} browser-host log line(s) over "
 						  "the {}-line pending cap", droppedLogs, kMaxPendingLogs);
 			}
 			for (auto& value : local) {
@@ -1283,24 +1285,24 @@ namespace OSFUI
 					break;
 				case Notify::Kind::Log:
 					if (value.code >= 2) {
-						REX::ERROR("WebView2 host: {}", value.text);
+						REX::ERROR("WebView2 browser host: {}", value.text);
 					} else if (value.code == 1) {
-						REX::WARN("WebView2 host: {}", value.text);
+						REX::WARN("WebView2 browser host: {}", value.text);
 					} else {
-						REX::INFO("WebView2 host: {}", value.text);
+						REX::INFO("WebView2 browser host: {}", value.text);
 					}
 					break;
 				case Notify::Kind::Dead:
 					if (!deadLogged) {
 						deadLogged = true;
-						REX::ERROR("WebView2HostWebRenderer: host connection lost — the "
-								   "overlay is closing before bounded helper recovery begins "
-								   "(host log: {})", hostLog.string());
+						REX::ERROR("WebView2HostWebRenderer: browser-host connection lost — the "
+								   "overlay is closing before bounded browser-host recovery begins "
+								   "(browser-host log: {})", browserHostLog.string());
 						if (onFailure) {
 							onFailure(FailureEvent{
 								.stage = "host-connection",
-								.viewId = activeId,
-								.description = "WebView2 host connection lost",
+								.viewId = inputTargetId,
+								.description = "WebView2 browser-host connection lost",
 								.errorCode = 0
 							});
 						}
@@ -1378,20 +1380,20 @@ namespace OSFUI
 				writerReady = false;
 			}
 
-			if (const HANDLE hostProcess = TakeHostProcess()) {
+			if (const HANDLE browserHostProcess = TakeBrowserHostProcess()) {
 				const auto graceMs = a_force ? 250u : 3000u;
-				if (::WaitForSingleObject(hostProcess, graceMs) != WAIT_OBJECT_0) {
-					REX::WARN("WebView2HostWebRenderer: verified host pid {} did not exit{}; terminating",
-						::GetProcessId(hostProcess),
+				if (::WaitForSingleObject(browserHostProcess, graceMs) != WAIT_OBJECT_0) {
+					REX::WARN("WebView2HostWebRenderer: verified browser-host pid {} did not exit{}; terminating",
+						::GetProcessId(browserHostProcess),
 						a_force ? " after transport failure" : " in 3s");
-					::TerminateProcess(hostProcess, 9);
-					::WaitForSingleObject(hostProcess, 1000u);
+					::TerminateProcess(browserHostProcess, 9);
+					::WaitForSingleObject(browserHostProcess, 1000u);
 				}
-				::CloseHandle(hostProcess);
+				::CloseHandle(browserHostProcess);
 			}
 
 			lifecycle.store(Lifecycle::Stopped, std::memory_order_release);
-			// The host and browser are gone, so their per-run real-path view tree
+			// The browser host and its browser processes are gone, so their per-run real-path view tree
 			// is no longer needed.
 			{
 				std::scoped_lock mirrorLock(viewsMirrorMutex);
@@ -1410,7 +1412,7 @@ namespace OSFUI
 		{
 			// The failure notification is drained from Update after ReadLoop has
 			// ended, so this forced stop normally joins an already-finished worker.
-			// If a stranded helper kept running after the pipe died, do not stall
+			// If a stranded browser host kept running after the pipe died, do not stall
 			// Starfield's main thread waiting for a graceful process exit.
 			Stop(true);
 
@@ -1458,7 +1460,7 @@ namespace OSFUI
 				submittedSerial = 0;
 				ringWidth = ringHeight = 0;
 				announcedGeneration = 0;
-				// Keep ringGeneration monotonic across helper processes so a new
+				// Keep ringGeneration monotonic across browser-host processes so a new
 				// shared ring is unambiguously newer than the compositor's retired
 				// generation.
 			}
@@ -1497,21 +1499,21 @@ namespace OSFUI
 	bool WebView2HostWebRenderer::Initialize(const RendererConfig& a_config)
 	{
 		// No Evergreen-runtime probe here: detecting it in-process would link the
-		// WebView2 SDK loader into this GPL'd plugin for one symbol. The host exe
-		// already links the SDK and reports the runtime version in its hello, so
+		// WebView2 SDK loader into this GPL'd plugin for one symbol. The browser-host executable
+		// already links the SDK and reports the WebView2 Runtime version in its hello, so
 		// a missing runtime is diagnosed there.
 		_impl->config = a_config;
 		_impl->viewsRoot = a_config.dataDir / "views";
 		_impl->userData = LocalOsfuiDir() / "WebView2";
-		_impl->hostLog = HostLogPath();
-		_impl->hostExeSource = a_config.dataDir / "bin" / "osfui_webview2_host.exe";
+		_impl->browserHostLog = BrowserHostLogPath();
+		_impl->browserHostExeSource = a_config.dataDir / "bin" / "osfui_webview2_host.exe";
 		_impl->width = (std::max)(1u, a_config.width);
 		_impl->height = (std::max)(1u, a_config.height);
 		std::error_code ec;
-		if (!std::filesystem::exists(_impl->hostExeSource, ec)) {
+		if (!std::filesystem::exists(_impl->browserHostExeSource, ec)) {
 			REX::ERROR("WebView2HostWebRenderer: {} is missing — the out-of-process "
-					   "host was not packaged with this install",
-				_impl->hostExeSource.string());
+					   "browser host was not packaged with this install",
+				_impl->browserHostExeSource.string());
 			return false;
 		}
 		return true;
@@ -1524,7 +1526,7 @@ namespace OSFUI
 		return true;
 	}
 
-	void WebView2HostWebRenderer::LoadView(const ViewManifest& a_manifest)
+	void WebView2HostWebRenderer::CreateOrNavigateView(const ViewManifest& a_manifest)
 	{
 		// One expression for the clamp, so the stored value and the sent value
 		// cannot drift.
@@ -1540,13 +1542,13 @@ namespace OSFUI
 			view->bridge = a_manifest.permissions.nativeBridge;
 			view->legacyApi = IsPre2Target(a_manifest.targetVersion);
 			view->logicalHeight = logicalHeight;
-			// The first loaded view receives input until the runtime says
+			// The first instantiated view receives input until the runtime says
 			// otherwise.
-			if (_impl->activeId.empty()) {
-				_impl->activeId = a_manifest.id;
+			if (_impl->inputTargetId.empty()) {
+				_impl->inputTargetId = a_manifest.id;
 			}
 		}
-		// A repeat LoadView for a live id re-navigates it (dev reload / crash
+		// A repeat call for an instantiated view id re-navigates it (developer reload / crash
 		// recovery).
 		_impl->Send(NavigateMsg(a_manifest.id, a_manifest.entry,
 			a_manifest.permissions.nativeBridge,
@@ -1558,19 +1560,19 @@ namespace OSFUI
         return _impl && _impl->RefreshViewFiles(a_viewId);
     }
 
-	void WebView2HostWebRenderer::SetActiveView(std::string_view a_id)
+	void WebView2HostWebRenderer::SetInputTargetView(std::string_view a_id)
 	{
 		{
 			std::scoped_lock lock(_impl->stateMutex);
 			if (!_impl->FindView(a_id)) {
-				REX::WARN("WebView2HostWebRenderer: SetActiveView('{}') ignored — view not loaded",
+				REX::WARN("WebView2HostWebRenderer: SetInputTargetView('{}') ignored — view not instantiated",
 					a_id);
 				return;
 			}
-			if (_impl->activeId == a_id) return;
-			_impl->activeId = a_id;
+			if (_impl->inputTargetId == a_id) return;
+			_impl->inputTargetId = a_id;
 		}
-		_impl->Send(SetActiveMsg(a_id));
+		_impl->Send(SetInputTargetMsg(a_id));
 	}
 
 	void WebView2HostWebRenderer::Resize(std::uint32_t a_width, std::uint32_t a_height)
@@ -1587,7 +1589,7 @@ namespace OSFUI
 
 	void WebView2HostWebRenderer::Update(double a_deltaSeconds)
 	{
-		// Warm start once a view is configured: mirror copies, broker launch,
+		// Start the browser host once a view is configured: mirror copies, broker launch,
 		// environment creation and navigation all happen while the overlay is
 		// still hidden.
 		if (_impl->lifecycle.load(std::memory_order_acquire) ==
@@ -1606,8 +1608,8 @@ namespace OSFUI
 		// the user is alt-tabbed away that window is outside the game window's
 		// tree, so both branches no-op and focus is never stolen from another
 		// application.
-		const auto hostSession = _impl->SessionSnapshot();
-		if (hostSession.topLevel && _impl->connected.load(std::memory_order_acquire)) {
+		const auto browserHostSession = _impl->BrowserHostSessionSnapshot();
+		if (browserHostSession.topLevel && _impl->connected.load(std::memory_order_acquire)) {
 			_impl->focusCheckAccum += a_deltaSeconds;
 			if (_impl->focusCheckAccum >= 0.5) {
 				_impl->focusCheckAccum = 0.0;
@@ -1617,30 +1619,30 @@ namespace OSFUI
 				if (::GetGUIThreadInfo(0, &info) && info.hwndFocus) {
 					DWORD focusPid = 0;
 					::GetWindowThreadProcessId(info.hwndFocus, &focusPid);
-					const bool inGameTree = info.hwndFocus == hostSession.topLevel ||
-											::IsChild(hostSession.topLevel, info.hwndFocus) != FALSE;
+					const bool inGameTree = info.hwndFocus == browserHostSession.topLevel ||
+											::IsChild(browserHostSession.topLevel, info.hwndFocus) != FALSE;
 					const bool focusInHost = focusPid != ::GetCurrentProcessId();
 					if (!_impl->focusRequested && inGameTree && focusInHost) {
-						// No interactive-menu session is live, but focus is stranded in
-						// the host's Chromium child: keyboard, raw mouse AND gamepad
+						// No input-capturing menu session is live, but focus is stranded in
+						// the browser host's Chromium child: keyboard, raw mouse AND gamepad
 						// (WGI) are all dead for the game.
 						healthy = false;
 						if (!_impl->focusFixWarned) {
 							_impl->focusFixWarned = true;
-							REX::WARN("WebView2HostWebRenderer: focus stranded in host child "
-									  "0x{:X} outside an interactive menu; re-asserting game focus (watchdog)",
+							REX::WARN("WebView2HostWebRenderer: focus stranded in browser-host child "
+									  "0x{:X} outside an input-capturing menu; re-asserting game focus (watchdog)",
 								reinterpret_cast<std::uintptr_t>(info.hwndFocus));
 						}
-						::PostMessageW(hostSession.topLevel,
+						::PostMessageW(browserHostSession.topLevel,
 							OverlayInputHook::kRestoreGameFocusMessage, 0, 0);
-					} else if (_impl->focusRequested && info.hwndFocus == hostSession.topLevel) {
-						// Interactive-menu session live but Chromium never took
+					} else if (_impl->focusRequested && info.hwndFocus == browserHostSession.topLevel) {
+						// Input-capturing menu session live but Chromium never took
 						// focus (MoveFocus lost): input and foreground scheduling
 						// would remain on the wrong process.
 						healthy = false;
 						if (!_impl->focusFixWarned) {
 							_impl->focusFixWarned = true;
-							REX::WARN("WebView2HostWebRenderer: interactive menu live but game window "
+							REX::WARN("WebView2HostWebRenderer: input-capturing menu live but game window "
 									  "still owns focus; re-sending focus request (watchdog)");
 						}
 						_impl->Send(FocusMsg(true));
@@ -1666,7 +1668,7 @@ namespace OSFUI
 			_impl->ringSlotsReported = announced;
 			const bool truncated = announced > SharedRingDesc::kMaxSlots;
 			const auto detail = truncated ?
-				std::format("host announced {} slots, capacity {}",
+				std::format("browser host announced {} slots, capacity {}",
 					announced, SharedRingDesc::kMaxSlots) :
 				std::string{};
 			_impl->ReportHealth("host.ring-truncated", truncated, detail);
@@ -1740,10 +1742,10 @@ namespace OSFUI
 		}
 		_impl->focusRequested = a_focused;
 		_impl->Send(FocusMsg(a_focused));
-		const auto hostSession = _impl->SessionSnapshot();
-		if (!a_focused && hostSession.topLevel) {
+		const auto browserHostSession = _impl->BrowserHostSessionSnapshot();
+		if (!a_focused && browserHostSession.topLevel) {
 			// Restore game focus on the game's own window thread.
-			::PostMessageW(hostSession.topLevel,
+			::PostMessageW(browserHostSession.topLevel,
 				OverlayInputHook::kRestoreGameFocusMessage, 0, 0);
 		}
 	}
@@ -1773,9 +1775,9 @@ namespace OSFUI
 
 	void WebView2HostWebRenderer::InjectKeyEvent(std::uint32_t a_vkCode, bool a_down)
 	{
-		// Dispatched into the active page as a DOM KeyboardEvent by the host shim.
+		// Dispatched into the input-target page as a DOM KeyboardEvent by the browser-host shim.
 		// Used for gamepad nav taps and Esc back-delegation; physical keyboard and
-		// IME input route natively while the interactive menu owns focus.
+		// IME input route natively while the input-capturing menu owns focus.
 		_impl->Send(json{ { "type", "key" }, { "vk", a_vkCode }, { "down", a_down } });
 	}
 
@@ -1879,8 +1881,8 @@ namespace OSFUI
 			if (!view) return;
 			std::erase_if(_impl->views,
 				[&](const Impl::ViewRec& a_rec) { return a_rec.id == a_viewId; });
-			if (_impl->activeId == a_viewId) {
-				_impl->activeId = _impl->views.empty() ? std::string{} : _impl->views.front().id;
+			if (_impl->inputTargetId == a_viewId) {
+				_impl->inputTargetId = _impl->views.empty() ? std::string{} : _impl->views.front().id;
 			}
 			_impl->RecomputeAllHidden();
 		}

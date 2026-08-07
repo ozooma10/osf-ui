@@ -43,7 +43,7 @@ export async function papyrusWarnings(modRoot, papyrus = null) {
           warnings.push(`${compiledName} is older than ${sourceName} - recompile it, or the game keeps running the previous script.`);
         }
       } catch {
-        warnings.push(`${compiledName} is missing - compile ${sourceName}, or the Papyrus backend will not run in game.`);
+        warnings.push(`${compiledName} is missing - compile ${sourceName}, or the Papyrus mod backend will not run in game.`);
       }
     } catch {}
   }

@@ -7,10 +7,10 @@
 
 namespace OSFUI::DevViewFiles
 {
-	// The mod folder segment of a qualified view id ("<modId>/<view>" -> "<modId>").
+	// The mod folder segment of a qualified view id ("<modId>/<viewName>" -> "<modId>").
 	//
 	// A view's real footprint is its whole mod folder, never just
-	// views/<modId>/<view>: the bundler emits hashed chunks to a mod-level
+	// views/<modId>/<viewName>: the bundler emits hashed chunks to a mod-level
 	// sibling (views/<modId>/assets/) that the entry HTML reaches through
 	// "../assets/...", built-ins keep shared scripts there too (osfui/padnav.js),
 	// and `osfui dev` deploys views/<modId> as one unit. Fingerprint and mirror

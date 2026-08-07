@@ -1,7 +1,7 @@
 {
   "$schema": "./../../../../../docs/schema/manifest.schema.json",
   "title": "Local Interface Link",
-  "description": "Warm platform surface for first-load view handoffs",
+  "description": "Resident platform view for first-load handoffs",
   "entry": "index.html",
   "mod": "osfui",
   "hub": false,

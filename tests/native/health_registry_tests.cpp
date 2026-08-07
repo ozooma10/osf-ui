@@ -1,5 +1,5 @@
-// Host-side unit tests for the session diagnostics registry (protocol 2.0,
-// docs/mod-api-2.0-design.md): the REAL DiagnosticsModule + MessageBridge
+// Native desktop unit tests for the session health registry (protocol 2.0,
+// docs/mod-api-2.0-design.md): the REAL HealthRegistry + MessageBridge
 // driven through actual 2.0 envelopes, with a capturing SendFn standing in for
 // the renderer. Covers dedupe/occurrence counting, resolve/reactivate history,
 // wire ordering, the payload sanitizer (no absolute paths, no shell targets,
@@ -8,12 +8,12 @@
 // Delivery is the part that changed: `diagnostics.get` is GONE — it was a read
 // whose real job was to subscribe the caller — and the registry is now the
 // `osfui/diagnostics` STATE key. PublishStateAll only reaches views that have
-// GREETED the bridge, so every test here boots its views the way the host does
+// GREETED the bridge, so every test here boots its views the way the OSF UI runtime does
 // (OnViewCreated, then a page-initiated `osfui.hello`), and the module's
 // `_subscribers` set is gone with the read that used to fill it.
 // Assert-style; process exit code is the failure count.
 
-#include "runtime/DiagnosticsModule.h"
+#include "runtime/HealthRegistry.h"
 #include "runtime/MessageBridge.h"
 
 #include "core/Log.h"
@@ -101,7 +101,7 @@ namespace
 		a_bridge.HandleWebMessage(a_view, envelope.dump());
 	}
 
-	// Boot a view the way the host does: arm its (closed) event gate, then let
+	// Boot a view the way the OSF UI runtime does: arm its (closed) event gate, then let
 	// the DOCUMENT greet. The page-initiated handshake is the only boot path.
 	void Greet(OSFUI::MessageBridge& a_bridge, std::string_view a_view)
 	{
@@ -148,12 +148,12 @@ namespace OSFUI::Log
 int main()
 {
 	using namespace OSFUI;
-	using Severity = DiagnosticsModule::Severity;
+	using Severity = HealthRegistry::Severity;
 
 	const auto spec = [](std::string a_id, std::string a_code, Severity a_severity,
 						  std::string a_source, std::string a_subject = {},
 						  nlohmann::json a_context = nlohmann::json::object()) {
-		return DiagnosticsModule::IssueSpec{
+		return HealthRegistry::IssueSpec{
 			.id = std::move(a_id),
 			.code = std::move(a_code),
 			.severity = a_severity,
@@ -165,12 +165,12 @@ int main()
 
 	// --- Upsert deduplicates by id and counts occurrences ------------------
 	{
-		DiagnosticsModule diag;
-		CHECK(diag.Upsert(spec("view.load-failed:acme/panel", "view.load-failed", Severity::Error, "views", "acme/panel"), 1.0));
-		CHECK(diag.Upsert(spec("view.load-failed:acme/panel", "view.load-failed", Severity::Error, "views", "acme/panel"), 4.0));
-		CHECK(diag.Upsert(spec("view.load-failed:acme/panel", "view.load-failed", Severity::Error, "views", "acme/panel"), 9.0));
+		HealthRegistry healthRegistry;
+		CHECK(healthRegistry.Upsert(spec("view.load-failed:acme/panel", "view.load-failed", Severity::Error, "views", "acme/panel"), 1.0));
+		CHECK(healthRegistry.Upsert(spec("view.load-failed:acme/panel", "view.load-failed", Severity::Error, "views", "acme/panel"), 4.0));
+		CHECK(healthRegistry.Upsert(spec("view.load-failed:acme/panel", "view.load-failed", Severity::Error, "views", "acme/panel"), 9.0));
 
-		const auto snapshot = diag.Snapshot();
+		const auto snapshot = healthRegistry.Snapshot();
 		CHECK(snapshot.at("issues").size() == 1);
 		const auto issue = IssueById(snapshot, "view.load-failed:acme/panel");
 		CHECK(issue.value("occurrences", 0u) == 3u);
@@ -183,33 +183,33 @@ int main()
 		CHECK(!issue.contains("resolvedAt"));
 
 		// A different id is a different condition, even with the same code.
-		CHECK(diag.Upsert(spec("view.load-failed:acme/hud", "view.load-failed", Severity::Error, "views", "acme/hud"), 10.0));
-		CHECK(diag.Snapshot().at("issues").size() == 2);
+		CHECK(healthRegistry.Upsert(spec("view.load-failed:acme/hud", "view.load-failed", Severity::Error, "views", "acme/hud"), 10.0));
+		CHECK(healthRegistry.Snapshot().at("issues").size() == 2);
 	}
 
 	// --- Resolve moves to session history; recurrence reactivates ----------
 	{
-		DiagnosticsModule diag;
-		diag.Upsert(spec("host.ring-truncated", "host.ring-truncated", Severity::Warning, "host"), 2.0);
-		CHECK(diag.IsActive("host.ring-truncated"));
+		HealthRegistry healthRegistry;
+		healthRegistry.Upsert(spec("host.ring-truncated", "host.ring-truncated", Severity::Warning, "host"), 2.0);
+		CHECK(healthRegistry.IsActive("host.ring-truncated"));
 
-		CHECK(diag.Resolve("host.ring-truncated", 5.0));
-		CHECK(!diag.IsActive("host.ring-truncated"));
+		CHECK(healthRegistry.Resolve("host.ring-truncated", 5.0));
+		CHECK(!healthRegistry.IsActive("host.ring-truncated"));
 		// Resolving twice is a no-op, so producers may resolve unconditionally
 		// every tick without generating a push each time.
-		CHECK(!diag.Resolve("host.ring-truncated", 6.0));
-		CHECK(!diag.Resolve("nothing.here", 6.0));
+		CHECK(!healthRegistry.Resolve("host.ring-truncated", 6.0));
+		CHECK(!healthRegistry.Resolve("nothing.here", 6.0));
 
-		auto resolved = IssueById(diag.Snapshot(), "host.ring-truncated");
+		auto resolved = IssueById(healthRegistry.Snapshot(), "host.ring-truncated");
 		CHECK(resolved.value("status", "") == "resolved");
 		CHECK(resolved.value("resolvedAt", -1.0) == 5.0);
 		CHECK(resolved.value("occurrences", 0u) == 1u);
 		// The record survives: "resolved this session" is the whole point.
-		CHECK(diag.Snapshot().at("issues").size() == 1);
+		CHECK(healthRegistry.Snapshot().at("issues").size() == 1);
 
 		// The same condition coming back reuses the record and keeps its count.
-		CHECK(diag.Upsert(spec("host.ring-truncated", "host.ring-truncated", Severity::Warning, "host"), 8.0));
-		auto again = IssueById(diag.Snapshot(), "host.ring-truncated");
+		CHECK(healthRegistry.Upsert(spec("host.ring-truncated", "host.ring-truncated", Severity::Warning, "host"), 8.0));
+		auto again = IssueById(healthRegistry.Snapshot(), "host.ring-truncated");
 		CHECK(again.value("status", "") == "active");
 		CHECK(again.value("occurrences", 0u) == 2u);
 		CHECK(again.value("firstAt", -1.0) == 2.0);
@@ -219,43 +219,43 @@ int main()
 
 	// --- ResolveMissing sweeps one source against a recomputed set ---------
 	{
-		DiagnosticsModule diag;
-		diag.Upsert(spec("settings.values-parse:acme", "settings.values-parse", Severity::Warning, "settings", "acme"), 1.0);
-		diag.Upsert(spec("settings.schema-parse:beta", "settings.schema-parse", Severity::Error, "settings", "beta"), 1.0);
-		diag.Upsert(spec("view.load-failed:acme/panel", "view.load-failed", Severity::Error, "views", "acme/panel"), 1.0);
+		HealthRegistry healthRegistry;
+		healthRegistry.Upsert(spec("settings.values-parse:acme", "settings.values-parse", Severity::Warning, "settings", "acme"), 1.0);
+		healthRegistry.Upsert(spec("settings.schema-parse:beta", "settings.schema-parse", Severity::Error, "settings", "beta"), 1.0);
+		healthRegistry.Upsert(spec("view.load-failed:acme/panel", "view.load-failed", Severity::Error, "views", "acme/panel"), 1.0);
 
 		// A reload fixed beta but not acme. The views issue belongs to another
 		// producer and must not be swept by the settings reconcile.
-		CHECK(diag.ResolveMissing("settings", { "settings.values-parse:acme" }, 7.0));
-		CHECK(diag.IsActive("settings.values-parse:acme"));
-		CHECK(!diag.IsActive("settings.schema-parse:beta"));
-		CHECK(diag.IsActive("view.load-failed:acme/panel"));
+		CHECK(healthRegistry.ResolveMissing("settings", { "settings.values-parse:acme" }, 7.0));
+		CHECK(healthRegistry.IsActive("settings.values-parse:acme"));
+		CHECK(!healthRegistry.IsActive("settings.schema-parse:beta"));
+		CHECK(healthRegistry.IsActive("view.load-failed:acme/panel"));
 		// Idempotent: nothing left to sweep.
-		CHECK(!diag.ResolveMissing("settings", { "settings.values-parse:acme" }, 8.0));
+		CHECK(!healthRegistry.ResolveMissing("settings", { "settings.values-parse:acme" }, 8.0));
 	}
 
 	// --- Wire ordering: errors, then warnings, newest first, resolved last --
 	{
-		DiagnosticsModule diag;
-		diag.Upsert(spec("w-old", "compat.needs-newer-osfui", Severity::Warning, "compat"), 1.0);
-		diag.Upsert(spec("e-old", "view.load-failed", Severity::Error, "views"), 2.0);
-		diag.Upsert(spec("w-new", "host.ring-truncated", Severity::Warning, "host"), 3.0);
-		diag.Upsert(spec("e-new", "settings.schema-parse", Severity::Error, "settings"), 4.0);
-		diag.Upsert(spec("r-done", "view.load-failed", Severity::Error, "views"), 5.0);
-		diag.Resolve("r-done", 6.0);
+		HealthRegistry healthRegistry;
+		healthRegistry.Upsert(spec("w-old", "compat.needs-newer-osfui", Severity::Warning, "compat"), 1.0);
+		healthRegistry.Upsert(spec("e-old", "view.load-failed", Severity::Error, "views"), 2.0);
+		healthRegistry.Upsert(spec("w-new", "host.ring-truncated", Severity::Warning, "host"), 3.0);
+		healthRegistry.Upsert(spec("e-new", "settings.schema-parse", Severity::Error, "settings"), 4.0);
+		healthRegistry.Upsert(spec("r-done", "view.load-failed", Severity::Error, "views"), 5.0);
+		healthRegistry.Resolve("r-done", 6.0);
 
-		const auto ids = IssueIds(diag.Snapshot());
+		const auto ids = IssueIds(healthRegistry.Snapshot());
 		CHECK(ids == std::vector<std::string>({ "e-new", "e-old", "w-new", "w-old", "r-done" }));
 	}
 
 	// --- Sanitizer: no absolute paths, no shell targets, bounded -----------
 	{
-		CHECK(DiagnosticsModule::RedactPath("acme.json") == "acme.json");
-		CHECK(DiagnosticsModule::RedactPath(R"(C:\Users\someone\Documents\My Games\Starfield\acme.json)") == "acme.json");
-		CHECK(DiagnosticsModule::RedactPath("/home/someone/.config/osfui/acme.json") == "acme.json");
-		CHECK(DiagnosticsModule::RedactPath(R"(\\SERVER\share\mods\acme.json)") == "acme.json");
-		CHECK(DiagnosticsModule::RedactPath("https://example.invalid/payload?x=1") == "payload?x=1");
-		CHECK(DiagnosticsModule::RedactPath(R"(C:\Windows\System32\)") == "<path>");
+		CHECK(HealthRegistry::RedactPath("acme.json") == "acme.json");
+		CHECK(HealthRegistry::RedactPath(R"(C:\Users\someone\Documents\My Games\Starfield\acme.json)") == "acme.json");
+		CHECK(HealthRegistry::RedactPath("/home/someone/.config/osfui/acme.json") == "acme.json");
+		CHECK(HealthRegistry::RedactPath(R"(\\SERVER\share\mods\acme.json)") == "acme.json");
+		CHECK(HealthRegistry::RedactPath("https://example.invalid/payload?x=1") == "payload?x=1");
+		CHECK(HealthRegistry::RedactPath(R"(C:\Windows\System32\)") == "<path>");
 
 		nlohmann::json context{
 			{ "file", R"(C:\Modding\Starfield\Data\SFSE\Plugins\OSFUI\settings\acme.json)" },
@@ -264,7 +264,7 @@ int main()
 			{ "nested", nlohmann::json{ { "drop", "me" } } },  // structured values are refused
 			{ "list", nlohmann::json::array({ 1, 2 }) },
 		};
-		const auto clean = DiagnosticsModule::Sanitize(context);
+		const auto clean = HealthRegistry::Sanitize(context);
 		CHECK(clean.value("file", "") == "acme.json");
 		CHECK(clean.value("line", 0) == 42);
 		CHECK(clean.value("recovered", false));
@@ -274,9 +274,9 @@ int main()
 		// Long strings are truncated rather than dropped: the head of a parse
 		// message is the actionable part.
 		nlohmann::json longContext{ { "message", std::string(4000, 'x') } };
-		const auto     truncated = DiagnosticsModule::Sanitize(longContext);
+		const auto     truncated = HealthRegistry::Sanitize(longContext);
 		CHECK(truncated.at("message").get<std::string>().size() <=
-			DiagnosticsModule::kMaxContextValueChars + 4);  // + the ellipsis' UTF-8 bytes
+			HealthRegistry::kMaxContextValueChars + 4);  // + the ellipsis' UTF-8 bytes
 
 		// A long value made of multi-byte codepoints must be cut on a boundary,
 		// not mid-sequence. kMaxContextValueChars counts BYTES, so a CJK message
@@ -285,13 +285,13 @@ int main()
 		// which runs on the game thread with no handler above it.
 		{
 			std::string cjk;
-			while (cjk.size() <= DiagnosticsModule::kMaxContextValueChars + 8) {
+			while (cjk.size() <= HealthRegistry::kMaxContextValueChars + 8) {
 				cjk += "\xE4\xB8\xAD";  // U+4E2D, 3 bytes
 			}
-			const auto cut = DiagnosticsModule::Sanitize(
+			const auto cut = HealthRegistry::Sanitize(
 				nlohmann::json{ { "message", cjk } });
 			const auto text = cut.at("message").get<std::string>();
-			CHECK(text.size() <= DiagnosticsModule::kMaxContextValueChars + 4);
+			CHECK(text.size() <= HealthRegistry::kMaxContextValueChars + 4);
 			// The head must survive intact and the whole payload must strictly dump.
 			CHECK(text.starts_with("\xE4\xB8\xAD"));
 			bool strictOk = true;
@@ -308,54 +308,54 @@ int main()
 		for (int i = 0; i < 40; ++i) {
 			wide["k" + std::to_string(i)] = i;
 		}
-		CHECK(DiagnosticsModule::Sanitize(wide).size() == DiagnosticsModule::kMaxContextEntries);
+		CHECK(HealthRegistry::Sanitize(wide).size() == HealthRegistry::kMaxContextEntries);
 
 		// The same rule applies to the system-information block.
-		DiagnosticsModule diag;
-		diag.SetSystemInfo(nlohmann::json{
+		HealthRegistry healthRegistry;
+		healthRegistry.SetSystemInfo(nlohmann::json{
 			{ "renderer", "webview2" },
 			{ "logFolder", R"(C:\Users\someone\Documents\My Games\Starfield\SFSE\Logs)" },
 		});
-		const auto system = diag.Snapshot().at("system");
+		const auto system = healthRegistry.Snapshot().at("system");
 		CHECK(system.value("renderer", "") == "webview2");
 		CHECK(system.value("logFolder", "") == "Logs");
 	}
 
 	// --- An issue with no id or no code is refused -------------------------
 	{
-		DiagnosticsModule diag;
-		CHECK(!diag.Upsert(spec("", "view.load-failed", Severity::Error, "views"), 1.0));
-		CHECK(!diag.Upsert(spec("some.id", "", Severity::Error, "views"), 1.0));
-		CHECK(diag.Snapshot().at("issues").empty());
+		HealthRegistry healthRegistry;
+		CHECK(!healthRegistry.Upsert(spec("", "view.load-failed", Severity::Error, "views"), 1.0));
+		CHECK(!healthRegistry.Upsert(spec("some.id", "", Severity::Error, "views"), 1.0));
+		CHECK(healthRegistry.Snapshot().at("issues").empty());
 	}
 
 	// --- The registry as STATE: greeting replay + change pushes ------------
 	{
 		g_sent.clear();
 		MessageBridge      bridge(Capture);
-		DiagnosticsModule  diag;
-		diag.RegisterEndpoints(bridge);
+		HealthRegistry  healthRegistry;
+		healthRegistry.RegisterEndpoints(bridge);
 
 		// `diagnostics.get` is gone as a NAME, not merely unused: a stale 1.x
 		// view naming it must get `unknown-endpoint`, never a half-working read.
 		CHECK(!bridge.HasRequest("diagnostics.get") && !bridge.HasSend("diagnostics.get"));
 
-		// The host's whole hello obligation for this key
+		// The OSF UI runtime's whole hello obligation for this key
 		// (Runtime::OnViewGreeted): publish the CURRENT snapshot straight to the
 		// greeting document — deliberately NOT through Broadcast(), for the
 		// reason the regression block below pins down.
 		bridge.SetHelloHook([&](std::string_view a_view) {
-			bridge.PublishState(a_view, "osfui", "diagnostics", diag.Snapshot());
+			bridge.PublishState(a_view, "osfui", "diagnostics", healthRegistry.Snapshot());
 		});
 
-		diag.SetSystemInfo(nlohmann::json{ { "version", "2.0.0" } });
-		diag.Upsert(spec("settings.values-parse:acme", "settings.values-parse", Severity::Warning, "settings", "acme"), 1.0);
+		healthRegistry.SetSystemInfo(nlohmann::json{ { "version", "2.0.0" } });
+		healthRegistry.Upsert(spec("settings.values-parse:acme", "settings.values-parse", Severity::Warning, "settings", "acme"), 1.0);
 
 		// A view that exists but has not greeted receives nothing: state at an
 		// ungreeted document is DROPPED, because its greeting replays every
 		// current value anyway and a queued value could land after a newer one.
 		bridge.OnViewCreated("osfui/settings");
-		diag.Broadcast();
+		healthRegistry.Broadcast();
 		CHECK(g_sent.empty());
 
 		// The greeting is answered with `ready`, then the snapshot. That
@@ -372,21 +372,21 @@ int main()
 		// An unchanged snapshot is not re-sent. Note the dedupe was armed by the
 		// Broadcast() above, which delivered nothing at all — the content check
 		// is on the SNAPSHOT, not on what any view received.
-		diag.Broadcast();
+		healthRegistry.Broadcast();
 		CHECK(StateTo("osfui/settings", "osfui", "diagnostics").size() == 1);
 
 		// A change reaches every greeted view, and only greeted views.
 		Greet(bridge, "acme/panel");
 		CHECK(StateTo("acme/panel", "osfui", "diagnostics").size() == 1);  // its own replay
-		diag.Upsert(spec("view.load-failed:acme/panel", "view.load-failed", Severity::Error, "views", "acme/panel"), 3.0);
-		diag.Broadcast();
+		healthRegistry.Upsert(spec("view.load-failed:acme/panel", "view.load-failed", Severity::Error, "views", "acme/panel"), 3.0);
+		healthRegistry.Broadcast();
 		CHECK(StateTo("osfui/settings", "osfui", "diagnostics").size() == 2);
 		CHECK(StateTo("acme/panel", "osfui", "diagnostics").size() == 2);
 		CHECK(StateTo("osfui/settings", "osfui", "diagnostics").back().payload.at("issues").size() == 2);
 
 		// Resolving is a change too — the card has to move to history live.
-		diag.Resolve("view.load-failed:acme/panel", 5.0);
-		diag.Broadcast();
+		healthRegistry.Resolve("view.load-failed:acme/panel", 5.0);
+		healthRegistry.Broadcast();
 		auto latest = StateTo("osfui/settings", "osfui", "diagnostics").back().payload;
 		CHECK(IssueById(latest, "view.load-failed:acme/panel").value("status", "") == "resolved");
 
@@ -396,17 +396,17 @@ int main()
 		// without the module hearing about it cannot keep receiving pushes.
 		const auto before = StateTo("acme/panel", "osfui", "diagnostics").size();
 		bridge.OnViewDestroyed("acme/panel");
-		diag.OnViewDestroyed("acme/panel");
-		diag.Upsert(spec("host.ring-truncated", "host.ring-truncated", Severity::Warning, "host"), 7.0);
-		diag.Broadcast();
+		healthRegistry.OnViewDestroyed("acme/panel");
+		healthRegistry.Upsert(spec("host.ring-truncated", "host.ring-truncated", Severity::Warning, "host"), 7.0);
+		healthRegistry.Broadcast();
 		CHECK(StateTo("acme/panel", "osfui", "diagnostics").size() == before);
 		CHECK(StateTo("osfui/settings", "osfui", "diagnostics").size() == 4);
 
 		// A bridge teardown drops the retained pointer; nothing dangles.
-		diag.OnBridgeDown();
+		healthRegistry.OnBridgeDown();
 		const auto sealed = g_sent.size();
-		diag.Upsert(spec("settings.schema-parse:late.mod", "settings.schema-parse", Severity::Error, "settings"), 9.0);
-		diag.Broadcast();
+		healthRegistry.Upsert(spec("settings.schema-parse:late.mod", "settings.schema-parse", Severity::Error, "settings"), 9.0);
+		healthRegistry.Broadcast();
 		CHECK(g_sent.size() == sealed);
 	}
 
@@ -416,22 +416,22 @@ int main()
 	// later has never been sent anything — and the registry it needs is, by
 	// definition, unchanged since the first one connected. Routing the replay
 	// through Broadcast() would therefore match _lastSent and hand that document
-	// an empty health pane for the rest of the session. Runtime::OnViewGreeted
+	// an empty System Health destination for the rest of the session. Runtime::OnViewGreeted
 	// publishes Snapshot() directly for exactly this reason; this test fails if
 	// anyone ever "simplifies" it back into Broadcast().
 	{
 		g_sent.clear();
 		MessageBridge     bridge(Capture);
-		DiagnosticsModule diag;
-		diag.RegisterEndpoints(bridge);
+		HealthRegistry healthRegistry;
+		healthRegistry.RegisterEndpoints(bridge);
 		bridge.SetHelloHook([&](std::string_view a_view) {
-			bridge.PublishState(a_view, "osfui", "diagnostics", diag.Snapshot());
+			bridge.PublishState(a_view, "osfui", "diagnostics", healthRegistry.Snapshot());
 		});
 
-		diag.Upsert(spec("host.ring-truncated", "host.ring-truncated", Severity::Warning, "host"), 1.0);
+		healthRegistry.Upsert(spec("host.ring-truncated", "host.ring-truncated", Severity::Warning, "host"), 1.0);
 		// Arms _lastSent with the current snapshot while no view has greeted, so
 		// the dedupe is live for everything that follows.
-		diag.Broadcast();
+		healthRegistry.Broadcast();
 		CHECK(g_sent.empty());
 
 		Greet(bridge, "osfui/settings");
@@ -450,17 +450,17 @@ int main()
 		// The proof that the replay is a SEPARATE path and not a lucky
 		// Broadcast(): one right now still sends nothing to anybody.
 		const auto sealed = g_sent.size();
-		diag.Broadcast();
+		healthRegistry.Broadcast();
 		CHECK(g_sent.size() == sealed);
 
 		// And the replay left the dedupe's bookkeeping alone: a real change
 		// afterwards still fans out to both documents.
-		diag.Upsert(spec("view.load-failed:acme/panel", "view.load-failed", Severity::Error, "views", "acme/panel"), 4.0);
-		diag.Broadcast();
+		healthRegistry.Upsert(spec("view.load-failed:acme/panel", "view.load-failed", Severity::Error, "views", "acme/panel"), 4.0);
+		healthRegistry.Broadcast();
 		CHECK(StateTo("osfui/settings", "osfui", "diagnostics").size() == 2);
 		CHECK(StateTo("acme/panel", "osfui", "diagnostics").size() == 2);
 	}
 
-	std::fprintf(stderr, "diagnostics_tests: %d checks, %d failures\n", g_checks, g_failures);
+	std::fprintf(stderr, "health_registry_tests: %d checks, %d failures\n", g_checks, g_failures);
 	return g_failures;
 }

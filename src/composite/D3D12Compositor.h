@@ -25,7 +25,7 @@ namespace OSFUI
 	//
 	// Threading:
 	//  - Submit() (SFSE tick thread) adopts newly announced shared rings and
-	//    records which slot the host published. No GPU work is submitted there.
+	//    records which slot the browser host published. No GPU work is submitted there.
 	//  - RecordSeamOverlayDraw (above) runs on an engine render worker and does
 	//    all GPU work onto the engine's own command list. It also observes the
 	//    UI target size and whether the frame graph exposes the Frame Generation
@@ -46,7 +46,7 @@ namespace OSFUI
 		void SetVisible(bool a_visible) override;
 		void SetOutputResizeCallback(OutputResizeCallback a_callback) override;
 		[[nodiscard]] bool IsOutputSizeKnown() const override;
-		// GPU transport (out-of-process WebView2 host): adopt the shared ring;
+		// GPU transport (out-of-process browser host): adopt the shared ring;
 		// sharedSlot frames submitted afterwards are sampled directly at the
 		// engine seam (produce/consume fence synchronized, no CPU upload).
 		void SetSharedRing(const SharedRingDesc& a_desc) override;

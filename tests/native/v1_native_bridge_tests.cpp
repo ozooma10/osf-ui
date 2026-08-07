@@ -87,16 +87,16 @@ int main()
 		outbox.push_back(nlohmann::json::parse(json));
 	});
 	api.SetViewCatalog({ "acme.widgets/panel" });
-	api.SetSurfaceLoaded("acme.widgets/panel", true);
+	api.SetViewInstantiated("acme.widgets/panel", true);
 	bridgeVtable->SetReadyCallback(&Ready, nullptr);
-	api.OnBridgeReady(&web);
+	api.SetBridgeAvailability(&web);
 	web.OnViewCreated("acme.widgets/panel", true);
 	web.HandleWebMessage("acme.widgets/panel", R"({"kind":"send","name":"osfui.hello","payload":{}})");
 	api.PumpMainThread();
 	CHECK(readyCalls == 1);
 	CHECK(bridgeVtable->IsBridgeReady());
 	CHECK(bridgeVtable->RequestMenu("acme.widgets/panel", true));
-	CHECK(api.TakeMenuRequests().size() == 1);
+	CHECK(api.TakeViewPresentationRequests().size() == 1);
 	CHECK(bridgeVtable->RegisterView("acme.widgets/panel"));
 	CHECK(api.TakeViewRegistrations() == std::vector<std::string>{ "acme.widgets/panel" });
 	CHECK(bridgeVtable->SendToWeb("acme.widgets/panel", "acme.widgets.notice", R"({"ok":true})"));
@@ -190,7 +190,7 @@ int main()
 		"panel", R"({"format":1})"));
 	CHECK(bridgeVtable->ClearIssue("acme.widgets", "legacy"));
 	CHECK(bridgeVtable->ClearIssuesExcept("acme.widgets", R"([])"));
-	CHECK(api.TakeDiagnosticOps().size() == 3);
+	CHECK(api.TakeHealthIssueOps().size() == 3);
 
 	CHECK(bridgeVtable->SetViewState("acme.widgets", "status", R"({"ready":true})"));
 	CHECK(api.TakeViewStateOps().size() == 1);

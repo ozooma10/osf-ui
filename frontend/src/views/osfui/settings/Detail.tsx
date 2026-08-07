@@ -1,6 +1,6 @@
 // The right-hand pane, and the dispatcher for its six mutually exclusive
 // modes. Dispatch order is the behaviour:
-//   1. System Health    the pinned destination, which outranks even search —
+//   1. System Health    the fixed destination, which outranks even search —
 //                       selecting it clears the filter, so the two never fight
 //   2. search results   a non-empty filter replaces the pane, whatever is selected
 //   3. Home             the launcher
@@ -29,7 +29,7 @@ import { isSetting } from '@lib/settings/normalize';
 import { safeAssetSrc, type AssetRoots } from '@lib/settings/assets';
 import { findEntry, titleOf, FRAMEWORK_ID, HEALTH_ID, HOME_ID, type ModRecord, type ViewRecord } from '@lib/settings/rail';
 import { pageBuckets, GENERAL_PAGE_ID, type PageBucket } from '@lib/settings/pages';
-import { issueForSubject, type HealthModel } from '@lib/settings/diagnostics';
+import { issueForSubject, type HealthModel } from '@lib/settings/health';
 import { versionLess } from '@lib/version';
 import type { SearchResult } from '@lib/settings/search';
 import type { Translator } from '@lib/i18n';
@@ -65,33 +65,33 @@ export function groupKey(ownerId: string, group: SettingsGroup, index: number): 
     : `${ownerId}::g${index}`;
 }
 
-/** The surfaces section's collapse identity — never collides with a group's. */
-function surfacesKey(ownerId: string): string {
-  return `${ownerId}::surfaces`;
+/** The views section's collapse identity — never collides with a group's. */
+function viewsSectionKey(ownerId: string): string {
+  return `${ownerId}::views`;
 }
 
 export interface DetailProps {
   mods: ModRecord[];
   /** Localized keycap lookup for key rows; undefined per name = show the name. */
   labeler?: KeyLabeler;
-  /** Complete, unfiltered `views.data` catalog for OSF UI diagnostics. */
+  /** Complete, unfiltered `osfui/views` catalog for view status and health. */
   discoveredViews: ViewRecord[];
-  /** Hub-visible catalog used by normal navigation and per-mod surfaces. */
+  /** Catalog-visible views used by normal navigation and per-mod view sections. */
   views: ViewRecord[];
   health: HealthModel;
   /** Pre-trimmed, pre-lowercased. Non-empty selects mode 2. */
   query: string;
   selectedId: string | null;
-  hostVersion: string;
+  osfuiReleaseVersion: string;
   tr: Translator;
   assetRoots: AssetRoots | undefined;
 
-  /** Issue to expand on the Health pane, set by a deep link and cleared after. */
+  /** Issue to expand in System Health, set by a deep link and cleared after. */
   focusIssueId: string | null;
-  /** Jump to System Health with `issueId` expanded (failed-view card). */
+  /** Jump to System Health with the failed-view `issueId` expanded. */
   onOpenIssue: (issueId: string) => void;
-  /** Fire a payload-free shell command from a health card. */
-  onShellCommand: (command: string) => void;
+  /** Call a payload-free shell request endpoint from a health issue. */
+  onShellRequest: (requestEndpoint: string) => void;
 
   /** User overrides on top of each group's schema `collapsed` default. */
   collapsed: Record<string, boolean>;
@@ -121,7 +121,7 @@ export interface DetailProps {
   onApplyPreset: (mod: ModRecord, preset: PresetRecord) => void;
   onJump: (result: SearchResult) => void;
   onToast: (message: string, kind?: 'warn' | 'danger') => void;
-  runAction: (command: string, modId: string, key: string | undefined) => Promise<string | null>;
+  runAction: (requestEndpoint: string, modId: string, key: string | undefined) => Promise<string | null>;
   /** bridge.applyAccent, injected so this file never touches the bridge. */
   applyAccent: (el: HTMLElement, hex: string | null) => void;
 }
@@ -160,7 +160,7 @@ export function Detail(props: DetailProps) {
           tr={tr}
           focusIssueId={props.focusIssueId}
           onRetryView={props.onOpenView}
-          onShellCommand={props.onShellCommand}
+          onShellRequest={props.onShellRequest}
           onToast={props.onToast}
         />
       ) : query ? (
@@ -190,7 +190,7 @@ export function Detail(props: DetailProps) {
   );
 }
 
-// Mode 5: a mod that registered views but no settings schema.
+// Mode 5: a mod with discovered views but no settings schema.
 function ViewOnly(props: DetailProps & { entry: NonNullable<ReturnType<typeof findEntry>> }) {
   const { entry, tr } = props;
   // Same lead-view rule as the rail title: prefer a menu, which reads like a
@@ -210,7 +210,7 @@ function ViewOnly(props: DetailProps & { entry: NonNullable<ReturnType<typeof fi
         {/* No "Reset all": there is nothing to reset. */}
       </div>
       <div class="detail-body">
-        <Surfaces {...props} views={entry.views} ownerId={entry.id} />
+        <ViewsSection {...props} views={entry.views} ownerId={entry.id} />
         <p class="detail-quiet">{tr('noModSettings', 'This mod registers no settings.')}</p>
       </div>
     </>
@@ -225,7 +225,7 @@ interface SettingsPageProps extends DetailProps {
 }
 
 function SettingsPage(props: SettingsPageProps) {
-  const { mod, schema, tr, hostVersion } = props;
+  const { mod, schema, tr, osfuiReleaseVersion } = props;
   const values = mod.values || {};
   const isFramework = mod.id === FRAMEWORK_ID;
 
@@ -270,12 +270,12 @@ function SettingsPage(props: SettingsPageProps) {
       </div>
 
       <div class="detail-body">
-        <Surfaces {...props} views={props.entryViews} ownerId={mod.id} />
+        <ViewsSection {...props} views={props.entryViews} ownerId={mod.id} />
 
         {/* Advisory only, not a gate: everything below still renders
-            best-effort, and a setting of a type this host predates comes up
+            best-effort, and a setting of a type this OSF UI release predates comes up
             read-only with its own per-row hint. */}
-        {mod.targetVersion && versionLess(hostVersion, mod.targetVersion) ? (
+        {mod.targetVersion && versionLess(osfuiReleaseVersion, mod.targetVersion) ? (
           <div class="osf-note osf-note--warn">
             <div>
               {tr(
@@ -329,6 +329,18 @@ function SettingsPage(props: SettingsPageProps) {
             values={values}
           />
         ))}
+
+        {isFramework ? (
+          <div class="group discovered-views-group">
+            <div class="group-rows">
+              <DiscoveredViews
+                views={props.discoveredViews}
+                tr={props.tr}
+                onOpen={props.onOpenView}
+              />
+            </div>
+          </div>
+        ) : null}
       </div>
     </>
   );
@@ -450,13 +462,6 @@ function Group(props: GroupProps) {
         {(group.settings || []).map((item, i) => (
           <Item key={itemKey(item, i)} {...props} item={item} values={values} />
         ))}
-        {mod.id === FRAMEWORK_ID && group.id === 'diagnostics' ? (
-          <RegisteredViews
-            views={props.discoveredViews}
-            tr={props.tr}
-            onTrigger={props.onOpenView}
-          />
-        ) : null}
       </div>
     </div>
   );
@@ -577,21 +582,21 @@ function Item(props: ItemProps) {
 }
 
 /**
- * Host-level discovery inventory for mod-provided views. Unlike the launcher
- * and per-mod surface sections this intentionally includes `hub:false`,
- * debug-only and unloaded entries: its purpose is to let a user prove that a
- * mod view registered and drive the exact same open path without first making
+ * Complete OSF UI runtime discovery inventory for mod-provided views. Unlike the launcher
+ * and per-mod view sections this intentionally includes `hub:false`,
+ * debug-only and uninstantiated entries: its purpose is to let a user prove that a
+ * mod view was discovered and drive the exact same open path without first making
  * it visible in normal menus. Framework-owned views are implementation detail,
  * so they do not crowd this list.
  */
-function RegisteredViews({
+function DiscoveredViews({
   views,
   tr,
-  onTrigger,
+  onOpen,
 }: {
   views: ViewRecord[];
   tr: Translator;
-  onTrigger: (id: string) => void;
+  onOpen: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const ordered = views
@@ -599,32 +604,33 @@ function RegisteredViews({
     .sort((a, b) => a.id.localeCompare(b.id, undefined, { sensitivity: 'base' }));
 
   return (
-    <div class="registered-views">
+    <div class="discovered-views">
       <button
         type="button"
-        class="registered-views-head"
+        class="discovered-views-head"
         aria-expanded={open ? 'true' : 'false'}
         onClick={() => setOpen(!open)}
       >
         <div>
-          <div class="row-label">{tr('registeredViews', 'Registered views')}</div>
+          {/* Compatibility catalog addresses retain the former registration noun. */}
+          <div class="row-label">{tr('registeredViews', 'Discovered views')}</div>
           <div class="row-hint">
             {tr(
               'registeredViewsHint',
-              'Mod-provided views discovered this session, including hidden and unloaded views.',
+              'Mod-provided views discovered this session, including catalog-hidden and uninstantiated views.',
             )}
           </div>
         </div>
       </button>
       {open ? (
-        <div class="registered-views-body">
+        <div class="discovered-views-body">
           {ordered.length ? (
             ordered.map((view) => (
-              <Row key={view.id} class="registered-view" dataKey="">
+              <Row key={view.id} class="discovered-view" dataKey="">
                 <div class="row-text">
                   <div class="row-label">{view.title || view.id}</div>
-                  <div class="row-hint registered-view-meta">
-                    <span class="registered-view-id">{view.id}</span>
+                  <div class="row-hint discovered-view-meta">
+                    <span class="discovered-view-id">{view.id}</span>
                     <span aria-hidden="true"> · </span>
                     <span>{view.kind || 'view'}</span>
                     <span aria-hidden="true"> · </span>
@@ -635,15 +641,16 @@ function RegisteredViews({
                   <button
                     type="button"
                     class="osf-btn osf-btn--sm osf-btn--osf-accent"
-                    onClick={() => onTrigger(view.id)}
+                    onClick={() => onOpen(view.id)}
                   >
-                    {tr('trigger', 'Trigger')}
+                    {/* Compatibility catalog address; this action opens the discovered view. */}
+                    {tr('trigger', 'Open')}
                   </button>
                 </div>
               </Row>
             ))
           ) : (
-            <div class="registered-views-empty">
+            <div class="discovered-views-empty">
               {tr('noRegisteredViews', 'No mod-provided views were discovered.')}
             </div>
           )}
@@ -652,31 +659,31 @@ function RegisteredViews({
     </div>
   );
 }
-// Surfaces: the catalog views attached to this entry, rendered above the
-// settings groups. A menu gets an Open button (menu.open — single-menu policy,
-// so the opened panel replaces this surface); a HUD gets a hud.show/hud.hide
-// switch.
+// Views: the catalog entries attached to this mod, rendered above its settings
+// groups. A Menu gets an Open button (single-menu policy means it replaces this
+// view); a HUD gets a visibility toggle.
 
-interface SurfacesProps extends DetailProps {
+interface ViewsSectionProps extends DetailProps {
   views: ViewRecord[];
   ownerId: string;
 }
 
-function Surfaces(props: SurfacesProps) {
+function ViewsSection(props: ViewsSectionProps) {
   const { views, ownerId, tr, collapsed, onToggleGroup } = props;
   if (!views.length) return null;
 
   const menus = views.filter((v) => v.kind === 'menu');
   const huds = views.filter((v) => v.kind !== 'menu');
+  // Compatibility catalog addresses retain terminal/overlay spellings.
   const label =
     menus.length && huds.length
-      ? tr('terminalsOverlays', 'Terminals & overlays')
+      ? tr('terminalsOverlays', 'Menus & HUDs')
       : menus.length
-        ? tr('terminals', 'Terminals')
-        : tr('overlays', 'Overlays');
+        ? tr('terminals', 'Menus')
+        : tr('overlays', 'HUDs');
 
-  const key = surfacesKey(ownerId);
-  // No schema default here — the surfaces section starts expanded.
+  const key = viewsSectionKey(ownerId);
+  // No schema default here — the views section starts expanded.
   const isCollapsed = collapsed[key] ?? false;
 
   return (
@@ -686,7 +693,7 @@ function Surfaces(props: SurfacesProps) {
       </button>
       <div class="group-rows">
         {menus.map((v) => (
-          <PanelRow
+          <MenuRow
             key={v.id}
             view={v}
             tr={tr}
@@ -727,7 +734,7 @@ function ViewRowText({ view }: { view: ViewRecord }) {
   );
 }
 
-function PanelRow({
+function MenuRow({
   view: v,
   tr,
   issueId,
@@ -746,7 +753,7 @@ function PanelRow({
 
   // A failed row sends the player to the issue rather than to the log: the
   // issue says what happened, and carries the retry. A failure with no issue
-  // (an older host) keeps the old dead-end button.
+  // (an older OSF UI runtime) keeps the old dead-end button.
   if (failed && issueId) {
     return (
       <Row class="" dataKey="">
@@ -775,7 +782,7 @@ function PanelRow({
           {...(failed ? { title: tr('viewFailed', 'The view failed to load; see OSF UI.log.') } : {})}
           onClick={() => {
             onOpen(v.id);
-            // The opened panel replaces this surface, so this state is normally
+            // The opened menu replaces this view, so this state is normally
             // discarded with the page. The timer covers the open never
             // happening (failed registration), which would strand the button.
             setOpening(true);
@@ -811,7 +818,7 @@ function HudRow({
 /**
  * The per-HUD startup-policy switch (protocol 1.6), rendered as its own row
  * under the HUD's visibility row so the two switches stay unambiguous. Only
- * views the host marks `autoStartMutable` get one; the choice applies at the
+ * views the OSF UI runtime marks `autoStartMutable` get one; the choice applies at the
  * next game launch, so the row deliberately does not touch `hud.show`/`hide`.
  */
 function AutoStartRow({

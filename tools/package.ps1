@@ -20,7 +20,7 @@
     maps onto the game Data folder.
 
 .PARAMETER Version
-    Release version string for the archive name. Defaults to kPluginVersion
+    Release version string for the archive name. Defaults to kOsfuiReleaseVersion
     parsed from src/core/Version.h.
 
 .PARAMETER Tag
@@ -79,8 +79,8 @@ if (-not (Get-Command xmake -ErrorAction SilentlyContinue)) {
 # --- version ---------------------------------------------------------------
 if (-not $Version) {
     $vh = Join-Path $RepoRoot 'src\core\Version.h'
-    $m = Select-String -Path $vh -Pattern 'kPluginVersion\s*=\s*"([^"]+)"' | Select-Object -First 1
-    if (-not $m) { Die "Could not parse kPluginVersion from $vh; pass -Version explicitly." }
+    $m = Select-String -Path $vh -Pattern 'kOsfuiReleaseVersion\s*=\s*"([^"]+)"' | Select-Object -First 1
+    if (-not $m) { Die "Could not parse kOsfuiReleaseVersion from $vh; pass -Version explicitly." }
     $Version = $m.Matches[0].Groups[1].Value
 }
 $verLabel = "v$Version"
@@ -141,7 +141,7 @@ try {
 
     # --- deterministic data sync ------------------------------------------
     # xmake's authored-data glob is cached, so mirror data/OSFUI explicitly.
-    # Preserve generated views and the host executable installed by xmake.
+    # Preserve generated views and the browser-host executable installed by xmake.
     $stagedData = Join-Path $Staging 'SFSE\Plugins\OSFUI'
     $srcData    = Join-Path $RepoRoot 'data\OSFUI'
     if (-not (Test-Path $srcData)) { Die "Source data folder not found: $srcData" }
@@ -151,7 +151,7 @@ try {
         Remove-Item -Recurse -Force
     Copy-Item (Join-Path $srcData '*') $stagedData -Recurse -Force
 
-    # Same stale-glob trap applies to data/Scripts (the Papyrus surface):
+    # Same stale-glob trap applies to data/Scripts (the Papyrus API):
     # mirror the authoritative folder over whatever install staged.
     $stagedScripts = Join-Path $Staging 'Scripts'
     $srcScripts    = Join-Path $RepoRoot 'data\Scripts'
@@ -201,7 +201,7 @@ try {
         'SFSE\Plugins\OSFUI\views\shared\osfui.js',
         'SFSE\Plugins\OSFUI\views\shared\osfui.css',
         'SFSE\Plugins\OSFUI\views\osfui\padnav.js',
-        'Scripts\OSFUI.pex'   # Papyrus surface (authoring-settings.md "From Papyrus")
+        'Scripts\OSFUI.pex'   # Papyrus API (authoring-settings.md "From Papyrus")
     )
     $missing = $required | Where-Object { -not (Test-Path (Join-Path $Staging $_)) }
     if ($missing) {
@@ -243,7 +243,7 @@ try {
         # still carries one is a stale file, not a working configuration.
         foreach ($legacy in @('views', 'warmViews')) {
             if ($names -contains $legacy) {
-                Die "config.json still declares '$legacy' -- configVersion 2 removed the central view lists (HUD auto-start is player policy; other views load on first open)."
+                Die "config.json still declares '$legacy' -- configVersion 2 removed the central view lists (HUD auto-start is player policy; other views are instantiated on first open)."
             }
         }
         $viewValue = if ($names -contains 'view') { $cfg.view } else { $null }

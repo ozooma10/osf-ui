@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
-// Settings surface failure paths: rejected writes, action timeout, capture-busy,
-// and Escape peeling the undo overlay before it closes the surface.
+// Mod Settings failure paths: rejected writes, action timeout, capture-busy,
+// and Escape peeling the undo overlay before it closes the view.
 //
 // Every one of these is now a REJECTED request. Protocol 2.0 deleted the
 // `ui.result` document with its `ok:false` field, so a refusal can no longer be
@@ -50,7 +50,7 @@ describe('settings.set rejection', () => {
     expect(el.querySelector('#save-state')!.classList.contains('visible')).toBe(false);
 
     // What used to follow — a `settings.get` to pull authoritative state back —
-    // is gone from the contract: the host republishes `osfui/settings` itself,
+    // is gone from the contract: the OSF UI runtime republishes `osfui/settings` itself,
     // and every open document gets it. Modelled here as that republish.
     bridge.publish('osfui/settings', WIDGETS);
     await flush();

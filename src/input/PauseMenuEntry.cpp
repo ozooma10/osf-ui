@@ -27,10 +27,10 @@ namespace OSFUI
 		// below, never reaches the engine anyway.
 		constexpr std::uint32_t kActionId = 100;
 
-		std::string g_label = "MOD MENUS";
+		std::string g_label = "MOD SETTINGS";
 		std::string g_viewId = "osfui/settings";
 
-		// Written by Runtime (init + MCM change, SFSE task / bridge threads),
+		// Written by Runtime (initialization + Mod Settings change, SFSE task / bridge threads),
 		// read by Reconcile on the main thread.
 		std::atomic<bool> g_enabled{ true };
 
@@ -341,7 +341,7 @@ namespace OSFUI
 				!entry.SetMember("bShowSpinner", RE::Scaleform::GFx::Value(false)) ||
 				!entry.SetMember("bHasNotification", RE::Scaleform::GFx::Value(false)) ||
 				!entry.SetMember("sConfirmText", emptyStr) || !newList.PushBack(entry)) {
-				WarnOnce("could not build the MOD MENUS list entry");
+				WarnOnce("could not build the MOD SETTINGS list entry");
 				return;
 			}
 

@@ -14,11 +14,11 @@ migration plan and `compat-v1-removal.md`; the strict design below remains the
 
 ## What this system is
 
-Strip away the helper and its aliases and OSF UI is one thing: a
-**reload-prone web document** talking to **three backends** — the platform
-runtime (settings, views, i18n, diagnostics), an optional native SFSE plugin,
-and Papyrus scripts. Every API wart in 1.x traces back to not answering two
-questions consistently:
+Strip away the shared bridge helper and its aliases and OSF UI is one thing: a
+**reload-prone web document** talking through the **OSF UI runtime** to
+platform endpoints (settings, views, i18n, health) and, optionally, to either
+kind of **mod backend**: a native SFSE plugin or Papyrus scripts. Every API wart
+in 1.x traces back to not answering two questions consistently:
 
 1. **Does the caller need a completion?** This produced the send/emit and
    request/call aliases, command auto-acks, the injected `requestId` in plugin
@@ -52,8 +52,9 @@ mechanics.
    Every failure a mod author can cause is visible in the view's own console —
    and therefore in the F12 Chromium DevTools — not only in a log file
    (see "DevTools").
-6. **Symmetry across backends.** Platform, native plugin, and Papyrus each
-   express the same four endpoint kinds. Gaps in that grid are API bugs.
+6. **Symmetry across endpoint owners.** OSF UI platform endpoints, native
+   plugins, and Papyrus scripts each express the same four endpoint kinds. Gaps
+   in that grid are API bugs.
 
 ## The four verbs
 
@@ -66,12 +67,12 @@ which is why 1.x grew both `data.push` and `data.state`.
 
 | Verb | Direction | Contract | On F5 / reload / recovery |
 |---|---|---|---|
-| `send` | web → backend | One-way. Returns "posted locally" boolean; never reports remote outcome. | Nothing — gone with the document |
-| `request` | web → backend | Exactly one settlement: payload, typed error, or timeout. | Pending requests die with the document |
-| `on` (events) | backend → web | One-shot happenings, delivered at most once. **Never replayed.** | Missed events stay missed |
-| `state` | backend → web | Named values, latest-wins, complete value per key (never deltas). **Always replayed** to a fresh document, after `ready`, before any event. | Replayed automatically — this is the point |
+| `send` | web → endpoint owner | One-way. Returns "posted locally" boolean; never reports remote outcome. | Nothing — gone with the document |
+| `request` | web → endpoint owner | Exactly one settlement: payload, typed error, or timeout. | Pending requests die with the document |
+| `on` (events) | endpoint owner → web | One-shot happenings, delivered at most once. **Never replayed.** | Missed events stay missed |
+| `state` | endpoint owner → web | Named values, latest-wins, complete value per key (never deltas). **Always replayed** to a fresh document, after `ready`, before any event. | Replayed automatically — this is the point |
 
-Rule of thumb for authors: *if the backend knows when the value changes,
+Rule of thumb for authors: *if the endpoint owner knows when the value changes,
 publish state; if only the view knows when it needs the answer, make a
 request.*
 
@@ -164,17 +165,18 @@ sequence:
 
 ```
 document loads
-  └─ helper sends  { kind: "send", name: "osfui.hello" }
-       └─ host replies   ready  →  full state replay (platform keys + owning mod's keys)
-            └─ events begin flowing; view renders from state; done
+  └─ shared bridge helper sends  { kind: "send", name: "osfui.hello" }
+       └─ OSF UI runtime replies   ready  →  full state replay (platform keys + owning mod's keys)
+             └─ events begin flowing; view renders from state; done
 ```
 
-Because the document initiates, the host never has to guess whether a greeting
-was consumed. That removes the machinery 1.x needs to make host-initiated
-greetings safe across reloads: the four separate `SendRuntimeReady` call sites
-in `src/runtime/Runtime.cpp` and the `domSeen` reset-and-flush ordering in
-`tools/webview2_host/HostApp.cpp`. The host's whole obligation becomes:
-answer hellos, in order, with `ready` then state.
+Because the document initiates, the OSF UI runtime never has to guess whether a
+runtime-initiated greeting was consumed. That removes the 1.x
+`SendRuntimeReady` call sites and their coordination with the browser host's
+DOM-delivery gate. The browser host still uses its internal `domSeen` gate to
+queue script delivery across navigation; it no longer decides when the bridge
+handshake begins. The OSF UI runtime's obligation is to answer hellos, in
+order, with `ready` then state.
 
 Ordering guarantees, in both directions:
 
@@ -185,13 +187,13 @@ Ordering guarantees, in both directions:
    unchanged.
 4. `ready` rejects with `no-bridge` in a plain browser instead of hanging.
 
-## Backend symmetry
+## Endpoint-owner symmetry
 
-Every backend expresses the same four kinds:
+Every endpoint owner expresses the same four kinds:
 
-| | Command handler | Request handler | Emit event | Set state |
+| | Send endpoint | Request endpoint | Emit event | Publish state |
 |---|---|---|---|---|
-| **Platform** | internal registry | internal registry | internal | internal |
+| **OSF UI platform** | internal registry | internal registry | internal | internal |
 | **Native plugin (C ABI)** | `RegisterSend` | `RegisterRequest` | `SendToWeb` | `SetViewState` |
 | **Papyrus** | `ListenForViewActions` → `OnOSFUIViewAction` | `ListenForViewRequests` → `OnOSFUIViewRequest` | `SendViewEvent` **(new)** | `SetView*` |
 
@@ -205,8 +207,8 @@ The two new entries close real gaps:
 - **`SetViewState(mod, key, payloadJson)` (C ABI).** 1.x state is
   Papyrus-only; a native plugin must hand-roll reload handling (listen for a
   view-defined hello, re-push). With native state, the plugin sets a value
-  once and the runtime replays it to every fresh document. This is the
-  systemic fix for the blank-after-F5 bug class: backend-owned data that
+  once and the OSF UI runtime replays it to every fresh document. This is the
+  systemic fix for the blank-after-F5 bug class: mod-backend-owned data that
   changes over time is state, not something the view must remember to
   re-request. Requests stay reserved for on-demand reads and mutations.
 
@@ -255,9 +257,9 @@ time ("capture armed", or `capture-busy`), and the outcome arrives as the
 `settings.captured` event. Requests settle in machine time; human-time
 outcomes are events.
 
-Commands (pure notifications) remain: `close`, `log`, `view.ready`,
+Pure-notification `send` endpoints remain: `close`, `log`, `view.ready`,
 input-mode declarations (`osfui.gamepadRaw`, `osfui.handleBack`), and the
-fixed-target shell verbs.
+fixed-target shell endpoints.
 
 ## Failure semantics
 
@@ -268,24 +270,24 @@ fixed-target shell verbs.
   - `no-bridge` — local, immediate.
   - `timeout` — the client timer (default 10 s; `timeoutMs: 0` disables only
     the client timer).
-  - `no-response` — the backend missed the host-side deadline (30 s).
+  - `no-response` — the endpoint handler missed the OSF UI runtime's 30 s deadline.
   - `wrong-endpoint-kind`, `unknown-endpoint`, `invalid-request`,
     `request-capacity` — protocol enforcement.
   - anything else — the handler's own rejection code.
 - A `send` naming a request endpoint is dropped — and surfaced (next
   section). Dropping is correct (executing a mutation whose kind the caller
   got wrong invites worse bugs); dropping *silently* is not.
-- Late or duplicate replies after settlement are ignored (the 1.7 host
-  already does this correctly in `src/api/BridgeApi.cpp`).
-- Handlers respond or reject exactly once; commands can never be awaited.
+- Late or duplicate replies after settlement are ignored (the OSF UI runtime
+  already did this correctly in the 1.7 release, in `src/api/BridgeApi.cpp`).
+- Handlers respond or reject exactly once; sends can never be awaited.
 
-## DevTools: F12 Chromium DevTools is the debug surface
+## DevTools: F12 Chromium DevTools is the debugging destination
 
 OSF UI does not build its own inspector. The debugger mod authors already
 know — the Chromium DevTools that F12 opens on the focused view in devMode
-(`Runtime::DriveDevTools` → `OpenDevToolsWindow`) — is the first-class debug
-surface. 2.0's job is to make sure everything an author needs to see actually
-*reaches* that surface, because today a protocol mistake (wrong endpoint
+(`Runtime::DriveDevTools` → `OpenDevToolsWindow`) — is the first-class debugging
+destination. 2.0's job is to make sure everything an author needs to see
+actually *reaches* that destination, because today a protocol mistake (wrong endpoint
 kind, malformed payload, timeout, dropped send) is visible only in the SFSE
 log the author isn't watching.
 
@@ -302,24 +304,27 @@ Two sources, one sink (the page console):
   client timeouts. Unhandled promise rejections from `request()` therefore
   stop being opaque `Uncaught (in promise)` noise — the named error precedes
   them.
-- **Host-detected failures** — mistakes the page would otherwise never hear
-  about are delivered back to the *offending view* on a dev-only
-  `osfui/debug.error` event, and the helper prints them the same way: a
-  `send` dropped for `wrong-endpoint-kind`, a send to an unknown endpoint,
-  a request reaped by view close, a plugin that missed the 30 s deadline,
-  a Papyrus listener that never replied. Payloads are bounded the same way
+- **OSF UI runtime-detected protocol faults** — mistakes the page would
+  otherwise never hear about are delivered back to the *offending view* on a
+  developer-only `osfui.debug.error` event, and the shared bridge helper prints
+  them the same way: a `send` dropped for `wrong-endpoint-kind`, a send to an
+  unknown endpoint, or a malformed envelope. Payloads are bounded the same way
   the bridge already bounds echoed names.
+- **Endpoint-handler failures** — a mod backend or OSF UI runtime handler that
+  misses the 30 s deadline is reported to the waiting page as `no-response`.
+  It is not a view-caused fault and never counts against that view's fault
+  budget.
 
-Because devMode already forwards console output and uncaught exceptions over
+Because developer mode already forwards console output and uncaught exceptions over
 the pipe into the SFSE log (`tools/webview2_host/HostApp.cpp`,
 `Runtime.cpp`), this one mechanism makes every failure visible in DevTools
 *and* the log with no second channel to maintain.
 
-In release builds the dev-only events are not emitted; the curated
-diagnostics registry remains the user-facing health surface, and recurring
-protocol misuse (e.g. a view repeatedly sending to a request endpoint) raises
-a `view.*`-family diagnostic so it is visible on the Mods surface even
-outside devMode.
+In release builds the dev-only events are not emitted; the curated health
+registry remains visible in the player-facing System Health destination, and
+recurring view-caused protocol misuse (e.g. a view repeatedly sending to a
+request endpoint) raises a `view.*`-family health issue so it is visible in Mod
+Settings even outside developer mode.
 
 ### Opt-in traffic tracing
 
@@ -332,16 +337,16 @@ object inspection, and preserve-log then do everything a bespoke traffic
 inspector would, per view, with zero native code and zero cost when the flag
 is off. State-cache questions ("why is my HUD blank") are answered the same
 way: with tracing on, every replayed `state` envelope is visible at document
-boot, so either the key arrives (view bug) or it doesn't (backend bug).
+boot, so either the key arrives (view bug) or it doesn't (publisher bug).
 
 ### F12 reach
 
 Today F12 targets only the focused menu. HUDs and background views are
 debugged through the dev harness (`osfui dev --game`), which can request
-DevTools for any loaded view — the `openDevTools` pipe command already takes
+DevTools for any instantiated view — the `openDevTools` pipe command already takes
 a view id. 2.0 keeps that split: F12 = focused menu, harness = any view.
 
-## Relationship to the 1.x surface
+## Relationship to the 1.x API
 
 The migration table, endpoint reclassification list, ABI-major handling,
 sequencing, and test matrix live in

@@ -3,7 +3,7 @@
 // binding conflict).
 //
 // The text is untrusted — `requiresLabel` echoes an unrecognised `requires`
-// value back raw (see @lib/settings/format) and an input context's `label` is
+// value back raw (see @lib/settings/format) and a hotkey context's `label` is
 // schema author text — but renders as a text child, never as markup.
 
 import type { ComponentChildren } from 'preact';

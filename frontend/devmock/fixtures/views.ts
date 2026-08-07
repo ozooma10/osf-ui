@@ -1,10 +1,10 @@
-// Mock view catalog (panels + HUDs on the Mods surface); dev only. Mirrors the
-// runtime's `views.data` push.
+// Mock view catalog (menus + HUDs in Mod Settings); dev only. Mirrors the
+// OSF UI runtime's `osfui/views` state.
 //
 // Real shipped views come first: `menu.open` on one of those navigates the
-// harness to it, so panel launch works here the way it does in game. The
-// `fixture: true` entries are fictional and exercise every state the Mods
-// surface renders — a view owned by a settings mod (`mod` matches a schema id),
+// harness to it, so view launch works here the way it does in game. The
+// `fixture: true` entries are fictional and exercise every state the Mod Settings
+// view catalog renders — a view owned by a settings mod (`mod` matches a schema id),
 // view-only mods with no schema, a failed load, HUD live / hidden. Hidden by
 // default; toggled with the toolbar "Sample views" button or ?fixtures=1.
 //
@@ -23,8 +23,8 @@ export const MOD_ASSET_ROOTS: Record<string, string> = {};
 export const MOCK_VIEWS: MockView[] = [
   {
     id: 'osfui/settings',
-    title: 'Mods',
-    description: 'Installed mods — settings, panels and HUD toggles.',
+    title: 'Mod Settings',
+    description: 'Installed mods — settings, menus, and HUD toggles.',
     mod: 'osfui',
     kind: 'menu',
     interactive: true,
@@ -39,7 +39,7 @@ export const MOCK_VIEWS: MockView[] = [
   },
   {
     id: 'osfui/keybinds',
-    title: 'Keybinds',
+    title: 'Keybindings',
     description: 'Full keyboard map of mod and game bindings.',
     mod: 'osfui',
     kind: 'menu',
@@ -73,7 +73,7 @@ export const MOCK_VIEWS: MockView[] = [
   {
     id: 'acme.shipworks/hudwidgets',
     title: 'HUD Widgets',
-    description: 'Clock and status overlays over the live game.',
+    description: 'Clock and status HUDs shown during gameplay.',
     mod: 'acme.shipworks',
     kind: 'hud',
     interactive: false,
@@ -88,7 +88,7 @@ export const MOCK_VIEWS: MockView[] = [
     fixture: true,
   },
   // targetVersion newer than any real OSF UI — with fixtures on, the rail head
-  // shows the "needs update" badge next to the version number.
+  // shows the "needs update" badge next to the target OSF UI release version.
   {
     id: 'acme.cargo/cargo',
     title: 'Cargo Manifest',
@@ -140,13 +140,13 @@ export const MOCK_VIEWS: MockView[] = [
     pinned: false,
     fixture: true,
   },
-  // Discovered on disk but never loaded: a drop-in content view no schema, no
-  // config `views` entry, never opened. The launcher lists it as a click-to-load
-  // card (foot reads LOAD); opening it would load it on demand in game.
+  // Discovered on disk but never instantiated: a drop-in content view with no
+  // schema and never opened. The launcher still lists it; opening it would
+  // create its browser object and start document loading on demand in game.
   {
     id: 'acme.codex/codex',
     title: 'Field Codex',
-    description: 'Reference terminal — dropped in, not yet opened.',
+    description: 'Reference Menu — dropped in, not yet opened.',
     mod: 'acme.codex',
     kind: 'menu',
     interactive: true,

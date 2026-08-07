@@ -43,12 +43,12 @@ namespace OSFUI
 		_wake.notify_all();
 	}
 
-	std::vector<DevViewReloadWorker::Target> DevViewReloadWorker::DrainReady()
+	std::vector<DevViewReloadWorker::Target> DevViewReloadWorker::DrainCompleted()
 	{
 		std::scoped_lock lock(_mutex);
-		auto             ready = std::move(_ready);
-		_ready.clear();
-		return ready;
+		auto             completed = std::move(_completed);
+		_completed.clear();
+		return completed;
 	}
 
 	void DevViewReloadWorker::Run(std::stop_token a_stop)
@@ -91,14 +91,14 @@ namespace OSFUI
 				if (!state.pending || now - state.changedAt < kSettleTime || now < state.retryAt) {
 					continue;
 				}
-				if (!_refresh(target)) {
+				if (!_refresh(target.id)) {
 					state.retryAt = now + kRetryDelay;
 					continue;
 				}
 				state.pending = false;
 				{
 					std::scoped_lock lock(_mutex);
-					_ready.push_back(target);
+					_completed.push_back(target);
 				}
 			}
 			std::erase_if(_states, [&](const auto& item) { return !watched.contains(item.first); });

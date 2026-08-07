@@ -14,7 +14,7 @@ import type { BindingRow } from '@lib/keybinds/model';
  * An empty query matches everything (`!q ||` short-circuits), so the
  * unfiltered list is the same code path as a filtered one.
  *
- * Not searched: the input-context label, and for game rows the raw controlmap
+ * Not searched: the engine input-context label, and for game rows the raw ControlMap
  * event id. Both are visible in the row's sub-line, so this is a gap rather
  * than a narrowing; preserved as shipped.
  */

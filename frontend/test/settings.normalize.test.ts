@@ -25,7 +25,7 @@ describe('isSetting', () => {
     expect(isSetting('bool')).toBe(false);
     expect(isSetting({})).toBe(false);
   });
-  it('rejects a type this host predates (rendered read-only, never committed)', () => {
+  it('rejects a type this OSF UI release predates (rendered read-only, never committed)', () => {
     expect(isSetting({ key: 'k', type: 'colorRamp' })).toBe(false);
   });
 });

@@ -7,7 +7,7 @@
 //
 //   'fill' — the declared height's worth of reference rows, as many CSS
 //            pixels wide as the pane's aspect gives. This is what the game
-//            actually does: the UI scale stays pinned to the reference row
+//            actually does: the UI scale stays fixed to the reference row
 //            height and the page just gets wider or narrower.
 //   'off'  — no stage: the view reflows to the raw pane, unscaled. For
 //            inspecting overflow, not for authoring layout.

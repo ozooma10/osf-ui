@@ -17,38 +17,44 @@ npm run doctor
 npm run dev
 ```
 
-The generator offers menu or HUD surfaces with Papyrus or native-plugin backends.
+The generator offers menu and HUD view starters with Papyrus or native-plugin
+mod backends, plus a Papyrus settings-only starter that creates no view.
 
 Papyrus projects compile a recordless GLOBAL library into a loose PEX; JavaScript calls any of its GLOBAL functions with `osfui.papyrus.call(script, function, ...args)` without an ESM, quest, registration, or Spriggit. `doctor` checks the Creation Kit compiler before the first build.
 
 The harness opens automatically, hot-reloads edits, supplies the shared kit and mock bridge, and exposes bridge traffic and lifecycle controls.
 
 `npm run dev:game -- --deploy "path-to-MO2-mods"`
-also builds the backend, syncs changes into the game, and enables temporary author mode, including automatic view reload and F12 DevTools. `npm run package` makes the loadable release zip.
+also builds the mod backend, syncs changes into the game, and enables developer
+mode through a temporary author-mode marker, including automatic view reload
+and F12 DevTools. `npm run package` makes the loadable release zip.
 
 See [the view toolchain guide](docs/view-toolchain.md) for the complete workflow.
 
 ## Mod API
 
-The whole web surface is four verbs, chosen on desired behavior
+The web bridge API has four verbs, chosen by desired behavior:
 
 | Verb | Direction | Reach for it when |
 |---|---|---|
-| `osfui.send(name, payload)` | view → game | send to game and no response needed. |
-| `osfui.request(name, payload)` | view → game | you need exactly one answer: a payload, a typed error, or a timeout |
-| `osfui.on(event, fn)` | game → view | something happened once - never replayed (Only triggered when occurs ingame) |
-| `osfui.state.on(key, fn)` | game → view | a value that stays true until it changes - always replayed (ex. view reload) |
+| `osfui.send(name, payload)` | view → mod backend / OSF UI runtime | a one-way notification needs no response |
+| `osfui.request(name, payload)` | view → mod backend / OSF UI runtime | you need exactly one answer: a payload, a typed error, or a timeout |
+| `osfui.on(event, fn)` | mod backend / OSF UI runtime → view | something happened once — never replayed |
+| `osfui.state.on(key, fn)` | mod backend / OSF UI runtime → view | a value remains current until replaced — replayed to every fresh document instance |
 
-A view should not have any lifecycle code. Use `state` for any data that should be synchronized with the backend.
+A view should not have any lifecycle code. Use `state` for data that should be
+synchronized with its mod backend and replayed to each fresh document instance.
 
-the typed reference is [`sdk/osfui.d.ts`](sdk/osfui.d.ts).
+The typed reference is [`sdk/osfui.d.ts`](sdk/osfui.d.ts).
 
 ## Documentation
 
 - [Authoring settings](docs/authoring-settings.md) — **start here to add settings to your mod**: schemas, widgets, hotkeys, localization, and testing.
 - [View toolchain](docs/view-toolchain.md) and [view authoring reference](docs/authoring-views.md) — scaffold, develop, package, and integrate a browser view.
 - [Dynamic data](docs/authoring-dynamic-data.md) and [native plugin API](docs/native-plugin-api.md) — state, events, requests, and the SFSE C ABI.
-- [Architecture](docs/architecture.md), [security model](docs/security-model.md), [logging](docs/logging.md), and [seam rendering design](docs/seam-draw-design.md) — runtime implementation and invariants.
+- [Architecture](docs/architecture.md), [security model](docs/security-model.md), [logging](docs/logging.md), and [seam rendering design](docs/seam-draw-design.md) — OSF UI runtime implementation and invariants.
+- [Terminology](docs/terminology.md) — canonical component, version, identity,
+  lifecycle, bridge, input, and health vocabulary.
 - [Mod API 2.0 design](docs/mod-api-2.0-design.md) and [migration record](docs/mod-api-2.0-migration.md) — rationale and compatibility history.
 - [Packaging](docs/PACKAGING.md), [troubleshooting](docs/troubleshooting.md), [design-history index](docs/design-history.md), and [simplification notes](docs/simplification.md) — maintainer and support references.
 - JSON Schemas: [view manifests](docs/schema/manifest.schema.json) and [settings schemas](docs/schema/settings-schema.schema.json).
@@ -67,13 +73,13 @@ Data/SFSE/Plugins/
         osfui.css  osfui.js
       osfui/                      <- a mod namespace: views live at views/<modId>/<viewName>/
         padnav.js                    gamepad nav, private to the built-in views
-        settings/                    the Mods surface
+        settings/                    the Mod Settings view
           manifest.json
           index.html  style.css  main.js
-        keybinds/                    the input map
+        keybinds/                    the Keybindings view
           manifest.json
           index.html  style.css  main.js
-        handoff/                     private warm link surface
+        handoff/                     private pinned, prewarmed handoff view
           manifest.json
           index.html  style.css  main.js
     settings/                  <- settings schemas (one JSON per mod) + values/
@@ -88,7 +94,8 @@ Logs go to the standard SFSE log folder (`Documents/My Games/Starfield/SFSE/Logs
 **User-facing settings live in the in-game menu** (F10 → OSF UI): the open/close key. 
 They persist under `Documents\My Games\Starfield\OSFUI\settings\osfui.json` and survive updates.
 
-`OSFUI/config.json` is the **developer/boot file** - backends, input source, diagnostic escape hatches. 
+`OSFUI/config.json` is the **developer/boot file** — framework enable, default
+view selection, and persistent developer mode.
 It ships with the mod and is overwritten on update; it holds no user-facing keys. 
 
 The keys you might actually edit:
@@ -96,10 +103,10 @@ The keys you might actually edit:
 | field | default | meaning |
 |---|---|---|
 | `enabled` | `true` | master switch |
-| `view` | `"osfui/settings"` | the default menu the toggle key opens - a qualified `<modId>/<viewName>` id from `views/<modId>/<viewName>/manifest.json` (shipped config uses `osfui/settings`, the Mods surface) |
-| `devMode` | `false` | verbose per-call logging + first-frame PNG dump - turn on when developing views or attaching logs to a bug report |
+| `view` | `"osfui/settings"` | the default menu the toggle key opens — a qualified `<modId>/<viewName>` id derived from the `views/<modId>/<viewName>/` path (shipped config uses the Mod Settings view) |
+| `devMode` | `false` | persistently enables developer mode: verbose logging, hot reload, and F12 DevTools |
 
-With `devMode` enabled, saved changes to a loaded view's files auto-reload it in place within about half a second.
+With developer mode enabled (`devMode` or the temporary author-mode marker), saved changes to an instantiated view's files auto-reload it in place within about half a second.
 Press **F12** while a menu is open to inspect that view in WebView2's native Edge DevTools.
 
 
@@ -146,9 +153,10 @@ npm --prefix frontend run build # regenerate build/frontend/views/
 `xmake build` and `xmake install` generate this artifact before deploying or staging it; `tools/package.ps1` installs locked frontend dependencies first.
 
 
-## WebView2 backend
+## WebView2 rendering
 
-WebView2 is the renderer:
+`WebView2HostWebRenderer` is the game-side web renderer. It communicates with
+the out-of-process browser host shown above:
 
 ```bat
 xmake build

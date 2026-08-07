@@ -1,18 +1,18 @@
-// Bounded helper-restart policy: automatic backoff, response timeout,
+// Bounded browser-host restart policy: automatic backoff, response timeout,
 // terminal-disable behavior, and the explicit-open retry escape hatch.
 
-#include "runtime/RendererHostRecovery.h"
+#include "runtime/BrowserHostRecovery.h"
 
 #include <cassert>
 #include <iostream>
 
-using OSFUI::RendererHostRecovery;
+using OSFUI::BrowserHostRecovery;
 
 int main()
 {
-	using Phase = RendererHostRecovery::Phase;
+	using Phase = BrowserHostRecovery::Phase;
 
-	RendererHostRecovery recovery;
+	BrowserHostRecovery recovery;
 	assert(recovery.PhaseValue() == Phase::Idle);
 	assert(!recovery.BeginDueAttempt(100.0));
 
@@ -59,6 +59,6 @@ int main()
 	assert(!recovery.RequestManualRetry(300.0));
 	assert(!recovery.BeginDueAttempt(1000.0));
 
-	std::cout << "renderer_host_recovery_tests: ok\n";
+	std::cout << "browser_host_recovery_tests: ok\n";
 	return 0;
 }

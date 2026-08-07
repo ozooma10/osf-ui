@@ -170,9 +170,9 @@ export async function loadProject(cwd, command = 'serve') {
   for (const item of authored) {
     if (!item || typeof item !== 'object' || !VIEW_ID_PATTERN.test(item.id || '') ||
         item.id.length > 64) {
-      throw new Error('Every view id must use lowercase letters, digits, and hyphens.');
+      throw new Error('Every view name must use lowercase letters, digits, and hyphens.');
     }
-    if (seen.has(item.id)) throw new Error(`Duplicate view id "${item.id}".`);
+    if (seen.has(item.id)) throw new Error(`Duplicate view name "${item.id}".`);
     seen.add(item.id);
     const kind = item.kind === 'hud' ? 'hud' : 'menu';
     const expectedSource = `src/views/${raw.modId}/${item.id}`;
@@ -264,7 +264,7 @@ export function manifestFor(view) {
     debugOnly: view.debugOnly === true,
     readySignal: view.readySignal === true,
     ...(view.targetVersion ? { targetVersion: view.targetVersion } : {}),
-    // Optional per-mod theming; the handoff panel and settings chrome read it.
+    // Optional per-mod theming; the handoff view and Mod Settings chrome read it.
     ...(typeof view.accent === 'string' && view.accent ? { accent: view.accent } : {}),
     permissions: view.permissions,
   };

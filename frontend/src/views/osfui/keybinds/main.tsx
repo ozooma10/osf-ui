@@ -1,4 +1,4 @@
-// Keybinds view entry point: import the stylesheet (Vite extracts it to the
+// Keybindings view entry point: import the stylesheet (Vite extracts it to the
 // sibling style.css), mount the app against the real bridge.
 //
 // The built-in artifact contract is one classic IIFE — no dynamic import() or

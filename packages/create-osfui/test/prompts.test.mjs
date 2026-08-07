@@ -6,7 +6,7 @@ test('offers only Papyrus and Native Plugin workflows', () => {
   assert.deepEqual(CHOICES.integration.map(({ value }) => value), ['papyrus', 'native']);
 });
 
-test('offers the settings surface beside the two view surfaces', () => {
+test('offers settings-only beside the two view starter types', () => {
   assert.deepEqual(CHOICES.surface.map(({ value }) => value), ['menu', 'hud', 'settings']);
 });
 
@@ -57,10 +57,10 @@ test('walks through missing choices as visible select lists', async () => {
     surface: 'hud',
     integration: 'native',
   });
-  // Surface is asked before View ID so the settings surface can skip it.
+  // Starter type is asked before View name so settings-only can skip it.
   assert.deepEqual(
     questions.filter(({ kind }) => kind !== 'intro').map(({ message }) => message),
-    ['Directory name', 'Mod ID', 'Choose a surface', 'View ID', 'Choose a starting workflow'],
+    ['Directory name', 'Mod ID', 'Choose a starter type', 'View name', 'Choose a starting workflow'],
   );
   const textQuestions = questions.filter(({ kind }) => kind === 'text');
   assert.equal(textQuestions[0].defaultValue, 'my-osfui-view');
@@ -93,13 +93,13 @@ test('walks through missing choices as visible select lists', async () => {
       values: choices.map(({ value }) => value),
     })),
     [
-      { message: 'Choose a surface', values: CHOICES.surface.map(({ value }) => value) },
+      { message: 'Choose a starter type', values: CHOICES.surface.map(({ value }) => value) },
       { message: 'Choose a starting workflow', values: CHOICES.integration.map(({ value }) => value) },
     ],
   );
 });
 
-test('the settings surface skips the view and workflow prompts', async () => {
+test('the settings-only starter skips the view and workflow prompts', async () => {
   const questions = [];
   const options = {};
 
@@ -120,7 +120,7 @@ test('the settings surface skips the view and workflow prompts', async () => {
   });
   assert.deepEqual(
     questions.filter(({ kind }) => kind !== 'intro').map(({ message }) => message),
-    ['Directory name', 'Mod ID', 'Choose a surface'],
+    ['Directory name', 'Mod ID', 'Choose a starter type'],
   );
 });
 

@@ -1,8 +1,8 @@
-// The always-warm first-load handoff surface.
+// The always-resident first-load handoff view.
 //
-// Runtime.cpp preloads this view at startup and keeps it resident, then pushes
-// `handoff.state` while a target view's renderer spins up. It is platform-
-// private: no manifest schema, no i18n catalog of its own — the `title` field
+// Runtime.cpp preloads this view at startup and keeps it resident, then updates
+// retained `osfui/handoff` state while a target view's renderer spins up. It is
+// platform-private: no manifest schema, no i18n catalog of its own — the `title` field
 // arrives already localised by native (Localization::Resolve), and the fixed
 // chrome copy below is authored English, exactly as the pre-port script had it.
 //
@@ -29,7 +29,7 @@ interface PhaseCopy {
 const COPY: Record<Phase, PhaseCopy> = {
   linking: {
     status: 'ESTABLISHING LOCAL LINK',
-    detail: 'Negotiating display surface and local data channels.',
+    detail: 'Preparing the view and local data channels.',
   },
   retrying: {
     status: 'SIGNAL INTERRUPTED // REACQUIRING',

@@ -5,7 +5,7 @@
 // canonicalName() folds the same aliases native's VK resolution does, and
 // deriving locally means a repaint after an optimistic rebind needs no round trip.
 
-import type { BindingRow } from './model';
+import type { BindingRow, GameBindingRow, ModBindingRow } from './model';
 
 /** Every row bound to `name`, in model order. Exact string match, no folding — rows are already canonical. */
 export function holdersOf(rows: readonly BindingRow[], name: string): BindingRow[] {
@@ -19,17 +19,21 @@ function modesOverlap(a: BindingRow, b: BindingRow): boolean {
   return a.gameplayModes.some((mode) => b.gameplayModes?.includes(mode));
 }
 
-export function classifyPair(a: BindingRow, b: BindingRow): PairState {
-  if (!a.name || a.name !== b.name) return 'neutral';
-  if (a.kind === 'game' && b.kind === 'game') return 'neutral';
-  if (a.kind === 'mod' && b.kind === 'mod') return modesOverlap(a, b) ? 'conflict' : 'shared';
-  const mod = a.kind === 'mod' ? a : b;
-  const game = a.kind === 'game' ? a : b;
-  if (game.vanillaWarnings === false) return 'neutral';
+function classifyModGame(mod: ModBindingRow, game: GameBindingRow): PairState {
+  if (game.gameBindingWarnings === false) return 'neutral';
   if (mod.blocksGameplay) return 'shared';
   if (!modesOverlap(mod, game)) return 'shared';
   if (!game.classification || game.classification === 'core') return 'conflict';
   if (game.classification === 'special') return 'possible';
+  return 'neutral';
+}
+
+export function classifyPair(a: BindingRow, b: BindingRow): PairState {
+  if (!a.name || a.name !== b.name) return 'neutral';
+  if (a.kind === 'game' && b.kind === 'game') return 'neutral';
+  if (a.kind === 'mod' && b.kind === 'mod') return modesOverlap(a, b) ? 'conflict' : 'shared';
+  if (a.kind === 'mod' && b.kind === 'game') return classifyModGame(a, b);
+  if (a.kind === 'game' && b.kind === 'mod') return classifyModGame(b, a);
   return 'neutral';
 }
 

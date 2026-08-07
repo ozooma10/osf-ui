@@ -1,4 +1,4 @@
-// Host-side tests for the localized keycap-label pipeline (input/KeyLabels):
+// Native desktop tests for the localized keycap-label pipeline (input/KeyLabels):
 // fixed short forms for non-printing keys (localizable via chrome.keys.*),
 // layout glyphs for printable keys, the fallback chain, and layout fixtures
 // modelled on US ANSI and German QWERTZ (Z/Y swap, umlaut OEM row, dead keys,

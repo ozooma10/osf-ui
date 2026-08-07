@@ -116,7 +116,7 @@ namespace OSFUI::API::Papyrus
 			std::uint64_t                                       nextViewRequest{ 1 };
 			// Set by the game-load sink, consumed by Runtime::Tick: Papyrus state
 			// holds session-scoped form identities and must not cross a load. The
-			// retained cache itself now lives in ViewStateStore, which the runtime
+			// retained cache itself now lives in RetainedStateStore, which the runtime
 			// owns, so the sink raises a flag instead of reaching across layers.
 			bool                                                sessionReset{ false };
 		};
@@ -537,7 +537,7 @@ namespace OSFUI::API::Papyrus
 		// GetFormById/GetFormsById body (VM tasklet thread — LookupByID is the
 		// same any-thread lookup every Papyrus native uses; no field reads).
 		// Accepts the two spellings a view echo can arrive in: decimal (the
-		// host's number->string arg coercion) and "0x..." hex (authors quoting
+		// OSF UI runtime's number->string arg coercion) and "0x..." hex (authors quoting
 		// a formId for display). None on garbage or an id that resolves to
 		// nothing — the latter is the documented stale-reference case
 		// (runtime FormIDs are session-scoped; see form-references-design.md).
@@ -568,12 +568,13 @@ namespace OSFUI::API::Papyrus
 		{
 			// Packed for cheap compares. 0 (native unbound, call failed) means
 			// OSF UI absent — the documented feature-detect.
-			return static_cast<std::int32_t>(kPluginVersionMajor * 10000 + kPluginVersionMinor * 100 + kPluginVersionPatch);
+			return static_cast<std::int32_t>(kOsfuiReleaseVersionMajor * 10000 +
+				kOsfuiReleaseVersionMinor * 100 + kOsfuiReleaseVersionPatch);
 		}
 
 		RE::BSFixedString GetVersionString(PapVM&, std::uint32_t, std::monostate)
 		{
-			return RE::BSFixedString(kPluginVersion);
+			return RE::BSFixedString(kOsfuiReleaseVersion);
 		}
 
 		bool GetBool(PapVM&, std::uint32_t, std::monostate, RE::BSFixedString a_mod, RE::BSFixedString a_key, bool a_default)
@@ -773,7 +774,7 @@ namespace OSFUI::API::Papyrus
 		}
 
 		// The Papyrus event channel: a one-shot happening delivered to the mod's
-		// live views as `on("<mod>.<name>")`. Never cached and never replayed —
+		// instantiated views as `on("<mod>.<name>")`. Never cached and never replayed —
 		// which is exactly why it has to exist. Without it, an author with
 		// something momentary to announce ("the scan finished", "the player took
 		// a hit") had only retained state to say it with, and state replays on
@@ -1036,7 +1037,7 @@ namespace OSFUI::API::Papyrus
 			State().slots.clear();
 			// Queued state/events carry session-scoped form identities and must
 			// never cross a game load. The retained copy lives in the runtime's
-			// ViewStateStore now, so raise a flag the next tick consumes rather
+			// RetainedStateStore now, so raise a flag the next tick consumes rather
 			// than reaching across layers from a VM-thread event sink.
 			State().viewRequests.clear();
 			State().states.clear();
@@ -1162,7 +1163,7 @@ namespace OSFUI::API::Papyrus
 	void DrainViewReplies(const std::function<void(const ViewReply&)>& a_deliver,
 		std::chrono::steady_clock::time_point a_now)
 	{
-		std::vector<PendingViewRequest> ready;
+		std::vector<PendingViewRequest> completed;
 		{
 			std::lock_guard l{ State().lock };
 			for (auto it = State().viewRequests.begin(); it != State().viewRequests.end();) {
@@ -1170,11 +1171,11 @@ namespace OSFUI::API::Papyrus
 					++it;
 					continue;
 				}
-				ready.push_back(std::move(it->second));
+				completed.push_back(std::move(it->second));
 				it = State().viewRequests.erase(it);
 			}
 		}
-		for (auto& pending : ready) {
+		for (auto& pending : completed) {
 			ViewReply reply;
 			reply.view = std::move(pending.view);
 			reply.deferToken = std::move(pending.deferToken);

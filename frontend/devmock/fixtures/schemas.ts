@@ -16,7 +16,7 @@ export const FALLBACK_SCHEMAS: SettingsSchema[] = [
     title: 'OSF UI',
     // Arbitrary demo text — the shipped data/OSFUI/settings/osfui.json replaces
     // this whenever it resolves.
-    description: 'Runtime and overlay behavior for the OSF UI framework itself.',
+    description: 'OSF UI behavior and overlay presentation for the framework itself.',
     groups: [
       {
         label: 'Input',
@@ -34,11 +34,11 @@ export const FALLBACK_SCHEMAS: SettingsSchema[] = [
         label: 'Overlay',
         settings: [
           {
-            key: 'allowPanels',
-            label: 'Allow mod settings panels',
+            key: 'allowViews',
+            label: 'Allow mod-provided views',
             type: 'bool',
             default: true,
-            hint: "Custom mod panels run in this view's context.",
+            hint: "Mod-provided views run in this view's context.",
             requires: 'reload',
           },
         ],

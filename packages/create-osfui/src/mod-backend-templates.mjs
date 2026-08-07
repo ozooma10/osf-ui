@@ -1,4 +1,6 @@
-import { HOST_VERSION } from '@osfui/cli/constants';
+import { OSFUI_RELEASE_VERSION } from '@osfui/cli/constants';
+
+// Generated Papyrus and native-plugin mod-backend files and guidance.
 
 const words = (value) => value.split(/[^a-zA-Z0-9]+/).filter(Boolean);
 
@@ -19,7 +21,7 @@ function hudSettingsSchema(options) {
     title: displayName(options.modId),
     description: `Controls for the ${options.view.replaceAll('-', ' ')} HUD.`,
     version: 1,
-    targetVersion: HOST_VERSION,
+    targetVersion: OSFUI_RELEASE_VERSION,
     groups: [{
       id: 'hud',
       label: 'HUD',
@@ -47,7 +49,7 @@ function hudSettingsSchema(options) {
 
 function menuSettingsSchema(options) {
   const settings = [
-    { key: 'enabled', label: 'Enable backend actions', type: 'bool', default: true },
+    { key: 'enabled', label: 'Enable mod-backend actions', type: 'bool', default: true },
     {
       key: 'mode', label: 'Display mode', type: 'enum',
       options: ['compact', 'detailed'],
@@ -62,7 +64,7 @@ function menuSettingsSchema(options) {
       enabledWhen: { key: 'enabled', eq: true },
     },
     {
-      key: 'greeting', label: 'Backend greeting', type: 'string',
+      key: 'greeting', label: 'Mod-backend greeting', type: 'string',
       default: 'Hello from OSF UI', maxLength: 80,
     },
     {
@@ -89,13 +91,13 @@ function menuSettingsSchema(options) {
     title: displayName(options.modId),
     description: `Settings for ${options.view.replaceAll('-', ' ')}.`,
     version: 1,
-    targetVersion: HOST_VERSION,
+    targetVersion: OSFUI_RELEASE_VERSION,
     accent: '#7bdcff',
     groups: [{ id: 'general', label: 'General', settings }],
   };
 }
 
-// The settings surface ships no view, so its schema is the whole mod: a few
+// The settings-only starter ships no view, so its schema is the whole mod: a few
 // ordinary rows plus the onPress keybind the generated GLOBAL script answers.
 function settingsOnlySchema(options) {
   return {
@@ -104,7 +106,7 @@ function settingsOnlySchema(options) {
     title: displayName(options.modId),
     description: `Settings and hotkeys for ${displayName(options.modId)}.`,
     version: 1,
-    targetVersion: HOST_VERSION,
+    targetVersion: OSFUI_RELEASE_VERSION,
     groups: [{
       id: 'general',
       label: 'General',
@@ -352,7 +354,7 @@ the target is read from the schema at delivery time, so unlike
 - **Preview without launching Starfield** — run the OSF UI dev harness, open
   \`?view=osfui/settings\`, and drag the settings JSON onto the page.
 - **Add a view later** — run \`npm create osfui@latest\` and pick the menu or
-  HUD surface; the schema and script here move across unchanged.
+  HUD view; the schema and script here move across unchanged.
 
 ## Ship it
 
@@ -374,7 +376,7 @@ function localizationFiles(options) {
       [`views.${view}.connected`]: 'Verbunden mit OSF UI {version}',
       'groups.behavior.label': 'Verhalten',
       'groups.appearance.label': 'Darstellung',
-      'settings.enabled.label': 'Backend-Aktionen aktivieren',
+      'settings.enabled.label': 'Mod-Backend-Aktionen aktivieren',
       'settings.accent.label': 'Akzentfarbe',
     }, null, 2)}\n`,
   }];
@@ -427,7 +429,7 @@ EndFunction
 Function Bump(int total) Global
     If !OSFUI.GetBool("${options.modId}", "enabled", true)
         string[] disabledArgs = new string[1]
-        disabledArgs[0] = "Backend actions are disabled in Mod Settings"
+        disabledArgs[0] = "Mod-backend actions are disabled in Mod Settings"
         OSFUI.SendViewEvent("${options.modId}", "notice", disabledArgs)
         Return
     EndIf
@@ -458,7 +460,7 @@ EndFunction
   ];
 }
 
-// The native build scaffolding shared by both surfaces — one copy, so the
+// The native build scaffolding shared by the menu and HUD starters — one copy, so the
 // spot-check test on one preset covers the other too.
 function nativeProjectFiles(options, description) {
   const pluginName = pascalIdentifier(options.modId);
@@ -552,7 +554,7 @@ namespace
 
     void PushHudState() noexcept
     {
-        // Retained state is replayed after every page reload and host recovery.
+        // Retained state is replayed after every page reload and browser-host recovery.
         (void)g_json.SetViewState(kModId, "hud", g_state);
     }
 
@@ -579,8 +581,8 @@ namespace
         if (message->type != SFSE::MessagingInterface::kPostLoad) return;
         if (!g_ui.Init()) return;  // OSF UI is optional; degrade silently.
 
-        // RegisterView loads the shipped folder without editing player config.
-        // The HUD manifest's openOnStart flag makes it visible immediately.
+        // RegisterView validates the shipped view; openOnStart instantiates and
+        // opens it without editing player config.
         (void)g_ui.RegisterView(kViewId);
         PushHudState();
 
@@ -643,7 +645,7 @@ namespace
             { "greeting", state.greeting },
             { "lastAction", state.lastAction },
             { "features", OSFUI::API::Json::array({
-                "typed JSON", "commands", "requests", "native pushes", "settings", "hotkeys"
+                "typed JSON", "sends", "requests", "native pushes", "settings", "hotkeys"
             }) }
         };
     }
@@ -663,7 +665,7 @@ namespace
 
     // A notice is something that HAPPENED, so it is an event: delivered once,
     // never replayed. Compare PushState below, which publishes STATE — the
-    // runtime replays that to every document, including after an F5, so the
+    // OSF UI runtime replays that to every document, including after an F5, so the
     // view never has to ask for it.
     void PushNotice(const char* viewId, const char* message) noexcept
     {
@@ -726,8 +728,8 @@ namespace
         }
     }
 
-    // Settings action rows are requests too. The built-in Mods
-    // surface shows this reply message as a toast.
+    // Settings action rows are requests too. The built-in Mod Settings view
+    // shows this reply message as a toast.
     void OnRecalibrate(const OSFUI::API::Request& raw, void*) noexcept
     {
         OSFUI::API::JsonRequest request{ raw };
@@ -738,10 +740,10 @@ namespace
         (void)request.Respond(OSFUI::API::Json{ { "message", "Example recalibration complete" } });
     }
 
-    // Main-thread callback fired when a bridge becomes live (and after recreation).
-    void OnReady(void*) noexcept
+    // Main-thread callback fired when the bridge becomes available (and after recreation).
+    void OnBridgeAvailable(void*) noexcept
     {
-        g_state.lastAction = "OSF UI ready callback fired";
+        g_state.lastAction = "Bridge-availability callback fired";
         PushState();
     }
 
@@ -781,7 +783,7 @@ namespace
         g_ui.RegisterRequest("${options.modId}.greet", &OnGreet, nullptr);
         g_ui.RegisterRequest("${options.modId}.recalibrate", &OnRecalibrate, nullptr);
         (void)g_ui.RegisterView(kViewId);
-        g_ui.SetReadyCallback(&OnReady, nullptr);
+        g_ui.SetReadyCallback(&OnBridgeAvailable, nullptr);
 
         if (g_ui.Has(OSFUI::API::Feature::kSettings)) {
             const auto schema = OSFUI::API::Json::parse(
@@ -808,7 +810,7 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* sfse)
   ];
 }
 
-export function backendFiles(options) {
+export function modBackendFiles(options) {
   const shared = localizationFiles(options);
   if (options.integration === 'papyrus') {
     return [
@@ -823,7 +825,7 @@ export function backendFiles(options) {
   return [...nativeFiles(options), ...shared];
 }
 
-export function backendConfig(options) {
+export function modBackendConfig(options) {
   if (options.integration !== 'papyrus') return '';
   return `  papyrus: {
     scriptsOnly: true,
@@ -831,7 +833,7 @@ export function backendConfig(options) {
 `;
 }
 
-export function backendGuide(options) {
+export function modBackendGuide(options) {
   const scriptName = `${pascalIdentifier(options.modId)}OSFUI`;
   const papyrusBuildGuide = `The view calls GLOBAL functions on
 \`${scriptName}\` directly with \`osfui.papyrus.call(script, function, ...args)\`.
@@ -855,10 +857,10 @@ the ignored \`.osfui/local.json\`:
 
 The first build extracts Creation Kit's \`Scripts/Source\` from
 \`Tools/ContentResources.zip\` into the ignored \`.osfui/\` cache. The matching
-OSF UI compiler API is pinned at \`tools/papyrus/OSFUI.psc\`.
+OSF UI compiler API is locked at \`tools/papyrus/OSFUI.psc\`.
 `;
   if (options.surface === 'hud' && options.integration === 'papyrus') {
-    return `## Papyrus HUD backend
+    return `## Papyrus HUD mod backend
 
 The generated page calls the recordless GLOBAL library for a fresh demo
 snapshot whenever its document is created. Replace the \`Refresh\` function with
@@ -871,11 +873,11 @@ ${papyrusBuildGuide}
 `;
   }
   if (options.surface === 'hud' && options.integration === 'native') {
-    return `## Native SFSE HUD backend
+    return `## Native SFSE HUD mod backend
 
 The generated plugin registers and auto-opens its shipped HUD, publishes a
 typed \`HudState\` snapshot on bridge startup/recovery, and registers the
-standard HUD settings schema at runtime. Call \`UpdateHudState(...)\` from your
+standard HUD settings schema through the native API. Call \`UpdateHudState(...)\` from your
 game-event handling when displayed values change; avoid per-frame bridge
 traffic when a changed snapshot or bounded cadence will do.
 
@@ -905,14 +907,14 @@ alerts, settings, and the hotkey in the browser harness.
 - Run \`npm run dev\` to test the view in a browser with hot reload. Edit
   \`osfui.mock.ts\` to provide test Papyrus data and responses.
 - Run \`npm run dev:game -- --deploy "path-to-MO2-mods"\` to test in Starfield.
-  Loaded views reload automatically; press F12 to open DevTools.
+  Instantiated views reload automatically; press F12 to open DevTools.
 
 The Papyrus library is
 \`mod/Scripts/Source/${scriptName}.psc\`. Its compiled PEX is discovered
 on demand when JavaScript calls one of its GLOBAL functions; there is no plugin
 to enable and no ESM, startup quest, alias, or registration to maintain.
 `,
-    native: `## Native SFSE backend
+    native: `## Native SFSE mod backend
 
 The paired \`native/src/main.cpp\` and view source are an end-to-end bridge
 example built on the optional \`OSFUI_JSON.h\` facade:
@@ -921,8 +923,8 @@ example built on the optional \`OSFUI_JSON.h\` facade:
   changes its state and pushes the serialized struct back to JavaScript.
 - **Call C++ and await reply** sends a \`JsonRequest\`; C++ validates the
   required \`name\`, replies with JSON, and lets OSF UI own correlation.
-- The plugin also registers this view, a runtime settings schema, settings and
-  ready callbacks, and an **F9** open-view hotkey. \`osfui.mock.ts\` mirrors
+- The plugin also registers this view, a native settings schema, settings and
+  bridge-availability callbacks, and an **F9** open-view hotkey. \`osfui.mock.ts\` mirrors
   the round trips in the browser harness.
 
 1. Install xmake and Visual Studio's C++ workload.
@@ -946,7 +948,7 @@ export function docsGuide(options) {
 - [authoring-settings.md](${docs}/authoring-settings.md) — every settings
   control, widget, predicate, preset, and localization address.
 - [authoring-dynamic-data.md](${docs}/authoring-dynamic-data.md) — a worked
-  state-and-event example between a backend and a view.
+  state-and-event example between a mod backend and a view.
 ${options.integration === 'native'
     ? `- [native-plugin-api.md](${docs}/native-plugin-api.md) and the copied
   \`native/include/OSFUI_API.h\` — the complete C ABI.`

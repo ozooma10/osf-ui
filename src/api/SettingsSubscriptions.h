@@ -9,7 +9,7 @@
 namespace OSFUI::API
 {
 	// Redeclares sdk/OSFUI_API.h's SettingChangedFn (an identical alias is a
-	// legal redeclaration) so this class compiles host-side without the sdk
+	// legal redeclaration) so this class compiles in native tests without the SDK
 	// header's REX/W32 dependency. BridgeApi.cpp sees both headers, so drift is
 	// a compile error there.
 	using SettingChangedFn = void (*)(const char* a_modId,
@@ -17,8 +17,8 @@ namespace OSFUI::API
 	                                  const char* a_valueJson,
 	                                  void*       a_user) noexcept;
 
-	// SubscribeSettings bookkeeping (mcm-design.md §8.2), factored out of
-	// BridgeApi so the host test suite can exercise it without MessageBridge's
+	// SubscribeSettings bookkeeping, factored out of
+	// BridgeApi so the native unit tests can exercise it without MessageBridge's
 	// game dependencies — same split as SettingsMirror. Subscribe/Unsubscribe
 	// are any-thread; OnChanged and Pump are main-thread. Consumer callbacks are
 	// invoked only from Pump and never with the lock held — a callback may

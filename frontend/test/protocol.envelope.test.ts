@@ -5,7 +5,7 @@
 //
 // 2.0 moved routing metadata BESIDE the payload — `kind`, `name` and `id` are
 // envelope fields, so no payload key can steer routing any more (1.x carried
-// `payload.command`). The host's envelope validator is mirrored at the bottom
+// `payload.command`). The OSF UI runtime's envelope validator is mirrored at the bottom
 // of this file, executable rather than prose, and every envelope this helper
 // can produce is swept through it.
 //
@@ -78,11 +78,11 @@ function loadHelper(opts?: { bridge?: boolean }): { helper: Helper; raw: string[
 }
 
 describe('the handshake is page-initiated — hello is the first thing on the wire', () => {
-  it('greets the host with osfui.hello as the helper loads, before any view code runs', () => {
+  it('greets the OSF UI runtime with osfui.hello as the helper loads, before any view code runs', () => {
     const { sent } = loadHelper();
 
     // The one boot path for first open, F5, hot-reload and crash recovery. The
-    // host answers `ready`, replays state, then opens this view's event gate
+    // OSF UI runtime answers `ready`, replays state, then opens this view's event gate
     // (MessageBridge::HandleHello) — nothing here has to be re-requested later.
     expect(sent).toEqual([{ kind: 'send', name: 'osfui.hello', payload: {} }]);
   });
@@ -110,7 +110,7 @@ describe('send envelopes', () => {
 
     expect(helper.send('close')).toBe(true);
     expect(sent[1]).toEqual({ kind: 'send', name: 'close', payload: {} });
-    // An id on a send is a hard `invalid-request` at the host: a caller that
+    // An id on a send is a hard `invalid-request` at the OSF UI runtime: a caller that
     // supplied one expects a settlement that is never coming, and answering it
     // would resurrect the 1.x auto-ack.
     expect('id' in sent[1]!).toBe(false);
@@ -124,7 +124,7 @@ describe('send envelopes', () => {
     helper.send('log', null as unknown as Record<string, unknown>);
     helper.send('log', 0 as unknown as Record<string, unknown>);
 
-    // `payload || {}`. The host rejects a present-but-non-object payload, so
+    // `payload || {}`. The OSF UI runtime rejects a present-but-non-object payload, so
     // the coercion is what keeps a sloppy call routable.
     for (const frame of sent.slice(1)) expect(frame.payload).toEqual({});
   });
@@ -148,7 +148,7 @@ describe('send envelopes', () => {
 
     helper.send(42 as unknown as string);
 
-    // `String(name)`: the host reads `name` as a string and treats a non-string
+    // `String(name)`: the OSF UI runtime reads `name` as a string and treats a non-string
     // as an empty name, i.e. `invalid-request`. The coercion keeps a sloppy
     // caller routable instead of silently unroutable.
     expect(sent[1]!.name).toBe('42');
@@ -160,7 +160,7 @@ describe('send envelopes', () => {
     expect(helper.markReady()).toBe(true);
     expect(sent[1]).toEqual({ kind: 'send', name: 'view.ready', payload: {} });
     // Readiness is a notification, not a question: the reveal gate is the
-    // host's business (manifest `readySignal:true`), so there is nothing to
+    // OSF UI runtime's business (manifest `readySignal:true`), so there is nothing to
     // correlate.
     expect('id' in sent[1]!).toBe(false);
   });
@@ -260,7 +260,7 @@ const K_MAX_REQUEST_ID_LENGTH = 64;
 
 type Verdict = 'ok' | 'invalid-request';
 
-function hostVerdict(msg: Record<string, unknown>): Verdict {
+function bridgeVerdict(msg: Record<string, unknown>): Verdict {
   const kind = typeof msg.kind === 'string' ? msg.kind : '';
   if (kind !== 'send' && kind !== 'request') return 'invalid-request';
 
@@ -281,40 +281,40 @@ function hostVerdict(msg: Record<string, unknown>): Verdict {
   return 'ok';
 }
 
-describe('host envelope validation — 2.0 REJECTS where 1.x silently demoted', () => {
+describe('OSF UI runtime envelope validation — 2.0 REJECTS where 1.x silently demoted', () => {
   it('accepts a request id of exactly 64 characters', () => {
-    expect(hostVerdict({ kind: 'request', name: 'ping', id: 'q'.repeat(64) })).toBe('ok');
+    expect(bridgeVerdict({ kind: 'request', name: 'ping', id: 'q'.repeat(64) })).toBe('ok');
   });
 
   it('rejects a 65-char id as invalid-request instead of ignoring the id', () => {
     // 1.x treated an over-long id as ABSENT: the request was demoted to
     // fire-and-forget and the caller hung to its client timeout. 2.0 answers an
     // error the caller can settle on — a client bug that reports itself.
-    expect(hostVerdict({ kind: 'request', name: 'ping', id: 'q'.repeat(65) })).toBe(
+    expect(bridgeVerdict({ kind: 'request', name: 'ping', id: 'q'.repeat(65) })).toBe(
       'invalid-request',
     );
   });
 
   it('rejects a request with a missing, empty or non-string id', () => {
-    expect(hostVerdict({ kind: 'request', name: 'ping' })).toBe('invalid-request');
-    expect(hostVerdict({ kind: 'request', name: 'ping', id: '' })).toBe('invalid-request');
-    expect(hostVerdict({ kind: 'request', name: 'ping', id: 7 })).toBe('invalid-request');
+    expect(bridgeVerdict({ kind: 'request', name: 'ping' })).toBe('invalid-request');
+    expect(bridgeVerdict({ kind: 'request', name: 'ping', id: '' })).toBe('invalid-request');
+    expect(bridgeVerdict({ kind: 'request', name: 'ping', id: 7 })).toBe('invalid-request');
   });
 
   it('rejects an id on a SEND', () => {
-    expect(hostVerdict({ kind: 'send', name: 'close', id: 'q1' })).toBe('invalid-request');
+    expect(bridgeVerdict({ kind: 'send', name: 'close', id: 'q1' })).toBe('invalid-request');
   });
 
   it('rejects an unknown kind, an empty name and a non-object payload', () => {
-    expect(hostVerdict({ kind: 'ui.command', name: 'close' })).toBe('invalid-request');
-    expect(hostVerdict({ kind: 'send', name: '' })).toBe('invalid-request');
-    expect(hostVerdict({ kind: 'send', name: 'log', payload: 'text' })).toBe('invalid-request');
-    expect(hostVerdict({ kind: 'send', name: 'log', payload: [1, 2] })).toBe('invalid-request');
+    expect(bridgeVerdict({ kind: 'ui.command', name: 'close' })).toBe('invalid-request');
+    expect(bridgeVerdict({ kind: 'send', name: '' })).toBe('invalid-request');
+    expect(bridgeVerdict({ kind: 'send', name: 'log', payload: 'text' })).toBe('invalid-request');
+    expect(bridgeVerdict({ kind: 'send', name: 'log', payload: [1, 2] })).toBe('invalid-request');
   });
 
   it('accepts an absent or null payload', () => {
-    expect(hostVerdict({ kind: 'send', name: 'close' })).toBe('ok');
-    expect(hostVerdict({ kind: 'send', name: 'close', payload: null })).toBe('ok');
+    expect(bridgeVerdict({ kind: 'send', name: 'close' })).toBe('ok');
+    expect(bridgeVerdict({ kind: 'send', name: 'close', payload: null })).toBe('ok');
   });
 
   it('accepts EVERY envelope the shipped helper can produce', () => {
@@ -331,7 +331,7 @@ describe('host envelope validation — 2.0 REJECTS where 1.x silently demoted', 
 
     expect(sent.length).toBe(9); // hello + the eight above
     for (const frame of sent) {
-      expect([frame.name, hostVerdict(frame as unknown as Record<string, unknown>)]).toEqual([
+      expect([frame.name, bridgeVerdict(frame as unknown as Record<string, unknown>)]).toEqual([
         frame.name,
         'ok',
       ]);
