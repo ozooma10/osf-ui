@@ -10,7 +10,7 @@
 //
 // Constant it checks: the BSInputEventReceiver vtable is RE::UI::VTABLE[10]
 // (AddressLib ID 475439). IDs_VTABLE is not in base-declaration order — proven
-// via tools/parse_versionlib.py plus the live vptr on 1.16.244. On mismatch the
+// via tools/research/parse_versionlib.py plus the live vptr on 1.16.244. On mismatch the
 // guard dumps every VTABLE entry so the index can be re-derived after a patch.
 
 namespace OSFUI

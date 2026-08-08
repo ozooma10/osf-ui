@@ -55,8 +55,10 @@ body:
     attributes:
       label: Other overlays / frame-gen in use
       description: >
-        These share the same Present hook and are the top suspect for a missing
-        overlay. Check everything running, even if you think it's unrelated.
+        OSF UI draws from inside the game's own UI render pass and does not join
+        the DXGI Present hook chain, but other overlays and frame generation can
+        still interact with it. Check everything running, even if you think it's
+        unrelated.
       options:
         - label: ReShade
         - label: RTSS / MSI Afterburner

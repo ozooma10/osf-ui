@@ -186,7 +186,7 @@ namespace OSFUI::API
 		{
 			if (!IsValid()) return false;
 			try {
-				const auto text = a_payload.dump();
+				const auto text = a_payload.dump(-1, ' ', false, Json::error_handler_t::replace);
 				if (a_type && *a_type) _request.Respond(a_type, text.c_str());
 				else _request.Respond(text.c_str());
 				return true;
@@ -209,7 +209,7 @@ namespace OSFUI::API
 		[[nodiscard]] bool SendToWeb(const char* a_viewId, const char* a_type, const Json& a_payload) const noexcept
 		{
 			try {
-				const auto text = a_payload.dump();
+				const auto text = a_payload.dump(-1, ' ', false, Json::error_handler_t::replace);
 				return _client.SendToWeb(a_viewId, a_type, text.c_str());
 			} catch (...) {
 				return false;
@@ -238,7 +238,7 @@ namespace OSFUI::API
 		[[nodiscard]] bool SetViewState(const char* a_modId, const char* a_key, const Json& a_value) const noexcept
 		{
 			try {
-				const auto text = a_value.dump();
+				const auto text = a_value.dump(-1, ' ', false, Json::error_handler_t::replace);
 				return _client.SetViewState(a_modId, a_key, text.c_str());
 			} catch (...) {
 				return false;
@@ -258,7 +258,7 @@ namespace OSFUI::API
 		[[nodiscard]] bool RegisterSettingsSchema(const Json& a_schema) const noexcept
 		{
 			try {
-				const auto text = a_schema.dump();
+				const auto text = a_schema.dump(-1, ' ', false, Json::error_handler_t::replace);
 				return _client.RegisterSettingsSchema(text.c_str());
 			} catch (...) {
 				return false;
@@ -269,7 +269,7 @@ namespace OSFUI::API
 			IssueSeverity a_severity, const char* a_subject = "", const Json& a_context = Json::object()) const noexcept
 		{
 			try {
-				const auto text = a_context.dump();
+				const auto text = a_context.dump(-1, ' ', false, Json::error_handler_t::replace);
 				return _client.ReportIssue(a_modId, a_id, a_code, a_severity, a_subject, text.c_str());
 			} catch (...) {
 				return false;
@@ -279,7 +279,7 @@ namespace OSFUI::API
 		[[nodiscard]] bool ClearIssuesExcept(const char* a_modId, const std::vector<std::string>& a_keepIds) const noexcept
 		{
 			try {
-				const auto text = Json(a_keepIds).dump();
+				const auto text = Json(a_keepIds).dump(-1, ' ', false, Json::error_handler_t::replace);
 				return _client.ClearIssuesExcept(a_modId, text.c_str());
 			} catch (...) {
 				return false;

@@ -31,7 +31,7 @@ namespace OSFUI
 		// The receiver's entry is VTABLE[kReceiverVtblIndex], not VTABLE[0] or [1];
 		// IDs_VTABLE.h array order does not follow base-declaration order. Derived
 		// 2026-06-12 by resolving all 11 versionlib-1-16-244 entries
-		// (tools/parse_versionlib.py) against the live vptr; the match is also the
+		// (tools/research/parse_versionlib.py) against the live vptr; the match is also the
 		// cluster's only 2-slot vtable (dtor + PerformInputProcessing), which is
 		// BSInputEventReceiver's shape. Both checks below stay hard requirements:
 		// a reordered array or a moved vtable refuses and dumps what re-derivation

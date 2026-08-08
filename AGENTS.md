@@ -1,8 +1,9 @@
 # OSF UI — agent runbook
 
 HTML/CSS/JS UI framework for Starfield: an SFSE/CommonLibSF plugin that renders web views
-through an out-of-process Microsoft Edge WebView2 host and composites them over the game with a
-D3D12 present hook. Architecture: `docs/architecture.md`. Security posture: `docs/security-model.md`.
+through an out-of-process Microsoft Edge WebView2 host and composites them over the game from
+inside the engine's own Scaleform UI render pass (a D3D12 queue hook — no swapchain Present
+hook). Architecture: `docs/architecture.md`. Security posture: `docs/security-model.md`.
 
 ## Changelog — keep it current
 
