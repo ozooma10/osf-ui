@@ -11,6 +11,7 @@
 #include "core/Log.h"
 #include "core/Version.h"
 #include "runtime/DevViewFiles.h"
+#include "runtime/Json.h"
 #include "input/OverlayInputHook.h"
 
 #define WIN32_LEAN_AND_MEAN
@@ -24,6 +25,7 @@
 
 #include "Wv2BoundedQueue.h"
 #include "Wv2BrokerLaunch.h"
+#include "Wv2Messages.h"
 #include "Wv2Pipe.h"
 #include "Wv2Protocol.h"
 #include "Win32Util.h"
@@ -151,103 +153,27 @@ namespace OSFUI
 			return data.result;
 		}
 
-		// ---- Outbound browser-host-message builders -----------------------
+		// ---- Outbound browser-host messages -------------------------------
 		//
-		// Each shape below is authored in two places: the connect-time snapshot
-		// in the worker (holding stateMutex, walking `views`) and the matching
-		// per-view setter (game thread, after the lock is released). One builder
-		// per shape so the two cannot drift. Wire shapes are specified in
-		// tools/webview2_shared/Wv2Protocol.h and parsed by a separate binary.
+		// Shapes live in tools/webview2_shared/Wv2Messages.h and are compiled by
+		// BOTH binaries, so a renamed field is a build error on both sides rather
+		// than a key the peer silently defaults. Construct with designated
+		// initializers at the call site: the positional builders these replaced
+		// carried a documented hazard — AccelState's `captured` and `captureArmed`
+		// are adjacent bools, so a swapped argument compiled clean and changed the
+		// wire. Named fields make that a compile error too.
 		//
-		// PRIMITIVE / VIEW ARGUMENTS ONLY — never a `const ViewRec&`. The setter
-		// send paths run OUTSIDE stateMutex by design and read their own
-		// by-value parameters; `views` reallocates, so a ViewRec reference
-		// dereferenced there would be a new data race. (ViewRec is not even
-		// declared yet at this point in the file — keep it that way.)
-		// string_view arguments are COPIED into the json before the builder
-		// returns: never store one, never defer. The snapshot binds them to
-		// ViewRec fields while it still holds stateMutex, so the copy happens
-		// under the lock, on the worker thread, exactly as the inline code did.
+		// PRIMITIVE / VIEW VALUES ONLY — never a `const ViewRec&`. The setter send
+		// paths run OUTSIDE stateMutex by design and read their own by-value
+		// parameters; `views` reallocates, so a ViewRec reference dereferenced
+		// there would be a new data race. string_view arguments are COPIED into
+		// the message before it is serialized: never store one, never defer. The
+		// connect-time snapshot binds them to ViewRec fields while it still holds
+		// stateMutex, on the worker thread.
 		//
-		// These builders only BUILD: send-gating (Send vs SendOrQueue vs the
-		// raw pipe write) and every state side-effect stay in the callers.
-
-		json ViewMsg(std::string_view a_type, std::string_view a_viewId)
-		{
-			return json{ { "type", std::string(a_type) },
-				{ "view", std::string(a_viewId) } };
-		}
-
-		// NOTE: "navigate" keys the view id as "id", not "view" (wire protocol),
-		// so it is deliberately not a ViewMsg.
-		json NavigateMsg(std::string_view a_viewId, std::string_view a_entry,
-			bool a_bridge, bool a_legacyApi, std::uint32_t a_logicalHeight)
-		{
-			return json{
-				{ "type", "navigate" },
-				{ "id", std::string(a_viewId) },
-				{ "entry", std::string(a_entry) },
-				{ "bridge", a_bridge },
-				{ "legacyApi", a_legacyApi },
-				{ "logicalHeight", a_logicalHeight } };
-		}
-
-		json PrewarmMsg(std::string_view a_viewId)
-		{
-			return ViewMsg("prewarm", a_viewId);
-		}
-
-		json SuspendMsg(std::string_view a_viewId)
-		{
-			return ViewMsg("suspendView", a_viewId);
-		}
-
-		json SetInputTargetMsg(std::string_view a_viewId)
-		{
-			// `setActive` is the compatibility spelling on the private game-to-
-			// browser-host wire; in current code it selects only the input target.
-			return ViewMsg("setActive", a_viewId);
-		}
-
-		json SetHiddenMsg(std::string_view a_viewId, bool a_hidden,
-			std::uint64_t a_presentationEpoch)
-		{
-			return json{ { "type", "setHidden" },
-				{ "view", std::string(a_viewId) }, { "hidden", a_hidden },
-				{ "presentationEpoch", a_presentationEpoch } };
-		}
-
-		json SetOrderMsg(std::string_view a_viewId, int a_order)
-		{
-			return json{ { "type", "setOrder" },
-				{ "view", std::string(a_viewId) }, { "order", a_order } };
-		}
-
-		json FocusMsg(bool a_focused)
-		{
-			return json{ { "type", "focus" }, { "focused", a_focused } };
-		}
-
-		// Argument ORDER is the hazard here: captured then captureArmed. The
-		// snapshot's locals are named accCaptured/accArmed while the wire key is
-		// "captureArmed", so a swap would compile clean and change the wire.
-		// Toggle and capture-up are physical SCAN codes (DIK convention) since
-		// protocol 6 — the browser host matches framework-owned keys on them.
-		json AccelStateMsg(std::uint32_t a_toggleScan,
-			bool a_captured, bool a_captureArmed, std::uint32_t a_captureUpScan)
-		{
-			return json{
-				{ "type", "accelState" },
-				{ "toggleScan", a_toggleScan },
-				{ "captured", a_captured }, { "captureArmed", a_captureArmed },
-				{ "captureUpScan", a_captureUpScan } };
-		}
-
-		json FrameAckMsg(std::uint64_t a_serial)
-		{
-			return json{ { "type", "frameAck" }, { "serial", a_serial } };
-		}
-
+		// Building only: send-gating (Send vs SendOrQueue vs the raw pipe write)
+		// and every state side-effect stay in the callers.
+		namespace msg = osfui::wv2::msg;
 	}
 
 	struct WebView2HostWebRenderer::Impl
@@ -477,10 +403,10 @@ namespace OSFUI
 
 		std::string CoalesceKey(const json& a_msg)
 		{
-			const auto type = a_msg.value("type", std::string{});
-			return osfui::wv2::GameMessageCoalesceKey(type,
-				a_msg.value("kind", std::string{}),
-				a_msg.value("view", std::string{}));
+			return osfui::wv2::GameMessageCoalesceKey(
+				Json::Get(a_msg, "type", ""),
+				Json::Get(a_msg, "kind", ""),
+				Json::Get(a_msg, "view", ""));
 		}
 
 		bool Enqueue(const json& a_msg, bool a_queueBeforeConnect)
@@ -490,7 +416,7 @@ namespace OSFUI
 				!connected.load(std::memory_order_acquire)) {
 				return false;
 			}
-			const auto result = outbound.Push(a_msg.dump(), CoalesceKey(a_msg),
+			const auto result = outbound.Push(Json::Dump(a_msg), CoalesceKey(a_msg),
 				nextOutboundSequence.fetch_add(1, std::memory_order_relaxed));
 			if (result == decltype(outbound)::PushResult::Full) {
 				if (!outboundOverflowed.exchange(true)) {
@@ -920,33 +846,31 @@ namespace OSFUI
 					SignalDead("browser-host hello timed out");
 					return;
 				}
-				hello = json::parse(payload, nullptr, false);
-				if (preHello < 32 && hello.is_object() &&
-					hello.value("type", "") == "log") {
-					const auto level = hello.value("level", 0);
-					const auto text = hello.value("text", "");
-					if (level >= 2) {
-						REX::ERROR("WebView2 browser host: {}", text);
-					} else if (level == 1) {
-						REX::WARN("WebView2 browser host: {}", text);
+				hello = Json::Parse(payload).value_or(json{});
+				if (preHello < 32 && Json::Get(hello, "type", "") == msg::Log::kType) {
+					const auto entry = msg::FromJson<msg::Log>(hello);
+					if (entry.level >= 2) {
+						REX::ERROR("WebView2 browser host: {}", entry.text);
+					} else if (entry.level == 1) {
+						REX::WARN("WebView2 browser host: {}", entry.text);
 					} else {
-						REX::INFO("WebView2 browser host: {}", text);
+						REX::INFO("WebView2 browser host: {}", entry.text);
 					}
 					continue;
 				}
 				break;
 			}
 
-			const auto claimedPid =
-				hello.is_object() ? hello.value("pid", 0u) : 0u;
-			const auto protocol =
-				hello.is_object() ? hello.value("protocolVersion", 0u) : 0u;
-			if (!hello.is_object() || hello.value("type", "") != "hello" ||
-				protocol != osfui::wv2::kBrowserHostProtocolVersion ||
-				claimedPid != *peerPid) {
+			// FromJson is total, so a non-object or wrong-typed field lands on the
+			// declared defaults (pid 0, protocolVersion 0) and fails the gate below
+			// exactly as the explicit is_object() guards used to.
+			const auto greeting = msg::FromJson<msg::Hello>(hello);
+			if (Json::Get(hello, "type", "") != msg::Hello::kType ||
+				greeting.protocolVersion != osfui::wv2::kBrowserHostProtocolVersion ||
+				greeting.pid != *peerPid) {
 				REX::ERROR("WebView2HostWebRenderer: rejected browser-host hello "
 						   "(protocol={}, claimed pid={}, kernel pid={}, browser-host log: {})",
-					protocol, claimedPid, *peerPid, browserHostLog.string());
+					greeting.protocolVersion, greeting.pid, *peerPid, browserHostLog.string());
 				SignalDead("browser-host identity or protocol mismatch");
 				return;
 			}
@@ -961,7 +885,8 @@ namespace OSFUI
 			}
 			SetBrowserHostProcess(*peerPid, browserHostProcess);
 
-			const auto webView2RuntimeVersion = hello.value("runtimeVersion", "?");
+			const auto webView2RuntimeVersion =
+				greeting.runtimeVersion.empty() ? std::string("?") : greeting.runtimeVersion;
 			if (webView2RuntimeVersion == "unknown") {
 				REX::ERROR("WebView2HostWebRenderer: the WebView2 Evergreen runtime is not "
 						   "installed; install it and restart the game");
@@ -973,37 +898,40 @@ namespace OSFUI
 			std::vector<OutItem> bootstrap;
 			const auto addBootstrap = [&](json a_message) {
 				bootstrap.push_back(OutItem{
-					a_message.dump(), {},
+					Json::Dump(a_message), {},
 					nextOutboundSequence.fetch_add(1, std::memory_order_relaxed) });
 			};
 			{
 				std::scoped_lock lock(stateMutex);
-				addBootstrap(json{
-					{ "type", "init" },
-					{ "topLevelHwnd", reinterpret_cast<std::uint64_t>(gameTopLevel) },
-					{ "viewsPath", ToUtf8(mappedViewsRoot.native()) },
-					{ "virtualHost", "osfui.local" },
-					{ "width", width },
-					{ "height", height },
-					{ "userDataDir", ToUtf8(userData.native()) },
-					{ "devMode", config.devMode },
-					{ "hidden", allHidden },
-					{ "adapterLuidLow", adapterLuidLow },
-					{ "adapterLuidHigh", adapterLuidHigh },
-				});
-				addBootstrap(AccelStateMsg(accToggle,
-					accCaptured, accArmed, accCaptureUp));
+				addBootstrap(ToJson(msg::Init{
+					.topLevelHwnd = reinterpret_cast<std::uint64_t>(gameTopLevel),
+					.viewsPath = ToUtf8(mappedViewsRoot.native()),
+					.virtualHost = "osfui.local",
+					.width = width,
+					.height = height,
+					.userDataDir = ToUtf8(userData.native()),
+					.devMode = config.devMode,
+					.hidden = allHidden,
+					.adapterLuidLow = adapterLuidLow,
+					.adapterLuidHigh = adapterLuidHigh,
+				}));
+				addBootstrap(ToJson(msg::AccelState{ .toggleScan = accToggle,
+					.captured = accCaptured, .captureArmed = accArmed,
+					.captureUpScan = accCaptureUp }));
 				accSent = true;
 				for (const auto& view : views) {
-					addBootstrap(NavigateMsg(view.id, view.entry,
-						view.bridge, view.legacyApi, view.logicalHeight));
-					if (view.prewarm) addBootstrap(PrewarmMsg(view.id));
-					addBootstrap(SetHiddenMsg(
-						view.id, view.hidden, presentationEpoch));
-					addBootstrap(SetOrderMsg(view.id, view.order));
+					addBootstrap(ToJson(msg::Navigate{ .id = view.id, .entry = view.entry,
+						.bridge = view.bridge, .legacyApi = view.legacyApi,
+						.logicalHeight = view.logicalHeight }));
+					if (view.prewarm) addBootstrap(ToJson(msg::Prewarm{ .view = view.id }));
+					addBootstrap(ToJson(msg::SetHidden{ .view = view.id,
+						.hidden = view.hidden, .presentationEpoch = presentationEpoch }));
+					addBootstrap(ToJson(msg::SetOrder{ .view = view.id, .order = view.order }));
 				}
-				if (!inputTargetId.empty()) addBootstrap(SetInputTargetMsg(inputTargetId));
-				addBootstrap(FocusMsg(focusRequested.load()));
+				if (!inputTargetId.empty()) {
+					addBootstrap(ToJson(msg::SetInputTarget{ .view = inputTargetId }));
+				}
+				addBootstrap(ToJson(msg::Focus{ .focused = focusRequested.load() }));
 			}
 			if (!PublishConnected(std::move(bootstrap))) {
 				if (!stopRequested.load(std::memory_order_acquire)) {
@@ -1038,79 +966,83 @@ namespace OSFUI
 						heartbeatDeadline - now))) {
 					return;
 				}
-				const json msg = json::parse(payload, nullptr, false);
-				if (msg.is_discarded()) continue;
-				try {
-					const std::string type = msg.value("type", "");
-					if (type == "heartbeat") {
-						heartbeatDeadline = ::GetTickCount64() +
-							osfui::wv2::kHeartbeatTimeoutMs;
-						continue;
+				const auto parsed = Json::Parse(payload);
+				if (!parsed) continue;
+				const json& message = *parsed;
+				// No try/catch here any more: every read goes through msg::FromJson,
+				// whose accessors fall back to the message's declared defaults and
+				// cannot throw. The guard existed because .value() throws
+				// (type_error.302 on a wrong-typed key, .306 on a non-object) and an
+				// exception escaping this worker thread is a std::terminate. A
+				// malformed field now costs that field, not the whole message.
+				const auto type = Json::Get(message, "type", "");
+				if (type == msg::Heartbeat::kType) {
+					heartbeatDeadline = ::GetTickCount64() +
+						osfui::wv2::kHeartbeatTimeoutMs;
+					continue;
+				}
+				if (type == msg::Frame::kType) {
+					OnFrameMessage(msg::FromJson<msg::Frame>(message));
+				} else if (type == msg::Textures::kType) {
+					OnTexturesMessage(msg::FromJson<msg::Textures>(message));
+				} else if (type == msg::WebMessage::kType) {
+					const auto web = msg::FromJson<msg::WebMessage>(message);
+					Push(Notify{ .kind = Notify::Kind::Web,
+						.view = web.view, .text = web.json });
+				} else if (type == msg::LoadEvent::kType) {
+					const auto load = msg::FromJson<msg::LoadEvent>(message);
+					Push(Notify{ .kind = Notify::Kind::Load,
+						.view = load.view,
+						.text = load.url,
+						.detail = load.description,
+						.failed = load.failed,
+						.code = load.code });
+				} else if (type == msg::Fatal::kType) {
+					const auto fatal = msg::FromJson<msg::Fatal>(message);
+					Push(Notify{ .kind = Notify::Kind::Fatal,
+						.view = fatal.view,
+						.text = fatal.stage,
+						.detail = fatal.description,
+						.unsignedCode = fatal.code });
+				} else if (type == msg::Console::kType) {
+					const auto console = msg::FromJson<msg::Console>(message);
+					Push(Notify{ .kind = Notify::Kind::Console,
+						.view = console.view, .text = console.json });
+				} else if (type == msg::Cursor::kType) {
+					// Contract allows renderer-thread delivery for cursor.
+					if (onCursorChange) {
+						onCursorChange(CursorShapeFromSystemCursorId(
+							msg::FromJson<msg::Cursor>(message).id));
 					}
-					if (type == "frame") {
-						OnFrameMessage(msg);
-					} else if (type == "textures") {
-						OnTexturesMessage(msg);
-					} else if (type == "webMessage") {
-						Push(Notify{ .kind = Notify::Kind::Web,
-							.view = msg.value("view", ""),
-							.text = msg.value("json", "") });
-					} else if (type == "loadEvent") {
-						Push(Notify{ .kind = Notify::Kind::Load,
-							.view = msg.value("view", ""),
-							.text = msg.value("url", ""),
-							.detail = msg.value("description", ""),
-							.failed = msg.value("failed", false),
-							.code = msg.value("code", 0) });
-					} else if (type == "fatal") {
-						Push(Notify{ .kind = Notify::Kind::Fatal,
-							.view = msg.value("view", ""),
-							.text = msg.value("stage", "renderer"),
-							.detail = msg.value("description", "terminal renderer failure"),
-							.unsignedCode = msg.value("code", 0u) });
-					} else if (type == "console") {
-						Push(Notify{ .kind = Notify::Kind::Console,
-							.view = msg.value("view", ""),
-							.text = msg.value("json", "") });
-					} else if (type == "cursor") {
-						// Contract allows renderer-thread delivery for cursor.
-						if (onCursorChange) {
-							onCursorChange(CursorShapeFromSystemCursorId(msg.value("id", 0u)));
-						}
-					} else if (type == "accelerator") {
-						// Invoked off the game thread; the handler must stay cheap.
-						if (onAccelerator) {
-							onAccelerator(msg.value("vk", 0u), msg.value("scan", 0u),
-								msg.value("down", false));
-						}
-					} else if (type == "log") {
-						Push(Notify{ .kind = Notify::Kind::Log,
-							.text = msg.value("text", ""),
-							.code = msg.value("level", 0) });
-					} else if (type == "ready" || type == "hello") {
-						// informational
-					} else if (type == "bye") {
-						REX::INFO("WebView2HostWebRenderer: browser-host bye ({})",
-							msg.value("reason", ""));
+				} else if (type == msg::Accelerator::kType) {
+					// Invoked off the game thread; the handler must stay cheap.
+					if (onAccelerator) {
+						const auto accel = msg::FromJson<msg::Accelerator>(message);
+						onAccelerator(accel.vk, accel.scan, accel.down);
 					}
-				} catch (const std::exception& e) {
-					// A malformed / partial / version-mismatched browser-host message must not
-					// unwind out of the worker thread (that calls std::terminate).
-					REX::WARN("WebView2HostWebRenderer: dropping malformed browser-host message: {}", e.what());
+				} else if (type == msg::Log::kType) {
+					const auto entry = msg::FromJson<msg::Log>(message);
+					Push(Notify{ .kind = Notify::Kind::Log,
+						.text = entry.text, .code = entry.level });
+				} else if (type == msg::Ready::kType || type == msg::Hello::kType) {
+					// informational
+				} else if (type == msg::Bye::kType) {
+					REX::INFO("WebView2HostWebRenderer: browser-host bye ({})",
+						msg::FromJson<msg::Bye>(message).reason);
 				}
 			}
 		}
 
-		void OnTexturesMessage(const json& a_msg)
+		void OnTexturesMessage(const msg::Textures& a_msg)
 		{
 			// Ring depth comes from the announcement, not a compiled constant —
 			// the browser host may retune it as long as it fits our capacity.
 			static_assert(osfui::wv2::kRingSlots <= SharedRingDesc::kMaxSlots);
 			SharedRingDesc desc{};
-			const auto& slots = a_msg.at("slots");
+			const auto& slots = a_msg.slots;
 			for (std::size_t i = 0; i < SharedRingDesc::kMaxSlots && i < slots.size(); ++i) {
 				desc.slotHandles[i] = reinterpret_cast<void*>(
-					static_cast<std::uintptr_t>(slots[i].get<std::uint64_t>()));
+					static_cast<std::uintptr_t>(slots[i]));
 				++desc.slotCount;
 			}
 			for (std::size_t i = SharedRingDesc::kMaxSlots; i < slots.size(); ++i) {
@@ -1119,7 +1051,7 @@ namespace OSFUI
 				// already-duplicated handles so they don't leak; frames landing
 				// in those slots will not be drawn.
 				::CloseHandle(reinterpret_cast<HANDLE>(
-					static_cast<std::uintptr_t>(slots[i].get<std::uint64_t>())));
+					static_cast<std::uintptr_t>(slots[i])));
 			}
 			if (slots.size() > SharedRingDesc::kMaxSlots) {
 				REX::WARN("WebView2HostWebRenderer: browser host announced {} ring slots, "
@@ -1131,13 +1063,13 @@ namespace OSFUI
 			ringSlotsAnnounced.store(static_cast<std::uint32_t>(slots.size()),
 				std::memory_order_relaxed);
 			desc.produceFence = reinterpret_cast<void*>(
-				static_cast<std::uintptr_t>(a_msg.value("produceFence", 0ull)));
+				static_cast<std::uintptr_t>(a_msg.produceFence));
 			desc.consumeFence = reinterpret_cast<void*>(
-				static_cast<std::uintptr_t>(a_msg.value("consumeFence", 0ull)));
-			desc.width = a_msg.value("width", 0u);
-			desc.height = a_msg.value("height", 0u);
-			desc.adapterLuidLow = a_msg.value("adapterLuidLow", 0u);
-			desc.adapterLuidHigh = a_msg.value("adapterLuidHigh", 0u);
+				static_cast<std::uintptr_t>(a_msg.consumeFence));
+			desc.width = a_msg.width;
+			desc.height = a_msg.height;
+			desc.adapterLuidLow = a_msg.adapterLuidLow;
+			desc.adapterLuidHigh = a_msg.adapterLuidHigh;
 			{
 				std::scoped_lock lock(frameMutex);
 				desc.generation = ++ringGeneration;
@@ -1148,13 +1080,13 @@ namespace OSFUI
 			Push(Notify{ .kind = Notify::Kind::Ring, .ring = desc });
 		}
 
-		void OnFrameMessage(const json& a_msg)
+		void OnFrameMessage(const msg::Frame& a_msg)
 		{
-			const auto slot = a_msg.value("slot", 0u);
-			const auto serial = a_msg.value("serial", 0ull);
-			const auto presentation = a_msg.value("presentationEpoch", 0ull);
-			const auto w = a_msg.value("width", 0u);
-			const auto h = a_msg.value("height", 0u);
+			const auto slot = a_msg.slot;
+			const auto serial = a_msg.serial;
+			const auto presentation = a_msg.presentationEpoch;
+			const auto w = a_msg.width;
+			const auto h = a_msg.height;
 			std::uint64_t ackSerial = 0;
 			bool ackNew = false;
 			{
@@ -1184,10 +1116,10 @@ namespace OSFUI
 				}
 			}
 			if (ackSerial) {
-				pipe.WriteMessage(FrameAckMsg(ackSerial).dump());
+				pipe.WriteMessage(Json::Dump(ToJson(msg::FrameAck{ .serial = ackSerial })));
 			}
 			if (ackNew) {
-				pipe.WriteMessage(FrameAckMsg(serial).dump());
+				pipe.WriteMessage(Json::Dump(ToJson(msg::FrameAck{ .serial = serial })));
 			}
 		}
 
@@ -1316,19 +1248,23 @@ namespace OSFUI
 		{
 			const auto found = consoleHandlers.find(a_view);
 			if (found == consoleHandlers.end() || !found->second) return;
-			int level = 0;
+			int         level = 0;
 			std::string text = a_payload;
-			try {
-				const auto parsed = json::parse(a_payload);
-				const auto type = parsed.value("type", "log");
+			// Chromium's Runtime.consoleAPICalled params: arbitrary page-authored
+			// shape, so every read is lenient and the whole block is total. The
+			// try/catch this replaced was load-bearing — json::parse throws and
+			// .value() throws on a wrong-typed key, on a thread where an escape
+			// is a std::terminate.
+			if (const auto parsed = Json::Parse(a_payload)) {
+				const auto type = Json::Get(*parsed, "type", "log");
 				level = type == "warning" ? 1 : type == "error" ? 2 :
 					type == "debug" ? 3 : type == "info" ? 4 : 0;
-				if (const auto it = parsed.find("args");
-					it != parsed.end() && it->is_array() && !it->empty()) {
-					const auto& first = it->front();
-					text = first.value("value", first.value("description", a_payload));
+				if (const auto* args = Json::GetArray(*parsed, "args"); args && !args->empty()) {
+					const auto& first = args->front();
+					text = Json::Get(first, "value",
+						Json::Get(first, "description", a_payload));
 				}
-			} catch (...) {}
+			}
 			found->second(level, std::move(text));
 		}
 
@@ -1343,7 +1279,7 @@ namespace OSFUI
 				outbound.Clear();
 				sequence =
 					nextOutboundSequence.fetch_add(1, std::memory_order_relaxed);
-				if (outbound.Push(json{ { "type", "shutdown" } }.dump(), {}, sequence) !=
+				if (outbound.Push(Json::Dump(ToJson(msg::Shutdown{})), {}, sequence) !=
 					decltype(outbound)::PushResult::Queued) {
 					return false;
 				}
@@ -1550,9 +1486,10 @@ namespace OSFUI
 		}
 		// A repeat call for an instantiated view id re-navigates it (developer reload / crash
 		// recovery).
-		_impl->Send(NavigateMsg(a_manifest.id, a_manifest.entry,
-			a_manifest.permissions.nativeBridge,
-			IsPre2Target(a_manifest.targetVersion), logicalHeight));
+		_impl->Send(ToJson(msg::Navigate{ .id = a_manifest.id, .entry = a_manifest.entry,
+			.bridge = a_manifest.permissions.nativeBridge,
+			.legacyApi = IsPre2Target(a_manifest.targetVersion),
+			.logicalHeight = logicalHeight }));
 	}
 
     bool WebView2HostWebRenderer::RefreshViewFiles(std::string_view a_viewId)
@@ -1572,7 +1509,7 @@ namespace OSFUI
 			if (_impl->inputTargetId == a_id) return;
 			_impl->inputTargetId = a_id;
 		}
-		_impl->Send(SetInputTargetMsg(a_id));
+		_impl->Send(ToJson(msg::SetInputTarget{ .view = std::string(a_id) }));
 	}
 
 	void WebView2HostWebRenderer::Resize(std::uint32_t a_width, std::uint32_t a_height)
@@ -1583,8 +1520,7 @@ namespace OSFUI
 			_impl->width = a_width;
 			_impl->height = a_height;
 		}
-		_impl->Send(json{
-			{ "type", "resize" }, { "width", a_width }, { "height", a_height } });
+		_impl->Send(ToJson(msg::Resize{ .width = a_width, .height = a_height }));
 	}
 
 	void WebView2HostWebRenderer::Update(double a_deltaSeconds)
@@ -1645,7 +1581,7 @@ namespace OSFUI
 							REX::WARN("WebView2HostWebRenderer: input-capturing menu live but game window "
 									  "still owns focus; re-sending focus request (watchdog)");
 						}
-						_impl->Send(FocusMsg(true));
+						_impl->Send(ToJson(msg::Focus{ .focused = true }));
 					}
 				}
 				if (healthy) {
@@ -1701,8 +1637,8 @@ namespace OSFUI
 			const auto* view = _impl->FindView(a_viewId);
 			if (!view || !view->bridge) return;
 		}
-		_impl->SendOrQueue(json{ { "type", "postWeb" },
-			{ "view", std::string(a_viewId) }, { "json", std::string(a_json) } });
+		_impl->SendOrQueue(ToJson(msg::PostWeb{ .view = std::string(a_viewId),
+			.json = std::string(a_json) }));
 	}
 
 	void WebView2HostWebRenderer::SetWebMessageHandler(WebMessageHandler a_handler)
@@ -1741,7 +1677,7 @@ namespace OSFUI
 			_impl->Start();
 		}
 		_impl->focusRequested = a_focused;
-		_impl->Send(FocusMsg(a_focused));
+		_impl->Send(ToJson(msg::Focus{ .focused = a_focused }));
 		const auto browserHostSession = _impl->BrowserHostSessionSnapshot();
 		if (!a_focused && browserHostSession.topLevel) {
 			// Restore game focus on the game's own window thread.
@@ -1768,8 +1704,9 @@ namespace OSFUI
 			if (changed && _impl->connected.load()) _impl->accSent = true;
 		}
 		if (changed) {
-			_impl->Send(AccelStateMsg(a_toggleScan, a_captured,
-				a_captureArmed, a_captureUpScan));
+			_impl->Send(ToJson(msg::AccelState{ .toggleScan = a_toggleScan,
+				.captured = a_captured, .captureArmed = a_captureArmed,
+				.captureUpScan = a_captureUpScan }));
 		}
 	}
 
@@ -1778,36 +1715,35 @@ namespace OSFUI
 		// Dispatched into the input-target page as a DOM KeyboardEvent by the browser-host shim.
 		// Used for gamepad nav taps and Esc back-delegation; physical keyboard and
 		// IME input route natively while the input-capturing menu owns focus.
-		_impl->Send(json{ { "type", "key" }, { "vk", a_vkCode }, { "down", a_down } });
+		_impl->Send(ToJson(msg::Key{ .vk = a_vkCode, .down = a_down }));
 	}
 
 	void WebView2HostWebRenderer::InjectMouseMove(int a_x, int a_y)
 	{
-		_impl->Send(json{ { "type", "mouse" }, { "kind", "move" },
-			{ "x", a_x }, { "y", a_y } });
+		_impl->Send(ToJson(msg::Mouse{ .kind = "move", .x = a_x, .y = a_y }));
 	}
 	void WebView2HostWebRenderer::InjectMouseButton(
 		int a_x, int a_y, int a_button, bool a_down)
 	{
-		_impl->Send(json{ { "type", "mouse" }, { "kind", "button" },
-			{ "x", a_x }, { "y", a_y }, { "button", a_button }, { "down", a_down } });
+		_impl->Send(ToJson(msg::Mouse{ .kind = "button", .x = a_x, .y = a_y,
+			.button = a_button, .down = a_down }));
 	}
 	void WebView2HostWebRenderer::InjectMouseWheel(int a_x, int a_y, int a_wheelDelta)
 	{
-		_impl->Send(json{ { "type", "mouse" }, { "kind", "wheel" },
-			{ "x", a_x }, { "y", a_y }, { "wheel", a_wheelDelta } });
+		_impl->Send(ToJson(msg::Mouse{ .kind = "wheel", .x = a_x, .y = a_y,
+			.wheel = a_wheelDelta }));
 	}
 
 	void WebView2HostWebRenderer::InjectPhysicalMouseWheel(
 		int a_x, int a_y, int a_wheelDelta)
 	{
-		_impl->Send(json{ { "type", "mouse" }, { "kind", "physicalWheel" },
-			{ "x", a_x }, { "y", a_y }, { "wheel", a_wheelDelta } });
+		_impl->Send(ToJson(msg::Mouse{ .kind = "physicalWheel", .x = a_x, .y = a_y,
+			.wheel = a_wheelDelta }));
 	}
 
 	void WebView2HostWebRenderer::OpenDevTools(std::string_view a_viewId)
 	{
-		_impl->Send(ViewMsg("openDevTools", a_viewId));
+		_impl->Send(ToJson(msg::OpenDevTools{ .view = std::string(a_viewId) }));
 	}
 
 	void WebView2HostWebRenderer::SetConsoleHandler(
@@ -1838,7 +1774,8 @@ namespace OSFUI
 			}
 			presentation = _impl->presentationEpoch;
 		}
-		_impl->Send(SetHiddenMsg(a_viewId, a_hidden, presentation));
+		_impl->Send(ToJson(msg::SetHidden{ .view = std::string(a_viewId),
+			.hidden = a_hidden, .presentationEpoch = presentation }));
 	}
 
 	void WebView2HostWebRenderer::PrewarmView(std::string_view a_viewId)
@@ -1849,7 +1786,7 @@ namespace OSFUI
 			if (!view || view->prewarm) return;
 			view->prewarm = true;
 		}
-		_impl->Send(PrewarmMsg(a_viewId));
+		_impl->Send(ToJson(msg::Prewarm{ .view = std::string(a_viewId) }));
 	}
 
 	void WebView2HostWebRenderer::SuspendView(std::string_view a_viewId)
@@ -1858,7 +1795,7 @@ namespace OSFUI
 			std::scoped_lock lock(_impl->stateMutex);
 			if (!_impl->FindView(a_viewId)) return;
 		}
-		_impl->Send(SuspendMsg(a_viewId));
+		_impl->Send(ToJson(msg::SuspendView{ .view = std::string(a_viewId) }));
 	}
 
 	void WebView2HostWebRenderer::SetViewOrder(std::string_view a_viewId, int a_order)
@@ -1870,7 +1807,7 @@ namespace OSFUI
 			if (view->order == a_order) return;
 			view->order = a_order;
 		}
-		_impl->Send(SetOrderMsg(a_viewId, a_order));
+		_impl->Send(ToJson(msg::SetOrder{ .view = std::string(a_viewId), .order = a_order }));
 	}
 
 	void WebView2HostWebRenderer::DestroyView(std::string_view a_viewId)
@@ -1888,6 +1825,6 @@ namespace OSFUI
 		}
 		// Game-thread map; no lock.
 		_impl->consoleHandlers.erase(std::string(a_viewId));
-		_impl->Send(json{ { "type", "destroyView" }, { "view", std::string(a_viewId) } });
+		_impl->Send(ToJson(msg::DestroyView{ .view = std::string(a_viewId) }));
 	}
 }

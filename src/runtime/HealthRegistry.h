@@ -96,9 +96,11 @@ namespace OSFUI
 		// resolved ones sort after every active one.
 		[[nodiscard]] nlohmann::json Snapshot() const;
 
-		// Re-send the snapshot to every subscriber, but only when it differs from
-		// the last one sent. Callers invoke this unconditionally after any
-		// potential change, exactly like Runtime::BroadcastViewsData.
+		// Re-send the snapshot to every subscriber, but only when something has
+		// actually changed since the last send. Callers invoke this
+		// unconditionally after any potential change — including every game
+		// tick, via RuntimeHealthCoordinator::Pump — so the no-change path must
+		// stay free: it is a counter compare, not a build-and-serialize.
 		void Broadcast();
 
 		// Sanitizer, exposed for tests: drops keys past kMaxContextEntries,
@@ -144,6 +146,13 @@ namespace OSFUI
 		std::vector<Issue>              _issues;
 		nlohmann::json                  _system = nlohmann::json::object();
 		MessageBridge*                  _bridge{ nullptr };
-		std::string                     _lastSent;  // dedupe: last payload dump
+		// Send dedupe. Every mutator bumps _generation; Broadcast() sends only
+		// when it has moved. This replaces comparing a fresh Json::Dump(Snapshot())
+		// against the previous one — which rebuilt and serialized the entire
+		// document on EVERY tick just to discover nothing had changed, then
+		// built it a second time when something had. Starting them unequal makes
+		// the first Broadcast() send.
+		std::uint64_t                   _generation{ 1 };
+		std::uint64_t                   _sentGeneration{ 0 };
 	};
 }

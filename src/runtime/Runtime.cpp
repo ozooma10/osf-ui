@@ -2477,7 +2477,7 @@ namespace OSFUI
 		});
 		a_bridge.RegisterSend("setVisible", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
 			const std::string src(a_b.CurrentSource());
-			const bool changed = Json::GetBool(a_p, "visible", false) ? _presentation.Open(src) : _presentation.Close(src);
+			const bool changed = Json::Get(a_p, "visible", false) ? _presentation.Open(src) : _presentation.Close(src);
 			if (changed) {
 				ApplyViewPresentationPolicy();
 			}
@@ -2485,7 +2485,7 @@ namespace OSFUI
 		// Open/close a view by id (defaults to the calling view). The frozen menu.*
 		// names accept either kind; a view's kind is fixed by its manifest.
 		const auto viewOpen = [this](const nlohmann::json& a_p, MessageBridge& a_b) {
-			std::string id = Json::GetString(a_p, "view", "");
+			std::string id = Json::Get(a_p, "view", "");
 			if (id.empty()) {
 				id = std::string(a_b.CurrentSource());
 			}
@@ -2509,7 +2509,7 @@ namespace OSFUI
 			a_b.Respond(nlohmann::json::object());
 		};
 		const auto viewClose = [this](const nlohmann::json& a_p, MessageBridge& a_b) {
-			std::string id = Json::GetString(a_p, "view", "");
+			std::string id = Json::Get(a_p, "view", "");
 			if (id.empty()) {
 				id = std::string(a_b.CurrentSource());
 			}
@@ -2556,11 +2556,11 @@ namespace OSFUI
 		a_bridge.RegisterRequest("setViewHidden", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
 			// Show/hide one instantiated view by id, independent of the overlay toggle.
 			// Omitting "view" targets the calling view (self-hide).
-			std::string id = Json::GetString(a_p, "view", "");
+			std::string id = Json::Get(a_p, "view", "");
 			if (id.empty()) {
 				id = std::string(a_b.CurrentSource());
 			}
-			if (!SetViewHidden(id, Json::GetBool(a_p, "hidden", false))) {
+			if (!SetViewHidden(id, Json::Get(a_p, "hidden", false))) {
 				a_b.Reject("unknown-view", "not an instantiated view");
 				return;
 			}
@@ -2583,7 +2583,7 @@ namespace OSFUI
 		// gates the capture, not an allowlist.
 		// Main thread; OnGameWindowKey (window thread) reads the armed flag.
 		a_bridge.RegisterRequest("settings.captureKey", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
-			const auto requestedMod = Json::GetString(a_p, "mod", "");
+			const auto requestedMod = Json::Get(a_p, "mod", "");
 			// A capture ends in a settings write, so it carries the same authority
 			// requirement (Ids::ResolveWritableMod): only the built-in Mod Settings view
 			// and Keybindings view may rebind another mod's keys.
@@ -2595,7 +2595,7 @@ namespace OSFUI
 				return;
 			}
 			const std::string mod(*allowedMod);
-			const std::string key = Json::GetString(a_p, "key", "");
+			const std::string key = Json::Get(a_p, "key", "");
 			// One capture at a time: a second arm while one is in progress is refused
 			// visibly rather than silently clobbering the first view's pending
 			// capture.
@@ -2635,12 +2635,12 @@ namespace OSFUI
 		// painful, which is why the list form exists at all.
 		const auto papyrusArgs = [](const nlohmann::json& a_p) {
 			std::vector<std::string> args;
-			const auto it = a_p.find("args");
-			if (it == a_p.end() || !it->is_array()) {
+			const auto* list = Json::GetArray(a_p, "args");
+			if (!list) {
 				return args;
 			}
-			args.reserve(it->size());
-			for (const auto& e : *it) {
+			args.reserve(list->size());
+			for (const auto& e : *list) {
 				if (e.is_string()) {
 					args.push_back(e.get<std::string>());
 				} else if (e.is_number_unsigned()) {
@@ -2676,7 +2676,7 @@ namespace OSFUI
 		a_bridge.RegisterSend("papyrus.send", [papyrusArgs](const nlohmann::json& a_p, MessageBridge& a_b) {
 			const std::string source(a_b.CurrentSource());
 			const std::string mod{ Ids::ModOf(source) };
-			const std::string name = Json::GetString(a_p, "name", "");
+			const std::string name = Json::Get(a_p, "name", "");
 			if (name.empty()) {
 				a_b.ReportProtocolFault(source, "invalid-request", "papyrus.send requires a non-empty 'name'");
 				return;
@@ -2686,7 +2686,7 @@ namespace OSFUI
 		a_bridge.RegisterRequest("papyrus.request", [papyrusArgs](const nlohmann::json& a_p, MessageBridge& a_b) {
 			const std::string source(a_b.CurrentSource());
 			const std::string mod{ Ids::ModOf(source) };
-			const std::string name = Json::GetString(a_p, "name", "");
+			const std::string name = Json::Get(a_p, "name", "");
 			if (mod.empty() || name.empty() || name.size() > 64) {
 				a_b.Reject("invalid-request", "name must be a non-empty string of at most 64 characters");
 				return;
@@ -2703,7 +2703,7 @@ namespace OSFUI
 		});
 		a_bridge.RegisterSend("log", [](const nlohmann::json& a_p, MessageBridge&) {
 			// Untrusted content: bound the length so JS cannot flood the log.
-			REX::DEBUG("MessageBridge: [web] {}", Json::GetString(a_p, "text", "").substr(0, 512));
+			REX::DEBUG("MessageBridge: [web] {}", Json::Get(a_p, "text", "").substr(0, 512));
 		});
 		a_bridge.RegisterRequest("ping", [](const nlohmann::json&, MessageBridge& a_b) {
 			a_b.Respond(nlohmann::json::object());
@@ -2718,7 +2718,7 @@ namespace OSFUI
 			if (src.empty()) {
 				return;
 			}
-			if (Json::GetBool(a_p, "raw", false)) {
+			if (Json::Get(a_p, "raw", false)) {
 				_gamepadRawViews.insert(src);
 			} else {
 				_gamepadRawViews.erase(src);
@@ -2775,7 +2775,7 @@ namespace OSFUI
 				a_b.Reject("forbidden", "view auto-start is set from OSF UI's built-in settings view");
 				return;
 			}
-			const auto view = Json::GetString(a_p, "view", "");
+			const auto view = Json::Get(a_p, "view", "");
 			const auto enabled = a_p.find("enabled");
 			if (view.empty() || enabled == a_p.end() || !enabled->is_boolean()) {
 				a_b.Reject("invalid-payload", "expected { view: string, enabled: boolean }");
@@ -2815,7 +2815,7 @@ namespace OSFUI
 			if (src.empty()) {
 				return;
 			}
-			if (Json::GetBool(a_p, "handle", false)) {
+			if (Json::Get(a_p, "handle", false)) {
 				_backOwnerViews.insert(src);
 			} else {
 				_backOwnerViews.erase(src);

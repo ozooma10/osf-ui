@@ -3,10 +3,9 @@
 #include <cmath>
 #include <limits>
 
-#include <nlohmann/json.hpp>
-
 #include "api/PapyrusApi.h"
 #include "core/StringUtil.h"
+#include "runtime/Json.h"
 #include "runtime/PapyrusNames.h"
 
 // Validation and JS->Papyrus marshalling for the `papyrus.call` endpoint.
@@ -40,12 +39,6 @@ namespace OSFUI::PapyrusCall
 			return Parsed{ .ok = false, .code = std::move(a_code), .message = std::move(a_message) };
 		}
 
-		[[nodiscard]] inline std::string StringField(const nlohmann::json& a_obj, std::string_view a_key)
-		{
-			const auto it = a_obj.find(a_key);
-			return it != a_obj.end() && it->is_string() ? it->get<std::string>() : std::string{};
-		}
-
 		// Papyrus floats are 32-bit. A value JS can hold but the VM cannot is a
 		// refusal, not a silent inf.
 		[[nodiscard]] inline bool AppendFloat(std::vector<API::Papyrus::StaticCallArg>& a_out, double a_number)
@@ -62,8 +55,8 @@ namespace OSFUI::PapyrusCall
 	[[nodiscard]] inline Parsed Parse(const nlohmann::json& a_payload)
 	{
 		Parsed out;
-		out.script = detail::StringField(a_payload, "script");
-		out.function = detail::StringField(a_payload, "function");
+		out.script = Json::Get(a_payload, "script", "");
+		out.function = Json::Get(a_payload, "function", "");
 		if (!PapyrusNames::IsScriptName(out.script) || !PapyrusNames::IsIdentifier(out.function)) {
 			return detail::Fail("invalid-request", "papyrus.call requires valid 'script' and 'function' names");
 		}
@@ -119,7 +112,7 @@ namespace OSFUI::PapyrusCall
 					return detail::Fail("invalid-request", "papyrus.call float arguments must be finite Papyrus floats");
 				}
 			} else if (value.is_object() && value.size() == 2 &&
-				detail::StringField(value, "$papyrus") == "float" && value.contains("value") &&
+				Json::Get(value, "$papyrus", "") == "float" && value.contains("value") &&
 				value["value"].is_number()) {
 				// JSON erases the difference between 3 and 3.0. The helper's
 				// tagged float keeps whole-valued Papyrus float parameters

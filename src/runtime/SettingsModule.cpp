@@ -164,7 +164,7 @@ namespace OSFUI
 		// nothing to re-request after F5.
 
 		a_bridge.RegisterRequest("settings.set", [this](const nlohmann::json& a_payload, MessageBridge& a_b) {
-			const auto requested = Json::GetString(a_payload, "mod", "");
+			const auto requested = Json::Get(a_payload, "mod", "");
 			// Authority check before anything else: only the built-in Mod Settings view
 			// and Keybindings view may write a mod other than their own
 			// (Ids::ResolveWritableMod). Without this, any bridged view could
@@ -178,7 +178,7 @@ namespace OSFUI
 				return;
 			}
 			const std::string mod(*allowed);
-			const auto key = Json::GetString(a_payload, "key", "");
+			const auto key = Json::Get(a_payload, "key", "");
 			const auto valueIt = a_payload.find("value");
 			if (valueIt == a_payload.end()) {
 				a_b.Reject("invalid-value", "missing value field");
@@ -202,7 +202,7 @@ namespace OSFUI
 		});
 
 		a_bridge.RegisterRequest("settings.reset", [this](const nlohmann::json& a_payload, MessageBridge& a_b) {
-			const auto requested = Json::GetString(a_payload, "mod", "");
+			const auto requested = Json::Get(a_payload, "mod", "");
 			// Same authority check as settings.set — a reset is a write.
 			const auto allowed = Ids::ResolveWritableMod(a_b.CurrentSource(), requested);
 			if (!allowed) {
@@ -212,7 +212,7 @@ namespace OSFUI
 				return;
 			}
 			const std::string mod(*allowed);
-			const auto key = Json::GetString(a_payload, "key", "");
+			const auto key = Json::Get(a_payload, "key", "");
 			// Suppress the per-key settings.changed fan-out for the web: the
 			// state republish below syncs every view, and a whole-mod reset would
 			// otherwise send N redundant events first. The core change listener

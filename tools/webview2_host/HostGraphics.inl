@@ -261,17 +261,16 @@
 					ReleaseRing();
 					return false;
 				}
-				Send(json{
-					{ "type", "textures" },
-					{ "width", a_width },
-					{ "height", a_height },
-					{ "slots", std::move(slots) },
-					{ "produceFence", reinterpret_cast<std::uint64_t>(produceRemote) },
-					{ "consumeFence", reinterpret_cast<std::uint64_t>(consumeRemote) },
-					{ "keyedMutex", ringKeyedMutex },
-					{ "adapterLuidLow", graphicsAdapterLuid.LowPart },
-					{ "adapterLuidHigh", static_cast<std::uint32_t>(graphicsAdapterLuid.HighPart) },
-				});
+				Send(msg::ToJson(msg::Textures{
+					.width = a_width,
+					.height = a_height,
+					.slots = std::move(slots),
+					.produceFence = reinterpret_cast<std::uint64_t>(produceRemote),
+					.consumeFence = reinterpret_cast<std::uint64_t>(consumeRemote),
+					.keyedMutex = ringKeyedMutex,
+					.adapterLuidLow = graphicsAdapterLuid.LowPart,
+					.adapterLuidHigh = static_cast<std::uint32_t>(graphicsAdapterLuid.HighPart),
+				}));
 				log.InfoFwd(std::format(
 					"shared texture ring ready {}x{} ({} slots, keyedMutex={})",
 					a_width, a_height, kRingSlots, ringKeyedMutex));
@@ -348,10 +347,9 @@
 				// Flush so the copy + signal reach the GPU now: the consumer's wait
 				// must not depend on this context's next natural flush.
 				context->Flush();
-				Send(json{
-					{ "type", "frame" }, { "slot", lastSlot }, { "serial", serial },
-					{ "width", a_width }, { "height", a_height },
-					{ "presentationEpoch", a_presentationEpoch } });
+				Send(msg::ToJson(msg::Frame{ .slot = lastSlot, .serial = serial,
+					.width = a_width, .height = a_height,
+					.presentationEpoch = a_presentationEpoch }));
 				if (serial == 1) {
 					log.InfoFwd(std::format("first frame published ({}x{})", a_width, a_height));
 				}
@@ -417,11 +415,10 @@
 				ring[lastSlot].lastSerial = serial;
 				context4->Signal(produceFence.Get(), serial);
 				context->Flush();
-				Send(json{
-					{ "type", "frame" }, { "slot", lastSlot }, { "serial", serial },
-					{ "width", ringWidth }, { "height", ringHeight },
-					{ "presentationEpoch",
-						presentationEpoch.load(std::memory_order_relaxed) } });
+				Send(msg::ToJson(msg::Frame{ .slot = lastSlot, .serial = serial,
+					.width = ringWidth, .height = ringHeight,
+					.presentationEpoch =
+						presentationEpoch.load(std::memory_order_relaxed) }));
 			}
 
 			View* FindView(std::string_view a_id)

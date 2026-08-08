@@ -4,6 +4,8 @@
 #include <tuple>
 #include <unordered_set>
 
+#include "runtime/Json.h"
+
 namespace OSFUI
 {
 	void HealthReconciler::SyncSettings(HealthRegistry& a_healthRegistry,
@@ -13,7 +15,7 @@ namespace OSFUI
 		signatureParts.reserve(a_errors.size());
 		for (const auto& error : a_errors) {
 			signatureParts.push_back(error.kind + "\n" + error.file + "\n" + error.subject + "\n" +
-				error.message + "\n" + error.context.dump());
+				error.message + "\n" + Json::Dump(error.context));
 		}
 		std::ranges::sort(signatureParts);
 		std::string signature;

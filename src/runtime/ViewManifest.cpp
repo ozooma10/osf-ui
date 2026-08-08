@@ -25,10 +25,10 @@ namespace OSFUI
 		Json::CheckFormatVersion(*json, "manifestVersion", 1, "ViewManifest: [content] " + a_path.string());
 		if (Log::DevMode()) {
 			Json::ReportUnknownKeys(*json,
-				{ "manifestVersion", "id", "title", "description", "accent", "hub", "debugOnly", "entry",
+				{ "manifestVersion", "mod", "title", "description", "accent", "hub", "debugOnly", "entry",
 					"width", "height", "transparent", "kind",
 					"capturesInput", "pausesGame", "openOnStart", "order", "readySignal", "permissions",
-					"targetVersion", "papyrus" },
+					"targetVersion" },
 				"ViewManifest: [content] " + a_path.string(), /*a_warn=*/false);
 		}
 
@@ -50,13 +50,16 @@ namespace OSFUI
 		manifest.id = modId + "/" + viewName;
 		manifest.mod = modId;
 
-		// A declared `id` is ignored: the folder name already is the id.
-		// It stays in the accepted-keys list so pre-existing manifests
-		// don't report it as unknown.
+		// A declared `id` is ignored and no longer accepted: the folder name
+		// already is the id, so one reports as an unknown key in dev mode like
+		// any other field this runtime does not read. `mod` stays accepted
+		// though equally underived-from — the frontend build cross-checks it
+		// against the source directory (frontend/scripts/config.mjs), which
+		// catches a manifest copied into the wrong folder at authoring time.
 
-		manifest.title = Json::GetString(*json, "title", manifest.id);
-		manifest.description = Json::GetString(*json, "description", "");
-		if (auto accent = Json::GetString(*json, "accent", ""); !accent.empty()) {
+		manifest.title = Json::Get(*json, "title", manifest.id);
+		manifest.description = Json::Get(*json, "description", "");
+		if (auto accent = Json::Get(*json, "accent", ""); !accent.empty()) {
 			if (IsHexColor(accent)) {
 				std::ranges::transform(accent, accent.begin(), [](char c) {
 					return (c >= 'A' && c <= 'F') ? static_cast<char>(c + 32) : c;
@@ -66,32 +69,32 @@ namespace OSFUI
 				REX::WARN("ViewManifest: [content] view '{}' accent '{}' is not #rrggbb or #rrggbbaa — ignored", manifest.id, accent);
 			}
 		}
-		manifest.entry = Json::GetString(*json, "entry", manifest.entry);
+		manifest.entry = Json::Get(*json, "entry", manifest.entry);
 		manifest.width = static_cast<std::uint32_t>(std::clamp<std::int64_t>(
-			Json::GetInt(*json, "width", manifest.width), 1, 16384));
+			Json::Get(*json, "width", manifest.width), 1, 16384));
 		manifest.height = static_cast<std::uint32_t>(std::clamp<std::int64_t>(
-			Json::GetInt(*json, "height", manifest.height), 1, 16384));
-		manifest.transparent = Json::GetBool(*json, "transparent", manifest.transparent);
+			Json::Get(*json, "height", manifest.height), 1, 16384));
+		manifest.transparent = Json::Get(*json, "transparent", manifest.transparent);
 
 		// Json has no enum helper, so `kind` is parsed manually; unknown values fall back to Menu.
-		const auto kindStr = Json::GetString(*json, "kind", "menu");
+		const auto kindStr = Json::Get(*json, "kind", "menu");
 		manifest.kind = (kindStr == "hud") ? ViewKind::Hud : ViewKind::Menu;
 		// `interactive` is derived, not author-facing: focus eligibility follows the active
 		// menu (ApplyViewPresentationPolicy), so menu => true, hud => false. Was a manifest
 		// field pre-1.0; now ignored.
 		manifest.menuInputEligible = manifest.kind == ViewKind::Menu;
-		manifest.capturesInput = Json::GetBool(*json, "capturesInput", manifest.capturesInput);
-		manifest.pausesGame = Json::GetBool(*json, "pausesGame", manifest.pausesGame);
-		manifest.openOnStart = Json::GetBool(*json, "openOnStart", manifest.openOnStart);
-		manifest.order = static_cast<std::int32_t>(Json::GetInt(*json, "order", manifest.order));
-		manifest.catalogVisible = Json::GetBool(*json, "hub", manifest.catalogVisible);
-		manifest.debugOnly = Json::GetBool(*json, "debugOnly", manifest.debugOnly);
-		manifest.readySignal = Json::GetBool(*json, "readySignal", manifest.readySignal);
+		manifest.capturesInput = Json::Get(*json, "capturesInput", manifest.capturesInput);
+		manifest.pausesGame = Json::Get(*json, "pausesGame", manifest.pausesGame);
+		manifest.openOnStart = Json::Get(*json, "openOnStart", manifest.openOnStart);
+		manifest.order = static_cast<std::int32_t>(Json::Get(*json, "order", manifest.order));
+		manifest.catalogVisible = Json::Get(*json, "hub", manifest.catalogVisible);
+		manifest.debugOnly = Json::Get(*json, "debugOnly", manifest.debugOnly);
+		manifest.readySignal = Json::Get(*json, "readySignal", manifest.readySignal);
 
 		// A newer target remains advisory and badges "needs update". An explicitly
 		// pre-2.0 target is retained so the temporary v1 navigation façade and its
 		// persistent 2.1.0 removal warning can be selected deterministically.
-		if (auto target = Json::GetString(*json, "targetVersion", ""); !target.empty()) {
+		if (auto target = Json::Get(*json, "targetVersion", ""); !target.empty()) {
 			std::array<std::uint32_t, 3> targetParts{};
 			if (ParseDottedVersion(target, targetParts)) {
 				manifest.targetVersion = std::move(target);
@@ -105,10 +108,10 @@ namespace OSFUI
 			}
 		}
 
-		if (const auto it = json->find("permissions"); it != json->end() && it->is_object()) {
-			manifest.permissions.nativeBridge = Json::GetBool(*it, "nativeBridge", false);
-			manifest.permissions.filesystem = Json::GetBool(*it, "filesystem", false);
-			manifest.permissions.network = Json::GetBool(*it, "network", false);
+		if (const auto* permissions = Json::GetObject(*json, "permissions")) {
+			manifest.permissions.nativeBridge = Json::Get(*permissions, "nativeBridge", false);
+			manifest.permissions.filesystem = Json::Get(*permissions, "filesystem", false);
+			manifest.permissions.network = Json::Get(*permissions, "network", false);
 		}
 		if (manifest.readySignal && !manifest.permissions.nativeBridge) {
 			REX::WARN("ViewManifest: [content] view '{}' requests readySignal without nativeBridge; using load completion", manifest.id);

@@ -72,60 +72,13 @@ namespace osfui::wv2
 	// the single-view POC client working). Page events browser-host->game are tagged
 	// with their source `view`.
 	//
-	// Message types, game -> browser host:
-	// init          { topLevelHwnd:u64, viewsPath:str, virtualHost:str,
-	//                 width:u32, height:u32, userDataDir:str, devMode:bool,
-	//                 adapterLuidLow:u32, adapterLuidHigh:u32 }
-	//               (adapter LUID is the game's D3D12 device; the browser host creates
-	//                its D3D11 capture device on the same physical adapter)
-	// navigate      { id:str, entry:str, bridge:bool, logicalHeight:u32 }
-	//               (creates view `id` on first sight; logicalHeight is the
-	//                manifest's authoring height and drives the view's
-	//                rasterization scale = outputHeight/logicalHeight, so the
-	//                page lays out at logical size and CSS px scale up to
-	//                output pixels. Optional — omitted means kDefaultLogicalHeight.)
-	// resize        { width:u32, height:u32 }    (global: every view renders output-sized)
-	// prewarm       { view:str }                 (one hidden paint, then hide again)
-	// suspendView   { view:str }                 (latched TrySuspend request; hidden only)
-	// setHidden     { view:str, hidden:bool, presentationEpoch:u64 }
-	//                                               (child-visual visibility + Chromium throttling;
-	//                                                epoch advances on all-hidden -> visible)
-	// setOrder      { view:str, order:i32 }      (composite z: lower beneath, ties by creation)
-	// setActive     { view:str }                 (compatibility wire spelling;
-	//                                               selects mouse/focus/synthetic-key target)
-	// focus         { focused:bool }             (moves real focus into the input-target view)
-	// mouse         { kind:"move"|"button"|"wheel"|"physicalWheel", x:i32, y:i32,
-	//                 button:i32, down:bool, wheel:i32 }   (input-target view)
-	// key           { vk:u32, down:bool }        (synthetic tap into the input-target view's widget)
-	// postWeb       { view:str, json:str }
-	// openDevTools  { view:str }                 (devMode only)
-	// accelState    { toggleScan:u32, captured:bool,
-	//                 captureArmed:bool, captureUpScan:u32 }  (scan codes, DIK convention)
-	// destroyView   { view:str }
-	// shutdown      { }
-	// frameAck      { serial:u64 }             (consumer acked this frame serial; releases its ring slot)
+	// THE MESSAGE SHAPES LIVE IN Wv2Messages.h, as structs both binaries
+	// compile — not in a comment here. They used to be described in prose at
+	// this spot, and the prose had drifted: it omitted `navigate.legacyApi` and
+	// `init.hidden`, both of which had been on the wire for releases. A struct
+	// cannot drift from the code that fills it.
 	//
-	// Message types, browser host -> game:
-	// hello         { protocolVersion:u32, hostVersion:str, runtimeVersion:str, pid:u32 }
-	// Compatibility wire names: protocolVersion is the browser-host IPC version,
-	// hostVersion is the browser-host build's OSF UI release, and runtimeVersion
-	// is the installed Microsoft WebView2 Runtime version.
-	// heartbeat     { tick:u64 }                   (sent at least every kHeartbeatIntervalMs)
-	// ready         { }                          (first controller + capture up)
-	// textures      { width:u32, height:u32, slots:[u64...],
-	//                 produceFence:u64, consumeFence:u64, keyedMutex:bool,
-	//                 adapterLuidLow:u32, adapterLuidHigh:u32 }
-	//               (handles already duplicated into the game process; every
-	//                textures message invalidates all prior slots)
-	// frame         { slot:u32, serial:u64, width:u32, height:u32,
-	//                 presentationEpoch:u64 }
-	// loadEvent     { view:str, failed:bool, url:str, description:str, code:i32 }
-	// fatal         { stage:str, view:str, description:str, code:u32 }
-	// webMessage    { view:str, json:str }
-	// console       { view:str, json:str }       (raw Runtime.consoleAPICalled params)
-	// cursor        { id:u32 }                   (input-target view only; Win32 cursor id, 0 = hidden)
-	// accelerator   { vk:u32, scan:u32, down:bool } (framework-owned key hit inside
-	//                Chromium; scan is the physical DIK-convention code)
-	// log           { level:i32, text:str }      (browser-host diagnostics into the game log)
-	// bye           { reason:str }
+	// This header stays dependency-free (<cstdint> only) because Wv2Pipe.cpp and
+	// the wv2-pipe-tests target include it and have no nlohmann; Wv2Messages.h
+	// is where the JSON dependency is allowed.
 }

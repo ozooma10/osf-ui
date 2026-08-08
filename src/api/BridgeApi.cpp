@@ -234,8 +234,7 @@ namespace OSFUI::API
 		}
 		// Validate now so a malformed payload is reported synchronously; delivery is
 		// marshaled to the main thread in PumpMainThread.
-		const auto parsed = nlohmann::json::parse(a_payloadJson, nullptr, /*allow_exceptions*/ false);
-		if (parsed.is_discarded()) {
+		if (!Json::Parse(a_payloadJson)) {
 			return false;
 		}
 		std::lock_guard lock(_mutex);
@@ -277,8 +276,8 @@ namespace OSFUI::API
 		// Validate and parse OUTSIDE the mutex (this is callable from any
 		// thread), then take it only to queue. Any JSON VALUE is legal, not just
 		// an object: a state key may perfectly well be a number or an array.
-		auto parsed = nlohmann::json::parse(a_payloadJson, nullptr, /*allow_exceptions*/ false);
-		if (parsed.is_discarded()) {
+		auto parsed = Json::Parse(a_payloadJson);
+		if (!parsed) {
 			REX::WARN("BridgeApi: [content] refused SetViewState('{}.{}') — payload is not valid JSON", a_modId, key);
 			return false;
 		}
@@ -288,7 +287,7 @@ namespace OSFUI::API
 			REX::WARN("BridgeApi: pending SetViewState queue full; dropping '{}.{}'", a_modId, key);
 			return false;
 		}
-		_pendingStateOps.push_back(ViewStateOp{ std::string(a_modId), key, std::move(parsed) });
+		_pendingStateOps.push_back(ViewStateOp{ std::string(a_modId), key, std::move(*parsed) });
 		return true;
 	}
 
@@ -427,11 +426,12 @@ namespace OSFUI::API
 		// Parse and shape errors report synchronously (ABI contract); the store
 		// merge is marshaled to the main tick (Runtime::DrainSchemaOps), where
 		// precedence resolves with a log warning.
-		auto schema = nlohmann::json::parse(a_schemaJson, nullptr, /*allow_exceptions*/ false);
-		if (schema.is_discarded()) {
+		auto parsedSchema = Json::Parse(a_schemaJson);
+		if (!parsedSchema) {
 			REX::WARN("BridgeApi: [content] RegisterSettingsSchema rejected — malformed JSON");
 			return false;
 		}
+		auto& schema = *parsedSchema;
 		if (!SettingsStore::ValidateSchemaShape(schema)) {
 			return false;  // warned inside
 		}
@@ -513,12 +513,13 @@ namespace OSFUI::API
 		// and no explanation of why.
 		nlohmann::json context = nlohmann::json::object();
 		if (a_contextJson && a_contextJson[0]) {
-			context = nlohmann::json::parse(a_contextJson, nullptr, /*allow_exceptions*/ false);
-			if (context.is_discarded() || !context.is_object()) {
+			auto parsed = Json::Parse(a_contextJson);
+			if (!parsed || !parsed->is_object()) {
 				REX::WARN("BridgeApi: [content] refused ReportIssue('{}', '{}') — context must be a JSON object",
 					a_modId, a_id);
 				return false;
 			}
+			context = std::move(*parsed);
 		}
 		// Severity is a closed two-value set; a value from a header newer than this
 		// OSF UI runtime is treated as the worst tier we know, so a future "critical" cannot
@@ -574,13 +575,13 @@ namespace OSFUI::API
 		}
 		std::vector<std::string> keep;
 		if (a_keepIdsJson && a_keepIdsJson[0]) {
-			const auto parsed = nlohmann::json::parse(a_keepIdsJson, nullptr, /*allow_exceptions*/ false);
-			if (parsed.is_discarded() || !parsed.is_array()) {
+			const auto parsed = Json::Parse(a_keepIdsJson);
+			if (!parsed || !parsed->is_array()) {
 				REX::WARN("BridgeApi: [content] refused ClearIssuesExcept('{}') — keep list must be a JSON array of ids",
 					a_modId);
 				return false;
 			}
-			for (const auto& entry : parsed) {
+			for (const auto& entry : *parsed) {
 				if (!entry.is_string()) {
 					REX::WARN("BridgeApi: [content] refused ClearIssuesExcept('{}') — keep list holds a non-string entry",
 						a_modId);
@@ -614,17 +615,17 @@ namespace OSFUI::API
 
 	void BridgeApi::RespondRequest(std::uint64_t token, const char* type, const char* json) noexcept
 	{
-		const auto parsed = json ? nlohmann::json::parse(json, nullptr, false) : nlohmann::json{};
+		const auto parsed = json ? Json::Parse(json) : std::nullopt;
 		std::lock_guard lock(_mutex);
 		const auto it = _inflightRequests.find(token);
 		if (it == _inflightRequests.end()) { REX::WARN("BridgeApi: ignored late response for stale token {}", token); return; }
 		if (it->second.answered) { REX::WARN("BridgeApi: ignored second response for request '{}'", it->second.name); return; }
 		it->second.answered = true;
-		if (!json || parsed.is_discarded()) {
+		if (!parsed) {
 			it->second.rejected = true; it->second.code = "invalid-response"; it->second.message = "plugin returned invalid JSON"; return;
 		}
 		it->second.type = (type && type[0]) ? type : it->second.name;
-		it->second.payloadJson = parsed.dump();
+		it->second.payloadJson = Json::Dump(*parsed);
 	}
 
 	void BridgeApi::RejectRequest(std::uint64_t token, const char* code, const char* message) noexcept
@@ -795,8 +796,7 @@ namespace OSFUI::API
 					bridge->RejectTo(reply.deferToken, reply.code, reply.message);
 				} else {
 					if (reply.legacyReply) {
-						auto payload = nlohmann::json::parse(reply.payloadJson, nullptr, false);
-						if (payload.is_discarded()) payload = nlohmann::json::object();
+						auto payload = Json::Parse(reply.payloadJson).value_or(nlohmann::json::object());
 						bridge->RespondTo(reply.deferToken, {
 							{ "__osfuiV1Reply", {
 								{ "type", reply.type.empty() ? reply.name : reply.type },

@@ -1,25 +1,29 @@
-			void HandleInit(const json& a_msg)
+			void HandleInit(const json& a_raw)
 			{
 				if (initialized) return;
 				initialized = true;
+				const auto a_msg = msg::FromJson<msg::Init>(a_raw);
 				gameTopLevel = reinterpret_cast<HWND>(
-					static_cast<std::uintptr_t>(a_msg.value("topLevelHwnd", 0ull)));
-				viewsRoot = std::filesystem::path(ToWide(a_msg.value("viewsPath", "")));
-				virtualHost = ToWide(a_msg.value("virtualHost", "osfui.local"));
-				width = (std::max)(1u, a_msg.value("width", 1u));
-				height = (std::max)(1u, a_msg.value("height", 1u));
-				userData = std::filesystem::path(ToWide(a_msg.value("userDataDir", "")));
-				devMode = a_msg.value("devMode", false);
-				defaultHidden = a_msg.value("hidden", true);
+					static_cast<std::uintptr_t>(a_msg.topLevelHwnd));
+				viewsRoot = std::filesystem::path(ToWide(a_msg.viewsPath));
+				virtualHost = ToWide(a_msg.virtualHost);
+				width = (std::max)(1u, a_msg.width);
+				height = (std::max)(1u, a_msg.height);
+				userData = std::filesystem::path(ToWide(a_msg.userDataDir));
+				devMode = a_msg.devMode;
+				defaultHidden = a_msg.hidden;
 				if (userData.empty()) {
 					log.Error("init without userDataDir");
 					return;
 				}
+				// PRESENCE, not value: an absent LUID means "pick any adapter",
+				// which a zeroed msg::Init field cannot express. That is the one
+				// reason this reads off the raw document.
 				std::optional<LUID> requestedAdapter;
-				if (a_msg.contains("adapterLuidLow") && a_msg.contains("adapterLuidHigh")) {
+				if (a_raw.contains("adapterLuidLow") && a_raw.contains("adapterLuidHigh")) {
 					LUID luid{};
-					luid.LowPart = a_msg.value("adapterLuidLow", 0u);
-					luid.HighPart = static_cast<LONG>(a_msg.value("adapterLuidHigh", 0u));
+					luid.LowPart = a_msg.adapterLuidLow;
+					luid.HighPart = static_cast<LONG>(a_msg.adapterLuidHigh);
 					requestedAdapter = luid;
 				}
 				if (!InitializeGraphics(requestedAdapter)) {
@@ -34,34 +38,34 @@
 				BeginEnvironment();
 			}
 
-			void HandleNavigate(const json& a_msg)
+			void HandleNavigate(const json& a_raw)
 			{
-				const std::string id = a_msg.value("id", "");
-				if (id.empty()) {
+				const auto a_msg = msg::FromJson<msg::Navigate>(a_raw);
+				if (a_msg.id.empty()) {
 					log.Warn("navigate without id ignored");
 					return;
 				}
-				auto* view = FindView(id);
-				if (!view) view = &CreateView(id);
+				auto* view = FindView(a_msg.id);
+				if (!view) view = &CreateView(a_msg.id);
 				NoteViewActivity(*view, /*a_clearSuspendRequest=*/true);
-				view->bridge = a_msg.value("bridge", true);
-				view->logicalHeight = (std::max)(1u,
-					a_msg.value("logicalHeight", kDefaultLogicalHeight));
+				view->bridge = a_msg.bridge;
+				view->logicalHeight = (std::max)(1u, a_msg.logicalHeight);
 				ApplyScale(*view);
-				std::string entry = a_msg.value("entry", "index.html");
-				if (a_msg.value("legacyApi", false)) {
+				std::string entry = a_msg.entry;
+				if (a_msg.legacyApi) {
 					entry = OSFUI::Compat::V1::WithLegacyApiQuery(entry);
 				}
-				std::string path = id + "/" + entry;
+				std::string path = a_msg.id + "/" + entry;
 				std::ranges::replace(path, '\\', '/');
 				view->pendingNavigate = L"https://" + virtualHost + L"/" + ToWide(path);
 				if (view->webView) DrainQueuedViewWork(*view);
 				else RequestController(*view);
 			}
 
-			void HandleResize(const json& a_msg)
+			void HandleResize(const json& a_raw)
 			{
-				ApplyResize(a_msg.value("width", 1u), a_msg.value("height", 1u));
+				const auto a_msg = msg::FromJson<msg::Resize>(a_raw);
+				ApplyResize(a_msg.width, a_msg.height);
 			}
 
 			void HandlePrewarm(const json& a_msg)
@@ -80,14 +84,15 @@
 				}
 			}
 
-			void HandleSetHidden(const json& a_msg)
+			void HandleSetHidden(const json& a_raw)
 			{
-				auto* view = ResolveView(a_msg);
+				auto* view = ResolveView(a_raw);
 				if (!view) return;
-				if (a_msg.value("hidden", true)) {
+				const auto a_msg = msg::FromJson<msg::SetHidden>(a_raw);
+				if (a_msg.hidden) {
 					HideView(*view);
 				} else {
-					view->pendingPresentationEpoch = a_msg.value("presentationEpoch", 0ull);
+					view->pendingPresentationEpoch = a_msg.presentationEpoch;
 					ShowView(*view);
 				}
 			}
@@ -95,7 +100,7 @@
 			void HandleSetOrder(const json& a_msg)
 			{
 				if (auto* view = ResolveView(a_msg)) {
-					view->order = a_msg.value("order", 0);
+					view->order = msg::FromJson<msg::SetOrder>(a_msg).order;
 					ReorderVisuals();
 				}
 			}
@@ -116,7 +121,7 @@
 
 			void HandleFocus(const json& a_msg)
 			{
-				focusGranted = a_msg.value("focused", false);
+				focusGranted = msg::FromJson<msg::Focus>(a_msg).focused;
 				if (!focusGranted) {
 					for (auto& view : views) view->nativePopupOpen = false;
 				}
@@ -131,19 +136,20 @@
 
 			void HandleMouse(const json& a_msg) { SendMouse(a_msg); }
 
-			void HandleKey(const json& a_msg)
+			void HandleKey(const json& a_raw)
 			{
 				if (!inputTarget || !inputTarget->webView) return;
-				const auto payload = json{ { "__osfuiKey", {
-					{ "vk", a_msg.value("vk", 0u) },
-					{ "down", a_msg.value("down", false) },
-				} } }.dump();
+				const auto a_msg = msg::FromJson<msg::Key>(a_raw);
+				const auto payload = Json::Dump(json{ { "__osfuiKey", {
+					{ "vk", a_msg.vk },
+					{ "down", a_msg.down },
+				} } });
 				inputTarget->webView->PostWebMessageAsJson(ToWide(payload).c_str());
 			}
 
 			void HandleFrameAck(const json& a_msg)
 			{
-				const auto serial = a_msg.value("serial", 0ull);
+				const auto serial = msg::FromJson<msg::FrameAck>(a_msg).serial;
 				auto current = ackedSerial.load();
 				while (serial > current &&
 					!ackedSerial.compare_exchange_weak(current, serial)) {}
@@ -152,7 +158,7 @@
 			void HandlePostWeb(const json& a_msg)
 			{
 				if (auto* view = ResolveView(a_msg)) {
-					view->queuedPostWeb.push_back(a_msg.value("json", ""));
+					view->queuedPostWeb.push_back(msg::FromJson<msg::PostWeb>(a_msg).json);
 					DrainQueuedViewWork(*view);
 				}
 			}
@@ -178,10 +184,11 @@
 			void HandleAccelState(const json& a_msg)
 			{
 				const bool wasCaptured = captured;
-				toggleScan = a_msg.value("toggleScan", 0u);
-				captured = a_msg.value("captured", false);
-				captureArmed = a_msg.value("captureArmed", false);
-				captureUpScan = a_msg.value("captureUpScan", 0u);
+				const auto state = msg::FromJson<msg::AccelState>(a_msg);
+				toggleScan = state.toggleScan;
+				captured = state.captured;
+				captureArmed = state.captureArmed;
+				captureUpScan = state.captureUpScan;
 				ReconcileInputWidgetSubclass();
 				if (wasCaptured && !captured) handledKeys.clear();
 			}
@@ -212,28 +219,29 @@
 			void HandleGameMessage(const json& a_msg)
 			{
 				using Handler = void (App::*)(const json&);
+				// Type strings come from the shared message structs, so the game
+				// side cannot rename one without breaking this build too.
 				static constexpr std::pair<std::string_view, Handler> handlers[]{
-					{ "init", &App::HandleInit },
-					{ "navigate", &App::HandleNavigate },
-					{ "resize", &App::HandleResize },
-					{ "prewarm", &App::HandlePrewarm },
-					{ "suspendView", &App::HandleSuspendView },
-					{ "setHidden", &App::HandleSetHidden },
-					{ "setOrder", &App::HandleSetOrder },
-					// `setActive` is the compatibility wire spelling for selecting the
-					// browser host's input-target view.
-					{ "setActive", &App::HandleSetInputTarget },
-					{ "focus", &App::HandleFocus },
-					{ "mouse", &App::HandleMouse },
-					{ "key", &App::HandleKey },
-					{ "frameAck", &App::HandleFrameAck },
-					{ "postWeb", &App::HandlePostWeb },
-					{ "openDevTools", &App::HandleOpenDevTools },
-					{ "accelState", &App::HandleAccelState },
-					{ "destroyView", &App::HandleDestroyView },
-					{ "shutdown", &App::HandleShutdown },
+					{ msg::Init::kType, &App::HandleInit },
+					{ msg::Navigate::kType, &App::HandleNavigate },
+					{ msg::Resize::kType, &App::HandleResize },
+					{ msg::Prewarm::kType, &App::HandlePrewarm },
+					{ msg::SuspendView::kType, &App::HandleSuspendView },
+					{ msg::SetHidden::kType, &App::HandleSetHidden },
+					{ msg::SetOrder::kType, &App::HandleSetOrder },
+					// SetInputTarget's kType is the `setActive` compatibility spelling.
+					{ msg::SetInputTarget::kType, &App::HandleSetInputTarget },
+					{ msg::Focus::kType, &App::HandleFocus },
+					{ msg::Mouse::kType, &App::HandleMouse },
+					{ msg::Key::kType, &App::HandleKey },
+					{ msg::FrameAck::kType, &App::HandleFrameAck },
+					{ msg::PostWeb::kType, &App::HandlePostWeb },
+					{ msg::OpenDevTools::kType, &App::HandleOpenDevTools },
+					{ msg::AccelState::kType, &App::HandleAccelState },
+					{ msg::DestroyView::kType, &App::HandleDestroyView },
+					{ msg::Shutdown::kType, &App::HandleShutdown },
 				};
-				const auto type = a_msg.value("type", std::string{});
+				const auto type = Json::Get(a_msg, "type", "");
 				for (const auto& [name, handler] : handlers) {
 					if (type == name) {
 						(this->*handler)(a_msg);

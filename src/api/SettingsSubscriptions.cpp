@@ -2,6 +2,8 @@
 
 #include <iterator>  // make_move_iterator — not in the pch umbrella
 
+#include "runtime/Json.h"
+
 namespace OSFUI::API
 {
 	std::uint32_t SettingsSubscriptions::Subscribe(const char* a_modId, SettingChangedFn a_fn, void* a_user)
@@ -43,7 +45,7 @@ namespace OSFUI::API
 				return;
 			}
 		}
-		std::string dumped = a_value.dump();
+		std::string dumped = Json::Dump(a_value);
 		std::lock_guard lock(_mutex);
 		_events.push_back({ std::string(a_modId), std::string(a_key), std::move(dumped) });
 	}

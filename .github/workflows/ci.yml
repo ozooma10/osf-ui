@@ -47,6 +47,42 @@ jobs:
           check docs/schema/settings-schema.schema.json "Bridge protocol $V\."
           exit $fail
 
+      - name: Check every JSON read and write goes through the wrapper
+        # src/runtime/Json.h is the only place nlohmann is touched directly, and
+        # each rule below was a real defect before it was a rule:
+        #   dump()   - defaults to error_handler_t::strict, which THROWS on
+        #              malformed UTF-8; most dump sites sit on the game tick or a
+        #              pipe writer with no handler above them, so that is a
+        #              std::terminate. Json::Dump substitutes U+FFFD.
+        #   parse()  - the raw call skips ignore_comments, so a settings schema
+        #              with // comments loaded from disk but was rejected over
+        #              the C ABI. Json::Parse passes it everywhere.
+        #   .value() - throws type_error.302 on a wrong-typed key and .306 on a
+        #              non-object receiver, on those same threads. Json::Get
+        #              falls back to the caller's default and cannot throw.
+        # sdk/ is exempt: the public plugin header is standalone by design and
+        # cannot include src/. Comments are stripped before matching so the
+        # explanations above can name the very calls they forbid.
+        run: |
+          set -e
+          fail=0
+          check() {
+            hits=$(grep -rn "$1" src tools --include='*.cpp' --include='*.h' --include='*.inl' \
+                     | grep -v '^src/runtime/Json\.h:' \
+                     | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(//|\*|/\*)' || true)
+            if [ -n "$hits" ]; then
+              echo "$hits" | while IFS=: read -r file line _; do
+                echo "::error file=$file,line=$line::$2"
+              done
+              fail=1
+            fi
+          }
+          check '\.dump()'      'use Json::Dump() — a bare dump() throws on malformed UTF-8'
+          check 'json::parse('  'use Json::Parse() — a raw parse() drops ignore_comments'
+          check '\.value("'     'use Json::Get() — .value() throws on a wrong-typed key'
+          [ "$fail" = 0 ] || exit 1
+          echo "all JSON access goes through src/runtime/Json.h"
+
       - name: Check plugin version lockstep
         run: |
           set -e

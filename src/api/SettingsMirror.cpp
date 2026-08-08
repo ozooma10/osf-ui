@@ -3,6 +3,8 @@
 #include <cstring>  // memcpy — not in the pch umbrella
 #include <limits>   // numeric_limits — not in the pch umbrella
 
+#include "runtime/Json.h"
+
 namespace OSFUI::API
 {
 	void SettingsMirror::Update(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value)
@@ -15,14 +17,14 @@ namespace OSFUI::API
 	{
 		// Build outside the lock so getters block only for the swap, not the parse.
 		std::unordered_map<std::string, Values> fresh;
-		if (const auto mods = a_data.find("mods"); mods != a_data.end() && mods->is_array()) {
+		if (const auto* mods = Json::GetArray(a_data, "mods")) {
 			for (const auto& mod : *mods) {
-				const auto id = mod.find("id");
-				const auto values = mod.find("values");
-				if (id == mod.end() || !id->is_string() || values == mod.end() || !values->is_object()) {
+				const auto  id = Json::Get(mod, "id", "");
+				const auto* values = Json::GetObject(mod, "values");
+				if (id.empty() || !values) {
 					continue;  // skip a malformed entry rather than throw
 				}
-				Values& slot = fresh[id->get<std::string>()];
+				Values& slot = fresh[id];
 				for (const auto& [key, value] : values->items()) {
 					slot.insert_or_assign(key, value);
 				}
@@ -105,7 +107,7 @@ namespace OSFUI::API
 		}
 		out.reserve(mod->second.size());
 		for (const auto& [key, value] : mod->second) {
-			out.emplace_back(key, value.dump());
+			out.emplace_back(key, Json::Dump(value));
 		}
 		return out;
 	}

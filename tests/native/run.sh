@@ -26,12 +26,13 @@ if [[ ! -f "$DEPS/nlohmann/json.hpp" ]]; then
 fi
 
 CXX="${CXX:-clang++}"
-BASEFLAGS="-std=c++2b -Wall -Wextra -g -I ../../src -I ../../sdk -I $DEPS -I stubs"
+BASEFLAGS="-std=c++2b -Wall -Wextra -g -I ../../src -I ../../sdk -I ../../tools/webview2_shared -I $DEPS -I stubs"
 
 # Each suite is "<name> <translation units...>". Keep the source lists in sync
 # with what each suite actually exercises; duplicates across suites are free
 # (compiled once, see UNIQUE below).
 SUITES=(
+"json_tests json_tests.cpp ../../src/runtime/Json.cpp"
 "settings_store_tests settings_store_tests.cpp ../../src/runtime/SettingsStore.cpp ../../src/runtime/Json.cpp"
 "settings_module_tests settings_module_tests.cpp ../../src/runtime/SettingsModule.cpp ../../src/runtime/MessageBridge.cpp ../../src/runtime/SettingsStore.cpp ../../src/runtime/Json.cpp"
 "settings_mirror_tests settings_mirror_tests.cpp ../../src/api/SettingsMirror.cpp ../../src/runtime/SettingsStore.cpp ../../src/runtime/Json.cpp"
@@ -58,6 +59,7 @@ SUITES=(
 "view_lifecycle_tests view_lifecycle_tests.cpp ../../src/runtime/ViewLifecycle.cpp"
 "view_policy_store_tests view_policy_store_tests.cpp ../../src/runtime/ViewPolicyStore.cpp ../../src/runtime/Json.cpp"
 "wv2_bounded_queue_tests wv2_bounded_queue_tests.cpp"
+"wv2_messages_tests wv2_messages_tests.cpp ../../src/runtime/Json.cpp"
 "local_view_uri_tests local_view_uri_tests.cpp"
 "v1_navigation_tests v1_navigation_tests.cpp"
 "view_presentation_controller_tests view_presentation_controller_tests.cpp ../../src/runtime/ViewPresentationController.cpp"

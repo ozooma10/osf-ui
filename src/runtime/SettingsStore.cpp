@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cmath>
+#include <limits>
 #include <unordered_set>
 
 #include "core/Log.h"
@@ -52,11 +53,12 @@ namespace OSFUI
 
 		std::optional<GameplayModeMask> ParseGameplayModes(const nlohmann::json& a_context)
 		{
-			const auto it = a_context.find("gameplayModes");
-			if (it == a_context.end()) return std::nullopt;  // legacy/unscoped
-			if (!it->is_array() || it->empty()) return std::nullopt;
+			// Absent (legacy/unscoped), not an array, and empty all read the same:
+			// no declared scope.
+			const auto* declared = Json::GetArray(a_context, "gameplayModes");
+			if (!declared || declared->empty()) return std::nullopt;
 			GameplayModeMask modes = 0;
-			for (const auto& value : *it) {
+			for (const auto& value : *declared) {
 				if (!value.is_string()) return std::nullopt;
 				const auto mode = GameplayModeFromName(value.get_ref<const std::string&>());
 				if (!mode) return std::nullopt;
@@ -79,7 +81,7 @@ namespace OSFUI
 				return {};
 			}
 			ParsedHotkeyTarget out{ .present = true };
-			if (Json::GetString(a_setting, "type", "") != "key") {
+			if (Json::Get(a_setting, "type", "") != "key") {
 				out.error = "onPress is allowed only on type:\"key\" settings";
 				return out;
 			}
@@ -94,8 +96,8 @@ namespace OSFUI
 					return out;
 				}
 			}
-			const auto script = Json::GetString(*it, "script", "");
-			const auto function = Json::GetString(*it, "function", "");
+			const auto script = Json::Get(*it, "script", "");
+			const auto function = Json::Get(*it, "function", "");
 			if (!PapyrusNames::IsScriptName(script)) {
 				out.error = "onPress.script must be a Papyrus script name of at most 128 characters";
 				return out;
@@ -144,9 +146,31 @@ namespace OSFUI
 			}
 		}
 
+		// Every OBJECT element of a_object's a_key array, with its ARRAY index.
+		// A missing key, a non-array, and non-object elements are all skipped.
+		//
+		// The index passed through is deliberately the position in the array,
+		// not a count of the objects seen: StableId() uses it as the
+		// localization address for an entry that declares no id, so a filtered
+		// counter would silently re-address every entry after a malformed one.
+		// Templated on the json's constness like ForEachSetting.
+		template <class Json, class Fn>
+		void ForEachObjectIn(Json& a_object, std::string_view a_key, Fn&& a_fn)
+		{
+			const auto it = a_object.find(a_key);
+			if (it == a_object.end() || !it->is_array()) {
+				return;
+			}
+			for (std::size_t i = 0; i < it->size(); ++i) {
+				if (auto& element = (*it)[i]; element.is_object()) {
+					a_fn(element, i);
+				}
+			}
+		}
+
 		std::string StableId(const nlohmann::json& a_object, std::string_view a_field, std::size_t a_index)
 		{
-			auto id = Json::GetString(a_object, a_field, "");
+			auto id = Json::Get(a_object, a_field, "");
 			return id.empty() ? std::to_string(a_index) : id;
 		}
 
@@ -171,53 +195,28 @@ namespace OSFUI
 			ResolveField(a_schema, "title", "settings.title", a_modId, a_resolver);
 			ResolveField(a_schema, "description", "settings.description", a_modId, a_resolver);
 
-			if (auto contexts = a_schema.find("inputContexts"); contexts != a_schema.end() && contexts->is_array()) {
-				for (std::size_t i = 0; i < contexts->size(); ++i) {
-					auto& context = (*contexts)[i];
-					if (context.is_object()) {
-						const auto id = StableId(context, "id", i);
-						ResolveField(context, "label", "inputContexts." + id + ".label", a_modId, a_resolver);
-					}
-				}
-			}
+			ForEachObjectIn(a_schema, "inputContexts", [&](auto& a_context, std::size_t a_index) {
+				const auto id = StableId(a_context, "id", a_index);
+				ResolveField(a_context, "label", "inputContexts." + id + ".label", a_modId, a_resolver);
+			});
 
-			if (auto pages = a_schema.find("pages"); pages != a_schema.end() && pages->is_array()) {
-				for (std::size_t i = 0; i < pages->size(); ++i) {
-					auto& page = (*pages)[i];
-					if (page.is_object()) {
-						const auto id = StableId(page, "id", i);
-						ResolveField(page, "label", "pages." + id + ".label", a_modId, a_resolver);
-					}
-				}
-			}
+			ForEachObjectIn(a_schema, "pages", [&](auto& a_page, std::size_t a_index) {
+				const auto id = StableId(a_page, "id", a_index);
+				ResolveField(a_page, "label", "pages." + id + ".label", a_modId, a_resolver);
+			});
 
-			if (auto presets = a_schema.find("presets"); presets != a_schema.end() && presets->is_array()) {
-				for (std::size_t i = 0; i < presets->size(); ++i) {
-					auto& preset = (*presets)[i];
-					if (!preset.is_object()) continue;
-					const auto id = StableId(preset, "id", i);
-					const auto root = "presets." + id;
-					ResolveField(preset, "label", root + ".label", a_modId, a_resolver);
-					ResolveField(preset, "description", root + ".description", a_modId, a_resolver);
-				}
-			}
+			ForEachObjectIn(a_schema, "presets", [&](auto& a_preset, std::size_t a_index) {
+				const auto root = "presets." + StableId(a_preset, "id", a_index);
+				ResolveField(a_preset, "label", root + ".label", a_modId, a_resolver);
+				ResolveField(a_preset, "description", root + ".description", a_modId, a_resolver);
+			});
 
-			auto groups = a_schema.find("groups");
-			if (groups == a_schema.end() || !groups->is_array()) {
-				return;
-			}
-			for (std::size_t groupIndex = 0; groupIndex < groups->size(); ++groupIndex) {
-				auto& group = (*groups)[groupIndex];
-				if (!group.is_object()) continue;
-				const auto groupId = StableId(group, "id", groupIndex);
-				ResolveField(group, "label", "groups." + groupId + ".label", a_modId, a_resolver);
-				auto items = group.find("settings");
-				if (items == group.end() || !items->is_array()) continue;
-				for (std::size_t itemIndex = 0; itemIndex < items->size(); ++itemIndex) {
-					auto& item = (*items)[itemIndex];
-					if (!item.is_object()) continue;
-					const auto type = Json::GetString(item, "type", "");
-					const auto key = Json::GetString(item, "key", "");
+			ForEachObjectIn(a_schema, "groups", [&](auto& a_group, std::size_t a_groupIndex) {
+				const auto groupId = StableId(a_group, "id", a_groupIndex);
+				ResolveField(a_group, "label", "groups." + groupId + ".label", a_modId, a_resolver);
+				ForEachObjectIn(a_group, "settings", [&](auto& item, std::size_t itemIndex) {
+					const auto type = Json::Get(item, "type", "");
+					const auto key = Json::Get(item, "key", "");
 					if (type == "action") {
 						const auto root = "actions." + (key.empty() ? std::to_string(itemIndex) : key);
 						for (const auto* field : { "label", "hint", "confirm" }) ResolveField(item, field, root + "." + field, a_modId, a_resolver);
@@ -247,8 +246,8 @@ namespace OSFUI
 							}
 						}
 					}
-				}
-			}
+				});
+			});
 		}
 	}
 
@@ -300,7 +299,7 @@ namespace OSFUI
 				continue;
 			}
 			std::string parseError;
-			auto schema = Json::ParseFile(path, parseError);
+			auto schema = Json::ParseFile(path, &parseError);
 			if (!schema || !schema->is_object()) {
 				const auto why = schema ? std::string("not a JSON object") : parseError;
 				REX::ERROR("SettingsStore: [content] skipping {} — {}", path.string(), why);
@@ -332,7 +331,7 @@ namespace OSFUI
 			REX::WARN("SettingsStore: [content] rejected schema — not a JSON object");
 			return false;
 		}
-		const auto id = Json::GetString(a_schema, "id", "");
+		const auto id = Json::Get(a_schema, "id", "");
 		if (id.empty()) {
 			REX::WARN("SettingsStore: [content] rejected schema with no id");
 			return false;
@@ -353,7 +352,7 @@ namespace OSFUI
 	bool SettingsStore::ReloadDropInFile(const std::filesystem::path& a_path)
 	{
 		std::string parseError;
-		auto schema = Json::ParseFile(a_path, parseError);
+		auto schema = Json::ParseFile(a_path, &parseError);
 		if (!schema || !schema->is_object()) {
 			const auto why = schema ? std::string("not a JSON object") : parseError;
 			REX::WARN("SettingsStore: [content] hot-reload skipped — {}: {}", a_path.string(), why);
@@ -378,7 +377,7 @@ namespace OSFUI
 			REX::WARN("SettingsStore: [content] rejected schema — not a JSON object");
 			return false;
 		}
-		auto id = Json::GetString(a_schema, "id", a_idHint);
+		auto id = Json::Get(a_schema, "id", a_idHint);
 		// Drop-ins: the id must equal the filename stem (documented contract,
 		// precedence policy) — warn and override, so a file can't hijack another
 		// mod's id and MO2's per-file VFS priority stays the arbiter of who owns
@@ -457,7 +456,7 @@ namespace OSFUI
 		ForEachSetting(mod.schema, [&](const nlohmann::json& a_setting) {
 			const auto parsed = ParseHotkeyTarget(a_setting);
 			if (parsed.present && !parsed.target) {
-				auto key = Json::GetString(a_setting, "key", "");
+				auto key = Json::Get(a_setting, "key", "");
 				if (key.empty()) {
 					key = "<unnamed>";
 				}
@@ -475,7 +474,7 @@ namespace OSFUI
 		// manifest's. Never gates loading: a schema authored for a newer OSF UI
 		// loads best-effort (unknown types serve read-only defaults, unknown keys
 		// are preserved). Carried in `osfui/settings` state for the "needs update" badge.
-		if (auto target = Json::GetString(mod.schema, "targetVersion", ""); !target.empty()) {
+		if (auto target = Json::Get(mod.schema, "targetVersion", ""); !target.empty()) {
 			std::array<std::uint32_t, 3> targetParts{};
 			if (ParseDottedVersion(target, targetParts)) {
 				mod.targetVersion = std::move(target);
@@ -501,7 +500,7 @@ namespace OSFUI
 		std::error_code fsEc;
 		if (std::filesystem::exists(mod.valuesPath, fsEc)) {
 			std::string parseError;
-			auto parsed = Json::ParseFile(mod.valuesPath, parseError);
+			auto parsed = Json::ParseFile(mod.valuesPath, &parseError);
 			if (parsed && parsed->is_object()) {
 				saved = std::move(*parsed);
 				valuesFileLoaded = true;
@@ -524,11 +523,11 @@ namespace OSFUI
 		// invisible to the schema walk below (no setting may be named `$…`), so
 		// older builds ignore it. The log line is triage only; alias adoption
 		// below is what carries values across a rename.
-		const auto schemaVersion = static_cast<std::int64_t>(Json::GetInt(mod.schema, "version", 0));
-		if (const auto it = saved.find(kSchemaVersionKey); it != saved.end() && it->is_number_integer()) {
-			if (const auto fileVersion = it->get<std::int64_t>(); fileVersion != schemaVersion) {
-				REX::INFO("SettingsStore: '{}' values migrating v{} -> v{}", mod.id, fileVersion, schemaVersion);
-			}
+		const auto schemaVersion = static_cast<std::int64_t>(Json::Get(mod.schema, "version", 0));
+		// Absent or non-integer defaults to the current version, so only a real
+		// recorded mismatch logs.
+		if (const auto fileVersion = Json::Get(saved, kSchemaVersionKey, schemaVersion); fileVersion != schemaVersion) {
+			REX::INFO("SettingsStore: '{}' values migrating v{} -> v{}", mod.id, fileVersion, schemaVersion);
 		}
 		// Encoding-format stamp, written on every rewrite. A file from a newer
 		// OSF UI keeps its higher stamp, so round-tripping through this runtime never
@@ -544,7 +543,7 @@ namespace OSFUI
 		// keeps its v1 stamp so a later session still migrates it.
 		// A missing (or quarantined) values file has nothing to migrate:
 		// fileFormat only means something for a file that actually loaded.
-		const auto fileFormat = valuesFileLoaded ? Json::GetInt(saved, kFormatVersionKey, 1) :
+		const auto fileFormat = valuesFileLoaded ? Json::Get(saved, kFormatVersionKey, 1) :
 		                                           kValuesFormatVersion;
 		bool migratedFormat = false;
 		if (fileFormat > kValuesFormatVersion) {
@@ -554,7 +553,7 @@ namespace OSFUI
 		} else if (fileFormat < kValuesFormatVersion) {
 			if (_legacyKeyMigrator) {
 				ForEachSetting(mod.schema, [&](const nlohmann::json& a_setting) {
-					if (Json::GetString(a_setting, "type", "") != "key") {
+					if (Json::Get(a_setting, "type", "") != "key") {
 						return false;
 					}
 					const auto migrate = [&](const std::string& a_savedKey) {
@@ -577,7 +576,7 @@ namespace OSFUI
 					};
 					// The value may sit under the key or a declared alias (the
 					// adoption below reads both); re-anchor wherever it lives.
-					migrate(Json::GetString(a_setting, "key", ""));
+					migrate(Json::Get(a_setting, "key", ""));
 					for (const auto& alias : Json::GetStringArray(a_setting, "aliases")) {
 						migrate(alias);
 					}
@@ -596,7 +595,7 @@ namespace OSFUI
 
 		std::size_t count = 0;
 		ForEachSetting(mod.schema, [&](const nlohmann::json& a_setting) {
-			const auto key = Json::GetString(a_setting, "key", "");
+			const auto key = Json::Get(a_setting, "key", "");
 			if (key.empty()) {
 				return false;
 			}
@@ -607,7 +606,7 @@ namespace OSFUI
 			// saved value is preserved verbatim below, never served or wiped.
 			// Its aliases stay un-accounted on purpose — this runtime can't adopt
 			// them, and dropping them would strand a rename for the runtime that can.
-			if (!IsKnownType(Json::GetString(a_setting, "type", ""))) {
+			if (!IsKnownType(Json::Get(a_setting, "type", ""))) {
 				if (const auto it = saved.find(key); it != saved.end()) {
 					mod.preserved[key] = *it;
 				}
@@ -679,7 +678,7 @@ namespace OSFUI
 		}
 
 		REX::INFO("SettingsStore: loaded mod '{}' ('{}', {} settings)",
-			mod.id, Json::GetString(mod.schema, "title", mod.id), count);
+			mod.id, Json::Get(mod.schema, "title", mod.id), count);
 
 		if (existing) {
 			*existing = std::move(mod);
@@ -787,18 +786,18 @@ namespace OSFUI
 			return {};
 		}
 		const auto* setting = FindSetting(*mod, a_key);
-		return setting ? Json::GetString(*setting, "type", "") : std::string{};
+		return setting ? Json::Get(*setting, "type", "") : std::string{};
 	}
 
 	std::optional<std::string> SettingsStore::CanonicalEnumValue(std::string_view a_modId, std::string_view a_key, std::string_view a_value) const
 	{
 		const auto* mod = FindMod(a_modId);
 		const auto* setting = mod ? FindSetting(*mod, a_key) : nullptr;
-		if (!setting || Json::GetString(*setting, "type", "") != "enum") {
+		if (!setting || Json::Get(*setting, "type", "") != "enum") {
 			return std::nullopt;
 		}
-		const auto options = setting->find("options");
-		if (options == setting->end() || !options->is_array()) {
+		const auto* options = Json::GetArray(*setting, "options");
+		if (!options) {
 			return std::nullopt;
 		}
 		for (const auto& opt : *options) {
@@ -820,8 +819,8 @@ namespace OSFUI
 		std::vector<KeySetting> out;
 		for (const auto& mod : _mods) {
 			ForEachSetting(mod.schema, [&](const nlohmann::json& a_setting) {
-				if (Json::GetString(a_setting, "type", "") == "key") {
-					const auto key = Json::GetString(a_setting, "key", "");
+				if (Json::Get(a_setting, "type", "") == "key") {
+					const auto key = Json::Get(a_setting, "key", "");
 					if (!key.empty()) {
 						if (const auto it = mod.values.find(key); it != mod.values.end() && it->is_string()) {
 							out.push_back({ mod.id, key, it->get<std::string>() });
@@ -857,13 +856,13 @@ namespace OSFUI
 	SettingsStore::HotkeyContext SettingsStore::ResolveHotkeyContext(const Mod& a_mod, const nlohmann::json& a_setting) const
 	{
 		HotkeyContext fallback;
-		const auto ref = Json::GetString(a_setting, "inputContext", "");
+		const auto ref = Json::Get(a_setting, "inputContext", "");
 		if (ref.empty() || ref == "gameplay" || !IsValidHotkeyContextId(ref)) {
 			return fallback;
 		}
 
-		const auto contexts = a_mod.schema.find("inputContexts");
-		if (contexts == a_mod.schema.end() || !contexts->is_array()) {
+		const auto* contexts = Json::GetArray(a_mod.schema, "inputContexts");
+		if (!contexts) {
 			return fallback;
 		}
 		std::unordered_set<std::string> seen;
@@ -871,12 +870,12 @@ namespace OSFUI
 			if (!context.is_object()) {
 				continue;
 			}
-			const auto id = Json::GetString(context, "id", "");
+			const auto id = Json::Get(context, "id", "");
 			if (id == "gameplay" || !IsValidHotkeyContextId(id) || !seen.insert(id).second) {
 				continue;
 			}
 			if (id == ref) {
-				auto label = Json::GetString(context, "label", id);
+				auto label = Json::Get(context, "label", id);
 				if (label.empty()) {
 					label = id;
 				}
@@ -886,7 +885,7 @@ namespace OSFUI
 				HotkeyContext resolved;
 				resolved.id = id;
 				resolved.label = std::move(label);
-				resolved.blocksGameplay = Json::GetBool(context, "blocksGameplay", false);
+				resolved.blocksGameplay = Json::Get(context, "blocksGameplay", false);
 				if (const auto modes = ParseGameplayModes(context)) {
 					resolved.modeScoped = true;
 					resolved.modes = *modes;
@@ -909,7 +908,7 @@ namespace OSFUI
 		}
 		std::unordered_set<std::string> seen;
 		for (const auto& context : *contexts) {
-			const auto id = context.is_object() ? Json::GetString(context, "id", "") : std::string{};
+			const auto id = context.is_object() ? Json::Get(context, "id", "") : std::string{};
 			if (id == "gameplay") {
 				REX::WARN("SettingsStore: [content] '{}.inputContexts' cannot redefine reserved context 'gameplay' -- ignoring it", a_modId);
 				continue;
@@ -933,7 +932,7 @@ namespace OSFUI
 	{
 		const auto* mod = FindMod(a_modId);
 		const auto* setting = mod ? FindSetting(*mod, a_key) : nullptr;
-		if (!mod || !setting || Json::GetString(*setting, "type", "") != "key") return {};
+		if (!mod || !setting || Json::Get(*setting, "type", "") != "key") return {};
 		const auto context = ResolveHotkeyContext(*mod, *setting);
 		return { context.modeScoped, context.modes };
 	}
@@ -951,7 +950,7 @@ namespace OSFUI
 							context = ResolveHotkeyContext(*mod, *authored);
 						}
 					}
-					auto title = mod ? Json::GetString(mod->schema, "title", mod->id) : setting.modId;
+					auto title = mod ? Json::Get(mod->schema, "title", mod->id) : setting.modId;
 					if (mod && _textResolver) title = _textResolver(mod->id, "settings.title", title);
 					BoundKey entry;
 					entry.modId = setting.modId;
@@ -1061,10 +1060,10 @@ namespace OSFUI
 			LocalizeSchema(schema, mod.id, _textResolver);
 			if (!bound.empty()) {
 				ForEachSetting(schema, [&](nlohmann::json& a_setting) {
-					if (Json::GetString(a_setting, "type", "") != "key") {
+					if (Json::Get(a_setting, "type", "") != "key") {
 						return false;
 					}
-					const auto key = Json::GetString(a_setting, "key", "");
+					const auto key = Json::Get(a_setting, "key", "");
 					const auto self = std::find_if(bound.begin(), bound.end(),
 						[&](const BoundKey& a_b) { return a_b.modId == mod.id && a_b.key == key; });
 					if (self == bound.end()) {
@@ -1083,7 +1082,7 @@ namespace OSFUI
 			}
 			nlohmann::json entry{
 				{ "id", mod.id },
-				{ "title", Json::GetString(schema, "title", mod.id) },
+				{ "title", Json::Get(schema, "title", mod.id) },
 				{ "schema", std::move(schema) },
 				{ "values", mod.values },
 			};
@@ -1163,7 +1162,7 @@ namespace OSFUI
 	{
 		const nlohmann::json* found = nullptr;
 		ForEachSetting(a_mod.schema, [&](const nlohmann::json& a_setting) {
-			if (Json::GetString(a_setting, "key", "") == a_key) {
+			if (Json::Get(a_setting, "key", "") == a_key) {
 				found = &a_setting;
 				return true;
 			}
@@ -1180,7 +1179,7 @@ namespace OSFUI
 
 	std::optional<nlohmann::json> SettingsStore::Validate(const nlohmann::json& a_setting, const nlohmann::json& a_value)
 	{
-		const auto type = Json::GetString(a_setting, "type", "");
+		const auto type = Json::Get(a_setting, "type", "");
 
 		if (type == "bool") {
 			if (a_value.is_boolean()) {
@@ -1189,12 +1188,12 @@ namespace OSFUI
 		} else if (type == "int" || type == "float") {
 			if (a_value.is_number()) {
 				double v = a_value.get<double>();
-				if (const auto lo = a_setting.find("min"); lo != a_setting.end() && lo->is_number()) {
-					v = (std::max)(v, lo->get<double>());
-				}
-				if (const auto hi = a_setting.find("max"); hi != a_setting.end() && hi->is_number()) {
-					v = (std::min)(v, hi->get<double>());
-				}
+				// Applied in order rather than via std::clamp: a schema with
+				// min > max is untrusted input, and clamp() on an inverted range
+				// is undefined. This pins that case to max, as it always has.
+				constexpr double kUnbounded = std::numeric_limits<double>::infinity();
+				v = (std::max)(v, Json::Get(a_setting, "min", -kUnbounded));
+				v = (std::min)(v, Json::Get(a_setting, "max", kUnbounded));
 				if (type == "int") {
 					return nlohmann::json(static_cast<std::int64_t>(std::llround(v)));
 				}
@@ -1202,8 +1201,7 @@ namespace OSFUI
 			}
 		} else if (type == "enum") {
 			if (a_value.is_string()) {
-				const auto options = a_setting.find("options");
-				if (options != a_setting.end() && options->is_array()) {
+				if (const auto* options = Json::GetArray(a_setting, "options")) {
 					for (const auto& opt : *options) {
 						if (opt.is_string() && opt == a_value) {
 							return a_value;
@@ -1218,8 +1216,7 @@ namespace OSFUI
 			// enum-removal analogue of numeric clamping. Output order follows
 			// the declared options so the stored form is canonical.
 			if (a_value.is_array()) {
-				const auto options = a_setting.find("options");
-				if (options != a_setting.end() && options->is_array()) {
+				if (const auto* options = Json::GetArray(a_setting, "options")) {
 					nlohmann::json out = nlohmann::json::array();
 					for (const auto& opt : *options) {
 						if (!opt.is_string()) {
@@ -1240,17 +1237,15 @@ namespace OSFUI
 				auto s = a_value.get<std::string>();
 				// A colour-widget string must be a parseable #rrggbb[aa]; every
 				// writer (preset, ABI, Papyrus) is held to it, not just the UI.
-				if (Json::GetString(a_setting, "widget", "") == "color" && !IsHexColor(s)) {
+				if (Json::Get(a_setting, "widget", "") == "color" && !IsHexColor(s)) {
 					return std::nullopt;
 				}
 				// Per-setting maxLength, capped by the store-wide hard limit.
 				// Raising kMaxStringLen requires bumping the renderer and mock
 				// clamps in lockstep.
 				std::size_t cap = kMaxStringLen;
-				if (const auto ml = a_setting.find("maxLength"); ml != a_setting.end() && ml->is_number_integer()) {
-					if (const auto v = ml->get<std::int64_t>(); v > 0) {
-						cap = (std::min)(cap, static_cast<std::size_t>(v));
-					}
+				if (const auto ml = Json::Get(a_setting, "maxLength", std::int64_t{ 0 }); ml > 0) {
+					cap = (std::min)(cap, static_cast<std::size_t>(ml));
 				}
 				// Codepoint-boundary truncation: `cap` counts bytes but the value is
 				// arbitrary player text (IME/CJK/emoji), and a split sequence makes
@@ -1269,7 +1264,7 @@ namespace OSFUI
 			if (a_value.is_string()) {
 				auto s = a_value.get<std::string>();
 				if (s.empty()) {
-					if (Json::GetBool(a_setting, "allowUnbound", false)) {
+					if (Json::Get(a_setting, "allowUnbound", false)) {
 						return nlohmann::json(std::move(s));
 					}
 				} else {
@@ -1293,7 +1288,7 @@ namespace OSFUI
 
 	SettingsStore::SetResult SettingsStore::SetWithResult(std::string_view a_modId, std::string_view a_key, std::string_view a_valueJson)
 	{
-		const auto parsed = Json::Parse(a_valueJson, "settings value");
+		const auto parsed = Json::Parse(a_valueJson);
 		if (!parsed) {
 			return { false, "invalid-value" };
 		}
@@ -1315,15 +1310,15 @@ namespace OSFUI
 		// A type this OSF UI runtime doesn't know serves its default read-only. Its own
 		// result code, so a view can say "needs a newer OSF UI" rather than
 		// "bad value".
-		if (!IsKnownType(Json::GetString(*setting, "type", ""))) {
+		if (!IsKnownType(Json::Get(*setting, "type", ""))) {
 			REX::WARN("SettingsStore: [content] rejected set for '{}.{}' — unknown type '{}' is served read-only",
-				a_modId.substr(0, 64), a_key.substr(0, 64), Json::GetString(*setting, "type", "?").substr(0, 32));
+				a_modId.substr(0, 64), a_key.substr(0, 64), Json::Get(*setting, "type", "?").substr(0, 32));
 			return { false, "read-only" };
 		}
 		auto valid = Validate(*setting, a_value);
 		if (!valid) {
 			REX::WARN("SettingsStore: [content] rejected invalid value for '{}.{}' (type {})",
-				a_modId.substr(0, 64), a_key.substr(0, 64), Json::GetString(*setting, "type", "?"));
+				a_modId.substr(0, 64), a_key.substr(0, 64), Json::Get(*setting, "type", "?"));
 			return { false, "invalid-value" };
 		}
 
@@ -1349,7 +1344,7 @@ namespace OSFUI
 		if (a_key.empty()) {
 			// Whole mod back to defaults.
 			ForEachSetting(mod->schema, [&](const nlohmann::json& a_setting) {
-				const auto key = Json::GetString(a_setting, "key", "");
+				const auto key = Json::Get(a_setting, "key", "");
 				if (!key.empty()) {
 					mod->values[key] = DefaultFor(a_setting);
 				}
@@ -1401,7 +1396,7 @@ namespace OSFUI
 		// legacy files shed their frozen defaults the first time through here.
 		nlohmann::json sparse = nlohmann::json::object();
 		ForEachSetting(a_mod.schema, [&](const nlohmann::json& a_setting) {
-			const auto key = Json::GetString(a_setting, "key", "");
+			const auto key = Json::Get(a_setting, "key", "");
 			if (!key.empty()) {
 				if (const auto it = a_mod.values.find(key); it != a_mod.values.end() && *it != DefaultFor(a_setting)) {
 					sparse[key] = *it;
@@ -1420,7 +1415,7 @@ namespace OSFUI
 		// so no existing values file is dirtied by this feature. The schema's
 		// `version` is the source of truth; the stamp records "last written under
 		// vN", and reverting to v0 drops it — a version move like any other.
-		if (const auto v = Json::GetInt(a_mod.schema, "version", 0); v != 0) {
+		if (const auto v = Json::Get(a_mod.schema, "version", 0); v != 0) {
 			sparse[kSchemaVersionKey] = v;
 		}
 		// Every rewrite carries the encoding version. a_mod.formatVersion is

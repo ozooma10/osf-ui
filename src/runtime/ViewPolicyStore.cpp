@@ -32,8 +32,8 @@ namespace OSFUI
 		}
 		Json::CheckFormatVersion(*json, "formatVersion", kFormatVersion,
 			"ViewPolicyStore: " + _path.string());
-		const auto overrides = json->find("hudOverrides");
-		if (overrides == json->end() || !overrides->is_object()) {
+		const auto* overrides = Json::GetObject(*json, "hudOverrides");
+		if (!overrides) {
 			return;
 		}
 		for (const auto& [id, value] : overrides->items()) {

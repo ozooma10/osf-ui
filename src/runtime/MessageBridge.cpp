@@ -155,7 +155,7 @@ namespace OSFUI
 			_settled = false;
 		};
 
-		const auto msg = Json::Parse(a_json, "web->native message");
+		const auto msg = Json::Parse(a_json);
 		if (!msg || !msg->is_object()) {
 			// Unparseable: there is no id to correlate an error to, so the only
 			// honest channel is the log plus the offending view's own console.
@@ -165,8 +165,8 @@ namespace OSFUI
 			return;
 		}
 
-		const auto kind = Json::GetString(*msg, "kind", "");
-		const auto name = BoundedEcho(Json::GetString(*msg, "name", ""));
+		const auto kind = Json::Get(*msg, "kind", "");
+		const auto name = BoundedEcho(Json::Get(*msg, "name", ""));
 		_currentName = name;
 
 		if (kind != "send" && kind != "request") {

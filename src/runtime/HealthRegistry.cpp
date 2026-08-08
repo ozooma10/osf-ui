@@ -139,6 +139,7 @@ namespace OSFUI
 			existing->resolvedAt = 0.0;
 			existing->occurrences += 1;
 			existing->lastAt = now;
+			++_generation;
 			return true;
 		}
 
@@ -156,6 +157,7 @@ namespace OSFUI
 			.resolvedAt = 0.0,
 		});
 		EnforceCaps();
+		++_generation;
 		return true;
 	}
 
@@ -168,6 +170,7 @@ namespace OSFUI
 		issue->resolved = true;
 		issue->resolvedAt = RoundSeconds(a_now);
 		EnforceCaps();
+		++_generation;
 		return true;
 	}
 
@@ -185,6 +188,7 @@ namespace OSFUI
 		}
 		if (changed) {
 			EnforceCaps();
+			++_generation;
 		}
 		return changed;
 	}
@@ -203,6 +207,10 @@ namespace OSFUI
 				REX::WARN("HealthRegistry: evicting {} issue '{}' — history cap reached",
 					a_resolved ? "resolved" : "active", it->id);
 				_issues.erase(it);
+				// Every caller today also bumps, so this is redundant — kept so
+				// eviction stays self-contained and a future caller cannot
+				// silently drop an issue without moving the send generation.
+				++_generation;
 			}
 		};
 		while (countOf(true) > kMaxResolvedIssues) {
@@ -216,6 +224,7 @@ namespace OSFUI
 	void HealthRegistry::SetSystemInfo(nlohmann::json a_info)
 	{
 		_system = Sanitize(a_info);
+		++_generation;
 	}
 
 	nlohmann::json HealthRegistry::Encode(const Issue& a_issue)
@@ -276,15 +285,15 @@ namespace OSFUI
 		if (!_bridge) {
 			return;
 		}
-		// Content dedupe: callers Broadcast() unconditionally after any potential
-		// change. The hello REPLAY deliberately does not come through here (it
-		// publishes Snapshot() straight to the greeting view) — deduping against
-		// the last change would send the second view to connect nothing at all.
-		auto dumped = Json::Dump(Snapshot());
-		if (dumped == _lastSent) {
+		// Change dedupe: callers Broadcast() unconditionally after any potential
+		// change, every tick included. The hello REPLAY deliberately does not
+		// come through here (it publishes Snapshot() straight to the greeting
+		// view) — deduping against the last change would send the second view to
+		// connect nothing at all.
+		if (_generation == _sentGeneration) {
 			return;
 		}
-		_lastSent = std::move(dumped);
+		_sentGeneration = _generation;
 		_bridge->PublishStateAll("osfui", "diagnostics", Snapshot());
 	}
 
@@ -299,7 +308,10 @@ namespace OSFUI
 	void HealthRegistry::OnBridgeDown()
 	{
 		_bridge = nullptr;
-		_lastSent.clear();
+		// Force a resend to whoever reconnects: the next Broadcast() must not
+		// dedupe against what the previous bridge was sent. _generation only
+		// ever increments from 1, so 0 can never match it.
+		_sentGeneration = 0;
 	}
 
 	void HealthRegistry::OnViewDestroyed(std::string_view)

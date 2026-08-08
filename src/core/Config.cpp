@@ -29,10 +29,10 @@ namespace OSFUI
 			}
 			const auto marker = Json::ParseFile(markerPath);
 			if (!marker || !marker->is_object() ||
-				!Json::GetBool(*marker, "enabled", false)) {
+				!Json::Get(*marker, "enabled", false)) {
 				return;
 			}
-			const auto expiresAt = Json::GetInt(*marker, "expiresAt", 0);
+			const auto expiresAt = Json::Get(*marker, "expiresAt", 0);
 			const auto now = std::chrono::duration_cast<std::chrono::seconds>(
 				std::chrono::system_clock::now().time_since_epoch()).count();
 			if (expiresAt <= now) {
@@ -69,11 +69,11 @@ namespace OSFUI
 		Json::CheckFormatVersion(*json, "configVersion", kConfigVersion, "Config: " + a_path.string());
 		Json::ReportUnknownKeys(*json, kKnownKeys, "Config: " + a_path.string(), /*a_warn=*/true);
 
-		config.enabled = Json::GetBool(*json, "enabled", config.enabled);
-		config.pauseMenuEntryLabel = Json::GetString(*json, "pauseMenuEntryLabel", config.pauseMenuEntryLabel);
-		config.pauseMenuEntryView = Json::GetString(*json, "pauseMenuEntryView", config.pauseMenuEntryView);
-		config.view = Json::GetString(*json, "view", config.view);
-		config.devMode = Json::GetBool(*json, "devMode", config.devMode);
+		config.enabled = Json::Get(*json, "enabled", config.enabled);
+		config.pauseMenuEntryLabel = Json::Get(*json, "pauseMenuEntryLabel", config.pauseMenuEntryLabel);
+		config.pauseMenuEntryView = Json::Get(*json, "pauseMenuEntryView", config.pauseMenuEntryView);
+		config.view = Json::Get(*json, "view", config.view);
+		config.devMode = Json::Get(*json, "devMode", config.devMode);
 		ApplyAuthorModeMarker(config, a_path);
 
 		REX::INFO("Config: loaded {} (enabled={}, view={}, devMode={})",

@@ -4,6 +4,7 @@
 #include "compat/v1/Navigation.h"
 #include "compat/v1/Papyrus.h"
 #include "core/Version.h"
+#include "runtime/Json.h"
 #include "runtime/Runtime.h"
 
 namespace OSFUI
@@ -195,11 +196,13 @@ namespace OSFUI
 				std::string(Compat::V1::kRemovalVersion), "api" });
 		}
 		if (runtime._settings) {
-			for (const auto& mod : runtime._settings->Store().DataView().value(
-					"mods", nlohmann::json::array())) {
-				const auto target = mod.value("targetVersion", std::string{});
-				if (IsTargetNewerThanInstalledRelease(target)) {
-					targets.push_back({ mod.value("id", std::string{}), "mod", target });
+			const auto data = runtime._settings->Store().DataView();
+			if (const auto* mods = Json::GetArray(data, "mods")) {
+				for (const auto& mod : *mods) {
+					const auto target = Json::Get(mod, "targetVersion", "");
+					if (IsTargetNewerThanInstalledRelease(target)) {
+						targets.push_back({ Json::Get(mod, "id", ""), "mod", target });
+					}
 				}
 			}
 		}

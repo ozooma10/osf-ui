@@ -5,9 +5,11 @@
 
 #include "core/Version.h"
 #include "input/ScanCode.h"
+#include "runtime/Json.h"
 #include "Wv2BoundedQueue.h"
 #include "Wv2BrokerLaunch.h"  // LaunchMethodName (logging only)
 #include "Wv2LocalUri.h"
+#include "Wv2Messages.h"
 #include "Wv2Pipe.h"
 #include "Wv2Protocol.h"
 #include "Win32Util.h"
@@ -39,7 +41,6 @@
 #include <winrt/Windows.System.h>
 #include <winrt/Windows.UI.Composition.h>
 #include <winrt/base.h>
-#include <nlohmann/json.hpp>
 
 using Microsoft::WRL::Callback;
 using Microsoft::WRL::ComPtr;
@@ -51,6 +52,16 @@ namespace osfui::wv2
 	{
 		using osfui::win32::ToUtf8;
 		using osfui::win32::ToWide;
+
+		// Shared with the plugin (runtime/Json.h). Json::Dump is the UTF-8-safe
+		// serializer — a strict dump() throws on a split sequence, and this
+		// side's writers have no handler above them either; Json::Parse is the
+		// non-throwing reader. `Json` (capitalized) is the namespace, distinct
+		// from the `json` value type used-in above.
+		namespace Json = OSFUI::Json;
+
+		// Wire message shapes, compiled by the game side too (Wv2Messages.h).
+		namespace msg = osfui::wv2::msg;
 
 		// Physical identity of an accelerator key (DIK convention), matching
 		// the game side's OverlayInputHook::MessageScanCode: compose from the
@@ -71,11 +82,6 @@ namespace osfui::wv2
 			const UINT prefix = composite >> 8;
 			const UINT base = composite & 0xFFu;
 			return (prefix == 0xE0u || prefix == 0xE1u) ? (0x80u | base) : base;
-		}
-
-		[[nodiscard]] std::string DumpSafe(const json& a_value)
-		{
-			return a_value.dump(-1, ' ', false, json::error_handler_t::replace);
 		}
 
 		struct Logger
@@ -124,8 +130,8 @@ namespace osfui::wv2
 			void Forward(int a_level, const std::string& a_text)
 			{
 				if (auto* target = pipe.load(std::memory_order_acquire)) {
-					target->WriteMessage(DumpSafe(json{
-						{ "type", "log" }, { "level", a_level }, { "text", a_text } }));
+					target->WriteMessage(Json::Dump(msg::ToJson(
+						msg::Log{ .level = a_level, .text = a_text })));
 				}
 			}
 
@@ -417,7 +423,7 @@ namespace osfui::wv2
 
 			bool Send(const json& a_msg)
 			{
-				if (pipe.WriteMessage(DumpSafe(a_msg))) return true;
+				if (pipe.WriteMessage(Json::Dump(a_msg))) return true;
 				pipeDead.store(true, std::memory_order_release);
 				if (wakeEvent) ::SetEvent(wakeEvent);
 				return false;
@@ -427,12 +433,13 @@ namespace osfui::wv2
 			{
 				std::string payload;
 				while (pipe.ReadMessage(payload)) {
-					json parsed = json::parse(payload, nullptr, false);
-					if (parsed.is_discarded()) {
+					auto message = Json::Parse(payload);
+					if (!message) {
 						log.Warn("dropping unparseable pipe message");
 						continue;
 					}
-					const auto type = parsed.value("type", std::string{});
+					json&      parsed = *message;
+					const auto type = Json::Get(parsed, "type", "");
 					if (type == "shutdown") {
 						shutdownRequested.store(true, std::memory_order_release);
 						quit.store(true, std::memory_order_release);
@@ -442,8 +449,8 @@ namespace osfui::wv2
 					}
 
 					const auto coalesceKey = GameMessageCoalesceKey(type,
-						parsed.value("kind", std::string{}),
-						parsed.value("view", std::string{}));
+						Json::Get(parsed, "kind", ""),
+						Json::Get(parsed, "view", ""));
 					const auto result =
 						gameMessages.Push(std::move(parsed), coalesceKey);
 					if (result == decltype(gameMessages)::PushResult::Full) {
@@ -967,13 +974,12 @@ namespace osfui::wv2
 				const auto code = static_cast<unsigned>(a_hr);
 				log.Error(std::format("view '{}': {} (0x{:08X})",
 					a_view.id, a_description, code));
-				Send(json{
-					{ "type", "fatal" },
-					{ "stage", "composition-controller" },
-					{ "view", a_view.id },
-					{ "description", std::string(a_description) },
-					{ "code", code },
-				});
+				Send(msg::ToJson(msg::Fatal{
+					.stage = "composition-controller",
+					.view = a_view.id,
+					.description = std::string(a_description),
+					.code = code,
+				}));
 				PromptRepairWebView2Runtime(log, a_hr);
 			}
 
@@ -987,13 +993,12 @@ namespace osfui::wv2
 				log.Error(std::format("view '{}': {} (0x{:08X}); refusing to run "
 									 "untrusted content without the egress policy",
 					a_view.id, a_description, code));
-				Send(json{
-					{ "type", "fatal" },
-					{ "stage", "network-policy" },
-					{ "view", a_view.id },
-					{ "description", std::string(a_description) },
-					{ "code", code },
-				});
+				Send(msg::ToJson(msg::Fatal{
+					.stage = "network-policy",
+					.view = a_view.id,
+					.description = std::string(a_description),
+					.code = code,
+				}));
 				quit.store(true);
 				if (wakeEvent) ::SetEvent(wakeEvent);
 			}
@@ -1127,7 +1132,7 @@ namespace osfui::wv2
 				if (!captureStarted) {
 					if (!StartCapture()) return;
 					captureStarted = true;
-					Send(json{ { "type", "ready" } });
+					Send(msg::ToJson(msg::Ready{}));
 				}
 				log.InfoFwd(std::format("view '{}': controller ready ({} view(s) hosted)",
 					a_view.id, views.size()));
@@ -1305,7 +1310,7 @@ namespace osfui::wv2
 							if (view != inputTarget) return S_OK;
 							UINT32 id = 0;
 							if (SUCCEEDED(a_sender->get_SystemCursorId(&id))) {
-								Send(json{ { "type", "cursor" }, { "id", id } });
+								Send(msg::ToJson(msg::Cursor{ .id = id }));
 							}
 							return S_OK;
 						}).Get(), &token);
@@ -1364,8 +1369,8 @@ namespace osfui::wv2
 							if (!handled && frameworkOwned) handled = true;
 							if (!duplicateDown &&
 								(frameworkOwned || (!down && alreadyHandled))) {
-								Send(json{ { "type", "accelerator" },
-									{ "vk", key }, { "scan", scan }, { "down", down } });
+								Send(msg::ToJson(msg::Accelerator{
+									.vk = key, .scan = scan, .down = down }));
 							}
 							if (handled) {
 								a_args->put_Handled(TRUE);
@@ -1445,8 +1450,8 @@ namespace osfui::wv2
 								return S_OK;
 							}
 							if (!view->bridge) return S_OK;
-							Send(json{ { "type", "webMessage" }, { "view", view->id },
-								{ "json", std::move(text) } });
+							Send(msg::ToJson(msg::WebMessage{ .view = view->id,
+								.json = std::move(text) }));
 							return S_OK;
 						}).Get(), &token);
 				a_view.webView->add_NewWindowRequested(
@@ -1503,12 +1508,12 @@ namespace osfui::wv2
 							COREWEBVIEW2_WEB_ERROR_STATUS status{};
 							a_args->get_IsSuccess(&success);
 							a_args->get_WebErrorStatus(&status);
-							Send(json{ { "type", "loadEvent" },
-								{ "view", view->id },
-								{ "failed", success != TRUE },
-								{ "url", ToUtf8(view->currentUrl) },
-								{ "description", success ? "" : "WebView2 navigation failed" },
-								{ "code", static_cast<int>(status) } });
+							Send(msg::ToJson(msg::LoadEvent{
+								.view = view->id,
+								.failed = success != TRUE,
+								.url = ToUtf8(view->currentUrl),
+								.description = success ? "" : "WebView2 navigation failed",
+								.code = static_cast<std::int32_t>(status) }));
 							view->navigationSucceeded = success == TRUE;
 							if (!view->navigationSucceeded && view->prewarmPending) {
 								CompletePrewarm(*view);
@@ -1553,15 +1558,15 @@ namespace osfui::wv2
 								// blank input-capturing shell.
 								view->navigationSucceeded = false;
 								view->domSeen = false;
-								Send(json{ { "type", "loadEvent" },
-									{ "view", view->id },
-									{ "failed", true },
-									{ "url", ToUtf8(view->currentUrl) },
-									{ "description",
+								Send(msg::ToJson(msg::LoadEvent{
+									.view = view->id,
+									.failed = true,
+									.url = ToUtf8(view->currentUrl),
+									.description =
 										kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED
 											? "WebView2 render process exited"
-											: "WebView2 render process unresponsive" },
-									{ "code", static_cast<int>(kind) } });
+											: "WebView2 render process unresponsive",
+									.code = static_cast<std::int32_t>(kind) }));
 								break;
 							default:
 								// Frame/GPU/utility children restart on their own.
@@ -1583,8 +1588,8 @@ namespace osfui::wv2
 								ICoreWebView2DevToolsProtocolEventReceivedEventArgs* a_args) -> HRESULT {
 								LPWSTR value = nullptr;
 								if (SUCCEEDED(a_args->get_ParameterObjectAsJson(&value)) && value) {
-									Send(json{ { "type", "console" }, { "view", view->id },
-										{ "json", ToUtf8(value) } });
+									Send(msg::ToJson(msg::Console{ .view = view->id,
+										.json = ToUtf8(value) }));
 									::CoTaskMemFree(value);
 								}
 								return S_OK;
@@ -1608,29 +1613,31 @@ namespace osfui::wv2
 									const auto raw = ToUtf8(value);
 									::CoTaskMemFree(value);
 									std::string text = raw;
-									try {
-										const auto details =
-											json::parse(raw).value("exceptionDetails", json::object());
+									// Page-authored CDP payload: lenient throughout, and
+									// total — the try/catch this replaced existed because
+									// json::parse and .value() both throw, on a callback
+									// where an escape is a std::terminate.
+									if (const auto parsed = Json::Parse(raw)) {
+										const json  empty = json::object();
+										const auto* found = Json::GetObject(*parsed, "exceptionDetails");
+										const json& details = found ? *found : empty;
 										// `description` carries the stack; fall back to the
 										// bare text ("Uncaught") plus location when a
 										// non-Error value was thrown.
-										const auto exception =
-											details.value("exception", json::object());
-										text = exception.value("description",
-											details.value("text", std::string("uncaught exception")));
-										const auto url = details.value("url", std::string{});
+										const auto* thrown = Json::GetObject(details, "exception");
+										text = Json::Get(thrown ? *thrown : empty, "description",
+											Json::Get(details, "text", "uncaught exception"));
+										const auto url = Json::Get(details, "url", "");
 										if (!url.empty()) {
 											text += std::format(" ({}:{}:{})", url,
-												details.value("lineNumber", 0) + 1,
-												details.value("columnNumber", 0) + 1);
+												Json::Get(details, "lineNumber", 0) + 1,
+												Json::Get(details, "columnNumber", 0) + 1);
 										}
-									} catch (const std::exception&) {
 									}
-									Send(json{ { "type", "console" }, { "view", view->id },
-										{ "json", json{ { "type", "error" },
+									Send(msg::ToJson(msg::Console{ .view = view->id,
+										.json = Json::Dump(json{ { "type", "error" },
 											{ "args", json::array({ json{ { "value",
-												"uncaught: " + text } } }) } }
-													  .dump() } });
+												"uncaught: " + text } } }) } }) }));
 									return S_OK;
 								}).Get(), &token);
 					}
@@ -1748,11 +1755,11 @@ namespace osfui::wv2
 					const auto hr = a_view.webView->Navigate(a_view.currentUrl.c_str());
 					if (FAILED(hr)) {
 						CompletePrewarm(a_view);
-						Send(json{ { "type", "loadEvent" }, { "view", a_view.id },
-							{ "failed", true },
-							{ "url", ToUtf8(a_view.currentUrl) },
-							{ "description", "Navigate returned failure" },
-							{ "code", static_cast<int>(hr) } });
+						Send(msg::ToJson(msg::LoadEvent{ .view = a_view.id,
+							.failed = true,
+							.url = ToUtf8(a_view.currentUrl),
+							.description = "Navigate returned failure",
+							.code = static_cast<std::int32_t>(hr) }));
 					}
 				}
 				if (!a_view.domSeen) return;
@@ -1934,8 +1941,8 @@ namespace osfui::wv2
 						// Same envelope as the accelerator path, so the game side
 						// needs no new message type. Swallowed: mid-rebind the
 						// press is a binding, not text for the page.
-						self->Send(json{ { "type", "accelerator" },
-							{ "vk", vk }, { "scan", scan }, { "down", true } });
+						self->Send(msg::ToJson(msg::Accelerator{
+							.vk = vk, .scan = scan, .down = true }));
 						return 0;
 					}
 				}
@@ -2132,13 +2139,14 @@ namespace osfui::wv2
 				// Mouse always targets the input-target view. The OSF UI runtime selects the
 				// active menu, so sibling views never see the pointer.
 				if (!inputTarget || !inputTarget->compositionController) return;
-				const std::string kind = a_msg.value("kind", "move");
+				const auto mouse = msg::FromJson<msg::Mouse>(a_msg);
+				const std::string& kind = mouse.kind;
 				const bool physicalWheel = kind == "physicalWheel";
 				// Prefer direct browser-host raw input and discard the later game-pipe
 				// fallback so one physical notch scrolls exactly once.
 				if (physicalWheel && rawMouseRegistered) return;
-				int x = a_msg.value("x", 0);
-				int y = a_msg.value("y", 0);
+				int x = mouse.x;
+				int y = mouse.y;
 				// Right-stick scrolling still arrives over the pipe. Once the browser host
 				// owns physical mouse capture, target the real pointer sampled at
 				// send time rather than the game-window path's now-stale WM_INPUT
@@ -2158,10 +2166,10 @@ namespace osfui::wv2
 					eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_MOVE;
 				} else if (kind == "wheel" || physicalWheel) {
 					eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL;
-					data = static_cast<UINT32>(a_msg.value("wheel", 0));
+					data = static_cast<UINT32>(mouse.wheel);
 				} else {
-					const int  button = a_msg.value("button", 0);
-					const bool down = a_msg.value("down", false);
+					const int  button = mouse.button;
+					const bool down = mouse.down;
 					if (button == 0) {
 						eventKind = down ? COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_DOWN :
 							COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_UP;
@@ -2240,7 +2248,7 @@ namespace osfui::wv2
 			{
 				const auto now = ::GetTickCount64();
 				if (nextHeartbeatAt != 0 && now < nextHeartbeatAt) return true;
-				if (!Send(json{ { "type", "heartbeat" }, { "tick", now } })) {
+				if (!Send(msg::ToJson(msg::Heartbeat{ .tick = now }))) {
 					quit.store(true, std::memory_order_release);
 					return false;
 				}
@@ -2343,10 +2351,10 @@ namespace osfui::wv2
 					exitCode = 5;
 				}
 
-				Send(json{ { "type", "bye" },
-					{ "reason", !byeReason.empty() ? byeReason.c_str()
-							: exitCode == 0      ? "shutdown"
-												 : "init-failed" } });
+				Send(msg::ToJson(msg::Bye{
+					.reason = !byeReason.empty() ? byeReason
+						: exitCode == 0          ? "shutdown"
+												 : "init-failed" }));
 				log.pipe.store(nullptr, std::memory_order_release);
 				CloseWebResources();
 				if (dispatcher) {
@@ -2463,13 +2471,12 @@ namespace osfui::wv2
 		} else {
 			PromptInstallWebView2Runtime(app.log);
 		}
-		if (!app.Send(json{
-				{ "type", "hello" },
-				{ "protocolVersion", kBrowserHostProtocolVersion },
-				{ "hostVersion", OSFUI::kOsfuiReleaseVersion },
-				{ "runtimeVersion", webView2RuntimeVersion },
-				{ "pid", ::GetCurrentProcessId() },
-			})) {
+		if (!app.Send(osfui::wv2::msg::ToJson(osfui::wv2::msg::Hello{
+				.protocolVersion = kBrowserHostProtocolVersion,
+				.hostVersion = OSFUI::kOsfuiReleaseVersion,
+				.runtimeVersion = webView2RuntimeVersion,
+				.pid = ::GetCurrentProcessId(),
+			}))) {
 			app.log.Error("hello write failed: " + app.pipe.LastErrorText());
 			app.log.pipe.store(nullptr, std::memory_order_release);
 			app.pipe.Close();
