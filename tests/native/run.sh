@@ -17,6 +17,10 @@ DEPS=.deps
 BUILD=.build
 NLOHMANN_VERSION=v3.11.3
 
+# The build dir is disposable and is rebuilt from scratch every run (there is
+# no cross-run incrementality to preserve). Recreating it also evicts binaries
+# of suites that no longer exist, which would otherwise remain runnable.
+rm -rf "$BUILD"
 mkdir -p "$DEPS/nlohmann" "$BUILD/obj"
 if [[ ! -f "$DEPS/nlohmann/json.hpp" ]]; then
     echo "fetching nlohmann/json $NLOHMANN_VERSION ..."
@@ -25,6 +29,18 @@ if [[ ! -f "$DEPS/nlohmann/json.hpp" ]]; then
         "https://raw.githubusercontent.com/nlohmann/json/$NLOHMANN_VERSION/single_include/nlohmann/json.hpp"
 fi
 
+# Toolchain: CI and Unix developers use a GNU-driver compiler (CXX, default
+# clang++). On a Windows box with no clang/g++ on PATH, fall back to MSVC cl
+# through vcvars64 — the "MSVC dev shell" path AGENTS.md describes — with the
+# same suite list, force-included stubs, and exit-code protocol.
+MSVC=0
+if [[ -z "${CXX:-}" ]] && ! command -v clang++ >/dev/null 2>&1 && ! command -v g++ >/dev/null 2>&1; then
+    VSWHERE="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
+    if [[ -x "$VSWHERE" ]]; then
+        VSROOT="$("$VSWHERE" -latest -property installationPath | tr -d '\r')"
+        [[ -n "$VSROOT" ]] && MSVC=1
+    fi
+fi
 CXX="${CXX:-clang++}"
 BASEFLAGS="-std=c++2b -Wall -Wextra -g -I ../../src -I ../../sdk -I ../../tools/webview2_shared -I $DEPS -I stubs"
 
@@ -83,35 +99,72 @@ for suite in "${SUITES[@]}"; do
     done
 done
 
-# --- Compile each distinct unit once, in parallel. xargs exits nonzero (so the
-# --- pipeline fails under `set -o pipefail`) if any compile fails.
-compile_one() {
-    local src=$1 obj
-    obj="$BUILD/obj/$(printf '%s' "$src" | tr './ ' '___').o"
-    echo "  cc $src"
-    $CXX $BASEFLAGS -include stubs/pch.h -c "$src" -o "$obj"
-}
-export -f compile_one
-export CXX BASEFLAGS BUILD
+if [[ "$MSVC" == 1 ]]; then
+    # --- MSVC path: one generated cmd script runs vcvars64 once, compiles every
+    # distinct TU in one /MP invocation, then links each suite. cl's /Fo<dir>
+    # flattens objects to basenames, so refuse a basename collision up front.
+    declare -A bybase=()
+    for s in "${UNIQUE[@]}"; do
+        b="$(basename "$s")"
+        if [[ -n "${bybase[$b]:-}" ]]; then
+            echo "MSVC mode: duplicate TU basename: $s vs ${bybase[$b]}" >&2
+            exit 1
+        fi
+        bybase[$b]="$s"
+    done
+    HERE_W="$(cygpath -w "$(pwd)")"
+    winsrc() { printf '%s\\%s' "$HERE_W" "${1//\//\\}"; }
+    CMDFILE="$BUILD/msvc_build.cmd"
+    {
+        echo '@echo off'
+        echo "call \"$(cygpath -w "$VSROOT")\\VC\\Auxiliary\\Build\\vcvars64.bat\" >nul || exit /b 1"
+        echo "cd /d \"$HERE_W\\$BUILD\" || exit /b 1"
+        FLAGS="/nologo /std:c++latest /EHsc /I \"$HERE_W\\..\\..\\src\" /I \"$HERE_W\\..\\..\\sdk\" /I \"$HERE_W\\..\\..\\tools\\webview2_shared\" /I \"$HERE_W\\$DEPS\" /I \"$HERE_W\\stubs\" /FI \"$HERE_W\\stubs\\pch.h\""
+        printf 'cl %s /MP /c' "$FLAGS"
+        for s in "${UNIQUE[@]}"; do printf ' "%s"' "$(winsrc "$s")"; done
+        printf ' /Foobj\\ || exit /b 1\n'
+        for suite in "${SUITES[@]}"; do
+            read -r name srcs <<< "$suite"
+            printf 'cl /nologo'
+            for s in $srcs; do printf ' "obj\\%s.obj"' "$(basename "$s" .cpp)"; done
+            printf ' /Fe:%s.exe || exit /b 1\n' "$name"
+        done
+    } > "$CMDFILE"
+    echo "== MSVC (cl via vcvars64): compiling ${#UNIQUE[@]} translation units, linking ${#SUITES[@]} suites =="
+    cmd //c "$(cygpath -w "$CMDFILE")"
+else
+    # --- Compile each distinct unit once, in parallel. xargs exits nonzero (so
+    # --- the pipeline fails under `set -o pipefail`) if any compile fails.
+    compile_one() {
+        local src=$1 obj
+        obj="$BUILD/obj/$(printf '%s' "$src" | tr './ ' '___').o"
+        echo "  cc $src"
+        $CXX $BASEFLAGS -include stubs/pch.h -c "$src" -o "$obj"
+    }
+    export -f compile_one
+    export CXX BASEFLAGS BUILD
 
-JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
-echo "== compiling ${#UNIQUE[@]} translation units (-P $JOBS) =="
-printf '%s\n' "${UNIQUE[@]}" | xargs -P "$JOBS" -n1 -I{} bash -c 'compile_one "$1"' _ {}
+    JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+    echo "== compiling ${#UNIQUE[@]} translation units (-P $JOBS) =="
+    printf '%s\n' "${UNIQUE[@]}" | xargs -P "$JOBS" -n1 -I{} bash -c 'compile_one "$1"' _ {}
 
-# --- Link each suite from its (already built) objects.
-echo "== linking ${#SUITES[@]} suites =="
-for suite in "${SUITES[@]}"; do
-    read -r name srcs <<< "$suite"
-    objs=()
-    for s in $srcs; do objs+=("$(objname "$s")"); done
-    $CXX $BASEFLAGS "${objs[@]}" -o "$BUILD/$name"
-done
+    # --- Link each suite from its (already built) objects.
+    echo "== linking ${#SUITES[@]} suites =="
+    for suite in "${SUITES[@]}"; do
+        read -r name srcs <<< "$suite"
+        objs=()
+        for s in $srcs; do objs+=("$(objname "$s")"); done
+        $CXX $BASEFLAGS "${objs[@]}" -o "$BUILD/$name"
+    done
+fi
 
 # --- Run. exit code = number of failing checks.
 failures=0
 for suite in "${SUITES[@]}"; do
     read -r name _ <<< "$suite"
     echo "== $name =="
-    "$BUILD/$name" || failures=$((failures + $?))
+    bin="$BUILD/$name"
+    [[ -f "$bin" ]] || bin="$bin.exe"
+    "$bin" || failures=$((failures + $?))
 done
 exit "$failures"

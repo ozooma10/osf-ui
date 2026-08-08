@@ -1,5 +1,7 @@
 #include "../../tools/webview2_shared/Wv2BoundedQueue.h"
 
+#include "check.h"
+
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -10,20 +12,6 @@
 using osfui::wv2::BoundedQueue;
 using osfui::wv2::GameMessageCoalesceKey;
 using namespace std::chrono_literals;
-
-namespace
-{
-	int checks = 0;
-	int failures = 0;
-
-#define CHECK(expr) do { \
-	++checks; \
-	if (!(expr)) { \
-		++failures; \
-		std::fprintf(stderr, "FAIL line %d: %s\n", __LINE__, #expr); \
-	} \
-} while (false)
-}
 
 int main()
 {
@@ -84,6 +72,6 @@ int main()
 	CHECK(queue.TryPop(item) && item.value == 9);
 
 	std::fprintf(stderr, "wv2_bounded_queue_tests: %d checks, %d failure(s)\n",
-		checks, failures);
-	return failures;
+		g_checks, g_failures);
+	return g_failures;
 }

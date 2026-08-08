@@ -22,20 +22,10 @@
 #include "RE/E/Events.h"
 #include "RE/T/TESForm.h"
 #include "RE/T/TESFullName.h"
+#include "check.h"
 
 namespace
 {
-	int g_failures = 0;
-	int g_checks = 0;
-
-#define CHECK(expr)                                                                     \
-	do {                                                                                \
-		++g_checks;                                                                     \
-		if (!(expr)) {                                                                  \
-			++g_failures;                                                               \
-			std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #expr);        \
-		}                                                                               \
-	} while (0)
 
 	// Count of test-log entries whose text contains a_needle.
 	std::size_t LogCount(std::string_view a_needle)

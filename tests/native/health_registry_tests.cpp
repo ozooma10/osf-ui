@@ -17,20 +17,10 @@
 #include "runtime/MessageBridge.h"
 
 #include "core/Log.h"
+#include "check.h"
 
 namespace
 {
-	int g_failures = 0;
-	int g_checks = 0;
-
-#define CHECK(expr)                                                                     \
-	do {                                                                                \
-		++g_checks;                                                                     \
-		if (!(expr)) {                                                                  \
-			++g_failures;                                                               \
-			std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #expr);        \
-		}                                                                               \
-	} while (0)
 
 	// One captured native->web envelope, flattened. 2.0 keeps every routing
 	// field BESIDE the payload, so they are all top-level here too.

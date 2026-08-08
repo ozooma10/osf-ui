@@ -8,20 +8,11 @@
 #include "runtime/SettingsStore.h"
 
 #include "core/Log.h"
+#include "check.h"
 
 namespace
 {
-	int g_failures = 0;
-	int g_checks = 0;
 
-#define CHECK(expr)                                                                     \
-	do {                                                                                \
-		++g_checks;                                                                     \
-		if (!(expr)) {                                                                  \
-			++g_failures;                                                               \
-			std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #expr);        \
-		}                                                                               \
-	} while (0)
 }
 
 // core/Log.h declarations (real impl pulls game deps — stub, as in the other

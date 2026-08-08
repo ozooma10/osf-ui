@@ -6,23 +6,14 @@
 #include <cstdio>
 #include <string>
 #include <thread>
+#include "check.h"
 
 using osfui::wv2::Pipe;
 using namespace std::chrono_literals;
 
 namespace
 {
-	int g_checks = 0;
-	int g_failures = 0;
 	std::atomic_uint64_t g_serial{ 0 };
-
-#define CHECK(expr) do { \
-	++g_checks; \
-	if (!(expr)) { \
-		++g_failures; \
-		std::fprintf(stderr, "FAIL line %d: %s\n", __LINE__, #expr); \
-	} \
-} while (false)
 
 	std::wstring NextPipeName()
 	{

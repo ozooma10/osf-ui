@@ -6,20 +6,10 @@
 #include "runtime/SettingsStore.h"
 
 #include "core/Log.h"
+#include "check.h"
 
 namespace
 {
-	int  g_failures = 0;
-	int  g_checks = 0;
-
-#define CHECK(expr)                                                                     \
-	do {                                                                                \
-		++g_checks;                                                                     \
-		if (!(expr)) {                                                                  \
-			++g_failures;                                                               \
-			std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #expr);        \
-		}                                                                               \
-	} while (0)
 
 	// Does a STRICT dump of this value succeed? nlohmann's default handler throws
 	// type_error.316 on an incomplete UTF-8 sequence, and the store's own paths

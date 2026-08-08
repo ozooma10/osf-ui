@@ -63,7 +63,7 @@ target("wv2-pipe-tests")
     set_warnings("allextra")
     set_encodings("utf-8")
     add_files("tests/native/wv2_pipe_tests.cpp", "tools/webview2_shared/Wv2Pipe.cpp")
-    add_includedirs("tools/webview2_shared")
+    add_includedirs("tools/webview2_shared", "tests/native/stubs")
     add_syslinks("advapi32")
 
 -- define targets

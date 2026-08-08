@@ -1,13 +1,11 @@
 #include "compat/v1/NativeBridge.h"
 
 #include "api/BridgeApi.h"
+#include "check.h"
 #include "runtime/MessageBridge.h"
 
 namespace
 {
-	int failures = 0;
-#define CHECK(expr) do { if (!(expr)) { ++failures; std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #expr); } } while (0)
-
 	struct Fire
 	{
 		std::string name;
@@ -202,6 +200,6 @@ int main()
 	bridgeVtable->UnregisterRequest("acme.widgets.request");
 	api.PumpMainThread();
 
-	std::printf("v1 native bridge tests: %s\n", failures ? "FAILED" : "passed");
-	return failures;
+	std::printf("v1 native bridge tests: %s\n", g_failures ? "FAILED" : "passed");
+	return g_failures;
 }

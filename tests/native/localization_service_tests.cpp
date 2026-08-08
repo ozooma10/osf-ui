@@ -4,20 +4,10 @@
 #include "runtime/LocalizationService.h"
 
 #include "core/Log.h"
+#include "check.h"
 
 namespace
 {
-	int g_failures = 0;
-	int g_checks = 0;
-
-#define CHECK(expr)                                                              \
-	do {                                                                           \
-		++g_checks;                                                                \
-		if (!(expr)) {                                                             \
-			++g_failures;                                                          \
-			std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #expr); \
-		}                                                                          \
-	} while (0)
 
 	void WriteFile(const std::filesystem::path& a_path, std::string_view a_text)
 	{
