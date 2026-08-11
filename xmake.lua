@@ -94,7 +94,7 @@ target("OSF UI")
     add_syslinks("d3d12", "dxgi", "dxguid", "d3dcompiler", "shell32", "ole32")
 
     -- add src files
-    add_files("src/**.cpp")
+    add_files("src/v2/**.cpp", "src/main.cpp")
     add_headerfiles("src/**.h")
     add_includedirs("src")
     add_includedirs("tools/webview2_shared")

@@ -1,5 +1,5 @@
-#include "Events/Events.h"
-#include "Scripts/Papyrus.h"
+#include "v2/Events/Events.h"
+#include "v2/Scripts/Papyrus.h"
 
 #include "v2/Runtime/ViewManifest.h"
 
