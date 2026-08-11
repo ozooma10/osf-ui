@@ -14,6 +14,7 @@ add_rules("plugin.vsxmake.autoupdate")
 
 -- JSON for config, view manifests, and the message bridge
 add_requires("nlohmann_json")
+add_requires("glaze")
 
 -- Production host executable. Self-contained on purpose: static CRT + static
 -- WebView2 loader, because it runs from a mirrored real path with no neighbours.
@@ -33,12 +34,13 @@ target("osfui-webview2-host")
         add_files("tools/webview2_host/scripts/**.js", { rule = "utils.bin2c" })
         add_headerfiles("tools/webview2_host/**.h", "tools/webview2_shared/**.h")
         add_includedirs("src", "tools/webview2_shared")
-        add_packages("nlohmann_json")
+        add_packages("nlohmann_json", "glaze")
         add_syslinks(
             "d3d11", "dxgi", "windowsapp", "runtimeobject", "CoreMessaging",
             "ole32", "oleaut32", "uuid", "comsuppw", "taskschd", "advapi32",
             "user32", "shell32")
         add_ldflags("/SUBSYSTEM:WINDOWS", { force = true })
+        add_cxflags("cl::/Zc:preprocessor", {force = true})
         on_load(function(target)
             local sdk = os.getenv("WEBVIEW2_SDK_DIR")
             if not sdk or sdk == "" then
@@ -84,7 +86,7 @@ target("OSF UI")
     })
 
     -- add packages
-    add_packages("nlohmann_json")
+    add_packages("nlohmann_json", "glaze")
 
     -- D3D12 overlay compositor (composite/): the device/queue are the game's, but we still need these for our own root signature, pipeline state, and runtime shader compilation.
     -- d3dcompiler is used to build the overlay shaders at runtime

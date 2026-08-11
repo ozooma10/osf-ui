@@ -8,6 +8,7 @@
 #include <charconv>
 #include <chrono>
 #include <cstdint>
+#include <expected>
 #include <filesystem>
 #include <format>
 #include <fstream>
