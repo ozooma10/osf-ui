@@ -5,6 +5,7 @@
 #include "runtime/Ids.h"
 
 #include "RE/T/TESForm.h"
+#include "Papyrus.h"
 
 namespace OSFUI::Compat::V1::Papyrus
 {

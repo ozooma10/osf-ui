@@ -1,29 +1,57 @@
-#include "core/Plugin.h"
+#include "Events/Events.h"
+#include "Scripts/Papyrus.h"
 
-SFSE_PLUGIN_PRELOAD(const SFSE::PreLoadInterface* a_sfse)
+namespace
 {
-	// SFSE::Init initializes REX logging, so it must be the first statement —
-	// no log call may precede it. Open at Debug so nothing before config load is
-	// dropped; Log::SetDevMode raises the floor to Info once config is read
-	// (Debug stays only when devMode is on). spdlog flushes at the active level,
-	// so what we keep survives a crash that never flushes.
-	// logRotate = 1 keeps the previous session as "OSF UI.1.log" — a crash log
-	// must survive the next launch or the report prompt has nothing to attach.
-	// The pattern adds the date so logs from different days aren't conflated.
-	SFSE::Init(a_sfse, {
-						   .logLevel = REX::ELogLevel::Debug,
-						   .logPattern = "[%m-%d %T.%e] [%=5t] [%L] %v",
-						   .logRotate = 1,
-					   });
+    void OnDataLoaded() noexcept
+    {
+        REX::INFO("=== OSF Identity: data loaded ===");
+        // NpcAppearfance::Initialize();
+        REX::INFO("=== OSF Identity: ready ===");
+    }
 
-	return OSFUI::Plugin::OnPreLoad();
+	void OnSFSEMessage(SFSE::MessagingInterface::Message* a_msg)
+	{
+		if (!a_msg) {
+			return;
+		}
+		switch (a_msg->type) {
+			case SFSE::MessagingInterface::kPostLoad:
+				REX::INFO("Plugin: SFSE message kPostLoad");
+				// if (Runtime::Get().GetConfig().enabled) {
+				// 	Runtime::Get().InstallOverlayDrawPath();
+				// }
+				break;
+			case SFSE::MessagingInterface::kPostDataLoad:
+				REX::INFO("Plugin: SFSE message kPostDataLoad");
+
+				Papyrus::RegisterFunctions();
+
+				// GameVM and ControlMap exist from here, but this callback need not
+				// share the owning thread. The enabled runtime binds Papyrus and copies
+				// ControlMap on its next main-thread tick. With the runtime disabled
+				// there is no permanent tick, so queue the promised Papyrus-only setup
+				// directly through the same BSService main-thread queue.
+				// if (Runtime::Get().GetConfig().enabled) {
+				// 	Runtime::Get().OnDataLoaded();
+				// } else if (!TryQueueMainThread([] { API::Papyrus::Install(); })) {
+				// 	REX::ERROR("Plugin: could not queue disabled-runtime Papyrus binding on the main thread; "
+				// 		"OSFUI.* natives remain unavailable");
+				// }
+				break;
+			case SFSE::MessagingInterface::kPostPostDataLoad:
+				REX::INFO("Plugin: SFSE message kPostPostDataLoad");
+				Events::Register();
+				break;
+		}
+	}
 }
 
 SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 {
-	// Trampoline: MainThreadMenuPump patches two UI call sites and the live
-	// ControlMap provider owns one verified prologue gateway/remap observer.
 	SFSE::Init(a_sfse, { .trampoline = true, .trampolineSize = 1024 });
 
-	return OSFUI::Plugin::OnLoad();
+	SFSE::GetMessagingInterface()->RegisterListener(OnSFSEMessage);
+	return true;
+	// return OSFUI::Plugin::OnLoad();
 }
