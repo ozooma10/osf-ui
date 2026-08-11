@@ -1,6 +1,8 @@
 #include "Events/Events.h"
 #include "Scripts/Papyrus.h"
 
+#include "v2/Runtime/ViewManifest.h"
+
 namespace
 {
     void OnDataLoaded() noexcept
@@ -9,6 +11,38 @@ namespace
         // NpcAppearfance::Initialize();
         REX::INFO("=== OSF Identity: ready ===");
     }
+
+	std::filesystem::path DefaultViewsDirectory()
+	{
+		return std::filesystem::path{
+			REX::FModule::GetCurrentModule().GetFileName()
+		}.parent_path() / L"OSFUI" / L"Views";
+	}
+
+	void ValidateOneViewManifest()
+	{
+		const auto manifestPath = DefaultViewsDirectory() / "osfui" / "settings" / "manifest.json";
+
+		auto result = Runtime::LoadViewManifest(manifestPath);
+
+		if (!result) {
+			REX::ERROR(
+				"View discovery failed: {}",
+				result.error());
+			return;
+		}
+
+		const auto& manifest = *result;
+
+		REX::INFO(
+			"Discovered view '{}' title='{}' entry='{}' size={}x{} transparent={}",
+			manifest.id,
+			manifest.title,
+			manifest.entry,
+			manifest.width,
+			manifest.height,
+			manifest.transparent);
+	}
 
 	void OnSFSEMessage(SFSE::MessagingInterface::Message* a_msg)
 	{
@@ -25,6 +59,7 @@ namespace
 			case SFSE::MessagingInterface::kPostDataLoad:
 				REX::INFO("Plugin: SFSE message kPostDataLoad");
 
+				ValidateOneViewManifest();
 				Papyrus::RegisterFunctions();
 
 				// GameVM and ControlMap exist from here, but this callback need not
