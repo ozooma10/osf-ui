@@ -2,6 +2,7 @@
 #include "v2/Scripts/Papyrus.h"
 
 #include "v2/Runtime/ViewManifest.h"
+#include "v2/Runtime/ViewDiscovery.h"
 
 namespace
 {
@@ -12,29 +13,18 @@ namespace
 		}.parent_path() / L"OSFUI" / L"Views";
 	}
 
-	void ValidateOneViewManifest()
+	void DiscoverInstalledViews()
 	{
-		const auto manifestPath = DefaultViewsDirectory() / "osfui" / "settings" / "manifest.json";
-
-		auto result = Runtime::LoadViewManifest(manifestPath);
-
-		if (!result) {
-			REX::ERROR(
-				"View discovery failed: {}",
-				result.error());
-			return;
+		auto result = Runtime::DiscoverViews(DefaultViewsDirectory());
+		for(const auto& issue : result.issues) {
+			REX::ERROR("View discovery failed at '{}': {}", issue.path.string(), issue.message);
 		}
 
-		const auto& manifest = *result;
+		for(const auto& view : result.views) {
+			REX::INFO("Discovered view '{}' title='{}' entry='{}' size={}x{} transparent={}", view.id, view.title, view.entry, view.width, view.height, view.transparent);
+		}
 
-		REX::INFO(
-			"Discovered view '{}' title='{}' entry='{}' size={}x{} transparent={}",
-			manifest.id,
-			manifest.title,
-			manifest.entry,
-			manifest.width,
-			manifest.height,
-			manifest.transparent);
+		REX::INFO("View discovery completed: {} valid, {} invalid", result.views.size(), result.issues.size());
 	}
 
 	void OnSFSEMessage(SFSE::MessagingInterface::Message* a_msg)
@@ -52,7 +42,7 @@ namespace
 			case SFSE::MessagingInterface::kPostDataLoad:
 				REX::INFO("Plugin: SFSE message kPostDataLoad");
 
-				ValidateOneViewManifest();
+				DiscoverInstalledViews();
 				if(!Papyrus::RegisterFunctions()) {
 					REX::ERROR("Plugin: Papyrus natives are unavailable");
 				}
