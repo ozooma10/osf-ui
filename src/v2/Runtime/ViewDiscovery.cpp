@@ -37,6 +37,11 @@ namespace Runtime
 
                 const auto viewPath = viewEntry.path();
                 const auto manifestPath = viewPath / "manifest.json";
+                std::error_code manifestError;
+
+                if (!std::filesystem::is_regular_file(manifestPath, manifestError)) {
+                    continue;
+                }
 
                 auto manifestResult = LoadViewManifest(manifestPath);
 

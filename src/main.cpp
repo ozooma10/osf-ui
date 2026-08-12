@@ -3,6 +3,7 @@
 
 #include "v2/Runtime/ViewManifest.h"
 #include "v2/Runtime/ViewDiscovery.h"
+#include "v2/Runtime/ViewCatalog.h"
 
 namespace
 {
@@ -13,6 +14,12 @@ namespace
 		}.parent_path() / L"OSFUI" / L"Views";
 	}
 
+	Runtime::ViewCatalog& InstalledViews()
+	{
+		static Runtime::ViewCatalog catalog;
+		return catalog;
+	}
+
 	void DiscoverInstalledViews()
 	{
 		auto result = Runtime::DiscoverViews(DefaultViewsDirectory());
@@ -20,8 +27,16 @@ namespace
 			REX::ERROR("View discovery failed at '{}': {}", issue.path.string(), issue.message);
 		}
 
-		for(const auto& view : result.views) {
+		InstalledViews().Replace(std::move(result.views));
+
+		for(const auto& view : InstalledViews().All()) {
 			REX::INFO("Discovered view '{}' title='{}' entry='{}' size={}x{} transparent={}", view.id, view.title, view.entry, view.width, view.height, view.transparent);
+		}
+
+		if (const auto* settings = InstalledViews().Find("osfui/settings")) {
+			REX::INFO("Catalog lookup succeeded: '{}' -> '{}'", settings->id, settings->rootDirectory.string());
+		} else {
+			REX::ERROR("Catalog lookup failed: built-in view 'osfui/settings' is unavailable");
 		}
 
 		REX::INFO("View discovery completed: {} valid, {} invalid", result.views.size(), result.issues.size());
