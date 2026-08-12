@@ -2,8 +2,6 @@
 
 #include "ViewManifest.h"
 
-#include <unordered_set>
-
 namespace Runtime
 {
     class ViewPresentationController
