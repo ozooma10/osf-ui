@@ -5,13 +5,6 @@
 
 namespace
 {
-    void OnDataLoaded() noexcept
-    {
-        REX::INFO("=== OSF Identity: data loaded ===");
-        // NpcAppearfance::Initialize();
-        REX::INFO("=== OSF Identity: ready ===");
-    }
-
 	std::filesystem::path DefaultViewsDirectory()
 	{
 		return std::filesystem::path{
@@ -76,7 +69,9 @@ namespace
 				break;
 			case SFSE::MessagingInterface::kPostPostDataLoad:
 				REX::INFO("Plugin: SFSE message kPostPostDataLoad");
-				Events::Register();
+				if(!Events::Register()) {
+					REX::ERROR("Plugin: menu event integration is unavailable");
+				}
 				break;
 		}
 	}
