@@ -1,5 +1,7 @@
 #include "Events.h"
 
+#include "Handlers/MenuOpenClose.h"
+
 namespace Events
 {
     bool Register()

@@ -53,7 +53,9 @@ namespace
 				REX::INFO("Plugin: SFSE message kPostDataLoad");
 
 				ValidateOneViewManifest();
-				Papyrus::RegisterFunctions();
+				if(!Papyrus::RegisterFunctions()) {
+					REX::ERROR("Plugin: Papyrus natives are unavailable");
+				}
 
 				// GameVM and ControlMap exist from here, but this callback need not
 				// share the owning thread. The enabled runtime binds Papyrus and copies
