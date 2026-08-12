@@ -2,6 +2,12 @@
 
 namespace Runtime
 {
+    enum class ViewKind
+    {
+        Menu,
+        Hud
+    };
+
     struct ViewManifest
     {
         std::string id;
@@ -11,6 +17,11 @@ namespace Runtime
         std::uint32_t width{ 1600 };
         std::uint32_t height{ 900 };
         bool transparent{ true };
+
+        ViewKind kind{ ViewKind::Menu };
+        bool capturesInput{ true };
+        bool pausesGame{ true };
+        bool openOnStart{ false };
 
         std::filesystem::path rootDirectory;
     };

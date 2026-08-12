@@ -12,6 +12,11 @@ namespace Runtime
         std::int64_t width{ 1600 };
         std::int64_t height{ 900 };
         bool transparent{ true };
+
+        std::string kind{ "menu" };
+        bool capturesInput{ true };
+        bool pausesGame{ true };
+        bool openOnStart{ false };
     };
 
     namespace
@@ -72,6 +77,12 @@ namespace Runtime
             }
             return true;
         }
+
+        ViewKind ParseViewKind(std::string_view a_value, const std::filesystem::path& a_manifestPath)
+        {
+            if(a_value == "hud") { return ViewKind::Hud; }
+            return ViewKind::Menu; // Default to Menu if the kind is unrecognized.
+        }
     }
 
     ManifestResult LoadViewManifest(const std::filesystem::path& a_manifestPath)
@@ -106,6 +117,10 @@ namespace Runtime
             return Failure("invalid entry '" + parsed.entry + "' in manifest path '" + a_manifestPath.string() + "'");
         }
 
+        const auto kind = ParseViewKind(parsed.kind, a_manifestPath);
+        const bool capturesInput = kind == ViewKind::Menu && parsed.capturesInput;
+        const bool pausesGame = kind == ViewKind::Menu && parsed.pausesGame;
+
         ViewManifest manifest {
             .id = modId + "/" + viewName,
             .title = parsed.title.value_or(viewName),
@@ -113,6 +128,9 @@ namespace Runtime
             .width = static_cast<std::uint32_t>(std::clamp<std::int64_t>(parsed.width, 1, 16384)),
             .height = static_cast<std::uint32_t>(std::clamp<std::int64_t>(parsed.height, 1, 16384)),
             .transparent = parsed.transparent,
+            .kind = kind,
+            .capturesInput = capturesInput,
+            .pausesGame = pausesGame,
             .rootDirectory = std::move(viewDirectory)
         };
         return manifest;

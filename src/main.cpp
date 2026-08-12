@@ -39,7 +39,7 @@ namespace
 			REX::ERROR("Catalog lookup failed: built-in view 'osfui/settings' is unavailable");
 		}
 
-		REX::INFO("View discovery completed: {} valid, {} invalid", result.views.size(), result.issues.size());
+		REX::INFO("View discovery completed: {} valid, {} invalid",  InstalledViews().All().size(), result.issues.size());
 	}
 
 	void OnSFSEMessage(SFSE::MessagingInterface::Message* a_msg)
