@@ -68,6 +68,20 @@ target("wv2-pipe-tests")
     add_includedirs("tools/webview2_shared", "tests/native/stubs")
     add_syslinks("advapi32")
 
+-- Deployment-free tests for the renderer-independent v2 runtime state.
+target("osfui-v2-tests")
+    set_kind("binary")
+    set_default(false)
+    set_languages("c++23")
+    set_warnings("allextra")
+    set_encodings("utf-8")
+    add_files(
+        "tests/v2/runtime_tests.cpp",
+        "src/v2/Runtime/ViewPresentationController.cpp"
+    )
+    add_includedirs("src")
+    set_pcxxheader("tests/native/stubs/pch.h")
+
 -- define targets
 -- target name == repo folder == MO2 mod folder (deploy goes to XSE_SF_MODS_PATH\<target name>)
 target("OSF UI")
