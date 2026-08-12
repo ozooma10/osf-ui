@@ -78,7 +78,7 @@ namespace Runtime
             return true;
         }
 
-        ViewKind ParseViewKind(std::string_view a_value, const std::filesystem::path& a_manifestPath)
+        ViewKind ParseViewKind(std::string_view a_value)
         {
             if(a_value == "hud") { return ViewKind::Hud; }
             return ViewKind::Menu; // Default to Menu if the kind is unrecognized.
@@ -117,7 +117,7 @@ namespace Runtime
             return Failure("invalid entry '" + parsed.entry + "' in manifest path '" + a_manifestPath.string() + "'");
         }
 
-        const auto kind = ParseViewKind(parsed.kind, a_manifestPath);
+        const auto kind = ParseViewKind(parsed.kind);
         const bool capturesInput = kind == ViewKind::Menu && parsed.capturesInput;
         const bool pausesGame = kind == ViewKind::Menu && parsed.pausesGame;
 
@@ -131,6 +131,7 @@ namespace Runtime
             .kind = kind,
             .capturesInput = capturesInput,
             .pausesGame = pausesGame,
+            .openOnStart = parsed.openOnStart,
             .rootDirectory = std::move(viewDirectory)
         };
         return manifest;
