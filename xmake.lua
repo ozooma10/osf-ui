@@ -75,9 +75,15 @@ target("osfui-v2-tests")
     set_languages("c++23")
     set_warnings("allextra")
     set_encodings("utf-8")
+    add_packages("glaze")
+    add_cxflags("cl::/Zc:preprocessor", { force = true })
     add_files(
         "tests/v2/runtime_tests.cpp",
-        "src/v2/Runtime/ViewPresentationController.cpp"
+        "src/v2/Runtime/ViewManifest.cpp",
+        "src/v2/Runtime/ViewDiscovery.cpp",
+        "src/v2/Runtime/ViewCatalog.cpp",
+        "src/v2/Runtime/ViewPresentationController.cpp",
+        "src/v2/Runtime/ViewRuntime.cpp"
     )
     add_includedirs("src")
     set_pcxxheader("tests/native/stubs/pch.h")

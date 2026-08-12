@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- View discovery now contains filesystem inspection and enumeration failures to the affected path, records an actionable issue, and continues loading unrelated valid views instead of allowing a directory error to unwind through plugin startup.
 - The complete discovered-view inventory is reachable again from OSF UI's own Mod Settings detail. It no longer depends on the retired Diagnostics settings group, so authors can inspect catalog-hidden and uninstantiated views against the current Interface settings schema.
 - Settings sliders now update their readout while dragging but commit only when the drag ends, and text and colour fields commit on their native change boundary instead of on every keystroke. Preact's compatibility transform had collapsed the deliberately separate `input` and `change` handlers onto the same event, causing slider write spam and inconsistent text-field commits.
 - The injected pause-menu entry no longer waits three extra menu-pump ticks after Starfield's list becomes live. Injection still runs only from the main-thread post-Scaleform pump and retains every movie-liveness, list-presence, and count guard that prevents stale AS3 access.
