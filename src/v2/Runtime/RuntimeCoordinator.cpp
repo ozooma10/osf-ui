@@ -115,6 +115,7 @@ namespace Runtime
         TickPapyrusRegistration();
         ApplyViewRequests();
         DispatchPresentationCommands();
+        ReconcileInputFocus();
 
         if (_viewPresenter) {
             _viewPresenter->Tick();
@@ -169,6 +170,22 @@ namespace Runtime
                 MarkViewInstantiated(command.view.id);
             }
         }
+    }
+
+    void RuntimeCoordinator::ReconcileInputFocus()
+    {
+        if (!_viewPresenter) {
+            return;
+        }
+
+        const bool shouldFocus = _views.Presentation().capturesInput;
+
+        if (_inputFocusRequested == shouldFocus) {
+            return;
+        }
+
+        _viewPresenter->SetInputFocus(shouldFocus);
+        _inputFocusRequested = shouldFocus;
     }
 
     ViewRuntime& RuntimeCoordinator::Views() noexcept

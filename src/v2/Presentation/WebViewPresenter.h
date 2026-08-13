@@ -29,6 +29,7 @@ namespace Presentation
         void SetDrawPathInstalled(bool a_installed);
 
         bool Show(const Runtime::ViewManifest& a_view) noexcept override;
+        void SetInputFocus(bool a_focused) noexcept override;
 
         void Hide(std::string_view a_viewId) noexcept override;
         void Tick() noexcept override;

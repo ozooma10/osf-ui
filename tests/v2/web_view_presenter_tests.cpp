@@ -286,11 +286,18 @@ namespace
 		assert(presenter.Show(view));
 		assert(rendererPtr->createdViews.size() == 1);
 
+		presenter.SetInputFocus(true);
+		assert(rendererPtr->nativeFocusStates == std::vector<bool>{ true });
+
 		presenter.Hide(view.id);
 		assert(rendererPtr->hiddenChanges.back() ==
 			(std::pair<std::string, bool>{ view.id, true }));
-		assert(!rendererPtr->nativeFocusStates.back());
+		assert(rendererPtr->nativeFocusStates == std::vector<bool>{ true });
 		assert(!compositorPtr->visibleStates.back());
+
+		presenter.SetInputFocus(false);
+		assert((rendererPtr->nativeFocusStates ==
+			std::vector<bool>{ true, false }));
 	}
 
 	void TestPresenterTickSubmitsFramesAndTracksDrawAvailability()

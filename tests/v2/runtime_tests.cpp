@@ -60,6 +60,11 @@ namespace
 			return showSucceeds;
 		}
 
+		void SetInputFocus(bool a_focused) noexcept override
+		{
+			inputFocusStates.push_back(a_focused);
+		}
+
 		void Hide(std::string_view a_viewId) noexcept override
 		{
 			calls.push_back({
@@ -77,6 +82,7 @@ namespace
 		bool showSucceeds{ true };
 		std::size_t tickCalls{ 0 };
 		std::vector<PresentationCall> calls;
+		std::vector<bool> inputFocusStates;
 		std::vector<std::size_t> presentationCallCountsAtTick;
 	};
 
@@ -749,6 +755,73 @@ namespace
 		assert(presenter.calls.empty());
 	}
 
+	void TestCoordinatorReconcilesInputFocusAcrossMenuAndHudChanges()
+	{
+		RecordingViewPresenter presenter;
+		Runtime::RuntimeCoordinator runtime{ nullptr, &presenter };
+
+		runtime.Views().ReplaceViews({
+			Menu("osfui/settings"),
+			Hud("author.mod/status")
+		});
+
+		runtime.Views().OpenView("osfui/settings");
+		runtime.Tick();
+		assert((presenter.inputFocusStates == std::vector<bool>{ true }));
+
+		// A steady tick and a HUD opening do not create redundant focus edges.
+		runtime.Tick();
+		runtime.Views().OpenView("author.mod/status");
+		runtime.Tick();
+		assert((presenter.inputFocusStates == std::vector<bool>{ true }));
+
+		// The menu releases focus even though the HUD remains visible.
+		runtime.Views().CloseView("osfui/settings");
+		runtime.Tick();
+		assert((presenter.inputFocusStates ==
+			std::vector<bool>{ true, false }));
+		assert((runtime.Views().Presentation().openViewIds ==
+			std::vector<std::string>{ "author.mod/status" }));
+	}
+
+	void TestCoordinatorReleasesFocusForNonCapturingReplacement()
+	{
+		RecordingViewPresenter presenter;
+		Runtime::RuntimeCoordinator runtime{ nullptr, &presenter };
+
+		runtime.Views().ReplaceViews({
+			Menu("osfui/settings", true),
+			Menu("author.mod/dashboard", false)
+		});
+
+		runtime.Views().OpenView("osfui/settings");
+		runtime.Tick();
+		runtime.Views().OpenView("author.mod/dashboard");
+		runtime.Tick();
+
+		assert((presenter.inputFocusStates ==
+			std::vector<bool>{ true, false }));
+		assert(runtime.Views().Presentation().activeMenu ==
+			"author.mod/dashboard");
+	}
+
+	void TestCoordinatorDoesNotFocusFailedPresentation()
+	{
+		RecordingViewPresenter presenter;
+		presenter.showSucceeds = false;
+		Runtime::RuntimeCoordinator runtime{ nullptr, &presenter };
+
+		runtime.Views().ReplaceViews({
+			Menu("osfui/settings")
+		});
+		runtime.Views().OpenView("osfui/settings");
+
+		runtime.Tick();
+
+		assert(presenter.inputFocusStates.empty());
+		assert(runtime.Views().Presentation().openViewIds.empty());
+	}
+
 	void TestViewRuntimeQueuesPresentationCommands()
 	{
 		Runtime::ViewRuntime runtime;
@@ -872,6 +945,9 @@ int main()
 	TestCoordinatorBoundsConcurrentViewRequests();
 	TestCoordinatorTracksOnlySuccessfulInstantiation();
 	TestCoordinatorClosesViewWhenPresentationFails();
+	TestCoordinatorReconcilesInputFocusAcrossMenuAndHudChanges();
+	TestCoordinatorReleasesFocusForNonCapturingReplacement();
+	TestCoordinatorDoesNotFocusFailedPresentation();
 	RunPapyrusTests();
 	RunWebViewPresenterTests();
 

@@ -119,6 +119,21 @@ namespace Presentation
         }
     }
 
+    void WebViewPresenter::SetInputFocus(bool a_focused) noexcept
+    {
+        if (!_initialized) {
+            return;
+        }
+
+        try {
+            _renderer->SetNativeFocus(a_focused);
+        } catch (const std::exception& error) {
+            REX::ERROR("WebViewPresenter: failed to set input focus to {}: {}", a_focused, error.what());
+        } catch (...) {
+            REX::ERROR("WebViewPresenter: failed to set input focus to {} with an unknown exception", a_focused);
+        }
+    }
+
     void WebViewPresenter::Hide(std::string_view a_viewId) noexcept
     {
         if (!_initialized) {
@@ -135,7 +150,6 @@ namespace Presentation
             _visibleViews.erase(viewId);
 
             if (_visibleViews.empty()) {
-                _renderer->SetNativeFocus(false);
                 _compositor->SetVisible(false);
             }
         } catch (const std::exception& error) {

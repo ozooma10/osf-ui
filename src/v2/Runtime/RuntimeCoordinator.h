@@ -52,6 +52,8 @@ namespace Runtime
         void TickPapyrusRegistration();
         void DispatchPresentationCommands();
 
+        void ReconcileInputFocus();
+
         ViewRuntime _views;
 
         std::mutex _viewRequestsMutex;
@@ -66,5 +68,6 @@ namespace Runtime
 
         // Read and written only by Tick() on the main thread.
         bool _papyrusRegistered{ false };
+        bool _inputFocusRequested{ false };
     };
 }
