@@ -16,11 +16,12 @@
 
 ### Security
 
+- Rebuilt v2 views no longer expose a permission policy: every installed view receives the native bridge, including its validated platform endpoints and Papyrus-call capability, while finer-grained grants are deferred. Filesystem and network capabilities remain unavailable.
 - `osfui.papyrus.call` can no longer target OSF UI's own `OSFUI` script. Its Papyrus natives take the target mod id as an argument and trust their caller, so naming them from a view was a way to write another mod's settings, reset them, publish state under another mod's identity, or rebind OSF UI's own overlay key — all of which the equivalent `settings.*` endpoints refuse. The security model now also states plainly that the vanilla script library, including `Debug.ExecuteConsole`, is within reach of a bridge-enabled view.
 
 ### Fixed
 
-- Rebuilt v2 menus that declare `capturesInput` now grant and release browser focus while suppressing and restoring Starfield gameplay controls as the active menu changes, instead of remaining visible but unfocused while gameplay still responds underneath.
+- Rebuilt v2 menus now grant browser focus, suppress Starfield controls, and pause the game only after their main document loads and produces a fresh composited frame. A failed document closes that view, a lost renderer or draw path closes all views, and failed browser-focus acquisition rolls the active menu back in the same tick instead of leaving an invisible, unfocused, or input-capturing overlay.
 - Papyrus `OpenMenu` and `CloseMenu` now reach the rebuilt v2 runtime through its bounded main-thread request queue. Unknown opens and closes of views that have never been instantiated fail immediately instead of reporting that unusable work was accepted.
 - The rebuilt v2 runtime now owns and initializes the production WebView2 renderer and D3D12 compositor, then installs its Scaleform overlay hook after peer SFSE plugins have loaded. The prior checkpoint could discover and schedule views but had no live presentation backend, so no view could reach the screen.
 - View discovery now contains filesystem inspection and enumeration failures to the affected path, records an actionable issue, and continues loading unrelated valid views instead of allowing a directory error to unwind through plugin startup.

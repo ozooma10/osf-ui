@@ -6,7 +6,10 @@
 #include <chrono>
 #include <cstdint>
 #include <memory>
+#include <optional>
+#include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 namespace OSFUI
 {
@@ -33,7 +36,7 @@ namespace Presentation
 
         bool Show(const Runtime::ViewManifest& a_view) noexcept override;
 
-        void SetInputFocus(bool a_focused) noexcept override;
+        bool SetInputFocus(bool a_focused) noexcept override;
         void SendKeyEvent(std::uint32_t a_virtualKey, bool a_down) noexcept override;
         void UpdateMousePosition(int a_clientX, int a_clientY, int a_clientWidth, int a_clientHeight) noexcept override;
         void SendMouseButtonEvent(int a_button, bool a_down) noexcept override;
@@ -41,9 +44,15 @@ namespace Presentation
 
         void Hide(std::string_view a_viewId) noexcept override;
         void Tick() noexcept override;
+        std::vector<Runtime::ViewPresentationEvent> TakePresentationEvents() override;
 
     private:
         static OSFUI::ViewManifest ConvertManifest(const Runtime::ViewManifest& a_view);
+
+        void HandleLoadResult(std::string_view a_viewId, bool a_failed, std::string_view a_detail);
+        void HandlePresenterFailure(std::string_view a_detail) noexcept;
+        void PublishReadyViews(std::uint64_t a_frameIndex);
+        bool HasReadyVisibleView() const;
 
         static constexpr std::uint64_t kNoPendingMousePosition = ~std::uint64_t {0};
 
@@ -56,8 +65,14 @@ namespace Presentation
 
         std::unordered_set<std::string> _instantiatedViews;
         std::unordered_set<std::string> _visibleViews;
+        std::unordered_set<std::string> _loadedDocuments;
+        std::unordered_set<std::string> _readyViews;
+        std::unordered_set<std::string> _failedViews;
+        std::unordered_map<std::string, std::optional<std::uint64_t>> _loadedFrameFloors;
+        std::vector<Runtime::ViewPresentationEvent> _presentationEvents;
 
         std::chrono::steady_clock::time_point _lastTick {};
+        std::optional<std::uint64_t> _lastSubmittedFrameIndex;
 
         // Keep coordinate pairs coherent while input and presentation run on different threads.
         std::atomic<std::uint64_t> _outputSize {0};
@@ -67,5 +82,6 @@ namespace Presentation
 
         bool _initialized {false};
         bool _drawPathInstalled {false};
+        bool _presenterFailed {false};
     };
 }

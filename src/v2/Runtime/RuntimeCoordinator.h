@@ -63,9 +63,11 @@ namespace Runtime
 
         void TickPapyrusRegistration();
         void DispatchPresentationCommands();
+        void ApplyPresentationEvents();
+        bool IsViewReady(std::string_view a_viewId) const;
 
         void ApplyFrameworkInputActions();
-        void ReconcileInputFocus();
+        bool ReconcileInputFocus();
         void ApplyInputCapturePolicy();
         void ApplyGamePausePolicy();
 
@@ -75,6 +77,7 @@ namespace Runtime
         std::vector<ViewRequest> _pendingViewRequests;
         std::unordered_set<std::string> _knownViewIds;
         std::unordered_set<std::string> _instantiatedViewIds;
+        std::unordered_set<std::string> _readyViewIds;
         bool _loadingMenuOpen{ false };
         bool _mainMenuOpen{ false };
 

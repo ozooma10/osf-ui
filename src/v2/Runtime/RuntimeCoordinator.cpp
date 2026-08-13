@@ -24,6 +24,7 @@ namespace Runtime
             _views.ReplaceViews(std::move(discovery.views));
             _knownViewIds = std::move(knownViewIds);
             _instantiatedViewIds.clear();
+            _readyViewIds.clear();
             _pendingViewRequests.clear();
         }
 
@@ -190,21 +191,33 @@ namespace Runtime
         ApplyViewRequests();
         ApplyFrameworkInputActions();
         DispatchPresentationCommands();
-        const bool shouldCaptureInput = _viewPresenter && _inputRoutingAvailable.load(std::memory_order_acquire) && _views.Presentation().capturesInput;
+
+        if (_viewPresenter) {
+            _viewPresenter->Tick();
+            ApplyPresentationEvents();
+            // A failed view or presenter closes logical state above. Deliver the resulting hides before reconciling engine input and pause policy.
+            DispatchPresentationCommands();
+        }
+
+        const auto presentation = _views.Presentation();
+        const bool activeMenuReady = presentation.activeMenu && IsViewReady(*presentation.activeMenu);
+        const bool shouldCaptureInput = _viewPresenter && activeMenuReady && _inputRoutingAvailable.load(std::memory_order_acquire) && presentation.capturesInput;
 
         if (shouldCaptureInput) {
             ApplyInputCapturePolicy();
-            ReconcileInputFocus();
+            if (!ReconcileInputFocus()) {
+                // Focus acquisition is part of opening an input-capturing menu.
+                // Roll back the logical open and every engine-side effect in this same main-thread tick when it cannot be established.
+                DispatchPresentationCommands();
+                ReconcileInputFocus();
+                ApplyInputCapturePolicy();
+            }
         } else {
             ReconcileInputFocus();
             ApplyInputCapturePolicy();
         }
 
         ApplyGamePausePolicy();
-
-        if (_viewPresenter) {
-            _viewPresenter->Tick();
-        }
     }
 
     void RuntimeCoordinator::TickPapyrusRegistration()
@@ -242,9 +255,12 @@ namespace Runtime
 
             for (const auto& command : commands) {
                 if (command.action == ViewPresentationAction::Hide) {
+                    _readyViewIds.erase(command.view.id);
                     _viewPresenter->Hide(command.view.id);
                     continue;
                 }
+
+                _readyViewIds.erase(command.view.id);
 
                 if (command.view.capturesInput && !_inputRoutingAvailable.load(std::memory_order_acquire)) {
                     REX::WARN("RuntimeCoordinator: refused to show input-capturing view '{}' because game-window input routing is unavailable", command.view.id);
@@ -263,6 +279,43 @@ namespace Runtime
         }
     }
 
+    void RuntimeCoordinator::ApplyPresentationEvents()
+    {
+        if (!_viewPresenter) {
+            return;
+        }
+
+        for (auto& event : _viewPresenter->TakePresentationEvents()) {
+            switch (event.kind) {
+            case ViewPresentationEventKind::NotReady:
+                _readyViewIds.erase(event.viewId);
+                break;
+            case ViewPresentationEventKind::Ready: {
+                const auto openViewIds = _views.Presentation().openViewIds;
+                if (std::ranges::find(openViewIds, event.viewId) != openViewIds.end()) {
+                    _readyViewIds.insert(std::move(event.viewId));
+                }
+                break;
+            }
+            case ViewPresentationEventKind::ViewFailed:
+                _readyViewIds.erase(event.viewId);
+                REX::ERROR("RuntimeCoordinator: presentation failed for view '{}': {}", event.viewId, event.detail);
+                _views.CloseView(event.viewId);
+                break;
+            case ViewPresentationEventKind::PresenterFailed:
+                _readyViewIds.clear();
+                REX::ERROR("RuntimeCoordinator: presentation backend failed: {}", event.detail);
+                _views.CloseAllViews();
+                break;
+            }
+        }
+    }
+
+    bool RuntimeCoordinator::IsViewReady(std::string_view a_viewId) const
+    {
+        return _readyViewIds.contains(std::string {a_viewId});
+    }
+
     void RuntimeCoordinator::ApplyFrameworkInputActions()
     {
         if (_escapeClosePending.exchange(false, std::memory_order_acq_rel)) {
@@ -270,25 +323,37 @@ namespace Runtime
         }
     }
 
-    void RuntimeCoordinator::ReconcileInputFocus()
+    bool RuntimeCoordinator::ReconcileInputFocus()
     {
         if (!_viewPresenter) {
-            return;
+            return false;
         }
 
-        const bool shouldFocus = _inputRoutingAvailable.load(std::memory_order_acquire) && _views.Presentation().capturesInput;
+        const auto presentation = _views.Presentation();
+        const bool activeMenuReady = presentation.activeMenu && IsViewReady(*presentation.activeMenu);
+        const bool shouldFocus = activeMenuReady && _inputRoutingAvailable.load(std::memory_order_acquire) && presentation.capturesInput;
 
         if (_inputFocusRequested == shouldFocus) {
-            return;
+            return true;
         }
 
-        _viewPresenter->SetInputFocus(shouldFocus);
+        if (!_viewPresenter->SetInputFocus(shouldFocus)) {
+            if (shouldFocus) {
+                REX::ERROR("RuntimeCoordinator: input focus acquisition failed; closing the active menu");
+                _views.CloseActiveMenu();
+            }
+            return false;
+        }
+
         _inputFocusRequested = shouldFocus;
+        return true;
     }
 
     void RuntimeCoordinator::ApplyInputCapturePolicy()
     {
-        const bool shouldCapture = _viewPresenter && _inputRoutingAvailable.load(std::memory_order_acquire) && _views.Presentation().capturesInput;
+        const auto presentation = _views.Presentation();
+        const bool activeMenuReady = presentation.activeMenu && IsViewReady(*presentation.activeMenu);
+        const bool shouldCapture = _viewPresenter && activeMenuReady && _inputRoutingAvailable.load(std::memory_order_acquire) && presentation.capturesInput;
         // Revoke routing before returning controls to the game. On acquisition, publish routing only after the game-side capture policy is applied.
         if (!shouldCapture) {
             _inputCaptured.store(false, std::memory_order_release);
@@ -305,7 +370,9 @@ namespace Runtime
 
     void RuntimeCoordinator::ApplyGamePausePolicy()
     {
-        const bool shouldPause = _viewPresenter != nullptr && _views.Presentation().pausesGame;
+        const auto presentation = _views.Presentation();
+        const bool activeMenuReady = presentation.activeMenu && IsViewReady(*presentation.activeMenu);
+        const bool shouldPause = _viewPresenter != nullptr && activeMenuReady && presentation.pausesGame;
 
         if (_applyGamePause) {
             _applyGamePause(shouldPause);

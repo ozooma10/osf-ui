@@ -100,12 +100,19 @@ namespace
 				.action = Runtime::ViewPresentationAction::Show,
 				.viewId = a_view.id
 			});
+			if (showSucceeds && readyOnShow) {
+				presentationEvents.push_back({
+					.kind = Runtime::ViewPresentationEventKind::Ready,
+					.viewId = a_view.id
+				});
+			}
 			return showSucceeds;
 		}
 
-		void SetInputFocus(bool a_focused) noexcept override
+		bool SetInputFocus(bool a_focused) noexcept override
 		{
 			inputFocusStates.push_back(a_focused);
+			return focusSucceeds;
 		}
 
 		void SendKeyEvent(std::uint32_t a_virtualKey, bool a_down) noexcept override
@@ -150,7 +157,49 @@ namespace
 			presentationCallCountsAtTick.push_back(calls.size());
 		}
 
+		std::vector<Runtime::ViewPresentationEvent> TakePresentationEvents() override
+		{
+			std::vector<Runtime::ViewPresentationEvent> events;
+			events.swap(presentationEvents);
+			return events;
+		}
+
+		void EmitReady(std::string a_viewId)
+		{
+			presentationEvents.push_back({
+				.kind = Runtime::ViewPresentationEventKind::Ready,
+				.viewId = std::move(a_viewId)
+			});
+		}
+
+		void EmitNotReady(std::string a_viewId)
+		{
+			presentationEvents.push_back({
+				.kind = Runtime::ViewPresentationEventKind::NotReady,
+				.viewId = std::move(a_viewId)
+			});
+		}
+
+		void EmitViewFailure(std::string a_viewId, std::string a_detail)
+		{
+			presentationEvents.push_back({
+				.kind = Runtime::ViewPresentationEventKind::ViewFailed,
+				.viewId = std::move(a_viewId),
+				.detail = std::move(a_detail)
+			});
+		}
+
+		void EmitPresenterFailure(std::string a_detail)
+		{
+			presentationEvents.push_back({
+				.kind = Runtime::ViewPresentationEventKind::PresenterFailed,
+				.detail = std::move(a_detail)
+			});
+		}
+
 		bool showSucceeds{ true };
+		bool readyOnShow{ true };
+		bool focusSucceeds{ true };
 		std::size_t tickCalls{ 0 };
 		std::vector<PresentationCall> calls;
 		std::vector<bool> inputFocusStates;
@@ -159,6 +208,7 @@ namespace
 		std::vector<MouseButtonCall> mouseButtons;
 		std::vector<int> mouseWheelDeltas;
 		std::vector<std::size_t> presentationCallCountsAtTick;
+		std::vector<Runtime::ViewPresentationEvent> presentationEvents;
 	};
 
 	class ViewFixture
@@ -1057,6 +1107,138 @@ namespace
 		assert((g_gamePauseStates == std::vector<bool>{ false }));
 	}
 
+	void TestCoordinatorWaitsForPresentationReadiness()
+	{
+		g_inputCaptureStates.clear();
+		g_gamePauseStates.clear();
+		RecordingViewPresenter presenter;
+		presenter.readyOnShow = false;
+		Runtime::RuntimeCoordinator runtime{
+			nullptr,
+			&presenter,
+			&RecordInputCapture,
+			&RecordGamePause
+		};
+		runtime.EnableInputRouting();
+
+		runtime.Views().ReplaceViews({
+			Menu("osfui/settings")
+		});
+		runtime.Views().OpenView("osfui/settings");
+		runtime.Tick();
+
+		assert(runtime.Views().Presentation().activeMenu == "osfui/settings");
+		assert(presenter.inputFocusStates.empty());
+		assert((g_inputCaptureStates == std::vector<bool>{ false }));
+		assert((g_gamePauseStates == std::vector<bool>{ false }));
+
+		presenter.EmitReady("osfui/settings");
+		runtime.Tick();
+
+		assert((presenter.inputFocusStates == std::vector<bool>{ true }));
+		assert((g_inputCaptureStates == std::vector<bool>{ false, true }));
+		assert((g_gamePauseStates == std::vector<bool>{ false, true }));
+		assert(runtime.IsInputCaptured());
+
+		presenter.EmitNotReady("osfui/settings");
+		runtime.Tick();
+
+		assert(runtime.Views().Presentation().activeMenu == "osfui/settings");
+		assert((presenter.inputFocusStates == std::vector<bool>{ true, false }));
+		assert((g_inputCaptureStates == std::vector<bool>{ false, true, false }));
+		assert((g_gamePauseStates == std::vector<bool>{ false, true, false }));
+		assert(!runtime.IsInputCaptured());
+	}
+
+	void TestCoordinatorRollsBackFailedFocusAcquisition()
+	{
+		g_inputCaptureStates.clear();
+		g_gamePauseStates.clear();
+		RecordingViewPresenter presenter;
+		presenter.focusSucceeds = false;
+		Runtime::RuntimeCoordinator runtime{
+			nullptr,
+			&presenter,
+			&RecordInputCapture,
+			&RecordGamePause
+		};
+		runtime.EnableInputRouting();
+
+		runtime.Views().ReplaceViews({
+			Menu("osfui/settings")
+		});
+		runtime.Views().OpenView("osfui/settings");
+		runtime.Tick();
+
+		assert(runtime.Views().Presentation().openViewIds.empty());
+		assert(!runtime.IsInputCaptured());
+		assert((presenter.inputFocusStates == std::vector<bool>{ true }));
+		assert((g_inputCaptureStates == std::vector<bool>{ true, false }));
+		assert((g_gamePauseStates == std::vector<bool>{ false }));
+		assert(presenter.calls.size() == 2);
+		assert(presenter.calls[1].action == Runtime::ViewPresentationAction::Hide);
+		assert(presenter.calls[1].viewId == "osfui/settings");
+	}
+
+	void TestCoordinatorClosesViewAfterAsynchronousPresentationFailure()
+	{
+		g_inputCaptureStates.clear();
+		g_gamePauseStates.clear();
+		RecordingViewPresenter presenter;
+		Runtime::RuntimeCoordinator runtime{
+			nullptr,
+			&presenter,
+			&RecordInputCapture,
+			&RecordGamePause
+		};
+		runtime.EnableInputRouting();
+
+		runtime.Views().ReplaceViews({
+			Menu("osfui/settings")
+		});
+		runtime.Views().OpenView("osfui/settings");
+		runtime.Tick();
+
+		presenter.calls.clear();
+		presenter.inputFocusStates.clear();
+		g_inputCaptureStates.clear();
+		g_gamePauseStates.clear();
+		presenter.EmitViewFailure("osfui/settings", "document load failed");
+		runtime.Tick();
+
+		assert(runtime.Views().Presentation().openViewIds.empty());
+		assert(!runtime.IsInputCaptured());
+		assert((presenter.inputFocusStates == std::vector<bool>{ false }));
+		assert((g_inputCaptureStates == std::vector<bool>{ false }));
+		assert((g_gamePauseStates == std::vector<bool>{ false }));
+		assert(presenter.calls.size() == 1);
+		assert(presenter.calls[0].action == Runtime::ViewPresentationAction::Hide);
+	}
+
+	void TestCoordinatorClosesAllViewsAfterPresenterFailure()
+	{
+		RecordingViewPresenter presenter;
+		Runtime::RuntimeCoordinator runtime{ nullptr, &presenter };
+		runtime.EnableInputRouting();
+
+		runtime.Views().ReplaceViews({
+			Menu("osfui/settings"),
+			Hud("author.mod/status")
+		});
+		runtime.Views().OpenView("osfui/settings");
+		runtime.Views().OpenView("author.mod/status");
+		runtime.Tick();
+
+		presenter.calls.clear();
+		presenter.EmitPresenterFailure("renderer connection lost");
+		runtime.Tick();
+
+		assert(runtime.Views().Presentation().openViewIds.empty());
+		assert(presenter.calls.size() == 2);
+		assert(presenter.calls[0].action == Runtime::ViewPresentationAction::Hide);
+		assert(presenter.calls[1].action == Runtime::ViewPresentationAction::Hide);
+	}
+
 	void TestCoordinatorClosesAllViewsForBlockingGameMenu()
 	{
 		g_inputCaptureStates.clear();
@@ -1459,6 +1641,10 @@ int main()
 	TestCoordinatorAppliesInputCapturePolicyEveryTick();
 	TestCoordinatorAppliesGamePausePolicyEveryTick();
 	TestCoordinatorDoesNotPauseWithoutPresentedView();
+	TestCoordinatorWaitsForPresentationReadiness();
+	TestCoordinatorRollsBackFailedFocusAcquisition();
+	TestCoordinatorClosesViewAfterAsynchronousPresentationFailure();
+	TestCoordinatorClosesAllViewsAfterPresenterFailure();
 	TestCoordinatorClosesAllViewsForBlockingGameMenu();
 	TestCoordinatorBlocksOpensUntilAllTransitionMenusClose();
 	TestCoordinatorReleasesInputOwnershipForNonCapturingReplacement();

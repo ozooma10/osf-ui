@@ -103,6 +103,16 @@ namespace
 			ringHandler = std::move(a_handler);
 		}
 
+		void SetLoadHandler(LoadHandler a_handler) override
+		{
+			loadHandler = std::move(a_handler);
+		}
+
+		void SetFailureHandler(FailureHandler a_handler) override
+		{
+			failureHandler = std::move(a_handler);
+		}
+
 		void SetNativeAcceleratorHandler(NativeAcceleratorHandler a_handler) override
 		{
 			nativeAcceleratorHandler = std::move(a_handler);
@@ -173,6 +183,31 @@ namespace
 			ringHandler(a_ring);
 		}
 
+		void EmitLoadSuccess(std::string_view a_viewId)
+		{
+			assert(loadHandler);
+			loadHandler({ .viewId = a_viewId });
+		}
+
+		void EmitLoadFailure(std::string_view a_viewId, std::string_view a_description)
+		{
+			assert(loadHandler);
+			loadHandler({
+				.viewId = a_viewId,
+				.failed = true,
+				.description = a_description
+			});
+		}
+
+		void EmitFailure(std::string_view a_stage, std::string_view a_description)
+		{
+			assert(failureHandler);
+			failureHandler({
+				.stage = a_stage,
+				.description = a_description
+			});
+		}
+
 		bool EmitNativeAccelerator(std::uint32_t a_virtualKey, std::uint32_t a_scanCode, bool a_down)
 		{
 			assert(nativeAcceleratorHandler);
@@ -190,6 +225,8 @@ namespace
 		std::vector<double> updateDeltas;
 		std::optional<OSFUI::FrameBufferView> frame;
 		SharedRingHandler ringHandler;
+		LoadHandler loadHandler;
+		FailureHandler failureHandler;
 		NativeAcceleratorHandler nativeAcceleratorHandler;
 		std::vector<AcceleratorState> acceleratorStates;
 		std::vector<std::string> inputStateTransitions;
@@ -377,17 +414,43 @@ namespace
 		assert(converted.capturesInput == view.capturesInput);
 		assert(converted.pausesGame == view.pausesGame);
 		assert(converted.openOnStart == view.openOnStart);
+		assert(converted.permissions.nativeBridge);
+		assert(!converted.permissions.filesystem);
+		assert(!converted.permissions.network);
 		assert(converted.rootDir == view.rootDirectory);
 
 		assert(rendererPtr->hiddenChanges.back() ==
 			(std::pair<std::string, bool>{ view.id, false }));
 		assert(rendererPtr->inputTargets.back() == view.id);
+		assert(!compositorPtr->visibleStates.back());
+		assert(presenter.TakePresentationEvents().empty());
+
+		rendererPtr->EmitLoadSuccess(view.id);
+		auto events = presenter.TakePresentationEvents();
+		assert(events.size() == 1);
+		assert(events[0].kind == Runtime::ViewPresentationEventKind::NotReady);
+		assert(events[0].viewId == view.id);
+
+		rendererPtr->frame = OSFUI::FrameBufferView{
+			.width = 1920,
+			.height = 1080,
+			.frameIndex = 1,
+			.sharedSlot = 0
+		};
+		presenter.Tick();
+		events = presenter.TakePresentationEvents();
+		assert(events.size() == 1);
+		assert(events[0].kind == Runtime::ViewPresentationEventKind::Ready);
+		assert(events[0].viewId == view.id);
 		assert(compositorPtr->visibleStates.back());
 
 		assert(presenter.Show(view));
 		assert(rendererPtr->createdViews.size() == 1);
+		events = presenter.TakePresentationEvents();
+		assert(events.size() == 1);
+		assert(events[0].kind == Runtime::ViewPresentationEventKind::Ready);
 
-		presenter.SetInputFocus(true);
+		assert(presenter.SetInputFocus(true));
 		assert(rendererPtr->nativeFocusStates == std::vector<bool>{ true });
 		assert((rendererPtr->inputStateTransitions ==
 			std::vector<std::string>{ "accelerators:on", "focus:on" }));
@@ -403,7 +466,7 @@ namespace
 		assert(rendererPtr->nativeFocusStates == std::vector<bool>{ true });
 		assert(!compositorPtr->visibleStates.back());
 
-		presenter.SetInputFocus(false);
+		assert(presenter.SetInputFocus(false));
 		assert((rendererPtr->nativeFocusStates ==
 			std::vector<bool>{ true, false }));
 		assert((rendererPtr->inputStateTransitions ==
@@ -431,6 +494,10 @@ namespace
 		assert(presenter.Initialize("test-data/OSFUI"));
 		presenter.SetDrawPathInstalled(true);
 		assert(presenter.Show(MenuView()));
+		rendererPtr->EmitLoadSuccess(MenuView().id);
+		auto events = presenter.TakePresentationEvents();
+		assert(events.size() == 1);
+		assert(events[0].kind == Runtime::ViewPresentationEventKind::NotReady);
 
 		rendererPtr->frame = OSFUI::FrameBufferView{
 			.width = 2560,
@@ -447,12 +514,18 @@ namespace
 		assert(compositorPtr->submittedFrames.size() == 1);
 		assert(compositorPtr->submittedFrames[0].frameIndex == 42);
 		assert(compositorPtr->visibleStates.back());
+		events = presenter.TakePresentationEvents();
+		assert(events.size() == 1);
+		assert(events[0].kind == Runtime::ViewPresentationEventKind::Ready);
 
 		g_drawAvailable = false;
 		presenter.Tick();
 
 		assert(rendererPtr->updateDeltas.size() == 2);
 		assert(!compositorPtr->visibleStates.back());
+		events = presenter.TakePresentationEvents();
+		assert(events.size() == 1);
+		assert(events[0].kind == Runtime::ViewPresentationEventKind::PresenterFailed);
 	}
 
 	void TestPresenterConvertsAndCoalescesMouseInput()
@@ -474,7 +547,7 @@ namespace
 		assert(presenter.Initialize("test-data/OSFUI"));
 		presenter.SetDrawPathInstalled(true);
 		assert(presenter.Show(MenuView()));
-		presenter.SetInputFocus(true);
+		assert(presenter.SetInputFocus(true));
 		compositorPtr->EmitResize(1280, 720);
 
 		presenter.SendKeyEvent(0x41, true);
@@ -517,7 +590,7 @@ namespace
 		assert(rendererPtr->physicalMouseWheels[0].y == 719);
 		assert(rendererPtr->physicalMouseWheels[0].wheelDelta == 120);
 
-		presenter.SetInputFocus(false);
+		assert(presenter.SetInputFocus(false));
 		presenter.SendKeyEvent(0x42, true);
 		presenter.UpdateMousePosition(100, 100, 1920, 1080);
 		presenter.SendMouseButtonEvent(0, false);
@@ -585,10 +658,10 @@ namespace
 
 		assert(presenter.Initialize("test-data/OSFUI"));
 		rendererPtr->throwOnNativeFocus = true;
-		presenter.SetInputFocus(true);
+		assert(!presenter.SetInputFocus(true));
 
 		assert((rendererPtr->inputStateTransitions ==
-			std::vector<std::string>{ "accelerators:on", "focus:on", "accelerators:off" }));
+			std::vector<std::string>{ "accelerators:on", "focus:on", "focus:off", "accelerators:off" }));
 		assert(rendererPtr->acceleratorStates.size() == 2);
 		assert(rendererPtr->acceleratorStates[0].captured);
 		assert(!rendererPtr->acceleratorStates[1].captured);
@@ -617,6 +690,47 @@ namespace
 		// the emergency compositor hide fail.
 		presenter.Tick();
 		assert(rendererPtr->updateDeltas.size() == 1);
+		const auto events = presenter.TakePresentationEvents();
+		assert(events.size() == 1);
+		assert(events[0].kind == Runtime::ViewPresentationEventKind::PresenterFailed);
+	}
+
+	void TestPresenterReportsLoadAndTerminalFailures()
+	{
+		g_drawAvailable = true;
+
+		auto renderer = std::make_unique<FakeWebRenderer>();
+		auto compositor = std::make_unique<FakeCompositor>();
+		auto* rendererPtr = renderer.get();
+
+		Presentation::WebViewPresenter presenter{
+			std::move(renderer),
+			std::move(compositor),
+			&DrawAvailableForTest,
+			&HandleFrameworkKeyForTest
+		};
+
+		assert(presenter.Initialize("test-data/OSFUI"));
+		presenter.SetDrawPathInstalled(true);
+		const auto view = MenuView();
+		assert(presenter.Show(view));
+
+		rendererPtr->EmitLoadFailure(view.id, "navigation failed");
+		auto events = presenter.TakePresentationEvents();
+		assert(events.size() == 1);
+		assert(events[0].kind == Runtime::ViewPresentationEventKind::ViewFailed);
+		assert(events[0].viewId == view.id);
+		assert(events[0].detail == "navigation failed");
+
+		assert(presenter.Show(view));
+		assert(rendererPtr->createdViews.size() == 2);
+
+		rendererPtr->EmitFailure("host", "pipe closed");
+		events = presenter.TakePresentationEvents();
+		assert(events.size() == 1);
+		assert(events[0].kind == Runtime::ViewPresentationEventKind::PresenterFailed);
+		assert(events[0].detail == "host: pipe closed");
+		assert(!presenter.Show(view));
 	}
 
 	void TestPresenterDestroysRendererBeforeCompositor()
@@ -650,5 +764,6 @@ void RunWebViewPresenterTests()
 	TestPresenterRequiresFrameworkKeyHandler();
 	TestPresenterClearsAcceleratorsWhenNativeFocusFails();
 	TestPresenterContainsNestedTickFailures();
+	TestPresenterReportsLoadAndTerminalFailures();
 	TestPresenterDestroysRendererBeforeCompositor();
 }

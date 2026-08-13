@@ -64,10 +64,17 @@ namespace Presentation
                 return false;
             }
 
-            _renderer->SetNativeAcceleratorHandler([this](std::uint32_t a_virtualKey, std::uint32_t, bool a_down) {
-                return _frameworkKeyHandler(a_virtualKey, a_down);
-            });
+            _renderer->SetNativeAcceleratorHandler([this](std::uint32_t a_virtualKey, std::uint32_t, bool a_down) { return _frameworkKeyHandler(a_virtualKey, a_down); });
             _renderer->SetSharedRingHandler([this](const OSFUI::SharedRingDesc& a_ring) { _compositor->SetSharedRing(a_ring); });
+            _renderer->SetLoadHandler([this](const OSFUI::IWebRenderer::LoadEvent& a_event) { HandleLoadResult(a_event.viewId, a_event.failed, a_event.description); });
+            _renderer->SetFailureHandler([this](const OSFUI::IWebRenderer::FailureEvent& a_event) {
+                std::string detail {a_event.stage};
+                if (!a_event.description.empty()) {
+                    detail += ": ";
+                    detail += a_event.description;
+                }
+                HandlePresenterFailure(detail);
+            });
 
             _compositor->SetOutputResizeCallback([this](std::uint32_t a_width, std::uint32_t a_height) {
                 _outputSize.store(PackPair(a_width, a_height), std::memory_order_release);
@@ -109,14 +116,16 @@ namespace Presentation
     bool WebViewPresenter::Show(const Runtime::ViewManifest& a_view) noexcept
     {
         try {
-            const bool canDraw = _initialized && _drawPathInstalled && _drawAvailable && _drawAvailable();
+            const bool canDraw = _initialized && !_presenterFailed && _drawPathInstalled && _drawAvailable && _drawAvailable();
 
             if (!canDraw) {
                 REX::WARN("WebViewPresenter: cannot show '{}' because the draw path is unavailable", a_view.id);
                 return false;
             }
 
-            if (!_instantiatedViews.contains(a_view.id)) {
+            if (!_instantiatedViews.contains(a_view.id) || _failedViews.erase(a_view.id) != 0) {
+                _loadedDocuments.erase(a_view.id);
+                _readyViews.erase(a_view.id);
                 _renderer->CreateOrNavigateView(ConvertManifest(a_view));
                 _instantiatedViews.insert(a_view.id);
             }
@@ -128,19 +137,34 @@ namespace Presentation
             }
 
             _visibleViews.insert(a_view.id);
-            _compositor->SetVisible(true);
+
+            if (_readyViews.contains(a_view.id)) {
+                _presentationEvents.push_back({.kind = Runtime::ViewPresentationEventKind::Ready, .viewId = a_view.id});
+            } else if (_loadedDocuments.contains(a_view.id)) {
+                _loadedFrameFloors.insert_or_assign(a_view.id, _lastSubmittedFrameIndex);
+            }
+
+            _compositor->SetVisible(HasReadyVisibleView());
 
             return true;
         } catch (const std::exception& error) {
             REX::ERROR("WebViewPresenter: failed to show '{}': {}", a_view.id, error.what());
+            _visibleViews.erase(a_view.id);
+            _readyViews.erase(a_view.id);
+            _loadedFrameFloors.erase(a_view.id);
+            _failedViews.insert(a_view.id);
             return false;
         } catch (...) {
             REX::ERROR("WebViewPresenter: failed to show '{}' with an unknown exception", a_view.id);
+            _visibleViews.erase(a_view.id);
+            _readyViews.erase(a_view.id);
+            _loadedFrameFloors.erase(a_view.id);
+            _failedViews.insert(a_view.id);
             return false;
         }
     }
 
-    void WebViewPresenter::SetInputFocus(bool a_focused) noexcept
+    bool WebViewPresenter::SetInputFocus(bool a_focused) noexcept
     {
         if (!a_focused) {
             _inputFocused.store(false, std::memory_order_release);
@@ -148,14 +172,18 @@ namespace Presentation
         }
 
         if (!_initialized) {
-            return;
+            return false;
         }
 
-        const auto clearAcceleratorState = [this]() noexcept {
+        const auto clearNativeInputState = [this]() noexcept {
+            _inputFocused.store(false, std::memory_order_release);
+            _pendingMousePosition.store(kNoPendingMousePosition, std::memory_order_release);
+            try {
+                _renderer->SetNativeFocus(false);
+            } catch (...) {}
             try {
                 _renderer->SetAcceleratorKeys(0, false, false, 0);
-            } catch (...) {
-            }
+            } catch (...) {}
         };
 
         try {
@@ -167,13 +195,17 @@ namespace Presentation
                 _renderer->SetNativeFocus(false);
                 _renderer->SetAcceleratorKeys(0, false, false, 0);
             }
+
+            return true;
         } catch (const std::exception& error) {
-            clearAcceleratorState();
+            clearNativeInputState();
             REX::ERROR("WebViewPresenter: failed to set input focus to {}: {}", a_focused, error.what());
         } catch (...) {
-            clearAcceleratorState();
+            clearNativeInputState();
             REX::ERROR("WebViewPresenter: failed to set input focus to {} with an unknown exception", a_focused);
         }
+
+        return false;
     }
 
     void WebViewPresenter::SendKeyEvent(std::uint32_t a_virtualKey, bool a_down) noexcept
@@ -259,10 +291,9 @@ namespace Presentation
 
             _renderer->SetViewHidden(viewId, true);
             _visibleViews.erase(viewId);
+            _loadedFrameFloors.erase(viewId);
 
-            if (_visibleViews.empty()) {
-                _compositor->SetVisible(false);
-            }
+            _compositor->SetVisible(HasReadyVisibleView());
         } catch (const std::exception& error) {
             REX::ERROR("WebViewPresenter: failed to hide '{}': {}", a_viewId, error.what());
         } catch (...) {
@@ -300,20 +331,112 @@ namespace Presentation
 
             _renderer->Update(deltaSeconds);
 
+            if (_presenterFailed) {
+                hideCompositor();
+                return;
+            }
+
             if (const auto frame = _renderer->Render()) {
                 _compositor->Submit(*frame);
+                PublishReadyViews(frame->frameIndex);
+                _lastSubmittedFrameIndex = frame->frameIndex;
             }
 
             const bool canDraw = _drawPathInstalled && _drawAvailable && _drawAvailable();
 
-            _compositor->SetVisible(canDraw && !_visibleViews.empty());
+            if (!canDraw && !_visibleViews.empty()) {
+                HandlePresenterFailure("draw path became unavailable while views were visible");
+            }
+
+            _compositor->SetVisible(canDraw && HasReadyVisibleView());
         } catch (const std::exception& error) {
             REX::ERROR("WebViewPresenter: tick failed: {}", error.what());
             hideCompositor();
+            HandlePresenterFailure(error.what());
         } catch (...) {
             REX::ERROR("WebViewPresenter: tick failed with an unknown exception");
             hideCompositor();
+            HandlePresenterFailure("unknown presenter tick failure");
         }
+    }
+
+    std::vector<Runtime::ViewPresentationEvent> WebViewPresenter::TakePresentationEvents()
+    {
+        std::vector<Runtime::ViewPresentationEvent> events;
+        events.swap(_presentationEvents);
+        return events;
+    }
+
+    void WebViewPresenter::HandleLoadResult(std::string_view a_viewId, bool a_failed, std::string_view a_detail)
+    {
+        const std::string viewId {a_viewId};
+
+        if (a_failed) {
+            _loadedDocuments.erase(viewId);
+            _readyViews.erase(viewId);
+            _loadedFrameFloors.erase(viewId);
+            _failedViews.insert(viewId);
+            if (_visibleViews.contains(viewId)) {
+                _presentationEvents.push_back({.kind = Runtime::ViewPresentationEventKind::ViewFailed, .viewId = viewId, .detail = std::string {a_detail}});
+            }
+            return;
+        }
+
+        _loadedDocuments.insert(viewId);
+        _readyViews.erase(viewId);
+        if (_visibleViews.contains(viewId)) {
+            _presentationEvents.push_back({.kind = Runtime::ViewPresentationEventKind::NotReady, .viewId = viewId});
+            _loadedFrameFloors.insert_or_assign(viewId, _lastSubmittedFrameIndex);
+        }
+    }
+
+    void WebViewPresenter::HandlePresenterFailure(std::string_view a_detail) noexcept
+    {
+        if (_presenterFailed) {
+            return;
+        }
+
+        _presenterFailed = true;
+        _inputFocused.store(false, std::memory_order_release);
+        _pendingMousePosition.store(kNoPendingMousePosition, std::memory_order_release);
+        _loadedDocuments.clear();
+        _readyViews.clear();
+        _loadedFrameFloors.clear();
+
+        try {
+            _presentationEvents.push_back({.kind = Runtime::ViewPresentationEventKind::PresenterFailed, .detail = std::string {a_detail}});
+        } catch (...) {
+            // The coordinator cannot recover useful presentation state after a terminal backend failure. 
+            // Keep the compositor and input locally off even if allocating the diagnostic event itself failed.
+        }
+    }
+
+    void WebViewPresenter::PublishReadyViews(std::uint64_t a_frameIndex)
+    {
+        for (auto iterator = _loadedFrameFloors.begin(); iterator != _loadedFrameFloors.end();) {
+            const auto& [viewId, frameFloor] = *iterator;
+            const bool newerFrame = !frameFloor || a_frameIndex > *frameFloor;
+
+            if (!_visibleViews.contains(viewId)) {
+                iterator = _loadedFrameFloors.erase(iterator);
+                continue;
+            }
+
+            if (!newerFrame) {
+                ++iterator;
+                continue;
+            }
+
+            _readyViews.insert(viewId);
+            _failedViews.erase(viewId);
+            _presentationEvents.push_back({.kind = Runtime::ViewPresentationEventKind::Ready, .viewId = viewId});
+            iterator = _loadedFrameFloors.erase(iterator);
+        }
+    }
+
+    bool WebViewPresenter::HasReadyVisibleView() const
+    {
+        return std::ranges::any_of(_visibleViews, [this](const auto& a_viewId) { return _readyViews.contains(a_viewId); });
     }
 
     OSFUI::ViewManifest WebViewPresenter::ConvertManifest(const Runtime::ViewManifest& a_view)
@@ -334,6 +457,7 @@ namespace Presentation
         converted.capturesInput = a_view.capturesInput;
         converted.pausesGame = a_view.pausesGame;
         converted.openOnStart = a_view.openOnStart;
+        converted.permissions = {.nativeBridge = true, .filesystem = false, .network = false};
         converted.rootDir = a_view.rootDirectory;
 
         return converted;
