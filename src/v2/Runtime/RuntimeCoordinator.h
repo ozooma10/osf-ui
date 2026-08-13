@@ -9,11 +9,18 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <string_view>
 #include <unordered_set>
 #include <vector>
+
+namespace Bridge
+{
+    class BridgeRuntime;
+    class IViewMessageTransport;
+}
 
 namespace Runtime
 {
@@ -30,7 +37,8 @@ namespace Runtime
         using ApplyInputCapture = void (*)(bool);
         using ApplyGamePause = void (*)(bool);
 
-        explicit RuntimeCoordinator(RegisterPapyrus a_registerPapyrus, IViewPresenter* a_viewPresenter = nullptr, ApplyInputCapture a_applyInputCapture = nullptr, ApplyGamePause a_applyGamePause = nullptr) noexcept;
+        explicit RuntimeCoordinator(RegisterPapyrus a_registerPapyrus, IViewPresenter* a_viewPresenter = nullptr, ApplyInputCapture a_applyInputCapture = nullptr, ApplyGamePause a_applyGamePause = nullptr, Bridge::IViewMessageTransport* a_messageTransport = nullptr);
+        ~RuntimeCoordinator();
 
         ViewLoadReport LoadViews(const std::filesystem::path& a_viewsDirectory);
         void EnableInputRouting() noexcept;
@@ -55,7 +63,7 @@ namespace Runtime
     private:
         static constexpr std::size_t kMaxPendingViewRequests = 256;
 
-        bool QueueViewRequest(ViewRequestAction a_action, std::string a_viewId);
+        ViewRequestResult QueueViewRequest(ViewRequestAction a_action, std::string a_viewId);
 
         std::vector<ViewRequest> TakeViewRequests();
         void ApplyViewRequests();
@@ -76,6 +84,7 @@ namespace Runtime
         std::mutex _viewRequestsMutex;
         std::vector<ViewRequest> _pendingViewRequests;
         std::unordered_set<std::string> _knownViewIds;
+        std::unordered_set<std::string> _inputCapturingViewIds;
         std::unordered_set<std::string> _instantiatedViewIds;
         std::unordered_set<std::string> _readyViewIds;
         bool _loadingMenuOpen{ false };
@@ -83,6 +92,7 @@ namespace Runtime
 
         RegisterPapyrus _registerPapyrus{ nullptr };
         IViewPresenter* _viewPresenter{ nullptr };
+        std::unique_ptr<Bridge::BridgeRuntime> _bridge;
         ApplyInputCapture _applyInputCapture{ nullptr };
         ApplyGamePause _applyGamePause{ nullptr };
 

@@ -21,6 +21,7 @@
 
 ### Fixed
 
+- Rebuilt v2 views can now complete the injected native-bridge handshake and use the foundational `ping`, `log`, `close`, `menu.open`, and `menu.close` endpoints. Browser messages from inactive documents are ignored, malformed messages remain contained, page-driven closes release modal menu policy in the same runtime tick, and a failed bridge transport closes presentation instead of leaving the page waiting on a dead connection.
 - Rebuilt v2 menus now grant browser focus, suppress Starfield controls, and pause the game only after their main document loads and produces a fresh composited frame. A failed document closes that view, a lost renderer or draw path closes all views, and failed browser-focus acquisition rolls the active menu back in the same tick instead of leaving an invisible, unfocused, or input-capturing overlay.
 - Papyrus `OpenMenu` and `CloseMenu` now reach the rebuilt v2 runtime through its bounded main-thread request queue. Unknown opens and closes of views that have never been instantiated fail immediately instead of reporting that unusable work was accepted.
 - The rebuilt v2 runtime now owns and initializes the production WebView2 renderer and D3D12 compositor, then installs its Scaleform overlay hook after peer SFSE plugins have loaded. The prior checkpoint could discover and schedule views but had no live presentation backend, so no view could reach the screen.

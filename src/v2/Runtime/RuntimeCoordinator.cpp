@@ -1,10 +1,20 @@
 #include "RuntimeCoordinator.h"
 
+#include "v2/Bridge/BridgeRuntime.h"
+
 namespace Runtime
 {
-    RuntimeCoordinator::RuntimeCoordinator(RegisterPapyrus a_registerPapyrus, IViewPresenter* a_viewPresenter, ApplyInputCapture a_applyInputCapture, ApplyGamePause a_applyGamePause) noexcept
+    RuntimeCoordinator::RuntimeCoordinator(RegisterPapyrus a_registerPapyrus, IViewPresenter* a_viewPresenter, ApplyInputCapture a_applyInputCapture, ApplyGamePause a_applyGamePause, Bridge::IViewMessageTransport* a_messageTransport)
         : _registerPapyrus(a_registerPapyrus), _viewPresenter(a_viewPresenter), _applyInputCapture(a_applyInputCapture), _applyGamePause(a_applyGamePause)
-    {}
+    {
+        if (a_messageTransport) {
+            _bridge = std::make_unique<Bridge::BridgeRuntime>(*a_messageTransport, [this](ViewRequestAction a_action, std::string a_viewId) {
+                return QueueViewRequest(a_action, std::move(a_viewId));
+            });
+        }
+    }
+
+    RuntimeCoordinator::~RuntimeCoordinator() = default;
 
     ViewLoadReport RuntimeCoordinator::LoadViews(const std::filesystem::path& a_viewsDirectory)
     {
@@ -13,9 +23,17 @@ namespace Runtime
         ViewLoadReport report {.loaded = discovery.views.size(), .issues = std::move(discovery.issues)};
 
         std::unordered_set<std::string> knownViewIds;
+        std::unordered_set<std::string> inputCapturingViewIds;
 
         for (const auto& view : discovery.views) {
             knownViewIds.insert(view.id);
+            if (view.capturesInput) {
+                inputCapturingViewIds.insert(view.id);
+            }
+        }
+
+        if (_bridge) {
+            _bridge->ResetDocuments();
         }
 
         {
@@ -23,6 +41,7 @@ namespace Runtime
 
             _views.ReplaceViews(std::move(discovery.views));
             _knownViewIds = std::move(knownViewIds);
+            _inputCapturingViewIds = std::move(inputCapturingViewIds);
             _instantiatedViewIds.clear();
             _readyViewIds.clear();
             _pendingViewRequests.clear();
@@ -38,12 +57,12 @@ namespace Runtime
 
     bool RuntimeCoordinator::RequestOpenView(std::string a_viewId)
     {
-        return QueueViewRequest(ViewRequestAction::Open, std::move(a_viewId));
+        return QueueViewRequest(ViewRequestAction::Open, std::move(a_viewId)) == ViewRequestResult::Accepted;
     }
 
     bool RuntimeCoordinator::RequestCloseView(std::string a_viewId)
     {
-        return QueueViewRequest(ViewRequestAction::Close, std::move(a_viewId));
+        return QueueViewRequest(ViewRequestAction::Close, std::move(a_viewId)) == ViewRequestResult::Accepted;
     }
 
     void RuntimeCoordinator::NotifyMenuOpenClose(std::string_view a_menuName, bool a_opening)
@@ -116,33 +135,37 @@ namespace Runtime
         }
     }
 
-    bool RuntimeCoordinator::QueueViewRequest(ViewRequestAction a_action, std::string a_viewId)
+    ViewRequestResult RuntimeCoordinator::QueueViewRequest(ViewRequestAction a_action, std::string a_viewId)
     {
         if (a_viewId.empty()) {
-            return false;
+            return ViewRequestResult::InvalidViewId;
         }
 
         std::scoped_lock lock {_viewRequestsMutex};
 
         if (a_action == ViewRequestAction::Open) {
             if (_loadingMenuOpen || _mainMenuOpen) {
-                return false;
+                return ViewRequestResult::BlockedByGameMenu;
             }
 
             if (!_knownViewIds.contains(a_viewId)) {
-                return false;
+                return ViewRequestResult::UnknownView;
+            }
+
+            if (_inputCapturingViewIds.contains(a_viewId) && !_inputRoutingAvailable.load(std::memory_order_acquire)) {
+                return ViewRequestResult::InputUnavailable;
             }
         } else if (!_instantiatedViewIds.contains(a_viewId)) {
-            return false;
+            return ViewRequestResult::NotInstantiated;
         }
 
         if (_pendingViewRequests.size() >= kMaxPendingViewRequests) {
-            return false;
+            return ViewRequestResult::QueueFull;
         }
 
         _pendingViewRequests.push_back({.action = a_action, .viewId = std::move(a_viewId)});
 
-        return true;
+        return ViewRequestResult::Accepted;
     }
 
     std::vector<ViewRequest> RuntimeCoordinator::TakeViewRequests()
@@ -194,6 +217,11 @@ namespace Runtime
 
         if (_viewPresenter) {
             _viewPresenter->Tick();
+            if (_bridge) {
+                _bridge->Tick();
+            }
+            // Web messages are drained by presenter Tick and may enqueue view requests. Apply them now so page-driven close releases modal policy in this same main-thread tick.
+            ApplyViewRequests();
             ApplyPresentationEvents();
             // A failed view or presenter closes logical state above. Deliver the resulting hides before reconciling engine input and pause policy.
             DispatchPresentationCommands();
@@ -268,12 +296,16 @@ namespace Runtime
                     continue;
                 }
 
-                if (!_viewPresenter->Show(command.view)) {
+                const auto result = _viewPresenter->Show(command.view);
+                if (!result) {
                     // Show failed. Return logical state to closed and queue its defensive hide.
                     _views.CloseView(command.view.id);
                     continue;
                 }
 
+                if (result.documentCreated && _bridge) {
+                    _bridge->OnDocumentCreated(command.view.id);
+                }
                 MarkViewInstantiated(command.view.id);
             }
         }
@@ -306,6 +338,14 @@ namespace Runtime
                 _readyViewIds.clear();
                 REX::ERROR("RuntimeCoordinator: presentation backend failed: {}", event.detail);
                 _views.CloseAllViews();
+                if (_bridge) {
+                    _bridge->ResetDocuments();
+                }
+                {
+                    std::scoped_lock lock {_viewRequestsMutex};
+                    _instantiatedViewIds.clear();
+                    _pendingViewRequests.clear();
+                }
                 break;
             }
         }

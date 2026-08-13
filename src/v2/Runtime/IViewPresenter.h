@@ -8,13 +8,22 @@
 
 namespace Runtime
 {
+    struct ViewShowResult
+    {
+        bool accepted{ false };
+        bool documentCreated{ false };
+
+        explicit operator bool() const noexcept { return accepted; }
+    };
+
     class IViewPresenter
     {
     public:
         virtual ~IViewPresenter() = default;
 
-        // True means the opening request was accepted. Input and pause policy must wait for a matching Ready event before treating the view as usable.
-        virtual bool Show(const ViewManifest& a_view) noexcept = 0;
+        // accepted means the opening request was issued. documentCreated tells protocol owners to arm a fresh document before the next backend Tick.
+        // Input and pause policy still wait for a matching Ready event.
+        virtual ViewShowResult Show(const ViewManifest& a_view) noexcept = 0;
 
         // Reports whether the native focus transition was issued successfully.
         // A failed acquisition is fatal to an input-capturing presentation; a failed release may be retried while game input is already restored.

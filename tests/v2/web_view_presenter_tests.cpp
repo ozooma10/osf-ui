@@ -95,8 +95,18 @@ namespace
 			return frame;
 		}
 
-		void SendMessageToWeb(std::string_view, std::string_view) override
-		{}
+		void SendMessageToWeb(std::string_view a_viewId, std::string_view a_json) override
+		{
+			if (throwOnSendMessage) {
+				throw std::runtime_error{"bridge send failed"};
+			}
+			webMessagesToPage.emplace_back(std::string {a_viewId}, std::string {a_json});
+		}
+
+		void SetWebMessageHandler(WebMessageHandler a_handler) override
+		{
+			webMessageHandler = std::move(a_handler);
+		}
 
 		void SetSharedRingHandler(SharedRingHandler a_handler) override
 		{
@@ -183,6 +193,12 @@ namespace
 			ringHandler(a_ring);
 		}
 
+		void EmitWebMessage(std::string_view a_viewId, std::string_view a_json)
+		{
+			assert(webMessageHandler);
+			webMessageHandler(a_viewId, a_json);
+		}
+
 		void EmitLoadSuccess(std::string_view a_viewId)
 		{
 			assert(loadHandler);
@@ -217,6 +233,7 @@ namespace
 		bool initializeSucceeds{ true };
 		bool throwOnUpdate{ false };
 		bool throwOnNativeFocus{ false };
+		bool throwOnSendMessage{ false };
 		int initializeCalls{ 0 };
 		std::optional<OSFUI::RendererConfig> config;
 		std::vector<OSFUI::ViewManifest> createdViews;
@@ -227,6 +244,7 @@ namespace
 		SharedRingHandler ringHandler;
 		LoadHandler loadHandler;
 		FailureHandler failureHandler;
+		WebMessageHandler webMessageHandler;
 		NativeAcceleratorHandler nativeAcceleratorHandler;
 		std::vector<AcceleratorState> acceleratorStates;
 		std::vector<std::string> inputStateTransitions;
@@ -236,6 +254,7 @@ namespace
 		std::vector<MouseButtonEvent> mouseButtons;
 		std::vector<MouseWheelEvent> physicalMouseWheels;
 		std::vector<std::pair<std::string, bool>> hiddenChanges;
+		std::vector<std::pair<std::string, std::string>> webMessagesToPage;
 
 	private:
 		std::vector<std::string>* _destructionLog;
@@ -372,6 +391,22 @@ namespace
 		ring.generation = 17;
 		rendererPtr->EmitSharedRing(ring);
 		assert(compositorPtr->lastRingGeneration == 17);
+
+		std::vector<std::pair<std::string, std::string>> webMessagesFromPage;
+		presenter.SetWebMessageHandler([&webMessagesFromPage](std::string_view a_viewId, std::string_view a_json) {
+			webMessagesFromPage.emplace_back(std::string {a_viewId}, std::string {a_json});
+		});
+		rendererPtr->EmitWebMessage("author.mod/panel", R"({"kind":"send","name":"osfui.hello"})");
+		assert(webMessagesFromPage ==
+			(std::vector<std::pair<std::string, std::string>>{
+				{"author.mod/panel", R"({"kind":"send","name":"osfui.hello"})"}
+			}));
+
+		presenter.SendMessageToWeb("author.mod/panel", R"({"kind":"ready","payload":{}})");
+		assert(rendererPtr->webMessagesToPage ==
+			(std::vector<std::pair<std::string, std::string>>{
+				{"author.mod/panel", R"({"kind":"ready","payload":{}})"}
+			}));
 	}
 
 	void TestPresenterShowHideAndManifestConversion()
@@ -399,7 +434,9 @@ namespace
 		assert(rendererPtr->createdViews.empty());
 
 		g_drawAvailable = true;
-		assert(presenter.Show(view));
+		const auto firstShow = presenter.Show(view);
+		assert(firstShow);
+		assert(firstShow.documentCreated);
 		assert(rendererPtr->createdViews.size() == 1);
 
 		const auto& converted = rendererPtr->createdViews[0];
@@ -444,7 +481,9 @@ namespace
 		assert(events[0].viewId == view.id);
 		assert(compositorPtr->visibleStates.back());
 
-		assert(presenter.Show(view));
+		const auto secondShow = presenter.Show(view);
+		assert(secondShow);
+		assert(!secondShow.documentCreated);
 		assert(rendererPtr->createdViews.size() == 1);
 		events = presenter.TakePresentationEvents();
 		assert(events.size() == 1);
@@ -733,6 +772,29 @@ namespace
 		assert(!presenter.Show(view));
 	}
 
+	void TestPresenterReportsOutboundBridgeTransportFailure()
+	{
+		auto renderer = std::make_unique<FakeWebRenderer>();
+		auto compositor = std::make_unique<FakeCompositor>();
+		auto* rendererPtr = renderer.get();
+
+		Presentation::WebViewPresenter presenter{
+			std::move(renderer),
+			std::move(compositor),
+			&DrawAvailableForTest,
+			&HandleFrameworkKeyForTest
+		};
+
+		assert(presenter.Initialize("test-data/OSFUI"));
+		rendererPtr->throwOnSendMessage = true;
+		presenter.SendMessageToWeb("author.mod/panel", "{}");
+
+		const auto events = presenter.TakePresentationEvents();
+		assert(events.size() == 1);
+		assert(events[0].kind == Runtime::ViewPresentationEventKind::PresenterFailed);
+		assert(events[0].detail == "bridge send failed");
+	}
+
 	void TestPresenterDestroysRendererBeforeCompositor()
 	{
 		std::vector<std::string> destructionLog;
@@ -765,5 +827,6 @@ void RunWebViewPresenterTests()
 	TestPresenterClearsAcceleratorsWhenNativeFocusFails();
 	TestPresenterContainsNestedTickFailures();
 	TestPresenterReportsLoadAndTerminalFailures();
+	TestPresenterReportsOutboundBridgeTransportFailure();
 	TestPresenterDestroysRendererBeforeCompositor();
 }

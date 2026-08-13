@@ -57,7 +57,7 @@ namespace
 
     Runtime::RuntimeCoordinator& ApplicationRuntime()
     {
-        static Runtime::RuntimeCoordinator runtime {&Papyrus::RegisterFunctions, &ApplicationPresenter(), &ApplyGameInputCapture, &ApplyGamePause};
+        static Runtime::RuntimeCoordinator runtime {&Papyrus::RegisterFunctions, &ApplicationPresenter(), &ApplyGameInputCapture, &ApplyGamePause, &ApplicationPresenter()};
 
         return runtime;
     }

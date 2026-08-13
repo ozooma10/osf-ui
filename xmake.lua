@@ -75,12 +75,14 @@ target("osfui-v2-tests")
     set_languages("c++23")
     set_warnings("allextra")
     set_encodings("utf-8")
-    add_packages("glaze")
+    add_packages("glaze", "nlohmann_json")
     add_cxflags("cl::/Zc:preprocessor", { force = true })
     add_files(
         "tests/v2/papyrus_tests.cpp",
+        "tests/v2/bridge_runtime_tests.cpp",
         "tests/v2/runtime_tests.cpp",
         "tests/v2/web_view_presenter_tests.cpp",
+        "src/v2/Bridge/BridgeRuntime.cpp",
         "src/v2/Presentation/WebViewPresenter.cpp",
         "src/v2/Runtime/ViewManifest.cpp",
         "src/v2/Runtime/ViewDiscovery.cpp",
@@ -91,6 +93,7 @@ target("osfui-v2-tests")
         "src/v2/Runtime/RuntimeCoordinator.cpp",
         "src/v2/Scripts/Papyrus.cpp"
     )
+    add_files("src/runtime/MessageBridge.cpp", "src/runtime/Json.cpp")
     add_includedirs("tests/native/stubs", "src")
     set_pcxxheader("tests/native/stubs/pch.h")
 
@@ -134,7 +137,9 @@ target("OSF UI")
         "src/input/SimPause.cpp",
         "src/core/Log.cpp",
         "src/platform/WindowsPlatform.cpp",
-        "src/runtime/DevViewFiles.cpp"
+        "src/runtime/DevViewFiles.cpp",
+        "src/runtime/Json.cpp",
+        "src/runtime/MessageBridge.cpp"
     )
     add_headerfiles("src/**.h")
     add_includedirs("src")

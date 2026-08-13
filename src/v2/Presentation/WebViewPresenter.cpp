@@ -65,6 +65,11 @@ namespace Presentation
             }
 
             _renderer->SetNativeAcceleratorHandler([this](std::uint32_t a_virtualKey, std::uint32_t, bool a_down) { return _frameworkKeyHandler(a_virtualKey, a_down); });
+            _renderer->SetWebMessageHandler([this](std::string_view a_viewId, std::string_view a_json) {
+                if (_webMessageHandler) {
+                    _webMessageHandler(a_viewId, a_json);
+                }
+            });
             _renderer->SetSharedRingHandler([this](const OSFUI::SharedRingDesc& a_ring) { _compositor->SetSharedRing(a_ring); });
             _renderer->SetLoadHandler([this](const OSFUI::IWebRenderer::LoadEvent& a_event) { HandleLoadResult(a_event.viewId, a_event.failed, a_event.description); });
             _renderer->SetFailureHandler([this](const OSFUI::IWebRenderer::FailureEvent& a_event) {
@@ -113,21 +118,23 @@ namespace Presentation
         }
     }
 
-    bool WebViewPresenter::Show(const Runtime::ViewManifest& a_view) noexcept
+    Runtime::ViewShowResult WebViewPresenter::Show(const Runtime::ViewManifest& a_view) noexcept
     {
         try {
             const bool canDraw = _initialized && !_presenterFailed && _drawPathInstalled && _drawAvailable && _drawAvailable();
 
             if (!canDraw) {
                 REX::WARN("WebViewPresenter: cannot show '{}' because the draw path is unavailable", a_view.id);
-                return false;
+                return {};
             }
 
+            bool documentCreated = false;
             if (!_instantiatedViews.contains(a_view.id) || _failedViews.erase(a_view.id) != 0) {
                 _loadedDocuments.erase(a_view.id);
                 _readyViews.erase(a_view.id);
                 _renderer->CreateOrNavigateView(ConvertManifest(a_view));
                 _instantiatedViews.insert(a_view.id);
+                documentCreated = true;
             }
 
             _renderer->SetViewHidden(a_view.id, false);
@@ -146,21 +153,43 @@ namespace Presentation
 
             _compositor->SetVisible(HasReadyVisibleView());
 
-            return true;
+            return {.accepted = true, .documentCreated = documentCreated};
         } catch (const std::exception& error) {
             REX::ERROR("WebViewPresenter: failed to show '{}': {}", a_view.id, error.what());
             _visibleViews.erase(a_view.id);
             _readyViews.erase(a_view.id);
             _loadedFrameFloors.erase(a_view.id);
             _failedViews.insert(a_view.id);
-            return false;
+            return {};
         } catch (...) {
             REX::ERROR("WebViewPresenter: failed to show '{}' with an unknown exception", a_view.id);
             _visibleViews.erase(a_view.id);
             _readyViews.erase(a_view.id);
             _loadedFrameFloors.erase(a_view.id);
             _failedViews.insert(a_view.id);
-            return false;
+            return {};
+        }
+    }
+
+    void WebViewPresenter::SetWebMessageHandler(WebMessageHandler a_handler)
+    {
+        _webMessageHandler = std::move(a_handler);
+    }
+
+    void WebViewPresenter::SendMessageToWeb(std::string_view a_viewId, std::string_view a_json) noexcept
+    {
+        if (!_initialized || _presenterFailed) {
+            return;
+        }
+
+        try {
+            _renderer->SendMessageToWeb(a_viewId, a_json);
+        } catch (const std::exception& error) {
+            REX::ERROR("WebViewPresenter: failed to send a bridge message to '{}': {}", a_viewId, error.what());
+            HandlePresenterFailure(error.what());
+        } catch (...) {
+            REX::ERROR("WebViewPresenter: failed to send a bridge message to '{}' with an unknown exception", a_viewId);
+            HandlePresenterFailure("unknown bridge transport failure");
         }
     }
 

@@ -11,7 +11,10 @@
 #include <thread>
 #include <vector>
 
+#include <nlohmann/json.hpp>
+
 #include "input/OverlayInputHook.h"
+#include "v2/Bridge/IViewMessageTransport.h"
 #include "v2/Runtime/RuntimeCoordinator.h"
 #include "v2/Runtime/ViewDiscovery.h"
 #include "v2/Runtime/ViewPresentationController.h"
@@ -19,6 +22,7 @@
 #include "v2/Runtime/ViewStartupPolicy.h"
 
 #include "papyrus_tests.h"
+#include "bridge_runtime_tests.h"
 #include "web_view_presenter_tests.h"
 
 namespace
@@ -91,10 +95,10 @@ namespace
 		bool down;
 	};
 
-	class RecordingViewPresenter final : public Runtime::IViewPresenter
+	class RecordingViewPresenter final : public Runtime::IViewPresenter, public Bridge::IViewMessageTransport
 	{
 	public:
-		bool Show(const Runtime::ViewManifest& a_view) noexcept override
+		Runtime::ViewShowResult Show(const Runtime::ViewManifest& a_view) noexcept override
 		{
 			calls.push_back({
 				.action = Runtime::ViewPresentationAction::Show,
@@ -106,7 +110,20 @@ namespace
 					.viewId = a_view.id
 				});
 			}
-			return showSucceeds;
+			return {
+				.accepted = showSucceeds,
+				.documentCreated = showSucceeds && createdDocuments.insert(a_view.id).second
+			};
+		}
+
+		void SetWebMessageHandler(WebMessageHandler a_handler) override
+		{
+			webMessageHandler = std::move(a_handler);
+		}
+
+		void SendMessageToWeb(std::string_view a_viewId, std::string_view a_json) noexcept override
+		{
+			webMessagesToPage.emplace_back(std::string {a_viewId}, std::string {a_json});
 		}
 
 		bool SetInputFocus(bool a_focused) noexcept override
@@ -155,6 +172,13 @@ namespace
 		{
 			++tickCalls;
 			presentationCallCountsAtTick.push_back(calls.size());
+			auto messages = std::move(pendingWebMessages);
+			pendingWebMessages.clear();
+			if (webMessageHandler) {
+				for (const auto& [viewId, json] : messages) {
+					webMessageHandler(viewId, json);
+				}
+			}
 		}
 
 		std::vector<Runtime::ViewPresentationEvent> TakePresentationEvents() override
@@ -197,6 +221,11 @@ namespace
 			});
 		}
 
+		void QueueWebMessage(std::string a_viewId, std::string a_json)
+		{
+			pendingWebMessages.emplace_back(std::move(a_viewId), std::move(a_json));
+		}
+
 		bool showSucceeds{ true };
 		bool readyOnShow{ true };
 		bool focusSucceeds{ true };
@@ -209,6 +238,10 @@ namespace
 		std::vector<int> mouseWheelDeltas;
 		std::vector<std::size_t> presentationCallCountsAtTick;
 		std::vector<Runtime::ViewPresentationEvent> presentationEvents;
+		std::unordered_set<std::string> createdDocuments;
+		WebMessageHandler webMessageHandler;
+		std::vector<std::pair<std::string, std::string>> pendingWebMessages;
+		std::vector<std::pair<std::string, std::string>> webMessagesToPage;
 	};
 
 	class ViewFixture
@@ -1239,6 +1272,62 @@ namespace
 		assert(presenter.calls[1].action == Runtime::ViewPresentationAction::Hide);
 	}
 
+	void TestCoordinatorRunsBridgeRoundTripAndPageCloseInOneTick()
+	{
+		ViewFixture fixture;
+		RecordingViewPresenter presenter;
+		Runtime::RuntimeCoordinator runtime {nullptr, &presenter, nullptr, nullptr, &presenter};
+		runtime.EnableInputRouting();
+		LoadCoordinatorViews(runtime, fixture, {"osfui/settings"});
+
+		assert(runtime.RequestOpenView("osfui/settings"));
+		runtime.Tick();
+		assert(runtime.Views().Presentation().activeMenu == "osfui/settings");
+		assert(presenter.webMessagesToPage.empty());
+
+		presenter.QueueWebMessage(
+			"osfui/settings",
+			R"({"kind":"send","name":"osfui.hello","payload":{}})");
+		runtime.Tick();
+		assert(presenter.webMessagesToPage.size() == 1);
+		auto envelope = nlohmann::json::parse(presenter.webMessagesToPage.back().second);
+		assert(envelope.at("kind") == "ready");
+		assert(envelope.at("payload").at("view") == "osfui/settings");
+
+		presenter.QueueWebMessage(
+			"osfui/settings",
+			R"({"kind":"request","name":"ping","id":"q1","payload":{}})");
+		presenter.QueueWebMessage(
+			"osfui/settings",
+			R"({"kind":"send","name":"close","payload":{}})");
+		runtime.Tick();
+
+		envelope = nlohmann::json::parse(presenter.webMessagesToPage.back().second);
+		assert(envelope.at("kind") == "reply");
+		assert(envelope.at("id") == "q1");
+		assert(runtime.Views().Presentation().openViewIds.empty());
+		assert(!runtime.IsInputCaptured());
+		assert(presenter.calls.back().action == Runtime::ViewPresentationAction::Hide);
+
+		presenter.QueueWebMessage(
+			"osfui/settings",
+			R"({"kind":"request","name":"menu.open","id":"q2","payload":{}})");
+		runtime.Tick();
+		envelope = nlohmann::json::parse(presenter.webMessagesToPage.back().second);
+		assert(envelope.at("kind") == "reply");
+		assert(envelope.at("id") == "q2");
+		assert(runtime.Views().Presentation().activeMenu == "osfui/settings");
+
+		const auto outboundBeforeFailure = presenter.webMessagesToPage.size();
+		presenter.EmitPresenterFailure("renderer connection lost");
+		runtime.Tick();
+		presenter.QueueWebMessage(
+			"osfui/settings",
+			R"({"kind":"request","name":"ping","id":"q3","payload":{}})");
+		runtime.Tick();
+		assert(presenter.webMessagesToPage.size() == outboundBeforeFailure);
+	}
+
 	void TestCoordinatorClosesAllViewsForBlockingGameMenu()
 	{
 		g_inputCaptureStates.clear();
@@ -1645,6 +1734,7 @@ int main()
 	TestCoordinatorRollsBackFailedFocusAcquisition();
 	TestCoordinatorClosesViewAfterAsynchronousPresentationFailure();
 	TestCoordinatorClosesAllViewsAfterPresenterFailure();
+	TestCoordinatorRunsBridgeRoundTripAndPageCloseInOneTick();
 	TestCoordinatorClosesAllViewsForBlockingGameMenu();
 	TestCoordinatorBlocksOpensUntilAllTransitionMenusClose();
 	TestCoordinatorReleasesInputOwnershipForNonCapturingReplacement();
@@ -1656,6 +1746,7 @@ int main()
 	TestCoordinatorDoesNotRouteInputToPassiveHud();
 	TestCoordinatorStopsRoutingAfterMenuClose();
 	RunPapyrusTests();
+	RunBridgeRuntimeTests();
 	RunWebViewPresenterTests();
 
 	std::cout << "v2 runtime tests passed\n";

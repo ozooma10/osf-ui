@@ -1,5 +1,6 @@
 #pragma once
 
+#include "v2/Bridge/IViewMessageTransport.h"
 #include "v2/Runtime/IViewPresenter.h"
 
 #include <atomic>
@@ -20,7 +21,7 @@ namespace OSFUI
 
 namespace Presentation
 {
-    class WebViewPresenter final : public Runtime::IViewPresenter
+    class WebViewPresenter final : public Runtime::IViewPresenter, public Bridge::IViewMessageTransport
     {
     public:
         using DrawAvailable = bool (*)();
@@ -34,7 +35,10 @@ namespace Presentation
 
         void SetDrawPathInstalled(bool a_installed);
 
-        bool Show(const Runtime::ViewManifest& a_view) noexcept override;
+        Runtime::ViewShowResult Show(const Runtime::ViewManifest& a_view) noexcept override;
+
+        void SetWebMessageHandler(WebMessageHandler a_handler) override;
+        void SendMessageToWeb(std::string_view a_viewId, std::string_view a_json) noexcept override;
 
         bool SetInputFocus(bool a_focused) noexcept override;
         void SendKeyEvent(std::uint32_t a_virtualKey, bool a_down) noexcept override;
@@ -70,6 +74,7 @@ namespace Presentation
         std::unordered_set<std::string> _failedViews;
         std::unordered_map<std::string, std::optional<std::uint64_t>> _loadedFrameFloors;
         std::vector<Runtime::ViewPresentationEvent> _presentationEvents;
+        WebMessageHandler _webMessageHandler;
 
         std::chrono::steady_clock::time_point _lastTick {};
         std::optional<std::uint64_t> _lastSubmittedFrameIndex;

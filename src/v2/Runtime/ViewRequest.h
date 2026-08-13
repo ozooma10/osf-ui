@@ -11,6 +11,18 @@ namespace Runtime
         CloseAll
     };
 
+    enum class ViewRequestResult
+    {
+        Accepted,
+        InvalidViewId,
+        UnknownView,
+        NotInstantiated,
+        BlockedByGameMenu,
+        InputUnavailable,
+        QueueFull,
+        Unavailable
+    };
+
     struct ViewRequest
     {
         ViewRequestAction action;
