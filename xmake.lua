@@ -83,7 +83,8 @@ target("osfui-v2-tests")
         "src/v2/Runtime/ViewDiscovery.cpp",
         "src/v2/Runtime/ViewCatalog.cpp",
         "src/v2/Runtime/ViewPresentationController.cpp",
-        "src/v2/Runtime/ViewRuntime.cpp"
+        "src/v2/Runtime/ViewRuntime.cpp",
+        "src/v2/Runtime/RuntimeCoordinator.cpp"
     )
     add_includedirs("src")
     set_pcxxheader("tests/native/stubs/pch.h")
